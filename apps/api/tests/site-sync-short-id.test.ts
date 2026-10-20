@@ -32,7 +32,7 @@ vi.stubEnv("SITE_SYNC_URL", "https://site.example/api/v1/crm");
 vi.stubEnv("SITE_SYNC_API_KEY", "test-key");
 vi.stubEnv("CRM_PUBLIC_URL", "https://crm.example");
 
-const sent: { externalId: string; action: string; data?: { shortId?: number } }[] = [];
+const sent: { externalId: string; action: string; shortId?: number; data?: { shortId?: number } }[] = [];
 const fetchMock = vi.fn(async (_url: string, init: { body: string }) => {
   const body = JSON.parse(init.body) as { items: typeof sent };
   sent.push(...body.items);
@@ -88,30 +88,35 @@ describe("снимок объекта для сайта несёт shortId", () 
   it("прямая публикация", async () => {
     await siteSync.syncPropertiesToSite([property() as unknown as Syncable], "publish");
     expect(sent[0]?.action).toBe("publish");
-    expect(sent[0]?.data?.shortId).toBe(1234);
+    // The deployed website reads item.shortId, not item.data.shortId.
+    expect(sent[0]?.shortId).toBe(1234);
+    expect(sent[0]?.data?.shortId).toBeUndefined();
   });
 
   it("досылка site-resync (runSiteResyncAttempt)", async () => {
     propertyFindUnique.mockResolvedValue(property({ shortId: 777 }));
     await siteSync.runSiteResyncAttempt("prop-1", "правка карточки");
-    expect(sent[0]?.data?.shortId).toBe(777);
+    expect(sent[0]?.shortId).toBe(777);
   });
 
   it("объект, пришедший с сайта (siteListingId), тоже несёт номер", async () => {
     await siteSync.syncPropertiesToSite([property({ siteListingId: 55, shortId: 4321 }) as unknown as Syncable], "publish");
-    expect(sent[0]?.data?.shortId).toBe(4321);
+    expect(sent[0]?.shortId).toBe(4321);
   });
 
   it("снятие с публикации данных не шлёт — номер не нужен", async () => {
     await siteSync.syncPropertiesToSite([property() as unknown as Syncable], "unpublish");
     expect(sent[0]?.data).toBeUndefined();
+    expect(sent[0]?.shortId).toBe(1234);
   });
 });
 
 describe("скрипт site:resync-short-ids", () => {
   const originalArgv = process.argv;
+  const originalExitCode = process.exitCode;
   afterAll(() => {
     process.argv = originalArgv;
+    process.exitCode = originalExitCode;
   });
 
   function arrange() {
@@ -137,7 +142,7 @@ describe("скрипт site:resync-short-ids", () => {
     process.argv = ["node", "backfillSiteShortIds.ts", "--apply", "--batch", "2"];
     await backfill.main();
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(sent.map((s) => [s.externalId, s.action, s.data?.shortId])).toEqual([
+    expect(sent.map((s) => [s.externalId, s.action, s.shortId])).toEqual([
       ["a", "publish", 1],
       ["b", "publish", 2],
       ["c", "publish", 3],
@@ -151,5 +156,17 @@ describe("скрипт site:resync-short-ids", () => {
     process.argv = ["node", "backfillSiteShortIds.ts", "--apply"];
     await backfill.main();
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("a missing website acknowledgement makes the backfill fail", async () => {
+    arrange();
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ results: [
+      { externalId: "a", ok: true }, { externalId: "b", ok: true },
+    ] }), { status: 200 }));
+    process.argv = ["node", "backfillSiteShortIds.ts", "--apply"];
+    process.exitCode = undefined;
+    await backfill.main();
+    expect(process.exitCode).toBe(1);
+    process.exitCode = originalExitCode;
   });
 });

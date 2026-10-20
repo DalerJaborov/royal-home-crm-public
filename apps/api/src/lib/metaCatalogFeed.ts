@@ -217,7 +217,7 @@ export function buildHomeListingRows(
 
     rows.push({
       // Сайт шлёт этот же shortId как content_ids в Meta Pixel (репозиторий
-      // jabarovdaler/royal-home-website, функция metaContentId) — по совпадению Meta
+      // DalerJaborov/royal-home-website-public, функция metaContentId) — по совпадению Meta
       // связывает просмотры с объявлением. Менять оба места сразу или ни одно.
       home_listing_id: String(property.shortId),
       name: property.title,

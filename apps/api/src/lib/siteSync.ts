@@ -123,14 +123,6 @@ function toSitePayload(property: SyncableProperty, usdToTjsRate: number | null) 
     lat: toNum(property.lat) ?? undefined,
     lng: toNum(property.lng) ?? undefined,
     instagramUrl: property.instagramUrl ?? undefined,
-    // Номер карточки CRM (19.10.2026): сайт хранит и показывает его, а его Meta Pixel
-    // шлёт этот же номер как content_ids — совпадение с home_listing_id фида каталога
-    // (lib/metaCatalogFeed.ts) даёт ретаргетинг. Менять оба места сразу или ни одно.
-    // Единственное место сборки снимка: все пути (publish из карточки, досылка
-    // site-resync, массовая публикация, одобрение уведомлений сайта) идут через
-    // syncPropertiesToSite -> toSitePayload; уже опубликованным строкам номер
-    // доезжает скриптом lib/backfillSiteShortIds.ts.
-    shortId: property.shortId,
   };
 }
 
@@ -299,6 +291,10 @@ export async function syncPropertiesToSite(
 
   const items = properties.map((p) => ({
     externalId: p.id,
+    // Website itemSchema reads this beside externalId for every action.
+    // Putting it inside data silently drops it during Zod parsing.
+    // The same number is home_listing_id in the Meta catalogue feed.
+    shortId: p.shortId,
     // Объект, созданный на САЙТЕ, не имеет там строки с этим externalId — сайт
     // найдёт его по siteListingId. Иначе «снять с публикации»/«продано» уходили в
     // никуда (сайт искал по externalId и не находил).

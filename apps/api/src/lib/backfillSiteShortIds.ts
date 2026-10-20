@@ -108,11 +108,15 @@ export async function main(): Promise<void> {
       console.error(`Партия ${i / batchSize + 1}: не дошла — ${result.error}`);
       void logSystemError("site-sync", `Досылка shortId на сайт: партия не дошла — ${result.error}`);
     } else {
-      for (const r of result.results) {
-        if (r.ok) sent += 1;
+      for (const property of properties) {
+        const receipts = Array.isArray(result.results)
+          ? result.results.filter((r) => r.externalId === property.id)
+          : [];
+        if (receipts.length === 1 && receipts[0]!.ok === true) sent += 1;
         else {
           failedItems += 1;
-          console.error(`  отказ сайта по ${r.externalId}: ${r.error}`);
+          const reason = receipts.length === 1 ? receipts[0]!.error : "нет однозначного подтверждения сайта";
+          console.error(`  отказ сайта по ${property.id}: ${reason}`);
         }
       }
     }

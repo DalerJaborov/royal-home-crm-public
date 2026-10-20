@@ -31,11 +31,15 @@ const SITE_HOST = (process.env.SITE_PUBLIC_URL || "https://royalhome.tj")
   .replace(/\/+$/, "")
   .replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
+// A host inside another domain/path must never route a lead to our agent.
+const SITE_LINK_START = `(?<![\\p{L}\\p{N}._/@-])(?:https?:\\/\\/)?${SITE_HOST}`;
+const SITE_LINK_END = `(?=$|[/?#\\s<>"'.,;:!?)])`;
+
 /** Ссылка на объект на нашем сайте: /listing/by-crm/<id CRM> — именно её присылает
  *  бот и печатает агент, поэтому она чаще всего и прилетает обратно. */
 export function crmPropertyIdFromUrl(text: string | undefined | null): string | null {
   if (!text) return null;
-  const match = text.match(new RegExp(`${SITE_HOST}/listing/by-crm/([A-Za-z0-9-]+)`, "i"));
+  const match = text.match(new RegExp(`${SITE_LINK_START}/listing/by-crm/([A-Za-z0-9-]+)${SITE_LINK_END}`, "iu"));
   return match ? match[1] : null;
 }
 
@@ -43,8 +47,10 @@ export function crmPropertyIdFromUrl(text: string | undefined | null): string | 
  *  У такого объекта нет externalId, и by-crm его не находит — идём по siteListingId. */
 export function siteListingIdFromUrl(text: string | undefined | null): number | null {
   if (!text) return null;
-  const match = text.match(new RegExp(`${SITE_HOST}/listing/(\\d+)`, "i"));
-  return match ? Number(match[1]) : null;
+  const match = text.match(new RegExp(`${SITE_LINK_START}/listing/(\\d+)${SITE_LINK_END}`, "iu"));
+  const id = match ? Number(match[1]) : NaN;
+  // Property.siteListingId is a PostgreSQL/Prisma Int.
+  return Number.isSafeInteger(id) && id > 0 && id <= 2_147_483_647 ? id : null;
 }
 
 export interface PropertyMentionFromText {
