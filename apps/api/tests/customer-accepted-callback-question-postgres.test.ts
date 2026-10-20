@@ -17,6 +17,7 @@ import { revalidateCustomerPrincipal } from "../src/lib/customerPrincipal.js";
 import { loadAcceptedCustomerState } from "../src/lib/customerState.js";
 import { decodeCustomerOutboxPayload, decodeCustomerOutboxPublicData } from "../src/lib/customerOutbox.js";
 import { dispatchCustomerOutboxPart } from "../src/lib/customerDeliveryDispatcher.js";
+import { createCustomerLeadAfterContactAction } from "../src/lib/customerNewLeadBridge.js";
 import { decryptCustomerFinalOrigin } from "../src/lib/customerOriginPayload.js";
 import { customerAgentCallbackQuestionText } from "../src/ai/customerAgentRenderer.js";
 import { GRAPH_VERSION } from "../src/messengers/metaGraph.js";
@@ -37,7 +38,7 @@ function settingsSnapshot() { return prisma.settings.findUniqueOrThrow({ where: 
   geminiApiKey: true, geminiApiKey2: true, geminiApiKeysExtra: true,
 } }); }
 const phone = () => `+99293${randomInt(1_000_000, 9_999_999)}`;
-const decision = (question: "callback_consent" | "budget" | "phone" | "none" | "clarify_previous", refs: string[] = []) =>
+const decision = (question: "callback_consent" | "budget" | "phone" | "none" | "clarify_previous" | "name", refs: string[] = []) =>
   [{ text: JSON.stringify({ kind: "reply", refs, social: "none", question }) }];
 
 async function fixture() {
@@ -109,10 +110,10 @@ async function fixture() {
     await prisma.backgroundJob.updateMany({ where: { dedupeKey: `customer-outbox-dispatch:${result.partIds[0]}` }, data: { runAt: new Date("2099-01-01") } });
     return prisma.customerOutboxPart.findUniqueOrThrow({ where: { id: result.partIds[0] } });
   }
-  async function questionA(language: "ru" | "tg", number: string | null, question: "callback_consent" | "budget" = "callback_consent") {
+  async function questionA(language: "ru" | "tg", number: string | null, question: "callback_consent" | "budget" | "name" = "callback_consent") {
     const text = number ? language === "ru" ? `Мой номер ${number}. Хочу купить квартиру.`
       : `Рақами ман ${number}. Барои харидани хона маслиҳат диҳед.`
-      : "Хочу купить квартиру, нужна консультация.";
+      : language === "ru" ? "Хочу купить квартиру, нужна консультация." : "Хона харидан мехоҳам, маслиҳат лозим аст.";
     const key = await intake(text);
     const script = number ? [[{ functionCall: { name: "save_contact", args: { phone: number }, id: `contact-${randomUUID()}` } }], decision(question, ["e0"])]
       : [decision(question)];
@@ -123,7 +124,10 @@ async function fixture() {
       expect(payload.text.endsWith(customerAgentCallbackQuestionText(language))).toBe(true);
       expect(decodeCustomerOutboxPublicData(part)).toMatchObject({ agentRevisionId: revisionId, observations: [],
         callbackQuestion: { version: 1, kind: "callback_consent", language } });
-    } else expect(decodeCustomerOutboxPublicData(part)).toBeNull();
+    } else if (question === "name") expect(decodeCustomerOutboxPublicData(part)).toMatchObject({
+      agentRevisionId: revisionId, observations: [], nameQuestion: { version: 1, kind: "name", language },
+    });
+    else expect(decodeCustomerOutboxPublicData(part)).toBeNull();
     return { key, part };
   }
   async function beforeClaim(key: string) {
@@ -176,16 +180,18 @@ afterAll(async () => {
     const natives = await prisma.botConversation.findMany({ where: { id: { in: nativeIds } }, select: { contactProfileId: true } });
     const profileIds = natives.flatMap(row => row.contactProfileId ? [row.contactProfileId] : []);
     const parts = await prisma.customerOutboxPart.findMany({ where: { ticketEventKey: { in: eventKeys } }, select: { id: true } });
-    const actions = await prisma.customerAction.findMany({ where: { inquiry: { conversationId: { in: nativeIds } } }, select: { id: true } });
+    const actions = await prisma.customerAction.findMany({ where: { inquiry: { conversationId: { in: nativeIds } } }, select: { id: true, kind: true, resourceId: true } });
     const actionIds = actions.map(row => row.id), partIds = parts.map(row => row.id);
     const attempts = await prisma.customerDeliveryAttempt.findMany({ where: { partId: { in: partIds } }, select: { providerMid: true, reportedMid: true } });
     await prisma.backgroundJob.deleteMany({ where: { dedupeKey: { in: [...eventKeys.map(key => `customer-inbox-consume:${key}`),
-      ...partIds.map(id => `customer-outbox-dispatch:${id}`), ...actionIds.map(id => `customer-callback-notify:${id}`)] } } });
+      ...partIds.map(id => `customer-outbox-dispatch:${id}`), ...actionIds.flatMap(id => [
+        `customer-callback-notify:${id}`, `customer-contact-intake:${id}`, `customer-intake-policy:${id}`, `customer-intake-notify:${id}`])] } } });
     await prisma.processedMessage.deleteMany({ where: { channel: "out:meta", messageId: { in: attempts.flatMap(row =>
       [row.providerMid, row.reportedMid].filter((mid): mid is string => !!mid)) } } });
     await prisma.customerDeliveryAttempt.deleteMany({ where: { partId: { in: partIds } } });
     await prisma.customerOutboxPart.deleteMany({ where: { id: { in: partIds } } });
     await prisma.callbackRequest.deleteMany({ where: { customerActionId: { in: actionIds } } });
+    await prisma.client.deleteMany({ where: { id: { in: actions.filter(a => a.kind === "new_lead" && a.resourceId).map(a => a.resourceId!) } } });
     await prisma.customerAction.deleteMany({ where: { id: { in: actionIds } } });
     await prisma.customerPropertyIngressTicket.deleteMany({ where: { eventKey: { in: eventKeys } } });
     await prisma.customerInquiry.deleteMany({ where: { conversationId: { in: nativeIds } } });
@@ -208,6 +214,63 @@ afterAll(async () => {
 });
 
 describe("actual accepted callback question → real next signed IN", () => {
+  it.each(["accepted", "unknown"] as const)("creates an owned CRM lead only after settled %s send; preserves wishes and never retries OUT or hands over", async outcome => {
+    const number = phone();
+    await prisma.customerRuntimePolicy.update({ where: { id: "singleton" }, data: { capabilities: {
+      publicRead: true, contactWrite: true, callbackWrite: true, newLeadBridge: true,
+    } } });
+    try {
+      const f = await fixture(), a = await f.questionA("ru", number, "name");
+      expect(await dispatchCustomerOutboxPart(a.part.id)).toMatchObject({ status: "accepted" });
+      const b = await f.intake("Далер");
+      const part = await f.run(b, [[{ functionCall: { name: "save_contact", args: { name: "Далер" }, id: "complete-name" } }], decision("none", ["e0"])]);
+      const source = await prisma.customerAction.findFirstOrThrow({ where: { inquiryId: part.inquiryId!, kind: "contact", status: "COMMITTED" }, orderBy: { generation: "desc" } });
+      expect(await prisma.backgroundJob.findUniqueOrThrow({ where: { dedupeKey: `customer-contact-intake:${source.id}` } })).toMatchObject({
+        type: "customer-contact-intake", payload: { version: 1, actionId: source.id }, maxAttempts: 24,
+      });
+      expect(await createCustomerLeadAfterContactAction(source.id)).toEqual({ status: "unavailable", reason: "turn_not_settled" });
+      expect((await prisma.botConversation.findUniqueOrThrow({ where: { id: part.originalNativeId } })).clientId).toBeNull();
+      if (outcome === "unknown") f.setPhysicalPost(async () => new Response("{}"));
+      expect(await dispatchCustomerOutboxPart(part.id)).toMatchObject({ status: outcome });
+      const before = await prisma.customerDeliveryAttempt.findFirstOrThrow({ where: { partId: part.id } });
+      const created = await createCustomerLeadAfterContactAction(source.id);
+      expect(created.status, JSON.stringify(created)).toBe("created");
+      const action = await prisma.customerAction.findFirstOrThrow({ where: { inquiryId: part.inquiryId!, kind: "new_lead", status: "COMMITTED" } });
+      const client = await prisma.client.findUniqueOrThrow({ where: { id: action.resourceId! } });
+      expect(client).toMatchObject({ fullName: "Далер", phone: number, assignedAgentId: null, kind: "BUYER" });
+      expect(client.requirementsNotes).toContain("Хочу купить квартиру");
+      expect((await prisma.botConversation.findUniqueOrThrow({ where: { id: part.originalNativeId } })).clientId).toBe(client.id);
+      expect(await prisma.customerAction.count({ where: { inquiryId: part.inquiryId!, kind: { in: ["callback", "handover"] } } })).toBe(0);
+      await createCustomerLeadAfterContactAction(source.id);
+      expect(await prisma.customerAction.count({ where: { inquiryId: part.inquiryId!, kind: "new_lead" } })).toBe(1);
+      expect(await prisma.customerDeliveryAttempt.findUniqueOrThrow({ where: { id: before.id } })).toEqual(before);
+      expect(f.physicalPosts).toHaveLength(2);
+    } finally {
+      await prisma.customerRuntimePolicy.update({ where: { id: "singleton" }, data: { capabilities: {
+        publicRead: true, contactWrite: true, callbackWrite: true, newLeadBridge: false,
+      } } });
+    }
+  });
+  it.each([["ru", "Далер"], ["tg", "Фаррух"]] as const)("accepted %s name question saves literal next name without phone, callback or staff transfer", async (language, name) => {
+    const f = await fixture(), a = await f.questionA(language, null, "name");
+    expect(await dispatchCustomerOutboxPart(a.part.id)).toMatchObject({ status: "accepted" });
+    const b = await f.intake(name);
+    await f.run(b, [[{ functionCall: { name: "save_contact", args: { name }, id: "literal-name" } }], decision("none", ["e0"])]);
+    const ticket = await prisma.customerPropertyIngressTicket.findUniqueOrThrow({ where: { eventKey: b } });
+    const inquiry = await prisma.customerInquiry.findUniqueOrThrow({ where: { conversationId: ticket.conversationId! } });
+    expect(inquiry.claimedContact).toMatchObject({ name });
+    expect(await prisma.customerAction.findMany({ where: { inquiryId: inquiry.id }, select: { kind: true, status: true } })).toEqual([
+      { kind: "contact", status: "COMMITTED" },
+    ]);
+  });
+
+  it("a prepared but unaccepted name question does not authorize a guessed contact", async () => {
+    const f = await fixture(); await f.questionA("ru", null, "name");
+    const b = await f.intake("Далер");
+    await f.run(b, [[{ functionCall: { name: "save_contact", args: { name: "Далер" }, id: "not-accepted-name" } }], decision("name")]);
+    const ticket = await prisma.customerPropertyIngressTicket.findUniqueOrThrow({ where: { eventKey: b } });
+    expect(await prisma.customerAction.count({ where: { inquiry: { conversationId: ticket.conversationId! } } })).toBe(0);
+  });
   it.each([["ru", "Да"], ["tg", "Ҳа"]] as const)("%s accepted question and tiny yes commit exactly one real callback", async (language, yes) => {
     const f = await fixture(), number = phone(), a = await f.questionA(language, number);
     expect(await dispatchCustomerOutboxPart(a.part.id)).toEqual({ status: "accepted" });

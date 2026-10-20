@@ -21,6 +21,16 @@ import "./handlers.js";
  */
 
 const BATCH_SIZE = 10;
+/** Interactive work keeps its durable DB queue, but never waits behind media.
+ * One slot per lane also prevents a long model turn from blocking delivery. */
+export const CUSTOMER_JOB_LANES = {
+  inbox: "customer-inbox-consume",
+  outbox: "customer-outbox-dispatch",
+  intake: "customer-contact-intake",
+} as const;
+type CustomerJobLane = keyof typeof CUSTOMER_JOB_LANES;
+const customerBusy: Record<CustomerJobLane, boolean> = { inbox: false, outbox: false, intake: false };
+const CUSTOMER_JOB_TYPES = Object.values(CUSTOMER_JOB_LANES);
 /**
  * ТЯЖЁЛЫЕ ТИПЫ — В ХВОСТ ПАРТИИ (аудит №4, 27.08).
  *
@@ -109,6 +119,7 @@ export async function claimBatch(): Promise<BackgroundJob[]> {
     ), light AS (
       SELECT id FROM "BackgroundJob"
       WHERE ${due} AND NOT (type = ANY(${HEAVY_TYPES}::text[]))
+        AND NOT (type = ANY(${CUSTOMER_JOB_TYPES}::text[]))
       ORDER BY "runAt"
       LIMIT ${BATCH_SIZE - MAX_HEAVY_PER_TICK}
       FOR UPDATE SKIP LOCKED
@@ -250,11 +261,37 @@ let busy = false;
 let stopping = false;
 
 export function isBackgroundJobRunning(): boolean {
-  return busy;
+  return busy || Object.values(customerBusy).some(Boolean);
 }
 
 export function stopBackgroundJobs(): void {
   stopping = true;
+}
+
+/** Same atomic claim/attempt ladder and handlers as the ordinary runner. No
+ * in-memory queue, new send retry, alternative provider or policy grant. */
+export async function runCustomerJobsTick(lane: CustomerJobLane): Promise<number> {
+  if (stopping || customerBusy[lane]) return 0;
+  customerBusy[lane] = true; // before the first await: overlapping ticks cannot claim ahead
+  try {
+    const [job] = await prisma.$queryRaw<BackgroundJob[]>`
+      UPDATE "BackgroundJob" SET status = 'RUNNING', "lockedAt" = now(), "lockedBy" = ${hostname()}, "updatedAt" = now(),
+        attempts = attempts + (CASE WHEN status = 'RUNNING' THEN 1 ELSE 0 END)
+      WHERE id IN (
+        SELECT id FROM "BackgroundJob" WHERE type = ${CUSTOMER_JOB_LANES[lane]}
+          AND ((status = 'PENDING' AND "runAt" <= now())
+            OR (status = 'RUNNING' AND "lockedAt" < now() - make_interval(mins => ${STUCK_RUNNING_MIN}::int)))
+        ORDER BY "runAt", id LIMIT 1 FOR UPDATE SKIP LOCKED
+      ) RETURNING *`;
+    if (!job) return 0;
+    if (stopping) {
+      await prisma.backgroundJob.updateMany({ where: { id: job.id, status: "RUNNING" },
+        data: { status: "PENDING", lockedAt: null, lockedBy: null } });
+      return 0;
+    }
+    await runOne(job);
+    return 1;
+  } finally { customerBusy[lane] = false; }
 }
 
 /** Один тик воркера: захватить партию, исполнить по одному, подчистить старые DONE. */

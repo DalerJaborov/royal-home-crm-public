@@ -131,7 +131,7 @@ afterAll(async () => {
   const actions = await prisma.customerAction.findMany({ where: { inquiryId: { in: ids } }, select: { id: true, kind: true, resourceId: true } });
   const actionIds = actions.map(row => row.id);
   if (actionIds.length) await prisma.backgroundJob.deleteMany({ where: { dedupeKey: { in: actionIds.flatMap(id => [
-    `customer-intake-policy:${id}`, `customer-intake-notify:${id}`,
+    `customer-intake-policy:${id}`, `customer-intake-notify:${id}`, `customer-contact-intake:${id}`,
   ]) } } });
   const ownClients = [...new Set([...clientIds, ...actions.filter(row => row.kind === "new_lead" && row.resourceId).map(row => row.resourceId!)])];
   await prisma.client.deleteMany({ where: { id: { in: ownClients } } });

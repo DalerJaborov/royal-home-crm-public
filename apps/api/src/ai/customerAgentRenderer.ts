@@ -81,6 +81,7 @@ const questions: Record<CustomerAgentQuestion, { ru: string; tg: string }> = {
 };
 /** Server-owned template, not a model text or presentation proof. */
 export function customerAgentCallbackQuestionText(language: "ru" | "tg"): string { return questions.callback_consent[language]; }
+export function customerAgentNameQuestionText(language: "ru" | "tg"): string { return questions.name[language]; }
 // Formatting of already minimized server-loaded context only. This selects no
 // actor, contact, action, proposal or consent; callers still fence the original IN.
 const repairPurposes = ["budget", "location", "rooms", "property", "topic", "role"] as const;

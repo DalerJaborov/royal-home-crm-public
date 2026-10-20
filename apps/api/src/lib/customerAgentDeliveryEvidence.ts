@@ -11,7 +11,7 @@ import { inspectPublicCommentPrincipal, revalidatePublicCommentPrincipal, type P
 import { readPublicSourceRow, publicCommentOrigin } from "./customerPublicCommentStore.js";
 import { decodeCustomerAgentRevision } from "./customerAgentRevision.js";
 import { readCustomerAgentPublicData, customerAgentPublicDataCurrent } from "./customerAgentPublicReads.js";
-import { renderCustomerAgentDecision, customerAgentRenderedQuestion, customerAgentCallbackQuestionText, type CustomerAgentEvidence } from "../ai/customerAgentRenderer.js";
+import { renderCustomerAgentDecision, customerAgentRenderedQuestion, customerAgentCallbackQuestionText, customerAgentNameQuestionText, type CustomerAgentEvidence } from "../ai/customerAgentRenderer.js";
 import type { CustomerAgentAttachmentInput } from "../ai/customerAgentAttachmentInput.js";
 import { readCustomerShownSearchProperties, readCustomerPublicShownProperties } from "./customerSearchHistory.js";
 import { readCustomerPublicPublicationSource } from "./customerPublicPublicationSource.js";
@@ -133,8 +133,11 @@ async function seal(binding: Binding | null, render: CustomerAgentDeliveryRender
     const callbackQuestion = binding.surface === "dm" && customerAgentRenderedQuestion({ ...render, surface: "dm" }) === "callback_consent" &&
       text.endsWith(customerAgentCallbackQuestionText(render.language))
       ? { version: 1 as const, kind: "callback_consent" as const, language: render.language } : undefined;
+    const nameQuestion = binding.surface === "dm" && customerAgentRenderedQuestion({ ...render, surface: "dm" }) === "name" &&
+      text.endsWith(customerAgentNameQuestionText(render.language))
+      ? { version: 1 as const, kind: "name" as const, language: render.language } : undefined;
     if (!await current(binding)) return { status: "held", reason: "original_context_changed" };
-    if (!observations.length && !callbackQuestion) return { status: "sealed", text, witness: null };
+    if (!observations.length && !callbackQuestion && !nameQuestion) return { status: "sealed", text, witness: null };
     for (const observation of observations) {
       if (!serverWitnesses.some(token => {
         const issued = reads.get(token); return !!issued && same(issued.binding, binding) && digest(issued.observation) === digest(observation);
@@ -145,7 +148,7 @@ async function seal(binding: Binding | null, render: CustomerAgentDeliveryRender
     if (!await current(binding)) return { status: "held", reason: "original_context_changed" };
     const sideband = frozen(customerAgentDeliveryEvidenceSchema.parse({ version: 1, agentRevisionId: binding.revision.id,
       knowledgeSourceHash: binding.revision.knowledgeSourceHash, linkPreference: binding.linkPreference, observations,
-      ...(callbackQuestion ? { callbackQuestion } : {}) }));
+      ...(callbackQuestion ? { callbackQuestion } : {}), ...(nameQuestion ? { nameQuestion } : {}) }));
     const witness = Object.freeze({}) as CustomerAgentDeliveryWitness;
     bundles.set(witness, { binding, text, sideband });
     return { status: "sealed", text, witness };

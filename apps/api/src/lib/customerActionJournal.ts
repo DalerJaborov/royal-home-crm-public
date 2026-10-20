@@ -339,6 +339,19 @@ export async function executeCustomerAction(authority: CustomerWriteAuthority, r
       const saved = await readAction(tx, grant.fence.inquiryId, grant.kind, grant.generation);
       const receipt = saved && receiptOf(saved, grant.fence.inquiryId);
       if (!receipt) throw new Error("Customer mutation receipt was not persisted");
+      if (grant.kind === "contact" && fence.snapshot.capabilities.newLeadBridge) {
+        const row = await tx.customerInquiry.findUnique({ where: { id: grant.fence.inquiryId }, select: { claimedContact: true } });
+        const contact = customerClaimedContactSchema.safeParse(row?.claimedContact);
+        const [source] = await tx.$queryRaw<{ managed: boolean }[]>`SELECT EXISTS(
+          SELECT 1 FROM "CustomerPropertyIngressTicket" t JOIN "CustomerAgentRolloutAssignment" a ON a."id"=t."rolloutAssignmentId"
+          WHERE t."eventKey"=${grant.eventKey} AND t."agentRevisionId" IS NOT NULL AND a."lane"='CORE' AND a."surface"='dm'
+            AND a."endpointScopeId"=${grant.fence.endpoint.endpointScopeId}
+        ) AS managed`;
+        if (source?.managed && contact.success && contact.data.name && contact.data.phone) await tx.backgroundJob.create({ data: {
+          type: "customer-contact-intake", payload: { version: 1, actionId }, maxAttempts: 24,
+          dedupeKey: `customer-contact-intake:${actionId}`,
+        } });
+      }
       return { status: "created", receipt };
     }, { maxWait: 3_000, timeout: 5_000 });
   } catch {
