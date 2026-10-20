@@ -73,8 +73,7 @@ export function InactiveLevelBadge({ client }: { client: Pick<Client, "workStatu
   );
 }
 
-/** Точка в списке клиентов — рядом с ClientStatusBadge, не заменяет её:
- *  ClientStatusBadge показывает Новый/Горячий/…, эта точка — рабочий статус. */
+/** Compatibility marker; current client lists use the single ClientStateBadge. */
 export function InactiveLevelDot({ client }: { client: Pick<Client, "workStatus" | "inactiveLevel" | "status"> }) {
   if (!showsInactiveLabel(client)) return null;
   const level = client.inactiveLevel;
