@@ -58,7 +58,7 @@ import { fileURLToPath } from "node:url";
 
 const execFileAsync = promisify(execFile);
 
-const REPO = process.env.GITHUB_REPOSITORY ?? "DalerJaborov/royal-home-crm";
+const REPO = process.env.GITHUB_REPOSITORY ?? "DalerJaborov/royal-home-crm-public";
 const [OWNER] = REPO.split("/");
 const TOKEN = process.env.GITHUB_TOKEN ?? "";
 const BASE = process.env.BASE_BRANCH ?? "main";
