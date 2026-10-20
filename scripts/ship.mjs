@@ -193,7 +193,11 @@ export function requireCloudRunPassed({ run, reportSha, report, sha }) {
         : `облачный прогон тестов сервера: ${run.conclusion} — ${run.html_url}`,
     );
   }
-  return requireFullApiRunPassed(0, report);
+  const count = requireFullApiRunPassed(0, report);
+  if (report.sourceChecks?.sha !== sha || report.sourceChecks?.result !== "success") {
+    throw new Stop("нет успешной проверки исходников для этого sha — сборку и precheck пропускать нельзя");
+  }
+  return count;
 }
 
 /**
@@ -584,7 +588,7 @@ export async function main(argv = process.argv.slice(2)) {
   if (cloud) cloudRun = startCloudTests({ gh, run, repo, sha: verified.head });
 
   // ── 4. миграции ──
-  stage(4, "клиент Prisma и миграции тестовой базы");
+  stage(4, cloud ? "сборка и проверка исходников на GitHub" : "клиент Prisma и миграции тестовой базы");
   const apiDir = join(root, "apps", "api");
   const testEnv = {};
   if (opts.cleanDb && scope.full && !cloud) {
@@ -606,9 +610,11 @@ export async function main(argv = process.argv.slice(2)) {
   // может отстать от схемы: сборка и тесты тогда идут по старому клиенту.
   // Именно npm run prisma:generate — `npx prisma generate` из корня молча не
   // перегенерирует (tests-shared-db-flake-classes).
-  r = run("npm", ["run", "prisma:generate"]);
-  done("prisma generate", r.ms);
-  if (r.code !== 0) throw new Stop("npm run prisma:generate не прошёл");
+  if (!cloud) {
+    r = run("npm", ["run", "prisma:generate"]);
+    done("prisma generate", r.ms);
+    if (r.code !== 0) throw new Stop("npm run prisma:generate не прошёл");
+  }
   if (cloud) {
     // Тестовая база этой машины в облачном режиме не нужна вовсе: precheck идёт
     // с --no-tests, полный прогон — на базах машин GitHub.
@@ -622,9 +628,13 @@ export async function main(argv = process.argv.slice(2)) {
   // ── 5. precheck ──
   stage(5, "npm run precheck");
   const preArgs = ["scripts/precheck.mjs", `--base=${mainSha}`, ...(scope.full ? ["--no-tests"] : [])];
-  r = run(process.execPath, preArgs, { env: testEnv });
-  done("precheck", r.ms);
-  if (r.code !== 0) throw new Stop("precheck красный (сводка выше)");
+  if (cloud) {
+    console.log("  precheck и тесты команды выката проверяются на GitHub для того же sha");
+  } else {
+    r = run(process.execPath, preArgs, { env: testEnv });
+    done("precheck", r.ms);
+    if (r.code !== 0) throw new Stop("precheck красный (сводка выше)");
+  }
 
   // ── 6. полный прогон ──
   stage(6, cloud ? "тесты сервера, полный прогон в облаке GitHub" : "тесты сервера, полный прогон");

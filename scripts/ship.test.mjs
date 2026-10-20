@@ -180,7 +180,7 @@ test("полный ship: production boundary стоит перед отправ�
 test("облако: зелёный прогон своего sha с зелёным отчётом — число тестов", () => {
   const sha = "a".repeat(40);
   const run = { status: "completed", conclusion: "success", head_sha: sha, html_url: "u" };
-  assert.equal(requireCloudRunPassed({ run, reportSha: sha + "\n", report: greenApiReport(), sha }), 9);
+  assert.equal(requireCloudRunPassed({ run, reportSha: sha + "\n", report: { ...greenApiReport(), sourceChecks: {sha, result: "success"} }, sha }), 9);
   assert.equal(cloudBranch(sha), `ship-tests/${sha}`);
 });
 
@@ -200,6 +200,14 @@ test("облако: чужой sha, недоделанный, красный и�
     [{ run: null, reportSha: sha, report: greenApiReport() }, /не завершён/],
   ];
   for (const [input, re] of cases) assert.throws(() => requireCloudRunPassed({ ...input, sha }), re);
+});
+
+test("cloud release requires source checks for the exact tested commit", () => {
+  const sha = "a".repeat(40);
+  const run = {status:"completed", conclusion:"success", head_sha:sha};
+  for (const sourceChecks of [undefined, {sha:"b".repeat(40),result:"success"}, {sha,result:"failure"}]) {
+    assert.throws(() => requireCloudRunPassed({run,reportSha:sha,report:{...greenApiReport(),sourceChecks},sha}), /проверки исходников/);
+  }
 });
 
 // ── сухой прогон в одноразовом репозитории ──────────────────────────────────

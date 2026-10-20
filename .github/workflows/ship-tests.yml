@@ -62,9 +62,15 @@ env:
 
 jobs:
   plan:
-    name: план
+    name: source checks and plan
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 20
+    env:
+      DATABASE_URL: postgresql://user:password@localhost:5432/royal_home_crm
+      JWT_ACCESS_SECRET: ci-access-secret
+      JWT_REFRESH_SECRET: ci-refresh-secret
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+      PUPPETEER_SKIP_DOWNLOAD: "1"
     outputs:
       sha: ${{ steps.p.outputs.sha }}
       machines: ${{ steps.p.outputs.machines }}
@@ -88,6 +94,19 @@ jobs:
           echo "per_machine=$per" >> "$GITHUB_OUTPUT"
           echo "matrix=[$(seq -s, 1 "$machines")]" >> "$GITHUB_OUTPUT"
           echo "проверяется $sha на $machines машинах по $per процесса"
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.p.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run prisma:generate
+      - run: npm run precheck -- --no-tests
+      - run: npm run test:scripts
 
   tests:
     name: машина ${{ matrix.machine }}
@@ -207,10 +226,13 @@ jobs:
           path: reports
 
       - name: Свести и вынести вердикт
+        env:
+          VERIFIED_SHA: ${{ needs.plan.outputs.sha }}
         run: |
           mkdir -p total
           echo "${{ needs.plan.outputs.sha }}" > total/sha
           node scripts/cloud-test-report.mjs --dir=reports --machines=${{ needs.plan.outputs.machines }} --out=total/api-tests.json
+          node --input-type=module -e 'import fs from "node:fs"; const p="total/api-tests.json";const r=JSON.parse(fs.readFileSync(p,"utf8"));r.sourceChecks={sha:process.env.VERIFIED_SHA,result:"success"};fs.writeFileSync(p,JSON.stringify(r));'
 
       - name: Итоговый отчёт
         if: always()
