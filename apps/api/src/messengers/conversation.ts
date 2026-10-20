@@ -82,10 +82,8 @@ import {
   type RequestedAgentMatch,
 } from "../lib/requestedAgent.js";
 import { returningAgentStillAvailable } from "../lib/returningClientRouting.js";
-import { extractMentionedPropertyNumber } from "../ai/propertyMentionGuard.js";
 import { FRUSTRATION_HINT, looksFrustrated } from "../ai/frustrationGuard.js";
-import { resolveCallPropertyHint } from "../lib/telephony/resolveCallProperty.js";
-import { resolveBotPropertyMention } from "../lib/botPropertyMention.js";
+import { resolveBotPropertyMention, resolveMentionedPropertyId } from "../lib/botPropertyMention.js";
 import { reactivateClientFromLost } from "../lib/clientLifecycle.js";
 import { detectClientLanguage, type ClientLanguage } from "../ai/clientLanguage.js";
 import { applyShowingRequestInBackground } from "../lib/showingBooking.js";
@@ -3854,10 +3852,8 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
    * применяется он позже, при оформлении заявки (см. requestedPropertyId в
    * createLeadFromChannel ниже).
    */
-  const mentionedPropertyNumber = extractMentionedPropertyNumber(merged);
-  const mentionedPropertyId = mentionedPropertyNumber
-    ? await resolveCallPropertyHint(mentionedPropertyNumber)
-    : null;
+  // Ссылка на наш сайт сильнее номера, а число из /listing/<n> — id сайта (lib/propertyMentionFromText.ts).
+  const mentionedPropertyId = await resolveMentionedPropertyId(merged);
   // «Голос рынка»: клиент назвал номер объекта словами — след в диалоге.
   if (mentionedPropertyId) {
     void linkConversationProperty({

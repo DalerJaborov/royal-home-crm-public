@@ -5,7 +5,7 @@ import { describeError } from "../lib/describeError.js";
 import { isInstagramLink } from "../lib/instagramLink.js";
 import { firstForeignLink, firstOwnSiteLink, linkPreview } from "../lib/linkPreview.js";
 import { detectSpam } from "../lib/incomingSpam.js";
-import { extractMentionedPropertyNumber } from "../ai/propertyMentionGuard.js";
+import { crmPropertyIdFromUrl, siteListingIdFromUrl, mentionedCardNumber } from "../lib/propertyMentionFromText.js";
 import { propertyOwnerAgentId } from "../lib/propertyOwner.js";
 import { identifyProperty } from "../lib/propertyMatch.js";
 import { resolvePropertyFromPageUrl } from "../lib/resolvePropertyFromPageUrl.js";
@@ -59,32 +59,8 @@ export function instagramShortcode(url: string | undefined | null): string | nul
   return match ? match[1] : null;
 }
 
-/** Хост сайта берём из той же переменной, что и генератор ссылок (lib/siteListingUrl.ts):
- *  иначе на тестовом стенде свои же ссылки считались бы чужими. */
-// `||`, а не `??` — по той же причине, что и в lib/siteListingUrl.ts: пустая строка
-// из .env.example проходила бы как значение. Здесь цена ошибки выше, чем сломанная
-// ссылка: с пустым хостом выражение ниже превращается в «/listing/by-crm/(...)» без
-// домена вовсе и признаёт НАШИМ объектом ссылку с любого чужого сайта.
-const SITE_HOST = (process.env.SITE_PUBLIC_URL || "https://royalhome.tj")
-  .replace(/^https?:\/\//i, "")
-  .replace(/\/+$/, "")
-  .replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
-/** Ссылка на объект на нашем сайте: /listing/by-crm/<id CRM> — именно её присылает
- *  бот и печатает агент, поэтому она чаще всего и прилетает обратно. */
-export function crmPropertyIdFromUrl(text: string | undefined | null): string | null {
-  if (!text) return null;
-  const match = text.match(new RegExp(`${SITE_HOST}/listing/by-crm/([A-Za-z0-9-]+)`, "i"));
-  return match ? match[1] : null;
-}
-
-/** Ссылка на объект, РОДИВШИЙСЯ в админке сайта: /listing/<число> (см. siteListingUrl).
- *  У такого объекта нет externalId, и by-crm его не находит — идём по siteListingId. */
-export function siteListingIdFromUrl(text: string | undefined | null): number | null {
-  if (!text) return null;
-  const match = text.match(new RegExp(`${SITE_HOST}/listing/(\\d+)`, "i"));
-  return match ? Number(match[1]) : null;
-}
+// Разбор ссылок на наш сайт переехал в lib/propertyMentionFromText.ts (одно правило для всех каналов).
+export { crmPropertyIdFromUrl, siteListingIdFromUrl };
 
 const WITH_DISTRICT = { district: { select: { name: true } } } as const;
 
@@ -339,9 +315,10 @@ const PROPERTY_MENTION_CONTEXT_RE = /кварт|объект|обьект|дом
 // пропускало ровно адрес продавца («продаю квартиру в доме №25» → объект 25), а
 // понятное чату «ОБ-000118» не узнавало. Теперь номер читает та же функция, что и
 // переписка (ai/propertyMentionGuard.ts): «объект N», «№N» не после адреса, «ОБ-…».
-function clientMentionedPropertyNumber(text: string | undefined | null): number | null {
+function clientMentionedPropertyNumber(text: string | undefined | null, linkText?: string): number | null {
   if (!text || !PROPERTY_MENTION_CONTEXT_RE.test(text)) return null;
-  const n = extractMentionedPropertyNumber(text);
+  // Число из ссылки сайта (/listing/45) — id сайта, а не номер карточки (lib/propertyMentionFromText.ts).
+  const n = mentionedCardNumber(text, linkText ?? text);
   return n ? Number(n) : null;
 }
 
@@ -546,7 +523,7 @@ async function findSharedProperty(input: SharedMediaInput) {
    * сильнее молчания — именованный номер однозначен настолько же, насколько
    * однозначна ссылка.
    */
-  const typedNumber = clientMentionedPropertyNumber(text);
+  const typedNumber = clientMentionedPropertyNumber(text, linkFields);
   if (typedNumber != null) {
     const byTypedNumber = await prisma.property.findFirst({
       where: { shortId: typedNumber, deletedAt: null },

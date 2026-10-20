@@ -43,6 +43,7 @@
     "audit:dupes": "jscpd --config .jscpd.json apps packages",
     "audit:dead": "node scripts/audit-dead-paths.mjs",
     "where": "node scripts/where.mjs",
+    "site:resync-short-ids": "npm run site:resync-short-ids --workspace=apps/api --",
     "map:gate": "node scripts/map-gate.mjs",
     "impact:tests": "node scripts/impact-tests.mjs",
     "audit:secrets": "node scripts/audit-secrets.mjs"

@@ -18,6 +18,7 @@
     "backfill:extra-phones": "tsx scripts/backfill-extra-phones-from-notes.ts",
     "backfill:instagram-urls": "tsx src/lib/backfillInstagramUrls.ts",
     "backfill:property-covers": "tsx src/lib/backfillPropertyCovers.ts",
+    "site:resync-short-ids": "tsx src/lib/backfillSiteShortIds.ts",
     "geocode:coverage": "tsx scripts/geocode-coverage.ts",
     "backfill:job-applications": "tsx src/lib/backfillJobApplications.ts",
     "vacancies:ask-phone": "tsx src/lib/askCandidatePhone.ts",

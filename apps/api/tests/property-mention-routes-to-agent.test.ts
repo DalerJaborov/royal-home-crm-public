@@ -29,6 +29,11 @@ const subscriberId = `propmention-${runId}`;
 let ownerId: string;
 let propertyId: string;
 let propertyShortId: number;
+// Объект, рождённый на сайте: его siteListingId нарочно равен номеру карточки выше.
+let siteOwnerId: string;
+let siteOwnedPropertyId: string;
+const linkSubscriberId = `propmention-link-${runId}`;
+const orphanLinkSubscriberId = `propmention-orphan-${runId}`;
 let districtId: string;
 let whatsapp: CustomerMessengerFixture;
 /**
@@ -87,12 +92,26 @@ beforeAll(async () => {
   });
   propertyId = property.id;
   propertyShortId = property.shortId;
+  siteOwnerId = (
+    await prisma.agent.create({
+      data: { fullName: `Хозяин объекта сайта ${runId}`, phone: `+992906${runId}`, role: "AGENT", passwordHash: "x" },
+    })
+  ).id;
+  siteOwnedPropertyId = (
+    await prisma.property.create({
+      data: {
+        title: `Объект сайта ${runId}`, type: "APARTMENT", areaSqm: 55, rooms: 2, price: 450_000, currency: "TJS",
+        districtId, address: "Сайтовая, 7", condition: "GOOD", status: "AVAILABLE",
+        assignedAgentId: siteOwnerId, siteListingId: propertyShortId,
+      },
+    })
+  ).id;
 });
 
 afterAll(async () => {
   await drainBackgroundTasks(2000);
   if (settingsBefore) await prisma.settings.update({ where: { id: "singleton" }, data: settingsBefore });
-  const convs = await prisma.botConversation.findMany({ where: { subscriberId }, select: { id: true, clientId: true } });
+  const convs = await prisma.botConversation.findMany({ where: { subscriberId: { in: [subscriberId, linkSubscriberId, orphanLinkSubscriberId] } }, select: { id: true, clientId: true } });
   for (const conv of convs) {
     if (conv.clientId) {
       await prisma.interaction.deleteMany({ where: { clientId: conv.clientId } });
@@ -100,8 +119,8 @@ afterAll(async () => {
     }
   }
   await whatsapp.dispose();
-  await prisma.property.deleteMany({ where: { id: propertyId } });
-  await prisma.agent.deleteMany({ where: { id: ownerId } });
+  await prisma.property.deleteMany({ where: { id: { in: [propertyId, siteOwnedPropertyId] } } });
+  await prisma.agent.deleteMany({ where: { id: { in: [ownerId, siteOwnerId] } } });
   await prisma.district.deleteMany({ where: { id: districtId } });
 });
 
@@ -143,5 +162,48 @@ describe("клиент называет номер объекта в переп�
     // очередью: assignReason различает эти два случая (services/leads/intake.ts).
     expect(client.assignReason).toBe("own_property_explicit");
     expect(client.assignedAgentId).toBe(ownerId);
+  });
+
+  /**
+   * КНОПКА WHATSAPP НА САЙТЕ (19.10.2026): «Интересует объект №N: https://royalhome.tj/listing/N»,
+   * где N — id объявления на САЙТЕ. Раньше N читалось как номер карточки CRM и лид
+   * уходил хозяину чужого объекта №N.
+   */
+  // У каждого сценария свой телефон: иначе заявка склеится с клиентом предыдущего (дубль по номеру).
+  async function leadAgentAfterSiteButton(sub: string, text: string, phone: string) {
+    for (const [t, reply] of [[text, ["Да, объект доступен. Как к вам обращаться и по какому телефону связаться?"]], [`Фаридун, ${phone}`, "Спасибо, наш агент свяжется с вами."]] as const) {
+      callAi.mockClear();
+      callAi.mockResolvedValue({
+        reply, intent: "buy", confident: true, ready: false, topic: "other",
+        openQuestion: "", clientAnsweredOpenQuestion: false,
+      });
+      await processMessengerTurn({ ...whatsapp.turnInput(sub), text: t });
+    }
+    const conv = await prisma.botConversation.findFirst({ where: { subscriberId: sub }, select: { clientId: true } });
+    expect(conv?.clientId).not.toBeNull();
+    return prisma.client.findUniqueOrThrow({ where: { id: conv!.clientId! } });
+  }
+
+  it("ссылка сайта /listing/N выигрывает у «объект №N»: лид уходит хозяину объекта сайта, а не карточки №N", async () => {
+    const client = await leadAgentAfterSiteButton(
+      linkSubscriberId,
+      `Здравствуйте! Интересует объект №${propertyShortId}: https://royalhome.tj/listing/${propertyShortId}`,
+      "918203041"
+    );
+    expect(client.assignReason).toBe("own_property_explicit");
+    expect(client.assignedAgentId).toBe(siteOwnerId);
+    expect(client.assignedAgentId).not.toBe(ownerId);
+  });
+
+  it("ссылка сайта без объекта с таким id: «№N» не уводит лид хозяину чужой карточки №N", async () => {
+    // Выкидываем привязку к сайту: объект с siteListingId = N в CRM больше нет.
+    await prisma.property.update({ where: { id: siteOwnedPropertyId }, data: { siteListingId: null } });
+    const client = await leadAgentAfterSiteButton(
+      orphanLinkSubscriberId,
+      `Здравствуйте! Интересует объект №${propertyShortId}: https://royalhome.tj/listing/${propertyShortId}`,
+      "918203042"
+    );
+    // Не «объект назван явно»: общая лесенка может выбрать кого угодно, но не по номеру чужой карточки.
+    expect(client.assignReason).not.toBe("own_property_explicit");
   });
 });
