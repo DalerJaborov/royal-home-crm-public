@@ -1,9 +1,8 @@
 import { useMemo, useState, type ReactNode } from "react";
-import { ArrowLeft, CalendarClock, Copy, ExternalLink, EyeOff, Pencil, Plus, RefreshCw, Rocket, Trash2, Undo2 } from "lucide-react";
+import { ArrowLeft, Copy, ExternalLink, EyeOff, Pencil, Plus, RefreshCw, Rocket, Trash2, Undo2 } from "lucide-react";
 import {
   SOCIAL_VIDEO_CHANNELS,
   SOCIAL_VIDEO_COVER_MODE_LABELS,
-  SOCIAL_VIDEO_STATUS_LABELS,
   destinationKeyOf,
   evaluateVideoForChannels,
   formatBytesRu,
@@ -41,6 +40,7 @@ import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { Rh2ErrorState } from "../../components/rh2/Rh2ErrorState";
 import { VideoPlayerWithFallback } from "../../components/VideoPlayerWithFallback";
 import { ChannelProcess } from "../../components/socialVideos/ChannelProcess";
+import { SocialVideoMetadata } from "../../components/socialVideos/SocialVideoMetadata";
 import { ChannelPicker } from "../../components/socialVideos/ChannelPicker";
 import { ChannelBadge } from "../../components/socialVideos/ChannelBadge";
 import {
@@ -256,17 +256,7 @@ export function VideoDetail({
               <ArrowLeft className="i" aria-hidden />К списку роликов
             </button>
             <h1 style={{ marginTop: 12 }}>{item.title}</h1>
-            <p className="sub">
-              <span className={SOCIAL_VIDEO_STATUS_CHIP[item.status]}>{SOCIAL_VIDEO_STATUS_LABELS[item.status]}</span>{" "}
-              {item.status === "SCHEDULED" && item.scheduledAt && (
-                <>
-                  <CalendarClock className="i" aria-hidden /> выйдет {exactDateTime(item.scheduledAt)} по Душанбе
-                </>
-              )}
-              {item.finishedAt && item.status !== "SCHEDULED" && <>завершено {exactDateTime(item.finishedAt)}</>}
-              {!item.finishedAt && item.startedAt && item.status === "PUBLISHING" && <>начато {exactDateTime(item.startedAt)}</>}
-              {item.createdBy && <> · добавил {item.createdBy.name}</>}
-            </p>
+            <SocialVideoMetadata item={item} statusClassName={SOCIAL_VIDEO_STATUS_CHIP[item.status]} />
           </div>
           <div className="acts" style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
             {retryable.length > 0 && !publishing && canPublishAgain(item.status) && (
