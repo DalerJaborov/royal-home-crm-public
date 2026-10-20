@@ -33,6 +33,8 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      - name: Reject private or mixed Git ancestry
+        run: test "$(git rev-list --max-parents=0 HEAD)" = '0c6887d5993e0bae3fae125d27d6ad2525ec47bb'
       - name: Scan public Git history for secrets
         env:
           GH_TOKEN: ${{ github.token }}

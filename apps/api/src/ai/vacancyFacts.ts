@@ -80,6 +80,13 @@ export function vacancyOfficeAddress(): string {
   return `${o.city}, ${o.address}; ориентиры — ${o.landmarks.join(", ")}`;
 }
 
+/** Same public address data; translate labels rather than duplicate facts. */
+export function vacancyOfficeAddressTg(): string {
+  return vacancyOfficeAddress().replace(/ул\./gu,'кӯчаи').replace(/Дом печати/gu,'Хонаи матбуот')
+    .replace(/(\d+)\s+этаж/gu,'ошёнаи $1').replace(/ориентиры/gu,'нишонаҳо').replace(/Школа/gu,'Мактаб')
+    .replace(/Поликлиника/gu,'Дармонгоҳ').replace(/Славянский университет/gu,'Донишгоҳи славянӣ').replace(/старая София/gu,'Софияи пешина');
+}
+
 /**
  * Ключевые факты, которые ОБЯЗАНЫ совпадать в чате и в звонке — по ним тест
  * сверяет оба промта. Строки буквальные: расхождение в одном символе — и тест

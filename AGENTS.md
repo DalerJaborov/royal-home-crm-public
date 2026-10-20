@@ -17,8 +17,9 @@ Git and authenticated `gh`; a local PostgreSQL or local build is not required
 for the default release path. `--local-tests` explicitly uses local checks.
 
 Main is protected by required PR checks. Use `npm run ship` to merge CRM changes.
-The public repository is not yet wired to production deployment: a verified
-merge proves source validation, not that the production servers were updated.
+The production checkout `/opt/royalhome-crm` must track this public repository.
+Verify its origin, deployed SHA, API/worker health and release evidence separately:
+a verified merge proves source validation, not that production was updated.
 Older self-hosted-runner/deployment descriptions below are historical context.
 
 ## Project
