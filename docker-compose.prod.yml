@@ -170,6 +170,8 @@ services:
       # и терялся. Обязателен, как и SETTINGS_ENCRYPTION_KEY.
       PHONE_ENCRYPTION_KEY: ${PHONE_ENCRYPTION_KEY:?}
       UPLOADS_DIR: /app/uploads
+      # Preserve an operator-owned caption contact without embedding it in public source.
+      MARUF_CAPTION_PHONE: "${MARUF_CAPTION_PHONE:-}"
       # ВЛОЖЕНИЯ ПЕРЕПИСКИ (фото и голосовые от клиентов) — В ТОМ, а не в контейнере.
       #
       # Найдено 13.08.2026: владелец открыл карточку клиента и увидел «Вложение не

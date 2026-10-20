@@ -29,6 +29,14 @@ function fixture(overrides: Partial<CustomerCoreFrame> = {}) {
     requestStop, observeLateToolResult, ports: { modelTurn, executeAllowedTool, assertCurrent, requestStop, observeLateToolResult } satisfies CustomerCorePorts };
 }
 afterEach(() => vi.useRealTimers());
+it.each(['безеб','Ика бардакай','Кимат','Беҳтарин хона бдай 👏👏'])('handles a standalone public reaction without paid model/tool calls: %s',async inputText=>{
+ const f=fixture({surface:'public_comment',inputText,requestedFacts:[],language:'tg'});
+ const result=await runCustomerAgentTurn(f.frame,f.ports);
+ expect(result).toMatchObject({status:'ready',rounds:0,toolCalls:0});
+ if(result.status!=='ready')throw Error('Expected a public reaction');
+ expect(result.text).not.toMatch(/123|992|сохтмон|телефон/u);
+ expect(f.modelTurn).not.toHaveBeenCalled();expect(f.executeAllowedTool).not.toHaveBeenCalled();
+});
 
 describe("Perceived media stays in the common customer brain", () => {
   const visual = { language: "ru" as const, transcript: "", subject: "home_interior" as const, visible: ["kitchen" as const], readableText: "", speech: "none" as const };

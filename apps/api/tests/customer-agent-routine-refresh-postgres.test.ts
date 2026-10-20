@@ -17,10 +17,14 @@ import { ensureCustomerEndpoint } from '../src/lib/customerConversationScope.js'
 import { registerAuthenticatedMetaCustomerRequest } from '../src/lib/customerIngressAuthority.js';
 import { persistVerifiedCustomerIngressBatch } from '../src/lib/customerIngressProducer.js';
 import { drainBackgroundTasks } from '../src/lib/shutdownState.js';
+import { inspectCustomerDeliveryObservation } from '../src/lib/customerDeliveryObservation.js';
+import { dispatchCustomerOutboxPart } from '../src/lib/customerDeliveryDispatcher.js';
 
 const tag=`synthetic-routine-refresh-${randomUUID()}`, base='/api/v1/settings/customer-agent';
 const accountId=randomUUID(),resource=`${tag}-resource`,peer=`${tag}-peer`,secret=`${tag}-secret`;
 const events:string[]=[];
+const isolatedParts:string[]=[];
+const isolatedInquiries:string[]=[];
 const capabilities={publicRead:true,contactWrite:true,callbackWrite:true,newLeadBridge:true,handoverWrite:false,showingWrite:true,ownerQuestionWrite:true};
 const readPolicy=()=>prisma.customerRuntimePolicy.findUniqueOrThrow({where:{id:'singleton'}});
 let savedPolicy:Awaited<ReturnType<typeof readPolicy>>;
@@ -69,9 +73,50 @@ beforeEach(async()=>{
 afterEach(async()=>{
   expect(fetch).not.toHaveBeenCalled();vi.restoreAllMocks();revokeElevation(actorId);
   await drainBackgroundTasks(3000);
+  await prisma.customerDeliveryAttempt.deleteMany({where:{partId:{in:isolatedParts}}});
+  await prisma.customerOutboxPart.deleteMany({where:{id:{in:isolatedParts}}});
+  await prisma.customerInquiry.deleteMany({where:{id:{in:isolatedInquiries}}});
   await prisma.backgroundJob.deleteMany({where:{dedupeKey:{in:events.map(e=>`customer-inbox-consume:${e}`)}}});
   await prisma.customerPropertyIngressTicket.deleteMany({where:{eventKey:{in:events}}});
   await prisma.customerAgentRolloutAssignment.deleteMany({where:{endpointScopeId:scopeId}});
+});
+// Disposable historical transport fixtures, never admissions or send grants.
+async function uncertainPart(ageMinutes:number,withAttempt=true,lease=false) {
+  const id=randomUUID(),at=new Date(Date.now()-ageMinutes*60000);
+  isolatedParts.push(id);
+  const inquiry=await prisma.customerInquiry.create({data:{endpointScopeId:scopeId,peerId:peer,threadId:id}});
+  isolatedInquiries.push(inquiry.id);
+  await prisma.customerOutboxPart.create({data:{id,inquiryId:inquiry.id,partKey:createHash('sha256').update(id).digest('hex'),
+    originalNativeId:randomUUID(),turnKey:id,ordinal:0,mode:'LIVE',sourceKind:'BOT_TURN',sourceKey:id,
+    channel:'INSTAGRAM',endpointScopeId:scopeId,agentRevisionId:oldId,transportJson:{},
+    payloadEncrypted:encryptSecret(JSON.stringify({kind:'text',text:'Synthetic uncertain delivery'})),
+    payloadHash:createHash('sha256').update(JSON.stringify({kind:'text',text:'Synthetic uncertain delivery'})).digest('hex'),payloadVersion:1,
+    fenceJson:{endpoint:{peerId:peer}},receiptRefsJson:[],status:'UNKNOWN',createdAt:at,
+    ...(lease?{leaseOwner:id,leaseUntil:new Date(Date.now()+60000)}:{})}});
+  if(withAttempt)await prisma.customerDeliveryAttempt.create({data:{partId:id,endpointScopeId:scopeId,
+    attemptNo:1,claimRevision:0n,startedAt:at,finishedAt:at,outcome:'UNKNOWN',errorCode:'synthetic_network_failure',dispatchFenceJson:{}}});
+  return id;
+}
+it('updates unrelated future work while retaining a closed historical UNKNOWN and its source quarantine without resending',async()=>{
+  const id=await uncertainPart(10),before=await prisma.customerOutboxPart.findUniqueOrThrow({where:{id}});
+  const attempts=await prisma.customerDeliveryAttempt.findMany({where:{partId:id}});
+  expect(await inspectCustomerDeliveryObservation({endpointScopeId:scopeId,peerId:peer})).toEqual({status:'ambiguous_own_send'});
+  const response=await request(app).post(`${base}/refresh-current`).set(auth()).send(await command());
+  expect(response.status,JSON.stringify(response.body)).toBe(200);
+  expect(await prisma.customerOutboxPart.findUniqueOrThrow({where:{id}})).toEqual(before);
+  expect(await prisma.customerDeliveryAttempt.findMany({where:{partId:id}})).toEqual(attempts);
+  expect(await dispatchCustomerOutboxPart(id)).toEqual({status:'unknown'});
+  expect(await inspectCustomerDeliveryObservation({endpointScopeId:scopeId,peerId:peer})).toEqual({status:'ambiguous_own_send'});
+  expect(await inspectCustomerDeliveryObservation({endpointScopeId:scopeId,peerId:peer+'-other'})).toEqual({status:'none'});
+});
+it.each([[0,true,false],[10,false,false],[10,true,true]] as const)('still blocks unresolved/live UNKNOWN: age=%i attempt=%s lease=%s',async(age,attempt,lease)=>{
+  await uncertainPart(age,attempt,lease);const before=await readPolicy();
+  const response=await request(app).post(`${base}/refresh-current`).set(auth()).send(await command());
+  expect(response.status).toBe(409);expect(response.body.error).toBe('core_work_requires_idle_publication');
+  expect(await readPolicy()).toEqual(before);
+  await expect(prisma.customerAgentRevisionAdvance.create({data:{fromRevisionId:oldId,
+    fromCohortId:(before.rolloutConfig as {cohortId:string}).cohortId,toRevisionId:newId,toCohortId:randomUUID(),
+    policyRevision:before.policyRevision+1n}})).rejects.toThrow(/requires idle/u);
 });
 afterAll(async()=>{
   try{
