@@ -11,3 +11,5 @@ Changes:
 - Final review includes seller identity, window count, documents, landmark and selected characteristics. Required missing values are distinguished from optional omissions.
 
 Local validation: 84 wizard unit tests, TypeScript and scoped ESLint. Browser checks cover desktop 1440/1024 and mobile 390 widths, conditional fields, optional clearing, keyboard suggestions, seller restoration and review. The generated typeset stylesheet was refreshed and its audit passed. The browser preview renders the real components with isolated fixtures; persistence, uploads, external map reliability and production are separate checks. No deployment was performed for this refinement.
+
+Full-cloud release preparation exposed a time-dependent fixture in the existing debounce-history test: its base36 timestamp marker could contain `7k`, correctly recognized and removed as an unsupported price. The marker is now constant and nonnumeric; subscriber isolation still uses the unique run ID. The price guard and history assertions remain unchanged. The release requires a new complete cloud run.
