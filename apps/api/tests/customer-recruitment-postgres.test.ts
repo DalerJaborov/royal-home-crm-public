@@ -61,3 +61,27 @@ it("a staff vacancy switch disables offers without deleting positions or candida
   expect(await prisma.recruitmentPosition.count({ where: { key } })).toBe(1);
   expect(await prisma.jobApplication.count()).toBe(applications);
 });
+it("the DB source constraint rejects managed IDs with a NULL resource revision while retaining all-NULL historical rows", async () => {
+  const scope=await prisma.customerEndpointScope.create({data:{realmKey:`${tag}-source`,channel:"INSTAGRAM",transportKey:`${tag}-transport`}});
+  const inquiry=await prisma.customerInquiry.create({data:{endpointScopeId:scope.id,peerId:`${tag}-source-peer`}});
+  try {
+    const legacy=await prisma.jobApplication.create({data:{channel:"INSTAGRAM",contactName:tag}});
+    expect(legacy.customerApplicationRevision).toBeNull();
+    await expect(prisma.jobApplication.create({data:{channel:"INSTAGRAM",contactName:tag,
+      customerInquiryId:inquiry.id,customerPositionKey:key,customerApplicationRevision:null}})).rejects.toThrow(/JobApplication_customer_source_check/);
+    for(const source of [
+      {customerInquiryId:inquiry.id,customerPositionKey:null,customerApplicationRevision:null},
+      {customerInquiryId:null,customerPositionKey:key,customerApplicationRevision:null},
+      {customerInquiryId:null,customerPositionKey:null,customerApplicationRevision:1n},
+      {customerInquiryId:inquiry.id,customerPositionKey:key,customerApplicationRevision:0n},
+      {customerInquiryId:inquiry.id,customerPositionKey:key,customerApplicationRevision:-1n},
+    ]) await expect(prisma.jobApplication.create({data:{channel:"INSTAGRAM",contactName:tag,...source}})).rejects.toThrow(/JobApplication_customer_source_check/);
+    const valid=await prisma.jobApplication.create({data:{channel:"INSTAGRAM",contactName:tag,
+      customerInquiryId:inquiry.id,customerPositionKey:key,customerApplicationRevision:1n}});
+    expect(valid.customerApplicationRevision).toBe(1n);
+  } finally {
+    await prisma.jobApplication.deleteMany({where:{contactName:tag}});
+    await prisma.customerInquiry.delete({where:{id:inquiry.id}});
+    await prisma.customerEndpointScope.delete({where:{id:scope.id}});
+  }
+});

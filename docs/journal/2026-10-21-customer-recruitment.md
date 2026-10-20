@@ -45,6 +45,18 @@ The established hide/private-reply-receipt/delete path is reused unchanged;
 there is no retrospective retry of an already answered comment.
 The initial private seller reply asks whether to explain cooperation terms,
 instead of repeating a district question that the advert may already answer.
+
+Release review reproduced two additional blockers before deployment. Retained
+revision refresh now recognizes only the pinned recruitment-v1 prompt/tool
+hash pair, with the existing catalog acknowledgement, actual-factory validation,
+idle gate and unchanged provider/limits/knowledge/scopes/rights/percentage. Other
+instruction changes remain rejected. The actual administrator publication audit
+records this protocol transition; no model or HTTP manifest can approve it.
+
+A new corrective migration makes the managed application revision explicitly
+non-NULL and positive. Earlier applied migration files are preserved. PostgreSQL
+tests reject incomplete/NULL/zero/negative sources and retain historical all-NULL
+applications as well as valid managed sources.
 Existing rollout percentage, provider budgets and voice behavior are unchanged.
 No emergency handover, invented salary, automated eligibility scoring or
 cross-channel identity merge is introduced.

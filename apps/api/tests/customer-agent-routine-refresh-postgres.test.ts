@@ -19,6 +19,7 @@ import { persistVerifiedCustomerIngressBatch } from '../src/lib/customerIngressP
 import { drainBackgroundTasks } from '../src/lib/shutdownState.js';
 import { inspectCustomerDeliveryObservation } from '../src/lib/customerDeliveryObservation.js';
 import { dispatchCustomerOutboxPart } from '../src/lib/customerDeliveryDispatcher.js';
+import { CUSTOMER_RECRUITMENT_UPGRADE_V1 } from '../src/lib/customerRecruitmentUpgrade.js';
 
 const tag=`synthetic-routine-refresh-${randomUUID()}`, base='/api/v1/settings/customer-agent';
 const accountId=randomUUID(),resource=`${tag}-resource`,peer=`${tag}-peer`,secret=`${tag}-secret`;
@@ -209,6 +210,36 @@ it('accepts the existing qualified catalog-only transition with identical provid
   expect((await readPolicy()).capabilities).toEqual(before.capabilities);
   expect((await readPolicy()).rolloutConfig).toMatchObject({percentBasisPoints:5000,allowed:(before.rolloutConfig as {allowed:unknown}).allowed});
 });
+it('adopts only the reviewed recruitment prompt/tool pair through the actual retained factory at unchanged50%, scopes and rights',async()=>{
+  const pair=CUSTOMER_RECRUITMENT_UPGRADE_V1;
+  expect(manifest.promptHash).toBe(pair.toPrompt);expect(manifest.toolSchemaHash).toBe(pair.toTools);
+  await install(await historical({promptHash:pair.fromPrompt,toolSchemaHash:pair.fromTools}));
+  const before=await readPolicy();
+  const response=await request(app).post(`${base}/refresh-current`).set(auth()).send(await command());
+  expect(response.status,JSON.stringify(response.body)).toBe(200);
+  const after=await readPolicy();expect(after.activeAgentRevisionId).toBe(newId);
+  expect(after.capabilities).toEqual(before.capabilities);
+  expect(after.rolloutConfig).toMatchObject({percentBasisPoints:5000,allowed:(before.rolloutConfig as {allowed:unknown}).allowed});
+  const audit=await prisma.auditLog.findFirstOrThrow({where:{agentId:actorId,action:'CUSTOMER_AGENT_PUBLISH'},orderBy:{createdAt:'desc'}});
+  expect(audit.meta).toMatchObject({authority:'retained_policy_refresh',recruitmentProtocolUpgrade:true,paidConfirmed:null});
+});
+it.each(['prompt','tools','knowledge','limits','provider-profile','provider-policy'] as const)(
+  'the reviewed recruitment transition still rejects another %s without publishing or creating an elevation grant',async field=>{
+    const pair=CUSTOMER_RECRUITMENT_UPGRADE_V1;
+    const change:Record<string,unknown>={promptHash:pair.fromPrompt,toolSchemaHash:pair.fromTools};
+    if(field==='prompt')change.promptHash='f'.repeat(64);
+    if(field==='tools')change.toolSchemaHash='f'.repeat(64);
+    if(field==='knowledge')change.knowledgeSourceHash='f'.repeat(64);
+    if(field==='limits')change.limits={...manifest.limits,maxModelOutputTokens:manifest.limits.maxModelOutputTokens+1};
+    if(field==='provider-profile')change.providerProfileHash='f'.repeat(64);
+    if(field==='provider-policy')change.providerPolicyHash='f'.repeat(64);
+    await install(await historical(change));const before=await readPolicy();
+    const count=await prisma.auditLog.count({where:{agentId:actorId,action:'CUSTOMER_AGENT_PUBLISH'}});
+    const response=await request(app).post(`${base}/refresh-current`).set(auth()).send(await command());
+    expect(response.status,JSON.stringify(response.body)).toBe(409);expect(await readPolicy()).toEqual(before);
+    expect(await prisma.auditLog.count({where:{agentId:actorId,action:'CUSTOMER_AGENT_PUBLISH'}})).toBe(count);
+    expect((await request(app).get('/api/v1/auth/step-up').set(auth())).body.elevated).toBe(false);
+  });
 it('rejects a stale revision and keeps ordinary registration/publish/kill step-up requirements',async()=>{
   const stale=((await readPolicy()).policyRevision+1n).toString();
   expect((await request(app).post(`${base}/refresh-current`).set(auth()).send({expectedPolicyRevision:stale,reason:tag})).status).toBe(409);
