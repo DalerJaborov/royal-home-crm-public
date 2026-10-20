@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import bcrypt from "bcrypt";
 import request from "supertest";
+import { loginWithCode } from "./helpers/loginCode.js";
 import sharp from "sharp";
 import { app } from "../src/app.js";
 import { prisma } from "../src/db.js";
@@ -53,9 +54,7 @@ function tinyJpeg(shade: number): Promise<Buffer> {
 }
 
 async function login(phone: string): Promise<string> {
-  const res = await request(app)
-    .post("/api/v1/auth/login")
-    .send({ phone, password });
+  const res = await loginWithCode(app, phone);
   expect(res.status).toBe(200);
   return res.body.accessToken as string;
 }
@@ -341,7 +340,8 @@ describe("Копирование вложений и фактов", () => {
 
     const asked = await request(app)
       .post(`${PREFIX}/from-client/${sellerB.id}`)
-      .set("Authorization", `Bearer ${token}`);
+      .set("Authorization", `Bearer ${token}`)
+      .send({ mode: "merge" });
     expect(asked.status).toBe(409);
     expect(asked.body.code).toBe("DRAFT_MEDIA_REPLACE_CONFIRM");
     expect(asked.body.draftPhotoCount).toBe(1);
@@ -353,7 +353,7 @@ describe("Копирование вложений и фактов", () => {
     const second = await request(app)
       .post(`${PREFIX}/from-client/${sellerB.id}`)
       .set("Authorization", `Bearer ${token}`)
-      .send({ media: "replace" });
+      .send({ mode: "replace", media: "replace" });
     expect(second.status).toBe(200);
     expect(second.body.draft.values.sellerClientId).toBe(sellerB.id);
     expect(second.body.draft.media).toHaveLength(2);
@@ -487,6 +487,10 @@ describe("Копирование вложений и фактов", () => {
 });
 
 describe("Поля карточки продавца (23.09.2026)", () => {
+  beforeEach(async () => {
+    // Each case imports a different seller into an explicitly empty fixture.
+    await prisma.propertyDraft.deleteMany({ where: { agentId } });
+  });
   it("продавец, заведённый руками, без переписки — мастер открывается с полями карточки", async () => {
     const seller = await makeClient("SELLER", { assignedAgentId: agentId });
     await prisma.client.update({

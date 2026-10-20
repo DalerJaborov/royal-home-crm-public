@@ -1,0 +1,3 @@
+ALTER TABLE "PropertyDraft"
+  ADD COLUMN "revision" INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN "closedAt" TIMESTAMP(3);

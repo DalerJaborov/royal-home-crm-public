@@ -1,16 +1,22 @@
 import { useFormDraft } from "../../hooks/useFormDraft";
-import { isWizardEmpty, type WizardValues } from "./types";
+import { PROPERTY_DRAFT_TTL_DAYS, type PropertyDraftView } from "@royal-home/shared";
+import { EMPTY_WIZARD_VALUES, isWizardEmpty, type WizardValues } from "./types";
 
 /**
  * Запасная копия мастера в localStorage.
  *
- * Пишется только после армирования (`armed`, то же условие, что у серверного
- * автосохранения): пока GET /properties/drafts/current в пути, значения формы
- * ещё стартовые (пустые или только с интейкером), и через 400 мс хук стёр бы
- * или затёр копию прошлого захода, ради которой она и существует, раньше, чем
- * onLoaded/onFailed успели её прочитать и предложить «продолжить». Без ключа
- * хук не пишет и не стирает ничего.
+ * Пишется после проверки сервера и принятия черновика. До этого стартовые поля
+ * не должны затереть копию прошлого захода. Локальная копия хранится столько же,
+ * сколько серверная; однодневный срок остальных форм здесь не подходит.
  */
-export function useWizardLocalDraft(draftKey: string | null, armed: boolean, values: WizardValues): void {
-  useFormDraft(armed ? draftKey : null, values, isWizardEmpty);
+export const WIZARD_LOCAL_DRAFT_TTL_MS = PROPERTY_DRAFT_TTL_DAYS * 86400000;
+export function useWizardLocalDraft(draftKey: string | null, armed: boolean, values: WizardValues, server?: PropertyDraftView | null): boolean | null {
+  // The wizard is small enough for an immediate snapshot. Closing during the
+  // former debounce must not lose the only copy of an offline edit.
+  const serverValues = { ...EMPTY_WIZARD_VALUES, ...server?.values };
+  const dirty = !server || Object.keys(values).some((key) =>
+    JSON.stringify(values[key as keyof WizardValues]) !== JSON.stringify(serverValues[key as keyof WizardValues]));
+  return useFormDraft(armed ? draftKey : null, values, isWizardEmpty, 0, {
+    draftId: server?.id ?? null, baseRevision: server?.revision ?? null, dirty,
+  });
 }

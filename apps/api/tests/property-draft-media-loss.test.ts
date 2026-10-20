@@ -5,6 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { waitFor } from "./helpers/waitFor.js";
+import { loginWithCode } from "./helpers/loginCode.js";
 
 const sendPushToAgent = vi.fn(async () => 1);
 vi.mock("../src/push.js", async (importOriginal) => ({
@@ -42,7 +43,7 @@ async function makeAgent() {
     data: { fullName: `Агент потери ${counter}`, phone, role: "AGENT", passwordHash: await bcrypt.hash(password, 10) },
   });
   agentIds.push(agent.id);
-  const res = await request(app).post("/api/v1/auth/login").send({ phone, password });
+  const res = await loginWithCode(app, phone);
   expect(res.status).toBe(200);
   return { id: agent.id, token: res.body.accessToken as string, counter };
 }
@@ -167,7 +168,7 @@ describe("POST /properties с черновиком: недогруженное �
     expect(sendPushToAgent.mock.calls.find(([, p]) => (p as { tag?: string }).tag === `property-draft-media-lost-${res.body.id}`)).toBeUndefined();
   });
 
-  it("черновик не найден или чужой: объект создан, в ответе media.error, автору пуш", async () => {
+  it("черновик не найден или чужой: 409 до создания объекта, чужие данные не затронуты", async () => {
     const a = await makeAgent();
     const stranger = await makeAgent();
     const foreign = await makeDraft(stranger.id, [{ kind: "PHOTO", status: "READY" }]);
@@ -176,21 +177,17 @@ describe("POST /properties с черновиком: недогруженное �
       .post("/api/v1/properties")
       .set("Authorization", `Bearer ${a.token}`)
       .send(body({ draftId: randomUUID() }, a.counter));
-    expect(notFound.status).toBe(201);
-    propertyIds.push(notFound.body.id);
-    expect(notFound.body.media.error).toBeTruthy();
-    expect(notFound.body.media.attached).toEqual({ photos: 0, videos: 0 });
+    expect(notFound.status).toBe(409);
+    expect(notFound.body.code).toBe("DRAFT_CONFLICT");
 
     const foreignRes = await request(app)
       .post("/api/v1/properties")
       .set("Authorization", `Bearer ${a.token}`)
       .send(body({ draftId: foreign.id }, a.counter + 5));
-    expect(foreignRes.status).toBe(201);
-    propertyIds.push(foreignRes.body.id);
-    expect(foreignRes.body.media.error).toBeTruthy();
+    expect(foreignRes.status).toBe(409);
     // Чужой черновик не тронут.
     expect(await prisma.propertyDraft.count({ where: { id: foreign.id } })).toBe(1);
-    expect(sendPushToAgent.mock.calls.filter(([id]) => id === a.id).length).toBeGreaterThanOrEqual(2);
+    expect(await prisma.property.count({ where: { createdById: a.id } })).toBe(0);
   });
 
   it("пустой черновик — штатный случай «создали без медиа»: без error и без пуша", async () => {
@@ -226,7 +223,7 @@ describe("discardDraft: падение удаления не стирает фа
     fs.writeFileSync(file, "x");
     createdFiles.push(file);
 
-    const spy = vi.spyOn(prisma.propertyDraft, "delete").mockRejectedValueOnce(new Error("БД недоступна"));
+    const spy = vi.spyOn(prisma, "$transaction").mockRejectedValueOnce(new Error("БД недоступна"));
     try {
       expect(await discardDraft(draft.id)).toBe(false);
     } finally {
@@ -238,7 +235,7 @@ describe("discardDraft: падение удаления не стирает фа
     // Контроль: без сбоя черновик и файл уходят вместе.
     expect(await discardDraft(draft.id)).toBe(true);
     expect(fs.existsSync(file)).toBe(false);
-    expect(await prisma.propertyDraft.count({ where: { id: draft.id } })).toBe(0);
+    expect((await prisma.propertyDraft.findUniqueOrThrow({ where: { id: draft.id } })).closedAt).not.toBeNull();
   });
 });
 
@@ -256,7 +253,7 @@ describe("cleanupExpiredPropertyDrafts: не молча для автора", ()
     // Закачка старше шести часов — это уже брошенный черновик.
     await prisma.$executeRaw`UPDATE "PropertyDraftMedia" SET "updatedAt" = ${new Date(Date.now() - 7 * 60 * 60 * 1000)} WHERE "draftId" = ${draft.id}`;
     await cleanupExpiredPropertyDrafts();
-    expect(await prisma.propertyDraft.count({ where: { id: draft.id } })).toBe(0);
+    expect((await prisma.propertyDraft.findUniqueOrThrow({ where: { id: draft.id } })).closedAt).not.toBeNull();
   });
 
   it("удаление черновика с файлами — запись автору со счётчиком файлов", async () => {
@@ -271,7 +268,7 @@ describe("cleanupExpiredPropertyDrafts: не молча для автора", ()
       new Date(Date.now() - 60 * 1000)
     );
     await cleanupExpiredPropertyDrafts();
-    expect(await prisma.propertyDraft.count({ where: { id: draft.id } })).toBe(0);
+    expect((await prisma.propertyDraft.findUniqueOrThrow({ where: { id: draft.id } })).closedAt).not.toBeNull();
     const call = sendPushToAgent.mock.calls.find(([, p]) => (p as { tag?: string }).tag === `property-draft-expired-${draft.id}`);
     expect(call).toBeDefined();
     expect(call![0]).toBe(a.id);

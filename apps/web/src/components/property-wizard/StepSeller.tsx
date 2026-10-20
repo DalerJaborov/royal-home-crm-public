@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueries } from "@tanstack/react-query";
 import type { SellerObjectSummary } from "@royal-home/shared";
 import { useAgents } from "../../hooks/useAgents";
-import { useClients } from "../../hooks/useClients";
+import { useClient, useClients } from "../../hooks/useClients";
 import { useAuthStore } from "../../store/auth";
 import { api } from "../../lib/api";
 import type { Client } from "../../types";
@@ -157,6 +157,7 @@ export function StepSeller({
   }, [sellers, query]);
 
   const recentSellers = useRecentSellers(!values.sellerClientId);
+  const selectedClient = useClient(values.sellerClientId || undefined);
 
   /**
    * Карточка, показанная строкой «выбран», ПОСЛЕ выбора (21.09.2026).
@@ -173,7 +174,8 @@ export function StepSeller({
   const picked = values.sellerClientId
     ? (sellers.find((s) => s.id === values.sellerClientId) ??
       recentSellers.items.find((s) => s.id === values.sellerClientId) ??
-      (pickedFallback?.id === values.sellerClientId ? pickedFallback : null))
+      (pickedFallback?.id === values.sellerClientId ? pickedFallback : null) ??
+      (selectedClient.data?.id === values.sellerClientId ? selectedClient.data : null))
     : null;
 
   /** Один выбор продавца — из «Моих недавних», из полного списка и из
@@ -220,7 +222,7 @@ export function StepSeller({
     <>
       {requireIntakeAgent && (
         <section className="blk">
-          <div className="f">
+          <div className="f" aria-invalid={!!errors.intakeAgentId || undefined} aria-describedby={errors.intakeAgentId ? "wizard-intake-error" : undefined}>
             <label>Кто принял объект</label>
             <SearchableSelect
               value={values.intakeAgentId}
@@ -230,20 +232,23 @@ export function StepSeller({
             />
           </div>
           {errors.intakeAgentId && (
-            <p style={{ marginTop: 8, fontSize: 13, color: "var(--warn)" }}>{errors.intakeAgentId}</p>
+            <p id="wizard-intake-error" style={{ marginTop: 8, fontSize: 13, color: "var(--warn)" }}>{errors.intakeAgentId}</p>
           )}
         </section>
       )}
 
-      {picked ? (
-        <section className="blk">
+      {values.sellerClientId ? (
+        <section className="blk wizard-seller-selected">
+          {picked ? (
           <div className="sugg" style={{ margin: 0 }}>
-            <button type="button">
+            <div className="wizard-selected-seller-row">
               <span className="tag mine">выбран</span>
               <span className="nm">{picked.fullName}</span>
-              <span className="rg">{picked.phone || "без телефона"}</span>
-            </button>
+              <span className="rg">{picked.phone || `ПК-${picked.shortId}`}</span>
+            </div>
           </div>
+          ) : selectedClient.isError ? <div role="alert"><p>Не удалось загрузить выбранного продавца.</p><button type="button" className="wizard-text-action" onClick={() => void selectedClient.refetch()}>Повторить загрузку продавца</button></div>
+            : <p role="status">Загружаю выбранного продавца…</p>}
           <button
             type="button"
             className="chip warn"
@@ -253,13 +258,13 @@ export function StepSeller({
               onChange({ sellerClientId: "" });
             }}
           >
-            Убрать
+            Сменить продавца
           </button>
         </section>
       ) : (
         <>
           {recentSellers.items.length > 0 && (
-            <section className="blk">
+            <section className="blk wizard-seller-recent">
               <div className="head">
                 <h4>Мои недавние продавцы</h4>
               </div>
@@ -277,11 +282,14 @@ export function StepSeller({
             </section>
           )}
 
-          <section className="blk">
+          <section className="blk wizard-seller-form">
             <div className="f">
               <label htmlFor="seller">Имя</label>
               <input
                 id="seller"
+                aria-required="true"
+                aria-invalid={!!errors.sellerName || undefined}
+                aria-describedby={errors.sellerName ? "wizard-seller-name-error" : undefined}
                 className="txt"
                 value={values.sellerName}
                 autoComplete="name"
@@ -293,19 +301,20 @@ export function StepSeller({
               />
             </div>
             {errors.sellerName && (
-              <p style={{ marginTop: 6, fontSize: 13, color: "var(--warn)" }}>{errors.sellerName}</p>
+              <p id="wizard-seller-name-error" style={{ marginTop: 6, fontSize: 13, color: "var(--warn)" }}>{errors.sellerName}</p>
             )}
             <div style={{ height: 8 }} />
             <div className="f">
               <label htmlFor="phone">Телефон</label>
-              <PhoneInput value={values.sellerPhone} onChange={(v) => onChange({ sellerPhone: v })} invalid={!!errors.sellerPhone} />
+              <PhoneInput id="phone" value={values.sellerPhone} onChange={(v) => onChange({ sellerPhone: v })} invalid={!!errors.sellerPhone}
+                aria-required="true" aria-invalid={!!errors.sellerPhone || undefined} aria-describedby={errors.sellerPhone ? "wizard-seller-phone-error" : undefined} />
             </div>
             {errors.sellerPhone && (
-              <p style={{ marginTop: 6, fontSize: 13, color: "var(--warn)" }}>{errors.sellerPhone}</p>
+              <p id="wizard-seller-phone-error" style={{ marginTop: 6, fontSize: 13, color: "var(--warn)" }}>{errors.sellerPhone}</p>
             )}
           </section>
 
-          <section className="blk">
+          <section className="blk wizard-seller-list">
             <div className="sugg" style={{ margin: 0, border: 0 }}>
               {sellersLoading ? (
                 <div className="empty">Загружаю продавцов…</div>

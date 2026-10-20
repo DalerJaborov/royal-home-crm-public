@@ -316,15 +316,23 @@ export function validateStep(
       v.totalFloors.trim() === "" ? null : Number(v.totalFloors)
     );
     if (floorError && propertyFieldShown(v.type, "floor")) errors.floor = floorError;
+    for (const field of ["rooms", "floor", "totalFloors", "windowCount"] as const) {
+      const raw = v[field].trim();
+      if (!propertyFieldShown(v.type, field) || !raw) continue;
+      const number = Number(raw);
+      if (!Number.isInteger(number)) errors[field] = "Введите целое число";
+      else if ((field === "rooms" || field === "totalFloors") && number <= 0) errors[field] = "Введите число больше нуля";
+      else if (field === "windowCount" && (number < 0 || number > 100)) errors[field] = "Введите число от 0 до 100";
+    }
     if (v.offSite) return errors;
     // Что обязательно у типа — та же таблица, что на сервере (propertyTypeFields.ts):
     // у дома нет «этажа», у коммерции комнаты необязательны, у участка ничего из этого.
-    if (propertyFieldRequired(v.type, "rooms") && !positive(v.rooms)) errors.rooms = "Укажите комнаты";
+    if (propertyFieldRequired(v.type, "rooms") && !errors.rooms && !positive(v.rooms)) errors.rooms = "Укажите комнаты";
     if (propertyFieldRequired(v.type, "floor") && !errors.floor && (v.floor.trim() === "" || !Number.isFinite(Number(v.floor)))) {
       errors.floor = "Укажите этаж";
     }
-    if (propertyFieldRequired(v.type, "totalFloors") && !positive(v.totalFloors)) errors.totalFloors = "Укажите этажность";
-    if (propertyFieldRequired(v.type, "windowCount")) {
+    if (propertyFieldRequired(v.type, "totalFloors") && !errors.totalFloors && !positive(v.totalFloors)) errors.totalFloors = "Укажите этажность";
+    if (propertyFieldRequired(v.type, "windowCount") && !errors.windowCount) {
       const windows = Number(v.windowCount);
       if (v.windowCount.trim() === "" || !Number.isInteger(windows) || windows < 0 || windows > 100) {
         errors.windowCount = "Укажите количество окон";

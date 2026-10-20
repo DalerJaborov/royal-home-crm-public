@@ -22,6 +22,8 @@ export interface StoredDraftFile {
   size: number;
   /** Чужого агента (общий браузер/устройство) не подхватываем при чтении. */
   agentId: string;
+  /** Absent only for files stored by a build before draft session identities. */
+  draftId?: string | null;
   blob: Blob;
 }
 
@@ -96,7 +98,22 @@ export async function readAllDraftFiles(agentId: string): Promise<StoredDraftFil
   return all.filter((f) => f.agentId === agentId);
 }
 
-/** Забыть все файлы черновика — после успешного создания объекта или «начать заново». */
-export async function clearAllDraftFiles(): Promise<void> {
-  await tx("readwrite", (s) => s.clear() as unknown as IDBRequest<undefined>);
+/** Clear one actor and one draft generation. A shared browser may still contain
+ * another employee's offline files, or recoverable files from an older draft. */
+export async function clearAllDraftFiles(agentId: string, draftId: string | null): Promise<void> {
+  const db = await openDb();
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction(STORE, "readwrite");
+    const cursorRequest = transaction.objectStore(STORE).openCursor();
+    cursorRequest.onsuccess = () => {
+      const cursor = cursorRequest.result;
+      if (!cursor) return;
+      const record = cursor.value as StoredDraftFile;
+      if (record.agentId === agentId && (record.draftId ?? null) === draftId) cursor.delete();
+      cursor.continue();
+    };
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error ?? new Error("Не удалось удалить локальные файлы черновика"));
+    transaction.onabort = () => reject(transaction.error ?? new Error("Удаление локальных файлов прервано"));
+  });
 }

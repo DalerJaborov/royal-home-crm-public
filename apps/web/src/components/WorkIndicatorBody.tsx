@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { AlertTriangle, FilePenLine, UploadCloud } from "lucide-react";
+import { AlertTriangle, UploadCloud } from "lucide-react";
 import { pluralizeRu } from "@royal-home/shared";
 import { useDraftMedia, summarizeDraftMedia } from "../hooks/useDraftMedia";
 import { useUploadSummary } from "../hooks/useUploadQueue";
@@ -9,13 +9,9 @@ import { describeDraftProgress } from "../lib/draftProgressLabel";
 /**
  * Тело единого указателя (см. WorkIndicator.tsx).
  *
- *  • ЧЕРНОВИК ОБЪЕКТА. Пока у агента есть незавершённый черновик «Новый объект»
- *    (на сервере или в очереди файлов), постоянная плашка с «Продолжить»:
- *    «Черновик объекта: файлы 3 из 5», а когда всё доехало — «Черновик объекта
- *    ждёт». Агент может закрыть мастер в любой момент до «Сохранить», пойти за
- *    информацией и вернуться; плашка — напоминание, если забыл (владелец
- *    07.10.2026). Не показывается в самом мастере: там те же файлы уже видны
- *    плитками и финальным экраном.
+ *  • ЧЕРНОВИК ОБЪЕКТА. Плашка показывает загрузку файлов и ошибки. Сохранённый
+ *    черновик доступен через PropertyDraftShortcut в каталоге объектов.
+ *    В самом мастере файлы уже видны плитками и финальным экраном.
  *  • ОЧЕРЕДЬ КАРТОЧКИ объекта показывается ТОЛЬКО на `/properties/new`: на
  *    остальных экранах её рисует UploadIndicator в AppLayout, и два указателя с
  *    одним текстом — дубль.
@@ -57,9 +53,6 @@ export function WorkIndicatorBody() {
     failed = true;
     label = `Черновик объекта: не загрузилось ${summary.failed} ${pluralizeRu(summary.failed, ["файл", "файла", "файлов"])}`;
     resumeLink = true;
-  } else {
-    label = "Черновик объекта ждёт";
-    resumeLink = true;
   }
 
   if (!label) return null;
@@ -75,10 +68,8 @@ export function WorkIndicatorBody() {
       <div className="flex items-center gap-2 text-[15px]">
         {failed ? (
           <AlertTriangle className="h-4 w-4 shrink-0 text-red" aria-hidden />
-        ) : showBar ? (
-          <UploadCloud className="h-4 w-4 shrink-0 text-blue" aria-hidden />
         ) : (
-          <FilePenLine className="h-4 w-4 shrink-0 text-blue" aria-hidden />
+          <UploadCloud className="h-4 w-4 shrink-0 text-blue" aria-hidden />
         )}
         <span className={"min-w-0 flex-1 truncate font-medium" + (failed ? " text-red" : "")}>{label}</span>
         {resumeLink && (

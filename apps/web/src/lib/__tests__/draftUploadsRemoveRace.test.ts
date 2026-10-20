@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { adoptTestDraftSession } from "./draftSessionFixture";
 
 /**
  * Убранное в мастере фото не попадает в объект (аудит Codex 04.10.2026, WEB-04).
@@ -60,6 +61,7 @@ beforeEach(() => {
   FakeXHR.sent = [];
   vi.stubGlobal("XMLHttpRequest", FakeXHR);
   vi.stubGlobal("navigator", { onLine: true });
+  return adoptTestDraftSession();
 });
 afterEach(() => {
   vi.useRealTimers();
