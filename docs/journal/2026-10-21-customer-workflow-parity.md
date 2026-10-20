@@ -18,8 +18,16 @@ property facts. Existing lead distribution and working hours are reused.
 This change adds no emergency handover or alternative reply provider. Existing
 permissions and rollout percentage are not changed by source registration.
 
+Read-only conversational continuity follows the actual immutable owner-approved
+revision chain for the same CORE DM assignment. It carries literal customer
+words across versions while preserving namespace, credential, ownership and
+binding checks. Historical assistant promises, media interpretations, action
+consent and delivery authority are not renewed. The ordinary strict memory
+fence remains unchanged for current sources and accepted assistant output.
+
 Normal PostgreSQL regression scenarios cover lane separation, accepted name
 questions, contact-to-CRM continuity and uncertain delivery. Verification is
-pending CI; source checks, full API verification, release and production adoption
+pending full CI; targeted PostgreSQL checks and API compilation passed during
+development. Source checks, full API verification, release and production adoption
 are separate evidence. No customer transcripts or private operational reports
 are included in this change.
