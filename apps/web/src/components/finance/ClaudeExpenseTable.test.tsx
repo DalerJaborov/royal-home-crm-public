@@ -12,6 +12,13 @@ function renderTable(onEdit=vi.fn()) {h.cursor=0;return ClaudeExpenseTable({mont
 function elements(node:ReactNode): import("react").ReactElement<Record<string,unknown>>[] {return Children.toArray(node).flatMap(child=>isValidElement<Record<string,unknown>>(child)?[child,...elements(child.props.children as ReactNode)]:[]);}
 beforeEach(()=>{h.values=[];h.cursor=0;h.requests=[];vi.clearAllMocks();});
 describe("readonly expense table",()=>{
+ it("explains payment-date scope while retaining the exact date-bounded server query",()=>{
+  const tree=renderTable();
+  expect(elements(tree).find(element=>element.type==='p' && element.props.children==='Таблица учитывает расходы с указанной датой платежа. Записи, где известен только месяц, смотрите во вкладке «Расходы».')).toBeDefined();
+  expect(h.requests).toEqual([{from:"2026-10-01",to:"2026-10-31",sortBy:"date",sortDirection:"desc",page:1,pageSize:50}]);
+  expect(h.remove).not.toHaveBeenCalled();expect(h.telegram).not.toHaveBeenCalled();
+ });
+
  it("requests actual server pagination and keeps expense details available without mutation controls",()=>{
   const onEdit=vi.fn();const controls=buttons(renderTable(onEdit));
   expect(h.requests.at(-1)).toMatchObject({from:"2026-10-01",to:"2026-10-31",page:1,pageSize:50});
