@@ -192,12 +192,19 @@ describe("all contact channels protect the inactive lifecycle", () => {
     } });
     expect((await collectFacts(c.id)).showing).toBe(false);
   });
-  it("an archived status is not silently reopened by the temperature engine", () => {
+  it("an archived status is not reopened by a delayed analysis without fresh client contact", () => {
     expect(decideStatus({ id: "test", status: "ARCHIVED", createdAt: OLD, acceptedAt: OLD,
       statusSetManuallyAt: null, hotSince: null }, {
       talked: true, clientReplied: true, showing: true, activeDeal: false, dealClosed: false,
-      noAnswerStreak: 0, lastEventAt: NOW, lastClientActivityAt: NOW,
+      noAnswerStreak: 0, lastEventAt: NOW, lastClientActivityAt: OLD,
     }, NOW)).toBeNull();
+  });
+  it("an archived client who really replies again can return to contact", () => {
+    expect(decideStatus({ id: "test", status: "ARCHIVED", createdAt: OLD, acceptedAt: OLD,
+      statusSetManuallyAt: null, hotSince: null }, {
+      talked: true, clientReplied: true, showing: false, activeDeal: false, dealClosed: false,
+      noAnswerStreak: 0, lastEventAt: NOW, lastClientActivityAt: NOW,
+    }, NOW)).toBe("CONTACTED");
   });
   it("a closed deferred client does not return to active work on a timer", async () => {
     const c = await client();

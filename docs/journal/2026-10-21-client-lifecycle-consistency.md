@@ -15,6 +15,8 @@ records start a fresh cycle rather than being charged for an unknown past period
 The retention sweep also checks recent contact and outstanding return offers.
 A failed conditional write no longer leaves a phantom transition in the stage
 journal when another writer changed the card after the hook's initial read.
+An archive is not reopened by a delayed analysis without recent client contact;
+fresh actual contact can still revive it through the temperature engine.
 
 The client header and rows use one primary lifecycle label on desktop and mobile.
 The same presentation is used in other inquiries, property-match candidates and

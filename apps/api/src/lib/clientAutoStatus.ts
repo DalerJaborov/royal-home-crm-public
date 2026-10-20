@@ -77,7 +77,7 @@ const AI_SCORE_HOT_THRESHOLD = 70;
 const DAY = 86_400_000;
 
 /** Статусы, которые автоматика не переписывает никогда. */
-const FROZEN: ClientStatus[] = ["LOST", "DEAL_CLOSED", "ARCHIVED"];
+const FROZEN: ClientStatus[] = ["LOST", "DEAL_CLOSED"];
 
 export interface AutoStatusInput {
   id: string;
@@ -123,6 +123,10 @@ export function decideStatus(client: AutoStatusInput, facts: AutoStatusFacts, no
   if (client.statusSetManuallyAt && now.getTime() - client.statusSetManuallyAt.getTime() < MANUAL_HOLD_DAYS * DAY) {
     return null;
   }
+  // A delayed analysis or system note cannot reopen an archive. A genuine new
+  // client reply/call can: archiving for silence must not be a permanent lock.
+  if (client.status === "ARCHIVED" && (!facts.lastClientActivityAt ||
+    now.getTime() - facts.lastClientActivityAt.getTime() >= COLD_AFTER_DAYS * DAY)) return null;
 
   const next = ((): ClientStatus => {
     if (facts.dealClosed) return "DEAL_CLOSED";
