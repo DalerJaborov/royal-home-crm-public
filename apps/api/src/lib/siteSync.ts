@@ -123,6 +123,14 @@ function toSitePayload(property: SyncableProperty, usdToTjsRate: number | null) 
     lat: toNum(property.lat) ?? undefined,
     lng: toNum(property.lng) ?? undefined,
     instagramUrl: property.instagramUrl ?? undefined,
+    // Номер карточки CRM (19.10.2026): сайт хранит и показывает его, а его Meta Pixel
+    // шлёт этот же номер как content_ids — совпадение с home_listing_id фида каталога
+    // (lib/metaCatalogFeed.ts) даёт ретаргетинг. Менять оба места сразу или ни одно.
+    // Единственное место сборки снимка: все пути (publish из карточки, досылка
+    // site-resync, массовая публикация, одобрение уведомлений сайта) идут через
+    // syncPropertiesToSite -> toSitePayload; уже опубликованным строкам номер
+    // доезжает скриптом lib/backfillSiteShortIds.ts.
+    shortId: property.shortId,
   };
 }
 

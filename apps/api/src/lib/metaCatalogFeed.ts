@@ -216,6 +216,9 @@ export function buildHomeListingRows(
       property.siteListingId != null ? `${siteBase}/listing/${property.siteListingId}` : `${siteBase}/listing/by-crm/${property.id}`;
 
     rows.push({
+      // Сайт шлёт этот же shortId как content_ids в Meta Pixel (репозиторий
+      // jabarovdaler/royal-home-website, функция metaContentId) — по совпадению Meta
+      // связывает просмотры с объявлением. Менять оба места сразу или ни одно.
       home_listing_id: String(property.shortId),
       name: property.title,
       description: property.description ?? "",
