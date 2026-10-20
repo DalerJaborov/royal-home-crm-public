@@ -1,6 +1,6 @@
 import { parseShortCode } from "@royal-home/shared";
 import { prisma } from "../../db.js";
-import { extractMentionedPropertyNumber } from "../../ai/propertyMentionGuard.js";
+import { mentionedCardNumber } from "../propertyMentionFromText.js";
 import { toSearchTokens, toTokenVariants } from "../searchTokens.js";
 
 /**
@@ -34,7 +34,7 @@ export async function resolveCallPropertyHint(hint: string | null | undefined): 
   // в адресе) номером объекта не считается.
   // Код клиента («ПК-000475») — не номер объекта, поэтому приставка только «ОБ».
   const byCode = /^(?:об|ob)?[-\s]?\d{1,9}$/i.test(text) ? parseShortCode(text) : null;
-  const mentioned = byCode ?? Number(extractMentionedPropertyNumber(text) ?? NaN);
+  const mentioned = byCode ?? Number(mentionedCardNumber(text) ?? NaN);
   if (Number.isSafeInteger(mentioned) && mentioned > 0) {
     const byShortId = await prisma.property.findFirst({
       where: { shortId: mentioned, deletedAt: null, status: { in: ["AVAILABLE", "RESERVED"] } },

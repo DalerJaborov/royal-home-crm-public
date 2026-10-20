@@ -291,6 +291,10 @@ export async function syncPropertiesToSite(
 
   const items = properties.map((p) => ({
     externalId: p.id,
+    // Website itemSchema reads this beside externalId for every action.
+    // Putting it inside data silently drops it during Zod parsing.
+    // The same number is home_listing_id in the Meta catalogue feed.
+    shortId: p.shortId,
     // Объект, созданный на САЙТЕ, не имеет там строки с этим externalId — сайт
     // найдёт его по siteListingId. Иначе «снять с публикации»/«продано» уходили в
     // никуда (сайт искал по externalId и не находил).

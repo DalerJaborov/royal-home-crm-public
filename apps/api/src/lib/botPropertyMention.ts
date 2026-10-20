@@ -1,5 +1,6 @@
 import { BW, EW } from "../ai/wordBoundary.js";
-import { extractMentionedPropertyNumber } from "../ai/propertyMentionGuard.js";
+import { prisma } from "../db.js";
+import { readPropertyMention } from "./propertyMentionFromText.js";
 import { identifyProperty } from "./propertyMatch.js";
 import { resolveCallPropertyHint } from "./telephony/resolveCallProperty.js";
 
@@ -74,12 +75,38 @@ export interface BotDraftClues {
 }
 
 /**
+ * id объекта, который клиент назвал ССЫЛКОЙ на наш сайт или НОМЕРОМ (19.10.2026).
+ * Ссылка сильнее номера, а число из /listing/<n> — id сайта, не номер карточки
+ * (разбор — lib/propertyMentionFromText.ts). Единственная точка для чата Meta,
+ * Telegram и описания: расхождения между каналами тут быть не может.
+ * Статус проверяем так же, как у голого номера (П-13): проданный объект «хозяина» не даёт.
+ */
+export async function resolveMentionedPropertyId(text: string): Promise<string | null> {
+  const mention = readPropertyMention(text);
+  if (mention.crmId) {
+    const byCrmId = await prisma.property.findFirst({
+      where: { id: mention.crmId, deletedAt: null, status: { in: ["AVAILABLE", "RESERVED"] } },
+      select: { id: true },
+    });
+    if (byCrmId) return byCrmId.id;
+  }
+  if (mention.siteListingId != null) {
+    const bySiteId = await prisma.property.findFirst({
+      where: { siteListingId: mention.siteListingId, deletedAt: null, status: { in: ["AVAILABLE", "RESERVED"] } },
+      select: { id: true },
+    });
+    if (bySiteId) return bySiteId.id;
+  }
+  return mention.number ? resolveCallPropertyHint(mention.number) : null;
+}
+
+/**
  * id объекта, если клиент назвал его номером или уверенно описал объявление;
  * иначе null. Не бросает: узнавание — подсказка раздаче, а не условие ответа.
  */
 export async function resolveBotPropertyMention(text: string, draft: BotDraftClues): Promise<string | null> {
-  const number = extractMentionedPropertyNumber(text);
-  if (number) return resolveCallPropertyHint(number);
+  const named = await resolveMentionedPropertyId(text);
+  if (named) return named;
   if (!mentionsSeenListing(text)) return null;
   const place = placePhrases(text);
   if (!place) return null;

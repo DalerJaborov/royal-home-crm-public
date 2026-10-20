@@ -76,9 +76,7 @@ import { detectClientLanguage } from "../ai/clientLanguage.js";
 // каналах Meta (messengers/conversation.ts). Ночная проверка 24.09.2026 (№2):
 // в Telegram оба сигнала не распознавались вовсе, см. finishTelegramQualifyTurn.
 import { detectRequestedAgent, requestedAgentNote, requestedAgentNotice } from "../lib/requestedAgent.js";
-import { extractMentionedPropertyNumber } from "../ai/propertyMentionGuard.js";
-import { resolveCallPropertyHint } from "../lib/telephony/resolveCallProperty.js";
-import { resolveBotPropertyMention } from "../lib/botPropertyMention.js";
+import { resolveBotPropertyMention, resolveMentionedPropertyId } from "../lib/botPropertyMention.js";
 import {
   answerCallbackQuery,
   removeKeyboard,
@@ -680,10 +678,7 @@ export async function finishTelegramQualifyTurn(params: {
    * в handleClientMessages).
    */
   const requestedAgent = await detectRequestedAgent(text);
-  const mentionedPropertyNumber = extractMentionedPropertyNumber(text);
-  const mentionedPropertyId = mentionedPropertyNumber
-    ? await resolveCallPropertyHint(mentionedPropertyNumber)
-    : null;
+  const mentionedPropertyId = await resolveMentionedPropertyId(text);
   // `text` — слова самого клиента: по ним код отсекает аренду, не полагаясь на
   // то, что модель прочла запрет в промте (см. ai/rentGuard.ts).
   const mergedDraft = mergeDraft(draft, turn, text);

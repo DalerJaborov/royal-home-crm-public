@@ -181,6 +181,15 @@ describe("sharedMediaHint — бот понимает, о какой кварт�
     expect(out).toContain("Отвечай про ЭТОТ объект");
   });
 
+  it("«объект №N» + /listing/N, которой нет в CRM: N — id сайта, чужая карточка №N не подставляется", async () => {
+    // Кнопка WhatsApp на сайте (19.10.2026): число в тексте и в ссылке — одно и то же, id объявления сайта.
+    expect(siteListingId).not.toBe(propertyShortId);
+    const out = await sharedMediaHint({
+      text: `Интересует объект №${propertyShortId} https://royalhome.tj/listing/${propertyShortId}`,
+    });
+    expect(out).not.toContain(`объект №${propertyShortId}`);
+  });
+
   it("объект снят с продажи — бот обязан сказать честно", async () => {
     await prisma.property.update({ where: { id: propertyId }, data: { status: "SOLD" } });
     const out = await sharedMediaHint({
