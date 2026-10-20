@@ -14,6 +14,7 @@ import { publicUploadUrl } from "./crmPublicUrl.js";
 import { uploadsDir } from "../upload.js";
 import { logSystemError } from "./systemError.js";
 import { describeError } from "./describeError.js";
+import { fetchFacebookPublish } from "./facebookPublishTransport.js";
 import { prisma } from "../db.js";
 import { isTelegramEnabled, sendVideoFile as sendTelegramVideoFile, TELEGRAM_BOT_SEND_LIMIT_BYTES } from "../telegram/api.js";
 import { parseTelegramChatIds } from "./telegramChats.js";
@@ -660,11 +661,9 @@ export async function publishFacebookVideo(
     // Метка «попытка началась» — ДО отправки, см. FACEBOOK_PENDING_KEY.
     await hooks?.onAttemptStarted?.();
     const url = `https://graph.facebook.com/${GRAPH_VERSION}/${pageId}/videos`;
-    // БЕЗ fetchWithRetry (26.08.2026): POST /videos не идемпотентен, а таймаут не
-    // означает «не дошло» — Meta может принять запрос и доварить его после нашего
-    // обрыва. Ретрай на таймауте давал бы до нескольких КОПИЙ одного видео на
-    // публичной странице. Одна попытка с честным таймаутом; отказ виден модератору.
-    const res = await fetch(url, {
+    // POST не идемпотентен: повторяем только доказанный отказ ДО соединения.
+    // Обрыв ответа/общий таймаут оставляет pending-метку для проверки дубля.
+    const res = await fetchFacebookPublish(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ file_url: videoUrl, description: caption, access_token: token }),
@@ -952,9 +951,9 @@ export async function publishFacebookReel(
   try {
     await hooks?.onAttemptStarted?.();
 
-    // Шаг 1 — БЕЗ fetchWithRetry (не идемпотентен, та же причина, что у
-    // /videos в publishFacebookVideo).
-    const startRes = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${pageId}/video_reels`, {
+    // Каждый шаг повторяется только при отказе ДО соединения; потерянный ответ
+    // не повторяем, как у /videos в publishFacebookVideo.
+    const startRes = await fetchFacebookPublish(`https://graph.facebook.com/${GRAPH_VERSION}/${pageId}/video_reels`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ upload_phase: "start", access_token: token }),
@@ -968,8 +967,8 @@ export async function publishFacebookReel(
       return { channel: "FACEBOOK", ok: false, error: graphErrorMessage(startBody, `HTTP ${startRes.status}`) };
     }
 
-    // Шаг 2 — тоже одной попыткой, та же не-идемпотентность.
-    const uploadRes = await fetch(uploadUrl, {
+    // Повтор загрузки использует тот же контейнер, start заново не вызывается.
+    const uploadRes = await fetchFacebookPublish(uploadUrl, {
       method: "POST",
       headers: { Authorization: `OAuth ${token}`, file_url: videoUrl },
       signal: AbortSignal.timeout(PUBLISH_TIMEOUT_MS),
@@ -985,7 +984,7 @@ export async function publishFacebookReel(
     }
 
     // Шаг 3 — публикуем контейнер.
-    const finishRes = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${pageId}/video_reels`, {
+    const finishRes = await fetchFacebookPublish(`https://graph.facebook.com/${GRAPH_VERSION}/${pageId}/video_reels`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
