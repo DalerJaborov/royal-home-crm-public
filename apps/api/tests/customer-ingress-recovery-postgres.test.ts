@@ -99,12 +99,16 @@ async function childFinalize(eventKey: string, peer: string) {
   } finally { await rm(directory, { recursive: true, force: true }); }
 }
 beforeAll(async () => {
+  // The restarted child has an explicit synthetic key. Seed the parent with
+  // the same key; never depend on a developer/stand encryption environment.
+  vi.stubEnv("SETTINGS_ENCRYPTION_KEY", "1".repeat(64));
   settings = await readSettings();
   rollout = await createCustomerRolloutFixture();
   await prisma.settings.update({ where: { id: "singleton" }, data: { botEnabled: true, metaEnabled: true, botInstagramEnabled: true } });
   a = await account();
 });
 beforeEach(() => {
+  vi.stubEnv("SETTINGS_ENCRYPTION_KEY", "1".repeat(64));
   profileStatus = 200; profileUsername = "synthetic_customer"; duringRead = undefined; fakeGet.mockClear();
   vi.stubGlobal("fetch", fakeGet); vi.stubEnv("IG_PROXY_URL", ""); vi.stubEnv("GEMINI_PROXY_URL", "");
   vi.stubEnv("BOT_PROPERTY_CONTEXT_ENABLED", "0");
