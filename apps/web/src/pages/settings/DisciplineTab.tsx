@@ -39,10 +39,10 @@ export function DisciplineSection() {
       dealStaleSellerDays: String(settings.dealStaleSellerDays ?? 10),
       dealStaleBuyerDays: String(settings.dealStaleBuyerDays ?? 21),
       inactiveGreenPingHours: String(settings.inactiveGreenPingHours ?? 24),
-      inactiveGreenMaxAttempts: String(settings.inactiveGreenMaxAttempts ?? 3),
+      inactiveGreenMaxAttempts: String(settings.inactiveGreenMaxAttempts ?? 5),
       inactiveYellowPingHours: String(settings.inactiveYellowPingHours ?? 48),
       inactiveYellowMaxAttempts: String(settings.inactiveYellowMaxAttempts ?? 2),
-      inactiveRedPingHours: String(settings.inactiveRedPingHours ?? 72),
+      inactiveRedPingHours: String(settings.inactiveRedPingHours ?? 36),
       inactiveRedMaxAttempts: String(settings.inactiveRedMaxAttempts ?? 2),
       inactivateMinAttempts: String(settings.inactivateMinAttempts ?? 2),
       inactivateCooldownHours: String(settings.inactivateCooldownHours ?? 5),
@@ -57,7 +57,10 @@ export function DisciplineSection() {
     (patch) => setForm((f) => ({ ...f, ...patch }) as Record<string, string>)
   );
 
-  const set = (key: string, value: string) => setForm((f) => ({ ...f, [key]: value }));
+  const set = (key: string, value: string) => {
+    setForm((f) => ({ ...f, [key]: value }));
+    setSaved(false);
+  };
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
@@ -96,6 +99,9 @@ export function DisciplineSection() {
   const penalty = Number(form.inactivityPenaltyAfterDays);
   const sellerWarn = Number(form.sellerPropertyMissingWarnDays);
   const sellerCritical = Number(form.sellerPropertyMissingCriticalDays);
+  const trafficHours = (color: "Green" | "Yellow" | "Red") =>
+    Number(form[`inactive${color}PingHours`]) * (Number(form[`inactive${color}MaxAttempts`]) + 1);
+  const invertedTraffic = trafficHours("Green") < trafficHours("Yellow") || trafficHours("Yellow") < trafficHours("Red");
 
   return (
     <form onSubmit={handleSave} style={{ display: "flex", flexDirection: "column", gap: "var(--s4)" }}>
@@ -200,23 +206,38 @@ export function DisciplineSection() {
         <div className="sec-h stack">
           <h2>Светофор неактивных клиентов</h2>
           <span className="note">
-            Как часто напоминать агенту связаться с клиентом, переведённым в Неактивные, и после скольких
-            попыток карточка уходит в Потерянные. Цвет система ставит сама по тому, был ли реальный контакт —
-            эти пороги настраивают темп, не сам цвет
+            Цвет отражает историю отношений: красный — ответа ещё не было, жёлтый — клиент отвечал,
+            зелёный — была встреча или показ. Проверки автоматические, уведомления агенту не отправляются.
+            После указанного числа проверок и ещё одного интервала без контакта клиент уходит в Потерянные.
+            Новый разговор, сообщение или состоявшаяся встреча начинает отсчёт заново.
           </span>
         </div>
+        {settings && <p className="note">
+          Срок без нового контакта: зелёный — {trafficHours("Green")} ч., жёлтый — {trafficHours("Yellow")} ч.,
+          красный — {trafficHours("Red")} ч. При причинах «перестал отвечать», «просил позже» и «другое» срок на 25% короче.
+          Рабочее расписание может отложить проверку; живая сделка и объект продавца в работе защищены от автопотери.
+        </p>}
+        {invertedTraffic && <p className="note" role="status">
+          Сейчас клиент с более глубокой историей отношений может уйти в Потерянные раньше клиента без ответа.
+          Проверьте сроки: зелёному нужно не меньше времени, чем жёлтому, а жёлтому — не меньше, чем красному.
+        </p>}
+        <button type="button" className="btn ghost" disabled={!settings} onClick={() => {
+          set("inactiveGreenPingHours", "24"); set("inactiveGreenMaxAttempts", "5");
+          set("inactiveYellowPingHours", "48"); set("inactiveYellowMaxAttempts", "2");
+          set("inactiveRedPingHours", "36"); set("inactiveRedMaxAttempts", "2");
+        }}>Заполнить сроки по глубине отношений</button>
 
         <div className="grp-lab">Зелёный</div>
         <div className="fgrid">
           <Field
-            label="Напоминать через, часов"
+            label="Интервал проверки, часов"
             value={form.inactiveGreenPingHours}
             min={1}
             max={240}
             onChange={(v) => set("inactiveGreenPingHours", v)}
           />
           <Field
-            label="Максимум попыток"
+            label="Проверок до завершения"
             value={form.inactiveGreenMaxAttempts}
             min={1}
             max={10}
@@ -227,14 +248,14 @@ export function DisciplineSection() {
         <div className="grp-lab">Жёлтый</div>
         <div className="fgrid">
           <Field
-            label="Напоминать через, часов"
+            label="Интервал проверки, часов"
             value={form.inactiveYellowPingHours}
             min={1}
             max={240}
             onChange={(v) => set("inactiveYellowPingHours", v)}
           />
           <Field
-            label="Максимум попыток"
+            label="Проверок до завершения"
             value={form.inactiveYellowMaxAttempts}
             min={1}
             max={10}
@@ -245,14 +266,14 @@ export function DisciplineSection() {
         <div className="grp-lab">Красный</div>
         <div className="fgrid">
           <Field
-            label="Напоминать через, часов"
+            label="Интервал проверки, часов"
             value={form.inactiveRedPingHours}
             min={1}
             max={240}
             onChange={(v) => set("inactiveRedPingHours", v)}
           />
           <Field
-            label="Максимум попыток"
+            label="Проверок до завершения"
             value={form.inactiveRedMaxAttempts}
             min={1}
             max={10}
@@ -268,10 +289,10 @@ export function DisciplineSection() {
             min={1}
             max={10}
             onChange={(v) => set("inactivateMinAttempts", v)}
-            hint="Агент не сможет перевести клиента в Неактивные без причины «отложил» или «думает» раньше этого числа зафиксированных попыток связаться."
+            hint="Для молчания и причины «другое» нужен этот минимум попыток. Для «думает», «отложил» или «просил позже» — хотя бы одна зафиксированная попытка связаться."
           />
           <Field
-            label="Не давать новый лид после слива, часов"
+            label="Пауза выдачи лидов после перевода, часов"
             value={form.inactivateCooldownHours}
             min={0}
             max={72}

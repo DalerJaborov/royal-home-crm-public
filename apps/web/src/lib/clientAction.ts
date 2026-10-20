@@ -43,6 +43,8 @@ type ActionInput = Pick<
 export function clientAction(c: ActionInput, nowMs: number, canAccept: boolean): ClientAction | null {
   // Не назначается агенту, в корзине или скрыт: у такой карточки своё состояние, не дело.
   if (c.kind === "OTHER" || c.deletedAt || c.hiddenReason) return null;
+  if (["LOST", "ARCHIVED", "DEAL_CLOSED"].includes(c.status)) return null;
+  if (c.workStatus && c.workStatus !== "ACTIVE") return null;
 
   if (c.pendingAcceptance) {
     if (canAccept) {
@@ -53,9 +55,6 @@ export function clientAction(c: ActionInput, nowMs: number, canAccept: boolean):
       ? { id: "waiting", tone: "crit", label: "никто не принял", short: "не принят" }
       : { id: "waiting", tone: "warn", label: "ждёт принятия", short: "ждёт принятия" };
   }
-
-  // Пауза («Неактивные», «Отложенные») — работа приостановлена сознательно, дела нет.
-  if (c.workStatus && c.workStatus !== "ACTIVE") return null;
 
   const due = c.nextStep?.nextActionDate;
   if (due && new Date(due).getTime() < nowMs) {

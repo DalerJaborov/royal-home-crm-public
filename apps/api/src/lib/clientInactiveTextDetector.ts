@@ -242,6 +242,8 @@ export async function checkClientInactiveSignal(clientId: string, text: string):
 
     const result = await deactivateClient({
       clientId: client.id,
+      evidenceAt: now,
+      expectedAgentId: client.assignedAgentId,
       // П-10: актор — ИИ, не держатель карточки (см. lib/clientWorkStatus.ts).
       actor: { kind: "ai", source: "client-inactive-text-detector", subjectAgentId: client.assignedAgentId },
       reason,

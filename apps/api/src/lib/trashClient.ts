@@ -34,6 +34,8 @@ export type TrashClientResult =
   | { ok: false; status: 404 | 409; error: string };
 
 export interface TrashClientOptions {
+  /** Background retention must still match the state it inspected. */
+  guardWhere?: Record<string, unknown>;
   /**
    * false — вызывающая сторона сама уведомит держателя, обычно ОДНОЙ сводкой
    * на пачку карточек, а не поштучным пушем на каждую (см.
@@ -116,8 +118,8 @@ export async function trashClient(
   const blocker = await trashBlocker(client.id);
   if (blocker) return { ok: false, ...blocker };
 
-  await prisma.client.update({
-    where: { id: client.id },
+  const updated = await prisma.client.updateMany({
+    where: { id: client.id, deletedAt: null, assignedAgentId: client.assignedAgentId, ...options.guardWhere },
     data: {
       deletedAt: new Date(),
       deletedById: byAgentId,
@@ -127,6 +129,7 @@ export async function trashClient(
       ...(client.assignedAgentId ? { lastAgentId: client.assignedAgentId } : {}),
     },
   });
+  if (updated.count !== 1) return { ok: false, status: 409, error: "Карточка изменилась — обновите её перед удалением" };
 
   /**
    * ПРОВЕРКИ ДУБЛЯ К ЭТОЙ КАРТОЧКЕ ИСТЕКАЮТ СЕЙЧАС (B2 глубокой проверки 02.10.2026).

@@ -1,4 +1,6 @@
 import { prisma } from "../../db.js";
+import { inactiveLevelFields } from "../../lib/inactiveTrafficLight.js";
+import { TERMINAL_CLIENT_STATUSES } from "../../lib/clientContact.js";
 import { changeClientAgent } from "../../lib/changeClientAgent.js";
 import { logTimeline } from "../../lib/timeline.js";
 import { sendPushToAgents } from "../../push.js";
@@ -376,6 +378,7 @@ export async function penalizeMissedFirstCalls(now: Date = new Date()): Promise<
         : "свободных исполнителей не осталось";
       // «Неактивный», не «Потерянный» — см. разбор у первого becameInactive выше в файле.
       const becameInactive = transfersExhausted(client.reassignCount, maxTransfers);
+      const trafficFields = becameInactive ? await inactiveLevelFields(client.id, client.kind, "OTHER", undefined, now) : {};
       /**
        * ЖЁСТКАЯ ИНТЕГРАЦИЯ ЗАКОНА (17.09.2026) — раньше здесь стоял прямой
        * `prisma.$transaction([client.update, interaction.create])` мимо
@@ -414,10 +417,11 @@ export async function penalizeMissedFirstCalls(now: Date = new Date()): Promise<
             escalatedAt: now,
             triedAgentIds: triedNow,
             ...(becameInactive
-              ? { workStatus: "INACTIVE" as const, ...(client.assignedAgentId ? { lastAgentId: client.assignedAgentId } : {}) }
+              ? { workStatus: "INACTIVE" as const, ...trafficFields, ...(client.assignedAgentId ? { lastAgentId: client.assignedAgentId } : {}) }
               : {}),
           },
-          guardWhere: { assignedAgentId: agentId, acceptedAt: client.acceptedAt, escalatedAt: null },
+          guardWhere: { assignedAgentId: agentId, acceptedAt: client.acceptedAt, escalatedAt: null,
+            workStatus: "ACTIVE", status: { notIn: [...TERMINAL_CLIENT_STATUSES] } },
           tx,
         });
         if (changed.ok) {

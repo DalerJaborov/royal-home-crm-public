@@ -1,5 +1,5 @@
 import { prisma } from "../db.js";
-import { deactivateClient } from "./clientWorkStatus.js";
+import { deactivateClient, hasNewerContactSince } from "./clientWorkStatus.js";
 import { logSystemError } from "./systemError.js";
 
 /**
@@ -115,13 +115,18 @@ export async function checkNoAnswerStreakForTrafficLight(clientId: string, now: 
       where: { clientId: client.id, type: "CALL", callAttempt: { in: ["TALKED", "NO_ANSWER"] } },
       orderBy: { createdAt: "desc" },
       take: STREAK_THRESHOLD,
-      select: { callAttempt: true },
+      select: { callAttempt: true, createdAt: true },
     });
     if (recent.length < STREAK_THRESHOLD) return;
     if (recent.some((r) => r.callAttempt !== "NO_ANSWER")) return; // TALKED затесался в тройку — серия сброшена
+    // A manual call, held meeting, incoming message or return also breaks a
+    // telephone-only streak. Never apply old attempts to a new work cycle.
+    if (await hasNewerContactSince(client.id, recent[recent.length - 1].createdAt)) return;
 
     const result = await deactivateClient({
       clientId: client.id,
+      expectedAgentId: client.assignedAgentId,
+      evidenceAt: recent[0].createdAt,
       // П-10: серию недозвонов замечает автоматика, не человек и не ИИ-разбор.
       actor: { kind: "system", source: "no-answer-traffic-light", subjectAgentId: client.assignedAgentId },
       reason: "OTHER",

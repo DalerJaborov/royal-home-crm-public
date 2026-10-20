@@ -493,7 +493,7 @@ export async function findTrafficLightSummary(): Promise<{
      * так что фильтр по агенту ниже потерянных больше не отсекает — они
      * копились в светофоре директора как «неактивные в работе у агента».
      */
-    where: { workStatus: "INACTIVE", status: { not: "LOST" }, deletedAt: null, assignedAgentId: { not: null } },
+    where: { workStatus: "INACTIVE", status: { notIn: ["LOST", "ARCHIVED", "DEAL_CLOSED"] }, deletedAt: null, assignedAgentId: { not: null } },
     _count: { _all: true },
   });
 

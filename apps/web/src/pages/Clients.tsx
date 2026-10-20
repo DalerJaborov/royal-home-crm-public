@@ -49,7 +49,9 @@ import { useAuthStore } from "../store/auth";
 import { DuplicatesModal } from "../components/DuplicatesModal";
 import { ClientAvatar } from "../components/ClientAvatar";
 import { isRecentlyReturned } from "../components/ReturnedBadge";
-import { INACTIVE_LEVEL_LABELS, showsInactiveLabel } from "../components/InactiveLevelBadge";
+import { INACTIVE_LEVEL_LABELS } from "../components/InactiveLevelBadge";
+import { ClientStateBadge } from "../components/ClientStateBadge";
+import { clientPrimaryState } from "../lib/clientPrimaryState";
 import { ClientFormModal } from "../components/ClientFormModal";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { MutationError } from "../components/MutationError";
@@ -610,7 +612,6 @@ function ClientsList({ kind = "BUYER" }: { kind?: "BUYER" | "SELLER" | "OTHER" }
                 clean={clean}
                 showKind={searchAcrossKinds || trafficLightDrilldown || allKinds}
                 showAgent={can("clients.viewAll")}
-                showInactive={!inactiveView}
               />
             ))}
           </List>
@@ -840,7 +841,7 @@ function ClientsList({ kind = "BUYER" }: { kind?: "BUYER" | "SELLER" | "OTHER" }
               {hiddenQuery.data.items
                 .filter((c) => c.deletedAt || c.hiddenReason)
                 .map((c) => (
-                  <ClientRow key={c.id} client={c} mobile={mobile} showKind showAgent={false} showInactive={false} inSheet />
+                  <ClientRow key={c.id} client={c} mobile={mobile} showKind showAgent={false} inSheet />
                 ))}
             </List>
           )}
@@ -879,7 +880,6 @@ function ClientRow({
   mobile,
   showKind = false,
   showAgent = false,
-  showInactive = false,
   inSheet = false,
   clean = false,
 }: {
@@ -887,7 +887,6 @@ function ClientRow({
   mobile: boolean;
   showKind?: boolean;
   showAgent?: boolean;
-  showInactive?: boolean;
   /** Строка внутри шторки «Не на виду»: смахивание там конфликтует со смахиванием шторки. */
   inSheet?: boolean;
   clean?: boolean;
@@ -925,14 +924,9 @@ function ClientRow({
    */
 
   const action = clientAction(c, Date.now(), canAcceptRow);
-  const chip = isTrashed ? (
-    <Chip>{c.hiddenReason?.label ?? "В корзине"}</Chip>
-  ) : c.hiddenReason ? (
-    // Состояния «не на виду» (OTHER/LOST/DEAL_CLOSED/ARCHIVED/эскалирован/СБ) приходят
-    // только в срезе «Не на виду» (задание В §f п.1/2); дела у такой карточки нет.
-    <Chip tone="warn" title={c.hiddenReason.detail}>
-      {c.hiddenReason.label}
-    </Chip>
+  const primaryState = clientPrimaryState(c);
+  const chip = primaryState.id !== "status" && primaryState.id !== "pending" ? (
+    <ClientStateBadge client={c} />
   ) : action && action.id !== "accept" ? (
     <Chip tone={action.tone}>{mobile ? action.short : action.label}</Chip>
   ) : null;
@@ -956,7 +950,6 @@ function ClientRow({
           CLIENT_SOURCE_LABELS[c.source],
           showAgent && c.assignedAgent?.fullName ? `Агент ${c.assignedAgent.fullName}` : null,
           isRecentlyReturned(c.returnedAt) ? "вернулся" : null,
-          showInactive && !pending && showsInactiveLabel(c) ? "неактивный" : null,
         ]
   ).filter(Boolean);
 
@@ -1029,7 +1022,7 @@ function ClientRow({
       name={name}
       href={isTrashed ? undefined : `/clients/${c.shortId}`}
       avatar={<ClientAvatar fullName={c.fullName} avatarUrl={c.avatarUrl} size={44} palette="tokens" />}
-      identity={[formatClientCode(c.shortId, c.kind), showKind && c.kind ? CLIENT_KIND_LABELS[c.kind] : null, isRecentlyReturned(c.returnedAt) ? "вернулся" : null, showInactive && !pending && showsInactiveLabel(c) ? "неактивный" : null].filter(Boolean).join(" · ")}
+      identity={[formatClientCode(c.shortId, c.kind), showKind && c.kind ? CLIENT_KIND_LABELS[c.kind] : null, isRecentlyReturned(c.returnedAt) ? "вернулся" : null].filter(Boolean).join(" · ")}
       request={isOther ? [c.phone && !c.phone.includes("•") ? c.phone : null, `в работе ${daysInWork} дн.`].filter(Boolean).join(" · ") : [c.desiredRooms ? `${c.desiredRooms} комн` : null, c.desiredDistrict?.name, budgetShort(c)].filter(Boolean).join(" · ") || "Запрос пока не заполнен"}
       source={CLIENT_SOURCE_LABELS[c.source] ?? c.source}
       nextAction={canAcceptRow ? <Chip tone="warn">Нужно принять лид</Chip> : chip || (!isTrashed && !c.hiddenReason && !pending && (!c.workStatus || c.workStatus === "ACTIVE") && c.nextStep?.nextAction ? <span className="text-[14px] text-ink">{c.nextStep.nextAction}</span> : null)}

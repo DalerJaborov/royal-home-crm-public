@@ -34,6 +34,8 @@ import { REFUSAL_REASON_LABELS, REFUSAL_INITIATOR_LABELS, type RefusalInitiator 
 import { prisma } from "../db.js";
 import { sendPushToAgent } from "../push.js";
 import { logTimeline } from "./timeline.js";
+import { TERMINAL_CLIENT_STATUSES, inactiveExitData } from "./clientContact.js";
+import { publishClientUpdated } from "./livePublish.js";
 
 /** Причины, которые ведут в «Отложенные» вместо обычного «Без сделки». */
 export const DEFERRED_REFUSAL_REASONS: readonly RefusalReason[] = ["EXPENSIVE", "FINANCE_ISSUE", "WRONG_OBJECT"];
@@ -83,9 +85,11 @@ export async function deferClient(input: {
 }): Promise<DeferClientResult> {
   const client = await prisma.client.findFirst({
     where: { id: input.clientId, deletedAt: null },
-    select: { id: true, fullName: true, assignedAgentId: true },
+    select: { id: true, fullName: true, assignedAgentId: true, status: true, workStatus: true },
   });
   if (!client) return { ok: false, error: "Клиент не найден" };
+  if (TERMINAL_CLIENT_STATUSES.some((status) => status === client.status))
+    return { ok: false, error: "Работа с клиентом уже завершена" };
   if (client.assignedAgentId !== input.agentId) {
     return { ok: false, error: "Клиент закреплён за другим агентом" };
   }
@@ -99,10 +103,12 @@ export async function deferClient(input: {
     `Автоматический возврат в работу — ${deferredUntil.toISOString().slice(0, 10)}, или раньше, если клиент напишет/позвонит сам.` +
     (input.comment?.trim() ? ` ${input.comment.trim()}` : "");
 
-  await prisma.$transaction(async (tx) => {
-    await tx.client.update({
-      where: { id: client.id },
+  const written = await prisma.$transaction(async (tx) => {
+    const updated = await tx.client.updateMany({
+      where: { id: client.id, deletedAt: null, assignedAgentId: input.agentId,
+        status: client.status, workStatus: client.workStatus },
       data: {
+        ...inactiveExitData(),
         workStatus: "DEFERRED",
         deferredAt: now,
         deferredReason: input.reason,
@@ -112,6 +118,7 @@ export async function deferClient(input: {
         refusalReason: input.reason,
       },
     });
+    if (updated.count !== 1) return false;
     await logTimeline({
       clientId: client.id,
       actor: { kind: "agent", agentId: input.agentId },
@@ -121,7 +128,10 @@ export async function deferClient(input: {
       voiceNoteTranscript: input.voiceNoteTranscript ?? null,
       tx,
     });
+    return true;
   });
+  if (!written) return { ok: false, error: "Карточка изменилась во время сохранения" };
+  publishClientUpdated({ clientId: client.id, agentIds: [input.agentId], stage: "DEFERRED" });
 
   // Открытые требования (PendingSummary) по клиенту, за которым несколько
   // месяцев никто не будет работать, гасим — тот же приём, что у deactivateClient:
@@ -142,8 +152,8 @@ export async function returnDeferredClientToWork(
   actorAgentId?: string | null
 ): Promise<{ ok: boolean }> {
   const client = await prisma.client.findFirst({
-    where: { id: clientId, deletedAt: null, workStatus: "DEFERRED" },
-    select: { id: true, shortId: true, fullName: true, assignedAgentId: true },
+    where: { id: clientId, deletedAt: null, workStatus: "DEFERRED", status: { notIn: [...TERMINAL_CLIENT_STATUSES] } },
+    select: { id: true, shortId: true, fullName: true, assignedAgentId: true, deferredUntil: true },
   });
   // Отложенный клиент без агента структурно не должен встречаться (deferClient
   // требует agentId на входе) — на всякий случай отказываем явно, а не пишем
@@ -169,13 +179,18 @@ export async function returnDeferredClientToWork(
           : ({ kind: "system", source: "deferredClients.manual", subjectAgentId: assignedAgentId } as const)
         : ({ kind: "client", source: "deferredClients.earlyContact", subjectAgentId: assignedAgentId } as const);
 
-  await prisma.$transaction(async (tx) => {
-    await tx.client.update({
-      where: { id: client.id },
-      data: { workStatus: "ACTIVE", deferredUntil: null, deferredReason: null },
+  const written = await prisma.$transaction(async (tx) => {
+    const updated = await tx.client.updateMany({
+      where: { id: client.id, workStatus: "DEFERRED", deletedAt: null,
+        assignedAgentId, deferredUntil: client.deferredUntil, status: { notIn: [...TERMINAL_CLIENT_STATUSES] } },
+      data: { ...inactiveExitData(), returnedAt: new Date(), deferredUntil: null, deferredReason: null },
     });
+    if (updated.count !== 1) return false;
     await logTimeline({ clientId: client.id, actor, type: "SYSTEM", notes: note, tx });
+    return true;
   });
+  if (!written) return { ok: false };
+  publishClientUpdated({ clientId: client.id, agentIds: [assignedAgentId], stage: "ACTIVE" });
 
   void sendPushToAgent(assignedAgentId, {
     title:
@@ -222,7 +237,7 @@ const DEFERRED_RETURN_BATCH = 200;
  */
 export async function runDeferredClientsReturnTick(now: Date = new Date()): Promise<{ returned: number }> {
   const due = await prisma.client.findMany({
-    where: { workStatus: "DEFERRED", deletedAt: null, deferredUntil: { lte: now } },
+    where: { workStatus: "DEFERRED", deletedAt: null, deferredUntil: { lte: now }, status: { notIn: [...TERMINAL_CLIENT_STATUSES] } },
     orderBy: { deferredUntil: "asc" },
     take: DEFERRED_RETURN_BATCH,
     select: { id: true },

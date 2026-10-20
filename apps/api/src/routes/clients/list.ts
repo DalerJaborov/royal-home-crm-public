@@ -19,6 +19,7 @@ import { fuzzyClientIds } from "../../lib/fuzzySearch.js";
 import { loadSellerPropertyAddresses } from "../../lib/sellerPropertyAnchor.js";
 import { loadLeadReasons } from "../../lib/leadReason.js";
 import { budgetSortKey, computeHiddenReason, maskPhone, presentClient } from "./shared.js";
+import { TERMINAL_CLIENT_STATUSES } from "../../lib/clientContact.js";
 import { clientNamePhoneSafe, phoneSafeText } from "../../lib/clientPhone.js";
 import { dushanbeStartOfToday } from "../../lib/dushanbeTime.js";
 
@@ -259,7 +260,7 @@ listRouter.get("/", requireAuth, async (req, res) => {
    * матрице светофора и список по клику по нему расходились бы. Явно заданный
    * фильтр status сильнее: его выбрал человек.
    */
-  if (workStatus === "INACTIVE" && !status) where.status = { not: "LOST" };
+  if (workStatus === "INACTIVE" && !status) where.status = { notIn: [...TERMINAL_CLIENT_STATUSES] };
   if (inactiveLevel) where.inactiveLevel = inactiveLevel;
   // Раздел «Горячие клиенты»: отказные с заполненной карточкой или после показа.
   if (hot) where.hotSince = { not: null };
@@ -287,6 +288,7 @@ listRouter.get("/", requireAuth, async (req, res) => {
    * оффер — с уже нулевым таймером и без единого шанса, что «Принять» сработает.
    */
   if (pendingAcceptance) {
+    where.AND = [...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []), { workStatus: "ACTIVE" }];
     where.acceptedAt = null;
     where.escalatedAt = null;
     // Те же границы, что у числа «Ждут принятия» (routes/clients/summary.ts,
@@ -889,6 +891,7 @@ listRouter.get("/deferred", requireAuth, async (req, res) => {
   const ownAgentId = scopeToOwnAgent(req);
   const where: Prisma.ClientWhereInput = {
     workStatus: "DEFERRED",
+    status: { notIn: [...TERMINAL_CLIENT_STATUSES] },
     deletedAt: null,
     ...(ownAgentId ? { assignedAgentId: ownAgentId } : {}),
   };

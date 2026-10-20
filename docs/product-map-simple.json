@@ -16,11 +16,11 @@
   "paths": 637,
   "cron": 104,
   "jobs": 29,
-  "conditions": 3455,
-  "untranslatedUnique": 363,
-  "untranslatedTotal": 468,
-  "partialUnique": 1004,
-  "translatedShare": 86
+  "conditions": 3467,
+  "untranslatedUnique": 362,
+  "untranslatedTotal": 467,
+  "partialUnique": 1000,
+  "translatedShare": 87
  },
  "untranslated": [
   "!(SALES_AGENT_ROLES as readonly string[]).includes(agent.role)",
@@ -277,7 +277,6 @@
   "isRepricingClosed && existing.commissionIntakeAmount !== null && existing.commissionRealtorAmount !== null &&…",
   "items.some((i) => i.propertyId === req.params.id)",
   "key&&!/^[A-Za-z0-9:_-]{8,120}$/.test(key)",
-  "last.at.getTime() > cutoff.getTime()",
   "lastAlertDay === today",
   "lastRequestedAt !== undefined && Date.now() - lastRequestedAt < RETRANSCRIBE_LIMIT_MS",
   "leftMs > 5 * 60_000 || leftMs < 0",
@@ -16482,7 +16481,7 @@
      "a": [],
      "c": [
       {
-       "t": "отказ: не нашли: «Клиент не найден»",
+       "t": "отказ: такое уже есть: «Состояние или держатель карточки изменились — обновите карточку»",
        "k": "do",
        "a": [],
        "c": []
@@ -60483,38 +60482,32 @@
          "a": [],
          "c": [
           {
-           "t": "если нет: назначен сотрудник или нет: неактивные level или нет: неактивные since",
+           "t": "если candidates количество — «0»",
            "k": "if",
            "a": [],
            "c": [],
            "more": true
           },
           {
-           "t": "если последний contact at содержит есть id",
-           "k": "if",
+           "t": "и так по каждому",
+           "k": "loop",
            "a": [],
            "c": [],
            "more": true
           },
           {
-           "t": "если due attempt не больше неактивные ping количество",
-           "k": "if",
+           "t": "и так по каждому",
+           "k": "loop",
            "a": [],
            "c": [],
            "more": true
           },
           {
-           "t": "если неактивные ping количество не меньше предел attempts",
+           "t": "если candidates количество меньше 500",
            "k": "if",
            "a": [],
            "c": [],
            "more": true
-          },
-          {
-           "t": "меняет: клиент",
-           "k": "do",
-           "a": [],
-           "c": []
           }
          ]
         }
@@ -65197,51 +65190,22 @@
          "a": [],
          "c": [
           {
-           "t": "если продавцы in work содержит есть id",
+           "t": "если candidates количество — «0»",
            "k": "if",
            "a": [],
            "c": [],
            "more": true
           },
           {
-           "t": "если нет: назначен сотрудник",
+           "t": "и так по каждому",
+           "k": "loop",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если candidates количество меньше 500",
            "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          },
-          {
-           "t": "если нет: последний",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          },
-          {
-           "t": "если роль (последний) не «assistant»",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          },
-          {
-           "t": "если last.at.getTime() > cutoff.getTime()",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "raw": "last.at.getTime() > cutoff.getTime()",
-           "more": true
-          },
-          {
-           "t": "пробует сделать",
-           "k": "try",
-           "a": [],
-           "c": [],
-           "more": true
-          },
-          {
-           "t": "если не получилось",
-           "k": "catch",
            "a": [],
            "c": [],
            "more": true

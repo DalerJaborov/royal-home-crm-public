@@ -6735,10 +6735,10 @@ model Settings {
   /// У каждого уровня свой шаг напоминаний и свой предел попыток — после него карточка
   /// уходит в Потерянные (LOST), как и раньше делали недозвоны у активных лидов.
   inactiveGreenPingHours    Int @default(24)
-  inactiveGreenMaxAttempts  Int @default(3)
+  inactiveGreenMaxAttempts  Int @default(5)
   inactiveYellowPingHours   Int @default(48)
   inactiveYellowMaxAttempts Int @default(2)
-  inactiveRedPingHours      Int @default(72)
+  inactiveRedPingHours      Int @default(36)
   inactiveRedMaxAttempts    Int @default(2)
   /// Сколько РЕАЛЬНЫХ попыток контакта (дозвон или ответ клиента в переписке) нужно
   /// накопить, чтобы разрешить перевод в Неактивные с причиной «перестал отвечать» или

@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **637**. Развилок в самих путях: **2257**; вместе с задачами по расписанию и фоновыми заданиями — **3455**. Модулей: **72**.
+Путей: **637**. Развилок в самих путях: **2257**; вместе с задачами по расписанию и фоновыми заданиями — **3467**. Модулей: **72**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -2644,8 +2644,8 @@
 - const result = await reactivateClient({ clientId: client.id, agentId: client.assignedAgentId });
   · зовёт reactivateClient()
 - если !result.ok
-  - return res.status(404).json({ error: "Клиент не найден" });
-    · ответ 404 — «Клиент не найден»
+  - return res.status(409).json({ error: "Состояние или держатель карточки изменились — обновите карточку" });
+    · ответ 409 — «Состояние или держатель карточки изменились — обновите карточку»
 - logAudit(req, "CLIENT_ACTIVATE", "Client", client.id, {});
   · зовёт logAudit()
 - res.json({ ok: true });
@@ -4490,7 +4490,7 @@
   - where.workStatus = workStatus;
     · дословно из кода
 - если workStatus === "INACTIVE" && !status
-  - where.status = { not: "LOST" };
+  - where.status = { notIn: [...TERMINAL_CLIENT_STATUSES] };
     · дословно из кода
 - если inactiveLevel
   - where.inactiveLevel = inactiveLevel;
@@ -18460,39 +18460,71 @@
         · дословно из кода
     - const settings = await loadTrafficLightSettings();
       · зовёт loadTrafficLightSettings()
-    - const candidates = await prisma.client.findMany({ where: { workStatus: "INACTIVE", status: { not: "LOST" }, i…
-      · читает в базе: client
     - const absent = await absentAgentIds();
       · зовёт absentAgentIds()
-    - const lastContactAt = await lastRealContactAt(live);
-      · зовёт lastRealContactAt()
-    - для каждого: const c of live
-      - если !c.assignedAgentId || !c.inactiveLevel || !c.inactiveSince
-        - continue;
-          · переходит к следующему
-      - если lastContactAt.has(c.id)
-        - const level = await classifyInactiveLevelByDepth( c.id, c.kind, settings.leadCallMinSeconds, );
-          · зовёт classifyInactiveLevelByDepth()
-        - await prisma.client.update({ where: { id: c.id }, data: { inactiveSince: now, inactivePingCount: 0, inactiveL…
-          · меняет в базе: client
-        - если c.inactiveLevel !== "GREEN"
-          - const points = await loadEventPoints();
-            · зовёт loadEventPoints()
-          - void recordScoreEvent({ agentId: c.assignedAgentId, kind, delta: points[kind], reason: `Дозвонился и вывел кл…
-            · зовёт recordScoreEvent()
-        - continue;
-          · переходит к следующему
-      - если dueAttempt <= c.inactivePingCount
-        - continue;
-          · переходит к следующему
-      - если c.inactivePingCount >= maxAttempts
-        - если keepFromLost.has(c.id)
+    - для каждого: ;;
+      - const candidates = await prisma.client.findMany({ where: { ...(afterId ? { id: { gt: afterId } } : {}), workS…
+        · читает в базе: client
+      - если candidates.length === 0
+        - break;
+          · прекращает перебор
+      - для каждого: const c of candidates
+        - если c.inactiveLevel && c.inactiveSince
           - continue;
             · переходит к следующему
-        - continue;
-          · переходит к следующему
-      - await prisma.client.update({ where: { id: c.id }, data: { inactivePingCount: { increment: 1 } }, });
-        · меняет в базе: client
+        - если !c.assignedAgentId || absent.has(c.assignedAgentId)
+          - continue;
+            · переходит к следующему
+        - const level = await classifyInactiveLevelByDepth(c.id, c.kind, settings.leadCallMinSeconds);
+          · зовёт classifyInactiveLevelByDepth()
+        - const repaired = await prisma.client.updateMany({ where: { id: c.id, workStatus: "INACTIVE", status: c.status…
+          · меняет в базе: client
+        - если repaired.count === 1
+          - publishClientUpdated({ clientId: c.id, agentIds: [c.assignedAgentId], stage: "INACTIVE" });
+            · зовёт publishClientUpdated()
+      - const lastContactAt = await lastRealContactAt(live);
+        · зовёт lastRealContactAt()
+      - для каждого: const c of live
+        - если !c.assignedAgentId || !c.inactiveLevel || !c.inactiveSince
+          - continue;
+            · переходит к следующему
+        - если lastContactAt.has(c.id)
+          - const level = await classifyInactiveLevelByDepth( c.id, c.kind, settings.leadCallMinSeconds, );
+            · зовёт classifyInactiveLevelByDepth()
+          - const reset = await prisma.client.updateMany({ where: trafficSnapshotWhere(c), data: { inactiveSince: now, in…
+            · меняет в базе: client
+          - если reset.count !== 1
+            - continue;
+              · переходит к следующему
+          - publishClientUpdated({ clientId: c.id, agentIds: [c.assignedAgentId], stage: "INACTIVE" });
+            · зовёт publishClientUpdated()
+          - если c.inactiveLevel !== "GREEN"
+            - const points = await loadEventPoints();
+              · зовёт loadEventPoints()
+            - void recordScoreEvent({ agentId: c.assignedAgentId, kind, delta: points[kind], reason: `Дозвонился и вывел кл…
+              · зовёт recordScoreEvent()
+          - continue;
+            · переходит к следующему
+        - если dueAttempt <= c.inactivePingCount
+          - continue;
+            · переходит к следующему
+        - если c.inactivePingCount >= maxAttempts
+          - если keepFromLost.has(c.id)
+            - continue;
+              · переходит к следующему
+          - если await promoteToLost(c)
+            - lost++;
+              · дословно из кода
+          - continue;
+            · переходит к следующему
+        - const advanced = await prisma.client.updateMany({ where: trafficSnapshotWhere(c), data: { inactivePingCount: …
+          · меняет в базе: client
+        - если advanced.count !== 1
+          - continue;
+            · переходит к следующему
+      - если candidates.length < 500
+        - break;
+          · прекращает перебор
   - если pinged > 0
     - console.log(`[cron] Светофор неактивных: напоминаний ${pinged}`);
       · пишет строку в журнал сервера
@@ -19244,6 +19276,8 @@
       - если client.reassignCount >= escalateAfter || !nextAgentId
         - const becameInactive = transfersExhausted(client.reassignCount, maxTransfers);
           · зовёт transfersExhausted()
+        - const trafficFields = becameInactive ? await inactiveLevelFields(client.id, client.kind, "OTHER", undefined, …
+          · зовёт inactiveLevelFields()
         - const escalation = await prisma.$transaction(async (tx)
           · всё внутри — одной транзакцией
           - const changed = await changeClientAgent({ clientId: client.id, toAgentId: client.assignedAgentId, reason: `Пе…
@@ -19727,7 +19761,7 @@
 - пробует
   - const { trashed, skipped } = await runLostInactiveTrashSweep();
     · зовёт runLostInactiveTrashSweep()
-    - const candidates = await prisma.client.findMany({ where: { deletedAt: null, OR: [ { status: "LOST", lostAt: {…
+    - const candidates = await prisma.client.findMany({ where: { deletedAt: null, reactivationOfferedToAgentId: nul…
       · читает в базе: client
     - если candidates.length === 0
       - return { trashed: 0, skipped: 0 };
@@ -19736,7 +19770,7 @@
       - await logSystemError( "api", `Автоуборка Потерянных/Неактивных в Корзину: нет ни одного активного агента с ро…
         · запись в журнал ошибок
     - для каждого: const c of candidates
-      - const result = await trashClient(c.id, byAgentId, { notifyHolder: false });
+      - const result = await trashClient(c.id, byAgentId, { notifyHolder: false, guardWhere: { status: c.status, work…
         · зовёт trashClient()
       - если result.ok
         - если c.assignedAgentId
@@ -20989,39 +21023,54 @@
 - пробует
   - const { deactivated } = await runSilentClientAutoDeactivate();
     · зовёт runSilentClientAutoDeactivate()
-    - const candidates = await prisma.client.findMany({ where: { deletedAt: null, workStatus: "ACTIVE", status: { n…
-      · читает в базе: client
-    - const sellersInWork = await sellersWithPropertyInWork( (candidates as SilentCandidate[]) .filter((c)
-      · зовёт sellersWithPropertyInWork()
-    - для каждого: const c of candidates as SilentCandidate[]
-      - если sellersInWork.has(c.id)
-        - continue;
-          · переходит к следующему
-      - если !c.assignedAgentId
-        - continue;
-          · переходит к следующему
-      - если !last
-        - continue;
-          · переходит к следующему
-      - если last.role !== "assistant"
-        - continue;
-          · переходит к следующему
-      - если last.at.getTime() > cutoff.getTime()
-        - continue;
-          · переходит к следующему
-      - пробует
-        - const levelFields = await inactiveLevelFields( c.id, c.kind, "STOPPED_RESPONDING", );
-          · зовёт inactiveLevelFields()
-        - await prisma.$transaction(async (tx)
-          · всё внутри — одной транзакцией
-          · меняет в базе: client
-          - await tx.client.update({ where: { id: c.id }, data: { workStatus: "INACTIVE", ...levelFields, lastAgentId: c.…
+    - для каждого: ;;
+      - const candidates = await prisma.client.findMany({ where: { ...(afterId ? { id: { gt: afterId } } : {}), delet…
+        · читает в базе: client
+      - если candidates.length === 0
+        - break;
+          · прекращает перебор
+      - const sellersInWork = await sellersWithPropertyInWork( (candidates as SilentCandidate[]) .filter((c)
+        · зовёт sellersWithPropertyInWork()
+      - для каждого: const c of candidates as SilentCandidate[]
+        - если sellersInWork.has(c.id)
+          - continue;
+            · переходит к следующему
+        - если !c.assignedAgentId
+          - continue;
+            · переходит к следующему
+        - если !last
+          - continue;
+            · переходит к следующему
+        - если last.role !== "assistant"
+          - continue;
+            · переходит к следующему
+        - если last.at.getTime() > cutoff.getTime()
+          - continue;
+            · переходит к следующему
+        - пробует
+          - const levelFields = await inactiveLevelFields( c.id, c.kind, "STOPPED_RESPONDING", undefined, now, );
+            · зовёт inactiveLevelFields()
+          - const written = await prisma.$transaction(async (tx)
+            · всё внутри — одной транзакцией
             · меняет в базе: client
-          - await logTimeline({ clientId: c.id, actor: { kind: "system", source: "silentClientAutoDeactivate", subjectAge…
-            · зовёт logTimeline()
-      - если сорвалось
-        - await logSystemError( "api", `Автопереход молчаливого клиента в Неактивные (клиент ${c.shortId}) не выполнен:…
-          · запись в журнал ошибок
+            - const updated = await tx.client.updateMany({ where: { id: c.id, deletedAt: null, workStatus: "ACTIVE", status…
+              · меняет в базе: client
+            - если updated.count !== 1
+              - return false;
+                · дословно из кода
+            - await logTimeline({ clientId: c.id, actor: { kind: "system", source: "silentClientAutoDeactivate", subjectAge…
+              · зовёт logTimeline()
+          - если !written
+            - continue;
+              · переходит к следующему
+          - publishClientUpdated({ clientId: c.id, agentIds: [c.assignedAgentId], stage: "INACTIVE" });
+            · зовёт publishClientUpdated()
+        - если сорвалось
+          - await logSystemError( "api", `Автопереход молчаливого клиента в Неактивные (клиент ${c.shortId}) не выполнен:…
+            · запись в журнал ошибок
+      - если candidates.length < 500
+        - break;
+          · прекращает перебор
   - если deactivated
     - console.log(`[cron] Молчаливых клиентов переведено в Неактивные: ${deactivated}`);
       · пишет строку в журнал сервера
