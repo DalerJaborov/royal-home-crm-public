@@ -2,6 +2,25 @@
 
 Guidance for Codex when working in this repository.
 
+## Public repository and cloud releases — 21.10.2026
+
+This repository is `DalerJaborov/royal-home-crm-public` and has fresh cleaned
+history. Prior incident evidence and unfinished private branches remain in the
+private recovery archive. Port reviewed diffs onto a new branch from this
+repository's `origin/main`; do not merge or push the old private history here.
+
+`npm run ship` validates the exact commit on GitHub by default. Backend/shared
+changes and API tests use the complete API suite on 20 standard Linux runners;
+frontend/docs/scripts use the source workflow. Both run builds, frontend tests,
+source guards and release-tool tests in the cloud. The laptop needs Node 24,
+Git and authenticated `gh`; a local PostgreSQL or local build is not required
+for the default release path. `--local-tests` explicitly uses local checks.
+
+Main is protected by required PR checks. Use `npm run ship` to merge CRM changes.
+The public repository is not yet wired to production deployment: a verified
+merge proves source validation, not that the production servers were updated.
+Older self-hosted-runner/deployment descriptions below are historical context.
+
 ## Project
 
 `royal-home-crm` — a CRM built as an npm-workspaces monorepo. Full-stack TypeScript:
