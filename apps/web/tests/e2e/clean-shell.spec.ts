@@ -307,6 +307,82 @@ test("Clean read-only account does not send forbidden presence or event-ticket w
   expect(writes).toEqual([]);
 });
 
+test("Clean client quick actions fit narrow phones without hiding an action", async ({ page }, testInfo) => {
+  test.setTimeout(90_000);
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  await login(page);
+  await page.goto("/clients");
+  const links = page.locator('main a[href]');
+  await expect.poll(() => links.evaluateAll(nodes => nodes.filter(node => /^\/clients\/(?:\d+|[\da-f-]{36})$/.test(node.getAttribute("href") ?? "")).length)).toBeGreaterThan(0);
+  const href = await links.evaluateAll(nodes => nodes.find(node => /^\/clients\/(?:\d+|[\da-f-]{36})$/.test(node.getAttribute("href") ?? ""))?.getAttribute("href"));
+  await page.goto(href!);
+  await expect(page.locator(".clean-client-detail h1")).toBeVisible();
+  const original = await page.locator("html").getAttribute("data-theme");
+  const selectTheme = async (theme: string) => {
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    if (await page.locator("html").getAttribute("data-theme") !== theme) {
+      const saved = page.waitForResponse(response => response.url().endsWith("/me/preferences") && response.request().method() === "PUT");
+      await page.locator("[data-topbar-theme]:visible").first().click();
+      expect((await saved).ok()).toBe(true);
+    }
+    await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+  };
+  try { for (const theme of ["light", "night"]) {
+    await selectTheme(`royal-home-2026-${theme}`);
+    for (const width of [1440, 360, 390, 430]) {
+      await page.setViewportSize({ width, height: 1000 });
+      const actions = page.locator(".cd-actbar .cd-act").filter({ visible: true });
+      await expect(actions).toHaveCount(width < 768 ? 4 : 0);
+      await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+      const metrics = await actions.evaluateAll(nodes => nodes.map(node => {
+        const rect = node.getBoundingClientRect();
+        return { left: rect.left, right: rect.right, height: rect.height, width: rect.width, client: document.documentElement.clientWidth };
+      }));
+      for (const metric of metrics) {
+        expect(metric.left).toBeGreaterThanOrEqual(0);
+        expect(metric.right).toBeLessThanOrEqual(metric.client + 1);
+        expect(metric.height).toBeGreaterThanOrEqual(44);
+        expect(metric.width).toBeGreaterThanOrEqual(44);
+      }
+      await page.evaluate(async () => { await document.fonts.ready; await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))); });
+      await page.screenshot({ path: testInfo.outputPath(`client-actions-${width}-${theme}.png`), fullPage: true });
+    }
+  }
+    // The multi-number chooser is a direct child; a single-number call button
+    // has a relative wrapper. Exercise both real component branches without
+    // writing a phone number to the seed database or making a call.
+    await page.route(/\/api\/v1\/clients\/[^/?]+(?:\?.*)?$/, async route => {
+      if (route.request().method() !== "GET" || new URL(route.request().url()).pathname !== `/api/v1${href}`) return route.fallback();
+      const response = await route.fetch(); expect(response.ok()).toBe(true);
+      const client = await response.json();
+      await route.fulfill({ json: { ...client, whatsappPhone: "+992900000099" } });
+    });
+    await page.reload();
+    for (const theme of ["light", "night"]) {
+      await selectTheme(`royal-home-2026-${theme}`);
+      await page.setViewportSize({ width: 360, height: 1000 });
+      const directActions = page.locator(".cd-actbar > .cd-act").filter({ visible: true });
+      await expect(directActions).toHaveCount(4);
+      const bounds = await directActions.evaluateAll(nodes => nodes.map(node => {
+        const rect = node.getBoundingClientRect(); return { left: rect.left, right: rect.right, height: rect.height, width: rect.width, client: document.documentElement.clientWidth };
+      }));
+      for (const rect of bounds) { expect(rect.left).toBeGreaterThanOrEqual(0); expect(rect.right).toBeLessThanOrEqual(rect.client + 1); expect(rect.height).toBeGreaterThanOrEqual(44); expect(rect.width).toBeGreaterThanOrEqual(44); }
+      await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+    }
+    await page.goto("/finance?workspace=table");
+    await expect(page.getByText("Таблица учитывает расходы с указанной датой платежа. Записи, где известен только месяц, смотрите во вкладке «Расходы».", { exact: true })).toBeVisible();
+    await expect(page.locator('.cef-table [aria-busy="true"]')).toHaveCount(0);
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: 1000 });
+      await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+      await page.evaluate(async () => { await document.fonts.ready; await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))); });
+      await page.screenshot({ path: testInfo.outputPath(`money-table-${width}.png`), fullPage: true });
+    }
+    expect(errors).toEqual([]);
+  } finally { if (original) await selectTheme(original); }
+});
+
 test("Clean mobile detail keeps the client's identifying heading visible", async ({ page }) => {
   await login(page);
   await page.setViewportSize({ width: 390, height: 1000 });

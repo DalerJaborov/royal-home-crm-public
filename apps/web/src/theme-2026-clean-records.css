@@ -6,6 +6,10 @@ html[data-shell="clean"] .clean-client-sections [role="tabpanel"] { outline-offs
 html[data-shell="clean"] .clean-client-detail :is(.cd-acts,.acts) { gap:8px; }
 html[data-shell="clean"] .clean-client-detail .cd-acts { display:flex; flex-wrap:wrap; padding:12px; border:0; background:var(--c-card); border-radius:18px; }
 html[data-shell="clean"] .clean-client-detail .cd-act { flex:1 0 90px; min-height:48px; border:0; border-radius:14px; background:rgb(var(--rgb-accent) / .08); color:rgb(var(--rgb-accent)); }
+@media(max-width:767px) {
+ html[data-shell="clean"] .clean-client-detail .cd-actbar > :is(.cd-act,.relative:has(> .cd-act)) { flex:1 1 0; min-width:0; }
+ html[data-shell="clean"] .clean-client-detail .cd-actbar > .relative > .cd-act { width:100%; }
+}
 html[data-shell="clean"] .clean-property-detail { align-items:start; }
 html[data-shell="clean"] .clean-property-summary { border-radius:24px; box-shadow:none; }
 html[data-shell="clean"] .clean-property-slot .rh-gallery { overflow:hidden; border-radius:24px; }
