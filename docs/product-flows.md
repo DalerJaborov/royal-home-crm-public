@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **638**. Развилок в самих путях: **2278**; вместе с задачами по расписанию и фоновыми заданиями — **3476**. Модулей: **72**.
+Путей: **638**. Развилок в самих путях: **2278**; вместе с задачами по расписанию и фоновыми заданиями — **3505**. Модулей: **72**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -18075,6 +18075,66 @@
     - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
       · запись в журнал ошибок
 
+### customer-inbox-jobs — */5 * * * * *
+
+- await runCustomerJobsTick("inbox");
+  · зовёт runCustomerJobsTick()
+  - если stopping || customerBusy[lane]
+    - return 0;
+      · дословно из кода
+  - пробует
+    - const [job] = await prisma.$queryRaw<BackgroundJob[]>` UPDATE "BackgroundJob" SET status = 'RUNNING', "locked…
+      · обращается к базе своим SQL
+    - если !job
+      - return 0;
+        · дословно из кода
+    - если stopping
+      - await prisma.backgroundJob.updateMany({ where: { id: job.id, status: "RUNNING" }, data: { status: "PENDING", …
+        · меняет в базе: backgroundJob
+  - в любом случае
+    - customerBusy[lane] = false;
+      · дословно из кода
+
+### customer-intake-jobs — */5 * * * * *
+
+- await runCustomerJobsTick("intake");
+  · зовёт runCustomerJobsTick()
+  - если stopping || customerBusy[lane]
+    - return 0;
+      · дословно из кода
+  - пробует
+    - const [job] = await prisma.$queryRaw<BackgroundJob[]>` UPDATE "BackgroundJob" SET status = 'RUNNING', "locked…
+      · обращается к базе своим SQL
+    - если !job
+      - return 0;
+        · дословно из кода
+    - если stopping
+      - await prisma.backgroundJob.updateMany({ where: { id: job.id, status: "RUNNING" }, data: { status: "PENDING", …
+        · меняет в базе: backgroundJob
+  - в любом случае
+    - customerBusy[lane] = false;
+      · дословно из кода
+
+### customer-outbox-jobs — */5 * * * * *
+
+- await runCustomerJobsTick("outbox");
+  · зовёт runCustomerJobsTick()
+  - если stopping || customerBusy[lane]
+    - return 0;
+      · дословно из кода
+  - пробует
+    - const [job] = await prisma.$queryRaw<BackgroundJob[]>` UPDATE "BackgroundJob" SET status = 'RUNNING', "locked…
+      · обращается к базе своим SQL
+    - если !job
+      - return 0;
+        · дословно из кода
+    - если stopping
+      - await prisma.backgroundJob.updateMany({ where: { id: job.id, status: "RUNNING" }, data: { status: "PENDING", …
+        · меняет в базе: backgroundJob
+  - в любом случае
+    - customerBusy[lane] = false;
+      · дословно из кода
+
 ### daily-kpi — 5 0 * * *
 
 - пробует
@@ -23404,6 +23464,138 @@
   · обращается к базе своим SQL
 - когда попытки кончились
   - await logSystemError("background-jobs", "Уведомление о записанной просьбе клиента не подтверждено; задача ост…
+    · запись в журнал ошибок
+    - если isShuttingDown()
+      - console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…
+        · пишет строку в журнал сервера
+      - return;
+        · дальше не идёт, ничего не меняя
+    - пробует
+      - const recent = await prisma.errorLog.findFirst({ where: { source, ...sameKind, ...(scope ? { message: { conta…
+        · читает в базе: errorLog
+      - если recent
+        - return;
+          · дальше не идёт, ничего не меняя
+      - const everSeen = await prisma.errorLog.findFirst({ where: { source, ...sameKind }, select: { id: true }, });
+        · читает в базе: errorLog
+      - await prisma.errorLog.create({ data: { source, message: text, dedupKey: explicitKey, url: context?.url?.slice…
+        · создаёт в базе: errorLog
+      - если !everSeen && !context?.silent
+        - пробует
+        - если сорвалось
+    - если сорвалось
+      - console.error(`[systemError] ${source}: ${String(message).slice(0, 1000)} (запись в журнал не удалась: ${err …
+        · пишет строку в журнал сервера
+
+### customer-contact-intake
+
+`apps/api/src/jobs/customerContactIntake.ts`
+
+- const result = await createCustomerLeadAfterContactAction(payload.actionId);
+  · зовёт createCustomerLeadAfterContactAction()
+  - пробует
+    - const source = await prisma.customerAction.findUnique({ where: { id: actionId } });
+      · читает в базе: customerAction
+    - если !source || source.kind !== "contact" || source.status !== "COMMITTED" || source.supersededAt || !source.commi…
+      - return { status: "denied", reason: "committed_contact_action_required" };
+        · дословно из кода
+    - const inquiry = await prisma.customerInquiry.findUnique({ where: { id: source.inquiryId }, select: { lastAcce…
+      · читает в базе: customerInquiry
+    - если !inquiry?.lastAcceptedEventKey
+      - return { status: "stale", reason: "current_input_missing" };
+        · дословно из кода
+    - const recovered = await recoverAuthenticatedCustomerInput(inquiry.lastAcceptedEventKey);
+      · зовёт recoverAuthenticatedCustomerInput()
+    - если recovered.status !== "recovered"
+      - return { status: "stale", reason: "original_input_unavailable" };
+        · дословно из кода
+    - const current = inspectAuthenticatedCustomerInput(recovered.input);
+      · зовёт inspectAuthenticatedCustomerInput()
+    - const snapshot = await loadAcceptedCustomerState(recovered.ticket);
+      · зовёт loadAcceptedCustomerState()
+    - если !current || !snapshot || !snapshot.capabilities.newLeadBridge || snapshot.publicState.topic === "job" || curr…
+      - return { status: "stale", reason: "current_intake_context_required" };
+        · дословно из кода
+    - const ticket = await prisma.customerPropertyIngressTicket.findUnique({ where: { eventKey: recovered.ticket.ev…
+      · читает в базе: customerPropertyIngressTicket
+    - если !ticket || !["PLANNED", "HELD", "FAILED"].includes(ticket.processingState ?? "") || ticket.leaseOwner || tick…
+      - return { status: "unavailable", reason: "turn_not_settled" };
+        · дословно из кода
+    - const row = await prisma.customerInquiry.findUnique({ where: { id: snapshot.fence.inquiryId }, select: { clai…
+      · читает в базе: customerInquiry
+    - const contact = customerClaimedContactSchema.safeParse(row?.claimedContact), intents = customerActionIntentsS…
+      · проверяет данные схемой customerClaimedContactSchema
+    - если !contact.success || !contact.data.name || !contact.data.phone || !intent || intent.status !== "committed" || …
+      - return { status: "denied", reason: "complete_committed_contact_required" };
+        · дословно из кода
+    - const saved = await prisma.customerAction.findFirst({ where: { inquiryId: snapshot.fence.inquiryId, kind: "co…
+      · читает в базе: customerAction
+    - если !contactEventKey
+      - return { status: "denied", reason: "owned_contact_receipt_required" };
+        · дословно из кода
+    - const history = await prisma.customerPropertyIngressTicket.findMany({ where: { conversationId: recovered.tick…
+      · читает в базе: customerPropertyIngressTicket
+    - для каждого: const item of history.reverse()
+      - пробует
+        - если !item.originCiphertext
+          - continue;
+            · переходит к следующему
+        - const original = decryptCustomerFinalOrigin(item.originCiphertext), f = original.input.acceptedFence;
+          · зовёт decryptCustomerFinalOrigin()
+        - если !f || original.eventKey !== item.eventKey || original.order !== item.order.toString() || original.payloadHash…
+          - continue;
+            · переходит к следующему
+        - const text = phoneSafeText(stripUntrusted(original.input.inputText, ["document", "video", "crm_note"]).trim()…
+          · зовёт phoneSafeText()
+        - если text && text.length <= 1500
+          - own.push(text);
+            · дословно из кода
+      - если сорвалось
+    - const intake = customerAgentIntake(own.map(text
+      · зовёт customerAgentIntake()
+    - если intake.role === "unknown" && own.some(text => /(?:ваканси|резюме|ҷойи\s+кор|ищу\s+работу)/iu.test(text))
+      - return { status: "denied", reason: "recruitment_intake_separate" };
+        · дословно из кода
+    - для каждого: const text of [...own].reverse()
+      - если requirementsNotes.length + text.length + 1 <= 4000
+        - requirementsNotes = text + (requirementsNotes ? "\n" + requirementsNotes : "");
+          · дословно из кода
+  - если сорвалось
+    - return { status: "unavailable", reason: "intake_read_unavailable" };
+      · дословно из кода
+- если result.status === "unavailable" && ["turn_not_settled", "intake_read_unavailable"].includes(result.reason)
+  - throw new Error(result.reason);
+    · ошибка Error — «result.reason»
+- если result.status === "unknown"
+  - пробует
+    - await logSystemError("background-jobs", "Не подтверждено сохранение новой заявки после хода; проверьте журнал…
+      · запись в журнал ошибок
+      - если isShuttingDown()
+        - console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…
+          · пишет строку в журнал сервера
+        - return;
+          · дальше не идёт, ничего не меняя
+      - пробует
+        - const recent = await prisma.errorLog.findFirst({ where: { source, ...sameKind, ...(scope ? { message: { conta…
+          · читает в базе: errorLog
+        - если recent
+          - return;
+            · дальше не идёт, ничего не меняя
+        - const everSeen = await prisma.errorLog.findFirst({ where: { source, ...sameKind }, select: { id: true }, });
+          · читает в базе: errorLog
+        - await prisma.errorLog.create({ data: { source, message: text, dedupKey: explicitKey, url: context?.url?.slice…
+          · создаёт в базе: errorLog
+        - если !everSeen && !context?.silent
+          - пробует
+          - если сорвалось
+      - если сорвалось
+        - console.error(`[systemError] ${source}: ${String(message).slice(0, 1000)} (запись в журнал не удалась: ${err …
+          · пишет строку в журнал сервера
+  - если сорвалось
+    - console.warn("customer_intake_unknown_diagnostic_unavailable");
+      · пишет строку в журнал сервера
+- когда попытки кончились
+  - await logSystemError("background-jobs", "Обработка контакта после ответа требует проверки; автоматической пер…
     · запись в журнал ошибок
     - если isShuttingDown()
       - console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…

@@ -2,10 +2,10 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 638,
-  "forks": 3476,
+  "forks": 3505,
   "mounts": 72,
-  "cron": 104,
-  "jobs": 29,
+  "cron": 107,
+  "jobs": 30,
   "hidden": 0
  },
  "hidden": [],
@@ -80181,6 +80181,282 @@
    "file": "apps/api/src/cron.ts"
   },
   {
+   "id": "customer-inbox-jobs",
+   "when": "*/5 * * * * *",
+   "tree": [
+    {
+     "k": "do",
+     "t": "await runCustomerJobsTick(\"inbox\");",
+     "a": [
+      "зовёт runCustomerJobsTick()"
+     ],
+     "c": [
+      {
+       "k": "if",
+       "t": "stopping || customerBusy[lane]",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return 0;",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "try",
+       "t": "пробует",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "const [job] = await prisma.$queryRaw<BackgroundJob[]>` UPDATE \"BackgroundJob\" SET status = 'RUNNING', \"locked…",
+         "a": [
+          "обращается к базе своим SQL"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "!job",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return 0;",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "stopping",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "await prisma.backgroundJob.updateMany({ where: { id: job.id, status: \"RUNNING\" }, data: { status: \"PENDING\", …",
+           "a": [
+            "меняет в базе: backgroundJob"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "k": "finally",
+       "t": "в любом случае",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "customerBusy[lane] = false;",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ],
+     "from": "runCustomerJobsTick() — apps/api/src/jobs/runner.ts"
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
+   "id": "customer-intake-jobs",
+   "when": "*/5 * * * * *",
+   "tree": [
+    {
+     "k": "do",
+     "t": "await runCustomerJobsTick(\"intake\");",
+     "a": [
+      "зовёт runCustomerJobsTick()"
+     ],
+     "c": [
+      {
+       "k": "if",
+       "t": "stopping || customerBusy[lane]",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return 0;",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "try",
+       "t": "пробует",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "const [job] = await prisma.$queryRaw<BackgroundJob[]>` UPDATE \"BackgroundJob\" SET status = 'RUNNING', \"locked…",
+         "a": [
+          "обращается к базе своим SQL"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "!job",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return 0;",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "stopping",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "await prisma.backgroundJob.updateMany({ where: { id: job.id, status: \"RUNNING\" }, data: { status: \"PENDING\", …",
+           "a": [
+            "меняет в базе: backgroundJob"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "k": "finally",
+       "t": "в любом случае",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "customerBusy[lane] = false;",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ],
+     "from": "runCustomerJobsTick() — apps/api/src/jobs/runner.ts"
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
+   "id": "customer-outbox-jobs",
+   "when": "*/5 * * * * *",
+   "tree": [
+    {
+     "k": "do",
+     "t": "await runCustomerJobsTick(\"outbox\");",
+     "a": [
+      "зовёт runCustomerJobsTick()"
+     ],
+     "c": [
+      {
+       "k": "if",
+       "t": "stopping || customerBusy[lane]",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return 0;",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "try",
+       "t": "пробует",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "const [job] = await prisma.$queryRaw<BackgroundJob[]>` UPDATE \"BackgroundJob\" SET status = 'RUNNING', \"locked…",
+         "a": [
+          "обращается к базе своим SQL"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "!job",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return 0;",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "stopping",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "await prisma.backgroundJob.updateMany({ where: { id: job.id, status: \"RUNNING\" }, data: { status: \"PENDING\", …",
+           "a": [
+            "меняет в базе: backgroundJob"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "k": "finally",
+       "t": "в любом случае",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "customerBusy[lane] = false;",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ],
+     "from": "runCustomerJobsTick() — apps/api/src/jobs/runner.ts"
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
    "id": "daily-kpi",
    "when": "5 0 * * *",
    "tree": [
@@ -105140,6 +105416,632 @@
       {
        "k": "do",
        "t": "await logSystemError(\"background-jobs\", \"Уведомление о записанной просьбе клиента не подтверждено; задача ост…",
+       "a": [
+        "запись в журнал ошибок"
+       ],
+       "c": [
+        {
+         "k": "if",
+         "t": "isShuttingDown()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…",
+           "a": [
+            "пишет строку в журнал сервера"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "return;",
+           "a": [
+            "дальше не идёт, ничего не меняя"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "try",
+         "t": "пробует",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const recent = await prisma.errorLog.findFirst({ where: { source, ...sameKind, ...(scope ? { message: { conta…",
+           "a": [
+            "читает в базе: errorLog"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "recent",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return;",
+             "a": [
+              "дальше не идёт, ничего не меняя"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const everSeen = await prisma.errorLog.findFirst({ where: { source, ...sameKind }, select: { id: true }, });",
+           "a": [
+            "читает в базе: errorLog"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "await prisma.errorLog.create({ data: { source, message: text, dedupKey: explicitKey, url: context?.url?.slice…",
+           "a": [
+            "создаёт в базе: errorLog"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "!everSeen && !context?.silent",
+           "a": [],
+           "c": [
+            {
+             "k": "try",
+             "t": "пробует",
+             "a": [],
+             "c": []
+            },
+            {
+             "k": "catch",
+             "t": "если сорвалось",
+             "a": [],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "catch",
+         "t": "если сорвалось",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "console.error(`[systemError] ${source}: ${String(message).slice(0, 1000)} (запись в журнал не удалась: ${err …",
+           "a": [
+            "пишет строку в журнал сервера"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ],
+       "from": "logSystemError() — apps/api/src/lib/systemError.ts"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "kind": "customer-contact-intake",
+   "file": "apps/api/src/jobs/customerContactIntake.ts",
+   "tree": [
+    {
+     "k": "do",
+     "t": "const result = await createCustomerLeadAfterContactAction(payload.actionId);",
+     "a": [
+      "зовёт createCustomerLeadAfterContactAction()"
+     ],
+     "c": [
+      {
+       "k": "try",
+       "t": "пробует",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "const source = await prisma.customerAction.findUnique({ where: { id: actionId } });",
+         "a": [
+          "читает в базе: customerAction"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "!source || source.kind !== \"contact\" || source.status !== \"COMMITTED\" || source.supersededAt || !source.commi…",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { status: \"denied\", reason: \"committed_contact_action_required\" };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const inquiry = await prisma.customerInquiry.findUnique({ where: { id: source.inquiryId }, select: { lastAcce…",
+         "a": [
+          "читает в базе: customerInquiry"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "!inquiry?.lastAcceptedEventKey",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { status: \"stale\", reason: \"current_input_missing\" };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const recovered = await recoverAuthenticatedCustomerInput(inquiry.lastAcceptedEventKey);",
+         "a": [
+          "зовёт recoverAuthenticatedCustomerInput()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "recovered.status !== \"recovered\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { status: \"stale\", reason: \"original_input_unavailable\" };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const current = inspectAuthenticatedCustomerInput(recovered.input);",
+         "a": [
+          "зовёт inspectAuthenticatedCustomerInput()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "const snapshot = await loadAcceptedCustomerState(recovered.ticket);",
+         "a": [
+          "зовёт loadAcceptedCustomerState()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "!current || !snapshot || !snapshot.capabilities.newLeadBridge || snapshot.publicState.topic === \"job\" || curr…",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { status: \"stale\", reason: \"current_intake_context_required\" };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const ticket = await prisma.customerPropertyIngressTicket.findUnique({ where: { eventKey: recovered.ticket.ev…",
+         "a": [
+          "читает в базе: customerPropertyIngressTicket"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "!ticket || ![\"PLANNED\", \"HELD\", \"FAILED\"].includes(ticket.processingState ?? \"\") || ticket.leaseOwner || tick…",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { status: \"unavailable\", reason: \"turn_not_settled\" };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const row = await prisma.customerInquiry.findUnique({ where: { id: snapshot.fence.inquiryId }, select: { clai…",
+         "a": [
+          "читает в базе: customerInquiry"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "const contact = customerClaimedContactSchema.safeParse(row?.claimedContact), intents = customerActionIntentsS…",
+         "a": [
+          "проверяет данные схемой customerClaimedContactSchema"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "!contact.success || !contact.data.name || !contact.data.phone || !intent || intent.status !== \"committed\" || …",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { status: \"denied\", reason: \"complete_committed_contact_required\" };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const saved = await prisma.customerAction.findFirst({ where: { inquiryId: snapshot.fence.inquiryId, kind: \"co…",
+         "a": [
+          "читает в базе: customerAction"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "!contactEventKey",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { status: \"denied\", reason: \"owned_contact_receipt_required\" };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const history = await prisma.customerPropertyIngressTicket.findMany({ where: { conversationId: recovered.tick…",
+         "a": [
+          "читает в базе: customerPropertyIngressTicket"
+         ],
+         "c": []
+        },
+        {
+         "k": "loop",
+         "t": "для каждого: const item of history.reverse()",
+         "a": [],
+         "c": [
+          {
+           "k": "try",
+           "t": "пробует",
+           "a": [],
+           "c": [
+            {
+             "k": "if",
+             "t": "!item.originCiphertext",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "continue;",
+               "a": [
+                "переходит к следующему"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "do",
+             "t": "const original = decryptCustomerFinalOrigin(item.originCiphertext), f = original.input.acceptedFence;",
+             "a": [
+              "зовёт decryptCustomerFinalOrigin()"
+             ],
+             "c": []
+            },
+            {
+             "k": "if",
+             "t": "!f || original.eventKey !== item.eventKey || original.order !== item.order.toString() || original.payloadHash…",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "continue;",
+               "a": [
+                "переходит к следующему"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "do",
+             "t": "const text = phoneSafeText(stripUntrusted(original.input.inputText, [\"document\", \"video\", \"crm_note\"]).trim()…",
+             "a": [
+              "зовёт phoneSafeText()"
+             ],
+             "c": []
+            },
+            {
+             "k": "if",
+             "t": "text && text.length <= 1500",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "own.push(text);",
+               "a": [
+                "дословно из кода"
+               ],
+               "c": []
+              }
+             ]
+            }
+           ]
+          },
+          {
+           "k": "catch",
+           "t": "если сорвалось",
+           "a": [],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const intake = customerAgentIntake(own.map(text",
+         "a": [
+          "зовёт customerAgentIntake()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "intake.role === \"unknown\" && own.some(text => /(?:ваканси|резюме|ҷойи\\s+кор|ищу\\s+работу)/iu.test(text))",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { status: \"denied\", reason: \"recruitment_intake_separate\" };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "loop",
+         "t": "для каждого: const text of [...own].reverse()",
+         "a": [],
+         "c": [
+          {
+           "k": "if",
+           "t": "requirementsNotes.length + text.length + 1 <= 4000",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "requirementsNotes = text + (requirementsNotes ? \"\\n\" + requirementsNotes : \"\");",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "k": "catch",
+       "t": "если сорвалось",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return { status: \"unavailable\", reason: \"intake_read_unavailable\" };",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ],
+     "from": "createCustomerLeadAfterContactAction() — apps/api/src/lib/customerNewLeadBridge.ts"
+    },
+    {
+     "k": "if",
+     "t": "result.status === \"unavailable\" && [\"turn_not_settled\", \"intake_read_unavailable\"].includes(result.reason)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "throw new Error(result.reason);",
+       "a": [
+        "ошибка Error — «result.reason»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "result.status === \"unknown\"",
+     "a": [],
+     "c": [
+      {
+       "k": "try",
+       "t": "пробует",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "await logSystemError(\"background-jobs\", \"Не подтверждено сохранение новой заявки после хода; проверьте журнал…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": [
+          {
+           "k": "if",
+           "t": "isShuttingDown()",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…",
+             "a": [
+              "пишет строку в журнал сервера"
+             ],
+             "c": []
+            },
+            {
+             "k": "do",
+             "t": "return;",
+             "a": [
+              "дальше не идёт, ничего не меняя"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "try",
+           "t": "пробует",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "const recent = await prisma.errorLog.findFirst({ where: { source, ...sameKind, ...(scope ? { message: { conta…",
+             "a": [
+              "читает в базе: errorLog"
+             ],
+             "c": []
+            },
+            {
+             "k": "if",
+             "t": "recent",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "return;",
+               "a": [
+                "дальше не идёт, ничего не меняя"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "do",
+             "t": "const everSeen = await prisma.errorLog.findFirst({ where: { source, ...sameKind }, select: { id: true }, });",
+             "a": [
+              "читает в базе: errorLog"
+             ],
+             "c": []
+            },
+            {
+             "k": "do",
+             "t": "await prisma.errorLog.create({ data: { source, message: text, dedupKey: explicitKey, url: context?.url?.slice…",
+             "a": [
+              "создаёт в базе: errorLog"
+             ],
+             "c": []
+            },
+            {
+             "k": "if",
+             "t": "!everSeen && !context?.silent",
+             "a": [],
+             "c": [
+              {
+               "k": "try",
+               "t": "пробует",
+               "a": [],
+               "c": []
+              },
+              {
+               "k": "catch",
+               "t": "если сорвалось",
+               "a": [],
+               "c": []
+              }
+             ]
+            }
+           ]
+          },
+          {
+           "k": "catch",
+           "t": "если сорвалось",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "console.error(`[systemError] ${source}: ${String(message).slice(0, 1000)} (запись в журнал не удалась: ${err …",
+             "a": [
+              "пишет строку в журнал сервера"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ],
+         "from": "logSystemError() — apps/api/src/lib/systemError.ts"
+        }
+       ]
+      },
+      {
+       "k": "catch",
+       "t": "если сорвалось",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "console.warn(\"customer_intake_unknown_diagnostic_unavailable\");",
+         "a": [
+          "пишет строку в журнал сервера"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "когда попытки кончились",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "await logSystemError(\"background-jobs\", \"Обработка контакта после ответа требует проверки; автоматической пер…",
        "a": [
         "запись в журнал ошибок"
        ],

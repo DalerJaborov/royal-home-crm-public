@@ -3132,11 +3132,15 @@ export function startCronJobs() {
   // The ordinary durable queue still handles media once a minute. Customer
   // model turns and sends have separate bounded slots; both use runOne, DB
   // SKIP LOCKED, normal retry policy and existing provider UNKNOWN guards.
-  for (const lane of ["inbox", "outbox", "intake"] as const) {
-    scheduleTracked(`customer-${lane}-jobs`, "*/5 * * * * *", async () => {
-      await runCustomerJobsTick(lane);
-    }, undefined, undefined, { timeoutMs: 20 * 60_000 });
-  }
+  scheduleTracked("customer-inbox-jobs", "*/5 * * * * *", async () => {
+    await runCustomerJobsTick("inbox");
+  }, undefined, undefined, { timeoutMs: 20 * 60_000 });
+  scheduleTracked("customer-outbox-jobs", "*/5 * * * * *", async () => {
+    await runCustomerJobsTick("outbox");
+  }, undefined, undefined, { timeoutMs: 20 * 60_000 });
+  scheduleTracked("customer-intake-jobs", "*/5 * * * * *", async () => {
+    await runCustomerJobsTick("intake");
+  }, undefined, undefined, { timeoutMs: 20 * 60_000 });
 
   /** Очередь фоновых заданий (jobs/runner.ts, чертёж §2): минутный тик хватает
    *  партию PENDING + подбирает зависшие RUNNING. Гвард от наложения обязателен:
