@@ -7,9 +7,32 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-import { shipVerified } from "../.githooks/pre-push.mjs";
+import { shipVerified, publicHistoryProblem, PUBLIC_HISTORY_ROOT } from "../.githooks/pre-push.mjs";
 
 const HOOKS = resolve(import.meta.dirname, "../.githooks");
+
+test("public history: fresh root passes; private, missing and mixed roots fail for HTTPS/SSH", () => {
+  for (const url of ["https://github.com/DalerJaborov/royal-home-crm-public.git", "git@github.com:DalerJaborov/royal-home-crm-public.git"]) {
+    assert.equal(publicHistoryProblem(url, PUBLIC_HISTORY_ROOT), null);
+    for (const roots of ["", "a".repeat(40), `${PUBLIC_HISTORY_ROOT}\n${"b".repeat(40)}`]) {
+      assert.match(publicHistoryProblem(url, roots), /приватную или смешанную историю/);
+    }
+  }
+  assert.equal(publicHistoryProblem("/tmp/test-remote.git", "a".repeat(40)), null);
+});
+
+test("pre-push rejects an old feature branch before a public push, including non-main refs", (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "rh-public-history-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  sh(dir, "init", "-q", "-b", "private-work");
+  sh(dir, "-c", "user.name=test", "-c", "user.email=test@example.invalid", "-c", "commit.gpgsign=false", "commit", "--allow-empty", "-qm", "private root");
+  const sha = spawnSync("git", ["rev-parse", "HEAD"], { cwd: dir, encoding: "utf8" }).stdout.trim();
+  const result = spawnSync(process.execPath, [join(HOOKS, "pre-push.mjs"), "origin", "https://github.com/DalerJaborov/royal-home-crm-public.git"], {
+    cwd: dir, encoding: "utf8", input: `refs/heads/private-work ${sha} refs/heads/private-work ${"0".repeat(40)}\n`,
+  });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /приватную или смешанную историю/);
+});
 
 function sh(cwd, ...args) {
   const r = spawnSync("git", args, { cwd, encoding: "utf8" });
