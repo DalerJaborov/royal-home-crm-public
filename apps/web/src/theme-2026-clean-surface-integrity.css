@@ -42,6 +42,20 @@ html[data-shell="clean"] .clean-property-summary {
   border: 1px solid var(--clean-surface-edge);
   box-shadow: none;
 }
+/* Desktop dashboard and channel rules explicitly removed their edges; match
+   their full scope rather than relying on an opaque token alone. */
+html[data-shell="clean"] .clean-shell .clean .clean-card,
+html[data-shell="clean"] .clean-channel-detail .clean-card {
+  border: 1px solid var(--clean-surface-edge);
+  box-shadow: none;
+}
+html[data-shell="clean"] .clean-shell .clean .clean-kpis .clean-kpi {
+  background: var(--c-card-solid);
+  border: 1px solid var(--clean-surface-edge);
+  box-shadow: none;
+}
+html[data-shell="clean"] .clean-shell .clean .clean-kpi .clean-kpi-icon { display: grid; }
+html[data-shell="clean"] .clean-shell .clean .clean-kpi .clean-kpi-label { display: block; }
 html[data-shell="clean"] .rh2 .scr .sheet,
 html[data-shell="clean"] .cef-sheet-backdrop > .cef-sheet,
 html[data-shell="clean"] .clean-more-panel,
@@ -110,7 +124,9 @@ html[data-shell="clean"] .clean-property-actions > button:not(:first-child) {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   html[data-shell="clean"] .clean-property-actions > button { width: 100%; }
-  html[data-shell="clean"] .clean-property-actions > button:first-child:nth-last-child(3) {
+  html[data-shell="clean"] .clean-property-actions > button:first-child[data-clean-variant="primary"],
+  html[data-shell="clean"] .clean-property-actions > button:only-child,
+  html[data-shell="clean"] .clean-property-actions > button:first-child:nth-last-child(2) ~ button {
     grid-column: 1 / -1;
   }
 }

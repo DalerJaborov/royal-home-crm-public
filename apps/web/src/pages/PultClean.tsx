@@ -1,5 +1,6 @@
 import { formatPropertyCode } from "../lib/clientFormat";
 import { CleanLoadError } from "../components/clean/CleanLoadError";
+import { CleanKpi as Kpi } from "../components/clean/CleanKpi";
 import { useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis } from "recharts";
@@ -709,38 +710,6 @@ export function PultClean() {
 }
 
 /* ================= детали ================= */
-
-function Kpi({
-  icon,
-  label,
-  value,
-  children,
-  to,
-}: {
-  icon: ReactNode;
-  label: string;
-  value: string;
-  children?: ReactNode;
-  to?: string;
-}) {
-  const content = (
-    <CCard className="clean-kpi grid gap-3 p-[18px_20px]">
-      <div className="flex items-center gap-2.5 text-[13px] text-gray-600">
-        <span className="grid size-7 place-items-center rounded-full bg-row-alt text-gray-700 [&_svg]:size-4">
-          {icon}
-        </span>
-        {label}
-      </div>
-      <div className="clean-kpi-value text-[40px] font-semibold leading-none tracking-[-.03em] tabular-nums">
-        {value}
-      </div>
-      {children ? <div>{children}</div> : <div className="h-[26px]" />}
-    </CCard>
-  );
-  if (!to) return content;
-  const className = "block min-w-0 rounded-[20px] text-ink no-underline transition-transform duration-200 hover:-translate-y-0.5 motion-reduce:transform-none";
-  return to.startsWith("#") ? <a href={to} className={className}>{content}</a> : <Link to={to} className={className}>{content}</Link>;
-}
 
 function Reminder({
   to,

@@ -119,15 +119,15 @@ export function CHead({
   className?: string;
 }) {
   return (
-    <div className={cn("mb-4 flex min-h-9 items-center gap-2.5", className)}>
-      <h3 className="m-0 text-[18px] font-semibold tracking-[-.015em] text-ink">
+    <div className={cn("clean-card-heading mb-4 flex min-h-9 min-w-0 flex-wrap items-center gap-2.5", className)}>
+      <h3 className="m-0 min-w-0 flex-1 break-words text-[18px] font-semibold tracking-[-.015em] text-ink">
         {title}
       </h3>
       {count !== undefined && count !== null ? (
-        <span className="text-[13px] text-gray-500">{count}</span>
+        <span className="max-w-full break-words text-[13px] text-gray-500">{count}</span>
       ) : null}
       {right ? (
-        <div className="ml-auto flex items-center gap-2">{right}</div>
+        <div className="ml-auto flex max-w-full flex-wrap items-center gap-2">{right}</div>
       ) : null}
     </div>
   );

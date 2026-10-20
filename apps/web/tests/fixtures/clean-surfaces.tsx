@@ -7,7 +7,9 @@ import "../../src/index.css";
 import { Rh2Sheet } from "../../src/components/rh2/Rh2Sheet";
 import { Rh2Inline } from "../../src/components/rh2/Rh2Scope";
 import { CleanPropertySummary, CleanPropertySlot } from "../../src/components/clean/CleanPropertyDetailLayout";
-import { CCard } from "../../src/components/clean/ui";
+import { CCard, CHead, CButton } from "../../src/components/clean/ui";
+import { CleanKpi } from "../../src/components/clean/CleanKpi";
+import { Coins } from "lucide-react";
 import { CountingNumber } from "../../src/components/ui/CountingNumber";
 import { Rh2Money } from "../../src/components/rh2/Rh2Money";
 import { SocialVideoMetadata } from "../../src/components/socialVideos/SocialVideoMetadata";
@@ -30,19 +32,27 @@ function Fixture() {
   const [sheet, setSheet] = useState(false);
   const [child, setChild] = useState(false);
   const [action, setAction] = useState("");
-  return <div className="app-shell clean-shell"><main style={{ padding: 16 }}>
+  return <div className="app-shell clean-shell"><main className="clean" style={{ padding: 16 }}>
     <h1>Проверка поверхностей</h1>
     <button onClick={() => setSheet(true)}>Открыть окно</button>
     <output aria-label="Последнее действие">{action}</output>
     <span data-testid="counter"><CountingNumber value={12345} /></span>
     <span data-testid="money"><Rh2Money value={23456} /></span>
+    <div className="clean-kpis grid gap-3">
+      <CleanKpi icon={<Coins />} label="Валовая комиссия месяца" value="150 000 с." to="/finance" />
+      <CleanKpi icon={<Coins />} label="Длинный показатель для проверки переноса подписи" value="123 456 789 с." />
+      <CleanKpi icon={<Coins />} label="Новых клиентов" value="0" />
+    </div>
+    <CCard data-testid="heading-stress"><CHead title="ДлинныйЗаголовокБезПробеловДляПроверкиПереноса" count="9999"
+      right={<><CButton>Открыть настройки</CButton><CButton>Посмотреть историю</CButton></>} /></CCard>
+    <div className="clean-channel-detail"><CCard>Состояние канала</CCard></div>
     <Rh2Inline>
       <div className="pg-h"><div><h2>Тестовый ролик</h2><SocialVideoMetadata statusClassName="chip mute" item={{ status: "SCHEDULED", scheduledAt: "2026-10-21T04:00:00Z", startedAt: null, finishedAt: null, createdBy: { id: "test-agent", name: "Тестовый сотрудник" } }} /></div></div>
       <section className="card"><h2>Как идёт публикация</h2><ChannelProcess
         destinations={["INSTAGRAM", "FACEBOOK", "YOUTUBE", "TIKTOK", "TELEGRAM"].map(channel => ({ channel, accountId: null })) as Parameters<typeof ChannelProcess>[0]["destinations"]}
         infos={[]} results={{}} /></section>
       <CleanPropertySummary property={property} onSchedule={() => setAction("Показ")}
-        onEdit={() => setAction("Изменить")} onMore={() => setSheet(true)} />
+        onEdit={params.get("actions") === "two" ? null : () => setAction("Изменить")} onMore={() => setSheet(true)} />
       <div className="clean-property-detail">
         <CleanPropertySlot enabled area="description"><div className="rh-pcard-desc">
           <section className="card"><h2>Описание</h2><p>Содержимое одной карточки.</p></section>

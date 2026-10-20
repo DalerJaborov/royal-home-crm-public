@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-for (const theme of ["light", "night"]) for (const width of [360, 390, 1440]) {
+for (const theme of ["light", "night"]) for (const width of [360, 390, 768, 1024, 1440]) {
   test(`Clean static surfaces ${width} ${theme}`, async ({ page }, testInfo) => {
     const errors: string[] = [];
     page.on("pageerror", error => errors.push(error.message));
@@ -12,6 +12,27 @@ for (const theme of ["light", "night"]) for (const width of [360, 390, 1440]) {
     await expect(page.getByTestId("money")).toContainText("23");
     await expect(page.getByTestId("entrance")).toHaveCSS("opacity", "1");
     await expect(page.getByTestId("entrance")).toHaveCSS("transform", "none");
+    const expectedCardColor = theme === "light" ? "rgb(255, 255, 255)" : "rgb(28, 31, 36)";
+    await expect(page.locator(".clean-kpi")).toHaveCount(3);
+    for (const kpi of await page.locator(".clean-kpi").all()) {
+      await expect(kpi).toHaveCSS("background-color", expectedCardColor);
+      await expect(kpi).toHaveCSS("border-top-width", "1px");
+      await expect(kpi.locator(".clean-kpi-label")).toBeVisible();
+      const gap = await kpi.evaluate(node => node.querySelector(".clean-kpi-label")!.getBoundingClientRect().left - node.querySelector(".clean-kpi-icon")!.getBoundingClientRect().right);
+      expect(gap).toBeGreaterThanOrEqual(8);
+    }
+    await expect(page.locator(".clean-channel-detail .clean-card")).toHaveCSS("border-top-width", "1px");
+    const headingGeometry = await page.getByTestId("heading-stress").evaluate(node => {
+      const outer = node.getBoundingClientRect();
+      const items = [...node.querySelectorAll("h3,.clean-card-heading > span,button")].map(item => item.getBoundingClientRect());
+      return {
+        contained: items.every(rect => rect.left >= outer.left && rect.right <= outer.right),
+        overlaps: items.flatMap((a, i) => items.slice(i + 1).filter(b =>
+          Math.min(a.right, b.right) - Math.max(a.left, b.left) > 1 &&
+          Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 1)).length,
+      };
+    });
+    expect(headingGeometry).toEqual({ contained: true, overlaps: 0 });
     const iconText = page.locator(".clean-icon-text");
     const geometry = await iconText.evaluate(node => {
       const icon = node.querySelector("svg")!.getBoundingClientRect();
@@ -70,6 +91,21 @@ for (const theme of ["light", "night"]) for (const width of [360, 390, 1440]) {
     expect(errors).toEqual([]);
   });
 }
+
+for (const theme of ["light", "night"]) for (const width of [360, 390]) test(`Property two-action permissions ${width} ${theme}`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 844 });
+  await page.goto(`/tests/fixtures/clean-surfaces.html?theme=${theme}&actions=two`);
+  const actions = page.locator(".clean-property-actions > button");
+  await expect(actions).toHaveCount(2);
+  for (const button of await actions.all()) {
+    expect(await button.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+    const box = await button.boundingBox();
+    expect(box!.height).toBeGreaterThanOrEqual(44);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(width);
+  }
+  await page.getByRole("button", { name: "Назначить показ" }).click();
+  await expect(page.locator("output")).toHaveText("Показ");
+});
 
 test("Legacy surfaces retain their original card wrapper and device motion preference", async ({ page }) => {
   await page.goto("/tests/fixtures/clean-surfaces.html?shell=legacy");
