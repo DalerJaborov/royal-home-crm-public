@@ -23,6 +23,9 @@ import {
   requireCloudRunPassed,
   cloudBranch,
   findCloudRun,
+  requireSourceRunPassed,
+  sourceBranch,
+  waitForMergeReadiness,
   statusDescription,
   shipTrailer,
   snapshotState,
@@ -61,9 +64,9 @@ test("ключи разбираются, незнакомый — ошибка, 
   assert.throws(() => parseArgs(["--pr=abc"]), /номер правки/);
 });
 
-test("правило пачки: только сайт или только *.test.ts — без полного прогона сервера", () => {
+test("правило пачки: только сайт или скрипты — без полного прогона сервера", () => {
   assert.equal(needsFullApiRun(["apps/web/src/pages/Home.tsx", "docs/journal/x.md"]).full, false);
-  assert.equal(needsFullApiRun(["apps/api/tests/lead-carousel.test.ts"]).full, false);
+  assert.equal(needsFullApiRun(["apps/api/tests/lead-carousel.test.ts"]).full, true);
   assert.equal(needsFullApiRun(["scripts/ship.mjs"]).full, false);
 });
 
@@ -169,10 +172,12 @@ test("полный ship: production boundary стоит перед отправ�
   const body = readFileSync(SHIP, "utf8");
   const stage6 = body.indexOf("stage(6, cloud ?");
   const gate = body.indexOf("apiTests = requireFullApiRunPassed(r.code, rep)", stage6);
-  const cloudGate = body.indexOf("apiTests = await waitCloudTests(", stage6);
+  const cloudGate = body.indexOf("await waitCloudTests(", stage6);
+  const sourceGate = body.indexOf("await waitSourceChecks(", stage6);
   const stage7 = body.indexOf("stage(7,", stage6);
   assert.ok(stage6 > 0 && gate > stage6 && stage7 > gate);
   assert.ok(cloudGate > stage6 && stage7 > cloudGate, "облачный вердикт — тоже до отправки");
+  assert.ok(sourceGate > stage6 && stage7 > sourceGate, "проверки исходников — тоже до отправки");
   // waitCloudTests кончается тем же requireFullApiRunPassed — через requireCloudRunPassed.
   assert.match(body, /return requireCloudRunPassed\(\{ run: runInfo, reportSha, report, sha \}\);/);
   assert.doesNotMatch(body.slice(stage6, stage7), /failedTestFiles|stillRed|\["vitest", "run"/);
@@ -218,6 +223,40 @@ test("find a newly introduced workflow without the main-branch workflow endpoint
     {...mine,id:4,event:"pull_request"},{...mine,id:5,head_branch:"other"},{...mine,id:6,created_at:"2026-10-19T12:00:00Z"}];
   assert.equal(findCloudRun(unrelated,{sha,branch,startedAt}),null);
   assert.equal(findCloudRun([...unrelated,mine],{sha,branch,startedAt})?.id,1);
+});
+
+test("source-only release requires the exact commit, workflow and successful precheck job", () => {
+  const sha="a".repeat(40),run={status:"completed",conclusion:"success",head_sha:sha,path:".github/workflows/ci.yml"};
+  const jobs=[{name:"precheck",status:"completed",conclusion:"success"}];
+  assert.equal(requireSourceRunPassed({run,jobs,sha}),0);
+  assert.equal(sourceBranch(sha),`source-checks/${sha}`);
+  for (const altered of [null,{...run,status:"in_progress"},{...run,conclusion:"failure"},{...run,head_sha:"b".repeat(40)},{...run,path:".github/workflows/other.yml"}]) {
+    assert.throws(()=>requireSourceRunPassed({run:altered,jobs,sha}),/не пройдена/);
+  }
+  for (const invalid of [undefined,[],[...jobs,...jobs],[{...jobs[0],conclusion:"skipped"}],[{...jobs[0],conclusion:"failure"}]]) {
+    assert.throws(()=>requireSourceRunPassed({run,jobs:invalid,sha}),/precheck/);
+  }
+});
+
+test("protected main waits for PR checks after source validation without repeating a merge", async () => {
+  const headSha="a".repeat(40),mainSha="b".repeat(40),calls=[];
+  let reads=0,sleeps=0;
+  const gh={call:async(method,url)=>{calls.push(method);return {head:{sha:headSha},base:{sha:mainSha},mergeable_state:++reads===1?"blocked":"clean"};}};
+  await waitForMergeReadiness({gh,number:2,headSha,mainSha,sleep:async()=>{sleeps++;},now:()=>0});
+  assert.deepEqual(calls,["GET","GET"]);
+  assert.equal(sleeps,1);
+});
+
+test("merge waiting rejects changed commits, conflicts and unmet protection rules", async () => {
+  const headSha="a".repeat(40),mainSha="b".repeat(40);
+  for (const current of [
+    {head:{sha:"c".repeat(40)},base:{sha:mainSha},mergeable_state:"clean"},
+    {head:{sha:headSha},base:{sha:"c".repeat(40)},mergeable_state:"clean"},
+    {head:{sha:headSha},base:{sha:mainSha},mergeable_state:"dirty"},
+    {head:{sha:headSha},base:{sha:mainSha},mergeable_state:"blocked"},
+  ]) {
+    await assert.rejects(waitForMergeReadiness({gh:{call:async()=>current},number:2,headSha,mainSha,now:()=>0,timeoutMs:0}));
+  }
 });
 
 // ── сухой прогон в одноразовом репозитории ──────────────────────────────────

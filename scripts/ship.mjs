@@ -10,10 +10,10 @@
  *   npm run ship -- --pr=123         # номер правки явно (иначе ищется по ветке)
  *   npm run ship -- --local-tests    # полный прогон здесь, а не в облаке GitHub (GitHub недоступен)
  *
- * ПОЛНЫЙ ПРОГОН — В ОБЛАКЕ (20.10.2026). По умолчанию тесты сервера идут не на
- * этой машине, а на 18 машинах GitHub (.github/workflows/ship-tests.yml): ship
- * пушит проверяемый коммит в ветку `ship-tests/<sha>` СРАЗУ после сведения, и
- * пока здесь идёт precheck, там уже идут тесты. Потом ship скачивает итоговый
+ * ПРОВЕРКИ — В ОБЛАКЕ (21.10.2026). Полный прогон API идёт на 20 машинах GitHub
+ * (.github/workflows/ship-tests.yml), source-only — в ci.yml. Ship отправляет
+ * проверяемый коммит после сведения, ждёт сборку, precheck и нужные тесты на
+ * GitHub. Для полного API прогона ship скачивает итоговый
  * отчёт и проверяет его сам — тем же requireFullApiRunPassed, что и локальный, —
  * и что отчёт именно про этот sha. Ветка удаляется в любом исходе.
  *
@@ -93,7 +93,7 @@ export function parseArgs(argv) {
 export function needsFullApiRun(files) {
   const hit = files.find(
     (f) =>
-      (f.startsWith("apps/api/") && !/^apps\/api\/tests\/.*\.test\.ts$/.test(f)) ||
+      f.startsWith("apps/api/") ||
       f.startsWith("packages/") ||
       f === "package.json" ||
       f === "package-lock.json",
@@ -172,13 +172,27 @@ export const CLOUD_WORKFLOW = "ship-tests.yml";
 export const CLOUD_ARTIFACT = "api-tests-total";
 /** Ветка, пуш в которую запускает облачный прогон ровно этого коммита. */
 export const cloudBranch = (sha) => `ship-tests/${sha}`;
+export const SOURCE_WORKFLOW = "ci.yml";
+export const sourceBranch = (sha) => `source-checks/${sha}`;
 
 /** Repository-wide run discovery also works before a new workflow reaches main. */
-export function findCloudRun(runs, {sha, branch, startedAt}) {
+export function findCloudRun(runs, {sha, branch, startedAt, workflow = CLOUD_WORKFLOW}) {
   return (Array.isArray(runs) ? runs : [])
-    .filter(x => x.path === `.github/workflows/${CLOUD_WORKFLOW}` && x.head_sha === sha &&
+    .filter(x => x.path === `.github/workflows/${workflow}` && x.head_sha === sha &&
       x.event === "push" && x.head_branch === branch && Date.parse(x.created_at) >= startedAt - 60_000)
     .sort((a,b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0] ?? null;
+}
+
+export function requireSourceRunPassed({run, jobs, sha}) {
+  if (!run || run.status !== "completed" || run.conclusion !== "success" ||
+      run.head_sha !== sha || run.path !== `.github/workflows/${SOURCE_WORKFLOW}`) {
+    throw new Stop(`проверка исходников для этого sha не пройдена: ${run?.html_url ?? "нет прогона"}`);
+  }
+  const checked = (Array.isArray(jobs) ? jobs : []).filter(job => job.name === "precheck");
+  if (checked.length !== 1 || checked[0].status !== "completed" || checked[0].conclusion !== "success") {
+    throw new Stop("нет успешного задания precheck — выпуск запрещён");
+  }
+  return 0;
 }
 
 /**
@@ -244,6 +258,23 @@ export function stateDrift(verified, now) {
 // ── Облачный прогон: запуск и ожидание ───────────────────────────────────────
 
 const sleepMs = (ms) => new Promise((res) => setTimeout(res, ms));
+
+export async function waitForMergeReadiness({gh, number, headSha, mainSha, sleep = sleepMs,
+  now = Date.now, timeoutMs = 10 * 60_000}) {
+  const deadline = now() + timeoutMs;
+  let noted = false;
+  for (;;) {
+    const current = await gh.call("GET", `/{repo}/pulls/${number}`);
+    if (current?.head?.sha !== headSha || current?.base?.sha !== mainSha) {
+      throw new Stop("ветка или main изменились во время ожидания GitHub — запусти ship заново");
+    }
+    if (current.mergeable_state === "clean") return;
+    if (current.mergeable_state === "dirty") throw new Stop("GitHub обнаружил конфликт с main");
+    if (now() >= deadline) throw new Stop(`GitHub не разрешил вливание: ${current.mergeable_state ?? "unknown"}; обязательные проверки или правила ещё не выполнены`);
+    if (!noted) { console.log("  жду завершения обязательных проверок и правил GitHub"); noted = true; }
+    await sleep(5_000);
+  }
+}
 /** Сколько ждать, пока GitHub заведёт прогон после пуша, и весь прогон целиком. */
 const CLOUD_APPEAR_MS = 5 * 60_000;
 const CLOUD_TOTAL_MS = 90 * 60_000;
@@ -253,8 +284,7 @@ const CLOUD_TOTAL_MS = 90 * 60_000;
  * (`on: push` в ship-tests.yml). Старую ветку с тем же именем сначала
  * удаляем: пуш того же sha в существующую ветку прогона не заводит.
  */
-function startCloudTests({ gh, run, repo, sha }) {
-  const branch = cloudBranch(sha);
+function startCloudTests({ gh, run, repo, sha, branch = cloudBranch(sha) }) {
   const startedAt = Date.now();
   // Удаление старой ветки — молча: её почти всегда нет.
   spawnSync("git", ["push", "origin", "--delete", branch], { stdio: "ignore" });
@@ -282,7 +312,7 @@ function startCloudTests({ gh, run, repo, sha }) {
 }
 
 /** Дождаться облачного прогона, скачать итоговый отчёт и проверить его здесь. */
-async function waitCloudTests({ gh, repo, token, sha, cloudRun }) {
+async function waitCloudWorkflow({ gh, sha, cloudRun, workflow = CLOUD_WORKFLOW }) {
   const deadline = cloudRun.startedAt + CLOUD_TOTAL_MS;
   let runInfo = null;
   let lastNote = 0;
@@ -293,7 +323,7 @@ async function waitCloudTests({ gh, repo, token, sha, cloudRun }) {
         `/{repo}/actions/runs?head_sha=${sha}&event=push&per_page=50`,
       );
       // Только прогон, заведённый ЭТИМ пушем: старые прогоны того же sha не в счёт.
-      const mine = findCloudRun(list?.workflow_runs, {sha, branch:cloudRun.branch, startedAt:cloudRun.startedAt});
+      const mine = findCloudRun(list?.workflow_runs, {sha, branch:cloudRun.branch, startedAt:cloudRun.startedAt, workflow});
       if (mine) {
         cloudRun.id = mine.id;
         console.log(`  прогон ${mine.html_url}`);
@@ -319,6 +349,17 @@ async function waitCloudTests({ gh, repo, token, sha, cloudRun }) {
     if (Date.now() > deadline) throw new Stop(`облачный прогон не кончился за ${CLOUD_TOTAL_MS / 60_000} минут — остановлен`);
     await sleepMs(15_000);
   }
+  return runInfo;
+}
+
+async function waitSourceChecks({gh, sha, cloudRun}) {
+  const run = await waitCloudWorkflow({gh,sha,cloudRun,workflow:SOURCE_WORKFLOW});
+  const result = await gh.call("GET", `/{repo}/actions/runs/${cloudRun.id}/jobs?per_page=100`);
+  return requireSourceRunPassed({run,jobs:result?.jobs,sha});
+}
+
+async function waitCloudTests({ gh, repo, token, sha, cloudRun }) {
+  const runInfo = await waitCloudWorkflow({gh,sha,cloudRun});
 
   // Отчёт скачиваем и при красном итоге: имена упавших тестов — первое, что нужно.
   const dir = mkdtempSync(join(tmpdir(), "rh-ship-cloud-"));
@@ -519,7 +560,7 @@ export async function main(argv = process.argv.slice(2)) {
   const files = git("diff", "--name-only", `${mainSha}...HEAD`).split("\n").filter(Boolean);
   const scope = opts.full ? { full: true, why: "попросили --full" } : needsFullApiRun(files);
   // Полный прогон — в облаке GitHub, кроме явного --local-tests (GitHub недоступен).
-  const cloud = scope.full && !opts.localTests;
+  const cloud = !opts.localTests;
   const migrations = newMigrations(files);
   const modes = badModes(git("diff", "--raw", "--no-abbrev", `${mainSha}...HEAD`));
   for (const b of modes) blockers.push(`${b.kind}: ${b.path} — такое в main не пускаем`);
@@ -591,7 +632,8 @@ export async function main(argv = process.argv.slice(2)) {
   // работают, пока эта машина собирает и проверяет. Ветка и прогон убираются в
   // любом исходе (state.cleanup зовётся и при остановке).
   let cloudRun = null;
-  if (cloud) cloudRun = startCloudTests({ gh, run, repo, sha: verified.head });
+  if (cloud) cloudRun = startCloudTests({ gh, run, repo, sha: verified.head,
+    branch: scope.full ? cloudBranch(verified.head) : sourceBranch(verified.head) });
 
   // ── 4. миграции ──
   stage(4, cloud ? "сборка и проверка исходников на GitHub" : "клиент Prisma и миграции тестовой базы");
@@ -643,14 +685,16 @@ export async function main(argv = process.argv.slice(2)) {
   }
 
   // ── 6. полный прогон ──
-  stage(6, cloud ? "тесты сервера, полный прогон в облаке GitHub" : "тесты сервера, полный прогон");
+  stage(6, cloud ? (scope.full ? "тесты сервера, полный прогон в облаке GitHub" : "проверки исходников в облаке GitHub") : "тесты сервера, полный прогон");
   let apiTests = 0;
   if (cloud) {
     const started = Date.now();
-    apiTests = await waitCloudTests({ gh, repo, token, sha: verified.head, cloudRun });
-    done("test:api полный (облако)", Date.now() - started);
+    apiTests = scope.full
+      ? await waitCloudTests({ gh, repo, token, sha: verified.head, cloudRun })
+      : await waitSourceChecks({gh,sha:verified.head,cloudRun});
+    done(scope.full ? "test:api полный (облако)" : "precheck (облако)", Date.now() - started);
     await state.cleanup?.();
-    console.log(`  тестов ${apiTests}, упало 0`);
+    console.log(scope.full ? `  тестов ${apiTests}, упало 0` : `  precheck пройден; ${scope.why}`);
   } else if (scope.full) {
     const report = join(mkdtempSync(join(tmpdir(), "rh-ship-")), "api-tests.json");
     r = run("npx", ["tsx", "tests/runParallel.ts", `--report=${report}`], { cwd: apiDir, env: testEnv });
@@ -745,6 +789,7 @@ export async function main(argv = process.argv.slice(2)) {
     }
     console.log("  черновик снят");
   }
+  await waitForMergeReadiness({gh, number:pr.number, headSha, mainSha});
   // Повтора у вливания нет нарочно: ответ мог потеряться уже ПОСЛЕ того, как
   // GitHub влил, и второй PUT вернул бы «не сливается» — остановка сказала бы
   // «на сайт ничего не ушло», когда правка уже уехала. Поэтому при обрыве связи
@@ -772,7 +817,7 @@ export async function main(argv = process.argv.slice(2)) {
   }
   if (!merged?.merged) throw new Stop(`GitHub не влил: ${merged?.message ?? "без объяснения"}`);
   state.mergedSha = merged.sha;
-  console.log(`  влито: main ${merged.sha.slice(0, 9)}. На сайте — в течение минуты (таймер на сервере).`);
+  console.log(`  влито: main ${merged.sha.slice(0, 9)}. GitHub-проверки пройдены.`);
 
   // ── 10. после ──
   stage(10, "main после вливания");

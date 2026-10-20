@@ -147,3 +147,19 @@ GitHub Pro or make this repository public to enable this feature» — прив�
   трогает. `core.hooksPath` ставит SessionStart-хук
   `.claude/hooks/install-git-hooks.mjs` (git не переносит хуки с клоном), вручную —
   `git config core.hooksPath .githooks`. Тест — `scripts/pre-push.test.mjs`.
+# Public cloud workflow — 21.10.2026
+
+In `DalerJaborov/royal-home-crm-public`, `npm run ship` runs source validation
+on GitHub for every release. Backend/shared/API-test changes use the complete
+API suite on twenty standard Linux runners; UI/docs/scripts use the source
+workflow without a local build. Both paths require successful results for the
+exact commit. `--local-tests` explicitly keeps the local fallback.
+
+Verified first complete cloud release:
+https://github.com/DalerJaborov/royal-home-crm-public/actions/runs/39479368410
+API: 12,712 tests, zero failures. Twenty runner jobs completed; peak observed
+concurrency was twelve because GitHub queued the remaining jobs. Ship's measured
+cloud phase took 10 minutes 13 seconds, with 25.4 seconds for branch sync.
+This is a source-validation measurement; production deployment is not connected
+to this public repository yet. Older measurements below are historical.
+

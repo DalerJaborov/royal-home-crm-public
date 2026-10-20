@@ -2,6 +2,17 @@
 
 Guidance for Claude Code when working in this repository.
 
+## Current public workflow — 21.10.2026
+
+The active source is `DalerJaborov/royal-home-crm-public`, with independent clean
+history. Follow the public-repository section in AGENTS.md: `npm run ship` runs
+source checks and, when required, the complete API suite on GitHub-hosted Linux.
+No local PostgreSQL/build is needed for that default path; `--local-tests` is
+the explicit fallback. Do not merge old private history into this repository.
+Production deployment has not been connected to this new repository; do not
+report a production update solely from a successful GitHub merge. The older
+self-hosted-runner and deployment descriptions below describe the prior setup.
+
 ## Project
 
 `royal-home-crm` — a CRM built as an npm-workspaces monorepo. Full-stack TypeScript:
