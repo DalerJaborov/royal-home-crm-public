@@ -181,7 +181,7 @@ async function publishVerifiedCustomerAgentForOwner(actorId:string,body:PublishS
         AND "processingState" IN ('RECEIVED','CLAIMED')) OR
       EXISTS(SELECT 1 FROM "InstagramComment" WHERE "publicOriginCiphertext" IS NOT NULL AND "status" IN ('PENDING','WORKING','WORKING_STAFF','ERROR')) OR
       EXISTS(SELECT 1 FROM "TelegramGroupComment" WHERE "publicOriginCiphertext" IS NOT NULL AND "status" IN ('PENDING','WORKING','WORKING_STAFF','ERROR')) OR
-      EXISTS(SELECT 1 FROM "CustomerOutboxPart" WHERE "agentRevisionId" IS NOT NULL AND "status" IN ('READY','IN_FLIGHT','UNKNOWN')) OR
+      customer_agent_delivery_requires_idle() OR
       EXISTS(SELECT 1 FROM "CustomerPublicEffect" WHERE "status"='IN_FLIGHT' AND "createdAt">clock_timestamp()-interval '5 minutes') OR
       EXISTS(SELECT 1 FROM "AiProviderOperation" WHERE "policyKey"='royal-customer-gemini' AND "reservedUsd">0
         AND "status"='OPEN' AND "deadlineAt">clock_timestamp()) AS blocked`;

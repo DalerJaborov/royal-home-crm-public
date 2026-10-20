@@ -416,8 +416,8 @@ function moderationWire(f: Fixture, fault: "none" | "unknown_dm" | "false_hide" 
   }));
   return calls;
 }
-it("uses signed CORE origin: hide, one accepted private reply, delete; records actual immutable receipts and no CRM handover", async () => {
-  const f = await fixture(sellerAdvert), calls = moderationWire(f);
+it.each([sellerAdvert,`Хавлии фуруши дорем дар поени корвон каседа даркор нависа е занг зана ${'+9929'+'0'.repeat(8)}`])("uses signed CORE origin: hide, one accepted private reply, delete; records actual immutable receipts and no CRM handover: %s", async text => {
+  const f = await fixture(text), calls = moderationWire(f);
   expect(await handle(f)).toBe("deleted");
   expect(calls).toEqual(["hide", "private_reply", "delete"]);
   const row = await prisma.instagramComment.findUniqueOrThrow({ where: { id: f.ref.id } });
@@ -572,7 +572,10 @@ it("25 expired UNKNOWN deliveries do not starve an unsent expired plan behind th
   const unknown: Fixture[]=[];
   for(let i=0;i<25;i++) {
     const f=await fixture(),w=wire(f,commission,{missingMid:true});
-    expect(await handle(f)).toBe("skipped");expect((await part(f)).status).toBe("UNKNOWN");
+    expect(await handle(f)).toBe("skipped");
+    const output=await prisma.customerOutboxPart.findFirst({where:{sourceKey:`meta:${f.ref.id}`}});
+    expect(output,JSON.stringify({index:i,stats:w.stats(),source:await prisma.instagramComment.findUnique({where:{id:f.ref.id},select:{status:true,note:true}})})).not.toBeNull();
+    expect(output?.status).toBe("UNKNOWN");
     expect(w.posts).toHaveLength(1);unknown.push(f);
   }
   const unsent=await fixture();wire(unsent,[]);
@@ -659,7 +662,7 @@ it.each([false, true])("public phone question keeps commission; agency phone onl
   expect(w.posts[0].text).not.toMatch(/ваш.*номер|номератон|WhatsApp/iu);
   expect(w.stats()).toEqual({ counts: 2, generations: 2, unexpected: 0 });
 });
-it.each(["👍👍👍👍👍👍👍🔥🔥🔥🔥🔥🔥🔥", "🔥🔥👏", "Раҳмат ❤️"])("real public pipeline thanks for %s, seals and delivers once without Gemini/legacy/handover", async text => {
+it.each(["👍👍👍👍👍👍👍🔥🔥🔥🔥🔥🔥🔥", "🔥🔥👏", "Раҳмат ❤️", "Беҳтарин хона бдай 👏👏", "Зебо бдай 🔥"])("real public pipeline thanks for %s, seals and delivers once without Gemini/legacy/handover", async text => {
   const f = await fixture(text), w = wire(f, []), legacy = vi.spyOn(legacyAi, "callAiText");
   const outcome = await handle(f);
   const disposition = outcome === "replied" ? null : await prisma.instagramComment.findUniqueOrThrow({
@@ -674,6 +677,14 @@ it.each(["👍👍👍👍👍👍👍🔥🔥🔥🔥🔥🔥🔥", "🔥🔥�
   const row = await prisma.instagramComment.findUniqueOrThrow({ where: { id: f.ref.id } });
   expect(row.status).toBe("REPLIED"); expect(row.replyText).toBe(w.posts[0].text); expect(row.replyCommentId).toBeTruthy();
   expect(await handle(f)).toBe("skipped"); expect(w.posts).toHaveLength(1);
+});
+it.each(['Кимат','@synthetic_reader безеб','Ика бардакай'])('real public pipeline answers a criticism in Tajik without model, card dump or phone: %s',async text=>{
+  const f=await fixture(text),w=wire(f,[]);
+  expect(await handle(f)).toBe('replied');
+  expect(w.stats()).toEqual({counts:0,generations:0,unexpected:0});
+  expect(w.posts).toHaveLength(1);expect(w.posts[0].text).toMatch(/Кадом|Фаҳмидам/u);
+  expect(w.posts[0].text).not.toMatch(/992|Нархи объект|сохтмон/u);
+  expect((await part(f)).status).toBe('ACCEPTED');
 });
 it("public company witness is rechecked after seal at actual beforePOST, never silently dropped", async () => {
   const f = await fixture(), w = wire(f, commission), load = meta.loadCredentials;

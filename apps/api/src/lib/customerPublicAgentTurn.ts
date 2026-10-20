@@ -9,7 +9,7 @@ import { loadPeerAiBudget, spendAiTurns } from './aiDailyBudget.js';
 import { runCustomerAgentTurn, type CustomerAgentAwaitContext } from '../ai/customerAgentCore.js';
 import type { CustomerAgentEvidence } from '../ai/customerAgentRenderer.js';
 import { customerAgentToolDefinitions, CUSTOMER_AGENT_PUBLIC_TOOLS } from '../ai/customerAgentToolDefinitions.js';
-import { detectClientLanguage } from '../ai/clientLanguage.js';
+import { customerPublicLanguage } from '../ai/customerAgentConversationPolicy.js';
 import { classifyCustomerPropertyFactIntent } from './customerPropertyFactIntent.js';
 import { loadPublicCommentPrincipal, inspectPublicCommentPrincipal, revalidatePublicCommentPrincipal,
   readPublicCommentFacts, type PublicCommentPrincipal } from './publicCommentSourceIssuer.js';
@@ -95,7 +95,7 @@ export async function prepareCustomerPublicAgentDraft(ref: PublicSourceRef): Pro
       providerDeadlineAt: origin.agentPin.providerDeadlineAt, assertCurrent: current });
     if (opened.status !== 'ready') return opened;
     runtime = opened.runtime;
-    const language = detectClientLanguage(original.text) === 'tg' ? 'tg' : 'ru';
+    const language = customerPublicLanguage(original.text);
     let catalog = original.target.channel === 'INSTAGRAM' || original.target.channel === 'FACEBOOK'
       ? await readCustomerPublicationCatalog({ channel: original.target.channel, resourceId: original.target.accountExternalId,
         publicationId: original.target.publicationId }) : null;
