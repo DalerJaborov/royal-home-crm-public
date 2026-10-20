@@ -46,11 +46,11 @@ describe("runRestartDraft", () => {
     expect(fail).toHaveBeenCalledWith(expect.stringContaining("Не удалось удалить прежний черновик"));
   });
 
-  it("локальный черновик: сервер не трогаем, сразу начинаем", async () => {
+  it("локальный черновик после ошибки GET: сначала проверяем и удаляем серверный", async () => {
     const del = vi.fn();
     const commit = vi.fn();
     expect(await runRestartDraft("local", { deleteServerDraft: del, commit, fail: vi.fn() })).toBe(true);
-    expect(del).not.toHaveBeenCalled();
+    expect(del).toHaveBeenCalledTimes(1);
     expect(commit).toHaveBeenCalledTimes(1);
   });
 });

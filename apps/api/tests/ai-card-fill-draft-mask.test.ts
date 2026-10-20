@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import bcrypt from "bcrypt";
 import request from "supertest";
+import { loginWithCode } from "./helpers/loginCode.js";
 
 /**
  * ГЛУБОКАЯ ПРОВЕРКА 02.10.2026, A6 (вторая половина) — подсказки ИИ для мастера
@@ -81,7 +82,7 @@ beforeAll(async () => {
       },
     })
   ).id;
-  const login = await request(app).post("/api/v1/auth/login").send({ phone: agent.phone, password });
+  const login = await loginWithCode(app, agent.phone);
   agentToken = login.body.accessToken;
 });
 

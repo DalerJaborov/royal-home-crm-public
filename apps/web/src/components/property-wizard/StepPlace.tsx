@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import type { District } from "../../types";
 import { DISTRICT_COORDS, districtCenter } from "../../lib/districtCoords";
 import { api } from "../../lib/api";
@@ -116,6 +116,11 @@ export function StepPlace({
    */
   const [suggestions, setSuggestions] = useState<GeoResolveCandidate[]>([]);
   const [suggestOpen, setSuggestOpen] = useState(false);
+  const fieldId = useId();
+  const addressStatusId = `${fieldId}-address-status`;
+  const districtStatusId = `${fieldId}-district-status`;
+  const addressListOpen = suggestOpen && addressEdited && values.address.trim().length >= 2;
+  const addressOptions = useSuggestionNavigation(suggestions, values.address, addressListOpen, setSuggestOpen, applySuggestion);
   const suggestAbortRef = useRef<{ query: string } | null>(null);
   // Шаг живёт ровно до ухода с него, ответ справочника может прийти позже:
   // без этого флага setState прилетал бы в размонтированный компонент.
@@ -254,36 +259,36 @@ export function StepPlace({
                   <path d="m20 20-3.2-3.2" />
                 </svg>
                 <input
+                  id="wizard-address-input"
                   value={values.address}
                   autoComplete="off"
                   placeholder="Адрес или ориентир"
                   aria-label="Адрес или ориентир"
+                  role="combobox"
+                  aria-autocomplete="list"
+                  aria-expanded={addressListOpen && suggestions.length > 0}
+                  aria-controls={addressListOpen && suggestions.length > 0 ? addressOptions.listId : undefined}
+                  aria-activedescendant={addressOptions.activeId}
+                  aria-invalid={!!errors.address}
+                  aria-describedby={addressStatus ? addressStatusId : undefined}
                   data-testid="wizard-address-input"
                   onChange={(e) => {
                     // Набор руками — решение окончательное: подсказка больше не
                     // перетирает поле, а предлагается отдельной ссылкой ниже.
                     setAddressManual(true);
+                    setSuggestions([]);
                     setSuggestOpen(true);
                     onChange({ address: e.target.value });
                   }}
-                  onFocus={() => setSuggestOpen(true)}
-                  // Escape закрывает список, не стирая набранное, — как в остальных
-                  // выпадающих списках CRM (useDismissableMenu).
-                  onKeyDown={(e) => {
-                    if (e.key === "Escape" && suggestOpen) {
-                      e.stopPropagation();
-                      setSuggestOpen(false);
-                    }
-                  }}
-                  // Задержка перед закрытием — иначе клик по подсказке не успевает
-                  // дойти до onMouseDown/onClick: blur снимает список раньше.
-                  onBlur={() => setTimeout(() => setSuggestOpen(false), 150)}
+                  onFocus={addressOptions.open}
+                  onKeyDown={addressOptions.onKeyDown}
+                  onBlur={addressOptions.close}
                 />
               </div>
-              {suggestOpen && addressEdited && values.address.trim().length >= 2 && (
+              {addressListOpen && (
                 <AddressSuggestions
                   suggestions={suggestions}
-                  onPick={(s) => applySuggestion(s)}
+                  navigation={addressOptions}
                 />
               )}
             </div>
@@ -298,13 +303,15 @@ export function StepPlace({
               autoComplete="off"
               placeholder="Улица и дом"
               aria-label="Адрес"
+              aria-invalid={!!errors.address}
+              aria-describedby={addressStatus ? addressStatusId : undefined}
               data-testid="wizard-address-input"
               onChange={(e) => onChange({ address: e.target.value })}
             />
           </div>
         )}
         {addressStatus && (
-          <p style={{ marginTop: 8, fontSize: 12, color: errors.address ? "var(--warn)" : "var(--muted)" }} role="status" data-testid="wizard-address-status">
+          <p id={addressStatusId} style={{ marginTop: 8, fontSize: 12, color: errors.address ? "var(--warn)" : "var(--muted)" }} role="status" data-testid="wizard-address-status">
             {addressStatus}
           </p>
         )}
@@ -332,12 +339,13 @@ export function StepPlace({
         <LandmarkField
           value={values.landmark}
           auto={landmarkAuto !== null && values.landmark.trim() !== "" && values.landmark === landmarkAuto}
+          error={errors.landmark}
           onChange={(landmark) => onChange({ landmark })}
         />
       </section>
 
       <section className="blk">
-        <div className="segs" role="tablist" aria-label="Район">
+        <div className="segs" role="tablist" aria-label="Район" aria-invalid={!!errors.districtId} aria-describedby={errors.districtId || districtsLoading ? districtStatusId : undefined}>
           {/* Состояние вкладки — `aria-selected`, а не `aria-pressed`
               (19.09.2026): внутри `role="tablist"` оно называется именно так, а
               пара aria-pressed + role="tab" валится у axe правилом
@@ -349,6 +357,8 @@ export function StepPlace({
               type="button"
               role="tab"
               aria-selected={values.districtId === d.id}
+              aria-invalid={!!errors.districtId}
+              aria-describedby={errors.districtId ? districtStatusId : undefined}
               onClick={() => onChange({ districtId: d.id })}
             >
               {d.name}
@@ -356,7 +366,7 @@ export function StepPlace({
           ))}
         </div>
         {(errors.districtId || districtsLoading) && (
-          <p style={{ marginTop: 8, fontSize: 12, color: errors.districtId ? "var(--warn)" : "var(--muted)" }}>
+          <p id={districtStatusId} role="status" style={{ marginTop: 8, fontSize: 12, color: errors.districtId ? "var(--warn)" : "var(--muted)" }}>
             {errors.districtId || "Загружаю справочник районов…"}
           </p>
         )}
@@ -389,12 +399,17 @@ export function StepPlace({
  * готовые названия, но свободный текст всегда можно напечатать и сохранить,
  * даже если в справочнике ничего похожего нет.
  */
-function LandmarkField({ value, auto, onChange }: { value: string; auto: boolean; onChange: (v: string) => void }) {
+function LandmarkField({ value, auto, error, onChange }: { value: string; auto: boolean; error?: string; onChange: (v: string) => void }) {
   const [open, setOpen] = useState(false);
+  const fieldId = useId();
+  const errorId = `${fieldId}-error`;
+  const autoId = `${fieldId}-auto`;
   const debounced = useDebouncedValue(value.trim(), 350);
-  const searchActive = open && debounced.length >= 2;
+  const searchActive = open && debounced.length >= 2 && debounced === value.trim();
   const { data } = useLandmarks({ q: debounced, pageSize: 5 }, { enabled: searchActive });
-  const suggestions = searchActive ? (data?.items ?? []) : [];
+  const suggestions = debounced.length >= 2 && debounced === value.trim() ? (data?.items ?? []) : [];
+  const navigation = useSuggestionNavigation(suggestions, value, open, setOpen, (item) => onChange(item.name));
+  const describedBy = [error ? errorId : null, auto ? autoId : null].filter(Boolean).join(" ") || undefined;
   return (
     <div className="f" style={{ position: "relative" }}>
       <label htmlFor="wizard-landmark-input">Ориентир</label>
@@ -405,39 +420,36 @@ function LandmarkField({ value, auto, onChange }: { value: string; auto: boolean
         autoComplete="off"
         placeholder="Например: рядом с ТЦ Садбарг"
         aria-label="Ориентир"
+        role="combobox"
+        aria-autocomplete="list"
+        aria-expanded={open && suggestions.length > 0}
+        aria-controls={open && suggestions.length > 0 ? navigation.listId : undefined}
+        aria-activedescendant={navigation.activeId}
+        aria-invalid={!!error}
+        aria-describedby={describedBy}
         data-testid="wizard-landmark-input"
         onChange={(e) => {
           onChange(e.target.value);
           setOpen(true);
         }}
-        onFocus={() => setOpen(true)}
-        onKeyDown={(e) => {
-          if (e.key === "Escape" && open) {
-            e.stopPropagation();
-            setOpen(false);
-          }
-        }}
-        // Задержка перед закрытием — клик по подсказке (onMouseDown) должен успеть
-        // сработать раньше, чем blur закроет список (тот же приём, что у адреса выше).
-        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        onFocus={navigation.open}
+        onKeyDown={navigation.onKeyDown}
+        onBlur={navigation.close}
       />
+      {error && <p id={errorId} role="status" style={{ marginTop: 6, fontSize: 13, color: "var(--warn)" }}>{error}</p>}
       {auto && (
-        <p style={{ marginTop: 6, fontSize: 13, color: "var(--muted)" }} data-testid="wizard-landmark-auto">
+        <p id={autoId} style={{ marginTop: 6, fontSize: 13, color: "var(--muted)" }} data-testid="wizard-landmark-auto">
           Подобрано по точке на карте, можно поправить
         </p>
       )}
       {open && suggestions.length > 0 && (
-        <div className="sugg" role="listbox" aria-label="Подсказки ориентира" data-testid="wizard-landmark-suggestions">
-          {suggestions.map((s) => (
+        <div id={navigation.listId} className="sugg" role="listbox" aria-label="Подсказки ориентира" data-testid="wizard-landmark-suggestions">
+          {suggestions.map((s, index) => (
             <button
               key={s.id}
               type="button"
               role="option"
-              onMouseDown={(e) => {
-                e.preventDefault();
-                onChange(s.name);
-                setOpen(false);
-              }}
+              {...navigation.optionProps(index)}
             >
               <span className="nm">{s.name}</span>
             </button>
@@ -452,10 +464,10 @@ function LandmarkField({ value, auto, onChange }: { value: string; auto: boolean
  *  данные настоящие (`GET /geo/resolve`): пусто — честное «нет в справочнике». */
 function AddressSuggestions({
   suggestions,
-  onPick,
+  navigation,
 }: {
   suggestions: GeoResolveCandidate[];
-  onPick: (s: GeoResolveCandidate) => void;
+  navigation: ReturnType<typeof useSuggestionNavigation<GeoResolveCandidate>>;
 }) {
   if (suggestions.length === 0) {
     return (
@@ -465,18 +477,13 @@ function AddressSuggestions({
     );
   }
   return (
-    <div className="sugg" role="listbox" aria-label="Подсказки адреса" data-testid="wizard-address-suggestions">
-      {suggestions.map((s) => (
+    <div id={navigation.listId} className="sugg" role="listbox" aria-label="Подсказки адреса" data-testid="wizard-address-suggestions">
+      {suggestions.map((s, index) => (
         <button
           key={`${s.targetType}-${s.targetId}`}
           type="button"
           role="option"
-          // onMouseDown, не onClick: срабатывает раньше blur поля,
-          // иначе onBlur успевает закрыть список первым.
-          onMouseDown={(e) => {
-            e.preventDefault();
-            onPick(s);
-          }}
+          {...navigation.optionProps(index)}
         >
           <span className="tag">{TARGET_TYPE_LABEL[s.targetType]}</span>
           <span className="nm">{s.name}</span>
@@ -484,6 +491,48 @@ function AddressSuggestions({
       ))}
     </div>
   );
+}
+
+/** Focus stays in the input; suggestions are reached with arrows rather than Tab. */
+function useSuggestionNavigation<T>(items: T[], query: string, isOpen: boolean, setOpen: (open: boolean) => void, onPick: (item: T) => void) {
+  const listId = useId();
+  const [selection, setSelection] = useState<{ items: T[]; query: string; index: number } | null>(null);
+  const activeIndex = isOpen && selection?.items === items && selection.query === query ? selection.index : -1;
+  const activeId = activeIndex >= 0 && activeIndex < items.length ? `${listId}-${activeIndex}` : undefined;
+  const close = () => { setOpen(false); setSelection(null); };
+  const open = () => { setOpen(true); setSelection(null); };
+  const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.nativeEvent.isComposing || event.altKey || event.ctrlKey || event.metaKey) return;
+    if (event.key === "Escape" && isOpen) {
+      event.preventDefault(); event.stopPropagation(); close();
+    } else if (event.key === "Tab") {
+      close();
+    } else if (event.key === "Enter" && activeId) {
+      event.preventDefault(); event.stopPropagation(); onPick(items[activeIndex]); close();
+    } else if (event.key === "ArrowDown" || event.key === "ArrowUp" || (isOpen && activeId && (event.key === "Home" || event.key === "End"))) {
+      event.preventDefault();
+      setOpen(true);
+      if (items.length === 0) { setSelection(null); return; }
+      const index = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1
+        : event.key === "ArrowDown" ? (activeIndex + 1) % items.length
+          : activeIndex <= 0 ? items.length - 1 : activeIndex - 1;
+      setSelection({ items, query, index });
+    }
+  };
+  return {
+    listId, activeId, open, close, onKeyDown,
+    optionProps: (index: number) => ({
+      id: `${listId}-${index}`,
+      "aria-selected": activeIndex === index,
+      tabIndex: -1,
+      style: activeIndex === index ? { background: "var(--hover)" } : undefined,
+      // Retain input focus until click on mouse AND touch; no delayed blur timer
+      // may close a freshly reopened list. Click also supports assistive activation.
+      onPointerDown: (event: { preventDefault: () => void }) => event.preventDefault(),
+      onMouseDown: (event: { preventDefault: () => void }) => event.preventDefault(),
+      onClick: () => { onPick(items[index]); close(); },
+    }),
+  };
 }
 
 /** Подпись типа подсказки адреса — та же вкладка, что показывает `PropertiesMap.tsx`. */

@@ -8756,6 +8756,10 @@ model PropertyDraft {
   values    Json     @default("{}")
   /// На каком шаге агент остановился — чтобы вернуть его туда же, а не в начало.
   step      Int      @default(0)
+  /// Monotonic field/lifecycle revision; retained after deletion to reject stale writes.
+  revision  Int      @default(0)
+  /// A closed row is a tombstone, invisible to the wizard and never resurrected by PUT.
+  closedAt  DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   /// Срок жизни. Черновик недельной давности — это уже не та квартира и не тот

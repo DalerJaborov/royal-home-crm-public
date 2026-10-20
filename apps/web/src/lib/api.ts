@@ -322,6 +322,8 @@ export async function api<T>(
     idempotencyKey?: string;
     /** Server revision read with the edited resource; rejects stale writes. */
     ifMatch?: string;
+    /** Media may only be written to the draft that owned it when queued. */
+    propertyDraftId?: string;
     /**
      * Запрос принадлежит ЭТОМУ сотруднику (офлайн-очередь, аудит 04.10.2026, №2).
      * Если за время ожидания вошёл другой, запрос не уходит чужим токеном: ни до
@@ -393,6 +395,7 @@ export async function api<T>(
     if (token) headers["Authorization"] = `Bearer ${token}`;
     if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
     if (options.ifMatch) headers["If-Match"] = options.ifMatch;
+    if (options.propertyDraftId) headers["X-Property-Draft-Id"] = options.propertyDraftId;
 
     const controller = new AbortController();
     let timer = setTimeout(() => controller.abort(), timeoutMs);

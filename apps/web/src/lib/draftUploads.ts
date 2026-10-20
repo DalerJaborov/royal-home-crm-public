@@ -13,6 +13,7 @@ import { httpStatusMessage } from "./httpStatusMessage";
 import { useAuthStore } from "../store/auth";
 import { registerWork } from "./workGuard";
 import { setDraftReminder } from "./draftReminder";
+import { ensurePropertyDraftSession, getPropertyDraftSession, isPropertyDraftSessionCurrent, propertyDraftSessionToken } from "./propertyDraftSession";
 
 /**
  * ФАЙЛЫ МАСТЕРА УХОДЯТ СРАЗУ, А НЕ ПОСЛЕ «СОХРАНИТЬ» (владелец 11.09.2026:
@@ -107,6 +108,8 @@ export interface DraftMediaItem {
 }
 
 interface QueueEntry {
+  /** Captured ownership; never rebind an old file to a newly opened draft. */
+  draftId?: string | null;
   /**
    * Чей это файл (аудит 04.10.2026, WEB-03). Очередь живёт в памяти вкладки и
    * переживает выход: без владельца файлы А уходили бы в черновик Б его токеном.
@@ -395,6 +398,12 @@ function currentAgentId(): string | null {
   return useAuthStore.getState().agent?.id ?? null;
 }
 
+let mediaGeneration = 0;
+const removedUploadKeys = new Set<string>();
+function removedKey(uploadKey: string, draftId?: string | null): string {
+  return `${draftId ?? getPropertyDraftSession()?.draft?.id ?? propertyDraftSessionToken()}:${uploadKey}`;
+}
+
 /**
  * Смена сотрудника в той же вкладке (А вышел, вошёл Б): чужие плитки из памяти
  * убираем и больше не отправляем (WEB-03). Дисковые копии А (IndexedDB,
@@ -402,6 +411,7 @@ function currentAgentId(): string | null {
  * а hydrateDraftMedia достанет только копии вошедшего.
  */
 function dropForeignEntries(): void {
+  mediaGeneration++;
   const me = currentAgentId();
   let dropped = false;
   for (const [key, e] of entries) {
@@ -432,7 +442,14 @@ useAuthStore.subscribe((state, prev) => {
  * (statuses queued/uploading/failed, есть file) всегда главнее серверной —
  * сервер мог ещё не узнать о ней (автосохранение отстаёт) или уже устарел.
  */
-export async function hydrateDraftMedia(media: PropertyDraftMediaView[]): Promise<void> {
+export async function hydrateDraftMedia(media: PropertyDraftMediaView[], draftId?: string): Promise<void> {
+  if (draftId && getPropertyDraftSession()?.draft?.id !== draftId) return;
+  const hydrationToken = propertyDraftSessionToken();
+  const generation = mediaGeneration;
+  const ownerId = currentAgentId();
+  const ownerEpoch = useAuthStore.getState().sessionEpoch;
+  const currentHydration = () => generation === mediaGeneration && currentAgentId() === ownerId &&
+    useAuthStore.getState().sessionEpoch === ownerEpoch && isPropertyDraftSessionCurrent(hydrationToken);
   const serverKeys = new Set(media.map((m) => m.uploadKey));
 
   // 1) Плейсхолдеры прошлого захода (ready/lost, без file), которых сервер
@@ -447,6 +464,7 @@ export async function hydrateDraftMedia(media: PropertyDraftMediaView[]): Promis
 
   // 2) Разложить то, что знает сервер — кроме ключей с живой локальной записью.
   for (const m of media) {
+    if (removedUploadKeys.has(removedKey(m.uploadKey, draftId))) continue;
     if (entries.get(m.uploadKey)?.file) continue;
     const kind: DraftMediaKind = m.kind === "VIDEO" ? "video" : "photo";
     entries.set(m.uploadKey, {
@@ -468,6 +486,7 @@ export async function hydrateDraftMedia(media: PropertyDraftMediaView[]): Promis
       },
       file: null,
       agentId: currentAgentId(),
+      draftId: getPropertyDraftSession()?.draft?.id ?? null,
       attempts: 0,
       connectivityFails: 0,
       cancelled: false,
@@ -488,8 +507,10 @@ export async function hydrateDraftMedia(media: PropertyDraftMediaView[]): Promis
   } catch {
     return; // приватный режим/квота — докачивать нечем, работаем как раньше
   }
+  if (!currentHydration()) return;
   let queuedSomething = false;
   for (const rec of stored) {
+    if (removedUploadKeys.has(removedKey(rec.uploadKey, rec.draftId))) continue;
     const existing = entries.get(rec.uploadKey);
     if (existing?.file) continue; // уже живая запись — не трогаем
     if (existing?.item.status === "ready") {
@@ -497,22 +518,27 @@ export async function hydrateDraftMedia(media: PropertyDraftMediaView[]): Promis
       continue;
     }
     const file = new File([rec.blob], rec.name, { type: rec.blob.type });
+    const session = getPropertyDraftSession();
+    const differentDraft = !!session && (rec.draftId
+      ? rec.draftId !== session.draft?.id
+      : session.revision > 0 && !serverKeys.has(rec.uploadKey));
     entries.set(rec.uploadKey, {
       item: {
         uploadKey: rec.uploadKey,
         kind: rec.kind,
         name: rec.name,
         sizeBytes: rec.size,
-        status: "queued",
+        status: differentDraft ? "failed" : "queued",
         loaded: 0,
-        error: null,
-        errorKind: null,
+        error: differentDraft ? "Файл остался от другого черновика. Выберите его заново, если он нужен" : null,
+        errorKind: differentDraft ? "other" : null,
         mediaId: existing?.item.mediaId ?? null,
         previewUrl: null,
         thumbUrl: existing?.item.thumbUrl ?? null,
       },
       file,
       agentId,
+      draftId: rec.draftId ?? getPropertyDraftSession()?.draft?.id ?? null,
       attempts: 0,
       connectivityFails: 0,
       cancelled: false,
@@ -527,9 +553,14 @@ export async function hydrateDraftMedia(media: PropertyDraftMediaView[]): Promis
 }
 
 /** Забыть всё, не трогая сервер (после успешного создания объекта или «начать заново»). */
-export function clearDraftMedia(): void {
+export function clearDraftMedia(options: { draftId?: string | null; deleteStored?: boolean } = {}): void {
+  const agentId = currentAgentId();
+  const draftId = options.draftId !== undefined ? options.draftId
+    : getPropertyDraftSession()?.draft?.id ?? [...entries.values()].find((entry) => entry.agentId === agentId)?.draftId ?? null;
+  mediaGeneration++;
   for (const e of entries.values()) {
     e.cancelled = true;
+    if (options.deleteStored !== false && e.agentId === agentId) void deleteDraftFile(e.item.uploadKey).catch(() => undefined);
     if (e.item.previewUrl) URL.revokeObjectURL(e.item.previewUrl);
   }
   entries.clear();
@@ -539,7 +570,7 @@ export function clearDraftMedia(): void {
   }
   resetDraftPhotoLocation();
   publish();
-  void clearAllDraftFiles().catch(() => undefined);
+  if (options.deleteStored !== false && agentId) void clearAllDraftFiles(agentId, draftId).catch(() => undefined);
 }
 
 /**
@@ -555,8 +586,8 @@ export function detachDraftMediaView(): void {
   // Упавшие повторяемой причиной (обрыв, сбой сервера) тоже оставляем: агент мог
   // закрыть мастер, не дожидаясь, а полный сброс стёр бы и их копии в IndexedDB —
   // файл пропал бы насовсем. Они ждут «Повторить» в вернувшемся мастере.
-  if (draftUploadsPending() || snapshot.some(canRetryDraftItem)) return;
-  clearDraftMedia();
+  if (snapshot.some((item) => item.status !== "ready")) return;
+  clearDraftMedia({ deleteStored: false });
 }
 
 // ─────────────────────────── лёгкие превью плиток ───────────────────────────
@@ -645,6 +676,7 @@ async function persistDraftFile(entry: QueueEntry): Promise<void> {
       name: blob.name,
       size: blob.size,
       agentId,
+      draftId: entry.draftId ?? null,
       blob,
     });
   } catch {
@@ -677,6 +709,7 @@ export function addDraftPhotos(files: File[]): void {
       },
       file,
       agentId: currentAgentId(),
+      draftId: getPropertyDraftSession()?.draft?.id ?? null,
       attempts: 0,
       connectivityFails: 0,
       cancelled: false,
@@ -710,6 +743,7 @@ export function addDraftVideos(files: File[]): void {
       },
       file,
       agentId: currentAgentId(),
+      draftId: getPropertyDraftSession()?.draft?.id ?? null,
       attempts: 0,
       connectivityFails: 0,
       cancelled: false,
@@ -731,16 +765,16 @@ export function addDraftVideos(files: File[]): void {
  * достигнута. Прочие 4xx (чужой черновик) повтором не исправить.
  */
 const DELETE_RETRY_DELAYS_MS = [2_000, 6_000];
-const failedMediaDeletes = new Set<string>();
+const failedMediaDeletes = new Map<string, string | undefined>();
 const inFlightMediaDeletes = new Set<string>();
 
-async function deleteDraftMediaOnServer(mediaId: string): Promise<void> {
+async function deleteDraftMediaOnServer(mediaId: string, draftId?: string): Promise<void> {
   if (inFlightMediaDeletes.has(mediaId)) return;
   inFlightMediaDeletes.add(mediaId);
   try {
     for (let attempt = 0; ; attempt++) {
       try {
-        await api(`/properties/drafts/current/media/${mediaId}`, { method: "DELETE" });
+        await api(`/properties/drafts/current/media/${mediaId}`, { method: "DELETE", propertyDraftId: draftId });
         failedMediaDeletes.delete(mediaId);
         return;
       } catch (err) {
@@ -755,7 +789,7 @@ async function deleteDraftMediaOnServer(mediaId: string): Promise<void> {
         }
         const delay = DELETE_RETRY_DELAYS_MS[attempt];
         if (delay === undefined) {
-          failedMediaDeletes.add(mediaId);
+          failedMediaDeletes.set(mediaId, draftId);
           return;
         }
         await new Promise((resolve) => setTimeout(resolve, delay));
@@ -770,6 +804,7 @@ async function deleteDraftMediaOnServer(mediaId: string): Promise<void> {
 export async function removeDraftMedia(uploadKey: string): Promise<void> {
   const entry = entries.get(uploadKey);
   if (!entry) return;
+  removedUploadKeys.add(removedKey(uploadKey, entry.draftId));
   entry.cancelled = true;
   entry.removedByUser = true;
   const mediaId = entry.item.mediaId;
@@ -779,7 +814,7 @@ export async function removeDraftMedia(uploadKey: string): Promise<void> {
   void deleteDraftFile(uploadKey).catch(() => undefined);
   if (mediaId) {
     entry.serverDeleteSent = true;
-    await deleteDraftMediaOnServer(mediaId);
+    await deleteDraftMediaOnServer(mediaId, entry.draftId ?? undefined);
   }
   // Если mediaId ещё нет (файл летит прямо сейчас), удалит run(), когда ответ придёт.
   void run();
@@ -891,7 +926,7 @@ function reportDraftUploadIssue(
  */
 async function run(): Promise<void> {
   // Удаления, что не удались раньше (WEB-04), пробуем снова на каждом проходе.
-  for (const mediaId of failedMediaDeletes) void deleteDraftMediaOnServer(mediaId);
+  for (const [mediaId, draftId] of failedMediaDeletes) void deleteDraftMediaOnServer(mediaId, draftId);
   if (running) return;
   running = true;
   try {
@@ -938,7 +973,7 @@ async function run(): Promise<void> {
         // держит READY-файл, который при создании объекта попадёт в объект (WEB-04).
         if (next.removedByUser && next.item.mediaId && !next.serverDeleteSent) {
           next.serverDeleteSent = true;
-          void deleteDraftMediaOnServer(next.item.mediaId);
+          void deleteDraftMediaOnServer(next.item.mediaId, next.draftId ?? undefined);
         }
         continue;
       }
@@ -1053,7 +1088,30 @@ function outcomeFromStatus(status: number, error: string | null): SendOutcome {
   };
 }
 
+/** Resolve identity once, then use the captured ID for every retry/part. A stale
+ * callback or IndexedDB record can never borrow the next object's draft. */
+async function bindDraft(entry: QueueEntry): Promise<SendOutcome | null> {
+  try {
+    const known = getPropertyDraftSession();
+    if (entry.draftId && known && known.draft?.id !== entry.draftId) {
+      return outcomeFromStatus(409, "Черновик удалён или заменён. Этот файл не отправлен в новый объект");
+    }
+    const draft = await ensurePropertyDraftSession();
+    if (entry.cancelled || currentAgentId() !== entry.agentId) return outcomeFromStatus(409, "Сессия загрузки изменилась");
+    if (entry.draftId && entry.draftId !== draft.id) return outcomeFromStatus(409, "Черновик удалён или заменён. Этот файл не отправлен в новый объект");
+    if (!entry.draftId) {
+      entry.draftId = draft.id;
+      void persistDraftFile(entry);
+    }
+    return null;
+  } catch (err) {
+    return outcomeFromStatus((err as { status?: number }).status ?? 0, err instanceof Error ? err.message : "Не удалось открыть черновик");
+  }
+}
+
 async function sendPhoto(entry: QueueEntry): Promise<SendOutcome> {
+  const ownership = await bindDraft(entry);
+  if (ownership) return ownership;
   // Тот же сжатый файл, что уже мог уйти в IndexedDB (persistDraftFile) —
   // считать дважды незачем (ensureCompressed кеширует).
   const file = await ensureCompressed(entry);
@@ -1072,7 +1130,8 @@ async function sendPhoto(entry: QueueEntry): Promise<SendOutcome> {
       publish();
     },
     undefined,
-    entry.agentId
+    entry.agentId,
+    entry.draftId ?? undefined
   );
   if (res.status >= 200 && res.status < 300) {
     const stored = parseJson<Array<{ id: string; uploadKey: string; thumbUrl: string | null }>>(res.text);
@@ -1140,6 +1199,8 @@ function withDeadline<T>(promise: Promise<T>, ms: number): Promise<T> {
  * «начать заново», иначе на мобильном интернете такой ролик не уедет никогда.
  */
 async function sendVideo(entry: QueueEntry): Promise<SendOutcome> {
+  const ownership = await bindDraft(entry);
+  if (ownership) return ownership;
   const file = entry.file!;
   let session: VideoSession;
   entry.stage = "session";
@@ -1154,6 +1215,7 @@ async function sendVideo(entry: QueueEntry): Promise<SendOutcome> {
           contentType: file.type || "video/mp4",
         },
         expectAgentId: entry.agentId ?? undefined,
+        propertyDraftId: entry.draftId ?? undefined,
       }),
       SESSION_DEADLINE_MS
     );
@@ -1196,7 +1258,8 @@ async function sendVideo(entry: QueueEntry): Promise<SendOutcome> {
         publish();
       },
       "application/octet-stream",
-      entry.agentId
+      entry.agentId,
+      entry.draftId ?? undefined
     );
     if (res.status < 200 || res.status >= 300) {
       // D1, «два повтора подряд одной и той же части» (23.09.2026) — та же
@@ -1232,6 +1295,7 @@ async function sendVideo(entry: QueueEntry): Promise<SendOutcome> {
       api(`/properties/drafts/current/videos/${mediaId}/complete`, {
         method: "POST",
         expectAgentId: entry.agentId ?? undefined,
+        propertyDraftId: entry.draftId ?? undefined,
       }),
       COMPLETE_DEADLINE_MS
     );
@@ -1313,18 +1377,19 @@ async function xhrSendAuthed(
   onProgress: (loaded: number, total: number) => void,
   contentType?: string,
   /** Чей файл (WEB-03): токеном другого сотрудника он не уходит ни сразу, ни после refresh. */
-  ownerId?: string | null
+  ownerId?: string | null,
+  draftId?: string
 ): Promise<XhrResult> {
   const sessionChanged = () => !!ownerId && currentAgentId() !== ownerId;
   const SESSION_CHANGED: XhrResult = { status: 0, text: "", error: "Сессия сменилась" };
   if (sessionChanged()) return SESSION_CHANGED;
-  const first = await xhrSend(method, path, body, onProgress, contentType);
+  const first = await xhrSend(method, path, body, onProgress, contentType, draftId);
   if (first.status !== 401 || !useAuthStore.getState().hasSession) return first;
   const token = await refreshAccessToken();
   if (!token) return first;
   // refresh мог пройти уже под другим аккаунтом (А вышел, вошёл Б).
   if (sessionChanged()) return SESSION_CHANGED;
-  return xhrSend(method, path, body, onProgress, contentType);
+  return xhrSend(method, path, body, onProgress, contentType, draftId);
 }
 
 function xhrSend(
@@ -1332,7 +1397,8 @@ function xhrSend(
   path: string,
   body: XMLHttpRequestBodyInit,
   onProgress: (loaded: number, total: number) => void,
-  contentType?: string
+  contentType?: string,
+  draftId?: string
 ): Promise<XhrResult> {
   return new Promise((resolve) => {
     const xhr = new XMLHttpRequest();
@@ -1362,6 +1428,7 @@ function xhrSend(
     xhr.open(method, path);
     xhr.withCredentials = true;
     xhr.setRequestHeader("X-Device-Id", getOrCreateDeviceId());
+    if (draftId) xhr.setRequestHeader("X-Property-Draft-Id", draftId);
     if (contentType) xhr.setRequestHeader("Content-Type", contentType);
     const token = useAuthStore.getState().accessToken;
     if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);

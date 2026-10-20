@@ -38,14 +38,14 @@ describe("Вопрос «Заменить фото?» в мастере", () => 
   });
 
   it("оба входа (из чата и выбор продавца в мастере) ловят вопрос сервера", () => {
-    expect(WIZARD).toMatch(/setMediaConflict\(\{ clientId, mode: "start", \.\.\.conflict \}\)/);
+    expect(WIZARD).toMatch(/setMediaConflict\(\{ clientId, mode: "start", [^}]*\.\.\.conflict \}\)/);
     expect(WIZARD).toMatch(/setMediaConflict\(\{ clientId, mode: "enrich", \.\.\.conflict \}\)/);
   });
 
   it("плитки агента не чистятся до ответа сервера", () => {
     const start = WIZARD.slice(WIZARD.indexOf("async function startFromClient("));
     const beforeRequest = start.slice(0, start.indexOf("await api<"));
-    expect(beforeRequest).not.toMatch(/clearDraftMedia\(\)/);
+    expect(beforeRequest).not.toMatch(/clearDraftMedia\(/);
     expect(beforeRequest).not.toMatch(/setAutosaveArmed\(true\)/);
   });
 });

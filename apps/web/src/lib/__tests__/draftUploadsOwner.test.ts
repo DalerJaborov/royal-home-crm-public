@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { adoptTestDraftSession } from "./draftSessionFixture";
 
 /**
  * Файлы мастера одного сотрудника не уходят в черновик другого (аудит Codex
@@ -85,6 +86,7 @@ describe("очередь мастера и смена сотрудника", () 
     const { useAuthStore } = await import("../../store/auth");
     const q = await import("../draftUploads");
     useAuthStore.getState().setSession(A, "tokenA");
+    await adoptTestDraftSession();
 
     q.addDraftPhotos([photo("a1.jpg"), photo("a2.jpg")]);
     await settle();
@@ -92,6 +94,7 @@ describe("очередь мастера и смена сотрудника", () 
 
     useAuthStore.getState().logout();
     useAuthStore.getState().setSession(B, "tokenB");
+    await adoptTestDraftSession("00000000-0000-4000-8000-000000000002");
     expect(q.getDraftMediaSnapshot()).toEqual([]);
     expect(q.hasLiveDraftMedia()).toBe(false);
 
@@ -112,6 +115,7 @@ describe("очередь мастера и смена сотрудника", () 
     const { useAuthStore } = await import("../../store/auth");
     const q = await import("../draftUploads");
     useAuthStore.getState().setSession(A, "tokenA");
+    await adoptTestDraftSession();
     q.addDraftPhotos([photo("a1.jpg"), photo("a2.jpg")]);
     await settle();
     useAuthStore.getState().setSession(A, "tokenA2");
