@@ -13,6 +13,8 @@ clears obsolete inactive fields on return/defer, and scans successive batches in
 of permanently stopping at the same first 500 candidates. Incomplete legacy traffic
 records start a fresh cycle rather than being charged for an unknown past period.
 The retention sweep also checks recent contact and outstanding return offers.
+A failed conditional write no longer leaves a phantom transition in the stage
+journal when another writer changed the card after the hook's initial read.
 
 The client header and rows use one primary lifecycle label on desktop and mobile.
 The same presentation is used in other inquiries, property-match candidates and
@@ -25,8 +27,10 @@ Historical enums and customer history are retained.
 The discipline settings describe automatic checks rather than removed push reminders,
 show the actual intervals through loss, expose inverted depth ordering, and provide a
 form preset matching the existing application policy. Schema defaults now match the
-fallback. The migration changes defaults only: it does not rewrite saved settings or
-client states. Existing policy values require an explicit save through Settings.
+fallback. A shared policy guard repairs inverted saved settings by extending warmer
+levels only; no level receives an earlier deadline. The screen shows these effective
+intervals. The migration changes defaults only: it does not rewrite saved settings or
+client states. Replacing the stored policy values still requires a save through Settings.
 
 Regression coverage includes all contact channels, stale/duplicate transitions,
 terminal and deferred states, manual return, incomplete clocks, concurrent ticks,

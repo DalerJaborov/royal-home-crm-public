@@ -3,7 +3,7 @@ import { prisma } from "../src/db.js";
 import { runSilentClientAutoDeactivate } from "../src/lib/silentClientAutoDeactivate.js";
 import { checkNoAnswerStreakForTrafficLight } from "../src/lib/noAnswerTrafficLight.js";
 import { deactivateClient, hasNewerContactSince, reactivateClient } from "../src/lib/clientWorkStatus.js";
-import { classifyInactiveLevelByDepth, lastRealContactAt, runInactiveTrafficLightTick, shiftInactiveClockAfterAbsence } from "../src/lib/inactiveTrafficLight.js";
+import { classifyInactiveLevelByDepth, lastRealContactAt, loadTrafficLightSettings, runInactiveTrafficLightTick, shiftInactiveClockAfterAbsence } from "../src/lib/inactiveTrafficLight.js";
 import { collectFacts } from "../src/lib/clientAutoStatus.js";
 import { decideStatus } from "../src/lib/clientAutoStatus.js";
 import { computeHiddenReason, presentClient } from "../src/routes/clients/shared.js";
@@ -71,6 +71,26 @@ async function deactivate(clientId: string) {
 }
 
 describe("all contact channels protect the inactive lifecycle", () => {
+  it("runtime policy repairs saved inverted ordering without rewriting settings or shortening red", async () => {
+    const select = { inactiveGreenPingHours: true, inactiveGreenMaxAttempts: true,
+      inactiveYellowPingHours: true, inactiveYellowMaxAttempts: true,
+      inactiveRedPingHours: true, inactiveRedMaxAttempts: true, inactivateCooldownHours: true } as const;
+    const before = await prisma.settings.findUniqueOrThrow({ where: { id: "singleton" }, select });
+    try {
+      await prisma.settings.update({ where: { id: "singleton" }, data: {
+        inactiveGreenPingHours: 24, inactiveGreenMaxAttempts: 2,
+        inactiveYellowPingHours: 48, inactiveYellowMaxAttempts: 2,
+        inactiveRedPingHours: 72, inactiveRedMaxAttempts: 2, inactivateCooldownHours: 0,
+      } });
+      const effective = await loadTrafficLightSettings();
+      expect(effective).toMatchObject({ inactiveGreenPingHours: 72, inactiveYellowPingHours: 72,
+        inactiveRedPingHours: 72, inactivateCooldownHours: 0 });
+      expect(await prisma.settings.findUniqueOrThrow({ where: { id: "singleton" }, select }))
+        .toMatchObject({ inactiveGreenPingHours: 24, inactiveYellowPingHours: 48, inactiveRedPingHours: 72 });
+    } finally {
+      await prisma.settings.update({ where: { id: "singleton" }, data: before });
+    }
+  });
   it.each([
     { callAttempt: "TALKED" },
     { recordingDurationSec: 12 },

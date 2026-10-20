@@ -95,3 +95,4 @@ export * from "./customerAgentRollout.js";
 export * from "./customerAgentOwnerControls.js";
 export * from "./customerAgentOwnerState.js";
 export * from "./conversationClientLink.js";
+export * from "./inactiveTrafficPolicy.js";

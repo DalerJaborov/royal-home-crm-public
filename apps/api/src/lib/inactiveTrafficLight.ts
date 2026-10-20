@@ -27,8 +27,11 @@ import { sellersWithPropertyInWork } from "./sellerCardState.js";
 import {
   INACTIVE_REASONS,
   dushanbeDayKey,
+  DEFAULT_INACTIVE_TRAFFIC_POLICY,
+  normalizeInactiveTrafficPolicy,
   type ClientKind,
   type InactiveReason,
+  type InactiveTrafficPolicy,
 } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { isWithinWorkingHours } from "./workingHours.js";
@@ -149,13 +152,7 @@ export async function classifyInactiveLevelByDepth(
   return contact ? "YELLOW" : "RED";
 }
 
-interface TrafficLightSettings {
-  inactiveGreenPingHours: number;
-  inactiveGreenMaxAttempts: number;
-  inactiveYellowPingHours: number;
-  inactiveYellowMaxAttempts: number;
-  inactiveRedPingHours: number;
-  inactiveRedMaxAttempts: number;
+interface TrafficLightSettings extends InactiveTrafficPolicy {
   inactivateMinAttempts: number;
   inactivateCooldownHours: number;
   leadCallMinSeconds: number;
@@ -169,12 +166,7 @@ interface TrafficLightSettings {
  * на его возврат; меньше вложено — быстрее освобождаем слот агенту.
  */
 const FALLBACK: TrafficLightSettings = {
-  inactiveGreenPingHours: 24,
-  inactiveGreenMaxAttempts: 5, // 5 дней всего — самый тёплый, больше всего терпения
-  inactiveYellowPingHours: 48,
-  inactiveYellowMaxAttempts: 2, // 4 дня всего
-  inactiveRedPingHours: 36,
-  inactiveRedMaxAttempts: 2, // ~3 дня всего — холодный след, отпускаем быстрее
+  ...DEFAULT_INACTIVE_TRAFFIC_POLICY,
   inactivateMinAttempts: 2,
   inactivateCooldownHours: 5,
   leadCallMinSeconds: 30,
@@ -182,7 +174,7 @@ const FALLBACK: TrafficLightSettings = {
 
 export async function loadTrafficLightSettings(): Promise<TrafficLightSettings> {
   const s = await prisma.settings.findUnique({ where: { id: "singleton" } });
-  return {
+  const policy: TrafficLightSettings = {
     inactiveGreenPingHours:
       s?.inactiveGreenPingHours ?? FALLBACK.inactiveGreenPingHours,
     inactiveGreenMaxAttempts:
@@ -201,6 +193,7 @@ export async function loadTrafficLightSettings(): Promise<TrafficLightSettings> 
       s?.inactivateCooldownHours ?? FALLBACK.inactivateCooldownHours,
     leadCallMinSeconds: s?.leadCallMinSeconds ?? FALLBACK.leadCallMinSeconds,
   };
+  return { ...policy, ...normalizeInactiveTrafficPolicy(policy) };
 }
 
 function pingHoursFor(level: InactiveLevel, s: TrafficLightSettings): number {

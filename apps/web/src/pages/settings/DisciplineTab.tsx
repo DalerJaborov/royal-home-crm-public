@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { inactiveTrafficHours, normalizeInactiveTrafficPolicy } from "@royal-home/shared";
 import { useServerSyncedForm } from "../../hooks/useServerSyncedForm";
 import { useSettings, useUpdateSettings } from "../../hooks/useSettings";
 import { MutationError } from "../../components/MutationError";
@@ -99,9 +100,17 @@ export function DisciplineSection() {
   const penalty = Number(form.inactivityPenaltyAfterDays);
   const sellerWarn = Number(form.sellerPropertyMissingWarnDays);
   const sellerCritical = Number(form.sellerPropertyMissingCriticalDays);
-  const trafficHours = (color: "Green" | "Yellow" | "Red") =>
-    Number(form[`inactive${color}PingHours`]) * (Number(form[`inactive${color}MaxAttempts`]) + 1);
-  const invertedTraffic = trafficHours("Green") < trafficHours("Yellow") || trafficHours("Yellow") < trafficHours("Red");
+  const requestedTraffic = {
+    inactiveGreenPingHours: Number(form.inactiveGreenPingHours), inactiveGreenMaxAttempts: Number(form.inactiveGreenMaxAttempts),
+    inactiveYellowPingHours: Number(form.inactiveYellowPingHours), inactiveYellowMaxAttempts: Number(form.inactiveYellowMaxAttempts),
+    inactiveRedPingHours: Number(form.inactiveRedPingHours), inactiveRedMaxAttempts: Number(form.inactiveRedMaxAttempts),
+  };
+  const trafficReady = Object.values(requestedTraffic).every((value) => Number.isFinite(value) && value > 0);
+  const effectiveTraffic = normalizeInactiveTrafficPolicy(requestedTraffic);
+  const trafficHours = (color: "Green" | "Yellow" | "Red") => inactiveTrafficHours(effectiveTraffic, color);
+  const invertedTraffic = trafficReady && (
+    effectiveTraffic.inactiveGreenPingHours > requestedTraffic.inactiveGreenPingHours ||
+    effectiveTraffic.inactiveYellowPingHours > requestedTraffic.inactiveYellowPingHours);
 
   return (
     <form onSubmit={handleSave} style={{ display: "flex", flexDirection: "column", gap: "var(--s4)" }}>
@@ -212,14 +221,15 @@ export function DisciplineSection() {
             Новый разговор, сообщение или состоявшаяся встреча начинает отсчёт заново.
           </span>
         </div>
-        {settings && <p className="note">
+        {settings && trafficReady && <p className="note">
           Срок без нового контакта: зелёный — {trafficHours("Green")} ч., жёлтый — {trafficHours("Yellow")} ч.,
           красный — {trafficHours("Red")} ч. При причинах «перестал отвечать», «просил позже» и «другое» срок на 25% короче.
           Рабочее расписание может отложить проверку; живая сделка и объект продавца в работе защищены от автопотери.
         </p>}
         {invertedTraffic && <p className="note" role="status">
-          Сейчас клиент с более глубокой историей отношений может уйти в Потерянные раньше клиента без ответа.
-          Проверьте сроки: зелёному нужно не меньше времени, чем жёлтому, а жёлтому — не меньше, чем красному.
+          Сохранённые сроки идут в обратном порядке. Система удлиняет срок для более тёплого клиента:
+          зелёному даёт не меньше времени, чем жёлтому, а жёлтому — не меньше, чем красному.
+          Действующие сроки показаны выше. Заполните и сохраните согласованные значения.
         </p>}
         <button type="button" className="btn ghost" disabled={!settings} onClick={() => {
           set("inactiveGreenPingHours", "24"); set("inactiveGreenMaxAttempts", "5");
