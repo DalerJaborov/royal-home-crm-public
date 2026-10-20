@@ -125,11 +125,13 @@ export function StepReview({
               key={r.k}
               type="button"
               className="r"
+              aria-label={`Изменить: ${r.k}, ${r.v}`}
               style={{ width: "100%", background: "none", border: 0, cursor: "pointer" }}
               onClick={() => onGoTo(r.step)}
             >
               <span className="k">{r.k}</span>
               <span className={r.gap ? "v gap" : "v"}>{r.v}</span>
+              <svg className="wizard-review-edit" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m16 3 5 5-12 12-6 1 1-6Z" /><path d="m14 5 5 5" /></svg>
             </button>
           ))}
         </div>

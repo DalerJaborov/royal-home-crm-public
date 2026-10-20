@@ -236,7 +236,7 @@ export function StepSeller({
       )}
 
       {picked ? (
-        <section className="blk">
+        <section className="blk wizard-seller-selected">
           <div className="sugg" style={{ margin: 0 }}>
             <button type="button">
               <span className="tag mine">выбран</span>
@@ -259,7 +259,7 @@ export function StepSeller({
       ) : (
         <>
           {recentSellers.items.length > 0 && (
-            <section className="blk">
+            <section className="blk wizard-seller-recent">
               <div className="head">
                 <h4>Мои недавние продавцы</h4>
               </div>
@@ -277,7 +277,7 @@ export function StepSeller({
             </section>
           )}
 
-          <section className="blk">
+          <section className="blk wizard-seller-form">
             <div className="f">
               <label htmlFor="seller">Имя</label>
               <input
@@ -298,14 +298,14 @@ export function StepSeller({
             <div style={{ height: 8 }} />
             <div className="f">
               <label htmlFor="phone">Телефон</label>
-              <PhoneInput value={values.sellerPhone} onChange={(v) => onChange({ sellerPhone: v })} invalid={!!errors.sellerPhone} />
+              <PhoneInput id="phone" value={values.sellerPhone} onChange={(v) => onChange({ sellerPhone: v })} invalid={!!errors.sellerPhone} />
             </div>
             {errors.sellerPhone && (
               <p style={{ marginTop: 6, fontSize: 13, color: "var(--warn)" }}>{errors.sellerPhone}</p>
             )}
           </section>
 
-          <section className="blk">
+          <section className="blk wizard-seller-list">
             <div className="sugg" style={{ margin: 0, border: 0 }}>
               {sellersLoading ? (
                 <div className="empty">Загружаю продавцов…</div>

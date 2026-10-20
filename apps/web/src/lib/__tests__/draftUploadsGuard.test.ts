@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { adoptTestDraftSession } from "./draftSessionFixture";
 import type { PropertyDraftMediaView } from "@royal-home/shared";
 
 /**
@@ -85,6 +86,7 @@ async function setup() {
   const q = await import("../draftUploads");
   const guard = await import("../workGuard");
   useAuthStore.getState().setSession(A, "tokenA");
+  await adoptTestDraftSession();
   return { q, guard };
 }
 

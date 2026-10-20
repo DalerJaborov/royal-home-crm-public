@@ -1,8 +1,8 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 637,
-  "forks": 3455,
+  "endpoints": 638,
+  "forks": 3476,
   "mounts": 72,
   "cron": 104,
   "jobs": 29,
@@ -54828,6 +54828,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "draftErrorHandler",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -54849,22 +54850,64 @@
     },
     {
      "k": "do",
-     "t": "const media = await prisma.propertyDraftMedia.findUnique({ where: { id: parsedId.data }, include: { draft: { …",
+     "t": "const result = await withDraftLock(req.agent!.id, async (tx)",
      "a": [
-      "читает в базе: propertyDraftMedia"
+      "читает в базе: propertyDraftMedia",
+      "удаляет в базе: propertyDraftMedia",
+      "меняет в базе: propertyDraft"
      ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "!media",
-     "a": [],
      "c": [
       {
        "k": "do",
-       "t": "return res.status(204).end();",
+       "t": "const media = await tx.propertyDraftMedia.findUnique({ where: { id: parsedId.data }, include: { draft: { sele…",
        "a": [
-        "ответ 204"
+        "читает в базе: propertyDraftMedia"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!media",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return null;",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "media.draft.agentId !== req.agent!.id",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return \"forbidden\" as const;",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "await tx.propertyDraftMedia.delete({ where: { id: media.id } });",
+       "a": [
+        "удаляет в базе: propertyDraftMedia"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "await tx.propertyDraft.update({ where: { id: media.draftId }, data: { expiresAt: expiryFromNow() } });",
+       "a": [
+        "меняет в базе: propertyDraft"
        ],
        "c": []
       }
@@ -54872,7 +54915,7 @@
     },
     {
      "k": "if",
-     "t": "media.draft.agentId !== req.agent!.id",
+     "t": "result === \"forbidden\"",
      "a": [],
      "c": [
       {
@@ -54886,12 +54929,19 @@
      ]
     },
     {
-     "k": "do",
-     "t": "await prisma.propertyDraftMedia.delete({ where: { id: media.id } });",
-     "a": [
-      "удаляет в базе: propertyDraftMedia"
-     ],
-     "c": []
+     "k": "if",
+     "t": "!result",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(204).end();",
+       "a": [
+        "ответ 204"
+       ],
+       "c": []
+      }
+     ]
     },
     {
      "k": "if",
@@ -54959,6 +55009,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "draftErrorHandler",
     "вход выполнен",
     "memoryUploadBudget",
     "draftPhotoUpload.array(\"photos\", 5)"
@@ -55108,12 +55159,123 @@
        ]
       },
       {
-       "k": "do",
-       "t": "const media = await prisma.propertyDraftMedia.create({ data: { draftId: draft.id, kind: \"PHOTO\", status: \"REA…",
-       "a": [
-        "создаёт в базе: propertyDraftMedia"
-       ],
-       "c": []
+       "k": "try",
+       "t": "пробует",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "media = await withDraftLock(req.agent!.id, async (tx)",
+         "a": [
+          "ошибка DraftConflictError — «null,»",
+          "читает в базе: propertyDraftMedia",
+          "считает в базе: propertyDraftMedia",
+          "создаёт в базе: propertyDraftMedia"
+         ],
+         "c": [
+          {
+           "k": "do",
+           "t": "await assertActiveDraft(tx, req.agent!.id, { draftId: draft.id });",
+           "a": [
+            "зовёт assertActiveDraft()"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "const duplicate = await tx.propertyDraftMedia.findUnique({ where: { uploadKey } });",
+           "a": [
+            "читает в базе: propertyDraftMedia"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "duplicate",
+           "a": [],
+           "c": [
+            {
+             "k": "if",
+             "t": "duplicate.draftId !== draft.id || duplicate.kind !== \"PHOTO\"",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "throw new DraftConflictError(null, \"Ключ загрузки уже использован\");",
+               "a": [
+                "ошибка DraftConflictError — «null,»"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "do",
+             "t": "await removePhotoFiles(`/uploads/${filename}`, `/uploads/thumbs/${filename}`);",
+             "a": [
+              "зовёт removePhotoFiles()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const count = await tx.propertyDraftMedia.count({ where: { draftId: draft.id, kind: \"PHOTO\" } });",
+           "a": [
+            "считает в базе: propertyDraftMedia"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "count >= MAX_DRAFT_PHOTOS",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "throw new DraftConflictError(null, `В черновик помещается ${MAX_DRAFT_PHOTOS} снимков`);",
+             "a": [
+              "ошибка DraftConflictError — «null,»"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "return tx.propertyDraftMedia.create({ data: { draftId: draft.id, kind: \"PHOTO\", status: \"READY\", uploadKey, f…",
+           "a": [
+            "создаёт в базе: propertyDraftMedia"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "k": "catch",
+       "t": "если сорвалось",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "await removePhotoFiles(`/uploads/${filename}`, `/uploads/thumbs/${filename}`);",
+         "a": [
+          "зовёт removePhotoFiles()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "throw err;",
+         "a": [
+          "пробрасывает ошибку дальше"
+         ],
+         "c": []
+        }
+       ]
       }
      ]
     },
@@ -55122,6 +55284,114 @@
      "t": "res.status(201).json(stored.map(presentDraftMedia));",
      "a": [
       "ответ 201"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "/drafts/current/start",
+   "mount": "/api/v1/properties",
+   "full": "/api/v1/properties/drafts/current/start",
+   "file": "apps/api/src/routes/properties/drafts.ts",
+   "router": "draftsRouter",
+   "top": "apps/api/src/routes/properties/index.ts::propertiesRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "draftErrorHandler",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const parsed = propertyDraftStartSchema.safeParse(req.body);",
+     "a": [
+      "проверяет данные схемой propertyDraftStartSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Неверные данные\", details: parsed.error.flatten() });",
+       "a": [
+        "ответ 400 — «Неверные данные»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const draft = await withDraftLock(req.agent!.id, async (tx)",
+     "a": [
+      "ошибка DraftConflictError — «current»",
+      "читает в базе: propertyDraft",
+      "меняет в базе: propertyDraft",
+      "создаёт в базе: propertyDraft"
+     ],
+     "c": [
+      {
+       "k": "do",
+       "t": "const current = await tx.propertyDraft.findUnique({ where: { agentId: req.agent!.id }, include: DRAFT_INCLUDE…",
+       "a": [
+        "читает в базе: propertyDraft"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "current && !current.closedAt && current.id === sessionId",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return current;",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "(current && !current.closedAt) || current?.id === sessionId || (current?.revision ?? 0) !== revision",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "throw new DraftConflictError(current);",
+         "a": [
+          "ошибка DraftConflictError — «current»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "return current ? tx.propertyDraft.update({ where: { id: current.id }, data, include: DRAFT_INCLUDE }) : tx.pr…",
+       "a": [
+        "меняет в базе: propertyDraft",
+        "создаёт в базе: propertyDraft"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.json({ draft: presentDraft(draft), revision: draft.revision });",
+     "a": [
+      "ответ 200"
      ],
      "c": []
     }
@@ -55138,6 +55408,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "draftErrorHandler",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -55159,140 +55430,161 @@
     },
     {
      "k": "do",
-     "t": "const media = await prisma.propertyDraftMedia.findUnique({ where: { id: parsedId.data }, include: { draft: { …",
+     "t": "await withDraftLock(req.agent!.id, async (tx)",
      "a": [
-      "читает в базе: propertyDraftMedia"
+      "ответ 404 — «Загрузка не найдена»",
+      "читает в базе: propertyDraftMedia",
+      "меняет в базе: propertyDraftMedia",
+      "меняет в базе: propertyDraft",
+      "запись в журнал ошибок"
      ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "!media || media.kind !== \"VIDEO\"",
-     "a": [],
      "c": [
       {
        "k": "do",
-       "t": "return res.status(404).json({ error: \"Загрузка не найдена\" });",
+       "t": "const media = await tx.propertyDraftMedia.findUnique({ where: { id: parsedId.data }, include: { draft: { sele…",
        "a": [
-        "ответ 404 — «Загрузка не найдена»"
+        "читает в базе: propertyDraftMedia"
        ],
        "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "media.draft.agentId !== req.agent!.id",
-     "a": [],
-     "c": [
+      },
+      {
+       "k": "if",
+       "t": "!media || media.kind !== \"VIDEO\"",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(404).json({ error: \"Загрузка не найдена\" });",
+         "a": [
+          "ответ 404 — «Загрузка не найдена»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "media.draft.agentId !== req.agent!.id",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(403).json({ error: \"Недостаточно прав\" });",
+         "a": [
+          "ответ 403 — «Недостаточно прав»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "media.status === \"READY\"",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.json({ media: presentDraftMedia(media) });",
+         "a": [
+          "ответ 200"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "!media.storageKey || !media.totalParts",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(409).json({ error: \"Загрузка повреждена\" });",
+         "a": [
+          "ответ 409 — «Загрузка повреждена»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "have.length !== media.totalParts",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(409).json({ error: \"Пришли не все части\", uploadedPartNumbers: have, totalParts: media.tota…",
+         "a": [
+          "ответ 409 — «Пришли не все части»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "try",
+       "t": "пробует",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "await completeLocalUploadSession(media.id, media.storageKey, media.totalParts);",
+         "a": [
+          "зовёт completeLocalUploadSession()"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "catch",
+       "t": "если сорвалось",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "void logSystemError( \"storage\", `Не удалось собрать видео черновика: ${err instanceof Error ? err.message : S…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "return res.status(502).json({ error: \"Не удалось собрать видео — попробуйте ещё раз\" });",
+         "a": [
+          "ответ 502 — «Не удалось собрать видео — попробуйте ещё раз»"
+         ],
+         "c": []
+        }
+       ]
+      },
       {
        "k": "do",
-       "t": "return res.status(403).json({ error: \"Недостаточно прав\" });",
+       "t": "const ready = await tx.propertyDraftMedia.update({ where: { id: media.id }, data: { status: \"READY\" }, });",
        "a": [
-        "ответ 403 — «Недостаточно прав»"
+        "меняет в базе: propertyDraftMedia"
        ],
        "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "media.status === \"READY\"",
-     "a": [],
-     "c": [
+      },
       {
        "k": "do",
-       "t": "return res.json({ media: presentDraftMedia(media) });",
+       "t": "await tx.propertyDraft.update({ where: { id: media.draftId }, data: { expiresAt: expiryFromNow() } });",
+       "a": [
+        "меняет в базе: propertyDraft"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "res.json({ media: presentDraftMedia(ready) });",
        "a": [
         "ответ 200"
        ],
        "c": []
       }
      ]
-    },
-    {
-     "k": "if",
-     "t": "!media.storageKey || !media.totalParts",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(409).json({ error: \"Загрузка повреждена\" });",
-       "a": [
-        "ответ 409 — «Загрузка повреждена»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "have.length !== media.totalParts",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(409).json({ error: \"Пришли не все части\", uploadedPartNumbers: have, totalParts: media.tota…",
-       "a": [
-        "ответ 409 — «Пришли не все части»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "try",
-     "t": "пробует",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "await completeLocalUploadSession(media.id, media.storageKey, media.totalParts);",
-       "a": [
-        "зовёт completeLocalUploadSession()"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "catch",
-     "t": "если сорвалось",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "void logSystemError( \"storage\", `Не удалось собрать видео черновика: ${err instanceof Error ? err.message : S…",
-       "a": [
-        "запись в журнал ошибок"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "return res.status(502).json({ error: \"Не удалось собрать видео — попробуйте ещё раз\" });",
-       "a": [
-        "ответ 502 — «Не удалось собрать видео — попробуйте ещё раз»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const ready = await prisma.propertyDraftMedia.update({ where: { id: media.id }, data: { status: \"READY\" }, });",
-     "a": [
-      "меняет в базе: propertyDraftMedia"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "res.json({ media: presentDraftMedia(ready) });",
-     "a": [
-      "ответ 200"
-     ],
-     "c": []
     }
    ]
   },
@@ -55307,6 +55599,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "draftErrorHandler",
     "вход выполнен",
     "(req, res, next) => { req.headers[\"content-type\"] = \"application/octet-stream\"; next(); }",
     "express.raw({ type: () => true, limit: \"32mb\" })"
@@ -55338,140 +55631,176 @@
     },
     {
      "k": "do",
-     "t": "const media = await prisma.propertyDraftMedia.findUnique({ where: { id: mediaId }, include: { draft: { select…",
+     "t": "await withDraftLock(req.agent!.id, async (tx)",
      "a": [
-      "читает в базе: propertyDraftMedia"
+      "ответ 404 — «Загрузка не найдена»",
+      "читает в базе: propertyDraftMedia",
+      "меняет в базе: propertyDraftMedia",
+      "меняет в базе: propertyDraft",
+      "запись в журнал ошибок"
      ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "!media || media.kind !== \"VIDEO\"",
-     "a": [],
      "c": [
       {
        "k": "do",
-       "t": "return res.status(404).json({ error: \"Загрузка не найдена\" });",
+       "t": "const media = await tx.propertyDraftMedia.findUnique({ where: { id: mediaId }, include: { draft: { select: { …",
        "a": [
-        "ответ 404 — «Загрузка не найдена»"
+        "читает в базе: propertyDraftMedia"
        ],
        "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "media.draft.agentId !== req.agent!.id",
-     "a": [],
-     "c": [
+      },
+      {
+       "k": "if",
+       "t": "!media || media.kind !== \"VIDEO\"",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(404).json({ error: \"Загрузка не найдена\" });",
+         "a": [
+          "ответ 404 — «Загрузка не найдена»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "media.draft.agentId !== req.agent!.id",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(403).json({ error: \"Недостаточно прав\" });",
+         "a": [
+          "ответ 403 — «Недостаточно прав»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "media.status === \"READY\"",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(409).json({ error: \"Файл уже собран\" });",
+         "a": [
+          "ответ 409 — «Файл уже собран»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "!media.totalParts || partNumber > media.totalParts",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(400).json({ error: \"Номер части вне плана загрузки\" });",
+         "a": [
+          "ответ 400 — «Номер части вне плана загрузки»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "!Buffer.isBuffer(body) || body.length === 0",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(400).json({ error: \"Пустая часть\" });",
+         "a": [
+          "ответ 400 — «Пустая часть»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "body.length !== expectedSize",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(400).json({ error: \"Размер части не совпадает с планом загрузки\" });",
+         "a": [
+          "ответ 400 — «Размер части не совпадает с планом загрузки»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "try",
+       "t": "пробует",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "await writeLocalUploadPart(mediaId, partNumber, body);",
+         "a": [
+          "зовёт writeLocalUploadPart()"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "catch",
+       "t": "если сорвалось",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "void logSystemError( \"storage\", `Не удалось записать часть видео черновика: ${err instanceof Error ? err.mess…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "return res.status(502).json({ error: \"Часть не записалась — попробуйте ещё раз\" });",
+         "a": [
+          "ответ 502 — «Часть не записалась — попробуйте ещё раз»"
+         ],
+         "c": []
+        }
+       ]
+      },
       {
        "k": "do",
-       "t": "return res.status(403).json({ error: \"Недостаточно прав\" });",
+       "t": "await tx.propertyDraftMedia.update({ where: { id: mediaId }, data: { parts: next } });",
        "a": [
-        "ответ 403 — «Недостаточно прав»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "media.status === \"READY\"",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(409).json({ error: \"Файл уже собран\" });",
-       "a": [
-        "ответ 409 — «Файл уже собран»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "!media.totalParts || partNumber > media.totalParts",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(400).json({ error: \"Номер части вне плана загрузки\" });",
-       "a": [
-        "ответ 400 — «Номер части вне плана загрузки»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "!Buffer.isBuffer(body) || body.length === 0",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(400).json({ error: \"Пустая часть\" });",
-       "a": [
-        "ответ 400 — «Пустая часть»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "try",
-     "t": "пробует",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "await writeLocalUploadPart(mediaId, partNumber, body);",
-       "a": [
-        "зовёт writeLocalUploadPart()"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "catch",
-     "t": "если сорвалось",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "void logSystemError( \"storage\", `Не удалось записать часть видео черновика: ${err instanceof Error ? err.mess…",
-       "a": [
-        "запись в журнал ошибок"
+        "меняет в базе: propertyDraftMedia"
        ],
        "c": []
       },
       {
        "k": "do",
-       "t": "return res.status(502).json({ error: \"Часть не записалась — попробуйте ещё раз\" });",
+       "t": "await tx.propertyDraft.update({ where: { id: media.draftId }, data: { expiresAt: expiryFromNow() } });",
        "a": [
-        "ответ 502 — «Часть не записалась — попробуйте ещё раз»"
+        "меняет в базе: propertyDraft"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "res.json({ uploadedPartNumbers: [...known].sort((a, b)",
+       "a": [
+        "ответ 200"
        ],
        "c": []
       }
      ]
-    },
-    {
-     "k": "do",
-     "t": "await prisma.propertyDraftMedia.update({ where: { id: mediaId }, data: { parts: next } });",
-     "a": [
-      "меняет в базе: propertyDraftMedia"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "res.json({ uploadedPartNumbers: [...known].sort((a, b)",
-     "a": [
-      "ответ 200"
-     ],
-     "c": []
     }
    ]
   },
@@ -55486,6 +55815,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "draftErrorHandler",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -55568,78 +55898,70 @@
     },
     {
      "k": "do",
-     "t": "const existing = await prisma.propertyDraftMedia.findUnique({ where: { uploadKey } });",
+     "t": "await withDraftLock(req.agent!.id, async (tx)",
      "a": [
-      "читает в базе: propertyDraftMedia"
+      "ответ 409 — «Ключ загрузки уже использован»",
+      "читает в базе: propertyDraftMedia",
+      "считает в базе: propertyDraftMedia",
+      "создаёт в базе: propertyDraftMedia",
+      "меняет в базе: propertyDraft",
+      "запись в журнал ошибок"
      ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "existing",
-     "a": [],
      "c": [
       {
-       "k": "if",
-       "t": "existing.draftId !== draft.id",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return res.status(409).json({ error: \"Ключ загрузки уже использован\" });",
-         "a": [
-          "ответ 409 — «Ключ загрузки уже использован»"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "if",
-       "t": "existing.status === \"READY\"",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return res.json({ status: \"done\", media: presentDraftMedia(existing) });",
-         "a": [
-          "ответ 200"
-         ],
-         "c": []
-        }
-       ]
+       "k": "do",
+       "t": "await assertActiveDraft(tx, req.agent!.id, { draftId: draft.id });",
+       "a": [
+        "зовёт assertActiveDraft()"
+       ],
+       "c": []
       },
       {
        "k": "do",
-       "t": "return res.json({ status: \"in-progress\", mediaId: existing.id, partSize: existing.partSize, totalParts: exist…",
+       "t": "const existing = await tx.propertyDraftMedia.findUnique({ where: { uploadKey } });",
        "a": [
-        "ответ 200"
+        "читает в базе: propertyDraftMedia"
        ],
        "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const sameFile = await prisma.propertyDraftMedia.findFirst({ where: { draftId: draft.id, kind: \"VIDEO\", filen…",
-     "a": [
-      "читает в базе: propertyDraftMedia"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "sameFile",
-     "a": [],
-     "c": [
+      },
       {
        "k": "if",
-       "t": "sameFile.status === \"READY\"",
+       "t": "existing",
        "a": [],
        "c": [
         {
+         "k": "if",
+         "t": "existing.draftId !== draft.id || existing.kind !== \"VIDEO\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return res.status(409).json({ error: \"Ключ загрузки уже использован\" });",
+           "a": [
+            "ответ 409 — «Ключ загрузки уже использован»"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "existing.status === \"READY\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return res.json({ status: \"done\", media: presentDraftMedia(existing) });",
+           "a": [
+            "ответ 200"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
          "k": "do",
-         "t": "return res.json({ status: \"done\", media: presentDraftMedia(sameFile) });",
+         "t": "return res.json({ status: \"in-progress\", mediaId: existing.id, partSize: existing.partSize, totalParts: exist…",
          "a": [
           "ответ 200"
          ],
@@ -55649,90 +55971,128 @@
       },
       {
        "k": "do",
-       "t": "return res.json({ status: \"in-progress\", mediaId: sameFile.id, partSize: sameFile.partSize, totalParts: sameF…",
+       "t": "const sameFile = await tx.propertyDraftMedia.findFirst({ where: { draftId: draft.id, kind: \"VIDEO\", filename:…",
        "a": [
-        "ответ 200"
+        "читает в базе: propertyDraftMedia"
        ],
        "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const videoCount = await prisma.propertyDraftMedia.count({ where: { draftId: draft.id, kind: \"VIDEO\" } });",
-     "a": [
-      "считает в базе: propertyDraftMedia"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "videoCount >= MAX_DRAFT_VIDEOS",
-     "a": [],
-     "c": [
+      },
+      {
+       "k": "if",
+       "t": "sameFile",
+       "a": [],
+       "c": [
+        {
+         "k": "if",
+         "t": "sameFile.status === \"READY\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return res.json({ status: \"done\", media: presentDraftMedia(sameFile) });",
+           "a": [
+            "ответ 200"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "return res.json({ status: \"in-progress\", mediaId: sameFile.id, partSize: sameFile.partSize, totalParts: sameF…",
+         "a": [
+          "ответ 200"
+         ],
+         "c": []
+        }
+       ]
+      },
       {
        "k": "do",
-       "t": "return res.status(400).json({ error: `В черновик помещается ${MAX_DRAFT_VIDEOS} роликов` });",
+       "t": "const videoCount = await tx.propertyDraftMedia.count({ where: { draftId: draft.id, kind: \"VIDEO\" } });",
        "a": [
-        "ответ 400 — «В черновик помещается ${MAX_DRAFT_VIDEOS} роликов»"
+        "считает в базе: propertyDraftMedia"
        ],
        "c": []
-      }
-     ]
-    },
-    {
-     "k": "try",
-     "t": "пробует",
-     "a": [],
-     "c": [
+      },
+      {
+       "k": "if",
+       "t": "videoCount >= MAX_DRAFT_VIDEOS",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(400).json({ error: `В черновик помещается ${MAX_DRAFT_VIDEOS} роликов` });",
+         "a": [
+          "ответ 400 — «В черновик помещается ${MAX_DRAFT_VIDEOS} роликов»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "try",
+       "t": "пробует",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "await createLocalUploadSession(mediaId);",
+         "a": [
+          "зовёт createLocalUploadSession()"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "catch",
+       "t": "если сорвалось",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "void logSystemError( \"storage\", `Не удалось открыть загрузку видео черновика: ${err instanceof Error ? err.me…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "return res.status(502).json({ error: \"Не удалось начать загрузку видео — попробуйте ещё раз\" });",
+         "a": [
+          "ответ 502 — «Не удалось начать загрузку видео — попробуйте ещё раз»"
+         ],
+         "c": []
+        }
+       ]
+      },
       {
        "k": "do",
-       "t": "await createLocalUploadSession(mediaId);",
+       "t": "const media = await tx.propertyDraftMedia.create({ data: { id: mediaId, draftId: draft.id, kind: \"VIDEO\", sta…",
        "a": [
-        "зовёт createLocalUploadSession()"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "catch",
-     "t": "если сорвалось",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "void logSystemError( \"storage\", `Не удалось открыть загрузку видео черновика: ${err instanceof Error ? err.me…",
-       "a": [
-        "запись в журнал ошибок"
+        "создаёт в базе: propertyDraftMedia"
        ],
        "c": []
       },
       {
        "k": "do",
-       "t": "return res.status(502).json({ error: \"Не удалось начать загрузку видео — попробуйте ещё раз\" });",
+       "t": "await tx.propertyDraft.update({ where: { id: draft.id }, data: { expiresAt: expiryFromNow() } });",
        "a": [
-        "ответ 502 — «Не удалось начать загрузку видео — попробуйте ещё раз»"
+        "меняет в базе: propertyDraft"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "res.status(201).json({ status: \"started\", mediaId: media.id, partSize, totalParts, uploadedPartNumbers: [] });",
+       "a": [
+        "ответ 201"
        ],
        "c": []
       }
      ]
-    },
-    {
-     "k": "do",
-     "t": "const media = await prisma.propertyDraftMedia.create({ data: { id: mediaId, draftId: draft.id, kind: \"VIDEO\",…",
-     "a": [
-      "создаёт в базе: propertyDraftMedia"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "res.status(201).json({ status: \"started\", mediaId: media.id, partSize, totalParts, uploadedPartNumbers: [] });",
-     "a": [
-      "ответ 201"
-     ],
-     "c": []
     }
    ]
   },
@@ -55747,28 +56107,29 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "draftErrorHandler",
     "вход выполнен"
    ],
    "handlerRef": null,
    "tree": [
     {
      "k": "do",
-     "t": "const draft = await prisma.propertyDraft.findUnique({ where: { agentId: req.agent!.id } });",
+     "t": "const parsed = propertyDraftDeleteSchema.safeParse(req.body ?? {});",
      "a": [
-      "читает в базе: propertyDraft"
+      "проверяет данные схемой propertyDraftDeleteSchema"
      ],
      "c": []
     },
     {
      "k": "if",
-     "t": "draft",
+     "t": "!parsed.success",
      "a": [],
      "c": [
       {
        "k": "do",
-       "t": "await discardDraft(draft.id);",
+       "t": "return res.status(400).json({ error: \"Неверные данные\" });",
        "a": [
-        "зовёт discardDraft()"
+        "ответ 400 — «Неверные данные»"
        ],
        "c": []
       }
@@ -55776,9 +56137,88 @@
     },
     {
      "k": "do",
-     "t": "res.status(204).end();",
+     "t": "const revision = await withDraftLock(req.agent!.id, async (tx)",
      "a": [
-      "ответ 204"
+      "ошибка DraftConflictError — «draft»",
+      "читает в базе: propertyDraft",
+      "создаёт в базе: propertyDraft"
+     ],
+     "c": [
+      {
+       "k": "do",
+       "t": "const draft = await tx.propertyDraft.findUnique({ where: { agentId: req.agent!.id }, include: DRAFT_INCLUDE }…",
+       "a": [
+        "читает в базе: propertyDraft"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!draft || draft.closedAt",
+       "a": [],
+       "c": [
+        {
+         "k": "if",
+         "t": "parsed.data.draftId && draft?.id !== parsed.data.draftId",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "throw new DraftConflictError(draft);",
+           "a": [
+            "ошибка DraftConflictError — «draft»"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "!draft",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return (await tx.propertyDraft.create({ data: { agentId: req.agent!.id, values: {}, step: 0, closedAt: new Da…",
+           "a": [
+            "создаёт в базе: propertyDraft"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "checkDraftReference(draft, parsed.data, draft.revision === 0);",
+       "a": [
+        "зовёт checkDraftReference()"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!parsed.data.draftId && parsed.data.revision === undefined",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(204).end();",
+       "a": [
+        "ответ 204"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.json({ draft: null, revision });",
+     "a": [
+      "ответ 200"
      ],
      "c": []
     }
@@ -55795,13 +56235,22 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "draftErrorHandler",
     "вход выполнен"
    ],
    "handlerRef": null,
    "tree": [
     {
      "k": "do",
-     "t": "res.json({ draft: draft ? presentDraft(draft) : null });",
+     "t": "const revision = draft?.revision ?? (await prisma.propertyDraft.findUnique({ where: { agentId: req.agent!.id …",
+     "a": [
+      "читает в базе: propertyDraft"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ draft: draft ? presentDraft(draft) : null, revision });",
      "a": [
       "ответ 200"
      ],
@@ -55820,6 +56269,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "draftErrorHandler",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -55849,7 +56299,57 @@
     },
     {
      "k": "do",
-     "t": "res.json({ draft: presentDraft(draft) });",
+     "t": "const draft = await withDraftLock(req.agent!.id, async (tx)",
+     "a": [
+      "читает в базе: propertyDraft",
+      "создаёт в базе: propertyDraft",
+      "меняет в базе: propertyDraft"
+     ],
+     "c": [
+      {
+       "k": "do",
+       "t": "const current = await tx.propertyDraft.findUnique({ where: { agentId: req.agent!.id }, include: DRAFT_INCLUDE…",
+       "a": [
+        "читает в базе: propertyDraft"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!current && !draftId && revision === undefined",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return tx.propertyDraft.create({ data: { agentId: req.agent!.id, values: values as Prisma.InputJsonValue, ste…",
+         "a": [
+          "создаёт в базе: propertyDraft"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "checkDraftReference(current, { draftId, revision }, !current || current.revision === 0);",
+       "a": [
+        "зовёт checkDraftReference()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "return tx.propertyDraft.update({ where: { id: current.id }, data: { values: values as Prisma.InputJsonValue, …",
+       "a": [
+        "меняет в базе: propertyDraft"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.json({ draft: presentDraft(draft), revision: draft.revision });",
      "a": [
       "ответ 200"
      ],
@@ -55868,6 +56368,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "draftErrorHandler",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -55987,20 +56488,40 @@
      "c": []
     },
     {
-     "k": "if",
-     "t": "foreignMedia && attachments.length > 0",
-     "a": [],
+     "k": "do",
+     "t": "const imported = await withDraftLock(agentId, async (tx)",
+     "a": [
+      "ошибка DraftImportConflictError — «{\n      error:»",
+      "удаляет в базе: propertyDraftMedia",
+      "меняет в базе: propertyDraft"
+     ],
      "c": [
       {
+       "k": "do",
+       "t": "const current = await assertActiveDraft(tx, agentId, { draftId: parsedBody.data.draftId, revision: parsedBody…",
+       "a": [
+        "зовёт assertActiveDraft()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "checkDraftReference(current, { draftId: parsedBody.data.draftId, revision: parsedBody.data.revision }, curren…",
+       "a": [
+        "зовёт checkDraftReference()"
+       ],
+       "c": []
+      },
+      {
        "k": "if",
-       "t": "!mediaDecision",
+       "t": "!parsedBody.data.mode && otherSeller && meaningful",
        "a": [],
        "c": [
         {
          "k": "do",
-         "t": "return res.status(409).json({ error: \"В черновике уже есть ваши фото — заменить их фото из переписки?\", code:…",
+         "t": "throw new DraftImportConflictError({ error: \"У вас уже есть заполненный черновик. Сохраните его или подтверди…",
          "a": [
-          "ответ 409 — «В черновике уже есть ваши фото — заменить их фото из переписки?»"
+          "ошибка DraftImportConflictError — «{\n      error:»"
          ],
          "c": []
         }
@@ -56008,47 +56529,84 @@
       },
       {
        "k": "if",
-       "t": "mediaDecision === \"replace\"",
+       "t": "foreignMedia && attachments.length > 0 && !mediaDecision",
        "a": [],
        "c": [
         {
          "k": "do",
-         "t": "await wipeDraftMedia(draft.media);",
+         "t": "throw new DraftImportConflictError({ error: \"В черновике уже есть ваши фото — заменить их фото из переписки?\"…",
          "a": [
-          "дословно из кода"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "draft = await ensureDraft(agentId);",
-         "a": [
-          "дословно из кода"
+          "ошибка DraftImportConflictError — «{ error:»"
          ],
          "c": []
         }
        ]
       },
       {
-       "k": "else",
-       "t": "иначе",
+       "k": "if",
+       "t": "foreignMedia && (mediaDecision === \"replace\" || (parsedBody.data.mode === \"replace\" && attachments.length ===…",
        "a": [],
        "c": [
         {
          "k": "do",
-         "t": "copyChatMedia = false;",
+         "t": "await tx.propertyDraftMedia.deleteMany({ where: { draftId: current.id } });",
          "a": [
-          "дословно из кода"
+          "удаляет в базе: propertyDraftMedia"
          ],
          "c": []
         }
        ]
+      },
+      {
+       "k": "do",
+       "t": "const values = { ...sellerCardToDraftValues(client), ...(sellerFactsToDraftValues(facts, client.id) as Record…",
+       "a": [
+        "зовёт sellerCardToDraftValues()"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "parsedBody.data.mode !== \"replace\"",
+       "a": [],
+       "c": [
+        {
+         "k": "loop",
+         "t": "для каждого: const [key, value] of Object.entries(oldValues)",
+         "a": [],
+         "c": [
+          {
+           "k": "if",
+           "t": "value !== null && value !== \"\" && (typeof value !== \"object\" || Object.keys(value as object).length > 0)",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "values[key] = value;",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const updated = await tx.propertyDraft.update({ where: { id: current.id }, data: { values: values as Prisma.I…",
+       "a": [
+        "меняет в базе: propertyDraft"
+       ],
+       "c": []
       }
      ]
     },
     {
      "k": "if",
-     "t": "copyChatMedia",
+     "t": "imported.copyChatMedia",
      "a": [],
      "c": [
       {
@@ -56063,15 +56621,23 @@
     },
     {
      "k": "do",
-     "t": "const updated = await prisma.propertyDraft.update({ where: { id: draft.id }, data: { values: { ...sellerCardT…",
+     "t": "const updated = await prisma.propertyDraft.findUnique({ where: { agentId }, include: DRAFT_INCLUDE });",
      "a": [
-      "меняет в базе: propertyDraft"
+      "читает в базе: propertyDraft"
      ],
      "c": []
     },
     {
      "k": "do",
-     "t": "res.json({ draft: presentDraft(updated) });",
+     "t": "checkDraftReference(updated, { draftId: draft.id });",
+     "a": [
+      "зовёт checkDraftReference()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ draft: presentDraft(updated), revision: updated.revision });",
      "a": [
       "ответ 200"
      ],
@@ -57815,6 +58381,82 @@
      ]
     },
     {
+     "k": "if",
+     "t": "draftId",
+     "a": [],
+     "c": [
+      {
+       "k": "try",
+       "t": "пробует",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "await withDraftLock(req.agent!.id, async (tx)",
+         "a": [
+          "ошибка DraftConflictError — «draft,»"
+         ],
+         "c": [
+          {
+           "k": "do",
+           "t": "const draft = await assertActiveDraft(tx, req.agent!.id, { draftId, revision: draftRevision });",
+           "a": [
+            "зовёт assertActiveDraft()"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "draft.revision > 0 && draftRevision === undefined",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "throw new DraftConflictError(draft, \"Обновите мастер перед созданием объекта\");",
+             "a": [
+              "ошибка DraftConflictError — «draft,»"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "k": "catch",
+       "t": "если сорвалось",
+       "a": [],
+       "c": [
+        {
+         "k": "if",
+         "t": "err instanceof DraftConflictError",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return res.status(409).json(err.response());",
+           "a": [
+            "ответ 409"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "throw err;",
+         "a": [
+          "пробрасывает ошибку дальше"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
      "k": "do",
      "t": "const mapDistrict = await districtFromMap({ lat: data.lat, lng: data.lng, address: data.address });",
      "a": [
@@ -58304,7 +58946,7 @@
      "t": "let property = await prisma.$transaction(async (tx)",
      "a": [
       "ответ 409",
-      "ошибка DuplicatePropertyError — «duplicate»",
+      "ошибка DraftConflictError — «sourceDraft»",
       "всё внутри — одной транзакцией",
       "обращается к базе своим SQL",
       "читает в базе: property",
@@ -58312,6 +58954,29 @@
       "запись в журнал ошибок"
      ],
      "c": [
+      {
+       "k": "do",
+       "t": "const sourceDraft = draftId ? (await lockOwnDraft(tx, req.agent!.id), await assertActiveDraft(tx, req.agent!.…",
+       "a": [
+        "зовёт lockOwnDraft()"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "sourceDraft && sourceDraft.revision > 0 && draftRevision === undefined",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "throw new DraftConflictError(sourceDraft);",
+         "a": [
+          "ошибка DraftConflictError — «sourceDraft»"
+         ],
+         "c": []
+        }
+       ]
+      },
       {
        "k": "if",
        "t": "normalizedAddress",
@@ -58405,11 +59070,26 @@
       },
       {
        "k": "do",
-       "t": "return tx.property.create({ data: { ...rest, title, canonicalAddress: normalizedAddress, sellerClientId: sell…",
+       "t": "const createdProperty = await tx.property.create({ data: { ...rest, title, canonicalAddress: normalizedAddres…",
        "a": [
         "создаёт в базе: property"
        ],
        "c": []
+      },
+      {
+       "k": "if",
+       "t": "sourceDraft",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "draftAttachment = await attachDraftRows(tx, sourceDraft, createdProperty, req.agent!.id, coverUploadKey);",
+         "a": [
+          "зовёт attachDraftRows()"
+         ],
+         "c": []
+        }
+       ]
       }
      ]
     },
@@ -58474,9 +59154,9 @@
      "c": [
       {
        "k": "do",
-       "t": "const attached = await attachDraftToProperty(draftId, req.agent!.id, property, req.agent!.id, coverUploadKey);",
+       "t": "const attached = await finishDraftAttachment(draftAttachment!, property, req.agent!.id);",
        "a": [
-        "зовёт attachDraftToProperty()"
+        "зовёт finishDraftAttachment()"
        ],
        "c": []
       },
@@ -81464,7 +82144,7 @@
        "c": [
         {
          "k": "do",
-         "t": "const expired = await prisma.propertyDraft.findMany({ where: { expiresAt: { lte: now } }, select: { id: true,…",
+         "t": "const expired = await prisma.propertyDraft.findMany({ where: { closedAt: null, expiresAt: { lte: now } }, sel…",
          "a": [
           "читает в базе: propertyDraft"
          ],
@@ -81492,7 +82172,7 @@
           },
           {
            "k": "if",
-           "t": "!(await discardDraft(d.id))",
+           "t": "!(await discardDraft(d.id, { expiredAt: now }))",
            "a": [],
            "c": [
             {

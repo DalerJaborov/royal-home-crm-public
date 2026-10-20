@@ -97,6 +97,18 @@ export type PropertyWizardDraftValues = z.infer<typeof propertyWizardDraftValues
 export const propertyDraftSaveSchema = z.object({
   values: propertyWizardDraftValuesSchema,
   step: z.number().int().min(0).max(PROPERTY_WIZARD_STEP_COUNT - 1),
+  draftId: z.guid().optional(),
+  revision: z.number().int().nonnegative().optional(),
+});
+
+export const propertyDraftStartSchema = z.object({
+  sessionId: z.guid(),
+  revision: z.number().int().nonnegative(),
+});
+
+export const propertyDraftDeleteSchema = z.object({
+  draftId: z.guid().optional(),
+  revision: z.number().int().nonnegative().optional(),
 });
 
 /** Тело POST /properties/drafts/current/videos/sessions. */
@@ -124,6 +136,7 @@ export interface PropertyDraftMediaView {
 
 export interface PropertyDraftView {
   id: string;
+  revision: number;
   values: PropertyWizardDraftValues;
   step: number;
   updatedAt: string;

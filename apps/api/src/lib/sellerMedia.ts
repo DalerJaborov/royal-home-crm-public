@@ -12,6 +12,21 @@ import { videoExtensionOf } from "./videoFileExtension.js";
 import { logSystemError } from "./systemError.js";
 import { matchesUniqueConstraint } from "./prismaUniqueConflict.js";
 import { enqueueBackgroundJob } from "../jobs/enqueue.js";
+import { DraftConflictError, assertActiveDraft, withDraftLock } from "../routes/properties/draftLifecycle.js";
+
+interface DraftCopyGuard { agentId?: string; sellerClientId?: string; maxPhotos: number; maxVideos: number }
+
+async function storeDraftAttachment(data: Prisma.PropertyDraftMediaUncheckedCreateInput, guard: DraftCopyGuard): Promise<PropertyDraftMedia> {
+  const owner = guard.agentId ?? (await prisma.propertyDraft.findUnique({ where: { id: data.draftId }, select: { agentId: true } }))?.agentId;
+  if (!owner) throw new DraftConflictError(null);
+  return withDraftLock(owner, async (tx) => {
+    const draft = await assertActiveDraft(tx, owner, { draftId: data.draftId });
+    if (guard.sellerClientId && (!draft.values || typeof draft.values !== "object" || Array.isArray(draft.values) || draft.values.sellerClientId !== guard.sellerClientId)) throw new DraftConflictError(draft);
+    const count = await tx.propertyDraftMedia.count({ where: { draftId: draft.id, kind: data.kind } });
+    if (count >= (data.kind === "PHOTO" ? guard.maxPhotos : guard.maxVideos)) throw new DraftConflictError(draft, "В черновике достигнут предел файлов");
+    return tx.propertyDraftMedia.create({ data: { ...data, order: count } });
+  });
+}
 
 /**
  * ВЛОЖЕНИЯ ПРОДАВЦА ИЗ ПЕРЕПИСКИ И ИХ ПЕРЕЕЗД В ЧЕРНОВИК МАСТЕРА (21.09.2026,
@@ -187,7 +202,8 @@ function videoExtension(mime: string, filename: string): string {
 async function copyPhotoAttachment(
   draftId: string,
   attachment: SellerAttachment,
-  order: number
+  order: number,
+  guard: DraftCopyGuard
 ): Promise<PropertyDraftMedia | null> {
   const full = privateFilePath(attachment.file);
   if (!full) return null;
@@ -220,8 +236,7 @@ async function copyPhotoAttachment(
   }
 
   try {
-    return await prisma.propertyDraftMedia.create({
-      data: {
+    return await storeDraftAttachment({
         draftId,
         kind: "PHOTO",
         status: "READY",
@@ -235,8 +250,7 @@ async function copyPhotoAttachment(
         order,
         url: `/uploads/${filename}`,
         thumbUrl: `/uploads/thumbs/${filename}`,
-      },
-    });
+    }, guard);
   } catch (err) {
     // Гонка: тот же sha256 успел записать параллельный вызов (два клика по
     // кнопке «Добавить объект» подряд) — файлы на диске уже не нужны.
@@ -254,7 +268,8 @@ async function copyPhotoAttachment(
 async function copyVideoAttachment(
   draftId: string,
   attachment: SellerAttachment,
-  order: number
+  order: number,
+  guard: DraftCopyGuard
 ): Promise<PropertyDraftMedia | null> {
   const full = privateFilePath(attachment.file);
   if (!full) return null;
@@ -278,8 +293,7 @@ async function copyVideoAttachment(
   }
 
   try {
-    return await prisma.propertyDraftMedia.create({
-      data: {
+    return await storeDraftAttachment({
         draftId,
         kind: "VIDEO",
         status: "READY",
@@ -289,8 +303,7 @@ async function copyVideoAttachment(
         sizeBytes: buf.length,
         order,
         storageKey,
-      },
-    });
+    }, guard);
   } catch (err) {
     const { localVideoDelete } = await import("./localVideoStorage.js");
     await localVideoDelete(storageKey).catch(() => undefined);
@@ -330,7 +343,7 @@ async function orderPhotosByInsight(attachments: SellerAttachment[]): Promise<Se
 export async function copySellerAttachmentsToDraft(
   draftId: string,
   attachments: SellerAttachment[],
-  limits: { maxPhotos: number; maxVideos: number }
+  limits: DraftCopyGuard
 ): Promise<SellerMediaCopyResult> {
   const chatKeys = attachments.map((a) => `chat:${a.sha256}`);
   const already = chatKeys.length
@@ -377,7 +390,7 @@ export async function copySellerAttachmentsToDraft(
 
   const photoRoom = Math.max(0, limits.maxPhotos - existingPhotoCount);
   for (const a of newPhotos.slice(0, photoRoom)) {
-    const created = await copyPhotoAttachment(draftId, a, existingPhotoCount + photosAdded);
+    const created = await copyPhotoAttachment(draftId, a, existingPhotoCount + photosAdded, limits);
     if (created) photosAdded++;
     else skipped++;
   }
@@ -385,7 +398,7 @@ export async function copySellerAttachmentsToDraft(
 
   const videoRoom = Math.max(0, limits.maxVideos - existingVideoCount);
   for (const a of newVideos.slice(0, videoRoom)) {
-    const created = await copyVideoAttachment(draftId, a, existingVideoCount + videosAdded);
+    const created = await copyVideoAttachment(draftId, a, existingVideoCount + videosAdded, limits);
     if (created) videosAdded++;
     else skipped++;
   }

@@ -1,3 +1,4 @@
+import { useId } from "react";
 import {
   CURRENCIES,
   NEW_BUILD_PHASES,
@@ -16,6 +17,7 @@ import {
   type PropertyCondition,
   type PropertyMarketSide,
   type PropertyType,
+  type PropertyDetailKey,
   propertyDetailShown,
   propertyFieldShown,
   propertyHasCondition,
@@ -68,11 +70,17 @@ export function StepMain({
   const landArea = needsLandArea(values.type);
   const rules = propertyTypeFields(values.type);
   const perUnit = calcPerUnit(values);
+  const detailKeys = PROPERTY_DETAIL_KEYS.filter((key) => propertyDetailShown(values.type, key));
+  const changeDetail = (key: PropertyDetailKey, selected: string, toggle = false) => onChange({
+    details: { ...values.details, [key]: toggle && values.details[key] === selected ? DETAIL_NOT_SET : selected },
+  });
 
   return (
     <>
-      <section className="blk">
+      <section className="blk wizard-type-group">
+        <h3 className="wizard-desktop-heading">Вид объекта</h3>
         <Segs<PropertyType>
+          label="Вид объекта"
           value={values.type}
           options={PROPERTY_TYPES.map((t) => ({ value: t, label: PROPERTY_TYPE_LABELS[t] }))}
           // Смена типа сразу очищает поля, которых у нового типа нет.
@@ -80,8 +88,9 @@ export function StepMain({
         />
       </section>
 
-      <section className="blk">
-        <div className="grid2">
+      <section className="blk wizard-parameters-group">
+        <h3 className="wizard-desktop-heading">Параметры и цена</h3>
+        <div className="grid2 wizard-numeric-row" data-property-type={values.type}>
           {rooms && (
             <Field label={rules.labels.rooms} value={values.rooms} error={errors.rooms} onChange={(v) => onChange({ rooms: v })} />
           )}
@@ -89,7 +98,7 @@ export function StepMain({
               Раньше здесь стояло «Участок, соток», а число уходило в поле м²:
               участок 6 соток выходил на сайт и в подпись как «6 м²». */}
           {values.type !== "LAND" && (
-            <Field label="Площадь, м²" value={values.areaSqm} error={errors.areaSqm} onChange={(v) => onChange({ areaSqm: v })} />
+            <Field className="wizard-area-field" label="Площадь, м²" value={values.areaSqm} error={errors.areaSqm} onChange={(v) => onChange({ areaSqm: v })} />
           )}
           {/* Сотки — отдельное поле, только у ДОМА и УЧАСТКА (владелец
               21.09.2026: «сотки» — отдельная цифра, как в договоре, м² строения
@@ -97,6 +106,7 @@ export function StepMain({
               его тоже не требует. */}
           {landArea && (
             <Field
+              className="wizard-area-field"
               label={values.type === "LAND" ? "Участок, соток" : "Сотки"}
               value={values.landAreaSotka}
               error={errors.landAreaSotka}
@@ -124,16 +134,22 @@ export function StepMain({
           )}
         </div>
 
-        <div style={{ height: 8 }} />
+        <div className="wizard-price-row">
+        <div className="wizard-mobile-spacer" style={{ height: 8 }} />
         <Field label="Цена" value={values.price} error={errors.price} whole onChange={(v) => onChange({ price: v })} />
         {perUnit && <div className="calc">{perUnit}</div>}
 
-        <div style={{ height: 8 }} />
+        <div className="wizard-mobile-spacer" style={{ height: 8 }} />
+        <div className="wizard-price-currency">
+        <span className="wizard-desktop-field-label">Валюта</span>
         <Segs<Currency>
+          label="Валюта"
           value={values.currency}
           options={CURRENCIES.map((c) => ({ value: c, label: c === "TJS" ? "Сомони" : "Доллары" }))}
           onChange={(v) => onChange({ currency: v as Currency })}
         />
+        </div>
+        </div>
       </section>
 
       {/* У участка нет ни «новостройки», ни состояния ремонта. */}
@@ -144,7 +160,7 @@ export function StepMain({
       {/* Документы — только для сотрудников, чтобы знать, что говорить клиенту
           (владелец 15.09.2026). Пресеты и своя строка — дословно из
           PropertyFormModal.tsx. */}
-      <section className="blk">
+      <section className="blk wizard-documents-group">
         <div className="f">
           <label>Документы (только для сотрудников)</label>
         </div>
@@ -168,33 +184,37 @@ export function StepMain({
           (владелец 15.09.2026: «не должен отличаться от его других полей
           вообще никак»). Каждая характеристика — свой `.blk`, как остальные
           поля шага, а не один общий блок со списком внутри. */}
-      {PROPERTY_DETAIL_KEYS.filter((key) => propertyDetailShown(values.type, key)).map((key) => (
-        <section className="blk" key={key}>
-          <div className="f">
-            <label>{PROPERTY_DETAIL_LABELS[key]}</label>
-          </div>
-          {/* ПИЛЮЛИ «НЕ УКАЗАНО» БОЛЬШЕ НЕТ (21.09.2026). Владелец: «все лишние
-              тексты были удалены… чтобы все поняли, на что нажимать».
-              Раньше каждая из тринадцати характеристик начиналась ВЫБРАННОЙ
-              пилюлей «Не указано» — то есть форма открывалась тринадцатью
-              подсвеченными ответами, которых человек не давал, и выглядела
-              заполненной неправильно. Теперь «не указано» — это просто
-              отсутствие выбора: ничего не подсвечено, пока не нажали.
-              Повторное нажатие по выбранной пилюле снимает выбор — иначе
-              ошибочный ответ было бы нечем отменить. */}
-          <Segs<string>
-            value={values.details[key]}
-            options={PROPERTY_DETAIL_OPTIONS[key].map((opt) => ({ value: opt, label: opt }))}
-            onChange={(v) =>
-              onChange({
-                details: { ...values.details, [key]: values.details[key] === v ? DETAIL_NOT_SET : v },
-              })
-            }
-          />
-        </section>
-      ))}
+      {detailKeys.length > 0 && <div className="wizard-details-group">
+        <h3 className="wizard-desktop-heading">Характеристики</h3>
+        {detailKeys.map((key) => (
+          <DetailField key={key} detailKey={key} value={values.details[key]} onChange={(selected, toggle) => changeDetail(key, selected, toggle)} />
+        ))}
+      </div>}
     </>
   );
+}
+
+/** The same stored value and clear behavior serve both presentations. */
+function DetailField({ detailKey, value, onChange }: {
+  detailKey: PropertyDetailKey;
+  value: string;
+  onChange: (selected: string, toggle?: boolean) => void;
+}) {
+  const id = useId();
+  const options: readonly string[] = PROPERTY_DETAIL_OPTIONS[detailKey];
+  const label = PROPERTY_DETAIL_LABELS[detailKey];
+  return <section className="blk wizard-detail-field">
+    <div className="f"><label htmlFor={id}>{label}</label></div>
+    <select className="wizard-desktop-control wizard-detail-select" data-detail-key={detailKey} id={id} value={options.includes(value) ? value : DETAIL_NOT_SET}
+      onChange={(event) => onChange(event.target.value)}>
+      <option value={DETAIL_NOT_SET}>Не указано</option>
+      {options.map((option) => <option key={option} value={option}>{option}</option>)}
+    </select>
+    <div className="wizard-mobile-control">
+      <Segs<string> label={label} value={value} options={options.map((option) => ({ value: option, label: option }))}
+        onChange={(selected) => onChange(selected, true)} />
+    </div>
+  </section>;
 }
 
 /** Цена за м² (за сотку у участка) — считается на лету, как `perM2()` в
@@ -237,6 +257,7 @@ function Field({
   error,
   text,
   whole,
+  className,
   onChange,
 }: {
   label: string;
@@ -246,12 +267,15 @@ function Field({
   /** Целое число (цена): запятая и пробел — разделители тысяч, а не дробь.
    *  Иначе «250,000» превращалось в 250.000, то есть в 250. */
   whole?: boolean;
+  className?: string;
   onChange: (value: string) => void;
 }) {
+  const id = useId();
   return (
-    <div className="f">
-      <label>{label}</label>
+    <div className={className ? `f ${className}` : "f"}>
+      <label htmlFor={id}>{label}</label>
       <input
+        id={id}
         className={text ? "txt" : undefined}
         value={value}
         inputMode={text ? undefined : whole ? "numeric" : "decimal"}
@@ -290,10 +314,12 @@ function PropertyFinishSegs({
   const side = hasMarket ? marketSideOf(values) : "SECONDARY";
   const phase = newBuildPhaseOf(values);
   return (
-    <>
+    <div className="wizard-finish-group">
       {hasMarket && (
         <section className="blk">
+        <span className="wizard-desktop-field-label">Рынок</span>
         <Segs<PropertyMarketSide | "">
+          label="Рынок"
           value={side ?? ""}
           options={[
             { value: "SECONDARY", label: "Вторичка" },
@@ -335,7 +361,7 @@ function PropertyFinishSegs({
           />
         </section>
       )}
-    </>
+    </div>
   );
 }
 
@@ -343,13 +369,15 @@ function Segs<T extends string>({
   value,
   options,
   onChange,
+  label,
 }: {
   value: T;
   options: { value: T; label: string }[];
   onChange: (value: T) => void;
+  label?: string;
 }) {
   return (
-    <div className="segs">
+    <div className="segs" role={label ? "group" : undefined} aria-label={label}>
       {options.map((opt) => (
         <button
           key={opt.value || "__empty__"}

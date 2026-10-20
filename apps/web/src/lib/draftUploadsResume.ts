@@ -3,6 +3,7 @@ import { api } from "./api";
 import { readAllDraftFiles } from "./draftUploadStore";
 import { setDraftReminder } from "./draftReminder";
 import { useAuthStore } from "../store/auth";
+import { adoptPropertyDraftSession, getPropertyDraftSession, isPropertyDraftSessionCurrent, propertyDraftSessionToken, type PropertyDraftSession } from "./propertyDraftSession";
 
 /**
  * ДОЗАГРУЗКА ФАЙЛОВ МАСТЕРА ПРИ СТАРТЕ ПРИЛОЖЕНИЯ (07.10.2026, владелец: «чтобы
@@ -42,9 +43,10 @@ export function resumeDraftUploadsOnStart(): void {
 }
 
 async function resumeFor(agentId: string, epoch: number): Promise<void> {
+  const draftToken = propertyDraftSessionToken();
   const currentSession = () => {
     const state = useAuthStore.getState();
-    return state.hasSession && !!state.accessToken && state.agent?.id === agentId && state.sessionEpoch === epoch;
+    return state.hasSession && !!state.accessToken && state.agent?.id === agentId && state.sessionEpoch === epoch && isPropertyDraftSessionCurrent(draftToken);
   };
   // Серверный черновик: и для плашки-напоминания «Черновик объекта · Продолжить»
   // (lib/draftReminder.ts), и чтобы слить уже принятые файлы с недогруженными
@@ -52,9 +54,10 @@ async function resumeFor(agentId: string, epoch: number): Promise<void> {
   // равно уходят: отдача идемпотентна по uploadKey, повтор дубля не даёт.
   let draft: PropertyDraftView | null = null;
   try {
-    const res = await api<{ draft: PropertyDraftView | null }>("/properties/drafts/current", { expectAgentId: agentId });
+    const res = await api<PropertyDraftSession>("/properties/drafts/current", { expectAgentId: agentId });
     if (!currentSession()) return;
-    draft = res.draft;
+    adoptPropertyDraftSession(res);
+    draft = getPropertyDraftSession()?.draft ?? null;
     // Только поднимаем: понижает флаг мастер (создание объекта, «Начать заново»).
     if (isWorthDraft(draft)) setDraftReminder(true);
   } catch {
@@ -72,7 +75,7 @@ async function resumeFor(agentId: string, epoch: number): Promise<void> {
     // Пока читали, агент мог выйти — чужими файлами не занимаемся.
     const { hydrateDraftMedia } = await import("./draftUploads");
     if (!currentSession()) return;
-    await hydrateDraftMedia(draft?.media ?? []);
+    await hydrateDraftMedia(draft?.media ?? [], draft?.id);
   } catch {
     if (!currentSession()) return;
     // Do not log draft contents, filenames, credentials or server responses.

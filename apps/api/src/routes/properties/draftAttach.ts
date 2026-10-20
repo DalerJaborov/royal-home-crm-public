@@ -23,7 +23,7 @@ import path from "node:path";
 import fs from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import type { PropertyDraftMedia } from "../../generated/prisma/client.js";
-import { prisma } from "../../db.js";
+import { prisma, type TxClient } from "../../db.js";
 import { uploadsDir, thumbsDir, clipVideoDir } from "../../upload.js";
 import {
   abortLocalUploadSession,
@@ -36,7 +36,7 @@ import { CLIP_COMPRESS_MAX_ATTEMPTS } from "../../jobs/clipCompress.js";
 import { logSystemError } from "../../lib/systemError.js";
 import { logAgentAudit } from "../../lib/audit.js";
 import { sendPushToAgent } from "../../push.js";
-import { DRAFT_MEDIA_ORDER } from "./shared.js";
+import { DRAFT_INCLUDE, DraftConflictError, assertActiveDraft, checkDraftReference, closeDraftRows, withDraftLock, type DraftRecord, type DraftReference } from "./draftLifecycle.js";
 
 /**
  * Удаление файлов снимка с диска по его публичным путям.
@@ -57,23 +57,34 @@ export async function removePhotoFiles(url: string | null, thumbUrl: string | nu
 }
 
 /**
- * Удаление черновика вместе с файлами. Строки уходят каскадом, файлы — руками.
+ * Закрытие черновика вместе с удалением файлов. Tombstone сохраняет generation.
  *
  * ФАЙЛЫ СТИРАЕМ ТОЛЬКО ПОСЛЕ УСПЕШНОГО УДАЛЕНИЯ СТРОК (07.10.2026, класс «тихая
  * потеря»). Раньше отказ `delete` глотался, а файлы стирались всё равно: строки
  * PropertyDraftMedia со статусом READY оставались без файлов, и следующий
  * attachDraftToProperty создал бы PropertyPhoto с мёртвыми url. Теперь отказ
  * оставляет и строки, и файлы на месте, а уборка подберёт их на следующем проходе.
- * Черновика уже нет (P2025) — его только что унёс переезд в карточку: файлы теперь
- * принадлежат объекту, трогать их нельзя.
+ * Закрытый черновик не трогаем: файлы могли уже перейти в карточку объекта.
  *
  * Возвращает true, если черновик удалён нами и файлы убраны.
  */
-export async function discardDraft(draftId: string): Promise<boolean> {
-  const media = await prisma.propertyDraftMedia.findMany({ where: { draftId } });
+export async function discardDraft(draftId: string, options: { reference?: DraftReference; throwOnError?: boolean; expiredAt?: Date } = {}): Promise<boolean> {
+  const own = await prisma.propertyDraft.findUnique({ where: { id: draftId }, select: { agentId: true } });
+  if (!own) return false;
+  let media: PropertyDraftMedia[] = [];
   try {
-    await prisma.propertyDraft.delete({ where: { id: draftId } });
+    const closed = await withDraftLock(own.agentId, async (tx) => {
+      const draft = await tx.propertyDraft.findUnique({ where: { agentId: own.agentId }, include: DRAFT_INCLUDE });
+      if (!draft || draft.closedAt || draft.id !== draftId) return false;
+      checkDraftReference(draft, { ...options.reference, draftId });
+      if (options.expiredAt && (draft.expiresAt > options.expiredAt || draft.media.some((m) => m.status === "UPLOADING" && m.updatedAt.getTime() >= options.expiredAt!.getTime() - DRAFT_ACTIVE_UPLOAD_MS))) return false;
+      media = draft.media;
+      await closeDraftRows(tx, draft);
+      return true;
+    });
+    if (!closed) return false;
   } catch (err) {
+    if (err instanceof DraftConflictError || options.throwOnError) throw err;
     if ((err as { code?: string }).code !== "P2025") {
       void logSystemError(
         "storage",
@@ -95,7 +106,7 @@ async function removeDraftMediaFiles(m: PropertyDraftMedia): Promise<void> {
     return;
   }
   await abortLocalUploadSession(m.id).catch(() => undefined);
-  if (m.storageKey && m.status === "READY") await localVideoDelete(m.storageKey);
+  if (m.storageKey) await localVideoDelete(m.storageKey);
 }
 
 export interface DraftAttachResult {
@@ -202,17 +213,24 @@ export async function attachDraftToProperty(
   coverUploadKey?: string | null
 ): Promise<DraftAttachResult> {
   try {
-    const draft = await prisma.propertyDraft.findUnique({
-      where: { id: draftId },
-      include: { media: { orderBy: DRAFT_MEDIA_ORDER } },
+    const plan = await withDraftLock(agentId, async (tx) => {
+      const draft = await assertActiveDraft(tx, agentId, { draftId });
+      return attachDraftRows(tx, draft, property, uploadedById, coverUploadKey);
     });
-    // Чужой черновик не переносим молча — это тот же рубеж, что и у остальных
-    // маршрутов черновика: он принадлежит агенту, а не тому, кто знает его id.
-    if (!draft || draft.agentId !== agentId) {
-      const reason = draft ? "foreign" : "not-found";
-      await reportDraftMediaLoss(property, uploadedById, { skippedPhotos: 0, skippedVideos: 0, reason });
-      return emptyResult(reason);
-    }
+    return finishDraftAttachment(plan, property, uploadedById);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    void logSystemError("storage", `Не удалось перенести файлы черновика в объект ${property.id}: ${message}`, { dedupKey: `draft-attach-failed:${property.id}` });
+    await reportDraftMediaLoss(property, uploadedById, { skippedPhotos: 0, skippedVideos: 0, reason: "error", errorMessage: message });
+    return emptyResult("error", message);
+  }
+}
+
+export interface DraftAttachmentPlan { result: DraftAttachResult; media: PropertyDraftMedia[]; videos: PropertyDraftMedia[] }
+type AttachmentProperty = { id: string; shortId: number; status: string; offSite: boolean; intakeAgentId?: string | null };
+
+/** Caller holds lockOwnDraft in the same short transaction as property.create. No filesystem/network work. */
+export async function attachDraftRows(tx: TxClient, draft: DraftRecord, property: AttachmentProperty, uploadedById: string, coverUploadKey?: string | null): Promise<DraftAttachmentPlan> {
 
     const photos = draft.media.filter((m) => m.kind === "PHOTO" && m.status === "READY");
     if (coverUploadKey) {
@@ -238,14 +256,13 @@ export async function attachDraftToProperty(
     const takenKeys = new Set<string>();
     if (draftKeys.length > 0) {
       const [takenPhotos, takenVideos] = await Promise.all([
-        prisma.propertyPhoto.findMany({ where: { uploadKey: { in: draftKeys } }, select: { uploadKey: true } }),
-        prisma.propertyVideo.findMany({ where: { uploadKey: { in: draftKeys } }, select: { uploadKey: true } }),
+        tx.propertyPhoto.findMany({ where: { uploadKey: { in: draftKeys } }, select: { uploadKey: true } }),
+        tx.propertyVideo.findMany({ where: { uploadKey: { in: draftKeys } }, select: { uploadKey: true } }),
       ]);
       for (const m of [...takenPhotos, ...takenVideos]) if (m.uploadKey) takenKeys.add(m.uploadKey);
     }
     const freeKey = (key: string | null) => (key && takenKeys.has(key) ? null : key);
 
-    await prisma.$transaction(async (tx) => {
       if (photos.length > 0) {
         await tx.propertyPhoto.createMany({
           data: photos.map((m, i) => ({
@@ -274,11 +291,21 @@ export async function attachDraftToProperty(
       }
       // Незаконченные закачки уносим вместе с черновиком: их части на диске
       // подберёт та же уборка, что и части брошенных сессий видео объекта.
-      await tx.propertyDraft.delete({ where: { id: draft.id } });
-    });
+      await closeDraftRows(tx, draft);
 
-    for (const m of draft.media) {
-      if (m.status !== "READY") await removeDraftMediaFiles(m);
+    return { result: { photos: photos.length, videos: videos.length, skippedPhotos, skippedVideos,
+      ...(draft.media.length === 0 ? { reason: "empty" as const } : {}) }, media: draft.media, videos };
+}
+
+/** Run only after commit; rollback must keep the source files available for retry. */
+export async function finishDraftAttachment(plan: DraftAttachmentPlan, property: AttachmentProperty, uploadedById: string): Promise<DraftAttachResult> {
+    const { result, videos } = plan;
+    const { skippedPhotos, skippedVideos } = result;
+
+    for (const m of plan.media) {
+      if (m.status !== "READY") await removeDraftMediaFiles(m).catch((err) => {
+        void logSystemError("storage", `Не удалось убрать незавершённую загрузку ${m.id}: ${err instanceof Error ? err.message : String(err)}`);
+      });
     }
 
     // Первый ролик — ещё и обзор карточки, как это было в мастере до черновика:
@@ -298,26 +325,7 @@ export async function attachDraftToProperty(
     if (skippedPhotos + skippedVideos > 0) {
       await reportDraftMediaLoss(property, uploadedById, { skippedPhotos, skippedVideos });
     }
-    return {
-      photos: photos.length,
-      videos: videos.length,
-      skippedPhotos,
-      skippedVideos,
-      ...(draft.media.length === 0 ? { reason: "empty" as const } : {}),
-    };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    void logSystemError("storage", `Не удалось перенести файлы черновика в объект ${property.id}: ${message}`, {
-      dedupKey: `draft-attach-failed:${property.id}`,
-    });
-    await reportDraftMediaLoss(property, uploadedById, {
-      skippedPhotos: 0,
-      skippedVideos: 0,
-      reason: "error",
-      errorMessage: message,
-    });
-    return emptyResult("error", message);
-  }
+    return result;
 }
 
 /**
@@ -405,7 +413,7 @@ export async function cleanupExpiredPropertyDrafts(now: Date = new Date()): Prom
   await warnAboutExpiringDrafts(now);
 
   const expired = await prisma.propertyDraft.findMany({
-    where: { expiresAt: { lte: now } },
+    where: { closedAt: null, expiresAt: { lte: now } },
     select: {
       id: true,
       agentId: true,
@@ -417,7 +425,7 @@ export async function cleanupExpiredPropertyDrafts(now: Date = new Date()): Prom
   let removed = 0;
   for (const d of expired) {
     if (d.media.some((m) => m.status === "UPLOADING" && m.updatedAt >= activeSince)) continue;
-    if (!(await discardDraft(d.id))) continue;
+    if (!(await discardDraft(d.id, { expiredAt: now }))) continue;
     removed++;
     const photos = d.media.filter((m) => m.kind === "PHOTO").length;
     const videos = d.media.filter((m) => m.kind === "VIDEO").length;
@@ -436,7 +444,7 @@ export async function cleanupExpiredPropertyDrafts(now: Date = new Date()): Prom
 /** Предупреждение автору: черновик с наработкой исчезнет менее чем через двое суток. */
 async function warnAboutExpiringDrafts(now: Date): Promise<void> {
   const soon = await prisma.propertyDraft.findMany({
-    where: { expiresAt: { gt: now, lte: new Date(now.getTime() + DRAFT_EXPIRY_WARNING_MS) } },
+    where: { closedAt: null, expiresAt: { gt: now, lte: new Date(now.getTime() + DRAFT_EXPIRY_WARNING_MS) } },
     select: { id: true, agentId: true, step: true, expiresAt: true, _count: { select: { media: true } } },
     take: 200,
   });
