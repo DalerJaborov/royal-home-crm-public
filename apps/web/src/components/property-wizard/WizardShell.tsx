@@ -5,12 +5,12 @@ import { WizardDraftNotice } from "./WizardDraftNotice";
 import { useFocusTrap } from "../../hooks/useFocusTrap";
 import "../../theme-2026-wizard-desktop.css";
 
-const DESKTOP_SECTIONS: Record<WizardStepKey, { label: string; title: string }> = {
-  seller: { label: "Продавец", title: "Продавец" },
-  media: { label: "Фото и видео", title: "Фото и видео" },
-  main: { label: "Параметры", title: "Параметры объекта" },
-  place: { label: "Адрес", title: "Адрес объекта" },
-  review: { label: "Проверка", title: "Проверьте объект" },
+const DESKTOP_SECTIONS: Record<WizardStepKey, { label: string; title: string; next: string }> = {
+  seller: { label: "Продавец", title: "Продавец", next: "К фото и видео" },
+  media: { label: "Фото и видео", title: "Фото и видео", next: "К параметрам" },
+  main: { label: "Параметры", title: "Параметры объекта", next: "К адресу" },
+  place: { label: "Адрес", title: "Адрес объекта", next: "Проверить объект" },
+  review: { label: "Проверка", title: "Проверьте объект", next: "Создать объект" },
 };
 
 /**
@@ -221,7 +221,7 @@ export function WizardShell({
             onClick={onNext}
             disabled={nextDisabled || controlsBusy}
           >
-            {busy ? (busyLabel ?? "Сохраняю…") : nextLabel}
+            {busy ? (busyLabel ?? "Сохраняю…") : <><span className="wizard-mobile-next-label">{nextLabel}</span><span className="wizard-desktop-next-label">{DESKTOP_SECTIONS[step.key].next}</span></>}
           </button>
         </div>
 

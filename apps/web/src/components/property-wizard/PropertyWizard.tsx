@@ -44,6 +44,7 @@ import { UploadProblemSheet } from "./UploadProblemSheet";
 import { draftMediaConflict, draftMediaConflictTitle } from "./draftMediaConflict";
 import { WizardShell } from "./WizardShell";
 import { wizardProgress } from "./wizardProgress";
+import { focusWizardError } from "./focusWizardError";
 import { DraftGate, type OfferedDraft } from "./DraftGate";
 import { StepMedia } from "./StepMedia";
 import { StepMain } from "./StepMain";
@@ -55,6 +56,7 @@ import {
   buildCreateBody,
   EMPTY_WIZARD_VALUES,
   fillEmptyFromDraftValues,
+  firstIncompleteStep,
   isWizardEmpty,
   stepIndexOf,
   validateAll,
@@ -488,7 +490,7 @@ export function PropertyWizard({
     if (sellerImportLocked.current) return;
     const stepErrors = validateStep(WIZARD_STEPS[step].key, values, { requireIntakeAgent });
     setErrors(stepErrors);
-    if (Object.keys(stepErrors).length > 0) return;
+    if (Object.keys(stepErrors).length > 0) { focusWizardError(); return; }
     if (step < WIZARD_STEPS.length - 1) {
       setStep(step + 1);
       return;
@@ -508,7 +510,11 @@ export function PropertyWizard({
     if (savingRef.current) return;
     const all = validateAll(values, { requireIntakeAgent });
     setErrors(all);
-    if (Object.keys(all).length > 0) return;
+    if (Object.keys(all).length > 0) {
+      setStep(firstIncompleteStep(values, { requireIntakeAgent }));
+      focusWizardError();
+      return;
+    }
 
     savingRef.current = true;
     try {

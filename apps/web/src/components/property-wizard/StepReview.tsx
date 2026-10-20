@@ -1,10 +1,10 @@
-import { PROPERTY_TYPE_LABELS, propertyFieldShown, propertyFinishSummary, propertyHasCondition } from "@royal-home/shared";
+import { PROPERTY_DETAIL_KEYS, PROPERTY_TYPE_LABELS, propertyDetailShown, propertyFieldShown, propertyFinishSummary, propertyHasCondition } from "@royal-home/shared";
 import type { District } from "../../types";
 import type { DraftMediaSummary } from "../../hooks/useDraftMedia";
 import { formatUploadSize } from "../UploadTaskRow";
-import { needsLandArea, needsRooms, stepIndexOf, type WizardValues } from "./types";
-import { useDuplicateAddress } from "./useDuplicateAddress";
-import { DuplicateAddressWarning } from "./DuplicateAddressWarning";
+import { DETAIL_NOT_SET, needsLandArea, needsRooms, stepIndexOf, validateAll, type WizardValues } from "./types";
+import { useClient } from "../../hooks/useClients";
+import { detailFieldLabel, detailOptionLabel } from "./detailCopy";
 
 /**
  * ШАГ 5 — ПРОВЕРКА. Облик — артефакт владельца (stepReview): один блок `.rev`
@@ -55,6 +55,11 @@ export function StepReview({
   const rooms = needsRooms(values.type);
   const money = new Intl.NumberFormat("ru-RU").format(Number(values.price) || 0);
   const problems = Object.values(errors);
+  const missing = validateAll(values);
+  const { data: seller, isError: sellerError } = useClient(values.sellerClientId || undefined);
+  const sellerValue = values.sellerClientId
+    ? seller ? `${seller.displayName ?? seller.fullName} · ПК-${seller.shortId}` : sellerError ? "Не удалось загрузить продавца — откройте его шаг" : "Загружаю карточку продавца…"
+    : sellerLine(values);
   const gap = "добавлю позже";
 
   const filesValue =
@@ -82,6 +87,7 @@ export function StepReview({
       ? [{ k: "Площадь", v: values.areaSqm ? `${values.areaSqm} м²` : gap, step: mainStep, gap: !values.areaSqm }]
       : []),
     ...(landArea ? [{ k: "Сотки", v: values.landAreaSotka ? `${values.landAreaSotka} сот.` : gap, step: mainStep, gap: !values.landAreaSotka }] : []),
+    ...(propertyFieldShown(values.type, "windowCount") ? [{ k: "Количество окон", v: values.windowCount || gap, step: mainStep, gap: !values.windowCount }] : []),
     // У дома своего этажа нет — только этажность (propertyTypeFields.ts).
     ...(propertyFieldShown(values.type, "floor")
       ? [
@@ -106,9 +112,18 @@ export function StepReview({
       : []),
     { k: "Район", v: district?.name ?? gap, step: placeStep, gap: !district },
     { k: "Адрес", v: values.address || gap, step: placeStep, gap: !values.address },
-    { k: "Продавец", v: sellerLine(values) ?? gap, step: sellerStep, gap: !sellerLine(values) },
+    { k: "Ориентир", v: values.landmark || gap, step: placeStep, gap: !values.landmark },
+    { k: "Продавец", v: sellerValue ?? gap, step: sellerStep, gap: !sellerValue },
+    { k: "Документы", v: (values.documentsPreset === "Другое" ? values.documentsOther : values.documentsPreset) || gap, step: mainStep, gap: !values.documentsPreset },
+    ...PROPERTY_DETAIL_KEYS.filter((key) => propertyDetailShown(values.type, key) && values.details[key] && values.details[key] !== DETAIL_NOT_SET)
+      .map((key) => ({ k: detailFieldLabel(key), v: detailOptionLabel(key, values.details[key]), step: mainStep })),
     { k: "Файлы", v: filesValue, step: mediaStep, gap: filesValue === gap },
   ];
+  const missingRows: Record<string, string | undefined> = {
+    Комнат: missing.rooms, Площадь: missing.areaSqm, Сотки: missing.landAreaSotka,
+    "Количество окон": missing.windowCount, Этаж: missing.floor ?? missing.totalFloors, Этажей: missing.totalFloors,
+    Цена: missing.price, Район: missing.districtId, Адрес: missing.address, Продавец: missing.sellerName ?? missing.sellerPhone,
+  };
 
   return (
     <>
@@ -125,12 +140,12 @@ export function StepReview({
               key={r.k}
               type="button"
               className="r"
-              aria-label={`Изменить: ${r.k}, ${r.v}`}
+              aria-label={`Изменить: ${r.k}, ${missingRows[r.k] ?? r.v}`}
               style={{ width: "100%", background: "none", border: 0, cursor: "pointer" }}
               onClick={() => onGoTo(r.step)}
             >
               <span className="k">{r.k}</span>
-              <span className={r.gap ? "v gap" : "v"}>{r.v}</span>
+              <span className={missingRows[r.k] ? "v wizard-review-missing" : r.gap ? "v gap" : "v"}>{missingRows[r.k] ?? r.v}</span>
               <svg className="wizard-review-edit" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m16 3 5 5-12 12-6 1 1-6Z" /><path d="m14 5 5 5" /></svg>
             </button>
           ))}
