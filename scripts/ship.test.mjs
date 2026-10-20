@@ -22,6 +22,7 @@ import {
   requireFullApiRunPassed,
   requireCloudRunPassed,
   cloudBranch,
+  findCloudRun,
   statusDescription,
   shipTrailer,
   snapshotState,
@@ -208,6 +209,15 @@ test("cloud release requires source checks for the exact tested commit", () => {
   for (const sourceChecks of [undefined, {sha:"b".repeat(40),result:"success"}, {sha,result:"failure"}]) {
     assert.throws(() => requireCloudRunPassed({run,reportSha:sha,report:{...greenApiReport(),sourceChecks},sha}), /проверки исходников/);
   }
+});
+
+test("find a newly introduced workflow without the main-branch workflow endpoint", () => {
+  const sha="a".repeat(40), branch=cloudBranch(sha), startedAt=Date.parse("2026-10-20T12:00:00Z");
+  const mine={id:1,path:".github/workflows/ship-tests.yml",head_sha:sha,event:"push",head_branch:branch,created_at:"2026-10-20T12:00:01Z"};
+  const unrelated=[{...mine,id:2,path:".github/workflows/ci.yml"},{...mine,id:3,head_sha:"b".repeat(40)},
+    {...mine,id:4,event:"pull_request"},{...mine,id:5,head_branch:"other"},{...mine,id:6,created_at:"2026-10-19T12:00:00Z"}];
+  assert.equal(findCloudRun(unrelated,{sha,branch,startedAt}),null);
+  assert.equal(findCloudRun([...unrelated,mine],{sha,branch,startedAt})?.id,1);
 });
 
 // ── сухой прогон в одноразовом репозитории ──────────────────────────────────

@@ -173,6 +173,14 @@ export const CLOUD_ARTIFACT = "api-tests-total";
 /** Ветка, пуш в которую запускает облачный прогон ровно этого коммита. */
 export const cloudBranch = (sha) => `ship-tests/${sha}`;
 
+/** Repository-wide run discovery also works before a new workflow reaches main. */
+export function findCloudRun(runs, {sha, branch, startedAt}) {
+  return (Array.isArray(runs) ? runs : [])
+    .filter(x => x.path === `.github/workflows/${CLOUD_WORKFLOW}` && x.head_sha === sha &&
+      x.event === "push" && x.head_branch === branch && Date.parse(x.created_at) >= startedAt - 60_000)
+    .sort((a,b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0] ?? null;
+}
+
 /**
  * Вердикт облачного прогона. Верим не слову «success» у GitHub, а отчёту:
  * прогон завершён и успешен, он про НАШ sha (и по GitHub, и по файлу внутри
@@ -282,12 +290,10 @@ async function waitCloudTests({ gh, repo, token, sha, cloudRun }) {
     if (!cloudRun.id) {
       const list = await gh.call(
         "GET",
-        `/{repo}/actions/workflows/${CLOUD_WORKFLOW}/runs?head_sha=${sha}&event=push&per_page=20`,
+        `/{repo}/actions/runs?head_sha=${sha}&event=push&per_page=50`,
       );
       // Только прогон, заведённый ЭТИМ пушем: старые прогоны того же sha не в счёт.
-      const mine = (list?.workflow_runs ?? [])
-        .filter((x) => x.head_branch === cloudRun.branch && Date.parse(x.created_at) >= cloudRun.startedAt - 60_000)
-        .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0];
+      const mine = findCloudRun(list?.workflow_runs, {sha, branch:cloudRun.branch, startedAt:cloudRun.startedAt});
       if (mine) {
         cloudRun.id = mine.id;
         console.log(`  прогон ${mine.html_url}`);

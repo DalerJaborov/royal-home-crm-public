@@ -23,6 +23,12 @@ attestation for the same commit in the final report, so moving work off the
 laptop does not remove a release gate. Historical static tests locating stages
 by their human labels now locate stage numbers and require both stages to exist.
 
+The first real bootstrap release exposed a GitHub API edge case: looking up
+`actions/workflows/ship-tests.yml/runs` returned 404 while the new workflow was
+already running from the release branch. Run discovery now uses repository-wide
+runs and requires the exact workflow path, commit, push event, branch and start
+window. A regression test rejects other workflows, commits, events and old runs.
+
 Frontend workers are capped at four: all 271 files / 1,658 tests passed locally
 in 64.87 seconds with this cap. The original eight frontend failures were
 5-second timeouts under concurrent load; test timeouts remain unchanged.
