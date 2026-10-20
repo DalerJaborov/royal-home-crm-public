@@ -295,6 +295,24 @@ describe("щит исходящих: бот НЕ молчит живому че�
     expect(reply.allowed === true && reply.kind).toBe("reply");
   });
 
+  it("managed FINAL records inbound but preserves native pause and its exact controller witness", async () => {
+    const subscriberId = nextSubscriber();
+    await makeConversation(subscriberId);
+    const t0 = new Date("2026-09-17T12:00:00Z");
+    for (let i = 0; i <= MAX_MESSAGES_WITHOUT_INBOUND; i++) await admitOutbound({ transport: fixture.transport,
+      channel: CHANNEL, subscriberId, text: `Managed pause fixture ${i}`, now: new Date(t0.getTime() + i * MINUTE) });
+    const native = await prisma.botConversation.findFirstOrThrow({ where: { endpointScopeId: fixture.transport.endpointScopeId, subscriberId } });
+    const shield = await prisma.outboundShieldState.findFirstOrThrow({ where: { endpointScopeId: fixture.transport.endpointScopeId, subscriberId } });
+    expect(native.pausedUntil).not.toBeNull();
+    const originalArrival = new Date(t0.getTime() + 10 * MINUTE);
+    await noteRealInbound({ transport: fixture.transport, channel: CHANNEL, subscriberId,
+      providerId: "synthetic-managed-original-mid", now: originalArrival, preserveNativeOwner: true });
+    expect(await prisma.botConversation.findUniqueOrThrow({ where: { id: native.id } })).toEqual(native);
+    expect(await prisma.outboundShieldState.findUniqueOrThrow({ where: { id: shield.id } })).toMatchObject({
+      lastInboundAt: originalArrival, lastInboundId: "synthetic-managed-original-mid", botSentSinceInbound: 0,
+      pausedUntil: shield.pausedUntil, pausedAt: shield.pausedAt, pausedReason: shield.pausedReason, pauseFence: shield.pauseFence });
+  });
+
   it("лимит темпа выбран инициативами — ответ на настоящее входящее всё равно уходит", async () => {
     const subscriberId = nextSubscriber();
     await makeConversation(subscriberId);

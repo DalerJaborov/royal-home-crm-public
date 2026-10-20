@@ -8,7 +8,7 @@ import { revokeElevation } from "../src/lib/stepUp.js";
 import { prisma } from "../src/db.js";
 import { encryptSecret } from "../src/crypto.js";
 import { verifySignature, resetMetaAccountCredsCache } from "../src/messengers/meta.js";
-import { registerAuthenticatedMetaCustomerRequest } from "../src/lib/customerIngressAuthority.js";
+import { registerAuthenticatedMetaCustomerRequest, inspectAuthenticatedCustomerInput } from "../src/lib/customerIngressAuthority.js";
 import { persistVerifiedCustomerIngressBatch } from "../src/lib/customerIngressProducer.js";
 import { prepareCustomerDmInboxCoreContext } from "../src/lib/customerDmCoreContext.js";
 import { registerCurrentCustomerAgentRevision } from "../src/lib/customerAgentRegistration.js";
@@ -161,6 +161,26 @@ afterAll(async () => {
     vi.unstubAllEnvs(); vi.unstubAllGlobals(); resetMetaAccountCredsCache();
   }
   // No Client/Profile deletion, no shared scopes or immutable revision/archive deletion.
+});
+
+it("a genuine CORE FINAL remains a reply during a global initiative pause without clearing that pause or renewing arrival time", async () => {
+  transport(); const saved = await prisma.outboundShieldGlobal.findUnique({ where: { id: 1 } });
+  const until = new Date(Date.now() + 30 * 60000);
+  await prisma.outboundShieldGlobal.upsert({ where: { id: 1 }, create: { id: 1, pausedUntil: until, reason: tag },
+    update: { pausedUntil: until, reason: tag } });
+  try {
+    const o = await owner(), peer = `${tag}-peer-${randomUUID()}`, a = await message(o, peer, "Ищу квартиру");
+    const ticket = await prisma.customerPropertyIngressTicket.findUniqueOrThrow({ where: { eventKey: a.ticket.eventKey } });
+    const shield = await prisma.outboundShieldState.findFirstOrThrow({ where: { endpointScopeId: a.ticket.endpointScopeId, subscriberId: peer } });
+    expect(shield.lastInboundAt).toEqual(ticket.receivedAt);
+    expect(shield.lastInboundId).toBe(inspectAuthenticatedCustomerInput(a.authenticatedInput)?.eventId);
+    await acceptedQuestion(a, "rooms");
+    expect(await prisma.outboundShieldGlobal.findUniqueOrThrow({ where: { id: 1 } })).toMatchObject({ pausedUntil: until, reason: tag });
+  } finally {
+    if (saved) await prisma.outboundShieldGlobal.update({ where: { id: 1 }, data: { pausedUntil: saved.pausedUntil,
+      reason: saved.reason, alertedAt: saved.alertedAt, updatedAt: saved.updatedAt } });
+    else await prisma.outboundShieldGlobal.delete({ where: { id: 1 } });
+  }
 });
 
 it("owner-approved revision advance preserves own housing words, without importing old assistant claims or callback consent", async () => {

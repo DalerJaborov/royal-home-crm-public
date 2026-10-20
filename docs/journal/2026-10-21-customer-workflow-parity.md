@@ -25,6 +25,19 @@ binding checks. Historical assistant promises, media interpretations, action
 consent and delivery authority are not renewed. The ordinary strict memory
 fence remains unchanged for current sources and accepted assistant output.
 
+An exact receipt-backed own intake relation preserves customer words and contact
+availability across the bridge's new Client binding and its single normal
+assignment. Name-only contact updates retain the real earlier phone receipt;
+they do not pretend the latest input contained a phone. A foreign native rebind,
+deletion, later reassignment or takeover cannot revive that relation. Historical
+input and OUT fences remain unchanged.
+
+The managed FINAL adapter now records the genuine inbound in the existing
+outbound shield, which the legacy-only webhook loop did not do for CORE. The
+original arrival time and exact endpoint are retained. It records reply activity
+without clearing a native pause or replacing the captured controller. Existing
+initiative/global/repeat protection stays enabled.
+
 Normal PostgreSQL regression scenarios cover lane separation, accepted name
 questions, contact-to-CRM continuity and uncertain delivery. Verification is
 pending full CI; targeted PostgreSQL checks and API compilation passed during

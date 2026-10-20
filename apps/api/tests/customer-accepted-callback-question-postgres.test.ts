@@ -3,7 +3,7 @@
 // counted runtime/Core/renderer/seal/P12/kernel are real; ONLY physical HTTP is
 // synthetic. No mocked authority, receipt, question sideband or model adapter.
 import { createHmac, randomInt, randomUUID } from "node:crypto";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { customerActionIntentsSchema } from "@royal-home/shared";
 import { prisma } from "../src/db.js";
 import { encryptSecret } from "../src/crypto.js";
@@ -18,6 +18,11 @@ import { loadAcceptedCustomerState } from "../src/lib/customerState.js";
 import { decodeCustomerOutboxPayload, decodeCustomerOutboxPublicData } from "../src/lib/customerOutbox.js";
 import { dispatchCustomerOutboxPart } from "../src/lib/customerDeliveryDispatcher.js";
 import { createCustomerLeadAfterContactAction } from "../src/lib/customerNewLeadBridge.js";
+import { processNewCustomerLeadPolicy } from "../src/services/leads/intake.js";
+import { claimCustomerAgentTurnTx } from "../src/lib/customerAgentClaim.js";
+import { loadCustomerAgentVerifiedDmContext } from "../src/lib/customerAgentVerifiedContext.js";
+import { decodeCustomerAgentRevision } from "../src/lib/customerAgentRevision.js";
+import * as workingHours from "../src/lib/workingHours.js";
 import { decryptCustomerFinalOrigin } from "../src/lib/customerOriginPayload.js";
 import { customerAgentCallbackQuestionText } from "../src/ai/customerAgentRenderer.js";
 import { GRAPH_VERSION } from "../src/messengers/metaGraph.js";
@@ -78,7 +83,16 @@ async function fixture() {
         return new Response(JSON.stringify({ totalTokens: 1000 }));
       }
       if (u.pathname === "/gemini/v1beta/models/gemini-3.6-flash:generateContent") {
-        generations.push(JSON.parse(String(init.body)));
+        const body = JSON.parse(String(init.body));
+        const declarations = body.tools?.flatMap((tool: { functionDeclarations?: Array<{ name: string; parameters?: { properties?: Record<string, unknown> } }> }) => tool.functionDeclarations ?? []) ?? [];
+        if (declarations.length === 1 && declarations[0].name === "submit_reply") {
+          // Existing Client autopilot is a separate real background consumer.
+          // Its physical structured extraction must not steal the core script.
+          const args = declarations[0].parameters?.properties?.score ? { score: 50, reason: "Synthetic isolated extraction", insight: null } : {};
+          return new Response(JSON.stringify({ candidates: [{ content: { role: "model", parts: [{ functionCall: { name: "submit_reply", args } }] }, finishReason: "STOP" }],
+            usageMetadata: { promptTokenCount: 1000, candidatesTokenCount: 40, thoughtsTokenCount: 0, cachedContentTokenCount: 0 } }));
+        }
+        generations.push(body);
         const parts = rounds.shift(); if (!parts) throw new Error("Unexpected extra actual model round");
         return new Response(JSON.stringify({ candidates: [{ content: { role: "model", parts }, finishReason: "STOP" }],
           usageMetadata: { promptTokenCount: 1000, candidatesTokenCount: 40, thoughtsTokenCount: 0, cachedContentTokenCount: 0 } }));
@@ -172,6 +186,8 @@ beforeAll(async () => {
     activeAgentRevisionId: revisionId, capabilities: { publicRead: true, contactWrite: true, callbackWrite: true, newLeadBridge: false } } });
 });
 
+afterEach(async () => { await drainBackgroundTasks(5000); });
+
 afterAll(async () => {
   try {
     await drainBackgroundTasks(5000);
@@ -214,8 +230,11 @@ afterAll(async () => {
 });
 
 describe("actual accepted callback question → real next signed IN", () => {
-  it.each(["accepted", "unknown"] as const)("creates an owned CRM lead only after settled %s send; preserves wishes and never retries OUT or hands over", async outcome => {
+  it.each([["accepted", false], ["accepted", true], ["unknown", false]] as const)("creates an owned CRM lead only after settled %s send, working=%s; preserves wishes and never retries OUT or hands over", async (outcome, working) => {
     const number = phone();
+    // Clock boundary only: all lead/action/assignment decisions still run on
+    // the normal database services and receipts, without mocked permissions.
+    const hours = vi.spyOn(workingHours, "isWithinWorkingHours").mockResolvedValue(working);
     await prisma.customerRuntimePolicy.update({ where: { id: "singleton" }, data: { capabilities: {
       publicRead: true, contactWrite: true, callbackWrite: true, newLeadBridge: true,
     } } });
@@ -245,7 +264,33 @@ describe("actual accepted callback question → real next signed IN", () => {
       expect(await prisma.customerAction.count({ where: { inquiryId: part.inquiryId!, kind: "new_lead" } })).toBe(1);
       expect(await prisma.customerDeliveryAttempt.findUniqueOrThrow({ where: { id: before.id } })).toEqual(before);
       expect(f.physicalPosts).toHaveLength(2);
+      if (outcome === "accepted") {
+        await processNewCustomerLeadPolicy(action.id);
+        const policyApplied = await prisma.customerAction.findUniqueOrThrow({ where: { id: action.id } });
+        expect(policyApplied.policyResult).toMatchObject({ intakeOutcome: { mode: working ? "assigned" : "night_pending" } });
+        const next = await f.beforeClaim(await f.intake("А рассрочка?"));
+        expect(next.lane.context.knownPhoneSource).toBe("scoped_contact");
+        const claim = await prisma.$transaction(tx => claimCustomerAgentTurnTx(tx, next.lane.principal));
+        expect(claim.status).toBe("claimed");
+        const currentRevision = decodeCustomerAgentRevision(await prisma.customerAgentRevision.findUniqueOrThrow({ where: { id: revisionId } }));
+        const remembered = await loadCustomerAgentVerifiedDmContext({ principal: next.lane.principal, revision: currentRevision });
+        expect(remembered).toMatchObject({ status: "current", context: { intake: { role: "buyer" } } });
+        if (remembered.status === "current") expect(JSON.stringify(remembered.context.turns)).toContain("Хочу купить квартиру");
+        await prisma.customerPropertyIngressTicket.update({ where: { eventKey: next.lane.ticket.eventKey },
+          data: { processingState: "FAILED", leaseOwner: null, leaseUntil: null } });
+        // A staff rebind A→B→A must not revive the original contact proof merely
+        // because the native row again happens to point at the same Client.
+        const foreign = await prisma.client.create({ data: { fullName: "Synthetic unrelated rebind", phone: phone(),
+          kind: "BUYER", source: "INSTAGRAM" } });
+        try {
+          await prisma.botConversation.update({ where: { id: part.originalNativeId }, data: { clientId: foreign.id } });
+          await prisma.botConversation.update({ where: { id: part.originalNativeId }, data: { clientId: client.id } });
+          const rebound = await f.beforeClaim(await f.intake("А условия?"));
+          expect(rebound.lane.context.knownPhoneSource).toBe("none");
+        } finally { await prisma.client.delete({ where: { id: foreign.id } }); }
+      }
     } finally {
+      hours.mockRestore();
       await prisma.customerRuntimePolicy.update({ where: { id: "singleton" }, data: { capabilities: {
         publicRead: true, contactWrite: true, callbackWrite: true, newLeadBridge: false,
       } } });

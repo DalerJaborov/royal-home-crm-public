@@ -19,6 +19,7 @@ import { customerAgentAttachmentQuestion } from "../ai/customerAgentAttachmentIn
 import { customerDmAttachmentInput } from "./customerDmAttachmentInput.js";
 import { decodeCustomerAgentMediaObservation } from "./customerAgentMediaObservation.js";
 import { customerAgentIntake } from "../ai/customerAgentIntake.js";
+import { readOwnedCustomerIntakeContinuity } from "./customerOwnedIntakeContinuity.js";
 
 export interface CustomerAgentMemoryCandidate {
   role: "user" | "assistant"; text: string; observedAt: number; stableKey: string;
@@ -93,7 +94,8 @@ async function approvedOwnWordRevisions(current: Current): Promise<ReadonlySet<s
   return new Set(lineage?.path.filter(id => id !== current.revision.id) ?? []);
 }
 function historicalText(row: NonNullable<MemoryTicket>, current: Current, ownWordsOnly = false,
-  priorRevisions: ReadonlySet<string> = new Set()): string | null {
+  priorRevisions: ReadonlySet<string> = new Set(),
+  intakeContinuity?: Awaited<ReturnType<typeof readOwnedCustomerIntakeContinuity>>): string | null {
   try {
     const p = current.principal, f = p.authority.fence;
     const approvedPrior = row.agentRevisionId !== current.revision.id && !!row.agentRevisionId &&
@@ -108,6 +110,9 @@ function historicalText(row: NonNullable<MemoryTicket>, current: Current, ownWor
     const envelope = decryptCustomerIngressEnvelope({ version: 1, eventKey: row.eventKey, order: row.order.toString(),
       scopeKey: row.scopeKey, endpointScopeId: row.endpointScopeId, payloadHash: row.payloadHash }, row.payloadCiphertext);
     const origin = decryptCustomerFinalOrigin(row.originCiphertext), i = origin.input;
+    const ownIntakeBinding = !!intakeContinuity && i.acceptedFence.bindingRevision === intakeContinuity.bindingRevision &&
+      i.acceptedFence.ownershipEpoch === intakeContinuity.ownershipEpoch;
+    const wordFence = ownIntakeBinding ? { ...i.acceptedFence, bindingRevision: f.bindingRevision, ownershipEpoch: f.ownershipEpoch } : i.acceptedFence;
     if (origin.eventKey !== row.eventKey || origin.order !== row.order.toString() || origin.scopeKey !== row.scopeKey ||
         origin.originalConversationId !== row.originalConversationId || origin.payloadHash !== row.payloadHash ||
         i.inputText !== envelope.payload.inputText || i.eventId !== envelope.payload.eventId || i.eventKind !== envelope.payload.eventKind ||
@@ -124,13 +129,13 @@ function historicalText(row: NonNullable<MemoryTicket>, current: Current, ownWor
         !i.verifierCredential || !isDeepStrictEqual(i.verifierCredential, current.input.verifierCredential) ||
         !isDeepStrictEqual(i.verifierCredential, envelope.verification.verifierCredential) ||
         i.issuerSource !== current.input.issuerSource || envelope.verification.issuerSource !== i.issuerSource ||
-        !(customerMemoryFenceMatches(i.acceptedFence, f) || approvedPrior &&
+        !(customerMemoryFenceMatches(wordFence, f) || approvedPrior &&
           BigInt(i.acceptedFence.policyRevision) < BigInt(f.policyRevision) &&
-          customerMemoryFenceMatches({ ...i.acceptedFence, policyRevision: f.policyRevision }, f))) return null;
+          customerMemoryFenceMatches({ ...wordFence, policyRevision: f.policyRevision }, f))) return null;
     // Audit decryption ONLY. Never recover/brand this old input or renew age.
     // Prior versions contribute literal customer words only. Their model media
     // observations and old assistant output remain excluded from this bridge.
-    if (ownWordsOnly || approvedPrior) return i.inputText.trim();
+    if (ownWordsOnly || approvedPrior || ownIntakeBinding) return i.inputText.trim();
     const attachment = customerDmAttachmentInput(envelope.payload);
     if (row.mediaObservationVersion === 1 && row.mediaObservationCiphertext && row.mediaObservedAt && row.agentRevisionId && row.providerOperationId) {
       const media = decodeCustomerAgentMediaObservation(row.mediaObservationCiphertext, { version: 1, eventKey: row.eventKey,
@@ -227,6 +232,8 @@ export async function loadCustomerAgentVerifiedDmContext(input: { principal: unk
       const history = await prisma.customerPropertyIngressTicket.findMany({ where, select: ticketSelect, orderBy: { order: "desc" }, take: 50 });
       const priorRevisions = history.some(row => row.agentRevisionId && row.agentRevisionId !== revision.id)
         ? await approvedOwnWordRevisions(current) : new Set<string>();
+      const intakeContinuity = principal.knownContact.clientId
+        ? await readOwnedCustomerIntakeContinuity(prisma, principal.authority.fence) : null;
       if (!alive()) return { status: "held", reason: "context_deadline" };
       const parts = await prisma.customerOutboxPart.findMany({ where: {
         conversationId: principal.scope.conversationId, originalNativeId: principal.scope.conversationId,
@@ -238,7 +245,7 @@ export async function loadCustomerAgentVerifiedDmContext(input: { principal: unk
         orderBy: { attemptNo: "desc" }, take: 1 } }, orderBy: [{ acceptedAt: "desc" }, { ordinal: "desc" }], take: 6 });
       const candidates: CustomerAgentMemoryCandidate[] = await readCustomerPublicOutreachMemory(principal);
       for (const row of history) {
-        const text = historicalText(row, current, false, priorRevisions);
+        const text = historicalText(row, current, false, priorRevisions, intakeContinuity);
         if (text !== null) candidates.push({ role: "user", text, observedAt: row.receivedAt.getTime(), stableKey: `in:${row.order.toString().padStart(20, "0")}` });
       }
       for (const part of parts) {
@@ -284,7 +291,7 @@ export async function loadCustomerAgentVerifiedDmContext(input: { principal: unk
       return { status: "current", context: customerAgentVerifiedContextSchema.parse({ surface: "dm", revisionId: revision.id,
         turns: projectCustomerAgentMemory(candidates, revision.limits.maxInputChars),
         intake: customerAgentIntake([...history].reverse().flatMap(row => {
-          const text = historicalText(row, current, true, priorRevisions);
+          const text = historicalText(row, current, true, priorRevisions, intakeContinuity);
           return text ? [{ role: "user" as const, text: minimizeCustomerAgentMemoryText(text) }] : [];
         }), minimizeCustomerAgentMemoryText(currentInput.inputText)),
         publicState: customerPublicStateSchema.parse(after.snapshot.state.publicState) }) };

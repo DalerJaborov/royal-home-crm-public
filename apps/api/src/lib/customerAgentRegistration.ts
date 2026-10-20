@@ -51,7 +51,7 @@ export async function buildCurrentCustomerAgentManifest(rawSnapshot: unknown): P
       "./customerIngressClassification.js", "./customerOriginPayload.js", "./customerQualifierLedger.js",
       "./customerAgentRegistration.js", "./customerAgentRuntimeArchive.js", "./customerAgentRuntime.js", "./customerState.js", "./customerActionJournal.js",
       "./customerCallbackConsent.js", "./customerAcceptedCallbackQuestion.js", "./customerAcceptedNameQuestion.js",
-      "./customerNewLeadBridge.js", "./customerIntakeContext.js", "./workingHours.js", "../services/leads/intake.js", "../jobs/customerContactIntake.js", "../jobs/customerInboxConsume.js",
+      "./customerNewLeadBridge.js", "./customerOwnedIntakeContinuity.js", "./outboundShield.js", "./customerShieldPause.js", "./customerIntakeContext.js", "./workingHours.js", "../services/leads/intake.js", "../jobs/customerContactIntake.js", "../jobs/customerInboxConsume.js",
       "./customerOutbox.js", "./customerPublicOrigin.js", "./customerPublicModeration.js", "./customerPublicModerationPolicy.js",
       "./incomingSpam.js", "./commentHate.js", "./listingAd.js", "./customerPublicOutreachMemory.js"].map(apiFile)),
     fileGroup(["../ai/customerAgentRenderer.js", "../ai/customerAgentIntake.js", "../ai/sellerIntake.js", "../ai/customerAgentAttachmentInput.js", "../ai/customerAgentMediaPerception.js", "../ai/customerAgentConversationPolicy.js", "../ai/customerAgentPublicProtocol.js", "./publicAgencyContact.js",
