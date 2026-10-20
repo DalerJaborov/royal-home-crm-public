@@ -25,6 +25,7 @@ import {
   findCloudRun,
   requireSourceRunPassed,
   sourceBranch,
+  waitForMergeReadiness,
   statusDescription,
   shipTrailer,
   snapshotState,
@@ -234,6 +235,27 @@ test("source-only release requires the exact commit, workflow and successful pre
   }
   for (const invalid of [undefined,[],[...jobs,...jobs],[{...jobs[0],conclusion:"skipped"}],[{...jobs[0],conclusion:"failure"}]]) {
     assert.throws(()=>requireSourceRunPassed({run,jobs:invalid,sha}),/precheck/);
+  }
+});
+
+test("protected main waits for PR checks after source validation without repeating a merge", async () => {
+  const headSha="a".repeat(40),mainSha="b".repeat(40),calls=[];
+  let reads=0,sleeps=0;
+  const gh={call:async(method,url)=>{calls.push(method);return {head:{sha:headSha},base:{sha:mainSha},mergeable_state:++reads===1?"blocked":"clean"};}};
+  await waitForMergeReadiness({gh,number:2,headSha,mainSha,sleep:async()=>{sleeps++;},now:()=>0});
+  assert.deepEqual(calls,["GET","GET"]);
+  assert.equal(sleeps,1);
+});
+
+test("merge waiting rejects changed commits, conflicts and unmet protection rules", async () => {
+  const headSha="a".repeat(40),mainSha="b".repeat(40);
+  for (const current of [
+    {head:{sha:"c".repeat(40)},base:{sha:mainSha},mergeable_state:"clean"},
+    {head:{sha:headSha},base:{sha:"c".repeat(40)},mergeable_state:"clean"},
+    {head:{sha:headSha},base:{sha:mainSha},mergeable_state:"dirty"},
+    {head:{sha:headSha},base:{sha:mainSha},mergeable_state:"blocked"},
+  ]) {
+    await assert.rejects(waitForMergeReadiness({gh:{call:async()=>current},number:2,headSha,mainSha,now:()=>0,timeoutMs:0}));
   }
 });
 

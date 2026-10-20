@@ -13,3 +13,9 @@ job has no PostgreSQL and must not silently omit changed database tests.
 
 The release message reports a verified GitHub merge without claiming deployment.
 The new public repositories are not yet connected to the production servers.
+
+The first protected source-only release validated successfully but GitHub
+returned 405 while the parallel PR precheck was still finishing. Ship now waits
+through read-only PR status checks before its single merge request, requiring
+unchanged head/main commits. Conflicts and a bounded wait failure stop the
+release. Regression tests cover pending-to-clean and commit/protection failures.

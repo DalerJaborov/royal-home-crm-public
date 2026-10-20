@@ -258,6 +258,23 @@ export function stateDrift(verified, now) {
 // ── Облачный прогон: запуск и ожидание ───────────────────────────────────────
 
 const sleepMs = (ms) => new Promise((res) => setTimeout(res, ms));
+
+export async function waitForMergeReadiness({gh, number, headSha, mainSha, sleep = sleepMs,
+  now = Date.now, timeoutMs = 10 * 60_000}) {
+  const deadline = now() + timeoutMs;
+  let noted = false;
+  for (;;) {
+    const current = await gh.call("GET", `/{repo}/pulls/${number}`);
+    if (current?.head?.sha !== headSha || current?.base?.sha !== mainSha) {
+      throw new Stop("ветка или main изменились во время ожидания GitHub — запусти ship заново");
+    }
+    if (current.mergeable_state === "clean") return;
+    if (current.mergeable_state === "dirty") throw new Stop("GitHub обнаружил конфликт с main");
+    if (now() >= deadline) throw new Stop(`GitHub не разрешил вливание: ${current.mergeable_state ?? "unknown"}; обязательные проверки или правила ещё не выполнены`);
+    if (!noted) { console.log("  жду завершения обязательных проверок и правил GitHub"); noted = true; }
+    await sleep(5_000);
+  }
+}
 /** Сколько ждать, пока GitHub заведёт прогон после пуша, и весь прогон целиком. */
 const CLOUD_APPEAR_MS = 5 * 60_000;
 const CLOUD_TOTAL_MS = 90 * 60_000;
@@ -772,6 +789,7 @@ export async function main(argv = process.argv.slice(2)) {
     }
     console.log("  черновик снят");
   }
+  await waitForMergeReadiness({gh, number:pr.number, headSha, mainSha});
   // Повтора у вливания нет нарочно: ответ мог потеряться уже ПОСЛЕ того, как
   // GitHub влил, и второй PUT вернул бы «не сливается» — остановка сказала бы
   // «на сайт ничего не ушло», когда правка уже уехала. Поэтому при обрыве связи
