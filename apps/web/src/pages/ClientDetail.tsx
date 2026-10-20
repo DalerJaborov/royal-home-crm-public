@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { EmptyState } from "../components/EmptyState";
 import { Rh2Sheet } from "../components/rh2/Rh2Sheet";
@@ -25,7 +25,7 @@ import {
   useDisputePropertyCount,
   type PropertyCountDisputeRole,
 } from "../hooks/useDeleteRequests";
-import { CLIENT_KINDS, DEAL_STAGE_LABELS, type ClientKind } from "@royal-home/shared";
+import { CLIENT_KINDS, DEAL_STAGE_LABELS, clientIntents, clientCardCanWrite, type ClientKind } from "@royal-home/shared";
 import { useAgents } from "../hooks/useAgents";
 import { assignableStaff, notAgentConfirmText, notAgentWarningText, staffOptionLabel } from "../lib/assignableStaff";
 import { useSettings } from "../hooks/useSettings";
@@ -36,7 +36,7 @@ import { AddInteractionModal } from "../components/AddInteractionModal";
 import { InteractionTimeline } from "../components/InteractionTimeline";
 import { MutationError } from "../components/MutationError";
 import { VoiceNoteButton, type VoiceNote } from "../components/VoiceNoteButton";
-import { useCan, useIsReadOnly } from "../lib/permissions";
+import { useCan, useIsReadOnly, useCanCreateProperty } from "../lib/permissions";
 import { canTransferClientToCandidates } from "../lib/vacanciesView";
 import {
   useReactivateClient,
@@ -75,6 +75,9 @@ import { useMobileUx } from "../hooks/useMobileUx";
 import { useCleanShell } from "../hooks/useCleanShell";
 import { CleanClientDetailHeader, CleanClientDetailSkeleton, CleanClientDetailTabs, cleanClientDetailScale, cleanClientPanelProps, cleanClientShowsPanel } from "../components/clean/CleanClientDetailLayout";
 import { MobileClientCard } from "../components/mobile/MobileClientCard";
+import { ClientPropertyWorkspace } from "../components/ClientPropertyWorkspace";
+import { ClientCardFacts, ClientNextStep } from "../components/ClientCardContext";
+import "../theme-client-workspace.css";
 
 
 /**
@@ -131,6 +134,12 @@ function conversationsOf(client: Client): ClientConversation[] {
 
 export function ClientDetail() {
   const { id } = useParams();
+  // Drafts, open dialogs and selected objects belong to a person, never to the next route.
+  return <ClientDetailCard key={id} />;
+}
+
+function ClientDetailCard() {
+  const { id } = useParams();
   // Переписка: открыта ли панель и нужно ли сразу поставить курсор в поле ответа
   // (открыли, чтобы ответить, — а не чтобы прочитать; см. ClientChatPanel). Объявлен
   // раньше useClient ниже: тот читает chat.open, чтобы включать поллинг карточки,
@@ -146,7 +155,8 @@ export function ClientDetail() {
   // «Подбор · N» (17.09.2026, docs/match-policy-plan-17-09.md §6) — грузится,
   // только пока карточка клиента открыта: тот же запрос, что и MatchPanel
   // (общий ключ кэша ["client-match", id]), второй раз по сети не уходит.
-  const clientMatchQuery = useClientMatch(client?.id);
+  const { sells, buys } = clientIntents(client ?? {});
+  const clientMatchQuery = useClientMatch(client?.id, buys);
   const me = useAuthStore((s) => s.agent);
   /**
    * Карточка клиента на телефоне — минимум на первом экране (владелец
@@ -182,6 +192,8 @@ export function ClientDetail() {
   const [nameDraft, setNameDraft] = useState("");
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [showInteraction, setShowInteraction] = useState(false);
+  const [showingMode, setShowingMode] = useState<"schedule" | "record">("schedule");
+  const [showingPropertyId, setShowingPropertyId] = useState<string>();
   // Подбор объекта: одна панель (components/match/MatchPanel.tsx), одна кнопка
   // «Подбор · N» везде (владелец 17.09.2026 вечер) — открыта/закрыта, без режимов.
   const [matchOpen, setMatchOpen] = useState(false);
@@ -287,26 +299,27 @@ export function ClientDetail() {
    */
   const canDo = useCan();
   const accountReadOnly = useIsReadOnly();
-  const canMerge = canDo("clients.merge");
+  const mayCreateProperty = useCanCreateProperty();
+  const canMerge = !accountReadOnly && canDo("clients.merge");
   /**
    * Удаление показываем ПО ПРАВУ, а не по роли (дрейф, найденный 30.08.2026):
    * кнопка стояла на `role === "ADMIN" || role === "DIRECTOR"`, а сервер
    * (routes/clients/card.ts) всё это время проверял право `clients.delete` —
    * сотрудник, которому директор выдал право галочкой, кнопки не видел вовсе.
    */
-  const canDelete = canDo("clients.delete");
+  const canDelete = !accountReadOnly && canDo("clients.delete");
   /**
    * Назначить, переназначить, забрать себе, «в кандидаты» — по праву
    * clients.assign, ровно как пускает сервер (routes/clients/lifecycle.ts), а не
    * по роли (F8, 02.10.2026): оператору с выданным правом кнопок не было,
    * менеджеру со снятым правом они были и отвечали 403.
    */
-  const canAssignClients = canDo("clients.assign");
+  const canAssignClients = !accountReadOnly && canDo("clients.assign");
   /**
    * Заявку на удаление заводит агент, который ведёт карточку. Тому, кто и так
    * может удалить сам (canDelete), просить не у кого — ему кнопка не нужна.
    */
-  const canRequestDelete = canDo("clients.requestDelete") && !canDelete;
+  const canRequestDelete = !accountReadOnly && canDo("clients.requestDelete") && !canDelete;
   // Заявка по этой карточке, если она уже ждёт решения: кнопку в таком случае
   // заменяем видимой строкой, а не гасим в серый (правило проекта — причина
   // недоступности пишется словами рядом, серая кнопка читается как «нет прав»).
@@ -325,7 +338,7 @@ export function ClientDetail() {
   // (правило хуков), enabled сужает сам запрос до карточек продавца.
   const { data: sellerProperties } = useProperties(
     { sellerClientId: client?.id ?? "", page: 1 },
-    !!client?.id && isSeller
+    !!client?.id && sells && !(client?.pendingAcceptance && me?.role === "AGENT")
   );
   // Тот же признак, что hasActiveAssignedAgent на сервере (lib/conversationState.ts) —
   // бот молчит клиенту, пока он закреплён за живым агентом, не дожидаясь первого
@@ -375,26 +388,9 @@ export function ClientDetail() {
   /** «Отложенные» (задача G, 03-04.09.2026) — не «Неактивный»: слот свободен,
    *  светофора нет, возврат по таймеру или раньше, если клиент напишет сам. */
   const isDeferred = client?.workStatus === "DEFERRED";
-  /**
-   * «Подборка отправлена» — руководитель раньше не видел на карточке, что агент уже
-   * предложил клиенту объекты (POST /:id/send-properties пишет только в обычную
-   * хронологию, но экран её не выделял). Отдельного поля под это заводить не стали —
-   * маршрут создаёт обычные SYSTEM-интеракции с этим текстом, и хронология уже
-   * загружена вместе с карточкой; ищем по тексту тем же приёмом, что и
-   * oversight.ts::inactiveEventsWhere (маркер только в тексте, без отдельного поля).
-   * Несколько объектов одной отправки создаются в один createMany — Postgres даёт
-   * им одинаковый createdAt (единое now() внутри одной вставки), группируем по нему,
-   * чтобы показать «N объектов», а не только последнюю строку.
-   */
-  const lastPropertiesSent = useMemo(() => {
-    const sent = (client?.interactions ?? []).filter(
-      (i) => i.type === "SYSTEM" && i.propertyId && i.notes.endsWith("— отправлена клиенту")
-    );
-    if (sent.length === 0) return null;
-    // interactions уже отсортированы от новых к старым (orderBy createdAt desc на сервере).
-    const lastAt = sent[0].createdAt;
-    return { at: lastAt, count: sent.filter((i) => i.createdAt === lastAt).length };
-  }, [client?.interactions]);
+  // Full-table structured send receipts supplied by the API.
+  const sentSummary = client?.propertyActivitySummary;
+  const lastPropertiesSent = sentSummary?.lastSentAt ? { at: sentSummary.lastSentAt, count: sentSummary.sentCount } : null;
   /**
    * «ПЕРЕДАЧА» — гейт снижен 22.08.2026 (мозговой штурм владельца, «рубеж 2:
    * дверь передачи, которой сейчас нет»): раньше требовался обязательно
@@ -524,7 +520,7 @@ export function ClientDetail() {
   // Уровень 3: до принятия лида агент видит требования, но не контакты и не может работать с карточкой.
   // Для OTHER pendingAcceptance всегда true (нет агента, который мог бы принять) — это не «ожидание».
   const pending = !!client.pendingAcceptance && !isOther;
-  const canAccept = pending && me?.role === "AGENT" && client.assignedAgentId === me.id;
+  const canAccept = pending && !accountReadOnly && client.assignedAgentId === me?.id;
   /**
    * Карточка только для чтения — для того, кто видит чужие карточки, но не работает
    * с ними: служба безопасности разбирает причины ухода клиентов, и в её пресете
@@ -537,7 +533,16 @@ export function ClientDetail() {
    * второго есть право распределять лидов — то же, по которому пускает сервер.
    */
   const readOnly = accountReadOnly || (client.assignedAgentId !== me?.id && !canDo("clients.assign"));
-  const locked = (pending && me?.role === "AGENT") || readOnly;
+  const locked = !clientCardCanWrite({ viewerId: me?.id, assignedAgentId: client.assignedAgentId,
+    canAssign: canAssignClients, readOnly, pending: pending && !canDo("clients.viewAll"), deleted: !!client.deletedAt });
+  const scheduleShowing = (propertyId?: string) => {
+    if (locked) return;
+    setShowingMode("schedule"); setShowingPropertyId(propertyId); setShowInteraction(true);
+  };
+  const recordResult = () => {
+    if (locked) return;
+    setShowingMode("record"); setShowingPropertyId(undefined); setShowInteraction(true);
+  };
   /**
    * Пачка 16 (11.09.2026): у карточки, переданной другому агенту, действия
    * пустые, кроме «Позвонить» — и то только у того, кому дано писать в чужие
@@ -555,7 +560,7 @@ export function ClientDetail() {
    * useClientMatch, пока не загрузился — просто «Подбор» (счёт не выдумываем).
    */
   const matchButton =
-    (!locked || accountReadOnly) && !isSeller && !isOther ? (
+    buys && !(pending && locked) ? (
       <button className="pill ghost" type="button" onClick={() => setMatchOpen(true)}>
         Подбор{clientMatchQuery.data ? ` · ${clientMatchQuery.data.total}` : ""}
       </button>
@@ -882,7 +887,7 @@ export function ClientDetail() {
    * списком `.row`: подпись, объяснение и одна кнопка в строке. Здесь тот же
    * список, но раскрывается на месте, а не шторкой (см. отчёт по переносу).
    */
-  const canCreatePropertyFromLead = isSeller && !locked && (isSupervisor || client.assignedAgentId === me?.id);
+  const canCreatePropertyFromLead = sells && !locked && mayCreateProperty;
   const hasExistingSellerProperty = (sellerProperties?.total ?? 0) > 0;
   /**
    * ОБЪЕКТ ИЗ КАРТОЧКИ ПРОДАВЦА — В МАСТЕР, А НЕ В СТАРУЮ ФОРМУ (23.09.2026).
@@ -895,6 +900,14 @@ export function ClientDetail() {
     if (client.assignedAgentId) params.set("intake", client.assignedAgentId);
     navigate(`/properties/new?${params.toString()}`);
   };
+  const createSellerProperty = () => {
+    if (!canCreatePropertyFromLead) return;
+    // Failed/unfinished checks must never masquerade as an empty seller portfolio.
+    if (sellerProperties === undefined || hasExistingSellerProperty) setConfirmDuplicateProperty(true);
+    else openPropertyWizard();
+  };
+  const propertyWorkspace = <ClientPropertyWorkspace key={`${client.id}:${client.kind}:${client.dualIntent}`} client={client} locked={locked}
+    canCreate={canCreatePropertyFromLead} onCreate={createSellerProperty} onSchedule={scheduleShowing} />;
 
   /**
    * Пункты меню «Ещё» — данными, а не готовыми строками (владелец 29.09.2026:
@@ -918,15 +931,6 @@ export function ClientDetail() {
   const extraItems: MoreItem[] = [];
   const dangerItems: MoreItem[] = [];
 
-  if (canCreatePropertyFromLead) {
-    mainItems.push({
-      key: "property",
-      label: "Создать объект из заявки",
-      icon: Home,
-      hint: hasExistingSellerProperty ? "У продавца уже есть объект в CRM" : undefined,
-      onSelect: () => (hasExistingSellerProperty ? setConfirmDuplicateProperty(true) : openPropertyWizard()),
-    });
-  }
   // Первую сделку заводят отсюда (29.09.2026): пустой блок «Сделки пока нет» с
   // кнопкой на первом экране владелец убрал как лишний — поэтому здесь пункт
   // первый и выделен, а не одна из десяти равных строк.
@@ -963,16 +967,13 @@ export function ClientDetail() {
     });
   }
   if (!locked) {
-    // На телефоне «Показ» уже отдельная кнопка полосы действий — дубля в меню нет.
-    if (!mobile) {
-      mainItems.push({
+    mainItems.push({
         key: "showing",
-        label: "Показ или встреча",
+        label: "Записать результат",
         icon: CalendarClock,
         hint: "Записать, в том числе задним числом",
-        onSelect: () => setShowInteraction(true),
-      });
-    }
+        onSelect: recordResult,
+    });
     mainItems.push({
       key: "edit",
       label: "Изменить данные",
@@ -1154,6 +1155,7 @@ export function ClientDetail() {
    */
   const commonMiddle = (
     <>
+      {!isOther && <ClientNextStep client={client} locked={locked} onSchedule={() => scheduleShowing()} onRecord={recordResult} />}
       {!releaseCandidates && <MutationError mutation={acceptLead} fallback="Не удалось принять лид" />}
       <MutationError mutation={declineLead} fallback="Не удалось отклонить лид" />
       <MutationError mutation={updateClient} fallback="Не удалось сохранить изменение" />
@@ -1182,7 +1184,7 @@ export function ClientDetail() {
       {/* Полоса «что горит» — сразу под решениями: от неё зависит, о чём вообще
           будет разговор (владелец 20.08.2026). До принятия лида показывать нечего
           честно: показы и шаги приходят пустыми, потому что вся история закрыта. */}
-      {!(pending && locked) && <ClientSignals client={client} />}
+      {!(pending && locked) && <ClientSignals client={client} showNext={false} />}
 
       {client.securityReview === "PENDING" && <SecurityReviewPanel client={client} />}
       {/* Право `score.clientLossOverride` существовало с лета без единой кнопки в
@@ -1270,9 +1272,13 @@ export function ClientDetail() {
           <ClientMoreMenu groups={moreGroups} error={toCandidateError} onPick={() => setShowMoreSheet(false)} />
         </Rh2Sheet>
       )}
-      {showInteraction && client.id && (
+      {showInteraction && !locked && client.id && (
         <AddInteractionModal
           clientId={client.id}
+          mode={showingMode}
+          initialType={showingMode === "schedule" ? "SHOWING" : undefined}
+          initialPropertyId={showingPropertyId}
+          sellerClientId={sells && !buys ? client.id : undefined}
           selectedClientName={clean ? client.displayName ?? client.fullName : undefined}
           isSeller={isSeller}
           onClose={() => setShowInteraction(false)}
@@ -1299,7 +1305,7 @@ export function ClientDetail() {
           onCancel={() => setConfirmToCandidate(false)}
         />
       )}
-      {!accountReadOnly && confirmDelete && (
+      {canDelete && confirmDelete && (
         <ConfirmDialog
           title={`Удалить ${isSeller ? "продавца" : "клиента"} «${client.fullName}»?`}
           description="Карточка переместится в Корзину (Архив): историю взаимодействий и сделки не тронет, оттуда можно вернуть или стереть навсегда. Клиента со сделкой (кроме отменённой) удалить нельзя, сначала отмените или завершите её. Если нужно просто убрать из работы, используйте статус «Архив»."
@@ -1315,7 +1321,7 @@ export function ClientDetail() {
           onCancel={() => setConfirmDelete(false)}
         />
       )}
-      {!accountReadOnly && showKindSheet && (
+      {!locked && showKindSheet && (
         <ClientKindSheet
           current={client.kind ?? "BUYER"}
           onClose={() => setShowKindSheet(false)}
@@ -1325,8 +1331,8 @@ export function ClientDetail() {
           }}
         />
       )}
-      {!accountReadOnly && showRobot && <LiveVoiceCallSheet clientId={client.id} onClose={() => setShowRobot(false)} />}
-      {!accountReadOnly && kindChangeTarget && (
+      {!locked && settings?.liveVoiceEnabled && showRobot && <LiveVoiceCallSheet clientId={client.id} onClose={() => setShowRobot(false)} />}
+      {!locked && kindChangeTarget && (
         <ConfirmDialog
           title={`Сменить тип на «${CLIENT_KIND_LABELS[kindChangeTarget]}»?`}
           description={
@@ -1360,10 +1366,10 @@ export function ClientDetail() {
           onCancel={() => setConfirmDecline(false)}
         />
       )}
-      {!accountReadOnly && confirmDuplicateProperty && (
+      {canCreatePropertyFromLead && confirmDuplicateProperty && (
         <ConfirmDialog
-          title="У продавца уже есть объект в CRM"
-          description="Ещё один объект по этой заявке? Проверьте вкладку «Объекты» — возможно, карточка уже заведена, и нужен не новый объект, а правка существующего."
+          title={sellerProperties === undefined ? "Не удалось проверить объекты продавца" : "У продавца уже есть объект в CRM"}
+          description={sellerProperties === undefined ? "Список ещё не загружен. Проверьте объекты продавца перед созданием, чтобы не завести дубликат." : "Ещё один объект по этой заявке? Проверьте вкладку объектов — возможно, нужна правка существующего."}
           confirmLabel="Всё равно создать"
           onConfirm={() => {
             setConfirmDuplicateProperty(false);
@@ -1372,22 +1378,22 @@ export function ClientDetail() {
           onCancel={() => setConfirmDuplicateProperty(false)}
         />
       )}
-      {showEditForm && <ClientFormModal client={client} onClose={() => setShowEditForm(false)} />}
-      {matchOpen && <MatchPanel mode="client" client={client} open={matchOpen} onClose={() => setMatchOpen(false)} />}
-      {!accountReadOnly && showCloseDeal && <CloseDealChoiceModal client={client} onClose={() => setShowCloseDeal(false)} />}
-      {!accountReadOnly && showNewDeal && <NewDealSheet client={client} onClose={() => setShowNewDeal(false)} />}
-      {!accountReadOnly && showTransfer && <TransferClientModal client={client} onClose={() => setShowTransfer(false)} />}
-      {!accountReadOnly && showMerge && (
+      {showEditForm && !locked && <ClientFormModal client={client} onClose={() => setShowEditForm(false)} />}
+      {matchOpen && <MatchPanel mode="client" client={client} open={matchOpen} readOnly={locked} onClose={() => setMatchOpen(false)} />}
+      {!locked && showCloseDeal && <CloseDealChoiceModal client={client} onClose={() => setShowCloseDeal(false)} />}
+      {!locked && showNewDeal && <NewDealSheet client={client} onClose={() => setShowNewDeal(false)} />}
+      {!locked && showTransfer && <TransferClientModal client={client} onClose={() => setShowTransfer(false)} />}
+      {!locked && canMerge && showMerge && (
         <MergeClientModal
           client={client}
           preselected={showMerge === true ? undefined : showMerge}
           onClose={() => setShowMerge(false)}
         />
       )}
-      {!accountReadOnly && showRequestDelete && (
+      {canRequestDelete && showRequestDelete && (
         <RequestDeleteClientModal client={client} onClose={() => setShowRequestDelete(false)} />
       )}
-      {!accountReadOnly && showSimilarSheet && similarNotes && similarNotes.length > 0 && (
+      {!locked && showSimilarSheet && similarNotes && similarNotes.length > 0 && (
         <MobileActionSheet title="Похожая карточка" onClose={() => setShowSimilarSheet(false)}>
           <SimilarNotesWarning
             clients={similarNotes}
@@ -1408,6 +1414,7 @@ export function ClientDetail() {
             fullName: `${client.fullName}${client.lastName ? ` ${client.lastName}` : ""}`,
           })}
           conversations={conversations}
+          readOnly={locked}
           autoFocusReply={chat.focusReply}
           agentActivelyAssigned={agentActivelyAssigned}
           onClose={() => setChat({ open: false, focusReply: false })}
@@ -1454,6 +1461,8 @@ export function ClientDetail() {
 
           <MobileClientCard
             client={client}
+            canBuy={buys}
+            propertyWorkspace={propertyWorkspace}
             propertyCounts={
               <>
                 <PropertyCountRow client={client} role="SELLER" />
@@ -1467,7 +1476,7 @@ export function ClientDetail() {
             }
             locked={locked}
             pending={pending}
-            isSeller={isSeller}
+            isSeller={sells}
             isOther={isOther}
             canCallTransferred={canCallTransferred}
             mainStatusChip={mainStatusChip}
@@ -1507,7 +1516,7 @@ export function ClientDetail() {
               if (cid) navigate(`/messages?open=${cid}`);
               else setChat({ open: true, focusReply: true });
             }}
-            onShowInteraction={() => setShowInteraction(true)}
+            onShowInteraction={() => scheduleShowing()}
             onMerge={(c) => setShowMerge(c)}
             moreGroups={moreGroups}
             moreError={toCandidateError}
@@ -1570,7 +1579,7 @@ export function ClientDetail() {
             <div className="who">
               {/* Правка ОДНОГО поля без четырёх шагов ClientFormModal (владелец
                   19.08.2026). Ограничение то же, что у сервера (min 2 символа). */}
-              {editingName && !accountReadOnly ? (
+              {editingName && !locked ? (
                 <form
                   className="wrap"
                   onSubmit={(e) => {
@@ -1607,8 +1616,7 @@ export function ClientDetail() {
               ) : (
                 <div className="cd-name-row">
                   <h1 style={clean ? { fontSize: 26, lineHeight: 1.25, overflowWrap: "anywhere", marginBottom: 8 } : undefined}>
-                    {client.displayName ??
-                      `${client.fullName}${client.lastName ? ` ${client.lastName}` : ""}`}
+                    {`${client.fullName}${client.lastName ? ` ${client.lastName}` : ""}`}
                   </h1>
                   {mobile && !locked && (
                     <button
@@ -1664,7 +1672,7 @@ export function ClientDetail() {
                     )}
                     {lastPropertiesSent && (
                       <span className="chip ok">
-                        Подборка отправлена {relativeTime(lastPropertiesSent.at)}, объектов {lastPropertiesSent.count}
+                        Последняя отправка {relativeTime(lastPropertiesSent.at)}
                       </span>
                     )}
                   </div>
@@ -1700,13 +1708,14 @@ export function ClientDetail() {
                     {/* «Показ» на виду, как на телефоне (23.09.2026): на ПК он
                         жил только за ⋮ → «Показ или встреча». */}
                     {!locked && (
-                      <button className="pill ghost" type="button" onClick={() => setShowInteraction(true)}>
-                        Показ
+                      <button className="pill ghost" type="button" onClick={() => scheduleShowing()}>
+                        Назначить показ
                       </button>
                     )}
                   </>
                 )}
                 {matchButton}
+                {canCreatePropertyFromLead && <button className="pill" type="button" onClick={createSellerProperty}>Добавить объект</button>}
                 {!locked && (
                   <button
                     className="pill ghost sm"
@@ -1715,7 +1724,6 @@ export function ClientDetail() {
                     aria-label="Изменить имя"
                   >
                     <Pencil className="i" />
-                    Имя
                   </button>
                 )}
                 {moreCount > 0 && (
@@ -1769,9 +1777,9 @@ export function ClientDetail() {
                   <MessageSquare className="i" />
                   Написать
                 </button>
-                <button className="cd-act" type="button" onClick={() => setShowInteraction(true)}>
-                  <CalendarClock className="i" />
-                  Показ
+                <button className="cd-act" type="button" onClick={() => sells && !buys ? jumpToTab("props") : setMatchOpen(true)}>
+                  <Home className="i" />
+                  {sells && !buys ? "Объекты" : "Подбор"}
                 </button>
               </>
             )}
@@ -1795,7 +1803,7 @@ export function ClientDetail() {
             телефоне — плоский стек секций (макет c99db05f), gating по `tab`
             снят полностью для mobile, все пять блоков видны подряд. */}
         <div className={clean ? "card clean-client-sections" : "card"} ref={tabsCardRef} style={clean ? { border: 0, padding: 24 } : undefined}>
-          {clean ? <CleanClientDetailTabs value={tab} onChange={setTab} /> : !mobile && (
+          {clean ? <CleanClientDetailTabs value={tab} onChange={setTab} objectsLabel={sells && buys ? "Продаёт и ищет" : sells ? "Объекты продавца" : buys ? "Подбор и интерес" : "Объекты"} /> : !mobile && (
             <div className="tabs" role="tablist" aria-label="Разделы карточки">
               {tabs.map((t) => (
                 <button
@@ -1829,6 +1837,7 @@ export function ClientDetail() {
                   «Что просит», «Запрос своими словами», «О карточке», строка
                   «Телефоны» и «Что ИИ предлагал раньше» убраны — всё это ИИ
                   вплетает в сводку, а номер выбирается в кнопке «Позвонить». */}
+              {!(pending && locked) && <ClientCardFacts client={client} />}
               <ClientInsight client={client} />
               {clean && !client.aiInsight && !(pending && locked) && <div className="clean-client-overview-empty" role="status">
                 <p>Краткая сводка по этому клиенту ещё не подготовлена.</p>
@@ -1903,7 +1912,7 @@ export function ClientDetail() {
               )}
               {/* Написать в WhatsApp первыми — одобренным Meta текстом. Один блок на
                   оба размера экрана: раздел «Переписка» рисуется и там и там. */}
-              {!(pending && locked) && <WhatsAppFirstContact clientId={client.id} />}
+              {!locked && <WhatsAppFirstContact clientId={client.id} />}
             </div>
           )}
 
@@ -1948,17 +1957,7 @@ export function ClientDetail() {
               }}
             >
               {mobile && <div className="sec-t">Объекты</div>}
-              <div className="empty">
-                <span className="ic">
-                  <Home className="i" />
-                </span>
-                <p>
-                  {lastPropertiesSent
-                    ? `Последняя подборка отправлена ${relativeTime(lastPropertiesSent.at)}, объектов ${lastPropertiesSent.count}.`
-                    : "Подборка этому клиенту ещё не отправлялась."}
-                </p>
-                {matchButton}
-              </div>
+              {propertyWorkspace}
             </div>
           )}
 

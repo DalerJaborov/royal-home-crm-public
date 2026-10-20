@@ -60,10 +60,10 @@ function Signal({
   );
 }
 
-export function ClientSignals({ client }: { client: Client }) {
+export function ClientSignals({ client, showNext = true }: { client: Client; showNext?: boolean }) {
   const interactions = client.interactions ?? [];
   const showings = conductedShowings(interactions);
-  const next = nextStepOf(client);
+  const next = showNext ? nextStepOf(client) : null;
   // Нет ни показов, ни следующего шага — не рисуем ничего: пустая карточка `.card.tight`
   // висела белой полосой над «Где сделка» (сверка с артефактом 10.09).
   if (showings === 0 && !next) return null;

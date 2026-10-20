@@ -40,6 +40,7 @@ export type MatchPanelProps =
   | {
       mode: "client";
       client: Client;
+      readOnly?: boolean;
       open: boolean;
       onClose: () => void;
       /** Композер чата закрывает панель сразу после отправки; карточка клиента
@@ -149,9 +150,11 @@ function ClientMatchPanel({
   variant = "modal",
   layer,
   conversationId,
+  readOnly: cardReadOnly = false,
 }: Extract<MatchPanelProps, { mode: "client" }>) {
   const clean = useCleanShell();
-  const readOnly = useIsReadOnly();
+  const accountReadOnly = useIsReadOnly();
+  const readOnly = cardReadOnly || accountReadOnly;
   const readOnlyRef = useRef(readOnly);
   readOnlyRef.current = readOnly;
   const [source, setSource] = useState<"match" | "catalog">("match");
@@ -161,8 +164,8 @@ function ClientMatchPanel({
     fallback: SendPropertiesFallback | null;
     tone: "crit" | "warn";
   } | null>(null);
-  const target = useSendTarget(client.id, conversationId, open);
-  const deliveryUnavailable = clean && (target.isError || target.isLoading || !target.data);
+  const target = useSendTarget(client.id, conversationId, open && !readOnly);
+  const deliveryUnavailable = !readOnly && clean && (target.isError || target.isLoading || !target.data);
   const deliveryUnavailableRef = useRef(deliveryUnavailable);
   deliveryUnavailableRef.current = deliveryUnavailable;
   const mobile = useMobileUx();
@@ -317,7 +320,7 @@ function ClientMatchPanel({
         title={title}
         sub={
           <>
-            <SendTargetNote info={target.data} isLoading={target.isLoading} failed={clean && target.isError} retry={() => target.refetch()} />
+            {!readOnly && <SendTargetNote info={target.data} isLoading={target.isLoading} failed={clean && target.isError} retry={() => target.refetch()} />}
             {(requirements.length > 0 || client.requirementsNotes) && (
             <>
               <div className="filters">
@@ -542,7 +545,7 @@ function ClientMatchPanel({
       {/* Форма показа — соседом панели, а не внутри неё: подложка модалки
           закрывается по клику, и вложенная форма схлопывала бы панель при
           первом же клике по своим полям (перенесено дословно). */}
-      {showingFor && (
+      {!readOnly && showingFor && (
         <AddInteractionModal
           clientId={client.id}
           initialType="SHOWING"

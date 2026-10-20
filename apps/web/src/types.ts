@@ -462,6 +462,7 @@ export interface Client {
    * null = обещаний нет.
    */
   nextStep?: { nextAction: string | null; nextActionDate: string | null } | null;
+  propertyActivitySummary?: import("@royal-home/shared").ClientPropertyActivitySummary | null;
   /** Клиент написал последним, и переписку ещё не открывали — красная точка на
    *  аватаре, как непрочитанное в вотсапе. Считается только в СВОЁМ списке
    *  клиентов (см. routes/clients/list.ts) — гаснет открытием карточки. */

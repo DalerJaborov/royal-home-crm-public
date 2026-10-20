@@ -962,9 +962,9 @@
       "mount": "/api/v1/clients",
       "router": "clientsRouter",
       "file": "apps/api/src/routes/clients.ts",
-      "endpoints": 57,
+      "endpoints": 58,
       "label": "Клиенты: карточки, передачи, отказы, подбор — самый крупный модуль",
-      "usedBy": 9
+      "usedBy": 10
     },
     {
       "mount": "/api/v1/deals",

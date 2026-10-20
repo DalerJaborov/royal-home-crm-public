@@ -12,9 +12,9 @@ export function cleanClientShowsPanel(clean: boolean, mobile: boolean, active: C
 
 const sections: { id: CleanClientTab; label: string }[] = [
   { id: "short", label: "Обзор" },
+  { id: "props", label: "Объекты" },
   { id: "chat", label: "Переписка" },
   { id: "calls", label: "Звонки" },
-  { id: "props", label: "Объекты" },
   { id: "hist", label: "История" },
 ];
 
@@ -42,15 +42,15 @@ export function cleanClientPanelProps(tab: CleanClientTab) {
   return { role: "tabpanel", id: `clean-client-panel-${tab}`, "aria-labelledby": `clean-client-tab-${tab}`, tabIndex: 0 } as const;
 }
 
-export function CleanClientDetailTabs({ value, onChange }: { value: CleanClientTab; onChange: (value: CleanClientTab) => void }) {
+export function CleanClientDetailTabs({ value, onChange, objectsLabel = "Объекты" }: { value: CleanClientTab; onChange: (value: CleanClientTab) => void; objectsLabel?: string }) {
   return (
     <div role="tablist" aria-label="Разделы карточки клиента" className="clean-record-tabs">
       {sections.map(({ id, label }) => (
         <button key={id} type="button" role="tab" id={`clean-client-tab-${id}`}
-          aria-selected={id === value} aria-controls={`clean-client-panel-${id}`} tabIndex={id === value ? 0 : -1}
+          aria-selected={id === value} aria-label={id === "props" ? objectsLabel : label} aria-controls={`clean-client-panel-${id}`} tabIndex={id === value ? 0 : -1}
           className="rounded-full px-[18px] py-3 font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue"
           style={{ minHeight: 44, fontSize: 16, border: 0, background: id === value ? "var(--c-card)" : "transparent", color: id === value ? "rgb(var(--rgb-accent))" : "rgb(var(--rgb-ink))" }}
-          onClick={() => onChange(id)}
+          onClick={(event) => { onChange(id); event.currentTarget.scrollIntoView({ block: "nearest", inline: "nearest" }); }}
           onKeyDown={(event) => {
             const next = cleanClientTabForKey(id, event.key);
             if (!next) return;
@@ -58,7 +58,7 @@ export function CleanClientDetailTabs({ value, onChange }: { value: CleanClientT
             onChange(next);
             event.currentTarget.parentElement?.querySelector<HTMLButtonElement>(`#clean-client-tab-${next}`)?.focus();
           }}
-        ><span aria-hidden="true">{(() => { const Icon = tabIcons[id]; return <Icon size={18} />; })()}</span>{label}</button>
+        ><span aria-hidden="true">{(() => { const Icon = tabIcons[id]; return <Icon size={18} />; })()}</span><span className="client-tab-long">{id === "props" ? objectsLabel : label}</span><span aria-hidden="true" className="client-tab-short">{id === "chat" ? "Чаты" : label}</span></button>
       ))}
     </div>
   );

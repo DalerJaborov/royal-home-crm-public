@@ -4,7 +4,7 @@
  * и гарнитуру. Зачем это нужно и почему именно генератором — в шапке скрипта.
  * Пересобрать: npm run gen:typeset. Проверить: npm run audit:typeset.
  *
- * Правил: 822 (размер поднят у 810, гарнитура сведена у 53).
+ * Правил: 828 (размер поднят у 816, гарнитура сведена у 53).
  * Ничего мельче 13px не остаётся, "Manrope" строкой не остаётся нигде.
  */
 .rh2 .mh .ai-hero-lbl { font-size: 15px; }
@@ -672,6 +672,8 @@ html[data-mobile-ux][data-theme^="royal-home-2026-"] .rh2 .mh .row.callrow .s { 
 .rh2 .wiz .wfoot .next { font-size: 16px; }
 .rh2 .wiz .panel h4 { font-size: 16px; }
 .rh2 .wiz .pick2 b { font-size: 16px; }
+.rh2 .client-property-line span > span { font-size: 15px; }
+.rh2 .client-card-meta { font-size: 15px; }
 .sh-rail-name { font-size: 16px; }
 .sh-rail-slogan { font-size: 15px; }
 .sh-nav-it { font-size: 16px; }
@@ -739,6 +741,10 @@ html[data-theme^="royal-home-2026-"] .rh2 .fc-line > summary u { font-size: 15px
 }
 @media(max-width:819px) {
   html[data-shell="clean"] .clean-record-tabs button { font-size: 16px; }
+  .rh2 .client-property-workspace > .sec-h h2 { font-size: 22px; }
+  .rh2 .clean-client-header .cd-name-row h1 { font-size: 24px; }
+  .rh2 .scr.clean-client-detail .cd-actbar .cd-act { font-size: 15px; }
+  .rh2 .clean-client-sections .clean-record-tabs button { font-size: 15px; }
 }
 @media (min-width: 820px) {
   .clean-shell [data-property-row] .pstat :is(b, small) { font-size: 15px; }

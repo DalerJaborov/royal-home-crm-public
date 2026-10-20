@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **638**. Развилок в самих путях: **2278**; вместе с задачами по расписанию и фоновыми заданиями — **3505**. Модулей: **72**.
+Путей: **639**. Развилок в самих путях: **2284**; вместе с задачами по расписанию и фоновыми заданиями — **3511**. Модулей: **72**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -3380,6 +3380,42 @@
 - res.status(204).send();
   · ответ 204
 
+### GET /api/v1/clients/:id/property-activity
+
+`apps/api/src/routes/clients/propertyActivity.ts` · на входе: общий предел частоты запросов, idempotencyGuard, вход выполнен
+
+- const query = clientPropertyActivityQuerySchema.safeParse(req.query);
+  · проверяет данные схемой clientPropertyActivityQuerySchema
+- если !id.success || !query.success
+  - return res.status(400).json({ error: "Неверные параметры списка объектов" });
+    · ответ 400 — «Неверные параметры списка объектов»
+- const client = await prisma.client.findUnique({ where: { id: id.data }, select: { assignedAgentId: true, last…
+  · читает в базе: client
+- если !client || client.deletedAt
+  - return res.status(404).json({ error: "Клиент не найден" });
+    · ответ 404 — «Клиент не найден»
+- const ownAgentId = scopeToOwnAgent(req);
+  · зовёт scopeToOwnAgent()
+- если !canAccessAssignedAgent(req, client.assignedAgentId) && client.lastAgentId !== ownAgentId
+  - const hasDeal = ownAgentId && await prisma.deal.count({ where: { clientId: id.data, agentId: ownAgentId } });
+    · считает в базе: deal
+  - если !hasDeal
+    - return res.status(403).json({ error: "Недостаточно прав" });
+      · ответ 403 — «Недостаточно прав»
+- если ownAgentId === client.assignedAgentId && !client.acceptedAt
+  - return res.status(403).json({ error: "Сначала примите лид" });
+    · ответ 403 — «Сначала примите лид»
+- если section === "sent"
+  - const [rows, count] = await Promise.all([ prisma.propertyExposure.findMany({ where, orderBy: [{ sentAt: "desc…
+    · читает в базе: propertyExposure
+    · считает в базе: propertyExposure
+- иначе
+  - const [rows, count] = await Promise.all([ prisma.interaction.findMany({ where, orderBy: [{ createdAt: "desc" …
+    · читает в базе: interaction
+    · считает в базе: interaction
+- res.json({ items, total, page, pageSize } satisfies ClientPropertyActivity);
+  · ответ 200
+
 ### GET /api/v1/clients/:id/property-count-dispute
 
 `apps/api/src/routes/clients/propertyCountDisputes.ts` · на входе: общий предел частоты запросов, idempotencyGuard, вход выполнен
@@ -3980,6 +4016,10 @@
   · зовёт loadSellerPropertyAddress()
 - const presentedClient = presentClient( responseClient, can(req, "clients.viewPhone") && !gateUntilAccepted, c…
   · зовёт presentClient()
+- const activity = gateUntilAccepted ? { propertyActivitySummary: null, nextStep: null } : await loadClientCard…
+  · зовёт loadClientCardActivity()
+- const payload = { ...presentedClient, ...activity, nextStep: activity.nextStep ? { ...activity.nextStep, next…
+  · зовёт phoneSafeText()
 - res.json(transferAccess ? { ...payload, access: transferAccess } : payload);
   · ответ 200
 

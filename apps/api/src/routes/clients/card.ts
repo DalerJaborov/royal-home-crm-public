@@ -55,6 +55,8 @@ import { followSellerPhoneChange } from "../../lib/propertyOwnerRelink.js";
 import { listDealDocumentFileNames } from "../../lib/dealDocumentsDb.js";
 import { removeClientAvatarFile } from "../../lib/clientAvatar.js";
 import { deleteDealDocumentFile } from "../../lib/dealDocumentFiles.js";
+import { loadClientCardActivity } from "../../lib/clientCardActivity.js";
+import { phoneSafeText } from "../../lib/clientPhone.js";
 
 export const cardRouter = Router();
 
@@ -519,8 +521,13 @@ cardRouter.get("/:id", requireAuth, async (req, res) => {
     can(req, "clients.viewPhone") && !gateUntilAccepted,
     can(req, "clients.viewOrigin")
   );
+  const activity = gateUntilAccepted ? { propertyActivitySummary: null, nextStep: null } : await loadClientCardActivity(client.id);
   const payload = {
     ...presentedClient,
+    ...activity,
+    nextStep: activity.nextStep ? { ...activity.nextStep,
+      nextAction: phoneSafeText(activity.nextStep.nextAction, can(req, "clients.viewPhone")),
+    } : null,
     // Из УЖЕ показанной карточки, а не из сырой: иначе «Входящий +992…» и источник
     // клиента уходили в displayName мимо clients.viewPhone/viewOrigin (ACCESS-01).
     displayName: clientDisplayName(presentedClient, { propertyAddress: sellerPropertyAddress }),

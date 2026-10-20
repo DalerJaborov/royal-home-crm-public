@@ -1,8 +1,8 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 638,
-  "forks": 3505,
+  "endpoints": 639,
+  "forks": 3511,
   "mounts": 72,
   "cron": 107,
   "jobs": 30,
@@ -14527,6 +14527,162 @@
   },
   {
    "method": "GET",
+   "path": "/:id/property-activity",
+   "mount": "/api/v1/clients",
+   "full": "/api/v1/clients/:id/property-activity",
+   "file": "apps/api/src/routes/clients/propertyActivity.ts",
+   "router": "propertyActivityRouter",
+   "top": "apps/api/src/routes/clients/index.ts::clientsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const query = clientPropertyActivityQuerySchema.safeParse(req.query);",
+     "a": [
+      "проверяет данные схемой clientPropertyActivityQuerySchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!id.success || !query.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Неверные параметры списка объектов\" });",
+       "a": [
+        "ответ 400 — «Неверные параметры списка объектов»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const client = await prisma.client.findUnique({ where: { id: id.data }, select: { assignedAgentId: true, last…",
+     "a": [
+      "читает в базе: client"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!client || client.deletedAt",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Клиент не найден\" });",
+       "a": [
+        "ответ 404 — «Клиент не найден»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const ownAgentId = scopeToOwnAgent(req);",
+     "a": [
+      "зовёт scopeToOwnAgent()"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!canAccessAssignedAgent(req, client.assignedAgentId) && client.lastAgentId !== ownAgentId",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const hasDeal = ownAgentId && await prisma.deal.count({ where: { clientId: id.data, agentId: ownAgentId } });",
+       "a": [
+        "считает в базе: deal"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!hasDeal",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(403).json({ error: \"Недостаточно прав\" });",
+         "a": [
+          "ответ 403 — «Недостаточно прав»"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "ownAgentId === client.assignedAgentId && !client.acceptedAt",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Сначала примите лид\" });",
+       "a": [
+        "ответ 403 — «Сначала примите лид»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "section === \"sent\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const [rows, count] = await Promise.all([ prisma.propertyExposure.findMany({ where, orderBy: [{ sentAt: \"desc…",
+       "a": [
+        "читает в базе: propertyExposure",
+        "считает в базе: propertyExposure"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "else",
+     "t": "иначе",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const [rows, count] = await Promise.all([ prisma.interaction.findMany({ where, orderBy: [{ createdAt: \"desc\" …",
+       "a": [
+        "читает в базе: interaction",
+        "считает в базе: interaction"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.json({ items, total, page, pageSize } satisfies ClientPropertyActivity);",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
    "path": "/:id/property-count-dispute",
    "mount": "/api/v1/clients",
    "full": "/api/v1/clients/:id/property-count-dispute",
@@ -17122,6 +17278,22 @@
      "t": "const presentedClient = presentClient( responseClient, can(req, \"clients.viewPhone\") && !gateUntilAccepted, c…",
      "a": [
       "зовёт presentClient()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const activity = gateUntilAccepted ? { propertyActivitySummary: null, nextStep: null } : await loadClientCard…",
+     "a": [
+      "зовёт loadClientCardActivity()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const payload = { ...presentedClient, ...activity, nextStep: activity.nextStep ? { ...activity.nextStep, next…",
+     "a": [
+      "зовёт phoneSafeText()"
      ],
      "c": []
     },

@@ -869,7 +869,7 @@ export function useSendTarget(clientId: string | undefined, conversationId: stri
  * тип/комнаты), и SQL-фильтр не отсёк ничего: список ниже — топ-15 любых
  * AVAILABLE объектов, а не подбор под клиента (пачка 10, 11.09.2026, п.5).
  */
-export function useClientMatch(clientId: string | undefined) {
+export function useClientMatch(clientId: string | undefined, enabled = true) {
   return useQuery({
     queryKey: ["client-match", clientId],
     // total — размер всего множества подходящих объектов (не только топ-N в
@@ -877,7 +877,7 @@ export function useClientMatch(clientId: string | undefined) {
     // теперь тоже включены в подбор (routes/clients/matching.ts).
     queryFn: () =>
       api<{ unfiltered: boolean; properties: Property[]; total: number }>(`/clients/${clientId}/match`),
-    enabled: !!clientId,
+    enabled: !!clientId && enabled,
   });
 }
 
