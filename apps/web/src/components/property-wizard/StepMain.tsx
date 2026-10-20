@@ -28,6 +28,7 @@ import {
 import { DETAIL_NOT_SET, DOCUMENT_PRESETS, needsLandArea, needsRooms, valuesForTypeChange, type WizardValues } from "./types";
 import { detailFieldLabel, detailOptionLabel } from "./detailCopy";
 import { normalizeWizardNumber, type WizardNumberKind } from "./numericInput";
+import { WIZARD_DETAIL_ICONS, WIZARD_FIELD_ICONS, FileText, Wrench } from "./wizardIcons";
 
 const TYPE_ICONS = { APARTMENT: Building2, HOUSE: House, COMMERCIAL: Store, LAND: LandPlot };
 
@@ -85,7 +86,7 @@ export function StepMain({
     <>
       <p className="wizard-desktop-help">Поля со звёздочкой обязательны. Остальное можно заполнить позже.</p>
       <section className="blk wizard-type-group">
-        <h3 className="wizard-desktop-heading">Вид объекта</h3>
+        <h3 className="wizard-desktop-heading">Что добавляем?</h3>
         <Segs<PropertyType>
           label="Вид объекта"
           value={values.type}
@@ -177,7 +178,7 @@ export function StepMain({
           PropertyFormModal.tsx. */}
       <section className="blk wizard-documents-group">
         <div className="f">
-          <label>Документы (только для сотрудников)</label>
+          <label><FileText className="wizard-question-icon" size={28} strokeWidth={1.7} aria-hidden="true" />Документы (только для сотрудников)</label>
         </div>
         <Segs<(typeof DOCUMENT_PRESETS)[number] | "" | "Другое">
           label="Документы"
@@ -210,7 +211,7 @@ export function StepMain({
   );
 }
 
-/** The same stored value and clear behavior serve both presentations. */
+/** Both devices use visible choices. Desktop adds larger labels and a clear action. */
 function DetailField({ detailKey, value, onChange }: {
   detailKey: PropertyDetailKey;
   value: string;
@@ -219,15 +220,10 @@ function DetailField({ detailKey, value, onChange }: {
   const id = useId();
   const options: readonly string[] = PROPERTY_DETAIL_OPTIONS[detailKey];
   const label = detailFieldLabel(detailKey);
-  const short = options.length <= 3;
+  const Icon = WIZARD_DETAIL_ICONS[detailKey];
   return <section className="blk wizard-detail-field">
-    <div className="f"><label htmlFor={short ? undefined : id}>{label}</label>{short && <button className="wizard-detail-clear wizard-desktop-control" type="button" onClick={() => onChange(DETAIL_NOT_SET)} disabled={!options.includes(value)} aria-label={`Очистить: ${label}`}>Очистить</button>}</div>
-    {!short && <select className="wizard-desktop-control wizard-detail-select" data-detail-key={detailKey} id={id} value={options.includes(value) ? value : DETAIL_NOT_SET}
-      onChange={(event) => onChange(event.target.value)}>
-      <option value={DETAIL_NOT_SET}>Пока не знаю</option>
-      {options.map((option) => <option key={option} value={option}>{detailOptionLabel(detailKey, option)}</option>)}
-    </select>}
-    {short && <div className="wizard-desktop-control" id={id}><Segs label={label} value={value} options={options.map((option) => ({ value: option, label: detailOptionLabel(detailKey, option) }))} onChange={(selected, toggle) => onChange(selected, toggle)} /></div>}
+    <div className="f"><label><Icon className="wizard-question-icon" size={28} strokeWidth={1.7} aria-hidden="true" />{label}</label>{options.includes(value) && <button className="wizard-detail-clear wizard-desktop-control" type="button" onClick={() => onChange(DETAIL_NOT_SET)} aria-label={`Очистить: ${label}`}>Очистить</button>}</div>
+    <div className="wizard-desktop-control" id={id}><Segs label={label} value={value} options={options.map((option) => ({ value: option, label: detailOptionLabel(detailKey, option) }))} onChange={(selected, toggle) => onChange(selected, toggle)} /></div>
     {detailKey === "balcony" && <p className="wizard-field-help wizard-desktop-control">Лоджия — балкон, встроенный между стенами дома.</p>}
     <div className="wizard-mobile-control">
       <Segs<string> label={PROPERTY_DETAIL_LABELS[detailKey]} value={value} options={options.map((option) => ({ value: option, label: option }))}
@@ -273,9 +269,10 @@ function Field({
   onChange: (value: string) => void;
 }) {
   const id = useId();
+  const Icon = fieldKey && fieldKey in WIZARD_FIELD_ICONS ? WIZARD_FIELD_ICONS[fieldKey as keyof typeof WIZARD_FIELD_ICONS] : null;
   return (
     <div className={className ? `f ${className}` : "f"}>
-      <label htmlFor={id}>{label}{required && <span className="wizard-required-mark" aria-hidden="true"> *</span>}</label>
+      <label htmlFor={id}>{Icon && <Icon className="wizard-field-icon" size={22} strokeWidth={1.7} aria-hidden="true" />}{label}{required && <span className="wizard-required-mark" aria-hidden="true"> *</span>}</label>
       <input
         id={id}
         className={text ? "txt" : undefined}
@@ -323,7 +320,7 @@ function PropertyFinishSegs({
     <div className="wizard-finish-group">
       {hasMarket && (
         <section className="blk">
-        <span className="wizard-desktop-field-label">Рынок</span>
+        <span className="wizard-desktop-field-label"><Building2 className="wizard-question-icon" size={28} strokeWidth={1.7} aria-hidden="true" />Рынок</span>
         <Segs<PropertyMarketSide | "">
           label="Рынок"
           value={side ?? ""}
@@ -347,7 +344,7 @@ function PropertyFinishSegs({
       {side === "NEW" ? (
         <section className="blk">
           <div className="f">
-            <label>Стадия и отделка</label>
+            <label><Building2 className="wizard-question-icon" size={28} strokeWidth={1.7} aria-hidden="true" />Стадия и отделка</label>
           </div>
           <Segs<NewBuildPhase | "">
             label="Стадия и отделка"
@@ -359,7 +356,7 @@ function PropertyFinishSegs({
       ) : (
         <section className="blk">
           <div className="f">
-            <label>Состояние</label>
+            <label><Wrench className="wizard-question-icon" size={28} strokeWidth={1.7} aria-hidden="true" />Состояние</label>
           </div>
           <Segs<PropertyCondition>
             label="Состояние"
