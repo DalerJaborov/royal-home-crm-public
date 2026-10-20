@@ -6,8 +6,16 @@ import type { PropertyDraftView } from "@royal-home/shared";
 import { useDistricts } from "../../hooks/useDistricts";
 import { useCreateProperty } from "../../hooks/useProperties";
 import { PROPERTY_DRAFT_QUERY_KEY } from "../../hooks/usePropertyDraft";
-import { clearFormDraft, loadFormDraft } from "../../hooks/useFormDraft";
-import { useWizardLocalDraft } from "./useWizardLocalDraft";
+import { clearFormDraft, loadFormDraft, loadFormDraftSnapshot } from "../../hooks/useFormDraft";
+import { useWizardLocalDraft, WIZARD_LOCAL_DRAFT_TTL_MS } from "./useWizardLocalDraft";
+import { useServerAutosave } from "./useServerAutosave";
+import type { WizardDraftStatus } from "./draftAutosave";
+import { recoverDraftValues } from "./recoverDraftValues";
+import {
+  adoptPropertyDraftSession, ensurePropertyDraftSession, getPropertyDraftSession,
+  invalidatePropertyDraftSession, loadPropertyDraftSession,
+  isPropertyDraftSessionCurrent, propertyDraftSessionToken, type PropertyDraftSession,
+} from "../../lib/propertyDraftSession";
 import { useDraftMedia, useDraftPhotoLocation, summarizeDraftMedia } from "../../hooks/useDraftMedia";
 import { snapNote, fetchHouseSnap } from "../../lib/houseSnap";
 import { useAuthStore } from "../../store/auth";
@@ -35,6 +43,8 @@ import { SaveProgressOverlay } from "./SaveProgressOverlay";
 import { UploadProblemSheet } from "./UploadProblemSheet";
 import { draftMediaConflict, draftMediaConflictTitle } from "./draftMediaConflict";
 import { WizardShell } from "./WizardShell";
+import { wizardProgress } from "./wizardProgress";
+import { focusWizardError } from "./focusWizardError";
 import { DraftGate, type OfferedDraft } from "./DraftGate";
 import { StepMedia } from "./StepMedia";
 import { StepMain } from "./StepMain";
@@ -46,6 +56,7 @@ import {
   buildCreateBody,
   EMPTY_WIZARD_VALUES,
   fillEmptyFromDraftValues,
+  firstIncompleteStep,
   isWizardEmpty,
   stepIndexOf,
   validateAll,
@@ -127,6 +138,7 @@ export function PropertyWizard({
   // получает уже созданный объект, а не дубль (hooks/useRetryKey.ts).
   const createKey = useRetryKey();
   const create = useCreateProperty(createKey);
+  const pendingCreateBody = useRef<Record<string, unknown> | null>(null);
   // Руководитель обязан указать интейкера явно; рядовому агенту сервер
   // подставляет его самого (routes/properties/crud.ts).
   const requireIntakeAgent = can("properties.editForeign");
@@ -135,6 +147,11 @@ export function PropertyWizard({
     ...EMPTY_WIZARD_VALUES,
     intakeAgentId: initialIntakeAgentId ?? "",
   }));
+  const sellerSelectionRef = useRef(values.sellerClientId);
+  sellerSelectionRef.current = values.sellerClientId;
+  const sellerSelectionGeneration = useRef(0);
+  const sellerImportLocked = useRef(false);
+  const [sellerImportPending, setSellerImportPending] = useState(false);
   const [step, setStep] = useState(0);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -193,7 +210,8 @@ export function PropertyWizard({
   // Строка «Черновик сохранён» в шапке (артефакт 15.09.2026) — только когда
   // автосохранение реально только что отработало, а не заранее нарисованная
   // на весь мастер: до первого успешного PUT её быть не должно.
-  const [draftSaved, setDraftSaved] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [clientDraftConflict, setClientDraftConflict] = useState<{ clientId: string; draft: PropertyDraftView } | null>(null);
 
   // Вход `?fromClient=` (21.09.2026) обрабатывается РОВНО ОДИН РАЗ за открытие
   // мастера — тем же приёмом, что и useServerDraft.done ниже: StrictMode
@@ -214,6 +232,7 @@ export function PropertyWizard({
   const [mediaConflict, setMediaConflict] = useState<{
     clientId: string;
     mode: "start" | "enrich";
+    replaceValues?: boolean;
     photoCount: number;
     videoCount: number;
   } | null>(null);
@@ -257,18 +276,25 @@ export function PropertyWizard({
       }
       if (draft) {
         draftIdRef.current = draft.id;
+        const localSnapshot = draftKey ? loadFormDraftSnapshot<WizardValues>(draftKey, WIZARD_LOCAL_DRAFT_TTL_MS) : null;
+        const recovered = recoverDraftValues(draft, localSnapshot);
+        const localConflict = recovered !== draft && !!localSnapshot?.context?.dirty &&
+          (localSnapshot.context.draftId !== draft.id || (localSnapshot.context.baseRevision ?? -1) < draft.revision);
+        const notice = recovered !== draft ? localConflict
+          ? "На устройстве остались несохранённые поля, а версия сервера изменилась. Ниже показана местная копия. «Продолжить» восстановит её поверх версии сервера."
+          : "Восстановлены более свежие изменения, сохранённые на этом устройстве." : undefined;
         // «Продолжить» уже нажали на баннере списка объектов, или в очереди
         // уже едут/лежат плитки прошлого захода (мастер закрывали, не
         // дождавшись отдачи) — решение известно, спрашивать не за чем.
-        if (autoContinueDraft || hasLiveDraftMedia()) {
-          applyOffer({ source: "server", draft });
+        if ((autoContinueDraft || hasLiveDraftMedia()) && !localConflict) {
+          applyOffer({ source: "server", draft: recovered });
           return;
         }
-        setOffered({ source: "server", draft });
+        setOffered({ source: "server", draft: recovered, notice });
         return;
       }
       // Сервер черновика не знает — смотрим запасную копию в браузере.
-      const local = draftKey ? loadFormDraft<WizardValues>(draftKey) : null;
+      const local = draftKey ? loadFormDraft<WizardValues>(draftKey, WIZARD_LOCAL_DRAFT_TTL_MS) : null;
       if (local && !isWizardEmpty(local)) {
         if (autoContinueDraft) {
           applyOffer({ source: "local", values: local });
@@ -290,7 +316,7 @@ export function PropertyWizard({
         return;
       }
       // Сервер не ответил — работаем как раньше, по запасной копии.
-      const local = draftKey ? loadFormDraft<WizardValues>(draftKey) : null;
+      const local = draftKey ? loadFormDraft<WizardValues>(draftKey, WIZARD_LOCAL_DRAFT_TTL_MS) : null;
       if (local && !isWizardEmpty(local)) {
         if (autoContinueDraft) {
           applyOffer({ source: "local", values: local });
@@ -303,12 +329,16 @@ export function PropertyWizard({
 
   // Запасная копия пишется только после армирования: до ответа сервера значения
   // стартовые, и без этого копия прошлого захода стиралась раньше, чем её читали.
-  useWizardLocalDraft(draftKey, autosaveArmed, values);
   // created: объект уже создан — черновик больше не пишем вовсе. Иначе
   // досылка при уходе со страницы заводила черновик заново из данных только
   // что созданного объекта, и баннер предлагал «продолжить» — путь к дублю.
   const [created, setCreated] = useState(false);
-  useServerAutosave(autosaveArmed && !saving && !created, values, step, draftIdRef, setDraftSaved);
+  const localPersisted = useWizardLocalDraft(draftKey, draftChecked && !offered && !clientDraftConflict && !mediaConflict && !created, values, getPropertyDraftSession()?.draft);
+  const autosave = useServerAutosave(autosaveArmed && !saving && !created, values, step, draftIdRef);
+  const visibleDraftStatus: WizardDraftStatus | undefined = isWizardEmpty(values) && !draftIdRef.current ? undefined
+    : autosave.status.state === "local" && localPersisted !== true
+      ? localPersisted === false ? { state: "error", message: "Не удалось сохранить изменения на этом устройстве. Проверьте связь и сохраните черновик на сервере" } : undefined
+      : autosave.status;
 
   // Смена шага — как смена экрана: страница обязана начаться сверху. Без этого
   // агент после длинного первого шага попадал на второй, прокрученный к его
@@ -337,6 +367,16 @@ export function PropertyWizard({
     setValues((v) => ({ ...v, ...p }));
     setSaveError(null);
   }, []);
+  const patchSeller = useCallback((p: Partial<WizardValues>) => {
+    // A stale event handler can run before the disabled fieldset is committed.
+    // Lock synchronously, rather than relying only on React's next render.
+    if (sellerImportLocked.current) return;
+    if (p.sellerClientId !== undefined && p.sellerClientId !== sellerSelectionRef.current) {
+      sellerSelectionGeneration.current++;
+      sellerSelectionRef.current = p.sellerClientId;
+    }
+    patch(p);
+  }, [patch]);
 
   /**
    * ТОЧКА С ДОЛГОГО ТАПА НА КАРТЕ ОБЪЕКТОВ (перенос макета 14.09.2026).
@@ -447,9 +487,10 @@ export function PropertyWizard({
   }, [values.offSite, values.lat, values.lng, patch]);
 
   function goNext() {
+    if (sellerImportLocked.current) return;
     const stepErrors = validateStep(WIZARD_STEPS[step].key, values, { requireIntakeAgent });
     setErrors(stepErrors);
-    if (Object.keys(stepErrors).length > 0) return;
+    if (Object.keys(stepErrors).length > 0) { focusWizardError(); return; }
     if (step < WIZARD_STEPS.length - 1) {
       setStep(step + 1);
       return;
@@ -465,10 +506,15 @@ export function PropertyWizard({
    * только явным нажатием. Решение — чистая функция `decideSave`.
    */
   async function save(opts: { acceptedLoss?: boolean } = {}) {
+    if (sellerImportLocked.current) return;
     if (savingRef.current) return;
     const all = validateAll(values, { requireIntakeAgent });
     setErrors(all);
-    if (Object.keys(all).length > 0) return;
+    if (Object.keys(all).length > 0) {
+      setStep(firstIncompleteStep(values, { requireIntakeAgent }));
+      focusWizardError();
+      return;
+    }
 
     savingRef.current = true;
     try {
@@ -509,16 +555,35 @@ export function PropertyWizard({
       return;
     }
 
+    try {
+      // Finish the ordered field writer before transferring this exact draft.
+      if (!pendingCreateBody.current) await autosave.flush();
+    } catch (error) {
+      setFinishing(null);
+      setSaveError(error instanceof Error ? error.message : "Не удалось сохранить черновик. Повторите попытку");
+      return;
+    }
+    if (!mountedRef.current) return;
     setSaving(true);
     if (showedProgress) setFinishing({ phase: "creating" });
     try {
-      const body = buildCreateBody(values);
-      if (draftIdRef.current) body.draftId = draftIdRef.current;
+      const body = pendingCreateBody.current ?? buildCreateBody(values);
+      if (!pendingCreateBody.current) {
+        const session = getPropertyDraftSession();
+        if (session?.draft) {
+          body.draftId = session.draft.id;
+          body.draftRevision = session.draft.revision;
+        }
+      }
       // Порядок фото при создании из черновика решает сервер (order в
       // PropertyDraftMedia, см. draftAttach.ts) — без этого ключа обложкой
       // навсегда остался бы первый ЗАГРУЖЕННЫЙ снимок, а не выбранный агентом.
-      if (coverUploadKey) body.coverUploadKey = coverUploadKey;
+      if (!pendingCreateBody.current && coverUploadKey) body.coverUploadKey = coverUploadKey;
+      pendingCreateBody.current = body;
+      const completedDraftId = typeof body.draftId === "string" ? body.draftId : null;
       const saved = await create.mutateAsync(body);
+      invalidatePropertyDraftSession();
+      autosave.cancel();
       setCreated(true);
 
       // Сервер сообщает, сколько файлов не дошло до карточки (ответ POST
@@ -536,7 +601,7 @@ export function PropertyWizard({
       // до истечения staleTime и показывал бы карточку, которой больше нет.
       qc.invalidateQueries({ queryKey: PROPERTY_DRAFT_QUERY_KEY });
       if (!mountedRef.current) {
-        clearDraftMedia();
+        clearDraftMedia({ draftId: completedDraftId });
         return;
       }
       if (showedProgress) {
@@ -545,9 +610,13 @@ export function PropertyWizard({
         setFinishing({ phase: "done", shortId: saved.shortId });
         return;
       }
-      clearDraftMedia();
+      clearDraftMedia({ draftId: completedDraftId });
       navigate(`/properties/${saved.shortId}`);
     } catch (err) {
+      // A lost POST response may mean the draft was already transferred. Retry
+      // the frozen request/key before attempting any new draft write.
+      const stillRunning = err instanceof ApiError && err.data && typeof err.data === "object" && "inProgress" in err.data && err.data.inProgress === true;
+      if (err instanceof ApiError && err.status >= 400 && err.status < 500 && !stillRunning) pendingCreateBody.current = null;
       setFinishing(null);
       // 409 от DuplicatePropertyError несёт shortId уже существующей карточки —
       // настоящее совпадение по адресу+площади, а не догадка. Показываем его
@@ -591,7 +660,7 @@ export function PropertyWizard({
     }
     setValues(withPendingPin({ ...EMPTY_WIZARD_VALUES, ...(o.draft.values as Partial<WizardValues>) }));
     setStep(targetStep ?? Math.min(o.draft.step, WIZARD_STEPS.length - 1));
-    hydrateDraftMedia(o.draft.media);
+    void hydrateDraftMedia(o.draft.media, o.draft.id);
   }
 
   /** Гейт (DraftGate.tsx) уже решил, на какой шаг вести — «Продолжить» на
@@ -608,29 +677,66 @@ export function PropertyWizard({
    * во всплывшем окне (владелец 21.09.2026: «начать новый — удаляет черновик
    * после подтверждения»).
    */
-  async function restartDraft() {
+  async function restartDraft(exit = false) {
+    if (sellerImportLocked.current) return;
     if (restartState.pending) return;
     setRestartState({ pending: true, error: null });
+    const wasArmed = autosaveArmed;
+    setAutosaveArmed(false);
+    autosave.cancel();
+    let discardedDraftId = draftIdRef.current;
     // Сначала DELETE, потом всё остальное (WEB-05): пока старый черновик жив,
     // автосохранение не включаем, иначе его PUT вернёт старый черновик вместе с
     // фото прежнего объекта. Отказ показывается в гейте, гейт остаётся для повтора.
     const ok = await runRestartDraft(offered?.source, {
       // Файлы старого черновика удаляет сервер — иначе они остались бы на диске
       // до истечения срока, а агент считает, что начал с чистого листа.
-      deleteServerDraft: () => api("/properties/drafts/current", { method: "DELETE" }),
+      deleteServerDraft: async () => {
+        // A failed initial GET does not prove that the server has no draft.
+        const session = getPropertyDraftSession() ?? await loadPropertyDraftSession();
+        if (!session.draft) { invalidatePropertyDraftSession(session); return; }
+        discardedDraftId = session.draft.id;
+        const deleted = await api<PropertyDraftSession>("/properties/drafts/current", {
+          method: "DELETE", body: { draftId: session.draft.id, revision: session.draft.revision },
+        });
+        invalidatePropertyDraftSession(deleted);
+      },
       commit: () => {
         setOffered(null);
         if (draftKey) clearFormDraft(draftKey);
-        clearDraftMedia();
+        clearDraftMedia({ draftId: discardedDraftId });
         setDraftReminder(false);
         draftIdRef.current = null;
-        setAutosaveArmed(true);
+        setValues({ ...EMPTY_WIZARD_VALUES, intakeAgentId: initialIntakeAgentId ?? "" });
+        setStep(0);
+        setErrors({});
+        setAutosaveArmed(!exit);
+        if (exit) { setDraftChecked(false); onClose(); }
       },
       fail: (error) => setRestartState({ pending: false, error }),
     });
-    if (!ok) return;
+    if (!ok) { setAutosaveArmed(wasArmed); return; }
     setRestartState({ pending: false, error: null });
     qc.invalidateQueries({ queryKey: PROPERTY_DRAFT_QUERY_KEY });
+  }
+
+  async function retryDraftSave() {
+    if (autosave.status.state !== "error") { autosave.retry(); return; }
+    // Conflict recovery is explicit: never automatically replace another tab's
+    // newer version, and keep this device's backup until the user chooses.
+    try {
+      const session = await loadPropertyDraftSession();
+      autosave.cancel();
+      setAutosaveArmed(false);
+      if (session.draft) {
+        setOffered({ source: "server", draft: session.draft,
+          notice: "Черновик изменён на другом устройстве. Здесь показана версия сервера. Ваши изменения пока сохранены на этом устройстве; «Продолжить» откроет версию сервера." });
+      } else {
+        setSaveError("Этот черновик уже удалён или перенесён в объект. Удалите местный черновик, чтобы начать новый.");
+      }
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : "Не удалось проверить черновик");
+    }
   }
 
   /**
@@ -646,21 +752,26 @@ export function PropertyWizard({
    * руками, как обычно. setSaveError здесь нарочно не зовётся — это не отказ
    * СОХРАНИТЬ объект, а неудачная попытка его предзаполнить.
    */
-  async function startFromClient(clientId: string, media?: "replace" | "keep") {
+  async function startFromClient(clientId: string, media?: "replace" | "keep", mode?: "replace") {
     // Пока ответ на POST .../from-client/:id в пути, шагов не показываем — тот
     // же случай, что и `draftChecked` ниже: мастер был бы живым, агент успел бы
     // начать заполнять, а пришедший ответ затёр бы набранное через setValues.
     setDraftChecked(false);
+    const token = propertyDraftSessionToken();
     try {
+      await autosave.flush();
+      const session = await ensurePropertyDraftSession();
       const res = await api<{ draft: PropertyDraftView }>(`/properties/drafts/from-client/${clientId}`, {
         method: "POST",
-        ...(media ? { body: { media } } : {}),
+        body: { draftId: session.id, revision: session.revision, ...(media ? { media } : {}), ...(mode ? { mode } : {}) },
       });
+      if (!mountedRef.current || !isPropertyDraftSessionCurrent(token)) return;
+      adoptPropertyDraftSession({ draft: res.draft, revision: res.draft.revision });
       // Местные плитки чистим только ПОСЛЕ ответа (D14, 02.10.2026): до него
       // сервер мог спросить «Заменить?», и фото агента должны остаться на
       // экране. «Оставить» — плитки не трогаем, сервер вернул те же файлы.
       if (draftKey) clearFormDraft(draftKey);
-      if (media !== "keep") clearDraftMedia();
+      if (media !== "keep") clearDraftMedia({ draftId: session.id });
       // Автосохранение — тоже только после ответа: пока висит вопрос
       // «Заменить?», пустая форма не должна перезаписать черновик агента.
       setAutosaveArmed(true);
@@ -675,18 +786,30 @@ export function PropertyWizard({
       // (это и есть смысл входа из чата). Мастер из чата всегда открывается на
       // «Фото» — по макету это первый экран, где агенту есть что проверить.
       setStep(stepIndexOf("media"));
-      void hydrateDraftMedia(res.draft.media);
+      void hydrateDraftMedia(res.draft.media, res.draft.id);
       qc.invalidateQueries({ queryKey: PROPERTY_DRAFT_QUERY_KEY });
     } catch (err) {
-      const conflict = draftMediaConflict(err);
-      if (conflict) {
-        setMediaConflict({ clientId, mode: "start", ...conflict });
+      if (!mountedRef.current || !isPropertyDraftSessionCurrent(token)) return;
+      if (err instanceof ApiError && err.status === 409 && err.data && typeof err.data === "object" && "code" in err.data && err.data.code === "DRAFT_REPLACE_CONFIRM" && "draft" in err.data) {
+        const previous = err.data.draft as PropertyDraftView;
+        adoptPropertyDraftSession({ draft: previous, revision: previous.revision });
+        setClientDraftConflict({ clientId, draft: previous });
         return;
       }
-      setAutosaveArmed(true);
-      setValues({ ...EMPTY_WIZARD_VALUES, sellerClientId: clientId });
+      const conflict = draftMediaConflict(err);
+      if (conflict) {
+        setMediaConflict({ clientId, mode: "start", replaceValues: mode === "replace", ...conflict });
+        return;
+      }
+      const previous = getPropertyDraftSession()?.draft;
+      if (previous) setOffered({ source: "server", draft: recoverDraftValues(previous, draftKey ? loadFormDraftSnapshot<WizardValues>(draftKey, WIZARD_LOCAL_DRAFT_TTL_MS) : null) });
+      else {
+        setAutosaveArmed(true);
+        setValues((v) => isWizardEmpty(v) ? { ...v, sellerClientId: clientId } : v);
+      }
+      setSaveError(err instanceof Error ? err.message : "Не удалось загрузить данные продавца. Ваши поля сохранены");
     } finally {
-      setDraftChecked(true);
+      if (mountedRef.current && isPropertyDraftSessionCurrent(token)) setDraftChecked(true);
     }
   }
 
@@ -699,18 +822,36 @@ export function PropertyWizard({
    * lib/draftUploads.ts). Отказ — молча: агент просто заполняет сам дальше.
    */
   async function enrichFromExistingSeller(clientId: string, media?: "replace" | "keep") {
+    if (sellerImportLocked.current || sellerSelectionRef.current !== clientId) return;
+    sellerImportLocked.current = true;
+    setSellerImportPending(true);
+    const selectionGeneration = sellerSelectionGeneration.current;
+    const token = propertyDraftSessionToken();
+    const selectionCurrent = () => sellerSelectionRef.current === clientId && sellerSelectionGeneration.current === selectionGeneration;
+    const importCurrent = () => mountedRef.current && isPropertyDraftSessionCurrent(token) && selectionCurrent();
+    setAutosaveArmed(false);
     try {
+      await autosave.flush();
+      if (!importCurrent()) return;
+      const session = await ensurePropertyDraftSession();
+      if (!importCurrent()) return;
       const res = await api<{ draft: PropertyDraftView }>(`/properties/drafts/from-client/${clientId}`, {
         method: "POST",
-        ...(media ? { body: { media } } : {}),
+        body: { draftId: session.id, revision: session.revision, mode: "merge", ...(media ? { media } : {}) },
       });
+      if (!mountedRef.current || !isPropertyDraftSessionCurrent(token)) return;
+      // The server may already have written. Keep its revision even if an
+      // external lifecycle event invalidated the original selection.
+      adoptPropertyDraftSession({ draft: res.draft, revision: res.draft.revision });
+      if (!selectionCurrent()) return;
       draftIdRef.current = res.draft.id;
       setValues((v) => fillEmptyFromDraftValues(v, res.draft.values as Partial<WizardValues>));
       // «Заменить» — сервер удалил прежние файлы; местные плитки убираем, иначе
       // слияние по uploadKey оставило бы на экране то, чего уже нет.
-      if (media === "replace") clearDraftMedia();
-      void hydrateDraftMedia(res.draft.media);
+      if (media === "replace") clearDraftMedia({ draftId: session.id });
+      void hydrateDraftMedia(res.draft.media, res.draft.id);
     } catch (err) {
+      if (!importCurrent()) return;
       const conflict = draftMediaConflict(err);
       if (conflict) {
         setMediaConflict({ clientId, mode: "enrich", ...conflict });
@@ -718,25 +859,31 @@ export function PropertyWizard({
       }
       // Сеть/сервер не ответили — продавец уже выбран (onChange отработал
       // синхронно), агент просто дозаполняет карточку сам, как обычно.
+    } finally {
+      sellerImportLocked.current = false;
+      if (mountedRef.current) setSellerImportPending(false);
+      if (mountedRef.current && isPropertyDraftSessionCurrent(token)) setAutosaveArmed(true);
     }
   }
 
   const stepKey = WIZARD_STEPS[step].key;
-  const busy = saving || waitingUploads;
+  const busy = saving || waitingUploads || sellerImportPending;
+  const stepStates = wizardProgress(values, mediaSummary, errors, requireIntakeAgent);
 
   // Закрыть вкладку, пока идёт сохранение или не все файлы на сервере, — со
   // стандартным подтверждением браузера (lib/workGuard.ts). Объект создан —
   // защита снимается. Хук стоит ДО ранних return'ов ниже.
-  const guardActive = !created && (saving || waitingUploads || mediaSummary.pending > 0 || mediaSummary.failed > 0);
+  const guardActive = !created && (saving || waitingUploads || sellerImportPending || mediaSummary.pending > 0 || mediaSummary.failed > 0);
   useEffect(() => {
     if (!guardActive) return;
-    return registerWork({ id: "property-wizard", label: "Новый объект: файлы ещё не загружены", blocksUnload: true });
-  }, [guardActive]);
+    return registerWork({ id: "property-wizard", label: sellerImportPending ? "Получение данных продавца" : "Новый объект: файлы ещё не загружены", blocksUnload: true });
+  }, [guardActive, sellerImportPending]);
 
   /** «Готово» на финальном экране: плитки чистим и открываем созданный объект. */
   function finishAndOpen() {
     const shortId = finishing?.shortId;
-    clearDraftMedia();
+    const draftId = pendingCreateBody.current?.draftId;
+    clearDraftMedia({ draftId: typeof draftId === "string" ? draftId : null });
     if (shortId !== undefined) navigate(`/properties/${shortId}`);
   }
 
@@ -760,11 +907,22 @@ export function PropertyWizard({
   // ЕДИНСТВЕННЫЙ ВОПРОС ПРИ ВХОДЕ `?fromClient=` (см. startFromClient выше):
   // у агента уже лежит СВОЙ черновик с файлами. Тот же приём, что у DraftGate
   // ниже — блокирует всё дерево целиком, пока агент не ответил.
+  if (clientDraftConflict) {
+    const { clientId, draft } = clientDraftConflict;
+    return <ConfirmDialog
+      title="Заменить заполненный черновик?"
+      description="У вас уже есть незавершённый объект. Загрузка данных другого продавца заменит его поля."
+      confirmLabel="Заменить черновик"
+      cancelLabel="Оставить мой черновик"
+      onConfirm={() => { setClientDraftConflict(null); void startFromClient(clientId, undefined, "replace"); }}
+      onCancel={() => { setClientDraftConflict(null); applyOffer({ source: "server", draft }); }}
+    />;
+  }
   if (mediaConflict) {
     const answer = (media: "replace" | "keep") => {
-      const { clientId, mode } = mediaConflict;
+      const { clientId, mode, replaceValues } = mediaConflict;
       setMediaConflict(null);
-      if (mode === "start") void startFromClient(clientId, media);
+      if (mode === "start") void startFromClient(clientId, media, replaceValues ? "replace" : undefined);
       else void enrichFromExistingSeller(clientId, media);
     };
     return (
@@ -839,18 +997,44 @@ export function PropertyWizard({
   return (
     <WizardShell
       stepIndex={step}
-      onClose={onClose}
-      onBack={step > 0 ? () => setStep(step - 1) : null}
+      onClose={() => { if (!sellerImportLocked.current) onClose(); }}
+      onBack={step > 0 ? () => { if (!sellerImportLocked.current) setStep(step - 1); } : null}
       onNext={goNext}
       nextLabel={step === WIZARD_STEPS.length - 1 ? "Сохранить" : "Далее"}
       busy={busy}
-      busyLabel={waitingUploads ? "Дожидаюсь файлов…" : "Сохраняю…"}
+      busyLabel={sellerImportPending ? "Загружаю данные продавца…" : waitingUploads ? "Дожидаюсь файлов…" : "Сохраняю…"}
       offSite={values.offSite}
-      onOffSiteChange={(offSite) => patch({ offSite })}
-      draftSaved={draftSaved}
+      onOffSiteChange={(offSite) => { if (!sellerImportLocked.current) patch({ offSite }); }}
+      draftSaved={autosave.status.state === "server"}
+      draftStatus={visibleDraftStatus}
+      onRetryDraft={() => { if (!sellerImportLocked.current) void retryDraftSave(); }}
+      onDeleteDraft={() => { if (!sellerImportLocked.current) setDeleteConfirmOpen(true); }}
+      deleteDraftPending={restartState.pending}
+      deleteDraftError={restartState.error}
+      onGoToStep={(index: number) => {
+        if (sellerImportLocked.current || busy || index < 0 || index >= WIZARD_STEPS.length) return;
+        const currentErrors = validateStep(stepKey, values, { requireIntakeAgent });
+        setErrors(currentErrors);
+        setStep(index);
+      }}
+      stepStates={stepStates}
+      onSaveAndExit={() => {
+        if (sellerImportLocked.current) return;
+        void autosave.flush().then(onClose).catch((error: unknown) => {
+          setSaveError(error instanceof Error ? error.message : "Не удалось сохранить черновик");
+        });
+      }}
       closeDisabled={!canCloseWizard({ saving: busy, finishing: finishing !== null })}
       overlay={
-        finishing ? (
+        deleteConfirmOpen ? (
+          <ConfirmDialog
+            title="Удалить черновик?"
+            description="Поля черновика и его фото и видео будут удалены. Восстановить их будет нельзя."
+            confirmLabel="Удалить черновик"
+            onConfirm={() => { setDeleteConfirmOpen(false); void restartDraft(true); }}
+            onCancel={() => setDeleteConfirmOpen(false)}
+          />
+        ) : finishing ? (
           <SaveProgressOverlay items={media} phase={finishing.phase} onDone={finishAndOpen} />
         ) : uploadProblem ? (
           <UploadProblemSheet
@@ -877,13 +1061,19 @@ export function PropertyWizard({
       )}
 
       {stepKey === "seller" && (
+        <>
+        {sellerImportPending && <div className="quiet" role="status" data-testid="wizard-seller-import-pending">Загружаю данные продавца. После загрузки его можно сменить.</div>}
+        <fieldset disabled={sellerImportPending} aria-busy={sellerImportPending || undefined}
+          style={{ display: "flex", flexDirection: "column", gap: "inherit", padding: 0, margin: 0, border: 0, minWidth: 0 }}>
         <StepSeller
           values={values}
           errors={errors}
           requireIntakeAgent={requireIntakeAgent}
-          onChange={patch}
+          onChange={patchSeller}
           onSellerPicked={(clientId) => void enrichFromExistingSeller(clientId)}
         />
+        </fieldset>
+        </>
       )}
       {stepKey === "media" && (
         <StepMedia
@@ -934,6 +1124,7 @@ function useServerDraft({
   onFailed: () => void;
 }): void {
   const done = useRef(false);
+  const active = useRef(true);
   const onLoadedRef = useRef(onLoaded);
   onLoadedRef.current = onLoaded;
   const onFailedRef = useRef(onFailed);
@@ -954,121 +1145,21 @@ function useServerDraft({
    * надо, и отменять его незачем.
    */
   useEffect(() => {
-    if (!enabled || done.current) return;
+    active.current = true;
+    if (!enabled || done.current) return () => { active.current = false; };
     done.current = true;
-    api<{ draft: PropertyDraftView | null }>("/properties/drafts/current")
+    const token = propertyDraftSessionToken();
+    loadPropertyDraftSession()
       .then((res) => {
+        if (!active.current || !isPropertyDraftSessionCurrent(token)) return;
         const draft = res.draft;
         // Пустой черновик без файлов предлагать не за чем — он ничего не хранит.
         const worth = draft && (draft.media.length > 0 || Object.keys(draft.values ?? {}).length > 0);
         onLoadedRef.current(worth ? draft : null);
       })
-      .catch(() => onFailedRef.current());
-  }, [enabled]);
-}
-
-/** Автосохранение полей — с задержкой, чтобы не слать запрос на каждый символ.
- *  22.09.2026: было 2.5с (шторм 429 — общий лимитер считал вкладку из
- *  нескольких запросов подряд); 6с реже шлёт запрос, но само по себе
- *  увеличивает окно, где несохранённые правки живут только в памяти —
- *  поэтому смена шага и размонтирование ниже принудительно досылают то,
- *  что ещё не уехало, а не ждут оставшийся дебаунс. */
-const AUTOSAVE_DELAY_MS = 6_000;
-
-function useServerAutosave(
-  enabled: boolean,
-  values: WizardValues,
-  step: number,
-  draftIdRef: React.MutableRefObject<string | null>,
-  onSaved?: (saved: boolean) => void
-): void {
-  const latestRef = useRef({ values, step });
-  const dirtyRef = useRef(false);
-  const prevStepRef = useRef(step);
-  // Пока есть несохранённые поля, автосохранение стоит в реестре работы
-  // (lib/workGuard.ts): уход вкладки в фон/закрытие (hidden/pagehide) досылает
-  // их запросом с keepalive, а автообновление не перезагружает страницу
-  // посреди правки. blocksUnload нет — окно подтверждения здесь не нужно.
-  const unregisterRef = useRef<(() => void) | null>(null);
-
-  useEffect(() => {
-    latestRef.current = { values, step };
-  }, [values, step]);
-
-  const markClean = useCallback(() => {
-    dirtyRef.current = false;
-    unregisterRef.current?.();
-    unregisterRef.current = null;
-  }, []);
-
-  const flush = useCallback((keepalive = false) => {
-    if (!dirtyRef.current) return;
-    const { values: pendingValues, step: pendingStep } = latestRef.current;
-    if (isWizardEmpty(pendingValues)) return;
-    markClean();
-    void api<{ draft: PropertyDraftView }>("/properties/drafts/current", {
-      method: "PUT",
-      body: { values: toDraftValues(pendingValues), step: pendingStep },
-      ...(keepalive ? { keepalive: true } : {}),
-    })
-      .then((res) => {
-        draftIdRef.current = res.draft.id;
-        setDraftReminder(true);
-        onSaved?.(true);
-      })
-      // Молча: связь в подъездах рвётся постоянно, и жаловаться на каждую
-      // неудачную автозапись значило бы мешать работать. Запасная копия в
-      // localStorage при этом пишется своим путём и не зависит от сети.
-      // Строка «Черновик сохранён» просто не загорается — это и есть честно.
-      .catch(() => undefined);
-  }, [draftIdRef, onSaved, markClean]);
-
-  useEffect(() => {
-    if (!enabled) {
-      // Идёт сохранение объекта или он уже создан: недосланная правка черновика
-      // больше не нужна, и досылка при размонтировании не должна её отправить.
-      markClean();
-      return;
-    }
-    if (isWizardEmpty(values)) return;
-    // Новый ввод пошёл — предыдущая надпись «Черновик сохранён» относится уже
-    // не к текущему состоянию полей, гасим её до ответа сервера.
-    onSaved?.(false);
-    dirtyRef.current = true;
-    if (!unregisterRef.current) {
-      unregisterRef.current = registerWork({
-        id: "wizard-draft-autosave",
-        label: "Черновик объекта: поля ещё не сохранены",
-        blocksUnload: false,
-        flush: () => flush(true),
+      .catch(() => {
+        if (active.current && isPropertyDraftSessionCurrent(token)) onFailedRef.current();
       });
-    }
-
-    // Шаг сменился (агент нажал «Далее»/«Назад») — не ждём оставшийся
-    // дебаунс, шлём то, что накопилось, сразу: иначе уход со страницы за
-    // < 6с после последней правки терял бы эту правку молча.
-    if (prevStepRef.current !== step) {
-      prevStepRef.current = step;
-      flush();
-      return;
-    }
-    prevStepRef.current = step;
-
-    const timer = setTimeout(flush, AUTOSAVE_DELAY_MS);
-    return () => clearTimeout(timer);
-  }, [enabled, values, step, flush, onSaved, markClean]);
-
-  // Размонтирование мастера (закрыли модалку/ушли с экрана) с ещё не
-  // отправленной правкой — досылаем её, а не бросаем дебаунс-таймер.
-  useEffect(() => {
-    return () => {
-      flush();
-    };
-  }, [flush]);
-}
-
-/** Черновик хранит поля как есть (строками) — приведение к числам делает только
- *  buildCreateBody в момент отправки. Схема на сервере — propertyDraftSaveSchema. */
-function toDraftValues(v: WizardValues): Record<string, unknown> {
-  return { ...v };
+    return () => { active.current = false; };
+  }, [enabled]);
 }

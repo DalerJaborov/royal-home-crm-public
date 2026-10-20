@@ -113,7 +113,7 @@ describe("draft startup waits for authentication and keeps ownership", () => {
     Object.assign(auth.state, { hasSession: true, agent: { id: "A" }, accessToken: "test-token", sessionEpoch: 1 });
     const { resumeDraftUploadsOnStart } = await import("../draftUploadsResume");
     resumeDraftUploadsOnStart();
-    await vi.waitFor(() => expect(mocks.hydrate).toHaveBeenCalledExactlyOnceWith([]));
+    await vi.waitFor(() => expect(mocks.hydrate).toHaveBeenCalledExactlyOnceWith([], undefined));
     expect(mocks.reminder).toHaveBeenCalledWith(true);
     expect(mocks.files).toHaveBeenCalledWith("A");
   });

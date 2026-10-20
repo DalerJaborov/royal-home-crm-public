@@ -1,3 +1,5 @@
+import { useId, type ReactNode } from "react";
+import { Building2, House, LandPlot, Store } from "lucide-react";
 import {
   CURRENCIES,
   NEW_BUILD_PHASES,
@@ -16,6 +18,7 @@ import {
   type PropertyCondition,
   type PropertyMarketSide,
   type PropertyType,
+  type PropertyDetailKey,
   propertyDetailShown,
   propertyFieldShown,
   propertyHasCondition,
@@ -23,6 +26,11 @@ import {
   propertyTypeFields,
 } from "@royal-home/shared";
 import { DETAIL_NOT_SET, DOCUMENT_PRESETS, needsLandArea, needsRooms, valuesForTypeChange, type WizardValues } from "./types";
+import { detailFieldLabel, detailOptionLabel } from "./detailCopy";
+import { normalizeWizardNumber, type WizardNumberKind } from "./numericInput";
+import { WIZARD_DETAIL_ICONS, WIZARD_FIELD_ICONS, FileText, Wrench } from "./wizardIcons";
+
+const TYPE_ICONS = { APARTMENT: Building2, HOUSE: House, COMMERCIAL: Store, LAND: LandPlot };
 
 /**
  * ШАГ 2 — ГЛАВНОЕ. Переодет в облик артефакта владельца (15.09.2026):
@@ -67,29 +75,38 @@ export function StepMain({
   const rooms = needsRooms(values.type);
   const landArea = needsLandArea(values.type);
   const rules = propertyTypeFields(values.type);
+  const required = (key: "rooms" | "floor" | "totalFloors" | "windowCount") => !values.offSite && rules[key] === "required";
   const perUnit = calcPerUnit(values);
+  const detailKeys = PROPERTY_DETAIL_KEYS.filter((key) => propertyDetailShown(values.type, key));
+  const changeDetail = (key: PropertyDetailKey, selected: string, toggle = false) => onChange({
+    details: { ...values.details, [key]: toggle && values.details[key] === selected ? DETAIL_NOT_SET : selected },
+  });
 
   return (
     <>
-      <section className="blk">
+      <p className="wizard-desktop-help">Поля со звёздочкой обязательны. Остальное можно заполнить позже.</p>
+      <section className="blk wizard-type-group">
+        <h3 className="wizard-desktop-heading">Что добавляем?</h3>
         <Segs<PropertyType>
+          label="Вид объекта"
           value={values.type}
-          options={PROPERTY_TYPES.map((t) => ({ value: t, label: PROPERTY_TYPE_LABELS[t] }))}
+          options={PROPERTY_TYPES.map((t) => { const Icon = TYPE_ICONS[t]; return { value: t, label: PROPERTY_TYPE_LABELS[t], icon: <Icon className="wizard-type-icon" size={20} strokeWidth={1.7} aria-hidden="true" /> }; })}
           // Смена типа сразу очищает поля, которых у нового типа нет.
           onChange={(v) => onChange(valuesForTypeChange(values, v as PropertyType))}
         />
       </section>
 
-      <section className="blk">
-        <div className="grid2">
+      <section className="blk wizard-parameters-group">
+        <h3 className="wizard-desktop-heading">Параметры и цена</h3>
+        <div className="grid2 wizard-numeric-row" data-property-type={values.type}>
           {rooms && (
-            <Field label={rules.labels.rooms} value={values.rooms} error={errors.rooms} onChange={(v) => onChange({ rooms: v })} />
+            <Field fieldKey="rooms" label={rules.labels.rooms} value={values.rooms} required={required("rooms")} kind="integer" error={errors.rooms} onChange={(v) => onChange({ rooms: v })} />
           )}
           {/* У участка площадь — это сотки (поле ниже), м² сервер считает сам.
               Раньше здесь стояло «Участок, соток», а число уходило в поле м²:
               участок 6 соток выходил на сайт и в подпись как «6 м²». */}
           {values.type !== "LAND" && (
-            <Field label="Площадь, м²" value={values.areaSqm} error={errors.areaSqm} onChange={(v) => onChange({ areaSqm: v })} />
+            <Field fieldKey="areaSqm" className="wizard-area-field" label={values.type === "HOUSE" ? "Площадь дома, м²" : "Площадь, м²"} required value={values.areaSqm} error={errors.areaSqm} onChange={(v) => onChange({ areaSqm: v })} />
           )}
           {/* Сотки — отдельное поле, только у ДОМА и УЧАСТКА (владелец
               21.09.2026: «сотки» — отдельная цифра, как в договоре, м² строения
@@ -97,18 +114,24 @@ export function StepMain({
               его тоже не требует. */}
           {landArea && (
             <Field
-              label={values.type === "LAND" ? "Участок, соток" : "Сотки"}
+              className="wizard-area-field"
+              fieldKey="landAreaSotka"
+              label="Участок, соток"
+              required={values.type === "LAND"}
               value={values.landAreaSotka}
               error={errors.landAreaSotka}
               onChange={(v) => onChange({ landAreaSotka: v })}
             />
           )}
           {propertyFieldShown(values.type, "floor") && (
-            <Field label="Этаж" value={values.floor} error={errors.floor} onChange={(v) => onChange({ floor: v })} />
+            <Field fieldKey="floor" label="Этаж" kind="signedInteger" required={required("floor")} value={values.floor} error={errors.floor} onChange={(v) => onChange({ floor: v })} />
           )}
           {propertyFieldShown(values.type, "totalFloors") && (
             <Field
+              fieldKey="totalFloors"
               label={rules.labels.totalFloors}
+              required={required("totalFloors")}
+              kind="integer"
               value={values.totalFloors}
               error={errors.totalFloors}
               onChange={(v) => onChange({ totalFloors: v })}
@@ -116,7 +139,10 @@ export function StepMain({
           )}
           {propertyFieldShown(values.type, "windowCount") && (
             <Field
-              label="Окон"
+              fieldKey="windowCount"
+              label="Количество окон"
+              required={required("windowCount")}
+              kind="integer"
               value={values.windowCount}
               error={errors.windowCount}
               onChange={(v) => onChange({ windowCount: v })}
@@ -124,16 +150,22 @@ export function StepMain({
           )}
         </div>
 
-        <div style={{ height: 8 }} />
-        <Field label="Цена" value={values.price} error={errors.price} whole onChange={(v) => onChange({ price: v })} />
+        <div className="wizard-price-row">
+        <div className="wizard-mobile-spacer" style={{ height: 8 }} />
+        <Field fieldKey="price" label="Цена" required value={values.price} error={errors.price} kind="money" onChange={(v) => onChange({ price: v })} />
         {perUnit && <div className="calc">{perUnit}</div>}
 
-        <div style={{ height: 8 }} />
+        <div className="wizard-mobile-spacer" style={{ height: 8 }} />
+        <div className="wizard-price-currency">
+        <span className="wizard-desktop-field-label">Валюта</span>
         <Segs<Currency>
+          label="Валюта"
           value={values.currency}
           options={CURRENCIES.map((c) => ({ value: c, label: c === "TJS" ? "Сомони" : "Доллары" }))}
           onChange={(v) => onChange({ currency: v as Currency })}
         />
+        </div>
+        </div>
       </section>
 
       {/* У участка нет ни «новостройки», ни состояния ремонта. */}
@@ -144,11 +176,12 @@ export function StepMain({
       {/* Документы — только для сотрудников, чтобы знать, что говорить клиенту
           (владелец 15.09.2026). Пресеты и своя строка — дословно из
           PropertyFormModal.tsx. */}
-      <section className="blk">
+      <section className="blk wizard-documents-group">
         <div className="f">
-          <label>Документы (только для сотрудников)</label>
+          <label><FileText className="wizard-question-icon" size={28} strokeWidth={1.7} aria-hidden="true" />Документы (только для сотрудников)</label>
         </div>
         <Segs<(typeof DOCUMENT_PRESETS)[number] | "" | "Другое">
+          label="Документы"
           value={values.documentsPreset}
           options={[
             { value: "", label: "Не указано" },
@@ -168,33 +201,35 @@ export function StepMain({
           (владелец 15.09.2026: «не должен отличаться от его других полей
           вообще никак»). Каждая характеристика — свой `.blk`, как остальные
           поля шага, а не один общий блок со списком внутри. */}
-      {PROPERTY_DETAIL_KEYS.filter((key) => propertyDetailShown(values.type, key)).map((key) => (
-        <section className="blk" key={key}>
-          <div className="f">
-            <label>{PROPERTY_DETAIL_LABELS[key]}</label>
-          </div>
-          {/* ПИЛЮЛИ «НЕ УКАЗАНО» БОЛЬШЕ НЕТ (21.09.2026). Владелец: «все лишние
-              тексты были удалены… чтобы все поняли, на что нажимать».
-              Раньше каждая из тринадцати характеристик начиналась ВЫБРАННОЙ
-              пилюлей «Не указано» — то есть форма открывалась тринадцатью
-              подсвеченными ответами, которых человек не давал, и выглядела
-              заполненной неправильно. Теперь «не указано» — это просто
-              отсутствие выбора: ничего не подсвечено, пока не нажали.
-              Повторное нажатие по выбранной пилюле снимает выбор — иначе
-              ошибочный ответ было бы нечем отменить. */}
-          <Segs<string>
-            value={values.details[key]}
-            options={PROPERTY_DETAIL_OPTIONS[key].map((opt) => ({ value: opt, label: opt }))}
-            onChange={(v) =>
-              onChange({
-                details: { ...values.details, [key]: values.details[key] === v ? DETAIL_NOT_SET : v },
-              })
-            }
-          />
-        </section>
-      ))}
+      {detailKeys.length > 0 && <div className="wizard-details-group">
+        <h3 className="wizard-desktop-heading">Характеристики</h3>
+        {detailKeys.map((key) => (
+          <DetailField key={key} detailKey={key} value={values.details[key]} onChange={(selected, toggle) => changeDetail(key, selected, toggle)} />
+        ))}
+      </div>}
     </>
   );
+}
+
+/** Both devices use visible choices. Desktop adds larger labels and a clear action. */
+function DetailField({ detailKey, value, onChange }: {
+  detailKey: PropertyDetailKey;
+  value: string;
+  onChange: (selected: string, toggle?: boolean) => void;
+}) {
+  const id = useId();
+  const options: readonly string[] = PROPERTY_DETAIL_OPTIONS[detailKey];
+  const label = detailFieldLabel(detailKey);
+  const Icon = WIZARD_DETAIL_ICONS[detailKey];
+  return <section className="blk wizard-detail-field">
+    <div className="f"><label><Icon className="wizard-question-icon" size={28} strokeWidth={1.7} aria-hidden="true" />{label}</label>{options.includes(value) && <button className="wizard-detail-clear wizard-desktop-control" type="button" onClick={() => onChange(DETAIL_NOT_SET)} aria-label={`Очистить: ${label}`}>Очистить</button>}</div>
+    <div className="wizard-desktop-control" id={id}><Segs label={label} value={value} options={options.map((option) => ({ value: option, label: detailOptionLabel(detailKey, option) }))} onChange={(selected, toggle) => onChange(selected, toggle)} /></div>
+    {detailKey === "balcony" && <p className="wizard-field-help wizard-desktop-control">Лоджия — балкон, встроенный между стенами дома.</p>}
+    <div className="wizard-mobile-control">
+      <Segs<string> label={PROPERTY_DETAIL_LABELS[detailKey]} value={value} options={options.map((option) => ({ value: option, label: option }))}
+        onChange={(selected, toggle) => onChange(selected, toggle)} />
+    </div>
+  </section>;
 }
 
 /** Цена за м² (за сотку у участка) — считается на лету, как `perM2()` в
@@ -209,26 +244,6 @@ function calcPerUnit(v: WizardValues): string {
   return v.type === "LAND" ? `${perUnit.toLocaleString("ru-RU")} ${currency} за сотку` : `${perUnit.toLocaleString("ru-RU")} ${currency} за м²`;
 }
 
-/** Приводит ввод числового поля к однозначному виду: только цифры и одна точка.
- *
- * Запятая всегда становится точкой (десятичный разделитель), а всё, что не
- * цифра и не точка, отбрасывается на лету — иначе «1,200» (тысяча двести у
- * агента) превращалось бы в 1.2 без единой ошибки валидации (см. историю
- * бага ниже, сохранена дословно из прежней версии файла).
- *
- * Решение — не гадать, где запятая разделитель тысяч, а где дробная часть
- * (для ru/tj это неоднозначно в обе стороны), а не давать вводу породить эту
- * двусмысленность вообще.
- */
-function sanitizeNumericInput(raw: string): string {
-  let s = raw.replace(/,/g, ".").replace(/[^\d.]/g, "");
-  const firstDot = s.indexOf(".");
-  if (firstDot !== -1) {
-    s = s.slice(0, firstDot + 1) + s.slice(firstDot + 1).replace(/\./g, "");
-  }
-  return s;
-}
-
 /** Поле `.f` артефакта — подпись-заголовок сверху, ввод снизу. `text` — как
  *  `input.txt` темы (обычный шрифт, а не цифровой моноширинный). */
 function Field({
@@ -236,34 +251,46 @@ function Field({
   value,
   error,
   text,
-  whole,
+  kind = "decimal",
+  required,
+  fieldKey,
+  className,
   onChange,
 }: {
   label: string;
   value: string;
   error?: string;
   text?: boolean;
-  /** Целое число (цена): запятая и пробел — разделители тысяч, а не дробь.
-   *  Иначе «250,000» превращалось в 250.000, то есть в 250. */
-  whole?: boolean;
+  /** Price grouping, decimal area, integer counts or signed floor. */
+  kind?: WizardNumberKind;
+  required?: boolean;
+  fieldKey?: string;
+  className?: string;
   onChange: (value: string) => void;
 }) {
+  const id = useId();
+  const Icon = fieldKey && fieldKey in WIZARD_FIELD_ICONS ? WIZARD_FIELD_ICONS[fieldKey as keyof typeof WIZARD_FIELD_ICONS] : null;
   return (
-    <div className="f">
-      <label>{label}</label>
+    <div className={className ? `f ${className}` : "f"}>
+      <label htmlFor={id}>{Icon && <Icon className="wizard-field-icon" size={22} strokeWidth={1.7} aria-hidden="true" />}{label}{required && <span className="wizard-required-mark" aria-hidden="true"> *</span>}</label>
       <input
+        id={id}
         className={text ? "txt" : undefined}
         value={value}
-        inputMode={text ? undefined : whole ? "numeric" : "decimal"}
+        inputMode={text ? undefined : kind === "decimal" || kind === "signedInteger" ? "decimal" : "numeric"}
         type="text"
+        data-wizard-field={fieldKey}
+        aria-required={required || undefined}
+        aria-invalid={!!error || undefined}
+        aria-describedby={error ? `${id}-error` : undefined}
         autoComplete="off"
         onChange={(e) =>
-          onChange(text ? e.target.value : whole ? e.target.value.replace(/\D/g, "") : sanitizeNumericInput(e.target.value))
+          onChange(text ? e.target.value : normalizeWizardNumber(e.target.value, kind))
         }
         style={error ? { borderColor: "var(--warn)" } : undefined}
       />
       {error && (
-        <span className="sub" style={{ color: "var(--warn)" }}>
+        <span className="sub wizard-field-error" id={`${id}-error`} style={{ color: "var(--warn)" }}>
           {error}
         </span>
       )}
@@ -290,10 +317,12 @@ function PropertyFinishSegs({
   const side = hasMarket ? marketSideOf(values) : "SECONDARY";
   const phase = newBuildPhaseOf(values);
   return (
-    <>
+    <div className="wizard-finish-group">
       {hasMarket && (
         <section className="blk">
+        <span className="wizard-desktop-field-label"><Building2 className="wizard-question-icon" size={28} strokeWidth={1.7} aria-hidden="true" />Рынок</span>
         <Segs<PropertyMarketSide | "">
+          label="Рынок"
           value={side ?? ""}
           options={[
             { value: "SECONDARY", label: "Вторичка" },
@@ -315,9 +344,10 @@ function PropertyFinishSegs({
       {side === "NEW" ? (
         <section className="blk">
           <div className="f">
-            <label>Стадия и отделка</label>
+            <label><Building2 className="wizard-question-icon" size={28} strokeWidth={1.7} aria-hidden="true" />Стадия и отделка</label>
           </div>
           <Segs<NewBuildPhase | "">
+            label="Стадия и отделка"
             value={phase ?? ""}
             options={NEW_BUILD_PHASES.map((p) => ({ value: p.key, label: p.label }))}
             onChange={(v) => v && onChange(fieldsForNewBuildPhase(v as NewBuildPhase))}
@@ -326,16 +356,17 @@ function PropertyFinishSegs({
       ) : (
         <section className="blk">
           <div className="f">
-            <label>Состояние</label>
+            <label><Wrench className="wizard-question-icon" size={28} strokeWidth={1.7} aria-hidden="true" />Состояние</label>
           </div>
           <Segs<PropertyCondition>
+            label="Состояние"
             value={values.condition}
             options={SECONDARY_CONDITIONS.map((c) => ({ value: c, label: PROPERTY_CONDITION_LABELS[c] }))}
             onChange={(v) => onChange({ condition: v as PropertyCondition })}
           />
         </section>
       )}
-    </>
+    </div>
   );
 }
 
@@ -343,20 +374,34 @@ function Segs<T extends string>({
   value,
   options,
   onChange,
+  label,
 }: {
   value: T;
-  options: { value: T; label: string }[];
-  onChange: (value: T) => void;
+  options: { value: T; label: string; icon?: ReactNode }[];
+  onChange: (value: T, toggle?: boolean) => void;
+  label?: string;
 }) {
   return (
-    <div className="segs">
+    <div className="segs" role={label ? "group" : undefined} aria-label={label}>
       {options.map((opt) => (
         <button
           key={opt.value || "__empty__"}
           type="button"
+          tabIndex={opt.value === value || (!options.some((option) => option.value === value) && opt === options[0]) ? 0 : -1}
           aria-pressed={opt.value === value}
-          onClick={() => onChange(opt.value)}
+          onClick={() => onChange(opt.value, true)}
+          onKeyDown={(event) => {
+            const index = options.indexOf(opt);
+            const nextIndex = event.key === "ArrowRight" || event.key === "ArrowDown" ? (index + 1) % options.length
+              : event.key === "ArrowLeft" || event.key === "ArrowUp" ? (index + options.length - 1) % options.length
+                : event.key === "Home" ? 0 : event.key === "End" ? options.length - 1 : null;
+            if (nextIndex === null) return;
+            event.preventDefault();
+            onChange(options[nextIndex].value);
+            event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>("button")[nextIndex]?.focus();
+          }}
         >
+          {opt.icon}
           {opt.label}
         </button>
       ))}

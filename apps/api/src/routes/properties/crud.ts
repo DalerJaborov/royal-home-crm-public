@@ -70,7 +70,8 @@ import {
 import { changedPropertyFields, describePropertyChanges } from "../../lib/propertyChanges.js";
 import { lookupGeoPoint, type GeoLookupResult } from "../../lib/geoLookup.js";
 import { districtFromMap } from "../../lib/propertyDistrict.js";
-import { attachDraftToProperty } from "./draftAttach.js";
+import { attachDraftRows, finishDraftAttachment, type DraftAttachmentPlan } from "./draftAttach.js";
+import { DraftConflictError, assertActiveDraft, lockOwnDraft, withDraftLock } from "./draftLifecycle.js";
 import { findStaffPhone, staffPhoneError, STAFF_PHONE_ERROR_CODE } from "../../lib/staffPhoneGuard.js";
 import { dealStageForManualStatus, propertyStatusTransitionBlock } from "../../lib/propertyStatusTransitions.js";
 import { presentProperty, stripOwnerContact } from "../../lib/ownerContact.js";
@@ -145,6 +146,7 @@ class PropertyConflictError extends Error {
  */
 const createFromDraftSchema = z.object({
   draftId: z.guid().optional(),
+  draftRevision: z.number().int().nonnegative().optional(),
   /** Обложка, выбранная тапом по плитке в мастере (StepMedia.tsx) — ключ
    *  отправки снимка, который должен стать первым фото объекта. Тем же
    *  доводом, что и draftId выше: свойство ЭТОГО запроса, не поля объекта. */
@@ -164,8 +166,20 @@ crudRouter.post("/", requireAuth, async (req, res) => {
     return res.status(400).json({ error: "Неверные данные", details: parsedDraftRef.error.flatten() });
   }
   const draftId = parsedDraftRef.data.draftId;
+  const draftRevision = parsedDraftRef.data.draftRevision;
   const coverUploadKey = parsedDraftRef.data.coverUploadKey;
   const data = parsed.data;
+  if (draftId) {
+    try {
+      await withDraftLock(req.agent!.id, async (tx) => {
+        const draft = await assertActiveDraft(tx, req.agent!.id, { draftId, revision: draftRevision });
+        if (draft.revision > 0 && draftRevision === undefined) throw new DraftConflictError(draft, "Обновите мастер перед созданием объекта");
+      });
+    } catch (err) {
+      if (err instanceof DraftConflictError) return res.status(409).json(err.response());
+      throw err;
+    }
+  }
 
   /**
    * ЗАКРЫТЫЙ ОБЪЕКТ БЕЗ РАЙОНА/АДРЕСА (владелец 14.09.2026): «только для своих»
@@ -533,7 +547,12 @@ crudRouter.post("/", requireAuth, async (req, res) => {
   // внутри async-колбэка $transaction, наружу не видна (та же ловушка, что и
   // priceActuallyChanged в PATCH — см. комментарий там).
   const { clientId: sellerClientId, sellerName: _sellerName, ...rest } = data;
+  let draftAttachment: DraftAttachmentPlan | null = null;
   let property = await prisma.$transaction(async (tx) => {
+    // Recheck after slow AI/geocoding, then consume in the same transaction as insertion.
+    // A deletion or competing tab can no longer create a second object from this generation.
+    const sourceDraft = draftId ? (await lockOwnDraft(tx, req.agent!.id), await assertActiveDraft(tx, req.agent!.id, { draftId, revision: draftRevision })) : null;
+    if (sourceDraft && sourceDraft.revision > 0 && draftRevision === undefined) throw new DraftConflictError(sourceDraft);
     if (normalizedAddress) {
       const lockKey = `property-dup:${data.districtId}:${data.floor ?? "null"}:${normalizedAddress}`;
       // $executeRaw, НЕ $queryRaw (проверено прогоном тестов, 13.09.2026):
@@ -607,7 +626,7 @@ crudRouter.post("/", requireAuth, async (req, res) => {
       }
     }
 
-    return tx.property.create({
+    const createdProperty = await tx.property.create({
       data: {
         ...rest,
         title,
@@ -675,7 +694,10 @@ crudRouter.post("/", requireAuth, async (req, res) => {
       },
       include: { district: true, photos: true },
     });
+    if (sourceDraft) draftAttachment = await attachDraftRows(tx, sourceDraft, createdProperty, req.agent!.id, coverUploadKey);
+    return createdProperty;
   }).catch((err) => {
+    if (err instanceof DraftConflictError) { res.status(409).json(err.response()); return null; }
     if (err instanceof DuplicatePropertyError) {
       res.status(409).json({
         error: err.message,
@@ -749,7 +771,7 @@ crudRouter.post("/", requireAuth, async (req, res) => {
     error?: string;
   } | null = null;
   if (draftId) {
-    const attached = await attachDraftToProperty(draftId, req.agent!.id, property, req.agent!.id, coverUploadKey);
+    const attached = await finishDraftAttachment(draftAttachment!, property, req.agent!.id);
     mediaReport = {
       attached: { photos: attached.photos, videos: attached.videos },
       skipped: { photos: attached.skippedPhotos, videos: attached.skippedVideos },

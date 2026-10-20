@@ -91,6 +91,7 @@ beforeAll(async () => {
 });
 afterAll(async () => {
   vi.unstubAllGlobals(); vi.unstubAllEnvs();
+  try {
   await prisma.backgroundJob.deleteMany({ where: { dedupeKey: { in: events.map(key => `customer-inbox-consume:${key}`) } } });
   await prisma.backgroundJob.deleteMany({ where: { dedupeKey: { in: partIds.map(id => `customer-outbox-dispatch:${id}`) } } });
   await prisma.customerDeliveryAttempt.deleteMany({ where: { partId: { in: partIds } } });
@@ -100,12 +101,15 @@ afterAll(async () => {
   await prisma.customerInquiry.deleteMany({ where: { conversationId: { in: natives } } });
   await prisma.botConversation.deleteMany({ where: { id: { in: natives } } });
   await prisma.instagramComment.deleteMany({ where: { id: { in: comments } } });
+  await prisma.outboundShieldState.deleteMany({ where: { endpointScope: { messengerAccountId: { in: accounts } } } });
   await prisma.customerEndpointScope.deleteMany({ where: { messengerAccountId: { in: accounts } } });
   await prisma.messengerAccount.deleteMany({ where: { id: { in: accounts } } });
+  } finally {
   if (settings) await prisma.settings.update({ where: { id: "singleton" }, data: settings });
   if (policy) await prisma.customerRuntimePolicy.update({ where: { id: "singleton" }, data: { contractVersion: policy.contractVersion,
     rolloutMode: policy.rolloutMode, capabilities: policy.capabilities!, activeAgentRevisionId: policy.activeAgentRevisionId } });
   await rollout?.restore();
+  }
   // Immutable synthetic manifests intentionally survive; the isolated test DB is disposable.
 });
 describe("durable customer version and real inbox ownership", () => {

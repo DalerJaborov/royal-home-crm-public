@@ -3,6 +3,7 @@ import bcrypt from "bcrypt";
 import request from "supertest";
 import { app } from "../src/app.js";
 import { prisma } from "../src/db.js";
+import { loginWithCode } from "./helpers/loginCode.js";
 
 /**
  * РАСШИРЕНИЕ ВИДЕО ЧЕРНОВИКА — ИЗ БЕЛОГО СПИСКА (глубокая проверка 02.10.2026, D15).
@@ -24,7 +25,7 @@ beforeAll(async () => {
     data: { fullName: `Черновик видео ${runId}`, phone: `+992964${tail}`, role: "AGENT", passwordHash },
   });
   agentId = agent.id;
-  const login = await request(app).post("/api/v1/auth/login").send({ phone: agent.phone, password: "testpass123" });
+  const login = await loginWithCode(app, agent.phone);
   expect(login.status).toBe(200);
   token = login.body.accessToken as string;
 });

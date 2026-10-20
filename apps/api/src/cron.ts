@@ -2,7 +2,7 @@ import { scheduleTracked, checkCronHeartbeats, markCronTickFailed, reportCronTic
 import { runAbsenceReturnTick } from "./lib/absenceReturn.js";
 import { cleanupBotTurnTraces } from "./lib/botTurnTraceStore.js";
 import { runSocialVideoScheduleTick } from "./lib/socialVideoPosts.js";
-import { runBackgroundJobsTick } from "./jobs/runner.js";
+import { runBackgroundJobsTick, runCustomerJobsTick } from "./jobs/runner.js";
 import { enqueueBackgroundJob } from "./jobs/enqueue.js";
 import { AI_REPLY_RETRY_MAX_ATTEMPTS } from "./jobs/aiReplyRetryPolicy.js";
 import { scoreAllActiveClients } from "./ai/scoring.js";
@@ -3128,6 +3128,19 @@ export function startCronJobs() {
       reportCronTickError("Ошибка сторожа пульса", err);
     }
   });
+
+  // The ordinary durable queue still handles media once a minute. Customer
+  // model turns and sends have separate bounded slots; both use runOne, DB
+  // SKIP LOCKED, normal retry policy and existing provider UNKNOWN guards.
+  scheduleTracked("customer-inbox-jobs", "*/5 * * * * *", async () => {
+    await runCustomerJobsTick("inbox");
+  }, undefined, undefined, { timeoutMs: 20 * 60_000 });
+  scheduleTracked("customer-outbox-jobs", "*/5 * * * * *", async () => {
+    await runCustomerJobsTick("outbox");
+  }, undefined, undefined, { timeoutMs: 20 * 60_000 });
+  scheduleTracked("customer-intake-jobs", "*/5 * * * * *", async () => {
+    await runCustomerJobsTick("intake");
+  }, undefined, undefined, { timeoutMs: 20 * 60_000 });
 
   /** Очередь фоновых заданий (jobs/runner.ts, чертёж §2): минутный тик хватает
    *  партию PENDING + подбирает зависшие RUNNING. Гвард от наложения обязателен:

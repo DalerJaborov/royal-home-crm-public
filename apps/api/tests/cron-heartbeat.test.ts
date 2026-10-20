@@ -23,6 +23,10 @@ afterAll(async () => {
 });
 
 describe("cronIntervalMs", () => {
+  it("customer poll is seconds, not a five-minute heartbeat", () => {
+    expect(cronIntervalMs("*/5 * * * * *")).toBe(5000);
+    expect(cronIntervalMs("* * * * * *")).toBe(1000);
+  });
   it("узнаёт основные формы расписаний", () => {
     expect(cronIntervalMs("*/5 * * * *")).toBe(5 * MINUTE);
     expect(cronIntervalMs("* * * * *")).toBe(MINUTE);
@@ -33,6 +37,11 @@ describe("cronIntervalMs", () => {
 });
 
 describe("nextCronRun", () => {
+  it("customer seconds keep their boundary, including minute rollover", () => {
+    expect(nextCronRun("*/5 * * * * *", new Date("2026-10-20T18:59:54.900Z")).toISOString()).toBe("2026-10-20T18:59:55.000Z");
+    expect(nextCronRun("*/5 * * * * *", new Date("2026-10-20T18:59:55.000Z"), "Asia/Dushanbe").toISOString()).toBe("2026-10-20T19:00:00.000Z");
+    expect(nextCronRun("* * * * *", new Date("2026-10-20T18:59:54.900Z")).toISOString()).toBe("2026-10-20T19:00:00.000Z");
+  });
   it("месячный тик (расписание директора, реальный симптом 17.09): следующий запуск — 1-е число, а не через неделю", () => {
     // Асия/Душанбе +5: 09:10 по Душанбе = 04:10 UTC — ровно как в упавшем алерте.
     const after = new Date("2026-09-01T04:10:00.000Z");

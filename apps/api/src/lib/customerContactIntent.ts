@@ -6,6 +6,7 @@ import { sanitizeSpokenName } from "./spokenName.js";
 import { inspectAuthenticatedCustomerInput, authenticatedInputMatchesFence, readVerifiedCustomerFinalOrigin, type AuthenticatedCustomerInput } from "./customerIngressAuthority.js";
 import { loadAcceptedCustomerState, assertCustomerFence, transitionCustomerState, customerActionCapability } from "./customerState.js";
 import { customerMutationDigest } from "./customerActionCommand.js";
+import { hasAcceptedCustomerNameQuestionTx } from "./customerAcceptedNameQuestion.js";
 
 const canonicalPhone = (value: string) => normalizeDigits(value.replace(/\D/g, ""));
 const normalizedName = (value: string) => value.normalize("NFKC").trim().replace(/\s+/gu, " ").toLocaleLowerCase();
@@ -20,6 +21,15 @@ function explicitlyStatedName(text: string, candidate: string): boolean {
 }
 const QUOTED_NEGATED_REPORTED_OR_FOREIGN = /[«»"“”]|(?<![\p{L}])(?:не|нет|чуж(?:ой|ого|ая|ие)|нест|намехоҳам|намехохам|нанависед|нагиред|прислал[\p{L}]*|получил[\p{L}]*|переслал[\p{L}]*|сказал[\p{L}]*|написал[\p{L}]*|цитат[\p{L}]*|гуфт(?:анд)?|фиристод(?:анд)?|навишт(?:анд)?|собственник[\p{L}]*|владел[\p{L}]*|агент[\p{L}]*|ри[еэ]лтор[\p{L}]*|мам[\p{L}]*|пап[\p{L}]*|друг[\p{L}]*|подруг[\p{L}]*|брата|сестры|его|е[её]|их|соҳиб[\p{L}]*|дигар[\p{L}]*|вай|ӯ)(?![\p{L}])/iu;
 const VOLUNTEER_CONTACT = /(?<![\p{L}])(?:мой\s+(?:номер|телефон)|мои\s+контакты|телефон\s+для\s+связи|запишите|сохраните|рақами\s+ман|раками\s+ман|телефони\s+ман|сабт\s+кунед)(?![\p{L}])/iu;
+/** Candidate syntax only. A separate real ACCEPTED question is mandatory. */
+export function currentInputIsBareCustomerName(text: string, candidate: string): boolean {
+  const clean = text.normalize("NFKC").trim();
+  if (!/^[\p{L}\p{M}'’ʻʼ`´‘‛′ʹʽʾʿ\s\u2010\u2011\u2012\u2212-]{2,60}$/u.test(clean) ||
+      QUOTED_NEGATED_REPORTED_OR_FOREIGN.test(clean) ||
+      /(?:^|\s)(?:да|нет|спасибо|рахмат|раҳмат|салом|здравствуйте|квартира|хона|нарх|цена|номер|телефон|хочу|нужен|надо|когда|где|сколько|чанд|чӣ|чи|потом|завтра|сегодня|ок|okay)(?:$|\s)/iu.test(clean)) return false;
+  const name = sanitizeSpokenName(clean);
+  return !!name && normalizedName(name) === normalizedName(candidate);
+}
 /** Conservative current-IN statement, not just a phone substring. Failure
  * requests clarification; no model guess/history can make it eligible. */
 export function currentInputVolunteersCustomerContact(rawText: string, rawCommand: unknown): boolean {
@@ -41,7 +51,9 @@ export async function openAuthenticatedCustomerContactIntent(input: Authenticate
   if (!parsed.success || parsed.data.name !== "save_contact" || !evidence || evidence.provenance !== "meta_signature" ||
       evidence.assurance !== "protected_namespace") return "denied";
   const command = parsed.data;
-  if (!currentInputVolunteersCustomerContact(evidence.inputText, command)) return "denied";
+  const volunteered = currentInputVolunteersCustomerContact(evidence.inputText, command);
+  const bareName = !command.args.phone && !!command.args.name && currentInputIsBareCustomerName(evidence.inputText, command.args.name);
+  if (!volunteered && !bareName) return "denied";
   try {
     return await prisma.$transaction(async tx => {
       const accepted = await loadAcceptedCustomerState(ticket, tx);
@@ -57,6 +69,7 @@ export async function openAuthenticatedCustomerContactIntent(input: Authenticate
           origin.order !== ticket.order || origin.scopeKey !== ticket.scopeKey || origin.originalConversationId !== ticket.conversationId ||
           origin.input.inputText !== evidence.inputText || origin.input.eventId !== evidence.eventId || origin.input.eventKind !== evidence.eventKind ||
           origin.input.issuedAt !== evidence.issuedAt) return "denied";
+      if (!volunteered && !await hasAcceptedCustomerNameQuestionTx(tx, accepted.fence, ticket, input)) return "denied";
       const result = await transitionCustomerState(tx, accepted.fence, { type: "intent", kind: "contact", change: "request",
         evidenceRefs: [ticket.eventKey], commandDigest: customerMutationDigest(command) });
       return result.status === "applied" || result.status === "same_event" ? "opened" : result.status;

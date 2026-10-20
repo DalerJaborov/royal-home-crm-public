@@ -8,6 +8,7 @@ import { app } from "../src/app.js";
 import { prisma } from "../src/db.js";
 import { savePrivateFile, privateFilePath } from "../src/lib/privateFiles.js";
 import { attachDraftToProperty } from "../src/routes/properties/draftAttach.js";
+import { loginWithCode } from "./helpers/loginCode.js";
 
 /**
  * Глубокая проверка 02.10.2026, находка D2: второй объект того же продавца,
@@ -81,9 +82,16 @@ async function makeProperty(title: string) {
 }
 
 async function draftFromClient(clientId: string) {
+  const current = await request(app).get(`${PREFIX}/current`).set("Authorization", `Bearer ${token}`);
+  let active = current.body.draft;
+  if (!active) {
+    const started = await request(app).post(`${PREFIX}/current/start`).set("Authorization", `Bearer ${token}`).send({ sessionId: randomUUID(), revision: current.body.revision });
+    expect(started.status).toBe(200); active = started.body.draft;
+  }
   const res = await request(app)
     .post(`${PREFIX}/from-client/${clientId}`)
-    .set("Authorization", `Bearer ${token}`);
+    .set("Authorization", `Bearer ${token}`)
+    .send({ draftId: active.id, revision: active.revision, mode: "merge" });
   expect(res.status).toBe(200);
   const draft = await prisma.propertyDraft.findFirstOrThrow({ where: { agentId } });
   return { body: res.body, draft };
@@ -100,7 +108,7 @@ beforeAll(async () => {
     },
   });
   agentId = agent.id;
-  const login = await request(app).post("/api/v1/auth/login").send({ phone: agent.phone, password });
+  const login = await loginWithCode(app, agent.phone);
   expect(login.status).toBe(200);
   token = login.body.accessToken as string;
 });
@@ -150,7 +158,7 @@ describe("D2: второй объект продавца из переписки
     expect(attachedB.photos).toBe(3);
     expect(await prisma.propertyPhoto.count({ where: { propertyId: propertyB.id } })).toBe(3);
     // Черновик перенесён и удалён, а не висит.
-    expect(await prisma.propertyDraft.findUnique({ where: { id: second.draft.id } })).toBeNull();
+    expect((await prisma.propertyDraft.findUniqueOrThrow({ where: { id: second.draft.id } })).closedAt).not.toBeNull();
     // Объект А своих снимков не потерял.
     expect(await prisma.propertyPhoto.count({ where: { propertyId: propertyA.id } })).toBe(2);
   });
