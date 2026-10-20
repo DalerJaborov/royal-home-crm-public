@@ -20,6 +20,9 @@ import {
   newMigrations,
   parseRepo,
   requireFullApiRunPassed,
+  requireCloudRunPassed,
+  cloudBranch,
+  findCloudRun,
   statusDescription,
   shipTrailer,
   snapshotState,
@@ -49,9 +52,11 @@ test("ключи разбираются, незнакомый — ошибка, 
     noMerge: true,
     full: false,
     cleanDb: false,
+    localTests: false,
     pr: 42,
     help: false,
   });
+  assert.equal(parseArgs(["--local-tests"]).localTests, true);
   assert.throws(() => parseArgs(["--skip-tests"]), /незнакомый ключ/);
   assert.throws(() => parseArgs(["--pr=abc"]), /номер правки/);
 });
@@ -104,8 +109,8 @@ test("миграции — только migration.sql в своей папке",
 test("owner/repo из любого вида адреса origin", () => {
   const want = { owner: "jabarovdaler", repo: "royal-home-crm" };
   assert.deepEqual(parseRepo("https://github.com/jabarovdaler/royal-home-crm"), want);
-  assert.deepEqual(parseRepo("https://github.com/DalerJaborov/royal-home-crm-public.git"), want);
-  assert.deepEqual(parseRepo("git@github.com:DalerJaborov/royal-home-crm-public.git"), want);
+  assert.deepEqual(parseRepo("https://github.com/jabarovdaler/royal-home-crm.git"), want);
+  assert.deepEqual(parseRepo("git@github.com:jabarovdaler/royal-home-crm.git"), want);
   assert.deepEqual(parseRepo("http://127.0.0.1:35685/git/jabarovdaler/royal-home-crm"), want);
   // Локальный путь Windows с обратными слэшами (раннер daler-laptop).
   assert.deepEqual(parseRepo("C:\\Users\\x\\jabarovdaler\\royal-home-crm.git"), want);
@@ -162,11 +167,57 @@ test("полный ship: отсутствующий, пустой и некор�
 
 test("полный ship: production boundary стоит перед отправкой, без автоматических alone retries", () => {
   const body = readFileSync(SHIP, "utf8");
-  const stage6 = body.indexOf('stage(6, "тесты сервера, полный прогон")');
+  const stage6 = body.indexOf("stage(6, cloud ?");
   const gate = body.indexOf("apiTests = requireFullApiRunPassed(r.code, rep)", stage6);
+  const cloudGate = body.indexOf("apiTests = await waitCloudTests(", stage6);
   const stage7 = body.indexOf("stage(7,", stage6);
-  assert.ok(gate > stage6 && stage7 > gate);
+  assert.ok(stage6 > 0 && gate > stage6 && stage7 > gate);
+  assert.ok(cloudGate > stage6 && stage7 > cloudGate, "облачный вердикт — тоже до отправки");
+  // waitCloudTests кончается тем же requireFullApiRunPassed — через requireCloudRunPassed.
+  assert.match(body, /return requireCloudRunPassed\(\{ run: runInfo, reportSha, report, sha \}\);/);
   assert.doesNotMatch(body.slice(stage6, stage7), /failedTestFiles|stillRed|\["vitest", "run"/);
+});
+
+test("облако: зелёный прогон своего sha с зелёным отчётом — число тестов", () => {
+  const sha = "a".repeat(40);
+  const run = { status: "completed", conclusion: "success", head_sha: sha, html_url: "u" };
+  assert.equal(requireCloudRunPassed({ run, reportSha: sha + "\n", report: { ...greenApiReport(), sourceChecks: {sha, result: "success"} }, sha }), 9);
+  assert.equal(cloudBranch(sha), `ship-tests/${sha}`);
+});
+
+test("облако: чужой sha, недоделанный, красный или без отчёта — отметки нет", () => {
+  const sha = "a".repeat(40);
+  const other = "b".repeat(40);
+  const ok = { status: "completed", conclusion: "success", head_sha: sha, html_url: "u" };
+  const cases = [
+    [{ run: { ...ok, status: "in_progress" }, reportSha: sha, report: greenApiReport() }, /не завершён/],
+    [{ run: { ...ok, head_sha: other }, reportSha: sha, report: greenApiReport() }, /проверял bbbbbbbbb/],
+    [{ run: ok, reportSha: other, report: greenApiReport() }, /отчёт облачного прогона про bbbbbbbbb/],
+    [{ run: ok, reportSha: null, report: greenApiReport() }, /отчёт облачного прогона/],
+    [{ run: { ...ok, conclusion: "failure" }, reportSha: sha, report: greenApiReport() }, /failure/],
+    [{ run: { ...ok, conclusion: "startup_failure" }, reportSha: sha, report: greenApiReport() }, /--local-tests/],
+    [{ run: ok, reportSha: sha, report: null }, /отчёт некорректен/],
+    [{ run: ok, reportSha: sha, report: { ...greenApiReport(), success: false } }, /красный/],
+    [{ run: null, reportSha: sha, report: greenApiReport() }, /не завершён/],
+  ];
+  for (const [input, re] of cases) assert.throws(() => requireCloudRunPassed({ ...input, sha }), re);
+});
+
+test("cloud release requires source checks for the exact tested commit", () => {
+  const sha = "a".repeat(40);
+  const run = {status:"completed", conclusion:"success", head_sha:sha};
+  for (const sourceChecks of [undefined, {sha:"b".repeat(40),result:"success"}, {sha,result:"failure"}]) {
+    assert.throws(() => requireCloudRunPassed({run,reportSha:sha,report:{...greenApiReport(),sourceChecks},sha}), /проверки исходников/);
+  }
+});
+
+test("find a newly introduced workflow without the main-branch workflow endpoint", () => {
+  const sha="a".repeat(40), branch=cloudBranch(sha), startedAt=Date.parse("2026-10-20T12:00:00Z");
+  const mine={id:1,path:".github/workflows/ship-tests.yml",head_sha:sha,event:"push",head_branch:branch,created_at:"2026-10-20T12:00:01Z"};
+  const unrelated=[{...mine,id:2,path:".github/workflows/ci.yml"},{...mine,id:3,head_sha:"b".repeat(40)},
+    {...mine,id:4,event:"pull_request"},{...mine,id:5,head_branch:"other"},{...mine,id:6,created_at:"2026-10-19T12:00:00Z"}];
+  assert.equal(findCloudRun(unrelated,{sha,branch,startedAt}),null);
+  assert.equal(findCloudRun([...unrelated,mine],{sha,branch,startedAt})?.id,1);
 });
 
 // ── сухой прогон в одноразовом репозитории ──────────────────────────────────
@@ -195,8 +246,8 @@ function makeRepo() {
   return { dir, work };
 }
 
-function dryRun(cwd) {
-  return spawnSync(process.execPath, [SHIP, "--dry-run"], {
+function dryRun(cwd, extra = []) {
+  return spawnSync(process.execPath, [SHIP, "--dry-run", ...extra], {
     cwd,
     encoding: "utf8",
     env: { ...process.env, GH_TOKEN: "test-token-not-used", NO_COLOR: "1" },
@@ -228,8 +279,13 @@ test("сухой прогон: правка сервера — полный пр
     sh(work, "commit", "-q", "-m", "миграция");
     const r = dryRun(work);
     assert.equal(r.status, 0, r.stdout + r.stderr);
-    assert.match(r.stdout, /полный прогон тестов сервера: да/);
-    assert.match(r.stdout, /migrate deploy на тестовую базу \(своих миграций в правке: 1\)/);
+    assert.match(r.stdout, /полный прогон тестов сервера: да, в облаке GitHub/);
+    assert.match(r.stdout, /migrate deploy — на базах машин GitHub \(своих миграций в правке: 1\)/);
+    assert.match(r.stdout, /полный прогон в облаке GitHub \(ship-tests\.yml/);
+    const local = dryRun(work, ["--local-tests"]);
+    assert.equal(local.status, 0, local.stdout + local.stderr);
+    assert.match(local.stdout, /полный прогон тестов сервера: да, здесь/);
+    assert.match(local.stdout, /migrate deploy на тестовую базу \(своих миграций в правке: 1\)/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -371,12 +427,12 @@ test("OPS10: правка отслеживаемого файла во врем�
 test("OPS10: ship пушит и подписывает записанную вершину и дерево, а не «HEAD сейчас»", () => {
   const body = readFileSync(SHIP, "utf8");
   const snap = body.indexOf("const verified = snapshotState(git)");
-  const migrations = body.indexOf('stage(4, "клиент Prisma и миграции тестовой базы")');
-  const tests = body.indexOf('stage(6, "тесты сервера, полный прогон")');
+  const migrations = body.indexOf('stage(4,');
+  const tests = body.indexOf('stage(6,');
   const drift = body.indexOf("stateDrift(verified, snapshotState(git))");
   const push = body.indexOf('["push", "origin", `${headSha}:refs/heads/${branch}`]');
   assert.ok(snap > 0 && snap < migrations, "снимок до всех проверок");
-  assert.ok(drift > tests, "сверка после тестов");
+  assert.ok(tests > migrations && drift > tests, "сверка после тестов");
   assert.ok(push > drift, "отправка только после сверки");
   assert.doesNotMatch(body, /const headSha = git\("rev-parse", "HEAD"\)/, "вершина не читается заново после тестов");
   assert.match(body, /shipTrailer\(\{ tree: verified\.tree,/);

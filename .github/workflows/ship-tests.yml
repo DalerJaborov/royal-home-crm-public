@@ -1,0 +1,244 @@
+# ПОЛНЫЙ ПРОГОН ТЕСТОВ СЕРВЕРА В ОБЛАКЕ GITHUB, НА МНОГИХ МАШИНАХ (20.10.2026).
+#
+# Зачем. `npm run ship` перед вливанием в main гоняет ВСЕ тесты apps/api на
+# настоящей базе. На ноутбуке владельца это 4 часа в один процесс и около часа в
+# два. Здесь те же файлы делятся на M машин GitHub (по умолчанию 18), у каждой
+# свой Postgres в контейнере и по два процесса vitest со своей базой
+# (apps/api/tests/runParallel.ts, ключ VITEST_SHARD_OF). Итог сводит задание
+# «итог» тем же правилом, что и локальный прогон (scripts/cloud-test-report.mjs →
+# runParallelVerdict.ts): без зелёного отчёта от КАЖДОЙ машины — красно.
+#
+# Кто запускает. `npm run ship` (облачный режим по умолчанию): пушит проверяемый
+# коммит в ветку `ship-tests/<sha>`, ждёт этот прогон, скачивает артефакт
+# `api-tests-total` и проверяет его САМ, потом удаляет ветку. Ветка, а не
+# workflow_dispatch: ручной запуск GitHub принимает только у файла, который уже
+# лежит в main, а ship обязан проверять и правку, которая этот файл меняет.
+# Руками: Actions → ship-tests → Run workflow (sha пустой = вершина ветки).
+#
+# Безопасность публичного репозитория. Запуск — только пушем в этот репозиторий
+# или ручной кнопкой: оба требуют права записи. Правок из форков (pull_request)
+# здесь нет вовсе. Секретов нет: все ключи ниже — заглушки только для тестовой
+# базы. Права токена — только чтение кода.
+#
+# Старые ci.yml / nightly-e2e.yml / gitleaks.yml идут на своём Windows-раннере
+# владельца и этим файлом не задеты; здесь — обычные Linux-машины GitHub, где
+# `services:` работают.
+
+name: ship-tests
+run-name: "ship-tests ${{ inputs.sha || github.sha }}"
+
+on:
+  push:
+    branches: ["ship-tests/**"]
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "Коммит для проверки (пусто — вершина выбранной ветки)"
+        required: false
+        default: ""
+      machines:
+        description: "Сколько машин (1–20)"
+        required: false
+        default: ""
+      per_machine:
+        description: "Процессов vitest на машине (у каждого своя база)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ship-tests-${{ inputs.sha || github.sha }}
+  cancel-in-progress: true
+
+env:
+  # ЕДИНСТВЕННОЕ место, где задано число машин и процессов по умолчанию.
+  # The planning job finishes before the matrix starts; the verdict starts
+  # after it. Twenty test jobs can therefore use the Free plan's twenty slots.
+  # Standard public Linux runners have 4 CPUs and 16 GB RAM.
+  DEFAULT_MACHINES: "20"
+  DEFAULT_PER_MACHINE: "3"
+
+jobs:
+  plan:
+    name: source checks and plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DATABASE_URL: postgresql://user:password@localhost:5432/royal_home_crm
+      JWT_ACCESS_SECRET: ci-access-secret
+      JWT_REFRESH_SECRET: ci-refresh-secret
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+      PUPPETEER_SKIP_DOWNLOAD: "1"
+    outputs:
+      sha: ${{ steps.p.outputs.sha }}
+      machines: ${{ steps.p.outputs.machines }}
+      per_machine: ${{ steps.p.outputs.per_machine }}
+      matrix: ${{ steps.p.outputs.matrix }}
+    steps:
+      - id: p
+        env:
+          IN_SHA: ${{ inputs.sha }}
+          IN_MACHINES: ${{ inputs.machines }}
+          IN_PER_MACHINE: ${{ inputs.per_machine }}
+        run: |
+          sha="${IN_SHA:-$GITHUB_SHA}"
+          machines="${IN_MACHINES:-$DEFAULT_MACHINES}"
+          per="${IN_PER_MACHINE:-$DEFAULT_PER_MACHINE}"
+          echo "$sha" | grep -Eq '^[0-9a-f]{40}$' || { echo "::error::sha должен быть полным (40 знаков), пришло «$sha»"; exit 1; }
+          echo "$machines" | grep -Eq '^[0-9]+$' && [ "$machines" -ge 1 ] && [ "$machines" -le 20 ] || { echo "::error::машин 1–20, пришло «$machines»"; exit 1; }
+          echo "$per" | grep -Eq '^[0-9]+$' && [ "$per" -ge 1 ] && [ "$per" -le 4 ] || { echo "::error::процессов на машине 1–4, пришло «$per»"; exit 1; }
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "machines=$machines" >> "$GITHUB_OUTPUT"
+          echo "per_machine=$per" >> "$GITHUB_OUTPUT"
+          echo "matrix=[$(seq -s, 1 "$machines")]" >> "$GITHUB_OUTPUT"
+          echo "проверяется $sha на $machines машинах по $per процесса"
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.p.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run prisma:generate
+      - run: npm run precheck -- --no-tests
+      - run: npm run test:scripts
+
+  tests:
+    name: машина ${{ matrix.machine }}
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        machine: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: user
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: royal_home_crm
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U user -d royal_home_crm"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+    env:
+      DATABASE_URL: postgresql://user:password@localhost:5432/royal_home_crm?schema=public
+      JWT_ACCESS_SECRET: ci-access-secret
+      JWT_REFRESH_SECRET: ci-refresh-secret
+      JWT_ACCESS_TTL: 15m
+      JWT_REFRESH_TTL: 30d
+      # Заглушка для тестовой базы, не боевой ключ. Именно «1»×64, как у
+      # `npm run ship` локально: с другим значением два теста красные.
+      SETTINGS_ENCRYPTION_KEY: "1111111111111111111111111111111111111111111111111111111111111111" # secret-scan: allow; gitleaks:allow -- deterministic test database key
+      PORT: "15610"
+      UPLOADS_DIR: ./uploads
+      CORS_ORIGIN: http://localhost:4173
+      VITEST_DB_PARALLEL: "1"
+      VITEST_DB_WORKERS: ${{ needs.plan.outputs.per_machine }}
+      VITEST_SHARD_OF: ${{ matrix.machine }}/${{ needs.plan.outputs.machines }}
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+      PUPPETEER_SKIP_DOWNLOAD: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      # ffmpeg/ffprobe тесты зовут из PATH (apps/api/src/lib/ffmpeg.ts), как на
+      # проде и на ноутбуке. Без них «у ролика нет звуковой дорожки» не
+      # определяется, и customer-dm-media-perception-postgres красный (замер
+      # 20.10.2026, первый облачный прогон). apt здесь законен: это Linux-машина
+      # GitHub, а не Windows-раннер владельца (правило CLAUDE.md — про тот).
+      - name: ffmpeg
+        run: sudo apt-get install -y --no-install-recommends ffmpeg || (sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg)
+
+      - name: Зависимости
+        run: npm ci --no-audit --no-fund
+
+      - name: Общая часть и клиент Prisma
+        run: |
+          npm run build:shared
+          npm run prisma:generate
+
+      - name: Миграции и засев тестовой базы
+        run: |
+          npm run prisma:migrate:deploy --workspace=apps/api
+          npm run prisma:seed
+
+      - name: Тесты сервера — доля этой машины
+        id: run
+        run: |
+          mkdir -p "$RUNNER_TEMP/out"
+          set +e
+          (cd apps/api && npx tsx tests/runParallel.ts --report="$RUNNER_TEMP/out/api-tests.json")
+          code=$?
+          echo "$code" > "$RUNNER_TEMP/out/exit-code"
+          exit "$code"
+
+      - name: Отчёт машины
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: machine-${{ matrix.machine }}
+          path: ${{ runner.temp }}/out
+          retention-days: 1
+          if-no-files-found: ignore
+
+  verdict:
+    name: итог
+    needs: [plan, tests]
+    if: always() && needs.plan.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/cloud-test-report.mjs
+            apps/api/tests/runParallelVerdict.ts
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Отчёты всех машин
+        uses: actions/download-artifact@v4
+        with:
+          pattern: machine-*
+          path: reports
+
+      - name: Свести и вынести вердикт
+        env:
+          VERIFIED_SHA: ${{ needs.plan.outputs.sha }}
+        run: |
+          mkdir -p total
+          echo "${{ needs.plan.outputs.sha }}" > total/sha
+          node scripts/cloud-test-report.mjs --dir=reports --machines=${{ needs.plan.outputs.machines }} --out=total/api-tests.json
+          node --input-type=module -e 'import fs from "node:fs"; const p="total/api-tests.json";const r=JSON.parse(fs.readFileSync(p,"utf8"));r.sourceChecks={sha:process.env.VERIFIED_SHA,result:"success"};fs.writeFileSync(p,JSON.stringify(r));'
+
+      - name: Итоговый отчёт
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-tests-total
+          path: total
+          retention-days: 1
+          if-no-files-found: ignore

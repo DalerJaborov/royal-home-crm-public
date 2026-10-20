@@ -8,6 +8,14 @@
  *   npm run ship -- --full           # полный прогон тестов сервера даже там, где правило его отпускает
  *   npm run ship -- --clean-db       # полный прогон на новой пустой базе rh_clean_<время>
  *   npm run ship -- --pr=123         # номер правки явно (иначе ищется по ветке)
+ *   npm run ship -- --local-tests    # полный прогон здесь, а не в облаке GitHub (GitHub недоступен)
+ *
+ * ПОЛНЫЙ ПРОГОН — В ОБЛАКЕ (20.10.2026). По умолчанию тесты сервера идут не на
+ * этой машине, а на 18 машинах GitHub (.github/workflows/ship-tests.yml): ship
+ * пушит проверяемый коммит в ветку `ship-tests/<sha>` СРАЗУ после сведения, и
+ * пока здесь идёт precheck, там уже идут тесты. Потом ship скачивает итоговый
+ * отчёт и проверяет его сам — тем же requireFullApiRunPassed, что и локальный, —
+ * и что отчёт именно про этот sha. Ветка удаляется в любом исходе.
  *
  * ЗАЧЕМ. Влитое в `main` уезжает на сайт таймером на сервере в течение минуты
  * (CLAUDE.md, «Как код попадает на прод»), а проверки GitHub с 22.09.2026 не
@@ -64,9 +72,10 @@ export function shipRuntimeProblem(platform, version) {
 }
 
 export function parseArgs(argv) {
-  const opts = { dryRun: false, noMerge: false, full: false, cleanDb: false, pr: null, help: false };
+  const opts = { dryRun: false, noMerge: false, full: false, cleanDb: false, localTests: false, pr: null, help: false };
   for (const a of argv) {
     if (a === "--dry-run") opts.dryRun = true;
+    else if (a === "--local-tests") opts.localTests = true;
     else if (a === "--no-merge") opts.noMerge = true;
     else if (a === "--full") opts.full = true;
     else if (a === "--clean-db") opts.cleanDb = true;
@@ -157,6 +166,48 @@ export function requireFullApiRunPassed(code, rep) {
   return rep.numTotalTests;
 }
 
+// ── Облачный прогон (.github/workflows/ship-tests.yml) ──────────────────────
+
+export const CLOUD_WORKFLOW = "ship-tests.yml";
+export const CLOUD_ARTIFACT = "api-tests-total";
+/** Ветка, пуш в которую запускает облачный прогон ровно этого коммита. */
+export const cloudBranch = (sha) => `ship-tests/${sha}`;
+
+/** Repository-wide run discovery also works before a new workflow reaches main. */
+export function findCloudRun(runs, {sha, branch, startedAt}) {
+  return (Array.isArray(runs) ? runs : [])
+    .filter(x => x.path === `.github/workflows/${CLOUD_WORKFLOW}` && x.head_sha === sha &&
+      x.event === "push" && x.head_branch === branch && Date.parse(x.created_at) >= startedAt - 60_000)
+    .sort((a,b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0] ?? null;
+}
+
+/**
+ * Вердикт облачного прогона. Верим не слову «success» у GitHub, а отчёту:
+ * прогон завершён и успешен, он про НАШ sha (и по GitHub, и по файлу внутри
+ * артефакта), а отчёт проходит ту же проверку, что и локальный.
+ */
+export function requireCloudRunPassed({ run, reportSha, report, sha }) {
+  if (!run || run.status !== "completed") throw new Stop("облачный прогон не завершён — считать его пройденным нельзя");
+  if (run.head_sha !== sha) {
+    throw new Stop(`облачный прогон проверял ${String(run.head_sha).slice(0, 9)}, а уезжает ${sha.slice(0, 9)}`);
+  }
+  if (String(reportSha ?? "").trim() !== sha) {
+    throw new Stop(`отчёт облачного прогона про ${String(reportSha ?? "?").trim().slice(0, 9)}, а не про ${sha.slice(0, 9)}`);
+  }
+  if (run.conclusion !== "success") {
+    throw new Stop(
+      run.conclusion === "startup_failure"
+        ? "GitHub не запустил облачный прогон (startup_failure — обычно биллинг учётки). Выкат без облака: npm run ship -- --local-tests"
+        : `облачный прогон тестов сервера: ${run.conclusion} — ${run.html_url}`,
+    );
+  }
+  const count = requireFullApiRunPassed(0, report);
+  if (report.sourceChecks?.sha !== sha || report.sourceChecks?.result !== "success") {
+    throw new Stop("нет успешной проверки исходников для этого sha — сборку и precheck пропускать нельзя");
+  }
+  return count;
+}
+
 /**
  * Снимок проверяемого состояния: вершина, дерево и «грязь» отслеживаемых файлов.
  * `git` — функция вида (...args) => stdout (из makeRunner).
@@ -190,6 +241,111 @@ export function stateDrift(verified, now) {
   return problems;
 }
 
+// ── Облачный прогон: запуск и ожидание ───────────────────────────────────────
+
+const sleepMs = (ms) => new Promise((res) => setTimeout(res, ms));
+/** Сколько ждать, пока GitHub заведёт прогон после пуша, и весь прогон целиком. */
+const CLOUD_APPEAR_MS = 5 * 60_000;
+const CLOUD_TOTAL_MS = 90 * 60_000;
+
+/**
+ * Пуш проверяемого коммита в `ship-tests/<sha>` — это и есть запуск
+ * (`on: push` в ship-tests.yml). Старую ветку с тем же именем сначала
+ * удаляем: пуш того же sha в существующую ветку прогона не заводит.
+ */
+function startCloudTests({ gh, run, repo, sha }) {
+  const branch = cloudBranch(sha);
+  const startedAt = Date.now();
+  // Удаление старой ветки — молча: её почти всегда нет.
+  spawnSync("git", ["push", "origin", "--delete", branch], { stdio: "ignore" });
+  const r = run("git", ["push", "origin", `${sha}:refs/heads/${branch}`]);
+  if (r.code !== 0) throw new Stop(`не удалось отправить ${sha.slice(0, 9)} в ${branch} для облачного прогона`);
+  const cloudRun = { branch, sha, startedAt, id: null };
+  state.cleanup = async () => {
+    state.cleanup = null;
+    if (cloudRun.id) {
+      try {
+        const now = await gh.call("GET", `/{repo}/actions/runs/${cloudRun.id}`);
+        if (now?.status !== "completed") await gh.call("POST", `/{repo}/actions/runs/${cloudRun.id}/cancel`, {});
+      } catch {
+        /* прогон уже кончился или GitHub недоступен — ветку всё равно убираем */
+      }
+    }
+    try {
+      await gh.call("DELETE", `/{repo}/git/refs/heads/${branch}`);
+    } catch (err) {
+      console.log(`  ветку ${branch} убрать не удалось (${err.message}) — убери руками: git push origin --delete ${branch}`);
+    }
+  };
+  console.log(`  облачный прогон запущен: ${repo.owner}/${repo.repo}, ветка ${branch}`);
+  return cloudRun;
+}
+
+/** Дождаться облачного прогона, скачать итоговый отчёт и проверить его здесь. */
+async function waitCloudTests({ gh, repo, token, sha, cloudRun }) {
+  const deadline = cloudRun.startedAt + CLOUD_TOTAL_MS;
+  let runInfo = null;
+  let lastNote = 0;
+  for (;;) {
+    if (!cloudRun.id) {
+      const list = await gh.call(
+        "GET",
+        `/{repo}/actions/runs?head_sha=${sha}&event=push&per_page=50`,
+      );
+      // Только прогон, заведённый ЭТИМ пушем: старые прогоны того же sha не в счёт.
+      const mine = findCloudRun(list?.workflow_runs, {sha, branch:cloudRun.branch, startedAt:cloudRun.startedAt});
+      if (mine) {
+        cloudRun.id = mine.id;
+        console.log(`  прогон ${mine.html_url}`);
+      } else if (Date.now() - cloudRun.startedAt > CLOUD_APPEAR_MS) {
+        throw new Stop(
+          "GitHub за 5 минут не завёл облачный прогон (Actions выключены или биллинг учётки). Выкат без облака: npm run ship -- --local-tests",
+        );
+      }
+    }
+    if (cloudRun.id) {
+      runInfo = await gh.call("GET", `/{repo}/actions/runs/${cloudRun.id}`);
+      if (runInfo.status === "completed") break;
+      if (Date.now() - lastNote > 60_000) {
+        lastNote = Date.now();
+        const jobs = await gh.call("GET", `/{repo}/actions/runs/${cloudRun.id}/jobs?per_page=100`);
+        const all = jobs?.jobs ?? [];
+        const doneJobs = all.filter((j) => j.status === "completed").length;
+        const red = all.filter((j) => j.status === "completed" && j.conclusion !== "success" && j.conclusion !== "skipped");
+        const mins = Math.round((Date.now() - cloudRun.startedAt) / 60_000);
+        console.log(`  ${mins} мин: заданий готово ${doneJobs} из ${all.length}${red.length ? `, красных ${red.length} (${red.map((j) => j.name).join(", ")})` : ""}`);
+      }
+    }
+    if (Date.now() > deadline) throw new Stop(`облачный прогон не кончился за ${CLOUD_TOTAL_MS / 60_000} минут — остановлен`);
+    await sleepMs(15_000);
+  }
+
+  // Отчёт скачиваем и при красном итоге: имена упавших тестов — первое, что нужно.
+  const dir = mkdtempSync(join(tmpdir(), "rh-ship-cloud-"));
+  const dl = spawnSync("gh", ["run", "download", String(cloudRun.id), "-R", `${repo.owner}/${repo.repo}`, "-n", CLOUD_ARTIFACT, "-D", dir], {
+    encoding: "utf8",
+    env: { ...process.env, GH_TOKEN: token },
+  });
+  let report = null;
+  let reportSha = null;
+  if (dl.status === 0 && existsSync(join(dir, "api-tests.json"))) {
+    try {
+      report = JSON.parse(readFileSync(join(dir, "api-tests.json"), "utf8"));
+    } catch {
+      report = null;
+    }
+    reportSha = existsSync(join(dir, "sha")) ? readFileSync(join(dir, "sha"), "utf8") : null;
+  } else {
+    console.log(`  итоговый отчёт не скачан: ${(dl.stderr || dl.error?.message || "").trim()}`);
+  }
+  if (report && runInfo.conclusion !== "success") {
+    const { failureLines } = await import("./cloud-test-report.mjs");
+    const lines = failureLines(report, 40);
+    if (lines.length) console.log(lines.map((l) => `  ${l}`).join("\n"));
+  }
+  return requireCloudRunPassed({ run: runInfo, reportSha, report, sha });
+}
+
 // ── Исполнение ───────────────────────────────────────────────────────────────
 
 const IS_WIN = process.platform === "win32";
@@ -198,7 +354,7 @@ const needsShell = (cmd) => IS_WIN && (cmd === "npm" || cmd === "npx");
 
 class Stop extends Error {}
 /** Влито ли уже: после вливания «на сайт ничего не ушло» было бы неправдой. */
-const state = { mergedSha: null };
+const state = { mergedSha: null, cleanup: null };
 
 function makeRunner(root) {
   const git = (...args) => {
@@ -327,7 +483,7 @@ export function github(token, { owner, repo }, { fetchImpl = fetch, sleep, log =
 export async function main(argv = process.argv.slice(2)) {
   const opts = parseArgs(argv);
   if (opts.help) {
-    const head = readFileSync(new URL(import.meta.url), "utf8").split("\n").slice(1, 10);
+    const head = readFileSync(new URL(import.meta.url), "utf8").split("\n").slice(1, 11);
     console.log(head.map((l) => l.replace(/^ \* ?/, "")).join("\n"));
     return 0;
   }
@@ -362,11 +518,14 @@ export async function main(argv = process.argv.slice(2)) {
   // Файлы правки относительно main (по merge-base — только своё, не чужое из main).
   const files = git("diff", "--name-only", `${mainSha}...HEAD`).split("\n").filter(Boolean);
   const scope = opts.full ? { full: true, why: "попросили --full" } : needsFullApiRun(files);
+  // Полный прогон — в облаке GitHub, кроме явного --local-tests (GitHub недоступен).
+  const cloud = scope.full && !opts.localTests;
   const migrations = newMigrations(files);
   const modes = badModes(git("diff", "--raw", "--no-abbrev", `${mainSha}...HEAD`));
   for (const b of modes) blockers.push(`${b.kind}: ${b.path} — такое в main не пускаем`);
   console.log(`  файлов в правке: ${files.length}`);
-  console.log(`  полный прогон тестов сервера: ${scope.full ? "да" : "нет"} — ${scope.why}`);
+  console.log(`  полный прогон тестов сервера: ${scope.full ? (cloud ? "да, в облаке GitHub" : "да, здесь") : "нет"} — ${scope.why}`);
+  if (cloud && opts.cleanDb) console.log("  --clean-db в облаке не нужен: у каждой машины GitHub база и так новая");
   if (migrations.length) console.log(`  новые миграции: ${migrations.join(", ")}`);
   if (files.length === 0) blockers.push("правка пустая относительно main — выкатывать нечего");
 
@@ -375,9 +534,11 @@ export async function main(argv = process.argv.slice(2)) {
     const plan = [
       `2. свести с main ${mainSha.slice(0, 9)} (scripts/sync-main.mjs --onto)`,
       "3. режимы 120000/160000 — " + (modes.length ? "КРАСНО" : "чисто"),
-      `4. prisma:generate и migrate deploy на тестовую базу (своих миграций в правке: ${migrations.length})`,
+      cloud
+        ? `4. prisma:generate; migrate deploy — на базах машин GitHub (своих миграций в правке: ${migrations.length})`
+        : `4. prisma:generate и migrate deploy на тестовую базу (своих миграций в правке: ${migrations.length})`,
       `5. npm run precheck${scope.full ? " -- --no-tests (тесты дальше полным прогоном)" : " (с тестами, задетыми правкой)"}`,
-      `6. тесты API — ${scope.full ? `полный прогон${opts.cleanDb ? " на чистой базе" : ""}` : "пропуск по правилу пачки"}`,
+      `6. тесты API — ${scope.full ? (cloud ? `полный прогон в облаке GitHub (${CLOUD_WORKFLOW}, ветка ${cloudBranch("<sha>")}), параллельно с precheck` : `полный прогон здесь${opts.cleanDb ? " на чистой базе" : ""}`) : "пропуск по правилу пачки"}`,
       `7. git push origin HEAD:${branch}`,
       `8. отметка: строка Ship-Verified для коммита (+ статус «${STATUS_CONTEXT}», где GitHub даёт)`,
       opts.noMerge ? "9. влить — НЕТ (--no-merge)" : "9. влить squash, если main всё ещё " + mainSha.slice(0, 9),
@@ -426,11 +587,17 @@ export async function main(argv = process.argv.slice(2)) {
   const verified = snapshotState(git);
   console.log(`  проверяется ${verified.head.slice(0, 9)} (дерево ${verified.tree.slice(0, 9)})`);
 
+  // Облачный прогон стартует ЗДЕСЬ, до миграций и precheck: машины GitHub
+  // работают, пока эта машина собирает и проверяет. Ветка и прогон убираются в
+  // любом исходе (state.cleanup зовётся и при остановке).
+  let cloudRun = null;
+  if (cloud) cloudRun = startCloudTests({ gh, run, repo, sha: verified.head });
+
   // ── 4. миграции ──
-  stage(4, "клиент Prisma и миграции тестовой базы");
+  stage(4, cloud ? "сборка и проверка исходников на GitHub" : "клиент Prisma и миграции тестовой базы");
   const apiDir = join(root, "apps", "api");
   const testEnv = {};
-  if (opts.cleanDb && scope.full) {
+  if (opts.cleanDb && scope.full && !cloud) {
     const c = spawnSync("npx", ["tsx", "tests/makeCleanDb.ts"], {
       cwd: apiDir,
       encoding: "utf8",
@@ -449,24 +616,42 @@ export async function main(argv = process.argv.slice(2)) {
   // может отстать от схемы: сборка и тесты тогда идут по старому клиенту.
   // Именно npm run prisma:generate — `npx prisma generate` из корня молча не
   // перегенерирует (tests-shared-db-flake-classes).
-  r = run("npm", ["run", "prisma:generate"]);
-  done("prisma generate", r.ms);
-  if (r.code !== 0) throw new Stop("npm run prisma:generate не прошёл");
-  r = run("npx", ["prisma", "migrate", "deploy"], { cwd: apiDir, env: testEnv });
-  done("migrate deploy (тестовая база)", r.ms);
-  if (r.code !== 0) throw new Stop("prisma migrate deploy на тестовую базу не прошёл");
+  if (!cloud) {
+    r = run("npm", ["run", "prisma:generate"]);
+    done("prisma generate", r.ms);
+    if (r.code !== 0) throw new Stop("npm run prisma:generate не прошёл");
+  }
+  if (cloud) {
+    // Тестовая база этой машины в облачном режиме не нужна вовсе: precheck идёт
+    // с --no-tests, полный прогон — на базах машин GitHub.
+    console.log("  тестовая база здесь не нужна — полный прогон идёт в облаке");
+  } else {
+    r = run("npx", ["prisma", "migrate", "deploy"], { cwd: apiDir, env: testEnv });
+    done("migrate deploy (тестовая база)", r.ms);
+    if (r.code !== 0) throw new Stop("prisma migrate deploy на тестовую базу не прошёл");
+  }
 
   // ── 5. precheck ──
   stage(5, "npm run precheck");
   const preArgs = ["scripts/precheck.mjs", `--base=${mainSha}`, ...(scope.full ? ["--no-tests"] : [])];
-  r = run(process.execPath, preArgs, { env: testEnv });
-  done("precheck", r.ms);
-  if (r.code !== 0) throw new Stop("precheck красный (сводка выше)");
+  if (cloud) {
+    console.log("  precheck и тесты команды выката проверяются на GitHub для того же sha");
+  } else {
+    r = run(process.execPath, preArgs, { env: testEnv });
+    done("precheck", r.ms);
+    if (r.code !== 0) throw new Stop("precheck красный (сводка выше)");
+  }
 
   // ── 6. полный прогон ──
-  stage(6, "тесты сервера, полный прогон");
+  stage(6, cloud ? "тесты сервера, полный прогон в облаке GitHub" : "тесты сервера, полный прогон");
   let apiTests = 0;
-  if (scope.full) {
+  if (cloud) {
+    const started = Date.now();
+    apiTests = await waitCloudTests({ gh, repo, token, sha: verified.head, cloudRun });
+    done("test:api полный (облако)", Date.now() - started);
+    await state.cleanup?.();
+    console.log(`  тестов ${apiTests}, упало 0`);
+  } else if (scope.full) {
     const report = join(mkdtempSync(join(tmpdir(), "rh-ship-")), "api-tests.json");
     r = run("npx", ["tsx", "tests/runParallel.ts", `--report=${report}`], { cwd: apiDir, env: testEnv });
     done("test:api полный", r.ms);
@@ -641,7 +826,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     });
     process.exit(again.status ?? 1);
   }
-  main().then(
+  main().finally(() => state.cleanup?.()).then(
     (code) => process.exit(code),
     (err) => {
       if (err instanceof Stop) {
