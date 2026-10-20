@@ -3,6 +3,7 @@ import { PROPERTY_TYPES } from "./enums.js";
 import { customerAgentCompanyKnowledgeSchema, customerAgentCompanyPolicyTopicSchema,
   customerAgentPropertySearchArgsSchema, customerAgentCompanyInformationSchema } from "./customerAgentPublicReads.js";
 import { customerPropertyFactsSchema } from "./customerPropertyContext.js";
+import { customerAgentVacanciesObservationSchema, type CustomerAgentVacanciesObservation } from "./recruitment.js";
 
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
 export const customerAgentCompanyInformationObservationSchema = z.object({
@@ -45,13 +46,13 @@ export const customerAgentPublicationObservationSchema = z.object({
 }).strict();
 export type CustomerAgentPublicationObservation = z.infer<typeof customerAgentPublicationObservationSchema>;
 export const customerAgentDeliveryObservationSchema = z.discriminatedUnion("kind", [
-  customerAgentCompanyPolicyObservationSchema, customerAgentSearchObservationSchema, customerAgentPublicationObservationSchema, customerAgentCompanyInformationObservationSchema,
+  customerAgentCompanyPolicyObservationSchema, customerAgentSearchObservationSchema, customerAgentPublicationObservationSchema, customerAgentCompanyInformationObservationSchema, customerAgentVacanciesObservationSchema,
 ]);
 export type CustomerAgentCompanyPolicyObservation = z.infer<typeof customerAgentCompanyPolicyObservationSchema>;
 export type CustomerAgentCompanyInformationObservation = z.infer<typeof customerAgentCompanyInformationObservationSchema>;
 export type CustomerAgentSearchObservation = Omit<z.infer<typeof customerAgentSearchObservationSchema>, "cards"> & { cards: readonly CustomerAgentSearchCard[] };
 export type CustomerAgentSearchCard = Omit<z.infer<typeof customerAgentSearchCardSchema>, "match"> & { match: Omit<z.infer<typeof customerAgentSearchCardSchema>["match"], "notes"> & { notes: readonly z.infer<typeof customerAgentSearchCardSchema>["match"]["notes"][number][] } };
-export type CustomerAgentDeliveryObservation = CustomerAgentCompanyPolicyObservation | CustomerAgentSearchObservation | CustomerAgentPublicationObservation | CustomerAgentCompanyInformationObservation;
+export type CustomerAgentDeliveryObservation = CustomerAgentCompanyPolicyObservation | CustomerAgentSearchObservation | CustomerAgentPublicationObservation | CustomerAgentCompanyInformationObservation | CustomerAgentVacanciesObservation;
 
 /** Encrypted P12 sideband, never a model/customer authority. Original revision
  * and presentation preference are retained; restart must not adopt current defaults. */

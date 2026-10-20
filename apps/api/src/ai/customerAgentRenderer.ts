@@ -4,6 +4,7 @@ import { customerPropertyCharacteristicLines, customerAgentPublicationObservatio
 import { PUBLIC_AGENCY_CONTACT } from "../lib/publicAgencyContact.js";
 import { customerPublicThanks, customerRequestedAgencyContact, isCustomerPublicAppreciation, customerPublicReaction, customerPublicReactionText } from "./customerAgentConversationPolicy.js";
 import { customerAgentIntake, customerSellerIntakeQuestion } from "./customerAgentIntake.js";
+import { customerRecruitmentRequested, customerRecruitmentFactsRequested, isCustomerVacanciesObservation, selectedRecruitmentPosition } from "./customerAgentRecruitmentProtocol.js";
 import { clientOwnWords } from "./untrustedContent.js";
 import { customerAgentAttachmentInputSchema, customerAgentAttachmentQuestion, type CustomerAgentAttachmentInput } from "./customerAgentAttachmentInput.js";
 import { customerAgentMediaPerceptionSchema, customerAgentVisualSummary, type CustomerAgentMediaPerception } from "./customerAgentMediaPerception.js";
@@ -20,6 +21,7 @@ export type CustomerAgentObservation =
   | CustomerAgentSearchObservation
   | import("@royal-home/shared").CustomerAgentCompanyInformationObservation
   | import("@royal-home/shared").CustomerAgentPublicationObservation
+  | import("@royal-home/shared").CustomerAgentVacanciesObservation
   // Only an adapter-validated exact proposal may provide this bounded summary.
   // Its presence does not prove presentation or authorize a subsequent "yes".
   | { kind: "proposal"; summary: { ru: string; tg: string } };
@@ -46,6 +48,11 @@ export function customerAgentRenderedQuestion(input: { decision: CustomerAgentDe
   if (d.kind === "propose") return "confirmation";
   if (input.surface === "public_comment" && !input.requestedFacts?.length && customerPublicReaction(input.inputText ?? "")) return "none";
   if (d.question === "topic" && input.evidence.some(e => e.value.kind === "company_information" && d.refs.includes(e.ref))) return "none";
+  if (input.evidence.some(e => e.value.kind === "open_vacancies" && (d.refs.includes(e.ref) || customerRecruitmentRequested(input.inputText ?? "") || input.verifiedContext?.publicState.topic === "job"))) {
+    const openings = input.evidence.flatMap(e => e.value.kind === "open_vacancies" ? e.value.positions : []);
+    if (!openings.length) return "none";
+    if (["property", "budget", "location", "rooms", "role", "topic", "seller_details", "preferences", "job_position"].includes(d.question)) return selectedRecruitmentPosition(openings, input.inputText ?? "", input.verifiedContext?.publicState.jobPositionKey) ? "job_experience" : "job_position";
+  }
   // Resolution failures are facts about the current property, not a reason to
   // collect a phone/name before answering or clarifying the property.
   if (input.evidence.some(e => e.value.kind === "property_unresolved" &&
@@ -78,6 +85,12 @@ const questions: Record<CustomerAgentQuestion, { ru: string; tg: string }> = {
   clarify_previous: { ru: "Что пояснить подробнее?", tg: "Чиро муфассалтар шарҳ диҳам?" },
   seller_details: { ru: "Расскажите о недвижимости, которую хотите продать.", tg: "Дар бораи амволе, ки фурӯхтан мехоҳед, нависед." },
   preferences: { ru: "Что ещё важно при выборе: например, этаж или состояние ремонта?", tg: "Ҳангоми интихоб боз чӣ муҳим аст: масалан, ошёна ё ҳолати таъмир?" },
+  job_position: { ru: "Какая должность вас интересует?", tg: "Кадом вазифа ба шумо ҷолиб аст?" },
+  job_experience: { ru: "Расскажите о вашем опыте по этой работе.", tg: "Дар бораи таҷрибаи худ дар ин кор нақл кунед." },
+  job_portfolio: { ru: "Пришлите до трёх лучших работ или ссылку на портфолио.", tg: "То се кори беҳтаринатон ё пайванди портфолиоро фиристед." },
+  job_tools: { ru: "Какими программами пользуетесь и какие задачи выполняете самостоятельно?", tg: "Аз кадом барномаҳо истифода мебаред ва кадом вазифаҳоро мустақилона иҷро мекунед?" },
+  job_format: { ru: "Вам подходит указанный формат работы?", tg: "Шартҳои нашршудаи кор ба шумо мувофиқанд?" },
+  job_start: { ru: "Когда готовы приступить к работе?", tg: "Кай ба кор шурӯъ карда метавонед?" },
 };
 /** Server-owned template, not a model text or presentation proof. */
 export function customerAgentCallbackQuestionText(language: "ru" | "tg"): string { return questions.callback_consent[language]; }
@@ -107,6 +120,7 @@ const social = {
   apologize: { ru: "Извините за неудобство.", tg: "Барои нороҳатӣ узр мехоҳам." },
 };
 const outcomes: Record<CustomerReceiptOutcome, { ru: string; tg: string }> = {
+  job_application_saved: { ru: "Сведения добавлены к отклику на вакансию.", tg: "Маълумот ба дархости кор илова шуд." },
   contact_saved: { ru: "Контактные данные сохранены.", tg: "Маълумоти тамос сабт шуд." },
   callback_requested: { ru: "Запрос на звонок создан.", tg: "Дархост барои занг сабт шуд." },
   new_lead_created: { ru: "Обращение зарегистрировано.", tg: "Муроҷиат сабт шуд." },
@@ -233,7 +247,9 @@ export function renderCustomerAgentDecision(input: {
   const requestedContact = customerRequestedAgencyContact(input.inputText ?? "");
   const contact = publicContactQuestion && requestedContact ? input.evidence.filter(e => e.value.kind === "agency_contact") : [];
   const company = customerCompanyInformationRequested(input.inputText ?? "") ? input.evidence.filter(e => e.value.kind === "company_information") : [];
-  const refs = [...new Set([...mandatory.map(e => e.ref), ...selected, ...contact.map(e => e.ref), ...company.map(e => e.ref)])];
+  const recruitment = customerRecruitmentFactsRequested(input.inputText ?? "") || !input.inputText?.trim() && !!input.verifiedContext?.publicState.jobPositionKey
+    ? input.evidence.filter(e => e.value.kind === "open_vacancies") : [];
+  const refs = [...new Set([...mandatory.map(e => e.ref), ...selected, ...contact.map(e => e.ref), ...company.map(e => e.ref), ...recruitment.map(e => e.ref)])];
   const evidence = refs.map(ref => input.evidence.find(e => e.ref === ref));
   if (evidence.some(value => !value)) return null;
   if (d.kind === "propose" && evidence.find(e => e?.ref === d.ref)?.value.kind !== "proposal") return null;
@@ -281,6 +297,27 @@ export function renderCustomerAgentDecision(input: {
       if (!isCustomerCompanyInformation(item.value)) return null;
       lines.push(...companyInformationLines(item.value, lang, input.inputText ?? ""));
     }
+    if (item.value.kind === "open_vacancies") {
+      if (!isCustomerVacanciesObservation(item.value)) return null;
+      if (!item.value.positions.length) lines.push(lang === "tg" ? "Ҳоло дар CRM ҷойи кори кушода тасдиқ нашудааст." : "Сейчас в CRM нет подтверждённых открытых вакансий.");
+      else {
+        if (input.verifiedContext?.publicState.jobPositionKey && !item.value.positions.some(row => row.key === input.verifiedContext?.publicState.jobPositionKey)) {
+          lines.push(lang === "tg" ? "Барои вазифа аз он эълон ҳоло қабули кушода тасдиқ нашудааст." : "По должности из этого объявления открытый набор сейчас не подтверждён.");
+        }
+        // Only publish the selected role's current staff-authored conditions;
+        // another role's salary or old ad text is never substituted.
+        const matched = selectedRecruitmentPosition(item.value.positions, input.inputText ?? "", input.verifiedContext?.publicState.jobPositionKey);
+        lines.push(lang === "tg" ? matched ? "Ҷойи кори кушода:" : "Ҷойҳои кори кушода:" : matched ? "Открыта вакансия:" : "Сейчас открыты вакансии:");
+        for (const position of matched ? [matched] : item.value.positions.slice(0, 12)) lines.push(lang === "tg" ? position.titleTg : position.titleRu);
+        if (!matched && item.value.positions.length > 12) lines.push(lang === "tg" ? `Ва боз ${item.value.positions.length - 12} вазифа. Соҳаи дилхоҳатонро нависед.`
+          : `И ещё ${item.value.positions.length - 12} позиций. Напишите, какая работа вас интересует.`);
+        if (matched) {
+          const details = lang === "tg" ? matched.detailsTg : matched.detailsRu;
+          if (details) lines.push(details);
+          else lines.push(lang === "tg" ? "Шартҳои муфассали ин вазифа ҳоло нашр нашудаанд." : "Подробные условия этой должности пока не опубликованы.");
+        }
+      }
+    }
     if (item.value.kind === "property_search") {
       if (!isPublicPropertySearch(item.value)) return null;
       lines.push(...searchSegments(item.value, lang));
@@ -290,7 +327,7 @@ export function renderCustomerAgentDecision(input: {
       if (requestedContact) lines.push(`${lang === "tg" ? "Занг занед" : "Позвоните"}: ${item.value.contact.phone}.`);
     }
   }
-  const attachmentOnly = input.surface === "dm" && input.inputText !== undefined && !input.inputText.trim() && !!input.attachmentInput && !perception;
+  const attachmentOnly = input.surface === "dm" && input.verifiedContext?.publicState.topic !== "job" && input.inputText !== undefined && !input.inputText.trim() && !!input.attachmentInput && !perception;
   if (attachmentOnly) {
     const attachment = customerAgentAttachmentInputSchema.safeParse(input.attachmentInput);
     if (!attachment.success || d.kind !== "clarify" || d.social !== "none" || d.question !== "clarify_previous" ||

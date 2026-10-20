@@ -44,7 +44,8 @@ export function VacancyRow({ item, tone, bucket }: { item: JobApplication; tone:
   const title = item.name ?? item.contactName ?? "Кандидат без имени";
   const overdueInterview = item.status === "INTERVIEW" && item.interviewAt && isPastInterview(item.interviewAt);
   const checks = vacancyChecks(item);
-  const priorityTitle = item.priority ? item.priorityReason ?? VACANCY_PRIORITY_HINT[item.priority] : VACANCY_PRIORITY_UNKNOWN.hint;
+  const priorityTitle = item.priority ? item.priorityReason ?? VACANCY_PRIORITY_HINT[item.priority] : item.customerInquiryId
+    ? "Профессиональные сведения и портфолио оценивает HR." : VACANCY_PRIORITY_UNKNOWN.hint;
 
   return (
     <>
@@ -66,7 +67,7 @@ export function VacancyRow({ item, tone, bucket }: { item: JobApplication; tone:
             </button>
           </b>
           <span>
-            {[item.city, vacancyChannelLabel(item.channel), receivedLabel(item.createdAt)].filter(Boolean).join(" · ")}
+            {[item.positionTitle, item.city, vacancyChannelLabel(item.channel), receivedLabel(item.createdAt)].filter(Boolean).join(" · ")}
             {item.status === "INTERVIEW" && item.interviewAt
               ? `. Собеседование ${vacancyInterviewLabel(item.interviewAt)}${overdueInterview ? ", срок прошёл" : ""}`
               : ""}
@@ -77,7 +78,7 @@ export function VacancyRow({ item, tone, bucket }: { item: JobApplication; tone:
               ? // Причину пишет код уже с названием цвета («Опыт продаж: …») — подпись
                 // перед ней давала «Опыт продаж: Опыт продаж: …».
                 item.priorityReason ?? VACANCY_PRIORITY_LABEL[item.priority]
-              : VACANCY_PRIORITY_UNKNOWN.label}
+              : item.customerInquiryId ? "Требуется оценка HR" : VACANCY_PRIORITY_UNKNOWN.label}
           </span>
           <div className="wrap" style={{ marginTop: 2 }}>
             {/* Стадия — в плоских списках «Дособрать»/«Не подходят» (02.10.2026):

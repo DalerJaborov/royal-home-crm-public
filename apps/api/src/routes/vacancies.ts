@@ -19,6 +19,8 @@
 
 import { Router } from "express";
 import { z } from "zod";
+import { customerRecruitmentPortfolioSchema } from "@royal-home/shared";
+import { recruitmentPositionsRouter } from "./recruitmentPositions.js";
 import { prisma } from "../db.js";
 import { requireAuth, requirePermission } from "../auth/middleware.js";
 import {
@@ -58,6 +60,7 @@ import {
 } from "../lib/vacancyVisibility.js";
 
 export const vacanciesRouter = Router();
+vacanciesRouter.use("/positions", recruitmentPositionsRouter);
 
 /** Стадии воронки. Закрытый список: свободная строка в поле статуса превращает
  *  очередь в свалку, по которой нельзя фильтровать. Порядок — как в пайплайне,
@@ -147,6 +150,7 @@ const listQuerySchema = z.object({
  *  звонок-приглашение — строка «Робот позвонил: придёт» в анкете; skipReason —
  *  чтобы строка называла точную причину, почему робот не звонил. */
 const LIST_INCLUDE = {
+  customerPosition: { select: { titleRu: true, titleTg: true } },
   contactProfile: { select: { language: true } },
   inviteCalls: {
     orderBy: { createdAt: "desc" as const },
@@ -206,14 +210,18 @@ type ListRow = Prisma.JobApplicationGetPayload<{ include: typeof LIST_INCLUDE }>
 /** Строка списка в том виде, в каком её ждёт экран. inboxId — готовая ссылка на
  *  переписку (правило склейки живёт рядом с инбоксом); missing/rejectReasons —
  *  тем же кодом, что решает допуск (ai/jobApplication.ts). */
-function presentListItem({ contactProfile, inviteCalls, ...i }: ListRow) {
+function presentListItem({ contactProfile, inviteCalls, customerPosition, customerApplicationRevision, ...i }: ListRow) {
+  const portfolio = customerRecruitmentPortfolioSchema.safeParse(i.customerPortfolio);
   return {
     ...i,
+    customerApplicationRevision: customerApplicationRevision?.toString() ?? null,
+    customerPortfolio: portfolio.success ? portfolio.data : [],
+    positionTitle: customerPosition?.titleRu ?? null,
     chatLanguage: contactProfile?.language ?? null,
     inviteCall: presentInviteCall(inviteCalls[0], i),
     inboxId: inboxIdOf(i.channel, i.conversationId),
-    missing: jobMissingFacts(i),
-    rejectReasons: jobRejectReasons(i),
+    missing: i.customerInquiryId ? [] : jobMissingFacts(i),
+    rejectReasons: i.customerInquiryId ? [] : jobRejectReasons(i),
   };
 }
 
@@ -546,6 +554,16 @@ vacanciesRouter.get("/:id/cv", requireAuth, requirePermission("vacancies.view"),
   if (!sendPrivateFile(res, application.cvFile, "vacancy-cv")) {
     return res.status(404).json({ error: "Файл не найден" });
   }
+});
+
+vacanciesRouter.get("/:id/portfolio/:index", requireAuth, requirePermission("vacancies.view"), async (req, res) => {
+  const params = z.object({ id: z.string().uuid(), index: z.coerce.number().int().min(0).max(23) }).safeParse(req.params);
+  if (!params.success) return res.status(400).json({ error: "Неверный файл" });
+  const application = await prisma.jobApplication.findUnique({ where: { id: params.data.id }, select: { status: true, customerPortfolio: true } });
+  const parsed = customerRecruitmentPortfolioSchema.safeParse(application?.customerPortfolio);
+  const file = parsed.success ? parsed.data[params.data.index] : null;
+  if (!application || application.status === "NOT_CANDIDATE" || !file || !("file" in file) ||
+      !sendPrivateFile(res, file.file, "vacancy-portfolio")) return res.status(404).json({ error: "Файл не найден" });
 });
 
 /**

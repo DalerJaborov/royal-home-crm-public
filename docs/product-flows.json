@@ -1,9 +1,9 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 641,
-  "forks": 3540,
-  "mounts": 72,
+  "endpoints": 645,
+  "forks": 3550,
+  "mounts": 73,
   "cron": 107,
   "jobs": 30,
   "hidden": 0
@@ -72208,6 +72208,70 @@
    ]
   },
   {
+   "method": "GET",
+   "path": "/:id/portfolio/:index",
+   "mount": "/api/v1/vacancies",
+   "full": "/api/v1/vacancies/:id/portfolio/:index",
+   "file": "apps/api/src/routes/vacancies.ts",
+   "router": "vacanciesRouter",
+   "top": "apps/api/src/routes/vacancies.ts::vacanciesRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "вход выполнен",
+    "есть право: vacancies.view"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!params.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Неверный файл\" });",
+       "a": [
+        "ответ 400 — «Неверный файл»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const application = await prisma.jobApplication.findUnique({ where: { id: params.data.id }, select: { status:…",
+     "a": [
+      "читает в базе: jobApplication"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const parsed = customerRecruitmentPortfolioSchema.safeParse(application?.customerPortfolio);",
+     "a": [
+      "проверяет данные схемой customerRecruitmentPortfolioSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!application || application.status === \"NOT_CANDIDATE\" || !file || !(\"file\" in file) || !sendPrivateFile(res,…",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Файл не найден\" });",
+       "a": [
+        "ответ 404 — «Файл не найден»"
+       ],
+       "c": []
+      }
+     ]
+    }
+   ]
+  },
+  {
    "method": "PATCH",
    "path": "/:id",
    "mount": "/api/v1/vacancies",
@@ -72706,6 +72770,365 @@
       "ответ 200"
      ],
      "c": []
+    }
+   ]
+  },
+  {
+   "method": "PUT",
+   "path": "/:key",
+   "mount": "/api/v1/vacancies/positions",
+   "full": "/api/v1/vacancies/positions/:key",
+   "file": "apps/api/src/routes/recruitmentPositions.ts",
+   "router": "recruitmentPositionsRouter",
+   "top": "apps/api/src/routes/vacancies.ts::vacanciesRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "вход выполнен",
+    "есть право: vacancies.view",
+    "есть право: settings.manage",
+    "requireElevation"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const key = recruitmentPositionKeySchema.safeParse(req.params.key), parsed = recruitmentPositionUpdateSchema.…",
+     "a": [
+      "проверяет данные схемой recruitmentPositionKeySchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!key.success || !parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "res.status(400).json({ error: \"Проверьте поля вакансии\" });",
+       "a": [
+        "ответ 400 — «Проверьте поля вакансии»"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const result = await prisma.$transaction(async tx",
+       "a": [
+        "всё внутри — одной транзакцией",
+        "обращается к базе своим SQL",
+        "читает в базе: recruitmentPosition",
+        "считает в базе: recruitmentPosition",
+        "создаёт или меняет в базе: recruitmentPosition",
+        "удаляет в базе: recruitmentPublication",
+        "создаёт в базе: recruitmentPublication",
+        "удаляет в базе: recruitmentKeyword",
+        "создаёт в базе: recruitmentKeyword",
+        "читает в базе: agent",
+        "создаёт в базе: auditLog"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "await tx.$executeRaw`LOCK TABLE \"RecruitmentPosition\" IN SHARE ROW EXCLUSIVE MODE`;",
+         "a": [
+          "обращается к базе своим SQL"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "const existing = await tx.recruitmentPosition.findUnique({ where: { key: key.data }, select: { revision: true…",
+         "a": [
+          "читает в базе: recruitmentPosition"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "(existing?.revision ?? 0) !== parsed.data.expectedRevision",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return \"conflict\" as const;",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "!existing && await tx.recruitmentPosition.count() >= 24",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return \"limit\" as const;",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "await tx.recruitmentPosition.upsert({ where: { key: key.data }, create: { key: key.data, ...data }, update: {…",
+         "a": [
+          "создаёт или меняет в базе: recruitmentPosition"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "await tx.recruitmentPublication.deleteMany({ where: { positionKey: key.data } });",
+         "a": [
+          "удаляет в базе: recruitmentPublication"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "postCodes.length",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "await tx.recruitmentPublication.createMany({ data: postCodes.map(code",
+           "a": [
+            "создаёт в базе: recruitmentPublication"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "await tx.recruitmentKeyword.deleteMany({ where: { positionKey: key.data } });",
+         "a": [
+          "удаляет в базе: recruitmentKeyword"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "keywords.length",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "await tx.recruitmentKeyword.createMany({ data: keywords.map(word",
+           "a": [
+            "создаёт в базе: recruitmentKeyword"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const author = await tx.agent.findUniqueOrThrow({ where: { id: req.agent!.id }, select: { fullName: true } });",
+         "a": [
+          "читает в базе: agent"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "await tx.auditLog.create({ data: { action: \"RECRUITMENT_POSITION_UPDATE\", entityType: \"RecruitmentPosition\", …",
+         "a": [
+          "создаёт в базе: auditLog"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "result === \"conflict\"",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "res.status(409).json({ error: \"Вакансию уже изменили. Обновите список и повторите правку.\" });",
+         "a": [
+          "ответ 409 — «Вакансию уже изменили. Обновите список и повторите правку.»"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "return;",
+         "a": [
+          "дальше не идёт, ничего не меняя"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "result === \"limit\"",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "res.status(409).json({ error: \"Достигнут лимит: 24 позиции. Закройте или отредактируйте существующую.\" });",
+         "a": [
+          "ответ 409 — «Достигнут лимит: 24 позиции. Закройте или отредактируйте существующую.»"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "return;",
+         "a": [
+          "дальше не идёт, ничего не меняя"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "res.json({ items: await readRecruitmentPositions() });",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "if",
+       "t": "error && typeof error === \"object\" && \"code\" in error && error.code === \"P2002\"",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "res.status(409).json({ error: \"Публикация или ключевое слово уже связаны с другой вакансией\" });",
+         "a": [
+          "ответ 409 — «Публикация или ключевое слово уже связаны с другой вакансией»"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "return;",
+         "a": [
+          "дальше не идёт, ничего не меняя"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "res.status(503).json({ error: \"Не удалось сохранить вакансию\" });",
+       "a": [
+        "ответ 503 — «Не удалось сохранить вакансию»"
+       ],
+       "c": []
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/templates",
+   "mount": "/api/v1/vacancies/positions",
+   "full": "/api/v1/vacancies/positions/templates",
+   "file": "apps/api/src/routes/recruitmentPositions.ts",
+   "router": "recruitmentPositionsRouter",
+   "top": "apps/api/src/routes/vacancies.ts::vacanciesRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "вход выполнен",
+    "есть право: vacancies.view"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "res.json({ items: recruitmentPositionTemplates() });",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/",
+   "mount": "/api/v1/vacancies/positions",
+   "full": "/api/v1/vacancies/positions",
+   "file": "apps/api/src/routes/recruitmentPositions.ts",
+   "router": "recruitmentPositionsRouter",
+   "top": "apps/api/src/routes/vacancies.ts::vacanciesRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "вход выполнен",
+    "есть право: vacancies.view"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "res.json({ items: await readRecruitmentPositions() });",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "res.status(503).json({ error: \"Не удалось загрузить открытые позиции\" });",
+       "a": [
+        "ответ 503 — «Не удалось загрузить открытые позиции»"
+       ],
+       "c": []
+      }
+     ]
     }
    ]
   },

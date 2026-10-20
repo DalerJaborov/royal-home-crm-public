@@ -24,6 +24,7 @@ export type CustomerClaimedContact = z.infer<typeof customerClaimedContactSchema
 /** Proposals contain no routing/identity/actor/action key. The authenticated
  * current-IN adapter separately supplies server-branded write authority. */
 export const customerMutationCommandSchema = z.discriminatedUnion("name", [
+  z.object({ name: z.literal("save_job_application"), args: z.object({}).strict() }).strict(),
   z.object({ name: z.literal("save_contact"), args: z.object({
     name: z.string().trim().min(1).max(160).optional(), phone: phone.optional(),
   }).strict().refine(value => !!value.name || !!value.phone) }).strict(),
@@ -67,15 +68,15 @@ const legacyCustomerMutationReceiptSchema = z.object({
 });
 const managedCustomerMutationReceiptSchema = z.object({
   version: z.literal(2), actionId: z.string().uuid(), inquiryId: z.string().uuid(),
-  kind: z.enum(["handover", "book_showing", "reschedule_showing", "cancel_showing", "owner_question"]),
+  kind: z.enum(["handover", "book_showing", "reschedule_showing", "cancel_showing", "owner_question", "job_application"]),
   generation: positiveRevision, publicRef: z.string().uuid(), resourceRevision: positiveRevision,
-  outcome: z.enum(["handover_requested", "showing_booked", "showing_rescheduled", "showing_cancelled", "owner_question_recorded"]),
-  resourceType: z.enum(["CallbackRequest", "Interaction", "OwnerQuestion"]), resourceId: z.string().uuid(),
+  outcome: z.enum(["handover_requested", "showing_booked", "showing_rescheduled", "showing_cancelled", "owner_question_recorded", "job_application_saved"]),
+  resourceType: z.enum(["CallbackRequest", "Interaction", "OwnerQuestion", "JobApplication"]), resourceId: z.string().uuid(),
   committedAt: z.string().datetime(),
 }).strict().superRefine((value, context) => {
   const expected = { handover: ["handover_requested", "CallbackRequest"], book_showing: ["showing_booked", "Interaction"],
     reschedule_showing: ["showing_rescheduled", "Interaction"], cancel_showing: ["showing_cancelled", "Interaction"],
-    owner_question: ["owner_question_recorded", "OwnerQuestion"] } as const;
+    owner_question: ["owner_question_recorded", "OwnerQuestion"], job_application: ["job_application_saved", "JobApplication"] } as const;
   const pair = expected[value.kind];
   if (value.outcome !== pair[0] || value.resourceType !== pair[1]) context.addIssue({ code: "custom", message: "Receipt kind/resource mismatch" });
 });

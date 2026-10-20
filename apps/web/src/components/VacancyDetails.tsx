@@ -33,17 +33,18 @@ import {
  * /attachments — тот требует права на вложения переписки, которого у
  * руководителя (главного HR) нет, и резюме ему не открывалось.
  */
-function CvLink({ applicationId, file }: { applicationId: string; file: string }) {
+function CvLink({ applicationId, file, portfolioIndex }: { applicationId: string; file: string; portfolioIndex?: number }) {
   const [state, setState] = useState<"idle" | "loading" | "error">("idle");
   const open = () => {
     setState("loading");
-    const load = () => api<Blob>(`/vacancies/${encodeURIComponent(applicationId)}/cv`, { responseType: "blob" });
+    const suffix = portfolioIndex === undefined ? "cv" : `portfolio/${portfolioIndex}`;
+    const load = () => api<Blob>(`/vacancies/${encodeURIComponent(applicationId)}/${suffix}`, { responseType: "blob" });
     // Без await перед вызовом: окно должно открыться в самом обработчике нажатия.
     void openPrivateFile(file, browserDeps(load)).then((ok) => setState(ok ? "idle" : "error"));
   };
   return (
     <span className="kvp">
-      Резюме{" "}
+      {portfolioIndex === undefined ? "Резюме" : `Работа ${portfolioIndex + 1}`}{" "}
       <button className="lnk" type="button" onClick={open} disabled={state === "loading"}>
         {state === "loading" ? "Открываем…" : state === "error" ? "Не открылось — повторить" : "Открыть файл"}
       </button>
@@ -192,7 +193,7 @@ export function VacancyDetails({ item }: { item: JobApplication }) {
     { label: "Готов начать", value: item.startWhen },
   ];
   const known = facts.filter((f) => f.value);
-  const unknown = facts.filter((f) => !f.value).map((f) => f.label.toLowerCase());
+  const unknown = item.customerInquiryId ? [] : facts.filter((f) => !f.value).map((f) => f.label.toLowerCase());
 
   return (
     <div className="card flat" style={{ margin: "0 0 12px" }}>
@@ -270,6 +271,14 @@ export function VacancyDetails({ item }: { item: JobApplication }) {
       {item.rejectionReason && <p className="state">Причина отказа: {item.rejectionReason}</p>}
       {item.rejectionReasonVoiceUrl && <VoiceNotePlayer url={item.rejectionReasonVoiceUrl} />}
 
+      {item.positionTitle && <p className="state">Должность: {item.positionTitle}</p>}
+      {!!item.customerPortfolio?.length && <div>
+        <div className="sec-t">Портфолио кандидата</div>
+        <ul>{item.customerPortfolio.map((entry, index) => <li key={"url" in entry ? entry.url : entry.file}>
+          {"url" in entry ? <a href={entry.url} target="_blank" rel="noopener noreferrer nofollow">Работа {index + 1}: открыть ссылку</a> :
+            <CvLink applicationId={item.id} file={entry.file} portfolioIndex={index} />}
+        </li>)}</ul>
+      </div>}
       {saidLines.length > 0 ? (
         <>
           <div className="sec-t">Что рассказал сам</div>

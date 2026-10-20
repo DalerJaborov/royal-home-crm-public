@@ -134,6 +134,39 @@ afterAll(async () => {
 });
 
 describe("genuine pending → FINAL across process loss", () => {
+  it("keeps a real signed campaign keyword in its job context, without a property lead or inferred HR verdict", async () => {
+    const key = `synthetic-${randomUUID()}`, word = `контент${randomUUID().replaceAll("-", "")}`;
+    await prisma.recruitmentPosition.create({ data: { key, titleRu: "SMM-менеджер / видеограф", titleTg: "Менеҷери SMM / видеограф", isOpen: true,
+      keywords: { create: { word } } } });
+    try {
+      const f = frame(`🔥 ${word.toLocaleUpperCase()}!!!`), row = await pending(f);
+      const first = await recoverAndFinalizeCustomerInboxInput(row.eventKey);
+      expect(first.status).toBe("finalized"); if (first.status !== "finalized") throw Error("Actual signed FINAL required");
+      let inquiry = await prisma.customerInquiry.findUniqueOrThrow({ where: { conversationId: first.ticket.conversationId } });
+      expect(inquiry.publicState).toMatchObject({ topic: "job", jobPositionKey: key });
+      expect(await prisma.customerAction.count({ where: { inquiryId: inquiry.id } })).toBe(0);
+      const followup = await pending(frame("Опыт съёмки два года", {}, a, f.peer));
+      expect((await recoverAndFinalizeCustomerInboxInput(followup.eventKey)).status).toBe("finalized");
+      inquiry = await prisma.customerInquiry.findUniqueOrThrow({ where: { id: inquiry.id } });
+      expect(inquiry.publicState).toMatchObject({ topic: "job", jobPositionKey: key });
+      const changed = await pending(frame("Теперь хочу купить квартиру", {}, a, f.peer));
+      expect((await recoverAndFinalizeCustomerInboxInput(changed.eventKey)).status).toBe("finalized");
+      const state = (await prisma.customerInquiry.findUniqueOrThrow({ where: { id: inquiry.id } })).publicState;
+      expect(state).toMatchObject({ topic: "buyer" }); expect(state).not.toHaveProperty("jobPositionKey");
+    } finally { await prisma.recruitmentPosition.delete({ where: { key } }); }
+  });
+  it("recognizes a mapped forwarded vacancy even when the advertising question has no job words", async () => {
+    const key = `synthetic-${randomUUID()}`, code = `Synthetic${randomUUID().replaceAll("-", "")}`;
+    await prisma.recruitmentPosition.create({ data: { key, titleRu: "Тестовая вакансия", titleTg: "Вазифаи санҷишӣ", isOpen: true,
+      publications: { create: { code } } } });
+    try {
+      const f = frame("Можно подробнее?", { attachments: [{ type: "share", payload: { url: `https://www.instagram.com/reel/${code}/` } }] });
+      const row = await pending(f), result = await recoverAndFinalizeCustomerInboxInput(row.eventKey);
+      expect(result.status).toBe("finalized"); if (result.status !== "finalized") throw Error("Actual signed share required");
+      expect((await prisma.customerInquiry.findUniqueOrThrow({ where: { conversationId: result.ticket.conversationId } })).publicState)
+        .toMatchObject({ topic: "job", jobPositionKey: key });
+    } finally { await prisma.recruitmentPosition.delete({ where: { key } }); }
+  });
   it("rejects actual invalid HTTP signature and another own-key target without any observation/grant", async () => {
     const f = frame(); expect((await send(f, "synthetic-wrong-key")).status).toBe(403);
     const b = await account(), other = frame("Нарх?", {}, b);

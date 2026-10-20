@@ -946,6 +946,7 @@ model CustomerEndpointScope {
 
 /// Single canonical state/contact row. Native deletion tombstones it; receipts survive.
 model CustomerInquiry {
+  recruitmentApplications JobApplication[] @relation("CustomerRecruitmentInquiry")
   id String @id @default(uuid())
   endpointScopeId String
   endpointScope CustomerEndpointScope @relation(fields: [endpointScopeId], references: [id], onDelete: Restrict)
@@ -1420,7 +1421,45 @@ model PendingInstagramContainer {
   @@index([status, createdAt])
 }
 
+/// Public job openings maintained by staff; not candidate records or HR decisions.
+model RecruitmentPosition {
+  applications JobApplication[] @relation("CustomerRecruitmentPosition")
+  key          String @id
+  titleRu      String
+  titleTg      String
+  detailsRu    String @default("")
+  detailsTg    String @default("")
+  isOpen       Boolean @default(false)
+  revision     Int @default(1)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @default(now())
+  publications RecruitmentPublication[]
+  keywords     RecruitmentKeyword[]
+}
+
+model RecruitmentPublication {
+  code        String @id
+  positionKey String
+  position    RecruitmentPosition @relation(fields: [positionKey], references: [key], onDelete: Cascade)
+  @@index([positionKey])
+}
+
+model RecruitmentKeyword {
+  word        String @id
+  positionKey String
+  position    RecruitmentPosition @relation(fields: [positionKey], references: [key], onDelete: Cascade)
+  @@index([positionKey])
+}
+
 model JobApplication {
+  /// Managed own-inquiry intake; never a phone/profile identity merge.
+  customerInquiryId String?
+  customerInquiry CustomerInquiry? @relation("CustomerRecruitmentInquiry", fields: [customerInquiryId], references: [id], onDelete: Restrict)
+  customerPositionKey String?
+  customerPosition RecruitmentPosition? @relation("CustomerRecruitmentPosition", fields: [customerPositionKey], references: [key], onDelete: Restrict)
+  customerApplicationRevision BigInt?
+  customerPortfolio Json?
+  @@unique([customerInquiryId, customerPositionKey])
   id                             String    @id @default(uuid())
   /// Диалог-источник. Уникален: upsert по нему и держит «одну анкету на разговор».
   conversationId                 String?   @unique

@@ -111,7 +111,7 @@ function wire(f: Fixture, script: Script[], options: { missingMid?: boolean; nar
       modelBodies.push(String(init.body));
       const body = JSON.parse(String(init.body));
       expect(body.tools[0].functionDeclarations.map((tool: { name: string }) => tool.name).sort()).toEqual([
-        "get_agency_contact", "get_company_information", "get_company_policy", "get_property_facts", "search_public_properties",
+        "get_agency_contact", "get_company_information", "get_company_policy", "get_open_vacancies", "get_property_facts", "search_public_properties",
       ]);
       expect(String(init.body)).not.toContain(f.accountId); expect(String(init.body)).not.toContain(f.token);
       const step = script[generations++]; if (!step) throw new Error("Unexpected additional generation");
@@ -143,6 +143,26 @@ function wire(f: Fixture, script: Script[], options: { missingMid?: boolean; nar
 }
 const reply = { kind: "reply", refs: ["e0"], social: "none", question: "none" };
 const commission: Script[] = [{ call: { name: "get_company_policy", args: { topic: "commission" } } }, { decision: reply }];
+it("a genuine public recruitment keyword reads the current role and replies without a phone, private read or application claim", async () => {
+  const key = `synthetic-public-job-${randomUUID()}`;
+  const settings = await prisma.settings.findUniqueOrThrow({ where: { id: "singleton" }, select: { botCanHandleVacancies: true } });
+  await prisma.recruitmentPosition.create({ data: { key, titleRu: "SMM-специалист / видеограф", titleTg: "Мутахассиси SMM / видеограф",
+    detailsRu: "Офисная работа. Условия опубликованы в карточке вакансии.", isOpen: true, keywords: { create: { word: "контент" } } } });
+  try {
+    await prisma.settings.update({ where: { id: "singleton" }, data: { botCanHandleVacancies: true } });
+    const f = await fixture("Контент!!!"), w = wire(f, [{ decision: { ...reply, question: "job_portfolio" } }]);
+    expect(await handle(f)).toBe("replied");
+    expect(w.posts).toHaveLength(1); expect(w.posts[0].text).toContain("SMM-специалист / видеограф");
+    expect(w.posts[0].text).toContain("до трёх лучших работ");
+    expect(w.posts[0].text).not.toMatch(/992|сохранен|сохранён|собеседование назначено|бюджет/iu);
+    expect((await part(f)).status).toBe("ACCEPTED");
+    expect(await prisma.jobApplication.count({ where: { customerPositionKey: key } })).toBe(0);
+    expect(w.modelBodies[0]).not.toContain("customerPortfolio");
+  } finally {
+    await prisma.recruitmentPosition.delete({ where: { key } });
+    await prisma.settings.update({ where: { id: "singleton" }, data: settings });
+  }
+});
 async function handle(f: Fixture) { return handleComment(await prisma.instagramComment.findUniqueOrThrow({ where: { id: f.ref.id } })); }
 async function part(f: Fixture) { return prisma.customerOutboxPart.findFirstOrThrow({ where: { sourceKey: `meta:${f.ref.id}`, sourceKind: "PUBLIC_COMMENT_REPLY" } }); }
 beforeAll(async () => {

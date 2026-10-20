@@ -18,6 +18,8 @@ import { readCustomerCompanyInformation, customerCompanyInformationCurrent } fro
 import type { CustomerAgentCompanyInformationObservation } from "@royal-home/shared";
 import { resolveSearchPlace } from "./searchPlace.js";
 import { loadCustomerAgentFeaturePolicy } from "./customerAgentFeaturePolicy.js";
+import { customerAgentVacanciesCallSchema, type CustomerAgentVacanciesObservation } from "@royal-home/shared";
+import { readCustomerOpenVacancies, customerOpenVacanciesCurrent } from "./recruitmentPositions.js";
 
 /** ONE actual source, no copied commission constants/office/customer data. */
 export function readCustomerAgentCompanyKnowledge() {
@@ -28,7 +30,7 @@ export function readCustomerAgentCompanyKnowledge() {
 }
 export function currentCustomerAgentKnowledgeHash(): string { return customerAgentCompanyKnowledgeHash(readCustomerAgentCompanyKnowledge()); }
 
-const calls = z.union([customerAgentCompanyPolicyCallSchema, customerAgentPropertySearchCallSchema, customerToolCallSchema, customerAgentCompanyInformationCallSchema]);
+const calls = z.union([customerAgentCompanyPolicyCallSchema, customerAgentPropertySearchCallSchema, customerToolCallSchema, customerAgentCompanyInformationCallSchema, customerAgentVacanciesCallSchema]);
 async function current(principal: CustomerPrincipal): Promise<boolean> {
   return (await revalidateCustomerPrincipal(principal)).status === "current";
 }
@@ -71,7 +73,7 @@ export interface CustomerAgentPublicDataOptions {
   alreadyShownShortIds?: readonly number[];
 }
 export type CustomerAgentPublicDataResult =
-    { status: "observed"; observation: CustomerAgentCompanyPolicyObservation | CustomerAgentSearchObservation | CustomerAgentPublicationObservation | CustomerAgentCompanyInformationObservation } |
+    { status: "observed"; observation: CustomerAgentCompanyPolicyObservation | CustomerAgentSearchObservation | CustomerAgentPublicationObservation | CustomerAgentCompanyInformationObservation | CustomerAgentVacanciesObservation } |
     { status: "denied" | "unavailable"; reason: string };
 
 /** INTERNAL public data service, deliberately no principal/authorization API.
@@ -84,6 +86,7 @@ export async function readCustomerAgentPublicData(rawCall: unknown, options: Cus
   if (!call.success) return { status: "denied", reason: "invalid_public_call" };
   try {
     if (call.data.name === "get_company_information") return { status: "observed", observation: await readCustomerCompanyInformation() };
+    if (call.data.name === "get_open_vacancies") return { status: "observed", observation: await readCustomerOpenVacancies() };
     if (call.data.name === "get_property_facts") {
       if (!options.publication) return { status: "denied", reason: "publication_source_required" };
       const observation = await readCustomerPublicationObservation(options.publication, call.data.args.kinds);
@@ -128,9 +131,10 @@ export async function readCustomerAgentPublicData(rawCall: unknown, options: Cus
 
 /** INTERNAL data freshness only. Does not establish an actor, epoch or OUT
  * permission. Persist these exact witnesses in P12, not a model card. */
-export async function customerAgentPublicDataCurrent(value: CustomerAgentCompanyPolicyObservation | CustomerAgentSearchObservation | CustomerAgentPublicationObservation | CustomerAgentCompanyInformationObservation,
+export async function customerAgentPublicDataCurrent(value: CustomerAgentCompanyPolicyObservation | CustomerAgentSearchObservation | CustomerAgentPublicationObservation | CustomerAgentCompanyInformationObservation | CustomerAgentVacanciesObservation,
   options: CustomerAgentPublicDataOptions): Promise<boolean> {
   if (value.kind === "company_information") return customerCompanyInformationCurrent(value);
+  if (value.kind === "open_vacancies") return customerOpenVacanciesCurrent(value);
   if (value.kind === "publication_properties") return customerPublicationObservationCurrent(value);
   if (value.kind === "company_policy") return isPinnedCompanyPolicy(value, options.knowledgeSourceHash) &&
     currentCustomerAgentKnowledgeHash() === options.knowledgeSourceHash;
@@ -165,7 +169,7 @@ export async function readCustomerAgentPublicTool(principal: unknown, rawCall: u
 /** ORIGINAL genuine DM/website authority before/after data-only freshness.
  * Point checks are not atomic with a physical provider POST; no network lock. */
 export async function customerAgentPublicReadCurrent(principal: CustomerPrincipal,
-  value: CustomerAgentCompanyPolicyObservation | CustomerAgentSearchObservation | CustomerAgentCompanyInformationObservation, expectedKnowledgeHash: string): Promise<boolean> {
+  value: CustomerAgentCompanyPolicyObservation | CustomerAgentSearchObservation | CustomerAgentCompanyInformationObservation | CustomerAgentVacanciesObservation, expectedKnowledgeHash: string): Promise<boolean> {
   if (!isCustomerPrincipal(principal) || !await current(principal)) return false;
   if (!await customerAgentPublicDataCurrent(value, { knowledgeSourceHash: expectedKnowledgeHash,
     linkPreference: principal.visibility === "website_chat" ? "site" : "social" })) return false;

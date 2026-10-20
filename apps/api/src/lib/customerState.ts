@@ -1,4 +1,7 @@
 import { randomUUID } from "node:crypto";
+import { recruitmentPostCode, recruitmentKeyword } from "@royal-home/shared";
+import { customerRecruitmentTopic, selectedRecruitmentPosition } from "../ai/customerAgentRecruitmentProtocol.js";
+import { readRecruitmentPositions } from "./recruitmentPositions.js";
 import { Prisma } from "../generated/prisma/client.js";
 import {
   customerActionIntentsSchema, customerFenceSchema, customerStateSchema,
@@ -153,7 +156,7 @@ function permitted(row: StateRow, snapshot: CustomerStateSnapshot, purpose: Cust
 }
 export function customerActionCapability(snapshot: CustomerStateSnapshot, kind: CustomerActionKind): boolean {
   switch (kind) {
-    case "contact": return snapshot.capabilities.contactWrite;
+    case "contact": case "job_application": return snapshot.capabilities.contactWrite;
     case "callback": return snapshot.capabilities.callbackWrite;
     case "handover": return snapshot.capabilities.handoverWrite;
     case "book_showing": case "reschedule_showing": case "cancel_showing": return snapshot.capabilities.showingWrite;
@@ -317,7 +320,19 @@ export async function acceptAuthenticatedCustomerAdmission(input: AuthenticatedC
   // No state/history boolean, new age or model grant enters this boundary.
   const acceptedQuestion = await readAcceptedCallbackQuestionTx(db, { input, ticket, before: value.state.snapshot,
     previousEventKey: value.state.lastAcceptedEventKey, previousOrder: value.state.lastAcceptedOrder });
-  const result = await transitionCustomerState(db, value.state.snapshot.fence, { type: "accepted_inbound", eventKey, order: ticket.order });
+  const codes = ticket.evidence.flatMap(item => [item.reference, item.secondaryReference].flatMap(ref => ref ? [recruitmentPostCode(ref)].filter((code): code is string => !!code) : []));
+  const previousPublic = value.state.snapshot.publicState;
+  const word = recruitmentKeyword(evidence.inputText);
+  const positions = codes.length || word || previousPublic.topic === "job" || customerRecruitmentTopic(evidence.inputText, previousPublic.topic) === "job" ? await readRecruitmentPositions(db) : [];
+  const matchedPosts = positions.filter(position => position.postCodes.some(code => codes.includes(code)) || !!word && position.keywords.includes(word));
+  const matchedPublication = matchedPosts.length > 0;
+  const topic = customerRecruitmentTopic(evidence.inputText, previousPublic.topic, matchedPublication);
+  const selected = topic === "job" ? selectedRecruitmentPosition(positions, evidence.inputText,
+    matchedPosts.length === 1 ? matchedPosts[0].key : matchedPosts.length === 0 ? previousPublic.jobPositionKey : undefined) : null;
+  const { jobPositionKey: _oldPosition, ...publicWithoutPosition } = previousPublic;
+  const publicState = { ...publicWithoutPosition, topic, ...(selected ? { jobPositionKey: selected.key } : {}) };
+  const result = await transitionCustomerState(db, value.state.snapshot.fence, { type: "accepted_inbound", eventKey, order: ticket.order,
+    ...(JSON.stringify(publicState) !== JSON.stringify(previousPublic) ? { publicState } : {}) });
   if (result.status !== "applied" && result.status !== "same_event") return null;
   const accepted = await activateCustomerInquiryForInput(input, ticket, db);
   if (!accepted || !bindAcceptedCustomerInput(input, accepted.fence)) return null;

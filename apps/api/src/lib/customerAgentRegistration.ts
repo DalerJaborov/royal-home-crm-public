@@ -27,7 +27,7 @@ async function fileGroup(paths: readonly URL[]): Promise<string> {
   return sha(JSON.stringify(files));
 }
 const allTools = [...CUSTOMER_AGENT_PUBLIC_TOOLS, "save_contact", "request_callback", "request_handover", "book_showing",
-  "reschedule_showing", "cancel_showing", "ask_owner"] as const;
+  "reschedule_showing", "cancel_showing", "ask_owner", "save_job_application"] as const;
 
 /** Explicit artifact coverage, not a claim to hash every dependency/package in
  * the monorepo. Container/release identity is independently verified by ship.
@@ -36,7 +36,7 @@ const allTools = [...CUSTOMER_AGENT_PUBLIC_TOOLS, "save_contact", "request_callb
 export async function buildCurrentCustomerAgentManifest(rawSnapshot: unknown): Promise<CustomerAgentManifest> {
   const snapshot = decodeCustomerAgentProviderSnapshot(rawSnapshot), identity = customerAgentProviderIdentities(snapshot);
   const [coreHash, rendererHash, modelSchemaHash, knowledgeSchemaHash] = await Promise.all([
-    fileGroup(["../ai/customerAgentCore.js", "../ai/customerAgentModel.js", "../ai/customerAgentToolDefinitions.js", "../ai/customerAgentIntake.js", "../ai/sellerIntake.js", "./customerCompanyInformation.js", "./customerAgentFeaturePolicy.js",
+    fileGroup(["../ai/customerAgentCore.js", "../ai/customerAgentModel.js", "../ai/customerAgentToolDefinitions.js", "../ai/customerAgentIntake.js", "../ai/sellerIntake.js", "./customerCompanyInformation.js", "./customerAgentFeaturePolicy.js", "./recruitmentPositions.js", "../ai/customerAgentRecruitmentProtocol.js",
       "../ai/providerContract.js", "../ai/providerBudget.js", "../ai/geminiClient.js", "../ai/geminiOperationRuntime.js", "../ai/geminiCountedTools.js",
       "../ai/geminiFunctionDeclarations.js", "../ai/geminiManagedToolsUsage.js", "../ai/geminiManagedMedia.js",
       "../ai/geminiCapabilities.js", "../ai/customerAgentMediaPerception.js", "../ai/customerAgentModelContracts.js", "../ai/clientLanguage.js", "../ai/untrustedContent.js", "./customerDmMediaContent.js", "./customerAgentMediaObservation.js", "./customerAgentMediaFocus.js",
@@ -52,12 +52,13 @@ export async function buildCurrentCustomerAgentManifest(rawSnapshot: unknown): P
       "./customerAgentRegistration.js", "./customerAgentRuntimeArchive.js", "./customerAgentRuntime.js", "./customerState.js", "./customerActionJournal.js",
       "./customerCallbackConsent.js", "./customerAcceptedCallbackQuestion.js", "./customerAcceptedNameQuestion.js",
       "./customerNewLeadBridge.js", "./customerOwnedIntakeContinuity.js", "./outboundShield.js", "./customerShieldPause.js", "./customerIntakeContext.js", "./workingHours.js", "../services/leads/intake.js", "../jobs/customerContactIntake.js", "../jobs/customerInboxConsume.js",
+      "./customerRecruitmentIntake.js", "./customerRecruitmentAttachments.js", "./customerActionEffects.js", "./customerActionCommand.js", "./customerMutationIntent.js",
       "./customerOutbox.js", "./customerPublicOrigin.js", "./customerPublicModeration.js", "./customerPublicModerationPolicy.js",
       "./incomingSpam.js", "./commentHate.js", "./listingAd.js", "./customerPublicOutreachMemory.js"].map(apiFile)),
     fileGroup(["../ai/customerAgentRenderer.js", "../ai/customerAgentIntake.js", "../ai/sellerIntake.js", "../ai/customerAgentAttachmentInput.js", "../ai/customerAgentMediaPerception.js", "../ai/customerAgentConversationPolicy.js", "../ai/customerAgentPublicProtocol.js", "./publicAgencyContact.js",
       "./customerPropertyFacts.js"].map(apiFile).concat(["customerPropertyPresentation.js", "propertyFinish.js", "propertyTypeFields.js"].map(path => new URL(path, sharedEntry)))),
     fileGroup(["customerAgent.js", "customerMutation.js", "customerState.js", "customerTools.js", "customerHandoverAck.js", "botTurnTrace.js", "customerAgentRollout.js", "customerAgentOwnerControls.js"].map(path => new URL(path, sharedEntry))),
-    fileGroup(["customerAgentPublicReads.js", "customerAgentDeliveryEvidence.js", "customerPropertyContext.js"].map(path => new URL(path, sharedEntry))),
+    fileGroup(["customerAgentPublicReads.js", "customerAgentDeliveryEvidence.js", "customerPropertyContext.js", "recruitment.js"].map(path => new URL(path, sharedEntry))),
   ]);
   return { coreHash, rendererHash, modelSchemaHash, knowledgeSchemaHash,
     toolSchemaHash: sha(JSON.stringify(customerAgentToolDefinitions(allTools))),

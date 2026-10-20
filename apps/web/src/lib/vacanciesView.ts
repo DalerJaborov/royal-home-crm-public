@@ -47,7 +47,7 @@ export const VACANCY_BUCKET_LABEL: Record<VacancyBucket, string> = {
 /** Что лежит в корзине — подсказка к плитке и строка под заголовком списка. */
 export const VACANCY_BUCKET_HINT: Record<VacancyBucket, string> = {
   fit: "Прошли отбор и оставили номер — звонить",
-  incomplete: "Бот ещё спрашивает возраст, учёбу, работу или номер",
+  incomplete: "Нужны дополнительные сведения или оценка HR",
   rejected: "Моложе 24, учатся или работают сейчас",
 };
 
@@ -526,6 +526,8 @@ function vacancyStudyingValue(item: JobApplication): boolean | null {
 }
 
 export function vacancyChecks(item: JobApplication): VacancyCheck[] {
+  if (item.customerInquiryId) return [{ key: "phone", state: item.phone ? "ok" : "unknown",
+    label: item.phone ?? "Связь в текущем канале; решение принимает HR" }];
   const studying = vacancyStudyingValue(item);
   return [
     item.age === null

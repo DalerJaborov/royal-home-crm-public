@@ -3,6 +3,7 @@ import { customerMutationCommandSchema, type CustomerActionKind, type CustomerMu
 
 export function customerMutationKind(command: CustomerMutationCommand): CustomerActionKind {
   switch (command.name) {
+    case "save_job_application": return "job_application";
     case "save_contact": return "contact";
     case "request_callback": return "callback";
     case "request_handover": return "handover";
