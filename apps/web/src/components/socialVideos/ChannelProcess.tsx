@@ -131,9 +131,9 @@ function Step({
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
           <span className={`min-w-0 break-words font-semibold text-gray-800 ${compact ? "text-[14px]" : "text-[15px]"}`}>{label}</span>
-          <span className={`inline-flex items-center gap-1.5 rounded-[14px] px-2.5 py-0.5 text-[13px] font-semibold ${chipClass}`}>
+          <span className={`clean-channel-state inline-flex items-center gap-1.5 rounded-[14px] px-2.5 py-0.5 text-[13px] font-semibold ${chipClass}`}>
             <StateIcon state={state} retriable={retriable} />
-            {stateText}
+            <span>{stateText}</span>
           </span>
           {time && <span className="text-[13px] text-gray-500">{time}</span>}
           {result && result.attempts > 1 && <span className="text-[13px] text-gray-500">попыток: {result.attempts}</span>}

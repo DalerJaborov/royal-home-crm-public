@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef } from "react";
 import { useMobileUx } from "../hooks/useMobileUx";
+import { isMotionDisabled } from "../lib/motionPolicy";
 
 /**
  * Поведение шторки снизу для модальных окон.
@@ -119,10 +120,16 @@ export function useSwipeToDismiss(enabled: boolean, onClose: () => void): SwipeT
         drag.current = null;
         const node = nodeRef.current;
         if (!d || !node) return;
-        node.style.transition = "transform 220ms cubic-bezier(0.16, 1, 0.3, 1)";
+        const instant = isMotionDisabled();
+        node.style.transition = instant ? "none" : "transform 220ms cubic-bezier(0.16, 1, 0.3, 1)";
         const height = node.getBoundingClientRect().height || window.innerHeight;
         const velocity = d.offset / Math.max(1, performance.now() - d.startTime);
         if (d.offset > height * CLOSE_FRACTION || (velocity > FLING_VELOCITY && d.offset > MIN_FLING_DISTANCE)) {
+          if (instant) {
+            node.style.transform = "";
+            onClose();
+            return;
+          }
           // Доводим до низа и только потом снимаем: мгновенное исчезновение
           // читается как сбой, а не как закрытие.
           node.style.transform = `translateY(${height}px)`;

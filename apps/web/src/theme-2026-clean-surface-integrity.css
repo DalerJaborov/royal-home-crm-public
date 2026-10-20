@@ -1,0 +1,116 @@
+/* Clean is deliberately static. Keep state transforms (switch thumbs, hidden
+   drawers, drag gestures and positioned controls); disable only timed motion. */
+html[data-shell="clean"],
+html[data-shell="clean"] *,
+html[data-shell="clean"] *::before,
+html[data-shell="clean"] *::after {
+  animation: none !important;
+  transition: none !important;
+  scroll-behavior: auto !important;
+}
+
+/* These prototype entrances start hidden outside their keyframes. Cancelling
+   animation must reveal their final state, not strand invisible content. */
+html[data-shell="clean"].mo .rh2 .secwrap .card,
+html[data-shell="clean"].mo .rh2 .hero::before,
+html[data-shell="clean"].mo .rh2 .hero::after {
+  opacity: 1;
+  transform: none;
+}
+html[data-shell="clean"] :is(.pill,.rh-btn,.ph,.sc,.dep,.cd-act,.dcard,.clean-card):is(:hover,:active),
+html[data-shell="clean"] [data-clean-control]:is(:hover,:active),
+html[data-shell="clean"] [class*="hover:-translate"]:hover,
+html[data-shell="clean"] [class*="hover:scale"]:hover,
+html[data-shell="clean"] .group:hover [class*="group-hover:scale"] {
+  transform: none !important;
+  translate: none !important;
+  scale: none !important;
+}
+
+/* Glass is unsuitable for overlapping task surfaces: one opaque surface and
+   one visible edge, including portals outside the app-shell element. */
+html[data-shell="clean"] {
+  --c-card: var(--c-card-solid);
+  --clean-surface-edge: rgb(var(--rgb-ink) / .16);
+}
+html[data-shell="clean"][data-theme="royal-home-2026-night"] {
+  --clean-surface-edge: rgb(var(--rgb-ink) / .22);
+}
+html[data-shell="clean"] .rh2 .scr .card,
+html[data-shell="clean"] .clean-card,
+html[data-shell="clean"] .clean-property-summary {
+  border: 1px solid var(--clean-surface-edge);
+  box-shadow: none;
+}
+html[data-shell="clean"] .rh2 .scr .sheet,
+html[data-shell="clean"] .cef-sheet-backdrop > .cef-sheet,
+html[data-shell="clean"] .clean-more-panel,
+html[data-shell="clean"] [role="menu"] {
+  background: var(--c-card-solid);
+  border: 1px solid var(--clean-surface-edge);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+html[data-shell="clean"] .rh2 .scr .sheet-back {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+/* Tailwind's SVG reset is block-level. Inline metadata must keep its icon on
+   the text baseline, and flex rows must not squeeze an icon to make room. */
+html[data-shell="clean"] svg.lucide,
+html[data-shell="clean"] .rh2 svg.lucide {
+  display: inline-block;
+  vertical-align: -.15em;
+  flex-shrink: 0;
+}
+html[data-shell="clean"] .clean-social-video-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+html[data-shell="clean"] .clean-icon-text {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 6px;
+  max-width: 100%;
+  min-width: 0;
+}
+html[data-shell="clean"] .clean-icon-text > svg { margin-top: .15em; flex: none; }
+html[data-shell="clean"] .clean-icon-text > span { min-width: 0; overflow-wrap: anywhere; }
+html[data-shell="clean"] .clean-channel-state { max-width: 100%; }
+html[data-shell="clean"] .clean-channel-state > svg { flex: none; }
+html[data-shell="clean"] .clean-channel-state > span { min-width: 0; overflow-wrap: anywhere; }
+
+/* Slots arrange existing cards; they must not draw a second card around them. */
+html[data-shell="clean"] .clean-property-slot[data-record-area="people"],
+html[data-shell="clean"] .clean-property-slot[data-record-area="description"] .rh-pcard-desc {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+html[data-shell="clean"] .clean-property-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+html[data-shell="clean"] .clean-property-actions > button {
+  min-height: 48px;
+  justify-content: center;
+}
+html[data-shell="clean"] .clean-property-actions > button:not(:first-child) {
+  background: var(--c-row-alt);
+  border: 1px solid var(--clean-surface-edge);
+}
+@media (max-width: 767px) {
+  html[data-shell="clean"] .clean-property-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  html[data-shell="clean"] .clean-property-actions > button { width: 100%; }
+  html[data-shell="clean"] .clean-property-actions > button:first-child:nth-last-child(3) {
+    grid-column: 1 / -1;
+  }
+}

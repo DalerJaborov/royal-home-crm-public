@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
+import { isMotionDisabled } from "../../lib/motionPolicy";
 
 /**
  * Деньги темы «Royal Home 2026» — дословный перенос `.money[data-money]`
@@ -36,9 +37,7 @@ export function Rh2Money({
       return;
     }
     counted.current = true;
-    const reduced =
-      typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-    if (reduced) {
+    if (isMotionDisabled()) {
       setDisplay(value);
       return;
     }

@@ -46,7 +46,7 @@ export function CleanPropertySummary({ property, onSchedule, onEdit, onMore, chi
       {sub && <p className="text-gray-500" style={{ margin: "8px 0 0", fontSize: 14 }}>{sub}</p>}
       <h1 className="break-words font-semibold text-ink" style={{ margin: "20px 0 0", fontSize: 26, lineHeight: 1.25 }}>{property.title}</h1>
       {chips.length > 0 && <div className="mt-4 flex flex-wrap gap-2" data-testid="property-params">{chips.map((chip) => <Chip key={chip}>{chip}</Chip>)}</div>}
-      <div className="mt-6 flex flex-wrap items-center gap-2">
+      <div className="clean-property-actions mt-6 flex flex-wrap items-center gap-2">
         {onSchedule && <CButton size="lg" onClick={onSchedule}><CalendarClock size={20} aria-hidden />Назначить показ</CButton>}
         {onEdit && <CButton size="lg" variant={onSchedule ? "soft" : "primary"} onClick={onEdit}><Pencil size={20} aria-hidden />Изменить</CButton>}
         <CButton size="lg" variant="soft" onClick={onMore}><MoreHorizontal size={20} aria-hidden />Ещё</CButton>

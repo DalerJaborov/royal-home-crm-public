@@ -2,7 +2,6 @@ import { formatPropertyCode } from "../lib/clientFormat";
 import { CleanLoadError } from "../components/clean/CleanLoadError";
 import { useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { motion, useReducedMotion } from "motion/react";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis } from "recharts";
 import {
   ArrowUpRight,
@@ -57,20 +56,13 @@ import { useAuthStore } from "../store/auth";
  * docs/design/director-pult-2026-10/reference-analysis.md, макет — index.html там же.
  * Это тот макет один в один, но на живых данных и на стеке референсов: Tailwind,
  * компоненты в стиле shadcn (`components/clean/ui.tsx`), иконки Lucide, график
- * Recharts, появление блоков через Motion.
+ * Recharts без анимации: рабочие блоки сразу показывают конечное состояние.
  *
  * Данные — те же, что у DirectorHome: снимок `useMissionControl` (ничего нового не
  * запрашиваем), решения `usePultActionRows` с их настоящими действиями и отменой,
  * фотографии объектов из обычного списка `/properties`. Чего сервер не отдал —
  * блок не рисуется, числа не выдумываются.
  */
-
-const ease = [0.2, 0.8, 0.2, 1] as const;
-const fadeUp = (i: number) => ({
-  initial: { opacity: 0, y: 14 },
-  animate: { opacity: 1, y: 0 },
-  transition: { duration: 0.24, ease, delay: i * 0.04 },
-});
 
 export function PultClean() {
   const [searchOpen, setSearchOpen] = useState(false);
@@ -83,8 +75,6 @@ export function PultClean() {
   const firstName = agent?.fullName?.split(" ")[0] ?? "";
   const { data, isLoading, isError, refetch } = useMissionControl(canView);
   const pultView = useMemo(() => data ? buildPultView(data, dushanbeHour()) : null, [data]);
-  const reducedMotion = useReducedMotion();
-  const enter = (i: number) => reducedMotion ? {} : fadeUp(i);
   const rows = usePultActionRows(canView);
   const actionStatus = usePultActionStatus(canView);
   const pending = usePropertiesPendingReview(canView);
@@ -161,8 +151,7 @@ export function PultClean() {
         return section && typeof section === "object" && "error" in section ? <CleanLoadError key={key} title={title} retry={refetch} /> : null;
       })}
       {/* ---- Ряд A: приветствие + KPI | фото объекта ---- */}
-      <motion.section
-        {...enter(0)}
+      <section
         className="clean-overview grid gap-4 lg:grid-cols-[minmax(0,1fr)_560px]"
       >
         <div className="clean-greeting">
@@ -230,11 +219,10 @@ export function PultClean() {
             ) : null}
           </div>
         </div>
-      </motion.section>
+      </section>
 
       {/* ---- Ряд B: решения и первая линия | объект ---- */}
-      <motion.section
-        {...enter(1)}
+      <section
         className="clean-workqueue grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_400px]"
       >
         <div className="grid gap-4">
@@ -293,10 +281,10 @@ export function PultClean() {
             featured={!!topId}
           />}
         </div>
-      </motion.section>
+      </section>
 
       {/* ---- Сводка дня: напоминания | денежный пульс | комиссия ---- */}
-      <motion.section {...enter(2)} className="clean-day-summary grid items-start gap-4">
+      <section className="clean-day-summary grid items-start gap-4">
           <CCard>
             <CHead
               title="Напоминания"
@@ -461,7 +449,7 @@ export function PultClean() {
                       stroke="rgb(var(--rgb-accent))"
                       strokeWidth={2.5}
                       fill="url(#cleanArea)"
-                      isAnimationActive={!reducedMotion}
+                      isAnimationActive={false}
                       animationDuration={1400}
                     />
                   </AreaChart>
@@ -471,11 +459,10 @@ export function PultClean() {
             </CCard>
           ) : null}
           </div>
-      </motion.section>
+      </section>
 
       {/* ---- Ряд C: объекты | показы + команда ---- */}
-      <motion.section
-        {...enter(2)}
+      <section
         className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_400px]"
       >
         <CCard>
@@ -639,7 +626,7 @@ export function PultClean() {
             </CCard>
           ) : null}
         </div>
-      </motion.section>
+      </section>
 
       <CleanControlTiles control={system?.control} allowed={hasRoute("/oversight")} />
       <CleanPultExtras key={agent?.id}
@@ -655,7 +642,7 @@ export function PultClean() {
       />
 
       {/* ---- Ряд D: ИИ-инструменты | воронка 7 дней ---- */}
-      <motion.section {...enter(3)} className="grid gap-4 lg:grid-cols-2">
+      <section className="grid gap-4 lg:grid-cols-2">
         <CCard>
           <CHead
             title="ИИ-помощник"
@@ -697,7 +684,7 @@ export function PultClean() {
             <Funnel days={marketing.pulse30.days.slice(-7)} />
           </CCard>
         ) : null}
-      </motion.section>
+      </section>
 
       {data && <CleanWorkQueues data={data} allowedRoute={hasRoute} propertyPhotos={photoById} />}
 
