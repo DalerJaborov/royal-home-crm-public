@@ -14,12 +14,12 @@
  "totals": {
   "screens": 51,
   "paths": 638,
-  "cron": 104,
-  "jobs": 29,
-  "conditions": 3476,
-  "untranslatedUnique": 370,
-  "untranslatedTotal": 475,
-  "partialUnique": 1011,
+  "cron": 107,
+  "jobs": 30,
+  "conditions": 3505,
+  "untranslatedUnique": 377,
+  "untranslatedTotal": 484,
+  "partialUnique": 1013,
   "translatedShare": 86
  },
  "untranslated": [
@@ -54,8 +54,10 @@
   "!classifyFileName(file.area, path.basename(file.relPath))",
   "!client || client.customerIntakeActionId !== actionId || client.deletedAt",
   "!client.requirementsNotes?.trim()",
+  "!contact.success || !contact.data.name || !contact.data.phone || !intent || intent.status !== \"committed\" || …",
   "!contentType.startsWith(\"video/\")",
   "!crmPublicBase()",
+  "!current || !snapshot || !snapshot.capabilities.newLeadBridge || snapshot.publicState.topic === \"job\" || curr…",
   "!current || current.effectiveAgentId !== agent.id || current.clientAssignedAgentId !== first.clientAssignedAg…",
   "!current || current.fence.nativeId !== row.conversationId || current.closedAt || !managedCustomerCallbackWitn…",
   "!customerManagedTraceEnabled()",
@@ -98,8 +100,10 @@
   "!serviceTokenValid(req)",
   "!session || session.propertyId !== property.id",
   "!settings?.asteriskAriUrl?.trim()",
+  "!source || source.kind !== \"contact\" || source.status !== \"COMMITTED\" || source.supersededAt || !source.commi…",
   "!target.success || !intents.success || target.data.inquiryId !== row.inquiryId || target.data.nativeId !== ro…",
   "!text.trim()",
+  "!ticket || ![\"PLANNED\", \"HELD\", \"FAILED\"].includes(ticket.processingState ?? \"\") || ticket.leaseOwner || tick…",
   "!toSmsPhone(c.phone)",
   "!verifyState(state)",
   "!verifyTotpCode(agent.phone, secret, parsed.data.code)",
@@ -278,6 +282,7 @@
   "id === BUILTIN_COVER_TEMPLATE_ID",
   "id === otherId",
   "ids.length !== existing.size || ids.some((id) => !existing.has(id))",
+  "intake.role === \"unknown\" && own.some(text => /(?:ваканси|резюме|ҷойи\\s+кор|ищу\\s+работу)/iu.test(text))",
   "interactions.length >= TEAM_MONTH_ROW_LIMIT || deals.length >= TEAM_MONTH_ROW_LIMIT || clients.length >= TEAM…",
   "isRepricingClosed && existing.commissionIntakeAmount !== null && existing.commissionRealtorAmount !== null &&…",
   "items.some((i) => i.propertyId === req.params.id)",
@@ -345,6 +350,7 @@
   "request.authorId !== req.agent!.id",
   "requestKey&&expense.autoFingerprint!==fingerprint",
   "requestedTail !== phoneTail(client.phone)",
+  "requirementsNotes.length + text.length + 1 <= 4000",
   "rest.phone && rest.phone !== existing.phone",
   "result.from !== result.to",
   "result.skipped && result.skipped.startsWith(\"Не удалось определить очередь\")",
@@ -368,6 +374,7 @@
   "spokeAt && Date.now() - spokeAt.getTime() < BOT_JUST_SPOKE_MS",
   "stageState(p.status, p.stageEnteredAt, deadlines).overdue",
   "stillTalking(c, shootingDate)",
+  "stopping || customerBusy[lane]",
   "ticket?.agentRevisionId === row.agentRevisionId && ticket.providerOperationId && ticket.originalConversationI…",
   "tiktokRefreshToken && !skip.has(\"TIKTOK\") && params.localVideoPath.startsWith(\"/uploads/\")",
   "toAgentId === from.id",
@@ -59689,6 +59696,147 @@
    ]
   },
   {
+   "id": "customer-inbox-jobs",
+   "when": "*/5 * * * * *",
+   "label": "customer-inbox-jobs",
+   "tree": [
+    {
+     "t": "внутри этого шага",
+     "k": "do",
+     "a": [],
+     "c": [
+      {
+       "t": "если stopping || customerBusy[lane]",
+       "k": "if",
+       "a": [],
+       "c": [],
+       "raw": "stopping || customerBusy[lane]"
+      },
+      {
+       "t": "пробует сделать",
+       "k": "try",
+       "a": [],
+       "c": [
+        {
+         "t": "если нет: задание",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если есть stopping",
+         "k": "if",
+         "a": [],
+         "c": [
+          {
+           "t": "меняет: background задание",
+           "k": "do",
+           "a": [],
+           "c": []
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "customer-intake-jobs",
+   "when": "*/5 * * * * *",
+   "label": "customer-intake-jobs",
+   "tree": [
+    {
+     "t": "внутри этого шага",
+     "k": "do",
+     "a": [],
+     "c": [
+      {
+       "t": "если stopping || customerBusy[lane]",
+       "k": "if",
+       "a": [],
+       "c": [],
+       "raw": "stopping || customerBusy[lane]"
+      },
+      {
+       "t": "пробует сделать",
+       "k": "try",
+       "a": [],
+       "c": [
+        {
+         "t": "если нет: задание",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если есть stopping",
+         "k": "if",
+         "a": [],
+         "c": [
+          {
+           "t": "меняет: background задание",
+           "k": "do",
+           "a": [],
+           "c": []
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "customer-outbox-jobs",
+   "when": "*/5 * * * * *",
+   "label": "customer-outbox-jobs",
+   "tree": [
+    {
+     "t": "внутри этого шага",
+     "k": "do",
+     "a": [],
+     "c": [
+      {
+       "t": "если stopping || customerBusy[lane]",
+       "k": "if",
+       "a": [],
+       "c": [],
+       "raw": "stopping || customerBusy[lane]"
+      },
+      {
+       "t": "пробует сделать",
+       "k": "try",
+       "a": [],
+       "c": [
+        {
+         "t": "если нет: задание",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если есть stopping",
+         "k": "if",
+         "a": [],
+         "c": [
+          {
+           "t": "меняет: background задание",
+           "k": "do",
+           "a": [],
+           "c": []
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
    "id": "daily-kpi",
    "when": "5 0 * * *",
    "label": "Пересчитывает показатели всех агентов за вчера",
@@ -70168,6 +70316,233 @@
       {
        "t": "push-уведомление",
        "k": "do",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
+     "t": "если не получилось",
+     "k": "catch",
+     "a": [],
+     "c": [
+      {
+       "t": "запись в журнал ошибок",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "если сервер сейчас выключается",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "пробует сделать",
+         "k": "try",
+         "a": [],
+         "c": [
+          {
+           "t": "если есть недавняя запись",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "заводит: запись в журнале ошибок",
+           "k": "do",
+           "a": [],
+           "c": []
+          },
+          {
+           "t": "если нет: ever просмотрено и нет: молчащие",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        },
+        {
+         "t": "если не получилось",
+         "k": "catch",
+         "a": [],
+         "c": []
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "kind": "customer-contact-intake",
+   "tree": [
+    {
+     "t": "внутри этого шага",
+     "k": "do",
+     "a": [],
+     "c": [
+      {
+       "t": "пробует сделать",
+       "k": "try",
+       "a": [],
+       "c": [
+        {
+         "t": "если !source || source.kind !== \"contact\" || source.status !== \"COMMITTED\" || source.supersededAt || !source.commi…",
+         "k": "if",
+         "a": [],
+         "c": [],
+         "raw": "!source || source.kind !== \"contact\" || source.status !== \"COMMITTED\" || source.supersededAt || !source.commi…"
+        },
+        {
+         "t": "если нет: последний принят event ключ",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если статус не «recovered»",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если !current || !snapshot || !snapshot.capabilities.newLeadBridge || snapshot.publicState.topic === \"job\" || curr…",
+         "k": "if",
+         "a": [],
+         "c": [],
+         "raw": "!current || !snapshot || !snapshot.capabilities.newLeadBridge || snapshot.publicState.topic === \"job\" || curr…"
+        },
+        {
+         "t": "если !ticket || ![\"PLANNED\", \"HELD\", \"FAILED\"].includes(ticket.processingState ?? \"\") || ticket.leaseOwner || tick…",
+         "k": "if",
+         "a": [],
+         "c": [],
+         "raw": "!ticket || ![\"PLANNED\", \"HELD\", \"FAILED\"].includes(ticket.processingState ?? \"\") || ticket.leaseOwner || tick…"
+        },
+        {
+         "t": "если !contact.success || !contact.data.name || !contact.data.phone || !intent || intent.status !== \"committed\" || …",
+         "k": "if",
+         "a": [],
+         "c": [],
+         "raw": "!contact.success || !contact.data.name || !contact.data.phone || !intent || intent.status !== \"committed\" || …"
+        },
+        {
+         "t": "если нет: contact event ключ",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "и так по каждому",
+         "k": "loop",
+         "a": [],
+         "c": [
+          {
+           "t": "пробует сделать",
+           "k": "try",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если не получилось",
+           "k": "catch",
+           "a": [],
+           "c": []
+          }
+         ]
+        },
+        {
+         "t": "если intake.role === \"unknown\" && own.some(text => /(?:ваканси|резюме|ҷойи\\s+кор|ищу\\s+работу)/iu.test(text))",
+         "k": "if",
+         "a": [],
+         "c": [],
+         "raw": "intake.role === \"unknown\" && own.some(text => /(?:ваканси|резюме|ҷойи\\s+кор|ищу\\s+работу)/iu.test(text))"
+        },
+        {
+         "t": "и так по каждому",
+         "k": "loop",
+         "a": [],
+         "c": [
+          {
+           "t": "если requirementsNotes.length + text.length + 1 <= 4000",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "raw": "requirementsNotes.length + text.length + 1 <= 4000",
+           "more": true
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "t": "если не получилось",
+       "k": "catch",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
+     "t": "если статус (ответ) — «unavailable» и причина (ответ) из списка: «turn_not_settled», «intake_read_unavailable»",
+     "k": "if",
+     "a": [],
+     "c": [
+      {
+       "t": "поломка: «result.reason»",
+       "k": "do",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
+     "t": "если статус (ответ) — «unknown»",
+     "k": "if",
+     "a": [],
+     "c": [
+      {
+       "t": "пробует сделать",
+       "k": "try",
+       "a": [],
+       "c": [
+        {
+         "t": "запись в журнал ошибок",
+         "k": "do",
+         "a": [],
+         "c": [
+          {
+           "t": "если сервер сейчас выключается",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "пробует сделать",
+           "k": "try",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если не получилось",
+           "k": "catch",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "t": "если не получилось",
+       "k": "catch",
        "a": [],
        "c": []
       }

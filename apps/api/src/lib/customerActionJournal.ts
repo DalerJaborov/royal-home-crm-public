@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { readOwnedCustomerIntakeContinuity } from "./customerOwnedIntakeContinuity.js";
 import {
   customerActionIntentsSchema, customerClaimedContactSchema, customerMutationCommandSchema,
   customerMutationReceiptSchema, type CustomerMutationCommand, type CustomerMutationReceipt,
@@ -112,16 +113,28 @@ async function protectedPhoneCandidate(db: CustomerStateDb, inquiry: InquiryRow,
   const contactIntent = intents.success ? intents.data.contact : null;
   const proof = contact.success ? contact.data.phoneEvidence : null;
   if (contact.success && contact.data.phone && proof && contactIntent?.status === "committed" &&
-      contactIntent.generation === proof.contactRevision && contact.data.contactRevision === proof.contactRevision &&
+      contactIntent.generation === contact.data.contactRevision && BigInt(proof.contactRevision) <= BigInt(contact.data.contactRevision) &&
       proof.provenance === "meta_signature" && proof.matchedAccountId === matchedAccountId && proof.scopeRevision === grant.fence.scopeRevision &&
       proof.nativeId === grant.fence.nativeId && JSON.stringify(proof.endpoint) === JSON.stringify(grant.fence.endpoint)) {
     const scopeKey = customerPropertyScopeKey(proof.endpoint.channel, proof.endpoint.peerId, proof.endpoint.accountId, proof.endpoint.endpointScopeId);
+    const intake = await readOwnedCustomerIntakeContinuity(db, grant.fence);
     const [evidence] = await db.$queryRaw<{ valid: boolean }[]>`SELECT EXISTS(SELECT 1 FROM "CustomerPropertyIngressTicket" t
+      JOIN "CustomerAction" current_contact ON current_contact."inquiryId"=${grant.fence.inquiryId}
+        AND current_contact."kind"='contact' AND current_contact."generation"=${BigInt(contact.data.contactRevision)}
+        AND current_contact."status"='COMMITTED' AND current_contact."supersededAt" IS NULL
+        AND current_contact."resourceType"='CustomerInquiry' AND current_contact."resourceId"=${grant.fence.inquiryId}
+        AND current_contact."receiptVersion"=1 AND current_contact."committedAt" IS NOT NULL
+        AND current_contact."evidenceRefs" @> ${JSON.stringify(contactIntent.evidenceRefs)}::jsonb
+        AND (current_contact."bindingRevision"=${BigInt(grant.fence.bindingRevision)} OR
+          (current_contact."bindingRevision"=${intake ? BigInt(intake.bindingRevision) : null}
+            AND current_contact."ownershipEpoch"=${intake ? BigInt(intake.ownershipEpoch) : null}))
       JOIN "CustomerAction" a ON a."inquiryId"=${grant.fence.inquiryId} AND a."kind"='contact'
         AND a."generation"=${BigInt(proof.contactRevision)} AND a."status"='COMMITTED'
-        AND a."bindingRevision"=${BigInt(grant.fence.bindingRevision)}
+        AND (a."bindingRevision"=${BigInt(grant.fence.bindingRevision)} OR
+          (a."bindingRevision"=${intake ? BigInt(intake.bindingRevision) : null}
+            AND a."ownershipEpoch"=${intake ? BigInt(intake.ownershipEpoch) : null}))
         AND a."receiptVersion"=1 AND a."committedAt" IS NOT NULL
-        AND a."supersededAt" IS NULL AND a."evidenceRefs" ? ${proof.eventKey}
+        AND a."evidenceRefs" ? ${proof.eventKey}
         AND a."resourceType"='CustomerInquiry' AND a."resourceId"=${grant.fence.inquiryId}
       WHERE t."eventKey"=${proof.eventKey} AND t."order"=${BigInt(proof.order)}
         AND t."conversationId"=${proof.nativeId} AND t."scopeKey"=${scopeKey}
@@ -339,6 +352,19 @@ export async function executeCustomerAction(authority: CustomerWriteAuthority, r
       const saved = await readAction(tx, grant.fence.inquiryId, grant.kind, grant.generation);
       const receipt = saved && receiptOf(saved, grant.fence.inquiryId);
       if (!receipt) throw new Error("Customer mutation receipt was not persisted");
+      if (grant.kind === "contact" && fence.snapshot.capabilities.newLeadBridge) {
+        const row = await tx.customerInquiry.findUnique({ where: { id: grant.fence.inquiryId }, select: { claimedContact: true } });
+        const contact = customerClaimedContactSchema.safeParse(row?.claimedContact);
+        const [source] = await tx.$queryRaw<{ managed: boolean }[]>`SELECT EXISTS(
+          SELECT 1 FROM "CustomerPropertyIngressTicket" t JOIN "CustomerAgentRolloutAssignment" a ON a."id"=t."rolloutAssignmentId"
+          WHERE t."eventKey"=${grant.eventKey} AND t."agentRevisionId" IS NOT NULL AND a."lane"='CORE' AND a."surface"='dm'
+            AND a."endpointScopeId"=${grant.fence.endpoint.endpointScopeId}
+        ) AS managed`;
+        if (source?.managed && contact.success && contact.data.name && contact.data.phone) await tx.backgroundJob.create({ data: {
+          type: "customer-contact-intake", payload: { version: 1, actionId }, maxAttempts: 24,
+          dedupeKey: `customer-contact-intake:${actionId}`,
+        } });
+      }
       return { status: "created", receipt };
     }, { maxWait: 3_000, timeout: 5_000 });
   } catch {

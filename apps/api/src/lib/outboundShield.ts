@@ -525,6 +525,9 @@ export async function noteRealInbound(input: {
   providerId?: string | number | null;
   name?: string | null;
   now?: Date;
+  /** Managed FINAL is already fenced to its original controller. Record the
+   * actual inbound without changing that controller/native pause afterward. */
+  preserveNativeOwner?: true;
 }): Promise<void> {
   const providerId = input.providerId == null ? "" : String(input.providerId);
   if (!providerId) return;
@@ -543,14 +546,15 @@ export async function noteRealInbound(input: {
         await tx.$queryRaw`SELECT "id" FROM "OutboundShieldState" WHERE "id"=${state.id} FOR UPDATE`;
         const current = await tx.outboundShieldState.findUnique({ where: { id: state.id }, select: STATE_SELECT });
         if (!current || current.endpointScopeId !== key.endpointScopeId) throw new CustomerScopeDenied("scope_unknown");
-        if (snapshot && current.pausedUntil && current.pausedAt && customerShieldPauseMatches(current.pauseFence, snapshot.fence)) {
+        if (!input.preserveNativeOwner && snapshot && current.pausedUntil && current.pausedAt && customerShieldPauseMatches(current.pauseFence, snapshot.fence)) {
           await tx.botConversation.updateMany({ where: { id: snapshot.fence.nativeId!, endpointScopeId: key.endpointScopeId,
             pausedUntil: current.pausedUntil, botPausedAt: current.pausedAt, propertyChatAgentId: null },
             data: { pausedUntil: null, botPausedAt: null } });
         }
         await tx.outboundShieldState.update({ where: { id: state.id }, data: { lastInboundAt: now,
-          lastInboundId: providerId, botSentSinceInbound: 0, pausedUntil: null, pausedReason: null,
-          pausedAt: null, pauseFence: Prisma.DbNull, ...(input.name ? { recipientName: input.name } : {}) } });
+          lastInboundId: providerId, botSentSinceInbound: 0,
+          ...(!input.preserveNativeOwner ? { pausedUntil: null, pausedReason: null, pausedAt: null, pauseFence: Prisma.DbNull } : {}),
+          ...(input.name ? { recipientName: input.name } : {}) } });
       });
       return;
     }
