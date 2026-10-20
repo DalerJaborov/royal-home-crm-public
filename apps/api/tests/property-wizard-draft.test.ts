@@ -7,6 +7,9 @@ import { app } from "../src/app.js";
 import { prisma } from "../src/db.js";
 import { localVideoFilePath } from "../src/lib/localVideoStorage.js";
 import { cleanupExpiredPropertyDrafts } from "../src/routes/properties/draftAttach.js";
+import { loginWithCode } from "./helpers/loginCode.js";
+import { randomUUID } from "node:crypto";
+import { MIN_PROPERTY_PHOTOS } from "@royal-home/shared";
 
 /**
  * ЧЕРНОВИК НОВОГО ОБЪЕКТА (routes/properties/drafts.ts, routes/properties/draftAttach.ts,
@@ -68,7 +71,7 @@ beforeAll(async () => {
       data: { fullName: "Агент черновика", phone: `+992955${runId}`, role: "AGENT", passwordHash },
     })
   ).id;
-  const res = await request(app).post("/api/v1/auth/login").send({ phone: `+992955${runId}`, password });
+  const res = await loginWithCode(app, `+992955${runId}`);
   expect(res.status).toBe(200);
   token = res.body.accessToken as string;
 
@@ -77,7 +80,7 @@ beforeAll(async () => {
       data: { fullName: "Чужой агент черновика", phone: `+992956${runId}`, role: "AGENT", passwordHash },
     })
   ).id;
-  const strangerRes = await request(app).post("/api/v1/auth/login").send({ phone: `+992956${runId}`, password });
+  const strangerRes = await loginWithCode(app, `+992956${runId}`);
   expect(strangerRes.status).toBe(200);
   strangerToken = strangerRes.body.accessToken as string;
 });
@@ -103,7 +106,7 @@ describe("1. Пустой черновик", () => {
   it("GET /drafts/current до всего отвечает { draft: null }", async () => {
     const res = await request(app).get(PREFIX).set("Authorization", `Bearer ${token}`);
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ draft: null });
+    expect(res.body).toEqual({ draft: null, revision: 0 });
   });
 });
 
@@ -441,9 +444,10 @@ describe("9, 11. Переезд файлов черновика в объект"
     expect(property.clipVideoStatus).toBe("NONE");
   });
 
-  it("черновик удалён целиком (в т.ч. незаконченная видеосессия — она не стала PropertyVideo)", async () => {
+  it("черновик закрыт, оставлен tombstone, незаконченная сессия не стала PropertyVideo", async () => {
     const draft = await prisma.propertyDraft.findUnique({ where: { agentId } });
-    expect(draft).toBeNull();
+    expect(draft?.closedAt).not.toBeNull();
+    expect(draft?.values).toEqual({});
     // Готовое видео — единственное: незаконченная сессия не превратилась во второе.
     expect(await prisma.propertyVideo.count({ where: { propertyId: movedPropertyId } })).toBe(1);
     expect(await prisma.propertyDraftMedia.findUnique({ where: { id: incompleteVideoMediaId } })).toBeNull();
@@ -455,10 +459,15 @@ let foreignPropertyId: string;
 
 describe("10. Чужой draftId при создании объекта не переезжает", () => {
   it("подготовка: у агента A новый черновик с одним снимком", async () => {
+    const state = await request(app).get(PREFIX).set("Authorization", `Bearer ${token}`);
+    const started = await request(app).post(`${PREFIX}/start`).set("Authorization", `Bearer ${token}`).send({ sessionId: randomUUID(), revision: state.body.revision });
+    expect(started.status).toBe(200);
+    foreignDraftId = started.body.draft.id;
     const jpeg = await tinyJpeg(7);
     const res = await request(app)
       .post(`${PREFIX}/photos`)
       .set("Authorization", `Bearer ${token}`)
+      .set("X-Property-Draft-Id", foreignDraftId)
       .field("uploadKeys", `${runId}-photo-foreign`)
       .attach("photos", jpeg, "foreign.jpg");
     expect(res.status).toBe(201);
@@ -466,7 +475,7 @@ describe("10. Чужой draftId при создании объекта не п�
     foreignDraftId = draft.id;
   });
 
-  it("агент B создаёт объект с чужим draftId — объект создаётся, но без файлов", async () => {
+  it("агент B не создаёт объект с чужим draftId, чужие файлы остаются", async () => {
     const res = await request(app)
       .post("/api/v1/properties")
       .set("Authorization", `Bearer ${strangerToken}`)
@@ -480,11 +489,8 @@ describe("10. Чужой draftId при создании объекта не п�
           ownerContact: `+99293${String(runId).slice(-7)}9`,
         })
       );
-    expect(res.status).toBe(201);
-    foreignPropertyId = res.body.id;
-    propertyIds.push(foreignPropertyId);
-
-    expect(await prisma.propertyPhoto.count({ where: { propertyId: foreignPropertyId } })).toBe(0);
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe("DRAFT_CONFLICT");
     // Черновик агента A остался на месте — переезда не было.
     const draft = await prisma.propertyDraft.findUnique({ where: { id: foreignDraftId } });
     expect(draft).not.toBeNull();
@@ -493,7 +499,7 @@ describe("10. Чужой draftId при создании объекта не п�
 });
 
 describe("12. Просроченный черновик", () => {
-  it("GET после истечения срока отдаёт null и удаляет строку", async () => {
+  it("GET после истечения срока отдаёт null и сохраняет закрытую generation", async () => {
     await prisma.propertyDraft.update({
       where: { id: foreignDraftId },
       data: { expiresAt: new Date(Date.now() - 1000) },
@@ -501,20 +507,20 @@ describe("12. Просроченный черновик", () => {
 
     const res = await request(app).get(PREFIX).set("Authorization", `Bearer ${token}`);
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ draft: null });
-    expect(await prisma.propertyDraft.findUnique({ where: { id: foreignDraftId } })).toBeNull();
+    expect(res.body.draft).toBeNull();
+    expect((await prisma.propertyDraft.findUniqueOrThrow({ where: { id: foreignDraftId } })).closedAt).not.toBeNull();
   });
 });
 
 describe("13. Ночная уборка просроченных черновиков", () => {
   it("cleanupExpiredPropertyDrafts удаляет просроченный черновик и возвращает число удалённых", async () => {
-    const expired = await prisma.propertyDraft.create({
-      data: { agentId, values: {}, step: 0, expiresAt: new Date(Date.now() - 1000) },
+    const expired = await prisma.propertyDraft.update({
+      where: { agentId }, data: { closedAt: null, values: {}, step: 0, expiresAt: new Date(Date.now() - 1000) },
     });
 
     const removed = await cleanupExpiredPropertyDrafts();
     expect(removed).toBeGreaterThanOrEqual(1);
-    expect(await prisma.propertyDraft.findUnique({ where: { id: expired.id } })).toBeNull();
+    expect((await prisma.propertyDraft.findUniqueOrThrow({ where: { id: expired.id } })).closedAt).not.toBeNull();
   });
 });
 
@@ -543,9 +549,7 @@ describe("14. Гонка создания черновика — паралле�
         data: { fullName: "Агент гонки черновика (фото)", phone: `+992961${runId}`, role: "AGENT", passwordHash },
       })
     ).id;
-    const resPhotos = await request(app)
-      .post("/api/v1/auth/login")
-      .send({ phone: `+992961${runId}`, password: racePassword });
+    const resPhotos = await loginWithCode(app, `+992961${runId}`);
     expect(resPhotos.status).toBe(200);
     racePhotosToken = resPhotos.body.accessToken as string;
 
@@ -554,9 +558,7 @@ describe("14. Гонка создания черновика — паралле�
         data: { fullName: "Агент гонки черновика (PUT)", phone: `+992962${runId}`, role: "AGENT", passwordHash },
       })
     ).id;
-    const resPut = await request(app)
-      .post("/api/v1/auth/login")
-      .send({ phone: `+992962${runId}`, password: racePassword });
+    const resPut = await loginWithCode(app, `+992962${runId}`);
     expect(resPut.status).toBe(200);
     racePutToken = resPut.body.accessToken as string;
   });
@@ -617,13 +619,14 @@ describe("14. Гонка создания черновика — паралле�
 
 describe("13. Закрытый объект из мастера (23.09.2026)", () => {
   it("только цена, площадь и продавец — создаётся; с фото из черновика сразу в продаже, а не «ждут фото»", async () => {
-    const jpeg = await tinyJpeg(9);
-    const up = await request(app)
-      .post(`${PREFIX}/photos`)
-      .set("Authorization", `Bearer ${token}`)
-      .field("uploadKeys", `${runId}-photo-offsite`)
-      .attach("photos", jpeg, "offsite.jpg");
-    expect(up.status).toBe(201);
+    const state = await request(app).get(PREFIX).set("Authorization", `Bearer ${token}`);
+    const started = await request(app).post(`${PREFIX}/start`).set("Authorization", `Bearer ${token}`).send({ sessionId: randomUUID(), revision: state.body.revision });
+    expect(started.status).toBe(200);
+    for (let n = 0; n < MIN_PROPERTY_PHOTOS; n++) {
+      const up = await request(app).post(`${PREFIX}/photos`).set("Authorization", `Bearer ${token}`).set("X-Property-Draft-Id", started.body.draft.id)
+        .field("uploadKeys", `${runId}-photo-offsite-${n}`).attach("photos", await tinyJpeg(9+n), "offsite.jpg");
+      expect(up.status).toBe(201);
+    }
     const draft = await prisma.propertyDraft.findUniqueOrThrow({ where: { agentId } });
     const res = await request(app)
       .post("/api/v1/properties")
@@ -637,11 +640,12 @@ describe("13. Закрытый объект из мастера (23.09.2026)", (
         offSite: true,
         ownerContact: `+992938${runId}`,
         draftId: draft.id,
+        draftRevision: draft.revision,
       });
     expect(res.status, JSON.stringify(res.body)).toBe(201);
     propertyIds.push(res.body.id);
     const property = await prisma.property.findUniqueOrThrow({ where: { id: res.body.id } });
-    expect(await prisma.propertyPhoto.count({ where: { propertyId: property.id } })).toBe(1);
+    expect(await prisma.propertyPhoto.count({ where: { propertyId: property.id } })).toBe(MIN_PROPERTY_PHOTOS);
     expect(property.status).toBe("AVAILABLE");
   });
 

@@ -954,9 +954,9 @@
       "mount": "/api/v1/properties",
       "router": "propertiesRouter",
       "file": "apps/api/src/routes/properties.ts",
-      "endpoints": 107,
+      "endpoints": 108,
       "label": "Объекты: список, карточка, фото, видео, публикация",
-      "usedBy": 25
+      "usedBy": 27
     },
     {
       "mount": "/api/v1/clients",
@@ -1597,6 +1597,21 @@
       "label": null
     },
     {
+      "id": "customer-inbox-jobs",
+      "expr": "*/5 * * * * *",
+      "label": null
+    },
+    {
+      "id": "customer-intake-jobs",
+      "expr": "*/5 * * * * *",
+      "label": null
+    },
+    {
+      "id": "customer-outbox-jobs",
+      "expr": "*/5 * * * * *",
+      "label": null
+    },
+    {
       "id": "daily-kpi",
       "expr": "5 0 * * *",
       "label": "Пересчитывает показатели всех агентов за вчера"
@@ -2017,6 +2032,10 @@
     {
       "type": "customer-callback-notify",
       "file": "apps/api/src/jobs/customerCallbackNotify.ts"
+    },
+    {
+      "type": "customer-contact-intake",
+      "file": "apps/api/src/jobs/customerContactIntake.ts"
     },
     {
       "type": "customer-inbox-consume",

@@ -114,6 +114,7 @@
 @import './theme-2026-clean-account.css';
 @import './theme-2026-clean-calendar.css';
 @import './theme-2026-clean-section-surfaces.css';
+@import './theme-2026-clean-surface-integrity.css';
 
 /* ВАЖНО: тематические файлы выше подключены БЕЗ layer(...).
  * Кодмод @tailwindcss/upgrade завернул их в layer(base) — и ночная тема

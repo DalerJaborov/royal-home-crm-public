@@ -113,6 +113,7 @@ beforeAll(async () => {
 });
 afterAll(async () => {
   vi.unstubAllGlobals(); vi.unstubAllEnvs();
+  try {
   const parts = await prisma.customerOutboxPart.findMany({ where: { ticketEventKey: { in: events } }, select: { id: true } });
   const natives = await prisma.customerPropertyIngressTicket.findMany({ where: { eventKey: { in: events } }, select: { conversationId: true } });
   const nativeIds = natives.flatMap(row => row.conversationId ? [row.conversationId] : []);
@@ -129,14 +130,17 @@ afterAll(async () => {
   await prisma.customerAction.deleteMany({ where: { id: { in: actionIds } } });
   await prisma.customerInquiry.deleteMany({ where: { conversationId: { in: nativeIds } } });
   await prisma.botConversation.deleteMany({ where: { id: { in: nativeIds } } });
+  await prisma.outboundShieldState.deleteMany({ where: { endpointScope: { messengerAccountId: { in: accounts } } } });
   await prisma.customerEndpointScope.deleteMany({ where: { messengerAccountId: { in: accounts } } });
   await prisma.messengerAccount.deleteMany({ where: { id: { in: accounts } } });
+  } finally {
   if (settings) await prisma.settings.update({ where: { id: "singleton" }, data: settings });
   if (policy) await prisma.customerRuntimePolicy.update({ where: { id: "singleton" }, data: {
     contractVersion: policy.contractVersion, rolloutMode: policy.rolloutMode, capabilities: policy.capabilities!, activeAgentRevisionId: policy.activeAgentRevisionId,
   } });
   if (savedRolloutConfig === null) await prisma.$executeRaw`UPDATE "CustomerRuntimePolicy" SET "rolloutConfig"=NULL WHERE "id"='singleton'`;
   else if (savedRolloutConfig !== undefined) await prisma.$executeRaw`UPDATE "CustomerRuntimePolicy" SET "rolloutConfig"=${JSON.stringify(savedRolloutConfig)}::jsonb WHERE "id"='singleton'`;
+  }
   // Immutable manifests and synthetic provider accounting remain in this own
   // disposable DB as evidence; no shared/foreign daily bucket is rewritten.
 });

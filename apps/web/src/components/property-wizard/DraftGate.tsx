@@ -27,8 +27,8 @@ import {
 } from "./types";
 
 export type OfferedDraft =
-  | { source: "server"; draft: PropertyDraftView }
-  | { source: "local"; values: WizardValues };
+  | { source: "server"; draft: PropertyDraftView; notice?: string }
+  | { source: "local"; values: WizardValues; notice?: string };
 
 /** Сколько снимков черновика показать плитками — один ряд из трёх и ещё один. */
 const PREVIEW_TILES = 6;
@@ -190,6 +190,7 @@ export function DraftGate({
         </div>
 
         <div className="wbody">
+          {offer.notice && <div className="quiet" role="status" data-testid="wizard-draft-recovery-notice">{offer.notice}</div>}
           {missing.length > 0 && (
             <section className="blk">
               <div className="chip warn" data-testid="wizard-draft-missing">
@@ -312,7 +313,7 @@ export function DraftGate({
             disabled={restartPending}
             onClick={() => setConfirmOpen(true)}
           >
-            {restartPending ? "Удаляю…" : "Начать заново"}
+            {restartPending ? "Удаляю…" : "Удалить и начать заново"}
           </button>
           <button
             type="button"

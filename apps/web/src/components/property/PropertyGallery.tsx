@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { ChevronLeft, ChevronRight, ImageOff, Images } from "lucide-react";
 import { galleryDots } from "../../lib/galleryDots";
+import { isMotionDisabled } from "../../lib/motionPolicy";
 import type { PropertyPhoto } from "../../types";
 import { PhotoLightbox } from "../PhotoLightbox";
 import { Button } from "../rh2/Button";
@@ -49,7 +50,7 @@ export function PropertyGallery({ photos }: { photos: PropertyPhoto[] }) {
       const el = trackRef.current;
       if (!el) return;
       const target = Math.min(total - 1, Math.max(0, to));
-      const reduce = typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+      const reduce = isMotionDisabled();
       el.scrollTo({ left: target * el.clientWidth, behavior: smooth && !reduce ? "smooth" : "auto" });
       setIndex(target);
     },

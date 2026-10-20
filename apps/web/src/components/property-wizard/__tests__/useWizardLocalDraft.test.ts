@@ -17,6 +17,11 @@ const rt = vi.hoisted(() => ({
 }));
 
 vi.mock("react", () => ({
+  useState: (init: unknown) => {
+    const i = rt.idx++;
+    if (!(i in rt.slots)) rt.slots[i] = init;
+    return [rt.slots[i], (value: unknown) => { rt.slots[i] = value; }];
+  },
   useRef: (init: unknown) => {
     const i = rt.idx++;
     if (!(i in rt.slots)) rt.slots[i] = { current: init };
@@ -38,16 +43,17 @@ vi.mock("react", () => ({
 
 import { loadFormDraft } from "../../../hooks/useFormDraft";
 import { EMPTY_WIZARD_VALUES, type WizardValues } from "../types";
-import { useWizardLocalDraft } from "../useWizardLocalDraft";
+import { useWizardLocalDraft, WIZARD_LOCAL_DRAFT_TTL_MS } from "../useWizardLocalDraft";
 
 const KEY = "property-wizard:agent-1";
 const STORAGE_KEY = `royal-home-draft:${KEY}`;
 
-function useRenderPass(draftKey: string | null, armed: boolean, values: WizardValues): void {
+function useRenderPass(draftKey: string | null, armed: boolean, values: WizardValues): boolean | null {
   rt.idx = 0;
   rt.pending = [];
-  useWizardLocalDraft(draftKey, armed, values);
+  const persisted = useWizardLocalDraft(draftKey, armed, values);
   for (const run of rt.pending) run();
+  return persisted;
 }
 
 const store = new Map<string, string>();
@@ -100,10 +106,25 @@ describe("запасная копия мастера пока ответ сер�
     vi.advanceTimersByTime(500);
     expect(loadFormDraft<WizardValues>(KEY)?.address).toBe("новый адрес");
   });
+  it("новая правка уже записана до закрытия мастера в пределах прежних 400 мс", () => {
+    useRenderPass(KEY, true, { ...EMPTY_WIZARD_VALUES, address: "введён перед закрытием" });
+    expect(loadFormDraft<WizardValues>(KEY)?.address).toBe("введён перед закрытием");
+  });
 
   it("после армирования пустая форма по-прежнему чистит копию", () => {
     useRenderPass(KEY, true, { ...EMPTY_WIZARD_VALUES });
     vi.advanceTimersByTime(500);
     expect(store.has(STORAGE_KEY)).toBe(false);
+  });
+  it("черновик объекта переживает два дня без сети в пределах своего семидневного срока", () => {
+    const value = { ...EMPTY_WIZARD_VALUES, address: "из офлайн-копии" };
+    store.set(STORAGE_KEY, JSON.stringify({ at: Date.now() - 2 * 86400000, value }));
+    expect(loadFormDraft<WizardValues>(KEY, WIZARD_LOCAL_DRAFT_TTL_MS)?.address).toBe(value.address);
+  });
+  it("возвращает false при отказе localStorage, не подтверждая несуществующую запись", () => {
+    vi.stubGlobal("localStorage", { setItem: () => { throw new Error("quota"); }, removeItem: () => undefined });
+    const value = { ...EMPTY_WIZARD_VALUES, address: "не записалось" };
+    useRenderPass(KEY, true, value);
+    expect(useRenderPass(KEY, true, value)).toBe(false);
   });
 });

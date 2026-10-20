@@ -18,7 +18,9 @@ export async function runRestartDraft(
     fail: (message: string) => void;
   }
 ): Promise<boolean> {
-  if (source === "server") {
+  // Local fallback can mean GET failed, rather than "server has no draft".
+  // The caller resolves current identity and conditionally deletes it first.
+  if (source === "server" || source === "local" || source === undefined) {
     try {
       await deps.deleteServerDraft();
     } catch (err) {

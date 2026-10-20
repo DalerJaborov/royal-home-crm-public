@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ChevronDown, Plus, SlidersHorizontal } from "lucide-react";
 import { useCleanShell } from "../hooks/useCleanShell";
 import { CButton } from "../components/clean/ui";
+import { PropertyDraftShortcut } from "../components/PropertyDraftShortcut";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
   useBulkTrashProperties,
@@ -377,6 +378,7 @@ export function Properties() {
     return (
       <>
         <MobilePropertiesList
+          draftBanner={canCreateProperty ? <PropertyDraftShortcut /> : null}
           view={view}
           onViewChange={setView}
           filters={filters}
@@ -486,7 +488,7 @@ export function Properties() {
       <div className="scr">
         {clean ? <div className="clean-property-catalog-header mb-5 flex flex-wrap items-center justify-between gap-4">
           <div><h1 className="text-[28px] font-semibold tracking-tight text-ink">Объекты</h1><p className="mt-2 text-[16px] text-gray-500">{data ? `Найдено: ${data.total}` : "Каталог агентства"}<span className="clean-property-catalog-hint"> · фотографии, цена и состояние работы</span></p>{canModerate && !!pendingReview?.total && <button type="button" className="mt-2 text-[14px] text-blue" onClick={() => setFilters((f) => ({ ...f, status: "PENDING_REVIEW", page: 1 }))}>Ждут вашей проверки: {pendingReview.total}</button>}</div>
-          {canCreateProperty && <CButton aria-label="Добавить объект" onClick={() => navigate("/properties/new")}><Plus size={18} aria-hidden /><span>Добавить объект</span></CButton>}
+          {canCreateProperty && <div className="flex flex-wrap items-center gap-2"><PropertyDraftShortcut /><CButton aria-label="Добавить объект" onClick={() => navigate("/properties/new")}><Plus size={18} aria-hidden /><span>Добавить объект</span></CButton></div>}
         </div> : <div className="pg-h">
           <div>
             <h1>Объекты</h1>
@@ -531,6 +533,7 @@ export function Properties() {
                 </span>
               )}
             </button>
+            {canCreateProperty && <PropertyDraftShortcut />}
             {canCreateProperty && (
               <button className="pill ghost" type="button" onClick={() => navigate("/properties/new")}>
                 <svg className="i" viewBox="0 0 24 24">

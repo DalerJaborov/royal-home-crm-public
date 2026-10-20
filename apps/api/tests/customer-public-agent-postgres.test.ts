@@ -168,6 +168,7 @@ afterAll(async () => {
     await prisma.customerPropertyIngressTicket.deleteMany({where:{eventKey:{in:dmEvents}}});
     await prisma.botConversation.deleteMany({where:{id:{in:dmConversations}}});
     await prisma.customerInquiry.deleteMany({where:{endpointScopeId:{in:dmScopes}}});
+    await prisma.outboundShieldState.deleteMany({where:{endpointScopeId:{in:dmScopes}}});
     await prisma.customerEndpointScope.deleteMany({where:{id:{in:dmScopes}}});
     await prisma.customerPublicEffect.deleteMany({ where: { sourceId: { in: sourceIds } } });
     const rows = await prisma.customerOutboxPart.findMany({ where: { sourceKey: { in: sourceIds.map(id => `meta:${id}`) } }, select: { id: true } });

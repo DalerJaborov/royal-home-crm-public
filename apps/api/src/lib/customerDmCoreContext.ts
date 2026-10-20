@@ -9,6 +9,8 @@ import { inspectAuthenticatedCustomerInput, recoverCustomerPendingEnvelope,
 import { recoverAndFinalizeCustomerInboxInput } from "./customerIngressRecovery.js";
 import { recordScopedCustomerInput } from "./customerQualifierLedger.js";
 import { loadCustomerDmCoreQualifierLane, refreshCustomerQualifierProjection, type ScopedCustomerQualifierLane } from "./customerQualifierContext.js";
+import { loadCustomerTransportForConversation } from "./customerConversationScope.js";
+import { noteRealInbound } from "./outboundShield.js";
 
 export type PreparedCustomerDmCoreContext =
   | { status: "prepared"; lane: ScopedCustomerQualifierLane; focus: CustomerPropertyTurnContext | null;
@@ -49,6 +51,19 @@ export async function prepareCustomerDmInboxCoreContext(eventKey: unknown): Prom
     if (!await recordScopedCustomerInput({ channel: evidence.channel, subscriberId: evidence.peer,
       skipSaveIncoming: false, replyToMessageId: payload.payload.replyToMessageId }, input, canonicalTicket)) {
       return { status: "held", reason: "input_record_unavailable" };
+    }
+    // CORE bypasses the legacy webhook loop's noteRealInbound. Without this
+    // genuine FINAL observation, its replies were classified as initiatives
+    // and could be silenced by the global initiative pulse. Never renew age or
+    // clear a native/HUMAN pause after the original controller was captured.
+    if (evidence.provenance === "meta_signature" && evidence.assurance === "protected_namespace") {
+      const transport = await loadCustomerTransportForConversation(ticket.conversationId);
+      if (!transport || !evidence.acceptedFence || transport.endpointScopeId !== ticket.endpointScopeId || transport.channel !== evidence.channel ||
+          transport.accountId !== ticket.accountId || transport.scopeRevision !== evidence.acceptedFence.scopeRevision) {
+        return { status: "held", reason: "original_context_changed" };
+      }
+      await noteRealInbound({ channel: evidence.channel, subscriberId: evidence.peer, transport,
+        providerId: evidence.eventId, now: new Date(evidence.issuedAt), preserveNativeOwner: true });
     }
     // Complete this original IN public focus before minting a point-in-time
     // principal: real P03 updates advance canonical semantic stateRevision.

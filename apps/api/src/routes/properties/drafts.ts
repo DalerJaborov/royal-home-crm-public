@@ -24,7 +24,7 @@
  * тот же двухуровневый. При сохранении объекта создаются строки PropertyPhoto и
  * PropertyVideo с уже готовыми путями, а строки черновика удаляются.
  */
-import express, { Router } from "express";
+import express, { Router, type ErrorRequestHandler, type Response } from "express";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
@@ -32,6 +32,8 @@ import type { Prisma, PropertyDraftMedia } from "../../generated/prisma/client.j
 import {
   PROPERTY_DRAFT_TTL_DAYS,
   propertyDraftSaveSchema,
+  propertyDraftStartSchema,
+  propertyDraftDeleteSchema,
   propertyDraftVideoSessionSchema,
   UPLOAD_VIDEO_MAX_BYTES,
   VIDEO_TOO_LARGE_CODE,
@@ -39,7 +41,7 @@ import {
   type PropertyDraftMediaView,
   type PropertyDraftView,
 } from "@royal-home/shared";
-import { prisma } from "../../db.js";
+import { prisma, type TxClient } from "../../db.js";
 import { requireAuth, canAccessAssignedAgent, scopeToOwnAgent } from "../../auth/middleware.js";
 import { draftPhotoUpload, uploadsDir, thumbsDir } from "../../upload.js";
 import {
@@ -50,7 +52,6 @@ import {
   writeLocalUploadPart,
 } from "../../lib/localVideoStorage.js";
 import { logSystemError } from "../../lib/systemError.js";
-import { matchesUniqueConstraint } from "../../lib/prismaUniqueConflict.js";
 import { DRAFT_MEDIA_ORDER, parseUploadKeys } from "./shared.js";
 import { UNSUPPORTED_VIDEO_MESSAGE, videoExtensionOf } from "../../lib/videoFileExtension.js";
 import { discardDraft, removePhotoFiles } from "./draftAttach.js";
@@ -60,8 +61,20 @@ import { copySellerAttachmentsToDraft, listSellerAttachments, sellerCardToDraftV
 // (см. отчёт агента МЕДИА о временной заглушке, которая жила здесь до этого).
 import { getSellerObjectFacts } from "../../lib/sellerFacts.js";
 import { memoryUploadBudget } from "../../lib/memoryUploadBudget.js";
+import { DRAFT_INCLUDE, DraftConflictError, assertActiveDraft, checkDraftReference, closeDraftRows, presentDraftSnapshot, withDraftLock } from "./draftLifecycle.js";
 
 export const draftsRouter = Router();
+
+/** Never acknowledge durable media writes before the transaction has committed. */
+function deferredDraftReply(response: Response) {
+  let status = 200;
+  let body: unknown;
+  return {
+    status(code: number) { status = code; return this; },
+    json(value: unknown) { body = value; return this; },
+    flush() { response.status(status).json(body); },
+  };
+}
 
 /** Тот же план частей, что у видео объекта (routes/properties/videos.ts): 8 МБ —
  *  компромисс между числом запросов и ценой повтора одной части при обрыве. */
@@ -118,6 +131,7 @@ export function presentDraftMedia(m: PropertyDraftMedia): PropertyDraftMediaView
 
 function presentDraft(draft: {
   id: string;
+  revision: number;
   values: Prisma.JsonValue;
   step: number;
   updatedAt: Date;
@@ -126,6 +140,7 @@ function presentDraft(draft: {
 }): PropertyDraftView {
   return {
     id: draft.id,
+    revision: draft.revision,
     // Значения читаются из JSONB: то, что туда клали, уже прошло Zod на записи, но
     // черновик мог быть записан прошлой сборкой — отдаём как есть, вкладка
     // раскладывает знакомые поля поверх пустого набора.
@@ -153,17 +168,34 @@ async function loadOwnDraft(agentId: string) {
     where: { agentId },
     include: { media: { orderBy: DRAFT_MEDIA_ORDER } },
   });
-  if (!draft) return null;
+  if (!draft || draft.closedAt) return null;
   if (draft.expiresAt.getTime() <= Date.now()) {
-    await discardDraft(draft.id);
-    return null;
+    await discardDraft(draft.id, { expiredAt: new Date() });
+    const current = await prisma.propertyDraft.findUnique({ where: { agentId }, include: DRAFT_INCLUDE });
+    return current && !current.closedAt ? current : null;
   }
   return draft;
 }
 
 draftsRouter.get("/drafts/current", requireAuth, async (req, res) => {
   const draft = await loadOwnDraft(req.agent!.id);
-  res.json({ draft: draft ? presentDraft(draft) : null });
+  const revision = draft?.revision ?? (await prisma.propertyDraft.findUnique({ where: { agentId: req.agent!.id }, select: { revision: true } }))?.revision ?? 0;
+  res.json({ draft: draft ? presentDraft(draft) : null, revision });
+});
+
+draftsRouter.post("/drafts/current/start", requireAuth, async (req, res) => {
+  const parsed = propertyDraftStartSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
+  const { sessionId, revision } = parsed.data;
+  const draft = await withDraftLock(req.agent!.id, async (tx) => {
+    const current = await tx.propertyDraft.findUnique({ where: { agentId: req.agent!.id }, include: DRAFT_INCLUDE });
+    if (current && !current.closedAt && current.id === sessionId) return current;
+    if ((current && !current.closedAt) || current?.id === sessionId || (current?.revision ?? 0) !== revision) throw new DraftConflictError(current);
+    const data = { id: sessionId, values: {}, step: 0, closedAt: null, expiresAt: expiryFromNow(), revision: revision + 1 };
+    return current ? tx.propertyDraft.update({ where: { id: current.id }, data, include: DRAFT_INCLUDE }) :
+      tx.propertyDraft.create({ data: { ...data, agentId: req.agent!.id }, include: DRAFT_INCLUDE });
+  });
+  res.json({ draft: presentDraft(draft), revision: draft.revision });
 });
 
 /**
@@ -176,45 +208,39 @@ draftsRouter.put("/drafts/current", requireAuth, async (req, res) => {
   if (!parsed.success) {
     return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
   }
-  const { values, step } = parsed.data;
-  const draft = await upsertOwnDraft(req.agent!.id, values as Prisma.InputJsonValue, step);
-  res.json({ draft: presentDraft(draft) });
+  const { values, step, draftId, revision } = parsed.data;
+  const draft = await withDraftLock(req.agent!.id, async (tx) => {
+    const current = await tx.propertyDraft.findUnique({ where: { agentId: req.agent!.id }, include: DRAFT_INCLUDE });
+    // Old clients may create their first draft; a closed generation can only be opened by START.
+    if (!current && !draftId && revision === undefined) return tx.propertyDraft.create({
+      data: { agentId: req.agent!.id, values: values as Prisma.InputJsonValue, step, expiresAt: expiryFromNow(), revision: 0 }, include: DRAFT_INCLUDE,
+    });
+    checkDraftReference(current, { draftId, revision }, !current || current.revision === 0);
+    return tx.propertyDraft.update({ where: { id: current.id }, data: { values: values as Prisma.InputJsonValue, step, expiresAt: expiryFromNow(), ...(draftId ? { revision: { increment: 1 } } : {}) }, include: DRAFT_INCLUDE });
+  });
+  res.json({ draft: presentDraft(draft), revision: draft.revision });
 });
 
-/**
- * Upsert черновика с одним повтором на гонку (13.09.2026, жалобы Умед 21.09 11:08 UTC,
- * Ноза 17.09 — 500 на POST /drafts/current/photos сразу после автосохранения).
- *
- * `upsert` у Prisma с адаптером `@prisma/adapter-pg` (db.ts) — НЕ атомарный
- * `INSERT ... ON CONFLICT DO UPDATE` одной командой, а `create`, и при конфликте
- * уникального индекса — `update`; между попыткой create и проверкой конфликта есть
- * окно. Вкладка шлёт автосохранение каждые несколько секунд, а первый файл черновика
- * может уйти в ту же секунду — два одновременных запроса от одной вкладки (или от
- * второй открытой вкладки) оба не находят строку и оба идут в create: один
- * выигрывает, второй получает P2002 по `PropertyDraft_agentId_key`. Строка уже
- * существует — второй раз upsert гарантированно попадёт в ветку update, повтор без
- * задержки и без ретрай-цикла: гонка разрешается за один лишний круг.
- */
-async function upsertOwnDraft(agentId: string, values: Prisma.InputJsonValue, step: number) {
-  const run = () =>
-    prisma.propertyDraft.upsert({
-      where: { agentId },
-      create: { agentId, values, step, expiresAt: expiryFromNow() },
-      update: { values, step, expiresAt: expiryFromNow() },
-      include: { media: { orderBy: DRAFT_MEDIA_ORDER } },
-    });
-  try {
-    return await run();
-  } catch (err) {
-    if (!matchesUniqueConstraint(err, "agentId")) throw err;
-    return run();
-  }
-}
-
+/** Close the generation and remove files only after the database commit succeeds. */
 draftsRouter.delete("/drafts/current", requireAuth, async (req, res) => {
-  const draft = await prisma.propertyDraft.findUnique({ where: { agentId: req.agent!.id } });
-  if (draft) await discardDraft(draft.id);
-  res.status(204).end();
+  const parsed = propertyDraftDeleteSchema.safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ error: "Неверные данные" });
+  let removedMedia: PropertyDraftMedia[] = [];
+  const revision = await withDraftLock(req.agent!.id, async (tx) => {
+    const draft = await tx.propertyDraft.findUnique({ where: { agentId: req.agent!.id }, include: DRAFT_INCLUDE });
+    if (!draft || draft.closedAt) {
+      if (parsed.data.draftId && draft?.id !== parsed.data.draftId) throw new DraftConflictError(draft);
+      // An empty DELETE still closes the generation: a first legacy PUT may already be in flight.
+      if (!draft) return (await tx.propertyDraft.create({ data: { agentId: req.agent!.id, values: {}, step: 0, closedAt: new Date(), revision: 1, expiresAt: expiryFromNow() } })).revision;
+      return draft?.revision ?? 0;
+    }
+    checkDraftReference(draft, parsed.data, draft.revision === 0);
+    removedMedia = draft.media;
+    return (await closeDraftRows(tx, draft)).revision;
+  });
+  await wipeDraftMediaFiles(removedMedia);
+  if (!parsed.data.draftId && parsed.data.revision === undefined) return res.status(204).end();
+  res.json({ draft: null, revision });
 });
 
 /**
@@ -223,31 +249,13 @@ draftsRouter.delete("/drafts/current", requireAuth, async (req, res) => {
  * лишний запрос «сначала создай черновик» значило бы уронить загрузку на пустом
  * месте при гонке двух параллельных отправок.
  */
-async function ensureDraft(agentId: string) {
-  const existing = await loadOwnDraft(agentId);
-  if (existing) return existing;
-  try {
-    return await prisma.propertyDraft.create({
-      data: { agentId, values: {}, step: 0, expiresAt: expiryFromNow() },
-      include: { media: { orderBy: DRAFT_MEDIA_ORDER } },
-    });
-  } catch (err) {
-    /**
-     * ГОНКА ПЕРВОГО ФАЙЛА (13.09.2026, прод: Умед 21.09 11:08 UTC, Ноза 17.09).
-     *
-     * Черновик заводится сам при первом файле (см. докстринг выше), а вкладка
-     * параллельно автосохраняет поля через PUT /drafts/current — при пустом
-     * черновике оба запроса читают "нет строки" и оба идут в create. Проигравший
-     * получает P2002 по `PropertyDraft_agentId_key`, а не 500: строку уже создал
-     * выигравший, её и отдаём.
-     */
-    if (!matchesUniqueConstraint(err, "agentId")) throw err;
-    const draft = await loadOwnDraft(agentId);
-    if (draft) return draft;
-    // Крайне маловероятно (строка создана долей секунды назад и уже успела
-    // просрочиться/удалиться) — пробрасываем исходную ошибку, а не проглатываем её.
-    throw err;
-  }
+async function ensureDraft(agentId: string, draftId?: string) {
+  if (draftId && !z.guid().safeParse(draftId).success) throw new DraftConflictError(null);
+  return withDraftLock(agentId, async (tx) => {
+    const current = await tx.propertyDraft.findUnique({ where: { agentId }, include: DRAFT_INCLUDE });
+    if (current || draftId) { checkDraftReference(current, { draftId }); return current; }
+    return tx.propertyDraft.create({ data: { agentId, values: {}, step: 0, expiresAt: expiryFromNow(), revision: 0 }, include: DRAFT_INCLUDE });
+  });
 }
 
 /**
@@ -257,7 +265,7 @@ async function ensureDraft(agentId: string) {
  * пачку.
  */
 draftsRouter.post("/drafts/current/photos", requireAuth, memoryUploadBudget, draftPhotoUpload.array("photos", 5), async (req, res) => {
-  const draft = await ensureDraft(req.agent!.id);
+  const draft = await ensureDraft(req.agent!.id, req.get("X-Property-Draft-Id"));
   const files = (req.files as Express.Multer.File[]) ?? [];
   if (files.length === 0) return res.status(400).json({ error: "Не пришло ни одного файла" });
 
@@ -268,7 +276,7 @@ draftsRouter.post("/drafts/current/photos", requireAuth, memoryUploadBudget, dra
   const alreadyStored = uploadKeys?.length
     ? await prisma.propertyDraftMedia.findMany({ where: { uploadKey: { in: uploadKeys } } })
     : [];
-  const foreign = alreadyStored.find((m) => m.draftId !== draft.id);
+  const foreign = alreadyStored.find((m) => m.draftId !== draft.id || m.kind !== "PHOTO");
   if (foreign) return res.status(409).json({ error: "Ключ загрузки уже использован" });
   const storedByKey = new Map(alreadyStored.map((m) => [m.uploadKey, m]));
 
@@ -281,7 +289,6 @@ draftsRouter.post("/drafts/current/photos", requireAuth, memoryUploadBudget, dra
   }
 
   const stored: PropertyDraftMedia[] = [];
-  let created = 0;
   for (let i = 0; i < files.length; i++) {
     const uploadKey = uploadKeys?.[i] ?? randomUUID();
     const known = storedByKey.get(uploadKey);
@@ -317,7 +324,19 @@ draftsRouter.post("/drafts/current/photos", requireAuth, memoryUploadBudget, dra
       );
       return res.status(502).json({ error: "Не удалось сохранить снимок — попробуйте ещё раз" });
     }
-    const media = await prisma.propertyDraftMedia.create({
+    let media: PropertyDraftMedia;
+    try {
+      media = await withDraftLock(req.agent!.id, async (tx) => {
+        await assertActiveDraft(tx, req.agent!.id, { draftId: draft.id });
+        const duplicate = await tx.propertyDraftMedia.findUnique({ where: { uploadKey } });
+        if (duplicate) {
+          if (duplicate.draftId !== draft.id || duplicate.kind !== "PHOTO") throw new DraftConflictError(null, "Ключ загрузки уже использован");
+          await removePhotoFiles(`/uploads/${filename}`, `/uploads/thumbs/${filename}`);
+          return duplicate;
+        }
+        const count = await tx.propertyDraftMedia.count({ where: { draftId: draft.id, kind: "PHOTO" } });
+        if (count >= MAX_DRAFT_PHOTOS) throw new DraftConflictError(null, `В черновик помещается ${MAX_DRAFT_PHOTOS} снимков`);
+        return tx.propertyDraftMedia.create({
       data: {
         draftId: draft.id,
         kind: "PHOTO",
@@ -328,12 +347,16 @@ draftsRouter.post("/drafts/current/photos", requireAuth, memoryUploadBudget, dra
         sizeBytes: file.size,
         // По числу СОЗДАННЫХ, а не по индексу файла: при повторе часть пачки уже
         // лежит в базе, и индекс оставлял бы дыры в порядке.
-        order: currentCount + created,
+        order: count,
         url: `/uploads/${filename}`,
         thumbUrl: `/uploads/thumbs/${filename}`,
       },
-    });
-    created++;
+        });
+      });
+    } catch (err) {
+      await removePhotoFiles(`/uploads/${filename}`, `/uploads/thumbs/${filename}`);
+      throw err;
+    }
     stored.push(media);
   }
 
@@ -367,11 +390,15 @@ draftsRouter.post("/drafts/current/videos/sessions", requireAuth, async (req, re
     });
   }
 
-  const draft = await ensureDraft(req.agent!.id);
+  const draft = await ensureDraft(req.agent!.id, req.get("X-Property-Draft-Id"));
 
-  const existing = await prisma.propertyDraftMedia.findUnique({ where: { uploadKey } });
+  const reply = deferredDraftReply(res);
+  await withDraftLock(req.agent!.id, async (tx) => {
+  const res = reply;
+  await assertActiveDraft(tx, req.agent!.id, { draftId: draft.id });
+  const existing = await tx.propertyDraftMedia.findUnique({ where: { uploadKey } });
   if (existing) {
-    if (existing.draftId !== draft.id) return res.status(409).json({ error: "Ключ загрузки уже использован" });
+    if (existing.draftId !== draft.id || existing.kind !== "VIDEO") return res.status(409).json({ error: "Ключ загрузки уже использован" });
     if (existing.status === "READY") {
       return res.json({ status: "done", media: presentDraftMedia(existing) });
     }
@@ -395,7 +422,7 @@ draftsRouter.post("/drafts/current/videos/sessions", requireAuth, async (req, re
    * байт внутри ОДНОГО черновика — это один и тот же файл: два разных ролика
    * обхода квартиры не совпадают по размеру до байта.
    */
-  const sameFile = await prisma.propertyDraftMedia.findFirst({
+  const sameFile = await tx.propertyDraftMedia.findFirst({
     where: { draftId: draft.id, kind: "VIDEO", filename: filename.slice(0, 255), sizeBytes },
     orderBy: { createdAt: "asc" },
   });
@@ -412,7 +439,7 @@ draftsRouter.post("/drafts/current/videos/sessions", requireAuth, async (req, re
     });
   }
 
-  const videoCount = await prisma.propertyDraftMedia.count({ where: { draftId: draft.id, kind: "VIDEO" } });
+  const videoCount = await tx.propertyDraftMedia.count({ where: { draftId: draft.id, kind: "VIDEO" } });
   if (videoCount >= MAX_DRAFT_VIDEOS) {
     return res.status(400).json({ error: `В черновик помещается ${MAX_DRAFT_VIDEOS} роликов` });
   }
@@ -433,7 +460,7 @@ draftsRouter.post("/drafts/current/videos/sessions", requireAuth, async (req, re
     return res.status(502).json({ error: "Не удалось начать загрузку видео — попробуйте ещё раз" });
   }
 
-  const media = await prisma.propertyDraftMedia.create({
+  const media = await tx.propertyDraftMedia.create({
     data: {
       id: mediaId,
       draftId: draft.id,
@@ -450,8 +477,10 @@ draftsRouter.post("/drafts/current/videos/sessions", requireAuth, async (req, re
       parts: [],
     },
   });
-  await touchDraft(draft.id);
+  await tx.propertyDraft.update({ where: { id: draft.id }, data: { expiresAt: expiryFromNow() } });
   res.status(201).json({ status: "started", mediaId: media.id, partSize, totalParts, uploadedPartNumbers: [] });
+  });
+  reply.flush();
 });
 
 const partParamsSchema = z.object({
@@ -474,12 +503,16 @@ draftsRouter.put(
     if (!parsedParams.success) return res.status(400).json({ error: "Неверные данные" });
     const { mediaId, partNumber } = parsedParams.data;
 
-    const media = await prisma.propertyDraftMedia.findUnique({
+    const reply = deferredDraftReply(res);
+    await withDraftLock(req.agent!.id, async (tx) => {
+    const res = reply;
+    const media = await tx.propertyDraftMedia.findUnique({
       where: { id: mediaId },
       include: { draft: { select: { agentId: true } } },
     });
     if (!media || media.kind !== "VIDEO") return res.status(404).json({ error: "Загрузка не найдена" });
     if (media.draft.agentId !== req.agent!.id) return res.status(403).json({ error: "Недостаточно прав" });
+    await assertMediaDraft(tx, req.agent!.id, media.draftId, req.get("X-Property-Draft-Id"));
     if (media.status === "READY") return res.status(409).json({ error: "Файл уже собран" });
     if (!media.totalParts || partNumber > media.totalParts) {
       return res.status(400).json({ error: "Номер части вне плана загрузки" });
@@ -487,6 +520,8 @@ draftsRouter.put(
 
     const body = req.body as Buffer;
     if (!Buffer.isBuffer(body) || body.length === 0) return res.status(400).json({ error: "Пустая часть" });
+    const expectedSize = partNumber === media.totalParts ? media.sizeBytes - (media.totalParts - 1) * media.partSize! : media.partSize!;
+    if (body.length !== expectedSize) return res.status(400).json({ error: "Размер части не совпадает с планом загрузки" });
 
     try {
       await writeLocalUploadPart(mediaId, partNumber, body);
@@ -502,9 +537,11 @@ draftsRouter.put(
     const known = new Set(uploadedParts(media.parts));
     known.add(partNumber);
     const next = [...known].sort((a, b) => a - b).map((partNumber) => ({ partNumber }));
-    await prisma.propertyDraftMedia.update({ where: { id: mediaId }, data: { parts: next } });
-    await touchDraft(media.draftId);
+    await tx.propertyDraftMedia.update({ where: { id: mediaId }, data: { parts: next } });
+    await tx.propertyDraft.update({ where: { id: media.draftId }, data: { expiresAt: expiryFromNow() } });
     res.json({ uploadedPartNumbers: [...known].sort((a, b) => a - b) });
+    });
+    reply.flush();
   }
 );
 
@@ -512,12 +549,16 @@ draftsRouter.post("/drafts/current/videos/:mediaId/complete", requireAuth, async
   const parsedId = z.guid().safeParse(req.params.mediaId);
   if (!parsedId.success) return res.status(400).json({ error: "Неверные данные" });
 
-  const media = await prisma.propertyDraftMedia.findUnique({
+  const reply = deferredDraftReply(res);
+  await withDraftLock(req.agent!.id, async (tx) => {
+  const res = reply;
+  const media = await tx.propertyDraftMedia.findUnique({
     where: { id: parsedId.data },
     include: { draft: { select: { agentId: true } } },
   });
   if (!media || media.kind !== "VIDEO") return res.status(404).json({ error: "Загрузка не найдена" });
   if (media.draft.agentId !== req.agent!.id) return res.status(403).json({ error: "Недостаточно прав" });
+  await assertMediaDraft(tx, req.agent!.id, media.draftId, req.get("X-Property-Draft-Id"));
   if (media.status === "READY") return res.json({ media: presentDraftMedia(media) });
   if (!media.storageKey || !media.totalParts) return res.status(409).json({ error: "Загрузка повреждена" });
 
@@ -542,12 +583,14 @@ draftsRouter.post("/drafts/current/videos/:mediaId/complete", requireAuth, async
     return res.status(502).json({ error: "Не удалось собрать видео — попробуйте ещё раз" });
   }
 
-  const ready = await prisma.propertyDraftMedia.update({
+  const ready = await tx.propertyDraftMedia.update({
     where: { id: media.id },
     data: { status: "READY" },
   });
-  await touchDraft(media.draftId);
+  await tx.propertyDraft.update({ where: { id: media.draftId }, data: { expiresAt: expiryFromNow() } });
   res.json({ media: presentDraftMedia(ready) });
+  }, 120_000);
+  reply.flush();
 });
 
 /** Отмена загрузки и удаление файла черновика — одной кнопкой на плитке. */
@@ -555,16 +598,24 @@ draftsRouter.delete("/drafts/current/media/:mediaId", requireAuth, async (req, r
   const parsedId = z.guid().safeParse(req.params.mediaId);
   if (!parsedId.success) return res.status(400).json({ error: "Неверные данные" });
 
-  const media = await prisma.propertyDraftMedia.findUnique({
+  const result = await withDraftLock(req.agent!.id, async (tx) => {
+  const media = await tx.propertyDraftMedia.findUnique({
     where: { id: parsedId.data },
     include: { draft: { select: { agentId: true } } },
   });
   // Уже удалён — отвечаем успехом: вкладка повторяет отмену после обрыва связи, и
   // 404 на второй попытке выглядел бы как «не удалось убрать», хотя файла уже нет.
-  if (!media) return res.status(204).end();
-  if (media.draft.agentId !== req.agent!.id) return res.status(403).json({ error: "Недостаточно прав" });
+  if (!media) return null;
+  if (media.draft.agentId !== req.agent!.id) return "forbidden" as const;
+  await assertMediaDraft(tx, req.agent!.id, media.draftId, req.get("X-Property-Draft-Id"));
 
-  await prisma.propertyDraftMedia.delete({ where: { id: media.id } });
+  await tx.propertyDraftMedia.delete({ where: { id: media.id } });
+  await tx.propertyDraft.update({ where: { id: media.draftId }, data: { expiresAt: expiryFromNow() } });
+  return media;
+  });
+  if (result === "forbidden") return res.status(403).json({ error: "Недостаточно прав" });
+  if (!result) return res.status(204).end();
+  const media = result;
   if (media.kind === "PHOTO") {
     await removePhotoFiles(media.url, media.thumbUrl);
   } else {
@@ -573,9 +624,14 @@ draftsRouter.delete("/drafts/current/media/:mediaId", requireAuth, async (req, r
     await abortLocalUploadSession(media.id).catch(() => undefined);
     if (media.storageKey && media.status === "READY") await localVideoDelete(media.storageKey);
   }
-  await touchDraft(media.draftId);
   res.status(204).end();
 });
+
+async function assertMediaDraft(tx: TxClient, agentId: string, mediaDraftId: string, headerId?: string): Promise<void> {
+  if (headerId && headerId !== mediaDraftId) throw new DraftConflictError(null);
+  const current = await assertActiveDraft(tx, agentId, { draftId: mediaDraftId });
+  if (!headerId && current.revision > 0) throw new DraftConflictError(current, "Обновите мастер перед загрузкой файлов");
+}
 
 /** Любое движение по файлам продлевает срок жизни черновика — агент им пользуется. */
 async function touchDraft(draftId: string): Promise<void> {
@@ -617,7 +673,10 @@ async function touchDraft(draftId: string): Promise<void> {
  * находит уже скопированное по ключу `chat:<sha256>` и добавляет только новое.
  */
 const DRAFT_MEDIA_REPLACE_CONFIRM_CODE = "DRAFT_MEDIA_REPLACE_CONFIRM";
-const fromClientBodySchema = z.object({ media: z.enum(["replace", "keep"]).optional() });
+const fromClientBodySchema = z.object({ media: z.enum(["replace", "keep"]).optional(), mode: z.enum(["merge", "replace"]).optional(), draftId: z.guid().optional(), revision: z.number().int().nonnegative().optional() });
+class DraftImportConflictError extends Error {
+  constructor(readonly response: Record<string, unknown>) { super(String(response.error)); }
+}
 
 draftsRouter.post("/drafts/from-client/:clientId", requireAuth, async (req, res) => {
   const parsedId = z.guid().safeParse(req.params.clientId);
@@ -665,7 +724,7 @@ draftsRouter.post("/drafts/from-client/:clientId", requireAuth, async (req, res)
   }
 
   const agentId = req.agent!.id;
-  let draft = await ensureDraft(agentId);
+  const draft = await ensureDraft(agentId, parsedBody.data.draftId ?? req.get("X-Property-Draft-Id"));
 
   const [facts, attachments] = await Promise.all([
     getSellerObjectFacts(client.id).catch(() => null),
@@ -678,52 +737,47 @@ draftsRouter.post("/drafts/from-client/:clientId", requireAuth, async (req, res)
     }),
   ]);
 
-  // Файлы, уже лежащие в черновике, — не этого продавца (другой или никакой).
-  // Заменять их можно только с согласия агента, см. шапку маршрута.
-  const previousSellerClientId = draftSellerClientId(draft.values);
-  const foreignMedia = draft.media.length > 0 && previousSellerClientId !== client.id;
-  let copyChatMedia = true;
-  if (foreignMedia && attachments.length > 0) {
-    if (!mediaDecision) {
-      const draftPhotoCount = draft.media.filter((m) => m.kind === "PHOTO").length;
-      return res.status(409).json({
-        error: "В черновике уже есть ваши фото — заменить их фото из переписки?",
-        code: DRAFT_MEDIA_REPLACE_CONFIRM_CODE,
-        draftPhotoCount,
-        draftVideoCount: draft.media.length - draftPhotoCount,
-      });
+  let mediaToRemove: PropertyDraftMedia[] = [];
+  const imported = await withDraftLock(agentId, async (tx) => {
+    const current = await assertActiveDraft(tx, agentId, { draftId: parsedBody.data.draftId, revision: parsedBody.data.revision });
+    checkDraftReference(current, { draftId: parsedBody.data.draftId, revision: parsedBody.data.revision }, current.revision === 0);
+    const oldValues = current.values && typeof current.values === "object" && !Array.isArray(current.values) ? current.values as Record<string, unknown> : {};
+    const otherSeller = draftSellerClientId(current.values) !== client.id;
+    const meaningful = Object.entries(oldValues).some(([key, value]) => !["type", "currency", "offSite"].includes(key) && value !== null && value !== false && (typeof value === "string" ? value.trim() !== "" : typeof value === "object" ? Object.keys(value as object).length > 0 : true));
+    if (!parsedBody.data.mode && otherSeller && meaningful) throw new DraftImportConflictError({
+      error: "У вас уже есть заполненный черновик. Сохраните его или подтвердите замену", code: "DRAFT_REPLACE_CONFIRM", draft: presentDraftSnapshot(current), currentRevision: current.revision,
+    });
+    const foreignMedia = current.media.length > 0 && otherSeller;
+    if (foreignMedia && attachments.length > 0 && !mediaDecision) {
+      const draftPhotoCount = current.media.filter((m) => m.kind === "PHOTO").length;
+      throw new DraftImportConflictError({ error: "В черновике уже есть ваши фото — заменить их фото из переписки?", code: DRAFT_MEDIA_REPLACE_CONFIRM_CODE, draftPhotoCount, draftVideoCount: current.media.length - draftPhotoCount, draft: presentDraftSnapshot(current), currentRevision: current.revision });
     }
-    if (mediaDecision === "replace") {
-      await wipeDraftMedia(draft.media);
-      draft = await ensureDraft(agentId);
-    } else {
-      copyChatMedia = false;
+    if (foreignMedia && (mediaDecision === "replace" || (parsedBody.data.mode === "replace" && attachments.length === 0 && mediaDecision !== "keep"))) {
+      mediaToRemove = current.media;
+      await tx.propertyDraftMedia.deleteMany({ where: { draftId: current.id } });
     }
-  }
-
-  if (copyChatMedia) {
+    const values = { ...sellerCardToDraftValues(client), ...(sellerFactsToDraftValues(facts, client.id) as Record<string, unknown>) } as Record<string, unknown>;
+    if (parsedBody.data.mode !== "replace") {
+      for (const [key, value] of Object.entries(oldValues)) {
+        if (value !== null && value !== "" && (typeof value !== "object" || Object.keys(value as object).length > 0)) values[key] = value;
+      }
+    }
+    values.sellerClientId = client.id;
+    const updated = await tx.propertyDraft.update({ where: { id: current.id }, data: { values: values as Prisma.InputJsonValue, step: parsedBody.data.mode === "replace" ? 0 : current.step, expiresAt: expiryFromNow(), ...(parsedBody.data.draftId ? { revision: { increment: 1 } } : {}) }, include: DRAFT_INCLUDE });
+    return { updated, copyChatMedia: !(foreignMedia && mediaDecision === "keep") };
+  });
+  await wipeDraftMediaFiles(mediaToRemove);
+  if (imported.copyChatMedia) {
     await copySellerAttachmentsToDraft(draft.id, attachments, {
       maxPhotos: MAX_DRAFT_PHOTOS,
       maxVideos: MAX_DRAFT_VIDEOS,
+      agentId,
+      sellerClientId: client.id,
     });
   }
-
-  const updated = await prisma.propertyDraft.update({
-    where: { id: draft.id },
-    data: {
-      // Переписка точнее карточки и побеждает; карточка закрывает то, о чём
-      // продавец не писал (или у заведённого руками переписки нет вовсе).
-      values: {
-        ...sellerCardToDraftValues(client),
-        ...(sellerFactsToDraftValues(facts, client.id) as Record<string, unknown>),
-      } as Prisma.InputJsonValue,
-      step: 0,
-      expiresAt: expiryFromNow(),
-    },
-    include: { media: { orderBy: DRAFT_MEDIA_ORDER } },
-  });
-
-  res.json({ draft: presentDraft(updated) });
+  const updated = await prisma.propertyDraft.findUnique({ where: { agentId }, include: DRAFT_INCLUDE });
+  checkDraftReference(updated, { draftId: draft.id });
+  res.json({ draft: presentDraft(updated), revision: updated.revision });
 });
 
 /** `values.sellerClientId`, записанный прошлым вызовом этого маршрута или самим
@@ -739,15 +793,21 @@ function draftSellerClientId(values: Prisma.JsonValue): string | null {
  *  PropertyDraft не трогает — в отличие от discardDraft (draftAttach.ts), которая
  *  удаляет весь черновик целиком. Здесь черновик остаётся (агент продолжает вести
  *  ЕГО, просто по-другому продавцу), уходят только файлы прежнего объекта. */
-async function wipeDraftMedia(media: PropertyDraftMedia[]): Promise<void> {
+async function wipeDraftMediaFiles(media: PropertyDraftMedia[]): Promise<void> {
   if (media.length === 0) return;
-  await prisma.propertyDraftMedia.deleteMany({ where: { id: { in: media.map((m) => m.id) } } });
   for (const m of media) {
     if (m.kind === "PHOTO") {
       await removePhotoFiles(m.url, m.thumbUrl);
     } else {
       await abortLocalUploadSession(m.id).catch(() => undefined);
-      if (m.storageKey && m.status === "READY") await localVideoDelete(m.storageKey);
+      if (m.storageKey) await localVideoDelete(m.storageKey);
     }
   }
 }
+
+const draftErrorHandler: ErrorRequestHandler = (err, _req, res, next) => {
+  if (err instanceof DraftConflictError) { res.status(409).json(err.response()); return; }
+  if (err instanceof DraftImportConflictError) { res.status(409).json(err.response); return; }
+  next(err);
+};
+draftsRouter.use(draftErrorHandler);

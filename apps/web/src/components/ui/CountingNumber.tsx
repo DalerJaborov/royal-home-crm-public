@@ -1,12 +1,9 @@
 import { useEffect, useRef, useState } from "react";
+import { isMotionDisabled } from "../../lib/motionPolicy";
 
 /** Ease-out кубическая — то же семейство кривых, что `--rh-ease-out`. */
 function easeOutCubic(t: number): number {
   return 1 - Math.pow(1 - t, 3);
-}
-
-function prefersReducedMotion(): boolean {
-  return typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
 /**
@@ -37,8 +34,9 @@ export function CountingNumber({
   /** Если false — первый рендер сразу показывает конечное значение без анимации. */
   animateOnMount?: boolean;
 }) {
-  const [display, setDisplay] = useState(animateOnMount ? 0 : value);
-  const prevValue = useRef(animateOnMount ? 0 : value);
+  const animate = animateOnMount && !isMotionDisabled();
+  const [display, setDisplay] = useState(animate ? 0 : value);
+  const prevValue = useRef(animate ? 0 : value);
   const rafId = useRef<number | null>(null);
 
   useEffect(() => {
@@ -46,7 +44,7 @@ export function CountingNumber({
     const to = value;
     if (from === to) return;
 
-    if (prefersReducedMotion()) {
+    if (isMotionDisabled()) {
       setDisplay(to);
       prevValue.current = to;
       return;
