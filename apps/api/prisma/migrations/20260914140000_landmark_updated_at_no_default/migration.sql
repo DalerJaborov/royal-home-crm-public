@@ -1,0 +1,18 @@
+-- Закрывает дрейф schema.prisma <-> история миграций для Landmark.updatedAt
+-- (найдено 13.09.2026 при разборе двух посторонних строк, которые `prisma
+-- migrate dev`/`migrate diff` стабильно предлагали в новых, никак не связанных
+-- миграциях — ветка fix/schema-drift-geo-13-09).
+--
+-- Миграция 20260912120000_landmarks_agent_managed сама объясняет, зачем тут
+-- взялся DEFAULT: «DEFAULT CURRENT_TIMESTAMP только чтобы ALTER TABLE не упал
+-- на уже заполненной таблице — Prisma дальше пишет её сама на каждое
+-- изменение (@updatedAt), как и остальные такие колонки в схеме». То есть
+-- сам автор миграции считал DEFAULT временным костылём ALTER TABLE, а не
+-- частью намеренной схемы.
+--
+-- Проверено: во всех 28 остальных полях `@updatedAt` в schema.prisma нет explicit
+-- `@default` — только Landmark.updatedAt оказался с DEFAULT на уровне БД. Значит
+-- аномалия — она, а не отсутствие default в schema.prisma (там default и не
+-- нужен: `@updatedAt` — это генерация на стороне Prisma Client, не в БД).
+-- Написано руками (prisma migrate dev запрещён в worktree), сверено со schema.prisma.
+ALTER TABLE "Landmark" ALTER COLUMN "updatedAt" DROP DEFAULT;

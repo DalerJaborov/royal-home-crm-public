@@ -1,0 +1,21 @@
+{
+  "$schema": "https://raw.githubusercontent.com/kucherenko/jscpd/master/packages/jscpd/schema.json",
+  "threshold": 3,
+  "reporters": ["console", "json"],
+  "output": "reports/jscpd",
+  "absolute": false,
+  "gitignore": true,
+  "minTokens": 60,
+  "minLines": 12,
+  "format": ["typescript", "tsx"],
+  "ignore": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/build/**",
+    "**/coverage/**",
+    "**/test-results/**",
+    "**/playwright-report/**",
+    "**/*.d.ts",
+    "apps/api/prisma/migrations/**"
+  ]
+}

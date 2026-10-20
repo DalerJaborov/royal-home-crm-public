@@ -1,0 +1,58 @@
+{
+  "name": "royal-home-crm",
+  "description": "CRM for a real-estate agency: React/Vite web client, Express API, Prisma/PostgreSQL, shared Zod schemas (npm-workspaces monorepo)",
+  "private": true,
+  "version": "0.1.0",
+  "engines": {
+    "node": ">=24"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:api": "npm run dev --workspace=apps/api",
+    "dev:web": "npm run dev --workspace=apps/web",
+    "build:shared": "npm run build --workspace=packages/shared",
+    "build:api": "npm run build:shared && npm run build --workspace=apps/api",
+    "build:web": "npm run build:shared && npm run build --workspace=apps/web",
+    "build": "npm run build:shared && npm run build --workspace=apps/api && npm run build --workspace=apps/web",
+    "test:api": "npm run test --workspace=apps/api",
+    "test:web": "npm run test --workspace=apps/web",
+    "prisma:generate": "npm run prisma:generate --workspace=apps/api",
+    "prisma:migrate": "npm run prisma:migrate --workspace=apps/api",
+    "prisma:seed": "npm run prisma:seed --workspace=apps/api",
+    "prisma:seed:prod": "npm run prisma:seed:prod --workspace=apps/api",
+    "precheck": "node scripts/precheck.mjs",
+    "map": "node scripts/product-flows.mjs && node scripts/product-map.mjs && node scripts/product-map-simple.mjs",
+    "map:check": "node scripts/product-flows.mjs --check && node scripts/product-map.mjs --check && node scripts/product-map-simple.mjs --check",
+    "sync:main": "node scripts/sync-main.mjs",
+    "ship": "node scripts/ship.mjs",
+    "test:scripts": "node --test scripts/ship.test.mjs scripts/health-watch.test.mjs scripts/backup-deal-docs.test.mjs scripts/pre-push.test.mjs scripts/audit-vi-mock.test.mjs scripts/audit-secrets.test.mjs scripts/auto-deploy.test.mjs scripts/ops-scripts.test.mjs scripts/script-env-order.test.mjs scripts/agent-stand-template.test.mjs scripts/sync-main.test.mjs scripts/bot-turn-trace-compose.test.mjs .github/scripts/sync-guard.test.mjs",
+    "protect:main": "node scripts/protect-main.mjs",
+    "audit:deps": "depcruise --config .dependency-cruiser.cjs --output-type err-long apps/api/src apps/web/src packages/shared/src",
+    "audit:deps:gate": "node scripts/audit-deps-gate.mjs",
+    "audit:theme": "node scripts/theme-audit.mjs",
+    "gen:typeset": "node scripts/gen-typeset.mjs",
+    "audit:typeset": "node scripts/gen-typeset.mjs --check",
+    "audit:nginx": "node scripts/audit-nginx-conf.mjs",
+    "audit:rules": "node scripts/audit-shared-rules.mjs",
+    "audit:mocks": "node scripts/audit-vi-mock.mjs",
+    "audit:audit-labels": "node scripts/audit-log-labels.mjs",
+    "audit:cycles": "madge --extensions ts,tsx --circular apps/api/src && madge --extensions ts,tsx --circular apps/web/src",
+    "audit:dupes": "jscpd --config .jscpd.json apps packages",
+    "audit:dead": "node scripts/audit-dead-paths.mjs",
+    "where": "node scripts/where.mjs",
+    "map:gate": "node scripts/map-gate.mjs",
+    "impact:tests": "node scripts/impact-tests.mjs",
+    "audit:secrets": "node scripts/audit-secrets.mjs"
+  },
+  "devDependencies": {
+    "dependency-cruiser": "^18.1.0",
+    "jscpd": "^5.0.12",
+    "madge": "^8.0.0"
+  },
+  "overrides": {
+    "tar": "^7.5.22"
+  }
+}

@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- viewport-fit=cover: без него env(safe-area-inset-*) равны нулю и нижнее меню
+         упирается в «бороду» iPhone в standalone-режиме PWA.
+         maximum-scale=1: известный баг iOS PWA (установлено на домашний экран,
+         apple-mobile-web-app-capable выше) — Safari/WKWebView иногда не сбрасывает
+         масштаб между запусками, и приложение открывается уже увеличенным без
+         единого касания пользователя (жалоба владельца 18.08.2026, «всегда
+         неправильно» именно на iPhone, на Android/Chrome не воспроизводится —
+         это не тот же баг, что зависание длинных списков, см. index.css выше).
+         Без maximum-scale ничто не мешает iOS застрять в чужом масштабе; с ним —
+         старт всегда 100%. Плата — обычный пинч-зум внутри приложения тоже
+         выключается, но это рабочий инструмент, не публичная страница, а не
+         «настоящее приложение», которого и просил владелец. -->
+    <!-- maximum-scale/user-scalable убраны (09.09.2026, axe meta-viewport): доступность
+         важнее — зум пальцами не ломает интерфейс, а блокировать его нельзя (WCAG 1.4.4). -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <!-- Тема «Royal Home 2026»: preload двух базовых начертаний (латиница + кириллица),
+         остальные subset-файлы (latin-ext/cyrillic-ext) грузятся лениво по font-face —
+         preload только то, что почти наверняка понадобится сразу после переключения темы. -->
+    <link rel="preload" href="/fonts/manrope-latin.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/manrope-cyrillic.woff2" as="font" type="font/woff2" crossorigin />
+    <!-- Onest грузился последним в цепочке (замер прода: 5,2с) — он держит цифры
+         (tabular figures) на первом экране пульта/дашборда. Preload только latin+cyrillic,
+         *-ext лениво по font-face, как и Manrope выше. -->
+    <link rel="preload" href="/fonts/onest-latin.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/onest-cyrillic.woff2" as="font" type="font/woff2" crossorigin />
+    <!-- PNG, а не SVG: iOS формат apple-touch-icon в SVG не поддерживает и вместо
+         логотипа ставит на домашний экран скриншот страницы. Файл собирается из
+         того же icon.svg — `npm run icons`, см. scripts/generate-icons.mjs -->
+    <link rel="apple-touch-icon" sizes="180x180" href="/icon-180.png" />
+    <meta name="theme-color" content="#2B59FF" />
+
+    <!-- Запуск с домашнего экрана без адресной строки и с системным статус-баром
+         поверх интерфейса. black-translucent вместе с viewport-fit=cover выше даёт
+         полноэкранный вид: содержимое уходит под часы и батарею, а отступ под них
+         берётся из env(safe-area-inset-top). -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Royal Home" />
+    <meta name="mobile-web-app-capable" content="yes" />
+
+    <!-- Экраны запуска для iPhone. Без них при открытии с домашнего экрана секунду
+         висит белый прямоугольник — самое заметное отличие от настоящего приложения.
+         iOS выбирает файл по ТОЧНОМУ совпадению размеров экрана, поэтому список
+         пофайловый; собирается тем же `npm run icons`. -->
+    <link rel="apple-touch-startup-image" href="/splash-1179x2556.png" media="(device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3)" />
+    <link rel="apple-touch-startup-image" href="/splash-1290x2796.png" media="(device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3)" />
+    <link rel="apple-touch-startup-image" href="/splash-1170x2532.png" media="(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3)" />
+    <link rel="apple-touch-startup-image" href="/splash-1284x2778.png" media="(device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3)" />
+    <link rel="apple-touch-startup-image" href="/splash-828x1792.png" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2)" />
+    <link rel="apple-touch-startup-image" href="/splash-750x1334.png" media="(device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2)" />
+    <!-- Ссылки на Inter с Google Fonts здесь больше нет (10.09.2026): это была
+         единственная блокирующая отрисовку таблица стилей с чужого узла, а
+         отрисовать Inter не может ни одна тема — обе royal-home-2026-* задают
+         Manrope/Onest из /fonts. Разбор: docs/pult/theme-2026/reports/native-feel.md -->
+    <title>Royal Home — CRM</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <!-- Тема применяется ДО первой отрисовки, иначе тёмная тема вспыхивает белым при загрузке -->
+    <script>
+      try {
+        var s = JSON.parse(localStorage.getItem("royal-home-ui") || "{}").state || {};
+        // Токены палитры живут только в theme-royal-home-2026.css (базового :root больше
+        // нет), поэтому тема на <html> обязана быть всегда: чужое/старое имя из хранилища
+        // заменяем светлой. Тот же контракт в store/uiPrefs.ts (applyToDom).
+        var T = s.theme;
+        document.documentElement.dataset.theme =
+          T === "royal-home-2026-light" || T === "royal-home-2026-night" ? T :
+            window.matchMedia("(prefers-color-scheme: dark)").matches ? "royal-home-2026-night" : "royal-home-2026-light";
+        if (s.look) document.documentElement.dataset.look = s.look;
+        if (s.aurora === false) document.documentElement.classList.add("fx-no-aurora");
+        if (s.glass === false) document.documentElement.classList.add("fx-no-glass");
+      } catch (e) {}
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+    "moduleResolution": "Bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "strict": true,
+    // Монорепо: @types/react 19 лежит в apps/web/node_modules, а не в корневом
+    // node_modules. Без этих paths типы React для сторонних .d.ts (react-virtuoso
+    // и др.) ищутся вверх по дереву и подхватывают чужой @types/react 18 из
+    // родительской папки — 'bigint is not assignable to ReactNode'.
+    "paths": {
+      "react": ["./node_modules/@types/react"],
+      "react-dom": ["./node_modules/@types/react-dom"]
+    }
+  },
+  "include": ["src"],
+  "exclude": ["src/sw.ts"]
+}

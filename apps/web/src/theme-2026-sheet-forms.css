@@ -1,0 +1,31 @@
+/* ФОРМЫ В ШТОРКАХ ТЕМЫ «ROYAL HOME 2026»: строки-переключатели и подсказка у кнопки.
+ *
+ * Источник задачи: владелец 24.09.2026, окно «Причина возврата монтажёру» —
+ * файл загружен, «Отправить монтажёру» серая и без объяснения, а варианты
+ * причин стоят с текстом по центру и родным обликом кнопки.
+ *
+ * ПОЧЕМУ ОТДЕЛЬНЫЙ ФАЙЛ, А НЕ ДОПИСКА В theme-2026-proto.css. Эталон
+ * собирается скриптом scripts/sync-proto-css.py целиком, и любая строка в его
+ * хвосте исчезает при первой же перегенерации без единой ошибки сборки.
+ * Подключается в index.css ПОСЛЕ эталона — порядок тут часть механизма.
+ *
+ * 1. Строка списка как кнопка (`<button class="row">`, role="radio" в окнах
+ *    выбора причины/исходника). Эталон описывает `.row` для `<div>`; у кнопки
+ *    остаётся текст по центру от браузера и ширина «по содержимому», поэтому
+ *    подпись съезжала в середину, а точка стояла у левого края. Выбранный
+ *    вариант подсвечен тем же `--soft`, что и наведение; выключенный — тише и
+ *    без реакции на наведение (у него есть объяснение в подстроке).
+ */
+.rh2 .scr button.row{appearance:none;-webkit-appearance:none;display:flex;width:100%;
+  text-align:left;background:none;font:inherit;color:inherit;cursor:pointer;
+  border:0;border-bottom:1px solid var(--line-soft)}
+.rh2 .scr .list>button.row:last-child{border-bottom:0}
+.rh2 .scr button.row[aria-checked="true"]{background:var(--soft)}
+.rh2 .scr button.row:disabled{opacity:.55;cursor:not-allowed}
+.rh2 .scr button.row:disabled:hover{background:none}
+.rh2 .scr button.row:focus-visible{outline:2px solid var(--ink);outline-offset:-2px}
+
+/* 2. Подсказка у выключенной кнопки подвала (`ConfirmDialog` → `confirmHint`):
+ *    занимает всю ширину подвала над кнопками, читается как тихая строка
+ *    `.state`, без своего отступа сверху — его уже даёт подвал. */
+.rh2 .scr .sheet-f .confirm-hint{flex:1 1 100%;margin:0;padding:0 0 2px}

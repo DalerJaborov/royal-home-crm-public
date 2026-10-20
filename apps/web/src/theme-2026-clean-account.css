@@ -1,0 +1,28 @@
+/* Common Profile layout for Clean desktop and phone, outside the prototype's
+   cascade layer. No legacy mobile selector or duplicated save logic. */
+html[data-shell="clean"] .clean-profile-page .scr { padding: 0; }
+html[data-shell="clean"] .clean-profile-page .clean-profile-tabs {
+  display: flex; gap: 6px; max-width: 100%; overflow-x: auto;
+  overscroll-behavior-x: contain; padding: 4px; border-radius: 20px;
+  background: var(--c-row-alt); scrollbar-width: thin;
+}
+html[data-shell="clean"] .clean-profile-tabs [role="tab"] { flex: none; min-height: 44px; white-space: nowrap; }
+html[data-shell="clean"] .clean-profile-tabs [aria-selected="true"] { background: rgb(37 94 245); color: white; }
+html[data-shell="clean"][data-theme="royal-home-2026-night"] .clean-profile-tabs [aria-selected="true"] { background: #2457d6; }
+html[data-shell="clean"] .clean-profile-panel > * + * { margin-top: 16px; }
+html[data-shell="clean"] .clean-profile-page .scr .pill.ghost { border: 0; background: var(--c-row-alt); }
+html[data-shell="clean"] .clean-profile-page .scr :is(input:not([type="checkbox"]):not([type="radio"]),select,textarea) { border: 0; background: var(--c-row-alt); }
+html[data-shell="clean"] .clean-profile-panel[hidden] { display: none !important; }
+@media (max-width: 819px), (max-width: 1179px) and (pointer: coarse) {
+  html[data-shell="clean"] .clean-profile-page .pg-h { align-items: flex-start; gap: 12px; }
+  html[data-shell="clean"] .clean-profile-page .pg-h h1 {
+    position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden;
+    clip-path: inset(50%); white-space: nowrap;
+  }
+  html[data-shell="clean"] .clean-profile-page .pg-h .sub { margin-top: 0; }
+  html[data-shell="clean"] .clean-profile-page .scr .card { padding: 16px; }
+  html[data-shell="clean"] .clean-profile-page .scr .fgrid { grid-template-columns: minmax(0, 1fr); }
+  /* The lead-pause duration and action must fit a narrow phone independently. */
+  html[data-shell="clean"] .clean-profile-page .mod .acts { flex-wrap: wrap; min-width: 0; max-width: 100%; }
+  html[data-shell="clean"] .clean-profile-page .scr :is(input:not([type="checkbox"]):not([type="radio"]),select,textarea) { font-size: 16px; }
+}

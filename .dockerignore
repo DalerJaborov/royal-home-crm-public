@@ -1,0 +1,17 @@
+node_modules
+**/node_modules
+**/dist
+apps/api/uploads
+# Приватные вложения клиентов (фото/голосовые из переписки) НЕ должны попадать
+# в build-контекст и слои образа при сборке на машине, где API запускался на
+# хосте (аудит №4, 27.08).
+apps/api/uploads-private
+uploads-private
+apps/api/data
+apps/web/dev-dist
+.git
+.env
+**/.env
+*.md
+.claude
+.github

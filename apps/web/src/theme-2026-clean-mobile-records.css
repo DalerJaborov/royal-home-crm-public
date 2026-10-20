@@ -1,0 +1,154 @@
+/* Same record components and permission-filtered actions; only touch composition changes.
+   Keep the query aligned with useMobileUx, including touch tablets. AGENT legacy is excluded. */
+/* Desktop retains the complete toolbar. A single copy of its controls becomes
+   progressively disclosed on touch, while the search never moves or disappears. */
+html[data-shell="clean"] .clean-catalog-toolbar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-block: 16px;
+}
+html[data-shell="clean"] .clean-catalog-tools,
+html[data-shell="clean"] .clean-catalog-tool-content { display: contents; }
+html[data-shell="clean"] .clean-catalog-tools > summary { display: none; }
+html[data-shell="clean"] .clean-catalog-overdue .quiet { padding: 10px 0; }
+
+@media (max-width: 819px), (max-width: 1179px) and (pointer: coarse) {
+  /* ScreenTabs is the canonical section registry everywhere. One touch strip,
+     rather than repeating the desktop wrapping problem on each screen. */
+  html[data-shell="clean"] .rh2 .scr > nav.seg-ai {
+    display: flex; flex-wrap: nowrap; overflow-x: auto; gap: 4px;
+    padding-block: 4px; overscroll-behavior-inline: contain;
+  }
+  html[data-shell="clean"] .rh2 .scr > nav.seg-ai > a { flex: none; white-space: nowrap; }
+  html[data-shell="clean"] .clean-settings-page .pg-h h1,
+  html[data-shell="clean"] .clean-settings-page .pg-h .sub {
+    position: absolute; width: 1px; height: 1px; overflow: hidden;
+    clip-path: inset(50%); white-space: nowrap;
+  }
+  html[data-shell="clean"] .clean-client-row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 12px;
+    padding: 16px;
+    background: var(--c-card);
+  }
+  html[data-shell="clean"] .clean-client-row > :nth-child(1),
+  html[data-shell="clean"] .clean-client-row > :nth-child(2) {
+    grid-column: 1 / -1;
+    grid-row: auto;
+  }
+  html[data-shell="clean"] .clean-client-row > :nth-child(3) { grid-column: 1; grid-row: auto; }
+  html[data-shell="clean"] .clean-client-row > :nth-child(4):not(:last-child) { grid-column: 2; grid-row: auto; }
+  html[data-shell="clean"] .clean-client-row > :last-child {
+    grid-column: 1 / -1;
+    grid-row: auto;
+    max-width: none;
+    justify-content: flex-start;
+    gap: 8px;
+  }
+  html[data-shell="clean"] [data-property-layout="row"] {
+    display: grid;
+    grid-template-columns: 88px minmax(0, 1fr);
+    gap: 12px;
+    padding: 14px;
+  }
+  html[data-shell="clean"] [data-property-layout="row"] > label {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    margin: 0;
+  }
+  html[data-shell="clean"] [data-property-layout="row"] > .clean-property-thumbnail {
+    width: 88px;
+    height: 104px;
+    border-radius: 14px;
+  }
+  html[data-shell="clean"] [data-property-layout="row"] > .clean-property-thumbnail > span.absolute {
+    top: auto;
+    bottom: 4px;
+    right: 4px;
+    padding: 2px 5px;
+  }
+  html[data-shell="clean"] [data-property-layout="row"] h2 { font-size: 17px; line-height: 1.4; }
+  html[data-shell="clean"] [data-property-layout="row"] .clean-property-thumbnail + div { min-width: 0; }
+  html[data-shell="clean"] .clean-settings-navigator nav[aria-label="Категории настроек"] {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: thin;
+    padding: 4px 2px 8px;
+    scroll-padding-inline: 8px;
+    overscroll-behavior-inline: contain;
+  }
+  html[data-shell="clean"] .clean-settings-navigator nav[aria-label="Категории настроек"] > a { flex: none; white-space: nowrap; }
+  html[data-shell="clean"] .clean-settings-navigator > div:first-child { gap: 8px; }
+  html[data-shell="clean"] .clean-settings-navigator > div:first-child > div { flex-basis: 100%; padding: 10px 14px; }
+  html[data-shell="clean"] .clean-settings-navigator > div.grid { gap: 10px; }
+  html[data-shell="clean"] .clean-settings-navigator > div.grid a { padding: 16px; gap: 12px; }
+  html[data-shell="clean"] .clean-deals-board { grid-template-columns: minmax(0, 1fr); }
+  html[data-shell="clean"] .clean-mobile-stage-nav { display: flex; gap: 8px; overflow-x: auto; padding-block: 8px; }
+  html[data-shell="clean"] .clean-mobile-stage-nav button { flex: none; min-height: 48px; white-space: nowrap; }
+  html[data-shell="clean"] .clean-mobile-stage-nav button[aria-pressed="true"] { background: var(--c-row-alt); color: rgb(var(--rgb-accent)); font-weight: 600; }
+  /* Decisions precede secondary tools. Older mobile rules ordered only sections,
+     leaving ordinary divs (trainer/settings) ahead of the operational queue. */
+  html[data-shell="clean"] .clean > * { order: 2; }
+  html[data-shell="clean"] .clean > .clean-overview { order: 0; }
+  html[data-shell="clean"] .clean > .clean-workqueue { order: 1; }
+  html[data-shell="clean"] .clean > [aria-label="Дополнительные инструменты пульта"] {
+    order: 8;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-block: 4px;
+  }
+  html[data-shell="clean"] .clean > [aria-label="Дополнительные инструменты пульта"] > * { flex: none; }
+  html[data-shell="clean"] .clean .clean-kpi { min-height: 104px; gap: 8px; padding: 12px 14px; }
+  html[data-shell="clean"] .clean .clean-kpi > div:first-child { min-height: 0; }
+  html[data-shell="clean"] .clean .clean-kpi-value { font-size: 26px; }
+  html[data-shell="clean"] .clean-property-catalog-header { flex-wrap: nowrap; gap: 12px; margin-bottom: 10px; }
+  html[data-shell="clean"] .clean-property-catalog-header h1 {
+    position: absolute; width: 1px; height: 1px; overflow: hidden;
+    clip-path: inset(50%); white-space: nowrap;
+  }
+  html[data-shell="clean"] .clean-property-catalog-hint { display: none; }
+  html[data-shell="clean"] .clean-property-catalog-header > div { min-width: 0; }
+  html[data-shell="clean"] .clean-property-catalog-header > button { flex: none; padding-inline: 14px; }
+  html[data-shell="clean"] .clean-property-catalog-header > button span { display: none; }
+  html[data-shell="clean"] .clean-properties-page > .scr > .seg-ai {
+    flex-wrap: nowrap; overflow-x: auto; gap: 4px; padding-block: 4px;
+  }
+  html[data-shell="clean"] .clean-properties-page > .scr > .seg-ai > a { flex: none; white-space: nowrap; }
+  html[data-shell="clean"] .clean-properties-page > .scr > .card.tight { padding: 12px 14px; }
+  html[data-shell="clean"] .clean-properties-page > .scr > .card.tight .quiet { padding: 0; }
+  html[data-shell="clean"] .clean-properties-page .clean-catalog-overdue { margin-block: 0; }
+  html[data-shell="clean"] .clean-properties-page .clean-catalog-overdue .quiet { padding: 0; min-height: 28px; }
+  html[data-shell="clean"] .clean-properties-page .clean-catalog-overdue .txt { font-size: 14px; line-height: 1.4; }
+  html[data-shell="clean"] .clean-properties-page .clean-property-catalog { padding: 14px; }
+  html[data-shell="clean"] .clean-catalog-toolbar { display: block; margin-block: 8px; }
+  html[data-shell="clean"] .clean-catalog-toolbar > input { width: 100%; min-width: 0; min-height: 44px; }
+  html[data-shell="clean"] .clean-catalog-tools { display: block; margin-top: 4px; }
+  html[data-shell="clean"] .clean-catalog-tools > summary {
+    display: flex; align-items: center; gap: 8px; min-height: 44px;
+    list-style: none; cursor: pointer; font-size: 14px; font-weight: 550;
+    color: rgb(var(--rgb-ink)); touch-action: manipulation;
+  }
+  html[data-shell="clean"] .clean-catalog-tools > summary::-webkit-details-marker { display: none; }
+  html[data-shell="clean"] .clean-catalog-tools > summary > svg { flex: none; }
+  html[data-shell="clean"] .clean-catalog-tools[open] > summary > svg:last-child { transform: rotate(180deg); }
+  html[data-shell="clean"] .clean-catalog-filter-count {
+    display: grid; place-items: center; min-width: 22px; height: 22px; padding-inline: 5px;
+    border-radius: 8px; color: rgb(var(--rgb-accent)); background: rgb(var(--rgb-accent) / .1);
+    font-size: 13px; font-variant-numeric: tabular-nums;
+  }
+  html[data-shell="clean"] .clean-catalog-view-label { margin-left: auto; color: rgb(var(--rgb-g600)); font-size: 13px; font-weight: 400; }
+  html[data-shell="clean"] .clean-catalog-tool-content {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding-block: 8px;
+  }
+  html[data-shell="clean"] .clean-catalog-tools:not([open]) > .clean-catalog-tool-content { display: none; }
+}
+/* A flex:none action cluster can widen the mobile layout viewport even when
+   its own children wrap. Keep object actions inside their existing row. */
+html[data-shell="clean"][data-mobile-ux] .rh2 .scr .prow { flex-wrap: wrap; }
+html[data-shell="clean"][data-mobile-ux] .rh2 .scr .prow > .act {
+  flex: 1 1 100%; min-width: 0; max-width: 100%; margin-inline-start: 0;
+}
+html[data-shell="clean"][data-mobile-ux] .rh2 .scr .prow > .act > span { min-width: 0; max-width: 100%; }
+html[data-shell="clean"][data-mobile-ux] [data-property-layout="row"] > .clean-property-band { grid-column: 1 / -1; }
+html[data-shell="clean"] .clean-property-band { min-width: 0; max-width: 100%; }
+html[data-shell="clean"] .clean-property-band .chip { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+html[data-shell="clean"][data-mobile-ux] .clean-settings-page .sset-body .acts { flex-wrap: wrap; min-width: 0; max-width: 100%; }

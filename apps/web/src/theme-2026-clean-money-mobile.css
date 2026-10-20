@@ -1,0 +1,126 @@
+/* A single finance controller and action tree across phone and desktop.
+   All adaptations are scoped to the Clean shell: agent legacy is untouched. */
+@layer components {
+  html[data-shell="clean"] .finance-clean .cef-tool-disclosure { margin-left: auto; }
+  html[data-shell="clean"] .finance-clean .cef-tool-disclosure > summary,
+  html[data-shell="clean"] .finance-clean .cef-mobile-action-label,
+  html[data-shell="clean"] .finance-clean .cef-feed-filter-disclosure > summary { display: none; }
+  html[data-shell="clean"] .finance-clean .cef-feed-search { display: flex; margin-bottom: 8px; }
+  html[data-shell="clean"] .finance-clean summary:focus-visible { outline: 2px solid var(--cef-accent); outline-offset: 2px; }
+
+  @media (max-width: 819px), (max-width: 1179px) and (pointer: coarse) {
+    html[data-shell="clean"] .finance-clean .cef-page { padding: 4px 0 16px; }
+    html[data-shell="clean"] .finance-clean .cef-toolbar { gap: 12px; margin-bottom: 12px; }
+    /* The shared phone Topbar already names this workspace. Keep the page h1
+       accessible without spending a second header row on the same title/date. */
+    html[data-shell="clean"] .finance-clean .cef-title {
+      position: absolute; width: 1px; height: 1px; overflow: hidden;
+      clip-path: inset(50%); white-space: nowrap;
+    }
+    html[data-shell="clean"] .finance-clean .cef h1 { font-size: 28px; line-height: 1.15; letter-spacing: -.7px; }
+    html[data-shell="clean"] .finance-clean .cef-title p { margin-top: 3px; }
+    html[data-shell="clean"] .finance-clean .cef-add { flex: none; width: auto; padding-inline: 16px; margin-left: auto; }
+    html[data-shell="clean"] .finance-clean .cef-main-tabs {
+      flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none;
+      max-width: 100%; gap: 2px; padding: 4px; scroll-padding-inline: 8px;
+      overscroll-behavior-x: contain;
+    }
+    html[data-shell="clean"] .finance-clean .cef-main-tabs::-webkit-scrollbar { display: none; }
+    html[data-shell="clean"] .finance-clean .cef-main-tabs button { font-size: 14px; padding-inline: 14px; }
+    html[data-shell="clean"] .finance-clean .cef-tools { gap: 8px; margin-bottom: 12px; align-items: center; }
+    html[data-shell="clean"] .finance-clean .cef-month-controls {
+      display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px;
+      flex: 1; min-width: 0; gap: 0; padding: 2px;
+      background: var(--cef-card); border-radius: 16px;
+    }
+    html[data-shell="clean"] .finance-clean .cef-month-controls > .cef-icon-btn { width: 44px; min-height: 44px; background: transparent; }
+    html[data-shell="clean"] .finance-clean .cef-month-picker { width: 100%; min-width: 0; }
+    html[data-shell="clean"] .finance-clean .cef-month-picker input {
+      width: 100%; min-width: 0; max-width: 100%; padding: 8px 2px;
+      text-align: center; font-size: 16px; background: transparent;
+    }
+    html[data-shell="clean"] .finance-clean .cef-tool-disclosure { position: relative; flex: none; }
+    html[data-shell="clean"] .finance-clean .cef-tool-disclosure > summary { display: flex; list-style: none; cursor: pointer; }
+    html[data-shell="clean"] .finance-clean .cef-tool-disclosure > summary::-webkit-details-marker { display: none; }
+    html[data-shell="clean"] .finance-clean .cef-tool-disclosure .cef-tool-actions {
+      position: absolute; right: 0; top: calc(100% + 8px); z-index: 25;
+      display: grid; width: min(280px, calc(100vw - 40px)); padding: 8px;
+      gap: 2px; background: var(--cef-card); box-shadow: var(--cef-shadow);
+      border-radius: 18px;
+    }
+    html[data-shell="clean"] .finance-clean .cef-tool-actions :is(.cef-btn,.cef-icon-btn) {
+      width: 100%; justify-content: flex-start; gap: 12px; padding: 12px;
+      background: transparent; box-shadow: none; border-radius: 12px;
+    }
+    html[data-shell="clean"] .finance-clean .cef-mobile-action-label { display: inline; }
+    html[data-shell="clean"] .finance-clean .cef-card { padding: 16px; border-radius: 18px; }
+    html[data-shell="clean"] .finance-clean .cef-card + .cef-card { margin-top: 12px; }
+    html[data-shell="clean"] .finance-clean .cef-head { gap: 10px; margin-bottom: 12px; }
+    html[data-shell="clean"] .finance-clean .cef-summary-grid { gap: 8px; margin-bottom: 16px; }
+    html[data-shell="clean"] .finance-clean .cef-sub-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    html[data-shell="clean"] .finance-clean .cef-sub-summary > div { padding: 16px; }
+    html[data-shell="clean"] .finance-clean .cef-sub-summary > div:first-child { grid-column: 1 / -1; }
+    html[data-shell="clean"] .finance-clean .cef-summary-grid .cef-card { padding: 14px 12px; margin: 0; }
+    html[data-shell="clean"] .finance-clean .cef-summary-grid .cef-kpi { margin-top: 6px; font-size: clamp(22px, 6vw, 28px); letter-spacing: -.7px; overflow-wrap: anywhere; }
+    html[data-shell="clean"] .finance-clean .cef-overview-period { margin-bottom: 12px; }
+    html[data-shell="clean"] .finance-clean .cef-overview-period label { justify-content: space-between; gap: 8px; }
+    html[data-shell="clean"] .finance-clean .cef-overview-period select { width: auto; }
+    html[data-shell="clean"] .finance-clean .cef-overview .scr .card { padding: 16px; border-radius: 18px; }
+    html[data-shell="clean"] .finance-clean .cef-overview .scr .sec-h h2 { font-size: 19px; }
+    html[data-shell="clean"] .finance-clean .cef-overview .scr .trio .n { padding: 12px 14px; }
+    html[data-shell="clean"] .finance-clean .cef-overview .scr .trio .n b { font-size: 23px; }
+    html[data-shell="clean"] .finance-clean .cef-overview .scr .trio .n > span { font-size: 14px; }
+    html[data-shell="clean"] .finance-clean .cef-overview .scr .trio .tc { padding: 12px 14px; }
+    html[data-shell="clean"] .finance-clean .cef-row-button { display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; gap: 8px 10px; padding: 12px; }
+    html[data-shell="clean"] .finance-clean .cef-row-button .cef-ic { grid-row: 1 / 3; width: 38px; height: 38px; }
+    html[data-shell="clean"] .finance-clean .cef-row-button .cef-row-text { grid-column: 2; }
+    html[data-shell="clean"] .finance-clean .cef-row-button .cef-row-tags { grid-column: 2; grid-row: 2; }
+    html[data-shell="clean"] .finance-clean .cef-row-button .cef-value { grid-column: 3; grid-row: 1; margin: 0; }
+    html[data-shell="clean"] .finance-clean .cef-row-button > svg { grid-column: 3; grid-row: 2; justify-self: end; }
+    html[data-shell="clean"] .finance-clean .cef-row-button .cef-row-text strong { font-size: 15px; }
+    html[data-shell="clean"] .finance-clean .cef-legend { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 4px 8px; }
+    html[data-shell="clean"] .finance-clean .cef-legend button { flex-wrap: wrap; text-align: left; justify-content: flex-start; }
+    html[data-shell="clean"] .finance-clean .cef-filters > :is(input,select) { width: 100%; }
+    html[data-shell="clean"] .finance-clean .cef-feed-filter-disclosure { margin-bottom: 12px; }
+    html[data-shell="clean"] .finance-clean .cef-feed-filter-disclosure > summary {
+      display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 8px 12px;
+      border-radius: 12px; background: var(--cef-row); list-style: none; cursor: pointer;
+    }
+    html[data-shell="clean"] .finance-clean .cef-feed-filter-disclosure > summary::-webkit-details-marker { display: none; }
+    html[data-shell="clean"] .finance-clean .cef-feed-filter-disclosure[open] > summary { margin-bottom: 8px; }
+    html[data-shell="clean"] .finance-clean .cef-feed-filter-disclosure .cef-filters { gap: 8px; }
+    html[data-shell="clean"] .finance-clean .cef :is(button,a,summary):active { opacity: .72; }
+    html[data-shell="clean"] .finance-clean .cef :is(button,summary) { user-select: none; -webkit-user-select: none; }
+  }
+}
+
+/* The reference .scr chart rules are unlayered. These two adaptations must
+   participate in the same cascade; @layer components loses regardless of
+   selector specificity. Keep this local to Clean finance, never legacy. */
+html[data-shell="clean"] .finance-clean .cef-overview .scr .trio .n b > .money {
+  font-size: inherit; color: inherit; margin: 0;
+}
+@media (max-width: 819px), (max-width: 1179px) and (pointer: coarse) {
+  html[data-shell="clean"] .finance-clean .cef-overview .scr .trio {
+    grid-template-columns: minmax(0, 1fr); gap: 8px;
+  }
+  /* A long category option otherwise gives its select a 417px intrinsic width,
+     expanding the phone viewport. Keep filtering local; the data table retains
+     its own horizontal scroll instead of widening the whole application. */
+  html[data-shell="clean"] .finance-clean .cef-table-filters {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px;
+  }
+  html[data-shell="clean"] .finance-clean .cef-table-filters > label {
+    display: grid; gap: 4px; min-width: 0; max-width: 100%;
+  }
+  html[data-shell="clean"] .finance-clean .cef-table-filters > label:is(:first-child,:nth-child(2),.cef-search) {
+    grid-column: 1 / -1;
+  }
+  html[data-shell="clean"] .finance-clean .cef-table-filters > label :is(input,select) {
+    width: 100%; max-width: 100%; min-width: 0; box-sizing: border-box;
+  }
+  html[data-shell="clean"] .finance-clean .cef-table-toolbar > .cef-pills {
+    min-width: 0; max-width: 100%; overflow-x: auto; flex-wrap: nowrap;
+  }
+  html[data-shell="clean"] .finance-clean .cef-table-toolbar > .cef-pills > button { flex: none; }
+}

@@ -1,0 +1,15 @@
+-- Временный пароль обязателен к смене при первом входе (владелец 14.09.2026) —
+-- см. Agent.mustChangePassword в schema.prisma, auth/middleware.ts (requireAuth).
+--
+-- ПРАВКА ВРУЧНУЮ ПОСЛЕ `prisma migrate dev --name agent_must_change_password`:
+-- автосгенерированный файл нёс ещё две посторонние инструкции, которые сюда
+-- НЕ попали (тот же класс, что уже описан в 20260914150000_property_deal_version_lock
+-- и до этого в истории с GeoAlias/Landmark) — `migrate dev` сверяет схему с
+-- фактическим состоянием базы, а не только со своей историей миграций, и триграммные
+-- GIN-индексы Client.phone/Client.whatsappPhone (созданы миграцией чуть выше,
+-- 20260914140100_client_phone_trgm_search) в schema.prisma не описаны — проект хранит
+-- их только сырыми миграциями:
+--   - DROP INDEX "Client_phone_trgm_idx"
+--   - DROP INDEX "Client_whatsappPhone_trgm_idx"
+-- Их удаление молча убивает нечёткий поиск по телефону — эта правка их не касается.
+ALTER TABLE "Agent" ADD COLUMN     "mustChangePassword" BOOLEAN NOT NULL DEFAULT false;

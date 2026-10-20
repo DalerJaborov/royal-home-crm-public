@@ -1,0 +1,19 @@
+# Royal Home (08.10.2026): журналы станции, которые штатная ротация FreePBX не ограничивает.
+# До правила тут лежал один файл ucp_err.log на 3,6 ГБ.
+/var/log/asterisk/fail2ban /var/log/asterisk/freepbx.log /var/log/asterisk/core-fastagi_out.log /var/log/asterisk/ucp_err.log /var/log/asterisk/ucp_out.log {
+    weekly
+    maxsize 100M
+    rotate 4
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+}
+/var/log/royalhome-watchdog.log {
+    monthly
+    rotate 3
+    compress
+    missingok
+    notifempty
+}

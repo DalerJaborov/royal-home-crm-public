@@ -1,0 +1,120 @@
+/* Royal Clean records: scoped presentation, retaining shared controllers and legacy phone. */
+html[data-shell="clean"] .clean-record-tabs { display:flex; gap:4px; padding:6px; background:rgb(var(--rgb-ink) / .04); border-radius:18px; overflow-x:auto; scrollbar-width:thin; }
+html[data-shell="clean"] .clean-record-tabs button { display:inline-flex; align-items:center; gap:8px; flex:0 0 auto; white-space:nowrap; padding:12px 18px; }
+html[data-shell="clean"] .clean-client-header { border-radius:24px; }
+html[data-shell="clean"] .clean-client-sections [role="tabpanel"] { outline-offset:-3px; }
+html[data-shell="clean"] .clean-client-detail :is(.cd-acts,.acts) { gap:8px; }
+html[data-shell="clean"] .clean-client-detail .cd-acts { display:flex; flex-wrap:wrap; padding:12px; border:0; background:var(--c-card); border-radius:18px; }
+html[data-shell="clean"] .clean-client-detail .cd-act { flex:1 0 90px; min-height:48px; border:0; border-radius:14px; background:rgb(var(--rgb-accent) / .08); color:rgb(var(--rgb-accent)); }
+html[data-shell="clean"] .clean-property-detail { align-items:start; }
+html[data-shell="clean"] .clean-property-summary { border-radius:24px; box-shadow:none; }
+html[data-shell="clean"] .clean-property-slot .rh-gallery { overflow:hidden; border-radius:24px; }
+html[data-shell="clean"] .clean-property-slot[data-record-area="people"] { padding:20px; border-radius:22px; background:var(--c-card); }
+html[data-shell="clean"] .clean-property-slot[data-record-area="description"] .rh-pcard-desc { border:0; border-radius:22px; background:var(--c-card); padding:20px; }
+html[data-shell="clean"] .clean-property-detail :is(.pill,.rh-btn) { box-shadow:none; min-height:44px; }
+html[data-shell="clean"] .sheet:has(.clean-record-form) { border:0; background:var(--c-card-solid); }
+html[data-shell="clean"] .sheet:has(.clean-record-form) :is(.sheet-h,.sheet-f) { border:0; background:var(--c-card-solid); }
+html[data-shell="clean"] .sheet:has(.clean-record-form) .sheet-h h2 { font-size:22px; line-height:1.3; text-wrap:balance; }
+html[data-shell="clean"] .sheet:has(.clean-record-form) :is(.pill,.seg button) { min-height:44px; border:0; box-shadow:none; font-size:15px; }
+html[data-shell="clean"] .sheet:has(.clean-record-form) .pill:not(.ghost):not(.soft) { background:rgb(var(--rgb-accent)); color:rgb(255 255 255); }
+html[data-shell="clean"] .sheet:has(.clean-record-form) .pill.ghost { background:rgb(var(--rgb-ink) / .05); color:rgb(var(--rgb-ink)); }
+html[data-shell="clean"] .clean-record-form { display:grid; gap:16px; min-width:0; font-size:16px; line-height:1.5; }
+html[data-shell="clean"] .sheet .sheet-b .clean-record-form :is(input:not([type="checkbox"]):not([type="radio"]),select,textarea) { width:100%; min-height:48px; border:0; border-radius:14px; background:rgb(var(--rgb-ink) / .05); font-size:16px; box-shadow:none; }
+html[data-shell="clean"] .sheet .sheet-b .clean-record-form textarea { min-height:120px; resize:vertical; }
+html[data-shell="clean"] .clean-record-form :is(input,select,textarea):focus-visible { outline:2px solid rgb(var(--rgb-accent)); outline-offset:2px; }
+html[data-shell="clean"] .clean-record-form .lab { font-size:14px; font-weight:600; }
+html[data-shell="clean"] .clean-record-form .seg { display:flex; gap:4px; overflow-x:auto; background:rgb(var(--rgb-ink) / .04); border:0; padding:4px; border-radius:16px; }
+html[data-shell="clean"] .clean-record-form .seg button { flex:0 0 auto; white-space:nowrap; background:transparent; color:rgb(var(--rgb-ink)); }
+html[data-shell="clean"] .clean-record-form .seg button[aria-pressed="true"] { background:var(--c-card); color:rgb(var(--rgb-accent)); }
+html[data-shell="clean"] .clean-record-form :is(.card.flat,.row) { border:0; }
+@media(max-width:819px) {
+ html[data-shell="clean"] .clean-record-tabs { margin-inline:-4px; }
+ html[data-shell="clean"] .clean-record-tabs button { min-height:48px!important; padding:10px 14px; font-size:15px!important; }
+ html[data-shell="clean"] .clean-property-summary h1 { font-size:24px!important; }
+ html[data-shell="clean"] .clean-property-summary { padding:18px; }
+ html[data-shell="clean"] .clean-property-detail { gap:14px; }
+ html[data-shell="clean"] .clean-property-slot[data-record-area="people"] { padding:16px; }
+ html[data-shell="clean"] .sheet:has(.clean-record-form) .sheet-f { gap:8px; padding-bottom:max(16px, env(safe-area-inset-bottom)); }
+ html[data-shell="clean"] .sheet:has(.clean-record-form) .pill { min-height:48px; }
+ html[data-shell="clean"] .clean-record-form .fgrid { grid-template-columns:minmax(0,1fr); }
+}
+
+html[data-shell="clean"] .clean-property-summary [data-clean-control] { box-shadow:none; }
+html[data-shell="clean"][data-theme="royal-home-2026-night"] .sheet:has(.clean-record-form) .pill:not(.ghost):not(.soft) { background:rgb(36 87 214); color:rgb(255 255 255); }
+html[data-shell="clean"] .clean-client-notices .pill.sm.rh-btn.rh-btn-sm { min-height: 44px; height: auto; }
+html[data-shell="clean"] .pstats small { font-size: 13px; }
+html[data-shell="clean"] [data-property-row] .pstats { display:flex; flex-wrap:wrap; gap:8px 16px; min-width:0; }
+html[data-shell="clean"] [data-property-row] .pstat { display:inline-flex; align-items:baseline; gap:5px; }
+html[data-shell="clean"] .rh-pcard-tabs [role="tab"] { min-height:44px; }
+html[data-shell="clean"] .rh-pcard-tabbody .sec-h.stack { flex-wrap:wrap; gap:12px; }
+html[data-shell="clean"] .rh-pcard-tabbody .sec-h.stack > .wrap { min-width:0; max-width:100%; flex-wrap:wrap; overflow:visible; }
+html[data-shell="clean"] .bins > button { border:0; background:var(--c-card-solid); }
+html[data-shell="clean"] .bins > button[aria-pressed="true"] { background:rgb(var(--rgb-accent) / .09); }
+html[data-shell="clean"] .clean-section-switcher { display:grid; gap:12px; margin-block:16px; min-width:0; }
+html[data-shell="clean"] .clean-section-switcher select { width:100%; min-width:0; min-height:48px; border:0; border-radius:16px; padding:12px 16px; font-size:16px; font-weight:600; background:var(--c-card-solid); color:rgb(var(--rgb-ink)); box-shadow:none; appearance:auto; background-image:none; }
+html[data-shell="clean"] .clean-section-switcher-actions { display:flex; flex-wrap:wrap; align-items:center; gap:8px; min-width:0; }
+html[data-shell="clean"] [role="dialog"][aria-label="Набор номера"] { background:var(--c-card-solid); color:rgb(var(--rgb-ink)); max-height:100dvh; overflow-y:auto; overscroll-behavior:contain; border:0; }
+html[data-shell="clean"] [aria-label="Набор номера"] button.aspect-square { background:rgb(var(--rgb-ink) / .07); gap:4px; }
+html[data-shell="clean"] [aria-label="Набор номера"] button.aspect-square > span:first-child { line-height:1.1; }
+html[data-shell="clean"] [aria-label="Набор номера"] button.aspect-square > span:last-child { line-height:1.2; }
+html[data-shell="clean"] [aria-label="Набор номера"] button[aria-label="Позвонить"] { background:#087f5b; color:white; }
+html[data-shell="clean"] [aria-label="Набор номера"] button[aria-label="Закрыть наборщик"] { min-width:44px; min-height:44px; }
+
+html[data-shell="clean"] .clean-interaction-context { padding:14px 16px; background:rgb(var(--rgb-accent) / .07); border-radius:16px; }
+html[data-shell="clean"] .clean-interaction-client { margin:4px 0 0; font-size:18px; font-weight:600; overflow-wrap:anywhere; }
+html[data-shell="clean"] .rh2 .scr .cd-h-m .who h1 { white-space:normal; overflow:visible; text-overflow:clip; overflow-wrap:anywhere; }
+html[data-shell="clean"] .rh2 .scr .cd-name-row { align-items:flex-start; }
+html[data-shell="clean"] [data-clean-calls-summary] { border:0; background:var(--c-card-solid); }
+html[data-shell="clean"] .clean-avatar-fallback { background:#e6eeff; color:#1747ab; }
+html[data-shell="clean"][data-theme="royal-home-2026-night"] .clean-avatar-fallback { background:#2d4266; color:#e4edff; }
+@media (max-width:819px) {
+ html[data-shell="clean"] .rsp-n { max-width:100%; min-width:0; white-space:normal; overflow-wrap:anywhere; text-align:center; line-height:1.2; }
+ html[data-shell="clean"] .rsp-n-label { display:none; }
+ html[data-shell="clean"] .rsp-n::after { content:" обр."; }
+}
+
+/* Settings are task-oriented on both device classes; forms keep their existing controllers. */
+html[data-shell="clean"] .clean-settings-navigator { display:grid; gap:20px; }
+html[data-shell="clean"] .clean-settings-tools { display:flex; flex-wrap:wrap; align-items:center; gap:12px; }
+html[data-shell="clean"] .clean-settings-search { display:flex; flex:1 1 280px; align-items:center; gap:12px; min-width:0; min-height:48px; padding:0 16px; border-radius:16px; background:var(--c-card-solid); color:rgb(var(--rgb-g500)); }
+html[data-shell="clean"] .clean-settings-search input { min-width:0; width:100%; min-height:48px; background:transparent; border:0; color:rgb(var(--rgb-ink)); font-size:16px; }
+html[data-shell="clean"] .clean-settings-selectors { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
+html[data-shell="clean"] .clean-settings-selectors label { display:grid; min-width:0; gap:8px; color:rgb(var(--rgb-g500)); font-size:14px; }
+html[data-shell="clean"] .clean-settings-selectors select { width:100%; min-width:0; min-height:48px; padding:10px 36px 10px 14px; border:0; border-radius:12px; background:var(--c-card-solid); color:rgb(var(--rgb-ink)); font-size:16px; appearance:auto; }
+html[data-shell="clean"] .clean-settings-categories { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:4px 28px; margin-top:12px; }
+html[data-shell="clean"] .clean-settings-category,
+html[data-shell="clean"] .clean-settings-task-row { display:flex; align-items:center; gap:16px; min-width:0; min-height:88px; padding:16px; border-radius:16px; color:rgb(var(--rgb-ink)); text-decoration:none; }
+html[data-shell="clean"] .clean-settings-category > svg { width:24px; height:24px; flex-shrink:0; color:rgb(var(--rgb-accent)); }
+html[data-shell="clean"] .clean-settings-category > svg:last-child,
+html[data-shell="clean"] .clean-settings-task-row > svg { width:20px; height:20px; flex-shrink:0; margin-left:auto; }
+html[data-shell="clean"] .clean-settings-category span,
+html[data-shell="clean"] .clean-settings-task-row span { display:grid; gap:6px; min-width:0; }
+html[data-shell="clean"] .clean-settings-category strong,
+html[data-shell="clean"] .clean-settings-task-row strong { font-size:18px; line-height:1.35; font-weight:600; }
+html[data-shell="clean"] .clean-settings-category small,
+html[data-shell="clean"] .clean-settings-task-row small,
+html[data-shell="clean"] .clean-settings-help { color:rgb(var(--rgb-g500)); font-size:14px; line-height:1.6; overflow-wrap:anywhere; }
+html[data-shell="clean"] .clean-settings-help { margin-top:20px; }
+html[data-shell="clean"] .clean-settings-task-heading { margin:24px 0 16px; }
+html[data-shell="clean"] .clean-settings-task-heading h2 { font-size:24px; line-height:1.3; font-weight:600; }
+html[data-shell="clean"] .clean-settings-task-heading p { margin-top:8px; color:rgb(var(--rgb-g500)); font-size:16px; }
+html[data-shell="clean"] .clean-settings-navigator a:focus-visible,
+html[data-shell="clean"] .clean-settings-navigator select:focus-visible,
+html[data-shell="clean"] .clean-settings-search:focus-within { outline:3px solid rgb(var(--rgb-accent)); outline-offset:3px; }
+@media (hover:hover) and (pointer:fine) {
+ html[data-shell="clean"] .clean-settings-category:hover,
+ html[data-shell="clean"] .clean-settings-task-row:hover { background:rgb(var(--rgb-accent) / .07); }
+}
+@media (max-width:819px) {
+ html[data-shell="clean"] .clean-settings-categories,
+ html[data-shell="clean"] .clean-settings-selectors { grid-template-columns:minmax(0,1fr); }
+ html[data-shell="clean"] .clean-settings-category { padding:14px 4px; }
+}
+html[data-shell="clean"] .clean-settings-page .clean-settings-status { padding:4px 0; border:0; border-radius:0; background:transparent; box-shadow:none; }
+html[data-shell="clean"] .clean-settings-status .quiet { display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; margin:0; padding:8px 0; }
+html[data-shell="clean"] .clean-settings-status .quiet .txt { flex:1 1 190px; font-size:14px; line-height:1.5; }
+html[data-shell="clean"] .clean-settings-status .lnk { flex-shrink:0; min-height:44px; font-size:14px; }
+/* KeywordTags has an inline minHeight:0 in legacy; override only inside Clean Settings. */
+html[data-shell="clean"] .clean-settings-page .sset-body button:is(.lnk,.lk),
+html[data-shell="clean"] .clean-settings-page .sset-body .chip > button { display:inline-flex; align-items:center; justify-content:center; min-width:44px; min-height:44px!important; }
+html[data-shell="clean"] .clean-settings-page .sset-body .chip:has(>button) { height:auto; min-height:44px; }

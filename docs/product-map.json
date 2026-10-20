@@ -1,0 +1,2153 @@
+{
+  "screens": [
+    {
+      "path": "/",
+      "component": "Dashboard",
+      "file": "apps/web/src/pages/Dashboard.tsx",
+      "redirect": null,
+      "nav": {
+        "to": "/",
+        "label": "Главная",
+        "group": "main",
+        "gate": ""
+      }
+    },
+    {
+      "path": "/*",
+      "component": "NotFound",
+      "file": "",
+      "redirect": null,
+      "nav": null
+    },
+    {
+      "path": "/activity",
+      "component": "Activity",
+      "file": "apps/web/src/pages/Activity.tsx",
+      "redirect": null,
+      "nav": {
+        "to": "/activity",
+        "label": "Активность команды",
+        "group": "team",
+        "gate": "clients.viewAll"
+      }
+    },
+    {
+      "path": "/ads",
+      "component": "Ads",
+      "file": "apps/web/src/pages/Ads.tsx",
+      "redirect": null,
+      "nav": {
+        "to": "/ads",
+        "label": "Реклама",
+        "group": "ads",
+        "gate": ""
+      }
+    },
+    {
+      "path": "/ads/launch/*",
+      "component": "Navigate",
+      "file": "",
+      "redirect": "/ads",
+      "nav": null
+    },
+    {
+      "path": "/ai-learning",
+      "component": "AiLearning",
+      "file": "apps/web/src/pages/AiLearning.tsx",
+      "redirect": null,
+      "nav": {
+        "to": "/ai-learning",
+        "label": "Обучение бота",
+        "group": "system",
+        "gate": ""
+      }
+    },
+    {
+      "path": "/archive",
+      "component": "Archive",
+      "file": "apps/web/src/pages/Archive.tsx",
+      "redirect": null,
+      "nav": {
+        "to": "/archive",
+        "label": "Архив",
+        "group": "system",
+        "gate": ""
+      }
+    },
+    {
+      "path": "/backups",
+      "component": "Backups",
+      "file": "apps/web/src/pages/Backups.tsx",
+      "redirect": null,
+      "nav": {
+        "to": "/backups",
+        "label": "Резервные копии",
+        "group": "system",
+        "gate": ""
+      }
+    },
+    {
+      "path": "/bot-training",
+      "component": "Navigate",
+      "file": "",
+      "redirect": "/ai-learning?tab=manner",
+      "nav": null
+    },
+    {
+      "path": "/calendar",
+      "component": "Calendar",
+      "file": "apps/web/src/pages/Calendar.tsx",
+      "redirect": null,
+      "nav": {
+        "to": "/calendar",
+        "label": "Календарь",
+        "group": "main",
+        "gate": ""
+      }
+    },
+    {
+      "path": "/calls",
+      "component": "Calls",
+      "file": "apps/web/src/pages/Calls.tsx",
+      "redirect": null,
+      "nav": {
+        "to": "/calls",
+        "label": "Звонки",
+        "group": "inbox",
+        "gate": "calls.transcripts"
+      }
+    },
+    {
+      "path": "/clients",
+      "component": "Clients",
+      "file": "apps/web/src/pages/Clients.tsx",
+      "redirect": null,
+      "nav": {
+        "to": "/clients",
+        "label": "Клиенты",
+        "group": "people",
+        "gate": ""
+      }
+    },
+    {
+      "path": "/clients/:id",
+      "component": "ClientDetail",
+      "file": "apps/web/src/pages/ClientDetail.tsx",
+      "redirect": null,
+      "nav": null
+    },
+    {
+      "path": "/clients/all-mine",
+      "component": "Clients",
+      "file": "apps/web/src/pages/Clients.tsx",
+      "redirect": null,
+      "nav": null
+    },
+    {
+      "path": "/comments",
+      "component": "Comments",
+      "file": "apps/web/src/pages/Comments.tsx",
+      "redirect": null,
+      "nav": {
+        "to": "/comments",
+        "label": "Комментарии",
+        "group": "inbox",
+        "gate": ""
+      }
+    },
+    {
+      "path": "/deals",
+      "component": "Deals",
+      "file": "apps/web/src/pages/Deals.tsx",
+      "redirect": null,
+      "nav": {
+        "to": "/deals",
+        "label": "Сделки",
+        "group": "people",
+        "gate": ""
+      }
+    },
+    {
+      "path": "/deferred-clients",
+      "component": "DeferredClients",
+      "file": "apps/web/src/pages/DeferredClients.tsx",
+      "redirect": null,
+      "nav": {
+        "to": "/deferred-clients",
+        "label": "Отложенные",
+        "group": "people",
+        "gate": ""
+      }
+    },
+    {
+      "path": "/dev/ask-panel",
+      "component": "",
+      "file": "",
+      "redirect": null,
+      "nav": null
+    },
+    {
+      "path": "/dev/calls-port",
+      "component": "",
+      "file": "",
+      "redirect": null,
+      "nav": null
+    },
+    {
+      "path": "/dev/design-lab",
+      "component": "",
+      "file": "",
+      "redirect": null,
+      "nav": null
+    },
+    {
+      "path": "/dev/event-feed",
+      "component": "",
+      "file": "",
+      "redirect": null,
+      "nav": null
+    },
+    {
+      "path": "/dev/pult-actions",
+      "component": "",
+      "file": "",
+      "redirect": null,
+      "nav": null
+    },
+    {
+      "path": "/dev/pult-tiles",
+      "component": "",
+      "file": "",
+      "redirect": null,
+      "nav": null
+    },
+    {
+      "path": "/dev/sheets-port",
+      "component": "",
+      "file": "",
+      "redirect": null,
+      "nav": null
+    },
+    {
+      "path": "/dev/system-sheets-port",
+      "component": "",
+      "file": "",
+      "redirect": null,
+      "nav": null
+    },
+    {
+      "path": "/finance",
+      "component": "Finance",
+      "file": "apps/web/src/pages/Finance.tsx",
+      "redirect": null,
+      "nav": {
+        "to": "/finance",
+        "label": "Финансы",
+        "group": "money",
+        "gate": ""
+      }
+    },
+    {
+      "path": "/funnel",
+      "component": "Funnel",
+      "file": "apps/web/src/pages/Funnel.tsx",
+      "redirect": null,
+      "nav": {
+        "to": "/funnel",
+        "label": "Воронка",
+        "group": "ads",
+        "gate": ""
+      }
+    },
+    {
+      "path": "/hall-of-fame",
+      "component": "Team",
+      "file": "apps/web/src/pages/Team.tsx",
+      "redirect": null,
+      "nav": null
+    },
+    {
+      "path": "/health",
+      "component": "Health",
+      "file": "apps/web/src/pages/Health.tsx",
+      "redirect": null,
+      "nav": {
+        "to": "/health",
+        "label": "Здоровье системы",
+        "group": "system",
+        "gate": ""
+      }
+    },
+    {
+      "path": "/hot-clients",
+      "component": "Navigate",
+      "file": "",
+      "redirect": "/clients",
+      "nav": null
+    },
+    {
+      "path": "/inactive-clients",
+      "component": "Clients",
+      "file": "apps/web/src/pages/Clients.tsx",
+      "redirect": null,
+      "nav": null
+    },
+    {
+      "path": "/insights",
+      "component": "Insights",
+      "file": "apps/web/src/pages/Insights.tsx",
+      "redirect": null,
+      "nav": {
+        "to": "/insights",
+        "label": "Инсайты от ИИ",
+        "group": "money",
+        "gate": ""
+      }
+    },
+    {
+      "path": "/integrations",
+      "component": "Integrations",
+      "file": "apps/web/src/pages/Integrations.tsx",
+      "redirect": null,
+      "nav": {
+        "to": "/integrations",
+        "label": "Интеграции и каналы",
+        "group": "system",
+        "gate": ""
+      }
+    },
+    {
+      "path": "/integrations/:name",
+      "component": "ChannelDetail",
+      "file": "apps/web/src/pages/ChannelDetail.tsx",
+      "redirect": null,
+      "nav": null
+    },
+    {
+      "path": "/l/:token",
+      "component": "",
+      "file": "",
+      "redirect": null,
+      "nav": null
+    },
+    {
+      "path": "/lead-funnel",
+      "component": "LeadFunnel",
+      "file": "apps/web/src/pages/LeadFunnel.tsx",
+      "redirect": null,
+      "nav": {
+        "to": "/lead-funnel",
+        "label": "Воронка лидов",
+        "group": "people",
+        "gate": ""
+      }
+    },
+    {
+      "path": "/login",
+      "component": "",
+      "file": "",
+      "redirect": null,
+      "nav": null
+    },
+    {
+      "path": "/lost-clients",
+      "component": "LostClients",
+      "file": "apps/web/src/pages/LostClients.tsx",
+      "redirect": null,
+      "nav": {
+        "to": "/lost-clients",
+        "label": "Потерянные",
+        "group": "people",
+        "gate": ""
+      }
+    },
+    {
+      "path": "/marketing",
+      "component": "MarketingCenter",
+      "file": "apps/web/src/pages/MarketingCenter.tsx",
+      "redirect": null,
+      "nav": null
+    },
+    {
+      "path": "/messages",
+      "component": "Messages",
+      "file": "apps/web/src/pages/Messages.tsx",
+      "redirect": null,
+      "nav": {
+        "to": "/messages",
+        "label": "Чаты",
+        "group": "inbox",
+        "gate": ""
+      }
+    },
+    {
+      "path": "/mission-control",
+      "component": "MissionControl",
+      "file": "apps/web/src/pages/MissionControl.tsx",
+      "redirect": null,
+      "nav": null
+    },
+    {
+      "path": "/more",
+      "component": "More",
+      "file": "apps/web/src/pages/More.tsx",
+      "redirect": null,
+      "nav": {
+        "to": "/more",
+        "label": "Ещё",
+        "group": "system",
+        "gate": ""
+      }
+    },
+    {
+      "path": "/notifications",
+      "component": "Notifications",
+      "file": "apps/web/src/pages/Notifications.tsx",
+      "redirect": null,
+      "nav": null
+    },
+    {
+      "path": "/o/:token",
+      "component": "",
+      "file": "",
+      "redirect": null,
+      "nav": null
+    },
+    {
+      "path": "/other-inquiries",
+      "component": "Clients",
+      "file": "apps/web/src/pages/Clients.tsx",
+      "redirect": null,
+      "nav": null
+    },
+    {
+      "path": "/oversight",
+      "component": "Oversight",
+      "file": "apps/web/src/pages/Oversight.tsx",
+      "redirect": null,
+      "nav": {
+        "to": "/oversight",
+        "label": "Контроль руководителя",
+        "group": "team",
+        "gate": ""
+      }
+    },
+    {
+      "path": "/pipeline",
+      "component": "Pipeline",
+      "file": "apps/web/src/pages/Pipeline.tsx",
+      "redirect": null,
+      "nav": {
+        "to": "/pipeline",
+        "label": "Подготовка объектов",
+        "group": "ads",
+        "gate": ""
+      }
+    },
+    {
+      "path": "/profile",
+      "component": "Profile",
+      "file": "apps/web/src/pages/Profile.tsx",
+      "redirect": null,
+      "nav": null
+    },
+    {
+      "path": "/properties",
+      "component": "Properties",
+      "file": "apps/web/src/pages/Properties.tsx",
+      "redirect": null,
+      "nav": {
+        "to": "/properties",
+        "label": "Объекты",
+        "group": "objects",
+        "gate": ""
+      }
+    },
+    {
+      "path": "/properties/:id",
+      "component": "PropertyDetail",
+      "file": "apps/web/src/pages/PropertyDetail.tsx",
+      "redirect": null,
+      "nav": null
+    },
+    {
+      "path": "/properties/:id/edit",
+      "component": "PropertyEdit",
+      "file": "apps/web/src/pages/PropertyForm.tsx",
+      "redirect": null,
+      "nav": null
+    },
+    {
+      "path": "/properties/map",
+      "component": "PropertiesMap",
+      "file": "apps/web/src/pages/PropertiesMap.tsx",
+      "redirect": null,
+      "nav": {
+        "to": "/properties/map",
+        "label": "Карта объектов",
+        "group": "objects",
+        "gate": ""
+      }
+    },
+    {
+      "path": "/properties/new",
+      "component": "",
+      "file": "",
+      "redirect": null,
+      "nav": null
+    },
+    {
+      "path": "/pult",
+      "component": "Pult",
+      "file": "apps/web/src/pages/Pult.tsx",
+      "redirect": null,
+      "nav": null
+    },
+    {
+      "path": "/reports",
+      "component": "Reports",
+      "file": "apps/web/src/pages/Reports.tsx",
+      "redirect": null,
+      "nav": {
+        "to": "/reports",
+        "label": "Отчёты",
+        "group": "money",
+        "gate": ""
+      }
+    },
+    {
+      "path": "/security",
+      "component": "SecurityCenter",
+      "file": "apps/web/src/pages/SecurityCenter.tsx",
+      "redirect": null,
+      "nav": {
+        "to": "/security",
+        "label": "Проверки",
+        "group": "team",
+        "gate": ""
+      }
+    },
+    {
+      "path": "/sellers",
+      "component": "Clients",
+      "file": "apps/web/src/pages/Clients.tsx",
+      "redirect": null,
+      "nav": null
+    },
+    {
+      "path": "/settings",
+      "component": "Settings",
+      "file": "apps/web/src/pages/Settings.tsx",
+      "redirect": null,
+      "nav": {
+        "to": "/settings",
+        "label": "Настройки CRM",
+        "group": "system",
+        "gate": ""
+      }
+    },
+    {
+      "path": "/settings/roles",
+      "component": "RolesMatrix",
+      "file": "apps/web/src/pages/settings/RolesMatrix.tsx",
+      "redirect": null,
+      "nav": null
+    },
+    {
+      "path": "/site-changes",
+      "component": "SiteChanges",
+      "file": "apps/web/src/pages/SiteChanges.tsx",
+      "redirect": null,
+      "nav": {
+        "to": "/site-changes",
+        "label": "Изменения на сайте",
+        "group": "objects",
+        "gate": ""
+      }
+    },
+    {
+      "path": "/social-videos",
+      "component": "SocialVideos",
+      "file": "apps/web/src/pages/SocialVideos.tsx",
+      "redirect": null,
+      "nav": {
+        "to": "/social-videos",
+        "label": "Ролики в соцсети",
+        "group": "ads",
+        "gate": ""
+      }
+    },
+    {
+      "path": "/sources",
+      "component": "Sources",
+      "file": "apps/web/src/pages/Sources.tsx",
+      "redirect": null,
+      "nav": {
+        "to": "/sources",
+        "label": "Источники лидов",
+        "group": "money",
+        "gate": ""
+      }
+    },
+    {
+      "path": "/stuck-work",
+      "component": "StuckWork",
+      "file": "apps/web/src/pages/StuckWork.tsx",
+      "redirect": null,
+      "nav": {
+        "to": "/stuck-work",
+        "label": "Что не доехало",
+        "group": "system",
+        "gate": ""
+      }
+    },
+    {
+      "path": "/team",
+      "component": "Team",
+      "file": "apps/web/src/pages/Team.tsx",
+      "redirect": null,
+      "nav": {
+        "to": "/team",
+        "label": "Команда",
+        "group": "team",
+        "gate": ""
+      }
+    },
+    {
+      "path": "/team/:id",
+      "component": "TeamMemberDetail",
+      "file": "apps/web/src/pages/TeamMemberDetail.tsx",
+      "redirect": null,
+      "nav": null
+    },
+    {
+      "path": "/telephony",
+      "component": "Telephony",
+      "file": "apps/web/src/pages/Telephony.tsx",
+      "redirect": null,
+      "nav": {
+        "to": "/telephony",
+        "label": "Телефония",
+        "group": "inbox",
+        "gate": ""
+      }
+    },
+    {
+      "path": "/vacancies",
+      "component": "Vacancies",
+      "file": "apps/web/src/pages/Vacancies.tsx",
+      "redirect": null,
+      "nav": {
+        "to": "/vacancies",
+        "label": "Вакансии",
+        "group": "team",
+        "gate": ""
+      }
+    }
+  ],
+  "nav": [
+    {
+      "to": "/",
+      "label": "Главная",
+      "group": "main",
+      "gate": ""
+    },
+    {
+      "to": "/calendar",
+      "label": "Календарь",
+      "group": "main",
+      "gate": ""
+    },
+    {
+      "to": "/messages",
+      "label": "Сообщения",
+      "group": "inbox",
+      "gate": ""
+    },
+    {
+      "to": "/comments",
+      "label": "Комментарии",
+      "group": "inbox",
+      "gate": ""
+    },
+    {
+      "to": "/calls",
+      "label": "Звонки",
+      "group": "inbox",
+      "gate": "calls.transcripts"
+    },
+    {
+      "to": "/telephony",
+      "label": "Телефония",
+      "group": "inbox",
+      "gate": ""
+    },
+    {
+      "to": "/clients",
+      "label": "Клиенты",
+      "group": "people",
+      "gate": ""
+    },
+    {
+      "to": "/lead-funnel",
+      "label": "Воронка лидов",
+      "group": "people",
+      "gate": ""
+    },
+    {
+      "to": "/deferred-clients",
+      "label": "Отложенные",
+      "group": "people",
+      "gate": ""
+    },
+    {
+      "to": "/lost-clients",
+      "label": "Потерянные",
+      "group": "people",
+      "gate": ""
+    },
+    {
+      "to": "/deals",
+      "label": "Сделки",
+      "group": "people",
+      "gate": ""
+    },
+    {
+      "to": "/properties",
+      "label": "Объекты",
+      "group": "objects",
+      "gate": ""
+    },
+    {
+      "to": "/properties/map",
+      "label": "Карта объектов",
+      "group": "objects",
+      "gate": ""
+    },
+    {
+      "to": "/site-changes",
+      "label": "Изменения на сайте",
+      "group": "objects",
+      "gate": ""
+    },
+    {
+      "to": "/team",
+      "label": "Команда",
+      "group": "team",
+      "gate": ""
+    },
+    {
+      "to": "/activity",
+      "label": "Активность команды",
+      "group": "team",
+      "gate": "clients.viewAll"
+    },
+    {
+      "to": "/oversight",
+      "label": "Контроль руководителя",
+      "group": "team",
+      "gate": ""
+    },
+    {
+      "to": "/vacancies",
+      "label": "Вакансии",
+      "group": "team",
+      "gate": ""
+    },
+    {
+      "to": "/security",
+      "label": "Служба безопасности",
+      "group": "team",
+      "gate": ""
+    },
+    {
+      "to": "/finance",
+      "label": "Финансы",
+      "group": "money",
+      "gate": ""
+    },
+    {
+      "to": "/reports",
+      "label": "Отчёты",
+      "group": "money",
+      "gate": ""
+    },
+    {
+      "to": "/sources",
+      "label": "Источники лидов",
+      "group": "money",
+      "gate": ""
+    },
+    {
+      "to": "/insights",
+      "label": "Инсайты от ИИ",
+      "group": "money",
+      "gate": ""
+    },
+    {
+      "to": "/ads",
+      "label": "Реклама",
+      "group": "ads",
+      "gate": ""
+    },
+    {
+      "to": "/social-videos",
+      "label": "Ролики в соцсети",
+      "group": "ads",
+      "gate": ""
+    },
+    {
+      "to": "/pipeline",
+      "label": "Подготовка объектов",
+      "group": "ads",
+      "gate": ""
+    },
+    {
+      "to": "/funnel",
+      "label": "Воронка",
+      "group": "ads",
+      "gate": ""
+    },
+    {
+      "to": "/settings",
+      "label": "Настройки CRM",
+      "group": "system",
+      "gate": ""
+    },
+    {
+      "to": "/health",
+      "label": "Здоровье системы",
+      "group": "system",
+      "gate": ""
+    },
+    {
+      "to": "/integrations",
+      "label": "Интеграции и каналы",
+      "group": "system",
+      "gate": ""
+    },
+    {
+      "to": "/backups",
+      "label": "Резервные копии",
+      "group": "system",
+      "gate": ""
+    },
+    {
+      "to": "/stuck-work",
+      "label": "Что не доехало",
+      "group": "system",
+      "gate": ""
+    },
+    {
+      "to": "/ai-learning",
+      "label": "Обучение бота",
+      "group": "system",
+      "gate": ""
+    },
+    {
+      "to": "/archive",
+      "label": "Архив",
+      "group": "system",
+      "gate": ""
+    },
+    {
+      "to": "/security",
+      "label": "Проверки",
+      "group": "team",
+      "gate": ""
+    },
+    {
+      "to": "/messages",
+      "label": "Чаты",
+      "group": "inbox",
+      "gate": ""
+    },
+    {
+      "to": "/more",
+      "label": "Ещё",
+      "group": "system",
+      "gate": ""
+    }
+  ],
+  "modules": [
+    {
+      "mount": "/api/v1/auth",
+      "router": "testPasswordLoginRouter",
+      "file": "",
+      "endpoints": 2,
+      "label": "Вход, двухфакторная проверка, сессии устройств",
+      "usedBy": 6
+    },
+    {
+      "mount": "/api/v1/auth",
+      "router": "authRouter",
+      "file": "apps/api/src/routes/auth.ts",
+      "endpoints": 13,
+      "label": "Вход, двухфакторная проверка, сессии устройств",
+      "usedBy": 6
+    },
+    {
+      "mount": "/api/v1/events",
+      "router": "eventsRouter",
+      "file": "apps/api/src/routes/events.ts",
+      "endpoints": 2,
+      "label": "Живая лента событий в браузере агента",
+      "usedBy": 1
+    },
+    {
+      "mount": "/api/v1/me",
+      "router": "meRouter",
+      "file": "apps/api/src/routes/me.ts",
+      "endpoints": 36,
+      "label": "Свой профиль, настройки, устройства",
+      "usedBy": 11
+    },
+    {
+      "mount": "/api/v1/me/notifications",
+      "router": "notificationsRouter",
+      "file": "apps/api/src/routes/notifications.ts",
+      "endpoints": 4,
+      "label": "Лента уведомлений сотрудника",
+      "usedBy": 11
+    },
+    {
+      "mount": "/api/v1/agents",
+      "router": "agentsRouter",
+      "file": "apps/api/src/routes/agents.ts",
+      "endpoints": 19,
+      "label": "Сотрудники: карточки, права, аватары",
+      "usedBy": 8
+    },
+    {
+      "mount": "/api/v1/agents",
+      "router": "agentOverviewRouter",
+      "file": "apps/api/src/routes/team.ts",
+      "endpoints": 2,
+      "label": "Сотрудники: карточки, права, аватары",
+      "usedBy": 8
+    },
+    {
+      "mount": "/api/v1/districts",
+      "router": "districtsRouter",
+      "file": "apps/api/src/routes/districts.ts",
+      "endpoints": 2,
+      "label": "Справочник районов",
+      "usedBy": 1
+    },
+    {
+      "mount": "/api/v1/geo",
+      "router": "geoRouter",
+      "file": "apps/api/src/routes/geo.ts",
+      "endpoints": 4,
+      "label": "Поиск адреса и точки по собственному справочнику города",
+      "usedBy": 3
+    },
+    {
+      "mount": "/api/v1/landmarks",
+      "router": "landmarksRouter",
+      "file": "apps/api/src/routes/landmarks.ts",
+      "endpoints": 8,
+      "label": "Народные ориентиры, которые ведут агенты",
+      "usedBy": 1
+    },
+    {
+      "mount": "/api/v1/properties",
+      "router": "propertiesRouter",
+      "file": "apps/api/src/routes/properties.ts",
+      "endpoints": 107,
+      "label": "Объекты: список, карточка, фото, видео, публикация",
+      "usedBy": 25
+    },
+    {
+      "mount": "/api/v1/clients",
+      "router": "clientsRouter",
+      "file": "apps/api/src/routes/clients.ts",
+      "endpoints": 57,
+      "label": "Клиенты: карточки, передачи, отказы, подбор — самый крупный модуль",
+      "usedBy": 9
+    },
+    {
+      "mount": "/api/v1/deals",
+      "router": "dealsRouter",
+      "file": "apps/api/src/routes/deals.ts",
+      "endpoints": 3,
+      "label": "Сделки, документы, выплаты",
+      "usedBy": 4
+    },
+    {
+      "mount": "/api/v1/deals",
+      "router": "dealDocumentsRouter",
+      "file": "apps/api/src/routes/dealDocuments.ts",
+      "endpoints": 4,
+      "label": "Сделки, документы, выплаты",
+      "usedBy": 4
+    },
+    {
+      "mount": "/api/v1/deals",
+      "router": "dealPayoutRouter",
+      "file": "apps/api/src/routes/dealPayout.ts",
+      "endpoints": 2,
+      "label": "Сделки, документы, выплаты",
+      "usedBy": 4
+    },
+    {
+      "mount": "/api/v1/deals",
+      "router": "dealAnnulRouter",
+      "file": "apps/api/src/routes/dealAnnul.ts",
+      "endpoints": 1,
+      "label": "Сделки, документы, выплаты",
+      "usedBy": 4
+    },
+    {
+      "mount": "/api/v1/dashboard",
+      "router": "dashboardRouter",
+      "file": "apps/api/src/routes/dashboard.ts",
+      "endpoints": 8,
+      "label": "Главная, пульт директора, модули пульта, утренняя сводка",
+      "usedBy": 7
+    },
+    {
+      "mount": "/api/v1/dashboard",
+      "router": "missionControlRouter",
+      "file": "apps/api/src/routes/dashboardMissionControl.ts",
+      "endpoints": 5,
+      "label": "Главная, пульт директора, модули пульта, утренняя сводка",
+      "usedBy": 7
+    },
+    {
+      "mount": "/api/v1/dashboard",
+      "router": "pultModulesRouter",
+      "file": "apps/api/src/routes/pultModules.ts",
+      "endpoints": 2,
+      "label": "Главная, пульт директора, модули пульта, утренняя сводка",
+      "usedBy": 7
+    },
+    {
+      "mount": "/api/v1/dashboard",
+      "router": "briefingRouter",
+      "file": "apps/api/src/routes/briefing.ts",
+      "endpoints": 2,
+      "label": "Главная, пульт директора, модули пульта, утренняя сводка",
+      "usedBy": 7
+    },
+    {
+      "mount": "/api/v1/calendar",
+      "router": "calendarRouter",
+      "file": "apps/api/src/routes/calendar.ts",
+      "endpoints": 1,
+      "label": "Календарь задач и показов",
+      "usedBy": 1
+    },
+    {
+      "mount": "/api/v1/interactions",
+      "router": "interactionsRouter",
+      "file": "apps/api/src/routes/interactions.ts",
+      "endpoints": 9,
+      "label": "Звонки, показы, встречи — всё, что агент отмечает",
+      "usedBy": 3
+    },
+    {
+      "mount": "/api/v1/calls",
+      "router": "callsRouter",
+      "file": "apps/api/src/routes/calls.ts",
+      "endpoints": 6,
+      "label": "Журнал звонков и расшифровки",
+      "usedBy": 1
+    },
+    {
+      "mount": "/api/v1/live-voice",
+      "router": "liveVoiceListenRouter",
+      "file": "apps/api/src/routes/liveVoiceListen.ts",
+      "endpoints": 2,
+      "label": null,
+      "usedBy": 1
+    },
+    {
+      "mount": "/api/v1/ai",
+      "router": "aiRouter",
+      "file": "apps/api/src/routes/ai.ts",
+      "endpoints": 9,
+      "label": "Запросы к ИИ из интерфейса",
+      "usedBy": 3
+    },
+    {
+      "mount": "/api/v1/transcribe",
+      "router": "transcribeRouter",
+      "file": "apps/api/src/routes/transcribe.ts",
+      "endpoints": 1,
+      "label": "Диктовка голосом в полях CRM",
+      "usedBy": 1
+    },
+    {
+      "mount": "/api/v1/reports",
+      "router": "reportsRouter",
+      "file": "apps/api/src/routes/reports.ts",
+      "endpoints": 17,
+      "label": "Отчёты за период",
+      "usedBy": 3
+    },
+    {
+      "mount": "/api/v1/telephony/whisper",
+      "router": "telephonyWhisperRouter",
+      "file": "apps/api/src/routes/telephonyWhisper.ts",
+      "endpoints": 2,
+      "label": "Станция забирает подсказки оператору",
+      "usedBy": 0
+    },
+    {
+      "mount": "/api/v1/settings/restore-points",
+      "router": "settingsRestorePointsRouter",
+      "file": "apps/api/src/routes/settingsRestorePoints.ts",
+      "endpoints": 2,
+      "label": "Точки возврата настроек",
+      "usedBy": 10
+    },
+    {
+      "mount": "/api/v1/settings",
+      "router": "settingsRouter",
+      "file": "apps/api/src/routes/settings.ts",
+      "endpoints": 40,
+      "label": "Настройки CRM и точки возврата",
+      "usedBy": 10
+    },
+    {
+      "mount": "/api/v1/ui-shell",
+      "router": "uiShellRouter",
+      "file": "apps/api/src/routes/uiShell.ts",
+      "endpoints": 3,
+      "label": null,
+      "usedBy": 2
+    },
+    {
+      "mount": "/api/v1/sms",
+      "router": "smsRouter",
+      "file": "apps/api/src/routes/sms.ts",
+      "endpoints": 6,
+      "label": null,
+      "usedBy": 2
+    },
+    {
+      "mount": "/api/v1/whatsapp-templates",
+      "router": "whatsappTemplatesRouter",
+      "file": "apps/api/src/routes/whatsappTemplates.ts",
+      "endpoints": 3,
+      "label": null,
+      "usedBy": 1
+    },
+    {
+      "mount": "/api/v1/push",
+      "router": "pushRouter",
+      "file": "apps/api/src/routes/push.ts",
+      "endpoints": 7,
+      "label": "Пуш-уведомления на телефон",
+      "usedBy": 2
+    },
+    {
+      "mount": "/api/v1/webhooks",
+      "router": "webhooksRouter",
+      "file": "apps/api/src/routes/webhooks.ts",
+      "endpoints": 11,
+      "label": "Входящие от WhatsApp, Instagram, Telegram, сайта, станции",
+      "usedBy": 0
+    },
+    {
+      "mount": "/api/v1/public",
+      "router": "publicFeedRouter",
+      "file": "apps/api/src/routes/publicFeed.ts",
+      "endpoints": 2,
+      "label": "Витрина для сайта royalhome.tj",
+      "usedBy": 0
+    },
+    {
+      "mount": "/api/v1/expenses",
+      "router": "expensesRouter",
+      "file": "apps/api/src/routes/expenses.ts",
+      "endpoints": 32,
+      "label": "Расходы агентства",
+      "usedBy": 3
+    },
+    {
+      "mount": "/api/v1/finance",
+      "router": "financeRouter",
+      "file": "apps/api/src/routes/finance.ts",
+      "endpoints": 1,
+      "label": "Деньги: доходы, комиссии, прогноз",
+      "usedBy": 1
+    },
+    {
+      "mount": "/api/v1/security",
+      "router": "securityRouter",
+      "file": "apps/api/src/routes/security.ts",
+      "endpoints": 3,
+      "label": "Кабинет службы безопасности",
+      "usedBy": 1
+    },
+    {
+      "mount": "/api/v1/marketing",
+      "router": "marketingRouter",
+      "file": "apps/api/src/routes/marketing.ts",
+      "endpoints": 23,
+      "label": "Кабинет маркетинга и монтажа",
+      "usedBy": 2
+    },
+    {
+      "mount": "/api/v1/social-videos",
+      "router": "socialVideosRouter",
+      "file": "apps/api/src/routes/socialVideos.ts",
+      "endpoints": 20,
+      "label": null,
+      "usedBy": 1
+    },
+    {
+      "mount": "/api/v1/webhooks",
+      "router": "budgetWebhookRouter",
+      "file": "apps/api/src/routes/budgetWebhook.ts",
+      "endpoints": 1,
+      "label": "Входящие от WhatsApp, Instagram, Telegram, сайта, станции",
+      "usedBy": 0
+    },
+    {
+      "mount": "/api/v1/ads/callback",
+      "router": "adsCallbackRouter",
+      "file": "apps/api/src/routes/ads.ts",
+      "endpoints": 1,
+      "label": "Возврат из рекламного кабинета после подключения",
+      "usedBy": 1
+    },
+    {
+      "mount": "/api/v1/ads",
+      "router": "adsRouter",
+      "file": "apps/api/src/routes/ads.ts",
+      "endpoints": 19,
+      "label": "Реклама Meta: расходы и привязка объявлений",
+      "usedBy": 1
+    },
+    {
+      "mount": "/api/v1/tiktok/oauth/callback",
+      "router": "tiktokCallbackRouter",
+      "file": "apps/api/src/routes/tiktok.ts",
+      "endpoints": 1,
+      "label": "Возврат из TikTok после подключения",
+      "usedBy": 2
+    },
+    {
+      "mount": "/api/v1/tiktok",
+      "router": "tiktokRouter",
+      "file": "apps/api/src/routes/tiktok.ts",
+      "endpoints": 4,
+      "label": "Публикация в TikTok",
+      "usedBy": 2
+    },
+    {
+      "mount": "/api/v1/threads/oauth/callback",
+      "router": "threadsCallbackRouter",
+      "file": "apps/api/src/routes/threads.ts",
+      "endpoints": 1,
+      "label": null,
+      "usedBy": 1
+    },
+    {
+      "mount": "/api/v1/threads",
+      "router": "threadsRouter",
+      "file": "apps/api/src/routes/threads.ts",
+      "endpoints": 3,
+      "label": null,
+      "usedBy": 1
+    },
+    {
+      "mount": "/api/v1/search-console/oauth/callback",
+      "router": "searchConsoleCallbackRouter",
+      "file": "apps/api/src/routes/searchConsole.ts",
+      "endpoints": 1,
+      "label": null,
+      "usedBy": 3
+    },
+    {
+      "mount": "/api/v1/search-console/yandex/oauth/callback",
+      "router": "yandexCallbackRouter",
+      "file": "apps/api/src/routes/searchConsole.ts",
+      "endpoints": 1,
+      "label": null,
+      "usedBy": 3
+    },
+    {
+      "mount": "/api/v1/search-console",
+      "router": "searchConsoleRouter",
+      "file": "apps/api/src/routes/searchConsole.ts",
+      "endpoints": 7,
+      "label": null,
+      "usedBy": 3
+    },
+    {
+      "mount": "/api/v1/team",
+      "router": "teamRouter",
+      "file": "apps/api/src/routes/team.ts",
+      "endpoints": 2,
+      "label": "Команда: нагрузка, портфель",
+      "usedBy": 1
+    },
+    {
+      "mount": "/api/v1/hall-of-fame",
+      "router": "hallOfFameRouter",
+      "file": "apps/api/src/routes/hallOfFame.ts",
+      "endpoints": 2,
+      "label": "Зал славы по Royal Score",
+      "usedBy": 1
+    },
+    {
+      "mount": "/api/v1/import",
+      "router": "importRouter",
+      "file": "apps/api/src/routes/import.ts",
+      "endpoints": 4,
+      "label": "Загрузка данных пачкой",
+      "usedBy": 0
+    },
+    {
+      "mount": "/api/v1/site-notifications",
+      "router": "siteNotificationsRouter",
+      "file": "apps/api/src/routes/siteNotifications.ts",
+      "endpoints": 3,
+      "label": "Изменения, прилетевшие с сайта",
+      "usedBy": 1
+    },
+    {
+      "mount": "/api/v1/contacts",
+      "router": "contactsRouter",
+      "file": "apps/api/src/routes/contacts.ts",
+      "endpoints": 5,
+      "label": null,
+      "usedBy": 2
+    },
+    {
+      "mount": "/api/v1/conversations",
+      "router": "conversationsRouter",
+      "file": "apps/api/src/routes/conversations.ts",
+      "endpoints": 10,
+      "label": "Переписка по всем каналам",
+      "usedBy": 2
+    },
+    {
+      "mount": "/api/v1/audit-log",
+      "router": "auditLogRouter",
+      "file": "apps/api/src/routes/auditLog.ts",
+      "endpoints": 1,
+      "label": "Журнал действий сотрудников",
+      "usedBy": 1
+    },
+    {
+      "mount": "/api/v1/royal-score-events",
+      "router": "royalScoreEventsRouter",
+      "file": "apps/api/src/routes/royalScoreEvents.ts",
+      "endpoints": 2,
+      "label": "Начисления и списания баллов агентам",
+      "usedBy": 1
+    },
+    {
+      "mount": "/api/v1/morning-report",
+      "router": "morningReportRouter",
+      "file": "apps/api/src/routes/morningReport.ts",
+      "endpoints": 1,
+      "label": "Служебная выдача для внешней сессии, интерфейс её не зовёт",
+      "usedBy": 0
+    },
+    {
+      "mount": "/api/v1/errors",
+      "router": "errorLogRouter",
+      "file": "apps/api/src/routes/errorLog.ts",
+      "endpoints": 8,
+      "label": "Журнал ошибок системы",
+      "usedBy": 4
+    },
+    {
+      "mount": "/api/v1/integrations",
+      "router": "integrationsRouter",
+      "file": "apps/api/src/routes/integrations.ts",
+      "endpoints": 1,
+      "label": "Состояние внешних подключений",
+      "usedBy": 1
+    },
+    {
+      "mount": "/api/v1/stuck-work",
+      "router": "stuckWorkRouter",
+      "file": "apps/api/src/routes/stuckWork.ts",
+      "endpoints": 2,
+      "label": "Экран «Что не доехало»: работа, которую система не довела до конца",
+      "usedBy": 1
+    },
+    {
+      "mount": "/api/v1/backups",
+      "router": "backupsRouter",
+      "file": "apps/api/src/routes/backups.ts",
+      "endpoints": 2,
+      "label": "Отчёты о резервных копиях",
+      "usedBy": 0
+    },
+    {
+      "mount": "/api/v1/bot-audit",
+      "router": "botAuditRouter",
+      "file": "apps/api/src/routes/botAudit.ts",
+      "endpoints": 6,
+      "label": "Находки ночного судьи диалогов",
+      "usedBy": 1
+    },
+    {
+      "mount": "/api/v1/bot-learning",
+      "router": "botLearningRouter",
+      "file": "apps/api/src/routes/botLearning.ts",
+      "endpoints": 8,
+      "label": "Уроки, извлечённые из ошибок бота",
+      "usedBy": 2
+    },
+    {
+      "mount": "/api/v1/bot-trainer",
+      "router": "botTrainerRouter",
+      "file": "apps/api/src/routes/botTrainer.ts",
+      "endpoints": 3,
+      "label": "Ручная тренировка бота",
+      "usedBy": 1
+    },
+    {
+      "mount": "/api/v1/bot-scenarios",
+      "router": "botScenariosRouter",
+      "file": "apps/api/src/routes/botScenarios.ts",
+      "endpoints": 1,
+      "label": "Сценарии продаж для бота",
+      "usedBy": 1
+    },
+    {
+      "mount": "/api/v1/bot-training",
+      "router": "botTrainingRouter",
+      "file": "apps/api/src/routes/botTraining.ts",
+      "endpoints": 6,
+      "label": "Экран «Манера» — закрыт тумблером",
+      "usedBy": 1
+    },
+    {
+      "mount": "/api/v1/attachments",
+      "router": "attachmentsRouter",
+      "file": "apps/api/src/routes/attachments.ts",
+      "endpoints": 1,
+      "label": "Вложения переписки",
+      "usedBy": 2
+    },
+    {
+      "mount": "/api/v1/media",
+      "router": "mediaProxyRouter",
+      "file": "apps/api/src/routes/mediaProxy.ts",
+      "endpoints": 1,
+      "label": "Отдача файлов чата по ссылке",
+      "usedBy": 0
+    },
+    {
+      "mount": "/api/v1/instagram-comments",
+      "router": "instagramCommentsRouter",
+      "file": "apps/api/src/routes/instagramComments.ts",
+      "endpoints": 4,
+      "label": "Лента комментариев под публикациями",
+      "usedBy": 1
+    },
+    {
+      "mount": "/api/v1/lead-magnets",
+      "router": "leadMagnetsRouter",
+      "file": "apps/api/src/routes/leadMagnets.ts",
+      "endpoints": 10,
+      "label": "Чек-листы и выдачи лид-магнитов",
+      "usedBy": 1
+    },
+    {
+      "mount": "/api/v1/vacancies",
+      "router": "vacanciesRouter",
+      "file": "apps/api/src/routes/vacancies.ts",
+      "endpoints": 6,
+      "label": "Кандидаты на вакансии",
+      "usedBy": 2
+    },
+    {
+      "mount": "/api/v1/oversight",
+      "router": "oversightRouter",
+      "file": "apps/api/src/routes/oversight.ts",
+      "endpoints": 16,
+      "label": "Контроль руководителя",
+      "usedBy": 1
+    },
+    {
+      "mount": "/api/v1/insights",
+      "router": "insightsRouter",
+      "file": "apps/api/src/routes/insights.ts",
+      "endpoints": 4,
+      "label": "Инсайты от ИИ по звонкам",
+      "usedBy": 1
+    },
+    {
+      "mount": "/api/v1/l",
+      "router": "propertyShareRouter",
+      "file": "apps/api/src/routes/propertyShare.ts",
+      "endpoints": 2,
+      "label": "Публичная ссылка на объект для клиента",
+      "usedBy": 1
+    },
+    {
+      "mount": "/api/v1/public/owner-report",
+      "router": "ownerReportPublicRouter",
+      "file": "apps/api/src/routes/ownerReportPublic.ts",
+      "endpoints": 1,
+      "label": null,
+      "usedBy": 0
+    }
+  ],
+  "cron": [
+    {
+      "id": "absence-return",
+      "expr": "5 * * * *",
+      "label": "Снимает отпуск с агента по наступлении даты выхода"
+    },
+    {
+      "id": "agent-mobile-fallback",
+      "expr": "*/15 * * * *",
+      "label": "Сверяет и восстанавливает переадресацию на мобильный агента"
+    },
+    {
+      "id": "agent-off-crm-alarm",
+      "expr": "0 * * * *",
+      "label": "Ловит признаки увода клиента в обход CRM"
+    },
+    {
+      "id": "agent-unanswered-alarm",
+      "expr": "0 * * * *",
+      "label": "Продавец пишет, а агент молчит день-два"
+    },
+    {
+      "id": "background-jobs",
+      "expr": "* * * * *",
+      "label": "Тик очереди фоновых заданий"
+    },
+    {
+      "id": "bot-audit",
+      "expr": "15 3 * * *",
+      "label": "Ночной судья диалогов: сверяет переписки с правилами и копит нарушения"
+    },
+    {
+      "id": "bot-lessons",
+      "expr": "30 */2 * * *",
+      "label": "Превращает ошибки бота в короткие правила и подмешивает их в его инструкцию"
+    },
+    {
+      "id": "bot-pause-watch",
+      "expr": "20 * * * *",
+      "label": "Бот на паузе и забыли: напоминает, при долгой паузе снимает сам"
+    },
+    {
+      "id": "buyer-no-call-alarm",
+      "expr": "0 * * * *",
+      "label": "Активный покупатель с высокой оценкой без звонка два дня"
+    },
+    {
+      "id": "buyer-thinking-slow-track",
+      "expr": "*/30 * * * *",
+      "label": "Двигает задачи «покупатель думает», заведённые без даты"
+    },
+    {
+      "id": "call-insights",
+      "expr": "10 4 * * *",
+      "label": "Раз в сутки ИИ разбирает разговоры за месяц: где сильно, где просаживается"
+    },
+    {
+      "id": "callback-connect",
+      "expr": "*/10 * * * *",
+      "label": "Соединяет самую старую просьбу «перезвоните» с дежурным оператором"
+    },
+    {
+      "id": "candidate-phone-ask",
+      "expr": "*/15 * * * *",
+      "label": "Просит у кандидатов на вакансию телефон, как откроется окно Meta"
+    },
+    {
+      "id": "client-auto-statuses",
+      "expr": "40 4 * * *",
+      "label": "Пересчитывает статусы клиентов, зависящие от времени"
+    },
+    {
+      "id": "client-follow-ups",
+      "expr": "*/10 * * * *",
+      "label": "Напоминания клиентам, переставшим отвечать в переписке"
+    },
+    {
+      "id": "client-property-count-alarm",
+      "expr": "0 * * * *",
+      "label": "Сравнивает заявленное клиентом число объектов со сделанным в CRM"
+    },
+    {
+      "id": "client-scoring",
+      "expr": "0 2 * * *",
+      "label": "Ночная оценка ИИ всех активных клиентов"
+    },
+    {
+      "id": "clip-review-resend",
+      "expr": "*/5 * * * *",
+      "label": null
+    },
+    {
+      "id": "clip-review-stale-alarm",
+      "expr": "15 * * * *",
+      "label": null
+    },
+    {
+      "id": "contact-link-sweep",
+      "expr": "10 3 * * *",
+      "label": null
+    },
+    {
+      "id": "daily-kpi",
+      "expr": "5 0 * * *",
+      "label": "Пересчитывает показатели всех агентов за вчера"
+    },
+    {
+      "id": "daily-stories",
+      "expr": "*/15 * * * *",
+      "label": null
+    },
+    {
+      "id": "deal-stale-pipeline",
+      "expr": "20 0 * * *",
+      "label": "Застой сделки дольше нормы — пуш руководству и задача агенту"
+    },
+    {
+      "id": "deferred-clients-return",
+      "expr": "*/30 * * * *",
+      "label": "Возвращает в работу клиентов, отложенных до наступившей даты"
+    },
+    {
+      "id": "director-alert-queue-flush",
+      "expr": "*/10 * * * *",
+      "label": "Доставляет руководству накопленные тревоги в разрешённые часы"
+    },
+    {
+      "id": "disk-cleanup",
+      "expr": "5 4 * * *",
+      "label": null
+    },
+    {
+      "id": "duplicate-fuzzy-scan",
+      "expr": "0 8 * * *",
+      "label": "Ежедневный поиск дублей по похожему имени и номеру"
+    },
+    {
+      "id": "duplicates-weekly-digest",
+      "expr": "20 9 * * 1",
+      "label": "Напоминание руководителю о вероятных дубликатах клиентов"
+    },
+    {
+      "id": "exchange-rate",
+      "expr": "0 1 * * *",
+      "label": "Обновляет курс доллара к сомони с alif.tj"
+    },
+    {
+      "id": "expired-property-drafts-cleanup",
+      "expr": "56 3 * * *",
+      "label": "Удаляет просроченные черновики новых объектов"
+    },
+    {
+      "id": "geo-match-nightly-sweep",
+      "expr": "5 8 * * *",
+      "label": "Ночной подбор объектов ждущим покупателям по району"
+    },
+    {
+      "id": "health-automation",
+      "expr": "*/30 * * * *",
+      "label": "Переспрашивает бота по зависшим диалогам, схлопывает дубли ошибок"
+    },
+    {
+      "id": "heartbeat-watchdog",
+      "expr": "*/15 * * * *",
+      "label": "Сторож: поднимает тревогу о любой задаче, замолчавшей дольше нормы"
+    },
+    {
+      "id": "inactive-traffic-light",
+      "expr": "*/30 * * * *",
+      "label": "Светофор неактивных: напоминает по остывающим, переводит заглохших в потерянные"
+    },
+    {
+      "id": "inactivity-check",
+      "expr": "20 9 * * *",
+      "label": "Предупреждает и штрафует агентов за бездействие по принятым клиентам"
+    },
+    {
+      "id": "incoming-call-lead-sweep",
+      "expr": "*/10 * * * *",
+      "label": "Добирает входящие звонки, по которым не завелась карточка клиента"
+    },
+    {
+      "id": "incoming-calls-silence",
+      "expr": "7 * * * *",
+      "label": "Поднимает тревогу, если входящие звонки перестали доходить или все обрываются сразу"
+    },
+    {
+      "id": "insight-digest",
+      "expr": "0 9 15,28-31 * *",
+      "label": "Раз в две недели — находки ИИ к собранию директоров"
+    },
+    {
+      "id": "instagram-comments",
+      "expr": "* * * * *",
+      "label": "Отвечает, скрывает и эскалирует комментарии под публикациями"
+    },
+    {
+      "id": "instagram-online-followers",
+      "expr": "15 14 * * *",
+      "label": null
+    },
+    {
+      "id": "instagram-pending-containers",
+      "expr": "*/5 * * * *",
+      "label": "Доводит до публикации в Instagram ролики, которые Meta не успела обработать сразу — проверяет каждые 5 минут и публикует, как только видео готово, вместо того чтобы навсегда потерять уже отснятый материал"
+    },
+    {
+      "id": "instagram-url-backfill",
+      "expr": "47 3 * * *",
+      "label": "Чинит ссылки на публикации Instagram"
+    },
+    {
+      "id": "instagram-webhook-subscriptions",
+      "expr": "25 */3 * * *",
+      "label": null
+    },
+    {
+      "id": "lead-distribution",
+      "expr": "*/5 * * * *",
+      "label": "Раздаёт накопившиеся лиды, штрафует за сорванный первый звонок"
+    },
+    {
+      "id": "lead-stale-reassignment",
+      "expr": "* * * * *",
+      "label": "Передаёт непринятые лиды дальше по карусели и эскалирует"
+    },
+    {
+      "id": "live-voice-orphan-sweep",
+      "expr": "*/10 * * * *",
+      "label": null
+    },
+    {
+      "id": "log-cleanup",
+      "expr": "0 3 * * *",
+      "label": "Ночная уборка технических журналов и уведомлений"
+    },
+    {
+      "id": "lost-conversations",
+      "expr": "45 2 * * *",
+      "label": "Разбирает переписки, кончившиеся ничем: на каком шаге теряются люди"
+    },
+    {
+      "id": "lost-inactive-trash-sweep",
+      "expr": "30 0 * * *",
+      "label": "Убирает в корзину потерянных и неактивных старше трёх месяцев"
+    },
+    {
+      "id": "meeting-reminders",
+      "expr": "*/5 * * * *",
+      "label": "Напоминания о встречах и показах, сигналы о непроведённых показах и просроченных задачах"
+    },
+    {
+      "id": "meta-ads-stale-watch",
+      "expr": "10 * * * *",
+      "label": null
+    },
+    {
+      "id": "meta-ads-sync",
+      "expr": "*/15 * * * *",
+      "label": "Тянет из рекламного кабинета объявления и расходы"
+    },
+    {
+      "id": "monthly-problem-report",
+      "expr": "10 9 1 * *",
+      "label": "Разбор проблемных мест за прошедший месяц"
+    },
+    {
+      "id": "monthly-report",
+      "expr": "0 9 1 * *",
+      "label": "Месячный отчёт руководству"
+    },
+    {
+      "id": "morning-report",
+      "expr": "0 8 * * *",
+      "label": "Утренний дайджест директорам"
+    },
+    {
+      "id": "no-answer-tail",
+      "expr": "*/30 * * * *",
+      "label": "Хвост дозвона: задачи по клиентам, до которых не дозвонились"
+    },
+    {
+      "id": "operator-queue-presence",
+      "expr": "*/5 * * * *",
+      "label": "Сверяет очередь входящих на станции с реальным статусом агентов"
+    },
+    {
+      "id": "outgoing-media-cleanup",
+      "expr": "58 3 * * *",
+      "label": "Удаляет исходящие фото и видео оператора старше недели"
+    },
+    {
+      "id": "phone-lead-watchdog",
+      "expr": "*/15 * * * *",
+      "label": "Клиент оставил номер, а карточки нет: оформляет или отдаёт человеку"
+    },
+    {
+      "id": "photo-posts-tick",
+      "expr": "7 * * * *",
+      "label": null
+    },
+    {
+      "id": "private-files-cleanup",
+      "expr": "30 3 * * *",
+      "label": "Удаляет старые вложения переписки, чтобы не переполнить диск"
+    },
+    {
+      "id": "property-auto-statuses",
+      "expr": "50 4 * * *",
+      "label": "Чинит расхождение статусов объектов со сделками"
+    },
+    {
+      "id": "property-summaries",
+      "expr": "12 * * * *",
+      "label": "Почасовой блок по объектам: фото и видео, резерв, напоминания"
+    },
+    {
+      "id": "published-channels-audit",
+      "expr": "20 5 * * *",
+      "label": null
+    },
+    {
+      "id": "refused-high-score-alarm",
+      "expr": "0 * * * *",
+      "label": "Досылает в рабочие часы сигнал об отказе ценного клиента"
+    },
+    {
+      "id": "seller-no-property-alarm",
+      "expr": "0 * * * *",
+      "label": "Съёмка была, а объект так и не принят"
+    },
+    {
+      "id": "seller-property-missing",
+      "expr": "*/30 * * * *",
+      "label": "Продавец без единого объекта дольше нормы уходит в очередь безопасности"
+    },
+    {
+      "id": "seller-work-stalled-alarm",
+      "expr": "20 * * * *",
+      "label": "Агент сам перестал пытаться: два дня тишины — пуш, три — строка владельцу"
+    },
+    {
+      "id": "settings-snapshots-prune",
+      "expr": "40 3 * * *",
+      "label": "Обрезает устаревшие точки возврата настроек"
+    },
+    {
+      "id": "showing-confirmations",
+      "expr": "*/5 * * * *",
+      "label": "Просит клиента подтвердить показ, сигналит агенту о неподтверждённых"
+    },
+    {
+      "id": "silent-client-auto-deactivate",
+      "expr": "25 0 * * *",
+      "label": "Переводит в неактивные тех, кому мы писали последними и кто молчит"
+    },
+    {
+      "id": "site-stats",
+      "expr": "7 * * * *",
+      "label": null
+    },
+    {
+      "id": "social-digests-tick",
+      "expr": "*/15 * * * *",
+      "label": null
+    },
+    {
+      "id": "social-reposts-tick",
+      "expr": "12 * * * *",
+      "label": null
+    },
+    {
+      "id": "social-video-schedule",
+      "expr": "* * * * *",
+      "label": null
+    },
+    {
+      "id": "stale-property-videos-cleanup",
+      "expr": "50 3 * * *",
+      "label": "Удаляет сырое видео объектов, зависшее после публикации"
+    },
+    {
+      "id": "stale-video-uploads-cleanup",
+      "expr": "55 3 * * *",
+      "label": "Убирает брошенные загрузки видео, за которые платится хранение"
+    },
+    {
+      "id": "station-outage-probe",
+      "expr": "*/5 * * * *",
+      "label": "Зондирует телефонную станцию, записывает окна недоступности"
+    },
+    {
+      "id": "stuck-call-stubs",
+      "expr": "*/5 * * * *",
+      "label": "Находит зависшие пустые заготовки звонков в хронологии"
+    },
+    {
+      "id": "stuck-pending-messages",
+      "expr": "*/5 * * * *",
+      "label": "Достаёт сообщения клиентов, застрявшие из-за перезапуска сервера"
+    },
+    {
+      "id": "supervisor-overdue-digest",
+      "expr": "0 * * * *",
+      "label": "Сводка руководству о просроченных показах, встречах и задачах"
+    },
+    {
+      "id": "telegram-bot-api-volume-cleanup",
+      "expr": "59 3 * * *",
+      "label": null
+    },
+    {
+      "id": "telegram-group-comments",
+      "expr": "* * * * *",
+      "label": "Отвечает и эскалирует комментарии в группе Telegram-канала"
+    },
+    {
+      "id": "telephony-station-health",
+      "expr": "*/15 * * * *",
+      "label": "Каждые 15 минут проверяет саму телефонную станцию целиком: жива ли связь с ней, загружены ли настройки приёма звонков, есть ли хоть один свободный оператор — и поднимает тревогу, только если поломка подтвердилась дважды подряд"
+    },
+    {
+      "id": "telephony-station-traffic",
+      "expr": "17 * * * *",
+      "label": null
+    },
+    {
+      "id": "token-and-finance-daily",
+      "expr": "20 1 * * *",
+      "label": "Продление ключей Instagram и рекламы, проверка доступов, расходы на ИИ, зарплаты"
+    },
+    {
+      "id": "tomorrow-digest",
+      "expr": "0 18 * * *",
+      "label": "Вечером шлёт каждому агенту список его задач и встреч на завтра"
+    },
+    {
+      "id": "video-handoff-redelivery",
+      "expr": "*/5 * * * *",
+      "label": null
+    },
+    {
+      "id": "video-handoff-stale-alarm",
+      "expr": "0 * * * *",
+      "label": "Зависший монтаж видео"
+    },
+    {
+      "id": "video-handoff-unfinished-publish-watchdog",
+      "expr": "*/5 * * * *",
+      "label": null
+    },
+    {
+      "id": "voicemail-ingest",
+      "expr": "*/2 * * * *",
+      "label": "Забирает сообщения с автоответчика, чтобы ночной звонок не потерялся"
+    },
+    {
+      "id": "webhook-dedupe-cleanup",
+      "expr": "40 3 * * *",
+      "label": "Чистит отметки обработанных входящих сообщений"
+    },
+    {
+      "id": "weekly-lost-digest",
+      "expr": "0 9 * * 1",
+      "label": "Понедельничная сводка «куда уходят клиенты»"
+    },
+    {
+      "id": "weekly-marketing-insights",
+      "expr": "20 9 * * 1",
+      "label": "Недельный разбор маркетинга приходит сам, без открытия отчётов"
+    },
+    {
+      "id": "weekly-problem-report",
+      "expr": "10 9 * * 1",
+      "label": "Недельный разбор проблемных мест агентства"
+    },
+    {
+      "id": "weekly-reactivation-campaign",
+      "expr": "0 10 * * 1",
+      "label": "Ставит рассылку старым клиентам для возврата"
+    },
+    {
+      "id": "weekly-security-review-digest",
+      "expr": "20 9 * * 1",
+      "label": "Недельная сводка безопасности: отказы, похожие на сделку на стороне"
+    },
+    {
+      "id": "whisper-sync",
+      "expr": "*/5 * * * *",
+      "label": "Заранее озвучивает подсказку о звонящем и кладёт её на станцию"
+    },
+    {
+      "id": "working-hours-daily-alerts",
+      "expr": "35 9 * * *",
+      "label": "Утром показывает директору перерасход бюджета и сигналы по рекламе"
+    },
+    {
+      "id": "youtube-comments",
+      "expr": "*/2 * * * *",
+      "label": "Опрашивает YouTube на новые комментарии (вебхука у него нет)"
+    }
+  ],
+  "jobs": [
+    {
+      "type": "ai-reply-retry",
+      "file": "apps/api/src/jobs/aiReplyRetry.ts"
+    },
+    {
+      "type": "ai-turn-blocked-followup",
+      "file": "apps/api/src/jobs/aiTurnBlockedFollowup.ts"
+    },
+    {
+      "type": "client-reactivation",
+      "file": "apps/api/src/jobs/clientReactivation.ts"
+    },
+    {
+      "type": "clip-compress",
+      "file": "apps/api/src/jobs/clipCompress.ts"
+    },
+    {
+      "type": "customer-callback-notify",
+      "file": "apps/api/src/jobs/customerCallbackNotify.ts"
+    },
+    {
+      "type": "customer-inbox-consume",
+      "file": "apps/api/src/jobs/customerInboxConsume.ts"
+    },
+    {
+      "type": "customer-intake-notify",
+      "file": "apps/api/src/jobs/customerIntakeNotify.ts"
+    },
+    {
+      "type": "customer-intake-policy",
+      "file": "apps/api/src/jobs/customerIntakePolicy.ts"
+    },
+    {
+      "type": "customer-outbox-dispatch",
+      "file": "apps/api/src/jobs/customerOutboxDispatch.ts"
+    },
+    {
+      "type": "customer-showing-notify",
+      "file": "apps/api/src/jobs/customerShowingNotify.ts"
+    },
+    {
+      "type": "customer_owner_question_notify",
+      "file": "apps/api/src/jobs/customerOwnerQuestionNotify.ts"
+    },
+    {
+      "type": "deal-close-followup",
+      "file": "apps/api/src/jobs/dealCloseFollowup.ts"
+    },
+    {
+      "type": "deal-review-ask",
+      "file": "apps/api/src/jobs/dealReviewAsk.ts"
+    },
+    {
+      "type": "deferred-push",
+      "file": "apps/api/src/jobs/deferredPush.ts"
+    },
+    {
+      "type": "geo-match-sweep",
+      "file": "apps/api/src/jobs/geoMatchSweep.ts"
+    },
+    {
+      "type": "geocode",
+      "file": "apps/api/src/jobs/geocode.ts"
+    },
+    {
+      "type": "recording-search-retry",
+      "file": "apps/api/src/jobs/recordingSearchRetry.ts"
+    },
+    {
+      "type": "site-resync",
+      "file": "apps/api/src/jobs/siteResync.ts"
+    },
+    {
+      "type": "telegram-dm-reply-retry",
+      "file": "apps/api/src/jobs/telegramDirectReplyRetry.ts"
+    },
+    {
+      "type": "telegram-reply-retry",
+      "file": "apps/api/src/jobs/telegramReplyRetry.ts"
+    },
+    {
+      "type": "transcription-retry",
+      "file": "apps/api/src/jobs/transcriptionRetry.ts"
+    }
+  ],
+  "external": [
+    {
+      "name": "Instagram Graph через прокси",
+      "keys": 2,
+      "files": 1
+    },
+    {
+      "name": "Telegram",
+      "keys": 5,
+      "files": 7
+    },
+    {
+      "name": "WhatsApp, Instagram Direct, Messenger (Meta)",
+      "keys": 9,
+      "files": 11
+    },
+    {
+      "name": "Бюджет Google Cloud",
+      "keys": 1,
+      "files": 1
+    },
+    {
+      "name": "Голосовой ИИ на звонках (Gemini Live)",
+      "keys": 9,
+      "files": 5
+    },
+    {
+      "name": "ИИ Google Gemini",
+      "keys": 18,
+      "files": 11
+    },
+    {
+      "name": "Отчёты о резервных копиях",
+      "keys": 1,
+      "files": 1
+    },
+    {
+      "name": "Пуш-уведомления",
+      "keys": 4,
+      "files": 2
+    },
+    {
+      "name": "Реклама Meta (рекламный кабинет)",
+      "keys": 3,
+      "files": 3
+    },
+    {
+      "name": "Сайт royalhome.tj",
+      "keys": 6,
+      "files": 13
+    },
+    {
+      "name": "Телефония FreePBX / Asterisk",
+      "keys": 3,
+      "files": 2
+    },
+    {
+      "name": "Утренний отчёт наружу",
+      "keys": 2,
+      "files": 1
+    },
+    {
+      "name": "Хранилище Cloudflare R2",
+      "keys": 4,
+      "files": 1
+    }
+  ]
+}

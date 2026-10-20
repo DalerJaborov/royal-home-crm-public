@@ -1,0 +1,184 @@
+/* The Clean phone uses the same route registry, actions, profile and data as
+   desktop. Only the responsive surface changes; legacy AGENT has no clean shell.
+   data-mobile-ux also covers a touch tablet below the existing 1180 breakpoint. */
+html[data-shell="clean"][data-mobile-ux] {
+  --clean-mobile-gutter: 16px;
+  --clean-mobile-bottom-space: calc(88px + env(safe-area-inset-bottom, 0px));
+  scroll-padding-block: calc(68px + env(safe-area-inset-top, 0px)) var(--clean-mobile-bottom-space);
+}
+
+html[data-shell="clean"][data-mobile-ux] .clean-shell {
+  min-height: 100dvh;
+  padding: 0;
+  background: var(--c-page);
+}
+
+html[data-shell="clean"][data-mobile-ux] .clean-frame {
+  min-height: 100dvh;
+  max-width: none;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: var(--c-page);
+}
+
+/* One real header, rather than a brand row above the screen's own toolbar.
+   Keep Topbar's shared title/back/action contract instead of copying its logic. */
+html[data-shell="clean"][data-mobile-ux] .clean-header {
+  display: block;
+  position: sticky;
+  top: 0;
+  margin: 0;
+  padding: calc(4px + env(safe-area-inset-top, 0px)) var(--clean-mobile-gutter) 4px;
+  border: 0;
+  border-radius: 0;
+  background: var(--c-page);
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+html[data-shell="clean"][data-mobile-ux] .clean-header-own {
+  display: none;
+}
+
+html[data-shell="clean"][data-mobile-ux] .clean-header :is(.clean-brand, .clean-tabs, .clean-more, .clean-header-tools) {
+  display: none;
+}
+
+html[data-shell="clean"][data-mobile-ux] .clean-existing-topbar {
+  width: 100%;
+}
+
+html[data-shell="clean"][data-mobile-ux] .clean-existing-topbar [data-topbar-shell] {
+  position: static;
+}
+
+html[data-shell="clean"][data-mobile-ux] .clean-existing-topbar [data-topbar] {
+  display: flex;
+  min-height: 56px;
+  height: auto;
+  gap: 10px;
+  padding: 0;
+  background: transparent;
+}
+
+html[data-shell="clean"][data-mobile-ux] .clean-existing-topbar [data-topbar-title] {
+  display: block;
+  flex: 1 1 0%;
+  min-width: 0;
+  font-size: 22px;
+  line-height: 1.2;
+  font-weight: 650;
+  letter-spacing: -.45px;
+}
+
+/* The dashboard intentionally has no shared route title; retain its brand
+   without copying Topbar navigation or adding another header row. */
+html[data-shell="clean"][data-mobile-ux] .clean-existing-topbar [data-topbar-title]:empty::before {
+  content: "Royal Home CRM";
+}
+
+/* The existing Topbar's mobile branch is also used by touch tablets, matching
+   useMobileUx rather than allowing Tailwind's desktop utilities to hide it. */
+html[data-shell="clean"][data-mobile-ux] .clean-existing-topbar [data-topbar] > .md\:hidden {
+  display: flex;
+}
+
+html[data-shell="clean"][data-mobile-ux] .clean-existing-topbar [data-topbar] > .hidden.md\:flex {
+  display: none;
+}
+
+html[data-shell="clean"][data-mobile-ux] .clean-existing-topbar :is(.sh-btn, [data-topbar-back]) {
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  flex-shrink: 0;
+}
+
+html[data-shell="clean"][data-mobile-ux] .clean-existing-topbar [data-topbar] > [data-topbar-title] {
+  display: block;
+}
+
+html[data-shell="clean"][data-mobile-ux] .app-main-col {
+  padding: 10px var(--clean-mobile-gutter) var(--clean-mobile-bottom-space);
+}
+
+/* Fixed navigation reserves exactly one bottom area, including the home
+   indicator. The centre action still opens the existing permission-aware menu. */
+html[data-shell="clean"][data-mobile-ux] nav[data-bottomnav] {
+  display: block;
+  padding: 4px max(4px, env(safe-area-inset-right, 0px)) calc(6px + env(safe-area-inset-bottom, 0px)) max(4px, env(safe-area-inset-left, 0px));
+  border: 0;
+  box-shadow: 0 -4px 20px rgb(var(--rgb-ink) / .035);
+}
+
+html[data-shell="clean"][data-mobile-ux] nav[data-bottomnav] > .grid {
+  height: 64px;
+}
+
+html[data-shell="clean"][data-mobile-ux] nav[data-bottomnav] .sh-tab {
+  min-height: 56px;
+  gap: 4px;
+}
+
+html[data-shell="clean"][data-mobile-ux] nav[data-bottomnav] [data-tab-label] {
+  font-size: 13px;
+  line-height: 1.15;
+  font-weight: 550;
+}
+
+html[data-shell="clean"][data-mobile-ux] nav[data-bottomnav] [data-tab-icon] {
+  height: 28px;
+  width: 48px;
+}
+
+html[data-shell="clean"][data-mobile-ux] nav[data-bottomnav] [data-fab] {
+  background: var(--clean-primary-fill); color: white;
+  width: 50px;
+  height: 50px;
+  box-shadow: none;
+}
+
+/* Native keyboard must not zoom a 13px desktop input. Content stays selectable;
+   only controls suppress the long-press selection/callout. */
+html[data-shell="clean"][data-mobile-ux] :is(input, select, textarea) {
+  font-size: max(16px, 1em);
+  scroll-margin-block: 80px 100px;
+}
+
+html[data-shell="clean"][data-mobile-ux] :is(button, [role="button"], .sh-tab, .clean-tab, [data-clean-control]) {
+  min-height: 44px;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+}
+html[data-shell="clean"][data-mobile-ux] :is(button.icon, button.ico, button.av, button[aria-label]) { min-width: 44px; }
+html[data-shell="clean"][data-mobile-ux] .seg-ai > a { min-height: 44px; display: inline-flex; align-items: center; }
+
+html[data-shell="clean"][data-mobile-ux] :is(.sh-tab, .clean-tab) {
+  -webkit-touch-callout: none;
+}
+
+html[data-shell="clean"][data-mobile-ux] :is(.clean-more-panel, [role="dialog"], .clean-conversation .thread) {
+  overscroll-behavior-y: contain;
+}
+
+html[data-shell="clean"][data-mobile-ux][data-clean-keyboard] nav[data-bottomnav] {
+  display: none;
+}
+
+@media (hover: none) {
+  html[data-shell="clean"][data-mobile-ux] .clean-shell :is(.clean-card, .clean-tab, .sh-tab):hover {
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-shell="clean"][data-mobile-ux] .clean-shell :is(.sh-tab, .sh-fab, .clean-tab) {
+    transition: none;
+  }
+}

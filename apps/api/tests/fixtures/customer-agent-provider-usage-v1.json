@@ -1,0 +1,88 @@
+{
+  "version": 1,
+  "configRevision": "royal-customer-g36-tools-20261015-v1",
+  "profile": {
+    "version": 1,
+    "profileRevision": "royal-customer-g36-tools-20261015-v1",
+    "runtime": {
+      "model": "gemini-3.6-flash",
+      "fallbackModels": [],
+      "transcribeModels": [],
+      "imageModel": "gemini-3-pro-image",
+      "liteModel": "",
+      "explicitCaching": false
+    },
+    "capabilities": [
+      {
+        "revision": "royal-customer-g36-tools-20261015-v1",
+        "model": "gemini-3.6-flash",
+        "api": "generateContent",
+        "adapters": [
+          "tools"
+        ],
+        "modalities": [
+          "text"
+        ],
+        "tools": "function",
+        "structuredReply": false,
+        "thinking": "level",
+        "explicitCache": false,
+        "grounding": false,
+        "maxOutputTokens": 2048
+      }
+    ],
+    "countTokens": {
+      "version": 1,
+      "maxUtf8RequestBytes": 131072,
+      "maxCountedInputTokens": 32768,
+      "timeoutMs": 2000,
+      "maxRequests": 4,
+      "maxOutputTokens": 2048,
+      "thinkingLevel": "minimal"
+    }
+  },
+  "budget": {
+    "enabled": true,
+    "policyKey": "royal-customer-gemini",
+    "maxOperationUsd": "0.129024000",
+    "maxDailyUsd": null,
+    "maxAttemptUsd": "0.032256000",
+    "maxAttempts": 4,
+    "pricingRevision": "google-standard-reference-20261015-through-20261231-v1",
+    "pricingSource": "reference",
+    "rates": [
+      {
+        "model": "gemini-3.6-flash",
+        "api": "generateContent",
+        "adapter": "tools",
+        "inputUsdPerMillion": "0.75",
+        "outputUsdPerMillion": "3.75",
+        "thinkingUsdPerMillion": "3.75",
+        "cacheReadUsdPerMillion": "0.075"
+      }
+    ]
+  },
+  "wire": {
+    "api": "generateContent",
+    "model": "gemini-3.6-flash",
+    "thinkingLevel": "minimal",
+    "maxOutputTokens": 2048,
+    "maxUtf8RequestBytes": 131072,
+    "maxCountedInputTokens": 32768,
+    "countTokensRequired": true,
+    "countTimeoutMs": 2000,
+    "maxCountRequests": 4,
+    "explicitCache": false,
+    "grounding": false,
+    "media": false,
+    "validFrom": "2026-10-15T00:00:00Z",
+    "validUntil": "2027-01-01T00:00:00Z"
+  },
+  "turn": {
+    "maxRounds": 3,
+    "maxToolCalls": 4,
+    "maxInputChars": 64000,
+    "maxOutputChars": 3000,
+    "deadlineMs": 120000
+  }
+}

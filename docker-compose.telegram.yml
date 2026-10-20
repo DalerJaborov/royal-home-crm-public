@@ -1,0 +1,81 @@
+# СВОЙ BOT API СЕРВЕР — ОТДЕЛЬНЫМ ФАЙЛОМ, А НЕ СТРОКАМИ В ОСНОВНОМ.
+#
+# Запускается ДОПОЛНИТЕЛЬНО к прод-файлу и только когда владелец этого хочет:
+#
+#   docker compose -f docker-compose.prod.yml -f docker-compose.telegram.yml up -d
+#
+# Пока этот файл не подключён, прод ведёт себя ровно как раньше: переменные
+# TELEGRAM_API_BASE_URL и TELEGRAM_LOCAL_FILES_DIR в docker-compose.prod.yml
+# пусты, и бот ходит в облако Telegram. Откат — убрать `-f` и очистить эти две
+# переменные; правок кода не требуется.
+#
+# ЗАЧЕМ. Облако Telegram разрешает боту отправить 50 МБ и скачать 20 МБ. Свой
+# сервер, запущенный с `--local`, снимает оба предела: «Download files without a
+# size limit. Upload files up to 2000 MB» (core.telegram.org/bots/api). Это нужно
+# монтажёру: обзор квартиры на 1:30 в исходном качестве не пролезает ни туда, ни
+# обратно.
+#
+# ⚠️ ПЕРЕД ПЕРВЫМ ЗАПУСКОМ бота ОБЯЗАНО разлогинить в облаке (метод logOut,
+# «You must log out the bot before running it locally»), и вернуться в облако
+# раньше чем через 10 минут Telegram не даст. Порядок — ops/telegram-local-botapi.md.
+#
+# ⚠️ ОБРАЗ. Официального докер-образа у Telegram нет: README предлагает собирать
+# из исходников. Поэтому имя образа — переменная, а не литерал: владелец решает,
+# берём ли готовый образ сообщества или собираем свой, и меняет одну строку в
+# .env.production, не трогая репозиторий. Собранный из исходников образ ставится
+# сюда тем же способом.
+name: royalhome-crm
+
+services:
+  telegram-bot-api:
+    image: ${TELEGRAM_BOT_API_IMAGE:?укажите образ в .env.production — см. ops/telegram-local-botapi.md}
+    restart: unless-stopped
+    logging:
+      driver: journald
+      options:
+        tag: "{{.Name}}"
+    security_opt:
+      - no-new-privileges:true
+    # Наружу не выставляется НИ ОДНОГО порта: сервер отвечает только контейнерам
+    # в сети compose, по имени `telegram-bot-api`. Открытый наружу порт означал бы
+    # публичный Bot API с нашим токеном в пути запроса.
+    expose:
+      - "8081"
+    environment:
+      # Обязательны оба — «The only mandatory options are --api-id and --api-hash».
+      # Берутся на my.telegram.org (core.telegram.org/api/obtaining_api_id); это
+      # учётные данные ПРИЛОЖЕНИЯ, а не бота, и к токену бота отношения не имеют.
+      TELEGRAM_API_ID: ${TELEGRAM_API_ID:?}
+      TELEGRAM_API_HASH: ${TELEGRAM_API_HASH:?}
+      # --local включает и большие лимиты, и выдачу абсолютных путей в file_path.
+      # Второе обязано быть учтено в коде (telegram/api.ts::resolveTelegramFile,
+      # messengers/attachments.ts::readLocalOne) — иначе вложения клиентов молча
+      # перестанут читаться: «make sure that the bot can correctly handle
+      # absolute file paths».
+      TELEGRAM_LOCAL: "1"
+    # Потолки как у остальных: один сервис не должен уметь съесть весь VPS.
+    pids_limit: 256
+    # Сервер буферизует загружаемый файл — 2 ГБ через память не идут, но запас
+    # нужен: 512 МБ с головой на несколько параллельных передач.
+    mem_limit: 512m
+    volumes:
+      - telegram_bot_api_data:/var/lib/telegram-bot-api
+
+  # Тот же том подключается api и worker: файл, который бот-сервер положил на
+  # диск, CRM читает напрямую, без скачивания по сети (в этом и смысл `--local`).
+  # Пути внутри всех трёх контейнеров совпадают — иначе абсолютный путь из
+  # file_path не совпал бы ни с чем.
+  api:
+    depends_on:
+      - telegram-bot-api
+    volumes:
+      - telegram_bot_api_data:/var/lib/telegram-bot-api
+
+  worker:
+    depends_on:
+      - telegram-bot-api
+    volumes:
+      - telegram_bot_api_data:/var/lib/telegram-bot-api
+
+volumes:
+  telegram_bot_api_data:

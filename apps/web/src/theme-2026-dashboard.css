@@ -1,0 +1,1481 @@
+/* ════════════════════════════════════════════════════════════════════════════
+ * ГЛАВНЫЙ ЭКРАН (ПУЛЬТ ДИРЕКТОРА): ДУБЛИ, ШАПКА, СТЕКЛО, ФОТО, ШИРИНА.
+ * Разбор кадров владельца 11–12.09.2026: «пусто, белое, дубли, тексты наезжают,
+ * нет фото и иконок».
+ *
+ * ПОЧЕМУ ОТДЕЛЬНЫЙ ФАЙЛ, А НЕ ХВОСТ theme-2026-proto.css. Эталон собирается
+ * скриптом `scripts/sync-proto-css.py` из артефакта и перегенерируется целиком:
+ * дописка в его хвост исчезла бы при следующей сборке прототипа молча, без
+ * ошибки. По той же причине здесь, а не в theme-royal-home-2026.css: тот
+ * подключается ДО эталона, и при равном весе селектора эталон выигрывал бы
+ * каждую ничью. Этот файл подключается ПОСЛЕДНИМ из тематических (index.css).
+ *
+ * Порядок разделов файла = порядок задач:
+ *   1. Разделы компании: один грид вместо двух + лента-навигация в шапке.
+ *   2. Шапка ПК: поиск, кнопки, вторая строка, починка порталов.
+ *   3. Стекло и «аврора».
+ *   4. Фото и значки.
+ *   5. Ширина и наложения.
+ * ════════════════════════════════════════════════════════════════════════════ */
+
+/* ─────────────────── 1. РАЗДЕЛЫ КОМПАНИИ: ОДИН ГРИД ──────────────────────
+ *
+ * `.allsec` внутри карточки пульта удалена (PultSections2026.tsx), остался
+ * единственный грид `.rest-card`. Артефакт прятал его при ≤640 px, потому что
+ * там разделы показывала как раз `.allsec`; прятать больше нечего и нечем
+ * заменить — карточка нужна на всех ширинах.
+ *
+ * ЧЕСТНО О ПОЛЬЗЕ ЭТОГО ПРАВИЛА: сегодня оно не срабатывает ни разу. Пульт
+ * ниже 640 px не рисуется вовсе — там у директора мобильная Главная
+ * (Dashboard.tsx, `useMobileUx`: «(max-width: 819px), (max-width: 1179px) and
+ * (pointer: coarse)»). Оставлено сторожем: порог мобильной вёрстки уже
+ * двигали, и в тот день грид разделов исчез бы молча, без единой ошибки.
+ *
+ * Вес поднят через `.pult`: правило эталона `.rh2 .rest-card{display:none}`
+ * внутри @media имеет тот же вес, что и без `.pult`, и при ничьей выиграл бы
+ * более поздний файл — то есть эталон. */
+@media (max-width: 640px) {
+  .rh2 .pult .rest-card {
+    display: block;
+  }
+}
+
+/* Полоса выполнения переехала из `.allsec-tile` в `.rest .ph` вместе со
+   слиянием гридов: классы взяты у артефакта (`.at-bar`, `.at-barlbl`), новых
+   имён не заведено. `margin-top:auto` прижимает полосу к низу плитки — иначе в
+   ряду с разной длиной пояснения полосы стояли бы на разной высоте и ряд
+   читался бы как сломанный. */
+.rh2 .pult .rest .ph .at-bar {
+  margin-top: auto;
+}
+
+.rh2 .pult .rest .ph .at-barlbl {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* Тон плитки виден не только точкой: у красной — тонкая грань слева. Точка
+   9×9 px единственным различителем не годится (WCAG 1.4.1 «цвет не может быть
+   единственным способом передать смысл»), а подпись `.crit-note` и так красная
+   только у критичных. */
+.rh2 .pult .rest .ph[data-tone="crit"] {
+  box-shadow: inset 3px 0 0 var(--crit), var(--shadow);
+}
+
+.rh2 .pult .rest .ph[data-tone="warn"] {
+  box-shadow: inset 3px 0 0 var(--warn-dot), var(--shadow);
+}
+
+/* ──────────────────────── 2. ШАПКА ПК ─────────────────────────────────────
+ *
+ * ЛЕНТА РАЗДЕЛОВ ПОД ШАПКОЙ (`Topbar.tsx` → `PultSecStrip`). Вторая строка
+ * артефакта `.topbar nav`: чипы-пилюли с якорями `#sec-0N`, горизонтальный
+ * скролл без полосы, маска затухания у правого края. Размеры и радиусы взяты
+ * у артефакта (34–36 px высота чипа, `--r-pill`, 13 px текст), добавлены
+ * только значок раздела, число и точка состояния — ради них лента и заводилась. */
+.rh2 .secnav {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  padding: 7px 24px;
+  /* Прокручиваемая лента без видимой полосы прокрутки: край должен говорить,
+     что дальше есть ещё. Маска дешевле тени и не мешает попаданию мышью. */
+  -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent);
+  mask-image: linear-gradient(90deg, #000 calc(100% - 28px), transparent);
+  scroll-snap-type: x proximity;
+}
+
+.rh2 .secnav::-webkit-scrollbar {
+  display: none;
+}
+
+.rh2 .secnav-a {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: var(--r-pill);
+  font-size: 13px;
+  color: var(--body);
+  white-space: nowrap;
+  scroll-snap-align: start;
+  transition: background 0.16s var(--mo-ease), color 0.16s;
+}
+
+.rh2 .secnav-a svg {
+  width: 16px;
+  height: 16px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex: none;
+}
+
+.rh2 .secnav-a .nm {
+  font-weight: 500;
+}
+
+/* Число-суть раздела. Табличные цифры: без них чипы при каждом обновлении
+   снимка (раз в 15 с) дёргались бы по ширине — «1» уже «8». */
+.rh2 .secnav-a .n {
+  font-family: "Manrope", "Manrope Fallback", sans-serif;
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.rh2 .secnav-a .dot {
+  width: 7px;
+  height: 7px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .rh2 .secnav-a:hover {
+    background: var(--hover);
+    color: var(--ink);
+  }
+}
+
+/* Красный и жёлтый разделы читаются и без цвета точки: имя становится плотнее
+   и темнее. Одна только точка 7 px нарушала бы WCAG 1.4.1 («цвет — не
+   единственный способ передать смысл»). */
+.rh2 .secnav-a[data-tone="crit"] .nm,
+.rh2 .secnav-a[data-tone="warn"] .nm {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.rh2 .secnav-a[data-tone="crit"] {
+  background: var(--crit-bg);
+}
+
+.rh2 .secnav-a[data-tone="crit"] .nm,
+.rh2 .secnav-a[data-tone="crit"] .n {
+  color: var(--crit);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rh2 .secnav-a {
+    transition: none;
+  }
+}
+
+/* Полоса ленты — то же стекло, что у самой шапки, и своя нижняя грань. */
+html[data-theme^="royal-home-2026-"] [data-topbar-sections] {
+  background: var(--rh-glass-bg);
+  -webkit-backdrop-filter: blur(var(--rh-glass-blur)) saturate(160%);
+  backdrop-filter: blur(var(--rh-glass-blur)) saturate(160%);
+  border-bottom: 1px solid var(--rh-glass-edge);
+}
+
+/* ── ПОЧИНКА: МЕНЮ ПРОФИЛЯ (И ВСЕ ОСТАЛЬНЫЕ ОКНА) НА ПУЛЬТЕ ──
+ *
+ * Клик по аватару на ПК «ничего не делал»: меню открывалось (aria-expanded
+ * становился true, `[role=menu]` появлялся в DOM), но было невидимым.
+ *
+ * Причина — не в Topbar.tsx и не в ProfileMenu.tsx, а в паре правил эталона:
+ *   .rh2.screens{display:none}
+ *   html[data-screen] .rh2.screens{display:block}
+ * Контейнер экранов артефакта показывается только при атрибуте `data-screen`,
+ * а пульт этот атрибут СНИМАЕТ (hooks/useScreenAttribute.ts — иначе стили
+ * артефакта спрятали бы сам пульт). `Rh2Portal` оборачивает содержимое портала
+ * ровно в `<div class="rh2 screens">` — и на пульте, и только на нём, каждое
+ * окно приложения оказывается под `display:none`.
+ *
+ * Это КЛАСС ошибки, а не одна кнопка: через `Rh2Portal` ходят ProfileMenu,
+ * ConfirmDialog, FabMenu, Toasts, Toaster, PhotoLightbox, IncomingLeadWindow,
+ * AssistantPanel, ClientChatPanel и Rh2Sheet. На главном экране директора не
+ * работало ни одно из них — ни подтверждения, ни всплывающие сообщения, ни
+ * окно входящего лида. Ни сборка, ни типы, ни тесты об этом не сообщают:
+ * разметка верная, классы верные, элемент просто не нарисован.
+ *
+ * Правило вместо правки Rh2Scope.tsx: портал — всегда ПРЯМОЙ ребёнок <body>
+ * (createPortal(…, document.body)), а настоящий контейнер экранов лежит внутри
+ * рамки AppLayout и прямым ребёнком <body> не бывает. Один селектор различает
+ * их без единого нового атрибута в разметке. Вес `body>.rh2.screens` (0,2,1)
+ * больше, чем у `.rh2.screens` (0,2,0), поэтому `display:none` эталона
+ * перекрыт; правило `html[data-screen] .rh2.screens{display:block}` ставит то
+ * же значение и конфликта не создаёт.
+ *
+ * Колонка экрана порталу тоже не нужна — её поля отодвигали бы окна на 24 px. */
+body > .rh2.screens {
+  display: block;
+  padding: 0;
+}
+
+/* ─────────────────── 3. СТЕКЛО И «АВРОРА» ────────────────────────────────
+ *
+ * Владелец 11.09: «плитки просто белые, эффекта стекла как в айфоне нет».
+ *
+ * ДИАГНОЗ. Стекло — это не свойство карточки, а свойство ПАРЫ «карточка и то,
+ * что под ней». Эталон честно ставил `backdrop-filter` на рамку (рейка, шапка,
+ * нижняя панель), но у карточек данных его специально снимал:
+ *   .rh2 .card, .rh2 .allsec-tile, .rh2 .ph, … {backdrop-filter:none}
+ * (theme-2026-proto.css, блок «F31: премиальность только на рамке»). А под
+ * карточками лежал `.wash` — три радиальных пятна при `opacity:.26`, то есть
+ * почти ровная заливка #eef1f6. Даже включи мы размытие, размывать было бы
+ * нечего: размытие однородного фона равно этому же фону. Отсюда и «просто
+ * белые».
+ *
+ * ЛЕЧЕНИЕ — обе половины сразу:
+ *   (а) под карточками появляется рисунок: четыре пастельных пятна `.aurora`
+ *       из мобильного артефакта владельца (artifact-de2845f1-phone-after.html);
+ *   (б) карточки верхнего уровня становятся полупрозрачными и размывают то,
+ *       что под ними, со светлой внутренней гранью сверху.
+ *
+ * Контраст текста проверен счётом, а не на глаз:
+ * `node apps/web/scripts/audit-dashboard-glass-contrast.mjs` — он берёт
+ * значения из ЭТОГО файла и из файлов токенов, складывает стекло над самым
+ * насыщенным пятном авроры и требует 4.5:1 для обеих тем. */
+
+/* ── (а) АВРОРА ──
+ * Рецепт артефакта дословно: четыре радиальных пятна на пастельных токенах,
+ * `color-mix` вместо готовых rgba — одна запись работает и в светлой, и в
+ * ночной теме, потому что сами токены в ночной переопределены.
+ *
+ * Своя переменная прозрачности, а не `--wash-o` эталона: у `.wash` она .26 и
+ * рассчитана на три БЛЕДНЫХ пятна; четыре пастельных при той же .26 дают ровно
+ * ту же невидимую муть, ради которой всё и затевалось.
+ *
+ * .55 — не «на глаз покрасивее», а замеренный потолок: при .62 худшая пара
+ * (`--faint` на карточке над лавандовым пятном) даёт 4.48:1 и скрипт проверки
+ * валит прогон. .55 оставляет 4.50:1 с запасом в сотые. */
+/* САМЫЙ ТИХИЙ ТЕКСТ ТЕМЫ — ТЕМНЕЕ НА ПУЛЬТЕ.
+ *
+ * `--faint` (#767f8b светлая, #6f7884 ночная) не дотягивал до 4.5:1 ещё на
+ * сплошной белой карточке: 3.98:1 в светлой теме. Это не стекло сломало — оно
+ * лишь отняло последние сотые (3.98 → 3.84) и сделало недобор заметным при
+ * проверке счётом. Чинится здесь, на пульте, а не в токенах темы: токены
+ * приезжают из артефакта скриптом sync-proto-css.py и правке руками не
+ * подлежат, а менять их для всех 43 экранов одной задачей про дашборд —
+ * правка не по адресу и не проверенная кадрами тех экранов.
+ *
+ * Значения подобраны ровно под худший случай из
+ * audit-dashboard-glass-contrast.mjs (центр пятна авроры под плиткой): 4.56:1
+ * в светлой, 5.11:1 в ночной. Оттенок тот же серо-синий, только плотнее. */
+.rh2 .pult {
+  --faint: #6b7380;
+}
+
+html[data-theme="royal-home-2026-night"] .rh2 .pult {
+  --faint: #8c949f;
+}
+
+/* ЦВЕТ ПЯТНА — ПАСТЕЛЬ, УГЛУБЛЁННАЯ СВОИМ ЖЕ ЧЕРНИЛЬНЫМ ТОНОМ.
+ *
+ * Рецепт телефонного артефакта взят как есть — четыре пятна, те же места, те же
+ * пастели, — но на пастели в чистом виде он здесь не работает, и это видно
+ * счётом, а не на вкус: `--sky` #e2eaf5 отличается от фона страницы `--page`
+ * #eef1f6 на (12, 7, 1) из 255. На экране телефона 390 px такие пятна плотные
+ * и заметные; на колонке 1880 px они растянуты и сливаются с фоном — сколько
+ * прозрачности ни добавляй. Проверено прямо: подъём с .42 до .66 не изменил ни
+ * одного числа контраста, потому что смешивать почти нечего.
+ *
+ * Поэтому каждое пятно углублено своим же парным чернильным токеном
+ * (`--sky-ink` и так далее) на долю `--dash-aurora-ink`. Пара уже существует в
+ * теме и подобрана дизайнером — новый цвет не изобретается, берётся тёмный
+ * конец той же шкалы. Доля и прозрачность — не «на глаз покрасивее», а
+ * потолок, найденный скриптом проверки контраста: при 8 % / .55 худшая пара
+ * даёт 4.48:1 и прогон валится, при 6 % / .52 остаётся запас над 4.5:1. */
+.rh2 .pult .aurora {
+  --dash-aurora-ink: 6%;
+  opacity: var(--dash-aurora-o, 0.52);
+  background:
+    radial-gradient(60% 40% at 15% 8%, color-mix(in srgb, var(--sky-ink) var(--dash-aurora-ink), var(--sky)) 0%, transparent 70%),
+    radial-gradient(50% 35% at 90% 25%, color-mix(in srgb, var(--lav-ink) var(--dash-aurora-ink), var(--lav)) 0%, transparent 70%),
+    radial-gradient(55% 40% at 30% 70%, color-mix(in srgb, var(--lime-ink) var(--dash-aurora-ink), var(--lime)) 0%, transparent 72%),
+    radial-gradient(45% 30% at 85% 90%, color-mix(in srgb, var(--pink-ink) var(--dash-aurora-ink), var(--pink)) 0%, transparent 70%);
+}
+
+/* В ночной теме углублять нечем и незачем: там пастели сами тёмные и
+   насыщенные, а чернильные токены наоборот светлые (инверсия пары). Пятна
+   берутся чистыми, прозрачность ниже — иначе под карточками цветные лужи. */
+html[data-theme="royal-home-2026-night"] .rh2 .pult .aurora {
+  --dash-aurora-ink: 0%;
+  --dash-aurora-o: 0.6;
+}
+
+/* ── (б) СТЕКЛО ──
+ * ТОЛЬКО НА КАРТОЧКАХ ВЕРХНЕГО УРОВНЯ. `backdrop-filter` — самое дорогое, что
+ * есть в списке свойств: каждый слой заставляет композитор снимать и размывать
+ * задник под элементом. На пульте 45 карточек и плиток; повесить размытие на
+ * все — значит подарить слабому телефону 45 таких снимков за кадр.
+ *
+ * Верхний уровень — это прямые дети колонки `main.wrap` и прямые дети раздела
+ * `.secwrap`: карточка пульта, лента «Сейчас в компании», грид разделов и
+ * карточки восьми разделов. Всё, что ВНУТРИ них (строки `.row`/`.arow`, чипы
+ * `.sc`, плитки `.ph`, столбцы `.pc`), получает только полупрозрачность —
+ * и этого достаточно: размытие родителя уже сделало для них задник, второй
+ * `backdrop-filter` поверх размытого ничего не добавит, кроме расхода. */
+.rh2 .pult > main.wrap > .hero,
+.rh2 .pult > main.wrap > .lfwrap > .lf,
+.rh2 .pult > main.wrap > .rest-card,
+.rh2 .pult .sections > .secwrap > .card {
+  background: color-mix(in srgb, var(--card) 72%, transparent);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  backdrop-filter: blur(18px) saturate(160%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), var(--shadow);
+}
+
+html[data-theme="royal-home-2026-night"] .rh2 .pult > main.wrap > .hero,
+html[data-theme="royal-home-2026-night"] .rh2 .pult > main.wrap > .lfwrap > .lf,
+html[data-theme="royal-home-2026-night"] .rh2 .pult > main.wrap > .rest-card,
+html[data-theme="royal-home-2026-night"] .rh2 .pult .sections > .secwrap > .card {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), var(--shadow);
+}
+
+/* Плитки разделов внутри уже размытой карточки: полупрозрачность и светлая
+   грань, без собственного размытия (см. разбор выше). Тон плотнее, чем у
+   карточки-хозяина, иначе плитки на ней не видно. */
+.rh2 .pult .rest .ph {
+  background: color-mix(in srgb, var(--card) 62%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5), var(--shadow-sm);
+}
+
+html[data-theme="royal-home-2026-night"] .rh2 .pult .rest .ph {
+  background: color-mix(in srgb, var(--soft) 70%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), var(--shadow-sm);
+}
+
+/* Тон плитки поверх стекла — грань слева (правило из §1 выше повторяется здесь,
+   потому что `box-shadow` у стекла перезаписан целиком). */
+.rh2 .pult .rest .ph[data-tone="crit"] {
+  box-shadow: inset 3px 0 0 var(--crit), inset 0 1px 0 rgba(255, 255, 255, 0.5), var(--shadow-sm);
+}
+
+.rh2 .pult .rest .ph[data-tone="warn"] {
+  box-shadow: inset 3px 0 0 var(--warn-dot), inset 0 1px 0 rgba(255, 255, 255, 0.5), var(--shadow-sm);
+}
+
+/* СЛАБЫЕ УСТРОЙСТВА. Ниже 820 px (телефон и планшет в портрете) размытие
+ * снимается целиком, а прозрачность поджимается до 92 %: там колонка одна,
+ * карточки идут во всю ширину и стекло почти не читается — зато композитор
+ * перестаёт снимать задник на каждый кадр прокрутки. Это не «версия попроще»,
+ * а честный размен: на узком экране видимой разницы нет, а прокрутка ровная. */
+@media (max-width: 820px) {
+  .rh2 .pult > main.wrap > .hero,
+  .rh2 .pult > main.wrap > .lfwrap > .lf,
+  .rh2 .pult > main.wrap > .rest-card,
+  .rh2 .pult .sections > .secwrap > .card {
+    background: color-mix(in srgb, var(--card) 92%, transparent);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  .rh2 .pult .rest .ph {
+    background: color-mix(in srgb, var(--card) 88%, transparent);
+  }
+}
+
+/* Отключённая прозрачность в системе (Windows «Эффекты прозрачности», macOS
+ * «Reduce transparency») — не украшательство, а требование доступности: людям
+ * с нарушениями зрения полупрозрачный фон мешает читать. */
+@media (prefers-reduced-transparency: reduce) {
+  .rh2 .pult > main.wrap > .hero,
+  .rh2 .pult > main.wrap > .lfwrap > .lf,
+  .rh2 .pult > main.wrap > .rest-card,
+  .rh2 .pult .sections > .secwrap > .card,
+  .rh2 .pult .rest .ph {
+    background: var(--card);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  .rh2 .pult .aurora {
+    opacity: 0.15;
+  }
+}
+
+/* ───────────────────────── 4. ФОТО И ЗНАЧКИ ──────────────────────────────
+ *
+ * Владелец 11.09: «нет фото и иконок». На пульте не было НИ ОДНОЙ картинки
+ * (замер скриптом dash-shots.mjs: `img` на экране — 0), при том что данные для
+ * них уже приходили: `Agent.avatarUrl` лежит в снимке пульта, а фотографии
+ * объекта — в ответе `GET /properties?status=PENDING_REVIEW`. Рисовались
+ * инициалы и двухбуквенные заглушки каналов.
+ *
+ * Ни один сервер не менялся: добавлено только использование того, что уже
+ * было на проводе.
+ *
+ * Плейсхолдер — ТОНОМ, а не серым прямоугольником: если фото нет, остаётся
+ * пастельный кружок с инициалами (сотрудник) или домик на пастельной подложке
+ * (объект). Серая плашка читается как «сломалось», пастель — как «фото пока
+ * не загрузили». */
+
+/* Фото в круглом аватаре: кружок уже `overflow:hidden` у «Команды сейчас», но
+   не у строк раздела «Команда» — там `position:relative` без обрезки. */
+.rh2 .pult .ht .av img,
+.rh2 .pult .sec02 .av img,
+.rh2 .pult .lf .lf-st.nowc .nowc-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.rh2 .pult .sec02 .av {
+  overflow: hidden;
+}
+
+/* Точка присутствия рисуется ПОВЕРХ фото — иначе её съедает `overflow:hidden`
+   вместе с выступающим краем. */
+.rh2 .pult .sec02 .av > i {
+  z-index: 1;
+}
+
+/* Фото объекта в строке «Ждут вашей проверки». Размер и радиус — как у `.ph`
+   строки списка объектов (`PropertyRow.tsx`), чтобы строка на пульте и строка
+   в разделе читались одинаково. */
+.rh2 .pult .ph-thumb {
+  width: 52px;
+  height: 40px;
+  flex: none;
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  background: var(--sky);
+  color: var(--sky-ink);
+  display: grid;
+  place-items: center;
+}
+
+.rh2 .pult .ph-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.rh2 .pult .ph-thumb svg {
+  width: 20px;
+  height: 20px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Фирменный значок канала в таблице рекламы: кружок `.src .nm i` эталона
+   рассчитан на две буквы, значку нужна только центровка. */
+.rh2 .pult .src .nm i svg {
+  display: block;
+}
+
+/* ──────────────────── 5. ШИРИНА И НАЛОЖЕНИЯ ─────────────────────────────
+ *
+ * ФАНТОМНАЯ РЕЙКА: 76 px ПУСТОТЫ СЛЕВА НА КАЖДОМ ЭКРАНЕ ТЕМЫ.
+ *
+ * Владелец 11.09 показал кадры: «справа остаётся пустое место». Место
+ * оставалось не справа — содержимое было сдвинуто влево-вправо целиком.
+ * Замер: при окне 1600 px и рейке 250 px под содержимое остаётся 1302 px, а
+ * колонка `main.wrap` занимала 1226 px и начиналась не на 274-м пикселе, а на
+ * 350-м. Ровно 76 px, и ровно на каждой ширине.
+ *
+ * 76 px — это `--rail-w` артефакта. В артефакте пульт и экраны живут на одной
+ * странице с СОБСТВЕННОЙ узкой рейкой `.rail`, и он честно освобождает под неё
+ * место:  @media (min-width:1024px){ .rh2{padding-left:var(--rail-w)} }
+ * (theme-2026-proto.css). У CRM своя рейка — компонент `Sidebar.tsx`, обычный
+ * элемент потока шириной 76 или 250 px; артефактную `.rail` приложение не
+ * рисует нигде. Значит отступ освобождает место под рейку, которой нет, и
+ * съедает 76 px на КАЖДОМ экране темы, а не только на пульте.
+ *
+ * Обнулено на той же точке перелома и тем же весом селектора: файл подключён
+ * позже эталона, при ничьей по весу выигрывает он. Правило намеренно не
+ * ограничено пультом — дыра общая для всех 43 экранов.
+ *
+ * `.skip` (ссылка «к содержимому» для клавиатуры) считала свою позицию от той
+ * же переменной и уезжала вместе с отступом — возвращается к обычному краю. */
+@media (min-width: 1024px) {
+  .rh2 {
+    padding-left: 0;
+  }
+
+  .rh2 .skip {
+    left: 16px;
+  }
+}
+
+/* Карточка пульта на широком экране: колонка стала на 76 px шире, и правая
+   колонка текста `.hero-txt` растянулась бы до 950+ px. Строка длиннее ~90
+   знаков читается хуже короткой — предел ставится тексту, а не карточке. */
+@media (min-width: 1440px) {
+  .rh2 .pult .hero .hero-txt > p,
+  .rh2 .pult .hero .ai-list li .tx {
+    max-width: 78ch;
+  }
+}
+
+/* ── ОБРЕЗАННЫЕ ПОДПИСИ, НАЙДЕННЫЕ ЗАМЕРОМ (dash-shots.mjs) ──
+ *
+ * Скрипт печатает каждый блок, у которого содержимое шире его самого. После
+ * сноса фантомной рейки таких осталось два вида, и оба — настоящие: подписи
+ * реально не помещались и обрывались без многоточия, то есть человек видел
+ * «Ждут провер» и не понимал, обрезано это или так и есть.
+ *
+ * 1. Столбцы «Подготовки объектов» (`.pc`): подпись в одну строку при
+ *    ширине столбца 120 px. Разрешаем перенос — колонок пять, и высота ряда
+ *    от второй строки не меняется, потому что рядом стоит крупная цифра. */
+.rh2 .pult .sec04 .pc small {
+  display: block;
+  white-space: normal;
+  line-height: 1.25;
+}
+
+/* 2. Имя канала в таблице рекламы (`.src .nm`): «Рекомендация» рядом со
+ *    значком не влезало в первую колонку. Многоточие вместо обрыва — полное
+ *    имя остаётся в подсказке (title у значка) и в разделе «Источники». */
+.rh2 .pult .sec07 .src .nm {
+  min-width: 0;
+}
+
+.rh2 .pult .sec07 .src .nm > span,
+.rh2 .pult .sec07 .src .nm {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── «ГОРИТ СЕЙЧАС»: БЕЛАЯ ПЛИТА И ПУСТАЯ ПОЛОВИНА ──
+ *
+ * На кадрах владельца это самое заметное пустое место: поперёк карточки
+ * пульта лежит белый прямоугольник во всю ширину, а дело в нём — одно, слева.
+ *
+ * Две разные причины, обе из эталона:
+ * 1. `.decide` красит себя `background:var(--card)` — отдельной карточкой. В
+ *    артефакте она и стояла отдельной карточкой НАД `.hero`; при переносе
+ *    блок уехал ВНУТРЬ карточки пульта (`fire` в PultHero2026), и его фон стал
+ *    белой плитой поверх стекла. Более поздний блок эталона уже снял ей тень,
+ *    радиус и поля — фон снять забыли.
+ * 2. `.dc-list` при ширине от 1180 px — сетка ровно в два столбца. Пока дел
+ *    два и больше, это правильно; когда дело одно, вторая колонка остаётся
+ *    пустой ровно на половину карточки. `auto-fit` вместо `1fr 1fr` даёт два
+ *    столбца, только когда есть чем их занять, и одну колонку во всю ширину,
+ *    когда дело одно. Порог 420 px — ширина, ниже которой строка «раздел ·
+ *    факт · кнопка» начинает переносить кнопку. */
+.rh2 .pult .decide {
+  background: transparent;
+}
+
+@media (min-width: 1180px) {
+  .rh2 .pult .dc-list {
+    grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  }
+}
+
+/* ─────────────────── 6. ОЧЕРЕДЬ ПУБЛИКАЦИЙ: КНОПКИ У СТРОКИ ───────────────
+ *
+ * «Маркетинг → Расписание» (24.09.2026, владелец: «хочу нажать из очереди
+ * кнопку, чтобы этот пост пошёл сейчас»). Кнопки живут внутри `.t` строки,
+ * а не отдельной колонкой: у эталона ряд списка — сетка, и третья колонка на
+ * телефоне сжимала бы название объекта до пары букв. Так на любой ширине
+ * кнопки просто переносятся под текст. */
+.rh2 .pubq .pubq-acts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+}
+.rh2 .pubq .pubq-when {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1 1 220px;
+  min-width: 0;
+}
+.rh2 .pubq .pubq-when input {
+  min-height: 42px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--card);
+  color: var(--ink);
+  font: inherit;
+}
+.rh2 .pubq .pubq-note {
+  display: block;
+  margin-top: 6px;
+  color: var(--body);
+}
+.rh2 .pubq .pubq-note.crit {
+  color: var(--crit);
+}
+
+/* ─────────────────── 7. КАНАЛЫ РЯДОМ (/sources) ──────────────────────────
+ *
+ * 24.09.2026, под картой «Когда аудитория активна»: строка на канал, справа
+ * полоска по часам суток. На узком экране полоска уходит под текст на всю
+ * ширину — 24 столбика в 120 px не различить. */
+.rh2 .chact .row {
+  display: grid;
+  grid-template-columns: 1fr minmax(200px, 280px);
+  align-items: center;
+  gap: 16px;
+  padding: 14px 4px;
+  border-top: 1px solid var(--line-soft);
+}
+.rh2 .chact .row:first-child {
+  border-top: 0;
+}
+.rh2 .chact .row .t b {
+  display: block;
+  font-weight: 600;
+}
+.rh2 .chact .row .t > span {
+  display: block;
+  color: var(--body);
+}
+.rh2 .chact .chact-why {
+  margin-top: 6px;
+  color: var(--body);
+  text-wrap: pretty;
+}
+.rh2 .chact .chact-bars {
+  width: 100%;
+  height: auto;
+}
+.rh2 .chact .chact-bars rect.hot {
+  fill: var(--pill);
+}
+.rh2 .chact .chact-bars rect.cold {
+  fill: var(--pill);
+  opacity: 0.35;
+}
+.rh2 .chact .chact-bars rect.none {
+  fill: var(--track);
+}
+.rh2 .chact .chact-bars .lbl {
+  fill: var(--faint);
+  font-size: 11px;
+}
+@media (max-width: 640px) {
+  .rh2 .chact .row {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+}
+
+/* ─────────────────── 8. «ОБЗОР» МАРКЕТИНГА ───────────────────────────────
+ *
+ * 24.09.2026, «всё на одном экране». Площадки — ряд с меткой справа;
+ * «какой час выхода работает» — столбики по часам, самый сильный синим,
+ * на узком экране прокручиваются вбок, а не сжимаются в нитки. */
+.rh2 .ovw-list .row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 12px;
+}
+.rh2 .ovw-list .row .t > span {
+  display: block;
+  color: var(--body);
+}
+.rh2 .ovw-hours {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+  overflow-x: auto;
+  padding: 8px 2px 4px;
+}
+.rh2 .ovw-hour {
+  flex: 0 0 56px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.rh2 .ovw-hour .bar {
+  display: flex;
+  align-items: flex-end;
+  width: 28px;
+  height: 120px;
+  border-radius: 8px;
+  background: var(--track);
+  overflow: hidden;
+}
+.rh2 .ovw-hour .fill {
+  display: block;
+  width: 100%;
+  border-radius: 8px;
+  background: var(--pill);
+  opacity: 0.4;
+}
+.rh2 .ovw-hour .fill.hot {
+  opacity: 1;
+}
+.rh2 .ovw-hour .v {
+  font-weight: 600;
+  color: var(--ink);
+}
+.rh2 .ovw-hour .h {
+  color: var(--body);
+}
+.rh2 .ovw-hour .n {
+  color: var(--faint);
+  font-size: 13px;
+}
+
+/* ─────────────────── 9. «СТАТИСТИКА» КАРТОЧКИ ОБЪЕКТА ────────────────────
+ *
+ * 24.09.2026, «минималистично, подробно, ярко». Светофор — большая лампа и
+ * одна фраза крупно; путь покупателя — пять ступенек в ряд (на телефоне
+ * столбиком), ступенька, где теряется больше всего людей, подсвечена;
+ * соседи — две полоски цены за м²; график — столбики по дням, «загорелся»
+ * тёплым цветом. Цвета только из токенов темы. */
+.rh2 .pst {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.rh2 .pst-light {
+  display: flex;
+  gap: 18px;
+  align-items: flex-start;
+}
+.rh2 .pst-light .lamp {
+  flex: 0 0 56px;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--faint);
+  box-shadow: 0 0 0 8px var(--track);
+}
+.rh2 .pst-light.green .lamp {
+  background: var(--ok);
+  box-shadow: 0 0 0 8px var(--ok-bg);
+}
+.rh2 .pst-light.yellow .lamp {
+  background: var(--warn);
+  box-shadow: 0 0 0 8px var(--warn-bg);
+}
+.rh2 .pst-light.red .lamp {
+  background: var(--crit);
+  box-shadow: 0 0 0 8px var(--crit-bg);
+}
+.rh2 .pst-light .body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.rh2 .pst-light h2 {
+  font-size: 22px;
+  line-height: 1.25;
+  color: var(--ink);
+}
+.rh2 .pst-light .tips {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--body);
+  font-size: 16px;
+}
+.rh2 .pst-light .chip.hot {
+  align-self: flex-start;
+  background: var(--warn-bg);
+  color: var(--ink);
+}
+.rh2 .pst-funnel {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+}
+.rh2 .pst-funnel li {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px;
+  border-radius: var(--r-sm);
+  background: var(--soft);
+}
+.rh2 .pst-funnel li.leak {
+  background: var(--crit-bg);
+}
+.rh2 .pst-funnel .n {
+  font-size: 28px;
+  line-height: 1.1;
+  color: var(--ink);
+}
+.rh2 .pst-funnel .lbl {
+  color: var(--ink);
+  font-weight: 600;
+}
+.rh2 .pst-funnel .bar,
+.rh2 .pst-nb .bar {
+  display: block;
+  height: 8px;
+  border-radius: 8px;
+  background: var(--track);
+  overflow: hidden;
+}
+.rh2 .pst-funnel .bar > span,
+.rh2 .pst-nb .bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 8px;
+  background: var(--pill);
+}
+.rh2 .pst-funnel .hint {
+  color: var(--body);
+  font-size: 14px;
+}
+.rh2 .pst-funnel li.leak .hint {
+  color: var(--ink);
+  font-weight: 600;
+}
+.rh2 .pst-nb {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.rh2 .pst-nb .big {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.rh2 .pst-nb .big.crit {
+  color: var(--crit);
+}
+.rh2 .pst-nb .big.warn {
+  color: var(--warn);
+}
+.rh2 .pst-nb .big.ok {
+  color: var(--ok);
+}
+.rh2 .pst-nb .pair {
+  display: grid;
+  grid-template-columns: 170px 1fr auto;
+  gap: 12px;
+  align-items: center;
+}
+.rh2 .pst-nb .pair .k {
+  color: var(--body);
+}
+.rh2 .pst-nb .bar:not(.mine) > span {
+  background: var(--faint);
+}
+.rh2 .pst-nb .days {
+  color: var(--body);
+}
+/* Без прокрутки вбок: «сегодня» — справа и обязано быть видно сразу. Разметка, а не SVG:
+ * рисунок с viewBox растягивал текст вместе с шириной карточки. Высота и шрифт — постоянные. */
+.rh2 .pst-chart .bars,
+.rh2 .pst-chart .axis {
+  display: grid;
+  gap: 4px;
+}
+.rh2 .pst-chart .bars {
+  height: 120px;
+  align-items: end;
+}
+.rh2 .pst-chart .col {
+  position: relative;
+  height: 100%;
+  max-width: 28px;
+  justify-self: center;
+  width: 100%;
+  border-radius: 6px;
+  background: var(--track);
+  overflow: hidden;
+}
+.rh2 .pst-chart .fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border-radius: 6px;
+  background: var(--pill);
+}
+.rh2 .pst-chart .fill.hot {
+  background: var(--warn);
+}
+.rh2 .pst-chart .axis {
+  margin-top: 8px;
+}
+.rh2 .pst-chart .lbl {
+  font-size: 13px;
+  color: var(--body);
+  white-space: nowrap;
+  justify-self: center;
+}
+.rh2 .pst-chart .lbl.end {
+  justify-self: end;
+}
+.rh2 .pst-clicks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  margin-top: 12px;
+  color: var(--body);
+}
+.rh2 .pst-clicks b {
+  color: var(--ink);
+  font-size: 18px;
+}
+@media (max-width: 820px) {
+  .rh2 .pst-funnel {
+    grid-template-columns: 1fr;
+  }
+  .rh2 .pst-funnel li {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    column-gap: 14px;
+    align-items: center;
+  }
+  .rh2 .pst-funnel .n {
+    grid-row: span 3;
+    min-width: 72px;
+  }
+  .rh2 .pst-nb .pair {
+    grid-template-columns: 1fr auto;
+  }
+  .rh2 .pst-nb .pair .bar {
+    grid-column: 1 / -1;
+    order: 3;
+  }
+}
+@media (max-width: 640px) {
+  .rh2 .pst-light .lamp {
+    flex-basis: 40px;
+    width: 40px;
+    height: 40px;
+  }
+  .rh2 .pst-light h2 {
+    font-size: 19px;
+  }
+}
+
+/* 9б. «ГОЛОС РЫНКА» КАРТОЧКИ ОБЪЕКТА (03.10.2026) — компонент PropertyVoiceCard.
+ * Живёт внутри `.pst` (отступы между карточками те же, что у «Статистики»).
+ * Диагноз: серьёзность различается не только цветом — у каждой есть слово и значок.
+ * Воронка — горизонтальные полосы; график по неделям — столбики на SVG без
+ * подписей внутри рисунка (подписи — обычным текстом, не мельче 13px).
+ * Цвета только из токенов темы; на 820px всё складывается в одну колонку. */
+.rh2 .pvc-diag {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.rh2 .pvc-d {
+  padding: 14px 16px;
+  border-radius: var(--r-sm);
+  background: var(--soft);
+  border-left: 4px solid var(--faint);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.rh2 .pvc-d.bad {
+  background: var(--crit-bg);
+  border-left-color: var(--crit);
+}
+.rh2 .pvc-d.warn {
+  background: var(--warn-bg);
+  border-left-color: var(--warn);
+}
+.rh2 .pvc-d.info {
+  border-left-color: var(--ok);
+}
+.rh2 .pvc-d-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+.rh2 .pvc-d-head h3 {
+  font-size: 17px;
+  line-height: 1.3;
+  color: var(--ink);
+  margin: 0;
+}
+.rh2 .pvc-sev {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: var(--r-pill);
+  font-size: 13px;
+  font-weight: 600;
+  background: var(--card);
+  color: var(--ink);
+}
+.rh2 .pvc-d.bad .pvc-sev {
+  color: var(--crit);
+}
+.rh2 .pvc-d.warn .pvc-sev {
+  color: var(--warn);
+}
+.rh2 .pvc-d.info .pvc-sev {
+  color: var(--ok);
+}
+.rh2 .pvc-sev .i {
+  width: 16px;
+  height: 16px;
+}
+.rh2 .pvc-d p {
+  margin: 0;
+  color: var(--body);
+  font-size: 15px;
+  line-height: 1.45;
+}
+.rh2 .pvc-ev summary {
+  cursor: pointer;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  color: var(--ink);
+  font-weight: 600;
+  font-size: 14px;
+}
+.rh2 .pvc-ev ul {
+  margin: 0 0 4px;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--body);
+  font-size: 14px;
+}
+.rh2 .pvc summary:focus-visible,
+.rh2 .pvc-disclosure > summary:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+.rh2 .pvc-funnel {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.rh2 .pvc-funnel li {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.rh2 .pvc-f-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  color: var(--body);
+}
+.rh2 .pvc-f-top b {
+  color: var(--ink);
+}
+.rh2 .pvc-f-top .n {
+  font-size: 20px;
+}
+.rh2 .pvc-bar {
+  display: block;
+  height: 10px;
+  border-radius: 10px;
+  background: var(--track);
+  overflow: hidden;
+}
+.rh2 .pvc-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 10px;
+  background: var(--pill);
+}
+.rh2 .pvc-hint {
+  color: var(--muted);
+  font-size: 13px;
+}
+.rh2 .pvc-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 24px;
+  margin: 14px 0 4px;
+  color: var(--body);
+}
+.rh2 .pvc-facts b {
+  color: var(--ink);
+}
+.rh2 .pvc-weekly svg {
+  display: block;
+  width: 100%;
+  max-width: 520px;
+  height: auto;
+}
+.rh2 .pvc-weekly .track {
+  fill: var(--track);
+}
+.rh2 .pvc-weekly .fill {
+  fill: var(--pill);
+}
+.rh2 .pvc-weekly-cap {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  max-width: 520px;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.rh2 .pvc .chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  padding: 0 12px;
+  border-radius: var(--r-pill);
+  font-size: 13px;
+  white-space: nowrap;
+  background: var(--line-soft);
+  color: var(--body);
+}
+.rh2 .pvc .chip.warn {
+  background: var(--warn-bg);
+  color: var(--warn);
+  font-weight: 600;
+}
+.rh2 .pvc .chip b {
+  color: var(--ink);
+}
+.rh2 .pvc .chip.pvc-react.up {
+  background: var(--ok-bg);
+  color: var(--ok);
+}
+.rh2 .pvc .chip.pvc-react.down {
+  background: var(--crit-bg);
+  color: var(--crit);
+}
+.rh2 .pvc-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0;
+}
+.rh2 .pvc-topics {
+  margin: 12px 0;
+}
+.rh2 .pvc-stats {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0 0 8px;
+}
+.rh2 .pvc-stats > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border-radius: var(--r-sm);
+  background: var(--soft);
+}
+.rh2 .pvc-stats dt {
+  color: var(--muted);
+  font-size: 13px;
+}
+.rh2 .pvc-stats dd {
+  margin: 0;
+  color: var(--ink);
+  font-size: 18px;
+  font-weight: 600;
+}
+.rh2 .pvc-quotes {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: var(--body);
+}
+/* Телефон: раскрывающийся блок «Голос рынка» — внутри те же карточки, но без своей тени. */
+.rh2 .pvc-disclosure > summary {
+  cursor: pointer;
+  min-height: 44px;
+  list-style: none;
+}
+.rh2 .pvc-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+.rh2 .pvc-disclosure[open] > summary {
+  margin-bottom: 12px;
+}
+.rh2 .pvc-disclosure .pvc.pst .card {
+  box-shadow: none;
+  background: var(--soft);
+}
+@media (max-width: 820px) {
+  .rh2 .pvc-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 640px) {
+  .rh2 .pvc-d-head h3 {
+    font-size: 16px;
+  }
+  .rh2 .pvc-facts {
+    flex-direction: column;
+  }
+}
+
+/* 9в. «ЦЕНА И СПРОС» (03.10.2026) — компонент PropertyPriceDemandCard. Лестница и вердикт
+ * переиспользуют `.pvc-funnel`, `.pvc-bar`, `.pvc-d`, `.pvc-ev` блока 9б; здесь только то,
+ * чего там нет: значок температуры, строка копирования и список клиентов.
+ * Температура различается словом и значком, не только цветом. Цвета — токены темы. */
+.rh2 .ppd {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.rh2 .ppd-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+.rh2 .ppd-heat {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: var(--r-pill);
+  font-size: 15px;
+  background: var(--soft);
+  color: var(--ink);
+}
+.rh2 .ppd-heat.hot {
+  background: var(--crit-bg);
+  color: var(--crit);
+}
+.rh2 .ppd-heat.warm {
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+.rh2 .ppd-heat .i {
+  width: 18px;
+  height: 18px;
+}
+.rh2 .ppd-score {
+  font-size: 13px;
+  opacity: 0.85;
+}
+.rh2 .ppd-plus {
+  color: var(--ok);
+  font-size: 14px;
+}
+.rh2 .ppd-copy {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+.rh2 .ppd-copied {
+  color: var(--ok);
+  font-size: 14px;
+  min-height: 20px;
+}
+.rh2 .ppd-manual {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--card);
+  color: var(--ink);
+  font: inherit;
+  font-size: 15px;
+  padding: 10px 12px;
+  resize: vertical;
+}
+.rh2 .ppd-clients {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.rh2 .ppd-clients li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 12px;
+  color: var(--body);
+}
+@media (max-width: 640px) {
+  .rh2 .ppd-clients li {
+    flex-direction: column;
+  }
+}
+
+/* 10. Светофор списком (24.09.2026): точка у объекта в каталоге и строки
+   «Объекты, которым нужна помощь» в «Обзоре». Цвета — те же, что у лампы
+   вкладки «Статистика». */
+.rh2 .hdot {
+  display: inline-block;
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  vertical-align: middle;
+  margin-right: 8px;
+  background: var(--faint);
+}
+.rh2 .hdot.green {
+  background: var(--ok);
+  box-shadow: 0 0 0 3px var(--ok-bg);
+}
+.rh2 .hdot.yellow {
+  background: var(--warn);
+  box-shadow: 0 0 0 3px var(--warn-bg);
+}
+.rh2 .hdot.red {
+  background: var(--crit);
+  box-shadow: 0 0 0 3px var(--crit-bg);
+}
+.rh2 .pgrid .cell .hdot {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  margin: 0;
+  width: 14px;
+  height: 14px;
+}
+.rh2 .nhelp .row .t b {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.rh2 .nhelp .row .t b a {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rh2 .nhelp .counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* ───────── Реклама, компактный экран (13.10.2026): креативы, рейтинг объектов, источники ───────── */
+.rh2 .adsx-strong {
+  font-weight: 700;
+  color: var(--ink);
+}
+.rh2 .adsx-dim {
+  color: var(--faint);
+}
+
+/* Креативы: заголовок и подстрока в одной ячейке таблицы */
+.rh2 .adsx-cr .tbl td {
+  height: auto;
+  padding-top: var(--s2);
+  padding-bottom: var(--s2);
+}
+.rh2 .adsx-cr .tbl td.num {
+  white-space: nowrap;
+}
+.rh2 .adsx-cr-t {
+  min-width: 220px;
+  max-width: 420px;
+}
+.rh2 .adsx-cr-t b {
+  display: block;
+  font-size: var(--fs-14);
+  font-weight: 600;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.rh2 .adsx-cr-t span {
+  display: block;
+  font-size: var(--fs-13);
+  color: var(--muted);
+}
+.rh2 .adsx-cr-list .row .t b {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.rh2 .adsx-cr-list .row .t span {
+  white-space: normal;
+}
+
+/* Рейтинг объектов: один столбец, строки-ссылки */
+.rh2 .adsx-lb {
+  display: grid;
+  gap: var(--s4);
+  grid-template-columns: minmax(0, 1fr);
+}
+.rh2 .adsx-lb-row {
+  color: inherit;
+  text-decoration: none;
+}
+.rh2 .adsx-lb-price {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  font-family: var(--ff-head);
+  font-size: var(--fs-15);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.rh2 .adsx-lb-price small {
+  font-family: var(--ff-text);
+  font-size: var(--fs-13);
+  font-weight: 400;
+  color: var(--muted);
+}
+.rh2 .adsx-lb-price.ok {
+  color: var(--ok);
+}
+.rh2 .adsx-lb-price.warn {
+  color: var(--warn);
+}
+.rh2 .adsx-lb-price.crit {
+  color: var(--crit);
+}
+
+/* Источники клиентов, узкая колонка: строка + полоса доли */
+.rh2 .adsx-src-i + .adsx-src-i {
+  margin-top: var(--s3);
+}
+.rh2 .adsx-src-h {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 2px var(--s3);
+  font-size: var(--fs-14);
+}
+.rh2 .adsx-src-v {
+  font-size: var(--fs-13);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+.rh2 .adsx-src .bar {
+  height: 8px;
+  margin-top: 6px;
+  border-radius: var(--r-pill);
+  background: var(--track);
+  overflow: hidden;
+}
+.rh2 .adsx-src .bar i {
+  display: block;
+  height: 100%;
+  border-radius: var(--r-pill);
+  background: var(--pill);
+}

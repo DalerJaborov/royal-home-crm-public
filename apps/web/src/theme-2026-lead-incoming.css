@@ -1,0 +1,306 @@
+/* ВХОДЯЩИЙ ЛИД КАК ЗВОНОК — тема «Royal Home 2026», телефон (10.09.2026).
+ *
+ * Источник: мобильный артефакт владельца v3 «Royal Home 2026 · мобильная
+ * навигация · v3 (входящий лид)» (50b68112), его собственный блок <style>,
+ * секция «lead incoming (full-screen)» и скрипт под ней. Значения перенесены
+ * дословно; расхождения перечислены ниже и все механические.
+ *
+ * ОТДЕЛЬНЫЙ ФАЙЛ — по той же причине, что и theme-2026-call-window.css:
+ * theme-2026-proto.css собирается скриптом scripts/sync-proto-css.py из
+ * артефакта ПУЛЬТА, а этих классов в пульте нет и появиться там неоткуда;
+ * любая ручная строка в нём стирается молча при следующей перегенерации.
+ * Подключается в index.css последним из тематических — см. комментарий там.
+ *
+ * ЧЕМ ОТЛИЧАЕТСЯ ОТ ИСТОЧНИКА:
+ *   1. каждый селектор ограничен областью `.rh2 .scr` (так же поступает
+ *      sync-proto-css с экранными правилами) — окно уходит через Rh2Portal,
+ *      который вкладывает обе ступени сам;
+ *   2. в артефакте макет живёт внутри рамки телефона `.phone`, поэтому там
+ *      `position:absolute`; в приложении та же рамка — само окно браузера,
+ *      поэтому `position:fixed`;
+ *   3. токенов `--safe-b`, `--hf`, `--d`, `--d-sheet`, `--ease-out`,
+ *      `--ease-sheet` в theme-2026-proto.css нет (артефакт пульта их не
+ *      заводит) — подставлены их значения из артефакта v3: safe-b →
+ *      env(safe-area-inset-bottom/top), --hf → var(--ff-head), длительности и
+ *      кривые числами;
+ *   4. `touch-action:none` стоит НЕ на всём окне, а только на полосе-ручке
+ *      `.li-top`: в артефакте содержимое окна не прокручивается, а здесь у
+ *      карточки принятого клиента прокрутка есть, и запрет жестов на родителе
+ *      отнял бы её (память проекта: жесты и `touch-action` — самая дорогая
+ *      ловушка этого экрана).
+ *
+ * ВИДИМОСТЬ НИКОГДА НЕ ЗАВИСИТ ОТ АНИМАЦИИ: и окно, и тихая строка спрятаны
+ * `transform`, который выставляется классом состояния, а не ключевыми кадрами.
+ * Не проиграется переход — элемент всё равно окажется на месте.
+ */
+
+/* ---- Оболочка: висит поверх экрана, но не перехватывает нажатия, пока закрыта ---- */
+.rh2 .scr .li-wrap {
+  position: fixed;
+  inset: 0;
+  z-index: 44; /* выше нижней панели (40), ниже окна разговора (45) и обязательных окон (60) */
+  pointer-events: none;
+}
+.rh2 .scr .li-wrap.open {
+  pointer-events: auto;
+}
+
+/* ---- Диалог подтверждения ПОВЕРХ окна приёма (17.09.2026) ----
+ * ConfirmDialog («Отклонить лид?») рисуется через отдельный Rh2Sheet/Rh2Portal
+ * со своей подложкой (.sheet-back, z-index 40) и листом (.sheet, z-index 41) —
+ * оба ниже окна приёма (44), поэтому диалог визуально пропадал под ним. Класс
+ * `above-incoming` (проп Rh2Sheet/ConfirmDialog `layer="above-incoming"`)
+ * поднимает ровно эту пару выше окна приёма, но ниже обязательных окон (60). */
+.rh2 .scr .sheet-back.above-incoming {
+  z-index: 45;
+}
+.rh2 .scr .sheet.above-incoming {
+  z-index: 46;
+}
+
+/* ---- Полноэкранное окно ---- */
+.rh2 .scr .li-full {
+  position: absolute;
+  inset: 0;
+  background: var(--page);
+  display: flex;
+  flex-direction: column;
+  transform: translateY(100%);
+  transition: transform 0.42s cubic-bezier(0.32, 0.72, 0, 1);
+  will-change: transform;
+  pointer-events: none;
+}
+.rh2 .scr .li-wrap.open .li-full {
+  transform: translateY(0);
+  pointer-events: auto;
+}
+/* Пока палец тянет окно вниз, оно обязано идти ЗА пальцем, а не догонять его. */
+.rh2 .scr .li-wrap.dragging .li-full {
+  transition: none;
+}
+
+/* ---- Верхняя полоса: она же ручка «смахнуть вниз» ---- */
+.rh2 .scr .li-top {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: calc(env(safe-area-inset-top, 0px) + 16px) 16px 10px;
+  font-size: var(--fs-14);
+  color: var(--muted);
+  text-align: center;
+  position: relative;
+  flex: none;
+  touch-action: none;
+}
+.rh2 .scr .li-top i {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--crit);
+  flex: none;
+}
+/* ---- Единственная панель окна: «ждёт принятия» (после «Принять» окно
+   закрывается и открывается карточка клиента — панели «принят» больше нет,
+   решение владельца 11.09.2026) ---- */
+.rh2 .scr .li-panels {
+  position: relative;
+  flex: 1;
+  overflow: hidden;
+}
+.rh2 .scr .li-pending {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  opacity: 1;
+  transform: translateY(0);
+  transition:
+    opacity 0.22s cubic-bezier(0.2, 0.8, 0.2, 1),
+    transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.rh2 .scr .li-pending.leaving {
+  opacity: 0;
+  transform: translateY(-10px);
+  pointer-events: none;
+}
+
+/* ---- Панель «ждёт принятия» ---- */
+.rh2 .scr .li-center {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 12px 28px;
+  text-align: center;
+}
+.rh2 .scr .li-name {
+  font: 700 28px/1.15 var(--ff-head, Onest, sans-serif);
+  letter-spacing: -0.02em;
+  margin-top: 4px;
+  color: var(--ink);
+}
+.rh2 .scr .li-sub {
+  font-size: var(--fs-15);
+  color: var(--muted);
+}
+.rh2 .scr .li-hints {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 18px;
+  width: 100%;
+  max-width: 340px;
+  text-align: left;
+}
+.rh2 .scr .li-hint {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  font-size: var(--fs-14);
+  color: var(--body);
+  line-height: 1.4;
+}
+.rh2 .scr .li-hint .i {
+  width: 20px;
+  height: 20px;
+  color: var(--muted);
+  flex: none;
+  margin-top: 1px;
+}
+
+/* ---- Нижняя плита с решением ---- */
+.rh2 .scr .li-actions {
+  flex: none;
+  padding: 14px 16px calc(env(safe-area-inset-bottom, 0px) + 16px);
+  background: var(--card-glass);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  backdrop-filter: blur(24px) saturate(160%);
+  border-top: 1px solid var(--line-soft);
+  transition: opacity 0.22s linear;
+}
+.rh2 .scr .li-actions.hide {
+  opacity: 0;
+  pointer-events: none;
+}
+.rh2 .scr .li-btns {
+  display: flex;
+  gap: 10px;
+}
+.rh2 .scr .li-btn {
+  flex: 1;
+  min-height: 64px;
+  border-radius: var(--r-md);
+  font: 600 17px var(--ff-head, Onest, sans-serif);
+  letter-spacing: -0.01em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: transform 0.14s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.rh2 .scr .li-btn:active {
+  transform: scale(0.97);
+}
+.rh2 .scr .li-btn:disabled {
+  opacity: 0.6;
+}
+.rh2 .scr .li-btn.accept {
+  background: var(--pill);
+  color: var(--pill-ink);
+}
+.rh2 .scr .li-btn.reject {
+  background: var(--soft);
+  color: var(--ink);
+  border: 1px solid var(--line);
+}
+.rh2 .scr .li-note {
+  margin: 10px 2px 0;
+  font-size: var(--fs-13);
+  color: var(--muted);
+  text-align: center;
+}
+
+/* ---- Тихая строка сверху: во что сворачивается окно ---- */
+.rh2 .scr .li-quiet {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  top: 0;
+  z-index: 41;
+  margin-top: env(safe-area-inset-top, 0px);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: var(--card-glass);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  backdrop-filter: blur(24px) saturate(160%);
+  box-shadow: var(--shadow-sm);
+  font-size: var(--fs-14);
+  color: var(--ink);
+  font-weight: 500;
+  transform: translateY(-140%);
+  opacity: 0;
+  transition:
+    transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1),
+    opacity 0.22s linear;
+  pointer-events: none;
+  text-align: left;
+}
+.rh2 .scr .li-quiet.show {
+  transform: translateY(0);
+  opacity: 1;
+  pointer-events: auto;
+}
+.rh2 .scr .li-quiet i {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--crit);
+  flex: none;
+}
+.rh2 .scr .li-quiet span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+
+/* Цифры таймера не должны «дышать» шириной на каждой секунде. */
+.rh2 .scr .li-timer {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- Меньше движения: остаётся только проявление, ни один сдвиг не нужен ---- */
+@media (prefers-reduced-motion: reduce) {
+  .rh2 .scr .li-full {
+    transition: opacity 0.15s linear;
+    transform: none !important;
+    opacity: 0;
+    pointer-events: none;
+  }
+  .rh2 .scr .li-wrap.open .li-full {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .rh2 .scr .li-pending {
+    transition: opacity 0.12s linear;
+    transform: none !important;
+  }
+  .rh2 .scr .li-quiet {
+    transition: opacity 0.12s linear;
+    transform: none !important;
+  }
+  .rh2 .scr .li-btn {
+    transition-duration: 1ms;
+  }
+}

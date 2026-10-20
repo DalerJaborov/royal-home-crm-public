@@ -1,0 +1,1534 @@
+/* Тема «Royal Home 2026» (слой 1, задача 2) — токены и шрифты отдельным файлом,
+ * подключены одной строкой, чтобы не раздувать этот файл. Слой 4 (08.09.2026)
+ * убрал шесть старых тем из THEME_IDS: новые переменные живут под
+ * data-theme="royal-home-2026-*", :root ниже — общий базовый набор (light).
+ * ВАЖНО: @import обязан идти ДО любых других правил (спецификация CSS) — если
+ * поставить его после @tailwind, браузер молча игнорирует импорт целиком
+ * (Vite разворачивает @tailwind в реальные правила раньше этой строки, и итоговый
+ * @import перестаёт быть первым правилом). Поймано в задаче 4 (Sidebar): новая
+ * тема выбиралась, но ни один токен переменных не применялся. */
+@import './fonts-royal-home-2026.css';
+@import './theme-royal-home-2026.css';
+/* Эталон темы 2026 дословно из артефакта «Единый пульт директора» — оба блока
+   стилей, пульт и 43 экрана (генерируется scripts/sync-proto-css.py из
+   docs/pult/theme-2026/artifact-ff1d9d17-pult-director.html). Действует только
+   внутри `.rh2`; экранные правила — внутри `.rh2 .scr` (Rh2Screen/Rh2Portal/
+   Rh2Inline вкладывают `.scr` сами), «отмены» стилей пульта — под `.rh2.screens`. */
+@import './theme-2026-proto.css';
+/* Плотность эталона на телефоне (разбор кадров владельца 09.09). Отдельным
+   файлом и строго ПОСЛЕ эталона: он перегенерируется скриптом целиком, и
+   дописка в его хвост исчезла бы при следующей сборке прототипа без ошибки. */
+@import './theme-2026-mobile-density.css';
+/* Формы в шторках: строки-переключатели как кнопки и подсказка у выключенной
+   кнопки подвала (владелец 24.09, «Вернуть монтажёру»). После эталона —
+   тот перегенерируется скриптом целиком. */
+@import './theme-2026-sheet-forms.css';
+/* Мобильная главная — второй артефакт владельца (c99db05f «мобильная
+   навигация»), перенесённый дословно скриптом scripts/sync-mobile-css.py.
+   Своя область `.rh2 .mh`, а не `.rh2 .scr`: оба артефакта называют разные
+   вещи одинаково (.row, .card, .chip, .btn, .tile), и смешивать их нельзя.
+   Строго ПОСЛЕ эталона пульта — по той же причине, что и density. */
+@import './theme-2026-mobile-home.css';
+/* Списки телефона — третий артефакт владельца (de2845f1 «телефон после
+   экспертизы»): «Клиенты», «Чаты» и «Ещё». Та же область `.rh2 .mh`, но
+   ОТДЕЛЬНЫМ файлом и сразу после мобильной главной: та собирается скриптом
+   sync-mobile-css.py из другого артефакта и перегенерируется целиком, дописка
+   в её хвост исчезла бы молча. */
+@import './theme-2026-mobile-lists.css';
+/* Мастер объекта — артефакт владельца «Мастер объекта Royal Home», перенесён
+   скриптом scripts/sync-wizard-css.py дословно (источник лежит рядом с
+   остальными: docs/pult/theme-2026/artifact-wizard-property-15-09.html).
+   Область `.rh2 .wiz`, отдельная от `.rh2 .scr` и `.rh2 .mh`: артефакт
+   называет вещи теми же именами (.chip, .row, .f, .tile, .ghost), что и два
+   предыдущих, и без своей области они столкнулись бы. */
+@import './theme-2026-wizard.css';
+/* Отступления от артефакта мастера, которых в нём нет и быть не может (высота
+   экрана на весь вьюпорт, безопасные зоны) и решение владельца 15.09.2026
+   увеличить шрифты шапки — см. заголовок файла. */
+@import './theme-2026-wizard-shell.css';
+
+/* Рамка приложения на телефоне (стекло шапки/панели, компактный заголовок,
+   счётчики вкладок, проявление раздела) — после density и мобильной главной,
+   перекрывает обе. */
+@import './theme-2026-mobile-shell.css';
+/* Чаты на телефоне как мессенджер (шапка и композер в одну строку, пузыри
+   направлений, быстрые ответы) — последним из тематических файлов. */
+@import './theme-2026-mobile-chat.css';
+/* Окно звонка живёт в собственном \3c style> экрана call-window-v2.html, которого
+   в артефакте пульта нет, — поэтому классы окна звонка приезжают отдельным
+   файлом, тоже дословно и тоже внутри `.rh2 .scr`. */
+@import './theme-2026-call-window.css';
+/* Входящий лид как звонок (полноэкранное окно на телефоне) — та же причина
+   отдельного файла, что у окна звонка: классы приезжают из МОБИЛЬНОГО артефакта
+   v3, которого скрипт синхронизации прототипа не читает вовсе. */
+@import './theme-2026-lead-incoming.css';
+/* Цветной слой (владелец 11.09.2026: «не хватает цветов») — ПОСЛЕДНИМ из
+   тематических файлов: он переопределяет прототип, а файл-переопределение,
+   подключённый раньше переопределяемого, проигрывает каждую ничью по весу. */
+@import './theme-2026-color-layer.css';
+/* Главный экран (пульт директора): один грид разделов вместо двух, шапка ПК,
+   стекло и «аврора», фото и значки, ширина — разбор кадров владельца 11–12.09.
+   Подключается ПОСЛЕ цветного слоя и эталона по той же причине, что и он:
+   файл-переопределение, подключённый раньше переопределяемого, проигрывает
+   каждую ничью по весу. */
+@import './theme-2026-dashboard.css';
+/* Карточка клиента на телефоне (владелец 12.09.2026 утром: «слишком много
+   функций, минимум на экране») — новые классы, не переопределение прототипа,
+   поэтому место в каскаде не критично, но подключаем последним по общему
+   правилу файла: см. комментарий в самом файле. */
+@import './theme-2026-client-card.css';
+/* Карточка объекта: галерея без пустых клеток при 1–4 снимках (24.09.2026).
+   После эталона — перекрывает его сетку `.gal`. */
+@import './theme-2026-property-card.css';
+/* Карточка «N дел на сегодня» темы (12.09.2026, остаток после удаления знака
+   ИИ 14-15.09.2026) — САМОЙ последней из тематических файлов: она
+   переопределяет и прототип, и цветной слой. Почему отдельным файлом, а не
+   дописками в прототип, — в шапке самого файла. */
+@import './theme-2026-ai-hero.css';
+/* Карта объектов: плашки цен вместо длинных подписей (владелец 21.09.2026).
+   После theme-royal-home-2026.css — он генерируется скриптом целиком, дописывать
+   в него нельзя, а переопределять можно только подключившись позже него. */
+@import './theme-2026-map.css';
+/* «Спрос и предложение» и «Скорость ответа» на отчётах (03.10.2026). Свой файл: прототип
+   собирается скриптом целиком, дописка в него пропала бы при синхронизации. */
+@import './theme-2026-demand.css';
+/* Фирменный слой: синий акцент и одно семейство шрифта (решение владельца
+   21.09.2026). После всех генерируемых файлов — они объявляют эти же токены и
+   пересобираются скриптами целиком, дописывать в них нельзя. */
+@import './theme-2026-brand.css';
+/* Размеры текста и одна гарнитура. СОБИРАЕТСЯ СКРИПТОМ scripts/gen-typeset.mjs,
+   руками не правится: повторяет селекторы темы и меняет только размер и шрифт.
+   Подключается самым последним из тематических, чтобы выигрывать ничьи по весу. */
+@import './theme-2026-typeset.css';
+/* Защита от наезда и вылета текста (R2, 06.10.2026): правила на класс, найденные
+   щупом сверки. После всех генерируемых файлов, по той же причине, что и typeset. */
+@import './theme-2026-overflow-guard.css';
+/* Royal Clean has its own approved 13–40 px scale; apply it after the legacy typeset expansion. */
+@import './theme-2026-clean.css';
+@import './theme-2026-clean-records.css';
+@import './theme-2026-clean-messages.css';
+@import './theme-2026-clean-operations.css';
+@import './theme-2026-clean-mobile-records.css';
+@import './theme-2026-clean-money-mobile.css';
+@import './theme-2026-clean-mobile-shell.css';
+@import './theme-2026-clean-account.css';
+@import './theme-2026-clean-calendar.css';
+@import './theme-2026-clean-section-surfaces.css';
+
+/* ВАЖНО: тематические файлы выше подключены БЕЗ layer(...).
+ * Кодмод @tailwindcss/upgrade завернул их в layer(base) — и ночная тема
+ * перестала действовать: правила `html[data-theme=...]` из
+ * theme-royal-home-2026.css оказались в слое, а базовый набор `:root` ниже
+ * в этом же файле — вне слоёв, а бесслойный CSS выигрывает у любого слоя.
+ * Акцент везде становился базовым синим вместо акцента темы. Порядок
+ * «тема, затем tailwindcss» повторяет v3 один в один. */
+@import 'tailwindcss';
+
+/* Конфиг остаётся в JS: `@config` — официальный путь совместимости v4.
+ * Токены палитры («blue» = --rgb-accent, --c-* без alpha-value) живут в
+ * tailwind.config.js и в :root ниже; переносить их в @theme в этом заходе
+ * не стали — это отдельная правка со своей сверкой. */
+@config "../tailwind.config.js";
+
+/*
+  The default border color has changed to `currentcolor` in Tailwind CSS v4,
+  so we've added these compatibility styles to make sure everything still
+  looks the same as it did with Tailwind CSS v3.
+
+  If we ever want to remove these styles, we need to add an explicit border
+  color utility to any element that depends on these defaults.
+*/
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    /* v3 держал здесь gray-200 из палитры по умолчанию (#e5e7eb): в
+     * tailwind.config.js расширены только gray-300…800, а 200 приходил
+     * из базовой палитры. Поэтому запасное значение — тот же #e5e7eb,
+     * а не currentcolor из шаблона кодмода. */
+    border-color: var(--color-gray-200, #e5e7eb);
+  }
+}
+
+/* Ещё две смены умолчаний preflight в v4, возвращённые к поведению v3.
+ * Оба правила лежат в слое base и с нулевой специфичностью, поэтому любое
+ * собственное правило прототипа (`.rh2 .scr .inp::placeholder` и т.п.)
+ * по-прежнему выигрывает — они только восстанавливают базу. */
+@layer base {
+  /* v3 красил плейсхолдер в gray-400 (в этом проекте — токен --rgb-g400),
+   * v4 берёт цвет текста на 50% прозрачности. Замер на снимках: заметно на
+   * полях без собственного стиля («Пароль» в Настройках). */
+  input::placeholder,
+  textarea::placeholder {
+    color: var(--color-gray-400);
+  }
+  /* v4 вернул браузерный `cursor: default` кнопкам. На снимках не видно, но
+   * курсор на всех кнопках CRM стал стрелкой вместо руки. */
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+}
+
+@utility overflow-y-auto {
+  /* Любая внутренняя область с прокруткой (модалки, списки переписки, выпадающие
+     меню) не отдаёт прокрутку наружу, докрутившись до края. Без этого на iPhone
+     список внутри окна доезжал до конца и продолжал тянуть за собой страницу —
+     тот самый эффект «туда-сюда». Явные утилиты overscroll-* остаются сильнее:
+     они лежат в слое utilities, ниже этого правила. */
+  overscroll-behavior: contain;
+}
+
+@utility overflow-auto {
+  overscroll-behavior: contain;
+}
+
+@utility overflow-y-scroll {
+  overscroll-behavior: contain;
+}
+
+@utility bg-card {
+  backdrop-filter: blur(18px) saturate(140%);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+
+  /* Телефон: раньше здесь стояло 28px (сильнее десктопных 20px) — заметно
+   * матовее, но на слабых устройствах свежий блюр каждого кадра прокрутки не
+   * бесплатен. Задача «Стекло» (BRIEF «Расширения темы») ограничивает мобильный
+   * блюр 12px и просит держать его в первую очередь на шапке/нижней навигации/
+   * шторках — .bg-card используется и рядовыми карточками списков, отдельного
+   * класса под «только шапка/нав/шторка» в разметке ещё нет, поэтому здесь общий
+   * потолок 12px для всех .bg-card на телефоне (шапка/нижняя навигация — свои
+   * инлайн-стили, см. MobileHomeHeader.tsx/BottomNav.tsx). */
+  html[data-mobile-ux] & {
+    backdrop-filter: blur(12px) saturate(160%);
+    -webkit-backdrop-filter: blur(12px) saturate(160%);
+  }
+}
+
+@utility scroll-fade-x {
+  /* Горизонтальная лента-вкладка/чипы без намёка на прокрутку — QA 08.09.2026
+   * (клиенты, статус-вкладки на телефоне; пульт директора, «коротко по отделам»):
+   * `overflow-x-auto` технически скроллится, но обрезанный по краю экрана текст
+   * читается как баг вёрстки, а не как «свайпни вбок». Маска на самом
+   * прокручиваемом контейнере — простой CSS-приём без слежения за scrollLeft:
+   * фейдит оба края всегда, этого достаточно как визуальный намёк на скролл.
+   * Переиспользовать на любой другой горизонтальной ленте с тем же механизмом. */
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent,
+    black 14px,
+    black calc(100% - 14px),
+    transparent
+  );
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    black 14px,
+    black calc(100% - 14px),
+    transparent
+  );
+}
+
+@utility glass-notice {
+  /* ---------- Стеклянные уведомления (редизайн 30.08.2026) ----------
+   * Общий облик для проактивных подсказок ИИ/CRM — «итог звонка», «клиент
+   * просит звонок», «бот обещал уточнить», предложение ИИ по карточке,
+   * подсказка про push, лента колокольчика. Референс владельца — системный
+   * in-app баннер iOS + карточки приложения «Doers»: сильный блюр, пилюльные
+   * кнопки, мягкая тень со сплошным бликом сверху. ВСЕГДА такой, а не только
+   * в теме ios/на телефоне (`data-mobile-ux`) — раньше это было единственное
+   * место CRM с разномастными цветными рамками (border-amber/border-blue/
+   * border-violet поверх обычной bg-card), которое владелец назвал «из
+   * двадцатого века». Цвет стекла и тень идут из текущей темы
+   * (var(--c-card)/--shadow-lg) — тёмные темы получают тёмное стекло, палитру
+   * темы это не переопределяет, только форму и материал.
+   */
+  position: relative;
+  border-radius: 26px;
+  background: var(--c-card);
+  backdrop-filter: blur(32px) saturate(190%);
+  -webkit-backdrop-filter: blur(32px) saturate(190%);
+  box-shadow: var(--shadow-lg);
+  border: 1px solid var(--c-line-soft);
+}
+
+@utility glass-btn {
+  /* Кнопки внутри стеклянных уведомлений — всегда пилюли (999px), независимо
+   * от темы: обычный --r-control становится пилюлей только в теме ios/на
+   * телефоне, а здесь этот вид нужен везде одинаково. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  border-radius: 999px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition:
+    transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1),
+    background-color 0.15s ease,
+    box-shadow 0.15s ease,
+    opacity 0.15s ease;
+  &:active:not(:disabled) {
+    transform: scale(0.96);
+  }
+  &:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+}
+
+@utility glass-btn-primary {
+  background: rgb(var(--rgb-accent));
+  color: var(--c-on-accent);
+  box-shadow:
+    0 10px 22px -10px rgb(var(--rgb-accent) / 0.55),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.25);
+  @media (hover: hover) {
+    &:hover:not(:disabled) {
+      background: rgb(var(--rgb-accent-hover));
+    }
+  }
+}
+
+@utility glass-btn-secondary {
+  /* @media (hover:hover) — у пальца наведения нет, но браузер телефона оставляет
+     :hover на последнем нажатом элементе до следующего тапа в другое место, и
+     подсветка кнопки залипает. Эталон (theme-2026-proto.css) все свои hover-правила
+     уже так и оборачивает; здесь дописано то же для правил старого облика
+     (10.09.2026). Отклик на нажатие даёт :active, он не тронут. */
+  background: var(--c-hover-tint);
+  color: rgb(var(--rgb-ink));
+  border: 1px solid var(--c-line);
+  @media (hover: hover) {
+    &:hover:not(:disabled) {
+      background: var(--c-line-soft);
+    }
+  }
+}
+
+@utility glass-btn-ghost {
+  color: rgb(var(--rgb-g500));
+  background: transparent;
+  @media (hover: hover) {
+    &:hover:not(:disabled) {
+      background: var(--c-hover-tint);
+      color: rgb(var(--rgb-ink));
+    }
+  }
+}
+
+@utility glass-notice-enter {
+  @media (prefers-reduced-motion: no-preference) {
+    animation: glass-drop-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+}
+
+@utility glass-backdrop {
+  /* Появление — сверху, пружиной, как системный баннер iOS, а не мгновенный
+   * скачок. Раньше PendingSummaryBanner висел СНИЗУ и на телефоне перекрывал
+   * нижнюю навигацию — «внизу, кнопки лагают» (владелец, 30.08.2026); теперь
+   * все стеклянные уведомления заходят сверху и не спорят с BottomNav. */
+
+  /* ---------- Bottom sheet стеклянного уведомления (31.08.2026) ----------
+   * «Итог показа» / «Как прошёл звонок» переведены на полноценный bottom sheet
+   * с затемнённым фоном — референс владельца (iOS 26 Liquid Glass), сознательно
+   * возвращает затемнение, которое раньше убирали (см. комментарии выше в
+   * PendingSummaryBanner.tsx про «никаких блокирующих окон»). Касается только
+   * этого варианта оформления — тихие баннеры (CallbackRequestsBanner и т.п.)
+   * остаются некликующими карточками, как были.
+   */
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 20, 30, 0.22);
+  backdrop-filter: blur(18px) saturate(90%);
+  -webkit-backdrop-filter: blur(18px) saturate(90%);
+  /* PendingSummaryBanner.tsx описывает это окно как «не блокирует остальной
+       CRM программно, просто визуально собирает внимание» — а без этого
+       правила подложка (z-59, во весь экран) как раз блокировала: тапы по
+       нижней навигации/шапке/окну звонка (все ниже по z-index) до них не
+       доходили, кнопка звонка нажималась только после закрытия окна итога.
+       Найдено аудитом 02.09.2026 (docs/audit-02-09-2026/02-popups.md,
+       сценарий S3) — код приведён в соответствие с собственным комментарием.
+       Затемнение и размытие остаются (референс владельца, iOS 26 Liquid
+       Glass) — снимается только программная блокировка нажатий под ним. */
+  pointer-events: none;
+}
+
+@utility glass-sheet {
+  position: relative;
+  border-radius: 34px;
+  background: var(--c-card);
+  backdrop-filter: blur(44px) saturate(185%);
+  -webkit-backdrop-filter: blur(44px) saturate(185%);
+  box-shadow:
+    var(--shadow-lg),
+    0 35px 80px -20px rgba(20, 20, 40, 0.35);
+  border: 1px solid var(--c-line-soft);
+  &::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 7%;
+    right: 7%;
+    height: 1px;
+    border-radius: inherit;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      rgba(255, 255, 255, 0.9),
+      transparent
+    );
+    pointer-events: none;
+  }
+}
+
+@utility glass-sheet-handle {
+  width: 40px;
+  height: 5px;
+  margin: 0 auto 14px;
+  border-radius: 999px;
+  background: rgba(120, 120, 130, 0.28);
+}
+
+@utility glass-icon-tile {
+  width: 58px;
+  height: 58px;
+  border-radius: 20px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: linear-gradient(145deg, #6ea8ff, #7c6cf7);
+  box-shadow:
+    0 14px 28px -10px rgba(90, 110, 255, 0.5),
+    inset 0 1px 2px rgba(255, 255, 255, 0.5);
+  flex-shrink: 0;
+}
+
+@utility glass-status-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 52px;
+  border-radius: 999px;
+  font-weight: 600;
+  font-size: 13px;
+  border: 1px solid var(--c-line-soft);
+  background: var(--c-hover-tint);
+  color: rgb(var(--rgb-ink));
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+  @media (hover: hover) {
+    &:hover {
+      background: var(--c-line-soft);
+    }
+  }
+}
+
+@utility glass-status-btn-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+@utility glass-status-btn--active-selected {
+  background: linear-gradient(
+    145deg,
+    rgba(10, 122, 255, 0.18),
+    rgba(255, 255, 255, 0.4)
+  );
+  border-color: rgba(10, 122, 255, 0.45);
+  color: #0a7aff;
+  box-shadow: 0 8px 20px -10px rgba(10, 122, 255, 0.35);
+}
+
+@utility glass-status-btn--transfer-selected {
+  background: linear-gradient(
+    145deg,
+    rgba(244, 162, 30, 0.2),
+    rgba(255, 255, 255, 0.4)
+  );
+  border-color: rgba(244, 162, 30, 0.45);
+  color: #b3690a;
+  box-shadow: 0 8px 20px -10px rgba(244, 162, 30, 0.35);
+}
+
+@utility glass-status-btn--inactive-selected {
+  background: linear-gradient(
+    145deg,
+    rgba(239, 98, 104, 0.2),
+    rgba(255, 255, 255, 0.4)
+  );
+  border-color: rgba(239, 98, 104, 0.45);
+  color: #c53a3a;
+  box-shadow: 0 8px 20px -10px rgba(239, 98, 104, 0.35);
+}
+
+@utility glass-outcome-btn {
+  /* Иконка НАД текстом, по центру — не иконка+текст в ряд (правка 31.08.2026):
+   * в ряд длинные русские подписи («Нужен повторный контакт», «Подбираю другие
+   * объекты») переносились на 2-3 строки и упирались в соседнюю кнопку —
+   * «едут друг на друга», живая жалоба владельца на первом скриншоте. */
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  min-height: 96px;
+  padding: 16px 10px;
+  text-align: center;
+  border-radius: 22px;
+  border: 1px solid var(--c-line-soft);
+  background: var(--c-hover-tint);
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1);
+  @media (hover: hover) {
+    &:hover {
+      background: var(--c-line-soft);
+    }
+  }
+  &:active {
+    transform: scale(0.98);
+  }
+  &.is-selected {
+    background: linear-gradient(
+      145deg,
+      rgba(10, 122, 255, 0.16),
+      rgba(255, 255, 255, 0.42)
+    );
+    border-color: rgba(10, 122, 255, 0.42);
+    box-shadow: 0 10px 24px -12px rgba(10, 122, 255, 0.35);
+  }
+}
+
+@utility is-selected {
+  &.glass-outcome-btn {
+    background: linear-gradient(
+      145deg,
+      rgba(10, 122, 255, 0.16),
+      rgba(255, 255, 255, 0.42)
+    );
+    border-color: rgba(10, 122, 255, 0.42);
+    box-shadow: 0 10px 24px -12px rgba(10, 122, 255, 0.35);
+  }
+}
+
+@utility glass-outcome-icon {
+  width: 46px;
+  height: 46px;
+  border-radius: 16px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+@utility glass-outcome-check {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  background: #0a7aff;
+  color: #fff;
+}
+
+@utility glass-mic-btn {
+  width: 56px;
+  height: 56px;
+  border-radius: 18px;
+  display: grid;
+  place-items: center;
+  color: #0a7aff;
+  background: linear-gradient(
+    145deg,
+    rgba(255, 255, 255, 0.85),
+    rgba(220, 232, 255, 0.55)
+  );
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  box-shadow:
+    inset 0 1px 2px rgba(255, 255, 255, 0.9),
+    0 9px 22px -10px rgba(10, 122, 255, 0.4);
+  transition:
+    transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1),
+    color 0.2s ease,
+    background-color 0.2s ease;
+  &:active {
+    transform: scale(0.92);
+  }
+  &.is-recording {
+    color: #ff4e59;
+    background: linear-gradient(
+      145deg,
+      rgba(255, 255, 255, 0.8),
+      rgba(255, 90, 100, 0.18)
+    );
+    border-color: rgba(255, 80, 90, 0.4);
+    animation: glass-mic-pulse 1.25s ease-in-out infinite;
+  }
+}
+
+@utility is-recording {
+  &.glass-mic-btn {
+    color: #ff4e59;
+    background: linear-gradient(
+      145deg,
+      rgba(255, 255, 255, 0.8),
+      rgba(255, 90, 100, 0.18)
+    );
+    border-color: rgba(255, 80, 90, 0.4);
+    animation: glass-mic-pulse 1.25s ease-in-out infinite;
+  }
+}
+
+@utility tap-target {
+  position: relative;
+  &::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 44px;
+    height: 44px;
+    transform: translate(-50%, -50%);
+    /* Ниже содержимого кнопки — слой ловит промахи, но не перекрывает иконку
+     * и не мешает её собственным ховерам. */
+    z-index: 0;
+  }
+}
+
+@layer utilities {
+  /* Пауза ВСЕХ бесконечных CSS-анимаций на свёрнутой/неактивной вкладке
+ * (TASKS.md ~403/~740, «всё быстро на ПК и телефоне, без зависаний»).
+ * В приложении их больше десятка (знак ИИ, аврора фона, пульс микрофона,
+ * эквалайзер записи, дыхание presence-точки, пульс аватара в окне звонка…),
+ * и правило на каждый селектор отдельно значило бы держать список синхронно
+ * с новыми анимациями, которые появятся позже. `animation-play-state`
+ * подчиняется обычному каскаду, поэтому одно универсальное правило от
+ * html[data-tab-hidden] покрывает их все сразу, включая будущие — и не трогает
+ * Web Animations API (`element.animate(...)`, короткие однократные отклики):
+ * это свойство CSS `animation`, второй механизм ему не подчиняется.
+ * Атрибут выставляет initTabHiddenFlag() (lib/tabHidden.ts) через
+ * document.visibilitychange, вызывается один раз в main.tsx. */
+  html[data-tab-hidden='1'] * {
+    animation-play-state: paused !important;
+  }
+
+  /* ============================================================
+ * Темы. Каждая тема — набор CSS-переменных; переключение через
+ * data-theme на <html> (см. store/uiPrefs.ts + инлайн-скрипт в
+ * index.html против «вспышки» не той темы при загрузке).
+ *
+ * Соглашение:
+ *   --rgb-*  — каналы "R G B" для токенов с alpha-modifier в Tailwind;
+ *   --c-*    — готовые цвета (могут содержать прозрачность);
+ *   --shadow-*, --aurora-*, --drift-* — эффекты.
+ * ============================================================ */
+
+  /* ---------- Токены палитры ----------
+   * ЕДИНСТВЕННЫЙ ИСТОЧНИК — theme-royal-home-2026.css (светлая и ночная). Здесь больше
+   * нет базового :root: он дублировал все 58 токенов светлой темы (--c-card
+   * объявлялся в пяти местах), а тему на <html> теперь ставит инлайн-скрипт
+   * index.html ещё до первой отрисовки и всегда (по умолчанию светлая). Брендовый
+   * синий акцент и шрифт — theme-2026-brand.css. */
+
+  /* ---------- Liquid Glass foundation ---------- */
+
+  html {
+    /* Safari в альбомной ориентации сам увеличивает шрифт — вёрстка CRM плотная,
+     и от этого ехали строки таблиц. */
+    -webkit-text-size-adjust: 100%;
+    /* Тянешь вниз у самого верха страницы (pull-to-refresh) — iOS Safari «резинит»
+     весь документ. Внутренним прокручиваемым блокам (.overflow-y-auto и т.п.,
+     см. ниже) contain уже стоял, а САМОЙ СТРАНИЦЕ — нет: html/body тянулись как
+     обычно, и в этот момент position:fixed-элементы (нижняя навигация, кнопки-
+     шарики) у iOS Safari визуально съезжают не на своё место, пока резинка не
+     отпустит (владелец 18.08.2026, живой скриншот — кнопки «идут наверх»). */
+    overscroll-behavior-y: none;
+    /* СТРАХОВКА ОТ БОКОВОЙ ПРОКРУТКИ, а не замена починке (10.09.2026).
+     Один блок шире экрана превращает весь телефон в «немножко увеличено»:
+     страницу можно увести вправо, и нижняя навигация (position:fixed, ширина по
+     начальному содержащему блоку) уезжает вместе с ней — у пункта «Ещё» остаётся
+     видна одна буква. Причины ищутся и чинятся замером
+     (`apps/web/scripts/overflow-audit.mjs`, отчёт
+     `docs/pult/theme-2026/reports/mobile-overflow.md`); эта строка нужна, чтобы
+     ОДНА будущая ошибка не ломала экран целиком.
+     `clip`, а не `hidden`: `hidden` на корне делает документ прокручиваемым
+     контейнером и ломает `position:sticky` у шапок таблиц, `clip` просто
+     отрезает и ничего не прокручивает. Safari до 16 свойство не знает и молча
+     игнорирует — на таких браузерах остаётся ровно прежнее поведение, поэтому
+     страховка и не может считаться починкой. */
+    overflow-x: clip;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    font-feature-settings: 'tnum', 'cv02', 'cv03';
+    /* 100dvh, а не 100vh: на iOS в 100vh заложена спрятанная адресная строка, и
+     страница получалась выше видимой области — низ прыгал при прокрутке. */
+    min-height: 100dvh;
+    background-color: var(--c-page);
+    overscroll-behavior-y: none;
+  }
+
+  /* Аврора вынесена в собственный неподвижный слой. Раньше она жила на самом body
+   через `background-attachment: fixed` — iOS Safari такое крепление честно не
+   поддерживает: он перерисовывает фон на каждом кадре прокрутки, отчего экран
+   дёргается и подтормаживает. Неподвижный псевдоэлемент даёт ту же картинку без
+   перерисовки. z-index -2 — под слоем дрейфа (::before, -1) и над фоном страницы. */
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: -2;
+    pointer-events: none;
+    background-image: var(--aurora);
+  }
+
+  /* Медленный дрейф авроры — только если пользователь не просил убрать анимации */
+  @media (prefers-reduced-motion: no-preference) {
+    body::before {
+      content: '';
+      position: fixed;
+      inset: -20%;
+      z-index: -1;
+      pointer-events: none;
+      background-image:
+        radial-gradient(
+          circle 480px at 22% 28%,
+          var(--drift-1),
+          transparent 70%
+        ),
+        radial-gradient(
+          circle 420px at 78% 68%,
+          var(--drift-2),
+          transparent 70%
+        );
+      animation: aurora-drift 26s ease-in-out infinite alternate;
+    }
+
+    @keyframes aurora-drift {
+      from {
+        transform: translate3d(-2.5%, -2%, 0) scale(1);
+      }
+      to {
+        transform: translate3d(2.5%, 2.5%, 0) scale(1.06);
+      }
+    }
+
+    /* НА ТЕЛЕФОНЕ ДРЕЙФ ВЫКЛЮЧЕН (10.09.2026, «как родное приложение»).
+   *
+   * Это единственная бесконечная анимация первого экрана, и она самая дорогая из
+   * всех: слой inset:-20% во всю видимую область двигается кадр за кадром вечно,
+   * а над ним лежат поверхности с backdrop-filter (.bg-card, .rh-glass, шторки,
+   * нижняя навигация — blur(12–18px)). Каждое смещение подложки заставляет
+   * пересчитывать размытие ВСЕХ этих поверхностей заново, то есть телефон
+   * непрерывно занят работой, которую никто не просил, — заряд и плавность
+   * прокрутки платят за эффект, которого не видно.
+   *
+   * Не видно буквально: в темах royal-home-2026-* --drift-1/--drift-2 заданы с
+   * прозрачностью 0.05–0.06, а цикл длится 26 секунд. Слой остаётся на месте
+   * (background-image у ::before не тронут) — пятна те же, просто неподвижные.
+   * На компьютере дрейф сохранён: там он бесплатен и заметнее на большом экране. */
+    html[data-mobile-ux] body::before {
+      animation: none;
+    }
+  }
+
+  /* Каждая поверхность .bg-card — матовое стекло: blur + сатурация фона за ней */
+}
+@layer components {
+  @keyframes glass-drop-in {
+    from {
+      opacity: 0;
+      transform: translateY(-14px) scale(0.97);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+  @keyframes glass-mic-pulse {
+    0%,
+    100% {
+      box-shadow: 0 0 0 0 rgba(255, 80, 90, 0.14), inset 0 1px 2px rgba(255, 255, 255, 0.9);
+    }
+    50% {
+      box-shadow: 0 0 0 9px rgba(255, 80, 90, 0.06), 0 12px 26px -8px rgba(255, 80, 90, 0.3);
+    }
+  }
+
+  /* «Жидкое стекло» на крупных панелях интерфейса — тонкий блик по верхнему
+   * внутреннему краю плюс мягкое рассеянное сияние, тот самый эффект из шапки
+   * open-design.ai, на который обратил внимание владелец (30.08.2026). Только
+   * на шапке/сайдбаре/нижней навигации — не на карточках с данными: там та же
+   * тень читалась бы лишним контуром вокруг цифр, а не украшением. Блик белый
+   * даже в тёмных темах намеренно: он имитирует не цвет поверхности, а блик от
+   * источника света над экраном — так же ведёт себя тёмное стекло у Apple.
+   */
+  [data-topbar],
+  [data-rail],
+  [data-bottomnav] {
+    box-shadow:
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.5),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.06),
+      0 0 32px -10px rgba(17, 17, 26, 0.14);
+  }
+
+  /* Палец в среднем накрывает около 9 мм — это те самые 44 CSS-пикселя, ниже
+   * которых промах становится правилом, а не случайностью. Часть кнопок в CRM
+   * сознательно маленькие на вид (крестик подсказки, значок в шапке): растянуть
+   * их саму рамку значит раздвинуть соседний текст. Поэтому увеличивается не
+   * кнопка, а её зона нажатия — невидимым слоем поверх, который не участвует
+   * в раскладке. На мыши это ничего не меняет, на телефоне — попадаешь всегда.
+   *
+   * Элементу нужен `relative` (иначе слой отсчитается от чужого предка).
+   * Пробел между целями остаётся: зона центрирована и не выходит за 44px. */
+  /* ---------- Три вещи, по которым палец отличает сайт от приложения ----------
+     Все три касаются только устройств с пальцем (data-mobile-ux, см.
+     hooks/useMobileUx.ts) и не трогают работу мышью.
+
+     1. Задержка. Браузер ждёт около 300 мс после касания — вдруг это двойной тап
+        для увеличения. В приложении такой паузы нет, и именно она читается как
+        «тормозит». touch-action: manipulation отключает двойной тап-зум, и ожидание
+        пропадает. Ставится на элементы управления, а не на всю страницу: щипком
+        увеличить фотографию объекта или карту по-прежнему можно.
+     2. Синий прямоугольник подсветки при нажатии — примета веб-страницы.
+     3. Выделение текста при удержании кнопки: палец задержался на строке списка —
+        и вместо действия появилось выделение с лупой. На тексте карточек выделение
+        оставляем: оттуда копируют адреса, суммы и номера. */
+  html[data-mobile-ux] button,
+  html[data-mobile-ux] a,
+  html[data-mobile-ux] [role="button"],
+  html[data-mobile-ux] label,
+  html[data-mobile-ux] select,
+  html[data-mobile-ux] summary {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+  html[data-mobile-ux] button,
+  html[data-mobile-ux] [role="button"],
+  html[data-mobile-ux] summary {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+}
+
+/* ---------- Мобильный «стеклянный» облик (17.08.2026, вечер) ----------
+ * Экраны CRM возвращены в реальный проектный дизайн — прототип
+ * design_handoff_royal_home_crm/RoyalHomeCRM-Mobile-standalone.html,
+ * тема по умолчанию в его коде (THEMES[2] «Glass light», FAMS[0] «Стекло»,
+ * state = {fam:0, dark:false} — то, что реально видно на скриншотах
+ * screenshots/role-*-home.png, а не то, что написано в README, — там
+ * устаревшее описание другой темы).
+ *
+ * ПОЧЕМУ ПЕРЕОПРЕДЕЛЕНИЕ ПЕРЕМЕННЫХ, А НЕ НОВЫЕ КЛАССЫ В КАЖДОМ ФАЙЛЕ.
+ * Ночью 17.08 мобильные экраны построены на тех же токенах (`bg-card`,
+ * `border-line`, `text-blue`, `rounded-card` — см. tailwind.config.js),
+ * что и десктоп, только с цветами десктопной темы «Королевское стекло».
+ * Из-за этого ни один мобильный экран не был похож на макет, хотя
+ * вёрстка была разумной. Переопределяя те же переменные под
+ * `html[data-mobile-ux]`, весь уже собранный мобильный интерфейс
+ * (30+ экранов) сразу получает верный облик без переписывания каждого
+ * файла — а именно так и задуман этот слой токенов (см. шапку файла).
+ * Десктопа правило не касается: селектор требует признак телефона/пальца.
+ */
+/* ---------- Форма (радиус карточек/пилюльные контролы) — телефон, ЛЮБАЯ тема ----------
+ * Задача K (08.09.2026, решение владельца): тёмная тема работает на телефоне так же,
+ * как на ПК. Цветовой слой «Royal Glass» для телефона, перекрашивавший палитру
+ * независимо от `data-theme`, снят (06.10.2026: тем осталось две, обе в
+ * theme-royal-home-2026.css, и перекрывать их на телефоне нечем и незачем).
+ * Форма (скругления, пилюльные кнопки) — не про свет/тьму, поэтому остаётся
+ * общей для любой темы на телефоне. */
+html[data-mobile-ux] {
+  --r-card: 22px;
+  /* Кнопки-пилюли: radCtl:'999px' в Glass light. Владелец 17.08 вечером сверил
+   * прод со скриншотом макета — прямоугольные кнопки читались как «не то». */
+  --r-control: 999px;
+}
+
+/* ---------- Движение прототипа (17.08 вечер) ----------
+ * «Удивительное ощущение» макета — не только цвета: в standalone-файле КАЖДЫЙ
+ * блок Главной входит каскадом (animation:rhFadeUp .5s ease backwards с
+ * задержками .05s/.12s/.22s/.3s...). Перенос статики без этого движения и
+ * давал «похоже, но плохо» (слова владельца). Правило ниже раздаёт каскад
+ * детям контейнера с data-stagger — один атрибут на корне экрана вместо
+ * ручных задержек в каждом файле; шаг 70мс повторяет ряд прототипа.
+ * Ограничено мобильным обликом и уважает prefers-reduced-motion. */
+@keyframes rh-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+/**
+ * ТОЛЬКО ПЕРВЫЕ 12 СТРОК АНИМИРУЮТСЯ (18.08.2026, гипотеза по зависанию на
+ * Android — воспроизвести живьём пока не удалось, правим самую вероятную
+ * причину из найденного в коде).
+ *
+ * Раньше `> *` без ограничения — на списке в сотни строк (API отдаёт до
+ * ?pageSize=200) это запускало анимацию НА ВСЕ строки разом при монтировании
+ * экрана, включая те, что ниже экрана и невидимы человеку: чистый расход GPU
+ * без какой-либо пользы, и на слабом телефоне складывается в подвисание. Ниже
+ * экрана каскад никто не видит — значит и не нужен.
+ */
+/**
+ * КАСКАД ПОЛНОСТЬЮ ОТКЛЮЧЁН (владелец 20.08.2026, второй заход: «отключи
+ * везде анимацию... супер скорость, как родное приложение»). Сначала задержки
+ * между строками просто убрали (см. правку от того же дня чуть выше по
+ * истории git) — недостаточно, каждый переход между разделами всё ещё ждал
+ * 120мс фейда. Теперь data-stagger ничего не делает: элементы просто есть на
+ * экране сразу, без затемнения при появлении. Атрибут data-stagger остаётся
+ * в разметке (используется как маркер), но больше ни на что не влияет —
+ * при желании вернуть эффект достаточно раскомментировать блок ниже.
+ */
+/*
+@media (prefers-reduced-motion: no-preference) {
+  html[data-mobile-ux] [data-stagger] > *:nth-child(-n + 12) {
+    animation: rh-fade-up 0.12s ease backwards;
+  }
+}
+*/
+
+/* ЗДЕСЬ БЫЛ Golos Text для мобильного облика — правило снято 10.09.2026.
+ *
+ * Оно объявляло `html[data-mobile-ux] body` без исключения для тем
+ * royal-home-2026-*, которое несут все соседние мобильные правила (см. контракт
+ * ниже и палитру ~954). Поскольку в реестре тем остались ТОЛЬКО эти две
+ * (lib/themes.ts, слой 4), правило срабатывало всегда: оболочка на телефоне
+ * рисовалась Golos Text, а содержимое внутри `.rh2` — эталонным Manrope
+ * (`.rh2{font-family:var(--ff-text)}` в theme-2026-proto.css). Две гарнитуры на
+ * одном экране, плюс 26 КБ шрифтовых файлов в критическом пути первого экрана.
+ * Теперь и оболочка, и содержимое наследуют одну гарнитуру: body берёт
+ * --font-sans (Manrope) из правила body выше. Межбуквенный интервал задаёт сам
+ * эталон, руками его здесь больше не поправляем. */
+
+/* Поля и списки выбора в панелях фильтров сделаны компактными под мышь
+ * (px-2.5 py-1.5 — около 33px в высоту). Пальцем в такую строку попадают
+ * через раз, а панелей фильтров в CRM десяток. Правило срабатывает только
+ * там, где указатель заведомо грубый (телефон, планшет), — на десктопе
+ * плотность остаётся прежней. Флажки и переключатели исключены: у них своя
+ * геометрия, растягивать их по высоте нельзя. */
+@media (pointer: coarse) {
+  select,
+  textarea,
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]) {
+    min-height: 44px;
+  }
+}
+
+/* ---------- Отключаемые эффекты (Профиль → Оформление) ----------
+ * Идут ПОСЛЕ тем: html.fx-* и html[data-theme] имеют равную специфичность,
+ * побеждает порядок в файле. */
+
+html.fx-no-aurora body::after {
+  display: none;
+}
+html.fx-no-aurora body::before {
+  display: none;
+}
+
+html.fx-no-glass {
+  --c-card: var(--c-card-solid);
+}
+html.fx-no-glass .bg-card {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+/* ---------- Анимации графиков (дашборд) ---------- */
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Мягкое появление блоков дашборда — «поднимаются» снизу.
+     БЕЗ opacity: с fill both непроигранный кадр застревал навсегда, и полоса
+     KPI на главной, в отчётах и в финансах пропадала целиком (рамка сетки
+     оставалась) — выглядело как «данные не загрузились», хотя они пришли.
+     См. правило в конце файла: видимость не зависит от анимации. */
+  .animate-rise {
+    animation: rise-in 0.5s ease both;
+  }
+  @keyframes rise-in {
+    from {
+      transform: translateY(10px);
+    }
+    to {
+      transform: none;
+    }
+  }
+
+  /* Бегущий эквалайзер на экране «Разбираю разговор» (CallAnalysisPanel) —
+     тот же рисунок, что и в прототипе (rhBar): полоска то приседает, то
+     тянется вверх, три штуки со сдвигом по времени. */
+  .animate-eq {
+    animation: eq-bounce 0.9s ease-in-out infinite;
+  }
+  @keyframes eq-bounce {
+    0%,
+    100% {
+      transform: scaleY(0.4);
+    }
+    50% {
+      transform: scaleY(1);
+    }
+  }
+  /* Начальное состояние — ВНУТРИ кадров, а не на элементе, и без fill-mode:
+     раньше `stroke-dashoffset: 1` и `opacity: 0` стояли базовыми значениями,
+     поэтому непроигранная анимация оставляла линию и заливку графика комиссии
+     невидимыми навсегда — откатываться было некуда, ноль и был базой. */
+  .chart-draw {
+    animation: chart-draw 0.9s ease-out;
+  }
+  @keyframes chart-draw {
+    from {
+      stroke-dasharray: 1;
+      stroke-dashoffset: 1;
+    }
+    to {
+      stroke-dasharray: 1;
+      stroke-dashoffset: 0;
+    }
+  }
+  .chart-fade-in {
+    transform-origin: bottom;
+    animation: chart-grow 0.7s ease-out;
+  }
+  @keyframes chart-grow {
+    from {
+      transform: scaleY(0);
+    }
+  }
+
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+  /* Мигание заглушек загрузки (components/rh2/Skeleton.tsx). Tailwind сам
+     animate-pulse под reduced-motion не глушит — а это ровно тот бесконечный
+     повторяющийся эффект, из-за которого настройку и включают. Заглушка при этом
+     не исчезает: она остаётся видимой и продолжает держать место, просто не
+     пульсирует. */
+  .animate-pulse {
+    animation: none;
+  }
+}
+
+/* ---------- ИИ-ассистент: появление панели ---------- */
+
+@media (prefers-reduced-motion: no-preference) {
+  /* 0.2с → 0.1с (владелец 20.08.2026, «супер скорость») — ассистент, поиск и
+     всплывающие меню используют этот же класс. */
+  .assistant-panel-in {
+    animation: assistant-pop 0.1s cubic-bezier(0.16, 1, 0.3, 1);
+    transform-origin: bottom right;
+  }
+  @keyframes assistant-pop {
+    from {
+      transform: translateY(12px) scale(0.97);
+    }
+  }
+}
+
+/* ---------- Плавающая кнопка ИИ-ассистента ---------- */
+
+@media (prefers-reduced-motion: no-preference) {
+  .assistant-fab-pulse::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 999px;
+    background: inherit;
+    /* 3 повтора и стоп (fill-mode: forwards держит конечный кадр — opacity:0) — привлекает
+       внимание один раз при появлении, не мигает бесконечно и не отвлекает при работе. */
+    animation: fab-pulse 2.6s ease-out 3;
+    animation-fill-mode: forwards;
+    z-index: -1;
+  }
+  @keyframes fab-pulse {
+    0% {
+      opacity: 0.4;
+      transform: scale(1);
+    }
+    100% {
+      opacity: 0;
+      transform: scale(1.4);
+    }
+  }
+}
+
+/* ---------- Голосовой ввод: кольца при записи, вращение при распознавании ---------- */
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Идёт запись — бесконечное, а не разовое кольцо (fab-pulse выше гаснет через
+     три повтора: там разовое привлечение внимания, здесь — статус, который
+     длится, пока агент держит кнопку записи). Два кольца со сдвигом по времени
+     дают ощущение живого «дыхания», как индикатор записи у Gemini. */
+  .mic-recording::before,
+  .mic-recording::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 999px;
+    background: inherit;
+    animation: mic-ripple 1.8s ease-out infinite;
+    z-index: -1;
+  }
+  .mic-recording::after {
+    animation-delay: 0.6s;
+  }
+  @keyframes mic-ripple {
+    0% {
+      opacity: 0.45;
+      transform: scale(1);
+    }
+    100% {
+      opacity: 0;
+      transform: scale(1.9);
+    }
+  }
+
+  /* Сеть распознаёт — вращающаяся дуга поверх иконки, а не просто «замерший» вид:
+     без неё пауза между записью и результатом выглядела как зависание. */
+  .mic-transcribing::before {
+    content: "";
+    position: absolute;
+    inset: -3px;
+    border-radius: 999px;
+    border: 2px solid transparent;
+    border-top-color: currentColor;
+    animation: mic-spin 0.8s linear infinite;
+  }
+  @keyframes mic-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+}
+
+/* ---------- Карта: попап списка объектов района ---------- */
+
+/**
+ * Затемнение под диалогами и шторками.
+ *
+ * Было `bg-ink/40` в шестнадцати окнах. `ink` — это цвет ТЕКСТА темы: в светлой
+ * он почти чёрный и работал как надо, а в тёмных облик становится светлым, и
+ * «затемнение» превращалось в молочную пелену поверх экрана — окно тонуло в ней
+ * вместе с фоном. Подложка обязана затемнять в любой теме, поэтому цвет здесь
+ * фиксированный и намеренно не токен.
+ */
+.overlay-scrim {
+  background: rgba(0, 0, 0, 0.5);
+}
+
+/* Попап района на карте. ВНИМАНИЕ к именам токенов: до 13.08.2026 этот блок
+   ссылался на `--c-ink`, `--c-ink-muted` и `--c-blue` — таких переменных в проекте
+   нет ни одной. Браузер молча оставлял цвет унаследованным, и попап во всех темах
+   рисовался не так, как задумано (а в тёмных — почти нечитаемо). Настоящие имена:
+   `--rgb-ink`, `--rgb-g400`, `--rgb-accent`, и они разворачиваются через rgb(). */
+.map-popup-wrap .leaflet-popup-content-wrapper {
+  background: var(--c-card-solid);
+  color: rgb(var(--rgb-ink));
+  border-radius: 12px;
+  box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.25);
+}
+.map-popup-wrap .leaflet-popup-tip {
+  background: var(--c-card-solid);
+}
+.map-popup-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: rgb(var(--rgb-g400));
+  padding: 2px 2px 6px;
+  border-bottom: 1px solid var(--c-line-soft);
+  margin-bottom: 4px;
+}
+.map-popup-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 2px;
+  font-size: 13px;
+  cursor: pointer;
+  border-radius: 6px;
+}
+@media (hover: hover) {
+  .map-popup-row:hover {
+    background: var(--c-hover-tint);
+  }
+}
+.map-popup-row b {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.map-popup-row span {
+  color: rgb(var(--rgb-g400));
+  font-weight: 600;
+  shrink: 0;
+  white-space: nowrap;
+}
+.map-popup-more {
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px solid var(--c-line-soft);
+  font-size: 13px;
+  font-weight: 700;
+  color: rgb(var(--rgb-accent));
+  cursor: pointer;
+  text-align: center;
+}
+@media (hover: hover) {
+  .map-popup-more:hover {
+    text-decoration: underline;
+  }
+}
+
+/* ---------- Quality floor ---------- */
+
+::selection {
+  background: var(--c-selection);
+}
+
+/* Тонкая светящаяся линия вместо двух жёстких колец — следует собственному радиусу
+ * элемента (box-shadow, в отличие от outline+offset, не рисует отдельную рамку). */
+:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 1.5px rgb(var(--rgb-accent)), 0 0 10px 1px rgb(var(--rgb-accent) / 0.4);
+  transition: box-shadow 0.15s ease;
+}
+
+
+/* Тонкие iOS-подобные скроллбары */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--c-scroll-thumb) transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--c-scroll-thumb);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--c-scroll-thumb-hover);
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+
+/* Контейнер метки Leaflet при iconSize [0,0] схлопывается в нулевую ширину,
+   и цена начинает переноситься по слогам. Разрешаем ему растянуться по тексту. */
+/* Метки карты. Раньше классы существовали только в разметке, а правил под них
+   не было: число объектов и цена рисовались голым текстом поверх улиц. */
+.map-dot {
+  display: block;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: rgb(var(--rgb-accent));
+  /* Кольцо цветом подложки: без него точка тонет в пёстрой карте. */
+  box-shadow: 0 0 0 3px var(--c-card-solid), 0 1px 4px rgba(0, 0, 0, 0.28);
+  transition: transform 0.12s;
+}
+@media (hover: hover) { .map-dot:hover { transform: scale(1.25); } }
+.map-dot.is-muted { background: rgb(var(--rgb-g400)); }
+
+.map-count-pin {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  background: rgb(var(--rgb-accent));
+  color: var(--c-on-accent);
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 0 0 3px var(--c-card-solid), 0 2px 6px rgba(0, 0, 0, 0.3);
+  transition: transform 0.12s;
+}
+@media (hover: hover) { .map-count-pin:hover { transform: scale(1.1); } }
+
+/* Переход между шагами мастера (PropertyFormModal и подобные) и появление
+   закрываемых подсказок (DismissibleHint) — тот же приём, что live-page-enter:
+   лёгкий сдвиг снизу вместо мгновенной подмены. Класс навешивается только когда
+   разрешены анимации (панель предпочтений и/или отсутствие reduce-motion) —
+   здесь только степень эффекта, а не решение, включать ли его вовсе. */
+@media (prefers-reduced-motion: no-preference) {
+  .step-fade-in {
+    animation: step-fade-in 0.22s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  }
+  /* Без opacity в обоих: непроигранный кадр оставлял пустой шаг мастера объекта
+     (поля есть в DOM, но их не видно — человек считает, что форма сломалась) и
+     пустую серую полосу вместо текста подсказки на шести экранах. */
+  @keyframes step-fade-in {
+    from { transform: translateY(8px); }
+  }
+  .hint-fade-in {
+    animation: hint-fade-in 0.25s ease both;
+  }
+  @keyframes hint-fade-in {
+    from { transform: translateY(-4px); }
+  }
+}
+
+/* Пульсация скелетонов приходит из Tailwind, а он системную настройку
+   «уменьшить движение» сам не учитывает — в отличие от наших собственных
+   анимаций выше, которые заведены внутри `prefers-reduced-motion: no-preference`.
+   Каркас при этом остаётся видимым, просто перестаёт мерцать. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-pulse {
+    animation: none;
+  }
+}
+
+/* ---------- Движение ---------- */
+@media (prefers-reduced-motion: no-preference) {
+  /* ТО ЖЕ САМОЕ НА ЛЮБОМ ТЕЛЕФОНЕ, независимо от облика.
+     У пальца нет наведения: без просадки под нажатием кнопка никак не отвечает на
+     касание, и человек жмёт второй раз, не поняв, сработало ли. В «Классическом»
+     облике этого не было вовсе — а именно он стоит по умолчанию. Просадка мельче,
+     чем у live2 (0.98 против 0.97): там это часть характера облика, здесь —
+     минимальное подтверждение нажатия, которое не должно бросаться в глаза. */
+  html[data-mobile-ux] button:active,
+  html[data-mobile-ux] a:active {
+    transform: scale(0.98);
+  }
+  html[data-mobile-ux] button,
+  html[data-mobile-ux] a {
+    transition: transform var(--dur-fast) var(--ease-out-soft);
+  }
+
+  /* ПЕРЕХОД МЕЖДУ ЭКРАНАМИ ОТКЛЮЧЁН (владелец 20.08.2026: «отключи везде
+     анимацию... супер скорость»). Раньше экран приезжал сдвигом 12px за
+     120мс — сам по себе быстрый, но вместе с остальным (каскад, всплывающие
+     панели) в сумме ощущался как задержка на каждый переход между разделами.
+     Атрибут data-page-enter остаётся в разметке AppLayout как маркер, правило
+     закомментировано, а не удалено — вернуть эффект, если решение изменится,
+     можно одной строкой. */
+  /*
+  html[data-mobile-ux] [data-page-enter] {
+    animation: mobile-page-enter 0.12s var(--ease-out-soft) backwards;
+  }
+  @keyframes mobile-page-enter {
+    from {
+      transform: translateX(12px);
+    }
+  }
+  */
+
+}
+
+/* ---------- Окна как шторки снизу (телефон, ЛЮБОЙ облик) ----------
+   Одно правило превращает ЛЮБОЕ модальное окно приложения в шторку — не нужно
+   переписывать каждую форму и заводить второй набор багов. Разметка окон
+   остаётся общей, меняется только их подача.
+
+   ПРИЗНАК СМЕНЁН С ОБЛИКА НА УСТРОЙСТВО (владелец 10.08.2026: «на телефоне —
+   всегда как приложение»). Раньше здесь стояло html[data-look="live2"], и шторки
+   видел только тот, кто сам переключил облик в настройках; по умолчанию стоит
+   «Классический», то есть большинство сотрудников работали с телефона окнами по
+   центру экрана. Атрибут data-mobile-ux ставит hooks/useMobileUx.ts — он же
+   ловит планшет, где экран широкий, а управление пальцем, и потому одним
+   медиа-запросом по ширине не обойтись.
+
+   Работает по признаку [role="dialog"]: его несут все окна CRM. Смахивание
+   пальцем добавляет useSwipeToDismiss (components/BottomSheet.tsx) — CSS этого
+   не умеет. */
+@media (max-width: 1179px) {
+  /* Окна с data-no-sheet — не шторки: их положение и размер уже спроектированы
+     как плавающий виджет (например AssistantPanel, «в духе Jivo/Intercom»), и
+     превращать их в шторку снизу с ручкой-полоской и обрезкой углов — только
+     ломать задуманный вид. Признак снимает их с общего правила целиком, а не
+     только полоску: под низ экрана их тоже прижимать не нужно. */
+  html[data-mobile-ux] [role="dialog"]:not([data-no-sheet]) {
+    margin-top: auto;
+    height: auto !important;
+    /* dvh, а не vh: vh на телефоне включает высоту скрытых панелей браузера,
+       и шторка вылезала за нижний край экрана. */
+    max-height: 92dvh;
+    border-radius: 22px 22px 0 0;
+    /* Дом кнопки «Дальше» — над системной полосой жестов, а не под ней. */
+    padding-bottom: env(safe-area-inset-bottom);
+    box-shadow: var(--shadow-overlay);
+    /* Вход — через transition + @starting-style, а НЕ animation.
+       Разница принципиальная: анимация с fill: both оставляет элемент в первом
+       кадре, если браузер по какой-то причине не проигрывает кадры (свёрнутая
+       вкладка, экономия энергии, отключённая композиция) — шторка так и висит
+       за нижним краем экрана. Переход же просто не проиграется, а конечное
+       положение применится сразу: хуже выглядит, но работает всегда. */
+    transform: translateY(0);
+    transition: transform 0.34s var(--ease-spring);
+  }
+  /* ВНИМАНИЕ: сдвиг в стартовом кадре — только маленький.
+     Здесь стояло translateY(100%) — «шторка выезжает снизу целиком». На живом
+     телефоне владельца это обернулось тем, что форма оказалась ПОЛНОСТЬЮ за
+     нижним краем экрана: если браузер не проигрывает переход (экономия энергии,
+     слабое устройство, вкладка не в фокусе), элемент остаётся в стартовом кадре
+     навсегда. Двадцать четыре пикселя дают то же ощущение появления снизу, а в
+     худшем случае окно просто стоит на 24px ниже — этого никто не заметит. */
+  @starting-style {
+    html[data-mobile-ux] [role="dialog"]:not([data-no-sheet]) {
+      /* Масштаб, а не сдвиг: любой translateY в стартовом кадре смещает окно
+         вниз, и при незавершённом переходе кнопки оказываются за краем экрана.
+         Масштаб же не может вынести окно за границы — в худшем случае оно на
+         два процента меньше, чего не видно. */
+      transform: scale(0.98);
+    }
+  }
+  /* Полоска-ручка. Без неё человек не догадывается, что шторку можно тянуть, —
+     это единственная подсказка жеста, и она обязана быть видимой.
+     У окон с data-no-drag ручки нет: обязательные окна (итог разговора, отчёт по
+     объекту) смахиванием не закрываются, и приглашать к жесту, которого нет, —
+     худший вид обмана в интерфейсе. */
+  html[data-mobile-ux] [role="dialog"]:not([data-no-drag]):not([data-no-sheet])::before {
+    content: "";
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    display: block;
+    width: 40px;
+    height: 4px;
+    margin: 8px auto 2px;
+    border-radius: 999px;
+    background: rgb(var(--rgb-g400) / 0.5);
+  }
+  /* Подложка окна прижимает шторку к низу экрана. */
+  html[data-mobile-ux] [role="dialog"]:not([data-no-sheet]) {
+    align-self: flex-end;
+  }
+
+  /* КЛАВИАТУРА НЕ ДОЛЖНА ПРЯТАТЬ ОКНО.
+     Экранная клавиатура занимает половину экрана, и шторка высотой 92dvh уезжает
+     под неё вместе с кнопкой «Сохранить»: человек печатает и не видит, куда нажать
+     дальше. `dvh` тут не спасает — он меняется при появлении клавиатуры не во всех
+     браузерах. Единица `svh` (маленькая высота видимой области) считается от того,
+     что видно СЕЙЧАС, и там, где браузер её поддерживает, шторка сама ужимается.
+     Правило идёт после основного, поэтому в старых браузерах остаётся 92dvh. */
+  @supports (height: 100svh) {
+    html[data-mobile-ux] [role="dialog"]:not([data-no-sheet]) {
+      max-height: min(92dvh, 96svh);
+    }
+  }
+
+  /* Кнопка действия видна всегда, а не в конце длинной формы.
+     Липкий низ у окон, которые сами его объявили (data-sheet-footer): опускать
+     туда всё подряд нельзя — в коротких окнах прилипшая панель выглядит нелепо. */
+  html[data-mobile-ux] [role="dialog"] [data-sheet-footer] {
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
+    /* --c-card-solid, а НЕ --rgb-card: последней переменной не существует, и с ней
+       весь набор объявлений отбрасывался — липкий низ оставался прозрачным, а под
+       ним просвечивали поля формы (поймано проверкой 10.08.2026). Именно «solid»:
+       обычный --c-card полупрозрачен, и текст под панелью читался бы сквозь неё. */
+    background: var(--c-card-solid);
+    border-top: 1px solid var(--c-line);
+    padding-top: 10px;
+    padding-bottom: max(10px, env(safe-area-inset-bottom));
+  }
+}
+
+
+/* ------------------------------------------------------------------
+ * АВТОЗАПОЛНЕНИЕ БРАУЗЕРА
+ *
+ * Подставляя сохранённый номер и пароль, Chrome и Safari перекрашивают поле
+ * своим жёлтым фоном и чёрным текстом — поверх любых наших стилей. На экране
+ * входа это выглядело как два ярких пятна (владелец прислал снимок 21.08.2026),
+ * а в тёмной теме означало чёрные буквы на жёлтом.
+ *
+ * Убрать фон напрямую нельзя: браузер рисует его отдельным слоем. Приём —
+ * растянутая внутренняя тень цвета поверхности, которая этот слой перекрывает,
+ * и -webkit-text-fill-color для самого текста. Задержка в переходе не даёт
+ * жёлтому мигнуть в первый кадр после подстановки.
+ * ------------------------------------------------------------------ */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active {
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: rgb(var(--rgb-ink));
+  box-shadow: inset 0 0 0 1000px var(--c-card-solid);
+  transition: background-color 100000s ease-in-out 0s;
+  caret-color: rgb(var(--rgb-ink));
+}
+
+/* Полоса прогресса — заливка растёт через scaleX (не width: не триггерит layout). */
+.rh-progress-track {
+  position: relative;
+  overflow: hidden;
+  background: var(--c-line-soft);
+  border-radius: var(--rh-r-pill, 999px);
+}
+.rh-progress-fill {
+  position: absolute;
+  inset: 0;
+  transform-origin: left center;
+  border-radius: inherit;
+  background: rgb(var(--rgb-accent));
+  transition: transform 500ms var(--rh-ease-out, cubic-bezier(0.16, 1, 0.3, 1));
+}
+@media (prefers-reduced-motion: reduce) {
+  .rh-progress-fill {
+    transition: none;
+  }
+}
+
+
+/* ============================================================
+ * Редактор кампании воронки (pages/settings/FunnelEditor.tsx).
+ *
+ * Этого экрана в макете темы 2026 нет — в screens/funnel.html показан только
+ * список кампаний. Раскладка собрана по тем же правилам, что `.two` эталона
+ * (сетка в две колонки, одна колонка на узком экране), но зеркально: широкая
+ * форма слева, узкий предпросмотр справа и липкий. Своих цветов и отступов
+ * здесь нет — только токены темы, поэтому ночная тема применяется сама.
+ * ============================================================ */
+.rh2 .scr .fed {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: var(--s4);
+  align-items: start;
+}
+.rh2 .scr .fed-form {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+}
+.rh2 .scr .fed-prev {
+  position: sticky;
+  top: 72px;
+}
+@media (max-width: 1179px) {
+  .rh2 .scr .fed {
+    grid-template-columns: 1fr;
+  }
+  /* Предпросмотр внизу, а не сбоку: на телефоне он всё равно окажется под
+     формой, и порядок «сначала заполняю, потом смотрю» там единственно
+     возможный — липкость там только мешала бы. */
+  .rh2 .scr .fed-prev {
+    position: static;
+  }
+}

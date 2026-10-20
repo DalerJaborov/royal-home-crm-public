@@ -1,0 +1,3 @@
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# Royal Home: копия станции каждую ночь (по воскресеньям — с историей звонков asteriskcdrdb)
+20 3 * * * root /usr/local/sbin/royalhome-backup.sh >/dev/null 2>&1

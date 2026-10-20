@@ -1,0 +1,146 @@
+node_modules/
+dist/
+build/
+.env
+.env.local
+.env.production
+*.log
+.DS_Store
+apps/api/uploads/
+# Вложения из переписки: закрытое хранилище ВНЕ uploads (см. lib/privateFiles.ts) —
+# фото клиентов не раздаются статикой и тем более не попадают в репозиторий.
+apps/api/uploads-private/
+# Сырое видео объектов (31.08.2026, замена Cloudflare R2) — тот же принцип, что
+# и у uploads-private выше, см. lib/localVideoStorage.ts.
+apps/api/uploads-private-video/
+apps/api/uploads-private-video-sessions/
+# Озвученные приветствия ИИ (lib/greetingVoice.ts). Обычно лежат внутри
+# uploads-private выше, но каталог считается от PRIVATE_UPLOADS_DIR: если
+# переменная указывает на саму apps/api, папка всплывает здесь. Это
+# сгенерированный звук по агентам, в коммит он не идёт ни при какой раскладке.
+apps/api/greetings/
+apps/api/prisma/dev.db
+.vite/
+*.tsbuildinfo
+.claude/settings.local.json
+
+# Playwright: состояние сессии для E2E и артефакты прогонов
+apps/web/playwright/.auth/
+apps/web/test-results/
+apps/web/playwright-report/
+# То же самое в КОРНЕ репозитория. Правило появилось 13.08.2026 после проверки:
+# `npx playwright test --config=apps/web/playwright.config.ts`, запущенный из корня,
+# кладёт состояние сюда, а не в apps/web — и `playwright/.auth/chromium.json` с живым
+# refreshToken оказывался НЕ игнорируемым. В этот же день `git add -A` в соседней
+# сессии уже утащил в коммит чужие незакоммиченные файлы; попади так токен, он уехал
+# бы в GitHub. В историю не попал — проверено, но щиток нужен на оба каталога.
+playwright/.auth/
+test-results/
+playwright-report/
+
+# Снимки живых проходов (scripts/walkthrough.mjs, buyer.mjs, seller.mjs, roles.mjs,
+# prelaunch.mjs): их смотрят сразу после прогона и выбрасывают. Каждый запуск —
+# десяток полностраничных PNG, и в истории репозитория им делать нечего.
+apps/web/walkthrough-shots/
+apps/web/buyer-shots/
+apps/web/seller-shots/
+apps/web/roles-shots/
+apps/web/prelaunch-shots/
+apps/web/editor-shots/
+apps/web/manager-shots/
+apps/web/marketing-shots/
+apps/web/security-shots/
+
+# Отчёты анализаторов кода (jscpd) — результат прогона, не исходник.
+reports/
+
+# Вспомогательные скрипты для снимков экрана — локальный инструмент, не часть сборки.
+apps/web/devtools/
+
+# Загрузки, когда тесты/дев-сервер запускались из корня монорепо, а не из apps/api
+# (реальное хранилище — apps/api/uploads выше). Попадали в коммиты случайным мусором.
+/uploads/
+apps/web/window-shots/
+
+# Промежуточный HTML сборки PDF-гида — пересоздаётся командой сборки.
+docs/lead-magnets/.checklist.build.html
+
+# Покрытие тестов и кэши инструментов.
+coverage/
+.eslintcache
+
+# Локальные env-файлы конкретных окружений (примеры *.example остаются в репозитории).
+.env.*.local
+.env.development
+.env.test
+
+# Закрытое хранилище вложений, когда API запущен из корня монорепо
+# (аналогично /uploads/ выше; реальное хранилище — apps/api/uploads-private).
+/uploads-private/
+# То же самое для сырого видео объектов (31.08.2026, замена Cloudflare R2).
+/uploads-private-video/
+/uploads-private-video-sessions/
+
+# Мусор операционных систем.
+Thumbs.db
+
+# Remotion-проекты (apps/api/remotion — рабочий движок, docs/video-pipeline/
+# remotion-poc — витрина возможностей): исходники версионируются, результаты
+# прогонов и скачанные для проверки клиентские фото/видео — нет.
+apps/api/remotion/out*.mp4
+apps/api/remotion/check*.png
+apps/api/remotion/test-clean.mp4
+docs/video-pipeline/remotion-poc/out/
+docs/video-pipeline/remotion-poc/public/photos/
+
+# Кадры ночного QA-обхода (сотни PNG) — не в репозиторий
+docs/ai-greeting-08-09/bugs/crawl/
+
+# Приёмка: состояние сессий Playwright (токены) и отладочные кадры — не в git
+docs/acceptance-08-09/.storage-*.json
+docs/acceptance-08-09/.q4-partial-*.json
+apps/web/acc-q5-state.json
+apps/web/scripts/.acc-*-state.json
+apps/web/dbg.png
+
+# Тестовые аудио-артефакты — в репозиторий не попадают
+apps/api/*.webm
+
+# Сверка с макетом на 1440: выгруженные фрагменты эталона и склейки пар
+# (docs/pult/theme-2026/reports/desktop-parity-1440.md) — рабочие каталоги прогона
+.parity1440-mock/
+.parity1440-pairs/
+
+# Клиент Prisma 7 генерируется в дерево исходников (generator output),
+# а не в node_modules — но остаётся сгенерированным артефактом.
+apps/api/src/generated
+# Стенд агента (scripts/agent-stand.mjs): записанные порты и идентификаторы
+# процессов. Состояние одной машины, в репозиторий не попадает.
+.rh-stand/
+apps/web/e2e-output.txt
+
+# Одноразовые скрипты-черновики агентов (снятие кадров, разовые замеры):
+# лежат рядом с кодом ради разрешения модулей, но в репозиторий не попадают.
+_*.mjs
+apps/*/_*.mjs
+
+# Черновые скрипты снятия кадров в корне
+scratchpad-*.mjs
+apps/api/.g/
+
+apps/api/.g/
+
+# Сверка редизайна (apps/web/scripts/design-parity.mjs): кадры и отчёты прогонов
+# не коммитим, в репозитории остаётся только README.
+docs/design/parity/*/
+
+# Private runtime data must never enter the public source repository.
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+*.dump
+.env.*
+!.env.example
+!.env.*.example

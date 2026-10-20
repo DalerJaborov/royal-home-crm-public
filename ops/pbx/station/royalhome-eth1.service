@@ -1,0 +1,13 @@
+[Unit]
+Description=Royal Home: eth1 guard and route to CRM server (outbound-only external IP)
+After=network.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/royalhome-eth1.sh start
+ExecStop=/usr/local/sbin/royalhome-eth1.sh stop
+
+[Install]
+WantedBy=multi-user.target

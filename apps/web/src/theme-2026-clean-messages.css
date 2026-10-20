@@ -1,0 +1,256 @@
+/* The same conversation controller on desktop and authorized phone preview. */
+[data-shell="clean"] .clean-messages .two {
+  align-items: stretch;
+}
+html[data-shell="clean"] .clean-messages input[type="search"],
+html[data-shell="clean"] .clean-messages .compose textarea {
+  border: 0 !important;
+  box-shadow: none !important;
+  background: var(--c-row-alt);
+}
+html[data-shell="clean"] .clean-messages input[type="search"]:focus-visible,
+html[data-shell="clean"] .clean-messages .compose textarea:focus-visible {
+  box-shadow: inset 0 0 0 2px rgb(var(--rgb-accent)) !important;
+}
+[data-shell="clean"] .clean-messages .clean-inbox-workspaces {
+  margin-bottom: 12px;
+}
+[data-shell="clean"] .clean-messages .clean-conversation-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+@media (min-width: 820px) {
+  html[data-shell="clean"] .clean-messages .two > section {
+    height: max(420px, calc(var(--clean-viewport-height, 100dvh) - var(--clean-header-height, 80px) - var(--clean-notice-space, 0px) - 96px));
+  }
+}
+[data-shell="clean"] .clean-conversation-header {
+  flex-wrap: wrap;
+  align-content: start;
+}
+[data-shell="clean"] .clean-conversation-header .t {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+[data-shell="clean"] .clean-conversation-header .t b,
+[data-shell="clean"] .clean-conversation-header .lk {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+[data-shell="clean"] .clean-conversation-header .t > span {
+  flex-wrap: wrap;
+}
+[data-shell="clean"] .clean-bot-state {
+  color: var(--muted);
+  font-weight: 500;
+}
+[data-shell="clean"] .clean-thread-content {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+[data-shell="clean"] .clean-conversation .thread {
+  overscroll-behavior-y: contain;
+  overflow-anchor: none;
+  scroll-behavior: auto;
+}
+[data-shell="clean"] .clean-conversation .bub {
+  max-width: min(82%, 640px);
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+  border: 0;
+  box-shadow: none;
+}
+[data-shell="clean"] .clean-conversation .bub .tm {
+  font-variant-numeric: tabular-nums;
+  margin-top: 8px;
+  opacity: 1;
+}
+[data-shell="clean"] .clean-bot-feedback {
+  margin-top: 8px !important;
+}
+[data-shell="clean"] .clean-bot-feedback button {
+  min-height: 44px;
+  padding: 4px 8px;
+  font-size: 14px;
+}
+[data-shell="clean"] .clean-bot-feedback-note {
+  flex-wrap: wrap;
+  min-width: 0;
+  width: 100%;
+}
+[data-shell="clean"] .clean-bot-feedback-note input {
+  min-width: 0 !important;
+  min-height: 44px;
+  max-width: 100%;
+  flex: 1;
+  font-size: 16px !important;
+  border: 0 !important;
+}
+[data-shell="clean"] .clean-contact-details {
+  max-height: min(40dvh, 360px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+[data-shell="clean"] .clean-contact-title {
+  margin: 0 0 16px;
+  font-size: 18px;
+  line-height: 1.35;
+}
+[data-shell="clean"] .clean-contact-facts {
+  display: grid;
+  gap: 14px;
+  margin: 0;
+}
+[data-shell="clean"] .clean-contact-facts dt {
+  margin: 0 0 4px;
+  font-size: 16px;
+  color: var(--muted);
+}
+[data-shell="clean"] .clean-contact-facts dd {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+[data-shell="clean"] :is(.clean-contact-phone,.clean-contact-profile) {
+  margin-top: 20px;
+}
+[data-shell="clean"] :is(.clean-contact-phone,.clean-contact-profile) h3 {
+  margin: 0 0 8px;
+  font-size: 16px;
+}
+[data-shell="clean"] :is(.clean-contact-phone,.clean-contact-profile,.clean-contact-support) p {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+[data-shell="clean"] .clean-contact-phone .lnk {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  font-size: 16px;
+}
+[data-shell="clean"] .clean-contact-profile .txt {
+  font-size: 16px;
+  line-height: 1.5;
+}
+[data-shell="clean"] .clean-contact-profile :is(button,select) {
+  min-height: 44px;
+  font-size: 16px;
+}
+[data-shell="clean"] .clean-contact-support {
+  margin-top: 16px;
+}
+[data-shell="clean"] .clean-contact-support summary {
+  display: list-item;
+  min-height: 44px;
+  padding-block: 10px;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1.5;
+}
+[data-shell="clean"] .clean-contact-support .clean-contact-facts {
+  padding: 8px 0 14px;
+}
+[data-shell="clean"] .clean-conversation-workspace {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+[data-shell="clean"] .clean-conversation-timeline {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+@media (min-width: 1180px) {
+  [data-shell="clean"] .clean-conversation-workspace[data-context-open] {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(240px, 280px);
+  }
+  [data-shell="clean"] .clean-conversation-workspace > .clean-contact-details {
+    grid-column: 2;
+    grid-row: 1;
+    min-height: 0;
+    max-height: none;
+    border: 0 !important;
+    background: var(--c-row-alt);
+  }
+  [data-shell="clean"] .clean-conversation-workspace > .clean-conversation-timeline {
+    grid-column: 1;
+    grid-row: 1;
+  }
+}
+[data-shell="clean"] .clean-jump-latest {
+  padding: 8px 16px;
+  display: flex;
+  justify-content: center;
+}
+[data-shell="clean"] .clean-chat-empty {
+  margin: auto;
+  padding: 32px 20px;
+  max-width: 360px;
+  text-align: center;
+  color: var(--muted);
+}
+[data-shell="clean"] .clean-chat-empty > .i {
+  width: 40px;
+  height: 40px;
+  margin: 0 auto 16px;
+}
+[data-shell="clean"] .clean-chat-empty h3 {
+  color: rgb(var(--rgb-ink));
+  margin-bottom: 8px;
+}
+@media (max-width: 819px), (max-width: 1179px) and (pointer: coarse) {
+  /* Native selects need the same readable size as the composer on touch. */
+  html[data-shell="clean"] .clean-inbox-filters select { font-size: 16px !important; }
+}
+@media (max-width: 819px) {
+  html[data-shell="clean"] .clean-messages .clean-conversation-placeholder {
+    display: none;
+  }
+  html[data-shell="clean"] .clean-messages .clean-conversation .clean-conversation-header {
+    gap: 8px !important;
+    padding: 8px 16px !important;
+  }
+  [data-shell="clean"] .clean-conversation-header .t {
+    flex-basis: calc(100% - 156px);
+  }
+  [data-shell="clean"] .clean-conversation .bub {
+    max-width: 90%;
+  }
+  html[data-shell="clean"] .clean-messages .clean-conversation .compose {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 6px 16px !important;
+  }
+  [data-shell="clean"] .clean-conversation .compose textarea {
+    flex: 1 0 100%;
+    min-height: 48px;
+    max-height: 120px;
+    font-size: 16px;
+    line-height: 1.5;
+  }
+  [data-shell="clean"] .clean-conversation .compose > .pill:last-child {
+    margin-left: auto;
+  }
+  [data-shell="clean"] .clean-conversation .suggest {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  [data-shell="clean"] .clean-conversation .suggest .txt {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+}

@@ -1,0 +1,438 @@
+# Продакшн-развёртывание Royal Home CRM: postgres + api + web (nginx).
+# Запуск:  docker compose -f docker-compose.prod.yml up -d --build
+# Переменные берутся из файла .env.production рядом (см. DEPLOY.md).
+#
+# Имя проекта закреплено ЯВНО, а не выведено из имени каталога: прод обязан
+# оставаться самим собой, даже если каталог когда-нибудь переименуют, — иначе
+# сменится и пространство томов, и база «опустеет» на ровном месте.
+# `royalhome-crm` — то же имя, что было выведено из `/opt/royalhome-crm`, том
+# `royalhome-crm_postgres_data` остаётся прежним. Второй файл рядом
+# (docker-compose.yml, локальная разработка) объявлен как проект `crm`
+# и с этим больше не пересекается — см. комментарий там.
+name: royalhome-crm
+
+# Логи (TASKS.md ~1105, инцидент 09.09 05:30-06:57 — разбирать зависание
+# кронов было нечем, старый контейнер снесён вместе с json-логом в
+# /var/lib/docker/containers/<id>/*.log). Драйвер journald вместо json-file:
+# journald хранит записи в самом журнале хоста (не в каталоге контейнера),
+# поэтому `docker logs <имя>` продолжает работать и после пересоздания
+# контейнера при деплое — `docker compose build && up -d` меняет id контейнера,
+# но не трогает journald. tag: "{{.Name}}" — чтобы фильтровать
+# `journalctl CONTAINER_NAME=royalhome-crm-api-1`, а не разбирать поле CONTAINER_ID.
+# Ротацию и срок хранения журнала настраивает systemd на хосте
+# (/etc/systemd/journald.conf, SystemMaxUse/MaxRetentionSec) — из репозитория
+# это не проверить, поэтому владелец делает это руками (см. docs/ops-logs.md).
+# Снимок «хвоста» лога перед пересборкой (ops/deploy.sh, шаг 1.5) остаётся как
+# независимая подстраховка — не зависит от того, какой драйвер логов настроен
+# на конкретном VPS.
+x-logging: &default-logging
+  driver: journald
+  options:
+    tag: "{{.Name}}"
+
+# УСИЛЕНИЕ (11.09.2026, ops-пачка 6): no-new-privileges на КАЖДЫЙ сервис —
+# процесс внутри контейнера не может получить новые привилегии через setuid-
+# бинарники, даже если такой бинарник каким-то образом окажется в образе.
+# Стоит нуля рантайму, ломать нечего — применяем везде без исключений.
+x-security: &default-security
+  security_opt:
+    - no-new-privileges:true
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    logging: *default-logging
+    <<: *default-security
+    # Потолок процессов (fork-бомба/утечка процессов не забивает таблицу PID
+    # хоста) — с запасом под обычные постгресовые воркеры-обслуживатели.
+    pids_limit: 200
+    # Потолок памяти (аудит №4, 27.08): без него ядро при нехватке RAM убивает
+    # процесс с наибольшим RSS — то есть с равной вероятностью postgres или api,
+    # а не виноватый ffmpeg. С лимитами OOM бьёт внутри виноватого контейнера,
+    # и restart: unless-stopped поднимает только его.
+    mem_limit: 512m
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+      POSTGRES_DB: royal_home_crm
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d royal_home_crm"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    logging: *default-logging
+    <<: *default-security
+    # sharp/multer порождают процессы обработки на каждую загрузку — потолок
+    # защищает от утечки процессов при массовой одновременной загрузке фото.
+    # read_only ДЛЯ ЭТОГО СЕРВИСА НЕ ВКЛЮЧЁН: sharp/multer пишут временные файлы
+    # (Node os.tmpdir(), обычно /tmp), точный список путей не выверен по коду —
+    # включать read_only вслепую значит рисковать тихо сломать загрузку фото в
+    # проде без возможности предварительно проверить (агент не имеет доступа к
+    # VPS). Решение и план перехода — docs/security-hardening-plan-11-09.md.
+    pids_limit: 512
+    # Мягкая смерть по SIGTERM (index.ts): текущим запросам даётся до 15 секунд
+    # дозавершиться — период ожидания Docker обязан быть не меньше, иначе он
+    # добьёт процесс SIGKILL'ом раньше, чем тот закроет соединения.
+    # 45 с, а не 20 (02.10.2026, аудит фона №2): остановка api ещё и закрывает
+    # разговоры робота — расшифровка, итог и запись разговора уходят в базу и
+    # R2 только на этом шаге. Выкат сам по себе живой разговор не рвёт
+    # (ops/auto-deploy.sh ждёт его конца), запас — для ручного выката и рестарта.
+    # БЮДЖЕТЫ ОСТАНОВКИ (аудит 02.10.2026, п.5) — одна цепочка, константы в
+    # lib/telephony/liveVoiceBridge.ts: разговорам робота
+    # LIVE_VOICE_SHUTDOWN_WAIT_MS (11 с) внутри жёсткого потолка процесса
+    # PROCESS_SHUTDOWN_GRACE_MS (15 с, index.ts: SHUTDOWN_GRACE_MS), а этот срок
+    # Docker обязан быть не меньше потолка процесса — иначе SIGKILL придёт первым.
+    stop_grace_period: 45s
+    # sharp жуёт до 15 фото по 10 МБ за загрузку — 768 МБ с запасом.
+    mem_limit: 768m
+    # Живой голос: приёмник RTP от станции. Слушаем ТОЛЬКО на адресе VPN до АТС
+    # (10.9.0.1) — наружу порт не открыт, в интернет не смотрит. Добавлено 12.09.2026
+    # после проверки, что UDP между станцией (10.9.0.2) и VPS по VPN ходит.
+    ports:
+      - "${LIVE_VOICE_RTP_HOST:-127.0.0.1}:${LIVE_VOICE_RTP_PORT:-40800}:${LIVE_VOICE_RTP_PORT:-40800}/udp"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # ЗДОРОВЬЕ API ДЛЯ WEB (fix/deploy-no-downtime, 22.09.2026).
+    #
+    # Без своего healthcheck у api не было сигнала, на который мог бы
+    # опереться `depends_on: condition: service_healthy` у web (см. ниже) —
+    # web пересоздавался и уходил в состояние "up" сразу, ещё до того, как
+    # api дослушал миграции (до 397 штук, ~15с+) и начал принимать соединения.
+    # В эту секунды-полторы nginx резолвил api по имени и получал отказ в
+    # соединении — снаружи это и была серия 502 (08:42-08:48, 22.09.2026, три
+    # выката подряд). curl/wget в образе нет (node:24-slim, ffmpeg-набор без
+    # них) — проверяем встроенным fetch самого Node, без лишних пакетов.
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4000/api/v1/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      # Миграции идут ДО того, как процесс начинает слушать порт (CMD в
+      # Dockerfile) — start_period даёт им время, не считая ранние неудачные
+      # попытки провалом контейнера.
+      start_period: 45s
+    environment: &crm-env
+      NODE_ENV: production
+      PORT: 4000
+      # Пул потоков libuv (22.09.2026, вместе с параллельной обработкой фото —
+      # см. routes/properties/photos.ts). Node по умолчанию даёт 4 потока на
+      # весь процесс на файловый ввод-вывод, DNS, crypto И декод/энкод sharp
+      # (libvips сам использует libuv threadpool под капотом) — при нескольких
+      # фото пачки, обрабатываемых одновременно (mapWithConcurrency, до 3 сразу),
+      # они конкурировали бы за те же 4 потока с обычным чтением/записью файлов,
+      # и параллельность внутри одного запроса подпирала бы соседние запросы.
+      # 16 — общее и для api (загрузка фото), и для worker (клипы/озвучка идут
+      # тем же путём через якорь *crm-env ниже).
+      UV_THREADPOOL_SIZE: "16"
+      # Фон (кроны, Telegram, ARI) — в отдельном контейнере worker ниже (чертёж
+      # каркаса, этап А3). Поллер и подписки обязаны жить ровно в одном процессе:
+      # два поллера дерутся за getUpdates, двойная ARI задваивает карточки звонков.
+      ENABLE_BACKGROUND: "0"
+      # Поток живых событий (SSE) — общий для api и worker: worker публикует,
+      # api раздаёт подписчикам. Гасится одной переменной в .env прода без
+      # выката: фронт вернётся к опросу по таймеру (apps/web/src/lib/liveEvents.ts).
+      LIVE_EVENTS: "${LIVE_EVENTS:-1}"
+      # Optional customer diagnostics. Shared by API ingress and worker retries;
+      # no text unless separately enabled, no secret means no recording.
+      BOT_TURN_TRACE_ENABLED: "${BOT_TURN_TRACE_ENABLED:-0}"
+      BOT_TURN_TRACE_HMAC_KEY: "${BOT_TURN_TRACE_HMAC_KEY:-}"
+      BOT_TURN_TRACE_TEXT_ENABLED: "${BOT_TURN_TRACE_TEXT_ENABLED:-0}"
+      # P03 fact-only replies. Mixed CRM actions stay on the legacy path.
+      BOT_PROPERTY_CONTEXT_ENABLED: "${BOT_PROPERTY_CONTEXT_ENABLED:-0}"
+      # connection_limit ЯВНО (аудит №4, 27.08): по умолчанию Prisma берёт
+      # пул примерно в 5 соединений на процесс. Журнал переходов (db.ts) читает
+      # состояние «до» отдельным запросом, и когда правка статуса идёт внутри
+      # интерактивной транзакции, это второе соединение при занятом пуле — путь
+      # к взаимной блокировке до pool_timeout ровно в час пик. Процессов теперь
+      # два (api + worker), у Postgres по умолчанию 100 соединений — 15 на
+      # процесс берём с большим запасом. Полное лечение (перенос журнала в
+      # триггер Postgres, чтобы лишнего чтения не было вовсе) — в очереди.
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/royal_home_crm?schema=public&connection_limit=15&pool_timeout=20&options=-c%20statement_timeout%3D60000
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?}
+      JWT_ACCESS_TTL: 15m
+      JWT_REFRESH_TTL: 90d
+      SETTINGS_ENCRYPTION_KEY: ${SETTINGS_ENCRYPTION_KEY:?}
+      # Ключ шифрования номеров, названных клиентом в звонке (lib/phoneCrypto.ts).
+      # Без проброса сюда значение из .env.production в контейнер не попадает
+      # (окружение задаётся поимённым списком): с 17.09.2026 журнал каждую
+      # расшифровку писал «PHONE_ENCRYPTION_KEY не задан», номер маскировался
+      # и терялся. Обязателен, как и SETTINGS_ENCRYPTION_KEY.
+      PHONE_ENCRYPTION_KEY: ${PHONE_ENCRYPTION_KEY:?}
+      UPLOADS_DIR: /app/uploads
+      # ВЛОЖЕНИЯ ПЕРЕПИСКИ (фото и голосовые от клиентов) — В ТОМ, а не в контейнере.
+      #
+      # Найдено 13.08.2026: владелец открыл карточку клиента и увидел «Вложение не
+      # открылось» на месте фото, которое клиент прислал в WhatsApp. Причина не в
+      # правах и не в отдаче файла: путь по умолчанию (`./uploads-private`, см.
+      # lib/privateFiles.ts) считается от рабочего каталога `/repo/apps/api`, то есть
+      # ложится ВНУТРЬ контейнера. Тома там не было — и каждый выкат стирал все
+      # присланные клиентами фото и голосовые. В тот день выкатов было шесть.
+      #
+      # Путь задаётся явно, а не оставляется относительным: он не должен зависеть от
+      # того, из какого каталога запущен процесс.
+      PRIVATE_UPLOADS_DIR: /app/uploads-private
+      # СЫРОЕ ВИДЕО ОБЪЕКТОВ (31.08.2026, замена Cloudflare R2) — тот же урок,
+      # что и с PRIVATE_UPLOADS_DIR выше: без своего тома каждый выкат стирал бы
+      # все загруженные, но ещё не смонтированные ролики агентов. ВНЕ /app/uploads
+      # (тот раздаётся статикой без проверки прав) — см. lib/localVideoStorage.ts.
+      PROPERTY_VIDEO_DIR: /app/uploads-private-video
+      PROPERTY_VIDEO_SESSIONS_DIR: /app/uploads-private-video/.sessions
+      # ДОКУМЕНТЫ СДЕЛКИ (титул, договор, паспорт, чек выплаты; добавлено
+      # 11.09.2026, lib/dealDocumentFiles.ts) — тот же урок, что и с
+      # PRIVATE_UPLOADS_DIR/PROPERTY_VIDEO_DIR выше: без своего тома каждый
+      # выкат стирал бы уже загруженные документы по сделкам (аудит 13.09).
+      DEAL_DOCS_DIR: /app/uploads-deal-docs
+      CORS_ORIGIN: ${CRM_ORIGIN:?}
+      # API стоит за nginx (web) — доверяем X-Forwarded-For для rate-limit по реальному IP.
+      TRUST_PROXY: "1"
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      # СВОЙ BOT API СЕРВЕР — ВЫКЛЮЧЕН, ПОКА ПЕРЕМЕННЫЕ ПУСТЫ.
+      # Пусто = бот ходит в облако Telegram ровно как раньше (50 МБ на отправку,
+      # 20 МБ на приём). Заполнено = поднят docker-compose.telegram.yml и бот
+      # ходит к нему (2 ГБ на отправку, приём без предела, файлы сразу на диске).
+      # Порядок переключения и обязательный logOut — ops/telegram-local-botapi.md.
+      TELEGRAM_API_BASE_URL: ${TELEGRAM_API_BASE_URL:-}
+      # Том своего Bot API сервера. Из него разрешено читать файлы, пришедшие от
+      # клиентов; путь вне этого корня загрузчик вложений отвергает.
+      TELEGRAM_LOCAL_FILES_DIR: ${TELEGRAM_LOCAL_FILES_DIR:-}
+      # Личный чат директора с ботом: бот не квалифицирует владельца как клиента.
+      TELEGRAM_DIRECTOR_CHAT_ID: ${TELEGRAM_DIRECTOR_CHAT_ID:-}
+      # Секрет вебхука Telegram (аудит №4): .env.example велит задать его и
+      # вызвать setWebhook — но без строки здесь контейнер секрета не видел,
+      # вебхук отвечал бы 403 на каждую доставку, и бот глох намертво
+      # (getUpdates уже выключен на стороне Telegram) до ручного deleteWebhook.
+      TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:-}
+      # Запасное старое имя — иначе на проде, где в .env.production ещё лежит
+      # TEAM_REQUESTS_TOKEN, в контейнер не попадёт НИ ОДНА переменная, и отчёт
+      # начнёт отвечать 401 сразу после выката. Убрать, когда .env переименован.
+      MORNING_REPORT_TOKEN: ${MORNING_REPORT_TOKEN:-${TEAM_REQUESTS_TOKEN:-}}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@royalhome.tj}
+      WEBSITE_LEAD_API_KEY: ${WEBSITE_LEAD_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_PROXY_URL: ${GEMINI_PROXY_URL:-}
+      GEMINI_PROXY_KEY: ${GEMINI_PROXY_KEY:-}
+      # Второй ключ Gemini: страхует от лимита или блокировки ПЕРВОГО ключа. Читается
+      # сначала из Настроек CRM, и только потом отсюда, — переменная нужна как
+      # запасной путь на случай, когда база настроек недоступна.
+      GEMINI_API_KEY_2: ${GEMINI_API_KEY_2:-}
+      # Какая модель отвечает и на какую переходить, если основная недоступна.
+      # ОБЕ ПЕРЕМЕННЫЕ ОБЯЗАНЫ БЫТЬ ЗДЕСЬ, а не только в .env.production: окружение
+      # передаётся контейнеру поимённым списком, и до 16.08.2026 GEMINI_FALLBACK_MODEL
+      # лежала в .env.production, но в контейнер не попадала — то есть резервной
+      # модели не существовало вовсе, хотя в конфигурации она выглядела настроенной.
+      # Имена не выдумывать: сверять с ai.google.dev/gemini-api/docs/models и
+      # проверять живым вызовом. В том же .env.production резервной стояла
+      # gemini-2.5-flash-lite, закрытая Google (404 на каждый вызов).
+      GEMINI_MODEL: ${GEMINI_MODEL:-}
+      GEMINI_FALLBACK_MODEL: ${GEMINI_FALLBACK_MODEL:-}
+      # Прямая интеграция с Meta (WhatsApp, Instagram). Окружение сюда передаётся
+      # поимённым списком — дописать переменную только в .env.production мало,
+      # контейнер её не увидит (на этом мы уже обожглись с Telegram).
+      META_APP_SECRET: ${META_APP_SECRET:-}
+      META_VERIFY_TOKEN: ${META_VERIFY_TOKEN:-}
+      META_WA_TOKEN: ${META_WA_TOKEN:-}
+      META_WA_PHONE_ID: ${META_WA_PHONE_ID:-}
+      META_IG_TOKEN: ${META_IG_TOKEN:-}
+      # Аудит №4: эти шесть читаются кодом и описаны в .env.example, но в
+      # поимённый список проброшены не были — значение в .env.production
+      # молча не доходило до контейнера (грабли, о которых предупреждает
+      # комментарий выше, наступленные ещё раз).
+      META_PAGE_TOKEN: ${META_PAGE_TOKEN:-}
+      META_PAGE_ID: ${META_PAGE_ID:-}
+      META_IG_APP_SECRET: ${META_IG_APP_SECRET:-}
+      META_APP_ID: ${META_APP_ID:-}
+      IG_PROXY_URL: ${IG_PROXY_URL:-}
+      IG_PROXY_KEY: ${IG_PROXY_KEY:-}
+      # Живой голос: адрес RTP-приёмника (liveVoiceBridge) — без этих строк
+      # включение liveVoice в Настройках роняло бы каждый звонок с ошибкой
+      # «LIVE_VOICE_RTP_HOST не задан», хотя в .env.production он задан.
+      LIVE_VOICE_RTP_HOST: ${LIVE_VOICE_RTP_HOST:-}
+      # Тот же умолчательный порт, что в пробросе ports выше: раньше здесь стояло
+      # «:-» (пусто), а проброс шёл на 40800 — без PORT в .env.production входящий
+      # консультант биндился на случайный непроброшенный порт и молчал (аудит
+      # 02.10.2026, мост, п.2).
+      LIVE_VOICE_RTP_PORT: ${LIVE_VOICE_RTP_PORT:-40800}
+      # Необязательно: адрес станции в туннеле, откуда принимается звук. Раньше
+      # переменной в этом списке не было — задать её в .env.production было нельзя.
+      LIVE_VOICE_RTP_PEER: ${LIVE_VOICE_RTP_PEER:-}
+      SITE_SYNC_URL: ${SITE_SYNC_URL:-}
+      SITE_SYNC_API_KEY: ${SITE_SYNC_API_KEY:-}
+      # Аварийный сброс пароля админки сайта — СВОЙ ключ, не тот, которым идёт
+      # рутинная синхронизация объектов: утечка одного не должна открывать полный
+      # доступ к аккаунту администратора сайта. Те же грабли, что с Telegram и R2:
+      # без строки здесь контейнер переменную не увидит, и единственный канал
+      # восстановления доступа молча ответит «связь с сайтом не настроена» —
+      # причём выяснится это ровно в тот день, когда он понадобится.
+      SITE_SYNC_ADMIN_RESET_KEY: ${SITE_SYNC_ADMIN_RESET_KEY:-}
+      CRM_PUBLIC_URL: ${CRM_PUBLIC_URL:-}
+      # Конвейер сырого видео объекта (05.08.2026, lib/r2Client.ts) — те же грабли,
+      # что и с Telegram: в .env.production мало, нужен явный список здесь.
+      R2_ACCOUNT_ID: ${R2_ACCOUNT_ID:-}
+      R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID:-}
+      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY:-}
+      R2_BUCKET_NAME: ${R2_BUCKET_NAME:-}
+      # Записи разговоров: каталог на АТС, доступный по обратному туннелю
+      # (адрес — docker-мост VPS, наружу порт не открыт). Те же грабли, что с
+      # Telegram и R2: в .env.production мало, нужен явный список здесь.
+      PBX_RECORDINGS_URL: ${PBX_RECORDINGS_URL:-}
+      PBX_RECORDINGS_TOKEN: ${PBX_RECORDINGS_TOKEN:-}
+      # ОЗВУЧЕННЫЕ ПОДСКАЗКИ АГЕНТУ — В ТОМ, а не внутрь контейнера (те же грабли,
+      # что с вложениями переписки выше). Путь по умолчанию `./data/whisper`
+      # считается от рабочего каталога и лёг бы в слой образа: каждый выкат стирал
+      # бы всю озвучку, а фоновая задача переозвучивала бы её заново — то есть
+      # каждый выкат стоил бы агентству денег за синтез речи на всю базу клиентов.
+      WHISPER_AUDIO_DIR: /app/whisper
+    volumes:
+      - uploads_data:/app/uploads
+      # Вложения переписки — свой том: без него каждый выкат стирал фото и
+      # голосовые, присланные клиентами (см. PRIVATE_UPLOADS_DIR выше).
+      - private_uploads_data:/app/uploads-private
+      # Сырое видео объектов — свой том (см. PROPERTY_VIDEO_DIR выше).
+      - property_video_data:/app/uploads-private-video
+      # Подсказки о звонящем: переживают выкат (см. WHISPER_AUDIO_DIR выше).
+      - whisper_audio_data:/app/whisper
+      # Документы сделки — свой том (см. DEAL_DOCS_DIR выше).
+      - deal_docs_data:/app/uploads-deal-docs
+    networks:
+      - default
+      - royalhome-shared
+
+  # ФОНОВЫЙ ПРОЦЕСС (чертёж каркаса, этап А3): кроны, Telegram-поллер, ARI,
+  # досев расшифровок — отдельно от HTTP, чтобы ffmpeg и разбор звонков не
+  # душили интерфейс агентов. Образ ТОТ ЖЕ, что у api (build только там):
+  # compose именует его royalhome-crm-api, пересборка api обновляет и worker.
+  # Откат всего этапа — убрать этот сервис и ENABLE_BACKGROUND у api (без
+  # пересборки образа).
+  worker:
+    image: royalhome-crm-api
+    restart: unless-stopped
+    logging: *default-logging
+    <<: *default-security
+    # ffmpeg/Remotion (headless Chrome) порождают дочерние процессы на каждый
+    # рендер — потолок с запасом под параллельный автомонтаж нескольких Reels.
+    # read_only НЕ включён по той же причине, что у api (см. комментарий там):
+    # ffmpeg/Chrome активно пишут временные файлы, путь не выверен по коду.
+    pids_limit: 1024
+    # Здесь живёт ffmpeg (автомонтаж Reels, сжатие роликов) — самый прожорливый
+    # процесс системы; ему и самый большой потолок.
+    #
+    # Поднято с 1g до 3g 30.08.2026 вместе с апгрейдом VPS (2 ядра/3.8ГБ →
+    # 4 ядра/5.8ГБ): headless Chrome (Remotion) на 1g падал по OOM/SIGKILL на
+    # каждом живом рендере — компоновщик убивало ядро, потом сам Chrome
+    # ("Page crashed"), потом даже со свопом рендер уходил в трэшинг на 8+
+    # минут и задевал Telegram-бота нехваткой памяти. 3g оставляет api (768m)
+    # и postgres (512m) с запасом на оставшихся ~5.8ГБ.
+    mem_limit: 3g
+    # Поднято с 20с до 90с (24.09.2026, разбор потери ролика монтажёра): приём
+    # ролика от Telegram (getFile + копия файла с диска Bot API в
+    # uploads/handoff, telegram/bot.ts) — фоновая работа Telegram-поллера
+    # внутри ЭТОГО контейнера, не задание очереди, а 20с не хватало даже на
+    # рядовой файл 80-100 МБ. worker.ts (SHUTDOWN_GRACE_MS=85_000) сам
+    # старается выйти чисто на секунду раньше — это Docker-предел, на случай
+    # если внутренний таймаут почему-то не сработал.
+    stop_grace_period: 90s
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # migrate deploy и здесь: worker может подняться раньше api, а Prisma держит
+    # блокировку — параллельный запуск двух deploy безопасен и идемпотентен.
+    # exec обязателен — иначе PID 1 = sh глотает SIGTERM (грабли api, 26.08).
+    # `npm run` вместо `npx`: CLI Prisma лежит в образе (обычная зависимость),
+    # и `npx` иначе тянул бы `latest` из реестра при каждом старте — см.
+    # комментарий у CMD в apps/api/Dockerfile.
+    command: ["sh", "-c", "npm run prisma:migrate:deploy && exec node dist/worker.js"]
+    environment:
+      # Тот же список, что у api (якорь выше): фону нужны те же ключи — Telegram,
+      # Meta, Gemini, АТС, R2. ENABLE_BACKGROUND здесь не нужен: точка входа
+      # worker.js запускает фон безусловно.
+      <<: *crm-env
+    volumes:
+      # Те же тома, что у api: ночные чистки, автомонтаж и озвучка работают с
+      # теми же файлами, что HTTP-процесс отдаёт наружу.
+      - uploads_data:/app/uploads
+      - private_uploads_data:/app/uploads-private
+      - property_video_data:/app/uploads-private-video
+      - whisper_audio_data:/app/whisper
+      - deal_docs_data:/app/uploads-deal-docs
+    networks:
+      - default
+      - royalhome-shared
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        # Хеш коммита — версия сборки для автообновления вкладок (задача P2,
+        # 08.09.2026). Приходит из окружения shell'а, куда его кладёт
+        # deploy.yml перед `docker compose build` (export GIT_SHA=$(git
+        # rev-parse --short HEAD)). Пусто — не страшно, см. apps/web/Dockerfile.
+        GIT_SHA: ${GIT_SHA:-}
+        # Ключ Яндекс.Карт (Tiles API) — вписывается на этапе сборки, см.
+        # apps/web/Dockerfile. Раньше ARG для него не было вообще (дизайн-проход
+        # 14.09.2026) — карта тихо работала на бесплатном OpenStreetMap. Значение
+        # берётся из `.env.production` на VPS (`--env-file` у `docker compose`
+        # подставляет его и в интерполяцию `${...}` самого compose-файла, не
+        # только в окружение контейнеров) — положить туда
+        # `VITE_YANDEX_TILES_KEY="<ключ>"` вручную один раз, деплой её не трогает
+        # (в отличие от R2-ключей, которые deploy.yml перезаписывает из GitHub
+        # Secrets на каждом выкате).
+        VITE_YANDEX_TILES_KEY: ${VITE_YANDEX_TILES_KEY:-}
+    restart: unless-stopped
+    logging: *default-logging
+    <<: *default-security
+    pids_limit: 100
+    # read_only: nginx отдаёт статику и не пишет в контейнер, кроме pid/кэша —
+    # оба вынесены в tmpfs. Это единственный сервис, где read_only проверен
+    # безопасным без доступа к проду (стандартный образ nginx, пути известны).
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx
+      - /var/run
+    # Отдаёт статику через nginx — больше 128 МБ ему не нужно никогда.
+    mem_limit: 128m
+    # УСЛОВИЕ, А НЕ ПРОСТОЙ СПИСОК (fix/deploy-no-downtime, 22.09.2026).
+    #
+    # Было `depends_on: - api` — это условие "api хотя бы запущен", а не
+    # "api отвечает". `docker compose up -d api worker web` пересоздавал web
+    # практически одновременно с api, и nginx внутри web стартовал раньше,
+    # чем api начинал слушать порт (миграции + старт Node). resolver с TTL 10s
+    # (apps/web/nginx.conf) спасает от смены IP уже ПОСЛЕ старта, но не от
+    # этого окна до первого успешного соединения. condition: service_healthy
+    # заставляет compose ждать зелёный healthcheck api (см. выше) перед тем,
+    # как трогать web — тем самым api гарантированно поднимается раньше.
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      # За HTTPS-прокси (Caddy/certbot) наружу открывается только он — см. DEPLOY.md.
+      - "127.0.0.1:8080:80"
+
+volumes:
+  postgres_data:
+  uploads_data:
+  private_uploads_data:
+  property_video_data:
+  whisper_audio_data:
+  deal_docs_data:
+
+# Общая сеть с контейнерами сайта royalhome.tj на том же VPS (создаётся вне этого
+# файла: docker network create royalhome-shared) — API и сайт ходят друг к другу
+# по именам контейнеров, минуя публичный интернет. Раньше эта правка жила только
+# на сервере и ломала каждый git pull конфликтом.
+networks:
+  royalhome-shared:
+    external: true

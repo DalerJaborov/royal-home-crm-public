@@ -1,0 +1,277 @@
+/*
+ * «Отчёт владельцу объекта» (03.10.2026) — публичная страница /o/:token
+ * (pages/PublicOwnerReport.tsx). Живёт вне оболочки CRM, поэтому открывает область
+ * эталона `.rh2.screens` сама, как pages/PublicPropertyShare.tsx.
+ *
+ * Только токены темы (цвет, радиусы, отступы, размеры шрифта) — своих цветов и
+ * размеров мельче токенов здесь нет, поэтому `npm run gen:typeset` ничего не
+ * добавляет. Один адаптивный вид: телефон — одна колонка, от 640px плитки в ряд.
+ */
+
+.rh2.or-page {
+  min-height: 100dvh;
+}
+.rh2 .or-wrap {
+  max-width: 880px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+}
+
+/* Шапка агентства. */
+.rh2 .or-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+}
+.rh2 .or-brand img {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--r-md);
+  object-fit: contain;
+  background: var(--card);
+}
+.rh2 .or-brand b {
+  display: block;
+  font-family: var(--ff-head);
+  font-size: var(--fs-15);
+  color: var(--ink);
+}
+.rh2 .or-brand span {
+  display: block;
+  font-size: var(--fs-13);
+  color: var(--muted);
+}
+
+.rh2 .or-title {
+  font-family: var(--ff-head);
+  font-size: var(--fs-23);
+  font-weight: 700;
+  color: var(--ink);
+  line-height: 1.2;
+}
+.rh2 .or-sub {
+  font-size: var(--fs-14);
+  color: var(--muted);
+  margin-top: var(--s1);
+}
+
+/* Объект: фото и строка с ценой. */
+.rh2 .or-prop {
+  display: grid;
+  gap: var(--s3);
+}
+.rh2 .or-photo {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: var(--r-md);
+  background: var(--track);
+}
+.rh2 .or-prop-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2) var(--s3);
+}
+.rh2 .or-price {
+  font-family: var(--ff-head);
+  font-size: var(--fs-17);
+  font-weight: 700;
+  color: var(--ink);
+}
+
+/* Переключатель периода. */
+.rh2 .or-seg {
+  display: inline-flex;
+  padding: 3px;
+  gap: 3px;
+  border-radius: var(--r-pill);
+  background: var(--line-soft);
+}
+.rh2 .or-seg button {
+  min-height: 44px;
+  padding: 0 var(--s4);
+  border: 0;
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--body);
+  font: inherit;
+  font-size: var(--fs-14);
+  font-weight: 600;
+  cursor: pointer;
+}
+.rh2 .or-seg button[aria-pressed="true"] {
+  background: var(--card);
+  color: var(--ink);
+  box-shadow: var(--shadow);
+}
+.rh2 .or-seg button:focus-visible {
+  outline: 2px solid var(--pill);
+  outline-offset: 2px;
+}
+
+/* Крупные числа. */
+.rh2 .or-tiles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s3);
+  margin-top: var(--s3);
+}
+@media (min-width: 640px) {
+  .rh2 .or-tiles {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+.rh2 .or-tile {
+  background: var(--line-soft);
+  border-radius: var(--r-md);
+  padding: var(--s3) var(--s4);
+  min-width: 0;
+}
+.rh2 .or-tile b {
+  display: block;
+  font-family: var(--ff-head);
+  /* 320px: плитка ~140px, «123 456» при 32px не помещается — число ужимается, а не вылезает. */
+  font-size: clamp(22px, 7vw, 32px);
+  overflow-wrap: anywhere;
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.rh2 .or-tile span {
+  display: block;
+  margin-top: var(--s1);
+  font-size: var(--fs-13);
+  color: var(--muted);
+}
+
+/* График по неделям. */
+.rh2 .or-chart {
+  width: 100%;
+  height: auto;
+  display: block;
+  margin-top: var(--s3);
+}
+.rh2 .or-chart .bar {
+  fill: var(--pill);
+}
+.rh2 .or-chart .bar.zero {
+  fill: var(--track);
+}
+.rh2 .or-chart text {
+  fill: var(--muted);
+  font-size: var(--fs-13);
+  font-family: inherit;
+}
+.rh2 .or-chart .val {
+  fill: var(--ink);
+  font-weight: 600;
+}
+.rh2 .or-note {
+  font-size: var(--fs-13);
+  color: var(--muted);
+  margin-top: var(--s2);
+}
+
+/* Темы вопросов. */
+.rh2 .or-topics {
+  list-style: none;
+  margin: var(--s3) 0 0;
+  padding: 0;
+  display: grid;
+  gap: var(--s3);
+}
+.rh2 .or-topics li {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: var(--s1) var(--s3);
+  align-items: baseline;
+  font-size: var(--fs-15);
+  color: var(--ink);
+}
+.rh2 .or-topics .n {
+  font-family: var(--ff-head);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.rh2 .or-topics .bar {
+  grid-column: 1 / -1;
+  display: block;
+  height: 8px;
+  border-radius: 8px;
+  background: var(--track);
+  overflow: hidden;
+}
+.rh2 .or-topics .bar > i {
+  display: block;
+  height: 100%;
+  border-radius: 8px;
+  background: var(--pill);
+}
+
+/* Следующий шаг. */
+.rh2 .or-next h3 {
+  font-family: var(--ff-head);
+  font-size: var(--fs-17);
+  font-weight: 700;
+  color: var(--ink);
+}
+.rh2 .or-next p {
+  margin-top: var(--s2);
+  font-size: var(--fs-15);
+  color: var(--body);
+  line-height: 1.5;
+}
+.rh2 .or-next ul {
+  margin: var(--s3) 0 0;
+  padding-left: var(--s4);
+  font-size: var(--fs-14);
+  color: var(--muted);
+  display: grid;
+  gap: var(--s1);
+}
+
+.rh2 .or-foot {
+  font-size: var(--fs-13);
+  color: var(--muted);
+  text-align: center;
+  padding-top: var(--s2);
+}
+
+.rh2 .or-empty {
+  text-align: center;
+  padding: var(--s6) var(--s4);
+  color: var(--body);
+}
+.rh2 .or-empty b {
+  display: block;
+  font-family: var(--ff-head);
+  font-size: var(--fs-17);
+  color: var(--ink);
+}
+.rh2 .or-empty span {
+  display: block;
+  margin-top: var(--s2);
+  font-size: var(--fs-14);
+  color: var(--muted);
+}
+
+/* Карточка сотрудника в карточке объекта (components/OwnerReportCard.tsx). */
+.rh2 .orc-url {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 var(--s3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--card);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--fs-14);
+}
+.rh2 .orc-meta {
+  font-size: var(--fs-13);
+  color: var(--muted);
+}

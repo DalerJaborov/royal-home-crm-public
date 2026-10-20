@@ -1,0 +1,338 @@
+/* ============================================================================
+ * ЦВЕТНОЙ СЛОЙ ТЕМЫ «Royal Home 2026»
+ *
+ * Владелец 11.09.2026: «не хватает цветов». Два присланных кейса (Livento и
+ * Salesforce Sales Engagement) разобраны в docs/archive/agent-briefs/color-layer.md.
+ * Решение брифа: скелет темы НЕ меняем, цвет кладём отдельным слоем поверх.
+ *
+ * ⚠ ОБНОВЛЕНО 21.09.2026. Здесь стояло «правило владельца „никаких синих
+ * кнопок" действует, кнопки остаются графитовыми». Владелец ОТМЕНИЛ это
+ * правило сам: «Цвета синий хочу». Кнопки теперь синие, цвет задаётся в
+ * theme-2026-brand.css. Пастельные плашки, чипы прироста и кольцо оценки —
+ * по-прежнему единственное место цвета КРОМЕ кнопок, и это не изменилось.
+ *
+ * ПОЧЕМУ ОТДЕЛЬНЫЙ ФАЙЛ, А НЕ ДОПИСКА В theme-2026-proto.css.
+ * Тот файл собирается скриптом scripts/sync-proto-css.py из артефакта владельца
+ * и перегенерируется целиком — дописка в его хвост исчезла бы при следующей
+ * сборке прототипа, без единой ошибки. Ровно по этой причине рядом уже живут
+ * theme-2026-mobile-density.css и theme-2026-mobile-shell.css.
+ *
+ * ПОРЯДОК ПОДКЛЮЧЕНИЯ. Файл импортируется в index.css ПОСЛЕДНИМ из тематических:
+ * файл-переопределение, подключённый раньше переопределяемого, молча проигрывает
+ * каждую ничью по весу — правка «применяется» и не меняет ничего.
+ *
+ * ИМЕНА КЛАССОВ. Договор дизайна §3 запрещает заводить свои имена внутри
+ * прототипа; здесь заводятся только модификаторы к его же классам
+ * (`.chip.delta`, `.ring-score`, `.prow .pstats`) — они не
+ * существуют в артефакте и потому не могут разъехаться с ним при пересборке.
+ * ========================================================================= */
+
+/* ────────────────────────── 1. ПАСТЕЛЬНЫЕ ТОКЕНЫ ──────────────────────────
+ *
+ * Пять пар «пастельная подложка + насыщенный текст» — язык цвета обоих кейсов.
+ * ВНУТРИ ОБЛАСТИ `.rh2` они УЖЕ ЕСТЬ (theme-2026-proto.css, блоки `.rh2` и
+ * `html[data-theme="royal-home-2026-night"] .rh2`), и дублировать их нельзя:
+ * артефакт остаётся источником правды. Здесь объявлен только ЗАПАСНОЙ набор для
+ * разметки ВНЕ `.rh2` (порталы, оболочка приложения, экраны, ещё не обёрнутые
+ * `Rh2Screen`), где `var(--lime)` иначе не разрешается ни во что.
+ *
+ * Значения — из артефакта телефона docs/pult/theme-2026/artifact-de2845f1-phone-after.html
+ * (оба набора, светлый и ночной), как указано в брифе.
+ *
+ * `:where()` обнуляет вес селектора. Это принципиально: без него
+ * `html[data-theme=…]` (0,1,1) перебил бы `.rh2` (0,1,0) из прототипа и молча
+ * перекрасил бы всё внутри области значениями отсюда. С `:where()` вес равен
+ * нулю, поэтому любое правило прототипа выигрывает, а запасной набор работает
+ * ровно там, где своего значения нет.
+ */
+:where(html[data-theme^="royal-home-2026-"]) {
+  --lime: #eaf8d1;
+  --lime-ink: #3c5a12;
+  --aqua: #dff5f1;
+  --aqua-ink: #0f5750;
+  --lav: #ece6fa;
+  --lav-ink: #3d3070;
+  --pink: #fbe4e6;
+  --pink-ink: #7a2e34;
+  --sky: #e2f1fc;
+  --sky-ink: #1c4f78;
+}
+
+:where(html[data-theme="royal-home-2026-night"]) {
+  --lime: #2a3a14;
+  --lime-ink: #c9ea8a;
+  --aqua: #12332f;
+  --aqua-ink: #8fe0d3;
+  --lav: #2a2547;
+  --lav-ink: #c9bdf5;
+  --pink: #3d2023;
+  --pink-ink: #f4b3b8;
+  --sky: #182c3f;
+  --sky-ink: #9ecdf5;
+}
+
+/* ─────────────────── 4. ЧИП ПРИРОСТА У ПЛИТКИ ПОКАЗАТЕЛЯ ───────────────────
+ *
+ * Livento-кейс: у каждой плитки рядом с числом маленькая пилюля «+12 %» с
+ * стрелкой — пастельно-зелёная на рост, розовая на падение. Тон берётся из той
+ * же пятёрки, что и аватары: своих цветов слой не заводит.
+ *
+ * ЧИП ПОЯВЛЯЕТСЯ ТОЛЬКО ТАМ, ГДЕ СРАВНЕНИЕ ЕСТЬ В ОТВЕТЕ API. Ни одно число не
+ * додумывается: за это отвечает components/rh2/Rh2DeltaChip.tsx — при
+ * отсутствии прошлого значения он не рисует ничего.
+ *
+ * Вес: базовое `.rh2 .scr .chip` (0,3,0), здесь (0,4,0) — выигрывает и вне
+ * порядка подключения. Форма продублирована целиком, чтобы чип выглядел так же
+ * и вне `.scr` (окна, порталы), где базового правила прототипа нет.
+ */
+/* ВТОРОЙ СЕЛЕКТОР В КАЖДОМ ПРАВИЛЕ — НЕ ИЗБЫТОЧНОСТЬ.
+ * Прототип красит содержимое блоков правилами по ГОЛЫМ тегам внутри своих
+ * классов: `.rh2 .scr .trio .n span` (0,4,0) задаёт `display:block` и цвет
+ * подписи. Оно перебивало `.rh2 .chip.delta` (0,3,0), и чип в «Пульсе денег»
+ * растягивался на всю ширину серым текстом — при этом и сборка, и типы, и
+ * контраст-скан оставались зелёными (поймано кадром 11.09). Вариант с тегом
+ * внутри — `.rh2 .scr :is(b, span, small, p, div) .chip.delta` — даёт (0,4,1) и
+ * выигрывает у любого такого правила, где бы чип ни оказался. */
+.rh2 .chip.delta,
+.rh2 .scr :is(b, span, small, p, div) .chip.delta {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  width: auto;
+  height: 22px;
+  margin-top: 0;
+  padding: 0 8px;
+  border-radius: var(--r-pill, 999px);
+  border: 1px solid transparent;
+  font-family: var(--ff-text, "Onest", sans-serif);
+  font-size: var(--fs-12, 12px);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.rh2 .chip.delta.up,
+.rh2 .scr :is(b, span, small, p, div) .chip.delta.up {
+  background: var(--lime);
+  color: var(--lime-ink);
+}
+.rh2 .chip.delta.dn,
+.rh2 .scr :is(b, span, small, p, div) .chip.delta.dn {
+  background: var(--pink);
+  color: var(--pink-ink);
+}
+.rh2 .chip.delta.eq,
+.rh2 .scr :is(b, span, small, p, div) .chip.delta.eq {
+  background: var(--soft);
+  color: var(--muted);
+}
+
+/* Стрелка — свой значок 10×10, а не текстовая «↗»: у гарнитуры интерфейса
+   стрелки разной ширины, и в ряду плиток числа переставали стоять столбиком. */
+.rh2 .chip.delta .i,
+.rh2 .scr :is(b, span, small, p, div) .chip.delta .i {
+  width: 10px;
+  height: 10px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex: none;
+}
+
+/* Число плитки и чип — в одну строку, чип не тянет высоту заголовка. */
+.rh2 .scr .tile b .chip.delta,
+.rh2 .tile b .chip.delta {
+  margin-left: 8px;
+  position: relative;
+  top: -2px;
+}
+
+/* ───────────── 5. КОЛЬЦО ОЦЕНКИ С РАДУЖНЫМИ ДЕЛЕНИЯМИ ─────────────
+ *
+ * Salesforce-кейс, блок «AI Scoring 92»: не сплошная дуга одного цвета, а венец
+ * из тонких радиальных делений, перетекающих лайм → аква → лаванда → розовый,
+ * и крупное число в центре.
+ *
+ * КАК СДЕЛАНО. Один слой `::before`:
+ *   · фон — `conic-gradient`, где радуга идёт до угла `--deg` (доля счёта), а
+ *     дальше до 360° стоит цвет дорожки. То есть «сколько набрано» закодировано
+ *     в самом градиенте, а не отдельным элементом — иначе понадобилось бы три
+ *     слоя маски и `mask-composite` в три звена;
+ *   · маска — пересечение двух слоёв: `repeating-conic-gradient` режет венец на
+ *     деления, `radial-gradient` оставляет только кольцевую полосу. Два слоя —
+ *     это ровно тот случай `mask-composite: intersect`, который поддержан
+ *     везде, где живёт приложение; для WebKit продублировано `source-in`.
+ *
+ * Своих цветов слой не заводит: четыре «ink»-токена из той же пятёрки, что и
+ * аватары, поэтому кольцо перекрашивается ночной темой само.
+ */
+.rh2 .ring-score {
+  --deg: 0deg;
+  --ring-size: 132px;
+  width: var(--ring-size);
+  height: var(--ring-size);
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: none;
+}
+
+.rh2 .ring-score::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: conic-gradient(
+    from -90deg,
+    var(--lime-ink) 0deg,
+    var(--aqua-ink) calc(var(--deg) * 0.34),
+    var(--lav-ink) calc(var(--deg) * 0.67),
+    var(--pink-ink) var(--deg),
+    var(--track) var(--deg),
+    var(--track) 360deg
+  );
+  -webkit-mask:
+    repeating-conic-gradient(from -90deg, #000 0deg 2.4deg, transparent 2.4deg 5deg),
+    radial-gradient(closest-side, transparent 0 74%, #000 74% 100%);
+  -webkit-mask-composite: source-in;
+  mask:
+    repeating-conic-gradient(from -90deg, #000 0deg 2.4deg, transparent 2.4deg 5deg),
+    radial-gradient(closest-side, transparent 0 74%, #000 74% 100%);
+  mask-composite: intersect;
+}
+
+/* Число по центру. Гарнитура и размеры — те же токены, что у `.gauge` эталона,
+   чтобы кольцо не выглядело гостем из другого макета. */
+/* Ширину задаём КОНТЕЙНЕРУ, а не подписи: сетка сжимает .mid по самому широкому
+   ребёнку (число 34 px ≈ 68 px), и «70 %» на подписи считалось бы от него, а не
+   от кольца — многоточие появлялось на слове из семи букв. */
+.rh2 .ring-score .mid {
+  position: relative;
+  width: 68%;
+  text-align: center;
+  line-height: 1;
+}
+.rh2 .ring-score .mid b {
+  display: block;
+  font-family: var(--ff-head, "Manrope", sans-serif);
+  font-size: var(--fs-34, 34px);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+/* Подпись живёт в дырке венца (диаметр = 74 % кольца). Ограничение ширины —
+   структурная защита, а не подгонка: длинная подпись иначе ложится поверх
+   делений, и ни один автоматический замер этого не заметит. */
+.rh2 .ring-score .mid small {
+  display: block;
+  max-width: 100%;
+  margin: 4px auto 0;
+  font-family: var(--ff-text, "Onest", sans-serif);
+  font-size: var(--fs-12, 12px);
+  font-weight: 500;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .rh2 .ring-score { --ring-size: 108px; }
+  .rh2 .ring-score .mid b { font-size: var(--fs-23, 23px); }
+}
+
+/* Деления — украшение поверх числа, которое и так озвучено диктором. При
+   высококонтрастной теме браузера тонкие деления исчезают в один цвет: число
+   остаётся, и это единственное, что несёт смысл. */
+@media (forced-colors: active) {
+  .rh2 .ring-score::before { background: CanvasText; }
+}
+
+/* ────────── 6. ТРИ ЦИФРЫ ПЛИТКАМИ В СТРОКЕ КАТАЛОГА ОБЪЕКТОВ ──────────
+ *
+ * Livento-кейс: под названием объекта — ряд из трёх маленьких плиток
+ * «175 Sold / 125 Rented / 2K+ Views». Фото слева в строке уже было (`.ph`
+ * эталона), добавляется только ряд цифр. Что именно в них попадает и почему —
+ * в components/PropertyStats.tsx.
+ *
+ * ВЕС. Строка каталога описана правилами `.rh2 .scr .prow .t b` и
+ * `… .t span` (обе 0,4,0) — они бы применились и к содержимому плиток
+ * (`display:block`, `nowrap`, размер 15 px). Здесь селекторы такого же веса и
+ * стоят позже по каскаду, поэтому побеждают; полагаться на это можно, потому
+ * что файл подключается последним из тематических (см. шапку файла).
+ */
+.rh2 .scr .prow .t .pstats,
+.rh2 .prow .t .pstats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.rh2 .scr .prow .t .pstats .pstat,
+.rh2 .prow .t .pstats .pstat {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 2px 6px;
+  border-radius: var(--r-sm, 10px);
+  background: var(--soft);
+  white-space: nowrap;
+}
+
+.rh2 .scr .prow .t .pstats .pstat b,
+.rh2 .prow .t .pstats .pstat b {
+  display: inline;
+  font-family: var(--ff-head, "Manrope", sans-serif);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-13, 13px);
+  font-weight: 700;
+  color: var(--ink);
+  overflow: visible;
+}
+
+.rh2 .scr .prow .t .pstats .pstat small,
+.rh2 .prow .t .pstats .pstat small {
+  display: inline;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+/* На телефоне строка каталога и так тесная: плитки уезжают в собственную
+   прокрутку, а не переносятся третьей строкой под адресом. Прокрутка своя, а не
+   общая для строки: соседние цена и чип статуса должны остаться на месте. */
+@media (max-width: 640px) {
+  .rh2 .scr .prow .t .pstats,
+  .rh2 .prow .t .pstats {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .rh2 .scr .prow .t .pstats::-webkit-scrollbar,
+  .rh2 .prow .t .pstats::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* «Ещё не спрашивали» в проверках отбора «Вакансий» (25.09.2026): серый
+   пунктир из утверждённого макета, готового модификатора у чипа не было.
+   Здесь, а не в theme-2026-proto.css: тот собирается скриптом целиком. */
+.rh2 .scr .chip.dash{background:transparent;border-style:dashed;border-color:var(--line);color:var(--muted)}
+
+/* ЦВЕТ ЧИПОВ ПРОВЕРОК ВНУТРИ СТРОКИ (02.10.2026). Чипы «24+ ✓» / «работает
+   сейчас ✗» стоят в третьей строке `.row .t` (components/VacancyRow.tsx), и
+   правило прототипа `.rh2 .scr .row .t span{color:var(--muted)}` (0,4,1)
+   перебивало `.rh2 .scr .chip.ok/.crit` (0,3,0): зелёный и красный текст
+   становились серыми, и решение «звать или нет» снова читалось только по
+   словам. Тот же приём, что у `span.tmr` в прототипе: селектор с тем же
+   предком плюс класс чипа — (0,6,1), выигрывает при любом порядке файлов.
+   Здесь, а не в theme-2026-proto.css: тот собирается скриптом целиком. */
+.rh2 .scr .row .t span.chip{display:inline-flex;width:auto;overflow:visible;text-overflow:clip}
+.rh2 .scr .row .t span.chip.ok{color:var(--ok)}
+.rh2 .scr .row .t span.chip.crit{color:var(--crit)}
+.rh2 .scr .row .t span.chip.warn{color:var(--warn)}
+.rh2 .scr .row .t span.chip.dash{color:var(--muted)}

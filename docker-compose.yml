@@ -1,0 +1,44 @@
+# Локальная разработка: только Postgres. Прод — в docker-compose.prod.yml.
+#
+# Имя проекта закреплено ЯВНО и НЕ совпадает с прод-именем (`royalhome-crm`).
+# Иначе оно бралось бы из имени каталога, а на сервере каталог называется
+# `/opt/royalhome-crm` — и этот файл, лежащий там же после `git pull`, попадал
+# в ОДИН проект с продом. Обе стороны объявляют сервис `postgres`, поэтому
+# случайный `docker compose up -d` без `-f docker-compose.prod.yml` заставлял
+# compose считать dev-контейнер прод-сервисом и пересоздавать его: имена
+# конфликтовали (`Conflict. The container name ... is already in use`), api
+# оставался в состоянии `Created`/`Dead`, и CRM ложилась. 13.08.2026 так вышло
+# дважды за один выкат. Разные имена проектов делают это невозможным.
+#
+# `crm` — то самое имя, что compose и так выводил из каталога `D:\CRM`: том
+# `crm_postgres_data` и локальная база остаются на месте, переналивать нечего.
+name: crm
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: royal-home-postgres
+    restart: unless-stopped
+    # Значения совпадают с DATABASE_URL в apps/api/.env:
+    # postgresql://user:password@localhost:5432/royal_home_crm
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: royal_home_crm
+    # Пункт 7 аудита безопасности 11.09.2026 (К3): порт слушает только сам
+    # хост-компьютер разработчика, не 0.0.0.0 — иначе база dev-стенда видна
+    # всем, кто достучится до машины по сети (тот же класс дыры, что искали в
+    # ops/deploy.sh для прода). Локальной разработке большего не нужно: API и
+    # инструменты (Prisma Studio, psql) уже на этой же машине.
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d royal_home_crm"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres_data:

@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1920" viewBox="0 0 1080 1920">
+<!-- «Royal Gold · ChatGPT», Reels 1080×1920. Исходник: docs/cover-sources-23-09/template/templates/cover-reels.svg,
+     раскладка перенесена внутрь безопасной зоны (кроп 4:5 ∩ профиль 1:1, x 30–1050, y 450–1470). -->
+<defs>
+  <linearGradient id="darkOverlay" x1="0%" y1="0%" x2="100%" y2="100%">
+    <stop offset="0%" stop-color="#020805" stop-opacity="0.78"/>
+    <stop offset="52%" stop-color="#07130F" stop-opacity="0.16"/>
+    <stop offset="100%" stop-color="#020805" stop-opacity="0.70"/>
+  </linearGradient>
+  <linearGradient id="bottomShade" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#020805" stop-opacity="0"/>
+    <stop offset="1" stop-color="#020805" stop-opacity="0.72"/>
+  </linearGradient>
+  <linearGradient id="goldGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+    <stop offset="0%" stop-color="#FFD979"/>
+    <stop offset="48%" stop-color="#F0B548"/>
+    <stop offset="100%" stop-color="#C88A25"/>
+  </linearGradient>
+  <filter id="softShadow" x="-30%" y="-30%" width="160%" height="160%">
+    <feDropShadow dx="0" dy="7" stdDeviation="10" flood-color="#000000" flood-opacity="0.35"/>
+  </filter>
+</defs>
+<g data-bg="1"><rect x="0" y="0" width="1080" height="1920" fill="url(#darkOverlay)"/><rect x="0" y="860" width="1080" height="1060" fill="url(#bottomShade)"/></g>
+<g id="logo" data-if="vectorLogo" transform="translate(540,522) scale(1.05)">
+  <circle cx="0" cy="0" r="47" fill="none" stroke="#F2B94B" stroke-width="5"/>
+  <circle cx="0" cy="0" r="38" fill="none" stroke="#F2B94B" stroke-width="2"/>
+  <path d="M-28 27 L-10 8 L2 19 L18 2 L34 27 Z" fill="#F2B94B"/>
+  <rect x="-18" y="-24" width="10" height="34" fill="#F2B94B"/>
+  <rect x="-5" y="-34" width="9" height="44" fill="#F2B94B"/>
+  <rect x="7" y="-17" width="9" height="27" fill="#F2B94B"/>
+  <rect x="19" y="-29" width="8" height="39" fill="#F2B94B"/>
+  <text x="0" y="66" font-family="TT Norms Pro" font-size="15" font-weight="800" fill="#F2B94B" text-anchor="middle">ROYAL</text>
+  <text x="0" y="83" font-family="TT Norms Pro" font-size="15" font-weight="800" fill="#F2B94B" text-anchor="middle">HOME TJ</text>
+</g>
+<g id="rooms" data-if="rooms">
+  <text x="70" y="878" font-family="TT Norms Pro" font-size="190" font-weight="800" fill="url(#goldGradient)" data-fit="600">{{rooms}}</text>
+  <text x="76" y="968" font-family="TT Norms Pro" font-size="82" font-weight="800" fill="#FFFFFF" letter-spacing="-1" data-fit="900">{{roomsWord|upper}}</text>
+</g>
+<g id="price">
+  <rect x="70" y="996" width="800" height="138" rx="22" fill="url(#goldGradient)" filter="url(#softShadow)"/>
+  <text x="104" y="1096" font-family="TT Norms Pro" font-weight="800" fill="#07130F" data-fit="732"><tspan font-size="88">{{priceNumber}}</tspan><tspan font-size="42" dx="18">{{currency}}</tspan></text>
+</g>
+<g id="area">
+  <rect x="71" y="1156" width="340" height="118" rx="14" fill="#07130F" fill-opacity="0.62" stroke="#F2B94B" stroke-width="2"/>
+  <text x="241" y="1222" font-family="TT Norms Pro" font-size="54" font-weight="800" fill="#FFFFFF" text-anchor="middle" data-fit="300">{{areaNumber}} м²</text>
+  <text x="241" y="1256" font-family="TT Norms Pro" font-size="15" font-weight="500" fill="#FFFFFF" text-anchor="middle" letter-spacing="3">МАСОҲАТ</text>
+</g>
+<line x1="70" y1="1300" x2="1010" y2="1300" stroke="#F2B94B" stroke-width="2"/>
+<g id="location">
+  <text x="74" y="1344" font-family="TT Norms Pro" font-size="26" font-weight="800" fill="#FFFFFF" data-fit="560">{{city|upper}}</text>
+  <text x="74" y="1374" font-family="TT Norms Pro" font-size="17" font-weight="500" fill="#FFFFFF" letter-spacing="1" data-if="district" data-fit="560">РАЙОН: {{district|upper}}</text>
+  <text x="74" y="1402" font-family="TT Norms Pro" font-size="17" font-weight="500" fill="#FFFFFF" letter-spacing="1" data-if="landmark" data-fit="560">ОРИЕНТИР: {{landmark|upper}}</text>
+</g>
+<g id="floor" data-if="floor">
+  <line x1="680" y1="1322" x2="680" y2="1404" stroke="#F2B94B" stroke-width="2"/>
+  <text x="706" y="1344" font-family="TT Norms Pro" font-size="26" font-weight="800" fill="#FFFFFF" data-fit="300">{{floor|upper}}</text>
+  <text x="706" y="1374" font-family="TT Norms Pro" font-size="15" font-weight="500" fill="#FFFFFF" letter-spacing="2">ЭТАЖ</text>
+</g>
+<g id="slogan">
+  <line x1="70" y1="1446" x2="190" y2="1446" stroke="#F2B94B" stroke-width="2"/>
+  <line x1="890" y1="1446" x2="1010" y2="1446" stroke="#F2B94B" stroke-width="2"/>
+  <text x="540" y="1452" font-family="TT Norms Pro" font-size="16" font-weight="500" fill="#FFFFFF" text-anchor="middle" letter-spacing="3" data-fit="660">{{slogan|upper}}</text>
+</g>
+</svg>

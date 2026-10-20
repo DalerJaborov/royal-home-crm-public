@@ -1,0 +1,839 @@
+/* СОБРАНО СКРИПТОМ scripts/gen-typeset.mjs — РУКАМИ НЕ ПРАВИТЬ.
+ *
+ * Каждое правило здесь повторяет селектор из темы и меняет только размер текста
+ * и гарнитуру. Зачем это нужно и почему именно генератором — в шапке скрипта.
+ * Пересобрать: npm run gen:typeset. Проверить: npm run audit:typeset.
+ *
+ * Правил: 788 (размер поднят у 776, гарнитура сведена у 53).
+ * Ничего мельче 13px не остаётся, "Manrope" строкой не остаётся нигде.
+ */
+.rh2 .mh .ai-hero-lbl { font-size: 15px; }
+.rh2 .scr .cw2-btn .lbl { font-size: 13px; }
+html[data-shell="clean"] .clean-calendar-summary { font-size: 15px; }
+html[data-shell="clean"] .clean-calendar-page .mh .lane [role="tab"] { font-size: 16px; }
+html[data-shell="clean"] .clean-calendar-page .mh .sec-h h2 { font-size: 20px; }
+html[data-shell="clean"] .clean-calendar-page .mh .calendar-task-row .t b { font-size: 17px; }
+[data-shell="clean"] .clean-bot-feedback button { font-size: 15px; }
+[data-shell="clean"] .clean-bot-feedback-note input { font-size: 17px; }
+[data-shell="clean"] .clean-contact-title { font-size: 20px; }
+[data-shell="clean"] .clean-contact-facts dt { font-size: 17px; }
+[data-shell="clean"] .clean-contact-facts dd { font-size: 17px; }
+[data-shell="clean"] :is(.clean-contact-phone,.clean-contact-profile) h3 { font-size: 17px; }
+[data-shell="clean"] :is(.clean-contact-phone,.clean-contact-profile,.clean-contact-support) p { font-size: 17px; }
+[data-shell="clean"] .clean-contact-phone .lnk { font-size: 17px; }
+[data-shell="clean"] .clean-contact-profile .txt { font-size: 17px; }
+[data-shell="clean"] .clean-contact-profile :is(button,select) { font-size: 17px; }
+[data-shell="clean"] .clean-contact-support summary { font-size: 17px; }
+html[data-shell="clean"][data-mobile-ux] nav[data-bottomnav] [data-tab-label] { font-size: 15px; }
+:is(.finance-clean, .clean-reports, .clean-deals, .clean-settings-page) :is(.inp, select, textarea) { font-size: 17px; }
+:is(.finance-clean, .clean-reports) .tbl :is(th, td) { font-size: 16px; }
+.clean-settings-jump label { font-size: 16px; }
+.clean-settings-page .acc-h h3 { font-size: 18px; }
+.clean-settings-page :is(.lab, .hint, .note) { font-size: 15px; }
+.clean-deals .kan-col > h3 { font-size: 18px; }
+.clean-deals .dcard .nm { font-size: 18px; }
+.clean-deals .dcard .ob { font-size: 15px; }
+.clean-reports .dsm-d small { font-size: 15px; }
+html[data-shell="clean"] .sheet:has(.clean-record-form) :is(.pill,.seg button) { font-size: 16px; }
+html[data-shell="clean"] .clean-record-form { font-size: 17px; }
+html[data-shell="clean"] .sheet .sheet-b .clean-record-form :is(input:not([type="checkbox"]):not([type="radio"]),select,textarea) { font-size: 17px; }
+html[data-shell="clean"] .clean-record-form .lab { font-size: 15px; }
+html[data-shell="clean"] .pstats small { font-size: 15px; }
+html[data-shell="clean"] .clean-section-switcher select { font-size: 17px; }
+html[data-shell="clean"] .clean-interaction-client { font-size: 20px; }
+html[data-shell="clean"] .clean-settings-search input { font-size: 17px; }
+html[data-shell="clean"] .clean-settings-selectors label { font-size: 15px; }
+html[data-shell="clean"] .clean-settings-selectors select { font-size: 17px; }
+html[data-shell="clean"] .clean-settings-category strong,
+html[data-shell="clean"] .clean-settings-task-row strong { font-size: 20px; }
+html[data-shell="clean"] .clean-settings-category small,
+html[data-shell="clean"] .clean-settings-task-row small,
+html[data-shell="clean"] .clean-settings-help { font-size: 15px; }
+html[data-shell="clean"] .clean-settings-task-heading p { font-size: 17px; }
+html[data-shell="clean"] .clean-settings-status .quiet .txt { font-size: 15px; }
+html[data-shell="clean"] .clean-settings-status .lnk { font-size: 15px; }
+html[data-shell="clean"] .clean-channel-detail h2 { font-size: 22px; }
+html[data-shell="clean"] .clean-channel-detail p { font-size: 17px; }
+.clean-shell .clean-brand { font-size: 22px; }
+.clean-shell .clean-tab { font-size: 15px; }
+.clean-shell .clean-nav-count { font-size: 15px; }
+.clean-shell .clean-more summary { font-size: 15px; }
+.clean-shell .clean-more-panel a { font-size: 15px; }
+.clean-shell .clean-existing-topbar [data-unread-badge] { font-size: 15px; }
+.clean-shell .clean-clients-page #clients-list input[type="search"] { font-size: 17px; }
+.clean-shell .clean .clean-hero-facts b { font-size: 20px; }
+.clean-shell .clean .clean-hero-facts span { font-size: 15px; }
+.clean-shell .clean .clean-decision-title { font-size: 17px; }
+.clean-shell .clean .clean-decision-description { font-size: 15px; }
+.clean-shell .clean .clean-decision-details { font-size: 15px; }
+.clean-shell .clean .clean-decision-error { font-size: 15px; }
+.clean-shell .clean .clean-photo-empty { font-size: 15px; }
+.clean-shell .clean .clean-section-link { font-size: 15px; }
+.clean-shell .clean .clean-queue-empty p { font-size: 15px; }
+.clean-shell .rh2 .scr .rh-home .rh-tile .l { font-size: 15px; }
+.clean-shell [data-bottomnav] [data-tab-label] { font-size: 15px; }
+.shell-rollout legend { font-size: 17px; }
+.shell-rollout-choice { font-size: 16px; }
+.clean-shell .clean-critical-notice-heading { font-size: 17px; }
+.clean-shell .clean-critical-notice-count { font-size: 15px; }
+.clean-shell .clean-critical-notice-message { font-size: 17px; }
+.clean-shell .clean-critical-notice-hint { font-size: 15px; }
+html[data-shell="clean"] .maplibregl-ctrl-attrib { font-size: 15px; }
+html[data-shell="clean"] [data-clean-control="button"] { font-size: 16px; }
+html[data-shell="clean"] [data-clean-size="sm"] { font-size: 15px; }
+html[data-shell="clean"] [data-clean-size="lg"] { font-size: 17px; }
+html[data-shell="clean"] .cef-sheet :is(.cef-btn,.cef-icon-btn,.cef-sub-select) { font-size: 15px; }
+html[data-shell="clean"] .cef-sheet button.cef-chip { font-size: 15px; }
+html[data-shell="clean"] .cef-sheet .cef-keys button { font-size: 22px; }
+html[data-shell="clean"] .cef-sheet button.cef-tile { font-size: 15px; }
+html[data-shell="clean"] .cef-sheet .cef-pills button { font-size: 15px; }
+.rh2 .ring-score .mid b { font-family: Onest, "Onest Fallback", "Segoe UI", system-ui, sans-serif; }
+.rh2 .scr .prow .t .pstats .pstat b,
+.rh2 .prow .t .pstats .pstat b { font-family: Onest, "Onest Fallback", "Segoe UI", system-ui, sans-serif; }
+.rh2 .scr .prow .t .pstats .pstat small,
+.rh2 .prow .t .pstats .pstat small { font-size: 13px; }
+.rh2 .pult .rest .ph .at-barlbl { font-size: 13px; }
+.rh2 .secnav-a { font-size: 15px; }
+.rh2 .secnav-a .n { font-size: 15px; font-family: Onest, "Onest Fallback", "Segoe UI", system-ui, sans-serif; }
+.rh2 .chact .chact-bars .lbl { font-size: 13px; }
+.rh2 .ovw-hour .n { font-size: 15px; }
+.rh2 .pst-light .tips { font-size: 17px; }
+.rh2 .pst-funnel .hint { font-size: 15px; }
+.rh2 .pst-chart .lbl { font-size: 15px; }
+.rh2 .pst-clicks b { font-size: 20px; }
+.rh2 .pvc-d-head h3 { font-size: 18px; }
+.rh2 .pvc-sev { font-size: 15px; }
+.rh2 .pvc-d p { font-size: 16px; }
+.rh2 .pvc-ev summary { font-size: 15px; }
+.rh2 .pvc-ev ul { font-size: 15px; }
+.rh2 .pvc-f-top .n { font-size: 22px; }
+.rh2 .pvc-hint { font-size: 15px; }
+.rh2 .pvc-weekly-cap { font-size: 15px; }
+.rh2 .pvc .chip { font-size: 15px; }
+.rh2 .pvc-stats dt { font-size: 15px; }
+.rh2 .pvc-stats dd { font-size: 20px; }
+.rh2 .ppd-heat { font-size: 16px; }
+.rh2 .ppd-score { font-size: 15px; }
+.rh2 .ppd-plus { font-size: 15px; }
+.rh2 .ppd-copied { font-size: 15px; }
+.rh2 .ppd-manual { font-size: 16px; }
+.rh2 .scr .li-btn { font-size: 18px; }
+.rh2 .map-hover-card { font-size: 15px; }
+.rh2 .map-hover-body b { font-size: 17px; }
+.rh2 .map-hover-sub { font-size: 15px; }
+.rh2 .map-obj-price { font-size: 20px; }
+.rh2 .map-obj-sub { font-size: 15px; }
+.rh2 .map-obj-title { font-size: 16px; }
+.rh2 .map-obj-head { font-size: 17px; }
+.rh2 .map-place-card { font-size: 15px; }
+.rh2 .map-place-close { font-size: 22px; }
+.rh2 .map-place-title { font-size: 18px; }
+.rh2 .scr .dlg-row .rt .meta { font-size: 15px; }
+.rh2 .scr .mic p { font-size: 16px; }
+.rh2 .mh .urg .num span { font-size: 13px; }
+.rh2 .mh .urg .keys { font-size: 15px; }
+.rh2 .mh .urg .note { font-size: 15px; }
+.rh2 .mh .pcard .av { font-size: 18px; }
+.rh2 .mh .pcard .n { font-size: 15px; }
+.rh2 .mh .pcard .s { font-size: 13px; }
+.rh2 .mh { font-size: 16px; }
+.rh2 .mh .date { font-size: 16px; }
+.rh2 .mh .sec-t h2 { font-size: 22px; }
+.rh2 .mh .sec-t .cnt { font-size: 15px; }
+.rh2 .mh .row .n { font-size: 17px; }
+.rh2 .mh .row .s { font-size: 15px; }
+.rh2 .mh .av { font-size: 17px; }
+.rh2 .mh .quick .q .cnt2 { font-size: 13px; }
+.rh2 .mh .quick .q b { font-size: 13px; }
+.rh2 .mh .btn { font-size: 16px; }
+.rh2 .mh .btn.sm { font-size: 15px; }
+.rh2 .mh .focus .eyebrow { font-size: 15px; }
+.rh2 .mh .focus .who .n { font-size: 22px; }
+.rh2 .mh .focus .who .s { font-size: 15px; }
+.rh2 .mh .focus .why { font-size: 16px; }
+.rh2 .mh .chip { font-size: 15px; }
+.rh2 .mh .sw .under { font-size: 15px; }
+.rh2 .mh .hint { font-size: 16px; }
+.rh2 .mh .money .sub { font-size: 15px; }
+.rh2 .mh .tile .l { font-size: 15px; }
+.rh2 .mh .ring .lbl { font-size: 15px; }
+.rh2 .mh .quiet { font-size: 16px; }
+.rh2 .mh .tab .lb { font-size: 13px; }
+.rh2 .mh .badge { font-size: 13px; }
+.rh2 .mh .sheet .sh h2 { font-size: 22px; }
+.rh2 .mh .mrow .n { font-size: 17px; }
+.rh2 .mh .mrow .s { font-size: 15px; }
+.rh2 .mh .mrow .b { font-size: 13px; }
+.rh2 .mh .grp { font-size: 13px; }
+.rh2 .mh .prof .av { font-size: 20px; }
+.rh2 .mh .prof .n { font-size: 18px; }
+.rh2 .mh .prof .s { font-size: 15px; }
+.rh2 .mh .seg button { font-size: 15px; }
+.rh2 .mh .mic p { font-size: 16px; }
+.rh2 .mh .srch input { font-size: 17px; }
+.rh2 .mh .fchips button { font-size: 15px; }
+.rh2 .mh .kbd { font-size: 13px; }
+.rh2 .mh .qa button { font-size: 15px; }
+.rh2 .mh .brief { font-size: 17px; }
+.rh2 .mh .kv .k { font-size: 16px; }
+.rh2 .mh .kv .s { font-size: 15px; }
+.rh2 .mh .ev { font-size: 16px; }
+.rh2 .mh .ev time { font-size: 15px; }
+.rh2 .mh .ptr { font-size: 15px; }
+.rh2 .mh .toast { font-size: 15px; }
+.rh2 .mh .offline { font-size: 15px; }
+.rh2 .mh .quiet { font-size: 17px; }
+.rh2 .mh .grp:has(> .body) { font-size: 16px; }
+.rh2 .mh .top h1.s { font-size: 22px; }
+.rh2 .mh .lane .f { font-size: 15px; }
+.rh2 .mh .list .row .n { font-size: 16px; }
+.rh2 .mh .list .row .s { font-size: 15px; }
+.rh2 .mh .list .row .tm { font-size: 15px; }
+.rh2 .mh .list .av { font-size: 17px; }
+.rh2 .mh .unread { font-size: 13px; }
+.rh2 .mh .list .chip.xs { font-size: 15px; }
+.rh2 .mh .list .state { font-size: 15px; }
+html[data-mobile-ux][data-theme^="royal-home-2026-"] nav[data-bottomnav] [data-tab-badge] { font-size: 13px; }
+html[data-mobile-ux][data-theme^="royal-home-2026-"] .rh2 .mh .row.callrow .n { font-size: 18px; }
+html[data-mobile-ux][data-theme^="royal-home-2026-"] .rh2 .mh .row.callrow .s { font-size: 15px; }
+.rh2 { font-size: 16px; }
+.rh2 h1, .rh2 h2, .rh2 h3, .rh2 h4 { font-family: Onest, "Onest Fallback", "Segoe UI", system-ui, sans-serif; }
+.rh2 .lbl { font-size: 15px; }
+.rh2 .pill { font-size: 16px; }
+.rh2 .gauge .c b { font-family: Onest, "Onest Fallback", "Segoe UI", system-ui, sans-serif; }
+.rh2 .gauge .c small { font-size: 15px; }
+.rh2 .hero-txt .kicker { font-size: 15px; }
+.rh2 .hero-txt p { font-size: 18px; }
+.rh2 .hero-links { font-size: 15px; }
+.rh2 .sc { font-size: 15px; }
+.rh2 .sc b { font-size: 16px; }
+.rh2 .ask-row input { font-size: 16px; }
+.rh2 .ask-row .sugg button { font-size: 15px; }
+.rh2 .dep .nm { font-size: 16px; font-family: Onest, "Onest Fallback", "Segoe UI", system-ui, sans-serif; }
+.rh2 .blk h4 { font-size: 16px; }
+.rh2 .blk h4 .n { font-size: 15px; }
+.rh2 .blk .info .av { font-size: 13px; }
+.rh2 .blk .q { font-size: 15px; }
+.rh2 .rest-h h3 { font-size: 18px; }
+.rh2 .ph { font-size: 15px; }
+.rh2 .ph .m { font-size: 18px; font-family: Onest, "Onest Fallback", "Segoe UI", system-ui, sans-serif; }
+.rh2 .ph b { font-size: 16px; font-family: Onest, "Onest Fallback", "Segoe UI", system-ui, sans-serif; }
+.rh2 .sec02 .lbl { font-size: 15px; }
+.rh2 .sec02 .pill { font-size: 15px; }
+.rh2 .sec02 .pill.sm { font-size: 15px; }
+.rh2 .sec02 .head h2 { font-size: 24px; }
+.rh2 .sec02 .head p { font-size: 16px; }
+.rh2 .sec02 .head .back { font-size: 15px; }
+.rh2 .sec02 .load-top { font-size: 15px; }
+.rh2 .sec02 .load-top b { font-size: 16px; }
+.rh2 .sec02 .load-legend { font-size: 15px; }
+.rh2 .sec02 .load-bar .ls span { font-size: 15px; }
+.rh2 .sec02 .seg button { font-size: 15px; }
+.rh2 .sec02 .row.hd { font-size: 15px; }
+.rh2 .sec02 .av { font-size: 16px; font-family: Onest, "Onest Fallback", "Segoe UI", system-ui, sans-serif; }
+.rh2 .sec02 .who b { font-size: 16px; font-family: Onest, "Onest Fallback", "Segoe UI", system-ui, sans-serif; }
+.rh2 .sec02 .who .st { font-size: 15px; }
+.rh2 .sec02 .num b { font-size: 18px; font-family: Onest, "Onest Fallback", "Segoe UI", system-ui, sans-serif; }
+.rh2 .sec02 .num small { font-size: 15px; }
+.rh2 .sec02 .score { font-size: 18px; font-family: Onest, "Onest Fallback", "Segoe UI", system-ui, sans-serif; }
+.rh2 .sec02 .score .d { font-size: 15px; }
+.rh2 .sec02 .frozen-note .t { font-size: 15px; }
+.rh2 .sec02 .frozen-note .a small { font-size: 15px; }
+.rh2 .sec02 .shows .tm { font-size: 16px; font-family: Onest, "Onest Fallback", "Segoe UI", system-ui, sans-serif; }
+.rh2 .sec02 .shows .t span { font-size: 15px; }
+.rh2 .sec02 .sec-h h3 { font-size: 18px; }
+.rh2 .sec02 .sec-h span { font-size: 15px; }
+.rh2 .sec03 .lbl { font-size: 15px; }
+.rh2 .sec03 .pill { font-size: 15px; }
+.rh2 .sec03 .pill.sm { font-size: 15px; }
+.rh2 .sec03 .head h2 { font-size: 24px; }
+.rh2 .sec03 .head p { font-size: 16px; }
+.rh2 .sec03 .head .back { font-size: 15px; }
+.rh2 .sec03 .bar-top .fact { font-family: Onest, "Onest Fallback", "Segoe UI", system-ui, sans-serif; }
+.rh2 .sec03 .bar-top .fact em { font-size: 16px; }
+.rh2 .sec03 .bar-top .pct { font-size: 15px; }
+.rh2 .sec03 .bar .mk-lbl { font-size: 15px; }
+.rh2 .sec03 .tc small { font-size: 15px; }
+.rh2 .sec03 .tc b { font-size: 24px; font-family: Onest, "Onest Fallback", "Segoe UI", system-ui, sans-serif; }
+.rh2 .sec03 .row .t { font-size: 16px; }
+.rh2 .sec03 .row .n { font-size: 16px; font-family: Onest, "Onest Fallback", "Segoe UI", system-ui, sans-serif; }
+.rh2 .sec03 .row .n small { font-size: 15px; }
+.rh2 .sec03 .row.q { font-size: 15px; }
+.rh2 .sec03 .stg { font-size: 16px; }
+.rh2 .sec03 .stg .n small { font-size: 15px; }
+.rh2 .sec03 .deal .t { font-size: 15px; }
+.rh2 .sec03 .deal .t .flag { font-size: 15px; }
+.rh2 .sec03 .sec-h h3 { font-size: 18px; }
+.rh2 .sec04 .lbl { font-size: 15px; }
+.rh2 .sec04 .pill { font-size: 15px; }
+.rh2 .sec04 .pill.sm { font-size: 15px; }
+.rh2 .sec04 .head h2 { font-size: 24px; }
+.rh2 .sec04 .head p { font-size: 16px; }
+.rh2 .sec04 .head .quiet { font-size: 15px; }
+.rh2 .sec04 .head .back { font-size: 15px; }
+.rh2 .sec04 .tc small { font-size: 15px; }
+.rh2 .sec04 .tc b { font-size: 24px; font-family: Onest, "Onest Fallback", "Segoe UI", system-ui, sans-serif; }
+.rh2 .sec04 .pc b { font-size: 24px; font-family: Onest, "Onest Fallback", "Segoe UI", system-ui, sans-serif; }
+.rh2 .sec04 .pc small { font-size: 15px; }
+.rh2 .sec04 .row .t { font-size: 16px; }
+.rh2 .sec04 .row .t .flag { font-size: 15px; }
+.rh2 .sec04 .row .t .why { font-size: 15px; }
+.rh2 .sec04 .sec-h h3 { font-size: 18px; }
+.rh2 .sec04 .sec-h span { font-size: 15px; }
+.rh2 .sec05 .lbl { font-size: 15px; }
+.rh2 .sec05 .pill { font-size: 15px; }
+.rh2 .sec05 .pill.sm { font-size: 15px; }
+.rh2 .sec05 .head h2 { font-size: 24px; }
+.rh2 .sec05 .head p { font-size: 16px; }
+.rh2 .sec05 .head .back { font-size: 15px; }
+.rh2 .sec05 .tc small { font-size: 15px; }
+.rh2 .sec05 .tc b { font-size: 24px; font-family: Onest, "Onest Fallback", "Segoe UI", system-ui, sans-serif; }
+.rh2 .sec05 .av { font-size: 15px; font-family: Onest, "Onest Fallback", "Segoe UI", system-ui, sans-serif; }
+.rh2 .sec05 .row .t { font-size: 16px; }
+.rh2 .sec05 .row .t .flag { font-size: 15px; }
+.rh2 .sec05 .sec-h h3 { font-size: 18px; }
+.rh2 .sec05 .sec-h span { font-size: 15px; }
+.rh2 .sec05 .empty-ok { font-size: 15px; }
+.rh2 .sec06 .lbl { font-size: 15px; }
+.rh2 .sec06 .pill { font-size: 15px; }
+.rh2 .sec06 .pill.sm { font-size: 15px; }
+.rh2 .sec06 .head h2 { font-size: 24px; }
+.rh2 .sec06 .head p { font-size: 16px; }
+.rh2 .sec06 .head .back { font-size: 15px; }
+.rh2 .sec06 .tc small { font-size: 15px; }
+.rh2 .sec06 .tc b { font-size: 24px; font-family: Onest, "Onest Fallback", "Segoe UI", system-ui, sans-serif; }
+.rh2 .sec06 .row .t b { font-size: 16px; }
+.rh2 .sec06 .row .t .flag { font-size: 15px; }
+.rh2 .sec06 .row .time { font-size: 16px; font-family: Onest, "Onest Fallback", "Segoe UI", system-ui, sans-serif; }
+.rh2 .sec06 .sec-h h3 { font-size: 18px; }
+.rh2 .sec06 .sec-h span { font-size: 15px; }
+.rh2 .sec06 .empty-ok { font-size: 15px; }
+.rh2 .sec06 .st-chip { font-size: 15px; }
+.rh2 .sec07 .lbl { font-size: 15px; }
+.rh2 .sec07 .pill { font-size: 15px; }
+.rh2 .sec07 .pill.sm { font-size: 15px; }
+.rh2 .sec07 .head h2 { font-size: 24px; }
+.rh2 .sec07 .head p { font-size: 16px; }
+.rh2 .sec07 .head .back { font-size: 15px; }
+.rh2 .sec07 .src { font-size: 16px; }
+.rh2 .sec07 .src.hd { font-size: 15px; }
+.rh2 .sec07 .src .nm i { font-size: 13px; font-family: Onest, "Onest Fallback", "Segoe UI", system-ui, sans-serif; }
+.rh2 .sec07 .src .n { font-family: Onest, "Onest Fallback", "Segoe UI", system-ui, sans-serif; }
+.rh2 .sec07 .src.total { font-size: 16px; }
+.rh2 .sec07 .row .t { font-size: 16px; }
+.rh2 .sec07 .sec-h h3 { font-size: 18px; }
+.rh2 .sec07 .sec-h span { font-size: 15px; }
+.rh2 .sec07 .ch { font-size: 15px; }
+.rh2 .sec08 .lbl { font-size: 15px; }
+.rh2 .sec08 .pill { font-size: 15px; }
+.rh2 .sec08 .pill.sm { font-size: 15px; }
+.rh2 .sec08 .head h2 { font-size: 24px; }
+.rh2 .sec08 .head p { font-size: 16px; }
+.rh2 .sec08 .head .back { font-size: 15px; }
+.rh2 .sec08 .tc small { font-size: 15px; }
+.rh2 .sec08 .tc b { font-size: 24px; font-family: Onest, "Onest Fallback", "Segoe UI", system-ui, sans-serif; }
+.rh2 .sec08 .row .t b { font-size: 16px; }
+.rh2 .sec08 .row .t .flag { font-size: 15px; }
+.rh2 .sec08 .sec-h h3 { font-size: 18px; }
+.rh2 .sec08 .sec-h span { font-size: 15px; }
+.rh2 .sec08 .empty-ok { font-size: 15px; }
+.rh2 .sec09 .lbl { font-size: 15px; }
+.rh2 .sec09 .pill { font-size: 15px; }
+.rh2 .sec09 .pill.sm { font-size: 15px; }
+.rh2 .sec09 .head h2 { font-size: 24px; }
+.rh2 .sec09 .head p { font-size: 16px; }
+.rh2 .sec09 .head .back { font-size: 15px; }
+.rh2 .sec09 .tc small { font-size: 15px; }
+.rh2 .sec09 .tc b { font-size: 24px; font-family: Onest, "Onest Fallback", "Segoe UI", system-ui, sans-serif; }
+.rh2 .sec09 .av { font-size: 15px; font-family: Onest, "Onest Fallback", "Segoe UI", system-ui, sans-serif; }
+.rh2 .sec09 .row .t { font-size: 16px; }
+.rh2 .sec09 .sec-h h3 { font-size: 18px; }
+.rh2 .sec09 .sec-h span { font-size: 15px; }
+.rh2 .sec09 .sy { font-size: 16px; }
+.rh2 .sec09 .sy small { font-size: 15px; }
+.rh2 .sec09 details.card summary .brief { font-size: 16px; }
+.rh2 .v8 .v8b { font-size: 16px; }
+.rh2 .v8 .v8b h3 { font-size: 18px; font-family: Onest, "Onest Fallback", "Segoe UI", system-ui, sans-serif; }
+.rh2 .v8 .v8b .chip { font-size: 15px; }
+.rh2 .v8 .v8b .tip { font-size: 15px; }
+.rh2 .v8 .v8b .legend2 { font-size: 15px; }
+.rh2 .v8 .v8b .tl .hrs { font-size: 13px; }
+.rh2 .v8 .v8b .tl .who { font-size: 15px; }
+.rh2 .v8 .v8b .tl .who b { font-size: 16px; }
+.rh2 .v8 .v8b .tl .who small { font-size: 13px; }
+.rh2 .v8 .v8b .tl .av { font-size: 13px; }
+.rh2 .v8 .v8b .tl .ev { font-size: 13px; }
+.rh2 .v8 .v8b .tl .now::before { font-size: 13px; }
+.rh2 .v8 .v8b .tl-leg { font-size: 15px; }
+.rh2 .v8 .v8b .chart svg text { font-size: 13px; }
+.rh2 .v8 .v8b .obj .ob b { font-size: 16px; }
+.rh2 .v8 .v8b .obj .ob small { font-size: 13px; }
+.rh2 .v8 .v8b .obj .st { font-size: 13px; }
+.rh2 .v8 .v8b .obj .pr { font-size: 13px; }
+.rh2 .v8 .v8b .dist a, .rh2 .v8 .v8b .dist button { font-size: 15px; }
+.rh2 .v8 .v8b .dist b { font-size: 16px; }
+.rh2 .v8 .v8b .dist .trend { font-size: 15px; }
+.rh2 .v8 .v8b .ev-r { font-size: 16px; }
+.rh2 .v8 .v8b .ev-r em { font-size: 15px; }
+.rh2 .dsr .panel { font-size: 16px; }
+.rh2 .dsr h2, .rh2 .dsr h3, .rh2 .dsr .big { font-family: Onest, "Onest Fallback", "Segoe UI", system-ui, sans-serif; }
+.rh2 .dsr .av { font-size: 18px; font-family: Onest, "Onest Fallback", "Segoe UI", system-ui, sans-serif; }
+.rh2 .dsr .top h2 { font-size: 24px; }
+.rh2 .dsr .top .sub { font-size: 15px; }
+.rh2 .dsr .score b { font-size: 24px; font-family: Onest, "Onest Fallback", "Segoe UI", system-ui, sans-serif; }
+.rh2 .dsr .score small { font-size: 13px; }
+.rh2 .dsr .pill { font-size: 15px; }
+.rh2 .dsr .pill.sm { font-size: 13px; }
+.rh2 .dsr h3 { font-size: 13px; }
+.rh2 .dsr .now .big { font-size: 18px; }
+.rh2 .dsr .empty { font-size: 15px; }
+.rh2 .dsr .cmp { font-size: 15px; }
+.rh2 .dsr .cmp .h { font-size: 13px; }
+.rh2 .dsr .cmp .v { font-family: Onest, "Onest Fallback", "Segoe UI", system-ui, sans-serif; }
+.rh2 .dsr .cmp .dl { font-size: 13px; }
+.rh2 .dsr .cmp .dl small { font-size: 13px; }
+.rh2 .dsr .cmp .v small { font-size: 13px; }
+.rh2 .dsr .cl .st { font-size: 13px; }
+.rh2 .dsr .ev .pt { font-family: Onest, "Onest Fallback", "Segoe UI", system-ui, sans-serif; }
+.rh2 .lf .lf-head h2 { font-size: 24px; font-family: Onest, "Onest Fallback", "Segoe UI", system-ui, sans-serif; }
+.rh2 .lf .lf-srow-lbl { font-size: 15px; }
+.rh2 .lf .lf-av { font-size: 18px; font-family: Onest, "Onest Fallback", "Segoe UI", system-ui, sans-serif; }
+.rh2 .lf .lf-av.ph { font-size: 13px; }
+.rh2 .lf .lf-st .lf-nm { font-size: 13px; }
+.rh2 .lf .lf-st .lf-sub { font-size: 13px; }
+.rh2 .lf .lf-chip { font-size: 15px; }
+.rh2 .lf .lf-new { font-size: 15px; }
+.rh2 .lf .lf-row .lf-av { font-size: 15px; }
+.rh2 .lf .lf-txt { font-size: 16px; }
+.rh2 .lf .lf-time { font-size: 15px; }
+.rh2 .lf .pill.sm { font-size: 15px; }
+.rh2 .lf .lf-tog { font-size: 15px; }
+.rh2 .lf .lf-bub { font-size: 15px; }
+.rh2 .lf .lf-reply input { font-size: 15px; }
+.rh2 .lf .lf-hint { font-size: 15px; }
+.rh2 .lf .lf-post .lf-pt { font-size: 15px; }
+.rh2 .lf .lf-post .lf-pc { font-size: 15px; }
+.rh2 .lf .lf-mark { font-size: 15px; }
+.rh2 .lf .lf-chain div { font-size: 15px; }
+.rh2 .lf .lf-series { font-size: 15px; }
+.rh2 .lf .lf-sh .lf-av { font-size: 16px; }
+.rh2 .lf .lf-sh h3 { font-size: 18px; font-family: Onest, "Onest Fallback", "Segoe UI", system-ui, sans-serif; }
+.rh2 .lf .lf-sh p { font-size: 15px; }
+.rh2 .lf .lf-ev .lf-et { font-size: 16px; }
+.rh2 .lf .lf-ev .lf-eq { font-size: 15px; }
+.rh2 .lf .lf-ev .lf-ek { font-size: 13px; }
+.rh2 .lf .lf-snav button { font-size: 15px; }
+.rh2 .lf .lf-empty { font-size: 15px; }
+.rh2 .lf .lf-more-btn { font-size: 15px; }
+.rh2 .lf .clip { font-size: 13px; }
+.rh2 .lf .clip-player .cp-time { font-size: 13px; }
+.rh2 .lf .clip-player .cp-open { font-size: 13px; }
+.rh2 .pill.sm { font-size: 15px; }
+.rh2 [class^=sec] .tc small, .rh2 [class^=sec] .row .n small, .rh2 [class^=sec] .sec-h span { font-size: 15px; }
+.rh2 .topbar .brand { font-size: 16px; font-family: Onest, "Onest Fallback", "Segoe UI", system-ui, sans-serif; }
+.rh2 .topbar nav a { font-size: 15px; }
+.rh2 .tbtn { font-size: 15px; }
+.rh2 .cfg h3 { font-size: 18px; }
+.rh2 .cfg p { font-size: 15px; }
+.rh2 .cfg li .nm { font-size: 16px; }
+.rh2 .ph .m { font-size: 24px; }
+.rh2 .ht { font-size: 13px; }
+.rh2 .ht .av { font-size: 16px; font-family: Onest, "Onest Fallback", "Segoe UI", system-ui, sans-serif; }
+.rh2 .ht .st, .rh2 .lf-st .lf-sub.busy { font-size: 13px; }
+.rh2 .v8 .fav { font-size: 13px; font-family: Onest, "Onest Fallback", "Segoe UI", system-ui, sans-serif; }
+.rh2 .lf .lf-ek { font-size: 13px; }
+.rh2 .hero-links button { font-size: 15px; }
+.rh2 .who .flag button { font-size: 15px; }
+.rh2 .qi { font-size: 13px; }
+.rh2 .qi-tip { font-size: 15px; }
+.rh2 .ask-status { font-size: 15px; }
+.rh2 .es p { font-size: 16px; }
+.rh2 .ds { font-size: 15px; }
+.rh2 .rail .logo b { font-size: 15px; }
+.rh2 .rail .logo small { font-size: 13px; }
+.rh2 .rail .it { font-size: 15px; }
+.rh2 .rail .it .bd { font-size: 13px; }
+.rh2 .rail .srch .lbl kbd { font-size: 13px; }
+.rh2 .rail .si { font-size: 15px; }
+.rh2 .rail .si .bd { font-size: 13px; }
+.rh2 .toprow .kbd { font-size: 13px; }
+.rh2 .toprow .un b { font-size: 15px; }
+.rh2 .toprow .un small { font-size: 13px; }
+.rh2 .toprow .uav { font-size: 15px; font-family: Onest, "Onest Fallback", "Segoe UI", system-ui, sans-serif; }
+.rh2 .topbar .brand { font-size: 15px; }
+.rh2 .stk .panel { font-size: 16px; }
+.rh2 .stk .crumbs { font-size: 15px; }
+.rh2 .stk .top .av { font-size: 18px; font-family: Onest, "Onest Fallback", "Segoe UI", system-ui, sans-serif; }
+.rh2 .stk h2 { font-size: 24px; font-family: Onest, "Onest Fallback", "Segoe UI", system-ui, sans-serif; }
+.rh2 .stk .sub { font-size: 15px; }
+.rh2 .stk .st { font-size: 13px; }
+.rh2 .stk .pill { font-size: 15px; }
+.rh2 .stk h3 { font-size: 13px; }
+.rh2 .stk .row .t span { font-size: 15px; }
+.rh2 .stk .row .tm { font-size: 13px; }
+.rh2 .stk .trio b { font-size: 22px; font-family: Onest, "Onest Fallback", "Segoe UI", system-ui, sans-serif; }
+.rh2 .stk .trio small { font-size: 13px; }
+.rh2 .stk .menu a, .rh2 .stk .menu button { font-size: 16px; }
+.rh2 .stk .menu .bd { font-size: 13px; }
+.rh2 .stk .empty { font-size: 15px; }
+.rh2 .cmdk input { font-size: 16px; }
+.rh2 .cmdk li button { font-size: 15px; }
+.rh2 .cmdk li button small { font-size: 13px; }
+.rh2 .cmdk .none { font-size: 15px; }
+.rh2 .ai-now { font-size: 15px; }
+.rh2 .ai-q { font-size: 15px; }
+.rh2 .ai-q .qi-ic { font-size: 15px; }
+.rh2 .ai-q .pill.sm { font-size: 15px; }
+.rh2 .ai-q-form input { font-size: 15px; }
+.rh2 .obj-day .od-k { font-size: 13px; }
+.rh2 .obj-day .od-t { font-size: 15px; }
+.rh2 .obj-day .od-p { font-size: 18px; font-family: Onest, "Onest Fallback", "Segoe UI", system-ui, sans-serif; }
+.rh2 .obj-day .od-n { font-size: 13px; }
+.rh2 .obj-day .od-n b { font-size: 18px; font-family: Onest, "Onest Fallback", "Segoe UI", system-ui, sans-serif; }
+.rh2 .sec03 .bar .mk-today { font-size: 13px; }
+.rh2 .sec07 .src .n .cmpi { font-size: 13px; }
+.rh2 .more-btn { font-size: 15px; }
+.rh2 .gauge .c small { font-size: 13px; }
+.rh2 .hero-txt p { font-size: 18px; }
+.rh2 .ai-now { font-size: 15px; }
+.rh2 .ai-q { font-size: 16px; }
+.rh2 .seg-ai button[data-f] { font-size: 15px; }
+.rh2 .seg-ai .n { font-size: 13px; }
+.rh2 .ai-list li { font-size: 16px; }
+.rh2 .ai-list li .tm { font-size: 13px; }
+.rh2 .ai-list li .lk { font-size: 15px; }
+.rh2 .ai-more { font-size: 15px; }
+.rh2 .sc .num, .rh2 .scan .sc .num { font-size: 24px; font-family: Onest, "Onest Fallback", "Segoe UI", system-ui, sans-serif; }
+.rh2 .sc .t b, .rh2 .scan .sc .t b { font-size: 15px; }
+.rh2 .sc .t span, .rh2 .scan .sc .t span { font-size: 13px; }
+.rh2 .arow { font-size: 16px; }
+.rh2 .arow .pill { font-size: 15px; }
+.rh2 .arow .lk { font-size: 15px; }
+.rh2 .arow .inl input { font-size: 15px; }
+.rh2 .arow .stepup { font-size: 15px; }
+.rh2 .acts-done { font-size: 16px; }
+.rh2 .acts-more { font-size: 15px; }
+.rh2 .acts-foot .pill.ghost.sm, .rh2 .acts-foot #btn-open { font-size: 15px; }
+.rh2 .ask-ans { font-size: 16px; }
+.rh2 .ask-ans .chips a, .rh2 .ask-ans .chips button { font-size: 15px; }
+.rh2 .toprow .upd { font-size: 15px; }
+.rh2 .ai-hint { font-size: 16px; }
+.rh2 .cfg .snd .desc { font-size: 15px; }
+.rh2 .cfg .snd .pill.sm { font-size: 15px; }
+.rh2 .tli .cap { font-size: 13px; }
+.rh2 .dc-h h2 { font-size: 18px; }
+.rh2 .dc-ring b { font-size: 15px; }
+.rh2 .dc-faces span { font-size: 13px; }
+.rh2 .dc-sub { font-size: 15px; }
+.rh2 .dc-row .k { font-size: 15px; }
+.rh2 .dc-row .tx { font-size: 15px; }
+.rh2 .dc-row .inl input { font-size: 15px; }
+.rh2 .obj-row .or-t b { font-size: 16px; }
+.rh2 .obj-row .or-t span { font-size: 15px; }
+.rh2 .obj-row .or-n span { font-size: 13px; }
+.rh2 .obj-row .or-n b { font-size: 18px; }
+.rh2 .scr .head h2 { font-size: 24px; }
+.rh2 .scr .head p { font-size: 15px; }
+.rh2 .scr .quiet { font-size: 15px; }
+.rh2 .scr-row .tx { font-size: 15px; }
+.rh2 .rail .it.me .ic.av { font-size: 13px; }
+.rh2 .rail .it.me .lbl small { font-size: 13px; }
+.rh2 .ai-list li .no { font-size: 13px; }
+.rh2 .dealbar .db b { font-size: 22px; }
+.rh2 .dealbar .db small { font-size: 13px; }
+.rh2 .db-lg { font-size: 15px; }
+.rh2 .cl-top .t b { font-size: 16px; }
+.rh2 .cl-top .t span { font-size: 15px; }
+.rh2 .steps li { font-size: 13px; }
+.rh2 .steps li i { font-size: 13px; }
+.rh2 .ask-src { font-size: 13px; }
+.rh2 .allsec .sec-h h3 { font-size: 18px; }
+.rh2 .at-nm { font-size: 16px; }
+.rh2 .at-note { font-size: 15px; }
+.rh2 .at-barlbl { font-size: 13px; }
+.rh2 .notif-pop h3 { font-size: 16px; }
+.rh2 .notif-row .tx { font-size: 15px; }
+.rh2 .notif-foot a { font-size: 15px; }
+.rh2 .qsheet .qs-crumbs { font-size: 13px; }
+.rh2 .qsheet .qs-h h2 { font-size: 20px; font-family: Onest, "Onest Fallback", "Segoe UI", system-ui, sans-serif; }
+.rh2 .qsheet .qs-h p { font-size: 15px; }
+.rh2 .qsheet .qs-line { font-size: 15px; }
+.rh2 .qsheet .qs-empty { font-size: 15px; }
+.rh2 .v10-tip { font-size: 13px; }
+.rh2 .od2-nm { font-size: 22px; }
+.rh2 .od2-pr { font-family: Onest, "Onest Fallback", "Segoe UI", system-ui, sans-serif; }
+.rh2 .od2-f { font-size: 15px; }
+.rh2 .od2-f small { font-size: 15px; }
+.rh2 .od2-f b { font-size: 15px; }
+.rh2 .v8 .v8b .obj .pr { font-size: 16px; font-family: Onest, "Onest Fallback", "Segoe UI", system-ui, sans-serif; }
+.rh2 .dist-h { font-size: 15px; }
+.rh2 .v8 .v8b .chart svg text.val { font-size: 13px; }
+.rh2 .spk-v { font-size: 13px; }
+.rh2 .dm-plan-t { font-size: 15px; }
+.rh2 .dm-plan-t b { font-size: 18px; }
+.rh2 .dm-hint { font-size: 15px; }
+.rh2 .dm-col-h { font-size: 15px; }
+.rh2 .dm-col-h b { font-size: 15px; }
+.rh2 .dm-card { font-size: 13px; }
+.rh2 .dm-who { font-size: 15px; }
+.rh2 .dm-obj { font-size: 15px; }
+.rh2 .dm-sum { font-size: 16px; font-family: Onest, "Onest Fallback", "Segoe UI", system-ui, sans-serif; }
+.rh2 .dm-term { font-size: 13px; }
+.rh2 .cfg .cfg-cols { font-size: 15px; }
+.rh2 .cfg .cfg-cols small { font-size: 15px; }
+.rh2 .lf .lf-st.nowc .nowc-ini { font-family: Onest, "Onest Fallback", "Segoe UI", system-ui, sans-serif; }
+.rh2 .lf .lf-st.nowc.obj .nowc-ini { font-size: 22px; }
+.rh2 .lf .lf-st.nowc .lf-nm { font-size: 15px; }
+.rh2 .lf .lf-st.nowc .lf-sub, .rh2 .lf .lf-st.nowc .lf-sub.busy { font-size: 13px; }
+.rh2 .botnow .botnow-live { font-size: 15px; }
+.rh2 .botnow .botnow-f button { font-size: 15px; }
+.rh2 .botnow .bnr-av { font-size: 15px; font-family: Onest, "Onest Fallback", "Segoe UI", system-ui, sans-serif; }
+.rh2 .botnow .bnr-tx { font-size: 15px; }
+.rh2 .botnow .bnr-who { font-size: 13px; }
+.rh2 .botnow .bnr-t { font-size: 13px; }
+.rh2 .ai-list .bnr-who { font-size: 13px; }
+.rh2 .cmdk .cin-esc { font-size: 13px; }
+.rh2 .cmdk .cans { font-size: 15px; }
+.rh2 .cmdk .cans .cacts button { font-size: 13px; }
+.rh2 .cmdk .cgrp-t { font-size: 13px; }
+.rh2 .cmdk li button .ck { font-size: 13px; }
+.rh2 .cmdk .cstat { font-size: 13px; }
+.rh2 .scr .mag-card .nums b { font-size: 24px; }
+.rh2 .scr .trio .n b { font-size: 24px; }
+.rh2 .scr .axl { font-size: 13px; }
+.rh2 .scr .chart .val { font-size: 13px; }
+.rh2 .scr .lgn .gerb { font-size: 24px; }
+.rh2 .tr-count { font-size: 15px; }
+.rh2 .tr-seg button { font-size: 15px; }
+.rh2 .tr-row .tx b { font-size: 15px; }
+.rh2 .tr-row .tx span { font-size: 13px; }
+.rh2 .tr-ch .who b { font-size: 15px; }
+.rh2 .tr-ch .acts a, .rh2 .tr-ch .acts button { font-size: 13px; }
+.rh2 .tr-b { font-size: 15px; }
+.rh2 .tr-b.ctx { font-size: 15px; }
+.rh2 .tr-b.target .lbl { font-size: 13px; }
+.rh2 .tr-b.target .t { font-size: 13px; }
+.rh2 .tr-b.alt kbd { font-size: 15px; }
+.rh2 .tr-cap { font-size: 13px; }
+.rh2 .tr-more { font-size: 13px; }
+.rh2 .tr-composer input { font-size: 15px; }
+.rh2 .tr-composer .send { font-size: 15px; }
+.rh2 .tr-ask { font-size: 17px; }
+.rh2 .tr-act { font-size: 18px; }
+.rh2 .tr-mute-lnk { font-size: 15px; }
+.rh2 .tr-toast { font-size: 15px; }
+.rh2 .tr-compact .tr-act { font-size: 16px; }
+.rh2 .tr-compact .tr-ask { font-size: 15px; }
+.rh2 .wiz .ttl { font-size: 22px; }
+.rh2 .wiz .sub { font-size: 15px; }
+.rh2 .wiz .mode { font-size: 15px; }
+.rh2 .wiz .segs button { font-size: 16px; }
+.rh2 .wiz .f input { font-size: 17px; }
+.rh2 .wiz .f input.txt { font-size: 17px; }
+.rh2 .wiz .f label { font-size: 13px; }
+.rh2 .wiz .drop .t { font-size: 16px; }
+.rh2 .wiz .drop .s { font-size: 13px; }
+.rh2 .wiz .tile.add { font-size: 13px; }
+.rh2 .wiz .more { font-size: 15px; }
+.rh2 .wiz { font-size: 16px; }
+.rh2 .wiz code { font-size: 13px; }
+.rh2 .wiz .ttl { font-size: 20px; }
+.rh2 .wiz .sub { font-size: 13px; }
+.rh2 .wiz .mode { font-size: 13px; }
+.rh2 .wiz .blk h4 { font-size: 15px; }
+.rh2 .wiz .ghost { font-size: 13px; }
+.rh2 .wiz .tile .badge { font-size: 13px; }
+.rh2 .wiz .vrow .nm { font-size: 15px; }
+.rh2 .wiz .vrow .mt { font-size: 13px; }
+.rh2 .wiz .chip { font-size: 13px; }
+.rh2 .wiz .f label { font-size: 13px; }
+.rh2 .wiz .f input { font-size: 15px; }
+.rh2 .wiz .f input.txt { font-size: 15px; }
+.rh2 .wiz .segs button { font-size: 13px; }
+.rh2 .wiz .map .pin .pill { font-size: 13px; }
+.rh2 .wiz .map .msearch input { font-size: 15px; }
+.rh2 .wiz .map .near .dotpill { font-size: 13px; }
+.rh2 .wiz .map .scale { font-size: 13px; }
+.rh2 .wiz .map .zoom button { font-size: 16px; }
+.rh2 .wiz .sugg .nm { font-size: 15px; }
+.rh2 .wiz .sugg .rg { font-size: 13px; }
+.rh2 .wiz .tag { font-size: 13px; }
+.rh2 .wiz .empty { font-size: 13px; }
+.rh2 .wiz .rev .k { font-size: 13px; }
+.rh2 .wiz .rev .v { font-size: 15px; }
+.rh2 .wiz .calc { font-size: 13px; }
+.rh2 .wiz .dup { font-size: 13px; }
+.rh2 .wiz .draft { font-size: 13px; }
+.rh2 .wiz .wfoot .back { font-size: 15px; }
+.rh2 .wiz .wfoot .skip { font-size: 15px; }
+.rh2 .wiz .wfoot .next { font-size: 16px; }
+.rh2 .wiz .panel h4 { font-size: 16px; }
+.rh2 .wiz .pick2 b { font-size: 16px; }
+.sh-rail-name { font-size: 16px; }
+.sh-rail-slogan { font-size: 15px; }
+.sh-nav-it { font-size: 16px; }
+.sh-search { font-size: 16px; }
+.sh-avatar { font-size: 15px; }
+.sh-user-name { font-size: 16px; }
+.sh-user-role { font-size: 15px; }
+.sh-notice-title { font-size: 16px; }
+.sh-notice-body { font-size: 15px; }
+.sh-tab [data-tab-label] { font-size: 15px; }
+.rh2 .hero-face-cap b { font-family: Onest, "Onest Fallback", "Segoe UI", system-ui, sans-serif; }
+.rh2 .hero-face-cap small { font-size: 15px; }
+html[data-theme^="royal-home-2026-"] .rh2 .fc-line > summary { font-size: 15px; }
+html[data-theme^="royal-home-2026-"] .rh2 .fc-line > summary u { font-size: 15px; }
+.rh2 .brief-card .brief-t { font-size: 13px; }
+.rh2 .brief-card .brief-text { font-size: 16px; }
+.rh2 .brief-card .brief-note { font-size: 15px; }
+.rh2 .brief-card .brief-btn { font-size: 15px; }
+.rh2 .map-plaque { font-size: 13px; }
+.rh2 .map-price { font-size: 13px; }
+.rh2 .scr .map-card { font-size: 13px; }
+.rh2 .scr .map-card .map-card-price { font-size: 13px; }
+.rh2 .scr .map-card .map-card-title { font-size: 15px; }
+.rh2 .scr .map-card .map-card-addr { font-size: 13px; }
+.rh2 .scr a.tile,
+.rh2 .scr button.tile { font-size: 13px; }
+.rh2 .seg-ai a[data-f] { font-size: 15px; }
+[data-rail] .rail-bd { font-size: 13px; }
+.rh2 .scr .row .meta { font-size: 15px; }
+.rh2 .scr .pill.rh-btn { font-size: 16px; }
+.rh2 .scr .pill.sm.rh-btn.rh-btn-sm { font-size: 15px; }
+.rh2 .scr .pg-h.rh-pg-h .sub { font-size: 15px; }
+.rh2 .scr .chip.rh-chip { font-size: 15px; }
+.rh2 .scr .rh-filters button,
+.rh2 .scr .seg.rh-tabs button { font-size: 16px; }
+.rh2 .scr .seg.big button { font-size: 16px; }
+.rh2 .scr .rh-row .av { font-size: 16px; }
+.rh2 .scr .rh-row .t b { font-size: 17px; }
+.rh2 .scr .rh-row .t span { font-size: 15px; }
+.rh2 .scr .rh-row .meta { font-size: 15px; }
+.rh2 .scr .tile.rh-tile .l { font-size: 15px; }
+.rh2 .scr .rh-pcard .card.rh-card > .sec-t,
+.rh2 .scr .rh-pcard-tabs .card.rh-card > .sec-t { font-size: 15px; }
+.rh2 .scr .rh-gallery-count { font-size: 15px; }
+.rh2 .scr .rh-price-sub { font-size: 15px; }
+.rh2 .scr .rh-price-title { font-size: 20px; }
+@media (max-width: 819px), (max-width: 1179px) and (pointer: coarse) {
+  html[data-shell="clean"] .clean-profile-page .scr :is(input:not([type="checkbox"]):not([type="radio"]),select,textarea) { font-size: 17px; }
+  html[data-shell="clean"] .clean-inbox-filters select { font-size: 17px; }
+  html[data-shell="clean"] [data-property-layout="row"] h2 { font-size: 18px; }
+  html[data-shell="clean"] .clean-properties-page .clean-catalog-overdue .txt { font-size: 15px; }
+  html[data-shell="clean"] .clean-catalog-tools > summary { font-size: 15px; }
+  html[data-shell="clean"] .clean-catalog-filter-count { font-size: 15px; }
+  html[data-shell="clean"] .clean-catalog-view-label { font-size: 15px; }
+}
+@media (max-width: 819px) {
+  [data-shell="clean"] .clean-conversation .compose textarea { font-size: 17px; }
+  .clean-shell .clean-brand { font-size: 20px; }
+  .clean-shell .clean-header-context .clean-existing-topbar [data-topbar-title] { font-size: 20px; }
+  html[data-shell="clean"] .clean-messages .clean-conversation .pane-h>.t b { font-size: 17px; }
+  html[data-shell="clean"] .clean-messages .clean-conversation .pane-h>.t>span { font-size: 15px; }
+  html[data-shell="clean"] .clean-messages .compose textarea { font-size: 17px; }
+  html[data-shell="clean"] .clean-critical-notice-heading { font-size: 16px; }
+  html[data-shell="clean"] .clean-critical-notice-count { font-size: 15px; }
+}
+@media(max-width:819px) {
+  html[data-shell="clean"] .clean-record-tabs button { font-size: 16px; }
+}
+@media (min-width: 820px) {
+  .clean-shell [data-property-row] .pstat :is(b, small) { font-size: 15px; }
+  .clean-shell .clean-tab { font-size: 16px; }
+  .clean-shell .clean-more summary { font-size: 16px; }
+  .clean-shell .clean-more-panel a { font-size: 17px; }
+  .clean-shell .clean-existing-topbar .sh-user-name,.clean-shell .clean-existing-topbar .sh-user-role { font-size: 15px; }
+  .clean-shell .clean { font-size: 17px; }
+  .clean-shell .clean .clean-card>div:first-child>h3 { font-size: 24px; }
+  .clean-shell .clean .clean-greeting>p { font-size: 18px; }
+  .clean-shell .clean .clean-decision-title { font-size: 20px; }
+  .clean-shell .clean .clean-decision-description { font-size: 16px; }
+  .clean-shell .clean :is(button,a.rounded-full) { font-size: 16px; }
+  .clean-shell .clean .clean-section-link { font-size: 16px; }
+  .clean-shell .clean .clean-first-line p { font-size: 17px; }
+  .clean-shell .finance-clean .finance-definition { font-size: 16px; }
+  .clean-shell .finance-clean .finance-workspace-nav button { font-size: 16px; }
+  .clean-shell .finance-clean .finance-workspace-note { font-size: 16px; }
+  html[data-shell="clean"] .clean-messages .clean-inbox-filters { font-size: 15px; }
+  html[data-shell="clean"] .rh2 .clean-showing-client-row { font-size: 15px; }
+  html[data-shell="clean"] .clean [class~="text-[13px]"] { font-size: 15px; }
+  html[data-shell="clean"] .rh2 .scr .dsm-d > small { font-size: 15px; }
+}
+@media (min-width: 1440px) {
+  .clean-shell .clean-existing-topbar .sh-user-name { font-size: 15px; }
+  .clean-shell .clean-existing-topbar .sh-user-role { font-size: 15px; }
+}
+@media (max-width:820px) {
+  .rh2 .scr .cd-act { font-size: 13px; }
+  .rh2 .sec02 .head h2 { font-size: 24px; }
+  .rh2 .sec02 .head p { font-size: 16px; }
+  .rh2 .sec02 .who .mob { font-size: 15px; }
+  .rh2 .sec03 .head h2 { font-size: 24px; }
+  .rh2 .sec03 .head p { font-size: 16px; }
+  .rh2 .sec04 .head h2 { font-size: 24px; }
+  .rh2 .sec04 .head p { font-size: 16px; }
+  .rh2 .sec05 .head h2 { font-size: 24px; }
+  .rh2 .sec05 .head p { font-size: 16px; }
+  .rh2 .sec06 .head h2 { font-size: 24px; }
+  .rh2 .sec06 .head p { font-size: 16px; }
+  .rh2 .sec07 .head h2 { font-size: 24px; }
+  .rh2 .sec07 .head p { font-size: 16px; }
+  .rh2 .sec07 .src .n { font-size: 15px; }
+  .rh2 .sec07 .src .n::before { font-size: 15px; }
+  .rh2 .sec08 .head h2 { font-size: 24px; }
+  .rh2 .sec08 .head p { font-size: 16px; }
+  .rh2 .sec09 .head h2 { font-size: 24px; }
+  .rh2 .sec09 .head p { font-size: 16px; }
+  .rh2 .scr .tile b { font-size: 24px; }
+  .rh2 .scr .bins button b { font-size: 24px; }
+}
+@media (max-width: 640px) {
+  .rh2 .pst-light h2 { font-size: 20px; }
+  .rh2 .pvc-d-head h3 { font-size: 17px; }
+  .rh2 .map-obj-price { font-size: 18px; }
+}
+@media (max-width:819px), (max-width:1179px) and (pointer:coarse) {
+  input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]):not([type=file]):not([type=hidden]),
+select:not([size]):not([multiple]),
+textarea:not([readonly]):not([disabled]) { font-size: 17px; }
+}
+@media (max-width:1080px) {
+  .rh2 .gauge .c b { font-size: 24px; }
+}
+@media (max-width:640px) {
+  .rh2 .hero-txt h2 { font-size: 24px; }
+  .rh2 .hero-txt p { font-size: 16px; }
+  .rh2 .v8 .v8b .tl .ev { font-size: 15px; }
+  .rh2 .dsr .av { font-size: 16px; }
+  .rh2 .dsr .top h2 { font-size: 18px; }
+  .rh2 .dsr .score b { font-size: 24px; }
+  .rh2 .lf .lf-head h2 { font-size: 24px; }
+  .rh2 .lf .lf-time { font-size: 13px; }
+  .rh2 .rest-h h3 { font-size: 18px; }
+  .rh2 .sc b { font-size: 15px; }
+  .rh2 .anchors>* { font-size: 15px; }
+  .rh2 .hero-txt h1 { font-size: 24px; }
+  .rh2 .sc .num, .rh2 .scan .sc .num { font-size: 24px; }
+  .rh2 .botnow .bnr-tx { font-size: 16px; }
+}
+@media (max-width:1023px) {
+  .rh2 .tabbar .tb { font-size: 13px; }
+}
+@media (max-width:1359px) {
+  .rh2 .sc .num, .rh2 .scan .sc .num { font-size: 22px; }
+  .rh2 .sc .t b, .rh2 .scan .sc .t b { font-size: 13px; }
+}
+@media (max-width:1180px) {
+  .rh2 .sc .num, .rh2 .scan .sc .num { font-size: 24px; }
+  .rh2 .sc .t b, .rh2 .scan .sc .t b { font-size: 15px; }
+}
+@media(max-width:640px) {
+  .rh2 .steps li span { font-size: 13px; }
+}
+@media(min-width:1024px) {
+  .rh2 .topbar .brand { font-size: 15px; }
+  .rh2 .topbar nav a { font-size: 15px; }
+}
+@media (max-width:520px) {
+  .rh2 .tr-act { font-size: 17px; }
+}

@@ -1,0 +1,404 @@
+/* КАРТА ОБЪЕКТОВ — ПЛАШКИ ЦЕН ВМЕСТО ДЛИННЫХ ПОДПИСЕЙ (21.09.2026).
+ *
+ * Владелец: «на карте слишком длинные названия адресов, а должно быть как у
+ * Airbnb — маленькие цветные плашки с ценой, а у нас это есть только если
+ * приблизить, странно конечно».
+ *
+ * Оба замечания верны и у обоих одна причина — подписи писались как строка
+ * данных, а не как элемент карты:
+ *   1. Плашка кластера несла «Сино · 143 объекта · от 58 000» — три факта в
+ *      одну строку. На телефоне такая плашка шире четверти экрана, а рядом их
+ *      десяток: карта превращается в список, наложенный на карту. Теперь текст
+ *      собирает `clusterPlaque()` (lib/mapGeoJson.ts) — число и цена «от»,
+ *      название района читается с самой подложки.
+ *   2. Ценовые плашки жили ТОЛЬКО на ярусе 14…16 и гасли при приближении
+ *      (`if (!medium) return` в syncLabels) — отсюда «есть, только если
+ *      приблизить», а потом пропадает снова. Теперь они рисуются на всех
+ *      ярусах ближе кластеров.
+ *
+ * ПОЧЕМУ ОТДЕЛЬНЫЙ ФАЙЛ. `.map-price` и `.map-plaque` заданы в
+ * theme-royal-home-2026.css, а он генерируется скриптом целиком — дописка в
+ * хвост исчезает при следующей синхронизации без единой ошибки. Подключается
+ * после него (см. index.css), поэтому ничьи по весу выигрывает этот файл.
+ */
+
+/* Плашка цены: белая пилюля с тенью, как у Airbnb, а не подпись под пузырьком.
+   `margin-top` эталона убираем — плашка САМА стоит на точке объекта и больше не
+   висит хвостом под кружком. */
+.rh2 .map-price {
+  font-size: var(--fs-12);
+  font-weight: 700;
+  line-height: 1;
+  color: #15171a;
+  background: #fff;
+  border: 1px solid rgba(21, 23, 26, 0.1);
+  border-radius: 999px;
+  padding: 5px 9px;
+  margin-top: 0;
+  box-shadow: 0 1px 4px rgba(21, 23, 26, 0.28);
+  /* Плашка перехватывает нажатие вместо кружка радиусом 4 px под ней: попасть
+     пальцем в пилюлю можно, в точку — нет. Обработчик ставит syncLabels. */
+  pointer-events: auto;
+  cursor: pointer;
+}
+.rh2 .map-price:hover {
+  background: #15171a;
+  color: #fff;
+  border-color: transparent;
+}
+/* Объект, открытый в списке или выбранный кликом, — залит, как активная
+   плашка Airbnb: одного размера с остальными, но его видно среди сотни. */
+.rh2 .map-price.is-active {
+  background: #15171a;
+  color: #fff;
+  border-color: transparent;
+}
+
+/* Плашка кластера — та же пилюля, только тёмная: это «здесь много объектов»,
+   а не цена одного. Прежний прямоугольник со скруглением var(--r-sm) читался
+   ярлыком подложки, а не элементом поверх карты. */
+.rh2 .map-plaque {
+  font-size: var(--fs-12);
+  font-weight: 700;
+  line-height: 1;
+  border-radius: 999px;
+  padding: 7px 11px;
+  box-shadow: 0 1px 4px rgba(21, 23, 26, 0.3);
+}
+
+/* РАСКЛАДКА ЭКРАНА КАРТЫ НА КОМПЬЮТЕРЕ (24.09.2026) — список слева, холст справа.
+ *
+ * Раньше это были инлайн-стили в PropertiesMap.tsx: список ровно 460 px, холст —
+ * всё, что осталось. «Телефонная» раскладка включается по устройству
+ * (useMobileUx: узкий экран ИЛИ палец), поэтому окно браузера шириной 820…1179 px
+ * с мышью получало компьютерную: за вычетом списка и меню холсту доставалось
+ * ~150 px — полоска вместо карты.
+ *
+ * Уже 1180 px холст встаёт ПОД поиск, а карточки — под холст, как на телефоне.
+ * `display: contents` у списка делает поиск и сетку карточек прямыми соседями
+ * холста, и `order` расставляет их без второй копии разметки. Медиа-запрос, а не
+ * проверка ширины в JS: раскладка — дело CSS, и так она не мигает при изменении
+ * размера окна. */
+.rh2 .scr .map-layout {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+.rh2 .scr .map-layout > .map-sidebar {
+  width: 460px;
+  flex: none;
+  height: 640px;
+}
+.rh2 .scr .map-layout > .map-canvas {
+  flex: 1;
+  min-width: 0;
+  height: 640px;
+}
+@media (max-width: 1179px) {
+  .rh2 .scr .map-layout {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .rh2 .scr .map-layout > .map-sidebar {
+    display: contents;
+  }
+  .rh2 .scr .map-layout > .map-canvas {
+    order: 1;
+    flex: none;
+    width: 100%;
+    height: 60vh;
+    min-height: 360px;
+  }
+  .rh2 .scr .map-layout .map-grid {
+    order: 2;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    overflow-y: visible;
+    padding: 0;
+  }
+}
+
+/* НАВЕДЕНИЕ И НАЖАТИЕ «КАК В ЯНДЕКС И GOOGLE КАРТАХ» (25.09.2026).
+ *
+ * Владелец: «объекты не нажимаются, как будто картинка… когда мышкой по ним
+ * водишь как Google Maps или Яндекс… не как премиальный сайт».
+ *
+ * Плашка под мышью и выбранная выходят вперёд соседей (z-index — на самом
+ * маркере: `transform` у него занят MapLibre под позицию, увеличивать его
+ * нельзя). Карточка при наведении — поверх точки, не ловит мышь сама, иначе
+ * плашка под ней «теряла» наведение и карточка мигала. */
+.rh2 .map-price {
+  transition: background-color 0.12s ease, color 0.12s ease, box-shadow 0.12s ease;
+}
+.rh2 .map-price:hover,
+.rh2 .map-price.is-hover {
+  background: #15171a;
+  color: #fff;
+  border-color: transparent;
+  box-shadow: 0 4px 14px rgba(21, 23, 26, 0.35);
+  z-index: 2;
+}
+.rh2 .map-price.is-active {
+  z-index: 3;
+  box-shadow: 0 4px 14px rgba(21, 23, 26, 0.35);
+}
+
+.rh2 .map-hover-popup {
+  pointer-events: none;
+  z-index: 4;
+}
+.rh2 .map-hover-popup .maplibregl-popup-content {
+  padding: 0;
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 10px 30px rgba(21, 23, 26, 0.25);
+}
+.rh2 .map-hover-popup .maplibregl-popup-tip {
+  display: none;
+}
+.rh2 .map-hover-card {
+  width: 240px;
+  font-size: 14px;
+  color: #15171a;
+  background: #fff;
+}
+.rh2 .map-hover-card img {
+  display: block;
+  width: 100%;
+  height: 130px;
+  object-fit: cover;
+}
+.rh2 .map-hover-body {
+  display: grid;
+  gap: 2px;
+  padding: 10px 12px 12px;
+}
+.rh2 .map-hover-body b {
+  font-size: 16px;
+}
+.rh2 .map-hover-title {
+  font-weight: 600;
+}
+.rh2 .map-hover-sub {
+  color: rgba(21, 23, 26, 0.6);
+  font-size: 13px;
+}
+
+/* Карточка выбранного объекта — поверх карты, карта остаётся живой. На
+   компьютере — слева сверху, под кнопкой «где я»: низ холста на ноутбуке
+   часто ниже края экрана. На телефоне — внизу (см. медиа-запрос ниже). */
+.rh2 .map-obj-card {
+  position: absolute;
+  left: 12px;
+  top: 64px;
+  z-index: 5;
+  display: flex;
+  gap: 12px;
+  width: min(460px, calc(100% - 24px));
+  padding: 12px;
+  border-radius: 16px;
+  background: var(--card);
+  color: var(--ink);
+  box-shadow: 0 12px 36px rgba(21, 23, 26, 0.28);
+  animation: map-obj-in 0.16s ease-out;
+}
+@keyframes map-obj-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rh2 .map-obj-card {
+    animation: none;
+  }
+}
+.rh2 .map-obj-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  color: var(--ink);
+  background: var(--hover);
+}
+.rh2 .map-obj-photo {
+  flex: none;
+  width: 120px;
+  height: 120px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--hover);
+  display: grid;
+  place-items: center;
+}
+.rh2 .map-obj-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.rh2 .map-obj-body {
+  display: grid;
+  align-content: start;
+  gap: 3px;
+  min-width: 0;
+}
+.rh2 .map-obj-price {
+  font-size: 19px;
+  padding-right: 36px;
+}
+.rh2 .map-obj-sub {
+  color: rgb(var(--rgb-ink) / 0.6);
+  font-size: 14px;
+}
+.rh2 .map-obj-title {
+  min-height: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-align: left;
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--ink);
+}
+.rh2 .map-obj-title:hover {
+  text-decoration: underline;
+}
+.rh2 .map-obj-acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+.rh2 .map-obj-card.is-list {
+  flex-direction: column;
+  gap: 8px;
+}
+.rh2 .map-obj-head {
+  font-size: 16px;
+  padding-right: 40px;
+}
+.rh2 .map-obj-rows {
+  display: grid;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.rh2 .map-obj-row {
+  display: grid;
+  gap: 2px;
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: 10px;
+  color: var(--ink);
+}
+.rh2 .map-obj-row:hover {
+  background: var(--hover);
+}
+
+/* Карточка списка, на чью плашку навели мышью на карте. */
+.rh2 .scr .map-card.is-hover {
+  border-color: var(--ink);
+}
+
+.rh2 .map-place-popup .maplibregl-popup-tip {
+  display: none;
+}
+
+/* Телефон: карта — полэкрана, карточка обязана оставить её видной. */
+@media (max-width: 640px) {
+  .rh2 .map-obj-card {
+    top: auto;
+    left: 8px;
+    right: 8px;
+    bottom: 8px;
+    width: auto;
+    gap: 10px;
+    padding: 10px;
+  }
+  .rh2 .map-obj-photo {
+    width: 76px;
+    height: 76px;
+  }
+  .rh2 .map-obj-price {
+    font-size: 17px;
+  }
+  .rh2 .map-obj-sub.is-place,
+  .rh2 .map-obj-route-label {
+    display: none;
+  }
+  .rh2 .map-obj-acts {
+    margin-top: 6px;
+  }
+  .rh2 .map-place-card {
+    width: 240px;
+  }
+}
+
+/* Карточка места — нажатие на пустое место карты (25.09.2026, «дешёвое окно»). */
+.rh2 .map-place-popup {
+  z-index: 6;
+}
+.rh2 .map-place-popup .maplibregl-popup-content {
+  padding: 0;
+  border-radius: 16px;
+  box-shadow: 0 12px 36px rgba(21, 23, 26, 0.28);
+  background: var(--card);
+}
+.rh2 .map-place-card {
+  position: relative;
+  display: grid;
+  gap: 4px;
+  width: 272px;
+  padding: 14px 16px 16px;
+  color: var(--ink);
+  font-size: 14px;
+}
+.rh2 .map-place-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  font-size: 20px;
+  line-height: 1;
+  color: var(--ink);
+  background: var(--hover);
+}
+.rh2 .map-place-title {
+  font-size: 17px;
+  line-height: 1.25;
+  padding-right: 34px;
+}
+.rh2 .map-place-title.is-loading {
+  color: rgb(var(--rgb-ink) / 0.45);
+  font-weight: 500;
+}
+.rh2 .map-place-sub {
+  color: rgb(var(--rgb-ink) / 0.6);
+}
+.rh2 .map-place-sub:empty {
+  display: none;
+}
+.rh2 .map-place-near {
+  margin-top: 6px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--hover);
+  font-weight: 500;
+}
+.rh2 .map-place-acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}

@@ -1,0 +1,42 @@
+/* Shared section primitives. Keep business/detail titles intact: only a mobile
+   root section with a real shell title and no back context hides its duplicate
+   page heading visually. The h1 remains available to assistive technology. */
+html[data-shell="clean"] .rh2 .scr .tiles > .tile {
+  border: 0; border-radius: 20px; background: var(--c-card);
+  box-shadow: var(--clean-shadow);
+}
+html[data-shell="clean"] .rh2 .scr .pg-h .pill.ghost,
+html[data-shell="clean"] .rh2 .scr .seg button:not([aria-selected="true"]) {
+  border: 0; background: var(--c-row-alt);
+}
+html[data-shell="clean"] .clean-team-recognition > summary {
+  min-height: 44px; display: flex; align-items: center; cursor: pointer;
+  font-weight: 600; gap: 12px; list-style: none;
+}
+html[data-shell="clean"] .clean-team-recognition > summary::after {
+  content: "+"; margin-inline-start: auto; font-size: 22px;
+}
+html[data-shell="clean"] .clean-team-recognition[open] > summary::after { content: "−"; }
+html[data-shell="clean"] .clean-team-recognition[open] > .cols2 { margin-top: 16px; }
+html[data-shell="clean"] .clean-mobile-stage-nav button { border: 0; box-shadow: none; background: var(--c-card); }
+html[data-shell="clean"] .rh2-bar-chart .br[data-negative="true"] { fill: var(--crit, #d92d20); }
+html[data-shell="clean"] .clean-channel-grid { display: grid; gap: 20px; grid-template-columns: minmax(0, 1fr); }
+html[data-shell="clean"] .clean-channel-detail .clean-card { min-width: 0; padding: 24px; border: 0; background: var(--c-card); box-shadow: var(--clean-shadow); }
+html[data-shell="clean"] .clean-channel-detail h2 { margin: 0 0 12px; font-size: 20px; line-height: 1.35; }
+html[data-shell="clean"] .clean-channel-detail p { margin: 12px 0; font-size: 16px; line-height: 1.6; overflow-wrap: anywhere; }
+html[data-shell="clean"] .clean-channel-state { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; }
+html[data-shell="clean"] .clean-channel-icon { display: grid; place-items: center; width: 56px; height: 56px; flex: none; border-radius: 18px; background: var(--c-row-alt); color: rgb(var(--rgb-accent)); }
+html[data-shell="clean"] .clean-channel-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
+@media (min-width: 1180px) { html[data-shell="clean"] .clean-channel-grid { grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr); } }
+@media (max-width: 819px), (max-width: 1179px) and (pointer: coarse) {
+  html[data-shell="clean"] .clean-channel-back { display: none; }
+  html[data-shell="clean"][data-mobile-ux]:has(.clean-header [data-topbar-title]:not(:empty)):not(:has(.clean-header [data-topbar-back])) .rh2.screens > .scr:not(.clean-client-detail) > .pg-h h1 {
+    position: absolute; width: 1px; height: 1px; margin: 0; padding: 0;
+    overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+  }
+  html[data-shell="clean"][data-mobile-ux] .clean-settings-heading h1 {
+    position: absolute; width: 1px; height: 1px; margin: 0; padding: 0;
+    overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+  }
+  html[data-shell="clean"] .rh2 .scr .tiles > .tile:last-child:nth-child(odd) { grid-column: 1 / -1; }
+}

@@ -1,0 +1,31 @@
+[Unit]
+Description=Обратный туннель до VPS Royal Home (ARI, управление станцией, записи разговоров, SSH для обслуживания)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=root
+# Порты пробрасываются сразу на все docker-мосты VPS, а не на один. Причина:
+# контейнер с CRM живёт в сети compose (172.19.0.x), а не в сети docker0
+# (172.17.0.1), и «соседний» мост для него недостижим — звонки молча не проходили
+# бы с ошибкой «нет связи с АТС». Адреса приватные, снаружи недоступны, поэтому
+# лишние точки прослушивания ничего не открывают наружу.
+#
+#   8088 — ARI: команды звонков и подписка на события станции;
+#   5038 — управление станцией (AMI): запасной путь очереди, чёрный список,
+#          пауза оператора. Пользователь royalhome-crm заведён без права command;
+#   8090 — записи разговоров (отдаёт httpd на localhost АТС, закрыт токеном);
+#   2222 — SSH самой АТС: обслуживание удалённо, без доступа к офисной сети.
+ExecStart=/usr/bin/ssh -NT -i /root/.ssh/royalhome_tunnel \
+  -o StrictHostKeyChecking=no -o UserKnownHostsFile=/root/.ssh/known_hosts \
+  -o ExitOnForwardFailure=yes -o ServerAliveInterval=8 -o ServerAliveCountMax=3 \
+  -R 0.0.0.0:5038:127.0.0.1:5038 \
+  -R 0.0.0.0:8088:127.0.0.1:8088 \
+  -R 0.0.0.0:8090:127.0.0.1:8090 \
+  -R 127.0.0.1:2222:127.0.0.1:22 \
+  rh-tunnel@85.198.70.182
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

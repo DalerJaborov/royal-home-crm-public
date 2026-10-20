@@ -1,0 +1,13 @@
+[Unit]
+Description=Royal Home: закрытые служебные порты станции на eth0
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/royalhome-eth0-guard.sh start
+ExecStop=/usr/local/sbin/royalhome-eth0-guard.sh stop
+
+[Install]
+WantedBy=multi-user.target

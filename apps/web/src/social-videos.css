@@ -1,0 +1,44 @@
+/*
+ * Вкладки-счётчики экрана «Ролики в соцсети» (12.10.2026).
+ *
+ * Прототипная лента `.stg` — одна строка с `white-space:nowrap` и многоточием:
+ * при семи вкладках подписи обрезались («По расписа…»). Файл тему не правит
+ * (она собирается скриптами): `.sv-tabs` лишь добавляет специфичности.
+ *
+ *  - от 641 px: сетка 3 колонки, от 1180 px 7 колонок; счётчик крупно сверху,
+ *    подпись целыми словами (переносится между словами, не посреди слова);
+ *  - до 640 px: лента-пилюли в одну строку, листается пальцем; полосы прокрутки
+ *    нет, но следующая пилюля видна краем — понятно, что лента листается.
+ */
+.rh2 .scr .stg.sv-tabs button span{overflow-wrap:normal;word-break:normal;hyphens:none}
+
+@media (min-width:641px){
+  .rh2 .scr .stg.sv-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+  /* В разметке подпись идёт первой (так читает скринридер); крупный счётчик поднимаем наверх. */
+  .rh2 .scr .stg.sv-tabs button{min-width:0;display:flex;flex-direction:column}
+  .rh2 .scr .stg.sv-tabs button b{order:-1}
+  .rh2 .scr .stg.sv-tabs button span{white-space:normal;overflow:visible;text-overflow:clip;line-height:1.25}
+}
+@media (min-width:1180px){
+  .rh2 .scr .stg.sv-tabs{grid-template-columns:repeat(7,minmax(0,1fr))}
+}
+
+@media (max-width:640px){
+  .rh2 .scr .stg.sv-tabs{
+    display:flex;flex-wrap:nowrap;gap:8px;
+    overflow-x:auto;overscroll-behavior-x:contain;
+    scroll-snap-type:x proximity;
+    scrollbar-width:none;
+    /* Внешняя `.hscroll` уже выходит к краю экрана, поэтому следующая пилюля обрезается
+       у самого края и видна частью — понятно, что ленту можно листать. */
+  }
+  .rh2 .scr .stg.sv-tabs::-webkit-scrollbar{display:none}
+  .rh2 .scr .stg.sv-tabs button{
+    flex:none;min-width:0;min-height:44px;
+    display:inline-flex;flex-direction:row;align-items:center;gap:8px;
+    padding:0 16px;border-radius:var(--r-pill);
+    scroll-snap-align:start;white-space:nowrap;
+  }
+  .rh2 .scr .stg.sv-tabs button b{display:inline;font-family:inherit;font-size:var(--fs-15);font-weight:700}
+  .rh2 .scr .stg.sv-tabs button span{display:inline;white-space:nowrap;overflow:visible;text-overflow:clip;font-size:var(--fs-14)}
+}

@@ -1,0 +1,4 @@
+Файлы icon-*.png, shortcut-*.png и splash-*.png собраны scripts/generate-icons.mjs.
+Руками не править — пересоберутся. icon-* и splash-* берут рисунок из icon.svg,
+значки ярлыков заданы контурами в самом скрипте (SHORTCUT_ICONS).
+Пересборка: `npm run icons --workspace=apps/web`.

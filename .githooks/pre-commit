@@ -1,0 +1,10 @@
+#!/bin/sh
+# Git-хук: не пускает в коммит ключи, токены, файлы .env и настоящие номера клиентов
+# в документах. Разбор и обход ложной тревоги — scripts/audit-secrets.mjs.
+#
+# core.hooksPath общий на все worktree (и у Claude, и у Codex), а ветка могла
+# отойти от main раньше, чем появился сторож: тогда хук молча пропускает — ту же
+# проверку повторит precheck на `npm run ship`, единственной двери в main.
+script="$(git rev-parse --show-toplevel)/scripts/audit-secrets.mjs"
+[ -f "$script" ] || exit 0
+exec node "$script" --staged

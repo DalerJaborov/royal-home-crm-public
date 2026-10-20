@@ -1,0 +1,234 @@
+/* =============================================================================
+ * ГЛАВНАЯ АГЕНТА (контракт 06.10.2026, раздел 4, задание E1).
+ *
+ * Только то, чего нет в наборе `components/rh2`: раскладка в две колонки,
+ * тёмная карточка «Сначала это» и список «Сегодня». Всё целится в область
+ * `.rh2 .scr`. Числа контракта: сетка 8, текст 13/15/16/18/28, радиусы 18/10,
+ * нажимаемое от 44. Точка перелома одна: 820 (`md`).
+ * Файл подключает сам экран (`AgentHome.tsx`), поэтому уезжает в тот же кусок
+ * сборки, что и главная агента, а не во входной.
+ * ========================================================================== */
+
+/* --- Раскладка ------------------------------------------------------------
+ * Телефон: одна колонка в порядке «Сначала это», плитки, «Сегодня», очередь.
+ * Колонки там растворены (`display: contents`), порядок задают `order`.
+ * От 820: слева «Сначала это» и очередь, справа плитки и «Сегодня». */
+.rh2 .scr .rh-home {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+}
+.rh2 .scr .rh-home-main,
+.rh2 .scr .rh-home-side {
+  display: contents;
+}
+.rh2 .scr .rh-home-o1 { order: 1; }
+.rh2 .scr .rh-home-o2 { order: 2; }
+.rh2 .scr .rh-home-o3 { order: 3; }
+.rh2 .scr .rh-home-o4 { order: 4; }
+
+@media (min-width: 820px) {
+  .rh2 .scr .rh-home {
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+    gap: 24px;
+    align-items: start;
+  }
+  .rh2 .scr .rh-home-main,
+  .rh2 .scr .rh-home-side {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-width: 0;
+  }
+}
+
+/* Подпись под заголовком на телефоне: заголовок живёт в шапке оболочки. */
+.rh2 .scr .rh-home-sub {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* Нечего делать: одна строка вместо карточки с нулём. */
+.rh2 .scr .rh-home-calm {
+  border-bottom: 0;
+}
+
+/* --- «Сначала это» ----------------------------------------------------------
+ * Тёмная карточка: фон `--ink`, текст цвета страницы (в ночной теме выходит
+ * светлая карточка с тёмным текстом, как задумано контрактом). */
+.rh2 .scr .card.rh-focus {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px;
+  background: var(--ink);
+  color: var(--page);
+  border-color: transparent;
+}
+.rh2 .scr .rh-focus-lbl {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+.rh2 .scr .card.rh-focus .rh-focus-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.3;
+  color: inherit;
+  text-wrap: pretty;
+}
+.rh2 .scr .rh-focus-title a {
+  color: inherit;
+  text-decoration: none;
+}
+.rh2 .scr .rh-focus-title a:hover {
+  text-decoration: underline;
+}
+.rh2 .scr .rh-focus-title a:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.rh2 .scr .rh-focus-line {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.5;
+  opacity: 0.85;
+  text-wrap: pretty;
+}
+.rh2 .scr .rh-focus-time {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+}
+.rh2 .scr .rh-focus-timer {
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+.rh2 .scr .rh-focus-note {
+  font-size: 13px;
+  opacity: 0.75;
+}
+
+/* Кнопки: главная тянется, вторая рядом; на узком переносятся целиком. */
+.rh2 .scr .rh-focus-acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.rh2 .scr .rh-focus-acts > * {
+  flex: 1 1 140px;
+  min-width: 0;
+}
+.rh2 .scr .rh-focus-acts .pill {
+  width: 100%;
+}
+.rh2 .scr .rh-focus-acts .rh-home-err {
+  flex-basis: 100%;
+}
+.rh2 .scr .rh-home-call {
+  gap: 8px;
+}
+.rh2 .scr .card.rh-focus .pill.soft {
+  background: color-mix(in srgb, var(--page) 16%, transparent);
+  color: var(--page);
+  border-color: transparent;
+}
+@media (hover: hover) {
+  .rh2 .scr .card.rh-focus .pill.soft:hover:not([disabled]) {
+    background: color-mix(in srgb, var(--page) 26%, transparent);
+    color: var(--page);
+  }
+}
+.rh2 .scr .card.rh-focus .pill:focus-visible {
+  outline: 2px solid var(--page);
+  outline-offset: 2px;
+}
+
+/* --- Очередь ----------------------------------------------------------------
+ * Строки со своими кнопками (решения) на телефоне стоят в две строки: текст,
+ * под ним кнопки (так велит правило `.row .act` темы). Остальным строкам трубка
+ * остаётся справа в той же строке, а чип при нехватке места переходит вниз. */
+.rh2 .scr .row.rh-row .t {
+  min-width: 0;
+}
+.rh2 .scr .row.rh-row .rh-home-err {
+  flex: 1 1 100%;
+}
+@media (max-width: 819px) {
+  .rh2 .scr .row.rh-row:not(.rh-decide) .t {
+    flex: 1 1 40%;
+  }
+  .rh2 .scr .row.rh-row:not(.rh-decide) .act {
+    flex: 0 0 auto;
+    margin-left: auto;
+  }
+}
+/* Строка в обёртке смахивания (`SwipeRow`) сама себе «последняя», и тема снимает
+   с неё нижнюю черту: возвращаем разделитель всем, кроме последней обёртки. */
+.rh2 .scr .list > *:not(:last-child) .row.rh-row {
+  border-bottom: 1px solid var(--line-soft);
+}
+.rh2 .scr .rh-home-more {
+  margin-top: 8px;
+}
+
+/* --- «Сегодня» --------------------------------------------------------------- */
+.rh2 .scr .rh-day {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.rh2 .scr .rh-day .ev {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  padding: 8px 12px;
+  border-radius: var(--r-sm);
+  background: var(--soft);
+  color: var(--ink);
+  text-decoration: none;
+}
+.rh2 .scr .rh-day .ev time {
+  flex: none;
+  width: 52px;
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.rh2 .scr .rh-day .ev span {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rh2 .scr .rh-day .ev:focus-visible {
+  outline: 2px solid var(--sky-ink);
+  outline-offset: 2px;
+}
+@media (hover: hover) {
+  .rh2 .scr .rh-day .ev:hover {
+    background: var(--hover);
+  }
+}
+
+/* Поле помощника внутри шторки: `HomeAsk nested` рисует `div`, а не форму
+   (шторка сама форма), поэтому раскладка формы повторена для div. */
+.rh2 .scr .aib-ask > div {
+  display: flex;
+  flex: 1 1 100%;
+  gap: var(--s2);
+  min-width: 0;
+}

@@ -1,0 +1,304 @@
+/* СПИСКИ НА ТЕЛЕФОНЕ — АРТЕФАКТ ВЛАДЕЛЬЦА «ТЕЛЕФОН ПОСЛЕ ЭКСПЕРТИЗЫ».
+ *
+ * Источник: docs/pult/theme-2026/artifact-de2845f1-phone-after.html, блок
+ * <style>, правила экранов «Клиенты» (data-screen="clients"), «Чаты»
+ * («chats») и «Ещё» («more»): лента фильтров `.lane`, карточка-список `.list`,
+ * строка 64 px, аватар 44 px с уголком канала, счётчик `.unread`, время `.tm`.
+ *
+ * ПОЧЕМУ ОТДЕЛЬНЫЙ ФАЙЛ, А НЕ ДОПИСКА В theme-2026-mobile-home.css.
+ * Тот файл собирается скриптом scripts/sync-mobile-css.py из ДРУГОГО артефакта
+ * (c99db05f, мобильная навигация) и перегенерируется целиком: любая ручная
+ * строка в нём стирается молча — ровно та же ловушка, что у
+ * theme-2026-proto.css и sync-proto-css.py. Подключается сразу после него
+ * (index.css), поэтому при одинаковой специфичности выигрывают правила отсюда.
+ *
+ * ОБЛАСТЬ ТА ЖЕ — `.rh2 .mh`, два РАЗНЫХ предка. Причина в шапке
+ * theme-2026-mobile-home.css: оба артефакта владельца называют разные вещи
+ * одинаково (`.row`, `.av`, `.chip`, `.top`, `.sec`), и смешивать их с областью
+ * пульта `.rh2 .scr` нельзя. Из-за этого экраны отсюда носят `.mh` и берут
+ * токены оттуда же — своих палитр здесь нет.
+ *
+ * ТОКЕНЫ. Пастель (--lime/--lime-ink … --sky/--sky-ink), --crit, --warn, --card,
+ * --line, --muted, --pill/--pill-ink уже объявлены в `.rh2 .mh` (светлая и
+ * ночная), и значения там ТЕ ЖЕ, что в :root артефакта. Не хватало трёх, они
+ * заведены ниже с приставкой `--ml-`, чтобы не переопределить одноимённые
+ * токены мобильной главной (`--glass-edge` там значит другое).
+ */
+
+.rh2 .mh {
+  /* Третий уровень серого для времени в строке (в артефакте --faint #9aa3ae).
+     Сам артефакт здесь не проходит проверку: #9aa3ae на белой карточке даёт
+     контраст 2,55:1, и axe валит /clients, /sellers и /messages (прогон 11.09).
+     Берём тот же серый, что уже принят в теме для мелкого текста, 5,3:1. */
+  --ml-faint: #646c79;
+  /* Тень карточки-списка — дословно из артефакта (там это --shadow; в `.mh`
+     тем же именем названа глубокая тень главной, поэтому имя своё). */
+  --ml-shadow: 0 1px 0 rgba(20, 22, 25, 0.04), 0 10px 30px -18px rgba(20, 22, 25, 0.25);
+}
+html[data-theme="royal-home-2026-night"] .rh2 .mh {
+  /* Ночью та же проверка: #6f7884 на карточке #1c1f24 это 3,69:1. 5,39:1. */
+  --ml-faint: #8b94a1;
+  --ml-shadow: 0 1px 0 rgba(0, 0, 0, 0.2), 0 10px 30px -18px rgba(0, 0, 0, 0.6);
+}
+
+/* ---------- шапка списка: «Покупатели · 86» ----------
+   Артефакт: `.top h1.s{font-size:20px}` при базовых 800/28. Крупное приветствие
+   `.greet` мобильной главной здесь не годится — это заголовок раздела. */
+.rh2 .mh .top h1.s {
+  margin: 0;
+  font: 800 20px/1.1 var(--hf);
+  letter-spacing: -0.025em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rh2 .mh .top h1.s .num {
+  color: var(--muted);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- лента фильтров БЕЗ карточки-обёртки ----------
+   Смысл замера владельца: до первой строки 150 px вместо 250–420. Поля ленты
+   гасятся отрицательным полем на ширину поля `.body` (16 px в оболочке против
+   20 px в артефакте — берём своё, иначе лента вылезет за экран), маска справа
+   показывает, что чипы прокручиваются. */
+.rh2 .mh .lane {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  margin: 14px -16px 0;
+  padding: 0 16px;
+  -webkit-mask-image: linear-gradient(90deg, #000 92%, transparent);
+  mask-image: linear-gradient(90deg, #000 92%, transparent);
+}
+.rh2 .mh .lane::-webkit-scrollbar {
+  display: none;
+}
+.rh2 .mh .lane .f {
+  flex: none;
+  height: 34px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: var(--card);
+  box-shadow: inset 0 0 0 1px var(--line);
+  font-weight: 600;
+  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink);
+  white-space: nowrap;
+  position: relative;
+}
+/* Зона нажатия 44 px при видимых 34 — договор §3 (палец, а не пиксель). */
+.rh2 .mh .lane .f::before {
+  content: "";
+  position: absolute;
+  inset: -5px 0;
+}
+.rh2 .mh .lane .f[aria-pressed="true"],
+.rh2 .mh .lane .f[aria-selected="true"] {
+  background: var(--pill);
+  color: var(--pill-ink);
+  box-shadow: none;
+}
+.rh2 .mh .lane .f .c {
+  font-family: var(--bf);
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
+}
+
+/* ---------- карточка-список ---------- */
+.rh2 .mh .list {
+  background: var(--card);
+  border-radius: var(--r-md);
+  box-shadow: var(--ml-shadow);
+  overflow: hidden;
+}
+/* Строка — та же геометрия, что `.row` мобильной главной (64 px, 12/14, gap 12),
+   поэтому переопределяем только то, что в этом артефакте иное. */
+.rh2 .mh .list .row {
+  width: 100%;
+  text-align: left;
+  color: var(--ink);
+}
+/* Черта начинается ПОСЛЕ аватара (артефакт: left:66px), а не во всю ширину:
+   так список читается группой строк, а не таблицей. Штатное правило `.mh`
+   (`.row + .row{border-top}`) снимаем — иначе черты будет две. */
+.rh2 .mh .list .row + .row {
+  border-top: 0;
+}
+.rh2 .mh .list .row + .row::before {
+  content: "";
+  position: absolute;
+  left: 66px;
+  right: 0;
+  top: 0;
+  height: 1px;
+  background: var(--line);
+}
+.rh2 .mh .list .row .b {
+  flex: 1;
+  min-width: 0;
+}
+.rh2 .mh .list .row .n {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-weight: 700;
+  font-size: 15px;
+  line-height: 1.25;
+}
+/* Имя внутри строки может соседствовать с чипом — сжимается именно оно. */
+.rh2 .mh .list .row .n > .nm {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rh2 .mh .list .row .s {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rh2 .mh .list .row .s > .tx {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rh2 .mh .list .row .r {
+  flex: none;
+  text-align: right;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+.rh2 .mh .list .row .tm {
+  /* 13px, не 12 (владелец 21.09.2026: «мелкий шрифт в списках увеличить
+     везде, особенно в списке клиентов») — было 12px, минимум по разбору 13px. */
+  font: 600 13px/1 var(--bf);
+  font-variant-numeric: tabular-nums;
+  color: var(--ml-faint);
+  white-space: nowrap;
+}
+.rh2 .mh .list .row .tm.hot {
+  color: var(--crit);
+}
+/* Клиент попросил живого агента (владелец 18.09.2026) — та же красная полоса,
+   что в Rh2DialogRow.tsx на компьютере. */
+.rh2 .mh .list .row[data-attention] {
+  box-shadow: inset 3px 0 0 0 var(--crit);
+}
+
+/* ---------- аватар 44 px и уголок канала ---------- */
+.rh2 .mh .list .av {
+  width: 44px;
+  height: 44px;
+  font: 700 16px var(--hf);
+  position: relative;
+}
+.rh2 .mh .list .av .ch {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--card);
+  display: grid;
+  place-items: center;
+  box-shadow: 0 0 0 2px var(--card);
+}
+
+/* ---------- счётчик непрочитанного ---------- */
+.rh2 .mh .unread {
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--pill);
+  color: var(--pill-ink);
+  font: 700 12px/20px var(--bf);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  flex: none;
+}
+/* Признак «есть непрочитанное» без числа: сервер отдаёт БУЛЕВО поле
+   (ConversationListItem.unread), числа непрочитанных в API нет, а рисовать
+   выдуманную единицу нельзя. Та же капсула, схлопнутая в точку 10 px, — пустая
+   капсула читалась бы как чёрный круг (кадр владельца 09.09). */
+.rh2 .mh .unread.dot {
+  min-width: 10px;
+  width: 10px;
+  height: 10px;
+  padding: 0;
+  font-size: 0;
+  line-height: 0;
+}
+
+/* ---------- чипы в строке ---------- */
+/* Небесный тон в артефакте есть у чипа «новый», в `.mh` его не было. */
+.rh2 .mh .chip.sky {
+  background: var(--sky);
+  color: var(--sky-ink);
+}
+/* Чип ВНУТРИ имени/строки — мельче обычного (артефакт задаёт это инлайном:
+   height:20px;font-size:11px). Здесь классом: инлайн-стиль в списке из сорока
+   строк повторялся бы сорок раз. */
+.rh2 .mh .list .chip.xs {
+  /* Было 11px, минимум по разбору 21.09.2026 — 13px; высота плашки чуть выросла
+     следом, иначе текст 13px не влезал в 20px по вертикали. */
+  height: 22px;
+  padding: 0 8px;
+  font-size: 13px;
+  flex: none;
+}
+
+/* ---------- «Ещё»: строки с квадратной плашкой ----------
+   Артефакт: min-height:56px и `.av` 36 px с радиусом 11. Плашка у нас уже
+   есть — `.plate` мобильной главной (36 px, радиус 10, те же тона), поэтому
+   берём её и правим только высоту строки. */
+.rh2 .mh .list.compact .row {
+  min-height: 56px;
+}
+.rh2 .mh .list.compact .row + .row::before {
+  left: 62px;
+}
+/* Счётчик пастельный, а не красный: красная семья по договору §3 закреплена за
+   «надо сделать» (артефакт красит его инлайном в --lav). */
+.rh2 .mh .unread.lav {
+  background: var(--lav);
+  color: var(--lav-ink);
+}
+
+/* ---------- тихие состояния списка ----------
+   Загрузка, отказ и пустота внутри `.list`: строкой, не карточкой поверх
+   карточки (договор §6.12). */
+.rh2 .mh .list .state {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 14px;
+  font-size: 14px;
+  color: var(--muted);
+  min-height: 64px;
+}
+.rh2 .mh .list .state.err {
+  color: var(--crit);
+}
+.rh2 .mh .list .state .lnk {
+  color: inherit;
+  text-decoration: underline;
+  font-weight: 600;
+}

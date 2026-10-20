@@ -1,0 +1,3 @@
+#!/bin/sh
+# Git-хук: не пускает `git push` в main мимо `npm run ship`. Разбор — .githooks/pre-push.mjs.
+exec node "$(dirname "$0")/pre-push.mjs" "$@"

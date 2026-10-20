@@ -1,0 +1,126 @@
+# Пример продакшн-Caddyfile для crm.royalhome.tj и royalhome.tj — усиленная
+# версия базового варианта из DEPLOY.md (раздел 4). Скопировать в
+# /etc/caddy/Caddyfile, подставить реальные домены/IP, перечитать:
+#   sudo systemctl reload caddy
+#
+# RATE_LIMIT ТРЕБУЕТ ПЛАГИНА. Штатный Caddy не умеет rate-limit из коробки.
+# Нужна сборка с модулем github.com/mholt/caddy-ratelimit:
+#   xcaddy build --with github.com/mholt/caddy-ratelimit
+# либо готовый образ (docker): образ caddy:2-alpine НЕ подходит, нужен свой
+# Dockerfile:
+#   FROM caddy:2-builder AS builder
+#   RUN xcaddy build --with github.com/mholt/caddy-ratelimit
+#   FROM caddy:2-alpine
+#   COPY --from=builder /usr/bin/caddy /usr/bin/caddy
+# Если ставить пакетом apt (как в DEPLOY.md) — обычный `caddy` из репозитория
+# Cloudsmith плагина не содержит; собрать через xcaddy на сервере или в CI и
+# заменить бинарник /usr/bin/caddy (systemctl restart caddy после замены).
+#
+# Директива `rate_limit` ниже — синтаксис caddy-ratelimit v2. Если плагин не
+# установлен, Caddy откажется стартовать с ошибкой "unrecognized directive" —
+# это ожидаемо и лучше, чем тихо проигнорированный лимит; тогда закомментировать
+# блоки rate_limit и полагаться на Cloudflare (docs/security-hardening-plan-11-09.md,
+# раздел «Анти-DDoS») до сборки плагина.
+
+{
+	# JSON access-лог общий для всех сайтов — под него настроен фильтр
+	# fail2ban (ops/harden-vps.sh, jail caddy-crm-auth).
+	log {
+		output file /var/log/caddy/access.log {
+			roll_size 50mb
+			roll_keep 10
+			roll_keep_for 720h
+		}
+		format json
+	}
+
+	# Общие зоны лимита: по IP, окно и потолок burst — под перебор пароля и
+	# вебхуки достаточно жёстко, под обычный интерфейс агентов — не мешает.
+	order rate_limit before basicauth
+	rate_limit {
+		zone auth_zone {
+			match {
+				path /api/v1/auth/*
+			}
+			key {remote_host}
+			events 10
+			window 1m
+		}
+		zone webhooks_zone {
+			match {
+				path /api/v1/webhooks/*
+			}
+			key {remote_host}
+			events 60
+			window 1m
+		}
+	}
+}
+
+crm.royalhome.tj {
+	# Тело запроса: вложения переписки идут через сам API (multer), не через
+	# Caddy напрямую — 25m с запасом под фото/голосовые; видеозаливка объектов
+	# идёт чанками (см. lib/localVideoStorage.ts), крупный body здесь не нужен.
+	request_body {
+		max_size 25MB
+	}
+
+	# Таймауты — против медленных/зависших клиентов, держащих соединение
+	# (slowloris-класс атак).
+	timeouts {
+		read_body   10s
+		read_header 5s
+		write       30s
+		idle        2m
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "geolocation=(), camera=(), microphone=(self)"
+		# CSP для API-домена не нужен (см. бриф, Пачка 4, п.6) — CRM API не
+		# отдаёт HTML. CSP для web — отдельно на домене сайта/фронтенда, если
+		# фронтенд обслуживается тем же Caddy (см. блок ниже пример для web).
+		X-Frame-Options "DENY"
+		-Server
+	}
+
+	rate_limit auth_zone webhooks_zone
+
+	reverse_proxy 127.0.0.1:8080
+}
+
+# Пример для фронтенда, если он отдаётся отдельным доменом/поддоменом через
+# этот же Caddy (сейчас web отдаётся тем же контейнером за crm.royalhome.tj —
+# блок ниже как справка на случай разделения доменов).
+# app.royalhome.tj {
+# 	header {
+# 		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+# 		X-Content-Type-Options "nosniff"
+# 		Referrer-Policy "strict-origin-when-cross-origin"
+# 		Content-Security-Policy "default-src 'self'; img-src 'self' data: https:; connect-src 'self' https://crm.royalhome.tj; script-src 'self'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'"
+# 		X-Frame-Options "DENY"
+# 	}
+# 	reverse_proxy 127.0.0.1:8080
+# }
+
+royalhome.tj {
+	request_body {
+		max_size 10MB
+	}
+	timeouts {
+		read_body   10s
+		read_header 5s
+		write       30s
+		idle        2m
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+	rate_limit webhooks_zone
+	reverse_proxy 127.0.0.1:3000
+}

@@ -1,0 +1,2843 @@
+/* ============================================================
+ * Тема «Royal Home 2026» — светлая и тёмная. Слой 1, задача 2.
+ * Источник: ветка docs/pult-theme-07-09, docs/pult/theme-2026/screens/_tokens.css
+ * (договор дизайна §2) — значения перенесены дословно, где формат совпадает
+ * с этим приложением, и переведены в rgb-триплеты там, где index.css ждёт
+ * --rgb-* каналы для alpha-modifier'ов Tailwind.
+ *
+ * ОТМЕНЕНО 21.09.2026 (решение владельца «Цвета синий хочу»): прежнее правило
+ * «акцент графит, синих кнопок нет» больше не действует. Значения --rgb-accent
+ * ниже — исходные графитовые из дизайн-договора; актуальный синий акцент и один
+ * шрифт задаёт theme-2026-brand.css, подключённый после этого файла и
+ * перекрывающий его. Цвет акцента правится ТАМ, не здесь.
+ *
+ * Набор переменных обязан покрывать ВСЁ, что уже читает существующий код
+ * (до 06.10.2026 их дублировал базовый :root в index.css — он удалён, источник один):
+ *   --rgb-*, --c-*, --shadow-*, --chart-*, --step-*, --heat-*, --aurora-*, --drift-*
+ * плюс новые --rh-* (радиусы/шрифты/чипы/движение/стекло), не используемые
+ * старыми темами и потому безопасные для добавления рядом.
+ * ============================================================ */
+
+/* ---------- Royal Home 2026 · светлая ---------- */
+html[data-theme="royal-home-2026-light"] {
+  color-scheme: light;
+
+  /* акцент — исходный графит из договора; синий поверх задаёт theme-2026-brand.css (21.09.2026) */
+  --rgb-accent: 21 23 26;
+  --rgb-accent-hover: 0 0 0;
+  --c-on-accent: #ffffff;
+
+  --rgb-ink: 20 22 26;
+  --rgb-g800: 32 34 39;
+  --rgb-g700: 66 69 77;
+  --rgb-g600: 95 103 115;
+  --rgb-g500: 105 113 128;
+  /* gray-400 = --muted макета (#646c79): прежний #6f7785 давал 4,35 на карточке
+     и 4,13 на фоне страницы при норме 4,5 (axe, весь текст боковой панели). */
+  --rgb-g400: 100 108 121;
+  --rgb-g300: 225 228 233;
+
+  /* Фон страницы = `--page` артефакта «Единый пульт директора» (#eef1f6): область
+     `.rh2` красит себя этим же токеном, и при другом фоне рамки вокруг каждого
+     экрана появлялась серая плита (поймано кадрами 10.09 при переносе стилей). */
+  --c-page: #eef1f6;
+  --c-bg: rgba(238, 241, 246, 0.6);
+  --c-card: rgba(255, 255, 255, 0.84);
+  --c-card-solid: #ffffff;
+  --c-row-alt: #fafbfc;
+  --c-line: rgba(20, 22, 26, 0.08);
+  --c-line-soft: rgba(20, 22, 26, 0.045);
+  --c-hover-tint: rgba(21, 23, 26, 0.06);
+
+  --rgb-green: 19 116 74;
+  --c-green-bg: #d3f0de;
+  --rgb-amber: 140 88 6;
+  --c-amber-bg: #fdedd4;
+  --rgb-red: 182 56 63;
+  --c-on-danger: #ffffff;
+  --c-red-bg: #fbe3e4;
+  --rgb-violet: 61 48 112;
+  --c-violet-bg: #ece6fa;
+
+  --c-avatar-from: #2a2d33;
+  --c-avatar-to: #6f7787;
+
+  --shadow-sm: inset 0 1px 0 0 rgba(255, 255, 255, 0.55), 0 1px 2px rgba(20, 22, 26, 0.05);
+  --shadow-md: inset 0 1px 0 0 rgba(255, 255, 255, 0.6), 0 2px 6px rgba(20, 22, 26, 0.05),
+    0 10px 30px -8px rgba(20, 22, 26, 0.12);
+  --shadow-lg: inset 0 1px 0 0 rgba(255, 255, 255, 0.65), 0 4px 12px rgba(20, 22, 26, 0.06),
+    0 24px 60px -12px rgba(20, 22, 26, 0.18);
+  --shadow-accent-btn: inset 0 1px 0 0 rgba(255, 255, 255, 0.25), 0 1px 2px rgba(21, 23, 26, 0.3);
+  --shadow-thumb: inset 0 0 0 1px rgba(20, 22, 26, 0.06);
+
+  --aurora: radial-gradient(ellipse 70% 55% at 6% -10%, rgba(21, 23, 26, 0.05), transparent 55%),
+    radial-gradient(ellipse 55% 45% at 100% 15%, rgba(138, 106, 34, 0.07), transparent 50%),
+    radial-gradient(ellipse 60% 50% at 50% 120%, rgba(236, 230, 250, 0.35), transparent 55%);
+  --drift-1: rgba(21, 23, 26, 0.05);
+  --drift-2: rgba(138, 106, 34, 0.06);
+
+  --c-selection: rgba(61, 48, 112, 0.18);
+  --c-scroll-thumb: rgba(20, 22, 26, 0.16);
+  --c-scroll-thumb-hover: rgba(20, 22, 26, 0.28);
+
+  /* Палитра графиков — переиспользован набор :root (index.css), уже проверенный
+   * скриптом контраста/дальтонизма ≥4.5; отдельная палитра не создаётся, чтобы
+   * не плодить непроверенные комбинации (см. отчёт T2.md). */
+  --chart-1: #1baf7a;
+  --chart-2: #eb6834;
+  --chart-3: #2a78d6;
+  --chart-4: #eda100;
+  --chart-5: #e87ba4;
+  --chart-other: #8b93a7;
+
+  --step-1: #5bbf9a;
+  --step-2: #3aad86;
+  --step-3: #219770;
+  --step-4: #12805a;
+  --step-5: #086546;
+
+  --heat-1: #86b6ef;
+  --heat-2: #5598e7;
+  --heat-3: #2a78d6;
+  --heat-4: #1c5cab;
+  --heat-5: #0d366b;
+
+  /* ---------- новые --rh-* токены (слой 1, задача 2) ---------- */
+  --rh-r: 28px;
+  --rh-r-md: 18px;
+  --rh-r-sm: 10px;
+  --rh-r-pill: 999px;
+
+  /* C4: карточки существующих экранов (Team/HallOfFame/Activity/Oversight/
+   * Vacancies и их Mobile*) уже используют токен-класс `rounded-card` из
+   * tailwind.config.js (var(--r-card)) — эта тема ранее его не переопределяла,
+   * так что радиус оставался от старой темы. Подгоняем под эталон
+   * `screens/_components.css` (`.card.tight{border-radius:var(--r-md)}` = 18px). */
+  --r-card: 18px;
+
+  --rh-fs-34: 34px;
+  --rh-fs-23: 23px;
+  --rh-fs-17: 17px;
+  --rh-fs-15: 15px;
+  --rh-fs-14: 14px;
+  --rh-fs-13: 13px;
+  --rh-fs-12: 12px;
+
+  /* 06.10.2026, владелец выбрал набор «А. Чистые, как в iOS» (docs/design/contract-2026-10/colors.html):
+     светлые чистые заливки и тёмный текст того же оттенка; aqua = оранжевый набора.
+     Контраст текста на заливке ≥ 7 на каждой паре. */
+  --rh-lime: #d9f3e2;
+  --rh-lime-ink: #0b4a2a;
+  --rh-aqua: #ffe4cc;
+  --rh-aqua-ink: #7a3400;
+  --rh-lav: #ead9ff;
+  --rh-lav-ink: #4a1a85;
+  --rh-pink: #ffd9e0;
+  --rh-pink-ink: #8a1030;
+  --rh-sky: #d6ecff;
+  --rh-sky-ink: #0a3d7a;
+
+  --rh-ok: #13744a;
+  --rh-ok-bg: #d3f0de;
+  --rh-warn: #8c5806;
+  --rh-warn-bg: #fdedd4;
+  --rh-warn-dot: #d69a2e;
+  --rh-crit: #b6383f;
+  --rh-crit-bg: #fbe3e4;
+
+  --rh-gold: #8a6a22;
+  --rh-gold-icon: #c9a24a;
+
+  /* стекло рамки — независимо от fx-no-glass (тот управляет карточками данных) */
+  --rh-glass-bg: rgba(255, 255, 255, 0.72);
+  --rh-glass-blur: 16px;
+  --rh-glass-edge: rgba(255, 255, 255, 0.7);
+
+  /* Подпись невыбранной вкладки нижней навигации — см. правило ниже по файлу.
+   * Светлая тема: #42454d на стекле поверх страницы даёт 9,2:1. */
+  --rh-tab-ink: #42454d;
+
+  --rh-dur-fast: 150ms;
+  --rh-dur-med: 260ms;
+  --rh-dur-slow: 900ms;
+  --rh-dur-breath: 1600ms;
+  --rh-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --rh-ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --rh-ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  --font-sans: "Manrope", "Segoe UI", system-ui, sans-serif;
+  --font-num: "Onest", "Segoe UI", system-ui, sans-serif;
+}
+
+/* ---------- Royal Home 2026 · тёмная ---------- */
+html[data-theme="royal-home-2026-night"] {
+  color-scheme: dark;
+
+  --rgb-accent: 242 243 245;
+  --rgb-accent-hover: 255 255 255;
+  --c-on-accent: #141619;
+
+  --rgb-ink: 238 240 243;
+  --rgb-g800: 222 225 229;
+  --rgb-g700: 195 200 208;
+  --rgb-g600: 163 173 186;
+  --rgb-g500: 139 148 161;
+  --rgb-g400: 145 154 166;
+  --rgb-g300: 44 49 56;
+
+  --c-page: #141619;
+  --c-bg: rgba(20, 22, 25, 0.6);
+  --c-card: rgba(28, 31, 36, 0.84);
+  --c-card-solid: #1c1f24;
+  --c-row-alt: rgba(255, 255, 255, 0.03);
+  --c-line: rgba(238, 240, 243, 0.09);
+  --c-line-soft: rgba(238, 240, 243, 0.055);
+  --c-hover-tint: rgba(242, 243, 245, 0.08);
+
+  --rgb-green: 79 207 138;
+  --c-green-bg: rgba(79, 207, 138, 0.13);
+  --rgb-amber: 229 176 74;
+  --c-amber-bg: rgba(229, 176, 74, 0.12);
+  --rgb-red: 240 127 134;
+  --c-on-danger: #2a0a0a;
+  --c-red-bg: rgba(240, 127, 134, 0.13);
+  --rgb-violet: 201 189 245;
+  --c-violet-bg: rgba(201, 189, 245, 0.14);
+
+  --c-avatar-from: #d8dade;
+  --c-avatar-to: #6f7787;
+
+  --shadow-sm: inset 0 1px 0 0 rgba(255, 255, 255, 0.05), 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: inset 0 1px 0 0 rgba(255, 255, 255, 0.06), 0 2px 6px rgba(0, 0, 0, 0.45),
+    0 10px 30px -8px rgba(0, 0, 0, 0.5);
+  --shadow-lg: inset 0 1px 0 0 rgba(255, 255, 255, 0.07), 0 4px 12px rgba(0, 0, 0, 0.5),
+    0 24px 60px -12px rgba(0, 0, 0, 0.6);
+  --shadow-accent-btn: inset 0 1px 0 0 rgba(255, 255, 255, 0.3), 0 1px 2px rgba(242, 243, 245, 0.2);
+  --shadow-thumb: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+
+  --aurora: radial-gradient(ellipse 70% 55% at 6% -10%, rgba(216, 180, 92, 0.08), transparent 55%),
+    radial-gradient(ellipse 55% 45% at 100% 15%, rgba(201, 189, 245, 0.07), transparent 50%),
+    radial-gradient(ellipse 60% 50% at 50% 120%, rgba(255, 255, 255, 0.04), transparent 55%);
+  --drift-1: rgba(216, 180, 92, 0.05);
+  --drift-2: rgba(201, 189, 245, 0.06);
+
+  --c-selection: rgba(201, 189, 245, 0.25);
+  --c-scroll-thumb: rgba(238, 240, 243, 0.18);
+  --c-scroll-thumb-hover: rgba(238, 240, 243, 0.3);
+
+  /* Палитра графиков — тёмный набор бывших тем (emerald-noir/midnight/violet-aurora, из реестра
+   * удалены), уже проверенный на дальтонизм ≥4.5. */
+  --chart-1: #199e70;
+  --chart-2: #d95926;
+  --chart-3: #3987e5;
+  --chart-4: #c98500;
+  --chart-5: #d55181;
+  --chart-other: #6f7b72;
+
+  --step-1: #087552;
+  --step-2: #149066;
+  --step-3: #26a97c;
+  --step-4: #3fbf93;
+  --step-5: #5fd4ab;
+
+  --heat-1: #184f95;
+  --heat-2: #256abf;
+  --heat-3: #3987e5;
+  --heat-4: #6da7ec;
+  --heat-5: #9ec5f4;
+
+  --rh-r: 28px;
+  --rh-r-md: 18px;
+  --rh-r-sm: 10px;
+  --rh-r-pill: 999px;
+
+  /* C4: карточки существующих экранов (Team/HallOfFame/Activity/Oversight/
+   * Vacancies и их Mobile*) уже используют токен-класс `rounded-card` из
+   * tailwind.config.js (var(--r-card)) — эта тема ранее его не переопределяла,
+   * так что радиус оставался от старой темы. Подгоняем под эталон
+   * `screens/_components.css` (`.card.tight{border-radius:var(--r-md)}` = 18px). */
+  --r-card: 18px;
+
+  --rh-fs-34: 34px;
+  --rh-fs-23: 23px;
+  --rh-fs-17: 17px;
+  --rh-fs-15: 15px;
+  --rh-fs-14: 14px;
+  --rh-fs-13: 13px;
+  --rh-fs-12: 12px;
+
+  --rh-lime: #163a26;
+  --rh-lime-ink: #9fe3b8;
+  --rh-aqua: #3d2410;
+  --rh-aqua-ink: #ffcf9e;
+  --rh-lav: #2b1b4a;
+  --rh-lav-ink: #d2b7ff;
+  --rh-pink: #3d1a24;
+  --rh-pink-ink: #ffb3c2;
+  --rh-sky: #12304f;
+  --rh-sky-ink: #9ccbff;
+
+  --rh-ok: #4fcf8a;
+  --rh-ok-bg: #173325;
+  --rh-warn: #e5b04a;
+  --rh-warn-bg: #3a2e14;
+  --rh-warn-dot: #e5b04a;
+  --rh-crit: #f07f86;
+  --rh-crit-bg: #3e2124;
+
+  --rh-gold: #d8b45c;
+  --rh-gold-icon: #d8b45c;
+
+  --rh-glass-bg: rgba(20, 22, 25, 0.72);
+  --rh-glass-blur: 16px;
+  --rh-glass-edge: rgba(255, 255, 255, 0.08);
+
+  /* Подпись невыбранной вкладки — см. правило ниже по файлу. Тёмная тема:
+   * #c9ced6 даёт 11,7:1 на самой полосе и 4,7:1 в худшем случае, когда под
+   * стеклом оказывается светлая карточка (именно так это считает axe). */
+  --rh-tab-ink: #c9ced6;
+
+  --rh-dur-fast: 150ms;
+  --rh-dur-med: 260ms;
+  --rh-dur-slow: 900ms;
+  --rh-dur-breath: 1600ms;
+  --rh-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --rh-ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --rh-ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  --font-sans: "Manrope", "Segoe UI", system-ui, sans-serif;
+  --font-num: "Onest", "Segoe UI", system-ui, sans-serif;
+}
+
+/* ---------- примитив .rh-glass: стекло рамки (не карточек данных) ----------
+ * Независим от fx-no-glass/uiPrefs.glass (тот переключатель управляет
+ * карточками данных всех тем — см. layer-1-plan.md §3, п.1). Уважает
+ * prefers-reduced-transparency так же, как computeDefaultGlass(). */
+html[data-theme^="royal-home-2026-"] .rh-glass {
+  background: var(--rh-glass-bg);
+  -webkit-backdrop-filter: blur(var(--rh-glass-blur)) saturate(160%);
+  backdrop-filter: blur(var(--rh-glass-blur)) saturate(160%);
+  border: 1px solid var(--rh-glass-edge);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  html[data-theme^="royal-home-2026-"] .rh-glass {
+    background: var(--c-card-solid);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+/* ============================================================
+ * ОБОЛОЧКА КОНТРАКТА 06.10.2026: рейка и шапка компьютера (задание B).
+ *
+ * Разметка — components/Sidebar.tsx и components/Topbar.tsx; здесь только вид,
+ * по токенам темы. Селекторов по `aria-label`/`title` нет: кнопки опознаются
+ * признаками `data-rail-*` и `data-topbar-*` (название кнопки — текст для
+ * скринридера, а не зацепка для стилей: переименуешь подпись — и стиль пропал).
+ * Контрактные признаки `[data-rail]`, `.rail-lbl`, `.rail-bd`, `[data-topbar]`,
+ * `[data-topbar-title]`, `[data-unread-badge]` сохранены: на них сидит CSS и e2e.
+ *
+ * Свойство `display` в этих классах НЕ задаётся там, где в разметке стоит
+ * Tailwind-утилита показа (`hidden md:flex`, `md:hidden`): безслойное правило
+ * побеждает утилиты слоя, и кнопка осталась бы видимой на чужой ширине.
+ * Числа: рейка 76 / 220, пункт 56x52 r12, логотип 40 r12, шапка 60, круглые
+ * кнопки 40 (зона нажатия 44 псевдоэлементом), поиск-пилюля 40.
+ * ============================================================ */
+html[data-theme^="royal-home-2026-"] .app-shell {
+  background: var(--c-bg);
+}
+
+html[data-theme^="royal-home-2026-"] .sh-rail {
+  /* .rh-glass даёт фон и блюр; тут только обводка — одна грань, а не рамка
+     со всех сторон. */
+  border: none;
+  border-right: 1px solid var(--rh-glass-edge);
+  font-family: var(--font-sans);
+}
+html[data-theme^="royal-home-2026-"] [data-rail]:not([data-collapsed]) {
+  width: 220px !important;
+}
+html[data-theme^="royal-home-2026-"] [data-rail][data-collapsed] {
+  width: 76px !important;
+}
+
+.sh-rail-head {
+  padding: 16px 10px 8px;
+}
+.sh-rail-home {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border: 0;
+  border-radius: 12px;
+  background: none;
+  color: inherit;
+  text-align: left;
+  transition: background var(--rh-dur-fast) var(--rh-ease-out);
+}
+.sh-rail-home:hover {
+  background: var(--c-hover-tint);
+}
+/* Знак бренда: синий квадрат 40 px, радиус 12 (контракт). */
+.sh-logo {
+  width: 40px;
+  height: 40px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  background: var(--accent);
+  color: #fff;
+}
+.sh-rail-name {
+  font: 600 15px/1.3 var(--font-sans);
+  letter-spacing: -0.01em;
+  text-align: center;
+}
+.sh-rail-slogan {
+  font: 400 13px/1.4 var(--font-sans);
+  color: rgb(var(--rgb-g400));
+  text-align: center;
+}
+
+/* Поиск свёрнутой рейки: плитка того же калибра, что пункт меню (56x52). */
+.sh-rail-search {
+  margin: 0 10px 12px;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--rh-glass-edge);
+  border-radius: 12px;
+  background: var(--c-card-solid);
+  color: rgb(var(--rgb-g400));
+  transition:
+    color var(--rh-dur-fast) var(--rh-ease-out),
+    background var(--rh-dur-fast) var(--rh-ease-out);
+}
+.sh-rail-search:hover {
+  color: var(--accent);
+}
+
+.sh-rail-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 10px 8px;
+  overflow-y: auto;
+}
+
+/* Нижняя группа рейки («Ещё», у агента Звонки и Команда): тонкая черта сверху. */
+.sh-rail-more {
+  flex: none;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line-soft, var(--line));
+}
+
+/* Пункт: 52 px высотой, 56 в узкой рейке (76 минус поля по 10), значок 22,
+   подпись 15. Активный (`aria-current` ставит react-router) — карточка и акцент. */
+.sh-nav-it {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 52px;
+  padding: 0 16px;
+  border-radius: 12px;
+  font: 500 15px/1 var(--font-sans);
+  color: rgb(var(--rgb-g600));
+  transition:
+    background var(--rh-dur-fast) var(--rh-ease-out),
+    color var(--rh-dur-fast) var(--rh-ease-out);
+}
+[data-rail][data-collapsed] .sh-nav-it {
+  justify-content: center;
+  gap: 0;
+  padding: 0;
+}
+.sh-nav-it:hover {
+  background: var(--c-hover-tint);
+}
+.sh-nav-it[aria-current="page"] {
+  background: var(--c-card-solid);
+  color: var(--accent);
+  font-weight: 600;
+  box-shadow: var(--shadow-sm);
+}
+
+/* Закрепление развёрнутой рейки: кружок 24 на кромке, зона нажатия 44. */
+.sh-rail-toggle {
+  position: absolute;
+  top: 20px;
+  right: -12px;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--rh-glass-edge);
+  border-radius: 999px;
+  background: var(--c-card-solid);
+  box-shadow: var(--shadow-sm);
+  color: rgb(var(--rgb-g400));
+  transition: color var(--rh-dur-fast) var(--rh-ease-out);
+}
+.sh-rail-toggle::after {
+  content: "";
+  position: absolute;
+  inset: -10px;
+}
+.sh-rail-toggle:hover {
+  color: var(--accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sh-nav-it,
+  .sh-rail-home,
+  .sh-rail-search,
+  .sh-btn {
+    transition: none;
+  }
+}
+
+/* ---------- Шапка: строка 60 px, одна на компьютер и телефон ----------
+ * `.rh-glass` на корне даёт стекло/блюр/кромку на компьютере; на телефоне
+ * шапка плотная (theme-2026-mobile-shell.css, блок 1). */
+html[data-theme^="royal-home-2026-"] .sh-top {
+  height: 60px;
+  border: 0;
+  border-bottom: 1px solid var(--rh-glass-edge);
+  font-family: var(--font-sans);
+}
+
+/* Круглая кнопка 40 px (колокольчик, поиск, тема, назад, аватар на телефоне).
+   Видимый круг 40, зона нажатия 44 за счёт ::after. Отклик на нажатие scale .97. */
+.sh-btn {
+  position: relative;
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--rh-glass-edge);
+  border-radius: 999px;
+  background: transparent;
+  color: rgb(var(--rgb-g400));
+  transition:
+    background var(--rh-dur-fast) var(--rh-ease-out),
+    transform var(--rh-dur-fast) var(--rh-ease-out);
+}
+.sh-btn::after {
+  content: "";
+  position: absolute;
+  inset: -2px;
+}
+.sh-btn:hover {
+  background: var(--c-hover-tint);
+}
+.sh-btn:active {
+  transform: scale(0.97);
+}
+
+/* Поиск-пилюля на компьютере: 40 px, до 420 в ширину. */
+.sh-search {
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 420px;
+  height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--rh-glass-edge);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--c-card-solid) 60%, transparent);
+  color: rgb(var(--rgb-g400));
+  font: 400 15px/1 var(--font-sans);
+  text-align: left;
+  transition:
+    background var(--rh-dur-fast) var(--rh-ease-out),
+    transform var(--rh-dur-fast) var(--rh-ease-out);
+}
+.sh-search:hover {
+  background: var(--c-hover-tint);
+}
+
+/* Аватар: мягкая заливка акцента и буквы акцентом (контракт). */
+.sh-avatar {
+  background: var(--accent-soft);
+  border-color: transparent;
+  color: var(--accent);
+  font: 700 13px/1 var(--font-sans);
+}
+.sh-avatar [data-unread-dot] {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: rgb(var(--rgb-red));
+  box-shadow: 0 0 0 2px var(--c-page);
+}
+/* Аватар меню профиля на компьютере (ProfileMenu.tsx, не наша разметка): тот же
+   калибр 40 и та же заливка. Целимся в признак обёртки, а не в подпись кнопки. */
+html[data-theme^="royal-home-2026-"] [data-topbar] span[data-topbar-me] > div > button {
+  width: 40px;
+  height: 40px;
+}
+html[data-theme^="royal-home-2026-"] [data-topbar] span[data-topbar-me] > div > button > span {
+  background-image: none;
+  background-color: var(--accent-soft);
+  color: var(--accent);
+}
+
+.sh-user-name {
+  font: 500 15px/1.2 var(--font-sans);
+  color: rgb(var(--rgb-g800));
+}
+.sh-user-role {
+  font: 400 13px/1.4 var(--font-sans);
+  color: rgb(var(--rgb-g400));
+}
+
+/* Панель уведомлений уходит в createPortal (document.body), поэтому её не достать
+ * потомком [data-topbar] — она размечена собственным классом. Плотная: стекло
+ * только на рамке. */
+html[data-theme^="royal-home-2026-"] .glass-notice-enter {
+  border-width: 1px;
+  border-style: solid;
+  border-radius: var(--rh-r);
+  font-family: var(--font-sans);
+  background: var(--c-card-solid);
+  border-color: var(--rh-glass-edge);
+}
+html[data-theme^="royal-home-2026-"] .glass-notice-enter b,
+html[data-theme^="royal-home-2026-"] .glass-notice-enter p {
+  font-family: var(--font-sans);
+}
+.sh-notice-item {
+  display: block;
+  border-radius: 18px;
+  background: transparent;
+  transition: background var(--rh-dur-fast) var(--rh-ease-out);
+}
+.sh-notice-item:hover {
+  background: var(--c-hover-tint);
+}
+.sh-notice-title {
+  font: 700 15px/1.4 var(--font-sans);
+  color: rgb(var(--rgb-g800));
+}
+.sh-notice-body {
+  font: 400 13px/1.5 var(--font-sans);
+  color: rgb(var(--rgb-g400));
+}
+
+/* Бейдж непрочитанных и подсветка непрочитанного в панели — договор §3:
+ * «цветных иконок нет, чипы пастельные». Раньше оба использовали bg-blue —
+ * акцентный синий этой темы графитовый (--rgb-accent), поэтому bg-blue тут
+ * визуально не «синий чип», а просто утилитарный класс из старой палитры;
+ * заменяем на пастельные чипы темы: бейдж (короткий, привлекает внимание) —
+ * розовый, подсветка строки (спокойный информационный факт) — голубой.
+ * Контраст текст/фон обеих пар ≥ 7:1 в обеих темах (см. reports/L5-ramka.md). */
+html[data-theme^="royal-home-2026-"] [data-topbar] [data-unread-badge] {
+  /* Лаванда, а не розовый: по договору §3 красная (розовая) семья закреплена
+     за «надо сделать», а счётчик непрочитанных ничего не требует прямо сейчас.
+     Тот же оттенок, что у активного пункта рейки в эталоне (--lav). */
+  background: var(--rh-lav);
+  color: var(--rh-lav-ink);
+}
+
+html[data-theme^="royal-home-2026-"] .glass-notice-enter [data-unread] {
+  background: var(--rh-sky);
+}
+
+html[data-theme^="royal-home-2026-"] .glass-notice-enter [data-view-all-notifications] {
+  color: var(--rh-sky-ink);
+}
+
+/* ---------- Таббар телефона (контракт 06.10.2026, задание B) ----------
+ * Разметка — components/BottomNav.tsx. Единственный стеклянный слой телефона:
+ * `.rh-glass` даёт фон, блюр 16 px + saturate 160 % и кромку, а prefers-
+ * reduced-transparency и тумблер «Эффект стекла» (theme-2026-mobile-shell.css,
+ * блок 1) снимают его в сплошную карточку.
+ *
+ * Состав вкладок: Главная · Клиенты · «+» · Объекты · Чаты (lib/navigation.ts);
+ * «Ещё» ушло в шторку по аватару (components/MoreSheet.tsx).
+ *
+ * Подпись 13 px, как весь текст контракта (исключения «11 как в iOS» больше нет:
+ * прежнее --rh-fs-12 давало «шрифтов < 13» на каждом экране). Активная вкладка —
+ * акцентом и мягкой пилюлей за значком; отклик на нажатие scale .97 на всех
+ * нажимаемых элементах оболочки (прежние .90 читались резкими). */
+html[data-theme^="royal-home-2026-"] .sh-tabbar {
+  border: 0;
+  border-top: 1px solid var(--rh-glass-edge);
+  padding-bottom: calc(10px + env(safe-area-inset-bottom));
+}
+
+.sh-tab {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  height: 100%;
+  min-height: 52px;
+  border-radius: 12px;
+  color: var(--rh-tab-ink);
+  transition:
+    transform var(--rh-dur-fast) var(--rh-ease-out),
+    color var(--rh-dur-fast) var(--rh-ease-out);
+}
+.sh-tab:active {
+  transform: scale(0.97);
+}
+.sh-tab [data-tab-label] {
+  font: 600 13px/1.2 var(--font-sans);
+}
+.sh-tab [data-tab-icon] {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 28px;
+  border-radius: 999px;
+  transition: background var(--rh-dur-fast) var(--rh-ease-out);
+}
+.sh-tab[aria-current="page"] {
+  color: var(--accent);
+}
+.sh-tab[aria-current="page"] [data-tab-icon] {
+  background: var(--accent-soft);
+}
+.sh-tab[aria-current="page"] [data-tab-label] {
+  font-weight: 700;
+}
+
+/* FAB «+»: 56 px, заливка акцентом, тень --shadow-lg (контракт). */
+.sh-fab {
+  background: var(--accent);
+  color: #fff;
+  box-shadow: var(--shadow-lg);
+  transition: transform var(--rh-dur-fast) var(--rh-ease-out);
+}
+.sh-fab:active {
+  transform: scale(0.97);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sh-tab,
+  .sh-tab [data-tab-icon],
+  .sh-fab {
+    transition: none;
+  }
+}
+
+/* ---------- Плитки-светофор + строки-действия (слой 2, задача 2) ----------
+ * Спецификация v8 §2: 9 плиток в один ряд на 1440 (133×96) и 1280 (115 px),
+ * 2×(5+4) на 1024 (170 px), без изменений на 390 (мобильный уже согласован
+ * во втором ревью — здесь только десктопная сетка). §3: строки-действия под
+ * рядом, тон точка + текст + до двух кнопок 44 px, max 4 строки видно.
+ *
+ * Ширины через CSS var + fallback на `--c-*`, как требует договор (не жёстко
+ * зашитый px без переменной), но раскладка — grid по фиксированным колонкам,
+ * не auto-fit: порядок плиток фиксирован (`buildPultView`), плавающий grid
+ * переставил бы карточки на разных брейкпоинтах непредсказуемо. */
+.rh-pult-tiles {
+  display: grid;
+  grid-template-columns: repeat(9, 1fr);
+  gap: 10px;
+}
+
+
+
+/* 820–1179: 2 строки 5 + 4, плитка 170 px */
+@media (max-width: 1179px) and (min-width: 820px) {
+  .rh-pult-tiles {
+    grid-template-columns: repeat(5, 1fr);
+  }
+}
+
+/* < 820 (переход к мобильной раскладке, спецификация не меняет 390 — это
+ * промежуточный десктоп/планшет, чтобы плитки не схлопывались уже дальше). */
+@media (max-width: 819px) {
+  .rh-pult-tiles {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+
+
+
+
+/* ---------- Приёмка 08.09 (Q6, п.3): мелкий текст 10-11px в теме 2026 ----------
+ * Бейджи/счётчики по всей CRM используют Tailwind text-[10px]/text-[11px]/text-xs
+ * (12px в Tailwind — тоже "xs" исторически завышен до 12 у нас в других местах, тут
+ * речь о буквальных 10/11px инлайн-классах). JSX старых 6 тем не трогаем — правило
+ * заперто на новой теме и поднимает эти конкретные размеры минимум до 12px через токен. */
+html[data-theme^="royal-home-2026-"] [class*="text-[10px]"],
+html[data-theme^="royal-home-2026-"] [class*="text-[11px]"] {
+  font-size: var(--rh-fs-12) !important;
+}
+
+/* ---------- Осознанное отступление от эталона: заголовок уведомления в две строки ----------
+ * Эталон (`.rh2 .row .t b` в theme-2026-proto.css) режет заголовок строки списка
+ * в одну строку с многоточием. Там это верно: смысл несёт вторая строка с
+ * пояснением. У уведомления заголовок и есть всё сообщение, и обрезка прячет
+ * суть: человек вынужден открывать карточку, чтобы понять, о чём речь.
+ * Решение владельца 09.09.2026, записано в docs/theme-2026-missing.md §7.
+ *
+ * Правило узкое: только `.row.wrapt` (`wrapt` это модификатор самого прототипа,
+ * `.prow.wrapt`, с тем же смыслом «текст переносится»), только заголовок, ровно
+ * две строки. Файл theme-2026-proto.css не правим: он генерируется из макета, и
+ * следующая выгрузка стёрла бы правку. Специфичность (0,4,1) выше эталонной
+ * (0,2,1), поэтому порядок @import в index.css роли не играет.
+ *
+ * ОБРЕЗКА ВИСИТ НА `.lk`, А НЕ НА `b`, И ВОТ ПОЧЕМУ. Ниже 820px эталон делает
+ * ссылку `display:inline-flex` ради тап-цели в 44px. Если `-webkit-box` повесить
+ * на `b`, эта inline-flex ссылка становится единственным потомком строчного
+ * бокса и перенесённые строки встают по центру: снято на кадре 390 в первом
+ * заходе. Обрезаем сам текстовый поток внутри ссылки, `min-height:44px` при этом
+ * остаётся на месте, тап-цель не страдает.
+ *
+ * `width:fit-content` нужен, чтобы на ПК подчёркивание при наведении (у `.lk`
+ * это `border-bottom`) осталось по ширине текста, а не растянулось на всю
+ * строку: `-webkit-box` сам по себе блочный. */
+.rh2 .scr .row.wrapt .t b {
+  white-space: normal;
+}
+
+.rh2 .scr .row.wrapt .t b .lk {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  white-space: normal;
+  overflow: hidden;
+  text-align: left;
+  width: fit-content;
+  max-width: 100%;
+}
+
+/* ---------- Осознанное отступление от эталона: срез-ССЫЛКА в ленте вкладок ----------
+ * Эталон рисует срезы кнопками, и несжимаемость с `white-space:nowrap` лежат в
+ * `.rh2 .seg button` (theme-2026-proto.css). Вкладки «Клиентов» обязаны остаться
+ * ссылками: срез живёт в адресе, его отправляют коллеге и открывают в новой
+ * вкладке (ClientsTabs.tsx, там же разобрано). Капсула `.pill`, которой они
+ * поэтому стилизуются, этих двух свойств не несёт — и на 390px четыре вкладки
+ * («Покупатели», «Продавцы», «Прочие», «Потерянные», решение владельца
+ * 09.09.2026, docs/theme-2026-missing.md §6) не прокручивались лентой, а
+ * сжимались внутри неё и ломали подпись в две строки: `.hscroll` даёт прокрутку
+ * только тогда, когда содержимое реально шире, а сжимающиеся капсулы всегда
+ * помещаются.
+ *
+ * Файл theme-2026-proto.css не правим: он генерируется из макета скриптом
+ * scripts/sync-proto-css.py, и следующая выгрузка стёрла бы правку. Правило
+ * узкое — только капсулы, лежащие прямо в ленте `.hscroll > .seg`. */
+.rh2 .scr .hscroll .seg > .pill {
+  flex: none;
+  white-space: nowrap;
+}
+
+/* Тот же класс бага у кнопок-срезов (10.09.2026, экран «Команда» на 390):
+ * макет задаёт `.rh2 *{min-width:0}`, и кнопки `.seg` в ленте `.hscroll`
+ * сжимаются до наложения подписей друг на друга («Агенты 5Менеджеры 0…»).
+ * В самом макете на 390 дефект воспроизводится (кадр
+ * docs/pult/theme-2026/reports/screen-audit/team-artifact-390.png), это не
+ * расхождение переноса, а ошибка макета: лента и существует для прокрутки.
+ * Заголовок раздела `.sec-h h2` из-за того же `min-width:0` рвётся посреди
+ * слова («Нагрузк-а»): не даём сжимать его уже самого длинного слова. */
+.rh2 .scr .hscroll .seg > button {
+  flex: none;
+}
+.rh2 .scr .sec-h h2 {
+  min-width: min-content;
+}
+
+/* =============================================================================
+ * ОБОЛОЧКА НА ТЕЛЕФОНЕ: «как родное приложение» (10.09.2026)
+ *
+ * Эталон theme-2026-proto.css генерируется скриптом scripts/sync-proto-css.py из
+ * макета и руками не правится — поэтому всё, что ниже, живёт здесь, отдельными
+ * узкими правилами поверх него. Каждое из них закрывает замеренное расхождение с
+ * поведением родного приложения, а не вкусовую правку; числа — в
+ * docs/pult/theme-2026/reports/native-feel.md.
+ * ========================================================================== */
+
+/* 1. ШТОРКА НЕ ДОЛЖНА УХОДИТЬ ПОД СИСТЕМНЫЕ ПАНЕЛИ.
+ *
+ * Эталон задаёт `.sheet.bottom{max-height:86vh}`. `vh` на iPhone считается от
+ * БОЛЬШОЙ видимой области — той, что бывает при спрятанной адресной строке.
+ * Пока строка показана, 86vh больше того, что видно, и подвал шторки (`.sheet-f`
+ * с главной кнопкой) оказывается под панелью браузера: кнопку видно, нажать
+ * нельзя. `dvh` — динамическая единица, всегда равна тому, что видно сейчас.
+ *
+ * Запас снизу — ВНУТРИ шторки, а не зазором под ней: стекло и скругления
+ * остаются прижатыми к краю экрана (так же, как у нижней навигации в
+ * BottomNav.tsx), а содержимое подвала поднимается над индикатором iPhone. */
+.rh2 .scr .sheet.bottom {
+  max-height: 86dvh;
+}
+
+.rh2 .scr .sheet.bottom .sheet-f {
+  padding-bottom: calc(var(--s4) + env(safe-area-inset-bottom));
+}
+
+/* Шторка без подвала: запас достаётся телу, иначе последняя строка списка
+ * (например меню быстрых действий «+») упирается в индикатор. */
+.rh2 .scr .sheet.bottom .sheet-b:last-child {
+  padding-bottom: calc(var(--s4) + env(safe-area-inset-bottom));
+}
+
+/* 2. ПРОКРУТКА ВНУТРИ ШТОРКИ НЕ ТЯНЕТ СТРАНИЦУ ЗА СОБОЙ.
+ *
+ * `.sheet-b` — прокручиваемая область с `overflow-y:auto`, но без
+ * `overscroll-behavior`. Долистав список до конца, палец продолжал тянуть то, что
+ * лежит ЗА шторкой: на iPhone это выглядит как двойная резина и «уезжающее»
+ * окно. `contain` обрывает цепочку прокрутки на границе шторки — ровно так ведут
+ * себя родные модальные окна. `-webkit-overflow-scrolling:touch` возвращает
+ * инерцию внутри области на тех WebKit, где вложенный скроллер без него
+ * останавливается сразу за пальцем.
+ *
+ * Общее правило index.css (`.overflow-y-auto{overscroll-behavior:contain}`) сюда
+ * не достаёт: у разметки эталона класса `.overflow-y-auto` нет вовсе. */
+.rh2 .scr .sheet-b,
+.rh2 .scr [data-sheet-scroll] {
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* 3. ЗАПАС ПОД НИЖНЮЮ НАВИГАЦИЮ СЧИТАЕТСЯ ОДИН РАЗ, А НЕ ДВА.
+ *
+ * Место под нижнюю навигацию резервировали одновременно два слоя: контейнер
+ * страницы в AppLayout.tsx (`pb-[calc(96px+env(safe-area-inset-bottom))]`) и сам
+ * эталон (`@media(max-width:820px){.rh2 .scr{padding-bottom:168px}}`). Оба
+ * запаса складывались: 168 + 96 + safe-area ≈ 264 px пустоты под последней
+ * карточкой при высоте панели 66 + safe-area ≈ 100 px. На экране 390x844 это
+ * почти треть высоты, которую человек прокручивает вниз, чтобы убедиться, что
+ * там ничего нет.
+ *
+ * Единственный источник запаса — AppLayout: он один знает про навигацию и стоит
+ * снаружи любого экрана, включая те, что не пользуются `.scr`. Здесь остаётся
+ * симметричный отступ содержимого (`--s4`, как сверху и по бокам), а зазор до
+ * панели даёт разница 96 − 66 = 30 px. Итого 46 px чистого воздуха вместо 198.
+ *
+ * ПРО `html` В СЕЛЕКТОРЕ. Этот файл импортируется в index.css РАНЬШЕ эталона
+ * (строка 11 против строки 14), поэтому при равном весе побеждает эталон, а не
+ * он. У `.rh2 .scr` вес ровно такой же, как у правила эталона, — первая попытка
+ * молча ничего не изменила, замер показал те же 168 px. `html` добавляет один
+ * элементный селектор и решает спор, ничего не меняя в области действия. */
+@media (max-width: 820px) {
+  html .rh2 .scr {
+    padding-bottom: var(--s4);
+  }
+}
+
+/* Пульт: кольцо нагрузки в ряду «Команда сейчас» артефакта носит класс `.ring`,
+   и Tailwind-утилита `.ring` (box-shadow 3px) рисовала вокруг него квадрат.
+   Имя из артефакта не меняем, снимаем только чужую тень (поймано кадрами 10.09). */
+.rh2 .ht .ring { box-shadow: none; }
+/* =============================================================================
+ * ШАПКА ЭКРАНА НА ШИРОКОМ ОСТАЁТСЯ ОДНОЙ СТРОКОЙ (10.09.2026)
+ *
+ * Замер сверки с макетом на 1440 (docs/pult/theme-2026/reports/desktop-parity-1440.md,
+ * числа — parity1440-measure.json): у эталона `.pg-h` на всех экранах 56–96 px,
+ * заголовок и действия в один ряд. У нас на «Объектах» — 136 px: блок действий
+ * целиком уезжал под заголовок.
+ *
+ * Причина не в стилях, а в арифметике. `.pg-h` у эталона — flex с
+ * `flex-wrap:wrap`, и блок заголовка не сжимается: его ширину задаёт подпись
+ * (`.sub{max-width:62ch}`). Пока подписи короткие, как в макете, всё помещается;
+ * наши подписи длиннее, сумма превышает ширину колонки, и переносится ВЕСЬ блок
+ * действий сразу. Разрешаем блоку заголовка сжиматься — подпись доберёт вторую
+ * строку, а действия останутся справа, ровно как в макете.
+ *
+ * Только на широком: ниже 820 px раскладку шапки задаёт
+ * theme-2026-mobile-density.css, и туда лезть незачем.
+ *
+ * `min-width:0` нужен потому, что flex-элемент по умолчанию не сжимается уже
+ * своего содержимого. Правила с таким селектором у эталона нет вовсе, так что
+ * спор по весу с ним не возникает (этот файл подключается РАНЬШЕ эталона).
+ *
+ * ОСНОВА ИМЕННО `0`, А НЕ `auto`. С `auto` основа равна ширине содержимого, и
+ * перенос считается ДО сжатия: на «Объектах» 577 (подпись) + 16 + 487
+ * (действия) = 1080 против 1078 доступных — блок действий уезжал вниз из-за
+ * двух пикселей, а сжатие, разрешённое `min-width:0`, к тому моменту было уже
+ * не нужно. С основой `0` заголовок просто забирает остаток строки. */
+@media (min-width: 821px) {
+  .rh2 .scr .pg-h > *:first-child {
+    min-width: 0;
+    flex: 1 1 0;
+  }
+
+  .rh2 .scr .pg-h > .acts {
+    flex: 0 0 auto;
+  }
+}
+
+/* ======================================================================}
+
+ * ШАПКА ДИАЛОГА (Messages.tsx, .pane-h): «Пауза» — пилюля, не нативный select
+ * (TASKS.md 10.09 «с обзора прода глазами», п.6).
+ *
+ * Родной <select> рядом с круглой кнопкой `.call` и капсулами `.pill` — разные
+ * гарнитуры браузера и темы в одной шапке. На телефоне ту же задачу уже решили
+ * (MobileChatView.tsx свернул всё, включая паузу, в меню «⋯» пилюлями); здесь —
+ * тот же язык, без сворачивания остального ряда: кнопка-триггер `.pill.ghost.sm`
+ * открывает список тех же пунктов, что раньше были <option>, тоже пилюлями.
+ * Логика паузы (какая длительность на какой запрос) не менялась ни на йоту.
+ */
+.rh2 .pane-h-pause-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 190px;
+  padding: 8px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--line-soft);
+  background: var(--card);
+  box-shadow: var(--shadow-lift);
+}
+.rh2 .pane-h-pause-menu .pill {
+  justify-content: flex-start;
+  width: 100%;
+}
+
+/* ---------- Дни чужого месяца в календаре: приглушение цветом, а не
+ * прозрачностью (a11y, 10.09.2026) ----------
+ *
+ * У эталона `.cal .d.out{opacity:.45}` — гаснет ВСЯ ячейка вместе с числом, и
+ * число оказывается смесью текста с подложкой. На тёмной теме это #7b7d81 на
+ * #1f2228 = 3,86 при норме 4,5; на светлой тот же приём даёт 2,86 — то есть
+ * одной прозрачности, годной обеим темам, не существует в принципе: осветляя
+ * текст для одной, темнишь его для другой (та же ловушка, что с любой
+ * численной проверкой облика, снятой в одной теме из двух).
+ *
+ * Поэтому приглушение задаётся токенами темы, а не альфа-каналом. Ячейка
+ * чужого месяца отступает на цвет карточки — перестаёт быть плиткой, и это
+ * читается как «не этот месяц»; число берёт --muted:
+ *   светлая  #646c79 на #ffffff  = 5,3:1
+ *   тёмная   #98a1ad на #1c1f24  = 6,3:1
+ * Метки событий (`.ev`) больше не гасятся: у них своя пара фон/текст из
+ * палитры темы, и прозрачность ломала её ровно так же.
+ *
+ * Вес селектора выше эталонного за счёт `html[data-theme…]`, поэтому порядок
+ * подключения файлов роли не играет. Правило общее для широкого экрана и
+ * телефона: разметка ячейки у Calendar.tsx и MobileCalendar.tsx одна и та же. */
+html[data-theme^="royal-home-2026-"] .rh2 .scr .cal .d.out {
+  opacity: 1;
+  background: var(--card);
+}
+
+html[data-theme^="royal-home-2026-"] .rh2 .scr .cal .d.out .n {
+  color: var(--muted);
+}
+
+/* ---------- Лента «Сейчас в компании»: карточка «не в сети» без прозрачности
+ * (a11y, 10.09.2026) ----------
+ * Макет гасит всю карточку `.lf-st.nowc.off{opacity:.62}` — и инициалы на
+ * пастели (2,8:1), и подпись «давно не заходил» (2,5:1) выпадают из нормы.
+ * Признак «не в сети» остаётся: аватар серый (правило макета grayscale), имя
+ * приглушено токеном; прозрачность не нужна. */
+ /* Этот файл подключается раньше эталона, поэтому вес поднят через html[data-theme]. */
+html[data-theme^="royal-home-2026-"] .rh2 .lf .lf-st.nowc.off {
+  opacity: 1;
+}
+html[data-theme^="royal-home-2026-"] .rh2 .lf .lf-st.nowc.off .nowc-ph {
+  filter: grayscale(1);
+}
+html[data-theme^="royal-home-2026-"] .rh2 .lf .lf-st.nowc.off .lf-sub {
+  color: var(--muted);
+}
+
+/* ---------- Пульт директора: число «N ждут вас» (11.09.2026, знак убран 14.09.2026) ----------
+ * docs/handoff-11-09.md, замечание владельца № 2 завело здесь знак ИИ вместо
+ * кольца `.gauge` артефакта; 14.09.2026 владелец знак убрал («надо полностью
+ * удалить везде и с настроек, оно не очень оказалось удобным и полезным») —
+ * осталось то, что было рядом со знаком: число и подпись, кликабельные и
+ * держащиеся так же, как раньше держался сам знак (клик — к первому делу,
+ * удержание 450 мс — рассказ).
+ *
+ * Разметка: components/pult/PultHeroFace.tsx. */
+.rh2 .hero-face {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+}
+
+.rh2 .hero-face-mark {
+  display: grid;
+  place-items: center;
+  padding: 12px 20px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  border-radius: var(--r-pill);
+}
+
+.rh2 button.hero-face-mark {
+  cursor: pointer;
+  /* Удержание 450 мс запускает рассказ (PultHeroFace.tsx). Без этих
+     двух строк долгое нажатие на телефоне вместо рассказа даёт выделение
+     текста и системное меню «Скопировать/Поделиться». `touch-action` здесь
+     НЕ трогаем: `pan-y` на предках уже ломал свайпы (память проекта). */
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* «Рассказать» / «Стоп» — то же действие, что удержание знака, но доступное
+   с клавиатуры и видимое глазами. Стоит под подписью, чтобы не спорить с
+   цифрой срочных дел за внимание. */
+.rh2 .hero-face-tell {
+  margin-top: 2px;
+}
+
+.rh2 .hero-face-mark:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 4px;
+}
+
+.rh2 .hero-face-cap {
+  margin: 0;
+  text-align: center;
+}
+
+.rh2 .hero-face-cap b {
+  display: block;
+  font-family: "Manrope", "Manrope Fallback", sans-serif;
+  font-size: 34px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  color: var(--crit);
+  font-variant-numeric: tabular-nums;
+}
+
+.rh2 .hero-face[data-state="done"] .hero-face-cap b {
+  color: var(--muted);
+}
+
+.rh2 .hero-face-cap small {
+  display: block;
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+@media (max-width: 1179px) {
+  .rh2 .hero-face-cap b {
+    font-size: 28px;
+  }
+}
+
+/* Телефон: знак и подпись в строку — экран и так длинный (замечание владельца
+ * № 3), лишние 60 px высоты под подписью здесь ни к чему. */
+@media (max-width: 640px) {
+  .rh2 .hero-face {
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 14px;
+  }
+  .rh2 .hero-face-cap {
+    text-align: left;
+  }
+}
+
+/* ---------- ПК: ПУЛЬТ ДИРЕКТОРА В ДВА СТОЛБЦА (11.09.2026) ----------
+ *
+ * Замечание владельца 11.09 (docs/handoff-11-09.md, п. 3): «ПК слишком длинный
+ * и узкий, использовать ширину». Так и было: колонка пульта упиралась в
+ * `.wrap{max-width:1320px}` эталона, а восемь разделов sec02–sec09 шли
+ * столбиком, поэтому на мониторе 1920 половина экрана оставалась подложкой,
+ * а страница тянулась на 18 000 точек.
+ *
+ * ЧТО ЗАМЕРЕНО (headless-playwright по самому артефакту
+ * docs/pult/theme-2026/artifact-ff1d9d17-pult-director.html; ширина области
+ * содержимого = окно − рейка − поля AppLayout):
+ *
+ *   область   было (1 столбец)   стало (2 столбца)   пусто в рядах
+ *   1316 px       17 986 px          14 462 px          1 472 px
+ *   1796 px       17 986 px          13 455 px          1 465 px
+ *
+ * ПОЧЕМУ ДВА, А НЕ ТРИ. Три столбца замерены тоже: на 1796 px они дают
+ * 13 111 px (короче двух на 2,5 %), но столбец сжимается до 561 px, у карточек
+ * начинают резаться подписи (`.ell`), а пустое место в рядах вырастает вдвое —
+ * 3 160 px против 1 465: «Объекты» вдвое выше соседей, и рядом с ними
+ * образуется дыра. Два широких столбца короче и спокойнее. Три в ряд остались
+ * там, где блоки действительно однотипные: плитки `.trio`, сроки сделок
+ * `.dm-cols`, объекты `.objs` — им ниже задан auto-fit.
+ *
+ * ЧТО НА ВСЮ ШИРИНУ. Шапка `.hero`, лента «Сейчас в компании» `.lfwrap` и
+ * второй грид разделов `.rest-card` — они и так дети `main.wrap`. Плюс два
+ * раздела: «Команда» (`#sec-02`: таблица агентов на шесть колонок, ей нужно не
+ * меньше 580 px, в узком столбце эталон сжимает её до нечитаемой) и «Контроль
+ * и система» (`#sec-09`) — последний из восьми: в столбце он оставлял бы
+ * полупустой ряд. Порядок чтения сверху вниз сохранён,
+ * `grid-auto-flow: dense` не используется.
+ *
+ * ПОЧЕМУ auto-fit, А НЕ ЖЁСТКИЕ ДВА СТОЛБЦА. Ширина области зависит не только
+ * от окна, но и от рейки (76 или 250 px), а медиазапрос про рейку ничего не
+ * знает: при окне 1280 px с раскрытой рейкой на содержимое остаётся 918 px, и
+ * два столбца были бы по 447 px. `minmax(max(500px, …))` раскладывает в два
+ * столбца, только когда каждому достаётся не меньше 500 px, иначе оставляет
+ * один — и то же правило само отрабатывает закрепление рейки на лету.
+ *
+ * Класс `two-col` эталона (переключатель артефакта) НЕ включается нарочно: все
+ * его поправки рассчитаны на столбец 622 px и заодно отменяют богатую
+ * раскладку `.sections:not(.two-col) #sec-04 …`, которая при столбце
+ * 743–886 px как раз работает. Вместо него — свои правила ниже, все на
+ * auto-fit, то есть по ширине столбца, а не окна.
+ *
+ * Вес селекторов поднят через `.pult`: этот файл подключается ДО эталона
+ * (index.css), поэтому при равном весе выигрывал бы эталон. */
+@media (min-width: 1280px) {
+  /* Пульт живёт на «/» и снимает html[data-screen] (hooks/useScreenAttribute.ts). */
+  html:not([data-screen]) .app-main-col {
+    max-width: 1880px;
+  }
+
+  .rh2 .pult main.wrap {
+    max-width: 1880px;
+    padding-left: 32px;
+    padding-right: 32px;
+  }
+
+  .rh2 .pult .sections {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(max(500px, calc((100% - 24px) / 2)), 1fr));
+    gap: 0 24px;
+    align-items: start;
+  }
+
+  .rh2 .pult .sections > .secwrap {
+    min-width: 0;
+  }
+
+  /* «Команда» — таблица на шесть колонок; «Контроль и система» — хвост списка. */
+  .rh2 .pult .sections > #sec-02,
+  .rh2 .pult .sections > #sec-09 {
+    grid-column: 1 / -1;
+  }
+
+  /* Внутренние сетки разделов — по ширине столбца, а не окна. */
+  .rh2 .pult .sections .two,
+  .rh2 .pult .sections .mk-two {
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  }
+
+  .rh2 .pult .sections .trio {
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  }
+
+  /* Сроки сделок: четыре колонки эталона в столбце 743 px давали бы по 170 px. */
+  .rh2 .pult .sections .dm-cols {
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  }
+
+  .rh2 .pult .sections #sec-04 .v8 .v8b[data-mod="obj"] .objdist {
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  }
+
+  .rh2 .pult .sections #sec-04 .v8 .v8b[data-mod="obj"] .objs {
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  }
+}
+
+/* ---------- ПК: СПИСКОВЫЕ ЭКРАНЫ ШИРЕ И ПО ДВА БЛОКА В РЯД (11.09.2026) ----
+ *
+ * То же замечание владельца про «длинный и узкий» (docs/handoff-11-09.md, п. 3)
+ * относится и к экранам: `.rh2.screens .scr` эталона режет колонку на 1180 px,
+ * а рамка приложения даёт до 1552 px — 372 px пропадали.
+ *
+ * 1. КОЛОНКА. На окне от 1440 px потолок поднят до 1440 px. Выше не идём:
+ *    строки списков и таблицы читаются построчно, и на 1800 px глаз уже теряет
+ *    начало строки. Потолок рамки AppLayout (1600 px) не трогаем — он выше
+ *    поднимается только на пульте, где содержимое раскладывается в столбцы.
+ *
+ * 2. ДВА БЛОКА В РЯД — `.cols2`. Обёртка вокруг СОСЕДНИХ совместимых блоков
+ *    экрана (два графика, две сводки, календарь и панель дня). Не сетка на
+ *    весь `.scr`: там вперемешку идут шапка, фильтры, широкие таблицы и списки
+ *    во всю ширину, и общая сетка оставляла бы полупустые ряды — а владелец
+ *    просил как раз «без пустых мест». Кто с кем совместим, решает разметка
+ *    экрана, а не CSS.
+ *
+ *    `auto-fit minmax(max(360px, половина))` — два столбца, только когда
+ *    каждому достаётся не меньше 360 px, иначе один. Через auto-fit, а не
+ *    медиазапрос: ширина зависит ещё и от рейки (76 или 250 px).
+ *
+ *    Больше двух столбцов сознательно нет: у `.cols2` в паре всегда два блока,
+ *    а три в ряд на этих экранах уже есть там, где им место, — плитки
+ *    `.tiles` (четыре) и `.trio` (три-четыре) эталона.
+ *
+ * Ниже 1280 px не меняется ничего: `.cols2` вне медиазапроса — обычный блок,
+ * и на телефоне блоки идут друг под другом, как шли. */
+@media (min-width: 1280px) {
+  .rh2.screens .scr .cols2 {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(max(360px, calc((100% - var(--s5)) / 2)), 1fr));
+    gap: var(--s5);
+    align-items: start;
+  }
+
+  /* Блок пары, которому нужна вся ширина ряда (таблица, широкий график). */
+  .rh2.screens .scr .cols2 > .cols2-wide {
+    grid-column: 1 / -1;
+  }
+
+  /* Пара «главное + боковое»: сетка месяца и панель дня в календаре. Поровну
+     их делить неправильно — клетка месяца тогда 94 px и в неё не помещается
+     подпись показа, а списку дня столько ширины не нужно. */
+  .rh2.screens .scr .cols2.cols2-side {
+    grid-template-columns: minmax(0, 1.55fr) minmax(320px, 1fr);
+  }
+}
+
+@media (min-width: 1440px) {
+  html[data-screen] .rh2.screens > .scr {
+    max-width: 1440px;
+  }
+}
+
+/* ---------- Вертикальный ритм экранов: мёртвое правило эталона (11.09.2026) ----------
+ * В артефакте (и в сгенерированном theme-2026-proto.css, строки ~2673/2676) правило
+ * `.scr>*+*{margin-top}` получило лишний префикс области и стало `.rh2 .scr .scr>*+*`:
+ * оно требует `.scr` внутри `.scr` и не срабатывает ни на одном из 43 экранов, блоки
+ * стоят вплотную (замечено на кадрах Финансов 11.09). Восстанавливаем замысел эталона:
+ * 24px между блоками экрана на ПК, 16px на телефоне. Файл эталона не правим. */
+html[data-theme^="royal-home-2026-"] .rh2.screens > .scr > * + * {
+  margin-top: var(--s5, 24px);
+}
+@media (max-width: 820px) {
+  html[data-theme^="royal-home-2026-"] .rh2.screens > .scr > * + * {
+    margin-top: var(--s4, 16px);
+  }
+}
+
+/* ---------- Выключенная кнопка должна читаться как выключенная (12.09.2026) ----------
+ *
+ * ЧТО УВИДЕЛ ВЛАДЕЛЕЦ. На кадре карточки клиента кнопка «Всё верно, записать»
+ * выглядела «выключенной — тёмная с блёклым текстом», хотя была нажимаема. Сам тот
+ * блок отменён и удалён, но причина к нему не сводится и живёт во всей теме.
+ *
+ * ПРИЧИНА. Все выключенные состояния в теме заданы ОДНОЙ полупрозрачностью:
+ *   .pill[disabled]{opacity:.45}            (theme-2026-proto.css)
+ *   .cw2-btn[disabled]{opacity:.45}         (theme-2026-call-window.css)
+ *   .li-btn:disabled{opacity:.6}            (theme-2026-lead-incoming.css)
+ *   .cd-act[disabled]{opacity:.5}           (theme-2026-client-card.css)
+ *   .cd-qa-btn[disabled]{opacity:.5}        (theme-2026-mobile-density.css)
+ * У светлой кнопки этого хватает. У ГЛАВНОЙ кнопки темы хватать и не может: её фон
+ * — почти чёрный `--pill` (#15171a), а текст белый. Полупрозрачность делает из неё
+ * тёмно-серый прямоугольник с бледно-серыми буквами — то есть «тёмная кнопка с
+ * блёклым текстом»: активная на вид и плохо читаемая. Ровно то, на что жалоба.
+ * Заодно белый на 45% по светлому фону не проходит по контрасту ни в одну сторону.
+ *
+ * ЧТО ДЕЛАЕМ. Выключенная кнопка перестаёт быть тёмной: плоский фон `--soft`,
+ * приглушённый текст `--muted`, тонкая рамка, никакой тени и никакой
+ * полупрозрачности (её снимаем явно — иначе она сложится с новыми цветами и текст
+ * снова поплывёт). Форма, размер и положение не меняются: кнопка узнаётся, просто
+ * видно, что она не работает. Работает в обеих темах — обе пары токенов заданы
+ * и для дневной, и для ночной.
+ *
+ * ПОЧЕМУ ЗДЕСЬ, А НЕ В ФАЙЛАХ-ИСТОЧНИКАХ. `theme-2026-proto.css` собирается
+ * скриптом `scripts/sync-proto-css.py` из артефакта и руками не правится, а
+ * остальные четыре — дословные переносы экранов эталона. Правило общее для всех
+ * пяти, значит ему место в слое приложения. Префикс `html[data-theme^=...]` нужен
+ * по двум причинам сразу: index.css подключает этот файл РАНЬШЕ прототипного, и
+ * без лишней ступени специфичности `opacity:.45` победил бы.
+ */
+html[data-theme^="royal-home-2026-"] .rh2 .scr .pill[disabled],
+html[data-theme^="royal-home-2026-"] .rh2 .scr .pill:disabled,
+html[data-theme^="royal-home-2026-"] .rh2 .scr .li-btn:disabled,
+html[data-theme^="royal-home-2026-"] .rh2 .scr .cw2-btn[disabled],
+html[data-theme^="royal-home-2026-"] .rh2 .scr .cd-act[disabled],
+html[data-theme^="royal-home-2026-"] .rh2 .scr .cd-qa-btn[disabled] {
+  opacity: 1;
+  background: var(--soft);
+  color: var(--muted);
+  border: 1px solid var(--line-soft);
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+/* Подпись под круглой кнопкой окна звонка красится своим правилом
+   (`.cw2-btn.end .lbl{color:var(--crit)}`), и без этой строки она осталась бы
+   красной на погасшей кнопке — единственное цветное пятно на выключенном экране. */
+html[data-theme^="royal-home-2026-"] .rh2 .scr .cw2-btn[disabled] .lbl {
+  color: var(--muted);
+}
+
+/* Нажатие выключенной кнопки не должно «пружинить»: анимация отклика на кнопке,
+   которая ничего не делает, читается как «сработало». */
+html[data-theme^="royal-home-2026-"] .rh2 .scr .pill[disabled]:active,
+html[data-theme^="royal-home-2026-"] .rh2 .scr .li-btn:disabled:active,
+html[data-theme^="royal-home-2026-"] .rh2 .scr .cw2-btn[disabled]:active,
+html[data-theme^="royal-home-2026-"] .rh2 .scr .cd-act[disabled]:active,
+html[data-theme^="royal-home-2026-"] .rh2 .scr .cd-qa-btn[disabled]:active {
+  transform: none;
+}
+
+/* ---------- Окно звонка видно и на «Главной» директора (12.09.2026) ----------
+ *
+ * НАЙДЕНО ЖИВОЙ ПРОВЕРКОЙ, пока чинили «карточка звонка долго висит». На
+ * маршруте `/` у директора окна звонка нет ВОВСЕ — не «висит», а не появляется.
+ *
+ * МЕХАНИЗМ. Артефакт держит пульт и 43 экрана на одной странице: контейнер
+ * экранов спрятан (`.rh2.screens{display:none}`) и показывается атрибутом
+ * `html[data-screen]` (theme-2026-proto.css, строки ~2189). Атрибут снимается,
+ * пока на странице смонтирован пульт (hooks/useScreenAttribute.ts::usePultMode),
+ * а «Главная» директора рендерит пульт прямо внутрь себя (pages/Dashboard.tsx →
+ * MissionControlView). Окна же оборачиваются в `<div class="rh2 screens">`
+ * (components/rh2/Rh2Scope.tsx) — той самой обёрткой, которую этот атрибут и
+ * гасит. Замер на стенде: `/` → нет data-screen → `.rh2.screens` display:none;
+ * `/clients` → data-screen=clients → display:block, окно на месте.
+ *
+ * Ни сборка, ни типы, ни линтер об этом не скажут: разметка верная, классы
+ * верные, элемент в DOM — и нулевого размера.
+ *
+ * ЧТО ЧИНИМ ЗДЕСЬ. Только окно звонка — оно в этой задаче, и ошибиться в нём
+ * нельзя: пропущенный вызов дороже любого другого пропущенного окна. Обёртка
+ * окна звонка это НЕ контейнер экранов, и прятать её вместе с экранами
+ * неправильно по смыслу.
+ *
+ * ЧЕГО ЗДЕСЬ НЕТ И ПОЧЕМУ. Ровно та же обёртка у примерно двадцати других
+ * окон и панелей (ConfirmDialog, Toasts, ProfileMenu, PhotoLightbox, окно
+ * входящего лида, полоса «нет соединения»…) — на «Главной» директора они
+ * невидимы по той же причине. Одной строкой это чинится в Rh2Scope.tsx
+ * (inline `display:block` на обёртке бьёт правило таблицы), но это чужая зона
+ * и радиус правки — весь интерфейс сразу. Вынесено отдельной задачей.
+ */
+html[data-theme^="royal-home-2026-"] .rh2.screens:has(.cw2-stage.live) {
+  display: block;
+}
+
+/* ---------- Тень карточки: контур вместо ореола (12.09.2026) ----------
+ * Владелец: «вокруг всех окон как будто эхо окна, если прищуриться видно».
+ * Замер пикселей на пульте подтвердил: это не второй элемент и не стекло, а
+ * собственная тень карточки `--shadow: 0 8px 24px rgba(16,24,40,.06)`. На
+ * светлом фоне 24 пикселя размытия дают мягкое тёмное поле шириной около
+ * пятидесяти пикселей вокруг каждой карточки, и глаз читает его как обводку.
+ *
+ * Замена по образцу iOS, на который владелец и ссылался: чёткая волосяная
+ * грань задаёт край, короткая тень даёт объём. Поле вокруг сжимается с 50 до
+ * примерно 10 пикселей, карточка перестаёт «двоиться».
+ *
+ * Тронут только `--shadow`. `--shadow-lift`, `--shadow-pop` (шторки, всплывающие
+ * окна) оставлены как есть: там ореол уместен, он отделяет слой от страницы. */
+html[data-theme^="royal-home-2026-"] .rh2 {
+  --shadow: 0 0 0 1px rgba(17, 18, 20, 0.045), 0 1px 2px rgba(16, 24, 40, 0.05),
+    0 4px 10px -6px rgba(16, 24, 40, 0.1);
+  --shadow-sm: 0 0 0 1px rgba(17, 18, 20, 0.04), 0 1px 2px rgba(16, 24, 40, 0.04);
+}
+html[data-theme="royal-home-2026-night"] .rh2 {
+  --shadow: 0 0 0 1px rgba(255, 255, 255, 0.06), 0 1px 2px rgba(0, 0, 0, 0.3),
+    0 4px 10px -6px rgba(0, 0, 0, 0.45);
+  --shadow-sm: 0 0 0 1px rgba(255, 255, 255, 0.05), 0 1px 2px rgba(0, 0, 0, 0.28);
+}
+
+/* ---------- Прогноз денег к концу месяца: строка с раскрытием (14.09.2026) ----------
+ * Вторая строка блока «Деньги» (components/finance/CommissionForecastBlock.tsx).
+ * Прототип такого элемента не рисует, поэтому правило своё, а не из
+ * theme-2026-proto.css: там раскрытие есть только у карточки целиком
+ * (`details.card`), а здесь оно живёт ВНУТРИ карточки и не должно выглядеть
+ * второй карточкой.
+ *
+ * Маркер треугольника убран: роль «нажми, чтобы развернуть» несёт подчёркнутое
+ * слово «почему», а стрелка рядом с денежной суммой читается как часть числа. */
+html[data-theme^="royal-home-2026-"] .rh2 .fc-line {
+  margin-top: 10px;
+  border-top: 1px solid var(--line, rgba(17, 18, 20, 0.08));
+  padding-top: 10px;
+}
+html[data-theme^="royal-home-2026-"] .rh2 .fc-line > summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 14px;
+}
+html[data-theme^="royal-home-2026-"] .rh2 .fc-line > summary::-webkit-details-marker {
+  display: none;
+}
+html[data-theme^="royal-home-2026-"] .rh2 .fc-line > summary u {
+  color: var(--muted, #6b7280);
+  font-size: 13px;
+}
+/* Видимая рамка фокуса обязательна: строка раскрывается с клавиатуры. */
+html[data-theme^="royal-home-2026-"] .rh2 .fc-line > summary:focus-visible {
+  outline: 2px solid var(--accent, #2563eb);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+html[data-theme^="royal-home-2026-"] .rh2 .fc-line > .list {
+  margin-top: 8px;
+}
+/* КАРТОЧКА «УТРЕННИЙ БРИФИНГ» НА ПУЛЬТЕ ДИРЕКТОРА.
+ *
+ * Своя пара правил, а не голый `.card`, потому что на пульте общего класса
+ * карточки нет вовсе: `.sec-t` и `.quiet` в theme-2026-proto.css заданы ТОЛЬКО
+ * под `.rh2 .scr`, а карточки пульта названы поимённо (`.rest-card`, `.hero`).
+ * Секция с одним классом `card` внутри `.pult` остаётся без стиля целиком —
+ * без фона, полей и скругления; поймано глазами на стенде.
+ *
+ * Значения взяты у `.rest-card` (строка 1463 прототипа), чтобы карточка стояла
+ * в одном ряду с «Все разделы компании», а не выглядела приезжей. Узкую
+ * раскладку делают те же медиазапросы прототипа, отдельного мобильного файла
+ * у карточки нет. */
+.rh2 .brief-card {
+  background: var(--card);
+  border-radius: var(--r);
+  box-shadow: var(--shadow);
+  padding: 24px 28px;
+  margin-top: 24px;
+}
+.rh2 .brief-card .brief-t {
+  font-family: var(--ff-head);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+.rh2 .brief-card .brief-text {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--body);
+}
+.rh2 .brief-card .brief-note {
+  margin: 10px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+.rh2 .brief-card .brief-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
+}
+@media (max-width: 640px) {
+  .rh2 .brief-card {
+    padding: 18px 16px;
+    margin-top: 16px;
+  }
+}
+/* `.btn` в прототипе тоже живёт только под `.rh2 .scr`, поэтому кнопки
+ * карточки одеваются здесь же — по образцу `.btn ghost sm` из экранов. */
+.rh2 .brief-card .brief-btn {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--body);
+  font: inherit;
+  font-size: 13px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  min-height: 36px;
+}
+.rh2 .brief-card .brief-btn:focus-visible {
+  outline: 2px solid var(--accent, currentColor);
+  outline-offset: 2px;
+}
+@media (hover: hover) and (pointer: fine) {
+  .rh2 .brief-card .brief-btn:hover {
+    background: var(--hover);
+  }
+}
+/* На мобильной главной фон и скругление даёт `.card-s` из мобильного
+ * артефакта — свои оставляем только отступы, иначе карточка выпадет из ряда
+ * соседних плиток. */
+.rh2 .brief-card-m {
+  background: none;
+  box-shadow: none;
+  border-radius: 0;
+  margin-top: 0;
+  padding: 14px 16px;
+}
+
+/* ===== Карта объектов — список слева от карты (14.09.2026, владелец: «как в
+ * топовых сайтах», выбран вариант A из макета — карточки с фото, по 2 в ряд).
+ * Раньше список был лентой-скроллом ПОД картой (решение 12.09.2026) — новое
+ * прямое решение владельца его отменяет, карту саму (PropertyMapExplorer)
+ * никто не трогал, только раскладка страницы вокруг неё. ===== */
+/* ===== Подписи на холсте карты — DOM-маркеры MapLibre (19.09.2026).
+ * Плашка кластера и подпись цены рисуются обычными элементами, а не
+ * символьными слоями: почему именно так — в шапке PropertyMapExplorer.tsx
+ * («ПОДПИСИ — DOM, А НЕ СИМВОЛЬНЫЕ СЛОИ»). Шрифт здесь наследуется от
+ * интерфейса, поэтому кириллица выглядит как везде в CRM, а плашка —
+ * настоящий прямоугольник, которого символьный слой без спрайта не умеет.
+ * Селекторы под `.rh2`, но БЕЗ `.scr`: маркер MapLibre подвешивает в
+ * контейнер карты (своё поддерево), а не в разметку экрана — `.scr` его не
+ * накрывает, зато `.rh2` накрывает, и токены темы (--r-sm, --fs-13)
+ * разрешаются. ===== */
+.rh2 .map-plaque {
+  font: inherit;
+  font-size: var(--fs-13);
+  font-weight: 500;
+  line-height: 1.2;
+  color: #fff;
+  background: rgba(21, 23, 26, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: var(--r-sm);
+  padding: 4px 8px;
+  white-space: nowrap;
+  cursor: pointer;
+  /* Плашка перехватывает клик сама (раньше кликабельной была точка радиусом
+     4 px — на телефоне в неё не попасть). */
+  pointer-events: auto;
+}
+.rh2 .map-plaque:hover {
+  background: rgba(21, 23, 26, 0.96);
+}
+.rh2 .map-price {
+  font: inherit;
+  font-size: var(--fs-12);
+  font-weight: 500;
+  line-height: 1.2;
+  color: #1a1a1a;
+  background: rgba(255, 255, 255, 0.92);
+  border-radius: var(--r-sm);
+  padding: 1px 5px;
+  margin-top: 4px;
+  white-space: nowrap;
+  /* Подпись не должна воровать клик у своего пузырька: по объекту кликают по
+     кружку, слой `bubbles` под ней. */
+  pointer-events: none;
+}
+
+.rh2 .scr .map-sidebar {
+  background: var(--card);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.rh2 .scr .map-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  overflow-y: auto;
+  padding: 12px;
+}
+/* Обёртка ref-а (PropertiesMap.tsx) — сама grid-item, а не .map-card внутри
+ * неё: без min-width:0 длинный адрес в одном ряду раздувает всю колонку
+ * (авто-минимум grid-item = min-content потомков), карточки наезжают друг на
+ * друга. Обнаружено вживую на проде 14.09.2026. */
+.rh2 .scr .map-grid > div {
+  min-width: 0;
+}
+.rh2 .scr .map-card {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: var(--card);
+  border-radius: var(--r-sm);
+  padding: 8px;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  /* <button> не растягивается на 100% родителя сам по себе даже с
+   * display:flex (форма-элементы считают width:auto как fit-content, а не
+   * fill, в отличие от div) — без этого кнопка сама раздувалась до ширины
+   * своего контента (карточка залезала на соседнюю в том же ряду грида).
+   * Поймано вживую на проде 14.09.2026 — предыдущий фикс (min-width:0 на
+   * обёртке grid-item) эту причину не задевал. */
+  width: 100%;
+}
+.rh2 .scr .map-card.is-sel {
+  border-color: var(--accent, rgb(var(--rgb-accent)));
+  background: var(--hover);
+}
+@media (hover: hover) and (pointer: fine) {
+  .rh2 .scr .map-card:hover {
+    border-color: var(--line-strong);
+  }
+}
+.rh2 .scr .map-card:focus-visible {
+  outline: 2px solid var(--accent, rgb(var(--rgb-accent)));
+  outline-offset: 2px;
+}
+.rh2 .scr .map-card .map-card-photo {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  background: var(--soft, var(--card-2));
+}
+.rh2 .scr .map-card .map-card-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+/* Объект без фото — честная заглушка (силуэт дома), не белая пустота и не
+ * выдуманная картинка. Цвет — терция цены, тот же язык, что уже красит
+ * пузырьки/дома на самой карте (см. lib/themeMapColors.ts). */
+.rh2 .scr .map-card .map-card-nophoto {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(155deg, var(--soft, var(--card-2)), var(--line-soft));
+}
+.rh2 .scr .map-card .map-card-price {
+  position: absolute;
+  left: 7px;
+  bottom: 7px;
+  background: var(--card);
+  color: var(--ink);
+  font-weight: 700;
+  font-size: 12.5px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  box-shadow: var(--shadow-sm, var(--shadow));
+}
+.rh2 .scr .map-card .map-card-title {
+  font-weight: 600;
+  font-size: 13px;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.rh2 .scr .map-card .map-card-addr {
+  font-size: 11.5px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- ФОН: УБРАТЬ ВТОРУЮ ЗАЛИВКУ ПОД КОЛОНКОЙ КОНТЕНТА (15.09.2026) ----
+ *
+ * Жалоба владельца: «вокруг любого окна есть ещё окно, милое прозрачное» — и не
+ * на одном экране, а по всему приложению.
+ *
+ * Причина. Оболочка красит фон ПОЛУПРОЗРАЧНЫМ токеном `--c-bg`
+ * (rgba(238,241,246,.6) выше в этом файле): сквозь него просвечивает подложка,
+ * поэтому фон приложения светлее чистого #eef1f6. А контейнер экранов
+ * `<div class="rh2 screens">` красит себя НЕПРОЗРАЧНЫМ `--page` (#eef1f6) —
+ * `.rh2{background:var(--page)}` в theme-2026-proto.css (строки 40 и 1158).
+ * Разница в плотности рисует прямоугольник ровно по колонке `app-main-col`
+ * (px-5/md:px-6, pt-4, max-w-1600, mx-auto) — это и принимается за «ещё окно».
+ *
+ * Правило прототипа нужно было артефакту, где `.rh2` был корнем страницы. В
+ * приложении корень красит оболочка, и заливка лишняя во всех её видах.
+ * `body` в селекторе — только ради веса (0,1,1 против 0,1,0 прототипа). */
+body .rh2,
+body .rh2.screens {
+  background: transparent;
+}
+
+/* ---------- ОКНА: ЕДИНОЕ ОФОРМЛЕНИЕ «КРОМКА И ТЕНЬ» (вариант E, 15.09.2026) --
+ *
+ * Владелец выбрал из шести вариантов (артефакт «Оформление окон CRM»): у любого
+ * окна — и рамка, и лёгкая тень. Причина не в красоте: ночью `--shadow` почти
+ * не виден (тень чёрным по чёрному), и карточка без рамки сливалась с фоном;
+ * днём наоборот — тень несёт край, а рамка его уточняет. Пара держит границу в
+ * обеих темах, поэтому правило одно на день и ночь, без развилок.
+ *
+ * Радиус 20px вместо 28px эталона: на 28px угол съедает строку списка в узких
+ * карточках и окно читается как «пузырь», а не как раздел.
+ *
+ * ОДНА ТОЧКА НА ВСЕ ЭКРАНЫ. Все экраны собраны из `.rh2 .scr .card`
+ * (theme-2026-proto.css, строка ~2681), поэтому оформление меняется здесь и
+ * нигде больше — отдельных правок по страницам не требуется.
+ * Модификаторы эталона сохранены: `.flat` остаётся без тени (вложенные блоки
+ * внутри окна не должны спорить с самим окном), `.tight` — со своим отступом. */
+.rh2 .scr .card {
+  border-radius: 20px;
+  border: 1px solid var(--line-soft);
+  box-shadow: var(--shadow);
+}
+
+.rh2 .scr .card.flat {
+  box-shadow: none;
+  border-color: var(--line);
+}
+
+/* Складные блоки (Настройки, Реклама, Инсайты) — то же окно, просто с
+   заголовком-кнопкой. До 15.09.2026 у них был свой радиус 18 и своя тень-кольцо,
+   и рядом с обычной карточкой они читались как «почти такие же, но другие».
+   Владелец просил ОДИН вид у любого окна — значит и здесь он один. */
+.rh2 .scr .acc {
+  border-radius: 20px;
+  border: 1px solid var(--line-soft);
+  box-shadow: var(--shadow);
+}
+
+@media (max-width: 820px) {
+  .rh2 .scr .acc {
+    border-radius: 16px;
+  }
+}
+
+@media (max-width: 820px) {
+  .rh2 .scr .card {
+    border-radius: 16px;
+  }
+}
+
+/* ---------- ПЛИТКИ ВЕДУТ КУДА-ТО (требование владельца 15.09.2026) ----------
+ *
+ * «Везде где есть плитки, они должны вести куда-нибудь». В коде плитка
+ * перестала быть `<div>` и стала `<Link>`/`<button>` (components/ui/StatTile.tsx).
+ * Здесь — как она при этом выглядит и ведёт себя.
+ *
+ * Сброс тега. Кнопка приносит своё выравнивание по центру, свой шрифт и свою
+ * рамку; ссылка — подчёркивание и цвет. Без сброса плитки-кнопки и плитки-ссылки
+ * в одном ряду выглядели бы по-разному, а владелец просил единый вид.
+ *
+ * Что показывает, что плитка живая: курсор-палец, стрелка `›` в углу подписи
+ * (она же гаснет у обычных, некликабельных плиток — их в коде больше нет, но
+ * правило не ломает старую разметку), подъём тени при наведении и нажатие.
+ * Обводка фокуса обязательна: плитками пользуются с клавиатуры, а `outline:0`
+ * у `.scr` в эталоне убирает её со всего экрана.
+ *
+ * Тач-устройства (hover:none) подъём не получают: там «наведения» нет, а
+ * залипший hover после тапа выглядит как ошибка. */
+.rh2 .scr a.tile,
+.rh2 .scr button.tile {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  text-decoration: none;
+  border: 1px solid var(--line-soft);
+  cursor: pointer;
+  transition: box-shadow .16s ease, transform .12s ease, border-color .16s ease;
+}
+
+.rh2 .scr .tile .tile-go {
+  width: 15px;
+  height: 15px;
+  margin-left: auto;
+  flex: none;
+  color: var(--faint);
+  opacity: .55;
+  transition: opacity .16s ease, transform .16s ease;
+}
+
+/* Точка состояния (`.dot`) в эталоне сама прижималась вправо через
+   margin-left:auto — теперь вправо уходит стрелка, точка встаёт перед ней. */
+.rh2 .scr .tile .hd .dot {
+  margin-left: auto;
+}
+
+.rh2 .scr .tile .hd .dot ~ .tile-go {
+  margin-left: 6px;
+}
+
+@media (hover: hover) {
+  .rh2 .scr a.tile:hover,
+  .rh2 .scr button.tile:hover {
+    box-shadow: var(--shadow-lift);
+    border-color: var(--line-strong);
+  }
+
+  .rh2 .scr a.tile:hover .tile-go,
+  .rh2 .scr button.tile:hover .tile-go {
+    opacity: 1;
+    transform: translateX(2px);
+  }
+}
+
+.rh2 .scr a.tile:active,
+.rh2 .scr button.tile:active {
+  transform: scale(.985);
+}
+
+.rh2 .scr a.tile:focus-visible,
+.rh2 .scr button.tile:focus-visible {
+  outline: 2px solid var(--sky-ink);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rh2 .scr a.tile,
+  .rh2 .scr button.tile,
+  .rh2 .scr .tile .tile-go {
+    transition: none;
+  }
+
+  .rh2 .scr a.tile:active,
+  .rh2 .scr button.tile:active {
+    transform: none;
+  }
+}
+
+/* ВКЛАДКИ РАЗДЕЛА (components/ScreenTabs.tsx) — вид взят у `.seg-ai` эталона.
+ *
+ * Эталон (theme-2026-proto.css, артефакт ff1d9d17) описывает только
+ * `.seg-ai button[data-f]`: в макете переключатель среза — кнопка. В приложении
+ * срез это МАРШРУТ (/clients, /clients/deferred), поэтому вкладка обязана быть
+ * ссылкой: средний клик, «открыть в новой вкладке», кнопка «назад» браузера.
+ * Правила ниже повторяют эталонные значение в значение для `a[data-f]`; файл
+ * эталона не трогаем — он перегенерируется `scripts/sync-proto-css.py` и любая
+ * правка в нём стирается.
+ *
+ * Активную вкладку помечает NavLink через `aria-current="page"` — это тот же
+ * признак, по которому её озвучивает скринридер, поэтому подсветка и озвучка
+ * не могут разъехаться. */
+.rh2 .seg-ai a[data-f] {
+  height: 36px;
+  padding: 0 14px;
+  border-radius: var(--r-pill);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--body);
+  background: transparent;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.rh2 .seg-ai a[data-f][aria-current="page"] {
+  background: var(--hover);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .rh2 .seg-ai a[data-f]:hover {
+    color: var(--ink);
+    background: var(--soft);
+  }
+
+  .rh2 .seg-ai a[data-f][aria-current="page"]:hover {
+    background: var(--card);
+  }
+}
+
+.rh2 .seg-ai a[data-f]:focus-visible {
+  outline: 2px solid var(--sky-ink);
+  outline-offset: 2px;
+}
+
+/* Полоса вкладок прокручивается вбок на узком экране, а не переносится на
+ * вторую строку: перенос сдвигает содержимое экрана вниз ровно на ту высоту,
+ * которую мы сокращением меню и освобождали. */
+@media (max-width: 640px) {
+  .rh2 .seg-ai {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    margin-inline: -16px;
+    padding-inline: 16px;
+  }
+
+  .rh2 .seg-ai::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* РАСКРЫТИЕ ЛЕВОЙ РЕЙКИ ПО НАВЕДЕНИЮ — перенос из эталона ff1d9d17
+ * (`.rail .lbl` / `.rail.wide .lbl` / `.rail .it .bd` / `.rail.wide .it .bd`).
+ *
+ * Само раскрытие 76 → 250 px наплывом уже жило в Sidebar.tsx. Не хватало того,
+ * ЧТО происходит внутри строки, пока едет ширина: подпись раньше вставлялась в
+ * DOM условием и выскакивала посреди движения, а значок исчезал кружком над
+ * иконкой и появлялся заново справа. В эталоне оба элемента всё время на
+ * месте — подпись проявляется, значок переезжает. Ширину анимирует сам
+ * Sidebar (`transition-[width] duration-200`), здесь только содержимое строки,
+ * и длительности взяты у эталона: .18s ширина, .15s подпись. */
+[data-rail] .rail-it {
+  position: relative;
+}
+
+[data-rail] .rail-lbl {
+  opacity: 1;
+  max-width: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  transition: opacity .15s var(--mo-ease, ease-out);
+}
+
+[data-rail][data-collapsed] .rail-lbl {
+  opacity: 0;
+  max-width: 0;
+}
+
+/* Значок непрочитанного. Раскрытая рейка: обычным элементом справа строки.
+ * Свёрнутая: кружком на иконке — иначе при ширине 76 px он либо не помещается,
+ * либо прячет непрочитанное, а прятать его нельзя (весь смысл значка). */
+[data-rail] .rail-bd {
+  margin-left: auto;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: var(--r-pill, 999px);
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  background: var(--pink, #f5e6e7);
+  color: var(--pink-ink, #7a3238);
+  transition: min-width .18s var(--mo-ease, ease-out), height .18s var(--mo-ease, ease-out);
+}
+
+[data-rail][data-collapsed] .rail-bd {
+  position: absolute;
+  left: 30px;
+  top: 5px;
+  margin-left: 0;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-rail] .rail-lbl,
+  [data-rail] .rail-bd {
+    transition: none;
+  }
+}
+
+/* ---------- ПЛИТКА-КНОПКА ВНЕ `.scr`: СБРОС СОБСТВЕННОГО ВИДА ТЕГА ----------
+ *
+ * Не всякая плитка в CRM собрана по эталону `.tile` из `.scr`: мобильная сводка
+ * живёт в `.rh2 .mh .tile` (theme-2026-mobile-home.css) с разметкой `.v`/`.l`, а
+ * трио архива и отчётов — в `.rh2 .scr .trio .n` с парой `b`+`span`. Обе не
+ * принимают общий компонент StatTile, поэтому кликабельными их делает смена
+ * тега на месте: `<div class="n">` → `<button class="n">`.
+ *
+ * Браузер приносит кнопке своё: шрифт интерфейса вместо Onest, текст по центру,
+ * серую рамку и фон `buttonface`. Ниже это снимается. Границы и фон НЕ
+ * назначаются: правила самих классов весом 0,3,0 перекрывают этот блок (0,2,1)
+ * и возвращают плитке её вид — в каждой области свой.
+ *
+ * `text-align:left` — именно здесь, а не в классах: у мобильной сводки текст
+ * слева, и кнопка без сброса ставила его по центру, чего в макете нет. */
+.rh2 button.tile,
+.rh2 a.tile,
+.rh2 .trio button.n,
+.rh2 .trio a.n {
+  -webkit-appearance: none;
+  appearance: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  text-decoration: none;
+  border: 0;
+  background: transparent;
+  width: 100%;
+  cursor: pointer;
+}
+
+.rh2 .trio button.n:focus-visible,
+.rh2 .trio a.n:focus-visible,
+.rh2 .mh button.tile:focus-visible {
+  outline: 2px solid var(--sky-ink);
+  outline-offset: 2px;
+}
+
+@media (hover: hover) {
+  .rh2 .trio button.n:hover,
+  .rh2 .trio a.n:hover,
+  .rh2 .mh button.tile:hover {
+    background: var(--hover);
+  }
+}
+
+.rh2 .trio button.n:active,
+.rh2 .mh button.tile:active {
+  transform: scale(.985);
+}
+
+/* ---------- ФАНТОМНЫЙ ПРЯМОУГОЛЬНИК: ПОДЛОЖКА-АВРОРА ПО РАЗМЕРУ КОЛОНКИ ----
+ *
+ * Вторая половина той же жалобы («вокруг любого окна ещё окно», 15.09.2026).
+ * Первый слой — непрозрачная заливка `.rh2` — снят выше. Остался второй, и
+ * виден он был именно на Главной: `.wash.aurora` (MissionControl.tsx) —
+ * `position:absolute; inset:0` ВНУТРИ `.rh2`, то есть ровно по колонке
+ * контента. Четыре пастельных пятна с opacity .52 делают площадь внутри
+ * чуть-чуть иной, чем снаружи, и по периметру колонки проступает призрачная
+ * рамка. Ни фон, ни карточки тут ни при чём — край рисует сама подложка.
+ *
+ * Лечится не цветом, а размером: подложке незачем совпадать с колонкой. Она
+ * декоративная (`aria-hidden`, `pointer-events:none`) и нужна лишь как что-то
+ * ПОД стеклом карточек, поэтому растягивается на весь экран — тогда у неё
+ * попросту нет краёв в видимой области.
+ *
+ * `fixed`, а не `absolute` на всю высоту: страница пульта — 10 000 px, и
+ * градиенты, растянутые на такую высоту, вырождаются в ровные полосы. Заодно
+ * подложка перестаёт ездить со скроллом, как и положено фону.
+ *
+ * Только прямой ребёнок `.pult`: `.wash` внутри разделов (`.sec02 .wash` и
+ * прочие) — это подложка КАРТОЧКИ, у неё края и должны совпадать с карточкой. */
+.rh2 .pult > .wash {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* ---------- ФАНТОМНЫЙ ПРЯМОУГОЛЬНИК НА ТЕЛЕФОНЕ (тот же класс, третий слой) --
+ *
+ * Владелец: «отдельный мобильный слой есть» — и он есть.
+ *
+ * Мобильные экраны (`.rh2 .mh`, theme-2026-mobile-home.css) — это
+ * `position:absolute; inset:0` с собственной заливкой `--page`. Заливка взята из
+ * мокапа и равна #f4f6f9, а земля приложения — #eef1f6. Разница крошечная, но
+ * прямоугольник `.mh` лежит ВНУТРИ колонки `app-main-col` с её боковыми
+ * отступами (px-5), поэтому по краям остаётся полоса более тёмной земли — и
+ * получается ровно то же «окно вокруг окна», что убрано на ПК, только своим
+ * слоем и своим цветом.
+ *
+ * Чинится одним значением: на телефоне земля и мобильный экран — один цвет.
+ * Правим токен, а не `background`, потому что `--page` внутри `.mh` красит ещё и
+ * липкие шапки списков (theme-2026-mobile-shell.css) — они обязаны совпадать с
+ * фоном, иначе под шапкой при прокрутке появится вторая полоса.
+ *
+ * Ночью править нечего: там `--page` мокапа и `--page` темы — оба #141619, шва
+ * не было и нет. Поэтому и правило одно, для светлой. */
+html:not([data-theme="royal-home-2026-night"]) .rh2 .mh {
+  --page: #eef1f6;
+}
+
+/* ОДНА РАМКА ВОКРУГ СОДЕРЖИМОГО, А НЕ ДВЕ (21.09.2026).
+ *
+ * Разбор внешнего вида (docs/ui-audit-night-20-09.md) нашёл, что заголовки
+ * разных разделов стоят на разном расстоянии от края: при переключении
+ * страница дёргается вбок. Причина не в отдельных экранах, а в том, что поля
+ * складываются вдвое.
+ *
+ * Рамка приложения (layouts/AppLayout) уже держит свои поля вокруг содержимого
+ * (px-5 на телефоне, px-6 на ПК, плюс запас снизу под нижнюю панель). Колонка
+ * прототипа `.scr` держит СВОИ (24px по бокам и 64-96px снизу). Шесть экранов
+ * обёрнуты в `Rh2Screen`, который эти поля обнуляет нарочно, — и стоят
+ * правильно. Остальные тридцать пять вставляют `<div className="scr">` руками,
+ * ничего не обнуляя, и получают двойное поле: 48px по краям на ПК и 36px на
+ * телефоне вместо 20px. На узком экране это съедало восьмую часть ширины.
+ *
+ * Обнуляем в одном месте, а не правкой тридцати пяти файлов: правило сильнее
+ * `.rh2.screens .scr` за счёт `.app-main-col` и делает с ними ровно то же, что
+ * `Rh2Screen` делает со своими шестью. Внутри `theme-2026-proto.css` это
+ * поправить нельзя — он собирается скриптом sync-proto-css.py, и ручные
+ * правки в нём стираются при следующей сборке темы.
+ *
+ * Вертикальные промежутки между блоками (`.scr>*+*`) и предел ширины колонки
+ * не трогаем — они и есть то полезное, ради чего `.scr` ставится. */
+.app-main-col .rh2 .scr,
+.app-main-col .rh2.screens .scr,
+.app-main-col .rh2.screens .scr.scr {
+  padding: 0;
+}
+
+/* МЕЛКИЙ ШРИФТ В СПИСКАХ — МИНИМУМ 13px (владелец 21.09.2026, вместе с переносом
+ * «Имя · Якорь» и удалением значков покупатель/продавец: «мелкий шрифт в списках
+ * увеличить везде, особенно в списке клиентов»).
+ *
+ * `.rh2 .scr .row .meta` (время строки списка — Clients.tsx, Deals.tsx и другие
+ * списки на `.row`) идёт в theme-2026-proto.css с `--fs-12` (12px). Файл
+ * генерируется scripts/sync-proto-css.py, ручные правки там стираются —
+ * переопределяем здесь, как и остальные точечные правки этого файла выше.
+ * `.chip` без модификатора размера в списках нигде не бывает мельче 12px, но
+ * мелкие варианты (`.chip.xs`/`.chip.sm`) в списках клиентов/чатов правятся
+ * рядом со своими компонентами (theme-2026-mobile-lists.css, .list .chip.xs).
+ */
+.rh2 .scr .row .meta {
+  font-size: 13px;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * НАБОР 2026, КОНТРАКТ 06.10 (components/rh2: Button, Card, Row, Chip, Filters,
+ * Tabs, Segment, Tile, Skeleton, PageHeader). Здесь только то, чего нет в
+ * `theme-2026-proto.css` (он генерируется и руками не правится).
+ *
+ * ПОЧЕМУ ВСЕ ПРАВИЛА ЗА МАРКЕРАМИ `rh-*`. Классы `.pill`, `.chip`, `.seg`,
+ * `.row`, `.tile` уже держат ~70 экранов; общая правка 26→28 у чипа или
+ * 14→15 у кнопки сдвинула бы их все разом без единого предупреждения. Набор
+ * ставит свой маркер (`rh-btn`, `rh-chip`, `rh-tabs`…), экраны переезжают на
+ * компоненты по одному и получают облик контракта вместе с переездом.
+ *
+ * Специфичность: brand.css подключён ПОСЛЕДНИМ и сам целится в `.pill:not(.chip)`
+ * (вес 0,4,0), поэтому правила набора записаны с запасом по весу, а не по
+ * порядку файлов.
+ * ══════════════════════════════════════════════════════════════════════════ */
+
+/* Трубка: зелёная только здесь (`#16a34a`, ночью светлее, контракт, «Токены»). */
+.rh2 {
+  --rh-call: #16a34a;
+  --rh-call-hover: #12873c;
+}
+html[data-theme="royal-home-2026-night"] .rh2 {
+  --rh-call: #22b35a;
+  --rh-call-hover: #3ac472;
+}
+
+/* Кнопки: текст 15 (контракт: 13/15/16/18/22/28, четырнадцати нет). */
+.rh2 .scr .pill.rh-btn {
+  font-size: 15px;
+}
+/* sm: видимые 40, зона нажатия 44 (правило 6). Псевдоэлемент принадлежит
+   кнопке, его площадь считается нажатием на кнопку. */
+.rh2 .scr .pill.sm.rh-btn.rh-btn-sm {
+  position: relative;
+  height: 40px;
+  min-height: 40px;
+  padding: 0 16px;
+  font-size: 13px;
+}
+.rh2 .scr .pill.sm.rh-btn.rh-btn-sm::after {
+  content: "";
+  position: absolute;
+  inset: -2px 0;
+}
+/* Круглые: значок, трубка, «+». */
+.rh2 .scr .pill.rh-btn.rh-btn-round:not(.chip) {
+  border-radius: 999px;
+  width: 44px;
+  padding: 0;
+}
+.rh2 .scr .pill.rh-btn svg {
+  flex: none;
+}
+/* danger: контур crit, заливка только при наведении. */
+.rh2 .scr .pill.danger.rh-btn {
+  background: transparent;
+  color: var(--crit);
+  border-color: var(--crit);
+}
+/* loading: кнопка занята, но не «мёртвая»; движения нет (контракт). */
+.rh2 .scr .pill.rh-btn.is-loading[disabled] {
+  opacity: .7;
+  cursor: progress;
+}
+/* Трубка 44, FAB 56. Белый значок на зелёном/синем в обеих темах. */
+.rh2 .scr .pill.btn-call.rh-btn {
+  background: var(--rh-call);
+  border-color: transparent;
+  color: #fff;
+}
+.rh2 .scr .pill.btn-fab.rh-btn.rh-btn-round:not(.chip) {
+  width: 56px;
+  height: 56px;
+  min-height: 56px;
+  box-shadow: var(--shadow-lg);
+}
+.rh2 .scr .pill.rh-btn:focus-visible {
+  outline: 2px solid var(--sky-ink);
+  outline-offset: 2px;
+}
+@media (hover: hover) {
+  .rh2 .scr .pill.danger.rh-btn:hover:not([disabled]) {
+    background: var(--crit-bg);
+    border-color: var(--crit);
+  }
+  .rh2 .scr .pill.btn-call.rh-btn:hover:not([disabled]) {
+    background: var(--rh-call-hover);
+  }
+}
+
+/* Карточка: заголовок `.sec-t` первым ребёнком не отступает сверху. */
+.rh2 .scr .card.rh-card > .sec-t:first-child {
+  margin-top: 0;
+}
+
+/* Заголовок экрана: h1 22, подпись 13 (в теме 23 и 14). */
+.rh2 .scr .pg-h.rh-pg-h h1 {
+  font-size: 22px;
+  line-height: 1.25;
+}
+.rh2 .scr .pg-h.rh-pg-h .sub {
+  font-size: 13px;
+}
+
+/* Чип: 28 px, текст 13; пастель lime/aqua/lav/sky/pink из токенов `.rh2`. */
+.rh2 .scr .chip.rh-chip {
+  height: 28px;
+  font-size: 13px;
+}
+.rh2 .scr .chip.rh-chip.lime { background: var(--lime); color: var(--lime-ink); border-color: transparent; }
+.rh2 .scr .chip.rh-chip.aqua { background: var(--aqua); color: var(--aqua-ink); border-color: transparent; }
+.rh2 .scr .chip.rh-chip.lav  { background: var(--lav);  color: var(--lav-ink);  border-color: transparent; }
+.rh2 .scr .chip.rh-chip.sky  { background: var(--sky);  color: var(--sky-ink);  border-color: transparent; }
+.rh2 .scr .chip.rh-chip.pink { background: var(--pink); color: var(--pink-ink); border-color: transparent; }
+
+/* Фильтры: чипы-переключатели 40 px, выбранный синий, зона нажатия 44. */
+.rh2 .scr .rh-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.rh2 .scr .rh-filters button,
+.rh2 .scr .seg.rh-tabs button {
+  position: relative;
+  min-height: 40px;
+  padding: 0 16px;
+  font-size: 15px;
+}
+.rh2 .scr .rh-filters button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  background: transparent;
+  color: var(--body);
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background .16s ease, color .16s ease, border-color .16s ease, transform .12s ease;
+}
+.rh2 .scr .rh-filters button::after,
+.rh2 .scr .seg.rh-tabs button::after {
+  content: "";
+  position: absolute;
+  inset: -2px 0;
+}
+.rh2 .scr .rh-filters button .n {
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+.rh2 .scr .rh-filters button[aria-pressed="true"] {
+  background: var(--pill);
+  color: var(--pill-ink);
+  border-color: transparent;
+}
+.rh2 .scr .rh-filters button[aria-pressed="true"] .n {
+  color: var(--pill-ink);
+  opacity: .75;
+}
+.rh2 .scr .rh-filters button:active {
+  transform: scale(.97);
+}
+.rh2 .scr .rh-filters button:focus-visible,
+.rh2 .scr .seg.rh-tabs button:focus-visible,
+.rh2 .scr .seg.big button:focus-visible {
+  outline: 2px solid var(--sky-ink);
+  outline-offset: 2px;
+}
+@media (hover: hover) {
+  .rh2 .scr .rh-filters button[aria-pressed="false"]:hover {
+    background: var(--hover);
+    border-color: var(--ink);
+    color: var(--ink);
+  }
+}
+
+/* Вкладки раздела на телефоне: одна прокручиваемая строка, не перенос второй
+   строкой («Потерянные» падала вниз, кадр клиентов 390). Тот же приём, что у
+   `Filters scroll`. Вертикальный запас держит зону нажатия (::after, -2px) и
+   обводку фокуса внутри прокручиваемого бокса, иначе они резались бы. */
+@media (max-width: 819px) {
+  .rh2 .scr .seg.rh-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    padding-block: 4px;
+    margin-block: -4px;
+  }
+  .rh2 .scr .seg.rh-tabs::-webkit-scrollbar {
+    display: none;
+  }
+  .rh2 .scr .seg.rh-tabs button {
+    flex: none;
+    white-space: nowrap;
+  }
+}
+
+/* Крупный переключатель на 2-3 значения: 44, выбранный залит `--ink`. */
+.rh2 .scr .seg.big {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 8px;
+}
+.rh2 .scr .seg.big button {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: 14px;
+  font-size: 15px;
+  font-weight: 600;
+}
+.rh2 .scr .seg.big button[aria-pressed="true"] {
+  background: var(--ink);
+  color: var(--card);
+  border-color: transparent;
+}
+@media (hover: hover) {
+  .rh2 .scr .seg.big button[aria-pressed="true"]:hover {
+    background: var(--ink);
+    color: var(--card);
+  }
+  .rh2 .scr .seg.big button[aria-pressed="false"]:hover {
+    background: var(--hover);
+    border-color: var(--ink);
+    color: var(--ink);
+  }
+}
+
+/* Строка списка: аватар 44, имя 16, вторая строка 13; строка целиком
+   нажимаема «растянутой ссылкой» (Row.tsx), действия справа поверх неё. */
+.rh2 .scr .row.rh-row {
+  position: relative;
+}
+.rh2 .scr .rh-row .av {
+  width: 44px;
+  height: 44px;
+  font-size: 15px;
+}
+.rh2 .scr .rh-row .av.lime { background: var(--lime); color: var(--lime-ink); }
+.rh2 .scr .rh-row .av.aqua { background: var(--aqua); color: var(--aqua-ink); }
+.rh2 .scr .rh-row .av.lav  { background: var(--lav);  color: var(--lav-ink); }
+.rh2 .scr .rh-row .av.sky  { background: var(--sky);  color: var(--sky-ink); }
+.rh2 .scr .rh-row .av.pink { background: var(--pink); color: var(--pink-ink); }
+.rh2 .scr .rh-row .t b {
+  font-size: 16px;
+}
+.rh2 .scr .rh-row .t span {
+  font-size: 13px;
+}
+.rh2 .scr .rh-row.rh-row-hit {
+  cursor: pointer;
+}
+.rh2 .scr .rh-row-link {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+.rh2 .scr .rh-row-link::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: var(--r-md);
+}
+.rh2 .scr .rh-row-link:focus-visible {
+  outline: none;
+}
+.rh2 .scr .rh-row-link:focus-visible::after {
+  outline: 2px solid var(--sky-ink);
+  outline-offset: -2px;
+}
+.rh2 .scr .rh-row .act {
+  position: relative;
+  z-index: 1;
+}
+/* Мета справа (давность контакта): 13 px (в эталоне 12), просроченная красная. */
+.rh2 .scr .rh-row .meta {
+  font-size: 13px;
+}
+.rh2 .scr .rh-row .meta .is-stale {
+  color: var(--crit);
+}
+/* Телефон: эталон переносит `.act` на вторую строку строки (≤820 px). Для строки
+   набора это лишняя высота: действие (трубка) остаётся справа в той же строке, имя
+   сжимается многоточием. Строке, которой нужны две-три кнопки («Принять»,
+   «Отклонить»), класс `rh-row-wrap` возвращает перенос: кнопки встают второй строкой. */
+@media (max-width: 820px) {
+  .rh2 .scr .row.rh-row {
+    flex-wrap: nowrap;
+    padding: var(--s2) var(--s2);
+  }
+  .rh2 .scr .row.rh-row .t {
+    flex: 1 1 0;
+  }
+  .rh2 .scr .row.rh-row .act {
+    flex: none;
+    flex-wrap: nowrap;
+  }
+  /* Строка с несколькими кнопками или длинным заголовком (Row.tsx ставит
+     `rh-row-wrap`): кнопки под текстом на всю ширину и поровну, а не вправо
+     (кадр пульта 390: «Передать всех» + «Разобрать» обрезались). Высота
+     только `min-height`; описание режется двумя строками на самом `span`
+     (`max-height`), поэтому не наезжает на соседнюю строку. */
+  .rh2 .scr .row.rh-row.rh-row-wrap {
+    flex-wrap: wrap;
+  }
+  .rh2 .scr .row.rh-row.rh-row-wrap .act {
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+    justify-content: stretch;
+    margin-left: 0;
+    max-width: 100%;
+  }
+  .rh2 .scr .row.rh-row.rh-row-wrap .act > * {
+    flex: 1 1 0;
+    min-width: 0;
+    justify-content: center;
+  }
+  .rh2 .scr .row.rh-row .t > span {
+    max-height: 2.8em;
+    line-height: 1.4;
+    overflow: hidden;
+  }
+}
+
+/* Плитка: число 28 и подпись 13 на пастели; три в ряд на любой ширине. */
+.rh2 .scr .rh-tiles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+@media (min-width: 820px) {
+  .rh2 .scr .rh-tiles {
+    gap: 12px;
+  }
+}
+.rh2 .scr .tile.rh-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 16px;
+  border-radius: 18px;
+  border: 1px solid transparent;
+  box-shadow: none;
+  text-align: left;
+  color: var(--ink);
+  background: var(--soft);
+}
+.rh2 .scr .tile.rh-tile .v {
+  font-family: var(--ff-head);
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+.rh2 .scr .tile.rh-tile .l {
+  font-size: 13px;
+  text-wrap: pretty;
+}
+.rh2 .scr .tile.rh-tile.lime { background: var(--lime); color: var(--lime-ink); }
+.rh2 .scr .tile.rh-tile.aqua { background: var(--aqua); color: var(--aqua-ink); }
+.rh2 .scr .tile.rh-tile.lav  { background: var(--lav);  color: var(--lav-ink); }
+.rh2 .scr .tile.rh-tile.sky  { background: var(--sky);  color: var(--sky-ink); }
+.rh2 .scr .tile.rh-tile.pink { background: var(--pink); color: var(--pink-ink); }
+
+/* Заглушка загрузки. НЕ ПУЛЬСИРУЕТ: бесконечных анимаций в контракте нет.
+   Живёт и вне `.rh2` (экран восстановления сессии), поэтому цвет с запасным
+   значением. В `@layer components`: утилиты Tailwind (`h-7 w-48`) лежат слоем
+   выше и должны перебивать габариты по умолчанию; правило без слоя обошло бы
+   их по закону «безслойное сильнее слойного». */
+@layer components {
+  .rh-sk {
+    display: block;
+    height: 12px;
+    border-radius: 10px;
+    background: var(--track, var(--c-line-soft));
+  }
+  .rh-sk-avatar {
+    width: 44px;
+    height: 44px;
+    border-radius: 999px;
+    flex: none;
+  }
+  .rh-sk-tile {
+    height: 88px;
+    border-radius: 18px;
+  }
+  .rh-sk-thin {
+    height: 10px;
+  }
+  .rh-sk-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: 56px;
+    padding: 8px;
+  }
+  .rh-sk-lines {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+}
+
+/* ── Пульт директора и админа (E4, 06.10.2026) ────────────────────────────
+   Лента разделов: одна прокручиваемая строка, кнопки 44 (правило 6), без
+   полосы прокрутки; цвет тревоги на подписи, а не заливка. */
+.rh2 .scr .rh-filters.rh-filters-scroll {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.rh2 .scr .rh-filters.rh-filters-scroll::-webkit-scrollbar {
+  display: none;
+}
+.rh2 .scr .rh-filters.rh-filters-scroll button {
+  min-height: 44px;
+  flex: none;
+}
+.rh2 .scr .rh-filters button[data-tone="warn"][aria-pressed="false"] {
+  color: var(--rh-warn, var(--warn));
+}
+.rh2 .scr .rh-filters button[data-tone="crit"][aria-pressed="false"] {
+  color: var(--rh-crit, var(--crit));
+}
+/* Вложенные решения группы («Разобрать»): отступ под аватар строки-родителя. */
+.rh2 .scr .rh-group-members {
+  margin-left: 24px;
+  border-left: 2px solid var(--line-strong);
+  padding-left: 8px;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * КАРТОЧКА ОБЪЕКТА КАК ОБЪЯВЛЕНИЕ (контракт 06.10.2026, раздел 6; pages/PropertyDetail.tsx,
+ * components/property/*). Одно дерево на ПК и телефон, раскладку делает CSS.
+ *
+ * ТЕЛЕФОН и до 1180 px: столбик. Обёртки колонок (`-main`, `-side`) растворены
+ * (`display:contents`), поэтому блоки идут в порядке разметки: фото, цена и
+ * действия, кто ведёт, ролик, что решить; описание (`order:2`) уходит в конец
+ * столбика, а на ПК остаётся под фото в левой колонке.
+ * ПК от 1180 px: две колонки, слева фото и описание, справа цена и блоки.
+ * ═══════════════════════════════════════════════════════════════════════ */
+.rh2 .scr .rh-pcard {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.rh2 .scr .rh-pcard-main,
+.rh2 .scr .rh-pcard-side {
+  display: contents;
+}
+.rh2 .scr .rh-pcard-desc {
+  order: 2;
+}
+@media (min-width: 1180px) {
+  .rh2 .scr .rh-pcard {
+    display: grid;
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+    gap: 24px;
+    align-items: start;
+  }
+  .rh2 .scr .rh-pcard-main,
+  .rh2 .scr .rh-pcard-side {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-width: 0;
+  }
+  .rh2 .scr .rh-pcard-desc {
+    order: 0;
+  }
+}
+/* Заголовок страницы `.only-wide` на телефоне скрыт, но следующий блок получал бы
+ * отступ «между блоками» от него: гасим, когда он первый на экране. */
+@media (max-width: 820px) {
+  html[data-theme^="royal-home-2026-"] .rh2.screens > .scr > .only-wide:first-child + * {
+    margin-top: 0;
+  }
+}
+
+/* Подписи секций в карточке объекта: 13, а не 12 (в контракте мельче 13 нет). */
+.rh2 .scr .rh-pcard .card.rh-card > .sec-t,
+.rh2 .scr .rh-pcard-tabs .card.rh-card > .sec-t {
+  font-size: 13px;
+}
+.rh2 .scr .rh-pcard .card > .sec-t + .quiet {
+  margin-top: 0;
+}
+.rh2 .scr .quiet .dot.lav {
+  background: var(--lav-ink);
+}
+
+/* Галерея: лента с привязкой кадров, счётчик, окно точек, стрелки только мышью. */
+.rh2 .scr .rh-gallery {
+  position: relative;
+  border-radius: var(--r-md);
+  overflow: hidden;
+  background: var(--track);
+}
+.rh2 .scr .rh-gallery-track {
+  display: flex;
+  aspect-ratio: 4 / 3;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+.rh2 .scr .rh-gallery-track::-webkit-scrollbar {
+  display: none;
+}
+.rh2 .scr .rh-gallery-track:focus-visible {
+  outline: 2px solid var(--sky-ink);
+  outline-offset: -2px;
+}
+.rh2 .scr .rh-gallery-slide {
+  position: relative;
+  flex: 0 0 100%;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  scroll-snap-align: center;
+  cursor: zoom-in;
+}
+.rh2 .scr .rh-gallery-slide img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.rh2 .scr .rh-gallery-ph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  background: var(--track);
+  color: var(--muted);
+}
+.rh2 .scr .rh-gallery-ph .i {
+  width: 32px;
+  height: 32px;
+}
+.rh2 .scr .rh-gallery-count {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: rgba(20, 22, 26, 0.62);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  pointer-events: none;
+}
+.rh2 .scr .rh-gallery-nav {
+  position: absolute;
+  top: 50%;
+  left: 12px;
+  right: 12px;
+  display: none;
+  justify-content: space-between;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+.rh2 .scr .rh-gallery-nav .pill {
+  pointer-events: auto;
+}
+@media (hover: hover) and (min-width: 821px) {
+  .rh2 .scr .rh-gallery-nav {
+    display: flex;
+  }
+}
+.rh2 .scr .rh-gallery-dots {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 12px;
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  pointer-events: none;
+}
+.rh2 .scr .rh-gallery-dots i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.6);
+}
+.rh2 .scr .rh-gallery-dots i.on {
+  width: 18px;
+  border-radius: 3px;
+  background: #fff;
+}
+
+/* Цена, заголовок, параметры, действия. */
+.rh2 .scr .rh-price-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.rh2 .scr .rh-price {
+  margin: 0;
+  font-family: var(--ff-head);
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+.rh2 .scr .rh-price-sub {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+.rh2 .scr .rh-price-title {
+  margin: 12px 0 8px;
+  font-family: var(--ff-head);
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--ink);
+}
+.rh2 .scr .rh-params {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.rh2 .scr .rh-price-acts {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+}
+.rh2 .scr .rh-price-acts > .rh-btn:first-child {
+  flex: 1 1 auto;
+}
+
+/* Вкладки нижней части: на телефоне ряд прокручивается вбок, а не ломает ширину. */
+.rh2 .scr .rh-pcard-tabs,
+.rh2 .scr .rh-pcard-tabbody,
+.rh2 .scr .rh-pcard-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.rh2 .scr .rh-tabs-scroll {
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.rh2 .scr .rh-tabs-scroll::-webkit-scrollbar {
+  display: none;
+}
+.rh2 .scr .rh-tabs-scroll .seg {
+  width: max-content;
+  min-width: 100%;
+}
+.rh2 .scr .rh-sheet-share {
+  margin-top: 12px;
+}

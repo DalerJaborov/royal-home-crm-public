@@ -1,0 +1,24 @@
+-- Оптимистичная блокировка Property/Deal (аудит надёжности 13.09.2026, находка 2)
+-- — см. Property.version / Deal.version в schema.prisma и routes/properties/crud.ts,
+-- routes/deals.ts.
+--
+-- ПРАВКА ВРУЧНУЮ ПОСЛЕ `prisma migrate dev --name property_deal_version_lock`:
+-- автосгенерированный файл нёс ещё три посторонних инструкции, которые сюда
+-- НЕ попали — они результат того, что `migrate dev` сверяет схему с фактическим
+-- состоянием базы, а не только со своей собственной историей миграций:
+--   - DROP INDEX "Client_phone_trgm_idx" / "Client_whatsappPhone_trgm_idx" —
+--     индексы из ЭТОЙ ЖЕ пачки (миграция 20260914140000 чуть выше), просто
+--     не описанные в schema.prisma (проект хранит триграммные GIN-индексы
+--     только сырыми миграциями — см. комментарий в 20260805160000_pg_trgm_fuzzy_search,
+--     то же решение принято и здесь). `migrate dev` не глядя в конвенцию
+--     проекта считает такой индекс дрейфом и предлагает его снести.
+--   - DROP INDEX "GeoAlias_normalized_trgm_idx" — тот же случай, но для
+--     СОВСЕМ чужой, уже существовавшей до этой сессии миграции — эта пачка её
+--     не касается вовсе, сносить index чужой модели этой правке не по адресу.
+--   - ALTER TABLE "Landmark" ALTER COLUMN "updatedAt" DROP DEFAULT — дрейф
+--     schema.prisma/истории миграций, никак не связанный ни с одной из трёх
+--     находок аудита; трогать модель Landmark в этой ветке не входило в задание.
+-- Если когда-нибудь понадобится ПРАВДА снять один из этих индексов или дефолт —
+-- это отдельная, осознанная миграция, а не побочный эффект generate-diff.
+ALTER TABLE "Deal" ADD COLUMN     "version" INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE "Property" ADD COLUMN     "version" INTEGER NOT NULL DEFAULT 0;

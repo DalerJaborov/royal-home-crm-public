@@ -1,0 +1,106 @@
+/* ОКНО ЗВОНКА ТЕМЫ «ROYAL HOME 2026», ПЕРЕНЕСЁННОЕ ДОСЛОВНО.
+ *
+ * Источник: ветка `docs/pult-theme-07-09`, файл
+ * `docs/pult/theme-2026/screens/call-window-v2.html` — его СОБСТВЕННЫЙ блок
+ * <style>. Эти правила (.cw2-*, .oc-*) живут только внутри того экрана: в
+ * `_tokens.css`/`_components.css` их нет, а `scripts/sync-proto-css.py` читает
+ * ровно эти два файла, поэтому в `theme-2026-proto.css` классов окна звонка нет
+ * и появиться там неоткуда. Отсюда отдельный файл: перегенерация прототипного
+ * CSS его не затирает, а значения остаются ровно те же, что в эталоне.
+ *
+ * Отличия от источника, все три механические, ни одного значения не тронуто:
+ *   1. каждый селектор ограничен областью `.rh2` (как это делает sync-proto-css),
+ *      чтобы прототипные имена не сталкивались с классами приложения;
+ *   2. не перенесена обвязка страницы-демонстрации (.demo-shell, .demo-h,
+ *      .tgbtn, .state-note) — это чрома макета, а не компонент;
+ *   3. добавлен ОДИН блок в конце, `.cw2-stage.live`: на странице прототипа
+ *      сцена стоит в потоке, чтобы окно было видно на снимке целиком, а в
+ *      приложении она обязана висеть поверх экрана. Сам `.cw2` при этом не
+ *      меняется ни одним свойством.
+ */
+
+/* ---- Шторка/полноэкранный контейнер звонка ---- */
+.rh2 .scr .cw2-stage{position:relative;min-height:640px;border-radius:var(--r);background:var(--soft);
+  border:1px solid var(--line-soft);overflow:hidden;display:flex;justify-content:flex-end}
+.rh2 .scr .cw2{width:480px;max-width:100%;background:var(--card-glass);backdrop-filter:blur(16px);
+  -webkit-backdrop-filter:blur(16px);border-left:1px solid var(--line-soft);
+  display:flex;flex-direction:column;height:100%;
+  transition:transform .22s ease-out,opacity .2s ease-out}
+.rh2 .scr .cw2[hidden]{display:none}
+@media (max-width:640px){
+  .rh2 .scr .cw2-stage{min-height:812px}
+  .rh2 .scr .cw2{width:100%;border-left:0}
+}
+.rh2 .scr .cw2-h{display:flex;align-items:center;gap:10px;padding:16px 20px;border-bottom:1px solid var(--line-soft)}
+.rh2 .scr .cw2-h .close{margin-left:auto;width:36px;height:36px;border-radius:var(--r-pill);border:0;background:var(--hover);
+  color:var(--muted);display:flex;align-items:center;justify-content:center;cursor:pointer}
+.rh2 .scr .cw2-h .close:active{transform:scale(.97)}
+.rh2 .scr .cw2-h b{font-family:var(--ff-head,Onest,sans-serif);font-size:var(--fs-15);font-weight:600}
+.rh2 .scr .cw2-h span{display:block;font-size:var(--fs-12);color:var(--muted)}
+
+.rh2 .scr .cw2-body{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  padding:32px 24px;text-align:center;gap:14px}
+.rh2 .scr .cw2-av{width:96px;height:96px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  font-family:var(--ff-head,Onest,sans-serif);font-size:34px;font-weight:700;
+  background:var(--aqua);color:var(--aqua-ink);
+  box-shadow:0 0 0 6px var(--soft)}
+.rh2 .scr .cw2-av.pulse{animation:cw2pulse 1.6s ease-in-out infinite}
+@media (prefers-reduced-motion:reduce){ .rh2 .scr .cw2-av.pulse{animation:none} }
+@keyframes cw2pulse{0%,100%{box-shadow:0 0 0 6px var(--soft)}50%{box-shadow:0 0 0 12px var(--aqua)}}
+.rh2 .scr .cw2-name{font-family:var(--ff-head,Onest,sans-serif);font-size:var(--fs-23);font-weight:700;margin:0}
+.rh2 .scr .cw2-prop{font-size:var(--fs-13);color:var(--muted);margin:0}
+.rh2 .scr .cw2-state{font-size:var(--fs-15);font-weight:600;margin-top:6px}
+.rh2 .scr .cw2-state.talk{color:var(--ok)}
+.rh2 .scr .cw2-state.end{color:var(--muted)}
+.rh2 .scr .cw2-state.missed{color:var(--crit)}
+.rh2 .scr .cw2-timer{font-variant-numeric:tabular-nums;font-family:var(--ff-head,Onest,sans-serif);
+  font-size:var(--fs-17);color:var(--muted)}
+
+.rh2 .scr .cw2-controls{display:flex;justify-content:center;gap:14px;padding:20px 24px 28px;flex-wrap:wrap}
+.rh2 .scr .cw2-btn{width:56px;height:56px;border-radius:50%;border:0;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:4px;cursor:pointer;background:var(--hover);color:var(--ink);
+  transition:transform .15s ease-out}
+.rh2 .scr .cw2-btn:active{transform:scale(.97)}
+.rh2 .scr .cw2-btn .lbl{font-size:10px;font-weight:600;color:var(--muted)}
+.rh2 .scr .cw2-btn.end{background:var(--crit-bg);color:var(--crit)}
+.rh2 .scr .cw2-btn.end .lbl{color:var(--crit)}
+.rh2 .scr .cw2-btn[disabled]{opacity:.45;cursor:not-allowed}
+.rh2 .scr .cw2-btn[aria-pressed=true]{background:var(--ink);color:#fff}
+.rh2 .scr .cw2-btn[aria-pressed=true] .lbl{color:#fff}
+@media (hover:hover) and (pointer:fine){ .rh2 .scr .cw2-btn:hover{filter:brightness(.97)} }
+
+.rh2 .scr .cw2-quiet{margin:0 20px 18px;padding:10px 12px;border-radius:var(--r-sm);background:var(--soft);
+  display:flex;gap:8px;align-items:flex-start;font-size:var(--fs-12);color:var(--muted)}
+.rh2 .scr .cw2-quiet .dot{width:6px;height:6px;border-radius:50%;background:var(--faint);margin-top:5px;flex:none}
+
+/* ---- Итог звонка одним экраном ---- */
+.rh2 .scr .cw2-outcome{padding:26px 24px 30px}
+.rh2 .scr .cw2-outcome h2{font-family:var(--ff-head,Onest,sans-serif);font-size:var(--fs-17);margin:0 0 4px}
+.rh2 .scr .cw2-outcome .sub{font-size:var(--fs-13);color:var(--muted);margin:0 0 18px}
+.rh2 .scr .oc-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media (max-width:420px){ .rh2 .scr .oc-grid{grid-template-columns:1fr} }
+.rh2 .scr .oc-btn{min-height:56px;border-radius:var(--r-md);border:1px solid var(--line);background:var(--card);
+  color:var(--ink);font-size:var(--fs-14);font-weight:600;padding:10px 14px;text-align:left;cursor:pointer;
+  transition:transform .15s ease-out,background .15s ease-out,border-color .15s ease-out}
+.rh2 .scr .oc-btn:active{transform:scale(.97)}
+.rh2 .scr .oc-btn[aria-pressed=true]{background:var(--pill);color:var(--pill-ink);border-color:transparent}
+@media (hover:hover) and (pointer:fine){ .rh2 .scr .oc-btn:hover{background:var(--hover)} }
+
+.rh2 .scr .oc-foot{display:flex;gap:10px;margin-top:20px}
+.rh2 .scr .oc-pill{flex:1;min-height:44px;border-radius:var(--r-pill);border:0;font-size:var(--fs-14);font-weight:700;
+  cursor:pointer}
+.rh2 .scr .oc-pill.main{background:var(--pill);color:var(--pill-ink)}
+.rh2 .scr .oc-pill.ghost{background:var(--soft);color:var(--ink);border:1px solid var(--line-strong)}
+
+/* ---- Единственная добавка приложения: сцена поверх экрана ----
+ * На странице прототипа сцена стоит в потоке (её видно на снимке), в
+ * приложении окно звонка обязано висеть над содержимым. Меняется ТОЛЬКО
+ * контейнер-сцена, само окно `.cw2` не трогается. */
+.rh2 .scr .cw2-stage.live{position:fixed;inset:0;z-index:45;min-height:0;border:0;border-radius:0;
+  background:transparent;pointer-events:none}
+.rh2 .scr .cw2-stage.live .cw2{pointer-events:auto}
+/* Свёрнутое окно — та же мысль, что у `.cw.min` в `_components.css` эталона
+ * («свёрнутое окно: полоска, работать не мешает»), только применённая к шторке
+ * звонка: остаётся одна шапка, звонок продолжается. */
+.rh2 .scr .cw2.min{height:auto;align-self:flex-start;margin-top:12px;border-radius:var(--r-md) 0 0 var(--r-md)}
+

@@ -1,0 +1,4 @@
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# Royal Home: учёт трафика eth1 (раз в час и при старте)
+0 * * * * root /usr/local/sbin/royalhome-eth1-usage.sh log
+@reboot root sleep 60 && /usr/local/sbin/royalhome-eth1-usage.sh log
