@@ -44,3 +44,11 @@ pending full CI; targeted PostgreSQL checks and API compilation passed during
 development. Source checks, full API verification, release and production adoption
 are separate evidence. No customer transcripts or private operational reports
 are included in this change.
+
+The first full cloud run exposed an UPDATE plan that could claim more than the
+single job returned to the runner. A materialized locking selection now fixes
+the batch at one row. Regression assertions verify the second job remains
+pending while the first handler is blocked. Tests that create genuine managed
+inbound shield state also clean up their own dependent rows before deleting
+scopes; policy restoration is protected by finally. Failed full-run evidence is
+retained, and a new complete cloud run remains mandatory.

@@ -274,15 +274,18 @@ export async function runCustomerJobsTick(lane: CustomerJobLane): Promise<number
   if (stopping || customerBusy[lane]) return 0;
   customerBusy[lane] = true; // before the first await: overlapping ticks cannot claim ahead
   try {
+    // Evaluate the limited locking selection exactly once. An IN subquery may
+    // be rescanned by an UPDATE plan as its rows change; destructuring the first
+    // RETURNING row would then leave additional jobs claimed but never run.
     const [job] = await prisma.$queryRaw<BackgroundJob[]>`
-      UPDATE "BackgroundJob" SET status = 'RUNNING', "lockedAt" = now(), "lockedBy" = ${hostname()}, "updatedAt" = now(),
-        attempts = attempts + (CASE WHEN status = 'RUNNING' THEN 1 ELSE 0 END)
-      WHERE id IN (
+      WITH chosen AS MATERIALIZED (
         SELECT id FROM "BackgroundJob" WHERE type = ${CUSTOMER_JOB_LANES[lane]}
           AND ((status = 'PENDING' AND "runAt" <= now())
             OR (status = 'RUNNING' AND "lockedAt" < now() - make_interval(mins => ${STUCK_RUNNING_MIN}::int)))
         ORDER BY "runAt", id LIMIT 1 FOR UPDATE SKIP LOCKED
-      ) RETURNING *`;
+      ) UPDATE "BackgroundJob" AS job SET status = 'RUNNING', "lockedAt" = now(), "lockedBy" = ${hostname()}, "updatedAt" = now(),
+        attempts = job.attempts + (CASE WHEN job.status = 'RUNNING' THEN 1 ELSE 0 END)
+      FROM chosen WHERE job.id = chosen.id RETURNING job.*`;
     if (!job) return 0;
     if (stopping) {
       await prisma.backgroundJob.updateMany({ where: { id: job.id, status: "RUNNING" },

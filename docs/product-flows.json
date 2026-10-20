@@ -80213,7 +80213,7 @@
        "c": [
         {
          "k": "do",
-         "t": "const [job] = await prisma.$queryRaw<BackgroundJob[]>` UPDATE \"BackgroundJob\" SET status = 'RUNNING', \"locked…",
+         "t": "const [job] = await prisma.$queryRaw<BackgroundJob[]>` WITH chosen AS MATERIALIZED ( SELECT id FROM \"Backgrou…",
          "a": [
           "обращается к базе своим SQL"
          ],
@@ -80305,7 +80305,7 @@
        "c": [
         {
          "k": "do",
-         "t": "const [job] = await prisma.$queryRaw<BackgroundJob[]>` UPDATE \"BackgroundJob\" SET status = 'RUNNING', \"locked…",
+         "t": "const [job] = await prisma.$queryRaw<BackgroundJob[]>` WITH chosen AS MATERIALIZED ( SELECT id FROM \"Backgrou…",
          "a": [
           "обращается к базе своим SQL"
          ],
@@ -80397,7 +80397,7 @@
        "c": [
         {
          "k": "do",
-         "t": "const [job] = await prisma.$queryRaw<BackgroundJob[]>` UPDATE \"BackgroundJob\" SET status = 'RUNNING', \"locked…",
+         "t": "const [job] = await prisma.$queryRaw<BackgroundJob[]>` WITH chosen AS MATERIALIZED ( SELECT id FROM \"Backgrou…",
          "a": [
           "обращается к базе своим SQL"
          ],

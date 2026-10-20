@@ -18083,7 +18083,7 @@
     - return 0;
       · дословно из кода
   - пробует
-    - const [job] = await prisma.$queryRaw<BackgroundJob[]>` UPDATE "BackgroundJob" SET status = 'RUNNING', "locked…
+    - const [job] = await prisma.$queryRaw<BackgroundJob[]>` WITH chosen AS MATERIALIZED ( SELECT id FROM "Backgrou…
       · обращается к базе своим SQL
     - если !job
       - return 0;
@@ -18103,7 +18103,7 @@
     - return 0;
       · дословно из кода
   - пробует
-    - const [job] = await prisma.$queryRaw<BackgroundJob[]>` UPDATE "BackgroundJob" SET status = 'RUNNING', "locked…
+    - const [job] = await prisma.$queryRaw<BackgroundJob[]>` WITH chosen AS MATERIALIZED ( SELECT id FROM "Backgrou…
       · обращается к базе своим SQL
     - если !job
       - return 0;
@@ -18123,7 +18123,7 @@
     - return 0;
       · дословно из кода
   - пробует
-    - const [job] = await prisma.$queryRaw<BackgroundJob[]>` UPDATE "BackgroundJob" SET status = 'RUNNING', "locked…
+    - const [job] = await prisma.$queryRaw<BackgroundJob[]>` WITH chosen AS MATERIALIZED ( SELECT id FROM "Backgrou…
       · обращается к базе своим SQL
     - если !job
       - return 0;

@@ -64,6 +64,7 @@ it("a model turn does not delay another customer's delivery; each lane has one s
     expect(send).toHaveBeenCalledTimes(1); expect(consume).toHaveBeenCalledTimes(1);
     expect(await prisma.backgroundJob.findUniqueOrThrow({ where: { id: output.id } })).toMatchObject({ status: "DONE" });
     expect(await prisma.backgroundJob.findUniqueOrThrow({ where: { id: next.id } })).toMatchObject({ status: "PENDING", attempts: 0 });
+    expect(await prisma.backgroundJob.count({ where: { id: { in: [first.id, next.id] }, status: "RUNNING" } })).toBe(1);
   } finally { release.resolve(); await running; }
   expect(isBackgroundJobRunning()).toBe(false);
   expect(await prisma.backgroundJob.findUniqueOrThrow({ where: { id: first.id } })).toMatchObject({ status: "DONE" });
