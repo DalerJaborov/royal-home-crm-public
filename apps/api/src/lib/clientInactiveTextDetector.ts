@@ -173,7 +173,7 @@ async function loadEligibleClient(clientId: string): Promise<EligibleClient | nu
   // Уже неактивен, потерян, в архиве или без агента — переводить/напоминать некому
   // и незачем: WorkStatus.ACTIVE + assignedAgentId — минимум, без которого
   // deactivateClient и напоминание одинаково бессмысленны.
-  if (!client || client.workStatus !== "ACTIVE" || !client.assignedAgentId) return null;
+  if (!client || client.kind === "OTHER" || client.workStatus !== "ACTIVE" || !client.assignedAgentId) return null;
   return { id: client.id, kind: client.kind, assignedAgentId: client.assignedAgentId };
 }
 

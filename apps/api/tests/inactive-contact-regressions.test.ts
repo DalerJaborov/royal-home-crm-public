@@ -3,12 +3,13 @@ import { prisma } from "../src/db.js";
 import { runSilentClientAutoDeactivate } from "../src/lib/silentClientAutoDeactivate.js";
 import { checkNoAnswerStreakForTrafficLight } from "../src/lib/noAnswerTrafficLight.js";
 import { deactivateClient, hasNewerContactSince, reactivateClient } from "../src/lib/clientWorkStatus.js";
-import { classifyInactiveLevelByDepth, lastRealContactAt, runInactiveTrafficLightTick } from "../src/lib/inactiveTrafficLight.js";
+import { classifyInactiveLevelByDepth, lastRealContactAt, runInactiveTrafficLightTick, shiftInactiveClockAfterAbsence } from "../src/lib/inactiveTrafficLight.js";
 import { collectFacts } from "../src/lib/clientAutoStatus.js";
 import { decideStatus } from "../src/lib/clientAutoStatus.js";
 import { computeHiddenReason, presentClient } from "../src/routes/clients/shared.js";
 import { runDeferredClientsReturnTick } from "../src/lib/deferredClients.js";
 import { runLostInactiveTrashSweep } from "../src/lib/lostInactiveTrashSweep.js";
+import { findMatchingClients } from "../src/routes/matching.js";
 
 const NOW = new Date("2026-10-20T07:00:00Z");
 const DAY = 86_400_000;
@@ -16,11 +17,16 @@ const OLD = new Date(NOW.getTime() - 30 * DAY);
 const RECENT = new Date(NOW.getTime() - DAY);
 const runId = `inactive-contact-${Date.now()}`;
 let agentId: string;
+let actorAgentId: string;
 const ids: string[] = [];
+const propertyIds: string[] = [];
 
 beforeAll(async () => {
   agentId = (await prisma.agent.create({ data: {
     fullName: runId, phone: `test-${runId}`, passwordHash: "test-only", role: "ADMIN",
+  } })).id;
+  actorAgentId = (await prisma.agent.create({ data: {
+    fullName: `${runId}-actor`, phone: `test-${runId}-actor`, passwordHash: "test-only", role: "ADMIN",
   } })).id;
 });
 afterAll(async () => {
@@ -29,8 +35,9 @@ afterAll(async () => {
   await prisma.notification.deleteMany({ where: { agentId } });
   await prisma.royalScoreEvent.deleteMany({ where: { agentId } });
   await prisma.interaction.deleteMany({ where: { clientId: { in: ids } } });
+  await prisma.property.deleteMany({ where: { id: { in: propertyIds } } });
   await prisma.client.deleteMany({ where: { id: { in: ids } } });
-  await prisma.agent.delete({ where: { id: agentId } });
+  await prisma.agent.deleteMany({ where: { id: { in: [agentId, actorAgentId] } } });
   await prisma.$disconnect();
 });
 
@@ -148,6 +155,15 @@ describe("all contact channels protect the inactive lifecycle", () => {
     await prisma.client.update({ where: { id: c.id }, data: { lastClientMessageAt: NOW } });
     expect((await collectFacts(c.id)).noAnswerStreak).toBe(0);
   });
+  it("other inquiries stay outside the buyer/seller inactivity pipeline", async () => {
+    const c = await client();
+    await prisma.client.update({ where: { id: c.id }, data: { kind: "OTHER" } });
+    await streak(c.id);
+    await checkNoAnswerStreakForTrafficLight(c.id, NOW);
+    await runSilentClientAutoDeactivate(NOW);
+    expect((await deactivate(c.id)).ok).toBe(false);
+    expect((await state(c.id)).workStatus).toBe("ACTIVE");
+  });
   it("an automatically closed future showing is not a held meeting or hot signal", async () => {
     const c = await client();
     await prisma.interaction.create({ data: {
@@ -196,11 +212,13 @@ describe("all contact channels protect the inactive lifecycle", () => {
     await prisma.client.update({ where: { id: c.id }, data: {
       workStatus: "INACTIVE", inactiveSince: OLD, inactiveLevel: "RED", inactiveEnteredAt: OLD,
     } });
-    expect((await reactivateClient({ clientId: c.id, agentId })).ok).toBe(true);
+    expect((await reactivateClient({ clientId: c.id, agentId, actorAgentId })).ok).toBe(true);
     const after = await state(c.id);
     expect(after.inactiveEnteredAt).toBeNull();
     expect(after.inactiveLevel).toBeNull();
     expect(await hasNewerContactSince(c.id, OLD)).toBe(true);
+    expect(await prisma.interaction.findFirst({ where: { clientId: c.id, notes: "Клиент возвращён в работу из Неактивных" } }))
+      .toMatchObject({ actorKind: "AGENT", agentId: actorAgentId, subjectAgentId: agentId });
   });
   it("retention never trashes a client with recent real contact", async () => {
     const c = await client();
@@ -221,6 +239,28 @@ describe("all contact channels protect the inactive lifecycle", () => {
     } });
     await Promise.all([runInactiveTrafficLightTick(NOW), runInactiveTrafficLightTick(NOW)]);
     expect((await state(c.id)).inactivePingCount).toBe(1);
+  });
+  it.each([null, OLD])("absence clock repair preserves terminal client history (%s)", async (frozenAt) => {
+    const c = await client();
+    await prisma.client.update({ where: { id: c.id }, data: {
+      status: "DEAL_CLOSED", workStatus: "INACTIVE", inactiveLevel: "GREEN", inactiveSince: OLD,
+    } });
+    await shiftInactiveClockAfterAbsence(agentId, frozenAt, NOW);
+    expect((await state(c.id)).inactiveSince).toEqual(OLD);
+  });
+  it("property matching carries the client's pause and depth instead of just temperature", async () => {
+    const c = await client();
+    await prisma.client.update({ where: { id: c.id }, data: {
+      status: "HOT", workStatus: "INACTIVE", inactiveLevel: "YELLOW",
+      budgetMax: 500000, desiredType: "APARTMENT", desiredRooms: 2,
+    } });
+    const property = await prisma.property.create({ data: {
+      title: "test status matching", type: "APARTMENT", condition: "GOOD", status: "AVAILABLE",
+      areaSqm: 50, rooms: 2, price: 300000,
+    } });
+    propertyIds.push(property.id);
+    const matched = await findMatchingClients(property.id, 100);
+    expect(matched.items.find((item) => item.id === c.id)).toMatchObject({ workStatus: "INACTIVE", inactiveLevel: "YELLOW" });
   });
   it("traffic checks reach clients past the first 500 non-due rows", async () => {
     const prefix = `${runId}-page-`;

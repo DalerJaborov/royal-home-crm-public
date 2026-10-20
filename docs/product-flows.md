@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **637**. Развилок в самих путях: **2257**; вместе с задачами по расписанию и фоновыми заданиями — **3467**. Модулей: **72**.
+Путей: **637**. Развилок в самих путях: **2258**; вместе с задачами по расписанию и фоновыми заданиями — **3468**. Модулей: **72**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -2641,7 +2641,7 @@
 - если denied
   - return res.status(403).json({ error: denied });
     · ответ 403
-- const result = await reactivateClient({ clientId: client.id, agentId: client.assignedAgentId });
+- const result = await reactivateClient({ clientId: client.id, agentId: client.assignedAgentId, actorAgentId: r…
   · зовёт reactivateClient()
 - если !result.ok
   - return res.status(409).json({ error: "Состояние или держатель карточки изменились — обновите карточку" });
@@ -4491,6 +4491,9 @@
     · дословно из кода
 - если workStatus === "INACTIVE" && !status
   - where.status = { notIn: [...TERMINAL_CLIENT_STATUSES] };
+    · дословно из кода
+- если workStatus === "INACTIVE" && !kind
+  - where.kind = { in: ["BUYER", "SELLER"] };
     · дословно из кода
 - если inactiveLevel
   - where.inactiveLevel = inactiveLevel;
@@ -21053,7 +21056,7 @@
           - const written = await prisma.$transaction(async (tx)
             · всё внутри — одной транзакцией
             · меняет в базе: client
-            - const updated = await tx.client.updateMany({ where: { id: c.id, deletedAt: null, workStatus: "ACTIVE", status…
+            - const updated = await tx.client.updateMany({ where: { id: c.id, deletedAt: null, workStatus: "ACTIVE", kind: …
               · меняет в базе: client
             - если updated.count !== 1
               - return false;

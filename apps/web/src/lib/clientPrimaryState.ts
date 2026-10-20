@@ -19,12 +19,12 @@ export function clientPrimaryState(c: StateInput): ClientPrimaryState {
     return { id: "hidden", label: c.hiddenReason.label, tone: "warn", title: c.hiddenReason.detail };
   if (["LOST", "DEAL_CLOSED", "ARCHIVED"].includes(c.status))
     return { id: "hidden", label: CLIENT_STATUS_LABELS[c.status], tone: CLIENT_STATUS_CHIP[c.status] };
+  if (c.kind === "OTHER") return { id: "other", label: "Прочее обращение", tone: "mute" };
   if (c.workStatus === "DEFERRED")
     return { id: "deferred", label: "Отложен", tone: "mute", title: c.hiddenReason?.detail };
   if (c.workStatus === "INACTIVE")
     return { id: "inactive", label: "Неактивный", tone: c.inactiveLevel ? INACTIVE_LEVEL_TONE[c.inactiveLevel] : "mute",
       title: c.inactiveLevel ? INACTIVE_LEVEL_TITLES[c.inactiveLevel] : "Уровень светофора ещё не рассчитан" };
-  if (c.kind === "OTHER") return { id: "other", label: "Прочее обращение", tone: "mute" };
   if (c.hiddenReason) return { id: "hidden", label: c.hiddenReason.label, tone: "warn", title: c.hiddenReason.detail };
   if (c.pendingAcceptance) return { id: "pending", label: "Ждёт принятия", tone: "warn" };
   return { id: "status", label: CLIENT_STATUS_LABELS[c.status], tone: CLIENT_STATUS_CHIP[c.status], dot: CLIENT_STATUS_CHIP_DOT[c.status] };

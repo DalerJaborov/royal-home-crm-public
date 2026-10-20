@@ -166,6 +166,7 @@ export async function runSilentClientAutoDeactivate(
       where: {
         ...(afterId ? { id: { gt: afterId } } : {}),
         deletedAt: null,
+        kind: { not: "OTHER" },
         workStatus: "ACTIVE",
         status: { notIn: [...NOT_ELIGIBLE_STATUS] },
         assignedAgentId: { not: null },
@@ -238,6 +239,7 @@ export async function runSilentClientAutoDeactivate(
           const updated = await tx.client.updateMany({
             where: {
               id: c.id, deletedAt: null, workStatus: "ACTIVE",
+              kind: { not: "OTHER" },
               status: { notIn: [...NOT_ELIGIBLE_STATUS] }, assignedAgentId: c.assignedAgentId,
               lastClientMessageAt: { lt: cutoff },
               reactivationOfferedToAgentId: null,

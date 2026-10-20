@@ -15,6 +15,8 @@ records start a fresh cycle rather than being charged for an unknown past period
 The retention sweep also checks recent contact and outstanding return offers.
 
 The client header and rows use one primary lifecycle label on desktop and mobile.
+The same presentation is used in other inquiries, property-match candidates and
+duplicate selection; those responses carry the working state and contact depth.
 Trash/security review, terminal outcome, deferred/inactive state and acceptance take
 precedence over temperature. Duplicate inactive/temperature/hidden-reason badges
 are removed. Missing depth is neutral; a cleared security review is not pending.
@@ -29,6 +31,9 @@ client states. Existing policy values require an explicit save through Settings.
 Regression coverage includes all contact channels, stale/duplicate transitions,
 terminal and deferred states, manual return, incomplete clocks, concurrent ticks,
 pagination, privacy-preserving acceptance flags and a single primary badge. The
-initial reproduction failed 16 of 19 targeted scenarios before implementation.
+manual-return audit actor is the actual operator rather than the assigned holder;
+absence clock shifts preserve closed/archived records.
+Other inquiries do not enter the buyer/seller inactivity pipeline.
+The initial reproduction failed 16 of 19 targeted scenarios before implementation.
 Source validation, browser checks and production rollout are separate evidence;
 this journal does not assert a deployment or repair of historical customer records.

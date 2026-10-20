@@ -180,8 +180,8 @@ summaryRouter.get("/summary", requireAuth, async (req, res) => {
       // остаётся workStatus=INACTIVE, и счётчик вкладки расходился бы со списком.
       prisma.client.count({
         where: ownAgentId
-          ? { deletedAt: null, assignedAgentId: ownAgentId, workStatus: "INACTIVE", ...TERMINAL }
-          : { deletedAt: null, workStatus: "INACTIVE", ...TERMINAL },
+          ? { deletedAt: null, assignedAgentId: ownAgentId, kind: { not: "OTHER" }, workStatus: "INACTIVE", ...TERMINAL }
+          : { deletedAt: null, kind: { not: "OTHER" }, workStatus: "INACTIVE", ...TERMINAL },
       }),
       prisma.client.count({
         where: ownAgentId

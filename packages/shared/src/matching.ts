@@ -11,6 +11,8 @@ export interface MatchingClient {
   shortId: number;
   fullName: string;
   status: string;
+  workStatus?: "ACTIVE" | "INACTIVE" | "DEFERRED";
+  inactiveLevel?: "GREEN" | "YELLOW" | "RED" | null;
   /** 0..100 — насколько точно совпало. Качество совпадения, а не вероятность сделки. */
   score: number;
   /** Почему показан: короткие причины для агента. */

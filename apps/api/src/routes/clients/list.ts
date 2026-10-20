@@ -261,6 +261,7 @@ listRouter.get("/", requireAuth, async (req, res) => {
    * фильтр status сильнее: его выбрал человек.
    */
   if (workStatus === "INACTIVE" && !status) where.status = { notIn: [...TERMINAL_CLIENT_STATUSES] };
+  if (workStatus === "INACTIVE" && !kind) where.kind = { in: ["BUYER", "SELLER"] };
   if (inactiveLevel) where.inactiveLevel = inactiveLevel;
   // Раздел «Горячие клиенты»: отказные с заполненной карточкой или после показа.
   if (hot) where.hotSince = { not: null };

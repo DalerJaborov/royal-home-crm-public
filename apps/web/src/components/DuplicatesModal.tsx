@@ -3,7 +3,8 @@ import { useDuplicates, useMergeClients, type DuplicateClient } from "../hooks/u
 import { useDuplicateReviews, useConfirmDuplicateReview, useDenyDuplicateReview, type DuplicateReviewItem } from "../hooks/useClients";
 import { useContactLinks, useDecideContactLink, type ContactLinkCandidate } from "../hooks/useContactLinks";
 import { contactCategoryLabel } from "@royal-home/shared";
-import { CLIENT_SOURCE_LABELS, CLIENT_STATUS_LABELS } from "../lib/clientFormat";
+import { CLIENT_SOURCE_LABELS } from "../lib/clientFormat";
+import { clientPrimaryState } from "../lib/clientPrimaryState";
 import { relativeTime } from "../lib/format";
 import { Rh2Sheet } from "./rh2/Rh2Sheet";
 
@@ -123,7 +124,7 @@ export function DuplicatesModal({ onClose }: { onClose: () => void }) {
                   <div className="t">
                     <b>{c.fullName}</b>
                     <span>
-                      {c.phone} · {CLIENT_STATUS_LABELS[c.status]} · {CLIENT_SOURCE_LABELS[c.source]} ·{" "}
+                      {c.phone} · {clientPrimaryState(c).label} · {CLIENT_SOURCE_LABELS[c.source]} ·{" "}
                       {c.assignedAgent?.fullName ?? "без агента"} · {c._count.interactions + c._count.deals} записей ·{" "}
                       {relativeTime(c.createdAt)}
                     </span>

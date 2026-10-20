@@ -35,6 +35,7 @@ describe("one primary client state", () => {
   it("pending and other clients have their own states", () => {
     expect(clientPrimaryState({ ...base, pendingAcceptance: true }).id).toBe("pending");
     expect(clientPrimaryState({ ...base, kind: "OTHER", pendingAcceptance: true }).id).toBe("other");
+    expect(clientPrimaryState({ ...base, kind: "OTHER", workStatus: "INACTIVE", inactiveLevel: "RED" }).id).toBe("other");
   });
   it("trash suppresses the old inactive label", () => {
     const c = { ...base, workStatus: "INACTIVE" as const, deletedAt: "2026-10-20T07:00:00Z" };

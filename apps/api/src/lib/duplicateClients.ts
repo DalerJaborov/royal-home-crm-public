@@ -13,17 +13,19 @@
  * Telegram имя вообще произвольный текст.
  */
 import { prisma } from "../db.js";
+import type { ClientKind, MatchingClient } from "@royal-home/shared";
 
 // Поиск дублей группирует ВСЮ выборку разом (совпадение может «разъехаться» по
 // разным страницам и не найтись при обычной пагинации) — поэтому явный потолок
 // вместо тихого роста памяти/времени ответа по мере роста базы.
 export const DUPLICATES_SCAN_LIMIT = 20_000;
 
-export interface DuplicateGroupClient {
+export interface DuplicateGroupClient extends Pick<MatchingClient, "workStatus" | "inactiveLevel"> {
   id: string;
   fullName: string;
   phone: string;
   status: string;
+  kind?: ClientKind;
   source: string;
   createdAt: Date;
   telegramChatId: string | null;
@@ -66,6 +68,9 @@ export async function findDuplicateClientGroups(): Promise<DuplicateGroupsResult
       fullName: true,
       phone: true,
       status: true,
+        kind: true,
+        workStatus: true,
+        inactiveLevel: true,
       source: true,
       createdAt: true,
       telegramChatId: true,

@@ -96,7 +96,7 @@ const RECENT_MESSAGE_GRACE_MS = RECENT_MESSAGE_GRACE_DAYS * 24 * 60 * 60 * 1000;
 export async function checkNoAnswerStreakForTrafficLight(clientId: string, now: Date = new Date()): Promise<void> {
   try {
     const client = await prisma.client.findFirst({
-      where: { id: clientId, deletedAt: null },
+      where: { id: clientId, deletedAt: null, kind: { not: "OTHER" } },
       select: { id: true, workStatus: true, assignedAgentId: true, lastClientMessageAt: true },
     });
     // Уже неактивен (в т.ч. этим же механизмом на прошлом недозвоне), потерян, в

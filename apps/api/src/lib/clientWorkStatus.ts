@@ -66,6 +66,7 @@ export type DeactivateClientResult =
 export async function reactivateClient(input: {
   clientId: string;
   agentId: string;
+  actorAgentId?: string;
 }): Promise<{ ok: boolean }> {
   const client = await prisma.client.findFirst({
     where: { id: input.clientId, deletedAt: null },
@@ -107,7 +108,7 @@ export async function reactivateClient(input: {
     if (updated.count !== 1) return false;
     await logTimeline({
       clientId: client.id,
-      actor: { kind: "agent", agentId: input.agentId },
+      actor: { kind: "agent", agentId: input.actorAgentId ?? input.agentId, subjectAgentId: input.agentId },
       type: "SYSTEM",
       notes: "Клиент возвращён в работу из Неактивных",
       tx,
@@ -120,7 +121,7 @@ export async function reactivateClient(input: {
     clientId: client.id,
     agentIds: [input.agentId],
     stage: "ACTIVE",
-    actorId: input.agentId,
+    actorId: input.actorAgentId ?? input.agentId,
   });
   return { ok: true };
 }
@@ -191,6 +192,7 @@ export async function deactivateClient(
     },
   });
   if (!client) return { ok: false };
+  if (client.kind === "OTHER") return { ok: false, reason: "Прочие обращения не участвуют в светофоре клиентов" };
   if (client.workStatus !== "ACTIVE" || !client.assignedAgentId ||
     TERMINAL_CLIENT_STATUSES.some((status) => status === client.status) ||
     client.reactivationOfferedToAgentId ||

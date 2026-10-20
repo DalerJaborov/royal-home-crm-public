@@ -16,10 +16,10 @@
   "paths": 637,
   "cron": 104,
   "jobs": 29,
-  "conditions": 3467,
+  "conditions": 3468,
   "untranslatedUnique": 362,
   "untranslatedTotal": 467,
-  "partialUnique": 1000,
+  "partialUnique": 1001,
   "translatedShare": 87
  },
  "untranslated": [
@@ -21814,6 +21814,12 @@
     },
     {
      "t": "если work статус — «INACTIVE» и нет: статус",
+     "k": "if",
+     "a": [],
+     "c": []
+    },
+    {
+     "t": "если work статус — «INACTIVE» и нет: вид",
      "k": "if",
      "a": [],
      "c": []

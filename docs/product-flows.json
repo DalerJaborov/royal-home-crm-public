@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 637,
-  "forks": 3467,
+  "forks": 3468,
   "mounts": 72,
   "cron": 104,
   "jobs": 29,
@@ -11270,7 +11270,7 @@
     },
     {
      "k": "do",
-     "t": "const result = await reactivateClient({ clientId: client.id, agentId: client.assignedAgentId });",
+     "t": "const result = await reactivateClient({ clientId: client.id, agentId: client.assignedAgentId, actorAgentId: r…",
      "a": [
       "зовёт reactivateClient()"
      ],
@@ -19358,6 +19358,21 @@
       {
        "k": "do",
        "t": "where.status = { notIn: [...TERMINAL_CLIENT_STATUSES] };",
+       "a": [
+        "дословно из кода"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "workStatus === \"INACTIVE\" && !kind",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "where.kind = { in: [\"BUYER\", \"SELLER\"] };",
        "a": [
         "дословно из кода"
        ],
@@ -94283,7 +94298,7 @@
                "c": [
                 {
                  "k": "do",
-                 "t": "const updated = await tx.client.updateMany({ where: { id: c.id, deletedAt: null, workStatus: \"ACTIVE\", status…",
+                 "t": "const updated = await tx.client.updateMany({ where: { id: c.id, deletedAt: null, workStatus: \"ACTIVE\", kind: …",
                  "a": [
                   "меняет в базе: client"
                  ],

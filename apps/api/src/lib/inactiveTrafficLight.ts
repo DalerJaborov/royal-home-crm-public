@@ -576,6 +576,7 @@ export async function runInactiveTrafficLightTick(
       where: {
         ...(afterId ? { id: { gt: afterId } } : {}),
         workStatus: "INACTIVE",
+        kind: { not: "OTHER" },
         status: { notIn: [...TERMINAL_CLIENT_STATUSES] },
         assignedAgentId: { not: null },
         reactivationOfferedToAgentId: null,
@@ -919,7 +920,7 @@ export async function shiftInactiveClockAfterAbsence(
       where: {
         assignedAgentId: agentId,
         workStatus: "INACTIVE",
-        status: { not: "LOST" },
+        status: { notIn: [...TERMINAL_CLIENT_STATUSES] },
         inactiveSince: { not: null },
         deletedAt: null,
       },
@@ -937,7 +938,7 @@ export async function shiftInactiveClockAfterAbsence(
     )
     WHERE "assignedAgentId" = ${agentId}
       AND "workStatus" = 'INACTIVE'
-      AND "status" <> 'LOST'
+      AND "status" NOT IN ('LOST', 'ARCHIVED', 'DEAL_CLOSED')
       AND "deletedAt" IS NULL
       AND "inactiveSince" IS NOT NULL
       AND "inactiveSince" < (to_timestamp(${nowMs}::double precision / 1000) AT TIME ZONE 'UTC')`;
