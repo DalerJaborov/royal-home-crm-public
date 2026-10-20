@@ -31,7 +31,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { isCI, isParallelDbEnabled, resolveWorkerPlan } from "./dbPerWorker.js";
+import { isCI, isParallelDbEnabled, parseShardOf, resolveWorkerPlan } from "./dbPerWorker.js";
 import { dropWorkerDatabases, prepareWorkerDatabases } from "./prepareDatabases.js";
 
 const require = createRequire(import.meta.url);
@@ -74,6 +74,20 @@ const workers = plan.count;
 console.log(`[тесты] процессов: ${workers} — ${plan.reason}`);
 const indices = Array.from({ length: workers }, (_, i) => i + 1);
 
+/**
+ * ОДНА МАШИНА ИЗ МНОГИХ (облачный прогон, `.github/workflows/ship-tests.yml`).
+ * `VITEST_SHARD_OF=m/M` — эта машина m-я из M. Тогда процесс i здесь берёт
+ * общую долю `(m-1)*workers+i` из `M*workers`: все машины делят ОДИН список
+ * файлов, и каждый файл проходит ровно на одной из них. Без переменной — как
+ * раньше, доли считаются только внутри этой машины.
+ */
+const shardOf = parseShardOf(process.env.VITEST_SHARD_OF);
+const totalShards = workers * shardOf.machines;
+const globalShard = (index: number) => (shardOf.machine - 1) * workers + index;
+if (shardOf.machines > 1) {
+  console.log(`[тесты] машина ${shardOf.machine} из ${shardOf.machines}: общие доли ${globalShard(1)}–${globalShard(workers)} из ${totalShards}`);
+}
+
 const tmp = mkdtempSync(path.join(tmpdir(), "rh-vitest-"));
 const shardReport = (i: number) => path.join(tmp, `shard-${i}.json`);
 
@@ -98,7 +112,7 @@ function runShard(index: number): Promise<number> {
   const args = [
     VITEST_BIN,
     "run",
-    ...(workers > 1 ? [`--shard=${index}/${workers}`] : []),
+    ...(totalShards > 1 ? [`--shard=${globalShard(index)}/${totalShards}`] : []),
     "--reporter=default",
     "--reporter=json",
     `--outputFile=${shardReport(index)}`,

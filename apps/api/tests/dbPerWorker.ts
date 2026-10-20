@@ -271,3 +271,20 @@ export function currentWorkerIndex(): number {
   const n = Number(process.env.VITEST_DB_INDEX);
   return Number.isInteger(n) && n >= 1 ? n : 1;
 }
+
+/**
+ * `VITEST_SHARD_OF=m/M` — эта машина m-я из M в облачном прогоне
+ * (`.github/workflows/ship-tests.yml`, разбор в `runParallel.ts`). Пусто — машина
+ * одна. Кривое значение — ошибка, а не тихое «одна машина»: иначе каждая из M
+ * машин прогнала бы ВСЕ файлы, и отчёты при склейке задвоились бы.
+ */
+export function parseShardOf(raw: string | undefined): { machine: number; machines: number } {
+  if (raw === undefined || raw.trim() === "") return { machine: 1, machines: 1 };
+  const m = /^(\d+)\/(\d+)$/.exec(raw.trim());
+  const machine = m ? Number(m[1]) : NaN;
+  const machines = m ? Number(m[2]) : NaN;
+  if (!Number.isSafeInteger(machine) || !Number.isSafeInteger(machines) || machine < 1 || machine > machines) {
+    throw new Error(`VITEST_SHARD_OF ждёт «m/M» (1 ≤ m ≤ M), а пришло «${raw}»`);
+  }
+  return { machine, machines };
+}
