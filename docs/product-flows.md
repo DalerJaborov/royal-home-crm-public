@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **639**. Развилок в самих путях: **2284**; вместе с задачами по расписанию и фоновыми заданиями — **3511**. Модулей: **72**.
+Путей: **641**. Развилок в самих путях: **2299**; вместе с задачами по расписанию и фоновыми заданиями — **3526**. Модулей: **72**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -2745,6 +2745,57 @@
 - return res.json({ pausedUntil });
   · ответ 200
 
+### POST /api/v1/clients/:id/buyer-requirements
+
+`apps/api/src/routes/clients/intents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, вход выполнен
+
+- const input = clientBuyerRequirementsSchema.safeParse(req.body);
+  · проверяет данные схемой clientBuyerRequirementsSchema
+- если !input.success
+  - return res.status(400).json({ error: "Проверьте пожелания покупателя", details: input.error.flatten() });
+    · ответ 400 — «Проверьте пожелания покупателя»
+- если !client
+  - return;
+    · дальше не идёт, ничего не меняя
+- если !confirmedClientIntents(client).buys
+  - return res.status(409).json({ error: "Сначала подтвердите, что клиент покупает недвижимость" });
+    · ответ 409 — «Сначала подтвердите, что клиент покупает недвижимость»
+- если typeof data.requirementsNotes === "string" && !can(req, "clients.viewPhone")
+  - const restored = restoreMaskedNotes(data.requirementsNotes, client.requirementsNotes);
+    · зовёт restoreMaskedNotes()
+  - если restored === null
+    - return res.status(400).json({ error: "Нельзя изменять строку со скрытым контактом. Остальные пожелания можно …
+      · ответ 400 — «Нельзя изменять строку со скрытым контактом. Остальные пожелания…»
+- const updated = await prisma.$transaction(async tx
+  · всё внутри — одной транзакцией
+  · меняет в базе: client
+  · читает в базе: clientDesiredPlace
+  · удаляет в базе: clientDesiredPlace
+  · читает в базе: client
+  - const changed = await tx.client.updateMany({ where: { id: client.id, assignedAgentId: client.assignedAgentId,…
+    · меняет в базе: client
+  - если !changed.count
+    - return null;
+      · дословно из кода
+  - const previousPlaces = stale ? await tx.clientDesiredPlace.findMany({ where: { clientId: client.id }, select:…
+    · читает в базе: clientDesiredPlace
+  - если stale
+    - await tx.clientDesiredPlace.deleteMany({ where: { clientId: client.id } });
+      · удаляет в базе: clientDesiredPlace
+  - await logTimeline({ clientId: client.id, actor: { kind: "agent", agentId: req.agent!.id }, type: "SYSTEM", no…
+    · зовёт logTimeline()
+  - return tx.client.findUniqueOrThrow({ where: { id: client.id } });
+    · читает в базе: client
+- если !updated
+  - return res.status(409).json({ error: "Роли карточки изменились. Обновите карточку и повторите" });
+    · ответ 409 — «Роли карточки изменились. Обновите карточку и повторите»
+- logAudit(req, "UPDATE", "Client", client.id, { requirementsFieldsKind: "BUYER" });
+  · зовёт logAudit()
+- publishClientUpdated({ clientId: client.id, agentIds: [client.assignedAgentId], actorId: req.agent!.id });
+  · зовёт publishClientUpdated()
+- res.json(presentClient(updated, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin")));
+  · ответ 200
+
 ### POST /api/v1/clients/:id/call
 
 `apps/api/src/routes/clients/communications.ts` · на входе: общий предел частоты запросов, idempotencyGuard, вход выполнен
@@ -3037,6 +3088,44 @@
 - res.json({ ok: true, message: "Отмечено: разные люди — заявка передана в обычную раздачу" });
   · ответ 200
 
+### POST /api/v1/clients/:id/intents
+
+`apps/api/src/routes/clients/intents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, вход выполнен
+
+- const input = confirmClientIntentSchema.safeParse(req.body);
+  · проверяет данные схемой confirmClientIntentSchema
+- если !input.success
+  - return res.status(400).json({ error: "Укажите актуальные роли клиента" });
+    · ответ 400 — «Укажите актуальные роли клиента»
+- если !client
+  - return;
+    · дальше не идёт, ничего не меняя
+- если client.kind === "OTHER"
+  - return res.status(409).json({ error: "Сначала выберите тип карточки: продавец или покупатель" });
+    · ответ 409 — «Сначала выберите тип карточки: продавец или покупатель»
+- const updated = await prisma.$transaction(async tx
+  · всё внутри — одной транзакцией
+  · меняет в базе: client
+  · читает в базе: client
+  - const changed = await tx.client.updateMany({ where: { id: client.id, assignedAgentId: client.assignedAgentId,…
+    · меняет в базе: client
+  - если !changed.count
+    - return null;
+      · дословно из кода
+  - await logTimeline({ clientId: client.id, actor: { kind: "agent", agentId: req.agent!.id }, type: "SYSTEM", no…
+    · зовёт logTimeline()
+  - return tx.client.findUniqueOrThrow({ where: { id: client.id } });
+    · читает в базе: client
+- если !updated
+  - return res.status(409).json({ error: "Карточка изменилась. Обновите её и повторите подтверждение" });
+    · ответ 409 — «Карточка изменилась. Обновите её и повторите подтверждение»
+- logAudit(req, "UPDATE", "Client", client.id, { dualIntent, confirmation: "staff" });
+  · зовёт logAudit()
+- publishClientUpdated({ clientId: client.id, agentIds: [client.assignedAgentId], actorId: req.agent!.id });
+  · зовёт publishClientUpdated()
+- res.json(presentClient(updated, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin")));
+  · ответ 200
+
 ### POST /api/v1/clients/:id/interactions
 
 `apps/api/src/routes/clients/interactions.ts` · на входе: общий предел частоты запросов, idempotencyGuard, вход выполнен
@@ -3199,7 +3288,12 @@
 
 `apps/api/src/routes/clients/matching.ts` · на входе: общий предел частоты запросов, idempotencyGuard, вход выполнен
 
-- const client = await prisma.client.findUnique({ where: { id: req.params.id }, include: { desiredPlaces: true …
+- const parsed = clientPropertyMatchQuerySchema.safeParse(req.query);
+  · проверяет данные схемой clientPropertyMatchQuerySchema
+- если !id.success || !parsed.success
+  - return res.status(400).json({ error: "Неверные параметры подбора" });
+    · ответ 400 — «Неверные параметры подбора»
+- const client = await prisma.client.findUnique({ where: { id: id.data }, include: { desiredPlaces: true } });
   · читает в базе: client
 - если !client || client.deletedAt
   - return res.status(404).json({ error: "Клиент не найден" });
@@ -3210,38 +3304,14 @@
 - const ownAgentId = scopeToOwnAgent(req);
   · зовёт scopeToOwnAgent()
 - если ownAgentId && ownAgentId === client.assignedAgentId && !client.acceptedAt
-  - return res.json({ unfiltered: false, total: 0, properties: [] });
+  - return res.json(empty("pending_acceptance"));
     · ответ 200
-- const [money, policy, weights] = await Promise.all([loadMoneyContext(), loadMatchPolicy(), loadMatchWeights()…
-  · зовёт loadMoneyContext()
-- const fetchProperties = (multiplier: number)
-  · читает в базе: property
-  - return prisma.property.findMany({ where: buildPropertyMatchWhere(scaledClient, money, policy), include: { dis…
-    · читает в базе: property
-- const scaledWhere = (multiplier: number)
-  · зовёт buildPropertyMatchWhere()
-- если client.desiredPlaces.length > 0
-  - для каждого: const multiplier of radiusSteps.slice(1)
-    - если rawProperties.length >= policy.minCandidates
-      - break;
-        · прекращает перебор
-- const total = await prisma.property.count({ where: scaledWhere(usedMultiplier) });
-  · считает в базе: property
-- const distanceById = new Map(rawProperties.map((p)
-  · зовёт nearestClientPlace()
-- const geoSorted = [...rawProperties].sort((a, b)
-  - если aDistrict !== bDistrict
-    - return aDistrict - bDistrict;
-      · дословно из кода
-- const properties = limited.map((p)
-  · зовёт stripEmbedding()
-- если !client.requirementsNotes || properties.length === 0
-  - return res.json({ unfiltered, total, properties: propertiesWithMeta.map((p)
+- если client.kind !== "BUYER" && !(client.kind === "SELLER" && client.dualIntent && client.dualIntentConfirmedAt)
+  - return res.json(empty("not_buyer"));
     · ответ 200
-- если !ranking
-  - return res.json({ unfiltered, total, properties: propertiesWithMeta.map((p)
-    · ответ 200
-- res.json({ unfiltered, total, properties: sorted.map((p)
+- const result = await clientPropertyMatchingCatalog(client.id, currentBuyerMatchingCriteria(client), { viewerI…
+  · зовёт clientPropertyMatchingCatalog()
+- return res.json({ ...result, properties: result.properties.map(property
   · ответ 200
 
 ### POST /api/v1/clients/:id/message-voice
@@ -3689,11 +3759,14 @@
 - если !client
   - return;
     · дальше не идёт, ничего не меняя
-- const properties = await prisma.property.findMany({ where: { id: { in: parsed.data.propertyIds }, deletedAt: …
+- const found = await prisma.property.findMany({ where: { id: { in: propertyIds }, deletedAt: null, ...(!can(re…
   · читает в базе: property
-- если properties.length === 0
+- если found.length === 0
   - return res.status(404).json({ error: "Объекты не найдены" });
     · ответ 404 — «Объекты не найдены»
+- если found.length !== propertyIds.length
+  - return res.status(409).json({ error: "Часть выбранных объектов недоступна. Обновите подборку и повторите — ни…
+    · ответ 409 — «Часть выбранных объектов недоступна. Обновите подборку и повторите —…»
 - если notOfferable.length > 0
   - return res.status(409).json({ error: `Продан или снят с продажи: ${notOfferable.map((p)
     · ответ 409 — «Продан или снят с продажи: ${notOfferable.map((p) => »
@@ -3710,10 +3783,10 @@
   · зовёт lastClientMessage()
 - const language = lastIncoming ? detectClientLanguage(lastIncoming) : "unknown";
   · зовёт detectClientLanguage()
-- const text = buildPropertyOfferText( properties.map((p)
-  · зовёт buildPropertyOfferText()
+- const safeTitles = new Map(properties.map(property
+  · зовёт phoneSafeText()
 - если parsed.data.prepareOnly
-  - return res.json({ ok: true, prepared: true, sent: 0, fallback });
+  - return res.json({ ok: true, prepared: true, sent: 0, propertyIds, fallback });
     · ответ 200
 - если !target
   - return res.status(409).json({ error: "Клиент не писал в мессенджер — отправить в переписку некуда. Скопируйте…
@@ -3741,13 +3814,16 @@
         · переходит к следующему
     - void sendPushToAgent(ownerId, { title: "🏠 Ваш объект предложен клиенту", body: `Объект №${p.shortId} — ${p.t…
       · push-уведомление
-- res.json({ ok: true, sent: properties.length, masked: delivery.masked, pausedUntil: delivery.pausedUntil, cha…
+- res.json({ ok: true, sent: properties.length, propertyIds, masked: delivery.masked || titleMasked || messageM…
   · ответ 200
 
 ### GET /api/v1/clients/:id/send-target
 
 `apps/api/src/routes/clients/matching.ts` · на входе: общий предел частоты запросов, idempotencyGuard, вход выполнен
 
+- если !query.success
+  - return res.status(400).json({ error: "Неверные параметры диалога" });
+    · ответ 400 — «Неверные параметры диалога»
 - если !client
   - return;
     · дальше не идёт, ничего не меняя
@@ -4101,7 +4177,7 @@
   - если typeof data.phone === "string" && data.phone !== existing.phone
     - await followSellerPhoneChange(tx, existing.id, existing.phone, data.phone);
       · зовёт followSellerPhoneChange()
-  - return tx.client.update({ where: { id: req.params.id }, data: data.status && data.status !== existing.status …
+  - return tx.client.update({ where: { id: req.params.id }, data: { ...data, ...(data.status && data.status !== e…
     · меняет в базе: client
 - если !isClientCardFilled(existing) && isClientCardFilled(updated) && updated.assignedAgentId
   - const points = await loadEventPoints();
@@ -10979,14 +11055,17 @@
 - если !parsed.success
   - return res.status(400).json({ error: `Выберите от 1 до ${SMS_SHARE_MAX_RECIPIENTS} клиентов` });
     · ответ 400 — «Выберите от 1 до ${SMS_SHARE_MAX_RECIPIENTS} клиентов»
-- const property = await prisma.property.findUnique({ where: { id: req.params.id } });
+- если !propertyId.success
+  - return res.status(400).json({ error: "Неверный объект" });
+    · ответ 400 — «Неверный объект»
+- const property = await prisma.property.findUnique({ where: { id: propertyId.data }, include: { deleteRequests…
   · читает в базе: property
-- если !property || property.deletedAt
+- если !property || property.deletedAt || (!can(req, "properties.delete") && property.deleteRequests.length > 0)
   - return res.status(404).json({ error: "Объект не найден" });
     · ответ 404 — «Объект не найден»
-- если property.status === "SOLD"
-  - return res.status(400).json({ error: "Объект продан — рассылать его нельзя" });
-    · ответ 400 — «Объект продан — рассылать его нельзя»
+- если property.status === "SOLD" || property.status === "WITHDRAWN"
+  - return res.status(400).json({ error: "Объект продан или снят с продажи — рассылать его нельзя" });
+    · ответ 400 — «Объект продан или снят с продажи — рассылать его нельзя»
 - если property.offSite && !canManageProperty(req, property)
   - return res.status(403).json({ error: "Несайтовый объект рассылает только агент, который его ведёт" });
     · ответ 403 — «Несайтовый объект рассылает только агент, который его ведёт»
@@ -11010,10 +11089,15 @@
     · ответ 429 — «На сегодня лимит СМС исчерпан (${SMS_SHARE_DAILY_CAP} в сутки).…»
 - const clients = await prisma.client.findMany({ where: { id: { in: ids } }, select: { id: true, phone: true, d…
   · читает в базе: client
+- const ownAgentId = scopeToOwnAgent(req);
+  · зовёт scopeToOwnAgent()
 - const recent = await prisma.smsMessage.findMany({ where: { propertyId: property.id, clientId: { in: ids }, pu…
   · читает в базе: smsMessage
 - для каждого: const clientId of ids
-  - если !c || c.deletedAt || (!seeAll && c.assignedAgentId !== req.agent!.id)
+  - если !c || c.deletedAt || !canAccessAssignedAgent(req, c.assignedAgentId) || foreignWriteDenied(req, c, ownAgentId)
+    - continue;
+      · переходит к следующему
+  - если ownAgentId && !c.acceptedAt
     - continue;
       · переходит к следующему
   - если !toSmsPhone(c.phone)
@@ -11037,10 +11121,22 @@
         · дословно из кода
     - break;
       · прекращает перебор
+  - const receipt = await prisma.smsMessage.findUnique({ where: { id: sent.id }, select: { status: true, createdA…
+    · читает в базе: smsMessage
+  - если receipt?.status !== "SENT"
+    - continue;
+      · переходит к следующему
+  - await prisma.propertyExposure.upsert({ where: { id: `sms:${sent.id}` }, create: { id: `sms:${sent.id}`, chann…
+    · создаёт или меняет в базе: propertyExposure
+    · запись в журнал ошибок
+    - void logSystemError("sms", `Принятая СМС ${sent.id}: не записана история объекта: ${err instanceof Error ? er…
+      · запись в журнал ошибок
   - void recordInterest(property.id, "SHARE_SENT", clientId);
     · зовёт recordInterest()
   - await logTimeline({ clientId, actor: { kind: "agent", agentId: req.agent!.id }, type: "SYSTEM", propertyId: p…
-    · зовёт logTimeline()
+    · запись в журнал ошибок
+    - void logSystemError("sms", `Принятая СМС ${sent.id}: не записана хронология: ${err instanceof Error ? err.mes…
+      · запись в журнал ошибок
 - res.json({ sent: outcomes.filter((o)
   · ответ 200
 

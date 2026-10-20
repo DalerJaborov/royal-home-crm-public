@@ -58,7 +58,7 @@ export function CleanClientDetailTabs({ value, onChange, objectsLabel = "Объ�
             onChange(next);
             event.currentTarget.parentElement?.querySelector<HTMLButtonElement>(`#clean-client-tab-${next}`)?.focus();
           }}
-        ><span aria-hidden="true">{(() => { const Icon = tabIcons[id]; return <Icon size={18} />; })()}</span><span className="client-tab-long">{id === "props" ? objectsLabel : label}</span><span aria-hidden="true" className="client-tab-short">{id === "chat" ? "Чаты" : label}</span></button>
+        ><span aria-hidden="true">{(() => { const Icon = tabIcons[id]; return <Icon size={18} />; })()}</span><span className="client-tab-long">{id === "props" ? objectsLabel : label}</span><span aria-hidden="true" className="client-tab-short">{id === "chat" ? "Чаты" : id === "props" ? "По объектам" : label}</span></button>
       ))}
     </div>
   );

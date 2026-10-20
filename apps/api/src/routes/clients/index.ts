@@ -33,6 +33,7 @@ import { whatsappFirstContactRouter } from "./whatsappFirstContact.js";
 import { matchingRouter } from "./matching.js";
 import { sellerObjectRouter } from "./sellerObject.js";
 import { propertyActivityRouter } from "./propertyActivity.js";
+import { intentsRouter } from "./intents.js";
 
 export const clientsRouter = Router();
 
@@ -61,3 +62,4 @@ clientsRouter.use(matchingRouter);
 // GET /:id/seller-object — статичный второй сегмент, с GET /:id не пересекается.
 clientsRouter.use(sellerObjectRouter);
 clientsRouter.use(propertyActivityRouter);
+clientsRouter.use(intentsRouter);

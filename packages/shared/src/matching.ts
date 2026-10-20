@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 /**
  * «Кому подойдёт объект» — общий словарь подбора для сервера и карточки объекта.
  *
@@ -34,4 +36,37 @@ export interface MatchingClient {
 export interface MatchingClientsResponse {
   items: MatchingClient[];
   total: number;
+}
+
+/** Card recommendations are evidence, never a percentage probability of success. */
+export interface ClientPropertyMatchEvidence {
+  tier: "exact" | "alternative" | "needs_verification";
+  reasons: string[];
+  tradeoffs: string[];
+  unknowns: string[];
+  isMine: boolean;
+  lastSentAt: string | null;
+  sentCount: number;
+}
+
+export const clientPropertyMatchQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).max(100000).default(1),
+  pageSize: z.coerce.number().int().min(1).max(30).default(12),
+  scope: z.enum(["all", "mine"]).default("all"),
+});
+
+export interface ClientPropertyMatchSummary {
+  unfiltered: boolean;
+  /** All visible AVAILABLE records compared before ranking and pagination. */
+  scanned: number;
+  /** All eligible recommendations before the optional mine filter. */
+  eligible: number;
+  total: number;
+  mineTotal: number;
+  page: number;
+  pageSize: number;
+  hasMore: boolean;
+  scope: "all" | "mine";
+  reason: "not_buyer" | "pending_acceptance" | "needs_requirements" | null;
+  requirementsSummary: string[];
 }

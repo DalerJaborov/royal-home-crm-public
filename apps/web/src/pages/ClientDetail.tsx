@@ -76,7 +76,9 @@ import { useCleanShell } from "../hooks/useCleanShell";
 import { CleanClientDetailHeader, CleanClientDetailSkeleton, CleanClientDetailTabs, cleanClientDetailScale, cleanClientPanelProps, cleanClientShowsPanel } from "../components/clean/CleanClientDetailLayout";
 import { MobileClientCard } from "../components/mobile/MobileClientCard";
 import { ClientPropertyWorkspace } from "../components/ClientPropertyWorkspace";
-import { ClientCardFacts, ClientNextStep } from "../components/ClientCardContext";
+import { ClientIntentConfirmation } from "../components/ClientIntentConfirmation";
+import { ClientBuyerRequirementsEditor } from "../components/ClientBuyerRequirementsEditor";
+import { ClientNextStep, clientPropertyCountVisible } from "../components/ClientCardContext";
 import "../theme-client-workspace.css";
 
 
@@ -196,7 +198,6 @@ function ClientDetailCard() {
   const [showingPropertyId, setShowingPropertyId] = useState<string>();
   // Подбор объекта: одна панель (components/match/MatchPanel.tsx), одна кнопка
   // «Подбор · N» везде (владелец 17.09.2026 вечер) — открыта/закрыта, без режимов.
-  const [matchOpen, setMatchOpen] = useState(false);
   const [showCloseDeal, setShowCloseDeal] = useState(false);
   const [showNewDeal, setShowNewDeal] = useState(false);
   const [showTransfer, setShowTransfer] = useState(false);
@@ -228,6 +229,7 @@ function ClientDetailCard() {
    *  до неё есть чем прокручивать, особенно на телефоне. Переключатель вкладок
    *  из сетки не просто ставит `tab`, а ещё довозит до самих вкладок. */
   const tabsCardRef = useRef<HTMLDivElement>(null);
+  const overviewPropertiesRef = useRef<HTMLDivElement>(null);
   /**
    * Телефон: плоский стек секций вместо вкладок (макет c99db05f, `renderClient` —
    * владелец 14.09.2026: «ничего из старого не оставлять, всё что на артефакте
@@ -251,6 +253,10 @@ function ClientDetailCard() {
       return;
     }
     tabsCardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+  const openOverviewProperties = () => {
+    setTab("short");
+    requestAnimationFrame(() => overviewPropertiesRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
   };
   /**
    * Редкие действия на телефоне свёрнуты (владелец 20.08.2026: «как можно ещё
@@ -561,7 +567,7 @@ function ClientDetailCard() {
    */
   const matchButton =
     buys && !(pending && locked) ? (
-      <button className="pill ghost" type="button" onClick={() => setMatchOpen(true)}>
+      <button className="pill ghost" type="button" onClick={openOverviewProperties}>
         Подбор{clientMatchQuery.data ? ` · ${clientMatchQuery.data.total}` : ""}
       </button>
     ) : null;
@@ -907,7 +913,15 @@ function ClientDetailCard() {
     else openPropertyWizard();
   };
   const propertyWorkspace = <ClientPropertyWorkspace key={`${client.id}:${client.kind}:${client.dualIntent}`} client={client} locked={locked}
-    canCreate={canCreatePropertyFromLead} onCreate={createSellerProperty} onSchedule={scheduleShowing} />;
+    canCreate={false} onCreate={createSellerProperty} onSchedule={scheduleShowing} />;
+  // A role confirmation slot shared by desktop, Clean phones and the agent phone card.
+  const clientIntentConfirmation = <ClientIntentConfirmation key={`${client.id}:${client.kind}:${client.dualIntent}`} client={client} locked={locked} />;
+  const overviewProperties = !(pending && locked) && (sells || buys) ? <div className="client-overview-properties" ref={overviewPropertiesRef}>
+    {buys && <><ClientBuyerRequirementsEditor client={client} locked={locked} /><MatchPanel mode="client" client={client} open variant="inline" overviewLimit={3} readOnly={locked} onClose={() => {}} /></>}
+    {sells && <ClientPropertyWorkspace key={`seller:${client.id}:${client.kind}:${client.dualIntent}`} variant="portfolio" client={client} locked={locked}
+      canCreate={canCreatePropertyFromLead} onCreate={createSellerProperty} onSchedule={scheduleShowing} />}
+  </div> : null;
+  const overviewNextStep = !isOther ? <ClientNextStep client={client} locked={locked} onSchedule={() => scheduleShowing()} onRecord={recordResult} /> : null;
 
   /**
    * Пункты меню «Ещё» — данными, а не готовыми строками (владелец 29.09.2026:
@@ -1143,7 +1157,7 @@ function ClientDetailCard() {
     { id: "short" as const, label: "Коротко" },
     { id: "chat" as const, label: "Переписка" },
     { id: "calls" as const, label: "Звонки" },
-    { id: "props" as const, label: "Объекты" },
+    { id: "props" as const, label: buys ? "Отправки и показы" : "Показы" },
     { id: "hist" as const, label: "История" },
   ];
 
@@ -1155,7 +1169,6 @@ function ClientDetailCard() {
    */
   const commonMiddle = (
     <>
-      {!isOther && <ClientNextStep client={client} locked={locked} onSchedule={() => scheduleShowing()} onRecord={recordResult} />}
       {!releaseCandidates && <MutationError mutation={acceptLead} fallback="Не удалось принять лид" />}
       <MutationError mutation={declineLead} fallback="Не удалось отклонить лид" />
       <MutationError mutation={updateClient} fallback="Не удалось сохранить изменение" />
@@ -1379,7 +1392,6 @@ function ClientDetailCard() {
         />
       )}
       {showEditForm && !locked && <ClientFormModal client={client} onClose={() => setShowEditForm(false)} />}
-      {matchOpen && <MatchPanel mode="client" client={client} open={matchOpen} readOnly={locked} onClose={() => setMatchOpen(false)} />}
       {!locked && showCloseDeal && <CloseDealChoiceModal client={client} onClose={() => setShowCloseDeal(false)} />}
       {!locked && showNewDeal && <NewDealSheet client={client} onClose={() => setShowNewDeal(false)} />}
       {!locked && showTransfer && <TransferClientModal client={client} onClose={() => setShowTransfer(false)} />}
@@ -1463,6 +1475,9 @@ function ClientDetailCard() {
             client={client}
             canBuy={buys}
             propertyWorkspace={propertyWorkspace}
+            overviewProperties={overviewProperties}
+            intentConfirmation={clientIntentConfirmation}
+            overviewNextStep={overviewNextStep}
             propertyCounts={
               <>
                 <PropertyCountRow client={client} role="SELLER" />
@@ -1502,7 +1517,7 @@ function ClientDetailCard() {
             conversations={conversations}
             interactions={interactions}
             lastPropertiesSent={lastPropertiesSent}
-            onOpenMatch={() => setMatchOpen(true)}
+            onOpenMatch={openOverviewProperties}
             matchTotal={clientMatchQuery.data?.total}
             canMerge={canMerge}
             similarNotes={similarNotes}
@@ -1777,7 +1792,7 @@ function ClientDetailCard() {
                   <MessageSquare className="i" />
                   Написать
                 </button>
-                <button className="cd-act" type="button" onClick={() => sells && !buys ? jumpToTab("props") : setMatchOpen(true)}>
+                <button className="cd-act" type="button" onClick={openOverviewProperties}>
                   <Home className="i" />
                   {sells && !buys ? "Объекты" : "Подбор"}
                 </button>
@@ -1803,7 +1818,7 @@ function ClientDetailCard() {
             телефоне — плоский стек секций (макет c99db05f), gating по `tab`
             снят полностью для mobile, все пять блоков видны подряд. */}
         <div className={clean ? "card clean-client-sections" : "card"} ref={tabsCardRef} style={clean ? { border: 0, padding: 24 } : undefined}>
-          {clean ? <CleanClientDetailTabs value={tab} onChange={setTab} objectsLabel={sells && buys ? "Продаёт и ищет" : sells ? "Объекты продавца" : buys ? "Подбор и интерес" : "Объекты"} /> : !mobile && (
+          {clean ? <CleanClientDetailTabs value={tab} onChange={setTab} objectsLabel={buys ? "Отправки и показы" : "Показы"} /> : !mobile && (
             <div className="tabs" role="tablist" aria-label="Разделы карточки">
               {tabs.map((t) => (
                 <button
@@ -1820,8 +1835,8 @@ function ClientDetailCard() {
           )}
 
           {/* Коротко */}
-          {cleanClientShowsPanel(clean, mobile, tab, "short") && (
-            <div
+          <div className="client-overview-panel"
+              hidden={!cleanClientShowsPanel(clean, mobile, tab, "short")}
               {...(clean ? cleanClientPanelProps("short") : {})}
               style={{ paddingTop: mobile ? 4 : 20 }}
               ref={(el) => {
@@ -1837,13 +1852,16 @@ function ClientDetailCard() {
                   «Что просит», «Запрос своими словами», «О карточке», строка
                   «Телефоны» и «Что ИИ предлагал раньше» убраны — всё это ИИ
                   вплетает в сводку, а номер выбирается в кнопке «Позвонить». */}
-              {!(pending && locked) && <ClientCardFacts client={client} />}
               <ClientInsight client={client} />
               {clean && !client.aiInsight && !(pending && locked) && <div className="clean-client-overview-empty" role="status">
                 <p>Краткая сводка по этому клиенту ещё не подготовлена.</p>
                 <p className="sub">Предыдущие действия и договорённости доступны в истории карточки.</p>
                 <button type="button" className="pill ghost" onClick={() => setTab("hist")}>Открыть историю</button>
               </div>}
+
+              {clientIntentConfirmation}
+              {overviewProperties}
+              {overviewNextStep}
 
               {/* Число объектов от ИИ — тихой строкой, не карточкой-уведомлением
                   (решение владельца 03.09.2026). Обе стороны независимы: у клиента
@@ -1857,7 +1875,7 @@ function ClientDetailCard() {
                 <>
                   {/* «Где ищет» (12.09.2026, docs/geo-match-plan-12-09.md) — карта мест,
                       которые назвал клиент. Пустой список — блок не рисуем вовсе. */}
-                  {client.desiredPlaces && client.desiredPlaces.length > 0 && (
+                  {buys && client.desiredPlaces && client.desiredPlaces.length > 0 && (
                     <>
                       <div className="sec-t">Где ищет</div>
                       <ClientDesiredPlacesMap places={client.desiredPlaces} />
@@ -1879,7 +1897,6 @@ function ClientDetailCard() {
                 </>
               )}
             </div>
-          )}
 
           {/* Переписка */}
           {cleanClientShowsPanel(clean, mobile, tab, "chat") && (
@@ -1956,7 +1973,7 @@ function ClientDetailCard() {
                 sectionRefs.current.props = el;
               }}
             >
-              {mobile && <div className="sec-t">Объекты</div>}
+              {mobile && <div className="sec-t">{buys ? "Отправки и показы" : "Показы"}</div>}
               {propertyWorkspace}
             </div>
           )}
@@ -2025,7 +2042,7 @@ export function PropertyCountRow({ client, role }: { client: Client; role: Prope
   const accountReadOnly = useIsReadOnly();
   const isSeller = role === "SELLER";
   const aiCount = isSeller ? client.sellerDeclaredPropertyCount : client.buyerDesiredPropertyCount;
-  const hasCount = aiCount != null;
+  const hasCount = clientPropertyCountVisible(client, role);
   const { data } = usePendingPropertyCountDisputes(client.id, hasCount);
   const [open, setOpen] = useState(false);
 
@@ -2150,7 +2167,7 @@ export function SimilarNotesWarning({
   return (
     <>
       {clients.map((c) => (
-        <div className="quiet warn" key={c.id}>
+        <div className="quiet warn client-similar-warning" key={c.id}>
           <span className="dot warn" />
           <span className="txt">
             Похоже на «{formatClientName(c)}» ({formatClientCode(c.shortId, c.kind)}) — заметки совпадают на{" "}

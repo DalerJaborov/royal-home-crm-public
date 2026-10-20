@@ -16,6 +16,13 @@ export function clientCardCanWrite(input: {
     && (input.assignedAgentId === input.viewerId || input.canAssign);
 }
 
+/** A historical switch of kind is a signal to ask, never a confirmation of concurrent roles. */
+export function confirmedClientIntents(client: { kind?: string | null; dualIntent?: boolean; dualIntentConfirmedAt?: Date | string | null }) {
+  return clientIntents({ kind: client.kind, dualIntent: client.dualIntent === true && !!client.dualIntentConfirmedAt });
+}
+
+export const confirmClientIntentSchema = z.object({ dualIntent: z.boolean() }).strict();
+
 export const clientPropertyActivityQuerySchema = z.object({
   section: z.enum(["sent", "showings"]).default("sent"),
   page: z.coerce.number().int().min(1).max(100_000).default(1),

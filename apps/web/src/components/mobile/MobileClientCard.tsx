@@ -1,6 +1,6 @@
 import { ShellOwnHeader } from "../rh2/ShellOwnHeader";
-import { useRef, type ReactNode } from "react";
-import { CalendarClock, Home, MessageSquare, MoreVertical, Pencil } from "lucide-react";
+import { type ReactNode } from "react";
+import { Home, MessageSquare, MoreVertical, Pencil } from "lucide-react";
 import { Rh2Sheet } from "../rh2/Rh2Sheet";
 import { CallPhoneChooser, type CallPhoneOption } from "../CallPhoneChooser";
 import { ClientAvatar } from "../ClientAvatar";
@@ -12,7 +12,6 @@ import { InteractionTimeline } from "../InteractionTimeline";
 import { useDismissSimilarClient, type SimilarNotesClient } from "../../hooks/useDuplicates";
 import { relativeTime } from "../../lib/format";
 import type { Client } from "../../types";
-import { ClientCardFacts } from "../ClientCardContext";
 
 /**
  * Карточка клиента на телефоне — облик артефакта владельца
@@ -37,6 +36,9 @@ export interface MobileClientCardProps {
   isSeller: boolean;
   canBuy: boolean;
   propertyWorkspace: ReactNode;
+  overviewProperties: ReactNode;
+  intentConfirmation: ReactNode;
+  overviewNextStep: ReactNode;
   isOther: boolean;
   canCallTransferred: boolean;
   mainStatusChip: ReactNode;
@@ -84,6 +86,9 @@ export function MobileClientCard({
   isSeller,
   canBuy,
   propertyWorkspace,
+  overviewProperties,
+  intentConfirmation,
+  overviewNextStep,
   isOther,
   canCallTransferred,
   mainStatusChip,
@@ -119,7 +124,6 @@ export function MobileClientCard({
   onShowMoreSheet,
 }: MobileClientCardProps) {
   const dismissSimilar = useDismissSimilarClient(client.id);
-  const propertiesRef = useRef<HTMLElement>(null);
 
   return (
     <div className="rh2 mh">
@@ -171,7 +175,7 @@ export function MobileClientCard({
         )}
         <div className="tags">
           {mainStatusChip}
-          <span className="chip mute">{isOther ? "Прочее обращение" : isSeller ? canBuy ? "Продаёт и покупает" : "Продавец" : "Покупатель"}</span>
+          <span className="chip mute">{isOther ? "Прочее обращение" : client.dualIntent ? "Продаёт и покупает" : isSeller ? "Продавец" : "Покупатель"}</span>
           {pending && <span className="chip warn">Ждёт принятия</span>}
         </div>
         <p className="client-card-meta">{client.assignedAgent ? `Агент ${client.assignedAgent.fullName}` : "Агент не назначен"}<br />Последний контакт {relativeTime(client.lastContactAt)}</p>
@@ -202,7 +206,7 @@ export function MobileClientCard({
               <MessageSquare className="i" />
               Написать
             </button>
-            <button type="button" onClick={canBuy ? onOpenMatch : () => propertiesRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}>
+            <button type="button" onClick={onOpenMatch}>
               <Home className="i" />
               {canBuy ? "Подбор" : "Объекты"}
             </button>
@@ -236,10 +240,12 @@ export function MobileClientCard({
               <span className="cnt">собрано автоматически</span>
             </div>
             <div className="card-s" style={{ padding: "12px 16px" }}>
-              <ClientCardFacts client={client} />
               <ClientInsight client={client} />
+              {intentConfirmation}
+              {overviewProperties}
+              {overviewNextStep}
               {propertyCounts}
-              {client.desiredPlaces && client.desiredPlaces.length > 0 && (
+              {canBuy && client.desiredPlaces && client.desiredPlaces.length > 0 && (
                 <details className="cd-about" style={{ marginTop: 12 }}>
                   <summary>Где ищет</summary>
                   <div style={{ marginTop: 10 }}>
@@ -250,10 +256,10 @@ export function MobileClientCard({
             </div>
           </section>
 
-          {/* Объекты: подбор живёт отдельным окном, здесь только итог отправки. */}
-          <section className="sec" ref={propertiesRef}>
+          {/* Отправки и показы: отдельный журнал, без второго подборщика. */}
+          <section className="sec">
             <div className="sec-t">
-              <h2>{isSeller ? "Объекты продавца" : "Подбор и интерес"}</h2>
+              <h2>{canBuy ? "Отправки и показы" : "Показы"}</h2>
             </div>
             <div className="card-s" style={{ padding: "12px 16px" }}>
               {propertyWorkspace}

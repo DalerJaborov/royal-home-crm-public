@@ -1,8 +1,8 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 639,
-  "forks": 3511,
+  "endpoints": 641,
+  "forks": 3526,
   "mounts": 72,
   "cron": 107,
   "jobs": 30,
@@ -11724,6 +11724,220 @@
   },
   {
    "method": "POST",
+   "path": "/:id/buyer-requirements",
+   "mount": "/api/v1/clients",
+   "full": "/api/v1/clients/:id/buyer-requirements",
+   "file": "apps/api/src/routes/clients/intents.ts",
+   "router": "intentsRouter",
+   "top": "apps/api/src/routes/clients/index.ts::clientsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const input = clientBuyerRequirementsSchema.safeParse(req.body);",
+     "a": [
+      "проверяет данные схемой clientBuyerRequirementsSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!input.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Проверьте пожелания покупателя\", details: input.error.flatten() });",
+       "a": [
+        "ответ 400 — «Проверьте пожелания покупателя»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!client",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!confirmedClientIntents(client).buys",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"Сначала подтвердите, что клиент покупает недвижимость\" });",
+       "a": [
+        "ответ 409 — «Сначала подтвердите, что клиент покупает недвижимость»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "typeof data.requirementsNotes === \"string\" && !can(req, \"clients.viewPhone\")",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const restored = restoreMaskedNotes(data.requirementsNotes, client.requirementsNotes);",
+       "a": [
+        "зовёт restoreMaskedNotes()"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "restored === null",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(400).json({ error: \"Нельзя изменять строку со скрытым контактом. Остальные пожелания можно …",
+         "a": [
+          "ответ 400 — «Нельзя изменять строку со скрытым контактом. Остальные пожелания…»"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const updated = await prisma.$transaction(async tx",
+     "a": [
+      "всё внутри — одной транзакцией",
+      "меняет в базе: client",
+      "читает в базе: clientDesiredPlace",
+      "удаляет в базе: clientDesiredPlace",
+      "читает в базе: client"
+     ],
+     "c": [
+      {
+       "k": "do",
+       "t": "const changed = await tx.client.updateMany({ where: { id: client.id, assignedAgentId: client.assignedAgentId,…",
+       "a": [
+        "меняет в базе: client"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!changed.count",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return null;",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const previousPlaces = stale ? await tx.clientDesiredPlace.findMany({ where: { clientId: client.id }, select:…",
+       "a": [
+        "читает в базе: clientDesiredPlace"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "stale",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "await tx.clientDesiredPlace.deleteMany({ where: { clientId: client.id } });",
+         "a": [
+          "удаляет в базе: clientDesiredPlace"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "await logTimeline({ clientId: client.id, actor: { kind: \"agent\", agentId: req.agent!.id }, type: \"SYSTEM\", no…",
+       "a": [
+        "зовёт logTimeline()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "return tx.client.findUniqueOrThrow({ where: { id: client.id } });",
+       "a": [
+        "читает в базе: client"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!updated",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"Роли карточки изменились. Обновите карточку и повторите\" });",
+       "a": [
+        "ответ 409 — «Роли карточки изменились. Обновите карточку и повторите»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "logAudit(req, \"UPDATE\", \"Client\", client.id, { requirementsFieldsKind: \"BUYER\" });",
+     "a": [
+      "зовёт logAudit()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "publishClientUpdated({ clientId: client.id, agentIds: [client.assignedAgentId], actorId: req.agent!.id });",
+     "a": [
+      "зовёт publishClientUpdated()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json(presentClient(updated, can(req, \"clients.viewPhone\"), can(req, \"clients.viewOrigin\")));",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "POST",
    "path": "/:id/call",
    "mount": "/api/v1/clients",
    "full": "/api/v1/clients/:id/call",
@@ -13007,6 +13221,165 @@
   },
   {
    "method": "POST",
+   "path": "/:id/intents",
+   "mount": "/api/v1/clients",
+   "full": "/api/v1/clients/:id/intents",
+   "file": "apps/api/src/routes/clients/intents.ts",
+   "router": "intentsRouter",
+   "top": "apps/api/src/routes/clients/index.ts::clientsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const input = confirmClientIntentSchema.safeParse(req.body);",
+     "a": [
+      "проверяет данные схемой confirmClientIntentSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!input.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Укажите актуальные роли клиента\" });",
+       "a": [
+        "ответ 400 — «Укажите актуальные роли клиента»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!client",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "client.kind === \"OTHER\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"Сначала выберите тип карточки: продавец или покупатель\" });",
+       "a": [
+        "ответ 409 — «Сначала выберите тип карточки: продавец или покупатель»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const updated = await prisma.$transaction(async tx",
+     "a": [
+      "всё внутри — одной транзакцией",
+      "меняет в базе: client",
+      "читает в базе: client"
+     ],
+     "c": [
+      {
+       "k": "do",
+       "t": "const changed = await tx.client.updateMany({ where: { id: client.id, assignedAgentId: client.assignedAgentId,…",
+       "a": [
+        "меняет в базе: client"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!changed.count",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return null;",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "await logTimeline({ clientId: client.id, actor: { kind: \"agent\", agentId: req.agent!.id }, type: \"SYSTEM\", no…",
+       "a": [
+        "зовёт logTimeline()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "return tx.client.findUniqueOrThrow({ where: { id: client.id } });",
+       "a": [
+        "читает в базе: client"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!updated",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"Карточка изменилась. Обновите её и повторите подтверждение\" });",
+       "a": [
+        "ответ 409 — «Карточка изменилась. Обновите её и повторите подтверждение»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "logAudit(req, \"UPDATE\", \"Client\", client.id, { dualIntent, confirmation: \"staff\" });",
+     "a": [
+      "зовёт logAudit()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "publishClientUpdated({ clientId: client.id, agentIds: [client.assignedAgentId], actorId: req.agent!.id });",
+     "a": [
+      "зовёт publishClientUpdated()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json(presentClient(updated, can(req, \"clients.viewPhone\"), can(req, \"clients.viewOrigin\")));",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "POST",
    "path": "/:id/interactions",
    "mount": "/api/v1/clients",
    "full": "/api/v1/clients/:id/interactions",
@@ -13729,7 +14102,30 @@
    "tree": [
     {
      "k": "do",
-     "t": "const client = await prisma.client.findUnique({ where: { id: req.params.id }, include: { desiredPlaces: true …",
+     "t": "const parsed = clientPropertyMatchQuerySchema.safeParse(req.query);",
+     "a": [
+      "проверяет данные схемой clientPropertyMatchQuerySchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!id.success || !parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Неверные параметры подбора\" });",
+       "a": [
+        "ответ 400 — «Неверные параметры подбора»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const client = await prisma.client.findUnique({ where: { id: id.data }, include: { desiredPlaces: true } });",
      "a": [
       "читает в базе: client"
      ],
@@ -13780,130 +14176,7 @@
      "c": [
       {
        "k": "do",
-       "t": "return res.json({ unfiltered: false, total: 0, properties: [] });",
-       "a": [
-        "ответ 200"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const [money, policy, weights] = await Promise.all([loadMoneyContext(), loadMatchPolicy(), loadMatchWeights()…",
-     "a": [
-      "зовёт loadMoneyContext()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "const fetchProperties = (multiplier: number)",
-     "a": [
-      "читает в базе: property"
-     ],
-     "c": [
-      {
-       "k": "do",
-       "t": "return prisma.property.findMany({ where: buildPropertyMatchWhere(scaledClient, money, policy), include: { dis…",
-       "a": [
-        "читает в базе: property"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const scaledWhere = (multiplier: number)",
-     "a": [
-      "зовёт buildPropertyMatchWhere()"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "client.desiredPlaces.length > 0",
-     "a": [],
-     "c": [
-      {
-       "k": "loop",
-       "t": "для каждого: const multiplier of radiusSteps.slice(1)",
-       "a": [],
-       "c": [
-        {
-         "k": "if",
-         "t": "rawProperties.length >= policy.minCandidates",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "break;",
-           "a": [
-            "прекращает перебор"
-           ],
-           "c": []
-          }
-         ]
-        }
-       ]
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const total = await prisma.property.count({ where: scaledWhere(usedMultiplier) });",
-     "a": [
-      "считает в базе: property"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "const distanceById = new Map(rawProperties.map((p)",
-     "a": [
-      "зовёт nearestClientPlace()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "const geoSorted = [...rawProperties].sort((a, b)",
-     "a": [],
-     "c": [
-      {
-       "k": "if",
-       "t": "aDistrict !== bDistrict",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return aDistrict - bDistrict;",
-         "a": [
-          "дословно из кода"
-         ],
-         "c": []
-        }
-       ]
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const properties = limited.map((p)",
-     "a": [
-      "зовёт stripEmbedding()"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "!client.requirementsNotes || properties.length === 0",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.json({ unfiltered, total, properties: propertiesWithMeta.map((p)",
+       "t": "return res.json(empty(\"pending_acceptance\"));",
        "a": [
         "ответ 200"
        ],
@@ -13913,12 +14186,12 @@
     },
     {
      "k": "if",
-     "t": "!ranking",
+     "t": "client.kind !== \"BUYER\" && !(client.kind === \"SELLER\" && client.dualIntent && client.dualIntentConfirmedAt)",
      "a": [],
      "c": [
       {
        "k": "do",
-       "t": "return res.json({ unfiltered, total, properties: propertiesWithMeta.map((p)",
+       "t": "return res.json(empty(\"not_buyer\"));",
        "a": [
         "ответ 200"
        ],
@@ -13928,7 +14201,15 @@
     },
     {
      "k": "do",
-     "t": "res.json({ unfiltered, total, properties: sorted.map((p)",
+     "t": "const result = await clientPropertyMatchingCatalog(client.id, currentBuyerMatchingCriteria(client), { viewerI…",
+     "a": [
+      "зовёт clientPropertyMatchingCatalog()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "return res.json({ ...result, properties: result.properties.map(property",
      "a": [
       "ответ 200"
      ],
@@ -15847,7 +16128,7 @@
     },
     {
      "k": "do",
-     "t": "const properties = await prisma.property.findMany({ where: { id: { in: parsed.data.propertyIds }, deletedAt: …",
+     "t": "const found = await prisma.property.findMany({ where: { id: { in: propertyIds }, deletedAt: null, ...(!can(re…",
      "a": [
       "читает в базе: property"
      ],
@@ -15855,7 +16136,7 @@
     },
     {
      "k": "if",
-     "t": "properties.length === 0",
+     "t": "found.length === 0",
      "a": [],
      "c": [
       {
@@ -15863,6 +16144,21 @@
        "t": "return res.status(404).json({ error: \"Объекты не найдены\" });",
        "a": [
         "ответ 404 — «Объекты не найдены»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "found.length !== propertyIds.length",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"Часть выбранных объектов недоступна. Обновите подборку и повторите — ни…",
+       "a": [
+        "ответ 409 — «Часть выбранных объектов недоступна. Обновите подборку и повторите —…»"
        ],
        "c": []
       }
@@ -15940,9 +16236,9 @@
     },
     {
      "k": "do",
-     "t": "const text = buildPropertyOfferText( properties.map((p)",
+     "t": "const safeTitles = new Map(properties.map(property",
      "a": [
-      "зовёт buildPropertyOfferText()"
+      "зовёт phoneSafeText()"
      ],
      "c": []
     },
@@ -15953,7 +16249,7 @@
      "c": [
       {
        "k": "do",
-       "t": "return res.json({ ok: true, prepared: true, sent: 0, fallback });",
+       "t": "return res.json({ ok: true, prepared: true, sent: 0, propertyIds, fallback });",
        "a": [
         "ответ 200"
        ],
@@ -16085,7 +16381,7 @@
     },
     {
      "k": "do",
-     "t": "res.json({ ok: true, sent: properties.length, masked: delivery.masked, pausedUntil: delivery.pausedUntil, cha…",
+     "t": "res.json({ ok: true, sent: properties.length, propertyIds, masked: delivery.masked || titleMasked || messageM…",
      "a": [
       "ответ 200"
      ],
@@ -16108,6 +16404,21 @@
    ],
    "handlerRef": null,
    "tree": [
+    {
+     "k": "if",
+     "t": "!query.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Неверные параметры диалога\" });",
+       "a": [
+        "ответ 400 — «Неверные параметры диалога»"
+       ],
+       "c": []
+      }
+     ]
+    },
     {
      "k": "if",
      "t": "!client",
@@ -17673,7 +17984,7 @@
       },
       {
        "k": "do",
-       "t": "return tx.client.update({ where: { id: req.params.id }, data: data.status && data.status !== existing.status …",
+       "t": "return tx.client.update({ where: { id: req.params.id }, data: { ...data, ...(data.status && data.status !== e…",
        "a": [
         "меняет в базе: client"
        ],
@@ -48819,8 +49130,23 @@
      ]
     },
     {
+     "k": "if",
+     "t": "!propertyId.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Неверный объект\" });",
+       "a": [
+        "ответ 400 — «Неверный объект»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
      "k": "do",
-     "t": "const property = await prisma.property.findUnique({ where: { id: req.params.id } });",
+     "t": "const property = await prisma.property.findUnique({ where: { id: propertyId.data }, include: { deleteRequests…",
      "a": [
       "читает в базе: property"
      ],
@@ -48828,7 +49154,7 @@
     },
     {
      "k": "if",
-     "t": "!property || property.deletedAt",
+     "t": "!property || property.deletedAt || (!can(req, \"properties.delete\") && property.deleteRequests.length > 0)",
      "a": [],
      "c": [
       {
@@ -48843,14 +49169,14 @@
     },
     {
      "k": "if",
-     "t": "property.status === \"SOLD\"",
+     "t": "property.status === \"SOLD\" || property.status === \"WITHDRAWN\"",
      "a": [],
      "c": [
       {
        "k": "do",
-       "t": "return res.status(400).json({ error: \"Объект продан — рассылать его нельзя\" });",
+       "t": "return res.status(400).json({ error: \"Объект продан или снят с продажи — рассылать его нельзя\" });",
        "a": [
-        "ответ 400 — «Объект продан — рассылать его нельзя»"
+        "ответ 400 — «Объект продан или снят с продажи — рассылать его нельзя»"
        ],
        "c": []
       }
@@ -48965,6 +49291,14 @@
     },
     {
      "k": "do",
+     "t": "const ownAgentId = scopeToOwnAgent(req);",
+     "a": [
+      "зовёт scopeToOwnAgent()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
      "t": "const recent = await prisma.smsMessage.findMany({ where: { propertyId: property.id, clientId: { in: ids }, pu…",
      "a": [
       "читает в базе: smsMessage"
@@ -48978,7 +49312,22 @@
      "c": [
       {
        "k": "if",
-       "t": "!c || c.deletedAt || (!seeAll && c.assignedAgentId !== req.agent!.id)",
+       "t": "!c || c.deletedAt || !canAccessAssignedAgent(req, c.assignedAgentId) || foreignWriteDenied(req, c, ownAgentId)",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "continue;",
+         "a": [
+          "переходит к следующему"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "ownAgentId && !c.acceptedAt",
        "a": [],
        "c": [
         {
@@ -49092,6 +49441,47 @@
       },
       {
        "k": "do",
+       "t": "const receipt = await prisma.smsMessage.findUnique({ where: { id: sent.id }, select: { status: true, createdA…",
+       "a": [
+        "читает в базе: smsMessage"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "receipt?.status !== \"SENT\"",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "continue;",
+         "a": [
+          "переходит к следующему"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "await prisma.propertyExposure.upsert({ where: { id: `sms:${sent.id}` }, create: { id: `sms:${sent.id}`, chann…",
+       "a": [
+        "создаёт или меняет в базе: propertyExposure",
+        "запись в журнал ошибок"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "void logSystemError(\"sms\", `Принятая СМС ${sent.id}: не записана история объекта: ${err instanceof Error ? er…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
        "t": "void recordInterest(property.id, \"SHARE_SENT\", clientId);",
        "a": [
         "зовёт recordInterest()"
@@ -49102,9 +49492,18 @@
        "k": "do",
        "t": "await logTimeline({ clientId, actor: { kind: \"agent\", agentId: req.agent!.id }, type: \"SYSTEM\", propertyId: p…",
        "a": [
-        "зовёт logTimeline()"
+        "запись в журнал ошибок"
        ],
-       "c": []
+       "c": [
+        {
+         "k": "do",
+         "t": "void logSystemError(\"sms\", `Принятая СМС ${sent.id}: не записана хронология: ${err instanceof Error ? err.mes…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        }
+       ]
       }
      ]
     },

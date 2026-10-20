@@ -1371,7 +1371,10 @@ cardRouter.patch("/:id", requireAuth, async (req, res) => {
       // Ручная правка статуса замораживает автоматику на неделю: человек,
       // который только что говорил с клиентом, знает о нём больше правил
       // (см. lib/clientAutoStatus.ts).
-      data: data.status && data.status !== existing.status ? { ...data, statusSetManuallyAt: new Date() } : data,
+      data: { ...data,
+        ...(data.status && data.status !== existing.status ? { statusSetManuallyAt: new Date() } : {}),
+        ...(data.kind && data.kind !== existing.kind ? { dualIntentConfirmedAt: null, dualIntentConfirmedById: null } : {}),
+      },
       include: { desiredPlaces: { orderBy: { createdAt: "asc" } } },
     });
   });

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient, type QueryKey } from "@tanstack/react-query";
-import type { ClientKind, ClientSort, SendPropertiesFallback, SendTargetInfo } from "@royal-home/shared";
+import type { ClientPropertyMatchEvidence, ClientPropertyMatchSummary, ClientKind, ClientSort, SendPropertiesFallback, SendTargetInfo } from "@royal-home/shared";
 import { api, ApiError } from "../lib/api";
 import { keepWhilePaging, keepWhilePagingAt, keepWhilePagingIndexed } from "../lib/keepWhilePaging";
 import { OfflineQueuedError } from "../lib/offlineQueue";
@@ -811,6 +811,7 @@ export function useReturnDeferredClient(clientId: string) {
 export interface SendPropertiesResult {
   ok: boolean;
   sent: number;
+  propertyIds?: string[];
   masked: boolean;
   /** Канал, куда реально ушло (WHATSAPP/INSTAGRAM/…) — для строки результата. */
   channel?: string;
@@ -843,6 +844,7 @@ export function useSendProperties(clientId: string) {
       // иначе отправленное сообщение появлялось бы только после F5.
       qc.invalidateQueries({ queryKey: ["client"] });
       qc.invalidateQueries({ queryKey: ["client-send-target", clientId] });
+      qc.invalidateQueries({ queryKey: ["client-match", clientId] });
     },
   });
 }
@@ -869,14 +871,14 @@ export function useSendTarget(clientId: string | undefined, conversationId: stri
  * тип/комнаты), и SQL-фильтр не отсёк ничего: список ниже — топ-15 любых
  * AVAILABLE объектов, а не подбор под клиента (пачка 10, 11.09.2026, п.5).
  */
-export function useClientMatch(clientId: string | undefined, enabled = true) {
+export function useClientMatch(clientId: string | undefined, enabled = true, options: { page?: number; pageSize?: number; scope?: "all" | "mine" } = {}) {
+  const page = options.page ?? 1;
+  const pageSize = options.pageSize ?? 12;
+  const scope = options.scope ?? "all";
   return useQuery({
-    queryKey: ["client-match", clientId],
-    // total — размер всего множества подходящих объектов (не только топ-N в
-    // properties); каждый объект несёт offSite — объекты «только в CRM»
-    // теперь тоже включены в подбор (routes/clients/matching.ts).
-    queryFn: () =>
-      api<{ unfiltered: boolean; properties: Property[]; total: number }>(`/clients/${clientId}/match`),
+    queryKey: ["client-match", clientId, { page, pageSize, scope }],
+    queryFn: () => api<ClientPropertyMatchSummary & { properties: (Property & { match: ClientPropertyMatchEvidence })[] }>(
+      `/clients/${clientId}/match?page=${page}&pageSize=${pageSize}&scope=${scope}`),
     enabled: !!clientId && enabled,
   });
 }
