@@ -16,6 +16,13 @@ and every machine's report; a missing report or failure blocks the release.
 release-tool tests also run on GitHub-hosted Linux; there is no self-hosted
 runner or production secret in these workflows.
 
+The release workflow first runs the build, frontend suite, source guards and
+release-tool regression tests on GitHub. Its planning job must pass before the
+twenty API jobs start. Ship requires an explicit successful source-check
+attestation for the same commit in the final report, so moving work off the
+laptop does not remove a release gate. Historical static tests locating stages
+by their human labels now locate stage numbers and require both stages to exist.
+
 Frontend workers are capped at four: all 271 files / 1,658 tests passed locally
 in 64.87 seconds with this cap. The original eight frontend failures were
 5-second timeouts under concurrent load; test timeouts remain unchanged.

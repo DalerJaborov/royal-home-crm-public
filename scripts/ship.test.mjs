@@ -417,12 +417,12 @@ test("OPS10: правка отслеживаемого файла во врем�
 test("OPS10: ship пушит и подписывает записанную вершину и дерево, а не «HEAD сейчас»", () => {
   const body = readFileSync(SHIP, "utf8");
   const snap = body.indexOf("const verified = snapshotState(git)");
-  const migrations = body.indexOf('stage(4, "клиент Prisma и миграции тестовой базы")');
-  const tests = body.indexOf('stage(6, "тесты сервера, полный прогон")');
+  const migrations = body.indexOf('stage(4,');
+  const tests = body.indexOf('stage(6,');
   const drift = body.indexOf("stateDrift(verified, snapshotState(git))");
   const push = body.indexOf('["push", "origin", `${headSha}:refs/heads/${branch}`]');
   assert.ok(snap > 0 && snap < migrations, "снимок до всех проверок");
-  assert.ok(drift > tests, "сверка после тестов");
+  assert.ok(tests > migrations && drift > tests, "сверка после тестов");
   assert.ok(push > drift, "отправка только после сверки");
   assert.doesNotMatch(body, /const headSha = git\("rev-parse", "HEAD"\)/, "вершина не читается заново после тестов");
   assert.match(body, /shipTrailer\(\{ tree: verified\.tree,/);
