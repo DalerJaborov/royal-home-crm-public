@@ -23,6 +23,7 @@ import { claimCustomerAgentTurnTx } from "../src/lib/customerAgentClaim.js";
 import { recordCustomerRecruitmentAttachments } from "../src/lib/customerRecruitmentAttachments.js";
 import { storeFetchedAttachments } from "../src/messengers/attachments.js";
 import { privateFilePath } from "../src/lib/privateFiles.js";
+import { createCustomerLeadAfterContactAction } from "../src/lib/customerNewLeadBridge.js";
 
 // Normal PG: real raw HMAC → durable producer → FINAL recovery → recorded IN →
 // actual principal/intent/authority/kernel/receipt continuation. ONLY bounded
@@ -88,7 +89,8 @@ afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 afterAll(async () => {
   const actions = await prisma.customerAction.findMany({ where: { inquiry: { conversationId: { in: natives } } }, select: { id: true } });
   const ids = actions.map(row => row.id);
-  await prisma.backgroundJob.deleteMany({ where: { dedupeKey: { in: [...events.map(key => `customer-inbox-consume:${key}`), ...ids.map(id => `customer-callback-notify:${id}`)] } } });
+  await prisma.backgroundJob.deleteMany({ where: { dedupeKey: { in: [...events.map(key => `customer-inbox-consume:${key}`),
+    ...ids.flatMap(id => [`customer-callback-notify:${id}`, `customer-contact-intake:${id}`])] } } });
   await prisma.callbackRequest.deleteMany({ where: { customerActionId: { in: ids } } });
   await prisma.customerPropertyIngressTicket.deleteMany({ where: { eventKey: { in: events } } });
   await prisma.customerAction.deleteMany({ where: { id: { in: ids } } });
@@ -159,6 +161,27 @@ it("closing an opening after the genuine session read denies intake without a jo
     expect(f.session.receipts).toHaveLength(0); await zeroEffects(f.inquiryId);
     expect(await prisma.jobApplication.count({ where: { customerInquiryId: f.inquiryId } })).toBe(0);
   } finally { await prisma.recruitmentPosition.delete({ where: { key } }); }
+});
+it("a job candidate who supplies a name and phone stays an HR application even with the real-estate intake capability enabled", async () => {
+  const key = `synthetic-job-contact-${randomUUID()}`;
+  const policy = await prisma.customerRuntimePolicy.findUniqueOrThrow({ where: { id: "singleton" }, select: { capabilities: true } });
+  await prisma.recruitmentPosition.create({ data: { key, titleRu: "SMM-специалист / видеограф", titleTg: "Мутахассиси SMM / видеограф", isOpen: true } });
+  try {
+    await prisma.customerRuntimePolicy.update({ where: { id: "singleton" }, data: { capabilities: { publicRead: true, contactWrite: true,
+      callbackWrite: true, handoverWrite: true, newLeadBridge: true } } });
+    const value = phone(), f = await fixture(`Вакансия видеограф. Меня зовут Анвар. Мой номер ${value}.`);
+    expect((await prisma.$transaction(tx => claimCustomerAgentTurnTx(tx, f.lane.principal))).status).toBe("claimed");
+    expect((await f.session.execute({ name: "save_contact", args: { name: "Анвар", phone: value } }, wait())).status).toBe("observed");
+    const contact = f.session.receipts.find(receipt => receipt.kind === "contact")!;
+    expect((await f.session.execute({ name: "save_job_application", args: {} }, wait())).status).toBe("observed");
+    expect(await createCustomerLeadAfterContactAction(contact.actionId)).toMatchObject({ status: "stale", reason: "current_intake_context_required" });
+    expect(await prisma.client.count({ where: { customerIntakeActionId: contact.actionId } })).toBe(0);
+    expect(await prisma.jobApplication.findFirst({ where: { customerInquiryId: f.inquiryId } })).toMatchObject({ name: "Анвар", phone: value, clientId: null });
+  } finally {
+    await prisma.jobApplication.deleteMany({ where: { customerPositionKey: key } });
+    await prisma.recruitmentPosition.delete({ where: { key } });
+    await prisma.customerRuntimePolicy.update({ where: { id: "singleton" }, data: { capabilities: policy.capabilities! } });
+  }
 });
 it("keeps actual private portfolio bytes on the original signed user entry and own HR receipt, never a model file path", async () => {
   const key = `synthetic-media-${randomUUID()}`, directory = mkdtempSync(join(tmpdir(), "synthetic-recruitment-"));
