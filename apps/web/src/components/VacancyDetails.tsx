@@ -37,8 +37,9 @@ function CvLink({ applicationId, file, portfolioIndex }: { applicationId: string
   const [state, setState] = useState<"idle" | "loading" | "error">("idle");
   const open = () => {
     setState("loading");
-    const suffix = portfolioIndex === undefined ? "cv" : `portfolio/${portfolioIndex}`;
-    const load = () => api<Blob>(`/vacancies/${encodeURIComponent(applicationId)}/${suffix}`, { responseType: "blob" });
+    const endpoint = portfolioIndex === undefined ? `/vacancies/${encodeURIComponent(applicationId)}/cv`
+      : `/vacancies/${encodeURIComponent(applicationId)}/portfolio/${portfolioIndex}`;
+    const load = () => api<Blob>(endpoint, { responseType: "blob" });
     // Без await перед вызовом: окно должно открыться в самом обработчике нажатия.
     void openPrivateFile(file, browserDeps(load)).then((ok) => setState(ok ? "idle" : "error"));
   };

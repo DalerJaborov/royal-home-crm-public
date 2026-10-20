@@ -35,6 +35,8 @@ bytes through the media adapter and accepted outbox fixture. External model
 responses are controlled fixtures, not a quality benchmark. API compilation,
 web build and source maps passed during development; a complete exact cloud
 release and independent production adoption remain required.
+The existing CV download endpoint remains explicit alongside the separate
+portfolio endpoint; the legacy screen regression guard passes unchanged.
 Existing rollout percentage, provider budgets and voice behavior are unchanged.
 No emergency handover, invented salary, automated eligibility scoring or
 cross-channel identity merge is introduced.
