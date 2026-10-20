@@ -9,7 +9,8 @@ history. Follow the public-repository section in AGENTS.md: `npm run ship` runs
 source checks and, when required, the complete API suite on GitHub-hosted Linux.
 No local PostgreSQL/build is needed for that default path; `--local-tests` is
 the explicit fallback. Do not merge old private history into this repository.
-Production deployment has not been connected to this new repository; do not
+The production checkout `/opt/royalhome-crm` must track this public repository.
+Verify its origin, deployed SHA and API/worker health separately; do not
 report a production update solely from a successful GitHub merge. The older
 self-hosted-runner and deployment descriptions below describe the prior setup.
 

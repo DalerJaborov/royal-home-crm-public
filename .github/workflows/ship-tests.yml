@@ -103,6 +103,8 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      - name: Reject private or mixed Git ancestry
+        run: test "$(git rev-list --max-parents=0 HEAD)" = '0c6887d5993e0bae3fae125d27d6ad2525ec47bb'
       - run: npm ci --no-audit --no-fund
       - run: npm run prisma:generate
       - run: npm run precheck -- --no-tests

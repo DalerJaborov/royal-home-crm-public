@@ -2,7 +2,7 @@ import type { CustomerPropertyFactKind, CustomerPropertyFacts, CustomerMutationR
   CustomerAgentDecision, CustomerAgentQuestion, CustomerAgentSurface, CustomerAgentVerifiedContext } from "@royal-home/shared";
 import { customerPropertyCharacteristicLines, customerAgentPublicationObservationSchema } from "@royal-home/shared";
 import { PUBLIC_AGENCY_CONTACT } from "../lib/publicAgencyContact.js";
-import { customerPublicThanks, customerRequestedAgencyContact, isCustomerPublicAppreciation } from "./customerAgentConversationPolicy.js";
+import { customerPublicThanks, customerRequestedAgencyContact, isCustomerPublicAppreciation, customerPublicReaction, customerPublicReactionText } from "./customerAgentConversationPolicy.js";
 import { customerAgentIntake, customerSellerIntakeQuestion } from "./customerAgentIntake.js";
 import { clientOwnWords } from "./untrustedContent.js";
 import { customerAgentAttachmentInputSchema, customerAgentAttachmentQuestion, type CustomerAgentAttachmentInput } from "./customerAgentAttachmentInput.js";
@@ -44,6 +44,8 @@ export function customerAgentRenderedQuestion(input: { decision: CustomerAgentDe
   const d = input.decision;
   if (d.kind === "skip" || d.kind === "escalate" || d.kind === "moderation_proposal") return "none";
   if (d.kind === "propose") return "confirmation";
+  if (input.surface === "public_comment" && !input.requestedFacts?.length && customerPublicReaction(input.inputText ?? "")) return "none";
+  if (d.question === "topic" && input.evidence.some(e => e.value.kind === "company_information" && d.refs.includes(e.ref))) return "none";
   // Resolution failures are facts about the current property, not a reason to
   // collect a phone/name before answering or clarifying the property.
   if (input.evidence.some(e => e.value.kind === "property_unresolved" &&
@@ -169,7 +171,9 @@ export function customerCompanyInformationRequested(text: string): boolean {
 function companyInformationLines(value: import("@royal-home/shared").CustomerAgentCompanyInformationObservation, language: "ru" | "tg", text: string): string[] {
   const tg = language === "tg", info = value.information;
   const onlyHours = /час|соат|когда|скольки/iu.test(text) && !/где|адрес|офис|дафтар/iu.test(text);
-  const lines = onlyHours ? [] : [tg ? `Идораи ${info.name}: ${info.city}, ${info.office}.` : `Офис ${info.name}: ${info.city}, ${info.office}.`];
+  const office = tg ? info.officeTg ?? info.office : info.office;
+  const address = office.startsWith(info.city) ? office : `${info.city}, ${office}`;
+  const lines = onlyHours ? [] : [tg ? `Идораи ${info.name}: ${address}.` : `Офис ${info.name}: ${address}.`];
   if (info.hours) {
     const days = { ru: ["воскресенье", "понедельник", "вторник", "среда", "четверг", "пятница", "суббота"],
       tg: ["якшанбе", "душанбе", "сешанбе", "чоршанбе", "панҷшанбе", "ҷумъа", "шанбе"] };
@@ -246,6 +250,11 @@ export function renderCustomerAgentDecision(input: {
     return text.length <= input.maxOutputChars ? text : null;
   }
   if (input.surface === "public_comment" && evidence.some(e => e?.value.kind === "receipt" || e?.value.kind === "proposal")) return null;
+  const reaction = input.surface === "public_comment" && !input.requestedFacts.length && customerPublicReaction(input.inputText ?? "");
+  if (reaction && d.kind !== "propose") {
+    const text = customerPublicReactionText(reaction, lang);
+    return text.length <= input.maxOutputChars ? text : null;
+  }
   if (input.surface === "public_comment" && d.social === "thank" && isCustomerPublicAppreciation(input.inputText ?? "")) {
     lines.push(customerPublicThanks(input.inputText!, lang));
   } else if (social[d.social][lang]) lines.push(social[d.social][lang]);

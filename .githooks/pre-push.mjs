@@ -26,6 +26,14 @@ export function shipVerified(message, tree) {
   return Boolean(m && m[1] === tree);
 }
 
+export const PUBLIC_HISTORY_ROOT = "0c6887d5993e0bae3fae125d27d6ad2525ec47bb";
+
+export function publicHistoryProblem(remoteUrl, roots) {
+  if (!/(?:[:/])DalerJaborov\/royal-home-crm-public(?:\.git)?\/?$/i.test(remoteUrl || "")) return null;
+  if (roots?.trim() === PUBLIC_HISTORY_ROOT) return null;
+  return "ОСТАНОВЛЕНО: в публичный CRM нельзя отправлять приватную или смешанную историю. Перенеси очищенный diff на ветку от нового origin/main.";
+}
+
 function main() {
   let stdin = "";
   try {
@@ -35,6 +43,12 @@ function main() {
   }
   for (const line of stdin.split(/\r?\n/)) {
     const [, localSha, remoteRef] = line.trim().split(/\s+/);
+    if (localSha && !/^0+$/.test(localSha)) {
+      let roots = "";
+      try { roots = git("rev-list", "--max-parents=0", localSha); } catch { /* fail closed for public pushes */ }
+      const problem = publicHistoryProblem(process.argv[3], roots);
+      if (problem) { console.error(problem); process.exit(1); }
+    }
     if (remoteRef !== "refs/heads/main") continue;
     if (/^0+$/.test(localSha || "")) {
       console.error("ОСТАНОВЛЕНО: удалять main нельзя.");

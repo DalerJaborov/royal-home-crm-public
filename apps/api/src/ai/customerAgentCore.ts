@@ -5,7 +5,7 @@ import type { ProviderOperation } from "./providerContract.js";
 import { renderCustomerAgentDecision, customerAgentRenderedQuestion, isCanonicalAgencyContact, customerCompanyInformationRequested,
   type CustomerAgentRenderedQuestion, type CustomerAgentEvidence, type CustomerAgentObservation } from "./customerAgentRenderer.js";
 import { isPinnedCompanyPolicy, isPublicPropertySearch, publicSearchProjection, isCustomerCompanyInformation } from "./customerAgentPublicProtocol.js";
-import { customerRequestedAgencyContact, isCustomerPublicAppreciation } from "./customerAgentConversationPolicy.js";
+import { customerRequestedAgencyContact, isCustomerPublicAppreciation, customerPublicReaction } from "./customerAgentConversationPolicy.js";
 import { customerAgentAttachmentInputSchema, type CustomerAgentAttachmentInput } from "./customerAgentAttachmentInput.js";
 import { customerAgentMediaPerceptionSchema, type CustomerAgentMediaPerception } from "./customerAgentMediaPerception.js";
 import type { CustomerAgentAwaitContext, CustomerAgentModelTurn } from "./customerAgentModelContracts.js";
@@ -248,8 +248,10 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
       await check();
       return { status: "ready", decision, question: "clarify_previous", text, evidence: [], rounds, toolCalls };
     }
-    if (frame.surface === "public_comment" && !frame.requestedFacts.length && isCustomerPublicAppreciation(frame.inputText)) {
-      const decision = customerAgentDecisionSchema.parse({ kind: "reply", refs: [], social: "thank", question: "none" });
+    if (frame.surface === "public_comment" && !frame.requestedFacts.length &&
+        (isCustomerPublicAppreciation(frame.inputText) || customerPublicReaction(frame.inputText))) {
+      const decision = customerAgentDecisionSchema.parse({ kind: "reply", refs: [],
+        social: isCustomerPublicAppreciation(frame.inputText) ? "thank" : "acknowledge", question: "none" });
       const text = renderCustomerAgentDecision({ decision, evidence, inputText: frame.inputText, language: frame.language,
         requestedFacts: [], knownPhoneSource: frame.knownPhoneSource, maxOutputChars: revision.limits.maxOutputChars, surface: frame.surface });
       if (text === null) return held("unsupported_decision_evidence");

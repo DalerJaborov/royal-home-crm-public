@@ -77,6 +77,10 @@ const BUYER = re(
 
 /** Вопрос — это обращение к нам, а не объявление для читателей и не реклама. */
 const QUESTION = /\?/;
+// An invitation to other readers is not the author's buyer intent.
+const AUDIENCE_OFFER = /(?:кому\s+(?:нужен|нужна|нужно|нужны)|кто\s+(?:хочет|ищет)|кас[её](?:да|е)?\s+даркор)[\s\S]{0,100}(?:пишите|звоните|навис[а-яёӣӯ]*|занг\s+зан[а-яёӣӯ]*)/iu;
+const PERSONAL_BUYER = re(`${BW}(?:куплю|покупаю|ищу|ищем|мехарам|бихарам|ба\\s+ман\\s+(?:занг|нависед))${EW}`);
+const DIRECT_HELP = /помоги(?:те)?\s+(?:мне\s+)?продать|продать\s+(?:через\s+вас|вам)|(?:кумак|кӯмак)\s+кунед|бо\s+шумо\s+кор/iu;
 
 /** Похвала агентству — не реклама другого агентства. */
 const PRAISE = re(
@@ -93,10 +97,12 @@ const OWN_HANDLE = /@royal[._]?home/iu;
 export function detectListingAd(text: string): ListingAdVerdict | null {
   const phones = extractAllPhones(text);
   if (phones.length === 0) return null;
-  if (BUYER.test(text) || QUESTION.test(text)) return null;
+  if (QUESTION.test(text) || DIRECT_HELP.test(text)) return null;
 
   const signs: string[] = [];
   const sellOrHave = SELL_VERB.test(text) || HAVE_FLAT.test(text);
+  const audienceOffer = sellOrHave && AUDIENCE_OFFER.test(text) && !PERSONAL_BUYER.test(text);
+  if (BUYER.test(text) && !audienceOffer) return null;
   if (sellOrHave) signs.push("продаёт");
   const price = PRICE.test(text);
   if (price) signs.push("цена");
@@ -104,6 +110,7 @@ export function detectListingAd(text: string): ListingAdVerdict | null {
   if (FLOOR.test(text)) signs.push("этаж");
   if (ROOMS.test(text)) signs.push("комнаты");
 
+  if (audienceOffer) signs.push("предложение читателям");
   if (signs.length < 2) return null;
   if (!price && !sellOrHave) return null;
   return { reason: `объявление: ${signs.join(", ")}, номер`, phones };
