@@ -2,6 +2,21 @@ import { describe, expect, it } from "vitest";
 import { detectAgencyAd, detectListingAd, looksTajik } from "../src/lib/listingAd.js";
 import { detectHate } from "../src/lib/commentHate.js";
 
+it.each([
+  "Хонаи фуруши дорем 3хонага 72кв нарх 700000 сомон. Тел +992900000000 одамои харидор занг занен",
+  "Хона мефурушем 2 хонага 50 м2 нарх 450000 сомон +992900000000 харидорон нависед",
+])("plural invitations to buyers do not misclassify a seller advert as the author's own buyer intent: %s", text => {
+  expect(detectListingAd(text)).not.toBeNull();
+});
+it.each([
+  "Ман харидор хастам, хона 2 хонага мехарам то 700000 сомон +992900000000",
+  "Мехарам хона 72кв то 700000 сомон +992900000000, одамои харидор занг занен",
+  "Хонаи фуруши дорем, кумак кунед фурушем, 72кв нарх 700000 сомон +992900000000 одамои харидор занг занен",
+  "Хонаи фуруши дорем 72кв нарх 700000 сомон одамои харидор занг занен",
+])("plural audience wording alone never authorizes removal of a buyer/help request or a post without contact: %s", text => {
+  expect(detectListingAd(text)).toBeNull();
+});
+
 /**
  * Частное объявление под нашим постом (24.09.2026, жалоба владельца со снимком
  * из Instagram). Отсечка скрывает комментарий без модели — поэтому здесь важнее

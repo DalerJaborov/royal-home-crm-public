@@ -79,7 +79,10 @@ const BUYER = re(
 const QUESTION = /\?/;
 // An invitation to other readers is not the author's buyer intent.
 const AUDIENCE_OFFER = /(?:кому\s+(?:нужен|нужна|нужно|нужны)|кто\s+(?:хочет|ищет)|кас[её](?:да|е)?\s+даркор)[\s\S]{0,100}(?:пишите|звоните|навис[а-яёӣӯ]*|занг\s+зан[а-яёӣӯ]*)/iu;
-const PERSONAL_BUYER = re(`${BW}(?:куплю|покупаю|ищу|ищем|мехарам|бихарам|ба\\s+ман\\s+(?:занг|нависед))${EW}`);
+// Plural buyers invited to call are the advert's audience, not the author's
+// own purchase request. Still require sale/property details and a phone below.
+const AUDIENCE_BUYERS_TG = re(`${BW}(?:одам(?:ои|они)\\s+харидор${TAIL}|харидор(?:он|ҳо|хо))${EW}[^.!?\\n]{0,70}(?:занг\\s+зан(?:ед|ен)|навис(?:ед|ен))${EW}`);
+const PERSONAL_BUYER = re(`${BW}(?:куплю|покупаю|ищу|ищем|мехарам|бихарам|харидан\\s+мехо[хҳ]ам|ман\\s+харидор${TAIL}|ба\\s+ман\\s+(?:занг|нависед))${EW}`);
 const DIRECT_HELP = /помоги(?:те)?\s+(?:мне\s+)?продать|продать\s+(?:через\s+вас|вам)|(?:кумак|кӯмак)\s+кунед|бо\s+шумо\s+кор/iu;
 
 /** Похвала агентству — не реклама другого агентства. */
@@ -101,7 +104,7 @@ export function detectListingAd(text: string): ListingAdVerdict | null {
 
   const signs: string[] = [];
   const sellOrHave = SELL_VERB.test(text) || HAVE_FLAT.test(text);
-  const audienceOffer = sellOrHave && AUDIENCE_OFFER.test(text) && !PERSONAL_BUYER.test(text);
+  const audienceOffer = sellOrHave && (AUDIENCE_OFFER.test(text) || AUDIENCE_BUYERS_TG.test(text)) && !PERSONAL_BUYER.test(text);
   if (BUYER.test(text) && !audienceOffer) return null;
   if (sellOrHave) signs.push("продаёт");
   const price = PRICE.test(text);

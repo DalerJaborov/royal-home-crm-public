@@ -437,7 +437,8 @@ function moderationWire(f: Fixture, fault: "none" | "unknown_dm" | "false_hide" 
   }));
   return calls;
 }
-it.each([sellerAdvert,`Хавлии фуруши дорем дар поени корвон каседа даркор нависа е занг зана ${'+9929'+'0'.repeat(8)}`])("uses signed CORE origin: hide, one accepted private reply, delete; records actual immutable receipts and no CRM handover: %s", async text => {
+it.each([sellerAdvert,`Хавлии фуруши дорем дар поени корвон каседа даркор нависа е занг зана ${'+9929'+'0'.repeat(8)}`,
+  `Хонаи фуруши дорем 3хонага 72кв нарх 700000 сомон тел ${'+9929'+'0'.repeat(8)} одамои харидор занг занен`])("uses signed CORE origin: hide, one accepted private reply, delete; records actual immutable receipts and no CRM handover: %s", async text => {
   const f = await fixture(text), calls = moderationWire(f);
   expect(await handle(f)).toBe("deleted");
   expect(calls).toEqual(["hide", "private_reply", "delete"]);

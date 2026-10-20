@@ -9280,11 +9280,6 @@
      "conf": "через часть экрана"
     },
     {
-     "i": 622,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
      "i": 623,
      "direct": false,
      "conf": "через часть экрана"
@@ -56242,9 +56237,7 @@
     "вход выполнен",
     "есть право: vacancies.view"
    ],
-   "screens": [
-    "/vacancies"
-   ],
+   "screens": [],
    "tree": [
     {
      "t": "если нет: application или статус — «NOT_CANDIDATE» или нет: cv файл",

@@ -37,6 +37,12 @@ web build and source maps passed during development; a complete exact cloud
 release and independent production adoption remain required.
 The existing CV download endpoint remains explicit alongside the separate
 portfolio endpoint; the legacy screen regression guard passes unchanged.
+
+An explicit plural invitation to Tajik-speaking buyers in a detailed seller
+advert no longer becomes the author's own buyer intent. Existing question,
+direct-help, personal-buyer and contact/detail safeguards remain in force.
+The established hide/private-reply-receipt/delete path is reused unchanged;
+there is no retrospective retry of an already answered comment.
 Existing rollout percentage, provider budgets and voice behavior are unchanged.
 No emergency handover, invented salary, automated eligibility scoring or
 cross-channel identity merge is introduced.
