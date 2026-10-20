@@ -43,6 +43,8 @@ advert no longer becomes the author's own buyer intent. Existing question,
 direct-help, personal-buyer and contact/detail safeguards remain in force.
 The established hide/private-reply-receipt/delete path is reused unchanged;
 there is no retrospective retry of an already answered comment.
+The initial private seller reply asks whether to explain cooperation terms,
+instead of repeating a district question that the advert may already answer.
 Existing rollout percentage, provider budgets and voice behavior are unchanged.
 No emergency handover, invented salary, automated eligibility scoring or
 cross-channel identity merge is introduced.

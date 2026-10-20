@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { detectAgencyAd, detectListingAd, looksTajik } from "../src/lib/listingAd.js";
 import { detectHate } from "../src/lib/commentHate.js";
+import { customerSellerPrivateReply } from "../src/lib/customerPublicModerationPolicy.js";
+
+it.each(["ru", "tg"] as const)("seller outreach in %s asks about cooperation, without re-asking the supplied listing details or promising buyers", language => {
+  const text = customerSellerPrivateReply(language);
+  expect(text).toContain(language === "ru" ? "Рассказать об условиях сотрудничества?" : "Шартҳои ҳамкориро фаҳмонем?");
+  expect(text).not.toMatch(/в каком районе|дар кадом ноҳия|992|покупатель уже|харидор дорем/iu);
+  expect(text.match(/\?/g)).toHaveLength(1);
+});
 
 it.each([
   "Хонаи фуруши дорем 3хонага 72кв нарх 700000 сомон. Тел +992900000000 одамои харидор занг занен",
