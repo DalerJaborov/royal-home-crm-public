@@ -19,6 +19,7 @@ import { customerAgentRevisionReachable } from "../src/lib/customerAgentRevision
 import { readCustomerDmSourceExecution } from "../src/lib/customerAgentEnrollment.js";
 import { Prisma } from "../src/generated/prisma/client.js";
 import { drainBackgroundTasks } from "../src/lib/shutdownState.js";
+import { CUSTOMER_RECRUITMENT_RESUME_UPGRADE_V2 } from "../src/lib/customerRecruitmentUpgrade.js";
 
 const tag=`synthetic-idle-advance-${randomUUID()}`, password=`Synthetic-${tag}`, accountId=randomUUID(), oldCohort=randomUUID(),newCohort=randomUUID();
 const resource=`${tag}-resource`,peer=`${tag}-peer`,secret=`${tag}-secret`,base="/api/v1/settings/customer-agent";
@@ -101,6 +102,37 @@ it("requires separate catalog-schema consent and preserves model,50%,scopes and 
     await prisma.$executeRaw`UPDATE "CustomerRuntimePolicy" SET "activeAgentRevisionId"=${baseline.activeAgentRevisionId},
       "rolloutConfig"=${JSON.stringify(baseline.rolloutConfig)}::jsonb,"capabilities"=${JSON.stringify(baseline.capabilities)}::jsonb WHERE "id"='singleton'`;
     await prisma.auditLog.deleteMany({where:{agentId:actorId,action:"CUSTOMER_AGENT_PUBLISH"}});revokeElevation(actorId);
+  }
+});
+it("requires explicit résumé-v2 consent and retains percentage, scopes and capabilities on elevated publication",async()=>{
+  const baseline=await readPolicy(),next=await registerCurrentCustomerAgentRevision(createCustomerAgentProviderSnapshot());
+  const {id:_,...manifest}=next,pair=CUSTOMER_RECRUITMENT_RESUME_UPGRADE_V2;
+  const previous={...manifest,promptHash:pair.fromPrompt,toolSchemaHash:pair.fromTools},previousId=customerAgentManifestId(previous);
+  await prisma.$executeRaw`INSERT INTO "CustomerAgentRevision" ("id","manifestJson","createdAt") VALUES (${previousId},${JSON.stringify(previous)}::jsonb,now()) ON CONFLICT DO NOTHING`;
+  const value=await publication({advanceIdleRevision:true});value.rollout={...value.rollout,cohortId:randomUUID()};
+  const oldRollout={...value.rollout,candidateRevisionId:previousId,cohortId:randomUUID()};
+  try {
+    await prisma.$executeRaw`UPDATE "CustomerRuntimePolicy" SET "activeAgentRevisionId"=${previousId},"rolloutConfig"=${JSON.stringify(oldRollout)}::jsonb,
+      "capabilities"=${JSON.stringify(value.capabilities)}::jsonb WHERE "id"='singleton'`;
+    const command=async(extra:Record<string,unknown>={})=>({...value,expectedPolicyRevision:(await readPolicy()).policyRevision.toString(),...extra});
+    expect((await request(app).post("/api/v1/auth/step-up").set(auth()).send({password})).status).toBe(200);
+    const unconfirmed=await request(app).put(`${base}/rollout`).set(auth()).send(await command());
+    expect(unconfirmed.status).toBe(409);expect(unconfirmed.body.error).toBe("recruitment_resume_upgrade_confirmation_required");
+    const before=await readPolicy();
+    for(const change of [{rollout:{...value.rollout,percentBasisPoints:10000}},
+      {capabilities:{...value.capabilities,contactWrite:true}}]) {
+      const rejected=await request(app).put(`${base}/rollout`).set(auth()).send(await command({confirmRecruitmentResumeUpgrade:true,...change}));
+      expect(rejected.status,JSON.stringify(rejected.body)).toBe(409);expect(await readPolicy()).toEqual(before);
+    }
+    const response=await request(app).put(`${base}/rollout`).set(auth()).send(await command({confirmRecruitmentResumeUpgrade:true}));
+    expect(response.status,JSON.stringify(response.body)).toBe(200);
+    expect((await readPolicy()).rolloutConfig).toMatchObject({candidateRevisionId:newId,percentBasisPoints:5000,allowed:oldRollout.allowed});
+    const audit=await prisma.auditLog.findFirstOrThrow({where:{agentId:actorId,action:"CUSTOMER_AGENT_PUBLISH"},orderBy:{createdAt:"desc"}});
+    expect(audit.meta).toMatchObject({recruitmentProtocolUpgrade:true,recruitmentResumeUpgradeVersion:"v2",percentBasisPoints:5000});
+  }finally{
+    await prisma.$executeRaw`UPDATE "CustomerRuntimePolicy" SET "activeAgentRevisionId"=${baseline.activeAgentRevisionId},
+      "rolloutConfig"=${JSON.stringify(baseline.rolloutConfig)}::jsonb,"capabilities"=${JSON.stringify(baseline.capabilities)}::jsonb WHERE "id"='singleton'`;
+    revokeElevation(actorId);
   }
 });
 it("requires genuine step-up and a separate exact media-profile acknowledgement without changing50%,scopes or rights",async()=>{

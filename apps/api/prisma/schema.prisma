@@ -1426,6 +1426,7 @@ model PendingInstagramContainer {
 /// Public job openings maintained by staff; not candidate records or HR decisions.
 model RecruitmentPosition {
   applications JobApplication[] @relation("CustomerRecruitmentPosition")
+  hrApplications JobApplication[] @relation("HRRecruitmentPosition")
   key          String @id
   titleRu      String
   titleTg      String
@@ -1433,6 +1434,7 @@ model RecruitmentPosition {
   detailsTg    String @default("")
   isOpen       Boolean @default(false)
   revision     Int @default(1)
+  screeningRules Json?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @default(now())
   publications RecruitmentPublication[]
@@ -1461,6 +1463,11 @@ model JobApplication {
   customerPosition RecruitmentPosition? @relation("CustomerRecruitmentPosition", fields: [customerPositionKey], references: [key], onDelete: Restrict)
   customerApplicationRevision BigInt?
   customerPortfolio Json?
+  recruitmentResume Json?
+  recruitmentPhoneOverride Boolean @default(false)
+  /// Explicit staff assignment of a historical application, never a CORE source.
+  hrPositionKey String?
+  hrPosition RecruitmentPosition? @relation("HRRecruitmentPosition", fields: [hrPositionKey], references: [key], onDelete: Restrict)
   @@unique([customerInquiryId, customerPositionKey])
   id                             String    @id @default(uuid())
   /// Диалог-источник. Уникален: upsert по нему и держит «одну анкету на разговор».
@@ -10057,4 +10064,43 @@ model CustomerAgentRolloutAssignment {
   telegramComments TelegramGroupComment[]
   @@unique([surface,endpointScopeId,subjectKey],map:"CustomerAgentRolloutAssignment_subject_key")
   @@index([cohortId])
+}
+
+/// Genuine staff recruitment command/outbound ledger. Never a fabricated BOT turn.
+/// PREVIEW/QUEUED are local state; ACCEPTED requires provider receipt, DELIVERED a delivery callback.
+model RecruitmentCommunication {
+  id String @id
+  previewId String
+  jobApplicationId String
+  actorId String
+  purpose String
+  channel String
+  status String @default("PREVIEW")
+  previewHash String
+  snapshotJson Json
+  expiresAt DateTime
+  idempotencyKey String?
+  effectKey String? @unique
+  providerReceipt String?
+  providerStatus String?
+  reason String?
+  resultJson Json?
+  attemptStartedAt DateTime?
+  completedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@unique([previewId, channel])
+  @@unique([actorId, idempotencyKey, channel])
+  @@index([jobApplicationId, createdAt])
+  @@index([status, createdAt])
+  @@index([providerReceipt])
+}
+
+/// Durable webhook inbox: a receipt may arrive before the POST response.
+model RecruitmentSmsReceipt {
+  providerId String @id
+  status String
+  occurredAt DateTime
+  receivedAt DateTime @default(now())
 }

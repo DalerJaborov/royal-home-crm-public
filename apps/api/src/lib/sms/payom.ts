@@ -36,7 +36,7 @@ export interface PayomCredentials {
 
 export type ProviderSendResult =
   | { ok: true; messageId: string | null; parts: number | null; deliveryStatus: string | null }
-  | { ok: false; error: string };
+  | { ok: false; error: string; failureOutcome?: "refused" | "unknown" };
 
 /**
  * Статусы доставки из спецификации. Промежуточные ждут следующего вебхука,
@@ -102,18 +102,20 @@ async function payomFetch(
   path: string,
   init: RequestInit,
   opts: { retryOnAnyNetworkError: boolean }
-): Promise<{ ok: true; res: Response } | { ok: false; error: string }> {
+): Promise<{ ok: true; res: Response } | { ok: false; error: string; failureOutcome: "refused" | "unknown" }> {
   let lastError = "";
+  let failureOutcome: "refused" | "unknown" = "unknown";
   for (const host of PAYOM_HOSTS) {
     try {
       const res = await fetch(`https://${host}${path}`, { ...init, signal: AbortSignal.timeout(TIMEOUT_MS) });
       return { ok: true, res };
     } catch (err) {
       lastError = err instanceof Error ? err.message : String(err);
+      failureOutcome = neverConnected(err) ? "refused" : "unknown";
       if (!opts.retryOnAnyNetworkError && !neverConnected(err)) break;
     }
   }
-  return { ok: false, error: `Payom недоступен: ${lastError}` };
+  return { ok: false, error: `Payom недоступен: ${lastError}`, failureOutcome };
 }
 
 export async function payomSend(
@@ -146,7 +148,7 @@ export async function payomSend(
       deliveryStatus: typeof m?.deliveryStatus === "string" ? m.deliveryStatus : null,
     };
   }
-  return { ok: false, error: describePayomFailure(r.res.status, json) };
+  return { ok: false, error: describePayomFailure(r.res.status, json), failureOutcome: r.res.status >= 500 ? "unknown" : "refused" };
 }
 
 export async function payomBalance(

@@ -229,24 +229,28 @@ describe("слова робота", () => {
   });
 });
 
-describe("кнопка «Позвать на собеседование»", () => {
-  it("без номера робот не звонит, но собеседование сохраняется и HR сказано звонить самому", async () => {
-    // До 02.10.2026 здесь был 400 и правка не применялась; теперь собеседование
-    // сохраняется, звонок не ставится, и экран получает причину словами.
+describe("сохранение встречи отдельно от подтверждённого приглашения", () => {
+  it("старый запрос звонка без предпросмотра не меняет анкету; обычная запись встречи остаётся доступна", async () => {
     const res = await patch(ruAppId, { status: "INTERVIEW", interviewAt: INTERVIEW_AT.toISOString(), inviteCall: true });
-    expect(res.status).toBe(200);
-    expect(res.body.inviteCallQueued).toBe(false);
-    expect(res.body.inviteCallNote).toContain("нет номера");
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe("RECRUITMENT_PREVIEW_REQUIRED");
+    expect((await prisma.jobApplication.findUniqueOrThrow({ where: { id: ruAppId } })).status).toBe("REVIEWED");
+    expect(await prisma.interviewInviteCall.count({ where: { jobApplicationId: ruAppId } })).toBe(0);
+    expect(await prisma.recruitmentCommunication.count({ where: { jobApplicationId: ruAppId } })).toBe(0);
+    // Manual ATS scheduling is still valid and must not initiate either transport.
+    await patch(ruAppId, { status: "INTERVIEW", interviewAt: INTERVIEW_AT.toISOString() }).expect(200);
     expect((await prisma.jobApplication.findUnique({ where: { id: ruAppId } }))?.status).toBe("INTERVIEW");
     expect(await prisma.interviewInviteCall.count({ where: { jobApplicationId: ruAppId } })).toBe(0);
   });
 
-  it("ставит звонок на языке переписки, а переназначение гасит старый", async () => {
-    const first = await patch(tgAppId, { status: "INTERVIEW", interviewAt: INTERVIEW_AT.toISOString(), inviteCall: true });
-    expect(first.status).toBe(200);
-    expect(first.body.inviteCallQueued).toBe(true);
+  it("историческая библиотека сохраняет язык и историю переноса; PATCH сам не создаёт звонок", async () => {
+    await patch(tgAppId, { status: "INTERVIEW", interviewAt: INTERVIEW_AT.toISOString() }).expect(200);
+    expect(await prisma.interviewInviteCall.count({ where: { jobApplicationId: tgAppId } })).toBe(0);
+    // Synthetic historical fixture, not the retired public scheduling entry point.
+    await enqueueInterviewInviteCall({ jobApplicationId: tgAppId, interviewAt: INTERVIEW_AT, requestedById: managerId, now: NOW });
     const later = new Date(INTERVIEW_AT.getTime() + 60 * 60 * 1000);
-    await patch(tgAppId, { interviewAt: later.toISOString(), inviteCall: true });
+    await patch(tgAppId, { interviewAt: later.toISOString() }).expect(200);
+    await enqueueInterviewInviteCall({ jobApplicationId: tgAppId, interviewAt: later, requestedById: managerId, now: NOW });
     const calls = await prisma.interviewInviteCall.findMany({ where: { jobApplicationId: tgAppId }, orderBy: { createdAt: "asc" } });
     expect(calls.map((c) => c.status)).toEqual(["CANCELLED", "PENDING"]);
     expect(calls[1].language).toBe("tg");
@@ -662,7 +666,7 @@ describe("нет звука на линии — кандидатам не зво
   });
 });
 
-describe("PATCH: робот не сможет — собеседование сохраняется, HR говорят словами (02.10.2026)", () => {
+describe("PATCH: старый автоматический запуск закрыт; исторические записи сохраняются", () => {
   beforeEach(async () => {
     await prisma.interviewInviteCall.deleteMany({ where: { jobApplicationId: { in: [aId, bId] } } });
     await prisma.jobApplication.updateMany({ where: { id: { in: [aId, bId] } }, data: { status: "REVIEWED", interviewAt: null } });
@@ -670,61 +674,63 @@ describe("PATCH: робот не сможет — собеседование с�
     await prisma.settings.update({ where: { id: "singleton" }, data: { liveVoiceEnabled: true } });
   });
 
-  it("живой голос выключен — звонок не ставится, причина в ответе", async () => {
+  it("выключенный голос не позволяет обойти требование предпросмотра", async () => {
     await prisma.settings.update({ where: { id: "singleton" }, data: { liveVoiceEnabled: false } });
     const res = await patch(aId, { status: "INTERVIEW", interviewAt: INTERVIEW_AT.toISOString(), inviteCall: true });
-    expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({ inviteCallQueued: false });
-    expect(res.body.inviteCallNote).toContain("выключены");
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe("RECRUITMENT_PREVIEW_REQUIRED");
     expect(await prisma.interviewInviteCall.count({ where: { jobApplicationId: aId } })).toBe(0);
-    expect((await prisma.jobApplication.findUniqueOrThrow({ where: { id: aId } })).status).toBe("INTERVIEW");
+    expect((await prisma.jobApplication.findUniqueOrThrow({ where: { id: aId } })).status).toBe("REVIEWED");
   });
 
-  it("до собеседования меньше часа — робот не успеет, причина в ответе", async () => {
+  it("близкое время встречи не позволяет обойти требование предпросмотра", async () => {
     const soon = new Date(Date.now() + 30 * 60 * 1000);
     const res = await patch(aId, { status: "INTERVIEW", interviewAt: soon.toISOString(), inviteCall: true });
-    expect(res.status).toBe(200);
-    expect(res.body.inviteCallQueued).toBe(false);
-    expect(res.body.inviteCallNote).toContain("не успеет");
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe("RECRUITMENT_PREVIEW_REQUIRED");
+    expect(await prisma.interviewInviteCall.count({ where: { jobApplicationId: aId } })).toBe(0);
+    expect((await prisma.jobApplication.findUniqueOrThrow({ where: { id: aId } })).interviewAt).toBeNull();
+  });
+
+  it("неподдерживаемый номер не превращает старый PATCH в команду отправки", async () => {
+    await prisma.jobApplication.update({ where: { id: aId }, data: { phone: "+79991234567" } });
+    const res = await patch(aId, { status: "INTERVIEW", interviewAt: INTERVIEW_AT.toISOString(), inviteCall: true });
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe("RECRUITMENT_PREVIEW_REQUIRED");
     expect(await prisma.interviewInviteCall.count({ where: { jobApplicationId: aId } })).toBe(0);
   });
 
-  it("номер не таджикский — станция не наберёт, причина в ответе", async () => {
-    await prisma.jobApplication.update({ where: { id: aId }, data: { phone: "+79991234567" } });
-    const res = await patch(aId, { status: "INTERVIEW", interviewAt: INTERVIEW_AT.toISOString(), inviteCall: true });
-    expect(res.body.inviteCallQueued).toBe(false);
-    expect(res.body.inviteCallNote).toContain("не похож на таджикский");
-  });
-
-  it("R5: то же время с галочкой после состоявшегося звонка — второго звонка нет", async () => {
+  it("R5: закрытый PATCH не меняет уже состоявшийся исторический звонок", async () => {
     await prisma.jobApplication.update({ where: { id: aId }, data: { status: "INTERVIEW", interviewAt: INTERVIEW_AT } });
-    await addCall(aId, { status: "DONE", outcome: "CONFIRMED", attempts: 1 });
+    const original = await addCall(aId, { status: "DONE", outcome: "CONFIRMED", attempts: 1 });
     const res = await patch(aId, { status: "INTERVIEW", interviewAt: INTERVIEW_AT.toISOString(), inviteCall: true });
-    expect(res.status).toBe(200);
-    expect(res.body.inviteCallQueued).toBe(false);
-    expect(res.body.inviteCallNote).toContain("уже звонил");
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe("RECRUITMENT_PREVIEW_REQUIRED");
+    expect(await prisma.interviewInviteCall.findUniqueOrThrow({ where: { id: original.id } })).toEqual(original);
     expect(await prisma.interviewInviteCall.count({ where: { jobApplicationId: aId, status: "PENDING" } })).toBe(0);
   });
 
-  it("R5: то же время, пока робот звонит, — второй звонок не ставится", async () => {
+  it("R5: закрытый PATCH не меняет текущий исторический звонок", async () => {
     await prisma.jobApplication.update({ where: { id: aId }, data: { status: "INTERVIEW", interviewAt: INTERVIEW_AT } });
-    await addCall(aId, { status: "CALLING", channelId: `now-${tail}`, attempts: 1, lastAttemptAt: new Date() });
+    const original = await addCall(aId, { status: "CALLING", channelId: `now-${tail}`, attempts: 1, lastAttemptAt: new Date() });
     const res = await patch(aId, { interviewAt: INTERVIEW_AT.toISOString(), inviteCall: true });
-    expect(res.body.inviteCallQueued).toBe(false);
-    expect(res.body.inviteCallNote).toContain("сейчас звонит");
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe("RECRUITMENT_PREVIEW_REQUIRED");
+    expect(await prisma.interviewInviteCall.findUniqueOrThrow({ where: { id: original.id } })).toEqual(original);
     expect(await prisma.interviewInviteCall.count({ where: { jobApplicationId: aId, status: "PENDING" } })).toBe(0);
   });
 
   it("R11: отказ кандидату гасит ждущий звонок в той же записи", async () => {
-    const first = await patch(aId, { status: "INTERVIEW", interviewAt: INTERVIEW_AT.toISOString(), inviteCall: true });
-    expect(first.body.inviteCallQueued).toBe(true);
-    await patch(aId, { status: "REJECTED" });
+    await prisma.jobApplication.update({ where: { id: aId }, data: { status: "INTERVIEW", interviewAt: INTERVIEW_AT } });
+    await addCall(aId);
+    await patch(aId, { status: "REJECTED" }).expect(200);
     const calls = await prisma.interviewInviteCall.findMany({ where: { jobApplicationId: aId } });
     expect(calls.map((c) => c.status)).toEqual(["CANCELLED"]);
   });
 
   it("R11: время сменили без галочки — старый звонок гаснет", async () => {
-    await patch(aId, { status: "INTERVIEW", interviewAt: INTERVIEW_AT.toISOString(), inviteCall: true });
+    await prisma.jobApplication.update({ where: { id: aId }, data: { status: "INTERVIEW", interviewAt: INTERVIEW_AT } });
+    await addCall(aId);
     const later = new Date(INTERVIEW_AT.getTime() + 2 * 60 * 60 * 1000);
     const res = await patch(aId, { interviewAt: later.toISOString() });
     expect(res.status).toBe(200);
@@ -734,9 +740,11 @@ describe("PATCH: робот не сможет — собеседование с�
   });
 
   it("R11: правка заметки без смены времени звонок не трогает", async () => {
-    await patch(aId, { status: "INTERVIEW", interviewAt: INTERVIEW_AT.toISOString(), inviteCall: true });
-    await patch(aId, { interviewNote: "взять резюме", interviewAt: INTERVIEW_AT.toISOString() });
+    await prisma.jobApplication.update({ where: { id: aId }, data: { status: "INTERVIEW", interviewAt: INTERVIEW_AT } });
+    const original = await addCall(aId);
+    await patch(aId, { interviewNote: "взять резюме", interviewAt: INTERVIEW_AT.toISOString() }).expect(200);
     const calls = await prisma.interviewInviteCall.findMany({ where: { jobApplicationId: aId } });
     expect(calls.map((c) => c.status)).toEqual(["PENDING"]);
+    expect(calls[0]).toEqual(original);
   });
 });

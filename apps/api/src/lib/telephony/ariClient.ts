@@ -485,7 +485,7 @@ export async function originateToStasisApp(
   creds: AriCredentials,
   endpoint: string,
   app: string,
-  options?: { callerId?: string; timeoutSeconds?: number }
+  options?: { callerId?: string; timeoutSeconds?: number; channelId?: string }
 ): Promise<OriginateCallResult> {
   const auth = Buffer.from(`${creds.username}:${creds.password}`).toString("base64");
   const params = new URLSearchParams({
@@ -494,6 +494,7 @@ export async function originateToStasisApp(
     timeout: String(options?.timeoutSeconds ?? 30),
   });
   if (options?.callerId) params.set("callerId", options.callerId);
+  if (options?.channelId) params.set("channelId", options.channelId);
   try {
     const res = await fetch(`${creds.url}/ari/channels?${params.toString()}`, {
       method: "POST",

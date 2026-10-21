@@ -44,6 +44,7 @@
     "heic-decode": "^2.1.0",
     "helmet": "^8.2.0",
     "jsonwebtoken": "^9.0.2",
+    "mammoth": "^1.13.0",
     "multer": "^2.3.0",
     "node-cron": "^4.6.0",
     "otpauth": "^9.5.1",
@@ -52,6 +53,7 @@
     "sharp": "^0.35.4",
     "web-push": "^3.6.7",
     "ws": "^8.21.2",
+    "yauzl": "^3.4.0",
     "zod": "^4.6.2"
   },
   "devDependencies": {

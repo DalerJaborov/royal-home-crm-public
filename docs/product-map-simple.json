@@ -13,13 +13,13 @@
  },
  "totals": {
   "screens": 51,
-  "paths": 647,
+  "paths": 650,
   "cron": 107,
   "jobs": 31,
-  "conditions": 3563,
-  "untranslatedUnique": 390,
-  "untranslatedTotal": 497,
-  "partialUnique": 1018,
+  "conditions": 3568,
+  "untranslatedUnique": 391,
+  "untranslatedTotal": 498,
+  "partialUnique": 1022,
   "translatedShare": 86
  },
  "untranslated": [
@@ -184,6 +184,7 @@
   "before && before.role !== rest.role && before.permissions !== null",
   "body.length !== expectedSize",
   "body.phone === null || body.phone.trim() === \"\"",
+  "body.status !== undefined || body.interviewAt !== undefined || body.phone !== undefined || body.positionKey !…",
   "bot.channel === WEBSITE_CHANNEL || transport",
   "botAlreadyAskedPhone(history)",
   "botChannel && !toggles.channels[botChannel]",
@@ -2399,22 +2400,22 @@
      "conf": "через общую часть"
     },
     {
-     "i": 621,
+     "i": 622,
      "direct": false,
      "conf": "через общую часть"
     },
     {
-     "i": 623,
+     "i": 626,
      "direct": false,
      "conf": "через общую часть"
     },
     {
-     "i": 625,
+     "i": 628,
      "direct": false,
      "conf": "через общую часть"
     },
     {
-     "i": 631,
+     "i": 634,
      "direct": false,
      "conf": "через общую часть"
     }
@@ -2700,22 +2701,22 @@
      "conf": "через общую часть"
     },
     {
-     "i": 621,
+     "i": 622,
      "direct": false,
      "conf": "через общую часть"
     },
     {
-     "i": 623,
+     "i": 626,
      "direct": false,
      "conf": "через общую часть"
     },
     {
-     "i": 625,
+     "i": 628,
      "direct": false,
      "conf": "через общую часть"
     },
     {
-     "i": 631,
+     "i": 634,
      "direct": false,
      "conf": "через общую часть"
     }
@@ -3427,37 +3428,37 @@
      "conf": "через общую часть"
     },
     {
-     "i": 621,
+     "i": 622,
      "direct": false,
      "conf": "через общую часть"
     },
     {
-     "i": 623,
+     "i": 626,
      "direct": false,
      "conf": "через общую часть"
     },
     {
-     "i": 625,
+     "i": 628,
      "direct": false,
      "conf": "через общую часть"
     },
     {
-     "i": 631,
+     "i": 634,
      "direct": false,
      "conf": "через общую часть"
     },
     {
-     "i": 644,
+     "i": 647,
      "direct": false,
      "conf": "через общую часть"
     },
     {
-     "i": 645,
+     "i": 648,
      "direct": false,
      "conf": "через общую часть"
     },
     {
-     "i": 646,
+     "i": 649,
      "direct": false,
      "conf": "через общую часть"
     }
@@ -5478,22 +5479,22 @@
      "conf": "через общую часть"
     },
     {
-     "i": 621,
+     "i": 622,
      "direct": false,
      "conf": "через общую часть"
     },
     {
-     "i": 623,
+     "i": 626,
      "direct": false,
      "conf": "через общую часть"
     },
     {
-     "i": 625,
+     "i": 628,
      "direct": false,
      "conf": "через общую часть"
     },
     {
-     "i": 631,
+     "i": 634,
      "direct": false,
      "conf": "через общую часть"
     }
@@ -9175,102 +9176,17 @@
    "redirect": null,
    "eps": [
     {
+     "i": 51,
+     "direct": false,
+     "conf": "через общую часть"
+    },
+    {
      "i": 179,
      "direct": false,
      "conf": "через часть экрана"
     },
     {
      "i": 180,
-     "direct": false,
-     "conf": "через часть экрана"
-    },
-    {
-     "i": 348,
-     "direct": false,
-     "conf": "через часть экрана"
-    },
-    {
-     "i": 361,
-     "direct": false,
-     "conf": "через часть экрана"
-    },
-    {
-     "i": 365,
-     "direct": false,
-     "conf": "через часть экрана"
-    },
-    {
-     "i": 366,
-     "direct": false,
-     "conf": "через часть экрана"
-    },
-    {
-     "i": 367,
-     "direct": false,
-     "conf": "через часть экрана"
-    },
-    {
-     "i": 368,
-     "direct": false,
-     "conf": "через часть экрана"
-    },
-    {
-     "i": 369,
-     "direct": false,
-     "conf": "через часть экрана"
-    },
-    {
-     "i": 370,
-     "direct": false,
-     "conf": "через часть экрана"
-    },
-    {
-     "i": 371,
-     "direct": false,
-     "conf": "через часть экрана"
-    },
-    {
-     "i": 372,
-     "direct": false,
-     "conf": "через часть экрана"
-    },
-    {
-     "i": 373,
-     "direct": false,
-     "conf": "через часть экрана"
-    },
-    {
-     "i": 374,
-     "direct": false,
-     "conf": "через часть экрана"
-    },
-    {
-     "i": 375,
-     "direct": false,
-     "conf": "через часть экрана"
-    },
-    {
-     "i": 376,
-     "direct": false,
-     "conf": "через часть экрана"
-    },
-    {
-     "i": 377,
-     "direct": false,
-     "conf": "через часть экрана"
-    },
-    {
-     "i": 378,
-     "direct": false,
-     "conf": "через часть экрана"
-    },
-    {
-     "i": 379,
-     "direct": false,
-     "conf": "через часть экрана"
-    },
-    {
-     "i": 380,
      "direct": false,
      "conf": "через часть экрана"
     },
@@ -9282,25 +9198,25 @@
     {
      "i": 621,
      "direct": false,
+     "conf": "через общую часть"
+    },
+    {
+     "i": 622,
+     "direct": false,
      "conf": "через часть экрана"
     },
     {
-     "i": 623,
+     "i": 624,
      "direct": false,
-     "conf": "через часть экрана"
+     "conf": "через общую часть"
     },
     {
      "i": 625,
      "direct": false,
-     "conf": "через часть экрана"
+     "conf": "через общую часть"
     },
     {
      "i": 626,
-     "direct": false,
-     "conf": "через часть экрана"
-    },
-    {
-     "i": 627,
      "direct": false,
      "conf": "через часть экрана"
     },
@@ -9321,6 +9237,21 @@
     },
     {
      "i": 631,
+     "direct": false,
+     "conf": "через часть экрана"
+    },
+    {
+     "i": 632,
+     "direct": false,
+     "conf": "через часть экрана"
+    },
+    {
+     "i": 633,
+     "direct": true,
+     "conf": "точно"
+    },
+    {
+     "i": 634,
      "direct": false,
      "conf": "через часть экрана"
     }
@@ -13072,7 +13003,8 @@
     "есть право: messages.viewAttachments"
    ],
    "screens": [
-    "/messages"
+    "/messages",
+    "/vacancies"
    ],
    "tree": [
     {
@@ -35754,8 +35686,7 @@
    ],
    "screens": [
     "/profile",
-    "/properties/map",
-    "/vacancies"
+    "/properties/map"
    ],
    "tree": [
     {
@@ -36401,8 +36332,7 @@
    ],
    "screens": [
     "/profile",
-    "/properties/map",
-    "/vacancies"
+    "/properties/map"
    ],
    "tree": [
     {
@@ -36669,8 +36599,7 @@
    "screens": [
     "/activity",
     "/oversight",
-    "/security",
-    "/vacancies"
+    "/security"
    ],
    "tree": [
     {
@@ -36698,8 +36627,7 @@
    "screens": [
     "/activity",
     "/oversight",
-    "/security",
-    "/vacancies"
+    "/security"
    ],
    "tree": [
     {
@@ -36740,8 +36668,7 @@
    "screens": [
     "/activity",
     "/oversight",
-    "/security",
-    "/vacancies"
+    "/security"
    ],
    "tree": [
     {
@@ -36769,8 +36696,7 @@
    "screens": [
     "/activity",
     "/oversight",
-    "/security",
-    "/vacancies"
+    "/security"
    ],
    "tree": [
     {
@@ -36798,8 +36724,7 @@
    "screens": [
     "/activity",
     "/oversight",
-    "/security",
-    "/vacancies"
+    "/security"
    ],
    "tree": [
     {
@@ -36827,8 +36752,7 @@
    "screens": [
     "/activity",
     "/oversight",
-    "/security",
-    "/vacancies"
+    "/security"
    ],
    "tree": [
     {
@@ -36856,8 +36780,7 @@
    "screens": [
     "/activity",
     "/oversight",
-    "/security",
-    "/vacancies"
+    "/security"
    ],
    "tree": [
     {
@@ -36885,8 +36808,7 @@
    "screens": [
     "/activity",
     "/oversight",
-    "/security",
-    "/vacancies"
+    "/security"
    ],
    "tree": [
     {
@@ -36915,8 +36837,7 @@
    "screens": [
     "/activity",
     "/oversight",
-    "/security",
-    "/vacancies"
+    "/security"
    ],
    "tree": [
     {
@@ -36963,8 +36884,7 @@
    "screens": [
     "/activity",
     "/oversight",
-    "/security",
-    "/vacancies"
+    "/security"
    ],
    "tree": [
     {
@@ -37005,8 +36925,7 @@
    "screens": [
     "/activity",
     "/oversight",
-    "/security",
-    "/vacancies"
+    "/security"
    ],
    "tree": [
     {
@@ -37034,8 +36953,7 @@
    "screens": [
     "/activity",
     "/oversight",
-    "/security",
-    "/vacancies"
+    "/security"
    ],
    "tree": [
     {
@@ -37063,8 +36981,7 @@
    "screens": [
     "/activity",
     "/oversight",
-    "/security",
-    "/vacancies"
+    "/security"
    ],
    "tree": [
     {
@@ -37092,8 +37009,7 @@
    "screens": [
     "/activity",
     "/oversight",
-    "/security",
-    "/vacancies"
+    "/security"
    ],
    "tree": [
     {
@@ -37121,8 +37037,7 @@
    "screens": [
     "/activity",
     "/oversight",
-    "/security",
-    "/vacancies"
+    "/security"
    ],
    "tree": [
     {
@@ -37150,8 +37065,7 @@
    "screens": [
     "/activity",
     "/oversight",
-    "/security",
-    "/vacancies"
+    "/security"
    ],
    "tree": [
     {
@@ -56064,7 +55978,7 @@
    ],
    "tree": [
     {
-     "t": "если нет: application",
+     "t": "если нет: application или статус — «NOT_CANDIDATE»",
      "k": "if",
      "a": [],
      "c": [
@@ -56171,6 +56085,46 @@
   },
   {
    "i": 621,
+   "title": "Показать: contact options",
+   "where": "apps/api/src/routes/recruitmentCommunications.ts",
+   "method": "GET",
+   "full": "/api/v1/vacancies/:id/contact-options",
+   "mount": "/api/v1/vacancies",
+   "module": "Кандидаты на вакансии",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "вход выполнен",
+    "есть право: vacancies.view",
+    "validateApplicationId"
+   ],
+   "screens": [
+    "/vacancies"
+   ],
+   "tree": [
+    {
+     "t": "пробует сделать",
+     "k": "try",
+     "a": [],
+     "c": [
+      {
+       "t": "всё хорошо, отвечает данными",
+       "k": "do",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
+     "t": "если не получилось",
+     "k": "catch",
+     "a": [],
+     "c": []
+    }
+   ]
+  },
+  {
+   "i": 622,
    "title": "Показать: переписка",
    "where": "apps/api/src/routes/vacancies.ts",
    "method": "GET",
@@ -56239,7 +56193,7 @@
    ]
   },
   {
-   "i": 622,
+   "i": 623,
    "title": "Показать: cv",
    "where": "apps/api/src/routes/vacancies.ts",
    "method": "GET",
@@ -56284,7 +56238,113 @@
    ]
   },
   {
-   "i": 623,
+   "i": 624,
+   "title": "Добавить: предпросмотр",
+   "where": "apps/api/src/routes/recruitmentCommunications.ts",
+   "method": "POST",
+   "full": "/api/v1/vacancies/:id/invitations/preview",
+   "mount": "/api/v1/vacancies",
+   "module": "Кандидаты на вакансии",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "вход выполнен",
+    "есть право: vacancies.view",
+    "validateApplicationId"
+   ],
+   "screens": [
+    "/vacancies"
+   ],
+   "tree": [
+    {
+     "t": "если нет: success",
+     "k": "if",
+     "a": [],
+     "c": [
+      {
+       "t": "отказ: данные неверные: «Проверьте время, каналы и условия обращения»",
+       "k": "do",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
+     "t": "пробует сделать",
+     "k": "try",
+     "a": [],
+     "c": [
+      {
+       "t": "всё хорошо, отвечает данными",
+       "k": "do",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
+     "t": "если не получилось",
+     "k": "catch",
+     "a": [],
+     "c": []
+    }
+   ]
+  },
+  {
+   "i": 625,
+   "title": "Добавить: invitations",
+   "where": "apps/api/src/routes/recruitmentCommunications.ts",
+   "method": "POST",
+   "full": "/api/v1/vacancies/:id/invitations",
+   "mount": "/api/v1/vacancies",
+   "module": "Кандидаты на вакансии",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "вход выполнен",
+    "есть право: vacancies.view",
+    "validateApplicationId"
+   ],
+   "screens": [
+    "/vacancies"
+   ],
+   "tree": [
+    {
+     "t": "если нет: success",
+     "k": "if",
+     "a": [],
+     "c": [
+      {
+       "t": "отказ: данные неверные: «Нужны актуальный предпросмотр и ключ операции»",
+       "k": "do",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
+     "t": "пробует сделать",
+     "k": "try",
+     "a": [],
+     "c": [
+      {
+       "t": "всё хорошо, отвечает данными",
+       "k": "do",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
+     "t": "если не получилось",
+     "k": "catch",
+     "a": [],
+     "c": []
+    }
+   ]
+  },
+  {
+   "i": 626,
    "title": "Показать: invite звонок recording",
    "where": "apps/api/src/routes/vacancies.ts",
    "method": "GET",
@@ -56333,7 +56393,7 @@
    ]
   },
   {
-   "i": 624,
+   "i": 627,
    "title": "Показать: portfolio",
    "where": "apps/api/src/routes/vacancies.ts",
    "method": "GET",
@@ -56378,7 +56438,7 @@
    ]
   },
   {
-   "i": 625,
+   "i": 628,
    "title": "Изменить: вакансии",
    "where": "apps/api/src/routes/vacancies.ts",
    "method": "PATCH",
@@ -56413,6 +56473,19 @@
      ]
     },
     {
+     "t": "если есть invite звонок",
+     "k": "if",
+     "a": [],
+     "c": [
+      {
+       "t": "отказ: данные неверные: «Подготовьте приглашение с предпросмотром и выберите SMS или звонок…»",
+       "k": "do",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
      "t": "если нет: такая запись",
      "k": "if",
      "a": [],
@@ -56422,6 +56495,39 @@
        "k": "do",
        "a": [],
        "c": []
+      }
+     ]
+    },
+    {
+     "t": "если position ключ задан",
+     "k": "if",
+     "a": [],
+     "c": [
+      {
+       "t": "если есть customer inquiry",
+       "k": "if",
+       "a": [],
+       "c": [
+        {
+         "t": "отказ: такое уже есть: «Вакансия этой анкеты связана с обращением нового ядра.»",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
+      },
+      {
+       "t": "если нет: position",
+       "k": "if",
+       "a": [],
+       "c": [
+        {
+         "t": "отказ: данные неверные: «Выберите существующую вакансию»",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
       }
      ]
     },
@@ -56505,6 +56611,12 @@
        ]
       }
      ]
+    },
+    {
+     "t": "если position ключ задан",
+     "k": "if",
+     "a": [],
+     "c": []
     },
     {
      "t": "если есть статус",
@@ -56614,6 +56726,20 @@
      ],
      "c": [
       {
+       "t": "если body.status !== undefined || body.interviewAt !== undefined || body.phone !== undefined || body.positionKey !…",
+       "k": "if",
+       "a": [],
+       "c": [
+        {
+         "t": "если есть активен",
+         "k": "if",
+         "a": [],
+         "c": []
+        }
+       ],
+       "raw": "body.status !== undefined || body.interviewAt !== undefined || body.phone !== undefined || body.positionKey !…"
+      },
+      {
        "t": "меняет: задание application",
        "k": "do",
        "a": [],
@@ -56647,12 +56773,25 @@
      ]
     },
     {
+     "t": "если saved — «calling»",
+     "k": "if",
+     "a": [],
+     "c": [
+      {
+       "t": "отказ: такое уже есть: «Ассистент сейчас говорит с кандидатом. Дождитесь результата звонка…»",
+       "k": "do",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
      "t": "если нет: saved",
      "k": "if",
      "a": [],
      "c": [
       {
-       "t": "отказ: не нашли: «Анкета не найдена»",
+       "t": "отказ: такое уже есть: «Анкета уже изменилась. Обновите её и повторите действие.»",
        "k": "do",
        "a": [],
        "c": []
@@ -56674,7 +56813,7 @@
    ]
   },
   {
-   "i": 626,
+   "i": 629,
    "title": "Заменить: positions",
    "where": "apps/api/src/routes/recruitmentPositions.ts",
    "method": "PUT",
@@ -56808,7 +56947,7 @@
        "a": [],
        "c": [
         {
-         "t": "отказ: такое уже есть: «Достигнут лимит: 24 позиции. Закройте или отредактируйте существующую.»",
+         "t": "отказ: такое уже есть: «Достигнут лимит: 24 позиции. Отредактируйте существующую позицию.»",
          "k": "do",
          "a": [],
          "c": []
@@ -56847,7 +56986,7 @@
    ]
   },
   {
-   "i": 627,
+   "i": 630,
    "title": "Показать: recovery",
    "where": "apps/api/src/routes/recruitmentPositions.ts",
    "method": "GET",
@@ -56901,7 +57040,7 @@
    ]
   },
   {
-   "i": 628,
+   "i": 631,
    "title": "Добавить: recovery",
    "where": "apps/api/src/routes/recruitmentPositions.ts",
    "method": "POST",
@@ -56956,7 +57095,7 @@
    ]
   },
   {
-   "i": 629,
+   "i": 632,
    "title": "Показать: templates",
    "where": "apps/api/src/routes/recruitmentPositions.ts",
    "method": "GET",
@@ -56982,7 +57121,7 @@
    ]
   },
   {
-   "i": 630,
+   "i": 633,
    "title": "Показать: positions",
    "where": "apps/api/src/routes/recruitmentPositions.ts",
    "method": "GET",
@@ -57021,7 +57160,7 @@
    ]
   },
   {
-   "i": 631,
+   "i": 634,
    "title": "Показать: вакансии",
    "where": "apps/api/src/routes/vacancies.ts",
    "method": "GET",
@@ -57064,7 +57203,7 @@
    ]
   },
   {
-   "i": 632,
+   "i": 635,
    "title": "Добавить: Google бюджет",
    "where": "apps/api/src/routes/budgetWebhook.ts",
    "method": "POST",
@@ -57214,7 +57353,7 @@
    ]
   },
   {
-   "i": 633,
+   "i": 636,
    "title": "Показать: Meta",
    "where": "apps/api/src/routes/webhooks.ts",
    "method": "GET",
@@ -57249,7 +57388,7 @@
    ]
   },
   {
-   "i": 634,
+   "i": 637,
    "title": "Добавить: Meta",
    "where": "apps/api/src/routes/webhooks.ts",
    "method": "POST",
@@ -57478,7 +57617,7 @@
    ]
   },
   {
-   "i": 635,
+   "i": 638,
    "title": "Добавить: сайт обложка картинка",
    "where": "apps/api/src/routes/webhooks.ts",
    "method": "POST",
@@ -57589,7 +57728,7 @@
    ]
   },
   {
-   "i": 636,
+   "i": 639,
    "title": "Добавить: сайт заявка статус",
    "where": "apps/api/src/routes/webhooks.ts",
    "method": "POST",
@@ -57685,7 +57824,7 @@
    ]
   },
   {
-   "i": 637,
+   "i": 640,
    "title": "Добавить: сайт публикация изменённые",
    "where": "apps/api/src/routes/webhooks.ts",
    "method": "POST",
@@ -57808,7 +57947,7 @@
    ]
   },
   {
-   "i": 638,
+   "i": 641,
    "title": "Добавить: сайт публикация добавленные или обновлённые",
    "where": "apps/api/src/routes/webhooks.ts",
    "method": "POST",
@@ -58060,7 +58199,7 @@
    ]
   },
   {
-   "i": 639,
+   "i": 642,
    "title": "Добавить: Telegram",
    "where": "apps/api/src/routes/webhooks.ts",
    "method": "POST",
@@ -58142,7 +58281,7 @@
    ]
   },
   {
-   "i": 640,
+   "i": 643,
    "title": "Показать: сайт чат",
    "where": "apps/api/src/routes/webhooks.ts",
    "method": "GET",
@@ -58217,7 +58356,7 @@
    ]
   },
   {
-   "i": 641,
+   "i": 644,
    "title": "Добавить: сайт чат",
    "where": "apps/api/src/routes/webhooks.ts",
    "method": "POST",
@@ -58337,7 +58476,7 @@
    ]
   },
   {
-   "i": 642,
+   "i": 645,
    "title": "Добавить: сайт заявка",
    "where": "apps/api/src/routes/webhooks.ts",
    "method": "POST",
@@ -58437,7 +58576,7 @@
    ]
   },
   {
-   "i": 643,
+   "i": 646,
    "title": "Показать: сайт рабочие часы",
    "where": "apps/api/src/routes/webhooks.ts",
    "method": "GET",
@@ -58480,7 +58619,7 @@
    ]
   },
   {
-   "i": 644,
+   "i": 647,
    "title": "Изменить: account",
    "where": "apps/api/src/routes/whatsappTemplates.ts",
    "method": "PATCH",
@@ -58525,7 +58664,7 @@
    ]
   },
   {
-   "i": 645,
+   "i": 648,
    "title": "Добавить: submit",
    "where": "apps/api/src/routes/whatsappTemplates.ts",
    "method": "POST",
@@ -58585,7 +58724,7 @@
    ]
   },
   {
-   "i": 646,
+   "i": 649,
    "title": "Показать: WhatsApp templates",
    "where": "apps/api/src/routes/whatsappTemplates.ts",
    "method": "GET",
@@ -62977,51 +63116,33 @@
        "a": [],
        "c": [
         {
-         "t": "если нет: включено",
-         "k": "if",
-         "a": [],
-         "c": []
-        },
-        {
-         "t": "если это не внутри публикация показ звонок часы",
-         "k": "if",
-         "a": [],
-         "c": []
-        },
-        {
-         "t": "если есть звук down",
-         "k": "if",
-         "a": [],
-         "c": []
-        },
-        {
          "t": "и так по каждому",
          "k": "loop",
          "a": [],
          "c": [
           {
-           "t": "если ответ — «started»",
+           "t": "если есть ended at",
            "k": "if",
            "a": [],
            "c": [],
            "more": true
           },
           {
-           "t": "если ответ — «busy»",
-           "k": "if",
+           "t": "иначе",
+           "k": "else",
            "a": [],
            "c": [],
            "more": true
           }
          ]
+        },
+        {
+         "t": "и так по каждому",
+         "k": "loop",
+         "a": [],
+         "c": []
         }
        ]
-      },
-      {
-       "t": "если есть started",
-       "k": "if",
-       "a": [],
-       "c": []
       }
      ]
     },

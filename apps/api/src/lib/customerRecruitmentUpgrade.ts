@@ -16,3 +16,19 @@ export function isCustomerRecruitmentUpgradeV1(prior: Protocol, next: Protocol):
   return prior.promptHash === pair.fromPrompt && next.promptHash === pair.toPrompt &&
     prior.toolSchemaHash === pair.fromTools && next.toolSchemaHash === pair.toTools;
 }
+
+/** Separate résumé/question protocol after the availability catalog release.
+ * This exact source pair is only a qualification check, never activation or
+ * permission. The owner must explicitly acknowledge v2; all existing runtime,
+ * provider, policy, source-lane and idle-publication guards still apply. */
+export const CUSTOMER_RECRUITMENT_RESUME_UPGRADE_V2 = Object.freeze({
+  fromPrompt: "25d5b1cbb2633cd6289635cdb11d743e7490f29b82b992ec753d15ab3ea14a86",
+  toPrompt: "eaf64976e609e5e010bb89a249740489c3acd3720b56c5359e0c6a9c4da9ba3a",
+  fromTools: "16dcce629b9cec908e64942333769bdc05353fbe5675726fe9c9cfd3c9ee7b67",
+  toTools: "16dcce629b9cec908e64942333769bdc05353fbe5675726fe9c9cfd3c9ee7b67",
+});
+export function isCustomerRecruitmentResumeUpgradeV2(prior: Protocol, next: Protocol): boolean {
+  const pair = CUSTOMER_RECRUITMENT_RESUME_UPGRADE_V2;
+  return prior.promptHash === pair.fromPrompt && next.promptHash === pair.toPrompt &&
+    prior.toolSchemaHash === pair.fromTools && next.toolSchemaHash === pair.toTools;
+}

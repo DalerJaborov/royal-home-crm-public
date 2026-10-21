@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { recruitmentScreeningRulesSchema } from "./recruitmentResume.js";
+export * from "./recruitmentResume.js";
 
 const label = z.string().trim().min(1).max(140);
 const publicText = z.string().trim().max(2000);
@@ -8,6 +10,8 @@ export const recruitmentPositionInputSchema = z.object({
   titleRu: label, titleTg: label,
   detailsRu: publicText, detailsTg: publicText,
   isOpen: z.boolean(),
+  // Optional keeps historic catalog witnesses valid. Rules never decide hiring.
+  screeningRules: recruitmentScreeningRulesSchema.nullable().optional(),
   keywords: z.array(keyword).max(16).refine(values => new Set(values).size === values.length, "Повтор ключевого слова"),
   postCodes: z.array(z.string().regex(/^[A-Za-z0-9_-]{5,128}$/)).max(24)
     .refine(values => new Set(values).size === values.length, "Повтор публикации"),

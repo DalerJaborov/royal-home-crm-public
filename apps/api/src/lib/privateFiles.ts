@@ -57,6 +57,7 @@ const EXT_BY_MIME: Record<string, string> = {
   "video/3gpp": "3gp",
   "video/mpeg": "mpeg",
   "application/pdf": "pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
   "text/plain": "txt",
 };
 

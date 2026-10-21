@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
-import { customerAgentVacanciesObservationSchema, recruitmentPositionSchema, type CustomerAgentVacanciesObservation, type RecruitmentPosition } from "@royal-home/shared";
+import { customerAgentVacanciesObservationSchema, recruitmentPositionSchema, assessRecruitmentResume,
+  type RecruitmentFactKey, type CustomerAgentVacanciesObservation, type RecruitmentPosition } from "@royal-home/shared";
+import { extractRecruitmentResumeFacts, extractRecruitmentAnswerFacts } from "../lib/recruitmentResume.js";
 
 /** Pure public-data validation; never imports DB, candidate records or grants. */
 export function recruitmentCatalogHash(value: Omit<CustomerAgentVacanciesObservation, "kind" | "sourceHash">): string {
@@ -58,3 +60,37 @@ export function recruitmentPositionForTurn(positions: readonly RecruitmentPositi
   }
   return null;
 }
+
+/** Only same-inquiry, already verified customer words. No IDs, HR verdict or
+ * fabricated source keys are produced by this presentation projection. */
+export function recruitmentMissingForTurn(position: RecruitmentPosition, input: { inputText?: string;
+  knownPhone?: boolean; knownFacts?: readonly RecruitmentFactKey[]; answerTo?: RecruitmentFactKey;
+  turns?: readonly { role: "user" | "assistant"; text: string }[] }): RecruitmentFactKey[] {
+  const values: Partial<Record<RecruitmentFactKey, string | number | boolean>> = {};
+  for (const text of [...(input.turns ?? []).filter(turn => turn.role === "user").map(turn => turn.text), input.inputText ?? ""]) {
+    for (const [key, fact] of Object.entries(extractRecruitmentResumeFacts(text))) values[key as RecruitmentFactKey] = fact.value;
+  }
+  for (const [key, fact] of Object.entries(extractRecruitmentAnswerFacts(input.inputText ?? "", input.answerTo))) values[key as RecruitmentFactKey] = fact.value;
+  const missing = assessRecruitmentResume({ rules: position.screeningRules, values,
+    ...(input.knownPhone ? { phone: "known-current-contact" } : {}) }).missing.filter(key => !input.knownFacts?.includes(key));
+  // A résumé can answer several questions at once. Invite it before individual
+  // personal fields, and never demand prior experience as a hiring threshold.
+  return missing.includes("about") ? ["about", ...missing.filter(key => key !== "about")] : missing;
+}
+
+const factQuestions: Record<RecruitmentFactKey, { ru: string; tg: string }> = {
+  about: { ru: "Пришлите резюме или просто расскажите о себе и своём опыте.", tg: "Резюме фиристед ё дар бораи худ ва таҷрибаатон нақл кунед." },
+  name: { ru: "Как к вам обращаться?", tg: "Ба шумо чӣ тавр муроҷиат кунам?" },
+  phone: { ru: "Какой номер телефона хотите оставить для связи?", tg: "Барои тамос кадом рақами телефонро мегузоред?" },
+  city: { ru: "В каком городе вы сейчас живёте?", tg: "Ҳоло дар кадом шаҳр зиндагӣ мекунед?" },
+  age: { ru: "Сколько вам полных лет?", tg: "Шумо чандсола ҳастед?" },
+  studyingNow: { ru: "Вы сейчас учитесь в школе, колледже или вузе? Курсы не считаются.", tg: "Ҳоло дар мактаб, коллеҷ ё донишгоҳ мехонед? Курсҳо ба ҳисоб намераванд." },
+  employedNow: { ru: "Вы сейчас работаете в другом месте?", tg: "Ҳоло дар ҷои дигар кор мекунед?" },
+  education: { ru: "Какое у вас образование?", tg: "Таҳсилоти шумо чӣ гуна аст?" },
+  experience: { ru: "Расскажите о вашем опыте. Если его пока нет, так и напишите — это не означает отказ.", tg: "Дар бораи таҷрибаатон нависед. Агар таҷриба надошта бошед, ҳамин тавр нависед — ин маънои рад шуданро надорад." },
+  languages: { ru: "На каких языках вы говорите?", tg: "Бо кадом забонҳо гап мезанед?" },
+  startWhen: { ru: "Когда готовы приступить к работе?", tg: "Кай ба кор шурӯъ карда метавонед?" },
+  skills: { ru: "Какие задачи вы умеете выполнять самостоятельно?", tg: "Кадом вазифаҳоро мустақилона иҷро карда метавонед?" },
+  tools: { ru: "Какими программами и инструментами пользуетесь?", tg: "Аз кадом барномаҳо ва воситаҳо истифода мебаред?" },
+};
+export function recruitmentRequiredQuestion(key: RecruitmentFactKey, language: "ru" | "tg"): string { return factQuestions[key][language]; }

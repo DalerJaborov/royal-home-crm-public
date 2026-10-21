@@ -1,0 +1,6 @@
+CREATE TABLE "RecruitmentSmsReceipt" (
+  "providerId" TEXT NOT NULL PRIMARY KEY,
+  "status" TEXT NOT NULL,
+  "occurredAt" TIMESTAMP(3) NOT NULL,
+  "receivedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
