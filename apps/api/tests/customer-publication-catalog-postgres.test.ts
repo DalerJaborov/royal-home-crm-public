@@ -49,15 +49,21 @@ it("deduplicates consistent direct/photo mappings rather than inventing ambiguit
   expect((await readCustomerPublicationCatalog(s))?.ids).toEqual([p.id]);
 });
 it("renders real multi-property digest facts in RU/TG while dropping sold/private members", async () => {
-  const s = source("digest"), a = await property(), b = await property({ currency: "USD", price: 54000 }),
+  // A CI retry must not reuse a synthetic publication left by a failed attempt.
+  const s = source(`digest-${randomUUID()}`), a = await property(), b = await property({ currency: "USD", price: 54000 }),
     sold = await property({ status: "SOLD" }), hidden = await property({ offSite: true });
   const post = await prisma.socialDigestPost.create({ data: { kind: "ROOMS", title: "Historic WRONG PRICE 1", channel: s.channel,
     status: "PUBLISHED", mediaId: s.publicationId, propertyIds: [a.id, b.id, sold.id, hidden.id] } }); digests.push(post.id);
   const value = await readCustomerPublicationObservation(s, ["price", "characteristics"]);
   expect(value?.cards).toHaveLength(2); expect(await customerPublicationObservationCurrent(value!)).toBe(true);
   for (const language of ["ru", "tg"] as const) {
-    const text = renderCustomerAgentDecision({ decision: { kind: "reply", refs: [], social: "none", question: "none" }, evidence: [{ ref: "e0", value: value! }],
+    const priceOnly = renderCustomerAgentDecision({ decision: { kind: "reply", refs: [], social: "none", question: "none" }, evidence: [{ ref: "e0", value: value! }],
       language, requestedFacts: ["price"], knownPhoneSource: "none", maxOutputChars: 6000, surface: "public_comment" });
+    expect(priceOnly).not.toBeNull(); expect(priceOnly).toContain("456 789"); expect(priceOnly).toContain("54 000 USD");
+    expect(priceOnly).not.toContain("64,5");
+    expect(priceOnly).not.toMatch(/PRIVATE|WRONG|телефон|Рақаматон|записал/); expect(priceOnly).not.toContain(a.id);
+    const text = renderCustomerAgentDecision({ decision: { kind: "reply", refs: [], social: "none", question: "none" }, evidence: [{ ref: "e0", value: value! }],
+      language, requestedFacts: ["price", "characteristics"], knownPhoneSource: "none", maxOutputChars: 6000, surface: "public_comment" });
     expect(text).toContain("456 789"); expect(text).toContain("54 000 USD"); expect(text).toContain("64,5");
     expect(text).not.toMatch(/PRIVATE|WRONG|телефон|Рақаматон|записал/); expect(text).not.toContain(a.id);
   }

@@ -14,3 +14,9 @@ mentions, negations, ambiguous alternatives and document descriptions do not
 establish that preference. Dedicated actual PostgreSQL pipeline cases cover a
 preference change and a subsequent neutral follow-up. Voice and legacy language
 routing remain unchanged.
+
+The post-perception DM language step also honors that same explicit preference.
+A caption requesting Russian in Tajik words previously got changed back to TG
+after image perception. The real media pipeline reproduced this; both requested
+directions are now covered with synthetic provider I/O. The language spoken in
+an unrelated portfolio video is a distinct remaining context question.

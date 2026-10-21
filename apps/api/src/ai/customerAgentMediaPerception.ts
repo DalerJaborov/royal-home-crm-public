@@ -3,6 +3,7 @@ import { managedGeminiMediaFeatures, GEMINI_MANAGED_MEDIA_MAX_WIRE_BYTES } from 
 import type { ProviderOperation } from "./providerContract.js";
 import type { CustomerAgentAwaitContext, CustomerAgentModelTurn } from "./customerAgentModelContracts.js";
 import { detectClientLanguage } from "./clientLanguage.js";
+import { customerDmLanguagePreference } from "./customerDmLanguage.js";
 
 const subjects = ["home_interior", "building_exterior", "floor_plan", "listing_card", "document", "person", "other", "not_visible"] as const;
 const features = ["kitchen", "bathroom", "bedroom", "living_room", "balcony", "stairs", "windows", "furniture", "renovation", "unfinished", "yard", "parking", "land", "floor_plan"] as const;
@@ -76,6 +77,8 @@ export async function perceiveCustomerAgentMedia(input: {
 /** Same language detector as legacy chat. An uncertain provider label must not
  * erase actual Tajik words or let an advertisement choose the customer's language. */
 export function customerAgentMediaReplyLanguage(caption: string, value: CustomerAgentMediaPerception, previous: "ru" | "tg"): "ru" | "tg" {
+  const preference = customerDmLanguagePreference(caption);
+  if (preference) return preference;
   for (const text of [caption, value.transcript]) {
     const detected = detectClientLanguage(text);
     if (detected === "ru" || detected === "tg") return detected;

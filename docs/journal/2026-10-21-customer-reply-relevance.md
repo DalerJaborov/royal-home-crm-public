@@ -16,6 +16,15 @@ A saved application must not hide a question in the same turn: pay aliases and
 explicit question markers conservatively retain the conditions answer. Two
 additional negative regressions reproduced the omission before this correction.
 
+The first combined full run caught a public portfolio question replaced by the
+generic private CV invitation. Retain its original optional professional question
+while adding the private-channel direction. The real digest scenario now asks
+for both price and characteristics explicitly and adds a price-only negative
+control; sold/private membership and freshness assertions are retained.
+The digest's synthetic publication is unique per CI attempt: an assertion failure
+must not leave a same-ID/different-membership post that makes its retry ambiguous.
+The separate intentional catalog collision controls remain unchanged.
+
 A genuine application-saved receipt no longer causes unsolicited republication
 of the vacancy, while an explicit question about its conditions still gets those
 facts. An application invitation already present in the chosen paragraphs is not

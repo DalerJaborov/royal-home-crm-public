@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, expect, it, vi } from "vitest";
 import { prisma } from "../src/db.js";
-import { createCustomerCoreGoldenFixture, reply, call } from "./helpers/customerCoreGoldenFixture.js";
+import { createCustomerCoreGoldenFixture, reply, call, decision } from "./helpers/customerCoreGoldenFixture.js";
 import { consumeCustomerInboxTicket } from "../src/lib/customerIngressProducer.js";
 import * as mediaObservation from "../src/lib/customerAgentMediaObservation.js";
 import { decodeCustomerAgentMediaObservation } from "../src/lib/customerAgentMediaObservation.js";
@@ -27,6 +27,14 @@ afterAll(async () => { await f?.cleanup(); });
 const perception = (overrides: Record<string, unknown> = {}) => ({ functionCall: { name: "perceive_customer_media", id: "media-extraction",
   args: { language: "ru", transcript: "", subject: "home_interior", visible: ["kitchen", "balcony"], readableText: "", speech: "none", ...overrides } } });
 const image = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j4AAAAABJRU5ErkJggg==", "base64");
+it.each([["Ответьте на таджикском", "Фаҳмидам."], ["бо забони русӣ нависед", "Понял."]])(
+  "retains the explicitly requested reply language after media perception: %s", async (caption, expected) => {
+    const owner = await f.owner(), url = f.mediaFixture("image/png", image);
+    const event = await f.capture(owner, caption, [{ type: "image", payload: { url } }]);
+    f.script([[perception({ subject: "not_visible", visible: [], language: "unknown" })],
+      [decision({ kind: "reply", refs: [], social: "acknowledge", question: "none" })]]);
+    expect((await f.deliver(event)).text).toBe(expected);
+  });
 it("a queued caption supersedes the older media reply while its real perceived vacancy remains available to that caption", async () => {
   const key = `synthetic-agent-${randomUUID()}`;
   const settings = await prisma.settings.findUniqueOrThrow({ where: { id: "singleton" }, select: { botCanHandleVacancies: true } });

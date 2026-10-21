@@ -90,6 +90,12 @@ describe("relevant verified answers instead of complete cards", () => {
     expect(result).toContain("Обсудить отклик можно в личных сообщениях.");
     expect(result.match(/резюме/giu)).toHaveLength(1);
   });
+  it.each(["ru", "tg"] as const)("preserves an optional professional portfolio question instead of substituting CV in %s public follow-up", language => {
+    const result = renderJob(language === "ru" ? "Видеограф" : "Видеограф", language, "job_portfolio", { surface: "public_comment" })!;
+    expect(result).toContain(language === "ru" ? "в личные сообщения" : "Дар паёми шахсӣ");
+    expect(result).toContain(language === "ru" ? "портфолио. Это необязательно." : "Ин ҳатмӣ нест.");
+    expect(result).not.toMatch(/резюме/iu);
+  });
 });
 
 const facts = { propertyId: "00000000-0000-4000-8000-000000000001", shortId: 123, price: "123456.78", currency: "TJS" as const,

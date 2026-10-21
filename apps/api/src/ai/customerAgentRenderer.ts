@@ -98,6 +98,14 @@ const questions: Record<CustomerAgentQuestion, { ru: string; tg: string }> = {
   job_format: { ru: "Вам подходит указанный формат работы?", tg: "Шартҳои нашршудаи кор ба шумо мувофиқанд?" },
   job_start: { ru: "Когда готовы приступить к работе?", tg: "Кай ба кор шурӯъ карда метавонед?" },
 };
+function publicRecruitmentQuestion(question: CustomerAgentQuestion, language: "ru" | "tg", experienceIncluded: boolean): string {
+  if (question === "job_experience") return experienceIncluded
+    ? language === "tg" ? "Дархости корро дар паёми шахсӣ муҳокима карда метавонем." : "Обсудить отклик можно в личных сообщениях."
+    : language === "tg" ? "Дар паёми шахсӣ нависед: метавонед резюме фиристед ё дар бораи худ ва таҷрибаатон нақл кунед."
+      : "Напишите нам в личные сообщения: можно прислать резюме или рассказать о себе и своём опыте.";
+  const privateChannel = language === "tg" ? "Дар паёми шахсӣ нависед." : "Напишите нам в личные сообщения.";
+  return `${privateChannel} ${questions[question][language]}`;
+}
 /** Server-owned template, not a model text or presentation proof. */
 export function customerAgentCallbackQuestionText(language: "ru" | "tg"): string { return questions.callback_consent[language]; }
 export function customerAgentNameQuestionText(language: "ru" | "tg"): string { return questions.name[language]; }
@@ -383,10 +391,7 @@ export function renderCustomerAgentDecision(input: {
       evidence.some(e => e?.value.kind === "publication_properties" && e.value.cards.length > 1)
     ? lang === "tg" ? "Кадоме аз ин объектҳо ба шумо писанд омад?" : "Какой из этих объектов вас заинтересовал?"
     : input.surface === "public_comment" && question.startsWith("job_")
-      ? experienceInvitationIncluded
-        ? lang === "tg" ? "Дархости корро дар паёми шахсӣ муҳокима карда метавонем." : "Обсудить отклик можно в личных сообщениях."
-        : lang === "tg" ? "Дар паёми шахсӣ нависед: метавонед резюме фиристед ё дар бораи худ ва таҷрибаатон нақл кунед."
-          : "Напишите нам в личные сообщения: можно прислать резюме или рассказать о себе и своём опыте."
+      ? publicRecruitmentQuestion(question, lang, experienceInvitationIncluded)
     : question === "seller_details" && input.surface === "dm" && intake.role === "seller"
       ? customerSellerIntakeQuestion(intake.sellerKnown, lang)
     : question === "clarify_previous" && input.surface === "dm"
