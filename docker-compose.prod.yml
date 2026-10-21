@@ -123,6 +123,9 @@ services:
       start_period: 45s
     environment: &crm-env
       NODE_ENV: production
+      # Owner-approved temporary settings-only SMS pause; strict again on
+      # 21 November 2026. Empty override disables the pause immediately.
+      SETTINGS_STEP_UP_MAINTENANCE_UNTIL: "${SETTINGS_STEP_UP_MAINTENANCE_UNTIL-2026-11-21T06:30:00.000Z}"
       PORT: 4000
       # Пул потоков libuv (22.09.2026, вместе с параллельной обработкой фото —
       # см. routes/properties/photos.ts). Node по умолчанию даёт 4 потока на

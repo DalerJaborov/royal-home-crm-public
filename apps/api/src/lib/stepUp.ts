@@ -1,4 +1,6 @@
 import type { Request, Response, NextFunction } from "express";
+import { prisma } from "../db.js";
+import { isSettingsMaintenancePath, settingsMaintenanceUntil, settingsMaintenanceWindowUntil } from "./settingsMaintenance.js";
 
 /**
  * Step-up авторизация («sudo-режим») для критичных разделов — Настройки CRM и
@@ -55,8 +57,23 @@ export function revokeElevation(agentId: string): void {
 }
 
 /** 428 Precondition Required — фронт по нему показывает окно подтверждения. */
-export function requireElevation<P>(req: Request<P>, res: Response, next: NextFunction) {
+export async function requireElevation<P>(req: Request<P>, res: Response, next: NextFunction) {
   if (!req.agent) return res.status(401).json({ error: "Не авторизован" });
+  if (!isElevated(req.agent.id) && isSettingsMaintenancePath(req.originalUrl) && settingsMaintenanceWindowUntil()) {
+    try {
+      const actor = await prisma.agent.findUnique({ where: { id: req.agent.id },
+        select: { role: true, permissions: true, isActive: true, totpEnabled: true, fullName: true } });
+      const until = actor && settingsMaintenanceUntil(actor);
+      if (until) {
+        // Record authorization under the temporary policy, not a successful
+        // business action or a fictitious SMS verification.
+        await prisma.auditLog.create({ data: { action: "SETTINGS_MAINTENANCE_ACCESS", entityType: "Settings",
+          entityId: "singleton", agentId: req.agent.id, agentName: actor.fullName,
+          meta: { authority: "settings_maintenance", expiresAt: until, method: req.method, path: req.originalUrl.split("?")[0] } } });
+        return next();
+      }
+    } catch (error) { return next(error); }
+  }
   if (!isElevated(req.agent.id)) {
     return res.status(428).json({ error: "Требуется подтверждение личности", stepUpRequired: true });
   }

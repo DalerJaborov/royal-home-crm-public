@@ -153,7 +153,7 @@ it("a genuine public recruitment keyword reads the current role and replies with
     const f = await fixture("Контент!!!"), w = wire(f, [{ decision: { ...reply, question: "job_portfolio" } }]);
     expect(await handle(f)).toBe("replied");
     expect(w.posts).toHaveLength(1); expect(w.posts[0].text).toContain("SMM-специалист / видеограф");
-    expect(w.posts[0].text).toContain("до трёх лучших работ");
+    expect(w.posts[0].text).toContain("примеры работ или ссылку на портфолио. Это необязательно.");
     expect(w.posts[0].text).not.toMatch(/992|сохранен|сохранён|собеседование назначено|бюджет/iu);
     expect((await part(f)).status).toBe("ACCEPTED");
     expect(await prisma.jobApplication.count({ where: { customerPositionKey: key } })).toBe(0);

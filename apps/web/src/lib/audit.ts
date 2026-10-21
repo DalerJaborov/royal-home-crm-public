@@ -16,6 +16,7 @@
  * в прогоне перед пушем и в CI): новое действие без подписи заворачивается.
  */
 export const AUDIT_ACTION_LABELS: Record<string, string> = {
+  SETTINGS_MAINTENANCE_ACCESS: "Доступ к настройкам в период обслуживания",
   CONVERSATION_CLIENT_LINK: "Переписка связана с клиентом",
   // Общие (совершаются над разными сущностями).
   CREATE: "Создание",

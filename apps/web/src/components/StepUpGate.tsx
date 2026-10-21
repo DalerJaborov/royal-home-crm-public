@@ -9,6 +9,7 @@ import { useStepUpCode, type StepUpMethod } from "../hooks/useStepUpCode";
 interface StepUpStatus {
   elevated: boolean;
   method: StepUpMethod;
+  settingsMaintenanceUntil?: string | null;
 }
 
 /**
@@ -25,6 +26,7 @@ export function StepUpGate({ children }: { children: React.ReactNode }) {
   const [code, setCode] = useState("");
   const codeSend = useStepUpCode(setCode);
   const sendCode = codeSend.send;
+  const maintenanceActive = !!status?.settingsMaintenanceUntil && Date.parse(status.settingsMaintenanceUntil) > now;
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -33,13 +35,13 @@ export function StepUpGate({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (status?.method === "code" && !status.elevated) void sendCode();
-  }, [status?.method, status?.elevated, sendCode]);
+    if (status?.method === "code" && !status.elevated && !maintenanceActive) void sendCode();
+  }, [status?.method, status?.elevated, maintenanceActive, sendCode]);
 
   // Десять минут истекают на открытой странице: сервер начинает отвечать 428, а
   // замок уже снят. Возвращаем его, иначе каждое сохранение молча отказывает.
   useEffect(() => {
-    const onExpired = () => setStatus((s) => (s ? { ...s, elevated: false } : s));
+    const onExpired = () => setStatus((s) => (s ? { ...s, elevated: false, settingsMaintenanceUntil: null } : s));
     window.addEventListener("step-up-required", onExpired);
     return () => window.removeEventListener("step-up-required", onExpired);
   }, []);
@@ -72,7 +74,7 @@ export function StepUpGate({ children }: { children: React.ReactNode }) {
     );
   }
 
-  if (status.elevated) return <>{children}</>;
+  if (status.elevated || maintenanceActive) return <>{children}</>;
 
   const isTotp = status.method === "totp";
   const waitSec = Math.max(0, Math.ceil((codeSend.resendAt - now) / 1000));

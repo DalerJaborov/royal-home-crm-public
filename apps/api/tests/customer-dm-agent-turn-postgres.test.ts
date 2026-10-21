@@ -213,6 +213,18 @@ describe("actual durable DM common core", () => {
     expect(f.io.filter(value => value === "count")).toHaveLength(2);
     expect(f.io.filter(value => value === "generate")).toHaveLength(2);
   });
+  it("a rental inquiry persists the complete refusal without the model's unrelated jobs question", async () => {
+    const f = await fixture("Здравствуйте! Мне нужно квартира аренда");
+    f.setReplies([[{ functionCall: { name: "get_company_policy", args: { topic: "rental" }, id: "rental" } }],
+      [{ text: JSON.stringify({ kind: "reply", refs: ["e0"], social: "greet", question: "topic" }) }]]);
+    const result = await runCustomerDmAgentTurn(f.eventKey);
+    expect(result.status, JSON.stringify(result)).toBe("planned"); if (result.status !== "planned") throw new Error(JSON.stringify(result));
+    const row = await prisma.customerOutboxPart.findUniqueOrThrow({ where: { id: result.partIds[0] } });
+    const payload = decodeCustomerOutboxPayload(row);
+    expect(payload).toMatchObject({ kind: "text", text: "Здравствуйте!\nСейчас арендой не занимаемся: не сдаём и не подбираем в аренду." });
+    expect(decodeCustomerOutboxPublicData(row)).toMatchObject({ observations: [{ kind: "company_policy", topic: "rental" }] });
+    expect(decodeCustomerOutboxPublicData(row)).not.toHaveProperty("callbackQuestion");
+  });
   it("raw policy change revokes execution without replacing the original intake A with B", async () => {
     const f = await fixture();
     const row = await prisma.customerAgentRevision.findUniqueOrThrow({ where: { id: revisionId } });

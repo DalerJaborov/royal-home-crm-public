@@ -19,8 +19,12 @@ export function customerRecruitmentFactsRequested(text: string): boolean {
 }
 /** Only topic projection. This creates no application, consent or HR verdict. */
 export function customerRecruitmentTopic(text: string, previous: "buyer" | "seller" | "job" | "rent" | "unknown", matchedPublication = false) {
-  if (/(?:хочу\s+купить|куплю|ищу\s+(?:квартир|дом)|мехарам|харидан\s+мехоҳ)/iu.test(text)) return "buyer" as const;
+  if (/(?:хочу\s+купить|куплю|мехарам|харидан\s+мехоҳ)/iu.test(text)) return "buyer" as const;
   if (/(?:хочу\s+продать|продаю|продать\s+(?:мою|свою)|мефурӯшам|мефурушам)/iu.test(text)) return "seller" as const;
+  // The customer's current request wins over an old recruitment/ad focus.
+  // "Ищу квартиру в аренду" is rental, not buying or applying for a job.
+  if (/(?:аренд|снять\s+(?:квартир|дом|жиль)|иҷора|ичора)/iu.test(text)) return "rent" as const;
+  if (/ищу\s+(?:квартир|дом)/iu.test(text)) return "buyer" as const;
   return matchedPublication || customerRecruitmentRequested(text) ? "job" as const : previous;
 }
 export function selectedRecruitmentPosition(positions: readonly RecruitmentPosition[], text: string, knownKey?: string): RecruitmentPosition | null {
