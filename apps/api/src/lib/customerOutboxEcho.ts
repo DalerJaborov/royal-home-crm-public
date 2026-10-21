@@ -1,9 +1,15 @@
+import { z } from "zod";
 import { prisma, type TxClient } from "../db.js";
 import { customerDeliveryFenceSchema, customerDeliveryTransportSchema } from "./customerDeliveryContracts.js";
 import { decodeCustomerOutboxPayload } from "./customerOutboxCodec.js";
 import { IN_FLIGHT_ECHO_WINDOW_MS } from "../messengers/inFlightEcho.js";
 import { decryptSecret } from "../crypto.js";
 import { recruitmentRecoveryHash } from "../ai/recruitmentRecoveryReply.js";
+
+// Recovery persists the scoped endpoint returned by the installed-account
+// loader, including its peer. Ordinary P12 parts use the narrower transport.
+// Keep both strict: no unknown keys or implicit peer stripping.
+const recoveryTransportSchema = customerDeliveryTransportSchema.extend({ subscriberId: z.string().min(1).max(512) }).strict();
 
 /** Core projects OUT only after acceptance, so legacy assistant-tail matching
  * has no entry during a real POST. Use that exact durable attempt instead.
@@ -44,13 +50,13 @@ export async function isOwnCustomerOutboxEcho(input: {
         ...(input.messageId ? [{ status: "ACCEPTED", providerMid: input.messageId }] : [])],
     }, orderBy: { createdAt: "desc" }, take: 2 });
     for (const recovery of recoveries) {
-      const fence = customerDeliveryFenceSchema.parse(recovery.fenceJson), transport = customerDeliveryTransportSchema.parse(recovery.transportJson);
+      const fence = customerDeliveryFenceSchema.parse(recovery.fenceJson), transport = recoveryTransportSchema.parse(recovery.transportJson);
       if (recovery.conversationId !== input.conversationId || recovery.originalConversationId !== input.conversationId ||
           recovery.endpointScopeId !== native.endpointScopeId || fence.nativeId !== input.conversationId ||
           fence.endpoint.endpointScopeId !== native.endpointScopeId || fence.endpoint.accountId !== input.accountId ||
           fence.endpoint.channel !== input.channel || fence.endpoint.peerId !== input.peer ||
           transport.endpointScopeId !== native.endpointScopeId || transport.accountId !== input.accountId ||
-          transport.channel !== input.channel || transport.scopeRevision !== fence.scopeRevision) continue;
+          transport.channel !== input.channel || transport.subscriberId !== input.peer || transport.scopeRevision !== fence.scopeRevision) continue;
       if (recovery.status === "ACCEPTED" && recovery.finishedAt && input.messageId && recovery.providerMid === input.messageId) return true;
       if (recovery.status !== "IN_FLIGHT" || !recovery.attemptAt || recovery.attemptAt < since || recovery.attemptAt.getTime() > now) continue;
       const text = input.text.replace(/\s+/gu, " ").trim(), payload = decryptSecret(recovery.payloadEncrypted);

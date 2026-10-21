@@ -276,7 +276,7 @@ export async function waitForMergeReadiness({gh, number, headSha, mainSha, sleep
   }
 }
 /** Сколько ждать, пока GitHub заведёт прогон после пуша, и весь прогон целиком. */
-const CLOUD_APPEAR_MS = 5 * 60_000;
+const CLOUD_APPEAR_MS = 15 * 60_000;
 const CLOUD_TOTAL_MS = 90 * 60_000;
 
 /**
@@ -307,47 +307,60 @@ function startCloudTests({ gh, run, repo, sha, branch = cloudBranch(sha) }) {
       console.log(`  ветку ${branch} убрать не удалось (${err.message}) — убери руками: git push origin --delete ${branch}`);
     }
   };
-  console.log(`  облачный прогон запущен: ${repo.owner}/${repo.repo}, ветка ${branch}`);
+  console.log(`  ветка проверки отправлена: ${repo.owner}/${repo.repo}, ${branch}; ожидаем появления облачного прогона`);
   return cloudRun;
 }
 
 /** Дождаться облачного прогона, скачать итоговый отчёт и проверить его здесь. */
-async function waitCloudWorkflow({ gh, sha, cloudRun, workflow = CLOUD_WORKFLOW }) {
+export async function waitCloudWorkflow({ gh, sha, cloudRun, workflow = CLOUD_WORKFLOW,
+  now = Date.now, sleep = sleepMs, log = console.log }) {
   const deadline = cloudRun.startedAt + CLOUD_TOTAL_MS;
+  const requireTimeRemaining = () => {
+    if (now() >= deadline) throw new Stop(`облачный прогон не кончился за ${CLOUD_TOTAL_MS / 60_000} минут — остановлен`);
+  };
+  const requireAppearanceTime = () => {
+    if (now() - cloudRun.startedAt >= CLOUD_APPEAR_MS) throw new Stop(
+      `GitHub за ${CLOUD_APPEAR_MS / 60_000} минут не показал облачный прогон этого запуска. Причина задержки не установлена; выкат остановлен до проверки.`,
+    );
+  };
   let runInfo = null;
   let lastNote = 0;
   for (;;) {
+    requireTimeRemaining();
     if (!cloudRun.id) {
+      requireAppearanceTime();
       const list = await gh.call(
         "GET",
         `/{repo}/actions/runs?head_sha=${sha}&event=push&per_page=50`,
       );
+      requireTimeRemaining();
+      requireAppearanceTime();
       // Только прогон, заведённый ЭТИМ пушем: старые прогоны того же sha не в счёт.
       const mine = findCloudRun(list?.workflow_runs, {sha, branch:cloudRun.branch, startedAt:cloudRun.startedAt, workflow});
       if (mine) {
         cloudRun.id = mine.id;
-        console.log(`  прогон ${mine.html_url}`);
-      } else if (Date.now() - cloudRun.startedAt > CLOUD_APPEAR_MS) {
-        throw new Stop(
-          "GitHub за 5 минут не завёл облачный прогон (Actions выключены или биллинг учётки). Выкат без облака: npm run ship -- --local-tests",
-        );
+        log(`  прогон ${mine.html_url}`);
+      } else if (now() - lastNote >= 60_000) {
+        lastNote = now();
+        log(`  ожидаем появления облачного прогона: ${Math.floor((now() - cloudRun.startedAt) / 60_000)} мин, предел ${CLOUD_APPEAR_MS / 60_000} минут`);
       }
     }
     if (cloudRun.id) {
       runInfo = await gh.call("GET", `/{repo}/actions/runs/${cloudRun.id}`);
+      requireTimeRemaining();
       if (runInfo.status === "completed") break;
-      if (Date.now() - lastNote > 60_000) {
-        lastNote = Date.now();
+      if (now() - lastNote > 60_000) {
+        lastNote = now();
         const jobs = await gh.call("GET", `/{repo}/actions/runs/${cloudRun.id}/jobs?per_page=100`);
         const all = jobs?.jobs ?? [];
         const doneJobs = all.filter((j) => j.status === "completed").length;
         const red = all.filter((j) => j.status === "completed" && j.conclusion !== "success" && j.conclusion !== "skipped");
-        const mins = Math.round((Date.now() - cloudRun.startedAt) / 60_000);
-        console.log(`  ${mins} мин: заданий готово ${doneJobs} из ${all.length}${red.length ? `, красных ${red.length} (${red.map((j) => j.name).join(", ")})` : ""}`);
+        const mins = Math.round((now() - cloudRun.startedAt) / 60_000);
+        log(`  ${mins} мин: заданий готово ${doneJobs} из ${all.length}${red.length ? `, красных ${red.length} (${red.map((j) => j.name).join(", ")})` : ""}`);
       }
     }
-    if (Date.now() > deadline) throw new Stop(`облачный прогон не кончился за ${CLOUD_TOTAL_MS / 60_000} минут — остановлен`);
-    await sleepMs(15_000);
+    requireTimeRemaining();
+    await sleep(15_000);
   }
   return runInfo;
 }
