@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **638**. Развилок в самих путях: **2278**; вместе с задачами по расписанию и фоновыми заданиями — **3505**. Модулей: **72**.
+Путей: **638**. Развилок в самих путях: **2278**; вместе с задачами по расписанию и фоновыми заданиями — **3506**. Модулей: **72**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -25511,7 +25511,12 @@
       - void logSystemError("meta", `Публикация в Instagram (${ownerText}) не удалась: ${error}`);
         · запись в журнал ошибок
   - если creds.pageToken && creds.pageId && !skip.has("FACEBOOK")
-    - если alreadyThere
+    - const alreadyThere = pendingSince ? await findRecentFacebookVideo(ownerTextCap, creds.pageId, creds.pageToken…
+      · зовёт findRecentFacebookVideo()
+    - если alreadyThere && typeof alreadyThere !== "string"
+      - void logSystemError("meta", `${ownerTextCap}: ${error}`);
+        · запись в журнал ошибок
+    - иначе если alreadyThere
       - await writePendingMarker(owner, FACEBOOK_PENDING_KEY, FACEBOOK_PENDING_AT_KEY, null);
         · дословно из кода
       - const secondaryPostId = await fetchFacebookVideoPostId(alreadyThere, creds.pageToken);
