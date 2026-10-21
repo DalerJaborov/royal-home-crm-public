@@ -1,4 +1,5 @@
 import { customerAgentSettingsRouter } from "./customerAgentSettings.js";
+import { settingsInstagramAppBindingRouter } from "./settingsInstagramAppBinding.js";
 import fs from "node:fs";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
@@ -86,6 +87,7 @@ const SCORE_EVENT_KEYS = EDITABLE_SCORE_EVENT_KEYS;
 
 export const settingsRouter = Router();
 settingsRouter.use("/customer-agent", customerAgentSettingsRouter);
+settingsRouter.use("/messenger-accounts", settingsInstagramAppBindingRouter);
 
 /** Маска ключа: из Настроек (расшифровав) или из окружения. null — не задан нигде. */
 function maskOrNull(encrypted: string | null | undefined, fromEnv: string | undefined): string | null {
@@ -2823,6 +2825,8 @@ const messengerAccountSchema = z.object({
   externalId: z.string().max(200).optional(),
   title: z.string().max(200).optional(),
   token: z.string().max(4000).optional(),
+  // Account signing keys require the dedicated verified binding operation.
+  appSecret: z.never().optional(),
   enabled: z.boolean().optional(),
   isDefault: z.boolean().optional(),
   systemPrompt: z.string().max(30000).nullish(),

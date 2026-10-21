@@ -1,9 +1,9 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 650,
-  "forks": 3568,
-  "mounts": 73,
+  "endpoints": 652,
+  "forks": 3572,
+  "mounts": 74,
   "cron": 107,
   "jobs": 31,
   "hidden": 0
@@ -65749,6 +65749,163 @@
       "ответ 200"
      ],
      "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/:id/instagram-app-binding",
+   "mount": "/api/v1/settings/messenger-accounts",
+   "full": "/api/v1/settings/messenger-accounts/:id/instagram-app-binding",
+   "file": "apps/api/src/routes/settingsInstagramAppBinding.ts",
+   "router": "settingsInstagramAppBindingRouter",
+   "top": "apps/api/src/routes/settings.ts::settingsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "вход выполнен",
+    "есть право: settings.manage"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const parsed = paramsSchema.safeParse(req.params);",
+     "a": [
+      "проверяет данные схемой paramsSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Некорректный идентификатор аккаунта\" });",
+       "a": [
+        "ответ 400 — «Некорректный идентификатор аккаунта»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "res.json(await readInstagramAppBindingStatus(parsed.data.id));",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "if",
+       "t": "error instanceof InstagramAppBindingError",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(error.status).json({ error: message, code: error.code });",
+         "a": [
+          "ответ (код зависит от условия)"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "/:id/instagram-app-binding",
+   "mount": "/api/v1/settings/messenger-accounts",
+   "full": "/api/v1/settings/messenger-accounts/:id/instagram-app-binding",
+   "file": "apps/api/src/routes/settingsInstagramAppBinding.ts",
+   "router": "settingsInstagramAppBindingRouter",
+   "top": "apps/api/src/routes/settings.ts::settingsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "вход выполнен",
+    "есть право: settings.manage",
+    "requireElevation"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const params = paramsSchema.safeParse(req.params), body = instagramAppBindingInputSchema.safeParse(req.body);",
+     "a": [
+      "проверяет данные схемой paramsSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!params.success || !body.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Некорректные данные привязки приложения\" });",
+       "a": [
+        "ответ 400 — «Некорректные данные привязки приложения»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "res.json(await bindInstagramAppForAccount(req.agent!.id, params.data.id, body.data));",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "if",
+       "t": "error instanceof InstagramAppBindingError",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(error.status).json({ error: message, code: error.code });",
+         "a": [
+          "ответ (код зависит от условия)"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
     }
    ]
   },

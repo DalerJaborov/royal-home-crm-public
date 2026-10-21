@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **650**. Развилок в самих путях: **2322**; вместе с задачами по расписанию и фоновыми заданиями — **3568**. Модулей: **73**.
+Путей: **652**. Развилок в самих путях: **2326**; вместе с задачами по расписанию и фоновыми заданиями — **3572**. Модулей: **74**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -15173,6 +15173,42 @@
 `apps/api/src/routes/customerAgentSettings.ts` · на входе: общий предел частоты запросов, idempotencyGuard, вход выполнен, есть право: settings.manage
 
 - обработчик вынесен: `handler(actor=>readCustomerAgentOwnerState(actor)) — раскрыто по коду функции handler()`
+
+## /api/v1/settings/messenger-accounts
+
+### GET /api/v1/settings/messenger-accounts/:id/instagram-app-binding
+
+`apps/api/src/routes/settingsInstagramAppBinding.ts` · на входе: общий предел частоты запросов, idempotencyGuard, вход выполнен, есть право: settings.manage
+
+- const parsed = paramsSchema.safeParse(req.params);
+  · проверяет данные схемой paramsSchema
+- если !parsed.success
+  - return res.status(400).json({ error: "Некорректный идентификатор аккаунта" });
+    · ответ 400 — «Некорректный идентификатор аккаунта»
+- пробует
+  - res.json(await readInstagramAppBindingStatus(parsed.data.id));
+    · ответ 200
+- если сорвалось
+  - если error instanceof InstagramAppBindingError
+    - return res.status(error.status).json({ error: message, code: error.code });
+      · ответ (код зависит от условия)
+
+### POST /api/v1/settings/messenger-accounts/:id/instagram-app-binding
+
+`apps/api/src/routes/settingsInstagramAppBinding.ts` · на входе: общий предел частоты запросов, idempotencyGuard, вход выполнен, есть право: settings.manage, requireElevation
+
+- const params = paramsSchema.safeParse(req.params), body = instagramAppBindingInputSchema.safeParse(req.body);
+  · проверяет данные схемой paramsSchema
+- если !params.success || !body.success
+  - return res.status(400).json({ error: "Некорректные данные привязки приложения" });
+    · ответ 400 — «Некорректные данные привязки приложения»
+- пробует
+  - res.json(await bindInstagramAppForAccount(req.agent!.id, params.data.id, body.data));
+    · ответ 200
+- если сорвалось
+  - если error instanceof InstagramAppBindingError
+    - return res.status(error.status).json({ error: message, code: error.code });
+      · ответ (код зависит от условия)
 
 ## /api/v1/settings/restore-points
 
