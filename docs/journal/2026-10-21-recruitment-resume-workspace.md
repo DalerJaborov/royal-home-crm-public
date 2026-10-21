@@ -6,6 +6,8 @@ original materials, literal source quotes and an explicit next action. Unknown
 fields remain unknown; human hiring decisions remain separate from screening.
 The queue uses server pagination, stage and position filters, including older
 records. Previous query results cannot expose actions under a changed filter.
+Sidebar and dashboard counts now count the same genuine new HR replies,
+including missing-phone applications, rather than the retired fit bucket.
 
 Each position owns versioned screening rules. Sales-agent templates retain
 their age/study/employment requirements; other templates do not inherit them.
