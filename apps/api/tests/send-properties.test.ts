@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import bcrypt from "bcrypt";
+import { randomUUID } from "node:crypto";
 import request from "supertest";
 import { app } from "../src/app.js";
 import { prisma } from "../src/db.js";
@@ -64,6 +65,29 @@ async function send(token: string, clientId: string, propertyIds: string[]) {
     .set("Authorization", `Bearer ${token}`)
     .send({ propertyIds });
 }
+
+it("validates the entire selection before preparing links and deduplicates IDs", async () => {
+  const before = await prisma.propertyShareLink.count({ where: { clientId: clientNoChatId } });
+  const missing = await send(ownToken, clientNoChatId, [unpublishedId, randomUUID()]);
+  expect(missing.status).toBe(409);
+  expect(await prisma.propertyShareLink.count({ where: { clientId: clientNoChatId } })).toBe(before);
+  const prepared = await request(app).post(`/api/v1/clients/${clientNoChatId}/send-properties`).set("Authorization", `Bearer ${ownToken}`)
+    .send({ propertyIds: [unpublishedId, unpublishedId], prepareOnly: true });
+  expect(prepared.status).toBe(200); expect(prepared.body.sent).toBe(0);
+  expect(prepared.body.propertyIds).toEqual([unpublishedId]); expect(prepared.body.fallback.links).toHaveLength(1);
+});
+
+it("prepares the same safe title as delivery without leaking contact text", async () => {
+  const original = await prisma.property.findUniqueOrThrow({ where: { id: unpublishedId } });
+  try {
+    await prisma.property.update({ where: { id: unpublishedId }, data: { title: "test-offer +992900001234 @testcontact" } });
+    const prepared = await request(app).post(`/api/v1/clients/${clientNoChatId}/send-properties`).set("Authorization", `Bearer ${ownToken}`)
+      .send({ propertyIds: [unpublishedId], prepareOnly: true });
+    expect(prepared.status).toBe(200); expect(prepared.body.fallback.text).not.toContain("900001234");
+    expect(prepared.body.fallback.text).not.toContain("@testcontact");
+    expect(prepared.body.fallback.text).toContain(prepared.body.fallback.links[0].url);
+  } finally { await prisma.property.update({ where: { id: unpublishedId }, data: { title: original.title } }); }
+});
 
 async function makeProperty(
   title: string,

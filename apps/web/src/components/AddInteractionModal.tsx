@@ -41,16 +41,18 @@ function ShowingPropertyPicker({
   value,
   onChange,
   allowEmpty,
+  sellerClientId,
 }: {
   value: string;
   onChange: (id: string) => void;
   allowEmpty?: boolean;
+  sellerClientId?: string;
 }) {
   const [query, setQuery] = useState("");
   const q = useDebouncedValue(query.trim(), 250);
   // Без запроса — свободные (как раньше); с запросом статус не ограничиваем:
   // показать можно и объект, снятый с рекламы или в задатке. Удалённых сервер не отдаёт.
-  const found = useProperties({ q: q || undefined, status: q ? undefined : "AVAILABLE", page: 1 });
+  const found = useProperties({ q: q || undefined, status: sellerClientId || q ? undefined : "AVAILABLE", sellerClientId, page: 1 });
   const items = found.data?.items ?? [];
   const selectedInList = items.find((p) => p.id === value);
   const selectedFetched = useProperty(value && !selectedInList ? value : undefined);
@@ -72,6 +74,7 @@ function ShowingPropertyPicker({
         size={Math.min(Math.max(options.length + (allowEmpty ? 1 : 0), 2), 6)}
         aria-label="Объект"
       >
+        {!allowEmpty && <option value="">Выберите объект</option>}
         {allowEmpty && <option value="">не указывать</option>}
         {options.map((p) => (
           <option key={p.id} value={p.id}>
@@ -80,6 +83,8 @@ function ShowingPropertyPicker({
         ))}
       </select>
       {found.isLoading && <span className="msg">Ищу…</span>}
+      {found.isError && <span role="alert">Не удалось загрузить объекты. <button type="button" onClick={() => void found.refetch()}>Повторить</button></span>}
+      {!found.isLoading && !found.isError && !q && items.length === 0 && <span className="msg">Нет доступных объектов. Сначала добавьте объект в CRM.</span>}
       {!found.isLoading && q && items.length === 0 && <span className="msg">Ничего не нашли.</span>}
     </div>
   );
@@ -94,6 +99,8 @@ export function AddInteractionModal({
   initialType,
   initialPropertyId,
   isSeller,
+  mode,
+  sellerClientId,
   onSaved,
 }: {
   clientId: string;
@@ -106,6 +113,8 @@ export function AddInteractionModal({
   initialPropertyId?: string;
   /** Client.kind === "SELLER" — открывает пятый исход «Объект принят в работу». */
   isSeller?: boolean;
+  mode?: "schedule" | "record";
+  sellerClientId?: string;
   /** Взаимодействие успешно сохранено — родитель решает, что сделать с исходом
    *  (например, «Ждёт варианты» открывает переписку прямо на карточке). */
   onSaved?: (outcome: string | undefined) => void;
@@ -123,7 +132,7 @@ export function AddInteractionModal({
    * «нажимаю назначить показ, а выходит окно как будто показ уже был».
    * В режиме планирования форма — один экран без разбора ИИ и без исходов.
    */
-  const scheduling = initialType === "SHOWING" && !!initialPropertyId;
+  const scheduling = mode === "schedule" || (mode !== "record" && initialType === "SHOWING" && !!initialPropertyId);
   const outcomeChoices = isSeller ? SELLER_OUTCOMES : OUTCOMES;
   const addInteraction = useAddInteraction(clientId);
   const updateClient = useUpdateClient(clientId);
@@ -154,7 +163,7 @@ export function AddInteractionModal({
   const speech = useSpeechRecognition((transcript) => {
     setNotes((prev) => (prev.trim() ? `${prev.trim()} ${transcript}` : transcript));
   });
-  const [type, setType] = useState<(typeof TYPES)[number]>(initialType ?? "CALL");
+  const [type, setType] = useState<(typeof TYPES)[number]>(scheduling ? "SHOWING" : initialType ?? "CALL");
   // Объект показа. Список тянем только когда он реально нужен — при выборе «Показ».
   const [propertyId, setPropertyId] = useState(initialPropertyId ?? "");
   // Список объектов — в ShowingPropertyPicker (поиск), монтируется только для показа.
@@ -170,6 +179,7 @@ export function AddInteractionModal({
   useDraftBeforeUpdate(`interaction:${clientId}:${initialType ?? "CALL"}:${initialPropertyId ?? ""}`,
     { notes, nextAction, nextActionDate, nextActionTime, type, propertyId, outcome, step, aiNote, clientUpdates, applyClientUpdates, interactionSaved },
     (draft) => {
+      if (scheduling && (draft?.type !== "SHOWING" || draft?.step !== 1)) return;
       if (!draft || typeof draft !== "object" || typeof draft.notes !== "string" || typeof draft.nextAction !== "string"
         || typeof draft.nextActionDate !== "string" || typeof draft.nextActionTime !== "string" || typeof draft.propertyId !== "string"
         || !TYPES.includes(draft.type) || !Number.isInteger(draft.step) || draft.step < 1 || draft.step > 3
@@ -301,6 +311,10 @@ export function AddInteractionModal({
       setError("Укажите дату и время показа");
       return;
     }
+    if (scheduling && !propertyId) { setError("Выберите объект показа"); return; }
+    if (scheduling && new Date(dushanbeInputToIso(nextActionDate, nextActionTime)).getTime() <= Date.now()) {
+      setError("Выберите будущее время показа"); return;
+    }
     // «Ждёт показ» без даты и времени раньше сохранялся, но ничего не запускал —
     // ни календаря, ни напоминания за 2 часа/40 минут. Спецификация требует их
     // обязательными именно для этого исхода.
@@ -382,10 +396,11 @@ export function AddInteractionModal({
             </button>
             {step < TOTAL_STEPS ? (
               <button
+                key="interaction-next"
                 type="button"
                 // «Далее» — button, а НЕ submit: в форме одна submit-кнопка, и Enter
                 // в поле не должен сохранять взаимодействие с половиной полей.
-                onClick={() => setStep((s) => s + 1)}
+                onClick={(event) => { event.preventDefault(); setStep((s) => s + 1); }}
                 // Заметка обязательна: без неё запись бессмысленна, а на втором шаге
                 // подсказывать уже поздно — ИИ разбирает именно её.
                 disabled={step === 1 && !notes.trim()}
@@ -394,7 +409,7 @@ export function AddInteractionModal({
                 Далее
               </button>
             ) : (
-              <button type="submit" className="pill" disabled={accountReadOnly || addInteraction.isPending}>
+              <button key="interaction-save" type="submit" className="pill" disabled={accountReadOnly || addInteraction.isPending}>
                 {addInteraction.isPending ? "Сохранение…" : "Сохранить"}
               </button>
             )}
@@ -411,7 +426,7 @@ export function AddInteractionModal({
           <>
             <div className="fld">
               <span className="lab">Объект</span>
-              <ShowingPropertyPicker value={propertyId} onChange={setPropertyId} />
+              <ShowingPropertyPicker value={propertyId} onChange={setPropertyId} sellerClientId={sellerClientId} />
             </div>
             <div className="fgrid" style={{ marginTop: "var(--s3)" }}>
               <label className="fld">

@@ -547,6 +547,7 @@ model Agent {
   clients                     Client[]                @relation("AssignedAgent")
   deletedClients              Client[]                @relation("DeletedByClientAgent")
   lastAgentClients            Client[]                @relation("LastClientAgent")
+  confirmedClientIntents      Client[]                @relation("ClientIntentConfirmation")
   reactivationOffers          Client[]                @relation("ReactivationOfferAgent")
   /// Раздел L (03.09.2026, план вечерней сессии): «это ваш клиент?» — карточки,
   /// по которым СПРОСИЛИ именно этого агента (см. Client.duplicateReviewAskedAgentId).
@@ -3007,6 +3008,10 @@ model Client {
   /// оба алармных крона видели клиента независимо от того, какая сторона у него
   /// сейчас основная.
   dualIntent                Boolean              @default(false)
+  /// Concurrent roles require an explicit staff confirmation; historical role changes alone are not proof.
+  dualIntentConfirmedAt     DateTime?
+  dualIntentConfirmedById   String?
+  dualIntentConfirmedBy     Agent? @relation("ClientIntentConfirmation", fields: [dualIntentConfirmedById], references: [id], onDelete: SetNull)
   source                    ClientSource
   /// ad_id объявления Meta, которое ПРИВЕЛО этого клиента (26.08.2026, ревью) —
   /// переносится из BotConversation.adExternalId в момент привязки диалога к
