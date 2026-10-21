@@ -46,6 +46,10 @@ export function customerAgentRenderedQuestion(input: { decision: CustomerAgentDe
   const d = input.decision;
   if (d.kind === "skip" || d.kind === "escalate" || d.kind === "moderation_proposal") return "none";
   if (d.kind === "propose") return "confirmation";
+  // An evidenced refusal of an unavailable service is already a complete
+  // answer. Do not reopen an unrelated job/property intake after it.
+  if (!customerRecruitmentRequested(input.inputText ?? "") && input.evidence.some(e =>
+    e.value.kind === "company_policy" && e.value.topic === "rental" && !e.value.knowledge.rent && d.refs.includes(e.ref))) return "none";
   if (input.surface === "public_comment" && !input.requestedFacts?.length && customerPublicReaction(input.inputText ?? "")) return "none";
   if (d.question === "topic" && input.evidence.some(e => e.value.kind === "company_information" && d.refs.includes(e.ref))) return "none";
   if (input.evidence.some(e => e.value.kind === "open_vacancies" && (d.refs.includes(e.ref) || customerRecruitmentRequested(input.inputText ?? "") || input.verifiedContext?.publicState.topic === "job"))) {
@@ -86,8 +90,8 @@ const questions: Record<CustomerAgentQuestion, { ru: string; tg: string }> = {
   seller_details: { ru: "Расскажите о недвижимости, которую хотите продать.", tg: "Дар бораи амволе, ки фурӯхтан мехоҳед, нависед." },
   preferences: { ru: "Что ещё важно при выборе: например, этаж или состояние ремонта?", tg: "Ҳангоми интихоб боз чӣ муҳим аст: масалан, ошёна ё ҳолати таъмир?" },
   job_position: { ru: "Какая должность вас интересует?", tg: "Кадом вазифа ба шумо ҷолиб аст?" },
-  job_experience: { ru: "Расскажите о вашем опыте по этой работе.", tg: "Дар бораи таҷрибаи худ дар ин кор нақл кунед." },
-  job_portfolio: { ru: "Пришлите до трёх лучших работ или ссылку на портфолио.", tg: "То се кори беҳтаринатон ё пайванди портфолиоро фиристед." },
+  job_experience: { ru: "Пришлите резюме или просто расскажите о себе и своём опыте.", tg: "Резюме фиристед ё дар бораи худ ва таҷрибаатон нақл кунед." },
+  job_portfolio: { ru: "Если хотите, можете прислать примеры работ или ссылку на портфолио. Это необязательно.", tg: "Агар хоҳед, намунаи корҳо ё пайванди портфолиоро фиристед. Ин ҳатмӣ нест." },
   job_tools: { ru: "Какими программами пользуетесь и какие задачи выполняете самостоятельно?", tg: "Аз кадом барномаҳо истифода мебаред ва кадом вазифаҳоро мустақилона иҷро мекунед?" },
   job_format: { ru: "Вам подходит указанный формат работы?", tg: "Шартҳои нашршудаи кор ба шумо мувофиқанд?" },
   job_start: { ru: "Когда готовы приступить к работе?", tg: "Кай ба кор шурӯъ карда метавонед?" },

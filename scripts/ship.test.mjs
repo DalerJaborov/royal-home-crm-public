@@ -32,7 +32,37 @@ import {
   stateDrift,
   github,
   networkErrorCode,
+  downloadCloudArtifact,
 } from "./ship.mjs";
+
+test("cloud artifact transport retry retains the original run and uses a fresh directory after partial download", async () => {
+  const calls = [], waits = []; let count = 0;
+  const downloaded = await downloadCloudArtifact({ runId: 123, repo: { owner: "synthetic", repo: "repo" }, token: "test-only-token" }, {
+    download: (command, args) => { calls.push({ command, args }); return calls.length === 1
+      ? { status: 1, stderr: "error downloading archive: wsarecv: connection reset" } : { status: 0 }; },
+    makeDir: () => `/synthetic/download-${++count}`, wait: async ms => { waits.push(ms); }, log: () => {},
+  });
+  assert.equal(downloaded.result.status, 0); assert.equal(calls.length, 2);
+  assert.equal(downloaded.dir, "/synthetic/download-2");
+  assert.equal(calls[0].args[2], "123"); assert.equal(calls[1].args[2], "123");
+  assert.notEqual(calls[0].args.at(-1), calls[1].args.at(-1)); assert.deepEqual(waits, [1500]);
+});
+test("cloud artifact missing or forbidden is not retried or turned into success", async () => {
+  let calls = 0;
+  const downloaded = await downloadCloudArtifact({ runId: 123, repo: { owner: "synthetic", repo: "repo" } }, {
+    download: () => { calls++; return { status: 1, stderr: "artifact not found (403)" }; },
+    makeDir: () => "/synthetic/missing", wait: async () => { assert.fail("not transient"); }, log: () => {},
+  });
+  assert.equal(calls, 1); assert.equal(downloaded.result.status, 1);
+});
+test("cloud artifact transport retries remain bounded and retain failure", async () => {
+  let calls = 0;
+  const downloaded = await downloadCloudArtifact({ runId: 123, repo: { owner: "synthetic", repo: "repo" } }, {
+    download: () => { calls++; return { status: 1, stderr: "TLS handshake timeout" }; },
+    makeDir: () => `/synthetic/failure-${calls}`, wait: async () => {}, log: () => {},
+  });
+  assert.equal(calls, 3); assert.equal(downloaded.result.status, 1);
+});
 
 const SHIP = path.join(path.dirname(fileURLToPath(import.meta.url)), "ship.mjs");
 

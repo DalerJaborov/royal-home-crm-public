@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
 import bcrypt from "bcrypt";
 import request from "supertest";
-import { beforeAll, afterAll, expect, it } from "vitest";
+import { beforeAll, afterAll, expect, it, vi } from "vitest";
 import { app } from "../src/app.js";
 import { prisma } from "../src/db.js";
 import { signAccessToken } from "../src/auth/jwt.js";
-import { revokeElevation } from "../src/lib/stepUp.js";
+import { revokeElevation, isElevated } from "../src/lib/stepUp.js";
+import { SETTINGS_MAINTENANCE_DEADLINE } from "../src/lib/settingsMaintenance.js";
 import { readCustomerOpenVacancies, customerOpenVacanciesCurrent } from "../src/lib/recruitmentPositions.js";
 
 const tag = `synthetic-recruitment-${randomUUID()}`, password = "synthetic-recruitment-password-only";
@@ -19,6 +20,34 @@ async function actor(role: "DIRECTOR" | "MANAGER" | "AGENT") {
   const value = { id: row.id, token: signAccessToken({ sub: row.id, role }) }; actors.push(value); return value;
 }
 let director: Awaited<ReturnType<typeof actor>>, manager: Awaited<ReturnType<typeof actor>>, agent: Awaited<ReturnType<typeof actor>>;
+it("the temporary settings policy saves a real catalog row without SMS or a fabricated MFA grant, expires and retains staff rights", async () => {
+  const maintenanceKey = `maintenance-${randomUUID()}`;
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-10-22T12:00:00.000Z"));
+  vi.stubEnv("SETTINGS_STEP_UP_MAINTENANCE_UNTIL", SETTINGS_MAINTENANCE_DEADLINE);
+  revokeElevation(director.id);
+  const token = () => ({ Authorization: `Bearer ${signAccessToken({ sub: director.id, role: "DIRECTOR" })}` });
+  try {
+    const status = await request(app).get("/api/v1/auth/step-up").set(token());
+    expect(status.body).toMatchObject({ elevated: false, expiresAt: null, settingsMaintenanceUntil: SETTINGS_MAINTENANCE_DEADLINE });
+    const payload = { ...data, postCodes: [], keywords: [] };
+    expect((await request(app).put(`/api/v1/vacancies/positions/${maintenanceKey}`).send(payload)).status).toBe(401);
+    const managerAuth = { Authorization: `Bearer ${signAccessToken({ sub: manager.id, role: "MANAGER" })}` };
+    expect((await request(app).put(`/api/v1/vacancies/positions/${maintenanceKey}`).set(managerAuth).send(payload)).status).toBe(403);
+    expect((await request(app).put(`/api/v1/vacancies/positions/${maintenanceKey}`).set(token()).send(payload)).status).toBe(200);
+    expect(await prisma.recruitmentPosition.findUnique({ where: { key: maintenanceKey } })).toMatchObject({ isOpen: true, revision: 1 });
+    expect(isElevated(director.id)).toBe(false);
+    expect(await prisma.auditLog.count({ where: { agentId: director.id, action: "SETTINGS_MAINTENANCE_ACCESS" } })).toBe(1);
+    // No request can turn the settings-only policy into employee administration.
+    expect((await request(app).post("/api/v1/agents").set(token()).send({})).status).toBe(428);
+    vi.setSystemTime(new Date(SETTINGS_MAINTENANCE_DEADLINE));
+    expect((await request(app).put(`/api/v1/vacancies/positions/${maintenanceKey}`).set(token()).send({ ...payload, expectedRevision: 1 })).status).toBe(428);
+    expect(await prisma.recruitmentPosition.findUnique({ where: { key: maintenanceKey } })).toMatchObject({ revision: 1 });
+  } finally {
+    vi.useRealTimers(); vi.unstubAllEnvs();
+    await prisma.recruitmentPosition.deleteMany({ where: { key: maintenanceKey } });
+  }
+});
 beforeAll(async () => {
   settings = await prisma.settings.findUniqueOrThrow({ where: { id: "singleton" }, select: { botCanHandleVacancies: true } });
   await prisma.settings.update({ where: { id: "singleton" }, data: { botCanHandleVacancies: true } });

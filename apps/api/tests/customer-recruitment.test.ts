@@ -26,7 +26,9 @@ describe("current recruitment facts", () => {
     expect(video.detailsRu).toContain("с понедельника по субботу");
     expect(video.detailsRu).toContain("Удалённая работа не предусмотрена");
     expect(video.detailsRu).toContain(vacancyOfficeAddress()); expect(video.detailsTg).toContain(vacancyOfficeAddressTg());
-    expect(video.detailsRu).toContain("кофе, печенье"); expect(video.detailsRu).toContain("до трёх лучших работ");
+    expect(video.detailsRu).toContain("кофе, печенье");
+    expect(video.detailsRu).toContain("резюме или просто расскажите о себе");
+    expect(video.detailsRu).toContain("по желанию");
     expect(video.detailsRu).not.toContain(VACANCY_FACTS.pay.salary);
     expect(video.detailsRu).not.toMatch(/\d+%|\d{1,2}:\d{2}/u);
     expect(agent.detailsRu).toContain(VACANCY_FACTS.pay.salary);
@@ -39,13 +41,16 @@ describe("current recruitment facts", () => {
     expect(customerRecruitmentTopic("мой номер", "job")).toBe("job");
     expect(customerRecruitmentTopic("Хочу продать свою квартиру", "job", true)).toBe("seller");
     expect(customerRecruitmentTopic("Хочу купить квартиру", "job")).toBe("buyer");
+    expect(customerRecruitmentTopic("Мне нужно квартира аренда", "job", true)).toBe("rent");
+    expect(customerRecruitmentTopic("Ищу квартиру в аренду", "unknown", true)).toBe("rent");
+    expect(customerRecruitmentTopic("Хона ба иҷора лозим", "job", true)).toBe("rent");
   });
   it.each(["ru", "tg"] as const)("renders staff facts in %s without invented pay, contact or saved application", language => {
     const text = render(language, observation(), "budget", language === "ru" ? "Вакансия: агент по недвижимости" : "Ҷойи кор: агент оид ба амвол");
     expect(text).toContain(language === "ru" ? position.titleRu : position.titleTg);
     expect(text).toContain(language === "ru" ? position.detailsRu : position.detailsTg);
     expect(text).not.toMatch(/992|1000|500|сохранен|сабт шуд|бюджет|буҷет/iu);
-    expect(text).toContain(language === "ru" ? "Расскажите о вашем опыте" : "Дар бораи таҷрибаи худ");
+    expect(text).toContain(language === "ru" ? "резюме или просто расскажите о себе" : "Резюме фиристед ё дар бораи худ");
   });
   it("does not import another role's salary or stale built-in vacancy defaults", () => {
     const video = { ...position, key: "synthetic-video", titleRu: "SMM-менеджер / видеограф", titleTg: "Менеҷери SMM / видеограф", detailsRu: "", detailsTg: "", postCodes: [] };

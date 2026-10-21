@@ -1728,7 +1728,7 @@
 
 `apps/api/src/routes/auth.ts` · на входе: общий предел частоты запросов, idempotencyGuard, предел частоты запросов, вход выполнен
 
-- const agent = await prisma.agent.findUnique({ where: { id: req.agent!.id }, select: { totpEnabled: true }, });
+- const agent = await prisma.agent.findUnique({ where: { id: req.agent!.id }, select: { totpEnabled: true, role…
   · читает в базе: agent
 - const until = elevatedUntil(req.agent!.id);
   · зовёт elevatedUntil()

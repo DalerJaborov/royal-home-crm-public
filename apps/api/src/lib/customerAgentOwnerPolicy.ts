@@ -5,6 +5,7 @@ import { ROLES, resolvePermissions, parsePermissionOverrides, isReadOnlyRole, cu
   customerAgentKillRequestSchema, customerAgentRegisterRequestSchema, customerAgentOwnerStateSchema, customerAgentRefreshRequestSchema } from "@royal-home/shared";
 import { prisma, type TxClient } from "../db.js";
 import { isElevated } from "./stepUp.js";
+import { settingsMaintenanceUntil, type SettingsMaintenanceActor } from "./settingsMaintenance.js";
 import { decodeCustomerAgentRevision } from "./customerAgentRevision.js";
 import { loadVerifiedCustomerAgentRevision, registerCurrentCustomerAgentRevision } from "./customerAgentRegistration.js";
 import { createCustomerAgentMediaProviderSnapshot as createCustomerAgentProviderSnapshot, isCustomerAgentMediaProfileUpgrade } from "../ai/customerAgentProviderConfig.js";
@@ -22,17 +23,22 @@ export class CustomerAgentOwnerError extends Error {
 function fail(status: number, code: string): never { throw new CustomerAgentOwnerError(status,code); }
 async function actorTx(tx: TxClient, id: string, elevation = true) {
   if (!z.string().uuid().safeParse(id).success) fail(401,"unauthenticated");
-  const [row] = await tx.$queryRaw<Array<{ id: string; role: string; fullName: string; permissions: unknown; isActive: boolean }>>`
-    SELECT "id","role","fullName","permissions","isActive" FROM "Agent" WHERE "id"=${id} FOR SHARE`;
+  const [row] = await tx.$queryRaw<Array<{ id: string; role: string; fullName: string; permissions: unknown; isActive: boolean; totpEnabled: boolean }>>`
+    SELECT "id","role","fullName","permissions","isActive","totpEnabled" FROM "Agent" WHERE "id"=${id} FOR SHARE`;
   const role = z.enum(ROLES).safeParse(row?.role);
   if (!row || !row.isActive || !role.success || !["DIRECTOR","ADMIN"].includes(role.data) || isReadOnlyRole(role.data) ||
       !resolvePermissions(role.data,parsePermissionOverrides(row.permissions)).has("settings.manage")) fail(403,"settings_permission_revoked");
-  if (elevation && !isElevated(id)) fail(428,"step_up_required");
+  if (elevation && !settingsStepUpSatisfied(row)) fail(428,"step_up_required");
   return row;
 }
-async function auditTx(tx: TxClient, actor: { id: string; fullName: string }, action: string, entityId: string,
+function settingsStepUpSatisfied(actor: SettingsMaintenanceActor & { id: string }) {
+  return isElevated(actor.id) || !!settingsMaintenanceUntil(actor);
+}
+async function auditTx(tx: TxClient, actor: SettingsMaintenanceActor & { id: string; fullName: string }, action: string, entityId: string,
   meta: Record<string, string | number | boolean | null | string[]>) {
-  await tx.auditLog.create({ data: { action, entityType: "CustomerAgentPolicy", entityId, agentId: actor.id, agentName: actor.fullName, meta } });
+  const until = !isElevated(actor.id) ? settingsMaintenanceUntil(actor) : null;
+  await tx.auditLog.create({ data: { action, entityType: "CustomerAgentPolicy", entityId, agentId: actor.id, agentName: actor.fullName,
+    meta: { ...meta, ...(until && meta.authority !== "retained_policy_refresh" ? { authority: "settings_maintenance", settingsMaintenanceUntil: until } : {}) } } });
 }
 export async function registerCustomerAgentForOwner(actorId: string, raw: unknown) {
   const body = customerAgentRegisterRequestSchema.parse(raw), snapshot = createCustomerAgentProviderSnapshot();
@@ -43,9 +49,9 @@ export async function registerCustomerAgentForOwner(actorId: string, raw: unknow
   const revision = await registerCurrentCustomerAgentRevision(snapshot, {
     beforeWrite: async tx => { actor = await actorTx(tx,actorId); },
     afterWrite: async (tx,value) => {
-      if (!actor || !isElevated(actorId)) fail(428,"step_up_required");
+      if (!actor || !settingsStepUpSatisfied(actor)) fail(428,"step_up_required");
       await auditTx(tx,actor,"CUSTOMER_AGENT_REGISTER",value.id,{configId:body.configId,reason:body.reason});
-      if (!isElevated(actorId)) fail(428,"step_up_required");
+      if (!settingsStepUpSatisfied(actor)) fail(428,"step_up_required");
     },
   });
   return { revisionId: revision.id, activated: false as const };
@@ -235,7 +241,7 @@ async function publishVerifiedCustomerAgentForOwner(actorId:string,body:PublishS
       await tx.$executeRaw`INSERT INTO "CustomerAgentRevisionAdvance" ("id","fromRevisionId","fromCohortId","toRevisionId","toCohortId","policyRevision","approvedAt")
         VALUES (${randomUUID()},${before.data.candidateRevisionId},${before.data.cohortId},${body.rollout.candidateRevisionId},${body.rollout.cohortId},${current.policyRevision+1n},now())`;
     }
-    if(!routine&&!isElevated(actorId)) fail(428,"step_up_required");
+    if(!routine&&!settingsStepUpSatisfied(actor)) fail(428,"step_up_required");
     const [updated]=await tx.$queryRaw<Array<{policyRevision:bigint}>>`UPDATE "CustomerRuntimePolicy" SET "contractVersion"='scoped',"rolloutMode"='ACTIVE',
       "activeAgentRevisionId"=${body.rollout.candidateRevisionId},"rolloutConfig"=${JSON.stringify(body.rollout)}::jsonb,"policyRevision"="policyRevision"+1,
       "capabilities"=${JSON.stringify(body.capabilities)}::jsonb,"updatedAt"=now() WHERE "id"='singleton' AND "policyRevision"=${BigInt(body.expectedPolicyRevision)} RETURNING "policyRevision"`;
@@ -247,7 +253,7 @@ async function publishVerifiedCustomerAgentForOwner(actorId:string,body:PublishS
       catalogFactsUpgrade:body.confirmCatalogFactsUpgrade===true,
       recruitmentProtocolUpgrade,
       mediaProfileUpgrade:body.confirmMediaProfileUpgrade===true,reason:body.reason});
-    if(!routine&&!isElevated(actorId)) fail(428,"step_up_required");
+    if(!routine&&!settingsStepUpSatisfied(actor)) fail(428,"step_up_required");
     return {policyRevision:updated.policyRevision.toString(),rolloutMode:'ACTIVE',existingPromotion:'not_implemented'};
   });
 }
@@ -258,11 +264,11 @@ export async function killCustomerAgentForOwner(actorId:string,raw:unknown) {
     const [row]=await tx.$queryRaw<Array<{policyRevision:bigint;rolloutMode:string}>>`
       SELECT "policyRevision","rolloutMode" FROM "CustomerRuntimePolicy" WHERE "id"='singleton' FOR UPDATE`;
     if(!row || row.policyRevision.toString()!==body.expectedPolicyRevision) fail(409,"policy_changed");
-    if(!isElevated(actorId)) fail(428,"step_up_required");
+    if(!settingsStepUpSatisfied(actor)) fail(428,"step_up_required");
     const [updated]=await tx.$queryRaw<Array<{policyRevision:bigint}>>`UPDATE "CustomerRuntimePolicy" SET "rolloutMode"='OFF',
       "policyRevision"="policyRevision"+1,"updatedAt"=now() WHERE "id"='singleton' RETURNING "policyRevision"`;
     await auditTx(tx,actor,'CUSTOMER_AGENT_KILL','singleton',{oldRevision:row.policyRevision.toString(),newRevision:updated.policyRevision.toString(),reason:body.reason});
-    if(!isElevated(actorId)) fail(428,"step_up_required");
+    if(!settingsStepUpSatisfied(actor)) fail(428,"step_up_required");
     return {policyRevision:updated.policyRevision.toString(),rolloutMode:'OFF'};
   });
 }

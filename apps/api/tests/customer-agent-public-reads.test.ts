@@ -10,6 +10,15 @@ import { customerAgentPropertySearchCallSchema, type CustomerAgentQuestion } fro
 // A synthetic observation below is not a principal, actual registry or OUT proof.
 const knowledge = readCustomerAgentCompanyKnowledge();
 const sourceHash = customerAgentCompanyKnowledgeHash(knowledge);
+it.each(["topic", "role", "rooms", "budget", "phone", "job_position", "job_experience"] as const)(
+  "a verified unavailable rental answer does not append the unrelated %s questionnaire", question => {
+    const rentalHash = customerAgentCompanyKnowledgeHash({ ...knowledge, rent: false });
+    const result = renderCustomerAgentDecision({ evidence: [{ ref: "e0", value: { kind: "company_policy", topic: "rental", sourceHash: rentalHash, knowledge: { ...knowledge, rent: false } } }],
+      decision: { kind: "reply", refs: ["e0"], social: "greet", question }, language: "ru", inputText: "Здравствуйте! Мне нужно квартира аренда",
+      requestedFacts: [], knownPhoneSource: "none", maxOutputChars: 3000, surface: "dm",
+      knowledgeSourceHash: customerAgentCompanyKnowledgeHash({ ...knowledge, rent: false }) });
+    expect(result).toBe("Здравствуйте!\nСейчас арендой не занимаемся: не сдаём и не подбираем в аренду.");
+  });
 const facts = { propertyId: "00000000-0000-4000-8000-000000000101", shortId: 123, price: "110000.00", currency: "TJS" as const,
   availability: "AVAILABLE" as const, publicAddress: "Сино, Душанбе", addressPolicy: "district_city_only" as const,
   builder: null, publicLink: null, updatedAt: "2026-10-15T00:00:00.000Z", signature: "b".repeat(64) };

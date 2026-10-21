@@ -7414,7 +7414,7 @@
    "tree": [
     {
      "k": "do",
-     "t": "const agent = await prisma.agent.findUnique({ where: { id: req.agent!.id }, select: { totpEnabled: true }, });",
+     "t": "const agent = await prisma.agent.findUnique({ where: { id: req.agent!.id }, select: { totpEnabled: true, role…",
      "a": [
       "читает в базе: agent"
      ],
