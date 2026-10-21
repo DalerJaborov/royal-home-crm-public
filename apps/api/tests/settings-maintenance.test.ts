@@ -21,5 +21,5 @@ it("retains real roles, active status, permissions and authenticator protection"
     expect(settingsMaintenanceUntil({ ...owner, ...patch }, now)).toBeNull();
   }
 });
-it.each(["/api/v1/settings", "/api/v1/settings/customer-agent/rollout", "/api/v1/settings/restore-points?x=1", "/api/v1/vacancies/positions/synthetic", "/api/v1/bot-training/example", "/api/v1/dashboard/modules/synthetic"])("allows only a settings maintenance route: %s", path => expect(isSettingsMaintenancePath(path)).toBe(true));
+it.each(["/api/v1/settings", "/api/v1/settings/customer-agent/rollout", "/api/v1/settings/restore-points?x=1", "/api/v1/vacancies/positions/synthetic", "/api/v1/bot-training/example", "/api/v1/dashboard/modules/synthetic", "/api/v1/ui-shell/config", "/api/v1/sms/settings", "/api/v1/sms/test"])("allows only a settings maintenance route: %s", path => expect(isSettingsMaintenancePath(path)).toBe(true));
 it.each(["/api/v1/agents", "/api/v1/me", "/api/v1/properties/x/photos", "/api/v1/settings-evil", "/api/v1/auth/step-up", "/api/v1/agents?next=/api/v1/settings"])("keeps nonsettings step-up: %s", path => expect(isSettingsMaintenancePath(path)).toBe(false));
