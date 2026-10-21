@@ -7,6 +7,7 @@ import { resolveCustomerEndpoint, ensureScopedBotConversation, CustomerScopeDeni
 import { acceptAuthenticatedCustomerAdmission, lockCustomerStateSnapshot } from "./customerState.js";
 import { reserveCustomerPropertyFocus } from "./customerPropertyFocus.js";
 import { customerPropertyContextEnabled } from "./customerPropertyContextFlag.js";
+import { readCustomerDmSourceExecution } from "./customerAgentEnrollment.js";
 
 export type RecoveredFinalCustomerInboxInput =
   | { status: "finalized"; input: AuthenticatedCustomerInput; ticket: CustomerPropertyAdmission }
@@ -72,7 +73,16 @@ export async function recoverAndFinalizeCustomerInboxInput(eventKey: unknown): P
       const ticket = customerPropertyAdmissionSchema.parse({ eventKey, order: pending.order, scopeKey: locked.scopeKey,
         conversationId: native.id, endpointScopeId: endpoint.endpointScopeId, accountId: endpoint.accountId,
         channel: pending.payload.channel, evidence: pending.payload.propertyEvidence });
-      if (customerPropertyContextEnabled()) await reserveCustomerPropertyFocus(tx, ticket);
+      // The old property-path rollout controls LEGACY only. An originally
+      // enrolled CORE turn uses its approved publicRead capability, without
+      // enabling the legacy path or changing ownership/assurance. This stores
+      // only the original IN reference; actual facts still need the principal,
+      // current fences and the normal guarded read after FINAL acceptance.
+      const corePublicContext = state.contractVersion === "scoped" && state.rolloutMode === "ACTIVE" && state.capabilities.publicRead &&
+        (await readCustomerDmSourceExecution(tx, eventKey, locked.scopeKey, { surface: "dm", peer: endpoint.subscriberId,
+          endpoint: { endpointScopeId: endpoint.endpointScopeId, scopeRevision: endpoint.scopeRevision,
+            channel: pending.payload.channel, accountId: endpoint.accountId, transportKey: endpoint.transportKey } }))?.lane === "CORE";
+      if (customerPropertyContextEnabled() || corePublicContext) await reserveCustomerPropertyFocus(tx, ticket);
       if (!await acceptAuthenticatedCustomerAdmission(classified.input, ticket, tx)) throw new RecoveryHeld("canonical_acceptance_denied");
       return { status: "finalized" as const, input: classified.input, ticket };
     }, { maxWait: 5000, timeout: 10000 });

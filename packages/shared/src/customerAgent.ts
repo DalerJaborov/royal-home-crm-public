@@ -4,6 +4,7 @@ import { customerMutationCommandSchema } from "./customerMutation.js";
 import { customerPublicStateSchema } from "./customerState.js";
 import { customerAgentCompanyPolicyCallSchema, customerAgentPropertySearchCallSchema, customerAgentCompanyInformationCallSchema } from "./customerAgentPublicReads.js";
 import { customerAgentVacanciesCallSchema } from "./recruitment.js";
+import { customerPropertyFactKindSchema } from "./customerPropertyContext.js";
 
 // DRAFT: no barrel export until the coordinated fresh-main integration.
 export const customerAgentSurfaceSchema = z.enum(["dm", "public_comment", "voice"]);
@@ -13,7 +14,7 @@ export const customerAgentAgencyContactCallSchema = z.object({ name: z.literal("
 export const customerAgentToolCallSchema = z.union([customerToolCallSchema, customerAgentAgencyContactCallSchema,
   customerAgentCompanyPolicyCallSchema, customerAgentPropertySearchCallSchema, customerAgentCompanyInformationCallSchema, customerAgentVacanciesCallSchema, customerMutationCommandSchema]);
 export type CustomerAgentToolCall = z.infer<typeof customerAgentToolCallSchema>;
-export const customerAgentFactKindSchema = z.enum(["price", "address", "builder", "characteristics"]);
+export const customerAgentFactKindSchema = customerPropertyFactKindSchema;
 export const customerAgentQuestionSchema = z.enum(["none", "property", "budget", "location", "rooms", "name", "phone", "callback_consent", "topic", "role", "clarify_previous", "seller_details", "preferences", "job_position", "job_experience", "job_portfolio", "job_tools", "job_format", "job_start"]);
 export type CustomerAgentQuestion = z.infer<typeof customerAgentQuestionSchema>;
 export const customerAgentSocialActSchema = z.enum(["none", "greet", "thank", "acknowledge", "apologize"]);

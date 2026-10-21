@@ -1,6 +1,13 @@
-import type { CustomerPropertyCharacteristics } from "./customerPropertyContext.js";
+import type { CustomerPropertyCharacteristics, CustomerPropertyFacts } from "./customerPropertyContext.js";
 import { propertyFloorsLabel } from "./propertyTypeFields.js";
 import { propertyFinishSummary } from "./propertyFinish.js";
+
+/** Called only with the server's validated, current public property facts. */
+export function customerPropertyAvailabilityLine(facts: Pick<CustomerPropertyFacts, "availability" | "shortId">, language: "ru" | "tg"): string {
+  if (facts.availability === "RESERVED") return language === "tg"
+    ? `Объекти №${facts.shortId} ҳоло дар брон аст.` : `Объект №${facts.shortId} сейчас в брони.`;
+  return language === "tg" ? `Бале, объекти №${facts.shortId} ҳоло дастрас аст.` : `Да, объект №${facts.shortId} ещё доступен.`;
+}
 
 /** Closed public CRM fields only. No descriptions, contacts or address strings. */
 export function customerPropertyCharacteristicLines(c: CustomerPropertyCharacteristics | undefined, language: "ru" | "tg", question = ""): string[] {

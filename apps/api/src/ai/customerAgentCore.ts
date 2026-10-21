@@ -1,5 +1,5 @@
 import { customerAgentDecisionSchema, customerAgentRevisionSchema, customerAgentToolCallSchema, customerAgentVerifiedContextSchema, customerAgentPublicationObservationSchema,
-  customerPropertyFactsSchema, type CustomerAgentDecision, type CustomerAgentRevision, type CustomerAgentSurface,
+  customerPropertyFactsSchema, customerPropertyFactKindSchema, type CustomerAgentDecision, type CustomerAgentRevision, type CustomerAgentSurface,
   type CustomerAgentToolCall, type CustomerAgentVerifiedContext, type CustomerPropertyFactKind } from "@royal-home/shared";
 import type { ProviderOperation } from "./providerContract.js";
 import { renderCustomerAgentDecision, customerAgentRenderedQuestion, isCanonicalAgencyContact, customerCompanyInformationRequested,
@@ -60,7 +60,7 @@ export type CustomerCoreResult =
 function clone<T>(value: T): T { return structuredClone(value); }
 function safeObservation(value: CustomerAgentObservation, knowledgeSourceHash: string): boolean {
   if (value.kind === "facts") return customerPropertyFactsSchema.safeParse(value.facts).success &&
-    value.kinds.length > 0 && value.kinds.length <= 4 && value.kinds.every(k => ["price", "address", "builder", "characteristics"].includes(k));
+    value.kinds.length > 0 && value.kinds.length <= customerPropertyFactKindSchema.options.length && value.kinds.every(k => customerPropertyFactKindSchema.safeParse(k).success);
   if (value.kind === "property_unresolved") return value.status === "missing" || value.status === "ambiguous";
   if (value.kind === "agency_contact") return isCanonicalAgencyContact(value);
   if (value.kind === "company_policy") return isPinnedCompanyPolicy(value, knowledgeSourceHash);

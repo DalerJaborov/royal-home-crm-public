@@ -14,6 +14,54 @@ beforeAll(async () => { f = await createCustomerCoreGoldenFixture(); });
 afterEach(() => { vi.restoreAllMocks(); f?.assertIoClean(); });
 afterAll(async () => { await f?.cleanup(); });
 
+it("CORE resolves current public availability even while the independent legacy property rollout is OFF", async () => {
+  vi.stubEnv("BOT_PROPERTY_CONTEXT_ENABLED", "0");
+  try {
+    const owner = await f.owner(), { property } = await f.publicCard();
+    const event = await f.capture(owner, `Объект №${property.shortId} ещё есть?`);
+    f.script([[reply(["e0"])]]);
+    const delivered = await f.deliver(event);
+    expect(delivered.text).toBe(`Да, объект №${property.shortId} ещё доступен.`);
+    expect(delivered.text).not.toMatch(/500|телефон|номер телефона|сотрудник/iu);
+  } finally { vi.stubEnv("BOT_PROPERTY_CONTEXT_ENABLED", "1"); }
+});
+
+it("CORE with legacy property rollout OFF clarifies an unresolved availability request without inventing availability", async () => {
+  vi.stubEnv("BOT_PROPERTY_CONTEXT_ENABLED", "0");
+  try {
+    const owner = await f.owner();
+    const event = await f.capture(owner, "Салом хона Холо хам хаст");
+    f.script([[reply(["e0"], "property")]]);
+    const delivered = await f.deliver(event);
+    expect(delivered.text).toContain("?");
+    expect(delivered.text).not.toMatch(/дастрас|доступен|992/u);
+  } finally { vi.stubEnv("BOT_PROPERTY_CONTEXT_ENABLED", "1"); }
+});
+
+it("legacy property OFF does not create CORE focus when the actual publicRead capability is disabled", async () => {
+  vi.stubEnv("BOT_PROPERTY_CONTEXT_ENABLED", "0");
+  const saved = await prisma.customerRuntimePolicy.findUniqueOrThrow({ where: { id: "singleton" }, select: { capabilities: true } });
+  try {
+    const owner = await f.owner(), { property } = await f.publicCard();
+    const event = await f.capture(owner, `Объект №${property.shortId} ещё есть?`);
+    await prisma.$executeRaw`UPDATE "CustomerRuntimePolicy" SET "capabilities"=${JSON.stringify({ ...saved.capabilities as object, publicRead: false })}::jsonb WHERE "id"='singleton'`;
+    const before = f.counts();
+    expect(await prepareCustomerDmInboxCoreContext(event)).toMatchObject({ status: "held" });
+    const ticket = await prisma.customerPropertyIngressTicket.findUniqueOrThrow({ where: { eventKey: event } });
+    if (ticket.conversationId) {
+      expect((await prisma.botConversation.findUniqueOrThrow({ where: { id: ticket.conversationId } })).customerPropertyFocus).toBeNull();
+    } else {
+      // The admission guard may stop even before creating a native record.
+      expect(await prisma.botConversation.count({ where: { accountId: owner.id } })).toBe(0);
+    }
+    expect(f.counts()).toEqual(before);
+    expect(await prisma.customerOutboxPart.count({ where: { ticketEventKey: event } })).toBe(0);
+  } finally {
+    await prisma.$executeRaw`UPDATE "CustomerRuntimePolicy" SET "capabilities"=${JSON.stringify(saved.capabilities)}::jsonb WHERE "id"='singleton'`;
+    vi.stubEnv("BOT_PROPERTY_CONTEXT_ENABLED", "1");
+  }
+});
+
 it("resolves original owned focus before minting a current principal, then actual Core/P12 answers its price", async () => {
   const owner = await f.owner(), { property } = await f.publicCard();
   const event = await f.capture(owner, `Какая цена объекта №${property.shortId}?`);

@@ -2,7 +2,7 @@ import { z } from "zod";
 import { PROPERTY_TYPES } from "./enums.js";
 import { customerAgentCompanyKnowledgeSchema, customerAgentCompanyPolicyTopicSchema,
   customerAgentPropertySearchArgsSchema, customerAgentCompanyInformationSchema } from "./customerAgentPublicReads.js";
-import { customerPropertyFactsSchema } from "./customerPropertyContext.js";
+import { customerPropertyFactsSchema, customerPropertyFactKindSchema } from "./customerPropertyContext.js";
 import { customerAgentVacanciesObservationSchema, type CustomerAgentVacanciesObservation } from "./recruitment.js";
 
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
@@ -39,7 +39,7 @@ export const customerAgentPublicationObservationSchema = z.object({
     .refine(value => value.permalink === undefined || value.channel === "INSTAGRAM"),
   mappingSignature: digest,
   linksAllowed: z.boolean().optional(),
-  kinds: z.array(z.enum(["price", "address", "builder", "characteristics"])).min(1).max(4)
+  kinds: z.array(customerPropertyFactKindSchema).min(1).max(customerPropertyFactKindSchema.options.length)
     .refine(values => new Set(values).size === values.length),
   cards: z.array(customerPropertyFactsSchema).min(1).max(5)
     .refine(values => new Set(values.map(value => value.propertyId)).size === values.length),

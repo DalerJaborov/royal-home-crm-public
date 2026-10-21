@@ -30,6 +30,13 @@ function fixture(overrides: Partial<CustomerCoreFrame> = {}) {
     requestStop, observeLateToolResult, ports: { modelTurn, executeAllowedTool, assertCurrent, requestStop, observeLateToolResult } satisfies CustomerCorePorts };
 }
 afterEach(() => vi.useRealTimers());
+it("preloads verified availability through the declared read before one model decision", async () => {
+  const f = fixture({ inputText: "Салом хона Холо хам хаст", language: "tg", requestedFacts: ["availability"] });
+  f.executeAllowedTool.mockResolvedValue({ status: "observed", observation: { kind: "facts", facts, kinds: ["availability"] } });
+  expect(await runCustomerAgentTurn(f.frame, f.ports)).toMatchObject({ status: "ready", text: "Бале, объекти №123 ҳоло дастрас аст.", rounds: 1, toolCalls: 1 });
+  expect(f.executeAllowedTool).toHaveBeenCalledWith({ name: "get_property_facts", args: { kinds: ["availability"] } }, expect.anything());
+  expect(f.modelTurn).toHaveBeenCalledTimes(1);
+});
 it("reuses a prefetched vacancy ref when the model reads the same current catalog again", async () => {
   const value = { collecting: true, positions: [] };
   const f = fixture({ inputText: "Есть вакансии?", requestedFacts: [], tools: [{ name: "get_open_vacancies", description: "Current jobs" }] });

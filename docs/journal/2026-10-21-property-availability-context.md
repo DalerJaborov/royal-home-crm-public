@@ -1,0 +1,9 @@
+# Verified availability and CORE property context
+
+Availability was present in public property facts but absent from the declared read kinds and direct question classifier. The shared fact-kind contract now includes availability; both renderers use the same Russian/Tajik status line and preserve freshness, publication and address restrictions. Unknown or ambiguous properties receive a relevant clarification rather than an invented availability claim.
+
+Durable CORE admission also depended on the independent legacy property-path switch. With that switch off, CORE could accept an input but have no property focus for its public read. Original CORE enrollment plus the current scoped ACTIVE/publicRead policy now reserves the original input reference independently of that legacy switch. LEGACY enrollment, OFF policy, revoked capability, input classification, ownership and send guards remain unchanged. No global switch or authority is changed.
+
+Validation includes regression failures on the prior contract and legacy-OFF path, real signed intake → PostgreSQL → CORE → tool → encrypted outbox/provider-adapter checks, and public-envelope reads that retain their original assurance. Model/provider HTTP is synthetic in tests. A first test incorrectly expected zero model rounds despite the existing one-round decision protocol; its assertion was corrected without changing that protocol. The disabled-capability negative control also accepts admission stopping before any native record exists.
+
+No migration, replay, customer recovery send, fallback, staff handover or rollout increase is introduced. Missing advertisement/publication catalog associations and exact historical unavailable-tool subcauses remain separate work; this change does not claim universal link access or repair of old held events. Full official release and independent production verification remain required.
