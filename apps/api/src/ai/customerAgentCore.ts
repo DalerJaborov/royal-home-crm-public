@@ -8,7 +8,7 @@ import { isPinnedCompanyPolicy, isPublicPropertySearch, publicSearchProjection, 
 import { customerRequestedAgencyContact, isCustomerPublicAppreciation, customerPublicReaction } from "./customerAgentConversationPolicy.js";
 import { customerAgentAttachmentInputSchema, type CustomerAgentAttachmentInput } from "./customerAgentAttachmentInput.js";
 import { customerAgentMediaPerceptionSchema, type CustomerAgentMediaPerception } from "./customerAgentMediaPerception.js";
-import { customerRecruitmentRequested, isCustomerVacanciesObservation, selectedRecruitmentPosition } from "./customerAgentRecruitmentProtocol.js";
+import { customerRecruitmentRequested, isCustomerVacanciesObservation, recruitmentPositionForTurn } from "./customerAgentRecruitmentProtocol.js";
 import type { CustomerAgentAwaitContext, CustomerAgentModelTurn } from "./customerAgentModelContracts.js";
 export type { CustomerAgentAwaitContext, CustomerAgentModelTurn } from "./customerAgentModelContracts.js";
 
@@ -73,7 +73,7 @@ function safeObservation(value: CustomerAgentObservation, knowledgeSourceHash: s
 }
 /** Model projection never contains property UUID, signature, resource/action,
  * Client, native, endpoint, actor, grant or canonical state/fence identifiers. */
-function publicObservation(value: CustomerAgentObservation, recruitmentText = "", recruitmentKey?: string): unknown {
+function publicObservation(value: CustomerAgentObservation, recruitmentText = "", recruitmentKey?: string, turns?: CustomerAgentVerifiedContext["turns"]): unknown {
   if (value.kind === "receipt") return { kind: "receipt", outcome: value.outcome };
   if (value.kind === "property_unresolved") return { kind: value.kind, status: value.status };
   if (value.kind === "proposal") return { kind: "proposal", summary: { ru: value.summary.ru, tg: value.summary.tg } };
@@ -81,7 +81,7 @@ function publicObservation(value: CustomerAgentObservation, recruitmentText = ""
   if (value.kind === "company_policy") return { kind: value.kind, topic: value.topic, knowledge: structuredClone(value.knowledge) };
   if (value.kind === "company_information") return { kind: value.kind, information: structuredClone(value.information) };
   if (value.kind === "open_vacancies") {
-    const selected = selectedRecruitmentPosition(value.positions, recruitmentText, recruitmentKey);
+    const selected = recruitmentPositionForTurn(value.positions, { inputText: recruitmentText, knownKey: recruitmentKey, turns });
     return { kind: value.kind, collecting: value.collecting,
       positions: value.positions.map(row => ({ titleRu: row.titleRu, titleTg: row.titleTg,
         conditionsPublished: !!row.detailsRu || !!row.detailsTg,
@@ -223,9 +223,15 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
     let projected: unknown;
     if (result.status === "observed") {
       if (!observationMatchesCall(parsed.data, result.observation, frame.surface, revision.knowledgeSourceHash)) throw new Error("invalid_server_observation");
-      const entry = { ref: `e${evidence.length}`, value: clone(result.observation) };
-      evidence.push(entry);
-      projected = { status: "observed", ref: entry.ref, value: publicObservation(entry.value, frame.inputText, context?.publicState.jobPositionKey) };
+      // Auto-prefetch and a later model read can observe the identical catalog.
+      // Reuse its existing ref; do not render it twice or inflate sideband data.
+      // Freshness is still checked before/after EVERY read. No write is cached.
+      const existing = result.observation.kind === "open_vacancies" ? evidence.find(e =>
+        e.value.kind === "open_vacancies" && JSON.stringify(e.value) === JSON.stringify(result.observation)) : undefined;
+      const entry = existing ?? { ref: `e${evidence.length}`, value: clone(result.observation) };
+      if (!existing) evidence.push(entry);
+      projected = { status: "observed", ref: entry.ref, value: publicObservation(entry.value,
+        [frame.inputText, perception?.transcript, perception?.readableText].filter(Boolean).join("\n"), context?.publicState.jobPositionKey, context?.turns) };
     } else {
       // Storage/provider details are server-only; do not inject raw error text.
       projected = result.status === "denied" && result.reason === "phone_required"
@@ -271,7 +277,7 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
     if (customerCompanyInformationRequested(frame.inputText) && frame.tools.some(tool => tool.name === "get_company_information")) {
       await execute({ name: "get_company_information", args: {} });
     }
-    if ((customerRecruitmentRequested(frame.inputText) || context?.publicState.topic === "job") && frame.tools.some(tool => tool.name === "get_open_vacancies")) {
+    if ((customerRecruitmentRequested([frame.inputText, perception?.transcript, perception?.readableText].filter(Boolean).join("\n")) || context?.publicState.topic === "job") && frame.tools.some(tool => tool.name === "get_open_vacancies")) {
       await execute({ name: "get_open_vacancies", args: {} });
     }
     if (frame.requestedFacts.length && context?.publicState.topic !== "job") {

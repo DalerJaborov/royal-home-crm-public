@@ -5,6 +5,8 @@ import { requireAuth, requirePermission } from "../auth/middleware.js";
 import { requireElevation } from "../lib/stepUp.js";
 import { readRecruitmentPositions } from "../lib/recruitmentPositions.js";
 import { recruitmentPositionTemplates } from "../lib/recruitmentPositionTemplates.js";
+import { recruitmentRecoveryRequestSchema } from "@royal-home/shared";
+import { enqueueRecruitmentRecovery } from "../lib/recruitmentRecovery.js";
 
 export const recruitmentPositionsRouter = Router();
 recruitmentPositionsRouter.use(requireAuth, requirePermission("vacancies.view"));
@@ -14,6 +16,22 @@ recruitmentPositionsRouter.get("/", async (_req, res) => {
 });
 recruitmentPositionsRouter.get("/templates", (_req, res) => {
   res.json({ items: recruitmentPositionTemplates() });
+});
+recruitmentPositionsRouter.post("/recovery", requirePermission("settings.manage"), requirePermission("messages.view"), requireElevation, async (req, res) => {
+  const parsed = recruitmentRecoveryRequestSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: "Проверьте список откликов и кампанию исправления" }); return; }
+  try { res.json(await enqueueRecruitmentRecovery(req.agent!.id, parsed.data)); }
+  catch { res.status(503).json({ error: "Не удалось подготовить исправленные ответы. Проверьте статус кампании перед повтором." }); }
+});
+recruitmentPositionsRouter.get("/recovery/:campaign", requirePermission("settings.manage"), async (req, res) => {
+  if (!/^[a-z0-9-]{8,64}$/.test(req.params.campaign)) { res.status(400).json({ error: "Неверная кампания" }); return; }
+  try {
+    const items = await prisma.$queryRaw`SELECT r."id",r."originalConversationId" AS "conversationId",r."status",r."reason",r."createdAt",r."finishedAt",j."runAt" AS "scheduledAt",
+      (r."providerMid" IS NOT NULL) AS "providerReceiptPresent",(r."projectionAt" IS NOT NULL) AS "visibleInConversation"
+      FROM "RecruitmentRecovery" r LEFT JOIN "BackgroundJob" j ON j."dedupeKey"='recruitment-recovery:' || r."id"
+      WHERE r."campaign"=${req.params.campaign} ORDER BY r."createdAt" LIMIT 50`;
+    res.json({ items });
+  } catch { res.status(503).json({ error: "Не удалось обновить статус исправленных ответов" }); }
 });
 recruitmentPositionsRouter.put("/:key", requirePermission("settings.manage"), requireElevation, async (req, res) => {
   const key = recruitmentPositionKeySchema.safeParse(req.params.key), parsed = recruitmentPositionUpdateSchema.safeParse(req.body);

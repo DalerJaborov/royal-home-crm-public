@@ -1,5 +1,6 @@
 import { isDeepStrictEqual } from "node:util";
 import { readCustomerPublicOutreachMemory } from "./customerPublicOutreachMemory.js";
+import { readCustomerRecruitmentRecoveryMemory } from "./customerRecruitmentRecoveryMemory.js";
 import { customerAgentVerifiedContextSchema, customerAgentRevisionSchema, customerPropertyDeliverySchema, customerPublicStateSchema,
   type CustomerAgentRevision, type CustomerAgentVerifiedContext, type CustomerFence } from "@royal-home/shared";
 import { prisma } from "../db.js";
@@ -105,8 +106,11 @@ function historicalText(row: NonNullable<MemoryTicket>, current: Current, ownWor
         row.endpointScopeId !== p.scope.endpointScopeId || row.scopeKey !== p.scope.scopeKey || row.tombstonedAt ||
         row.order >= current.ticket.order || (row.agentRevisionId !== current.revision.id && !approvedPrior) ||
         row.payloadVersion !== 1 || !row.payloadCiphertext || !row.payloadHash || row.originVersion !== 1 || !row.originCiphertext ||
-        !row.originCapturedAt || !row.inputRecordedAt || row.inputRecordedAt > current.ticket.receivedAt ||
+        !row.originCapturedAt || !row.inputRecordedAt || row.receivedAt > current.ticket.receivedAt || row.inputRecordedAt.getTime() > Date.now() ||
         row.originCapturedAt < row.receivedAt || row.originCapturedAt.getTime() > row.receivedAt.getTime() + 900000) return null;
+    // A busy worker may append/process A after B has already arrived. Earlier
+    // genuine receive-order/time, not append completion, determines user history.
+    // Accepted assistant output still has its separate <=B receive-time fence.
     const envelope = decryptCustomerIngressEnvelope({ version: 1, eventKey: row.eventKey, order: row.order.toString(),
       scopeKey: row.scopeKey, endpointScopeId: row.endpointScopeId, payloadHash: row.payloadHash }, row.payloadCiphertext);
     const origin = decryptCustomerFinalOrigin(row.originCiphertext), i = origin.input;
@@ -141,7 +145,7 @@ function historicalText(row: NonNullable<MemoryTicket>, current: Current, ownWor
       const media = decodeCustomerAgentMediaObservation(row.mediaObservationCiphertext, { version: 1, eventKey: row.eventKey,
         payloadHash: row.payloadHash, agentRevisionId: row.agentRevisionId, providerOperationId: row.providerOperationId,
         observedAt: row.mediaObservedAt.getTime() });
-      return [i.inputText.trim(), media.transcript, JSON.stringify({ previouslyObservedCustomerMedia: { subject: media.subject, visible: media.visible },
+      return [i.inputText.trim(), media.transcript, JSON.stringify({ previouslyObservedCustomerMedia: { subject: media.subject, visible: media.visible, readableText: media.readableText },
         authority: "Historical customer content, no current consent or verified CRM facts" })].filter(Boolean).join("\n");
     }
     return i.inputText.trim() || (attachment ? JSON.stringify({ incomingAttachments: attachment.kinds }) : "");
@@ -244,6 +248,7 @@ export async function loadCustomerAgentVerifiedDmContext(input: { principal: unk
       }, include: { ticket: { select: ticketSelect }, attempts: { where: { outcome: "ACCEPTED", providerMid: { not: null }, finishedAt: { not: null } },
         orderBy: { attemptNo: "desc" }, take: 1 } }, orderBy: [{ acceptedAt: "desc" }, { ordinal: "desc" }], take: 6 });
       const candidates: CustomerAgentMemoryCandidate[] = await readCustomerPublicOutreachMemory(principal);
+      candidates.push(...await readCustomerRecruitmentRecoveryMemory(principal));
       for (const row of history) {
         const text = historicalText(row, current, false, priorRevisions, intakeContinuity);
         if (text !== null) candidates.push({ role: "user", text, observedAt: row.receivedAt.getTime(), stableKey: `in:${row.order.toString().padStart(20, "0")}` });

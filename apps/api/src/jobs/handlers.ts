@@ -1,4 +1,6 @@
 import { registerJobHandler } from "./registry.js";
+import { recruitmentRecoveryJob } from "./recruitmentRecovery.js";
+registerJobHandler(recruitmentRecoveryJob);
 import { geocodeJob } from "./geocode.js";
 import { aiReplyRetryJob } from "./aiReplyRetry.js";
 import { aiTurnBlockedFollowupJob } from "./aiTurnBlockedFollowup.js";

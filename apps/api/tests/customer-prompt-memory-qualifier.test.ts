@@ -17,6 +17,16 @@ vi.mock("../src/db.js", async importOriginal => ({
   ...await importOriginal<typeof import("../src/db.js")>(), prisma: db,
 }));
 vi.mock("../src/loadEnv.js", () => ({}));
+vi.mock("../src/lib/recruitmentPositions.js", async importOriginal => ({
+  ...await importOriginal<typeof import("../src/lib/recruitmentPositions.js")>(),
+  readCustomerOpenVacancies: async () => {
+    const { recruitmentCatalogHash } = await import("../src/ai/customerAgentRecruitmentProtocol.js");
+    const { recruitmentPositionTemplates } = await import("../src/lib/recruitmentPositionTemplates.js");
+    const facts = { collecting: true, positions: recruitmentPositionTemplates().filter(row => row.key === "real-estate-agent")
+      .map(row => ({ ...row, revision: 1, isOpen: true })) };
+    return { kind: "open_vacancies", ...facts, sourceHash: recruitmentCatalogHash(facts) };
+  },
+}));
 vi.mock("../src/ai/client.js", async (importOriginal) => ({ ...(await importOriginal<typeof import("../src/ai/client.js")>()), callAiText: fake.callAi }));
 import { runQualifyTurn } from "../src/ai/leadQualifier.js";
 const abilities = { showings: true, askOwner: true, vacancies: true, promptEconomy: true, callback: false, links: true, cautious: false };
@@ -61,7 +71,8 @@ describe("actual qualifier scoped customer invocation", () => {
   });
   it("does not contradict a current scoped phone flag in the job missing-facts list", async () => {
     expect((await runQualifyTurn([], { stage: "done" }, {
-      abilities, conversationId: "synthetic-conversation", customerContext: { ...context("current_input"), draft: { stage: "chatting", intent: "job" } },
+      abilities, conversationId: "synthetic-conversation", customerContext: { ...context("current_input"),
+        history: [{ role: "user", content: "Хочу стать агентом по недвижимости" }], draft: { stage: "chatting", intent: "job" } },
     }))?.reply).toEqual(valid.reply);
     expect(db.jobApplication.findUnique).not.toHaveBeenCalled();
     const missing = captured().system.match(/ЕЩЁ НЕ ВЫЯСНЕНО \(посчитано кодом\): ([^.]+)\./u)?.[1];

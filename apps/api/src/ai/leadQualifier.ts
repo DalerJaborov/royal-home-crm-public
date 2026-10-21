@@ -79,6 +79,9 @@ import {
   type JobApplicationDraft,
 } from "./jobApplication.js";
 import { vacancyConsultationBlock } from "./vacancyFacts.js";
+import { readCustomerOpenVacancies } from "../lib/recruitmentPositions.js";
+import { legacyRecruitmentCatalogBlock } from "./legacyRecruitmentCatalog.js";
+import { selectedRecruitmentPosition } from "./customerAgentRecruitmentProtocol.js";
 import { guideOfferPromptRule, guideOfferSchemaField, parseGuideOffer } from "./guideOffer.js";
 import { mediaApologyDirective, stripRepeatedMediaApology } from "./mediaApology.js";
 import { contactProfileBlock, type ContactProfileForPrompt } from "./contactProfileBlock.js";
@@ -2567,6 +2570,11 @@ export async function runQualifyTurn(
    * включён — иначе запрос лишний: анкеты для этого диалога нет и не будет
    * (см. VACANCIES_DISABLED_RULE ниже).
    */
+  // The live catalog is shared with CORE. Read failure is not "no vacancies";
+  // let the normal turn failure handling report/retry the unavailable read.
+  const recruitmentCatalog = abilities.vacancies ? await readCustomerOpenVacancies() : null;
+  const recruitmentWords = history.filter(m => m.role === "user").slice(-3).map(m => m.content).join("\n");
+  const recruitmentRole = recruitmentCatalog && selectedRecruitmentPosition(recruitmentCatalog.positions, recruitmentWords);
   const jobApplicationRow =
     memory.allowLegacyJobRead && draft.intent === "job" && abilities.vacancies && options.conversationId
       ? await prisma.jobApplication.findUnique({
@@ -2575,7 +2583,7 @@ export async function runQualifyTurn(
         })
       : null;
   const jobIntakeBlock =
-    draft.intent === "job" && abilities.vacancies
+    draft.intent === "job" && abilities.vacancies && recruitmentRole?.key === "real-estate-agent"
       ? jobApplicationIntakeBlock(jobMissingFacts(jobApplicationRow ?? {}).filter(
           // A minimized current-inquiry flag needs no raw phone or old job row.
           // Legacy callers keep the original job missing-facts behavior.
@@ -2798,7 +2806,8 @@ export async function runQualifyTurn(
     topicDirective(topicState, topicSettings) +
     // Поправка повторного хода — ещё ниже задания темы: она про этот же ход и
     // отменяет только что отвергнутый вариант (см. retryDirective в опциях).
-    (options.retryDirective ?? "");
+    (options.retryDirective ?? "") +
+    (recruitmentCatalog ? legacyRecruitmentCatalogBlock(recruitmentCatalog, recruitmentWords) : "");
 
   const rawResult = await callAiText<unknown>({
     endpoint: "lead-qualify",
@@ -2846,6 +2855,7 @@ export async function runQualifyTurn(
       bubbles: result.reply,
       allowedText:
         propsBlock +
+        (recruitmentCatalog ? "\n" + JSON.stringify(recruitmentCatalog.positions.map(row => ({ detailsRu: row.detailsRu, detailsTg: row.detailsTg }))) : "") +
         "\n" +
         history.map((m) => m.content).join("\n") +
         "\n" +

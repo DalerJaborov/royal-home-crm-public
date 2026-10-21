@@ -4,7 +4,7 @@ import { customerPropertyCharacteristicLines, customerAgentPublicationObservatio
 import { PUBLIC_AGENCY_CONTACT } from "../lib/publicAgencyContact.js";
 import { customerPublicThanks, customerRequestedAgencyContact, isCustomerPublicAppreciation, customerPublicReaction, customerPublicReactionText } from "./customerAgentConversationPolicy.js";
 import { customerAgentIntake, customerSellerIntakeQuestion } from "./customerAgentIntake.js";
-import { customerRecruitmentRequested, customerRecruitmentFactsRequested, isCustomerVacanciesObservation, selectedRecruitmentPosition } from "./customerAgentRecruitmentProtocol.js";
+import { customerRecruitmentRequested, customerRecruitmentFactsRequested, isCustomerVacanciesObservation, recruitmentPositionForTurn } from "./customerAgentRecruitmentProtocol.js";
 import { clientOwnWords } from "./untrustedContent.js";
 import { customerAgentAttachmentInputSchema, customerAgentAttachmentQuestion, type CustomerAgentAttachmentInput } from "./customerAgentAttachmentInput.js";
 import { customerAgentMediaPerceptionSchema, customerAgentVisualSummary, type CustomerAgentMediaPerception } from "./customerAgentMediaPerception.js";
@@ -55,7 +55,8 @@ export function customerAgentRenderedQuestion(input: { decision: CustomerAgentDe
   if (input.evidence.some(e => e.value.kind === "open_vacancies" && (d.refs.includes(e.ref) || customerRecruitmentRequested(input.inputText ?? "") || input.verifiedContext?.publicState.topic === "job"))) {
     const openings = input.evidence.flatMap(e => e.value.kind === "open_vacancies" ? e.value.positions : []);
     if (!openings.length) return "none";
-    if (["property", "budget", "location", "rooms", "role", "topic", "seller_details", "preferences", "job_position"].includes(d.question)) return selectedRecruitmentPosition(openings, input.inputText ?? "", input.verifiedContext?.publicState.jobPositionKey) ? "job_experience" : "job_position";
+    if (["property", "budget", "location", "rooms", "role", "topic", "seller_details", "preferences", "job_position"].includes(d.question)) return recruitmentPositionForTurn(openings, { inputText: input.inputText,
+      knownKey: input.verifiedContext?.publicState.jobPositionKey, turns: input.verifiedContext?.turns }) ? "job_experience" : "job_position";
   }
   // Resolution failures are facts about the current property, not a reason to
   // collect a phone/name before answering or clarifying the property.
@@ -254,14 +255,29 @@ export function renderCustomerAgentDecision(input: {
   const recruitment = customerRecruitmentFactsRequested(input.inputText ?? "") || !input.inputText?.trim() && !!input.verifiedContext?.publicState.jobPositionKey
     ? input.evidence.filter(e => e.value.kind === "open_vacancies") : [];
   const refs = [...new Set([...mandatory.map(e => e.ref), ...selected, ...contact.map(e => e.ref), ...company.map(e => e.ref), ...recruitment.map(e => e.ref)])];
-  const evidence = refs.map(ref => input.evidence.find(e => e.ref === ref));
-  if (evidence.some(value => !value)) return null;
+  const referenced = refs.map(ref => input.evidence.find(e => e.ref === ref));
+  if (referenced.some(value => !value)) return null;
+  // Retained pre-fix plans may contain multiple refs to the same catalog. Check
+  // integrity of each one before collapsing identical public-data observations.
+  if (referenced.some(e => e?.value.kind === "open_vacancies" && !isCustomerVacanciesObservation(e.value))) return null;
+  const catalogEditions = new Set<string>();
+  const evidence = referenced.filter(item => {
+    if (item?.value.kind !== "open_vacancies") return true;
+    const key = JSON.stringify(item.value);
+    if (catalogEditions.has(key)) return false;
+    catalogEditions.add(key); return true;
+  });
   if (d.kind === "propose" && evidence.find(e => e?.ref === d.ref)?.value.kind !== "proposal") return null;
   if (d.kind !== "propose" && evidence.some(e => e?.value.kind === "proposal")) return null;
   const lines: string[] = [];
   const perception = input.mediaPerception ? customerAgentMediaPerceptionSchema.safeParse(input.mediaPerception) : undefined;
   if (perception && (!perception.success || input.surface !== "dm")) return null;
-  const visualSummary = perception?.success ? customerAgentVisualSummary(perception.data, lang) : null;
+  const recruitmentMedia = perception?.success && customerRecruitmentRequested(
+    [input.inputText, perception.data.transcript, perception.data.readableText].filter(Boolean).join("\n"));
+  // A chair behind a recruiter is not the subject of the customer's question.
+  // Keep the perceived content for interpretation, not an unsolicited inventory.
+  const visualSummary = perception?.success && !recruitmentMedia && input.verifiedContext?.publicState.topic !== "job"
+    ? customerAgentVisualSummary(perception.data, lang) : null;
   if (visualSummary) lines.push(visualSummary);
   if (perception?.success && perception.data.incomplete) lines.push(lang === "tg" ? "Як қисми файлҳои фиристодаатон кушода нашуд." : "Часть присланных файлов не удалось открыть.");
   if (perception?.success && perception.data.speech === "unintelligible" && d.kind === "clarify" && d.question === "clarify_previous" &&
@@ -310,7 +326,9 @@ export function renderCustomerAgentDecision(input: {
         }
         // Only publish the selected role's current staff-authored conditions;
         // another role's salary or old ad text is never substituted.
-        const matched = selectedRecruitmentPosition(item.value.positions, input.inputText ?? "", input.verifiedContext?.publicState.jobPositionKey);
+        const matched = recruitmentPositionForTurn(item.value.positions, { inputText: input.inputText,
+          mediaText: perception?.success ? [perception.data.transcript, perception.data.readableText].join("\n") : "",
+          knownKey: input.verifiedContext?.publicState.jobPositionKey, turns: input.verifiedContext?.turns });
         lines.push(lang === "tg" ? matched ? "Ҷойи кори кушода:" : "Ҷойҳои кори кушода:" : matched ? "Открыта вакансия:" : "Сейчас открыты вакансии:");
         for (const position of matched ? [matched] : item.value.positions.slice(0, 12)) lines.push(lang === "tg" ? position.titleTg : position.titleRu);
         if (!matched && item.value.positions.length > 12) lines.push(lang === "tg" ? `Ва боз ${item.value.positions.length - 12} вазифа. Соҳаи дилхоҳатонро нависед.`

@@ -1,4 +1,5 @@
 import { guardFired } from "./guardMetrics.js";
+import { clientOwnWords } from "./untrustedContent.js";
 /**
  * РАЗГОВОР НЕ ПРО ЖИЛЬЁ — ОТВЕЧАЕТ КОД, А НЕ МОДЕЛЬ (требование владельца 17.08.2026).
  *
@@ -314,7 +315,9 @@ export function guardOffTopic(
   text: string,
   context: { sharedPost?: boolean; ourPost?: boolean; jobConversation?: boolean } = {}
 ): GuardVerdict | null {
-  const trimmed = text.trim();
+  // A vacancy video saying "edit Reels" describes the job, not an instruction
+  // asking this bot to edit somebody's video. Scan actual typed/voice words.
+  const trimmed = clientOwnWords(text).trim();
 
   /**
    * ЧУЖОЕ ВИДЕО БЕЗ ЕДИНОГО СЛОВА — САМЫЙ ЧАСТЫЙ СПАМ (владелец 17.08.2026:

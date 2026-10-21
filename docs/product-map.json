@@ -1458,7 +1458,7 @@
       "mount": "/api/v1/vacancies",
       "router": "vacanciesRouter",
       "file": "apps/api/src/routes/vacancies.ts",
-      "endpoints": 10,
+      "endpoints": 12,
       "label": "Кандидаты на вакансии",
       "usedBy": 2
     },
@@ -2084,6 +2084,10 @@
     {
       "type": "recording-search-retry",
       "file": "apps/api/src/jobs/recordingSearchRetry.ts"
+    },
+    {
+      "type": "recruitment-recovery",
+      "file": "apps/api/src/jobs/recruitmentRecovery.ts"
     },
     {
       "type": "site-resync",
