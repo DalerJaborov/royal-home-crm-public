@@ -31,3 +31,14 @@ it("does not reuse a different customer's language", async () => {
   expect(await acknowledge(tajik, "Салом, мехоҳам хона харам")).toBe("Фаҳмидам.");
   expect(await acknowledge(separate, "Маяковский")).toBe("Понял.");
 });
+it("honors a colloquial explicit TG request even after prior RU replies", async () => {
+  const owner = await fixture.owner();
+  expect(await acknowledge(owner, "Здравствуйте, мне нужна работа")).toBe("Понял.");
+  expect(await acknowledge(owner, "Точикиш мегрифти хуб мешид ака")).toBe("Фаҳмидам.");
+  expect(await acknowledge(owner, "SMM")).toBe("Фаҳмидам.");
+});
+it("honors an explicit RU preference expressed using Tajik words", async () => {
+  const owner = await fixture.owner();
+  expect(await acknowledge(owner, "Салом, мехоҳам хона харам")).toBe("Фаҳмидам.");
+  expect(await acknowledge(owner, "бо забони русӣ нависед")).toBe("Понял.");
+});
