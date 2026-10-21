@@ -15,7 +15,7 @@ it("reads actual durable recovery attempts before projection without treating RE
     const fence = { inquiryId: randomUUID(), nativeId: native.id, endpoint: { endpointScopeId: scope.id, channel: "INSTAGRAM", accountId: null,
       peerId: native.subscriberId, threadId: "" }, stateRevision: "1", intentRevision: "1", ownershipEpoch: "0", bindingRevision: "1",
       scopeRevision: "1", policyRevision: "1", ownerToken: null };
-    const transport = { endpointScopeId: scope.id, channel: "INSTAGRAM", accountId: null, transportKey: scope.transportKey, scopeRevision: "1" };
+    const transport = { endpointScopeId: scope.id, channel: "INSTAGRAM", accountId: null, transportKey: scope.transportKey, scopeRevision: "1", subscriberId: native.subscriberId };
     const hash = "a".repeat(64), cipher = encryptSecret(text), payloadHash = recruitmentRecoveryHash({ text });
     await tx.$executeRaw`INSERT INTO "RecruitmentRecovery" ("id","campaign","originalConversationId","conversationId","endpointScopeId","transportJson","fenceJson",
       "sourceHash","sourceAt","catalogHash","payloadEncrypted","payloadHash","actorId") VALUES (${id},'synthetic-echo',${native.id},${native.id},${scope.id},${JSON.stringify(transport)}::jsonb,

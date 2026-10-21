@@ -26,6 +26,7 @@ import {
   requireSourceRunPassed,
   sourceBranch,
   waitForMergeReadiness,
+  waitCloudWorkflow,
   statusDescription,
   shipTrailer,
   snapshotState,
@@ -253,6 +254,81 @@ test("find a newly introduced workflow without the main-branch workflow endpoint
     {...mine,id:4,event:"pull_request"},{...mine,id:5,head_branch:"other"},{...mine,id:6,created_at:"2026-10-19T12:00:00Z"}];
   assert.equal(findCloudRun(unrelated,{sha,branch,startedAt}),null);
   assert.equal(findCloudRun([...unrelated,mine],{sha,branch,startedAt})?.id,1);
+});
+
+function cloudWaitFixture({ appearAfter = 7 * 60_000, finishAfter = 8 * 60_000, unrelated = [] } = {}) {
+  const sha = "a".repeat(40), branch = cloudBranch(sha), startedAt = Date.parse("2026-10-21T12:00:00Z");
+  let elapsed = 0;
+  const logs = [], calls = [], waits = [], cloudRun = { sha, branch, startedAt, id: null };
+  const mine = { id: 101, path: ".github/workflows/ship-tests.yml", head_sha: sha, event: "push", head_branch: branch,
+    created_at: new Date(startedAt + (Number.isFinite(appearAfter) ? appearAfter : 0)).toISOString(), html_url: "https://github.com/synthetic/repo/actions/runs/101" };
+  const gh = { call: async (method, url) => {
+    calls.push({ method, url }); assert.equal(method, "GET");
+    if (url.includes("actions/runs?")) return { workflow_runs: [...unrelated, ...(elapsed >= appearAfter ? [mine] : [])] };
+    if (url.endsWith("/101/jobs?per_page=100")) return { jobs: [] };
+    assert.equal(url, "/{repo}/actions/runs/101");
+    return { ...mine, status: elapsed >= finishAfter ? "completed" : "in_progress", conclusion: elapsed >= finishAfter ? "success" : null };
+  } };
+  return { sha, branch, startedAt, cloudRun, mine, logs, calls, waits, elapsed: () => elapsed,
+    options: { gh, sha, cloudRun, now: () => startedAt + elapsed,
+      sleep: async ms => { waits.push(ms); elapsed += ms; }, log: message => logs.push(message) } };
+}
+
+test("cloud workflow accepts the genuine new push appearing after seven minutes and reports waiting honestly", async () => {
+  const fixture = cloudWaitFixture();
+  const run = await waitCloudWorkflow(fixture.options);
+  assert.equal(run.id, 101); assert.equal(run.conclusion, "success"); assert.equal(fixture.elapsed(), 8 * 60_000);
+  assert.equal(fixture.cloudRun.id, 101);
+  assert(fixture.logs.some(line => /ожидаем появления/.test(line)));
+  assert.equal(fixture.logs.filter(line => /прогон https:/.test(line)).length, 1);
+});
+
+test("cloud workflow ignores stale, other-commit, other-branch and unrelated workflows while waiting for its late push", async () => {
+  const base = cloudWaitFixture().mine;
+  const unrelated = [
+    { ...base, id: 1, created_at: "2026-10-20T12:00:00Z" },
+    { ...base, id: 2, head_sha: "b".repeat(40) }, { ...base, id: 3, head_branch: "other" },
+    { ...base, id: 4, path: ".github/workflows/ci.yml" }, { ...base, id: 5, event: "pull_request" },
+  ];
+  const fixture = cloudWaitFixture({ unrelated });
+  assert.equal((await waitCloudWorkflow(fixture.options)).id, 101);
+  assert(fixture.calls.every(call => call.url.includes("actions/runs?") || call.url.includes("/101")));
+});
+
+test("cloud workflow stops after fifteen minutes without claiming a cause or suggesting a local fallback", async () => {
+  const fixture = cloudWaitFixture({ appearAfter: Infinity });
+  await assert.rejects(waitCloudWorkflow(fixture.options), error => {
+    assert.match(error.message, /15 минут/);
+    assert.doesNotMatch(error.message, /billing|биллинг|выключены|local-tests/i);
+    return true;
+  });
+  assert.equal(fixture.elapsed(), 15 * 60_000); assert.equal(fixture.cloudRun.id, null);
+  assert(fixture.calls.every(call => call.url.includes("actions/runs?")));
+});
+
+test("cloud workflow retains the ninety-minute total bound after a late start", async () => {
+  const fixture = cloudWaitFixture({ finishAfter: Infinity });
+  await assert.rejects(waitCloudWorkflow(fixture.options), /90 минут/);
+  assert.equal(fixture.elapsed(), 90 * 60_000); assert.equal(fixture.cloudRun.id, 101);
+});
+
+test("cloud workflow cannot accept a completed response arriving beyond the total deadline", async () => {
+  const fixture = cloudWaitFixture({ appearAfter: 0, finishAfter: 0 });
+  const originalCall = fixture.options.gh.call;
+  fixture.options.gh.call = async (method, url) => {
+    if (url === "/{repo}/actions/runs/101") await fixture.options.sleep(90 * 60_000);
+    return originalCall(method, url);
+  };
+  await assert.rejects(waitCloudWorkflow(fixture.options), /90 минут/);
+  assert.equal(fixture.elapsed(), 90 * 60_000);
+});
+
+test("cloud workflow also waits for the genuine delayed source-only workflow", async () => {
+  const fixture = cloudWaitFixture();
+  fixture.cloudRun.branch = sourceBranch(fixture.sha);
+  fixture.mine.head_branch = fixture.cloudRun.branch; fixture.mine.path = ".github/workflows/ci.yml";
+  assert.equal((await waitCloudWorkflow({ ...fixture.options, workflow: "ci.yml" })).id, 101);
+  assert.equal(fixture.elapsed(), 8 * 60_000);
 });
 
 test("source-only release requires the exact commit, workflow and successful precheck job", () => {
