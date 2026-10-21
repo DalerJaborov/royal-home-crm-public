@@ -13,12 +13,12 @@
  },
  "totals": {
   "screens": 51,
-  "paths": 645,
+  "paths": 647,
   "cron": 107,
-  "jobs": 30,
-  "conditions": 3550,
-  "untranslatedUnique": 385,
-  "untranslatedTotal": 492,
+  "jobs": 31,
+  "conditions": 3563,
+  "untranslatedUnique": 390,
+  "untranslatedTotal": 497,
   "partialUnique": 1019,
   "translatedShare": 86
  },
@@ -32,6 +32,7 @@
   "!(await shouldAlert(tag, ALERT_MIN_INTERVAL_MS, now))",
   "!(await shouldAlert(tag, DISAPPROVED_WINDOW_MS, now))",
   "!/^[a-f0-9]{64}$/.test(eventKey)",
+  "!/^[a-z0-9-]{8,64}$/.test(req.params.campaign)",
   "!OVERRIDABLE_KINDS.includes(event.kind as (typeof OVERRIDABLE_KINDS)[number])",
   "![\"month\", \"from\", \"to\", \"status\", \"categoryId\", \"rootCategory\", \"counterparty\", \"paymentMethod\", \"q\", \"recur…",
   "!access.all && access.own && interaction.agentId !== access.viewerId && interaction.clientId",
@@ -40,7 +41,9 @@
   "!alias || alias.targetType !== \"landmark\" || alias.targetId !== req.params.id",
   "!analysis.ok && ANALYSIS_RETRYABLE_REASONS.has(analysis.reason ?? \"\")",
   "!application || application.status === \"NOT_CANDIDATE\" || !file || !(\"file\" in file) || !sendPrivateFile(res,…",
+  "!attempt || attempt.status !== \"IN_FLIGHT\" || !attempt.attemptAt || Date.now() - attempt.attemptAt.getTime() …",
   "!availabilityOf(agent).pausedUntil",
+  "!await current(row, true)",
   "!await validateExpenseCategory(parsed.data.categoryId,parsed.data.category)",
   "!await validateExpenseCategory(patch.categoryId===undefined?existing.categoryId:patch.categoryId,patch.catego…",
   "!await validateExpenseCategory(rest.categoryId,rest.category)",
@@ -351,6 +354,7 @@
   "raced.storageKey !== session.storageKey",
   "rawId.startsWith(TG_PREFIX)",
   "recordCheckFailure(check.name, check.ok === false)",
+  "recruitmentRecoveryHash({ text }) !== row.payloadHash",
   "req.agent!.id !== deal.agentId",
   "req.agent!.id !== result.deal.agentId",
   "req.params.id === req.agent!.id",
@@ -364,6 +368,7 @@
   "rights?.all || (rights?.own && await db.botConversation.count({ where: { id: nativeId, ...ownBotConversationW…",
   "row.answeredAt || row.closedAt || row.supersededAt || !slot || slot.status !== \"committed\" || slot.generation…",
   "row.anyComment && !row.postUrl?.trim() && row.postUrls.every((u) => !u.trim())",
+  "row.attemptAt && Date.now() - row.attemptAt.getTime() > 120_000",
   "row.client.aiInsightAt && startedAt - row.client.aiInsightAt.getTime() < NIGHTLY_SCORING_FRESH_MS",
   "row.createdAt.getTime() >= t.createdAt.getTime()",
   "row.doneAt || row.supersededAt || !intent || intent.status !== \"committed\" || intent.generation !== row.gener…",
@@ -2409,7 +2414,7 @@
      "conf": "через общую часть"
     },
     {
-     "i": 629,
+     "i": 631,
      "direct": false,
      "conf": "через общую часть"
     }
@@ -2710,7 +2715,7 @@
      "conf": "через общую часть"
     },
     {
-     "i": 629,
+     "i": 631,
      "direct": false,
      "conf": "через общую часть"
     }
@@ -3437,22 +3442,22 @@
      "conf": "через общую часть"
     },
     {
-     "i": 629,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 642,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 643,
+     "i": 631,
      "direct": false,
      "conf": "через общую часть"
     },
     {
      "i": 644,
+     "direct": false,
+     "conf": "через общую часть"
+    },
+    {
+     "i": 645,
+     "direct": false,
+     "conf": "через общую часть"
+    },
+    {
+     "i": 646,
      "direct": false,
      "conf": "через общую часть"
     }
@@ -5488,7 +5493,7 @@
      "conf": "через общую часть"
     },
     {
-     "i": 629,
+     "i": 631,
      "direct": false,
      "conf": "через общую часть"
     }
@@ -9306,6 +9311,16 @@
     },
     {
      "i": 629,
+     "direct": false,
+     "conf": "через часть экрана"
+    },
+    {
+     "i": 630,
+     "direct": false,
+     "conf": "через часть экрана"
+    },
+    {
+     "i": 631,
      "direct": false,
      "conf": "через часть экрана"
     }
@@ -56833,6 +56848,115 @@
   },
   {
    "i": 627,
+   "title": "Показать: recovery",
+   "where": "apps/api/src/routes/recruitmentPositions.ts",
+   "method": "GET",
+   "full": "/api/v1/vacancies/positions/recovery/:campaign",
+   "mount": "/api/v1/vacancies/positions",
+   "module": "/api/v1/vacancies/positions",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "вход выполнен",
+    "есть право: vacancies.view",
+    "есть право: settings.manage"
+   ],
+   "screens": [
+    "/vacancies"
+   ],
+   "tree": [
+    {
+     "t": "если !/^[a-z0-9-]{8,64}$/.test(req.params.campaign)",
+     "k": "if",
+     "a": [],
+     "c": [
+      {
+       "t": "отказ: данные неверные: «Неверная кампания»",
+       "k": "do",
+       "a": [],
+       "c": []
+      }
+     ],
+     "raw": "!/^[a-z0-9-]{8,64}$/.test(req.params.campaign)"
+    },
+    {
+     "t": "пробует сделать",
+     "k": "try",
+     "a": [],
+     "c": [
+      {
+       "t": "всё хорошо, отвечает данными",
+       "k": "do",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
+     "t": "если не получилось",
+     "k": "catch",
+     "a": [],
+     "c": []
+    }
+   ]
+  },
+  {
+   "i": 628,
+   "title": "Добавить: recovery",
+   "where": "apps/api/src/routes/recruitmentPositions.ts",
+   "method": "POST",
+   "full": "/api/v1/vacancies/positions/recovery",
+   "mount": "/api/v1/vacancies/positions",
+   "module": "/api/v1/vacancies/positions",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "вход выполнен",
+    "есть право: vacancies.view",
+    "есть право: settings.manage",
+    "есть право: messages.view",
+    "requireElevation"
+   ],
+   "screens": [
+    "/vacancies"
+   ],
+   "tree": [
+    {
+     "t": "если данные заполнены неправильно",
+     "k": "if",
+     "a": [],
+     "c": [
+      {
+       "t": "отказ: данные неверные: «Проверьте список откликов и кампанию исправления»",
+       "k": "do",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
+     "t": "пробует сделать",
+     "k": "try",
+     "a": [],
+     "c": [
+      {
+       "t": "всё хорошо, отвечает данными",
+       "k": "do",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
+     "t": "если не получилось",
+     "k": "catch",
+     "a": [],
+     "c": []
+    }
+   ]
+  },
+  {
+   "i": 629,
    "title": "Показать: templates",
    "where": "apps/api/src/routes/recruitmentPositions.ts",
    "method": "GET",
@@ -56858,7 +56982,7 @@
    ]
   },
   {
-   "i": 628,
+   "i": 630,
    "title": "Показать: positions",
    "where": "apps/api/src/routes/recruitmentPositions.ts",
    "method": "GET",
@@ -56897,7 +57021,7 @@
    ]
   },
   {
-   "i": 629,
+   "i": 631,
    "title": "Показать: вакансии",
    "where": "apps/api/src/routes/vacancies.ts",
    "method": "GET",
@@ -56940,7 +57064,7 @@
    ]
   },
   {
-   "i": 630,
+   "i": 632,
    "title": "Добавить: Google бюджет",
    "where": "apps/api/src/routes/budgetWebhook.ts",
    "method": "POST",
@@ -57090,7 +57214,7 @@
    ]
   },
   {
-   "i": 631,
+   "i": 633,
    "title": "Показать: Meta",
    "where": "apps/api/src/routes/webhooks.ts",
    "method": "GET",
@@ -57125,7 +57249,7 @@
    ]
   },
   {
-   "i": 632,
+   "i": 634,
    "title": "Добавить: Meta",
    "where": "apps/api/src/routes/webhooks.ts",
    "method": "POST",
@@ -57354,7 +57478,7 @@
    ]
   },
   {
-   "i": 633,
+   "i": 635,
    "title": "Добавить: сайт обложка картинка",
    "where": "apps/api/src/routes/webhooks.ts",
    "method": "POST",
@@ -57465,7 +57589,7 @@
    ]
   },
   {
-   "i": 634,
+   "i": 636,
    "title": "Добавить: сайт заявка статус",
    "where": "apps/api/src/routes/webhooks.ts",
    "method": "POST",
@@ -57561,7 +57685,7 @@
    ]
   },
   {
-   "i": 635,
+   "i": 637,
    "title": "Добавить: сайт публикация изменённые",
    "where": "apps/api/src/routes/webhooks.ts",
    "method": "POST",
@@ -57684,7 +57808,7 @@
    ]
   },
   {
-   "i": 636,
+   "i": 638,
    "title": "Добавить: сайт публикация добавленные или обновлённые",
    "where": "apps/api/src/routes/webhooks.ts",
    "method": "POST",
@@ -57936,7 +58060,7 @@
    ]
   },
   {
-   "i": 637,
+   "i": 639,
    "title": "Добавить: Telegram",
    "where": "apps/api/src/routes/webhooks.ts",
    "method": "POST",
@@ -58018,7 +58142,7 @@
    ]
   },
   {
-   "i": 638,
+   "i": 640,
    "title": "Показать: сайт чат",
    "where": "apps/api/src/routes/webhooks.ts",
    "method": "GET",
@@ -58093,7 +58217,7 @@
    ]
   },
   {
-   "i": 639,
+   "i": 641,
    "title": "Добавить: сайт чат",
    "where": "apps/api/src/routes/webhooks.ts",
    "method": "POST",
@@ -58213,7 +58337,7 @@
    ]
   },
   {
-   "i": 640,
+   "i": 642,
    "title": "Добавить: сайт заявка",
    "where": "apps/api/src/routes/webhooks.ts",
    "method": "POST",
@@ -58313,7 +58437,7 @@
    ]
   },
   {
-   "i": 641,
+   "i": 643,
    "title": "Показать: сайт рабочие часы",
    "where": "apps/api/src/routes/webhooks.ts",
    "method": "GET",
@@ -58356,7 +58480,7 @@
    ]
   },
   {
-   "i": 642,
+   "i": 644,
    "title": "Изменить: account",
    "where": "apps/api/src/routes/whatsappTemplates.ts",
    "method": "PATCH",
@@ -58401,7 +58525,7 @@
    ]
   },
   {
-   "i": 643,
+   "i": 645,
    "title": "Добавить: submit",
    "where": "apps/api/src/routes/whatsappTemplates.ts",
    "method": "POST",
@@ -58461,7 +58585,7 @@
    ]
   },
   {
-   "i": 644,
+   "i": 646,
    "title": "Показать: WhatsApp templates",
    "where": "apps/api/src/routes/whatsappTemplates.ts",
    "method": "GET",
@@ -73573,6 +73697,130 @@
        ]
       }
      ]
+    }
+   ]
+  },
+  {
+   "kind": "recruitment-recovery",
+   "tree": [
+    {
+     "t": "внутри этого шага",
+     "k": "do",
+     "a": [],
+     "c": [
+      {
+       "t": "если нет: строка",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если нет: переписка",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если recruitmentRecoveryHash({ text }) !== row.payloadHash",
+       "k": "if",
+       "a": [],
+       "c": [
+        {
+         "t": "поломка: «Recovery integrity mismatch»",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ],
+       "raw": "recruitmentRecoveryHash({ text }) !== row.payloadHash"
+      },
+      {
+       "t": "если статус — «ACCEPTED»",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если статус — «IN_FLIGHT»",
+       "k": "if",
+       "a": [],
+       "c": [
+        {
+         "t": "если row.attemptAt && Date.now() - row.attemptAt.getTime() > 120_000",
+         "k": "if",
+         "a": [],
+         "c": [],
+         "raw": "row.attemptAt && Date.now() - row.attemptAt.getTime() > 120_000"
+        }
+       ]
+      },
+      {
+       "t": "если статус не «READY»",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если !await current(row, true)",
+       "k": "if",
+       "a": [],
+       "c": [],
+       "raw": "!await current(row, true)"
+      },
+      {
+       "t": "если нет: канал",
+       "k": "if",
+       "a": [],
+       "c": [
+        {
+         "t": "поломка: «Unsupported recovery channel»",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
+      },
+      {
+       "t": "пробует сделать",
+       "k": "try",
+       "a": [],
+       "c": [
+        {
+         "t": "поломка: «recovery_context_changed»",
+         "k": "do",
+         "a": [],
+         "c": [
+          {
+           "t": "если !attempt || attempt.status !== \"IN_FLIGHT\" || !attempt.attemptAt || Date.now() - attempt.attemptAt.getTime() …",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "raw": "!attempt || attempt.status !== \"IN_FLIGHT\" || !attempt.attemptAt || Date.now() - attempt.attemptAt.getTime() …",
+           "more": true
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "t": "если не получилось",
+       "k": "catch",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если статус — «ACCEPTED»",
+       "k": "if",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
+     "t": "если не получилось",
+     "k": "catch",
+     "a": [],
+     "c": []
     }
    ]
   },

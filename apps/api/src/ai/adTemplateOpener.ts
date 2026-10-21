@@ -199,7 +199,14 @@ export function classifyAdTopic(fields: {
   name?: string | null;
   campaignName?: string | null;
   groupName?: string | null;
+  caption?: string | null;
 }): AdTopic {
+  // Staff campaign names can be stale or copied from another ad. The actual
+  // public creative's explicit hiring/seller message is stronger evidence.
+  if (fields.caption) {
+    if (/ваканси|\bSMM\b|СММ|видеограф|ҷои\s+кор|ҷойи\s+кор|ба\s+кор\s+(?:қабул|кабул)|(?:ищем|набираем)\s+(?:агент|сотрудник)/iu.test(fields.caption)) return "job";
+    if (isSellerAdRef(fields.caption)) return "seller";
+  }
   const combined = [fields.name, fields.campaignName, fields.groupName].filter(Boolean).join(" ");
   if (isJobAdRef(combined)) return "job";
   if (isSellerAdRef(combined)) return "seller";
@@ -218,11 +225,11 @@ export async function adTopicByExternalId(externalId: string | null | undefined)
   const ad = await prisma.ad
     .findUnique({
       where: { platform_externalId: { platform: "META", externalId } },
-      select: { name: true, campaignName: true, adsetName: true },
+      select: { name: true, campaignName: true, adsetName: true, caption: true },
     })
     .catch(() => null);
   if (!ad) return undefined;
-  return classifyAdTopic({ name: ad.name, campaignName: ad.campaignName, groupName: ad.adsetName });
+  return classifyAdTopic({ name: ad.name, campaignName: ad.campaignName, groupName: ad.adsetName, caption: ad.caption });
 }
 
 /**

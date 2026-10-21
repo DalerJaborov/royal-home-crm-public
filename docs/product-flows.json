@@ -1,11 +1,11 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 645,
-  "forks": 3550,
+  "endpoints": 647,
+  "forks": 3563,
   "mounts": 73,
   "cron": 107,
-  "jobs": 30,
+  "jobs": 31,
   "hidden": 0
  },
  "hidden": [],
@@ -73060,6 +73060,168 @@
   },
   {
    "method": "GET",
+   "path": "/recovery/:campaign",
+   "mount": "/api/v1/vacancies/positions",
+   "full": "/api/v1/vacancies/positions/recovery/:campaign",
+   "file": "apps/api/src/routes/recruitmentPositions.ts",
+   "router": "recruitmentPositionsRouter",
+   "top": "apps/api/src/routes/vacancies.ts::vacanciesRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "вход выполнен",
+    "есть право: vacancies.view",
+    "есть право: settings.manage"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!/^[a-z0-9-]{8,64}$/.test(req.params.campaign)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "res.status(400).json({ error: \"Неверная кампания\" });",
+       "a": [
+        "ответ 400 — «Неверная кампания»"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const items = await prisma.$queryRaw`SELECT r.\"id\",r.\"originalConversationId\" AS \"conversationId\",r.\"status\",…",
+       "a": [
+        "обращается к базе своим SQL"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "res.json({ items });",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "res.status(503).json({ error: \"Не удалось обновить статус исправленных ответов\" });",
+       "a": [
+        "ответ 503 — «Не удалось обновить статус исправленных ответов»"
+       ],
+       "c": []
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "/recovery",
+   "mount": "/api/v1/vacancies/positions",
+   "full": "/api/v1/vacancies/positions/recovery",
+   "file": "apps/api/src/routes/recruitmentPositions.ts",
+   "router": "recruitmentPositionsRouter",
+   "top": "apps/api/src/routes/vacancies.ts::vacanciesRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "вход выполнен",
+    "есть право: vacancies.view",
+    "есть право: settings.manage",
+    "есть право: messages.view",
+    "requireElevation"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const parsed = recruitmentRecoveryRequestSchema.safeParse(req.body);",
+     "a": [
+      "проверяет данные схемой recruitmentRecoveryRequestSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "res.status(400).json({ error: \"Проверьте список откликов и кампанию исправления\" });",
+       "a": [
+        "ответ 400 — «Проверьте список откликов и кампанию исправления»"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "res.json(await enqueueRecruitmentRecovery(req.agent!.id, parsed.data));",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "res.status(503).json({ error: \"Не удалось подготовить исправленные ответы. Проверьте статус кампании перед по…",
+       "a": [
+        "ответ 503 — «Не удалось подготовить исправленные ответы. Проверьте статус кампании…»"
+       ],
+       "c": []
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "method": "GET",
    "path": "/templates",
    "mount": "/api/v1/vacancies/positions",
    "full": "/api/v1/vacancies/positions/templates",
@@ -112384,6 +112546,308 @@
    ]
   },
   {
+   "kind": "recruitment-recovery",
+   "file": "apps/api/src/jobs/recruitmentRecovery.ts",
+   "tree": [
+    {
+     "k": "do",
+     "t": "await runRecruitmentRecovery(payload.id);",
+     "a": [
+      "зовёт runRecruitmentRecovery()"
+     ],
+     "c": [
+      {
+       "k": "do",
+       "t": "const [row] = await prisma.$queryRaw<RecoveryRow[]>`SELECT * FROM \"RecruitmentRecovery\" WHERE \"id\"=${id}`;",
+       "a": [
+        "обращается к базе своим SQL"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!row",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return;",
+         "a": [
+          "дальше не идёт, ничего не меняя"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "!row.conversationId",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "await prisma.$executeRaw`UPDATE \"RecruitmentRecovery\" SET \"status\"='SUPPRESSED',\"reason\"='native_deleted',\"fi…",
+         "a": [
+          "обращается к базе своим SQL"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "return;",
+         "a": [
+          "дальше не идёт, ничего не меняя"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const text = decryptSecret(row.payloadEncrypted);",
+       "a": [
+        "зовёт decryptSecret()"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "recruitmentRecoveryHash({ text }) !== row.payloadHash",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "throw new Error(\"Recovery integrity mismatch\");",
+         "a": [
+          "ошибка Error — «Recovery integrity mismatch»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "row.status === \"ACCEPTED\"",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return;",
+         "a": [
+          "дальше не идёт, ничего не меняя"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "row.status === \"IN_FLIGHT\"",
+       "a": [],
+       "c": [
+        {
+         "k": "if",
+         "t": "row.attemptAt && Date.now() - row.attemptAt.getTime() > 120_000",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "await settle(id, \"UNKNOWN\", null, \"interrupted_attempt\");",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "return;",
+         "a": [
+          "дальше не идёт, ничего не меняя"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "row.status !== \"READY\"",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return;",
+         "a": [
+          "дальше не идёт, ничего не меняя"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "!await current(row, true)",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "await prisma.$executeRaw`UPDATE \"RecruitmentRecovery\" SET \"status\"='SUPPRESSED',\"reason\"='context_changed',\"f…",
+         "a": [
+          "обращается к базе своим SQL"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "return;",
+         "a": [
+          "дальше не идёт, ничего не меняя"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const native = await prisma.botConversation.findUniqueOrThrow({ where: { id: row.conversationId }, select: { …",
+       "a": [
+        "читает в базе: botConversation"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "const channel = asMetaChannel(native.channel);",
+       "a": [
+        "зовёт asMetaChannel()"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!channel",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "throw new Error(\"Unsupported recovery channel\");",
+         "a": [
+          "ошибка Error — «Unsupported recovery channel»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "try",
+       "t": "пробует",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "await withCustomerDeliveryTransport({ beforePost: async ()",
+         "a": [
+          "ошибка CustomerDeliveryHeldError — «recovery_context_changed»",
+          "обращается к базе своим SQL"
+         ],
+         "c": [
+          {
+           "k": "do",
+           "t": "const [attempt] = await prisma.$queryRaw<RecoveryRow[]>`SELECT * FROM \"RecruitmentRecovery\" WHERE \"id\"=${id}`;",
+           "a": [
+            "обращается к базе своим SQL"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "!attempt || attempt.status !== \"IN_FLIGHT\" || !attempt.attemptAt || Date.now() - attempt.attemptAt.getTime() …",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "throw new CustomerDeliveryHeldError(\"recovery_context_changed\");",
+             "a": [
+              "ошибка CustomerDeliveryHeldError — «recovery_context_changed»"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "k": "catch",
+       "t": "если сорвалось",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "await settle(id, error instanceof CustomerDeliveryHeldError ? \"SUPPRESSED\" : \"UNKNOWN\", null, error instanceo…",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const [fresh] = await prisma.$queryRaw<RecoveryRow[]>`SELECT * FROM \"RecruitmentRecovery\" WHERE \"id\"=${id}`;",
+       "a": [
+        "обращается к базе своим SQL"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "fresh?.status === \"ACCEPTED\"",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "await project(fresh, text);",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ],
+     "from": "runRecruitmentRecovery() — apps/api/src/lib/recruitmentRecovery.ts"
+    },
+    {
+     "k": "catch",
+     "t": "когда попытки кончились",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "await closeInterruptedRecruitmentRecovery(payload.id);",
+       "a": [
+        "зовёт closeInterruptedRecruitmentRecovery()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "await prisma.$executeRaw`UPDATE \"RecruitmentRecovery\" SET \"status\"=CASE WHEN \"status\"='IN_FLIGHT' THEN 'UNKNO…",
+         "a": [
+          "обращается к базе своим SQL"
+         ],
+         "c": []
+        }
+       ],
+       "from": "closeInterruptedRecruitmentRecovery() — apps/api/src/lib/recruitmentRecovery.ts"
+      }
+     ]
+    }
+   ]
+  },
+  {
    "kind": "sellerFactsJob",
    "file": "apps/api/src/jobs/sellerFacts.ts",
    "tree": [
@@ -114199,6 +114663,22 @@
       },
       {
        "k": "do",
+       "t": "const recruitmentCatalog = abilities.vacancies ? await readCustomerOpenVacancies() : null;",
+       "a": [
+        "зовёт readCustomerOpenVacancies()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "const recruitmentRole = recruitmentCatalog && selectedRecruitmentPosition(recruitmentCatalog.positions, recru…",
+       "a": [
+        "зовёт selectedRecruitmentPosition()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
        "t": "const jobApplicationRow = memory.allowLegacyJobRead && draft.intent === \"job\" && abilities.vacancies && optio…",
        "a": [
         "читает в базе: jobApplication"
@@ -114207,7 +114687,7 @@
       },
       {
        "k": "do",
-       "t": "const jobIntakeBlock = draft.intent === \"job\" && abilities.vacancies ? jobApplicationIntakeBlock(jobMissingFa…",
+       "t": "const jobIntakeBlock = draft.intent === \"job\" && abilities.vacancies && recruitmentRole?.key === \"real-estate…",
        "a": [
         "зовёт jobApplicationIntakeBlock()"
        ],
@@ -114306,7 +114786,7 @@
        "c": [
         {
          "k": "do",
-         "t": "const guarded = guardPrices({ bubbles: result.reply, allowedText: propsBlock + \"\\n\" + history.map((m)",
+         "t": "const guarded = guardPrices({ bubbles: result.reply, allowedText: propsBlock + (recruitmentCatalog ? \"\\n\" + J…",
          "a": [
           "зовёт guardPrices()"
          ],
@@ -114939,6 +115419,22 @@
       },
       {
        "k": "do",
+       "t": "const recruitmentCatalog = abilities.vacancies ? await readCustomerOpenVacancies() : null;",
+       "a": [
+        "зовёт readCustomerOpenVacancies()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "const recruitmentRole = recruitmentCatalog && selectedRecruitmentPosition(recruitmentCatalog.positions, recru…",
+       "a": [
+        "зовёт selectedRecruitmentPosition()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
        "t": "const jobApplicationRow = memory.allowLegacyJobRead && draft.intent === \"job\" && abilities.vacancies && optio…",
        "a": [
         "читает в базе: jobApplication"
@@ -114947,7 +115443,7 @@
       },
       {
        "k": "do",
-       "t": "const jobIntakeBlock = draft.intent === \"job\" && abilities.vacancies ? jobApplicationIntakeBlock(jobMissingFa…",
+       "t": "const jobIntakeBlock = draft.intent === \"job\" && abilities.vacancies && recruitmentRole?.key === \"real-estate…",
        "a": [
         "зовёт jobApplicationIntakeBlock()"
        ],
@@ -115046,7 +115542,7 @@
        "c": [
         {
          "k": "do",
-         "t": "const guarded = guardPrices({ bubbles: result.reply, allowedText: propsBlock + \"\\n\" + history.map((m)",
+         "t": "const guarded = guardPrices({ bubbles: result.reply, allowedText: propsBlock + (recruitmentCatalog ? \"\\n\" + J…",
          "a": [
           "зовёт guardPrices()"
          ],

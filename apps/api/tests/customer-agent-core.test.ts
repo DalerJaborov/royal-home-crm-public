@@ -3,6 +3,7 @@ import { customerAgentDecisionSchema, customerAgentToolCallSchema } from "@royal
 import { runCustomerAgentTurn, type CustomerAgentModelTurn, type CustomerCoreFrame, type CustomerCorePorts } from "../src/ai/customerAgentCore.js";
 import { createProviderOperation } from "../src/ai/providerContract.js";
 import { PUBLIC_AGENCY_CONTACT } from "../src/lib/publicAgencyContact.js";
+import { recruitmentCatalogHash } from "../src/ai/customerAgentRecruitmentProtocol.js";
 import { readCustomerAgentCompanyKnowledge } from "../src/lib/customerAgentPublicReads.js";
 import { customerAgentCompanyKnowledgeHash, customerAgentPublicListingSignature, customerAgentSearchFit } from "../src/ai/customerAgentPublicProtocol.js";
 
@@ -29,6 +30,17 @@ function fixture(overrides: Partial<CustomerCoreFrame> = {}) {
     requestStop, observeLateToolResult, ports: { modelTurn, executeAllowedTool, assertCurrent, requestStop, observeLateToolResult } satisfies CustomerCorePorts };
 }
 afterEach(() => vi.useRealTimers());
+it("reuses a prefetched vacancy ref when the model reads the same current catalog again", async () => {
+  const value = { collecting: true, positions: [] };
+  const f = fixture({ inputText: "Есть вакансии?", requestedFacts: [], tools: [{ name: "get_open_vacancies", description: "Current jobs" }] });
+  f.executeAllowedTool.mockResolvedValue({ status: "observed", observation: { kind: "open_vacancies", ...value, sourceHash: recruitmentCatalogHash(value) } });
+  f.modelTurn.mockResolvedValueOnce({ text: "", calls: [{ name: "get_open_vacancies", args: {}, id: "model-read" }],
+    modelParts: [{ functionCall: { name: "get_open_vacancies", args: {}, id: "model-read" } }] }).mockResolvedValueOnce(final({ refs: ["e0"] }));
+  const result = await runCustomerAgentTurn(f.frame, f.ports);
+  expect(result).toMatchObject({ status: "ready", text: "Сейчас в CRM нет подтверждённых открытых вакансий." });
+  expect(result.evidence).toHaveLength(1);
+  expect(f.executeAllowedTool).toHaveBeenCalledTimes(2);
+});
 it.each(['безеб','Ика бардакай','Кимат','Беҳтарин хона бдай 👏👏'])('handles a standalone public reaction without paid model/tool calls: %s',async inputText=>{
  const f=fixture({surface:'public_comment',inputText,requestedFacts:[],language:'tg'});
  const result=await runCustomerAgentTurn(f.frame,f.ports);

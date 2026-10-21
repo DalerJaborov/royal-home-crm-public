@@ -19,6 +19,7 @@ import { publishMessageNew } from "./livePublish.js";
 import { reconcileCustomerPublicOutboxPart } from "./customerPublicDelivery.js";
 
 import { customerAgentStoredPublicDataCurrent } from "./customerAgentDeliveryEvidence.js";
+import { hasNewerCustomerInboxInput } from "./customerNewerInboxInput.js";
 
 const LEASE_MS = 90_000;
 const NOT_SENT_CODES = new Set(["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN", "ENETUNREACH", "EHOSTUNREACH"]);
@@ -41,12 +42,15 @@ async function validatePart(tx: TxClient, row: CustomerOutboxRow): Promise<boole
       transport.endpointScopeId !== row.endpointScopeId || row.endpointScopeId !== fence.endpoint.endpointScopeId ||
       transport.accountId !== fence.endpoint.accountId || transport.scopeRevision !== fence.scopeRevision) return false;
   if ((await assertCustomerFence(tx, fence, "outbound")).status !== "current") return false;
+  const recovery = await tx.$queryRaw<Array<{ blocked: boolean }>>`SELECT EXISTS(SELECT 1 FROM "RecruitmentRecovery" WHERE "originalConversationId"=${row.originalNativeId} AND "status"='IN_FLIGHT' AND "fenceJson"=${JSON.stringify(customerDeliveryControllerFence(row))}::jsonb) AS blocked`;
+  if (recovery[0]?.blocked) return false;
   await resolveCustomerEndpoint({ channel: row.channel, subscriberId: fence.endpoint.peerId, transport }, tx);
   const [ticket] = await tx.$queryRaw<{ current: boolean }[]>`SELECT EXISTS(SELECT 1 FROM "CustomerPropertyIngressTicket" t
     JOIN "CustomerInquiry" i ON i."id"=${row.inquiryId} WHERE t."eventKey"=${row.ticketEventKey}
       AND t."conversationId"=${row.originalNativeId} AND t."endpointScopeId"=${row.endpointScopeId}
       AND i."lastAcceptedEventKey"=t."eventKey" AND i."lastAcceptedOrder"=t."order") AS current`;
   if (!ticket?.current) return false;
+  if (row.agentRevisionId && await hasNewerCustomerInboxInput(row.ticketEventKey, tx)) return false;
   const payload = decodeCustomerOutboxPayload(row);
   const publicData = decodeCustomerOutboxPublicData(row);
   if (publicData && !await customerAgentStoredPublicDataCurrent(publicData, row.agentRevisionId)) return false;

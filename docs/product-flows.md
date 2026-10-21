@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **645**. Развилок в самих путях: **2310**; вместе с задачами по расписанию и фоновыми заданиями — **3550**. Модулей: **73**.
+Путей: **647**. Развилок в самих путях: **2312**; вместе с задачами по расписанию и фоновыми заданиями — **3563**. Модулей: **73**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -16514,6 +16514,42 @@
   - res.status(503).json({ error: "Не удалось сохранить вакансию" });
     · ответ 503 — «Не удалось сохранить вакансию»
 
+### GET /api/v1/vacancies/positions/recovery/:campaign
+
+`apps/api/src/routes/recruitmentPositions.ts` · на входе: общий предел частоты запросов, idempotencyGuard, вход выполнен, есть право: vacancies.view, есть право: settings.manage
+
+- если !/^[a-z0-9-]{8,64}$/.test(req.params.campaign)
+  - res.status(400).json({ error: "Неверная кампания" });
+    · ответ 400 — «Неверная кампания»
+  - return;
+    · дальше не идёт, ничего не меняя
+- пробует
+  - const items = await prisma.$queryRaw`SELECT r."id",r."originalConversationId" AS "conversationId",r."status",…
+    · обращается к базе своим SQL
+  - res.json({ items });
+    · ответ 200
+- если сорвалось
+  - res.status(503).json({ error: "Не удалось обновить статус исправленных ответов" });
+    · ответ 503 — «Не удалось обновить статус исправленных ответов»
+
+### POST /api/v1/vacancies/positions/recovery
+
+`apps/api/src/routes/recruitmentPositions.ts` · на входе: общий предел частоты запросов, idempotencyGuard, вход выполнен, есть право: vacancies.view, есть право: settings.manage, есть право: messages.view, requireElevation
+
+- const parsed = recruitmentRecoveryRequestSchema.safeParse(req.body);
+  · проверяет данные схемой recruitmentRecoveryRequestSchema
+- если !parsed.success
+  - res.status(400).json({ error: "Проверьте список откликов и кампанию исправления" });
+    · ответ 400 — «Проверьте список откликов и кампанию исправления»
+  - return;
+    · дальше не идёт, ничего не меняя
+- пробует
+  - res.json(await enqueueRecruitmentRecovery(req.agent!.id, parsed.data));
+    · ответ 200
+- если сорвалось
+  - res.status(503).json({ error: "Не удалось подготовить исправленные ответы. Проверьте статус кампании перед по…
+    · ответ 503 — «Не удалось подготовить исправленные ответы. Проверьте статус кампании…»
+
 ### GET /api/v1/vacancies/positions/templates
 
 `apps/api/src/routes/recruitmentPositions.ts` · на входе: общий предел частоты запросов, idempotencyGuard, вход выполнен, есть право: vacancies.view
@@ -24990,6 +25026,74 @@
       - console.error(`[systemError] ${source}: ${String(message).slice(0, 1000)} (запись в журнал не удалась: ${err …
         · пишет строку в журнал сервера
 
+### recruitment-recovery
+
+`apps/api/src/jobs/recruitmentRecovery.ts`
+
+- await runRecruitmentRecovery(payload.id);
+  · зовёт runRecruitmentRecovery()
+  - const [row] = await prisma.$queryRaw<RecoveryRow[]>`SELECT * FROM "RecruitmentRecovery" WHERE "id"=${id}`;
+    · обращается к базе своим SQL
+  - если !row
+    - return;
+      · дальше не идёт, ничего не меняя
+  - если !row.conversationId
+    - await prisma.$executeRaw`UPDATE "RecruitmentRecovery" SET "status"='SUPPRESSED',"reason"='native_deleted',"fi…
+      · обращается к базе своим SQL
+    - return;
+      · дальше не идёт, ничего не меняя
+  - const text = decryptSecret(row.payloadEncrypted);
+    · зовёт decryptSecret()
+  - если recruitmentRecoveryHash({ text }) !== row.payloadHash
+    - throw new Error("Recovery integrity mismatch");
+      · ошибка Error — «Recovery integrity mismatch»
+  - если row.status === "ACCEPTED"
+    - return;
+      · дальше не идёт, ничего не меняя
+  - если row.status === "IN_FLIGHT"
+    - если row.attemptAt && Date.now() - row.attemptAt.getTime() > 120_000
+      - await settle(id, "UNKNOWN", null, "interrupted_attempt");
+        · дословно из кода
+    - return;
+      · дальше не идёт, ничего не меняя
+  - если row.status !== "READY"
+    - return;
+      · дальше не идёт, ничего не меняя
+  - если !await current(row, true)
+    - await prisma.$executeRaw`UPDATE "RecruitmentRecovery" SET "status"='SUPPRESSED',"reason"='context_changed',"f…
+      · обращается к базе своим SQL
+    - return;
+      · дальше не идёт, ничего не меняя
+  - const native = await prisma.botConversation.findUniqueOrThrow({ where: { id: row.conversationId }, select: { …
+    · читает в базе: botConversation
+  - const channel = asMetaChannel(native.channel);
+    · зовёт asMetaChannel()
+  - если !channel
+    - throw new Error("Unsupported recovery channel");
+      · ошибка Error — «Unsupported recovery channel»
+  - пробует
+    - await withCustomerDeliveryTransport({ beforePost: async ()
+      · ошибка CustomerDeliveryHeldError — «recovery_context_changed»
+      · обращается к базе своим SQL
+      - const [attempt] = await prisma.$queryRaw<RecoveryRow[]>`SELECT * FROM "RecruitmentRecovery" WHERE "id"=${id}`;
+        · обращается к базе своим SQL
+      - если !attempt || attempt.status !== "IN_FLIGHT" || !attempt.attemptAt || Date.now() - attempt.attemptAt.getTime() …
+        - throw new CustomerDeliveryHeldError("recovery_context_changed");
+          · ошибка CustomerDeliveryHeldError — «recovery_context_changed»
+  - если сорвалось
+    - await settle(id, error instanceof CustomerDeliveryHeldError ? "SUPPRESSED" : "UNKNOWN", null, error instanceo…
+      · дословно из кода
+  - const [fresh] = await prisma.$queryRaw<RecoveryRow[]>`SELECT * FROM "RecruitmentRecovery" WHERE "id"=${id}`;
+    · обращается к базе своим SQL
+  - если fresh?.status === "ACCEPTED"
+    - await project(fresh, text);
+      · дословно из кода
+- когда попытки кончились
+  - await closeInterruptedRecruitmentRecovery(payload.id);
+    · зовёт closeInterruptedRecruitmentRecovery()
+    - await prisma.$executeRaw`UPDATE "RecruitmentRecovery" SET "status"=CASE WHEN "status"='IN_FLIGHT' THEN 'UNKNO…
+      · обращается к базе своим SQL
+
 ### sellerFactsJob
 
 `apps/api/src/jobs/sellerFacts.ts`
@@ -25388,9 +25492,13 @@
     · зовёт abilitiesForIntent()
   - const sellerFacts: SellerFacts | null = draft.intent === "sell" ? { ...collectSellerFacts(history), ...(draft…
     · зовёт collectSellerFacts()
+  - const recruitmentCatalog = abilities.vacancies ? await readCustomerOpenVacancies() : null;
+    · зовёт readCustomerOpenVacancies()
+  - const recruitmentRole = recruitmentCatalog && selectedRecruitmentPosition(recruitmentCatalog.positions, recru…
+    · зовёт selectedRecruitmentPosition()
   - const jobApplicationRow = memory.allowLegacyJobRead && draft.intent === "job" && abilities.vacancies && optio…
     · читает в базе: jobApplication
-  - const jobIntakeBlock = draft.intent === "job" && abilities.vacancies ? jobApplicationIntakeBlock(jobMissingFa…
+  - const jobIntakeBlock = draft.intent === "job" && abilities.vacancies && recruitmentRole?.key === "real-estate…
     · зовёт jobApplicationIntakeBlock()
   - const selfName = clientSelfStatedName(history);
     · зовёт clientSelfStatedName()
@@ -25413,7 +25521,7 @@
     - void logSystemError("ai", `submit_reply: invalid result (${issues})`);
       · запись в журнал ошибок
   - если result?.reply?.length
-    - const guarded = guardPrices({ bubbles: result.reply, allowedText: propsBlock + "\n" + history.map((m)
+    - const guarded = guardPrices({ bubbles: result.reply, allowedText: propsBlock + (recruitmentCatalog ? "\n" + J…
       · зовёт guardPrices()
     - если guarded.invented.length > 0
       - void logSystemError( "ai", guarded.keptDespiteViolation ? `Бот назвал цену, которой нет в данных (${guarded.i…
@@ -25550,9 +25658,13 @@
     · зовёт abilitiesForIntent()
   - const sellerFacts: SellerFacts | null = draft.intent === "sell" ? { ...collectSellerFacts(history), ...(draft…
     · зовёт collectSellerFacts()
+  - const recruitmentCatalog = abilities.vacancies ? await readCustomerOpenVacancies() : null;
+    · зовёт readCustomerOpenVacancies()
+  - const recruitmentRole = recruitmentCatalog && selectedRecruitmentPosition(recruitmentCatalog.positions, recru…
+    · зовёт selectedRecruitmentPosition()
   - const jobApplicationRow = memory.allowLegacyJobRead && draft.intent === "job" && abilities.vacancies && optio…
     · читает в базе: jobApplication
-  - const jobIntakeBlock = draft.intent === "job" && abilities.vacancies ? jobApplicationIntakeBlock(jobMissingFa…
+  - const jobIntakeBlock = draft.intent === "job" && abilities.vacancies && recruitmentRole?.key === "real-estate…
     · зовёт jobApplicationIntakeBlock()
   - const selfName = clientSelfStatedName(history);
     · зовёт clientSelfStatedName()
@@ -25575,7 +25687,7 @@
     - void logSystemError("ai", `submit_reply: invalid result (${issues})`);
       · запись в журнал ошибок
   - если result?.reply?.length
-    - const guarded = guardPrices({ bubbles: result.reply, allowedText: propsBlock + "\n" + history.map((m)
+    - const guarded = guardPrices({ bubbles: result.reply, allowedText: propsBlock + (recruitmentCatalog ? "\n" + J…
       · зовёт guardPrices()
     - если guarded.invented.length > 0
       - void logSystemError( "ai", guarded.keptDespiteViolation ? `Бот назвал цену, которой нет в данных (${guarded.i…

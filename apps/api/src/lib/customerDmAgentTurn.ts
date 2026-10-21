@@ -1,4 +1,5 @@
 import { loadCustomerAgentVerifiedDmContext } from "./customerAgentVerifiedContext.js";
+import { hasNewerCustomerInboxInput } from "./customerNewerInboxInput.js";
 import type { CustomerAgentEvidence } from "../ai/customerAgentRenderer.js";
 import { runCustomerAgentTurn } from "../ai/customerAgentCore.js";
 import { customerAgentToolDefinitions, CUSTOMER_AGENT_PUBLIC_TOOLS } from "../ai/customerAgentToolDefinitions.js";
@@ -75,7 +76,9 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     let activeMutations: CustomerAgentMutationSession | undefined;
     let accumulated: readonly CustomerAgentEvidence[] = [];
     const witnesses: CustomerAgentDataReadWitness[] = [];
+    let mediaPrepared = false;
     const current = async (wait: { signal: AbortSignal; deadlineAt: number }): Promise<boolean> => {
+      if (mediaPrepared && await hasNewerCustomerInboxInput(claim.eventKey)) return false;
       const principal = activeMutations?.principal ?? planningPrincipal;
       if ((activeMutations ? !await activeMutations.assertCurrent(wait) : (await revalidateCustomerPrincipal(principal)).status !== "current") ||
         !await customerAgentClaimCurrentTx(prisma, claim)) return false;
@@ -147,6 +150,13 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
         // mutation session above remains bound to the ORIGINAL raw input.
         text = [text, mediaPerception.transcript].filter(value => value.trim()).join("\n");
       }
+    }
+    // Finish/stash the already paid real perception so the next caption can
+    // understand its preceding reel. Then abandon the older answer if a newer
+    // signed message is already queued, rather than send two unrelated turns.
+    mediaPrepared = true;
+    if (await hasNewerCustomerInboxInput(claim.eventKey)) {
+      await releaseHeldClaim(claim, "newer_input_pending"); return { status: "held", reason: "newer_input_pending" };
     }
     let mediaReferenceResolved = false;
     if (mediaPerception) {

@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { recruitmentPositionUpdateSchema, recruitmentPostCode, type RecruitmentPosition, type RecruitmentPositionInput } from "@royal-home/shared";
+import { recruitmentPositionUpdateSchema, recruitmentPostCode, recruitmentRecoveryRequestSchema, type RecruitmentPosition, type RecruitmentPositionInput } from "@royal-home/shared";
 import { api } from "../lib/api";
 import { useAuthStore } from "../store/auth";
 import { useCan } from "../lib/permissions";
+import { dushanbeDateTime } from "../lib/date";
 
 type Catalog = { items: RecruitmentPosition[] };
 export function RecruitmentPositions() {
@@ -35,9 +36,40 @@ export function RecruitmentPositions() {
         {manage && <div className="act"><button type="button" className="pill ghost" onClick={() => setEditing(item)}>Изменить</button></div>}
       </article>)}</div>
     </>}
+    {manage && <RecruitmentRecovery key={`${actor}:${epoch}`} actor={actor} epoch={epoch} />}
     {manage && editing && <PositionForm key={`${actor}:${epoch}:${editing === "new" ? "new" : editing.key}`}
       initial={editing === "new" ? null : editing} onClose={() => setEditing(null)} />}
   </section>;
+}
+
+type RecoveryItem = { conversationId: string; status: string; reason?: string; scheduledAt?: string; providerReceiptPresent?: boolean; visibleInConversation?: boolean };
+function RecruitmentRecovery({ actor, epoch }: { actor?: string; epoch: number }) {
+  const [campaign, setCampaign] = useState("");
+  const [recipients, setRecipients] = useState("");
+  const [error, setError] = useState("");
+  const [items, setItems] = useState<RecoveryItem[]>([]);
+  const send = useMutation({ mutationFn: (body: unknown) => api<{ items: RecoveryItem[] }>("/vacancies/positions/recovery", {
+    method: "POST", body, expectAgentId: actor }),
+    onSuccess: value => { setItems(value.items); setError(""); }, onError: () => setError("Не удалось получить результат. Обновите статус кампании перед повторной отправкой.") });
+  const status = useMutation({ mutationFn: () => api<{ items: RecoveryItem[] }>(`/vacancies/positions/recovery/${encodeURIComponent(campaign)}`, { expectAgentId: actor }),
+    onSuccess: value => { setItems(value.items); setError(""); }, onError: () => setError("Не удалось обновить статус кампании.") });
+  return <details className="mt-5" key={`${actor}:${epoch}`}>
+    <summary>Исправленные ответы кандидатам</summary>
+    <p className="sub">Однократный ответ бота по проверенным откликам. Паузы сотрудника и ограничения канала сохраняются. Неизвестная доставка не повторяется.</p>
+    <label className="block mt-3">Название кампании<input className="input w-full" value={campaign} onChange={e => setCampaign(e.target.value)} /></label>
+    <label className="block mt-3">Проверенный список откликов (JSON)<textarea className="input w-full" rows={5} value={recipients} onChange={e => setRecipients(e.target.value)} /></label>
+    {error && <p role="alert">{error}</p>}
+    <div className="flex gap-2 mt-3"><button type="button" className="pill" disabled={send.isPending || status.isPending} onClick={() => {
+      try {
+        const value = recruitmentRecoveryRequestSchema.safeParse({ campaign, recipients: JSON.parse(recipients) });
+        if (!value.success) { setError("Проверьте название кампании и список откликов."); return; }
+        send.mutate(value.data);
+      } catch { setError("Список откликов должен быть корректным JSON."); }
+    }}>Отправить исправленные ответы ботом</button>
+      <button type="button" className="pill ghost" disabled={!/^[a-z0-9-]{8,64}$/.test(campaign) || status.isPending} onClick={() => status.mutate()}>Обновить статус кампании</button></div>
+    {!!items.length && <div role="status"><p>Проверено откликов: {items.length}. Отправка подтверждена: {items.filter(item => item.status === "ACCEPTED" && item.providerReceiptPresent).length}.</p>
+      <ul>{items.map(item => <li key={item.conversationId}>{item.conversationId.slice(0, 8)}: {item.status}{item.status === "READY" && item.scheduledAt ? ` — ${dushanbeDateTime(item.scheduledAt)}` : ""}{item.reason ? ` (${item.reason})` : ""}</li>)}</ul></div>}
+  </details>;
 }
 
 function PositionForm({ initial, onClose }: { initial: RecruitmentPosition | null; onClose(): void }) {

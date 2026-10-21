@@ -27,6 +27,28 @@ afterAll(async () => { await f?.cleanup(); });
 const perception = (overrides: Record<string, unknown> = {}) => ({ functionCall: { name: "perceive_customer_media", id: "media-extraction",
   args: { language: "ru", transcript: "", subject: "home_interior", visible: ["kitchen", "balcony"], readableText: "", speech: "none", ...overrides } } });
 const image = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j4AAAAABJRU5ErkJggg==", "base64");
+it("a queued caption supersedes the older media reply while its real perceived vacancy remains available to that caption", async () => {
+  const key = `synthetic-agent-${randomUUID()}`;
+  const settings = await prisma.settings.findUniqueOrThrow({ where: { id: "singleton" }, select: { botCanHandleVacancies: true } });
+  await prisma.recruitmentPosition.create({ data: { key, titleRu: "Агент по недвижимости", titleTg: "Агент оид ба амвол", isOpen: true,
+    detailsRu: "Обучение и наставник, доход зависит от сделок.", detailsTg: "Омӯзиш ва роҳнамо, даромад аз аҳдҳо вобаста аст." } });
+  try {
+    await prisma.settings.update({ where: { id: "singleton" }, data: { botCanHandleVacancies: true } });
+    const owner = await f.owner(), url = f.mediaFixture("image/png", image);
+    const first = await f.capture(owner, "", [{ type: "image", payload: { url } }]);
+    const second = await f.capture(owner, "Можно подробнее о работе?");
+    f.script([[perception({ subject: "person", visible: ["furniture"], readableText: "ВАКАНСИЯ Агент", language: "unknown", speech: "none" })], [reply(["e0"], "job_experience")]]);
+    expect(await consumeCustomerInboxTicket(first)).toEqual({ status: "held", reason: "newer_input_pending" });
+    expect(await prisma.customerOutboxPart.count({ where: { ticketEventKey: first } })).toBe(0);
+    const actual = await f.deliver(second);
+    expect(actual.text).toContain("Агент по недвижимости");
+    expect(actual.text).toContain("Обучение и наставник");
+    expect(actual.text).not.toMatch(/мебель|Какой объект|нет подтверждённых/iu);
+  } finally {
+    await prisma.recruitmentPosition.delete({ where: { key } });
+    await prisma.settings.update({ where: { id: "singleton" }, data: settings });
+  }
+});
 it("a genuine SMM video goes through the bounded Gemini media path, private storage and an own application receipt before ACCEPTED reply", async () => {
   const directory = mkdtempSync(join(tmpdir(), "synthetic-core-portfolio-")), previousDir = process.env.PRIVATE_UPLOADS_DIR;
   process.env.PRIVATE_UPLOADS_DIR = directory;

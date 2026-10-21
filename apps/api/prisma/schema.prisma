@@ -348,6 +348,7 @@ enum AdMatchSource {
 }
 
 model Agent {
+  recruitmentRecoveries RecruitmentRecovery[]
   id                          String    @id @default(uuid())
   fullName                    String
   propertyChatConversations   BotConversation[] @relation("PropertyChatAgent")
@@ -915,6 +916,7 @@ model OwnerQuestion {
 /// (наборщик/originate уже есть) и закрывает запрос.
 /// Transport namespace, never a private identity proof. Unknown legacy mappings stay held.
 model CustomerEndpointScope {
+  recruitmentRecoveries RecruitmentRecovery[]
   rolloutAssignments CustomerAgentRolloutAssignment[]
   id String @id @default(uuid())
   realmKey String
@@ -3870,6 +3872,7 @@ model MessengerAccount {
 }
 
 model BotConversation {
+  recruitmentRecoveries RecruitmentRecovery[]
   id                 String            @id @default(uuid())
   /// Gate A keeps the legacy global unique; scoped cutover is a later release.
   endpointScopeId String?
@@ -4260,6 +4263,37 @@ model CustomerOutboxPart {
   @@index([conversationId])
   @@index([publicMetaCommentId, publicSourceRevision], map: "customer_outbox_public_meta_source_idx")
   @@index([publicTelegramCommentId, publicSourceRevision], map: "customer_outbox_public_tg_source_idx")
+}
+
+/// Explicit owner-approved bot corrections, separate from genuine customer IN.
+model RecruitmentRecovery {
+  id String @id
+  campaign String
+  originalConversationId String
+  conversationId String?
+  conversation BotConversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "RecruitmentRecovery_conversation_fkey")
+  endpointScopeId String
+  endpointScope CustomerEndpointScope @relation(fields: [endpointScopeId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "RecruitmentRecovery_endpoint_fkey")
+  transportJson Json
+  fenceJson Json?
+  sourceHash String
+  sourceAt DateTime
+  catalogHash String
+  payloadEncrypted String
+  payloadHash String
+  actorId String
+  actor Agent @relation(fields: [actorId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "RecruitmentRecovery_actor_fkey")
+  status String @default("READY")
+  providerMid String?
+  attemptAt DateTime?
+  finishedAt DateTime?
+  projectionAt DateTime?
+  reason String?
+  createdAt DateTime @default(now())
+  @@unique([campaign, originalConversationId], map: "RecruitmentRecovery_campaign_conversation_key")
+  @@unique([originalConversationId], map: "RecruitmentRecovery_original_once_key")
+  @@unique([endpointScopeId, providerMid], map: "RecruitmentRecovery_scope_mid_key")
+  @@index([status, createdAt], map: "RecruitmentRecovery_status_created_idx")
 }
 
 /// Persist before a physical POST; UNKNOWN is never implicit permission to retry.

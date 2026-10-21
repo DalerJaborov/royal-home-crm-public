@@ -3,7 +3,13 @@ import {
   DEFAULT_VACANCY_POST_CODES,
   parseVacancyPostCodes,
 } from "../src/lib/vacancyPosts.js";
-import { vacancyTurnHint } from "../src/ai/adTemplateOpener.js";
+import { vacancyTurnHint, classifyAdTopic } from "../src/ai/adTemplateOpener.js";
+
+it("uses explicit creative content above a misleading copied campaign name", () => {
+  expect(classifyAdTopic({ name: "вакансия Объявление", caption: "Мехоҳед амволи худро фурӯшед? Ба мо пешниҳод кунед." })).toBe("seller");
+  expect(classifyAdTopic({ name: "Новое объявление", caption: "Ищем SMM-специалиста и видеографа. Создавать Reels." })).toBe("job");
+  expect(classifyAdTopic({ name: "Недвижимость", caption: "ВАКАНСИЯ. Менеджери фурӯши амволи ғайриманқул" })).toBe("job");
+});
 
 /**
  * РОЛИК ВАКАНСИИ И ПРИЗНАК, КОТОРЫЙ ПЕРЕЖИВАЕТ ПЕРВОЕ СООБЩЕНИЕ (17.09.2026).
