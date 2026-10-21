@@ -72,6 +72,14 @@ describe("relevant verified answers instead of complete cards", () => {
     expect(result).toContain("Размер зарплаты"); expect(result).toContain("Сведения добавлены к отклику");
     expect(result).not.toContain("Бухоро");
   });
+  it.each(["Вот работы. Сколько платите?", "Сколько платите"])("preserves the conditions question alongside a saved application: %s", input => {
+    const result = renderJob(input, "ru", "none", {
+      decision: { kind: "reply", refs: ["e0", "e1"], social: "none", question: "none" },
+      evidence: [{ ref: "e0", value: catalog }, { ref: "e1", value: { kind: "receipt", outcome: "job_application_saved" } }],
+    })!;
+    expect(result).toContain("Размер зарплаты");
+    expect(result).toContain("Сведения добавлены к отклику");
+  });
   it.each(["ru", "tg"] as const)("invites a public candidate to private messages in %s without requesting their CV publicly or claiming a DM was sent", language => {
     const result = renderJob(language === "ru" ? "Есть вакансии?" : "Ҷойи кор ҳаст?", language, "job_experience", { surface: "public_comment" })!;
     expect(result).toContain(language === "ru" ? "в личные сообщения" : "Дар паёми шахсӣ");

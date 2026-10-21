@@ -12,6 +12,10 @@ are not paraphrased or truncated. Unrecognized layouts and cross-paragraph
 conditions remain complete; asking for full conditions retains the whole text.
 This is a bounded presentation improvement, not a universal language classifier.
 
+A saved application must not hide a question in the same turn: pay aliases and
+explicit question markers conservatively retain the conditions answer. Two
+additional negative regressions reproduced the omission before this correction.
+
 A genuine application-saved receipt no longer causes unsolicited republication
 of the vacancy, while an explicit question about its conditions still gets those
 facts. An application invitation already present in the chosen paragraphs is not

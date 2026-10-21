@@ -4,7 +4,7 @@ import { customerRecruitmentRequested } from "./customerAgentRecruitmentProtocol
 // conditions, split monetary values/sentences, or turn a missing keyword match
 // into a claim that the condition is absent. Unfamiliar layouts stay intact.
 const aspects = [
-  { question: /зарплат|оклад|оплат|заработ|доход|комисси|маош|даромад|музд/iu,
+  { question: /зарплат|оклад|оплат|платит|платят|заработ|доход|комисси|маош|даромад|музд/iu,
     paragraph: /зарплат|оклад|оплат|заработ|доход|комисси|маош|даромад|музд|фоиз|ҳаққи хизмат/iu },
   { question: /удал[её]н|дистанцион|из дома|фосилав|аз хона/iu,
     paragraph: /удал[её]н|дистанцион|очно|работа.*офис|фосилав|кор дар офис/iu },

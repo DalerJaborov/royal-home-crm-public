@@ -327,7 +327,9 @@ export function renderCustomerAgentDecision(input: {
       // An actual saved application receipt answers a candidate's submission.
       // Reading the catalog to validate the role is not a request to repeat it.
       // Explicit questions about conditions still retain their verified answer.
-      if (applicationSaved && !customerRecruitmentFactsRequested(input.inputText ?? "")) continue;
+      const ownQuestion = input.inputText ?? "";
+      const explicitQuestion = /[?？]|(?:^|[\s.!])(?:сколько|какой|какая|какие|как|где|когда|чанд|кай|куҷо)(?:[\s?!]|$)/iu.test(ownQuestion);
+      if (applicationSaved && !customerRecruitmentFactsRequested(ownQuestion) && !explicitQuestion) continue;
       if (!item.value.positions.length) lines.push(lang === "tg" ? "Ҳоло дар CRM ҷойи кори кушода тасдиқ нашудааст." : "Сейчас в CRM нет подтверждённых открытых вакансий.");
       else {
         if (input.verifiedContext?.publicState.jobPositionKey && !item.value.positions.some(row => row.key === input.verifiedContext?.publicState.jobPositionKey)) {
