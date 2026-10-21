@@ -140,7 +140,7 @@ async function project(row: RecoveryRow, text: string) {
     if (!fresh || fresh.status !== "ACCEPTED" || !fresh.providerMid || fresh.projectionAt) return false;
     const native = await tx.botConversation.findUnique({ where: { id: row.conversationId }, select: nativeSelect });
     if (!native || native.endpointScopeId !== row.endpointScopeId || !fresh.finishedAt) return false;
-    await appendConversationMessagesInTransaction(tx, row.conversationId, [{ role: "assistant", content: text,
+    await appendConversationMessagesInTransaction(tx, row.conversationId, [{ role: "assistant", by: { kind: "bot" }, content: text,
       mid: fresh.providerMid, at: fresh.finishedAt.toISOString() }]);
     await tx.$executeRaw`UPDATE "RecruitmentRecovery" SET "projectionAt"=now() WHERE "id"=${row.id}`;
     return true;
