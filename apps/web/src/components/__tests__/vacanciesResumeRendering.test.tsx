@@ -56,6 +56,15 @@ describe("résumé content and action safety", () => {
     expect(html).toContain("Монтаж видео"); expect(html).toContain("Я монтирую короткие видео");
     expect(html).not.toContain("Цветокоррекция");
   });
+  it("separates the chosen communication language from languages listed in a résumé", () => {
+    const unknown = renderToStaticMarkup(<VacancyDetails item={candidate({ chatLanguage: null, languages: "Русский" })} />);
+    expect(unknown).toContain("Язык общения не выбран");
+    expect(unknown).not.toContain("Общение: Русский");
+    const chosen = renderToStaticMarkup(<VacancyDetails item={candidate({ chatLanguage: "ru", languages: "Таджикский" })} />);
+    expect(chosen).toContain("Общение: Русский");
+    expect(chosen).not.toContain("Общение: Таджикский");
+    expect(chosen).toContain("Таджикский");
+  });
   it("unrelated unknown study/employment fields do not clutter an SMM résumé", () => {
     const html = renderToStaticMarkup(<VacancyDetails item={candidate({ recruitmentAssessment: { missing: ["startWhen"], warnings: [], readyForReview: false } })} />);
     expect(html).not.toContain("Сейчас работает"); expect(html).not.toContain("Сейчас учится");

@@ -222,7 +222,7 @@ describe("S13: язык переписки", () => {
     const src = read("components/VacancyDetails.tsx");
     expect(src).not.toContain("Пишет по-");
     expect(src).toContain("vacancyChatLanguageText(item.chatLanguage)");
-    expect(src).toContain("Язык не указан");
+    expect(src).toContain("Язык общения не выбран");
   });
 });
 

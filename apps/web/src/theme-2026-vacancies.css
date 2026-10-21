@@ -156,14 +156,48 @@
 .vacancy-contact-scope .vacancy-contact-result p {font-size:14px;line-height:1.7;margin-bottom:20px;}
 .rh2 .scr .vacancy-contact-sheet .sheet-b {padding:24px;}
 .rh2 .scr .vacancy-contact-sheet {max-width:min(720px,100vw);}
+/* Position settings share the candidate workspace's fields and surfaces. */
+.vacancies-screen .vacancy-catalog {display:grid;gap:20px;max-width:1120px;min-width:0;}
+.vacancies-screen .vacancy-catalog-header {display:flex;justify-content:space-between;align-items:flex-start;gap:24px;}
+.vacancies-screen .vacancy-catalog-header>div {min-width:0;max-width:720px;}
+.rh2 .scr.vacancies-screen .vacancy-catalog h2 {font-size:24px;line-height:1.3;font-weight:700;letter-spacing:-.025em;}
+.rh2 .scr.vacancies-screen .vacancy-catalog h3 {font-size:20px;line-height:1.4;font-weight:650;letter-spacing:-.02em;}
+.rh2 .scr.vacancies-screen .vacancy-catalog-description {font-size:14px;line-height:1.65;color:var(--vacancy-muted);margin:8px 0 16px;max-width:75ch;}
+.vacancies-screen .vacancy-catalog-card {min-width:0;padding:24px;border:1px solid var(--vacancy-line);border-radius:14px;background:var(--vacancy-paper);overflow-wrap:anywhere;}
+.vacancies-screen .vacancy-catalog-list {display:grid;gap:14px;min-width:0;}
+.vacancies-screen .vacancy-catalog-position {display:flex;align-items:flex-start;justify-content:space-between;gap:24px;}
+.vacancies-screen .vacancy-catalog-position>div {min-width:0;}
+.rh2 .scr.vacancies-screen .vacancy-catalog-position h3 {margin-top:12px;}
+.vacancies-screen .vacancy-catalog-position>.vacancy-button,.vacancies-screen .vacancy-catalog-header>.vacancy-button {flex-shrink:0;}
+.rh2 .scr.vacancies-screen .vacancy-catalog-conditions {font-size:14px;white-space:pre-wrap;max-width:75ch;}
+.vacancies-screen .vacancy-catalog-grid {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 24px;min-width:0;}
+.vacancies-screen .vacancy-catalog-rules {min-width:0;margin:12px 0 24px;border:1px solid var(--vacancy-line);border-radius:12px;padding:12px 20px 20px;background:var(--vacancy-bg);}
+.vacancies-screen .vacancy-catalog-rules legend {max-width:100%;padding:0 6px;font-size:17px;font-weight:650;line-height:1.4;}
+.vacancies-screen .vacancy-catalog-checks {display:grid;gap:8px 24px;align-content:start;}
+.vacancies-screen .vacancy-catalog-check {display:flex;align-items:flex-start;gap:12px;min-height:44px;padding:10px 0;font-size:14px;line-height:1.5;cursor:pointer;}
+.rh2 .vacancies-screen .vacancy-catalog-check input {flex:0 0 19px;width:19px;height:19px;min-height:0;padding:0;margin:1px 0 0;accent-color:var(--vacancy-blue);}
+.vacancies-screen .vacancy-catalog-disclosure {min-width:0;border:1px solid var(--vacancy-line);border-radius:12px;background:var(--vacancy-paper);padding:0 20px;overflow-wrap:anywhere;}
+.vacancies-screen .vacancy-catalog-disclosure>summary {padding:16px 0;cursor:pointer;font-size:14px;font-weight:600;min-height:48px;box-sizing:border-box;}
+.vacancies-screen .vacancy-catalog-disclosure[open] {padding-bottom:20px;}
+.vacancies-screen .vacancy-catalog-actions {display:flex;flex-wrap:wrap;gap:12px;}
+.vacancies-screen .vacancy-catalog-open {margin:20px 0;border-bottom:1px solid var(--vacancy-line);padding-bottom:20px;}
+.vacancies-screen .vacancy-catalog-open small {display:block;color:var(--vacancy-muted);font-size:12px;margin-top:4px;}
 html[data-theme="royal-home-2026-night"] .rh2 :is(.vacancies-screen,.vacancy-contact-scope) {--vacancy-ink:#e6ecf8;--vacancy-muted:#b0bdd2;--vacancy-line:#33435b;--vacancy-bg:#182337;--vacancy-paper:#1e2c43;--vacancy-blue:#83afff;--vacancy-tint:#253c64;--vacancy-warning:#3b3020;}
 html[data-theme="royal-home-2026-night"] .rh2 :is(.vacancies-screen,.vacancy-contact-scope) .vacancy-button:not(.secondary) {background:#075bec;border-color:#357bf0;color:#fff;}
+html[data-theme="royal-home-2026-night"] .rh2 .vacancies-screen .vacancies-view-switch button[aria-pressed="true"] {background:#075bec;color:#fff;}
 html[data-theme="royal-home-2026-night"] .rh2 .vacancies-screen .vacancy-queue-missing {color:#efc378;}
 html[data-theme="royal-home-2026-night"] .rh2 :is(.vacancies-screen,.vacancy-contact-scope) :is(.vacancy-text-button.danger,.vacancy-form-error) {color:#ffaaaa;}
 @media(min-width:1800px) {.vacancies-screen .vacancies-layout{grid-template-columns:270px minmax(0,1fr);gap:28px}.vacancies-screen .vacancy-detail{grid-template-columns:minmax(0,1fr) 310px;gap:24px}.vacancies-screen .vacancy-resume-paper{padding:40px}}
 @media(max-width:1350px) {.vacancies-screen .vacancies-layout{grid-template-columns:230px minmax(0,1fr);gap:16px}.vacancies-screen .vacancy-detail{grid-template-columns:minmax(0,1fr) 250px;gap:16px}.vacancies-screen .vacancy-resume-paper{padding:24px}.vacancies-screen .vacancy-resume-columns{grid-template-columns:1fr}.vacancies-screen .vacancy-resume-facts{border-left:0;border-top:1px solid var(--vacancy-line);padding:24px 0 0;display:grid;grid-template-columns:1fr 1fr;gap:20px}.vacancies-screen .vacancy-resume-toolbar{flex-wrap:wrap;padding-left:4px;padding-right:4px}}
 @media(max-width:1100px) {.vacancies-screen .vacancy-detail{grid-template-columns:minmax(0,1fr)}.vacancies-screen .vacancy-next{position:static;padding:20px;background:var(--vacancy-paper);border:1px solid var(--vacancy-line);border-radius:10px}.vacancies-screen .vacancy-resume-paper{min-height:0}.vacancies-screen .vacancy-queue{top:12px}.vacancies-screen .vacancy-resume-toolbar{min-height:80px}}
 @media(max-width:760px) {
+  .vacancies-screen .vacancy-catalog-header,.vacancies-screen .vacancy-catalog-position{flex-direction:column;gap:16px;}
+  .vacancies-screen .vacancy-catalog-header>.vacancy-button,.vacancies-screen .vacancy-catalog-position>.vacancy-button{width:100%;}
+  .vacancies-screen .vacancy-catalog-grid{grid-template-columns:minmax(0,1fr);}
+  .vacancies-screen .vacancy-catalog-card{padding:20px 16px;}
+  .vacancies-screen .vacancy-catalog-rules{padding:12px;}
+  .vacancies-screen .vacancy-catalog-disclosure{padding-left:14px;padding-right:14px;}
+  .vacancies-screen .vacancy-catalog-actions>.vacancy-button{flex:1 1 100%;}
   .rh2 .scr.vacancies-screen{padding:16px 12px calc(28px + env(safe-area-inset-bottom));}
   .vacancies-screen .vacancies-page-header{align-items:flex-start;flex-direction:column;gap:16px;margin-bottom:20px;}
   .rh2 .scr.vacancies-screen h1{font-size:24px;}

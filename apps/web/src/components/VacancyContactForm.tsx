@@ -34,7 +34,7 @@ export function VacancyContactForm({ item, options, purpose, onClose }: {
     if (purpose === "INVITE" && !address.trim()) { setError("Укажите адрес собеседования."); return; }
     const parsed = recruitmentContactPreviewSchema.safeParse({ purpose, channels, language,
       ...(iso ? { interviewAt: iso } : {}), ...(purpose === "INVITE" ? { address: address.trim(), ...(mapUrl.trim() ? { mapUrl: mapUrl.trim() } : {}), preparation: preparation.trim() } : {}) });
-    if (!parsed.success) { setError(parsed.error.issues[0]?.message || "Проверьте поля приглашения."); return; }
+    if (!parsed.success) { setError(parsed.error.issues[0]?.message || "Проверьте заполненные поля."); return; }
     previewMutation.mutate(parsed.data, { onSuccess: value => { setPreview(value); setIdempotencyKey(crypto.randomUUID()); confirmMutation.reset(); } });
   }
   return <Rh2Sheet title={purpose === "INVITE" ? "Приглашение на собеседование" : "Уточнение анкеты"} onClose={onClose} dismissible={!busy} closeOnBackdrop={false} wide className="vacancy-contact-sheet"
@@ -43,16 +43,16 @@ export function VacancyContactForm({ item, options, purpose, onClose }: {
       {result ? <button type="button" className="vacancy-button" onClick={onClose}>Закрыть</button> : preview ? <>
         <button type="button" className="vacancy-button secondary" disabled={busy || attempted} onClick={() => { setPreview(null); previewMutation.reset(); }}>Изменить</button>
         <button type="button" className="vacancy-button" disabled={busy || attempted} onClick={() => {
-          if (new Date(preview.expiresAt).getTime() <= Date.now()) { setError("Предпросмотр устарел. Вернитесь к форме и проверьте приглашение ещё раз."); return; }
+          if (new Date(preview.expiresAt).getTime() <= Date.now()) { setError("Предпросмотр устарел. Вернитесь к форме и проверьте детали ещё раз."); return; }
           setError(""); confirmMutation.mutate({ previewId: preview.previewId, idempotencyKey }, { onSuccess: setResult });
         }}>{confirmMutation.isPending ? "Проверяем отправку…" : recruitmentSendLabel(channels)}</button>
-      </> : <><button type="button" className="vacancy-button secondary" disabled={busy} onClick={onClose}>Отмена</button><button type="submit" className="vacancy-button" disabled={busy || channels.length === 0 || !language}>{busy ? "Готовим…" : "Посмотреть приглашение"}</button></>}
+      </> : <><button type="button" className="vacancy-button secondary" disabled={busy} onClick={onClose}>Отмена</button><button type="submit" className="vacancy-button" disabled={busy || channels.length === 0 || !language}>{busy ? "Готовим…" : purpose === "INVITE" ? "Посмотреть приглашение" : "Посмотреть вопросы"}</button></>}
     </div>}>
     <div className="vacancy-contact-scope">
       <p className="vacancy-contact-person">{candidateTitle(item)} · {item.positionTitle || "Должность не указана"}</p>
       <p className="vacancy-muted">Получатель: {item.phone || "телефон не указан"}</p>
       {result ? <div className="vacancy-contact-result" role="status"><h3>{result.interviewSaved ? "Собеседование сохранено" : "Запрос обработан"}</h3>
-        <p>Статус каждого способа связи указан отдельно. Назначение встречи не означает подтверждение кандидата.</p>
+        <p>{result.interviewSaved ? "Статус каждого способа связи указан отдельно. Назначение встречи не означает подтверждение кандидата." : "Статус каждого способа связи указан отдельно. Ответы после звонка появятся в анкете."}</p>
         <DeliveryList deliveries={result.deliveries} />
         <AssistantFindings deliveries={result.deliveries} />
       </div> : preview ? <>
@@ -74,8 +74,8 @@ export function VacancyContactForm({ item, options, purpose, onClose }: {
         </fieldset>
       </>}
       {error && <p className="vacancy-form-error" role="alert">{error}</p>}
-      <MutationError mutation={previewMutation} fallback="Не удалось подготовить приглашение" />
-      {confirmMutation.isError && <div className="vacancy-notice" role="alert"><p>Результат отправки нужно проверить. Не создавайте повторное приглашение, пока статус неизвестен.</p><p>{confirmMutation.error.message}</p><button type="button" className="vacancy-button secondary" onClick={() => void recent.refetch()}>Проверить статус</button><DeliveryList deliveries={recent.data?.recentDeliveries ?? []} /></div>}
+      <MutationError mutation={previewMutation} fallback={purpose === "INVITE" ? "Не удалось подготовить приглашение" : "Не удалось подготовить вопросы"} />
+      {confirmMutation.isError && <div className="vacancy-notice" role="alert"><p>Результат отправки нужно проверить. Не создавайте повторную отправку, пока статус неизвестен.</p><p>{confirmMutation.error.message}</p><button type="button" className="vacancy-button secondary" onClick={() => void recent.refetch()}>Проверить статус</button><DeliveryList deliveries={recent.data?.recentDeliveries ?? []} /></div>}
     </div>
   </Rh2Sheet>;
 }

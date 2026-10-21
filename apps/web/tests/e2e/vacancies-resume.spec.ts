@@ -1,9 +1,10 @@
 import { test, expect, type Page } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import { createRecruitmentCatalogFixture } from "../fixtures/recruitment-catalog";
 
 const source = { sourceEventKey: "a".repeat(64), quote: "Снимаю видео для местных компаний" };
 const candidate = { id: "22222222-2222-4222-8222-222222222222", status: "NEW", name: "Тестовая Ситора с длинным именем", contactName: null,
-  phone: "+992000000000", age: null, city: "Душанбе", education: null, experience: null, rawText: "Снимаю видео для местных компаний", languages: "Русский",
+  phone: "+992000000000", age: null, city: "Душанбе", education: null, experience: null, rawText: "Снимаю видео для местных компаний", languages: "Русский", chatLanguage: "ru",
   startWhen: null, employedNow: null, studyingNow: null, studyingUniversity: null, priority: null, eligible: null, cvFile: null,
   channel: "INSTAGRAM", createdAt: "2026-10-21T10:00:00Z", interviewAt: null, interviewNote: null, rejectionReason: null, talentPool: false,
   positionTitle: "SMM-специалист / видеограф", positionKey: "smm", customerInquiryId: "test-inquiry",
@@ -14,14 +15,19 @@ const options = { sms: { available: true }, assistantCall: { available: true }, 
 
 async function mockApi(page: Page) {
   const writes: Array<{ path: string; body: Record<string, unknown> }> = [];
+  const catalog = createRecruitmentCatalogFixture();
   await page.route("**/api/v1/**", async route => {
     const request = route.request(), url = new URL(request.url()), path = url.pathname.replace("/api/v1", "");
     const body = request.method() === "GET" ? null : request.postDataJSON();
     if (request.method() !== "GET") writes.push({ path, body });
+    const catalogResponse = catalog.request(path, request.method(), body);
+    if (catalogResponse) {
+      await route.fulfill({ status: catalogResponse.status, contentType: "application/json", body: JSON.stringify(catalogResponse.body) });
+      return;
+    }
     let response: unknown = {};
     if (path === "/me") response = { id: "11111111-1111-4111-8111-111111111111", role: "DIRECTOR", permissions: ["vacancies.view", "settings.manage"], readOnly: false };
     else if (path === "/me/active-call") response = null;
-    else if (path === "/vacancies/positions") response = { items: [{ key: "smm", titleRu: "SMM-специалист / видеограф", isOpen: true }] };
     else if (path === "/vacancies") response = { items: url.searchParams.get("q") ? [] : [candidate], total: url.searchParams.get("q") ? 0 : 1,
       counts: { NEW: 1, REVIEWED: 0, INTERVIEW: 0, INTERVIEWED: 0, HIRED: 0, REJECTED: 0 }, collecting: true, todayInterviews: [], noPhoneCount: 0 };
     else if (path.endsWith("/conversation")) response = { messages: [], files: [], inboxId: null };

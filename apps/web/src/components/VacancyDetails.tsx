@@ -71,6 +71,7 @@ export function VacancyDetails({ item }: { item: JobApplication }) {
   const work = facts.experience?.value || item.experience;
   const education = facts.education?.value || item.education;
   const city = facts.city?.value || item.city;
+  const chatLanguage = item.chatLanguage ? vacancyChatLanguageText(item.chatLanguage) : null;
   const study = candidateStudyState(item);
   const employment = facts.employedNow?.value ?? item.employedNow;
   const missing = item.recruitmentAssessment?.missing ?? [];
@@ -83,7 +84,7 @@ export function VacancyDetails({ item }: { item: JobApplication }) {
       <header className="vacancy-person-heading"><span className="vacancy-stage-badge">{CANDIDATE_STAGE_LABELS[item.status]}</span>
         <h2 id="candidate-resume-title" tabIndex={-1}>{candidateTitle(item)}</h2>
         <p className="vacancy-position-title">{item.positionTitle || "Должность не указана"}</p>
-        <ul className="vacancy-person-meta"><li><MapPin size={16} aria-hidden="true" />{city || "Город не указан"}</li><li><MessageCircle size={16} aria-hidden="true" />{item.chatLanguage ? vacancyChatLanguageText(item.chatLanguage) : "Язык не указан"}</li><li><Phone size={16} aria-hidden="true" />{item.phone ? "Телефон указан" : "Нужен телефон"}</li></ul>
+        <ul className="vacancy-person-meta"><li><MapPin size={16} aria-hidden="true" />{city || "Город не указан"}</li><li><MessageCircle size={16} aria-hidden="true" />{chatLanguage ? `Общение: ${chatLanguage.charAt(0).toLocaleUpperCase("ru")}${chatLanguage.slice(1)}` : "Язык общения не выбран"}</li><li><Phone size={16} aria-hidden="true" />{item.phone ? "Телефон указан" : "Нужен телефон"}</li></ul>
       </header>
       <div className="vacancy-resume-columns"><div className="vacancy-resume-main">
         <ResumeSection title="О себе"><FactText value={facts.about?.value} fact={facts.about} /></ResumeSection>

@@ -4,7 +4,7 @@
  * и гарнитуру. Зачем это нужно и почему именно генератором — в шапке скрипта.
  * Пересобрать: npm run gen:typeset. Проверить: npm run audit:typeset.
  *
- * Правил: 905 (размер поднят у 893, гарнитура сведена у 53).
+ * Правил: 912 (размер поднят у 900, гарнитура сведена у 53).
  * Ничего мельче 13px не остаётся, "Manrope" строкой не остаётся нигде.
  */
 .rh2 .mh .ai-hero-lbl { font-size: 15px; }
@@ -691,6 +691,13 @@ html[data-mobile-ux][data-theme^="royal-home-2026-"] .rh2 .mh .row.callrow .s { 
 .vacancy-contact-scope .vacancy-form-error { font-size: 15px; }
 .vacancy-contact-scope .vacancy-contact-result h3 { font-size: 22px; }
 .vacancy-contact-scope .vacancy-contact-result p { font-size: 15px; }
+.rh2 .scr.vacancies-screen .vacancy-catalog h3 { font-size: 22px; }
+.rh2 .scr.vacancies-screen .vacancy-catalog-description { font-size: 15px; }
+.rh2 .scr.vacancies-screen .vacancy-catalog-conditions { font-size: 15px; }
+.vacancies-screen .vacancy-catalog-rules legend { font-size: 18px; }
+.vacancies-screen .vacancy-catalog-check { font-size: 15px; }
+.vacancies-screen .vacancy-catalog-disclosure>summary { font-size: 15px; }
+.vacancies-screen .vacancy-catalog-open small { font-size: 13px; }
 .rh2 .wiz.wizard-workspace :is(.wizard-secondary-action,.wizard-text-action) { font-size: 15px; }
 .rh2 .wiz.wizard-workspace .wizard-draft-notice { font-size: 15px; }
 .rh2 .wiz.wizard-workspace .wizard-delete-error { font-size: 15px; }

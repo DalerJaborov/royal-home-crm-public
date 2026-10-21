@@ -43,3 +43,11 @@ The browser demo uses actual components with explicitly synthetic API data;
 its send result is DRY_RUN. These checks do not prove real provider delivery.
 Exact-commit cloud release and independent production verification remain
 separate gates; no real candidates are contacted during tests.
+
+Final UI review covers the actual résumé and invitation components at desktop,
+390px mobile, 320px narrow and 1024px tablet layouts. Position settings use the
+same fields and surfaces, keep role requirements visible and collapse technical
+publication mappings. Read-only profiles cannot open a position write flow even
+when their permission list contains settings.manage. Communication language is
+labelled separately from languages mentioned in a résumé. The synthetic catalog
+fixture now uses the complete shared schema and revision-aware updates.
