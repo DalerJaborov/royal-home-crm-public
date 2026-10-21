@@ -27,6 +27,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-node@v4
@@ -50,3 +51,22 @@ jobs:
         run: npm run precheck -- --no-tests
       - name: Release and infrastructure regression tests
         run: npm run test:scripts
+      - name: Select API runtime image inputs
+        id: api_image
+        env:
+          API_IMAGE_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: node .github/scripts/api-image-check.mjs plan >> "$GITHUB_OUTPUT"
+      - name: Build API image and verify Prisma without network
+        if: steps.api_image.outputs.required == 'true'
+        env:
+          API_IMAGE_REPORT: ${{ runner.temp }}/api-image-offline-check.json
+          API_IMAGE_SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: node .github/scripts/api-image-check.mjs check
+      - name: Retain exact API image verification
+        if: always() && steps.api_image.outputs.required == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-image-offline-check
+          path: ${{ runner.temp }}/api-image-offline-check.json
+          if-no-files-found: error
+          retention-days: 14
