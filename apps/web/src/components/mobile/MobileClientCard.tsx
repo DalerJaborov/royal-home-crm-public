@@ -175,8 +175,7 @@ export function MobileClientCard({
         )}
         <div className="tags">
           {mainStatusChip}
-          <span className="chip mute">{isOther ? "Прочее обращение" : client.dualIntent ? "Продаёт и покупает" : isSeller ? "Продавец" : "Покупатель"}</span>
-          {pending && <span className="chip warn">Ждёт принятия</span>}
+          {!isOther && <span className="chip mute">{client.dualIntent ? "Продаёт и покупает" : isSeller ? "Продавец" : "Покупатель"}</span>}
         </div>
         <p className="client-card-meta">{client.assignedAgent ? `Агент ${client.assignedAgent.fullName}` : "Агент не назначен"}<br />Последний контакт {relativeTime(client.lastContactAt)}</p>
       </div>

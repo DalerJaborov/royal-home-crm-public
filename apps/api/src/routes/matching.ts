@@ -423,6 +423,8 @@ export async function findMatchingClientsForProperty(
       shortId: true,
       fullName: true,
       status: true,
+      workStatus: true,
+      inactiveLevel: true,
       assignedAgentId: true,
       // Имя агента (17.09.2026, план раздел 6, «Одна функция «Подбор»») — панель
       // подбора на карточке объекта показывает его в строке кандидата без
@@ -456,6 +458,8 @@ export async function findMatchingClientsForProperty(
         shortId: c.shortId,
         fullName: c.fullName,
         status: c.status,
+        workStatus: c.workStatus,
+        inactiveLevel: c.inactiveLevel,
         assignedAgentId: c.assignedAgentId,
         assignedAgentName: c.assignedAgent?.fullName ?? null,
         score,

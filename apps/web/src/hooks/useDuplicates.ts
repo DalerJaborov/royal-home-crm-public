@@ -1,12 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { ClientKind, ClientSource, ClientStatus } from "@royal-home/shared";
+import type { ClientKind, ClientSource, ClientStatus, MatchingClient } from "@royal-home/shared";
 import { api } from "../lib/api";
 
-export interface DuplicateClient {
+export interface DuplicateClient extends Pick<MatchingClient, "workStatus" | "inactiveLevel"> {
   id: string;
   fullName: string;
   phone: string;
   status: ClientStatus;
+  kind?: ClientKind;
   source: ClientSource;
   createdAt: string;
   assignedAgent: { id: string; fullName: string } | null;

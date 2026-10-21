@@ -4,6 +4,8 @@ import { prisma } from "../db.js";
 import { inactiveLevelFields } from "./inactiveTrafficLight.js";
 import { logSystemError } from "./systemError.js";
 import { logTimeline } from "./timeline.js";
+import { REAL_CALL_CONTACT_WHERE } from "./clientContact.js";
+import { publishClientUpdated } from "./livePublish.js";
 
 /**
  * «МОЛЧАЛИВЫЙ» КЛИЕНТ → АВТОМАТИЧЕСКИ В НЕАКТИВНЫЕ (владелец 30.08.2026,
@@ -157,109 +159,136 @@ export async function runSilentClientAutoDeactivate(
 ): Promise<SilentAutoDeactivateSummary> {
   const silentDays = await loadSilentDays();
   const cutoff = new Date(now.getTime() - silentDays * DAY_MS);
-
-  const candidates = await prisma.client.findMany({
-    where: {
-      deletedAt: null,
-      workStatus: "ACTIVE",
-      status: { notIn: [...NOT_ELIGIBLE_STATUS] },
-      assignedAgentId: { not: null },
-      // Клиент, который никогда не писал сам, не «замолчал» — это другой
-      // случай (холодный лид), уже под другой автоматикой (clientAutoStatus).
-      lastClientMessageAt: { not: null },
-      // Активная сделка — не застой, агент сам разберётся руками (см. правило
-      // в задании владельца); COMPLETED/CANCELLED сделке не мешают.
-      deals: { none: { stage: { notIn: [...TERMINAL_DEAL_STAGES] } } },
-      /**
-       * СОСТОЯВШИЙСЯ РАЗГОВОР ЗА ПОСЛЕДНИЕ N ДНЕЙ — НЕ МОЛЧАНИЕ (19.09.2026,
-       * см. шапку файла). Отвеченный звонок, встреча и показ — то же
-       * «клиент проявил себя сам», что и ответ в чате. Недозвон
-       * (outcome = NO_ANSWER) и звонок без проставленного итога
-       * (outcome = null) признаком не считаются: это попытка агента, а не
-       * ответ клиента, и NOT IN по nullable-колонке их как раз не ловит.
-       *
-       * Условием запроса, а не проверкой в цикле: кандидатов до пятисот, и
-       * отдельный запрос на каждого — ровно тот N+1, которого тут быть не
-       * должно.
-       */
-      interactions: {
-        none: {
-          createdAt: { gte: cutoff },
-          OR: [
-            { type: "CALL", outcome: { notIn: ["NO_ANSWER"] } },
-            { type: { in: ["MEETING", "SHOWING"] } },
-          ],
-        },
-      },
-    },
-    select: {
-      id: true,
-      shortId: true,
-      assignedAgentId: true,
-      kind: true,
-      botConversation: { select: { messages: true, updatedAt: true } },
-      telegramConversation: { select: { messages: true, updatedAt: true } },
-    },
-    take: 500,
-  });
-
   let deactivated = 0;
+  let afterId: string | undefined;
+  for (;;) {
+    const candidates = await prisma.client.findMany({
+      where: {
+        ...(afterId ? { id: { gt: afterId } } : {}),
+        deletedAt: null,
+        kind: { not: "OTHER" },
+        workStatus: "ACTIVE",
+        status: { notIn: [...NOT_ELIGIBLE_STATUS] },
+        assignedAgentId: { not: null },
+        reactivationOfferedToAgentId: null,
+        contactProfiles: { none: { lastSeenAt: { gte: cutoff } } },
+        // Клиент, который никогда не писал сам, не «замолчал» — это другой
+        // случай (холодный лид), уже под другой автоматикой (clientAutoStatus).
+        lastClientMessageAt: { not: null, lt: cutoff },
+        OR: [{ returnedAt: null }, { returnedAt: { lt: cutoff } }],
+        // Активная сделка — не застой, агент сам разберётся руками (см. правило
+        // в задании владельца); COMPLETED/CANCELLED сделке не мешают.
+        deals: { none: { stage: { notIn: [...TERMINAL_DEAL_STAGES] } } },
+        /**
+         * СОСТОЯВШИЙСЯ РАЗГОВОР ЗА ПОСЛЕДНИЕ N ДНЕЙ — НЕ МОЛЧАНИЕ (19.09.2026,
+         * см. шапку файла). Отвеченный звонок, встреча и показ — то же
+         * «клиент проявил себя сам», что и ответ в чате. Недозвон
+         * (outcome = NO_ANSWER) и звонок без проставленного итога
+         * (outcome = null) признаком не считаются: это попытка агента, а не
+         * ответ клиента, и NOT IN по nullable-колонке их как раз не ловит.
+         *
+         * Условием запроса, а не проверкой в цикле: кандидатов до пятисот, и
+         * отдельный запрос на каждого — ровно тот N+1, которого тут быть не
+         * должно.
+         */
+        interactions: { none: { OR: [
+          { ...REAL_CALL_CONTACT_WHERE, createdAt: { gte: cutoff } },
+          { type: { in: ["MEETING", "SHOWING"] }, createdAt: { gte: cutoff } },
+          { type: { in: ["MEETING", "SHOWING"] }, completedAt: { gte: cutoff } },
+          { nextActionDate: { gt: now }, completedAt: null, declinedAt: null },
+        ] } },
+      },
+      select: {
+        id: true,
+        shortId: true,
+        assignedAgentId: true,
+        kind: true,
+        botConversation: { select: { messages: true, updatedAt: true } },
+        telegramConversation: { select: { messages: true, updatedAt: true } },
+      },
+      orderBy: { id: "asc" }, take: 500,
+    });
+    if (candidates.length === 0) break;
+    afterId = candidates[candidates.length - 1].id;
 
-  // Продавец с объектом в работе не «замолчал»: его объект в каталоге агента,
-  // звонить незачем (владелец 23.09.2026, sellerCardState.sellersWithPropertyInWork).
-  const sellersInWork = await sellersWithPropertyInWork(
-    (candidates as SilentCandidate[])
-      .filter((c) => c.kind === "SELLER")
-      .map((c) => c.id),
-  );
+    // Продавец с объектом в работе не «замолчал»: его объект в каталоге агента,
+    // звонить незачем (владелец 23.09.2026, sellerCardState.sellersWithPropertyInWork).
+    const sellersInWork = await sellersWithPropertyInWork(
+      (candidates as SilentCandidate[])
+        .filter((c) => c.kind === "SELLER")
+        .map((c) => c.id),
+    );
 
-  for (const c of candidates as SilentCandidate[]) {
-    if (sellersInWork.has(c.id)) continue;
-    if (!c.assignedAgentId) continue; // не назначена — некому будет заниматься светофором
-    const last = freshestLastWord(c);
-    if (!last) continue; // диалога нет вовсе — не наш случай
-    if (last.role !== "assistant") continue; // последнее слово было за клиентом
-    if (last.at.getTime() > cutoff.getTime()) continue; // ещё не прошло нужное число дней
+    for (const c of candidates as SilentCandidate[]) {
+      if (sellersInWork.has(c.id)) continue;
+      if (!c.assignedAgentId) continue; // не назначена — некому будет заниматься светофором
+      const last = freshestLastWord(c);
+      if (!last) continue; // диалога нет вовсе — не наш случай
+      if (last.role !== "assistant") continue; // последнее слово было за клиентом
+      if (last.at.getTime() > cutoff.getTime()) continue; // ещё не прошло нужное число дней
 
-    try {
-      const levelFields = await inactiveLevelFields(
-        c.id,
-        c.kind,
-        "STOPPED_RESPONDING",
-      );
-      await prisma.$transaction(async (tx) => {
-        await tx.client.update({
-          where: { id: c.id },
-          data: {
-            workStatus: "INACTIVE",
-            ...levelFields,
-            // Реактивация к прежнему агенту (п.12) — см. assignment.ts/firstCall.ts/
-            // reassignment.ts/clientWorkStatus.ts, тот же приём.
-            lastAgentId: c.assignedAgentId,
-          },
+      try {
+        const levelFields = await inactiveLevelFields(
+          c.id,
+          c.kind,
+          "STOPPED_RESPONDING",
+          undefined,
+          now,
+        );
+        const written = await prisma.$transaction(async (tx) => {
+          const updated = await tx.client.updateMany({
+            where: {
+              id: c.id, deletedAt: null, workStatus: "ACTIVE",
+              kind: { not: "OTHER" },
+              status: { notIn: [...NOT_ELIGIBLE_STATUS] }, assignedAgentId: c.assignedAgentId,
+              lastClientMessageAt: { lt: cutoff },
+              reactivationOfferedToAgentId: null,
+              contactProfiles: { none: { lastSeenAt: { gte: cutoff } } },
+              OR: [{ returnedAt: null }, { returnedAt: { lt: cutoff } }],
+              deals: { none: { stage: { notIn: [...TERMINAL_DEAL_STAGES] } } },
+              interactions: { none: { OR: [
+                { ...REAL_CALL_CONTACT_WHERE, createdAt: { gte: cutoff } },
+                { type: { in: ["MEETING", "SHOWING"] }, createdAt: { gte: cutoff } },
+                { type: { in: ["MEETING", "SHOWING"] }, completedAt: { gte: cutoff } },
+                { nextActionDate: { gt: now }, completedAt: null, declinedAt: null },
+              ] } },
+            },
+            data: {
+              workStatus: "INACTIVE",
+              inactiveEnteredAt: null,
+              ...levelFields,
+              // Реактивация к прежнему агенту (п.12) — см. assignment.ts/firstCall.ts/
+              // reassignment.ts/clientWorkStatus.ts, тот же приём.
+              lastAgentId: c.assignedAgentId,
+            },
+          });
+          if (updated.count !== 1) return false;
+          await logTimeline({
+            clientId: c.id,
+            actor: {
+              kind: "system",
+              source: "silentClientAutoDeactivate",
+              subjectAgentId: c.assignedAgentId,
+            },
+            type: "SYSTEM",
+            notes: `Клиент переведён в Неактивные автоматически: не отвечает ${silentDays} дн.`,
+            tx,
+          });
+          return true;
         });
-        await logTimeline({
-          clientId: c.id,
-          actor: {
-            kind: "system",
-            source: "silentClientAutoDeactivate",
-            subjectAgentId: c.assignedAgentId,
-          },
-          type: "SYSTEM",
-          notes: `Клиент переведён в Неактивные автоматически: не отвечает ${silentDays} дн.`,
-          tx,
-        });
-      });
-      deactivated++;
-    } catch (err) {
-      await logSystemError(
-        "api",
-        `Автопереход молчаливого клиента в Неактивные (клиент ${c.shortId}) не выполнен: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
-      );
+        if (!written) continue;
+        publishClientUpdated({ clientId: c.id, agentIds: [c.assignedAgentId], stage: "INACTIVE" });
+        deactivated++;
+      } catch (err) {
+        await logSystemError(
+          "api",
+          `Автопереход молчаливого клиента в Неактивные (клиент ${c.shortId}) не выполнен: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
     }
+    if (candidates.length < 500) break;
   }
-
   return { deactivated };
 }

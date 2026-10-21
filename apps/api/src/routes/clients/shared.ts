@@ -87,6 +87,8 @@ export function presentClient<
     /** «Заметки» карточки — туда CRM кладёт дословные цитаты клиента (A5 ниже). */
     requirementsNotes?: string | null;
     acceptedAt: Date | null;
+    status?: string;
+    workStatus?: string;
     /** Нужны только для канонической подписи заглушки-имени ниже (shortId+kind) —
      *  необязательны в типе, чтобы вызовы, которые их не выбирали, не ломались. */
     shortId?: number;
@@ -95,7 +97,9 @@ export function presentClient<
     dualIntentConfirmedAt?: Date | null;
   },
 >(client: T, canSeePhone: boolean, canSeeOrigin = true): T & { pendingAcceptance: boolean } {
-  const pending = client.acceptedAt === null;
+  const pending = client.acceptedAt === null && client.kind !== "OTHER" &&
+    !["LOST", "ARCHIVED", "DEAL_CLOSED"].includes(client.status ?? "") &&
+    !["INACTIVE", "DEFERRED"].includes(client.workStatus ?? "");
   /**
    * ОТКУДА ПРИШЁЛ КЛИЕНТ — ОТДЕЛЬНОЕ ПРАВО, И ОНО НЕ СОВПАДАЕТ С ТЕЛЕФОНОМ
    * (решение владельца 17.08.2026, см. lib/clientOrigin.ts).
@@ -184,7 +188,7 @@ export function presentClient<
       : {}),
     // Почта закрыта только до принятия: она не даёт увести клиента мимо CRM так,
     // как даёт телефон, а переписываться агенту иногда нужно.
-    email: pending ? null : client.email,
+    email: client.acceptedAt === null ? null : client.email,
     pendingAcceptance: pending,
   };
 }
@@ -328,7 +332,7 @@ export function computeHiddenReason(client: {
   if (client.kind === "OTHER") {
     return { kind: "other", label: "Прочее обращение", detail: "Не покупатель и не продавец — вне ваших списков" };
   }
-  if (client.securityReview) {
+  if (client.securityReview && client.securityReview !== "CLEARED") {
     return { kind: "securityReview", label: "На проверке СБ", detail: "Разбирает служба безопасности" };
   }
   if (client.status === "LOST") {

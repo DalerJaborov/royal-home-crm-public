@@ -30,8 +30,7 @@ import { useAgents } from "../hooks/useAgents";
 import { assignableStaff, notAgentConfirmText, notAgentWarningText, staffOptionLabel } from "../lib/assignableStaff";
 import { useSettings } from "../hooks/useSettings";
 import { useAuthStore } from "../store/auth";
-import { ClientStatusBadge } from "../components/ClientStatusBadge";
-import { INACTIVE_LEVEL_TITLES, INACTIVE_LEVEL_TONE, showsInactiveLabel } from "../components/InactiveLevelBadge";
+import { ClientStateBadge } from "../components/ClientStateBadge";
 import { AddInteractionModal } from "../components/AddInteractionModal";
 import { InteractionTimeline } from "../components/InteractionTimeline";
 import { MutationError } from "../components/MutationError";
@@ -51,9 +50,6 @@ import { canCallOnTransferredCard, transferBannerOf } from "../lib/clientTransfe
 import {
   clientKindLabel,
   CLIENT_KIND_LABELS,
-  CLIENT_STATUS_CHIP,
-  CLIENT_STATUS_CHIP_DOT,
-  CLIENT_STATUS_LABELS,
   formatClientCode,
   formatClientName,
   matchScoreBand,
@@ -388,9 +384,6 @@ function ClientDetailCard() {
   /** Работа с клиентом приостановлена (ТЗ п. 22). Управляет этим агент, в отличие
    *  от `status` (Новый/Горячий/…), который ставит сама CRM. */
   const isInactive = client?.workStatus === "INACTIVE";
-  /** Метка «Неактивный» в шапке — не у потерянного (см. showsInactiveLabel).
-   *  Отдельно от isInactive: действия (вернуть в работу) остаются как были. */
-  const showInactiveChip = !!client && showsInactiveLabel(client);
   /** «Отложенные» (задача G, 03-04.09.2026) — не «Неактивный»: слот свободен,
    *  светофора нет, возврат по таймеру или раньше, если клиент напишет сам. */
   const isDeferred = client?.workStatus === "DEFERRED";
@@ -1133,25 +1126,10 @@ function ClientDetailCard() {
   const moreCount = countMoreItems(moreGroups);
 
   /**
-   * Один главный чип шапки на телефоне: светофор важнее температуры (решение
-   * владельца 11.09.2026, приоритет пяти шкал статуса, см. комментарий у
-   * прежнего ряда чипов ниже). Остальные шкалы — не здесь, а в «О карточке».
+   * The same primary lifecycle state on desktop and phone. Temperature and
+   * historical fields cannot add contradictory badges beside a pause/closure.
    */
-  const mainStatusChip = showInactiveChip ? (
-    <span
-      className={`chip ${INACTIVE_LEVEL_TONE[client.inactiveLevel ?? "YELLOW"]}`}
-      title={INACTIVE_LEVEL_TITLES[client.inactiveLevel ?? "YELLOW"]}
-    >
-      Неактивный
-    </span>
-  ) : (
-    <span className={`chip ${CLIENT_STATUS_CHIP[client.status]}`}>
-      {CLIENT_STATUS_CHIP_DOT[client.status] !== undefined && (
-        <span className={`dot ${CLIENT_STATUS_CHIP_DOT[client.status]}`} />
-      )}
-      {CLIENT_STATUS_LABELS[client.status]}
-    </span>
-  );
+  const mainStatusChip = <ClientStateBadge client={client} />;
 
   const tabs = [
     { id: "short" as const, label: "Коротко" },
@@ -1646,43 +1624,11 @@ function ClientDetailCard() {
                 </div>
               )}
                   <div className="wrap" style={{ marginBottom: 8 }}>
-                    {/*
-                      «ГЛАВНЫЙ СТАТУС» ШАПКИ — решение владельца 11.09.2026 («Ждёт
-                      владельца» п. 3, приоритет пяти шкал статуса на карточке):
-                      1) светофор (красный/жёлтый/зелёный по сроку контакта) важнее
-                      2) температуры (горячий/тёплый/холодный) — вместе эти две шкалы
-                      и есть «главный статус», светофор рисуется первым чипом и
-                      настоящим цветом уровня (INACTIVE_LEVEL_TONE), а не всегда
-                      жёлтым, как было. Остальные три шкалы (этап воронки, статус
-                      ответа, источник) — не здесь, а ниже, в «О карточке» (factChips).
-                      Без изменения данных: Client.status в этой базе — одно поле,
-                      совмещающее температуру и этап воронки, светофор — отдельное
-                      workStatus=INACTIVE + inactiveLevel; ни одно из полей не тронуто.
-                    */}
-                    {showInactiveChip && (
-                      <span
-                        className={`chip ${INACTIVE_LEVEL_TONE[client.inactiveLevel ?? "YELLOW"]}`}
-                        title={INACTIVE_LEVEL_TITLES[client.inactiveLevel ?? "YELLOW"]}
-                      >
-                        Неактивный
-                      </span>
-                    )}
-                    <span className={`chip ${CLIENT_STATUS_CHIP[client.status]}`}>
-                      {CLIENT_STATUS_CHIP_DOT[client.status] !== undefined && (
-                        <span className={`dot ${CLIENT_STATUS_CHIP_DOT[client.status]}`} />
-                      )}
-                      {CLIENT_STATUS_LABELS[client.status]}
-                    </span>
-                    {client.kind && <span className="chip mute">{clientKindLabel(client)}</span>}
+                    {mainStatusChip}
+                    {client.kind && !isOther && <span className="chip mute">{clientKindLabel(client)}</span>}
                     {client.isPersonalLead && (
                       <span className="chip" title="Агент привёл клиента сам, не через каналы компании">
                         Личный лид
-                      </span>
-                    )}
-                    {pending && <span className="chip warn">Ждёт принятия</span>}
-                    {client.hiddenReason && (
-                      <span className="chip warn" title={client.hiddenReason.detail}>
-                        {client.hiddenReason.label}
                       </span>
                     )}
                     {lastPropertiesSent && (

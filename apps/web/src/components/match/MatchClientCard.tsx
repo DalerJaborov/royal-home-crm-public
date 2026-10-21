@@ -3,7 +3,7 @@ import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { ClientStatus, MatchingClient } from "@royal-home/shared";
 import { ClientAvatar } from "../ClientAvatar";
-import { ClientStatusBadge } from "../ClientStatusBadge";
+import { ClientStateBadge } from "../ClientStateBadge";
 import { ConfirmDialog } from "../ConfirmDialog";
 import { useSendProperties, useSendTarget } from "../../hooks/useClients";
 import { SendFallback, sendFallbackOf } from "./SendFallback";
@@ -116,7 +116,7 @@ export function MatchClientCard({
         <div className="t">
           <b>{c.fullName}</b>
           <span style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center", marginTop: 2 }}>
-            <ClientStatusBadge status={c.status as ClientStatus} size="sm" />
+            <ClientStateBadge client={{ ...c, status: c.status as ClientStatus }} />
             {c.reasons.length > 0 && <span>{c.reasons.join(" · ")}</span>}
           </span>
         </div>

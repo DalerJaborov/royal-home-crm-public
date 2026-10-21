@@ -3,6 +3,7 @@ import { prisma } from "../db.js";
 import { trashClient } from "./trashClient.js";
 import { logSystemError } from "./systemError.js";
 import { sendPushToAgent } from "../push.js";
+import { REAL_CALL_CONTACT_WHERE, TERMINAL_CLIENT_STATUSES } from "./clientContact.js";
 
 /**
  * «ПОТЕРЯННЫЕ» И «НЕАКТИВНЫЕ» СТАРШЕ 3 МЕСЯЦЕВ → АВТОМАТИЧЕСКИ В КОРЗИНУ
@@ -80,12 +81,23 @@ export async function runLostInactiveTrashSweep(now: Date = new Date()): Promise
   const candidates = await prisma.client.findMany({
     where: {
       deletedAt: null,
+      reactivationOfferedToAgentId: null,
+      AND: [
+        { OR: [{ lastClientMessageAt: null }, { lastClientMessageAt: { lt: cutoff } }] },
+        { OR: [{ returnedAt: null }, { returnedAt: { lt: cutoff } }] },
+      ],
+      interactions: { none: { OR: [
+        { ...REAL_CALL_CONTACT_WHERE, createdAt: { gte: cutoff } },
+        { type: { in: ["SHOWING", "MEETING"] }, completedAt: { gte: cutoff }, declinedAt: null },
+        { nextActionDate: { gt: now }, completedAt: null, declinedAt: null },
+      ] } },
       OR: [
         { status: "LOST", lostAt: { lt: cutoff } },
-        { workStatus: "INACTIVE", inactiveSince: { lt: cutoff } },
+        { workStatus: "INACTIVE", status: { notIn: [...TERMINAL_CLIENT_STATUSES] }, inactiveSince: { lt: cutoff } },
       ],
     },
-    select: { id: true, shortId: true, assignedAgentId: true },
+    select: { id: true, shortId: true, assignedAgentId: true, status: true, workStatus: true,
+      inactiveSince: true, lostAt: true, lastClientMessageAt: true, returnedAt: true },
     take: 200,
   });
 
@@ -112,7 +124,16 @@ export async function runLostInactiveTrashSweep(now: Date = new Date()): Promise
   // о звонке отдельными запросами на клиента; количество кандидатов за сутки
   // в реальности единицы-десятки (см. lib/dealStalePipeline.ts, тот же приём).
   for (const c of candidates) {
-    const result = await trashClient(c.id, byAgentId, { notifyHolder: false });
+    const result = await trashClient(c.id, byAgentId, { notifyHolder: false, guardWhere: {
+      status: c.status, workStatus: c.workStatus, assignedAgentId: c.assignedAgentId,
+      inactiveSince: c.inactiveSince, lostAt: c.lostAt, lastClientMessageAt: c.lastClientMessageAt,
+      returnedAt: c.returnedAt, reactivationOfferedToAgentId: null,
+      interactions: { none: { OR: [
+        { ...REAL_CALL_CONTACT_WHERE, createdAt: { gte: cutoff } },
+        { type: { in: ["SHOWING", "MEETING"] }, completedAt: { gte: cutoff }, declinedAt: null },
+        { nextActionDate: { gt: now }, completedAt: null, declinedAt: null },
+      ] } },
+    } });
     if (result.ok) {
       trashed++;
       if (c.assignedAgentId) {

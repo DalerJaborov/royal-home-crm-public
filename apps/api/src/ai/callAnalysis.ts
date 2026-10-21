@@ -629,6 +629,8 @@ export async function analyzeCall(interactionId: string): Promise<{ ok: boolean;
       } else {
         const deactivated = await deactivateClient({
           clientId: interaction.clientId,
+          evidenceAt: interaction.createdAt,
+          expectedAgentId: interaction.agentId,
           // П-10: причину назвал ИИ по разбору звонка, а не сотрудник, что вёл
           // разговор (interaction.agentId, если он вообще есть) — тот остаётся
           // адресатом задачи через subjectAgentId.

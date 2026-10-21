@@ -19,7 +19,9 @@ import { prisma } from "../db.js";
 import {
   canDeactivateWithReason,
   inactiveLevelFields,
+  lastRealContactAt,
 } from "./inactiveTrafficLight.js";
+import { REAL_CALL_CONTACT_WHERE, TERMINAL_CLIENT_STATUSES } from "./clientContact.js";
 import { reactivationResetData } from "./clientLifecycle.js";
 import { publishClientUpdated } from "./livePublish.js";
 import { logTimeline, type TimelineActor } from "./timeline.js";
@@ -39,6 +41,9 @@ export interface DeactivateClientInput {
   comment?: string;
   voiceNoteUrl?: string;
   voiceNoteTranscript?: string;
+  /** Timestamp of the call/message being analysed; newer contact wins. */
+  evidenceAt?: Date;
+  expectedAgentId?: string | null;
 }
 
 export type DeactivateClientResult =
@@ -61,15 +66,19 @@ export type DeactivateClientResult =
 export async function reactivateClient(input: {
   clientId: string;
   agentId: string;
+  actorAgentId?: string;
 }): Promise<{ ok: boolean }> {
   const client = await prisma.client.findFirst({
     where: { id: input.clientId, deletedAt: null },
-    select: { id: true, status: true, workStatus: true },
+    select: { id: true, status: true, workStatus: true, assignedAgentId: true, inactiveSince: true },
   });
   if (!client) return { ok: false };
+  if (client.assignedAgentId !== input.agentId || client.status === "ARCHIVED" || client.status === "DEAL_CLOSED")
+    return { ok: false };
   // Уже активен — не пишем в хронологию пустое событие: повторное нажатие кнопки
   // не должно оставлять следов «вернул в работу» подряд.
   if (client.workStatus === "ACTIVE") return { ok: true };
+  if (client.workStatus !== "INACTIVE") return { ok: false };
 
   /**
    * ВОЗВРАТ ЧИСТИТ ПОЛЯ СВЕТОФОРА, А НЕ ТОЛЬКО workStatus (07.09.2026, находка №25
@@ -87,28 +96,32 @@ export async function reactivateClient(input: {
    * вызывался только на пути POST /:id/assign — два пути к одному состоянию
    * разошлись молча. Теперь общий.
    */
-  await prisma.$transaction(async (tx) => {
-    await tx.client.update({
-      where: { id: client.id },
-      data: reactivationResetData({
+  const written = await prisma.$transaction(async (tx) => {
+    const updated = await tx.client.updateMany({
+      where: { id: client.id, deletedAt: null, assignedAgentId: input.agentId,
+        status: client.status, workStatus: "INACTIVE", inactiveSince: client.inactiveSince },
+      data: { ...reactivationResetData({
         status: client.status,
         workStatus: client.workStatus,
-      }),
+      }), returnedAt: new Date() },
     });
+    if (updated.count !== 1) return false;
     await logTimeline({
       clientId: client.id,
-      actor: { kind: "agent", agentId: input.agentId },
+      actor: { kind: "agent", agentId: input.actorAgentId ?? input.agentId, subjectAgentId: input.agentId },
       type: "SYSTEM",
       notes: "Клиент возвращён в работу из Неактивных",
       tx,
     });
+    return true;
   });
+  if (!written) return { ok: false };
   // Клиент снова в активных: его списки и светофор надзора протухли.
   publishClientUpdated({
     clientId: client.id,
     agentIds: [input.agentId],
     stage: "ACTIVE",
-    actorId: input.agentId,
+    actorId: input.actorAgentId ?? input.agentId,
   });
   return { ok: true };
 }
@@ -138,23 +151,16 @@ export async function reactivateClient(input: {
  * не в цикле по клиентам, поэтому N+1 здесь нет и не появляется при росте базы.
  */
 export async function hasNewerContactSince(clientId: string, since: Date): Promise<boolean> {
-  const [client, newerCall, newerMessage] = await Promise.all([
-    prisma.client.findUnique({ where: { id: clientId }, select: { returnedAt: true } }),
-    prisma.interaction.findFirst({
-      where: {
-        clientId,
-        type: "CALL",
-        createdAt: { gt: since },
-        OR: [{ recordingDurationSec: { gt: 0 } }, { outcome: { notIn: ["NO_ANSWER"] } }],
-      },
-      select: { id: true },
-    }),
+  const [client, contacts, newerMessage] = await Promise.all([
+    prisma.client.findUnique({ where: { id: clientId }, select: { returnedAt: true, lastClientMessageAt: true } }),
+    lastRealContactAt([{ id: clientId, inactiveSince: since }]),
     prisma.contactProfile.findFirst({
       where: { clientId, lastSeenAt: { gt: since } },
       select: { id: true },
     }),
   ]);
-  return Boolean((client?.returnedAt && client.returnedAt > since) || newerCall || newerMessage);
+  return Boolean((client?.returnedAt && client.returnedAt > since) ||
+    (client?.lastClientMessageAt && client.lastClientMessageAt > since) || contacts.has(clientId) || newerMessage);
 }
 
 /**
@@ -169,6 +175,7 @@ export async function hasNewerContactSince(clientId: string, since: Date): Promi
 export async function deactivateClient(
   input: DeactivateClientInput,
 ): Promise<DeactivateClientResult> {
+  const decisionAt = new Date();
   const client = await prisma.client.findFirst({
     where: { id: input.clientId, deletedAt: null },
     select: {
@@ -177,9 +184,24 @@ export async function deactivateClient(
       fullName: true,
       assignedAgentId: true,
       kind: true,
+      status: true,
+      workStatus: true,
+      returnedAt: true,
+      lastClientMessageAt: true,
+      reactivationOfferedToAgentId: true,
     },
   });
   if (!client) return { ok: false };
+  if (client.kind === "OTHER") return { ok: false, reason: "Прочие обращения не участвуют в светофоре клиентов" };
+  if (client.workStatus !== "ACTIVE" || !client.assignedAgentId ||
+    TERMINAL_CLIENT_STATUSES.some((status) => status === client.status) ||
+    client.reactivationOfferedToAgentId ||
+    (input.expectedAgentId !== undefined && input.expectedAgentId !== client.assignedAgentId)) {
+    return { ok: false, reason: "Состояние или держатель карточки уже изменились" };
+  }
+  if (input.evidenceAt && await hasNewerContactSince(client.id, input.evidenceAt)) {
+    return { ok: false, reason: "После этого события клиент снова был на связи" };
+  }
   // Продавец с объектом в работе в «Неактивные» не уходит ни по разбору ИИ, ни
   // по недозвонам (владелец 23.09.2026): объект в каталоге — клиент живой.
   if (
@@ -204,9 +226,16 @@ export async function deactivateClient(
     `Актуальные потребности: ${input.actualNeeds.trim()}` +
     (input.comment?.trim() ? `. ${input.comment.trim()}` : "");
 
-  await prisma.$transaction(async (tx) => {
-    await tx.client.update({
-      where: { id: client.id },
+  const written = await prisma.$transaction(async (tx) => {
+    const updated = await tx.client.updateMany({
+      where: {
+        id: client.id, deletedAt: null, status: { notIn: [...TERMINAL_CLIENT_STATUSES] }, workStatus: "ACTIVE",
+        assignedAgentId: client.assignedAgentId, returnedAt: client.returnedAt,
+        lastClientMessageAt: client.lastClientMessageAt,
+        reactivationOfferedToAgentId: null,
+        deals: { none: { stage: { notIn: ["COMPLETED", "CANCELLED"] } } },
+        interactions: { none: { ...REAL_CALL_CONTACT_WHERE, createdAt: { gt: input.evidenceAt ?? decisionAt } } },
+      },
       data: {
         workStatus: "INACTIVE",
         ...levelFields,
@@ -220,6 +249,7 @@ export async function deactivateClient(
           : {}),
       },
     });
+    if (updated.count !== 1) return false;
     // П-10: через logTimeline, не напрямую — actor приходит от вызывающей
     // стороны (ai/system, ручного перехода больше нет), а не выводится из
     // держателя карточки.
@@ -232,7 +262,9 @@ export async function deactivateClient(
       voiceNoteTranscript: input.voiceNoteTranscript ?? null,
       tx,
     });
+    return true;
   });
+  if (!written) return { ok: false, reason: "Карточка изменилась во время проверки" };
   // Клиент ушёл в Неактивные: слот агента освободился, светофор надзора изменился.
   publishClientUpdated({
     clientId: client.id,
