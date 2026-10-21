@@ -45,7 +45,7 @@ export function useUpdateSmsSettings() {
 
 export interface SmsShareResult {
   sent: number;
-  items: { clientId: string; status: "sent" | "skipped" | "failed"; reason?: string }[];
+  items: { clientId: string; status: "sent" | "prepared" | "skipped" | "failed"; reason?: string }[];
 }
 
 export function useSmsShareProperty(propertyId: string) {
@@ -54,6 +54,10 @@ export function useSmsShareProperty(propertyId: string) {
     mutationFn: (clientIds: string[]) =>
       api<SmsShareResult>(`/properties/${propertyId}/sms-share`, { method: "POST", body: { clientIds } }),
     // Появились личные ссылки клиентов — список «открыл/не открыл» на карточке объекта.
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["property", propertyId, "share-links"] }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["property", propertyId, "share-links"] });
+      void qc.invalidateQueries({ queryKey: ["client"] });
+      void qc.invalidateQueries({ queryKey: ["client-match"] });
+    },
   });
 }

@@ -104,11 +104,15 @@ const DAY = 24 * HOUR;
  * дальше не искажает поведение.
  */
 export function cronIntervalMs(expr: string): number {
-  const [min = "*", hour = "*", dom = "*", , dow = "*"] = expr.trim().split(/\s+/);
+  const fields = expr.trim().split(/\s+/);
+  const [min = "*", hour = "*", dom = "*", , dow = "*"] = fields.length === 6 ? fields.slice(1) : fields;
   const step = (field: string) => {
     const m = /^\*\/(\d+)$/.exec(field);
     return m ? Number(m[1]) : null;
   };
+  if (fields.length === 6 && fields.slice(1).every(field => field === "*")) {
+    return fields[0] === "*" ? 1000 : (step(fields[0]) ?? 60) * 1000;
+  }
   if (step(min)) return step(min)! * MINUTE; // */N * * * *
   if (min === "*") return MINUTE; // * * * * *
   if (hour === "*") return HOUR; // M * * * *  (раз в час)
@@ -119,7 +123,8 @@ export function cronIntervalMs(expr: string): number {
 
 /** День месяца и/или день недели заданы явно — расписание реже суточного. */
 function isLowFrequency(expr: string): boolean {
-  const [, , dom = "*", , dow = "*"] = expr.trim().split(/\s+/);
+  const fields = expr.trim().split(/\s+/);
+  const [, , dom = "*", , dow = "*"] = fields.length === 6 ? fields.slice(1) : fields;
   return dom !== "*" || dow !== "*";
 }
 
@@ -156,7 +161,8 @@ function timezoneOffsetMinutes(date: Date, timeZone: string): number {
  * cron), в этом репозитории такого нет, но так честнее.
  */
 export function nextCronRun(expr: string, after: Date, timeZone?: string): Date {
-  const [, , dom = "*", , dow = "*"] = expr.trim().split(/\s+/);
+  const expressionFields = expr.trim().split(/\s+/);
+  const [, , dom = "*", , dow = "*"] = expressionFields.length === 6 ? expressionFields.slice(1) : expressionFields;
   const domStar = dom === "*";
   const dowStar = dow === "*";
   const fields = cron.parse(expr);
@@ -170,8 +176,8 @@ export function nextCronRun(expr: string, after: Date, timeZone?: string): Date 
       local.getUTCMonth(),
       local.getUTCDate(),
       local.getUTCHours(),
-      local.getUTCMinutes() + 1,
-      0,
+      local.getUTCMinutes(),
+      local.getUTCSeconds() + 1,
       0
     )
   );
@@ -202,6 +208,12 @@ export function nextCronRun(expr: string, after: Date, timeZone?: string): Date 
       local = new Date(Date.UTC(y, mo, d, h, mi + 1, 0, 0));
       continue;
     }
+    const second = fields.second.find(value => value >= local.getUTCSeconds());
+    if (second == null) {
+      local = new Date(Date.UTC(y, mo, d, h, mi + 1, 0, 0));
+      continue;
+    }
+    local.setUTCSeconds(second, 0);
     return new Date(local.getTime() - offsetMin * MINUTE);
   }
   throw new Error(`nextCronRun: не удалось найти следующий запуск для "${expr}"`);

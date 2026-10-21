@@ -352,6 +352,8 @@ export interface Client {
   /** У клиента есть и вторая сторона тоже (продаёт и одновременно покупает) —
    *  владелец 06.09.2026, разбор слепых зон п.4. См. clientKindLabel в shared. */
   dualIntent?: boolean;
+  dualIntentConfirmedAt?: string | null;
+  dualIntentNeedsConfirmation?: boolean;
   /** Сколько объектов на продажу услышал ИИ из разговоров — пишет только ИИ,
    *  агент может подать заявку на пересмотр (владелец 06.09.2026, разбор слепых
    *  зон п.3). null — ИИ ещё ничего не услышал. */
@@ -462,6 +464,7 @@ export interface Client {
    * null = обещаний нет.
    */
   nextStep?: { nextAction: string | null; nextActionDate: string | null } | null;
+  propertyActivitySummary?: import("@royal-home/shared").ClientPropertyActivitySummary | null;
   /** Клиент написал последним, и переписку ещё не открывали — красная точка на
    *  аватаре, как непрочитанное в вотсапе. Считается только в СВОЁМ списке
    *  клиентов (см. routes/clients/list.ts) — гаснет открытием карточки. */

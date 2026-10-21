@@ -338,6 +338,8 @@ export function kindChangeUpdate(
   const becomingOther = input.kind === "OTHER";
   const data: Prisma.ClientUncheckedUpdateInput = {
     kind: input.kind,
+    dualIntentConfirmedAt: null,
+    dualIntentConfirmedById: null,
     ...(isRoleSwap ? { dualIntent: true } : {}),
     ...(becomingOther
       ? { assignedAgentId: null, acceptedAt: null, escalatedAt: null, ...(existing.assignedAgentId ? { lastAgentId: existing.assignedAgentId } : {}) }

@@ -25,6 +25,10 @@ Trash/security review, terminal outcome, deferred/inactive state and acceptance 
 precedence over temperature. Duplicate inactive/temperature/hidden-reason badges
 are removed. Missing depth is neutral; a cleared security review is not pending.
 Historical enums and customer history are retained.
+Integration with the client overview workspace preserves matching, confirmed roles,
+property activity and read-only gates. The legacy mobile header does not repeat
+acceptance or other-inquiry labels beside the primary state; render regressions
+cover both labels and retain the new overview/activity sections.
 
 The discipline settings describe automatic checks rather than removed push reminders,
 show the actual intervals through loss, expose inverted depth ordering, and provide a

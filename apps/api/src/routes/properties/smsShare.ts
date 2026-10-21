@@ -29,12 +29,14 @@
 import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../../db.js";
-import { can, requireAuth } from "../../auth/middleware.js";
+import { can, canAccessAssignedAgent, requireAuth, scopeToOwnAgent } from "../../auth/middleware.js";
 import { canManageProperty } from "./shared.js";
+import { foreignWriteDenied } from "../clients/shared.js";
 import { getOrCreatePropertyShareLinks } from "../../lib/propertyShareLink.js";
 import { crmPublicBase } from "../../lib/crmPublicUrl.js";
 import { recordInterest } from "../../lib/propertyInterest.js";
 import { logTimeline } from "../../lib/timeline.js";
+import { logSystemError } from "../../lib/systemError.js";
 import { sendSms, smsConfigured, toSmsPhone } from "../../lib/sms/index.js";
 import { dushanbeStartOfToday } from "../../lib/dushanbeTime.js";
 
@@ -71,16 +73,19 @@ export function propertySmsText(p: {
   return `Royal Home, объект №${p.shortId}: ${facts}. Фото, видео и карта: ${p.url} Агент ${firstName} ${p.agent.phone}`;
 }
 
-export type SmsShareOutcome = { clientId: string; status: "sent" | "skipped" | "failed"; reason?: string };
+export type SmsShareOutcome = { clientId: string; status: "sent" | "prepared" | "skipped" | "failed"; reason?: string };
 
 smsShareRouter.post("/:id/sms-share", requireAuth, async (req, res) => {
   const parsed = schema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: `Выберите от 1 до ${SMS_SHARE_MAX_RECIPIENTS} клиентов` });
   }
-  const property = await prisma.property.findUnique({ where: { id: req.params.id } });
-  if (!property || property.deletedAt) return res.status(404).json({ error: "Объект не найден" });
-  if (property.status === "SOLD") return res.status(400).json({ error: "Объект продан — рассылать его нельзя" });
+  const propertyId = z.guid().safeParse(req.params.id);
+  if (!propertyId.success) return res.status(400).json({ error: "Неверный объект" });
+  const property = await prisma.property.findUnique({ where: { id: propertyId.data },
+    include: { deleteRequests: { where: { requestedById: req.agent!.id, status: "PENDING" }, take: 1, select: { id: true } } } });
+  if (!property || property.deletedAt || (!can(req, "properties.delete") && property.deleteRequests.length > 0)) return res.status(404).json({ error: "Объект не найден" });
+  if (property.status === "SOLD" || property.status === "WITHDRAWN") return res.status(400).json({ error: "Объект продан или снят с продажи — рассылать его нельзя" });
   if (property.offSite && !canManageProperty(req, property)) {
     return res.status(403).json({ error: "Несайтовый объект рассылает только агент, который его ведёт" });
   }
@@ -108,10 +113,10 @@ smsShareRouter.post("/:id/sms-share", requireAuth, async (req, res) => {
   const ids = [...new Set(parsed.data.clientIds)];
   const clients = await prisma.client.findMany({
     where: { id: { in: ids } },
-    select: { id: true, phone: true, deletedAt: true, assignedAgentId: true },
+    select: { id: true, phone: true, deletedAt: true, assignedAgentId: true, acceptedAt: true },
   });
   const byId = new Map(clients.map((c) => [c.id, c]));
-  const seeAll = can(req, "clients.viewAll");
+  const ownAgentId = scopeToOwnAgent(req);
 
   // Кому уже отправляли этот объект за последние 7 дней — одним запросом на всех.
   const since = new Date(Date.now() - SMS_SHARE_REPEAT_DAYS * 24 * 60 * 60 * 1000);
@@ -131,8 +136,12 @@ smsShareRouter.post("/:id/sms-share", requireAuth, async (req, res) => {
   let sentNow = 0;
   for (const clientId of ids) {
     const c = byId.get(clientId);
-    if (!c || c.deletedAt || (!seeAll && c.assignedAgentId !== req.agent!.id)) {
+    if (!c || c.deletedAt || !canAccessAssignedAgent(req, c.assignedAgentId) || foreignWriteDenied(req, c, ownAgentId)) {
       outcomes.push({ clientId, status: "skipped", reason: "клиент не найден или не ваш" });
+      continue;
+    }
+    if (ownAgentId && !c.acceptedAt) {
+      outcomes.push({ clientId, status: "skipped", reason: "сначала примите лид" });
       continue;
     }
     if (!toSmsPhone(c.phone)) {
@@ -176,6 +185,19 @@ smsShareRouter.post("/:id/sms-share", requireAuth, async (req, res) => {
       }
       break;
     }
+    // A dry-run is preparation, not customer outreach. The SMS journal is the
+    // provider acceptance receipt; no exposure is invented for preview/copy.
+    const receipt = await prisma.smsMessage.findUnique({ where: { id: sent.id }, select: { status: true, createdAt: true } });
+    if (receipt?.status !== "SENT") {
+      outcomes.push({ clientId, status: "prepared", reason: "тестовый режим: СМС подготовлено, клиенту не отправлено" });
+      continue;
+    }
+    await prisma.propertyExposure.upsert({ where: { id: `sms:${sent.id}` }, create: {
+      id: `sms:${sent.id}`, channel: "SMS", recipientId: clientId, clientId,
+      propertyId: property.id, shortId: property.shortId, kind: "LINK", sentAt: receipt.createdAt,
+    }, update: {} }).catch(err => {
+      void logSystemError("sms", `Принятая СМС ${sent.id}: не записана история объекта: ${err instanceof Error ? err.message : String(err)}`);
+    });
     outcomes.push({ clientId, status: "sent" });
     sentNow += 1;
     void recordInterest(property.id, "SHARE_SENT", clientId);
@@ -185,6 +207,8 @@ smsShareRouter.post("/:id/sms-share", requireAuth, async (req, res) => {
       type: "SYSTEM",
       propertyId: property.id,
       notes: `Отправлен по СМС объект №${property.shortId} «${property.title}»`,
+    }).catch(err => {
+      void logSystemError("sms", `Принятая СМС ${sent.id}: не записана хронология: ${err instanceof Error ? err.message : String(err)}`);
     });
   }
 

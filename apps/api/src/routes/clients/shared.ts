@@ -93,6 +93,8 @@ export function presentClient<
      *  необязательны в типе, чтобы вызовы, которые их не выбирали, не ломались. */
     shortId?: number;
     kind?: ClientKind;
+    dualIntent?: boolean;
+    dualIntentConfirmedAt?: Date | null;
   },
 >(client: T, canSeePhone: boolean, canSeeOrigin = true): T & { pendingAcceptance: boolean } {
   const pending = client.acceptedAt === null && client.kind !== "OTHER" &&
@@ -111,7 +113,13 @@ export function presentClient<
    * забытый аргумент даёт прежнее поведение, а не молча ломает карточку
    * руководителя. Места, где право надо учесть, перечислены вызовами ниже.
    */
-  const shown = withHiddenOrigin(client as T & { fullName?: string; source?: string | null }, canSeeOrigin);
+  const originSafe = withHiddenOrigin(client as T & { fullName?: string; source?: string | null }, canSeeOrigin);
+  const shown = { ...originSafe,
+    ...(client.dualIntent !== undefined ? {
+      dualIntent: client.dualIntent === true && !!client.dualIntentConfirmedAt,
+      dualIntentNeedsConfirmation: client.dualIntent === true && !client.dualIntentConfirmedAt,
+    } : {}),
+  };
   if (canSeePhone) {
     return { ...shown, pendingAcceptance: pending };
   }

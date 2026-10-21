@@ -13,9 +13,9 @@
 | Экранов (адресов в интерфейсе) | 67 |
 | Из них видно в меню | 35 |
 | Модулей сервера | 78 |
-| Адресов сервера всего | 635 |
-| Задач по расписанию | 100 |
-| Типов фоновых заданий | 21 |
+| Адресов сервера всего | 638 |
+| Задач по расписанию | 103 |
+| Типов фоновых заданий | 22 |
 | Внешних сервисов | 13 |
 
 ## 1. Экраны интерфейса
@@ -153,7 +153,7 @@
 | `/api/v1/geo` | Поиск адреса и точки по собственному справочнику города | 4 | да (3 мест) | `apps/api/src/routes/geo.ts` |
 | `/api/v1/landmarks` | Народные ориентиры, которые ведут агенты | 8 | да (1 мест) | `apps/api/src/routes/landmarks.ts` |
 | `/api/v1/properties` | Объекты: список, карточка, фото, видео, публикация | 108 | да (27 мест) | `apps/api/src/routes/properties.ts` |
-| `/api/v1/clients` | Клиенты: карточки, передачи, отказы, подбор — самый крупный модуль | 57 | да (9 мест) | `apps/api/src/routes/clients.ts` |
+| `/api/v1/clients` | Клиенты: карточки, передачи, отказы, подбор — самый крупный модуль | 60 | да (12 мест) | `apps/api/src/routes/clients.ts` |
 | `/api/v1/deals` | Сделки, документы, выплаты | 3 | да (4 мест) | `apps/api/src/routes/deals.ts` |
 | `/api/v1/deals` | Сделки, документы, выплаты | 4 | да (4 мест) | `apps/api/src/routes/dealDocuments.ts` |
 | `/api/v1/deals` | Сделки, документы, выплаты | 2 | да (4 мест) | `apps/api/src/routes/dealPayout.ts` |
@@ -245,6 +245,9 @@
 | `clip-review-resend` | `*/5 * * * *` | **без подписи** |
 | `clip-review-stale-alarm` | `15 * * * *` | **без подписи** |
 | `contact-link-sweep` | `10 3 * * *` | **без подписи** |
+| `customer-inbox-jobs` | `*/5 * * * * *` | **без подписи** |
+| `customer-intake-jobs` | `*/5 * * * * *` | **без подписи** |
+| `customer-outbox-jobs` | `*/5 * * * * *` | **без подписи** |
 | `daily-kpi` | `5 0 * * *` | Пересчитывает показатели всех агентов за вчера |
 | `daily-stories` | `*/15 * * * *` | **без подписи** |
 | `deal-stale-pipeline` | `20 0 * * *` | Застой сделки дольше нормы — пуш руководству и задача агенту |
@@ -335,6 +338,7 @@
 | `client-reactivation` | `apps/api/src/jobs/clientReactivation.ts` |
 | `clip-compress` | `apps/api/src/jobs/clipCompress.ts` |
 | `customer-callback-notify` | `apps/api/src/jobs/customerCallbackNotify.ts` |
+| `customer-contact-intake` | `apps/api/src/jobs/customerContactIntake.ts` |
 | `customer-inbox-consume` | `apps/api/src/jobs/customerInboxConsume.ts` |
 | `customer-intake-notify` | `apps/api/src/jobs/customerIntakeNotify.ts` |
 | `customer-intake-policy` | `apps/api/src/jobs/customerIntakePolicy.ts` |
@@ -377,6 +381,6 @@
 Появилось в коде, но не описано в `docs/product-map-labels.json`. Пустые списки —
 норма; непустые значат, что функция завелась, а объяснить её никто не удосужился.
 
-- Задач по расписанию: `clip-review-resend`, `clip-review-stale-alarm`, `contact-link-sweep`, `daily-stories`, `disk-cleanup`, `instagram-online-followers`, `instagram-webhook-subscriptions`, `live-voice-orphan-sweep`, `meta-ads-stale-watch`, `photo-posts-tick`, `published-channels-audit`, `site-stats`, `social-digests-tick`, `social-reposts-tick`, `social-video-schedule`, `telegram-bot-api-volume-cleanup`, `telephony-station-traffic`, `video-handoff-redelivery`, `video-handoff-unfinished-publish-watchdog`
+- Задач по расписанию: `clip-review-resend`, `clip-review-stale-alarm`, `contact-link-sweep`, `customer-inbox-jobs`, `customer-intake-jobs`, `customer-outbox-jobs`, `daily-stories`, `disk-cleanup`, `instagram-online-followers`, `instagram-webhook-subscriptions`, `live-voice-orphan-sweep`, `meta-ads-stale-watch`, `photo-posts-tick`, `published-channels-audit`, `site-stats`, `social-digests-tick`, `social-reposts-tick`, `social-video-schedule`, `telegram-bot-api-volume-cleanup`, `telephony-station-traffic`, `video-handoff-redelivery`, `video-handoff-unfinished-publish-watchdog`
 - Модулей сервера: `/api/v1/live-voice`, `/api/v1/ui-shell`, `/api/v1/sms`, `/api/v1/whatsapp-templates`, `/api/v1/social-videos`, `/api/v1/threads/oauth/callback`, `/api/v1/threads`, `/api/v1/search-console/oauth/callback`, `/api/v1/search-console/yandex/oauth/callback`, `/api/v1/search-console`, `/api/v1/contacts`, `/api/v1/public/owner-report`
 

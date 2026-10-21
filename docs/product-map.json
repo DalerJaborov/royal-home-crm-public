@@ -962,9 +962,9 @@
       "mount": "/api/v1/clients",
       "router": "clientsRouter",
       "file": "apps/api/src/routes/clients.ts",
-      "endpoints": 57,
+      "endpoints": 60,
       "label": "Клиенты: карточки, передачи, отказы, подбор — самый крупный модуль",
-      "usedBy": 9
+      "usedBy": 12
     },
     {
       "mount": "/api/v1/deals",
@@ -1597,6 +1597,21 @@
       "label": null
     },
     {
+      "id": "customer-inbox-jobs",
+      "expr": "*/5 * * * * *",
+      "label": null
+    },
+    {
+      "id": "customer-intake-jobs",
+      "expr": "*/5 * * * * *",
+      "label": null
+    },
+    {
+      "id": "customer-outbox-jobs",
+      "expr": "*/5 * * * * *",
+      "label": null
+    },
+    {
       "id": "daily-kpi",
       "expr": "5 0 * * *",
       "label": "Пересчитывает показатели всех агентов за вчера"
@@ -2017,6 +2032,10 @@
     {
       "type": "customer-callback-notify",
       "file": "apps/api/src/jobs/customerCallbackNotify.ts"
+    },
+    {
+      "type": "customer-contact-intake",
+      "file": "apps/api/src/jobs/customerContactIntake.ts"
     },
     {
       "type": "customer-inbox-consume",

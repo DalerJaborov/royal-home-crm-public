@@ -1,13 +1,18 @@
 import { createHmac, randomUUID } from "node:crypto";
+import bcrypt from "bcrypt";
+import request from "supertest";
 import { afterAll, afterEach, beforeAll, expect, it, vi } from "vitest";
+import { app } from "../src/app.js";
+import { signAccessToken } from "../src/auth/jwt.js";
+import { revokeElevation } from "../src/lib/stepUp.js";
 import { prisma } from "../src/db.js";
 import { encryptSecret } from "../src/crypto.js";
 import { verifySignature, resetMetaAccountCredsCache } from "../src/messengers/meta.js";
-import { registerAuthenticatedMetaCustomerRequest } from "../src/lib/customerIngressAuthority.js";
+import { registerAuthenticatedMetaCustomerRequest, inspectAuthenticatedCustomerInput } from "../src/lib/customerIngressAuthority.js";
 import { persistVerifiedCustomerIngressBatch } from "../src/lib/customerIngressProducer.js";
 import { prepareCustomerDmInboxCoreContext } from "../src/lib/customerDmCoreContext.js";
 import { registerCurrentCustomerAgentRevision } from "../src/lib/customerAgentRegistration.js";
-import { createCustomerAgentProviderSnapshot } from "../src/ai/customerAgentProviderConfig.js";
+import { createCustomerAgentProviderSnapshot, createCustomerAgentMediaProviderSnapshot } from "../src/ai/customerAgentProviderConfig.js";
 import { claimCustomerAgentTurnTx, type CustomerAgentClaim } from "../src/lib/customerAgentClaim.js";
 import { createCustomerOutboxPartsTx } from "../src/lib/customerOutbox.js";
 import { dispatchCustomerOutboxPart } from "../src/lib/customerDeliveryDispatcher.js";
@@ -40,8 +45,8 @@ async function owner() {
     username: `synthetic_memory_${id.replaceAll("-", "")}`, token: encryptSecret(o.token), appSecret: encryptSecret(o.secret), enabled: true } });
   accounts.push(id); owners.set(o.externalId, o); resetMetaAccountCredsCache(); return o;
 }
-async function capture(o: Awaited<ReturnType<typeof owner>>, peer: string, text: string) {
-  await rollout.allowDm({ peer, accountId: o.id, accountExternalId: o.externalId });
+async function capture(o: Awaited<ReturnType<typeof owner>>, peer: string, text: string, allowScope = true) {
+  if (allowScope) await rollout.allowDm({ peer, accountId: o.id, accountExternalId: o.externalId });
   const eventId = `${tag}-mid-${randomUUID()}`, rawBody = Buffer.from(JSON.stringify({ object: "instagram", entry: [{ id: o.externalId,
     messaging: [{ sender: { id: peer }, recipient: { id: o.externalId }, timestamp: Date.now(), message: { mid: eventId, text } }] }] }));
   const signature = `sha256=${createHmac("sha256", o.secret).update(rawBody).digest("hex")}`;
@@ -156,6 +161,77 @@ afterAll(async () => {
     vi.unstubAllEnvs(); vi.unstubAllGlobals(); resetMetaAccountCredsCache();
   }
   // No Client/Profile deletion, no shared scopes or immutable revision/archive deletion.
+});
+
+it("a genuine CORE FINAL remains a reply during a global initiative pause without clearing that pause or renewing arrival time", async () => {
+  transport(); const saved = await prisma.outboundShieldGlobal.findUnique({ where: { id: 1 } });
+  const until = new Date(Date.now() + 30 * 60000);
+  await prisma.outboundShieldGlobal.upsert({ where: { id: 1 }, create: { id: 1, pausedUntil: until, reason: tag },
+    update: { pausedUntil: until, reason: tag } });
+  try {
+    const o = await owner(), peer = `${tag}-peer-${randomUUID()}`, a = await message(o, peer, "Ищу квартиру");
+    const ticket = await prisma.customerPropertyIngressTicket.findUniqueOrThrow({ where: { eventKey: a.ticket.eventKey } });
+    const shield = await prisma.outboundShieldState.findFirstOrThrow({ where: { endpointScopeId: a.ticket.endpointScopeId, subscriberId: peer } });
+    expect(shield.lastInboundAt).toEqual(ticket.receivedAt);
+    expect(shield.lastInboundId).toBe(inspectAuthenticatedCustomerInput(a.authenticatedInput)?.eventId);
+    await acceptedQuestion(a, "rooms");
+    expect(await prisma.outboundShieldGlobal.findUniqueOrThrow({ where: { id: 1 } })).toMatchObject({ pausedUntil: until, reason: tag });
+  } finally {
+    if (saved) await prisma.outboundShieldGlobal.update({ where: { id: 1 }, data: { pausedUntil: saved.pausedUntil,
+      reason: saved.reason, alertedAt: saved.alertedAt, updatedAt: saved.updatedAt } });
+    else await prisma.outboundShieldGlobal.delete({ where: { id: 1 } });
+  }
+});
+
+it("owner-approved revision advance preserves own housing words, without importing old assistant claims or callback consent", async () => {
+  transport(); const o = await owner(), peer = `${tag}-peer-${randomUUID()}`;
+  const a = await message(o, peer, "Я Рустам, хочу купить двухкомнатную квартиру в Сино до 500000. Раньше сказал: позвоните мне");
+  const answer = await acceptedQuestion(a, "budget");
+  const baseline = await prisma.customerRuntimePolicy.findUniqueOrThrow({ where: { id: "singleton" } });
+  const previousRevision = revision, next = await registerCurrentCustomerAgentRevision(createCustomerAgentMediaProviderSnapshot());
+  const password = `Synthetic-${randomUUID()}`;
+  const actor = await prisma.agent.create({ data: { fullName: "Synthetic memory release owner", phone: `${tag}-director`,
+    role: "DIRECTOR", passwordHash: await bcrypt.hash(password, 4), isActive: true } });
+  const auth = { Authorization: `Bearer ${signAccessToken({ sub: actor.id, role: "DIRECTOR" })}` };
+  let bEvent: string | undefined;
+  try {
+    expect((await request(app).post("/api/v1/auth/step-up").set(auth).send({ password })).status).toBe(200);
+    const body = { expectedPolicyRevision: baseline.policyRevision.toString(), rollout: {
+      ...(baseline.rolloutConfig as object), candidateRevisionId: next.id, cohortId: randomUUID() },
+      capabilities: baseline.capabilities, advanceIdleRevision: true, confirmMediaProfileUpgrade: true,
+      confirmManagedPaidCalls: true, acknowledgeNoDailyCap: true, reason: tag };
+    const published = await request(app).put("/api/v1/settings/customer-agent/rollout").set(auth).send(body);
+    expect(published.status, JSON.stringify(published.body)).toBe(200);
+    bEvent = await capture(o, peer, "А рассрочка?", false);
+    const prepared = await prepareCustomerDmInboxCoreContext(bEvent);
+    expect(prepared.status).toBe("prepared"); if (prepared.status !== "prepared") throw Error("Actual advanced memory intake held");
+    revision = next;
+    const context = await memory(prepared.lane);
+    expect(context.turns).toContainEqual({ role: "user", text: "Я Рустам, хочу купить двухкомнатную квартиру в Сино до 500000. Раньше сказал: позвоните мне" });
+    expect(context.intake).toMatchObject({ role: "buyer" });
+    expect(context.turns.some(t => t.role === "assistant" && t.text === answer.text)).toBe(false);
+    const opened = await createCustomerAgentMutationSession({ principal: prepared.lane.principal,
+      authenticatedInput: prepared.lane.authenticatedInput, ticket: prepared.lane.ticket,
+      agentClaim: await currentClaim(prepared.lane) });
+    expect(opened.status).toBe("ready"); if (opened.status !== "ready") throw Error("Actual advanced mutation context held");
+    expect(await opened.session.execute({ name: "request_callback", args: { topic: "Позвоните мне" } },
+      { signal: new AbortController().signal, deadlineAt: Date.now() + 5000 }))
+      .toMatchObject({ status: "denied" });
+    expect(await prisma.callbackRequest.count({ where: { conversationId: prepared.lane.ticket.conversationId } })).toBe(0);
+  } finally {
+    revision = previousRevision;
+    // Finish only this synthetic test claim; no provider retry or source adoption.
+    if (bEvent) await prisma.customerPropertyIngressTicket.update({ where: { eventKey: bEvent },
+      data: { processingState: "FAILED", leaseOwner: null, leaseUntil: null } });
+    await prisma.customerRuntimePolicy.update({ where: { id: "singleton" }, data: {
+      contractVersion: baseline.contractVersion, rolloutMode: baseline.rolloutMode, capabilities: baseline.capabilities,
+      activeAgentRevisionId: baseline.activeAgentRevisionId, rolloutConfig: baseline.rolloutConfig! } });
+    revokeElevation(actor.id);
+    await prisma.auditLog.deleteMany({ where: { agentId: actor.id } });
+    await prisma.errorLog.deleteMany({ where: { agentId: actor.id } });
+    await prisma.session.deleteMany({ where: { agentId: actor.id } });
+    await prisma.agent.delete({ where: { id: actor.id } });
+  }
 });
 
 it("two authenticated IN and accepted public questions retain property intent before short installment follow-up", async () => {

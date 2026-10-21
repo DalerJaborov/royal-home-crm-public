@@ -5,19 +5,12 @@ import type { SendPropertiesFallback, SendTargetInfo } from "@royal-home/shared"
 import { api } from "../../lib/api";
 import { ApiError } from "../../lib/apiError";
 import { toast } from "../../store/toast";
+import { useIsReadOnly } from "../../lib/permissions";
+import { ConfirmDialog } from "../ConfirmDialog";
 import { useQueryClient } from "@tanstack/react-query";
 
-/**
- * ОТКАЗ МЕССЕНДЖЕРА — НЕ ТУПИК (28.09.2026, владелец: «агенты не могут
- * отправлять объекты, такая проблема была и не решена»).
- *
- * Раньше отказ (клиент не писал сутки и Meta закрыла окно, канал выключен,
- * клиент вообще не писал в мессенджер) заканчивался красной строкой — и всё.
- * Агент не мог ни повторить, ни отправить иначе, и объект так и не доходил.
- * Теперь сервер вместе с отказом отдаёт тот же текст и те же ссылки, что ушли
- * бы клиенту, а здесь три способа довести их самому: скопировать, поделиться
- * через телефон, отправить СМС (если подключены и номер таджикский).
- */
+/** Preview and manual handoff use prepared links without pretending a message
+ * was delivered. SMS is confirmed separately because every message may cost money. */
 
 /** Запасной путь из ошибки отправки, если сервер его приложил. */
 export function sendFallbackOf(err: unknown): SendPropertiesFallback | null {
@@ -26,9 +19,9 @@ export function sendFallbackOf(err: unknown): SendPropertiesFallback | null {
   return data?.fallback && Array.isArray(data.fallback.links) ? data.fallback : null;
 }
 
-/** Уйдёт ли в мессенджер: канал есть, включён, окно Meta открыто. Пока не знаем — считаем, что да. */
+/** Уйдёт ли в мессенджер: канал есть, включён, окно Meta открыто. Неизвестный статус не разрешает отправку. */
 export function targetReady(info: TargetInfo | undefined): boolean {
-  return !info || (info.channel !== null && info.channelEnabled && info.windowOpen);
+  return !!info && info.channel !== null && info.channelEnabled && info.windowOpen;
 }
 
 /** Точка и цвет строки «куда уйдёт»: зелёная — уйдёт, жёлтая — не уйдёт, но есть обход. */
@@ -53,134 +46,104 @@ export function SendTargetNote({ info, isLoading, failed, retry }: { info: SendT
 }
 
 export function SendFallback({
-  clientId,
-  message,
-  fallback,
-  smsAvailable,
-  onDone,
-  tone = "crit",
+  clientId, message, fallback, smsAvailable, onDone, tone = "crit", disabled = false, onBusyChange, layer,
 }: {
-  clientId: string;
-  /** Что сказал сервер — первой строкой, словами. */
-  message: string;
-  /** `crit` — мессенджер отказал; `warn` — заранее знали, что не пропустит, и не пытались. */
-  tone?: "crit" | "warn";
-  fallback: SendPropertiesFallback;
-  smsAvailable: boolean;
-  /** Ушло по СМС хотя бы что-то — родитель может отметить объекты отправленными. */
-  onDone?: (propertyIds: string[]) => void;
+  clientId: string; message: string; tone?: "crit" | "warn"; fallback: SendPropertiesFallback;
+  smsAvailable: boolean; onDone?: (propertyIds: string[]) => void;
+  disabled?: boolean; onBusyChange?: (busy: boolean) => void; layer?: "above-chat";
 }) {
   const qc = useQueryClient();
-  const [smsState, setSmsState] = useState<"idle" | "sending" | "done">("idle");
+  const accountReadOnly = useIsReadOnly();
+  const readOnlyRef = useRef(accountReadOnly);
+  readOnlyRef.current = accountReadOnly;
+  const busyRef = useRef(false);
+  const [smsSending, setSmsSending] = useState(false);
+  const [smsConfirmOpen, setSmsConfirmOpen] = useState(false);
+  const [sentIds, setSentIds] = useState<Set<string>>(new Set());
   const [smsResult, setSmsResult] = useState<string | null>(null);
   const cardRef = useRef<HTMLDivElement | null>(null);
+  const remainingLinks = fallback.links.filter(link => !sentIds.has(link.propertyId));
+  const blocked = accountReadOnly || disabled || smsSending;
 
-  // На телефоне карточка появляется посреди длинного списка — часто за краем
-  // экрана, и нажатие «ничего не делало». Подводим её в поле зрения сами.
   useEffect(() => {
     cardRef.current?.scrollIntoView?.({ behavior: "smooth", block: "nearest" });
   }, [fallback]);
 
   function copyText() {
-    void navigator.clipboard
-      .writeText(fallback.text)
-      .then(() => toast.success("Текст со ссылками скопирован — вставьте его клиенту"))
-      .catch(() => toast.error("Буфер обмена недоступен — выделите ссылку ниже и скопируйте вручную"));
+    if (readOnlyRef.current || disabled || busyRef.current) return;
+    if (!navigator.clipboard?.writeText) {
+      toast.error("Буфер обмена недоступен — выделите текст ниже и скопируйте вручную");
+      return;
+    }
+    void navigator.clipboard.writeText(fallback.text)
+      .then(() => toast.success("Скопировано. Отправьте текст клиенту в выбранном приложении."))
+      .catch(() => toast.error("Буфер обмена недоступен — выделите текст ниже и скопируйте вручную"));
   }
 
   function share() {
-    // Без await до вызова: системное меню живёт только пока «жив след» нажатия
-    // (lib/share.ts). Меню нет — тот же текст в буфер.
+    if (readOnlyRef.current || disabled || busyRef.current) return;
+    // navigator.share must run in the original user gesture, without an awaited API.
     if (typeof navigator.share === "function") {
-      navigator.share({ text: fallback.text }).catch((err: unknown) => {
+      void navigator.share({ text: fallback.text }).then(() => toast.success("Текст передан в выбранное приложение. Доставка клиенту пока не подтверждена.")).catch((err: unknown) => {
         if (err instanceof DOMException && err.name === "AbortError") return;
-        copyText();
+        toast.error("Не удалось открыть меню. Скопируйте текст и отправьте вручную.");
       });
-      return;
-    }
-    copyText();
+    } else copyText();
   }
 
   async function sendSms() {
-    setSmsState("sending");
+    if (readOnlyRef.current || disabled || busyRef.current || remainingLinks.length === 0) return;
+    busyRef.current = true;
+    setSmsSending(true);
+    onBusyChange?.(true);
+    setSmsConfirmOpen(false);
     setSmsResult(null);
-    const sentIds: string[] = [];
+    const accepted: string[] = [];
     const problems: string[] = [];
-    // По одному объекту: у каждого своя личная ссылка и свой счёт «открыл/не открыл».
-    for (const link of fallback.links) {
-      try {
-        const res = await api<{ sent: number; items: { status: string; reason?: string }[] }>(
-          `/properties/${link.propertyId}/sms-share`,
-          { method: "POST", body: { clientIds: [clientId] } }
-        );
-        if (res.sent > 0) sentIds.push(link.propertyId);
-        else problems.push(`№${link.shortId}: ${res.items[0]?.reason ?? "не ушло"}`);
-      } catch (err) {
-        problems.push(`№${link.shortId}: ${err instanceof Error ? err.message : "не ушло"}`);
-        break;
+    try {
+      for (const link of remainingLinks) {
+        if (readOnlyRef.current) break;
+        try {
+          const res = await api<{ sent: number; items: { status: string; reason?: string }[] }>(
+            `/properties/${link.propertyId}/sms-share`, { method: "POST", body: { clientIds: [clientId] } });
+          if (res.sent > 0 && res.items.some(item => item.status === "sent")) accepted.push(link.propertyId);
+          else problems.push(`№${link.shortId}: ${res.items[0]?.reason ?? "не отправлено"}`);
+        } catch (err) {
+          problems.push(`№${link.shortId}: ${err instanceof Error ? err.message : "не отправлено"}`);
+          break;
+        }
       }
-    }
-    setSmsState("done");
-    setSmsResult(
-      sentIds.length > 0
-        ? `По СМС ушло: ${sentIds.length} из ${fallback.links.length}.${problems.length ? ` ${problems.join("; ")}` : ""}`
-        : `СМС не ушло. ${problems.join("; ")}`
-    );
-    if (sentIds.length > 0) {
-      qc.invalidateQueries({ queryKey: ["client"] });
-      onDone?.(sentIds);
+      setSentIds(prev => new Set([...prev, ...accepted]));
+      setSmsResult(`Принято SMS-шлюзом: ${accepted.length} из ${remainingLinks.length}. Это не подтверждение получения.${problems.length ? ` ${problems.join("; ")}` : ""}`);
+      if (accepted.length > 0) {
+        void qc.invalidateQueries({ queryKey: ["client"] });
+        void qc.invalidateQueries({ queryKey: ["client-match", clientId] });
+        onDone?.(accepted);
+      }
+    } finally {
+      busyRef.current = false;
+      setSmsSending(false);
+      onBusyChange?.(false);
     }
   }
 
-  return (
-    <div ref={cardRef} className="card" style={{ marginTop: "var(--s3)", scrollMarginBottom: 96 }} role="alert">
-      <div className={`quiet ${tone}`}>
-        <span className={`dot ${tone}`} />
-        <span className="txt">{message}</span>
-      </div>
-      <p className="state" style={{ paddingTop: 0 }}>
-        Текст и ссылки готовы — отправьте их клиенту сами:
-      </p>
-      {/* Сетка, а не ряд с переносом: на телефоне три кнопки вставали столбиком
-          по одной в строку. Главная — во всю ширину, две тихие — рядом. */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--s2)" }}>
-        {smsAvailable && (
-          <button
-            type="button"
-            className="pill"
-            style={{ gridColumn: "1 / -1", justifyContent: "center" }}
-            onClick={() => void sendSms()}
-            disabled={smsState === "sending"}
-          >
-            <MessageSquareText className="i" strokeWidth={1.6} />
-            {smsState === "sending" ? "Отправляю СМС…" : "Отправить по СМС"}
-          </button>
-        )}
-        <button type="button" className="pill ghost" style={{ justifyContent: "center" }} onClick={share}>
-          <Share2 className="i" strokeWidth={1.6} />
-          Поделиться
-        </button>
-        <button type="button" className="pill ghost" style={{ justifyContent: "center" }} onClick={copyText}>
-          <Copy className="i" strokeWidth={1.6} />
-          Скопировать
-        </button>
-      </div>
-      {smsResult && (
-        <div className={`quiet${smsResult.startsWith("СМС не ушло") ? " crit" : ""}`}>
-          <span className={`dot ${smsResult.startsWith("СМС не ушло") ? "crit" : "ok"}`} />
-          <span className="txt">{smsResult}</span>
-        </div>
-      )}
-      <div className="list">
-        {fallback.links.map((l) => (
-          <div className="row" key={l.propertyId}>
-            <div className="t">
-              <b>Объект №{l.shortId}</b>
-              <span style={{ userSelect: "all", wordBreak: "break-all" }}>{l.url}</span>
-            </div>
-          </div>
-        ))}
-      </div>
+  if (accountReadOnly) return null;
+  return <div ref={cardRef} className="client-match-send-options" style={{ scrollMarginBottom: 96 }}>
+    <p className={`quiet ${tone}`} role="status">{message}</p>
+    <label className="client-match-preview-text">Сообщение клиенту
+      <textarea className="inp" rows={Math.min(12, 3 + fallback.links.length * 3)} value={fallback.text} readOnly aria-label="Предпросмотр сообщения клиенту" />
+    </label>
+    <div className="filters" aria-label="Способы отправки подборки">
+      <button type="button" className="pill ghost" onClick={copyText} disabled={blocked}><Copy className="i" strokeWidth={1.6} />Скопировать текст</button>
+      {typeof navigator !== "undefined" && typeof navigator.share === "function" && <button type="button" className="pill ghost" onClick={share} disabled={blocked}><Share2 className="i" strokeWidth={1.6} />Поделиться</button>}
+      {smsAvailable && <button type="button" className="pill ghost" disabled={blocked || remainingLinks.length === 0} onClick={() => setSmsConfirmOpen(true)}>
+        <MessageSquareText className="i" strokeWidth={1.6} />{smsSending ? "Отправляем СМС…" : remainingLinks.length > 0 ? `По СМС · ${remainingLinks.length}` : "СМС уже отправлены"}
+      </button>}
     </div>
-  );
+    {smsAvailable && <p className="state">Для СМС сервер подготовит отдельное короткое сообщение по каждому объекту: номер, площадь, цена, личная ссылка и контакт агента.</p>}
+    {smsResult && <p className="state" role="status">{smsResult}</p>}
+    {!disabled && smsConfirmOpen && <ConfirmDialog title="Отправить подборку по СМС"
+      description={`Будет отправлено до ${remainingLinks.length} отдельных СМС. Отправка платная; повтор одного объекта клиенту возможен через 7 дней. Недоступные объекты и номера сервер пропустит.`}
+      confirmLabel="Отправить по СМС" danger={false} layer={layer} onConfirm={() => void sendSms()} onCancel={() => setSmsConfirmOpen(false)} />}
+  </div>;
 }
