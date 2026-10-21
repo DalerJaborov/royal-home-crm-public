@@ -16,9 +16,9 @@
   "paths": 641,
   "cron": 107,
   "jobs": 30,
-  "conditions": 3539,
-  "untranslatedUnique": 380,
-  "untranslatedTotal": 487,
+  "conditions": 3540,
+  "untranslatedUnique": 381,
+  "untranslatedTotal": 488,
   "partialUnique": 1015,
   "translatedShare": 86
  },
@@ -147,6 +147,7 @@
   "alertedAt > lastSeen && now - alertedAt < REALERT_MS",
   "alreadyHidden === hide",
   "alreadyStored.some((v) => v.propertyId !== property.id)",
+  "alreadyThere && typeof alreadyThere !== \"string\"",
   "appData && !appData.startsWith(LIVE_VOICE_ARI_APP)",
   "await abortLocalUploadSession(session.id)",
   "await agentHasCascadeHistory(req.params.id)",
@@ -74863,8 +74864,22 @@
        "a": [],
        "c": [
         {
-         "t": "если есть already there",
+         "t": "если alreadyThere && typeof alreadyThere !== \"string\"",
          "k": "if",
+         "a": [],
+         "c": [
+          {
+           "t": "запись в журнал ошибок",
+           "k": "do",
+           "a": [],
+           "c": []
+          }
+         ],
+         "raw": "alreadyThere && typeof alreadyThere !== \"string\""
+        },
+        {
+         "t": "иначе если есть already there",
+         "k": "elseif",
          "a": [],
          "c": []
         },

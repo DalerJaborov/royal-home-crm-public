@@ -11,6 +11,7 @@ import type {
 import { exactDateTime } from "../../lib/format";
 import { INTERRUPTED_RETRY_WARNING, destinationLabel, isInterruptedResult, resultOfDestination } from "../../lib/socialVideoDestinations";
 import { ChannelBadge } from "./ChannelBadge";
+import { socialVideoErrorHint } from "../../lib/socialVideoErrorHint";
 
 /**
  * «Процесс» публикации: вертикальная лента по каналам.
@@ -61,13 +62,6 @@ function StateIcon({ state, retriable }: { state: SocialVideoChannelState; retri
   }
 }
 
-/** Что делать с ошибкой: подсказка зависит от того, можно ли просто повторить. */
-function errorHint(retriable: boolean): string {
-  return retriable
-    ? "Площадка просит подождать. Это не поломка: повторите публикацию чуть позже."
-    : "Проверьте, что канал подключён в «Настройки → Каналы связи», а ролик подходит под правила площадки, и повторите публикацию. Если ошибка повторяется — перешлите её текст разработчику.";
-}
-
 function timeOf(r: SocialVideoChannelResult): string | null {
   const at = r.finishedAt ?? r.startedAt;
   return at ? exactDateTime(at) : null;
@@ -103,7 +97,7 @@ function Step({
         className={`mt-2 rounded-lg px-3 py-2.5 ${retriable ? "bg-amber-bg text-amber" : "bg-red-bg text-red"}`}
       >
         {result.error && <p className={`m-0 font-semibold leading-snug ${compact ? "text-[14px]" : "text-[15px]"}`}>{result.error}</p>}
-        {!compact && <p className="m-0 mt-1 text-[13px] leading-snug opacity-90">{errorHint(retriable)}</p>}
+        {!compact && <p className="m-0 mt-1 text-[13px] leading-snug opacity-90">{socialVideoErrorHint(retriable, result?.error)}</p>}
         {isInterruptedResult(result) && <p className="m-0 mt-1 text-[13px] font-semibold leading-snug">{INTERRUPTED_RETRY_WARNING}</p>}
       </div>
     );

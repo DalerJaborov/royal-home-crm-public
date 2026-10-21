@@ -23,7 +23,7 @@ vi.mock("../src/db.js", () => ({
   prisma: { $disconnect: vi.fn().mockResolvedValue(undefined) },
 }));
 
-const { publishFacebookReel, facebookFormatFor } = await import("../src/lib/socialPublish.js");
+const { publishFacebookReel, publishFacebookVideo, facebookFormatFor } = await import("../src/lib/socialPublish.js");
 
 function jsonResponse(body: unknown, ok = true, status = 200): Response {
   return { ok, status, json: async () => body } as unknown as Response;
@@ -69,6 +69,45 @@ describe("facebookFormatFor — выбор REEL/VIDEO по факту содер
 });
 
 describe("publishFacebookReel — три шага + опрос готовности", () => {
+  it("потеря ответа finish не повторяет запрос и сохраняет метку неизвестного исхода", async () => {
+    const onAnswered = vi.fn(async () => {});
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ video_id: "reel-1", upload_url: "https://rupload.facebook.com/test" }))
+      .mockResolvedValueOnce(jsonResponse({ success: true }))
+      .mockRejectedValue(new TypeError("fetch failed", { cause: Object.assign(new Error("socket closed"), { code: "UND_ERR_SOCKET" }) }));
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await publishFacebookReel("page-1", "test-token", "https://example.com/v.mp4", "Test", { onAnswered })).toMatchObject({ ok: false });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(onAnswered).not.toHaveBeenCalled();
+  });
+
+  it.each(["start", "upload", "finish"])("повторяет connect timeout только на шаге %s, не начинает ролик заново", async (failedPhase) => {
+    const onAttemptStarted = vi.fn(async () => {});
+    const onAnswered = vi.fn(async () => {});
+    const calls = { start: 0, upload: 0, finish: 0 };
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      const address = String(url);
+      if (address.includes("fields=status")) return jsonResponse({ status: { video_status: "ready" } });
+      if (address.includes("fields=post_id")) return jsonResponse({ post_id: "page_post_1" });
+      const phase = address.startsWith("https://rupload.facebook.com/")
+        ? "upload"
+        : String(init?.body).includes('"start"') ? "start" : "finish";
+      calls[phase] += 1;
+      if (phase === failedPhase && calls[phase] === 1) {
+        throw new TypeError("fetch failed", { cause: Object.assign(new Error("Connect Timeout Error"), { code: "UND_ERR_CONNECT_TIMEOUT" }) });
+      }
+      return phase === "start"
+        ? jsonResponse({ video_id: "reel-1", upload_url: "https://rupload.facebook.com/video-upload/v23.0/reel-1" })
+        : jsonResponse({ success: true });
+    }));
+    const promise = publishFacebookReel("page-1", "test-token", "https://example.com/v.mp4", "Test", { onAttemptStarted, onAnswered });
+    await vi.advanceTimersByTimeAsync(FULL_WAIT_WINDOW_MS);
+    expect(await promise).toMatchObject({ ok: true, postId: "reel-1" });
+    expect(calls).toEqual({ start: failedPhase === "start" ? 2 : 1, upload: failedPhase === "upload" ? 2 : 1, finish: failedPhase === "finish" ? 2 : 1 });
+    expect(onAttemptStarted).toHaveBeenCalledTimes(1);
+    expect(onAnswered).toHaveBeenCalledTimes(1);
+  });
+
   it("start → upload → finish → status ready — ok:true, postId=video_id, onAttemptStarted/onAnswered вызваны по одному разу", async () => {
     const onAttemptStarted = vi.fn(async () => {});
     const onAnswered = vi.fn(async () => {});
@@ -159,5 +198,23 @@ describe("publishFacebookReel — три шага + опрос готовнос�
 
     expect(result.ok).toBe(false);
     expect(result.error).toContain("video_status: error");
+  });
+});
+
+describe("publishFacebookVideo — connect timeout", () => {
+  it("повторяет отказ до соединения и сохраняет hooks и post_id", async () => {
+    const onAttemptStarted = vi.fn(async () => {});
+    const onAnswered = vi.fn(async () => {});
+    const fetchMock = vi.fn()
+      .mockRejectedValueOnce(new TypeError("fetch failed", { cause: Object.assign(new Error("Connect Timeout Error"), { code: "UND_ERR_CONNECT_TIMEOUT" }) }))
+      .mockResolvedValueOnce(jsonResponse({ id: "video-1" }))
+      .mockResolvedValueOnce(jsonResponse({ post_id: "page_post_1" }));
+    vi.stubGlobal("fetch", fetchMock);
+    const promise = publishFacebookVideo("page-1", "test-token", "https://example.com/v.mp4", "Test", { onAttemptStarted, onAnswered });
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(await promise).toMatchObject({ ok: true, postId: "video-1", secondaryPostId: "page_post_1" });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(onAttemptStarted).toHaveBeenCalledTimes(1);
+    expect(onAnswered).toHaveBeenCalledTimes(1);
   });
 });

@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 641,
-  "forks": 3539,
+  "forks": 3540,
   "mounts": 72,
   "cron": 107,
   "jobs": 30,
@@ -115701,7 +115701,30 @@
        "a": [],
        "c": [
         {
+         "k": "do",
+         "t": "const alreadyThere = pendingSince ? await findRecentFacebookVideo(ownerTextCap, creds.pageId, creds.pageToken…",
+         "a": [
+          "зовёт findRecentFacebookVideo()"
+         ],
+         "c": []
+        },
+        {
          "k": "if",
+         "t": "alreadyThere && typeof alreadyThere !== \"string\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "void logSystemError(\"meta\", `${ownerTextCap}: ${error}`);",
+           "a": [
+            "запись в журнал ошибок"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "elseif",
          "t": "alreadyThere",
          "a": [],
          "c": [

@@ -14,6 +14,7 @@ import { publicUploadUrl } from "./crmPublicUrl.js";
 import { uploadsDir } from "../upload.js";
 import { logSystemError } from "./systemError.js";
 import { describeError } from "./describeError.js";
+import { fetchFacebookPublish } from "./facebookPublishTransport.js";
 import { prisma } from "../db.js";
 import { isTelegramEnabled, sendVideoFile as sendTelegramVideoFile, TELEGRAM_BOT_SEND_LIMIT_BYTES } from "../telegram/api.js";
 import { parseTelegramChatIds } from "./telegramChats.js";
@@ -95,6 +96,8 @@ export interface PublishResult {
    * (40 попыток «в обработке», сеть, 5xx) либо упал исключением после принятия
    * файла. Это не отказ и не успех: метку незавершённой загрузки (TIKTOK_PENDING)
    * стирать нельзя, иначе следующая попытка загрузит тот же ролик второй раз.
+   * Facebook также сохраняет неизвестный исход, когда восстановление нашло
+   * несколько разных постов с полной подходящей подписью и датой.
    */
   outcomeUnknown?: boolean;
 }
@@ -660,11 +663,9 @@ export async function publishFacebookVideo(
     // Метка «попытка началась» — ДО отправки, см. FACEBOOK_PENDING_KEY.
     await hooks?.onAttemptStarted?.();
     const url = `https://graph.facebook.com/${GRAPH_VERSION}/${pageId}/videos`;
-    // БЕЗ fetchWithRetry (26.08.2026): POST /videos не идемпотентен, а таймаут не
-    // означает «не дошло» — Meta может принять запрос и доварить его после нашего
-    // обрыва. Ретрай на таймауте давал бы до нескольких КОПИЙ одного видео на
-    // публичной странице. Одна попытка с честным таймаутом; отказ виден модератору.
-    const res = await fetch(url, {
+    // POST не идемпотентен: повторяем только доказанный отказ ДО соединения.
+    // Обрыв ответа/общий таймаут оставляет pending-метку для проверки дубля.
+    const res = await fetchFacebookPublish(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ file_url: videoUrl, description: caption, access_token: token }),
@@ -952,9 +953,9 @@ export async function publishFacebookReel(
   try {
     await hooks?.onAttemptStarted?.();
 
-    // Шаг 1 — БЕЗ fetchWithRetry (не идемпотентен, та же причина, что у
-    // /videos в publishFacebookVideo).
-    const startRes = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${pageId}/video_reels`, {
+    // Каждый шаг повторяется только при отказе ДО соединения; потерянный ответ
+    // не повторяем, как у /videos в publishFacebookVideo.
+    const startRes = await fetchFacebookPublish(`https://graph.facebook.com/${GRAPH_VERSION}/${pageId}/video_reels`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ upload_phase: "start", access_token: token }),
@@ -968,8 +969,8 @@ export async function publishFacebookReel(
       return { channel: "FACEBOOK", ok: false, error: graphErrorMessage(startBody, `HTTP ${startRes.status}`) };
     }
 
-    // Шаг 2 — тоже одной попыткой, та же не-идемпотентность.
-    const uploadRes = await fetch(uploadUrl, {
+    // Повтор загрузки использует тот же контейнер, start заново не вызывается.
+    const uploadRes = await fetchFacebookPublish(uploadUrl, {
       method: "POST",
       headers: { Authorization: `OAuth ${token}`, file_url: videoUrl },
       signal: AbortSignal.timeout(PUBLISH_TIMEOUT_MS),
@@ -985,7 +986,7 @@ export async function publishFacebookReel(
     }
 
     // Шаг 3 — публикуем контейнер.
-    const finishRes = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${pageId}/video_reels`, {
+    const finishRes = await fetchFacebookPublish(`https://graph.facebook.com/${GRAPH_VERSION}/${pageId}/video_reels`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -2432,20 +2433,22 @@ const YOUTUBE_PENDING_AT_KEY = "YOUTUBE_PENDING_AT";
 const YOUTUBE_PENDING_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 /**
- * Видео страницы с ровно такой подписью, появившееся не раньше `since`, — то
- * самое, отправленное оборвавшейся попыткой. Сверяем описание целиком: подпись
- * содержит адрес, цену и площадь конкретного объекта, случайно совпасть ей не с
- * чем, а совпадение частичное дало бы ложное «уже опубликовано» соседней
- * карточке того же дома. Отказ запроса — не беда: вернём null, и попытка пойдёт
- * обычным путём (лучше возможный дубль, чем потерянная публикация).
+ * Единственное видео с полной подписью в прежнем временном окне — квитанция
+ * оборвавшейся попытки. Meta обрезает внешние пробелы; внутри подпись должна
+ * совпасть посимвольно. Пустая подпись/невалидное время не доказывают совпадение.
+ * Несколько разных подходящих видео — неоднозначность, caller сохраняет метку
+ * и не делает новый POST. Поведение при отказе запроса остаётся прежним: null.
  */
-async function findRecentFacebookVideo(
+export async function findRecentFacebookVideo(
   ownerTextCap: string,
   pageId: string,
   token: string,
   caption: string,
   since: Date
-): Promise<string | null> {
+): Promise<string | { ambiguous: true } | null> {
+  const normalizedCaption = caption.trim();
+  const earliest = since.getTime() - FACEBOOK_RECENT_VIDEOS_SLACK_MS;
+  if (!normalizedCaption || !Number.isFinite(earliest)) return null;
   try {
     const url =
       `https://graph.facebook.com/${GRAPH_VERSION}/${pageId}/videos` +
@@ -2463,14 +2466,15 @@ async function findRecentFacebookVideo(
       return null;
     }
     const items = (body.data as Array<{ id?: string; description?: string; created_time?: string }> | undefined) ?? [];
-    const earliest = since.getTime() - FACEBOOK_RECENT_VIDEOS_SLACK_MS;
+    const matches = new Set<string>();
     for (const item of items) {
-      if (!item.id || item.description !== caption) continue;
-      const createdAt = Date.parse(item.created_time ?? "");
-      if (Number.isFinite(createdAt) && createdAt < earliest) continue;
-      return item.id;
+      if (typeof item.id !== "string" || !item.id.trim() || typeof item.description !== "string" || item.description.trim() !== normalizedCaption) continue;
+      const createdAt = typeof item.created_time === "string" ? Date.parse(item.created_time) : NaN;
+      if (!Number.isFinite(createdAt) || createdAt < earliest) continue;
+      matches.add(item.id);
     }
-    return null;
+    if (matches.size > 1) return { ambiguous: true };
+    return matches.values().next().value ?? null;
   } catch (err) {
     // Молча возвращать null нельзя: отказ внешнего вызова обязан попасть в
     // журнал (правило репозитория). Публикацию это не роняет — пойдём обычным
@@ -3210,7 +3214,11 @@ export async function publishApprovedPost(params: {
     const alreadyThere = pendingSince
       ? await findRecentFacebookVideo(ownerTextCap, creds.pageId, creds.pageToken, params.caption, pendingSince)
       : null;
-    if (alreadyThere) {
+    if (alreadyThere && typeof alreadyThere !== "string") {
+      const error = "Найдено несколько видео Facebook с той же полной подписью и подходящей датой. Нужна ручная проверка: новый пост не отправлен, исход прошлой попытки не подтверждён.";
+      results.push({ channel: "FACEBOOK", ok: false, outcomeUnknown: true, error });
+      void logSystemError("meta", `${ownerTextCap}: ${error}`);
+    } else if (alreadyThere) {
       await writePendingMarker(owner, FACEBOOK_PENDING_KEY, FACEBOOK_PENDING_AT_KEY, null);
       const secondaryPostId = await fetchFacebookVideoPostId(alreadyThere, creds.pageToken);
       const adopted: PublishResult = {
