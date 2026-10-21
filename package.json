@@ -28,7 +28,7 @@
     "map:check": "node scripts/product-flows.mjs --check && node scripts/product-map.mjs --check && node scripts/product-map-simple.mjs --check",
     "sync:main": "node scripts/sync-main.mjs",
     "ship": "node scripts/ship.mjs",
-    "test:scripts": "node --test scripts/ship.test.mjs scripts/cloud-test-report.test.mjs scripts/health-watch.test.mjs scripts/backup-deal-docs.test.mjs scripts/pre-push.test.mjs scripts/audit-vi-mock.test.mjs scripts/audit-secrets.test.mjs scripts/auto-deploy.test.mjs scripts/ops-scripts.test.mjs scripts/script-env-order.test.mjs scripts/agent-stand-template.test.mjs scripts/sync-main.test.mjs scripts/bot-turn-trace-compose.test.mjs .github/scripts/sync-guard.test.mjs",
+    "test:scripts": "node --test scripts/ship.test.mjs scripts/cloud-test-report.test.mjs scripts/health-watch.test.mjs scripts/backup-deal-docs.test.mjs scripts/pre-push.test.mjs scripts/audit-vi-mock.test.mjs scripts/audit-secrets.test.mjs scripts/auto-deploy.test.mjs scripts/ops-scripts.test.mjs scripts/script-env-order.test.mjs scripts/agent-stand-template.test.mjs scripts/sync-main.test.mjs scripts/bot-turn-trace-compose.test.mjs .github/scripts/sync-guard.test.mjs .github/scripts/api-image-check.test.mjs",
     "protect:main": "node scripts/protect-main.mjs",
     "audit:deps": "depcruise --config .dependency-cruiser.cjs --output-type err-long apps/api/src apps/web/src packages/shared/src",
     "audit:deps:gate": "node scripts/audit-deps-gate.mjs",
