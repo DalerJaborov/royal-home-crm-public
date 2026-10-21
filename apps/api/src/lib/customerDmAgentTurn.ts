@@ -4,7 +4,7 @@ import type { CustomerAgentEvidence } from "../ai/customerAgentRenderer.js";
 import { runCustomerAgentTurn } from "../ai/customerAgentCore.js";
 import { customerAgentToolDefinitions, CUSTOMER_AGENT_PUBLIC_TOOLS } from "../ai/customerAgentToolDefinitions.js";
 import { dispatchCustomerTool } from "../ai/customerToolRegistry.js";
-import { detectClientLanguage } from "../ai/clientLanguage.js";
+import { detectCustomerDmLanguage } from "../ai/customerDmLanguage.js";
 import { prisma } from "../db.js";
 import { prepareCustomerDmInboxCoreContext } from "./customerDmCoreContext.js";
 import { claimCustomerAgentTurnTx, customerAgentClaimCurrentTx, type CustomerAgentClaim } from "./customerAgentClaim.js";
@@ -26,6 +26,7 @@ import { loadCustomerDmMediaContent } from "./customerDmMediaContent.js";
 import { recordCustomerRecruitmentAttachments } from "./customerRecruitmentAttachments.js";
 import { customerAgentMediaReplyLanguage, type CustomerAgentMediaPerception } from "../ai/customerAgentMediaPerception.js";
 import { loadCustomerAgentMediaObservation, storeCustomerAgentMediaObservation } from "./customerAgentMediaObservation.js";
+import { loadCustomerAdjacentVisualObservation } from "./customerAdjacentVisualObservation.js";
 import { withBotTurnTrace, traceCustomerManagedBinding, traceCustomerCoreResult, traceCustomerCoreDisposition, traceMediaKinds } from "./botTurnTrace.js";
 
 export type CustomerDmAgentTurnResult = { status: "planned"; partIds: string[] } |
@@ -70,7 +71,7 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
   let runtime: Extract<Awaited<ReturnType<typeof openPinnedCustomerAgentRuntime>>, { status: "ready" }>["runtime"] | undefined;
   try {
     let text = lane.context.history[0]?.content ?? "";
-    const detected = detectClientLanguage(text);
+    const detected = detectCustomerDmLanguage(text);
     let language: "tg" | "ru" = detected === "tg" ? "tg" : "ru";
     let planningPrincipal = lane.principal;
     let activeMutations: CustomerAgentMutationSession | undefined;
@@ -109,9 +110,13 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
       await releaseHeldClaim(claim, remembered.reason);
       return remembered;
     }
-    if (!text.trim()) {
+    // Short answers, names and locations may contain text but no decisive
+    // language evidence. Preserve this customer's last meaningful USER turn,
+    // just as for an empty attachment caption. Never inherit the bot's prose
+    // or another inquiry's language; a decisive current RU/TG input wins.
+    if (detected !== "ru" && detected !== "tg") {
       const previousLanguage = [...remembered.context.turns].reverse().filter(turn => turn.role === "user")
-        .map(turn => detectClientLanguage(turn.text)).find(value => value === "ru" || value === "tg");
+        .map(turn => detectCustomerDmLanguage(turn.text)).find(value => value === "ru" || value === "tg");
       if (previousLanguage) language = previousLanguage;
     }
     let turnBudgetSpent = false, modelHeldReason: string | undefined;
@@ -150,6 +155,9 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
         // mutation session above remains bound to the ORIGINAL raw input.
         text = [text, mediaPerception.transcript].filter(value => value.trim()).join("\n");
       }
+    }
+    if (runtime.mediaEnabled && !prepared.media.length && !mediaPerception) {
+      mediaPerception = await loadCustomerAdjacentVisualObservation(planningPrincipal, claim) ?? undefined;
     }
     // Finish/stash the already paid real perception so the next caption can
     // understand its preceding reel. Then abandon the older answer if a newer

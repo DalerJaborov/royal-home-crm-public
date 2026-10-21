@@ -15,7 +15,7 @@ export function customerRecruitmentRequested(text: string): boolean {
   return /ваканси|ищу\s+работу|хочу\s+работать|хочу\s+(?:стать|устроиться)\s+агент|резюме|ҷойи\s+кор|чои\s+кор|дар\s+бораи\s+кор|(?:о|по)\s+работе|(?:насч[её]т|по\s+поводу)\s+работы|кор\s+(?:меҷӯ|мечу|мекоб|мехо[ҳх]|даркор|лозим)|ба\s+кор\s+(?:гири|қабул|кабул)|SMM|СММ|видеограф/iu.test(text);
 }
 export function customerRecruitmentFactsRequested(text: string): boolean {
-  return /ваканси|услови|зарплат|график|удал[её]н|удал[её]нк|дистанцион|из\s+дома|офис|суббот|выходн|(?:дни|часы)\s+работ|(?:есть|ищу)\s+работ|ҷойи\s+кор|чои\s+кор|маош|шартҳои\s+кор|дар\s+бораи\s+кор|фосилав|аз\s+хона|рӯзҳои\s+кор|соати\s+кор|шанбе|подроб|муфассал/iu.test(text);
+  return /ваканси|услови|зарплат|оплат|платит|платят|график|удал[её]н|удал[её]нк|дистанцион|из\s+дома|офис|суббот|выходн|(?:дни|часы)\s+работ|(?:есть|ищу)\s+работ|ҷойи\s+кор|чои\s+кор|маош|шартҳои\s+кор|дар\s+бораи\s+кор|фосилав|аз\s+хона|рӯзҳои\s+кор|соати\s+кор|шанбе|подроб|муфассал/iu.test(text);
 }
 /** Only topic projection. This creates no application, consent or HR verdict. */
 export function customerRecruitmentTopic(text: string, previous: "buyer" | "seller" | "job" | "rent" | "unknown", matchedPublication = false) {

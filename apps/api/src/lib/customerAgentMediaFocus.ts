@@ -12,6 +12,9 @@ import { customerPropertyRegistry } from "./customerPropertyRegistry.js";
 import { readCustomerPropertyFocus } from "./customerPropertyFocus.js";
 import { customerPrincipalAuthenticatedInput } from "./customerPrincipal.js";
 import { resolveCustomerPropertyTurnContext, type CustomerPropertyTurnContext } from "./customerPropertyTurnContext.js";
+import { inspectAuthenticatedCustomerInput } from "./customerIngressAuthority.js";
+import { customerBarePropertyAnswer, customerBarePropertyNumber } from "./customerBarePropertyAnswer.js";
+import { loadCustomerAgentVerifiedDmContext } from "./customerAgentVerifiedContext.js";
 
 /** Interpret an explicit spoken/printed public object number with the SAME
  * existing resolver/focus. Never infer identity from appearance, phone or OCR
@@ -40,7 +43,15 @@ type FocusInput = { principal: CustomerPrincipal; claim: CustomerAgentClaim; tic
  * source is checked again under the canonical locks before updating focus. */
 export async function enrichCustomerAgentSelectionFocus(input: FocusInput): ReturnType<typeof enrichCustomerAgentMediaFocus> {
   const selected = await readCustomerSearchSelection(input.principal);
-  if (selected.status === "none") return { status: "unchanged" };
+  if (selected.status === "none") {
+    const frame = customerPrincipalAuthenticatedInput(input.principal), original = frame && inspectAuthenticatedCustomerInput(frame);
+    if (!original || customerBarePropertyNumber(original.inputText) === null) return { status: "unchanged" };
+    const history = await loadCustomerAgentVerifiedDmContext({ principal: input.principal, revision: input.claim.pin.revision });
+    if (history.status !== "current") return { status: "held", reason: history.reason };
+    const shortId = customerBarePropertyAnswer(original.inputText, history.context);
+    if (shortId === null) return { status: "unchanged" };
+    return enrichFocus(input, [{ kind: "public_selector", origin: "message", reference: `short:${shortId}` }], false);
+  }
   return enrichFocus(input, selected.status === "selected" ? [{ kind: "public_selector", origin: "message", reference: `short:${selected.shortId}` }] : [],
     selected.status === "ambiguous", selected.status === "selected" ? selected.assertSourceCurrent : undefined);
 }

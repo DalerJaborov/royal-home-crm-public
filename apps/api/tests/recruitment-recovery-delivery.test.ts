@@ -9,7 +9,7 @@ import { enqueueRecruitmentRecovery, runRecruitmentRecovery } from "../src/lib/r
 import { guardOffTopic } from "../src/ai/offTopicGuard.js";
 
 const state = vi.hoisted(() => ({ row: null as any, native: null as any, catalog: null as any, transport: null as any,
-  mode: "BOT", unknown: 0, posts: 0, appended: 0, behavior: "accepted", jobs: [] as any[], audits: [] as any[], query: vi.fn(), execute: vi.fn() }));
+  mode: "BOT", unknown: 0, posts: 0, appended: 0, projectedMessages: [] as any[], behavior: "accepted", jobs: [] as any[], audits: [] as any[], query: vi.fn(), execute: vi.fn() }));
 vi.mock("../src/db.js", async importOriginal => {
   const original = await importOriginal<typeof import("../src/db.js")>();
   const db: any = { $disconnect: () => original.prisma.$disconnect(), $queryRaw: (...args: any[]) => state.query(...args), $executeRaw: (...args: any[]) => state.execute(...args),
@@ -34,10 +34,10 @@ vi.mock("../src/messengers/meta.js", async importOriginal => ({ ...await importO
   if (state.behavior === "rejected") { await hook.rejected(400); throw Error("provider rejected"); }
   await hook.accepted("synthetic-provider-mid"); return "synthetic-provider-mid";
 } }));
-vi.mock("../src/messengers/appendMessages.js", async importOriginal => ({ ...await importOriginal<typeof import("../src/messengers/appendMessages.js")>(), appendConversationMessagesInTransaction: async () => { state.appended++; } }));
+vi.mock("../src/messengers/appendMessages.js", async importOriginal => ({ ...await importOriginal<typeof import("../src/messengers/appendMessages.js")>(), appendConversationMessagesInTransaction: async (_tx: unknown, _id: string, messages: unknown[]) => { state.appended++; state.projectedMessages.push(...messages); } }));
 vi.mock("../src/lib/livePublish.js", async importOriginal => ({ ...await importOriginal<typeof import("../src/lib/livePublish.js")>(), publishMessageNew: async () => {} }));
 beforeEach(() => {
-  state.posts = 0; state.appended = 0; state.mode = "BOT"; state.unknown = 0; state.behavior = "accepted"; state.jobs = []; state.audits = [];
+  state.posts = 0; state.appended = 0; state.projectedMessages = []; state.mode = "BOT"; state.unknown = 0; state.behavior = "accepted"; state.jobs = []; state.audits = [];
   const facts = { collecting: true, positions: recruitmentPositionTemplates().map(row => ({ ...row, isOpen: true, revision: 1 })) };
   state.catalog = { kind: "open_vacancies", ...facts, sourceHash: recruitmentCatalogHash(facts) };
   const id = randomUUID(), now = new Date(Date.now() - 30_000);
@@ -68,6 +68,7 @@ it("sends one automated correction and projects only its actual provider accepta
   await runRecruitmentRecovery(state.row.id); await runRecruitmentRecovery(state.row.id);
   expect(state.posts).toBe(1); expect(state.appended).toBe(1);
   expect(state.row.status).toBe("ACCEPTED"); expect(state.row.providerMid).toBe("synthetic-provider-mid");
+  expect(state.projectedMessages).toEqual([expect.objectContaining({ role: "assistant", by: { kind: "bot" }, mid: "synthetic-provider-mid" })]);
 });
 it.each(["network", "no-mid", "rejected"])("never retries uncertain/rejected send or projects a fake answer: %s", async behavior => {
   state.behavior = behavior; await runRecruitmentRecovery(state.row.id); await runRecruitmentRecovery(state.row.id);

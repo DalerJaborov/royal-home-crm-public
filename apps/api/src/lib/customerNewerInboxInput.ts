@@ -1,5 +1,6 @@
 import { prisma, type TxClient } from "../db.js";
 import { decryptCustomerIngressEnvelope } from "./customerIngressPayload.js";
+import { customerPropertyScopeKey } from "./customerPropertyScope.js";
 
 type Pending = { eventKey: string; order: bigint; scopeKey: string; endpointScopeId: string | null;
   payloadHash: string | null; payloadCiphertext: string | null };
@@ -17,7 +18,18 @@ export async function hasNewerCustomerInboxInput(eventKey: string, db: Pick<TxCl
     try {
       const envelope = decryptCustomerIngressEnvelope({ version: 1, eventKey: row.eventKey, order: row.order.toString(),
         scopeKey: row.scopeKey, endpointScopeId: row.endpointScopeId, payloadHash: row.payloadHash }, row.payloadCiphertext);
-      if (envelope.verification.provenance === "meta_signature" && envelope.verification.assurance === "protected_namespace" &&
+      const proof = envelope.verification, payload = envelope.payload, credential = proof.verifierCredential;
+      const namespaceBound = payload.channel !== "WEBSITE" && customerPropertyScopeKey(payload.channel, payload.peer,
+        proof.accountId, row.endpointScopeId) === row.scopeKey;
+      // Actual installed IG channels can use two Settings fallback secrets.
+      // Their signed/account-routed RAW envelope intentionally remains PUBLIC
+      // until FINAL. It may STOP an older answer, never accept/execute a new IN.
+      const credentialBound = credential && (credential.source === "account_app_secret"
+        ? !!proof.accountId && credential.sourceId === proof.accountId : credential.sourceId === "singleton");
+      const signedPublicInput = proof.assurance === "public_envelope" && proof.issuerSource === "verified_public_envelope" &&
+        credentialBound && payload.observations.classifier?.bareTemplateEcho === false;
+      if (row.eventKey !== eventKey && namespaceBound && proof.provenance === "meta_signature" &&
+        (proof.assurance === "protected_namespace" || signedPublicInput) &&
         !envelope.payload.observations.providerEcho && !envelope.payload.observations.referralOnly &&
         envelope.payload.observations.classifier?.bareTemplateEcho !== true) return true;
     } catch { /* A corrupt/unverified observation cannot supersede genuine input. */ }
