@@ -78,7 +78,7 @@ export function normalizeAuthenticatedCustomerIngress(request: VerifiedRequest):
       propertyEvidence: customerPropertyEvidenceFromText(`${parsed.text}${parsed.pageUrl ? ` ${parsed.pageUrl}` : ""}`),
     })], unsupported: 0 };
   }
-  const parsed = parseIncoming(body, undefined, false);
+  const parsed = parseIncoming(body, undefined, false, { captureCustomerReferences: true });
   if (parsed.length > 64) throw new Error("Ingress batch exceeds bound");
   const supported = parsed.filter(message => !!message.messageId);
   return { unsupported: parsed.length - supported.length, entries: supported.map(message => {
@@ -118,7 +118,7 @@ export function normalizeAuthenticatedMetaRoutingSubjects(request: VerifiedReque
   eventKind: "message" | "postback"; eventId?: string;
 }> {
   if (authenticatedCustomerRequestEvidence(request)?.provenance !== "meta_signature" || !request.rawBody || request.rawBody.byteLength > 2*1024*1024) throw new Error("Raw routing request unavailable");
-  const messages = parseIncoming(JSON.parse(request.rawBody.toString("utf8")), undefined, false);
+  const messages = parseIncoming(JSON.parse(request.rawBody.toString("utf8")), undefined, false, { captureCustomerReferences: true });
   if (messages.length > 64) throw new Error("Routing batch exceeds bound");
   return messages.filter(message => !message.isEcho && !message.referralOnly && !(!message.text && message.attachmentType === "template"))
     .map(message => ({ channel: message.channel, peer: message.senderId, accountExternalId: message.accountExternalId,

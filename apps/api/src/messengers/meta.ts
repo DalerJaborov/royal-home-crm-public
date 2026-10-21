@@ -920,7 +920,12 @@ export function templateAttachmentText(payload: unknown): string {
  * СПИСОК, А НЕ ОДНО ЗНАЧЕНИЕ (30.08.2026): номеров у агентства может быть
  * несколько, и раньше все, кроме указанного в Настройках, отбрасывались молча.
  */
-export function parseIncoming(body: unknown, expectedWaPhoneId?: string | string[], includeTraceShape = /^(1|true)$/.test(process.env.BOT_TURN_TRACE_ENABLED ?? "")): MetaIncoming[] {
+export function parseIncoming(body: unknown, expectedWaPhoneId?: string | string[], includeTraceShape = /^(1|true)$/.test(process.env.BOT_TURN_TRACE_ENABLED ?? ""),
+  options: { captureCustomerReferences?: true } = {}): MetaIncoming[] {
+  // Capturing original public references grants no property read or execution
+  // authority. CORE normalization must not lose them to a legacy rollout flag;
+  // ordinary legacy callers retain the existing feature-controlled behavior.
+  const captureReferences = options.captureCustomerReferences === true || customerPropertyContextEnabled();
   const ourWaPhoneIds = asPhoneIdSet(expectedWaPhoneId);
   const payload = body as {
     object?: string;
@@ -1083,9 +1088,9 @@ export function parseIncoming(body: unknown, expectedWaPhoneId?: string | string
        * (см. recipient.id в ветке ниже, разбор того же вечера).
        */
       if (!event.message && event.postback?.payload) {
-        const postbackReferral = customerPropertyContextEnabled() ? event.postback.referral ?? event.referral : undefined;
+        const postbackReferral = captureReferences ? event.postback.referral ?? event.referral : undefined;
         out.push({
-          ...(includeTraceShape ? { traceIngressShape: projectBotIngressShape(event, null, false) } : {}),
+          ...(includeTraceShape ? { traceIngressShape: projectBotIngressShape(event, null, !!postbackReferral) } : {}),
           channel,
           accountExternalId: event.recipient?.id || entryId,
           senderId,
@@ -1180,7 +1185,7 @@ export function parseIncoming(body: unknown, expectedWaPhoneId?: string | string
       const extraAttachments = (event.message.attachments ?? [])
         .slice(1)
         .map((a) => ({ type: a?.type, url: a?.payload?.url,
-          ...(customerPropertyContextEnabled() ? sharedPostFields(a?.payload) : {}) }))
+          ...(captureReferences ? sharedPostFields(a?.payload) : {}) }))
         .filter((a) => a.url || ("attachmentMediaId" in a && a.attachmentMediaId));
       const replyToStoryUrl = event.message.reply_to?.story?.url;
       // Ответ на обычное сообщение (не на историю): раньше это поле выбрасывалось,

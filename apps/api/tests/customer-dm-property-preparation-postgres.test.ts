@@ -5,7 +5,7 @@ import { consumeCustomerInboxTicket } from "../src/lib/customerIngressProducer.j
 import { revalidateCustomerPrincipal } from "../src/lib/customerPrincipal.js";
 import { loadAcceptedCustomerState } from "../src/lib/customerState.js";
 import { customerPropertyRegistry } from "../src/lib/customerPropertyRegistry.js";
-import { createCustomerCoreGoldenFixture, reply } from "./helpers/customerCoreGoldenFixture.js";
+import { createCustomerCoreGoldenFixture, reply, call } from "./helpers/customerCoreGoldenFixture.js";
 
 // Actual PG/HMAC/P03/canonical/principal/Core/P12 boundaries. The selector spy
 // only injects a real concurrent IN or native staff pause; no proof is mocked.
@@ -24,6 +24,25 @@ it("CORE resolves current public availability even while the independent legacy 
     expect(delivered.text).toBe(`Да, объект №${property.shortId} ещё доступен.`);
     expect(delivered.text).not.toMatch(/500|телефон|номер телефона|сотрудник/iu);
   } finally { vi.stubEnv("BOT_PROPERTY_CONTEXT_ENABLED", "1"); }
+});
+
+it("the actual signed DM turn corrects declared read arguments within one operation and creates only one outgoing part", async () => {
+  const owner=await f.owner(),{property}=await f.publicCard();
+  const event=await f.capture(owner,`Какая цена объекта №${property.shortId}?`),before=f.counts();
+  f.script([
+    [{functionCall:{name:"get_property_facts",args:{kinds:["price"],propertyId:property.id},id:"invalid-read-1"}}],
+    [call("get_property_facts",{kinds:["price"]},"corrected-read-2")],
+    [reply(["e0"])],
+  ]);
+  const delivered=await f.deliver(event);
+  expect(delivered.text).toContain(`Цена объекта №${property.shortId}: 500 000 сомони.`);
+  expect(f.counts().generated-before.generated).toBe(3);
+  expect(await prisma.customerOutboxPart.count({where:{ticketEventKey:event}})).toBe(1);
+  expect(await prisma.customerAction.count({where:{inquiryId:delivered.row.inquiryId!}})).toBe(0);
+  const ticket=await prisma.customerPropertyIngressTicket.findUniqueOrThrow({where:{eventKey:event}});
+  expect(ticket.providerOperationId).not.toBeNull();
+  const operation=await prisma.aiProviderOperation.findUniqueOrThrow({where:{id:ticket.providerOperationId!},include:{_count:{select:{attempts:true}}}});
+  expect(operation).toMatchObject({status:"CLOSED",attemptsReserved:3,_count:{attempts:3}});
 });
 
 it("CORE with legacy property rollout OFF clarifies an unresolved availability request without inventing availability", async () => {
