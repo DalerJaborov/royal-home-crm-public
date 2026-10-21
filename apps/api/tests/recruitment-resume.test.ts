@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { assessRecruitmentResume, DEFAULT_RECRUITMENT_SCREENING_RULES, REALTOR_RECRUITMENT_SCREENING_RULES,
   recruitmentScreeningRulesSchema, recruitmentPositionUpdateSchema } from "@royal-home/shared";
-import { collectRecruitmentResume } from "../src/lib/recruitmentResume.js";
+import { collectRecruitmentResume, extractRecruitmentAnswerFacts } from "../src/lib/recruitmentResume.js";
 import { recruitmentPositionTemplates } from "../src/lib/recruitmentPositionTemplates.js";
 import { renderCustomerAgentDecision } from "../src/ai/customerAgentRenderer.js";
 import { recruitmentCatalogHash } from "../src/ai/customerAgentRecruitmentProtocol.js";
@@ -50,6 +50,39 @@ describe("vacancy-specific human screening", () => {
 });
 
 describe("sourced résumé facts", () => {
+  it.each([
+    ["studyingNow", "не работаю"], ["studyingNow", "работаю"], ["studyingNow", "нет, не работаю"], ["studyingNow", "да, работаю"],
+    ["studyingNow", "кор намекунам"], ["studyingNow", "кор мекунам"],
+    ["employedNow", "не учусь"], ["employedNow", "учусь"], ["employedNow", "нет, не учусь"], ["employedNow", "да, учусь"],
+    ["employedNow", "намехонам"], ["employedNow", "мехонам"],
+  ] as const)("does not answer %s using another subject: %s", (key, text) => {
+    expect(extractRecruitmentAnswerFacts(text, key)[key]).toBeUndefined();
+  });
+  it.each(["не работаю", "учусь", "намехонам", "кор намекунам", "сейчас работаю", "я не учусь", "ага", "ҳа", "ха", "неа"])(
+    "does not mistake a status statement for a bare name: %s", text => {
+      expect(extractRecruitmentAnswerFacts(text, "name").name).toBeUndefined();
+    });
+  it.each(["studyingNow", "employedNow"] as const)("leaves contradictory, third-party and future answers to %s unresolved", key => {
+    for (const text of ["да, не работаю", "нет, учусь", "да, намехонам", "не, мехонам", "он работает", "она учится", "буду работать", "буду учиться", "ӯ кор мекунад", "ӯ мехонад", "кор хоҳам кард"]) {
+      expect(extractRecruitmentAnswerFacts(text, key)[key], text).toBeUndefined();
+    }
+  });
+  it.each([
+    ["studyingNow", "не учусь", false], ["studyingNow", "учусь", true], ["studyingNow", "намехонам", false], ["studyingNow", "мехонам", true],
+    ["employedNow", "не работаю", false], ["employedNow", "работаю", true], ["employedNow", "кор намекунам", false], ["employedNow", "кор мекунам", true],
+  ] as const)("retains the matching %s answer %s", (key, text, expected) => {
+    expect(extractRecruitmentAnswerFacts(text, key)[key]).toMatchObject({ value: expected, quote: text });
+  });
+  it.each(["studyingNow", "employedNow"] as const)("keeps plain yes/no aliases valid for %s", key => {
+    for (const text of ["нет", "неа", "не"]) expect(extractRecruitmentAnswerFacts(text, key)[key]?.value, text).toBe(false);
+    for (const text of ["да", "ага", "ҳа", "ха", "бале"]) expect(extractRecruitmentAnswerFacts(text, key)[key]?.value, text).toBe(true);
+  });
+  it("preserves an explicit independent other field without inventing the queried field", () => {
+    const facts = extractRecruitmentAnswerFacts("Не работаю", "studyingNow");
+    expect(facts.employedNow).toEqual({ value: false, quote: "Не работаю" });
+    expect(facts.studyingNow).toBeUndefined();
+    expect(extractRecruitmentAnswerFacts("Синтетик Тестов", "name").name?.value).toBe("Синтетик Тестов");
+  });
   it("keeps literal evidence for available fields and does not infer the rest", () => {
     const text = "Меня зовут Синтетик. Мне 29 лет.\nГород: Душанбе\nОбразование: дизайн\nОпыт: монтаж\nЯзыки: русский\nНавыки: съемка\nПрограммы: Premiere\nГотов начать: после встречи";
     const result = collect(text);

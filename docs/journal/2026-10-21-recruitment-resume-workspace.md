@@ -51,3 +51,8 @@ publication mappings. Read-only profiles cannot open a position write flow even
 when their permission list contains settings.manage. Communication language is
 labelled separately from languages mentioned in a résumé. The synthetic catalog
 fixture now uses the complete shared schema and revision-aware updates.
+
+Short status answers use separate work/study aliases in Russian and Tajik.
+An answer about work cannot populate the study field or vice versa; explicit
+independent facts remain sourced. Contradictory, third-party and future answers
+stay unresolved, while status replies and plain yes/no cannot become a name.

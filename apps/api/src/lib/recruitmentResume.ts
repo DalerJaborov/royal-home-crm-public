@@ -4,6 +4,19 @@ import { normalizeCandidatePhone } from "./candidatePhone.js";
 /** Deliberately conservative: only literal self-statements/labelled résumé
  * fields from the verified current input. No model inference or foreign history. */
 type DraftFacts = { [K in keyof RecruitmentResumeFacts]?: Omit<NonNullable<RecruitmentResumeFacts[K]>, "sourceEventKey"> };
+const statusAnswers = {
+  studyingNow: {
+    negative: /^(?:(?:нет|неа|не),?\s*)?(?:(?:я\s+)?(?:сейчас\s+)?не\s+(?:учусь|обучаюсь)(?:\s+сейчас)?|(?:ман\s+)?(?:ҳоло\s+)?намехонам)[.!]?$/iu,
+    positive: /^(?:(?:да|ага|ҳа|ха|бале),?\s*)?(?:(?:я\s+)?(?:сейчас\s+)?(?:учусь|обучаюсь)(?:\s+сейчас)?|(?:ман\s+)?(?:ҳоло\s+)?мехонам)[.!]?$/iu,
+  },
+  employedNow: {
+    negative: /^(?:(?:нет|неа|не),?\s*)?(?:(?:я\s+)?(?:сейчас\s+)?не\s+работаю(?:\s+сейчас)?|(?:ман\s+)?(?:ҳоло\s+)?кор\s+намекунам)[.!]?$/iu,
+    positive: /^(?:(?:да|ага|ҳа|ха|бале),?\s*)?(?:(?:я\s+)?(?:сейчас\s+)?работаю(?:\s+сейчас)?|(?:ман\s+)?(?:ҳоло\s+)?кор\s+мекунам)[.!]?$/iu,
+  },
+};
+// Explicit work/study verbs are status replies, not bare personal names.
+// This deliberately recognizes no vocabulary of real names or professions.
+const explicitStatusReply = /(?:^|\s)(?:учусь|обучаюсь|работаю|учится|работает|учиться|работать|намехонам|мехонам|намекунам|мекунам|мехонад|мекунад|намехонад|намекунад)(?=\s|$)/iu;
 export function extractRecruitmentResumeFacts(input: string): DraftFacts {
   const facts: DraftFacts = {};
   const text = input.trim();
@@ -54,13 +67,15 @@ export function extractRecruitmentAnswerFacts(text: string, answerTo?: Recruitme
     if (key === "age" && /^\d{2}(?:\s*(?:лет|года|год|сола))?$/iu.test(reply)) {
       const value = Number.parseInt(reply, 10); if (value >= 14 && value <= 100) literal.age = quoted(value);
     } else if (key === "studyingNow" || key === "employedNow") {
-      const negative = /^(?:нет|неа|не|не учусь|не работаю|не работаю сейчас|не учусь сейчас|нет,?\s*(?:не учусь|не работаю)|намехонам|кор намекунам)[.!]?$/iu.test(reply);
-      const positive = /^(?:да|ага|ҳа|ха|бале|(?:да,?\s*)?(?:учусь|работаю))[.!]?$/iu.test(reply);
+      // Bare yes/no refers to the proven question; a subject-bearing reply
+      // must match that question's subject and its own polarity exactly.
+      const negative = /^(?:нет|неа|не)[.!]?$/iu.test(reply) || statusAnswers[key].negative.test(reply);
+      const positive = /^(?:да|ага|ҳа|ха|бале)[.!]?$/iu.test(reply) || statusAnswers[key].positive.test(reply);
       if (negative || positive) literal[key] = quoted(!negative);
     } else if (key === "phone") {
       const value = normalizeCandidatePhone(reply); if (value) literal.phone = quoted(value);
     } else if (key === "name" && /^[\p{L}][\p{L}'’-]*(?:\s+[\p{L}][\p{L}'’-]*){0,2}$/u.test(reply) &&
-      !/^(?:да|нет|не знаю|потом|спасибо|салом|привет|здравствуйте|бале|не)$/iu.test(reply)) literal.name = quoted(reply);
+      !explicitStatusReply.test(reply) && !/^(?:да|ага|ҳа|ха|бале|нет|неа|не|не знаю|потом|спасибо|салом|привет|здравствуйте)$/iu.test(reply)) literal.name = quoted(reply);
     else if (["city", "about", "education", "experience", "languages", "startWhen", "skills", "tools"].includes(key)) {
       literal[key as "city" | "about" | "education" | "experience" | "languages" | "startWhen" | "skills" | "tools"] = quoted(reply);
     }
