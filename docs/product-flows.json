@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 641,
-  "forks": 3527,
+  "forks": 3540,
   "mounts": 72,
   "cron": 107,
   "jobs": 30,
@@ -11270,7 +11270,7 @@
     },
     {
      "k": "do",
-     "t": "const result = await reactivateClient({ clientId: client.id, agentId: client.assignedAgentId });",
+     "t": "const result = await reactivateClient({ clientId: client.id, agentId: client.assignedAgentId, actorAgentId: r…",
      "a": [
       "зовёт reactivateClient()"
      ],
@@ -11283,9 +11283,9 @@
      "c": [
       {
        "k": "do",
-       "t": "return res.status(404).json({ error: \"Клиент не найден\" });",
+       "t": "return res.status(409).json({ error: \"Состояние или держатель карточки изменились — обновите карточку\" });",
        "a": [
-        "ответ 404 — «Клиент не найден»"
+        "ответ 409 — «Состояние или держатель карточки изменились — обновите карточку»"
        ],
        "c": []
       }
@@ -19840,7 +19840,22 @@
      "c": [
       {
        "k": "do",
-       "t": "where.status = { not: \"LOST\" };",
+       "t": "where.status = { notIn: [...TERMINAL_CLIENT_STATUSES] };",
+       "a": [
+        "дословно из кода"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "workStatus === \"INACTIVE\" && !kind",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "where.kind = { in: [\"BUYER\", \"SELLER\"] };",
        "a": [
         "дословно из кода"
        ],
@@ -83609,14 +83624,6 @@
         },
         {
          "k": "do",
-         "t": "const candidates = await prisma.client.findMany({ where: { workStatus: \"INACTIVE\", status: { not: \"LOST\" }, i…",
-         "a": [
-          "читает в базе: client"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
          "t": "const absent = await absentAgentIds();",
          "a": [
           "зовёт absentAgentIds()"
@@ -83624,110 +83631,56 @@
          "c": []
         },
         {
-         "k": "do",
-         "t": "const lastContactAt = await lastRealContactAt(live);",
-         "a": [
-          "зовёт lastRealContactAt()"
-         ],
-         "c": []
-        },
-        {
          "k": "loop",
-         "t": "для каждого: const c of live",
+         "t": "для каждого: ;;",
          "a": [],
          "c": [
           {
+           "k": "do",
+           "t": "const candidates = await prisma.client.findMany({ where: { ...(afterId ? { id: { gt: afterId } } : {}), workS…",
+           "a": [
+            "читает в базе: client"
+           ],
+           "c": []
+          },
+          {
            "k": "if",
-           "t": "!c.assignedAgentId || !c.inactiveLevel || !c.inactiveSince",
+           "t": "candidates.length === 0",
            "a": [],
            "c": [
             {
              "k": "do",
-             "t": "continue;",
+             "t": "break;",
              "a": [
-              "переходит к следующему"
+              "прекращает перебор"
              ],
              "c": []
             }
            ]
           },
           {
-           "k": "if",
-           "t": "lastContactAt.has(c.id)",
+           "k": "loop",
+           "t": "для каждого: const c of candidates",
            "a": [],
            "c": [
             {
-             "k": "do",
-             "t": "const level = await classifyInactiveLevelByDepth( c.id, c.kind, settings.leadCallMinSeconds, );",
-             "a": [
-              "зовёт classifyInactiveLevelByDepth()"
-             ],
-             "c": []
-            },
-            {
-             "k": "do",
-             "t": "await prisma.client.update({ where: { id: c.id }, data: { inactiveSince: now, inactivePingCount: 0, inactiveL…",
-             "a": [
-              "меняет в базе: client"
-             ],
-             "c": []
-            },
-            {
              "k": "if",
-             "t": "c.inactiveLevel !== \"GREEN\"",
+             "t": "c.inactiveLevel && c.inactiveSince",
              "a": [],
              "c": [
               {
                "k": "do",
-               "t": "const points = await loadEventPoints();",
+               "t": "continue;",
                "a": [
-                "зовёт loadEventPoints()"
-               ],
-               "c": []
-              },
-              {
-               "k": "do",
-               "t": "void recordScoreEvent({ agentId: c.assignedAgentId, kind, delta: points[kind], reason: `Дозвонился и вывел кл…",
-               "a": [
-                "зовёт recordScoreEvent()"
+                "переходит к следующему"
                ],
                "c": []
               }
              ]
             },
             {
-             "k": "do",
-             "t": "continue;",
-             "a": [
-              "переходит к следующему"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "if",
-           "t": "dueAttempt <= c.inactivePingCount",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "continue;",
-             "a": [
-              "переходит к следующему"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "if",
-           "t": "c.inactivePingCount >= maxAttempts",
-           "a": [],
-           "c": [
-            {
              "k": "if",
-             "t": "keepFromLost.has(c.id)",
+             "t": "!c.assignedAgentId || absent.has(c.assignedAgentId)",
              "a": [],
              "c": [
               {
@@ -83742,21 +83695,241 @@
             },
             {
              "k": "do",
-             "t": "continue;",
+             "t": "const level = await classifyInactiveLevelByDepth(c.id, c.kind, settings.leadCallMinSeconds);",
              "a": [
-              "переходит к следующему"
+              "зовёт classifyInactiveLevelByDepth()"
              ],
              "c": []
+            },
+            {
+             "k": "do",
+             "t": "const repaired = await prisma.client.updateMany({ where: { id: c.id, workStatus: \"INACTIVE\", status: c.status…",
+             "a": [
+              "меняет в базе: client"
+             ],
+             "c": []
+            },
+            {
+             "k": "if",
+             "t": "repaired.count === 1",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "publishClientUpdated({ clientId: c.id, agentIds: [c.assignedAgentId], stage: \"INACTIVE\" });",
+               "a": [
+                "зовёт publishClientUpdated()"
+               ],
+               "c": []
+              }
+             ]
             }
            ]
           },
           {
            "k": "do",
-           "t": "await prisma.client.update({ where: { id: c.id }, data: { inactivePingCount: { increment: 1 } }, });",
+           "t": "const lastContactAt = await lastRealContactAt(live);",
            "a": [
-            "меняет в базе: client"
+            "зовёт lastRealContactAt()"
            ],
            "c": []
+          },
+          {
+           "k": "loop",
+           "t": "для каждого: const c of live",
+           "a": [],
+           "c": [
+            {
+             "k": "if",
+             "t": "!c.assignedAgentId || !c.inactiveLevel || !c.inactiveSince",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "continue;",
+               "a": [
+                "переходит к следующему"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "if",
+             "t": "lastContactAt.has(c.id)",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "const level = await classifyInactiveLevelByDepth( c.id, c.kind, settings.leadCallMinSeconds, );",
+               "a": [
+                "зовёт classifyInactiveLevelByDepth()"
+               ],
+               "c": []
+              },
+              {
+               "k": "do",
+               "t": "const reset = await prisma.client.updateMany({ where: trafficSnapshotWhere(c), data: { inactiveSince: now, in…",
+               "a": [
+                "меняет в базе: client"
+               ],
+               "c": []
+              },
+              {
+               "k": "if",
+               "t": "reset.count !== 1",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "continue;",
+                 "a": [
+                  "переходит к следующему"
+                 ],
+                 "c": []
+                }
+               ]
+              },
+              {
+               "k": "do",
+               "t": "publishClientUpdated({ clientId: c.id, agentIds: [c.assignedAgentId], stage: \"INACTIVE\" });",
+               "a": [
+                "зовёт publishClientUpdated()"
+               ],
+               "c": []
+              },
+              {
+               "k": "if",
+               "t": "c.inactiveLevel !== \"GREEN\"",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "const points = await loadEventPoints();",
+                 "a": [
+                  "зовёт loadEventPoints()"
+                 ],
+                 "c": []
+                },
+                {
+                 "k": "do",
+                 "t": "void recordScoreEvent({ agentId: c.assignedAgentId, kind, delta: points[kind], reason: `Дозвонился и вывел кл…",
+                 "a": [
+                  "зовёт recordScoreEvent()"
+                 ],
+                 "c": []
+                }
+               ]
+              },
+              {
+               "k": "do",
+               "t": "continue;",
+               "a": [
+                "переходит к следующему"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "if",
+             "t": "dueAttempt <= c.inactivePingCount",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "continue;",
+               "a": [
+                "переходит к следующему"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "if",
+             "t": "c.inactivePingCount >= maxAttempts",
+             "a": [],
+             "c": [
+              {
+               "k": "if",
+               "t": "keepFromLost.has(c.id)",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "continue;",
+                 "a": [
+                  "переходит к следующему"
+                 ],
+                 "c": []
+                }
+               ]
+              },
+              {
+               "k": "if",
+               "t": "await promoteToLost(c)",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "lost++;",
+                 "a": [
+                  "дословно из кода"
+                 ],
+                 "c": []
+                }
+               ]
+              },
+              {
+               "k": "do",
+               "t": "continue;",
+               "a": [
+                "переходит к следующему"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "do",
+             "t": "const advanced = await prisma.client.updateMany({ where: trafficSnapshotWhere(c), data: { inactivePingCount: …",
+             "a": [
+              "меняет в базе: client"
+             ],
+             "c": []
+            },
+            {
+             "k": "if",
+             "t": "advanced.count !== 1",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "continue;",
+               "a": [
+                "переходит к следующему"
+               ],
+               "c": []
+              }
+             ]
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "candidates.length < 500",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "break;",
+             "a": [
+              "прекращает перебор"
+             ],
+             "c": []
+            }
+           ]
           }
          ]
         }
@@ -87283,6 +87456,14 @@
             },
             {
              "k": "do",
+             "t": "const trafficFields = becameInactive ? await inactiveLevelFields(client.id, client.kind, \"OTHER\", undefined, …",
+             "a": [
+              "зовёт inactiveLevelFields()"
+             ],
+             "c": []
+            },
+            {
+             "k": "do",
              "t": "const escalation = await prisma.$transaction(async (tx)",
              "a": [
               "всё внутри — одной транзакцией"
@@ -89562,7 +89743,7 @@
        "c": [
         {
          "k": "do",
-         "t": "const candidates = await prisma.client.findMany({ where: { deletedAt: null, OR: [ { status: \"LOST\", lostAt: {…",
+         "t": "const candidates = await prisma.client.findMany({ where: { deletedAt: null, reactivationOfferedToAgentId: nul…",
          "a": [
           "читает в базе: client"
          ],
@@ -89605,7 +89786,7 @@
          "c": [
           {
            "k": "do",
-           "t": "const result = await trashClient(c.id, byAgentId, { notifyHolder: false });",
+           "t": "const result = await trashClient(c.id, byAgentId, { notifyHolder: false, guardWhere: { status: c.status, work…",
            "a": [
             "зовёт trashClient()"
            ],
@@ -95506,135 +95687,210 @@
        ],
        "c": [
         {
-         "k": "do",
-         "t": "const candidates = await prisma.client.findMany({ where: { deletedAt: null, workStatus: \"ACTIVE\", status: { n…",
-         "a": [
-          "читает в базе: client"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "const sellersInWork = await sellersWithPropertyInWork( (candidates as SilentCandidate[]) .filter((c)",
-         "a": [
-          "зовёт sellersWithPropertyInWork()"
-         ],
-         "c": []
-        },
-        {
          "k": "loop",
-         "t": "для каждого: const c of candidates as SilentCandidate[]",
+         "t": "для каждого: ;;",
          "a": [],
          "c": [
           {
+           "k": "do",
+           "t": "const candidates = await prisma.client.findMany({ where: { ...(afterId ? { id: { gt: afterId } } : {}), delet…",
+           "a": [
+            "читает в базе: client"
+           ],
+           "c": []
+          },
+          {
            "k": "if",
-           "t": "sellersInWork.has(c.id)",
+           "t": "candidates.length === 0",
            "a": [],
            "c": [
             {
              "k": "do",
-             "t": "continue;",
+             "t": "break;",
              "a": [
-              "переходит к следующему"
+              "прекращает перебор"
              ],
              "c": []
             }
            ]
           },
           {
-           "k": "if",
-           "t": "!c.assignedAgentId",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "continue;",
-             "a": [
-              "переходит к следующему"
-             ],
-             "c": []
-            }
-           ]
+           "k": "do",
+           "t": "const sellersInWork = await sellersWithPropertyInWork( (candidates as SilentCandidate[]) .filter((c)",
+           "a": [
+            "зовёт sellersWithPropertyInWork()"
+           ],
+           "c": []
           },
           {
-           "k": "if",
-           "t": "!last",
+           "k": "loop",
+           "t": "для каждого: const c of candidates as SilentCandidate[]",
            "a": [],
            "c": [
             {
-             "k": "do",
-             "t": "continue;",
-             "a": [
-              "переходит к следующему"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "if",
-           "t": "last.role !== \"assistant\"",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "continue;",
-             "a": [
-              "переходит к следующему"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "if",
-           "t": "last.at.getTime() > cutoff.getTime()",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "continue;",
-             "a": [
-              "переходит к следующему"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "try",
-           "t": "пробует",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "const levelFields = await inactiveLevelFields( c.id, c.kind, \"STOPPED_RESPONDING\", );",
-             "a": [
-              "зовёт inactiveLevelFields()"
-             ],
-             "c": []
-            },
-            {
-             "k": "do",
-             "t": "await prisma.$transaction(async (tx)",
-             "a": [
-              "всё внутри — одной транзакцией",
-              "меняет в базе: client"
-             ],
+             "k": "if",
+             "t": "sellersInWork.has(c.id)",
+             "a": [],
              "c": [
               {
                "k": "do",
-               "t": "await tx.client.update({ where: { id: c.id }, data: { workStatus: \"INACTIVE\", ...levelFields, lastAgentId: c.…",
+               "t": "continue;",
                "a": [
-                "меняет в базе: client"
+                "переходит к следующему"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "if",
+             "t": "!c.assignedAgentId",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "continue;",
+               "a": [
+                "переходит к следующему"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "if",
+             "t": "!last",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "continue;",
+               "a": [
+                "переходит к следующему"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "if",
+             "t": "last.role !== \"assistant\"",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "continue;",
+               "a": [
+                "переходит к следующему"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "if",
+             "t": "last.at.getTime() > cutoff.getTime()",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "continue;",
+               "a": [
+                "переходит к следующему"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "try",
+             "t": "пробует",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "const levelFields = await inactiveLevelFields( c.id, c.kind, \"STOPPED_RESPONDING\", undefined, now, );",
+               "a": [
+                "зовёт inactiveLevelFields()"
                ],
                "c": []
               },
               {
                "k": "do",
-               "t": "await logTimeline({ clientId: c.id, actor: { kind: \"system\", source: \"silentClientAutoDeactivate\", subjectAge…",
+               "t": "const written = await prisma.$transaction(async (tx)",
                "a": [
-                "зовёт logTimeline()"
+                "всё внутри — одной транзакцией",
+                "меняет в базе: client"
+               ],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "const updated = await tx.client.updateMany({ where: { id: c.id, deletedAt: null, workStatus: \"ACTIVE\", kind: …",
+                 "a": [
+                  "меняет в базе: client"
+                 ],
+                 "c": []
+                },
+                {
+                 "k": "if",
+                 "t": "updated.count !== 1",
+                 "a": [],
+                 "c": [
+                  {
+                   "k": "do",
+                   "t": "return false;",
+                   "a": [
+                    "дословно из кода"
+                   ],
+                   "c": []
+                  }
+                 ]
+                },
+                {
+                 "k": "do",
+                 "t": "await logTimeline({ clientId: c.id, actor: { kind: \"system\", source: \"silentClientAutoDeactivate\", subjectAge…",
+                 "a": [
+                  "зовёт logTimeline()"
+                 ],
+                 "c": []
+                }
+               ]
+              },
+              {
+               "k": "if",
+               "t": "!written",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "continue;",
+                 "a": [
+                  "переходит к следующему"
+                 ],
+                 "c": []
+                }
+               ]
+              },
+              {
+               "k": "do",
+               "t": "publishClientUpdated({ clientId: c.id, agentIds: [c.assignedAgentId], stage: \"INACTIVE\" });",
+               "a": [
+                "зовёт publishClientUpdated()"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "catch",
+             "t": "если сорвалось",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "await logSystemError( \"api\", `Автопереход молчаливого клиента в Неактивные (клиент ${c.shortId}) не выполнен:…",
+               "a": [
+                "запись в журнал ошибок"
                ],
                "c": []
               }
@@ -95643,15 +95899,15 @@
            ]
           },
           {
-           "k": "catch",
-           "t": "если сорвалось",
+           "k": "if",
+           "t": "candidates.length < 500",
            "a": [],
            "c": [
             {
              "k": "do",
-             "t": "await logSystemError( \"api\", `Автопереход молчаливого клиента в Неактивные (клиент ${c.shortId}) не выполнен:…",
+             "t": "break;",
              "a": [
-              "запись в журнал ошибок"
+              "прекращает перебор"
              ],
              "c": []
             }

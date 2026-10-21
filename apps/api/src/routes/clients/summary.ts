@@ -107,6 +107,7 @@ summaryRouter.get("/summary", requireAuth, async (req, res) => {
     acceptedAt: null,
     escalatedAt: null,
     kind: { in: ["BUYER", "SELLER"] },
+    workStatus: "ACTIVE",
   };
   const showingWhere = (range: { start: Date; end: Date }): Prisma.InteractionWhereInput => ({
     type: "SHOWING",
@@ -179,13 +180,13 @@ summaryRouter.get("/summary", requireAuth, async (req, res) => {
       // остаётся workStatus=INACTIVE, и счётчик вкладки расходился бы со списком.
       prisma.client.count({
         where: ownAgentId
-          ? { deletedAt: null, assignedAgentId: ownAgentId, workStatus: "INACTIVE", status: { not: "LOST" } }
-          : { deletedAt: null, workStatus: "INACTIVE", status: { not: "LOST" } },
+          ? { deletedAt: null, assignedAgentId: ownAgentId, kind: { not: "OTHER" }, workStatus: "INACTIVE", ...TERMINAL }
+          : { deletedAt: null, kind: { not: "OTHER" }, workStatus: "INACTIVE", ...TERMINAL },
       }),
       prisma.client.count({
         where: ownAgentId
-          ? { deletedAt: null, assignedAgentId: ownAgentId, workStatus: "DEFERRED" }
-          : { deletedAt: null, workStatus: "DEFERRED" },
+          ? { deletedAt: null, assignedAgentId: ownAgentId, workStatus: "DEFERRED", ...TERMINAL }
+          : { deletedAt: null, workStatus: "DEFERRED", ...TERMINAL },
       }),
       meId
         ? prisma.client.count({ where: { deletedAt: { not: null }, OR: [{ assignedAgentId: meId }, { lastAgentId: meId }] } })

@@ -16,6 +16,8 @@ import { closeOwnershipSatellites } from "./ownershipSatellites.js";
 import { publishClientUpdated } from "./livePublish.js";
 import { sendPushToAgent } from "../push.js";
 import { returnAcceptDueFromNow } from "./workingDue.js";
+import { inactiveExitData } from "./clientContact.js";
+export { inactiveExitData } from "./clientContact.js";
 
 export interface ReactivateClientInput {
   clientId: string;
@@ -63,7 +65,7 @@ export function reactivationResetData(client: { status: string; workStatus: stri
     data.lostAt = null;
     data.refusalCount = 0;
   }
-  if (client.workStatus === "INACTIVE") Object.assign(data, inactiveExitData());
+  if (client.workStatus === "INACTIVE" || client.status === "LOST") Object.assign(data, inactiveExitData());
   return data;
 }
 
@@ -75,22 +77,6 @@ export function reactivationResetData(client: { status: string; workStatus: stri
  * счётчик попыток и точка отсчёта прошлого цикла остаются висеть на
  * активной карточке.
  */
-export function inactiveExitData(): {
-  workStatus: "ACTIVE";
-  inactiveLevel: null;
-  inactiveReasonKey: null;
-  inactiveSince: null;
-  inactivePingCount: 0;
-} {
-  return {
-    workStatus: "ACTIVE",
-    inactiveLevel: null,
-    inactiveReasonKey: null,
-    inactiveSince: null,
-    inactivePingCount: 0,
-  };
-}
-
 /**
  * Снимает флаги LOST/INACTIVE и либо назначает агенту, либо возвращает в
  * очередь руководителя. Логирует через logSystemError с тегом [lifecycle].
@@ -138,6 +124,7 @@ export async function reactivateClientFromLost(
 
   const now = new Date();
   const data = reactivationResetData(client);
+  data.returnedAt = now;
 
   // LAW-A2-PENDING: reactivateClientFromLost (Х3, ownership policy 17.09.2026) —
   // прямая запись мимо changeClientAgent; перевод — пачка А2.
@@ -256,6 +243,7 @@ export interface MarkClientLostInput {
   actorId?: string | null;
   /** Короткий тег механизма: lost.promote / lost.refuse / lost.transfer. */
   source: string;
+  guardWhere?: Record<string, unknown>;
   tx?: Tx;
 }
 
@@ -293,6 +281,7 @@ export async function markClientLost(input: MarkClientLostInput): Promise<Change
       reason: input.reason,
       actorId: input.actorId ?? null,
       source: input.source,
+      guardWhere: input.guardWhere,
       setLastAgentId: false,
       skipSatellites: true,
       data: {

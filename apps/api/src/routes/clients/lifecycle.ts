@@ -524,8 +524,8 @@ lifecycleRouter.post("/:id/activate", requireAuth, async (req, res) => {
     const denied = foreignWriteDenied(req, client, ownAgentId);
     if (denied) return res.status(403).json({ error: denied });
   }
-  const result = await reactivateClient({ clientId: client.id, agentId: client.assignedAgentId });
-  if (!result.ok) return res.status(404).json({ error: "Клиент не найден" });
+  const result = await reactivateClient({ clientId: client.id, agentId: client.assignedAgentId, actorAgentId: req.agent!.id });
+  if (!result.ok) return res.status(409).json({ error: "Состояние или держатель карточки изменились — обновите карточку" });
   logAudit(req, "CLIENT_ACTIVATE", "Client", client.id, {});
   res.json({ ok: true });
 });

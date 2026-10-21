@@ -1,6 +1,7 @@
 import type { ClientStatus } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { logTimeline } from "./timeline.js";
+import { isHeldMeeting, isRealCallContact } from "./clientContact.js";
 
 /**
  * Статус клиента ставится сам.
@@ -122,6 +123,10 @@ export function decideStatus(client: AutoStatusInput, facts: AutoStatusFacts, no
   if (client.statusSetManuallyAt && now.getTime() - client.statusSetManuallyAt.getTime() < MANUAL_HOLD_DAYS * DAY) {
     return null;
   }
+  // A delayed analysis or system note cannot reopen an archive. A genuine new
+  // client reply/call can: archiving for silence must not be a permanent lock.
+  if (client.status === "ARCHIVED" && (!facts.lastClientActivityAt ||
+    now.getTime() - facts.lastClientActivityAt.getTime() >= COLD_AFTER_DAYS * DAY)) return null;
 
   const next = ((): ClientStatus => {
     if (facts.dealClosed) return "DEAL_CLOSED";
@@ -167,7 +172,8 @@ async function collectSharedFacts(clientId: string, showingTypes: readonly strin
   const [interactions, client] = await Promise.all([
     prisma.interaction.findMany({
       where: { clientId },
-      select: { type: true, outcome: true, createdAt: true },
+      select: { type: true, outcome: true, createdAt: true, callAttempt: true, recordingDurationSec: true,
+        completedAt: true, nextActionDate: true, declinedAt: true },
       orderBy: { createdAt: "desc" },
       // Больше и не нужно: все правила смотрят на последние события и на дату
       // самого свежего. Потолок обязателен — у старого клиента история длинная.
@@ -180,6 +186,7 @@ async function collectSharedFacts(clientId: string, showingTypes: readonly strin
     prisma.client.findUnique({
       where: { id: clientId },
       select: {
+        lastClientMessageAt: true,
         botConversation: { select: { lastMessageAt: true } },
         telegramConversation: { select: { lastMessageAt: true } },
       },
@@ -187,34 +194,38 @@ async function collectSharedFacts(clientId: string, showingTypes: readonly strin
   ]);
 
   const calls = interactions.filter((i) => i.type === "CALL");
-  // Серия неотвеченных считается от самого свежего звонка вниз: один ответивший
-  // звонок обнуляет её, даже если до него было пять недозвонов.
-  let noAnswerStreak = 0;
-  for (const call of calls) {
-    if (call.outcome === "NO_ANSWER") noAnswerStreak++;
-    else break;
-  }
-
-  const talked = calls.some((c) => c.outcome !== "NO_ANSWER" && c.outcome !== null);
+  const talked = calls.some(isRealCallContact);
   // botConversation — массив (19.08.2026): у клиента может отвечать сразу
   // несколько диалогов бот-платформы, берём самый свежий ответ из ЛЮБОГО из них.
   const replies = [
+    client?.lastClientMessageAt,
     ...(client?.botConversation.map((c) => c.lastMessageAt) ?? []),
     client?.telegramConversation?.lastMessageAt,
   ].filter((d): d is Date => !!d);
   const lastReplyAt = replies.length ? new Date(Math.max(...replies.map((d) => d.getTime()))) : null;
-  const showing = interactions.some((i) => showingTypes.includes(i.type));
+  const showing = interactions.some((i) => showingTypes.includes(i.type) && !i.declinedAt &&
+    (!i.completedAt || isHeldMeeting(i)));
   // «Клиент проявил себя сам» — ответил в переписке или взял трубку.
-  const answeredCall = calls.find((c) => c.outcome !== "NO_ANSWER" && c.outcome !== null)?.createdAt ?? null;
-  const activityDates = [lastReplyAt, answeredCall].filter((d): d is Date => !!d);
+  const answeredCall = calls.find(isRealCallContact)?.createdAt ?? null;
+  const heldAt = interactions.filter((i) => showingTypes.includes(i.type) && isHeldMeeting(i))
+    .map((i) => i.completedAt!);
+  const activityDates = [lastReplyAt, answeredCall, ...heldAt].filter((d): d is Date => !!d);
+  const lastClientActivityAt = activityDates.length ? new Date(Math.max(...activityDates.map((d) => d.getTime()))) : null;
+  let noAnswerStreak = 0;
+  for (const call of calls) {
+    if (lastClientActivityAt && call.createdAt <= lastClientActivityAt) break;
+    if (!isRealCallContact(call) && (call.callAttempt === "NO_ANSWER" || call.outcome === "NO_ANSWER")) noAnswerStreak++;
+    else break;
+  }
+  const eventDates = [interactions[0]?.createdAt, ...activityDates].filter((d): d is Date => !!d);
 
   return {
     talked,
     clientReplied: !!lastReplyAt,
     showing,
     noAnswerStreak,
-    lastEventAt: interactions[0]?.createdAt ?? lastReplyAt ?? new Date(0),
-    lastClientActivityAt: activityDates.length ? new Date(Math.max(...activityDates.map((d) => d.getTime()))) : null,
+    lastEventAt: new Date(Math.max(0, ...eventDates.map((d) => d.getTime()))),
+    lastClientActivityAt,
   };
 }
 
@@ -289,6 +300,9 @@ export async function refreshClientStatus(clientId: string, now: Date = new Date
       fullName: true,
       kind: true,
       assignedAgentId: true,
+      workStatus: true,
+      returnedAt: true,
+      lastClientMessageAt: true,
     },
   });
   // «Прочие обращения» (OTHER) не трогаем — для них нет ни описанных правил, ни
@@ -313,7 +327,8 @@ export async function refreshClientStatus(clientId: string, now: Date = new Date
   // как в снимке; иначе чужая запись выигрывает, а в хронологию ничего не пишем.
   const written = await prisma.$transaction(async (tx) => {
     const updated = await tx.client.updateMany({
-      where: { id: clientId, deletedAt: null, status: client.status, statusSetManuallyAt: client.statusSetManuallyAt },
+      where: { id: clientId, deletedAt: null, status: client.status, statusSetManuallyAt: client.statusSetManuallyAt,
+        workStatus: client.workStatus, returnedAt: client.returnedAt, lastClientMessageAt: client.lastClientMessageAt },
       data: { status: next },
     });
     if (updated.count !== 1) return false;

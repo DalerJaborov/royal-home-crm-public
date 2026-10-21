@@ -13,13 +13,11 @@ import { CalendarClock, UserRound } from "lucide-react";
 import { relativeTime } from "../../lib/format";
 import {
   CLIENT_SOURCE_LABELS,
-  CLIENT_STATUS_CHIP,
-  CLIENT_STATUS_CHIP_DOT,
   CLIENT_STATUS_LABELS,
   formatClientCode,
 } from "../../lib/clientFormat";
 import { ReturnedBadge } from "../ReturnedBadge";
-import { InactiveLevelDot, showsInactiveLabel } from "../InactiveLevelBadge";
+import { ClientStateBadge } from "../ClientStateBadge";
 import type { Client } from "../../types";
 
 /**
@@ -226,7 +224,6 @@ function InquiryRow({ client: c }: { client: Client }) {
   const step = c.nextStep;
   const stepOverdue = !!step?.nextActionDate && new Date(step.nextActionDate).getTime() < Date.now();
   const daysInWork = Math.max(0, Math.floor((Date.now() - new Date(c.createdAt).getTime()) / 86400000));
-  const statusDot = CLIENT_STATUS_CHIP_DOT[c.status];
 
   const descParts = [
     formatClientCode(c.shortId, c.kind),
@@ -251,18 +248,9 @@ function InquiryRow({ client: c }: { client: Client }) {
         <span>{descParts.join(", ")}</span>
       </div>
 
-      {showsInactiveLabel(c) && (
-        <span className="chip mute">
-          <InactiveLevelDot client={c} />
-          Неактивный
-        </span>
-      )}
       <ReturnedBadge returnedAt={c.returnedAt} />
       {c.aiScore != null && <span className="chip mute">Скор {c.aiScore}%</span>}
-      <span className={`chip ${CLIENT_STATUS_CHIP[c.status]}`}>
-        {statusDot !== undefined && <span className={`dot ${statusDot}`} />}
-        {CLIENT_STATUS_LABELS[c.status]}
-      </span>
+      <ClientStateBadge client={c} />
 
       {step?.nextActionDate && (
         <span className={`step${stepOverdue ? " crit" : ""}`}>

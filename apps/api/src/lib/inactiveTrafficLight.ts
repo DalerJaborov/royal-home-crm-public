@@ -27,14 +27,19 @@ import { sellersWithPropertyInWork } from "./sellerCardState.js";
 import {
   INACTIVE_REASONS,
   dushanbeDayKey,
+  DEFAULT_INACTIVE_TRAFFIC_POLICY,
+  normalizeInactiveTrafficPolicy,
   type ClientKind,
   type InactiveReason,
+  type InactiveTrafficPolicy,
 } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { isWithinWorkingHours } from "./workingHours.js";
 import { recordScoreEvent, loadEventPoints } from "./scoreJournal.js";
 import { absentAgentIds } from "./agentAvailability.js";
 import { markClientLost } from "./clientLifecycle.js";
+import { isHeldMeeting, REAL_CALL_CONTACT_WHERE, TERMINAL_CLIENT_STATUSES } from "./clientContact.js";
+import { publishClientUpdated } from "./livePublish.js";
 
 const HOUR_MS = 3_600_000;
 
@@ -85,14 +90,6 @@ function toneMultiplier(reason: InactiveReason | null): number {
  * назначалось вовсе — запись задним числом); снятая заранее — раньше.
  * Отменённая (declinedAt) отсекается ещё в запросе.
  */
-function isHeldMeeting(m: {
-  completedAt: Date | null;
-  nextActionDate: Date | null;
-}): boolean {
-  if (!m.completedAt) return false;
-  return !m.nextActionDate || m.nextActionDate <= m.completedAt;
-}
-
 /**
  * ЦВЕТ ПО ГЛУБИНЕ ОТНОШЕНИЙ (владелец 03.09.2026, заменяет цвет по причине).
  *
@@ -146,16 +143,16 @@ export async function classifyInactiveLevelByDepth(
   if (meetings.some(isHeldMeeting)) return "GREEN";
 
   const { talked } = await countContactTrace(clientId, leadCallMinSeconds);
-  return talked > 0 ? "YELLOW" : "RED";
+  if (talked > 0) return "YELLOW";
+  // Depth includes short/manual conversations; the first-call KPI retains
+  // its independent duration threshold.
+  const contact = await prisma.interaction.findFirst({
+    where: { clientId, ...REAL_CALL_CONTACT_WHERE }, select: { id: true },
+  });
+  return contact ? "YELLOW" : "RED";
 }
 
-interface TrafficLightSettings {
-  inactiveGreenPingHours: number;
-  inactiveGreenMaxAttempts: number;
-  inactiveYellowPingHours: number;
-  inactiveYellowMaxAttempts: number;
-  inactiveRedPingHours: number;
-  inactiveRedMaxAttempts: number;
+interface TrafficLightSettings extends InactiveTrafficPolicy {
   inactivateMinAttempts: number;
   inactivateCooldownHours: number;
   leadCallMinSeconds: number;
@@ -169,12 +166,7 @@ interface TrafficLightSettings {
  * на его возврат; меньше вложено — быстрее освобождаем слот агенту.
  */
 const FALLBACK: TrafficLightSettings = {
-  inactiveGreenPingHours: 24,
-  inactiveGreenMaxAttempts: 5, // 5 дней всего — самый тёплый, больше всего терпения
-  inactiveYellowPingHours: 48,
-  inactiveYellowMaxAttempts: 2, // 4 дня всего
-  inactiveRedPingHours: 36,
-  inactiveRedMaxAttempts: 2, // ~3 дня всего — холодный след, отпускаем быстрее
+  ...DEFAULT_INACTIVE_TRAFFIC_POLICY,
   inactivateMinAttempts: 2,
   inactivateCooldownHours: 5,
   leadCallMinSeconds: 30,
@@ -182,7 +174,7 @@ const FALLBACK: TrafficLightSettings = {
 
 export async function loadTrafficLightSettings(): Promise<TrafficLightSettings> {
   const s = await prisma.settings.findUnique({ where: { id: "singleton" } });
-  return {
+  const policy: TrafficLightSettings = {
     inactiveGreenPingHours:
       s?.inactiveGreenPingHours ?? FALLBACK.inactiveGreenPingHours,
     inactiveGreenMaxAttempts:
@@ -201,6 +193,7 @@ export async function loadTrafficLightSettings(): Promise<TrafficLightSettings> 
       s?.inactivateCooldownHours ?? FALLBACK.inactivateCooldownHours,
     leadCallMinSeconds: s?.leadCallMinSeconds ?? FALLBACK.leadCallMinSeconds,
   };
+  return { ...policy, ...normalizeInactiveTrafficPolicy(policy) };
 }
 
 function pingHoursFor(level: InactiveLevel, s: TrafficLightSettings): number {
@@ -400,6 +393,8 @@ export async function agentsInCooldown(
     where: {
       assignedAgentId: { in: agentIds },
       workStatus: "INACTIVE",
+      deletedAt: null,
+      status: { notIn: [...TERMINAL_CLIENT_STATUSES] },
       inactiveEnteredAt: { gte: since },
     },
     select: { assignedAgentId: true },
@@ -420,6 +415,7 @@ export async function inactiveLevelFields(
   kind: ClientKind,
   reason: InactiveReason,
   settings?: TrafficLightSettings,
+  now: Date = new Date(),
 ): Promise<{
   inactiveReasonKey: InactiveReason;
   inactiveLevel: InactiveLevel;
@@ -434,7 +430,7 @@ export async function inactiveLevelFields(
       kind,
       s.leadCallMinSeconds,
     ),
-    inactiveSince: new Date(),
+    inactiveSince: now,
     inactivePingCount: 0,
   };
 }
@@ -451,6 +447,8 @@ interface DueClient {
   inactivePingCount: number;
   inactiveReasonKey: InactiveReason | null;
   lastClientMessageAt: Date | null;
+  lastContactAt: Date;
+  status: string;
 }
 
 /**
@@ -498,7 +496,7 @@ export async function lastRealContactAt(
   const note = (clientId: string, at: Date | null | undefined) => {
     if (!at) return;
     const from = since.get(clientId);
-    if (!from || at < from) return;
+    if (!from || at <= from) return;
     const prev = out.get(clientId);
     if (!prev || at > prev) out.set(clientId, at);
   };
@@ -507,15 +505,8 @@ export async function lastRealContactAt(
     prisma.interaction.findMany({
       where: {
         clientId: { in: ids },
-        type: "CALL",
+        ...REAL_CALL_CONTACT_WHERE,
         createdAt: { gte: earliestSince },
-        OR: [
-          { callAttempt: "TALKED" },
-          {
-            callAttempt: null,
-            outcome: { not: null, notIn: ["NO_ANSWER"] },
-          },
-        ],
       },
       select: { clientId: true, createdAt: true },
     }),
@@ -561,162 +552,186 @@ export async function runInactiveTrafficLightTick(
   if (!withinHours) return { pinged: 0, lost: 0 };
 
   const settings = await loadTrafficLightSettings();
-  const candidates = await prisma.client.findMany({
-    /**
-     * status: не LOST — иначе уже потерянный клиент (агент сохраняется, слот не
-     * занимает, см. promoteToLost выше) навсегда остаётся кандидатом: тот же тик
-     * находит его снова и снова каждые 30 минут и пытается «перевести в
-     * Потерянные» повторно. Штраф агенту не дублируется (sourceId у
-     * recordScoreEvent идемпотентен), но AuditLog/Interaction/push дублируются —
-     * найдено 16.09.2026, у одной карточки набралось 69 повторов за неделю.
-     */
-    where: {
-      workStatus: "INACTIVE",
-      status: { not: "LOST" },
-      inactiveLevel: { not: null },
-      inactiveSince: { not: null },
-      deletedAt: null,
-    },
-    select: {
-      id: true,
-      shortId: true,
-      // kind нужен номеру карточки: префикс зависит от типа клиента (ПК/ПР/ПО).
-      kind: true,
-      fullName: true,
-      assignedAgentId: true,
-      inactiveLevel: true,
-      inactiveSince: true,
-      inactivePingCount: true,
-      inactiveReasonKey: true,
-      reactivationOfferedToAgentId: true,
-      lastClientMessageAt: true,
-    },
-    take: 500,
-  });
-
   let pinged = 0;
   let lost = 0;
-
-  /**
-   * B1 (audit 02.09.2026): таймер сбрасывает только РЕАЛЬНЫЙ КОНТАКТ с клиентом
-   * после inactiveSince, а не пуш, заметка или запись «не дозвонился» — иначе
-   * агент бесконечно откладывал бы LOST, просто не открывая карточку. Что
-   * именно считается контактом — см. lastRealContactAt ниже (с 23.09.2026 это
-   * не только TALKED-звонок через CRM).
-   */
-  /**
-   * АГЕНТА НЕТ НА РАБОТЕ — его клиентов светофор не трогает (владелец 08.09.2026).
-   *
-   * До этой правки заморозка (отпуск, больничный, разбирательство) была светофору
-   * неизвестна: агент уходил в отпуск, напоминания продолжали ему сыпаться, счётчик
-   * попыток досчитывал до предела, и его неактивные клиенты уходили в «Потерянные»
-   * АВТОМАТИЧЕСКИ — со штрафом ему же за «слитого клиента». Человек возвращался и
-   * обнаруживал, что часть портфеля растворилась, пока его не было, а система
-   * записала это ему в вину.
-   *
-   * Пауза «не принимаю новых лидов» отсутствием НЕ считается (см. agentAvailability.ts):
-   * там агент на месте и обязан работать со своими — светофор для него работает как
-   * обычно.
-   */
+  let afterId: string | undefined;
   const absent = await absentAgentIds();
-  const live = (candidates as DueClient[]).filter(
-    (c) =>
-      c.assignedAgentId &&
-      !absent.has(c.assignedAgentId) &&
-      c.inactiveLevel &&
-      c.inactiveSince,
-  );
-  const lastContactAt = await lastRealContactAt(live);
-
-  const keepFromLost = await clientsProtectedFromAutoLost(live);
-
-  for (const c of live) {
-    if (!c.assignedAgentId || !c.inactiveLevel || !c.inactiveSince) continue;
-
-    if (lastContactAt.has(c.id)) {
+  for (;;) {
+    const candidates = await prisma.client.findMany({
       /**
-       * С клиентом был реальный контакт после перевода в Неактивные —
-       * сбрасываем таймер: inactiveSince = сейчас, pingCount = 0. Клиент
-       * остаётся INACTIVE (вернуть ли в ACTIVE, решает агент), но светофор
-       * начинает отсчёт заново.
-       *
-       * ЦВЕТ ПЕРЕСЧИТЫВАЕТСЯ ТУТ ЖЕ (владелец 23.09.2026). До этого цвет ставился
-       * один раз при входе в Неактивные и дальше не менялся: клиент, которого
-       * после перевода свозили на показ, оставался «красным» с самым коротким
-       * сроком терпения. Тот же classifyInactiveLevelByDepth, что при входе, —
-       * второго правила цвета не заводим. Запросы на каждого СБРОШЕННОГО клиента,
-       * а не на каждого кандидата: сброс редок, а правило цвета одно.
+       * status: не LOST — иначе уже потерянный клиент (агент сохраняется, слот не
+       * занимает, см. promoteToLost выше) навсегда остаётся кандидатом: тот же тик
+       * находит его снова и снова каждые 30 минут и пытается «перевести в
+       * Потерянные» повторно. Штраф агенту не дублируется (sourceId у
+       * recordScoreEvent идемпотентен), но AuditLog/Interaction/push дублируются —
+       * найдено 16.09.2026, у одной карточки набралось 69 повторов за неделю.
        */
-      const level = await classifyInactiveLevelByDepth(
-        c.id,
-        c.kind,
-        settings.leadCallMinSeconds,
-      );
-      await prisma.client.update({
-        where: { id: c.id },
-        data: { inactiveSince: now, inactivePingCount: 0, inactiveLevel: level },
-      });
-      /**
-       * НАГРАДА ЗА ВОЗВРАТ (владелец 03.09.2026): усилие агента видно сразу, не
-       * только избеганием потери позже. Только красный/жёлтый — зелёный тикает
-       * каждые 24ч и был бы слишком лёгкой и частой целью для фарма баллов.
-       * sourceId привязан к календарному месяцу — одна награда за клиента в
-       * месяц, а не за каждый цикл «замолчал — дозвонились».
-       */
-      if (c.inactiveLevel !== "GREEN") {
-        // Месяц по Душанбе (Ф12, 02.10.2026): по UTC с 00:00 до 05:00 первого
-        // числа ключ был ещё прошломесячным, и награда за новый месяц молча
-        // подавлялась как уже выданная.
-        const monthKey = dushanbeDayKey(now).slice(0, 7);
-        const points = await loadEventPoints();
-        const kind =
-          c.inactiveLevel === "RED"
-            ? "client_revived_from_red"
-            : "client_revived_from_yellow";
-        void recordScoreEvent({
-          agentId: c.assignedAgentId,
-          kind,
-          delta: points[kind],
-          reason: `Дозвонился и вывел клиента из ${LEVEL_LABEL[c.inactiveLevel]} — ${c.fullName}`,
-          sourceId: `${kind}-${c.id}-${monthKey}`,
-        }).catch((err) =>
-          console.error("[scoreJournal] награда за возврат из светофора:", err),
-        );
-      }
-      continue;
-    }
-
-    const stepHours =
-      pingHoursFor(c.inactiveLevel, settings) *
-      toneMultiplier(c.inactiveReasonKey);
-    const maxAttempts = maxAttemptsFor(c.inactiveLevel, settings);
-    const elapsedHours = (now.getTime() - c.inactiveSince.getTime()) / HOUR_MS;
-    const dueAttempt = Math.floor(elapsedHours / stepHours);
-    if (dueAttempt <= c.inactivePingCount) continue; // ещё не подошёл срок следующего напоминания
-
-    if (c.inactivePingCount >= maxAttempts) {
-      // Живой по делу клиент в «Потерянные» сам не уходит (см.
-      // clientsProtectedFromAutoLost): карточка остаётся у агента в «Решить
-      // сейчас», решение — за человеком.
-      if (keepFromLost.has(c.id)) continue;
-      await promoteToLost(c);
-      lost++;
-      continue;
-    }
-
-    await prisma.client.update({
-      where: { id: c.id },
-      data: { inactivePingCount: { increment: 1 } },
+      where: {
+        ...(afterId ? { id: { gt: afterId } } : {}),
+        workStatus: "INACTIVE",
+        kind: { not: "OTHER" },
+        status: { notIn: [...TERMINAL_CLIENT_STATUSES] },
+        assignedAgentId: { not: null },
+        reactivationOfferedToAgentId: null,
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+        shortId: true,
+        // kind нужен номеру карточки: префикс зависит от типа клиента (ПК/ПР/ПО).
+        kind: true,
+        fullName: true,
+        assignedAgentId: true,
+        inactiveLevel: true,
+        inactiveSince: true,
+        inactivePingCount: true,
+        inactiveReasonKey: true,
+        reactivationOfferedToAgentId: true,
+        lastClientMessageAt: true,
+        lastContactAt: true,
+        status: true,
+      },
+      orderBy: { id: "asc" }, take: 500,
     });
-    /**
-     * НАПОМИНАНИЯ АГЕНТУ «Клиент давно не отвечает» УБРАНЫ (владелец 02.10.2026:
-     * «не нужные уведомления»). Остаётся счётчик inactivePingCount выше — по нему
-     * светофор решает, когда клиент уходит в Потерянные, — и карточка в «Решить
-     * сейчас». Пуш и запись в ленте больше не создаются.
-     */
-    pinged++;
-  }
+    if (candidates.length === 0) break;
+    afterId = candidates[candidates.length - 1].id;
+    // Older entry points could set INACTIVE without starting the traffic clock.
+    // Start a complete cycle now rather than charging an unknown past period.
+    for (const c of candidates) {
+      if (c.inactiveLevel && c.inactiveSince) continue;
+      if (!c.assignedAgentId || absent.has(c.assignedAgentId)) continue;
+      const level = await classifyInactiveLevelByDepth(c.id, c.kind, settings.leadCallMinSeconds);
+      const repaired = await prisma.client.updateMany({
+        where: { id: c.id, workStatus: "INACTIVE", status: c.status, deletedAt: null,
+          assignedAgentId: c.assignedAgentId, inactiveSince: c.inactiveSince, inactiveLevel: c.inactiveLevel,
+          reactivationOfferedToAgentId: null },
+        data: { inactiveLevel: level, inactiveSince: now, inactivePingCount: 0 },
+      });
+      if (repaired.count === 1) publishClientUpdated({ clientId: c.id, agentIds: [c.assignedAgentId], stage: "INACTIVE" });
+    }
 
+    /**
+     * B1 (audit 02.09.2026): таймер сбрасывает только РЕАЛЬНЫЙ КОНТАКТ с клиентом
+     * после inactiveSince, а не пуш, заметка или запись «не дозвонился» — иначе
+     * агент бесконечно откладывал бы LOST, просто не открывая карточку. Что
+     * именно считается контактом — см. lastRealContactAt ниже (с 23.09.2026 это
+     * не только TALKED-звонок через CRM).
+     */
+    /**
+     * АГЕНТА НЕТ НА РАБОТЕ — его клиентов светофор не трогает (владелец 08.09.2026).
+     *
+     * До этой правки заморозка (отпуск, больничный, разбирательство) была светофору
+     * неизвестна: агент уходил в отпуск, напоминания продолжали ему сыпаться, счётчик
+     * попыток досчитывал до предела, и его неактивные клиенты уходили в «Потерянные»
+     * АВТОМАТИЧЕСКИ — со штрафом ему же за «слитого клиента». Человек возвращался и
+     * обнаруживал, что часть портфеля растворилась, пока его не было, а система
+     * записала это ему в вину.
+     *
+     * Пауза «не принимаю новых лидов» отсутствием НЕ считается (см. agentAvailability.ts):
+     * там агент на месте и обязан работать со своими — светофор для него работает как
+     * обычно.
+     */
+    const live = (candidates as DueClient[]).filter(
+      (c) =>
+        c.assignedAgentId &&
+        !absent.has(c.assignedAgentId) &&
+        c.inactiveLevel &&
+        c.inactiveSince,
+    );
+    const lastContactAt = await lastRealContactAt(live);
+
+    const keepFromLost = await clientsProtectedFromAutoLost(live);
+
+    for (const c of live) {
+      if (!c.assignedAgentId || !c.inactiveLevel || !c.inactiveSince) continue;
+
+      if (lastContactAt.has(c.id)) {
+        /**
+         * С клиентом был реальный контакт после перевода в Неактивные —
+         * сбрасываем таймер: inactiveSince = сейчас, pingCount = 0. Клиент
+         * остаётся INACTIVE (вернуть ли в ACTIVE, решает агент), но светофор
+         * начинает отсчёт заново.
+         *
+         * ЦВЕТ ПЕРЕСЧИТЫВАЕТСЯ ТУТ ЖЕ (владелец 23.09.2026). До этого цвет ставился
+         * один раз при входе в Неактивные и дальше не менялся: клиент, которого
+         * после перевода свозили на показ, оставался «красным» с самым коротким
+         * сроком терпения. Тот же classifyInactiveLevelByDepth, что при входе, —
+         * второго правила цвета не заводим. Запросы на каждого СБРОШЕННОГО клиента,
+         * а не на каждого кандидата: сброс редок, а правило цвета одно.
+         */
+        const level = await classifyInactiveLevelByDepth(
+          c.id,
+          c.kind,
+          settings.leadCallMinSeconds,
+        );
+        const reset = await prisma.client.updateMany({
+          where: trafficSnapshotWhere(c),
+          data: { inactiveSince: now, inactivePingCount: 0, inactiveLevel: level },
+        });
+        if (reset.count !== 1) continue;
+        publishClientUpdated({ clientId: c.id, agentIds: [c.assignedAgentId], stage: "INACTIVE" });
+        /**
+         * НАГРАДА ЗА ВОЗВРАТ (владелец 03.09.2026): усилие агента видно сразу, не
+         * только избеганием потери позже. Только красный/жёлтый — зелёный тикает
+         * каждые 24ч и был бы слишком лёгкой и частой целью для фарма баллов.
+         * sourceId привязан к календарному месяцу — одна награда за клиента в
+         * месяц, а не за каждый цикл «замолчал — дозвонились».
+         */
+        if (c.inactiveLevel !== "GREEN") {
+          // Месяц по Душанбе (Ф12, 02.10.2026): по UTC с 00:00 до 05:00 первого
+          // числа ключ был ещё прошломесячным, и награда за новый месяц молча
+          // подавлялась как уже выданная.
+          const monthKey = dushanbeDayKey(now).slice(0, 7);
+          const points = await loadEventPoints();
+          const kind =
+            c.inactiveLevel === "RED"
+              ? "client_revived_from_red"
+              : "client_revived_from_yellow";
+          void recordScoreEvent({
+            agentId: c.assignedAgentId,
+            kind,
+            delta: points[kind],
+            reason: `Дозвонился и вывел клиента из ${LEVEL_LABEL[c.inactiveLevel]} — ${c.fullName}`,
+            sourceId: `${kind}-${c.id}-${monthKey}`,
+          }).catch((err) =>
+            console.error("[scoreJournal] награда за возврат из светофора:", err),
+          );
+        }
+        continue;
+      }
+
+      const stepHours =
+        pingHoursFor(c.inactiveLevel, settings) *
+        toneMultiplier(c.inactiveReasonKey);
+      const maxAttempts = maxAttemptsFor(c.inactiveLevel, settings);
+      const elapsedHours = (now.getTime() - c.inactiveSince.getTime()) / HOUR_MS;
+      const dueAttempt = Math.floor(elapsedHours / stepHours);
+      if (dueAttempt <= c.inactivePingCount) continue; // ещё не подошёл срок следующего напоминания
+
+      if (c.inactivePingCount >= maxAttempts) {
+        // Живой по делу клиент в «Потерянные» сам не уходит (см.
+        // clientsProtectedFromAutoLost): карточка остаётся у агента в «Решить
+        // сейчас», решение — за человеком.
+        if (keepFromLost.has(c.id)) continue;
+        if (await promoteToLost(c)) lost++;
+        continue;
+      }
+
+      const advanced = await prisma.client.updateMany({
+        where: trafficSnapshotWhere(c),
+        data: { inactivePingCount: { increment: 1 } },
+      });
+      if (advanced.count !== 1) continue;
+      /**
+       * НАПОМИНАНИЯ АГЕНТУ «Клиент давно не отвечает» УБРАНЫ (владелец 02.10.2026:
+       * «не нужные уведомления»). Остаётся счётчик inactivePingCount выше — по нему
+       * светофор решает, когда клиент уходит в Потерянные, — и карточка в «Решить
+       * сейчас». Пуш и запись в ленте больше не создаются.
+       */
+      pinged++;
+    }
+    if (candidates.length < 500) break;
+  }
   return { pinged, lost };
 }
 
@@ -749,18 +764,35 @@ const LEVEL_LABEL: Record<InactiveLevel, string> = {
  * отвечала бы «без вины» — а сам факт «дошли до предела попыток и не спасли
  * клиента» уже и есть объективный след вины, отдельная проверка не нужна.
  */
-async function promoteToLost(c: DueClient): Promise<void> {
+function trafficSnapshotWhere(c: DueClient) {
+  return {
+    id: c.id, workStatus: "INACTIVE" as const, deletedAt: null,
+    status: c.status as import("@royal-home/shared").ClientStatus,
+    assignedAgentId: c.assignedAgentId, inactiveSince: c.inactiveSince,
+    inactivePingCount: c.inactivePingCount, lastClientMessageAt: c.lastClientMessageAt,
+    lastContactAt: c.lastContactAt,
+  };
+}
+
+async function promoteToLost(c: DueClient): Promise<boolean> {
   const originalAgentId = c.assignedAgentId!;
   // lostAt — владелец 30.08.2026: момент перехода в «Потерянный», отдельно от
   // updatedAt (см. Client.lostAt в schema.prisma) — по нему считается «через
   // 3 месяца в корзину» (lib/lostInactiveTrashSweep.ts). markClientLost ставит
   // его сама (data.lostAt) — здесь только причина для истории.
-  await markClientLost({
+  const changed = await markClientLost({
     clientId: c.id,
     reason: `Светофор неактивных: предел попыток (${LEVEL_LABEL[c.inactiveLevel]}) исчерпан — клиент переведён в Потерянные`,
     actorId: null,
     source: "lost.promote",
+    guardWhere: {
+      ...trafficSnapshotWhere(c),
+      reactivationOfferedToAgentId: null,
+      deals: { none: { stage: { notIn: ["COMPLETED", "CANCELLED"] } } },
+      interactions: { none: { ...REAL_CALL_CONTACT_WHERE, createdAt: { gt: c.inactiveSince } } },
+    },
   });
+  if (!changed.ok) return false;
 
   const points = await loadEventPoints();
   await recordScoreEvent({
@@ -772,6 +804,7 @@ async function promoteToLost(c: DueClient): Promise<void> {
   }).catch((err) =>
     console.error("[scoreJournal] штраф за слитого клиента (светофор):", err),
   );
+  return true;
 
   /* Гашение открытых требований-окон убрано 14.09.2026 вместе с самим механизмом
      обязательных окон итогов: гасить больше нечего, и выдачу лидов у этого агента
@@ -880,7 +913,7 @@ export async function shiftInactiveClockAfterAbsence(
       where: {
         assignedAgentId: agentId,
         workStatus: "INACTIVE",
-        status: { not: "LOST" },
+        status: { notIn: [...TERMINAL_CLIENT_STATUSES] },
         inactiveSince: { not: null },
         deletedAt: null,
       },
@@ -898,7 +931,7 @@ export async function shiftInactiveClockAfterAbsence(
     )
     WHERE "assignedAgentId" = ${agentId}
       AND "workStatus" = 'INACTIVE'
-      AND "status" <> 'LOST'
+      AND "status" NOT IN ('LOST', 'ARCHIVED', 'DEAL_CLOSED')
       AND "deletedAt" IS NULL
       AND "inactiveSince" IS NOT NULL
       AND "inactiveSince" < (to_timestamp(${nowMs}::double precision / 1000) AT TIME ZONE 'UTC')`;

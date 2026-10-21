@@ -144,7 +144,9 @@ function makeHooks(model: keyof typeof TRACKED) {
         const reader = (scope ? scope.tx : base) as any;
         const before = await reader[model].findMany({ where: args.where, select: selectBefore });
         const result = await query(args);
-        if (before.length) recordEvents(cfg.entityType, before, changes, scope);
+        // A guarded write can lose a race after the BEFORE read. A zero-row
+        // result means there was no transition to record, even if BEFORE matched.
+        if (before.length && (result as { count: number }).count > 0) recordEvents(cfg.entityType, before, changes, scope);
         return result;
       }
       return query(args);
