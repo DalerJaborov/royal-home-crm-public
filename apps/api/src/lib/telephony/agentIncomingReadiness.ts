@@ -333,3 +333,47 @@ export async function reconcileIncomingQueue(): Promise<void> {
     void logSystemError("telephony", result.skipped);
   }
 }
+
+/**
+ * Что сказать директору о очереди в ответе на ЗАВЕДЕНИЕ сотрудника.
+ *
+ * Найдено 22.10.2026 по заведению обычного агента: ответ говорил
+ * «в очередь входящих добавить не удалось (станция не ответила)», хотя станция
+ * ответила, а в очередь человек и не должен был попасть. Проверка в маршруте
+ * была написана 19.09, когда в очередь шли все агенты, и после правила 20.09
+ * («незнакомые звонки — только операторам», `takesUnknownCalls`) не менялась:
+ * новичок без признака оператора не попадал в `added`, и это читалось как отказ
+ * станции. Каждое заведение агента с номером пугало директора ложной поломкой
+ * и слало его в FreePBX добавлять участника, которого по правилу быть не должно.
+ *
+ * Поэтому ответ выводится из ожидания, а не из факта добавления: не оператор —
+ * сказать нечего (сверка при этом всё равно отработала: она ещё и снимает с
+ * очереди прежнего владельца номера из пула); оператор — говорим только о
+ * настоящей неудаче, с настоящей причиной. «Станция не ответила» — только когда
+ * сверка упала целиком (`fix === null`), а не как слово-заглушка на всё.
+ */
+export function describeNewAgentQueueOutcome(
+  agent: { sipExtension: string; takesUnknownCalls: boolean },
+  fix: QueueFixResult | null
+): string | undefined {
+  const failure = fix?.failed.find((f) => f.extension === agent.sipExtension)?.error;
+  if (failure && !agent.takesUnknownCalls) {
+    return `Внутренний номер ${agent.sipExtension} выдан, но исключить его из очереди входящих на АТС не удалось (${failure}) — ` +
+      `этому сотруднику могут поступать общие входящие звонки, хотя он не оператор. CRM попробует снова в ближайшие 15 минут; ` +
+      `если не поможет — исключите участника из очереди в FreePBX (Applications → Queues).`;
+  }
+  if (failure) return queueOutcomeNote(agent.sipExtension, failure);
+  if (!agent.takesUnknownCalls) return undefined;
+  if (!fix) return queueOutcomeNote(agent.sipExtension, "станция не ответила");
+  if (fix.skipped) return queueOutcomeNote(agent.sipExtension, fix.skipped);
+  // Добавили или уже числился — всё на месте.
+  return undefined;
+}
+
+function queueOutcomeNote(extension: string, reason: string): string {
+  return (
+    `Внутренний номер ${extension} выдан, но в очередь входящих на АТС его добавить не удалось (${reason}) — ` +
+    `пока общие входящие звонки до сотрудника не дойдут. CRM попробует снова в ближайшие 15 минут; ` +
+    `если не поможет — добавьте участника в FreePBX (Applications → Queues).`
+  );
+}

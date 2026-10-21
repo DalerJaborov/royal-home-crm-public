@@ -2,6 +2,10 @@
 # Контекст сборки — корень репозитория: docker build -f apps/api/Dockerfile .
 
 FROM node:24-slim AS build
+# Prisma's migration CLI still ships a native schema engine. Detect the same
+# OpenSSL ABI here as in the runtime, so startup never downloads another engine.
+RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /repo
 # Сначала только манифесты — слой npm ci кешируется, пока не меняются зависимости.
 COPY package.json package-lock.json ./
@@ -31,8 +35,8 @@ RUN npm run prisma:generate --workspace=apps/api \
 
 FROM node:24-slim
 ENV NODE_ENV=production
-# openssl Prisma больше не нужен (в 7 нет движка на Rust, клиент ходит через
-# драйвер `pg`), но он остаётся: его тянет к себе Node для TLS к Postgres и R2.
+# Клиент Prisma 7 использует `pg`, но CLI миграций по-прежнему требует native
+# schema engine под runtime OpenSSL. Сборка выше должна упаковать тот же ABI.
 # ffmpeg нужен двум путям сразу:
 #  - голосовые агента: браузер пишет webm/opus, WhatsApp Cloud API принимает только
 #    ogg/opus (lib/audioTranscode.ts);
@@ -83,6 +87,9 @@ RUN mkdir -p /usr/share/fonts/truetype/royal-home-cover \
   && cp ./assets/fonts/cover/*.ttf /usr/share/fonts/truetype/royal-home-cover/ \
   && fc-cache -f
 RUN mkdir -p /app/uploads
+# Check the actual final image, not only the builder. Missing/wrong engine must
+# fail the build even when binaries.prisma.sh would be reachable on the host.
+RUN --network=none node /repo/node_modules/prisma/build/index.js --version
 EXPOSE 4000
 # migrate deploy при каждом старте — идемпотентно, применяет только новые миграции.
 # exec обязателен: без него PID 1 — sh, который НЕ пересылает SIGTERM ребёнку,
