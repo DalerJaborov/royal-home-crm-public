@@ -10088,7 +10088,7 @@ model RecruitmentCommunication {
   attemptStartedAt DateTime?
   completedAt DateTime?
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  updatedAt DateTime @default(now()) @updatedAt
 
   @@unique([previewId, channel])
   @@unique([actorId, idempotencyKey, channel])

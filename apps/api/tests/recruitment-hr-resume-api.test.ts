@@ -84,3 +84,15 @@ it("cannot call a record explicitly marked as not a candidate", async () => {
   const row = await candidate("NOT_CANDIDATE", { phone: "+992000000001" });
   await request(app).post(`/api/v1/vacancies/${row.id}/call`).set(auth()).send({}).expect(404);
 });
+it.each([['get', 'contact-options'], ['post', 'invitations/preview'], ['post', 'invitations']] as const)(
+  "validates malformed IDs only at the new %s /%s boundary", async (method, suffix) => {
+    const result = await request(app)[method](`/api/v1/vacancies/not-a-uuid/${suffix}`).set(auth()).expect(400);
+    expect(result.body.error).toBe("Неверная анкета");
+  });
+it("preserves historical vacancy routes independently of contact-command UUID validation", async () => {
+  const row = await candidate("NEW", { id: `synthetic-legacy-${randomUUID()}` });
+  const conversation = await request(app).get(`/api/v1/vacancies/${row.id}/conversation`).set(auth()).expect(200);
+  expect(conversation.body).toMatchObject({ inboxId: null, messages: [], files: [] });
+  await request(app).patch(`/api/v1/vacancies/${row.id}`).set(auth()).send({ interviewNote: "Тестовая заметка" }).expect(200);
+  await request(app).get('/api/v1/vacancies/not-an-existing-application/conversation').set(auth()).expect(404);
+});

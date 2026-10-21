@@ -56,3 +56,11 @@ Short status answers use separate work/study aliases in Russian and Tajik.
 An answer about work cannot populate the study field or vice versa; explicit
 independent facts remain sourced. Contradictory, third-party and future answers
 stay unresolved, while status replies and plain yes/no cannot become a name.
+
+The first full cloud gate exposed a schema/default mismatch and a contact-router
+validator leaking into unrelated vacancy endpoints. The ledger schema now declares
+the database's existing timestamp default; all four additive SQL migrations stay
+unchanged. UUID validation remains strict on the three new contact endpoints while
+historical conversation/ATS routes retain their behavior. Legacy call tests now
+seed historical records explicitly and verify the retired PATCH launch is rejected
+without side effects; receipt, no-answer, rescheduling and history checks remain.

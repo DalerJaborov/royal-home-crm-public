@@ -71995,7 +71995,7 @@
     "idempotencyGuard",
     "вход выполнен",
     "есть право: vacancies.view",
-    "(req, res, next) => { if (!z.string().uuid().safeParse(req.params.id).success) { res.status(400).json({ error…"
+    "validateApplicationId"
    ],
    "handlerRef": null,
    "tree": [
@@ -72205,7 +72205,7 @@
     "idempotencyGuard",
     "вход выполнен",
     "есть право: vacancies.view",
-    "(req, res, next) => { if (!z.string().uuid().safeParse(req.params.id).success) { res.status(400).json({ error…"
+    "validateApplicationId"
    ],
    "handlerRef": null,
    "tree": [
@@ -72285,7 +72285,7 @@
     "idempotencyGuard",
     "вход выполнен",
     "есть право: vacancies.view",
-    "(req, res, next) => { if (!z.string().uuid().safeParse(req.params.id).success) { res.status(400).json({ error…"
+    "validateApplicationId"
    ],
    "handlerRef": null,
    "tree": [

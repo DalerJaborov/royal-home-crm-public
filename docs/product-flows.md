@@ -16253,7 +16253,7 @@
 
 ### GET /api/v1/vacancies/:id/contact-options
 
-`apps/api/src/routes/recruitmentCommunications.ts` · на входе: общий предел частоты запросов, idempotencyGuard, вход выполнен, есть право: vacancies.view, (req, res, next) => { if (!z.string().uuid().safeParse(req.params.id).success) { res.status(400).json({ error…
+`apps/api/src/routes/recruitmentCommunications.ts` · на входе: общий предел частоты запросов, idempotencyGuard, вход выполнен, есть право: vacancies.view, validateApplicationId
 
 - пробует
   - res.json(await recruitmentContactOptions(req.params.id, req.agent!.id));
@@ -16303,7 +16303,7 @@
 
 ### POST /api/v1/vacancies/:id/invitations/preview
 
-`apps/api/src/routes/recruitmentCommunications.ts` · на входе: общий предел частоты запросов, idempotencyGuard, вход выполнен, есть право: vacancies.view, (req, res, next) => { if (!z.string().uuid().safeParse(req.params.id).success) { res.status(400).json({ error…
+`apps/api/src/routes/recruitmentCommunications.ts` · на входе: общий предел частоты запросов, idempotencyGuard, вход выполнен, есть право: vacancies.view, validateApplicationId
 
 - const body = recruitmentContactPreviewSchema.safeParse(req.body);
   · проверяет данные схемой recruitmentContactPreviewSchema
@@ -16321,7 +16321,7 @@
 
 ### POST /api/v1/vacancies/:id/invitations
 
-`apps/api/src/routes/recruitmentCommunications.ts` · на входе: общий предел частоты запросов, idempotencyGuard, вход выполнен, есть право: vacancies.view, (req, res, next) => { if (!z.string().uuid().safeParse(req.params.id).success) { res.status(400).json({ error…
+`apps/api/src/routes/recruitmentCommunications.ts` · на входе: общий предел частоты запросов, idempotencyGuard, вход выполнен, есть право: vacancies.view, validateApplicationId
 
 - const body = recruitmentContactConfirmSchema.safeParse(req.body);
   · проверяет данные схемой recruitmentContactConfirmSchema
