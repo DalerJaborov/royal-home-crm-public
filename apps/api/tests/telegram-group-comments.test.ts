@@ -17,6 +17,13 @@ const { decide } = vi.hoisted(() => ({ decide: vi.fn() }));
 vi.mock("../src/ai/client.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/ai/client.js")>()),
   callAiText: decide }));
+// Creating a seller legitimately schedules separate background lead scoring.
+// This suite checks comment classification/moderation, not that asynchronous
+// scorer; leave the comment-model spy strict and isolate only the unrelated job.
+vi.mock("../src/ai/scoring.js", async importOriginal => ({
+  ...(await importOriginal<typeof import("../src/ai/scoring.js")>()),
+  scoreClient: async () => null,
+}));
 
 const { sendMessage, deleteChannelCommentMessage } = vi.hoisted(() => ({
   sendMessage: vi.fn(),

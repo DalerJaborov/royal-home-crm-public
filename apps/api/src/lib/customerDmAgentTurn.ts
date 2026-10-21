@@ -26,6 +26,7 @@ import { loadCustomerDmMediaContent } from "./customerDmMediaContent.js";
 import { recordCustomerRecruitmentAttachments } from "./customerRecruitmentAttachments.js";
 import { customerAgentMediaReplyLanguage, type CustomerAgentMediaPerception } from "../ai/customerAgentMediaPerception.js";
 import { loadCustomerAgentMediaObservation, storeCustomerAgentMediaObservation } from "./customerAgentMediaObservation.js";
+import { loadCustomerAdjacentVisualObservation } from "./customerAdjacentVisualObservation.js";
 import { withBotTurnTrace, traceCustomerManagedBinding, traceCustomerCoreResult, traceCustomerCoreDisposition, traceMediaKinds } from "./botTurnTrace.js";
 
 export type CustomerDmAgentTurnResult = { status: "planned"; partIds: string[] } |
@@ -154,6 +155,9 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
         // mutation session above remains bound to the ORIGINAL raw input.
         text = [text, mediaPerception.transcript].filter(value => value.trim()).join("\n");
       }
+    }
+    if (runtime.mediaEnabled && !prepared.media.length && !mediaPerception) {
+      mediaPerception = await loadCustomerAdjacentVisualObservation(planningPrincipal, claim) ?? undefined;
     }
     // Finish/stash the already paid real perception so the next caption can
     // understand its preceding reel. Then abandon the older answer if a newer

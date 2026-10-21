@@ -25,6 +25,25 @@ The digest's synthetic publication is unique per CI attempt: an assertion failur
 must not leave a same-ID/different-membership post that makes its retry ambiguous.
 The separate intentional catalog collision controls remain unchanged.
 
+The next full run exposed the Telegram moderation test's global model spy
+catching an unrelated asynchronous client-scoring request. Isolate that scoring
+dependency in this test; keep the strict no-comment-model assertion intact.
+
+A bare public number now resolves after this inquiry's genuinely accepted object
+clarification. The existing accepted-list selection takes priority. Phone-shaped
+numbers, other questions, job context and another customer's history do not grant
+selection. The original focus resolver and locks still decide availability.
+
+Signed Settings public-envelope inputs can stop an older reply before a busy
+worker finishes FINAL; this observation grants no new input or action authority.
+For a photo followed immediately by a caption, only finite visual labels from
+the adjacent safely abandoned turn can be reused within 30 seconds, with the
+same account, credential, controller, policy and revision. No OCR, transcript,
+private history, accepted/unknown output or intervening message is reused by this
+bridge. General Instagram private-memory eligibility is deliberately unchanged.
+Tests cover the actual two-Settings-secret ingress configuration rather than
+substituting the stronger per-account-secret path used by earlier fixtures.
+
 A genuine application-saved receipt no longer causes unsolicited republication
 of the vacancy, while an explicit question about its conditions still gets those
 facts. An application invitation already present in the chosen paragraphs is not

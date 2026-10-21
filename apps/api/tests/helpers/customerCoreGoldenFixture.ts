@@ -28,8 +28,9 @@ export const invalidDecision = (value: unknown): ModelPart => {
   return { text: JSON.stringify(value) };
 };
 
-export async function createCustomerCoreGoldenFixture(options: { media?: boolean } = {}) {
+export async function createCustomerCoreGoldenFixture(options: { media?: boolean; publicEnvelope?: boolean } = {}) {
   const tag = `synthetic-core-companion-${randomUUID()}`, key = `${tag}-gemini-key`;
+  const globalIgSecret = `${tag}-global-ig-secret`;
   const accounts: string[] = [], events: string[] = [], partIds: string[] = [], properties: string[] = [], districts: string[] = [];
   const owners = new Map<string, { id: string; externalId: string; token: string; secret: string; peer: string }>();
   const ioViolations: string[] = [], bodies: unknown[] = [], physical: string[] = [], mids: string[] = [];
@@ -39,6 +40,7 @@ export async function createCustomerCoreGoldenFixture(options: { media?: boolean
     children?: { data: Array<{ id: string; media_type: string; media_url: string }> } }>>();
   const savedSettings = await prisma.settings.findUniqueOrThrow({ where: { id: "singleton" }, select: {
     botEnabled: true, metaEnabled: true, botInstagramEnabled: true, geminiApiKey: true, geminiApiKey2: true, geminiApiKeysExtra: true,
+    metaAppSecret: true, metaIgAppSecret: true,
   } });
   const savedPolicy = await prisma.customerRuntimePolicy.findUniqueOrThrow({ where: { id: "singleton" }, select: {
     contractVersion: true, rolloutMode: true, capabilities: true, activeAgentRevisionId: true,
@@ -59,7 +61,9 @@ export async function createCustomerCoreGoldenFixture(options: { media?: boolean
   const cohortId = randomUUID();
   try {
   await prisma.settings.update({ where: { id: "singleton" }, data: { botEnabled: true, metaEnabled: true,
-    botInstagramEnabled: true, geminiApiKey: encryptSecret(key), geminiApiKey2: null, geminiApiKeysExtra: [] } });
+    botInstagramEnabled: true, geminiApiKey: encryptSecret(key), geminiApiKey2: null, geminiApiKeysExtra: [],
+    ...(options.publicEnvelope ? { metaAppSecret: encryptSecret(`${tag}-other-global-app-secret`),
+      metaIgAppSecret: encryptSecret(globalIgSecret) } : {}) } });
   vi.stubEnv("IG_PROXY_URL", "https://synthetic-core-instagram.invalid"); vi.stubEnv("IG_PROXY_KEY", "");
   vi.stubEnv("GEMINI_PROXY_URL", "https://synthetic-core-gemini.invalid"); vi.stubEnv("GEMINI_PROXY_KEY", "");
   vi.stubEnv("GEMINI_API_KEY", key); vi.stubEnv("GEMINI_API_KEY_2", "");
@@ -153,7 +157,7 @@ export async function createCustomerCoreGoldenFixture(options: { media?: boolean
         secret: `${tag}-secret-${accounts.length}`, peer: `${tag}-peer-${accounts.length}` };
       await prisma.messengerAccount.create({ data: { id, channel: "INSTAGRAM", externalId: o.externalId,
         username: `synthetic_companion_agency_${id.replaceAll("-", "")}`, title: "Synthetic golden companion", enabled: true,
-        token: encryptSecret(o.token), appSecret: encryptSecret(o.secret) } });
+        token: encryptSecret(o.token), appSecret: options.publicEnvelope ? null : encryptSecret(o.secret) } });
       const endpoint = await prisma.$transaction(tx => ensureCustomerEndpoint(tx, { channel: "INSTAGRAM", subscriberId: o.peer,
         accountId: id, accountExternalId: o.externalId }));
       await prisma.$executeRaw`UPDATE "CustomerRuntimePolicy" SET "rolloutConfig"=jsonb_set("rolloutConfig",'{allowed}',
@@ -166,11 +170,11 @@ export async function createCustomerCoreGoldenFixture(options: { media?: boolean
       const eventId = `${tag}-in-${randomUUID()}`, rawBody = Buffer.from(JSON.stringify({ object: "instagram", entry: [{ id: o.externalId,
         messaging: [{ sender: { id: o.peer }, recipient: { id: o.externalId }, timestamp: Date.now(), message: { mid: eventId, text,
           ...(attachments ? { attachments } : {}) } }] }] }));
-      const signature = `sha256=${createHmac("sha256", o.secret).update(rawBody).digest("hex")}`;
+      const signature = `sha256=${createHmac("sha256", options.publicEnvelope ? globalIgSecret : o.secret).update(rawBody).digest("hex")}`;
       expect(await verifySignature(rawBody, signature)).toBe(true);
       const request = { rawBody, get: () => signature }; registerAuthenticatedMetaCustomerRequest(request);
       const stored = await persistVerifiedCustomerIngressBatch(request);
-      expect(stored.status).toBe("persisted"); if (stored.status !== "persisted" || stored.tickets.length !== 1) throw new Error("Actual companion intake failed");
+      expect(stored.status, JSON.stringify(stored)).toBe("persisted"); if (stored.status !== "persisted" || stored.tickets.length !== 1) throw new Error("Actual companion intake failed");
       const eventKey = stored.tickets[0].eventKey; events.push(eventKey); return eventKey;
     },
     async deliver(eventKey: string) {
