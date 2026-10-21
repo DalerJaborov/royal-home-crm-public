@@ -5,6 +5,7 @@ import { PUBLIC_AGENCY_CONTACT } from "../lib/publicAgencyContact.js";
 import { customerPublicThanks, customerRequestedAgencyContact, isCustomerPublicAppreciation, customerPublicReaction, customerPublicReactionText } from "./customerAgentConversationPolicy.js";
 import { customerAgentIntake, customerSellerIntakeQuestion } from "./customerAgentIntake.js";
 import { customerRecruitmentRequested, customerRecruitmentFactsRequested, isCustomerVacanciesObservation, recruitmentPositionForTurn } from "./customerAgentRecruitmentProtocol.js";
+import { customerRecruitmentReplyDetails, containsRecruitmentExperienceInvitation } from "./customerRecruitmentReply.js";
 import { clientOwnWords } from "./untrustedContent.js";
 import { customerAgentAttachmentInputSchema, customerAgentAttachmentQuestion, type CustomerAgentAttachmentInput } from "./customerAgentAttachmentInput.js";
 import { customerAgentMediaPerceptionSchema, customerAgentVisualSummary, type CustomerAgentMediaPerception } from "./customerAgentMediaPerception.js";
@@ -270,6 +271,10 @@ export function renderCustomerAgentDecision(input: {
   if (d.kind === "propose" && evidence.find(e => e?.ref === d.ref)?.value.kind !== "proposal") return null;
   if (d.kind !== "propose" && evidence.some(e => e?.value.kind === "proposal")) return null;
   const lines: string[] = [];
+  let experienceInvitationIncluded = false;
+  const applicationSaved = evidence.some(e => e?.value.kind === "receipt" && e.value.outcome === "job_application_saved");
+  const requestedKinds = (kinds: readonly CustomerPropertyFactKind[]) => input.requestedFacts.length
+    ? kinds.filter(kind => input.requestedFacts.includes(kind)) : [...kinds];
   const perception = input.mediaPerception ? customerAgentMediaPerceptionSchema.safeParse(input.mediaPerception) : undefined;
   if (perception && (!perception.success || input.surface !== "dm")) return null;
   const recruitmentMedia = perception?.success && customerRecruitmentRequested(
@@ -297,13 +302,13 @@ export function renderCustomerAgentDecision(input: {
   } else if (social[d.social][lang]) lines.push(social[d.social][lang]);
   for (const item of evidence) {
     if (!item) return null;
-    if (item.value.kind === "facts") lines.push(...factSegments(item.value, lang, input.inputText));
+    if (item.value.kind === "facts") lines.push(...factSegments({ ...item.value, kinds: requestedKinds(item.value.kinds) }, lang, input.inputText));
     if (item.value.kind === "publication_properties") {
       const parsed = customerAgentPublicationObservationSchema.safeParse(item.value);
       if (!parsed.success || input.surface !== "public_comment") return null;
       if (parsed.data.cards.length > 1) lines.push(lang === "tg" ? "Объектҳо аз ҳамин нашрия:" : "Объекты из этой публикации:");
       for (const facts of parsed.data.cards) {
-        lines.push(...factSegments({ kind: "facts", facts, kinds: parsed.data.kinds }, lang, input.inputText));
+        lines.push(...factSegments({ kind: "facts", facts, kinds: requestedKinds(parsed.data.kinds) }, lang, input.inputText));
         if (parsed.data.linksAllowed !== false && parsed.data.cards.length > 1 && facts.publicLink) lines.push(facts.publicLink);
       }
     }
@@ -319,6 +324,10 @@ export function renderCustomerAgentDecision(input: {
     }
     if (item.value.kind === "open_vacancies") {
       if (!isCustomerVacanciesObservation(item.value)) return null;
+      // An actual saved application receipt answers a candidate's submission.
+      // Reading the catalog to validate the role is not a request to repeat it.
+      // Explicit questions about conditions still retain their verified answer.
+      if (applicationSaved && !customerRecruitmentFactsRequested(input.inputText ?? "")) continue;
       if (!item.value.positions.length) lines.push(lang === "tg" ? "Ҳоло дар CRM ҷойи кори кушода тасдиқ нашудааст." : "Сейчас в CRM нет подтверждённых открытых вакансий.");
       else {
         if (input.verifiedContext?.publicState.jobPositionKey && !item.value.positions.some(row => row.key === input.verifiedContext?.publicState.jobPositionKey)) {
@@ -335,7 +344,11 @@ export function renderCustomerAgentDecision(input: {
           : `И ещё ${item.value.positions.length - 12} позиций. Напишите, какая работа вас интересует.`);
         if (matched) {
           const details = lang === "tg" ? matched.detailsTg : matched.detailsRu;
-          if (details) lines.push(details);
+          if (details) {
+            const paragraphs = customerRecruitmentReplyDetails(details, input.inputText ?? "");
+            lines.push(paragraphs.join("\n\n"));
+            experienceInvitationIncluded ||= containsRecruitmentExperienceInvitation(paragraphs);
+          }
           else lines.push(lang === "tg" ? "Шартҳои муфассали ин вазифа ҳоло нашр нашудаанд." : "Подробные условия этой должности пока не опубликованы.");
         }
       }
@@ -364,9 +377,14 @@ export function renderCustomerAgentDecision(input: {
   // facts or a local receipt. No whole-answer erasure or invented success.
   // Explicit facts are useful before any questionnaire. One question can be
   // chosen after the facts, but an unresolved property cannot ask for a phone.
-  if (question !== "none" && question !== "confirmation") lines.push(question === "property" &&
+  if (question !== "none" && question !== "confirmation" && !(question === "job_experience" && experienceInvitationIncluded && input.surface !== "public_comment")) lines.push(question === "property" &&
       evidence.some(e => e?.value.kind === "publication_properties" && e.value.cards.length > 1)
     ? lang === "tg" ? "Кадоме аз ин объектҳо ба шумо писанд омад?" : "Какой из этих объектов вас заинтересовал?"
+    : input.surface === "public_comment" && question.startsWith("job_")
+      ? experienceInvitationIncluded
+        ? lang === "tg" ? "Дархости корро дар паёми шахсӣ муҳокима карда метавонем." : "Обсудить отклик можно в личных сообщениях."
+        : lang === "tg" ? "Дар паёми шахсӣ нависед: метавонед резюме фиристед ё дар бораи худ ва таҷрибаатон нақл кунед."
+          : "Напишите нам в личные сообщения: можно прислать резюме или рассказать о себе и своём опыте."
     : question === "seller_details" && input.surface === "dm" && intake.role === "seller"
       ? customerSellerIntakeQuestion(intake.sellerKnown, lang)
     : question === "clarify_previous" && input.surface === "dm"
