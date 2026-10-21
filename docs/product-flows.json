@@ -4848,21 +4848,21 @@
        "c": []
       },
       {
+       "k": "do",
+       "t": "const note = describeNewAgentQueueOutcome( { sipExtension: agent.sipExtension, takesUnknownCalls: agent.takes…",
+       "a": [
+        "зовёт describeNewAgentQueueOutcome()"
+       ],
+       "c": []
+      },
+      {
        "k": "if",
-       "t": "stillOut",
+       "t": "note",
        "a": [],
        "c": [
         {
          "k": "do",
-         "t": "const reason = fix?.failed.find((f) => f.extension === agent.sipExtension)?.error ?? fix?.skipped ?? \"станция…",
-         "a": [
-          "дословно из кода"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "const note = `Внутренний номер ${agent.sipExtension} выдан, но в очередь входящих на АТС его добавить не удал…",
+         "t": "extensionNote = extensionNote ? `${extensionNote}. ${note}` : note;",
          "a": [
           "дословно из кода"
          ],

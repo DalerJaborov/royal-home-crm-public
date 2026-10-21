@@ -136,7 +136,7 @@ describe("Как записывать участника", () => {
 });
 
 describe("Ответ директору при заведении сотрудника", () => {
-  // 22.10.2026: заведение Бехруза (1016) пугало «станция не ответила», хотя
+  // 22.10.2026: заведение обычного агента пугало «станция не ответила», хотя
   // станция ответила, а в очередь обычный агент и не должен был попасть.
   const okFix = { added: [], removed: [], failed: [] };
 
@@ -146,6 +146,25 @@ describe("Ответ директору при заведении сотрудн
 
   it("обычный агент, сверка упала целиком — всё равно молчим: ему очередь не положена", () => {
     expect(describeNewAgentQueueOutcome({ sipExtension: "1016", takesUnknownCalls: false }, null)).toBeUndefined();
+  });
+
+  it("обычного агента не удалось исключить — не предлагает добавить его обратно", () => {
+    const fix = { ...okFix, failed: [{ fullName: "Тестовый агент", extension: "1016", error: "Permission denied" }] };
+    const note = describeNewAgentQueueOutcome({ sipExtension: "1016", takesUnknownCalls: false }, fix);
+    expect(note).toContain("исключить");
+    expect(note).toContain("Permission denied");
+    expect(note).not.toContain("добав");
+  });
+
+  it("ошибка сверки другого сотрудника не становится ошибкой нового агента", () => {
+    const fix = { ...okFix, failed: [{ fullName: "Другой агент", extension: "1099", error: "Permission denied" }] };
+    expect(describeNewAgentQueueOutcome({ sipExtension: "1016", takesUnknownCalls: false }, fix)).toBeUndefined();
+    expect(describeNewAgentQueueOutcome({ sipExtension: "1016", takesUnknownCalls: true }, fix)).toBeUndefined();
+  });
+
+  it("недоступная сверка не превращает обычного агента в оператора", () => {
+    const fix = { ...okFix, skipped: "Управление станцией не настроено" };
+    expect(describeNewAgentQueueOutcome({ sipExtension: "1016", takesUnknownCalls: false }, fix)).toBeUndefined();
   });
 
   it("оператора добавили — сказать нечего", () => {

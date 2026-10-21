@@ -1131,10 +1131,10 @@
 - если agent.sipExtension && (SALES_AGENT_ROLES as readonly string[]).includes(agent.role)
   - const fix = await ensureAgentsInIncomingQueue().catch(()
     · зовёт ensureAgentsInIncomingQueue()
-  - если stillOut
-    - const reason = fix?.failed.find((f) => f.extension === agent.sipExtension)?.error ?? fix?.skipped ?? "станция…
-      · дословно из кода
-    - const note = `Внутренний номер ${agent.sipExtension} выдан, но в очередь входящих на АТС его добавить не удал…
+  - const note = describeNewAgentQueueOutcome( { sipExtension: agent.sipExtension, takesUnknownCalls: agent.takes…
+    · зовёт describeNewAgentQueueOutcome()
+  - если note
+    - extensionNote = extensionNote ? `${extensionNote}. ${note}` : note;
       · дословно из кода
 - res.status(201).json({ id: agent.id, fullName: agent.fullName, phone: agent.phone, role: agent.role, sipExten…
   · ответ 201

@@ -19,7 +19,7 @@
   "conditions": 3563,
   "untranslatedUnique": 390,
   "untranslatedTotal": 497,
-  "partialUnique": 1019,
+  "partialUnique": 1018,
   "translatedShare": 86
  },
  "untranslated": [
@@ -12437,7 +12437,7 @@
      "a": [],
      "c": [
       {
-       "t": "если есть still out",
+       "t": "если есть заметка",
        "k": "if",
        "a": [],
        "c": []
