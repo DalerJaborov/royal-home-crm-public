@@ -362,11 +362,7 @@ async function waitCloudTests({ gh, repo, token, sha, cloudRun }) {
   const runInfo = await waitCloudWorkflow({gh,sha,cloudRun});
 
   // Отчёт скачиваем и при красном итоге: имена упавших тестов — первое, что нужно.
-  const dir = mkdtempSync(join(tmpdir(), "rh-ship-cloud-"));
-  const dl = spawnSync("gh", ["run", "download", String(cloudRun.id), "-R", `${repo.owner}/${repo.repo}`, "-n", CLOUD_ARTIFACT, "-D", dir], {
-    encoding: "utf8",
-    env: { ...process.env, GH_TOKEN: token },
-  });
+  const { dir, result: dl } = await downloadCloudArtifact({ runId: cloudRun.id, repo, token });
   let report = null;
   let reportSha = null;
   if (dl.status === 0 && existsSync(join(dir, "api-tests.json"))) {
@@ -385,6 +381,26 @@ async function waitCloudTests({ gh, repo, token, sha, cloudRun }) {
     if (lines.length) console.log(lines.map((l) => `  ${l}`).join("\n"));
   }
   return requireCloudRunPassed({ run: runInfo, reportSha, report, sha });
+}
+
+/** Retry only this read after a transport failure. Every attempt has a fresh
+ * directory: a truncated archive must never be mistaken for a complete report.
+ * SHA, successful workflow and complete API/source checks are still mandatory. */
+export async function downloadCloudArtifact({ runId, repo, token }, {
+  download = spawnSync, makeDir = () => mkdtempSync(join(tmpdir(), "rh-ship-cloud-")),
+  wait = sleepMs, log = console.log,
+} = {}) {
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const dir = makeDir();
+    const result = download("gh", ["run", "download", String(runId), "-R", `${repo.owner}/${repo.repo}`, "-n", CLOUD_ARTIFACT, "-D", dir], {
+      encoding: "utf8", env: { ...process.env, GH_TOKEN: token },
+    });
+    const detail = String(result.stderr || result.error?.message || "");
+    const transient = /timed?\s*out|timeout|TLS handshake|connection.*(?:reset|failed|closed|aborted)|wsarecv|unexpected EOF/iu.test(detail);
+    if (result.status === 0 || !transient || attempt === 3) return { dir, result };
+    log(`  отчёт: обрыв связи, повтор скачивания ${attempt + 1} из 3`);
+    await wait(1500 * attempt);
+  }
 }
 
 // ── Исполнение ───────────────────────────────────────────────────────────────

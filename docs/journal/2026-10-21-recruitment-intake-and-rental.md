@@ -23,3 +23,10 @@ transactions retain their permission/idle/configuration checks and record the
 actual authority. Tests cover ordinary strict behavior, catalog writes under the
 temporary policy, absent authentication, role denial, nonsettings guards and
 automatic expiration.
+
+The first full cloud workflow passed, but artifact download lost its network
+connection and correctly prevented release. The CLI now retries that read at
+most three times for transport errors, using a separate empty directory per
+attempt. Missing/forbidden artifacts still fail immediately. Exact source SHA,
+successful workflow and complete test/source report requirements are unchanged;
+unit tests cover recovery from a partial download and bounded terminal failure.
