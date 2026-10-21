@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { instagramAppBindingInputSchema, instagramAppBindingResultSchema, instagramAppBindingStatusSchema } from "@royal-home/shared";
 import { api } from "../../lib/api";
+import { exactDateTime } from "../../lib/format";
 
 export function InstagramAppBinding({ accountId }: { accountId: string }) {
   const [open, setOpen] = useState(false), [appId, setAppId] = useState("");
@@ -51,7 +52,7 @@ export function InstagramAppBinding({ accountId }: { accountId: string }) {
             {value.secretSource === "settings_instagram" ? "Ключ Instagram из настроек" : "Ключ Meta из настроек"}
           </option>)}
         </select></label>
-        {candidate && <p className="sub">Последний подтверждённый входящий запрос: {new Date(candidate.observedAt).toLocaleString("ru-RU")}.</p>}
+        {candidate && <p className="sub">Последний подтверждённый входящий запрос: {exactDateTime(candidate.observedAt)}.</p>}
         {!query.data.candidates.length && <p role="status">За последние сутки подходящий подписанный запрос не найден. Сохранение недоступно.</p>}
         <p className="sub">Администратор выбирает существующий ключ для этого аккаунта. Проверяются аккаунт и подписки;
           это не подтверждение владения секретом приложения со стороны Meta. Старые сообщения не меняются.</p>

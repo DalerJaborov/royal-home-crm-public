@@ -28,13 +28,13 @@ let body: InstagramAppBindingInput;
 let rollout: Awaited<ReturnType<typeof createCustomerRolloutFixture>>;
 const ticketKeys: string[] = [], nativeIds: string[] = [];
 let flags: { botEnabled: boolean; metaEnabled: boolean; botInstagramEnabled: boolean };
-async function observe(assurance: "public" | "protected" = "public") {
+async function observe(assurance: "public" | "protected" = "public", signer = secret) {
   const peer = `stand-binding-peer-${randomUUID()}`, eventId = randomUUID();
   await rollout.allowDm({ peer, accountId, accountExternalId: externalId });
   const rawBody = Buffer.from(JSON.stringify({ object: "instagram", entry: [{ id: externalId, messaging: [{
     sender: { id: peer }, recipient: { id: externalId }, timestamp: Date.now(), message: { mid: eventId, text: "stand input" },
   }] }] }));
-  const req = { rawBody, get: () => `sha256=${createHmac("sha256", secret).update(rawBody).digest("hex")}` };
+  const req = { rawBody, get: () => `sha256=${createHmac("sha256", signer).update(rawBody).digest("hex")}` };
   registerAuthenticatedMetaCustomerRequest(req);
   const pending = await persistVerifiedCustomerIngressBatch(req);
   expect(pending.status).toBe("persisted");
@@ -128,6 +128,17 @@ describe("authenticated Instagram application binding", () => {
     const fake = successfulMeta(); const result = await submit({ ...body, secretSource: "settings_meta" });
     expect(result.status).toBe(409); expect(result.body.code).toBe("observation_unavailable");
     expect(fake).not.toHaveBeenCalled(); await expectNotSaved();
+  });
+  it("requires an explicit selection when both current keys have exact-account canonical observations", async () => {
+    await observe("public", "stand-other-app-key");
+    const status = await readInstagramAppBindingStatus(accountId); expect(status.candidates).toHaveLength(2);
+    const fake = successfulMeta();
+    expect((await submit({ ...body, secretSource: undefined })).status).toBe(400); expect(fake).not.toHaveBeenCalled();
+    const selected = status.candidates.find(value => value.secretSource === "settings_meta")!;
+    const result = await submit({ ...body, ...selected, observedAt: undefined, configurationVersion: status.configurationVersion });
+    expect(result.status).toBe(200);
+    const saved = await prisma.messengerAccount.findUniqueOrThrow({ where: { id: accountId } });
+    expect(decryptSecret(saved.appSecret!)).toBe("stand-other-app-key"); expect(fake).toHaveBeenCalledTimes(2);
   });
   it("rejects a settings-key version change even when its plaintext is unchanged", async () => {
     await prisma.settings.update({ where: { id: "singleton" }, data: { metaIgAppSecret: encryptSecret(secret) } });

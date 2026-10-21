@@ -28,11 +28,20 @@ a private customer principal: only a genuinely new request matching the account 
 can use the existing protected-namespace verifier. Existing RAW/FINAL sources,
 rollout assignments, receipts, UNKNOWN quarantine and human holds remain unchanged.
 
-Validation in progress at the source checkpoint: 95 targeted PostgreSQL/pure/boundary
-checks passed before the final fixture-strengthening edit. The namespace regression
-was then run against the single omitted predicate and failed (an old-scope candidate
-was wrongly offered); the corrected source was restored with identical SHA256.
-Final integration/build/browser/map checks follow synchronization with current main.
+Validation after integrating the current vacancy release: 54 new checks and 42
+existing ingress/concurrency/account checks passed. A controlled single-predicate
+RED run offered an old-scope candidate incorrectly; the source was hash-restored,
+and that same regression passed in the integrated GREEN run. New checks also cover
+forged/wrong-account/receiver material, two observed keys without an implicit choice,
+source deletion/key/scope/actor changes, audit rollback, lost response and the real
+pending-to-fresh-account-HMAC transition. No customer/provider test messages are sent.
+Mock browser checks at 1280 and 390 pixels cover empty/error/pending/confirmed states,
+explicit intent, readback without retry and overflow. The common frontend audit
+caught a missing display timezone; the form now uses CRM's existing exactDateTime.
+These are component viewports, not a physical phone or a production login.
+The corrected form also displays 05:00 Dushanbe time in a browser context set to
+Istanbul. Final source precheck passed builds, 1811 frontend tests, map and source
+guards; local release-tool checks reported 97 passed and 32 platform skips.
 Earlier experimental Facebook Application probes did not establish installed
 Instagram app-to-signing-secret ownership; that unactivated prototype was replaced
 explicitly, never used as an automatic fallback or a successful provider proof.
