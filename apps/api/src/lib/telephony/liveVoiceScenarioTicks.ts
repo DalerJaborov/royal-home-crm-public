@@ -1,6 +1,6 @@
 import { API_PROCESS_TICKS } from "../apiProcessTicks.js";
 import { reportCronTickError, scheduleTracked } from "../cronHeartbeat.js";
-import { runInterviewInviteCallTick } from "../interviewInviteCall.js";
+import { runRecruitmentCommunicationTick } from "../recruitmentCommunications.js";
 import { runPostShowingCallTick } from "../postShowingCall.js";
 import { runSellerProbeCallTick } from "../sellerProbeCall.js";
 import { sweepLiveVoiceStationLeftovers } from "./liveVoiceBridge.js";
@@ -93,14 +93,15 @@ export function startLiveVoiceScenarioTicks(): void {
     }
   });
 
-  /** РОБОТ ПРИГЛАШАЕТ КАНДИДАТА НА СОБЕСЕДОВАНИЕ (25.09.2026). */
+  /** Recruitment v2: only reviewed staff commands bound to current core facts.
+   * Historic InterviewInviteCall rows remain evidence; this production scheduler
+   * deliberately does not execute their role-agnostic legacy persona. */
   let isInterviewInviteRunning = false;
   scheduleTracked("interview-invite-call", API_PROCESS_TICKS["interview-invite-call"], async () => {
     if (isInterviewInviteRunning) return;
     isInterviewInviteRunning = true;
     try {
-      const started = await runInterviewInviteCallTick();
-      if (started) console.log(`[cron] Звонков кандидатам с приглашением начато: ${started}`);
+      await runRecruitmentCommunicationTick();
     } catch (err) {
       reportCronTickError("Ошибка звонков кандидатам с приглашением", err);
     } finally {

@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { recruitmentPositionUpdateSchema, recruitmentPostCode, recruitmentRecoveryRequestSchema, type RecruitmentPosition, type RecruitmentPositionInput } from "@royal-home/shared";
+import { recruitmentPositionUpdateSchema, recruitmentPostCode, recruitmentRecoveryRequestSchema,
+  DEFAULT_RECRUITMENT_SCREENING_RULES, RECRUITMENT_FACT_LABELS, type RecruitmentScreeningRules,
+  type RecruitmentFactKey, type RecruitmentPosition, type RecruitmentPositionInput } from "@royal-home/shared";
 import { api } from "../lib/api";
 import { useAuthStore } from "../store/auth";
 import { useCan } from "../lib/permissions";
@@ -76,15 +78,18 @@ function PositionForm({ initial, onClose }: { initial: RecruitmentPosition | nul
   const actor = useAuthStore(s => s.agent?.id), epoch = useAuthStore(s => s.sessionEpoch), cache = useQueryClient();
   const [key] = useState(() => initial?.key ?? `position-${crypto.randomUUID()}`);
   const [draft, setDraft] = useState(() => initial ?? { titleRu: "", titleTg: "", detailsRu: "", detailsTg: "", isOpen: false });
+  const [rules, setRules] = useState<RecruitmentScreeningRules>(() => structuredClone(initial?.screeningRules ?? DEFAULT_RECRUITMENT_SCREENING_RULES));
   const [keywords, setKeywords] = useState(initial?.keywords.join("\n") ?? "");
   const [posts, setPosts] = useState(initial?.postCodes.join("\n") ?? ""), [error, setError] = useState("");
   const save = useMutation({ mutationFn: async () => {
     const values = posts.split(/\r?\n/).map(s => s.trim()).filter(Boolean), parsed = values.map(recruitmentPostCode);
     if (parsed.some(code => !code)) throw Error("Вставьте ссылки Instagram или коды публикаций: по одному в строке.");
     const payload = recruitmentPositionUpdateSchema.safeParse({ titleRu: draft.titleRu, titleTg: draft.titleTg,
-      detailsRu: draft.detailsRu, detailsTg: draft.detailsTg, isOpen: draft.isOpen,
+      detailsRu: draft.detailsRu, detailsTg: draft.detailsTg, isOpen: draft.isOpen, screeningRules: rules,
       postCodes: [...new Set(parsed as string[])], keywords: keywords.split(/\r?\n/).map(s => s.trim()).filter(Boolean), expectedRevision: initial?.revision ?? 0 });
-    if (!payload.success) throw Error("Заполните названия на двух языках; условия — до 2000 символов, публикаций — до 24.");
+    if (!payload.success) throw Error(payload.error.issues.some(issue => issue.path[0] === "screeningRules")
+      ? "Проверьте правила: минимальный возраст от 16 до 100 лет или оставьте поле пустым."
+      : "Заполните названия на двух языках; условия — до 2000 символов, публикаций — до 24, ключевых слов — до 16 без повторов.");
     return api<Catalog>(`/vacancies/positions/${key}`, { method: "PUT", body: payload.data, expectAgentId: actor });
   }, onSuccess: data => {
     const current = useAuthStore.getState();
@@ -101,6 +106,25 @@ function PositionForm({ initial, onClose }: { initial: RecruitmentPosition | nul
       <label className="grid gap-1">Условия на русском<textarea rows={5} maxLength={2000} value={draft.detailsRu} onChange={e => setDraft({ ...draft, detailsRu: e.target.value })} /></label>
       <label className="grid gap-1">Шартҳо ба тоҷикӣ<textarea rows={5} maxLength={2000} value={draft.detailsTg} onChange={e => setDraft({ ...draft, detailsTg: e.target.value })} /></label>
     </div>
+    <fieldset className="mt-5 border border-slate-200 rounded-xl p-4">
+      <legend className="px-1 font-medium">Что выяснить у кандидата на эту должность</legend>
+      <p className="sub mb-3">Правила действуют только для этой вакансии. Они подсказывают, что уточнить; решение о приглашении и найме принимает человек. Прежние решения и этапы кандидатов не меняются.</p>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="grid gap-1">Минимальный возраст (необязательно)<input className="input" type="number" min={16} max={100}
+          value={rules.minimumAge ?? ""} onChange={event => setRules({ ...rules, minimumAge: event.target.value === "" ? null : Number(event.target.value) })} /></label>
+        <div className="grid gap-2 content-start">
+          <label className="flex gap-2"><input type="checkbox" checked={rules.allowStudying} onChange={event => setRules({ ...rules, allowStudying: event.target.checked })} />Можно совмещать с учёбой</label>
+          <label className="flex gap-2"><input type="checkbox" checked={rules.allowOtherEmployment} onChange={event => setRules({ ...rules, allowOtherEmployment: event.target.checked })} />Можно совмещать с другой работой</label>
+        </div>
+      </div>
+      <p className="sub mt-3">Нужные сведения. Отсутствие опыта не означает отказ; портфолио может заменить рассказ о себе.</p>
+      <div className="grid gap-2 mt-2 sm:grid-cols-2">
+        {(Object.keys(RECRUITMENT_FACT_LABELS) as RecruitmentFactKey[]).map(key => <label className="flex gap-2" key={key}>
+          <input type="checkbox" checked={rules.requiredFacts.includes(key)} onChange={event => setRules({ ...rules,
+            requiredFacts: event.target.checked ? [...rules.requiredFacts, key] : rules.requiredFacts.filter(value => value !== key) })} />{RECRUITMENT_FACT_LABELS[key]}
+        </label>)}
+      </div>
+    </fieldset>
     <label className="grid gap-1 mt-4">Публикации Instagram<textarea rows={3} value={posts} onChange={e => setPosts(e.target.value)} placeholder="Ссылка или код, по одному в строке" /></label>
     <label className="grid gap-1 mt-4">Ключевые слова отклика<textarea rows={2} value={keywords} onChange={e => setKeywords(e.target.value)} placeholder="Например: контент. По одному слову в строке" /></label>
     <label className="flex gap-2 my-4"><input type="checkbox" checked={draft.isOpen} onChange={e => setDraft({ ...draft, isOpen: e.target.checked })} />Набор открыт</label>

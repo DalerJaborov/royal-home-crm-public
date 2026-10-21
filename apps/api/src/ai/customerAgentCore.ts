@@ -8,7 +8,7 @@ import { isPinnedCompanyPolicy, isPublicPropertySearch, publicSearchProjection, 
 import { customerRequestedAgencyContact, isCustomerPublicAppreciation, customerPublicReaction } from "./customerAgentConversationPolicy.js";
 import { customerAgentAttachmentInputSchema, type CustomerAgentAttachmentInput } from "./customerAgentAttachmentInput.js";
 import { customerAgentMediaPerceptionSchema, type CustomerAgentMediaPerception } from "./customerAgentMediaPerception.js";
-import { customerRecruitmentRequested, isCustomerVacanciesObservation, recruitmentPositionForTurn } from "./customerAgentRecruitmentProtocol.js";
+import { customerRecruitmentRequested, isCustomerVacanciesObservation, recruitmentPositionForTurn, recruitmentMissingForTurn } from "./customerAgentRecruitmentProtocol.js";
 import type { CustomerAgentAwaitContext, CustomerAgentModelTurn } from "./customerAgentModelContracts.js";
 export type { CustomerAgentAwaitContext, CustomerAgentModelTurn } from "./customerAgentModelContracts.js";
 
@@ -73,7 +73,8 @@ function safeObservation(value: CustomerAgentObservation, knowledgeSourceHash: s
 }
 /** Model projection never contains property UUID, signature, resource/action,
  * Client, native, endpoint, actor, grant or canonical state/fence identifiers. */
-function publicObservation(value: CustomerAgentObservation, recruitmentText = "", recruitmentKey?: string, turns?: CustomerAgentVerifiedContext["turns"]): unknown {
+function publicObservation(value: CustomerAgentObservation, recruitmentText = "", recruitmentKey?: string,
+  turns?: CustomerAgentVerifiedContext["turns"], knownFacts?: CustomerAgentVerifiedContext["recruitmentKnown"], answerTo?: CustomerAgentVerifiedContext["recruitmentAnswerTo"]): unknown {
   if (value.kind === "receipt") return { kind: "receipt", outcome: value.outcome };
   if (value.kind === "property_unresolved") return { kind: value.kind, status: value.status };
   if (value.kind === "proposal") return { kind: "proposal", summary: { ru: value.summary.ru, tg: value.summary.tg } };
@@ -85,7 +86,8 @@ function publicObservation(value: CustomerAgentObservation, recruitmentText = ""
     return { kind: value.kind, collecting: value.collecting,
       positions: value.positions.map(row => ({ titleRu: row.titleRu, titleTg: row.titleTg,
         conditionsPublished: !!row.detailsRu || !!row.detailsTg,
-        ...(row.key === selected?.key ? { detailsRu: row.detailsRu, detailsTg: row.detailsTg } : {}) })) };
+        ...(row.key === selected?.key ? { detailsRu: row.detailsRu, detailsTg: row.detailsTg,
+          missingInformation: recruitmentMissingForTurn(row, { inputText: recruitmentText, turns, knownFacts, answerTo }) } : {}) })) };
   }
   if (value.kind === "property_search") return publicSearchProjection(value);
   if (value.kind === "publication_properties") return { kind: value.kind, kinds: value.kinds,
@@ -232,7 +234,8 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
       const entry = existing ?? { ref: `e${evidence.length}`, value: clone(result.observation) };
       if (!existing) evidence.push(entry);
       projected = { status: "observed", ref: entry.ref, value: publicObservation(entry.value,
-        [frame.inputText, perception?.transcript, perception?.readableText].filter(Boolean).join("\n"), context?.publicState.jobPositionKey, context?.turns) };
+        [frame.inputText, perception?.transcript, perception?.readableText].filter(Boolean).join("\n"), context?.publicState.jobPositionKey,
+        context?.turns, context?.recruitmentKnown, context?.recruitmentAnswerTo) };
     } else {
       // Storage/provider details are server-only; do not inject raw error text.
       projected = result.status === "denied" && result.reason === "phone_required"

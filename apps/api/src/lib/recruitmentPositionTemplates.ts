@@ -1,4 +1,4 @@
-import { recruitmentPositionInputSchema } from "@royal-home/shared";
+import { recruitmentPositionInputSchema, REALTOR_RECRUITMENT_SCREENING_RULES, DEFAULT_RECRUITMENT_SCREENING_RULES } from "@royal-home/shared";
 import { VACANCY_FACTS, vacancyOfficeAddress, vacancyOfficeAddressTg } from "../ai/vacancyFacts.js";
 
 /** Editable starting points approved by the owner. These are NOT current
@@ -12,7 +12,7 @@ export function recruitmentPositionTemplates() {
       detailsTg: ["Маоши собит нест: даромад аз фоизи аҳдҳо вобаста аст.",
         `Ҳангоми фурӯш ҳаққи хизмат ${VACANCY_FACTS.pay.commissionTotalPct}%: ${VACANCY_FACTS.pay.agentPct}% ба агент ва ${VACANCY_FACTS.pay.companyPct}% ба ширкат.`,
         "Кори пурравақт, ҷадвал озод; вазифа қабул ва фурӯхтани амвол аст. Ширкат омӯзиш, роҳнамо ва муроҷиати муштариёнро медиҳад. Даромад кафолат дода намешавад.", vacancyOfficeAddressTg()].join("\n"),
-      isOpen: false, postCodes: [], keywords: [],
+      isOpen: false, postCodes: [], keywords: [], screeningRules: REALTOR_RECRUITMENT_SCREENING_RULES,
     }) },
     { key: "smm-videographer", ...recruitmentPositionInputSchema.parse({
       titleRu: "SMM-специалист / видеограф", titleTg: "Мутахассиси SMM / видеограф",
@@ -24,7 +24,7 @@ export function recruitmentPositionTemplates() {
         "Кор дар офис дар маркази Душанбе, аз душанбе то шанбе. Кори фосилавӣ пешбинӣ нашудааст.",
         "Дастаи дӯстона, қаҳва, кулчақанд ва шароити бароҳат дар офис.", vacancyOfficeAddressTg(),
         "Барои муроҷиат резюме фиристед ё дар бораи худ ва таҷрибаатон нақл кунед. Намунаи корҳо ё портфолио — бо хоҳиши худатон. Маош ва соатҳои дақиқ ҳоло нашр нашудаанд."].join("\n"),
-      isOpen: false, postCodes: [], keywords: ["контент"],
+      isOpen: false, postCodes: [], keywords: ["контент"], screeningRules: DEFAULT_RECRUITMENT_SCREENING_RULES,
     }) },
   ];
 }

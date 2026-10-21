@@ -83,19 +83,24 @@ describe("S2: «Всё равно позвать»", () => {
     expect(canOverrideRejected({ status: "HIRED" })).toBe(false);
   });
 
-  it("строка шлёт eligibleOverride и показывает стадию в плоских списках", () => {
-    const src = read("components/VacancyRow.tsx");
-    expect(src).toMatch(/bucket === "rejected" && canOverrideRejected\(item\)/);
+  it("ручное решение остаётся в панели, очередь показывает стадию без мутаций", () => {
+    const src = read("components/VacancyStageActions.tsx");
+    expect(src).toContain("canOverrideRejected(item)");
     expect(src).toContain('{ id: item.id, status: "REVIEWED", eligibleOverride: true }');
-    expect(src).toMatch(/bucket !== "fit"[^\n]*\n?\s*<span className=\{VACANCY_STATUS_CHIP\[item\.status\]\}/);
+    const queue = read("components/VacancyRow.tsx");
+    expect(queue).toContain("CANDIDATE_STAGE_LABELS[item.status]");
+    expect(queue).not.toContain("mutate(");
   });
 });
 
 describe("S6: форма собеседования", () => {
-  it("галочка робота сбрасывается при каждом открытии и у поля есть min", () => {
+  it("сохранение даты не включает звонок, приглашение имеет отдельный выбор и min", () => {
     const src = read("components/VacancyStageActions.tsx");
-    expect(src).toContain("setInviteCall(!!item.phone)");
     expect(src).toContain("min={interviewIsoToInput(new Date())}");
+    expect(src).not.toContain("inviteCall: true");
+    const contact = read("components/VacancyContactForm.tsx");
+    expect(contact).toContain('channels.includes("ASSISTANT_CALL")');
+    expect(contact).toContain("Посмотреть приглашение");
   });
 
   it("причина «звонка не будет» показывается, только когда сервер её прислал", () => {
@@ -216,7 +221,8 @@ describe("S13: язык переписки", () => {
     expect(vacancyChatLanguageText("kk")).toBe("другой");
     const src = read("components/VacancyDetails.tsx");
     expect(src).not.toContain("Пишет по-");
-    expect(src).toContain("Язык переписки:");
+    expect(src).toContain("vacancyChatLanguageText(item.chatLanguage)");
+    expect(src).toContain("Язык не указан");
   });
 });
 
@@ -244,9 +250,12 @@ describe("S15: журнал «Архива» — подписи действий
   });
 });
 
-describe("S17: «Перенести» в карточке «Сегодня»", () => {
-  it("форма рисуется в полосу под строкой, а не в колонке кнопок", () => {
-    expect(read("pages/Vacancies.tsx")).toMatch(/<VacancyStageActions item=\{item\} compact formHost=\{formHost\} \/>/);
+describe("S17: дата открывается в доступном модальном окне", () => {
+  it("форма не раздувает колонку действий кандидата", () => {
+    const src = read("components/VacancyStageActions.tsx");
+    expect(src).toContain("<Rh2Sheet");
+    expect(src).toContain("closeOnBackdrop={false}");
+    expect(read("pages/Vacancies.tsx")).toContain("<VacancyStageActions item={current}");
   });
 });
 
@@ -260,11 +269,12 @@ describe("A9: «Перевести в кандидаты» — по правам
   });
 });
 
-describe("A10b: ссылка в «Сообщения» — только тому, кому раздел открыт", () => {
-  it("закрыта правами messages.view / messages.viewOwn", () => {
+describe("A10b: приглашение не уводит в социальные сообщения", () => {
+  it("переписка читается через разрешённый endpoint вакансии, исходящих ссылок нет", () => {
     const src = read("components/VacancyDetails.tsx");
-    expect(src).toContain('can("messages.view") || can("messages.viewOwn")');
-    expect(src).toMatch(/canOpenInbox && \(\s*<Link/);
+    expect(src).toContain("useVacancyConversation(item.id)");
+    expect(src).not.toContain("/messages?open=");
+    expect(read("components/VacancyContactForm.tsx")).not.toContain("/messages?open=");
   });
 });
 
@@ -293,11 +303,12 @@ describe("S8: «Показаны N из M»", () => {
     expect(note?.text).toContain("Показаны 200 из 340");
   });
 
-  it("экран показывает строку и грузит больше, а не обрезает молча", () => {
+  it("очередь использует серверные страницы, включая кандидатов после двухсотой анкеты", () => {
     const src = read("pages/Vacancies.tsx");
-    expect(src).toContain("vacancyShownNote(");
-    expect(src).toContain("Показать ещё");
-    expect(src).toContain("limit,");
+    expect(src).toContain("candidateQueuePage(");
+    expect(src).toContain("Предыдущие"); expect(src).toContain("Следующие");
+    expect(src).toContain("limit: CANDIDATE_QUEUE_PAGE_SIZE, offset,");
+    expect(src).not.toContain("VACANCY_LIST_MAX");
   });
 });
 

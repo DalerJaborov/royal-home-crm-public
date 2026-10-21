@@ -2164,7 +2164,7 @@ export async function originateLiveVoiceScenarioCall(
     /** Язык собеседника, если сценарий его знает (см. PendingLiveVoiceCall.language). */
     language?: LiveVoiceLanguage;
   },
-  options?: { callerId?: string }
+  options?: { callerId?: string; channelId?: string; beforeOriginate?: () => Promise<void> }
 ): Promise<LiveVoiceClientCallResult> {
   if (!isDialableTajikNumber(phoneNumber)) {
     return { ok: false, error: "Номер не похож на таджикский — станция не сможет его набрать" };
@@ -2198,10 +2198,20 @@ export async function originateLiveVoiceScenarioCall(
   if (liveVoiceGeminiPaused()) {
     return { ok: false, busy: true, error: "Gemini не подключается — робот на паузе" };
   }
+  await options?.beforeOriginate?.();
+  // The source guard may wait on DB locks. Recheck the in-process physical
+  // reservation after that await, then reserve without another async gap.
+  if (hasActiveCallToNumber(target) || liveVoiceLineBusy()) {
+    return { ok: false, busy: true, error: "Линия или номер уже заняты другим разговором" };
+  }
+  if (liveVoiceAudioPathDown() || liveVoiceGeminiPaused()) {
+    return { ok: false, busy: true, error: "Голосовой помощник временно приостановлен" };
+  }
   activeCallsByNumber.set(target, "pending");
 
   const result = await originateGuarded(target, creds, `Local/${target}@${DIALPLAN_CONTEXT}/n`, LIVE_VOICE_ARI_APP, {
     callerId: options?.callerId ?? "Royal Home",
+    channelId: options?.channelId,
   });
   if (!result.ok || !result.channelId) {
     activeCallsByNumber.delete(target);

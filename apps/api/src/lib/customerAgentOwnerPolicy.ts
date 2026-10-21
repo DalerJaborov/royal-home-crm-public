@@ -15,7 +15,7 @@ import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { customerAgentRolloutConfigSchema } from "@royal-home/shared";
 import { customerAgentRevisionReachable } from "./customerAgentRevisionAdvance.js";
-import { isCustomerRecruitmentUpgradeV1 } from "./customerRecruitmentUpgrade.js";
+import { isCustomerRecruitmentUpgradeV1, isCustomerRecruitmentResumeUpgradeV2 } from "./customerRecruitmentUpgrade.js";
 
 export class CustomerAgentOwnerError extends Error {
   constructor(readonly status: number, readonly code: string) { super(code); }
@@ -76,7 +76,7 @@ export async function readCustomerAgentOwnerState(actorId: string) {
       configId:createCustomerAgentProviderSnapshot().configRevision });
   });
 }
-type PublishSpec = Pick<z.infer<typeof customerAgentPublishRequestSchema>, 'expectedPolicyRevision'|'rollout'|'capabilities'|'advanceIdleRevision'|'confirmMediaProfileUpgrade'|'confirmCatalogFactsUpgrade'|'reason'>;
+type PublishSpec = Pick<z.infer<typeof customerAgentPublishRequestSchema>, 'expectedPolicyRevision'|'rollout'|'capabilities'|'advanceIdleRevision'|'confirmMediaProfileUpgrade'|'confirmCatalogFactsUpgrade'|'confirmRecruitmentResumeUpgrade'|'reason'>;
 type PublishAuthority = 'step_up' | 'retained_policy_refresh';
 
 /** No client policy/manifest/config overrides. This is an explicit signed-in
@@ -101,6 +101,7 @@ export async function refreshCurrentCustomerAgentForOwner(actorId:string,raw:unk
     },
   });
   if(revision.id===current.policy.activeAgentRevisionId) {
+    if(body.confirmRecruitmentResumeUpgrade) fail(409,'recruitment_resume_upgrade_not_required');
     const verified=await loadVerifiedCustomerAgentRevision(revision);
     if(verified.status!=='current') fail(409,'revision_not_current');
     return prisma.$transaction(async tx=>{
@@ -120,6 +121,7 @@ export async function refreshCurrentCustomerAgentForOwner(actorId:string,raw:unk
     expectedPolicyRevision:body.expectedPolicyRevision,reason:body.reason,
     rollout:{...current.rollout,candidateRevisionId:revision.id,cohortId:randomUUID()},
     capabilities:current.capabilities,advanceIdleRevision:true,
+    ...(body.confirmRecruitmentResumeUpgrade?{confirmRecruitmentResumeUpgrade:true as const}:{}),
     ...(prior.toolSchemaHash!==revision.toolSchemaHash||prior.knowledgeSchemaHash!==revision.knowledgeSchemaHash?{confirmCatalogFactsUpgrade:true as const}:{}),
   },'retained_policy_refresh');
 }
@@ -178,7 +180,8 @@ async function publishVerifiedCustomerAgentForOwner(actorId:string,body:PublishS
         !isDeepStrictEqual({...body.rollout,candidateRevisionId:before.data.candidateRevisionId,cohortId:before.data.cohortId},before.data)||
         !isDeepStrictEqual(customerAgentOwnerStateSchema.shape.capabilities.parse(current.capabilities),body.capabilities)) fail(409,'routine_refresh_configuration_changed');
     }
-    let recruitmentProtocolUpgrade=false;
+    let recruitmentProtocolUpgrade=false, recruitmentResumeUpgrade=false;
+    if(body.confirmRecruitmentResumeUpgrade&&!body.advanceIdleRevision) fail(409,'recruitment_resume_upgrade_requires_idle');
     // Updating existing CORE requires an explicit owner-approved idle edge.
     // Assignments, original sources and receipts are never rewritten.
     const [incumbent]=await tx.$queryRaw<Array<{blocked:boolean}>>`SELECT EXISTS(SELECT 1 FROM "CustomerAgentRolloutAssignment" WHERE "lane"='CORE'
@@ -213,11 +216,15 @@ async function publishVerifiedCustomerAgentForOwner(actorId:string,body:PublishS
       for(const field of ['knowledgeSourceHash','limits'] as const)
         if(!isDeepStrictEqual(prior[field],next[field])) fail(409,"revision_advance_configuration_changed");
       const catalogChanged = prior.knowledgeSchemaHash !== next.knowledgeSchemaHash || prior.toolSchemaHash !== next.toolSchemaHash;
-      recruitmentProtocolUpgrade=body.confirmCatalogFactsUpgrade===true && isCustomerRecruitmentUpgradeV1(prior,next);
+      const resumePair=isCustomerRecruitmentResumeUpgradeV2(prior,next);
+      if(resumePair&&!body.confirmRecruitmentResumeUpgrade) fail(409,'recruitment_resume_upgrade_confirmation_required');
+      if(body.confirmRecruitmentResumeUpgrade&&!resumePair) fail(409,'recruitment_resume_upgrade_not_qualified');
+      recruitmentResumeUpgrade=resumePair&&body.confirmRecruitmentResumeUpgrade===true;
+      recruitmentProtocolUpgrade=recruitmentResumeUpgrade || body.confirmCatalogFactsUpgrade===true && isCustomerRecruitmentUpgradeV1(prior,next);
       if(prior.promptHash!==next.promptHash && !recruitmentProtocolUpgrade) fail(409,"revision_advance_configuration_changed");
-      if (catalogChanged && !body.confirmCatalogFactsUpgrade) fail(409,"catalog_facts_upgrade_confirmation_required");
-      if (!catalogChanged && body.confirmCatalogFactsUpgrade) fail(409,"catalog_facts_upgrade_not_required");
-      if (catalogChanged && (prior.providerProfileHash !== next.providerProfileHash || prior.providerPolicyHash !== next.providerPolicyHash ||
+      if (catalogChanged && !body.confirmCatalogFactsUpgrade && !recruitmentResumeUpgrade) fail(409,"catalog_facts_upgrade_confirmation_required");
+      if (!catalogChanged && body.confirmCatalogFactsUpgrade && !recruitmentResumeUpgrade) fail(409,"catalog_facts_upgrade_not_required");
+      if ((catalogChanged || recruitmentResumeUpgrade) && (prior.providerProfileHash !== next.providerProfileHash || prior.providerPolicyHash !== next.providerPolicyHash ||
         !isDeepStrictEqual([...before.data.allowed].sort((a,b)=>a.endpointScopeId.localeCompare(b.endpointScopeId)),
           [...body.rollout.allowed].sort((a,b)=>a.endpointScopeId.localeCompare(b.endpointScopeId))) ||
         before.data.percentBasisPoints !== body.rollout.percentBasisPoints ||
@@ -256,6 +263,7 @@ async function publishVerifiedCustomerAgentForOwner(actorId:string,body:PublishS
       authority,routineRefresh:routine,retainedPaidAuthority:routine,idleRevisionAdvanced:body.advanceIdleRevision===true,
       catalogFactsUpgrade:body.confirmCatalogFactsUpgrade===true,
       recruitmentProtocolUpgrade,
+      recruitmentResumeUpgradeVersion:recruitmentResumeUpgrade?'v2':null,
       mediaProfileUpgrade:body.confirmMediaProfileUpgrade===true,reason:body.reason});
     if(!routine&&!settingsStepUpSatisfied(actor)) fail(428,"step_up_required");
     return {policyRevision:updated.policyRevision.toString(),rolloutMode:'ACTIVE',existingPromotion:'not_implemented'};

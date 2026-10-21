@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **647**. Развилок в самих путях: **2312**; вместе с задачами по расписанию и фоновыми заданиями — **3563**. Модулей: **73**.
+Путей: **650**. Развилок в самих путях: **2322**; вместе с задачами по расписанию и фоновыми заданиями — **3568**. Модулей: **73**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -15389,6 +15389,8 @@
 - если !parsed.success
   - return res.status(400).json({ error: "Неверные данные" });
     · ответ 400 — «Неверные данные»
+- await recordRecruitmentSmsReceipt(id, status, at);
+  · зовёт recordRecruitmentSmsReceipt()
 - const updated = await prisma.smsMessage.updateMany({ where: { provider: "payom", providerMessageId: id, OR: […
   · меняет в базе: smsMessage
 - если updated.count > 0 && PAYOM_NOT_DELIVERED.includes(status)
@@ -16213,7 +16215,7 @@
 
 - const application = await prisma.jobApplication.findUnique({ where: { id: req.params.id }, select: { name: tr…
   · читает в базе: jobApplication
-- если !application
+- если !application || application.status === "NOT_CANDIDATE"
   - return res.status(404).json({ error: "Анкета не найдена" });
     · ответ 404 — «Анкета не найдена»
 - если !application.phone
@@ -16249,6 +16251,17 @@
   - endOrigination(req.agent!.id);
     · зовёт endOrigination()
 
+### GET /api/v1/vacancies/:id/contact-options
+
+`apps/api/src/routes/recruitmentCommunications.ts` · на входе: общий предел частоты запросов, idempotencyGuard, вход выполнен, есть право: vacancies.view, (req, res, next) => { if (!z.string().uuid().safeParse(req.params.id).success) { res.status(400).json({ error…
+
+- пробует
+  - res.json(await recruitmentContactOptions(req.params.id, req.agent!.id));
+    · ответ 200
+- если сорвалось
+  - failure(res, error);
+    · дословно из кода
+
 ### GET /api/v1/vacancies/:id/conversation
 
 `apps/api/src/routes/vacancies.ts` · на входе: общий предел частоты запросов, idempotencyGuard, вход выполнен, есть право: vacancies.view
@@ -16261,7 +16274,7 @@
 - если !conversationId
   - return res.json({ inboxId: null, messages: [], files: [] });
     · ответ 200
-- const raw = application.channel === "TELEGRAM" ? await prisma.telegramConversation.findUnique({ where: { id: …
+- const raw = (application.channel === "TELEGRAM" || !!inquiry?.telegramConversationId) ? await prisma.telegram…
   · читает в базе: telegramConversation
   · читает в базе: telegramDirectConversation
   · читает в базе: botConversation
@@ -16287,6 +16300,42 @@
 - если !sendPrivateFile(res, application.cvFile, "vacancy-cv")
   - return res.status(404).json({ error: "Файл не найден" });
     · ответ 404 — «Файл не найден»
+
+### POST /api/v1/vacancies/:id/invitations/preview
+
+`apps/api/src/routes/recruitmentCommunications.ts` · на входе: общий предел частоты запросов, idempotencyGuard, вход выполнен, есть право: vacancies.view, (req, res, next) => { if (!z.string().uuid().safeParse(req.params.id).success) { res.status(400).json({ error…
+
+- const body = recruitmentContactPreviewSchema.safeParse(req.body);
+  · проверяет данные схемой recruitmentContactPreviewSchema
+- если !body.success
+  - res.status(400).json({ error: "Проверьте время, каналы и условия обращения", details: body.error.flatten() });
+    · ответ 400 — «Проверьте время, каналы и условия обращения»
+  - return;
+    · дальше не идёт, ничего не меняя
+- пробует
+  - res.json(await previewRecruitmentContact(req.params.id, req.agent!.id, body.data));
+    · ответ 200
+- если сорвалось
+  - failure(res, error);
+    · дословно из кода
+
+### POST /api/v1/vacancies/:id/invitations
+
+`apps/api/src/routes/recruitmentCommunications.ts` · на входе: общий предел частоты запросов, idempotencyGuard, вход выполнен, есть право: vacancies.view, (req, res, next) => { if (!z.string().uuid().safeParse(req.params.id).success) { res.status(400).json({ error…
+
+- const body = recruitmentContactConfirmSchema.safeParse(req.body);
+  · проверяет данные схемой recruitmentContactConfirmSchema
+- если !body.success
+  - res.status(400).json({ error: "Нужны актуальный предпросмотр и ключ операции" });
+    · ответ 400 — «Нужны актуальный предпросмотр и ключ операции»
+  - return;
+    · дальше не идёт, ничего не меняя
+- пробует
+  - res.json(await confirmRecruitmentContact(req.params.id, req.agent!.id, body.data));
+    · ответ 200
+- если сорвалось
+  - failure(res, error);
+    · дословно из кода
 
 ### GET /api/v1/vacancies/:id/invite-call-recording
 
@@ -16329,11 +16378,23 @@
 - если !parsed.success
   - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
     · ответ 400 — «Неверные данные»
+- если body.inviteCall === true
+  - return res.status(400).json({ error: "Подготовьте приглашение с предпросмотром и выберите SMS или звонок асси…
+    · ответ 400 — «Подготовьте приглашение с предпросмотром и выберите SMS или звонок…»
 - const existing = await prisma.jobApplication.findUnique({ where: { id: req.params.id } });
   · читает в базе: jobApplication
 - если !existing
   - return res.status(404).json({ error: "Анкета не найдена" });
     · ответ 404 — «Анкета не найдена»
+- если body.positionKey !== undefined
+  - если existing.customerInquiryId
+    - return res.status(409).json({ error: "Вакансия этой анкеты связана с обращением нового ядра." });
+      · ответ 409 — «Вакансия этой анкеты связана с обращением нового ядра.»
+  - const position = await prisma.recruitmentPosition.findUnique({ where: { key: body.positionKey }, select: { ke…
+    · читает в базе: recruitmentPosition
+  - если !position
+    - return res.status(400).json({ error: "Выберите существующую вакансию" });
+      · ответ 400 — «Выберите существующую вакансию»
 - если body.interviewAt !== undefined
   - если body.interviewAt === null
     - interviewAt = null;
@@ -16355,6 +16416,9 @@
     - если !normalized
       - return res.status(400).json({ error: "Неверный номер телефона" });
         · ответ 400 — «Неверный номер телефона»
+- если body.positionKey !== undefined
+  - data.hrPositionKey = body.positionKey;
+    · дословно из кода
 - если body.status
   - data.status = body.status;
     · дословно из кода
@@ -16379,6 +16443,8 @@
 - если phone !== undefined
   - data.phone = phone;
     · дословно из кода
+  - data.recruitmentPhoneOverride = true;
+    · дословно из кода
 - если body.eligibleOverride !== undefined
   - data.eligibleOverride = body.eligibleOverride === true ? true : null;
     · дословно из кода
@@ -16402,9 +16468,19 @@
       · дословно из кода
 - const saved = await prisma.$transaction(async (tx)
   · всё внутри — одной транзакцией
+  · обращается к базе своим SQL
+  · считает в базе: recruitmentCommunication
   · меняет в базе: jobApplication
   · меняет в базе: interviewInviteCall
-  - const result = await tx.jobApplication.updateMany({ where: { id: req.params.id }, data });
+  - await tx.$queryRaw`SELECT "id" FROM "JobApplication" WHERE "id"=${req.params.id} FOR UPDATE`;
+    · обращается к базе своим SQL
+  - если body.status !== undefined || body.interviewAt !== undefined || body.phone !== undefined || body.positionKey !…
+    - const active = await tx.recruitmentCommunication.count({ where: { jobApplicationId: req.params.id, channel: "…
+      · считает в базе: recruitmentCommunication
+    - если active
+      - return "calling" as const;
+        · дословно из кода
+  - const result = await tx.jobApplication.updateMany({ where: { id: req.params.id, updatedAt: existing.updatedAt…
     · меняет в базе: jobApplication
   - если result.count === 0
     - return false;
@@ -16415,9 +16491,12 @@
   - если inviteAt
     - await enqueueInterviewInviteCallTx(tx, { jobApplicationId: req.params.id, interviewAt: inviteAt, requestedByI…
       · зовёт enqueueInterviewInviteCallTx()
+- если saved === "calling"
+  - return res.status(409).json({ error: "Ассистент сейчас говорит с кандидатом. Дождитесь результата звонка пере…
+    · ответ 409 — «Ассистент сейчас говорит с кандидатом. Дождитесь результата звонка…»
 - если !saved
-  - return res.status(404).json({ error: "Анкета не найдена" });
-    · ответ 404 — «Анкета не найдена»
+  - return res.status(409).json({ error: "Анкета уже изменилась. Обновите её и повторите действие." });
+    · ответ 409 — «Анкета уже изменилась. Обновите её и повторите действие.»
 - если statusChanged || changes.fields.length > 0
   - logAudit(req, statusChanged ? "VACANCY_STATUS" : "VACANCY_UPDATE", "JobApplication", req.params.id, { ...(sta…
     · зовёт logAudit()
@@ -16438,7 +16517,7 @@
 - const [ items, total, todayRows, filteredCount, noPhoneCount, byStatus, byPriority, bucketFit, bucketIncomple…
   · читает в базе: jobApplication
   · считает в базе: jobApplication
-- res.json({ items: ordered.map(presentListItem), total, todayInterviews: todayRows.map(presentListItem), filte…
+- res.json({ items: (bucket ? ordered : items).map(presentListItem), total, offset, todayInterviews: todayRows.…
   · ответ 200
 
 ## /api/v1/vacancies/positions
@@ -16499,8 +16578,8 @@
     - return;
       · дальше не идёт, ничего не меняя
   - если result === "limit"
-    - res.status(409).json({ error: "Достигнут лимит: 24 позиции. Закройте или отредактируйте существующую." });
-      · ответ 409 — «Достигнут лимит: 24 позиции. Закройте или отредактируйте существующую.»
+    - res.status(409).json({ error: "Достигнут лимит: 24 позиции. Отредактируйте существующую позицию." });
+      · ответ 409 — «Достигнут лимит: 24 позиции. Отредактируйте существующую позицию.»
     - return;
       · дальше не идёт, ничего не меняя
   - res.json({ items: await readRecruitmentPositions() });
@@ -19622,37 +19701,26 @@
   - return;
     · дальше не идёт, ничего не меняя
 - пробует
-  - const started = await runInterviewInviteCallTick();
-    · зовёт runInterviewInviteCallTick()
-    - await loadCompanyDaysOff();
-      · зовёт loadCompanyDaysOff()
-    - const settings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { liveVoiceEnabled: t…
-      · читает в базе: settings
-    - const audioDown = enabled && (await stationAudioDown(now));
-      · зовёт stationAudioDown()
-    - если !enabled
-      - return 0;
-        · дословно из кода
-    - если !isWithinPostShowingCallHours(now)
-      - return 0;
-        · дословно из кода
-    - если audioDown
-      - return 0;
-        · дословно из кода
-    - const due = await prisma.interviewInviteCall.findMany({ where: { status: { in: ["PENDING", "NO_ANSWER"] }, at…
-      · читает в базе: interviewInviteCall
+  - await runRecruitmentCommunicationTick();
+    · зовёт runRecruitmentCommunicationTick()
+    - const interruptedCalls = await prisma.$queryRaw<Array<{ id: string; providerReceipt: string | null }>>`SELECT…
+      · обращается к базе своим SQL
+    - для каждого: const call of interruptedCalls
+      - const session = await prisma.liveVoiceSession.findFirst({ where: { channelId: call.providerReceipt ?? call.id…
+        · читает в базе: liveVoiceSession
+      - если session?.endedAt
+        - await finishRecruitmentAssistantCall(call.id, { channelId: call.providerReceipt ?? call.id, reason: session.e…
+          · зовёт finishRecruitmentAssistantCall()
+      - иначе
+        - await settle(call.id, "UNKNOWN", "Итог звонка не получен. Повторный звонок запрещён до проверки.");
+          · дословно из кода
+    - await prisma.$executeRaw`UPDATE "RecruitmentCommunication" SET "status"='UNKNOWN',"reason"='Процесс прервался…
+      · обращается к базе своим SQL
+    - const due = await prisma.$queryRaw<Array<{ id: string }>>`SELECT "id" FROM "RecruitmentCommunication" WHERE "…
+      · обращается к базе своим SQL
     - для каждого: const row of due
-      - const outcome = await dialInterviewInviteCall(row.id, now);
-        · зовёт dialInterviewInviteCall()
-      - если outcome === "started"
-        - return 1;
-          · дословно из кода
-      - если outcome === "busy"
-        - return 0;
-          · дословно из кода
-  - если started
-    - console.log(`[cron] Звонков кандидатам с приглашением начато: ${started}`);
-      · пишет строку в журнал сервера
+      - await dispatchRecruitmentCommunication(row.id, now);
+        · зовёт dispatchRecruitmentCommunication()
 - если сорвалось
   - reportCronTickError("Ошибка звонков кандидатам с приглашением", err);
     · зовёт reportCronTickError()

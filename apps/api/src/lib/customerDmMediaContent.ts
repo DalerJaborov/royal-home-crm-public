@@ -17,6 +17,7 @@ import { readCapped } from "./safeFetch.js";
 import { customerVideoHasAudio } from "./customerMediaAudioTrack.js";
 import { resolveCustomerSharedPublication } from "./customerSharedPublication.js";
 import { customerPropertyUrl } from "./customerPropertyUrls.js";
+import { RECRUITMENT_DOCX_MIME, recruitmentDocxText } from "./recruitmentDocumentText.js";
 
 /** Real encrypted current-IN media only. Never fetch a model URI or use a
  * global WhatsApp token for an account-scoped customer. Existing safe downloader
@@ -121,6 +122,15 @@ export async function loadCustomerDmMediaContent(input: {
     reserved.set(kind, (reserved.get(kind) ?? 0) + 1);
     const hasAudio = file.kind === "media" && file.media === "video" ? await customerVideoHasAudio(file.buffer, input.wait) : undefined;
     await check();
+    if (file.kind === "media" && file.mediaType === RECRUITMENT_DOCX_MIME) {
+      try {
+        const text = await recruitmentDocxText(file.buffer);
+        await check();
+        if (text.trim()) parts.push({ attachmentIndex, mimeType: "text/plain", data: Buffer.from(text).toString("base64") });
+        else incomplete = true;
+      } catch { await check(); incomplete = true; }
+      continue;
+    }
     parts.push({ attachmentIndex, mimeType: file.mediaType, data: file.kind === "image" ? file.data : file.buffer.toString("base64"),
       ...(hasAudio !== undefined ? { hasAudio } : {}) });
   }

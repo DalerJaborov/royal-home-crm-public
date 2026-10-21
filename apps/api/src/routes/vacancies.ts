@@ -19,8 +19,9 @@
 
 import { Router } from "express";
 import { z } from "zod";
-import { customerRecruitmentPortfolioSchema } from "@royal-home/shared";
+import { customerRecruitmentPortfolioSchema, recruitmentResumeSchema, recruitmentScreeningRulesSchema, assessRecruitmentResume } from "@royal-home/shared";
 import { recruitmentPositionsRouter } from "./recruitmentPositions.js";
+import { recruitmentCommunicationsRouter } from "./recruitmentCommunications.js";
 import { prisma } from "../db.js";
 import { requireAuth, requirePermission } from "../auth/middleware.js";
 import {
@@ -61,6 +62,7 @@ import {
 
 export const vacanciesRouter = Router();
 vacanciesRouter.use("/positions", recruitmentPositionsRouter);
+vacanciesRouter.use(recruitmentCommunicationsRouter);
 
 /** Стадии воронки. Закрытый список: свободная строка в поле статуса превращает
  *  очередь в свалку, по которой нельзя фильтровать. Порядок — как в пайплайне,
@@ -124,6 +126,8 @@ const listQuerySchema = z.object({
    * на фронте молча искала бы только по первой сотне.
    */
   q: z.string().trim().max(80).optional(),
+  activeOnly: z.enum(["true", "false"]).optional().transform(value => value === "true"),
+  positionKey: z.string().regex(/^[a-z][a-z0-9-]{1,63}$/).optional(),
   /**
    * Цвет отбора — самая частая нарезка очереди: «покажи только с опытом продаж».
    * NONE — те, у кого цвета ещё нет (бот не спросил про опыт): это тоже
@@ -143,6 +147,7 @@ const listQuerySchema = z.object({
   // Предел выборки обязателен: роут, возвращающий массив без предела, растёт
   // молча вместе с базой (правило репозитория).
   limit: z.coerce.number().int().min(1).max(200).default(100),
+  offset: z.coerce.number().int().min(0).max(100000).default(0),
 });
 
 /** Язык переписки (ru/tg) живёт в досье — по нему HR видит, на каком языке
@@ -150,7 +155,9 @@ const listQuerySchema = z.object({
  *  звонок-приглашение — строка «Робот позвонил: придёт» в анкете; skipReason —
  *  чтобы строка называла точную причину, почему робот не звонил. */
 const LIST_INCLUDE = {
-  customerPosition: { select: { titleRu: true, titleTg: true } },
+  customerPosition: { select: { titleRu: true, titleTg: true, screeningRules: true } },
+  hrPosition: { select: { titleRu: true, titleTg: true, screeningRules: true } },
+  customerInquiry: { select: { publicState: true } },
   contactProfile: { select: { language: true } },
   inviteCalls: {
     orderBy: { createdAt: "desc" as const },
@@ -184,6 +191,8 @@ export function presentInviteCall(
   if (!call) return null;
   const { recordingKey, ...rest } = call;
   const hasRecording = !!recordingKey;
+  if (["PENDING", "NO_ANSWER"].includes(call.status)) return { ...rest, hasRecording,
+    text: "Нужно подготовить новое приглашение: проверьте вакансию, время и каналы связи" };
   const stale =
     app.status === "INTERVIEW" &&
     !!app.interviewAt &&
@@ -210,14 +219,29 @@ type ListRow = Prisma.JobApplicationGetPayload<{ include: typeof LIST_INCLUDE }>
 /** Строка списка в том виде, в каком её ждёт экран. inboxId — готовая ссылка на
  *  переписку (правило склейки живёт рядом с инбоксом); missing/rejectReasons —
  *  тем же кодом, что решает допуск (ai/jobApplication.ts). */
-function presentListItem({ contactProfile, inviteCalls, customerPosition, customerApplicationRevision, ...i }: ListRow) {
+function presentListItem({ contactProfile, inviteCalls, customerPosition, hrPosition, customerInquiry, customerApplicationRevision, ...i }: ListRow) {
   const portfolio = customerRecruitmentPortfolioSchema.safeParse(i.customerPortfolio);
+  const resume = recruitmentResumeSchema.safeParse(i.recruitmentResume);
+  const selectedPosition = customerPosition ?? hrPosition;
+  const rules = recruitmentScreeningRulesSchema.safeParse(selectedPosition?.screeningRules);
+  const state = customerInquiry?.publicState;
+  const coreLanguage = state && typeof state === "object" && !Array.isArray(state) && (state.language === "ru" || state.language === "tg") ? state.language : null;
   return {
     ...i,
     customerApplicationRevision: customerApplicationRevision?.toString() ?? null,
     customerPortfolio: portfolio.success ? portfolio.data : [],
-    positionTitle: customerPosition?.titleRu ?? null,
-    chatLanguage: contactProfile?.language ?? null,
+    positionTitle: selectedPosition?.titleRu ?? null,
+    positionKey: i.customerPositionKey ?? i.hrPositionKey,
+    recruitmentResume: resume.success ? resume.data : null,
+    recruitmentAssessment: assessRecruitmentResume({ rules: rules.success ? rules.data : null,
+      facts: resume.success ? resume.data.facts : {}, name: i.name, phone: i.phone,
+      portfolioCount: (portfolio.success ? portfolio.data.length : 0) + (i.cvFile ? 1 : 0),
+      values: i.customerInquiryId ? undefined : { age: i.age,
+        studyingNow: i.studyingNow === true || i.studyingUniversity === true ? true : i.studyingNow ?? i.studyingUniversity,
+        employedNow: i.employedNow, city: i.city, experience: i.experience, education: i.education,
+        languages: i.languages, startWhen: i.startWhen, about: i.rawText },
+    }),
+    chatLanguage: coreLanguage ?? contactProfile?.language ?? null,
     inviteCall: presentInviteCall(inviteCalls[0], i),
     inboxId: inboxIdOf(i.channel, i.conversationId),
     missing: i.customerInquiryId ? [] : jobMissingFacts(i),
@@ -230,8 +254,8 @@ vacanciesRouter.get("/", requireAuth, requirePermission("vacancies.view"), async
   if (!parsed.success) {
     return res.status(400).json({ error: "Неверные параметры", details: parsed.error.flatten() });
   }
-  const { status, limit, includeFiltered, includeNoPhone, q, priority, bucket } = parsed.data;
-  const statusWhere = status ? { status } : {};
+  const { status, limit, offset, includeFiltered, includeNoPhone, q, priority, bucket, activeOnly, positionKey } = parsed.data;
+  const statusWhere = status ? { status } : activeOnly ? { status: { notIn: ["HIRED", "REJECTED"] } } : {};
   const priorityWhere = priority ? (priority === "NONE" ? { priority: null } : { priority }) : {};
   /**
    * NOT_CANDIDATE — «не кандидат, ошибочно заведённая анкета» (владелец
@@ -309,7 +333,8 @@ vacanciesRouter.get("/", requireAuth, requirePermission("vacancies.view"), async
    *  обязаны считать по тому же поиску: иначе кнопка обещает «Отсеянные (7)», а
    *  показывает двоих, подходящих под строку поиска. NOT_ARCHIVED — первым и
    *  безусловно: ни один запрос этого роута не должен видеть NOT_CANDIDATE. */
-  const common = [NOT_ARCHIVED, ...(searchWhere ? [searchWhere] : []), ...(priority ? [priorityWhere] : [])];
+  const positionWhere = positionKey ? [{ OR: [{ customerPositionKey: positionKey }, { customerInquiryId: null, hrPositionKey: positionKey }] }] : [];
+  const common = [NOT_ARCHIVED, ...positionWhere, ...(searchWhere ? [searchWhere] : []), ...(priority ? [priorityWhere] : [])];
   const visible = [
     ...common,
     ...(eligibilityFilter ? [eligibilityFilter] : []),
@@ -325,6 +350,7 @@ vacanciesRouter.get("/", requireAuth, requirePermission("vacancies.view"), async
    */
   const visibleAnyPriority = [
     NOT_ARCHIVED,
+    ...positionWhere,
     ...(searchWhere ? [searchWhere] : []),
     ...(eligibilityFilter ? [eligibilityFilter] : []),
     ...phoneFilter,
@@ -352,8 +378,9 @@ vacanciesRouter.get("/", requireAuth, requirePermission("vacancies.view"), async
     prisma.jobApplication.findMany({
       where: { ...statusWhere, AND: visible },
       // Новые сверху: предел выборки должен отсекать старое, а не случайное.
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: limit,
+      skip: offset,
       include: LIST_INCLUDE,
     }),
     // Сколько всего под текущим фильтром — экран пишет «Показаны N из M» и даёт
@@ -418,8 +445,11 @@ vacanciesRouter.get("/", requireAuth, requirePermission("vacancies.view"), async
     // Строки — см. presentListItem выше. total — сколько всего под текущим
     // фильтром (items — первые `limit` из них); todayInterviews — расписание дня
     // целиком, независимо от загруженной страницы.
-    items: ordered.map(presentListItem),
+    // The résumé queue is chronological across pages. Retain color ordering
+    // only for explicit older bucket clients; it is not a hiring decision.
+    items: (bucket ? ordered : items).map(presentListItem),
     total,
+    offset,
     todayInterviews: todayRows.map(presentListItem),
     filteredCount,
     noPhoneCount,
@@ -471,7 +501,8 @@ const CONVERSATION_TAIL = 60;
 vacanciesRouter.get("/:id/conversation", requireAuth, requirePermission("vacancies.view"), async (req, res) => {
   const application = await prisma.jobApplication.findUnique({
     where: { id: req.params.id },
-    select: { conversationId: true, channel: true, status: true, clientId: true },
+    select: { conversationId: true, channel: true, status: true, clientId: true,
+      customerInquiry: { select: { conversationId: true, telegramConversationId: true, telegramDirectConversationId: true } } },
   });
   // NOT_CANDIDATE — «анкету завели по ошибке» (продавец, покупатель): раздел
   // такую анкету не показывает нигде, и её переписка — это переписка КЛИЕНТА,
@@ -480,7 +511,8 @@ vacanciesRouter.get("/:id/conversation", requireAuth, requirePermission("vacanci
   if (!application || application.status === "NOT_CANDIDATE") {
     return res.status(404).json({ error: "Анкета не найдена" });
   }
-  const conversationId = application.conversationId;
+  const inquiry = application.customerInquiry;
+  const conversationId = application.conversationId ?? inquiry?.conversationId ?? inquiry?.telegramConversationId ?? inquiry?.telegramDirectConversationId;
   if (!conversationId) {
     // Анкета без диалога — не ошибка: показываем пустую переписку, а не 404,
     // иначе экран нарисовал бы отказ там, где просто нечего показывать.
@@ -492,9 +524,9 @@ vacanciesRouter.get("/:id/conversation", requireAuth, requirePermission("vacanci
   // раньше такая анкета читала BotConversation по чужому id и показывала пустоту.
   const select = { messages: true, clientId: true } as const;
   const raw =
-    application.channel === "TELEGRAM"
+    (application.channel === "TELEGRAM" || !!inquiry?.telegramConversationId)
       ? await prisma.telegramConversation.findUnique({ where: { id: conversationId }, select })
-      : application.channel === "TELEGRAM_DIRECT"
+      : (application.channel === "TELEGRAM_DIRECT" || !!inquiry?.telegramDirectConversationId)
         ? await prisma.telegramDirectConversation.findUnique({ where: { id: conversationId }, select })
         : await prisma.botConversation.findUnique({ where: { id: conversationId }, select });
   if (!raw) return res.json({ inboxId: null, messages: [], files: [] });
@@ -598,6 +630,7 @@ const patchSchema = z
     // PATCH_STATUSES, не STATUSES: только здесь можно ПОСТАВИТЬ NOT_CANDIDATE
     // (см. её шапку) — список/сводка его не фильтруют и не показывают вовсе.
     status: z.enum(PATCH_STATUSES).optional(),
+    positionKey: z.string().regex(/^[a-z][a-z0-9-]{1,63}$/).optional(),
     // null разрешён явно — так очищают дату/заметку, назначенную по ошибке.
     // undefined не сериализуется в JSON (правило репозитория): чтобы очистить
     // поле, фронт обязан прислать null, а не просто не передать ключ.
@@ -643,9 +676,18 @@ vacanciesRouter.patch("/:id", requireAuth, requirePermission("vacancies.view"), 
     return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
   }
   const body = parsed.data;
+  if (body.inviteCall === true) return res.status(400).json({
+    error: "Подготовьте приглашение с предпросмотром и выберите SMS или звонок ассистента.",
+    code: "RECRUITMENT_PREVIEW_REQUIRED",
+  });
 
   const existing = await prisma.jobApplication.findUnique({ where: { id: req.params.id } });
   if (!existing) return res.status(404).json({ error: "Анкета не найдена" });
+  if (body.positionKey !== undefined) {
+    if (existing.customerInquiryId) return res.status(409).json({ error: "Вакансия этой анкеты связана с обращением нового ядра." });
+    const position = await prisma.recruitmentPosition.findUnique({ where: { key: body.positionKey }, select: { key: true } });
+    if (!position) return res.status(400).json({ error: "Выберите существующую вакансию" });
+  }
 
   // interviewAt — либо валидная дата, либо явный null (очистка), либо не пришла
   // вовсе (оставляем как было).
@@ -692,6 +734,7 @@ vacanciesRouter.patch("/:id", requireAuth, requirePermission("vacancies.view"), 
   }
 
   const data: Record<string, unknown> = { reviewedById: req.agent!.id };
+  if (body.positionKey !== undefined) data.hrPositionKey = body.positionKey;
   if (body.status) data.status = body.status;
   if (interviewAt !== undefined) data.interviewAt = interviewAt;
   if (body.interviewNote !== undefined) data.interviewNote = body.interviewNote;
@@ -700,7 +743,12 @@ vacanciesRouter.patch("/:id", requireAuth, requirePermission("vacancies.view"), 
   if (body.rejectionReasonVoiceTranscript !== undefined)
     data.rejectionReasonVoiceTranscript = body.rejectionReasonVoiceTranscript;
   if (body.talentPool !== undefined) data.talentPool = body.talentPool;
-  if (phone !== undefined) data.phone = phone;
+  if (phone !== undefined) {
+    data.phone = phone;
+    // Staff correction belongs to the HR application, not a new claim about
+    // the customer's canonical identity. Later bot turns must preserve it.
+    data.recruitmentPhoneOverride = true;
+  }
   // Только true хранится как решение; false/null — «решения нет» (null), чтобы
   // у снятого и никогда не ставившегося было одно значение.
   if (body.eligibleOverride !== undefined) data.eligibleOverride = body.eligibleOverride === true ? true : null;
@@ -745,7 +793,13 @@ vacanciesRouter.patch("/:id", requireAuth, requirePermission("vacancies.view"), 
   // updateMany вместо update: гонка с параллельным удалением/сменой не превращает
   // это в необработанное исключение Prisma — 404 остаётся честным ответом.
   const saved = await prisma.$transaction(async (tx) => {
-    const result = await tx.jobApplication.updateMany({ where: { id: req.params.id }, data });
+    await tx.$queryRaw`SELECT "id" FROM "JobApplication" WHERE "id"=${req.params.id} FOR UPDATE`;
+    if (body.status !== undefined || body.interviewAt !== undefined || body.phone !== undefined || body.positionKey !== undefined) {
+      const active = await tx.recruitmentCommunication.count({ where: { jobApplicationId: req.params.id,
+        channel: "ASSISTANT_CALL", status: { in: ["IN_FLIGHT", "ACCEPTED"] } } });
+      if (active) return "calling" as const;
+    }
+    const result = await tx.jobApplication.updateMany({ where: { id: req.params.id, updatedAt: existing.updatedAt }, data });
     if (result.count === 0) return false;
     if (cancelWaiting) {
       await tx.interviewInviteCall.updateMany({
@@ -762,7 +816,8 @@ vacanciesRouter.patch("/:id", requireAuth, requirePermission("vacancies.view"), 
     }
     return true;
   });
-  if (!saved) return res.status(404).json({ error: "Анкета не найдена" });
+  if (saved === "calling") return res.status(409).json({ error: "Ассистент сейчас говорит с кандидатом. Дождитесь результата звонка перед изменением вакансии, телефона или встречи." });
+  if (!saved) return res.status(409).json({ error: "Анкета уже изменилась. Обновите её и повторите действие." });
   /**
    * ЖУРНАЛ НАЗЫВАЕТ, ЧТО ИМЕННО ПОМЕНЯЛИ (02.10.2026). Раньше любая правка —
    * телефон, время собеседования, звонок робота — писалась как «смена этапа»
@@ -787,6 +842,7 @@ vacanciesRouter.patch("/:id", requireAuth, requirePermission("vacancies.view"), 
 
 /** Поля анкеты, которые меняет PATCH, кроме самой стадии. */
 const AUDITED_FIELDS = [
+  "hrPositionKey",
   "interviewAt",
   "interviewNote",
   "rejectionReason",
@@ -834,9 +890,9 @@ function vacancyPatchChanges(
 vacanciesRouter.post("/:id/call", requireAuth, requirePermission("vacancies.view"), async (req, res) => {
   const application = await prisma.jobApplication.findUnique({
     where: { id: req.params.id },
-    select: { name: true, phone: true },
+    select: { name: true, phone: true, status: true },
   });
-  if (!application) return res.status(404).json({ error: "Анкета не найдена" });
+  if (!application || application.status === "NOT_CANDIDATE") return res.status(404).json({ error: "Анкета не найдена" });
   if (!application.phone) return res.status(409).json({ error: "Кандидат ещё не дал телефон" });
   if (!isDialableTajikNumber(application.phone)) {
     return res.status(409).json({ error: "Номер кандидата не таджикский — станция его не наберёт" });

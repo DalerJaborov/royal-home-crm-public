@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { recruitmentPositionKeySchema, recruitmentPositionUpdateSchema } from "@royal-home/shared";
 import { prisma } from "../db.js";
+import { Prisma } from "../generated/prisma/client.js";
 import { requireAuth, requirePermission } from "../auth/middleware.js";
 import { requireElevation } from "../lib/stepUp.js";
 import { readRecruitmentPositions } from "../lib/recruitmentPositions.js";
@@ -44,7 +45,9 @@ recruitmentPositionsRouter.put("/:key", requirePermission("settings.manage"), re
       const existing = await tx.recruitmentPosition.findUnique({ where: { key: key.data }, select: { revision: true } });
       if ((existing?.revision ?? 0) !== parsed.data.expectedRevision) return "conflict" as const;
       if (!existing && await tx.recruitmentPosition.count() >= 24) return "limit" as const;
-      const { expectedRevision, postCodes, keywords, ...data } = parsed.data;
+      const { expectedRevision, postCodes, keywords, screeningRules, ...fields } = parsed.data;
+      const data = { ...fields, ...(screeningRules !== undefined ? { screeningRules: screeningRules === null
+        ? Prisma.DbNull : screeningRules as unknown as Prisma.InputJsonValue } : {}) };
       await tx.recruitmentPosition.upsert({ where: { key: key.data },
         create: { key: key.data, ...data }, update: { ...data, revision: { increment: 1 }, updatedAt: new Date() } });
       await tx.recruitmentPublication.deleteMany({ where: { positionKey: key.data } });
@@ -57,7 +60,7 @@ recruitmentPositionsRouter.put("/:key", requirePermission("settings.manage"), re
       return "saved" as const;
     });
     if (result === "conflict") { res.status(409).json({ error: "Вакансию уже изменили. Обновите список и повторите правку." }); return; }
-    if (result === "limit") { res.status(409).json({ error: "Достигнут лимит: 24 позиции. Закройте или отредактируйте существующую." }); return; }
+    if (result === "limit") { res.status(409).json({ error: "Достигнут лимит: 24 позиции. Отредактируйте существующую позицию." }); return; }
     res.json({ items: await readRecruitmentPositions() });
   } catch (error) {
     if (error && typeof error === "object" && "code" in error && error.code === "P2002") {

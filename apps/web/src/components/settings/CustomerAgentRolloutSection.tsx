@@ -23,6 +23,8 @@ const capabilityLabels = {
 
 function message(error: unknown): string {
   if (!(error instanceof ApiError)) return error instanceof Error ? error.message : "Не удалось выполнить действие.";
+  if (error.message === "recruitment_resume_upgrade_confirmation_required") return "Установлено обновление вопросов найма. Отметьте отдельное подтверждение обновления анкет кандидатов и повторите действие.";
+  if (["recruitment_resume_upgrade_not_required", "recruitment_resume_upgrade_not_qualified"].includes(error.message)) return "Это подтверждение не подходит к установленной версии. Снимите отметку обновления анкет кандидатов и обновите состояние.";
   if (error.status === 409) return "Настройки уже изменились или работа ещё занята. Обновите состояние и проверьте его перед новым действием.";
   if (error.status === 403) return "Право управления настройками отозвано. Обновите страницу.";
   if (error.status === 428) return "Нужно повторно подтвердить личность. После подтверждения проверьте состояние и нажмите действие ещё раз.";
@@ -40,6 +42,7 @@ export function CustomerAgentRolloutSection() {
   const [advanceIdle, setAdvanceIdle] = useState(false);
   const [mediaUpgrade, setMediaUpgrade] = useState(false);
   const [catalogUpgrade, setCatalogUpgrade] = useState(false);
+  const [recruitmentUpgrade, setRecruitmentUpgrade] = useState(false);
   const [candidate, setCandidate] = useState<string | null>(null);
   const [capabilities, setCapabilities] = useState<CustomerAgentOwnerState["capabilities"]>({
     publicRead: false, contactWrite: false, callbackWrite: false, newLeadBridge: false,
@@ -54,7 +57,7 @@ export function CustomerAgentRolloutSection() {
   });
   const publish = useMutation({
     mutationFn: (body: CustomerAgentPublishRequest) => api<Publication>("/settings/customer-agent/rollout", { method: "PUT", body }),
-    retry: false, onSuccess: async () => { setConfirm(null); setCandidate(null); setPaid(false); setNoCap(false); setAdvanceIdle(false); setCatalogUpgrade(false); await refresh(); },
+    retry: false, onSuccess: async () => { setConfirm(null); setCandidate(null); setPaid(false); setNoCap(false); setAdvanceIdle(false); setCatalogUpgrade(false); setRecruitmentUpgrade(false); await refresh(); },
   });
   const kill = useMutation({
     mutationFn: (body: { expectedPolicyRevision: string; reason: string }) => api<KillResult>("/settings/customer-agent/kill", { method: "POST", body }),
@@ -62,7 +65,7 @@ export function CustomerAgentRolloutSection() {
   });
   const adopt = useMutation({
     mutationFn: (body: CustomerAgentRefreshRequest) => api<{ policyRevision: string }>("/settings/customer-agent/refresh-current", { method: "POST", body }),
-    retry: false, onSuccess: async () => { setConfirm(null); setCandidate(null); await refresh(); },
+    retry: false, onSuccess: async () => { setConfirm(null); setCandidate(null); setRecruitmentUpgrade(false); await refresh(); },
   });
   const data = state.data;
   useEffect(() => {
@@ -93,6 +96,7 @@ export function CustomerAgentRolloutSection() {
       ...(changingRevision ? { advanceIdleRevision: true as const } : {}),
       ...(changingRevision && mediaUpgrade ? { confirmMediaProfileUpgrade: true as const } : {}),
       ...(changingRevision && catalogUpgrade ? { confirmCatalogFactsUpgrade: true as const } : {}),
+      ...(changingRevision && recruitmentUpgrade ? { confirmRecruitmentResumeUpgrade: true as const } : {}),
       reason: reason.trim(),
     });
   }
@@ -102,7 +106,8 @@ export function CustomerAgentRolloutSection() {
   }
   function submitRefresh() {
     if (!data || !reason.trim()) return;
-    adopt.mutate({ expectedPolicyRevision: data.policyRevision, reason: reason.trim() });
+    adopt.mutate({ expectedPolicyRevision: data.policyRevision, reason: reason.trim(),
+      ...(recruitmentUpgrade ? { confirmRecruitmentResumeUpgrade: true as const } : {}) });
   }
 
   return <SettingsSection icon={Bot} title="Текстовый агент клиентов" badge={active ? "активен" : "выключен"} defaultOpen>
@@ -115,6 +120,7 @@ export function CustomerAgentRolloutSection() {
       {changingRevision && <label className="mod"><span className="t"><b>Обновить версию нового бота</b><span>После завершения текущих ходов новые сообщения уже подключённых к ядру диалогов получат исправленную версию. История, отправки и подтверждения сохранятся. Диалоги прежнего бота не переводятся.</span></span><input type="checkbox" checked={advanceIdle} onChange={event => setAdvanceIdle(event.target.checked)} /></label>}
       {changingRevision && data.configId === "royal-customer-g36-media-20261017-v3" && <label className="mod"><span className="t"><b>Подключить понимание фото, видео и голосовых</b><span>Gemini получит содержимое присланных файлов. Лимит расходов на ход, доля диалогов, каналы и права остаются прежними. Отдельное подтверждение нужно только при переходе с текстового профиля.</span></span><input type="checkbox" checked={mediaUpgrade} onChange={event => setMediaUpgrade(event.target.checked)} /></label>}
       {changingRevision && <label className="mod"><span className="t"><b>Обновить характеристики объектов и модерацию комментариев</b><span>Разрешить проверенную версию схемы публичных характеристик и обработки объявлений. Модель, расходы, доля диалогов, каналы и права не меняются.</span></span><input type="checkbox" checked={catalogUpgrade} onChange={event => setCatalogUpgrade(event.target.checked)} /></label>}
+      {(active || changingRevision) && <label className="mod"><span className="t"><b>Обновить вопросы и анкеты кандидатов</b><span>Отдельно подтверждаю проверенную версию найма: вопросы по правилам выбранной вакансии и сохранение сведений с источниками. Решение о найме принимает человек. Процент диалогов, каналы, права, модель и лимиты сохраняются.</span></span><input type="checkbox" checked={recruitmentUpgrade} onChange={event => setRecruitmentUpgrade(event.target.checked)} /></label>}
       <p className="state">Текстовые личные сообщения и публичные комментарии используют текущие проверки отправки/модерации. Параллельное сравнение, голос, сайт, Telegram и YouTube здесь не включены.</p>
       <label className="fld"><span>Причина изменения</span><input value={reason} maxLength={500} onChange={event => setReason(event.target.value)} /></label>
       {!candidate && <button type="button" className="pill ghost" disabled={busy || !reason.trim()} onClick={() => register.mutate()}>Подготовить нового бота</button>}

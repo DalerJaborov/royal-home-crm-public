@@ -7,7 +7,7 @@ import { recruitmentCatalogHash, isCustomerVacanciesObservation } from "../ai/cu
 type ReadDb = Pick<TxClient, "$queryRaw">;
 export async function readRecruitmentPositions(db: ReadDb = prisma) {
   const rows = await db.$queryRaw<Array<RecruitmentPositionInput & { key: string; revision: number }>>`SELECT
-    p."key",p."titleRu",p."titleTg",p."detailsRu",p."detailsTg",p."isOpen",p."revision",
+    p."key",p."titleRu",p."titleTg",p."detailsRu",p."detailsTg",p."isOpen",p."revision",p."screeningRules",
     COALESCE((SELECT jsonb_agg(r."code" ORDER BY r."code") FROM "RecruitmentPublication" r
       WHERE r."positionKey"=p."key"),'[]'::jsonb) AS "postCodes",
     COALESCE((SELECT jsonb_agg(k."word" ORDER BY k."word") FROM "RecruitmentKeyword" k

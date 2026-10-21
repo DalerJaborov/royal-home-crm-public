@@ -1,8 +1,8 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 647,
-  "forks": 3563,
+  "endpoints": 650,
+  "forks": 3568,
   "mounts": 73,
   "cron": 107,
   "jobs": 31,
@@ -68399,6 +68399,14 @@
     },
     {
      "k": "do",
+     "t": "await recordRecruitmentSmsReceipt(id, status, at);",
+     "a": [
+      "зовёт recordRecruitmentSmsReceipt()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
      "t": "const updated = await prisma.smsMessage.updateMany({ where: { provider: \"payom\", providerMessageId: id, OR: […",
      "a": [
       "меняет в базе: smsMessage"
@@ -71807,7 +71815,7 @@
     },
     {
      "k": "if",
-     "t": "!application",
+     "t": "!application || application.status === \"NOT_CANDIDATE\"",
      "a": [],
      "c": [
       {
@@ -71976,6 +71984,55 @@
   },
   {
    "method": "GET",
+   "path": "/:id/contact-options",
+   "mount": "/api/v1/vacancies",
+   "full": "/api/v1/vacancies/:id/contact-options",
+   "file": "apps/api/src/routes/recruitmentCommunications.ts",
+   "router": "recruitmentCommunicationsRouter",
+   "top": "apps/api/src/routes/vacancies.ts::vacanciesRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "вход выполнен",
+    "есть право: vacancies.view",
+    "(req, res, next) => { if (!z.string().uuid().safeParse(req.params.id).success) { res.status(400).json({ error…"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "res.json(await recruitmentContactOptions(req.params.id, req.agent!.id));",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "failure(res, error);",
+       "a": [
+        "дословно из кода"
+       ],
+       "c": []
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "method": "GET",
    "path": "/:id/conversation",
    "mount": "/api/v1/vacancies",
    "full": "/api/v1/vacancies/:id/conversation",
@@ -72030,7 +72087,7 @@
     },
     {
      "k": "do",
-     "t": "const raw = application.channel === \"TELEGRAM\" ? await prisma.telegramConversation.findUnique({ where: { id: …",
+     "t": "const raw = (application.channel === \"TELEGRAM\" || !!inquiry?.telegramConversationId) ? await prisma.telegram…",
      "a": [
       "читает в базе: telegramConversation",
       "читает в базе: telegramDirectConversation",
@@ -72128,6 +72185,166 @@
        "t": "return res.status(404).json({ error: \"Файл не найден\" });",
        "a": [
         "ответ 404 — «Файл не найден»"
+       ],
+       "c": []
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "/:id/invitations/preview",
+   "mount": "/api/v1/vacancies",
+   "full": "/api/v1/vacancies/:id/invitations/preview",
+   "file": "apps/api/src/routes/recruitmentCommunications.ts",
+   "router": "recruitmentCommunicationsRouter",
+   "top": "apps/api/src/routes/vacancies.ts::vacanciesRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "вход выполнен",
+    "есть право: vacancies.view",
+    "(req, res, next) => { if (!z.string().uuid().safeParse(req.params.id).success) { res.status(400).json({ error…"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const body = recruitmentContactPreviewSchema.safeParse(req.body);",
+     "a": [
+      "проверяет данные схемой recruitmentContactPreviewSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!body.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "res.status(400).json({ error: \"Проверьте время, каналы и условия обращения\", details: body.error.flatten() });",
+       "a": [
+        "ответ 400 — «Проверьте время, каналы и условия обращения»"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "res.json(await previewRecruitmentContact(req.params.id, req.agent!.id, body.data));",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "failure(res, error);",
+       "a": [
+        "дословно из кода"
+       ],
+       "c": []
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "/:id/invitations",
+   "mount": "/api/v1/vacancies",
+   "full": "/api/v1/vacancies/:id/invitations",
+   "file": "apps/api/src/routes/recruitmentCommunications.ts",
+   "router": "recruitmentCommunicationsRouter",
+   "top": "apps/api/src/routes/vacancies.ts::vacanciesRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "вход выполнен",
+    "есть право: vacancies.view",
+    "(req, res, next) => { if (!z.string().uuid().safeParse(req.params.id).success) { res.status(400).json({ error…"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const body = recruitmentContactConfirmSchema.safeParse(req.body);",
+     "a": [
+      "проверяет данные схемой recruitmentContactConfirmSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!body.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "res.status(400).json({ error: \"Нужны актуальный предпросмотр и ключ операции\" });",
+       "a": [
+        "ответ 400 — «Нужны актуальный предпросмотр и ключ операции»"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "res.json(await confirmRecruitmentContact(req.params.id, req.agent!.id, body.data));",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "failure(res, error);",
+       "a": [
+        "дословно из кода"
        ],
        "c": []
       }
@@ -72311,6 +72528,21 @@
      ]
     },
     {
+     "k": "if",
+     "t": "body.inviteCall === true",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Подготовьте приглашение с предпросмотром и выберите SMS или звонок асси…",
+       "a": [
+        "ответ 400 — «Подготовьте приглашение с предпросмотром и выберите SMS или звонок…»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
      "k": "do",
      "t": "const existing = await prisma.jobApplication.findUnique({ where: { id: req.params.id } });",
      "a": [
@@ -72330,6 +72562,51 @@
         "ответ 404 — «Анкета не найдена»"
        ],
        "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "body.positionKey !== undefined",
+     "a": [],
+     "c": [
+      {
+       "k": "if",
+       "t": "existing.customerInquiryId",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(409).json({ error: \"Вакансия этой анкеты связана с обращением нового ядра.\" });",
+         "a": [
+          "ответ 409 — «Вакансия этой анкеты связана с обращением нового ядра.»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const position = await prisma.recruitmentPosition.findUnique({ where: { key: body.positionKey }, select: { ke…",
+       "a": [
+        "читает в базе: recruitmentPosition"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!position",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(400).json({ error: \"Выберите существующую вакансию\" });",
+         "a": [
+          "ответ 400 — «Выберите существующую вакансию»"
+         ],
+         "c": []
+        }
+       ]
       }
      ]
     },
@@ -72441,6 +72718,21 @@
          ]
         }
        ]
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "body.positionKey !== undefined",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "data.hrPositionKey = body.positionKey;",
+       "a": [
+        "дословно из кода"
+       ],
+       "c": []
       }
      ]
     },
@@ -72561,6 +72853,14 @@
         "дословно из кода"
        ],
        "c": []
+      },
+      {
+       "k": "do",
+       "t": "data.recruitmentPhoneOverride = true;",
+       "a": [
+        "дословно из кода"
+       ],
+       "c": []
       }
      ]
     },
@@ -72674,13 +72974,53 @@
      "t": "const saved = await prisma.$transaction(async (tx)",
      "a": [
       "всё внутри — одной транзакцией",
+      "обращается к базе своим SQL",
+      "считает в базе: recruitmentCommunication",
       "меняет в базе: jobApplication",
       "меняет в базе: interviewInviteCall"
      ],
      "c": [
       {
        "k": "do",
-       "t": "const result = await tx.jobApplication.updateMany({ where: { id: req.params.id }, data });",
+       "t": "await tx.$queryRaw`SELECT \"id\" FROM \"JobApplication\" WHERE \"id\"=${req.params.id} FOR UPDATE`;",
+       "a": [
+        "обращается к базе своим SQL"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "body.status !== undefined || body.interviewAt !== undefined || body.phone !== undefined || body.positionKey !…",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "const active = await tx.recruitmentCommunication.count({ where: { jobApplicationId: req.params.id, channel: \"…",
+         "a": [
+          "считает в базе: recruitmentCommunication"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "active",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return \"calling\" as const;",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const result = await tx.jobApplication.updateMany({ where: { id: req.params.id, updatedAt: existing.updatedAt…",
        "a": [
         "меняет в базе: jobApplication"
        ],
@@ -72735,14 +73075,29 @@
     },
     {
      "k": "if",
+     "t": "saved === \"calling\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"Ассистент сейчас говорит с кандидатом. Дождитесь результата звонка пере…",
+       "a": [
+        "ответ 409 — «Ассистент сейчас говорит с кандидатом. Дождитесь результата звонка…»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
      "t": "!saved",
      "a": [],
      "c": [
       {
        "k": "do",
-       "t": "return res.status(404).json({ error: \"Анкета не найдена\" });",
+       "t": "return res.status(409).json({ error: \"Анкета уже изменилась. Обновите её и повторите действие.\" });",
        "a": [
-        "ответ 404 — «Анкета не найдена»"
+        "ответ 409 — «Анкета уже изменилась. Обновите её и повторите действие.»"
        ],
        "c": []
       }
@@ -72992,9 +73347,9 @@
        "c": [
         {
          "k": "do",
-         "t": "res.status(409).json({ error: \"Достигнут лимит: 24 позиции. Закройте или отредактируйте существующую.\" });",
+         "t": "res.status(409).json({ error: \"Достигнут лимит: 24 позиции. Отредактируйте существующую позицию.\" });",
          "a": [
-          "ответ 409 — «Достигнут лимит: 24 позиции. Закройте или отредактируйте существующую.»"
+          "ответ 409 — «Достигнут лимит: 24 позиции. Отредактируйте существующую позицию.»"
          ],
          "c": []
         },
@@ -73352,7 +73707,7 @@
     },
     {
      "k": "do",
-     "t": "res.json({ items: ordered.map(presentListItem), total, todayInterviews: todayRows.map(presentListItem), filte…",
+     "t": "res.json({ items: (bucket ? ordered : items).map(presentListItem), total, offset, todayInterviews: todayRows.…",
      "a": [
       "ответ 200"
      ],
@@ -87281,85 +87636,77 @@
      "c": [
       {
        "k": "do",
-       "t": "const started = await runInterviewInviteCallTick();",
+       "t": "await runRecruitmentCommunicationTick();",
        "a": [
-        "зовёт runInterviewInviteCallTick()"
+        "зовёт runRecruitmentCommunicationTick()"
        ],
        "c": [
         {
          "k": "do",
-         "t": "await loadCompanyDaysOff();",
+         "t": "const interruptedCalls = await prisma.$queryRaw<Array<{ id: string; providerReceipt: string | null }>>`SELECT…",
          "a": [
-          "зовёт loadCompanyDaysOff()"
+          "обращается к базе своим SQL"
          ],
          "c": []
         },
         {
-         "k": "do",
-         "t": "const settings = await prisma.settings.findUnique({ where: { id: \"singleton\" }, select: { liveVoiceEnabled: t…",
-         "a": [
-          "читает в базе: settings"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "const audioDown = enabled && (await stationAudioDown(now));",
-         "a": [
-          "зовёт stationAudioDown()"
-         ],
-         "c": []
-        },
-        {
-         "k": "if",
-         "t": "!enabled",
+         "k": "loop",
+         "t": "для каждого: const call of interruptedCalls",
          "a": [],
          "c": [
           {
            "k": "do",
-           "t": "return 0;",
+           "t": "const session = await prisma.liveVoiceSession.findFirst({ where: { channelId: call.providerReceipt ?? call.id…",
            "a": [
-            "дословно из кода"
+            "читает в базе: liveVoiceSession"
            ],
            "c": []
-          }
-         ]
-        },
-        {
-         "k": "if",
-         "t": "!isWithinPostShowingCallHours(now)",
-         "a": [],
-         "c": [
+          },
           {
-           "k": "do",
-           "t": "return 0;",
-           "a": [
-            "дословно из кода"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "if",
-         "t": "audioDown",
-         "a": [],
-         "c": [
+           "k": "if",
+           "t": "session?.endedAt",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "await finishRecruitmentAssistantCall(call.id, { channelId: call.providerReceipt ?? call.id, reason: session.e…",
+             "a": [
+              "зовёт finishRecruitmentAssistantCall()"
+             ],
+             "c": []
+            }
+           ]
+          },
           {
-           "k": "do",
-           "t": "return 0;",
-           "a": [
-            "дословно из кода"
-           ],
-           "c": []
+           "k": "else",
+           "t": "иначе",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "await settle(call.id, \"UNKNOWN\", \"Итог звонка не получен. Повторный звонок запрещён до проверки.\");",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
           }
          ]
         },
         {
          "k": "do",
-         "t": "const due = await prisma.interviewInviteCall.findMany({ where: { status: { in: [\"PENDING\", \"NO_ANSWER\"] }, at…",
+         "t": "await prisma.$executeRaw`UPDATE \"RecruitmentCommunication\" SET \"status\"='UNKNOWN',\"reason\"='Процесс прервался…",
          "a": [
-          "читает в базе: interviewInviteCall"
+          "обращается к базе своим SQL"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "const due = await prisma.$queryRaw<Array<{ id: string }>>`SELECT \"id\" FROM \"RecruitmentCommunication\" WHERE \"…",
+         "a": [
+          "обращается к базе своим SQL"
          ],
          "c": []
         },
@@ -87370,61 +87717,16 @@
          "c": [
           {
            "k": "do",
-           "t": "const outcome = await dialInterviewInviteCall(row.id, now);",
+           "t": "await dispatchRecruitmentCommunication(row.id, now);",
            "a": [
-            "зовёт dialInterviewInviteCall()"
+            "зовёт dispatchRecruitmentCommunication()"
            ],
            "c": []
-          },
-          {
-           "k": "if",
-           "t": "outcome === \"started\"",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "return 1;",
-             "a": [
-              "дословно из кода"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "if",
-           "t": "outcome === \"busy\"",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "return 0;",
-             "a": [
-              "дословно из кода"
-             ],
-             "c": []
-            }
-           ]
           }
          ]
         }
        ],
-       "from": "runInterviewInviteCallTick() — apps/api/src/lib/interviewInviteCall.ts"
-      },
-      {
-       "k": "if",
-       "t": "started",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "console.log(`[cron] Звонков кандидатам с приглашением начато: ${started}`);",
-         "a": [
-          "пишет строку в журнал сервера"
-         ],
-         "c": []
-        }
-       ]
+       "from": "runRecruitmentCommunicationTick() — apps/api/src/lib/recruitmentCommunications.ts"
       }
      ]
     },
