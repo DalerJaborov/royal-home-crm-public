@@ -1,12 +1,12 @@
 import { z } from "zod";
-import { customerPropertyAdmissionSchema, customerPropertyFactsSchema } from "./customerPropertyContext.js";
+import { customerPropertyAdmissionSchema, customerPropertyFactsSchema, customerPropertyFactKindSchema } from "./customerPropertyContext.js";
 
 /** Server reference only. Its shape does not prove a signature or Client ownership. */
 export const customerToolAdmissionReferenceSchema = customerPropertyAdmissionSchema.omit({ evidence: true });
 export type CustomerToolAdmissionReference = z.infer<typeof customerToolAdmissionReferenceSchema>;
 
 export const customerPublicToolArgsSchema = z.object({
-  kinds: z.array(z.enum(["price", "address", "builder", "characteristics"])).min(1).max(4),
+  kinds: z.array(customerPropertyFactKindSchema).min(1).max(customerPropertyFactKindSchema.options.length),
 }).strict();
 export const customerToolCallSchema = z.object({
   name: z.literal("get_property_facts"),

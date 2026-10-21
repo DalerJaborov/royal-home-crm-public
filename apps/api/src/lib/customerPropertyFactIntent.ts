@@ -1,4 +1,4 @@
-import type { CustomerPropertyFactKind } from "@royal-home/shared";
+import { customerPropertyFactKindSchema, type CustomerPropertyFactKind } from "@royal-home/shared";
 import { customerPropertyUrl } from "./customerPropertyUrls.js";
 
 const words = (alternatives: string) => new RegExp(`(?<![\\p{L}\\p{N}])(?:${alternatives})(?![\\p{L}\\p{N}])`, "giu");
@@ -6,6 +6,7 @@ const PRICE = words("цен[ауеы]|стоимость|стоит|стоят|�
 const ADDRESS = words("адрес(?:а|у|е)?|расположен[аы]?|находится|находятся|где|куҷо(?:ст|ай)?|кучо(?:ст|ай)?");
 const BUILDER = words("застройщик(?:а|у|е)?|строит|сохтмонч[ӣи]|ширкати\\s+сохтмон[ӣи]|к[ӣи]\\s+сохтааст");
 const CHARACTERISTICS = words("площад[ьию]|этаж(?:е|а|ей|ность)?|комнат(?:а|ы|у)?|ремонт(?:ом|а)?|состояние|характеристик(?:и|а)|планировк(?:а|и)|масо[ҳх]ат(?:аш|и)?|ош[ёе]на(?:аш|и)?|таъмир(?:аш)?|[ҳх]у[ҷч]ра(?:г[ӣи]|аш)?");
+const AVAILABILITY = words("ещ[её]\\s+есть|не\\s+продан(?:а|о|ы)?|доступ(?:ен|на|но|ны)|актуальн(?:а|о|ы)?|в\\s+наличии|[ҳх]оло\\s+(?:[ҳх]ам\\s+)?[ҳх]аст");
 const DETAILS = words("подробнее|подробности|детали|маълумоти\\s+бештар|маълумот|муфассал");
 const COURTESY = words("здравствуйте|здравствуй|привет|добрый\\s+(?:день|вечер)|доброе\\s+утро|салом(?:ат)?|ассалому\\s+алейкум|пожалуйста|лутфан|спасибо|рахмат|раҳмат");
 // Only neutral framing is removable. Actions, negation, contact numbers, dates,
@@ -48,11 +49,12 @@ export function classifyCustomerPropertyFactIntent(text: string, options: { hasP
   consume(ADDRESS, ["address"]);
   consume(BUILDER, ["builder"]);
   consume(CHARACTERISTICS, ["characteristics"]);
+  consume(AVAILABILITY, ["availability"]);
   // A generic ad opener may concern a vacancy or service. It only implies
   // property facts when a subject is established independently of its wording.
   consume(DETAILS, options.hasPropertyContext || explicitProperty ? ["price", "address"] : []);
   rest = rest.replace(COURTESY, " ").replace(FRAMING, " ").replace(words("фаҳмем|фахмем|бо|без|с"), " ")
     .replace(/[.,!?;:…()[\]{}"'«»—–-]/gu, " ").trim();
   if (rest || !found.size) return null;
-  return (["price", "address", "builder", "characteristics"] as const).filter((kind) => found.has(kind));
+  return customerPropertyFactKindSchema.options.filter((kind) => found.has(kind));
 }

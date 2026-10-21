@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { customerPropertyFactsSchema, customerPropertyCharacteristicsSchema, customerPropertyCharacteristicLines,
+import { customerPropertyFactsSchema, customerPropertyCharacteristicsSchema, customerPropertyCharacteristicLines, customerPropertyAvailabilityLine,
   type CustomerPropertyFacts, type CustomerPropertyFactKind } from "@royal-home/shared";
 import { prisma, type TxClient } from "../db.js";
 import { BOT_OFFER_SELECT, botMayOffer, botOfferLink, type BotOfferFields } from "./propertyMatch.js";
@@ -76,8 +76,9 @@ export function renderCustomerPropertyFacts(facts: CustomerPropertyFacts, kinds:
       ? "Дар карточка маълумоти тасдиқшуда дар бораи сохтмончӣ нест."
       : "В карточке нет подтверждённых данных о застройщике.");
     if (kind === "characteristics") lines.push(...customerPropertyCharacteristicLines(facts.characteristics, language));
+    if (kind === "availability") lines.push(customerPropertyAvailabilityLine(facts, language));
   }
-  if (facts.availability === "RESERVED") lines.push(language === "tg" ? "Объект ҳоло дар брон аст." : "Объект сейчас в брони.");
+  if (facts.availability === "RESERVED" && !kinds.includes("availability")) lines.push(language === "tg" ? "Объект ҳоло дар брон аст." : "Объект сейчас в брони.");
   return lines.join("\n");
 }
 

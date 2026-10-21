@@ -210,10 +210,11 @@ it('accepts the existing qualified catalog-only transition with identical provid
   expect((await readPolicy()).capabilities).toEqual(before.capabilities);
   expect((await readPolicy()).rolloutConfig).toMatchObject({percentBasisPoints:5000,allowed:(before.rolloutConfig as {allowed:unknown}).allowed});
 });
-it('adopts only the reviewed recruitment prompt/tool pair through the actual retained factory at unchanged50%, scopes and rights',async()=>{
+it('adopts the availability catalog through the actual retained factory with unchanged prompt,50%, scopes and rights',async()=>{
   const pair=CUSTOMER_RECRUITMENT_UPGRADE_V1;
-  expect(manifest.promptHash).toBe(pair.toPrompt);expect(manifest.toolSchemaHash).toBe(pair.toTools);
-  await install(await historical({promptHash:pair.fromPrompt,toolSchemaHash:pair.fromTools}));
+  expect(manifest.promptHash).toBe(pair.toPrompt);
+  expect(manifest.toolSchemaHash).toBe('16dcce629b9cec908e64942333769bdc05353fbe5675726fe9c9cfd3c9ee7b67');
+  await install(await historical({toolSchemaHash:pair.toTools}));
   const before=await readPolicy();
   const response=await request(app).post(`${base}/refresh-current`).set(auth()).send(await command());
   expect(response.status,JSON.stringify(response.body)).toBe(200);
@@ -221,7 +222,17 @@ it('adopts only the reviewed recruitment prompt/tool pair through the actual ret
   expect(after.capabilities).toEqual(before.capabilities);
   expect(after.rolloutConfig).toMatchObject({percentBasisPoints:5000,allowed:(before.rolloutConfig as {allowed:unknown}).allowed});
   const audit=await prisma.auditLog.findFirstOrThrow({where:{agentId:actorId,action:'CUSTOMER_AGENT_PUBLISH'},orderBy:{createdAt:'desc'}});
-  expect(audit.meta).toMatchObject({authority:'retained_policy_refresh',recruitmentProtocolUpgrade:true,paidConfirmed:null});
+  expect(audit.meta).toMatchObject({authority:'retained_policy_refresh',catalogFactsUpgrade:true,recruitmentProtocolUpgrade:false,paidConfirmed:null});
+});
+it('does not extend the historical recruitment prompt permission to a different availability tool catalog',async()=>{
+  const pair=CUSTOMER_RECRUITMENT_UPGRADE_V1;
+  await install(await historical({promptHash:pair.fromPrompt,toolSchemaHash:pair.fromTools}));
+  const before=await readPolicy();
+  const count=await prisma.auditLog.count({where:{agentId:actorId,action:'CUSTOMER_AGENT_PUBLISH'}});
+  const response=await request(app).post(`${base}/refresh-current`).set(auth()).send(await command());
+  expect(response.status,JSON.stringify(response.body)).toBe(409);
+  expect(await readPolicy()).toEqual(before);
+  expect(await prisma.auditLog.count({where:{agentId:actorId,action:'CUSTOMER_AGENT_PUBLISH'}})).toBe(count);
 });
 it.each(['prompt','tools','knowledge','limits','provider-profile','provider-policy'] as const)(
   'the reviewed recruitment transition still rejects another %s without publishing or creating an elevation grant',async field=>{

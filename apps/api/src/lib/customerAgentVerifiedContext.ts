@@ -1,7 +1,7 @@
 import { isDeepStrictEqual } from "node:util";
 import { readCustomerPublicOutreachMemory } from "./customerPublicOutreachMemory.js";
 import { readCustomerRecruitmentRecoveryMemory } from "./customerRecruitmentRecoveryMemory.js";
-import { customerAgentVerifiedContextSchema, customerAgentRevisionSchema, customerPropertyDeliverySchema, customerPublicStateSchema,
+import { customerAgentVerifiedContextSchema, customerAgentRevisionSchema, customerPropertyDeliverySchema, customerPublicStateSchema, customerPropertyFactKindSchema,
   type CustomerAgentRevision, type CustomerAgentVerifiedContext, type CustomerFence } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { isCustomerPrincipal, revalidateCustomerPrincipal, customerPrincipalAuthenticatedInput, type CustomerPrincipal } from "./customerPrincipal.js";
@@ -278,7 +278,7 @@ export async function loadCustomerAgentVerifiedDmContext(input: { principal: unk
             const parsed = customerPropertyDeliverySchema.safeParse(part.p03Json);
             if (parsed.success && parsed.data.propertyId && parsed.data.factsSignature && parsed.data.inputEventKey === part.ticketEventKey && parsed.data.scopeKey === principal.scope.scopeKey) {
               const facts = await readCustomerPropertyFacts(parsed.data.propertyId, principal.scope.channel);
-              if (facts?.signature === parsed.data.factsSignature) for (const kind of ["price", "address", "builder", "characteristics"] as const) {
+              if (facts?.signature === parsed.data.factsSignature) for (const kind of customerPropertyFactKindSchema.options) {
                 evidence.push({ ref: `e${evidence.length}`, value: { kind: "facts", facts, kinds: [kind] } });
               }
             }
