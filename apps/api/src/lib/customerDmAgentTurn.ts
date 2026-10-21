@@ -109,7 +109,11 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
       await releaseHeldClaim(claim, remembered.reason);
       return remembered;
     }
-    if (!text.trim()) {
+    // Short answers, names and locations may contain text but no decisive
+    // language evidence. Preserve this customer's last meaningful USER turn,
+    // just as for an empty attachment caption. Never inherit the bot's prose
+    // or another inquiry's language; a decisive current RU/TG input wins.
+    if (detected !== "ru" && detected !== "tg") {
       const previousLanguage = [...remembered.context.turns].reverse().filter(turn => turn.role === "user")
         .map(turn => detectClientLanguage(turn.text)).find(value => value === "ru" || value === "tg");
       if (previousLanguage) language = previousLanguage;
