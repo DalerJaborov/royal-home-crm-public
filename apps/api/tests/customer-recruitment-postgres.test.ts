@@ -5,6 +5,7 @@ import { beforeAll, afterAll, expect, it, vi } from "vitest";
 import { app } from "../src/app.js";
 import { prisma } from "../src/db.js";
 import { signAccessToken } from "../src/auth/jwt.js";
+import { invalidateAgentAccess } from "../src/auth/middleware.js";
 import { revokeElevation, isElevated } from "../src/lib/stepUp.js";
 import { SETTINGS_MAINTENANCE_DEADLINE } from "../src/lib/settingsMaintenance.js";
 import { readCustomerOpenVacancies, customerOpenVacanciesCurrent } from "../src/lib/recruitmentPositions.js";
@@ -15,11 +16,11 @@ const data = { titleRu: "Тестовая должность", titleTg: "Ваз�
 const actors: Array<{ id: string; token: string }> = [];
 let settings: { botCanHandleVacancies: boolean } | null;
 const auth = (actor: { token: string }) => ({ Authorization: `Bearer ${actor.token}` });
-async function actor(role: "DIRECTOR" | "MANAGER" | "AGENT") {
+async function actor(role: "DIRECTOR" | "ADMIN" | "MANAGER" | "AGENT") {
   const row = await prisma.agent.create({ data: { fullName: tag, phone: `${tag}-${role}`, role, passwordHash: await bcrypt.hash(password, 4) } });
   const value = { id: row.id, token: signAccessToken({ sub: row.id, role }) }; actors.push(value); return value;
 }
-let director: Awaited<ReturnType<typeof actor>>, manager: Awaited<ReturnType<typeof actor>>, agent: Awaited<ReturnType<typeof actor>>;
+let director: Awaited<ReturnType<typeof actor>>, admin: Awaited<ReturnType<typeof actor>>, manager: Awaited<ReturnType<typeof actor>>, agent: Awaited<ReturnType<typeof actor>>;
 it("the temporary settings policy saves a real catalog row without SMS or a fabricated MFA grant, expires and retains staff rights", async () => {
   const maintenanceKey = `maintenance-${randomUUID()}`;
   vi.useFakeTimers({ toFake: ["Date"] });
@@ -38,9 +39,32 @@ it("the temporary settings policy saves a real catalog row without SMS or a fabr
     expect(await prisma.recruitmentPosition.findUnique({ where: { key: maintenanceKey } })).toMatchObject({ isOpen: true, revision: 1 });
     expect(isElevated(director.id)).toBe(false);
     expect(await prisma.auditLog.count({ where: { agentId: director.id, action: "SETTINGS_MAINTENANCE_ACCESS" } })).toBe(1);
-    // No request can turn the settings-only policy into employee administration.
-    expect((await request(app).post("/api/v1/agents").set(token()).send({})).status).toBe(428);
+    // People is a Settings tab too: reach validation without creating staff,
+    // sending a code or fabricating elevation. Role permissions still apply.
+    expect((await request(app).post("/api/v1/agents").set(token()).send({})).status).toBe(400);
+    const agentAuth = { Authorization: `Bearer ${signAccessToken({ sub: agent.id, role: "AGENT" })}` };
+    expect((await request(app).post("/api/v1/agents").set(agentAuth).send({})).status).toBe(403);
+    expect((await request(app).put("/api/v1/agents/synthetic/permissions").set(agentAuth).send({})).status).toBe(403);
+    const adminAuth = { Authorization: `Bearer ${signAccessToken({ sub: admin.id, role: "ADMIN" })}` };
+    expect((await request(app).post("/api/v1/agents").set(adminAuth).send({})).status).toBe(400);
+    try {
+      await prisma.agent.update({ where: { id: admin.id }, data: { permissions: { revoked: ["agents.manage"] } } });
+      invalidateAgentAccess(admin.id);
+      expect((await request(app).post("/api/v1/agents").set(adminAuth).send({})).status).toBe(403);
+      await prisma.agent.update({ where: { id: admin.id }, data: { permissions: { revoked: ["settings.manage"] } } });
+      invalidateAgentAccess(admin.id);
+      expect((await request(app).post("/api/v1/agents").set(adminAuth).send({})).status).toBe(428);
+      await prisma.agent.update({ where: { id: admin.id }, data: { permissions: { revoked: [] }, totpEnabled: true } });
+      invalidateAgentAccess(admin.id);
+      expect((await request(app).post("/api/v1/agents").set(adminAuth).send({})).status).toBe(428);
+    } finally {
+      await prisma.agent.update({ where: { id: admin.id }, data: { permissions: { revoked: [] }, totpEnabled: false } });
+      invalidateAgentAccess(admin.id);
+    }
+    expect(isElevated(director.id)).toBe(false);
+    expect((await request(app).post("/api/v1/me/2fa/disable").set(token()).send({})).status).toBe(428);
     vi.setSystemTime(new Date(SETTINGS_MAINTENANCE_DEADLINE));
+    expect((await request(app).post("/api/v1/agents").set(token()).send({})).status).toBe(428);
     expect((await request(app).put(`/api/v1/vacancies/positions/${maintenanceKey}`).set(token()).send({ ...payload, expectedRevision: 1 })).status).toBe(428);
     expect(await prisma.recruitmentPosition.findUnique({ where: { key: maintenanceKey } })).toMatchObject({ revision: 1 });
   } finally {
@@ -51,7 +75,7 @@ it("the temporary settings policy saves a real catalog row without SMS or a fabr
 beforeAll(async () => {
   settings = await prisma.settings.findUniqueOrThrow({ where: { id: "singleton" }, select: { botCanHandleVacancies: true } });
   await prisma.settings.update({ where: { id: "singleton" }, data: { botCanHandleVacancies: true } });
-  director = await actor("DIRECTOR"); manager = await actor("MANAGER"); agent = await actor("AGENT");
+  director = await actor("DIRECTOR"); admin = await actor("ADMIN"); manager = await actor("MANAGER"); agent = await actor("AGENT");
 });
 afterAll(async () => {
   await prisma.recruitmentPosition.deleteMany({ where: { key: { in: [key, otherKey] } } });
