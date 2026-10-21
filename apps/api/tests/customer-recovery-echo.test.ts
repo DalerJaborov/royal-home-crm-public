@@ -21,7 +21,7 @@ beforeEach(() => {
   state.recovery = { id: randomUUID(), originalConversationId: id, conversationId: id, endpointScopeId: scope,
     status: "IN_FLIGHT", attemptAt: new Date(Date.now() - 1000), finishedAt: null, providerMid: null,
     payloadEncrypted: encryptSecret(text), payloadHash: recruitmentRecoveryHash({ text }),
-    transportJson: { channel: "INSTAGRAM", accountId: account, endpointScopeId: scope, transportKey: `messenger-account:${account}`, scopeRevision: "1" },
+    transportJson: { channel: "INSTAGRAM", accountId: account, endpointScopeId: scope, transportKey: `messenger-account:${account}`, scopeRevision: "1", subscriberId: "synthetic-candidate" },
     fenceJson: { inquiryId: randomUUID(), nativeId: id, endpoint: { endpointScopeId: scope, channel: "INSTAGRAM", accountId: account,
       peerId: "synthetic-candidate", threadId: "" }, stateRevision: "1", intentRevision: "1", ownershipEpoch: "0", bindingRevision: "1",
       scopeRevision: "1", policyRevision: "1", ownerToken: null } };
@@ -41,7 +41,7 @@ it.each(["READY", "UNKNOWN", "SUPPRESSED"])("never infers own delivery from reco
   state.recovery.status = status;
   expect(await isOwnCustomerOutboxEcho(echo())).toBe(false);
 });
-it.each(["account", "scope", "peer", "channel", "native", "transport", "hash", "ciphertext", "expired", "future", "partial-text"])(
+it.each(["account", "scope", "peer", "channel", "native", "transport", "transport-peer", "missing-peer", "extra-field", "hash", "ciphertext", "expired", "future", "partial-text"])(
   "preserves manual-echo handling when recovery proof differs: %s", async changed => {
     const input = echo();
     if (changed === "account") state.recovery.fenceJson.endpoint.accountId = randomUUID();
@@ -50,6 +50,9 @@ it.each(["account", "scope", "peer", "channel", "native", "transport", "hash", "
     if (changed === "channel") state.recovery.transportJson.channel = "FACEBOOK";
     if (changed === "native") state.recovery.originalConversationId = randomUUID();
     if (changed === "transport") state.recovery.transportJson.scopeRevision = "2";
+    if (changed === "transport-peer") state.recovery.transportJson.subscriberId = "other-peer";
+    if (changed === "missing-peer") delete state.recovery.transportJson.subscriberId;
+    if (changed === "extra-field") state.recovery.transportJson.untrustedExtra = "not-allowed";
     if (changed === "hash") state.recovery.payloadHash = "0".repeat(64);
     if (changed === "ciphertext") state.recovery.payloadEncrypted = "invalid-encrypted-text";
     if (changed === "expired") state.recovery.attemptAt = new Date(Date.now() - 121_000);
