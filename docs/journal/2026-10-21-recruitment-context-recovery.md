@@ -39,5 +39,9 @@ full cloud gates, production verification, retained rollout and actual approved
 campaign receipts remain separate release/acceptance steps.
 
 Private dialogue review and recipient data remain outside this public repository.
+The first complete cloud run exposed two older incomplete database fixtures
+which lacked the new catalog read. Their public catalog fixtures are now
+explicit; the agent-specific missing-fields case identifies that actual role.
+The original privacy, phone and schema assertions remain; all12 focused cases pass.
 Rollout stays at its existing percentage; voice, provider changes and general
 fallback mechanisms are outside this change.

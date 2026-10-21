@@ -11,6 +11,14 @@ const fake = vi.hoisted(() => ({ raw: {} as unknown, callAi: vi.fn(), logError: 
 // Complete DB/dotenv replacements intentionally avoid pools and local keys.
 vi.mock("../src/db.js", () => ({ prisma: db }));
 vi.mock("../src/loadEnv.js", () => ({}));
+vi.mock("../src/lib/recruitmentPositions.js", async importOriginal => ({
+  ...await importOriginal<typeof import("../src/lib/recruitmentPositions.js")>(),
+  readCustomerOpenVacancies: async () => {
+    const { recruitmentCatalogHash } = await import("../src/ai/customerAgentRecruitmentProtocol.js");
+    const facts = { collecting: true, positions: [] };
+    return { kind: "open_vacancies", ...facts, sourceHash: recruitmentCatalogHash(facts) };
+  },
+}));
 vi.mock("../src/ai/client.js", async (importOriginal) => ({ ...(await importOriginal<typeof import("../src/ai/client.js")>()), callAiText: fake.callAi }));
 vi.mock("../src/lib/systemError.js", async (importOriginal) => ({ ...(await importOriginal<typeof import("../src/lib/systemError.js")>()), logSystemError: fake.logError }));
 import { runQualifyTurn } from "../src/ai/leadQualifier.js";
