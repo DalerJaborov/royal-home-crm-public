@@ -23,6 +23,6 @@ export function settingsMaintenanceUntil(actor: SettingsMaintenanceActor, now = 
 }
 export function isSettingsMaintenancePath(originalUrl: string): boolean {
   const path = originalUrl.split("?")[0];
-  return ["/api/v1/settings", "/api/v1/vacancies/positions", "/api/v1/bot-training", "/api/v1/bot-learning"].some(
+  return ["/api/v1/settings", "/api/v1/vacancies/positions", "/api/v1/bot-training", "/api/v1/bot-learning", "/api/v1/dashboard/modules"].some(
     prefix => path === prefix || path.startsWith(prefix + "/"));
 }
