@@ -240,6 +240,10 @@ async function publishVerifiedCustomerAgentForOwner(actorId:string,body:PublishS
       for(const root of roots) if(!await customerAgentRevisionReachable(tx,root,before.data.candidateRevisionId,before.data.cohortId)) fail(409,"revision_advance_unrelated_subject");
       await tx.$executeRaw`INSERT INTO "CustomerAgentRevisionAdvance" ("id","fromRevisionId","fromCohortId","toRevisionId","toCohortId","policyRevision","approvedAt")
         VALUES (${randomUUID()},${before.data.candidateRevisionId},${before.data.cohortId},${body.rollout.candidateRevisionId},${body.rollout.cohortId},${current.policyRevision+1n},now())`;
+      // Check the proposed complete lineage before committing the publication,
+      // not only roots→OLD candidate. Failure rolls this tentative edge back.
+      for(const root of roots) if(!await customerAgentRevisionReachable(tx,root,body.rollout.candidateRevisionId,body.rollout.cohortId))
+        fail(409,"revision_advance_target_unreachable");
     }
     if(!routine&&!settingsStepUpSatisfied(actor)) fail(428,"step_up_required");
     const [updated]=await tx.$queryRaw<Array<{policyRevision:bigint}>>`UPDATE "CustomerRuntimePolicy" SET "contractVersion"='scoped',"rolloutMode"='ACTIVE',

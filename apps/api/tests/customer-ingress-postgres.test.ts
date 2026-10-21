@@ -128,6 +128,25 @@ describe("durable ingress evidence without synthetic authority", () => {
     expect(recovered.status).toBe("pending");
     if (recovered.status === "pending") expect(inspectRecoveredCustomerPendingEnvelope(recovered.envelope)?.payload).toMatchObject({ inputText: f.text, eventId: f.eventId });
   });
+  it("retains original postback references in authenticated durable CORE intake with legacy property context off", async () => {
+    const previousContextFlag=process.env.BOT_PROPERTY_CONTEXT_ENABLED;
+    vi.stubEnv("BOT_PROPERTY_CONTEXT_ENABLED", "0");
+    try {
+      const a=await account(),peer=`synthetic-peer-${randomUUID()}`,eventId=randomUUID(),text="Подробнее";
+      const rawBody=Buffer.from(JSON.stringify({object:"instagram",entry:[{id:a.externalId,messaging:[{sender:{id:peer},
+        recipient:{id:a.externalId},postback:{mid:eventId,title:text,payload:"synthetic-button",referral:{ad_id:"123456789012345",
+          ads_context_data:{post_id:"12345_67890"}}}}]}]}));
+      const req={rawBody,get:()=>`sha256=${createHmac("sha256",a.secret).update(rawBody).digest("hex")}`};
+      registerAuthenticatedMetaCustomerRequest(req);
+      const ticket=await pending({req,peer,eventId,text,a}),recovered=await recoverCustomerPendingEnvelope(ticket.eventKey);
+      expect(recovered.status).toBe("pending");
+      if(recovered.status!=="pending")throw Error("Original pending envelope required");
+      expect(inspectRecoveredCustomerPendingEnvelope(recovered.envelope)?.payload).toMatchObject({eventKind:"postback",eventId,
+        propertyEvidence:[{kind:"ad",origin:"postback_referral",reference:"123456789012345",secondaryReference:"12345_67890"}]});
+      expect(await prisma.customerPropertyIngressTicket.findUniqueOrThrow({where:{eventKey:ticket.eventKey}}))
+        .toMatchObject({originCiphertext:null,inputRecordedAt:null});
+    } finally { vi.stubEnv("BOT_PROPERTY_CONTEXT_ENABLED",previousContextFlag); }
+  });
   it("new accepted IN invalidates original FINAL without adopting its new fence", async () => {
     const a = await account(), first = await final(request(a)), next = await final(request(a, first.peer));
     expect(await recoverAuthenticatedCustomerInput(first.ticket.eventKey)).toMatchObject({ status: "held" });

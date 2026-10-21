@@ -21,6 +21,7 @@ import { customerDmAttachmentInput } from "./customerDmAttachmentInput.js";
 import { decodeCustomerAgentMediaObservation } from "./customerAgentMediaObservation.js";
 import { customerAgentIntake } from "../ai/customerAgentIntake.js";
 import { readOwnedCustomerIntakeContinuity } from "./customerOwnedIntakeContinuity.js";
+import { readApprovedCustomerWordRevisions } from "./customerAgentRevisionAdvance.js";
 
 export interface CustomerAgentMemoryCandidate {
   role: "user" | "assistant"; text: string; observedAt: number; stableKey: string;
@@ -82,17 +83,9 @@ type Current = { principal: CustomerPrincipal; ticket: NonNullable<MemoryTicket>
  * Both tickets must still belong to the SAME immutable CORE DM assignment. */
 async function approvedOwnWordRevisions(current: Current): Promise<ReadonlySet<string>> {
   if (!current.ticket.rolloutAssignmentId) return new Set();
-  const [lineage] = await prisma.$queryRaw<Array<{ path: string[] }>>`WITH RECURSIVE lineage(revision,cohort,depth,path) AS (
-    SELECT r."candidateRevisionId",r."cohortId",0,ARRAY[r."candidateRevisionId"]::text[]
-    FROM "CustomerAgentRolloutAssignment" r WHERE r."id"=${current.ticket.rolloutAssignmentId}
-      AND r."lane"='CORE' AND r."surface"='dm' AND r."endpointScopeId"=${current.principal.scope.endpointScopeId}
-    UNION ALL
-    SELECT e."toRevisionId",e."toCohortId",l.depth+1,l.path || e."toRevisionId"
-    FROM lineage l JOIN "CustomerAgentRevisionAdvance" e ON e."fromRevisionId"=l.revision AND e."fromCohortId"=l.cohort
-    WHERE l.depth<16 AND NOT(e."toRevisionId"=ANY(l.path)) AND e."approvedAt"<=${current.ticket.receivedAt}
-      AND e."policyRevision"<=${BigInt(current.principal.authority.fence.policyRevision)}
-  ) SELECT path FROM lineage WHERE revision=${current.revision.id} ORDER BY depth DESC LIMIT 1`;
-  return new Set(lineage?.path.filter(id => id !== current.revision.id) ?? []);
+  return readApprovedCustomerWordRevisions(prisma,{assignmentId:current.ticket.rolloutAssignmentId,
+    endpointScopeId:current.principal.scope.endpointScopeId,revisionId:current.revision.id,
+    receivedAt:current.ticket.receivedAt,policyRevision:current.principal.authority.fence.policyRevision});
 }
 function historicalText(row: NonNullable<MemoryTicket>, current: Current, ownWordsOnly = false,
   priorRevisions: ReadonlySet<string> = new Set(),

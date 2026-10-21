@@ -20,6 +20,9 @@ import { drainBackgroundTasks } from '../src/lib/shutdownState.js';
 import { inspectCustomerDeliveryObservation } from '../src/lib/customerDeliveryObservation.js';
 import { dispatchCustomerOutboxPart } from '../src/lib/customerDeliveryDispatcher.js';
 import { CUSTOMER_RECRUITMENT_UPGRADE_V1 } from '../src/lib/customerRecruitmentUpgrade.js';
+import {customerAgentRevisionReachable} from '../src/lib/customerAgentRevisionAdvance.js';
+import {readCustomerDmSourceExecution} from '../src/lib/customerAgentEnrollment.js';
+import * as revisionLineage from '../src/lib/customerAgentRevisionAdvance.js';
 
 const tag=`synthetic-routine-refresh-${randomUUID()}`, base='/api/v1/settings/customer-agent';
 const accountId=randomUUID(),resource=`${tag}-resource`,peer=`${tag}-peer`,secret=`${tag}-secret`;
@@ -209,6 +212,47 @@ it('accepts the existing qualified catalog-only transition with identical provid
   expect(response.status,JSON.stringify(response.body)).toBe(200);
   expect((await readPolicy()).capabilities).toEqual(before.capabilities);
   expect((await readPolicy()).rolloutConfig).toMatchObject({percentBasisPoints:5000,allowed:(before.rolloutConfig as {allowed:unknown}).allowed});
+});
+it('actual retained publication crosses sixteen edges without dropping original subjects or changing original source pins',async()=>{
+  const root=await historical();await install(root,'ACTIVE',10000);
+  const original=await capturePending();
+  await prisma.customerPropertyIngressTicket.update({where:{eventKey:original.eventKey},data:{processingState:'HELD',errorCode:'synthetic-idle-routing-fixture'}});
+  const assignment=await prisma.customerAgentRolloutAssignment.findUniqueOrThrow({where:{id:original.rolloutAssignmentId!}});
+  for(let i=0;i<16;i++){
+    const p=await readPolicy(),prior=p.rolloutConfig as {cohortId:string},next=await historical(),cohort=randomUUID();
+    await prisma.$executeRaw`INSERT INTO "CustomerAgentRevisionAdvance" ("id","fromRevisionId","fromCohortId","toRevisionId","toCohortId","policyRevision","approvedAt")
+      VALUES (${randomUUID()},${p.activeAgentRevisionId},${prior.cohortId},${next},${cohort},${p.policyRevision+1n},now())`;
+    await prisma.$executeRaw`UPDATE "CustomerRuntimePolicy" SET "activeAgentRevisionId"=${next},"rolloutConfig"=${JSON.stringify({...p.rolloutConfig as object,candidateRevisionId:next,cohortId:cohort,percentBasisPoints:5000})}::jsonb WHERE "id"='singleton'`;
+  }
+  const before=await readPolicy(),response=await request(app).post(`${base}/refresh-current`).set(auth()).send(await command());
+  expect(response.status,JSON.stringify(response.body)).toBe(200);
+  const after=await readPolicy(),cohort=(after.rolloutConfig as {cohortId:string}).cohortId;
+  expect(after.capabilities).toEqual(before.capabilities);
+  expect(after.rolloutConfig).toMatchObject({percentBasisPoints:5000,allowed:(before.rolloutConfig as {allowed:unknown}).allowed});
+  expect(await customerAgentRevisionReachable(prisma,assignment,newId,cohort)).toBe(true);
+  const scope=await prisma.customerEndpointScope.findUniqueOrThrow({where:{id:scopeId}});
+  const subject={surface:'dm' as const,endpoint:{endpointScopeId:scopeId,scopeRevision:String(scope.scopeRevision),channel:'INSTAGRAM' as const,accountId,transportKey:scope.transportKey},peer};
+  expect(await readCustomerDmSourceExecution(prisma,original.eventKey,original.scopeKey,subject)).toMatchObject({lane:'CORE',revisionId:root});
+  const fresh=await capturePending();expect(fresh.intakeAgentRevisionId).toBe(newId);expect(fresh.rolloutAssignmentId).toBe(assignment.id);
+  expect(await prisma.customerAgentRolloutAssignment.findUniqueOrThrow({where:{id:assignment.id}})).toEqual(assignment);
+  expect((await prisma.customerPropertyIngressTicket.findUniqueOrThrow({where:{eventKey:original.eventKey}})).intakeAgentRevisionId).toBe(root);
+});
+it('a failed prospective lineage observation rolls back the tentative edge and policy before publication',async()=>{
+  await install(oldId,'ACTIVE',10000);
+  const source=await capturePending();
+  await prisma.customerPropertyIngressTicket.update({where:{eventKey:source.eventKey},data:{processingState:'HELD',errorCode:'synthetic-idle-routing-fixture'}});
+  const before=await readPolicy(),cohort=(before.rolloutConfig as {cohortId:string}).cohortId;
+  const count=await prisma.auditLog.count({where:{agentId:actorId,action:'CUSTOMER_AGENT_PUBLISH'}});
+  const actual=revisionLineage.customerAgentRevisionReachable;
+  // A deny-only fault injection, never a substitute positive permission proof.
+  vi.spyOn(revisionLineage,'customerAgentRevisionReachable').mockImplementation((db,from,to,toCohort)=>
+    to===newId?Promise.resolve(false):actual(db,from,to,toCohort));
+  const response=await request(app).post(`${base}/refresh-current`).set(auth()).send(await command());
+  expect(response.status).toBe(409);expect(response.body.error).toBe('revision_advance_target_unreachable');
+  expect(await readPolicy()).toEqual(before);
+  expect(await prisma.customerAgentRevisionAdvance.count({where:{fromRevisionId:oldId,fromCohortId:cohort}})).toBe(0);
+  expect(await prisma.auditLog.count({where:{agentId:actorId,action:'CUSTOMER_AGENT_PUBLISH'}})).toBe(count);
+  expect((await prisma.customerPropertyIngressTicket.findUniqueOrThrow({where:{eventKey:source.eventKey}})).intakeAgentRevisionId).toBe(oldId);
 });
 it('adopts the availability catalog through the actual retained factory with unchanged prompt,50%, scopes and rights',async()=>{
   const pair=CUSTOMER_RECRUITMENT_UPGRADE_V1;

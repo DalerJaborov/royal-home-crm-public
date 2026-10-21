@@ -141,6 +141,7 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
     { role: "user", parts: currentParts },
   ] : [{ role: "user", parts: currentParts }];
   const seen = new Map<string, { call: string; result: unknown }>();
+  const requestedCalls = new Map<string, string>();
   const unsettledWrites = new Map<string, CustomerUnknownToolCall>();
   const deadlineAt = Math.min(operation.deadlineAt, frame.startedAt + revision.limits.deadlineMs);
   let rounds = 0, toolCalls = 0;
@@ -315,15 +316,35 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
         if (new Set(batchIds).size !== batchIds.length) return held("duplicate_call_id");
         // Whole model turn validates before any model-requested effect. A
         // valid first write plus invalid second call is not partial consent.
-        for (const call of turn.calls) {
+        const invalidArguments = new Set<number>();
+        for (const [index, call] of turn.calls.entries()) {
           if (Object.keys(call).some(key => !["name", "args", "id"].includes(key))) return held("invalid_model_call");
+          // Only arguments of an already declared, currently allowed tool may
+          // be corrected. Missing capability, public writes and unknown tools
+          // still stop here without executing or offering a replacement tool.
+          if (!frame.tools.some(t => t.name === call.name) ||
+              (frame.surface === "public_comment" && writeNames.has(call.name))) return held("unavailable_tool");
           const parsedCall = customerAgentToolCallSchema.safeParse({ name: call.name, args: call.args });
-          if (!parsedCall.success || !frame.tools.some(t => t.name === parsedCall.data.name) ||
-              (frame.surface === "public_comment" && writeNames.has(parsedCall.data.name))) return held("unavailable_tool");
+          if (!parsedCall.success) invalidArguments.add(index);
           if (call.id !== undefined && (typeof call.id !== "string" || !call.id.length || call.id.length > 512)) return held("invalid_call_id");
-          if (call.id && seen.has(call.id) && seen.get(call.id)!.call !== JSON.stringify(parsedCall.data)) return held("call_id_reused");
+          const serialized = JSON.stringify(parsedCall.success ? parsedCall.data : { name: call.name, args: call.args });
+          if (call.id && requestedCalls.has(call.id) && requestedCalls.get(call.id) !== serialized) return held("call_id_reused");
+          if (call.id && seen.has(call.id) && seen.get(call.id)!.call !== serialized) return held("call_id_reused");
+          if (call.id) requestedCalls.set(call.id, serialized);
         }
         contents.push({ role: "model", parts: clone(turn.modelParts) });
+        if (invalidArguments.size) {
+          // Protocol feedback within the SAME bounded turn. No part of this
+          // batch ran; rejected calls consume the original call/round budget.
+          // Never expose raw values, schema internals or a fabricated receipt.
+          toolCalls += turn.calls.length;
+          contents.push({ role: "user", parts: turn.calls.map((call, index) => ({ functionResponse: {
+            name: call.name, ...(call.id ? { id: call.id } : {}), response: { result: {
+              status: invalidArguments.has(index) ? "invalid_arguments" : "batch_not_executed",
+            } },
+          } })) });
+          continue;
+        }
         const results: unknown[] = [];
         for (const call of turn.calls) {
           const response = await execute({ name: call.name, args: call.args }, call.id);
