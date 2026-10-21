@@ -38,9 +38,16 @@ it("the temporary settings policy saves a real catalog row without SMS or a fabr
     expect(await prisma.recruitmentPosition.findUnique({ where: { key: maintenanceKey } })).toMatchObject({ isOpen: true, revision: 1 });
     expect(isElevated(director.id)).toBe(false);
     expect(await prisma.auditLog.count({ where: { agentId: director.id, action: "SETTINGS_MAINTENANCE_ACCESS" } })).toBe(1);
-    // No request can turn the settings-only policy into employee administration.
-    expect((await request(app).post("/api/v1/agents").set(token()).send({})).status).toBe(428);
+    // People is a Settings tab too: reach validation without creating staff,
+    // sending a code or fabricating elevation. Role permissions still apply.
+    expect((await request(app).post("/api/v1/agents").set(token()).send({})).status).toBe(400);
+    const agentAuth = { Authorization: `Bearer ${signAccessToken({ sub: agent.id, role: "AGENT" })}` };
+    expect((await request(app).post("/api/v1/agents").set(agentAuth).send({})).status).toBe(403);
+    expect((await request(app).put("/api/v1/agents/synthetic/permissions").set(agentAuth).send({})).status).toBe(403);
+    expect(isElevated(director.id)).toBe(false);
+    expect((await request(app).post("/api/v1/me/2fa/disable").set(token()).send({})).status).toBe(428);
     vi.setSystemTime(new Date(SETTINGS_MAINTENANCE_DEADLINE));
+    expect((await request(app).post("/api/v1/agents").set(token()).send({})).status).toBe(428);
     expect((await request(app).put(`/api/v1/vacancies/positions/${maintenanceKey}`).set(token()).send({ ...payload, expectedRevision: 1 })).status).toBe(428);
     expect(await prisma.recruitmentPosition.findUnique({ where: { key: maintenanceKey } })).toMatchObject({ revision: 1 });
   } finally {
