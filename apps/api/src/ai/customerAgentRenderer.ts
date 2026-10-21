@@ -1,6 +1,6 @@
 import type { CustomerPropertyFactKind, CustomerPropertyFacts, CustomerMutationReceipt,
   CustomerAgentDecision, CustomerAgentQuestion, CustomerAgentSurface, CustomerAgentVerifiedContext } from "@royal-home/shared";
-import { customerPropertyCharacteristicLines, customerAgentPublicationObservationSchema } from "@royal-home/shared";
+import { customerPropertyCharacteristicLines, customerPropertyAvailabilityLine, customerAgentPublicationObservationSchema } from "@royal-home/shared";
 import { PUBLIC_AGENCY_CONTACT } from "../lib/publicAgencyContact.js";
 import { customerPublicThanks, customerRequestedAgencyContact, isCustomerPublicAppreciation, customerPublicReaction, customerPublicReactionText } from "./customerAgentConversationPolicy.js";
 import { customerAgentIntake, customerSellerIntakeQuestion } from "./customerAgentIntake.js";
@@ -159,8 +159,9 @@ function factSegments(value: Extract<CustomerAgentObservation, { kind: "facts" }
       : tg ? "Ҷойгиршавии дақиқро ҳоло тасдиқ карда наметавонам." : "Точное расположение пока не могу подтвердить.");
     if (kind === "builder") result.push(tg ? "Маълумоти тасдиқшуда дар бораи сохтмончӣ нест." : "Нет подтверждённых данных о застройщике.");
     if (kind === "characteristics") result.push(...customerPropertyCharacteristicLines(f.characteristics, language, question));
+    if (kind === "availability") result.push(customerPropertyAvailabilityLine(f, language));
   }
-  if (f.availability === "RESERVED") result.push(tg ? "Объект ҳоло дар брон аст." : "Объект сейчас в брони.");
+  if (f.availability === "RESERVED" && !value.kinds.includes("availability")) result.push(tg ? "Объект ҳоло дар брон аст." : "Объект сейчас в брони.");
   return result;
 }
 

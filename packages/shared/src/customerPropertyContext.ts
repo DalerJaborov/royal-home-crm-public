@@ -85,7 +85,8 @@ export const customerPropertyFactsSchema = z.object({
   signature: scopeKey,
 }).strict();
 export type CustomerPropertyFacts = z.infer<typeof customerPropertyFactsSchema>;
-export type CustomerPropertyFactKind = "price" | "address" | "builder" | "characteristics";
+export const customerPropertyFactKindSchema = z.enum(["price", "address", "builder", "characteristics", "availability"]);
+export type CustomerPropertyFactKind = z.infer<typeof customerPropertyFactKindSchema>;
 
 // Separate from legacy deliveryStatus=failed: pending/unknown/HOLD must not
 // become a permission to replay the complete customer turn and its actions.

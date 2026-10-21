@@ -5,13 +5,16 @@ import { CUSTOMER_AGENT_SYSTEM } from "../src/ai/customerAgentPrompt.js";
 import { customerAgentToolDefinitions, CUSTOMER_AGENT_PUBLIC_TOOLS } from "../src/ai/customerAgentToolDefinitions.js";
 const prior:{promptHash:string;toolSchemaHash:string}={promptHash:pair.fromPrompt,toolSchemaHash:pair.fromTools};
 const next:{promptHash:string;toolSchemaHash:string}={promptHash:pair.toPrompt,toolSchemaHash:pair.toTools};
-it("pins the actual reviewed prompt and exact fourteen-tool catalog instead of accepting future instruction changes",()=>{
+it("keeps the historical recruitment pair pinned while recognizing the distinct availability catalog",()=>{
   const sha=(value:string)=>createHash("sha256").update(value).digest("hex");
   const names=[...CUSTOMER_AGENT_PUBLIC_TOOLS,"save_contact","request_callback","request_handover","book_showing",
     "reschedule_showing","cancel_showing","ask_owner","save_job_application"] as const;
   expect(sha(CUSTOMER_AGENT_SYSTEM)).toBe(pair.toPrompt);
-  expect(sha(JSON.stringify(customerAgentToolDefinitions(names)))).toBe(pair.toTools);
+  const currentTools=sha(JSON.stringify(customerAgentToolDefinitions(names)));
+  expect(currentTools).toBe("16dcce629b9cec908e64942333769bdc05353fbe5675726fe9c9cfd3c9ee7b67");
+  expect(currentTools).not.toBe(pair.toTools);
   expect(isCustomerRecruitmentUpgradeV1(prior,next)).toBe(true);
+  expect(isCustomerRecruitmentUpgradeV1(prior,{promptHash:pair.toPrompt,toolSchemaHash:currentTools})).toBe(false);
 });
 it.each(["prior-prompt","prior-tools","next-prompt","next-tools","reverse","replay"])("rejects any other protocol pair: %s",which=>{
   const a={...prior},b={...next},other="f".repeat(64);
