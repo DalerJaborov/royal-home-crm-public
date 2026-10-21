@@ -20,6 +20,7 @@ import { customerMutationKind, customerMutationDigest } from "./customerActionCo
 import { prelockCustomerActionResource, applyCustomerActionResource, observeManagedCustomerResource } from "./customerActionEffects.js";
 import { finalizeManagedHandoverHoldTx } from "./customerCallbackLifecycle.js";
 import { currentInputAuthorizesCustomerCommand } from "./customerMutationIntent.js";
+import { customerRecruitmentIntakePermittedTx } from "./customerRecruitmentIntake.js";
 
 type ActionRow = { id: string; kind: CustomerActionKind | "new_lead"; generation: bigint; status: string;
   resourceType: string | null; resourceId: string | null; receiptVersion: number | null;
@@ -31,7 +32,7 @@ type InquiryRow = { actionIntents: unknown; claimedContact: unknown; lastAccepte
 function receiptOf(row: ActionRow, inquiryId: string): CustomerMutationReceipt | null {
   const outcomes = { contact: "contact_saved", callback: "callback_requested", new_lead: "new_lead_created",
     handover: "handover_requested", book_showing: "showing_booked", reschedule_showing: "showing_rescheduled",
-    cancel_showing: "showing_cancelled", owner_question: "owner_question_recorded" } as const;
+    cancel_showing: "showing_cancelled", owner_question: "owner_question_recorded", job_application: "job_application_saved" } as const;
   const result = customerMutationReceiptSchema.safeParse({ version: row.receiptVersion, actionId: row.id, inquiryId,
     kind: row.kind, generation: row.generation.toString(), outcome: outcomes[row.kind],
     ...(row.receiptVersion === 2 ? { publicRef: row.publicRef, resourceRevision: row.resourceRevision?.toString() } : {}),
@@ -310,6 +311,7 @@ export async function executeCustomerAction(authority: CustomerWriteAuthority, r
       // Preserve the open consent generation without creating an action or job.
       const dialPhone = command.name === "request_callback" ? await callbackPhone(tx, inquiry, grant, statedPhones) : null;
       if (command.name === "request_callback" && !dialPhone) return { status: "needs_input", reason: "phone_required" };
+      if (command.name === "save_job_application" && !await customerRecruitmentIntakePermittedTx(tx, grant)) return { status: "denied", reason: "recruitment_closed" };
       const actionId = randomUUID(); const now = new Date();
       await tx.$executeRaw(Prisma.sql`INSERT INTO "CustomerAction" ("id","inquiryId","kind","generation","status",
         "stateRevision","intentRevision","ownershipEpoch","bindingRevision","scopeRevision","policyRevision","evidenceRefs","updatedAt")

@@ -1,10 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import type { ConversationMessage, MessageAttachment } from "../types";
+import type { CustomerRecruitmentPortfolio } from "@royal-home/shared";
 import { SAFETY_REFETCH_MS } from "../lib/refetchIntervals";
 
 /** Анкета кандидата, собранная ботом в переписке (см. раздел «Вакансии»). */
 export interface JobApplication {
+  customerInquiryId?: string | null;
+  positionTitle?: string | null;
+  customerPortfolio?: CustomerRecruitmentPortfolio;
   id: string;
   conversationId: string | null;
   channel: string;

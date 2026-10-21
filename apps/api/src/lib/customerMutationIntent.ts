@@ -32,6 +32,10 @@ function exactStatedDate(text: string, at: string): boolean {
  * Ambiguous/relative dates stay clarification, never a guessed booking. */
 export function currentInputAuthorizesCustomerCommand(text: string, command: CustomerMutationCommand): boolean {
   const own = stripUntrusted(text, ["document", "video", "crm_note"]).normalize("NFKC").trim();
+  // This command only appends the genuine current input to the caller's own
+  // vacancy application. It neither accepts a model payload nor authorizes a
+  // call/interview. Job context and current opening are checked under DB locks.
+  if (command.name === "save_job_application") return own.length <= 8000;
   if (!own || own.length > 8000 || REPORTED_OR_NEGATED.test(own)) return false;
   if ((command.name === "book_showing" || command.name === "reschedule_showing" || command.name === "cancel_showing") &&
       (/[?？]/u.test(own) || /(?<![\p{L}])(?:как|можно|возможно|чи\s+хел|мешавад)(?![\p{L}])/iu.test(own))) return false;
@@ -63,6 +67,8 @@ export async function openAuthenticatedCustomerMutationIntent(input: Authenticat
           evidence.protectedMetaAccountId !== accepted.fence.endpoint.accountId || !customerActionCapability(accepted, kind)) return "denied";
       const fence = await assertCustomerFence(tx, accepted.fence, "local_write");
       if (fence.status !== "current") return fence.status;
+      if (command.data.name === "save_job_application" &&
+          (fence.snapshot.publicState.topic !== "job" || !fence.snapshot.publicState.jobPositionKey)) return "denied";
       const changed = await transitionCustomerState(tx, accepted.fence, { type: "intent", kind, change: "request",
         evidenceRefs: [ticket.eventKey], commandDigest: customerMutationDigest(command.data) });
       return changed.status === "applied" || changed.status === "same_event" ? "opened" : changed.status;

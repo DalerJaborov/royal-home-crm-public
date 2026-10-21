@@ -4,7 +4,12 @@ import { createCustomerCoreGoldenFixture, reply, call } from "./helpers/customer
 import { consumeCustomerInboxTicket } from "../src/lib/customerIngressProducer.js";
 import * as mediaObservation from "../src/lib/customerAgentMediaObservation.js";
 import { decodeCustomerAgentMediaObservation } from "../src/lib/customerAgentMediaObservation.js";
-import { readFileSync } from "node:fs";
+import { readFileSync, mkdtempSync, unlinkSync, rmdirSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { tmpdir } from "node:os";
+import { join, dirname } from "node:path";
+import { customerRecruitmentPortfolioSchema } from "@royal-home/shared";
+import { privateFilePath } from "../src/lib/privateFiles.js";
 import { prepareCustomerDmInboxCoreContext } from "../src/lib/customerDmCoreContext.js";
 
 vi.mock("node:dns/promises", async importOriginal => {
@@ -22,6 +27,39 @@ afterAll(async () => { await f?.cleanup(); });
 const perception = (overrides: Record<string, unknown> = {}) => ({ functionCall: { name: "perceive_customer_media", id: "media-extraction",
   args: { language: "ru", transcript: "", subject: "home_interior", visible: ["kitchen", "balcony"], readableText: "", speech: "none", ...overrides } } });
 const image = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j4AAAAABJRU5ErkJggg==", "base64");
+it("a genuine SMM video goes through the bounded Gemini media path, private storage and an own application receipt before ACCEPTED reply", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "synthetic-core-portfolio-")), previousDir = process.env.PRIVATE_UPLOADS_DIR;
+  process.env.PRIVATE_UPLOADS_DIR = directory;
+  const key = `synthetic-video-${randomUUID()}`;
+  const settings = await prisma.settings.findUniqueOrThrow({ where: { id: "singleton" }, select: { botCanHandleVacancies: true } });
+  let saved: string | null = null;
+  await prisma.recruitmentPosition.create({ data: { key, titleRu: "SMM-специалист / видеограф", titleTg: "Мутахассиси SMM / видеограф", isOpen: true } });
+  try {
+    await prisma.settings.update({ where: { id: "singleton" }, data: { botCanHandleVacancies: true } });
+    const owner = await f.owner(), bytes = readFileSync(new URL("./fixtures/customer-media-green.mp4", import.meta.url));
+    const url = f.mediaFixture("video/mp4", bytes);
+    f.script([[perception({ subject: "not_visible", visible: [] })], [call("save_job_application", {}, "save-portfolio")], [reply(["e1"], "job_tools")]]);
+    const event = await f.capture(owner, "Вакансия видеограф: вот моя работа", [{ type: "video", payload: { url } }]);
+    const result = await f.deliver(event);
+    expect(result.text).toContain("Сведения добавлены к отклику");
+    expect(result.text).not.toMatch(/позвон|передан|принят на работу|возраст|992/iu);
+    const application = await prisma.jobApplication.findFirstOrThrow({ where: { customerPositionKey: key } });
+    const portfolio = customerRecruitmentPortfolioSchema.parse(application.customerPortfolio);
+    expect(portfolio).toHaveLength(1); expect(portfolio[0].kind).toBe("video");
+    if (!("file" in portfolio[0])) throw Error("Actual private video required");
+    saved = privateFilePath(portfolio[0].file); expect(saved).toBeTruthy();
+    expect(dirname(saved!)).toBe(directory); expect(readFileSync(saved!)).toEqual(bytes);
+    expect(portfolio[0].sourceEventKey).toBe(event);
+    expect(await prisma.customerAction.count({ where: { inquiryId: application.customerInquiryId!, kind: "job_application", status: "COMMITTED" } })).toBe(1);
+  } finally {
+    await prisma.jobApplication.deleteMany({ where: { customerPositionKey: key } });
+    await prisma.recruitmentPosition.delete({ where: { key } });
+    await prisma.settings.update({ where: { id: "singleton" }, data: settings });
+    if (saved && dirname(saved) === directory) unlinkSync(saved);
+    rmdirSync(directory);
+    if (previousDir === undefined) delete process.env.PRIVATE_UPLOADS_DIR; else process.env.PRIVATE_UPLOADS_DIR = previousDir;
+  }
+});
 it("a shared reel with a non-Graph legacy ID reads actual own-feed bytes and delivers an understood response", async () => {
   const owner = await f.owner(), url = f.mediaFixture("image/png", image, true);
   const permalink = "https://www.instagram.com/reel/OurCaptionlessShare/";

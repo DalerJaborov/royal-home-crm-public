@@ -22,6 +22,7 @@ import { readDmCustomerAgentDataWitness, sealDmCustomerAgentDeliveryEvidence,
 import { customerAgentPublicReadCurrent } from "./customerAgentPublicReads.js";
 import { aiDailyBudgetOf, spendAiTurns } from "./aiDailyBudget.js";
 import { loadCustomerDmMediaContent } from "./customerDmMediaContent.js";
+import { recordCustomerRecruitmentAttachments } from "./customerRecruitmentAttachments.js";
 import { customerAgentMediaReplyLanguage, type CustomerAgentMediaPerception } from "../ai/customerAgentMediaPerception.js";
 import { loadCustomerAgentMediaObservation, storeCustomerAgentMediaObservation } from "./customerAgentMediaObservation.js";
 import { withBotTurnTrace, traceCustomerManagedBinding, traceCustomerCoreResult, traceCustomerCoreDisposition, traceMediaKinds } from "./botTurnTrace.js";
@@ -83,7 +84,7 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
         if (value.kind === "facts") {
           const fresh = await readCustomerPropertyFacts(value.facts.propertyId, principal.scope.channel);
           if (!fresh || fresh.signature !== value.facts.signature) return false;
-        } else if (value.kind === "company_policy" || value.kind === "property_search" || value.kind === "company_information") {
+        } else if (value.kind === "company_policy" || value.kind === "property_search" || value.kind === "company_information" || value.kind === "open_vacancies") {
           if (!await customerAgentPublicReadCurrent(principal, value, claim.pin.revision.knowledgeSourceHash)) return false;
         }
       }
@@ -130,7 +131,9 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
       const wait = { signal: runtime.operation.signal!, deadlineAt: runtime.operation.deadlineAt };
       mediaPerception = await loadCustomerAgentMediaObservation(claim) ?? undefined;
       if (!mediaPerception) {
-        const loaded = await loadCustomerDmMediaContent({ principal: planningPrincipal, media: prepared.media, wait, assertCurrent: current });
+        const loaded = await loadCustomerDmMediaContent({ principal: planningPrincipal, media: prepared.media, wait, assertCurrent: current,
+          preserveAttachments: remembered.context.publicState.topic === "job" });
+        if (loaded.storedAttachments?.length) await recordCustomerRecruitmentAttachments(planningPrincipal, claim, loaded.storedAttachments);
         if (loaded.parts.length) {
           await spendTurnBudget(wait);
           mediaPerception = { ...await runtime.perceiveMedia(loaded.parts, wait), incomplete: loaded.incomplete };
@@ -171,7 +174,7 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
       authenticatedInput: lane.authenticatedInput, ticket: lane.ticket, agentClaim: claim, handoverAckLanguage: language });
     if (session.status !== "ready") { await releaseHeldClaim(claim, session.reason); return { status: "held", reason: session.reason }; }
     const mutations = session.session; activeMutations = mutations;
-    const requestedFacts = classifyCustomerPropertyFactIntent(text, { hasPropertyContext: focus?.snapshot.focus.status === "resolved" }) ??
+    const requestedFacts = remembered.context.publicState.topic === "job" ? [] : classifyCustomerPropertyFactIntent(text, { hasPropertyContext: focus?.snapshot.focus.status === "resolved" }) ??
       (!text.trim() && prepared.attachmentInput && (prepared.attachmentPropertyReference || mediaReferenceResolved) && focus?.snapshot.focus.status === "resolved"
         ? ["price" as const, "address" as const] : []);
     const result = await runCustomerAgentTurn({ surface: "dm", language, inputText: text, attachmentInput: prepared.attachmentInput, mediaPerception,
@@ -201,7 +204,7 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
         if (call.name === "get_agency_contact") return { status: "observed", observation: {
           kind: "agency_contact", contact: { phone: PUBLIC_AGENCY_CONTACT.phone, digits: PUBLIC_AGENCY_CONTACT.digits, channel: "telephone" },
         } };
-        if (call.name === "get_company_policy" || call.name === "search_public_properties" || call.name === "get_company_information") {
+        if (call.name === "get_company_policy" || call.name === "search_public_properties" || call.name === "get_company_information" || call.name === "get_open_vacancies") {
           const read = await readDmCustomerAgentDataWitness({ principal: mutations.principal, claim, call });
           if (read.status === "observed") {
             witnesses.push(read.serverWitness);

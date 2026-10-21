@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **641**. Развилок в самих путях: **2300**; вместе с задачами по расписанию и фоновыми заданиями — **3540**. Модулей: **72**.
+Путей: **645**. Развилок в самих путях: **2310**; вместе с задачами по расписанию и фоновыми заданиями — **3550**. Модулей: **73**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -16305,6 +16305,21 @@
 - res.json({ url });
   · ответ 200
 
+### GET /api/v1/vacancies/:id/portfolio/:index
+
+`apps/api/src/routes/vacancies.ts` · на входе: общий предел частоты запросов, idempotencyGuard, вход выполнен, есть право: vacancies.view
+
+- если !params.success
+  - return res.status(400).json({ error: "Неверный файл" });
+    · ответ 400 — «Неверный файл»
+- const application = await prisma.jobApplication.findUnique({ where: { id: params.data.id }, select: { status:…
+  · читает в базе: jobApplication
+- const parsed = customerRecruitmentPortfolioSchema.safeParse(application?.customerPortfolio);
+  · проверяет данные схемой customerRecruitmentPortfolioSchema
+- если !application || application.status === "NOT_CANDIDATE" || !file || !("file" in file) || !sendPrivateFile(res,…
+  - return res.status(404).json({ error: "Файл не найден" });
+    · ответ 404 — «Файл не найден»
+
 ### PATCH /api/v1/vacancies/:id
 
 `apps/api/src/routes/vacancies.ts` · на входе: общий предел частоты запросов, idempotencyGuard, вход выполнен, есть право: vacancies.view
@@ -16425,6 +16440,97 @@
   · считает в базе: jobApplication
 - res.json({ items: ordered.map(presentListItem), total, todayInterviews: todayRows.map(presentListItem), filte…
   · ответ 200
+
+## /api/v1/vacancies/positions
+
+### PUT /api/v1/vacancies/positions/:key
+
+`apps/api/src/routes/recruitmentPositions.ts` · на входе: общий предел частоты запросов, idempotencyGuard, вход выполнен, есть право: vacancies.view, есть право: settings.manage, requireElevation
+
+- const key = recruitmentPositionKeySchema.safeParse(req.params.key), parsed = recruitmentPositionUpdateSchema.…
+  · проверяет данные схемой recruitmentPositionKeySchema
+- если !key.success || !parsed.success
+  - res.status(400).json({ error: "Проверьте поля вакансии" });
+    · ответ 400 — «Проверьте поля вакансии»
+  - return;
+    · дальше не идёт, ничего не меняя
+- пробует
+  - const result = await prisma.$transaction(async tx
+    · всё внутри — одной транзакцией
+    · обращается к базе своим SQL
+    · читает в базе: recruitmentPosition
+    · считает в базе: recruitmentPosition
+    · создаёт или меняет в базе: recruitmentPosition
+    · удаляет в базе: recruitmentPublication
+    · создаёт в базе: recruitmentPublication
+    · удаляет в базе: recruitmentKeyword
+    · создаёт в базе: recruitmentKeyword
+    · читает в базе: agent
+    · создаёт в базе: auditLog
+    - await tx.$executeRaw`LOCK TABLE "RecruitmentPosition" IN SHARE ROW EXCLUSIVE MODE`;
+      · обращается к базе своим SQL
+    - const existing = await tx.recruitmentPosition.findUnique({ where: { key: key.data }, select: { revision: true…
+      · читает в базе: recruitmentPosition
+    - если (existing?.revision ?? 0) !== parsed.data.expectedRevision
+      - return "conflict" as const;
+        · дословно из кода
+    - если !existing && await tx.recruitmentPosition.count() >= 24
+      - return "limit" as const;
+        · дословно из кода
+    - await tx.recruitmentPosition.upsert({ where: { key: key.data }, create: { key: key.data, ...data }, update: {…
+      · создаёт или меняет в базе: recruitmentPosition
+    - await tx.recruitmentPublication.deleteMany({ where: { positionKey: key.data } });
+      · удаляет в базе: recruitmentPublication
+    - если postCodes.length
+      - await tx.recruitmentPublication.createMany({ data: postCodes.map(code
+        · создаёт в базе: recruitmentPublication
+    - await tx.recruitmentKeyword.deleteMany({ where: { positionKey: key.data } });
+      · удаляет в базе: recruitmentKeyword
+    - если keywords.length
+      - await tx.recruitmentKeyword.createMany({ data: keywords.map(word
+        · создаёт в базе: recruitmentKeyword
+    - const author = await tx.agent.findUniqueOrThrow({ where: { id: req.agent!.id }, select: { fullName: true } });
+      · читает в базе: agent
+    - await tx.auditLog.create({ data: { action: "RECRUITMENT_POSITION_UPDATE", entityType: "RecruitmentPosition", …
+      · создаёт в базе: auditLog
+  - если result === "conflict"
+    - res.status(409).json({ error: "Вакансию уже изменили. Обновите список и повторите правку." });
+      · ответ 409 — «Вакансию уже изменили. Обновите список и повторите правку.»
+    - return;
+      · дальше не идёт, ничего не меняя
+  - если result === "limit"
+    - res.status(409).json({ error: "Достигнут лимит: 24 позиции. Закройте или отредактируйте существующую." });
+      · ответ 409 — «Достигнут лимит: 24 позиции. Закройте или отредактируйте существующую.»
+    - return;
+      · дальше не идёт, ничего не меняя
+  - res.json({ items: await readRecruitmentPositions() });
+    · ответ 200
+- если сорвалось
+  - если error && typeof error === "object" && "code" in error && error.code === "P2002"
+    - res.status(409).json({ error: "Публикация или ключевое слово уже связаны с другой вакансией" });
+      · ответ 409 — «Публикация или ключевое слово уже связаны с другой вакансией»
+    - return;
+      · дальше не идёт, ничего не меняя
+  - res.status(503).json({ error: "Не удалось сохранить вакансию" });
+    · ответ 503 — «Не удалось сохранить вакансию»
+
+### GET /api/v1/vacancies/positions/templates
+
+`apps/api/src/routes/recruitmentPositions.ts` · на входе: общий предел частоты запросов, idempotencyGuard, вход выполнен, есть право: vacancies.view
+
+- res.json({ items: recruitmentPositionTemplates() });
+  · ответ 200
+
+### GET /api/v1/vacancies/positions
+
+`apps/api/src/routes/recruitmentPositions.ts` · на входе: общий предел частоты запросов, idempotencyGuard, вход выполнен, есть право: vacancies.view
+
+- пробует
+  - res.json({ items: await readRecruitmentPositions() });
+    · ответ 200
+- если сорвалось
+  - res.status(503).json({ error: "Не удалось загрузить открытые позиции" });
+    · ответ 503 — «Не удалось загрузить открытые позиции»
 
 ## /api/v1/webhooks
 

@@ -8,6 +8,7 @@ import { isPinnedCompanyPolicy, isPublicPropertySearch, publicSearchProjection, 
 import { customerRequestedAgencyContact, isCustomerPublicAppreciation, customerPublicReaction } from "./customerAgentConversationPolicy.js";
 import { customerAgentAttachmentInputSchema, type CustomerAgentAttachmentInput } from "./customerAgentAttachmentInput.js";
 import { customerAgentMediaPerceptionSchema, type CustomerAgentMediaPerception } from "./customerAgentMediaPerception.js";
+import { customerRecruitmentRequested, isCustomerVacanciesObservation, selectedRecruitmentPosition } from "./customerAgentRecruitmentProtocol.js";
 import type { CustomerAgentAwaitContext, CustomerAgentModelTurn } from "./customerAgentModelContracts.js";
 export type { CustomerAgentAwaitContext, CustomerAgentModelTurn } from "./customerAgentModelContracts.js";
 
@@ -64,20 +65,28 @@ function safeObservation(value: CustomerAgentObservation, knowledgeSourceHash: s
   if (value.kind === "agency_contact") return isCanonicalAgencyContact(value);
   if (value.kind === "company_policy") return isPinnedCompanyPolicy(value, knowledgeSourceHash);
   if (value.kind === "company_information") return isCustomerCompanyInformation(value);
+  if (value.kind === "open_vacancies") return isCustomerVacanciesObservation(value);
   if (value.kind === "property_search") return isPublicPropertySearch(value);
   if (value.kind === "publication_properties") return customerAgentPublicationObservationSchema.safeParse(value).success;
   if (value.kind === "proposal") return [value.summary.ru, value.summary.tg].every(s => typeof s === "string" && s.length > 0 && s.length <= 1000 && !/[?？]/u.test(s));
-  return ["contact_saved", "callback_requested", "new_lead_created", "handover_requested", "showing_booked", "showing_rescheduled", "showing_cancelled", "owner_question_recorded"].includes(value.outcome);
+  return ["contact_saved", "callback_requested", "new_lead_created", "handover_requested", "showing_booked", "showing_rescheduled", "showing_cancelled", "owner_question_recorded", "job_application_saved"].includes(value.outcome);
 }
 /** Model projection never contains property UUID, signature, resource/action,
  * Client, native, endpoint, actor, grant or canonical state/fence identifiers. */
-function publicObservation(value: CustomerAgentObservation): unknown {
+function publicObservation(value: CustomerAgentObservation, recruitmentText = "", recruitmentKey?: string): unknown {
   if (value.kind === "receipt") return { kind: "receipt", outcome: value.outcome };
   if (value.kind === "property_unresolved") return { kind: value.kind, status: value.status };
   if (value.kind === "proposal") return { kind: "proposal", summary: { ru: value.summary.ru, tg: value.summary.tg } };
   if (value.kind === "agency_contact") return { kind: "agency_contact", contact: { phone: value.contact.phone, digits: value.contact.digits, channel: value.contact.channel } };
   if (value.kind === "company_policy") return { kind: value.kind, topic: value.topic, knowledge: structuredClone(value.knowledge) };
   if (value.kind === "company_information") return { kind: value.kind, information: structuredClone(value.information) };
+  if (value.kind === "open_vacancies") {
+    const selected = selectedRecruitmentPosition(value.positions, recruitmentText, recruitmentKey);
+    return { kind: value.kind, collecting: value.collecting,
+      positions: value.positions.map(row => ({ titleRu: row.titleRu, titleTg: row.titleTg,
+        conditionsPublished: !!row.detailsRu || !!row.detailsTg,
+        ...(row.key === selected?.key ? { detailsRu: row.detailsRu, detailsTg: row.detailsTg } : {}) })) };
+  }
   if (value.kind === "property_search") return publicSearchProjection(value);
   if (value.kind === "publication_properties") return { kind: value.kind, kinds: value.kinds,
     cards: value.cards.map(({ shortId, price, currency, publicAddress, availability, characteristics }) =>
@@ -89,18 +98,19 @@ function publicObservation(value: CustomerAgentObservation): unknown {
   return { kind: "facts", kinds: value.kinds, facts: { shortId, price, currency, publicAddress, builder, availability,
     ...(characteristics ? { characteristics: clone(characteristics) } : {}) } };
 }
-const writeNames = new Set(["save_contact", "request_callback", "request_handover", "book_showing", "reschedule_showing", "cancel_showing", "ask_owner"]);
-const expectedReceipt = { save_contact: "contact_saved", request_callback: "callback_requested", request_handover: "handover_requested",
+const writeNames = new Set(["save_contact", "request_callback", "request_handover", "book_showing", "reschedule_showing", "cancel_showing", "ask_owner", "save_job_application"]);
+const expectedReceipt = { save_contact: "contact_saved", save_job_application: "job_application_saved", request_callback: "callback_requested", request_handover: "handover_requested",
   book_showing: "showing_booked", reschedule_showing: "showing_rescheduled", cancel_showing: "showing_cancelled", ask_owner: "owner_question_recorded" } as const;
 function observationMatchesCall(call: CustomerAgentToolCall, value: CustomerAgentObservation, surface: CustomerAgentSurface, knowledgeHash: string): boolean {
   try {
     if (!safeObservation(value, knowledgeHash)) return false;
-    if (surface === "public_comment" && !["facts", "property_unresolved", "agency_contact", "company_policy", "property_search", "publication_properties", "company_information"].includes(value.kind)) return false;
+    if (surface === "public_comment" && !["facts", "property_unresolved", "agency_contact", "company_policy", "property_search", "publication_properties", "company_information", "open_vacancies"].includes(value.kind)) return false;
     if (call.name === "get_property_facts") return value.kind === "facts" || value.kind === "property_unresolved" ||
       surface === "public_comment" && value.kind === "publication_properties" && JSON.stringify(value.kinds) === JSON.stringify(call.args.kinds);
     if (call.name === "get_agency_contact") return value.kind === "agency_contact";
     if (call.name === "get_company_policy") return value.kind === "company_policy" && value.topic === call.args.topic;
     if (call.name === "get_company_information") return value.kind === "company_information";
+    if (call.name === "get_open_vacancies") return value.kind === "open_vacancies";
     if (call.name === "search_public_properties") return value.kind === "property_search" && JSON.stringify(value.query) === JSON.stringify(call.args);
     return value.kind === "proposal" || value.kind === "receipt" && value.outcome === expectedReceipt[call.name];
   } catch { return false; }
@@ -215,7 +225,7 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
       if (!observationMatchesCall(parsed.data, result.observation, frame.surface, revision.knowledgeSourceHash)) throw new Error("invalid_server_observation");
       const entry = { ref: `e${evidence.length}`, value: clone(result.observation) };
       evidence.push(entry);
-      projected = { status: "observed", ref: entry.ref, value: publicObservation(entry.value) };
+      projected = { status: "observed", ref: entry.ref, value: publicObservation(entry.value, frame.inputText, context?.publicState.jobPositionKey) };
     } else {
       // Storage/provider details are server-only; do not inject raw error text.
       projected = result.status === "denied" && result.reason === "phone_required"
@@ -261,14 +271,17 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
     if (customerCompanyInformationRequested(frame.inputText) && frame.tools.some(tool => tool.name === "get_company_information")) {
       await execute({ name: "get_company_information", args: {} });
     }
-    if (frame.requestedFacts.length) {
+    if ((customerRecruitmentRequested(frame.inputText) || context?.publicState.topic === "job") && frame.tools.some(tool => tool.name === "get_open_vacancies")) {
+      await execute({ name: "get_open_vacancies", args: {} });
+    }
+    if (frame.requestedFacts.length && context?.publicState.topic !== "job") {
       const result = await execute({ name: "get_property_facts", args: { kinds: frame.requestedFacts } });
       if (!evidence.some(e => e.value.kind === "facts" || e.value.kind === "property_unresolved" || e.value.kind === "publication_properties")) return held("facts_unavailable");
       // Pre-model facts are server observations in user context, not fabricated
       // function responses (there is no preceding model call to match).
       contents.splice(contents.length - 1, 0, { role: "user", parts: [{ text: JSON.stringify({ serverObservation: result }) }] });
     }
-    if (attachmentOnly) {
+    if (attachmentOnly && context?.publicState.topic !== "job") {
       // A file without a caption supplies neither intent nor consent. Resolve
       // its real public reference first, then ask one normal clarification.
       // Do not invoke an unqualified media API or pretend to have seen pixels.

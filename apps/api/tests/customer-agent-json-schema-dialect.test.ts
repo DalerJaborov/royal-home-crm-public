@@ -15,14 +15,14 @@ function assertJsonSchemaBounds(value: unknown): void {
   }
 }
 describe("managed customer declarations emit JSON Schema, not OAS3", () => {
-  it("emits the exact twelve current tools with numeric exclusive bounds and preserves whole schemas on Value wire", () => {
+  it("emits the exact fourteen current tools with numeric exclusive bounds and preserves whole schemas on Value wire", () => {
     const names = [...CUSTOMER_AGENT_PUBLIC_TOOLS, ...customerMutationCommandSchema.options.map(item => item.shape.name.value)];
     const definitions = customerAgentToolDefinitions(names);
     expect(definitions.map(item => item.name).sort()).toEqual([
       "ask_owner", "book_showing", "cancel_showing", "get_agency_contact", "get_company_information", "get_company_policy",
-      "get_property_facts", "request_callback", "request_handover", "reschedule_showing", "save_contact", "search_public_properties",
+      "get_open_vacancies", "get_property_facts", "request_callback", "request_handover", "reschedule_showing", "save_contact", "save_job_application", "search_public_properties",
     ]);
-    expect(new Set(definitions.map(item => item.name)).size).toBe(12);
+    expect(new Set(definitions.map(item => item.name)).size).toBe(14);
     for (const definition of definitions) {
       assertJsonSchemaBounds(definition.parameters);
       expect(definition.parameters).toMatchObject({ type: "object", additionalProperties: false });

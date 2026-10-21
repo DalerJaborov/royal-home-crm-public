@@ -7,6 +7,7 @@ import { assertCustomerActionProperty } from "./customerActionProperty.js";
 import { inspectCustomerWriteAuthority } from "./customerState.js";
 import { isShowingMutation } from "./customerActionCommand.js";
 import { validateExactShowingSlot } from "./showingBooking.js";
+import { persistCustomerRecruitmentApplicationTx } from "./customerRecruitmentIntake.js";
 
 type Grant = NonNullable<ReturnType<typeof inspectCustomerWriteAuthority>>;
 export interface CustomerActionPrelock { clientId?: string; originBookingActionId?: string }
@@ -34,6 +35,7 @@ export interface CustomerActionEffect {
  * is minted here and no provider/model/network call is allowed under locks. */
 export async function applyCustomerActionResource(tx: TxClient, grant: Grant, command: Exclude<CustomerMutationCommand, { name: "save_contact" }>,
   actionId: string, now: Date, prelock: CustomerActionPrelock, callbackPhone: string | null): Promise<CustomerActionEffect> {
+  if (command.name === "save_job_application") return persistCustomerRecruitmentApplicationTx(tx, grant);
   if (command.name === "request_callback" || command.name === "request_handover") {
     const result = await createManagedCustomerCallbackTx(tx, { actionId, fence: grant.fence,
       requestKind: command.name === "request_callback" ? "CALLBACK" : "HUMAN", phone: callbackPhone, topic: command.args.topic });
@@ -82,6 +84,14 @@ export async function applyCustomerActionResource(tx: TxClient, grant: Grant, co
 
 /** Server-only effect observation, never permission to send an acknowledgement. */
 export async function observeManagedCustomerResource(tx: TxClient, receipt: CustomerMutationReceipt): Promise<"active" | "inactive" | "missing"> {
+  if (receipt.kind === "job_application") {
+    if (receipt.version !== 2) return "missing";
+    const resource = await tx.jobApplication.findUnique({ where: { id: receipt.resourceId }, select: {
+      customerInquiryId: true, customerApplicationRevision: true,
+    } });
+    if (resource?.customerInquiryId !== receipt.inquiryId) return "missing";
+    return resource.customerApplicationRevision?.toString() === receipt.resourceRevision ? "active" : "inactive";
+  }
   if (receipt.kind === "callback" || receipt.kind === "handover") {
     const resource = await tx.callbackRequest.findUnique({ where: { id: receipt.resourceId }, select: { customerActionId: true, doneAt: true } });
     return resource?.customerActionId !== receipt.actionId ? "missing" : resource.doneAt === null ? "active" : "inactive";

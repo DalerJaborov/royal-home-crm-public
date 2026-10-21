@@ -26,6 +26,8 @@ import { withBotTurnTrace, traceCustomerManagedBinding, traceCustomerCoreResult,
 import { readCustomerPublicationCatalog } from './customerPublicationCatalog.js';
 import { loadCustomerPublicThreadContext } from './customerPublicThreadContext.js';
 import { readCustomerPublicPublicationSource } from './customerPublicPublicationSource.js';
+import { recruitmentPostCode, recruitmentKeyword } from '@royal-home/shared';
+import { readRecruitmentPositions } from './recruitmentPositions.js';
 
 export type CustomerPublicAgentDraft =
   | { status: 'moderate'; principal: PublicCommentPrincipal }
@@ -82,7 +84,7 @@ export async function prepareCustomerPublicAgentDraft(ref: PublicSourceRef): Pro
           const fresh = await readPublicCommentFacts(principal);
           if (fresh.status !== 'current' || !fresh.value || fresh.value.propertyId !== entry.value.facts.propertyId ||
               fresh.value.signature !== entry.value.facts.signature) return false;
-        } else if (entry.value.kind === 'company_policy' || entry.value.kind === 'property_search' || entry.value.kind === 'publication_properties' || entry.value.kind === 'company_information') {
+        } else if (entry.value.kind === 'company_policy' || entry.value.kind === 'property_search' || entry.value.kind === 'publication_properties' || entry.value.kind === 'company_information' || entry.value.kind === 'open_vacancies') {
           if (!await customerAgentPublicDataCurrent(entry.value, { linkPreference,
               knowledgeSourceHash: revision.knowledgeSourceHash })) return false;
         }
@@ -101,14 +103,23 @@ export async function prepareCustomerPublicAgentDraft(ref: PublicSourceRef): Pro
         publicationId: original.target.publicationId }) : null;
     // Purpose hint for an optional read only; it cannot choose a property,
     // rewrite the reply, infer consent or authorize any business mutation.
+    const campaignKeyword = recruitmentKeyword(original.text);
+    let recruitmentPositionKey: string | undefined = campaignKeyword
+      ? (await readRecruitmentPositions()).find(row => row.keywords.includes(campaignKeyword))?.key : undefined;
     if (!catalog && (classifyCustomerPropertyFactIntent(original.text, { hasPropertyContext: true }) ||
         /квартир|объект|вариант|варият|подроб|муфассал|цен|нарх|дешев|арзон|адрес|шаҳр|шахр|хона/iu.test(original.text))) {
       const publication = await readCustomerPublicPublicationSource(principal, { deadlineAt: origin.agentPin.providerDeadlineAt,
         signal: runtime.operation.signal });
-      if (publication) catalog = await readCustomerPublicationCatalog(publication);
+      if (publication) {
+        catalog = await readCustomerPublicationCatalog(publication);
+        const code = publication.permalink ? recruitmentPostCode(publication.permalink) : null;
+        if (!catalog && code) recruitmentPositionKey = (await readRecruitmentPositions()).find(row => row.postCodes.includes(code))?.key;
+      }
     }
-    const verifiedContext = await loadCustomerPublicThreadContext(principal, revision);
-    const requestedFacts = classifyCustomerPropertyFactIntent(original.text, { hasPropertyContext: !!catalog }) ?? [];
+    const baseContext = await loadCustomerPublicThreadContext(principal, revision);
+    const verifiedContext = recruitmentPositionKey ? { ...(baseContext ?? { surface: 'public_comment' as const, revisionId: revision.id, turns: [] }),
+      publicState: { ...(baseContext?.publicState ?? { language: 'unknown' as const, openQuestion: 'none' as const }), topic: 'job' as const, jobPositionKey: recruitmentPositionKey } } : baseContext;
+    const requestedFacts = verifiedContext?.publicState.topic === 'job' ? [] : classifyCustomerPropertyFactIntent(original.text, { hasPropertyContext: !!catalog }) ?? [];
     const result = await runCustomerAgentTurn({ surface: 'public_comment', language, inputText: original.text,
       knownPhoneSource: 'none', requestedFacts, revision, startedAt: origin.originalReceivedAt,
       operation: runtime.operation, tools: customerAgentToolDefinitions(CUSTOMER_AGENT_PUBLIC_TOOLS),
@@ -151,7 +162,7 @@ export async function prepareCustomerPublicAgentDraft(ref: PublicSourceRef): Pro
         if (call.name === 'get_agency_contact') return { status: 'observed', observation: {
           kind: 'agency_contact', contact: { phone: PUBLIC_AGENCY_CONTACT.phone,
             digits: PUBLIC_AGENCY_CONTACT.digits, channel: 'telephone' } } };
-        if (call.name === 'get_company_policy' || call.name === 'search_public_properties' || call.name === 'get_company_information') {
+        if (call.name === 'get_company_policy' || call.name === 'search_public_properties' || call.name === 'get_company_information' || call.name === 'get_open_vacancies') {
           const read = await readPublicCustomerAgentDataWitness({ principal, call, linkPreference });
           if (!await current(wait)) return { status: 'denied', reason: 'original_source_changed' };
           if (read.status === 'observed') {

@@ -98,3 +98,4 @@ export * from "./conversationClientLink.js";
 export * from "./inactiveTrafficPolicy.js";
 export * from "./clientCardWorkspace.js";
 export * from "./clientBuyerRequirements.js";
+export * from "./recruitment.js";

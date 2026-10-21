@@ -126,9 +126,9 @@ async function seal(binding: Binding | null, render: CustomerAgentDeliveryRender
     const refs = decision.kind === "propose" ? [decision.ref] :
       decision.kind === "reply" || decision.kind === "clarify" ? decision.refs : [];
     const observations = render.evidence.filter(e => (refs.includes(e.ref) ||
-      e.value.kind === "company_information" ||
+      e.value.kind === "company_information" || e.value.kind === "open_vacancies" ||
       render.requestedFacts.length > 0 && e.value.kind === "publication_properties") &&
-      (e.value.kind === "company_policy" || e.value.kind === "property_search" || e.value.kind === "publication_properties" || e.value.kind === "company_information"))
+      (e.value.kind === "company_policy" || e.value.kind === "property_search" || e.value.kind === "publication_properties" || e.value.kind === "company_information" || e.value.kind === "open_vacancies"))
       .map(e => customerAgentDeliveryObservationSchema.parse(e.value));
     const callbackQuestion = binding.surface === "dm" && customerAgentRenderedQuestion({ ...render, surface: "dm" }) === "callback_consent" &&
       text.endsWith(customerAgentCallbackQuestionText(render.language))

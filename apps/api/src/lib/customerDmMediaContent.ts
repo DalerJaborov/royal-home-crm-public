@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { prisma } from "../db.js";
-import { fetchAttachments, type AttachmentSource } from "../messengers/attachments.js";
+import { fetchAttachments, storeFetchedAttachments, type AttachmentSource } from "../messengers/attachments.js";
+import type { StoredAttachment } from "../ai/client.js";
 import { loadCredentials } from "../messengers/meta.js";
 import { GRAPH_VERSION, instagramApiUrl, instagramRequest } from "../messengers/metaGraph.js";
 import { readRecoveryInstagramCredential } from "./customerInstagramSenderRead.js";
@@ -23,7 +24,8 @@ import { customerPropertyUrl } from "./customerPropertyUrls.js";
 export async function loadCustomerDmMediaContent(input: {
   principal: CustomerPrincipal; media: CustomerNormalizedIngressInput["media"];
   wait: CustomerAgentAwaitContext; assertCurrent(wait: CustomerAgentAwaitContext): Promise<boolean>;
-}): Promise<{ parts: CustomerAgentMediaPart[]; incomplete: boolean }> {
+  preserveAttachments?: boolean;
+}): Promise<{ parts: CustomerAgentMediaPart[]; incomplete: boolean; storedAttachments?: StoredAttachment[] }> {
   const check = async () => {
     input.wait.signal.throwIfAborted();
     if (Date.now() >= input.wait.deadlineAt || !await input.assertCurrent(input.wait)) throw new Error("Original media context changed");
@@ -124,5 +126,10 @@ export async function loadCustomerDmMediaContent(input: {
   }
   // Apply established counters BEFORE paid perception, using detected kinds.
   for (const [kind, count] of reserved) { await check(); await spendAiFiles(conversationId, budget.dayKey, kind, count); }
-  return { parts, incomplete };
+  if (!input.preserveAttachments) return { parts, incomplete };
+  await check();
+  const storedAttachments = await storeFetchedAttachments({ images: fetched.flatMap(row => row.fetched.images),
+    audios: fetched.flatMap(row => row.fetched.audios), medias: fetched.flatMap(row => row.fetched.medias) });
+  await check();
+  return { parts, incomplete, storedAttachments };
 }

@@ -32,6 +32,7 @@ import {
   vacanciesLoadErrorText,
 } from "../lib/vacanciesView";
 import { TeamTabs } from "../components/SectionTabs";
+import { RecruitmentPositions } from "../components/RecruitmentPositions";
 
 /**
  * «Вакансии»: кандидаты, которых бот собрал в переписке (решение владельца
@@ -66,6 +67,7 @@ import { TeamTabs } from "../components/SectionTabs";
 const SECTION_ORDER: VacancyStage[] = [...VACANCY_PIPELINE, "REJECTED"];
 
 export function Vacancies() {
+  const [view, setView] = useState<"applications" | "positions">("applications");
   // Открытие раздела гасит красный счётчик в сайдбаре (у текущего агента).
   useMarkSectionSeen("vacancies");
   const can = useCan();
@@ -155,6 +157,14 @@ export function Vacancies() {
   });
   const sections = filter ? [filter] : SECTION_ORDER;
 
+  if (view === "positions") return <div className="rh2 screens"><div className="scr">
+    <div className="pg-h"><h1>Вакансии</h1></div><TeamTabs />
+    <nav aria-label="Раздел вакансий" className="flex flex-wrap gap-2 my-4">
+      <button type="button" className="pill ghost" onClick={() => setView("applications")}>Анкеты кандидатов</button>
+      <button type="button" className="pill" aria-current="page">Открытые позиции</button>
+    </nav><RecruitmentPositions />
+  </div></div>;
+
   return (
     <div className="rh2 screens">
       <div className="scr">
@@ -169,6 +179,10 @@ export function Vacancies() {
         </div>
 
         <TeamTabs />
+        <nav aria-label="Раздел вакансий" className="flex flex-wrap gap-2 my-4">
+          <button type="button" className="pill" aria-current="page">Анкеты кандидатов</button>
+          <button type="button" className="pill ghost" onClick={() => setView("positions")}>Открытые позиции</button>
+        </nav>
 
         {/* Без опыта продаж это не отказ (владелец 31.08.2026): напоминание перед
             списком, чтобы категория RED не читалась как «не подходит». Закрывается

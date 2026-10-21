@@ -18,7 +18,7 @@ import { loadCustomerAgentFeaturePolicy } from "./customerAgentFeaturePolicy.js"
 type SessionState = "current" | "held" | "unknown" | "handover_committed";
 type WriteName = CustomerMutationCommand["name"];
 const kinds = { save_contact: "contact", request_callback: "callback", request_handover: "handover", book_showing: "book_showing",
-  reschedule_showing: "reschedule_showing", cancel_showing: "cancel_showing", ask_owner: "owner_question" } as const;
+  reschedule_showing: "reschedule_showing", cancel_showing: "cancel_showing", ask_owner: "owner_question", save_job_application: "job_application" } as const;
 export interface CustomerAgentMutationSession {
   readonly principal: CustomerPrincipal;
   readonly state: SessionState;
@@ -69,6 +69,7 @@ export async function createCustomerAgentMutationSession(raw: {
   const features = await loadCustomerAgentFeaturePolicy();
   const available = strong ? (Object.keys(kinds) as WriteName[]).filter(name =>
     customerActionCapability(initial.snapshot.state, kinds[name]) && (name !== "book_showing" || features.showings) &&
+    (name !== "save_job_application" || features.vacancies && initial.snapshot.state.publicState.topic === "job" && !!initial.snapshot.state.publicState.jobPositionKey) &&
     !(name === "request_callback" && initial.snapshot.state.publicState.topic === "job")) : [];
   let principal = original, state: SessionState = "current", busy = false;
   let ackSource: CustomerHandoverAckSource | null = null;

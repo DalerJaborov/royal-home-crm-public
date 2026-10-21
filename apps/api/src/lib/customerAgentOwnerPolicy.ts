@@ -14,6 +14,7 @@ import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { customerAgentRolloutConfigSchema } from "@royal-home/shared";
 import { customerAgentRevisionReachable } from "./customerAgentRevisionAdvance.js";
+import { isCustomerRecruitmentUpgradeV1 } from "./customerRecruitmentUpgrade.js";
 
 export class CustomerAgentOwnerError extends Error {
   constructor(readonly status: number, readonly code: string) { super(code); }
@@ -171,6 +172,7 @@ async function publishVerifiedCustomerAgentForOwner(actorId:string,body:PublishS
         !isDeepStrictEqual({...body.rollout,candidateRevisionId:before.data.candidateRevisionId,cohortId:before.data.cohortId},before.data)||
         !isDeepStrictEqual(customerAgentOwnerStateSchema.shape.capabilities.parse(current.capabilities),body.capabilities)) fail(409,'routine_refresh_configuration_changed');
     }
+    let recruitmentProtocolUpgrade=false;
     // Updating existing CORE requires an explicit owner-approved idle edge.
     // Assignments, original sources and receipts are never rewritten.
     const [incumbent]=await tx.$queryRaw<Array<{blocked:boolean}>>`SELECT EXISTS(SELECT 1 FROM "CustomerAgentRolloutAssignment" WHERE "lane"='CORE'
@@ -199,11 +201,14 @@ async function publishVerifiedCustomerAgentForOwner(actorId:string,body:PublishS
       const old=await tx.customerAgentRevision.findUnique({where:{id:current.activeAgentRevisionId!}});
       if(!old) fail(409,"revision_advance_original_missing");
       const prior=decodeCustomerAgentRevision(old), next=verified.revision;
-      // A protocol/code hotfix must not silently change the model, spend,
-      // knowledge, business policy, tools or prompt at the same time.
-      for(const field of ['knowledgeSourceHash','promptHash','limits'] as const)
+      // Ordinary hotfixes cannot change instructions. The reviewed recruitment
+      // v1 pair pins BOTH prompt and tool definitions and still requires the
+      // existing catalog acknowledgement and all configuration/idle guards.
+      for(const field of ['knowledgeSourceHash','limits'] as const)
         if(!isDeepStrictEqual(prior[field],next[field])) fail(409,"revision_advance_configuration_changed");
       const catalogChanged = prior.knowledgeSchemaHash !== next.knowledgeSchemaHash || prior.toolSchemaHash !== next.toolSchemaHash;
+      recruitmentProtocolUpgrade=body.confirmCatalogFactsUpgrade===true && isCustomerRecruitmentUpgradeV1(prior,next);
+      if(prior.promptHash!==next.promptHash && !recruitmentProtocolUpgrade) fail(409,"revision_advance_configuration_changed");
       if (catalogChanged && !body.confirmCatalogFactsUpgrade) fail(409,"catalog_facts_upgrade_confirmation_required");
       if (!catalogChanged && body.confirmCatalogFactsUpgrade) fail(409,"catalog_facts_upgrade_not_required");
       if (catalogChanged && (prior.providerProfileHash !== next.providerProfileHash || prior.providerPolicyHash !== next.providerPolicyHash ||
@@ -240,6 +245,7 @@ async function publishVerifiedCustomerAgentForOwner(actorId:string,body:PublishS
       scopes:scopeIds,configId:factory.configRevision,paidConfirmed:routine?null:true,noDailyCapAcknowledged:routine?null:true,
       authority,routineRefresh:routine,retainedPaidAuthority:routine,idleRevisionAdvanced:body.advanceIdleRevision===true,
       catalogFactsUpgrade:body.confirmCatalogFactsUpgrade===true,
+      recruitmentProtocolUpgrade,
       mediaProfileUpgrade:body.confirmMediaProfileUpgrade===true,reason:body.reason});
     if(!routine&&!isElevated(actorId)) fail(428,"step_up_required");
     return {policyRevision:updated.policyRevision.toString(),rolloutMode:'ACTIVE',existingPromotion:'not_implemented'};

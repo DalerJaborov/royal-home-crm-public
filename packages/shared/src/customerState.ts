@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { recruitmentPositionKeySchema } from "./recruitment.js";
 
 const MAX_REVISION = 9223372036854775807n;
 export const customerRevisionSchema = z.string().regex(/^(?:0|[1-9]\d{0,18})$/)
@@ -19,7 +20,7 @@ export const customerCallbackConsentSchema = z.object({
   scopeRevision: customerRevisionSchema, policyRevision: customerRevisionSchema, ownerToken: z.string().uuid(),
 }).strict();
 export type CustomerCallbackConsent = z.infer<typeof customerCallbackConsentSchema>;
-export const customerActionKindSchema = z.enum(["contact", "callback", "handover", "book_showing", "reschedule_showing", "cancel_showing", "owner_question"]);
+export const customerActionKindSchema = z.enum(["contact", "callback", "handover", "book_showing", "reschedule_showing", "cancel_showing", "owner_question", "job_application"]);
 export type CustomerActionKind = z.infer<typeof customerActionKindSchema>;
 const intent = z.object({
   generation: customerRevisionSchema,
@@ -30,7 +31,7 @@ const intent = z.object({
 export const customerActionIntentsSchema = z.object({ contact: intent.optional(),
   callback: intent.extend({ consent: customerCallbackConsentSchema.optional() }).strict().optional(),
   handover: intent.optional(), book_showing: intent.optional(), reschedule_showing: intent.optional(),
-  cancel_showing: intent.optional(), owner_question: intent.optional(),
+  cancel_showing: intent.optional(), owner_question: intent.optional(), job_application: intent.optional(),
 }).strict();
 export type CustomerActionIntents = z.infer<typeof customerActionIntentsSchema>;
 
@@ -39,6 +40,7 @@ export type CustomerActionIntents = z.infer<typeof customerActionIntentsSchema>;
 export const customerPublicStateSchema = z.object({
   language: z.enum(["ru", "tg", "mixed", "unknown"]).default("unknown"),
   topic: z.enum(["buyer", "seller", "job", "rent", "unknown"]).default("unknown"),
+  jobPositionKey: recruitmentPositionKeySchema.optional(),
   openQuestion: z.enum(["property", "price", "address", "builder", "contact", "callback", "none"]).default("none"),
 }).strict();
 export const customerOwnerModeSchema = z.enum(["BOT", "HUMAN", "OFF", "HOLD"]);
