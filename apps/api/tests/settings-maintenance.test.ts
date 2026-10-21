@@ -17,6 +17,8 @@ it.each(["2026-12-21T06:30:00.000Z", "invalid", "2026-11-31T06:30:00.000Z", "202
 });
 it("retains real roles, active status, permissions and authenticator protection", () => {
   vi.stubEnv("SETTINGS_STEP_UP_MAINTENANCE_UNTIL", SETTINGS_MAINTENANCE_DEADLINE);
+  expect(settingsMaintenanceUntil({ ...owner, role: "ADMIN" }, now)).toBe(SETTINGS_MAINTENANCE_DEADLINE);
+  expect(settingsMaintenanceUntil({ ...owner, role: "ADMIN", permissions: { revoked: ["settings.manage"] } }, now)).toBeNull();
   for (const patch of [{ role: "AGENT" }, { role: "MANAGER" }, { role: "unknown" }, { isActive: false }, { totpEnabled: true }]) {
     expect(settingsMaintenanceUntil({ ...owner, ...patch }, now)).toBeNull();
   }
