@@ -49,9 +49,13 @@ vi.mock("../src/lib/telephony/amiClient.js", () => ({
 }));
 
 const { prisma } = await import("../src/db.js");
-const { pickTargetQueue, memberInterfaceFor, checkIncomingReadiness, ensureAgentsInIncomingQueue } = await import(
-  "../src/lib/telephony/agentIncomingReadiness.js"
-);
+const {
+  pickTargetQueue,
+  memberInterfaceFor,
+  checkIncomingReadiness,
+  ensureAgentsInIncomingQueue,
+  describeNewAgentQueueOutcome,
+} = await import("../src/lib/telephony/agentIncomingReadiness.js");
 
 const runId = Date.now();
 const agentIds: string[] = [];
@@ -128,6 +132,45 @@ describe("Как записывать участника", () => {
 
   it("номер не похож на внутренний — не догадываемся", () => {
     expect(memberInterfaceFor(sample, "+992900000000")).toBeNull();
+  });
+});
+
+describe("Ответ директору при заведении сотрудника", () => {
+  // 22.10.2026: заведение Бехруза (1016) пугало «станция не ответила», хотя
+  // станция ответила, а в очередь обычный агент и не должен был попасть.
+  const okFix = { added: [], removed: [], failed: [] };
+
+  it("обычный агент не попал в очередь — это норма, не тревога", () => {
+    expect(describeNewAgentQueueOutcome({ sipExtension: "1016", takesUnknownCalls: false }, okFix)).toBeUndefined();
+  });
+
+  it("обычный агент, сверка упала целиком — всё равно молчим: ему очередь не положена", () => {
+    expect(describeNewAgentQueueOutcome({ sipExtension: "1016", takesUnknownCalls: false }, null)).toBeUndefined();
+  });
+
+  it("оператора добавили — сказать нечего", () => {
+    const fix = { ...okFix, added: [{ fullName: "Оператор", extension: "1016", queue: "1000" }] };
+    expect(describeNewAgentQueueOutcome({ sipExtension: "1016", takesUnknownCalls: true }, fix)).toBeUndefined();
+  });
+
+  it("оператор, станция не ответила — говорим ровно это", () => {
+    const note = describeNewAgentQueueOutcome({ sipExtension: "1016", takesUnknownCalls: true }, null);
+    expect(note).toContain("1016");
+    expect(note).toContain("станция не ответила");
+  });
+
+  it("оператор, добавление отвергнуто — называем настоящую причину", () => {
+    const fix = { ...okFix, failed: [{ fullName: "Оператор", extension: "1016", error: "Permission denied" }] };
+    expect(describeNewAgentQueueOutcome({ sipExtension: "1016", takesUnknownCalls: true }, fix)).toContain(
+      "Permission denied"
+    );
+  });
+
+  it("оператор, очередь не опознана — передаём объяснение сверки", () => {
+    const fix = { ...okFix, skipped: "Не удалось определить очередь входящих: …" };
+    expect(describeNewAgentQueueOutcome({ sipExtension: "1016", takesUnknownCalls: true }, fix)).toContain(
+      "Не удалось определить очередь"
+    );
   });
 });
 

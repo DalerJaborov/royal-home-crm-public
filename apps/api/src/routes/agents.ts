@@ -20,7 +20,11 @@ import { can, invalidateAgentAccess, requireAuth, requirePermission } from "../a
 import { logAudit } from "../lib/audit.js";
 import { syncAgentQueuePresence } from "../lib/telephony/operatorQueue.js";
 import { syncAgentMobileFallback } from "../lib/telephony/agentMobileFallback.js";
-import { checkIncomingReadiness, ensureAgentsInIncomingQueue } from "../lib/telephony/agentIncomingReadiness.js";
+import {
+  checkIncomingReadiness,
+  describeNewAgentQueueOutcome,
+  ensureAgentsInIncomingQueue,
+} from "../lib/telephony/agentIncomingReadiness.js";
 import { ensureExtensionRecording } from "../lib/telephony/extensionPool.js";
 import { revokeOtherSessions } from "../lib/sessions.js";
 import { closeStreamsForAgent } from "../lib/eventBus.js";
@@ -338,17 +342,14 @@ agentsRouter.post("/", requirePermission("agents.manage"), requireElevation, asy
    */
   if (agent.sipExtension && (SALES_AGENT_ROLES as readonly string[]).includes(agent.role)) {
     const fix = await ensureAgentsInIncomingQueue().catch(() => null);
-    const stillOut =
-      !fix ||
-      fix.skipped !== undefined ||
-      fix.failed.some((f) => f.extension === agent.sipExtension) ||
-      !fix.added.some((a) => a.extension === agent.sipExtension);
-    if (stillOut) {
-      const reason =
-        fix?.failed.find((f) => f.extension === agent.sipExtension)?.error ?? fix?.skipped ?? "станция не ответила";
-      const note = `Внутренний номер ${agent.sipExtension} выдан, но в очередь входящих на АТС его добавить не удалось (${reason}) — пока общие входящие звонки до сотрудника не дойдут. CRM попробует снова в ближайшие 15 минут; если не поможет — добавьте участника в FreePBX (Applications → Queues).`;
-      extensionNote = extensionNote ? `${extensionNote}. ${note}` : note;
-    }
+    // Что именно говорить — решает помощник: в очередь положены только операторы
+    // (правило 20.09.2026), и «не добавили» для обычного агента — не поломка, а
+    // норма. Разбор ложной тревоги 22.10.2026 — в его шапке.
+    const note = describeNewAgentQueueOutcome(
+      { sipExtension: agent.sipExtension, takesUnknownCalls: agent.takesUnknownCalls },
+      fix
+    );
+    if (note) extensionNote = extensionNote ? `${extensionNote}. ${note}` : note;
   }
   res.status(201).json({
     id: agent.id,
