@@ -55,6 +55,7 @@
   "telegramConversation": "переписка в Telegram"
  },
  "phrases": {
+  "error instanceof InstagramAppBindingError": "ошибка проверки привязки приложения Instagram",
   "!parsed.success": "данные заполнены неправильно",
   "!result.ok": "не получилось",
   "!outcome.ok": "не получилось",

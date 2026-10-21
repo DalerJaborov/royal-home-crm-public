@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Trash2, Star, Power, Instagram, MessageSquareText, KeyRound } from "lucide-react";
 import { api } from "../../lib/api";
+import { InstagramAppBinding } from "./InstagramAppBinding";
 
 /**
  * Подключённые аккаунты Instagram (и других каналов Meta).
@@ -213,6 +214,7 @@ export function MessengerAccounts() {
                 </div>
               </div>
 
+              {a.channel === "INSTAGRAM" && <InstagramAppBinding accountId={a.id} />}
               {tokenFor === a.id && (
                 <div style={{ padding: "var(--s3) var(--s2) var(--s4)" }}>
                   <div className="quiet">
