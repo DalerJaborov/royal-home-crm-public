@@ -1458,9 +1458,9 @@
       "mount": "/api/v1/vacancies",
       "router": "vacanciesRouter",
       "file": "apps/api/src/routes/vacancies.ts",
-      "endpoints": 12,
+      "endpoints": 15,
       "label": "Кандидаты на вакансии",
-      "usedBy": 2
+      "usedBy": 4
     },
     {
       "mount": "/api/v1/oversight",

@@ -4,7 +4,8 @@ import { customerPropertyCharacteristicLines, customerPropertyAvailabilityLine, 
 import { PUBLIC_AGENCY_CONTACT } from "../lib/publicAgencyContact.js";
 import { customerPublicThanks, customerRequestedAgencyContact, isCustomerPublicAppreciation, customerPublicReaction, customerPublicReactionText } from "./customerAgentConversationPolicy.js";
 import { customerAgentIntake, customerSellerIntakeQuestion } from "./customerAgentIntake.js";
-import { customerRecruitmentRequested, customerRecruitmentFactsRequested, isCustomerVacanciesObservation, recruitmentPositionForTurn } from "./customerAgentRecruitmentProtocol.js";
+import { customerRecruitmentRequested, customerRecruitmentFactsRequested, isCustomerVacanciesObservation, recruitmentPositionForTurn,
+  recruitmentMissingForTurn, recruitmentRequiredQuestion } from "./customerAgentRecruitmentProtocol.js";
 import { customerRecruitmentReplyDetails, containsRecruitmentExperienceInvitation } from "./customerRecruitmentReply.js";
 import { clientOwnWords } from "./untrustedContent.js";
 import { customerAgentAttachmentInputSchema, customerAgentAttachmentQuestion, type CustomerAgentAttachmentInput } from "./customerAgentAttachmentInput.js";
@@ -34,6 +35,16 @@ export function isCanonicalAgencyContact(value: Extract<CustomerAgentObservation
   return value.contact.channel === "telephone" && value.contact.phone === PUBLIC_AGENCY_CONTACT.phone && value.contact.digits === PUBLIC_AGENCY_CONTACT.digits;
 }
 export type CustomerAgentRenderedQuestion = CustomerAgentQuestion | "confirmation";
+function recruitmentNextFact(input: { evidence: readonly CustomerAgentEvidence[]; verifiedContext?: CustomerAgentVerifiedContext;
+  inputText?: string; knownPhoneSource: "none" | "current_input" | "scoped_contact" }) {
+  const openings = input.evidence.flatMap(e => e.value.kind === "open_vacancies" ? e.value.positions : []);
+  const position = recruitmentPositionForTurn(openings, { inputText: input.inputText,
+    knownKey: input.verifiedContext?.publicState.jobPositionKey, turns: input.verifiedContext?.turns });
+  return position ? recruitmentMissingForTurn(position, { inputText: input.inputText,
+    turns: input.verifiedContext?.turns, knownFacts: input.verifiedContext?.recruitmentKnown,
+    answerTo: input.verifiedContext?.recruitmentAnswerTo,
+    knownPhone: input.knownPhoneSource !== "none" })[0] : undefined;
+}
 function intakeProgress(input: { verifiedContext?: CustomerAgentVerifiedContext; inputText?: string }) {
   const prior = input.verifiedContext?.intake;
   const recent = customerAgentIntake(prior ? [] : input.verifiedContext?.turns ?? [], input.inputText, prior?.role);
@@ -56,8 +67,11 @@ export function customerAgentRenderedQuestion(input: { decision: CustomerAgentDe
   if (input.evidence.some(e => e.value.kind === "open_vacancies" && (d.refs.includes(e.ref) || customerRecruitmentRequested(input.inputText ?? "") || input.verifiedContext?.publicState.topic === "job"))) {
     const openings = input.evidence.flatMap(e => e.value.kind === "open_vacancies" ? e.value.positions : []);
     if (!openings.length) return "none";
-    if (["property", "budget", "location", "rooms", "role", "topic", "seller_details", "preferences", "job_position"].includes(d.question)) return recruitmentPositionForTurn(openings, { inputText: input.inputText,
-      knownKey: input.verifiedContext?.publicState.jobPositionKey, turns: input.verifiedContext?.turns }) ? "job_experience" : "job_position";
+    if (["property", "budget", "location", "rooms", "role", "topic", "seller_details", "preferences", "job_position", "job_required", "job_experience", "name", "phone"].includes(d.question)) {
+      if (!recruitmentPositionForTurn(openings, { inputText: input.inputText,
+        knownKey: input.verifiedContext?.publicState.jobPositionKey, turns: input.verifiedContext?.turns })) return "job_position";
+      return recruitmentNextFact(input) ? "job_required" : "none";
+    }
   }
   // Resolution failures are facts about the current property, not a reason to
   // collect a phone/name before answering or clarifying the property.
@@ -97,8 +111,10 @@ const questions: Record<CustomerAgentQuestion, { ru: string; tg: string }> = {
   job_tools: { ru: "Какими программами пользуетесь и какие задачи выполняете самостоятельно?", tg: "Аз кадом барномаҳо истифода мебаред ва кадом вазифаҳоро мустақилона иҷро мекунед?" },
   job_format: { ru: "Вам подходит указанный формат работы?", tg: "Шартҳои нашршудаи кор ба шумо мувофиқанд?" },
   job_start: { ru: "Когда готовы приступить к работе?", tg: "Кай ба кор шурӯъ карда метавонед?" },
+  job_required: { ru: "", tg: "" },
 };
 function publicRecruitmentQuestion(question: CustomerAgentQuestion, language: "ru" | "tg", experienceIncluded: boolean): string {
+  if (question === "job_required") return language === "tg" ? "Барои муҳокимаи дархости кор ба паёми шахсӣ нависед." : "Напишите нам в личные сообщения, чтобы обсудить отклик.";
   if (question === "job_experience") return experienceIncluded
     ? language === "tg" ? "Дархости корро дар паёми шахсӣ муҳокима карда метавонем." : "Обсудить отклик можно в личных сообщениях."
     : language === "tg" ? "Дар паёми шахсӣ нависед: метавонед резюме фиристед ё дар бораи худ ва таҷрибаатон нақл кунед."
@@ -389,11 +405,13 @@ export function renderCustomerAgentDecision(input: {
   // facts or a local receipt. No whole-answer erasure or invented success.
   // Explicit facts are useful before any questionnaire. One question can be
   // chosen after the facts, but an unresolved property cannot ask for a phone.
-  if (question !== "none" && question !== "confirmation" && !(question === "job_experience" && experienceInvitationIncluded && input.surface !== "public_comment")) lines.push(question === "property" &&
+  const requiredFact = question === "job_required" ? recruitmentNextFact(input) : undefined;
+  if (question !== "none" && question !== "confirmation" && !((question === "job_experience" || requiredFact === "about") && experienceInvitationIncluded && input.surface !== "public_comment")) lines.push(question === "property" &&
       evidence.some(e => e?.value.kind === "publication_properties" && e.value.cards.length > 1)
     ? lang === "tg" ? "Кадоме аз ин объектҳо ба шумо писанд омад?" : "Какой из этих объектов вас заинтересовал?"
     : input.surface === "public_comment" && question.startsWith("job_")
-      ? publicRecruitmentQuestion(question, lang, experienceInvitationIncluded)
+      ? publicRecruitmentQuestion(requiredFact === "about" ? "job_experience" : question, lang, experienceInvitationIncluded)
+    : question === "job_required" && requiredFact ? recruitmentRequiredQuestion(requiredFact, lang)
     : question === "seller_details" && input.surface === "dm" && intake.role === "seller"
       ? customerSellerIntakeQuestion(intake.sellerKnown, lang)
     : question === "clarify_previous" && input.surface === "dm"

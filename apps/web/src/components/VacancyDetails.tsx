@@ -1,397 +1,135 @@
-import { useState } from "react";
-import { Link } from "react-router-dom";
-import {
-  useInviteCallRecordingUrl,
-  useSetVacancyStatus,
-  useVacancyConversation,
-  type JobApplication,
-} from "../hooks/useVacancies";
+import { useState, type ReactNode } from "react";
+import { CheckCircle2, ExternalLink, FileText, MapPin, MessageCircle, Phone } from "lucide-react";
+import { RECRUITMENT_FACT_LABELS, type RecruitmentResumeFacts } from "@royal-home/shared";
+import { useInviteCallRecordingUrl, useSetVacancyStatus, useVacancyConversation, type JobApplication } from "../hooks/useVacancies";
 import { MessageAttachments } from "./MessageAttachments";
 import { MutationError } from "./MutationError";
 import { VoiceNotePlayer } from "./VoiceNotePlayer";
 import { api } from "../lib/api";
 import { browserDeps, openPrivateFile } from "../lib/openPrivateFile";
-import { useCan } from "../lib/permissions";
-import {
-  vacancyChatLanguageText,
-  vacancyFilterReason,
-  vacancyInterviewLabel,
-  vacancyReceivedLabel,
-} from "../lib/vacanciesView";
+import { useIsReadOnly } from "../lib/permissions";
+import { candidateResumeFacts, candidateTitle, candidateStudyState, CANDIDATE_STAGE_LABELS } from "../lib/vacanciesResume";
+import { vacancyChatLanguageText, vacancyChannelLabel, vacancyFilterReason, vacancyInterviewLabel, vacancyReceivedLabel } from "../lib/vacanciesView";
 
-/**
- * Резюме — отдельная кнопка, а не общий раздел «Прислал файлами» ниже (который
- * ждёт загрузки всей переписки): это последний файл/фото, что кандидат прислал
- * за весь разговор, открывается сразу по cvFile анкеты, без похода за перепиской.
- * Тот же blob-приём, что у MessageAttachments — файл закрытый, простой <a href>
- * его не отдаст (нужен заголовок авторизации).
- *
- * 02.10.2026: окно открывается синхронно, до скачивания (lib/openPrivateFile.ts) —
- * на iPhone окно после `await` блокировалось молча, и кнопка не делала ничего.
- *
- * 02.10.2026: файл качается маршрутом раздела /vacancies/:id/cv, а не общим
- * /attachments — тот требует права на вложения переписки, которого у
- * руководителя (главного HR) нет, и резюме ему не открывалось.
- */
-function CvLink({ applicationId, file, portfolioIndex }: { applicationId: string; file: string; portfolioIndex?: number }) {
+/** Open the original through the vacancy's authorized file endpoint. */
+export function VacancyFileButton({ applicationId, file, portfolioIndex, label }: {
+  applicationId: string; file: string; portfolioIndex?: number; label?: string;
+}) {
   const [state, setState] = useState<"idle" | "loading" | "error">("idle");
-  const open = () => {
+  function open() {
     setState("loading");
     const endpoint = portfolioIndex === undefined ? `/vacancies/${encodeURIComponent(applicationId)}/cv`
       : `/vacancies/${encodeURIComponent(applicationId)}/portfolio/${portfolioIndex}`;
     const load = () => api<Blob>(endpoint, { responseType: "blob" });
-    // Без await перед вызовом: окно должно открыться в самом обработчике нажатия.
-    void openPrivateFile(file, browserDeps(load)).then((ok) => setState(ok ? "idle" : "error"));
-  };
-  return (
-    <span className="kvp">
-      {portfolioIndex === undefined ? "Резюме" : `Работа ${portfolioIndex + 1}`}{" "}
-      <button className="lnk" type="button" onClick={open} disabled={state === "loading"}>
-        {state === "loading" ? "Открываем…" : state === "error" ? "Не открылось — повторить" : "Открыть файл"}
-      </button>
-    </span>
-  );
-}
-
-/**
- * РАСКРЫТАЯ АНКЕТА КАНДИДАТА.
- *
- * Владелец 03.09.2026: «слишком бардачный вид карточки кандидата, я хочу
- * аккуратную карточку, где всё логично разложено, и минималистичный UI».
- *
- * ЧТО БЫЛО НЕ ТАК. Двенадцать полей рисовались сеткой всегда — и у живого
- * кандидата десять из них показывали «не спрашивали». Экран заполнялся серым
- * шумом, среди которого терялись три строки, ради которых карточку и открывают:
- * что человек рассказал, есть ли телефон и что дальше. Плюс переписка,
- * развёрнутая во всю высоту, отодвигала кнопки решения за край экрана.
- *
- * ЧТО СТАЛО. Показываем ТОЛЬКО известное, одной ровной сеткой пар «поле —
- * значение». Всё неизвестное сворачивается в одну серую строку внизу («Ещё не
- * спрашивали: возраст, город…») — это по-прежнему видно, но не занимает экран:
- * пустое поле здесь означает «бот не успел спросить», и знать это надо, а
- * смотреть на это — нет. Переписка спрятана под строку «Показать переписку»:
- * решение принимается по анкете, а лента нужна, только когда есть сомнения.
- *
- * Порядок разделов = порядок чтения: кто это → что рассказал → что прислал →
- * переписка → действия (кнопки живут снаружи, в списке).
- */
-
-type Fact = { label: string; value: string | null };
-
-/** «Да» / «Нет» / неизвестно — три разных состояния, и путать их нельзя: по ним
- *  сервер считает допуск (jobEligibility). */
-function yesNo(value: boolean | null, yes = "Да", no = "Нет"): string | null {
-  if (value === null) return null;
-  return value ? yes : no;
-}
-
-/**
- * ТЕЛЕФОН — ЕДИНСТВЕННОЕ РЕДАКТИРУЕМОЕ ПОЛЕ АНКЕТЫ (добавлено 04.09.2026,
- * полный обход раздела: «зайди глубоко в код, ищи баги»).
- *
- * Раньше правки не было НИГДЕ: бот записал криво (а до соседней правки —
- * lib/candidatePhone.ts — он мог записать вообще любую строку, хоть «оставлю
- * попозже») — и исправить было нечем, кроме как ждать, пока кандидат снова
- * напишет боту сам. У остальных полей анкеты это не так критично: телефон —
- * единственное поле, от которого зависит, увидит ли руководство кандидата в
- * очереди вообще (HAS_PHONE в routes/vacancies.ts). Своя строка, а не общий
- * список фактов: только у него есть кнопка «Изменить» и своё состояние формы.
- */
-function PhoneField({ item }: { item: JobApplication }) {
-  const setStatus = useSetVacancyStatus();
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(item.phone ?? "");
-
-  if (!editing) {
-    return (
-      <span className="kvp">
-        Телефон{" "}
-        {item.phone ? (
-          // Номер — просто текст: звонок только кнопкой «Позвонить» (через
-          // станцию), а не ссылкой tel: с личного телефона (29.09.2026).
-          <b>{item.phone}</b>
-        ) : (
-          <b>ещё не дал</b>
-        )}
-        <button
-          className="lnk"
-          type="button"
-          onClick={() => {
-            setDraft(item.phone ?? "");
-            setEditing(true);
-          }}
-          aria-label={item.phone ? "Изменить телефон" : "Указать телефон"}
-        >
-          Изменить
-        </button>
-      </span>
-    );
+    // Synchronous window creation before download also works on iOS.
+    void openPrivateFile(file, browserDeps(load)).then(ok => setState(ok ? "idle" : "error"));
   }
+  return <button type="button" className="vacancy-file-button" onClick={open} disabled={state === "loading"}>
+    <FileText size={19} aria-hidden="true" /><span>{state === "loading" ? "Открываем…" : state === "error" ? "Не открылось — повторить" : label || "Открыть оригинал резюме"}</span>
+    <ExternalLink size={15} aria-hidden="true" />
+  </button>;
+}
 
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 8, gridColumn: "1 / -1" }}>
-      <label className="fld">
-        <span className="lab">Телефон</span>
-        <input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="+992 90 011 22 33" autoFocus />
-      </label>
-      <span className="wrap">
-        <button
-          className="pill sm"
-          type="button"
-          disabled={setStatus.isPending}
-          onClick={() => setStatus.mutate({ id: item.id, phone: draft.trim() || null }, { onSuccess: () => setEditing(false) })}
-        >
-          Сохранить
-        </button>
-        <button className="pill ghost sm" type="button" disabled={setStatus.isPending} onClick={() => setEditing(false)}>
-          Отмена
-        </button>
-      </span>
-      <MutationError mutation={setStatus} fallback="Не удалось сохранить телефон" />
-    </div>
-  );
+export function VacancyOriginals({ item }: { item: JobApplication }) {
+  const saved = !!item.cvFile || !!item.customerPortfolio?.length;
+  return <section className="vacancy-originals" aria-label="Оригиналы материалов">
+    <div className="vacancy-originals-heading">{saved ? <CheckCircle2 size={21} aria-hidden="true" /> : <FileText size={21} aria-hidden="true" />}<strong>{saved ? "Материалы сохранены" : "Оригиналы материалов"}</strong></div>
+    <p>{saved ? "Проверьте сведения по тому, что прислал кандидат." : "Файл резюме пока не прикреплён. Текст отклика доступен в анкете."}</p>
+    {item.cvFile && <VacancyFileButton applicationId={item.id} file={item.cvFile} />}
+    {!!item.customerPortfolio?.length && <p>Работ в портфолио: {item.customerPortfolio.length}. Они доступны в разделе «Работы кандидата».</p>}
+  </section>;
+}
+
+function ResumeSection({ title, children, className = "" }: { title: string; children: ReactNode; className?: string }) {
+  return <section className={`vacancy-resume-section ${className}`}><h3>{title}</h3>{children}</section>;
+}
+
+function FactText({ value, fact }: { value?: string | null; fact?: RecruitmentResumeFacts[keyof RecruitmentResumeFacts] }) {
+  return <>{value ? <p className="vacancy-resume-text">{value}</p> : <p className="vacancy-missing">Не указано</p>}
+    {fact && <details className="vacancy-fact-source"><summary>Слова кандидата</summary><blockquote>{fact.quote}</blockquote></details>}
+  </>;
+}
+
+function PhoneField({ item }: { item: JobApplication }) {
+  const readOnly = useIsReadOnly();
+  const [editing, setEditing] = useState(false), [draft, setDraft] = useState(item.phone ?? "");
+  const mutation = useSetVacancyStatus();
+  if (!editing) return <div className="vacancy-phone-field"><span>{item.phone || "Телефон не указан"}</span>{!readOnly && <button type="button" className="vacancy-text-button" onClick={() => { setDraft(item.phone ?? ""); setEditing(true); }}>{item.phone ? "Изменить" : "Добавить"}</button>}</div>;
+  return <form className="vacancy-phone-editor" onSubmit={event => { event.preventDefault(); mutation.mutate({ id: item.id, phone: draft.trim() || null }, { onSuccess: () => setEditing(false) }); }}>
+    <label className="vacancy-field"><span>Телефон кандидата</span><input type="tel" autoComplete="tel" value={draft} onChange={event => setDraft(event.target.value)} maxLength={40} /></label>
+    <div className="vacancy-form-buttons"><button className="vacancy-button" disabled={mutation.isPending} type="submit">Сохранить</button><button className="vacancy-button secondary" disabled={mutation.isPending} type="button" onClick={() => setEditing(false)}>Отмена</button></div>
+    <MutationError mutation={mutation} fallback="Не удалось сохранить телефон" />
+  </form>;
 }
 
 export function VacancyDetails({ item }: { item: JobApplication }) {
   const [showChat, setShowChat] = useState(false);
-  // Ссылка в «Сообщения» — только тому, кому раздел открыт (02.10.2026):
-  // иначе она вела на экран «нет доступа».
-  const can = useCan();
-  const canOpenInbox = can("messages.view") || can("messages.viewOwn");
-  // Переписка и вложения грузятся, только когда анкету раскрыли: список из
-  // двадцати кандидатов не должен тянуть двадцать переписок.
-  const { data, isLoading, isError, refetch } = useVacancyConversation(item.id);
-  const files = data?.files ?? [];
-  const messages = data?.messages ?? [];
-  // «Всё, что он сказал» (владелец 25.09.2026) — слова самого кандидата подряд,
-  // без реплик бота. Раньше здесь стоял rawText: склейка пересказов модели за
-  // каждый ход, с повторами и обрывками.
-  const saidLines = messages
-    .filter((m) => m.role === "user")
-    .map((m) => m.content.trim())
-    .filter(Boolean);
+  const conversation = useVacancyConversation(item.id);
+  const facts = candidateResumeFacts(item);
+  const files = conversation.data?.files ?? [], messages = conversation.data?.messages ?? [];
   const reason = vacancyFilterReason(item);
-
-  // Телефон — своя строка с кнопкой правки (см. PhoneField), поэтому в общий
-  // список фактов «известно/не спрашивали» он не попадает: дублировать поле
-  // с кнопкой и без было бы ровно той же путаницей, что владелец уже просил
-  // убрать («всё в перемешку»).
-  const facts: Fact[] = [
-    { label: "Имя", value: item.name ?? item.contactName },
-    { label: "Возраст", value: item.age !== null ? `${item.age}` : null },
-    { label: "Город", value: item.city },
-    { label: "Работает сейчас", value: yesNo(item.employedNow) },
-    { label: "Учится сейчас", value: yesNo(item.studyingNow) },
-    { label: "Учится в вузе", value: yesNo(item.studyingUniversity) },
-    { label: "Опыт", value: item.experience },
-    { label: "Опыт в продажах", value: yesNo(item.salesExperience ?? null) },
-    { label: "Образование", value: item.education },
-    { label: "Диплом по нужной специальности", value: yesNo(item.targetEducation ?? null) },
-    { label: "Языки", value: item.languages },
-    { label: "Машина", value: yesNo(item.hasCar, "Есть", "Нет") },
-    { label: "Сильное желание работать", value: yesNo(item.strongMotivation ?? null) },
-    { label: "Достижения", value: item.achievements ?? null },
-    { label: "Готов начать", value: item.startWhen },
-  ];
-  const known = facts.filter((f) => f.value);
-  const unknown = item.customerInquiryId ? [] : facts.filter((f) => !f.value).map((f) => f.label.toLowerCase());
-
-  return (
-    <div className="card flat" style={{ margin: "0 0 12px" }}>
-      {/* РЕЗЮМЕ (владелец 25.09.2026: «нажал на карточку — и аккуратно всё про
-          этого человека написано»). Сверху то, по чему решают и звонят: номер,
-          язык переписки, резюме-файл; ниже столбиком всё известное о человеке. */}
-      <div className="sec-t">Резюме</div>
-      <div className="kvp" style={{ gap: "var(--s4)" }}>
-        <PhoneField item={item} />
-        {item.chatLanguage && (
-          <span className="kvp">
-            Язык переписки: <b>{vacancyChatLanguageText(item.chatLanguage)}</b>
-          </span>
-        )}
-        {item.cvFile && <CvLink applicationId={item.id} file={item.cvFile} />}
-      </div>
-      {known.length > 0 && (
-        <dl className="list" style={{ margin: 0 }}>
-          {known.map((f) => (
-            <div className="row" key={f.label}>
-              <dt className="state" style={{ margin: 0 }}>
-                {f.label}
-              </dt>
-              <dd style={{ margin: 0, whiteSpace: "pre-wrap" }}>
-                <b>{f.value}</b>
-              </dd>
-            </div>
-          ))}
-        </dl>
-      )}
-      {item.priorityReason && <p className="state">Оценка: {item.priorityReason}.</p>}
-
-      {unknown.length > 0 && (
-        /* Одной строкой вместо десяти пустых полей: знать, чего бот не спросил,
-           надо, а разглядывать это нет. */
-        <p className="state">Ещё не спрашивали: {unknown.join(", ")}.</p>
-      )}
-
-      {reason &&
-        (item.eligibleOverride ? (
-          /* «Всё равно позвать» (02.10.2026): причина отбора остаётся видна, но
-             решение уже принято — спокойным тоном, не красным. */
-          <div className="quiet">
-            <span className="dot" />
-            <span className="txt">Не прошёл обязательный отбор: {reason}. Взят в работу вопреки отбору.</span>
-          </div>
-        ) : (
-          <div className="quiet crit">
-            <span className="dot crit" />
-            <span className="txt">Не прошёл обязательный отбор: {reason}.</span>
-          </div>
-        ))}
-
-      {item.status === "INTERVIEW" && item.interviewAt && (
-        <div className="quiet warn">
-          <span className="dot warn" />
-          <span className="txt">Собеседование {vacancyInterviewLabel(item.interviewAt)}</span>
-        </div>
-      )}
-      {item.inviteCall && (
-        /* Итог робота-приглашения (25.09.2026): «придёт» спокойным тоном,
-           всё остальное — вниманию HR. */
-        <div className={item.inviteCall.outcome === "CONFIRMED" ? "quiet" : "quiet warn"}>
-          <span className={item.inviteCall.outcome === "CONFIRMED" ? "dot" : "dot warn"} />
-          <span className="txt">
-            {item.inviteCall.text}
-            {item.inviteCall.summary ? `. ${item.inviteCall.summary}` : ""}
-          </span>
-        </div>
-      )}
-      {item.inviteCall?.hasRecording && <InviteCallRecording applicationId={item.id} />}
-      {item.interviewNote && (
-        <p className="state">Заметка: {item.interviewNote}</p>
-      )}
-      {item.rejectionReason && <p className="state">Причина отказа: {item.rejectionReason}</p>}
-      {item.rejectionReasonVoiceUrl && <VoiceNotePlayer url={item.rejectionReasonVoiceUrl} />}
-
-      {item.positionTitle && <p className="state">Должность: {item.positionTitle}</p>}
-      {!!item.customerPortfolio?.length && <div>
-        <div className="sec-t">Портфолио кандидата</div>
-        <ul>{item.customerPortfolio.map((entry, index) => <li key={"url" in entry ? entry.url : entry.file}>
-          {"url" in entry ? <a href={entry.url} target="_blank" rel="noopener noreferrer nofollow">Работа {index + 1}: открыть ссылку</a> :
-            <CvLink applicationId={item.id} file={entry.file} portfolioIndex={index} />}
-        </li>)}</ul>
-      </div>}
-      {saidLines.length > 0 ? (
-        <>
-          <div className="sec-t">Что рассказал сам</div>
-          <ul className="list" style={{ margin: 0 }}>
-            {saidLines.map((line, i) => (
-              <li className="row" key={i} style={{ whiteSpace: "pre-wrap" }}>
-                {line}
-              </li>
-            ))}
-          </ul>
-        </>
-      ) : (
-        item.rawText &&
-        !isLoading && (
-          <>
-            <div className="sec-t">Что рассказал сам</div>
-            <p style={{ whiteSpace: "pre-wrap" }}>{item.rawText}</p>
-          </>
-        )
-      )}
-
-      {/* Файлы: резюме, диплом, фото документа. В полях анкеты их нет никогда:
-          модель кладёт туда только слова. Блока нет, когда прислать нечего. */}
-      {(isLoading || isError || files.length > 0) && (
-        <>
-          <div className="sec-t">Прислал файлами</div>
-          {isLoading ? (
-            <div className="state">
-              <span className="sk w28" /> Загружаем вложения
-            </div>
-          ) : isError ? (
-            <div className="state err">
-              <span className="dot crit" /> Вложения не загрузились.{" "}
-              <button
-                className="lk"
-                type="button"
-                style={{ color: "inherit", textDecoration: "underline" }}
-                onClick={() => refetch()}
-              >
-                Повторить
-              </button>
-            </div>
-          ) : (
-            <MessageAttachments attachments={files} />
-          )}
-        </>
-      )}
-
-      {/* Переписка под строкой, а не развёрнута: она длинная и отодвигала
-          решение за край экрана. */}
-      <div className="wrap">
-        {messages.length > 0 && (
-          <button className="lnk" type="button" aria-expanded={showChat} onClick={() => setShowChat((v) => !v)}>
-            {showChat ? "Скрыть переписку" : `Показать всю переписку (${messages.length})`}
-          </button>
-        )}
-        {item.inboxId ? (
-          canOpenInbox && (
-            <Link className="lnk" to={`/messages?open=${encodeURIComponent(item.inboxId)}`}>
-              Ответить в «Сообщениях»
-            </Link>
-          )
-        ) : (
-          <span className="state">Переписка не сохранилась</span>
-        )}
-        <span className="state">Анкета: {vacancyReceivedLabel(item.createdAt)}</span>
-      </div>
-
-      {showChat && messages.length > 0 && (
-        <div className="thread" style={{ maxHeight: 420, borderRadius: "var(--r-md)" }}>
-          {messages.map((m, i) => (
-            <div className={m.role === "user" ? "bub" : "bub bot"} key={i}>
-              <span className="who">{m.role === "user" ? "Кандидат" : "Бот"}</span>
-              <span style={{ whiteSpace: "pre-wrap" }}>{m.content}</span>
-            </div>
-          ))}
-        </div>
-      )}
+  const work = facts.experience?.value || item.experience;
+  const education = facts.education?.value || item.education;
+  const city = facts.city?.value || item.city;
+  const chatLanguage = item.chatLanguage ? vacancyChatLanguageText(item.chatLanguage) : null;
+  const study = candidateStudyState(item);
+  const employment = facts.employedNow?.value ?? item.employedNow;
+  const missing = item.recruitmentAssessment?.missing ?? [];
+  const showStudy = study != null || missing.includes("studyingNow");
+  const showEmployment = employment != null || missing.includes("employedNow");
+  return <article className="vacancy-resume" aria-labelledby="candidate-resume-title">
+    <div className="vacancy-resume-toolbar"><div><h2>Анкета кандидата</h2><p>{item.recruitmentResume ? "Из резюме и ответов кандидата. Источники сохранены." : "Сохранённые сведения из анкеты. Проверьте по оригиналам."}</p></div>
+      {item.cvFile && <VacancyFileButton applicationId={item.id} file={item.cvFile} label="Оригинал резюме" />}</div>
+    <div className="vacancy-resume-paper">
+      <header className="vacancy-person-heading"><span className="vacancy-stage-badge">{CANDIDATE_STAGE_LABELS[item.status]}</span>
+        <h2 id="candidate-resume-title" tabIndex={-1}>{candidateTitle(item)}</h2>
+        <p className="vacancy-position-title">{item.positionTitle || "Должность не указана"}</p>
+        <ul className="vacancy-person-meta"><li><MapPin size={16} aria-hidden="true" />{city || "Город не указан"}</li><li><MessageCircle size={16} aria-hidden="true" />{chatLanguage ? `Общение: ${chatLanguage.charAt(0).toLocaleUpperCase("ru")}${chatLanguage.slice(1)}` : "Язык общения не выбран"}</li><li><Phone size={16} aria-hidden="true" />{item.phone ? "Телефон указан" : "Нужен телефон"}</li></ul>
+      </header>
+      <div className="vacancy-resume-columns"><div className="vacancy-resume-main">
+        <ResumeSection title="О себе"><FactText value={facts.about?.value} fact={facts.about} /></ResumeSection>
+        <ResumeSection title="Опыт работы"><FactText value={work} fact={facts.experience} /></ResumeSection>
+        <ResumeSection title="Работы кандидата">
+          {item.customerPortfolio?.length ? <ul className="vacancy-portfolio">{item.customerPortfolio.map((entry, index) => <li key={"url" in entry ? entry.url : entry.file}>
+            {"url" in entry ? <a href={entry.url} target="_blank" rel="noopener noreferrer nofollow" className="vacancy-portfolio-link"><ExternalLink size={24} aria-hidden="true" /><strong>Работа {index + 1}</strong><span>Открыть ссылку кандидата</span></a>
+              : <VacancyFileButton applicationId={item.id} file={entry.file} portfolioIndex={index} label={`Работа ${index + 1} · открыть файл`} />}
+          </li>)}</ul> : <p className="vacancy-missing">Примеры работ пока не присланы.</p>}
+        </ResumeSection>
+        <ResumeSection title="Контакт"><PhoneField item={item} /><p className="vacancy-muted">Отклик: {vacancyChannelLabel(item.channel)} · {vacancyReceivedLabel(item.createdAt)}</p></ResumeSection>
+        {item.achievements && <ResumeSection title="Достижения"><p className="vacancy-resume-text">{item.achievements}</p></ResumeSection>}
+      </div><aside className="vacancy-resume-facts" aria-label="Сведения о кандидате">
+        <ResumeSection title="Навыки"><FactText value={facts.skills?.value} fact={facts.skills} /></ResumeSection>
+        <ResumeSection title="Инструменты"><FactText value={facts.tools?.value} fact={facts.tools} /></ResumeSection>
+        <ResumeSection title="Образование"><FactText value={education} fact={facts.education} /></ResumeSection>
+        <ResumeSection title="Языки"><FactText value={facts.languages?.value || item.languages} fact={facts.languages} /></ResumeSection>
+        <ResumeSection title="Готовность к работе"><dl className="vacancy-readiness"><div><dt>Когда готов начать</dt><dd>{facts.startWhen?.value || item.startWhen || "Нужно уточнить"}</dd></div>
+          {showEmployment && <div><dt>Сейчас работает</dt><dd>{employment == null ? "Нужно уточнить" : employment ? "Да" : "Нет"}</dd></div>}{showStudy && <div><dt>Сейчас учится</dt><dd>{study == null ? "Нужно уточнить" : study ? "Да" : "Нет"}</dd></div>}</dl></ResumeSection>
+        {(facts.age || item.age != null) && <ResumeSection title="Возраст"><p>{facts.age?.value ?? item.age}</p></ResumeSection>}
+      </aside></div>
+      {item.recruitmentAssessment?.warnings.map(warning => <p className="vacancy-notice" key={warning}>{warning}</p>)}
+      {reason && !item.customerInquiryId && <details className="vacancy-legacy-assessment"><summary>Проверка прежней анкеты</summary><p>{reason}.{item.eligibleOverride ? " Руководитель взял кандидата в работу." : " Это справочная проверка. Решение принимает руководитель."}</p></details>}
+      {item.status === "INTERVIEW" && item.interviewAt && <p className="vacancy-notice">Собеседование: {vacancyInterviewLabel(item.interviewAt)}. Назначенная дата сама по себе не означает, что кандидат подтвердил участие.</p>}
+      {item.inviteCall && <section className="vacancy-invite-result"><h3>Последний звонок ассистента</h3><p>{item.inviteCall.text}</p>{item.inviteCall.summary && <p>{item.inviteCall.summary}</p>}{item.inviteCall.hasRecording && <InviteCallRecording applicationId={item.id} />}</section>}
+      {(item.interviewNote || item.rejectionReason || item.rejectionReasonVoiceUrl) && <ResumeSection title="Заметки руководителя">{item.interviewNote && <p>{item.interviewNote}</p>}{item.rejectionReason && <p>Причина отказа: {item.rejectionReason}</p>}{item.rejectionReasonVoiceUrl && <VoiceNotePlayer url={item.rejectionReasonVoiceUrl} />}</ResumeSection>}
+      <details className="vacancy-original-text"><summary>Исходный текст и вложения</summary>
+        {item.rawText ? <p className="vacancy-resume-text">{item.rawText}</p> : <p className="vacancy-missing">Отдельный текст анкеты не сохранён.</p>}
+        {conversation.isLoading && <p role="status">Загружаем вложения…</p>}
+        {conversation.isError && <p role="alert">Материалы не загрузились. <button type="button" className="vacancy-text-button" onClick={() => void conversation.refetch()}>Повторить</button></p>}
+        {files.length > 0 && <MessageAttachments attachments={files} />}
+      </details>
+      <section className="vacancy-chat-section"><button type="button" className="vacancy-text-button" aria-expanded={showChat} onClick={() => setShowChat(value => !value)}>{showChat ? "Скрыть переписку" : "Показать переписку"}{messages.length ? ` · ${messages.length}` : ""}</button>
+        {showChat && <div className="vacancy-chat-thread">{conversation.isLoading ? <p role="status">Загружаем переписку…</p> : conversation.isError ? <p role="alert">Не удалось загрузить переписку. <button type="button" className="vacancy-text-button" onClick={() => void conversation.refetch()}>Повторить</button></p>
+          : messages.length ? messages.map((message, index) => <div className={`vacancy-chat-message ${message.role === "user" ? "candidate" : ""}`} key={index}><strong>{message.role === "user" ? "Кандидат" : "Сотрудник или ассистент"}</strong><p>{message.content}</p></div>) : <p className="vacancy-missing">Сообщения для этой анкеты пока недоступны. Сохранённые сведения и файлы остаются в анкете.</p>}</div>}
+      </section>
+      <p className="vacancy-resume-disclaimer">Неуказанные сведения не означают отказ. Решение о приглашении принимает руководитель.</p>
+      {Object.keys(facts).length > 0 && <span className="sr-only">Сведения с источниками: {Object.keys(facts).map(key => RECRUITMENT_FACT_LABELS[key as keyof RecruitmentResumeFacts]).join(", ")}</span>}
     </div>
-  );
+  </article>;
 }
 
-/**
- * Запись разговора робота с кандидатом (проверка робота 02.10.2026: анкета
- * говорила «послушайте разговор», а послушать было негде). Видимый плеер, а
- * не невидимый звук: у разговора в несколько минут нужны пауза и перемотка.
- */
 function InviteCallRecording({ applicationId }: { applicationId: string }) {
   const recording = useInviteCallRecordingUrl();
-  const [url, setUrl] = useState<string | null>(null);
-  const [failed, setFailed] = useState(false);
-  if (url) {
-    return (
-      <div className="quiet">
-        <audio controls autoPlay preload="none" src={url} style={{ height: 34, maxWidth: 260, flex: 1 }} />
-      </div>
-    );
-  }
-  return (
-    <div className="quiet">
-      <button
-        className="lnk"
-        type="button"
-        disabled={recording.isPending}
-        onClick={() => {
-          setFailed(false);
-          recording.mutate(applicationId, { onSuccess: (r) => setUrl(r.url), onError: () => setFailed(true) });
-        }}
-      >
-        {recording.isPending ? "Загружаю запись…" : "Послушать разговор"}
-      </button>
-      {failed && <span className="txt"> Запись не открылась — попробуйте ещё раз.</span>}
-    </div>
-  );
+  const [url, setUrl] = useState<string | null>(null), [failed, setFailed] = useState(false);
+  if (url) return <audio controls preload="none" src={url} className="vacancy-recording" />;
+  return <div><button type="button" className="vacancy-text-button" disabled={recording.isPending} onClick={() => { setFailed(false); recording.mutate(applicationId, { onSuccess: response => setUrl(response.url), onError: () => setFailed(true) }); }}>{recording.isPending ? "Загружаем запись…" : "Послушать разговор"}</button>{failed && <p role="alert">Запись не открылась. Попробуйте ещё раз.</p>}</div>;
 }

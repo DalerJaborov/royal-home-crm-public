@@ -1,354 +1,113 @@
-import { useState, type ReactNode } from "react";
-import { createPortal } from "react-dom";
+import { useState } from "react";
+import { CalendarDays, CircleAlert, Sparkles, UserRoundCheck } from "lucide-react";
+import type { RecruitmentPosition } from "@royal-home/shared";
 import { useSetVacancyStatus, type JobApplication } from "../hooks/useVacancies";
+import { useVacancyContactOptions } from "../hooks/useVacancyContact";
+import { useIsReadOnly } from "../lib/permissions";
+import { CallClientButton } from "./CallClientButton";
 import { MutationError } from "./MutationError";
-import {
-  VACANCY_ACTIONS_NOTE,
-  VACANCY_ACTION_HINT,
-  interviewInputToIso,
-  interviewIsoToInput,
-  inviteCallNoteToShow,
-} from "../lib/vacanciesView";
-import { toast } from "../store/toast";
+import { ConfirmDialog } from "./ConfirmDialog";
+import { Rh2Sheet } from "./rh2/Rh2Sheet";
 import { VoiceNoteButton, type VoiceNote } from "./VoiceNoteButton";
+import { VacancyContactForm, DeliveryList, AssistantFindings } from "./VacancyContactForm";
+import { candidateMissingFacts, candidateMissingText, candidateTitle, legacyCandidatePositionPatch } from "../lib/vacanciesResume";
+import { canOverrideRejected, interviewInputToIso, interviewIsoToInput, vacancyInterviewLabel } from "../lib/vacanciesView";
 
-/**
- * Кнопки перехода по воронке — используются строкой кандидата (VacancyRow) и
- * карточкой «Сегодня» на экране `pages/Vacancies.tsx` (один экран на обе
- * ширины), вынесены отдельно, чтобы логика перехода стадий не разошлась
- * между двумя местами вызова.
- *
- * ОБЛИК: классы прототипа темы «Royal Home 2026» (`.pill`, `.pill.ghost.sm`,
- * `.lnk`, `.fld`, `.state`) — в макете vacancies.html действия кандидата живут
- * ровно так: `.pill.ghost.sm` на шаг вперёд и `.lnk` на отказ или перенос.
- *
- * ПОЧЕМУ НЕ ПРОСТО СПИСОК КНОПОК СТАТУСОВ (было раньше, до 31.08.2026): стадия
- * INTERVIEW без даты ничего не говорит руководству, что и когда делать дальше
- * (правило владельца), переход в неё поэтому открывает форму с датой, а не
- * меняет статус одним кликом.
- *
- * ОТКАЗ, НАОБОРОТ, В ОДНО НАЖАТИЕ (владелец 03.09.2026: «причину текстом или
- * голосовым, необязательно, сделай вообще, чтобы не было сложностей с ними»).
- * Причина осталась полем карточки и дописывается по желанию уже после отказа.
- *
- * `compact` — для строки `.solve` («Сегодня»): только решающие кнопки, без
- * пояснительной строки под ними, потому что она уже есть в разделе ниже.
- */
-export function VacancyStageActions({
-  item,
-  compact = false,
-  formHost = null,
-}: {
-  item: JobApplication;
-  compact?: boolean;
-  /**
-   * Куда рисовать открытую форму (дата собеседования, заметка, причина отказа).
-   * Строка кандидата отдаёт сюда полосу ПОД собой (28.09.2026): форма внутри
-   * колонки кнопок `.act` (flex:none) раздувала её до ширины формы, и имя,
-   * чипы проверок и «Позвонить» сжимались в щель и наезжали друг на друга.
-   * Без хоста форма остаётся на месте кнопок, как в строке «Сегодня».
-   */
-  formHost?: HTMLElement | null;
+export function VacancyStageActions({ item, positions, positionsLoading = false, positionsError = false, onPositionsRetry }: {
+  item: JobApplication; positions?: RecruitmentPosition[]; positionsLoading?: boolean; positionsError?: boolean; onPositionsRetry?(): void;
 }) {
-  const setStatus = useSetVacancyStatus();
-  const [mode, setMode] = useState<"idle" | "interview" | "reject" | "note">("idle");
+  const mutation = useSetVacancyStatus();
+  const readOnly = useIsReadOnly();
+  const options = useVacancyContactOptions(item.id, !readOnly);
+  const [mode, setMode] = useState<"INVITE" | "CLARIFY" | "schedule" | "note" | "reject" | null>(null);
+  const [notCandidate, setNotCandidate] = useState(false);
   const [interviewAt, setInterviewAt] = useState("");
-  // Робот зовёт кандидата сам (владелец 25.09.2026) — по умолчанию включено,
-  // если есть номер: ради этого кнопку и жмут.
-  const [inviteCall, setInviteCall] = useState(true);
-  const [interviewNote, setInterviewNoteDraft] = useState("");
-  const [rejectionReason, setRejectionReason] = useState("");
-  const [rejectionVoiceNote, setRejectionVoiceNote] = useState<VoiceNote | null>(null);
-  const busy = setStatus.isPending;
-
-  /**
-   * НАЙДЕНО 04.09.2026 (полный обход раздела): «Перенести» открывало ПУСТУЮ
-   * форму, а не текущую дату собеседования. Для назначения впервые пустое поле
-   * правильное умолчание, но перенос по смыслу это ПРАВКА уже назначенного
-   * времени, и оно обязано быть на месте.
-   *
-   * 02.10.2026: поле заполняется и читается по ДУШАНБЕ (interviewIsoToInput /
-   * interviewInputToIso), а не по часам браузера — иначе владелец за границей
-   * назначал 14:00, а робот звал кандидата на 16:00. Галочка робота каждый раз
-   * открывается заново (есть номер — включена): иначе снятая однажды галочка
-   * тихо переезжала на следующего кандидата.
-   */
-  function openInterviewForm() {
+  const [note, setNote] = useState("");
+  const [voice, setVoice] = useState<VoiceNote | null>(null);
+  const [formError, setFormError] = useState("");
+  const missing = candidateMissingFacts(item);
+  const busy = mutation.isPending;
+  const contact = options.data;
+  const contactWaiting = contact?.recentDeliveries.some(delivery => ["QUEUED", "IN_FLIGHT", "UNKNOWN"].includes(delivery.status)) ?? false;
+  const canContact = !!contact && (contact.sms.available || contact.assistantCall.available) && !contactWaiting;
+  const terminal = item.status === "HIRED" || item.status === "REJECTED";
+  const legacy = !item.customerInquiryId;
+  const positionPicker = <LegacyPositionPicker item={item} positions={positions} loading={positionsLoading} error={positionsError}
+    onRetry={onPositionsRetry} busy={busy} onSave={positionKey => { const patch = legacyCandidatePositionPatch(item, positionKey, positions ?? []); if (patch) mutation.mutate(patch); }} />;
+  function openSchedule() {
     setInterviewAt(item.interviewAt ? interviewIsoToInput(item.interviewAt) : "");
-    setInviteCall(!!item.phone);
-    setMode("interview");
+    setFormError(""); setMode("schedule");
   }
-
-  function openNoteForm() {
-    setInterviewNoteDraft(item.interviewNote ?? "");
-    setMode("note");
-  }
-
-  const toIso = interviewInputToIso;
-
-  /** Форма занимает свою строку целиком: в `.act` она встала бы в узкую колонку. */
-  const formStyle = { flex: "1 1 100%", minWidth: 220, display: "flex", flexDirection: "column" as const, gap: 8 };
-  const place = (form: ReactNode) =>
-    // flex 100% — для хоста внутри `.solve` («Сегодня», display:contents):
-    // там обёртка становится элементом гибкой строки и уходит на свою строку
-    // под текстом и кнопками. В блочной полосе `.row-form` это свойство ничего не делает.
-    formHost
-      ? createPortal(<div style={{ padding: "4px 0 14px", flex: "1 1 100%", minWidth: 0 }}>{form}</div>, formHost)
-      : form;
-
-  if (mode === "interview") {
-    return place(
-      <div style={formStyle}>
-        <label className="fld">
-          <span className="lab">Дата и время собеседования</span>
-          {/* min — «сейчас» по Душанбе: робот зовёт только на будущее время,
-              и прошедшее сервер всё равно отклонит. */}
-          <input
-            type="datetime-local"
-            value={interviewAt}
-            min={interviewIsoToInput(new Date())}
-            onChange={(e) => setInterviewAt(e.target.value)}
-          />
-        </label>
-        {item.phone ? (
-          <label className="wrap" style={{ gap: 8, alignItems: "center" }}>
-            <input type="checkbox" checked={inviteCall} onChange={(e) => setInviteCall(e.target.checked)} />
-            <span>Робот позвонит и пригласит</span>
-          </label>
-        ) : (
-          <p className="state">Номера нет, робот позвонить не сможет.</p>
-        )}
-        <span className="wrap">
-          <button
-            className="pill sm"
-            type="button"
-            disabled={busy || !toIso(interviewAt)}
-            onClick={() => {
-              const iso = toIso(interviewAt);
-              if (!iso) return;
-              setStatus.mutate(
-                { id: item.id, status: "INTERVIEW", interviewAt: iso, ...(inviteCall && item.phone ? { inviteCall: true } : {}) },
-                {
-                  onSuccess: (response) => {
-                    setMode("idle");
-                    // Собеседование сохранено, а звонок робот не поставил — сказать
-                    // причину словами сервера. Всплывашкой, а не строкой в форме:
-                    // строка кандидата после сохранения переезжает в другую секцию
-                    // и рисуется заново, состояние формы там не доживает.
-                    const note = inviteCallNoteToShow(response);
-                    if (note) toast.error(note);
-                  },
-                }
-              );
-            }}
-          >
-            Назначить
-          </button>
-          <button className="pill ghost sm" type="button" disabled={busy} onClick={() => setMode("idle")}>
-            Отмена
-          </button>
-        </span>
-        <p className="state">{VACANCY_ACTION_HINT.interviewForm}</p>
-        <MutationError mutation={setStatus} fallback="Не удалось назначить собеседование" />
+  function closeForm() { setMode(null); setFormError(""); mutation.reset(); }
+  if (readOnly) return <p className="vacancy-notice">Доступ только для просмотра. Действия выполняет руководитель с правом изменения.</p>;
+  return <div className="vacancy-stage-actions">
+    {legacy && !item.positionKey && <section className="vacancy-position-assignment"><h3>Укажите вакансию</h3><p>Выберите вакансию для этой анкеты, чтобы использовать её условия в приглашении.</p>{positionPicker}</section>}
+    {missing.length > 0 ? <div className="vacancy-next-summary warning"><CircleAlert size={21} aria-hidden="true" /><div><strong>Нужно уточнить</strong><p>{candidateMissingText(item)}.</p><small>Отсутствие сведений не означает отказ.</small></div></div>
+      : <div className="vacancy-next-summary"><UserRoundCheck size={21} aria-hidden="true" /><div><strong>Сведения собраны</strong><p>Посмотрите опыт и материалы. Решение о следующем шаге за вами.</p></div></div>}
+    {item.status === "INTERVIEW" && item.interviewAt && <div className="vacancy-next-summary"><CalendarDays size={21} aria-hidden="true" /><div><strong>Собеседование назначено</strong><p>{vacancyInterviewLabel(item.interviewAt)}</p></div></div>}
+    {contact && <AssistantFindings deliveries={contact.recentDeliveries} />}
+    {options.isPending && <p className="vacancy-muted" role="status">Проверяем способы связи…</p>}
+    {options.isError && <p className="vacancy-notice" role="alert">Не удалось проверить способы связи. <button type="button" className="vacancy-text-button" onClick={() => void options.refetch()}>Повторить</button></p>}
+    {contactWaiting && <p className="vacancy-notice">Предыдущее обращение ещё в работе или его результат не подтверждён. Проверьте статус перед повторной отправкой. <button type="button" className="vacancy-text-button" onClick={() => void options.refetch()}>Проверить статус</button></p>}
+    {!terminal && missing.length > 0 && <>
+      <button type="button" className="vacancy-button secondary" disabled={busy || !canContact || !contact?.clarification.available} onClick={() => setMode("CLARIFY")}><Sparkles size={18} aria-hidden="true" />Уточнить анкету</button>
+      <p className="vacancy-muted">{contact?.clarification.available ? "Звонок ассистента или SMS: только недостающие сведения." : contact?.clarification.reason || "Доступные способы уточнения появятся после проверки."}</p>
+    </>}
+    {!terminal && <>
+      <button type="button" className="vacancy-button" disabled={busy || !canContact} onClick={() => setMode("INVITE")}>Пригласить на собеседование</button>
+      <p className="vacancy-muted">Приглашение: SMS или звонок ассистента. Перед отправкой вы проверите текст и дату.</p>
+      {contact && !contact.sms.available && !contact.assistantCall.available && <p className="vacancy-notice">{contact.sms.reason || contact.assistantCall.reason || "Нет доступного способа связи. Уточните телефон в анкете."}</p>}
+    </>}
+    <CallClientButton candidateId={item.id} phone={item.phone} variant="full" label="Позвонить самому" className="vacancy-button secondary" title="Звонок через телефонную станцию CRM" />
+    {item.status === "NEW" && <button type="button" className="vacancy-text-button" disabled={busy} onClick={() => mutation.mutate({ id: item.id, status: "REVIEWED" })}>Взять в работу</button>}
+    {item.status === "INTERVIEW" && <button type="button" className="vacancy-button secondary" disabled={busy} onClick={() => mutation.mutate({ id: item.id, status: "INTERVIEWED" })}>Собеседование провели</button>}
+    {item.status === "INTERVIEWED" && <button type="button" className="vacancy-button" disabled={busy} onClick={() => mutation.mutate({ id: item.id, status: "HIRED" })}>Принять на работу</button>}
+    {terminal && <button type="button" className="vacancy-button secondary" disabled={busy} onClick={() => mutation.mutate({ id: item.id, status: "REVIEWED" })}>{item.status === "REJECTED" ? "Отменить отказ" : "Вернуть в работу"}</button>}
+    <details className="vacancy-more-actions"><summary>Другие действия</summary>
+      {legacy && item.positionKey && <div className="vacancy-assigned-position"><p className="vacancy-muted">Вакансия: <strong>{item.positionTitle || "Название не загружено"}</strong></p><details><summary>Изменить вакансию</summary>{positionPicker}</details></div>}
+      {!terminal && <button type="button" className="vacancy-text-button" disabled={busy} onClick={openSchedule}>{item.interviewAt ? "Изменить дату без отправки" : "Только сохранить дату встречи"}</button>}
+      <button type="button" className="vacancy-text-button" disabled={busy} onClick={() => { setNote(item.interviewNote || ""); setMode("note"); }}>Заметка руководителя</button>
+      {item.status === "REJECTED" ? <>
+        <label className="vacancy-checkbox"><input type="checkbox" checked={item.talentPool} disabled={busy} onChange={event => mutation.mutate({ id: item.id, talentPool: event.target.checked })} />Кадровый резерв</label>
+        <button type="button" className="vacancy-text-button" disabled={busy} onClick={() => { setNote(item.rejectionReason || ""); setVoice(null); setMode("reject"); }}>{item.rejectionReason ? "Изменить причину отказа" : "Добавить причину отказа"}</button>
+      </> : item.status !== "HIRED" && <button type="button" className="vacancy-text-button danger" disabled={busy} onClick={() => mutation.mutate({ id: item.id, status: "REJECTED" })}>Отказать · без отправки сообщения</button>}
+      {!item.customerInquiryId && item.eligible === false && !item.eligibleOverride && canOverrideRejected(item) && <button type="button" className="vacancy-text-button" disabled={busy} onClick={() => mutation.mutate({ id: item.id, status: "REVIEWED", eligibleOverride: true })}>Взять в работу вопреки прежней проверке</button>}
+      <button type="button" className="vacancy-text-button danger" disabled={busy} onClick={() => setNotCandidate(true)}>Это не кандидат на работу</button>
+    </details>
+    <MutationError mutation={mutation} fallback="Не удалось сохранить изменение" />
+    {!!contact?.recentDeliveries.length && <section className="vacancy-recent-contact"><h3>Связь с кандидатом</h3><DeliveryList deliveries={contact.recentDeliveries} /></section>}
+    {mode && (mode === "INVITE" || mode === "CLARIFY") && contact && <VacancyContactForm key={`${item.id}:${mode}`} item={item} options={contact} purpose={mode} onClose={closeForm} />}
+    {mode && ["schedule", "note", "reject"].includes(mode) && <Rh2Sheet title={mode === "schedule" ? "Дата собеседования" : mode === "reject" ? "Причина отказа" : "Заметка руководителя"} onClose={closeForm} dismissible={!busy} closeOnBackdrop={false} className="vacancy-contact-sheet"
+      onSubmit={event => { event.preventDefault();
+        if (mode === "schedule") {
+          const iso = interviewInputToIso(interviewAt);
+          if (!iso || new Date(iso).getTime() <= Date.now()) { setFormError("Выберите будущую дату и время."); return; }
+          mutation.mutate({ id: item.id, status: "INTERVIEW", interviewAt: iso }, { onSuccess: closeForm });
+        } else mutation.mutate({ id: item.id, ...(mode === "note" ? { interviewNote: note.trim() || null } : { rejectionReason: note.trim() || null,
+          ...(voice ? { rejectionReasonVoiceUrl: voice.url, rejectionReasonVoiceTranscript: voice.transcript } : {}) }) }, { onSuccess: closeForm });
+      }} footer={<div className="vacancy-contact-scope vacancy-form-buttons"><button type="button" className="vacancy-button secondary" disabled={busy} onClick={closeForm}>Отмена</button><button type="submit" className="vacancy-button" disabled={busy}>{busy ? "Сохраняем…" : "Сохранить"}</button></div>}>
+      <div className="vacancy-contact-scope">{mode === "schedule" ? <><label className="vacancy-field"><span>Дата и время собеседования</span><input type="datetime-local" value={interviewAt} min={interviewIsoToInput(new Date())} required onChange={event => setInterviewAt(event.target.value)} /><small>Время Душанбе, UTC+5</small></label><p className="vacancy-notice">Сохранится только дата в CRM. Кандидат не получит SMS или звонок.</p></>
+        : <><label className="vacancy-field"><span>{mode === "reject" ? "Причина отказа" : "Внутренняя заметка"}</span><textarea rows={5} value={note} maxLength={4000} onChange={event => setNote(event.target.value)} /></label><p className="vacancy-muted">Видно только сотрудникам. Кандидату не отправляется.</p>{mode === "reject" && <VoiceNoteButton uploadUrl="/me/voice-notes" value={voice} onChange={setVoice} />}</>}
+        {formError && <p className="vacancy-form-error" role="alert">{formError}</p>}<MutationError mutation={mutation} fallback="Не удалось сохранить" />
       </div>
-    );
-  }
+    </Rh2Sheet>}
+    {notCandidate && <ConfirmDialog title="Это не кандидат на работу?" description={`Анкета «${candidateTitle(item)}» будет скрыта из подбора. Используйте это только для ошибочных откликов продавцов или покупателей. Обычный отказ оформляйте через «Отказать».`} confirmLabel="Скрыть из кандидатов" onCancel={() => setNotCandidate(false)} confirmDisabled={busy} dismissible={!busy} onConfirm={() => mutation.mutate({ id: item.id, status: "NOT_CANDIDATE" }, { onSuccess: () => setNotCandidate(false) })}><MutationError mutation={mutation} fallback="Не удалось скрыть анкету" /></ConfirmDialog>}
+  </div>;
+}
 
-  if (mode === "note") {
-    /**
-     * ДОБАВЛЕНО 04.09.2026: поле `interviewNote` было проведено через всю
-     * цепочку (схема БД, PATCH, тип, показ в VacancyDetails), а написать в него
-     * было НЕЧЕМ — ни одной формы нигде.
-     */
-    return place(
-      <div style={formStyle}>
-        <label className="fld">
-          <span className="lab">Заметка по итогам</span>
-          <textarea
-            value={interviewNote}
-            onChange={(e) => setInterviewNoteDraft(e.target.value)}
-            rows={3}
-            placeholder="Впечатление, сильные и слабые стороны: по желанию, для себя"
-          />
-        </label>
-        <span className="wrap">
-          <button
-            className="pill sm"
-            type="button"
-            disabled={busy}
-            onClick={() =>
-              setStatus.mutate({ id: item.id, interviewNote: interviewNote.trim() || null }, { onSuccess: () => setMode("idle") })
-            }
-          >
-            Сохранить
-          </button>
-          <button className="pill ghost sm" type="button" disabled={busy} onClick={() => setMode("idle")}>
-            Отмена
-          </button>
-        </span>
-        <MutationError mutation={setStatus} fallback="Не удалось сохранить заметку" />
-      </div>
-    );
-  }
-
-  if (mode === "reject") {
-    return place(
-      <div style={formStyle}>
-        <label className="fld">
-          <span className="lab">Причина отказа</span>
-          <textarea
-            value={rejectionReason}
-            onChange={(e) => setRejectionReason(e.target.value)}
-            rows={2}
-            placeholder="По желанию, для себя"
-          />
-        </label>
-        <VoiceNoteButton uploadUrl="/me/voice-notes" value={rejectionVoiceNote} onChange={setRejectionVoiceNote} />
-        <span className="wrap">
-          <button
-            className="pill sm"
-            type="button"
-            disabled={busy}
-            onClick={() =>
-              setStatus.mutate(
-                {
-                  id: item.id,
-                  // Статус здесь не трогаем: анкета уже в отказе, форма
-                  // открывается только с её строки.
-                  rejectionReason: rejectionReason.trim() || null,
-                  ...(rejectionVoiceNote
-                    ? {
-                        rejectionReasonVoiceUrl: rejectionVoiceNote.url,
-                        rejectionReasonVoiceTranscript: rejectionVoiceNote.transcript,
-                      }
-                    : {}),
-                },
-                { onSuccess: () => setMode("idle") }
-              )
-            }
-          >
-            Сохранить
-          </button>
-          <button className="pill ghost sm" type="button" disabled={busy} onClick={() => setMode("idle")}>
-            Отмена
-          </button>
-        </span>
-        <p className="state">{VACANCY_ACTION_HINT.rejectForm}</p>
-        <MutationError mutation={setStatus} fallback="Не удалось сохранить причину" />
-      </div>
-    );
-  }
-
-  // Терминальные стадии: своя короткая обвязка вместо общего набора кнопок.
-  // HIRED дальше никуда не идёт, REJECTED это только пометка резерва или отмена.
-  if (item.status === "HIRED") return null;
-
-  if (item.status === "REJECTED") {
-    return (
-      <>
-        <label className="chip" title={VACANCY_ACTION_HINT.talentPool}>
-          <input
-            type="checkbox"
-            checked={item.talentPool}
-            disabled={busy}
-            onChange={(e) => setStatus.mutate({ id: item.id, talentPool: e.target.checked })}
-          />
-          Кадровый резерв
-        </label>
-        {/* Причина по желанию и ПОСЛЕ отказа, а не преградой перед ним. */}
-        <button
-          className="lnk"
-          type="button"
-          disabled={busy}
-          title={VACANCY_ACTION_HINT.rejectReason}
-          onClick={() => {
-            setRejectionReason(item.rejectionReason ?? "");
-            setMode("reject");
-          }}
-        >
-          {item.rejectionReason || item.rejectionReasonVoiceUrl ? "Изменить причину" : "Добавить причину"}
-        </button>
-        <button
-          className="pill ghost sm"
-          type="button"
-          disabled={busy}
-          title={VACANCY_ACTION_HINT.undoReject}
-          onClick={() => setStatus.mutate({ id: item.id, status: "REVIEWED" })}
-        >
-          Отменить отказ
-        </button>
-      </>
-    );
-  }
-
-  return (
-    <>
-      {item.status === "NEW" && (
-        <button
-          className="pill ghost sm"
-          type="button"
-          disabled={busy}
-          title={VACANCY_ACTION_HINT.reviewed}
-          onClick={() => setStatus.mutate({ id: item.id, status: "REVIEWED" })}
-        >
-          Просмотрена
-        </button>
-      )}
-      {(item.status === "NEW" || item.status === "REVIEWED") && (
-        <button
-          className={compact ? "pill sm" : "pill ghost sm"}
-          type="button"
-          disabled={busy}
-          title={VACANCY_ACTION_HINT.interview}
-          onClick={openInterviewForm}
-        >
-          Собеседование
-        </button>
-      )}
-      {item.status === "INTERVIEW" && (
-        <>
-          <button
-            className={compact ? "pill sm" : "pill ghost sm"}
-            type="button"
-            disabled={busy}
-            title={VACANCY_ACTION_HINT.interviewed}
-            onClick={() => setStatus.mutate({ id: item.id, status: "INTERVIEWED" })}
-          >
-            Провели
-          </button>
-          <button className="lnk" type="button" disabled={busy} title={VACANCY_ACTION_HINT.interviewMove} onClick={openInterviewForm}>
-            Перенести
-          </button>
-        </>
-      )}
-      {item.status === "INTERVIEWED" && (
-        <button
-          className={compact ? "pill sm" : "pill ghost sm"}
-          type="button"
-          disabled={busy}
-          title={VACANCY_ACTION_HINT.hired}
-          onClick={() => setStatus.mutate({ id: item.id, status: "HIRED" })}
-        >
-          Принять на работу
-        </button>
-      )}
-      {/* Заметка по итогам только там, где уже есть что оценивать. */}
-      {!compact && (item.status === "INTERVIEW" || item.status === "INTERVIEWED") && (
-        <button className="lnk" type="button" disabled={busy} title={VACANCY_ACTION_HINT.interviewNote} onClick={openNoteForm}>
-          {item.interviewNote ? "Изменить заметку" : "Добавить заметку"}
-        </button>
-      )}
-      {!compact && (
-        <button
-          className="lnk"
-          type="button"
-          disabled={busy}
-          title={`${VACANCY_ACTION_HINT.reject} ${VACANCY_ACTIONS_NOTE}`}
-          onClick={() => setStatus.mutate({ id: item.id, status: "REJECTED" })}
-        >
-          Отказ
-        </button>
-      )}
-    </>
-  );
+function LegacyPositionPicker({ item, positions, loading, error, onRetry, busy, onSave }: {
+  item: JobApplication; positions?: RecruitmentPosition[]; loading: boolean; error: boolean; onRetry?: () => void;
+  busy: boolean; onSave(positionKey: string): void;
+}) {
+  const [positionKey, setPositionKey] = useState(item.positionKey || "");
+  if (loading) return <p className="vacancy-muted" role="status">Загружаем вакансии…</p>;
+  if (error) return <p className="vacancy-notice" role="alert">Список вакансий не загрузился. {onRetry && <button type="button" className="vacancy-text-button" onClick={onRetry}>Повторить</button>}</p>;
+  if (!positions?.length) return <p className="vacancy-muted">Нет доступных вакансий для выбора. Добавьте вакансию на соседней вкладке.</p>;
+  const valid = positions.some(position => position.key === positionKey);
+  return <form className="vacancy-position-form" onSubmit={event => { event.preventDefault(); if (valid && positionKey !== item.positionKey && !busy) onSave(positionKey); }}>
+    <label className="vacancy-field"><span>Вакансия</span><select value={positionKey} required disabled={busy} onChange={event => setPositionKey(event.target.value)}>
+      <option value="">Выберите вакансию</option>{positions.map(position => <option key={position.key} value={position.key}>{position.titleRu}{position.isOpen ? "" : " · набор закрыт"}</option>)}
+    </select></label>
+    <button type="submit" className="vacancy-button secondary" disabled={busy || !valid || positionKey === item.positionKey}>{busy ? "Сохраняем…" : "Сохранить вакансию"}</button>
+  </form>;
 }

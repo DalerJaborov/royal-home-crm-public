@@ -41,6 +41,26 @@ afterAll(async () => {
 });
 
 describe("сценарный звонок без ответа", () => {
+  it("reserves once when two source guards finish concurrently", async () => {
+    originateToStasisApp.mockClear();
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    let release!: () => void, bothEntered!: () => void;
+    const barrier = new Promise<void>(resolve => { release = resolve; });
+    const entered = new Promise<void>(resolve => { bothEntered = resolve; });
+    let guards = 0;
+    const beforeOriginate = async () => { if (++guards === 2) bothEntered(); await barrier; };
+    try {
+      const first = originateLiveVoiceScenarioCall("+992 93 000 55 67", { systemInstruction: "тест" }, { beforeOriginate });
+      const second = originateLiveVoiceScenarioCall("+992 93 000 55 67", { systemInstruction: "тест" }, { beforeOriginate });
+      await entered; release();
+      const results = await Promise.all([first, second]);
+      expect(results.filter(result => result.ok)).toHaveLength(1);
+      expect(results.filter(result => result.busy)).toHaveLength(1);
+      expect(originateToStasisApp).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(61_000);
+      expect(liveVoiceLineBusy()).toBe(false);
+    } finally { release(); vi.useRealTimers(); }
+  });
   it("по истечении срока задания зовёт onFinished с «никто не говорил» и освобождает линию", async () => {
     const onFinished = vi.fn(async () => {});
     vi.useFakeTimers({ toFake: ["setTimeout"] });

@@ -2,6 +2,7 @@ import { isDeepStrictEqual } from "node:util";
 import { readCustomerPublicOutreachMemory } from "./customerPublicOutreachMemory.js";
 import { readCustomerRecruitmentRecoveryMemory } from "./customerRecruitmentRecoveryMemory.js";
 import { customerAgentVerifiedContextSchema, customerAgentRevisionSchema, customerPropertyDeliverySchema, customerPublicStateSchema, customerPropertyFactKindSchema,
+  recruitmentResumeSchema, customerRecruitmentPortfolioSchema, type RecruitmentFactKey,
   type CustomerAgentRevision, type CustomerAgentVerifiedContext, type CustomerFence } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { isCustomerPrincipal, revalidateCustomerPrincipal, customerPrincipalAuthenticatedInput, type CustomerPrincipal } from "./customerPrincipal.js";
@@ -20,6 +21,7 @@ import { customerAgentAttachmentQuestion } from "../ai/customerAgentAttachmentIn
 import { customerDmAttachmentInput } from "./customerDmAttachmentInput.js";
 import { decodeCustomerAgentMediaObservation } from "./customerAgentMediaObservation.js";
 import { customerAgentIntake } from "../ai/customerAgentIntake.js";
+import { readRecruitmentAnsweredFactTx } from "./recruitmentAnsweredFact.js";
 import { readOwnedCustomerIntakeContinuity } from "./customerOwnedIntakeContinuity.js";
 import { readApprovedCustomerWordRevisions } from "./customerAgentRevisionAdvance.js";
 
@@ -281,12 +283,31 @@ export async function loadCustomerAgentVerifiedDmContext(input: { principal: unk
           if (text) candidates.push({ role: "assistant", text, observedAt: part.acceptedAt.getTime(), stableKey: `out:${part.id}` });
         } catch { /* Corrupt or non-public historical part is omitted, never a grant. */ }
       }
+      const positionKey = before.snapshot.state.publicState.topic === "job" ? before.snapshot.state.publicState.jobPositionKey : undefined;
+      // Inside the protected own-inquiry branch only. Expose presence, never
+      // résumé text, private HR notes/decision, cross-profile matches or IDs.
+      const application = positionKey ? await prisma.jobApplication.findUnique({
+        where: { customerInquiryId_customerPositionKey: { customerInquiryId: principal.authority.fence.inquiryId, customerPositionKey: positionKey } },
+        select: { recruitmentResume: true, customerPortfolio: true, name: true, phone: true },
+      }) : null;
+      const resume = recruitmentResumeSchema.safeParse(application?.recruitmentResume);
+      const recruitmentKnown = new Set<RecruitmentFactKey>(resume.success ? Object.keys(resume.data.facts) as RecruitmentFactKey[] : []);
+      if (application?.name?.trim()) recruitmentKnown.add("name");
+      if (application?.phone?.trim()) recruitmentKnown.add("phone");
+      const portfolio = customerRecruitmentPortfolioSchema.safeParse(application?.customerPortfolio);
+      if (portfolio.success && portfolio.data.length) recruitmentKnown.add("about");
+      const native = positionKey ? await prisma.botConversation.findUnique({ where: { id: principal.scope.conversationId }, select: { messages: true } }) : null;
+      const recruitmentAnswerTo = native ? await readRecruitmentAnsweredFactTx(prisma, {
+        fence: principal.authority.fence, eventKey: ticket.eventKey, order: ticket.order.toString(),
+      }, native.messages) : null;
       if (!alive()) return { status: "held", reason: "context_deadline" };
       const after = await revalidateCustomerPrincipal(principal);
       if (!alive() || after.status !== "current" || !isDeepStrictEqual(after.snapshot.state.fence, before.snapshot.state.fence)) {
         return { status: "held", reason: "original_context_changed" };
       }
       return { status: "current", context: customerAgentVerifiedContextSchema.parse({ surface: "dm", revisionId: revision.id,
+        ...(positionKey ? { recruitmentKnown: [...recruitmentKnown] } : {}),
+        ...(recruitmentAnswerTo ? { recruitmentAnswerTo } : {}),
         turns: projectCustomerAgentMemory(candidates, revision.limits.maxInputChars),
         intake: customerAgentIntake([...history].reverse().flatMap(row => {
           const text = historicalText(row, current, true, priorRevisions, intakeContinuity);

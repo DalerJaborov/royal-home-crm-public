@@ -8,7 +8,8 @@ import { signAccessToken } from "../src/auth/jwt.js";
 import { invalidateAgentAccess } from "../src/auth/middleware.js";
 import { revokeElevation, isElevated } from "../src/lib/stepUp.js";
 import { SETTINGS_MAINTENANCE_DEADLINE } from "../src/lib/settingsMaintenance.js";
-import { readCustomerOpenVacancies, customerOpenVacanciesCurrent } from "../src/lib/recruitmentPositions.js";
+import { readCustomerOpenVacancies, customerOpenVacanciesCurrent, readRecruitmentPositions } from "../src/lib/recruitmentPositions.js";
+import { REALTOR_RECRUITMENT_SCREENING_RULES } from "@royal-home/shared";
 
 const tag = `synthetic-recruitment-${randomUUID()}`, password = "synthetic-recruitment-password-only";
 const key = `synthetic-${randomUUID()}`, otherKey = `synthetic-${randomUUID()}`, code = `Synthetic${randomUUID().replaceAll("-", "")}`;
@@ -113,6 +114,24 @@ it("a staff vacancy switch disables offers without deleting positions or candida
   expect(await readCustomerOpenVacancies()).toMatchObject({ collecting: false, positions: [] });
   expect(await prisma.recruitmentPosition.count({ where: { key } })).toBe(1);
   expect(await prisma.jobApplication.count()).toBe(applications);
+});
+it("persists per-position rules with optimistic revision without reclassifying historical candidates", async () => {
+  const positionKey = `rules-${randomUUID()}`;
+  const historical = await prisma.jobApplication.create({ data: { channel: "SYNTHETIC", status: "REVIEWED", eligible: false, age: 21 } });
+  try {
+    const payload = { ...data, postCodes: [], keywords: [], screeningRules: REALTOR_RECRUITMENT_SCREENING_RULES };
+    expect((await request(app).put(`/api/v1/vacancies/positions/${positionKey}`).set(auth(director)).send(payload)).status).toBe(200);
+    expect((await readRecruitmentPositions()).find(position => position.key === positionKey)?.screeningRules).toEqual(REALTOR_RECRUITMENT_SCREENING_RULES);
+    expect((await request(app).put(`/api/v1/vacancies/positions/${positionKey}`).set(auth(director)).send({ ...payload, screeningRules: null })).status).toBe(409);
+    expect((await request(app).put(`/api/v1/vacancies/positions/${positionKey}`).set(auth(director)).send({ ...payload, screeningRules: null, expectedRevision: 1 })).status).toBe(200);
+    expect((await readRecruitmentPositions()).find(position => position.key === positionKey)?.screeningRules).toBeNull();
+    expect(await prisma.jobApplication.findUniqueOrThrow({ where: { id: historical.id } })).toMatchObject({
+      status: "REVIEWED", eligible: false, age: 21, customerPositionKey: null, recruitmentResume: null,
+    });
+  } finally {
+    await prisma.jobApplication.delete({ where: { id: historical.id } });
+    await prisma.recruitmentPosition.deleteMany({ where: { key: positionKey } });
+  }
 });
 it("the DB source constraint rejects managed IDs with a NULL resource revision while retaining all-NULL historical rows", async () => {
   const scope=await prisma.customerEndpointScope.create({data:{realmKey:`${tag}-source`,channel:"INSTAGRAM",transportKey:`${tag}-transport`}});

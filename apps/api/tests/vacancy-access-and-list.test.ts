@@ -157,7 +157,7 @@ describe("S8/L7: сколько всего и «Сегодня»", () => {
 });
 
 describe("L8: «новые кандидаты» — одно правило для счётчиков и вкладки", () => {
-  it("сайдбар считает только то, что видно во вкладке «Подходят» → «Новая»", async () => {
+  it("сайдбар считает новые отклики в новой очереди, включая незаполненные анкеты", async () => {
     const counter = async () => (await get("/dashboard/counters")).body.vacancies as number;
     const before = await waitForSettled(counter);
     const base = { channel: "WHATSAPP", status: "NEW" };
@@ -165,18 +165,18 @@ describe("L8: «новые кандидаты» — одно правило дл
       data: [
         { ...base, conversationId: conv("c-fit"), name: `${MARK} c1`, phone: "+992900000101", eligible: true },
         { ...base, conversationId: conv("c-ovr"), name: `${MARK} c2`, phone: "+992900000102", eligible: false, eligibleOverride: true },
-        // Не видны во вкладке по умолчанию — значит и в цифре их быть не должно.
+        // Automatic legacy eligibility does not hide genuine new HR replies.
         { ...base, conversationId: conv("c-null"), name: `${MARK} c3`, phone: "+992900000103", eligible: null },
         { ...base, conversationId: conv("c-rej"), name: `${MARK} c4`, phone: "+992900000104", eligible: false },
         { ...base, conversationId: conv("c-nop"), name: `${MARK} c5`, phone: null, eligible: true },
       ],
     });
-    expect(await counter()).toBe(before + 2);
+    expect(await counter()).toBe(before + 5);
 
     const mine = { conversationId: { startsWith: conv("c-") } };
-    expect(await prisma.jobApplication.count({ where: { AND: [mine, visibleNewCandidatesWhere()] } })).toBe(2);
-    const list = await get(`/vacancies?bucket=fit&status=NEW&q=${encodeURIComponent(MARK + " c")}`);
-    expect(list.body.total).toBe(2);
+    expect(await prisma.jobApplication.count({ where: { AND: [mine, visibleNewCandidatesWhere()] } })).toBe(5);
+    const list = await get(`/vacancies?includeFiltered=true&includeNoPhone=true&status=NEW&q=${encodeURIComponent(MARK + " c")}`);
+    expect(list.body.total).toBe(5);
   });
 });
 

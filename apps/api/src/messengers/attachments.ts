@@ -161,7 +161,7 @@ interface Detected {
  * неотличимо от настоящего видео — попадало в описание видео (Gemini) вместо
  * расшифровки речи, то есть речь клиента не читалась ВООБЩЕ. Платформа при
  * этом честно писала "audio", а мы этот ответ выбрасывали. */
-function detect(contentType: string, url: string, declaredKind?: string): Detected {
+function detect(contentType: string, url: string, declaredKind?: string, managedDocuments = false): Detected {
   const ct = contentType.split(";")[0].trim().toLowerCase();
   const path = url.split("?")[0].toLowerCase();
 
@@ -195,6 +195,9 @@ function detect(contentType: string, url: string, declaredKind?: string): Detect
   }
   if (VIDEO_TYPES.has(ct)) return { kind: "video", mediaType: ct, ext: ct.split("/")[1] };
   if (DOCUMENT_TYPES.has(ct)) return { kind: "document", mediaType: ct, ext: ct === "text/plain" ? "txt" : "pdf" };
+  if (managedDocuments && (ct === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" || path.endsWith(".docx"))) {
+    return { kind: "document", mediaType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", ext: "docx" };
+  }
 
   const imgExt = path.match(/\.(jpe?g|png|webp|gif)$/)?.[1];
   if (imgExt) {
@@ -491,7 +494,7 @@ async function fetchOne(source: AttachmentSource, managed?: ManagedAttachmentDow
     }
     if (!res) throw lastErr;
     const contentType = res.headers.get("content-type") ?? "";
-    const detected = detect(contentType, url, declaredKind);
+    const detected = detect(contentType, url, declaredKind, !!managed);
     const isMedia = detected.kind === "video" || detected.kind === "document";
     const limit = isMedia ? managed ? 12 * 1024 * 1024 : MAX_MEDIA_BYTES : detected.kind === "audio" ? MAX_AUDIO_BYTES : MAX_IMAGE_BYTES;
     const declaredLength = Number(res.headers.get("content-length") ?? "0");

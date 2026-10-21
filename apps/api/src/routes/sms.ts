@@ -22,6 +22,7 @@ import { logSystemError } from "../lib/systemError.js";
 import { loadSmsConfig, sendSms, smsBalance, smsConfigured, toSmsPhone } from "../lib/sms/index.js";
 import { PAYOM_NOT_DELIVERED, PAYOM_STATUSES } from "../lib/sms/payom.js";
 import { isPayomWebhookKey } from "../lib/sms/webhookKey.js";
+import { recordRecruitmentSmsReceipt } from "../lib/recruitmentCommunications.js";
 
 export const smsRouter = Router();
 
@@ -139,6 +140,7 @@ smsRouter.post("/webhook/payom/:key", async (req, res) => {
   if (!parsed.success) return res.status(400).json({ error: "Неверные данные" });
   const { id, status, timestamp } = parsed.data;
   const at = new Date(timestamp);
+  await recordRecruitmentSmsReceipt(id, status, at);
 
   // Одним условным UPDATE: вебхуки приходят вразнобой и могут прийти дважды —
   // пишется только более свежий, повтор того же события ничего не меняет.
