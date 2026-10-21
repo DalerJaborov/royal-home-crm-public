@@ -1,7 +1,7 @@
 import { createHmac, createHash, randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, expect, it, vi } from "vitest";
 import { prisma } from "../src/db.js";
-import { encryptSecret } from "../src/crypto.js";
+import { decryptSecret, encryptSecret } from "../src/crypto.js";
 import { createCustomerAgentProviderSnapshot } from "../src/ai/customerAgentProviderConfig.js";
 import { registerCurrentCustomerAgentRevision } from "../src/lib/customerAgentRegistration.js";
 import { registerAuthenticatedMetaCustomerRequest, inspectAuthenticatedCustomerInput } from "../src/lib/customerIngressAuthority.js";
@@ -478,15 +478,24 @@ async function signedDmPrincipal(f:Fixture,peer:string,expectHeld=false):Promise
 }
 it("outreach memory follows only Meta's returned private recipient, not public author ID or another account",async()=>{
   const f=await fixture(sellerAdvert);moderationWire(f);expect(await handle(f)).toBe("deleted");
+  const posts=vi.mocked(fetch).mock.calls.filter(([target,init])=>init?.method==="POST"&&new URL(String(target)).pathname==="/v23.0/me/messages");
+  expect(posts).toHaveLength(1);
+  const acceptedBody=JSON.parse(String(posts[0][1]?.body));
+  expect(acceptedBody.recipient).toEqual({comment_id:f.commentId});
+  expect(acceptedBody.message.text).toContain("об условиях сотрудничества");
+  expect(acceptedBody.message.text).not.toContain("В каком районе");
   const right=await signedDmPrincipal(f,`native-dm-${f.ref.id}`);
   const effect=await prisma.customerPublicEffect.findFirstOrThrow({where:{sourceId:f.ref.id,kind:"private_reply"}});
+  expect(effect).toMatchObject({status:"ACCEPTED",providerId:`synthetic-owner-${f.ref.id}`});
+  expect(decryptSecret(effect.payloadEncrypted!)).toBe(acceptedBody.message.text);
+  expect(effect.payloadHash).toBe(createHash("sha256").update(JSON.stringify({kind:"private_reply",text:acceptedBody.message.text})).digest("hex"));
   expect(effect.recipientKey).toBe(createHash("sha256").update(JSON.stringify([effect.endpointScopeId,right.scope.peer])).digest("hex"));
   expect(right.visibility).toBe("private_dm");expect(right.assurance).toBe("protected_namespace");
   const memory=await readCustomerPublicOutreachMemory(right);
   const frame=customerPrincipalAuthenticatedInput(right),evidence=frame && inspectAuthenticatedCustomerInput(frame);
   const snapshot=await publicStore.loadPublicCommentSource({table:"meta",id:f.ref.id});
   expect(memory,JSON.stringify({finishedAt:effect.finishedAt,issuedAt:evidence?.issuedAt,sourceRevision:effect.sourceRevision.toString(),proof:snapshot?.proof,
-    installation:snapshot?.currentInstallation})).toHaveLength(1);expect(memory[0].text).toContain("В каком районе");
+    installation:snapshot?.currentInstallation})).toHaveLength(1);expect(memory[0].text).toBe(acceptedBody.message.text);
   expect(JSON.stringify(memory)).not.toContain("987654321");
   const wrong=await signedDmPrincipal(f,f.row.authorId);expect(await readCustomerPublicOutreachMemory(wrong)).toEqual([]);
   const other=await fixture();moderationWire(other);

@@ -66,6 +66,9 @@ async function fixture(channel: "INSTAGRAM" | "WEBSITE" | "WHATSAPP" | "FACEBOOK
       const text = Array.isArray(sql) ? sql.join("?") : (sql as { sql: string }).sql;
       if (text.includes('FROM "Settings"')) return options.installed ? [{ externalId: "synthetic-page", token: encryptSecret("synthetic-token"), appSecret: encryptSecret("synthetic-own-app-secret"),
         endpointScopeId, scopeRevision: 2n, policyRevision: 4n }] : [];
+      // This fixture has no recruitment catalog. Do not return an inquiry row
+      // for a real catalog read caused by a possible single-word campaign.
+      if (text.includes('FROM "RecruitmentPosition"')) return [];
       return text.includes('FROM "CustomerEndpointScope"') ? [{ id: endpointScopeId, messengerAccountId: accountId, kind: "NORMAL", scopeRevision: 2n }] : [structuredClone(row)];
     }),
       $executeRaw: vi.fn(async () => 1),

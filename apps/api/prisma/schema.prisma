@@ -1440,14 +1440,14 @@ model RecruitmentPosition {
 model RecruitmentPublication {
   code        String @id
   positionKey String
-  position    RecruitmentPosition @relation(fields: [positionKey], references: [key], onDelete: Cascade)
+  position    RecruitmentPosition @relation(fields: [positionKey], references: [key], onDelete: Cascade, onUpdate: NoAction)
   @@index([positionKey])
 }
 
 model RecruitmentKeyword {
   word        String @id
   positionKey String
-  position    RecruitmentPosition @relation(fields: [positionKey], references: [key], onDelete: Cascade)
+  position    RecruitmentPosition @relation(fields: [positionKey], references: [key], onDelete: Cascade, onUpdate: NoAction)
   @@index([positionKey])
 }
 

@@ -60,3 +60,12 @@ applications as well as valid managed sources.
 Existing rollout percentage, provider budgets and voice behavior are unchanged.
 No emergency handover, invented salary, automated eligibility scoring or
 cross-channel identity merge is introduced.
+
+The full release gate also caught default Prisma ON UPDATE CASCADE differing
+from the applied SQL NO ACTION for the two immutable position-key mappings.
+The schema now explicitly describes NO ACTION; applied migration bytes remain
+unchanged. The existing actual database/schema-diff guard remains required.
+The no-DB principal fixture now returns an empty recruitment catalog for that
+specific SQL read instead of an unrelated inquiry row. Outreach-memory coverage
+checks the exact accepted provider payload, encrypted persisted payload/hash and
+returned recipient/account boundary, replacing the obsolete district question.
