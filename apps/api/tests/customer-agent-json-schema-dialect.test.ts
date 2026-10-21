@@ -48,7 +48,7 @@ describe("managed customer declarations emit JSON Schema, not OAS3", () => {
     expect(customerPublicToolParameters()).toEqual(customerPublicToolParameters("openapi-3.0"));
     const schema = customerAgentToolDefinitions(["get_property_facts"])[0].parameters;
     expect(schema).toEqual(customerPublicToolParameters("draft-2020-12"));
-    expect(schema).toMatchObject({ properties: { kinds: { type: "array", minItems: 1, maxItems: 4,
-      items: { type: "string", enum: ["price", "address", "builder", "characteristics"] } } }, required: ["kinds"], additionalProperties: false });
+    expect(schema).toMatchObject({ properties: { kinds: { type: "array", minItems: 1, maxItems: 5,
+      items: { type: "string", enum: ["price", "address", "builder", "characteristics", "availability"] } } }, required: ["kinds"], additionalProperties: false });
   });
 });
