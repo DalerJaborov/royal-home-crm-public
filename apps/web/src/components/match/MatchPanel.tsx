@@ -3,7 +3,6 @@ import { useAssignClientToAgent, useClientMatch, useSendProperties, useSendTarge
 import { useDistricts } from "../../hooks/useDistricts";
 import { useMatchingClients, useProperties, type PropertyFilters } from "../../hooks/useProperties";
 import { useDebouncedValue } from "../../hooks/useDebouncedValue";
-import { useSendPropertyConfirm } from "../../hooks/useSendPropertyConfirm";
 import { useSmsShareProperty, useSmsStatus, type SmsShareResult } from "../../hooks/useSms";
 import { useCan, useIsReadOnly } from "../../lib/permissions";
 import { formatMoney, PROPERTY_TYPE_LABELS } from "../../lib/format";
@@ -11,8 +10,7 @@ import { AddInteractionModal } from "../AddInteractionModal";
 import { ConfirmDialog } from "../ConfirmDialog";
 import { SendFallback, SendTargetNote, sendFallbackOf, targetReady } from "./SendFallback";
 import { useMobileUx } from "../../hooks/useMobileUx";
-import { useCleanShell } from "../../hooks/useCleanShell";
-import type { SendPropertiesFallback } from "@royal-home/shared";
+import type { ClientPropertyMatchEvidence, SendPropertiesFallback } from "@royal-home/shared";
 import { Rh2Sheet } from "../rh2/Rh2Sheet";
 import { MatchPropertyCard } from "./MatchPropertyCard";
 import { MatchClientCard } from "./MatchClientCard";
@@ -40,6 +38,9 @@ export type MatchPanelProps =
   | {
       mode: "client";
       client: Client;
+      readOnly?: boolean;
+      /** Show a compact first view while preserving selection when expanded. */
+      overviewLimit?: number;
       open: boolean;
       onClose: () => void;
       /** Композер чата закрывает панель сразу после отправки; карточка клиента
@@ -82,12 +83,12 @@ function pluralObjects(n: number): string {
 }
 
 export function MatchPanel(props: MatchPanelProps) {
-  return props.mode === "client" ? <ClientMatchPanel {...props} /> : <PropertyMatchPanel {...props} />;
+  return props.mode === "client" ? <ClientMatchPanel key={`${props.client.id}:${props.conversationId ?? "card"}`} {...props} /> : <PropertyMatchPanel {...props} />;
 }
 
 /** Оболочка — шторка или голая карточка, в зависимости от `variant`. Открытие/
  *  закрытие модалки решает сам `Rh2Sheet` (Esc, клик мимо, свайп на телефоне). */
-function PanelShell({
+export function PanelShell({
   variant,
   open,
   title,
@@ -114,6 +115,7 @@ function PanelShell({
         </div>
         {sub}
         {children}
+        {footer && <div className="client-match-toolbar" role="region" aria-label="Выбранные объекты">{footer}</div>}
       </div>
     );
   }
@@ -131,53 +133,45 @@ function shortPropertyLine(p: Property): string {
   return `№${p.shortId} · ${p.title} · ${formatMoney(p.price, p.currency)}`;
 }
 
-/**
- * Режим клиента: что подходит этому покупателю.
- *
- * Перенесено из `MatchPropertiesModal.tsx` (файл удалён) почти дословно — тот
- * же приём отправки, та же обработка ошибки с пометкой в хронологии, тот же
- * учёт уже назначенных показов. Отличия: переключатель режимов «ai/manual»
- * переименован во внутренний `source` («Подбор»/«Все объекты», те же чипы),
- * кнопка отправки — «В переписку» вместо «Предложить» (владелец: «сразу
- * отправлять в переписку»), и добавлены `score`/`distanceM` в строке объекта.
- */
+/** One recommendation and selection state for the overview, catalog and send preview. */
 function ClientMatchPanel({
-  client,
-  open,
-  onClose,
-  onSent,
-  variant = "modal",
-  layer,
-  conversationId,
+  client, open, onClose, onSent, variant = "modal", layer, conversationId,
+  readOnly: cardReadOnly = false, overviewLimit,
 }: Extract<MatchPanelProps, { mode: "client" }>) {
-  const clean = useCleanShell();
-  const readOnly = useIsReadOnly();
+  const accountReadOnly = useIsReadOnly();
+  const readOnly = cardReadOnly || accountReadOnly;
   const readOnlyRef = useRef(readOnly);
   readOnlyRef.current = readOnly;
   const [source, setSource] = useState<"match" | "catalog">("match");
+  const [scope, setScope] = useState<"all" | "mine">("all");
+  const [page, setPage] = useState(1);
+  const [expanded, setExpanded] = useState(false);
   const [showingFor, setShowingFor] = useState<Property | null>(null);
-  const [failure, setFailure] = useState<{
-    message: string;
-    fallback: SendPropertiesFallback | null;
-    tone: "crit" | "warn";
-  } | null>(null);
-  const target = useSendTarget(client.id, conversationId, open);
-  const deliveryUnavailable = clean && (target.isError || target.isLoading || !target.data);
-  const deliveryUnavailableRef = useRef(deliveryUnavailable);
-  deliveryUnavailableRef.current = deliveryUnavailable;
-  const mobile = useMobileUx();
-
-  // Отправка ссылок клиенту: до пяти объектов за раз — тот же лимит и та же
-  // причина, что были у прежнего окна (длинную простыню ссылок читают по
-  // диагонали, а мессенджеры её режут).
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [justOffered, setJustOffered] = useState<Set<string>>(new Set());
   const [sendResult, setSendResult] = useState<string | null>(null);
+  const [failure, setFailure] = useState<{
+    message: string; fallback: SendPropertiesFallback | null; tone: "crit" | "warn";
+  } | null>(null);
+  const [chosenConversation, setChosenConversation] = useState(conversationId ?? "");
+  const effectiveConversation = chosenConversation || undefined;
+  const [previewConversation, setPreviewConversation] = useState<string | undefined>();
+  const target = useSendTarget(client.id, failure?.fallback ? previewConversation : effectiveConversation, open && !readOnly);
   const sendProperties = useSendProperties(client.id);
-  const sendConfirm = useSendPropertyConfirm();
+  const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
+  function setOperationBusy(value: boolean) { busyRef.current = value; setBusy(value); }
+  const mobile = useMobileUx();
+  const conversations = [
+    ...(client.botConversation ?? []).map((c, index) => ({ id: c.id, label: `${CHANNEL_WORD[c.channel] ?? c.channel}${(client.botConversation ?? []).filter(item => item.channel === c.channel).length > 1 ? ` · чат ${index + 1}` : ""}` })),
+    ...(client.telegramConversation ? [{ id: `tg_${client.telegramConversation.id}`, label: "Telegram" }] : []),
+  ];
 
   function toggleSelected(id: string) {
+    if (readOnlyRef.current || busyRef.current) return;
     setSendResult(null);
-    setSelected((prev) => {
+    setFailure(null);
+    setSelected(prev => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else if (next.size < MAX_TO_SEND) next.add(id);
@@ -185,201 +179,109 @@ function ClientMatchPanel({
     });
   }
 
-  /**
-   * ОДНА ОТПРАВКА на одиночную кнопку и на «Отправить выбранные» (28.09.2026):
-   * раньше это были две функции с разными текстами и разной реакцией на отказ,
-   * а отказ одиночной ещё и писал в хронологию «предложен» — после чего кнопка
-   * навсегда превращалась в чип «Уже предлагали» и повторить было нельзя.
-   */
-  async function doSend(ids: string[]) {
-    if (readOnlyRef.current) return;
-    if (!checkDelivery()) return;
+  // Preparation is explicit and independent of channel availability. It never
+  // sends, pauses the bot or claims delivery. The same preview is used for all methods.
+  async function prepare(ids: string[]) {
+    if (readOnlyRef.current || busyRef.current || ids.length === 0) return;
+    setOperationBusy(true);
     setFailure(null);
     setSendResult(null);
+    const pinnedConversation = effectiveConversation ?? target.data?.conversationId ?? undefined;
     try {
-      const result = await sendProperties.mutateAsync({ propertyIds: ids, conversationId });
-      setJustOffered((prev) => new Set([...prev, ...ids]));
-      setSelected((prev) => new Set([...prev].filter((id) => !ids.includes(id))));
-      const where = result.channel ? ` в ${CHANNEL_WORD[result.channel] ?? result.channel}` : "";
-      setSendResult(
-        `${ids.length === 1 ? "Объект отправлен" : `Отправлено объектов: ${result.sent}`}${where}.` +
-          (result.masked ? " Телефон в тексте скрыт маской." : " Бот замолчал, дальше переписку ведёте вы.")
-      );
+      const result = await sendProperties.mutateAsync({ propertyIds: ids, conversationId: pinnedConversation, prepareOnly: true });
+      if (readOnlyRef.current) return;
+      if (!result.fallback) throw new Error("Не удалось подготовить текст и ссылки. Повторите.");
+      setPreviewConversation(pinnedConversation);
+      setFailure({ message: "Предпросмотр: клиенту пока ничего не отправлено.", fallback: result.fallback, tone: "warn" });
+    } catch (err) {
+      if (!readOnlyRef.current) setFailure({ message: err instanceof Error ? err.message : "Не удалось подготовить подборку", fallback: null, tone: "crit" });
+    } finally { setOperationBusy(false); }
+  }
+
+  async function sendPrepared() {
+    if (readOnlyRef.current || busyRef.current || !failure?.fallback || !targetReady(target.data) || target.isFetching || target.isError) return;
+    const pinnedConversation = previewConversation ?? target.data?.conversationId;
+    if (!pinnedConversation) return;
+    const ids = failure.fallback.links.map(link => link.propertyId);
+    setOperationBusy(true);
+    setSendResult(null);
+    try {
+      const result = await sendProperties.mutateAsync({ propertyIds: ids, conversationId: pinnedConversation });
+      if (readOnlyRef.current) return;
+      const actualIds = result.propertyIds ?? (result.sent === ids.length ? ids : []);
+      setJustOffered(prev => new Set([...prev, ...actualIds]));
+      setSelected(prev => new Set([...prev].filter(id => !actualIds.includes(id))));
+      const where = result.channel ? ` в ${CHANNEL_WORD[result.channel] ?? result.channel}` : " в переписку";
+      setSendResult(`Передано${where}: ${result.sent} ${pluralObjects(result.sent)}. Это не подтверждение прочтения. Дальше переписку ведёте вы.`);
+      setFailure(null);
       onSent?.();
     } catch (err) {
-      setFailure({
-        message: err instanceof Error ? err.message : "Не удалось отправить",
-        fallback: sendFallbackOf(err),
-        tone: "crit",
-      });
-    }
+      if (!readOnlyRef.current) setFailure(prev => ({ message: err instanceof Error ? err.message : "Не удалось отправить", fallback: sendFallbackOf(err) ?? prev?.fallback ?? null, tone: "crit" }));
+    } finally { setOperationBusy(false); }
   }
 
-  /**
-   * Мессенджер заведомо не пропустит (окно Meta закрыто, канал выключен,
-   * клиент не писал) — не спрашиваем «клиент сразу получит…» и не делаем
-   * провальную попытку: сразу готовим текст и ссылки для СМС/«Поделиться»
-   * (28.09.2026, владелец: «на телефоне легко, всё отправляется корректно»).
-   */
-  async function doPrepare(ids: string[]) {
-    if (readOnlyRef.current) return;
-    if (!checkDelivery()) return;
-    setFailure(null);
-    setSendResult(null);
-    try {
-      const result = await sendProperties.mutateAsync({ propertyIds: ids, conversationId, prepareOnly: true });
-      if (result.fallback) {
-        setFailure({ message: target.data?.hint ?? "В мессенджер не уйдёт.", fallback: result.fallback, tone: "warn" });
-      }
-    } catch (err) {
-      setFailure({ message: err instanceof Error ? err.message : "Не удалось подготовить ссылки", fallback: null, tone: "crit" });
-    }
-  }
-
-  function send(ids: string[], title?: string) {
-    if (readOnlyRef.current) return;
-    if (ids.length === 0) return;
-    if (!checkDelivery()) return;
-    if (!targetReady(target.data)) {
-      void doPrepare(ids);
-      return;
-    }
-    sendConfirm.request(
-      () => void doSend(ids),
-      `Клиент ${client.fullName} сразу получит сообщение со ссылк${ids.length === 1 ? `ой${title ? ` на «${title}»` : ""}` : `ами на ${ids.length} ${pluralObjects(ids.length)}`}. ${target.data?.hint ?? "Сообщение уйдёт в тот мессенджер, откуда клиент писал."} Бот в этом диалоге после этого больше не отвечает — дальше переписку ведёте вы.`
-    );
-  }
-
-  function checkDelivery() {
-    if (!deliveryUnavailableRef.current) return true;
-    setFailure({ message: "Сначала обновите статус канала отправки.", fallback: null, tone: "warn" });
-    return false;
-  }
-
-  // Что уже отправляли — из хронологии карточки. Записи о НЕудачной отправке
-  // («…ссылка не отправлена…», старый путь до 28.09.2026) не считаются: объект
-  // до клиента не дошёл, и прятать от агента кнопку повтора нельзя.
-  const [justOffered, setJustOffered] = useState<Set<string>>(new Set());
-  const offered = new Set([
-    ...(client.interactions ?? [])
-      .filter((i) => !!i.propertyId && !(i.notes ?? "").includes("не отправлена"))
-      .map((i) => i.propertyId as string),
-    ...justOffered,
-  ]);
-
-  // Показы, уже назначенные этому клиенту (только будущие и действующие): отменённый
-  // оставляет дату, но не должен прятать кнопку «Назначить показ» (LOCAL-ONLY-WEB02).
   const bookedShowings = bookedShowingsByProperty(client.interactions ?? []);
-
-  // Требования клиента — стартовое положение фильтров каталога, не жёсткая рамка.
-  const [filters, setFilters] = useState<PropertyFilters>({
-    districtId: client.desiredDistrictId ?? undefined,
-    rooms: client.desiredRooms ?? undefined,
-    status: "AVAILABLE",
-  });
+  const [filters, setFilters] = useState<PropertyFilters>({ status: "AVAILABLE", page: 1 });
   const debouncedQuery = useDebouncedValue(filters.q, 350);
   const debouncedAreaMin = useDebouncedValue(filters.areaMin, 350);
   const debouncedAreaMax = useDebouncedValue(filters.areaMax, 350);
   const { data: districts } = useDistricts();
-  const matchQuery = useClientMatch(client.id);
+  const matchQuery = useClientMatch(client.id, open && source === "match", { page, scope });
   const catalogQuery = useProperties(
     { ...filters, q: debouncedQuery, areaMin: debouncedAreaMin, areaMax: debouncedAreaMax },
     open && source === "catalog"
   );
-
-  const requirements = [
-    client.desiredDistrict ? `Район: ${client.desiredDistrict.name}` : null,
-    client.desiredRooms ? `Комнат: ${client.desiredRooms}` : null,
-    client.budgetMin || client.budgetMax
-      ? `Бюджет: ${[
-          client.budgetMin ? formatMoney(client.budgetMin, client.currency) : null,
-          client.budgetMax ? formatMoney(client.budgetMax, client.currency) : null,
-        ]
-          .filter(Boolean)
-          .join(" до ")}`
-      : null,
-  ].filter(Boolean) as string[];
-
-  const isLoading = source === "match" ? matchQuery.isLoading : catalogQuery.isLoading;
-  const items: Property[] = source === "match" ? matchQuery.data?.properties ?? [] : catalogQuery.data?.items ?? [];
-  const unfiltered = source === "match" && matchQuery.data?.unfiltered === true;
   const activeQuery = source === "match" ? matchQuery : catalogQuery;
-  const loadFailed = activeQuery.isError;
+  const items: (Property & { match?: ClientPropertyMatchEvidence })[] = source === "match" ? matchQuery.data?.properties ?? [] : catalogQuery.data?.items ?? [];
+  const visibleItems = source === "match" && overviewLimit && !expanded ? items.slice(0, overviewLimit) : items;
+  const total = source === "match" ? matchQuery.data?.total ?? 0 : catalogQuery.data?.total ?? 0;
+  const currentPage = source === "match" ? page : filters.page ?? 1;
+  const pageSize = source === "match" ? matchQuery.data?.pageSize ?? 12 : catalogQuery.data?.pageSize ?? 20;
+  const unfiltered = source === "match" && matchQuery.data?.unfiltered;
+  const requirementsCurrent = !client.requirementsFieldsKind || client.requirementsFieldsKind === "BUYER";
+  const deliveryUnavailable = target.isLoading || target.isFetching || target.isError || !targetReady(target.data) || !(previewConversation ?? target.data?.conversationId);
+  function changePage(next: number) {
+    if (source === "match") setPage(next);
+    else setFilters(prev => ({ ...prev, page: next }));
+    setExpanded(true);
+  }
+  const toolbar = !readOnly && selected.size > 0 ? <>
+    <span className="state" role="status">Выбрано: {selected.size} из {MAX_TO_SEND}</span>
+    <button type="button" className="pill" disabled={busy} onClick={() => void prepare([...selected])}>
+      {busy ? "Подождите…" : `Подготовить отправку · ${selected.size}`}
+    </button>
+    <button type="button" className="pill ghost" disabled={busy} onClick={() => { setSelected(new Set()); setFailure(null); }}>Снять выбор</button>
+  </> : undefined;
 
-  const title = `Подбор${matchQuery.data ? ` · ${matchQuery.data.total}` : ""}`;
-
-  return (
-    <>
-      <PanelShell
-        variant={variant}
-        open={open}
-        layer={layer}
-        title={title}
-        sub={
-          <>
-            <SendTargetNote info={target.data} isLoading={target.isLoading} failed={clean && target.isError} retry={() => target.refetch()} />
-            {(requirements.length > 0 || client.requirementsNotes) && (
-            <>
-              <div className="filters">
-                {requirements.map((r) => (
-                  <span key={r} className="chip">
-                    {r}
-                  </span>
-                ))}
-              </div>
-              {client.requirementsNotes && <p className="state">{client.requirementsNotes}</p>}
-            </>
-            )}
-          </>
-        }
-        onClose={onClose}
-        footer={
-          !readOnly && selected.size > 0 ? (
-            <>
-              <span className="state">
-                Выбрано: {selected.size} из {MAX_TO_SEND}
-              </span>
-              <button
-                type="button"
-                className="pill"
-                onClick={() => send([...selected])}
-                disabled={sendProperties.isPending || deliveryUnavailable}
-                title="Отправить ссылки клиенту одним сообщением"
-              >
-                {sendProperties.isPending ? "Отправляю…" : `Отправить клиенту · ${selected.size}`}
-              </button>
-            </>
-          ) : undefined
-        }
-      >
-        {unfiltered && (
-          <div className="filters" role="status">
-            <span className="chip warn">
-              Параметры клиента не заполнены — показаны все доступные объекты, а не подбор
-            </span>
-          </div>
-        )}
-
-        <div className="seg" style={{ marginTop: "var(--s3)" }}>
-          <button type="button" aria-selected={source === "match"} onClick={() => setSource("match")}>
-            Подбор
-          </button>
-          <button type="button" aria-selected={source === "catalog"} onClick={() => setSource("catalog")}>
-            Все объекты
-          </button>
+  return <>
+    <PanelShell variant={variant} open={open} layer={layer} title={`Подбор объектов${matchQuery.data ? ` · ${matchQuery.data.total}` : ""}`} onClose={onClose} footer={toolbar}
+      sub={<>
+        {!overviewLimit && matchQuery.data?.requirementsSummary?.length ? <p className="state">{matchQuery.data.requirementsSummary.join(" · ")}</p> : null}
+        {requirementsCurrent && client.requirementsNotes && <p className="state">Пожелания: {client.requirementsNotes}</p>}
+        {!requirementsCurrent && <p className="quiet warn">Предыдущие условия относятся к другой роли. Уточните, что клиент хочет купить.</p>}
+        {!readOnly && <details className="client-match-delivery" open={selected.size > 0 || !!failure?.fallback}>
+          <summary>Способ отправки{target.data?.channel ? ` · ${CHANNEL_WORD[target.data.channel] ?? target.data.channel}` : ""}</summary>
+          <label className="client-match-channel">Канал отправки
+            <select className="inp" value={chosenConversation} disabled={busy} onChange={event => { setChosenConversation(event.target.value); setFailure(null); }}>
+              <option value="">Автоматически по переписке</option>
+              {conversations.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+            </select>
+          </label>
+          <SendTargetNote info={target.data} isLoading={target.isLoading} failed={target.isError} retry={() => target.refetch()} />
+        </details>}
+      </>}>
+      <div className="seg" role="group" aria-label="Источники объектов">
+        <button type="button" aria-pressed={source === "match"} onClick={() => setSource("match")}>Подбор по всей базе</button>
+        <button type="button" aria-pressed={source === "catalog"} onClick={() => { setSource("catalog"); setExpanded(true); }}>Каталог объектов</button>
+      </div>
+      {source === "match" && <>
+        <div className="seg" role="group" aria-label="Ответственный за объекты">
+          <button type="button" aria-pressed={scope === "all"} onClick={() => { setScope("all"); setPage(1); }}>{unfiltered ? "Все варианты" : "Все подходящие"}</button>
+          <button type="button" aria-pressed={scope === "mine"} onClick={() => { setScope("mine"); setPage(1); }}>{unfiltered ? "Мои варианты" : "Мои подходящие"}{matchQuery.data ? ` · ${matchQuery.data.mineTotal}` : ""}</button>
         </div>
-
-        {source === "match" && (
-          <div className="quiet" style={{ marginTop: "var(--s2)" }}>
-            <span className="dot" />
-            <span className="txt">
-              {items.some((p) => !!p.aiReason)
-                ? "Порядок и пояснения — от ИИ по заметкам о требованиях"
-                : "По требованиям клиента. Заполните заметки о требованиях — ИИ добавит пояснения"}
-            </span>
-          </div>
-        )}
-
+        {matchQuery.data && <p className="state">Сравнили доступных объектов: {matchQuery.data.scanned}. Сначала качество соответствия, при равном качестве — свои объекты.</p>}
+        {unfiltered && <p className="quiet warn" role="status">Требования ещё не заполнены. Эти варианты нужно уточнить с клиентом.</p>}
+      </>}
         {source === "catalog" && (
           /* На телефоне — поиск во всю ширину и сетка два в ряд (28.09.2026):
              раньше каждое поле занимало целую строку, и до первого объекта
@@ -469,105 +371,45 @@ function ClientMatchPanel({
           </div>
         )}
 
-        {isLoading && <p className="state">Подбор…</p>}
-
-        {loadFailed && (
-          <div className="empty">
-            <p>{activeQuery.error instanceof Error ? activeQuery.error.message : "Не удалось загрузить объекты"}</p>
-            <span className="sub">Это не значит, что подходящих объектов нет, список просто не пришёл.</span>
-            <button type="button" className="pill ghost" onClick={() => activeQuery.refetch()}>
-              Повторить
-            </button>
-          </div>
-        )}
-
-        {!isLoading && !loadFailed && items.length === 0 && (
-          <div className="empty">
-            {source === "match" ? (
-              <>
-                <p>Под требования клиента ничего не подошло.</p>
-                <button type="button" className="pill ghost" onClick={() => setSource("catalog")}>
-                  Посмотреть все объекты
-                </button>
-              </>
-            ) : (
-              <p>По этим фильтрам объектов нет, снимите часть условий</p>
-            )}
-          </div>
-        )}
-
-        {!readOnly && failure &&
-          (failure.fallback ? (
-            <SendFallback
-              clientId={client.id}
-              message={failure.message}
-              fallback={failure.fallback}
-              tone={failure.tone}
-              smsAvailable={target.data?.smsAvailable ?? false}
-              onDone={(ids) => setJustOffered((prev) => new Set([...prev, ...ids]))}
-            />
-          ) : (
-            <p className="quiet crit" role="alert">
-              <span className="dot crit" />
-              <span className="txt">{failure.message}</span>
-            </p>
-          ))}
-
-        {sendResult && (
-          <p className="quiet">
-            <span className="dot ok" />
-            <span className="txt">{sendResult}</span>
-          </p>
-        )}
-
-        <div className="list">
-          {items.map((p) => (
-            <MatchPropertyCard
-              key={p.id}
-              property={p}
-              selected={selected.has(p.id)}
-              onToggleSelect={readOnly ? undefined : () => toggleSelected(p.id)}
-              offered={offered.has(p.id)}
-              onSend={readOnly ? undefined : () => send([p.id], p.title)}
-              sending={sendProperties.isPending}
-              sendDisabled={deliveryUnavailable}
-              bookedShowingAt={bookedShowings.get(p.id) ?? null}
-              onScheduleShowing={readOnly ? undefined : () => setShowingFor(p)}
-              onClosePanel={variant === "modal" ? onClose : undefined}
-            />
-          ))}
-        </div>
-      </PanelShell>
-
-      {/* Форма показа — соседом панели, а не внутри неё: подложка модалки
-          закрывается по клику, и вложенная форма схлопывала бы панель при
-          первом же клике по своим полям (перенесено дословно). */}
-      {showingFor && (
-        <AddInteractionModal
-          clientId={client.id}
-          initialType="SHOWING"
-          initialPropertyId={showingFor.id}
-          onClose={() => setShowingFor(null)}
-          onSaved={() => setShowingFor(null)}
-        />
-      )}
-      {!readOnly && sendConfirm.open && (
-        <ConfirmDialog
-          title="Отправить объект клиенту"
-          description={sendConfirm.description}
-          confirmLabel="Отправить"
-          danger={false}
-          onConfirm={sendConfirm.confirm}
-          onCancel={sendConfirm.cancel}
-          // Тот же слой, что у самой панели: вопрос задаётся ПОВЕРХ неё, а из
-          // чата — ещё и поверх полноэкранного чата. Без этого на телефоне
-          // первый (и единственный) вопрос был не виден, «Отправить» молча не
-          // срабатывало, флаг «уже объяснили» не ставился — и так каждый раз.
-          layer={layer}
-        />
-      )}
-    </>
-  );
+      {activeQuery.isLoading && <p className="state">Подбираем объекты…</p>}
+      {activeQuery.isError && <div className="empty" role="alert">
+        <p>{activeQuery.error instanceof Error ? activeQuery.error.message : "Не удалось загрузить объекты"}</p>
+        <button type="button" className="pill ghost" onClick={() => activeQuery.refetch()}>Повторить</button>
+      </div>}
+      {!activeQuery.isLoading && !activeQuery.isError && items.length === 0 && <div className="empty">
+        <p>{matchQuery.data?.reason === "not_buyer" && source === "match" ? "Подбор доступен только подтверждённому покупателю." : "Подходящих объектов пока нет. Уточните требования или посмотрите каталог."}</p>
+        {source === "match" && <button type="button" className="pill ghost" onClick={() => { setSource("catalog"); setExpanded(true); }}>Посмотреть каталог</button>}
+      </div>}
+      {!readOnly && failure && (failure.fallback ? <div className="client-match-preview">
+        <h3>Отправка подборки · {failure.fallback.links.length}</h3>
+        <SendFallback key={failure.fallback.links.map(link => link.propertyId).join(",")} clientId={client.id} message={failure.message} fallback={failure.fallback} tone={failure.tone}
+          smsAvailable={target.data?.smsAvailable ?? false} disabled={busy} onBusyChange={setOperationBusy} layer={layer}
+          onDone={ids => { setJustOffered(prev => new Set([...prev, ...ids])); setSelected(prev => new Set([...prev].filter(id => !ids.includes(id)))); }} />
+        <p className="state">Отправка через CRM приостановит бота в выбранном диалоге. Копирование и системное меню не подтверждают доставку.</p>
+        <button type="button" className="pill" disabled={busy || deliveryUnavailable} onClick={() => void sendPrepared()}>
+          {busy ? "Подождите…" : `Отправить${target.data?.channel ? ` в ${CHANNEL_WORD[target.data.channel] ?? target.data.channel}` : " через CRM"}`}
+        </button>
+      </div> : <p role="alert" className="quiet crit">{failure.message}</p>)}
+      {sendResult && <p className="quiet" role="status">{sendResult}</p>}
+      <div className="list">
+        {visibleItems.map(p => <MatchPropertyCard key={p.id} property={p} selected={selected.has(p.id)}
+          onToggleSelect={readOnly ? undefined : () => toggleSelected(p.id)}
+          selectionDisabled={busy || (!selected.has(p.id) && selected.size >= MAX_TO_SEND)}
+          offered={(p.match?.sentCount ?? 0) > 0 || justOffered.has(p.id)}
+          onSend={readOnly ? undefined : () => void prepare([p.id])} sending={busy}
+          bookedShowingAt={bookedShowings.get(p.id) ?? null} onScheduleShowing={readOnly ? undefined : () => setShowingFor(p)}
+          onClosePanel={variant === "modal" ? onClose : undefined} />)}
+      </div>
+      {source === "match" && overviewLimit && !expanded && total > visibleItems.length ?
+        <button type="button" className="pill ghost" onClick={() => setExpanded(true)}>Показать все · {total}</button> : null}
+      {(expanded || !overviewLimit || source === "catalog") && total > pageSize && <nav className="filters" aria-label="Страницы объектов">
+        <button type="button" className="pill ghost" disabled={currentPage <= 1 || activeQuery.isFetching} onClick={() => changePage(currentPage - 1)}>Назад</button>
+        <span className="state">Страница {currentPage} из {Math.max(1, Math.ceil(total / pageSize))}</span>
+        <button type="button" className="pill ghost" disabled={currentPage * pageSize >= total || activeQuery.isFetching} onClick={() => changePage(currentPage + 1)}>Далее</button>
+      </nav>}
+    </PanelShell>
+    {!readOnly && showingFor && <AddInteractionModal clientId={client.id} initialType="SHOWING" mode="schedule" initialPropertyId={showingFor.id} onClose={() => setShowingFor(null)} onSaved={() => setShowingFor(null)} />}
+  </>;
 }
 
 /**
@@ -724,6 +566,7 @@ function SmsShareRow({ propertyId, clientIds }: { propertyId: string; clientIds:
 
   const skipped = result?.items.filter((i) => i.status === "skipped").length ?? 0;
   const failed = result?.items.find((i) => i.status === "failed");
+  const prepared = result?.items.filter(i => i.status === "prepared").length ?? 0;
 
   return (
     <div className="card" style={{ marginTop: 10 }}>
@@ -739,7 +582,8 @@ function SmsShareRow({ propertyId, clientIds }: { propertyId: string; clientIds:
         <div className={`quiet${failed ? " crit" : ""}`}>
           <span className={`dot${failed ? " crit" : ""}`} />
           <span className="txt">
-            Ушло {result.sent}
+            Принято SMS-шлюзом: {result.sent}
+            {prepared > 0 ? `, тестовых подготовок: ${prepared} (клиентам не отправлено)` : ""}
             {skipped > 0 ? `, пропущено ${skipped} (уже отправляли за неделю, чужой клиент или номер не таджикский)` : ""}
             {failed ? `. Остановлено: ${failed.reason}` : ""}
           </span>

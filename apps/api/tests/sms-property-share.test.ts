@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import bcrypt from "bcrypt";
+import { readFileSync } from "node:fs";
 import request from "supertest";
 
 /**
@@ -10,6 +11,7 @@ import request from "supertest";
 
 const sent: { phone: string; text: string; clientId?: string | null; propertyId?: string | null }[] = [];
 let providerFails = false;
+let providerDryRun = false;
 
 vi.mock("../src/lib/sms/index.js", async (importOriginal) => {
   const orig = await importOriginal<typeof import("../src/lib/sms/index.js")>();
@@ -21,7 +23,7 @@ vi.mock("../src/lib/sms/index.js", async (importOriginal) => {
       if (providerFails) return { ok: false, error: "на счёте Payom закончились деньги" };
       sent.push(p);
       const row = await prisma.smsMessage.create({
-        data: { phone: orig.toSmsPhone(p.phone)!, purpose: p.purpose, text: p.text, status: "DRY_RUN", clientId: p.clientId ?? null, propertyId: p.propertyId ?? null, agentId: p.agentId ?? null },
+        data: { phone: orig.toSmsPhone(p.phone)!, purpose: p.purpose, text: p.text, status: providerDryRun ? "DRY_RUN" : "SENT", clientId: p.clientId ?? null, propertyId: p.propertyId ?? null, agentId: p.agentId ?? null },
       });
       return { ok: true, id: row.id, parts: 2 };
     },
@@ -54,7 +56,7 @@ async function login(phone: string) {
 
 async function makeClient(phone: string, assignedAgentId: string | null) {
   await prisma.client.deleteMany({ where: { phone } });
-  const c = await prisma.client.create({ data: { fullName: `Клиент СМС ${phone}`, phone, source: "PHONE_CALL", assignedAgentId } });
+  const c = await prisma.client.create({ data: { fullName: `Клиент СМС ${phone}`, phone, source: "PHONE_CALL", assignedAgentId, acceptedAt: new Date() } });
   clientIds.push(c.id);
   return c;
 }
@@ -102,6 +104,7 @@ beforeAll(async () => {
 beforeEach(() => {
   sent.length = 0;
   providerFails = false;
+  providerDryRun = false;
 });
 
 afterAll(async () => {
@@ -113,6 +116,8 @@ afterAll(async () => {
   await prisma.propertyInterestEvent.deleteMany({ where: { propertyId: { in: propertyIds } } });
   await prisma.propertyShareLink.deleteMany({ where: { propertyId: { in: propertyIds } } });
   await prisma.interaction.deleteMany({ where: { clientId: { in: clientIds } } });
+  await prisma.propertyExposure.deleteMany({ where: { clientId: { in: clientIds } } });
+  await prisma.propertyDeleteRequest.deleteMany({ where: { propertyId: { in: propertyIds } } });
   await prisma.property.deleteMany({ where: { id: { in: propertyIds } } });
   await prisma.client.deleteMany({ where: { id: { in: clientIds } } });
   await deleteAgentsWithTraces([agentId, otherAgentId, ...extraAgentIds]);
@@ -120,7 +125,102 @@ afterAll(async () => {
   await prisma.$disconnect();
 });
 
+describe("SMS history backfill", () => {
+  it("imports only accepted property sends with existing subjects and remains idempotent", async () => {
+    const p = await makeProperty();
+    const c = await makeClient(`+99277460${tail.slice(-4)}`, agentId);
+    const at = new Date("2026-10-19T08:00:00Z");
+    const receipt = await prisma.smsMessage.create({ data: { phone: "992000000000", purpose: "PROPERTY_SHARE", status: "SENT", text: "Тест отправки", clientId: c.id, propertyId: p.id, createdAt: at } });
+    await prisma.smsMessage.createMany({ data: [
+      { phone: "992000000000", purpose: "PROPERTY_SHARE", status: "DRY_RUN", text: "Тест без отправки", clientId: c.id, propertyId: p.id },
+      { phone: "992000000000", purpose: "PROPERTY_SHARE", status: "FAILED", text: "Отказ", clientId: c.id, propertyId: p.id },
+      { phone: "992000000000", purpose: "LOGIN_CODE", status: "SENT", text: "Другой тип", clientId: c.id, propertyId: p.id },
+      { phone: "992000000000", purpose: "PROPERTY_SHARE", status: "SENT", text: "Нет объекта", clientId: c.id, propertyId: "nonexistent-property" },
+    ] });
+    const sql = readFileSync(new URL("../prisma/migrations/20261021020100_sms_property_exposures/migration.sql", import.meta.url), "utf8");
+    const rollback = new Error("Rollback backfill verification");
+    try {
+      await prisma.$transaction(async tx => {
+        await tx.$executeRawUnsafe(sql);
+        await tx.$executeRawUnsafe(sql);
+        const exposures = await tx.propertyExposure.findMany({ where: { clientId: c.id } });
+        expect(exposures).toHaveLength(1);
+        expect(exposures[0]).toMatchObject({ id: `sms:${receipt.id}`, channel: "SMS", recipientId: c.id, propertyId: p.id, sentAt: at });
+        throw rollback;
+      });
+    } catch (error) { if (error !== rollback) throw error; }
+    await prisma.smsMessage.deleteMany({ where: { clientId: c.id } });
+  });
+});
+
 describe("POST /properties/:id/sms-share", () => {
+  it("фиксирует exposure только после принятой провайдером отправки, а не dry-run или отказа", async () => {
+    const p = await makeProperty();
+    const c = await makeClient(`+99277410${tail.slice(-4)}`, agentId);
+    providerFails = true;
+    expect((await share(agentToken, p.id, [c.id])).body.sent).toBe(0);
+    expect(await prisma.propertyExposure.count({ where: { propertyId: p.id, clientId: c.id } })).toBe(0);
+    providerFails = false;
+    providerDryRun = true;
+    const preview = await share(agentToken, p.id, [c.id]);
+    expect(preview.body.sent).toBe(0);
+    expect(preview.body.items[0].status).toBe("prepared");
+    expect(await prisma.propertyExposure.count({ where: { propertyId: p.id, clientId: c.id } })).toBe(0);
+    await prisma.smsMessage.deleteMany({ where: { propertyId: p.id, clientId: c.id } });
+    providerDryRun = false;
+    expect((await share(agentToken, p.id, [c.id])).body.sent).toBe(1);
+    expect(await prisma.propertyExposure.findFirst({ where: { propertyId: p.id, clientId: c.id } })).toMatchObject({ channel: "SMS", recipientId: c.id, kind: "LINK" });
+  });
+
+  it("ошибка вторичного журнала не превращает уже принятую шлюзом СМС в повторную отправку", async () => {
+    const p = await makeProperty();
+    const c = await makeClient(`+99277470${tail.slice(-4)}`, agentId);
+    const exposureWrite = vi.spyOn(prisma.propertyExposure, "upsert").mockRejectedValueOnce(new Error("test secondary journal unavailable"));
+    try {
+      const result = await share(agentToken, p.id, [c.id]);
+      expect(result.status).toBe(200);
+      expect(result.body.sent).toBe(1);
+      expect(await prisma.smsMessage.count({ where: { propertyId: p.id, clientId: c.id, status: "SENT" } })).toBe(1);
+      expect((await share(agentToken, p.id, [c.id])).body.sent).toBe(0);
+      expect(sent).toHaveLength(1);
+    } finally { exposureWrite.mockRestore(); }
+  });
+
+  it("не отправляет непринятому или удалённому своему клиенту", async () => {
+    const p = await makeProperty();
+    const c = await makeClient(`+99277420${tail.slice(-4)}`, agentId);
+    await prisma.client.update({ where: { id: c.id }, data: { acceptedAt: null } });
+    expect((await share(agentToken, p.id, [c.id])).body.sent).toBe(0);
+    await prisma.client.update({ where: { id: c.id }, data: { acceptedAt: new Date(), deletedAt: new Date() } });
+    expect((await share(agentToken, p.id, [c.id])).body.sent).toBe(0);
+    expect(sent).toHaveLength(0);
+  });
+
+  it("viewAll не даёт службе безопасности право платной отправки чужому клиенту", async () => {
+    const phone = `+99277430${tail.slice(-4)}`;
+    const security = await prisma.agent.create({ data: { fullName: "Тест СМС безопасность", phone, role: "SECURITY", passwordHash: await bcrypt.hash(password, 10) } });
+    extraAgentIds.push(security.id);
+    const token = await login(phone);
+    const p = await makeProperty();
+    const c = await makeClient(`+99277440${tail.slice(-4)}`, agentId);
+    const response = await share(token, p.id, [c.id]);
+    expect(response.body.sent).toBe(0);
+    expect(sent).toHaveLength(0);
+    expect(await prisma.propertyShareLink.count({ where: { propertyId: p.id, clientId: c.id } })).toBe(0);
+  });
+
+  it("не отправляет снятый, удалённый или скрытый заявкой на удаление объект", async () => {
+    const c = await makeClient(`+99277450${tail.slice(-4)}`, agentId);
+    const withdrawn = await makeProperty({ status: "WITHDRAWN" });
+    expect((await share(agentToken, withdrawn.id, [c.id])).status).toBe(400);
+    const deleted = await makeProperty({ deletedAt: new Date() });
+    expect((await share(agentToken, deleted.id, [c.id])).status).toBe(404);
+    const pending = await makeProperty();
+    await prisma.propertyDeleteRequest.create({ data: { propertyId: pending.id, requestedById: agentId, reason: "Тест скрытого объекта" } });
+    expect((await share(agentToken, pending.id, [c.id])).status).toBe(404);
+    expect(sent).toHaveLength(0);
+  });
+
   it("своему клиенту уходит СМС с личной ссылкой перехода, номером объекта и агентом; в хронологии — SYSTEM, не MESSAGE", async () => {
     const p = await makeProperty({ publishedOnSite: true });
     const c = await makeClient(`+99277300${tail.slice(-4)}`, agentId);

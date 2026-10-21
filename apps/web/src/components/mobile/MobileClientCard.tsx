@@ -1,6 +1,6 @@
 import { ShellOwnHeader } from "../rh2/ShellOwnHeader";
 import { type ReactNode } from "react";
-import { CalendarClock, Home, MessageSquare, MoreVertical, Pencil } from "lucide-react";
+import { Home, MessageSquare, MoreVertical, Pencil } from "lucide-react";
 import { Rh2Sheet } from "../rh2/Rh2Sheet";
 import { CallPhoneChooser, type CallPhoneOption } from "../CallPhoneChooser";
 import { ClientAvatar } from "../ClientAvatar";
@@ -34,6 +34,11 @@ export interface MobileClientCardProps {
   locked: boolean;
   pending: boolean;
   isSeller: boolean;
+  canBuy: boolean;
+  propertyWorkspace: ReactNode;
+  overviewProperties: ReactNode;
+  intentConfirmation: ReactNode;
+  overviewNextStep: ReactNode;
   isOther: boolean;
   canCallTransferred: boolean;
   mainStatusChip: ReactNode;
@@ -79,6 +84,11 @@ export function MobileClientCard({
   locked,
   pending,
   isSeller,
+  canBuy,
+  propertyWorkspace,
+  overviewProperties,
+  intentConfirmation,
+  overviewNextStep,
   isOther,
   canCallTransferred,
   mainStatusChip,
@@ -165,8 +175,10 @@ export function MobileClientCard({
         )}
         <div className="tags">
           {mainStatusChip}
+          <span className="chip mute">{isOther ? "Прочее обращение" : client.dualIntent ? "Продаёт и покупает" : isSeller ? "Продавец" : "Покупатель"}</span>
           {pending && <span className="chip warn">Ждёт принятия</span>}
         </div>
+        <p className="client-card-meta">{client.assignedAgent ? `Агент ${client.assignedAgent.fullName}` : "Агент не назначен"}<br />Последний контакт {relativeTime(client.lastContactAt)}</p>
       </div>
 
       {/* Быстрые действия — «Позвонить» через CallPhoneChooser (сам решает: один
@@ -194,9 +206,9 @@ export function MobileClientCard({
               <MessageSquare className="i" />
               Написать
             </button>
-            <button type="button" onClick={onShowInteraction}>
-              <CalendarClock className="i" />
-              Показ
+            <button type="button" onClick={onOpenMatch}>
+              <Home className="i" />
+              {canBuy ? "Подбор" : "Объекты"}
             </button>
           </>
         )}
@@ -229,8 +241,11 @@ export function MobileClientCard({
             </div>
             <div className="card-s" style={{ padding: "12px 16px" }}>
               <ClientInsight client={client} />
+              {intentConfirmation}
+              {overviewProperties}
+              {overviewNextStep}
               {propertyCounts}
-              {client.desiredPlaces && client.desiredPlaces.length > 0 && (
+              {canBuy && client.desiredPlaces && client.desiredPlaces.length > 0 && (
                 <details className="cd-about" style={{ marginTop: 12 }}>
                   <summary>Где ищет</summary>
                   <div style={{ marginTop: 10 }}>
@@ -241,24 +256,13 @@ export function MobileClientCard({
             </div>
           </section>
 
-          {/* Объекты: подбор живёт отдельным окном, здесь только итог отправки. */}
+          {/* Отправки и показы: отдельный журнал, без второго подборщика. */}
           <section className="sec">
             <div className="sec-t">
-              <h2>Объекты</h2>
-              {lastPropertiesSent && <span className="cnt">{lastPropertiesSent.count}</span>}
+              <h2>{canBuy ? "Отправки и показы" : "Показы"}</h2>
             </div>
             <div className="card-s" style={{ padding: "12px 16px" }}>
-              <p className="s" style={{ margin: 0 }}>
-                {lastPropertiesSent
-                  ? `Последняя подборка отправлена ${relativeTime(lastPropertiesSent.at)}, объектов ${lastPropertiesSent.count}.`
-                  : "Подборка этому клиенту ещё не отправлялась."}
-              </p>
-              {!locked && !isSeller && !isOther && (
-                <button className="btn soft sm" type="button" onClick={onOpenMatch} style={{ marginTop: 10 }}>
-                  <Home className="i" />
-                  Подбор{matchTotal != null ? ` · ${matchTotal}` : ""}
-                </button>
-              )}
+              {propertyWorkspace}
             </div>
           </section>
 

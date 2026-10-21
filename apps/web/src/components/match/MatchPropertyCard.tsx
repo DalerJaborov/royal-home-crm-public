@@ -1,8 +1,9 @@
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { CalendarCheck, CalendarPlus, House } from "lucide-react";
 import { rh2AvatarTone } from "../../lib/rh2Avatar";
 import { dushanbeDateTime } from "../../lib/date";
 import { formatMoney } from "../../lib/format";
+import type { ClientPropertyMatchEvidence } from "@royal-home/shared";
 import type { Property } from "../../types";
 
 /** Ответственный за объект: риелтор сделки, а если его ещё нет — тот, кто завёл.
@@ -23,26 +24,13 @@ function formatDistance(m: number): string {
   return `≈ ${Math.round(m / 10) * 10} м`;
 }
 
-/**
- * Строка объекта панели «Подбор» (задание D, 17.09.2026,
- * `docs/agent-briefs/match-17-09-D-web-panel.md`).
- *
- * Перенесено из `MatchPropertiesModal.tsx` (файл удалён) и дополнено баллом
- * совпадения/расстоянием — новыми полями `score`/`distanceM`, которых у
- * сервера ещё может не быть (параллельная работа над контрактом, раздел 6
- * плана): оба читаются как `?? null` и просто не рисуются, если пусто.
- *
- * ВСЯ СТРОКА КЛИКАБЕЛЬНА (владелец 17.09.2026 вечер: «карточками везде и
- * кликабельные, чтобы три часа не искать рекомендуемый объект») — тот же
- * приём, что `PropertyCard` в каталоге (`pages/Properties.tsx`, `.cell`):
- * `role="button"`, клавиатура Enter/Space. Внутренние элементы управления
- * (чекбокс, кнопки) останавливают всплытие, иначе клик по ним ещё и уводил бы
- * на страницу объекта.
- */
+/** Evidence-led recommendation row. The title is a native link; choosing or
+ * scheduling must not also navigate the page through a parent keyboard handler. */
 export function MatchPropertyCard({
   property: p,
   selected,
   onToggleSelect,
+  selectionDisabled,
   offered,
   onSend,
   sending,
@@ -51,11 +39,12 @@ export function MatchPropertyCard({
   onScheduleShowing,
   onClosePanel,
 }: {
-  property: Property;
+  property: Property & { match?: ClientPropertyMatchEvidence };
   /** Чекбокс отбора для массовой отправки рисуется, только когда передан
    *  `onToggleSelect` (режим клиента); в остальных списках его нет. */
   selected?: boolean;
   onToggleSelect?: () => void;
+  selectionDisabled?: boolean;
   /** Уже предлагали этому клиенту — кнопка «В переписку» превращается в чип. */
   offered?: boolean;
   onSend?: () => void;
@@ -78,24 +67,8 @@ export function MatchPropertyCard({
   const canPick = p.status !== "SOLD" && p.status !== "WITHDRAWN";
   const personalLink = p.offSite || !p.publishedOnSite;
 
-  function open() {
-    navigate(`/properties/${p.shortId}`);
-    onClosePanel?.();
-  }
-
   return (
-    <div
-      className="prow"
-      role="button"
-      tabIndex={0}
-      onClick={open}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          open();
-        }
-      }}
-    >
+    <div className="prow client-match-property">
       {onToggleSelect && (
         <input
           className="pick"
@@ -103,9 +76,9 @@ export function MatchPropertyCard({
           checked={!!selected}
           onClick={(e) => e.stopPropagation()}
           onChange={onToggleSelect}
-          disabled={!canPick}
+          disabled={!canPick || sending || selectionDisabled}
           aria-label={`Отправить клиенту: ${p.title}`}
-          title={canPick ? "Выбрать для отправки клиенту" : "Объект продан или снят с продажи — клиенту не отправляется"}
+          title={canPick ? selectionDisabled ? "Можно выбрать до пяти объектов за раз" : "Выбрать для отправки клиенту" : "Объект продан или снят с продажи — клиенту не отправляется"}
         />
       )}
       <span className="ph">
@@ -114,7 +87,7 @@ export function MatchPropertyCard({
       <div className="t">
         {/* Две строки названия, а не одна с многоточием (28.09.2026): на
             телефоне «3-комнатная у парка…» не отличить от соседнего объекта. */}
-        <b
+        <Link to={`/properties/${p.shortId}`} onClick={() => onClosePanel?.()}
           style={{
             whiteSpace: "normal",
             display: "-webkit-box",
@@ -124,17 +97,18 @@ export function MatchPropertyCard({
           }}
         >
           {p.title}
-        </b>
+        </Link>
         <span>{[p.district?.name, `${p.areaSqm} м²`, p.rooms ? `${p.rooms} комн.` : null].filter(Boolean).join(" · ")}</span>
         <span className="wrap" style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 4 }}>
-          {p.score != null && (
-            <span className={p.score >= 75 ? "chip ok" : "chip"}>Совпало {p.score}%</span>
-          )}
+          {p.match && <span className={`chip${p.match.tier === "exact" ? " ok" : ""}`}>
+            {p.match.tier === "exact" ? "Подходит по параметрам" : p.match.tier === "alternative" ? "Есть компромиссы" : "Нужно уточнить"}
+          </span>}
+          {p.match?.isMine && <span className="chip">Мой объект</span>}
           {p.distanceM != null && <span className="chip">{formatDistance(p.distanceM)}</span>}
-          {onSend && offered && <span className="chip ok">Отправляли</span>}
+          {offered && <span className="chip">{p.match?.lastSentAt ? `Отправляли ${dushanbeDateTime(p.match.lastSentAt)}` : "Отправляли"}</span>}
           {/* «ИИ» — чипом в общем ряду: внутри `.t` любой span блочный, и
               чип растягивался на всю ширину строки. */}
-          {p.aiReason && <span className="chip ok">ИИ</span>}
+
           {personalLink && (
             <span
               className="chip"
@@ -148,7 +122,11 @@ export function MatchPropertyCard({
             </span>
           )}
         </span>
-        {p.aiReason && <span style={{ whiteSpace: "normal" }}>{p.aiReason}</span>}
+        {p.match && <div className="client-match-evidence">
+          {p.match.reasons.length > 0 && <p>{p.match.reasons.join(" · ")}</p>}
+          {p.match.tradeoffs.length > 0 && <p className="client-match-tradeoff">Учесть: {p.match.tradeoffs.join(" · ")}</p>}
+          {p.match.unknowns.length > 0 && <p>Уточнить: {p.match.unknowns.join(" · ")}</p>}
+        </div>}
       </div>
       <div className="who">
         {agentOf(p) ? (
@@ -196,6 +174,7 @@ export function MatchPropertyCard({
                 type="button"
                 className="pill ghost sm"
                 onClick={onScheduleShowing}
+                disabled={!canPick || sending}
                 title="Назначить показ этого объекта клиенту"
               >
                 <CalendarPlus className="i" strokeWidth={1.5} />

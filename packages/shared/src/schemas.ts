@@ -1532,6 +1532,8 @@ export type SendPropertiesInput = z.infer<typeof sendPropertiesSchema>;
  * сообщения клиента»; у Telegram и чата на сайте окна нет, там всегда true.
  */
 export interface SendTargetInfo {
+  /** Exact client-owned conversation selected by preflight; pin it through preview/send. */
+  conversationId?: string | null;
   /** Канал диалога, куда уйдёт сообщение; null — клиент не писал ни в один мессенджер. */
   channel: "WHATSAPP" | "INSTAGRAM" | "FACEBOOK" | "TELEGRAM" | "WEBSITE" | null;
   /** Канал включён и ключи в Настройках заданы. */

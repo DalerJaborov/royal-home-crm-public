@@ -334,6 +334,7 @@ export function ClientChatPanel({
   clientShortId,
   clientName,
   conversations,
+  readOnly: cardReadOnly = false,
   autoFocusReply = false,
   onClose,
   agentActivelyAssigned = false,
@@ -349,6 +350,7 @@ export function ClientChatPanel({
    *  ниже показывает их все, по умолчанию открыт самый свежий (список уже
    *  отсортирован вызывающей стороной). */
   conversations: ClientConversation[];
+  readOnly?: boolean;
   /** Открыли, чтобы ответить прямо сейчас (исход «Ждёт варианты») — ставим курсор
    *  в поле ответа. При обычном открытии этого не делаем: на телефоне фокус
    *  выбрасывает клавиатуру поверх переписки, которую человек пришёл читать. */
@@ -364,7 +366,8 @@ export function ClientChatPanel({
   // под ней (см. hooks/useScrollLock.ts).
   useScrollLock();
   const isMobile = useMobileUx();
-  const readOnly = useIsReadOnly();
+  const accountReadOnly = useIsReadOnly();
+  const readOnly = cardReadOnly || accountReadOnly;
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [text, setText] = useState("");
