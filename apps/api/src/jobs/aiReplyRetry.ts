@@ -120,6 +120,7 @@ export const aiReplyRetryJob: JobHandler<z.infer<typeof schema>> = {
       name: conversation.name,
       accountId: conversation.accountId,
       lastText: last.content,
+      lastMid: last.mid ?? null,
       lastMessageAt: conversation.lastMessageAt ?? new Date(),
     }, "ai_retry");
     // Модель всё ещё лежит или отправка не удалась — исключение отдаёт задание

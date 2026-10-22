@@ -3,6 +3,8 @@ import { prisma } from "../db.js";
 import type { ChatMessage } from "../ai/shared.js";
 import { customerPropertyTurnTerminal } from "./customerPropertyHistory.js";
 import { currentTurnHasCustomerOutbox } from "./customerOutbox.js";
+import { withLegacyMetaDmSource } from "./customerLegacyPhysicalSource.js";
+import { legacyMetaDmSourceAlreadyAttempted } from "./customerLegacyPhysical.js";
 import { loadCustomerTransportForConversation, type CustomerTransportReference } from "./customerConversationScope.js";
 import { sendManagedCustomerPropertyReply } from "./customerPropertyDelivery.js";
 import { withBotTurnTrace, traceOutcome, traceNoReply, traceBindAccount, traceDeferUntil } from "./botTurnTrace.js";
@@ -34,6 +36,8 @@ export interface StuckRow {
   accountId: string | null;
   lastText: string;
   lastMessageAt: Date;
+  /** Captured with lastText/lastMessageAt, never adopted from a later read. */
+  lastMid?: string | null;
 }
 
 /**
@@ -58,8 +62,13 @@ export interface StuckRow {
 export async function findStuckConversations(): Promise<StuckRow[]> {
   return prisma.$queryRaw<StuckRow[]>`
     SELECT bc.id, bc.channel, bc."subscriberId", bc.name, bc."accountId", bc."lastMessageAt",
-           COALESCE(bc.messages -> (jsonb_array_length(bc.messages) - 1) ->> 'content', '') AS "lastText"
+           COALESCE(pending.elem ->> 'content', '') AS "lastText", pending.elem ->> 'mid' AS "lastMid"
     FROM "BotConversation" bc
+    JOIN LATERAL (
+      SELECT m.elem FROM jsonb_array_elements(CASE WHEN jsonb_typeof(bc.messages)='array' THEN bc.messages ELSE '[]'::jsonb END)
+        WITH ORDINALITY AS m(elem, ord)
+      WHERE m.elem ->> 'role'='user' ORDER BY m.ord DESC LIMIT 1
+    ) pending ON true
     LEFT JOIN "Client" c ON c.id = bc."clientId"
     ${stuckWhere()}
     ORDER BY bc."lastMessageAt" ASC
@@ -175,8 +184,20 @@ export function retryStuckConversation(row: StuckRow, source: "ai_retry" | "manu
 }
 async function retryStuckConversationImpl(row: StuckRow): Promise<"sent" | "no-reply" | "failed" | "ai-down"> {
   if (await currentTurnHasCustomerOutbox(row.id)) return "no-reply";
-  const stored = await prisma.botConversation.findUnique({ where: { id: row.id }, select: { messages: true } });
+  const stored = await prisma.botConversation.findUnique({ where: { id: row.id }, select: {
+    messages: true, lastMessageAt: true, channel: true, subscriberId: true, accountId: true,
+  } });
   if (stored && customerPropertyTurnTerminal((stored.messages as unknown as ChatMessage[]) ?? [])) return "no-reply";
+  const history = (stored?.messages as unknown as ChatMessage[]) ?? [];
+  let last = history.length - 1;
+  while (last >= 0 && history[last].role === "assistant" && history[last].deliveryStatus === "failed") last--;
+  const original = history[last];
+  if (!stored || stored.channel !== row.channel || stored.subscriberId !== row.subscriberId || stored.accountId !== row.accountId ||
+    stored.lastMessageAt?.getTime() !== row.lastMessageAt.getTime() || original?.role !== "user" ||
+    original.content !== row.lastText || (original.mid ?? null) !== (row.lastMid ?? null)) return "no-reply";
+  return withLegacyMetaDmSource(row.lastMid, () => retryStuckConversationBody(row, row.lastMid ?? undefined));
+}
+async function retryStuckConversationBody(row: StuckRow, originalMid?: string): Promise<"sent" | "no-reply" | "failed" | "ai-down"> {
   const metaChannel = asMetaChannel(row.channel);
   /**
    * ЧАТ НА САЙТЕ ТОЖЕ ЗАВИСАЕТ (11.09.2026).
@@ -204,6 +225,7 @@ async function retryStuckConversationImpl(row: StuckRow): Promise<"sent" | "no-r
     if (metaChannel && row.accountId && (await accountTokenById(row.accountId, metaChannel)).disabled) return "no-reply";
     const customerTransport = await loadCustomerTransportForConversation(row.id);
     if (!customerTransport) return "no-reply";
+    if (metaChannel && await legacyMetaDmSourceAlreadyAttempted(customerTransport.endpointScopeId, originalMid)) return "no-reply";
     deliveryTransport = customerTransport;
     const account =
       metaChannel && row.accountId ? (await listAccounts(metaChannel)).find((a) => a.id === row.accountId) : null;

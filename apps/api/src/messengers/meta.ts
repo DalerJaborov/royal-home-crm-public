@@ -1,5 +1,4 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { z } from "zod";
 import { prisma } from "../db.js";
 import { logSystemError } from "../lib/systemError.js";
 import { isMessagingWindowClosedError } from "../lib/messagingWindow.js";
@@ -11,6 +10,9 @@ import { admitOutbound, OutboundBlockedError, type OutboundOrigin } from "../lib
 import type { AttachmentSource } from "./attachments.js";
 import type { BotIngressShape } from "@royal-home/shared";
 import { traceObserveSend, traceProviderAccepted, traceKnownSecrets } from "../lib/botTurnTrace.js";
+import { legacyMetaPhysicalTarget, legacyMetaPhysicalFetch } from "../lib/customerLegacyMetaPhysical.js";
+import type { LegacyPhysicalTarget } from "../lib/customerLegacyPhysical.js";
+import { metaMessageIdSchema as durableMetaMid, metaMessageReceiptSchema as durableMetaMidSchema, contradictoryMetaSendResponse } from "./metaSendReceipt.js";
 import { projectBotIngressShape } from "../lib/botTurnTraceIngress.js";
 import { customerPropertyContextEnabled } from "../lib/customerPropertyContextFlag.js";
 import { beforeCustomerPropertyPost, customerPropertyProviderAccepted } from "../lib/customerPropertyTransport.js";
@@ -229,7 +231,8 @@ export async function fetchWithRetry(
   url: string,
   init: RequestInit,
   timeoutMs: number = CALL_TIMEOUT_MS,
-  beforePost?: () => Promise<void>
+  beforePost?: () => Promise<void>,
+  legacyTarget?: LegacyPhysicalTarget
 ): Promise<Response> {
   let lastErr: unknown;
   for (let attempt = 0; attempt <= GEMINI_RETRY_DELAYS_MS.length; attempt++) {
@@ -246,7 +249,8 @@ export async function fetchWithRetry(
       // "aborted due to timeout", даже не дойдя до сети. Найдено 20.08.2026 по
       // «Лента аккаунта Instagram не дочитана: The operation was aborted due to
       // timeout» — сама сеть была ни при чём, ретраи были фикцией.
-      return await fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+      const physical = () => fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+      return await (legacyTarget && !durable ? legacyMetaPhysicalFetch(legacyTarget, physical) : physical());
     } catch (err) {
       if (durable) { await durable.networkFailure(err); throw err; }
       lastErr = err;
@@ -1386,7 +1390,7 @@ async function sendVideoImpl(
   if (!token) throw new Error(`Маркер доступа для ${channel} не задан в Настройках`);
 
   try {
-    const res = await callGraph<{ message_id?: string; messages?: { id?: string }[] }>(url, token, body);
+    const res = await callGraph<{ message_id?: string; messages?: { id?: string }[] }>(url, token, body, "POST", undefined, captured);
     return await rememberedMid(res?.message_id ?? res?.messages?.[0]?.id ?? null);
   } catch (err) {
     logMetaSendError(`Видео в ${channel} не отправлено`, err);
@@ -1822,25 +1826,23 @@ function readableGraphBody(text: string): string {
   }
 }
 
-const durableMetaMid = z.string().min(1).max(512).refine(value => !/\s/.test(value));
-const durableMetaMidSchema = z.object({ message_id: durableMetaMid.optional(),
-  messages: z.array(z.object({ id: durableMetaMid }).passthrough()).length(1).optional() }).passthrough()
-  .refine(value => !value.message_id || !value.messages || value.message_id === value.messages[0].id);
 export async function callGraph<T = unknown>(
   url: string,
   token: string,
   body: unknown,
   method: "POST" | "DELETE" = "POST",
-  beforePost?: () => Promise<void>
+  beforePost?: () => Promise<void>,
+  legacyTransport?: CustomerTransportReference
 ): Promise<T | null> {
   traceKnownSecrets([token]);
   const req = instagramRequest(url, token);
+  const legacyTarget = method === "POST" ? legacyMetaPhysicalTarget(url, body, legacyTransport) : undefined;
   for (let attempt = 0; ; attempt++) {
     const res = await fetchWithRetry(req.url, {
       method,
       headers: { "Content-Type": "application/json", ...req.headers },
       body: method === "DELETE" && body === undefined ? undefined : JSON.stringify(body),
-    }, CALL_TIMEOUT_MS, beforePost);
+    }, CALL_TIMEOUT_MS, beforePost, legacyTarget);
     const text = await res.text();
     if (!res.ok) {
       const durable = currentCustomerDeliveryTransport();
@@ -1858,6 +1860,10 @@ export async function callGraph<T = unknown>(
     // отсутствие JSON здесь не ошибка.
     let parsed: T | null;
     try { parsed = JSON.parse(text) as T; } catch { parsed = null; }
+    if (legacyTarget?.surface === "dm" && contradictoryMetaSendResponse(parsed)) {
+      await currentCustomerDeliveryTransport()?.accepted(null);
+      throw new Error("Graph API returned a contradictory message response");
+    }
     // Durable acceptance must commit before rememberedMid/UI projection. Keep
     // it OUTSIDE JSON parsing's catch: a DB failure is not an empty HTTP body.
     if (method === "POST") {
@@ -1940,7 +1946,7 @@ async function sendMessageImpl(
     // Таймаут внутри callGraph: без него зависшее соединение вешает ответ
     // клиенту навсегда — те же грабли, что были у Telegram.
     const res = await callGraph<{ message_id?: string; messages?: { id?: string }[] }>(url, token, body, "POST",
-      principal ? () => assertCustomerReplyPost(principal, channel, recipientId, captured) : undefined);
+      principal ? () => assertCustomerReplyPost(principal, channel, recipientId, captured) : undefined, captured);
     // Messenger/Instagram отдают `message_id`, WhatsApp Cloud — массив `messages`.
     // Формы разные, поле нужно одно; отсутствие не ошибка — сообщение уже ушло.
     return await rememberedMid(res?.message_id ?? res?.messages?.[0]?.id ?? null);
@@ -1987,7 +1993,7 @@ async function sendImageImpl(
     // WhatsApp отдаёт массив `messages`, Instagram/Messenger — `message_id` —
     // та же развилка форм, что и в sendMessage/sendAudio (buildImageRequest
     // поддерживает WhatsApp, в отличие от buildFileRequest).
-    const res = await callGraph<{ message_id?: string; messages?: { id?: string }[] }>(url, token, body);
+    const res = await callGraph<{ message_id?: string; messages?: { id?: string }[] }>(url, token, body, "POST", undefined, captured);
     return await rememberedMid(res?.message_id ?? res?.messages?.[0]?.id ?? null);
   } catch (err) {
     // Отказ обязан быть виден на экране здоровья: чаще всего он значит, что Meta не
@@ -2392,7 +2398,7 @@ async function sendAudioImpl(
   const token = bound?.token || tokenOverride || fallbackToken;
   if (!token) throw new Error(`Маркер доступа для ${channel} не задан в Настройках`);
   try {
-    const res = await callGraph<{ message_id?: string; messages?: { id?: string }[] }>(url, token, body);
+    const res = await callGraph<{ message_id?: string; messages?: { id?: string }[] }>(url, token, body, "POST", undefined, captured);
     return await rememberedMid(res?.message_id ?? res?.messages?.[0]?.id ?? null);
   } catch (err) {
     logMetaSendError(`Голосовое в ${channel} не отправлено`, err);
@@ -2426,7 +2432,7 @@ async function sendFileImpl(
   const token = bound?.token || tokenOverride || fallbackToken;
   if (!token) throw new Error(`Маркер доступа для ${channel} не задан в Настройках`);
   try {
-    const res = await callGraph<{ message_id?: string }>(url, token, body);
+    const res = await callGraph<{ message_id?: string }>(url, token, body, "POST", undefined, captured);
     return await rememberedMid(res?.message_id ?? null);
   } catch (err) {
     logMetaSendError(`Файл в ${channel} не отправлен`, err);
@@ -2482,7 +2488,7 @@ async function sendLocationImpl(
   const token = bound?.token || tokenOverride || fallbackToken;
   if (!token) throw new Error("Маркер доступа для WhatsApp не задан в Настройках");
   try {
-    const res = await callGraph<{ messages?: { id?: string }[] }>(url, token, body);
+    const res = await callGraph<{ messages?: { id?: string }[] }>(url, token, body, "POST", undefined, captured);
     return await rememberedMid(res?.messages?.[0]?.id ?? null);
   } catch (err) {
     logMetaSendError("Геометка в WhatsApp не отправлена", err);
@@ -2542,7 +2548,7 @@ async function sendReactionImpl(
   const token = bound?.token || tokenOverride || fallbackToken;
   if (!token) throw new Error("Маркер доступа для WhatsApp не задан в Настройках");
   try {
-    await callGraph(url, token, body);
+    await callGraph(url, token, body, "POST", undefined, captured);
   } catch (err) {
     // Реакция — украшение поверх уже случившегося разговора: её провал не должен
     // рушить основной ответ клиенту (тот же принцип, что у showReadAndTyping).

@@ -916,6 +916,7 @@ model OwnerQuestion {
 /// (наборщик/originate уже есть) и закрывает запрос.
 /// Transport namespace, never a private identity proof. Unknown legacy mappings stay held.
 model CustomerEndpointScope {
+  legacyPhysicalQuiescence CustomerLegacyPhysicalQuiescence?
   recruitmentRecoveries RecruitmentRecovery[]
   rolloutAssignments CustomerAgentRolloutAssignment[]
   id String @id @default(uuid())
@@ -10064,6 +10065,41 @@ model CustomerAgentRolloutAssignment {
   telegramComments TelegramGroupComment[]
   @@unique([surface,endpointScopeId,subjectKey],map:"CustomerAgentRolloutAssignment_subject_key")
   @@index([cohortId])
+}
+
+/// Shared short admission lock; never held across an external HTTP call.
+model CustomerLegacyPhysicalFence {
+  id String @id
+}
+
+/// Foundation reservation only. No producer/controller activation is implied.
+model CustomerLegacyPhysicalQuiescence {
+  endpointScopeId String @id
+  endpointScope CustomerEndpointScope @relation(fields: [endpointScopeId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  scopeRevision BigInt
+  createdAt DateTime @default(now()) @db.Timestamptz
+}
+
+/// Physical evidence retained across account removal, with no customer content.
+model CustomerLegacyPhysicalAttempt {
+  id String @id
+  endpointScopeId String?
+  scopeRevision BigInt?
+  channel String?
+  surface String?
+  targetDigest String
+  payloadDigest String
+  operation String
+  effectKey String?
+  sourceHash String?
+  actorKind String
+  actorId String?
+  status String
+  providerId String?
+  createdAt DateTime @default(now()) @db.Timestamptz
+  finishedAt DateTime? @db.Timestamptz
+  @@index([status, endpointScopeId], map: "CustomerLegacyPhysicalAttempt_idle")
+  @@index([endpointScopeId, sourceHash])
 }
 
 /// Genuine staff recruitment command/outbound ledger. Never a fabricated BOT turn.

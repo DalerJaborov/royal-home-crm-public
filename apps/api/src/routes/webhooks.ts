@@ -18,6 +18,7 @@ import { customerPropertyEvidenceFromMeta } from "../lib/customerPropertyEvidenc
 import { peekAdReferral, consumeAdReferral } from "../messengers/metaPeerMemory.js";
 import { sendManagedCustomerPropertyReply } from "../lib/customerPropertyDelivery.js";
 import { withBotTurnTrace, traceOutcome, traceEchoReason, traceDeferUntil, traceDeliveryStatus, traceResolution, traceFinishCustomerTurn } from "../lib/botTurnTrace.js";
+import { withLegacyMetaDmSource } from "../lib/customerLegacyPhysicalSource.js";
 import { Router } from "express";
 import { detectSpam, sharedPostSpamContext } from "../lib/incomingSpam.js";
 import { findDistrictIdByName } from "../lib/districtLookup.js";
@@ -1827,11 +1828,7 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
       await Promise.all(
         groupMetaBySender(incoming).map(async (group) => {
       for (const traceMessage of group) {
-      await withBotTurnTrace({ channel: traceMessage.channel, peer: traceMessage.senderId, account: traceMessage.accountExternalId,
-        event: traceMessage.messageId, source: "webhook", text: traceMessage.text,
-        kind: traceMessage.isEcho ? "echo" : traceMessage.referralOnly ? "referral" : traceMessage.attachmentType ? "media" : "text",
-        attachments: (traceMessage.attachmentType ? 1 : 0) + (traceMessage.extraAttachments?.length ?? 0),
-        ingress: traceMessage.traceIngressShape, knownContacts: traceMessage.name ? [traceMessage.name] : [] }, async () => {
+      const processTracedMessage = async () => {
       // Keep the existing continue/finally semantics inside a one-item loop;
       // only the diagnostic async context changes between incoming events.
       for (const rawMsg of [traceMessage]) {
@@ -2809,7 +2806,13 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
         }
       }
       traceFinishCustomerTurn();
-      });
+      };
+      await withBotTurnTrace({ channel: traceMessage.channel, peer: traceMessage.senderId, account: traceMessage.accountExternalId,
+        event: traceMessage.messageId, source: "webhook", text: traceMessage.text,
+        kind: traceMessage.isEcho ? "echo" : traceMessage.referralOnly ? "referral" : traceMessage.attachmentType ? "media" : "text",
+        attachments: (traceMessage.attachmentType ? 1 : 0) + (traceMessage.extraAttachments?.length ?? 0),
+        ingress: traceMessage.traceIngressShape, knownContacts: traceMessage.name ? [traceMessage.name] : [] },
+        () => withLegacyMetaDmSource(traceMessage.messageId, processTracedMessage));
       }
         })
       );

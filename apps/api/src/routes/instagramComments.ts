@@ -10,6 +10,7 @@ import {
   commentModerationView,
 } from "@royal-home/shared";
 import { prisma } from "../db.js";
+import { withAuthenticatedManualCustomerReply } from "../lib/customerManualDeliveryIntent.js";
 import { requireAuth, requirePermission } from "../auth/middleware.js";
 import { logAudit } from "../lib/audit.js";
 import { logSystemError } from "../lib/systemError.js";
@@ -396,8 +397,8 @@ instagramCommentsRouter.post("/:id/reply", requirePermission("comments.moderate"
       let observed, physicalError: unknown;
       try {
         const token = await publicManualReplyToken(originalPublicClaim);
-        const raw = await postCommentReplyResponse(target, body.data.text, token,
-          () => assertPublicManualReplyCurrent(originalPublicClaim));
+        const raw = await withAuthenticatedManualCustomerReply(req.agent!.id, () => postCommentReplyResponse(target, body.data.text, token,
+          () => assertPublicManualReplyCurrent(originalPublicClaim)));
         observed = publicReplyReceipt(target.channel, raw);
       } catch (error) { physicalError = error; observed = publicManualReplyFailure(originalPublicClaim, error); }
       // Settlement is outside actor/source validation and precedes any conditional local projection.
@@ -424,7 +425,7 @@ instagramCommentsRouter.post("/:id/reply", requirePermission("comments.moderate"
       let posted: string | null = null;
       try {
         const account = await resolveIncomingAccount(row.channel, row.accountExternalId ?? undefined);
-        posted = await postCommentReply(row, body.data.text, account.token);
+        posted = await withAuthenticatedManualCustomerReply(req.agent!.id, () => postCommentReply(row, body.data.text, account.token));
       } finally {
         // Не опубликовано (отказ или исключение) — статус назад, чтобы можно было повторить.
         if (!posted) {

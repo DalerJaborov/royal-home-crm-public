@@ -7412,8 +7412,8 @@
     - пробует
       - const token = await publicManualReplyToken(originalPublicClaim);
         · зовёт publicManualReplyToken()
-      - const raw = await postCommentReplyResponse(target, body.data.text, token, ()
-        · зовёт postCommentReplyResponse()
+      - const raw = await withAuthenticatedManualCustomerReply(req.agent!.id, ()
+        · зовёт withAuthenticatedManualCustomerReply()
       - observed = publicReplyReceipt(target.channel, raw);
         · зовёт publicReplyReceipt()
     - если сорвалось
@@ -7441,8 +7441,8 @@
     - пробует
       - const account = await resolveIncomingAccount(row.channel, row.accountExternalId ?? undefined);
         · зовёт resolveIncomingAccount()
-      - posted = await postCommentReply(row, body.data.text, account.token);
-        · зовёт postCommentReply()
+      - posted = await withAuthenticatedManualCustomerReply(req.agent!.id, ()
+        · зовёт withAuthenticatedManualCustomerReply()
     - в любом случае
       - если !posted
         - await prisma.instagramComment.updateMany({ where: { id: row.id, status: "WORKING" }, data: { status: row.stat…
@@ -16841,7 +16841,7 @@
     · меняет в базе: botConversation
     · запись в журнал ошибок
     - для каждого: const traceMessage of group
-      - await withBotTurnTrace({ channel: traceMessage.channel, peer: traceMessage.senderId, account: traceMessage.ac…
+      - const processTracedMessage = async ()
         · всё внутри — одной транзакцией
         · читает в базе: botConversation
         · меняет в базе: botConversation
@@ -17063,6 +17063,8 @@
                 · зовёт noteFirstContactReply()
         - traceFinishCustomerTurn();
           · зовёт traceFinishCustomerTurn()
+      - await withBotTurnTrace({ channel: traceMessage.channel, peer: traceMessage.senderId, account: traceMessage.ac…
+        · зовёт withBotTurnTrace()
 
 ### POST /api/v1/webhooks/site-cover-image
 
