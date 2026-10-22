@@ -4,7 +4,7 @@ import type { CustomerAgentEvidence } from "../ai/customerAgentRenderer.js";
 import { runCustomerAgentTurn } from "../ai/customerAgentCore.js";
 import { customerAgentToolDefinitions, CUSTOMER_AGENT_PUBLIC_TOOLS } from "../ai/customerAgentToolDefinitions.js";
 import { dispatchCustomerTool } from "../ai/customerToolRegistry.js";
-import { detectCustomerDmLanguage } from "../ai/customerDmLanguage.js";
+import { resolveCustomerDmLanguage } from "../ai/customerDmLanguage.js";
 import { prisma } from "../db.js";
 import { prepareCustomerDmInboxCoreContext } from "./customerDmCoreContext.js";
 import { claimCustomerAgentTurnTx, customerAgentClaimCurrentTx, type CustomerAgentClaim } from "./customerAgentClaim.js";
@@ -71,8 +71,7 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
   let runtime: Extract<Awaited<ReturnType<typeof openPinnedCustomerAgentRuntime>>, { status: "ready" }>["runtime"] | undefined;
   try {
     let text = lane.context.history[0]?.content ?? "";
-    const detected = detectCustomerDmLanguage(text);
-    let language: "tg" | "ru" = detected === "tg" ? "tg" : "ru";
+    let language: "tg" | "ru" = resolveCustomerDmLanguage(text);
     let planningPrincipal = lane.principal;
     let activeMutations: CustomerAgentMutationSession | undefined;
     let accumulated: readonly CustomerAgentEvidence[] = [];
@@ -116,15 +115,10 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
       await releaseHeldClaim(claim, remembered.reason);
       return remembered;
     }
-    // Short answers, names and locations may contain text but no decisive
-    // language evidence. Preserve this customer's last meaningful USER turn,
-    // just as for an empty attachment caption. Never inherit the bot's prose
-    // or another inquiry's language; a decisive current RU/TG input wins.
-    if (detected !== "ru" && detected !== "tg") {
-      const previousLanguage = [...remembered.context.turns].reverse().filter(turn => turn.role === "user")
-        .map(turn => detectCustomerDmLanguage(turn.text)).find(value => value === "ru" || value === "tg");
-      if (previousLanguage) language = previousLanguage;
-    }
+    // Short answers, names, bare links and greetings carry no decisive language evidence. Keep this
+    // customer's last decisive USER turn (never the bot's prose or another inquiry's language); a full
+    // sentence in another language, or an explicit request, switches the dialogue.
+    language = resolveCustomerDmLanguage(text, remembered.context.turns.filter(turn => turn.role === "user").map(turn => turn.text));
     let turnBudgetSpent = false, modelHeldReason: string | undefined;
     const spendTurnBudget = async (wait: { signal: AbortSignal; deadlineAt: number }) => {
       if (turnBudgetSpent) return;
