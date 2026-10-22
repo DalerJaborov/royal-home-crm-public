@@ -1,5 +1,6 @@
 import { loadCustomerAgentVerifiedDmContext } from "./customerAgentVerifiedContext.js";
-import { hasNewerCustomerInboxInput } from "./customerNewerInboxInput.js";
+import { hasNewerCustomerInboxInput, NEWER_INPUT_PENDING } from "./customerNewerInboxInput.js";
+import { loadDeferredCustomerInput } from "./customerDeferredInput.js";
 import type { CustomerAgentEvidence } from "../ai/customerAgentRenderer.js";
 import { runCustomerAgentTurn } from "../ai/customerAgentCore.js";
 import { customerAgentToolDefinitions, CUSTOMER_AGENT_PUBLIC_TOOLS } from "../ai/customerAgentToolDefinitions.js";
@@ -115,10 +116,17 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
       await releaseHeldClaim(claim, remembered.reason);
       return remembered;
     }
+    // Earlier inputs put aside as `newer_input_pending` are part of what the
+    // customer asks NOW (chronological, before the current words). Their raw
+    // inputs are not re-accepted: this is conversational meaning only, like the
+    // media transcript below.
+    const carried = await loadDeferredCustomerInput(planningPrincipal);
+    const fullInput = () => carried ? [carried, text].filter(part => part.trim()).join("\n") : text;
     // Short answers, names, bare links and greetings carry no decisive language evidence. Keep this
     // customer's last decisive USER turn (never the bot's prose or another inquiry's language); a full
-    // sentence in another language, or an explicit request, switches the dialogue.
-    language = resolveCustomerDmLanguage(text, remembered.context.turns.filter(turn => turn.role === "user").map(turn => turn.text));
+    // sentence in another language, or an explicit request, switches the dialogue. The deferred block
+    // is part of the current words, so the whole block decides.
+    language = resolveCustomerDmLanguage(fullInput(), remembered.context.turns.filter(turn => turn.role === "user").map(turn => turn.text));
     let turnBudgetSpent = false, modelHeldReason: string | undefined;
     const spendTurnBudget = async (wait: { signal: AbortSignal; deadlineAt: number }) => {
       if (turnBudgetSpent) return;
@@ -164,7 +172,7 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     // signed message is already queued, rather than send two unrelated turns.
     mediaPrepared = true;
     if (await hasNewerCustomerInboxInput(claim.eventKey)) {
-      await releaseHeldClaim(claim, "newer_input_pending"); return { status: "held", reason: "newer_input_pending" };
+      await releaseHeldClaim(claim, NEWER_INPUT_PENDING); return { status: "held", reason: NEWER_INPUT_PENDING };
     }
     let mediaReferenceResolved = false;
     if (mediaPerception) {
@@ -192,10 +200,10 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
       authenticatedInput: lane.authenticatedInput, ticket: lane.ticket, agentClaim: claim, handoverAckLanguage: language });
     if (session.status !== "ready") { await releaseHeldClaim(claim, session.reason); return { status: "held", reason: session.reason }; }
     const mutations = session.session; activeMutations = mutations;
-    const requestedFacts = remembered.context.publicState.topic === "job" ? [] : classifyCustomerPropertyFactIntent(text, { hasPropertyContext: focus?.snapshot.focus.status === "resolved" }) ??
+    const requestedFacts = remembered.context.publicState.topic === "job" ? [] : classifyCustomerPropertyFactIntent(fullInput(), { hasPropertyContext: focus?.snapshot.focus.status === "resolved" }) ??
       (!text.trim() && prepared.attachmentInput && (prepared.attachmentPropertyReference || mediaReferenceResolved) && focus?.snapshot.focus.status === "resolved"
         ? ["price" as const, "address" as const] : []);
-    const result = await runCustomerAgentTurn({ surface: "dm", language, inputText: text, attachmentInput: prepared.attachmentInput, mediaPerception,
+    const result = await runCustomerAgentTurn({ surface: "dm", language, inputText: fullInput(), attachmentInput: prepared.attachmentInput, mediaPerception,
       knownPhoneSource: lane.context.knownPhoneSource, requestedFacts, revision: claim.pin.revision,
       startedAt: claim.pin.receivedAt, operation: runtime.operation,
       tools: customerAgentToolDefinitions([...CUSTOMER_AGENT_PUBLIC_TOOLS, ...mutations.availableToolNames]),
@@ -265,7 +273,7 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     const principal = mutations.principal;
     const sealed = await sealDmCustomerAgentDeliveryEvidence({ principal, claim, serverWitnesses: witnesses, render: {
       decision: result.decision, evidence: result.evidence, language, requestedFacts,
-      knownPhoneSource: lane.context.knownPhoneSource, text: result.text, verifiedContext: remembered.context, inputText: text,
+      knownPhoneSource: lane.context.knownPhoneSource, text: result.text, verifiedContext: remembered.context, inputText: fullInput(),
       attachmentInput: prepared.attachmentInput,
       mediaPerception,
     } });

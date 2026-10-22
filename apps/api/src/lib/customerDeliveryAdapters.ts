@@ -16,7 +16,10 @@ export async function sendCustomerDeliveryPayload(row: CustomerOutboxRow, payloa
   if (payload.kind !== "text" || !supportsCustomerDeliveryPayload(row, payload)) throw new CustomerDeliveryHeldError("unsupported_payload_adapter");
   const transport = customerDeliveryTransportSchema.parse(row.transportJson), fence = customerDeliveryControllerFence(row);
   if (transport.channel === "WEBSITE") throw new CustomerDeliveryHeldError("website_requires_atomic_publication");
-  return sendMessage(transport.channel, fence.endpoint.peerId, payload.text, undefined, { origin: "bot", transport });
+  // A managed part bound to its genuine inbound ticket answers THAT input: the
+  // shield must not reclassify a queued/retried reply as an initiative by clock.
+  return sendMessage(transport.channel, fence.endpoint.peerId, payload.text, undefined,
+    { origin: "bot", transport, answersInbound: !!row.ticketEventKey && (row.sourceKind === "BOT_TURN" || row.sourceKind === "HANDOVER_ACK") });
 }
 
 /** Called under the original native/canonical lock. A durable projection marker

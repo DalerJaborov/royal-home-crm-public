@@ -31,6 +31,7 @@ export const invalidDecision = (value: unknown): ModelPart => {
 export async function createCustomerCoreGoldenFixture(options: { media?: boolean; publicEnvelope?: boolean } = {}) {
   const tag = `synthetic-core-companion-${randomUUID()}`, key = `${tag}-gemini-key`;
   const globalIgSecret = `${tag}-global-ig-secret`;
+  // A public envelope = the account owns a DIFFERENT app secret and the request is signed by a global key. Without an own secret two global keys now prove the namespace (F02, 23.10.2026).
   const accounts: string[] = [], events: string[] = [], partIds: string[] = [], properties: string[] = [], districts: string[] = [];
   const owners = new Map<string, { id: string; externalId: string; token: string; secret: string; peer: string }>();
   const ioViolations: string[] = [], bodies: unknown[] = [], physical: string[] = [], mids: string[] = [];
@@ -157,7 +158,7 @@ export async function createCustomerCoreGoldenFixture(options: { media?: boolean
         secret: `${tag}-secret-${accounts.length}`, peer: `${tag}-peer-${accounts.length}` };
       await prisma.messengerAccount.create({ data: { id, channel: "INSTAGRAM", externalId: o.externalId,
         username: `synthetic_companion_agency_${id.replaceAll("-", "")}`, title: "Synthetic golden companion", enabled: true,
-        token: encryptSecret(o.token), appSecret: options.publicEnvelope ? null : encryptSecret(o.secret) } });
+        token: encryptSecret(o.token), appSecret: encryptSecret(o.secret) } });
       const endpoint = await prisma.$transaction(tx => ensureCustomerEndpoint(tx, { channel: "INSTAGRAM", subscriberId: o.peer,
         accountId: id, accountExternalId: o.externalId }));
       await prisma.$executeRaw`UPDATE "CustomerRuntimePolicy" SET "rolloutConfig"=jsonb_set("rolloutConfig",'{allowed}',
