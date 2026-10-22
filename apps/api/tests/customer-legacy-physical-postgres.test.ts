@@ -132,6 +132,36 @@ it("ETIMEDOUT is not an inner retry or a second upstream/worker attempt for the 
   expect((await rows(t)).map(row => row.status)).toEqual(["UNKNOWN"]);
 });
 
+it.each([true, false])("one source context cannot use its next ordinal to resend UNKNOWN (same body=%s)", async sameBody => {
+  const t = await target(), originalMid = `synthetic-one-context-${randomUUID()}`;
+  const transport = { channel: "INSTAGRAM", endpointScopeId: t.endpointScopeId!, scopeRevision: "1", accountId: null, transportKey: "synthetic-owned" };
+  const physical = vi.fn().mockRejectedValueOnce(Object.assign(new Error("synthetic unknown after write"), { code: "ETIMEDOUT" }))
+    .mockResolvedValue(Response.json({ message_id: "must-not-send-second" })); vi.stubGlobal("fetch", physical);
+  await withLegacyMetaDmSource(originalMid, async () => {
+    const send = (text: string) => callGraph("https://graph.facebook.com/v23.0/test/messages", "test-no-external-token",
+      { recipient: { id: "synthetic-one-context-peer" }, message: { text } }, "POST", undefined, transport);
+    await expect(send("synthetic first answer")).rejects.toThrow("synthetic unknown after write");
+    await expect(send(sameBody ? "synthetic first answer" : "synthetic regenerated answer"))
+      .rejects.toThrow("original_physical_effect_already_attempted");
+  });
+  expect(physical).toHaveBeenCalledTimes(1);
+  expect((await rows(t)).map(row => row.status)).toEqual(["UNKNOWN"]);
+});
+
+it("one source may send distinct accepted parts but cannot repeat an identical accepted part by advancing ordinal", async () => {
+  const t = await target(), originalMid = `synthetic-accepted-parts-${randomUUID()}`;
+  const transport = { channel: "INSTAGRAM", endpointScopeId: t.endpointScopeId!, scopeRevision: "1", accountId: null, transportKey: "synthetic-owned" };
+  const physical = vi.fn(async () => Response.json({ message_id: `synthetic-part-${physical.mock.calls.length}` })); vi.stubGlobal("fetch", physical);
+  await withLegacyMetaDmSource(originalMid, async () => {
+    const send = (text: string) => callGraph("https://graph.facebook.com/v23.0/test/messages", "test-no-external-token",
+      { recipient: { id: "synthetic-parts-peer" }, message: { text } }, "POST", undefined, transport);
+    await send("synthetic first part"); await send("synthetic second distinct part");
+    await expect(send("synthetic second distinct part")).rejects.toThrow("original_physical_effect_already_attempted");
+  });
+  expect(physical).toHaveBeenCalledTimes(2);
+  expect((await rows(t)).map(row => row.status)).toEqual(["ACCEPTED", "ACCEPTED"]);
+});
+
 it("equal output from two distinct genuine source MIDs is not payload-deduplicated", async () => {
   const t = await target();
   const transport = { channel: "INSTAGRAM", endpointScopeId: t.endpointScopeId!, scopeRevision: "1", accountId: null, transportKey: "synthetic-owned" };
@@ -334,8 +364,14 @@ it("a proven pre-connect refusal settles NOT_SENT before a separately admitted r
   const t = await target(), physical = vi.fn().mockRejectedValueOnce(Object.assign(new Error("synthetic connect refusal"), { code: "ECONNREFUSED" }))
     .mockResolvedValue(Response.json({ messages: [{ id: "synthetic-wa-receipt" }] }));
   vi.stubGlobal("fetch", physical);
-  await fetchWithRetry("https://graph.facebook.com/v23.0/test/messages", { method: "POST" }, 15_000, undefined, t);
-  expect((await rows(t)).map(row => row.status)).toEqual(["NOT_SENT", "ACCEPTED"]);
+  const transport = { channel: "INSTAGRAM", endpointScopeId: t.endpointScopeId!, scopeRevision: "1", accountId: null, transportKey: "synthetic-owned" };
+  await withLegacyMetaDmSource(`synthetic-safe-retry-${randomUUID()}`, () => callGraph(
+    "https://graph.facebook.com/v23.0/test/messages", "test-no-external-token",
+    { recipient: { id: "synthetic-preconnect-peer" }, message: { text: "synthetic safe retry" } }, "POST", undefined, transport));
+  const attempts = await rows(t);
+  expect(attempts.map(row => row.status)).toEqual(["NOT_SENT", "ACCEPTED"]);
+  expect(attempts[0].sourceHash).not.toBeNull(); expect(attempts[0].effectKey).not.toBeNull();
+  expect(attempts[1].sourceHash).toBe(attempts[0].sourceHash); expect(attempts[1].effectKey).toBe(attempts[0].effectKey);
   expect(physical).toHaveBeenCalledTimes(2); await quiesce(t);
 });
 

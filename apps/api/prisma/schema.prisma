@@ -10077,7 +10077,7 @@ model CustomerLegacyPhysicalQuiescence {
   endpointScopeId String @id
   endpointScope CustomerEndpointScope @relation(fields: [endpointScopeId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   scopeRevision BigInt
-  createdAt DateTime @default(now()) @db.Timestamptz
+  createdAt DateTime @default(dbgenerated("clock_timestamp()")) @db.Timestamptz
 }
 
 /// Physical evidence retained across account removal, with no customer content.
@@ -10096,7 +10096,7 @@ model CustomerLegacyPhysicalAttempt {
   actorId String?
   status String
   providerId String?
-  createdAt DateTime @default(now()) @db.Timestamptz
+  createdAt DateTime @default(dbgenerated("clock_timestamp()")) @db.Timestamptz
   finishedAt DateTime? @db.Timestamptz
   @@index([status, endpointScopeId], map: "CustomerLegacyPhysicalAttempt_idle")
   @@index([endpointScopeId, sourceHash])

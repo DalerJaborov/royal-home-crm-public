@@ -16,6 +16,9 @@ MID hash and logical operation identity. A repeated accepted/unknown effect is
 held; different source MIDs may produce identical text. The existing retry worker
 checks that source before calling the model again. Only a constructed reaction
 may accept a non-message acknowledgement without a message receipt.
+A source-wide UNKNOWN also blocks a second call inside the same async context;
+advancing the part ordinal cannot renew it. Distinct accepted parts remain valid,
+while the identical accepted payload within one original source is held.
 DM receipts use message_id/messages[].id; a public-comment id alone cannot prove
 a DM send. Contradictory success/error flags remain UNKNOWN even with a MID.
 Retry snapshots capture MID, text and native timestamp together. A later input,

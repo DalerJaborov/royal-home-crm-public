@@ -56,6 +56,17 @@ export async function admitLegacyPhysicalPost(raw: LegacyPhysicalTarget): Promis
       FROM "CustomerLegacyPhysicalQuiescence" WHERE
       ${target.endpointScopeId}::text IS NULL OR "endpointScopeId"=${target.endpointScopeId}) AS blocked`;
     if (held?.blocked && !actorId) throw new CustomerLegacyPhysicalHeld("scope_quiesced");
+    if (!actorId && target.sourceHash) {
+      // Advancing a lazy part ordinal is not permission to retry an uncertain
+      // original source. Nor is an exact accepted body a newly declared part.
+      const [source] = await tx.$queryRaw<Array<{ blocked: boolean }>>`SELECT EXISTS(SELECT 1
+        FROM "CustomerLegacyPhysicalAttempt" WHERE "endpointScopeId"=${target.endpointScopeId}
+          AND "sourceHash"=${target.sourceHash} AND "actorKind"<>'STAFF' AND (
+            "status"='UNKNOWN' OR ("status" IN ('ACCEPTED','ACKNOWLEDGED')
+              AND "targetDigest"=${target.targetDigest} AND "payloadDigest"=${target.payloadDigest}
+              AND "operation"=${target.operation}))) AS blocked`;
+      if (source?.blocked) throw new CustomerLegacyPhysicalHeld("original_physical_effect_already_attempted");
+    }
     const prior = await tx.$queryRaw<Array<{ status: string; payloadDigest: string; targetDigest: string }>>`SELECT
       "status","payloadDigest","targetDigest" FROM "CustomerLegacyPhysicalAttempt" WHERE
       (${target.effectKey}::text IS NOT NULL AND "effectKey"=${target.effectKey}) OR
