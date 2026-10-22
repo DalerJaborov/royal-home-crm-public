@@ -55,8 +55,11 @@ export async function prepareCustomerDmInboxCoreContext(eventKey: unknown): Prom
     // CORE bypasses the legacy webhook loop's noteRealInbound. Without this
     // genuine FINAL observation, its replies were classified as initiatives
     // and could be silenced by the global initiative pulse. Never renew age or
-    // clear a native/HUMAN pause after the original controller was captured.
-    if (evidence.provenance === "meta_signature" && evidence.assurance === "protected_namespace") {
+    // clear a native/HUMAN pause after the original controller was captured
+    // (the shield pause itself is lifted earlier, in the acceptance transaction
+    // of customerIngressRecovery, before the fence is captured). Every signed
+    // Meta input counts, public_envelope included: its age used to stay unset.
+    if (evidence.provenance === "meta_signature") {
       const transport = await loadCustomerTransportForConversation(ticket.conversationId);
       if (!transport || !evidence.acceptedFence || transport.endpointScopeId !== ticket.endpointScopeId || transport.channel !== evidence.channel ||
           transport.accountId !== ticket.accountId || transport.scopeRevision !== evidence.acceptedFence.scopeRevision) {

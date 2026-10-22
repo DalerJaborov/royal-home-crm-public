@@ -192,8 +192,9 @@ export async function initializeVerifiedCustomerEndpoint(
 }
 /** Companion namespace proof; the legacy ANY-secret verifier remains unchanged.
  * Explicit account secret NEVER falls back to another app's key. With no own
- * secret, one distinct relevant configured global key is required; ambiguous
- * IG/FB fallback remains closed for actions/receipt reuse. No secret is stored
+ * secret, EXACTLY ONE relevant configured global key must verify the request
+ * (several may be configured: the signature picks the issuing app); a request
+ * signed by none of them stays closed for actions/receipt reuse. No secret is stored
  * in the runtime evidence. Called only on the same verified request/frame. */
 export async function verifyAndRegisterMetaCustomerIssuer(request: object & { rawBody?: Buffer; get(name: string): string | undefined },
   target: { channel: "INSTAGRAM" | "FACEBOOK" | "WHATSAPP"; accountId: string | null; accountExternalId?: string },
@@ -223,8 +224,13 @@ export async function verifyAndRegisterMetaCustomerIssuer(request: object & { ra
   if (!rows[0].explicitSecret) {
     const globals = await store.readGlobalSecrets();
     const relevant = [...new Set((target.channel === "INSTAGRAM" ? [globals.global, globals.instagram] : [globals.global]).filter((key): key is string => !!key))];
-    if (relevant.length !== 1) return false;
-    secret = relevant[0]; issuerSource = "single_channel_global";
+    // With two configured keys the request's own signature says which app issued
+    // it: the proof holds when EXACTLY ONE relevant key matches (23.10.2026,
+    // F02 — counting configured keys left every such account at public_envelope).
+    // The credential below is that of the matched key, as for a lone key.
+    const matching = relevant.filter(key => exactSignature(request.rawBody!, header, key));
+    if (matching.length !== 1) return false;
+    secret = matching[0]; issuerSource = "single_channel_global";
     verifierCredential = globals.global === secret ? globals.credentials?.global ?? null : globals.credentials?.instagram ?? null;
   }
   if (!secret || !exactSignature(request.rawBody, header, secret)) return false;

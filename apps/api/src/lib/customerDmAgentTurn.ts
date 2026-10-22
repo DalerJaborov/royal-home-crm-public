@@ -1,5 +1,6 @@
 import { loadCustomerAgentVerifiedDmContext } from "./customerAgentVerifiedContext.js";
-import { hasNewerCustomerInboxInput } from "./customerNewerInboxInput.js";
+import { hasNewerCustomerInboxInput, NEWER_INPUT_PENDING } from "./customerNewerInboxInput.js";
+import { loadDeferredCustomerInput } from "./customerDeferredInput.js";
 import type { CustomerAgentEvidence } from "../ai/customerAgentRenderer.js";
 import { runCustomerAgentTurn } from "../ai/customerAgentCore.js";
 import { customerAgentToolDefinitions, CUSTOMER_AGENT_PUBLIC_TOOLS } from "../ai/customerAgentToolDefinitions.js";
@@ -71,7 +72,7 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
   let runtime: Extract<Awaited<ReturnType<typeof openPinnedCustomerAgentRuntime>>, { status: "ready" }>["runtime"] | undefined;
   try {
     let text = lane.context.history[0]?.content ?? "";
-    const detected = detectCustomerDmLanguage(text);
+    let detected = detectCustomerDmLanguage(text);
     let language: "tg" | "ru" = detected === "tg" ? "tg" : "ru";
     let planningPrincipal = lane.principal;
     let activeMutations: CustomerAgentMutationSession | undefined;
@@ -115,6 +116,17 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     if (remembered.status !== "current") {
       await releaseHeldClaim(claim, remembered.reason);
       return remembered;
+    }
+    // Earlier inputs put aside as `newer_input_pending` are part of what the
+    // customer asks NOW (chronological, before the current words). Their raw
+    // inputs are not re-accepted: this is conversational meaning only, like the
+    // media transcript below. A non-decisive current text takes its language
+    // from the whole block.
+    const carried = await loadDeferredCustomerInput(planningPrincipal);
+    const fullInput = () => carried ? [carried, text].filter(part => part.trim()).join("\n") : text;
+    if (carried && detected !== "ru" && detected !== "tg") {
+      detected = detectCustomerDmLanguage(fullInput());
+      language = detected === "tg" ? "tg" : "ru";
     }
     // Short answers, names and locations may contain text but no decisive
     // language evidence. Preserve this customer's last meaningful USER turn,
@@ -170,7 +182,7 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     // signed message is already queued, rather than send two unrelated turns.
     mediaPrepared = true;
     if (await hasNewerCustomerInboxInput(claim.eventKey)) {
-      await releaseHeldClaim(claim, "newer_input_pending"); return { status: "held", reason: "newer_input_pending" };
+      await releaseHeldClaim(claim, NEWER_INPUT_PENDING); return { status: "held", reason: NEWER_INPUT_PENDING };
     }
     let mediaReferenceResolved = false;
     if (mediaPerception) {
@@ -198,10 +210,10 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
       authenticatedInput: lane.authenticatedInput, ticket: lane.ticket, agentClaim: claim, handoverAckLanguage: language });
     if (session.status !== "ready") { await releaseHeldClaim(claim, session.reason); return { status: "held", reason: session.reason }; }
     const mutations = session.session; activeMutations = mutations;
-    const requestedFacts = remembered.context.publicState.topic === "job" ? [] : classifyCustomerPropertyFactIntent(text, { hasPropertyContext: focus?.snapshot.focus.status === "resolved" }) ??
+    const requestedFacts = remembered.context.publicState.topic === "job" ? [] : classifyCustomerPropertyFactIntent(fullInput(), { hasPropertyContext: focus?.snapshot.focus.status === "resolved" }) ??
       (!text.trim() && prepared.attachmentInput && (prepared.attachmentPropertyReference || mediaReferenceResolved) && focus?.snapshot.focus.status === "resolved"
         ? ["price" as const, "address" as const] : []);
-    const result = await runCustomerAgentTurn({ surface: "dm", language, inputText: text, attachmentInput: prepared.attachmentInput, mediaPerception,
+    const result = await runCustomerAgentTurn({ surface: "dm", language, inputText: fullInput(), attachmentInput: prepared.attachmentInput, mediaPerception,
       knownPhoneSource: lane.context.knownPhoneSource, requestedFacts, revision: claim.pin.revision,
       startedAt: claim.pin.receivedAt, operation: runtime.operation,
       tools: customerAgentToolDefinitions([...CUSTOMER_AGENT_PUBLIC_TOOLS, ...mutations.availableToolNames]),
@@ -271,7 +283,7 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     const principal = mutations.principal;
     const sealed = await sealDmCustomerAgentDeliveryEvidence({ principal, claim, serverWitnesses: witnesses, render: {
       decision: result.decision, evidence: result.evidence, language, requestedFacts,
-      knownPhoneSource: lane.context.knownPhoneSource, text: result.text, verifiedContext: remembered.context, inputText: text,
+      knownPhoneSource: lane.context.knownPhoneSource, text: result.text, verifiedContext: remembered.context, inputText: fullInput(),
       attachmentInput: prepared.attachmentInput,
       mediaPerception,
     } });
