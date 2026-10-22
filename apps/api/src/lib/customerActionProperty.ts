@@ -22,7 +22,7 @@ export async function readCustomerActionProperty(fence: CustomerFence, db: TxCli
   if (!focus.success || focus.data.status !== "resolved" || !focus.data.propertyId ||
       focus.data.scopeKey !== customerPropertyScopeKey(endpoint.channel, endpoint.peerId, endpoint.accountId, endpoint.endpointScopeId)) return null;
   const facts = await readCustomerPropertyFacts(focus.data.propertyId, endpoint.channel, db);
-  return facts ? { propertyId: facts.propertyId, shortId: facts.shortId, signature: facts.signature, updatedAt: facts.updatedAt,
+  return facts && facts.availability !== "SOLD" ? { propertyId: facts.propertyId, shortId: facts.shortId, signature: facts.signature, updatedAt: facts.updatedAt,
     focusGeneration: focus.data.generation, focusRevision: native.customerPropertyFocusRevision } : null;
 }
 /** Call after canonical native/focus lock AND target Property lock. Compare the

@@ -8,6 +8,7 @@ import { customerRecruitmentRequested, customerRecruitmentFactsRequested, isCust
   recruitmentMissingForTurn, recruitmentRequiredQuestion } from "./customerAgentRecruitmentProtocol.js";
 import { customerRecruitmentReplyDetails, containsRecruitmentExperienceInvitation } from "./customerRecruitmentReply.js";
 import { clientOwnWords } from "./untrustedContent.js";
+import { customerCallbackConsentDecision } from "../lib/customerCallbackConsent.js";
 import { customerAgentAttachmentInputSchema, customerAgentAttachmentQuestion, type CustomerAgentAttachmentInput } from "./customerAgentAttachmentInput.js";
 import { customerAgentMediaPerceptionSchema, customerAgentVisualSummary, type CustomerAgentMediaPerception } from "./customerAgentMediaPerception.js";
 import { isPinnedCompanyPolicy, isPublicPropertySearch, isCustomerCompanyInformation, type CustomerAgentCompanyPolicyObservation,
@@ -58,6 +59,10 @@ export function customerAgentRenderedQuestion(input: { decision: CustomerAgentDe
   const d = input.decision;
   if (d.kind === "skip" || d.kind === "escalate" || d.kind === "moderation_proposal") return "none";
   if (d.kind === "propose") return "confirmation";
+  const referencedCards = input.evidence.filter(e => d.refs.includes(e.ref)).flatMap(e =>
+    e.value.kind === "facts" ? [e.value.facts] : e.value.kind === "publication_properties" ? e.value.cards : []);
+  if (referencedCards.length && referencedCards.every(f => f.availability === "SOLD") &&
+      customerCallbackConsentDecision(clientOwnWords(input.inputText ?? "")) !== "requested") return "none";
   // An evidenced refusal of an unavailable service is already a complete
   // answer. Do not reopen an unrelated job/property intake after it.
   if (!customerRecruitmentRequested(input.inputText ?? "") && input.evidence.some(e =>
@@ -163,6 +168,7 @@ const outcomes: Record<CustomerReceiptOutcome, { ru: string; tg: string }> = {
 };
 function factSegments(value: Extract<CustomerAgentObservation, { kind: "facts" }>, language: "ru" | "tg", question = ""): string[] {
   const f = value.facts, tg = language === "tg", result: string[] = [];
+  if (f.availability === "SOLD") return [customerPropertyAvailabilityLine(f, language)];
   for (const kind of new Set(value.kinds)) {
     if (kind === "price") {
       const amount = f.price?.replace(/\B(?=(\d{3})+(?!\d))/g, " ");
@@ -326,15 +332,27 @@ export function renderCustomerAgentDecision(input: {
   if (input.surface === "public_comment" && d.social === "thank" && isCustomerPublicAppreciation(input.inputText ?? "")) {
     lines.push(customerPublicThanks(input.inputText!, lang));
   } else if (social[d.social][lang]) lines.push(social[d.social][lang]);
+  const renderedFactLines = new Set<string>();
+  const appendFacts = (value: Extract<CustomerAgentObservation, { kind: "facts" }>) => {
+    const f = value.facts;
+    for (const line of factSegments({ ...value, kinds: requestedKinds(value.kinds) }, lang, input.inputText)) {
+      const implicitReserve = lang === "tg" ? "Объект ҳоло дар брон аст." : "Объект сейчас в брони.";
+      const availability = f.availability === "RESERVED" &&
+        (line === implicitReserve || line === customerPropertyAvailabilityLine(f, lang));
+      const key = JSON.stringify([f.propertyId, f.signature, availability ? "availability" : "line", availability ? f.availability : line]);
+      if (renderedFactLines.has(key)) continue;
+      renderedFactLines.add(key); lines.push(line);
+    }
+  };
   for (const item of evidence) {
     if (!item) return null;
-    if (item.value.kind === "facts") lines.push(...factSegments({ ...item.value, kinds: requestedKinds(item.value.kinds) }, lang, input.inputText));
+    if (item.value.kind === "facts") appendFacts(item.value);
     if (item.value.kind === "publication_properties") {
       const parsed = customerAgentPublicationObservationSchema.safeParse(item.value);
       if (!parsed.success || input.surface !== "public_comment") return null;
       if (parsed.data.cards.length > 1) lines.push(lang === "tg" ? "Объектҳо аз ҳамин нашрия:" : "Объекты из этой публикации:");
       for (const facts of parsed.data.cards) {
-        lines.push(...factSegments({ kind: "facts", facts, kinds: requestedKinds(parsed.data.kinds) }, lang, input.inputText));
+        appendFacts({ kind: "facts", facts, kinds: parsed.data.kinds });
         if (parsed.data.linksAllowed !== false && parsed.data.cards.length > 1 && facts.publicLink) lines.push(facts.publicLink);
       }
     }
