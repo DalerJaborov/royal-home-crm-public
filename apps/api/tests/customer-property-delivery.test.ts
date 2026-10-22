@@ -8,6 +8,14 @@ const db = vi.hoisted(() => ({ $executeRaw: vi.fn(), $queryRaw: vi.fn(), $discon
   messengerAccount: { findFirst: vi.fn(), findMany: vi.fn(), findUnique: vi.fn() }, processedMessage: { create: vi.fn() },
   systemError: { create: vi.fn(), findFirst: vi.fn() } }));
 vi.mock("../src/db.js", () => ({ prisma: db }));
+// This unit suite replaces all DB access. Substitute only the new ledger's DB
+// seam; real Meta parsing/property hooks still run. The immutable ledger and
+// concurrent admission are exercised by customer-legacy-physical-postgres.
+const physicalLedger = vi.hoisted(() => ({ admit: vi.fn(), settle: vi.fn() }));
+vi.mock("../src/lib/customerLegacyPhysical.js", async importOriginal => ({
+  ...(await importOriginal<typeof import("../src/lib/customerLegacyPhysical.js")>()),
+  admitLegacyPhysicalPost: physicalLedger.admit, settleLegacyPhysicalPost: physicalLedger.settle,
+}));
 import { managedCustomerPropertyReply, managedCustomerPropertyMessage, sendManagedCustomerPropertyReply } from "../src/lib/customerPropertyDelivery.js";
 import { projectCustomerPropertyFacts, renderCustomerPropertyFacts } from "../src/lib/customerPropertyFacts.js";
 import { customerPropertyPromptHistory, customerPropertyTurnTerminal } from "../src/lib/customerPropertyHistory.js";
@@ -47,6 +55,8 @@ function fixturePart() {
 }
 beforeEach(() => {
   vi.resetAllMocks(); resetOutgoingMids(); property = fixtureProperty();
+  physicalLedger.admit.mockResolvedValue("synthetic-property-unit-attempt");
+  physicalLedger.settle.mockResolvedValue(undefined);
   db.settings.findUnique.mockResolvedValue(null); db.property.findUnique.mockImplementation(async () => property);
   db.$executeRaw.mockResolvedValue(1); db.messengerAccount.findFirst.mockResolvedValue(null);
   vi.stubEnv("SETTINGS_ENCRYPTION_KEY", "1".repeat(64));
@@ -83,12 +93,16 @@ describe("actual managed Meta fact OUT boundary without DB or network", () => {
     const part = fixturePart(); db.$executeRaw.mockRejectedValue(new Error("fictional receipt write failure"));
     expect(await sendManagedCustomerPropertyReply(part, () => sendMessage("WHATSAPP", binding.subscriberId, part.text, "fictional-token", { transport }))).toBe("accepted");
     expect(fetch).toHaveBeenCalledTimes(1);
+    expect(physicalLedger.settle).toHaveBeenCalledWith("synthetic-property-unit-attempt", "ACCEPTED", "fictional-mid");
     expect(customerPropertyTurnTerminal([{ role: "user", content: "цена?", customerPropertyAdmission: { eventKey: "a".repeat(64), order: "1", conversationId: binding.id, channel: binding.channel, accountId: binding.accountId, scopeKey, evidence: [] } }, managedCustomerPropertyMessage(part)])).toBe(true);
   });
-  it("a 2xx response with no MID is accepted, never permission to replay", async () => {
+  it("a 2xx with no MID keeps the legacy turn terminal while its physical receipt remains UNKNOWN", async () => {
     const part = fixturePart(); vi.mocked(fetch).mockResolvedValue(new Response("{}", { status: 200 }));
     expect(await sendManagedCustomerPropertyReply(part, () => sendMessage("WHATSAPP", binding.subscriberId, part.text, "fictional-token", { transport }))).toBe("accepted");
     expect(fetch).toHaveBeenCalledTimes(1);
+    // The old property hook calls a completed 2xx turn accepted even without a
+    // MID. This is not a physical receipt or a CORE outbox acceptance.
+    expect(physicalLedger.settle).toHaveBeenCalledWith("synthetic-property-unit-attempt", "UNKNOWN");
   });
   it("new focus during typing holds the old exact text without calling transport", async () => {
     const part = fixturePart(); stored.customerPropertyFocusRevision = 2;

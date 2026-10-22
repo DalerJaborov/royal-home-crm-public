@@ -8,6 +8,11 @@ const db = vi.hoisted(() => ({ $disconnect: vi.fn(async () => {}), $queryRaw: vi
   settings: { findUnique: vi.fn() }, messengerAccount: { findFirst: vi.fn(), findMany: vi.fn(), findUnique: vi.fn() },
   processedMessage: { create: vi.fn() }, systemError: { create: vi.fn(), findFirst: vi.fn() } }));
 vi.mock("../src/db.js", () => ({ prisma: db }));
+// Unit trace/credential contract; real durable admission has separate PG races.
+vi.mock("../src/lib/customerLegacyMetaPhysical.js", () => ({
+  legacyMetaPhysicalTarget: () => undefined,
+  legacyMetaPhysicalFetch: (_target: unknown, physical: () => Promise<Response>) => physical(),
+}));
 import { parseIncoming, sendMessage, sendLocation, sendReaction, fetchInstagramProfile } from "../src/messengers/meta.js";
 import { withCustomerDeliveryTransport } from "../src/lib/customerDeliveryTransport.js";
 import * as shield from "../src/lib/outboundShield.js";

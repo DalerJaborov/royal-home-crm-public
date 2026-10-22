@@ -104,7 +104,7 @@ async function findOurStuck(): Promise<StuckRow[]> {
 const okTurn = { reply: "Хуб, чӣ мехоҳед?", ready: false, accepted: false, shouldReply: true };
 
 beforeEach(() => {
-  sendMessage.mockClear();
+  sendMessage.mockReset();
   sendMessage.mockResolvedValue("mid-out-1");
   stampOutgoingMid.mockClear();
   markLastReplyUndelivered.mockClear();
@@ -370,17 +370,11 @@ describe("retryAllStuckConversations — отправка только зави�
      */
     const conv = await makeConversation("undelivered");
     sendMessage.mockRejectedValueOnce(new Error("Graph API 500"));
-
-    const result = await retryStuckConversation({
-      id: conv.id,
-      channel: "FACEBOOK",
-      subscriberId: conv.subscriberId,
-      name: null,
-      accountId: conv.accountId,
-      lastText: "Салом",
-      // Старше пяти минут: свежую реплику ещё обрабатывает живой ход (28.09.2026).
-      lastMessageAt: new Date(Date.now() - 6 * 60 * 1000),
-    });
+    // Use the real captured native snapshot. A different text/timestamp is an
+    // intentionally stale job and must stop before the model or transport.
+    const snapshot = (await findOurStuck()).find(row => row.id === conv.id)!;
+    expect(snapshot).toBeDefined();
+    const result = await retryStuckConversation(snapshot);
 
     expect(result).toBe("failed");
     expect(markLastReplyUndelivered).toHaveBeenCalledTimes(1);
@@ -401,17 +395,9 @@ describe("retryAllStuckConversations — отправка только зави�
     // 11.09.2026: раньше WEBSITE попадал в ветку «неизвестный канал», и посетитель
     // сайта, чьё сообщение застало ИИ занятым, не получал ответа никогда.
     const conv = await makeConversation("website", { channel: "WEBSITE" });
-
-    const result = await retryStuckConversation({
-      id: conv.id,
-      channel: "WEBSITE",
-      subscriberId: conv.subscriberId,
-      name: null,
-      accountId: null,
-      lastText: "Салом",
-      // Старше пяти минут: свежую реплику ещё обрабатывает живой ход (28.09.2026).
-      lastMessageAt: new Date(Date.now() - 6 * 60 * 1000),
-    });
+    const snapshot = (await findOurStuck()).find(row => row.id === conv.id)!;
+    expect(snapshot).toBeDefined();
+    const result = await retryStuckConversation(snapshot);
 
     expect(result).toBe("sent");
     expect(processMessengerTurn).toHaveBeenCalledTimes(1);
@@ -424,17 +410,9 @@ describe("retryAllStuckConversations — отправка только зави�
 
   it("неизвестный канал — failed без единой попытки отправить", async () => {
     const conv = await makeConversation("badchan", { channel: "TELEGRAM" });
-
-    const result = await retryStuckConversation({
-      id: conv.id,
-      channel: "TELEGRAM",
-      subscriberId: conv.subscriberId,
-      name: null,
-      accountId: null,
-      lastText: "Салом",
-      // Старше пяти минут: свежую реплику ещё обрабатывает живой ход (28.09.2026).
-      lastMessageAt: new Date(Date.now() - 6 * 60 * 1000),
-    });
+    const snapshot = (await findOurStuck()).find(row => row.id === conv.id)!;
+    expect(snapshot).toBeDefined();
+    const result = await retryStuckConversation(snapshot);
 
     expect(result).toBe("failed");
     expect(processMessengerTurn).not.toHaveBeenCalled();

@@ -14,10 +14,11 @@ import { claimPublicManualCommentReply } from "../src/lib/customerPublicManualRe
 import { createCustomerRolloutFixture } from "./helpers/customerRolloutFixture.js";
 import { dispatchCustomerOutboxPart } from "../src/lib/customerDeliveryDispatcher.js";
 import * as meta from "../src/messengers/meta.js";
+import { cleanupLegacyPhysicalFixture } from "./helpers/cleanupLegacyPhysicalFixture.js";
 
 // Actual HTTP/auth/HMAC/source CAS/P12/PG. Only physical provider response is fake.
 const tag = `public-manual-${randomUUID()}`, accountId = randomUUID(), resource = `${tag}-resource`, secret = `${tag}-secret`;
-const sources: string[] = [], actors: string[] = [];
+const sources: string[] = [], actors: string[] = [], wireCommentIds: string[] = [];
 let token = "", actorId = "";
 let originalSettings: Awaited<ReturnType<typeof settingsSnapshot>>, originalPolicy: Awaited<ReturnType<typeof policySnapshot>>;
 let rollout: Awaited<ReturnType<typeof createCustomerRolloutFixture>>;
@@ -41,13 +42,14 @@ async function enable() {
 async function source() {
   await enable();
   await rollout.allowPublic("INSTAGRAM", resource);
+  const wireCommentId = `${tag}-${sources.length}`;
   const rawBody = Buffer.from(JSON.stringify({ object: "instagram", entry: [{ id: resource, changes: [{ field: "comments", value: {
-    id: `${tag}-${sources.length}`, media: { id: `${tag}-publication` }, from: { id: `${tag}-public-author` }, text: "Цена?" } }] }] }));
+    id: wireCommentId, media: { id: `${tag}-publication` }, from: { id: `${tag}-public-author` }, text: "Цена?" } }] }] }));
   const req = { rawBody, get: (name: string) => name === "x-hub-signature-256" ? `sha256=${createHmac("sha256", secret).update(rawBody).digest("hex")}` : undefined };
   registerAuthenticatedMetaCustomerRequest(req);
   const intake = await persistVerifiedMetaPublicCommentBatch(req); expect(intake.status).toBe("persisted");
   if (intake.status !== "persisted" || intake.sources.length !== 1) throw new Error("Actual signed fixture intake failed");
-  const ref = intake.sources[0]; sources.push(ref.id);
+  const ref = intake.sources[0]; sources.push(ref.id); wireCommentIds.push(wireCommentId);
   expect((await prisma.instagramComment.findUniqueOrThrow({ where: { id: ref.id } })).status).toBe("PENDING");
   return ref;
 }
@@ -69,6 +71,7 @@ beforeAll(async () => {
 });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 afterAll(async () => {
+  await cleanupLegacyPhysicalFixture({ publicMetaCommentIds: wireCommentIds });
   const parts = await prisma.customerOutboxPart.findMany({ where: { sourceKind: { in: ["PUBLIC_COMMENT_REPLY", "STAFF_PUBLIC_COMMENT_REPLY"] }, sourceKey: { in: sources.map(id => `meta:${id}`) } }, select: { id: true } });
   const ids = parts.map(row => row.id);
   await prisma.backgroundJob.deleteMany({ where: { dedupeKey: { in: ids.map(id => `customer-outbox-dispatch:${id}`) } } });

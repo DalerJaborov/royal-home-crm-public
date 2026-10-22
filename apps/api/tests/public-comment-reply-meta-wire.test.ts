@@ -1,6 +1,18 @@
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { postCommentReply, postCommentReplyResponse } from "../src/messengers/comments.js";
 import { publicCommentWireFixture } from "./helpers/publicCommentWireFixture.js";
+// The public wire fixture owns an in-memory source/receipt, not a database.
+// Keep actual wire parsing and source rechecks; isolate the ledger DB seam.
+// Its real SQL/UNKNOWN behavior is covered by physical-postgres integration.
+const physicalLedger = vi.hoisted(() => ({ admit: vi.fn(), settle: vi.fn() }));
+vi.mock("../src/lib/customerLegacyPhysical.js", async importOriginal => ({
+  ...(await importOriginal<typeof import("../src/lib/customerLegacyPhysical.js")>()),
+  admitLegacyPhysicalPost: physicalLedger.admit, settleLegacyPhysicalPost: physicalLedger.settle,
+}));
+beforeEach(() => {
+  physicalLedger.admit.mockReset().mockResolvedValue("synthetic-public-unit-attempt");
+  physicalLedger.settle.mockReset().mockResolvedValue(undefined);
+});
 vi.mock("../src/messengers/meta.js", async importOriginal => ({ ...(await importOriginal<typeof import("../src/messengers/meta.js")>()),
   loadCredentials: vi.fn(async () => ({ igToken: "synthetic-token", pageId: "synthetic-page", pageToken: "synthetic-token" })),
 }));
@@ -12,6 +24,7 @@ it("actual Meta wire preserves contradictory response instead of extracting ID e
   await expect(wire.run(beforePost => postCommentReplyResponse(target, "Synthetic", "synthetic-token", beforePost)))
     .rejects.toMatchObject({ reason: "contradictory_provider_response", receipt: { outcome: "unknown" } });
   expect(fetch).toHaveBeenCalledTimes(1);
+  expect(physicalLedger.settle).toHaveBeenCalledWith("synthetic-public-unit-attempt", "UNKNOWN");
 });
 it("actual Meta same original target positive keeps its returned ID", async () => {
   const fetch = vi.fn(async (url: unknown, init?: RequestInit) => { expect(String(url)).toContain("/comment-1/comments"); expect(JSON.parse(String(init?.body))).toEqual({ message: "Synthetic" });
@@ -19,6 +32,7 @@ it("actual Meta same original target positive keeps its returned ID", async () =
   const wire = publicCommentWireFixture(target);
   expect(await wire.run(beforePost => postCommentReplyResponse(target, "Synthetic", "synthetic-token", beforePost))).toBe("real-fake-id");
   expect(fetch).toHaveBeenCalledTimes(1);
+  expect(physicalLedger.settle).toHaveBeenCalledWith("synthetic-public-unit-attempt", "ACCEPTED", "real-fake-id");
 });
 it("actual Meta awaits credentials then rejects a revoked source before POST", async () => {
   const { loadCredentials } = await import("../src/messengers/meta.js"); const wire = publicCommentWireFixture(target);

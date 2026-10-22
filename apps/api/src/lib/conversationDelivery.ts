@@ -1,4 +1,5 @@
 import { maskPhones, type MessageSender } from "@royal-home/shared";
+import { withManualCustomerDeliveryIntent } from "./customerManualDeliveryIntent.js";
 import { isOutboundBlockedError, type OutboundOrigin } from "./outboundShield.js";
 import { prisma, type TxClient } from "../db.js";
 import { ownPropertyInterestConversationWhere } from "./ownBotConversationScope.js";
@@ -465,10 +466,10 @@ export async function deliverToConversation(
         origin: senderOrigin(options?.sender),
       });
     else
-      sentMid = await sendMetaMessage(metaChannel!, target.subscriberId, outgoing, accountToken, {
+      sentMid = await withManualCustomerDeliveryIntent(options?.sender, () => sendMetaMessage(metaChannel!, target.subscriberId, outgoing, accountToken, {
         origin: senderOrigin(options?.sender),
         transport: capturedTransport!,
-      });
+      }));
   } catch (err) {
     console.error("[conversations] отправка сообщения:", err instanceof Error ? err.message : err);
     // Закрытое 24-часовое окно — отдельный, узнаваемый случай (владелец
@@ -824,7 +825,7 @@ export async function deliverVoiceToConversation(
   let sentMid: string | null = null;
   try {
     if (isTelegram) await sendTelegramVoice(target.subscriberId, absoluteUrl);
-    else sentMid = await sendMetaAudio(metaChannel!, target.subscriberId, absoluteUrl, accountToken, capturedTransport!);
+    else sentMid = await withManualCustomerDeliveryIntent(options.sender, () => sendMetaAudio(metaChannel!, target.subscriberId, absoluteUrl, accountToken, capturedTransport!));
   } catch (err) {
     // Закрытое окно — не поломка CRM, не логируем (см. deliverToConversation выше
     // за подробным объяснением: fbtrace_id в тексте ошибки ломает дедупликацию
@@ -1137,15 +1138,15 @@ export async function deliverMediaToConversation(
       const link = `${crmPublicBase()}${mediaProxyPath}`;
       historyContent = `${caption ? `${caption}\n` : ""}Видео объекта: ${link}`;
       // Фото/видео из CRM грузит живой сотрудник — для щита это рука, а не бот.
-      sentMid = await sendMetaMessage(metaChannel!, target.subscriberId, historyContent, accountToken, {
+      sentMid = await withManualCustomerDeliveryIntent(options.sender, () => sendMetaMessage(metaChannel!, target.subscriberId, historyContent, accountToken, {
         origin: "staff",
         transport: capturedTransport!,
-      });
+      }));
     } else {
       historyContent = caption || (isImage ? "[📷 фото]" : "[🎥 видео]");
       sentMid = isImage
-        ? await sendMetaImage(metaChannel!, target.subscriberId, presignedUrl!, accountToken, capturedTransport!)
-        : await sendMetaVideo(metaChannel!, target.subscriberId, presignedUrl!, accountToken, capturedTransport!);
+        ? await withManualCustomerDeliveryIntent(options.sender, () => sendMetaImage(metaChannel!, target.subscriberId, presignedUrl!, accountToken, capturedTransport!))
+        : await withManualCustomerDeliveryIntent(options.sender, () => sendMetaVideo(metaChannel!, target.subscriberId, presignedUrl!, accountToken, capturedTransport!));
     }
   } catch (err) {
     // Закрытое окно — не поломка CRM, не логируем (см. deliverToConversation выше

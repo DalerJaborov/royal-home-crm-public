@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CustomerPrincipal } from "../src/lib/customerPrincipal.js";
 import type { CustomerTransportReference } from "../src/lib/customerConversationScope.js";
+// This suite isolates the existing principal fence, not the legacy ledger.
+vi.mock("../src/lib/customerLegacyMetaPhysical.js", () => ({
+  legacyMetaPhysicalTarget: () => undefined,
+  legacyMetaPhysicalFetch: (_target: unknown, physical: () => Promise<Response>) => physical(),
+}));
 // Actual sendMessage/callGraph/fetchWithRetry order, with explicit fake DB,
 // principal-store and HTTP seams. PG9 separately proves real owner invalidation;
 // this suite does not claim a live Meta or database race.

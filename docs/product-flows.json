@@ -33487,9 +33487,9 @@
           },
           {
            "k": "do",
-           "t": "const raw = await postCommentReplyResponse(target, body.data.text, token, ()",
+           "t": "const raw = await withAuthenticatedManualCustomerReply(req.agent!.id, ()",
            "a": [
-            "зовёт postCommentReplyResponse()"
+            "зовёт withAuthenticatedManualCustomerReply()"
            ],
            "c": []
           },
@@ -33624,9 +33624,9 @@
           },
           {
            "k": "do",
-           "t": "posted = await postCommentReply(row, body.data.text, account.token);",
+           "t": "posted = await withAuthenticatedManualCustomerReply(req.agent!.id, ()",
            "a": [
-            "зовёт postCommentReply()"
+            "зовёт withAuthenticatedManualCustomerReply()"
            ],
            "c": []
           }
@@ -74577,7 +74577,7 @@
          "c": [
           {
            "k": "do",
-           "t": "await withBotTurnTrace({ channel: traceMessage.channel, peer: traceMessage.senderId, account: traceMessage.ac…",
+           "t": "const processTracedMessage = async ()",
            "a": [
             "всё внутри — одной транзакцией",
             "читает в базе: botConversation",
@@ -75577,6 +75577,14 @@
              "c": []
             }
            ]
+          },
+          {
+           "k": "do",
+           "t": "await withBotTurnTrace({ channel: traceMessage.channel, peer: traceMessage.senderId, account: traceMessage.ac…",
+           "a": [
+            "зовёт withBotTurnTrace()"
+           ],
+           "c": []
           }
          ]
         }
