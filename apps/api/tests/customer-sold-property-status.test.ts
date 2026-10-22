@@ -65,3 +65,36 @@ it("does not even parse or hash historical sale terms for a sold card", () => {
   Object.defineProperty(value, "district", { get() { throw Error("Old address must not be read"); } });
   expect(projectCustomerPropertyFacts(value, "INSTAGRAM")?.availability).toBe("SOLD");
 });
+it.each(["AVAILABLE", "RESERVED"])("renders repeated automatic/model facts for %s once per card", status => {
+  const facts = projectCustomerPropertyFacts({ ...row(), status }, "INSTAGRAM")!;
+  const text = renderCustomerAgentDecision({ decision: { kind: "reply", refs: ["e0"], social: "none", question: "none" },
+    evidence: [{ ref: "e0", value: { kind: "facts", facts, kinds: ["price"] } },
+      { ref: "e1", value: { kind: "facts", facts, kinds: ["price", "availability"] } }],
+    requestedFacts: ["price"], language: "ru", surface: "dm", knownPhoneSource: "none", maxOutputChars: 1000 });
+  expect(text?.match(/987 654/g)).toHaveLength(1);
+  if (status === "RESERVED") {
+    expect(text?.match(/в брони/g)).toHaveLength(1);
+    const explicit = renderCustomerAgentDecision({ decision: { kind: "reply", refs: ["e0", "e1"], social: "none", question: "none" },
+      evidence: [{ ref: "e0", value: { kind: "facts", facts, kinds: ["price"] } },
+        { ref: "e1", value: { kind: "facts", facts, kinds: ["availability"] } }],
+      requestedFacts: [], language: "ru", surface: "dm", knownPhoneSource: "none", maxOutputChars: 1000 });
+    expect(explicit?.match(/в брони/g)).toHaveLength(1);
+  }
+});
+it("retains equal address facts from different cards and distinct editions of one card", () => {
+  const a = projectCustomerPropertyFacts({ ...row(), status: "AVAILABLE" }, "INSTAGRAM")!;
+  const b = { ...a, propertyId: "00000000-0000-4000-8000-000000000713", shortId: 713 };
+  const text = renderCustomerAgentDecision({ decision: { kind: "reply", refs: ["e0", "e1"], social: "none", question: "none" },
+    evidence: [{ ref: "e0", value: { kind: "facts", facts: a, kinds: ["address"] } },
+      { ref: "e1", value: { kind: "facts", facts: b, kinds: ["address"] } }],
+    requestedFacts: [], language: "ru", surface: "dm", knownPhoneSource: "none", maxOutputChars: 1000 });
+  expect(text?.match(/Расположение:/g)).toHaveLength(2);
+  // Delivery freshness rejects mixed editions. Rendering must not disguise
+  // that conflict by collapsing witnesses with different signatures.
+  const other = { ...a, signature: "b".repeat(64) };
+  const editions = renderCustomerAgentDecision({ decision: { kind: "reply", refs: ["e0", "e1"], social: "none", question: "none" },
+    evidence: [{ ref: "e0", value: { kind: "facts", facts: a, kinds: ["price"] } },
+      { ref: "e1", value: { kind: "facts", facts: other, kinds: ["price"] } }],
+    requestedFacts: [], language: "ru", surface: "dm", knownPhoneSource: "none", maxOutputChars: 1000 });
+  expect(editions?.match(/987 654/g)).toHaveLength(2);
+});

@@ -332,13 +332,17 @@ export function renderCustomerAgentDecision(input: {
   if (input.surface === "public_comment" && d.social === "thank" && isCustomerPublicAppreciation(input.inputText ?? "")) {
     lines.push(customerPublicThanks(input.inputText!, lang));
   } else if (social[d.social][lang]) lines.push(social[d.social][lang]);
-  const renderedSold = new Set<string>();
+  const renderedFactLines = new Set<string>();
   const appendFacts = (value: Extract<CustomerAgentObservation, { kind: "facts" }>) => {
-    if (value.facts.availability === "SOLD") {
-      if (renderedSold.has(value.facts.propertyId)) return;
-      renderedSold.add(value.facts.propertyId);
+    const f = value.facts;
+    for (const line of factSegments({ ...value, kinds: requestedKinds(value.kinds) }, lang, input.inputText)) {
+      const implicitReserve = lang === "tg" ? "Объект ҳоло дар брон аст." : "Объект сейчас в брони.";
+      const availability = f.availability === "RESERVED" &&
+        (line === implicitReserve || line === customerPropertyAvailabilityLine(f, lang));
+      const key = JSON.stringify([f.propertyId, f.signature, availability ? "availability" : "line", availability ? f.availability : line]);
+      if (renderedFactLines.has(key)) continue;
+      renderedFactLines.add(key); lines.push(line);
     }
-    lines.push(...factSegments({ ...value, kinds: requestedKinds(value.kinds) }, lang, input.inputText));
   };
   for (const item of evidence) {
     if (!item) return null;

@@ -195,7 +195,9 @@ it("actual signed URL turn resolves public site identity to the right CRM card, 
   const result = await consumeCustomerInboxTicket(f.eventKey);
   expect(result.status, JSON.stringify(result)).toBe("planned"); if (result.status !== "planned") throw Error(JSON.stringify(result));
   const part = await prisma.customerOutboxPart.findUniqueOrThrow({ where: { id: result.partIds[0] } });
-  expect(decodeCustomerOutboxPayload(part)).toMatchObject({ text: expect.stringContaining("456 789") });
+  const payload = decodeCustomerOutboxPayload(part);
+  expect(payload).toMatchObject({ text: expect.stringContaining("456 789") });
+  expect(payload.kind === "text" ? payload.text.match(/456 789/g) : []).toHaveLength(1);
   expect(JSON.stringify(decodeCustomerOutboxPayload(part))).not.toContain("111 111");
   const ticket = await prisma.customerPropertyIngressTicket.findUniqueOrThrow({ where: { eventKey: f.eventKey } });
   const native = await prisma.botConversation.findUniqueOrThrow({ where: { id: ticket.conversationId! } });

@@ -28,6 +28,10 @@
   новый IN, отмена исходного runtime, конфликт ID и unresolved B после A.
   Интеграция поймала двойную строку SOLD из automatic/model observations;
   устранено прицельным подавлением повторного статуса того же объекта.
+  Последующая проверка замороженной R1 выявила такой же повтор цены AVAILABLE.
+  R2 подавляет только одинаковые строки фактов той же карточки и signature;
+  RESERVED-статус тоже сообщается один раз. Разные карточки и версии фактов,
+  а также receipts и остальной текст этим механизмом не объединяются.
 - Версия: явное покрытие URL/identity/publication-rule/action guards в coreHash.
   Shared status contract/presentation меняют также knowledgeSchemaHash и
   rendererHash. Нужны полный облачный прогон, обычный ship, независимые server
