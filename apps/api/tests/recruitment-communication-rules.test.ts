@@ -4,7 +4,7 @@ import { recruitmentContactPreviewSchema } from "@royal-home/shared";
 import { assertSmsLength, bridgeRefusalStatus, hasCallWindowBefore, isUnresolvedDelivery, RecruitmentCommunicationError, smsSegments }
   from "../src/lib/recruitmentCommunicationRules.js";
 import { buildRecruitmentCommunicationContent } from "../src/lib/recruitmentCommunicationContent.js";
-import { vacancyOfficeMapUrl, VACANCY_FACTS } from "../src/ai/vacancyFacts.js";
+import { vacancyOfficeMapUrl, VACANCY_FACTS, VACANCY_OFFICE_MAP_QUERY } from "../src/ai/vacancyFacts.js";
 
 const facts = { name: "Тест", titleRu: "Агент", titleTg: "Агент", detailsRu: "ру", detailsTg: "тҷ", address: "Русский адрес", addressTg: "Суроғаи тоҷикӣ", missing: [] as never[] };
 const base = { purpose: "INVITE" as const, channels: ["SMS" as const], interviewAt: "2026-10-22T09:30:00Z" };
@@ -83,7 +83,9 @@ describe("office map link", () => {
   it("is a Google Maps search of the real office address and passes the whitelist", () => {
     const url = vacancyOfficeMapUrl();
     expect(url.startsWith("https://www.google.com/maps/search/?api=1&query=")).toBe(true);
-    expect(decodeURIComponent(url.split("query=")[1])).toBe(`${VACANCY_FACTS.office.city}, ${VACANCY_FACTS.office.address}`);
+    expect(decodeURIComponent(url.split("query=")[1])).toBe(VACANCY_OFFICE_MAP_QUERY);
+    expect(url.length).toBeLessThan(110);
+    expect(VACANCY_FACTS.office.address).toContain("Бухоро 49");
     expect(recruitmentContactPreviewSchema.safeParse({ ...base, language: "ru", mapUrl: url }).success).toBe(true);
     // The api build resolves @royal-home/shared from another tree, so read the whitelist source directly.
     const source = readFileSync(new URL("../../../packages/shared/src/recruitmentCommunications.ts", import.meta.url), "utf8");
