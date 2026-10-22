@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { Currency, PultModuleId } from "@royal-home/shared";
+import type { CallbackRequestView, Currency, PultModuleId } from "@royal-home/shared";
 import { api, ApiError } from "../lib/api";
 import { invalidateAfterDealChange } from "./useDeals";
 
@@ -26,7 +26,8 @@ export interface McZoneItem {
 }
 
 export interface McHero {
-  commission: { fact: number; plan: number; forecastEndOfMonth: number; forecastPercent: number } | null;
+  /** `planIsDefault: true` — план месяца не задан (подставлен по умолчанию): «% плана» не показываем. */
+  commission: { fact: number; plan: number; forecastEndOfMonth: number; forecastPercent: number; planIsDefault?: boolean } | null;
   profit: { todayTjs: number; previousTodayTjs: number } | null;
   leadsToday: { count: number; deltaVsYesterday: number };
   firstResponse: { medianMinYesterday: number | null; noneCountYesterday: number };
@@ -219,6 +220,8 @@ export interface McSystem {
   jobsGivenUpLast24h: number;
   newApplications: number;
   errorsToday: number;
+  /** Всего нерешённых ошибок, не только за сегодня. Поля может не быть — тогда только «за сегодня». */
+  unresolvedTotal?: number;
   control?: McControlGaps;
 }
 
@@ -337,6 +340,8 @@ export function useMissionControlLive(enabled = true) {
   });
 }
 
+const LIVE_SECTIONS: ReadonlySet<string> = new Set(["hero", "firstLine", "calls"]);
+
 export function useMissionControl(enabled = true) {
   const live = useMissionControlLive(enabled);
   const zones = useQuery({
@@ -359,6 +364,8 @@ export function useMissionControl(enabled = true) {
      *  дышать ореолу или нет (движение конечно: ровно на время запроса). */
     isFetching: live.isFetching || zones.isFetching,
     refetch: () => Promise.allSettled([live.refetch(), zones.refetch()]),
+    /** Перезапросить только тот опрос, в котором лежит секция: герой, первая линия и звонки — «живой», остальное — зоны. */
+    refetchSection: (key: string) => Promise.allSettled([LIVE_SECTIONS.has(key) ? live.refetch() : zones.refetch()]),
   };
 }
 
@@ -512,14 +519,35 @@ export function usePropertiesPendingReview(enabled = true) {
  * вторую кнопку сверх таблицы §3 спецификации, которая говорит про решение
  * одной кнопкой, а не про весь конвейер модерации).
  */
+export type ReviewMaterial = "photos" | "video";
+
+function invalidateAfterPropertyReview(qc: ReturnType<typeof useQueryClient>) {
+  invalidateMissionControl(qc);
+  void qc.invalidateQueries({ queryKey: ["properties"] });
+  void qc.invalidateQueries({ queryKey: ["property"] });
+}
+
 export function useApprovePropertyMaterials() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (propertyId: string) => {
-      await api(`/properties/${propertyId}/review/approve`, { method: "POST", body: { material: "photos" } });
+    mutationFn: async (arg: string | { propertyId: string; material?: ReviewMaterial }) => {
+      const { propertyId, material = "photos" } = typeof arg === "string" ? { propertyId: arg } : arg;
+      await api(`/properties/${propertyId}/review/approve`, { method: "POST", body: { material } });
       return true;
     },
-    onSuccess: () => invalidateMissionControl(qc),
+    onSuccess: () => invalidateAfterPropertyReview(qc),
+  });
+}
+
+/** «Вернуть с причиной»: POST /properties/:id/review/reject (причина обязательна на сервере). */
+export function useRejectPropertyMaterials() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ propertyId, material, reason }: { propertyId: string; material: ReviewMaterial; reason: string }) => {
+      await api(`/properties/${propertyId}/review/reject`, { method: "POST", body: { material, reason: reason.trim() } });
+      return true;
+    },
+    onSuccess: () => invalidateAfterPropertyReview(qc),
   });
 }
 
@@ -527,9 +555,10 @@ export function useApprovePropertyMaterials() {
 export function useResolveAllSystemErrors() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async () => {
-      // Только сегодняшние — ровно те, что пульт посчитал (аудит 23.09.2026, №56).
-      await api("/errors/resolve-all", { method: "POST", body: { scope: "today" } });
+    mutationFn: async (scope: "today" | "all" = "today") => {
+      // По умолчанию только сегодняшние — ровно те, что пульт посчитал (аудит 23.09.2026, №56).
+      // «all» — когда сервер прислал общее число нерешённых и директор видел именно его.
+      await api("/errors/resolve-all", { method: "POST", body: { scope } });
       return true;
     },
     onSuccess: () => invalidateMissionControl(qc),
@@ -565,5 +594,57 @@ export function useUndoTransferClient() {
     mutationFn: ({ clientId, toAgentId }: { clientId: string; toAgentId: string }) =>
       api(`/clients/${clientId}/assign`, { method: "POST", body: { agentId: toAgentId } }),
     onSuccess: () => invalidateAfterClientTransfer(qc),
+  });
+}
+
+/** Адрес решения по заявке: клиентские и объектные заявки живут в разных роутерах. */
+export function deleteRequestPath(kind: "CLIENT" | "PROPERTY", id: string, decision: "approve" | "reject"): string {
+  return `/${kind === "CLIENT" ? "clients" : "properties"}/delete-requests/${id}/${decision}`;
+}
+
+/** Отказ без причины сервер не принимает (decisionNote обязателен), одобрение идёт с пустым телом. */
+export function deleteRequestBody(decision: "approve" | "reject", note?: string): { decisionNote?: string } {
+  return decision === "reject" ? { decisionNote: (note ?? "").trim() } : {};
+}
+
+/** Заявка агента на удаление клиента/объекта: решает руководство (clients.delete / properties.delete). */
+export function useDeleteRequestDecision() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ kind, id, decision, note }: { kind: "CLIENT" | "PROPERTY"; id: string; decision: "approve" | "reject"; note?: string }) => {
+      await api(deleteRequestPath(kind, id, decision), { method: "POST", body: deleteRequestBody(decision, note) });
+      return true;
+    },
+    onSuccess: () => {
+      invalidateMissionControl(qc);
+      void qc.invalidateQueries({ queryKey: ["clients"] });
+      void qc.invalidateQueries({ queryKey: ["properties"] });
+    },
+  });
+}
+
+/** «Просят перезвонить»: очередь GET /me/callback-requests (право messages.view). */
+export function useCallbackRequests(enabled = true) {
+  return useQuery({
+    queryKey: ["callback-requests", "pult"],
+    queryFn: () => api<{ items: CallbackRequestView[] }>("/me/callback-requests"),
+    enabled,
+    select: (data) => data.items,
+    staleTime: 20_000,
+  });
+}
+
+/** «Готово» у просьбы о звонке; для управляемой просьбы сервер требует ревизию. */
+export function useCallbackDone() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (item: Pick<CallbackRequestView, "id" | "lifecycleRevision">) => {
+      await api(`/me/callback-requests/${item.id}/done`, { method: "POST", body: item.lifecycleRevision ? { expectedRevision: item.lifecycleRevision } : {} });
+      return true;
+    },
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: ["callback-requests"] });
+      invalidateMissionControl(qc);
+    },
   });
 }

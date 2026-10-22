@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { ActionRowList, type ActionRowAvatar, type ActionRowData } from "./ActionRow";
 import { ACTION_INVENTORY } from "./ActionInventory";
-import { pickLeastLoadedAgent } from "./leastLoadedAgent";
+import { pickLeastLoadedAgent, transferChoice } from "./leastLoadedAgent";
 import { api } from "../../lib/api";
 import { useIsReadOnly } from "../../lib/permissions";
 import { formatMoney } from "../../lib/format";
@@ -47,7 +47,8 @@ export function summarizePultActionStatus(queries: readonly { isLoading: boolean
 
 /** Grouped decisions must not retain hidden mutation callbacks for observers. */
 export function readOnlyPultRows(rows: ActionRowData[]): ActionRowData[] {
-  return rows.map((row) => ({ ...row, actions: [], bulkLabel: undefined, bulkEndpoint: undefined,
+  return rows.map((row) => ({ ...row, actions: [], bulkLabel: undefined, bulkEndpoint: undefined, bulkConfirm: undefined,
+    choice: undefined, review: undefined, ownerQuestionId: undefined,
     ...(row.members ? { members: readOnlyPultRows(row.members) } : {}),
   }));
 }
@@ -70,7 +71,9 @@ export function propertyReviewActionRow(p: { id: string; shortId: number; title:
     title: `ОБ-${String(p.shortId).padStart(6, "0")}: материалы ждут проверки`,
     description: `«${p.title}»`,
     actions: [],
-    links: [{ label: "Проверить материалы", href: `/properties/${p.shortId}` }],
+    // Решение принимается на месте (шторка «Проверить материалы»); карточка — вторая кнопка.
+    review: { propertyId: p.id, shortId: p.shortId, title: p.title },
+    links: [{ label: "Открыть карточку", href: `/properties/${p.shortId}` }],
   };
 }
 
@@ -91,9 +94,9 @@ export function usePultActionRows(enabled = true): ActionRowData[] | null {
   const transferClient = useTransferClient();
   const undoTransferClient = useUndoTransferClient();
 
-  const leastLoadedAgent = useMemo(() => {
+  const { leastLoadedAgent, agentChoice } = useMemo(() => {
     const agents: McAgent[] = data?.team && mcOk(data.team) ? data.team.agents : [];
-    return pickLeastLoadedAgent(agents);
+    return { leastLoadedAgent: pickLeastLoadedAgent(agents), agentChoice: transferChoice(agents) };
   }, [data]);
 
   const rows = useMemo(() => {
@@ -130,7 +133,8 @@ export function usePultActionRows(enabled = true): ActionRowData[] | null {
             },
             // Без «Отменить»: закрытую сделку сервер назад не пускает (409), и
             // кнопка ничего не отменяла, хотя строка показывала «отменено»
-            // (аудит 23.09.2026, №36). Одобрение и так спрашивается один раз.
+            // (аудит 23.09.2026, №36). Вместо отмены после — второй клик до: деньги.
+            confirm: "Точно одобрить?",
             doneMessage: "Одобрено",
           },
         ],
@@ -161,13 +165,17 @@ export function usePultActionRows(enabled = true): ActionRowData[] | null {
         id: `client-${item.id}`,
         tone: "warn",
         avatar: initialsAvatar(item.title, "aqua"),
-        title: `${item.title}: передать ${leastLoadedAgent.fullName}?`,
+        title: `${item.title}: клиент без движения`,
         description: item.hint,
+        choice: agentChoice ?? undefined,
         actions: [
           {
             label: "Передать",
             endpoint: entry.endpoint,
-            onRun: async () => {
+            onRun: async (choiceId) => {
+              const target = agentChoice?.options.find((o) => o.id === choiceId);
+              const toAgentId = target ? target.id : leastLoadedAgent.id;
+              lastTransferName.set(item.id, target ? target.label.split(" · ")[0] : leastLoadedAgent.fullName);
               // Обратный вызов должен вернуть прежнего агента — assign сам его
               // не возвращает, поэтому запоминаем его ДО передачи (существующий
               // роут карточки клиента, не новый эндпоинт).
@@ -175,7 +183,7 @@ export function usePultActionRows(enabled = true): ActionRowData[] | null {
               const card = await api<{ assignedAgent: { id: string } | null }>(`/clients/${shortId}`);
               const prevAgentId = card.assignedAgent?.id;
               if (!prevAgentId) throw new Error("Прежний агент неизвестен. Передайте клиента из его карточки.");
-              await transferClient.mutateAsync({ clientId: item.id, toAgentId: leastLoadedAgent.id });
+              await transferClient.mutateAsync({ clientId: item.id, toAgentId });
               prevAgentIds.set(item.id, prevAgentId);
               return true;
             },
@@ -186,7 +194,7 @@ export function usePultActionRows(enabled = true): ActionRowData[] | null {
               if (!prevAgentId) throw new Error("Прежний агент неизвестен. Проверьте назначение в карточке клиента.");
               await undoTransferClient.mutateAsync({ clientId: item.id, toAgentId: prevAgentId });
             },
-            doneMessage: `Передан ${leastLoadedAgent.fullName} · отменить 10 с`,
+            doneMessage: () => `Передан ${lastTransferName.get(item.id) ?? leastLoadedAgent.fullName} · отменить 10 с`,
           },
         ],
       });
@@ -202,7 +210,9 @@ export function usePultActionRows(enabled = true): ActionRowData[] | null {
         k: "Клиенты",
         tone: "warn",
         avatar: { label: String(clientRows.length), tone: "aqua" },
-        title: `${clientRows.length} ${pluralClients(clientRows.length)} без движения: передать ${leastLoadedAgent.fullName}?`,
+        title: `${clientRows.length} ${pluralClients(clientRows.length)} без движения`,
+        choice: agentChoice ?? undefined,
+        bulkConfirm: (n) => `Передать ${n} ${pluralClientsAcc(n)}?`,
         description: names.length > 3 ? `${names.slice(0, 3).join(", ")} и ещё ${names.length - 3}` : names.join(", "),
         actions: [],
         members: clientRows,
@@ -215,23 +225,30 @@ export function usePultActionRows(enabled = true): ActionRowData[] | null {
 
     // 4) Ошибки системы — массовое действие, без списка (bulk, нет undo).
     const errorsToday = data?.system && mcOk(data.system) ? data.system.errorsToday : 0;
-    if (errorsToday > 0) {
+    const unresolvedTotal = data?.system && mcOk(data.system) ? data.system.unresolvedTotal : undefined;
+    // Сервер прислал общее число нерешённых — разбираем именно его (scope "all"), иначе только сегодняшние.
+    const resolveScope = unresolvedTotal !== undefined ? "all" : "today";
+    const resolveCount = unresolvedTotal !== undefined ? unresolvedTotal : errorsToday;
+    if (errorsToday > 0 || resolveCount > 0) {
       const entry = inv("system-errors-resolve-all");
       out.push({
         id: "system-errors",
         tone: errorsToday >= 10 ? "crit" : "warn",
         avatar: { label: "СИ", tone: "sky" },
-        title: `${errorsToday} ${plural(errorsToday)} за сегодня`,
+        title: unresolvedTotal !== undefined
+          ? `${errorsToday} ${plural(errorsToday)} за сегодня · всего нерешённых ${unresolvedTotal}`
+          : `${errorsToday} ${plural(errorsToday)} за сегодня`,
         description: "разобрать все одним нажатием",
         actions: [
           {
             label: "Разобрать все",
             endpoint: entry.endpoint,
+            confirm: `Разобрать ${resolveCount} ${plural(resolveCount)}?`,
             onRun: async () => {
-              await resolveAllErrors.mutateAsync();
+              await resolveAllErrors.mutateAsync(resolveScope);
               return true;
             },
-            doneMessage: `Разобрано · ${errorsToday}`,
+            doneMessage: `Разобрано · ${resolveCount}`,
           },
         ],
       });
@@ -248,7 +265,9 @@ export function usePultActionRows(enabled = true): ActionRowData[] | null {
         avatar: { label: "?", tone: "lav" },
         title: q.text,
         actions: [],
-        links: [{ label: "Ответить", href: q.href }],
+        // Ответ вводится в самой строке (CleanDecisionRow); ссылка — запасной путь, пока очередь вопросов грузится.
+        ownerQuestionId: q.id.replace(/^owner-question-/, ""),
+        links: [{ label: "Открыть вопрос", href: q.href }],
       });
     }
 
@@ -263,6 +282,7 @@ export function usePultActionRows(enabled = true): ActionRowData[] | null {
     resolveAllErrors,
     transferClient,
     undoTransferClient,
+    agentChoice,
   ]);
 
   // Пока снимок пульта не пришёл (data нет), «Всё решено» рисовать нельзя.
@@ -272,6 +292,8 @@ export function usePultActionRows(enabled = true): ActionRowData[] | null {
 /** Строка-хранилище прежнего агента для отмены передачи — вне React-состояния
  *  намеренно: живёт ровно 10 с окна undo, не переживает перерендер списка. */
 const prevAgentIds = new Map<string, string>();
+/** Имя агента, которому только что передали клиента (для текста «Передан …»). */
+const lastTransferName = new Map<string, string>();
 
 /**
  * Три и больше одинаковых решений сворачиваются в одну строку с «Разобрать»
@@ -309,6 +331,11 @@ function pluralClients(n: number): string {
   if (mod10 === 1 && mod100 !== 11) return "клиент";
   if ([2, 3, 4].includes(mod10) && ![12, 13, 14].includes(mod100)) return "клиента";
   return "клиентов";
+}
+
+/** «Передать 1 клиента / 5 клиентов?» — винительный падеж. */
+function pluralClientsAcc(n: number): string {
+  return n % 10 === 1 && n % 100 !== 11 ? "клиента" : "клиентов";
 }
 
 function plural(n: number): string {
