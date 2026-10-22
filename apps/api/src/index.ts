@@ -33,6 +33,7 @@ import { setAssignAgentForLeadHook, setRecordAssignReasonHook } from "./lib/tele
 import { beginShutdown, drainBackgroundTasks } from "./lib/shutdownState.js";
 import { closeAllStreams } from "./lib/eventBus.js";
 import { resetIncompleteProcessedMessages } from "./lib/webhookDedupe.js";
+import { checkActiveCustomerAgentRevisionOnStart } from "./lib/customerAgentRevisionStartCheck.js";
 
 assertProductionEnv();
 
@@ -101,6 +102,10 @@ const server = app.listen(port, () => {
    * Отказ глушим: настройки ИИ не должны мешать HTTP-процессу подняться.
    */
   void resolveGeminiRuntime().catch(() => {});
+
+  // New-bot core: an ACTIVE policy whose revision no longer matches the installed
+  // code silences every dialog; journal it at boot, not at the first lost client.
+  void checkActiveCustomerAgentRevisionOnStart();
 
   /**
    * ТЕЛЕФОНИЯ ЖИВЁТ ЗДЕСЬ, В HTTP-ПРОЦЕССЕ, — НЕ В WORKER (аудит №4, 27.08).

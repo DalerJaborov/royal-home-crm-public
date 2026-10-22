@@ -17,6 +17,7 @@ import { setPickAgentForLeadHook } from "./lib/telephony/pickAgentForLeadHook.js
 import { assignAgentForLead, recordAssignReason } from "./services/leads/assignment.js";
 import { setAssignAgentForLeadHook, setRecordAssignReasonHook } from "./lib/telephony/assignAgentForLeadHook.js";
 import { settleBackgroundHandoffDispatches } from "./lib/videoHandoff.js";
+import { checkActiveCustomerAgentRevisionOnStart } from "./lib/customerAgentRevisionStartCheck.js";
 
 /**
  * ФОНОВЫЙ ПРОЦЕСС (26.08.2026, чертёж каркаса, этап А2/А3).
@@ -95,6 +96,8 @@ if (isMain) {
 
   console.log("[worker] фоновый процесс запущен");
   startBackgroundWork();
+  // Same boot-time guard as index.ts; the journal dedups across both processes.
+  void checkActiveCustomerAgentRevisionOnStart();
 
   /**
    * МЯГКАЯ СМЕРТЬ, КОТОРАЯ ДЕЙСТВИТЕЛЬНО ЖДЁТ (починено 27.08.2026, аудит №4;
