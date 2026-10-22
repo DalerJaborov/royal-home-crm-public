@@ -10,6 +10,8 @@ import { ensureCustomerEndpoint, type CustomerTransportReference } from "./custo
 import { customerPropertyEventKey, customerPropertyScopeKey } from "./customerPropertyScope.js";
 import { enrollCustomerAgentSubjectTx, readCustomerDmSourceExecution, type CustomerAgentExecution } from "./customerAgentEnrollment.js";
 import { captureCustomerDmRouting, inspectCustomerDmRouting, type CustomerDmRoutingWitness, type CustomerUnkeyedRoutingInput } from "./customerAgentRoutingReference.js";
+import { customerIngressPayloadHash } from "./customerIngressPayload.js";
+import { findOriginalNativeMid, persistOriginalLegacySource } from "./customerOriginalSource.js";
 export { inspectCustomerDmRouting, type CustomerDmRoutingWitness } from "./customerAgentRoutingReference.js";
 
 type Request = object & { rawBody?: Buffer; aborted?: boolean; get(name: string): string | undefined };
@@ -100,17 +102,37 @@ export async function prepareVerifiedCustomerDmRouting(request: Request): Promis
       const { input, transport, subject } = item;
       const scopeKey = customerPropertyScopeKey(input.channel, input.peer, transport.accountId, transport.endpointScopeId);
       const eventKey = input.eventId ? customerPropertyEventKey(scopeKey, input.eventKind, input.eventId) : null;
-      const execution = await prisma.$transaction(async tx => {
-        const source = eventKey ? await readCustomerDmSourceExecution(tx, eventKey, scopeKey, subject) : null;
+      const selected = await prisma.$transaction(async tx => {
+        // Namespace lock precedes source/native locks, including the history
+        // guard that intentionally does not create an enrollment assignment.
+        const scopes = await tx.$queryRaw<Array<{ id: string }>>`SELECT "id" FROM "CustomerEndpointScope"
+          WHERE "id"=${transport.endpointScopeId} AND "kind"='NORMAL' AND "realmKey"='royal-home'
+            AND "channel"=${transport.channel} AND "messengerAccountId" IS NOT DISTINCT FROM ${transport.accountId}
+            AND "transportKey"=${transport.transportKey} AND "scopeRevision"=${BigInt(transport.scopeRevision)} FOR SHARE`;
+        if (scopes.length !== 1) return { execution: { lane: "HELD" as const, reason: "captured_scope_changed" } };
+        const source = eventKey && input.eventId ? await readCustomerDmSourceExecution(tx, eventKey, scopeKey, subject, customerIngressPayloadHash(input)) : null;
         // Historical source ownership never changes with a new rollout. For
         // old LEGACY without an assignment, also persist the subject baseline.
-        if (source?.lane === "CORE" || source?.lane === "HELD") return source;
+        if (source?.lane === "CORE" || source?.lane === "HELD") return { execution: source };
+        if (!source && eventKey && input.eventId) {
+          const nativeHistoryId = await findOriginalNativeMid(tx, input, transport);
+          if (nativeHistoryId) {
+            await persistOriginalLegacySource(tx, { input, transport, eventKey, scopeKey, assignmentId: null,
+              nativeHistoryId, receivedAt: evidence.issuedAt });
+            return { execution: { lane: "HELD" as const, reason: "original_native_source_already_observed" } };
+          }
+        }
         const enrolled = await enrollCustomerAgentSubjectTx(tx, subject, input.eventId ? {} : { legacyOnly: true });
-        if (!eventKey && enrolled.lane === "CORE") return { lane: "HELD" as const, reason: "unkeyed_core_input_unsupported" };
-        if (source?.lane === "LEGACY") return enrolled.lane === "LEGACY" ? source : { lane: "HELD" as const, reason: "historical_legacy_selection_conflict" };
-        return enrolled;
+        if (!eventKey && enrolled.lane === "CORE") return { execution: { lane: "HELD" as const, reason: "unkeyed_core_input_unsupported" } };
+        if (source?.lane === "LEGACY") return { execution: enrolled.lane === "LEGACY" ? source : { lane: "HELD" as const, reason: "historical_legacy_selection_conflict" } };
+        if (enrolled.lane === "LEGACY" && eventKey && input.eventId) {
+          await persistOriginalLegacySource(tx, { input, transport, eventKey, scopeKey,
+            assignmentId: enrolled.assignment?.id ?? null, receivedAt: evidence.issuedAt });
+          return { execution: enrolled };
+        }
+        return { execution: enrolled };
       }, { maxWait: 5000, timeout: 10000 });
-      const witness = captureCustomerDmRouting({ input, transport, scopeKey, eventKey, execution });
+      const witness = captureCustomerDmRouting({ input, transport, scopeKey, eventKey, ...selected });
       witnesses.push(witness);
     }
     // Prevent caller mutations and awaited signing/config changes from being

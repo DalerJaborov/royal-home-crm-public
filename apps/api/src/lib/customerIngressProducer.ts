@@ -111,10 +111,11 @@ export async function persistVerifiedCustomerIngressBatch(request: Request): Pro
         const receivedAt = requestEvidence.issuedAt;
         await tx.$executeRaw`INSERT INTO "CustomerPropertyIngressTicket"
           ("eventKey","order","scopeKey","endpointScopeId","eventKind","payloadVersion","payloadCiphertext","payloadHash","receivedAt","providerOccurredAt","processingState",
-            "intakeAgentRevisionId","rolloutAssignmentId")
+            "intakeAgentRevisionId","rolloutAssignmentId","routingSourceVersion","routingSourceHash","routingScopeRevision","routingProvenance")
           VALUES (${eventKey},${order},${scopeKey},${endpoint.endpointScopeId},${entry.eventKind},1,${ciphertext},${hash},
             ${new Date(receivedAt)},${entry.providerOccurredAt ? new Date(entry.providerOccurredAt) : null},'RECEIVED',
-            ${originalRevisionId},${assignmentId})
+            ${originalRevisionId},${assignmentId},${selection ? 1 : null},${selection ? hash : null},
+            ${selection ? BigInt(endpoint.scopeRevision) : null},${selection ? "META_ENVELOPE" : null})
           ON CONFLICT ("eventKey") DO NOTHING`;
         const [stored] = await tx.$queryRaw<Stored[]>`SELECT "eventKey","order","scopeKey","endpointScopeId","payloadVersion","payloadCiphertext","payloadHash",
           "conversationId","originalConversationId","tombstonedAt" FROM "CustomerPropertyIngressTicket" WHERE "eventKey"=${eventKey} FOR UPDATE`;

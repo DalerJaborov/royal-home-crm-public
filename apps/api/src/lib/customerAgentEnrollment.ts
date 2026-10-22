@@ -57,14 +57,20 @@ export async function readCustomerDmSubjectExecution(db: Db, transport: {
  * Return CORE means owned by that original brain, never permission to execute;
  * its real original age/policy/authority/kill guards still decide applicability. */
 export async function readCustomerDmSourceExecution(db: Db, eventKey: string, scopeKey: string,
-  subject: Extract<CustomerAgentEnrollmentSubject, { surface: "dm" }>): Promise<CustomerAgentExecution | null> {
+  subject: Extract<CustomerAgentEnrollmentSubject, { surface: "dm" }>, contentHash?: string): Promise<CustomerAgentExecution | null> {
   const rows = await db.$queryRaw<Array<{ intakeAgentRevisionId: string | null; rolloutAssignmentId: string | null;
-    endpointScopeId: string | null; tombstonedAt: Date | null }>>`
-    SELECT "intakeAgentRevisionId","rolloutAssignmentId","endpointScopeId","tombstonedAt" FROM "CustomerPropertyIngressTicket"
+    endpointScopeId: string | null; tombstonedAt: Date | null; routingSourceVersion: number | null;
+    routingSourceHash: string | null; routingScopeRevision: bigint | null; routingProvenance: string | null }>>`
+    SELECT "intakeAgentRevisionId","rolloutAssignmentId","endpointScopeId","tombstonedAt",
+      "routingSourceVersion","routingSourceHash","routingScopeRevision","routingProvenance" FROM "CustomerPropertyIngressTicket"
     WHERE "eventKey"=${eventKey} AND "scopeKey"=${scopeKey}`;
   if (!rows.length) return null;
   if (rows.length !== 1 || rows[0].tombstonedAt) return held("source_tombstoned_or_ambiguous");
   const row = rows[0];
+  if (row.routingSourceVersion != null && (row.routingSourceVersion !== 1 ||
+    row.routingScopeRevision?.toString() !== subject.endpoint.scopeRevision ||
+    (contentHash !== undefined && row.routingSourceHash !== contentHash))) return held("original_source_changed");
+  if (row.routingProvenance === "NATIVE_HISTORY") return held("original_native_source_already_observed");
   if (row.rolloutAssignmentId) {
     const [raw] = await db.$queryRaw<Assignment[]>`SELECT "id","cohortId","surface","endpointScopeId","subjectKey","bucketBps","lane","candidateRevisionId"
       FROM "CustomerAgentRolloutAssignment" WHERE "id"=${row.rolloutAssignmentId}`;
