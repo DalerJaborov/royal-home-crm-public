@@ -46,7 +46,8 @@ export async function createOwnerQuestionTx(tx: TxClient, input: {
       AND c."endpointScopeId"=${target.endpointScopeId} AND c."channel"=${target.channel} AND c."subscriberId"=${target.peer}
       AND c."accountId" IS NOT DISTINCT FROM ${target.accountId} AND s."scopeRevision"=${BigInt(target.scopeRevision)}) AS valid`;
   if (!linked[0]?.valid) throw new Error("Owner question action or original binding changed");
-  if (!await readCustomerPropertyFacts(input.propertyId, target.channel, tx)) throw new Error("Owner question property unavailable");
+  const facts = await readCustomerPropertyFacts(input.propertyId, target.channel, tx);
+  if (!facts || facts.availability === "SOLD") throw new Error("Owner question property unavailable");
   if ((await ownerQuestionStaffRecipients(tx, target.nativeId, target)).length === 0) throw new Error("Owner question has no eligible staff recipient");
   const resourceId = randomUUID();
   await tx.$executeRaw(Prisma.sql`INSERT INTO "OwnerQuestion" ("id","conversationId","clientId","propertyId","question",

@@ -7,8 +7,10 @@ import { customerAgentClaimAcceptsPrincipal, customerAgentClaimCurrentTx, type C
 import { loadPublicCustomerPrincipal, revalidateCustomerPrincipal, type CustomerPrincipal } from "./customerPrincipal.js";
 import { pinCustomerAgentTurnTx } from "./customerAgentRevision.js";
 import { customerPropertyEvidenceFromText, mergeCustomerPropertyEvidence } from "./customerPropertyEvidence.js";
-import { resolveCustomerPropertyEvidence } from "./customerPropertyResolver.js";
-import { customerPropertyRegistry } from "./customerPropertyRegistry.js";
+import { resolveCustomerPropertyEvidence, type CustomerPropertyRegistry } from "./customerPropertyResolver.js";
+import { customerPropertyRegistry, customerPropertyRegistryWithOwnSiteRead } from "./customerPropertyRegistry.js";
+import { createCustomerOwnSiteIdentityReader, customerOwnSiteListingId, type CustomerOwnSiteReadWait } from "./customerOwnSiteIdentity.js";
+import { hasNewerCustomerInboxInput } from "./customerNewerInboxInput.js";
 import { readCustomerPropertyFocus } from "./customerPropertyFocus.js";
 import { customerPrincipalAuthenticatedInput } from "./customerPrincipal.js";
 import { resolveCustomerPropertyTurnContext, type CustomerPropertyTurnContext } from "./customerPropertyTurnContext.js";
@@ -19,9 +21,7 @@ import { loadCustomerAgentVerifiedDmContext } from "./customerAgentVerifiedConte
 /** Interpret an explicit spoken/printed public object number with the SAME
  * existing resolver/focus. Never infer identity from appearance, phone or OCR
  * prices; never rewrite RAW/FINAL, renew the source or create a new IN. */
-export async function enrichCustomerAgentMediaFocus(input: {
-  principal: CustomerPrincipal; claim: CustomerAgentClaim; ticket: CustomerPropertyAdmission;
-}): Promise<{ status: "unchanged" } | { status: "updated"; principal: CustomerPrincipal; focus: CustomerPropertyTurnContext } |
+export async function enrichCustomerAgentMediaFocus(input: FocusInput): Promise<{ status: "unchanged" } | { status: "updated"; principal: CustomerPrincipal; focus: CustomerPropertyTurnContext } |
   { status: "held"; reason: string }> {
   if ((["eventKey", "order", "scopeKey", "conversationId", "channel", "accountId", "endpointScopeId"] as const)
     .some(key => input.ticket[key] !== input.principal.admission[key])) return { status: "held", reason: "media_focus_original_input_required" };
@@ -38,7 +38,21 @@ export async function enrichCustomerAgentMediaFocus(input: {
   return enrichFocus(input, selectors, media.speech === "partial");
 }
 
-type FocusInput = { principal: CustomerPrincipal; claim: CustomerAgentClaim; ticket: CustomerPropertyAdmission };
+type LinkReads = { registry: CustomerPropertyRegistry; wait: CustomerOwnSiteReadWait };
+type FocusInput = { principal: CustomerPrincipal; claim: CustomerAgentClaim; ticket: CustomerPropertyAdmission; linkReads?: LinkReads };
+/** Shared only within this elected turn, so later media/selection enrichment
+ * cannot revert the URL identity to the legacy partial mapping. */
+export function createCustomerAgentLinkReads(eventKey: string, input: CustomerOwnSiteReadWait): LinkReads {
+  const wait: CustomerOwnSiteReadWait = { ...input,
+    assertCurrent: async () => await input.assertCurrent() && !await hasNewerCustomerInboxInput(eventKey) };
+  return { registry: customerPropertyRegistryWithOwnSiteRead(createCustomerOwnSiteIdentityReader(wait)), wait };
+}
+/** Site numeric aliases need the public site's actual CRM reference. Do this
+ * after original owner election, never during webhook/intake or under DB locks. */
+export async function enrichCustomerAgentLinkFocus(input: FocusInput & { linkReads: LinkReads }): ReturnType<typeof enrichCustomerAgentMediaFocus> {
+  if (!input.ticket.evidence.some(item => item.kind === "url" && customerOwnSiteListingId(item.reference) !== null)) return { status: "unchanged" };
+  return enrichFocus(input, [], false);
+}
 /** Selection is derived from the actual ACCEPTED list in this inquiry; the
  * source is checked again under the canonical locks before updating focus. */
 export async function enrichCustomerAgentSelectionFocus(input: FocusInput): ReturnType<typeof enrichCustomerAgentMediaFocus> {
@@ -57,26 +71,29 @@ export async function enrichCustomerAgentSelectionFocus(input: FocusInput): Retu
 }
 async function enrichFocus(input: FocusInput, selectors: CustomerPropertyEvidence[], ambiguous: boolean,
   assertSourceCurrent?: (tx: TxClient) => Promise<boolean>): ReturnType<typeof enrichCustomerAgentMediaFocus> {
+  const registry = input.linkReads?.registry ?? customerPropertyRegistry, wait = input.linkReads?.wait;
+  const alive = () => !wait || !wait.signal.aborted && Date.now() < wait.deadlineAt;
   if ((["eventKey", "order", "scopeKey", "conversationId", "channel", "accountId", "endpointScopeId"] as const)
     .some(key => input.ticket[key] !== input.principal.admission[key]) || !customerAgentClaimAcceptsPrincipal(input.claim, input.principal)) {
     return { status: "held", reason: "media_focus_original_input_required" };
   }
+  if (!alive() || wait && !await wait.assertCurrent()) return { status: "held", reason: "link_focus_context_changed" };
   const before = await revalidateCustomerPrincipal(input.principal);
   if (before.status !== "current" || !before.snapshot.state.capabilities.publicRead) return { status: "held", reason: "media_focus_context_changed" };
   const evidence = mergeCustomerPropertyEvidence([input.ticket.evidence, selectors]);
   const focus = await readCustomerPropertyFocus(input.ticket);
   if (!focus || BigInt(focus.focus.lastEvidenceOrder) > BigInt(input.ticket.order)) return { status: "held", reason: "media_focus_superseded" };
   const resolution = ambiguous ? { status: "ambiguous" as const, propertyId: null, candidates: [], reason: "conflict" as const, provenance: evidence }
-    : await resolveCustomerPropertyEvidence(evidence, input.ticket, customerPropertyRegistry);
+    : await resolveCustomerPropertyEvidence(evidence, input.ticket, registry);
   const next = customerPropertyFocusSchema.parse({ version: 1, scopeKey: input.ticket.scopeKey, generation: randomUUID(),
     lastEvidenceOrder: input.ticket.order, eventKey: input.ticket.eventKey, status: resolution.status,
     propertyId: resolution.propertyId, evidence });
-  if ((await revalidateCustomerPrincipal(input.principal)).status !== "current") return { status: "held", reason: "media_focus_context_changed" };
+  if (!alive() || wait && !await wait.assertCurrent() || (await revalidateCustomerPrincipal(input.principal)).status !== "current") return { status: "held", reason: "media_focus_context_changed" };
   const changed = await prisma.$transaction(async tx => {
     // Reuse the existing canonical source/native/scope/policy/Inquiry locks and
     // ORIGINAL immutable pin; no second provider operation or controller.
     const pinned = await pinCustomerAgentTurnTx(tx, input.principal);
-    if (pinned.status !== "pinned" || pinned.pin.providerOperationId !== input.claim.pin.providerOperationId ||
+    if (!alive() || pinned.status !== "pinned" || pinned.pin.providerOperationId !== input.claim.pin.providerOperationId ||
       pinned.pin.agentRevisionId !== input.claim.pin.agentRevisionId || !await customerAgentClaimCurrentTx(tx, input.claim)) return false;
     if (assertSourceCurrent && !await assertSourceCurrent(tx)) return false;
     const count = await tx.$executeRaw`UPDATE "BotConversation" SET "customerPropertyFocus"=${JSON.stringify(next)}::jsonb,

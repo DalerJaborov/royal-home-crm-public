@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { customerPropertyFactsSchema, customerPropertyCharacteristicsSchema, customerPropertyCharacteristicLines, customerPropertyAvailabilityLine,
   type CustomerPropertyFacts, type CustomerPropertyFactKind } from "@royal-home/shared";
 import { prisma, type TxClient } from "../db.js";
-import { BOT_OFFER_SELECT, botMayOffer, botOfferLink, type BotOfferFields } from "./propertyMatch.js";
+import { BOT_OFFER_SELECT, botMayOffer, botPublicVisibility, botOfferLink, type BotOfferFields } from "./propertyMatch.js";
 import { safeCustomerPropertyLink } from "./customerPropertyUrls.js";
 
 export const CUSTOMER_PROPERTY_CHARACTERISTICS_SELECT = {
@@ -24,6 +24,18 @@ interface PublicFactsRow extends BotOfferFields {
 
 /** No owner, house/apartment, private notes or inferred developer are selected. */
 export function projectCustomerPropertyFacts(row: PublicFactsRow, channel: string): CustomerPropertyFacts | null {
+  if (row.status === "SOLD") {
+    if (!botPublicVisibility(row)) return null;
+    // Build from status/identity alone. Do not parse or hash the old price,
+    // address, dimensions or sales URL before discarding them.
+    const values = { propertyId: row.id, shortId: row.shortId, availability: "SOLD" as const,
+      price: null, currency: row.currency, publicAddress: null, addressPolicy: "district_city_only" as const,
+      builder: null, publicLink: null };
+    const signature = createHash("sha256").update(JSON.stringify({ ...values,
+      publishedOnSite: row.publishedOnSite, publishedChannels: [...row.publishedChannels].sort() })).digest("hex");
+    const parsed = customerPropertyFactsSchema.safeParse({ ...values, signature, updatedAt: row.updatedAt.toISOString() });
+    return parsed.success ? parsed.data : null;
+  }
   if (!botMayOffer(row)) return null;
   const amount = row.price.toString();
   const publicAddress = row.district ? [...new Set([row.district.name.trim(), row.district.city.trim()].filter(Boolean))].join(", ") || null : null;
@@ -63,6 +75,7 @@ function priceText(facts: CustomerPropertyFacts, language: "ru" | "tg"): string 
   return `${integer.replace(/\B(?=(\d{3})+(?!\d))/g, " ")}${fraction ? `,${fraction}` : ""} ${facts.currency === "USD" ? "USD" : language === "tg" ? "сомонӣ" : "сомони"}`;
 }
 export function renderCustomerPropertyFacts(facts: CustomerPropertyFacts, kinds: readonly CustomerPropertyFactKind[], language: "ru" | "tg"): string {
+  if (facts.availability === "SOLD") return customerPropertyAvailabilityLine(facts, language);
   const lines: string[] = [];
   const price = priceText(facts, language);
   for (const kind of [...new Set(kinds)]) {

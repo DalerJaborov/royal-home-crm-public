@@ -78,6 +78,20 @@ it("membership/status changes invalidate publication delivery evidence", async (
   await prisma.socialDigestPost.update({ where: { id: post.id }, data: { status: "REMOVED" } });
   expect(await customerPublicationObservationCurrent(value!)).toBe(false);
 });
+it("a single known sold publication answers current CRM status without old prices, private fields or offers", async () => {
+  const s = source("sold-single"), p = await property({ status: "SOLD", price: 987654,
+    publishedPostIds: { INSTAGRAM: s.publicationId } });
+  const value = await readCustomerPublicationObservation(s, ["price", "availability"]);
+  expect(value?.cards).toHaveLength(1);
+  expect(value?.cards[0]).toMatchObject({ availability: "SOLD", price: null, publicAddress: null, publicLink: null });
+  const text = renderCustomerAgentDecision({ decision: { kind: "reply", refs: ["e0"], social: "none", question: "phone" },
+    evidence: [{ ref: "e0", value: value! }], language: "ru", requestedFacts: ["price"], knownPhoneSource: "none",
+    maxOutputChars: 1000, surface: "public_comment" });
+  expect(text).toBe(`Объект №${p.shortId} уже продан.`);
+  expect(await customerPublicationObservationCurrent(value!)).toBe(true);
+  await prisma.property.update({ where: { id: p.id }, data: { status: "AVAILABLE" } });
+  expect(await customerPublicationObservationCurrent(value!)).toBe(false);
+});
 it("does not merge independent single/digest claims or truncate an oversized digest", async () => {
   const s = source("ambiguous-digest"), p = await property({ publishedPostIds: { INSTAGRAM: s.publicationId } });
   const post = await prisma.socialDigestPost.create({ data: { kind: "ROOMS", title: "Synthetic", channel: s.channel,

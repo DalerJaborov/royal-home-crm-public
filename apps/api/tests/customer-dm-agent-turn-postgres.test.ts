@@ -1,4 +1,5 @@
 import { createHmac, randomUUID } from "node:crypto";
+import dns from "node:dns/promises";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { prisma } from "../src/db.js";
 import { encryptSecret } from "../src/crypto.js";
@@ -14,10 +15,14 @@ import * as actionModule from "../src/lib/customerActionJournal.js";
 import { ensureCustomerEndpoint } from "../src/lib/customerConversationScope.js";
 import { admitCustomerPropertyInput } from "../src/lib/customerPropertyAdmission.js";
 import { customerDmRoutingForIncoming } from "../src/lib/customerAgentIngressRouting.js";
+import { customerFenceSchema } from "@royal-home/shared";
+import { readCustomerActionProperty } from "../src/lib/customerActionProperty.js";
 
 // Actual signed durable intake → FINAL → elected owner → real counted model
 // adapter → tools → encrypted P12 plan. Only external HTTP is synthetic.
 const accounts: string[] = [], events: string[] = [];
+const ownLinkProperties: string[] = [];
+let dnsLookup: ReturnType<typeof vi.spyOn>;
 const cohortId = randomUUID();
 const allowedEndpoints: Array<{ surface: "dm"; channel: "INSTAGRAM"; endpointScopeId: string }> = [];
 const apiKey = "synthetic-root-customer-core-key";
@@ -62,9 +67,20 @@ async function fixture(text = "Здравствуйте, хочу купить �
   const io: string[] = [], bodies: unknown[] = [];
   let generated = 0, countOk = true;
   let onGenerate: (() => Promise<void>) | undefined;
+  let siteRead: ((id: number) => Promise<{ crmShortId: number; sold?: boolean } | null>) | undefined;
   let replies: unknown[][] = [[{ text: JSON.stringify({ kind: "reply", refs: [], social: "greet", question: "budget" }) }]];
   vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
     const u = new URL(String(url));
+    if (u.origin === "https://royalhome.tj" && u.pathname === "/api/trpc/listing.getById" && init?.method === undefined) {
+      expect(init).toMatchObject({ redirect: "manual", credentials: "omit", headers: { Accept: "application/json" } });
+      expect(Object.keys(init.headers!)).toEqual(["Accept"]);
+      if (!siteRead) throw Error("Unexpected anonymous website GET");
+      const siteId = JSON.parse(u.searchParams.get("input")!).json.id;
+      io.push("website"); const identity = await siteRead(siteId);
+      return new Response(JSON.stringify(identity ? { result: { data: { json: { id: siteId, crmShortId: identity.crmShortId,
+        published: true, sold: identity.sold ?? false, externalId: null, mapAddress: null, lat: null, lng: null } } } } : { error: {} }),
+        { status: identity ? 200 : 404, headers: { "content-type": "application/json" } });
+    }
     if (u.origin === "https://synthetic-core-instagram.invalid" && u.pathname === `/v23.0/${peer}` &&
         u.searchParams.get("fields") === "username" && u.searchParams.get("access_token") === token &&
         [...u.searchParams.keys()].length === 2 && init?.method === "GET") {
@@ -89,10 +105,26 @@ async function fixture(text = "Здравствуйте, хочу купить �
     throw new Error("Unqualified synthetic endpoint");
   }));
   return { eventKey, io, bodies, setCountInvalid() { countOk = false; },
-    setReplies(value: unknown[][]) { replies = value; }, setOnGenerate(value: () => Promise<void>) { onGenerate = value; } };
+    setReplies(value: unknown[][]) { replies = value; generated = 0; }, setOnGenerate(value: () => Promise<void>) { onGenerate = value; },
+    setSiteRead(value: NonNullable<typeof siteRead>) { siteRead = value; },
+    async receive(text: string) {
+      const body = Buffer.from(JSON.stringify({ object: "instagram", entry: [{ id: externalId, messaging: [{
+        sender: { id: peer }, recipient: { id: externalId }, timestamp: Date.now(), message: { mid: randomUUID(), text },
+      }] }] }));
+      const next = { rawBody: body, get: () => `sha256=${createHmac("sha256", secret).update(body).digest("hex")}` };
+      registerAuthenticatedMetaCustomerRequest(next);
+      const saved = await persistVerifiedCustomerIngressBatch(next);
+      if (saved.status !== "persisted") throw Error("Actual same-scope signed next input not persisted");
+      expect(await verifyAndRegisterMetaCustomerIssuer(next, { channel: "INSTAGRAM", accountId: id, accountExternalId: externalId })).toBe(true);
+      events.push(saved.tickets[0].eventKey); return saved.tickets[0].eventKey;
+    } };
 }
 
 beforeAll(async () => {
+  dnsLookup = vi.spyOn(dns, "lookup").mockImplementation((async (hostname: string) => {
+    if (hostname !== "royalhome.tj") throw Error("Unexpected external DNS in owned integration fixture");
+    return [{ address: "203.0.113.10", family: 4 }];
+  }) as typeof dns.lookup);
   settings = await readSettings(); policy = await readPolicy();
   const [saved] = await prisma.$queryRaw<Array<{ rolloutConfig: unknown }>>`SELECT "rolloutConfig" FROM "CustomerRuntimePolicy" WHERE "id"='singleton'`;
   savedRolloutConfig = saved.rolloutConfig;
@@ -112,6 +144,7 @@ beforeAll(async () => {
     candidateRevisionId: revisionId, percentBasisPoints: 10_000, allowed: [] })}::jsonb WHERE "id"='singleton'`;
 });
 afterAll(async () => {
+  dnsLookup?.mockRestore();
   vi.unstubAllGlobals(); vi.unstubAllEnvs();
   try {
   const parts = await prisma.customerOutboxPart.findMany({ where: { ticketEventKey: { in: events } }, select: { id: true } });
@@ -133,6 +166,7 @@ afterAll(async () => {
   await prisma.outboundShieldState.deleteMany({ where: { endpointScope: { messengerAccountId: { in: accounts } } } });
   await prisma.customerEndpointScope.deleteMany({ where: { messengerAccountId: { in: accounts } } });
   await prisma.messengerAccount.deleteMany({ where: { id: { in: accounts } } });
+  await prisma.property.deleteMany({ where: { id: { in: ownLinkProperties } } });
   } finally {
   if (settings) await prisma.settings.update({ where: { id: "singleton" }, data: settings });
   if (policy) await prisma.customerRuntimePolicy.update({ where: { id: "singleton" }, data: {
@@ -143,6 +177,118 @@ afterAll(async () => {
   }
   // Immutable manifests and synthetic provider accounting remain in this own
   // disposable DB as evidence; no shared/foreign daily bucket is rewritten.
+});
+
+async function ownLinkProperty(data: { siteListingId?: number; status?: "AVAILABLE" | "SOLD"; price?: number } = {}) {
+  const p = await prisma.property.create({ data: { title: "Synthetic own-link property", type: "APARTMENT", status: "AVAILABLE",
+    publishedOnSite: true, price: 456789, currency: "TJS", rooms: 2, areaSqm: 60, condition: "GOOD", ...data } });
+  ownLinkProperties.push(p.id); return p;
+}
+function answerFacts(f: Awaited<ReturnType<typeof fixture>>) {
+  f.setReplies([[{ functionCall: { name: "get_property_facts", args: { kinds: ["price", "availability"] }, id: "actual-linked-facts" } }],
+    [{ text: JSON.stringify({ kind: "reply", refs: ["e0"], social: "none", question: "none" }) }]]);
+}
+it("actual signed URL turn resolves public site identity to the right CRM card, not a same-number collision", async () => {
+  const wrong = await ownLinkProperty({ price: 111111 }), right = await ownLinkProperty({ price: 456789 });
+  const f = await fixture(`https://royalhome.tj/tg/khona/${wrong.shortId} Сколько стоит?`);
+  f.setSiteRead(async id => { expect(id).toBe(wrong.shortId); return { crmShortId: right.shortId }; }); answerFacts(f);
+  const result = await consumeCustomerInboxTicket(f.eventKey);
+  expect(result.status, JSON.stringify(result)).toBe("planned"); if (result.status !== "planned") throw Error(JSON.stringify(result));
+  const part = await prisma.customerOutboxPart.findUniqueOrThrow({ where: { id: result.partIds[0] } });
+  expect(decodeCustomerOutboxPayload(part)).toMatchObject({ text: expect.stringContaining("456 789") });
+  expect(JSON.stringify(decodeCustomerOutboxPayload(part))).not.toContain("111 111");
+  const ticket = await prisma.customerPropertyIngressTicket.findUniqueOrThrow({ where: { eventKey: f.eventKey } });
+  const native = await prisma.botConversation.findUniqueOrThrow({ where: { id: ticket.conversationId! } });
+  expect(native.customerPropertyFocus).toMatchObject({ status: "resolved", propertyId: right.id });
+  expect(f.io.filter(v => v === "website")).toHaveLength(1);
+});
+it("actual linked sold card answers status only instead of the old price or a phone request", async () => {
+  const sold = await ownLinkProperty({ status: "SOLD", price: 987654 });
+  const f = await fixture("https://royalhome.tj/en/listing/200000098 Сколько стоит?");
+  f.setSiteRead(async () => ({ crmShortId: sold.shortId, sold: true })); answerFacts(f);
+  const result = await consumeCustomerInboxTicket(f.eventKey);
+  expect(result.status, JSON.stringify(result)).toBe("planned"); if (result.status !== "planned") throw Error(JSON.stringify(result));
+  const part = await prisma.customerOutboxPart.findUniqueOrThrow({ where: { id: result.partIds[0] } });
+  expect(decodeCustomerOutboxPayload(part)).toEqual({ kind: "text", text: `Объект №${sold.shortId} уже продан.` });
+  expect(await readCustomerActionProperty(customerFenceSchema.parse(part.fenceJson))).toBeNull();
+});
+it("actual competing local/site bindings remain ambiguous, without leaking either price", async () => {
+  await ownLinkProperty({ siteListingId: 200000099, price: 111111 }); const other = await ownLinkProperty({ price: 222222 });
+  const f = await fixture("https://royalhome.tj/listing/200000099 Сколько стоит?");
+  f.setSiteRead(async () => ({ crmShortId: other.shortId }));
+  f.setReplies([[{ functionCall: { name: "get_property_facts", args: { kinds: ["price"] }, id: "conflict" } }],
+    [{ text: JSON.stringify({ kind: "clarify", refs: ["e0"], social: "none", question: "property" }) }]]);
+  const result = await consumeCustomerInboxTicket(f.eventKey);
+  expect(result.status, JSON.stringify(result)).toBe("planned"); if (result.status !== "planned") throw Error(JSON.stringify(result));
+  const part = await prisma.customerOutboxPart.findUniqueOrThrow({ where: { id: result.partIds[0] } });
+  expect(JSON.stringify(decodeCustomerOutboxPayload(part))).not.toMatch(/111 111|222 222/);
+  const ticket = await prisma.customerPropertyIngressTicket.findUniqueOrThrow({ where: { eventKey: f.eventKey } });
+  expect((await prisma.botConversation.findUniqueOrThrow({ where: { id: ticket.conversationId! } })).customerPropertyFocus)
+    .toMatchObject({ status: "ambiguous", propertyId: null });
+});
+it.each(["pause", "newer-input"])("actual %s during site GET stops the original turn before model or outbox", async reason => {
+  const property = await ownLinkProperty(), f = await fixture("https://royalhome.tj/listing/200000100 Сколько стоит?");
+  f.setSiteRead(async () => {
+    if (reason === "newer-input") await f.receive("Теперь интересует другой объект");
+    else {
+      const row = await prisma.customerPropertyIngressTicket.findUniqueOrThrow({ where: { eventKey: f.eventKey } });
+      await prisma.botConversation.update({ where: { id: row.conversationId! }, data: { pausedUntil: new Date(Date.now() + 60_000) } });
+    }
+    return { crmShortId: property.shortId };
+  }); answerFacts(f);
+  expect(await consumeCustomerInboxTicket(f.eventKey)).toMatchObject({ status: "held" });
+  expect(f.io).toEqual(["profile", "website"]);
+  expect(await prisma.customerOutboxPart.count({ where: { ticketEventKey: f.eventKey } })).toBe(0);
+});
+it("actual AVAILABLE to SOLD change after a fact round holds the old-price OUT", async () => {
+  const property = await ownLinkProperty(), f = await fixture("https://royalhome.tj/listing/200000101 Сколько стоит?");
+  f.setSiteRead(async () => ({ crmShortId: property.shortId })); answerFacts(f);
+  let rounds = 0;
+  f.setOnGenerate(async () => { if (++rounds === 2) await prisma.property.update({ where: { id: property.id }, data: { status: "SOLD" } }); });
+  expect(await consumeCustomerInboxTicket(f.eventKey)).toMatchObject({ status: "held" });
+  expect(f.io.filter(v => v === "generate")).toHaveLength(2);
+  expect(await prisma.customerOutboxPart.count({ where: { ticketEventKey: f.eventKey } })).toBe(0);
+});
+it("an unresolved new link B clears the prior resolved A in the same genuine conversation", async () => {
+  const a = await ownLinkProperty({ price: 444444 }), f = await fixture("https://royalhome.tj/listing/200000102 Сколько стоит?");
+  f.setSiteRead(async id => id === 200000102 ? { crmShortId: a.shortId } : null); answerFacts(f);
+  expect(await consumeCustomerInboxTicket(f.eventKey)).toMatchObject({ status: "planned" });
+  const b = await f.receive("https://royalhome.tj/listing/200000103 Сколько стоит?");
+  f.setReplies([[{ functionCall: { name: "get_property_facts", args: { kinds: ["price"] }, id: "missing-new-B" } }],
+    [{ text: JSON.stringify({ kind: "clarify", refs: ["e0"], social: "none", question: "property" }) }]]);
+  const result = await consumeCustomerInboxTicket(b);
+  expect(result.status, JSON.stringify(result)).toBe("planned"); if (result.status !== "planned") throw Error(JSON.stringify(result));
+  const part = await prisma.customerOutboxPart.findUniqueOrThrow({ where: { id: result.partIds[0] } });
+  expect(JSON.stringify(decodeCustomerOutboxPayload(part))).not.toContain("444 444");
+  const ticket = await prisma.customerPropertyIngressTicket.findUniqueOrThrow({ where: { eventKey: b } });
+  expect((await prisma.botConversation.findUniqueOrThrow({ where: { id: ticket.conversationId! } })).customerPropertyFocus)
+    .toMatchObject({ status: "missing", propertyId: null });
+});
+it("an unknown own-site path cannot fall through to the legacy last-number resolver", async () => {
+  await ownLinkProperty({ siteListingId: 200000104, price: 555555 });
+  const f = await fixture("https://royalhome.tj/listing/admin/200000104 Сколько стоит?");
+  f.setReplies([[{ functionCall: { name: "get_property_facts", args: { kinds: ["price"] }, id: "unknown-path" } }],
+    [{ text: JSON.stringify({ kind: "clarify", refs: ["e0"], social: "none", question: "property" }) }]]);
+  const result = await consumeCustomerInboxTicket(f.eventKey);
+  expect(result.status, JSON.stringify(result)).toBe("planned"); if (result.status !== "planned") throw Error(JSON.stringify(result));
+  expect(f.io).not.toContain("website");
+  const part = await prisma.customerOutboxPart.findUniqueOrThrow({ where: { id: result.partIds[0] } });
+  expect(JSON.stringify(decodeCustomerOutboxPayload(part))).not.toContain("555 555");
+});
+it("original runtime cancellation during the public GET cannot produce model or OUT", async () => {
+  const actual = runtimeModule.openPinnedCustomerAgentRuntime;
+  let original: Extract<Awaited<ReturnType<typeof actual>>, { status: "ready" }>["runtime"] | undefined;
+  const open = vi.spyOn(runtimeModule, "openPinnedCustomerAgentRuntime").mockImplementation(async input => {
+    const value = await actual(input); if (value.status === "ready") original = value.runtime; return value;
+  });
+  try {
+    const property = await ownLinkProperty(), f = await fixture("https://royalhome.tj/listing/200000105 Сколько стоит?");
+    f.setSiteRead(async () => { if (!original) throw Error("Original elected runtime missing"); original.stop(); return { crmShortId: property.shortId }; });
+    answerFacts(f); expect(await consumeCustomerInboxTicket(f.eventKey)).toMatchObject({ status: "held" });
+    expect(original?.operation.signal?.aborted).toBe(true);
+    expect(f.io.filter(value => value === "generate" || value === "count")).toEqual([]);
+    expect(await prisma.customerOutboxPart.count({ where: { ticketEventKey: f.eventKey } })).toBe(0);
+  } finally { open.mockRestore(); }
 });
 
 describe("actual durable DM common core", () => {

@@ -99,7 +99,13 @@ export function botOfferableWhere(mode: BotOfferMode = BOTS_OFFER_MODE): Prisma.
 
 /** То же для уже прочитанной карточки: можно ли называть цену и адрес. */
 export function botMayOffer(p: BotOfferFields, mode: BotOfferMode = BOTS_OFFER_MODE): boolean {
-  if (p.deletedAt || p.offSite || !(BOT_OFFER_STATUSES as readonly string[]).includes(p.status)) return false;
+  return (BOT_OFFER_STATUSES as readonly string[]).includes(p.status) && botPublicVisibility(p, mode);
+}
+
+/** Publication/privacy only. This is deliberately NOT permission to offer,
+ * book or contact an owner; those still require botMayOffer and current state. */
+export function botPublicVisibility(p: BotOfferFields, mode: BotOfferMode = BOTS_OFFER_MODE): boolean {
+  if (p.deletedAt || p.offSite) return false;
   if (mode === "all") return true;
   if (mode === "site_only") return p.publishedOnSite;
   return p.publishedOnSite || hasInstagramPublication(p.instagramUrl) || p.publishedChannels.length > 0;
