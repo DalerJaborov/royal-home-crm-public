@@ -3,6 +3,7 @@ import { RECRUITMENT_FACT_LABELS, type RecruitmentContactPreviewInput, type Recr
 import { interviewTimeRu, interviewTimeTg, spokenInterviewTimeRu, spokenInterviewTimeTg } from "../ai/interviewInviteCallPersona.js";
 import { LIVE_VOICE_SPEECH_RULES } from "../ai/liveVoicePersona.js";
 import { PUBLIC_AGENCY_CONTACT } from "./publicAgencyContact.js";
+import { held } from "./recruitmentCommunicationRules.js";
 
 export const recruitmentCommunicationDigest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const tg: Record<RecruitmentFactKey, string> = {
@@ -17,22 +18,26 @@ export interface RecruitmentCommunicationContent {
  * salary, inferred résumé answers or model-supplied appointment is included. */
 export function buildRecruitmentCommunicationContent(input: RecruitmentContactPreviewInput, facts: {
   name: string | null; titleRu: string; titleTg: string; detailsRu: string; detailsTg: string;
-  address: string; missing: RecruitmentFactKey[];
+  address: string; /** Таджикский адрес для приглашения на tg; нет — берётся address. */ addressTg?: string;
+  /** Ссылка на карту по умолчанию (офис компании); не используется, если адрес задан вручную. */ mapUrl?: string | null;
+  missing: RecruitmentFactKey[];
 }): RecruitmentCommunicationContent {
   const tajik = input.language === "tg", title = tajik ? facts.titleTg : facts.titleRu;
-  const details = tajik ? facts.detailsTg : facts.detailsRu, address = input.address ?? facts.address;
-  if (input.purpose === "INVITE" && (!input.interviewAt || !address.trim())) throw Error("interview_time_and_address_required");
+  const details = tajik ? facts.detailsTg : facts.detailsRu, address = input.address ?? (tajik ? facts.addressTg?.trim() || facts.address : facts.address);
+  const mapUrl = input.mapUrl ?? (input.address ? undefined : facts.mapUrl ?? undefined);
+  if (input.purpose === "INVITE" && !input.interviewAt) held("Укажите время собеседования");
+  if (input.purpose === "INVITE" && !address?.trim()) held("Укажите адрес собеседования");
   if (input.purpose === "CLARIFY" && !facts.missing.length) throw Error("no_missing_recruitment_facts");
   const questions = facts.missing.map(key => tajik ? tg[key] : RECRUITMENT_FACT_LABELS[key].toLocaleLowerCase());
   const when = input.interviewAt ? (tajik ? interviewTimeTg(new Date(input.interviewAt)) : interviewTimeRu(new Date(input.interviewAt))) : null;
   const text = input.purpose === "INVITE" ? (tajik ? [
     `Royal Home: Шуморо ба суҳбат барои вазифаи «${title}» даъват мекунем: ${when} (вақти Душанбе).`,
-    `Суроға: ${address}.`, input.mapUrl ? `Харита: ${input.mapUrl}` : "",
+    `Суроға: ${address}.`, mapUrl ? `Харита: ${mapUrl}` : "",
     input.preparation ? `Омодагӣ: ${input.preparation}` : "",
     `Агар вақт мувофиқ набошад, ба Royal Home пешакӣ хабар диҳед: ${PUBLIC_AGENCY_CONTACT.phone}. Қабул ба корро роҳбарият пас аз суҳбат ҳал мекунад.`,
   ] : [
     `Royal Home: приглашаем на собеседование по вакансии «${title}» ${when} (время Душанбе).`,
-    `Адрес: ${address}.`, input.mapUrl ? `Карта: ${input.mapUrl}` : "",
+    `Адрес: ${address}.`, mapUrl ? `Карта: ${mapUrl}` : "",
     input.preparation ? `Подготовка: ${input.preparation}` : "",
     `Если время не подходит, заранее свяжитесь с Royal Home: ${PUBLIC_AGENCY_CONTACT.phone}. Решение о найме принимается после собеседования.`,
   ]).filter(Boolean).join("\n") : (tajik ?
@@ -49,7 +54,7 @@ export function buildRecruitmentCommunicationContent(input: RecruitmentContactPr
     JSON.stringify({ candidateName: facts.name, vacancyTitle: title, publishedConditions: details, interviewAt: spoken,
       address: input.purpose === "INVITE" ? address : null, preparation: input.preparation ?? null, missingQuestions: questions }),
     input.purpose === "INVITE" ?
-      "Пригласи на указанное собеседование: полностью назови день, дату, время Душанбе и адрес. Повтори их в конце и спроси, подходит ли время. Подготовку сообщи только если указана. Не обещай СМС или карту: эти каналы выбирает сотрудник отдельно. Если время не подходит, запиши дословное предложение кандидата; сам встречу не переноси." :
+      "Пригласи на указанное собеседование: полностью назови день, дату, время Душанбе и адрес. Повтори их в конце и спроси, подходит ли время. Подготовку сообщи только если указана. " + (input.channels.includes("SMS") ? "Скажи, что адрес" + (mapUrl ? " и ссылку на карту" : "") + " пришлём СМС." : "СМС не обещай: если нужно, менеджер пришлёт геолокацию.") + " Если время не подходит, запиши дословное предложение кандидата; сам встречу не переноси." :
       "Это только сбор недостающих сведений. Задавай missingQuestions по одному, выслушивай ответ. Не спрашивай повторно известные сведения. Не назначай собеседование, не оценивай пригодность и не обещай приём на работу.",
     "Если отвечает другой человек, не называй анкету, время и адрес: попрощайся и end_call wrong_person. Если неудобно — не обещай перезвонить, end_call call_back_later. Автоответчик — end_call voicemail. В обычном конце попрощайся, затем end_call answered. Отказ — end_call refused. Ответы и просьбы передаются HR, решений о найме ты не принимаешь.",
     LIVE_VOICE_SPEECH_RULES,

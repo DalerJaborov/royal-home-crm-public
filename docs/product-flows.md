@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **652**. Развилок в самих путях: **2326**; вместе с задачами по расписанию и фоновыми заданиями — **3572**. Модулей: **74**.
+Путей: **655**. Развилок в самих путях: **2345**; вместе с задачами по расписанию и фоновыми заданиями — **3591**. Модулей: **74**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -16405,6 +16405,22 @@
   - return res.status(404).json({ error: "Файл не найден" });
     · ответ 404 — «Файл не найден»
 
+### DELETE /api/v1/vacancies/:id
+
+`apps/api/src/routes/vacancies.ts` · на входе: общий предел частоты запросов, idempotencyGuard, вход выполнен, есть право: vacancies.view
+
+- если !canEraseCandidates(req.agent!.role)
+  - return res.status(403).json({ error: "Удалять анкеты навсегда может только директор или администратор" });
+    · ответ 403 — «Удалять анкеты навсегда может только директор или администратор»
+- если skipped[0]?.reason === "not_found"
+  - return res.status(404).json({ error: "Анкета не найдена" });
+    · ответ 404 — «Анкета не найдена»
+- если skipped[0]?.reason === "calling"
+  - return res.status(409).json({ error: "Ассистент сейчас говорит с кандидатом. Дождитесь результата звонка." });
+    · ответ 409 — «Ассистент сейчас говорит с кандидатом. Дождитесь результата звонка.»
+- res.status(204).end();
+  · ответ 204
+
 ### PATCH /api/v1/vacancies/:id
 
 `apps/api/src/routes/vacancies.ts` · на входе: общий предел частоты запросов, idempotencyGuard, вход выполнен, есть право: vacancies.view
@@ -16539,6 +16555,67 @@
 - res.json({ ok: true, inviteCallQueued: !!inviteAt, ...(inviteCallNote ? { inviteCallNote } : {}) });
   · ответ 200
 
+### POST /api/v1/vacancies/bulk
+
+`apps/api/src/routes/vacancies.ts` · на входе: общий предел частоты запросов, idempotencyGuard, вход выполнен, есть право: vacancies.view
+
+- const parsed = bulkSchema.safeParse(req.body);
+  · проверяет данные схемой bulkSchema
+- если !parsed.success
+  - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
+    · ответ 400 — «Неверные данные»
+- если action === "delete"
+  - если !canEraseCandidates(req.agent!.role)
+    - return res.status(403).json({ error: "Удалять анкеты навсегда может только директор или администратор" });
+      · ответ 403 — «Удалять анкеты навсегда может только директор или администратор»
+  - return res.json(await eraseApplications(req, ids));
+    · ответ 200
+- если action === "assignPosition"
+  - const position = await prisma.recruitmentPosition.findUnique({ where: { key: positionKey! }, select: { key: t…
+    · читает в базе: recruitmentPosition
+  - если !position
+    - return res.status(400).json({ error: "Выберите существующую вакансию" });
+      · ответ 400 — «Выберите существующую вакансию»
+- const result = await prisma.$transaction(async (tx)
+  · всё внутри — одной транзакцией
+  · читает в базе: jobApplication
+  · читает в базе: recruitmentCommunication
+  · меняет в базе: jobApplication
+  · меняет в базе: interviewInviteCall
+  - const rows = await tx.jobApplication.findMany({ where: { id: { in: ids } }, select: { id: true, status: true,…
+    · читает в базе: jobApplication
+  - const busy = await tx.recruitmentCommunication.findMany({ where: { jobApplicationId: { in: ids }, channel: "A…
+    · читает в базе: recruitmentCommunication
+  - для каждого: const row of rows
+    - если busyIds.has(row.id)
+      - skipped.push({ id: row.id, reason: "calling" });
+        · дословно из кода
+    - иначе если action === "assignPosition" && row.customerInquiryId
+      - skipped.push({ id: row.id, reason: "customer_inquiry" });
+        · дословно из кода
+    - иначе
+      - ok.push(row);
+        · дословно из кода
+  - если okIds.length > 0
+    - если action === "assignPosition"
+      - await tx.jobApplication.updateMany({ where: { id: { in: okIds } }, data: { hrPositionKey: positionKey!, revie…
+        · меняет в базе: jobApplication
+    - иначе
+      - await tx.jobApplication.updateMany({ where: { id: { in: okIds } }, data: { status: status!, hiredAt: null, re…
+        · меняет в базе: jobApplication
+      - await tx.interviewInviteCall.updateMany({ where: { jobApplicationId: { in: okIds }, status: { in: ["PENDING",…
+        · меняет в базе: interviewInviteCall
+- для каждого: const row of result.ok
+  - если action === "setStatus"
+    - если row.status !== status
+      - logAudit(req, "VACANCY_STATUS", "JobApplication", row.id, { from: row.status, to: status!, bulk: true });
+        · зовёт logAudit()
+  - иначе
+    - logAudit(req, "VACANCY_UPDATE", "JobApplication", row.id, { fields: ["hrPositionKey"], positionKey: positionK…
+      · зовёт logAudit()
+- res.json({ updated: result.ok.length, skipped: result.skipped });
+  · ответ 200
+
 ### GET /api/v1/vacancies
 
 `apps/api/src/routes/vacancies.ts` · на входе: общий предел частоты запросов, idempotencyGuard, вход выполнен, есть право: vacancies.view
@@ -16555,6 +16632,40 @@
   · считает в базе: jobApplication
 - res.json({ items: (bucket ? ordered : items).map(presentListItem), total, offset, todayInterviews: todayRows.…
   · ответ 200
+
+### POST /api/v1/vacancies
+
+`apps/api/src/routes/vacancies.ts` · на входе: общий предел частоты запросов, idempotencyGuard, вход выполнен, есть право: vacancies.view
+
+- const parsed = createSchema.safeParse(req.body);
+  · проверяет данные схемой createSchema
+- если !parsed.success
+  - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
+    · ответ 400 — «Неверные данные»
+- const position = await prisma.recruitmentPosition.findUnique({ where: { key: body.positionKey }, select: { ke…
+  · читает в базе: recruitmentPosition
+- если !position
+  - return res.status(400).json({ error: "Выберите существующую вакансию" });
+    · ответ 400 — «Выберите существующую вакансию»
+- если body.phone && body.phone.trim() !== ""
+  - const normalized = normalizeCandidatePhone(body.phone);
+    · зовёт normalizeCandidatePhone()
+  - если !normalized
+    - return res.status(400).json({ error: "Неверный номер телефона" });
+      · ответ 400 — «Неверный номер телефона»
+  - const duplicate = await prisma.jobApplication.findFirst({ where: { AND: [{ phone }, NOT_ARCHIVED] }, select: …
+    · читает в базе: jobApplication
+  - если duplicate
+    - return res.status(409).json({ error: "Такой кандидат уже есть", existingId: duplicate.id });
+      · ответ 409 — «Такой кандидат уже есть»
+- const priority = jobPriority({ experience });
+  · зовёт jobPriority()
+- const created = await prisma.jobApplication.create({ data: { channel: MANUAL_CHANNEL, name: body.name, phone,…
+  · создаёт в базе: jobApplication
+- logAudit(req, "VACANCY_CREATE", "JobApplication", created.id, { channel: MANUAL_CHANNEL, positionKey: body.po…
+  · зовёт logAudit()
+- res.status(201).json(presentListItem(created));
+  · ответ 201
 
 ## /api/v1/vacancies/positions
 
@@ -16680,6 +16791,8 @@
   - res.json({ items: await readRecruitmentPositions() });
     · ответ 200
 - если сорвалось
+  - void logSystemError("api", `Список вакансий не прочитан: ${describeError(err)}`);
+    · запись в журнал ошибок
   - res.status(503).json({ error: "Не удалось загрузить открытые позиции" });
     · ответ 503 — «Не удалось загрузить открытые позиции»
 
@@ -19754,7 +19867,11 @@
           · дословно из кода
     - await prisma.$executeRaw`UPDATE "RecruitmentCommunication" SET "status"='UNKNOWN',"reason"='Процесс прервался…
       · обращается к базе своим SQL
-    - const due = await prisma.$queryRaw<Array<{ id: string }>>`SELECT "id" FROM "RecruitmentCommunication" WHERE "…
+    - await loadCompanyDaysOff();
+      · зовёт loadCompanyDaysOff()
+    - const callsNow = isWithinPostShowingCallHours(now);
+      · зовёт isWithinPostShowingCallHours()
+    - const due = await prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`SELECT "id" FROM "RecruitmentCommunicati…
       · обращается к базе своим SQL
     - для каждого: const row of due
       - await dispatchRecruitmentCommunication(row.id, now);

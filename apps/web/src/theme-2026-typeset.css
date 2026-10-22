@@ -4,7 +4,7 @@
  * и гарнитуру. Зачем это нужно и почему именно генератором — в шапке скрипта.
  * Пересобрать: npm run gen:typeset. Проверить: npm run audit:typeset.
  *
- * Правил: 912 (размер поднят у 900, гарнитура сведена у 53).
+ * Правил: 933 (размер поднят у 921, гарнитура сведена у 53).
  * Ничего мельче 13px не остаётся, "Manrope" строкой не остаётся нигде.
  */
 .rh2 .mh .ai-hero-lbl { font-size: 15px; }
@@ -637,7 +637,7 @@ html[data-mobile-ux][data-theme^="royal-home-2026-"] .rh2 .mh .row.callrow .s { 
 .vacancies-screen .vacancy-queue-copy strong { font-size: 16px; }
 .vacancies-screen .vacancy-queue-meta { font-size: 13px; }
 .vacancies-screen .vacancy-queue-missing { font-size: 13px; }
-.vacancies-screen .vacancy-queue-file { font-size: 13px; }
+.vacancies-screen .vacancy-queue-file { font-size: 15px; }
 .vacancies-screen .vacancy-queue-state { font-size: 15px; }
 .rh2 .scr.vacancies-screen .vacancy-queue-state h3 { font-size: 18px; }
 .rh2 .scr.vacancies-screen .vacancy-resume-toolbar h2 { font-size: 18px; }
@@ -698,6 +698,19 @@ html[data-mobile-ux][data-theme^="royal-home-2026-"] .rh2 .mh .row.callrow .s { 
 .vacancies-screen .vacancy-catalog-check { font-size: 15px; }
 .vacancies-screen .vacancy-catalog-disclosure>summary { font-size: 15px; }
 .vacancies-screen .vacancy-catalog-open small { font-size: 13px; }
+.rh2 .vacancies-screen .vacancy-chip { font-size: 15px; }
+.vacancies-screen .vacancy-chip-count { font-size: 15px; }
+.vacancies-screen .vacancy-queue-date { font-size: 15px; }
+.vacancies-screen .vacancy-queue-position { font-size: 15px; }
+.vacancies-screen .vacancy-priority { font-size: 15px; }
+.rh2 .scr.vacancies-screen .vacancy-today h3 { font-size: 15px; }
+.rh2 .scr.vacancies-screen .vacancy-priority-reason { font-size: 15px; }
+.vacancies-screen .vacancy-fact-grid dt { font-size: 15px; }
+.vacancies-screen .vacancy-fact-grid dd { font-size: 16px; }
+.rh2 .scr.vacancies-screen .vacancy-catalog-count { font-size: 15px; }
+.vacancies-screen .vacancy-bulk-count { font-size: 15px; }
+.vacancies-screen :is(.vacancy-bulk-status,.vacancy-bulk-result) { font-size: 15px; }
+.rh2 .scr.vacancies-screen details.vacancy-today summary { font-size: 15px; }
 .rh2 .wiz.wizard-workspace :is(.wizard-secondary-action,.wizard-text-action) { font-size: 15px; }
 .rh2 .wiz.wizard-workspace .wizard-draft-notice { font-size: 15px; }
 .rh2 .wiz.wizard-workspace .wizard-delete-error { font-size: 15px; }
@@ -931,6 +944,16 @@ textarea:not([readonly]):not([disabled]) { font-size: 17px; }
   .rh2 .scr.vacancies-screen .vacancy-next>h2 { font-size: 24px; }
   .rh2 :is(.vacancies-screen,.vacancy-contact-scope) .vacancy-button { font-size: 16px; }
   .rh2 :is(.vacancies-screen,.vacancy-contact-scope) .vacancy-field :is(input,select,textarea) { font-size: 17px; }
+}
+@media print {
+  .vacancy-print-root { font-size: 15px; }
+  .vacancy-print-brand { font-size: 15px; }
+  .vacancy-print-position { font-size: 17px; }
+  .vacancy-print-page h2 { font-size: 17px; }
+  .vacancy-print-facts dt { font-size: 15px; }
+  .vacancy-print-facts dd { font-size: 15px; }
+  .vacancy-print-text { font-size: 15px; }
+  .vacancy-print-page footer { font-size: 15px; }
 }
 @media (min-width: 1024px) {
   .rh2 .wiz.wizard-workspace .wizard-desktop-help { font-size: 16px; }

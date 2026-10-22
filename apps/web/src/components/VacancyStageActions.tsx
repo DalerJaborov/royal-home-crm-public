@@ -4,7 +4,6 @@ import type { RecruitmentPosition } from "@royal-home/shared";
 import { useSetVacancyStatus, type JobApplication } from "../hooks/useVacancies";
 import { useVacancyContactOptions } from "../hooks/useVacancyContact";
 import { useIsReadOnly } from "../lib/permissions";
-import { CallClientButton } from "./CallClientButton";
 import { MutationError } from "./MutationError";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { Rh2Sheet } from "./rh2/Rh2Sheet";
@@ -13,8 +12,10 @@ import { VacancyContactForm, DeliveryList, AssistantFindings } from "./VacancyCo
 import { candidateMissingFacts, candidateMissingText, candidateTitle, legacyCandidatePositionPatch } from "../lib/vacanciesResume";
 import { canOverrideRejected, interviewInputToIso, interviewIsoToInput, vacancyInterviewLabel } from "../lib/vacanciesView";
 
-export function VacancyStageActions({ item, positions, positionsLoading = false, positionsError = false, onPositionsRetry }: {
+export function VacancyStageActions({ item, positions, positionsLoading = false, positionsError = false, onPositionsRetry, onDelete }: {
   item: JobApplication; positions?: RecruitmentPosition[]; positionsLoading?: boolean; positionsError?: boolean; onPositionsRetry?(): void;
+  /** «Удалить навсегда» — экран передаёт только админу/директору. */
+  onDelete?(): void;
 }) {
   const mutation = useSetVacancyStatus();
   const readOnly = useIsReadOnly();
@@ -54,11 +55,10 @@ export function VacancyStageActions({ item, positions, positionsLoading = false,
       <p className="vacancy-muted">{contact?.clarification.available ? "Звонок ассистента или SMS: только недостающие сведения." : contact?.clarification.reason || "Доступные способы уточнения появятся после проверки."}</p>
     </>}
     {!terminal && <>
-      <button type="button" className="vacancy-button" disabled={busy || !canContact} onClick={() => setMode("INVITE")}>Пригласить на собеседование</button>
+      <button type="button" id="candidate-invite-button" className="vacancy-button" disabled={busy || !canContact} onClick={() => setMode("INVITE")}>Пригласить на собеседование</button>
       <p className="vacancy-muted">Приглашение: SMS или звонок ассистента. Перед отправкой вы проверите текст и дату.</p>
       {contact && !contact.sms.available && !contact.assistantCall.available && <p className="vacancy-notice">{contact.sms.reason || contact.assistantCall.reason || "Нет доступного способа связи. Уточните телефон в анкете."}</p>}
     </>}
-    <CallClientButton candidateId={item.id} phone={item.phone} variant="full" label="Позвонить самому" className="vacancy-button secondary" title="Звонок через телефонную станцию CRM" />
     {item.status === "NEW" && <button type="button" className="vacancy-text-button" disabled={busy} onClick={() => mutation.mutate({ id: item.id, status: "REVIEWED" })}>Взять в работу</button>}
     {item.status === "INTERVIEW" && <button type="button" className="vacancy-button secondary" disabled={busy} onClick={() => mutation.mutate({ id: item.id, status: "INTERVIEWED" })}>Собеседование провели</button>}
     {item.status === "INTERVIEWED" && <button type="button" className="vacancy-button" disabled={busy} onClick={() => mutation.mutate({ id: item.id, status: "HIRED" })}>Принять на работу</button>}
@@ -73,6 +73,7 @@ export function VacancyStageActions({ item, positions, positionsLoading = false,
       </> : item.status !== "HIRED" && <button type="button" className="vacancy-text-button danger" disabled={busy} onClick={() => mutation.mutate({ id: item.id, status: "REJECTED" })}>Отказать · без отправки сообщения</button>}
       {!item.customerInquiryId && item.eligible === false && !item.eligibleOverride && canOverrideRejected(item) && <button type="button" className="vacancy-text-button" disabled={busy} onClick={() => mutation.mutate({ id: item.id, status: "REVIEWED", eligibleOverride: true })}>Взять в работу вопреки прежней проверке</button>}
       <button type="button" className="vacancy-text-button danger" disabled={busy} onClick={() => setNotCandidate(true)}>Это не кандидат на работу</button>
+      {onDelete && <button type="button" className="vacancy-text-button danger" disabled={busy} onClick={onDelete}>Удалить анкету навсегда</button>}
     </details>
     <MutationError mutation={mutation} fallback="Не удалось сохранить изменение" />
     {!!contact?.recentDeliveries.length && <section className="vacancy-recent-contact"><h3>Связь с кандидатом</h3><DeliveryList deliveries={contact.recentDeliveries} /></section>}

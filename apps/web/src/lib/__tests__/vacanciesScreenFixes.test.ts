@@ -303,12 +303,16 @@ describe("S8: «Показаны N из M»", () => {
     expect(note?.text).toContain("Показаны 200 из 340");
   });
 
-  it("очередь использует серверные страницы, включая кандидатов после двухсотой анкеты", () => {
+  it("очередь — бесконечная лента серверных страниц, включая кандидатов после двухсотой анкеты", () => {
     const src = read("pages/Vacancies.tsx");
-    expect(src).toContain("candidateQueuePage(");
-    expect(src).toContain("Предыдущие"); expect(src).toContain("Следующие");
-    expect(src).toContain("limit: CANDIDATE_QUEUE_PAGE_SIZE, offset,");
+    expect(src).toContain("useVacancyQueue(");
+    expect(src).toContain("mergeQueuePages(queue.data?.pages)");
+    expect(src).toContain("IntersectionObserver");
+    expect(src).toContain("Загрузить ещё");
+    expect(src).not.toContain("Предыдущие");
     expect(src).not.toContain("VACANCY_LIST_MAX");
+    const hook = read("hooks/useVacancies.ts");
+    expect(hook).toContain("limit: VACANCY_QUEUE_PAGE, offset: pageParam");
   });
 });
 

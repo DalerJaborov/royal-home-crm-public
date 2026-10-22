@@ -1,9 +1,11 @@
 import { useState, type ReactNode } from "react";
-import { CheckCircle2, ExternalLink, FileText, MapPin, MessageCircle, Phone } from "lucide-react";
+import { CheckCircle2, ExternalLink, FileText, MapPin, MessageCircle, MoreHorizontal, Phone, Printer, Trash2 } from "lucide-react";
 import { RECRUITMENT_FACT_LABELS, type RecruitmentResumeFacts } from "@royal-home/shared";
 import { useInviteCallRecordingUrl, useSetVacancyStatus, useVacancyConversation, type JobApplication } from "../hooks/useVacancies";
 import { MessageAttachments } from "./MessageAttachments";
 import { MutationError } from "./MutationError";
+import { CallClientButton } from "./CallClientButton";
+import { VacancyPriority } from "./VacancyRow";
 import { VoiceNotePlayer } from "./VoiceNotePlayer";
 import { api } from "../lib/api";
 import { browserDeps, openPrivateFile } from "../lib/openPrivateFile";
@@ -62,7 +64,14 @@ function PhoneField({ item }: { item: JobApplication }) {
   </form>;
 }
 
-export function VacancyDetails({ item }: { item: JobApplication }) {
+export function VacancyDetails({ item, onPrint, onDelete }: {
+  item: JobApplication;
+  /** Печать этой анкеты (экран собирает лист печати сам). */
+  onPrint?(): void;
+  /** «Удалить навсегда» — передаётся только админу/директору. */
+  onDelete?(): void;
+}) {
+  const readOnly = useIsReadOnly();
   const [showChat, setShowChat] = useState(false);
   const conversation = useVacancyConversation(item.id);
   const facts = candidateResumeFacts(item);
@@ -77,15 +86,35 @@ export function VacancyDetails({ item }: { item: JobApplication }) {
   const missing = item.recruitmentAssessment?.missing ?? [];
   const showStudy = study != null || missing.includes("studyingNow");
   const showEmployment = employment != null || missing.includes("employedNow");
+  const terminal = item.status === "HIRED" || item.status === "REJECTED";
+  const age = facts.age?.value ?? item.age;
   return <article className="vacancy-resume" aria-labelledby="candidate-resume-title">
-    <div className="vacancy-resume-toolbar"><div><h2>Анкета кандидата</h2><p>{item.recruitmentResume ? "Из резюме и ответов кандидата. Источники сохранены." : "Сохранённые сведения из анкеты. Проверьте по оригиналам."}</p></div>
-      {item.cvFile && <VacancyFileButton applicationId={item.id} file={item.cvFile} label="Оригинал резюме" />}</div>
     <div className="vacancy-resume-paper">
-      <header className="vacancy-person-heading"><span className="vacancy-stage-badge">{CANDIDATE_STAGE_LABELS[item.status]}</span>
+      <header className="vacancy-person-heading">
+        <div className="vacancy-person-badges"><span className="vacancy-stage-badge">{CANDIDATE_STAGE_LABELS[item.status]}</span><VacancyPriority item={item} /></div>
         <h2 id="candidate-resume-title" tabIndex={-1}>{candidateTitle(item)}</h2>
-        <p className="vacancy-position-title">{item.positionTitle || "Должность не указана"}</p>
-        <ul className="vacancy-person-meta"><li><MapPin size={16} aria-hidden="true" />{city || "Город не указан"}</li><li><MessageCircle size={16} aria-hidden="true" />{chatLanguage ? `Общение: ${chatLanguage.charAt(0).toLocaleUpperCase("ru")}${chatLanguage.slice(1)}` : "Язык общения не выбран"}</li><li><Phone size={16} aria-hidden="true" />{item.phone ? "Телефон указан" : "Нужен телефон"}</li></ul>
+        <p className={item.positionTitle ? "vacancy-position-title" : "vacancy-position-title none"}>{item.positionTitle || "Без вакансии"}</p>
+        {item.priorityReason && <p className="vacancy-priority-reason">Оценка: {item.priorityReason}</p>}
+        <ul className="vacancy-person-meta"><li><MapPin size={16} aria-hidden="true" />{city || "Город не указан"}</li><li><MessageCircle size={16} aria-hidden="true" />{chatLanguage ? `Общение: ${chatLanguage.charAt(0).toLocaleUpperCase("ru")}${chatLanguage.slice(1)}` : "Язык общения не выбран"}</li><li><Phone size={16} aria-hidden="true" />{item.phone || "Нужен телефон"}</li></ul>
+        <div className="vacancy-person-actions">
+          {!readOnly && <CallClientButton candidateId={item.id} phone={item.phone} variant="full" label="Позвонить" className="vacancy-button secondary" title="Звонок через телефонную станцию CRM" />}
+          {!readOnly && !terminal && <button type="button" className="vacancy-button secondary" onClick={openInvite}>Пригласить</button>}
+          {onPrint && <button type="button" className="vacancy-button secondary" onClick={onPrint}><Printer size={17} aria-hidden="true" />Распечатать</button>}
+          {item.cvFile && <VacancyFileButton applicationId={item.id} file={item.cvFile} label="Оригинал резюме" />}
+          {onDelete && !readOnly && <details className="vacancy-menu"><summary aria-label="Ещё действия"><MoreHorizontal size={18} aria-hidden="true" /></summary>
+            <div className="vacancy-menu-list" role="menu"><button type="button" role="menuitem" className="vacancy-text-button danger" onClick={event => { (event.currentTarget.closest("details") as HTMLDetailsElement | null)?.removeAttribute("open"); onDelete(); }}><Trash2 size={16} aria-hidden="true" />Удалить навсегда</button></div>
+          </details>}
+        </div>
+        <p className="vacancy-muted vacancy-resume-source">{item.recruitmentResume ? "Из резюме и ответов кандидата. Источники сохранены." : "Сохранённые сведения из анкеты. Проверьте по оригиналам."}</p>
       </header>
+      <dl className="vacancy-fact-grid" aria-label="Коротко о кандидате">
+        <div><dt>Возраст</dt><dd>{age ?? "Не выяснено"}</dd></div>
+        <div><dt>Город</dt><dd>{city || "Не выяснено"}</dd></div>
+        <div><dt>Опыт в продажах</dt><dd>{yesNo(item.salesExperience)}</dd></div>
+        <div><dt>Машина</dt><dd>{yesNo(item.hasCar)}</dd></div>
+        <div><dt>Сильное желание</dt><dd>{yesNo(item.strongMotivation)}</dd></div>
+        <div><dt>Диплом по профилю</dt><dd>{yesNo(item.targetEducation)}</dd></div>
+      </dl>
       <div className="vacancy-resume-columns"><div className="vacancy-resume-main">
         <ResumeSection title="О себе"><FactText value={facts.about?.value} fact={facts.about} /></ResumeSection>
         <ResumeSection title="Опыт работы"><FactText value={work} fact={facts.experience} /></ResumeSection>
@@ -104,15 +133,15 @@ export function VacancyDetails({ item }: { item: JobApplication }) {
         <ResumeSection title="Языки"><FactText value={facts.languages?.value || item.languages} fact={facts.languages} /></ResumeSection>
         <ResumeSection title="Готовность к работе"><dl className="vacancy-readiness"><div><dt>Когда готов начать</dt><dd>{facts.startWhen?.value || item.startWhen || "Нужно уточнить"}</dd></div>
           {showEmployment && <div><dt>Сейчас работает</dt><dd>{employment == null ? "Нужно уточнить" : employment ? "Да" : "Нет"}</dd></div>}{showStudy && <div><dt>Сейчас учится</dt><dd>{study == null ? "Нужно уточнить" : study ? "Да" : "Нет"}</dd></div>}</dl></ResumeSection>
-        {(facts.age || item.age != null) && <ResumeSection title="Возраст"><p>{facts.age?.value ?? item.age}</p></ResumeSection>}
       </aside></div>
       {item.recruitmentAssessment?.warnings.map(warning => <p className="vacancy-notice" key={warning}>{warning}</p>)}
       {reason && !item.customerInquiryId && <details className="vacancy-legacy-assessment"><summary>Проверка прежней анкеты</summary><p>{reason}.{item.eligibleOverride ? " Руководитель взял кандидата в работу." : " Это справочная проверка. Решение принимает руководитель."}</p></details>}
       {item.status === "INTERVIEW" && item.interviewAt && <p className="vacancy-notice">Собеседование: {vacancyInterviewLabel(item.interviewAt)}. Назначенная дата сама по себе не означает, что кандидат подтвердил участие.</p>}
       {item.inviteCall && <section className="vacancy-invite-result"><h3>Последний звонок ассистента</h3><p>{item.inviteCall.text}</p>{item.inviteCall.summary && <p>{item.inviteCall.summary}</p>}{item.inviteCall.hasRecording && <InviteCallRecording applicationId={item.id} />}</section>}
       {(item.interviewNote || item.rejectionReason || item.rejectionReasonVoiceUrl) && <ResumeSection title="Заметки руководителя">{item.interviewNote && <p>{item.interviewNote}</p>}{item.rejectionReason && <p>Причина отказа: {item.rejectionReason}</p>}{item.rejectionReasonVoiceUrl && <VoiceNotePlayer url={item.rejectionReasonVoiceUrl} />}</ResumeSection>}
-      <details className="vacancy-original-text"><summary>Исходный текст и вложения</summary>
-        {item.rawText ? <p className="vacancy-resume-text">{item.rawText}</p> : <p className="vacancy-missing">Отдельный текст анкеты не сохранён.</p>}
+      <ResumeSection title="Что написал сам" className="vacancy-own-words">{item.rawText ? <p className="vacancy-resume-text">{item.rawText}</p> : <p className="vacancy-missing">Отдельный текст анкеты не сохранён.</p>}</ResumeSection>
+      <details className="vacancy-original-text"><summary>Вложения кандидата{files.length ? ` · ${files.length}` : ""}</summary>
+        {!conversation.isLoading && !conversation.isError && !files.length && <p className="vacancy-missing">Файлов в переписке нет.</p>}
         {conversation.isLoading && <p role="status">Загружаем вложения…</p>}
         {conversation.isError && <p role="alert">Материалы не загрузились. <button type="button" className="vacancy-text-button" onClick={() => void conversation.refetch()}>Повторить</button></p>}
         {files.length > 0 && <MessageAttachments attachments={files} />}
@@ -125,6 +154,17 @@ export function VacancyDetails({ item }: { item: JobApplication }) {
       {Object.keys(facts).length > 0 && <span className="sr-only">Сведения с источниками: {Object.keys(facts).map(key => RECRUITMENT_FACT_LABELS[key as keyof RecruitmentResumeFacts]).join(", ")}</span>}
     </div>
   </article>;
+}
+
+const yesNo = (value: boolean | null | undefined) => value == null ? "Не выяснено" : value ? "Да" : "Нет";
+
+/** «Пригласить» в шапке ведёт в ту же форму, что кнопка панели действий:
+ *  одна реализация приглашения, без второй копии формы. */
+function openInvite() {
+  const button = document.getElementById("candidate-invite-button") as HTMLButtonElement | null;
+  if (button && !button.disabled) { button.click(); return; }
+  const panel = document.getElementById("candidate-next-actions");
+  panel?.scrollIntoView({ block: "start", behavior: "smooth" }); panel?.focus();
 }
 
 function InviteCallRecording({ applicationId }: { applicationId: string }) {

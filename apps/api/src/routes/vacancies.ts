@@ -17,7 +17,7 @@
  * INVITED переименован в INTERVIEW миграцией данных — смысл прежний.
  */
 
-import { Router } from "express";
+import { Router, type Request } from "express";
 import { z } from "zod";
 import { customerRecruitmentPortfolioSchema, recruitmentResumeSchema, recruitmentScreeningRulesSchema, assessRecruitmentResume } from "@royal-home/shared";
 import { recruitmentPositionsRouter } from "./recruitmentPositions.js";
@@ -35,7 +35,9 @@ import { TG_PREFIX } from "./conversations.js";
 import { presentMessages } from "../lib/messageAttachments.js";
 import { can } from "../auth/middleware.js";
 import { normalizeCandidatePhone } from "../lib/candidatePhone.js";
-import { jobMissingFacts, jobRejectReasons } from "../ai/jobApplication.js";
+import { jobMissingFacts, jobPriority, jobPriorityReason, jobRejectReasons } from "../ai/jobApplication.js";
+import { maskPhoneRaw } from "../lib/phoneCrypto.js";
+import { eraseJobApplicationsTx, removeCandidateFiles } from "../lib/candidateErase.js";
 import {
   isDialableTajikNumber,
   loadAgentDialMode,
@@ -88,6 +90,11 @@ const STATUS_REQUIRES: Partial<Record<(typeof PATCH_STATUSES)[number], "intervie
   INTERVIEW: "interviewAt",
 };
 
+/** Служебное значение фильтра вакансии: анкеты без вакансии. */
+const NO_POSITION = "__none";
+/** Канал анкеты, добавленной сотрудником вручную. */
+const MANUAL_CHANNEL = "MANUAL";
+
 const listQuerySchema = z.object({
   status: z.enum(STATUSES).optional(),
   /**
@@ -127,7 +134,8 @@ const listQuerySchema = z.object({
    */
   q: z.string().trim().max(80).optional(),
   activeOnly: z.enum(["true", "false"]).optional().transform(value => value === "true"),
-  positionKey: z.string().regex(/^[a-z][a-z0-9-]{1,63}$/).optional(),
+  /** "__none" - только анкеты без вакансии (нет ни customerPositionKey, ни hrPositionKey). */
+  positionKey: z.union([z.literal(NO_POSITION), z.string().regex(/^[a-z][a-z0-9-]{1,63}$/)]).optional(),
   /**
    * Цвет отбора — самая частая нарезка очереди: «покажи только с опытом продаж».
    * NONE — те, у кого цвета ещё нет (бот не спросил про опыт): это тоже
@@ -298,12 +306,15 @@ vacanciesRouter.get("/", requireAuth, requirePermission("vacancies.view"), async
    * профиля мессенджера), телефон, город, опыт, образование. insensitive —
    * потому что «зарина» и «Зарина» для ищущего одно и то же.
    */
+  const qDigits = (q ?? "").replace(/\D/g, "");
   const searchWhere = q
     ? {
         OR: [
           { name: { contains: q, mode: "insensitive" as const } },
           { contactName: { contains: q, mode: "insensitive" as const } },
           { phone: { contains: q, mode: "insensitive" as const } },
+          // Номер ищется по цифрам: пробелы, скобки и плюс в запросе не мешают.
+          ...(qDigits.length >= 3 ? [{ phone: { contains: qDigits } }] : []),
           { city: { contains: q, mode: "insensitive" as const } },
           { experience: { contains: q, mode: "insensitive" as const } },
           { education: { contains: q, mode: "insensitive" as const } },
@@ -327,13 +338,22 @@ vacanciesRouter.get("/", requireAuth, requirePermission("vacancies.view"), async
    */
   const bucketFilter = bucket ? BUCKET_WHERE[bucket] : null;
   const eligibilityFilter = bucketFilter ?? (includeFiltered ? null : PASSES_FILTER);
-  const phoneFilter = bucket || includeNoPhone ? [] : [HAS_PHONE];
+  // Добавленные вручную кандидаты (POST /) видны и без номера: телефон в форме
+  // необязателен, и новая карточка не должна исчезать из ленты сразу после создания.
+  const phoneFilter = bucket || includeNoPhone ? [] : [{ OR: [HAS_PHONE, { channel: MANUAL_CHANNEL }] }];
 
   /** Ограничения, общие для списка и для всех счётчиков рядом с ним. Счётчики
    *  обязаны считать по тому же поиску: иначе кнопка обещает «Отсеянные (7)», а
    *  показывает двоих, подходящих под строку поиска. NOT_ARCHIVED — первым и
    *  безусловно: ни один запрос этого роута не должен видеть NOT_CANDIDATE. */
-  const positionWhere = positionKey ? [{ OR: [{ customerPositionKey: positionKey }, { customerInquiryId: null, hrPositionKey: positionKey }] }] : [];
+  // Вакансия анкеты на экране = customerPositionKey ?? hrPositionKey (presentListItem),
+  // фильтр и счётчики positionCounts считают её ровно так же.
+  const positionWhere =
+    positionKey === NO_POSITION
+      ? [{ customerPositionKey: null, hrPositionKey: null }]
+      : positionKey
+        ? [{ OR: [{ customerPositionKey: positionKey }, { customerPositionKey: null, hrPositionKey: positionKey }] }]
+        : [];
   const common = [NOT_ARCHIVED, ...positionWhere, ...(searchWhere ? [searchWhere] : []), ...(priority ? [priorityWhere] : [])];
   const visible = [
     ...common,
@@ -355,6 +375,14 @@ vacanciesRouter.get("/", requireAuth, requirePermission("vacancies.view"), async
     ...(eligibilityFilter ? [eligibilityFilter] : []),
     ...phoneFilter,
   ];
+  /** Для чисел рядом с вакансиями: те же фильтры этапа/поиска/цвета, но БЕЗ фильтра вакансии. */
+  const visibleAnyPosition = [
+    NOT_ARCHIVED,
+    ...(searchWhere ? [searchWhere] : []),
+    ...(priority ? [priorityWhere] : []),
+    ...(eligibilityFilter ? [eligibilityFilter] : []),
+    ...phoneFilter,
+  ];
 
   // «Сегодня» на экране — все собеседования этого дня по Душанбе, а не только
   // попавшие в загруженную страницу (02.10.2026: старый кандидат с собеседованием
@@ -373,6 +401,7 @@ vacanciesRouter.get("/", requireAuth, requirePermission("vacancies.view"), async
     bucketFit,
     bucketIncomplete,
     bucketRejected,
+    byPosition,
     capabilities,
   ] = await Promise.all([
     prisma.jobApplication.findMany({
@@ -410,7 +439,7 @@ vacanciesRouter.get("/", requireAuth, requirePermission("vacancies.view"), async
     prisma.jobApplication.groupBy({
       by: ["priority"],
       _count: { _all: true },
-      where: { AND: visibleAnyPriority },
+      where: { ...statusWhere, AND: visibleAnyPriority },
     }),
     /**
      * bucketCounts — те же три числа, что byStatus считает по стадиям, только
@@ -424,6 +453,11 @@ vacanciesRouter.get("/", requireAuth, requirePermission("vacancies.view"), async
     prisma.jobApplication.count({ where: { ...statusWhere, AND: [...common, BUCKET_FIT] } }),
     prisma.jobApplication.count({ where: { ...statusWhere, AND: [...common, BUCKET_INCOMPLETE] } }),
     prisma.jobApplication.count({ where: { ...statusWhere, AND: [...common, BUCKET_REJECTED] } }),
+    prisma.jobApplication.groupBy({
+      by: ["customerPositionKey", "hrPositionKey"],
+      _count: { _all: true },
+      where: { ...statusWhere, AND: visibleAnyPosition },
+    }),
     // Отказ базы здесь трактуется так же, как в самом боте (ALL_ENABLED): «собирает».
     loadBotCapabilities(),
   ]);
@@ -465,11 +499,26 @@ vacanciesRouter.get("/", requireAuth, requirePermission("vacancies.view"), async
       RED: byPriority.find((g) => g.priority === "RED")?._count._all ?? 0,
       NONE: byPriority.find((g) => g.priority === null)?._count._all ?? 0,
     },
+    /** Сколько анкет у каждой вакансии (ключ вакансии, "__none" - без вакансии) при
+     *  текущих фильтрах этапа/поиска/цвета, но БЕЗ фильтра вакансии. */
+    positionCounts: positionCountsOf(byPosition),
     /** Те же корзины, что и параметр bucket выше — прошёл / не решено / отсеян. */
     bucketCounts: { fit: bucketFit, incomplete: bucketIncomplete, rejected: bucketRejected },
     collecting: capabilities.vacancies,
   });
 });
+
+/** Свёртка groupBy по (customerPositionKey, hrPositionKey) в словарь «вакансия -> число». */
+function positionCountsOf(
+  groups: Array<{ customerPositionKey: string | null; hrPositionKey: string | null; _count: { _all: number } }>
+): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const g of groups) {
+    const key = g.customerPositionKey ?? g.hrPositionKey ?? NO_POSITION;
+    out[key] = (out[key] ?? 0) + g._count._all;
+  }
+  return out;
+}
 
 /** Идентификатор того же диалога в инбоксе («Сообщения»). null — анкета без
  *  переписки (такие бывают только у добора, см. lib/backfillJobApplications.ts)
@@ -634,7 +683,7 @@ const patchSchema = z
     // null разрешён явно — так очищают дату/заметку, назначенную по ошибке.
     // undefined не сериализуется в JSON (правило репозитория): чтобы очистить
     // поле, фронт обязан прислать null, а не просто не передать ключ.
-    interviewAt: z.string().min(1).nullable().optional(),
+    interviewAt: z.string().datetime({ offset: true }).nullable().optional(),
     interviewNote: z.string().max(2000).nullable().optional(),
     rejectionReason: z.string().max(500).nullable().optional(),
     // Только адрес, который выдаёт наша же запись голосовой заметки
@@ -918,4 +967,217 @@ vacanciesRouter.post("/:id/call", requireAuth, requirePermission("vacancies.view
   } finally {
     endOrigination(req.agent!.id);
   }
+});
+
+/** Удаление навсегда - только для директора и администратора. */
+function canEraseCandidates(role: string): boolean {
+  return role === "DIRECTOR" || role === "ADMIN";
+}
+
+const ACTIVE_CALL_STATUSES = ["IN_FLIGHT", "ACCEPTED"];
+
+type SkipReason = "not_found" | "calling" | "customer_inquiry";
+type SkippedItem = { id: string; reason: SkipReason };
+
+/**
+ * РУЧНОЕ ДОБАВЛЕНИЕ КАНДИДАТА (22.10.2026). Анкета создаётся сразу с вакансией
+ * (hrPositionKey), каналом MANUAL и стадией NEW. Телефон нормализуется тем же
+ * кодом, что у бота; тот же номер у существующей анкеты - 409 с её id. Допуск
+ * (eligible) не считается: возраст и учёбу руководитель знает сам, а отсеять
+ * вручную добавленного человека автоматикой значило бы спрятать его из ленты.
+ */
+const createSchema = z.object({
+  name: z.string().trim().min(1, "Укажите имя").max(120),
+  phone: z.string().max(40).nullish(),
+  positionKey: z.string().regex(/^[a-z][a-z0-9-]{1,63}$/),
+  city: z.string().trim().max(120).nullish(),
+  age: z.number().int().min(14).max(90).nullish(),
+  experience: z.string().trim().max(2000).nullish(),
+  note: z.string().trim().max(2000).nullish(),
+});
+
+vacanciesRouter.post("/", requireAuth, requirePermission("vacancies.view"), async (req, res) => {
+  const parsed = createSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
+  }
+  const body = parsed.data;
+  const position = await prisma.recruitmentPosition.findUnique({ where: { key: body.positionKey }, select: { key: true } });
+  if (!position) return res.status(400).json({ error: "Выберите существующую вакансию" });
+
+  let phone: string | null = null;
+  if (body.phone && body.phone.trim() !== "") {
+    const normalized = normalizeCandidatePhone(body.phone);
+    if (!normalized) return res.status(400).json({ error: "Неверный номер телефона" });
+    phone = normalized;
+    const duplicate = await prisma.jobApplication.findFirst({
+      where: { AND: [{ phone }, NOT_ARCHIVED] },
+      select: { id: true },
+    });
+    if (duplicate) return res.status(409).json({ error: "Такой кандидат уже есть", existingId: duplicate.id });
+  }
+
+  const experience = body.experience || null;
+  const priority = jobPriority({ experience });
+  const created = await prisma.jobApplication.create({
+    data: {
+      channel: MANUAL_CHANNEL,
+      name: body.name,
+      phone,
+      city: body.city || null,
+      age: body.age ?? null,
+      experience,
+      interviewNote: body.note || null,
+      hrPositionKey: body.positionKey,
+      status: "NEW",
+      reviewedById: req.agent!.id,
+      ...(priority !== null ? { priority, priorityReason: jobPriorityReason({ priority, experience }) } : {}),
+    },
+    include: LIST_INCLUDE,
+  });
+  logAudit(req, "VACANCY_CREATE", "JobApplication", created.id, {
+    channel: MANUAL_CHANNEL,
+    positionKey: body.positionKey,
+    ...(phone ? { phone: maskPhoneRaw(phone) } : {}),
+  });
+  res.status(201).json(presentListItem(created));
+});
+
+/** Стирает анкеты насовсем (общая часть DELETE /:id и bulk delete). */
+async function eraseApplications(
+  req: Request,
+  ids: string[]
+): Promise<{ updated: number; skipped: SkippedItem[] }> {
+  const done = await prisma.$transaction(async (tx) => {
+    const rows = await tx.jobApplication.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, name: true, phone: true, status: true, customerPositionKey: true, hrPositionKey: true },
+    });
+    const busy = await tx.recruitmentCommunication.findMany({
+      where: { jobApplicationId: { in: ids }, channel: "ASSISTANT_CALL", status: { in: ACTIVE_CALL_STATUSES } },
+      select: { jobApplicationId: true },
+    });
+    const busyIds = new Set(busy.map((b) => b.jobApplicationId));
+    const known = new Set(rows.map((r) => r.id));
+    const skipped: SkippedItem[] = [
+      ...ids.filter((id) => !known.has(id)).map((id) => ({ id, reason: "not_found" as const })),
+      ...rows.filter((r) => busyIds.has(r.id)).map((r) => ({ id: r.id, reason: "calling" as const })),
+    ];
+    const erased = rows.filter((r) => !busyIds.has(r.id));
+    const files = await eraseJobApplicationsTx(tx, erased.map((r) => r.id));
+    return { erased, skipped, files };
+  });
+  for (const row of done.erased) {
+    logAudit(req, "VACANCY_DELETE", "JobApplication", row.id, {
+      name: row.name,
+      status: row.status,
+      positionKey: row.customerPositionKey ?? row.hrPositionKey,
+      ...(row.phone ? { phone: maskPhoneRaw(row.phone) } : {}),
+    });
+  }
+  // Файлы - после коммита; сбой пишется в журнал ошибок и ответ не меняет.
+  void removeCandidateFiles(done.files);
+  return { updated: done.erased.length, skipped: done.skipped };
+}
+
+/** Удалить кандидата НАВСЕГДА вместе с зависимыми записями и файлами. */
+vacanciesRouter.delete("/:id", requireAuth, requirePermission("vacancies.view"), async (req, res) => {
+  if (!canEraseCandidates(req.agent!.role)) {
+    return res.status(403).json({ error: "Удалять анкеты навсегда может только директор или администратор" });
+  }
+  const { skipped } = await eraseApplications(req, [req.params.id]);
+  if (skipped[0]?.reason === "not_found") return res.status(404).json({ error: "Анкета не найдена" });
+  if (skipped[0]?.reason === "calling") {
+    return res.status(409).json({ error: "Ассистент сейчас говорит с кандидатом. Дождитесь результата звонка." });
+  }
+  res.status(204).end();
+});
+
+/** Массовые действия над анкетами (до 200 за раз). */
+const bulkSchema = z
+  .object({
+    ids: z.array(z.string().min(1).max(64)).min(1).max(200),
+    action: z.enum(["assignPosition", "setStatus", "delete"]),
+    positionKey: z.string().regex(/^[a-z][a-z0-9-]{1,63}$/).optional(),
+    status: z.enum(["NEW", "REVIEWED", "REJECTED", "NOT_CANDIDATE"]).optional(),
+  })
+  .superRefine((v, ctx) => {
+    if (v.action === "assignPosition" && !v.positionKey) {
+      ctx.addIssue({ code: "custom", message: "Укажите вакансию", path: ["positionKey"] });
+    }
+    if (v.action === "setStatus" && !v.status) {
+      ctx.addIssue({ code: "custom", message: "Укажите этап", path: ["status"] });
+    }
+  });
+
+vacanciesRouter.post("/bulk", requireAuth, requirePermission("vacancies.view"), async (req, res) => {
+  const parsed = bulkSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
+  }
+  const { action, positionKey, status } = parsed.data;
+  const ids = [...new Set(parsed.data.ids)];
+
+  if (action === "delete") {
+    if (!canEraseCandidates(req.agent!.role)) {
+      return res.status(403).json({ error: "Удалять анкеты навсегда может только директор или администратор" });
+    }
+    return res.json(await eraseApplications(req, ids));
+  }
+
+  if (action === "assignPosition") {
+    const position = await prisma.recruitmentPosition.findUnique({ where: { key: positionKey! }, select: { key: true } });
+    if (!position) return res.status(400).json({ error: "Выберите существующую вакансию" });
+  }
+
+  const result = await prisma.$transaction(async (tx) => {
+    const rows = await tx.jobApplication.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, status: true, customerInquiryId: true },
+    });
+    const busy = await tx.recruitmentCommunication.findMany({
+      where: { jobApplicationId: { in: ids }, channel: "ASSISTANT_CALL", status: { in: ACTIVE_CALL_STATUSES } },
+      select: { jobApplicationId: true },
+    });
+    const busyIds = new Set(busy.map((b) => b.jobApplicationId));
+    const known = new Set(rows.map((r) => r.id));
+    const skipped: SkippedItem[] = ids.filter((id) => !known.has(id)).map((id) => ({ id, reason: "not_found" as const }));
+    const ok: typeof rows = [];
+    for (const row of rows) {
+      if (busyIds.has(row.id)) skipped.push({ id: row.id, reason: "calling" });
+      // Вакансия новых анкет (customerPositionKey) принадлежит ядру - руками не меняем.
+      else if (action === "assignPosition" && row.customerInquiryId) skipped.push({ id: row.id, reason: "customer_inquiry" });
+      else ok.push(row);
+    }
+    const okIds = ok.map((r) => r.id);
+    if (okIds.length > 0) {
+      if (action === "assignPosition") {
+        await tx.jobApplication.updateMany({
+          where: { id: { in: okIds } },
+          data: { hrPositionKey: positionKey!, reviewedById: req.agent!.id },
+        });
+      } else {
+        await tx.jobApplication.updateMany({
+          where: { id: { in: okIds } },
+          // Новый этап - не HIRED, значит дата выхода (если стояла) больше не правда.
+          data: { status: status!, hiredAt: null, reviewedById: req.agent!.id },
+        });
+        // Ушли со стадии собеседования - ждущие звонки робота гаснут (как в PATCH).
+        await tx.interviewInviteCall.updateMany({
+          where: { jobApplicationId: { in: okIds }, status: { in: ["PENDING", "NO_ANSWER"] } },
+          data: { status: "CANCELLED" },
+        });
+      }
+    }
+    return { ok, skipped };
+  });
+
+  for (const row of result.ok) {
+    if (action === "setStatus") {
+      if (row.status !== status) logAudit(req, "VACANCY_STATUS", "JobApplication", row.id, { from: row.status, to: status!, bulk: true });
+    } else {
+      logAudit(req, "VACANCY_UPDATE", "JobApplication", row.id, { fields: ["hrPositionKey"], positionKey: positionKey!, bulk: true });
+    }
+  }
+  res.json({ updated: result.ok.length, skipped: result.skipped });
 });

@@ -9,7 +9,11 @@ import { useCan, useIsReadOnly } from "../lib/permissions";
 import { dushanbeDateTime } from "../lib/date";
 
 type Catalog = { items: RecruitmentPosition[] };
-export function RecruitmentPositions() {
+/** candidateCounts — число анкет по ключу вакансии (positionCounts сервера);
+ *  нет у старого сервера — тогда строки с числом нет. */
+export function RecruitmentPositions({ candidateCounts, onOpenCandidates }: {
+  candidateCounts?: Record<string, number>; onOpenCandidates?(positionKey: string): void;
+} = {}) {
   const can = useCan(), actor = useAuthStore(s => s.agent?.id), epoch = useAuthStore(s => s.sessionEpoch);
   const query = useQuery({ queryKey: ["recruitment-positions", actor], enabled: can("vacancies.view"),
     queryFn: () => api<Catalog>("/vacancies/positions", { expectAgentId: actor }) });
@@ -36,7 +40,9 @@ export function RecruitmentPositions() {
     {query.isPending ? <p role="status">Загружаем вакансии…</p> : !query.data ? null : <>
       {!query.data.items.length && <p className="vacancy-catalog-card">{manage ? "Пока нет вакансий. Добавьте должность и откройте набор, чтобы бот мог её предложить." : "Пока нет вакансий."}</p>}
       <div className="vacancy-catalog-list">{query.data.items.map(item => <article key={item.key} className="vacancy-catalog-card vacancy-catalog-position">
-        <div><span className="vacancy-stage-badge">{item.isOpen ? "Набор открыт" : "Набор закрыт"}</span><h3>{item.titleRu}</h3><p className="vacancy-catalog-description">{item.titleTg}</p>
+        <div><span className="vacancy-stage-badge">{item.isOpen ? "Набор открыт" : "Набор закрыт"}</span>
+          {candidateCounts && (onOpenCandidates ? <button type="button" className="vacancy-text-button vacancy-catalog-count" onClick={() => onOpenCandidates(item.key)}>Кандидатов: {candidateCounts[item.key] ?? 0}</button>
+            : <span className="vacancy-catalog-count">Кандидатов: {candidateCounts[item.key] ?? 0}</span>)}<h3>{item.titleRu}</h3><p className="vacancy-catalog-description">{item.titleTg}</p>
           <p className="vacancy-catalog-conditions">{item.detailsRu || "Условия пока не указаны."}</p></div>
         {manage && <button type="button" className="vacancy-button secondary" onClick={() => setEditing(item)}>Изменить</button>}
       </article>)}</div>

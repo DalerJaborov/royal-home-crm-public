@@ -1,8 +1,8 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 652,
-  "forks": 3572,
+  "endpoints": 655,
+  "forks": 3591,
   "mounts": 74,
   "cron": 107,
   "jobs": 31,
@@ -72646,6 +72646,77 @@
    ]
   },
   {
+   "method": "DELETE",
+   "path": "/:id",
+   "mount": "/api/v1/vacancies",
+   "full": "/api/v1/vacancies/:id",
+   "file": "apps/api/src/routes/vacancies.ts",
+   "router": "vacanciesRouter",
+   "top": "apps/api/src/routes/vacancies.ts::vacanciesRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "вход выполнен",
+    "есть право: vacancies.view"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!canEraseCandidates(req.agent!.role)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Удалять анкеты навсегда может только директор или администратор\" });",
+       "a": [
+        "ответ 403 — «Удалять анкеты навсегда может только директор или администратор»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "skipped[0]?.reason === \"not_found\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Анкета не найдена\" });",
+       "a": [
+        "ответ 404 — «Анкета не найдена»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "skipped[0]?.reason === \"calling\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"Ассистент сейчас говорит с кандидатом. Дождитесь результата звонка.\" });",
+       "a": [
+        "ответ 409 — «Ассистент сейчас говорит с кандидатом. Дождитесь результата звонка.»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.status(204).end();",
+     "a": [
+      "ответ 204"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
    "method": "PATCH",
    "path": "/:id",
    "mount": "/api/v1/vacancies",
@@ -73286,6 +73357,285 @@
    ]
   },
   {
+   "method": "POST",
+   "path": "/bulk",
+   "mount": "/api/v1/vacancies",
+   "full": "/api/v1/vacancies/bulk",
+   "file": "apps/api/src/routes/vacancies.ts",
+   "router": "vacanciesRouter",
+   "top": "apps/api/src/routes/vacancies.ts::vacanciesRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "вход выполнен",
+    "есть право: vacancies.view"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const parsed = bulkSchema.safeParse(req.body);",
+     "a": [
+      "проверяет данные схемой bulkSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Неверные данные\", details: parsed.error.flatten() });",
+       "a": [
+        "ответ 400 — «Неверные данные»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "action === \"delete\"",
+     "a": [],
+     "c": [
+      {
+       "k": "if",
+       "t": "!canEraseCandidates(req.agent!.role)",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(403).json({ error: \"Удалять анкеты навсегда может только директор или администратор\" });",
+         "a": [
+          "ответ 403 — «Удалять анкеты навсегда может только директор или администратор»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "return res.json(await eraseApplications(req, ids));",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "action === \"assignPosition\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const position = await prisma.recruitmentPosition.findUnique({ where: { key: positionKey! }, select: { key: t…",
+       "a": [
+        "читает в базе: recruitmentPosition"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!position",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(400).json({ error: \"Выберите существующую вакансию\" });",
+         "a": [
+          "ответ 400 — «Выберите существующую вакансию»"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const result = await prisma.$transaction(async (tx)",
+     "a": [
+      "всё внутри — одной транзакцией",
+      "читает в базе: jobApplication",
+      "читает в базе: recruitmentCommunication",
+      "меняет в базе: jobApplication",
+      "меняет в базе: interviewInviteCall"
+     ],
+     "c": [
+      {
+       "k": "do",
+       "t": "const rows = await tx.jobApplication.findMany({ where: { id: { in: ids } }, select: { id: true, status: true,…",
+       "a": [
+        "читает в базе: jobApplication"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "const busy = await tx.recruitmentCommunication.findMany({ where: { jobApplicationId: { in: ids }, channel: \"A…",
+       "a": [
+        "читает в базе: recruitmentCommunication"
+       ],
+       "c": []
+      },
+      {
+       "k": "loop",
+       "t": "для каждого: const row of rows",
+       "a": [],
+       "c": [
+        {
+         "k": "if",
+         "t": "busyIds.has(row.id)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "skipped.push({ id: row.id, reason: \"calling\" });",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "elseif",
+         "t": "action === \"assignPosition\" && row.customerInquiryId",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "skipped.push({ id: row.id, reason: \"customer_inquiry\" });",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "else",
+         "t": "иначе",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "ok.push(row);",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "okIds.length > 0",
+       "a": [],
+       "c": [
+        {
+         "k": "if",
+         "t": "action === \"assignPosition\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "await tx.jobApplication.updateMany({ where: { id: { in: okIds } }, data: { hrPositionKey: positionKey!, revie…",
+           "a": [
+            "меняет в базе: jobApplication"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "else",
+         "t": "иначе",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "await tx.jobApplication.updateMany({ where: { id: { in: okIds } }, data: { status: status!, hiredAt: null, re…",
+           "a": [
+            "меняет в базе: jobApplication"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "await tx.interviewInviteCall.updateMany({ where: { jobApplicationId: { in: okIds }, status: { in: [\"PENDING\",…",
+           "a": [
+            "меняет в базе: interviewInviteCall"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "loop",
+     "t": "для каждого: const row of result.ok",
+     "a": [],
+     "c": [
+      {
+       "k": "if",
+       "t": "action === \"setStatus\"",
+       "a": [],
+       "c": [
+        {
+         "k": "if",
+         "t": "row.status !== status",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "logAudit(req, \"VACANCY_STATUS\", \"JobApplication\", row.id, { from: row.status, to: status!, bulk: true });",
+           "a": [
+            "зовёт logAudit()"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "k": "else",
+       "t": "иначе",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "logAudit(req, \"VACANCY_UPDATE\", \"JobApplication\", row.id, { fields: [\"hrPositionKey\"], positionKey: positionK…",
+         "a": [
+          "зовёт logAudit()"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.json({ updated: result.ok.length, skipped: result.skipped });",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
    "method": "PUT",
    "path": "/:key",
    "mount": "/api/v1/vacancies/positions",
@@ -73796,6 +74146,14 @@
      "c": [
       {
        "k": "do",
+       "t": "void logSystemError(\"api\", `Список вакансий не прочитан: ${describeError(err)}`);",
+       "a": [
+        "запись в журнал ошибок"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
        "t": "res.status(503).json({ error: \"Не удалось загрузить открытые позиции\" });",
        "a": [
         "ответ 503 — «Не удалось загрузить открытые позиции»"
@@ -73867,6 +74225,155 @@
      "t": "res.json({ items: (bucket ? ordered : items).map(presentListItem), total, offset, todayInterviews: todayRows.…",
      "a": [
       "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "/",
+   "mount": "/api/v1/vacancies",
+   "full": "/api/v1/vacancies",
+   "file": "apps/api/src/routes/vacancies.ts",
+   "router": "vacanciesRouter",
+   "top": "apps/api/src/routes/vacancies.ts::vacanciesRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "вход выполнен",
+    "есть право: vacancies.view"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const parsed = createSchema.safeParse(req.body);",
+     "a": [
+      "проверяет данные схемой createSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Неверные данные\", details: parsed.error.flatten() });",
+       "a": [
+        "ответ 400 — «Неверные данные»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const position = await prisma.recruitmentPosition.findUnique({ where: { key: body.positionKey }, select: { ke…",
+     "a": [
+      "читает в базе: recruitmentPosition"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!position",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Выберите существующую вакансию\" });",
+       "a": [
+        "ответ 400 — «Выберите существующую вакансию»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "body.phone && body.phone.trim() !== \"\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const normalized = normalizeCandidatePhone(body.phone);",
+       "a": [
+        "зовёт normalizeCandidatePhone()"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!normalized",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(400).json({ error: \"Неверный номер телефона\" });",
+         "a": [
+          "ответ 400 — «Неверный номер телефона»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const duplicate = await prisma.jobApplication.findFirst({ where: { AND: [{ phone }, NOT_ARCHIVED] }, select: …",
+       "a": [
+        "читает в базе: jobApplication"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "duplicate",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(409).json({ error: \"Такой кандидат уже есть\", existingId: duplicate.id });",
+         "a": [
+          "ответ 409 — «Такой кандидат уже есть»"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const priority = jobPriority({ experience });",
+     "a": [
+      "зовёт jobPriority()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const created = await prisma.jobApplication.create({ data: { channel: MANUAL_CHANNEL, name: body.name, phone,…",
+     "a": [
+      "создаёт в базе: jobApplication"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "logAudit(req, \"VACANCY_CREATE\", \"JobApplication\", created.id, { channel: MANUAL_CHANNEL, positionKey: body.po…",
+     "a": [
+      "зовёт logAudit()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.status(201).json(presentListItem(created));",
+     "a": [
+      "ответ 201"
      ],
      "c": []
     }
@@ -87869,7 +88376,23 @@
         },
         {
          "k": "do",
-         "t": "const due = await prisma.$queryRaw<Array<{ id: string }>>`SELECT \"id\" FROM \"RecruitmentCommunication\" WHERE \"…",
+         "t": "await loadCompanyDaysOff();",
+         "a": [
+          "зовёт loadCompanyDaysOff()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "const callsNow = isWithinPostShowingCallHours(now);",
+         "a": [
+          "зовёт isWithinPostShowingCallHours()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "const due = await prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`SELECT \"id\" FROM \"RecruitmentCommunicati…",
          "a": [
           "обращается к базе своим SQL"
          ],
