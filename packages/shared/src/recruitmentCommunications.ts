@@ -11,7 +11,7 @@ export const recruitmentContactPreviewSchema = z.object({
   mapUrl: z.string().trim().url().max(1000).refine(value => {
     const url = new URL(value);
     return url.protocol === "https:" && !url.username && !url.password && !url.port &&
-      ["maps.google.com", "www.google.com", "google.com", "maps.app.goo.gl", "yandex.ru", "yandex.com", "2gis.ru", "2gis.tj"].includes(url.hostname);
+      ["maps.google.com", "www.google.com", "google.com", "maps.app.goo.gl", "yandex.ru", "yandex.com", "2gis.ru", "2gis.tj", "2gis.com", "go.2gis.com"].includes(url.hostname);
   }, "Нужна HTTPS-ссылка Google Maps, Яндекс Карт или 2ГИС").optional(),
   preparation: z.string().trim().max(1000).optional(),
 }).strict().superRefine((value, ctx) => {
@@ -36,12 +36,15 @@ export interface RecruitmentContactOptions {
   sms: { available: boolean; reason?: string };
   assistantCall: { available: boolean; reason?: string };
   clarification: { available: boolean; reason?: string };
-  office: { address: string | null; mapUrl: string | null; preparation: string | null };
+  /** addressTg — адрес для приглашения на таджикском (если отличается от address). */
+  office: { address: string | null; addressTg?: string | null; mapUrl: string | null; preparation: string | null };
   language: "ru" | "tg" | null;
   recentDeliveries: RecruitmentCommunicationDelivery[];
 }
 export interface RecruitmentContactPreview {
   previewId: string; text: string; callSummary?: string; expiresAt: string;
+  /** Число СМС-сегментов текста (UCS-2: 70 / 67 на сегмент); только если выбран канал SMS. */
+  smsSegments?: number;
 }
 export interface RecruitmentContactConfirmation {
   interviewSaved: boolean; deliveries: RecruitmentCommunicationDelivery[];

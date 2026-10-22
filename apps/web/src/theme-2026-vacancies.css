@@ -15,7 +15,7 @@
 .vacancies-screen .vacancies-view-switch {display:flex;padding:4px;gap:4px;border:1px solid var(--vacancy-line);border-radius:12px;background:var(--vacancy-paper);}
 .vacancies-screen .vacancies-view-switch button {min-height:42px;padding:8px 20px;font-size:14px;border-radius:8px;color:var(--vacancy-muted);}
 .vacancies-screen .vacancies-view-switch button[aria-pressed="true"] {background:var(--vacancy-blue);color:#fff;font-weight:650;}
-.vacancies-screen .vacancies-layout {display:grid;grid-template-columns:250px minmax(0,1fr);gap:22px;align-items:start;}
+.vacancies-screen .vacancies-layout {display:grid;grid-template-columns:360px minmax(0,1fr);gap:22px;align-items:start;}
 .vacancies-screen .vacancy-queue {min-width:0;padding:10px 0 18px;position:sticky;top:20px;}
 .vacancies-screen .vacancy-queue-heading {display:flex;align-items:center;justify-content:space-between;gap:10px;padding:0 10px 18px;}
 .rh2 .scr.vacancies-screen .vacancy-queue-heading h2 {font-size:21px;font-weight:700;}
@@ -29,8 +29,8 @@
 .rh2 :is(.vacancies-screen,.vacancy-contact-scope) :is(button,a,input,select,textarea,summary):focus-visible {outline:3px solid #81adff;outline-offset:3px;}
 .rh2 :is(.vacancies-screen,.vacancy-contact-scope) button {cursor:pointer;}
 .rh2 :is(.vacancies-screen,.vacancy-contact-scope) button:disabled {cursor:not-allowed;opacity:.55;}
-.rh2 .scr.vacancies-screen .vacancy-queue-list {list-style:none;padding:0;display:grid;gap:5px;margin-top:18px;max-height:calc(100dvh - 360px);overflow-y:auto;overscroll-behavior:contain;}
-.vacancies-screen .vacancy-queue-card {display:flex;align-items:flex-start;gap:12px;width:100%;text-align:left;padding:15px 10px;border:1px solid transparent;border-radius:11px;color:var(--vacancy-ink);}
+.rh2 .scr.vacancies-screen .vacancy-queue-list {list-style:none;padding:0;display:grid;gap:5px;margin-top:18px;max-height:calc(100dvh - 330px);overflow-y:auto;overscroll-behavior:contain;padding-right:4px;}
+.vacancies-screen .vacancy-queue-card {display:flex;align-items:flex-start;gap:12px;width:100%;text-align:left;padding:12px 12px 12px 42px;border:1px solid transparent;border-radius:11px;color:var(--vacancy-ink);}
 .vacancies-screen .vacancy-queue-card:hover {background:var(--vacancy-paper);}
 .vacancies-screen .vacancy-queue-card[aria-current="true"] {background:var(--vacancy-tint);border-color:#cbdcff;}
 .vacancies-screen .vacancy-avatar {display:grid;place-items:center;flex:0 0 38px;height:38px;background:#e4eaf4;color:#47618c;border-radius:50%;font-size:14px;font-weight:600;}
@@ -39,7 +39,7 @@
 .vacancies-screen .vacancy-queue-copy strong {font-size:15px;font-weight:650;}
 .vacancies-screen .vacancy-queue-meta {font-size:12px;color:var(--vacancy-muted);}
 .vacancies-screen .vacancy-queue-missing {font-size:12px;color:#866224;}
-.vacancies-screen .vacancy-queue-file {display:flex;gap:4px;align-items:center;font-size:11px;color:var(--vacancy-muted);}
+.vacancies-screen .vacancy-queue-file {display:inline-flex;gap:4px;align-items:center;font-size:13px;color:var(--vacancy-muted);}
 .vacancies-screen .vacancy-queue-card>svg {flex:0 0 auto;align-self:center;color:var(--vacancy-muted);}
 .vacancies-screen .vacancy-queue-state {display:grid;gap:12px;justify-items:start;font-size:14px;padding:30px 10px;}
 .rh2 .scr.vacancies-screen .vacancy-queue-state h3 {font-size:17px;}
@@ -182,14 +182,68 @@
 .vacancies-screen .vacancy-catalog-actions {display:flex;flex-wrap:wrap;gap:12px;}
 .vacancies-screen .vacancy-catalog-open {margin:20px 0;border-bottom:1px solid var(--vacancy-line);padding-bottom:20px;}
 .vacancies-screen .vacancy-catalog-open small {display:block;color:var(--vacancy-muted);font-size:12px;margin-top:4px;}
+/* 22.10.2026 — лента как в ATS: чипы этапов и фильтров, галочки, массовая панель. */
+.vacancies-screen .vacancies-header-actions {display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+.vacancies-screen .vacancy-chip-row {display:flex;flex-wrap:wrap;gap:6px;margin:0 0 10px;min-width:0;}
+.vacancies-screen .vacancy-stage-row {margin-bottom:18px;padding-bottom:14px;border-bottom:1px solid var(--vacancy-line);flex-wrap:nowrap;overflow-x:auto;scrollbar-width:thin;}
+.rh2 .vacancies-screen .vacancy-chip {display:inline-flex;align-items:center;gap:7px;min-height:36px;padding:6px 12px;border:1px solid var(--vacancy-line);border-radius:999px;background:var(--vacancy-paper);color:var(--vacancy-ink);font:inherit;font-size:13px;font-weight:550;line-height:1.3;white-space:nowrap;}
+.rh2 .vacancies-screen .vacancy-chip:hover:not(:disabled) {border-color:#a2bff4;}
+.rh2 .vacancies-screen .vacancy-chip[aria-pressed="true"] {background:var(--vacancy-blue);border-color:var(--vacancy-blue);color:#fff;}
+.rh2 .vacancies-screen .vacancy-chip.danger {color:#b33536;border-color:#efc4c4;}
+.rh2 .vacancies-screen .vacancy-chip.quiet {border-color:transparent;background:transparent;padding:6px 8px;}
+.vacancies-screen .vacancy-chip-count {font-size:13px;font-variant-numeric:tabular-nums;color:var(--vacancy-muted);}
+.vacancies-screen .vacancy-chip[aria-pressed="true"] .vacancy-chip-count {color:#dbe7ff;}
+.vacancies-screen .vacancy-queue-tools {display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:4px;}
+.vacancies-screen .vacancy-queue-item {position:relative;}
+.vacancies-screen .vacancy-queue-check {position:absolute;left:10px;top:13px;z-index:1;display:grid;place-items:center;width:24px;height:24px;}
+.vacancies-screen .vacancy-queue-check input {width:18px;height:18px;margin:0;accent-color:var(--vacancy-blue);cursor:pointer;}
+.vacancies-screen .vacancy-queue-item[data-checked="true"] .vacancy-queue-card {background:var(--vacancy-tint);}
+.vacancies-screen .vacancy-queue-top {display:flex;align-items:baseline;justify-content:space-between;gap:8px;min-width:0;}
+.vacancies-screen .vacancy-queue-top strong {min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.vacancies-screen .vacancy-queue-date {flex:0 0 auto;font-size:13px;color:var(--vacancy-muted);}
+.vacancies-screen .vacancy-queue-position {font-size:13px;color:var(--vacancy-ink);}
+.vacancies-screen :is(.vacancy-queue-position,.vacancy-position-title).none {color:#866224;}
+.vacancies-screen .vacancy-queue-meta {display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;}
+.vacancies-screen .vacancy-queue-stage {font-weight:600;color:var(--vacancy-ink);}
+.vacancies-screen .vacancy-priority {display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--vacancy-muted);}
+.vacancies-screen .vacancy-queue-end {display:grid;padding:8px 0 4px;min-height:1px;}
+.vacancies-screen .vacancy-loaded {padding:8px 6px 0;}
+.vacancies-screen .vacancy-today {margin:12px 0 4px;padding:12px;border:1px solid var(--vacancy-line);border-radius:10px;background:var(--vacancy-paper);}
+.rh2 .scr.vacancies-screen .vacancy-today h3 {display:flex;align-items:center;gap:8px;font-size:14px;font-weight:650;margin-bottom:4px;}
+.rh2 .scr.vacancies-screen .vacancy-today ul {list-style:none;padding:0;display:grid;}
+.vacancies-screen .vacancy-today-time {display:inline-block;min-width:48px;font-variant-numeric:tabular-nums;color:var(--vacancy-ink);font-weight:650;}
+.vacancies-screen .vacancy-person-badges {display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;margin-bottom:12px;}
+.vacancies-screen .vacancy-person-badges .vacancy-stage-badge {margin:0;padding:3px 10px;border-radius:999px;background:var(--vacancy-tint);color:var(--vacancy-blue);font-weight:600;}
+.rh2 .scr.vacancies-screen .vacancy-priority-reason {font-size:14px;color:var(--vacancy-muted);margin-top:8px;}
+.vacancies-screen .vacancy-person-actions {display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:20px;}
+.rh2 .vacancies-screen .vacancy-person-actions .vacancy-button {min-height:40px;padding:8px 14px;}
+.vacancies-screen .vacancy-person-actions>.vacancy-file-button {width:auto;min-height:40px;padding:8px 12px;}
+.rh2 .scr.vacancies-screen .vacancy-resume-source {margin-top:12px;}
+.vacancies-screen .vacancy-menu {position:relative;}
+.vacancies-screen .vacancy-menu>summary {list-style:none;display:grid;place-items:center;width:40px;height:40px;border:1px solid var(--vacancy-line);border-radius:9px;cursor:pointer;color:var(--vacancy-muted);}
+.vacancies-screen .vacancy-menu>summary::-webkit-details-marker {display:none;}
+.vacancies-screen .vacancy-menu-list {position:absolute;right:0;top:46px;z-index:5;min-width:220px;padding:6px 12px;background:var(--vacancy-paper);border:1px solid var(--vacancy-line);border-radius:10px;box-shadow:0 12px 32px rgba(16,33,63,.14);}
+.vacancies-screen .vacancy-fact-grid {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1px;margin:0 0 28px;border:1px solid var(--vacancy-line);border-radius:10px;overflow:hidden;background:var(--vacancy-line);}
+.vacancies-screen .vacancy-fact-grid>div {padding:12px 14px;background:var(--vacancy-paper);min-width:0;}
+.vacancies-screen .vacancy-fact-grid dt {font-size:13px;color:var(--vacancy-muted);margin-bottom:2px;}
+.vacancies-screen .vacancy-fact-grid dd {margin:0;font-size:15px;font-weight:600;overflow-wrap:anywhere;}
+.vacancy-contact-scope .vacancy-form-grid {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0 12px;}
+.rh2 .scr.vacancies-screen .vacancy-catalog-count {display:inline-flex;margin-left:12px;font-size:13px;color:var(--vacancy-blue);}
+.rh2 .scr.vacancies-screen .vacancy-bulk-bar {position:fixed;left:50%;bottom:20px;transform:translateX(-50%);z-index:30;display:flex;flex-wrap:wrap;align-items:center;gap:8px;max-width:min(980px,calc(100vw - 32px));padding:10px 12px;background:var(--vacancy-paper);border:1px solid var(--vacancy-line);border-radius:14px;box-shadow:0 16px 40px rgba(16,33,63,.18);}
+.vacancies-screen .vacancy-bulk-count {font-size:14px;padding:0 6px;}
+.vacancies-screen :is(.vacancy-bulk-status,.vacancy-bulk-result) {font-size:13px;color:var(--vacancy-muted);display:flex;flex-wrap:wrap;align-items:center;gap:8px;}
+.vacancies-screen .vacancy-bulk-result ul {padding-left:18px;max-height:160px;overflow-y:auto;}
+.vacancy-print-root {display:none;}
 html[data-theme="royal-home-2026-night"] .rh2 :is(.vacancies-screen,.vacancy-contact-scope) {--vacancy-ink:#e6ecf8;--vacancy-muted:#b0bdd2;--vacancy-line:#33435b;--vacancy-bg:#182337;--vacancy-paper:#1e2c43;--vacancy-blue:#83afff;--vacancy-tint:#253c64;--vacancy-warning:#3b3020;}
 html[data-theme="royal-home-2026-night"] .rh2 :is(.vacancies-screen,.vacancy-contact-scope) .vacancy-button:not(.secondary) {background:#075bec;border-color:#357bf0;color:#fff;}
 html[data-theme="royal-home-2026-night"] .rh2 .vacancies-screen .vacancies-view-switch button[aria-pressed="true"] {background:#075bec;color:#fff;}
 html[data-theme="royal-home-2026-night"] .rh2 .vacancies-screen .vacancy-queue-missing {color:#efc378;}
+html[data-theme="royal-home-2026-night"] .rh2 .vacancies-screen .vacancy-chip[aria-pressed="true"] {background:#075bec;border-color:#357bf0;color:#fff;}
+html[data-theme="royal-home-2026-night"] .rh2 .vacancies-screen :is(.vacancy-chip.danger,.vacancy-queue-position.none,.vacancy-position-title.none) {color:#ffaaaa;}
 html[data-theme="royal-home-2026-night"] .rh2 :is(.vacancies-screen,.vacancy-contact-scope) :is(.vacancy-text-button.danger,.vacancy-form-error) {color:#ffaaaa;}
-@media(min-width:1800px) {.vacancies-screen .vacancies-layout{grid-template-columns:270px minmax(0,1fr);gap:28px}.vacancies-screen .vacancy-detail{grid-template-columns:minmax(0,1fr) 310px;gap:24px}.vacancies-screen .vacancy-resume-paper{padding:40px}}
-@media(max-width:1350px) {.vacancies-screen .vacancies-layout{grid-template-columns:230px minmax(0,1fr);gap:16px}.vacancies-screen .vacancy-detail{grid-template-columns:minmax(0,1fr) 250px;gap:16px}.vacancies-screen .vacancy-resume-paper{padding:24px}.vacancies-screen .vacancy-resume-columns{grid-template-columns:1fr}.vacancies-screen .vacancy-resume-facts{border-left:0;border-top:1px solid var(--vacancy-line);padding:24px 0 0;display:grid;grid-template-columns:1fr 1fr;gap:20px}.vacancies-screen .vacancy-resume-toolbar{flex-wrap:wrap;padding-left:4px;padding-right:4px}}
-@media(max-width:1100px) {.vacancies-screen .vacancy-detail{grid-template-columns:minmax(0,1fr)}.vacancies-screen .vacancy-next{position:static;padding:20px;background:var(--vacancy-paper);border:1px solid var(--vacancy-line);border-radius:10px}.vacancies-screen .vacancy-resume-paper{min-height:0}.vacancies-screen .vacancy-queue{top:12px}.vacancies-screen .vacancy-resume-toolbar{min-height:80px}}
+@media(min-width:1800px) {.vacancies-screen .vacancies-layout{grid-template-columns:400px minmax(0,1fr);gap:28px}.vacancies-screen .vacancy-detail{grid-template-columns:minmax(0,1fr) 310px;gap:24px}.vacancies-screen .vacancy-resume-paper{padding:40px}}
+@media(max-width:1350px) {.vacancies-screen .vacancies-layout{grid-template-columns:320px minmax(0,1fr);gap:16px}.vacancies-screen .vacancy-detail{grid-template-columns:minmax(0,1fr) 250px;gap:16px}.vacancies-screen .vacancy-resume-paper{padding:24px}.vacancies-screen .vacancy-resume-columns{grid-template-columns:1fr}.vacancies-screen .vacancy-resume-facts{border-left:0;border-top:1px solid var(--vacancy-line);padding:24px 0 0;display:grid;grid-template-columns:1fr 1fr;gap:20px}.vacancies-screen .vacancy-resume-toolbar{flex-wrap:wrap;padding-left:4px;padding-right:4px}}
+@media(max-width:1100px) {.vacancies-screen .vacancies-layout{grid-template-columns:290px minmax(0,1fr)}.vacancies-screen .vacancy-detail{grid-template-columns:minmax(0,1fr)}.vacancies-screen .vacancy-next{position:static;padding:20px;background:var(--vacancy-paper);border:1px solid var(--vacancy-line);border-radius:10px}.vacancies-screen .vacancy-resume-paper{min-height:0}.vacancies-screen .vacancy-queue{top:12px}.vacancies-screen .vacancy-resume-toolbar{min-height:80px}}
 @media(max-width:760px) {
   .vacancies-screen .vacancy-catalog-header,.vacancies-screen .vacancy-catalog-position{flex-direction:column;gap:16px;}
   .vacancies-screen .vacancy-catalog-header>.vacancy-button,.vacancies-screen .vacancy-catalog-position>.vacancy-button{width:100%;}
@@ -205,7 +259,12 @@ html[data-theme="royal-home-2026-night"] .rh2 :is(.vacancies-screen,.vacancy-con
   .vacancies-screen .vacancies-layout{display:block;}
   .vacancies-screen .vacancy-queue{position:static;padding:0;}
   .rh2 .scr.vacancies-screen .vacancy-queue-list{max-height:none;overflow:visible;gap:8px;}
-  .vacancies-screen .vacancy-queue-card{background:var(--vacancy-paper);padding:16px;border-color:var(--vacancy-line);}
+  .vacancies-screen .vacancy-queue-card{background:var(--vacancy-paper);padding:14px 14px 14px 46px;border-color:var(--vacancy-line);}
+  .vacancies-screen .vacancy-queue-check{left:4px;}
+  .vacancies-screen .vacancies-header-actions{width:100%;flex-direction:column;align-items:stretch;}
+  .rh2 .scr.vacancies-screen .vacancy-bulk-bar{left:8px;right:8px;bottom:calc(8px + env(safe-area-inset-bottom));transform:none;max-width:none;}
+  .vacancies-screen .vacancy-fact-grid{grid-template-columns:repeat(2,minmax(0,1fr));}
+  .vacancies-screen .vacancy-person-actions>.vacancy-button{flex:1 1 auto;}
   .vacancies-screen .vacancy-queue-copy strong{font-size:17px;}.vacancies-screen .vacancy-avatar{height:42px;flex-basis:42px;}
   .vacancies-screen .vacancies-layout:not([data-mobile-detail="true"]) .vacancy-detail{display:none;}
   .vacancies-screen .vacancies-layout[data-mobile-detail="true"] .vacancy-queue{display:none;}
@@ -226,4 +285,45 @@ html[data-theme="royal-home-2026-night"] .rh2 :is(.vacancies-screen,.vacancy-con
   .vacancy-contact-scope.vacancy-contact-footer{display:grid;grid-template-columns:1fr;width:100%;padding-bottom:env(safe-area-inset-bottom);}
   .vacancy-contact-scope.vacancy-contact-footer .vacancy-button{width:100%;}
   .rh2 .scr .vacancy-contact-sheet .sheet-b{padding:20px 16px;}
+}
+@media(max-width:760px) {.vacancy-contact-scope .vacancy-form-grid{grid-template-columns:1fr;}}
+/* Печать: только лист анкет на белом А4, всё остальное скрыто. */
+@media print {
+  @page {size:A4;margin:16mm;}
+  body>*:not(.vacancy-print-root) {display:none !important;}
+  .vacancy-print-root {display:block;color:#000;background:#fff;font-family:Onest,"Segoe UI",sans-serif;font-size:13px;}
+  .vacancy-print-page {break-after:page;page-break-after:always;}
+  .vacancy-print-page:last-child {break-after:auto;page-break-after:auto;}
+  .vacancy-print-brand {font-size:13px;letter-spacing:.06em;text-transform:uppercase;margin:0 0 6px;}
+  .vacancy-print-page h1 {font-size:26px;margin:0;}
+  .vacancy-print-position {font-size:16px;margin:4px 0 16px;}
+  .vacancy-print-page h2 {font-size:16px;margin:18px 0 6px;border-bottom:1px solid #999;padding-bottom:4px;}
+  .vacancy-print-facts {display:grid;grid-template-columns:1fr 1fr;gap:6px 24px;margin:0;}
+  .vacancy-print-facts div {break-inside:avoid;}
+  .vacancy-print-facts dt {font-size:13px;color:#444;}
+  .vacancy-print-facts dd {margin:0;font-size:14px;font-weight:600;}
+  .vacancy-print-text {white-space:pre-wrap;font-size:13px;line-height:1.5;margin:0 0 6px;}
+  .vacancy-print-page footer {margin-top:20px;font-size:13px;color:#444;}
+}
+
+/* 22.10: поиск и фильтры — одной строкой над лентой и анкетой, чтобы лента была видна сразу. */
+.vacancies-screen .vacancies-toolbar {display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin:4px 0 10px;}
+.vacancies-screen .vacancies-toolbar .vacancy-search {flex:0 1 300px;margin-bottom:0;}
+.vacancies-screen .vacancies-toolbar .vacancy-chip-row {margin:0;}
+.vacancies-screen details.vacancy-today {margin:0 0 12px;padding:8px 12px;}
+.rh2 .scr.vacancies-screen details.vacancy-today summary {display:flex;align-items:center;gap:8px;font-size:14px;font-weight:650;cursor:pointer;list-style:none;}
+.vacancies-screen details.vacancy-today summary::-webkit-details-marker {display:none;}
+.rh2 .scr.vacancies-screen details.vacancy-today ul {display:flex;flex-wrap:wrap;gap:4px 16px;margin-top:8px;}
+@media (max-width: 820px) {
+  .vacancies-screen .vacancies-toolbar .vacancy-search {flex:1 1 100%;}
+  .vacancies-screen .vacancies-toolbar .vacancy-chip-row {flex-wrap:nowrap;overflow-x:auto;max-width:100%;scrollbar-width:none;}
+}
+/* Чип не сжимается: на узком экране ряд листается вбок, а не сминает подписи. */
+.vacancies-screen .vacancy-chip {flex:0 0 auto;white-space:nowrap;}
+@media (max-width: 820px) {
+  .vacancies-screen .vacancy-stage-row {flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;}
+}
+@media (max-width: 820px) {
+  /* Открыта анкета — шапка, этапы и фильтры уходят, остаётся «К кандидатам». */
+  .vacancies-screen:has(.vacancies-layout[data-mobile-detail="true"]) :is(.vacancies-page-header,.vacancy-stage-row,.vacancies-toolbar,details.vacancy-today) {display:none;}
 }

@@ -4,7 +4,7 @@ import {
   DUSHANBE_OFFSET_MS,
   type PermissionId,
 } from "@royal-home/shared";
-import type { JobApplication, VacancyBucket, VacancyStage } from "../hooks/useVacancies";
+import type { JobApplication, VacancyBucket, VacancyStage } from "../types/vacancies";
 import { ApiError } from "./apiError";
 import { dushanbeDate, dushanbeInputToIso, dushanbeTime } from "./date";
 

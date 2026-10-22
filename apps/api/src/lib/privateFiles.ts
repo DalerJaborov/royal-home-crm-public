@@ -206,6 +206,18 @@ export function privateFilePath(name: string): string | null {
   return fs.existsSync(full) ? full : null;
 }
 
+/**
+ * Удаляет файл закрытого хранилища по имени (голосовая заметка или вложение).
+ * Имя проходит ту же строгую проверку, что и при чтении. true — файл был и
+ * удалён; false — такого файла нет. Ошибку файловой системы бросает наружу.
+ */
+export function deletePrivateFileByName(name: string): boolean {
+  const full = voiceNoteFilePath(name)?.path ?? privateFilePath(name);
+  if (!full) return false;
+  fs.unlinkSync(full);
+  return true;
+}
+
 export function privateMimeType(name: string): string {
   const ext = name.split(".").pop()?.toLowerCase() ?? "";
   const found = Object.entries(EXT_BY_MIME).find(([, e]) => e === ext);

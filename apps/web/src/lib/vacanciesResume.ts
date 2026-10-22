@@ -1,5 +1,5 @@
 import { recruitmentResumeSchema, RECRUITMENT_FACT_LABELS, type RecruitmentFactKey, type RecruitmentPosition } from "@royal-home/shared";
-import type { JobApplication, VacancyStage } from "../hooks/useVacancies";
+import type { JobApplication, VacancyStage } from "../types/vacancies";
 
 export const CANDIDATE_STAGE_LABELS: Record<JobApplication["status"], string> = {
   NEW: "Новый отклик", REVIEWED: "В работе", INTERVIEW: "Назначено собеседование",
@@ -7,21 +7,11 @@ export const CANDIDATE_STAGE_LABELS: Record<JobApplication["status"], string> = 
 };
 export type CandidateQueueStage = "ACTIVE" | "ALL" | VacancyStage;
 export const CANDIDATE_QUEUE_PAGE_SIZE = 50;
-export function candidateQueueOffset(paging: { key: string; offset: number }, filterKey: string): number {
-  return paging.key === filterKey ? paging.offset : 0;
-}
-export function candidateQueuePage(offset: number, shown: number, total?: number) {
-  return {
-    text: shown > 0 ? `Показаны ${offset + 1}–${offset + shown}${total == null ? "" : ` из ${total}`}` : total == null ? "На этой странице нет анкет" : `Показано 0 из ${total}`,
-    hasPrevious: offset > 0,
-    hasNext: shown === CANDIDATE_QUEUE_PAGE_SIZE && (total == null || offset + shown < total),
-  };
-}
 export const CANDIDATE_QUEUE_STAGES: Array<{ value: CandidateQueueStage; label: string }> = [
-  { value: "ACTIVE", label: "Все активные" }, { value: "NEW", label: "Новые отклики" },
+  { value: "ACTIVE", label: "Активные" }, { value: "NEW", label: "Новые" },
   { value: "REVIEWED", label: "В работе" }, { value: "INTERVIEW", label: "Собеседования" },
-  { value: "INTERVIEWED", label: "Ожидают решения" }, { value: "HIRED", label: "Приняты на работу" },
-  { value: "REJECTED", label: "Отказ" }, { value: "ALL", label: "Все кандидаты" },
+  { value: "INTERVIEWED", label: "Ждут решения" }, { value: "HIRED", label: "Приняты" },
+  { value: "REJECTED", label: "Отказ" }, { value: "ALL", label: "Все" },
 ];
 export function candidateStageFilters(stage: CandidateQueueStage) {
   return { activeOnly: stage === "ACTIVE", status: stage === "ACTIVE" || stage === "ALL" ? undefined : stage };

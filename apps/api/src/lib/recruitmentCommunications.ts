@@ -7,23 +7,27 @@ import { assessRecruitmentResume, customerFenceSchema, isDialableTajikNumber, is
   type RecruitmentContactOptions, type RecruitmentContactPreviewInput, type RecruitmentContactConfirmInput } from "@royal-home/shared";
 import { prisma, type TxClient } from "../db.js";
 import { Prisma } from "../generated/prisma/client.js";
-import { lockCustomerStateSnapshot } from "./customerState.js";
+import { lockCustomerStateSnapshot, loadCustomerStateSnapshot } from "./customerState.js";
 import { lockCustomerNative } from "./customerNativeLock.js";
 import { readRecruitmentPositions } from "./recruitmentPositions.js";
 import { readCustomerCompanyInformation } from "./customerCompanyInformation.js";
-import { loadSmsConfig, payomWebhookUrl } from "./sms/index.js";
+import { loadSmsConfig, payomWebhookUrl, toSmsPhone } from "./sms/index.js";
 import { payomSend, PAYOM_NOT_DELIVERED } from "./sms/payom.js";
 import { originateLiveVoiceScenarioCall, type LiveVoiceScenarioResult } from "./telephony/liveVoiceBridge.js";
 import { INTERVIEW_INVITE_CALL_TOOLS } from "../ai/interviewInviteCallPersona.js";
 import { parseInterviewInviteCall } from "../ai/interviewInviteCallParse.js";
 import { isWithinPostShowingCallHours } from "./postShowingCall.js";
 import { loadCompanyDaysOff } from "./daysOffCalendar.js";
+import { vacancyOfficeMapUrl } from "../ai/vacancyFacts.js";
+import { RecruitmentCommunicationError, held, assertSmsLength, smsSegments, bridgeRefusalStatus, isUnresolvedDelivery,
+  hasCallWindowBefore, UNKNOWN_SOFT_MINUTES, UNKNOWN_HARD_HOURS } from "./recruitmentCommunicationRules.js";
 import { buildRecruitmentCommunicationContent, recruitmentCommunicationDigest as digest } from "./recruitmentCommunicationContent.js";
 
-export class RecruitmentCommunicationError extends Error {
-  constructor(readonly status: number, message: string) { super(message); }
-}
-function held(message: string): never { throw new RecruitmentCommunicationError(409, message); }
+export { RecruitmentCommunicationError };
+/** SQL-двойник isUnresolvedDelivery (recruitmentCommunicationRules.ts): держать в паре. */
+const unresolvedDeliverySql = () => Prisma.sql`("status" IN ('QUEUED','IN_FLIGHT') OR ("channel"='ASSISTANT_CALL' AND "status"='ACCEPTED')
+  OR ("status"='UNKNOWN' AND "updatedAt" > now() - make_interval(hours => ${UNKNOWN_HARD_HOURS}::int)
+    AND ("providerReceipt" IS NOT NULL OR "updatedAt" > now() - make_interval(mins => ${UNKNOWN_SOFT_MINUTES}::int))))`;
 const sourceSchema = z.object({ version: z.literal(1), applicationId: z.string(), materialHash: z.string(),
   originalUpdatedAt: z.string(), originalStatus: z.string(), originalInterviewAt: z.string().nullable(),
   phone: z.string(), positionKey: z.string(), positionRevision: z.number(), companyHash: z.string(), fence: customerFenceSchema.nullable(),
@@ -33,7 +37,7 @@ const sourceSchema = z.object({ version: z.literal(1), applicationId: z.string()
 type Snapshot = z.infer<typeof sourceSchema>;
 type Row = { id: string; previewId: string; jobApplicationId: string; actorId: string; channel: RecruitmentCommunicationChannel;
   purpose: string; status: RecruitmentCommunicationDelivery["status"]; previewHash: string; snapshotJson: unknown;
-  expiresAt: Date; idempotencyKey: string | null; effectKey: string | null; providerReceipt: string | null; reason: string | null; resultJson?: unknown };
+  expiresAt: Date; idempotencyKey: string | null; effectKey: string | null; providerReceipt: string | null; reason: string | null; resultJson?: unknown; updatedAt?: Date };
 type App = { id: string; name: string | null; contactName: string | null; phone: string | null; status: string;
   interviewAt: Date | null; updatedAt: Date; customerInquiryId: string | null; customerPositionKey: string | null;
   hrPositionKey: string | null; conversationId: string | null; clientId: string | null; contactProfileId: string | null; channel: string;
@@ -64,11 +68,11 @@ async function staffAllowed(tx: TxClient, actorId: string) {
   return agent;
 }
 async function applicationBinding(tx: TxClient, application: { channel: string; conversationId: string | null; clientId: string | null; contactProfileId: string | null },
-  actor: Awaited<ReturnType<typeof staffAllowed>>, actorId: string) {
+  actor: Awaited<ReturnType<typeof staffAllowed>>, actorId: string, lock = true) {
   let binding: Record<string, string | null> | null = null;
   if (application.conversationId) {
     const kind = application.channel === "TELEGRAM" ? "telegram" : application.channel === "TELEGRAM_DIRECT" ? "telegram_direct" : "bot";
-    if (!await lockCustomerNative(tx, { kind, id: application.conversationId })) held("Исходная переписка старой анкеты недоступна");
+    if (lock && !await lockCustomerNative(tx, { kind, id: application.conversationId })) held("Исходная переписка старой анкеты недоступна");
     const table = kind === "bot" ? Prisma.sql`"BotConversation"` : kind === "telegram" ? Prisma.sql`"TelegramConversation"` : Prisma.sql`"TelegramDirectConversation"`;
     const [native] = await tx.$queryRaw<Array<{ binding: Record<string, string | null> }>>(Prisma.sql`SELECT jsonb_build_object(
       'id',n."id",'channel',to_jsonb(n)->>'channel','peer',COALESCE(to_jsonb(n)->>'subscriberId',to_jsonb(n)->>'chatId'),
@@ -98,12 +102,13 @@ async function applicationBinding(tx: TxClient, application: { channel: string; 
 /** Core applications retain exact native/scope/policy locks. Historical HR
  * applications use their own staff-maintained job/native witness instead;
  * neither staff purpose issues a BOT grant, creates an Inquiry or advances IN. */
-async function currentSource(tx: TxClient, applicationId: string, actorId: string) {
+/** lock=false — чтение без блокировок (contact-options): только для показа, не для отправки. */
+async function currentSource(tx: TxClient, applicationId: string, actorId: string, lock = true) {
   const actor = await staffAllowed(tx, actorId);
   const anchor = await tx.jobApplication.findUnique({ where: { id: applicationId }, select: { customerInquiryId: true,
     conversationId: true, clientId: true, contactProfileId: true, channel: true } });
   if (!anchor) throw new RecruitmentCommunicationError(404, "Анкета не найдена");
-  const state = anchor.customerInquiryId ? await lockCustomerStateSnapshot(tx, { inquiryId: anchor.customerInquiryId }) : null;
+  const state = anchor.customerInquiryId ? (lock ? await lockCustomerStateSnapshot(tx, { inquiryId: anchor.customerInquiryId }) : await loadCustomerStateSnapshot({ inquiryId: anchor.customerInquiryId }, tx)) : null;
   let legacy: Awaited<ReturnType<typeof applicationBinding>> | null = null;
   if (anchor.customerInquiryId) {
     if (!state || state.closedAt || state.publicState.topic !== "job" || !state.fence.nativeId) held("Актуальное обращение кандидата недоступно");
@@ -111,26 +116,28 @@ async function currentSource(tx: TxClient, applicationId: string, actorId: strin
     if (state.ownerMode === "OFF" || state.ownerMode === "HOLD") held("Обращение кандидата приостановлено");
     const native = await tx.botConversation.findUnique({ where: { id: state.fence.nativeId }, select: { optedOutAt: true, pausedUntil: true } });
     if (!native || native.optedOutAt || native.pausedUntil && native.pausedUntil.getTime() > Date.now()) held("Автоматическая связь с кандидатом приостановлена");
-    await applicationBinding(tx, { ...anchor, conversationId: state.fence.nativeId }, actor, actorId);
-  } else legacy = await applicationBinding(tx, anchor, actor, actorId);
-  const [app] = await tx.$queryRaw<App[]>`SELECT "id","name","contactName","phone","status","interviewAt","updatedAt",
+    await applicationBinding(tx, { ...anchor, conversationId: state.fence.nativeId }, actor, actorId, lock);
+  } else legacy = await applicationBinding(tx, anchor, actor, actorId, lock);
+  const [app] = await tx.$queryRaw<App[]>(Prisma.sql`SELECT "id","name","contactName","phone","status","interviewAt","updatedAt",
     "customerInquiryId","customerPositionKey","hrPositionKey","conversationId","clientId","contactProfileId","channel",
     "customerApplicationRevision"::text,"recruitmentResume","customerPortfolio","rawText",
     jsonb_build_object('age',"age",'city',"city",'studyingNow',CASE WHEN "studyingNow" IS TRUE OR "studyingUniversity" IS TRUE THEN true ELSE COALESCE("studyingNow","studyingUniversity") END,
       'employedNow',"employedNow",'education',"education",'experience',"experience",'languages',"languages",'startWhen',"startWhen",
       'about',COALESCE(NULLIF("rawText",''),NULLIF("cvFile",''))) AS "legacyFactsJson"
-    FROM "JobApplication" WHERE "id"=${applicationId} FOR UPDATE`;
+    FROM "JobApplication" WHERE "id"=${applicationId}${lock ? Prisma.sql` FOR UPDATE` : Prisma.empty}`);
   if (!app || ["NOT_CANDIDATE", "REJECTED", "HIRED"].includes(app.status) || app.customerInquiryId !== anchor.customerInquiryId ||
       app.conversationId !== anchor.conversationId || app.clientId !== anchor.clientId || app.contactProfileId !== anchor.contactProfileId || app.channel !== anchor.channel ||
       state && (app.customerInquiryId !== state.fence.inquiryId || app.customerPositionKey !== state.publicState.jobPositionKey)) held("Анкета или выбранная вакансия изменились");
   const positionKey = state ? app.customerPositionKey : app.hrPositionKey;
   if (!positionKey) held("Выберите вакансию для этой старой анкеты перед обращением к кандидату");
-  await tx.$queryRaw`SELECT "key" FROM "RecruitmentPosition" WHERE "key"=${positionKey} FOR SHARE`;
+  if (lock) await tx.$queryRaw`SELECT "key" FROM "RecruitmentPosition" WHERE "key"=${positionKey} FOR SHARE`;
   const position = (await readRecruitmentPositions(tx)).find(row => row.key === positionKey);
   if (!position?.isOpen) held("Набор по этой вакансии закрыт");
   const company = await readCustomerCompanyInformation();
   const office = await tx.settings.findUnique({ where: { id: "singleton" }, select: { interviewInviteAddress: true } });
   const officeAddress = office?.interviewInviteAddress?.trim() || company.information.office;
+  const officeAddressTg = office?.interviewInviteAddress?.trim() || company.information.officeTg;
+  const officeMapUrl = office?.interviewInviteAddress?.trim() ? null : vacancyOfficeMapUrl();
   const companyHash = digest({ company: company.sourceHash, configuredOfficeAddress: office?.interviewInviteAddress?.trim() || null });
   const resume = recruitmentResumeSchema.safeParse(app.recruitmentResume);
   const assessment = assessRecruitmentResume({ rules: position!.screeningRules, facts: resume.success ? resume.data.facts : {},
@@ -146,7 +153,7 @@ async function currentSource(tx: TxClient, applicationId: string, actorId: strin
     inquiry: app.customerInquiryId, position: app.customerPositionKey, hrPositionKey: app.hrPositionKey,
     conversationId: app.conversationId, clientId: app.clientId, contactProfileId: app.contactProfileId, channel: app.channel,
     legacyFacts: !state ? app.legacyFactsJson : null });
-  return { app, position: position!, company, companyHash, officeAddress, state, assessment, materialHash, actor, legacy };
+  return { app, position: position!, company, companyHash, officeAddress, officeAddressTg, officeMapUrl, state, assessment, materialHash, actor, legacy };
 }
 function sameSource(snapshot: Snapshot, source: Awaited<ReturnType<typeof currentSource>>, beforeConfirm: boolean) {
   return source.app.id === snapshot.applicationId && source.materialHash === snapshot.materialHash &&
@@ -166,22 +173,25 @@ export async function recruitmentContactOptions(applicationId: string, actorId: 
   const recent = await prisma.$queryRaw<Row[]>`SELECT * FROM "RecruitmentCommunication" WHERE "jobApplicationId"=${applicationId}
     AND "status"<>'PREVIEW' ORDER BY "createdAt" DESC LIMIT 12`;
   let reason: string | undefined, source: Awaited<ReturnType<typeof currentSource>> | undefined;
-  try { source = await prisma.$transaction(tx => currentSource(tx, applicationId, actorId)); }
+  try { source = await prisma.$transaction(tx => currentSource(tx, applicationId, actorId, false)); }
   catch (error) { if (!(error instanceof RecruitmentCommunicationError)) throw error; if (error.status !== 409) throw error; reason = error.message; }
   const settings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { liveVoiceEnabled: true, interviewInviteAddress: true } });
   if (!reason && !isDialableTajikNumber(source!.app.phone ?? "")) reason = "Нужен корректный таджикский номер кандидата";
-  const unresolved = recent.some(row => ["QUEUED", "IN_FLIGHT", "UNKNOWN"].includes(row.status) || row.channel === "ASSISTANT_CALL" && row.status === "ACCEPTED");
+  const unresolved = recent.some(row => isUnresolvedDelivery(row));
   if (!reason && unresolved) reason = "Предыдущее обращение ещё не завершено. Проверьте его результат перед новой отправкой.";
   const smsReady = !!await loadSmsConfig(), voiceReady = !!settings?.liveVoiceEnabled;
   const available = !reason;
   const language = source?.state?.fence.nativeId ? await prisma.botConversation.findUnique({ where: { id: source.state.fence.nativeId },
     select: { contactProfile: { select: { language: true } } } }) : null;
+  const office = { address: source?.officeAddress ?? settings?.interviewInviteAddress?.trim() ?? null,
+    addressTg: source?.officeAddressTg ?? settings?.interviewInviteAddress?.trim() ?? null,
+    mapUrl: source ? source.officeMapUrl : settings?.interviewInviteAddress?.trim() ? null : vacancyOfficeMapUrl(), preparation: null };
   return { ...(source ? { sourceKind: source.state ? "CORE" as const : "LEGACY_HR" as const } : {}),
     sms: { available: available && smsReady, ...(!available || !smsReady ? { reason: reason ?? "СМС не подключены" } : {}) },
     assistantCall: { available: available && voiceReady, ...(!available || !voiceReady ? { reason: reason ?? "Звонки ассистента выключены" } : {}) },
     clarification: { available: available && !!source?.assessment.missing.length && (smsReady || voiceReady),
       ...(!available || !source?.assessment.missing.length || !smsReady && !voiceReady ? { reason: reason ?? "Нет недостающих сведений или доступного канала" } : {}) },
-    office: { address: source?.officeAddress ?? settings?.interviewInviteAddress?.trim() ?? null, mapUrl: null, preparation: null },
+    office,
     language: source?.state?.publicState.language === "ru" || source?.state?.publicState.language === "tg" ? source.state.publicState.language :
       source?.legacy?.language ?? (language?.contactProfile?.language === "tg" ? "tg" : language?.contactProfile?.language === "ru" ? "ru" : null),
     recentDeliveries: recent.map(asDelivery) };
@@ -198,11 +208,18 @@ export async function previewRecruitmentContact(applicationId: string, actorId: 
     const source = await currentSource(tx, applicationId, actorId);
     if (!isDialableTajikNumber(source.app.phone ?? "")) held("Укажите корректный таджикский номер кандидата");
     if (request.purpose === "CLARIFY" && !source.assessment.missing.length) held("Обязательные сведения уже заполнены — уточнение не требуется");
-    const unresolved = await tx.$queryRaw<Row[]>`SELECT * FROM "RecruitmentCommunication" WHERE "jobApplicationId"=${applicationId}
-      AND ("status" IN ('QUEUED','IN_FLIGHT','UNKNOWN') OR ("channel"='ASSISTANT_CALL' AND "status"='ACCEPTED')) LIMIT 1`;
+    const unresolved = await tx.$queryRaw<Row[]>(Prisma.sql`SELECT * FROM "RecruitmentCommunication" WHERE "jobApplicationId"=${applicationId}
+      AND ${unresolvedDeliverySql()} LIMIT 1`);
     if (unresolved.length) held("Предыдущее обращение не завершено — проверьте его результат");
     const content = buildRecruitmentCommunicationContent(request, { name: source.app.name ?? source.app.contactName,
-      ...source.position, address: source.officeAddress, missing: source.assessment.missing });
+      ...source.position, address: source.officeAddress, addressTg: source.officeAddressTg, mapUrl: source.officeMapUrl, missing: source.assessment.missing });
+    const sms = request.channels.includes("SMS");
+    if (sms) assertSmsLength(content.text);
+    if (request.channels.includes("ASSISTANT_CALL") && request.interviewAt) {
+      const daysOff = await loadCompanyDaysOff();
+      if (!hasCallWindowBefore(now, new Date(request.interviewAt), at => isWithinPostShowingCallHours(at, daysOff)))
+        held("Звонок не успеет до собеседования — выберите SMS");
+    }
     const snapshot: Snapshot = { version: 1, applicationId, materialHash: source.materialHash,
       originalUpdatedAt: source.app.updatedAt.toISOString(), originalStatus: source.app.status,
       originalInterviewAt: source.app.interviewAt?.toISOString() ?? null, phone: source.app.phone!,
@@ -213,7 +230,7 @@ export async function previewRecruitmentContact(applicationId: string, actorId: 
     for (const channel of request.channels) await tx.$executeRaw`INSERT INTO "RecruitmentCommunication"
       ("id","previewId","jobApplicationId","actorId","purpose","channel","status","previewHash","snapshotJson","expiresAt","createdAt","updatedAt")
       VALUES (${randomUUID()},${previewId},${applicationId},${actorId},${request.purpose},${channel},'PREVIEW',${previewHash},${JSON.stringify(snapshot)}::jsonb,${expiresAt},${now},${now})`;
-    return { previewId, text: content.text, ...(request.channels.includes("ASSISTANT_CALL") ? { callSummary: content.callSummary } : {}), expiresAt: expiresAt.toISOString() };
+    return { previewId, text: content.text, ...(sms ? { smsSegments: smsSegments(content.text) } : {}), ...(request.channels.includes("ASSISTANT_CALL") ? { callSummary: content.callSummary } : {}), expiresAt: expiresAt.toISOString() };
   });
 }
 export async function confirmRecruitmentContact(applicationId: string, actorId: string, command: RecruitmentContactConfirmInput) {
@@ -227,8 +244,8 @@ export async function confirmRecruitmentContact(applicationId: string, actorId: 
     if (rows.some(row => row.status !== "PREVIEW" || row.expiresAt.getTime() <= Date.now()) ||
       rows.some(row => row.previewHash !== digest(snapshot)) || !sameSource(snapshot, source, true)) held("Предпросмотр устарел — проверьте анкету заново");
     if (new Date(snapshot.validUntil).getTime() <= Date.now()) held("Время приглашения истекло");
-    const prior = await tx.$queryRaw<Row[]>`SELECT * FROM "RecruitmentCommunication" WHERE "jobApplicationId"=${applicationId}
-      AND ("status" IN ('QUEUED','IN_FLIGHT','UNKNOWN') OR ("channel"='ASSISTANT_CALL' AND "status"='ACCEPTED')) LIMIT 1`;
+    const prior = await tx.$queryRaw<Row[]>(Prisma.sql`SELECT * FROM "RecruitmentCommunication" WHERE "jobApplicationId"=${applicationId}
+      AND ${unresolvedDeliverySql()} LIMIT 1`);
     if (prior.length) held("Предыдущее обращение ещё не завершено");
     for (const row of rows) {
       const effectKey = digest({ applicationId, material: snapshot.materialHash, position: snapshot.positionRevision,
@@ -253,6 +270,7 @@ export async function confirmRecruitmentContact(applicationId: string, actorId: 
 async function settle(id: string, status: Row["status"], reason: string | null, receipt?: string, result: unknown = {}) {
   await prisma.$executeRaw`UPDATE "RecruitmentCommunication" SET "status"=${status},"reason"=${reason},
     "providerReceipt"=COALESCE(${receipt ?? null},"providerReceipt"),"resultJson"=${JSON.stringify(result)}::jsonb,
+    "effectKey"=CASE WHEN ${["REJECTED", "CANCELLED"].includes(status)} THEN NULL ELSE "effectKey" END,
     "completedAt"=CASE WHEN ${["QUEUED", "IN_FLIGHT", "ACCEPTED"].includes(status)} THEN NULL ELSE now() END,"updatedAt"=now()
     WHERE "id"=${id} AND "status" IN ('IN_FLIGHT','ACCEPTED','UNKNOWN')`;
 }
@@ -290,7 +308,7 @@ export async function dispatchRecruitmentCommunication(id: string, now = new Dat
   if (!initial || initial.status !== "QUEUED") return;
   const snapshot = sourceSchema.parse(initial.snapshotJson);
   if (new Date(snapshot.validUntil).getTime() <= now.getTime()) {
-    await prisma.$executeRaw`UPDATE "RecruitmentCommunication" SET "status"='CANCELLED',"reason"='Время обращения истекло',"updatedAt"=now()
+    await prisma.$executeRaw`UPDATE "RecruitmentCommunication" SET "status"='CANCELLED',"effectKey"=NULL,"reason"='Время обращения истекло',"updatedAt"=now()
       WHERE "id"=${id} AND "status"='QUEUED'`; return;
   }
   if (initial.channel === "ASSISTANT_CALL") {
@@ -302,7 +320,7 @@ export async function dispatchRecruitmentCommunication(id: string, now = new Dat
     claimed = await prisma.$transaction(async tx => {
       const source = await currentSource(tx, initial.jobApplicationId, initial.actorId);
       if (!sameSource(snapshot, source, false) || new Date(snapshot.validUntil).getTime() <= now.getTime()) {
-        await tx.$executeRaw`UPDATE "RecruitmentCommunication" SET "status"='CANCELLED',"reason"='Анкета, вакансия или время изменились',"updatedAt"=now()
+        await tx.$executeRaw`UPDATE "RecruitmentCommunication" SET "status"='CANCELLED',"effectKey"=NULL,"reason"='Анкета, вакансия или время изменились',"updatedAt"=now()
           WHERE "id"=${id} AND "status"='QUEUED'`; return false;
       }
       return await tx.$executeRaw`UPDATE "RecruitmentCommunication" SET "status"='IN_FLIGHT',"attemptStartedAt"=${now},"updatedAt"=now()
@@ -310,7 +328,7 @@ export async function dispatchRecruitmentCommunication(id: string, now = new Dat
     });
   } catch (error) {
     if (!(error instanceof RecruitmentCommunicationError)) throw error;
-    await prisma.$executeRaw`UPDATE "RecruitmentCommunication" SET "status"='CANCELLED',"reason"=${error.message},"updatedAt"=now()
+    await prisma.$executeRaw`UPDATE "RecruitmentCommunication" SET "status"='CANCELLED',"effectKey"=NULL,"reason"=${error.message},"updatedAt"=now()
       WHERE "id"=${id} AND "status"='QUEUED'`; return;
   }
   if (!claimed) return;
@@ -319,9 +337,10 @@ export async function dispatchRecruitmentCommunication(id: string, now = new Dat
       const config = await loadSmsConfig();
       if (!config) { await settle(id, "REJECTED", "СМС не подключены"); return; }
       if (process.env.SMS_DRY_RUN === "1" || process.env.VITEST && !testTransport) { await settle(id, "DRY_RUN", "Проверка без отправки"); return; }
-      const phone = snapshot.phone.replace(/\D/g, "");
+      const phone = toSmsPhone(snapshot.phone);
+      if (!phone) { await settle(id, "REJECTED", "Номер кандидата не подходит для СМС (нужен таджикский номер)"); return; }
       await assertPhysicalSourceCurrent(initial, snapshot);
-      const result = await (testTransport?.sms ?? payomSend)(config, phone.length === 9 ? `992${phone}` : phone, snapshot.text, { webhookUrl: payomWebhookUrl() });
+      const result = await (testTransport?.sms ?? payomSend)(config, phone, snapshot.text, { webhookUrl: payomWebhookUrl() });
       if (result.ok && result.messageId) {
         // Receipt settlement remains valid even if the source changed during HTTP.
         const notDelivered = PAYOM_NOT_DELIVERED.some(status => status === result.deliveryStatus);
@@ -344,7 +363,7 @@ export async function dispatchRecruitmentCommunication(id: string, now = new Dat
         // The bridge explicitly proves this branch occurs before any originate.
         await settle(id, "QUEUED", "Линия ассистента занята; ожидаем свободную линию");
       } else if (result.ok && result.channelId) await settle(id, "ACCEPTED", null, result.channelId);
-      else await settle(id, "UNKNOWN", result.error ?? "Начало звонка не подтверждено — повтор запрещён");
+      else await settle(id, bridgeRefusalStatus(result), result.error ?? "Начало звонка не подтверждено — повтор запрещён");
     }
   } catch (error) {
     await settle(id, error instanceof RecruitmentCommunicationError ? "CANCELLED" : "UNKNOWN",
@@ -353,7 +372,7 @@ export async function dispatchRecruitmentCommunication(id: string, now = new Dat
 }
 export async function runRecruitmentCommunicationTick(now = new Date()): Promise<void> {
   const interruptedCalls = await prisma.$queryRaw<Array<{ id: string; providerReceipt: string | null }>>`SELECT "id","providerReceipt"
-    FROM "RecruitmentCommunication" WHERE "channel"='ASSISTANT_CALL' AND "status" IN ('IN_FLIGHT','ACCEPTED','UNKNOWN')
+    FROM "RecruitmentCommunication" WHERE "channel"='ASSISTANT_CALL' AND "status" IN ('IN_FLIGHT','ACCEPTED')
       AND "attemptStartedAt"<${new Date(now.getTime() - 20 * 60_000)} ORDER BY "attemptStartedAt" LIMIT 10`;
   for (const call of interruptedCalls) {
     const session = await prisma.liveVoiceSession.findFirst({ where: { channelId: call.providerReceipt ?? call.id }, orderBy: { startedAt: "desc" },
@@ -366,7 +385,11 @@ export async function runRecruitmentCommunicationTick(now = new Date()): Promise
   }
   await prisma.$executeRaw`UPDATE "RecruitmentCommunication" SET "status"='UNKNOWN',"reason"='Процесс прервался; проверьте результат у провайдера',"updatedAt"=now()
     WHERE "status"='IN_FLIGHT' AND "attemptStartedAt"<${new Date(now.getTime() - 20 * 60_000)}`;
-  const due = await prisma.$queryRaw<Array<{ id: string }>>`SELECT "id" FROM "RecruitmentCommunication" WHERE "status"='QUEUED' ORDER BY "createdAt" LIMIT 10`;
+  // СМС уходят всегда; звонки, ждущие окна, выбираются только в окне — иначе они заслоняют СМС.
+  await loadCompanyDaysOff();
+  const callsNow = isWithinPostShowingCallHours(now);
+  const due = await prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`SELECT "id" FROM "RecruitmentCommunication" WHERE "status"='QUEUED'
+    ${callsNow ? Prisma.empty : Prisma.sql`AND "channel"<>'ASSISTANT_CALL'`} ORDER BY ("channel"='SMS') DESC,"createdAt" LIMIT 10`);
   for (const row of due) await dispatchRecruitmentCommunication(row.id, now);
 }
 export async function recordRecruitmentSmsReceipt(providerId: string, status: string, at: Date) {
@@ -383,6 +406,7 @@ export async function reconcileRecruitmentSmsReceipt(providerId: string) {
   // Its monotonic timestamp is stored alongside the last delivery status.
   await prisma.$executeRaw`UPDATE "RecruitmentCommunication" SET "providerStatus"=${status},
     "status"=CASE WHEN ${status}='DELIVERED' THEN 'DELIVERED' WHEN ${status} IN ('UNDELIVERABLE','EXPIRED','REVOKED','DELETED','REJECTED') THEN 'REJECTED' ELSE "status" END,
+    "effectKey"=CASE WHEN ${status} IN ('UNDELIVERABLE','EXPIRED','REVOKED','DELETED','REJECTED') THEN NULL ELSE "effectKey" END,
     "resultJson"=jsonb_set(COALESCE("resultJson",'{}'::jsonb),'{deliveryStatusAt}',to_jsonb(${at.toISOString()}::text)),"updatedAt"=now()
     WHERE "channel"='SMS' AND "providerReceipt"=${providerId} AND "status" IN ('ACCEPTED','DELIVERED','REJECTED')
       AND COALESCE("resultJson"->>'deliveryStatusAt','')<${at.toISOString()}`;

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { JobApplication } from "../../hooks/useVacancies";
-import { candidateMissingFacts, candidateMissingText, candidateQueueCount, candidateResumeFacts, candidateStageFilters, candidateStudyState, candidateTitle, selectedCandidate, legacyCandidatePositionPatch, candidateQueueOffset, candidateQueuePage, CANDIDATE_QUEUE_PAGE_SIZE } from "../vacanciesResume";
+import { candidateMissingFacts, candidateMissingText, candidateQueueCount, candidateResumeFacts, candidateStageFilters, candidateStudyState, candidateTitle, selectedCandidate, legacyCandidatePositionPatch, CANDIDATE_QUEUE_PAGE_SIZE } from "../vacanciesResume";
+import { mergeQueuePages, queueNextOffset, VACANCY_QUEUE_PAGE } from "../vacancyQueue";
 import { RECRUITMENT_DELIVERY_LABEL, recruitmentSendLabel } from "../vacanciesContact";
 import { vacancyFiltersQuery } from "../vacancyFilters";
 
@@ -84,23 +85,20 @@ describe("candidate queue pagination beyond 200", () => {
     expect(params.get("includeNoPhone")).toBe("true"); expect(params.get("includeFiltered")).toBe("true");
     expect(vacancyFiltersQuery({ offset: 0, limit: 50 })).not.toBe(query);
   });
-  it("starts new stage, vacancy or search filters at the first page", () => {
-    const state = { key: "ACTIVE|smm|", offset: 200 };
-    expect(candidateQueueOffset(state, "ACTIVE|smm|")).toBe(200);
-    expect(candidateQueueOffset(state, "NEW|smm|")).toBe(0);
-    expect(candidateQueueOffset(state, "ACTIVE|agent|")).toBe(0);
-    expect(candidateQueueOffset(state, "ACTIVE|smm|test")).toBe(0);
-  });
   it("keeps the 201st through 250th candidate reachable without increasing limit", () => {
-    expect(CANDIDATE_QUEUE_PAGE_SIZE).toBe(50);
-    expect(candidateQueuePage(0, 50, 250)).toEqual({ text: "Показаны 1–50 из 250", hasPrevious: false, hasNext: true });
-    expect(candidateQueuePage(50, 50, 250)).toEqual({ text: "Показаны 51–100 из 250", hasPrevious: true, hasNext: true });
-    expect(candidateQueuePage(150, 50, 250).hasNext).toBe(true);
-    expect(candidateQueuePage(200, 50, 250)).toEqual({ text: "Показаны 201–250 из 250", hasPrevious: true, hasNext: false });
+    expect(CANDIDATE_QUEUE_PAGE_SIZE).toBe(50); expect(VACANCY_QUEUE_PAGE).toBe(50);
+    expect(queueNextOffset(50, 0, 250)).toBe(50);
+    expect(queueNextOffset(50, 150, 250)).toBe(200);
+    expect(queueNextOffset(50, 200, 250)).toBeUndefined();
   });
   it("handles a partial last page, missing old-server totals, and a shrinking queue", () => {
-    expect(candidateQueuePage(250, 13, 263)).toEqual({ text: "Показаны 251–263 из 263", hasPrevious: true, hasNext: false });
-    expect(candidateQueuePage(50, 50)).toEqual({ text: "Показаны 51–100", hasPrevious: true, hasNext: true });
-    expect(candidateQueuePage(200, 0, 180)).toEqual({ text: "Показано 0 из 180", hasPrevious: true, hasNext: false });
+    expect(queueNextOffset(13, 250, 263)).toBeUndefined();
+    expect(queueNextOffset(50, 50, undefined)).toBe(100);
+    expect(queueNextOffset(0, 200, 180)).toBeUndefined();
+  });
+  it("infinite feed never shows the same candidate twice when pages shift", () => {
+    const a = application({ id: "a" }), b = application({ id: "b" }), c = application({ id: "c" });
+    expect(mergeQueuePages([{ items: [a, b] }, { items: [b, c] }]).map(item => item.id)).toEqual(["a", "b", "c"]);
+    expect(mergeQueuePages(undefined)).toEqual([]);
   });
 });

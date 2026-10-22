@@ -80,6 +80,15 @@ export function vacancyOfficeAddress(): string {
   return `${o.city}, ${o.address}; ориентиры — ${o.landmarks.join(", ")}`;
 }
 
+/**
+ * Ссылка на карту офиса: поиск Google Maps по РЕАЛЬНОМУ адресу офиса.
+ * Координаты не выдумываются — карта сама находит место по тексту адреса.
+ */
+export function vacancyOfficeMapUrl(): string {
+  const o = VACANCY_FACTS.office;
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${o.city}, ${o.address}`)}`;
+}
+
 /** Same public address data; translate labels rather than duplicate facts. */
 export function vacancyOfficeAddressTg(): string {
   return vacancyOfficeAddress().replace(/ул\./gu,'кӯчаи').replace(/Дом печати/gu,'Хонаи матбуот')

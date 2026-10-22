@@ -1958,6 +1958,8 @@ export interface LiveVoiceTestCallResult {
   /** Линия занята другим разговором (один порт RTP — одна сессия, см.
    *  liveVoiceLineBusy). Не отказ номера: вызывающий просто пробует позже. */
   busy?: boolean;
+  /** Мост подтверждает: отказ случился ДО набора, звонка точно нет (можно повторять). */
+  notDialed?: boolean;
 }
 
 /**
@@ -2167,19 +2169,19 @@ export async function originateLiveVoiceScenarioCall(
   options?: { callerId?: string; channelId?: string; beforeOriginate?: () => Promise<void> }
 ): Promise<LiveVoiceClientCallResult> {
   if (!isDialableTajikNumber(phoneNumber)) {
-    return { ok: false, error: "Номер не похож на таджикский — станция не сможет его набрать" };
+    return { ok: false, notDialed: true, error: "Номер не похож на таджикский — станция не сможет его набрать" };
   }
   const rtpRefusal = rtpConfigRefusal();
   if (rtpRefusal) return rtpRefusal;
   const target = normalizeDialNumber(phoneNumber);
   if (hasActiveCallToNumber(target)) {
-    return { ok: false, error: "На этот номер уже идёт звонок" };
+    return { ok: false, notDialed: true, error: "На этот номер уже идёт звонок" };
   }
   const [settings, creds] = await Promise.all([loadLiveVoiceSettings(), loadCredsSafe()]);
-  if (!creds) return { ok: false, error: "Телефония не настроена" };
-  if (!settings?.liveVoiceEnabled) return { ok: false, error: "Живой голос выключен — включите тумблер в Настройках" };
+  if (!creds) return { ok: false, notDialed: true, error: "Телефония не настроена" };
+  if (!settings?.liveVoiceEnabled) return { ok: false, notDialed: true, error: "Живой голос выключен — включите тумблер в Настройках" };
   if (hasActiveCallToNumber(target)) {
-    return { ok: false, error: "На этот номер уже идёт звонок" };
+    return { ok: false, notDialed: true, error: "На этот номер уже идёт звонок" };
   }
   // ОДИН ПОРТ RTP — ОДНА СЕССИЯ (25.09.2026). Входящий консультант занятую
   // линию уже не брал (liveVoiceLineBusy), а сценарный исходящий набирал номер

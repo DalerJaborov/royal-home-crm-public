@@ -170,7 +170,7 @@ export interface VacanciesResponse {
   /** Сколько кандидатов каждого цвета. Число стоит прямо в списке выбора: цвет,
    *  за которым никого нет, видно ДО нажатия — иначе выбор без результата
    *  читается как сломанная кнопка (жалоба владельца 03.09.2026). */
-  priorityCounts: Record<VacancyPriorityFilter, number>;
+  priorityCounts?: Record<VacancyPriorityFilter, number>;
   /** Сколько анкет в каждой корзине отбора (25.09.2026, разбор жалобы «приходят
    *  и 23-летние, и работающие»): fit = eligible true, incomplete = eligible
    *  null (бот ещё не всё спросил), rejected = eligible false. Число нужно ДО
@@ -180,6 +180,43 @@ export interface VacanciesResponse {
    *  параметр `bucket` и отдаёт всё как раньше) — ограничение старого сервера,
    *  не баг экрана. */
   bucketCounts?: Record<VacancyBucket, number>;
+  /** Сколько анкет у каждой вакансии (ключ вакансии) и без неё (`"__none"`) при
+   *  текущих этапе/поиске/цвете, но без фильтра вакансии (22.10.2026). Нет у
+   *  старого сервера — тогда чипы вакансий без чисел. */
+  positionCounts?: Record<string, number>;
+}
+
+/** Ключ фильтра «Без вакансии»: нет ни customerPositionKey, ни hrPositionKey. */
+export const VACANCY_NO_POSITION = "__none";
+
+/** Ручное добавление кандидата (POST /vacancies, 22.10.2026). */
+export interface VacancyCreateInput {
+  name: string;
+  phone?: string;
+  positionKey: string;
+  city?: string;
+  age?: number;
+  experience?: string;
+  note?: string;
+}
+
+/** Тело 409 на ручное добавление: такой телефон уже есть. */
+export interface VacancyDuplicateBody { error: string; existingId: string }
+
+export type VacancyBulkAction = "assignPosition" | "setStatus" | "delete";
+export type VacancyBulkStatus = Extract<JobApplication["status"], "NEW" | "REVIEWED" | "REJECTED" | "NOT_CANDIDATE">;
+
+/** Массовое действие (POST /vacancies/bulk), до 200 анкет за раз. */
+export interface VacancyBulkInput {
+  ids: string[];
+  action: VacancyBulkAction;
+  positionKey?: string;
+  status?: VacancyBulkStatus;
+}
+
+export interface VacancyBulkResponse {
+  updated: number;
+  skipped: Array<{ id: string; reason: string }>;
 }
 
 /** Цвет светофора как фильтр. NONE — «опыт не выяснен»: это тоже осмысленный

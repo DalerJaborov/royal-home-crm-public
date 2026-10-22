@@ -8,12 +8,19 @@ import { readRecruitmentPositions } from "../lib/recruitmentPositions.js";
 import { recruitmentPositionTemplates } from "../lib/recruitmentPositionTemplates.js";
 import { recruitmentRecoveryRequestSchema } from "@royal-home/shared";
 import { enqueueRecruitmentRecovery } from "../lib/recruitmentRecovery.js";
+import { logSystemError } from "../lib/systemError.js";
+import { describeError } from "../lib/describeError.js";
 
 export const recruitmentPositionsRouter = Router();
 recruitmentPositionsRouter.use(requireAuth, requirePermission("vacancies.view"));
 recruitmentPositionsRouter.get("/", async (_req, res) => {
   try { res.json({ items: await readRecruitmentPositions() }); }
-  catch { res.status(503).json({ error: "Не удалось загрузить открытые позиции" }); }
+  catch (err) {
+    // Одна вакансия с битыми правилами валит весь список, и экран показывает ключи
+    // вместо названий — причина должна попасть в журнал, а не исчезнуть.
+    void logSystemError("api", `Список вакансий не прочитан: ${describeError(err)}`);
+    res.status(503).json({ error: "Не удалось загрузить открытые позиции" });
+  }
 });
 recruitmentPositionsRouter.get("/templates", (_req, res) => {
   res.json({ items: recruitmentPositionTemplates() });

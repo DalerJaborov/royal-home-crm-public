@@ -72,7 +72,7 @@ interface Row {
 }
 
 /** Реплики лежат в Json-колонке — приводим к списку, не доверяя форме. */
-function readMessages(raw: unknown): { role: "user" | "assistant"; content: string }[] {
+export function readMessages(raw: unknown): { role: "user" | "assistant"; content: string }[] {
   if (!Array.isArray(raw)) return [];
   const out: { role: "user" | "assistant"; content: string }[] = [];
   for (const item of raw) {
@@ -91,7 +91,7 @@ function readMessages(raw: unknown): { role: "user" | "assistant"; content: stri
  * без него модель, увидев схему анкеты, охотно заполняет её для клиента,
  * который спрашивал про квартиру, и раздел найма засоряется покупателями.
  */
-type Extracted =
+export type Extracted =
   /** Разговор о работе, и в нём есть что записать. */
   | { kind: "draft"; draft: NonNullable<ReturnType<typeof parseJobApplication>> }
   /** Модель прочитала переписку и говорит: это не про работу (или сказать нечего). */
@@ -104,7 +104,7 @@ type Extracted =
    */
   | { kind: "ai-unavailable" };
 
-async function extractFromHistory(
+export async function extractFromHistory(
   messages: { role: "user" | "assistant"; content: string }[]
 ): Promise<Extracted> {
   const transcript = messages
