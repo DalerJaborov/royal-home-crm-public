@@ -144,6 +144,38 @@ function fanOut(event: LiveEvent, addressing: { agentIds: string[]; roles: strin
   }
 }
 
+/**
+ * ДОГНАТЬ ПРОПУЩЕННОЕ ПОСЛЕ ОБРЫВА (пачка B пульта, 23.10.2026).
+ *
+ * Вкладка переподключается с последним виденным id (Last-Event-ID / query):
+ * отдаём события из LiveEventOutbox (живут 5 минут) после этого id, которые
+ * адресованы подписчику, — в пределах TAIL_BATCH. Повторы клиент отсеивает по
+ * id. Вызывать ПОСЛЕ subscribe(): так событие, пришедшее между выборкой и
+ * подпиской, не теряется (в худшем случае приходит дважды). Возвращает число
+ * отданных событий; отказ базы не ломает поток — опрос по таймеру остаётся.
+ */
+export async function replayMissedEvents(sub: Subscriber, afterSeq: number): Promise<number> {
+  if (!Number.isSafeInteger(afterSeq) || afterSeq < 0) return 0;
+  try {
+    const rows = await prisma.liveEventOutbox.findMany({
+      where: { seq: { gt: afterSeq }, createdAt: { gte: new Date(Date.now() - OUTBOX_TTL_MS) } },
+      orderBy: { seq: "asc" },
+      take: TAIL_BATCH,
+    });
+    let sent = 0;
+    for (const row of rows) {
+      if (!isForSubscriber({ agentIds: row.agentIds, roles: row.roles }, sub)) continue;
+      const payload = liveEventPayloadSchema.safeParse(row.payload);
+      if (!payload.success) continue;
+      sub.deliver({ id: row.seq, type: row.type as LiveEventType, at: row.createdAt.toISOString(), payload: payload.data });
+      sent += 1;
+    }
+    return sent;
+  } catch {
+    return 0;
+  }
+}
+
 /** Сколько сейчас потоков всего и у конкретного сотрудника. */
 export function streamStats(agentId?: string): { total: number; forAgent: number } {
   let forAgent = 0;

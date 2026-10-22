@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // Сброс кэша рассылает «пульт устарел» — здесь он не нужен.
-vi.mock("../src/lib/livePublish.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/lib/livePublish.js")>()),
-  publishPultSnapshot: vi.fn(),
+vi.mock("../src/lib/eventBus.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/eventBus.js")>()),
+  publish: vi.fn(async () => {}),
 }));
 
 import { cachedSection, invalidateMissionControlCache } from "../src/lib/missionControlCache.js";

@@ -1,4 +1,5 @@
-import { publishPultSnapshot } from "./livePublish.js";
+import { publish } from "./eventBus.js";
+import { registerPultCacheDropper, type PultDropScope } from "./pultCacheHook.js";
 /**
  * Кэш секций пульта в памяти процесса (аудит 02.09.2026 §2 п.2).
  *
@@ -11,7 +12,9 @@ import { publishPultSnapshot } from "./livePublish.js";
  * а не висеть минуту. Переключение модуля пульта сбрасывает всё
  * (routes/pultModules.ts): тумблер обязан отражаться на экране сразу.
  */
-const store = new Map<string, { at: number; value: unknown }>();
+const store = new Map<string, { at: number; ttlMs: number; value: unknown }>();
+/** Секции с TTL не дольше этого — «живые» (LIVE_TTL_MS = 15 с в роуте пульта). */
+const LIVE_MAX_TTL_MS = 15_000;
 /**
  * Расчёт, который уже идёт, — один на ключ (аудит 23.09.2026, №92). Раньше в
  * момент истечения секции КАЖДЫЙ открытый пульт видел промах и запускал свой
@@ -40,7 +43,7 @@ export async function cachedSection<T>(key: string, ttlMs: number, fn: () => Pro
   const job: Promise<T> = Promise.resolve()
     .then(fn)
     .then((value) => {
-      if (!isSectionError(value) && gen === generation) store.set(key, { at: Date.now(), value });
+      if (!isSectionError(value) && gen === generation) store.set(key, { at: Date.now(), ttlMs, value });
       return value;
     })
     .finally(() => {
@@ -58,5 +61,24 @@ export function invalidateMissionControlCache(): void {
   // единственная честная точка события «пересчитан». Широковещательное: пульт
   // открыт у всех, а сами секции каждый получает своим запросом со своими
   // правами (см. lib/livePublish.ts).
-  publishPultSnapshot();
+  void publish({ type: "pult.snapshot", payload: {} });
 }
+
+/**
+ * Сброс по событию из источника (клиент/сделка/звонок/сообщение…): без
+ * повторного publish — событие уже ушло, иначе получился бы цикл. "live"
+ * сбрасывает только быстрые секции, "all" — и зоны. Расчёт, начатый до сброса,
+ * в кэш не попадёт (поколение), а опоздавшие не ждут его, а считают заново.
+ */
+export function dropMissionControlCache(scope: PultDropScope): void {
+  if (scope === "all") {
+    store.clear();
+    inflight.clear();
+  } else {
+    for (const [key, entry] of store) if (entry.ttlMs <= LIVE_MAX_TTL_MS) store.delete(key);
+    for (const key of [...inflight.keys()]) if (!store.has(key)) inflight.delete(key);
+  }
+  generation++;
+}
+
+registerPultCacheDropper(dropMissionControlCache);

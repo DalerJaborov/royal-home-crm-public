@@ -26,6 +26,7 @@ import { prisma } from "../db.js";
 import { logAgentAudit } from "./audit.js";
 import { schedulePublishAfterAccept } from "./videoHandoff.js";
 import { sendBackToMontajer, type SendBackResult } from "./publishedVideoFix.js";
+import { requestPultSnapshot } from "./pultCacheHook.js";
 import { publishPropertyUpdated } from "./livePublish.js";
 import { dushanbeDateTimeString } from "./dushanbeTime.js";
 import { createNotifications, shouldAlert } from "./notifications.js";
@@ -132,6 +133,7 @@ export async function approveClip(propertyId: string, byId: string, source: Clip
     notPublishingReason: scheduled.notPublishingReason ?? null,
   });
   emitClipDecision({ propertyId, outcome: "approved", byId, source, at: now });
+  requestPultSnapshot(); // пульт: проверка ролика закрыта
   publishPropertyUpdated({ propertyId, agentId: property.assignedAgentId, stage: property.status, actorId: byId });
   return { ok: true, scheduledPublishAt: scheduled.scheduledPublishAt, notPublishingReason: scheduled.notPublishingReason };
 }
@@ -185,6 +187,7 @@ export async function rejectClip(
     const fresh = await prisma.property.findUnique({ where: { id: propertyId }, select: { clipReviewStatus: true } });
     if (fresh && fresh.clipReviewStatus !== "PENDING") return { ok: false, error: await clipAlreadyDecidedText(propertyId) };
   }
+  requestPultSnapshot(); // пульт: ролик отправлен на доработку
   return result;
 }
 

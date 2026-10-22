@@ -1,4 +1,5 @@
 import { prisma } from "../db.js";
+import { requestPultSnapshot } from "../lib/pultCacheHook.js";
 import { logSystemError } from "../lib/systemError.js";
 import { describeError } from "../lib/describeError.js";
 import type { MessengerChannel } from "./conversation.js";
@@ -105,6 +106,7 @@ export async function enqueueComments(items: IncomingComment[], enabled: boolean
       ...(enabled ? {} : { status: "SKIPPED", note: "bot_off" }),
     }));
     const { count } = await prisma.instagramComment.createMany({ data: rows, skipDuplicates: true });
+    if (count > 0) requestPultSnapshot(); // пульт: новый комментарий
     return count;
   } catch (err) {
     void logSystemError("meta", `Комментарии (${items[0]?.channel ?? "?"}) не приняты: ${describeError(err)}`);
