@@ -38,6 +38,8 @@ import net from "node:net";
  */
 
 export interface SafeOpenOptions {
+  /** Anonymous public metadata readers explicitly exclude ambient credentials. */
+  credentials?: "omit";
   /** Optional original caller cancellation; no new deadline on redirects. */
   signal?: AbortSignal;
   /** Сколько ждём ответа. Ход бота не должен зависеть от чужого медленного сайта. */
@@ -215,6 +217,7 @@ export async function safeOpen(raw: string, options: SafeOpenOptions = {}): Prom
       // Ключевая строка всего модуля: переходы разбираем сами, иначе следующий
       // адрес никем не проверяется.
       redirect: "manual",
+      ...(options.credentials ? { credentials: options.credentials } : {}),
       headers,
       signal: options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(left)]) : AbortSignal.timeout(left),
     });

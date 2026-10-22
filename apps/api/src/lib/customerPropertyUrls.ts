@@ -12,7 +12,21 @@ export function customerPropertyUrl(raw: string): CustomerPropertyUrl {
   if (!/^https?:$/.test(url.protocol) || url.username || url.password || url.port) return { kind: "denied" };
   const host = url.hostname.toLowerCase().replace(/^www\./, "");
   if (host === "royalhome.tj") {
-    if (!/^\/(?:listing|kvartiry|doma|uchastki|commercial)\//i.test(url.pathname)) return { kind: "unsupported" };
+    const rawPath = raw.replace(/^https?:\/\/[^/]+/i, "").split(/[?#]/)[0];
+    if (/[\\]/.test(rawPath) || /%2f|%5c/i.test(rawPath) || /(?:^|\/)(?:\.|%2e){1,2}(?:\/|$)/i.test(rawPath)) return { kind: "denied" };
+    // Website public-i18n maps these exact public listing aliases. Do not strip
+    // arbitrary locale prefixes: private/unknown routes are not public cards.
+    if (/^\/(?:tg\/|en\/)?listing\/preview(?:\/|$)/i.test(url.pathname)) return { kind: "denied" };
+    const localized = /^\/(?:tg\/(?:khona|listing)|en\/listing)\/([1-9]\d*)\/?$/.exec(url.pathname);
+    if (localized) {
+      const id = Number(localized[1]);
+      if (!Number.isSafeInteger(id) || id > 2_147_483_647) return { kind: "unsupported" };
+      // This number remains the WEBSITE listing ID. It is never a CRM shortId.
+      return { kind: "site", url: `https://royalhome.tj/listing/${localized[1]}` };
+    }
+    const direct = /^\/listing\/(?:[1-9]\d*|by-crm\/[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12})\/?$/i.test(url.pathname);
+    const historic = /^\/(?:kvartiry|doma|uchastki|commercial)\/[A-Za-z0-9_-]+\/?$/i.test(url.pathname);
+    if (!direct && !historic) return { kind: "unsupported" };
     return { kind: "site", url: `https://royalhome.tj${url.pathname}` };
   }
   if (host === "instagram.com") {

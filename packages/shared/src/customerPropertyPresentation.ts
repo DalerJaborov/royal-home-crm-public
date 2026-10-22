@@ -4,6 +4,8 @@ import { propertyFinishSummary } from "./propertyFinish.js";
 
 /** Called only with the server's validated, current public property facts. */
 export function customerPropertyAvailabilityLine(facts: Pick<CustomerPropertyFacts, "availability" | "shortId">, language: "ru" | "tg"): string {
+  if (facts.availability === "SOLD") return language === "tg"
+    ? `Объекти №${facts.shortId} аллакай фурӯхта шудааст.` : `Объект №${facts.shortId} уже продан.`;
   if (facts.availability === "RESERVED") return language === "tg"
     ? `Объекти №${facts.shortId} ҳоло дар брон аст.` : `Объект №${facts.shortId} сейчас в брони.`;
   return language === "tg" ? `Бале, объекти №${facts.shortId} ҳоло дастрас аст.` : `Да, объект №${facts.shortId} ещё доступен.`;

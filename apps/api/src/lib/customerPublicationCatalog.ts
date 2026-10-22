@@ -59,9 +59,9 @@ export async function readCustomerPublicationObservation(source: CustomerPublica
   const cards = [];
   for (const id of catalog.ids) {
     const facts = await readCustomerPropertyFacts(id, source.channel);
-    // A sold/deleted/private digest member is omitted, never resurrected from
-    // the historic caption. Remaining members still belong to this exact post.
-    if (facts) cards.push(facts);
+    // A single known sold publication can answer status only. A sold member
+    // of a multi-card showcase is not offered among the remaining properties.
+    if (facts && (catalog.ids.length === 1 || facts.availability !== "SOLD")) cards.push(facts);
   }
   if (!cards.length || (await readCustomerPublicationCatalog(source))?.signature !== catalog.signature) return null;
   return customerAgentPublicationObservationSchema.parse({ kind: "publication_properties", source,

@@ -7,6 +7,8 @@ import { customerPropertyScopeKey } from "./customerPropertyScope.js";
 import { customerPropertyUrl } from "./customerPropertyUrls.js";
 import { resolvePropertyFromPageUrl } from "./resolvePropertyFromPageUrl.js";
 import type { CustomerPropertyRegistry } from "./customerPropertyResolver.js";
+import { botMayOffer, botPublicVisibility, BOT_OFFER_SELECT } from "./propertyMatch.js";
+import { customerOwnSiteListingId, reconcileCustomerOwnSiteIdentity, type CustomerOwnSiteIdentity } from "./customerOwnSiteIdentity.js";
 
 /** Same CRM_MEDIA full/tail convention. DISTINCT+LIMIT9 preserves ambiguity. */
 async function mediaCandidates(reference: string): Promise<string[]> {
@@ -115,3 +117,19 @@ export const customerPropertyRegistry: CustomerPropertyRegistry = {
     return [...new Set(ids)].slice(0, 9);
   },
 };
+
+/** An elected original CORE turn supplies the bounded anonymous reader. The
+ * ordinary registry remains business reads only; no hidden network on intake. */
+export function customerPropertyRegistryWithOwnSiteRead(read: (siteId: number) => Promise<CustomerOwnSiteIdentity | null>): CustomerPropertyRegistry {
+  return { ...customerPropertyRegistry, async url(url) {
+    const siteId = url.kind === "site" ? customerOwnSiteListingId(url.url) : null;
+    if (siteId === null) return customerPropertyRegistry.url(url);
+    const identity = await read(siteId);
+    if (!identity) return [];
+    const rows = await prisma.property.findMany({ where: { OR: [ { siteListingId: siteId },
+      ...(identity.crmShortId === null ? [] : [{ shortId: identity.crmShortId }]) ] },
+      select: { ...BOT_OFFER_SELECT, id: true, shortId: true }, take: 9 });
+    return reconcileCustomerOwnSiteIdentity(identity, rows.map(row => ({ ...row,
+      publicStatusReadable: botMayOffer(row) || row.status === "SOLD" && botPublicVisibility(row) })));
+  } };
+}

@@ -74,7 +74,7 @@ export const customerPropertyFactsSchema = z.object({
   shortId: z.number().int().positive(),
   price: z.string().regex(/^\d{1,14}(?:\.\d{1,2})?$/).nullable(),
   currency: z.enum(["TJS", "USD"]),
-  availability: z.enum(["AVAILABLE", "RESERVED"]),
+  availability: z.enum(["AVAILABLE", "RESERVED", "SOLD"]),
   publicAddress: z.string().max(300).nullable(),
   addressPolicy: z.literal("district_city_only"),
   builder: z.null(),
@@ -83,7 +83,13 @@ export const customerPropertyFactsSchema = z.object({
   publicLink: z.string().url().max(1024).nullable(),
   updatedAt: z.string().datetime(),
   signature: scopeKey,
-}).strict();
+}).strict().superRefine((value, ctx) => {
+  // SOLD is a status-only observation, never an offer with historical terms.
+  if (value.availability === "SOLD" && (value.price !== null || value.publicAddress !== null ||
+      value.publicLink !== null || value.characteristics !== undefined)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Sold property observations contain status only" });
+  }
+});
 export type CustomerPropertyFacts = z.infer<typeof customerPropertyFactsSchema>;
 export const customerPropertyFactKindSchema = z.enum(["price", "address", "builder", "characteristics", "availability"]);
 export type CustomerPropertyFactKind = z.infer<typeof customerPropertyFactKindSchema>;

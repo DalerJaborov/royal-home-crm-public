@@ -16,7 +16,7 @@ import { managedCustomerPropertyReply } from "./customerPropertyDelivery.js";
 import { PUBLIC_AGENCY_CONTACT } from "./publicAgencyContact.js";
 import { createCustomerOutboxPartsTx } from "./customerOutbox.js";
 import { createCustomerAgentMutationSession, type CustomerAgentMutationSession } from "./customerAgentMutationSession.js";
-import { enrichCustomerAgentMediaFocus, enrichCustomerAgentSelectionFocus } from "./customerAgentMediaFocus.js";
+import { enrichCustomerAgentMediaFocus, enrichCustomerAgentSelectionFocus, enrichCustomerAgentLinkFocus, createCustomerAgentLinkReads } from "./customerAgentMediaFocus.js";
 import { issueCustomerHandoverAckTx, planCustomerHandoverAckTx } from "./customerHandoverAck.js";
 import { readDmCustomerAgentDataWitness, sealDmCustomerAgentDeliveryEvidence,
   type CustomerAgentDataReadWitness } from "./customerAgentDeliveryEvidence.js";
@@ -104,6 +104,12 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
       return opened;
     }
     runtime = opened.runtime;
+    const linkWait = { signal: runtime.operation.signal!, deadlineAt: runtime.operation.deadlineAt };
+    const linkReads = createCustomerAgentLinkReads(claim.eventKey, { ...linkWait, assertCurrent: () => current(linkWait) });
+    const linked = await enrichCustomerAgentLinkFocus({ principal: planningPrincipal, claim, ticket: lane.ticket,
+      linkReads });
+    if (linked.status === "held") { await releaseHeldClaim(claim, linked.reason); return linked; }
+    if (linked.status === "updated") { planningPrincipal = linked.principal; focus = linked.focus; }
     let remembered = await loadCustomerAgentVerifiedDmContext({ principal: planningPrincipal,
       revision: claim.pin.revision, wait: { signal: runtime.operation.signal, deadlineAt: runtime.operation.deadlineAt } });
     if (remembered.status !== "current") {
@@ -168,7 +174,7 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     }
     let mediaReferenceResolved = false;
     if (mediaPerception) {
-      const enriched = await enrichCustomerAgentMediaFocus({ principal: planningPrincipal, claim, ticket: lane.ticket });
+      const enriched = await enrichCustomerAgentMediaFocus({ principal: planningPrincipal, claim, ticket: lane.ticket, linkReads });
       if (enriched.status === "held") {
         await releaseHeldClaim(claim, enriched.reason); return enriched;
       }
@@ -180,7 +186,7 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
         if (remembered.status !== "current") { await releaseHeldClaim(claim, remembered.reason); return remembered; }
       }
     }
-    const selected = await enrichCustomerAgentSelectionFocus({ principal: planningPrincipal, claim, ticket: lane.ticket });
+    const selected = await enrichCustomerAgentSelectionFocus({ principal: planningPrincipal, claim, ticket: lane.ticket, linkReads });
     if (selected.status === "held") { await releaseHeldClaim(claim, selected.reason); return selected; }
     if (selected.status === "updated") {
       planningPrincipal = selected.principal; focus = selected.focus;
