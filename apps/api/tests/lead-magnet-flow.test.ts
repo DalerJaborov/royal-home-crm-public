@@ -10,6 +10,17 @@ import { resetAccountsCache } from "../src/messengers/accounts.js";
 import { handleOutgoingEcho } from "../src/routes/webhooks.js";
 import { rememberOutgoingMid } from "../src/messengers/outgoingMids.js";
 import { createCustomerMessengerFixture, type CustomerMessengerFixture } from "./helpers/customerMessengerFixture.js";
+import { cleanupLegacyPhysicalFixture } from "./helpers/cleanupLegacyPhysicalFixture.js";
+
+// Record only IDs returned by REAL committed ledger admission in this fixture.
+// All SQL/UNKNOWN protections run unchanged; cleanup never selects foreign rows.
+const physicalAttempts = vi.hoisted(() => [] as string[]);
+vi.mock("../src/lib/customerLegacyPhysical.js", async importOriginal => {
+  const original = await importOriginal<typeof import("../src/lib/customerLegacyPhysical.js")>();
+  return { ...original, admitLegacyPhysicalPost: async (target: Parameters<typeof original.admitLegacyPhysicalPost>[0]) => {
+    const id = await original.admitLegacyPhysicalPost(target); physicalAttempts.push(id); return id;
+  } };
+});
 import {
   invalidateLeadMagnetCache,
   isFunnelKeyword,
@@ -66,15 +77,14 @@ function stubMeta() {
           username: `client_${runId}`,
           ...(following === undefined ? {} : { is_user_follow_business: following }),
         });
-        return { ok: true, status: 200, text: async () => body, json: async () => JSON.parse(body) } as unknown as Response;
+        return new Response(body, { status: 200 });
       }
       sent.push({ url: address, body: JSON.parse(String(init?.body ?? "{}")) });
       if (sendFails) {
-        const fail = "Invalid OAuth access token";
-        return { ok: false, status: 400, text: async () => fail, json: async () => ({}) } as unknown as Response;
+        return Response.json({ error: { message: "Invalid OAuth access token", code: 190 } }, { status: 400 });
       }
       const ok = JSON.stringify({ message_id: `mid-${sent.length}` });
-      return { ok: true, status: 200, text: async () => ok, json: async () => JSON.parse(ok) } as unknown as Response;
+      return new Response(ok, { status: 200 });
     })
   );
 }
@@ -194,6 +204,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   vi.unstubAllGlobals();
+  await cleanupLegacyPhysicalFixture({ ids: physicalAttempts.splice(0) });
   await prisma.leadMagnetDelivery.deleteMany({ where: { campaignId } });
   await prisma.leadMagnetCampaign.deleteMany({ where: { id: campaignId } });
   await instagram.cleanupConversations();

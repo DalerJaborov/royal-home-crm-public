@@ -1,7 +1,17 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanupLegacyPhysicalFixture } from "./helpers/cleanupLegacyPhysicalFixture.js";
 import bcrypt from "bcrypt";
 import { prisma } from "../src/db.js";
 import { invalidateLeadMagnetCache, tryLeadMagnetMessage } from "../src/lib/leadMagnet.js";
+
+// Instrument real admission without changing its result or any SQL guard.
+const physicalAttempts = vi.hoisted(() => [] as string[]);
+vi.mock("../src/lib/customerLegacyPhysical.js", async importOriginal => {
+  const original = await importOriginal<typeof import("../src/lib/customerLegacyPhysical.js")>();
+  return { ...original, admitLegacyPhysicalPost: async (target: Parameters<typeof original.admitLegacyPhysicalPost>[0]) => {
+    const id = await original.admitLegacyPhysicalPost(target); physicalAttempts.push(id); return id;
+  } };
+});
 
 /**
  * ИДЕМПОТЕНТНОСТЬ ШАГА «ПРОСИМ ПОДПИСАТЬСЯ» (CLAUDE.md, пункт 5 разведки
@@ -56,11 +66,11 @@ function stubMeta() {
         }
         // Профиль: человек твёрдо НЕ подписан — ветка «просим» должна сработать.
         const body = JSON.stringify({ username: `client_${runId}`, is_user_follow_business: false });
-        return { ok: true, status: 200, text: async () => body, json: async () => JSON.parse(body) } as unknown as Response;
+        return new Response(body, { status: 200 });
       }
       sent.push({ url: address, body: JSON.parse(String(init?.body ?? "{}")) });
       const ok = JSON.stringify({ message_id: `mid-${sent.length}` });
-      return { ok: true, status: 200, text: async () => ok, json: async () => JSON.parse(ok) } as unknown as Response;
+      return new Response(ok, { status: 200 });
     })
   );
 }
@@ -127,6 +137,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   vi.unstubAllGlobals();
+  await cleanupLegacyPhysicalFixture({ ids: physicalAttempts.splice(0) });
   await prisma.leadMagnetDelivery.deleteMany({ where: { campaignId } });
   await prisma.leadMagnetCampaign.deleteMany({ where: { id: campaignId } });
   await prisma.botConversation.deleteMany({ where: { subscriberId: IG_USER } });

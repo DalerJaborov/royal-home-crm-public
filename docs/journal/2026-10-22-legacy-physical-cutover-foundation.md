@@ -62,3 +62,20 @@ positive control remains valid. Neither case uses a real provider or customer.
 
 These are local component/integration checks, not full-cloud, production
 activation, delivery-quality or zero-defect evidence.
+
+## Full-suite fixture alignment
+
+The first full cloud run at the reviewed source found 24 failed assertions in
+five older test files; all 24 were reproduced locally without source changes.
+The campaign transport fixtures now return actual HTTP Response objects, so a
+missing test-only clone method does not turn a successful synthetic receipt into
+UNKNOWN. Their real ledger admissions still execute; cleanup records only the
+exact attempt IDs created by each fixture. No outcome is relabeled or blanket
+UNKNOWN row removed.
+
+Two explicitly no-DB unit suites substitute the new ledger DB seam while keeping
+actual Meta parsing/property/public-wire checks. Receipt assertions distinguish
+physical UNKNOWN from the older legacy property hook's terminal 2xx convention.
+Retry tests use real selector snapshots instead of inventing a different text
+and timestamp; queued transport mock failures do not leak between cases. The
+production guards and migration are unchanged by this fixture alignment.
