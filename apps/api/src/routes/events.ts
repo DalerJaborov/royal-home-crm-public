@@ -8,6 +8,7 @@ import {
   MAX_STREAMS_PER_AGENT,
   MAX_STREAMS_TOTAL,
   liveEventsEnabled,
+  replayMissedEvents,
   streamStats,
   subscribe,
 } from "../lib/eventBus.js";
@@ -76,7 +77,7 @@ eventsRouter.post("/ticket", requireAuth, (req: Request, res: Response) => {
  */
 const streamQuerySchema = z.object({
   ticket: z.string().min(1).max(256).optional(),
-  /** Последнее увиденное событие — на будущее; сейчас история не переигрывается. */
+  /** Последнее увиденное событие: после обрыва догоняем пропущенное из LiveEventOutbox (TTL 5 мин). */
   lastEventId: z.coerce.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
 });
 
@@ -156,7 +157,12 @@ eventsRouter.get("/", authorizeStream, (req: Request, res: Response) => {
     close();
     if (!req.socket.destroyed) req.socket.end();
   };
-  const release = subscribe({ agentId, role, seesAllMessages, deliver: send, close: closeForShutdown });
+  const subscriber = { agentId, role, seesAllMessages, deliver: send, close: closeForShutdown };
+  const release = subscribe(subscriber);
+  // Переподключение с последним виденным id (query или заголовок Last-Event-ID).
+  const lastHeader = Number(req.headers["last-event-id"]);
+  const resumeFrom = (req.query.lastEventId !== undefined ? Number(req.query.lastEventId) : lastHeader);
+  if (Number.isSafeInteger(resumeFrom) && resumeFrom > 0) void replayMissedEvents(subscriber, resumeFrom);
 
   const heartbeat = setInterval(() => {
     if (res.writableEnded) return;

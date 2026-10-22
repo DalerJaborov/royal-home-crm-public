@@ -1,5 +1,6 @@
 import { prisma } from "../db.js";
 import { isShuttingDown } from "./shutdownState.js";
+import { requestPultSnapshot } from "./pultCacheHook.js";
 
 /**
  * Запись отказа интеграции в журнал ошибок.
@@ -193,6 +194,8 @@ export async function logSystemError(
         stack: context?.stack?.slice(0, 4000) ?? null,
       },
     });
+
+    requestPultSnapshot(); // пульт: счётчик ошибок обновится за секунды
 
     // Директору — сразу, не дожидаясь утренней сводки, но только на ДЕЙСТВИТЕЛЬНО
     // новый вид поломки: повтор уже известной ошибки и так виден в счётчиках, а
