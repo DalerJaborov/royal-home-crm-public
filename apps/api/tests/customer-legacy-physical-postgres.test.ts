@@ -148,6 +148,32 @@ it.each([true, false])("one source context cannot use its next ordinal to resend
   expect((await rows(t)).map(row => row.status)).toEqual(["UNKNOWN"]);
 });
 
+it.each([true, false])("a source context cannot duplicate an in-flight part but permits distinct parallel parts (same body=%s)", async sameBody => {
+  const t = await target(), originalMid = `synthetic-inflight-parts-${randomUUID()}`;
+  const transport = { channel: "INSTAGRAM", endpointScopeId: t.endpointScopeId!, scopeRevision: "1", accountId: null, transportKey: "synthetic-owned" };
+  const entered = deferred(), release = deferred();
+  const physical = vi.fn(async () => {
+    const number = physical.mock.calls.length;
+    if (number === 1) { entered.resolve(); await release.promise; }
+    return Response.json({ message_id: `synthetic-inflight-part-${number}` });
+  });
+  vi.stubGlobal("fetch", physical);
+  await withLegacyMetaDmSource(originalMid, async () => {
+    const send = (text: string) => callGraph("https://graph.facebook.com/v23.0/test/messages", "test-no-external-token",
+      { recipient: { id: "synthetic-parallel-parts-peer" }, message: { text } }, "POST", undefined, transport);
+    const first = send("synthetic first part");
+    try {
+      await entered.promise;
+      expect((await rows(t)).map(row => row.status)).toEqual(["ADMITTED"]);
+      const second = send(sameBody ? "synthetic first part" : "synthetic second distinct part");
+      if (sameBody) await expect(second).rejects.toThrow("original_physical_effect_already_attempted");
+      else await expect(second).resolves.toMatchObject({ message_id: "synthetic-inflight-part-2" });
+    } finally { release.resolve(); await first; }
+  });
+  expect(physical).toHaveBeenCalledTimes(sameBody ? 1 : 2);
+  expect((await rows(t)).map(row => row.status)).toEqual(sameBody ? ["ACCEPTED"] : ["ACCEPTED", "ACCEPTED"]);
+});
+
 it("one source may send distinct accepted parts but cannot repeat an identical accepted part by advancing ordinal", async () => {
   const t = await target(), originalMid = `synthetic-accepted-parts-${randomUUID()}`;
   const transport = { channel: "INSTAGRAM", endpointScopeId: t.endpointScopeId!, scopeRevision: "1", accountId: null, transportKey: "synthetic-owned" };

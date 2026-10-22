@@ -58,11 +58,12 @@ export async function admitLegacyPhysicalPost(raw: LegacyPhysicalTarget): Promis
     if (held?.blocked && !actorId) throw new CustomerLegacyPhysicalHeld("scope_quiesced");
     if (!actorId && target.sourceHash) {
       // Advancing a lazy part ordinal is not permission to retry an uncertain
-      // original source. Nor is an exact accepted body a newly declared part.
+      // original source. An identical in-flight/accepted body is not a new part
+      // either; distinct bodies may still be delivered as parallel parts.
       const [source] = await tx.$queryRaw<Array<{ blocked: boolean }>>`SELECT EXISTS(SELECT 1
         FROM "CustomerLegacyPhysicalAttempt" WHERE "endpointScopeId"=${target.endpointScopeId}
           AND "sourceHash"=${target.sourceHash} AND "actorKind"<>'STAFF' AND (
-            "status"='UNKNOWN' OR ("status" IN ('ACCEPTED','ACKNOWLEDGED')
+            "status"='UNKNOWN' OR ("status" IN ('ADMITTED','ACCEPTED','ACKNOWLEDGED')
               AND "targetDigest"=${target.targetDigest} AND "payloadDigest"=${target.payloadDigest}
               AND "operation"=${target.operation}))) AS blocked`;
       if (source?.blocked) throw new CustomerLegacyPhysicalHeld("original_physical_effect_already_attempted");

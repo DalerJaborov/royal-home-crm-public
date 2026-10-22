@@ -19,6 +19,9 @@ may accept a non-message acknowledgement without a message receipt.
 A source-wide UNKNOWN also blocks a second call inside the same async context;
 advancing the part ordinal cannot renew it. Distinct accepted parts remain valid,
 while the identical accepted payload within one original source is held.
+The same protection applies before the first request returns: an identical
+ADMITTED source/target/body/operation cannot start a second physical request by
+advancing its ordinal. A different body from that source may still send in parallel.
 DM receipts use message_id/messages[].id; a public-comment id alone cannot prove
 a DM send. Contradictory success/error flags remain UNKNOWN even with a MID.
 Retry snapshots capture MID, text and native timestamp together. A later input,
@@ -53,6 +56,9 @@ ambiguous and pre-connect failures, original-effect retries, SQL immutability,
 scope rotation, real retry-worker calls, and the authenticated manual HTTP reply
 route after UNKNOWN/quiescence. Manual tests have a working positive control;
 an automated sender cannot borrow that authenticated actor's exception.
+The concurrent duplicate regression was first reproduced against the previous
+source with a paused synthetic provider, then fixed; its different-body parallel
+positive control remains valid. Neither case uses a real provider or customer.
 
 These are local component/integration checks, not full-cloud, production
 activation, delivery-quality or zero-defect evidence.
