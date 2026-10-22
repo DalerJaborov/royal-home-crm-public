@@ -12,6 +12,7 @@ import { reserveCustomerPropertyFocus } from "./customerPropertyFocus.js";
 import { CustomerScopeDenied, ensureCustomerEndpoint, ensureScopedBotConversation, resolveCustomerEndpoint, type CustomerTransportReference } from "./customerConversationScope.js";
 import { acceptAuthenticatedCustomerAdmission } from "./customerState.js";
 import type { AuthenticatedCustomerInput } from "./customerIngressAuthority.js";
+import { customerIngressPayloadHash } from "./customerIngressPayload.js";
 export { customerPropertyScopeKey } from "./customerPropertyScope.js";
 
 const CHANNELS = new Set(["WHATSAPP", "INSTAGRAM", "FACEBOOK", "WEBSITE"]);
@@ -70,16 +71,31 @@ export async function admitCustomerPropertyInput(input: CustomerPropertyAdmissio
         routing.scopeKey !== scopeKey || routing.transport.endpointScopeId !== endpointScopeId ||
         routing.transport.scopeRevision !== endpoint.scopeRevision || routing.input.peer !== input.peer)) throw new AdmissionDenied("account_mismatch");
       const assignmentId = routing?.execution.lane === "LEGACY" ? routing.execution.assignment?.id ?? null : null;
-      const prior = await tx.customerPropertyIngressTicket.findUnique({ where: { eventKey: key }, select: {
-        conversationId: true, originalConversationId: true, tombstonedAt: true,
-      } });
+      const [prior] = await tx.$queryRaw<Array<{ conversationId: string | null; originalConversationId: string | null;
+        tombstonedAt: Date | null; order: bigint; routingProvenance: string | null; routingSourceHash: string | null;
+        routingScopeRevision: bigint | null; rolloutAssignmentId: string | null; originalUnexpired: boolean;
+        payloadVersion: number | null; intakeAgentRevisionId: string | null }>>`SELECT "conversationId","originalConversationId",
+          "tombstonedAt","order","routingProvenance","routingSourceHash","routingScopeRevision","rolloutAssignmentId",
+          "payloadVersion","intakeAgentRevisionId",
+          (clock_timestamp() >= "receivedAt" AND clock_timestamp() <= "receivedAt" + interval '15 minutes') AS "originalUnexpired"
+          FROM "CustomerPropertyIngressTicket" WHERE "eventKey"=${key}`;
       if (prior?.tombstonedAt || (prior?.originalConversationId && !prior.conversationId)) throw new AdmissionDenied("retry_ticket_missing");
+      if (prior?.routingProvenance === "NATIVE_HISTORY") throw new AdmissionDenied("retry_ticket_missing");
+      // CORE RAW keeps its existing authenticated admission/consumer path; this
+      // extra first-binding gate belongs only to the new LEGACY metadata rows.
+      const originalLegacy = prior?.routingProvenance === "META_ENVELOPE" &&
+        prior.payloadVersion === null && prior.intakeAgentRevisionId === null;
+      if (originalLegacy && (!routing || !routing.input.eventId ||
+        prior.routingSourceHash !== customerIngressPayloadHash(routing.input) || prior.rolloutAssignmentId !== assignmentId ||
+        prior.routingScopeRevision?.toString() !== endpoint.scopeRevision || !prior.originalUnexpired)) throw new AdmissionDenied("retry_ticket_missing");
       const conversation = await ensureScopedBotConversation(tx, { channel: input.channel, subscriberId: input.peer, transport: endpoint });
       await tx.$executeRaw`
         INSERT INTO "CustomerPropertyIngressTicket" ("eventKey", "order", "scopeKey", "conversationId", "originalConversationId", "endpointScopeId", "rolloutAssignmentId")
         VALUES (${key}, ${allocated.order}, ${scopeKey}, ${conversation.id}, ${conversation.id}, ${endpointScopeId}, ${assignmentId}) ON CONFLICT ("eventKey") DO NOTHING`;
-      await tx.$executeRaw`UPDATE "CustomerPropertyIngressTicket" SET "conversationId"=${conversation.id},"originalConversationId"=${conversation.id}
-        WHERE "eventKey"=${key} AND "conversationId" IS NULL AND "originalConversationId" IS NULL AND "tombstonedAt" IS NULL`;
+      const firstBinding = await tx.$executeRaw`UPDATE "CustomerPropertyIngressTicket" SET "conversationId"=${conversation.id},"originalConversationId"=${conversation.id}
+        WHERE "eventKey"=${key} AND "conversationId" IS NULL AND "originalConversationId" IS NULL AND "tombstonedAt" IS NULL
+          AND ("routingProvenance" IS DISTINCT FROM 'META_ENVELOPE' OR "payloadVersion" IS NOT NULL OR "intakeAgentRevisionId" IS NOT NULL OR
+            (clock_timestamp() >= "receivedAt" AND clock_timestamp() <= "receivedAt" + interval '15 minutes'))`;
       const stored = await tx.customerPropertyIngressTicket.findUnique({
         where: { eventKey: key }, select: { eventKey: true, order: true, scopeKey: true, conversationId: true, endpointScopeId: true, managedOutputRecordedAt: true },
       });
@@ -97,7 +113,14 @@ export async function admitCustomerPropertyInput(input: CustomerPropertyAdmissio
       // classification runs later; only a FINAL-IN runtime brand may affect the
       // canonical state (the WEBSITE text adapter already classified its input).
       if (input.authenticatedInput) await acceptAuthenticatedCustomerAdmission(input.authenticatedInput, admission, tx);
-      return { ticket: admission, fresh: stored.order === allocated.order };
+      // The durable compare-and-set, not an in-memory first-request token, owns
+      // first binding. A genuine identical retry can recover a crash before
+      // native admission, within the ORIGINAL 15-minute intake window. Same or
+      // different request witnesses racing here get exactly one fresh binding.
+      // Native upsert precedes the source UPDATE, matching native deletion and
+      // the native-history guard's lock order. Exactly one UPDATE can bind it.
+      const firstOriginalAdmission = originalLegacy && firstBinding === 1;
+      return { ticket: admission, fresh: stored.order === allocated.order || firstOriginalAdmission };
     }, { maxWait: 5000, timeout: 10000 });
     return { status: "admitted", ...admitted };
   } catch (error) {

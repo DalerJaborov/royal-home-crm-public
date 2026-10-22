@@ -4156,6 +4156,11 @@ model BotConversation {
 /// Payload-less immutable admission identity/order. Not an inbox or action receipt.
 /// Retained with its conversation epoch; legacy ProcessedMessage cleanup is independent.
 model CustomerPropertyIngressTicket {
+  /// Original Meta envelope metadata only; never FINAL-IN or execution authority.
+  routingSourceVersion Int?
+  routingSourceHash String?
+  routingScopeRevision BigInt?
+  routingProvenance String?
   rolloutAssignmentId String?
   rolloutAssignment CustomerAgentRolloutAssignment? @relation(fields: [rolloutAssignmentId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   @@index([rolloutAssignmentId])
