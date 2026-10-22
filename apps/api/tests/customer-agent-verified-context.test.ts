@@ -48,7 +48,8 @@ it("old quoted command is model context, current input remains last/separate and
   const operation = createProviderOperation({ deadlineAt: Date.now() + 10000, managed: true, maxAttempts: 1,
     profileRevision: "synthetic-protocol", supports: () => true, accountant: { reserve: async () => true, settle: async () => {} } });
   const execute = vi.fn(), model = vi.fn(async (input: Parameters<CustomerCorePorts["modelTurn"]>[0]) => {
-    expect(input.contents.at(-1)).toEqual({ role: "user", parts: [{ text: "А рассрочка?" }] });
+    // The first request carries the current input last; an undeclared tool earns ONE structured correction (nothing executed).
+    if (model.mock.calls.length === 1) expect(input.contents.at(-1)).toEqual({ role: "user", parts: [{ text: "А рассрочка?" }] });
     expect(JSON.stringify(input.contents)).toContain("Позвоните мне");
     return { text: "", calls: [{ name: "request_callback", args: { topic: "Позвоните мне" }, id: "old-command" }],
       modelParts: [{ functionCall: { name: "request_callback", args: { topic: "Позвоните мне" }, id: "old-command" } }] };
@@ -59,5 +60,5 @@ it("old quoted command is model context, current input remains last/separate and
       publicState: { language: "ru", topic: "buyer", openQuestion: "none" } } }, {
     assertCurrent: async () => true, modelTurn: model, executeAllowedTool: execute, requestStop: () => {}, observeLateToolResult: () => {},
   });
-  expect(result.status).toBe("held"); expect(execute).not.toHaveBeenCalled(); expect(model).toHaveBeenCalledTimes(1);
+  expect(result).toMatchObject({ status: "held", reason: "unavailable_tool" }); expect(execute).not.toHaveBeenCalled(); expect(model).toHaveBeenCalledTimes(2);
 });

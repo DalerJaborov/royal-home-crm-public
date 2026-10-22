@@ -8,7 +8,7 @@ import type { PublicSourceRef } from "@royal-home/shared";
 const technicalReasons = new Set([
   "invalid_model_turn", "mixed_model_protocol", "missing_model_parts", "duplicate_call_id", "invalid_model_call",
   "invalid_call_id", "call_id_reused", "invalid_model_decision", "duplicate_tool_definition", "round_limit",
-  "tool_limit", "output_limit", "unsupported_decision_evidence", "turn_unavailable", "public_core_unavailable", "expired",
+  "tool_limit", "output_limit", "unsupported_decision_evidence", "turn_unavailable", "turn_deadline", "public_core_unavailable", "expired",
 ]);
 export async function finishUnsentPublicAgentFailure(ref: PublicSourceRef, reason: string): Promise<boolean> {
   if (ref.table !== "meta" || !technicalReasons.has(reason)) return false;

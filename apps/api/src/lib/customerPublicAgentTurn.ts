@@ -6,7 +6,7 @@ import { finishUnsentPublicAgentFailure } from "./customerPublicAgentFailure.js"
 import { isDeepStrictEqual } from 'node:util';
 import { prisma } from '../db.js';
 import { loadPeerAiBudget, spendAiTurns } from './aiDailyBudget.js';
-import { runCustomerAgentTurn, type CustomerAgentAwaitContext } from '../ai/customerAgentCore.js';
+import { runCustomerAgentTurn, safeCauseCode, type CustomerAgentAwaitContext } from '../ai/customerAgentCore.js';
 import type { CustomerAgentEvidence } from '../ai/customerAgentRenderer.js';
 import { customerAgentToolDefinitions, CUSTOMER_AGENT_PUBLIC_TOOLS } from '../ai/customerAgentToolDefinitions.js';
 import { customerPublicLanguage } from '../ai/customerAgentConversationPolicy.js';
@@ -55,6 +55,7 @@ export async function prepareCustomerPublicAgentDraft(ref: PublicSourceRef): Pro
     peer: original.target.commentId, conversation: original.source.id,
     event: `${original.source.table}:${original.source.id}:${original.sourceRevision}`, source: 'internal', kind: 'text',
     managed: { surface: 'public_comment', phase: 'planning' } }, async () => {
+    let heldCause: string | undefined;
     const outcome = await (async (): Promise<CustomerPublicAgentDraft> => {
   let runtime: Extract<Awaited<ReturnType<typeof openPinnedCustomerAgentRuntime>>, { status: 'ready' }>['runtime'] | undefined;
   try {
@@ -177,7 +178,7 @@ export async function prepareCustomerPublicAgentDraft(ref: PublicSourceRef): Pro
       observeLateToolResult: () => {}, // Read-only tools: cannot replay or mutate anything.
     });
     traceCustomerCoreResult(result);
-    if (result.status !== 'ready') return { status: 'held', reason: result.reason };
+    if (result.status !== 'ready') { heldCause = result.cause; return { status: 'held', reason: result.reason }; }
     if (result.decision.kind === 'skip') return { status: 'skip', reason: result.decision.reason, principal };
     if (result.decision.kind === 'escalate') return { status: 'held', reason: 'staff_review_required', principal };
     if (result.decision.kind === 'moderation_proposal') return {
@@ -201,7 +202,8 @@ export async function prepareCustomerPublicAgentDraft(ref: PublicSourceRef): Pro
     return { status: 'readyDraft', principal, text: sealed.text, agentRevisionId: revision.id,
       ...(fact?.kind === 'facts' ? { factsReadWitness: { facts: fact.facts } } : {}),
       ...(sealed.witness ? { publicDataWitness: sealed.witness } : {}) };
-  } catch {
+  } catch (error) {
+    heldCause = safeCauseCode(error);
     return { status: 'held', reason: 'public_core_unavailable' };
   } finally {
     // Original operation accounting only. No new origin, ordinal, grant or source status.
@@ -209,7 +211,7 @@ export async function prepareCustomerPublicAgentDraft(ref: PublicSourceRef): Pro
   }
     })();
     if (outcome.status === 'held') {
-      traceCustomerCoreDisposition('held', outcome.reason);
+      traceCustomerCoreDisposition('held', outcome.reason, heldCause);
       await finishUnsentPublicAgentFailure(ref, outcome.reason);
     }
     else if (outcome.status === 'skip') traceCustomerCoreDisposition('unchanged');

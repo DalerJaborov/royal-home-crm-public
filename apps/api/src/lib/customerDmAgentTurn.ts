@@ -1,7 +1,7 @@
 import { loadCustomerAgentVerifiedDmContext } from "./customerAgentVerifiedContext.js";
 import { hasNewerCustomerInboxInput } from "./customerNewerInboxInput.js";
 import type { CustomerAgentEvidence } from "../ai/customerAgentRenderer.js";
-import { runCustomerAgentTurn } from "../ai/customerAgentCore.js";
+import { runCustomerAgentTurn, safeCauseCode } from "../ai/customerAgentCore.js";
 import { customerAgentToolDefinitions, CUSTOMER_AGENT_PUBLIC_TOOLS } from "../ai/customerAgentToolDefinitions.js";
 import { dispatchCustomerTool } from "../ai/customerToolRegistry.js";
 import { detectCustomerDmLanguage } from "../ai/customerDmLanguage.js";
@@ -58,6 +58,8 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     managed: { surface: "dm", phase: "planning" } }, async () => {
     traceMediaKinds((prepared.attachmentInput?.kinds ?? []).filter((kind): kind is "image" | "audio" | "video" | "document" =>
       kind === "image" || kind === "audio" || kind === "video" || kind === "document"));
+    // Safe diagnostic code of the failure (trace only; never part of the returned shape or customer text).
+    let heldCause: string | undefined;
     const outcome = await (async (): Promise<CustomerDmAgentTurnResult> => {
   let focus = prepared.focus;
   if ((await revalidateCustomerPrincipal(lane.principal)).status !== "current" || focus?.superseded) {
@@ -244,6 +246,7 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
       observeLateToolResult: () => {},
     });
     traceCustomerCoreResult(result);
+    if (result.status === "held") heldCause = result.cause;
     // A committed handover deliberately invalidates the ordinary BOT context.
     // Only the captured pre-effect source and its actual committed receipt can
     // plan this fixed ACK. No model round, general HOLD exception or new actor.
@@ -287,7 +290,8 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
       parts: [{ payload: { kind: "text", text: sealed.text }, property, receipts: mutations.receipts,
         ...(sealed.witness ? { publicDataWitness: sealed.witness } : {}) }], receiptAuthorities: mutations.receiptAuthorities }));
     return { status: "planned", partIds };
-  } catch {
+  } catch (error) {
+    heldCause = safeCauseCode(error);
     await releaseHeldClaim(claim, "customer_core_unavailable");
     return { status: "held", reason: "customer_core_unavailable" };
   } finally {
@@ -296,7 +300,7 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     await runtime?.close();
   }
     })();
-    traceCustomerCoreDisposition(outcome.status, "reason" in outcome ? outcome.reason : undefined);
+    traceCustomerCoreDisposition(outcome.status, "reason" in outcome ? outcome.reason : undefined, heldCause);
     return outcome;
   });
 }
