@@ -84,9 +84,11 @@ export function vacancyOfficeAddress(): string {
  * Ссылка на карту офиса: поиск Google Maps по РЕАЛЬНОМУ адресу офиса.
  * Координаты не выдумываются — карта сама находит место по тексту адреса.
  */
+/** Латиницей: кириллица в ссылке кодируется %D0%94… втрое длиннее и выталкивала
+ *  SMS-приглашение за предел 600 знаков (живая проверка 23.10.2026). */
+export const VACANCY_OFFICE_MAP_QUERY = "Bukhoro Tower, Bukhoro 49, Dushanbe";
 export function vacancyOfficeMapUrl(): string {
-  const o = VACANCY_FACTS.office;
-  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${o.city}, ${o.address}`)}`;
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(VACANCY_OFFICE_MAP_QUERY)}`;
 }
 
 /** Same public address data; translate labels rather than duplicate facts. */

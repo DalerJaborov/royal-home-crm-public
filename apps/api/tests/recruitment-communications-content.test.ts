@@ -1,10 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { recruitmentContactPreviewSchema } from "@royal-home/shared";
 import { buildRecruitmentCommunicationContent } from "../src/lib/recruitmentCommunicationContent.js";
+import { vacancyOfficeMapUrl } from "../src/ai/vacancyFacts.js";
 
 const facts = { name: "Синтетик", titleRu: "SMM / видеограф", titleTg: "SMM / видеограф", detailsRu: "Монтаж и съёмка. Работа в офисе.",
   detailsTg: "Наворбардорӣ ва таҳрир.", address: "Тестовый офис", missing: ["experience", "tools"] as ("experience" | "tools")[] };
 describe("staff-approved recruitment messages", () => {
+  it("fits the SMS limit with the production office address and the default map link (23.10.2026)", () => {
+    const address = "город Душанбе, дом печати, улица Бухоро 49, 2 этаж, Bukhoro Tower, Ориентиры, Школа1, Поликлиника 13";
+    const result = buildRecruitmentCommunicationContent({ purpose: "INVITE", channels: ["SMS"], language: "ru",
+      interviewAt: "2026-10-23T10:00:00Z", mapUrl: vacancyOfficeMapUrl() }, { ...facts, titleRu: "Агент по недвижимости", address });
+    expect(result.text).toContain(vacancyOfficeMapUrl());
+    expect(result.text.length).toBeLessThanOrEqual(600);
+  });
   it("uses the selected role only and repeats the exact Dushanbe appointment without inventing commission or documents", () => {
     const result = buildRecruitmentCommunicationContent({ purpose: "INVITE", channels: ["SMS", "ASSISTANT_CALL"], language: "ru",
       interviewAt: "2026-10-22T09:30:00Z", mapUrl: "https://www.google.com/maps?q=office", preparation: "Портфолио по желанию" }, facts);
