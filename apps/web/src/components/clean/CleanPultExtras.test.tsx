@@ -31,4 +31,10 @@ describe("clean pult existing extra tools", () => {
     expect(actual).toContain("19 новых анкет");
     expect(actual).toContain('href="/vacancies"');
   });
+
+  it("кнопка «Кандидаты» ведёт сразу на /vacancies, без пустой шторки", () => {
+    const html = renderToStaticMarkup(<MemoryRouter><CleanPultExtras canTrainer={false} canVacancies canSettings={false} newApplications={4} /></MemoryRouter>);
+    expect(html).toMatch(/<a[^>]*href="[/]vacancies"[^>]*>.*Кандидаты · 4/s);
+    expect(html).not.toContain("<button");
+  });
 });

@@ -10,3 +10,17 @@ import type { McAgent } from "../../hooks/useMissionControl";
 export function pickLeastLoadedAgent(agents: McAgent[]): McAgent | null {
   return [...agents].filter((a) => a.takesLeads !== false).sort((a, b) => a.activeLoad - b.activeLoad)[0] ?? null;
 }
+
+/**
+ * Список для выбора «кому передать»: те же, кто принимает лиды, от наименее к наиболее
+ * загруженному; первый — выбран по умолчанию. `null`, если передавать некому.
+ */
+export function transferChoice(agents: McAgent[]): { label: string; options: { id: string; label: string }[]; defaultId: string } | null {
+  const ready = [...agents].filter((a) => a.takesLeads !== false).sort((a, b) => a.activeLoad - b.activeLoad);
+  if (!ready.length) return null;
+  return {
+    label: "Кому передать",
+    options: ready.map((a) => ({ id: a.id, label: `${a.fullName} · ${a.activeLoad} в работе` })),
+    defaultId: ready[0].id,
+  };
+}

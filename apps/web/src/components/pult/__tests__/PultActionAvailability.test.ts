@@ -10,6 +10,8 @@ it("акционер видит сгруппированные решения, �
   const [shown] = readOnlyPultRows([group]);
   expect(shown.bulkLabel).toBeUndefined();
   expect(shown.bulkEndpoint).toBeUndefined();
+  expect(shown.bulkConfirm).toBeUndefined();
+  expect(shown.choice).toBeUndefined();
   expect(shown.members?.[0].actions).toEqual([]);
   expect(shown.members?.[0].links).toEqual(leaf.links);
   expect(leaf.actions).toHaveLength(1);
@@ -33,10 +35,11 @@ describe("очередь не принимает ошибку отдельног
 });
 
 describe("проверка материалов из пульта", () => {
-  it("ведёт в настоящую карточку, не одобряет фото вслепую", () => {
+  it("решается в шторке с фото, карточка остаётся второй кнопкой; не одобряет вслепую", () => {
     const row = propertyReviewActionRow({ id: "uuid-42", shortId: 42, title: "Квартира" });
     expect(row.actions).toEqual([]);
-    expect(row.links).toEqual([{ label: "Проверить материалы", href: "/properties/42" }]);
+    expect(row.review).toEqual({ propertyId: "uuid-42", shortId: 42, title: "Квартира" });
+    expect(row.links).toEqual([{ label: "Открыть карточку", href: "/properties/42" }]);
     expect(row.title).toContain("ОБ-000042");
     expect(row.description).toContain("Квартира");
   });

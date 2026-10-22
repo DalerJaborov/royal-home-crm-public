@@ -30,6 +30,7 @@ import {
 } from "../components/clean/ui";
 import { usePultActionRows, usePultActionStatus } from "../components/pult/PultActions";
 import { CleanDecisionRow } from "../components/clean/CleanDecisionRow";
+import { CleanCallbackRows, CleanDeleteRequestRows } from "../components/clean/CleanReminderActions";
 import { CleanDirectorAi } from "../components/clean/CleanDirectorAi";
 import { CleanFeaturedProperty } from "../components/clean/CleanFeaturedProperty";
 import { CleanPultExtras } from "../components/clean/CleanPultExtras";
@@ -74,7 +75,7 @@ export function PultClean() {
   const canView = can("dashboard.analytics");
   const agent = useAuthStore((s) => s.agent);
   const firstName = agent?.fullName?.split(" ")[0] ?? "";
-  const { data, isLoading, isError, refetch } = useMissionControl(canView);
+  const { data, isLoading, isError, refetch, refetchSection } = useMissionControl(canView);
   const pultView = useMemo(() => data ? buildPultView(data, dushanbeHour()) : null, [data]);
   const rows = usePultActionRows(canView);
   const actionStatus = usePultActionStatus(canView);
@@ -149,7 +150,7 @@ export function PultClean() {
       {isError && <CleanLoadError title="Пульт руководителя" retry={refetch} />}
       {data && Object.entries({ hero: "Показатели дня и денежный пульс", team: "Команда", system: "Система и контроль", calls: "Звонки", commission12: "Комиссия за 12 месяцев", marketing: "Маркетинг и публикации", clientsZone: "Клиенты и рабочие очереди", video: "Подготовка объектов", bot: "Помощник", properties: "Объекты", firstLine: "Критические события" }).map(([key, title]) => {
         const section = data[key as keyof typeof data];
-        return section && typeof section === "object" && "error" in section ? <CleanLoadError key={key} title={title} retry={refetch} /> : null;
+        return section && typeof section === "object" && "error" in section ? <CleanLoadError key={key} title={title} retry={() => refetchSection(key)} /> : null;
       })}
       {/* ---- Ряд A: приветствие + KPI | фото объекта ---- */}
       <section
@@ -205,9 +206,9 @@ export function PultClean() {
                 to={hasRoute("/finance") ? "/finance" : undefined}
               >
                 <CChip
-                  tone={hero.commission.forecastPercent >= 100 ? "ok" : "gray"}
+                  tone={!hero.commission.planIsDefault && hero.commission.forecastPercent >= 100 ? "ok" : "gray"}
                 >
-                  план {formatMoney(Math.round(hero.commission.plan), "TJS")}
+                  {hero.commission.planIsDefault ? "план не задан" : `план ${formatMoney(Math.round(hero.commission.plan), "TJS")}`}
                 </CChip>
               </Kpi>
             ) : hero ? (
@@ -297,6 +298,7 @@ export function PultClean() {
             />
             <div className="grid gap-1.5">
               {hero && <PultContactReminders hero={hero} canCalls={hasRoute("/calls")} canClients={hasRoute("/clients")} />}
+              <CleanCallbackRows enabled={canView && can("messages.view")} />
               {critCount > 0 ? (
                 <Reminder
                   to="#clean-first-line"
@@ -306,7 +308,7 @@ export function PultClean() {
                   ring={<CChip tone="crit">{critCount}</CChip>}
                 />
               ) : null}
-              {team?.showingsToday && team.showingsToday.count > 0 ? (
+              {team?.showingsToday && team.showingsToday.count > 0 && hasRoute("/calendar") ? (
                 <Reminder
                   to="/calendar"
                   title="Показы"
@@ -323,7 +325,7 @@ export function PultClean() {
                   }
                 />
               ) : null}
-              {pending.data && pending.data.length > 0 ? (
+              {pending.data && pending.data.length > 0 && hasRoute("/properties") ? (
                 <Reminder
                   to="/properties?status=PENDING_REVIEW"
                   title="На проверке"
@@ -332,6 +334,9 @@ export function PultClean() {
                     <CChip tone="warn">{pending.data.length}</CChip>
                   }
                 />
+              ) : null}
+              {clientsZone?.deleteRequests && clientsZone.deleteRequests.total > 0 ? (
+                <CleanDeleteRequestRows requests={clientsZone.deleteRequests.items} />
               ) : null}
               {clientsZone?.deleteRequests &&
               clientsZone.deleteRequests.total > 0 && hasRoute("/archive") && (can("clients.delete") || can("properties.delete")) ? (
@@ -349,12 +354,12 @@ export function PultClean() {
                   to="/health"
                   title="Ошибки системы"
                   sub={
-                    system.errorsToday === 0
+                    system.errorsToday === 0 && !system.unresolvedTotal
                       ? "за сутки без ошибок"
-                      : `${system.errorsToday} неразобранных за сутки`
+                      : `${system.errorsToday} за сегодня${system.unresolvedTotal !== undefined ? ` · всего нерешённых ${system.unresolvedTotal}` : ""}`
                   }
                   ring={
-                    <CChip tone="gray">{system.errorsToday}</CChip>
+                    <CChip tone={system.errorsToday >= 10 ? "crit" : system.errorsToday > 0 || (system.unresolvedTotal ?? 0) > 0 ? "warn" : "gray"}>{system.errorsToday}</CChip>
                   }
                 />
               ) : null}
@@ -470,7 +475,7 @@ export function PultClean() {
           <CHead
             title="Объекты, которым нужно внимание"
             right={
-              <Link
+              hasRoute("/properties") && <Link
                 to="/properties"
                 className="inline-flex items-center gap-1 text-[13px] text-gray-500 hover:text-ink"
               >
@@ -509,7 +514,7 @@ export function PultClean() {
             const show = cards.slice(0, 2);
             return show.length === 0 ? (
               <p className="m-0 text-gray-600">
-                {props.isLoading || pending.isLoading ? "Загружаем объекты…" : incomplete || pending.isError ? "Очередь объектов недоступна." : "Объектов, требующих внимания, нет."}
+                {props.isLoading || pending.isLoading ? "Загружаем объекты…" : props.isError || pending.isError ? <span role="alert">Объекты не загрузились. Обновите страницу, чтобы повторить.</span> : incomplete ? "Очередь объектов недоступна." : "Объектов, требующих внимания, нет."}
               </p>
             ) : (
               <div className="grid gap-3 sm:grid-cols-2">
@@ -548,9 +553,9 @@ export function PultClean() {
                 title="Показы сегодня"
                 count={team.showingsToday.count}
                 right={
-                  <CLink to="/calendar" variant="soft" size="icon" aria-label="Открыть календарь">
+                  hasRoute("/calendar") ? <CLink to="/calendar" variant="soft" size="icon" aria-label="Открыть календарь">
                     <ArrowUpRight className="size-4" />
-                  </CLink>
+                  </CLink> : undefined
                 }
               />
               <div className="grid gap-1.5">

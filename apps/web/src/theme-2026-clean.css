@@ -851,3 +851,19 @@ html[data-shell="clean"] .rh2 .scr .toast .undo {
 html[data-shell="clean"][data-theme="royal-home-2026-night"] .rh2 .scr .toast {
   background: #2457d6;
 }
+
+/* Рабочие кнопки строки решения (23.10.2026): выбор агента и подтверждение не налезают на текст.
+   Только раскладка и перенос — цвета и размеры шрифта не менялись. */
+.clean-shell .clean .clean-decision > .min-w-0 { min-width: 0; }
+.clean-shell .clean .clean-decision-actions { min-width: 0; max-width: 100%; }
+.clean-shell .clean .clean-decision-actions > button,
+.clean-shell .clean .clean-decision-actions > a { max-width: 100%; white-space: normal; text-align: center; }
+.clean-shell .clean .clean-decision-select { max-width: 260px; text-overflow: ellipsis; }
+.clean-shell .clean .clean-greeting h1 { overflow-wrap: anywhere; }
+@media (max-width: 639px) {
+  .clean-shell .clean .clean-decision { grid-template-columns: 40px minmax(0, 1fr); }
+  .clean-shell .clean .clean-decision-actions { grid-column: 1 / -1; justify-content: stretch; }
+  .clean-shell .clean .clean-decision-actions > * { flex: 1 1 calc(50% - 8px); }
+  .clean-shell .clean .clean-decision-actions > .clean-decision-select { flex-basis: 100%; max-width: 100%; }
+  .clean-shell .clean .clean-greeting h1 { font-size: 28px; line-height: 1.15; }
+}
