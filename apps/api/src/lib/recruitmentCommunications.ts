@@ -137,7 +137,8 @@ async function currentSource(tx: TxClient, applicationId: string, actorId: strin
   const office = await tx.settings.findUnique({ where: { id: "singleton" }, select: { interviewInviteAddress: true } });
   const officeAddress = office?.interviewInviteAddress?.trim() || company.information.office;
   const officeAddressTg = office?.interviewInviteAddress?.trim() || company.information.officeTg;
-  const officeMapUrl = office?.interviewInviteAddress?.trim() ? null : vacancyOfficeMapUrl();
+  // Офис один: адрес из Настроек — тот же офис с ориентирами, поэтому ссылка на карту есть всегда.
+  const officeMapUrl = vacancyOfficeMapUrl();
   const companyHash = digest({ company: company.sourceHash, configuredOfficeAddress: office?.interviewInviteAddress?.trim() || null });
   const resume = recruitmentResumeSchema.safeParse(app.recruitmentResume);
   const assessment = assessRecruitmentResume({ rules: position!.screeningRules, facts: resume.success ? resume.data.facts : {},
@@ -185,7 +186,7 @@ export async function recruitmentContactOptions(applicationId: string, actorId: 
     select: { contactProfile: { select: { language: true } } } }) : null;
   const office = { address: source?.officeAddress ?? settings?.interviewInviteAddress?.trim() ?? null,
     addressTg: source?.officeAddressTg ?? settings?.interviewInviteAddress?.trim() ?? null,
-    mapUrl: source ? source.officeMapUrl : settings?.interviewInviteAddress?.trim() ? null : vacancyOfficeMapUrl(), preparation: null };
+    mapUrl: source ? source.officeMapUrl : vacancyOfficeMapUrl(), preparation: null };
   return { ...(source ? { sourceKind: source.state ? "CORE" as const : "LEGACY_HR" as const } : {}),
     sms: { available: available && smsReady, ...(!available || !smsReady ? { reason: reason ?? "СМС не подключены" } : {}) },
     assistantCall: { available: available && voiceReady, ...(!available || !voiceReady ? { reason: reason ?? "Звонки ассистента выключены" } : {}) },
