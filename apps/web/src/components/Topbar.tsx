@@ -302,7 +302,7 @@ function TopbarRow({
 
         {/* КОЛОКОЛЬЧИК ПОКАЗЫВАЕТ НАСТОЯЩИЕ УВЕДОМЛЕНИЯ (аудит №4, 27.08). */}
         <div className="relative">
-          <button
+          <button type="button"
             ref={bellRef}
             onClick={toggleNotifications}
             aria-label="Уведомления"
@@ -380,7 +380,7 @@ export function ThemeQuickSwitch({ buttonClassName }: { buttonClassName?: string
   const current = THEMES.find((t) => t.id === theme) ?? THEMES[0];
 
   return (
-    <button
+    <button type="button"
       onClick={() => setTheme(current.pairId)}
       title={current.isDark ? "Светлая тема" : "Тёмная тема"}
       data-topbar-theme

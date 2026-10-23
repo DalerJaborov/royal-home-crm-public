@@ -29,7 +29,7 @@ function Fullscreen({ url, onClose }: { url: string; onClose: () => void }) {
 
   return createPortal(
     <div className="fixed inset-0 bg-black/90 z-[70] flex items-center justify-center p-4" onClick={onClose}>
-      <button
+      <button type="button"
         onClick={onClose}
         aria-label="Закрыть"
         className="absolute top-4 right-4 w-9 h-9 rounded-full bg-white/10 text-white flex items-center justify-center hover:bg-white/20"
