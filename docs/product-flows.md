@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **666**. Развилок в самих путях: **2359**; вместе с задачами по расписанию и фоновыми заданиями — **3656**. Модулей: **75**.
+Путей: **666**. Развилок в самих путях: **2361**; вместе с задачами по расписанию и фоновыми заданиями — **3658**. Модулей: **75**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -1202,6 +1202,8 @@
 - если !parsed.success
   - return res.status(400).json({ error: "Неверные параметры запроса", details: parsed.error.flatten() });
     · ответ 400 — «Неверные параметры запроса»
+- const { start, end } = activityPeriodBounds(from, to);
+  · зовёт activityPeriodBounds()
 - const [rows, total] = await Promise.all([ prisma.aiAssistantAuditLog.findMany({ where, orderBy: [{ createdAt:…
   · читает в базе: aiAssistantAuditLog
   · считает в базе: aiAssistantAuditLog
@@ -13495,27 +13497,32 @@
     - если staffMatch
       - return res.status(409).json({ error: staffPhoneError(staffMatch), code: STAFF_PHONE_ERROR_CODE });
         · ответ 409
-    - autoSellerClientId = await prisma.$transaction(async (tx)
+    - resolveAutoSellerClient = async (tx)
       · пробрасывает ошибку дальше
-      · всё внутри — одной транзакцией
       · обращается к базе своим SQL
-      · читает в базе: client
       · создаёт в базе: client
-      - const existing = await tx.$queryRaw<{ id: string }[]>` SELECT "id" FROM "Client" WHERE "deletedAt" IS NULL AN…
+      · читает в базе: client
+      - если existingId
+        - return existingId;
+          · дословно из кода
+      - await tx.$executeRaw`SAVEPOINT property_auto_seller`;
         · обращается к базе своим SQL
-      - если existing[0]
-        - return existing[0].id;
-          · дословно из кода
-      - const byExactPhone = await tx.client.findUnique({ where: { phone: normalizedPhone }, select: { id: true } });
-        · читает в базе: client
-      - если byExactPhone
-        - return byExactPhone.id;
-          · дословно из кода
-      - const created = await tx.client.create({ data: { fullName: sellerNameForCard, phone: normalizedPhone, source:…
-        · создаёт в базе: client
-    - если !autoSellerClientId
-      - const winner = await prisma.client.findUnique({ where: { phone: normalizedPhone }, select: { id: true } });
-        · читает в базе: client
+      - пробует
+        - const created = await tx.client.create({ data: { fullName: sellerNameForCard, phone: normalizedPhone, source:…
+          · создаёт в базе: client
+      - если сорвалось
+        - если (err as { code?: string }).code !== "P2002"
+          - throw err;
+            · пробрасывает ошибку дальше
+        - await tx.$executeRaw`ROLLBACK TO SAVEPOINT property_auto_seller`;
+          · обращается к базе своим SQL
+        - const winner = await tx.client.findUnique({ where: { phone: normalizedPhone }, select: { id: true } });
+          · читает в базе: client
+        - если !winner
+          - throw err;
+            · пробрасывает ошибку дальше
+      - await tx.$executeRaw`RELEASE SAVEPOINT property_auto_seller`;
+        · обращается к базе своим SQL
     - если autoSellerClientId
       - const card = await prisma.client.findUnique({ where: { id: autoSellerClientId }, select: { assignedAgentId: t…
         · читает в базе: client
@@ -13530,6 +13537,7 @@
   · всё внутри — одной транзакцией
   · обращается к базе своим SQL
   · читает в базе: property
+  · читает в базе: client
   · создаёт в базе: property
   · запись в журнал ошибок
   - const sourceDraft = draftId ? (await lockOwnDraft(tx, req.agent!.id), await assertActiveDraft(tx, req.agent!.…
@@ -13556,6 +13564,12 @@
     - если repeat && !(req.query.force === "true" && can(req, "properties.editForeign"))
       - throw new DuplicatePropertyError(repeat);
         · ошибка DuplicatePropertyError — «repeat»
+  - если autoSellerClientId
+    - const card = await tx.client.findUnique({ where: { id: autoSellerClientId }, select: { assignedAgentId: true …
+      · читает в базе: client
+    - если card?.assignedAgentId && card.assignedAgentId !== effectiveIntakeAgentId && !canBindClient(req, card)
+      - throw new SellerBindingDeniedError();
+        · ошибка SellerBindingDeniedError
   - const createdProperty = await tx.property.create({ data: { ...rest, title, canonicalAddress: normalizedAddres…
     · создаёт в базе: property
   - если sourceDraft

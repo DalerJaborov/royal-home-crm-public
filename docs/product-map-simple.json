@@ -16,10 +16,10 @@
   "paths": 666,
   "cron": 108,
   "jobs": 31,
-  "conditions": 3656,
-  "untranslatedUnique": 397,
+  "conditions": 3658,
+  "untranslatedUnique": 396,
   "untranslatedTotal": 505,
-  "partialUnique": 1031,
+  "partialUnique": 1029,
   "translatedShare": 86
  },
  "untranslated": [
@@ -276,7 +276,6 @@
   "existingCorrection.kind === parsed.data.override",
   "existingSession.propertyId !== property.id",
   "existingVideo.propertyId !== property.id",
-  "existing[0]",
   "expected !== `\"${versionOf(raw)}\"`",
   "expiresAt - Date.now() > THREADS_REFRESH_BEFORE_EXPIRY_MS",
   "f.installation.id === row.endpointScopeId && f.source.id === row.originalNativeId && f.sourceRevision === row…",
@@ -48573,40 +48572,32 @@
          ]
         },
         {
-         "t": "все изменения разом: либо всё, либо ничего",
+         "t": "заводит: клиент",
          "k": "do",
-         "a": [
-          "заводит: клиент"
-         ],
+         "a": [],
          "c": [
           {
-           "t": "если existing[0]",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "raw": "existing[0]",
-           "more": true
-          },
-          {
-           "t": "если есть по exact телефон",
+           "t": "если есть такая запись",
            "k": "if",
            "a": [],
            "c": [],
            "more": true
           },
           {
-           "t": "заводит: клиент",
-           "k": "do",
+           "t": "пробует сделать",
+           "k": "try",
            "a": [],
-           "c": []
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если не получилось",
+           "k": "catch",
+           "a": [],
+           "c": [],
+           "more": true
           }
          ]
-        },
-        {
-         "t": "если нет: auto продавец клиент",
-         "k": "if",
-         "a": [],
-         "c": []
         },
         {
          "t": "если есть auto продавец клиент",
@@ -48701,6 +48692,27 @@
            "c": []
           }
          ]
+        }
+       ]
+      },
+      {
+       "t": "если есть auto продавец клиент",
+       "k": "if",
+       "a": [],
+       "c": [
+        {
+         "t": "если card?.assignedAgentId && card.assignedAgentId !== effectiveIntakeAgentId && !canBindClient(req, card)",
+         "k": "if",
+         "a": [],
+         "c": [
+          {
+           "t": "поломка",
+           "k": "do",
+           "a": [],
+           "c": []
+          }
+         ],
+         "raw": "card?.assignedAgentId && card.assignedAgentId !== effectiveIntakeAgentId && !canBindClient(req, card)"
         }
        ]
       },

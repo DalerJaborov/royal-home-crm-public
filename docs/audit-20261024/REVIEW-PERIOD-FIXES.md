@@ -1,0 +1,7 @@
+# Independent review of the calendar-period corrections
+
+The parent reviewed the actual AF01 assistant-audit route diff and real HTTP/PostgreSQL regression: the route now calls the existing activityPeriodBounds helper, with no UI/shared contract, permission, default, pagination or ordering change. The helper's imports are type-only Prisma/shared types plus the local time helper; no network or dependency cycle was added. Focused evidence is28PASS/3files after3RED/8controls in the new11case file.
+
+The parent separately reviewed NR02's local reportPeriod helper, six advertising callers and three ordinary-report callers. The change rejects impossible calendar labels and inverted effective intervals, retaining Date/ISO coercion, inclusive Dushanbe expansion, advertising UTC DATE boundaries and the previous maximum range. A second specialist independently reviewed these exact source/test changes without rerunning the already completed tests and approved the scope. Cases cover leap dates, December/January, years below1900 and reverse instants within one effective local day. No new date ceiling or shared-schema change was introduced.
+
+The labels' individual invalid inputs are variants of one family in each patch. NR01 loss-flow/cohort semantics are explicitly unresolved; there is no percentage clamp or formula change. Full frozen-package validation remains a separate required result. Reports PHASE2-AUDIT-FILTERS.md and PHASE2-REPORT-PERIODS.md retain the exact reproduction, cause, change and targeted evidence.

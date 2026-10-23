@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 666,
-  "forks": 3656,
+  "forks": 3658,
   "mounts": 75,
   "cron": 108,
   "jobs": 31,
@@ -4971,6 +4971,14 @@
        "c": []
       }
      ]
+    },
+    {
+     "k": "do",
+     "t": "const { start, end } = activityPeriodBounds(from, to);",
+     "a": [
+      "зовёт activityPeriodBounds()"
+     ],
+     "c": []
     },
     {
      "k": "do",
@@ -60264,81 +60272,110 @@
         },
         {
          "k": "do",
-         "t": "autoSellerClientId = await prisma.$transaction(async (tx)",
+         "t": "resolveAutoSellerClient = async (tx)",
          "a": [
           "пробрасывает ошибку дальше",
-          "всё внутри — одной транзакцией",
           "обращается к базе своим SQL",
-          "читает в базе: client",
-          "создаёт в базе: client"
+          "создаёт в базе: client",
+          "читает в базе: client"
          ],
          "c": [
           {
+           "k": "if",
+           "t": "existingId",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return existingId;",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
            "k": "do",
-           "t": "const existing = await tx.$queryRaw<{ id: string }[]>` SELECT \"id\" FROM \"Client\" WHERE \"deletedAt\" IS NULL AN…",
+           "t": "await tx.$executeRaw`SAVEPOINT property_auto_seller`;",
            "a": [
             "обращается к базе своим SQL"
            ],
            "c": []
           },
           {
-           "k": "if",
-           "t": "existing[0]",
+           "k": "try",
+           "t": "пробует",
            "a": [],
            "c": [
             {
              "k": "do",
-             "t": "return existing[0].id;",
+             "t": "const created = await tx.client.create({ data: { fullName: sellerNameForCard, phone: normalizedPhone, source:…",
              "a": [
-              "дословно из кода"
+              "создаёт в базе: client"
              ],
              "c": []
             }
            ]
           },
           {
-           "k": "do",
-           "t": "const byExactPhone = await tx.client.findUnique({ where: { phone: normalizedPhone }, select: { id: true } });",
-           "a": [
-            "читает в базе: client"
-           ],
-           "c": []
-          },
-          {
-           "k": "if",
-           "t": "byExactPhone",
+           "k": "catch",
+           "t": "если сорвалось",
            "a": [],
            "c": [
             {
+             "k": "if",
+             "t": "(err as { code?: string }).code !== \"P2002\"",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "throw err;",
+               "a": [
+                "пробрасывает ошибку дальше"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
              "k": "do",
-             "t": "return byExactPhone.id;",
+             "t": "await tx.$executeRaw`ROLLBACK TO SAVEPOINT property_auto_seller`;",
              "a": [
-              "дословно из кода"
+              "обращается к базе своим SQL"
              ],
              "c": []
+            },
+            {
+             "k": "do",
+             "t": "const winner = await tx.client.findUnique({ where: { phone: normalizedPhone }, select: { id: true } });",
+             "a": [
+              "читает в базе: client"
+             ],
+             "c": []
+            },
+            {
+             "k": "if",
+             "t": "!winner",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "throw err;",
+               "a": [
+                "пробрасывает ошибку дальше"
+               ],
+               "c": []
+              }
+             ]
             }
            ]
           },
           {
            "k": "do",
-           "t": "const created = await tx.client.create({ data: { fullName: sellerNameForCard, phone: normalizedPhone, source:…",
+           "t": "await tx.$executeRaw`RELEASE SAVEPOINT property_auto_seller`;",
            "a": [
-            "создаёт в базе: client"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "if",
-         "t": "!autoSellerClientId",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "const winner = await prisma.client.findUnique({ where: { phone: normalizedPhone }, select: { id: true } });",
-           "a": [
-            "читает в базе: client"
+            "обращается к базе своим SQL"
            ],
            "c": []
           }
@@ -60395,6 +60432,7 @@
       "всё внутри — одной транзакцией",
       "обращается к базе своим SQL",
       "читает в базе: property",
+      "читает в базе: client",
       "создаёт в базе: property",
       "запись в журнал ошибок"
      ],
@@ -60506,6 +60544,36 @@
            "t": "throw new DuplicatePropertyError(repeat);",
            "a": [
             "ошибка DuplicatePropertyError — «repeat»"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "autoSellerClientId",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "const card = await tx.client.findUnique({ where: { id: autoSellerClientId }, select: { assignedAgentId: true …",
+         "a": [
+          "читает в базе: client"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "card?.assignedAgentId && card.assignedAgentId !== effectiveIntakeAgentId && !canBindClient(req, card)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "throw new SellerBindingDeniedError();",
+           "a": [
+            "ошибка SellerBindingDeniedError"
            ],
            "c": []
           }

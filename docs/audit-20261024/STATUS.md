@@ -2,6 +2,8 @@
 
 Deadline: 08:00 Asia/Tashkent, 24 October 2026. Heartbeat `crm-08-00-24` continues this chat every 30 minutes until the deadline, then pauses itself. Execution requires the desktop app/host to remain available.
 
+**Active runtime:** `D:/PublicWorktrees-20261021/night-audit-20261024-phase2`, local branch `codex/night-audit-20261024-phase2`, OWN fresh dependencies. Publish this checkout's HEAD explicitly to remote `codex/night-audit-20261024` for existing draft PR45; the original local branch stays behind as first-run evidence. The checkpoints below are chronological history; the final section is authoritative. Never install through the original worktree's primary node_modules junction.
+
 ## Baseline and boundaries
 
 - Own worktree: `D:/PublicWorktrees-20261021/night-audit-20261024`, branch `codex/night-audit-20261024`.
@@ -109,3 +111,23 @@ Use **D:/PublicWorktrees-20261021/night-audit-20261024-phase2** as the active ru
 This phase2 copy is now the active runtime. Seven new families, dependency updates and fixture repairs are committed locally, rebased only on the own first-package documentation commits; no public/private foreign history was rewritten. Source application commit1b1178c and fixture-ending cleanup204479e follow dependency94e418d. Final map generation exited0. The complete working tree was clean before this documentation checkpoint.
 
 Next: commit this index/checkpoint, record actual full40-character HEAD/tree in ignored evidence, run final consolidated precheck and eight-role local smoke, then publish to existing remote codex/night-audit-20261024/PR45 and dispatch test-only ship-tests for that exact head. No source/test/dependency edits while those checks run. Reports may update without converting partial output into a verdict. No merge/ship/deploy.
+
+## Source3305 validation result and next bounded package
+
+Exact3305fdc7dfcbde3a7d79e7ea8b00c8650de92a1c/treee402abc84627e4a8aa1c2968773b11e9a6b6c081 was pushed to existing PR45. Local final precheck native0:305webfiles/1877tests, builds/guards/map/scripts passed (conditional/platform skips remain separate). Final real code-login/PG/browser8roles passed8/8 and80route/viewport visits. Generated postpatch CSV1000unchanged properties and8current UI/API boundary/draft controls passed. No exhaustive UI/provider acceptance is claimed.
+
+Cloud40040133970 ended FAILURE at source-plan: Linux cmd/mklink missing in2stand tests; API jobs never started. CI-LINUX-STAND.md attributes this introduced CI problem and the nativefs fix; Windows14passed after correction, Linux verification pending. Sourcefreeze is now OPEN for the next bounded fixes. Never call this a completed green/red full API run.
+
+Independent dependency collector after npm audit0 still reported1low build-time serialize-javascript7.0.7 advisory (GHSA-m5mm-p8h7-m29v),5unverified entries among1129registry-verified transitive entries. Primary advisory confirms fixed floor7.1.3 and attacker-controlled serialized function source precondition; no CRM exploit was executed/found. Normal named package update changed exactly1package to7.1.4 with native0. No override/runtime dependency changed. A new collector/build must confirm the updated state.
+
+Active ownership after all previous scopes released: parent owns stand nativefs and build-only serialize update; finish_frontend owns confirmed assistant-audit Dushanbe filter fix (realHTTP/PG3RED8controls→28PASS in3files; typecheck/report finishing); finish_business owns confirmed invalid reports/ads month/date/range validation after minimal local-only plan approval and durableRED; upload_cleanup is completing bounded readonly lifecycle probes. Global shared schemas and losses-cohort formula remain unchanged. All tests use own fresh databases/fixtures; no production/provider/paid-generation operations.
+
+Do not start the next complete API run until these sources are reviewed, committed and frozen. Original first full0466 run remains failed;3305cloud has no API verdict. The next ordinary test-only workflow should validate the corrected Linux plan and then run the API suite once on its new exact head.
+
+## Third batch ready for consolidated validation — 05:00 Asia/Tashkent
+
+All application/test/dependency writers have released their scopes. The package now contains24confirmed defect families, including3third-batch additions: AF01 assistant-audit inclusive Dushanbe bounds (28PASS/3files), NR02 report-period validation (final33new cases plus adjacent controls) and property/automatic seller partial-write atomicity (new10actual HTTP/PG cases;7adjacent files/63tests). Parent and independent specialist reviews found no introduced blockers in the actual diffs. Exact reproductions, root causes, fixes, regressions and limits are in their named PHASE2 reports and REVIEW-PERIOD-FIXES/REVIEW-PROPERTY-ATOMICITY.
+
+Native map generation completed0 after all application changes. The nativefs stand correction has Windows14/14, and serialize-javascript7.1.4 collector r2 completed with0matching known advisories among1129registry-verified transitive entries,5unverifiable; broader maintainer coverage remains only3root tools. NR01 loss-flow/cohort metric and reminder/deadline policy remain unchanged and documented in OPEN-POLICY-QUESTIONS.md.
+
+Freeze application source/tests/dependencies now for a review-ready commit, consolidated local precheck, then explicit push HEAD to existing remote codex/night-audit-20261024 and draft PR45. Dispatch ONE ordinary test-only ship-tests workflow for that exact new head,20machines/3workers; no npm run ship or deployment. Previous3305 cloud failed before any API worker, so it is not a completed API run. Capture its actual Linux plan, all20machine reports, official aggregate/native verdict and exact SHA; no partial green claim. Raw logs/pins remain ignored under reports/night-audit-20261024. All own DB clones and old evidence remain preserved. No production/provider/paid actions occurred.

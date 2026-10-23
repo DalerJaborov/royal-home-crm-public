@@ -24,7 +24,7 @@
  * 33 секунды на весь стенд против 3-4 минут, и это на каждого агента.
  */
 import { execFileSync, execSync } from "node:child_process";
-import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -107,7 +107,9 @@ const has = (c) => {
 function link(from, to) {
   if (existsSync(from)) return "уже есть";
   mkdirSync(path.dirname(from), { recursive: true });
-  execFileSync("cmd", ["/c", "mklink", "/J", from, to], { stdio: "pipe" });
+  // Junctions do not need elevated symlink privileges on Windows. POSIX
+  // uses a directory symlink; both keep the same realpath safety checks.
+  symlinkSync(to, from, process.platform === "win32" ? "junction" : "dir");
   return "создана";
 }
 

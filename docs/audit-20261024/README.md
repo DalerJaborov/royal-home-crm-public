@@ -1,6 +1,6 @@
 # CRM overnight audit package, 24 October 2026
 
-This source package starts at public baseline `87aecdb`. It contains21 confirmed defect families across application behavior and test-stand routing (14first-package families plus7phase2 families), compatible dependency advisory updates and2 separately attributed fixture-isolation repairs. Final consolidated validation is pending; no production release or exhaustive zero-bug claim is made. Continue the explicitly pending scope in COVERAGE.md/STATUS.md.
+This source package starts at public baseline `87aecdb`. It contains24 confirmed defect families across application behavior and test-stand routing (14first-package,7phase2 and3third-batch families), compatible dependency advisory updates and2 separately attributed fixture-isolation repairs. Third-batch targeted regressions and independent reviews are complete; consolidated validation is pending. No production release or exhaustive zero-bug claim is made. Continue the explicitly pending scope in COVERAGE.md/STATUS.md.
 
 ## Findings
 
@@ -27,7 +27,19 @@ Dependency update/independent npm audit returned0 reported advisories; see PHASE
 
 The2 fixture-only repairs preserve strict application policies: real Response.clone semantics plus owned physical-attempt cleanup, and an owned eligible receiving agent for a positive assignment case. The final three-file group passed129distinct cases; an extra71-case run preserved all29foreign synthetic UNKNOWN witnesses unchanged. See PHASE2-FIXTURE-ISOLATION.md.
 
-Final map was generated from source; application source/tests are now frozen for consolidated precheck, real local role smoke and a test-only exact-head GitHub API run. Their terminal results remain pending.
+Exact3305 local precheck completed successfully:305webfiles/1877tests, shared/API/web builds and executed guards;104script passes and32conditional/platform skips. Its actual code-login/PG/browser smoke passed8roles with80route/viewport visits. GitHub run40040133970 failed before API workers started because two stand tests used Windows cmd/mklink on Linux. The nativefs correction passes Windows14/14; actual Linux confirmation is pending the next source-plan. That run supplies no full API verdict. Source freeze was reopened for the third bounded batch; see CI-LINUX-STAND.md.
+
+## Third bounded batch
+
+| Family | Result and evidence |
+| --- | --- |
+| Assistant-audit dates (1) | Reuse existing inclusive Dushanbe day bounds; real HTTP/PG3RED+8controls becomes28PASS/3files. PHASE2-AUDIT-FILTERS.md |
+| Reports/ads calendar validation (1) | Reject impossible days/months and reversed effective periods, retaining Date/ISO/default/range semantics. RED22fail/8controls; final33new cases and unchanged adjacent controls pass. PHASE2-REPORT-PERIODS.md |
+| Property/automatic seller atomicity (1) | Draft conflict, duplicate refusal and failed property insertion previously retained a newly accepted seller. The minimal shared transaction passes10actual HTTP/PG cases, including real phone uniqueness contention and initial event preservation;7adjacent files/63tests and independent review passed. PHASE2-PROPERTY-SELLER-ATOMIC.md; REVIEW-PROPERTY-ATOMICITY.md |
+
+The parent and a second specialist independently reviewed the two period corrections; see REVIEW-PERIOD-FIXES.md. NR01 loss-cohort semantics and ambiguous reminder/deadline choices remain OPEN-POLICY-QUESTIONS.md. No silent metric, reminder or ownership-policy change was made.
+
+Independent dependency follow-up corrected one remaining low build-time serialize-javascript advisory using a normal7.1.4 update. Collector r2 has0matching known advisories in1129registry-verified transitive entries,5unverifiable entries and narrower3root-tooling maintainer coverage. This is not proof that dependencies have no vulnerabilities; see PHASE2-DEPENDENCIES.md.
 
 ## First-package checks completed locally
 

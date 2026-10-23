@@ -55,6 +55,7 @@ import { loadDemandSupply } from "../lib/demandSupply.js";
 import { loadResponseSpeed } from "../lib/responseSpeed.js";
 import { buildSecurityReviewDigest } from "../lib/securityReviewDigest.js";
 import { logSystemError } from "../lib/systemError.js";
+import { reportDateQuerySchema } from "../lib/reportPeriod.js";
 
 export const reportsRouter = Router();
 
@@ -136,9 +137,14 @@ reportsRouter.get("/response-speed", async (req: Request, res: Response) => {
 // months в expenses.ts (60 месяцев) — отчёты этого раздела не задуманы дальше.
 const MAX_RANGE_MONTHS = 60;
 const MAX_RANGE_MS = MAX_RANGE_MONTHS * 31 * 24 * 60 * 60 * 1000;
+// Keep the shared object extendable for unrelated feed/audit query consumers.
+const reportRangeQuerySchema = dateRangeQuerySchema.extend({
+  from: reportDateQuerySchema.optional(),
+  to: reportDateQuerySchema.optional(),
+});
 
 function parseRange(query: Record<string, unknown>) {
-  const parsed = dateRangeQuerySchema.parse(query);
+  const parsed = reportRangeQuerySchema.parse(query);
   const to = parsed.to ?? new Date();
   // "from"/"to" приходят как YYYY-MM-DD (полночь UTC при разборе строки в Date) —
   // сдвигаем оба конца на границы суток по ДУШАНБЕ, иначе теряется 5-часовое окно
@@ -147,6 +153,9 @@ function parseRange(query: Record<string, unknown>) {
   // dushanbeStartOfMonth) расходились в цифрах за один и тот же месяц.
   const to_ = dushanbeEndOfDay(to);
   let from = parsed.from ? dushanbeDayRange(parsed.from).start : dushanbeStartOfMonth();
+  if (from > to_) {
+    throw new z.ZodError([{ code: "custom", path: ["to"], message: "Конец периода раньше начала" }]);
+  }
   if (to_.getTime() - from.getTime() > MAX_RANGE_MS) {
     from = new Date(to_.getTime() - MAX_RANGE_MS);
   }

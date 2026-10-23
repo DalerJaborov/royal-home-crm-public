@@ -19,11 +19,11 @@ The machine inventory is inventory.json. Its pending states deliberately do not 
 | Dimension | Required variants | Evidence status |
 | --- | --- | --- |
 | Identity and permissions | anonymous, agent, manager/admin, director, revoked rights, foreign ownership | API77-test named subset and8-role navigation complete; exhaustive combinations pending |
-| Inputs | omitted/null/empty/invalid/large text, Unicode, numbers, dates, arrays, files | named finance/API regressions and generated field properties complete; CSV/recruitment phase2 fixes under review |
+| Inputs | omitted/null/empty/invalid/large text, Unicode, numbers, dates, arrays, files | named finance/API, CSV/import, recruitment and generated field properties complete; report-period/calendar regressions added in the next package |
 | Business state | draft/planned/paid/archive/deleted, stale version, conflicting updates | isolated PG finance/deal/reservation groups complete; other transitions individually pending |
 | Transport | unavailable network, response lost after commit, timeout, duplicate submit | named frontend8-case Chrome and66-test subsets complete; providers pending |
 | UI | desktop and390px, loading/empty/error/permission, cancel and pending submit | named component regressions plus80 role/route/viewport smoke visits; full workflows/visual acceptance pending |
-| Async | race/lock order, retries, provider unknown outcome, scheduled status changes | named claim/reservation/stream races reviewed and regressed; upload cleanup phase2 under review; other jobs pending |
+| Async | race/lock order, retries, provider unknown outcome, scheduled status changes | named claim/reservation/stream and resumed-upload races reviewed and regressed; cancelled task selection and settings rollback checked; other jobs pending |
 | Integration | real PG, local browser, provider contract mocks | no live provider delivery or production mutations |
 
 ## Completed evidence groups
@@ -42,3 +42,13 @@ Source-file `pending` inventory states are intentionally conservative. These gro
 ## Explicit limits
 
 Production behavior, physical iOS/Android, external provider delivery, exhaustive role combinations, every scheduler and every source file are unverified until named evidence exists.
+
+## Later evidence and explicit pending areas
+
+Exact3305 local precheck passed305web files/1877tests, builds and executed source/script guards (104script passes,32conditional/platform skips). Eight-role HTTP/PG/browser smoke passed8/8 with80route/viewport visits. These improve the named evidence only; they do not turn the whole inventory into covered code. Its GitHub run40040133970 failed in the Linux plan before any API matrix job started because2stand tests invoked cmd/mklink. The nativefs correction has Windows14/14 evidence; Linux confirmation and the next full API verdict remain pending.
+
+Phase2 focused groups are described in PHASE2-IMPORT.md, PHASE2-UPLOAD.md, PHASE2-FIELDS.md, PHASE2-TASKS.md and PHASE2-SETTINGS.md. The two fixture isolation fixes have129distinct cases across3files and a separate71-case foreign-witness preservation run. Counts from overlapping groups are not summed into a unique total. Independent collector follow-up covers1129 registry-verified transitive advisory versions, with5 unverifiable entries; maintainer criteria have a narrower3root-tooling scope.
+
+The third bounded package adds actual HTTP/PG evidence for inclusive Dushanbe assistant-audit calendar filters (28tests/3files) and invalid ads/report periods (33new cases plus adjacent reports controls; see their reports). Property/automatic seller insertion now has10new real HTTP/PG cases and7adjacent files/63tests, including actual unique/FK failures and initial event preservation. These patches passed independent review; complete frozen-package validation remains pending at this checkpoint. The lifecycle pass additionally executed4named ordinary HTTP/PG/disk flows across separate runs and7pure archive controls; see NEXT-LIFECYCLE-READONLY.md for exact scope and harness errors excluded from bug counts.
+
+Unresolved areas include the reports loss-widget flow/cohort denominator policy, reminder repeat/deadline policy, exhaustive destructive/restore/retention combinations, every background job, cross-process audio revocation, provider outcomes and physical devices. A stopped security stream has no accepted findings or coverage credit. Its unfinished notes are not published or treated as evidence.

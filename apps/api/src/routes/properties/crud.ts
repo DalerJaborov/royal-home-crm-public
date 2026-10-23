@@ -20,7 +20,7 @@ import {
   MIN_PROPERTY_PHOTOS,
   isInstagramLink,
 } from "@royal-home/shared";
-import { prisma } from "../../db.js";
+import { prisma, type TxClient } from "../../db.js";
 import { can, canBindClient, requireAuth, requirePermission } from "../../auth/middleware.js";
 import { uploadsDir } from "../../upload.js";
 import {
@@ -124,6 +124,22 @@ class DuplicatePropertyError extends Error {
   constructor(public readonly duplicate: { id: string; shortId: number; title: string }) {
     super(`Похоже, такой объект уже есть: ${duplicate.title} (№${duplicate.shortId})`);
   }
+}
+
+class SellerBindingDeniedError extends Error {
+  constructor() { super("Этот номер у клиента другого агента — объект к нему не привязать"); }
+}
+
+async function findAutoSellerClient(tx: TxClient, normalizedPhone: string, tail: string): Promise<string | null> {
+  const existing = await tx.$queryRaw<{ id: string }[]>`
+    SELECT "id" FROM "Client"
+    WHERE "deletedAt" IS NULL
+      AND right(regexp_replace("phone", '[^0-9]', '', 'g'), 9) = ${tail}
+    ORDER BY ("kind" = 'SELLER') DESC, "createdAt" ASC
+    LIMIT 1`;
+  if (existing[0]) return existing[0].id;
+  // Exact-phone fallback intentionally retains the existing trash behavior.
+  return (await tx.client.findUnique({ where: { phone: normalizedPhone }, select: { id: true } }))?.id ?? null;
 }
 
 /**
@@ -413,7 +429,7 @@ crudRouter.post("/", requireAuth, async (req, res) => {
    * входящего звонка с неизвестного номера, — её потом поправит агент или ИИ.
    */
   const sellerNameForCard = data.sellerName?.trim() || "Собственник объекта";
-  let autoSellerClientId: string | null = null;
+  let resolveAutoSellerClient: ((tx: TxClient) => Promise<string>) | null = null;
   if (!data.clientId && data.ownerContact?.trim()) {
     const normalizedPhone = normalizeDigits(data.ownerContact.replace(/[^\d]/g, ""));
     const tail = phoneTail(normalizedPhone);
@@ -425,72 +441,68 @@ crudRouter.post("/", requireAuth, async (req, res) => {
       if (staffMatch) {
         return res.status(409).json({ error: staffPhoneError(staffMatch), code: STAFF_PHONE_ERROR_CODE });
       }
-      autoSellerClientId = await prisma.$transaction(async (tx) => {
-        const existing = await tx.$queryRaw<{ id: string }[]>`
-          SELECT "id" FROM "Client"
-          WHERE "deletedAt" IS NULL
-            AND right(regexp_replace("phone", '[^0-9]', '', 'g'), 9) = ${tail}
-          ORDER BY ("kind" = 'SELLER') DESC, "createdAt" ASC
-          LIMIT 1`;
-        if (existing[0]) return existing[0].id;
-        // Карточка в Корзине с тем же номером: живой поиск выше её не видит, а
-        // unique(phone) не даст завести вторую. Привязка к восстановимой карточке
-        // лучше, чем падение всего создания объекта (23.09.2026: было 500).
-        const byExactPhone = await tx.client.findUnique({ where: { phone: normalizedPhone }, select: { id: true } });
-        if (byExactPhone) return byExactPhone.id;
-        const created = await tx.client.create({
-          data: {
-            fullName: sellerNameForCard,
-            phone: normalizedPhone,
-            source: "WALK_IN",
-            kind: "SELLER",
-            status: "NEW",
-            currency: data.currency,
-            /**
-             * ХОЗЯИН У ЭТОЙ КАРТОЧКИ ИЗВЕСТЕН СРАЗУ — ЭТО ТОТ, КТО ПРИНЁС ОБЪЕКТ.
-             *
-             * Найдено 12.09.2026 владельцем на живом примере: он завёл объект,
-             * вписал продавца на последнем шаге мастера — и через несколько
-             * минут этот же продавец вернулся ему окном «Новый клиент ·
-             * Принять / Отклонить», с историей «лид назначен утренней волной
-             * распределения».
-             *
-             * Причина была здесь: карточка создавалась со status=NEW и БЕЗ
-             * assignedAgentId, то есть выглядела ровно как ничейный лид с
-             * улицы. Дальше её штатно подбирала волна разбора
-             * (services/leads/reassignment.ts::assignPendingLeads —
-             * `where: { assignedAgentId: null, status: { in: ["NEW", ...] } }`)
-             * и раздавала агентам.
-             *
-             * Это не косметика: волна могла отдать продавца ДРУГОМУ агенту, и
-             * тот, кто привёл объект, терял собственника своего же объекта.
-             *
-             * acceptedAt проставляем вместе с агентом: пустой acceptedAt — это
-             * и есть признак «лид ждёт, пока его примут» (см.
-             * services/leads/assignment.ts), а принимать тут нечего — агент
-             * только что вписал этого человека руками.
-             */
-            assignedAgentId: effectiveIntakeAgentId,
-            assignedAt: new Date(),
-            acceptedAt: new Date(),
-            // Не лид из очереди: окно «первый звонок за 15 минут» (firstCall.ts)
-            // его не касается — 22.09.2026 крон отобрал так продавца у Нозы.
-            assignReason: SELF_CREATED_ASSIGN_REASON,
-          },
-          select: { id: true },
-        });
-        return created.id;
-      }).catch((err: unknown) => {
-        // Гонка: ту же карточку только что завёл параллельный запрос. После
-        // ошибки транзакция базы сорвана — любой запрос в ней падает, поэтому
-        // победителя ищем уже вне её, ниже.
-        if ((err as { code?: string }).code === "P2002") return null;
-        throw err;
-      });
-      if (!autoSellerClientId) {
-        const winner = await prisma.client.findUnique({ where: { phone: normalizedPhone }, select: { id: true } });
-        autoSellerClientId = winner?.id ?? null;
-      }
+      // Preserve the early ownership refusal, but write only with the property.
+      const autoSellerClientId = await findAutoSellerClient(prisma, normalizedPhone, tail);
+      resolveAutoSellerClient = async (tx) => {
+        const existingId = await findAutoSellerClient(tx, normalizedPhone, tail);
+        if (existingId) return existingId;
+        // A phone race must not abort the surrounding property/draft transaction.
+        // Keep client.create so its normal initial StageEvent hook is preserved.
+        await tx.$executeRaw`SAVEPOINT property_auto_seller`;
+        let resolvedId: string;
+        try {
+          const created = await tx.client.create({
+            data: {
+              fullName: sellerNameForCard,
+              phone: normalizedPhone,
+              source: "WALK_IN",
+              kind: "SELLER",
+              status: "NEW",
+              currency: data.currency,
+              /**
+               * ХОЗЯИН У ЭТОЙ КАРТОЧКИ ИЗВЕСТЕН СРАЗУ — ЭТО ТОТ, КТО ПРИНЁС ОБЪЕКТ.
+               *
+               * Найдено 12.09.2026 владельцем на живом примере: он завёл объект,
+               * вписал продавца на последнем шаге мастера — и через несколько
+               * минут этот же продавец вернулся ему окном «Новый клиент ·
+               * Принять / Отклонить», с историей «лид назначен утренней волной
+               * распределения».
+               *
+               * Причина была здесь: карточка создавалась со status=NEW и БЕЗ
+               * assignedAgentId, то есть выглядела ровно как ничейный лид с
+               * улицы. Дальше её штатно подбирала волна разбора
+               * (services/leads/reassignment.ts::assignPendingLeads —
+               * `where: { assignedAgentId: null, status: { in: ["NEW", ...] } }`)
+               * и раздавала агентам.
+               *
+               * Это не косметика: волна могла отдать продавца ДРУГОМУ агенту, и
+               * тот, кто привёл объект, терял собственника своего же объекта.
+               *
+               * acceptedAt проставляем вместе с агентом: пустой acceptedAt — это
+               * и есть признак «лид ждёт, пока его примут» (см.
+               * services/leads/assignment.ts), а принимать тут нечего — агент
+               * только что вписал этого человека руками.
+               */
+              assignedAgentId: effectiveIntakeAgentId,
+              assignedAt: new Date(),
+              acceptedAt: new Date(),
+              // Не лид из очереди: окно «первый звонок за 15 минут» (firstCall.ts)
+              // его не касается — 22.09.2026 крон отобрал так продавца у Нозы.
+              assignReason: SELF_CREATED_ASSIGN_REASON,
+            },
+            select: { id: true },
+          });
+          resolvedId = created.id;
+        } catch (err: unknown) {
+          if ((err as { code?: string }).code !== "P2002") throw err;
+          await tx.$executeRaw`ROLLBACK TO SAVEPOINT property_auto_seller`;
+          const winner = await tx.client.findUnique({ where: { phone: normalizedPhone }, select: { id: true } });
+          if (!winner) throw err;
+          resolvedId = winner.id;
+        }
+        await tx.$executeRaw`RELEASE SAVEPOINT property_auto_seller`;
+        return resolvedId;
+      };
       /**
        * НАЙДЕННАЯ ПО НОМЕРУ КАРТОЧКА — ТЕ ЖЕ ПРАВА, ЧТО ЯВНЫЙ clientId (глубокая
        * проверка 02.10.2026, A7). Выше по номеру находится ЛЮБАЯ живая карточка,
@@ -626,6 +638,14 @@ crudRouter.post("/", requireAuth, async (req, res) => {
       }
     }
 
+    // Draft and duplicate refusals cannot leave an accepted owner without an object.
+    const autoSellerClientId = resolveAutoSellerClient ? await resolveAutoSellerClient(tx) : null;
+    if (autoSellerClientId) {
+      const card = await tx.client.findUnique({ where: { id: autoSellerClientId }, select: { assignedAgentId: true } });
+      if (card?.assignedAgentId && card.assignedAgentId !== effectiveIntakeAgentId && !canBindClient(req, card)) {
+        throw new SellerBindingDeniedError();
+      }
+    }
     const createdProperty = await tx.property.create({
       data: {
         ...rest,
@@ -698,6 +718,7 @@ crudRouter.post("/", requireAuth, async (req, res) => {
     return createdProperty;
   }).catch((err) => {
     if (err instanceof DraftConflictError) { res.status(409).json(err.response()); return null; }
+    if (err instanceof SellerBindingDeniedError) { res.status(403).json({ error: err.message }); return null; }
     if (err instanceof DuplicatePropertyError) {
       res.status(409).json({
         error: err.message,
