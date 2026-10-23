@@ -14,7 +14,7 @@ vi.mock("../../lib/permissions", () => ({ useCan: () => () => true }));
 vi.mock("../../store/auth", () => ({ useAuthStore: () => "DIRECTOR" }));
 
 import {
-  byAge, enabledInboxQueues, formatAge, loadBotAudit, loadClips, loadComments, loadEditor, loadStuckConversations, loadWaiting,
+  byAge, enabledInboxQueues, formatAge, loadBotAudit, loadClips, loadComments, loadEditor, loadStuckConversations, loadUnassigned, loadWaiting,
 } from "../usePultInbox";
 
 const dialog = (id: string, over: Record<string, unknown> = {}) => ({
@@ -33,6 +33,22 @@ describe("pult inbox: загрузчики очередей", () => {
     expect(r.total).toBe(3 + 7);
     const b = r.items.find((i) => i.id === "waiting:b")!;
     expect(b.type === "dialog" && b.paused).toBe(true);
+  });
+
+  it("ждут агента: берёт /dashboard/unassigned-leads, давность и источник в строке, total не меньше загруженного", async () => {
+    calls.replies.set("/dashboard/unassigned-leads", {
+      items: [
+        { id: "c1", shortId: 41, fullName: "Мадина", source: "TELEGRAM", createdAt: "2026-10-23T01:00:00Z", waitingMinutes: 600 },
+        { id: "c2", shortId: 42, fullName: "", source: "GOOGLE_ADS", createdAt: "2026-10-23T02:00:00Z", waitingMinutes: 540 },
+      ],
+      total: 37,
+    });
+    const r = await loadUnassigned();
+    expect(r.total).toBe(37);
+    expect(r.items[0]).toMatchObject({ id: "unassigned:c1", queue: "unassigned", group: "clients", type: "unassigned", clientId: "c1", title: "Мадина", at: "2026-10-23T01:00:00Z" });
+    expect(r.items[0].detail).toMatch(/^Telegram · ждёт /);
+    expect(r.items[1].title).toBe("Клиент №42");
+    expect(r.items[1].detail).toContain("Google Ads");
   });
 
   it("комментарии: берёт только те, где бот спасовал (ESCALATED)", async () => {
@@ -88,6 +104,9 @@ describe("pult inbox: права и порядок", () => {
     const allowed = enabledInboxQueues((p) => p === "auditLog.view", "DIRECTOR");
     expect([...allowed].sort()).toEqual(["botAudit", "editor", "stuckConversations", "stuckWork", "videos"]);
     expect(enabledInboxQueues(() => false, "AGENT").size).toBe(0);
+    // «Ждут агента» — только с правом назначать, как и сам роут.
+    expect(enabledInboxQueues((p) => p === "clients.assign", "MANAGER").has("unassigned")).toBe(true);
+    expect(enabledInboxQueues((p) => p === "messages.view", "MANAGER").has("unassigned")).toBe(false);
   });
 
   it("давнее выше, без даты — в конец; возраст читается по-русски", () => {

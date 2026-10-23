@@ -40,6 +40,7 @@ export const INBOX_GROUP_LABEL: Record<InboxGroup, string> = {
 };
 
 export type InboxQueueId =
+  | "unassigned"
   | "waiting"
   | "comments"
   | "reactivation"
@@ -65,6 +66,7 @@ interface InboxBase {
 
 export type InboxItem = InboxBase &
   (
+    | { type: "unassigned"; clientId: string }
     | { type: "dialog"; conversationId: string; paused: boolean }
     | { type: "comment"; commentId: string }
     | { type: "reactivation"; clientId: string }
@@ -104,6 +106,7 @@ export interface InboxQueueResult {
 }
 
 export const INBOX_QUEUES: InboxQueueMeta[] = [
+  { id: "unassigned", group: "clients", label: "Ждут агента", href: "/clients" },
   { id: "waiting", group: "clients", label: "Клиент ждёт человека", href: "/messages" },
   { id: "comments", group: "clients", label: "Комментарии без ответа", href: "/comments" },
   { id: "reactivation", group: "clients", label: "Вернувшиеся клиенты", href: "/clients" },
@@ -148,7 +151,42 @@ export function byAge(a: { at: string | null }, b: { at: string | null }): numbe
   return a.at.localeCompare(b.at);
 }
 
+const SOURCE_LABEL: Record<string, string> = {
+  WEBSITE: "Сайт",
+  INSTAGRAM: "Instagram",
+  FACEBOOK: "Facebook",
+  WHATSAPP: "WhatsApp",
+  TELEGRAM: "Telegram",
+  TIKTOK: "TikTok",
+  GOOGLE_ADS: "Google Ads",
+  YANDEX_DIRECT: "Яндекс Директ",
+  REFERRAL: "Рекомендация",
+  PHONE_CALL: "Звонок",
+  WALK_IN: "Пришёл в офис",
+};
+
 // ───────────────────────────── загрузчики очередей ─────────────────────────────
+
+/** Клиенты в общей очереди без агента (GET /dashboard/unassigned-leads: давние первыми, до 20). */
+export async function loadUnassigned(): Promise<InboxQueueResult> {
+  const r = await api<{
+    items: { id: string; shortId: number; fullName: string; source: string; createdAt: string; waitingMinutes: number }[];
+    total: number;
+  }>("/dashboard/unassigned-leads");
+  return {
+    total: Math.max(r.total, r.items.length),
+    items: r.items.map((c): InboxItem => ({
+      id: `unassigned:${c.id}`,
+      queue: "unassigned",
+      group: "clients",
+      type: "unassigned",
+      clientId: c.id,
+      title: c.fullName?.trim() || `Клиент №${c.shortId}`,
+      detail: [SOURCE_LABEL[c.source] ?? c.source, `ждёт ${formatAge(c.createdAt)}`.trim()].filter(Boolean).join(" · "),
+      at: c.createdAt,
+    })),
+  };
+}
 
 export async function loadWaiting(): Promise<InboxQueueResult> {
   const [needs, paused] = await Promise.all([
@@ -362,6 +400,7 @@ export async function loadSiteChanges(): Promise<InboxQueueResult> {
 }
 
 const LOADERS: Record<InboxQueueId, { key: unknown[]; load: () => Promise<InboxQueueResult> }> = {
+  unassigned: { key: ["clients", "pult-inbox", "unassigned"], load: loadUnassigned },
   waiting: { key: ["conversations", "pult-inbox", "waiting"], load: loadWaiting },
   comments: { key: ["instagram-comments", "pult-inbox"], load: loadComments },
   reactivation: { key: ["reactivation-offers", "pult-inbox"], load: loadReactivation },
@@ -389,7 +428,7 @@ export function enabledInboxQueues(has: (p: PermissionId) => boolean, role: stri
   const out = new Set<InboxQueueId>();
   if (has("messages.view")) out.add("waiting");
   if (has("comments.moderate")) out.add("comments");
-  if (has("clients.assign")) { out.add("reactivation"); out.add("duplicates"); }
+  if (has("clients.assign")) { out.add("unassigned"); out.add("reactivation"); out.add("duplicates"); }
   if (marketing) { out.add("editor"); out.add("videos"); }
   if (has("properties.moderate")) out.add("clips");
   if (has("auditLog.view")) { out.add("stuckConversations"); out.add("stuckWork"); out.add("botAudit"); }
@@ -457,6 +496,11 @@ export function usePultInboxActions() {
     hideComment: async (id: string) => {
       await api(`/instagram-comments/${id}/hide`, { method: "POST" });
       settle(qc, [["instagram-comments"]]);
+    },
+    /** Назначить клиента из общей очереди выбранному агенту (руководитель — принято сразу). */
+    assignUnassigned: async (clientId: string, agentId: string) => {
+      await api(`/clients/${clientId}/assign`, { method: "POST", body: { agentId } });
+      settle(qc, [["clients"], ["client"], ["mission-control"]]);
     },
     reactivation: async (clientId: string, accept: boolean) => {
       await api(`/clients/${clientId}/reactivation-offer/${accept ? "accept" : "decline"}`, { method: "POST" });

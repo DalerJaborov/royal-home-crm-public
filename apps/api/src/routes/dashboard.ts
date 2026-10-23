@@ -36,6 +36,7 @@ import { loadHeatmapAdviceSettings } from "../lib/publishScheduleRules.js";
 import { logSystemError } from "../lib/systemError.js";
 import { visibleNewCandidatesWhere } from "../lib/vacancyVisibility.js";
 import { RATED_ROLES } from "@royal-home/shared";
+import { UNASSIGNED_LEADS_LIMIT, UNASSIGNED_LEADS_WHERE } from "../lib/unassignedLeads.js";
 
 export const dashboardRouter = Router();
 
@@ -479,7 +480,6 @@ dashboardRouter.get("/team-live", requireAuth, requirePermission("dashboard.anal
   // «агенту назначили, а он не принял» — руководитель видел пугающие числа по
   // лидам, которые просто ждут своего часа. Разделяем на два независимых счётчика.
   const unacceptedWhere = { acceptedAt: null, assignedAgentId: { not: null }, kind: { not: "OTHER" as const }, deletedAt: null };
-  const queuedForWaveWhere = { acceptedAt: null, assignedAgentId: null, kind: { not: "OTHER" as const }, deletedAt: null };
   const [activeLoad, pendingAccept, acceptedToday, escalated, unaccepted, unacceptedTotal, escalatedTotal, queuedTotal] =
     await Promise.all([
     // «Активная нагрузка» — то же самое, что занятый слот в лимите лидов
@@ -506,7 +506,7 @@ dashboardRouter.get("/team-live", requireAuth, requirePermission("dashboard.anal
     }),
     prisma.client.count({ where: unacceptedWhere }),
     prisma.client.count({ where: { ...unacceptedWhere, escalatedAt: { not: null } } }),
-    prisma.client.count({ where: queuedForWaveWhere }),
+    prisma.client.count({ where: UNASSIGNED_LEADS_WHERE }),
   ]);
 
   const toMap = (arr: { assignedAgentId: string | null; _count: { _all: number } }[]) => new Map(arr.map((x) => [x.assignedAgentId, x._count._all]));
@@ -538,6 +538,37 @@ dashboardRouter.get("/team-live", requireAuth, requirePermission("dashboard.anal
     unacceptedTotal,
     escalatedTotal,
     queuedTotal,
+  });
+});
+
+/**
+ * «Ждут агента» поимённо для пульта директора: ровно те клиенты, что считает
+ * `queuedTotal` в /team-live (общее условие — lib/unassignedLeads.ts). Давние первыми,
+ * не больше 20; `total` — сколько всего в очереди. Номер в имени маскируется по праву
+ * `clients.viewPhone`, как в остальных списках.
+ */
+dashboardRouter.get("/unassigned-leads", requireAuth, requirePermission("clients.assign"), async (req, res) => {
+  const canSeePhone = can(req, "clients.viewPhone");
+  const [rows, total] = await Promise.all([
+    prisma.client.findMany({
+      where: UNASSIGNED_LEADS_WHERE,
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      take: UNASSIGNED_LEADS_LIMIT,
+      select: { id: true, shortId: true, fullName: true, source: true, createdAt: true },
+    }),
+    prisma.client.count({ where: UNASSIGNED_LEADS_WHERE }),
+  ]);
+  const now = Date.now();
+  res.json({
+    items: rows.map((c) => ({
+      id: c.id,
+      shortId: c.shortId,
+      fullName: clientNamePhoneSafe(c.fullName, canSeePhone),
+      source: c.source,
+      createdAt: c.createdAt.toISOString(),
+      waitingMinutes: Math.max(0, Math.round((now - c.createdAt.getTime()) / 60000)),
+    })),
+    total,
   });
 });
 
