@@ -4,7 +4,7 @@ import { BW, EW } from "../ai/wordBoundary.js";
  * Only our own and the two social hosts we can read; the character before the
  * host must not continue a word, a path or an e-mail/user (so a scheme-ful URL
  * is never matched twice). */
-const SCHEMELESS_PROPERTY_URL = /(?<![\p{L}\p{N}/@.:_-])((?:www\.|m\.|web\.)?(?:royalhome\.tj|instagram\.com|facebook\.com)\/[^\s<>"'«»]*)/giu;
+const SCHEMELESS_PROPERTY_URL = /(?<![\p{L}\p{N}/@.:_-])((?:www\.|m\.|web\.)?(?:royalhome\.tj|instagram\.com|facebook\.com|fb\.watch)\/[^\s<>"'«»]*)/giu;
 
 export function schemelessPropertyUrls(text: string): string[] {
   return [...text.matchAll(SCHEMELESS_PROPERTY_URL)].map(match => `https://${match[1].replace(/[),.;!?]+$/u, "")}`);
