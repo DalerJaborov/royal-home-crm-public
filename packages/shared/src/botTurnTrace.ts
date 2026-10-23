@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { customerAgentDecisionSchema, customerAgentSurfaceSchema } from "./customerAgent.js";
+import { customerAgentDecisionSchema, customerAgentSurfaceSchema, customerAgentSayDropReasonSchema, customerAgentSayStatusSchema } from "./customerAgent.js";
 import { customerMutationReceiptSchema } from "./customerMutation.js";
 
 export const BOT_TURN_TRACE_COVERAGE = "meta_website_customer_bot_v1" as const;
@@ -82,6 +82,8 @@ export const traceCustomerCoreSchema = z.strictObject({
   decisionSource: z.enum(["model", "verified_public_fallback", "receipt_confirmation"]).optional(),
   /** Safe diagnostic code of a held/fallback turn (snake_case reason or error class name); never text or data. */
   causeCode: z.string().regex(/^[A-Za-z][A-Za-z0-9_]{1,47}$/).optional(),
+  /** Grounded free-phrase channel: status and verdict code only. The text itself is never written to the trace. */
+  sayStatus: customerAgentSayStatusSchema.optional(), sayDropReason: customerAgentSayDropReasonSchema.optional(),
 }).superRefine((value, ctx) => {
   if (value.skipReason !== undefined && value.rejectedDecisionKind !== "skip") {
     ctx.addIssue({ code: "custom", path: ["skipReason"], message: "skipReason requires rejectedDecisionKind=skip" });
