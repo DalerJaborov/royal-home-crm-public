@@ -4,7 +4,7 @@
  * и гарнитуру. Зачем это нужно и почему именно генератором — в шапке скрипта.
  * Пересобрать: npm run gen:typeset. Проверить: npm run audit:typeset.
  *
- * Правил: 933 (размер поднят у 921, гарнитура сведена у 53).
+ * Правил: 931 (размер поднят у 921, гарнитура сведена у 50).
  * Ничего мельче 13px не остаётся, "Manrope" строкой не остаётся нигде.
  */
 .rh2 .mh .ai-hero-lbl { font-size: 15px; }
@@ -87,14 +87,11 @@ html[data-shell="clean"] .cef-sheet button.cef-chip { font-size: 15px; }
 html[data-shell="clean"] .cef-sheet .cef-keys button { font-size: 22px; }
 html[data-shell="clean"] .cef-sheet button.cef-tile { font-size: 15px; }
 html[data-shell="clean"] .cef-sheet .cef-pills button { font-size: 15px; }
-.rh2 .ring-score .mid b { font-family: Onest, "Onest Fallback", "Segoe UI", system-ui, sans-serif; }
-.rh2 .scr .prow .t .pstats .pstat b,
-.rh2 .prow .t .pstats .pstat b { font-family: Onest, "Onest Fallback", "Segoe UI", system-ui, sans-serif; }
 .rh2 .scr .prow .t .pstats .pstat small,
 .rh2 .prow .t .pstats .pstat small { font-size: 13px; }
 .rh2 .pult .rest .ph .at-barlbl { font-size: 13px; }
 .rh2 .secnav-a { font-size: 15px; }
-.rh2 .secnav-a .n { font-size: 15px; font-family: Onest, "Onest Fallback", "Segoe UI", system-ui, sans-serif; }
+.rh2 .secnav-a .n { font-size: 15px; }
 .rh2 .chact .chact-bars .lbl { font-size: 13px; }
 .rh2 .ovw-hour .n { font-size: 15px; }
 .rh2 .pst-light .tips { font-size: 17px; }

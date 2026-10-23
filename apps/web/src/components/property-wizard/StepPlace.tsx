@@ -311,7 +311,7 @@ export function StepPlace({
           </div>
         )}
         {addressStatus && (
-          <p id={addressStatusId} style={{ marginTop: 8, fontSize: 12, color: errors.address ? "var(--warn)" : "var(--muted)" }} role="status" data-testid="wizard-address-status">
+          <p id={addressStatusId} style={{ marginTop: 8, fontSize: 13, color: errors.address ? "var(--warn)" : "var(--muted)" }} role="status" data-testid="wizard-address-status">
             {addressStatus}
           </p>
         )}
@@ -366,7 +366,7 @@ export function StepPlace({
           ))}
         </div>
         {(errors.districtId || districtsLoading) && (
-          <p id={districtStatusId} role="status" style={{ marginTop: 8, fontSize: 12, color: errors.districtId ? "var(--warn)" : "var(--muted)" }}>
+          <p id={districtStatusId} role="status" style={{ marginTop: 8, fontSize: 13, color: errors.districtId ? "var(--warn)" : "var(--muted)" }}>
             {errors.districtId || "Загружаю справочник районов…"}
           </p>
         )}

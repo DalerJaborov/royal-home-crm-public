@@ -217,7 +217,7 @@
 }
 .rh2 .ring-score .mid b {
   display: block;
-  font-family: var(--ff-head, "Manrope", sans-serif);
+  font-family: var(--ff-head);
   font-size: var(--fs-34, 34px);
   font-weight: 700;
   letter-spacing: -0.02em;
@@ -286,7 +286,7 @@
 .rh2 .scr .prow .t .pstats .pstat b,
 .rh2 .prow .t .pstats .pstat b {
   display: inline;
-  font-family: var(--ff-head, "Manrope", sans-serif);
+  font-family: var(--ff-head);
   font-variant-numeric: tabular-nums;
   font-size: var(--fs-13, 13px);
   font-weight: 700;
