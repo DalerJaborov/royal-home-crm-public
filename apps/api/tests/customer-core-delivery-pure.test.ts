@@ -23,7 +23,7 @@ describe("F14 provider outcome classification", () => {
     for (const code of ["http_400", "http_500", "handover_ack_expired_before_post", "claim_expired", "mid_conflict", null, undefined, ""]) {
       expect(isRetryableCustomerDeliveryErrorCode(code)).toBe(false);
     }
-    expect(CUSTOMER_DELIVERY_MAX_ATTEMPTS).toBe(3);
+    expect(CUSTOMER_DELIVERY_MAX_ATTEMPTS).toBe(2);
     expect(customerDeliveryRetryDelayMs(1)).toBeLessThan(customerDeliveryRetryDelayMs(2));
   });
   it("a receipt write is retried and a persistent failure is rethrown, never swallowed", async () => {
@@ -89,6 +89,12 @@ describe("F17 public comment addressee", () => {
     }
     expect(classify("@royalhome_tj подскажите цену", "none").skip).toBe(false);
     expect(classify("@friend_123 а это сколько стоит?").skip).toBe(false);
+  });
+  it("criticism or a complaint is answered even with a tag or under another person's comment", () => {
+    for (const text of ["@synthetic_reader безеб", "@friend_1 ужасный ремонт", "Дорого", "Ика бардакай", "Кимат"]) {
+      expect(classify(text).skip).toBe(false);
+      expect(classify(text, "other_person").skip).toBe(false);
+    }
   });
   it("ordinary vacancy/object questions and replies to our own comment keep the old path", () => {
     expect(classify("Какая зарплата? Нужен опыт?")).toMatchObject({ skip: false, companyQuestion: true });

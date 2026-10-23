@@ -16,7 +16,10 @@ export interface PublicAddresseeVerdict { kind: PublicCommentAddressee; companyQ
 // Wide on purpose: any hint of a question to the company keeps the existing
 // answering path, so a vacancy/object question in a comment is never skipped.
 const COMPANY_HINT = new RegExp(`${BW}(?:цен|нарх|сколько|скок|почем|почём|стоим|адрес|где|район|вакан|работ|хочу|интерес|подскаж|скажите|пришлите|напишите|номер|телефон|контакт|муфассал|подроб|ипотек|рассрочк|аренд|снять|купить|продается|продаётся|продаеться|есть|остал|чанд|чи\\s+қадар|кадом|дастрас|хоҳам|мехоҳам|мехохам|квартир|объект|дом|хона|участок|офис|вариант|показ|просмотр|запис|услуг${TAIL})`, "iu");
-const PROMO = new RegExp(`(?:https?:\\/\\/|www\\.|t\\.me\\/|${BW}(?:подписывайс|подпишись|переходи|заходи\\s+на\\s+(?:мо|стран)|мой\\s+(?:профиль|канал|магазин)|в\\s+профиле|пиши\\s+в\\s+директ|заработок|раскрутк|накрутк)${TAIL})`, "iu");
+// Criticism, a complaint or a price/appearance remark is addressed to the company even when it tags
+// someone or sits under another person's comment: it is answered, never skipped.
+const CRITICISM = new RegExp(`${BW}(?:безеб|бе\\s+зеб|некрасив|не\\s+нравит|ужас|плох|обман|развод|мошенн|жалоб|недовол|разочар|стыд|позор|отврат|дорог|кимат|қимат|ика\\s+бардакай|бардакай|нархаш\\s+баланд${TAIL})`, "iu");
+const PROMO =new RegExp(`(?:https?:\\/\\/|www\\.|t\\.me\\/|${BW}(?:подписывайс|подпишись|переходи|заходи\\s+на\\s+(?:мо|стран)|мой\\s+(?:профиль|канал|магазин)|в\\s+профиле|пиши\\s+в\\s+директ|заработок|раскрутк|накрутк)${TAIL})`, "iu");
 const MENTION = /@([\p{L}\p{N}_.-]+)/gu;
 const normalizeName = (value: string) => value.trim().replace(/^@/, "").toLowerCase();
 
@@ -27,7 +30,7 @@ export function classifyPublicCommentAddressee(input: { text: string; parent: Pu
   const mentionsCompany = mentions.some(name => own.has(name));
   const hasLetters = /[\p{L}\p{N}]/u.test(text.replace(MENTION, " "));
   const phoneLike = /\d[\d\s().-]{5,}\d/u.test(text);
-  const companyQuestion = mentionsCompany || /[?？]/u.test(text) || phoneLike || COMPANY_HINT.test(text) ||
+  const companyQuestion = mentionsCompany || CRITICISM.test(text) || !!customerPublicReaction(text) || /[?？]/u.test(text) || phoneLike || COMPANY_HINT.test(text) ||
     !!classifyCustomerPropertyFactIntent(text, { hasPropertyContext: true }) || customerRequestedAgencyContact(text);
   if (input.adKeyword) return { kind: "ad_keyword", companyQuestion: true, skip: false };
   // A reply under another person's comment, or a comment that only tags someone
