@@ -29,6 +29,7 @@ import { customerAgentMediaReplyLanguage, type CustomerAgentMediaPerception } fr
 import { loadCustomerAgentMediaObservation, storeCustomerAgentMediaObservation } from "./customerAgentMediaObservation.js";
 import { loadCustomerAdjacentVisualObservation } from "./customerAdjacentVisualObservation.js";
 import { withBotTurnTrace, traceCustomerManagedBinding, traceCustomerCoreResult, traceCustomerCoreDisposition, traceMediaKinds } from "./botTurnTrace.js";
+import { customerPropertyUnresolvedReason } from "./customerPropertyUnresolvedReason.js";
 
 export type CustomerDmAgentTurnResult = { status: "planned"; partIds: string[] } |
   { status: "unchanged"; reason: string } | { status: "held"; reason: string };
@@ -224,9 +225,10 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
         if (call.name === "get_property_facts") {
           const facts = await dispatchCustomerTool(mutations.principal, call, { enabled: true });
           if (facts.status === "observed") return { status: "observed", observation: { kind: "facts", facts: facts.facts, kinds: facts.kinds } };
-          if (facts.status === "missing" || facts.status === "ambiguous") return { status: "observed", observation: {
-            kind: "property_unresolved", status: facts.status,
-          } };
+          if (facts.status === "missing" || facts.status === "ambiguous") {
+            const reason = customerPropertyUnresolvedReason(focus?.snapshot.focus.evidence, facts.status);
+            return { status: "observed", observation: { kind: "property_unresolved", status: facts.status, ...(reason ? { reason } : {}) } };
+          }
           return { status: facts.status === "unavailable" ? "unavailable" : "denied", reason: "property_read_unavailable" };
         }
         if (call.name === "get_agency_contact") return { status: "observed", observation: {

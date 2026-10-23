@@ -76,7 +76,8 @@ const decisionKindsFor = (surface: CustomerAgentSurface) => surface === "public_
 function safeObservation(value: CustomerAgentObservation, knowledgeSourceHash: string): boolean {
   if (value.kind === "facts") return customerPropertyFactsSchema.safeParse(value.facts).success &&
     value.kinds.length > 0 && value.kinds.length <= customerPropertyFactKindSchema.options.length && value.kinds.every(k => customerPropertyFactKindSchema.safeParse(k).success);
-  if (value.kind === "property_unresolved") return value.status === "missing" || value.status === "ambiguous";
+  if (value.kind === "property_unresolved") return (value.status === "missing" || value.status === "ambiguous") &&
+    (value.reason === undefined || ["no_reference", "unsupported", "untrusted_origin", "not_found", "lookup_unavailable"].includes(value.reason));
   if (value.kind === "agency_contact") return isCanonicalAgencyContact(value);
   if (value.kind === "company_policy") return isPinnedCompanyPolicy(value, knowledgeSourceHash);
   if (value.kind === "company_information") return isCustomerCompanyInformation(value);
@@ -91,7 +92,7 @@ function safeObservation(value: CustomerAgentObservation, knowledgeSourceHash: s
 function publicObservation(value: CustomerAgentObservation, recruitmentText = "", recruitmentKey?: string,
   turns?: CustomerAgentVerifiedContext["turns"], knownFacts?: CustomerAgentVerifiedContext["recruitmentKnown"], answerTo?: CustomerAgentVerifiedContext["recruitmentAnswerTo"]): unknown {
   if (value.kind === "receipt") return { kind: "receipt", outcome: value.outcome };
-  if (value.kind === "property_unresolved") return { kind: value.kind, status: value.status };
+  if (value.kind === "property_unresolved") return { kind: value.kind, status: value.status, ...(value.reason ? { reason: value.reason } : {}) };
   if (value.kind === "proposal") return { kind: "proposal", summary: { ru: value.summary.ru, tg: value.summary.tg } };
   if (value.kind === "agency_contact") return { kind: "agency_contact", contact: { phone: value.contact.phone, digits: value.contact.digits, channel: value.contact.channel } };
   if (value.kind === "company_policy") return { kind: value.kind, topic: value.topic, knowledge: structuredClone(value.knowledge) };

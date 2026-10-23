@@ -8,6 +8,7 @@ import { privateFilePath } from "./privateFiles.js";
 import { collectRecruitmentResume } from "./recruitmentResume.js";
 import { readRecruitmentAnsweredFactTx } from "./recruitmentAnsweredFact.js";
 import { decodeCustomerAgentMediaObservation } from "./customerAgentMediaObservation.js";
+import { recruitmentOcrText } from "./recruitmentOcr.js";
 
 type Grant = NonNullable<ReturnType<typeof inspectCustomerWriteAuthority>>;
 const portfolioSchema = customerRecruitmentPortfolioSchema;
@@ -79,22 +80,23 @@ export async function persistCustomerRecruitmentApplicationTx(tx: TxClient, gran
   if (portfolio.length > 24) throw Error("Recruitment portfolio limit reached");
   const ownText = grant.currentInputText.trim();
   const rawText = [existing?.rawText, ownText].filter(Boolean).join("\n");
-  if (!ownText && !incoming.length || rawText.length > 32000) throw Error("Recruitment material unavailable");
+  // Reuse the already paid, immutable observation bound to THIS original input. OCR is
+  // candidate material, never a system instruction or a verified claim. A photographed
+  // résumé counts like a document, and either is material in itself (no caption needed).
+  let ocrText = "";
+  if (row.mediaObservationVersion === 1 && row.mediaObservationCiphertext && row.mediaObservedAt && row.agentRevisionId && row.providerOperationId) {
+    ocrText = recruitmentOcrText(envelope.payload.media.map(media => media.kind), decodeCustomerAgentMediaObservation(row.mediaObservationCiphertext, { version: 1,
+      eventKey: grant.eventKey, payloadHash: row.payloadHash, agentRevisionId: row.agentRevisionId,
+      providerOperationId: row.providerOperationId, observedAt: row.mediaObservedAt.getTime() }));
+  }
+  if (!ownText && !incoming.length && !ocrText || rawText.length > 32000) throw Error("Recruitment material unavailable");
   const contactRow = await tx.customerInquiry.findUniqueOrThrow({ where: { id: grant.fence.inquiryId }, select: { claimedContact: true } });
   const contact = customerClaimedContactSchema.safeParse(contactRow.claimedContact);
   const answerTo = await readRecruitmentAnsweredFactTx(tx, grant, native.messages);
   let recruitmentResume = collectRecruitmentResume({ previous: existing?.recruitmentResume, text: ownText,
     sourceEventKey: grant.eventKey, sourceKind: "message", answerTo: answerTo ?? undefined });
-  // Reuse the already paid, immutable observation bound to THIS original input.
-  // OCR is candidate material, never a system instruction or a verified claim.
-  if (envelope.payload.media.some(media => media.kind === "document") && row.mediaObservationVersion === 1 &&
-      row.mediaObservationCiphertext && row.mediaObservedAt && row.agentRevisionId && row.providerOperationId) {
-    const observation = decodeCustomerAgentMediaObservation(row.mediaObservationCiphertext, { version: 1,
-      eventKey: grant.eventKey, payloadHash: row.payloadHash, agentRevisionId: row.agentRevisionId,
-      providerOperationId: row.providerOperationId, observedAt: row.mediaObservedAt.getTime() });
-    if (observation.readableText.trim()) recruitmentResume = collectRecruitmentResume({ previous: recruitmentResume,
-      text: observation.readableText, sourceEventKey: grant.eventKey, sourceKind: "document" });
-  }
+  if (ocrText) recruitmentResume = collectRecruitmentResume({ previous: recruitmentResume,
+    text: ocrText, sourceEventKey: grant.eventKey, sourceKind: "document" });
   const cv = [...incoming].reverse().find(entry => "file" in entry && entry.kind === "file" &&
     /^(application\/pdf|text\/plain|application\/vnd\.openxmlformats-officedocument\.wordprocessingml\.document)$/u.test(entry.mime));
   const patch = { rawText, customerPortfolio: portfolio as Prisma.InputJsonValue,
