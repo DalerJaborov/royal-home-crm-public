@@ -40,7 +40,10 @@ async function observe(assurance: "public" | "protected" = "public", signer = se
   expect(pending.status).toBe("persisted");
   if (pending.status !== "persisted") throw Error("Stand pending required");
   ticketKeys.push(...pending.tickets.map(t => t.eventKey));
-  const verify = assurance === "public" ? verifyAndRegisterPublicMetaCustomerIssuer : verifyAndRegisterMetaCustomerIssuer;
+  // F02 (23.10.2026): with two Settings keys the persisted pending verification is already protected_namespace
+  // (single_channel_global), so FINAL must carry the SAME strict proof; "public" now only names the scenario
+  // "signed by a Settings key while the account has no own secret". The binding screen still offers it.
+  const verify = verifyAndRegisterMetaCustomerIssuer;
   expect(await verify(req, { channel: "INSTAGRAM", accountId, accountExternalId: externalId })).toBe(true);
   const input = captureAuthenticatedCustomerInput(req, { channel: "INSTAGRAM", peer, accountExternalId: externalId,
     eventId, eventKind: "message", inputText: "stand input" });
@@ -348,7 +351,8 @@ describe("authenticated Instagram application binding", () => {
       registerAuthenticatedMetaCustomerRequest(req); return { req, eventId };
     }
     const old = frame(secret);
-    expect(await verifyAndRegisterMetaCustomerIssuer(old.req, target)).toBe(false);
+    // F02: with two Settings keys the strict proof now accepts this signature too. This test models a HISTORICAL
+    // capture that only had the weaker public proof (never strict-registered), which must stay public.
     expect(await verifyAndRegisterPublicMetaCustomerIssuer(old.req, target)).toBe(true);
     const oldInput = captureAuthenticatedCustomerInput(old.req, { channel: "INSTAGRAM", peer: "stand-binding-peer", accountExternalId: externalId,
       eventId: old.eventId, eventKind: "message", inputText: "stand input" });

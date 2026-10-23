@@ -81,9 +81,16 @@ export async function readInstagramSignerObservations(db: Db, account: Instagram
   const accountCredential = customerDbVerifierCredential("account_app_secret", account.id, account.appSecret, decryptSecretSafe(account.appSecret));
   for (const row of rows) {
     const input = inspect(row, account, scope, now); if (!input?.verifierCredential) continue;
-    if (input.assurance === "public_envelope" && input.issuerSource === "verified_public_envelope" &&
-        input.protectedMetaAccountId === null && input.protectedMetaEndpointScopeId === null &&
-        input.issuerScopeRevision === scope.scopeRevision.toString()) {
+    // F02 (23.10.2026): with BOTH Settings keys configured and no own account secret, the signature itself now
+    // proves the namespace (protected_namespace / single_channel_global) instead of leaving a public envelope. The
+    // signer is still the diagnostic the owner confirms on the binding screen, so such an exact-account row stays an
+    // offered observation. Read-only evidence of WHICH key signed; it grants nothing and promotes nothing.
+    const ambiguousGlobalSigner = input.assurance === "protected_namespace" && input.issuerSource === "single_channel_global" &&
+      input.protectedMetaAccountId === account.id && input.protectedMetaEndpointScopeId === scope.id &&
+      credentials.every(value => value.credential);
+    const publicSigner = input.assurance === "public_envelope" && input.issuerSource === "verified_public_envelope" &&
+      input.protectedMetaAccountId === null && input.protectedMetaEndpointScopeId === null;
+    if ((ambiguousGlobalSigner || publicSigner) && input.issuerScopeRevision === scope.scopeRevision.toString()) {
       for (const candidate of credentials) {
         if (!candidate.credential || !sameCredential(input.verifierCredential, candidate.credential) ||
             candidates.some(value => value.secretSource === candidate.secretSource)) continue;
