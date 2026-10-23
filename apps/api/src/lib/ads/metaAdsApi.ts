@@ -188,8 +188,20 @@ interface GraphPage<T> {
   paging?: { next?: string };
 }
 
+/** Разбор ответа Graph: бросает типизированную ошибку, если Meta отказала (общий для GET и POST). */
+function throwOnGraphError(res: Response, body: GraphErrorBody): void {
+  if (res.ok && !body.error) return;
+  const code = body.error?.code;
+  const message = body.error?.message ?? `HTTP ${res.status}`;
+  // 190 — маркер истёк/отозван, 102 — сессия недействительна. Оба лечатся только
+  // новым маркером, повторять их бессмысленно.
+  if (code === 190 || code === 102) throw new MetaAdsTokenError(message);
+  if (isRateLimitCode(code)) throw new MetaRateLimitError(`Marketing API: ${message}`);
+  throw new Error(`Marketing API: ${message}`);
+}
+
 /** Один GET к Graph с разбором ошибки Meta (она приходит с кодом 200 не всегда). */
-async function graphGet<T>(url: string, token: string | null): Promise<T> {
+export async function graphGet<T>(url: string, token: string | null): Promise<T> {
   // Маркер клеим только к нашим собственным адресам: ссылки «дальше» Meta отдаёт
   // уже с ним внутри, и второй access_token в строке — гарантированная 400.
   const withToken = url.includes("access_token=")
@@ -197,15 +209,25 @@ async function graphGet<T>(url: string, token: string | null): Promise<T> {
     : `${url}${url.includes("?") ? "&" : "?"}access_token=${encodeURIComponent(token ?? "")}`;
   const res = await fetchWithRetry(withToken, { method: "GET" }, CALL_TIMEOUT_MS);
   const body = (await res.json().catch(() => ({}))) as T & GraphErrorBody;
-  if (!res.ok || body.error) {
-    const code = body.error?.code;
-    const message = body.error?.message ?? `HTTP ${res.status}`;
-    // 190 — маркер истёк/отозван, 102 — сессия недействительна. Оба лечатся только
-    // новым маркером, повторять их бессмысленно.
-    if (code === 190 || code === 102) throw new MetaAdsTokenError(message);
-    if (isRateLimitCode(code)) throw new MetaRateLimitError(`Marketing API: ${message}`);
-    throw new Error(`Marketing API: ${message}`);
-  }
+  throwOnGraphError(res, body);
+  return body;
+}
+
+/**
+ * Один POST к Graph (создание креатива/объявления, смена статуса). Тело — форма, маркер
+ * кладём в тело, а не в адрес: адреса попадают в журналы. Сетевой повтор — только
+ * безопасный (fetchWithRetry не повторяет отправку после таймаута, см. isRetrySafe),
+ * поэтому дубля объявления из-за повтора не будет.
+ */
+export async function graphPost<T>(url: string, token: string | null, fields: Record<string, string>): Promise<T> {
+  const form = new URLSearchParams({ ...fields, access_token: token ?? "" });
+  const res = await fetchWithRetry(
+    url,
+    { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: form.toString() },
+    CALL_TIMEOUT_MS
+  );
+  const body = (await res.json().catch(() => ({}))) as T & GraphErrorBody;
+  throwOnGraphError(res, body);
   return body;
 }
 
@@ -217,7 +239,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  * пишем в журнал (раз в сутки на выборку), иначе объявления за потолком молча
  * пропали бы из CRM, а расход разошёлся бы с кабинетом.
  */
-async function graphPaged<T>(
+export async function graphPaged<T>(
   firstUrl: string,
   token: string | null,
   maxPages = MAX_PAGES,
@@ -646,7 +668,7 @@ export async function fetchMetaAdSets(
   return { byId: new Map(), partial: true, skipped: "failed" };
 }
 
-interface GraphInsight {
+export interface GraphInsight {
   ad_id?: string;
   ad_name?: string;
   campaign_name?: string;
@@ -662,7 +684,7 @@ interface GraphInsight {
 /** «Начатые переписки» среди действий Meta. Две метрики про одно и то же: первая —
  *  все начатые диалоги, вторая — окно в 7 дней. Берём первую, она и стоит колонкой
  *  «Результат» в кабинете; вторая — запасная, для старых кампаний. */
-function conversationsOf(actions: GraphInsight["actions"]): number {
+export function conversationsOf(actions: GraphInsight["actions"]): number {
   const wanted = [
     "onsite_conversion.total_messaging_connection",
     "onsite_conversion.messaging_conversation_started_7d",

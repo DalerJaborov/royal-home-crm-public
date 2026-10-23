@@ -43,6 +43,7 @@ import { describeError } from "../lib/describeError.js";
 import { logSystemError } from "../lib/systemError.js";
 import { getAllOwnMedia } from "../messengers/instagramFeed.js";
 import { crmPublicBase } from "../lib/crmPublicUrl.js";
+import { createReelsAutoBoostRouter } from "./adsReelsAutoBoost.js";
 
 /**
  * РЕКЛАМА: сколько денег вложено в каждый объект.
@@ -81,6 +82,9 @@ function requireAdsWrite<P>(req: Request<P>, res: Response, next: NextFunction) 
   if (agentAccessCanWriteAds(req.agent.role, req.agent.permissions)) return next();
   return res.status(403).json({ error: "Недостаточно прав" });
 }
+
+// Автопродвижение роликов: статус, настройки, «проверить сейчас» (права — как у остальной рекламы).
+adsRouter.use("/reels-autoboost", createReelsAutoBoostRouter({ read: requireAdsRead, write: requireAdsWrite }));
 
 const monthSchema = z
   .string()

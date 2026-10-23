@@ -102,3 +102,4 @@ export * from "./recruitment.js";
 export * from "./recruitmentRecovery.js";
 export * from "./instagramAppBinding.js";
 export * from "./recruitmentCommunications.js";
+export * from "./reelsAutoBoost.js";
