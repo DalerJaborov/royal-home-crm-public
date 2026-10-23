@@ -17,6 +17,8 @@ import { admitCustomerPropertyInput } from "../src/lib/customerPropertyAdmission
 import { customerDmRoutingForIncoming } from "../src/lib/customerAgentIngressRouting.js";
 import { customerFenceSchema } from "@royal-home/shared";
 import { readCustomerActionProperty } from "../src/lib/customerActionProperty.js";
+import { dushanbeDateString } from "../src/lib/dushanbeTime.js";
+import { waitFor } from "./helpers/waitFor.js";
 
 // Actual signed durable intake → FINAL → elected owner → real counted model
 // adapter → tools → encrypted P12 plan. Only external HTTP is synthetic.
@@ -343,6 +345,39 @@ describe("actual durable DM common core", () => {
     if (result.status !== "planned") throw Error("Expected a private greeting");
     const part = await prisma.customerOutboxPart.findUniqueOrThrow({ where: { id: result.partIds[0] } });
     expect(decodeCustomerOutboxPayload(part)).toEqual({ kind: "text", text: "Здравствуйте!" });
+  });
+  it("shadow (the default) validates and counts the model's phrase but the customer still gets the template; live sends exactly the validated phrase through delivery sealing", async () => {
+    const say = "Давайте разберёмся вместе.";
+    const reply = (extra: Record<string, unknown> = {}) => [{ text: JSON.stringify({ kind: "reply", refs: [], social: "greet", question: "budget", ...extra }) }];
+    const sayHits = async (guard: string) => (await prisma.guardHit.findFirst({ where: { guard, day: dushanbeDateString() } }))?.count ?? 0;
+    vi.stubEnv("CUSTOMER_AGENT_SAY_MODE", "");
+    const shadow = await fixture(), shadowBefore = await sayHits("say_dropped_shadow");
+    shadow.setReplies([reply({ say })]);
+    const shadowResult = await runCustomerDmAgentTurn(shadow.eventKey);
+    if (shadowResult.status !== "planned") throw Error(JSON.stringify(shadowResult));
+    expect(decodeCustomerOutboxPayload(await prisma.customerOutboxPart.findUniqueOrThrow({ where: { id: shadowResult.partIds[0] } })))
+      .toEqual({ kind: "text", text: "Здравствуйте!\nКакой бюджет вы рассматриваете?" });
+    await waitFor(async () => await sayHits("say_dropped_shadow") > shadowBefore);
+    vi.stubEnv("CUSTOMER_AGENT_SAY_MODE", "live");
+    try {
+      const usedBefore = await sayHits("say_used");
+      const live = await fixture();
+      live.setReplies([reply({ say })]);
+      const liveResult = await runCustomerDmAgentTurn(live.eventKey);
+      if (liveResult.status !== "planned") throw Error(JSON.stringify(liveResult));
+      expect(decodeCustomerOutboxPayload(await prisma.customerOutboxPart.findUniqueOrThrow({ where: { id: liveResult.partIds[0] } })))
+        .toEqual({ kind: "text", text: `Здравствуйте!\n${say}\nКакой бюджет вы рассматриваете?` });
+      await waitFor(async () => await sayHits("say_used") > usedBefore);
+      const refusedBefore = await sayHits("say_dropped_number_or_date");
+      const refused = await fixture();
+      refused.setReplies([reply({ say: "Это стоит пять тысяч." })]);
+      const refusedResult = await runCustomerDmAgentTurn(refused.eventKey);
+      if (refusedResult.status !== "planned") throw Error(JSON.stringify(refusedResult));
+      expect(decodeCustomerOutboxPayload(await prisma.customerOutboxPart.findUniqueOrThrow({ where: { id: refusedResult.partIds[0] } })))
+        .toEqual({ kind: "text", text: "Здравствуйте!\nКакой бюджет вы рассматриваете?" });
+      await waitFor(async () => await sayHits("say_dropped_number_or_date") > refusedBefore);
+    } finally { vi.stubEnv("CUSTOMER_AGENT_SAY_MODE", ""); // not unstubAllEnvs: beforeAll stubs the synthetic provider origins with the same API
+    }
   });
   it("real function rounds persist canonical call-only agency contact and the original evidence sideband", async () => {
     const f = await fixture("Какой у вас номер телефона и работаете ли вы с арендой?");

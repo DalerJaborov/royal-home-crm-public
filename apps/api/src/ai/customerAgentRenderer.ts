@@ -9,6 +9,7 @@ import { customerRecruitmentRequested, customerRecruitmentFactsRequested, isCust
   recruitmentMissingForTurn, recruitmentRequiredQuestion } from "./customerAgentRecruitmentProtocol.js";
 import { customerRecruitmentReplyDetails, containsRecruitmentExperienceInvitation } from "./customerRecruitmentReply.js";
 import { clientOwnWords } from "./untrustedContent.js";
+import { validateCustomerAgentSayForDecision } from "./customerAgentSay.js";
 import { BW, EW, TAIL } from "./wordBoundary.js";
 import { customerAsksPricePerSqm, pricePerSqmLine } from "../lib/customerPropertyPerSqm.js";
 import type { CustomerPropertyUnresolvedReason } from "../lib/customerPropertyUnresolvedReason.js";
@@ -395,8 +396,17 @@ export function renderCustomerAgentDecision(input: {
     const text = customerPublicReactionText(reaction, lang);
     return text.length <= input.maxOutputChars ? text : null;
   }
+  // Re-validated here from the same inputs as in the core: the check is deterministic, so a delivery re-render reproduces the very same text.
+  const sayVerdict = input.surface === "dm" && (d.kind === "reply" || d.kind === "clarify" || d.kind === "propose") && d.say !== undefined
+    ? validateCustomerAgentSayForDecision({ say: d.say, decision: d, evidence: input.evidence, language: lang, surface: input.surface,
+      inputText: input.inputText, verifiedContext: input.verifiedContext }) : null;
+  const sayText = sayVerdict?.ok ? sayVerdict.text : null;
   if (input.surface === "public_comment" && d.social === "thank" && isCustomerPublicAppreciation(input.inputText ?? "")) {
     lines.push(customerPublicThanks(input.inputText!, lang));
+  } else if (sayText) {
+    // The grounded free phrase replaces the stock acknowledgement; a greeting still opens the message and the template question still closes it.
+    if (d.social === "greet") lines.push(social.greet[lang]);
+    lines.push(sayText);
   } else if (social[d.social][lang]) lines.push(social[d.social][lang]);
   const renderedFactLines = new Set<string>();
   const appendFacts = (value: Extract<CustomerAgentObservation, { kind: "facts" }>) => {

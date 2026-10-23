@@ -1,4 +1,12 @@
+import type { CustomerAgentSayMode } from "@royal-home/shared";
 import { prisma } from "../db.js";
+
+/** Grounded free-phrase channel mode. Anything but the exact word `live` is `shadow`: the phrase is validated and counted, never sent.
+ * Going live is an explicit deploy-time decision (CUSTOMER_AGENT_SAY_MODE=live) taken after the shadow statistics are read; it is deliberately
+ * not a Settings column (that would need a schema migration) and not something a customer or the model can influence. */
+export function customerAgentSayMode(env: Readonly<Record<string, string | undefined>> = process.env): CustomerAgentSayMode {
+  return env.CUSTOMER_AGENT_SAY_MODE === "live" ? "live" : "shadow";
+}
 
 /** Existing feature switches restrict implemented customer capabilities; a
  * legacy switch never grants a new tool, transport, identity or staff right. */
