@@ -4,7 +4,7 @@
  * и гарнитуру. Зачем это нужно и почему именно генератором — в шапке скрипта.
  * Пересобрать: npm run gen:typeset. Проверить: npm run audit:typeset.
  *
- * Правил: 931 (размер поднят у 921, гарнитура сведена у 50).
+ * Правил: 842 (размер поднят у 832, гарнитура сведена у 50).
  * Ничего мельче 13px не остаётся, "Manrope" строкой не остаётся нигде.
  */
 .rh2 .mh .ai-hero-lbl { font-size: 15px; }
@@ -621,93 +621,9 @@ html[data-mobile-ux][data-theme^="royal-home-2026-"] .rh2 .mh .row.callrow .s { 
 .rh2 .tr-toast { font-size: 15px; }
 .rh2 .tr-compact .tr-act { font-size: 16px; }
 .rh2 .tr-compact .tr-ask { font-size: 15px; }
-.rh2 .scr.vacancies-screen .vacancies-eyebrow { font-size: 15px; }
-.vacancies-screen .vacancies-view-switch button { font-size: 15px; }
-.rh2 .scr.vacancies-screen .vacancy-queue-heading h2 { font-size: 22px; }
-.vacancies-screen .vacancy-queue-heading>span { font-size: 15px; }
-.rh2 .vacancies-screen .vacancy-search input { font-size: 15px; }
-.rh2 :is(.vacancies-screen,.vacancy-contact-scope) .vacancy-field { font-size: 15px; }
-.rh2 :is(.vacancies-screen,.vacancy-contact-scope) .vacancy-field :is(input,select,textarea) { font-size: 16px; }
-.rh2 :is(.vacancies-screen,.vacancy-contact-scope) .vacancy-field small { font-size: 15px; }
-.vacancies-screen .vacancy-avatar { font-size: 15px; }
-.vacancies-screen .vacancy-queue-copy { font-size: 15px; }
-.vacancies-screen .vacancy-queue-copy strong { font-size: 16px; }
-.vacancies-screen .vacancy-queue-meta { font-size: 15px; }
-.vacancies-screen .vacancy-queue-missing { font-size: 15px; }
-.vacancies-screen .vacancy-queue-file { font-size: 15px; }
-.vacancies-screen .vacancy-queue-state { font-size: 15px; }
-.rh2 .scr.vacancies-screen .vacancy-queue-state h3 { font-size: 18px; }
-.rh2 .scr.vacancies-screen .vacancy-resume-toolbar h2 { font-size: 18px; }
-.rh2 .scr.vacancies-screen .vacancy-resume-toolbar p { font-size: 15px; }
-.vacancies-screen .vacancy-stage-badge { font-size: 15px; }
-.rh2 .scr.vacancies-screen .vacancy-position-title { font-size: 22px; }
-.rh2 .scr.vacancies-screen .vacancy-person-meta { font-size: 15px; }
-.rh2 .scr.vacancies-screen .vacancy-resume-section h3 { font-size: 20px; }
-.rh2 .scr.vacancies-screen .vacancy-resume-section p { font-size: 16px; }
-.rh2 :is(.vacancies-screen,.vacancy-contact-scope) .vacancy-muted,.rh2 .scr.vacancies-screen .vacancy-missing { font-size: 15px; }
-.vacancies-screen .vacancy-fact-source { font-size: 15px; }
-.vacancies-screen .vacancy-portfolio-link span { font-size: 15px; }
-.vacancies-screen .vacancy-readiness dt { font-size: 15px; }
-.vacancies-screen .vacancy-readiness dd { font-size: 15px; }
-.vacancies-screen .vacancy-phone-field>span { font-size: 17px; }
-.rh2 .scr.vacancies-screen .vacancy-next>h2 { font-size: 24px; }
-.rh2 .scr.vacancies-screen .vacancy-position-assignment h3 { font-size: 16px; }
-.rh2 .scr.vacancies-screen .vacancy-position-assignment p { font-size: 15px; }
-.vacancies-screen .vacancy-next-summary { font-size: 15px; }
-.rh2 .scr.vacancies-screen .vacancy-next-summary p { font-size: 15px; }
-.vacancies-screen .vacancy-next-summary small { font-size: 15px; }
-.rh2 :is(.vacancies-screen,.vacancy-contact-scope) .vacancy-button { font-size: 15px; }
-.rh2 :is(.vacancies-screen,.vacancy-contact-scope) .vacancy-text-button { font-size: 15px; }
-.vacancies-screen .vacancy-file-button { font-size: 15px; }
-.vacancies-screen .vacancy-originals-heading { font-size: 15px; }
-.rh2 .scr.vacancies-screen .vacancy-originals p { font-size: 15px; }
-.vacancies-screen .vacancy-more-actions summary { font-size: 15px; }
-.vacancies-screen .vacancy-checkbox { font-size: 15px; }
-.rh2 :is(.vacancies-screen,.vacancy-contact-scope) .vacancy-notice { font-size: 15px; }
-.vacancies-screen .vacancy-legacy-assessment,.vacancies-screen .vacancy-original-text { font-size: 15px; }
-.vacancies-screen .vacancy-original-text>.vacancy-resume-text { font-size: 15px; }
-.vacancies-screen .vacancy-chat-message { font-size: 15px; }
-.rh2 .scr.vacancies-screen .vacancy-resume-disclaimer { font-size: 15px; }
-.vacancies-screen .vacancy-invite-result { font-size: 15px; }
-.rh2 :is(.vacancies-screen,.vacancy-contact-scope) .vacancy-assistant-findings>h3 { font-size: 17px; }
-.rh2 :is(.vacancies-screen,.vacancy-contact-scope) .vacancy-assistant-finding { font-size: 15px; }
-.rh2 :is(.vacancies-screen,.vacancy-contact-scope) .vacancy-assistant-finding h4 { font-size: 15px; }
-.rh2 :is(.vacancies-screen,.vacancy-contact-scope) .vacancy-assistant-finding p { font-size: 15px; }
-.rh2 :is(.vacancies-screen,.vacancy-contact-scope) .vacancy-assistant-finding summary { font-size: 15px; }
-.rh2 :is(.vacancies-screen,.vacancy-contact-scope) .vacancy-assistant-finding ul { font-size: 15px; }
-.rh2 .scr.vacancies-screen .vacancy-recent-contact h3 { font-size: 15px; }
-.vacancy-deliveries li { font-size: 15px; }
-.vacancy-deliveries li>strong { font-size: 15px; }
-.vacancies-screen .vacancy-paging { font-size: 15px; }
-.rh2 .vacancies-screen .vacancy-pagination-buttons .vacancy-button { font-size: 15px; }
-.vacancy-contact-scope .vacancy-contact-person { font-size: 18px; }
-.vacancy-contact-scope .vacancy-channel-options legend { font-size: 16px; }
-.vacancy-contact-scope .vacancy-channel-options strong { font-size: 15px; }
-.vacancy-contact-scope .vacancy-channel-options small { font-size: 15px; }
-.vacancy-contact-scope .vacancy-preview-card p { font-size: 16px; }
-.vacancy-contact-scope .vacancy-form-error { font-size: 15px; }
-.vacancy-contact-scope .vacancy-contact-result h3 { font-size: 22px; }
-.vacancy-contact-scope .vacancy-contact-result p { font-size: 15px; }
-.rh2 .scr.vacancies-screen .vacancy-catalog h3 { font-size: 22px; }
-.rh2 .scr.vacancies-screen .vacancy-catalog-description { font-size: 15px; }
-.rh2 .scr.vacancies-screen .vacancy-catalog-conditions { font-size: 15px; }
-.vacancies-screen .vacancy-catalog-rules legend { font-size: 18px; }
-.vacancies-screen .vacancy-catalog-check { font-size: 15px; }
-.vacancies-screen .vacancy-catalog-disclosure>summary { font-size: 15px; }
-.vacancies-screen .vacancy-catalog-open small { font-size: 15px; }
-.rh2 .vacancies-screen .vacancy-chip { font-size: 15px; }
-.vacancies-screen .vacancy-chip-count { font-size: 15px; }
-.vacancies-screen .vacancy-queue-date { font-size: 15px; }
-.vacancies-screen .vacancy-queue-position { font-size: 15px; }
-.vacancies-screen .vacancy-priority { font-size: 15px; }
-.rh2 .scr.vacancies-screen .vacancy-today h3 { font-size: 15px; }
-.rh2 .scr.vacancies-screen .vacancy-priority-reason { font-size: 15px; }
-.vacancies-screen .vacancy-fact-grid dt { font-size: 15px; }
-.vacancies-screen .vacancy-fact-grid dd { font-size: 16px; }
-.rh2 .scr.vacancies-screen .vacancy-catalog-count { font-size: 15px; }
-.vacancies-screen .vacancy-bulk-count { font-size: 15px; }
-.vacancies-screen :is(.vacancy-bulk-status,.vacancy-bulk-result) { font-size: 15px; }
-.rh2 .scr.vacancies-screen details.vacancy-today summary { font-size: 15px; }
+.rh2 .vacancy-resume-text { font-size: 17px; }
+.rh2 .vacancy-fact-source { font-size: 15px; }
+.rh2 .vacancy-disclosure>summary { font-size: 16px; }
 .rh2 .wiz.wizard-workspace :is(.wizard-secondary-action,.wizard-text-action) { font-size: 15px; }
 .rh2 .wiz.wizard-workspace .wizard-draft-notice { font-size: 15px; }
 .rh2 .wiz.wizard-workspace .wizard-delete-error { font-size: 15px; }
@@ -934,13 +850,6 @@ textarea:not([readonly]):not([disabled]) { font-size: 17px; }
 }
 @media (max-width:520px) {
   .rh2 .tr-act { font-size: 17px; }
-}
-@media(max-width:760px) {
-  .vacancies-screen .vacancy-queue-copy strong { font-size: 18px; }
-  .rh2 .scr.vacancies-screen .vacancy-position-title { font-size: 22px; }
-  .rh2 .scr.vacancies-screen .vacancy-next>h2 { font-size: 24px; }
-  .rh2 :is(.vacancies-screen,.vacancy-contact-scope) .vacancy-button { font-size: 16px; }
-  .rh2 :is(.vacancies-screen,.vacancy-contact-scope) .vacancy-field :is(input,select,textarea) { font-size: 17px; }
 }
 @media print {
   .vacancy-print-root { font-size: 15px; }

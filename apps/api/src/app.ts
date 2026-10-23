@@ -19,6 +19,7 @@ import { StaffPhoneLeadError } from "./lib/staffPhoneGuard.js";
 import { routeHitMiddleware, recordHit } from "./lib/routeHits.js";
 import { requireAuth } from "./auth/middleware.js";
 import { idempotencyGuard } from "./lib/idempotency.js";
+import { pultWriteRefresh } from "./lib/pultWriteRefresh.js";
 import { authRouter } from "./routes/auth.js";
 import { testPasswordLoginRouter } from "./auth/testPasswordLogin.js";
 import { meRouter } from "./routes/me.js";
@@ -627,6 +628,8 @@ app.use("/api/v1", apiLimiter);
 // Повтор записи с тем же Idempotency-Key отдаёт ответ первого запроса, а не
 // создаёт второй объект/клиента/сделку — см. шапку lib/idempotency.ts.
 app.use("/api/v1", idempotencyGuard);
+// Действие сотрудника (любая успешная запись) обновляет пульт — lib/pultWriteRefresh.ts.
+app.use("/api/v1", pultWriteRefresh);
 
 /**
  * ЭКРАН ОТКРЫТ — вторая половина карты обследованного (см. lib/routeHits.ts).

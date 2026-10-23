@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { Printer, Trash2, X } from "lucide-react";
 import type { RecruitmentPosition } from "@royal-home/shared";
 import type { JobApplication, VacancyBulkInput, VacancyBulkResponse } from "../types/vacancies";
 import { Rh2Sheet } from "./rh2/Rh2Sheet";
@@ -11,7 +10,7 @@ type BulkMutation = {
   mutate(input: VacancyBulkInput, options?: { onSuccess?(result: VacancyBulkResponse): void }): void;
 };
 
-/** Плавающая панель массовых действий над выбранными анкетами ленты. */
+/** Панель массовых действий над выбранными анкетами — `.bulk` темы, как у Объектов. */
 export function VacancyBulkBar({ selected, positions, mutation, canDelete, readOnly, onClear, onPrint, onDelete }: {
   selected: JobApplication[]; positions: RecruitmentPosition[] | undefined; mutation: BulkMutation;
   canDelete: boolean; readOnly: boolean; onClear(): void; onPrint(): void; onDelete(): void;
@@ -27,37 +26,37 @@ export function VacancyBulkBar({ selected, positions, mutation, canDelete, readO
   }
   if (!selected.length && !result) return null;
   return <>
-    <div className="vacancy-bulk-bar" role="region" aria-label="Действия с выбранными анкетами">
-      {selected.length > 0 ? <>
-        <strong className="vacancy-bulk-count">Выбрано: {selected.length}</strong>
-        {!readOnly && <>
-          <button type="button" className="vacancy-chip" disabled={busy} onClick={() => { setPositionKey(""); mutation.reset(); setAssigning(true); }}>Привязать к вакансии…</button>
-          <button type="button" className="vacancy-chip" disabled={busy} onClick={() => run({ action: "setStatus", status: "REVIEWED" })}>В работу</button>
-          <button type="button" className="vacancy-chip" disabled={busy} onClick={() => run({ action: "setStatus", status: "REJECTED" })}>Отказ</button>
-          <button type="button" className="vacancy-chip" disabled={busy} onClick={() => run({ action: "setStatus", status: "NOT_CANDIDATE" })}>Не кандидат</button>
-        </>}
-        <button type="button" className="vacancy-chip" disabled={busy} onClick={onPrint}><Printer size={16} aria-hidden="true" />Распечатать</button>
-        {canDelete && !readOnly && <button type="button" className="vacancy-chip danger" disabled={busy} onClick={onDelete}><Trash2 size={16} aria-hidden="true" />Удалить навсегда</button>}
-        <button type="button" className="vacancy-chip quiet" onClick={() => { setResult(null); onClear(); }} aria-label="Снять выбор"><X size={16} aria-hidden="true" /></button>
-      </> : null}
-      {busy && <span className="vacancy-bulk-status" role="status">Сохраняем…</span>}
-      {result && <div className="vacancy-bulk-result" role="status"><span>{result.text}</span>
+    {selected.length > 0 && <div className="bulk" role="region" aria-label="Действия с выбранными анкетами" style={{ marginTop: 16 }}>
+      <span className="cnt">Выбрано {selected.length}</span>
+      {!readOnly && <>
+        <button type="button" className="pill sm" disabled={busy} onClick={() => run({ action: "setStatus", status: "REVIEWED" })}>В работу</button>
+        <button type="button" className="pill ghost sm" disabled={busy} onClick={() => { setPositionKey(""); mutation.reset(); setAssigning(true); }}>Привязать к вакансии</button>
+        <button type="button" className="pill ghost sm" disabled={busy} onClick={() => run({ action: "setStatus", status: "REJECTED" })}>Отказ</button>
+        <button type="button" className="pill ghost sm" disabled={busy} onClick={() => run({ action: "setStatus", status: "NOT_CANDIDATE" })}>Не кандидат</button>
+      </>}
+      <button type="button" className="pill ghost sm" disabled={busy} onClick={onPrint}>Распечатать</button>
+      {canDelete && !readOnly && <button type="button" className="pill ghost sm" disabled={busy} onClick={onDelete}>Удалить навсегда</button>}
+      <span className="spacer" />
+      {busy && <span role="status">Сохраняем…</span>}
+      <button type="button" className="lnk" onClick={() => { setResult(null); onClear(); }}>Снять выбор</button>
+    </div>}
+    {result && <div className="quiet" role="status">
+      <span className="dot ok" />
+      <span className="txt">{result.text}
         {result.skipped.length > 0 && <details><summary>Почему пропущены</summary><ul>{result.skipped.map(line => <li key={line}>{line}</li>)}</ul></details>}
-        <button type="button" className="vacancy-text-button" onClick={() => setResult(null)}>Скрыть</button></div>}
-      {!assigning && <MutationError mutation={mutation} fallback="Не удалось выполнить действие" />}
-    </div>
-    {assigning && <Rh2Sheet title="Привязать к вакансии" onClose={() => setAssigning(false)} dismissible={!busy} closeOnBackdrop={false} className="vacancy-contact-sheet"
+      </span>
+      <button type="button" className="lnk" onClick={() => setResult(null)}>Скрыть</button>
+    </div>}
+    {!assigning && <MutationError mutation={mutation} fallback="Не удалось выполнить действие" />}
+    {assigning && <Rh2Sheet title="Привязать к вакансии" onClose={() => setAssigning(false)} dismissible={!busy} closeOnBackdrop={false}
       onSubmit={event => { event.preventDefault(); if (positionKey) run({ action: "assignPosition", positionKey }, () => setAssigning(false)); }}
-      footer={<div className="vacancy-contact-scope vacancy-form-buttons"><button type="button" className="vacancy-button secondary" disabled={busy} onClick={() => setAssigning(false)}>Отмена</button>
-        <button type="submit" className="vacancy-button" disabled={busy || !positionKey}>{busy ? "Сохраняем…" : `Привязать ${selected.length}`}</button></div>}>
-      <div className="vacancy-contact-scope">
-        <label className="vacancy-field"><span>Вакансия</span><select value={positionKey} required onChange={event => setPositionKey(event.target.value)}>
-          <option value="">Выберите вакансию</option>
-          {positions?.map(position => <option key={position.key} value={position.key}>{position.titleRu}{position.isOpen ? "" : " · набор закрыт"}</option>)}
-        </select></label>
-        <p className="vacancy-muted">Анкеты из нового бота сохраняют свою вакансию — сервер пропустит их и покажет в итоге.</p>
-        <MutationError mutation={mutation} fallback="Не удалось привязать анкеты" />
-      </div>
+      footer={<><button type="button" className="pill ghost" disabled={busy} onClick={() => setAssigning(false)}>Отмена</button>
+        <button type="submit" className="pill" disabled={busy || !positionKey}>{busy ? "Сохраняем…" : `Привязать ${selected.length}`}</button></>}>
+      <label className="fld"><span className="lab">Вакансия</span><select value={positionKey} required onChange={event => setPositionKey(event.target.value)}>
+        <option value="">Выберите вакансию</option>
+        {positions?.map(position => <option key={position.key} value={position.key}>{position.titleRu}{position.isOpen ? "" : " · набор закрыт"}</option>)}
+      </select><span className="msg">Анкеты из нового бота сохраняют свою вакансию — сервер пропустит их и покажет в итоге.</span></label>
+      <MutationError mutation={mutation} fallback="Не удалось привязать анкеты" />
     </Rh2Sheet>}
   </>;
 }

@@ -18,7 +18,9 @@ export interface ActionRowAction {
   /** REST-эндпоинт решения — виден в DOM (`data-endpoint`) для e2e/аудита. */
   endpoint: string;
   /** Выполняет запрос и возвращает true при успехе. Строка сама не знает про fetch/react-query. */
-  onRun: () => Promise<boolean>;
+  onRun: (choiceId?: string) => Promise<boolean>;
+  /** Второй клик в «чистом» пульте: подпись кнопки «Точно одобрить?», сброс через 10 с. */
+  confirm?: string;
   /** Обратный вызов отмены — если не передан, кнопки «Отменить» не будет (правило §3: не у каждого решения есть undo). */
   onUndo?: () => Promise<void>;
   /** Текст итога после нажатия, например «Одобрено». Функция читается ПОСЛЕ запроса (массовое решение знает итог только тогда). */
@@ -241,6 +243,20 @@ export function ActionRow({
   );
 }
 
+/** Выбор исполнителя в строке (кому передать): defaultId — наименее загруженный. */
+export interface ActionRowChoice {
+  label: string;
+  options: { id: string; label: string }[];
+  defaultId: string;
+}
+
+/** Объект, материалы которого директор проверяет на месте (шторка «Проверить материалы»). */
+export interface ActionRowReview {
+  propertyId: string;
+  shortId: number;
+  title: string;
+}
+
 export interface ActionRowData {
   id: string;
   tone: Exclude<PultTone, "ok">;
@@ -256,6 +272,14 @@ export interface ActionRowData {
   members?: ActionRowData[];
   bulkLabel?: string;
   bulkEndpoint?: string;
+  /** Подтверждение массовой кнопки с числом оставшихся («Передать 5 клиентов?»). */
+  bulkConfirm?: (count: number) => string;
+  /** Выбор агента для «Передать»; у группы действует на всех участников. */
+  choice?: ActionRowChoice;
+  /** Строка проверки материалов: решение принимается в шторке. */
+  review?: ActionRowReview;
+  /** Вопрос бота директору: ответ вводится в самой строке. */
+  ownerQuestionId?: string;
 }
 
 const K_BY_PREFIX: [RegExp, string][] = [

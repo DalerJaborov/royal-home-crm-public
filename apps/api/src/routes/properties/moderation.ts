@@ -11,7 +11,7 @@ import { prisma } from "../../db.js";
 import { requireAuth, requirePermission } from "../../auth/middleware.js";
 import { isPipelineStatus } from "../../lib/propertyPipeline.js";
 import { approveReviewMaterial, rejectReview } from "../../lib/propertyReview.js";
-import { approveClip, rejectClip } from "../../lib/clipReview.js";
+import { approveClip, rejectClip, listPendingClips } from "../../lib/clipReview.js";
 import { syncPropertiesToSite } from "../../lib/siteSync.js";
 import { logAudit } from "../../lib/audit.js";
 import { reelsCaptionValuesFromProperty, withPostFooter } from "../../lib/reelsCaptionTemplate.js";
@@ -131,6 +131,18 @@ moderationRouter.post("/:id/review/reject", requireAuth, requirePermission("prop
  * «Вернуть монтажёру» — существующий возврат с причиной (sendBackToMontajer).
  * Право — как у модерации объектов.
  */
+/**
+ * Очередь «ролики ждут проверки» для пульта директора (23.10.2026). Признак — тот же,
+ * что у approveClip (CLIP_REVIEW_PENDING_WHERE). Двухсегментный статичный путь:
+ * `GET /:id/...` с таким хвостом в проекте нет.
+ */
+const clipPendingQuerySchema = z.object({ limit: z.coerce.number().int().min(1).max(20).default(20) });
+moderationRouter.get("/clip-review/pending", requireAuth, requirePermission("properties.moderate"), async (req, res) => {
+  const parsed = clipPendingQuerySchema.safeParse(req.query);
+  if (!parsed.success) return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
+  res.json(await listPendingClips(parsed.data.limit));
+});
+
 moderationRouter.post("/:id/clip-review/approve", requireAuth, requirePermission("properties.moderate"), async (req, res) => {
   const result = await approveClip(req.params.id, req.agent!.id, "crm");
   if (!result.ok) return res.status(result.status).json({ error: result.error });

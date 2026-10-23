@@ -74,6 +74,7 @@ import { updatePublishedMarks } from "./publishedMarks.js";
 import { loadPublishScheduleRules } from "./publishScheduleRules.js";
 import { PROPERTY_PIPELINE_STATUSES, PUBLISH_AT_MAX_DAYS, VIDEO_REMAKE_REASON_LABELS, type VideoRemakeReason } from "@royal-home/shared";
 import { sendAgentSharePost } from "./agentSharePost.js";
+import { requestPultSnapshot } from "./pultCacheHook.js";
 
 /**
  * ЗАДАНИЕ «ПУБЛИКАЦИЯ ПРИНЯТОГО РОЛИКА» (21.09.2026, случай №114) — тип,
@@ -1748,6 +1749,7 @@ export async function applySucceededPublishResults(
       ...(igPermalink ? { data: { instagramUrl: igPermalink } } : {}),
     };
   });
+  requestPultSnapshot(); // пульт: ролик ушёл в соцсеть
   const updated = await prisma.property.findUniqueOrThrow({
     where: { id: propertyId },
     include: { district: true, photos: { orderBy: { order: "asc" } } },
@@ -2123,6 +2125,7 @@ async function finishReceivingVideo(
     return { ok: false, error: "Эта передача уже закрыта — объект её не ждёт." };
   }
   const oldVideoLeftIn = accepted.oldVideoLeftIn.length > 0 ? accepted.oldVideoLeftIn : undefined;
+  requestPultSnapshot(); // пульт: ролик принят, ждёт проверки
 
   // Пересылка после ошибки (reopenForResend) оставляет на диске файл от
   // прошлой неудачной попытки — новый принят успешно, старый больше не

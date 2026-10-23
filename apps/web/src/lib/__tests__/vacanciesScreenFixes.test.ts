@@ -86,9 +86,9 @@ describe("S2: «Всё равно позвать»", () => {
   it("ручное решение остаётся в панели, очередь показывает стадию без мутаций", () => {
     const src = read("components/VacancyStageActions.tsx");
     expect(src).toContain("canOverrideRejected(item)");
-    expect(src).toContain('{ id: item.id, status: "REVIEWED", eligibleOverride: true }');
-    const queue = read("components/VacancyRow.tsx");
-    expect(queue).toContain("CANDIDATE_STAGE_LABELS[item.status]");
+    expect(src).toContain('status: "REVIEWED", eligibleOverride: true');
+    const queue = read("components/clean/CleanCandidateRow.tsx");
+    expect(queue).toContain("CANDIDATE_STAGE_CHIP[item.status]");
     expect(queue).not.toContain("mutate(");
   });
 });
@@ -255,7 +255,7 @@ describe("S17: дата открывается в доступном модал�
     const src = read("components/VacancyStageActions.tsx");
     expect(src).toContain("<Rh2Sheet");
     expect(src).toContain("closeOnBackdrop={false}");
-    expect(read("pages/Vacancies.tsx")).toContain("<VacancyStageActions item={current}");
+    expect(read("pages/VacancyDetail.tsx")).toContain("<VacancyStageActions item={item}");
   });
 });
 
@@ -307,8 +307,8 @@ describe("S8: «Показаны N из M»", () => {
     const src = read("pages/Vacancies.tsx");
     expect(src).toContain("useVacancyQueue(");
     expect(src).toContain("mergeQueuePages(queue.data?.pages)");
-    expect(src).toContain("IntersectionObserver");
-    expect(src).toContain("Загрузить ещё");
+    expect(src).toContain('<Pagination variant="loadMore"');
+    expect(src).toContain("fetchNextPage()");
     expect(src).not.toContain("Предыдущие");
     expect(src).not.toContain("VACANCY_LIST_MAX");
     const hook = read("hooks/useVacancies.ts");

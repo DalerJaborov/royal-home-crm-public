@@ -30,6 +30,7 @@ async function mockApi(page: Page) {
     else if (path === "/me/active-call") response = null;
     else if (path === "/vacancies") response = { items: url.searchParams.get("q") ? [] : [candidate], total: url.searchParams.get("q") ? 0 : 1,
       counts: { NEW: 1, REVIEWED: 0, INTERVIEW: 0, INTERVIEWED: 0, HIRED: 0, REJECTED: 0 }, collecting: true, todayInterviews: [], noPhoneCount: 0 };
+    else if (path === `/vacancies/${candidate.id}` && request.method() === "GET") response = candidate;
     else if (path.endsWith("/conversation")) response = { messages: [], files: [], inboxId: null };
     else if (path.endsWith("/contact-options")) response = options;
     else if (path.endsWith("/invitations/preview")) response = { previewId: "33333333-3333-4333-8333-333333333333", text: "Тестовое приглашение. Дата и адрес согласованы.", callSummary: "Один тестовый звонок", expiresAt: new Date(Date.now() + 300_000).toISOString() };
@@ -45,11 +46,12 @@ for (const width of [1440, 390]) test(`résumé, preview and filter safety at ${
   const writes = await mockApi(page);
   await page.setViewportSize({ width, height: 1000 });
   await page.goto("/tests/fixtures/vacancies-resume.html");
-  if (width === 390) await page.getByRole("button", { name: "Открыть анкету: Тестовая Ситора с длинным именем" }).click();
+  // Список — строки-ссылки; анкета открывается отдельной карточкой /vacancies/:id.
+  await page.getByRole("link", { name: `Открыть анкету: ${candidate.name}` }).click();
   await expect(page.getByRole("heading", { name: candidate.name, exact: true })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Следующий шаг" })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Анкета" })).toHaveAttribute("aria-selected", "true");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  const axe = await new AxeBuilder({ page }).include(".vacancies-screen").withTags(["wcag2a", "wcag2aa"]).analyze();
+  const axe = await new AxeBuilder({ page }).include(".rh2").withTags(["wcag2a", "wcag2aa"]).analyze();
   expect(axe.violations).toEqual([]);
   await page.screenshot({ path: testInfo.outputPath(`resume-${width}.png`), fullPage: true });
   await page.getByRole("button", { name: "Пригласить на собеседование", exact: true }).click();
@@ -68,11 +70,11 @@ for (const width of [1440, 390]) test(`résumé, preview and filter safety at ${
   await expect(dialog.getByText("В очереди", { exact: true })).toBeVisible();
   expect(writes.filter(write => write.path.endsWith("/invitations"))).toHaveLength(1);
   await dialog.getByRole("button", { name: "Закрыть", exact: true }).last().click();
-  if (width === 390) await page.getByRole("button", { name: "К кандидатам", exact: true }).click();
+  await page.getByRole("link", { name: "Кандидаты", exact: true }).click();
   await page.getByRole("searchbox", { name: "Поиск по анкетам" }).fill("Нет такого кандидата");
   await expect(page.getByRole("button", { name: "Пригласить на собеседование", exact: true })).toHaveCount(0);
-  await expect(page.getByRole("heading", { name: "Ничего не найдено" })).toBeVisible();
+  await expect(page.getByText("Ничего не найдено.", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Сбросить фильтры", exact: true }).first().click();
-  await expect(page.getByRole("button", { name: `Открыть анкету: ${candidate.name}` })).toBeVisible();
+  await expect(page.getByRole("link", { name: `Открыть анкету: ${candidate.name}` })).toBeVisible();
   expect(errors).toEqual([]);
 });

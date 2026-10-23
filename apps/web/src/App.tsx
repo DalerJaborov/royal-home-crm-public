@@ -161,6 +161,7 @@ const Profile = lazyWithReload(() => import("./pages/Profile").then((m) => ({ de
 const Finance = lazyWithReload(loadCleanFinance);
 const Archive = lazyWithReload(() => import("./pages/Archive").then((m) => ({ default: m.Archive })));
 const Vacancies = lazyWithReload(() => import("./pages/Vacancies").then((m) => ({ default: m.Vacancies })));
+const VacancyDetail = lazyWithReload(() => import("./pages/VacancyDetail").then((m) => ({ default: m.VacancyDetail })));
 const SiteChanges = lazyWithReload(() => import("./pages/SiteChanges").then((m) => ({ default: m.SiteChanges })));
 const Team = lazyWithReload(() => import("./pages/Team").then((m) => ({ default: m.Team })));
 // Карточка сотрудника — единственный экран `/team/:id`, ПК и телефон в одном
@@ -447,6 +448,7 @@ export default function App() {
         <Route path="ads/launch/*" element={<Navigate to="/ads" replace />} />
         <Route path="archive" element={<Archive />} />
         <Route path="vacancies" element={<Vacancies />} />
+        <Route path="vacancies/:id" element={<VacancyDetail />} />
         <Route path="site-changes" element={<SiteChanges />} />
         <Route path="team" element={<Team />} />
         <Route path="team/:id" element={<TeamMemberDetail />} />

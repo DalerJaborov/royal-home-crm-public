@@ -12,6 +12,7 @@
  */
 
 import { prisma } from "../db.js";
+import { requestPultSnapshot } from "./pultCacheHook.js";
 import type { CallbackRequest } from "../generated/prisma/client.js";
 import { isReadOnlyRole, parsePermissionOverrides, resolvePermissions, type Role, type CallbackRequestView } from "@royal-home/shared";
 export type { CallbackRequestView } from "@royal-home/shared";
@@ -274,6 +275,7 @@ export async function recordCallbackRequest(input: {
         })
       : await prisma.callbackRequest.create({ data });
     if (!row) return;
+    requestPultSnapshot(); // пульт: новый запрос «перезвоните»
 
     /**
      * Push: дежурному оператору, если он назначен, иначе всем работающим с

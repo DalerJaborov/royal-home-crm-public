@@ -26,6 +26,7 @@ import { prisma } from "../db.js";
 import { logAgentAudit } from "./audit.js";
 import { schedulePublishAfterAccept } from "./videoHandoff.js";
 import { sendBackToMontajer, type SendBackResult } from "./publishedVideoFix.js";
+import { requestPultSnapshot } from "./pultCacheHook.js";
 import { publishPropertyUpdated } from "./livePublish.js";
 import { dushanbeDateTimeString } from "./dushanbeTime.js";
 import { createNotifications, shouldAlert } from "./notifications.js";
@@ -65,6 +66,69 @@ export async function clipReviewerByChat(chatId: string): Promise<ClipReviewer |
   });
   if (!a || !a.isActive || !canReviewClip(a)) return null;
   return { id: a.id, fullName: a.fullName, chatId };
+}
+
+// ─────────────────────────── очередь «ждёт проверки» ───────────────────────────
+
+/**
+ * Признак «ролик ждёт проверки» — тот же, по которому approveClip берёт ролик в
+ * работу и по которому карточка рисует плашку (propertyListItem.ts). Единственное
+ * место условия: список пульта и решение не разойдутся.
+ */
+export const CLIP_REVIEW_PENDING_WHERE = {
+  deletedAt: null,
+  videoHandoffStatus: "RECEIVED",
+  clipReviewStatus: "PENDING",
+} as const;
+
+export const CLIP_REVIEW_PENDING_LIMIT = 20;
+
+export interface PendingClipItem {
+  id: string;
+  shortId: number;
+  title: string;
+  /** Публичный путь /uploads/handoff/…; подпись ставит signMediaUrlsInResponses. */
+  videoUrl: string | null;
+  coverUrl: string | null;
+  requestedAt: string | null;
+  montajer: { id: string; fullName: string } | null;
+}
+
+/** Ролики, ждущие решения, давние первыми; `total` — сколько всего (может быть больше предела). */
+export async function listPendingClips(limit = CLIP_REVIEW_PENDING_LIMIT): Promise<{ items: PendingClipItem[]; total: number }> {
+  const [rows, total, settings] = await Promise.all([
+    prisma.property.findMany({
+      where: CLIP_REVIEW_PENDING_WHERE,
+      orderBy: [{ clipReviewRequestedAt: { sort: "asc", nulls: "last" } }, { videoHandoffReceivedAt: "asc" }],
+      take: limit,
+      select: {
+        id: true,
+        shortId: true,
+        title: true,
+        videoHandoffFinalPath: true,
+        clipReviewRequestedAt: true,
+        videoHandoffReceivedAt: true,
+        photos: { orderBy: { order: "asc" }, take: 1, select: { thumbUrl: true } },
+      },
+    }),
+    prisma.property.count({ where: CLIP_REVIEW_PENDING_WHERE }),
+    prisma.settings.findUnique({ where: { id: "singleton" }, select: { videoMontajerAgentId: true } }),
+  ]);
+  const montajer = settings?.videoMontajerAgentId
+    ? await prisma.agent.findUnique({ where: { id: settings.videoMontajerAgentId }, select: { id: true, fullName: true } })
+    : null;
+  return {
+    total,
+    items: rows.map((p) => ({
+      id: p.id,
+      shortId: p.shortId,
+      title: p.title,
+      videoUrl: p.videoHandoffFinalPath,
+      coverUrl: p.photos[0]?.thumbUrl ?? null,
+      requestedAt: (p.clipReviewRequestedAt ?? p.videoHandoffReceivedAt)?.toISOString() ?? null,
+      montajer,
+    })),
+  };
 }
 
 // ─────────────────────────── решение ───────────────────────────
@@ -119,7 +183,7 @@ export async function approveClip(propertyId: string, byId: string, source: Clip
   if (!property || property.deletedAt) return { ok: false, status: 404, error: "Объект не найден или удалён." };
   const now = new Date();
   const claimed = await prisma.property.updateMany({
-    where: { id: propertyId, deletedAt: null, videoHandoffStatus: "RECEIVED", clipReviewStatus: "PENDING" },
+    where: { id: propertyId, ...CLIP_REVIEW_PENDING_WHERE },
     data: { clipReviewStatus: "APPROVED", clipReviewDecidedAt: now, clipReviewDecidedById: byId, clipReviewComment: null },
   });
   if (claimed.count === 0) return { ok: false, status: 409, error: await clipAlreadyDecidedText(propertyId) };
@@ -132,6 +196,7 @@ export async function approveClip(propertyId: string, byId: string, source: Clip
     notPublishingReason: scheduled.notPublishingReason ?? null,
   });
   emitClipDecision({ propertyId, outcome: "approved", byId, source, at: now });
+  requestPultSnapshot(); // пульт: проверка ролика закрыта
   publishPropertyUpdated({ propertyId, agentId: property.assignedAgentId, stage: property.status, actorId: byId });
   return { ok: true, scheduledPublishAt: scheduled.scheduledPublishAt, notPublishingReason: scheduled.notPublishingReason };
 }
@@ -185,6 +250,7 @@ export async function rejectClip(
     const fresh = await prisma.property.findUnique({ where: { id: propertyId }, select: { clipReviewStatus: true } });
     if (fresh && fresh.clipReviewStatus !== "PENDING") return { ok: false, error: await clipAlreadyDecidedText(propertyId) };
   }
+  requestPultSnapshot(); // пульт: ролик отправлен на доработку
   return result;
 }
 

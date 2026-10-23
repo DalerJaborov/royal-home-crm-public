@@ -10,10 +10,10 @@
 
 | Что | Сколько |
 |---|---|
-| Экранов (адресов в интерфейсе) | 67 |
+| Экранов (адресов в интерфейсе) | 68 |
 | Из них видно в меню | 35 |
 | Модулей сервера | 78 |
-| Адресов сервера всего | 652 |
+| Адресов сервера всего | 660 |
 | Задач по расписанию | 103 |
 | Типов фоновых заданий | 23 |
 | Внешних сервисов | 13 |
@@ -92,6 +92,7 @@
 | `/team/:id` | TeamMemberDetail | только по ссылке | `apps/web/src/pages/TeamMemberDetail.tsx` |
 | `/telephony` | Telephony | **Телефония** | `apps/web/src/pages/Telephony.tsx` |
 | `/vacancies` | Vacancies | **Вакансии** | `apps/web/src/pages/Vacancies.tsx` |
+| `/vacancies/:id` | VacancyDetail | только по ссылке | `apps/web/src/pages/VacancyDetail.tsx` |
 
 ### Пункты меню по складкам
 
@@ -145,20 +146,20 @@
 | `/api/v1/auth` | Вход, двухфакторная проверка, сессии устройств | 2 | да (6 мест) | — |
 | `/api/v1/auth` | Вход, двухфакторная проверка, сессии устройств | 13 | да (6 мест) | `apps/api/src/routes/auth.ts` |
 | `/api/v1/events` | Живая лента событий в браузере агента | 2 | да (1 мест) | `apps/api/src/routes/events.ts` |
-| `/api/v1/me` | Свой профиль, настройки, устройства | 36 | да (11 мест) | `apps/api/src/routes/me.ts` |
-| `/api/v1/me/notifications` | Лента уведомлений сотрудника | 4 | да (11 мест) | `apps/api/src/routes/notifications.ts` |
+| `/api/v1/me` | Свой профиль, настройки, устройства | 36 | да (12 мест) | `apps/api/src/routes/me.ts` |
+| `/api/v1/me/notifications` | Лента уведомлений сотрудника | 4 | да (12 мест) | `apps/api/src/routes/notifications.ts` |
 | `/api/v1/agents` | Сотрудники: карточки, права, аватары | 19 | да (8 мест) | `apps/api/src/routes/agents.ts` |
 | `/api/v1/agents` | Сотрудники: карточки, права, аватары | 2 | да (8 мест) | `apps/api/src/routes/team.ts` |
 | `/api/v1/districts` | Справочник районов | 2 | да (1 мест) | `apps/api/src/routes/districts.ts` |
 | `/api/v1/geo` | Поиск адреса и точки по собственному справочнику города | 4 | да (3 мест) | `apps/api/src/routes/geo.ts` |
 | `/api/v1/landmarks` | Народные ориентиры, которые ведут агенты | 8 | да (1 мест) | `apps/api/src/routes/landmarks.ts` |
-| `/api/v1/properties` | Объекты: список, карточка, фото, видео, публикация | 108 | да (27 мест) | `apps/api/src/routes/properties.ts` |
-| `/api/v1/clients` | Клиенты: карточки, передачи, отказы, подбор — самый крупный модуль | 60 | да (12 мест) | `apps/api/src/routes/clients.ts` |
+| `/api/v1/properties` | Объекты: список, карточка, фото, видео, публикация | 109 | да (28 мест) | `apps/api/src/routes/properties.ts` |
+| `/api/v1/clients` | Клиенты: карточки, передачи, отказы, подбор — самый крупный модуль | 60 | да (13 мест) | `apps/api/src/routes/clients.ts` |
 | `/api/v1/deals` | Сделки, документы, выплаты | 3 | да (4 мест) | `apps/api/src/routes/deals.ts` |
 | `/api/v1/deals` | Сделки, документы, выплаты | 4 | да (4 мест) | `apps/api/src/routes/dealDocuments.ts` |
 | `/api/v1/deals` | Сделки, документы, выплаты | 2 | да (4 мест) | `apps/api/src/routes/dealPayout.ts` |
 | `/api/v1/deals` | Сделки, документы, выплаты | 1 | да (4 мест) | `apps/api/src/routes/dealAnnul.ts` |
-| `/api/v1/dashboard` | Главная, пульт директора, модули пульта, утренняя сводка | 8 | да (7 мест) | `apps/api/src/routes/dashboard.ts` |
+| `/api/v1/dashboard` | Главная, пульт директора, модули пульта, утренняя сводка | 9 | да (7 мест) | `apps/api/src/routes/dashboard.ts` |
 | `/api/v1/dashboard` | Главная, пульт директора, модули пульта, утренняя сводка | 5 | да (7 мест) | `apps/api/src/routes/dashboardMissionControl.ts` |
 | `/api/v1/dashboard` | Главная, пульт директора, модули пульта, утренняя сводка | 2 | да (7 мест) | `apps/api/src/routes/pultModules.ts` |
 | `/api/v1/dashboard` | Главная, пульт директора, модули пульта, утренняя сводка | 2 | да (7 мест) | `apps/api/src/routes/briefing.ts` |
@@ -177,12 +178,12 @@
 | `/api/v1/whatsapp-templates` | **без подписи** | 3 | да (1 мест) | `apps/api/src/routes/whatsappTemplates.ts` |
 | `/api/v1/push` | Пуш-уведомления на телефон | 7 | да (2 мест) | `apps/api/src/routes/push.ts` |
 | `/api/v1/webhooks` | Входящие от WhatsApp, Instagram, Telegram, сайта, станции | 11 | нет | `apps/api/src/routes/webhooks.ts` |
-| `/api/v1/public` | Витрина для сайта royalhome.tj | 2 | нет | `apps/api/src/routes/publicFeed.ts` |
+| `/api/v1/public` | Витрина для сайта royalhome.tj | 4 | нет | `apps/api/src/routes/publicFeed.ts` |
 | `/api/v1/expenses` | Расходы агентства | 32 | да (3 мест) | `apps/api/src/routes/expenses.ts` |
 | `/api/v1/finance` | Деньги: доходы, комиссии, прогноз | 1 | да (1 мест) | `apps/api/src/routes/finance.ts` |
 | `/api/v1/security` | Кабинет службы безопасности | 3 | да (1 мест) | `apps/api/src/routes/security.ts` |
-| `/api/v1/marketing` | Кабинет маркетинга и монтажа | 23 | да (2 мест) | `apps/api/src/routes/marketing.ts` |
-| `/api/v1/social-videos` | **без подписи** | 20 | да (1 мест) | `apps/api/src/routes/socialVideos.ts` |
+| `/api/v1/marketing` | Кабинет маркетинга и монтажа | 23 | да (3 мест) | `apps/api/src/routes/marketing.ts` |
+| `/api/v1/social-videos` | **без подписи** | 20 | да (2 мест) | `apps/api/src/routes/socialVideos.ts` |
 | `/api/v1/webhooks` | Входящие от WhatsApp, Instagram, Telegram, сайта, станции | 1 | нет | `apps/api/src/routes/budgetWebhook.ts` |
 | `/api/v1/ads/callback` | Возврат из рекламного кабинета после подключения | 1 | да (1 мест) | `apps/api/src/routes/ads.ts` |
 | `/api/v1/ads` | Реклама Meta: расходы и привязка объявлений | 19 | да (1 мест) | `apps/api/src/routes/ads.ts` |
@@ -196,27 +197,27 @@
 | `/api/v1/team` | Команда: нагрузка, портфель | 2 | да (1 мест) | `apps/api/src/routes/team.ts` |
 | `/api/v1/hall-of-fame` | Зал славы по Royal Score | 2 | да (1 мест) | `apps/api/src/routes/hallOfFame.ts` |
 | `/api/v1/import` | Загрузка данных пачкой | 4 | нет | `apps/api/src/routes/import.ts` |
-| `/api/v1/site-notifications` | Изменения, прилетевшие с сайта | 3 | да (1 мест) | `apps/api/src/routes/siteNotifications.ts` |
+| `/api/v1/site-notifications` | Изменения, прилетевшие с сайта | 3 | да (2 мест) | `apps/api/src/routes/siteNotifications.ts` |
 | `/api/v1/contacts` | **без подписи** | 5 | да (2 мест) | `apps/api/src/routes/contacts.ts` |
-| `/api/v1/conversations` | Переписка по всем каналам | 10 | да (2 мест) | `apps/api/src/routes/conversations.ts` |
+| `/api/v1/conversations` | Переписка по всем каналам | 10 | да (3 мест) | `apps/api/src/routes/conversations.ts` |
 | `/api/v1/audit-log` | Журнал действий сотрудников | 1 | да (1 мест) | `apps/api/src/routes/auditLog.ts` |
 | `/api/v1/royal-score-events` | Начисления и списания баллов агентам | 2 | да (1 мест) | `apps/api/src/routes/royalScoreEvents.ts` |
 | `/api/v1/morning-report` | Служебная выдача для внешней сессии, интерфейс её не зовёт | 1 | нет | `apps/api/src/routes/morningReport.ts` |
-| `/api/v1/errors` | Журнал ошибок системы | 8 | да (4 мест) | `apps/api/src/routes/errorLog.ts` |
+| `/api/v1/errors` | Журнал ошибок системы | 8 | да (5 мест) | `apps/api/src/routes/errorLog.ts` |
 | `/api/v1/integrations` | Состояние внешних подключений | 1 | да (1 мест) | `apps/api/src/routes/integrations.ts` |
-| `/api/v1/stuck-work` | Экран «Что не доехало»: работа, которую система не довела до конца | 2 | да (1 мест) | `apps/api/src/routes/stuckWork.ts` |
+| `/api/v1/stuck-work` | Экран «Что не доехало»: работа, которую система не довела до конца | 2 | да (2 мест) | `apps/api/src/routes/stuckWork.ts` |
 | `/api/v1/backups` | Отчёты о резервных копиях | 2 | нет | `apps/api/src/routes/backups.ts` |
-| `/api/v1/bot-audit` | Находки ночного судьи диалогов | 6 | да (1 мест) | `apps/api/src/routes/botAudit.ts` |
+| `/api/v1/bot-audit` | Находки ночного судьи диалогов | 6 | да (2 мест) | `apps/api/src/routes/botAudit.ts` |
 | `/api/v1/bot-learning` | Уроки, извлечённые из ошибок бота | 8 | да (2 мест) | `apps/api/src/routes/botLearning.ts` |
 | `/api/v1/bot-trainer` | Ручная тренировка бота | 3 | да (1 мест) | `apps/api/src/routes/botTrainer.ts` |
 | `/api/v1/bot-scenarios` | Сценарии продаж для бота | 1 | да (1 мест) | `apps/api/src/routes/botScenarios.ts` |
 | `/api/v1/bot-training` | Экран «Манера» — закрыт тумблером | 6 | да (1 мест) | `apps/api/src/routes/botTraining.ts` |
 | `/api/v1/attachments` | Вложения переписки | 1 | да (2 мест) | `apps/api/src/routes/attachments.ts` |
 | `/api/v1/media` | Отдача файлов чата по ссылке | 1 | нет | `apps/api/src/routes/mediaProxy.ts` |
-| `/api/v1/instagram-comments` | Лента комментариев под публикациями | 4 | да (1 мест) | `apps/api/src/routes/instagramComments.ts` |
+| `/api/v1/instagram-comments` | Лента комментариев под публикациями | 4 | да (2 мест) | `apps/api/src/routes/instagramComments.ts` |
 | `/api/v1/lead-magnets` | Чек-листы и выдачи лид-магнитов | 10 | да (1 мест) | `apps/api/src/routes/leadMagnets.ts` |
-| `/api/v1/vacancies` | Кандидаты на вакансии | 18 | да (4 мест) | `apps/api/src/routes/vacancies.ts` |
-| `/api/v1/oversight` | Контроль руководителя | 16 | да (1 мест) | `apps/api/src/routes/oversight.ts` |
+| `/api/v1/vacancies` | Кандидаты на вакансии | 19 | да (5 мест) | `apps/api/src/routes/vacancies.ts` |
+| `/api/v1/oversight` | Контроль руководителя | 19 | да (2 мест) | `apps/api/src/routes/oversight.ts` |
 | `/api/v1/insights` | Инсайты от ИИ по звонкам | 4 | да (1 мест) | `apps/api/src/routes/insights.ts` |
 | `/api/v1/l` | Публичная ссылка на объект для клиента | 2 | да (1 мест) | `apps/api/src/routes/propertyShare.ts` |
 | `/api/v1/public/owner-report` | **без подписи** | 1 | нет | `apps/api/src/routes/ownerReportPublic.ts` |

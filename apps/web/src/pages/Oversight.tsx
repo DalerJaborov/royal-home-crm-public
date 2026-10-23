@@ -1,5 +1,5 @@
-import { useState, type ReactNode } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useState, type ReactNode } from "react";
+import { Link, useLocation } from "react-router-dom";
 import { CLIENT_STATUS_LABELS, REFUSAL_REASON_LABELS } from "@royal-home/shared";
 import { useCan } from "../lib/permissions";
 import { pluralizeRu, relativeTime } from "../lib/format";
@@ -1077,6 +1077,15 @@ export function Oversight() {
   // Вкладки раздела «Команда» (перенос меню 15.09.2026) — тот же набор и та же
   // логика подписи, что в pages/Team.tsx / lib/navigation.ts.
   const { data: sectionCounters } = useCounters();
+  // Пульт ведёт плитки контроля сюда с якорем (/oversight#slice-…): списки подгружаются позже страницы,
+  // поэтому ищем нужный срез несколько раз, пока он не появится.
+  const { hash } = useLocation();
+  useEffect(() => {
+    const id = hash.replace(/^#/, "");
+    if (!id.startsWith("slice-")) return;
+    const timers = [0, 400, 1200, 2500].map((delay) => window.setTimeout(() => scrollToSlice(id), delay));
+    return () => timers.forEach(window.clearTimeout);
+  }, [hash]);
 
   if (!canView) {
     return (

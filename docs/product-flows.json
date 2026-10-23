@@ -1,8 +1,8 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 655,
-  "forks": 3591,
+  "endpoints": 663,
+  "forks": 3648,
   "mounts": 74,
   "cron": 107,
   "jobs": 31,
@@ -21,6 +21,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -85,6 +86,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireAdsWrite"
    ],
@@ -173,6 +175,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireAdsWrite"
    ],
@@ -299,6 +302,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireAdsWrite"
    ],
@@ -417,6 +421,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireAdsRead"
    ],
@@ -511,6 +516,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireAdsRead"
    ],
@@ -773,7 +779,8 @@
    "top": "apps/api/src/routes/ads.ts::adsCallbackRouter",
    "guards": [
     "общий предел частоты запросов",
-    "idempotencyGuard"
+    "idempotencyGuard",
+    "pultWriteRefresh"
    ],
    "handlerRef": null,
    "tree": [
@@ -851,6 +858,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireAdsWrite"
    ],
@@ -915,6 +923,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireAdsRead"
    ],
@@ -979,6 +988,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireAdsWrite"
    ],
@@ -1021,6 +1031,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireAdsRead"
    ],
@@ -1079,6 +1090,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireAdsRead"
    ],
@@ -1144,6 +1156,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireAdsRead"
    ],
@@ -1216,6 +1229,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireAdsWrite"
    ],
@@ -1319,6 +1333,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireAdsRead"
    ],
@@ -1345,6 +1360,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -1539,6 +1555,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireAdsRead"
    ],
@@ -1603,6 +1620,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireAdsRead"
    ],
@@ -1675,6 +1693,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireAdsWrite"
    ],
@@ -1769,6 +1788,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireAdsRead"
    ],
@@ -1902,6 +1922,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireAdsRead"
    ],
@@ -1960,6 +1981,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: agents.reset2fa",
     "requireElevation"
@@ -2072,6 +2094,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: agents.manage",
     "requireElevation",
@@ -2177,6 +2200,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -2384,6 +2408,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: agents.manage",
     "requireElevation"
@@ -2637,6 +2662,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: agents.manage",
     "requireElevation"
@@ -2922,6 +2948,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: agents.manage"
    ],
@@ -2956,6 +2983,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: team.viewFull"
    ],
@@ -3013,6 +3041,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: agents.manage"
    ],
@@ -3109,6 +3138,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: agents.manage"
    ],
@@ -3273,6 +3303,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: team.viewFull"
    ],
@@ -3373,6 +3404,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: team.viewFull"
    ],
@@ -3503,6 +3535,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: permissions.manage"
    ],
@@ -3552,6 +3585,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: permissions.manage",
     "requireElevation"
@@ -3687,6 +3721,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: team.viewFull"
    ],
@@ -3721,6 +3756,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: agents.manage",
     "requireElevation"
@@ -3858,6 +3894,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: agents.manage",
     "requireElevation"
@@ -4053,6 +4090,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: agents.manage",
     "requireElevation"
@@ -4413,6 +4451,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: agents.manage"
    ],
@@ -4447,6 +4486,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: agents.manage",
     "requireElevation"
@@ -4596,6 +4636,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: agents.manage"
    ],
@@ -4661,6 +4702,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: agents.manage",
     "requireElevation"
@@ -4893,6 +4935,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: auditLog.view"
    ],
@@ -4959,6 +5002,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "предел частоты запросов"
    ],
@@ -5152,6 +5196,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "предел частоты запросов"
    ],
@@ -5254,6 +5299,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: finance.view"
    ],
@@ -5303,6 +5349,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: properties.aiListing",
     "предел частоты запросов"
@@ -5415,6 +5462,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -5472,6 +5520,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "предел частоты запросов"
    ],
@@ -5583,6 +5632,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "предел частоты запросов"
    ],
@@ -5700,6 +5750,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -5816,6 +5867,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: messages.viewAttachments"
    ],
@@ -6012,6 +6064,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -6129,6 +6182,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "предел частоты запросов",
     "предел частоты запросов",
     "предел частоты запросов"
@@ -6179,6 +6233,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "предел частоты запросов",
     "предел частоты запросов"
    ],
@@ -6313,6 +6368,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "предел частоты запросов",
     "предел частоты запросов",
     "предел частоты запросов"
@@ -6478,6 +6534,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "предел частоты запросов",
     "предел частоты запросов",
     "предел частоты запросов"
@@ -6597,6 +6654,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "предел частоты запросов",
     "предел частоты запросов"
    ],
@@ -6676,6 +6734,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "предел частоты запросов",
     "предел частоты запросов"
    ],
@@ -6701,7 +6760,8 @@
    "top": "apps/api/src/routes/auth.ts::authRouter",
    "guards": [
     "общий предел частоты запросов",
-    "idempotencyGuard"
+    "idempotencyGuard",
+    "pultWriteRefresh"
    ],
    "handlerRef": null,
    "tree": [
@@ -6838,6 +6898,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "предел частоты запросов"
    ],
    "handlerRef": null,
@@ -6886,6 +6947,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "предел частоты запросов"
    ],
    "handlerRef": null,
@@ -6995,6 +7057,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "предел частоты запросов"
    ],
    "handlerRef": null,
@@ -7219,7 +7282,8 @@
    "top": "apps/api/src/routes/auth.ts::authRouter",
    "guards": [
     "общий предел частоты запросов",
-    "idempotencyGuard"
+    "idempotencyGuard",
+    "pultWriteRefresh"
    ],
    "handlerRef": null,
    "tree": [
@@ -7289,6 +7353,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "предел частоты запросов",
     "вход выполнен"
    ],
@@ -7407,6 +7472,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "предел частоты запросов",
     "вход выполнен"
    ],
@@ -7449,6 +7515,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "предел частоты запросов",
     "вход выполнен"
    ],
@@ -7529,6 +7596,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "предел частоты запросов",
     "вход выполнен"
    ],
@@ -7677,6 +7745,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "предел частоты запросов"
    ],
    "handlerRef": null,
@@ -7763,6 +7832,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: auditLog.view"
    ],
@@ -7834,6 +7904,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: auditLog.view"
    ],
@@ -8001,6 +8072,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: auditLog.view"
    ],
@@ -8058,6 +8130,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: auditLog.view"
    ],
@@ -8196,6 +8269,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: auditLog.view"
    ],
@@ -8230,6 +8304,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: auditLog.view"
    ],
@@ -8317,6 +8392,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: auditLog.view"
    ],
@@ -8434,6 +8510,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage",
     "requireElevation"
@@ -8499,6 +8576,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage",
     "requireElevation"
@@ -8564,6 +8642,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage",
     "requireElevation"
@@ -8690,6 +8769,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage"
    ],
@@ -8754,6 +8834,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage",
     "requireElevation"
@@ -8858,6 +8939,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage"
    ],
@@ -8987,6 +9069,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.view"
    ],
@@ -9038,6 +9121,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.view"
    ],
@@ -9096,6 +9180,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.view"
    ],
@@ -9130,6 +9215,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage"
    ],
@@ -9519,6 +9605,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage"
    ],
@@ -9629,6 +9716,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage"
    ],
@@ -9791,6 +9879,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage",
     "requireTrainingEnabled",
@@ -9895,6 +9984,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.view"
    ],
@@ -9944,6 +10034,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.view",
     "requireTrainingEnabled"
@@ -10047,6 +10138,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage",
     "requireElevation"
@@ -10112,6 +10204,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage",
     "requireElevation"
@@ -10200,6 +10293,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.view",
     "requireTrainingEnabled"
@@ -10259,6 +10353,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -10347,6 +10442,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: calls.transcripts"
    ],
@@ -10444,6 +10540,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: calls.transcripts",
     "supervisorOnly"
@@ -10625,6 +10722,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: calls.transcripts",
     "supervisorOnly"
@@ -10660,6 +10758,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: calls.transcripts",
     "supervisorOnly"
@@ -10784,6 +10883,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: calls.transcripts",
     "supervisorOnly"
@@ -10876,6 +10976,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: calls.transcripts"
    ],
@@ -11017,6 +11118,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -11180,6 +11282,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -11320,6 +11423,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: clients.assign"
    ],
@@ -11591,6 +11695,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -11733,6 +11838,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -11947,6 +12053,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -12246,6 +12353,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -12332,6 +12440,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -12527,6 +12636,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -12682,6 +12792,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -12822,6 +12933,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -12893,6 +13005,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: clients.requestDelete"
    ],
@@ -13043,6 +13156,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -13166,6 +13280,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -13230,6 +13345,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -13389,6 +13505,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -13820,6 +13937,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -14096,6 +14214,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -14228,6 +14347,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "anyParams(voiceMessageUpload.single(\"audio\"))"
    ],
@@ -14444,6 +14564,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -14652,6 +14773,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: clients.purge"
    ],
@@ -14817,6 +14939,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -14973,6 +15096,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -15044,6 +15168,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -15200,6 +15325,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -15256,6 +15382,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -15320,6 +15447,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -15582,6 +15710,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -15684,6 +15813,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: clients.delete"
    ],
@@ -15813,6 +15943,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: clients.securityReview"
    ],
@@ -15957,6 +16088,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -16084,6 +16216,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -16400,6 +16533,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -16501,6 +16635,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: clients.merge"
    ],
@@ -16574,6 +16709,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: clients.merge"
    ],
@@ -16669,6 +16805,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -16840,6 +16977,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: clients.assign",
     "есть право: vacancies.view"
@@ -16906,6 +17044,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -17099,6 +17238,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -17169,6 +17309,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -17277,6 +17418,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: clients.delete"
    ],
@@ -17334,6 +17476,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -17629,6 +17772,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -18091,6 +18235,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -18163,6 +18308,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: clients.delete"
    ],
@@ -18356,6 +18502,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: clients.delete"
    ],
@@ -18490,6 +18637,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: clients.delete"
    ],
@@ -18547,6 +18695,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -18732,6 +18881,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -18780,6 +18930,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: clients.merge"
    ],
@@ -18845,6 +18996,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: clients.assign"
    ],
@@ -18948,6 +19100,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: clients.merge"
    ],
@@ -19141,6 +19294,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: clients.merge"
    ],
@@ -19269,6 +19423,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: clients.merge"
    ],
@@ -19395,6 +19550,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: clients.merge"
    ],
@@ -19452,6 +19608,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -19485,6 +19642,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -19583,6 +19741,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: archive.view"
    ],
@@ -19618,6 +19777,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -20152,6 +20312,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -20536,6 +20697,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: messages.view"
    ],
@@ -20608,6 +20770,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: messages.view"
    ],
@@ -20734,6 +20897,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: clients.merge",
     "есть право: messages.view"
@@ -20861,6 +21025,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: clients.merge",
     "есть право: messages.view"
@@ -20919,6 +21084,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: clients.merge",
     "есть право: messages.view"
@@ -20954,6 +21120,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "(req, res, next) => { if (can(req, \"messages.view\") || can(req, \"messages.viewOwn\")) return next(",
     "async (req, res, next) => { const agentId = chatScopeAgentId(req",
@@ -21052,6 +21219,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "(req, res, next) => { if (can(req, \"messages.view\") || can(req, \"messages.viewOwn\")) return next(",
     "async (req, res, next) => { const agentId = chatScopeAgentId(req",
@@ -21119,6 +21287,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "(req, res, next) => { if (can(req, \"messages.view\") || can(req, \"messages.viewOwn\")) return next(",
     "async (req, res, next) => { const agentId = chatScopeAgentId(req",
@@ -21224,6 +21393,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "(req, res, next) => { if (can(req, \"messages.view\") || can(req, \"messages.viewOwn\")) return next(",
     "async (req, res, next) => { const agentId = chatScopeAgentId(req",
@@ -21345,6 +21515,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "(req, res, next) => { if (can(req, \"messages.view\") || can(req, \"messages.viewOwn\")) return next(",
     "async (req, res, next) => { const agentId = chatScopeAgentId(req",
@@ -21436,6 +21607,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "(req, res, next) => { if (can(req, \"messages.view\") || can(req, \"messages.viewOwn\")) return next(",
     "async (req, res, next) => { const agentId = chatScopeAgentId(req",
@@ -21534,6 +21706,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "(req, res, next) => { if (can(req, \"messages.view\") || can(req, \"messages.viewOwn\")) return next(",
     "async (req, res, next) => { const agentId = chatScopeAgentId(req",
@@ -21578,6 +21751,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "(req, res, next) => { if (can(req, \"messages.view\") || can(req, \"messages.viewOwn\")) return next(",
     "async (req, res, next) => { const agentId = chatScopeAgentId(req",
@@ -21690,6 +21864,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "(req, res, next) => { if (can(req, \"messages.view\") || can(req, \"messages.viewOwn\")) return next(",
     "async (req, res, next) => { const agentId = chatScopeAgentId(req",
@@ -21855,6 +22030,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "(req, res, next) => { if (can(req, \"messages.view\") || can(req, \"messages.viewOwn\")) return next(",
     "async (req, res, next) => { const agentId = chatScopeAgentId(req",
@@ -21923,6 +22099,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: dashboard.analytics"
    ],
@@ -22020,6 +22197,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: dashboard.analytics"
    ],
@@ -22068,6 +22246,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: dashboard.analytics"
    ],
@@ -22235,6 +22414,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -22299,6 +22479,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -22355,6 +22536,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: dashboard.analytics"
    ],
@@ -22450,6 +22632,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: dashboard.analytics"
    ],
@@ -22515,6 +22698,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: dashboard.analytics"
    ],
@@ -22541,6 +22725,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: dashboard.analytics"
    ],
@@ -22666,6 +22851,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: dashboard.analytics"
    ],
@@ -22692,6 +22878,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: dashboard.analytics"
    ],
@@ -22764,6 +22951,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: dashboard.analytics"
    ],
@@ -22790,6 +22978,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: dashboard.analytics"
    ],
@@ -22816,6 +23005,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage",
     "requireElevation"
@@ -22913,6 +23103,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: dashboard.analytics"
    ],
@@ -22955,6 +23146,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -23181,6 +23373,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: dashboard.analytics"
    ],
@@ -23222,6 +23415,42 @@
    ]
   },
   {
+   "method": "GET",
+   "path": "/unassigned-leads",
+   "mount": "/api/v1/dashboard",
+   "full": "/api/v1/dashboard/unassigned-leads",
+   "file": "apps/api/src/routes/dashboard.ts",
+   "router": "dashboardRouter",
+   "top": "apps/api/src/routes/dashboard.ts::dashboardRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: clients.assign"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const [rows, total] = await Promise.all([ prisma.client.findMany({ where: UNASSIGNED_LEADS_WHERE, orderBy: [{…",
+     "a": [
+      "читает в базе: client",
+      "считает в базе: client"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ items: rows.map((c)",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
    "method": "POST",
    "path": "/:id/annul",
    "mount": "/api/v1/deals",
@@ -23232,6 +23461,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -23371,6 +23601,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "documentsGuard"
    ],
@@ -23582,6 +23813,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "documentsGuard"
    ],
@@ -23723,6 +23955,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "documentsGuard"
    ],
@@ -23787,6 +24020,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "documentsGuard",
     "anyParams(dealDocumentUpload.single(\"file\"))"
@@ -23921,6 +24155,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -23992,6 +24227,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -24162,6 +24398,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -25614,6 +25851,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -25746,6 +25984,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -26151,6 +26390,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -26184,6 +26424,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: districts.manage"
    ],
@@ -26309,6 +26550,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: auditLog.view"
    ],
@@ -26380,6 +26622,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: auditLog.view"
    ],
@@ -26451,6 +26694,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: auditLog.view"
    ],
@@ -26485,6 +26729,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: auditLog.view"
    ],
@@ -26542,6 +26787,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: auditLog.view"
    ],
@@ -26599,6 +26845,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: auditLog.view"
    ],
@@ -26633,6 +26880,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: auditLog.view"
    ],
@@ -26699,6 +26947,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -26770,6 +27019,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -26841,6 +27091,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "authorizeStream"
    ],
    "handlerRef": null,
@@ -27008,11 +27259,26 @@
     },
     {
      "k": "do",
-     "t": "const release = subscribe({ agentId, role, seesAllMessages, deliver: send, close: closeForShutdown });",
+     "t": "const release = subscribe(subscriber);",
      "a": [
       "зовёт subscribe()"
      ],
      "c": []
+    },
+    {
+     "k": "if",
+     "t": "Number.isSafeInteger(resumeFrom) && resumeFrom > 0",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "void replayMissedEvents(subscriber, resumeFrom);",
+       "a": [
+        "зовёт replayMissedEvents()"
+       ],
+       "c": []
+      }
+     ]
     },
     {
      "k": "do",
@@ -27103,6 +27369,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: finance.view",
     "(error: unknown, _req: Request, res: Response, next: NextFunction) => { if (error instanceof ExpenseLifecycle…",
@@ -27218,6 +27485,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: finance.view",
     "(error: unknown, _req: Request, res: Response, next: NextFunction) => { if (error instanceof ExpenseLifecycle…"
@@ -27354,6 +27622,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: finance.view",
     "(error: unknown, _req: Request, res: Response, next: NextFunction) => { if (error instanceof ExpenseLifecycle…",
@@ -27444,6 +27713,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: finance.view",
     "(error: unknown, _req: Request, res: Response, next: NextFunction) => { if (error instanceof ExpenseLifecycle…",
@@ -27630,6 +27900,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: finance.view",
     "requireFinanceWrite"
@@ -27710,6 +27981,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: finance.view",
     "(error: unknown, _req: Request, res: Response, next: NextFunction) => { if (error instanceof ExpenseLifecycle…",
@@ -27825,6 +28097,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: finance.view",
     "requireFinanceWrite"
@@ -27935,6 +28208,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: finance.view",
     "requireFinanceWrite"
@@ -28189,6 +28463,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: finance.view"
    ],
@@ -28223,6 +28498,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: finance.view",
     "(error: unknown, _req: Request, res: Response, next: NextFunction) => { if (error instanceof ExpenseLifecycle…",
@@ -28387,6 +28663,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: finance.view",
     "(error: unknown, _req: Request, res: Response, next: NextFunction) => { if (error instanceof ExpenseLifecycle…"
@@ -28492,6 +28769,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: finance.view",
     "(error: unknown, _req: Request, res: Response, next: NextFunction) => { if (error instanceof ExpenseLifecycle…",
@@ -28589,6 +28867,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: finance.view",
     "(error: unknown, _req: Request, res: Response, next: NextFunction) => { if (error instanceof ExpenseLifecycle…"
@@ -28699,6 +28978,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: finance.view",
     "(error: unknown, _req: Request, res: Response, next: NextFunction) => { if (error instanceof ExpenseLifecycle…"
@@ -28802,6 +29082,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: finance.view",
     "(error: unknown, _req: Request, res: Response, next: NextFunction) => { if (error instanceof ExpenseLifecycle…"
@@ -28875,6 +29156,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: finance.view"
    ],
@@ -29049,6 +29331,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: finance.view"
    ],
@@ -29075,6 +29358,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: finance.view",
     "(error: unknown, _req: Request, res: Response, next: NextFunction) => { if (error instanceof ExpenseLifecycle…"
@@ -29186,6 +29470,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: finance.view"
    ],
@@ -29273,6 +29558,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: finance.view",
     "(error: unknown, _req: Request, res: Response, next: NextFunction) => { if (error instanceof ExpenseLifecycle…",
@@ -29553,6 +29839,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: finance.view",
     "(error: unknown, _req: Request, res: Response, next: NextFunction) => { if (error instanceof ExpenseLifecycle…",
@@ -29613,6 +29900,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: finance.view",
     "(error: unknown, _req: Request, res: Response, next: NextFunction) => { if (error instanceof ExpenseLifecycle…",
@@ -29893,6 +30181,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: finance.view",
     "(error: unknown, _req: Request, res: Response, next: NextFunction) => { if (error instanceof ExpenseLifecycle…",
@@ -30173,6 +30462,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: finance.view",
     "(error: unknown, _req: Request, res: Response, next: NextFunction) => { if (error instanceof ExpenseLifecycle…",
@@ -30453,6 +30743,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: finance.view",
     "requireFinanceWrite"
@@ -30533,6 +30824,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: finance.view",
     "requireFinanceWrite"
@@ -30734,6 +31026,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: finance.view"
    ],
@@ -30799,6 +31092,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: finance.view",
     "requireFinanceWrite"
@@ -30895,6 +31189,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: finance.view"
    ],
@@ -31120,6 +31415,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: finance.view",
     "(error: unknown, _req: Request, res: Response, next: NextFunction) => { if (error instanceof ExpenseLifecycle…"
@@ -31193,6 +31489,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: finance.view"
    ],
@@ -31351,6 +31648,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: finance.view",
     "requireFinanceWrite"
@@ -31509,6 +31807,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: finance.view"
    ],
@@ -31605,6 +31904,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -31698,6 +31998,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -31799,6 +32100,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -31855,6 +32157,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -31941,6 +32244,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -32014,6 +32318,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -32123,7 +32428,8 @@
    "top": "::app",
    "guards": [
     "общий предел частоты запросов",
-    "idempotencyGuard"
+    "idempotencyGuard",
+    "pultWriteRefresh"
    ],
    "handlerRef": null,
    "tree": [
@@ -32155,7 +32461,8 @@
    "top": "::app",
    "guards": [
     "общий предел частоты запросов",
-    "idempotencyGuard"
+    "idempotencyGuard",
+    "pultWriteRefresh"
    ],
    "handlerRef": null,
    "tree": [
@@ -32180,6 +32487,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: import.run"
    ],
@@ -32222,6 +32530,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: import.run",
     "csvUpload.single(\"file\")"
@@ -32474,6 +32783,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: import.run"
    ],
@@ -32516,6 +32826,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: import.run",
     "csvUpload.single(\"file\")"
@@ -32820,6 +33131,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: insights.view"
    ],
@@ -32908,6 +33220,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: insights.view"
    ],
@@ -32973,6 +33286,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage"
    ],
@@ -33084,6 +33398,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: insights.view"
    ],
@@ -33118,6 +33433,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: messages.view",
     "есть право: comments.moderate"
@@ -33311,6 +33627,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: messages.view",
     "есть право: comments.moderate"
@@ -33772,6 +34089,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: messages.view",
     "есть право: comments.moderate"
@@ -33965,6 +34283,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: messages.view"
    ],
@@ -34061,6 +34380,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: auditLog.view"
    ],
@@ -34095,6 +34415,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -34257,6 +34578,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -34496,6 +34818,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -34658,6 +34981,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -34744,6 +35068,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -34830,6 +35155,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -34931,6 +35257,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -35093,6 +35420,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -35187,6 +35515,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -35252,6 +35581,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "предел частоты запросов"
    ],
    "handlerRef": null,
@@ -35331,6 +35661,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "предел частоты запросов"
    ],
    "handlerRef": null,
@@ -35409,6 +35740,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -35481,6 +35813,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -35628,6 +35961,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: landmarks.manage"
    ],
@@ -35693,6 +36027,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: landmarks.manage"
    ],
@@ -35758,6 +36093,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: landmarks.manage"
    ],
@@ -35840,6 +36176,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -35927,6 +36264,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -36060,6 +36398,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -36124,6 +36463,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage"
    ],
@@ -36197,6 +36537,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage"
    ],
@@ -36322,6 +36663,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage"
    ],
@@ -36394,6 +36736,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage",
     "anyParams(acceptPdf)"
@@ -36490,6 +36833,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.view"
    ],
@@ -36562,6 +36906,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage"
    ],
@@ -36642,6 +36987,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage"
    ],
@@ -36730,6 +37076,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.view"
    ],
@@ -36788,6 +37135,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.view"
    ],
@@ -36822,6 +37170,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage"
    ],
@@ -36887,6 +37236,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage",
     "есть право: calls.transcripts",
@@ -37294,6 +37644,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage",
     "есть право: calls.transcripts",
@@ -37322,6 +37673,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole"
    ],
@@ -37366,6 +37718,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole"
    ],
@@ -37446,6 +37799,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole"
    ],
@@ -37503,6 +37857,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireEditorsLoadRole"
    ],
@@ -37561,6 +37916,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireEditorsLoadRole"
    ],
@@ -37619,6 +37975,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole"
    ],
@@ -37721,6 +38078,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole"
    ],
@@ -37777,6 +38135,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole"
    ],
@@ -37811,6 +38170,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole"
    ],
@@ -37891,6 +38251,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole"
    ],
@@ -37986,6 +38347,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole"
    ],
@@ -38112,6 +38474,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole"
    ],
@@ -38170,6 +38533,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole"
    ],
@@ -38288,6 +38652,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole"
    ],
@@ -38427,6 +38792,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole"
    ],
@@ -38529,6 +38895,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireEditorsLoadRole"
    ],
@@ -38609,6 +38976,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireEditorsLoadRole"
    ],
@@ -38689,6 +39057,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireEditorsLoadRole"
    ],
@@ -38776,6 +39145,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireEditorsLoadRole"
    ],
@@ -38894,6 +39264,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireEditorsLoadRole"
    ],
@@ -38951,6 +39322,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireEditorsLoadRole"
    ],
@@ -38985,6 +39357,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireEditorsLoadRole"
    ],
@@ -39050,6 +39423,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireEditorsLoadRole"
    ],
@@ -39092,6 +39466,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "предел частоты запросов",
     "вход выполнен",
     "requireElevation"
@@ -39204,6 +39579,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "предел частоты запросов",
     "вход выполнен",
     "requireElevation"
@@ -39331,6 +39707,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "предел частоты запросов",
     "вход выполнен",
     "requireElevation"
@@ -39420,6 +39797,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -39552,6 +39930,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -39608,6 +39987,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "upload.single(\"avatar\")"
    ],
@@ -39681,6 +40061,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: messages.view"
    ],
@@ -39830,6 +40211,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -39909,6 +40291,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -39972,6 +40355,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -40051,6 +40435,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -40168,6 +40553,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -40262,6 +40648,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -40388,6 +40775,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -40421,6 +40809,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -40500,6 +40889,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -40571,6 +40961,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -40604,6 +40995,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -40660,6 +41052,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -40725,6 +41118,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: dashboard.analytics"
    ],
@@ -40820,6 +41214,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: dashboard.analytics"
    ],
@@ -40854,6 +41249,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireElevation"
    ],
@@ -40911,6 +41307,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireElevation"
    ],
@@ -41014,6 +41411,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireElevation"
    ],
@@ -41078,6 +41476,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -41103,6 +41502,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -41159,6 +41559,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -41252,6 +41653,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -41361,6 +41763,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -41447,6 +41850,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -41510,6 +41914,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -41559,6 +41964,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -41615,6 +42021,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -41648,6 +42055,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -41681,6 +42089,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -41752,6 +42161,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -41793,6 +42203,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -41957,6 +42368,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "предел частоты запросов",
     "anyParams(voiceMessageUpload.single(\"audio\"))"
@@ -42009,6 +42421,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -42065,6 +42478,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -42218,7 +42632,8 @@
    "top": "apps/api/src/routes/mediaProxy.ts::mediaProxyRouter",
    "guards": [
     "общий предел частоты запросов",
-    "idempotencyGuard"
+    "idempotencyGuard",
+    "pultWriteRefresh"
    ],
    "handlerRef": null,
    "tree": [
@@ -42346,7 +42761,8 @@
    "top": "apps/api/src/routes/morningReport.ts::morningReportRouter",
    "guards": [
     "общий предел частоты запросов",
-    "idempotencyGuard"
+    "idempotencyGuard",
+    "pultWriteRefresh"
    ],
    "handlerRef": null,
    "tree": [
@@ -42392,6 +42808,132 @@
    ]
   },
   {
+   "method": "DELETE",
+   "path": "/ack",
+   "mount": "/api/v1/oversight",
+   "full": "/api/v1/oversight/ack",
+   "file": "apps/api/src/routes/oversight.ts",
+   "router": "oversightRouter",
+   "top": "apps/api/src/routes/oversight.ts::oversightRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: dashboard.analytics",
+    "requireDirectorOrAdmin"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "res.status(400).json({ error: \"Неверные данные\", details: parsed.error.flatten() });",
+       "a": [
+        "ответ 400 — «Неверные данные»"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const { count } = await prisma.oversightAck.deleteMany({ where: parsed.data });",
+     "a": [
+      "удаляет в базе: oversightAck"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ removed: count });",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "/ack",
+   "mount": "/api/v1/oversight",
+   "full": "/api/v1/oversight/ack",
+   "file": "apps/api/src/routes/oversight.ts",
+   "router": "oversightRouter",
+   "top": "apps/api/src/routes/oversight.ts::oversightRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: dashboard.analytics",
+    "requireDirectorOrAdmin"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const parsed = oversightAckBodySchema.safeParse(req.body);",
+     "a": [
+      "проверяет данные схемой oversightAckBodySchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "res.status(400).json({ error: \"Неверные данные\", details: parsed.error.flatten() });",
+       "a": [
+        "ответ 400 — «Неверные данные»"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const ack = await prisma.oversightAck.upsert({ where: { sliceKey_subjectId: { sliceKey, subjectId } }, create…",
+     "a": [
+      "создаёт или меняет в базе: oversightAck"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json(ack);",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
    "method": "GET",
    "path": "/agent-loss-series",
    "mount": "/api/v1/oversight",
@@ -42402,6 +42944,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: dashboard.analytics"
    ],
@@ -42436,6 +42979,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: dashboard.analytics"
    ],
@@ -42516,6 +43060,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: dashboard.analytics"
    ],
@@ -42531,7 +43076,126 @@
     },
     {
      "k": "do",
-     "t": "res.json({ items: items.slice(start, start + pageSize).map((it)",
+     "t": "res.json({ items: await markAcked(\"endless-negotiations\", items.slice(start, start + pageSize).map((it)",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/flags",
+   "mount": "/api/v1/oversight",
+   "full": "/api/v1/oversight/flags",
+   "file": "apps/api/src/routes/oversight.ts",
+   "router": "oversightRouter",
+   "top": "apps/api/src/routes/oversight.ts::oversightRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: dashboard.analytics",
+    "requireDirectorOrAdmin"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const name = (n: string)",
+     "a": [
+      "зовёт clientNamePhoneSafe()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const [stalled, silent, refused, seller, endless, ackedStalled, ackedSilent, ackedRefused, ackedSeller, acked…",
+     "a": [
+      "читает в базе: client"
+     ],
+     "c": []
+    },
+    {
+     "k": "loop",
+     "t": "для каждого: const c of stalled.filter((x) => !ackedStalled.has(x.id)).slice(0, FLAGS_PER_SLICE)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "flags.push({ sliceKey: \"stalled-clients\", subjectId: c.id, title: `${name(c.fullName)}: горячий клиент без ко…",
+       "a": [
+        "дословно из кода"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "loop",
+     "t": "для каждого: const c of silent.items.filter((x) => !ackedSilent.has(x.id)).slice(0, FLAGS_PER_SLICE)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "flags.push({ sliceKey: \"silent-after-showing\", subjectId: c.id, title: `${name(c.fullName)}: тишина после пок…",
+       "a": [
+        "дословно из кода"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "loop",
+     "t": "для каждого: const r of refused.items.filter((x) => !ackedRefused.has(x.id)).slice(0, FLAGS_PER_SLICE)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "flags.push({ sliceKey: \"refused-high-score\", subjectId: r.id, title: `${r.client ? name(r.client.fullName) : …",
+       "a": [
+        "дословно из кода"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "loop",
+     "t": "для каждого: const c of seller.items.filter((x) => !ackedSeller.has(x.id)).slice(0, FLAGS_PER_SLICE)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "flags.push({ sliceKey: \"seller-property-missing\", subjectId: c.id, title: `${name(c.fullName)}: продавец без …",
+       "a": [
+        "дословно из кода"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "loop",
+     "t": "для каждого: const it of endless.items.filter((x) => !ackedEndless.has(x.id)).slice(0, FLAGS_PER_SLICE)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "flags.push({ sliceKey: \"endless-negotiations\", subjectId: it.id, title: `${name(it.subjectName)}: вечные пере…",
+       "a": [
+        "дословно из кода"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.json({ items: flags.slice(0, FLAGS_LIMIT), total: flags.length });",
      "a": [
       "ответ 200"
      ],
@@ -42550,6 +43214,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: dashboard.analytics"
    ],
@@ -42585,6 +43250,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: dashboard.analytics"
    ],
@@ -42620,6 +43286,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: dashboard.analytics"
    ],
@@ -42663,6 +43330,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: dashboard.analytics"
    ],
@@ -42678,7 +43346,7 @@
     },
     {
      "k": "do",
-     "t": "res.json({ items: items.slice(start, start + pageSize).map((r)",
+     "t": "res.json({ items: await markAcked(\"refused-high-score\", items.slice(start, start + pageSize).map((r)",
      "a": [
       "ответ 200"
      ],
@@ -42697,6 +43365,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: dashboard.analytics"
    ],
@@ -42712,7 +43381,7 @@
     },
     {
      "k": "do",
-     "t": "res.json({ items: items.slice(start, start + pageSize).map((c)",
+     "t": "res.json({ items: await markAcked(\"seller-property-missing\", items.slice(start, start + pageSize).map((c)",
      "a": [
       "ответ 200"
      ],
@@ -42731,6 +43400,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: dashboard.analytics",
     "есть право: calls.hearRecording"
@@ -42804,6 +43474,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: dashboard.analytics"
    ],
@@ -42871,6 +43542,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: dashboard.analytics"
    ],
@@ -42923,6 +43595,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: dashboard.analytics"
    ],
@@ -42938,7 +43611,7 @@
     },
     {
      "k": "do",
-     "t": "res.json({ items: items.slice(start, start + pageSize).map((c)",
+     "t": "res.json({ items: await markAcked(\"silent-after-showing\", items.slice(start, start + pageSize).map((c)",
      "a": [
       "ответ 200"
      ],
@@ -42957,6 +43630,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: dashboard.analytics"
    ],
@@ -42981,7 +43655,7 @@
     },
     {
      "k": "do",
-     "t": "res.json({ items: rows.map((c)",
+     "t": "res.json({ items: await markAcked(\"stalled-clients\", rows.map((c)",
      "a": [
       "ответ 200"
      ],
@@ -43000,6 +43674,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: dashboard.analytics"
    ],
@@ -43026,6 +43701,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: dashboard.analytics"
    ],
@@ -43052,6 +43728,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: dashboard.analytics"
    ],
@@ -43296,6 +43973,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -43405,6 +44083,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -43476,6 +44155,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: properties.requestChange"
    ],
@@ -43770,6 +44450,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: properties.moderate"
    ],
@@ -43819,6 +44500,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: properties.moderate"
    ],
@@ -43891,6 +44573,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "anyParams(clipVideoUpload.single(\"video\"))"
    ],
@@ -44078,6 +44761,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -44226,6 +44910,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole"
    ],
@@ -44314,6 +44999,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole"
    ],
@@ -44425,6 +45111,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole",
     "upload.fields([ { name: \"square\", maxCount: 1 }, { name: \"story\", maxCount: 1 }, ])"
@@ -44528,6 +45215,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -44599,6 +45287,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: properties.requestDelete"
    ],
@@ -44749,6 +45438,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole"
    ],
@@ -44806,6 +45496,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -44946,6 +45637,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -45040,6 +45732,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -45134,6 +45827,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -45182,6 +45876,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole"
    ],
@@ -45300,6 +45995,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -45333,6 +46029,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole"
    ],
@@ -45398,6 +46095,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole"
    ],
@@ -45478,6 +46176,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: clients.viewAll"
    ],
@@ -45512,6 +46211,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -45583,6 +46283,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -45677,6 +46378,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -45725,6 +46427,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -45773,6 +46476,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -45821,6 +46525,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: properties.purge"
    ],
@@ -46131,6 +46836,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole"
    ],
@@ -46196,6 +46902,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -46267,6 +46974,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireElevation"
    ],
@@ -46514,6 +47222,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireElevation"
    ],
@@ -46655,6 +47364,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireElevation"
    ],
@@ -46887,6 +47597,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -47020,6 +47731,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -47147,6 +47859,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -47319,6 +48032,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "anyParams(memoryUploadBudget)",
     "anyParams(upload.array(\"photos\", 30))"
@@ -47885,6 +48599,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -47978,6 +48693,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -48071,6 +48787,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole"
    ],
@@ -48151,6 +48868,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole"
    ],
@@ -48208,6 +48926,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -48317,6 +49036,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: properties.aiListing"
    ],
@@ -48391,6 +49111,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole"
    ],
@@ -48464,6 +49185,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -48535,6 +49257,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: properties.delete"
    ],
@@ -48616,6 +49339,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: properties.moderate"
    ],
@@ -48680,6 +49404,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: properties.moderate"
    ],
@@ -48752,6 +49477,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -48922,6 +49648,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -48993,6 +49720,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -49125,6 +49853,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -49543,6 +50272,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole"
    ],
@@ -49608,6 +50338,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole"
    ],
@@ -49657,6 +50388,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole"
    ],
@@ -49744,6 +50476,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole"
    ],
@@ -49862,6 +50595,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -49932,6 +50666,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -50025,6 +50760,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole"
    ],
@@ -50090,6 +50826,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole"
    ],
@@ -50328,6 +51065,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: properties.editForeign"
    ],
@@ -50484,6 +51222,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -50601,6 +51340,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "anyParams(videoHandoffUpload.single(\"video\"))"
    ],
@@ -50700,7 +51440,8 @@
    "top": "apps/api/src/routes/properties/index.ts::propertiesRouter",
    "guards": [
     "общий предел частоты запросов",
-    "idempotencyGuard"
+    "idempotencyGuard",
+    "pultWriteRefresh"
    ],
    "handlerRef": null,
    "tree": [
@@ -50827,6 +51568,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -50906,6 +51648,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -51041,6 +51784,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -51182,6 +51926,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -51347,6 +52092,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -51769,6 +52515,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "express.raw({ type: () => true, limit: \"32mb\" })"
    ],
@@ -51947,6 +52694,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -52078,6 +52826,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -52461,6 +53210,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -52532,6 +53282,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "anyParams(videoUpload.array(\"videos\", MAX_VIDEOS_PER_REQUEST))"
    ],
@@ -52919,6 +53670,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -53012,6 +53764,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: properties.delete"
    ],
@@ -53077,6 +53830,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -53171,6 +53925,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -54301,6 +55056,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: properties.publish"
    ],
@@ -54515,6 +55271,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: properties.delete"
    ],
@@ -54602,6 +55359,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: properties.delete"
    ],
@@ -54674,6 +55432,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -54799,6 +55558,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: properties.delete"
    ],
@@ -54949,6 +55709,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: properties.delete"
    ],
@@ -54996,6 +55757,56 @@
    ]
   },
   {
+   "method": "GET",
+   "path": "/clip-review/pending",
+   "mount": "/api/v1/properties",
+   "full": "/api/v1/properties/clip-review/pending",
+   "file": "apps/api/src/routes/properties/moderation.ts",
+   "router": "moderationRouter",
+   "top": "apps/api/src/routes/properties/index.ts::propertiesRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: properties.moderate"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const parsed = clipPendingQuerySchema.safeParse(req.query);",
+     "a": [
+      "проверяет данные схемой clipPendingQuerySchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Неверные данные\", details: parsed.error.flatten() });",
+       "a": [
+        "ответ 400 — «Неверные данные»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.json(await listPendingClips(parsed.data.limit));",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
    "method": "POST",
    "path": "/delete-requests/:id/approve",
    "mount": "/api/v1/properties",
@@ -55006,6 +55817,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: properties.delete"
    ],
@@ -55215,6 +56027,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: properties.delete"
    ],
@@ -55349,6 +56162,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: properties.delete"
    ],
@@ -55414,6 +56228,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "draftErrorHandler",
     "вход выполнен"
    ],
@@ -55595,6 +56410,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "draftErrorHandler",
     "вход выполнен",
     "memoryUploadBudget",
@@ -55886,6 +56702,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "draftErrorHandler",
     "вход выполнен"
    ],
@@ -55994,6 +56811,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "draftErrorHandler",
     "вход выполнен"
    ],
@@ -56185,6 +57003,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "draftErrorHandler",
     "вход выполнен",
     "(req, res, next) => { req.headers[\"content-type\"] = \"application/octet-stream\"; next(); }",
@@ -56401,6 +57220,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "draftErrorHandler",
     "вход выполнен"
    ],
@@ -56693,6 +57513,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "draftErrorHandler",
     "вход выполнен"
    ],
@@ -56821,6 +57642,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "draftErrorHandler",
     "вход выполнен"
    ],
@@ -56855,6 +57677,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "draftErrorHandler",
     "вход выполнен"
    ],
@@ -56954,6 +57777,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "draftErrorHandler",
     "вход выполнен"
    ],
@@ -57242,6 +58066,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -57447,6 +58272,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: properties.export"
    ],
@@ -57559,6 +58385,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -57592,6 +58419,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -57693,6 +58521,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -58246,6 +59075,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -58301,6 +59131,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -58379,6 +59210,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -58429,6 +59261,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: archive.view"
    ],
@@ -58464,6 +59297,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -58893,6 +59727,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -59953,6 +60788,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "предел частоты запросов"
    ],
    "handlerRef": null,
@@ -59994,21 +60830,14 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "предел частоты запросов"
    ],
    "handlerRef": null,
    "tree": [
     {
-     "k": "do",
-     "t": "const settings = await prisma.settings.findUnique({ where: { id: \"singleton\" }, select: { metaCatalogFeedEnab…",
-     "a": [
-      "читает в базе: settings"
-     ],
-     "c": []
-    },
-    {
      "k": "if",
-     "t": "!settings?.metaCatalogFeedEnabled || !configuredKey || !key || !secretsMatch(key, configuredKey)",
+     "t": "!(await metaCatalogKeyOk(req))",
      "a": [],
      "c": [
       {
@@ -60057,6 +60886,71 @@
   },
   {
    "method": "GET",
+   "path": "/meta-catalog/products-video.csv",
+   "mount": "/api/v1/public",
+   "full": "/api/v1/public/meta-catalog/products-video.csv",
+   "file": "apps/api/src/routes/publicFeed.ts",
+   "router": "publicFeedRouter",
+   "top": "apps/api/src/routes/publicFeed.ts::publicFeedRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "предел частоты запросов"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!(await metaCatalogKeyOk(req))",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).end();",
+       "a": [
+        "ответ 404"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const rows = await loadProductVideoRows();",
+     "a": [
+      "зовёт loadProductVideoRows()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.set(\"Content-Type\", \"text/csv; charset=utf-8\");",
+     "a": [
+      "ставит заголовок ответа"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.set(\"Cache-Control\", \"public, max-age=600\");",
+     "a": [
+      "ставит заголовок ответа"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.send(renderProductVideoCsv(rows));",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
    "path": "/:token",
    "mount": "/api/v1/public/owner-report",
    "full": "/api/v1/public/owner-report/:token",
@@ -60066,6 +60960,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "ownerReportNoStore",
     "предел частоты запросов",
     "(_req, res, next) => { res.setHeader(\"Cache-Control\", \"no-store\""
@@ -60199,6 +61094,103 @@
    ]
   },
   {
+   "method": "GET",
+   "path": "/property-video/:file",
+   "mount": "/api/v1/public",
+   "full": "/api/v1/public/property-video/:file",
+   "file": "apps/api/src/routes/publicFeed.ts",
+   "router": "publicFeedRouter",
+   "top": "apps/api/src/routes/publicFeed.ts::publicFeedRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "предел частоты запросов"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).end();",
+       "a": [
+        "ответ 404"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const property = await prisma.property.findUnique({ where: { shortId }, select: { shortId: true, status: true…",
+     "a": [
+      "читает в базе: property"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!property || !isPropertyVideoPublic(property)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).end();",
+       "a": [
+        "ответ 404"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.setHeader(\"Content-Type\", \"video/mp4\");",
+     "a": [
+      "ставит заголовок ответа"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.sendFile(fileName, { root: videoHandoffDir, maxAge: \"1d\" }, (err)",
+     "a": [
+      "ответ 404",
+      "запись в журнал ошибок"
+     ],
+     "c": [
+      {
+       "k": "if",
+       "t": "err && !res.headersSent",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "void logSystemError(\"storage\", `Публичный ролик объекта №${shortId} не отдан: ${err.message}`);",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "res.status(404).end();",
+         "a": [
+          "ответ 404"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
    "method": "POST",
    "path": "/action",
    "mount": "/api/v1/push",
@@ -60209,6 +61201,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "предел частоты запросов"
    ],
    "handlerRef": null,
@@ -60433,6 +61426,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -60458,6 +61452,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -60491,6 +61486,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -60577,6 +61573,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -60633,6 +61630,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -60704,6 +61702,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -60752,6 +61751,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: reports.view"
    ],
@@ -60832,6 +61832,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: reports.view"
    ],
@@ -60919,6 +61920,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: reports.view"
    ],
@@ -60955,6 +61957,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: reports.view"
    ],
@@ -61042,6 +62045,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: reports.view"
    ],
@@ -61098,6 +62102,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: reports.view"
    ],
@@ -61132,6 +62137,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: reports.view"
    ],
@@ -61181,6 +62187,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: reports.view",
     "есть право: dashboard.analytics"
@@ -61262,6 +62269,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: reports.view",
     "есть право: dashboard.analytics"
@@ -61297,6 +62305,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: reports.view"
    ],
@@ -61331,6 +62340,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: reports.view",
     "есть право: dashboard.analytics"
@@ -61412,6 +62422,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: reports.view",
     "есть право: dashboard.analytics"
@@ -61485,6 +62496,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: reports.view"
    ],
@@ -61542,6 +62554,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: reports.view"
    ],
@@ -61629,6 +62642,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: reports.view"
    ],
@@ -61694,6 +62708,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: reports.view"
    ],
@@ -61812,6 +62827,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: reports.view"
    ],
@@ -61846,6 +62862,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: score.clientLossOverride"
    ],
@@ -62055,6 +63072,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: score.clientLossOverride"
    ],
@@ -62112,6 +63130,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole"
    ],
@@ -62161,7 +63180,8 @@
    "top": "apps/api/src/routes/searchConsole.ts::searchConsoleCallbackRouter",
    "guards": [
     "общий предел частоты запросов",
-    "idempotencyGuard"
+    "idempotencyGuard",
+    "pultWriteRefresh"
    ],
    "handlerRef": null,
    "tree": [
@@ -62355,6 +63375,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole"
    ],
@@ -62412,6 +63433,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole"
    ],
@@ -62469,6 +63491,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole"
    ],
@@ -62542,6 +63565,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole"
    ],
@@ -62591,7 +63615,8 @@
    "top": "apps/api/src/routes/searchConsole.ts::yandexCallbackRouter",
    "guards": [
     "общий предел частоты запросов",
-    "idempotencyGuard"
+    "idempotencyGuard",
+    "pultWriteRefresh"
    ],
    "handlerRef": null,
    "tree": [
@@ -62793,6 +63818,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole"
    ],
@@ -62850,6 +63876,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole"
    ],
@@ -62907,6 +63934,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: clients.securityReview"
    ],
@@ -62948,6 +63976,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: clients.securityReview"
    ],
@@ -62989,6 +64018,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: clients.securityReview"
    ],
@@ -63073,6 +64103,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage",
     "requireElevation"
@@ -63169,6 +64200,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage",
     "requireElevation"
@@ -63227,6 +64259,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "предел частоты запросов"
    ],
    "handlerRef": null,
@@ -63260,6 +64293,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage"
    ],
@@ -63401,6 +64435,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage",
     "requireElevation"
@@ -63444,6 +64479,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage"
    ],
@@ -63487,6 +64523,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage"
    ],
@@ -63614,6 +64651,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage",
     "requireElevation"
@@ -63745,6 +64783,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage"
    ],
@@ -63810,6 +64849,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage",
     "requireElevation"
@@ -63868,6 +64908,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage",
     "requireElevation",
@@ -63963,6 +65004,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage"
    ],
@@ -64058,6 +65100,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage"
    ],
@@ -64109,6 +65152,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage",
     "requireElevation"
@@ -64175,6 +65219,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage"
    ],
@@ -64209,6 +65254,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage",
     "requireElevation",
@@ -64477,6 +65523,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage",
     "requireElevation"
@@ -64572,6 +65619,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage"
    ],
@@ -64666,6 +65714,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage",
     "requireElevation"
@@ -64761,6 +65810,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage",
     "requireElevation"
@@ -64856,6 +65906,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage"
    ],
@@ -64950,6 +66001,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage",
     "requireElevation"
@@ -65008,6 +66060,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage",
     "requireElevation"
@@ -65096,6 +66149,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage",
     "requireElevation"
@@ -65216,6 +66270,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage",
     "requireElevation"
@@ -65297,6 +66352,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage",
     "requireElevation"
@@ -65416,6 +66472,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage",
     "предел частоты запросов"
@@ -65505,6 +66562,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage",
     "есть право: calls.transcripts",
@@ -65587,6 +66645,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage",
     "есть право: calls.transcripts"
@@ -65712,6 +66771,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage",
     "requireElevation",
@@ -65763,6 +66823,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage"
    ],
@@ -65841,6 +66902,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage",
     "requireElevation"
@@ -65920,6 +66982,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage",
     "requireElevation"
@@ -65963,6 +67026,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage"
    ],
@@ -65989,6 +67053,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage",
     "requireElevation"
@@ -66212,6 +67277,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage",
     "requireElevation"
@@ -66263,6 +67329,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage",
     "requireElevation"
@@ -66437,6 +67504,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage"
    ],
@@ -66512,6 +67580,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: siteAdmin.reset",
     "requireElevation"
@@ -66646,6 +67715,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage",
     "requireElevation",
@@ -66779,6 +67849,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage"
    ],
@@ -66831,6 +67902,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage"
    ],
@@ -66857,6 +67929,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -66891,6 +67964,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage",
     "requireElevation"
@@ -67921,6 +68995,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: siteChanges.resolve"
    ],
@@ -67993,6 +69068,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: siteChanges.resolve"
    ],
@@ -68118,6 +69194,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: siteChanges.view"
    ],
@@ -68176,6 +69253,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.view"
    ],
@@ -68225,6 +69303,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.view"
    ],
@@ -68251,6 +69330,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage",
     "requireElevation"
@@ -68415,6 +69495,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен"
    ],
    "handlerRef": null,
@@ -68440,6 +69521,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage",
     "requireElevation"
@@ -68512,7 +69594,8 @@
    "top": "apps/api/src/routes/sms.ts::smsRouter",
    "guards": [
     "общий предел частоты запросов",
-    "idempotencyGuard"
+    "idempotencyGuard",
+    "pultWriteRefresh"
    ],
    "handlerRef": null,
    "tree": [
@@ -68614,6 +69697,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole"
    ],
@@ -68687,6 +69771,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole"
    ],
@@ -68729,6 +69814,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole"
    ],
@@ -68870,6 +69956,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole"
    ],
@@ -68896,6 +69983,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole",
     "socialVideoCoverUpload.single(\"cover\")"
@@ -69022,6 +70110,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole"
    ],
@@ -69095,6 +70184,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole"
    ],
@@ -69168,6 +70258,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole"
    ],
@@ -69241,6 +70332,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole"
    ],
@@ -69314,6 +70406,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole"
    ],
@@ -69340,6 +70433,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole"
    ],
@@ -69382,6 +70476,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole"
    ],
@@ -69408,6 +70503,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole"
    ],
@@ -69465,6 +70561,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole"
    ],
@@ -69553,6 +70650,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole"
    ],
@@ -69587,6 +70685,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole"
    ],
@@ -69613,6 +70712,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole"
    ],
@@ -69639,6 +70739,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole"
    ],
@@ -69665,6 +70766,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole"
    ],
@@ -69722,6 +70824,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole",
     "socialVideoUpload.single(\"video\")"
@@ -69878,6 +70981,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: auditLog.view"
    ],
@@ -69942,6 +71046,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: auditLog.view"
    ],
@@ -69999,6 +71104,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: team.viewFull"
    ],
@@ -70102,6 +71208,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: team.viewFull"
    ],
@@ -70296,6 +71403,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "предел частоты запросов"
    ],
    "handlerRef": null,
@@ -70399,6 +71507,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "предел частоты запросов"
    ],
    "handlerRef": null,
@@ -70531,6 +71640,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole"
    ],
@@ -70572,7 +71682,8 @@
    "top": "apps/api/src/routes/threads.ts::threadsCallbackRouter",
    "guards": [
     "общий предел частоты запросов",
-    "idempotencyGuard"
+    "idempotencyGuard",
+    "pultWriteRefresh"
    ],
    "handlerRef": null,
    "tree": [
@@ -70788,6 +71899,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole"
    ],
@@ -70853,6 +71965,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole"
    ],
@@ -70970,6 +72083,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole"
    ],
@@ -71080,6 +72194,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole"
    ],
@@ -71183,6 +72298,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole"
    ],
@@ -71285,7 +72401,8 @@
    "top": "apps/api/src/routes/tiktok.ts::tiktokCallbackRouter",
    "guards": [
     "общий предел частоты запросов",
-    "idempotencyGuard"
+    "idempotencyGuard",
+    "pultWriteRefresh"
    ],
    "handlerRef": null,
    "tree": [
@@ -71456,6 +72573,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "requireMarketingRole"
    ],
@@ -71521,6 +72639,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "предел частоты запросов",
     "memoryUploadBudget",
@@ -71602,6 +72721,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "(_req, res, next) => { res.setHeader(\"Cache-Control\", \"no-store\"",
     "вход выполнен",
     "requireShellAdministrator",
@@ -71638,6 +72758,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "(_req, res, next) => { res.setHeader(\"Cache-Control\", \"no-store\"",
     "вход выполнен",
     "requireShellAdministrator",
@@ -71931,6 +73052,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "(_req, res, next) => { res.setHeader(\"Cache-Control\", \"no-store\"",
     "вход выполнен"
    ],
@@ -71957,6 +73079,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: vacancies.view"
    ],
@@ -72150,6 +73273,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: vacancies.view",
     "validateApplicationId"
@@ -72199,6 +73323,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: vacancies.view"
    ],
@@ -72304,6 +73429,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: vacancies.view"
    ],
@@ -72360,6 +73486,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: vacancies.view",
     "validateApplicationId"
@@ -72440,6 +73567,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: vacancies.view",
     "validateApplicationId"
@@ -72520,6 +73648,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: vacancies.view"
    ],
@@ -72592,6 +73721,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: vacancies.view"
    ],
@@ -72656,6 +73786,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: vacancies.view"
    ],
@@ -72717,6 +73848,71 @@
    ]
   },
   {
+   "method": "GET",
+   "path": "/:id",
+   "mount": "/api/v1/vacancies",
+   "full": "/api/v1/vacancies/:id",
+   "file": "apps/api/src/routes/vacancies.ts",
+   "router": "vacanciesRouter",
+   "top": "apps/api/src/routes/vacancies.ts::vacanciesRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: vacancies.view"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!id.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Анкета не найдена\" });",
+       "a": [
+        "ответ 404 — «Анкета не найдена»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const row = await prisma.jobApplication.findFirst({ where: { AND: [{ id: id.data }, NOT_ARCHIVED] }, include:…",
+     "a": [
+      "читает в базе: jobApplication"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!row",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Анкета не найдена\" });",
+       "a": [
+        "ответ 404 — «Анкета не найдена»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.json(presentListItem(row));",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
    "method": "PATCH",
    "path": "/:id",
    "mount": "/api/v1/vacancies",
@@ -72727,6 +73923,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: vacancies.view"
    ],
@@ -73367,6 +74564,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: vacancies.view"
    ],
@@ -73646,6 +74844,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: vacancies.view",
     "есть право: settings.manage",
@@ -73931,6 +75130,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: vacancies.view",
     "есть право: settings.manage"
@@ -74011,6 +75211,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: vacancies.view",
     "есть право: settings.manage",
@@ -74093,6 +75294,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: vacancies.view"
    ],
@@ -74119,6 +75321,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: vacancies.view"
    ],
@@ -74175,6 +75378,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: vacancies.view"
    ],
@@ -74241,6 +75445,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: vacancies.view"
    ],
@@ -74390,6 +75595,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "предел частоты запросов"
    ],
    "handlerRef": null,
@@ -74634,7 +75840,8 @@
    "top": "apps/api/src/routes/webhooks.ts::webhooksRouter",
    "guards": [
     "общий предел частоты запросов",
-    "idempotencyGuard"
+    "idempotencyGuard",
+    "pultWriteRefresh"
    ],
    "handlerRef": null,
    "tree": [
@@ -74675,6 +75882,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "requireMetaSignature",
     "предел частоты запросов"
    ],
@@ -76112,6 +77320,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "предел частоты запросов"
    ],
    "handlerRef": null,
@@ -76342,6 +77551,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "предел частоты запросов"
    ],
    "handlerRef": null,
@@ -76499,6 +77709,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "предел частоты запросов"
    ],
    "handlerRef": null,
@@ -76687,6 +77898,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "предел частоты запросов"
    ],
    "handlerRef": null,
@@ -77188,6 +78400,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "requireTelegramSecret",
     "предел частоты запросов"
    ],
@@ -77344,6 +78557,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "anyParams(websiteChatPollLimiter)"
    ],
    "handlerRef": null,
@@ -77444,6 +78658,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "предел частоты запросов"
    ],
    "handlerRef": null,
@@ -77696,6 +78911,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "предел частоты запросов"
    ],
    "handlerRef": null,
@@ -77897,6 +79113,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "предел частоты запросов"
    ],
    "handlerRef": null,
@@ -77944,6 +79161,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage"
    ],
@@ -78017,6 +79235,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.manage"
    ],
@@ -78104,6 +79323,7 @@
    "guards": [
     "общий предел частоты запросов",
     "idempotencyGuard",
+    "pultWriteRefresh",
     "вход выполнен",
     "есть право: settings.view"
    ],
@@ -79205,6 +80425,21 @@
             "создаёт в базе: errorLog"
            ],
            "c": []
+          },
+          {
+           "k": "if",
+           "t": "!context?.quietPult",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "requestPultSnapshot();",
+             "a": [
+              "зовёт requestPultSnapshot()"
+             ],
+             "c": []
+            }
+           ]
           },
           {
            "k": "if",
@@ -84403,6 +85638,21 @@
             },
             {
              "k": "if",
+             "t": "!context?.quietPult",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "requestPultSnapshot();",
+               "a": [
+                "зовёт requestPultSnapshot()"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "if",
              "t": "!everSeen && !context?.silent",
              "a": [],
              "c": [
@@ -84555,6 +85805,21 @@
             "создаёт в базе: errorLog"
            ],
            "c": []
+          },
+          {
+           "k": "if",
+           "t": "!context?.quietPult",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "requestPultSnapshot();",
+             "a": [
+              "зовёт requestPultSnapshot()"
+             ],
+             "c": []
+            }
+           ]
           },
           {
            "k": "if",
@@ -86896,6 +88161,21 @@
           },
           {
            "k": "if",
+           "t": "!context?.quietPult",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "requestPultSnapshot();",
+             "a": [
+              "зовёт requestPultSnapshot()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
            "t": "!everSeen && !context?.silent",
            "a": [],
            "c": [
@@ -87381,6 +88661,21 @@
             },
             {
              "k": "if",
+             "t": "!context?.quietPult",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "requestPultSnapshot();",
+               "a": [
+                "зовёт requestPultSnapshot()"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "if",
              "t": "!everSeen && !context?.silent",
              "a": [],
              "c": [
@@ -87508,6 +88803,21 @@
             "создаёт в базе: errorLog"
            ],
            "c": []
+          },
+          {
+           "k": "if",
+           "t": "!context?.quietPult",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "requestPultSnapshot();",
+             "a": [
+              "зовёт requestPultSnapshot()"
+             ],
+             "c": []
+            }
+           ]
           },
           {
            "k": "if",
@@ -97912,6 +99222,21 @@
               },
               {
                "k": "if",
+               "t": "!context?.quietPult",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "requestPultSnapshot();",
+                 "a": [
+                  "зовёт requestPultSnapshot()"
+                 ],
+                 "c": []
+                }
+               ]
+              },
+              {
+               "k": "if",
                "t": "!everSeen && !context?.silent",
                "a": [],
                "c": [
@@ -98031,6 +99356,21 @@
               "создаёт в базе: errorLog"
              ],
              "c": []
+            },
+            {
+             "k": "if",
+             "t": "!context?.quietPult",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "requestPultSnapshot();",
+               "a": [
+                "зовёт requestPultSnapshot()"
+               ],
+               "c": []
+              }
+             ]
             },
             {
              "k": "if",
@@ -103544,6 +104884,21 @@
           },
           {
            "k": "if",
+           "t": "!context?.quietPult",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "requestPultSnapshot();",
+             "a": [
+              "зовёт requestPultSnapshot()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
            "t": "!everSeen && !context?.silent",
            "a": [],
            "c": [
@@ -105062,6 +106417,21 @@
           },
           {
            "k": "if",
+           "t": "!context?.quietPult",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "requestPultSnapshot();",
+             "a": [
+              "зовёт requestPultSnapshot()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
            "t": "!everSeen && !context?.silent",
            "a": [],
            "c": [
@@ -105425,6 +106795,21 @@
             "создаёт в базе: errorLog"
            ],
            "c": []
+          },
+          {
+           "k": "if",
+           "t": "!context?.quietPult",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "requestPultSnapshot();",
+             "a": [
+              "зовёт requestPultSnapshot()"
+             ],
+             "c": []
+            }
+           ]
           },
           {
            "k": "if",
@@ -106242,6 +107627,21 @@
             },
             {
              "k": "if",
+             "t": "!context?.quietPult",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "requestPultSnapshot();",
+               "a": [
+                "зовёт requestPultSnapshot()"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "if",
              "t": "!everSeen && !context?.silent",
              "a": [],
              "c": [
@@ -106459,6 +107859,21 @@
           },
           {
            "k": "if",
+           "t": "!context?.quietPult",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "requestPultSnapshot();",
+             "a": [
+              "зовёт requestPultSnapshot()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
            "t": "!everSeen && !context?.silent",
            "a": [],
            "c": [
@@ -106655,6 +108070,21 @@
           "создаёт в базе: errorLog"
          ],
          "c": []
+        },
+        {
+         "k": "if",
+         "t": "!context?.quietPult",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "requestPultSnapshot();",
+           "a": [
+            "зовёт requestPultSnapshot()"
+           ],
+           "c": []
+          }
+         ]
         },
         {
          "k": "if",
@@ -107070,6 +108500,21 @@
           },
           {
            "k": "if",
+           "t": "!context?.quietPult",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "requestPultSnapshot();",
+             "a": [
+              "зовёт requestPultSnapshot()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
            "t": "!everSeen && !context?.silent",
            "a": [],
            "c": [
@@ -107279,6 +108724,21 @@
             "создаёт в базе: errorLog"
            ],
            "c": []
+          },
+          {
+           "k": "if",
+           "t": "!context?.quietPult",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "requestPultSnapshot();",
+             "a": [
+              "зовёт requestPultSnapshot()"
+             ],
+             "c": []
+            }
+           ]
           },
           {
            "k": "if",
@@ -107535,6 +108995,21 @@
             "создаёт в базе: errorLog"
            ],
            "c": []
+          },
+          {
+           "k": "if",
+           "t": "!context?.quietPult",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "requestPultSnapshot();",
+             "a": [
+              "зовёт requestPultSnapshot()"
+             ],
+             "c": []
+            }
+           ]
           },
           {
            "k": "if",
@@ -107888,6 +109363,21 @@
             "создаёт в базе: errorLog"
            ],
            "c": []
+          },
+          {
+           "k": "if",
+           "t": "!context?.quietPult",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "requestPultSnapshot();",
+             "a": [
+              "зовёт requestPultSnapshot()"
+             ],
+             "c": []
+            }
+           ]
           },
           {
            "k": "if",
@@ -108380,6 +109870,21 @@
             },
             {
              "k": "if",
+             "t": "!context?.quietPult",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "requestPultSnapshot();",
+               "a": [
+                "зовёт requestPultSnapshot()"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "if",
              "t": "!everSeen && !context?.silent",
              "a": [],
              "c": [
@@ -108514,6 +110019,21 @@
             "создаёт в базе: errorLog"
            ],
            "c": []
+          },
+          {
+           "k": "if",
+           "t": "!context?.quietPult",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "requestPultSnapshot();",
+             "a": [
+              "зовёт requestPultSnapshot()"
+             ],
+             "c": []
+            }
+           ]
           },
           {
            "k": "if",
@@ -108819,6 +110339,21 @@
             "создаёт в базе: errorLog"
            ],
            "c": []
+          },
+          {
+           "k": "if",
+           "t": "!context?.quietPult",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "requestPultSnapshot();",
+             "a": [
+              "зовёт requestPultSnapshot()"
+             ],
+             "c": []
+            }
+           ]
           },
           {
            "k": "if",
@@ -109277,6 +110812,21 @@
           },
           {
            "k": "if",
+           "t": "!context?.quietPult",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "requestPultSnapshot();",
+             "a": [
+              "зовёт requestPultSnapshot()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
            "t": "!everSeen && !context?.silent",
            "a": [],
            "c": [
@@ -109525,6 +111075,21 @@
             "создаёт в базе: errorLog"
            ],
            "c": []
+          },
+          {
+           "k": "if",
+           "t": "!context?.quietPult",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "requestPultSnapshot();",
+             "a": [
+              "зовёт requestPultSnapshot()"
+             ],
+             "c": []
+            }
+           ]
           },
           {
            "k": "if",
@@ -109893,6 +111458,21 @@
           },
           {
            "k": "if",
+           "t": "!context?.quietPult",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "requestPultSnapshot();",
+             "a": [
+              "зовёт requestPultSnapshot()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
            "t": "!everSeen && !context?.silent",
            "a": [],
            "c": [
@@ -110010,6 +111590,21 @@
             "создаёт в базе: errorLog"
            ],
            "c": []
+          },
+          {
+           "k": "if",
+           "t": "!context?.quietPult",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "requestPultSnapshot();",
+             "a": [
+              "зовёт requestPultSnapshot()"
+             ],
+             "c": []
+            }
+           ]
           },
           {
            "k": "if",
@@ -110312,6 +111907,21 @@
           },
           {
            "k": "if",
+           "t": "!context?.quietPult",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "requestPultSnapshot();",
+             "a": [
+              "зовёт requestPultSnapshot()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
            "t": "!everSeen && !context?.silent",
            "a": [],
            "c": [
@@ -110607,6 +112217,21 @@
             "создаёт в базе: errorLog"
            ],
            "c": []
+          },
+          {
+           "k": "if",
+           "t": "!context?.quietPult",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "requestPultSnapshot();",
+             "a": [
+              "зовёт requestPultSnapshot()"
+             ],
+             "c": []
+            }
+           ]
           },
           {
            "k": "if",
@@ -111135,6 +112760,21 @@
           },
           {
            "k": "if",
+           "t": "!context?.quietPult",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "requestPultSnapshot();",
+             "a": [
+              "зовёт requestPultSnapshot()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
            "t": "!everSeen && !context?.silent",
            "a": [],
            "c": [
@@ -111314,6 +112954,21 @@
           },
           {
            "k": "if",
+           "t": "!context?.quietPult",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "requestPultSnapshot();",
+             "a": [
+              "зовёт requestPultSnapshot()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
            "t": "!everSeen && !context?.silent",
            "a": [],
            "c": [
@@ -111470,6 +113125,21 @@
             "создаёт в базе: errorLog"
            ],
            "c": []
+          },
+          {
+           "k": "if",
+           "t": "!context?.quietPult",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "requestPultSnapshot();",
+             "a": [
+              "зовёт requestPultSnapshot()"
+             ],
+             "c": []
+            }
+           ]
           },
           {
            "k": "if",
@@ -112070,6 +113740,21 @@
           },
           {
            "k": "if",
+           "t": "!context?.quietPult",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "requestPultSnapshot();",
+             "a": [
+              "зовёт requestPultSnapshot()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
            "t": "!everSeen && !context?.silent",
            "a": [],
            "c": [
@@ -112396,6 +114081,21 @@
           },
           {
            "k": "if",
+           "t": "!context?.quietPult",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "requestPultSnapshot();",
+             "a": [
+              "зовёт requestPultSnapshot()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
            "t": "!everSeen && !context?.silent",
            "a": [],
            "c": [
@@ -112659,6 +114359,21 @@
             "создаёт в базе: errorLog"
            ],
            "c": []
+          },
+          {
+           "k": "if",
+           "t": "!context?.quietPult",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "requestPultSnapshot();",
+             "a": [
+              "зовёт requestPultSnapshot()"
+             ],
+             "c": []
+            }
+           ]
           },
           {
            "k": "if",
@@ -113211,6 +114926,21 @@
           },
           {
            "k": "if",
+           "t": "!context?.quietPult",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "requestPultSnapshot();",
+             "a": [
+              "зовёт requestPultSnapshot()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
            "t": "!everSeen && !context?.silent",
            "a": [],
            "c": [
@@ -113491,6 +115221,21 @@
             "создаёт в базе: errorLog"
            ],
            "c": []
+          },
+          {
+           "k": "if",
+           "t": "!context?.quietPult",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "requestPultSnapshot();",
+             "a": [
+              "зовёт requestPultSnapshot()"
+             ],
+             "c": []
+            }
+           ]
           },
           {
            "k": "if",
@@ -114104,6 +115849,21 @@
           },
           {
            "k": "if",
+           "t": "!context?.quietPult",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "requestPultSnapshot();",
+             "a": [
+              "зовёт requestPultSnapshot()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
            "t": "!everSeen && !context?.silent",
            "a": [],
            "c": [
@@ -114411,6 +116171,21 @@
           },
           {
            "k": "if",
+           "t": "!context?.quietPult",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "requestPultSnapshot();",
+             "a": [
+              "зовёт requestPultSnapshot()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
            "t": "!everSeen && !context?.silent",
            "a": [],
            "c": [
@@ -114681,6 +116456,21 @@
             "создаёт в базе: errorLog"
            ],
            "c": []
+          },
+          {
+           "k": "if",
+           "t": "!context?.quietPult",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "requestPultSnapshot();",
+             "a": [
+              "зовёт requestPultSnapshot()"
+             ],
+             "c": []
+            }
+           ]
           },
           {
            "k": "if",
@@ -115254,6 +117044,21 @@
             "создаёт в базе: errorLog"
            ],
            "c": []
+          },
+          {
+           "k": "if",
+           "t": "!context?.quietPult",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "requestPultSnapshot();",
+             "a": [
+              "зовёт requestPultSnapshot()"
+             ],
+             "c": []
+            }
+           ]
           },
           {
            "k": "if",
@@ -116113,6 +117918,21 @@
           },
           {
            "k": "if",
+           "t": "!context?.quietPult",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "requestPultSnapshot();",
+             "a": [
+              "зовёт requestPultSnapshot()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
            "t": "!everSeen && !context?.silent",
            "a": [],
            "c": [
@@ -116877,6 +118697,21 @@
           },
           {
            "k": "if",
+           "t": "!context?.quietPult",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "requestPultSnapshot();",
+             "a": [
+              "зовёт requestPultSnapshot()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
            "t": "!everSeen && !context?.silent",
            "a": [],
            "c": [
@@ -117073,6 +118908,21 @@
               "создаёт в базе: errorLog"
              ],
              "c": []
+            },
+            {
+             "k": "if",
+             "t": "!context?.quietPult",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "requestPultSnapshot();",
+               "a": [
+                "зовёт requestPultSnapshot()"
+               ],
+               "c": []
+              }
+             ]
             },
             {
              "k": "if",
@@ -117279,6 +119129,21 @@
             "создаёт в базе: errorLog"
            ],
            "c": []
+          },
+          {
+           "k": "if",
+           "t": "!context?.quietPult",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "requestPultSnapshot();",
+             "a": [
+              "зовёт requestPultSnapshot()"
+             ],
+             "c": []
+            }
+           ]
           },
           {
            "k": "if",
@@ -118184,6 +120049,14 @@
         },
         {
          "k": "do",
+         "t": "requestPultSnapshot();",
+         "a": [
+          "зовёт requestPultSnapshot()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
          "t": "const updated = await prisma.property.findUniqueOrThrow({ where: { id: propertyId }, include: { district: tru…",
          "a": [
           "читает в базе: property"
@@ -118528,6 +120401,21 @@
           },
           {
            "k": "if",
+           "t": "!context?.quietPult",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "requestPultSnapshot();",
+             "a": [
+              "зовёт requestPultSnapshot()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
            "t": "!everSeen && !context?.silent",
            "a": [],
            "c": [
@@ -118704,6 +120592,21 @@
             "создаёт в базе: errorLog"
            ],
            "c": []
+          },
+          {
+           "k": "if",
+           "t": "!context?.quietPult",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "requestPultSnapshot();",
+             "a": [
+              "зовёт requestPultSnapshot()"
+             ],
+             "c": []
+            }
+           ]
           },
           {
            "k": "if",
@@ -118981,6 +120884,21 @@
             "создаёт в базе: errorLog"
            ],
            "c": []
+          },
+          {
+           "k": "if",
+           "t": "!context?.quietPult",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "requestPultSnapshot();",
+             "a": [
+              "зовёт requestPultSnapshot()"
+             ],
+             "c": []
+            }
+           ]
           },
           {
            "k": "if",
@@ -119463,6 +121381,21 @@
             "создаёт в базе: errorLog"
            ],
            "c": []
+          },
+          {
+           "k": "if",
+           "t": "!context?.quietPult",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "requestPultSnapshot();",
+             "a": [
+              "зовёт requestPultSnapshot()"
+             ],
+             "c": []
+            }
+           ]
           },
           {
            "k": "if",

@@ -32,6 +32,9 @@ const SOLD_RECENT_DAYS = 30;
 /** Сколько минут строки фида живут в памяти, не пересчитываясь на каждый запрос Meta. */
 const CACHE_TTL_MS = 10 * 60 * 1000;
 
+/** Город (и регион) строки, у объекта которой нет района: агентство работает только в Душанбе. */
+const DEFAULT_CITY = "Душанбе";
+
 export type CatalogProperty = Prisma.PropertyGetPayload<{
   include: { district: true; photos: { orderBy: { order: "asc" } } };
 }>;
@@ -160,7 +163,7 @@ function toAvailability(status: CatalogProperty["status"]): HomeListingRow["avai
 /** Квадратная обложка первой, затем фото по порядку — тот же приём, что и на
  *  сайте (siteImageUrls), но со своим потолком и без чтения окружения внутри:
  *  crmBase приходит параметром, чтобы функция оставалась чистой и проверяемой. */
-function catalogImageUrls(property: CatalogProperty, crmBase: string): string[] {
+export function catalogImageUrls(property: CatalogProperty, crmBase: string): string[] {
   const photoUrls = property.photos.flatMap((p) => (p.url.startsWith("/uploads/") ? [`${crmBase}${p.url}`] : []));
   const cover =
     property.socialCoverSquareUrl && property.socialCoverSquareUrl.startsWith("/uploads/")
@@ -168,6 +171,17 @@ function catalogImageUrls(property: CatalogProperty, crmBase: string): string[] 
       : null;
   const urls = cover ? [cover, ...photoUrls.filter((u) => u !== cover)] : photoUrls;
   return urls.slice(0, META_CATALOG_MAX_IMAGES);
+}
+
+/** Цена в целых сомони: доллары пересчитываются по курсу. NaN — цену не понять.
+ *  Общая для home_listings и товарного фида с видео (lib/metaProductVideoFeed.ts). */
+export function catalogPriceTjs(property: Pick<CatalogProperty, "currency" | "price">, usdToTjsRate: number): number {
+  return property.currency === "USD" ? Math.round(Number(property.price) * usdToTjsRate) : Math.round(Number(property.price));
+}
+
+/** Ссылка на объявление на сайте: по siteListingId, иначе универсальный редирект by-crm. */
+export function catalogListingUrl(property: Pick<CatalogProperty, "id" | "siteListingId">, siteBase: string): string {
+  return property.siteListingId != null ? `${siteBase}/listing/${property.siteListingId}` : `${siteBase}/listing/by-crm/${property.id}`;
 }
 
 export interface BuildHomeListingRowsOptions {
@@ -207,13 +221,12 @@ export function buildHomeListingRows(
     const images = crmBase ? catalogImageUrls(property, crmBase) : [];
     if (images.length === 0) continue;
 
-    const priceNum =
-      property.currency === "USD" ? Math.round(Number(property.price) * usdToTjsRate) : Math.round(Number(property.price));
+    const priceNum = catalogPriceTjs(property, usdToTjsRate);
     if (!Number.isFinite(priceNum)) continue;
 
     const districtName = property.district?.name ?? "";
-    const url =
-      property.siteListingId != null ? `${siteBase}/listing/${property.siteListingId}` : `${siteBase}/listing/by-crm/${property.id}`;
+    const city = property.district?.city || DEFAULT_CITY;
+    const url = catalogListingUrl(property, siteBase);
 
     rows.push({
       // Сайт шлёт этот же shortId как content_ids в Meta Pixel (репозиторий
@@ -224,8 +237,11 @@ export function buildHomeListingRows(
       description: property.description ?? "",
       availability,
       addr1: districtName,
-      city: property.district?.city ?? "",
-      region: "",
+      city,
+      // Meta отклоняет строку home_listings с пустым address.region (23.10.2026:
+      // все 68 объектов первой загрузки). Душанбе — город республиканского
+      // подчинения, сам себе регион, поэтому регион = город.
+      region: city,
       country: "TJ",
       postal_code: "",
       latitude: String(lat),
@@ -249,9 +265,7 @@ export function buildHomeListingRows(
 let cache: { at: number; rows: HomeListingRow[] } | null = null;
 
 /**
- * Объекты каталога: AVAILABLE/RESERVED + опубликован на сайте + не offSite +
- * хотя бы одно фото; SOLD — только последние SOLD_RECENT_DAYS дней (архив
- * продаж рекламировать незачем и Meta это не нужно).
+ * Строки home_listings из объектов каталога (отбор — queryCatalogProperties ниже).
  *
  * Кэш на CACHE_TTL_MS в памяти процесса — Meta дёргает адрес раз в час/день, а
  * не на каждый показ объявления, но при параллельных запусках API (несколько
@@ -260,6 +274,38 @@ let cache: { at: number; rows: HomeListingRow[] } | null = null;
 export async function loadCatalogProperties(): Promise<HomeListingRow[]> {
   if (cache && Date.now() - cache.at < CACHE_TTL_MS) return cache.rows;
 
+  const { properties, usdToTjsRate } = await queryCatalogProperties();
+
+  const crmBase = crmPublicBase();
+  if (!crmBase) {
+    // Без адреса CRM у феда не будет ни одной ссылки на фото — Meta отвергнет
+    // весь файл. Честно логируем, а не отдаём молча пустой каталог.
+    void logSystemError("meta", "Фид каталога Meta пуст: не настроен CRM_PUBLIC_URL, ссылок на фото нет");
+  }
+
+  const rows = buildHomeListingRows(properties, {
+    siteBase: siteHomeUrl(),
+    crmBase,
+    usdToTjsRate,
+  });
+
+  cache = { at: Date.now(), rows };
+  return rows;
+}
+
+/** Сброс кэша — только для тестов (иначе второй тест в том же процессе видит
+ *  данные первого до истечения CACHE_TTL_MS). */
+export function resetMetaCatalogFeedCacheForTests(): void {
+  cache = null;
+}
+
+/**
+ * Отбор объектов каталога из базы: AVAILABLE/RESERVED + опубликован на сайте +
+ * не offSite + хотя бы одно фото; SOLD — только последние SOLD_RECENT_DAYS дней
+ * (архив продаж рекламировать незачем и Meta это не нужно). Один отбор на оба
+ * фида (home_listings и товарный с видео) — без копии условий.
+ */
+export async function queryCatalogProperties(): Promise<{ properties: CatalogProperty[]; usdToTjsRate: number }> {
   const [properties, moneyCtx] = await Promise.all([
     prisma.property.findMany({
       where: {
@@ -278,25 +324,5 @@ export async function loadCatalogProperties(): Promise<HomeListingRow[]> {
     loadMoneyContext(),
   ]);
 
-  const crmBase = crmPublicBase();
-  if (!crmBase) {
-    // Без адреса CRM у феда не будет ни одной ссылки на фото — Meta отвергнет
-    // весь файл. Честно логируем, а не отдаём молча пустой каталог.
-    void logSystemError("meta", "Фид каталога Meta пуст: не настроен CRM_PUBLIC_URL, ссылок на фото нет");
-  }
-
-  const rows = buildHomeListingRows(properties, {
-    siteBase: siteHomeUrl(),
-    crmBase,
-    usdToTjsRate: moneyCtx.usdToTjs,
-  });
-
-  cache = { at: Date.now(), rows };
-  return rows;
-}
-
-/** Сброс кэша — только для тестов (иначе второй тест в том же процессе видит
- *  данные первого до истечения CACHE_TTL_MS). */
-export function resetMetaCatalogFeedCacheForTests(): void {
-  cache = null;
+  return { properties, usdToTjsRate: moneyCtx.usdToTjs };
 }

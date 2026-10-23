@@ -1,5 +1,5 @@
 import type { CSSProperties, ReactNode } from "react";
-import { Clock3, Home, MessageCircle, Phone, UserRound } from "lucide-react";
+import { Clock3, Home, MessageCircle, Phone, UserRound, type LucideIcon } from "lucide-react";
 import { CCard } from "./ui";
 
 export type CleanClientTab = "short" | "chat" | "calls" | "props" | "hist";
@@ -29,39 +29,57 @@ export function CleanClientDetailHeader({ enabled, children }: { enabled: boolea
   return <header className="card clean-client-header" style={{ border: 0, padding: 24 }}>{children}</header>;
 }
 
-export function cleanClientTabForKey(current: CleanClientTab, key: string): CleanClientTab | undefined {
-  const index = sections.findIndex((section) => section.id === current);
-  if (key === "Home") return sections[0].id;
-  if (key === "End") return sections[sections.length - 1].id;
-  if (key === "ArrowRight") return sections[(index + 1) % sections.length].id;
-  if (key === "ArrowLeft") return sections[(index + sections.length - 1) % sections.length].id;
+/** Стрелки и Home/End по вкладкам карточки — общее правило для всех `.clean-record-tabs`. */
+export function cleanRecordTabForKey<Id extends string>(ids: readonly Id[], current: Id, key: string): Id | undefined {
+  const index = ids.indexOf(current);
+  if (key === "Home") return ids[0];
+  if (key === "End") return ids[ids.length - 1];
+  if (key === "ArrowRight") return ids[(index + 1) % ids.length];
+  if (key === "ArrowLeft") return ids[(index + ids.length - 1) % ids.length];
   return undefined;
+}
+
+export function cleanClientTabForKey(current: CleanClientTab, key: string): CleanClientTab | undefined {
+  return cleanRecordTabForKey(sections.map((section) => section.id), current, key);
 }
 
 export function cleanClientPanelProps(tab: CleanClientTab) {
   return { role: "tabpanel", id: `clean-client-panel-${tab}`, "aria-labelledby": `clean-client-tab-${tab}`, tabIndex: 0 } as const;
 }
 
-export function CleanClientDetailTabs({ value, onChange, objectsLabel = "Объекты" }: { value: CleanClientTab; onChange: (value: CleanClientTab) => void; objectsLabel?: string }) {
+export type CleanRecordTab<Id extends string> = { id: Id; label: string; short?: string; icon: LucideIcon };
+
+/**
+ * Вкладки карточки записи в оболочке Clean (`.clean-record-tabs`): клиент,
+ * кандидат. Роли tablist/tab, roving tabindex, стрелки и Home/End; панели
+ * связаны через `<idPrefix>-tab-<id>` / `<idPrefix>-panel-<id>`.
+ */
+export function CleanRecordTabs<Id extends string>({ tabs, value, onChange, ariaLabel, idPrefix }: { tabs: ReadonlyArray<CleanRecordTab<Id>>; value: Id; onChange: (value: Id) => void; ariaLabel: string; idPrefix: string }) {
+  const ids = tabs.map((t) => t.id);
   return (
-    <div role="tablist" aria-label="Разделы карточки клиента" className="clean-record-tabs">
-      {sections.map(({ id, label }) => (
-        <button key={id} type="button" role="tab" id={`clean-client-tab-${id}`}
-          aria-selected={id === value} aria-label={id === "props" ? objectsLabel : label} aria-controls={`clean-client-panel-${id}`} tabIndex={id === value ? 0 : -1}
+    <div role="tablist" aria-label={ariaLabel} className="clean-record-tabs">
+      {tabs.map(({ id, label, short, icon: Icon }) => (
+        <button key={id} type="button" role="tab" id={`${idPrefix}-tab-${id}`}
+          aria-selected={id === value} aria-label={label} aria-controls={`${idPrefix}-panel-${id}`} tabIndex={id === value ? 0 : -1}
           className="rounded-full px-[18px] py-3 font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue"
           style={{ minHeight: 44, fontSize: 16, border: 0, background: id === value ? "var(--c-card)" : "transparent", color: id === value ? "rgb(var(--rgb-accent))" : "rgb(var(--rgb-ink))" }}
           onClick={(event) => { onChange(id); event.currentTarget.scrollIntoView({ block: "nearest", inline: "nearest" }); }}
           onKeyDown={(event) => {
-            const next = cleanClientTabForKey(id, event.key);
+            const next = cleanRecordTabForKey(ids, id, event.key);
             if (!next) return;
             event.preventDefault();
             onChange(next);
-            event.currentTarget.parentElement?.querySelector<HTMLButtonElement>(`#clean-client-tab-${next}`)?.focus();
+            event.currentTarget.parentElement?.querySelector<HTMLButtonElement>(`#${idPrefix}-tab-${next}`)?.focus();
           }}
-        ><span aria-hidden="true">{(() => { const Icon = tabIcons[id]; return <Icon size={18} />; })()}</span><span className="client-tab-long">{id === "props" ? objectsLabel : label}</span><span aria-hidden="true" className="client-tab-short">{id === "chat" ? "Чаты" : id === "props" ? "По объектам" : label}</span></button>
+        ><span aria-hidden="true"><Icon size={18} /></span><span className="client-tab-long">{label}</span><span aria-hidden="true" className="client-tab-short">{short ?? label}</span></button>
       ))}
     </div>
   );
+}
+
+export function CleanClientDetailTabs({ value, onChange, objectsLabel = "Объекты" }: { value: CleanClientTab; onChange: (value: CleanClientTab) => void; objectsLabel?: string }) {
+  const tabs = sections.map(({ id, label }) => ({ id, icon: tabIcons[id], label: id === "props" ? objectsLabel : label, short: id === "chat" ? "Чаты" : id === "props" ? "По объектам" : label }));
+  return <CleanRecordTabs tabs={tabs} value={value} onChange={onChange} ariaLabel="Разделы карточки клиента" idPrefix="clean-client" />;
 }
 
 export function CleanClientDetailSkeleton() {
