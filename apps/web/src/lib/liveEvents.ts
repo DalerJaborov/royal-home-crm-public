@@ -26,13 +26,17 @@ import { api } from "./api";
  * Record<LiveEventType, ...> ловит забытую строку на сборке, но не ловит пустой
  * список — а событие с пустым списком тихо не делает ничего.
  */
+/** Экспорт ради теста: сколько ждать между волнами для ключа. */
+export const __hotThrottleFor = (root: string): number => hotThrottleFor(root);
+
 export const INVALIDATION: Record<LiveEventType, string[][]> = {
   // Новый лид ждёт принятия: окно приёма живёт на useClients({pendingAcceptance}).
   "lead.pending": [["clients"], ["counters"], ["mission-control"], ["dashboard-summary"]],
   // Принят — предложение обязано погаснуть у всех, кто его видел.
   "lead.accepted": [["clients"], ["client"], ["counters"], ["mission-control"], ["dashboard-summary"]],
-  "message.new": [["conversations"], ["counters"]],
-  "conversation.updated": [["conversations"], ["counters"]],
+  // ["mission-control"]: пульт показывает «ждут человека / бот молчит» — по новому сообщению и паузе бота (пачка B, 23.10.2026).
+  "message.new": [["conversations"], ["counters"], ["mission-control"]],
+  "conversation.updated": [["conversations"], ["counters"], ["mission-control"]],
   "deal.updated": [["deals"], ["counters"], ["mission-control"], ["dashboard-summary"]],
   "pult.snapshot": [["mission-control"], ["mission-control-ticker"]],
   "notification.new": [["notifications"], ["counters"]],
@@ -141,6 +145,10 @@ const COALESCE_MS = 1_000;
  *  фронт гарантирован — раз в 10с прилетит, даже если события идут
  *  непрерывно. Остальные ключи остаются на обычном COALESCE_MS. */
 const HOT_THROTTLE_MS = 10_000;
+/** Пульт — главный экран директора: ему нужны секунды, а не десять. Волна пульта
+ *  отдельная от счётчиков (свой таймер), чтобы частые события не тормозили друг друга. */
+const PULT_THROTTLE_MS = 3_000;
+const hotThrottleFor = (root: string): number => (root === "mission-control" ? PULT_THROTTLE_MS : HOT_THROTTLE_MS);
 /** Сколько последних id событий помнить для отсева повторов. */
 const SEEN_IDS_MAX = 500;
 const HOT_KEYS = new Set(["counters", "dashboard-summary", "mission-control"]);
@@ -196,9 +204,14 @@ export function startLiveEvents(queryClient: QueryClient): Manager {
   let hiddenAt: number | null = null;
   let lastResumeAt = 0;
   const pending = new Set<string>();
-  const pendingHot = new Set<string>();
-  let hotTimer: ReturnType<typeof setTimeout> | null = null;
-  let lastHotRunAt = 0;
+  /** Горячие ключи: у каждого корня (counters / dashboard-summary / mission-control) свой таймер. */
+  const pendingHot = new Map<string, Set<string>>();
+  const hotTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  const lastHotRunAt = new Map<string, number>();
+  /** Последний виденный id события — при переподключении сервер доиграет пропущенное. */
+  let lastEventId = 0;
+  /** Был ли уже успешный коннект: повторный открывается после обрыва. */
+  let everOpened = false;
 
   const runInvalidation = (keys: string[][]) => {
     for (const queryKey of keys) {
@@ -210,11 +223,11 @@ export function startLiveEvents(queryClient: QueryClient): Manager {
     }
   };
 
-  const flushHot = () => {
-    hotTimer = null;
-    lastHotRunAt = Date.now();
-    const keys = [...pendingHot].map((k) => JSON.parse(k) as string[]);
-    pendingHot.clear();
+  const flushHot = (root: string) => {
+    hotTimers.delete(root);
+    lastHotRunAt.set(root, Date.now());
+    const keys = [...(pendingHot.get(root) ?? [])].map((k) => JSON.parse(k) as string[]);
+    pendingHot.delete(root);
     runInvalidation(keys);
   };
 
@@ -223,11 +236,16 @@ export function startLiveEvents(queryClient: QueryClient): Manager {
     const hotKeys = keys.filter((key) => HOT_KEYS.has(key[0]));
 
     if (hotKeys.length > 0) {
-      for (const key of hotKeys) pendingHot.add(JSON.stringify(key));
-      if (!hotTimer) {
-        const elapsed = Date.now() - lastHotRunAt;
-        const delay = Math.max(0, HOT_THROTTLE_MS - elapsed);
-        hotTimer = setTimeout(flushHot, delay);
+      for (const key of hotKeys) {
+        const root = key[0];
+        let set = pendingHot.get(root);
+        if (!set) pendingHot.set(root, (set = new Set()));
+        set.add(JSON.stringify(key));
+        if (!hotTimers.has(root)) {
+          const elapsed = Date.now() - (lastHotRunAt.get(root) ?? 0);
+          const delay = Math.max(0, hotThrottleFor(root) - elapsed);
+          hotTimers.set(root, setTimeout(() => flushHot(root), delay));
+        }
       }
     }
 
@@ -285,11 +303,18 @@ export function startLiveEvents(queryClient: QueryClient): Manager {
     connecting = false;
     if (stopped || document.hidden) return;
 
-    const es = new EventSource(`/api/v1/events?ticket=${encodeURIComponent(ticket)}`);
+    const es = new EventSource(
+      `/api/v1/events?ticket=${encodeURIComponent(ticket)}${lastEventId > 0 ? `&lastEventId=${lastEventId}` : ""}`
+    );
     source = es;
 
     es.onopen = () => {
       attempt = 0;
+      // Переподключение после обрыва: сервер доиграет события по lastEventId (5 минут),
+      // а всё, что старше или не доиграно, догоняем той же инвалидацией, что при возврате
+      // на вкладку. Первый коннект ничего не догоняет.
+      if (everOpened) invalidateSoon(ON_RESUME);
+      everOpened = true;
     };
 
     for (const type of LIVE_EVENT_TYPES) {
@@ -308,6 +333,7 @@ export function startLiveEvents(queryClient: QueryClient): Manager {
           seenIds.add(event.id);
           if (seenIds.size > SEEN_IDS_MAX) seenIds.delete(seenIds.values().next().value as number);
         }
+        if (typeof event.id === "number" && event.id > lastEventId) lastEventId = event.id;
         if (!isLiveEventType(event.type)) return;
         invalidateSoon(INVALIDATION[event.type]);
       });
@@ -362,8 +388,8 @@ export function startLiveEvents(queryClient: QueryClient): Manager {
       window.removeEventListener("offline", onOffline);
       if (coalesceTimer) clearTimeout(coalesceTimer);
       coalesceTimer = null;
-      if (hotTimer) clearTimeout(hotTimer);
-      hotTimer = null;
+      for (const t of hotTimers.values()) clearTimeout(t);
+      hotTimers.clear();
       disconnect();
       if (current === manager) current = null;
     },

@@ -52,6 +52,8 @@ beforeAll(async () => {
       status: "NEW",
       workStatus: "ACTIVE",
       assignedAgentId: agentId,
+      // «Завис» = без работы 3+ дней (5000 — чтобы обойти чужих давно молчащих в общей базе) (hero.dealsInPipeline.items, 23.10.2026).
+      lastContactAt: new Date(Date.now() - 5000 * 86_400_000),
     },
   });
   clientIds.push(client.id);

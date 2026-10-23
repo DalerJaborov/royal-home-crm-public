@@ -1,6 +1,7 @@
 import { prisma } from "../db.js";
 import { propertyInterestChatAgentIds } from "./ownBotConversationScope.js";
 import { publish, liveEventsEnabled, MESSAGES_VIEW_ADDRESSING_MARK } from "./eventBus.js";
+import { dropMissionControlSections, registerPultSnapshotPublisher } from "./pultCacheHook.js";
 
 /**
  * ТОЧКИ ПУБЛИКАЦИИ ЖИВЫХ СОБЫТИЙ — одно место на всю CRM (12.09.2026).
@@ -51,6 +52,7 @@ export function publishCallUpdated(input: {
   clientId?: string | null;
   agentId?: string | null;
 }): void {
+  dropMissionControlSections("all");
   void publish({
     type: "call.updated",
     payload: {
@@ -80,6 +82,7 @@ export function publishClientUpdated(input: {
   stage?: string | null;
   actorId?: string | null;
 }): void {
+  dropMissionControlSections("all");
   void publish({
     type: "client.updated",
     payload: {
@@ -99,6 +102,7 @@ export function publishPropertyUpdated(input: {
   stage?: string | null;
   actorId?: string | null;
 }): void {
+  dropMissionControlSections("all");
   void publish({
     type: "property.updated",
     payload: {
@@ -126,6 +130,7 @@ export function publishRequestUpdated(input: {
   stage?: string | null;
   actorId?: string | null;
 }): void {
+  dropMissionControlSections("all");
   void publish({
     type: "request.updated",
     payload: {
@@ -150,6 +155,7 @@ export type ConversationKind = "bot" | "telegram" | "telegram-direct";
 
 /** Новый лид предложен сотруднику и ждёт принятия. */
 export function publishLeadPending(clientId: string, agentId: string | null | undefined): void {
+  dropMissionControlSections("all");
   void publish({
     type: "lead.pending",
     payload: { clientId },
@@ -160,6 +166,7 @@ export function publishLeadPending(clientId: string, agentId: string | null | un
 
 /** Лид принят: предложение обязано погаснуть у всех, кому его показывали. */
 export function publishLeadAccepted(clientId: string, agentId: string): void {
+  dropMissionControlSections("all");
   void publish({
     type: "lead.accepted",
     payload: { clientId, actorId: agentId },
@@ -188,6 +195,7 @@ export async function publishMessageNew(
   if (!liveEventsEnabled()) return;
   try {
     const link = await loadConversationLink(kind, conversationId);
+    dropMissionControlSections("live");
     await publish({
       type: "message.new",
       payload: {
@@ -209,6 +217,7 @@ export async function publishConversationUpdated(kind: ConversationKind, convers
   if (!liveEventsEnabled()) return;
   try {
     const link = await loadConversationLink(kind, conversationId);
+    dropMissionControlSections("live");
     await publish({
       type: "conversation.updated",
       payload: {
@@ -232,6 +241,7 @@ export function publishDealUpdated(input: {
   stage?: string | null;
   actorId?: string | null;
 }): void {
+  dropMissionControlSections("all");
   void publish({
     type: "deal.updated",
     payload: {
@@ -251,8 +261,52 @@ export function publishDealUpdated(input: {
  * Широковещательное (ни agentIds, ни roles): пульт открыт у всех, а сами
  * секции каждый получает своим запросом со своими правами.
  */
+/**
+ * Не чаще раза в PULT_SNAPSHOT_MIN_GAP_MS на процесс: источники (ошибка в
+ * журнале, сообщение клиента, смена статуса ролика, комментарий IG, запрос
+ * «перезвоните») бывают пачками, а каждое событие — волна перезапросов у всех
+ * открытых пультов. Лишние вызовы не теряются: один отложенный выстрел в
+ * конце окна (trailing), чтобы последнее изменение обязательно дошло. Кэш
+ * секций сбрасывается на КАЖДЫЙ вызов (дёшево, без publish) — перезапрос по
+ * любому событию не получит устаревший снимок.
+ */
+export const PULT_SNAPSHOT_MIN_GAP_MS = 5_000;
+let pultSnapshotLastAt = 0;
+let pultSnapshotTimer: ReturnType<typeof setTimeout> | null = null;
+
+function emitPultSnapshot(): void {
+  pultSnapshotLastAt = Date.now();
+  void publish({ type: "pult.snapshot", payload: {}, roles: [...OVERSEER_ROLES] });
+}
+
 export function publishPultSnapshot(): void {
-  void publish({ type: "pult.snapshot", payload: {} });
+  // Источники снимка (ошибки, ролики, комментарии, «перезвоните») лежат в зонах
+  // пульта (TTL 60 с), а не только в живых секциях — сбрасываем всё.
+  dropMissionControlSections("all");
+  const wait = pultSnapshotLastAt + PULT_SNAPSHOT_MIN_GAP_MS - Date.now();
+  if (wait <= 0) {
+    if (pultSnapshotTimer) {
+      clearTimeout(pultSnapshotTimer);
+      pultSnapshotTimer = null;
+    }
+    emitPultSnapshot();
+    return;
+  }
+  if (pultSnapshotTimer) return;
+  pultSnapshotTimer = setTimeout(() => {
+    pultSnapshotTimer = null;
+    emitPultSnapshot();
+  }, wait);
+  pultSnapshotTimer.unref?.();
+}
+
+registerPultSnapshotPublisher(publishPultSnapshot);
+
+/** Только для тестов: сбросить окно троттла. */
+export function __resetPultSnapshotThrottleForTests(): void {
+  pultSnapshotLastAt = 0;
+  if (pultSnapshotTimer) clearTimeout(pultSnapshotTimer);
+  pultSnapshotTimer = null;
 }
 
 /** Создано уведомление для перечисленных сотрудников. */
