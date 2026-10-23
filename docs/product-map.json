@@ -1161,7 +1161,7 @@
       "mount": "/api/v1/public",
       "router": "publicFeedRouter",
       "file": "apps/api/src/routes/publicFeed.ts",
-      "endpoints": 2,
+      "endpoints": 4,
       "label": "Витрина для сайта royalhome.tj",
       "usedBy": 0
     },
