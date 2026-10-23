@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **666**. Развилок в самих путях: **2358**; вместе с задачами по расписанию и фоновыми заданиями — **3653**. Модулей: **75**.
+Путей: **666**. Развилок в самих путях: **2359**; вместе с задачами по расписанию и фоновыми заданиями — **3654**. Модулей: **75**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -5811,6 +5811,7 @@
   - const updated = await prisma.$transaction(async (tx)
     · ошибка DealConflictError — «Объект не найден»
     · всё внутри — одной транзакцией
+    · обращается к базе своим SQL
     · читает в базе: property
     · меняет в базе: property
     · меняет в базе: client
@@ -5818,6 +5819,9 @@
     · создаёт или меняет в базе: settings
     · читает в базе: deal
     · меняет в базе: deal
+    - если data.stage && data.stage !== existing.stage
+      - await tx.$queryRaw`SELECT "id" FROM "Property" WHERE "id"=${existing.propertyId} FOR UPDATE`;
+        · обращается к базе своим SQL
     - если isCompleting
       - const property = await tx.property.findUnique({ where: { id: existing.propertyId } });
         · читает в базе: property

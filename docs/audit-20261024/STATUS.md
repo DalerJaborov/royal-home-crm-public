@@ -45,9 +45,25 @@ Pinned upstreams: trailofbits/skills 196a9073ab10d35bacf111f945e02c00b2c6883a, o
 
 Automatic approval review rejected a Windows hidden background server launch with only "blocked by policy". No such launch performed. The safer local browser fixture uses Playwright's managed webServer lifecycle instead. Do not try another detached helper to bypass that rejection.
 
+## Current checkpoint — 03:44 Asia/Tashkent
+
+- First source commit b20bc69603f66acbbfe31cb3ab9ddc5d32a1f043 is LOCAL ONLY. Native precheck exit0: 304 web files/1867tests;104scriptpassed/32conditionalSKIP/0failed. Root's final exact-spec role browser run8/8,80 route/viewport visits, exit0.
+- First git push failed before TCP connection; subsequent normal API and git readonly probes also failed. No PR/cloud run created and no changes to network configuration. Retry ordinary access only after a meaningful interval or restored connectivity, not a blind retry loop.
+- Independent pinned frontend baseline proof completed in retained separate worktree: API5assertionfail/4controls versus patched9pass; Chrome6fail/2controls versus patched8pass; extra direct Escape/skip probes2fail baseline/2pass patch. See FRONTEND-BASELINE.md and retained baseline-validation logs/hashes.
+- Independent API patch review found no introduced defect in the named6sourcefiles; residual existing filesystem TOCTOU and local-only JWT/stream semantics documented in REVIEW-API.md.
+- Independent BUSINESS review found lock-order deadlocks introduced/exposed by the new reservation FORUPDATE. Publication HOLD. Business author has changed stage-changing PATCH to lock Property first, preserving CAS and reservation-snapshot protection. New durable2case realHTTP/cron regression is being verified with adjacent suites. Attribution of the second variant to original87 versus patch is still under investigation; do NOT count it as a new original bug without baseline proof.
+- Active specialists in this runtime: finish_business owns final lock fix; finish_api owns review/baseline attribution; finish_frontend finished baseline proof. Their runtime may be absent after heartbeat; recover by reports and files before respawning.
+
 ## Immediate next work
 
-1. Finish frontend report/typecheck, local seven-role browser smoke and precheck. Fix any concrete validation failures.
-2. Regenerate map after final source edits; independently inspect every diff and evidence group, update coverage with actual subset.
-3. Save sanitized review-ready commit and draft PR. Run one exact-head consolidated API suite using workflow_dispatch (test-only). Keep its exact SHA/report separate from production.
-4. Continue a new risk-based pass across pending areas with installed skills, without repeating completed checks needlessly. At 08:00 close out honestly and stop/delete the heartbeat.
+1. Finish lock correction, preserve its red/green evidence, ensure no temporary red proof test remains unexplained in the default suite. Do not suppress a confirmed bug; record any unresolved finding explicitly.
+2. Regenerate map, typecheck changed API, run proportional related checks, and save a second local commit preserving b20 baseline.
+3. Freeze corrected source and run consolidated API once. Prefer test-only exact-head GitHub workflow when reachable; otherwise ordinary foreground local suite on OWN audit_parent with4workers is available. Do not start while source is changing. Do not count interrupted attempt as suite failure/success.
+4. Create draft PR only after normal GitHub connectivity is restored and source checks pass. No ship/merge/deploy.
+5. Continue risk-based pending areas with installed skills. At08:00 close out honestly and stop/delete the heartbeat, retaining all audit evidence/databases.
+
+## Freeze checkpoint — 03:48 Asia/Tashkent
+
+Independent review completed. The introduced deadlock family is corrected with6lines in stage PATCH; final5files/28tests passed, API build native0 and map:check native0. Exact original87 baseline separately reproduces stale-state variants without cron errors, whileb20 has deadlocks. REVIEW-BUSINESS.md contains attribution and final conditional approval. No temporary red proof file remains in the default main suite. Frontend baseline proof and eight-role final pass are complete.
+
+Parent is saving the corrective commit, then starting the single complete local API suite on the exact corrected HEAD because ordinary GitHub TCP remains unavailable. While this suite runs, freeze application source and regression tests; reports may be updated. Full-suite source pin, exit file and output will be under reports/night-audit-20261024/api-full-local-final*. Do not start another full suite or claim completion from partial output. If the exec session ID is unavailable after heartbeat, inspect these files and the own process before deciding whether it ended; do not duplicate it. The prior deliberately interrupted full attempt was api-full-r1, not this final run.

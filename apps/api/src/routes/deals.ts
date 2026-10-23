@@ -872,6 +872,12 @@ dealsRouter.patch("/:id", requireAuth, async (req, res) => {
     // освобождаем после коммита, как в POST.
     let revivedReservedProperty = false;
     const updated = await prisma.$transaction(async (tx) => {
+      // Stage changes also write a timeline Interaction whose property FK
+      // needs a row lock. Always take Property before Deal, as expiry does;
+      // otherwise rejection or the timeline insert can deadlock with expiry.
+      if (data.stage && data.stage !== existing.stage) {
+        await tx.$queryRaw`SELECT "id" FROM "Property" WHERE "id"=${existing.propertyId} FOR UPDATE`;
+      }
       if (isCompleting) {
         const property = await tx.property.findUnique({ where: { id: existing.propertyId } });
         if (!property) throw new DealConflictError("Объект не найден");

@@ -20,8 +20,8 @@ No schema migration or dependency version was changed. The central stream-close 
 - Stand-root regression: **14/14**, original failure and patched success retained in stand-red/stand-green logs.
 - API specialist final recovery: **77 tests in 10 distinct files**, no failures. Earlier overlapping runs are not added to this count.
 - Business checks: **71 tests / 8 files**, then **42 tests / 9 files** covering adjacent deal/reservation/payment behavior. These groups overlap and are not a unique combined count.
-- Frontend focused checks: **66 tests / 6 files**, plus **8 Chrome component-fixture tests**. Original raw frontend browser failure logs were not recovered; that baseline evidence gap is explicitly retained.
-- Genuine code-login, real local HTTP and PostgreSQL, desktop/mobile navigation: the seven original roles passed; the additional SHAREHOLDER passed and rejected an attempted financial write. The final eight-role spec has a tightened finance-permission assertion; its consolidated rerun is pending at this checkpoint.
+- Frontend focused checks: **66 tests / 6 files**, plus **8 Chrome component-fixture tests**. Independent pinned-baseline execution subsequently recovered the failure evidence: original code fails five API-copy assertions and six Chrome cases while its controls pass; the patch passes the identical checks. Two additional direct probes reproduce Escape dismissal and skipped editor rows. See FRONTEND-BASELINE.md.
+- Genuine code-login, real local HTTP and PostgreSQL, desktop/mobile navigation: the final eight-role spec passed **8/8** on commit b20bc69, including exact finance access versus effective permissions, invalid-token rejection and SHAREHOLDER financial-write rejection. It visits five routes at each of two widths per role (80 route/viewport visits); these are automated smoke checks, not 80 visual or full-workflow approvals. Raw output: live-browser-final.log, exit 0.
 - `git diff --check` and the final secret scan passed.
 
 The local complete API attempt was intentionally interrupted before any shard test result, after confirming the documented long laptop runtime. It is neither a completed test failure nor a successful full suite. The exact-commit GitHub test-only workflow remains pending. A PR/check result is not evidence of deployment.
@@ -34,7 +34,7 @@ Named paths and regression groups above have evidence. Every other source file, 
 
 ## Remaining work
 
-1. Pin the review-ready commit and run the consolidated API workflow without ship/merge/deploy.
-2. Recover independent baseline-versus-patched frontend proof in a separate validation worktree.
+1. Independent review correction completed: the added reservation row lock introduced two lock-order cycles with stage PATCH. The stage transaction now locks Property before Deal. The final five-file / 28-test PostgreSQL run, API typecheck and regenerated map check pass. Original b20bc69 is retained as review evidence. Actual87 baseline has stale renewal/stage state errors without those deadlocks; REVIEW-BUSINESS.md separates the observations. This correction is not counted as another original CRM defect.
+2. Run the consolidated API suite without ship/merge/deploy. GitHub currently fails TCP connection from this machine; the first push failed before connection and no PR/cloud run exists. No network/security setting was changed.
 3. Continue across pending security/input/upload/settings/task/job scenarios, including failure recovery and variant searches using the installed audit skills.
 4. At the overnight deadline publish the exact results, unresolved findings and coverage limits; never call this an exhaustive proof of zero bugs.

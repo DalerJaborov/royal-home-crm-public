@@ -16,9 +16,9 @@
   "paths": 666,
   "cron": 108,
   "jobs": 31,
-  "conditions": 3653,
+  "conditions": 3654,
   "untranslatedUnique": 397,
-  "untranslatedTotal": 505,
+  "untranslatedTotal": 506,
   "partialUnique": 1030,
   "translatedShare": 86
  },
@@ -25790,6 +25790,13 @@
         "меняет: сделка"
        ],
        "c": [
+        {
+         "t": "если data.stage && data.stage !== existing.stage",
+         "k": "if",
+         "a": [],
+         "c": [],
+         "raw": "data.stage && data.stage !== existing.stage"
+        },
         {
          "t": "если есть is completing",
          "k": "if",

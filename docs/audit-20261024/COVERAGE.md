@@ -33,8 +33,8 @@ The machine inventory is inventory.json. Its pending states deliberately do not 
 | Precheck | shared/API/web build and ESLint; 304 web files / 1867 tests; all source/map guards | no full API suite, no production proof |
 | Business integration | 71-test finance group plus 42-test adjacent group; overlap retained separately | only named scenarios in BUSINESS.md |
 | API/privacy integration | 77 tests across 10 distinct files | named authorization/claim/file/stream cases, no exhaustive IDOR audit |
-| Frontend component checks | 66 unit tests and 8 Chrome cases at 1440/390 | intercepted responses; original raw browser RED missing |
-| Real role navigation | seven-role pass plus SHAREHOLDER pass | smoke only; final eight-role exact-spec rerun pending |
+| Frontend component checks | 66 unit tests and 8 Chrome cases at 1440/390; independently reproduced failures on87aecdb and success onb20bc69 | intercepted responses; see FRONTEND-BASELINE.md |
+| Real role navigation | final 8/8 roles, five routes at1440/390 each, exact finance permissions and read-only rejection | smoke only; no field mutation/completion, visual or device acceptance |
 | Tooling | 14 stand-root/template tests | unrelated scripts not exhaustively audited |
 
 Source-file `pending` inventory states are intentionally conservative. These group results do not silently mark every file exercised by the suite as fully tested. Use the specialist reports and README.md for exact paths and reproductions.

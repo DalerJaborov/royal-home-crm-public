@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 666,
-  "forks": 3653,
+  "forks": 3654,
   "mounts": 75,
   "cron": 108,
   "jobs": 31,
@@ -25038,6 +25038,7 @@
        "a": [
         "ошибка DealConflictError — «Объект не найден»",
         "всё внутри — одной транзакцией",
+        "обращается к базе своим SQL",
         "читает в базе: property",
         "меняет в базе: property",
         "меняет в базе: client",
@@ -25047,6 +25048,21 @@
         "меняет в базе: deal"
        ],
        "c": [
+        {
+         "k": "if",
+         "t": "data.stage && data.stage !== existing.stage",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "await tx.$queryRaw`SELECT \"id\" FROM \"Property\" WHERE \"id\"=${existing.propertyId} FOR UPDATE`;",
+           "a": [
+            "обращается к базе своим SQL"
+           ],
+           "c": []
+          }
+         ]
+        },
         {
          "k": "if",
          "t": "isCompleting",
