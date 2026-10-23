@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **663**. Развилок в самих путях: **2355**; вместе с задачами по расписанию и фоновыми заданиями — **3649**. Модулей: **74**.
+Путей: **666**. Развилок в самих путях: **2358**; вместе с задачами по расписанию и фоновыми заданиями — **3653**. Модулей: **75**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -22,6 +22,56 @@
 Чтения: «если …» — условие из кода; «·» — что делает код в этом месте;
 вложенность — вложенность в исходнике. Показаны ВСЕ ветки, а не та,
 которая случается чаще.
+
+## (не подключён)
+
+### POST /run
+
+`apps/api/src/routes/adsReelsAutoBoost.ts` · на входе: guards.write · **вход не требуется**
+
+- пробует
+  - const result = await runReelsAutoBoostGuarded();
+    · зовёт runReelsAutoBoostGuarded()
+  - если !result
+    - return res.status(409).json({ error: "Проход уже идёт, подождите минуту" });
+      · ответ 409 — «Проход уже идёт, подождите минуту»
+  - res.json({ result, overview: await buildOverview() });
+    · ответ 200
+- если сорвалось
+  - res.status(500).json({ error: `Проход не удался: ${describeError(err)}` });
+    · ответ 500 — «Проход не удался: ${describeError(err)}»
+
+### GET 
+
+`apps/api/src/routes/adsReelsAutoBoost.ts` · на входе: guards.read · **вход не требуется**
+
+- пробует
+  - res.json(await buildOverview());
+    · ответ 200
+- если сорвалось
+  - res.status(500).json({ error: `Не удалось прочитать автопродвижение: ${describeError(err)}` });
+    · ответ 500 — «Не удалось прочитать автопродвижение: ${describeError(err)}»
+
+### PATCH 
+
+`apps/api/src/routes/adsReelsAutoBoost.ts` · на входе: guards.write · **вход не требуется**
+
+- const parsed = reelsAutoBoostSettingsPatchSchema.safeParse(req.body);
+  · проверяет данные схемой reelsAutoBoostSettingsPatchSchema
+- если !parsed.success
+  - return res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Неверные настройки" });
+    · ответ 400
+- const current = await loadReelsAutoBoostSettings();
+  · зовёт loadReelsAutoBoostSettings()
+- если next.enabled && !next.dryRun && !next.adSetId
+  - return res.status(400).json({ error: "Для боевого режима укажите номер группы объявлений постоянной кампании …
+    · ответ 400 — «Для боевого режима укажите номер группы объявлений постоянной…»
+- await prisma.settings.update({ where: { id: "singleton" }, data: { ...(patch.enabled !== undefined && { reels…
+  · меняет в базе: settings
+- logAudit(req, "SETTINGS_UPDATE", "Settings", "singleton", { reelsAutoBoost: patch });
+  · зовёт logAudit()
+- res.json(await buildOverview());
+  · ответ 200
 
 ## /api/v1/ads
 
@@ -21558,6 +21608,28 @@
       · пишет строку в журнал сервера
 - если сорвалось
   - reportCronTickError("Ошибка сверки публикаций", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
+
+### reels-autoboost — */30 * * * *
+
+- пробует
+  - await runReelsAutoBoostGuarded();
+    · зовёт runReelsAutoBoostGuarded()
+    - если tickRunning
+      - return null;
+        · дословно из кода
+    - пробует
+      - return await runReelsAutoBoostTick();
+        · зовёт runReelsAutoBoostTick()
+    - в любом случае
+      - tickRunning = false;
+        · дословно из кода
+- если сорвалось
+  - reportCronTickError("Ошибка автопродвижения роликов", err);
     · зовёт reportCronTickError()
     - const reason = markCronTickFailed(label, err);
       · зовёт markCronTickFailed()

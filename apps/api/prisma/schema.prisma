@@ -2576,6 +2576,8 @@ model Property {
   /// когда звонок переводят агенту объекта (24.09.2026, см. PropertyWhisper).
   whispers                   PropertyWhisper[]
   videoOpenings              VideoOpening[]
+  /// Автопродвижение роликов (23.10.2026) — см. ReelAutoBoostAd.
+  reelAutoBoostAds           ReelAutoBoostAd[]
 
   @@index([status])
   @@index([districtId])
@@ -5585,6 +5587,26 @@ model Settings {
   /// НЕ ИСПОЛЬЗУЕТСЯ: рубильник автозапуска рекламы («Студия запуска» убрана 12.10.2026).
   /// Колонка оставлена, чтобы не делать миграцию; код её не читает и не пишет.
   adsLaunchEnabled                  Boolean?  @default(false)
+  /// АВТОПРОДВИЖЕНИЕ РОЛИКОВ (23.10.2026, lib/ads/reelsAutoBoost*.ts): каждый новый
+  /// Reels объекта, вышедший в Instagram, становится объявлением в ОДНОЙ постоянной
+  /// кампании Meta (её группу объявлений заводит человек в Ads Manager и вписывает
+  /// сюда), лишнее CRM ставит на паузу сама. Выключено по умолчанию; пробный режим
+  /// (dryRun) включён по умолчанию — считает решения и пишет их в журнал, в Meta не
+  /// ходит. Для боевого режима нужен маркер рекламы с правом ads_management.
+  reelsAutoBoostEnabled             Boolean   @default(false)
+  reelsAutoBoostDryRun              Boolean   @default(true)
+  /// Номер группы объявлений постоянной кампании (только цифры). Не секрет.
+  reelsAutoBoostAdSetId             String?
+  /// Сколько роликов продвигается одновременно; сверх — паузятся самые старые.
+  reelsAutoBoostMaxActive           Int       @default(30)
+  /// Через сколько дней после публикации ролик перестаёт продвигаться.
+  reelsAutoBoostMaxAgeDays          Int       @default(10)
+  /// Стоп-лосс: потратил столько (в валюте кабинета — у кабинета владельца USD) и
+  /// ни одной начатой переписки — пауза.
+  reelsAutoBoostStopLossSpendUsd    Decimal   @default(4) @db.Decimal(10, 2)
+  /// Кнопка объявления: WHATSAPP_MESSAGE | INSTAGRAM_DIRECT | MESSENGER
+  /// (packages/shared/src/reelsAutoBoost.ts).
+  reelsAutoBoostCtaType             String    @default("WHATSAPP_MESSAGE")
   /// ФИД КАТАЛОГА META ДЛЯ РЕКЛАМЫ (Advantage+ catalog ads, home_listings,
   /// 28.09.2026) — ключ публичной ссылки на CSV (lib/metaCatalogFeed.ts,
   /// GET /api/v1/public/meta-catalog/home-listings.csv?key=...). НЕ шифруется:
@@ -10161,4 +10183,44 @@ model OversightAck {
 
   @@unique([sliceKey, subjectId])
   @@index([ackedById])
+}
+
+enum ReelAutoBoostStatus {
+  /// Пробный режим решил создать объявление (в Meta ничего не ушло) либо боевой
+  /// режим ещё не успел его создать.
+  PLANNED
+  ACTIVE
+  PAUSED
+  FAILED
+  /// Осознанно не продвигаем (Meta считает публикацию непригодной для продвижения).
+  SKIPPED
+}
+
+/// Журнал автопродвижения роликов (23.10.2026, lib/ads/reelsAutoBoost.ts). Одна строка
+/// = одна публикация Instagram: instagramMediaId уникален, поэтому один ролик не станет
+/// двумя объявлениями ни при повторе тика, ни при перезапуске. Строка не удаляется —
+/// это история решений (PAUSED/SKIPPED остаются и не дают создать объявление заново).
+model ReelAutoBoostAd {
+  id               String              @id @default(uuid())
+  propertyId       String
+  property         Property            @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  instagramMediaId String              @unique
+  /// Объявление и креатив в Meta; пусты, пока ничего не создано (пробный режим).
+  metaAdId         String?
+  metaCreativeId   String?
+  status           ReelAutoBoostStatus @default(PLANNED)
+  /// Человеческая причина последнего решения, по-русски.
+  reason           String              @db.VarChar(500)
+  /// Расход и начатые переписки по данным Meta на момент lastCheckedAt.
+  /// Расход — в валюте кабинета (боевой режим требует USD, иначе стоп-лосс врал бы).
+  spendUsd         Decimal?            @db.Decimal(12, 2)
+  conversations    Int?
+  /// Сколько раз пытались создать объявление (FAILED повторяется не чаще раза в 6 часов, до 3 раз).
+  attempts         Int                 @default(0)
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  lastCheckedAt    DateTime?
+
+  @@index([status, createdAt])
+  @@index([propertyId])
 }
