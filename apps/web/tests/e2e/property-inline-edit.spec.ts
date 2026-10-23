@@ -24,10 +24,7 @@ test("в карточке объекта поля и документы прав
   if (!(await editMenu.count())) test.skip(true, "У этой учётки нет права менять объект");
 
   await editMenu.click();
-  // Нажимаем кнопку-заголовок пункта, а не центр строки: у `data-testid` строка целиком, и на
-  // телефоне центр приходится на подпись под заголовком, а не на кнопку — нажатие мышью
-  // мимо кнопки шторку не закрывало (пользователь на тач-экране нажимает заголовок).
-  await page.getByTestId("sheet-item-people").getByRole("button").click();
+  await page.getByTestId("sheet-item-people").click();
   const done = page.getByRole("button", { name: "Готово", exact: true });
   await expect(done).toBeVisible();
   await expect(page.getByText("Видео в Instagram")).toBeVisible();
@@ -61,7 +58,7 @@ test("в карточке объекта поля и документы прав
 
   // Отдельного режима правки больше нет: пункт шторки «Цена, площадь, адрес» ведёт в форму параметров.
   await editMenu.click();
-  await page.getByTestId("sheet-item-params").getByRole("button").click();
+  await page.getByTestId("sheet-item-params").click();
   await expect(page).toHaveURL(/\/properties\/\d+\/edit$/, { timeout: 15_000 });
 
   await expect(page.getByText(CRASH_TEXT)).toHaveCount(0);
