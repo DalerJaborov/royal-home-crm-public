@@ -68,7 +68,7 @@ describe("current recruitment facts", () => {
       expect(result).not.toMatch(/\d+%|\$\d+|будем ждать вас завтра/iu);
     });
   it("does not ask a property or application question when no opening is confirmed", () => {
-    expect(render("ru", observation([], false), "budget")).toBe("Сейчас в CRM нет подтверждённых открытых вакансий.");
+    expect(render("ru", observation([], false), "budget")).toBe("Приём откликов через этот чат сейчас не ведётся.");
     expect(isCustomerVacanciesObservation(observation([position], false))).toBe(false);
   });
   it("rejects mutated facts and closed rows despite a valid outer shape", () => {

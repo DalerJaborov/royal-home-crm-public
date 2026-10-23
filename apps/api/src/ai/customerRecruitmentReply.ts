@@ -40,5 +40,6 @@ export function customerRecruitmentReplyDetails(details: string, inputText: stri
 }
 
 export function containsRecruitmentExperienceInvitation(paragraphs: readonly string[]): boolean {
-  return paragraphs.some(text => /(?:пришлите|отправьте).*(?:резюме|расскажите о себе)|резюме фиристед|дар бораи худ.*нақл кунед/iu.test(text));
+  // Any form of the invitation: "пришлите", "можете прислать", "присылайте", "отправьте", "резюме фиристед".
+  return paragraphs.some(text => /(?:пришл\p{L}*|присл\p{L}*|присыл\p{L}*|отправ\p{L}*).*(?:резюме|расскажите о себе)|резюме\p{L}*\s+(?:ро\s+)?фирист\p{L}*|дар бораи худ.*нақл кун\p{L}*/iu.test(text));
 }

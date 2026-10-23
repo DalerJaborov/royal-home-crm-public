@@ -1,6 +1,6 @@
 import { isDialableTajikNumber, type CustomerAgentVerifiedContext } from "@royal-home/shared";
 import { clientOwnWords } from "../ai/untrustedContent.js";
-import { customerAgentPropertyQuestionText } from "../ai/customerAgentRenderer.js";
+import { customerAgentPropertyQuestionTexts } from "../ai/customerAgentRenderer.js";
 
 /** Meaning only. Callers must load real scoped ACCEPTED history themselves.
  * A budget, age, phone or list position never becomes an object by default. */
@@ -13,5 +13,5 @@ export function customerBarePropertyAnswer(raw: string, context: CustomerAgentVe
   const number = customerBarePropertyNumber(raw), last = context.turns.at(-1);
   if (number === null || context.surface !== "dm" || context.publicState.topic === "job" || last?.role !== "assistant") return null;
   const lines = last.text.split("\n").map(line => line.trim());
-  return (["ru", "tg"] as const).some(language => lines.includes(customerAgentPropertyQuestionText(language))) ? number : null;
+  return (["ru", "tg"] as const).some(language => customerAgentPropertyQuestionTexts(language).some(question => lines.includes(question))) ? number : null;
 }

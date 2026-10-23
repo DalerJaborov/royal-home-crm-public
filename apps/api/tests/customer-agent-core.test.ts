@@ -46,7 +46,7 @@ it("reuses a prefetched vacancy ref when the model reads the same current catalo
   f.modelTurn.mockResolvedValueOnce({ text: "", calls: [{ name: "get_open_vacancies", args: {}, id: "model-read" }],
     modelParts: [{ functionCall: { name: "get_open_vacancies", args: {}, id: "model-read" } }] }).mockResolvedValueOnce(final({ refs: ["e0"] }));
   const result = await runCustomerAgentTurn(f.frame, f.ports);
-  expect(result).toMatchObject({ status: "ready", text: "Сейчас в CRM нет подтверждённых открытых вакансий." });
+  expect(result).toMatchObject({ status: "ready", text: "Сейчас открытых вакансий нет." });
   expect(result.evidence).toHaveLength(1);
   expect(f.executeAllowedTool).toHaveBeenCalledTimes(2);
 });

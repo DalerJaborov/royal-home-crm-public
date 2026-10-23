@@ -1,6 +1,7 @@
 import { customerPropertyEvidenceSchema, type CustomerPropertyEvidence } from "@royal-home/shared";
 import type { MetaIncoming } from "../messengers/meta.js";
 import { customerPropertyUrl } from "./customerPropertyUrls.js";
+import { propertyNumberSelectors, schemelessPropertyUrls } from "./customerPropertyReferenceText.js";
 
 export function mergeCustomerPropertyEvidence(groups: readonly (readonly CustomerPropertyEvidence[])[]): CustomerPropertyEvidence[] {
   const unique = [...new Map(groups.flat().map((item) => [JSON.stringify(item), item])).values()];
@@ -16,21 +17,22 @@ function urlEvidence(raw: string, origin: CustomerPropertyEvidence["origin"]): C
 }
 export function customerPropertyEvidenceFromText(text: string): CustomerPropertyEvidence[] {
   const urls: CustomerPropertyEvidence[] = [];
-  for (const match of text.matchAll(/https?:\/\/[^\s<>"']+/giu)) {
+  // A link typed without "https://" is the same public reference as one with it.
+  const written = [...text.matchAll(/https?:\/\/[^\s<>"']+/giu)].map((match) => match[0].replace(/[),.;!?]+$/, "")).concat(schemelessPropertyUrls(text));
+  for (const raw of written) {
     if (urls.length === 4) {
       urls.push({ kind: "untrusted_reference", origin: "message", reference: "too_many_references" });
       break;
     }
-    urls.push(urlEvidence(match[0].replace(/[),.;!?]+$/, ""), "message"));
+    urls.push(urlEvidence(raw, "message"));
   }
   let selectorCount = 0;
-  for (const number of text.matchAll(/(?<![\p{L}\p{N}])(?:(?:объект[а-яё]*|объекти?)\s*[№#]?\s*|[№#]\s*)(\d{1,9})(?!\d)/giu)) {
-    if (Number(number[1]) <= 0) continue;
+  for (const number of propertyNumberSelectors(text)) {
     if (selectorCount++ === 4) {
       urls.push({ kind: "untrusted_reference", origin: "message", reference: "too_many_references" });
       break;
     }
-    urls.push({ kind: "public_selector", origin: "message", reference: `short:${number[1]}` });
+    urls.push({ kind: "public_selector", origin: "message", reference: `short:${number}` });
   }
   return mergeCustomerPropertyEvidence([urls]);
 }

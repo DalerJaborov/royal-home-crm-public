@@ -56,13 +56,18 @@ export async function readCustomerPublicationCatalog(source: CustomerPublication
 export async function readCustomerPublicationObservation(source: CustomerPublicationSource, kinds: readonly CustomerPropertyFactKind[]): Promise<CustomerAgentPublicationObservation | null> {
   const catalog = await readCustomerPublicationCatalog(source);
   if (!catalog) return null;
-  const cards = [];
+  const all = [], open = [];
   for (const id of catalog.ids) {
     const facts = await readCustomerPropertyFacts(id, source.channel);
-    // A single known sold publication can answer status only. A sold member
-    // of a multi-card showcase is not offered among the remaining properties.
-    if (facts && (catalog.ids.length === 1 || facts.availability !== "SOLD")) cards.push(facts);
+    if (!facts) continue;
+    all.push(facts);
+    if (facts.availability !== "SOLD") open.push(facts);
   }
+  // A single known sold publication can answer status only. A sold member of a
+  // multi-card showcase is not offered among the remaining properties, but when
+  // EVERY member is sold the observation keeps them all (status only) so the
+  // customer is told so instead of "could not identify the object".
+  const cards = catalog.ids.length === 1 || (!open.length && all.length === catalog.ids.length) ? all : open;
   if (!cards.length || (await readCustomerPublicationCatalog(source))?.signature !== catalog.signature) return null;
   return customerAgentPublicationObservationSchema.parse({ kind: "publication_properties", source,
     mappingSignature: catalog.signature, kinds, cards, linksAllowed: (await loadCustomerAgentFeaturePolicy()).links });

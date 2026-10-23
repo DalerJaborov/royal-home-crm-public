@@ -1,5 +1,7 @@
 import { customerPropertyFactKindSchema, type CustomerPropertyFactKind } from "@royal-home/shared";
 import { customerPropertyUrl } from "./customerPropertyUrls.js";
+import { PER_SQM_SOURCE } from "./customerPropertyPerSqm.js";
+import { WEAK_PROPERTY_NUMBER_SOURCE, schemelessPropertyUrls, stripSchemelessPropertyUrls } from "./customerPropertyReferenceText.js";
 
 const words = (alternatives: string) => new RegExp(`(?<![\\p{L}\\p{N}])(?:${alternatives})(?![\\p{L}\\p{N}])`, "giu");
 const PRICE = words("цен[ауеы]|стоимость|стоит|стоят|нархшчансумай|нарх(?:ашон|аша|аш|ша|ш|и)?|чандпул|чансумай|чандсумай|чанд\\s+(?:сомонӣ|сомони|сум)");
@@ -27,17 +29,22 @@ export function classifyCustomerPropertyFactIntent(text: string, options: { hasP
   let rest = text.replace(/№/g, "#").normalize("NFKC").toLowerCase();
   let unsupportedUrl = false;
   let explicitProperty = false;
-  rest = rest.replace(/https?:\/\/[^\s<>"']+/giu, (raw) => {
+  const readUrl = (raw: string) => {
     const parsed = customerPropertyUrl(raw.replace(/[),.;!?]+$/, ""));
     if (parsed.kind === "denied" || parsed.kind === "unsupported") unsupportedUrl = true;
     else if (parsed.kind === "site") explicitProperty = true;
     return " ";
-  });
+  };
+  rest = rest.replace(/https?:\/\/[^\s<>"']+/giu, readUrl);
+  // The same link typed without "https://".
+  for (const raw of schemelessPropertyUrls(rest)) readUrl(raw);
+  rest = stripSchemelessPropertyUrls(rest);
   // A contact, vacancy or arbitrary URL may carry the actual requested action.
   if (unsupportedUrl) return null;
   const consumeSelector = () => { explicitProperty = true; return " "; };
   rest = rest.replace(words("(?:объект(?:а|у|е|ом|ы|ов|и|ро)?)\\s*[№#]?\\s*[1-9]\\d{0,8}"), consumeSelector);
   rest = rest.replace(/(?<![\p{L}\p{N}])[№#]\s*[1-9]\d{0,8}(?!\d)/gu, consumeSelector);
+  rest = rest.replace(new RegExp(WEAK_PROPERTY_NUMBER_SOURCE, "giu"), consumeSelector);
   const found = new Set<CustomerPropertyFactKind>();
   const consume = (pattern: RegExp, kinds: CustomerPropertyFactKind[]) => {
     rest = rest.replace(pattern, () => {
@@ -46,6 +53,8 @@ export function classifyCustomerPropertyFactIntent(text: string, options: { hasP
     });
   };
   consume(PRICE, ["price"]);
+  // Price per square metre is a price question; the renderer derives it from price and area.
+  consume(words(PER_SQM_SOURCE), ["price"]);
   consume(ADDRESS, ["address"]);
   consume(BUILDER, ["builder"]);
   consume(CHARACTERISTICS, ["characteristics"]);
