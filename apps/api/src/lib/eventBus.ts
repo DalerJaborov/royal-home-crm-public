@@ -6,6 +6,7 @@ import {
   type LiveEventType,
 } from "@royal-home/shared";
 import { prisma } from "../db.js";
+import { dropMissionControlSections } from "./pultCacheHook.js";
 import { logSystemError } from "./systemError.js";
 import { guardBackgroundFailure, isShuttingDown, trackBackgroundTask } from "./shutdownState.js";
 
@@ -284,10 +285,15 @@ async function pollTail(): Promise<void> {
       orderBy: { seq: "asc" },
       take: TAIL_BATCH,
     });
+    let foreign = false;
     for (const row of rows) {
       lastSeq = row.seq;
       // Своё уже отдано в publish() — иначе подписчик получил бы событие дважды.
       if (row.origin === INSTANCE_ID) continue;
+      // Событие второго процесса (worker: бот, ролики, фоновые ошибки) сбросило
+      // кэш пульта только у себя — здесь его надо сбросить до раздачи, иначе
+      // перезапрос вкладки получит снимок до события.
+      if (!foreign) { foreign = true; dropMissionControlSections("all"); }
       const payload = liveEventPayloadSchema.safeParse(row.payload);
       if (!payload.success) continue;
       fanOut(
@@ -298,7 +304,7 @@ async function pollTail(): Promise<void> {
   } catch (err) {
     // Обход не имеет права уронить процесс: поток — удобство, опрос по таймеру
     // на фронте остаётся запасным путём и покажет те же данные.
-    void logSystemError("api", `Обход хвоста живых событий: ${err instanceof Error ? err.message : String(err)}`);
+    void logSystemError("api", `Обход хвоста живых событий: ${err instanceof Error ? err.message : String(err)}`, { quietPult: true });
   } finally {
     tailRunning = false;
   }
@@ -338,7 +344,7 @@ async function publishImpl(input: LiveEventInput): Promise<void> {
   // молчаливое обрезание спрятало бы ошибку вызывающего.
   const payload = liveEventPayloadSchema.safeParse(input.payload ?? {});
   if (!payload.success) {
-    void logSystemError("api", `Живое событие ${input.type}: недопустимая нагрузка (${payload.error.message})`);
+    void logSystemError("api", `Живое событие ${input.type}: недопустимая нагрузка (${payload.error.message})`, { quietPult: true });
     return;
   }
 
@@ -361,7 +367,7 @@ async function publishImpl(input: LiveEventInput): Promise<void> {
     // остановки, не баг интеграции. `guardBackgroundFailure` печатает ОДНУ
     // info-строку и выходит; иначе — обычный путь через logSystemError.
     if (guardBackgroundFailure(`публикация живого события ${input.type}`, err)) return;
-    void logSystemError("api", `Публикация живого события ${input.type}: ${err instanceof Error ? err.message : String(err)}`);
+    void logSystemError("api", `Публикация живого события ${input.type}: ${err instanceof Error ? err.message : String(err)}`, { quietPult: true });
     return;
   }
 

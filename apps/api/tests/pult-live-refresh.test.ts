@@ -52,7 +52,8 @@ describe("сброс кэша секций по событию", () => {
     expect(zone).toHaveBeenCalledTimes(2);
   });
 
-  it("pult.snapshot сбрасывает только живые секции, зоны остаются", async () => {
+  // Источники снимка (ошибки, ролики, комментарии) живут в зонах — их тоже надо пересчитать.
+  it("pult.snapshot сбрасывает и живые секции, и зоны", async () => {
     const live = vi.fn(async () => "l");
     const zone = vi.fn(async () => "z");
     await cachedSection("t2-live", 15_000, live);
@@ -62,7 +63,7 @@ describe("сброс кэша секций по событию", () => {
     await cachedSection("t2-live", 15_000, live);
     await cachedSection("t2-zone", 60_000, zone);
     expect(live).toHaveBeenCalledTimes(2);
-    expect(zone).toHaveBeenCalledTimes(1);
+    expect(zone).toHaveBeenCalledTimes(2);
   });
 
   it("расчёт, начатый до события, не кладёт старое в кэш", async () => {

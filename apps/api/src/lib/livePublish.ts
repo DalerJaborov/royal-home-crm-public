@@ -280,7 +280,9 @@ function emitPultSnapshot(): void {
 }
 
 export function publishPultSnapshot(): void {
-  dropMissionControlSections("live");
+  // Источники снимка (ошибки, ролики, комментарии, «перезвоните») лежат в зонах
+  // пульта (TTL 60 с), а не только в живых секциях — сбрасываем всё.
+  dropMissionControlSections("all");
   const wait = pultSnapshotLastAt + PULT_SNAPSHOT_MIN_GAP_MS - Date.now();
   if (wait <= 0) {
     if (pultSnapshotTimer) {
