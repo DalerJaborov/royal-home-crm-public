@@ -24,7 +24,7 @@ No schema migration or dependency version was changed. The central stream-close 
 - Genuine code-login, real local HTTP and PostgreSQL, desktop/mobile navigation: the final eight-role spec passed **8/8** on commit b20bc69, including exact finance access versus effective permissions, invalid-token rejection and SHAREHOLDER financial-write rejection. It visits five routes at each of two widths per role (80 route/viewport visits); these are automated smoke checks, not 80 visual or full-workflow approvals. Raw output: live-browser-final.log, exit 0.
 - `git diff --check` and the final secret scan passed.
 
-The local complete API attempt was intentionally interrupted before any shard test result, after confirming the documented long laptop runtime. It is neither a completed test failure nor a successful full suite. The exact-commit GitHub test-only workflow remains pending. A PR/check result is not evidence of deployment.
+A later complete API run on corrected0466aca finished with native exit1:1482files and13985tests, of which13934passed,2failed,46skipped and3TODO. Three files failed, including a setup failure. Fixture contamination, a missing fixture agent and the reused install's missing mammoth package are diagnosed in FULL-API-FIRST-PACKAGE.md. The earlier deliberately interrupted attempt remains separate. No complete-API green verdict is claimed. Draft PR45 exists; a PR/check result is not evidence of deployment.
 
 ## Coverage interpretation
 
@@ -35,6 +35,6 @@ Named paths and regression groups above have evidence. Every other source file, 
 ## Remaining work
 
 1. Independent review correction completed: the added reservation row lock introduced two lock-order cycles with stage PATCH. The stage transaction now locks Property before Deal. The final five-file / 28-test PostgreSQL run, API typecheck and regenerated map check pass. Original b20bc69 is retained as review evidence. Actual87 baseline has stale renewal/stage state errors without those deadlocks; REVIEW-BUSINESS.md separates the observations. This correction is not counted as another original CRM defect.
-2. Run the consolidated API suite without ship/merge/deploy. GitHub currently fails TCP connection from this machine; the first push failed before connection and no PR/cloud run exists. No network/security setting was changed.
+2. Finish and review the isolated phase2 fixes/dependency updates and fixture repairs, freeze the final source, then obtain a new consolidated API verdict. Ordinary GitHub connectivity recovered and draft PR45 was created; no network/security setting was changed. Its current head still contains only the first package until integration.
 3. Continue across pending security/input/upload/settings/task/job scenarios, including failure recovery and variant searches using the installed audit skills.
 4. At the overnight deadline publish the exact results, unresolved findings and coverage limits; never call this an exhaustive proof of zero bugs.

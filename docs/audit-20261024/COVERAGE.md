@@ -18,12 +18,12 @@ The machine inventory is inventory.json. Its pending states deliberately do not 
 
 | Dimension | Required variants | Evidence status |
 | --- | --- | --- |
-| Identity and permissions | anonymous, agent, manager/admin, director, revoked rights, foreign ownership | assigned API/frontend review; runtime subset pending |
-| Inputs | omitted/null/empty/invalid/large text, Unicode, numbers, dates, arrays, files | assigned; runtime subset pending |
-| Business state | draft/planned/paid/archive/deleted, stale version, conflicting updates | isolated PG regression subset pending |
-| Transport | unavailable network, response lost after commit, timeout, duplicate submit | frontend regression subset pending |
-| UI | desktop and 390px, loading/empty/error/permission, cancel and pending submit | component/browser subset pending |
-| Async | race/lock order, retries, provider unknown outcome, scheduled status changes | API race tests and parent source review pending |
+| Identity and permissions | anonymous, agent, manager/admin, director, revoked rights, foreign ownership | API77-test named subset and8-role navigation complete; exhaustive combinations pending |
+| Inputs | omitted/null/empty/invalid/large text, Unicode, numbers, dates, arrays, files | named finance/API regressions and generated field properties complete; CSV/recruitment phase2 fixes under review |
+| Business state | draft/planned/paid/archive/deleted, stale version, conflicting updates | isolated PG finance/deal/reservation groups complete; other transitions individually pending |
+| Transport | unavailable network, response lost after commit, timeout, duplicate submit | named frontend8-case Chrome and66-test subsets complete; providers pending |
+| UI | desktop and390px, loading/empty/error/permission, cancel and pending submit | named component regressions plus80 role/route/viewport smoke visits; full workflows/visual acceptance pending |
+| Async | race/lock order, retries, provider unknown outcome, scheduled status changes | named claim/reservation/stream races reviewed and regressed; upload cleanup phase2 under review; other jobs pending |
 | Integration | real PG, local browser, provider contract mocks | no live provider delivery or production mutations |
 
 ## Completed evidence groups

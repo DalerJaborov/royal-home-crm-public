@@ -67,3 +67,33 @@ Automatic approval review rejected a Windows hidden background server launch wit
 Independent review completed. The introduced deadlock family is corrected with6lines in stage PATCH; final5files/28tests passed, API build native0 and map:check native0. Exact original87 baseline separately reproduces stale-state variants without cron errors, whileb20 has deadlocks. REVIEW-BUSINESS.md contains attribution and final conditional approval. No temporary red proof file remains in the default main suite. Frontend baseline proof and eight-role final pass are complete.
 
 Parent is saving the corrective commit, then starting the single complete local API suite on the exact corrected HEAD because ordinary GitHub TCP remains unavailable. While this suite runs, freeze application source and regression tests; reports may be updated. Full-suite source pin, exit file and output will be under reports/night-audit-20261024/api-full-local-final*. Do not start another full suite or claim completion from partial output. If the exec session ID is unavailable after heartbeat, inspect these files and the own process before deciding whether it ended; do not duplicate it. The prior deliberately interrupted full attempt was api-full-r1, not this final run.
+
+## Active checkpoint — 04:07 Asia/Tashkent
+
+- Frozen first package HEAD0466aca29e9090e046e8affdf93760c9224144bd; complete API suite began22:45:11UTC on own audit_parent with4workers. Session13377, raw api-full-local-final.log and exit.txt remain authoritative; no terminal result yet. Application source/tests/dependencies in this worktree remain frozen.
+- A second owned worktree D:/PublicWorktrees-20261021/night-audit-20261024-phase2 (branch codex/night-audit-20261024-phase2) starts at0466aca. It has independent real node_modules: npm ci, prisma:generate and build:shared exited0. Never run dependency updates through the first worktree's junction.
+- Readonly second-pass reports NEXT-JOBS-READONLY.md and NEXT-FIELDS-READONLY.md document5 confirmed families: cleanup deletes a resumed upload, explicit unsupported import currency becomes TJS, downloaded property template misses required windows, quoted CSV delimiter detection fails, recruitment form limits exceed API boundaries. Generated1004 failing inputs are variants, not1004bugs. Phase2 specialists own upload, CSV/import, and recruitment boundaries respectively. New audit_upload_phase2 DB is isolated on the same own loopback15439 container.
+- Upload cleanup has a new actual HTTP/PG/disk RED regression; import19cases and recruitment component/browser/API checks are underway. No phase2 final-green or full-suite claim yet.
+- One security subagent stopped with a protective cyber filter. Its unfinished NEXT-API-READONLY findings remain unverified; do not retry the blocked exploitation task or promote it to coverage.
+- Lockfile advisory scan (npm audit --omit=dev) found12 affected package entries:1critical/8high/3moderate. This is advisory/version evidence, not12 CRM exploit reproductions. See DEPENDENCIES.md. The skill collector is running separately; metadata coverage and unavailable data must remain explicit. No dependency updates yet.
+- Normal git ls-remote succeeded again at~04:03. Earlier preconnect failures remain retained. No push/PR/cloud run yet; publication may resume after review. No merge/ship/deploy authorized.
+
+## Phase2 package checkpoint — after dependency update
+
+All5 phase2 families have targeted GREEN evidence before dependency updates: import36tests/6files, upload49/6files, recruitment75web/3files+14realAPI+6Chrome. Reports and independent import review live in phase2 docs/audit-20261024. Upload was narrowed after parent review to cleanup-only row revalidation; broad streaming/route changes were discarded. The120second filesystem/transaction residual is explicit.
+
+Phase2 dependencies were then updated in its OWN real node_modules using the reviewed normal semver-compatible audit plan, no --force. Update exit0 (4added/8removed/42changed); Prisma generation7.10.1 exit0; independent npm audit JSON exit0 with0reported advisories. PHASE2-DEPENDENCIES.md records versions and scope. A post-update map/precheck and targeted API compatibility group are running. Earlier targeted greens do not prove the updated dependency tree.
+
+The frozen first full API run has at least one failing test and one skipped legacy-file setup; no green suite claim. FULL-SUITE-TRIAGE.md separates observed log output from fixture hypotheses (missing real Response.clone and missing owned eligible agent). Wait for terminal diagnostics, reproduce on a fresh own DB and correct fixture isolation only if confirmed. Never delete unattributed UNKNOWN/ADMITTED attempts or weaken application policy to make tests green.
+
+Additional readonly specialists are inspecting task/reminder date/state behavior and settings failed-save drafts. These are new pending areas; no additional bugs or fixes have been accepted yet.
+
+## Complete first run and publication checkpoint
+
+The first full API run completed native1 after1911.3seconds:1482files,13985tests =13934passed+2failed+46skipped+3TODO, three failing physical files including one setup failure. Exact diagnosis/evidence: FULL-API-FIRST-PACKAGE.md and FULL-SUITE-TRIAGE.md. Original shards copied from the runner temp directory to the own ignored evidence folder. Main source freeze may now end; no old-green claim is permitted.
+
+Ordinary push of0466aca succeeded and draft PR45 was created and attached: https://github.com/DalerJaborov/royal-home-crm-public/pull/45. Its description explicitly reports the failed full run and next-batch pending state. No merge/ship/deploy. Phase2 source is not in this PR head yet.
+
+Two further application families confirmed: assistant task rescheduling selects cancelled showing history (real runTool/PG RED2fail6controls→25PASS in4files after minimal TASK_WHERE fix), and actual CompanySection failed-save rollback loses its draft in Chrome1440/390 (2RED,4canonical/newer-edit controlsPASS). Task fix is ready in phase2; settings provenance fix remains active. Reminder-repeat and date-only deadline observations are NOT accepted policy changes.
+
+Phase2 precheck built shared/API/web and passed frontend tests/other executed checks but exited1 at audit:mocks due two new incomplete test mocks; both mocks were corrected preserving exports and guard rerun0, new upload5cases passed under updated dependencies. Final consolidated precheck must follow all active changes. Post-update compatibility evidence:15files110PASS plus3files12PASS; mammoth issue does not reproduce in fresh install.
