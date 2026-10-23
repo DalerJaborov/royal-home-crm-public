@@ -1,8 +1,8 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 655,
-  "forks": 3640,
+  "endpoints": 660,
+  "forks": 3643,
   "mounts": 74,
   "cron": 107,
   "jobs": 31,
@@ -23415,6 +23415,42 @@
    ]
   },
   {
+   "method": "GET",
+   "path": "/unassigned-leads",
+   "mount": "/api/v1/dashboard",
+   "full": "/api/v1/dashboard/unassigned-leads",
+   "file": "apps/api/src/routes/dashboard.ts",
+   "router": "dashboardRouter",
+   "top": "apps/api/src/routes/dashboard.ts::dashboardRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: clients.assign"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const [rows, total] = await Promise.all([ prisma.client.findMany({ where: UNASSIGNED_LEADS_WHERE, orderBy: [{…",
+     "a": [
+      "читает в базе: client",
+      "считает в базе: client"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ items: rows.map((c)",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
    "method": "POST",
    "path": "/:id/annul",
    "mount": "/api/v1/deals",
@@ -42772,6 +42808,132 @@
    ]
   },
   {
+   "method": "DELETE",
+   "path": "/ack",
+   "mount": "/api/v1/oversight",
+   "full": "/api/v1/oversight/ack",
+   "file": "apps/api/src/routes/oversight.ts",
+   "router": "oversightRouter",
+   "top": "apps/api/src/routes/oversight.ts::oversightRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: dashboard.analytics",
+    "requireDirectorOrAdmin"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "res.status(400).json({ error: \"Неверные данные\", details: parsed.error.flatten() });",
+       "a": [
+        "ответ 400 — «Неверные данные»"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const { count } = await prisma.oversightAck.deleteMany({ where: parsed.data });",
+     "a": [
+      "удаляет в базе: oversightAck"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ removed: count });",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "/ack",
+   "mount": "/api/v1/oversight",
+   "full": "/api/v1/oversight/ack",
+   "file": "apps/api/src/routes/oversight.ts",
+   "router": "oversightRouter",
+   "top": "apps/api/src/routes/oversight.ts::oversightRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: dashboard.analytics",
+    "requireDirectorOrAdmin"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const parsed = oversightAckBodySchema.safeParse(req.body);",
+     "a": [
+      "проверяет данные схемой oversightAckBodySchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "res.status(400).json({ error: \"Неверные данные\", details: parsed.error.flatten() });",
+       "a": [
+        "ответ 400 — «Неверные данные»"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const ack = await prisma.oversightAck.upsert({ where: { sliceKey_subjectId: { sliceKey, subjectId } }, create…",
+     "a": [
+      "создаёт или меняет в базе: oversightAck"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json(ack);",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
    "method": "GET",
    "path": "/agent-loss-series",
    "mount": "/api/v1/oversight",
@@ -42914,7 +43076,126 @@
     },
     {
      "k": "do",
-     "t": "res.json({ items: items.slice(start, start + pageSize).map((it)",
+     "t": "res.json({ items: await markAcked(\"endless-negotiations\", items.slice(start, start + pageSize).map((it)",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/flags",
+   "mount": "/api/v1/oversight",
+   "full": "/api/v1/oversight/flags",
+   "file": "apps/api/src/routes/oversight.ts",
+   "router": "oversightRouter",
+   "top": "apps/api/src/routes/oversight.ts::oversightRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: dashboard.analytics",
+    "requireDirectorOrAdmin"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const name = (n: string)",
+     "a": [
+      "зовёт clientNamePhoneSafe()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const [stalled, silent, refused, seller, endless, ackedStalled, ackedSilent, ackedRefused, ackedSeller, acked…",
+     "a": [
+      "читает в базе: client"
+     ],
+     "c": []
+    },
+    {
+     "k": "loop",
+     "t": "для каждого: const c of stalled.filter((x) => !ackedStalled.has(x.id)).slice(0, FLAGS_PER_SLICE)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "flags.push({ sliceKey: \"stalled-clients\", subjectId: c.id, title: `${name(c.fullName)}: горячий клиент без ко…",
+       "a": [
+        "дословно из кода"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "loop",
+     "t": "для каждого: const c of silent.items.filter((x) => !ackedSilent.has(x.id)).slice(0, FLAGS_PER_SLICE)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "flags.push({ sliceKey: \"silent-after-showing\", subjectId: c.id, title: `${name(c.fullName)}: тишина после пок…",
+       "a": [
+        "дословно из кода"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "loop",
+     "t": "для каждого: const r of refused.items.filter((x) => !ackedRefused.has(x.id)).slice(0, FLAGS_PER_SLICE)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "flags.push({ sliceKey: \"refused-high-score\", subjectId: r.id, title: `${r.client ? name(r.client.fullName) : …",
+       "a": [
+        "дословно из кода"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "loop",
+     "t": "для каждого: const c of seller.items.filter((x) => !ackedSeller.has(x.id)).slice(0, FLAGS_PER_SLICE)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "flags.push({ sliceKey: \"seller-property-missing\", subjectId: c.id, title: `${name(c.fullName)}: продавец без …",
+       "a": [
+        "дословно из кода"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "loop",
+     "t": "для каждого: const it of endless.items.filter((x) => !ackedEndless.has(x.id)).slice(0, FLAGS_PER_SLICE)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "flags.push({ sliceKey: \"endless-negotiations\", subjectId: it.id, title: `${name(it.subjectName)}: вечные пере…",
+       "a": [
+        "дословно из кода"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.json({ items: flags.slice(0, FLAGS_LIMIT), total: flags.length });",
      "a": [
       "ответ 200"
      ],
@@ -43065,7 +43346,7 @@
     },
     {
      "k": "do",
-     "t": "res.json({ items: items.slice(start, start + pageSize).map((r)",
+     "t": "res.json({ items: await markAcked(\"refused-high-score\", items.slice(start, start + pageSize).map((r)",
      "a": [
       "ответ 200"
      ],
@@ -43100,7 +43381,7 @@
     },
     {
      "k": "do",
-     "t": "res.json({ items: items.slice(start, start + pageSize).map((c)",
+     "t": "res.json({ items: await markAcked(\"seller-property-missing\", items.slice(start, start + pageSize).map((c)",
      "a": [
       "ответ 200"
      ],
@@ -43330,7 +43611,7 @@
     },
     {
      "k": "do",
-     "t": "res.json({ items: items.slice(start, start + pageSize).map((c)",
+     "t": "res.json({ items: await markAcked(\"silent-after-showing\", items.slice(start, start + pageSize).map((c)",
      "a": [
       "ответ 200"
      ],
@@ -43374,7 +43655,7 @@
     },
     {
      "k": "do",
-     "t": "res.json({ items: rows.map((c)",
+     "t": "res.json({ items: await markAcked(\"stalled-clients\", rows.map((c)",
      "a": [
       "ответ 200"
      ],
@@ -55468,6 +55749,56 @@
     {
      "k": "do",
      "t": "res.json({ items: page.map(toChangeRequestDto), nextCursor: rows.length > limit ? page[page.length - 1].id : …",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/clip-review/pending",
+   "mount": "/api/v1/properties",
+   "full": "/api/v1/properties/clip-review/pending",
+   "file": "apps/api/src/routes/properties/moderation.ts",
+   "router": "moderationRouter",
+   "top": "apps/api/src/routes/properties/index.ts::propertiesRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: properties.moderate"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const parsed = clipPendingQuerySchema.safeParse(req.query);",
+     "a": [
+      "проверяет данные схемой clipPendingQuerySchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Неверные данные\", details: parsed.error.flatten() });",
+       "a": [
+        "ответ 400 — «Неверные данные»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.json(await listPendingClips(parsed.data.limit));",
      "a": [
       "ответ 200"
      ],

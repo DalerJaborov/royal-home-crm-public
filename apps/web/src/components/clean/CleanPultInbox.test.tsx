@@ -9,10 +9,18 @@ vi.mock("../../hooks/usePultInbox", async (importOriginal) => ({
   usePultInbox: () => state.queues,
   usePultInboxActions: () => ({}),
 }));
+vi.mock("../../hooks/useMissionControl", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../hooks/useMissionControl")>()),
+  useMissionControl: () => ({ data: { team: { agents: [
+    { id: "a1", fullName: "Нози", activeLoad: 7, takesLeads: true },
+    { id: "a2", fullName: "Мадина", activeLoad: 2, takesLeads: true },
+    { id: "a3", fullName: "На паузе", activeLoad: 0, takesLeads: false },
+  ] } } }),
+}));
 vi.mock("../../lib/navigation", () => ({ useNavigation: () => ({ all: [{ to: "/messages" }, { to: "/stuck-work" }] }) }));
 vi.mock("./CleanDecisionRow", () => ({
-  CleanDecisionRow: ({ row }: { row: { title: string; actions: { label: string }[] } }) =>
-    <div data-row>{row.title}|{row.actions.map((a) => a.label).join(",")}</div>,
+  CleanDecisionRow: ({ row }: { row: { title: string; actions: { label: string }[]; choice?: { label: string; defaultId: string; options: { id: string; label: string }[] } } }) =>
+    <div data-row>{row.title}|{row.actions.map((a) => a.label).join(",")}{row.choice ? `|${row.choice.label}:${row.choice.defaultId}:${row.choice.options.map((o) => o.id).join("+")}` : ""}</div>,
 }));
 
 import { CleanPultInbox } from "./CleanPultInbox";
@@ -52,13 +60,49 @@ describe("CleanPultInbox", () => {
     expect(out).not.toContain("Всё разобрано");
   });
 
+  it("нарушения: чип первым после «Все», у строки «Принято», заметка и «Открыть»", () => {
+    state.queues = [
+      queue({}),
+      queue({ id: "violations", group: "violations", label: "Красные флаги контроля", href: "/oversight",
+        items: [{ id: "violations:stalled-clients:c1", queue: "violations", group: "violations", type: "flag", sliceKey: "stalled-clients", subjectId: "c1", href: "/oversight#slice-stalled-clients", title: "Иванов: горячий клиент без контакта", detail: "агент Алия", at: null }], total: 1 }),
+    ];
+    const out = html();
+    expect(out.indexOf("Все")).toBeLessThan(out.indexOf("Нарушения"));
+    expect(out.indexOf("Нарушения")).toBeLessThan(out.indexOf("Клиенты"));
+    expect(out).toContain("Принято");
+    expect(out).toContain("Заметка (необязательно)");
+    expect(out).toContain('href="/oversight#slice-stalled-clients"');
+  });
+
   it("скелет, пока ничего не пришло", () => {
     state.queues = [queue({ isLoading: true })];
     expect(html()).toContain("Загружаем очереди");
   });
 
+  it("«Ждут агента»: строка с «Назначить» и выбором агента, наименее загруженный первым, агент на паузе приёма не в списке", () => {
+    state.queues = [queue({
+      id: "unassigned", label: "Ждут агента", href: "/clients", total: 1,
+      items: [{ id: "unassigned:c1", queue: "unassigned", group: "clients", type: "unassigned", clientId: "c1", title: "Мадина", detail: "Telegram · ждёт 3 ч", at: null }],
+    })];
+    const out = html();
+    expect(out).toContain("Ждут агента · 1");
+    expect(out).toContain("Мадина|Назначить|Кому назначить:a2:a2+a1");
+    expect(out).not.toContain("a3");
+  });
+
   it("без доступных очередей блока нет вовсе", () => {
     state.queues = [];
     expect(html()).toBe("");
+  });
+});
+
+describe("CleanPultInbox: проверка ролика", () => {
+  it("у ролика на проверке есть кнопка «Смотреть»", () => {
+    const clip = { id: "p1", shortId: 7, title: "Квартира", videoUrl: "/uploads/handoff/a.mp4", coverUrl: null, requestedAt: null, montajer: null };
+    const item: InboxItem = { id: "clips:p1", queue: "clips", group: "video", type: "clip", clip, title: "Квартира", detail: "Объект №7", at: null };
+    state.queues = [queue({ id: "clips", group: "video", label: "Проверка ролика", href: "/marketing", items: [item], total: 1 })];
+    const out = html();
+    expect(out).toContain("Проверка ролика");
+    expect(out).toContain("Смотреть");
   });
 });
