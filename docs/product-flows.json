@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 655,
-  "forks": 3639,
+  "forks": 3640,
   "mounts": 74,
   "cron": 107,
   "jobs": 31,
@@ -109602,6 +109602,21 @@
             "обращается к базе своим SQL"
            ],
            "c": []
+          },
+          {
+           "k": "if",
+           "t": "result.reason !== NEWER_INPUT_PENDING",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "await resumeDeferredCustomerInbox(eventKey);",
+             "a": [
+              "зовёт resumeDeferredCustomerInbox()"
+             ],
+             "c": []
+            }
+           ]
           }
          ]
         }

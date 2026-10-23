@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **655**. Развилок в самих путях: **2346**; вместе с задачами по расписанию и фоновыми заданиями — **3639**. Модулей: **74**.
+Путей: **655**. Развилок в самих путях: **2346**; вместе с задачами по расписанию и фоновыми заданиями — **3640**. Модулей: **74**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -24255,6 +24255,9 @@
     - если result.status === "held"
       - await prisma.$executeRaw`UPDATE "CustomerPropertyIngressTicket" SET "processingState"='HELD',"errorCode"=${re…
         · обращается к базе своим SQL
+      - если result.reason !== NEWER_INPUT_PENDING
+        - await resumeDeferredCustomerInbox(eventKey);
+          · зовёт resumeDeferredCustomerInbox()
   - const recovered = await recoverCustomerPendingEnvelope(eventKey);
     · зовёт recoverCustomerPendingEnvelope()
   - return prisma.$transaction(async tx
