@@ -902,6 +902,7 @@ agentsRouter.post("/:id/2fa/reset", requirePermission("agents.reset2fa"), requir
   // и сброс ничего не менял для того, кто уже внутри.
   await revokeOtherSessions(target.id);
   revokeElevation(target.id);
+  closeStreamsForAgent(target.id);
   logAudit(req, "TOTP_RESET_BY_DIRECTOR", "Agent", target.id, { targetName: target.fullName });
   res.json({ totpEnabled: false });
 });

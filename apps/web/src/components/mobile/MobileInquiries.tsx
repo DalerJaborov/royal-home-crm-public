@@ -68,7 +68,7 @@ export function MobileInquiries() {
     sort: SORT,
     page,
   };
-  const { data, isLoading, error } = useClients(filters, canView);
+  const { data, isLoading, isFetching, error } = useClients(filters, canView);
 
   // Мягкая подгрузка вместо страниц (решение владельца 15.09.2026): страницы
   // копятся в ленту, сброс — сменой статуса или поиска (resetKey ниже).
@@ -195,6 +195,7 @@ export function MobileInquiries() {
           {data && (
             <div style={{ marginTop: 16 }}>
               <Pagination
+                loading={isFetching}
                 page={data.page}
                 pageSize={data.pageSize}
                 total={data.total}

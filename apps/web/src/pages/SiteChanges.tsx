@@ -73,7 +73,7 @@ export function SiteChanges() {
   const [page, setPage] = useState(1);
   // «Разобрать все» перекраивает весь список — лента начинается заново.
   const [generation, setGeneration] = useState(0);
-  const { data: response, isLoading, isError, error, refetch } = useSiteNotifications({ enabled: canView, page });
+  const { data: response, isLoading, isFetching, isError, error, refetch } = useSiteNotifications({ enabled: canView, page });
   // Свежая первая страница, пока пролистано дальше неё (аудит №38, useAccumulatedPages).
   const { data: headPage } = useSiteNotifications({ enabled: canView && page > 1, page: 1 });
   const accumulated = useAccumulatedPages(response?.items, page, generation, headPage?.items);
@@ -296,6 +296,7 @@ export function SiteChanges() {
 
           {response && (
             <Pagination
+              loading={isFetching}
               variant="loadMore"
               page={page}
               pageSize={SITE_NOTIFICATIONS_PAGE_SIZE}

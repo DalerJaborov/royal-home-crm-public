@@ -679,6 +679,7 @@ export function MarketingCenter() {
                 queueQuery.data && (
                   <Pagination
                     variant="loadMore"
+                    loading={queueQuery.isFetching}
                     page={queuePage}
                     pageSize={queueQuery.data.pageSize}
                     total={queueQuery.data.total}
@@ -696,6 +697,7 @@ export function MarketingCenter() {
                 recentlyPublishedQuery.data && (
                   <Pagination
                     variant="loadMore"
+                    loading={recentlyPublishedQuery.isFetching}
                     page={publishedPage}
                     pageSize={recentlyPublishedQuery.data.pageSize}
                     total={recentlyPublishedQuery.data.total}

@@ -322,7 +322,7 @@ function ClientsList({ kind = "BUYER" }: { kind?: "BUYER" | "SELLER" | "OTHER" }
   };
   // «Прочие обращения» — управленческий раздел: без права сервер ответил бы 403.
   const otherBlocked = isOther && !can("otherInquiries.view");
-  const { data, isLoading, error, refetch } = useClients(clientQuery, !otherBlocked);
+  const { data, isLoading, isFetching, error, refetch } = useClients(clientQuery, !otherBlocked);
   // Свежая первая страница, пока пролистано дальше неё (аудит №38, useAccumulatedPages).
   const { data: headPage } = useClients({ ...clientQuery, page: 1 }, (filters.page ?? 1) > 1 && !otherBlocked);
   // Мягкая подгрузка вместо страниц (решение владельца 15.09.2026): строки копятся,
@@ -663,6 +663,7 @@ function ClientsList({ kind = "BUYER" }: { kind?: "BUYER" | "SELLER" | "OTHER" }
             прячется, когда показано всё. */}
         {data && (
           <Pagination
+            loading={isFetching}
             variant="loadMore"
             page={filters.page ?? 1}
             pageSize={data.pageSize}

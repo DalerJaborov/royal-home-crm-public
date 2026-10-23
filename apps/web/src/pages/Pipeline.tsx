@@ -90,7 +90,7 @@ function MarketingPipeline({ clean }: { clean: boolean }) {
   const [filter, setFilter] = useState<Filter>("mine");
   const [page, setPage] = useState(1);
   const status = filter === "mine" ? "PENDING_REVIEW" : undefined;
-  const { data, isLoading, isError, refetch } = useMarketingQueue(page, true, status);
+  const { data, isLoading, isFetching, isError, refetch } = useMarketingQueue(page, true, status);
   // Первые страницы обоих срезов — ради честных чисел на чипах и свежей головы
   // ленты (при page = 1 это тот же запрос, что выше, лишнего похода нет).
   const mineHead = useMarketingQueue(1, true, "PENDING_REVIEW");
@@ -116,7 +116,7 @@ function MarketingPipeline({ clean }: { clean: boolean }) {
       emptyText={filter === "mine" ? "Никто не ждёт вашей проверки." : "Список пуст."}
       footer={
         data && (
-          <Pagination variant="loadMore" page={page} pageSize={data.pageSize} total={data.total} onPageChange={setPage} />
+          <Pagination loading={isFetching} variant="loadMore" page={page} pageSize={data.pageSize} total={data.total} onPageChange={setPage} />
         )
       }
     >
@@ -138,7 +138,7 @@ function EditorPipeline({ clean }: { clean: boolean }) {
   const [filter, setFilter] = useState<Filter>("mine");
   const [editingPage, setEditingPage] = useState(1);
   const [upcomingPage, setUpcomingPage] = useState(1);
-  const { data, isLoading, isError, refetch } = useEditorQueue(true, { editingPage, upcomingPage });
+  const { data, isLoading, isFetching, isError, refetch } = useEditorQueue(true, { editingPage, upcomingPage });
   const head = useEditorQueue(editingPage > 1 || upcomingPage > 1, { editingPage: 1, upcomingPage: 1 });
 
   const inEditing = useAccumulatedPages(data?.inEditing, editingPage, "editing", head.data?.inEditing);
@@ -175,6 +175,7 @@ function EditorPipeline({ clean }: { clean: boolean }) {
         (filter === "mine" || !editingDone ? (
           <Pagination
             variant="loadMore"
+            loading={isFetching}
             page={editingPage}
             pageSize={pageSize}
             total={counts.inEditing}
@@ -183,6 +184,7 @@ function EditorPipeline({ clean }: { clean: boolean }) {
         ) : (
           <Pagination
             variant="loadMore"
+            loading={isFetching}
             page={upcomingPage}
             pageSize={pageSize}
             total={counts.upcoming}

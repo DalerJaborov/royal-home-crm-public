@@ -234,7 +234,7 @@ export function MobileClientsList({ kind }: { kind: "BUYER" | "SELLER" }) {
     ...(noResponseYesterday ? { noFirstContactYesterday: true, sort: "created_desc" as const } : {}),
     ...(urlWorkStatus ? { workStatus: urlWorkStatus } : {}),
   };
-  const { data, isLoading, error, refetch } = useClients(filters);
+  const { data, isLoading, isFetching, error, refetch } = useClients(filters);
   // Свежая первая страница, пока пролистано дальше неё (аудит №38, useAccumulatedPages).
   const { data: headPage } = useClients({ ...filters, page: 1 }, page > 1);
   const { data: summary } = useClientsSummary();
@@ -567,7 +567,7 @@ export function MobileClientsList({ kind }: { kind: "BUYER" | "SELLER" }) {
           краем выдачи. */}
       {data && (data.total > data.pageSize || data.page > 1) && (
         <div className="sec">
-          <Pagination page={page} pageSize={data.pageSize} total={data.total} onPageChange={setPage} variant="loadMore" />
+          <Pagination loading={isFetching} page={page} pageSize={data.pageSize} total={data.total} onPageChange={setPage} variant="loadMore" />
         </div>
       )}
 

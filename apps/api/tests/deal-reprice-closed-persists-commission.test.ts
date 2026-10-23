@@ -130,6 +130,29 @@ async function closeWith(sums: { realtor: number; company: number }) {
 }
 
 describe("Переоценка закрытой сделки: вторая величина доходит до базы", () => {
+  it("считает сумму процента от новой цены продажи из того же запроса", async () => {
+    const d = await closeWith({ realtor: 2000.12, company: 4000.25 });
+    const res = await request(app).patch(`/api/v1/deals/${d.id}`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ soldPrice: 200000, commissionPercent: 3 });
+    expect(res.status).toBe(200);
+    const after = await prisma.deal.findUniqueOrThrow({ where: { id: d.id } });
+    expect(Number(after.soldPrice)).toBe(200000);
+    expect(Number(after.commissionAmount)).toBe(6000);
+    expect(toCents(after.commissionIntakeAmount) + toCents(after.commissionRealtorAmount) + toCents(after.commissionCompanyAmount)).toBe(600000);
+  });
+
+  it("считает процент суммы от новой цены продажи из того же запроса", async () => {
+    const d = await closeWith({ realtor: 2000.12, company: 4000.25 });
+    const res = await request(app).patch(`/api/v1/deals/${d.id}`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ soldPrice: 200000, commissionAmount: 6000 });
+    expect(res.status).toBe(200);
+    const after = await prisma.deal.findUniqueOrThrow({ where: { id: d.id } });
+    expect(Number(after.soldPrice)).toBe(200000);
+    expect(Number(after.commissionPercent)).toBe(3);
+  });
+
   it("пришёл только процент: commissionAmount в базе = цена × процент, доли сходятся с ним", async () => {
     const d = await closeWith({ realtor: 2000.12, company: 4000.25 });
     const res = await request(app)

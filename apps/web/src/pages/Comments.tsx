@@ -73,7 +73,7 @@ export function Comments() {
   // подтверждаются: случайный тап по ленте не должен ничего менять публично.
   const [pending, setPending] = useState<{ item: InstagramCommentItem; hide: boolean } | null>(null);
 
-  const { data, isLoading, error } = useInstagramComments({ status: status ?? undefined, page }, { enabled: canView });
+  const { data, isLoading, isFetching, error } = useInstagramComments({ status: status ?? undefined, page }, { enabled: canView });
 
   // Мягкая подгрузка вместо страниц (решение владельца 15.09.2026): страницы
   // копятся в ленту, сброс — сменой статуса (см. setPage(1) ниже).
@@ -270,6 +270,7 @@ export function Comments() {
           {data && (
             <div style={{ marginTop: 16 }}>
               <Pagination
+                loading={isFetching}
                 variant="loadMore"
                 page={data.page}
                 pageSize={data.pageSize}

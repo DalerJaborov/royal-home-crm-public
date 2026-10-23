@@ -765,7 +765,7 @@ dealsRouter.patch("/:id", requireAuth, async (req, res) => {
       where: { id: existing.propertyId },
       select: { price: true },
     });
-    const priceBase = Number(existing.soldPrice ?? propertyForBase?.price ?? 0);
+    const priceBase = Number(data.soldPrice ?? existing.soldPrice ?? propertyForBase?.price ?? 0);
     // Округление до копейки здесь же: колонка Decimal(65,30) сохранила бы
     // двоичный хвост процента как есть (см. commissionOf).
     if (priceBase > 0) data.commissionAmount = commissionOf(priceBase, data.commissionPercent);
@@ -774,7 +774,7 @@ dealsRouter.patch("/:id", requireAuth, async (req, res) => {
       where: { id: existing.propertyId },
       select: { price: true },
     });
-    const priceBase = Number(existing.soldPrice ?? propertyForBase?.price ?? 0);
+    const priceBase = Number(data.soldPrice ?? existing.soldPrice ?? propertyForBase?.price ?? 0);
     // До четырёх знаков, как у соседних веток пересчёта: в Decimal(65,30) не должен
     // лечь двоичный хвост деления.
     if (priceBase > 0) {

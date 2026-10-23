@@ -46,7 +46,7 @@ import {
   resolveAgentDialTarget,
 } from "../lib/telephony/ariClient.js";
 import { beginOrigination, endOrigination, hasLiveCall } from "../lib/telephony/callTracker.js";
-import type { Prisma } from "../generated/prisma/client.js";
+import { Prisma } from "../generated/prisma/client.js";
 import { dushanbeDayRange } from "../lib/dushanbeTime.js";
 import { sendPrivateFile } from "../lib/sendPrivateFile.js";
 import { r2PresignDownloadUrl } from "../lib/r2Client.js";
@@ -1064,6 +1064,11 @@ async function eraseApplications(
   ids: string[]
 ): Promise<{ updated: number; skipped: SkippedItem[] }> {
   const done = await prisma.$transaction(async (tx) => {
+    // Dispatch claims hold this same application lock before changing call
+    // status. Check only after acquiring it, otherwise a concurrent claim can
+    // commit between the busy check and deletion. Stable order avoids cycles
+    // when two overlapping batches arrive in different input orders.
+    await tx.$queryRaw`SELECT "id" FROM "JobApplication" WHERE "id" IN (${Prisma.join(ids)}) ORDER BY "id" FOR UPDATE`;
     const rows = await tx.jobApplication.findMany({
       where: { id: { in: ids } },
       select: { id: true, name: true, phone: true, status: true, customerPositionKey: true, hrPositionKey: true },
@@ -1146,6 +1151,9 @@ vacanciesRouter.post("/bulk", requireAuth, requirePermission("vacancies.view"), 
   }
 
   const result = await prisma.$transaction(async (tx) => {
+    // Same lock as the single PATCH and dispatch; re-read call state after a
+    // concurrent claim commits, before changing its appointment or position.
+    await tx.$queryRaw`SELECT "id" FROM "JobApplication" WHERE "id" IN (${Prisma.join(ids)}) ORDER BY "id" FOR UPDATE`;
     const rows = await tx.jobApplication.findMany({
       where: { id: { in: ids } },
       select: { id: true, status: true, customerInquiryId: true },

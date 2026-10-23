@@ -2067,6 +2067,14 @@
     },
     {
      "k": "do",
+     "t": "closeStreamsForAgent(target.id);",
+     "a": [
+      "зовёт closeStreamsForAgent()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
      "t": "logAudit(req, \"TOTP_RESET_BY_DIRECTOR\", \"Agent\", target.id, { targetName: target.fullName });",
      "a": [
       "зовёт logAudit()"
@@ -28331,7 +28339,7 @@
     },
     {
      "k": "if",
-     "t": "(rest.status??current.status)===\"PAID\"&&finalPaymentDate&&finalPaymentDate>todayExpenseDay()",
+     "t": "finalStatus===\"PAID\"&&finalPaymentDate&&finalPaymentDate>todayExpenseDay()",
      "a": [],
      "c": [
       {
@@ -74658,12 +74666,21 @@
      "t": "const result = await prisma.$transaction(async (tx)",
      "a": [
       "всё внутри — одной транзакцией",
+      "обращается к базе своим SQL",
       "читает в базе: jobApplication",
       "читает в базе: recruitmentCommunication",
       "меняет в базе: jobApplication",
       "меняет в базе: interviewInviteCall"
      ],
      "c": [
+      {
+       "k": "do",
+       "t": "await tx.$queryRaw`SELECT \"id\" FROM \"JobApplication\" WHERE \"id\" IN (${Prisma.join(ids)}) ORDER BY \"id\" FOR UP…",
+       "a": [
+        "обращается к базе своим SQL"
+       ],
+       "c": []
+      },
       {
        "k": "do",
        "t": "const rows = await tx.jobApplication.findMany({ where: { id: { in: ids } }, select: { id: true, status: true,…",

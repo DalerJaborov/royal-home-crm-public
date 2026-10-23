@@ -9,6 +9,7 @@ import { prisma } from "../db.js";
 import { dropMissionControlSections } from "./pultCacheHook.js";
 import { logSystemError } from "./systemError.js";
 import { guardBackgroundFailure, isShuttingDown, trackBackgroundTask } from "./shutdownState.js";
+import { closeAuthenticatedStreams } from "./authenticatedStreams.js";
 
 /**
  * ШИНА ЖИВЫХ СОБЫТИЙ (12.09.2026) — сервер→браузер без опроса по таймеру.
@@ -222,7 +223,7 @@ export function closeAllStreams(): number {
       // Сокет уже мёртв — закрывать нечего.
     }
   }
-  return all.length;
+  return all.length + closeAuthenticatedStreams();
 }
 
 /**
@@ -244,7 +245,7 @@ export function closeStreamsForAgent(agentId: string): number {
       // Сокет уже мёртв — закрывать нечего.
     }
   }
-  return mine.length;
+  return mine.length + closeAuthenticatedStreams(agentId);
 }
 
 async function startTail(): Promise<void> {

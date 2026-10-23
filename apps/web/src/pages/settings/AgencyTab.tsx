@@ -619,7 +619,7 @@ export function LandmarksSection() {
   const listKey = JSON.stringify(filters);
   const [paging, setPaging] = useState({ key: listKey, page: 1 });
   const page = paging.key === listKey ? paging.page : 1;
-  const { data, isLoading } = useLandmarks({ ...filters, page, pageSize: LANDMARKS_PAGE_SIZE });
+  const { data, isLoading, isFetching } = useLandmarks({ ...filters, page, pageSize: LANDMARKS_PAGE_SIZE });
   // Свежая первая страница, пока пролистано дальше неё (аудит №38, useAccumulatedPages).
   const { data: headPage } = useLandmarks(
     { ...filters, page: 1, pageSize: LANDMARKS_PAGE_SIZE },
@@ -748,6 +748,7 @@ export function LandmarksSection() {
       )}
       {data && (
         <Pagination
+          loading={isFetching}
           variant="loadMore"
           page={page}
           pageSize={LANDMARKS_PAGE_SIZE}

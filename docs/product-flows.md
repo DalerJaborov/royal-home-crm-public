@@ -536,6 +536,8 @@
   · зовёт revokeOtherSessions()
 - revokeElevation(target.id);
   · зовёт revokeElevation()
+- closeStreamsForAgent(target.id);
+  · зовёт closeStreamsForAgent()
 - logAudit(req, "TOTP_RESET_BY_DIRECTOR", "Agent", target.id, { targetName: target.fullName });
   · зовёт logAudit()
 - res.json({ totpEnabled: false });
@@ -6512,7 +6514,7 @@
     · ответ 400 — «Категория не соответствует разделу»
 - const money=await loadMoneyContext();
   · зовёт loadMoneyContext()
-- если (rest.status??current.status)==="PAID"&&finalPaymentDate&&finalPaymentDate>todayExpenseDay()
+- если finalStatus==="PAID"&&finalPaymentDate&&finalPaymentDate>todayExpenseDay()
   - return res.status(400).json({error:"Будущий платёж запишите как план"});
     · ответ 400 — «Будущий платёж запишите как план»
 - если finalCategory === "ADVERTISING" && !finalSource
@@ -16761,10 +16763,13 @@
       · ответ 400 — «Выберите существующую вакансию»
 - const result = await prisma.$transaction(async (tx)
   · всё внутри — одной транзакцией
+  · обращается к базе своим SQL
   · читает в базе: jobApplication
   · читает в базе: recruitmentCommunication
   · меняет в базе: jobApplication
   · меняет в базе: interviewInviteCall
+  - await tx.$queryRaw`SELECT "id" FROM "JobApplication" WHERE "id" IN (${Prisma.join(ids)}) ORDER BY "id" FOR UP…
+    · обращается к базе своим SQL
   - const rows = await tx.jobApplication.findMany({ where: { id: { in: ids } }, select: { id: true, status: true,…
     · читает в базе: jobApplication
   - const busy = await tx.recruitmentCommunication.findMany({ where: { jobApplicationId: { in: ids }, channel: "A…

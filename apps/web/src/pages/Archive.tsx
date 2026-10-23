@@ -586,6 +586,7 @@ export function Archive() {
   const [archivedPage, setArchivedPage] = useState(1);
   const {
     data: soldProperties,
+    isFetching: soldFetching,
     isLoading: soldLoading,
     isError: soldError,
     refetch: refetchSold,
@@ -594,6 +595,7 @@ export function Archive() {
   const soldItems = useAccumulatedPages(soldProperties?.items, soldPage, null, soldHead?.items);
   const {
     data: archivedClients,
+    isFetching: archivedFetching,
     isLoading: archivedLoading,
     isError: archivedError,
     refetch: refetchArchivedClients,
@@ -604,6 +606,7 @@ export function Archive() {
   const [auditPage, setAuditPage] = useState(1);
   const {
     data: auditLog,
+    isFetching: auditFetching,
     isLoading: auditLoading,
     isError: auditError,
     refetch: refetchAuditLog,
@@ -617,6 +620,7 @@ export function Archive() {
   const [clientPage, setClientPage] = useState(1);
   const {
     data: propertyTrashPage,
+    isFetching: propertyTrashFetching,
     isLoading: propertyTrashLoading,
     isError: propertyTrashError,
     refetch: refetchPropertyTrash,
@@ -640,6 +644,7 @@ export function Archive() {
 
   const {
     data: clientTrashPage,
+    isFetching: clientTrashFetching,
     isLoading: clientTrashLoading,
     isError: clientTrashError,
     refetch: refetchClientTrash,
@@ -879,6 +884,7 @@ export function Archive() {
             {propertyTrashPage && (
               <Pagination
                 variant="loadMore"
+                loading={propertyTrashFetching}
                 page={propertyPage}
                 pageSize={propertyTrashPage.pageSize}
                 total={propertyTrashTotal}
@@ -960,6 +966,7 @@ export function Archive() {
             {clientTrashPage && (
               <Pagination
                 variant="loadMore"
+                loading={clientTrashFetching}
                 page={clientPage}
                 pageSize={clientTrashPage.pageSize}
                 total={clientTrashTotal}
@@ -1112,6 +1119,7 @@ export function Archive() {
           {soldProperties && (
             <Pagination
               variant="loadMore"
+              loading={soldFetching}
               page={soldPage}
               pageSize={soldProperties.pageSize}
               total={soldProperties.total}
@@ -1154,6 +1162,7 @@ export function Archive() {
           {archivedClients && (
             <Pagination
               variant="loadMore"
+              loading={archivedFetching}
               page={archivedPage}
               pageSize={archivedClients.pageSize}
               total={archivedClients.total}
@@ -1222,7 +1231,7 @@ export function Archive() {
           )}
 
           {auditLog && (
-            <Pagination variant="loadMore" page={auditPage} pageSize={auditLog.pageSize} total={auditLog.total} onPageChange={setAuditPage} />
+            <Pagination loading={auditFetching} variant="loadMore" page={auditPage} pageSize={auditLog.pageSize} total={auditLog.total} onPageChange={setAuditPage} />
           )}
         </section>
       </div>

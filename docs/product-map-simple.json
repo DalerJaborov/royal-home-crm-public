@@ -132,7 +132,6 @@
   "(finalCategory === \"OFFICE\" || finalCategory === \"OTHER\") && !finalNote?.trim()",
   "(property.publishedChannels ?? []).includes(\"TIKTOK\")",
   "(rest.status??\"PAID\")===\"PAID\"&&rest.paymentDate&&rest.paymentDate>todayExpenseDay()",
-  "(rest.status??current.status)===\"PAID\"&&finalPaymentDate&&finalPaymentDate>todayExpenseDay()",
   "(settings?.leadDistributionStrategy ?? \"fair\") === \"manual\"",
   "Boolean(params.propertyId) === Boolean(params.freeVideoId)",
   "Date.now() - last < REFRESH_EVERY_MS",
@@ -283,6 +282,7 @@
   "f.installation.id === row.endpointScopeId && f.source.id === row.originalNativeId && f.sourceRevision === row…",
   "fieldChanges.length > 0 && (data.status === undefined || data.status === existing.status)",
   "finalStatus !== \"INTERVIEW\" || !finalAt || finalAt.getTime() <= Date.now()",
+  "finalStatus===\"PAID\"&&finalPaymentDate&&finalPaymentDate>todayExpenseDay()",
   "firstCallDueAt(client.acceptedAt!, minutes, pauses.get(client.id)) > now",
   "foreignMedia && (mediaDecision === \"replace\" || (parsedBody.data.mode === \"replace\" && attachments.length ===…",
   "found !== interaction.recordingUrl",
@@ -27817,7 +27817,7 @@
      "raw": "!await validateExpenseCategory(rest.categoryId===undefined?current.categoryId:rest.categoryId,rest.category??…"
     },
     {
-     "t": "если (rest.status??current.status)===\"PAID\"&&finalPaymentDate&&finalPaymentDate>todayExpenseDay()",
+     "t": "если finalStatus===\"PAID\"&&finalPaymentDate&&finalPaymentDate>todayExpenseDay()",
      "k": "if",
      "a": [],
      "c": [
@@ -27828,7 +27828,7 @@
        "c": []
       }
      ],
-     "raw": "(rest.status??current.status)===\"PAID\"&&finalPaymentDate&&finalPaymentDate>todayExpenseDay()"
+     "raw": "finalStatus===\"PAID\"&&finalPaymentDate&&finalPaymentDate>todayExpenseDay()"
     },
     {
      "t": "если final category — «ADVERTISING» и нет: final source",
