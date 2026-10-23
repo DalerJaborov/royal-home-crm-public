@@ -16,9 +16,9 @@
   "paths": 663,
   "cron": 107,
   "jobs": 31,
-  "conditions": 3648,
-  "untranslatedUnique": 396,
-  "untranslatedTotal": 504,
+  "conditions": 3649,
+  "untranslatedUnique": 397,
+  "untranslatedTotal": 505,
   "partialUnique": 1028,
   "translatedShare": 86
  },
@@ -367,6 +367,7 @@
   "requirementsNotes.length + text.length + 1 <= 4000",
   "rest.phone && rest.phone !== existing.phone",
   "result.from !== result.to",
+  "result.reason !== NEWER_INPUT_PENDING",
   "result.skipped && result.skipped.startsWith(\"Не удалось определить очередь\")",
   "rights?.all || (rights?.own && await db.botConversation.count({ where: { id: nativeId, ...ownBotConversationW…",
   "row.answeredAt || row.closedAt || row.supersededAt || !slot || slot.status !== \"committed\" || slot.generation…",
@@ -73486,7 +73487,16 @@
          "t": "если статус (ответ) — «held»",
          "k": "if",
          "a": [],
-         "c": []
+         "c": [
+          {
+           "t": "если result.reason !== NEWER_INPUT_PENDING",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "raw": "result.reason !== NEWER_INPUT_PENDING",
+           "more": true
+          }
+         ]
         }
        ]
       },

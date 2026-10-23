@@ -1,5 +1,6 @@
 import type { CustomerPropertyAdmission, CustomerPropertyEvidence, CustomerPropertyResolution } from "@royal-home/shared";
 import { customerPropertyUrl, type CustomerPropertyUrl } from "./customerPropertyUrls.js";
+import { logSystemError } from "./systemError.js";
 
 export interface CustomerPropertyRegistry {
   ad(id: string): Promise<{ ids: string[] } | null>;
@@ -11,7 +12,7 @@ export interface CustomerPropertyRegistry {
 const unique = (ids: readonly string[]) => [...new Set(ids)];
 
 /** Pure decision logic; the registry below is strictly business reads. */
-export async function resolveCustomerPropertyEvidence(
+async function resolveOnce(
   evidence: readonly CustomerPropertyEvidence[],
   scope: Pick<CustomerPropertyAdmission, "conversationId" | "scopeKey" | "accountId" | "channel" | "endpointScopeId">,
   registry: CustomerPropertyRegistry,
@@ -58,7 +59,19 @@ export async function resolveCustomerPropertyEvidence(
     const common = groups.reduce((left, right) => left.filter((id) => right.includes(id)));
     if (common.length === 1) return result("resolved", common, "unique");
     return result("ambiguous", groups.flat(), "conflict");
-  } catch {
+  } catch (error) {
+    // A failed read is not "no such object": report it as unavailable, never as not found.
+    void logSystemError("api", `customer property lookup failed: ${error instanceof Error ? error.message : String(error)}`.slice(0, 500),
+      { dedupKey: "customer-property-lookup-failed" });
     return result("missing", [], "lookup_unavailable");
   }
+}
+/** One immediate retry of a transient read failure; a deterministic answer is never retried. */
+export async function resolveCustomerPropertyEvidence(
+  evidence: readonly CustomerPropertyEvidence[],
+  scope: Pick<CustomerPropertyAdmission, "conversationId" | "scopeKey" | "accountId" | "channel" | "endpointScopeId">,
+  registry: CustomerPropertyRegistry,
+): Promise<CustomerPropertyResolution> {
+  const first = await resolveOnce(evidence, scope, registry);
+  return first.reason === "lookup_unavailable" ? resolveOnce(evidence, scope, registry) : first;
 }

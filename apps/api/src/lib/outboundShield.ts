@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { prisma } from "../db.js";
+import { prisma, type TxClient } from "../db.js";
 import { Prisma } from "../generated/prisma/client.js";
 import { lockCustomerStateSnapshot, loadCustomerStateSnapshot } from "./customerState.js";
 import { customerShieldPauseMatches } from "./customerShieldPause.js";
@@ -77,6 +77,33 @@ const GLOBAL_PAUSE_MS = 30 * 60_000;
  * молчать вечно из-за сбоя крона мы тоже не хотим.
  */
 const SHIELD_PAUSE_MS = 6 * 60 * 60_000;
+
+/**
+ * Причины, по которым паузу поставил САМ щит (а не сотрудник кнопкой). Только
+ * такую паузу снимает настоящее входящее от человека (F03, 23.10.2026); ручная
+ * пауза сотрудника живёт в диалоге отдельно и входящим не снимается.
+ */
+const SHIELD_SET_PAUSE_REASONS: ReadonlySet<string> = new Set<ShieldReason>(["repeat", "monologue", "rate_hour", "rate_day"]);
+export function isShieldSetPause(reason: string | null | undefined): boolean {
+  return !!reason && SHIELD_SET_PAUSE_REASONS.has(reason);
+}
+
+/**
+ * Что делать с входящим, которое уже могло быть записано. `lastInboundAt` ходит
+ * только ВПЕРЁД: повторная подготовка старого тикета (повтор задания, второй
+ * воркер) не откатывает время, не обнуляет счётчик монолога и не снимает паузу,
+ * поставленную уже после этого входящего.
+ */
+export type InboundVerdict = "apply" | "duplicate" | "stale";
+export function classifyInbound(
+  current: { lastInboundAt: Date | null; lastInboundId: string | null },
+  providerId: string,
+  now: Date
+): InboundVerdict {
+  if (current.lastInboundId === providerId) return "duplicate";
+  if (current.lastInboundAt && now.getTime() < current.lastInboundAt.getTime()) return "stale";
+  return "apply";
+}
 
 /** Не чаще раза в сутки на диалог — в журнал и руководству. */
 const CONVERSATION_ALERT_INTERVAL_MS = 24 * 60 * 60_000;
@@ -157,6 +184,15 @@ export interface OutboundRequest {
    * считать, если строки ещё нет.
    */
   onlyIfKnown?: boolean;
+  /**
+   * Это сообщение — ответ ядра на КОНКРЕТНОЕ настоящее входящее (его исходящая
+   * часть привязана к билету входящего: turnKey/ticketEventKey). Такой ответ
+   * считается ответом независимо от 10-минутного окна: ядро отвечает через
+   * очередь и ретраи, и окно по часам превращало поздний ответ живому человеку в
+   * «инициативу» (F03, 23.10.2026). Флаг ставит только доставка ядра из своей
+   * строки очереди, не вызывающий по произволу.
+   */
+  answersInbound?: boolean;
 }
 
 /** Отпечаток текста: короткий хэш + время + сколько раз. */
@@ -221,6 +257,7 @@ type ShieldState = {
   id: string;
   recipientName: string | null;
   lastInboundAt: Date | null;
+  lastInboundId: string | null;
   botSentSinceInbound: number;
   hourWindowStart: Date | null;
   hourCount: number;
@@ -241,6 +278,7 @@ const STATE_SELECT = {
   id: true,
   recipientName: true,
   lastInboundAt: true,
+  lastInboundId: true,
   botSentSinceInbound: true,
   hourWindowStart: true,
   hourCount: true,
@@ -264,8 +302,8 @@ async function shieldKey(channel: string, subscriberId: string, hint?: CustomerT
   const transport = await resolveCustomerEndpoint(customerTransportInput(channel, subscriberId, hint));
   return { channel, subscriberId, endpointScopeId: transport.endpointScopeId, transport };
 }
-async function loadState(key: ShieldKey): Promise<ShieldState | null> {
-  return prisma.outboundShieldState.findFirst({
+async function loadState(key: ShieldKey, db: Pick<TxClient, "outboundShieldState"> = prisma): Promise<ShieldState | null> {
+  return db.outboundShieldState.findFirst({
     where: { channel: key.channel, subscriberId: key.subscriberId, endpointScopeId: key.endpointScopeId },
     select: STATE_SELECT,
   });
@@ -538,26 +576,13 @@ export async function noteRealInbound(input: {
     const state = previous ?? await ensureShieldState(key);
     if (key.endpointScopeId) {
       const native = await findScopedBotConversation(customerTransportInput(key.channel, key.subscriberId, key.transport));
-      await prisma.$transaction(async tx => {
-        // Same order as native legacy writers and credential rotation: native,
-        // exact scope, policy, inquiry, then the shield row. No shield→native.
-        const snapshot = native ? await lockCustomerStateSnapshot(tx, { conversationId: native.id }) : null;
-        if (snapshot && !shieldSnapshotMatchesTransport(key, snapshot.fence)) throw new CustomerScopeDenied("account_mismatch");
-        await tx.$queryRaw`SELECT "id" FROM "OutboundShieldState" WHERE "id"=${state.id} FOR UPDATE`;
-        const current = await tx.outboundShieldState.findUnique({ where: { id: state.id }, select: STATE_SELECT });
-        if (!current || current.endpointScopeId !== key.endpointScopeId) throw new CustomerScopeDenied("scope_unknown");
-        if (!input.preserveNativeOwner && snapshot && current.pausedUntil && current.pausedAt && customerShieldPauseMatches(current.pauseFence, snapshot.fence)) {
-          await tx.botConversation.updateMany({ where: { id: snapshot.fence.nativeId!, endpointScopeId: key.endpointScopeId,
-            pausedUntil: current.pausedUntil, botPausedAt: current.pausedAt, propertyChatAgentId: null },
-            data: { pausedUntil: null, botPausedAt: null } });
-        }
-        await tx.outboundShieldState.update({ where: { id: state.id }, data: { lastInboundAt: now,
-          lastInboundId: providerId, botSentSinceInbound: 0,
-          ...(!input.preserveNativeOwner ? { pausedUntil: null, pausedReason: null, pausedAt: null, pauseFence: Prisma.DbNull } : {}),
-          ...(input.name ? { recipientName: input.name } : {}) } });
-      });
+      await prisma.$transaction(tx => applyScopedInbound(tx, key, state.id, native?.id ?? null,
+        { providerId, now, name: input.name, liftPause: !input.preserveNativeOwner }));
       return;
     }
+    // Старое входящее (повтор того же mid или время назад) не трогает ни время,
+    // ни счётчик, ни паузу, поставленную после него.
+    if (classifyInbound(state, providerId, now) !== "apply") return;
     await prisma.outboundShieldState.update({
       where: { id: state.id },
       data: {
@@ -575,9 +600,94 @@ export async function noteRealInbound(input: {
       await liftShieldPause(key, previous.pausedUntil);
     }
   } catch (err) {
-    // Отказ базы не имеет права уронить обработку входящего.
-    console.error("[щит] входящее не записано:", err instanceof Error ? err.message : err);
+    reportInboundFailure(err, input.channel, input.subscriberId);
   }
+}
+
+/**
+ * То же настоящее входящее, но ВНУТРИ транзакции приёма (customerIngressRecovery):
+ * паузу щита надо снять ДО того, как принятый вход зафиксирует «забор» диалога
+ * (ownershipEpoch). Снятие позже, уже после фиксации, меняет эпоху и делает ход
+ * ядра «original_context_changed» — а пока пауза стоит, принципал отказывает
+ * `scope_blocked`, и бот молчит до конца шестичасовой паузы, хотя клиент пишет
+ * (F03, 23.10.2026). Строки состояния нет — паузы нет: ничего не создаём здесь
+ * (создание в транзакции приёма могло бы сорвать сам приём), входящее запишет
+ * обычный \`noteRealInbound\` после приёма.
+ *
+ * Снимается только пауза, поставленная щитом (\`isShieldSetPause\`) и только если
+ * её «забор» совпал с текущим владельцем диалога; ручная пауза сотрудника и
+ * владение живого человека остаются как есть.
+ */
+export async function noteRealInboundInTx(tx: TxClient, input: {
+  transport: CustomerTransportReference;
+  nativeId: string | null;
+  channel: string;
+  subscriberId: string;
+  providerId: string;
+  now: Date;
+  name?: string | null;
+}): Promise<InboundVerdict | "skipped"> {
+  if (!input.providerId || input.channel === "TELEGRAM") return "skipped";
+  const key: ShieldKey = { channel: input.channel, subscriberId: input.subscriberId,
+    endpointScopeId: input.transport.endpointScopeId, transport: input.transport };
+  try {
+    const state = await loadState(key, tx);
+    if (!state) return "skipped";
+    return await applyScopedInbound(tx, key, state.id, input.nativeId,
+      { providerId: input.providerId, now: input.now, name: input.name, liftPause: true });
+  } catch (err) {
+    // Отказ привязки (смена аккаунта/областей) — не повод ронять приём входящего:
+    // ошибка логики, SQL при этом не упал и транзакция жива. Остальное (отказ
+    // базы) валит приём так же, как валило бы любой его запрос.
+    if (!(err instanceof CustomerScopeDenied)) throw err;
+    reportInboundFailure(err, input.channel, input.subscriberId);
+    return "skipped";
+  }
+}
+
+/** Запись настоящего входящего для области Meta/Website. Вызывающий держит транзакцию. */
+async function applyScopedInbound(
+  tx: TxClient,
+  key: ShieldKey,
+  stateId: string,
+  nativeId: string | null,
+  input: { providerId: string; now: Date; name?: string | null; liftPause: boolean }
+): Promise<InboundVerdict> {
+  // Same order as native legacy writers and credential rotation: native,
+  // exact scope, policy, inquiry, then the shield row. No shield→native.
+  const snapshot = nativeId ? await lockCustomerStateSnapshot(tx, { conversationId: nativeId }) : null;
+  if (snapshot && !shieldSnapshotMatchesTransport(key, snapshot.fence)) throw new CustomerScopeDenied("account_mismatch");
+  await tx.$queryRaw`SELECT "id" FROM "OutboundShieldState" WHERE "id"=${stateId} FOR UPDATE`;
+  const current = await tx.outboundShieldState.findUnique({ where: { id: stateId }, select: STATE_SELECT });
+  if (!current || current.endpointScopeId !== key.endpointScopeId) throw new CustomerScopeDenied("scope_unknown");
+  const verdict = classifyInbound(current, input.providerId, input.now);
+  if (verdict !== "apply") return verdict;
+  if (input.liftPause && snapshot && current.pausedUntil && current.pausedAt && isShieldSetPause(current.pausedReason) &&
+      customerShieldPauseMatches(current.pauseFence, snapshot.fence)) {
+    await tx.botConversation.updateMany({ where: { id: snapshot.fence.nativeId!, endpointScopeId: key.endpointScopeId,
+      pausedUntil: current.pausedUntil, botPausedAt: current.pausedAt, propertyChatAgentId: null },
+      data: { pausedUntil: null, botPausedAt: null } });
+  }
+  await tx.outboundShieldState.update({ where: { id: stateId }, data: { lastInboundAt: input.now,
+    lastInboundId: input.providerId, botSentSinceInbound: 0,
+    ...(input.liftPause ? { pausedUntil: null, pausedReason: null, pausedAt: null, pauseFence: Prisma.DbNull } : {}),
+    ...(input.name ? { recipientName: input.name } : {}) } });
+  return "apply";
+}
+
+/**
+ * Отказ записи входящего НЕ роняет обработку входящего, но и не прячется в логе
+ * контейнера: пока запись не прошла, пауза щита могла остаться, а ответы бота —
+ * считаться инициативой (F03, 23.10.2026).
+ */
+function reportInboundFailure(err: unknown, channel: string, subscriberId: string): void {
+  const message = err instanceof Error ? err.message : String(err);
+  console.error("[щит] входящее не записано:", message);
+  void logSystemError(
+    "ai",
+    `Щит исходящих: настоящее входящее ${channel} ${subscriberId} не записано (${message}). Пауза щита могла не сняться, ответы бота могут считаться инициативой.`,
+    { dedupKey: `outbound-shield-inbound:${channel}:${subscriberId}` }
+  );
 }
 
 function shieldSnapshotMatchesTransport(key: ShieldKey, fence: import("@royal-home/shared").CustomerFence): boolean {
@@ -637,8 +747,8 @@ export async function admitOutbound(req: OutboundRequest): Promise<OutboundVerdi
     // Служебный чат, о котором щит ничего не знает (Telegram сотрудников).
     if (!state && req.onlyIfKnown) return { allowed: true, kind: "initiative" };
 
-    const isReply =
-      !!state?.lastInboundAt && now.getTime() - state.lastInboundAt.getTime() <= REPLY_WINDOW_MS;
+    const isReply = req.answersInbound === true ||
+      (!!state?.lastInboundAt && now.getTime() - state.lastInboundAt.getTime() <= REPLY_WINDOW_MS);
     const kind: OutboundKind = isReply ? "reply" : "initiative";
 
     const prints = readPrints(state?.recentTexts, now.getTime());
@@ -662,7 +772,7 @@ export async function admitOutbound(req: OutboundRequest): Promise<OutboundVerdi
     // Ответ живому человеку дальше не проверяется ничем: остальные правила —
     // про инициативу бота, и глушить ими разговор запрещено.
     if (isReply) {
-      await bumpSent(state!.id, now, kind, state!, req.text);
+      await bumpSent(state?.id ?? null, now, kind, state, req.text, key);
       return { allowed: true, kind };
     }
 

@@ -49,3 +49,33 @@ it("a real different staff response still pauses the bot after an accepted core 
     text: "Я сотрудник, отвечаю лично", messageId: "synthetic-real-staff-mid" });
   expect((await prisma.botConversation.findUniqueOrThrow({ where: { id: native.id } })).pausedUntil!.getTime()).toBeGreaterThan(Date.now());
 });
+
+it("the echo of a core send whose receipt carried no MID settles that exact UNKNOWN attempt ACCEPTED, once, without another POST", async () => {
+  const owner = await fixture.owner(), event = await fixture.capture(owner, "Здравствуйте");
+  const fakeProvider = globalThis.fetch;
+  let posts = 0, sentText = "";
+  vi.stubGlobal("fetch", async (raw: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(String(raw));
+    if (init?.method === "POST" && url.origin === "https://synthetic-core-instagram.invalid" && url.pathname === "/v23.0/me/messages") {
+      posts++; sentText = JSON.parse(String(init.body)).message.text;
+      return new Response("{}", { status: 200 });
+    }
+    return fakeProvider(raw, init);
+  });
+  try {
+    fixture.script([[decision({ kind: "reply", refs: [], social: "greet", question: "none" })]]);
+    // The fixture asserts "accepted"; this send is deliberately left UNKNOWN (no MID in the receipt), so its assertion is expected to throw.
+    await fixture.deliver(event).catch(() => undefined);
+  } finally { vi.stubGlobal("fetch", fakeProvider); }
+  expect(posts).toBe(1);
+  const native = await prisma.botConversation.findFirstOrThrow({ where: { accountId: owner.id, subscriberId: owner.peer } });
+  const part = await prisma.customerOutboxPart.findFirstOrThrow({ where: { conversationId: native.id }, orderBy: { createdAt: "desc" } });
+  expect(part.status).toBe("UNKNOWN");
+  const echo = { conversationId: native.id, accountId: owner.id, channel: "INSTAGRAM", peer: owner.peer, text: sentText, messageId: "synthetic-late-echo-mid" };
+  expect(await isOwnCustomerOutboxEcho({ ...echo, text: "Сообщение настоящего сотрудника" })).toBe(false);
+  expect((await prisma.customerOutboxPart.findUniqueOrThrow({ where: { id: part.id } })).status).toBe("UNKNOWN");
+  expect(await isOwnCustomerOutboxEcho(echo)).toBe(true);
+  expect(await prisma.customerOutboxPart.findUniqueOrThrow({ where: { id: part.id } })).toMatchObject({ status: "ACCEPTED" });
+  expect(await prisma.customerDeliveryAttempt.findMany({ where: { partId: part.id } })).toMatchObject([{ outcome: "ACCEPTED", providerMid: "synthetic-late-echo-mid" }]);
+  expect(posts).toBe(1);
+});

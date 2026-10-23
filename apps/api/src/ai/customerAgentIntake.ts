@@ -1,4 +1,6 @@
 import { collectSellerFacts, SELLER_FACT_ORDER, type SellerFactKey } from "./sellerIntake.js";
+import { customerRoleSignals } from "./customerAgentRole.js";
+import { customerRecruitmentRequested } from "./customerAgentRecruitmentProtocol.js";
 import { clientOwnWords } from "./untrustedContent.js";
 
 /** Customer words only. This is conversational progress, never identity,
@@ -9,10 +11,10 @@ export function customerAgentIntake(turns: readonly { role: "user" | "assistant"
   let start = 0;
   for (let i = 0; i < own.length; i++) {
     const text = own[i];
-    const seller = !/не\s+(?:хочу\s+)?(?:прода|продать)|намефурӯ|намефуру/iu.test(text) &&
-      /(?:хочу\s+продать|продаю|продать\s+(?:мою|свою)|ман\s+.*мефурӯш|мефурӯшам|мефурушам|хонамро\s+фурӯ|хонаи\s+худам)/iu.test(text);
-    const buyer = !/не\s+(?:хочу\s+)?(?:куп|ищу)|намехарам/iu.test(text) &&
-      /(?:хочу\s+купить|куплю|ищу\s+(?:квартир|дом)|харидан\s+мехоҳ|мехарам|мекобам|меҷӯям|мечуям)/iu.test(text);
+    // A job inquiry is not a buy/sell role; a landlord is carried as a seller (the "аренда" wording stays in statements).
+    const signals = customerRecruitmentRequested(text) ? null : customerRoleSignals(text);
+    const seller = !!signals && (signals.sell || signals.landlord) && !signals.buyStrong;
+    const buyer = !!signals && (signals.buyStrong || signals.buyWeak) && !(signals.sell || signals.landlord);
     if (seller !== buyer) {
       const next = seller ? "seller" : "buyer";
       if (next !== role) start = i;
@@ -24,7 +26,7 @@ export function customerAgentIntake(turns: readonly { role: "user" | "assistant"
   // Preserve amounts/currencies and corrections as customer words rather than
   // guessing normalized money. Foreign listing wrappers were removed above.
   const statements = role === "unknown" ? [] : relevant.filter(text =>
-    /\d|комнат|двуш|тр[её]ш|хона|ҳуҷра|хучра|район|ноҳия|нохия|ремонт|таъмир|бюджет|буҷет|назди|тарафи/iu.test(text)
+    /\d|комнат|двуш|тр[её]ш|сда[мюе]|сдать|аренд|иҷора|ичора|хона|ҳуҷра|хучра|район|ноҳия|нохия|ремонт|таъмир|бюджет|буҷет|назди|тарафи/iu.test(text)
   ).filter(text => text.length <= 360).slice(-6);
   return { role, sellerKnown: SELLER_FACT_ORDER.filter(key => facts[key]), statements,
     buyerKnown: role === "buyer" ? [...new Set(relevant.flatMap(text => [

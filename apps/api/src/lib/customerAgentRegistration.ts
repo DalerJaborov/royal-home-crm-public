@@ -10,6 +10,7 @@ import { decodeCustomerAgentProviderSnapshot, customerAgentProviderIdentities,
 import { currentCustomerAgentKnowledgeHash } from "./customerAgentPublicReads.js";
 import { customerAgentManifestId, decodeCustomerAgentRevision, type CustomerAgentManifest } from "./customerAgentRevision.js";
 import { archiveCustomerAgentRuntimeTx, loadPinnedCustomerAgentRuntime } from "./customerAgentRuntimeArchive.js";
+import { reportCustomerAgentRevisionHeld } from "./customerAgentRevisionAlert.js";
 
 const sha = (value: string | Buffer) => createHash("sha256").update(value).digest("hex");
 const sharedEntry = import.meta.resolve("@royal-home/shared");
@@ -30,7 +31,12 @@ const allTools = [...CUSTOMER_AGENT_PUBLIC_TOOLS, "save_contact", "request_callb
   "reschedule_showing", "cancel_showing", "ask_owner", "save_job_application"] as const;
 
 /** Explicit artifact coverage, not a claim to hash every dependency/package in
- * the monorepo. Container/release identity is independently verified by ship.
+ * the monorepo. coreHash lists only files whose bytes decide what the agent does:
+ * decision, guards, tools, rendering, schemas, delivery, state. Shared utilities
+ * that other features also edit (privateFiles, safeFetch, ffmpeg, workingHours,
+ * services/leads/intake, messengers/attachments, incomingSpam, commentHate,
+ * listingAd) stay OUT: touching them in an unrelated release must not silence
+ * every dialog until the manual refresh (22.10.2026: a vacancies release did). Container/release identity is independently verified by ship.
  * The full version covers common decision, guards, renderer, schemas, prompt,
  * knowledge and exact provider configuration. No keys/customer data enter it. */
 export async function buildCurrentCustomerAgentManifest(rawSnapshot: unknown): Promise<CustomerAgentManifest> {
@@ -40,7 +46,7 @@ export async function buildCurrentCustomerAgentManifest(rawSnapshot: unknown): P
       "../ai/providerContract.js", "../ai/providerBudget.js", "../ai/geminiClient.js", "../ai/geminiOperationRuntime.js", "../ai/geminiCountedTools.js",
       "../ai/geminiFunctionDeclarations.js", "../ai/geminiManagedToolsUsage.js", "../ai/geminiManagedMedia.js",
       "../ai/geminiCapabilities.js", "../ai/customerAgentMediaPerception.js", "../ai/customerAgentModelContracts.js", "../ai/clientLanguage.js", "../ai/untrustedContent.js", "./customerDmMediaContent.js", "./customerAgentMediaObservation.js", "./customerAgentMediaFocus.js",
-      "./customerPropertyFocus.js", "./customerPropertyEvidence.js", "./customerPropertyResolver.js", "./customerPropertyRegistry.js", "./customerPropertyUrls.js", "./customerOwnSiteIdentity.js", "./propertyMatch.js", "./customerSharedPublication.js", "./safeFetch.js", "./customerMediaAudioTrack.js", "./ffmpeg.js", "../messengers/attachments.js", "./privateFiles.js",
+      "./customerPropertyFocus.js", "./customerPropertyEvidence.js", "./customerPropertyResolver.js", "./customerPropertyRegistry.js", "./customerPropertyUrls.js", "./customerOwnSiteIdentity.js", "./propertyMatch.js", "./customerSharedPublication.js", "./customerMediaAudioTrack.js", 
       "./customerAgentClaim.js", "./customerAgentRevision.js", "./customerAgentContinuation.js", "./customerDmCoreContext.js",
       "./customerDmAgentTurn.js", "./customerDmAttachmentInput.js", "./customerAgentMutationSession.js", "./customerContactIntent.js", "./customerAgentDeliveryEvidence.js", "./customerAgentVerifiedContext.js",
       "./customerHandoverAck.js", "./customerDeliveryContracts.js", "./customerDeliveryDispatcher.js", "./customerDeliveryAdapters.js", "./customerOutboxEcho.js", "../messengers/inFlightEcho.js",
@@ -51,10 +57,10 @@ export async function buildCurrentCustomerAgentManifest(rawSnapshot: unknown): P
       "./customerIngressClassification.js", "./customerOriginPayload.js", "./customerQualifierLedger.js",
       "./customerAgentRegistration.js", "./customerAgentRuntimeArchive.js", "./customerAgentRuntime.js", "./customerState.js", "./customerActionJournal.js",
       "./customerCallbackConsent.js", "./customerAcceptedCallbackQuestion.js", "./customerAcceptedNameQuestion.js",
-      "./customerNewLeadBridge.js", "./customerOwnedIntakeContinuity.js", "./outboundShield.js", "./customerShieldPause.js", "./customerIntakeContext.js", "./workingHours.js", "../services/leads/intake.js", "../jobs/customerContactIntake.js", "../jobs/customerInboxConsume.js",
+      "./customerNewLeadBridge.js", "./customerOwnedIntakeContinuity.js", "./outboundShield.js", "./customerShieldPause.js", "./customerIntakeContext.js", "../jobs/customerContactIntake.js", "../jobs/customerInboxConsume.js",
       "./customerRecruitmentIntake.js", "./customerRecruitmentAttachments.js", "./recruitmentResume.js", "./recruitmentAnsweredFact.js", "./recruitmentDocumentText.js", "./customerActionEffects.js", "./customerActionProperty.js", "./ownerQuestionMutation.js", "./customerActionCommand.js", "./customerMutationIntent.js",
       "./customerOutbox.js", "./customerPublicOrigin.js", "./customerPublicModeration.js", "./customerPublicModerationPolicy.js",
-      "./incomingSpam.js", "./commentHate.js", "./listingAd.js", "./customerPublicOutreachMemory.js"].map(apiFile)),
+      "./customerPublicOutreachMemory.js"].map(apiFile)),
     fileGroup(["../ai/customerAgentRenderer.js", "../ai/customerAgentIntake.js", "../ai/sellerIntake.js", "../ai/customerAgentAttachmentInput.js", "../ai/customerAgentMediaPerception.js", "../ai/customerAgentConversationPolicy.js", "../ai/customerAgentPublicProtocol.js", "./publicAgencyContact.js",
       "./customerPropertyFacts.js"].map(apiFile).concat(["customerPropertyPresentation.js", "propertyFinish.js", "propertyTypeFields.js"].map(path => new URL(path, sharedEntry)))),
     fileGroup(["customerAgent.js", "customerMutation.js", "customerState.js", "customerTools.js", "customerHandoverAck.js", "botTurnTrace.js", "customerAgentRollout.js", "customerAgentOwnerControls.js"].map(path => new URL(path, sharedEntry))),
@@ -112,9 +118,13 @@ export async function loadVerifiedCustomerAgentRevision(revision: Readonly<Custo
     }
     const manifest = await current;
     if (customerAgentManifestId(manifest) !== revision.id || !isDeepStrictEqual({ ...manifest, id: revision.id }, revision) ||
-        currentCustomerAgentKnowledgeHash() !== revision.knowledgeSourceHash) return { status: "held", reason: "current_artifact_revision_mismatch" };
+        currentCustomerAgentKnowledgeHash() !== revision.knowledgeSourceHash) {
+      await reportCustomerAgentRevisionHeld(revision.id, "current_artifact_revision_mismatch");
+      return { status: "held", reason: "current_artifact_revision_mismatch" };
+    }
     return { status: "current", revision, snapshot: runtime.snapshot, system: CUSTOMER_AGENT_SYSTEM };
-  } catch {
+  } catch (error) {
+    await reportCustomerAgentRevisionHeld(revision.id, "current_artifact_verification_unavailable", error);
     return { status: "held", reason: "current_artifact_verification_unavailable" };
   }
 }

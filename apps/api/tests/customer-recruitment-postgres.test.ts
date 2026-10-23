@@ -157,3 +157,20 @@ it("the DB source constraint rejects managed IDs with a NULL resource revision w
     await prisma.customerEndpointScope.delete({where:{id:scope.id}});
   }
 });
+it("a long history of CLOSED vacancies never takes the customer catalog down: open rows only, a plain take", async () => {
+  const prefix = `closed-${randomUUID().slice(0, 8)}-`;
+  const openKey = `${prefix}open`;
+  await prisma.recruitmentPosition.createMany({ data: [
+    ...Array.from({ length: 30 }, (_, index) => ({ key: `${prefix}${String(index).padStart(2, "0")}`, titleRu: "Закрытая", titleTg: "Баста", isOpen: false })),
+    { key: openKey, titleRu: "Открытая", titleTg: "Кушода", isOpen: true },
+  ] });
+  try {
+    const rows = await readRecruitmentPositions(prisma, { openOnly: true });
+    expect(rows.every(row => row.isOpen)).toBe(true);
+    expect(rows.some(row => row.key === openKey)).toBe(true);
+    expect(rows.some(row => row.key.startsWith(prefix) && row.key !== openKey)).toBe(false);
+    expect(rows.length).toBeLessThanOrEqual(24);
+  } finally {
+    await prisma.recruitmentPosition.deleteMany({ where: { key: { startsWith: prefix } } });
+  }
+});

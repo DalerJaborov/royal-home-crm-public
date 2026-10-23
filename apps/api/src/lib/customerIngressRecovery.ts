@@ -1,6 +1,6 @@
 import { customerPropertyAdmissionSchema, type CustomerPropertyAdmission } from "@royal-home/shared";
 import { prisma } from "../db.js";
-import { classifyRecoveredCustomerPendingInput, inspectRecoveredCustomerPendingEnvelope,
+import { classifyRecoveredCustomerPendingInput, inspectAuthenticatedCustomerInput, inspectRecoveredCustomerPendingEnvelope,
   recoverAuthenticatedCustomerInput, recoverCustomerPendingEnvelope, revalidateRecoveredCustomerPendingInputTx,
   type AuthenticatedCustomerInput } from "./customerIngressAuthority.js";
 import { resolveCustomerEndpoint, ensureScopedBotConversation, CustomerScopeDenied } from "./customerConversationScope.js";
@@ -8,6 +8,7 @@ import { acceptAuthenticatedCustomerAdmission, lockCustomerStateSnapshot } from 
 import { reserveCustomerPropertyFocus } from "./customerPropertyFocus.js";
 import { customerPropertyContextEnabled } from "./customerPropertyContextFlag.js";
 import { readCustomerDmSourceExecution } from "./customerAgentEnrollment.js";
+import { noteRealInboundInTx } from "./outboundShield.js";
 
 export type RecoveredFinalCustomerInboxInput =
   | { status: "finalized"; input: AuthenticatedCustomerInput; ticket: CustomerPropertyAdmission }
@@ -82,6 +83,15 @@ export async function recoverAndFinalizeCustomerInboxInput(eventKey: unknown): P
         (await readCustomerDmSourceExecution(tx, eventKey, locked.scopeKey, { surface: "dm", peer: endpoint.subscriberId,
           endpoint: { endpointScopeId: endpoint.endpointScopeId, scopeRevision: endpoint.scopeRevision,
             channel: pending.payload.channel, accountId: endpoint.accountId, transportKey: endpoint.transportKey } }))?.lane === "CORE";
+      // A genuine signed human message lifts the pause the outbound SHIELD set (not
+      // a staff pause) HERE, before acceptance captures the controller fence: after
+      // it the lift would change the ownership epoch (original_context_changed),
+      // and while the pause stands the principal denies scope_blocked for hours.
+      // Any assurance counts; classification above already excluded echo/referral.
+      if (inspectAuthenticatedCustomerInput(classified.input)?.provenance === "meta_signature") {
+        await noteRealInboundInTx(tx, { transport: endpoint, nativeId: native.id, channel: pending.payload.channel,
+          subscriberId: pending.payload.peer, providerId: pending.payload.eventId, now: new Date(pending.verification.issuedAt) });
+      }
       if (customerPropertyContextEnabled() || corePublicContext) await reserveCustomerPropertyFocus(tx, ticket);
       if (!await acceptAuthenticatedCustomerAdmission(classified.input, ticket, tx)) throw new RecoveryHeld("canonical_acceptance_denied");
       return { status: "finalized" as const, input: classified.input, ticket };

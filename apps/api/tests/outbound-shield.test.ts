@@ -16,6 +16,7 @@ import { createCustomerMessengerFixture, type CustomerMessengerFixture } from ".
 const {
   admitOutbound,
   noteRealInbound,
+  noteRealInboundInTx,
   resetOutboundShieldCache,
   MAX_MESSAGES_WITHOUT_INBOUND,
   MAX_INITIATIVE_PER_HOUR,
@@ -457,5 +458,70 @@ describe("щит исходящих: бот НЕ молчит живому че�
     }
     // Незнакомый щиту диалог — ничего не блокируется.
     expect(await repeatBlockedTexts(CHANNEL, nextSubscriber(), [answer], at, fixture.transport)).toEqual([]);
+  });
+});
+
+describe("F03 (23.10.2026): живой человек снимает паузу щита, часы идут только вперёд", () => {
+  async function pausedByMonologue(subscriberId: string, t0: Date) {
+    await makeConversation(subscriberId);
+    for (let i = 0; i <= MAX_MESSAGES_WITHOUT_INBOUND; i++) await admitOutbound({ transport: fixture.transport,
+      channel: CHANNEL, subscriberId, text: `Пауза-фикстура ${i} про район поиска`, now: new Date(t0.getTime() + i * MINUTE) });
+    const native = await prisma.botConversation.findFirstOrThrow({ where: { endpointScopeId: fixture.transport.endpointScopeId, subscriberId } });
+    expect(native.pausedUntil).not.toBeNull();
+    return native;
+  }
+  const shieldRow = (subscriberId: string) => prisma.outboundShieldState.findFirstOrThrow({
+    where: { endpointScopeId: fixture.transport.endpointScopeId, subscriberId } });
+
+  it("в транзакции приёма (до фиксации забора) входящее снимает паузу щита и пишет время", async () => {
+    const subscriberId = nextSubscriber(), t0 = new Date("2026-10-23T08:00:00Z");
+    const native = await pausedByMonologue(subscriberId, t0);
+    const at = new Date(t0.getTime() + 10 * MINUTE);
+    const verdict = await prisma.$transaction(tx => noteRealInboundInTx(tx, { transport: fixture.transport, nativeId: native.id,
+      channel: CHANNEL, subscriberId, providerId: "mid.f03.accept", now: at }));
+    expect(verdict).toBe("apply");
+    expect(await conversationPause(subscriberId)).toBeNull();
+    expect(await shieldRow(subscriberId)).toMatchObject({ pausedUntil: null, pausedReason: null, lastInboundAt: at,
+      lastInboundId: "mid.f03.accept", botSentSinceInbound: 0 });
+    // The post-acceptance managed call (preserveNativeOwner) is then an idempotent no-op.
+    await noteRealInbound({ transport: fixture.transport, channel: CHANNEL, subscriberId, providerId: "mid.f03.accept",
+      now: at, preserveNativeOwner: true });
+    expect(await shieldRow(subscriberId)).toMatchObject({ lastInboundAt: at, botSentSinceInbound: 0 });
+  });
+
+  it("ручная пауза сотрудника входящим не снимается, пауза щита в строке щита — снимается", async () => {
+    const subscriberId = nextSubscriber(), t0 = new Date("2026-10-23T09:00:00Z");
+    const native = await pausedByMonologue(subscriberId, t0);
+    const manualUntil = new Date(Date.now() + 24 * HOUR);
+    await prisma.botConversation.update({ where: { id: native.id }, data: { pausedUntil: manualUntil, botPausedAt: new Date() } });
+    await noteRealInbound({ transport: fixture.transport, channel: CHANNEL, subscriberId, providerId: "mid.f03.manual",
+      now: new Date(t0.getTime() + 10 * MINUTE) });
+    expect((await conversationPause(subscriberId))?.getTime()).toBe(manualUntil.getTime());
+    expect(await shieldRow(subscriberId)).toMatchObject({ pausedUntil: null, lastInboundId: "mid.f03.manual" });
+  });
+
+  it("lastInboundAt не откатывается: старый тикет и повтор того же mid не трогают время, счётчик и паузу", async () => {
+    const subscriberId = nextSubscriber(), t0 = new Date("2026-10-23T10:00:00Z");
+    await makeConversation(subscriberId);
+    await noteRealInbound({ transport: fixture.transport, channel: CHANNEL, subscriberId, providerId: "mid.new", now: new Date(t0.getTime() + 10 * MINUTE) });
+    await admitOutbound({ transport: fixture.transport, channel: CHANNEL, subscriberId, text: "Ответ бота после нового входящего", now: new Date(t0.getTime() + 11 * MINUTE) });
+    const before = await shieldRow(subscriberId);
+    expect(before.botSentSinceInbound).toBe(1);
+    await noteRealInbound({ transport: fixture.transport, channel: CHANNEL, subscriberId, providerId: "mid.old", now: t0 });
+    await noteRealInbound({ transport: fixture.transport, channel: CHANNEL, subscriberId, providerId: "mid.new", now: new Date(t0.getTime() + 12 * MINUTE) });
+    expect(await shieldRow(subscriberId)).toMatchObject({ lastInboundAt: before.lastInboundAt, lastInboundId: "mid.new", botSentSinceInbound: 1 });
+  });
+
+  it("ответ ядра на конкретное входящее — ответ и вне 10-минутного окна, и сквозь паузу; без признака это инициатива", async () => {
+    const subscriberId = nextSubscriber(), t0 = new Date("2026-10-23T11:00:00Z");
+    await makeConversation(subscriberId);
+    await noteRealInbound({ transport: fixture.transport, channel: CHANNEL, subscriberId, providerId: "mid.core.1", now: t0 });
+    const late = new Date(t0.getTime() + 2 * HOUR);
+    const asReply = await admitOutbound({ transport: fixture.transport, channel: CHANNEL, subscriberId,
+      text: "Поздний ответ ядра через очередь", now: late, answersInbound: true });
+    expect(asReply).toMatchObject({ allowed: true, kind: "reply" });
+    const asCron = await admitOutbound({ transport: fixture.transport, channel: CHANNEL, subscriberId,
+      text: "Поздний ответ без привязки к входящему", now: new Date(late.getTime() + MINUTE) });
+    expect(asCron).toMatchObject({ allowed: true, kind: "initiative" });
   });
 });
