@@ -32,6 +32,9 @@ const SOLD_RECENT_DAYS = 30;
 /** Сколько минут строки фида живут в памяти, не пересчитываясь на каждый запрос Meta. */
 const CACHE_TTL_MS = 10 * 60 * 1000;
 
+/** Город (и регион) строки, у объекта которой нет района: агентство работает только в Душанбе. */
+const DEFAULT_CITY = "Душанбе";
+
 export type CatalogProperty = Prisma.PropertyGetPayload<{
   include: { district: true; photos: { orderBy: { order: "asc" } } };
 }>;
@@ -212,6 +215,7 @@ export function buildHomeListingRows(
     if (!Number.isFinite(priceNum)) continue;
 
     const districtName = property.district?.name ?? "";
+    const city = property.district?.city || DEFAULT_CITY;
     const url =
       property.siteListingId != null ? `${siteBase}/listing/${property.siteListingId}` : `${siteBase}/listing/by-crm/${property.id}`;
 
@@ -224,8 +228,11 @@ export function buildHomeListingRows(
       description: property.description ?? "",
       availability,
       addr1: districtName,
-      city: property.district?.city ?? "",
-      region: "",
+      city,
+      // Meta отклоняет строку home_listings с пустым address.region (23.10.2026:
+      // все 68 объектов первой загрузки). Душанбе — город республиканского
+      // подчинения, сам себе регион, поэтому регион = город.
+      region: city,
       country: "TJ",
       postal_code: "",
       latitude: String(lat),
