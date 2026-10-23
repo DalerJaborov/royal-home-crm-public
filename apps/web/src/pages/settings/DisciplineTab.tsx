@@ -55,7 +55,7 @@ export function DisciplineSection() {
       buyerThinkingSlowTrackDays: String(settings.buyerThinkingSlowTrackDays ?? 7),
     },
     form,
-    (patch) => setForm((f) => ({ ...f, ...patch }) as Record<string, string>)
+    (patch) => setForm((f) => ({ ...f, ...patch }) as Record<string, string>), settings
   );
 
   const set = (key: string, value: string) => {

@@ -3,6 +3,7 @@ import type { CoverProvider } from "@royal-home/shared";
 import { api } from "../lib/api";
 import { currentSessionEpoch, rollbackInSameSession } from "../lib/sessionGuard";
 import { FALLBACK_USD_TO_TJS } from "../lib/format";
+import { markConfirmedFormSource, markOptimisticFormSource, markRolledBackFormSource } from "../lib/serverFormSync";
 
 /**
  * ВНИМАНИЕ: полный объект приходит только ADMIN/DIRECTOR (см. routes/settings.ts).
@@ -741,22 +742,31 @@ export function useUpdateSettings(options?: { silent?: boolean }) {
       // Иначе ответ уже летящего GET /settings приземлится поверх нашей правки.
       await qc.cancelQueries({ queryKey: ["settings"] });
       const previous = qc.getQueryData<Settings>(["settings"]);
+      let optimistic: object | undefined;
       if (previous) {
         // Только поля, которые в настройках действительно есть: секреты приходят
         // сюда под другими именами (metaAppSecret, anthropicApiKey) и наружу
         // никогда не отдаются — подставлять их в кэш нечего.
         const patch = Object.fromEntries(Object.entries(body).filter(([key]) => key in previous));
-        qc.setQueryData<Settings>(["settings"], { ...previous, ...patch });
+        const snapshot = qc.setQueryData<Settings>(["settings"], { ...previous, ...patch });
+        // Structural sharing may return another identity; tag the actual cache object.
+        if (snapshot) optimistic = markOptimisticFormSource(snapshot, previous);
       }
-      return { previous, epoch: currentSessionEpoch() };
+      return { previous, optimistic, epoch: currentSessionEpoch() };
     },
     onError: (_err, _body, context) => {
       const previous = context?.previous;
-      if (previous) rollbackInSameSession(context?.epoch, () => qc.setQueryData(["settings"], previous));
+      if (previous) rollbackInSameSession(context?.epoch, () => {
+        const restored = qc.setQueryData(["settings"], previous);
+        if (restored && context.optimistic) markRolledBackFormSource(restored, context.optimistic);
+      });
     },
     onSuccess: (fresh, _body, context) => {
       // Ответ прежней сессии в чужой кэш не пишем (WEB-01).
-      rollbackInSameSession(context?.epoch, () => qc.setQueryData(["settings"], fresh));
+      rollbackInSameSession(context?.epoch, () => {
+        const confirmed = qc.setQueryData(["settings"], fresh);
+        if (confirmed) markConfirmedFormSource(confirmed);
+      });
       invalidateAfterSettingsChange(qc, { skipSettings: true });
     },
   });

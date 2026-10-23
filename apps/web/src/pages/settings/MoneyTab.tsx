@@ -81,7 +81,7 @@ export function CommissionSection({ part }: { part?: "commission" | "operations"
       maxTransfers: [maxTransfers, setMaxTransfers],
       reservationDays: [reservationDays, setReservationDays],
       reassignOnMissedCall: [reassignOnMissedCall, setReassignOnMissedCall],
-    }
+    }, settings
   );
 
   const total = (Number(realtorP) || 0) + (Number(companyP) || 0);
@@ -369,7 +369,7 @@ export function ExchangeRateSection() {
     },
     {
       rate: [rate, setRate],
-    }
+    }, settings
   );
 
   async function handleSave(e: React.FormEvent) {

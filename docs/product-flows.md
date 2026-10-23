@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **666**. Развилок в самих путях: **2359**; вместе с задачами по расписанию и фоновыми заданиями — **3654**. Модулей: **75**.
+Путей: **666**. Развилок в самих путях: **2359**; вместе с задачами по расписанию и фоновыми заданиями — **3656**. Модулей: **75**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -7294,7 +7294,7 @@
   · ставит заголовок ответа
 - res.setHeader("Content-Disposition", "attachment; filename=properties-template.csv");
   · ставит заголовок ответа
-- res.send(" Название;Тип;Комнаты;Площадь;Этаж;Этажей всего;Цена;Валюта;Район;Адрес;Состояние;Описание;Контакт …
+- res.send(" Название;Тип;Комнаты;Площадь;Этаж;Этажей всего;Окна;Цена;Валюта;Район;Адрес;Состояние;Описание;Кон…
   · ответ 200
 
 ### POST /api/v1/import/properties
@@ -22432,14 +22432,28 @@
     - const candidates = await prisma.videoUploadSession.findMany({ where: { updatedAt: { lte: emptyCutoff } }, sel…
       · читает в базе: videoUploadSession
     - для каждого: const session of stale
-      - если await abortLocalUploadSession(session.id)
-        - await prisma.videoUploadSession.delete({ where: { id: session.id } });
+      - const cancelled = await prisma.$transaction(async (tx)
+        · всё внутри — одной транзакцией
+        · обращается к базе своим SQL
+        · читает в базе: videoUploadSession
+        · удаляет в базе: videoUploadSession
+        - await tx.$queryRaw`SELECT id FROM "VideoUploadSession" WHERE id = ${session.id} FOR UPDATE`;
+          · обращается к базе своим SQL
+        - const current = await tx.videoUploadSession.findUnique({ where: { id: session.id } });
+          · читает в базе: videoUploadSession
+        - если !current || current.updatedAt > emptyCutoff || (current.updatedAt > cutoff && !(Array.isArray(current.parts) …
+          - return false;
+            · дословно из кода
+        - если !await abortLocalUploadSession(current.id)
+          - result.failed++;
+            · дословно из кода
+          - return false;
+            · дословно из кода
+        - await tx.videoUploadSession.delete({ where: { id: current.id } });
           · удаляет в базе: videoUploadSession
+      - если cancelled
         - await sendPushToAgent(session.createdById, { title: "⚠️ Загрузка видео отменена", body: `ОБ-${String(session.…
           · push-уведомление
-      - иначе
-        - result.failed++;
-          · дословно из кода
     - если result.failed > 0
       - void logSystemError( "storage", `Уборка брошенных загрузок видео: ${result.failed} сессий не удалось отменить…
         · запись в журнал ошибок

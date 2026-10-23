@@ -907,7 +907,7 @@ export function StepUpSection() {
     },
     {
       minutes: [minutes, setMinutes],
-    }
+    }, settings
   );
 
   return (

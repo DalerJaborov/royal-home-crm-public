@@ -80,7 +80,7 @@ export function MatchingTab() {
       scoreBudget: [scoreBudget, setScoreBudget],
       scoreHotBonus: [scoreHotBonus, setScoreHotBonus],
       scoreDistance: [scoreDistance, setScoreDistance],
-    }
+    }, settings
   );
 
   /** Пустой экран вместо объяснения (правило вкладки «Лиды», аудит 22.08.2026,

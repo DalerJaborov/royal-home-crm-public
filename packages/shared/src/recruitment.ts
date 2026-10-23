@@ -2,6 +2,10 @@ import { z } from "zod";
 import { recruitmentScreeningRulesSchema } from "./recruitmentResume.js";
 export * from "./recruitmentResume.js";
 
+/** Existing staff text limits, shared by candidate forms and API boundaries. */
+export const RECRUITMENT_NOTE_MAX_LENGTH = 2000;
+export const RECRUITMENT_REJECTION_REASON_MAX_LENGTH = 500;
+
 const label = z.string().trim().min(1).max(140);
 const publicText = z.string().trim().max(2000);
 const keyword = z.string().trim().min(3).max(40).regex(/^[\p{L}\p{N}_-]+$/u).transform(value => value.normalize("NFKC").toLocaleLowerCase());

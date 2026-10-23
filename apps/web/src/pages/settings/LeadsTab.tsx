@@ -93,7 +93,7 @@ export function LeadsTab({ limitsTask = false }: { limitsTask?: boolean } = {}) 
       reactivationAfterDays: [reactivationAfterDays, setReactivationAfterDays],
       reactivationBatchSize: [reactivationBatchSize, setReactivationBatchSize],
       reactivationTemplate: [reactivationTemplate, setReactivationTemplate],
-    }
+    }, settings
   );
 
   /**

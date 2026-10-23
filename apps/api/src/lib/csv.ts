@@ -47,8 +47,23 @@ export function parseCsv(text: string): string[][] {
 }
 
 function detectDelimiter(text: string): "," | ";" {
-  const firstLine = text.slice(0, text.indexOf("\n") === -1 ? text.length : text.indexOf("\n"));
-  return (firstLine.match(/;/g)?.length ?? 0) > (firstLine.match(/,/g)?.length ?? 0) ? ";" : ",";
+  let commas = 0;
+  let semicolons = 0;
+  let inQuotes = false;
+  // Separators inside a quoted header are data. A quoted line break also
+  // belongs to that header, so inspect the first logical record in full.
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === '"') {
+      if (inQuotes && text[i + 1] === '"') i++;
+      else inQuotes = !inQuotes;
+    } else if (!inQuotes) {
+      if (ch === ",") commas++;
+      else if (ch === ";") semicolons++;
+      else if (ch === "\n" || ch === "\r") break;
+    }
+  }
+  return semicolons > commas ? ";" : ",";
 }
 
 /** Строки → объекты по заголовку; заголовки нормализуются (регистр/пробелы). */

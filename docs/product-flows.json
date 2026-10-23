@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 666,
-  "forks": 3654,
+  "forks": 3656,
   "mounts": 75,
   "cron": 108,
   "jobs": 31,
@@ -32831,7 +32831,7 @@
     },
     {
      "k": "do",
-     "t": "res.send(\" Название;Тип;Комнаты;Площадь;Этаж;Этажей всего;Цена;Валюта;Район;Адрес;Состояние;Описание;Контакт …",
+     "t": "res.send(\" Название;Тип;Комнаты;Площадь;Этаж;Этажей всего;Окна;Цена;Валюта;Район;Адрес;Состояние;Описание;Кон…",
      "a": [
       "ответ 200"
      ],
@@ -100942,38 +100942,89 @@
          "a": [],
          "c": [
           {
-           "k": "if",
-           "t": "await abortLocalUploadSession(session.id)",
-           "a": [],
+           "k": "do",
+           "t": "const cancelled = await prisma.$transaction(async (tx)",
+           "a": [
+            "всё внутри — одной транзакцией",
+            "обращается к базе своим SQL",
+            "читает в базе: videoUploadSession",
+            "удаляет в базе: videoUploadSession"
+           ],
            "c": [
             {
              "k": "do",
-             "t": "await prisma.videoUploadSession.delete({ where: { id: session.id } });",
+             "t": "await tx.$queryRaw`SELECT id FROM \"VideoUploadSession\" WHERE id = ${session.id} FOR UPDATE`;",
              "a": [
-              "удаляет в базе: videoUploadSession"
+              "обращается к базе своим SQL"
              ],
              "c": []
             },
             {
              "k": "do",
-             "t": "await sendPushToAgent(session.createdById, { title: \"⚠️ Загрузка видео отменена\", body: `ОБ-${String(session.…",
+             "t": "const current = await tx.videoUploadSession.findUnique({ where: { id: session.id } });",
              "a": [
-              "push-уведомление"
+              "читает в базе: videoUploadSession"
+             ],
+             "c": []
+            },
+            {
+             "k": "if",
+             "t": "!current || current.updatedAt > emptyCutoff || (current.updatedAt > cutoff && !(Array.isArray(current.parts) …",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "return false;",
+               "a": [
+                "дословно из кода"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "if",
+             "t": "!await abortLocalUploadSession(current.id)",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "result.failed++;",
+               "a": [
+                "дословно из кода"
+               ],
+               "c": []
+              },
+              {
+               "k": "do",
+               "t": "return false;",
+               "a": [
+                "дословно из кода"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "do",
+             "t": "await tx.videoUploadSession.delete({ where: { id: current.id } });",
+             "a": [
+              "удаляет в базе: videoUploadSession"
              ],
              "c": []
             }
            ]
           },
           {
-           "k": "else",
-           "t": "иначе",
+           "k": "if",
+           "t": "cancelled",
            "a": [],
            "c": [
             {
              "k": "do",
-             "t": "result.failed++;",
+             "t": "await sendPushToAgent(session.createdById, { title: \"⚠️ Загрузка видео отменена\", body: `ОБ-${String(session.…",
              "a": [
-              "дословно из кода"
+              "push-уведомление"
              ],
              "c": []
             }

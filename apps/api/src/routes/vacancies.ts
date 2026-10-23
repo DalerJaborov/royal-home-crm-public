@@ -19,7 +19,8 @@
 
 import { Router, type Request } from "express";
 import { z } from "zod";
-import { customerRecruitmentPortfolioSchema, recruitmentResumeSchema, recruitmentScreeningRulesSchema, assessRecruitmentResume } from "@royal-home/shared";
+import { customerRecruitmentPortfolioSchema, recruitmentResumeSchema, recruitmentScreeningRulesSchema, assessRecruitmentResume,
+  RECRUITMENT_NOTE_MAX_LENGTH, RECRUITMENT_REJECTION_REASON_MAX_LENGTH } from "@royal-home/shared";
 import { recruitmentPositionsRouter } from "./recruitmentPositions.js";
 import { recruitmentCommunicationsRouter } from "./recruitmentCommunications.js";
 import { prisma } from "../db.js";
@@ -699,8 +700,8 @@ const patchSchema = z
     // undefined не сериализуется в JSON (правило репозитория): чтобы очистить
     // поле, фронт обязан прислать null, а не просто не передать ключ.
     interviewAt: z.string().datetime({ offset: true }).nullable().optional(),
-    interviewNote: z.string().max(2000).nullable().optional(),
-    rejectionReason: z.string().max(500).nullable().optional(),
+    interviewNote: z.string().max(RECRUITMENT_NOTE_MAX_LENGTH).nullable().optional(),
+    rejectionReason: z.string().max(RECRUITMENT_REJECTION_REASON_MAX_LENGTH).nullable().optional(),
     // Только адрес, который выдаёт наша же запись голосовой заметки
     // (POST /me/voice-notes → /me/voice-notes/<uuid>.<ext>, routes/me.ts).
     // Экран проигрывает его через api() с токеном смотрящего, и свободная строка
@@ -1008,7 +1009,7 @@ const createSchema = z.object({
   city: z.string().trim().max(120).nullish(),
   age: z.number().int().min(14).max(90).nullish(),
   experience: z.string().trim().max(2000).nullish(),
-  note: z.string().trim().max(2000).nullish(),
+  note: z.string().trim().max(RECRUITMENT_NOTE_MAX_LENGTH).nullish(),
 });
 
 vacanciesRouter.post("/", requireAuth, requirePermission("vacancies.view"), async (req, res) => {

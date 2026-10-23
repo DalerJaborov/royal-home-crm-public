@@ -43,7 +43,7 @@ export function CompanySection() {
   useServerSyncedFields(settings && { name: settings.companyName, slogan: settings.companySlogan ?? "" }, {
     name: [name, setName],
     slogan: [slogan, setSlogan],
-  });
+  }, settings);
 
   async function handleSaveName(e: React.FormEvent) {
     e.preventDefault();

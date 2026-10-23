@@ -747,7 +747,8 @@ export async function runTool(name: string, input: Record<string, unknown>, acto
     const date = parseModelDate(input.newDate);
     if (!date) return { error: "Некорректная дата" };
     const task = await prisma.interaction.findFirst({
-      where: { clientId: client.id, nextActionDate: { not: null }, completedAt: null },
+      // Cancelled showings retain their date for history; only a live task may move.
+      where: { ...TASK_WHERE, clientId: client.id, nextActionDate: { not: null }, completedAt: null },
       orderBy: { nextActionDate: "desc" },
     });
     if (!task) return { error: "У клиента нет запланированных задач для переноса" };

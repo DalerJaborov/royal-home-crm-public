@@ -1,6 +1,8 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { randomInt } from "node:crypto";
 import { prisma } from "../src/db.js";
+import { legacyPhysicalDigest } from "../src/lib/customerLegacyPhysical.js";
+import { cleanupLegacyPhysicalFixture } from "./helpers/cleanupLegacyPhysicalFixture.js";
 import { createCustomerMessengerFixture, type CustomerMessengerFixture } from "./helpers/customerMessengerFixture.js";
 import {
   buildCommentSystem,
@@ -46,11 +48,26 @@ let propertyShortId = 0;
 
 /** Что уходило в Graph API: по этим записям видно, был ли публичный ответ,
  *  скрытие и личное сообщение — и не было ли лишнего. */
-let graphCalls: { url: string; body?: Record<string, unknown>; method?: string }[] = [];
+type GraphCall = { url: string; body?: Record<string, unknown>; method?: string };
+let graphCalls: GraphCall[] = [];
+const ownedPhysicalTargetDigests = new Set<string>();
+
+function recordGraphCall(call: GraphCall): void {
+  graphCalls.push(call);
+  const body = call.body;
+  if (call.method !== "POST" || !body || body.sender_action || body.status === "read") return;
+  const path = new URL(call.url).pathname;
+  const dm = /\/messages$/.test(path) && (body.recipient || body.to);
+  const comment = /\/(comments|replies)$/.test(path) && typeof body.message === "string";
+  if (dm || comment) {
+    // Every captured destination belongs to this file's synthetic run. Keep the
+    // digests across per-test graphCalls resets, including nested fixtures.
+    ownedPhysicalTargetDigests.add(legacyPhysicalDigest(JSON.stringify(dm ? body.recipient ?? body.to : path)));
+  }
+}
 
 function jsonResponse(data: unknown): Response {
-  const text = JSON.stringify(data);
-  return { ok: true, status: 200, text: async () => text, json: async () => JSON.parse(text) } as unknown as Response;
+  return Response.json(data);
 }
 
 let instagram: CustomerMessengerFixture;
@@ -82,6 +99,10 @@ beforeAll(async () => {
 afterAll(async () => {
   await prisma.instagramComment.deleteMany({ where: { commentId: { startsWith: `c-${runId}` } } });
   await instagram.dispose();
+  const attempts = await prisma.customerLegacyPhysicalAttempt.findMany({ where: {
+    endpointScopeId: null, targetDigest: { in: [...ownedPhysicalTargetDigests] },
+  }, select: { id: true } });
+  await cleanupLegacyPhysicalFixture({ ids: attempts.map(row => row.id) });
   await prisma.property.deleteMany({ where: { id: propertyId } });
   await prisma.district.deleteMany({ where: { id: districtId } });
 });
@@ -94,7 +115,7 @@ beforeEach(() => {
     "fetch",
     vi.fn(async (url: unknown, init?: { body?: unknown; method?: string }) => {
       const address = String(url);
-      graphCalls.push({
+      recordGraphCall({
         url: address,
         body: init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : undefined,
         method: init?.method,
@@ -514,7 +535,7 @@ describe("обработка комментария", () => {
     const mockFetch = vi.mocked(fetch).getMockImplementation()!;
     vi.stubGlobal("fetch", vi.fn(async (url: unknown, init?: { body?: unknown; method?: string }) => {
       if (init?.method === "DELETE") {
-        graphCalls.push({ url: String(url), method: "DELETE" });
+        recordGraphCall({ url: String(url), method: "DELETE" });
         return new Response(JSON.stringify({ error: { code: 200, message: "Permissions error" } }), { status: 403 });
       }
       return mockFetch(url as never, init as never);
@@ -558,7 +579,7 @@ describe("обработка комментария", () => {
     const mockFetch = vi.mocked(fetch).getMockImplementation()!;
     vi.stubGlobal("fetch", vi.fn(async (url: unknown, init?: { body?: unknown; method?: string }) => {
       if (init?.method === "DELETE") {
-        graphCalls.push({ url: String(url), method: "DELETE" });
+        recordGraphCall({ url: String(url), method: "DELETE" });
         return jsonResponse(body);
       }
       return mockFetch(url as never, init as never);
@@ -1094,7 +1115,7 @@ describe("Facebook: объект находится по publishedPostIds.FACEBO
       "fetch",
       vi.fn(async (url: unknown, init?: { body?: unknown; method?: string }) => {
         const address = String(url);
-        graphCalls.push({
+        recordGraphCall({
           url: address,
           body: init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : undefined,
           method: init?.method,
@@ -1429,9 +1450,8 @@ describe("частное объявление под постом (24.09.2026)",
       vi.fn(async (url: unknown, init?: { body?: unknown; method?: string }) => {
         const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : undefined;
         if (body && "hide" in body) {
-          graphCalls.push({ url: String(url), body, method: init?.method });
-          const text = JSON.stringify({ error: { message: "(#200) Permissions error" } });
-          return { ok: false, status: 403, text: async () => text, json: async () => JSON.parse(text) } as unknown as Response;
+          recordGraphCall({ url: String(url), body, method: init?.method });
+          return Response.json({ error: { message: "(#200) Permissions error" } }, { status: 403 });
         }
         return realFetch(url, init);
       })
@@ -1578,9 +1598,10 @@ describe("Instagram: наш ролик узнаётся без ссылки в �
   function stubMedia(code: string, caption: string) {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (url: unknown) => {
+      vi.fn(async (url: unknown, init?: { body?: unknown; method?: string }) => {
         const address = String(url);
-        graphCalls.push({ url: address });
+        recordGraphCall({ url: address, method: init?.method,
+          body: init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : undefined });
         if (address.includes("fields=permalink")) {
           return jsonResponse({ permalink: `https://www.instagram.com/reel/${code}/`, caption });
         }

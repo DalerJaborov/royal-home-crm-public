@@ -16,10 +16,10 @@
   "paths": 666,
   "cron": 108,
   "jobs": 31,
-  "conditions": 3654,
+  "conditions": 3656,
   "untranslatedUnique": 397,
-  "untranslatedTotal": 506,
-  "partialUnique": 1030,
+  "untranslatedTotal": 505,
+  "partialUnique": 1031,
   "translatedShare": 86
  },
  "untranslated": [
@@ -69413,16 +69413,17 @@
          "a": [],
          "c": [
           {
-           "t": "если await abortLocalUploadSession(session.id)",
-           "k": "if",
-           "a": [],
+           "t": "все изменения разом: либо всё, либо ничего",
+           "k": "do",
+           "a": [
+            "удаляет: видео загрузка сеанс"
+           ],
            "c": [],
-           "raw": "await abortLocalUploadSession(session.id)",
            "more": true
           },
           {
-           "t": "иначе",
-           "k": "else",
+           "t": "если есть cancelled",
+           "k": "if",
            "a": [],
            "c": [],
            "more": true
