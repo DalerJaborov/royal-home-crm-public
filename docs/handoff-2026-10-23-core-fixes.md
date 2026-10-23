@@ -51,6 +51,18 @@ node scripts/agent-stand.mjs down --api 4790 --web 5290  # погасить
 `customer-state`, `customer-new-lead-bridge-postgres`, `customer-reply-language-postgres`,
 `customer-qualifier-turn`, `customer-agent-verified-context-postgres`, `recruitment-*`, `customer-outbox-postgres`.
 
+## Выкачено
+
+- **PR #38 влит в `main` `96e9e0845`** (`npm run ship`, облако: 13 892 тестов, 0 падений), на сервере с 20:14 UTC 23.10.
+  Три запуска ship до этого упирались в «blocked»: защита `main` требует статус «проверено», а без `GH_TOKEN`
+  учётки DalerJaborov ship берёт токен `gh` (jabarovdaler) и статус не ставится. Рецепт — память
+  `royalhome-ship-needs-gh-token-public-23-10`.
+- Сторож ревизии (пачка A) сработал на проде в 20:14:38 — запись «Ядро нового бота остановлено…» в журнале ошибок;
+  в 20:15:24 версия бота обновлена (политика 26, ревизия `8893f72d…`) сессией-координатором.
+- Хвосты — **PR #41** (`fix/core-tails-23-10`, база `main`): share-ссылки Facebook, повтор разбора ссылки
+  на следующем ходе, адресат комментария в `publicState`, возобновление отложенного входа (F12).
+  После его выката — снова «Обновить версию бота».
+
 ## Что осталось / решения владельца
 
 1. **Архитектурное.** Модель в ядре не пишет текст: она возвращает JSON `{kind, refs, social,
