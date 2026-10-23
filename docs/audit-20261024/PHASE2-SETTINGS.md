@@ -21,4 +21,3 @@ Shared hooks accept optional original source identity, documented as the actual 
 Logs and exits under phase2 ignored `reports/night-audit-20261024/settings-readonly/`: `unit.*`, `eslint.*`, `tsc.*`, `mounted-patched.*`, `mounted-tracked.*`. Initial harness startup/path failures are retained separately and are not bug evidence. Existing rejected async Company submit still emits its existing ApiError; this change preserves draft without changing error/product policy.
 
 No API/shared/dependency edits, complete suites, map regeneration, commits, push, merge or deployment by this task. Parent independently reviewed the helper/hooks,11caller wiring and7new pure cases; no concrete introduced defect found in that named scope. Full package validation remains parent's responsibility. First-load draft candidate and assistant-audit end-date candidate remain unchanged and separately documented in main `NEXT-SETTINGS-READONLY.md`.
-

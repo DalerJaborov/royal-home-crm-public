@@ -10,5 +10,3 @@ useAuthStore.setState({ agent: { id: 'synthetic-director', fullName: 'Synthetic 
 const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
 Object.assign(window, { probeClient: client });
 createRoot(document.getElementById('root')!).render(<QueryClientProvider client={client}><MemoryRouter><CompanySection /><RoyalScoreToggleSection /></MemoryRouter></QueryClientProvider>);
-
-

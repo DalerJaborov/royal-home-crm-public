@@ -64,4 +64,3 @@ for (const width of [1440,390]) test(`${width} actual default toggle optimistic 
   await expect(toggle).toBeChecked();
   await info.attach('actual-toggle-result.json', { body: JSON.stringify({ width, calls, optimisticOff: true, rolledBackOn: true }), contentType: 'application/json' });
 });
-
