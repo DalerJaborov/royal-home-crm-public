@@ -6,6 +6,9 @@ type Pending = { eventKey: string; order: bigint; scopeKey: string; endpointScop
   payloadHash: string | null; payloadCiphertext: string | null; processingState?: string | null; errorCode?: string | null };
 /** errorCode of an input put aside because a newer one arrived. */
 export const NEWER_INPUT_PENDING = "newer_input_pending";
+/** Same input after the newer one that deferred it ended without an answer and was re-run once WITH it
+ * (resumeDeferredCustomerInbox): still carried into that run's words, never re-armed again. */
+export const NEWER_INPUT_RESUMED = "newer_input_resumed";
 /** Pure. Does a newer ticket in this state still stand in front of the older one?
  * In flight (RECEIVED/CLAIMED), answered (PLANNED) and itself deferred by an even
  * newer input all do. One that ENDED without an answer (HELD for any other reason,

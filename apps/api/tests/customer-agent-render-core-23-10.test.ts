@@ -210,7 +210,8 @@ describe("F06 links and numbers the customer actually types", () => {
   it("accepts links written without https://", () => {
     expect(customerPropertyEvidenceFromText("смотрю instagram.com/p/ABC123/")).toEqual([{ kind: "url", origin: "message", reference: "https://www.instagram.com/p/ABC123/" }]);
     expect(customerPropertyEvidenceFromText("www.royalhome.tj/listing/12.")).toEqual([{ kind: "url", origin: "message", reference: "https://royalhome.tj/listing/12" }]);
-    expect(customerPropertyEvidenceFromText("facebook.com/share/p/1AbC/")).toEqual([{ kind: "untrusted_reference", origin: "message", reference: "unsupported_format" }]);
+    // An opaque share link is no longer rejected here: the resolver expands it once (customer-core-tails-23-10).
+    expect(customerPropertyEvidenceFromText("facebook.com/share/p/1AbC/")).toEqual([{ kind: "url", origin: "message", reference: "https://www.facebook.com/share/p/1AbC/" }]);
     expect(customerPropertyEvidenceFromText("https://www.instagram.com/p/ABC123/")).toHaveLength(1);
   });
   it("reads «номер 1234», «id 77», «рақами объект 9» but never a phone or a stray number", () => {

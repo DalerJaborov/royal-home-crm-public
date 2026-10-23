@@ -1,6 +1,6 @@
 import { customerPropertyEvidenceSchema, type CustomerPropertyEvidence } from "@royal-home/shared";
 import type { MetaIncoming } from "../messengers/meta.js";
-import { customerPropertyUrl } from "./customerPropertyUrls.js";
+import { customerPropertyShareLink, customerPropertyUrl } from "./customerPropertyUrls.js";
 import { propertyNumberSelectors, schemelessPropertyUrls } from "./customerPropertyReferenceText.js";
 
 export function mergeCustomerPropertyEvidence(groups: readonly (readonly CustomerPropertyEvidence[])[]): CustomerPropertyEvidence[] {
@@ -12,6 +12,9 @@ export function mergeCustomerPropertyEvidence(groups: readonly (readonly Custome
 function urlEvidence(raw: string, origin: CustomerPropertyEvidence["origin"]): CustomerPropertyEvidence {
   const parsed = customerPropertyUrl(raw);
   if ("url" in parsed) return { kind: "url", origin, reference: parsed.url };
+  // An opaque share link is resolved later by one bounded redirect read, not rejected here.
+  const share = customerPropertyShareLink(raw);
+  if (share) return { kind: "url", origin, reference: share };
   // Never persist credentials, arbitrary query tokens, or the raw rejected URL.
   return { kind: "untrusted_reference", origin, reference: parsed.kind === "denied" ? "untrusted_origin" : "unsupported_format" };
 }

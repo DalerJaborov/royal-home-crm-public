@@ -1,5 +1,5 @@
 import type { CustomerPropertyAdmission, CustomerPropertyEvidence, CustomerPropertyResolution } from "@royal-home/shared";
-import { customerPropertyUrl, type CustomerPropertyUrl } from "./customerPropertyUrls.js";
+import { customerPropertyShareLink, customerPropertyUrl, type CustomerPropertyUrl } from "./customerPropertyUrls.js";
 import { logSystemError } from "./systemError.js";
 
 export interface CustomerPropertyRegistry {
@@ -8,6 +8,8 @@ export interface CustomerPropertyRegistry {
   url(url: Exclude<CustomerPropertyUrl, { kind: "denied" | "unsupported" }>): Promise<string[]>;
   reply(mid: string, scope: Pick<CustomerPropertyAdmission, "conversationId" | "scopeKey" | "accountId" | "channel" | "endpointScopeId">): Promise<string[]>;
   selector(reference: string): Promise<string[]>;
+  /** One bounded redirect read of an opaque share link; null = unusable, throws = transient failure. */
+  expandShare?(share: string): Promise<string | null>;
 }
 const unique = (ids: readonly string[]) => [...new Set(ids)];
 
@@ -44,7 +46,13 @@ async function resolveOnce(
           }
         }
       } else if (item.kind === "url") {
-        const parsed = customerPropertyUrl(item.reference);
+        let parsed = customerPropertyUrl(item.reference);
+        const share = "url" in parsed ? null : customerPropertyShareLink(item.reference);
+        // A share link is expanded once into a Meta post URL and then handled like any typed link.
+        if (share && registry.expandShare) {
+          const destination = await registry.expandShare(share);
+          if (destination) parsed = customerPropertyUrl(destination);
+        }
         if (!("url" in parsed)) return result("denied", [], parsed.kind === "denied" ? "untrusted_origin" : "unsupported");
         ids = await registry.url(parsed);
       } else if (item.kind === "media") ids = await registry.media(item.reference);
@@ -72,6 +80,12 @@ export async function resolveCustomerPropertyEvidence(
   scope: Pick<CustomerPropertyAdmission, "conversationId" | "scopeKey" | "accountId" | "channel" | "endpointScopeId">,
   registry: CustomerPropertyRegistry,
 ): Promise<CustomerPropertyResolution> {
-  const first = await resolveOnce(evidence, scope, registry);
-  return first.reason === "lookup_unavailable" ? resolveOnce(evidence, scope, registry) : first;
+  // A share link costs a network request: the immediate retry reuses its outcome (one request in all).
+  const shares = new Map<string, Promise<string | null>>();
+  const bounded: CustomerPropertyRegistry = registry.expandShare ? { ...registry, expandShare: (share) => {
+    if (!shares.has(share)) shares.set(share, registry.expandShare!(share));
+    return shares.get(share)!;
+  } } : registry;
+  const first = await resolveOnce(evidence, scope, bounded);
+  return first.reason === "lookup_unavailable" ? resolveOnce(evidence, scope, bounded) : first;
 }
