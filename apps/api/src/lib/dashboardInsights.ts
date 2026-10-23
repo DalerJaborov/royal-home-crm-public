@@ -116,7 +116,12 @@ export interface PlanForecastInsight {
   forecastPercent: number;
   daysElapsed: number;
   daysInMonth: number;
+  /** План равен значению по умолчанию из схемы (8000) — вероятно, его никто не задавал. */
+  planIsDefault?: boolean;
 }
+
+/** Значение Settings.monthlyCommissionPlan по умолчанию (schema.prisma). */
+export const DEFAULT_COMMISSION_PLAN = 8000;
 
 /** Экстраполяция текущего темпа продаж на весь месяц — «умная» версия плитки «Цель месяца». */
 export async function computePlanForecast(): Promise<PlanForecastInsight> {
@@ -139,10 +144,13 @@ export async function computePlanForecast(): Promise<PlanForecastInsight> {
   const daysInMonth = new Date(Date.UTC(wall.getUTCFullYear(), wall.getUTCMonth() + 1, 0)).getUTCDate();
   const daysElapsed = Math.max(1, wall.getUTCDate());
   const forecastEndOfMonth = Math.round((commissionMonth / daysElapsed) * daysInMonth);
-  const plan = Number(settings?.monthlyCommissionPlan ?? 8000);
+  const plan = Number(settings?.monthlyCommissionPlan ?? DEFAULT_COMMISSION_PLAN);
+  // Колонка NOT NULL с default 8000: «не задан» от «задан 8000» в базе не отличить —
+  // честно помечаем совпадение с умолчанием, фронт не выдаёт его за настоящий план.
+  const planIsDefault = plan === DEFAULT_COMMISSION_PLAN;
   const forecastPercent = plan ? Math.round((forecastEndOfMonth / plan) * 100) : 0;
 
-  return { commissionMonth, plan, forecastEndOfMonth, forecastPercent, daysElapsed, daysInMonth };
+  return { commissionMonth, plan, forecastEndOfMonth, forecastPercent, daysElapsed, daysInMonth, planIsDefault };
 }
 
 export interface WorkloadInsight {

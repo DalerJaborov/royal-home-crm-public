@@ -9,14 +9,15 @@ import { CCard, CChip, CHead, CLink } from "./ui";
 export function CleanControlTiles({ control, allowed }: { control: McControlGaps | undefined; allowed: boolean }) {
   if (!control || !allowed) return null;
   const tiles = [
-    { label: "Просроченные задачи", data: control.overdueTasks, icon: ListChecks },
-    { label: "На лимите нагрузки", data: control.atLimit, icon: UsersRound },
-    { label: "Без ответа после показа", data: control.silentAfterShowing, icon: MessageCircle },
+    { label: "Просроченные задачи", data: control.overdueTasks, icon: ListChecks, slice: "slice-overdue-tasks" },
+    { label: "На лимите нагрузки", data: control.atLimit, icon: UsersRound, slice: "slice-agents-at-limit" },
+    { label: "Без ответа после показа", data: control.silentAfterShowing, icon: MessageCircle, slice: "slice-silent-after-showing" },
   ];
   return (
     <section className="grid gap-3 min-[1180px]:grid-cols-3" aria-label="Контроль руководителя">
-      {tiles.map(({ label, data, icon: Icon }) => (
-        <Link key={label} to="/oversight" className="grid min-w-0 grid-cols-[1fr_auto] gap-2 rounded-[20px] bg-card p-5 text-ink no-underline shadow-sm transition-colors hover:bg-row-alt">
+      {tiles.map(({ label, data, icon: Icon, slice }) => (
+        // «Присмотр» держит срезы одним экраном: ссылка с якорем открывает именно тот список, что показан в плитке.
+        <Link key={label} to={`/oversight#${slice}`} className="grid min-w-0 grid-cols-[1fr_auto] gap-2 rounded-[20px] bg-card p-5 text-ink no-underline shadow-sm transition-colors hover:bg-row-alt">
           <span className="flex items-center gap-2 text-[16px]"><Icon size={20} aria-hidden="true" />{label}</span>
           <ArrowUpRight size={20} aria-hidden="true" />
           <strong className="text-[32px] font-semibold leading-tight tabular-nums">{data.count}</strong>
@@ -43,7 +44,7 @@ export function CleanFinancialPulse({ hero, canSeeMoney, moneyRoute }: { hero: M
         {hero.commission && <div>
           <p className="m-0 text-[16px] text-gray-600">Прогноз комиссии к концу месяца</p>
           <p className="my-2 text-[28px] font-semibold leading-tight tabular-nums">{formatMoney(Math.round(hero.commission.forecastEndOfMonth), "TJS")}</p>
-          <p className="m-0 text-[14px] text-gray-600">Если текущий темп комиссии сохранится · {Math.round(hero.commission.forecastPercent)}% плана. Это прогноз, а не полученные деньги.</p>
+          <p className="m-0 text-[14px] text-gray-600">Если текущий темп комиссии сохранится · {hero.commission.planIsDefault ? "план не задан" : `${Math.round(hero.commission.forecastPercent)}% плана`}. Это прогноз, а не полученные деньги.</p>
         </div>}
       </div>
     </CCard>

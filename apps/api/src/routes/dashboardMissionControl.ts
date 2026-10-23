@@ -66,6 +66,8 @@ import { visibleNewCandidatesWhere } from "../lib/vacancyVisibility.js";
 export const missionControlRouter = Router();
 
 const ZONE_LIST_CAP = 12;
+/** Дней без работы с клиентом в воронке — «завис» (карточка «Сделки в работе»). */
+const STUCK_CLIENT_DAYS = 3;
 
 type SectionResult<T> = T | { error: true };
 
@@ -152,7 +154,8 @@ async function buildLive(ctx: McContext) {
   const [hero, firstLine, callsZone] = await Promise.all([
     cachedSection(`hero:${seesMoney}:${ctx.canSeePhone}`, LIVE_TTL_MS, () =>
       section("hero", async () => {
-      const [forecast, pulse, leadsToday, leadsYesterday, morning, missedToday, dealsInPipeline, dealsInPipelineItems] =
+      const stuckCutoff = new Date(now.getTime() - STUCK_CLIENT_DAYS * 24 * 60 * 60 * 1000);
+      const [forecast, pulse, leadsToday, leadsYesterday, morning, missedToday, dealsInPipeline, dealsInPipelineItems, stuckTotal] =
         await Promise.all([
           seesMoney ? computePlanForecast() : null,
           seesMoney ? buildFinancePulse() : null,
@@ -167,14 +170,22 @@ async function buildLive(ctx: McContext) {
             where: { deletedAt: null, ...OCCUPIES_SLOT_WHERE },
             _count: { _all: true },
           }),
-          // items[] (задача L2-T3): пять последних клиентов в активной воронке —
-          // одним запросом с take:5, без N+1. Ссылка ведёт на карточку клиента (тот
-          // же маршрут, что открывает канбан сделок — Deals.tsx:120).
+          // items[]: «клиент завис» = клиент в активной воронке, с которым НЕТ работы
+          // STUCK_CLIENT_DAYS+ дней. Признак движения — Client.lastContactAt (метка
+          // работы сотрудника: звонок, показ, запись в хронологии; входящее сообщение
+          // её намеренно не двигает — клиент, который пишет боту, но которого никто не
+          // тронул, и есть «завис»). Раньше брались 5 самых НОВЫХ клиентов и
+          // помечались созданные 3+ дня назад — то есть самые свежие, не самые
+          // забытые. Теперь: самые давно молчащие первыми, предел 5, без N+1.
+          // Ссылка — на карточку клиента (тот же маршрут, что в канбане, Deals.tsx:120).
           prisma.client.findMany({
-            where: { deletedAt: null, ...OCCUPIES_SLOT_WHERE },
-            orderBy: { createdAt: "desc" },
+            where: { deletedAt: null, ...OCCUPIES_SLOT_WHERE, lastContactAt: { lt: stuckCutoff } },
+            orderBy: { lastContactAt: "asc" },
             take: 5,
-            select: { id: true, shortId: true, fullName: true, status: true, createdAt: true },
+            select: { id: true, shortId: true, fullName: true, status: true, lastContactAt: true },
+          }),
+          prisma.client.count({
+            where: { deletedAt: null, ...OCCUPIES_SLOT_WHERE, lastContactAt: { lt: stuckCutoff } },
           }),
         ]);
       const pulseToday = pulse?.find((p) => p.period === "today") ?? null;
@@ -185,6 +196,8 @@ async function buildLive(ctx: McContext) {
               plan: forecast.plan,
               forecastEndOfMonth: forecast.forecastEndOfMonth,
               forecastPercent: forecast.forecastPercent,
+              /** true — в настройках значение по умолчанию (8000): не выдавать за настоящий план. */
+              planIsDefault: forecast.planIsDefault ?? false,
             }
           : null,
         profit: pulseToday
@@ -202,16 +215,20 @@ async function buildLive(ctx: McContext) {
         dealsInPipeline: {
           count: dealsInPipeline.reduce((s, r) => s + r._count._all, 0),
           byStage: dealsInPipeline.map((r) => ({ status: r.status, count: r._count._all })),
+          /** Клиентов в работе без движения STUCK_CLIENT_DAYS+ дней (всего, не только в items). */
+          stuckTotal,
+          stuckDays: STUCK_CLIENT_DAYS,
           items: dealsInPipelineItems.map((c) => {
-            const days = Math.floor((now.getTime() - c.createdAt.getTime()) / (24 * 60 * 60 * 1000));
+            const days = Math.floor((now.getTime() - c.lastContactAt.getTime()) / (24 * 60 * 60 * 1000));
             return {
               id: c.id,
               // Имя карточки — через право на телефон: у заведённых до 20.08.2026
               // номер лежит в имени (lib/clientPhone.ts).
               title: clientNamePhoneSafe(c.fullName, canSeePhone),
               href: `/clients/${c.shortId}`,
-              tone: days >= 3 ? ("warn" as const) : ("ok" as const),
-              hint: days > 0 ? `В работе ${days} ${plural(days, "день", "дня", "дней")}` : "Новая заявка",
+              tone: "warn" as const,
+              hint: `Без движения ${days} ${plural(days, "день", "дня", "дней")}`,
+              silentDays: days,
             };
           }),
         },
@@ -598,7 +615,7 @@ async function buildZones(ctx: McContext) {
     // HR/система — «победа №1», самая важная владельцу: сейчас НИ ОДНОГО роута
     // на CronHeartbeat/BackgroundJob не существует (три молчаливых отказа Gemini).
     gated("system", async () => {
-      const [heartbeats, jobsRunning, jobsGivenUp, jobsFailedRecent, newApplications, errorsToday] =
+      const [heartbeats, jobsRunning, jobsGivenUp, jobsFailedRecent, newApplications, errorsToday, unresolvedTotal] =
         await Promise.all([
           prisma.cronHeartbeat.findMany({
             orderBy: { name: "asc" },
@@ -614,6 +631,7 @@ async function buildZones(ctx: McContext) {
           // (lib/vacancyVisibility.ts): без отсеянных и без анкет без номера.
           prisma.jobApplication.count({ where: visibleNewCandidatesWhere() }),
           prisma.errorLog.count({ where: { createdAt: { gte: startOfDay }, resolvedAt: null } }),
+          prisma.errorLog.count({ where: { resolvedAt: null } }),
         ]);
       return {
         crons: heartbeats.map((h) => ({
@@ -630,6 +648,8 @@ async function buildZones(ctx: McContext) {
         jobsGivenUpLast24h: jobsFailedRecent,
         newApplications,
         errorsToday,
+        /** Все нерешённые ошибки (не только сегодняшние); закрыть: POST /errors/resolve-all {scope:"all"}. */
+        unresolvedTotal,
         // Три плитки «Контроля» (просроченные задачи, предел нагрузки, молчание
         // после показа) до 12.09.2026 всегда показывали «нет данных».
         control: await loadControlGaps(now),

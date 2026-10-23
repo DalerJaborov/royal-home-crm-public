@@ -28,7 +28,8 @@ const bot: McBot = {
 describe("Clean operational dashboard", () => {
   it("keeps control counters separate and respects destination permission", () => {
     const html = render(<CleanControlTiles control={control} allowed />);
-    expect((html.match(/href="\/oversight"/g) ?? [])).toHaveLength(3);
+    for (const slice of ["slice-overdue-tasks", "slice-agents-at-limit", "slice-silent-after-showing"])
+      expect(html.match(new RegExp(`href="/oversight#${slice}"`, "g")) ?? []).toHaveLength(1);
     for (const value of [7, 2, 3]) expect(html).toContain(`>${value}</strong>`);
     expect(html).toContain("Без ответа после показа");
     expect(render(<CleanControlTiles control={control} allowed={false} />)).toBe("");

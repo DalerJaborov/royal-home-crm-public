@@ -129,8 +129,26 @@ export interface McChannelRow {
   detail: string;
 }
 
+/** Канал, у которого последняя ночная самопроверка нашла поломку (IntegrationHealthSnapshot.ok=false). */
+export interface McChannelProblem {
+  /** Имя канала, как в снимке самопроверки (IntegrationCheck.name). */
+  channel: string;
+  /** Что сломано — короткий текст (до 160 знаков). */
+  problem: string;
+  /** Когда проверено (ISO). */
+  checkedAt: string;
+  /** Куда идти чинить — путь экрана веб-приложения. */
+  fixPath: string;
+}
+
 export interface McChannelsHealth extends McEmptyable {
   items: McChannelRow[];
+  /** Поломки по живой самопроверке (не «токен задан»). Пусто — поломок нет ИЛИ снимка ещё нет (см. healthCheckedAt). */
+  problems?: McChannelProblem[];
+  /** Время самой свежей строки снимка самопроверки; null — снимка нет («нет данных»). */
+  healthCheckedAt?: string | null;
+  /** У OpenAI закончились деньги: за 24 ч есть нерешённая ошибка с insufficient_quota / «закончились деньги». */
+  openaiOutOfMoney?: boolean;
   connectedCount: number;
   /** Неразобранные ошибки каналов из «Здоровья системы» (источники meta/telegram). */
   openErrors: number;
@@ -143,7 +161,35 @@ export interface McChannelsHealth extends McEmptyable {
  * не помещается. Источник данных ОДИН И ТОТ ЖЕ (Settings + isBotEnabledForChannel),
  * дублирующей логики «подключено ли» здесь нет — только раскладка в строки.
  */
-export async function loadChannelsHealth(): Promise<McChannelsHealth> {
+/** Экран, где чинят внешние доступы (ночная самопроверка и ключи). */
+export const CHANNEL_FIX_PATH = "/integrations";
+
+/** Признаки «деньги на OpenAI кончились» в тексте ErrorLog (openaiClient.isOutOfMoney + describeOpenAiError). */
+const OPENAI_MONEY_SIGNS = ["insufficient_quota", "закончились деньги", "billing_hard_limit_reached"];
+
+export async function loadChannelsHealth(now: Date = new Date()): Promise<McChannelsHealth> {
+  const dayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const [snapshots, openaiMoneyErrors] = await Promise.all([
+    prisma.integrationHealthSnapshot.findMany({ orderBy: { name: "asc" }, take: 100 }),
+    prisma.errorLog.count({
+      where: {
+        resolvedAt: null,
+        createdAt: { gte: dayAgo },
+        OR: OPENAI_MONEY_SIGNS.map((sign) => ({ message: { contains: sign, mode: "insensitive" as const } })),
+      },
+    }),
+  ]);
+  const problems: McChannelProblem[] = snapshots
+    .filter((r) => r.ok === false)
+    .map((r) => ({
+      channel: r.name,
+      problem: (r.detail ?? "проверка не прошла").slice(0, 160),
+      checkedAt: r.checkedAt.toISOString(),
+      fixPath: CHANNEL_FIX_PATH,
+    }));
+  const healthCheckedAt = snapshots.length
+    ? new Date(Math.max(...snapshots.map((r) => r.checkedAt.getTime()))).toISOString()
+    : null;
   const [settings, openErrors] = await Promise.all([
     prisma.settings.findUnique({
       where: { id: "singleton" },
@@ -233,6 +279,9 @@ export async function loadChannelsHealth(): Promise<McChannelsHealth> {
   const connectedCount = items.filter((c) => c.connected).length;
   return {
     items,
+    problems,
+    healthCheckedAt,
+    openaiOutOfMoney: openaiMoneyErrors > 0,
     connectedCount,
     openErrors,
     autoPublishEnabled: settings?.autoPublishEnabled ?? false,

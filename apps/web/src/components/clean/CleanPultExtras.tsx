@@ -22,7 +22,7 @@ export function CleanCandidateSummary({ count }: { count: number }) {
 
 /** Restore DirectorHome's existing tools without loading trainer queries until opened. */
 export function CleanPultExtras({ canTrainer, canVacancies, canSettings, newApplications }: CleanPultExtrasProps) {
-  const [open, setOpen] = useState<"trainer" | "candidates" | null>(null);
+  const [open, setOpen] = useState<"trainer" | null>(null);
   const showCandidates = canVacancies && newApplications !== undefined;
   if (!canTrainer && !showCandidates && !canSettings) return null;
   return <>
@@ -30,18 +30,15 @@ export function CleanPultExtras({ canTrainer, canVacancies, canSettings, newAppl
       {canTrainer && <CButton variant="soft" size="lg" onClick={() => setOpen("trainer")}>
         <GraduationCap aria-hidden="true" />Тренажёр бота
       </CButton>}
-      {showCandidates && <CButton variant="soft" size="lg" onClick={() => setOpen("candidates")}>
+      {showCandidates && <CLink to="/vacancies" variant="soft" size="lg">
         <UsersRound aria-hidden="true" />Кандидаты · {newApplications}
-      </CButton>}
+      </CLink>}
       {canSettings && <CLink to="/settings?tab=system&task=workspace" variant="soft" size="lg">
         <Settings2 aria-hidden="true" />Настройки пульта
       </CLink>}
     </div>
     {open === "trainer" && canTrainer && <Rh2Sheet title="Тренажёр бота" wide onClose={() => setOpen(null)}>
       <BotTrainer compact />
-    </Rh2Sheet>}
-    {open === "candidates" && showCandidates && <Rh2Sheet title="Кандидаты" onClose={() => setOpen(null)}>
-      <CleanCandidateSummary count={newApplications} />
     </Rh2Sheet>}
   </>;
 }
