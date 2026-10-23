@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **655**. Развилок в самих путях: **2346**; вместе с задачами по расписанию и фоновыми заданиями — **3639**. Модулей: **74**.
+Путей: **660**. Развилок в самих путях: **2349**; вместе с задачами по расписанию и фоновыми заданиями — **3642**. Модулей: **74**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -5404,6 +5404,16 @@
 - res.json({ agents: agents .map((a)
   · ответ 200
 
+### GET /api/v1/dashboard/unassigned-leads
+
+`apps/api/src/routes/dashboard.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: clients.assign
+
+- const [rows, total] = await Promise.all([ prisma.client.findMany({ where: UNASSIGNED_LEADS_WHERE, orderBy: [{…
+  · читает в базе: client
+  · считает в базе: client
+- res.json({ items: rows.map((c)
+  · ответ 200
+
 ## /api/v1/deals
 
 ### POST /api/v1/deals/:id/annul
@@ -9491,6 +9501,36 @@
 
 ## /api/v1/oversight
 
+### DELETE /api/v1/oversight/ack
+
+`apps/api/src/routes/oversight.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics, requireDirectorOrAdmin
+
+- если !parsed.success
+  - res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
+    · ответ 400 — «Неверные данные»
+  - return;
+    · дальше не идёт, ничего не меняя
+- const { count } = await prisma.oversightAck.deleteMany({ where: parsed.data });
+  · удаляет в базе: oversightAck
+- res.json({ removed: count });
+  · ответ 200
+
+### POST /api/v1/oversight/ack
+
+`apps/api/src/routes/oversight.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics, requireDirectorOrAdmin
+
+- const parsed = oversightAckBodySchema.safeParse(req.body);
+  · проверяет данные схемой oversightAckBodySchema
+- если !parsed.success
+  - res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
+    · ответ 400 — «Неверные данные»
+  - return;
+    · дальше не идёт, ничего не меняя
+- const ack = await prisma.oversightAck.upsert({ where: { sliceKey_subjectId: { sliceKey, subjectId } }, create…
+  · создаёт или меняет в базе: oversightAck
+- res.json(ack);
+  · ответ 200
+
 ### GET /api/v1/oversight/agent-loss-series
 
 `apps/api/src/routes/oversight.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics
@@ -9525,7 +9565,33 @@
 
 - const { maxRounds, items } = await findEndlessNegotiations(new Date());
   · зовёт findEndlessNegotiations()
-- res.json({ items: items.slice(start, start + pageSize).map((it)
+- res.json({ items: await markAcked("endless-negotiations", items.slice(start, start + pageSize).map((it)
+  · ответ 200
+
+### GET /api/v1/oversight/flags
+
+`apps/api/src/routes/oversight.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics, requireDirectorOrAdmin
+
+- const name = (n: string)
+  · зовёт clientNamePhoneSafe()
+- const [stalled, silent, refused, seller, endless, ackedStalled, ackedSilent, ackedRefused, ackedSeller, acked…
+  · читает в базе: client
+- для каждого: const c of stalled.filter((x) => !ackedStalled.has(x.id)).slice(0, FLAGS_PER_SLICE)
+  - flags.push({ sliceKey: "stalled-clients", subjectId: c.id, title: `${name(c.fullName)}: горячий клиент без ко…
+    · дословно из кода
+- для каждого: const c of silent.items.filter((x) => !ackedSilent.has(x.id)).slice(0, FLAGS_PER_SLICE)
+  - flags.push({ sliceKey: "silent-after-showing", subjectId: c.id, title: `${name(c.fullName)}: тишина после пок…
+    · дословно из кода
+- для каждого: const r of refused.items.filter((x) => !ackedRefused.has(x.id)).slice(0, FLAGS_PER_SLICE)
+  - flags.push({ sliceKey: "refused-high-score", subjectId: r.id, title: `${r.client ? name(r.client.fullName) : …
+    · дословно из кода
+- для каждого: const c of seller.items.filter((x) => !ackedSeller.has(x.id)).slice(0, FLAGS_PER_SLICE)
+  - flags.push({ sliceKey: "seller-property-missing", subjectId: c.id, title: `${name(c.fullName)}: продавец без …
+    · дословно из кода
+- для каждого: const it of endless.items.filter((x) => !ackedEndless.has(x.id)).slice(0, FLAGS_PER_SLICE)
+  - flags.push({ sliceKey: "endless-negotiations", subjectId: it.id, title: `${name(it.subjectName)}: вечные пере…
+    · дословно из кода
+- res.json({ items: flags.slice(0, FLAGS_LIMIT), total: flags.length });
   · ответ 200
 
 ### GET /api/v1/oversight/inactive-clients
@@ -9566,7 +9632,7 @@
 
 - const { threshold, items } = await findRefusedHighScore(new Date(Date.now() - RECENT_EVENTS_MS));
   · зовёт findRefusedHighScore()
-- res.json({ items: items.slice(start, start + pageSize).map((r)
+- res.json({ items: await markAcked("refused-high-score", items.slice(start, start + pageSize).map((r)
   · ответ 200
 
 ### GET /api/v1/oversight/seller-property-missing
@@ -9575,7 +9641,7 @@
 
 - const { warnDays, criticalDays, items } = await findSellerPropertyMissing(new Date());
   · зовёт findSellerPropertyMissing()
-- res.json({ items: items.slice(start, start + pageSize).map((c)
+- res.json({ items: await markAcked("seller-property-missing", items.slice(start, start + pageSize).map((c)
   · ответ 200
 
 ### GET /api/v1/oversight/showing-survey-calls/:id/recording
@@ -9634,7 +9700,7 @@
 
 - const { days, items } = await findSilentAfterShowing(new Date());
   · зовёт findSilentAfterShowing()
-- res.json({ items: items.slice(start, start + pageSize).map((c)
+- res.json({ items: await markAcked("silent-after-showing", items.slice(start, start + pageSize).map((c)
   · ответ 200
 
 ### GET /api/v1/oversight/stalled-clients
@@ -9646,7 +9712,7 @@
 - const [rows, total] = await Promise.all([ prisma.client.findMany({ where, orderBy: [{ aiScore: "desc" }, { id…
   · читает в базе: client
   · считает в базе: client
-- res.json({ items: rows.map((c)
+- res.json({ items: await markAcked("stalled-clients", rows.map((c)
   · ответ 200
 
 ### GET /api/v1/oversight/summary
@@ -12363,6 +12429,18 @@
 - const rows = await prisma.propertyChangeRequest.findMany({ where: { status }, orderBy: [{ createdAt: "desc" }…
   · читает в базе: propertyChangeRequest
 - res.json({ items: page.map(toChangeRequestDto), nextCursor: rows.length > limit ? page[page.length - 1].id : …
+  · ответ 200
+
+### GET /api/v1/properties/clip-review/pending
+
+`apps/api/src/routes/properties/moderation.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: properties.moderate
+
+- const parsed = clipPendingQuerySchema.safeParse(req.query);
+  · проверяет данные схемой clipPendingQuerySchema
+- если !parsed.success
+  - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
+    · ответ 400 — «Неверные данные»
+- res.json(await listPendingClips(parsed.data.limit));
   · ответ 200
 
 ### POST /api/v1/properties/delete-requests/:id/approve

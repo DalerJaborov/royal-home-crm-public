@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, type NextFunction, type Request, type Response } from "express";
 import { Prisma } from "../generated/prisma/client.js";
 import { prisma } from "../db.js";
 import { findPostShowingCallFeedRow, listPostShowingCallFeed } from "../lib/postShowingCallFeed.js";
@@ -13,6 +13,7 @@ import { runLimited } from "../lib/concurrency.js";
 import type { InactiveLevel } from "../lib/inactiveTrafficLight.js";
 import { r2PresignDownloadUrl } from "../lib/r2Client.js";
 import { RATED_ROLES } from "@royal-home/shared";
+import { loadAckedSubjects, markAcked, oversightAckBodySchema, type OversightFlagSlice } from "../lib/oversightAck.js";
 
 /**
  * «Контроль руководителя» (ТЗ «Путь покупателя», п. 32) — сводный экран для
@@ -752,11 +753,11 @@ oversightRouter.get("/stalled-clients", async (req, res) => {
   res.json({
     // Тот же обход presentClient, что и в /refused-high-score выше: сводка причины
     // от ИИ несёт номер, продиктованный клиентом, а право на номер отдельное.
-    items: rows.map((c) => ({
+    items: await markAcked("stalled-clients", rows.map((c) => ({
       ...c,
       fullName: clientNamePhoneSafe(c.fullName, canSeePhone),
       aiScoreReason: phoneSafeText(c.aiScoreReason, canSeePhone),
-    })),
+    })), (c) => c.id),
     total,
     page,
     pageSize,
@@ -830,7 +831,7 @@ oversightRouter.get("/silent-after-showing", async (req, res) => {
   const canSeePhone = req.agent!.can("clients.viewPhone");
   const start = (page - 1) * pageSize;
   res.json({
-    items: items.slice(start, start + pageSize).map((c) => maskClientRef(c, canSeePhone)),
+    items: await markAcked("silent-after-showing", items.slice(start, start + pageSize).map((c) => maskClientRef(c, canSeePhone)), (c) => c.id),
     total: items.length,
     page,
     pageSize,
@@ -848,7 +849,7 @@ oversightRouter.get("/refused-high-score", async (req, res) => {
   const canSeePhone = req.agent!.can("clients.viewPhone");
   const start = (page - 1) * pageSize;
   res.json({
-    items: items.slice(start, start + pageSize).map((r) => ({
+    items: await markAcked("refused-high-score", items.slice(start, start + pageSize).map((r) => ({
       id: r.id,
       createdAt: r.createdAt,
       agent: r.agent,
@@ -864,7 +865,7 @@ oversightRouter.get("/refused-high-score", async (req, res) => {
             aiScoreReason: phoneSafeText(r.client.aiScoreReason, canSeePhone),
           }
         : r.client,
-    })),
+    })), (r) => r.id),
     total: items.length,
     page,
     pageSize,
@@ -978,7 +979,7 @@ oversightRouter.get("/seller-property-missing", async (req, res) => {
   const canSeePhone = req.agent!.can("clients.viewPhone");
   const start = (page - 1) * pageSize;
   res.json({
-    items: items.slice(start, start + pageSize).map((c) => maskClientRef(c, canSeePhone)),
+    items: await markAcked("seller-property-missing", items.slice(start, start + pageSize).map((c) => maskClientRef(c, canSeePhone)), (c) => c.id),
     total: items.length,
     page,
     pageSize,
@@ -1000,11 +1001,11 @@ oversightRouter.get("/endless-negotiations", async (req, res) => {
   res.json({
     // subjectName — снимок имени клиента, client.fullName — он же в связанной
     // карточке: оба через ту же маску.
-    items: items.slice(start, start + pageSize).map((it) => ({
+    items: await markAcked("endless-negotiations", items.slice(start, start + pageSize).map((it) => ({
       ...it,
       subjectName: canSeePhone ? it.subjectName : clientNamePhoneSafe(it.subjectName, false),
       client: maskClientRef(it.client, canSeePhone),
-    })),
+    })), (it) => it.id),
     total: items.length,
     page,
     pageSize,
@@ -1135,4 +1136,107 @@ oversightRouter.get("/showing-survey-calls/:id/recording", requirePermission("ca
   const url = await r2PresignDownloadUrl(row.recordingUrl);
   if (!url) return res.status(502).json({ error: "R2 не настроен или не ответил" });
   res.json({ url });
+});
+
+// ───────────────── «Принято» по красным флагам + лента для пульта (23.10.2026) ─────────────────
+
+/** Принять/снять отметку и читать ленту флагов для пульта — только DIRECTOR/ADMIN
+ *  (роутер открыт и менеджеру через dashboard.analytics, а решение «принято» — за директором). */
+function requireDirectorOrAdmin(req: Request, res: Response, next: NextFunction) {
+  const role = req.agent?.role;
+  if (role !== "DIRECTOR" && role !== "ADMIN") {
+    res.status(403).json({ error: "Отметку «Принято» ставит директор или администратор" });
+    return;
+  }
+  next();
+}
+
+const FLAGS_LIMIT = 20;
+const FLAGS_PER_SLICE = 40;
+
+interface OversightFlag {
+  sliceKey: OversightFlagSlice;
+  subjectId: string;
+  title: string;
+  who: string | null;
+  at: string | null;
+  href: string;
+}
+
+/** GET /oversight/flags — самые важные красные флаги по пяти срезам-нарушениям, без уже принятых. */
+oversightRouter.get("/flags", requireDirectorOrAdmin, async (req, res) => {
+  const now = new Date();
+  const canSeePhone = req.agent!.can("clients.viewPhone");
+  const name = (n: string) => clientNamePhoneSafe(n, canSeePhone);
+  const link = (key: OversightFlagSlice) => `/oversight#slice-${key}`;
+  const iso = (d: Date | null | undefined) => (d ? d.toISOString() : null);
+
+  const [stalled, silent, refused, seller, endless, ackedStalled, ackedSilent, ackedRefused, ackedSeller, ackedEndless] = await Promise.all([
+    loadHotScoreThreshold().then((threshold) =>
+      prisma.client.findMany({
+        where: stalledClientsWhere(now, threshold),
+        orderBy: [{ aiScore: "desc" }, { id: "desc" }],
+        take: 500,
+        select: { id: true, fullName: true, lastContactAt: true, assignedAgent: agentRefSelect },
+      }),
+    ),
+    findSilentAfterShowing(now),
+    findRefusedHighScore(new Date(Date.now() - RECENT_EVENTS_MS)),
+    findSellerPropertyMissing(now),
+    findEndlessNegotiations(now),
+    loadAckedSubjects("stalled-clients"),
+    loadAckedSubjects("silent-after-showing"),
+    loadAckedSubjects("refused-high-score"),
+    loadAckedSubjects("seller-property-missing"),
+    loadAckedSubjects("endless-negotiations"),
+  ]);
+
+  const flags: OversightFlag[] = [];
+  for (const c of stalled.filter((x) => !ackedStalled.has(x.id)).slice(0, FLAGS_PER_SLICE)) {
+    flags.push({ sliceKey: "stalled-clients", subjectId: c.id, title: `${name(c.fullName)}: горячий клиент без контакта`, who: c.assignedAgent?.fullName ?? null, at: iso(c.lastContactAt), href: link("stalled-clients") });
+  }
+  for (const c of silent.items.filter((x) => !ackedSilent.has(x.id)).slice(0, FLAGS_PER_SLICE)) {
+    flags.push({ sliceKey: "silent-after-showing", subjectId: c.id, title: `${name(c.fullName)}: тишина после показа`, who: c.assignedAgent?.fullName ?? null, at: iso(c.lastContactAt), href: link("silent-after-showing") });
+  }
+  for (const r of refused.items.filter((x) => !ackedRefused.has(x.id)).slice(0, FLAGS_PER_SLICE)) {
+    flags.push({ sliceKey: "refused-high-score", subjectId: r.id, title: `${r.client ? name(r.client.fullName) : "Клиент"}: отказ при хорошем скоринге`, who: r.agent?.fullName ?? null, at: iso(r.createdAt), href: link("refused-high-score") });
+  }
+  for (const c of seller.items.filter((x) => !ackedSeller.has(x.id)).slice(0, FLAGS_PER_SLICE)) {
+    flags.push({ sliceKey: "seller-property-missing", subjectId: c.id, title: `${name(c.fullName)}: продавец без объекта`, who: c.assignedAgent?.fullName ?? null, at: iso(c.propertyAcceptedAt), href: link("seller-property-missing") });
+  }
+  for (const it of endless.items.filter((x) => !ackedEndless.has(x.id)).slice(0, FLAGS_PER_SLICE)) {
+    flags.push({ sliceKey: "endless-negotiations", subjectId: it.id, title: `${name(it.subjectName)}: вечные переговоры (${it.rounds} кругов)`, who: it.agent.fullName, at: iso(it.dueAt), href: link("endless-negotiations") });
+  }
+
+  // Давнее выше (как очереди пульта); без даты — в конец.
+  flags.sort((a, b) => (a.at && b.at ? a.at.localeCompare(b.at) : a.at ? -1 : b.at ? 1 : 0));
+  res.json({ items: flags.slice(0, FLAGS_LIMIT), total: flags.length });
+});
+
+/** POST /oversight/ack — «Принято». Идемпотентно: повтор не создаёт вторую строку и не затирает первого принявшего. */
+oversightRouter.post("/ack", requireDirectorOrAdmin, async (req, res) => {
+  const parsed = oversightAckBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
+    return;
+  }
+  const { sliceKey, subjectId, note } = parsed.data;
+  const ack = await prisma.oversightAck.upsert({
+    where: { sliceKey_subjectId: { sliceKey, subjectId } },
+    create: { sliceKey, subjectId, ackedById: req.agent!.id, note: note || null },
+    update: {},
+    select: { id: true, sliceKey: true, subjectId: true, ackedById: true, ackedAt: true, note: true },
+  });
+  res.json(ack);
+});
+
+/** DELETE /oversight/ack — снять отметку (тоже идемпотентно). */
+oversightRouter.delete("/ack", requireDirectorOrAdmin, async (req, res) => {
+  const parsed = oversightAckBodySchema.pick({ sliceKey: true, subjectId: true }).safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
+    return;
+  }
+  const { count } = await prisma.oversightAck.deleteMany({ where: parsed.data });
+  res.json({ removed: count });
 });

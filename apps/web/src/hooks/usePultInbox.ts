@@ -29,10 +29,11 @@ import type { SiteNotificationsResponse } from "./useSiteNotifications";
  * ["site-notifications"], ["bot-audit"]).
  */
 
-export type InboxGroup = "clients" | "video" | "social" | "system";
+export type InboxGroup = "violations" | "clients" | "video" | "social" | "system";
 
-export const INBOX_GROUP_ORDER: InboxGroup[] = ["clients", "video", "social", "system"];
+export const INBOX_GROUP_ORDER: InboxGroup[] = ["violations", "clients", "video", "social", "system"];
 export const INBOX_GROUP_LABEL: Record<InboxGroup, string> = {
+  violations: "Нарушения",
   clients: "Клиенты",
   video: "Видео",
   social: "Соцсети",
@@ -40,11 +41,14 @@ export const INBOX_GROUP_LABEL: Record<InboxGroup, string> = {
 };
 
 export type InboxQueueId =
+  | "unassigned"
+  | "violations"
   | "waiting"
   | "comments"
   | "reactivation"
   | "duplicates"
   | "editor"
+  | "clips"
   | "videos"
   | "stuckConversations"
   | "stuckWork"
@@ -64,17 +68,31 @@ interface InboxBase {
 
 export type InboxItem = InboxBase &
   (
+    | { type: "unassigned"; clientId: string }
     | { type: "dialog"; conversationId: string; paused: boolean }
     | { type: "comment"; commentId: string }
     | { type: "reactivation"; clientId: string }
     | { type: "duplicate"; clientId: string }
     | { type: "editor"; propertyId: string; canResend: boolean; canHold: boolean }
+    | { type: "clip"; clip: PendingClip }
     | { type: "video"; videoId: string }
     | { type: "stuckConversations"; count: number }
     | { type: "stuckWork"; jobId: string }
     | { type: "audit"; findingId: string }
     | { type: "site"; notificationId: string }
+    | { type: "flag"; sliceKey: string; subjectId: string; href: string }
   );
+
+/** Строка GET /properties/clip-review/pending (ролик ждёт проверки модератора). */
+export interface PendingClip {
+  id: string;
+  shortId: number;
+  title: string;
+  videoUrl: string | null;
+  coverUrl: string | null;
+  requestedAt: string | null;
+  montajer: { id: string; fullName: string } | null;
+}
 
 export interface InboxQueueMeta {
   id: InboxQueueId;
@@ -91,11 +109,14 @@ export interface InboxQueueResult {
 }
 
 export const INBOX_QUEUES: InboxQueueMeta[] = [
+  { id: "unassigned", group: "clients", label: "Ждут агента", href: "/clients" },
+  { id: "violations", group: "violations", label: "Красные флаги контроля", href: "/oversight" },
   { id: "waiting", group: "clients", label: "Клиент ждёт человека", href: "/messages" },
   { id: "comments", group: "clients", label: "Комментарии без ответа", href: "/comments" },
   { id: "reactivation", group: "clients", label: "Вернувшиеся клиенты", href: "/clients" },
   { id: "duplicates", group: "clients", label: "Возможные дубли", href: "/clients" },
   { id: "editor", group: "video", label: "Монтаж просрочен", href: "/marketing" },
+  { id: "clips", group: "video", label: "Проверка ролика", href: "/marketing" },
   { id: "videos", group: "social", label: "Ролик не вышел в соцсети", href: "/social-videos" },
   { id: "stuckConversations", group: "system", label: "Диалоги без ответа бота", href: "/health" },
   { id: "stuckWork", group: "system", label: "Что не доехало", href: "/stuck-work" },
@@ -116,6 +137,12 @@ export function formatAge(iso: string | null | undefined, now = Date.now()): str
   return `${Math.floor(ms / (24 * 60 * MIN))} д`;
 }
 
+/** «15 д назад», «только что» — подпись давности без «с … назад». */
+export function ageAgo(iso: string | null | undefined, now = Date.now()): string {
+  const age = formatAge(iso, now);
+  return !age || age === "только что" ? age : `${age} назад`;
+}
+
 const CHANNEL_LABEL: Record<string, string> = {
   TELEGRAM: "Telegram",
   WHATSAPP: "WhatsApp",
@@ -134,7 +161,42 @@ export function byAge(a: { at: string | null }, b: { at: string | null }): numbe
   return a.at.localeCompare(b.at);
 }
 
+const SOURCE_LABEL: Record<string, string> = {
+  WEBSITE: "Сайт",
+  INSTAGRAM: "Instagram",
+  FACEBOOK: "Facebook",
+  WHATSAPP: "WhatsApp",
+  TELEGRAM: "Telegram",
+  TIKTOK: "TikTok",
+  GOOGLE_ADS: "Google Ads",
+  YANDEX_DIRECT: "Яндекс Директ",
+  REFERRAL: "Рекомендация",
+  PHONE_CALL: "Звонок",
+  WALK_IN: "Пришёл в офис",
+};
+
 // ───────────────────────────── загрузчики очередей ─────────────────────────────
+
+/** Клиенты в общей очереди без агента (GET /dashboard/unassigned-leads: давние первыми, до 20). */
+export async function loadUnassigned(): Promise<InboxQueueResult> {
+  const r = await api<{
+    items: { id: string; shortId: number; fullName: string; source: string; createdAt: string; waitingMinutes: number }[];
+    total: number;
+  }>("/dashboard/unassigned-leads");
+  return {
+    total: Math.max(r.total, r.items.length),
+    items: r.items.map((c): InboxItem => ({
+      id: `unassigned:${c.id}`,
+      queue: "unassigned",
+      group: "clients",
+      type: "unassigned",
+      clientId: c.id,
+      title: c.fullName?.trim() || `Клиент №${c.shortId}`,
+      detail: [SOURCE_LABEL[c.source] ?? c.source, `ждёт ${formatAge(c.createdAt)}`.trim()].filter(Boolean).join(" · "),
+      at: c.createdAt,
+    })),
+  };
+}
 
 export async function loadWaiting(): Promise<InboxQueueResult> {
   const [needs, paused] = await Promise.all([
@@ -229,6 +291,23 @@ export async function loadEditor(): Promise<InboxQueueResult> {
       title: r.title,
       detail: `на монтаже ${r.pipeline?.daysInStage ?? "?"} дн.${r.pipeline?.limitDays ? ` из ${r.pipeline.limitDays}` : ""}`,
       at: r.pipeline ? new Date(Date.now() - r.pipeline.daysInStage * 86_400_000).toISOString() : null,
+    })),
+  };
+}
+
+export async function loadClips(): Promise<InboxQueueResult> {
+  const r = await api<{ items: PendingClip[]; total: number }>("/properties/clip-review/pending?limit=20");
+  return {
+    total: r.total,
+    items: r.items.map((clip): InboxItem => ({
+      id: `clips:${clip.id}`,
+      queue: "clips",
+      group: "video",
+      type: "clip",
+      clip,
+      title: clip.title,
+      detail: [`Объект №${clip.shortId}`, clip.montajer ? `монтажёр ${clip.montajer.fullName}` : "", clip.requestedAt ? `ждёт ${formatAge(clip.requestedAt)}` : ""].filter(Boolean).join(" · "),
+      at: clip.requestedAt,
     })),
   };
 }
@@ -330,12 +409,44 @@ export async function loadSiteChanges(): Promise<InboxQueueResult> {
   };
 }
 
+interface OversightFlagRow {
+  sliceKey: string;
+  subjectId: string;
+  title: string;
+  who: string | null;
+  at: string | null;
+  href: string;
+}
+
+/** Сводная лента красных флагов «Контроля» (GET /oversight/flags, до 20, без принятых). */
+export async function loadViolations(): Promise<InboxQueueResult> {
+  const r = await api<{ items: OversightFlagRow[]; total: number }>("/oversight/flags");
+  return {
+    total: r.total,
+    items: r.items.map((f): InboxItem => ({
+      id: `violations:${f.sliceKey}:${f.subjectId}`,
+      queue: "violations",
+      group: "violations",
+      type: "flag",
+      sliceKey: f.sliceKey,
+      subjectId: f.subjectId,
+      href: f.href,
+      title: f.title,
+      detail: [f.who ? `агент ${f.who}` : "", ageAgo(f.at)].filter(Boolean).join(" · "),
+      at: f.at,
+    })),
+  };
+}
+
 const LOADERS: Record<InboxQueueId, { key: unknown[]; load: () => Promise<InboxQueueResult> }> = {
+  unassigned: { key: ["clients", "pult-inbox", "unassigned"], load: loadUnassigned },
+  violations: { key: ["oversight", "pult-inbox", "flags"], load: loadViolations },
   waiting: { key: ["conversations", "pult-inbox", "waiting"], load: loadWaiting },
   comments: { key: ["instagram-comments", "pult-inbox"], load: loadComments },
   reactivation: { key: ["reactivation-offers", "pult-inbox"], load: loadReactivation },
   duplicates: { key: ["clients", "pult-inbox", "duplicates"], load: loadDuplicates },
   editor: { key: ["marketing", "pult-inbox", "editor"], load: loadEditor },
+  clips: { key: ["properties", "pult-inbox", "clips"], load: loadClips },
   videos: { key: ["social-videos", "pult-inbox"], load: loadVideos },
   stuckConversations: { key: ["conversations", "pult-inbox", "stuck"], load: loadStuckConversations },
   stuckWork: { key: ["pult-inbox", "stuck-work"], load: loadStuckWork },
@@ -355,10 +466,13 @@ export interface InboxQueueState extends InboxQueueMeta {
 export function enabledInboxQueues(has: (p: PermissionId) => boolean, role: string | undefined): Set<InboxQueueId> {
   const marketing = role === "DIRECTOR" || role === "ADMIN" || role === "MARKETING";
   const out = new Set<InboxQueueId>();
+  // Лента флагов и «Принято» — только директор/администратор (серверный запрет тот же).
+  if (role === "DIRECTOR" || role === "ADMIN") out.add("violations");
   if (has("messages.view")) out.add("waiting");
   if (has("comments.moderate")) out.add("comments");
-  if (has("clients.assign")) { out.add("reactivation"); out.add("duplicates"); }
+  if (has("clients.assign")) { out.add("unassigned"); out.add("reactivation"); out.add("duplicates"); }
   if (marketing) { out.add("editor"); out.add("videos"); }
+  if (has("properties.moderate")) out.add("clips");
   if (has("auditLog.view")) { out.add("stuckConversations"); out.add("stuckWork"); out.add("botAudit"); }
   if (has("siteChanges.view") && has("siteChanges.resolve")) out.add("siteChanges");
   return out;
@@ -425,6 +539,11 @@ export function usePultInboxActions() {
       await api(`/instagram-comments/${id}/hide`, { method: "POST" });
       settle(qc, [["instagram-comments"]]);
     },
+    /** Назначить клиента из общей очереди выбранному агенту (руководитель — принято сразу). */
+    assignUnassigned: async (clientId: string, agentId: string) => {
+      await api(`/clients/${clientId}/assign`, { method: "POST", body: { agentId } });
+      settle(qc, [["clients"], ["client"], ["mission-control"]]);
+    },
     reactivation: async (clientId: string, accept: boolean) => {
       await api(`/clients/${clientId}/reactivation-offer/${accept ? "accept" : "decline"}`, { method: "POST" });
       settle(qc, [["reactivation-offers"], ["clients"], ["client"], ["mission-control"]]);
@@ -441,6 +560,14 @@ export function usePultInboxActions() {
       await api(`/marketing/video-handoff/${propertyId}/hold`, { method: "POST", body: {} });
       settle(qc, [["marketing"], ["properties"], ["property"]]);
     },
+    approveClip: async (propertyId: string) => {
+      await api(`/properties/${propertyId}/clip-review/approve`, { method: "POST" });
+      settle(qc, [["properties"], ["property"], ["marketing"], ["mission-control"]]);
+    },
+    rejectClip: async (propertyId: string, comment: string) => {
+      await api(`/properties/${propertyId}/clip-review/reject`, { method: "POST", body: { reason: "OTHER", comment } });
+      settle(qc, [["properties"], ["property"], ["marketing"], ["mission-control"]]);
+    },
     retryVideo: async (id: string) => {
       await api(`/social-videos/${id}/retry`, { method: "POST", body: {} });
       settle(qc, [["social-videos"]]);
@@ -456,6 +583,10 @@ export function usePultInboxActions() {
     resolveAudit: async (id: string, verdict: "bot_right" | "bot_error") => {
       await api(`/bot-audit/${id}/resolve`, { method: "POST", body: { verdict } });
       settle(qc, [["bot-audit"]]);
+    },
+    ackFlag: async (sliceKey: string, subjectId: string, note?: string) => {
+      await api("/oversight/ack", { method: "POST", body: { sliceKey, subjectId, ...(note?.trim() ? { note: note.trim() } : {}) } });
+      settle(qc, [["oversight"], ["mission-control"]]);
     },
     acceptSiteChange: async (id: string) => {
       await api(`/site-notifications/${id}/resolve`, { method: "POST", body: { resolution: "ACCEPTED" } });

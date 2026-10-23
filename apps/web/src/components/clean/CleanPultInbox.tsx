@@ -12,9 +12,12 @@ import {
   type PultInboxActions,
 } from "../../hooks/usePultInbox";
 import { useNavigation } from "../../lib/navigation";
+import { mcOk, useMissionControl } from "../../hooks/useMissionControl";
+import { transferChoice } from "../pult/leastLoadedAgent";
 import { CleanDecisionRow } from "./CleanDecisionRow";
 import { CButton, CCard, CHead } from "./ui";
 import { Link } from "react-router-dom";
+import CleanClipReviewSheet from "./CleanClipReviewSheet";
 
 /**
  * «ЕЩЁ ЖДУТ РЕШЕНИЯ» (23.10.2026): очереди, которые сервер уже решает, а пульт не
@@ -28,6 +31,7 @@ const EMPTY_PHOTOS = new Map<string, string>();
 type Filter = "all" | InboxGroup;
 
 const AVATAR_TONE: Record<InboxGroup, ActionRowData["avatar"]["tone"]> = {
+  violations: "pink",
   clients: "sky",
   video: "lav",
   social: "pink",
@@ -37,10 +41,17 @@ const AVATAR_TONE: Record<InboxGroup, ActionRowData["avatar"]["tone"]> = {
 const errorText = (cause: unknown) => (cause instanceof Error && cause.message ? cause.message : "Не удалось выполнить действие. Можно повторить.");
 
 /** Кнопки без поля ввода — через общий `CleanDecisionRow` (его «Выполняем…», ошибка, фокус). */
-function simpleActions(item: InboxItem, a: PultInboxActions, wrap: (fn: () => Promise<void>) => () => Promise<boolean>): ActionRowAction[] {
+function simpleActions(item: InboxItem, a: PultInboxActions, wrap: (fn: () => Promise<void>) => () => Promise<boolean>, defaultAgentId?: string): ActionRowAction[] {
   const act = (label: string, endpoint: string, fn: () => Promise<void>, doneMessage: string): ActionRowAction =>
     ({ label, endpoint, onRun: wrap(fn), doneMessage });
   switch (item.type) {
+    case "unassigned":
+      // Агент приходит из выбора в строке (по умолчанию наименее загруженный); нет принимающих — кнопки нет.
+      if (!defaultAgentId) return [];
+      return [{
+        label: "Назначить", endpoint: "POST /api/v1/clients/:id/assign", doneMessage: "Клиент назначен",
+        onRun: (choiceId) => wrap(() => a.assignUnassigned(item.clientId, choiceId ?? defaultAgentId))(),
+      }];
     case "reactivation":
       return [
         act("Забрать себе", "POST /api/v1/clients/:id/reactivation-offer/accept", () => a.reactivation(item.clientId, true), "Клиент ваш"),
@@ -72,8 +83,9 @@ function simpleActions(item: InboxItem, a: PultInboxActions, wrap: (fn: () => Pr
   }
 }
 
-function InboxEntry({ item, show, hidden, onGone, onBack, actions }: {
+function InboxEntry({ item, show, hidden, onGone, onBack, actions, agentChoice }: {
   item: InboxItem; show: boolean; hidden: boolean;
+  agentChoice?: ReturnType<typeof transferChoice>;
   onGone: (id: string) => void; onBack: (id: string) => void;
   actions: PultInboxActions;
 }) {
@@ -83,6 +95,7 @@ function InboxEntry({ item, show, hidden, onGone, onBack, actions }: {
   const [busy, setBusy] = useState(false);
   const armTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const lock = useRef(false);
+  const [clipOpen, setClipOpen] = useState(false);
 
   /** Оптимистично: строка уходит сразу, при отказе возвращается с текстом. */
   async function optimistic(fn: () => Promise<void>): Promise<boolean> {
@@ -104,18 +117,24 @@ function InboxEntry({ item, show, hidden, onGone, onBack, actions }: {
     k: INBOX_GROUP_LABEL[item.group],
     avatar: { label: item.title, tone: AVATAR_TONE[item.group] },
     title: item.title,
-    actions: simpleActions(item, actions, swallow),
+    actions: simpleActions(item, actions, swallow, agentChoice?.defaultId),
+    choice: item.type === "unassigned" && agentChoice ? { ...agentChoice, label: "Кому назначить" } : undefined,
   };
+  if (item.type === "unassigned" && !agentChoice) row.k = `${row.k} · нет агентов, принимающих лиды`;
   // Вторая строка: возраст и суть. `k` выводится после «Требует внимания».
   row.k = [INBOX_GROUP_LABEL[item.group], item.detail].filter(Boolean).join(" · ");
 
-  const customBar = item.type === "dialog" || item.type === "comment" || item.type === "stuckConversations";
+  const customBar = item.type === "dialog" || item.type === "comment" || item.type === "stuckConversations" || item.type === "clip" || item.type === "flag";
   const send = (e: FormEvent) => {
     e.preventDefault();
     const value = text.trim();
     if (!value || busy) return;
     if (item.type === "dialog") void quiet(() => actions.replyDialog(item.conversationId, value));
     if (item.type === "comment") void quiet(() => actions.replyComment(item.commentId, value));
+  };
+  const ack = (e: FormEvent) => {
+    e.preventDefault();
+    if (item.type === "flag" && !busy) void quiet(() => actions.ackFlag(item.sliceKey, item.subjectId, text));
   };
   const arm = () => {
     setArmed(true);
@@ -138,14 +157,30 @@ function InboxEntry({ item, show, hidden, onGone, onBack, actions }: {
         />
         <CButton type="submit" variant="primary" size="sm" disabled={busy || !text.trim()}>{busy ? "Выполняем…" : "Ответить"}</CButton>
       </form>}
+      {item.type === "flag" && <form onSubmit={ack} className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+        <input
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          maxLength={500}
+          disabled={busy}
+          aria-label={`Заметка к флагу ${item.title} (необязательно)`}
+          placeholder="Заметка (необязательно)"
+          className="min-h-11 min-w-[180px] flex-1 rounded-[14px] bg-row-alt px-3.5 text-[14px] text-ink placeholder:text-gray-500 focus-visible:outline-2 focus-visible:outline-blue"
+        />
+        <CButton type="submit" variant="primary" size="sm" disabled={busy} data-endpoint="POST /api/v1/oversight/ack">{busy ? "Выполняем…" : "Принято"}</CButton>
+        <Link to={item.href} className="inline-flex min-h-11 items-center gap-1 text-[13px] text-gray-500 hover:text-ink">Открыть <ArrowUpRight className="size-4" /></Link>
+      </form>}
       {item.type === "dialog" && item.paused && <CButton variant="soft" size="sm" disabled={busy} data-endpoint="POST /api/v1/conversations/:id/resume" onClick={() => void quiet(() => actions.resumeBot(item.conversationId))}>Вернуть бота</CButton>}
       {item.type === "comment" && <CButton variant="soft" size="sm" disabled={busy} data-endpoint="POST /api/v1/instagram-comments/:id/hide" onClick={() => void quiet(() => actions.hideComment(item.commentId))}>Скрыть</CButton>}
+      {item.type === "clip" && <CButton variant="primary" size="sm" aria-haspopup="dialog" onClick={() => setClipOpen(true)}>Смотреть</CButton>}
       {item.type === "stuckConversations" && <CButton variant="primary" size="sm" disabled={busy} data-endpoint="POST /api/v1/errors/stuck-conversations/retry"
         onClick={() => { if (!armed) { arm(); return; } clearTimeout(armTimer.current); setArmed(false); void quiet(() => actions.retryStuckConversations()); }}>
         {busy ? "Выполняем…" : armed ? `Точно? Повторить для ${item.count}` : "Повторить всем"}
       </CButton>}
     </div>}
     {error && <p role="alert" className="clean-decision-error">{error}</p>}
+    {item.type === "clip" && clipOpen && <CleanClipReviewSheet clip={item.clip} actions={actions} onClose={() => setClipOpen(false)}
+      onDecided={() => { setClipOpen(false); onGone(item.id); }} />}
   </div>;
 }
 
@@ -163,6 +198,9 @@ function QueueErrors({ queues }: { queues: InboxQueueState[] }) {
 export function CleanPultInbox({ enabled = true }: { enabled?: boolean }) {
   const queues = usePultInbox(enabled);
   const actions = usePultInboxActions();
+  // Те же агенты и та же нагрузка, что у «Передать» в «Нужны ваши решения»: на паузе приёма — не в списке.
+  const mission = useMissionControl(enabled && queues.some((q) => q.id === "unassigned"));
+  const agentChoice = useMemo(() => transferChoice(mission.data?.team && mcOk(mission.data.team) ? mission.data.team.agents : []), [mission.data]);
   const { all: navigation } = useNavigation();
   const hasRoute = (path: string) => navigation.some((item) => item.to === path);
   const [filter, setFilter] = useState<Filter>("all");
@@ -210,7 +248,7 @@ export function CleanPultInbox({ enabled = true }: { enabled?: boolean }) {
               return <section key={q.id} aria-label={q.label} className="grid gap-1.5">
                 <p className="m-0 text-[13px] text-gray-500">{q.label} · {left(q)}</p>
                 {q.items.map((item) => <InboxEntry key={item.id} item={item} show={visibleIds.has(item.id)} hidden={hidden.has(item.id)}
-                  onGone={onGone} onBack={onBack} actions={actions} />)}
+                  onGone={onGone} onBack={onBack} actions={actions} agentChoice={agentChoice} />)}
                 {more > 0 && (hasRoute(q.href)
                   ? <Link to={q.href} className="inline-flex min-h-11 items-center gap-1 text-[13px] text-gray-500 hover:text-ink">ещё {more} <ArrowUpRight className="size-4" /></Link>
                   : <span className="text-[13px] text-gray-500">ещё {more}</span>)}
