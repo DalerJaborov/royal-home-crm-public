@@ -16,7 +16,7 @@ describe("staff-approved recruitment messages", () => {
   it("uses the selected role only and repeats the exact Dushanbe appointment without inventing commission or documents", () => {
     const result = buildRecruitmentCommunicationContent({ purpose: "INVITE", channels: ["SMS", "ASSISTANT_CALL"], language: "ru",
       interviewAt: "2026-10-22T09:30:00Z", mapUrl: "https://www.google.com/maps?q=office", preparation: "Портфолио по желанию" }, facts);
-    expect(result.text).toContain("14:30"); expect(result.text).toContain("время Душанбе");
+    expect(result.text).toContain("14:30"); expect(result.text).not.toContain("время Душанбе"); expect(result.text.startsWith("Приглашаем")).toBe(true); expect(result.text).not.toContain("Решение о найме");
     expect(result.text).toContain(facts.address); expect(result.callPrompt).toContain(facts.detailsRu);
     expect(result.callPrompt).not.toMatch(/оклада нет|2%|паспорт/u);
     expect(result.callPrompt).toContain("голосовой помощник"); expect(result.callPrompt).toContain("сам встречу не переноси");
