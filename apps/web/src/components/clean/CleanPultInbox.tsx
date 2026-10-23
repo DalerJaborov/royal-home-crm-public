@@ -12,6 +12,8 @@ import {
   type PultInboxActions,
 } from "../../hooks/usePultInbox";
 import { useNavigation } from "../../lib/navigation";
+import { mcOk, useMissionControl } from "../../hooks/useMissionControl";
+import { transferChoice } from "../pult/leastLoadedAgent";
 import { CleanDecisionRow } from "./CleanDecisionRow";
 import { CButton, CCard, CHead } from "./ui";
 import { Link } from "react-router-dom";
@@ -37,10 +39,17 @@ const AVATAR_TONE: Record<InboxGroup, ActionRowData["avatar"]["tone"]> = {
 const errorText = (cause: unknown) => (cause instanceof Error && cause.message ? cause.message : "Не удалось выполнить действие. Можно повторить.");
 
 /** Кнопки без поля ввода — через общий `CleanDecisionRow` (его «Выполняем…», ошибка, фокус). */
-function simpleActions(item: InboxItem, a: PultInboxActions, wrap: (fn: () => Promise<void>) => () => Promise<boolean>): ActionRowAction[] {
+function simpleActions(item: InboxItem, a: PultInboxActions, wrap: (fn: () => Promise<void>) => () => Promise<boolean>, defaultAgentId?: string): ActionRowAction[] {
   const act = (label: string, endpoint: string, fn: () => Promise<void>, doneMessage: string): ActionRowAction =>
     ({ label, endpoint, onRun: wrap(fn), doneMessage });
   switch (item.type) {
+    case "unassigned":
+      // Агент приходит из выбора в строке (по умолчанию наименее загруженный); нет принимающих — кнопки нет.
+      if (!defaultAgentId) return [];
+      return [{
+        label: "Назначить", endpoint: "POST /api/v1/clients/:id/assign", doneMessage: "Клиент назначен",
+        onRun: (choiceId) => wrap(() => a.assignUnassigned(item.clientId, choiceId ?? defaultAgentId))(),
+      }];
     case "reactivation":
       return [
         act("Забрать себе", "POST /api/v1/clients/:id/reactivation-offer/accept", () => a.reactivation(item.clientId, true), "Клиент ваш"),
@@ -72,8 +81,9 @@ function simpleActions(item: InboxItem, a: PultInboxActions, wrap: (fn: () => Pr
   }
 }
 
-function InboxEntry({ item, show, hidden, onGone, onBack, actions }: {
+function InboxEntry({ item, show, hidden, onGone, onBack, actions, agentChoice }: {
   item: InboxItem; show: boolean; hidden: boolean;
+  agentChoice?: ReturnType<typeof transferChoice>;
   onGone: (id: string) => void; onBack: (id: string) => void;
   actions: PultInboxActions;
 }) {
@@ -104,8 +114,10 @@ function InboxEntry({ item, show, hidden, onGone, onBack, actions }: {
     k: INBOX_GROUP_LABEL[item.group],
     avatar: { label: item.title, tone: AVATAR_TONE[item.group] },
     title: item.title,
-    actions: simpleActions(item, actions, swallow),
+    actions: simpleActions(item, actions, swallow, agentChoice?.defaultId),
+    choice: item.type === "unassigned" && agentChoice ? { ...agentChoice, label: "Кому назначить" } : undefined,
   };
+  if (item.type === "unassigned" && !agentChoice) row.k = `${row.k} · нет агентов, принимающих лиды`;
   // Вторая строка: возраст и суть. `k` выводится после «Требует внимания».
   row.k = [INBOX_GROUP_LABEL[item.group], item.detail].filter(Boolean).join(" · ");
 
@@ -163,6 +175,9 @@ function QueueErrors({ queues }: { queues: InboxQueueState[] }) {
 export function CleanPultInbox({ enabled = true }: { enabled?: boolean }) {
   const queues = usePultInbox(enabled);
   const actions = usePultInboxActions();
+  // Те же агенты и та же нагрузка, что у «Передать» в «Нужны ваши решения»: на паузе приёма — не в списке.
+  const mission = useMissionControl(enabled && queues.some((q) => q.id === "unassigned"));
+  const agentChoice = useMemo(() => transferChoice(mission.data?.team && mcOk(mission.data.team) ? mission.data.team.agents : []), [mission.data]);
   const { all: navigation } = useNavigation();
   const hasRoute = (path: string) => navigation.some((item) => item.to === path);
   const [filter, setFilter] = useState<Filter>("all");
@@ -210,7 +225,7 @@ export function CleanPultInbox({ enabled = true }: { enabled?: boolean }) {
               return <section key={q.id} aria-label={q.label} className="grid gap-1.5">
                 <p className="m-0 text-[13px] text-gray-500">{q.label} · {left(q)}</p>
                 {q.items.map((item) => <InboxEntry key={item.id} item={item} show={visibleIds.has(item.id)} hidden={hidden.has(item.id)}
-                  onGone={onGone} onBack={onBack} actions={actions} />)}
+                  onGone={onGone} onBack={onBack} actions={actions} agentChoice={agentChoice} />)}
                 {more > 0 && (hasRoute(q.href)
                   ? <Link to={q.href} className="inline-flex min-h-11 items-center gap-1 text-[13px] text-gray-500 hover:text-ink">ещё {more} <ArrowUpRight className="size-4" /></Link>
                   : <span className="text-[13px] text-gray-500">ещё {more}</span>)}
