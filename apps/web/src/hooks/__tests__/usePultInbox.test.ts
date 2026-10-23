@@ -14,7 +14,7 @@ vi.mock("../../lib/permissions", () => ({ useCan: () => () => true }));
 vi.mock("../../store/auth", () => ({ useAuthStore: () => "DIRECTOR" }));
 
 import {
-  byAge, enabledInboxQueues, formatAge, loadBotAudit, loadClips, loadComments, loadEditor, loadStuckConversations, loadUnassigned, loadWaiting,
+  byAge, enabledInboxQueues, formatAge, loadBotAudit, loadClips, loadComments, loadEditor, loadStuckConversations, loadUnassigned, loadViolations, loadWaiting,
 } from "../usePultInbox";
 
 const dialog = (id: string, over: Record<string, unknown> = {}) => ({
@@ -99,10 +99,24 @@ describe("pult inbox: загрузчики очередей", () => {
   });
 });
 
+describe("pult inbox: нарушения", () => {
+  it("лента флагов: строка с ключом среза и ссылкой в «Контроль»", async () => {
+    calls.replies.set("/oversight/flags", {
+      total: 3,
+      items: [{ sliceKey: "stalled-clients", subjectId: "c1", title: "Иванов: горячий клиент без контакта", who: "Алия", at: "2026-10-20T08:00:00Z", href: "/oversight#slice-stalled-clients" }],
+    });
+    const r = await loadViolations();
+    expect(r.total).toBe(3);
+    expect(r.items[0]).toMatchObject({ id: "violations:stalled-clients:c1", type: "flag", group: "violations", subjectId: "c1", href: "/oversight#slice-stalled-clients" });
+    expect(r.items[0].detail).toContain("агент Алия");
+  });
+});
+
 describe("pult inbox: права и порядок", () => {
   it("очередь без права не заводится", () => {
     const allowed = enabledInboxQueues((p) => p === "auditLog.view", "DIRECTOR");
-    expect([...allowed].sort()).toEqual(["botAudit", "editor", "stuckConversations", "stuckWork", "videos"]);
+    expect([...allowed].sort()).toEqual(["botAudit", "editor", "stuckConversations", "stuckWork", "videos", "violations"]);
+    expect(enabledInboxQueues(() => true, "MANAGER").has("violations")).toBe(false);
     expect(enabledInboxQueues(() => false, "AGENT").size).toBe(0);
     // «Ждут агента» — только с правом назначать, как и сам роут.
     expect(enabledInboxQueues((p) => p === "clients.assign", "MANAGER").has("unassigned")).toBe(true);

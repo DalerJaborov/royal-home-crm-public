@@ -31,6 +31,7 @@ const EMPTY_PHOTOS = new Map<string, string>();
 type Filter = "all" | InboxGroup;
 
 const AVATAR_TONE: Record<InboxGroup, ActionRowData["avatar"]["tone"]> = {
+  violations: "pink",
   clients: "sky",
   video: "lav",
   social: "pink",
@@ -123,13 +124,17 @@ function InboxEntry({ item, show, hidden, onGone, onBack, actions, agentChoice }
   // Вторая строка: возраст и суть. `k` выводится после «Требует внимания».
   row.k = [INBOX_GROUP_LABEL[item.group], item.detail].filter(Boolean).join(" · ");
 
-  const customBar = item.type === "dialog" || item.type === "comment" || item.type === "stuckConversations" || item.type === "clip";
+  const customBar = item.type === "dialog" || item.type === "comment" || item.type === "stuckConversations" || item.type === "clip" || item.type === "flag";
   const send = (e: FormEvent) => {
     e.preventDefault();
     const value = text.trim();
     if (!value || busy) return;
     if (item.type === "dialog") void quiet(() => actions.replyDialog(item.conversationId, value));
     if (item.type === "comment") void quiet(() => actions.replyComment(item.commentId, value));
+  };
+  const ack = (e: FormEvent) => {
+    e.preventDefault();
+    if (item.type === "flag" && !busy) void quiet(() => actions.ackFlag(item.sliceKey, item.subjectId, text));
   };
   const arm = () => {
     setArmed(true);
@@ -151,6 +156,19 @@ function InboxEntry({ item, show, hidden, onGone, onBack, actions, agentChoice }
           className="min-h-11 min-w-[180px] flex-1 rounded-[14px] bg-row-alt px-3.5 text-[14px] text-ink placeholder:text-gray-500 focus-visible:outline-2 focus-visible:outline-blue"
         />
         <CButton type="submit" variant="primary" size="sm" disabled={busy || !text.trim()}>{busy ? "Выполняем…" : "Ответить"}</CButton>
+      </form>}
+      {item.type === "flag" && <form onSubmit={ack} className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+        <input
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          maxLength={500}
+          disabled={busy}
+          aria-label={`Заметка к флагу ${item.title} (необязательно)`}
+          placeholder="Заметка (необязательно)"
+          className="min-h-11 min-w-[180px] flex-1 rounded-[14px] bg-row-alt px-3.5 text-[14px] text-ink placeholder:text-gray-500 focus-visible:outline-2 focus-visible:outline-blue"
+        />
+        <CButton type="submit" variant="primary" size="sm" disabled={busy} data-endpoint="POST /api/v1/oversight/ack">{busy ? "Выполняем…" : "Принято"}</CButton>
+        <Link to={item.href} className="inline-flex min-h-11 items-center gap-1 text-[13px] text-gray-500 hover:text-ink">Открыть <ArrowUpRight className="size-4" /></Link>
       </form>}
       {item.type === "dialog" && item.paused && <CButton variant="soft" size="sm" disabled={busy} data-endpoint="POST /api/v1/conversations/:id/resume" onClick={() => void quiet(() => actions.resumeBot(item.conversationId))}>Вернуть бота</CButton>}
       {item.type === "comment" && <CButton variant="soft" size="sm" disabled={busy} data-endpoint="POST /api/v1/instagram-comments/:id/hide" onClick={() => void quiet(() => actions.hideComment(item.commentId))}>Скрыть</CButton>}

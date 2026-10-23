@@ -13,7 +13,7 @@
 | Экранов (адресов в интерфейсе) | 67 |
 | Из них видно в меню | 35 |
 | Модулей сервера | 78 |
-| Адресов сервера всего | 652 |
+| Адресов сервера всего | 655 |
 | Задач по расписанию | 103 |
 | Типов фоновых заданий | 23 |
 | Внешних сервисов | 13 |
@@ -216,7 +216,7 @@
 | `/api/v1/instagram-comments` | Лента комментариев под публикациями | 4 | да (2 мест) | `apps/api/src/routes/instagramComments.ts` |
 | `/api/v1/lead-magnets` | Чек-листы и выдачи лид-магнитов | 10 | да (1 мест) | `apps/api/src/routes/leadMagnets.ts` |
 | `/api/v1/vacancies` | Кандидаты на вакансии | 18 | да (4 мест) | `apps/api/src/routes/vacancies.ts` |
-| `/api/v1/oversight` | Контроль руководителя | 16 | да (1 мест) | `apps/api/src/routes/oversight.ts` |
+| `/api/v1/oversight` | Контроль руководителя | 19 | да (2 мест) | `apps/api/src/routes/oversight.ts` |
 | `/api/v1/insights` | Инсайты от ИИ по звонкам | 4 | да (1 мест) | `apps/api/src/routes/insights.ts` |
 | `/api/v1/l` | Публичная ссылка на объект для клиента | 2 | да (1 мест) | `apps/api/src/routes/propertyShare.ts` |
 | `/api/v1/public/owner-report` | **без подписи** | 1 | нет | `apps/api/src/routes/ownerReportPublic.ts` |
