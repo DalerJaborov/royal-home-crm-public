@@ -39,7 +39,7 @@ export function CustomerRequestsPanel({ conversationId }: { conversationId: stri
       return <div key={request.id} className="space-y-1">
         <p className="text-sm font-semibold">{human ? "Клиент ждёт сотрудника" : "Запрос на звонок"}</p>
         <p className="text-sm break-words">{request.topic}</p>
-        <p className="text-xs text-gray-500">{queued ? "Ожидает принятия" : mine ? "Вы приняли запрос" : "Принят другим сотрудником"}
+        <p className="text-[13px] text-gray-500">{queued ? "Ожидает принятия" : mine ? "Вы приняли запрос" : "Принят другим сотрудником"}
           {human ? ". Принятие — передача этого диалога сотруднику." : ". Принятие запроса ещё не означает, что звонок состоялся."}</p>
         {!readOnly && <div className="flex flex-wrap gap-2">
           {queued && <button type="button" className="pill min-h-11" disabled={transition.isPending} onClick={() => transition.mutate({

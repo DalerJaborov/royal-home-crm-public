@@ -59,7 +59,7 @@
   .rh2 .wiz.wizard-workspace .wizard-step-number svg { width: 22px; height: 22px; }
   .rh2 .wiz.wizard-workspace [data-step-state="complete"] .wizard-step-number { color: var(--ok); }
   .rh2 .wiz.wizard-workspace .wizard-step-copy { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-size: 16px; font-weight: 700; line-height: 1.4; }
-  .rh2 .wiz.wizard-workspace .wizard-step-copy small { color: var(--warn); font-size: 12px; font-weight: 500; }
+  .rh2 .wiz.wizard-workspace .wizard-step-copy small { color: var(--warn); font-size: 13px; font-weight: 500; }
   .rh2 .wiz.wizard-workspace .wizard-main { flex: 1; width: 100%; min-width: 0; margin-top: 28px; padding: 0; border: 0; background: transparent; }
   .rh2 .wiz.wizard-workspace .wizard-form-sheet { display: block; }
   .rh2 .wiz.wizard-workspace .wizard-section-heading { display: flex; align-items: flex-start; gap: 16px; margin-bottom: 24px; }
