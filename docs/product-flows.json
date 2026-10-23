@@ -1,8 +1,8 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 658,
-  "forks": 3641,
+  "endpoints": 660,
+  "forks": 3642,
   "mounts": 74,
   "cron": 107,
   "jobs": 31,
@@ -23407,6 +23407,42 @@
     {
      "k": "do",
      "t": "res.json({ agents: agents .map((a)",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/unassigned-leads",
+   "mount": "/api/v1/dashboard",
+   "full": "/api/v1/dashboard/unassigned-leads",
+   "file": "apps/api/src/routes/dashboard.ts",
+   "router": "dashboardRouter",
+   "top": "apps/api/src/routes/dashboard.ts::dashboardRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: clients.assign"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const [rows, total] = await Promise.all([ prisma.client.findMany({ where: UNASSIGNED_LEADS_WHERE, orderBy: [{…",
+     "a": [
+      "читает в базе: client",
+      "считает в базе: client"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ items: rows.map((c)",
      "a": [
       "ответ 200"
      ],
@@ -55713,6 +55749,56 @@
     {
      "k": "do",
      "t": "res.json({ items: page.map(toChangeRequestDto), nextCursor: rows.length > limit ? page[page.length - 1].id : …",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/clip-review/pending",
+   "mount": "/api/v1/properties",
+   "full": "/api/v1/properties/clip-review/pending",
+   "file": "apps/api/src/routes/properties/moderation.ts",
+   "router": "moderationRouter",
+   "top": "apps/api/src/routes/properties/index.ts::propertiesRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: properties.moderate"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const parsed = clipPendingQuerySchema.safeParse(req.query);",
+     "a": [
+      "проверяет данные схемой clipPendingQuerySchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Неверные данные\", details: parsed.error.flatten() });",
+       "a": [
+        "ответ 400 — «Неверные данные»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.json(await listPendingClips(parsed.data.limit));",
      "a": [
       "ответ 200"
      ],

@@ -13,7 +13,7 @@
 | Экранов (адресов в интерфейсе) | 67 |
 | Из них видно в меню | 35 |
 | Модулей сервера | 78 |
-| Адресов сервера всего | 655 |
+| Адресов сервера всего | 657 |
 | Задач по расписанию | 103 |
 | Типов фоновых заданий | 23 |
 | Внешних сервисов | 13 |
@@ -152,13 +152,13 @@
 | `/api/v1/districts` | Справочник районов | 2 | да (1 мест) | `apps/api/src/routes/districts.ts` |
 | `/api/v1/geo` | Поиск адреса и точки по собственному справочнику города | 4 | да (3 мест) | `apps/api/src/routes/geo.ts` |
 | `/api/v1/landmarks` | Народные ориентиры, которые ведут агенты | 8 | да (1 мест) | `apps/api/src/routes/landmarks.ts` |
-| `/api/v1/properties` | Объекты: список, карточка, фото, видео, публикация | 108 | да (27 мест) | `apps/api/src/routes/properties.ts` |
+| `/api/v1/properties` | Объекты: список, карточка, фото, видео, публикация | 109 | да (28 мест) | `apps/api/src/routes/properties.ts` |
 | `/api/v1/clients` | Клиенты: карточки, передачи, отказы, подбор — самый крупный модуль | 60 | да (13 мест) | `apps/api/src/routes/clients.ts` |
 | `/api/v1/deals` | Сделки, документы, выплаты | 3 | да (4 мест) | `apps/api/src/routes/deals.ts` |
 | `/api/v1/deals` | Сделки, документы, выплаты | 4 | да (4 мест) | `apps/api/src/routes/dealDocuments.ts` |
 | `/api/v1/deals` | Сделки, документы, выплаты | 2 | да (4 мест) | `apps/api/src/routes/dealPayout.ts` |
 | `/api/v1/deals` | Сделки, документы, выплаты | 1 | да (4 мест) | `apps/api/src/routes/dealAnnul.ts` |
-| `/api/v1/dashboard` | Главная, пульт директора, модули пульта, утренняя сводка | 8 | да (7 мест) | `apps/api/src/routes/dashboard.ts` |
+| `/api/v1/dashboard` | Главная, пульт директора, модули пульта, утренняя сводка | 9 | да (7 мест) | `apps/api/src/routes/dashboard.ts` |
 | `/api/v1/dashboard` | Главная, пульт директора, модули пульта, утренняя сводка | 5 | да (7 мест) | `apps/api/src/routes/dashboardMissionControl.ts` |
 | `/api/v1/dashboard` | Главная, пульт директора, модули пульта, утренняя сводка | 2 | да (7 мест) | `apps/api/src/routes/pultModules.ts` |
 | `/api/v1/dashboard` | Главная, пульт директора, модули пульта, утренняя сводка | 2 | да (7 мест) | `apps/api/src/routes/briefing.ts` |

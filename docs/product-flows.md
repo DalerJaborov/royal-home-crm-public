@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **658**. Развилок в самих путях: **2348**; вместе с задачами по расписанию и фоновыми заданиями — **3641**. Модулей: **74**.
+Путей: **660**. Развилок в самих путях: **2349**; вместе с задачами по расписанию и фоновыми заданиями — **3642**. Модулей: **74**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -5402,6 +5402,16 @@
   · считает в базе: client
   · читает в базе: client
 - res.json({ agents: agents .map((a)
+  · ответ 200
+
+### GET /api/v1/dashboard/unassigned-leads
+
+`apps/api/src/routes/dashboard.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: clients.assign
+
+- const [rows, total] = await Promise.all([ prisma.client.findMany({ where: UNASSIGNED_LEADS_WHERE, orderBy: [{…
+  · читает в базе: client
+  · считает в базе: client
+- res.json({ items: rows.map((c)
   · ответ 200
 
 ## /api/v1/deals
@@ -12419,6 +12429,18 @@
 - const rows = await prisma.propertyChangeRequest.findMany({ where: { status }, orderBy: [{ createdAt: "desc" }…
   · читает в базе: propertyChangeRequest
 - res.json({ items: page.map(toChangeRequestDto), nextCursor: rows.length > limit ? page[page.length - 1].id : …
+  · ответ 200
+
+### GET /api/v1/properties/clip-review/pending
+
+`apps/api/src/routes/properties/moderation.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: properties.moderate
+
+- const parsed = clipPendingQuerySchema.safeParse(req.query);
+  · проверяет данные схемой clipPendingQuerySchema
+- если !parsed.success
+  - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
+    · ответ 400 — «Неверные данные»
+- res.json(await listPendingClips(parsed.data.limit));
   · ответ 200
 
 ### POST /api/v1/properties/delete-requests/:id/approve
