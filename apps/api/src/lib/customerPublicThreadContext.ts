@@ -6,8 +6,12 @@ import { samePublicInstallation, publicCommentSourceDigest } from "./publicComme
 import { decodeCustomerOutboxPayload } from "./customerOutboxCodec.js";
 import { projectCustomerAgentMemory, type CustomerAgentMemoryCandidate } from "./customerAgentVerifiedContext.js";
 
-/** Explicit ancestor chain only, same author/account/publication and genuine
- * source origin. Never reads DM, a neighbour's comment or a global thread cache.
+/** Marks an ancestor written by another person: still untrusted thread data, but never this customer's own words. */
+const FOREIGN_AUTHOR_MARK = "[другой автор]";
+
+/** Explicit ancestor chain only (parentId links, ANY author: a reply to another person
+ * still has its thread), same account/publication and genuine source origin.
+ * Never reads DM, a neighbour's comment or a global thread cache.
  * Older utterances remain untrusted data, not consent or verified house facts. */
 export async function loadCustomerPublicThreadContext(principal: PublicCommentPrincipal, revision: Readonly<CustomerAgentRevision>): Promise<CustomerAgentVerifiedContext | undefined> {
   const original = inspectPublicCommentPrincipal(principal);
@@ -21,7 +25,7 @@ export async function loadCustomerPublicThreadContext(principal: PublicCommentPr
     if (seen.has(parent)) break; seen.add(parent);
     const row = await prisma.instagramComment.findFirst({ where: {
       channel: source.channel, accountExternalId: source.targetResource, mediaId: source.publicationId,
-      authorId: source.authorId, OR: [{ commentId: parent }, { replyCommentId: parent }],
+      OR: [{ commentId: parent }, { replyCommentId: parent }],
       publicOriginVersion: 1, publicOriginCiphertext: { not: null },
     }, orderBy: { createdAt: "desc" } });
     if (!row) break;
@@ -45,7 +49,7 @@ export async function loadCustomerPublicThreadContext(principal: PublicCommentPr
       const projected = row.status === "REPLIED" && accepted &&
         row.publicSourceRevision === BigInt(origin.proof.sourceRevision) + 1n;
       if (!projected && historic.sourceRevision !== origin.proof.sourceRevision) break;
-      candidates.push({ role: "user", text: row.text, observedAt: row.createdAt.getTime(), stableKey: `in:${row.id}` });
+      candidates.push({ role: "user", text: row.authorId === source.authorId ? row.text : `${FOREIGN_AUTHOR_MARK} ${row.text}`, observedAt: row.createdAt.getTime(), stableKey: `in:${row.id}` });
       if (accepted?.acceptedAt && row.replyText) {
         const payload = decodeCustomerOutboxPayload(accepted);
         if (payload.kind === "text" && payload.text === row.replyText) candidates.push({ role: "assistant", text: row.replyText,
