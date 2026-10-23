@@ -23,9 +23,10 @@ vi.mock("../VacancyContactForm", async importOriginal => {
   return { ...actual, VacancyContactForm: () => null };
 });
 vi.mock("../rh2/Rh2Sheet", () => ({ Rh2Sheet: () => null }));
-import { VacancyDetails } from "../VacancyDetails";
-import { VacancyRow } from "../VacancyRow";
-import { VacancyStageActions } from "../VacancyStageActions";
+import { MemoryRouter } from "react-router-dom";
+import { VacancyContactHistory, VacancyDetails } from "../VacancyDetails";
+import { CleanCandidateRow } from "../clean/CleanCandidateRow";
+import { VacancyStageActions, vacancyMoreGroups } from "../VacancyStageActions";
 
 const candidate = (patch: Partial<JobApplication> = {}) => ({
   id: "candidate-test", status: "NEW", name: "Тестовая кандидатка", contactName: null,
@@ -76,11 +77,13 @@ describe("résumé content and action safety", () => {
     const known = renderToStaticMarkup(<VacancyDetails item={candidate({ employedNow: false, studyingNow: false })} />);
     expect(known).toContain("Сейчас работает"); expect(known).toContain("Сейчас учится");
   });
-  it("queue selection is one named button with a visible HR stage", () => {
-    const html = renderToStaticMarkup(<VacancyRow item={candidate({ status: "REJECTED" })} selected onSelect={() => undefined} />);
-    expect(html).toContain('aria-current="true"'); expect(html).toContain("Открыть анкету:");
-    expect(html).toContain("Отказ"); expect(html.match(/<button/g)).toHaveLength(1);
-    expect(html).not.toContain("Пригласить");
+  it("queue row is one named link to the card with a visible HR stage and no mutation controls", () => {
+    for (const clean of [true, false]) {
+      const html = renderToStaticMarkup(<MemoryRouter><CleanCandidateRow item={candidate({ status: "REJECTED" })} href="/vacancies/candidate-test" clean={clean} checked={false} onCheck={() => undefined} /></MemoryRouter>);
+      expect(html).toContain('href="/vacancies/candidate-test"'); expect(html).toContain("Открыть анкету:");
+      expect(html).toContain("Отказ"); expect(html).not.toContain("<button");
+      expect(html).toContain('type="checkbox"'); expect(html).not.toContain("Пригласить");
+    }
   });
   it("contact action stays disabled until capabilities have loaded", () => {
     const html = renderToStaticMarkup(<VacancyStageActions item={candidate()} />);
@@ -110,7 +113,7 @@ describe("résumé content and action safety", () => {
     state.contact = { ...options(), recentDeliveries: [{ id: "call", channel: "ASSISTANT_CALL", status: "COMPLETED", result: {
       purpose: "CLARIFY", summary: "Готов начать со следующей недели", transcript: ["Кандидат: могу выйти в понедельник"], candidateSpoke: true,
     } }] };
-    const html = renderToStaticMarkup(<VacancyStageActions item={candidate()} />);
+    const html = renderToStaticMarkup(<VacancyContactHistory item={candidate()} />);
     expect(html).toContain("Что собрал ассистент"); expect(html).toContain("Готов начать со следующей недели");
     expect(html).toContain("не подтверждённые руководителем факты");
     expect(html).toContain("Кандидат: могу выйти в понедельник");
@@ -120,7 +123,7 @@ describe("résumé content and action safety", () => {
     state.contact = { ...options(), recentDeliveries: [{ id: "call", channel: "ASSISTANT_CALL", status: "COMPLETED", result: {
       purpose: "CLARIFY", summary: "Абонент не ответил", transcript: [], candidateSpoke: false,
     } }] };
-    const html = renderToStaticMarkup(<VacancyStageActions item={candidate()} />);
+    const html = renderToStaticMarkup(<VacancyContactHistory item={candidate()} />);
     expect(html).toContain("Ответов кандидата нет."); expect(html).toContain("Абонент не ответил");
   });
   it("legacy applications show an unselected explicit vacancy picker; core applications cannot reassign", () => {
@@ -134,10 +137,19 @@ describe("résumé content and action safety", () => {
     const core = renderToStaticMarkup(<VacancyStageActions item={candidate({ customerInquiryId: "core-inquiry", positionKey: "smm" })} positions={positions} />);
     expect(core).not.toContain("Сохранить вакансию"); expect(core).not.toContain("Изменить вакансию");
   });
-  it("an assigned legacy vacancy stays a summary with editing under additional actions", () => {
+  it("an assigned legacy vacancy stays a summary with editing under «Ещё»", () => {
     const positions = [{ key: "smm", titleRu: "SMM-специалист", isOpen: true }] as RecruitmentPosition[];
-    const html = renderToStaticMarkup(<VacancyStageActions item={candidate({ customerInquiryId: null, positionKey: "smm" })} positions={positions} />);
-    expect(html).not.toContain("Укажите вакансию");
-    expect(html.indexOf("Изменить вакансию")).toBeGreaterThan(html.indexOf("Другие действия"));
+    const item = candidate({ customerInquiryId: null, positionKey: "smm" });
+    const html = renderToStaticMarkup(<VacancyStageActions item={item} positions={positions} />);
+    expect(html).not.toContain("Укажите вакансию"); expect(html).not.toContain("Изменить вакансию");
+    expect(html).toContain(">Ещё</button>");
+    const handlers = { open: vi.fn(), setStatus: vi.fn(), notCandidate: vi.fn() };
+    const labels = (groups: ReturnType<typeof vacancyMoreGroups>) => groups.flatMap(group => group.items.map(entry => entry.label));
+    expect(labels(vacancyMoreGroups(item, { canClarify: true, busy: false }, handlers))).toContain("Изменить вакансию");
+    const core = labels(vacancyMoreGroups(candidate({ customerInquiryId: "core", positionKey: "smm" }), { canClarify: true, busy: false }, handlers));
+    expect(core).not.toContain("Изменить вакансию");
+    // Удалить навсегда — только когда экран передал право (админ/директор).
+    expect(core).not.toContain("Удалить анкету навсегда");
+    expect(labels(vacancyMoreGroups(item, { canClarify: true, busy: false }, { ...handlers, delete: vi.fn() }))).toContain("Удалить анкету навсегда");
   });
 });

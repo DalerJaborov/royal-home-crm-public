@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ButtonHTMLAttributes, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { recruitmentPositionUpdateSchema, recruitmentPostCode, recruitmentRecoveryRequestSchema,
   DEFAULT_RECRUITMENT_SCREENING_RULES, RECRUITMENT_FACT_LABELS, type RecruitmentScreeningRules,
@@ -7,12 +7,25 @@ import { api } from "../lib/api";
 import { useAuthStore } from "../store/auth";
 import { useCan, useIsReadOnly } from "../lib/permissions";
 import { dushanbeDateTime } from "../lib/date";
+import { CButton, CCard, CHead } from "./clean/ui";
 
 type Catalog = { items: RecruitmentPosition[] };
+
+/** Кнопка вкладки: CButton в оболочке Clean, кнопка набора `.pill` — в прежней оболочке. */
+function Act({ clean, primary = false, type = "button", ...rest }: { clean: boolean; primary?: boolean } & ButtonHTMLAttributes<HTMLButtonElement>) {
+  return clean ? <CButton variant={primary ? "primary" : "outline"} type={type} {...rest} />
+    : <button type={type} className={primary ? "pill" : "pill ghost"} {...rest} />;
+}
+
+/** Поле формы — `.fld` темы: подпись `.lab` над полем, пояснение `.msg` под ним. */
+function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
+  return <label className="fld"><span className="lab">{label}</span>{children}{hint && <span className="msg">{hint}</span>}</label>;
+}
+
 /** candidateCounts — число анкет по ключу вакансии (positionCounts сервера);
  *  нет у старого сервера — тогда строки с числом нет. */
-export function RecruitmentPositions({ candidateCounts, onOpenCandidates }: {
-  candidateCounts?: Record<string, number>; onOpenCandidates?(positionKey: string): void;
+export function RecruitmentPositions({ clean = false, candidateCounts, onOpenCandidates }: {
+  clean?: boolean; candidateCounts?: Record<string, number>; onOpenCandidates?(positionKey: string): void;
 } = {}) {
   const can = useCan(), actor = useAuthStore(s => s.agent?.id), epoch = useAuthStore(s => s.sessionEpoch);
   const query = useQuery({ queryKey: ["recruitment-positions", actor], enabled: can("vacancies.view"),
@@ -22,39 +35,37 @@ export function RecruitmentPositions({ candidateCounts, onOpenCandidates }: {
   const manage = can("settings.manage") && !readOnly;
   const templates = useQuery({ queryKey: ["recruitment-templates", actor], enabled: manage,
     queryFn: () => api<{ items: Array<RecruitmentPositionInput & { key: string }> }>("/vacancies/positions/templates", { expectAgentId: actor }) });
-  return <section className="vacancy-catalog" aria-labelledby="recruitment-positions-title">
-    <div className="vacancy-catalog-header"><div><h2 id="recruitment-positions-title">Вакансии и условия</h2>
-      <p className="vacancy-catalog-description">Бот предлагает кандидатам открытые вакансии и рассказывает условия из этих карточек. Закрытие набора сохраняет все анкеты.</p></div>
-      {manage && <button type="button" className="vacancy-button" onClick={() => setEditing("new")}>Добавить вакансию</button>}
-    </div>
-    {readOnly && <p className="vacancy-catalog-description">Доступен только просмотр вакансий.</p>}
-    {manage && templates.data && <details className="vacancy-catalog-disclosure">
-      <summary>Добавить из заготовки</summary><div className="vacancy-catalog-actions" aria-label="Заготовки вакансий">
-      {templates.data.items.filter(item => !query.data?.items.some(existing => existing.key === item.key)).map(item =>
-        <button key={item.key} type="button" className="vacancy-button secondary" onClick={() => setEditing({ ...item, revision: 0 })}>
-          Заполнить: {item.titleRu}
-        </button>)}
-      </div><p className="vacancy-catalog-description">Заготовка не открывает набор: проверьте условия и сохраните карточку с включённым набором.</p>
-    </details>}
-    {query.isError && <div className="vacancy-catalog-card" role="alert"><p>Не удалось обновить вакансии.</p><button type="button" className="vacancy-button secondary" onClick={() => void query.refetch()}>Повторить</button></div>}
-    {query.isPending ? <p role="status">Загружаем вакансии…</p> : !query.data ? null : <>
-      {!query.data.items.length && <p className="vacancy-catalog-card">{manage ? "Пока нет вакансий. Добавьте должность и откройте набор, чтобы бот мог её предложить." : "Пока нет вакансий."}</p>}
-      <div className="vacancy-catalog-list">{query.data.items.map(item => <article key={item.key} className="vacancy-catalog-card vacancy-catalog-position">
-        <div><span className="vacancy-stage-badge">{item.isOpen ? "Набор открыт" : "Набор закрыт"}</span>
-          {candidateCounts && (onOpenCandidates ? <button type="button" className="vacancy-text-button vacancy-catalog-count" onClick={() => onOpenCandidates(item.key)}>Кандидатов: {candidateCounts[item.key] ?? 0}</button>
-            : <span className="vacancy-catalog-count">Кандидатов: {candidateCounts[item.key] ?? 0}</span>)}<h3>{item.titleRu}</h3><p className="vacancy-catalog-description">{item.titleTg}</p>
-          <p className="vacancy-catalog-conditions">{item.detailsRu || "Условия пока не указаны."}</p></div>
-        {manage && <button type="button" className="vacancy-button secondary" onClick={() => setEditing(item)}>Изменить</button>}
-      </article>)}</div>
+  return <section className="grid gap-4" aria-label="Вакансии и условия">
+    <CCard>
+      <CHead title="Вакансии и условия" right={manage ? <Act clean={clean} primary onClick={() => setEditing("new")}>Добавить вакансию</Act> : undefined} />
+      <p className="text-[15px] text-gray-500">Бот предлагает кандидатам открытые вакансии и рассказывает условия из этих карточек. Закрытие набора сохраняет все анкеты.</p>
+      {readOnly && <p className="mt-2 text-[15px] text-gray-500">Доступен только просмотр вакансий.</p>}
+      {manage && templates.data && <details className="vacancy-disclosure">
+        <summary>Добавить из заготовки</summary>
+        <div className="wrap" aria-label="Заготовки вакансий">{templates.data.items.filter(item => !query.data?.items.some(existing => existing.key === item.key)).map(item =>
+          <Act clean={clean} key={item.key} onClick={() => setEditing({ ...item, revision: 0 })}>Заполнить: {item.titleRu}</Act>)}</div>
+        <p className="text-[14px] text-gray-500">Заготовка не открывает набор: проверьте условия и сохраните карточку с включённым набором.</p>
+      </details>}
+    </CCard>
+    {query.isError && <CCard role="alert"><div className="quiet warn"><span className="dot warn" /><span className="txt">Не удалось обновить вакансии.</span><Act clean={clean} onClick={() => void query.refetch()}>Повторить</Act></div></CCard>}
+    {query.isPending ? <p className="quiet" role="status"><span className="dot" /><span className="txt">Загружаем вакансии…</span></p> : !query.data ? null : <>
+      {!query.data.items.length && <CCard><p className="text-[15px] text-gray-500">{manage ? "Пока нет вакансий. Добавьте должность и откройте набор, чтобы бот мог её предложить." : "Пока нет вакансий."}</p></CCard>}
+      <div className="grid gap-4 lg:grid-cols-2">{query.data.items.map(item => <CCard key={item.key}>
+        <CHead title={item.titleRu} count={item.isOpen ? "Набор открыт" : "Набор закрыт"} right={manage ? <Act clean={clean} onClick={() => setEditing(item)}>Изменить</Act> : undefined} />
+        <p className="text-[14px] text-gray-500">{item.titleTg}</p>
+        {candidateCounts && (onOpenCandidates ? <button type="button" className="lnk" onClick={() => onOpenCandidates(item.key)}>Кандидатов: {candidateCounts[item.key] ?? 0}</button>
+          : <p className="text-[14px] text-ink">Кандидатов: {candidateCounts[item.key] ?? 0}</p>)}
+        <p className="vacancy-resume-text mt-2">{item.detailsRu || "Условия пока не указаны."}</p>
+      </CCard>)}</div>
     </>}
-    {manage && editing && <PositionForm key={`${actor}:${epoch}:${editing === "new" ? "new" : editing.key}`}
+    {manage && editing && <PositionForm key={`${actor}:${epoch}:${editing === "new" ? "new" : editing.key}`} clean={clean}
       initial={editing === "new" ? null : editing} onClose={() => setEditing(null)} />}
-    {manage && <RecruitmentRecovery key={`${actor}:${epoch}`} actor={actor} epoch={epoch} />}
+    {manage && <RecruitmentRecovery key={`${actor}:${epoch}`} clean={clean} actor={actor} epoch={epoch} />}
   </section>;
 }
 
 type RecoveryItem = { conversationId: string; status: string; reason?: string; scheduledAt?: string; providerReceiptPresent?: boolean; visibleInConversation?: boolean };
-function RecruitmentRecovery({ actor, epoch }: { actor?: string; epoch: number }) {
+function RecruitmentRecovery({ clean, actor, epoch }: { clean: boolean; actor?: string; epoch: number }) {
   const [campaign, setCampaign] = useState("");
   const [recipients, setRecipients] = useState("");
   const [error, setError] = useState("");
@@ -64,26 +75,26 @@ function RecruitmentRecovery({ actor, epoch }: { actor?: string; epoch: number }
     onSuccess: value => { setItems(value.items); setError(""); }, onError: () => setError("Не удалось получить результат. Обновите статус кампании перед повторной отправкой.") });
   const status = useMutation({ mutationFn: () => api<{ items: RecoveryItem[] }>(`/vacancies/positions/recovery/${encodeURIComponent(campaign)}`, { expectAgentId: actor }),
     onSuccess: value => { setItems(value.items); setError(""); }, onError: () => setError("Не удалось обновить статус кампании.") });
-  return <details className="vacancy-catalog-disclosure vacancy-catalog-recovery" key={`${actor}:${epoch}`}>
+  return <CCard><details className="vacancy-disclosure" key={`${actor}:${epoch}`}>
     <summary>Исправленные ответы кандидатам</summary>
-    <p className="vacancy-catalog-description">Однократный ответ бота по проверенным откликам. Паузы сотрудника и ограничения канала сохраняются. Неизвестная доставка не повторяется.</p>
-    <label className="vacancy-field">Название кампании<input value={campaign} onChange={e => setCampaign(e.target.value)} /></label>
-    <label className="vacancy-field">Проверенный список откликов (JSON)<textarea rows={5} value={recipients} onChange={e => setRecipients(e.target.value)} /></label>
-    {error && <p role="alert">{error}</p>}
-    <div className="vacancy-catalog-actions"><button type="button" className="vacancy-button" disabled={send.isPending || status.isPending} onClick={() => {
+    <p className="text-[14px] text-gray-500">Однократный ответ бота по проверенным откликам. Паузы сотрудника и ограничения канала сохраняются. Неизвестная доставка не повторяется.</p>
+    <Field label="Название кампании"><input value={campaign} onChange={e => setCampaign(e.target.value)} /></Field>
+    <Field label="Проверенный список откликов (JSON)"><textarea rows={5} value={recipients} onChange={e => setRecipients(e.target.value)} /></Field>
+    {error && <p role="alert" className="quiet crit"><span className="dot crit" /><span className="txt">{error}</span></p>}
+    <div className="wrap"><Act clean={clean} primary disabled={send.isPending || status.isPending} onClick={() => {
       try {
         const value = recruitmentRecoveryRequestSchema.safeParse({ campaign, recipients: JSON.parse(recipients) });
         if (!value.success) { setError("Проверьте название кампании и список откликов."); return; }
         send.mutate(value.data);
       } catch { setError("Список откликов должен быть корректным JSON."); }
-    }}>Отправить исправленные ответы ботом</button>
-      <button type="button" className="vacancy-button secondary" disabled={!/^[a-z0-9-]{8,64}$/.test(campaign) || status.isPending} onClick={() => status.mutate()}>Обновить статус кампании</button></div>
+    }}>Отправить исправленные ответы ботом</Act>
+      <Act clean={clean} disabled={!/^[a-z0-9-]{8,64}$/.test(campaign) || status.isPending} onClick={() => status.mutate()}>Обновить статус кампании</Act></div>
     {!!items.length && <div role="status"><p>Проверено откликов: {items.length}. Отправка подтверждена: {items.filter(item => item.status === "ACCEPTED" && item.providerReceiptPresent).length}.</p>
       <ul>{items.map(item => <li key={item.conversationId}>{item.conversationId.slice(0, 8)}: {item.status}{item.status === "READY" && item.scheduledAt ? ` — ${dushanbeDateTime(item.scheduledAt)}` : ""}{item.reason ? ` (${item.reason})` : ""}</li>)}</ul></div>}
-  </details>;
+  </details></CCard>;
 }
 
-function PositionForm({ initial, onClose }: { initial: RecruitmentPosition | null; onClose(): void }) {
+function PositionForm({ clean, initial, onClose }: { clean: boolean; initial: RecruitmentPosition | null; onClose(): void }) {
   const actor = useAuthStore(s => s.agent?.id), epoch = useAuthStore(s => s.sessionEpoch), cache = useQueryClient();
   const [key] = useState(() => initial?.key ?? `position-${crypto.randomUUID()}`);
   const [draft, setDraft] = useState(() => initial ?? { titleRu: "", titleTg: "", detailsRu: "", detailsTg: "", isOpen: false });
@@ -105,44 +116,44 @@ function PositionForm({ initial, onClose }: { initial: RecruitmentPosition | nul
     if (current.agent?.id !== actor || current.sessionEpoch !== epoch) return;
     cache.setQueryData(["recruitment-positions", actor], data); onClose();
   }, onError: err => setError(err instanceof Error ? err.message : "Не удалось сохранить вакансию") });
-  return <form className="vacancy-catalog-card vacancy-catalog-form" aria-label={initial ? "Изменить вакансию" : "Новая вакансия"}
+  const check = (checked: boolean, onChange: (checked: boolean) => void, label: ReactNode, k?: string) =>
+    <label className="chk" key={k}><input type="checkbox" checked={checked} onChange={event => onChange(event.target.checked)} />{label}</label>;
+  return <CCard><form className="grid gap-4" aria-label={initial ? "Изменить вакансию" : "Новая вакансия"}
     onSubmit={event => { event.preventDefault(); setError(""); save.mutate(); }}>
-    <h3>{initial ? "Изменить вакансию" : "Новая вакансия"}</h3>
-    <p className="vacancy-catalog-description">Только публичные условия. Телефоны кандидатов и внутренние заметки здесь не размещайте. Без указанной зарплаты бот её не называет.</p>
-    <div className="vacancy-catalog-grid">
-      <label className="vacancy-field">Название на русском<input required maxLength={140} value={draft.titleRu} onChange={e => setDraft({ ...draft, titleRu: e.target.value })} /></label>
-      <label className="vacancy-field">Ном ба тоҷикӣ<input required maxLength={140} value={draft.titleTg} onChange={e => setDraft({ ...draft, titleTg: e.target.value })} /></label>
-      <label className="vacancy-field">Условия на русском<textarea rows={5} maxLength={2000} value={draft.detailsRu} onChange={e => setDraft({ ...draft, detailsRu: e.target.value })} /></label>
-      <label className="vacancy-field">Шартҳо ба тоҷикӣ<textarea rows={5} maxLength={2000} value={draft.detailsTg} onChange={e => setDraft({ ...draft, detailsTg: e.target.value })} /></label>
+    <CHead title={initial ? "Изменить вакансию" : "Новая вакансия"} className="mb-0" />
+    <p className="text-[14px] text-gray-500">Только публичные условия. Телефоны кандидатов и внутренние заметки здесь не размещайте. Без указанной зарплаты бот её не называет.</p>
+    <div className="grid gap-4 lg:grid-cols-2">
+      <Field label="Название на русском"><input required maxLength={140} value={draft.titleRu} onChange={e => setDraft({ ...draft, titleRu: e.target.value })} /></Field>
+      <Field label="Ном ба тоҷикӣ"><input required maxLength={140} value={draft.titleTg} onChange={e => setDraft({ ...draft, titleTg: e.target.value })} /></Field>
+      <Field label="Условия на русском"><textarea rows={5} maxLength={2000} value={draft.detailsRu} onChange={e => setDraft({ ...draft, detailsRu: e.target.value })} /></Field>
+      <Field label="Шартҳо ба тоҷикӣ"><textarea rows={5} maxLength={2000} value={draft.detailsTg} onChange={e => setDraft({ ...draft, detailsTg: e.target.value })} /></Field>
     </div>
-    <fieldset className="vacancy-catalog-rules">
-      <legend>Что выяснить у кандидата на эту должность</legend>
-      <p className="vacancy-catalog-description">Правила действуют только для этой вакансии. Они подсказывают, что уточнить; решение о приглашении и найме принимает человек. Прежние решения и этапы кандидатов не меняются.</p>
-      <div className="vacancy-catalog-grid">
-        <label className="vacancy-field">Минимальный возраст (необязательно)<input type="number" min={16} max={100}
-          value={rules.minimumAge ?? ""} onChange={event => setRules({ ...rules, minimumAge: event.target.value === "" ? null : Number(event.target.value) })} /></label>
-        <div className="vacancy-catalog-checks">
-          <label className="vacancy-catalog-check"><input type="checkbox" checked={rules.allowStudying} onChange={event => setRules({ ...rules, allowStudying: event.target.checked })} />Можно совмещать с учёбой</label>
-          <label className="vacancy-catalog-check"><input type="checkbox" checked={rules.allowOtherEmployment} onChange={event => setRules({ ...rules, allowOtherEmployment: event.target.checked })} />Можно совмещать с другой работой</label>
+    <fieldset className="grid gap-3">
+      <legend className="text-[16px] font-semibold text-ink">Что выяснить у кандидата на эту должность</legend>
+      <p className="text-[14px] text-gray-500">Правила действуют только для этой вакансии. Они подсказывают, что уточнить; решение о приглашении и найме принимает человек. Прежние решения и этапы кандидатов не меняются.</p>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Field label="Минимальный возраст (необязательно)"><input type="number" min={16} max={100}
+          value={rules.minimumAge ?? ""} onChange={event => setRules({ ...rules, minimumAge: event.target.value === "" ? null : Number(event.target.value) })} /></Field>
+        <div className="grid">
+          {check(rules.allowStudying, value => setRules({ ...rules, allowStudying: value }), "Можно совмещать с учёбой")}
+          {check(rules.allowOtherEmployment, value => setRules({ ...rules, allowOtherEmployment: value }), "Можно совмещать с другой работой")}
         </div>
       </div>
-      <p className="vacancy-catalog-description">Нужные сведения. Отсутствие опыта не означает отказ; портфолио может заменить рассказ о себе.</p>
-      <div className="vacancy-catalog-grid vacancy-catalog-checks">
-        {(Object.keys(RECRUITMENT_FACT_LABELS) as RecruitmentFactKey[]).map(key => <label className="vacancy-catalog-check" key={key}>
-          <input type="checkbox" checked={rules.requiredFacts.includes(key)} onChange={event => setRules({ ...rules,
-            requiredFacts: event.target.checked ? [...rules.requiredFacts, key] : rules.requiredFacts.filter(value => value !== key) })} />{RECRUITMENT_FACT_LABELS[key]}
-        </label>)}
+      <p className="text-[14px] text-gray-500">Нужные сведения. Отсутствие опыта не означает отказ; портфолио может заменить рассказ о себе.</p>
+      <div className="grid sm:grid-cols-2 lg:grid-cols-3">
+        {(Object.keys(RECRUITMENT_FACT_LABELS) as RecruitmentFactKey[]).map(key => check(rules.requiredFacts.includes(key), value => setRules({ ...rules,
+          requiredFacts: value ? [...rules.requiredFacts, key] : rules.requiredFacts.filter(item => item !== key) }), RECRUITMENT_FACT_LABELS[key], key))}
       </div>
     </fieldset>
-    <details className="vacancy-catalog-disclosure">
+    <details className="vacancy-disclosure">
       <summary>Где находить отклики</summary>
-      <p className="vacancy-catalog-description">Публикации и ключевые слова помогают боту связать отклик с этой вакансией. Меняйте их при настройке новых объявлений.</p>
-      <label className="vacancy-field">Публикации Instagram<textarea rows={3} value={posts} onChange={e => setPosts(e.target.value)} placeholder="Ссылка или код, по одному в строке" /></label>
-      <label className="vacancy-field">Ключевые слова отклика<textarea rows={2} value={keywords} onChange={e => setKeywords(e.target.value)} placeholder="Например: контент. По одному слову в строке" /></label>
+      <p className="text-[14px] text-gray-500">Публикации и ключевые слова помогают боту связать отклик с этой вакансией. Меняйте их при настройке новых объявлений.</p>
+      <Field label="Публикации Instagram"><textarea rows={3} value={posts} onChange={e => setPosts(e.target.value)} placeholder="Ссылка или код, по одному в строке" /></Field>
+      <Field label="Ключевые слова отклика"><textarea rows={2} value={keywords} onChange={e => setKeywords(e.target.value)} placeholder="Например: контент. По одному слову в строке" /></Field>
     </details>
-    <label className="vacancy-catalog-check vacancy-catalog-open"><input type="checkbox" checked={draft.isOpen} onChange={e => setDraft({ ...draft, isOpen: e.target.checked })} /><span>Набор открыт<small>Бот может предлагать эту вакансию кандидатам</small></span></label>
-    {error && <p role="alert">{error}</p>}
-    <div className="vacancy-catalog-actions"><button type="submit" className="vacancy-button" disabled={save.isPending}>{save.isPending ? "Сохраняем…" : "Сохранить"}</button>
-      <button type="button" className="vacancy-button secondary" disabled={save.isPending} onClick={onClose}>Отмена</button></div>
-  </form>;
+    {check(draft.isOpen, value => setDraft({ ...draft, isOpen: value }), <span>Набор открыт · <span className="text-gray-500">бот может предлагать эту вакансию кандидатам</span></span>)}
+    {error && <p role="alert" className="quiet crit"><span className="dot crit" /><span className="txt">{error}</span></p>}
+    <div className="wrap"><Act clean={clean} primary type="submit" disabled={save.isPending}>{save.isPending ? "Сохраняем…" : "Сохранить"}</Act>
+      <Act clean={clean} disabled={save.isPending} onClick={onClose}>Отмена</Act></div>
+  </form></CCard>;
 }

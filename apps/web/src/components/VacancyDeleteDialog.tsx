@@ -28,10 +28,10 @@ export function VacancyDeleteDialog({ items, onClose, onDeleted }: {
   return <ConfirmDialog title={title} description="Анкета, заметки, история приглашений и файлы резюме будут удалены без возможности восстановления. Переписка с человеком в «Обращениях» останется. Для обычного отказа используйте «Отказ»."
     confirmLabel={busy ? "Удаляем…" : "Удалить навсегда"} onCancel={onClose} onConfirm={confirm} dismissible={!busy}
     confirmDisabled={busy || !deleteWordMatches(word)}>
-    <div className="vacancy-contact-scope">
-      <label className="vacancy-field"><span>Чтобы подтвердить, наберите слово {VACANCY_DELETE_WORD}</span>
+    <div className="grid gap-3">
+      <label className="fld"><span className="lab">Чтобы подтвердить, наберите слово {VACANCY_DELETE_WORD}</span>
         <input value={word} onChange={event => setWord(event.target.value)} autoComplete="off" autoFocus aria-describedby="vacancy-delete-count" /></label>
-      <p id="vacancy-delete-count" className="vacancy-muted">Будет удалено анкет: {items.length}.</p>
+      <p id="vacancy-delete-count" className="text-[14px] text-gray-500">Будет удалено анкет: {items.length}.</p>
       <MutationError mutation={mutation} fallback="Не удалось удалить. Удалять может только администратор или директор." />
     </div>
   </ConfirmDialog>;

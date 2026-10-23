@@ -64,11 +64,14 @@ describe("vacancy settings access and form hierarchy", () => {
     expect(html).toContain("Что выяснить у кандидата на эту должность");
     expect(html).toContain("Можно совмещать с учёбой");
     expect(html).toContain("Публикации Instagram");
-    expect(html).toContain('class="vacancy-field"');
-    expect(html).toMatch(/<details class="vacancy-catalog-disclosure"><summary>Где находить отклики<\/summary>/);
-    expect(html).toMatch(/<details class="vacancy-catalog-disclosure vacancy-catalog-recovery"><summary>Исправленные ответы кандидатам<\/summary>/);
-    expect(html).toContain('class="vacancy-button"');
-    expect(html).not.toContain('class="pill');
+    expect(html).toContain('class="fld"');
+    expect(html).toMatch(/<details class="vacancy-disclosure"><summary>Где находить отклики<\/summary>/);
+    expect(html).toMatch(/<details class="vacancy-disclosure"><summary>Исправленные ответы кандидатам<\/summary>/);
+    // Прежняя оболочка — кнопки темы `.pill`; самодельных классов кнопок больше нет.
+    expect(html).toContain('class="pill"');
+    expect(html).not.toContain("vacancy-button");
+    // Оболочка Clean — CButton набора Royal Clean.
+    expect(renderToStaticMarkup(<RecruitmentPositions clean />)).toContain('data-clean-variant="primary"');
     expect(html).toContain("Отправить исправленные ответы ботом");
     expect(state.mutation).not.toHaveBeenCalled();
   });

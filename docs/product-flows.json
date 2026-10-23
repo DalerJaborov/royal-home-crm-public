@@ -1,8 +1,8 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 660,
-  "forks": 3643,
+  "endpoints": 663,
+  "forks": 3649,
   "mounts": 74,
   "cron": 107,
   "jobs": 31,
@@ -60836,16 +60836,8 @@
    "handlerRef": null,
    "tree": [
     {
-     "k": "do",
-     "t": "const settings = await prisma.settings.findUnique({ where: { id: \"singleton\" }, select: { metaCatalogFeedEnab…",
-     "a": [
-      "читает в базе: settings"
-     ],
-     "c": []
-    },
-    {
      "k": "if",
-     "t": "!settings?.metaCatalogFeedEnabled || !configuredKey || !key || !secretsMatch(key, configuredKey)",
+     "t": "!(await metaCatalogKeyOk(req))",
      "a": [],
      "c": [
       {
@@ -60885,6 +60877,71 @@
     {
      "k": "do",
      "t": "res.send(renderHomeListingCsv(rows));",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/meta-catalog/products-video.csv",
+   "mount": "/api/v1/public",
+   "full": "/api/v1/public/meta-catalog/products-video.csv",
+   "file": "apps/api/src/routes/publicFeed.ts",
+   "router": "publicFeedRouter",
+   "top": "apps/api/src/routes/publicFeed.ts::publicFeedRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "предел частоты запросов"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!(await metaCatalogKeyOk(req))",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).end();",
+       "a": [
+        "ответ 404"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const rows = await loadProductVideoRows();",
+     "a": [
+      "зовёт loadProductVideoRows()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.set(\"Content-Type\", \"text/csv; charset=utf-8\");",
+     "a": [
+      "ставит заголовок ответа"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.set(\"Cache-Control\", \"public, max-age=600\");",
+     "a": [
+      "ставит заголовок ответа"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.send(renderProductVideoCsv(rows));",
      "a": [
       "ответ 200"
      ],
@@ -61033,6 +61090,103 @@
       "ответ 200"
      ],
      "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/property-video/:file",
+   "mount": "/api/v1/public",
+   "full": "/api/v1/public/property-video/:file",
+   "file": "apps/api/src/routes/publicFeed.ts",
+   "router": "publicFeedRouter",
+   "top": "apps/api/src/routes/publicFeed.ts::publicFeedRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "предел частоты запросов"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).end();",
+       "a": [
+        "ответ 404"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const property = await prisma.property.findUnique({ where: { shortId }, select: { shortId: true, status: true…",
+     "a": [
+      "читает в базе: property"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!property || !isPropertyVideoPublic(property)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).end();",
+       "a": [
+        "ответ 404"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.setHeader(\"Content-Type\", \"video/mp4\");",
+     "a": [
+      "ставит заголовок ответа"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.sendFile(fileName, { root: videoHandoffDir, maxAge: \"1d\" }, (err)",
+     "a": [
+      "ответ 404",
+      "запись в журнал ошибок"
+     ],
+     "c": [
+      {
+       "k": "if",
+       "t": "err && !res.headersSent",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "void logSystemError(\"storage\", `Публичный ролик объекта №${shortId} не отдан: ${err.message}`);",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "res.status(404).end();",
+         "a": [
+          "ответ 404"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
     }
    ]
   },
@@ -73688,6 +73842,71 @@
      "t": "res.status(204).end();",
      "a": [
       "ответ 204"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/:id",
+   "mount": "/api/v1/vacancies",
+   "full": "/api/v1/vacancies/:id",
+   "file": "apps/api/src/routes/vacancies.ts",
+   "router": "vacanciesRouter",
+   "top": "apps/api/src/routes/vacancies.ts::vacanciesRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: vacancies.view"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!id.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Анкета не найдена\" });",
+       "a": [
+        "ответ 404 — «Анкета не найдена»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const row = await prisma.jobApplication.findFirst({ where: { AND: [{ id: id.data }, NOT_ARCHIVED] }, include:…",
+     "a": [
+      "читает в базе: jobApplication"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!row",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Анкета не найдена\" });",
+       "a": [
+        "ответ 404 — «Анкета не найдена»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.json(presentListItem(row));",
+     "a": [
+      "ответ 200"
      ],
      "c": []
     }

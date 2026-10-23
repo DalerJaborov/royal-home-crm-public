@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **660**. Развилок в самих путях: **2349**; вместе с задачами по расписанию и фоновыми заданиями — **3643**. Модулей: **74**.
+Путей: **663**. Развилок в самих путях: **2355**; вместе с задачами по расписанию и фоновыми заданиями — **3649**. Модулей: **74**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -13579,9 +13579,7 @@
 
 `apps/api/src/routes/publicFeed.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов · **вход не требуется**
 
-- const settings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { metaCatalogFeedEnab…
-  · читает в базе: settings
-- если !settings?.metaCatalogFeedEnabled || !configuredKey || !key || !secretsMatch(key, configuredKey)
+- если !(await metaCatalogKeyOk(req))
   - return res.status(404).end();
     · ответ 404
 - const rows = await loadCatalogProperties();
@@ -13592,6 +13590,45 @@
   · ставит заголовок ответа
 - res.send(renderHomeListingCsv(rows));
   · ответ 200
+
+### GET /api/v1/public/meta-catalog/products-video.csv
+
+`apps/api/src/routes/publicFeed.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов · **вход не требуется**
+
+- если !(await metaCatalogKeyOk(req))
+  - return res.status(404).end();
+    · ответ 404
+- const rows = await loadProductVideoRows();
+  · зовёт loadProductVideoRows()
+- res.set("Content-Type", "text/csv; charset=utf-8");
+  · ставит заголовок ответа
+- res.set("Cache-Control", "public, max-age=600");
+  · ставит заголовок ответа
+- res.send(renderProductVideoCsv(rows));
+  · ответ 200
+
+### GET /api/v1/public/property-video/:file
+
+`apps/api/src/routes/publicFeed.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, предел частоты запросов · **вход не требуется**
+
+- если !parsed.success
+  - return res.status(404).end();
+    · ответ 404
+- const property = await prisma.property.findUnique({ where: { shortId }, select: { shortId: true, status: true…
+  · читает в базе: property
+- если !property || !isPropertyVideoPublic(property)
+  - return res.status(404).end();
+    · ответ 404
+- res.setHeader("Content-Type", "video/mp4");
+  · ставит заголовок ответа
+- res.sendFile(fileName, { root: videoHandoffDir, maxAge: "1d" }, (err)
+  · ответ 404
+  · запись в журнал ошибок
+  - если err && !res.headersSent
+    - void logSystemError("storage", `Публичный ролик объекта №${shortId} не отдан: ${err.message}`);
+      · запись в журнал ошибок
+    - res.status(404).end();
+      · ответ 404
 
 ## /api/v1/public/owner-report
 
@@ -16501,6 +16538,21 @@
     · ответ 409 — «Ассистент сейчас говорит с кандидатом. Дождитесь результата звонка.»
 - res.status(204).end();
   · ответ 204
+
+### GET /api/v1/vacancies/:id
+
+`apps/api/src/routes/vacancies.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: vacancies.view
+
+- если !id.success
+  - return res.status(404).json({ error: "Анкета не найдена" });
+    · ответ 404 — «Анкета не найдена»
+- const row = await prisma.jobApplication.findFirst({ where: { AND: [{ id: id.data }, NOT_ARCHIVED] }, include:…
+  · читает в базе: jobApplication
+- если !row
+  - return res.status(404).json({ error: "Анкета не найдена" });
+    · ответ 404 — «Анкета не найдена»
+- res.json(presentListItem(row));
+  · ответ 200
 
 ### PATCH /api/v1/vacancies/:id
 
