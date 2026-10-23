@@ -11,8 +11,10 @@ export const CUSTOMER_DELIVERY_RETRYABLE_STATUSES: ReadonlySet<number> = new Set
 
 /** An ambiguous own send blocks later input only this long after the part was created. */
 export const CUSTOMER_DELIVERY_AMBIGUITY_WINDOW_MS = 15 * 60_000;
-/** Physical attempts per part; every earlier one must be a provable NOT_SENT. */
-export const CUSTOMER_DELIVERY_MAX_ATTEMPTS = 3;
+/** Physical attempts per part (one retry); every earlier one must be a provable NOT_SENT.
+ * Two, not more: the outbound shield counts every admitted attempt and blocks the THIRD
+ * verbatim repeat of a text, so a third attempt would only be suppressed as a repeat. */
+export const CUSTOMER_DELIVERY_MAX_ATTEMPTS = 2;
 /** A part older than this is no longer retried: the conversation has moved on. */
 export const CUSTOMER_DELIVERY_RETRY_WINDOW_MS = 10 * 60_000;
 
