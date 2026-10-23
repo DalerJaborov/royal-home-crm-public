@@ -900,7 +900,7 @@
       "file": "apps/api/src/routes/me.ts",
       "endpoints": 36,
       "label": "Свой профиль, настройки, устройства",
-      "usedBy": 11
+      "usedBy": 12
     },
     {
       "mount": "/api/v1/me/notifications",
@@ -908,7 +908,7 @@
       "file": "apps/api/src/routes/notifications.ts",
       "endpoints": 4,
       "label": "Лента уведомлений сотрудника",
-      "usedBy": 11
+      "usedBy": 12
     },
     {
       "mount": "/api/v1/agents",
@@ -964,7 +964,7 @@
       "file": "apps/api/src/routes/clients.ts",
       "endpoints": 60,
       "label": "Клиенты: карточки, передачи, отказы, подбор — самый крупный модуль",
-      "usedBy": 12
+      "usedBy": 13
     },
     {
       "mount": "/api/v1/deals",
@@ -1188,7 +1188,7 @@
       "file": "apps/api/src/routes/marketing.ts",
       "endpoints": 23,
       "label": "Кабинет маркетинга и монтажа",
-      "usedBy": 2
+      "usedBy": 3
     },
     {
       "mount": "/api/v1/social-videos",
@@ -1196,7 +1196,7 @@
       "file": "apps/api/src/routes/socialVideos.ts",
       "endpoints": 20,
       "label": null,
-      "usedBy": 1
+      "usedBy": 2
     },
     {
       "mount": "/api/v1/webhooks",
@@ -1308,7 +1308,7 @@
       "file": "apps/api/src/routes/siteNotifications.ts",
       "endpoints": 3,
       "label": "Изменения, прилетевшие с сайта",
-      "usedBy": 1
+      "usedBy": 2
     },
     {
       "mount": "/api/v1/contacts",
@@ -1324,7 +1324,7 @@
       "file": "apps/api/src/routes/conversations.ts",
       "endpoints": 10,
       "label": "Переписка по всем каналам",
-      "usedBy": 2
+      "usedBy": 3
     },
     {
       "mount": "/api/v1/audit-log",
@@ -1356,7 +1356,7 @@
       "file": "apps/api/src/routes/errorLog.ts",
       "endpoints": 8,
       "label": "Журнал ошибок системы",
-      "usedBy": 4
+      "usedBy": 5
     },
     {
       "mount": "/api/v1/integrations",
@@ -1372,7 +1372,7 @@
       "file": "apps/api/src/routes/stuckWork.ts",
       "endpoints": 2,
       "label": "Экран «Что не доехало»: работа, которую система не довела до конца",
-      "usedBy": 1
+      "usedBy": 2
     },
     {
       "mount": "/api/v1/backups",
@@ -1388,7 +1388,7 @@
       "file": "apps/api/src/routes/botAudit.ts",
       "endpoints": 6,
       "label": "Находки ночного судьи диалогов",
-      "usedBy": 1
+      "usedBy": 2
     },
     {
       "mount": "/api/v1/bot-learning",
@@ -1444,7 +1444,7 @@
       "file": "apps/api/src/routes/instagramComments.ts",
       "endpoints": 4,
       "label": "Лента комментариев под публикациями",
-      "usedBy": 1
+      "usedBy": 2
     },
     {
       "mount": "/api/v1/lead-magnets",
