@@ -43,7 +43,7 @@ export class ErrorBoundary extends React.Component<Props, State> {
         <p className="text-[15px] text-gray-500 mb-5 max-w-[420px]">
           Страница не смогла отрисоваться. Ошибка записана в журнал, попробуйте обновить страницу.
         </p>
-        <button
+        <button type="button"
           onClick={() => window.location.reload()}
           className="bg-blue text-on-accent text-[15px] font-semibold rounded-lg px-4 py-2 shadow-sm hover:bg-blue-hover"
         >
