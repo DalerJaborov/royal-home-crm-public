@@ -484,7 +484,7 @@ function ClientDetailCard() {
              достаточно любого предка с этим классом. */
           <span className="rh2 screens">
             <span className="scr" style={RH2_SCR_BARE}>
-              <button className="pill" onClick={() => refetchClient()}>
+              <button type="button" className="pill" onClick={() => refetchClient()}>
                 Повторить
               </button>
             </span>

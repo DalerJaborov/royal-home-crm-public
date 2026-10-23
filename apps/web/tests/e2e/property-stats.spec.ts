@@ -27,7 +27,10 @@ test("в карточке объекта открывается «Статист
   await tab.click();
 
   await expect(page.getByRole("heading", { name: "Путь покупателя" })).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByRole("heading", { name: "Соседи" })).toBeVisible();
+  // «Соседи» намеренно выключены общим флагом NEIGHBORS_COMPARISON_ENABLED (решение
+  // владельца 29.09.2026: выборка из единиц своих объектов — не рынок). Пока флаг
+  // false, блока нет; вернём проверку заголовка вместе с флагом.
+  await expect(page.getByRole("heading", { name: "Соседи" })).toHaveCount(0);
   await expect(page.getByLabel(/Светофор объекта/)).toBeVisible();
   await page.locator(".pst").screenshot({ path: testInfo.outputPath("property-stats.png") });
 

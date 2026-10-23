@@ -217,7 +217,9 @@
     gap: 8px;
     overflow-x: auto;
     scrollbar-width: none;
-    padding: 8px 10px 0;
+    /* 5px снизу — место под невидимую зону нажатия чипа (::before ниже); те же 5px
+       сняты с padding-top композера, так что видимая раскладка не сдвигается. */
+    padding: 8px 10px 5px;
     background: var(--card);
     border-top: 1px solid var(--line-soft);
   }
@@ -226,6 +228,7 @@
   }
   .rh2 .scr .quick[data-chat-quick] button {
     flex: none;
+    position: relative;
     min-height: 34px;
     padding: 0 12px;
     border-radius: var(--r-pill);
@@ -235,8 +238,15 @@
     font-size: var(--fs-13);
     font-weight: 600;
   }
+  /* Зона нажатия 44 px при видимых 34 — договор §3 (палец, а не пиксель). */
+  .rh2 .scr .quick[data-chat-quick] button::before {
+    content: "";
+    position: absolute;
+    inset: -5px 0;
+  }
   .rh2 .scr .quick[data-chat-quick] + .compose {
     border-top: 0;
+    padding-top: 3px;
   }
 
   /* 5. Меню «⋯» диалога — список действий под шапкой вместо четырёх

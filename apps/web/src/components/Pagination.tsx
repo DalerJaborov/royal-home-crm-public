@@ -110,7 +110,7 @@ export function Pagination({
         с {from} по {to} из {total}
       </span>
       <div className="flex-1" />
-      <button
+      <button type="button"
         onClick={() => onPageChange(page - 1)}
         disabled={page <= 1}
         aria-label="Предыдущая страница"
@@ -121,7 +121,7 @@ export function Pagination({
       <span className="text-[15px] font-semibold text-gray-700 tabular-nums">
         {page} / {totalPages}
       </span>
-      <button
+      <button type="button"
         onClick={() => onPageChange(page + 1)}
         disabled={page >= totalPages}
         aria-label="Следующая страница"

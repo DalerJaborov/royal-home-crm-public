@@ -119,7 +119,7 @@ export function CleanDecisionRow({ row, photos, disabled = false, resolved = fal
   return <div>
     <div className={`clean-decision${complete ? " clean-decision-done" : ""}`}>
       {photo && badPhoto !== photo
-        ? <img src={photo} alt="" width={40} height={40} className="size-10 rounded-xl object-cover" onError={() => setBadPhoto(photo)} />
+        ? <img src={photo} alt="" loading="lazy" decoding="async" width={40} height={40} className="size-10 rounded-xl object-cover" onError={() => setBadPhoto(photo)} />
         : <CAvatar name={row.avatar?.label ?? row.title} size={40} />}
       <div className="min-w-0">
         <p className="clean-decision-title">{row.title}</p>

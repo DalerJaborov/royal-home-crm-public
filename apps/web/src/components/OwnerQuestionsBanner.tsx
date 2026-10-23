@@ -133,7 +133,7 @@ export function OwnerQuestionsBanner() {
           className="mt-2 flex items-center gap-2.5 rounded-2xl border border-line p-2 hover:bg-hover-tint"
         >
           {current.propertyThumbUrl ? (
-            <img src={current.propertyThumbUrl} alt="" className="h-11 w-11 shrink-0 rounded-md object-cover" />
+            <img src={current.propertyThumbUrl} alt="" loading="lazy" decoding="async" className="h-11 w-11 shrink-0 rounded-md object-cover" />
           ) : (
             <span className="grid h-11 w-11 shrink-0 place-items-center rounded-md bg-line-soft text-gray-400">
               <Home className="h-4 w-4" />

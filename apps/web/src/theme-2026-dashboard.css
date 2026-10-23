@@ -124,7 +124,7 @@
 /* Число-суть раздела. Табличные цифры: без них чипы при каждом обновлении
    снимка (раз в 15 с) дёргались бы по ширине — «1» уже «8». */
 .rh2 .secnav-a .n {
-  font-family: "Manrope", "Manrope Fallback", sans-serif;
+  font-family: var(--ff-head);
   font-weight: 700;
   font-size: 13px;
   color: var(--ink);
