@@ -3,6 +3,8 @@ import { hasNewerCustomerInboxInput, NEWER_INPUT_PENDING } from "./customerNewer
 import { loadDeferredCustomerInput } from "./customerDeferredInput.js";
 import type { CustomerAgentEvidence } from "../ai/customerAgentRenderer.js";
 import { runCustomerAgentTurn, safeCauseCode } from "../ai/customerAgentCore.js";
+import { customerAgentSayMode } from "./customerAgentFeaturePolicy.js";
+import { recordCustomerAgentSay } from "./customerAgentSayStats.js";
 import { customerAgentToolDefinitions, CUSTOMER_AGENT_PUBLIC_TOOLS } from "../ai/customerAgentToolDefinitions.js";
 import { dispatchCustomerTool } from "../ai/customerToolRegistry.js";
 import { resolveCustomerDmLanguage } from "../ai/customerDmLanguage.js";
@@ -210,7 +212,7 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
       knownPhoneSource: lane.context.knownPhoneSource, requestedFacts, revision: claim.pin.revision,
       startedAt: claim.pin.receivedAt, operation: runtime.operation,
       tools: customerAgentToolDefinitions([...CUSTOMER_AGENT_PUBLIC_TOOLS, ...mutations.availableToolNames]),
-      verifiedContext: remembered.context,
+      verifiedContext: remembered.context, sayMode: customerAgentSayMode(),
     }, {
       assertCurrent: async (evidence, wait) => { accumulated = evidence; return current(wait); },
       modelTurn: async input => {
@@ -250,6 +252,7 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
       observeLateToolResult: () => {},
     });
     traceCustomerCoreResult(result);
+    if (result.status === "ready") recordCustomerAgentSay(result.say);
     if (result.status === "held") heldCause = result.cause;
     // A committed handover deliberately invalidates the ordinary BOT context.
     // Only the captured pre-effect source and its actual committed receipt can

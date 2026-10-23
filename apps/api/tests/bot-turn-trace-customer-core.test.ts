@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { botTurnTracePayloadSchema, type BotTurnTracePayload } from "@royal-home/shared";
+import { botTurnTracePayloadSchema, traceCustomerCoreSchema, type BotTurnTracePayload } from "@royal-home/shared";
 import { withBotTurnTrace, traceModelStart, traceModelFinish, traceCustomerCoreResult,
   traceCustomerCoreDisposition, traceCustomerManagedBinding, traceCustomerManagedDelivery, traceFilterDelta,
   traceObserveSend, traceProviderAccepted } from "../src/lib/botTurnTrace.js";
@@ -143,5 +143,38 @@ describe("customer core trace carries a SAFE cause code (23.10)", () => {
     }, f.config);
     expect(f.rows.at(-1)?.customerCore).toMatchObject({ status: "ready", decisionSource: "receipt_confirmation", causeCode: "round_limit", receiptOutcomes: ["callback_requested"] });
     expect(f.rows.at(-1)?.customerCore?.protocolReason).toBeUndefined();
+  });
+});
+
+describe("grounded free phrase (say) in the managed core trace", () => {
+  const say = "PRIVATE_SAY_TEXT_MUST_NOT_APPEAR";
+  it.each([
+    [{ status: "used" as const }, { sayStatus: "used" }],
+    [{ status: "dropped" as const, reason: "promise" }, { sayStatus: "dropped", sayDropReason: "promise" }],
+    [{ status: "dropped" as const, reason: "shadow" }, { sayStatus: "dropped", sayDropReason: "shadow" }],
+    [{ status: "absent" as const }, { sayStatus: "absent" }],
+  ])("records only the verdict %j", async (verdict, expected) => {
+    const f = recorder();
+    await withBotTurnTrace({ ...start, managed: { surface: "dm", phase: "planning" } }, async () => {
+      traceCustomerCoreResult({ status: "ready", decision: { kind: "reply", say }, rounds: 1, toolCalls: 0, evidence: [], say: verdict });
+      traceCustomerCoreDisposition("planned");
+    }, f.config);
+    const last = f.rows.at(-1)!;
+    expect(last.customerCore).toMatchObject(expected);
+    if (verdict.status !== "dropped") expect(last.customerCore).not.toHaveProperty("sayDropReason");
+    expect(JSON.stringify(f.rows)).not.toContain(say);
+    expect(botTurnTracePayloadSchema.safeParse(last).success).toBe(true);
+  });
+  it("a turn without a verdict carries no say fields at all (older payloads stay valid)", async () => {
+    const f = recorder();
+    await withBotTurnTrace({ ...start, managed: { surface: "dm", phase: "planning" } }, async () => {
+      traceCustomerCoreResult({ status: "ready", decision: { kind: "reply" }, rounds: 1, toolCalls: 0, evidence: [] });
+    }, f.config);
+    expect(f.rows.at(-1)?.customerCore).not.toHaveProperty("sayStatus");
+  });
+  it("the schema refuses a reason outside the closed set", () => {
+    const base = { status: "ready", rounds: 1, toolCalls: 0, receiptOutcomes: [] };
+    expect(traceCustomerCoreSchema.safeParse({ ...base, sayStatus: "dropped", sayDropReason: "not_a_reason" }).success).toBe(false);
+    expect(traceCustomerCoreSchema.safeParse({ ...base, sayStatus: "dropped", sayDropReason: "echo" }).success).toBe(true);
   });
 });

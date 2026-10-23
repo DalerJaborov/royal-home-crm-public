@@ -696,3 +696,106 @@ it("public comments get no correction round: a malformed final stays one model r
   unknown.modelTurn.mockResolvedValue(toolTurn([{ name: "delete_client", args: {}, id: "pub-1" }]));
   expect(await runCustomerAgentTurn(unknown.frame, unknown.ports)).toMatchObject({ status: "held", reason: "unavailable_tool", rounds: 1 });
 });
+
+describe("grounded free phrase (say): lifted before the strict parse, shadow by default (24.10)", () => {
+  const PRICE = "Цена объекта №123: 123 456.78 сомони.";
+  const GOOD = "Понял, вас интересует этот объект.";
+  const run = async (change: Record<string, unknown>, frame: Partial<CustomerCoreFrame> = {}) => {
+    const f = fixture(frame);
+    f.modelTurn.mockResolvedValue(final({ refs: ["e0"], ...change }));
+    const result = await runCustomerAgentTurn(f.frame, f.ports);
+    if (result.status !== "ready") throw Error(`Expected a ready answer, got ${result.status} ${result.status === "held" ? result.reason : ""}`);
+    return { f, result };
+  };
+  it("shadow (the default): a valid phrase is counted as dropped with the code shadow and never sent", async () => {
+    const { result, f } = await run({ social: "acknowledge", say: GOOD });
+    expect(result.text).toBe(`Понял.\n${PRICE}`);
+    expect(result.say).toEqual({ status: "dropped", reason: "shadow" });
+    expect(result.decision).not.toHaveProperty("say");
+    expect(f.modelTurn).toHaveBeenCalledTimes(1);
+  });
+  it("shadow explicitly set behaves the same", async () => {
+    const { result } = await run({ say: GOOD }, { sayMode: "shadow" });
+    expect(result.text).toBe(PRICE); expect(result.say).toEqual({ status: "dropped", reason: "shadow" });
+  });
+  it("live: the phrase replaces «Понял.», and only the validated text reaches the decision", async () => {
+    const { result } = await run({ social: "acknowledge", say: `  ${GOOD}  ` }, { sayMode: "live" });
+    expect(result.text).toBe(`${GOOD}\n${PRICE}`);
+    expect(result.say).toEqual({ status: "used" });
+    expect(result.decision).toMatchObject({ kind: "reply", say: GOOD });
+  });
+  it("live: greeting first, the single template question last", async () => {
+    const { result } = await run({ social: "greet", question: "location", say: "Давайте разберёмся вместе." }, { sayMode: "live" });
+    expect(result.text.split("\n")).toEqual(["Здравствуйте!", "Давайте разберёмся вместе.", PRICE, "Какой район вам подходит?"]);
+    expect(result.question).toBe("location");
+  });
+  it.each([["a number", "Это стоит пять тысяч."], ["a promise", "Мы вам позвоним."], ["a question", "Какой район вам нужен?"], ["too long", "Понял вас. ".repeat(30)],
+    ["not a string", 42], ["an empty string", ""]])("live: a bad phrase (%s) never costs the answer, a round or a correction", async (_name, say) => {
+    const { result, f } = await run({ social: "acknowledge", say }, { sayMode: "live" });
+    expect(result.text).toBe(`Понял.\n${PRICE}`);
+    expect(result.say?.status).toBe("dropped");
+    expect(result.decision).not.toHaveProperty("say");
+    expect(result.rounds).toBe(1);
+    expect(f.modelTurn).toHaveBeenCalledTimes(1);
+  });
+  it("reports the validator's reason code", async () => {
+    expect((await run({ say: "Это стоит пять тысяч." }, { sayMode: "live" })).result.say).toEqual({ status: "dropped", reason: "number_or_date" });
+    expect((await run({ say: "Мы вам позвоним." }, { sayMode: "live" })).result.say).toEqual({ status: "dropped", reason: "promise" });
+  });
+  it("Tajik is off in v1: language_disabled, and the Tajik template answer goes out as before", async () => {
+    const { result } = await run({ say: "Ташаккур, ки навиштед." }, { sayMode: "live", language: "tg", inputText: "Нархи объекти 123 чанд?" });
+    expect(result.say).toEqual({ status: "dropped", reason: "language_disabled" });
+    expect(result.text).not.toContain("Ташаккур, ки навиштед");
+  });
+  it("public comments never carry a phrase", async () => {
+    const { result } = await run({ say: GOOD }, { sayMode: "live", surface: "public_comment" });
+    expect(result.say).toEqual({ status: "dropped", reason: "surface_disabled" });
+    expect(result.text).not.toContain("Понял, вас");
+  });
+  it("a phrase beside skip or escalate is ignored without a protocol error", async () => {
+    const f = fixture({ requestedFacts: [] });
+    f.modelTurn.mockResolvedValue({ text: JSON.stringify({ kind: "escalate", reason: "needs_staff", say: GOOD }), calls: [], modelParts: [] });
+    const result = await runCustomerAgentTurn(f.frame, f.ports);
+    expect(result).toMatchObject({ status: "ready", decision: { kind: "escalate" }, rounds: 1 });
+    if (result.status === "ready") expect(result.say ?? { status: "absent" }).toEqual({ status: "absent" });
+  });
+  it("no phrase means absent", async () => {
+    const { result } = await run({ social: "acknowledge" }, { sayMode: "live" });
+    expect(result.say ?? { status: "absent" }).toEqual({ status: "absent" });
+    expect(result.text).toBe(`Понял.\n${PRICE}`);
+  });
+  it("an invalid decision with a phrase is still corrected as a decision problem, the phrase never rescues it", async () => {
+    const f = fixture({ sayMode: "live" });
+    f.modelTurn.mockResolvedValueOnce(final({ refs: ["e0"], kind: "nonsense", say: GOOD })).mockResolvedValueOnce(final({ refs: ["e0"], say: GOOD }));
+    const result = await runCustomerAgentTurn(f.frame, f.ports);
+    expect(result).toMatchObject({ status: "ready", rounds: 2, say: { status: "used" } });
+  });
+  const modelText = (f: ReturnType<typeof fixture>) => f.modelTurn.mock.calls[0][0].contents.flatMap(content => content.parts.map(part => (part as { text?: string }).text ?? "")).join("\n");
+  it("tells the model the reply language: beside the surface with a context, as its own part without one", async () => {
+    const withContext = fixture({ language: "tg", verifiedContext: { surface: "dm", revisionId: hash, turns: [], publicState: { topic: "unknown" } as never } });
+    await runCustomerAgentTurn(withContext.frame, withContext.ports);
+    expect(modelText(withContext)).toContain('"replyLanguage":"tg"');
+    const without = fixture({ language: "ru" });
+    await runCustomerAgentTurn(without.frame, without.ports);
+    expect(modelText(without)).toContain('"replyLanguage":"ru"');
+  });
+  it("sends the say rules to the model in the private-message context only, and not in the pinned system prompt", async () => {
+    const dm = fixture({ verifiedContext: { surface: "dm", revisionId: hash, turns: [], publicState: { topic: "unknown" } as never } });
+    await runCustomerAgentTurn(dm.frame, dm.ports);
+    expect(modelText(dm)).toContain("sayGuidance");
+    const noContext = fixture();
+    await runCustomerAgentTurn(noContext.frame, noContext.ports);
+    expect(modelText(noContext)).toContain("sayGuidance");
+    const publicTurn = fixture({ surface: "public_comment", verifiedContext: { surface: "public_comment", revisionId: hash, turns: [], publicState: { topic: "unknown" } as never } });
+    await runCustomerAgentTurn(publicTurn.frame, publicTurn.ports);
+    expect(modelText(publicTurn)).not.toContain("sayGuidance");
+  });
+  it("delivery sealing re-renders the identical text from the stored decision (the print matches)", async () => {
+    const { renderCustomerAgentDecision } = await import("../src/ai/customerAgentRenderer.js");
+    const { result, f } = await run({ social: "greet", question: "location", say: GOOD }, { sayMode: "live" });
+    const again = renderCustomerAgentDecision({ decision: result.decision, evidence: result.evidence, language: "ru", requestedFacts: f.frame.requestedFacts,
+      knownPhoneSource: "none", maxOutputChars: 2000, surface: "dm", inputText: f.frame.inputText });
+    expect(again).toBe(result.text);
+    expect(customerAgentDecisionSchema.parse(result.decision)).toMatchObject({ say: GOOD });
+  });
+});
