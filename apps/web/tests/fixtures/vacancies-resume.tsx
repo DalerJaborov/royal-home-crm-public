@@ -2,10 +2,11 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { recruitmentContactPreviewSchema, type RecruitmentCommunicationDelivery, type RecruitmentContactPreviewInput } from "@royal-home/shared";
 import { createRecruitmentCatalogFixture } from "./recruitment-catalog";
 import { Vacancies } from "../../src/pages/Vacancies";
+import { VacancyDetail } from "../../src/pages/VacancyDetail";
 import { useAuthStore } from "../../src/store/auth";
 import { initMobileUxFlag } from "../../src/hooks/useMobileUx";
 import "../../src/index.css";
@@ -50,6 +51,7 @@ if (new URLSearchParams(location.search).get("mock") === "1") {
     else if (path === "/me/active-call") response = null;
     else if (path === "/vacancies") response = { items: url.searchParams.get("q") ? [] : [candidate], total: url.searchParams.get("q") ? 0 : 1,
       counts: { NEW: 1, REVIEWED: 0, INTERVIEW: 0, INTERVIEWED: 0, HIRED: 0, REJECTED: 0 }, collecting: true, todayInterviews: [], noPhoneCount: 0 };
+    else if (path === `/vacancies/${candidate.id}` && (init?.method ?? "GET") === "GET") response = candidate;
     else if (path.endsWith("/conversation")) response = { messages: [], files: [], inboxId: null };
     else if (path.endsWith("/contact-options")) {
       const capability = legacy && !candidate.positionKey ? { available: false, reason: "Выберите вакансию для этой анкеты" } : { available: true };
@@ -78,4 +80,4 @@ if (new URLSearchParams(location.search).get("mock") === "1") {
 }
 useAuthStore.setState({ agent: { id: "11111111-1111-4111-8111-111111111111", fullName: "Тестовый руководитель", phone: "test-staff", role: "DIRECTOR" }, accessToken: "test-fixture-token", hasSession: true });
 const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
-createRoot(document.getElementById("root")!).render(<QueryClientProvider client={client}><MemoryRouter><main><p style={{ padding: "10px 24px", background: "#fff1d4", color: "#5a400e", fontSize: 13 }}>Тестовый стенд · вымышленные данные · отправка отключена</p><Vacancies /></main></MemoryRouter></QueryClientProvider>);
+createRoot(document.getElementById("root")!).render(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/vacancies"]}><main><p style={{ padding: "10px 24px", background: "#fff1d4", color: "#5a400e", fontSize: 13 }}>Тестовый стенд · вымышленные данные · отправка отключена</p><Routes><Route path="/vacancies" element={<Vacancies />} /><Route path="/vacancies/:id" element={<VacancyDetail />} /></Routes></main></MemoryRouter></QueryClientProvider>);

@@ -508,6 +508,21 @@ vacanciesRouter.get("/", requireAuth, requirePermission("vacancies.view"), async
   });
 });
 
+/**
+ * ОДНА АНКЕТА — для отдельной карточки кандидата `/vacancies/:id` (23.10.2026).
+ * Тот же вид элемента, что в списке (presentListItem), те же права. NOT_CANDIDATE
+ * скрыт так же, как в списке: для раздела такой анкеты нет — 404. Регистрируется
+ * ПОСЛЕ `use("/positions")` и `GET /`, а подпути (`/:id/conversation`, `/:id/cv`
+ * и т.п.) этот маршрут не перехватывает: `/:id` совпадает только с одним сегментом.
+ */
+vacanciesRouter.get("/:id", requireAuth, requirePermission("vacancies.view"), async (req, res) => {
+  const id = z.string().min(1).max(64).safeParse(req.params.id);
+  if (!id.success) return res.status(404).json({ error: "Анкета не найдена" });
+  const row = await prisma.jobApplication.findFirst({ where: { AND: [{ id: id.data }, NOT_ARCHIVED] }, include: LIST_INCLUDE });
+  if (!row) return res.status(404).json({ error: "Анкета не найдена" });
+  res.json(presentListItem(row));
+});
+
 /** Свёртка groupBy по (customerPositionKey, hrPositionKey) в словарь «вакансия -> число». */
 function positionCountsOf(
   groups: Array<{ customerPositionKey: string | null; hrPositionKey: string | null; _count: { _all: number } }>

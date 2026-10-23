@@ -19,7 +19,7 @@ export function VacancyCreateSheet({ positions, defaultPositionKey, onClose, onC
   const existingId = duplicateCandidateId(create.error);
   const busy = create.isPending;
   const set = (key: keyof CandidateDraft) => (event: { target: { value: string } }) => setDraft(value => ({ ...value, [key]: event.target.value }));
-  return <Rh2Sheet title="Новый кандидат" onClose={onClose} dismissible={!busy} closeOnBackdrop={false} className="vacancy-contact-sheet"
+  return <Rh2Sheet title="Новый кандидат" onClose={onClose} dismissible={!busy} closeOnBackdrop={false}
     onSubmit={event => {
       event.preventDefault();
       const result = candidateCreateBody(draft);
@@ -27,25 +27,25 @@ export function VacancyCreateSheet({ positions, defaultPositionKey, onClose, onC
       setFormError("");
       create.mutate(result.body, { onSuccess: created => onCreated(created.id) });
     }}
-    footer={<div className="vacancy-contact-scope vacancy-form-buttons"><button type="button" className="vacancy-button secondary" disabled={busy} onClick={onClose}>Отмена</button>
-      <button type="submit" className="vacancy-button" disabled={busy}>{busy ? "Сохраняем…" : "Добавить кандидата"}</button></div>}>
-    <div className="vacancy-contact-scope">
-      <p className="vacancy-muted">Анкета появится в ленте со статусом «Новый отклик». Кандидату ничего не отправляется.</p>
-      <label className="vacancy-field"><span>Имя и фамилия *</span><input value={draft.name} onChange={set("name")} maxLength={120} required autoComplete="off" /></label>
-      <label className="vacancy-field"><span>Вакансия *</span><select value={draft.positionKey} onChange={set("positionKey")} required>
+    footer={<div className="wrap"><button type="button" className="pill ghost" disabled={busy} onClick={onClose}>Отмена</button>
+      <button type="submit" className="pill" disabled={busy}>{busy ? "Сохраняем…" : "Добавить кандидата"}</button></div>}>
+    <div className="grid gap-3">
+      <p className="text-[14px] text-gray-500">Анкета появится в ленте со статусом «Новый отклик». Кандидату ничего не отправляется.</p>
+      <label className="fld"><span className="lab">Имя и фамилия *</span><input value={draft.name} onChange={set("name")} maxLength={120} required autoComplete="off" /></label>
+      <label className="fld"><span className="lab">Вакансия *</span><select value={draft.positionKey} onChange={set("positionKey")} required>
         <option value="">Выберите вакансию</option>
         {positions?.map(position => <option key={position.key} value={position.key}>{position.titleRu}{position.isOpen ? "" : " · набор закрыт"}</option>)}
       </select></label>
-      <div className="vacancy-form-grid">
-        <label className="vacancy-field"><span>Телефон</span><input type="tel" value={draft.phone} onChange={set("phone")} maxLength={40} autoComplete="off" /></label>
-        <label className="vacancy-field"><span>Город</span><input value={draft.city} onChange={set("city")} maxLength={80} /></label>
-        <label className="vacancy-field"><span>Возраст</span><input inputMode="numeric" value={draft.age} onChange={set("age")} maxLength={3} /></label>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <label className="fld"><span className="lab">Телефон</span><input type="tel" value={draft.phone} onChange={set("phone")} maxLength={40} autoComplete="off" /></label>
+        <label className="fld"><span className="lab">Город</span><input value={draft.city} onChange={set("city")} maxLength={80} /></label>
+        <label className="fld"><span className="lab">Возраст</span><input inputMode="numeric" value={draft.age} onChange={set("age")} maxLength={3} /></label>
       </div>
-      <label className="vacancy-field"><span>Опыт</span><textarea rows={3} value={draft.experience} onChange={set("experience")} maxLength={2000} /></label>
-      <label className="vacancy-field"><span>Заметка</span><textarea rows={3} value={draft.note} onChange={set("note")} maxLength={4000} /><small>Видно только сотрудникам.</small></label>
-      {formError && <p className="vacancy-form-error" role="alert">{formError}</p>}
-      {existingId ? <div className="vacancy-notice" role="alert"><p>Такой кандидат уже есть.</p>
-        <button type="button" className="vacancy-text-button" onClick={() => onOpenExisting(existingId, draft.phone.trim())}>Открыть его анкету</button></div>
+      <label className="fld"><span className="lab">Опыт</span><textarea rows={3} value={draft.experience} onChange={set("experience")} maxLength={2000} /></label>
+      <label className="fld"><span className="lab">Заметка</span><textarea rows={3} value={draft.note} onChange={set("note")} maxLength={4000} /><span className="msg">Видно только сотрудникам.</span></label>
+      {formError && <p className="quiet crit" role="alert">{formError}</p>}
+      {existingId ? <div className="quiet warn" role="alert"><p>Такой кандидат уже есть.</p>
+        <button type="button" className="lnk" onClick={() => onOpenExisting(existingId, draft.phone.trim())}>Открыть его анкету</button></div>
         : <MutationError mutation={create} fallback="Не удалось добавить кандидата" />}
     </div>
   </Rh2Sheet>;

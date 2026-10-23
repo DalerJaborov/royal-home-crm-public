@@ -1,8 +1,8 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 660,
-  "forks": 3642,
+  "endpoints": 661,
+  "forks": 3644,
   "mounts": 74,
   "cron": 107,
   "jobs": 31,
@@ -73688,6 +73688,71 @@
      "t": "res.status(204).end();",
      "a": [
       "ответ 204"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/:id",
+   "mount": "/api/v1/vacancies",
+   "full": "/api/v1/vacancies/:id",
+   "file": "apps/api/src/routes/vacancies.ts",
+   "router": "vacanciesRouter",
+   "top": "apps/api/src/routes/vacancies.ts::vacanciesRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: vacancies.view"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!id.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Анкета не найдена\" });",
+       "a": [
+        "ответ 404 — «Анкета не найдена»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const row = await prisma.jobApplication.findFirst({ where: { AND: [{ id: id.data }, NOT_ARCHIVED] }, include:…",
+     "a": [
+      "читает в базе: jobApplication"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!row",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Анкета не найдена\" });",
+       "a": [
+        "ответ 404 — «Анкета не найдена»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.json(presentListItem(row));",
+     "a": [
+      "ответ 200"
      ],
      "c": []
     }
