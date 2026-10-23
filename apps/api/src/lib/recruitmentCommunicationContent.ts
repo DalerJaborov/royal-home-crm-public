@@ -16,6 +16,8 @@ export interface RecruitmentCommunicationContent {
 }
 /** Only the selected current catalog entry is a job fact. No legacy realtor
  * salary, inferred résumé answers or model-supplied appointment is included. */
+/** Текст SMS короткий по решению владельца 23.10.2026: без «Royal Home:» в начале, без
+ *  «время Душанбе» и без фразы о решении по найму — кандидат и так понимает. */
 export function buildRecruitmentCommunicationContent(input: RecruitmentContactPreviewInput, facts: {
   name: string | null; titleRu: string; titleTg: string; detailsRu: string; detailsTg: string;
   address: string; /** Таджикский адрес для приглашения на tg; нет — берётся address. */ addressTg?: string;
@@ -31,15 +33,15 @@ export function buildRecruitmentCommunicationContent(input: RecruitmentContactPr
   const questions = facts.missing.map(key => tajik ? tg[key] : RECRUITMENT_FACT_LABELS[key].toLocaleLowerCase());
   const when = input.interviewAt ? (tajik ? interviewTimeTg(new Date(input.interviewAt)) : interviewTimeRu(new Date(input.interviewAt))) : null;
   const text = input.purpose === "INVITE" ? (tajik ? [
-    `Royal Home: Шуморо ба суҳбат барои вазифаи «${title}» даъват мекунем: ${when} (вақти Душанбе).`,
+    `Шуморо ба суҳбат барои вазифаи «${title}» даъват мекунем: ${when}.`,
     `Суроға: ${address}.`, mapUrl ? `Харита: ${mapUrl}` : "",
     input.preparation ? `Омодагӣ: ${input.preparation}` : "",
-    `Агар вақт мувофиқ набошад, ба Royal Home пешакӣ хабар диҳед: ${PUBLIC_AGENCY_CONTACT.phone}. Қабул ба корро роҳбарият пас аз суҳбат ҳал мекунад.`,
+    `Агар вақт мувофиқ набошад, ба Royal Home пешакӣ хабар диҳед: ${PUBLIC_AGENCY_CONTACT.phone}.`,
   ] : [
-    `Royal Home: приглашаем на собеседование по вакансии «${title}» ${when} (время Душанбе).`,
+    `Приглашаем на собеседование по вакансии «${title}» ${when}.`,
     `Адрес: ${address}.`, mapUrl ? `Карта: ${mapUrl}` : "",
     input.preparation ? `Подготовка: ${input.preparation}` : "",
-    `Если время не подходит, заранее свяжитесь с Royal Home: ${PUBLIC_AGENCY_CONTACT.phone}. Решение о найме принимается после собеседования.`,
+    `Если время не подходит, заранее свяжитесь с Royal Home: ${PUBLIC_AGENCY_CONTACT.phone}.`,
   ]).filter(Boolean).join("\n") : (tajik ?
     `Royal Home, вазифаи «${title}». Барои пур кардани анкета маълумоти зеринро дар мукотибаи худ бо Royal Home фиристед ё бо рақами ${PUBLIC_AGENCY_CONTACT.phone} хабар диҳед: ${questions.join(", ")}. Ин даъват ба суҳбат ё тасдиқи қабул ба кор нест.` :
     `Royal Home, вакансия «${title}». Для заполнения анкеты пришлите в вашу переписку с Royal Home или сообщите по телефону ${PUBLIC_AGENCY_CONTACT.phone}: ${questions.join(", ")}. Это уточнение анкеты, а не приглашение или решение о найме.`);

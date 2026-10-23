@@ -12,11 +12,11 @@
   "other": "Прочие экраны, открываются изнутри"
  },
  "totals": {
-  "screens": 51,
-  "paths": 662,
+  "screens": 52,
+  "paths": 663,
   "cron": 107,
   "jobs": 31,
-  "conditions": 3646,
+  "conditions": 3648,
   "untranslatedUnique": 396,
   "untranslatedTotal": 504,
   "partialUnique": 1028,
@@ -2455,12 +2455,22 @@
      "conf": "через общую часть"
     },
     {
+     "i": 640,
+     "direct": false,
+     "conf": "через общую часть"
+    },
+    {
      "i": 645,
      "direct": false,
      "conf": "через общую часть"
     },
     {
      "i": 646,
+     "direct": false,
+     "conf": "через общую часть"
+    },
+    {
+     "i": 647,
      "direct": false,
      "conf": "через общую часть"
     }
@@ -2771,12 +2781,22 @@
      "conf": "через общую часть"
     },
     {
+     "i": 640,
+     "direct": false,
+     "conf": "через общую часть"
+    },
+    {
      "i": 645,
      "direct": false,
      "conf": "через общую часть"
     },
     {
      "i": 646,
+     "direct": false,
+     "conf": "через общую часть"
+    },
+    {
+     "i": 647,
      "direct": false,
      "conf": "через общую часть"
     }
@@ -3508,17 +3528,17 @@
      "conf": "через общую часть"
     },
     {
-     "i": 659,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
      "i": 660,
      "direct": false,
      "conf": "через общую часть"
     },
     {
      "i": 661,
+     "direct": false,
+     "conf": "через общую часть"
+    },
+    {
+     "i": 662,
      "direct": false,
      "conf": "через общую часть"
     }
@@ -5614,12 +5634,22 @@
      "conf": "через общую часть"
     },
     {
+     "i": 640,
+     "direct": false,
+     "conf": "через общую часть"
+    },
+    {
      "i": 645,
      "direct": false,
      "conf": "через общую часть"
     },
     {
      "i": 646,
+     "direct": false,
+     "conf": "через общую часть"
+    },
+    {
+     "i": 647,
      "direct": false,
      "conf": "через общую часть"
     }
@@ -9351,17 +9381,108 @@
    "redirect": null,
    "eps": [
     {
-     "i": 51,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
      "i": 179,
      "direct": false,
      "conf": "через часть экрана"
     },
     {
      "i": 180,
+     "direct": false,
+     "conf": "через часть экрана"
+    },
+    {
+     "i": 628,
+     "direct": false,
+     "conf": "через часть экрана"
+    },
+    {
+     "i": 629,
+     "direct": false,
+     "conf": "через часть экрана"
+    },
+    {
+     "i": 631,
+     "direct": false,
+     "conf": "через часть экрана"
+    },
+    {
+     "i": 635,
+     "direct": false,
+     "conf": "через часть экрана"
+    },
+    {
+     "i": 637,
+     "direct": false,
+     "conf": "через часть экрана"
+    },
+    {
+     "i": 638,
+     "direct": true,
+     "conf": "точно"
+    },
+    {
+     "i": 639,
+     "direct": false,
+     "conf": "через часть экрана"
+    },
+    {
+     "i": 640,
+     "direct": false,
+     "conf": "через часть экрана"
+    },
+    {
+     "i": 641,
+     "direct": false,
+     "conf": "через часть экрана"
+    },
+    {
+     "i": 642,
+     "direct": false,
+     "conf": "через часть экрана"
+    },
+    {
+     "i": 643,
+     "direct": false,
+     "conf": "через часть экрана"
+    },
+    {
+     "i": 644,
+     "direct": false,
+     "conf": "через часть экрана"
+    },
+    {
+     "i": 645,
+     "direct": true,
+     "conf": "точно"
+    },
+    {
+     "i": 646,
+     "direct": false,
+     "conf": "через часть экрана"
+    },
+    {
+     "i": 647,
+     "direct": false,
+     "conf": "через часть экрана"
+    }
+   ]
+  },
+  {
+   "path": "/vacancies/:id",
+   "title": "Вакансии: карточка",
+   "group": "team",
+   "parent": "/vacancies",
+   "file": "apps/web/src/pages/VacancyDetail.tsx",
+   "inMenu": false,
+   "redirect": null,
+   "eps": [
+    {
+     "i": 51,
+     "direct": false,
+     "conf": "через общую часть"
+    },
+    {
+     "i": 628,
      "direct": false,
      "conf": "через часть экрана"
     },
@@ -9402,8 +9523,8 @@
     },
     {
      "i": 638,
-     "direct": false,
-     "conf": "через часть экрана"
+     "direct": true,
+     "conf": "точно"
     },
     {
      "i": 639,
@@ -9416,32 +9537,17 @@
      "conf": "через часть экрана"
     },
     {
-     "i": 641,
-     "direct": false,
-     "conf": "через часть экрана"
-    },
-    {
-     "i": 642,
-     "direct": false,
-     "conf": "через часть экрана"
-    },
-    {
-     "i": 643,
-     "direct": false,
-     "conf": "через часть экрана"
-    },
-    {
-     "i": 644,
+     "i": 645,
      "direct": true,
      "conf": "точно"
     },
     {
-     "i": 645,
+     "i": 646,
      "direct": false,
      "conf": "через часть экрана"
     },
     {
-     "i": 646,
+     "i": 647,
      "direct": false,
      "conf": "через часть экрана"
     }
@@ -13246,7 +13352,7 @@
    ],
    "screens": [
     "/messages",
-    "/vacancies"
+    "/vacancies/:id"
    ],
    "tree": [
     {
@@ -57242,7 +57348,9 @@
     "/reports",
     "/settings",
     "/sources",
-    "/team"
+    "/team",
+    "/vacancies",
+    "/vacancies/:id"
    ],
    "tree": [
     {
@@ -57272,7 +57380,8 @@
     "/calendar",
     "/calls",
     "/messages",
-    "/vacancies"
+    "/vacancies",
+    "/vacancies/:id"
    ],
    "tree": [
     {
@@ -57398,7 +57507,7 @@
     "validateApplicationId"
    ],
    "screens": [
-    "/vacancies"
+    "/vacancies/:id"
    ],
    "tree": [
     {
@@ -57441,7 +57550,8 @@
     "/calendar",
     "/calls",
     "/messages",
-    "/vacancies"
+    "/vacancies",
+    "/vacancies/:id"
    ],
    "tree": [
     {
@@ -57554,7 +57664,7 @@
     "validateApplicationId"
    ],
    "screens": [
-    "/vacancies"
+    "/vacancies/:id"
    ],
    "tree": [
     {
@@ -57608,7 +57718,7 @@
     "validateApplicationId"
    ],
    "screens": [
-    "/vacancies"
+    "/vacancies/:id"
    ],
    "tree": [
     {
@@ -57664,7 +57774,8 @@
     "/calendar",
     "/calls",
     "/messages",
-    "/vacancies"
+    "/vacancies",
+    "/vacancies/:id"
    ],
    "tree": [
     {
@@ -57759,7 +57870,8 @@
     "/calendar",
     "/calls",
     "/messages",
-    "/vacancies"
+    "/vacancies",
+    "/vacancies/:id"
    ],
    "tree": [
     {
@@ -57813,6 +57925,63 @@
   },
   {
    "i": 638,
+   "title": "Открыть: вакансии",
+   "where": "apps/api/src/routes/vacancies.ts",
+   "method": "GET",
+   "full": "/api/v1/vacancies/:id",
+   "mount": "/api/v1/vacancies",
+   "module": "Кандидаты на вакансии",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: vacancies.view"
+   ],
+   "screens": [
+    "/calendar",
+    "/calls",
+    "/messages",
+    "/vacancies",
+    "/vacancies/:id"
+   ],
+   "tree": [
+    {
+     "t": "если нет: success",
+     "k": "if",
+     "a": [],
+     "c": [
+      {
+       "t": "отказ: не нашли: «Анкета не найдена»",
+       "k": "do",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
+     "t": "если нет: строка",
+     "k": "if",
+     "a": [],
+     "c": [
+      {
+       "t": "отказ: не нашли: «Анкета не найдена»",
+       "k": "do",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
+     "t": "всё хорошо, отвечает данными",
+     "k": "do",
+     "a": [],
+     "c": []
+    }
+   ]
+  },
+  {
+   "i": 639,
    "title": "Изменить: вакансии",
    "where": "apps/api/src/routes/vacancies.ts",
    "method": "PATCH",
@@ -57830,7 +57999,8 @@
     "/calendar",
     "/calls",
     "/messages",
-    "/vacancies"
+    "/vacancies",
+    "/vacancies/:id"
    ],
    "tree": [
     {
@@ -58187,7 +58357,7 @@
    ]
   },
   {
-   "i": 639,
+   "i": 640,
    "title": "Добавить: пачкой",
    "where": "apps/api/src/routes/vacancies.ts",
    "method": "POST",
@@ -58205,7 +58375,8 @@
     "/calendar",
     "/calls",
     "/messages",
-    "/vacancies"
+    "/vacancies",
+    "/vacancies/:id"
    ],
    "tree": [
     {
@@ -58377,7 +58548,7 @@
    ]
   },
   {
-   "i": 640,
+   "i": 641,
    "title": "Заменить: positions",
    "where": "apps/api/src/routes/recruitmentPositions.ts",
    "method": "PUT",
@@ -58551,7 +58722,7 @@
    ]
   },
   {
-   "i": 641,
+   "i": 642,
    "title": "Показать: recovery",
    "where": "apps/api/src/routes/recruitmentPositions.ts",
    "method": "GET",
@@ -58606,7 +58777,7 @@
    ]
   },
   {
-   "i": 642,
+   "i": 643,
    "title": "Добавить: recovery",
    "where": "apps/api/src/routes/recruitmentPositions.ts",
    "method": "POST",
@@ -58662,7 +58833,7 @@
    ]
   },
   {
-   "i": 643,
+   "i": 644,
    "title": "Показать: templates",
    "where": "apps/api/src/routes/recruitmentPositions.ts",
    "method": "GET",
@@ -58689,7 +58860,7 @@
    ]
   },
   {
-   "i": 644,
+   "i": 645,
    "title": "Показать: positions",
    "where": "apps/api/src/routes/recruitmentPositions.ts",
    "method": "GET",
@@ -58704,7 +58875,11 @@
     "есть право: vacancies.view"
    ],
    "screens": [
-    "/vacancies"
+    "/calendar",
+    "/calls",
+    "/messages",
+    "/vacancies",
+    "/vacancies/:id"
    ],
    "tree": [
     {
@@ -58736,7 +58911,7 @@
    ]
   },
   {
-   "i": 645,
+   "i": 646,
    "title": "Показать: вакансии",
    "where": "apps/api/src/routes/vacancies.ts",
    "method": "GET",
@@ -58754,7 +58929,8 @@
     "/calendar",
     "/calls",
     "/messages",
-    "/vacancies"
+    "/vacancies",
+    "/vacancies/:id"
    ],
    "tree": [
     {
@@ -58779,7 +58955,7 @@
    ]
   },
   {
-   "i": 646,
+   "i": 647,
    "title": "Добавить: вакансии",
    "where": "apps/api/src/routes/vacancies.ts",
    "method": "POST",
@@ -58797,7 +58973,8 @@
     "/calendar",
     "/calls",
     "/messages",
-    "/vacancies"
+    "/vacancies",
+    "/vacancies/:id"
    ],
    "tree": [
     {
@@ -58875,7 +59052,7 @@
    ]
   },
   {
-   "i": 647,
+   "i": 648,
    "title": "Добавить: Google бюджет",
    "where": "apps/api/src/routes/budgetWebhook.ts",
    "method": "POST",
@@ -59026,7 +59203,7 @@
    ]
   },
   {
-   "i": 648,
+   "i": 649,
    "title": "Показать: Meta",
    "where": "apps/api/src/routes/webhooks.ts",
    "method": "GET",
@@ -59062,7 +59239,7 @@
    ]
   },
   {
-   "i": 649,
+   "i": 650,
    "title": "Добавить: Meta",
    "where": "apps/api/src/routes/webhooks.ts",
    "method": "POST",
@@ -59292,7 +59469,7 @@
    ]
   },
   {
-   "i": 650,
+   "i": 651,
    "title": "Добавить: сайт обложка картинка",
    "where": "apps/api/src/routes/webhooks.ts",
    "method": "POST",
@@ -59404,7 +59581,7 @@
    ]
   },
   {
-   "i": 651,
+   "i": 652,
    "title": "Добавить: сайт заявка статус",
    "where": "apps/api/src/routes/webhooks.ts",
    "method": "POST",
@@ -59501,7 +59678,7 @@
    ]
   },
   {
-   "i": 652,
+   "i": 653,
    "title": "Добавить: сайт публикация изменённые",
    "where": "apps/api/src/routes/webhooks.ts",
    "method": "POST",
@@ -59625,7 +59802,7 @@
    ]
   },
   {
-   "i": 653,
+   "i": 654,
    "title": "Добавить: сайт публикация добавленные или обновлённые",
    "where": "apps/api/src/routes/webhooks.ts",
    "method": "POST",
@@ -59878,7 +60055,7 @@
    ]
   },
   {
-   "i": 654,
+   "i": 655,
    "title": "Добавить: Telegram",
    "where": "apps/api/src/routes/webhooks.ts",
    "method": "POST",
@@ -59961,7 +60138,7 @@
    ]
   },
   {
-   "i": 655,
+   "i": 656,
    "title": "Показать: сайт чат",
    "where": "apps/api/src/routes/webhooks.ts",
    "method": "GET",
@@ -60037,7 +60214,7 @@
    ]
   },
   {
-   "i": 656,
+   "i": 657,
    "title": "Добавить: сайт чат",
    "where": "apps/api/src/routes/webhooks.ts",
    "method": "POST",
@@ -60158,7 +60335,7 @@
    ]
   },
   {
-   "i": 657,
+   "i": 658,
    "title": "Добавить: сайт заявка",
    "where": "apps/api/src/routes/webhooks.ts",
    "method": "POST",
@@ -60259,7 +60436,7 @@
    ]
   },
   {
-   "i": 658,
+   "i": 659,
    "title": "Показать: сайт рабочие часы",
    "where": "apps/api/src/routes/webhooks.ts",
    "method": "GET",
@@ -60303,7 +60480,7 @@
    ]
   },
   {
-   "i": 659,
+   "i": 660,
    "title": "Изменить: account",
    "where": "apps/api/src/routes/whatsappTemplates.ts",
    "method": "PATCH",
@@ -60349,7 +60526,7 @@
    ]
   },
   {
-   "i": 660,
+   "i": 661,
    "title": "Добавить: submit",
    "where": "apps/api/src/routes/whatsappTemplates.ts",
    "method": "POST",
@@ -60410,7 +60587,7 @@
    ]
   },
   {
-   "i": 661,
+   "i": 662,
    "title": "Показать: WhatsApp templates",
    "where": "apps/api/src/routes/whatsappTemplates.ts",
    "method": "GET",

@@ -47,6 +47,22 @@ export function useVacancyQueue(enabled: boolean, filters: Omit<VacancyFilters, 
   });
 }
 
+/**
+ * Одна анкета для карточки `/vacancies/:id` (GET /vacancies/:id, 23.10.2026).
+ * Ключ начинается с "vacancies" — любая мутация раздела освежает и карточку.
+ */
+export function useVacancy(id: string | undefined) {
+  const actor = useAuthStore(s => s.agent?.id);
+  const epoch = useAuthStore(s => s.sessionEpoch);
+  return useQuery({
+    queryKey: ["vacancies", actor, epoch, "one", id],
+    queryFn: () => api<JobApplication>(`/vacancies/${encodeURIComponent(id ?? "")}`, { expectAgentId: actor }),
+    enabled: !!id,
+    refetchOnWindowFocus: true,
+    refetchInterval: SAFETY_REFETCH_MS,
+  });
+}
+
 function useInvalidateVacancies() {
   const qc = useQueryClient();
   return () => Promise.all([
