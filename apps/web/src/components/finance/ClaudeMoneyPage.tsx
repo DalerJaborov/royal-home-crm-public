@@ -76,9 +76,9 @@ export function ClaudeMoneyPage({ month, onMonthChange, workspace, onWorkspaceCh
   const add = (initialDate?: string, initialRecurring = false) => { if (writable) setSheet({ expense: null, initialDate, initialRecurring }); };
   const edit = (expense: ClaudeExpense) => setSheet({ expense });
   const monthControls = <div className="cef-month-controls">
-    <button className="cef-icon-btn" aria-label="Предыдущий месяц" disabled={month <= "1900-01"} onClick={() => onMonthChange(moveMonth(month, -1))}><ChevronLeft /></button>
+    <button type="button" className="cef-icon-btn" aria-label="Предыдущий месяц" disabled={month <= "1900-01"} onClick={() => onMonthChange(moveMonth(month, -1))}><ChevronLeft /></button>
     <label className="cef-month-picker"><span className="sr-only">Месяц финансов</span><input type="month" value={month} min="1900-01" max="2199-12" onChange={(event) => { if (/^(19|20|21)\d{2}-(0[1-9]|1[0-2])$/.test(event.target.value)) onMonthChange(event.target.value); }} /></label>
-    <button className="cef-icon-btn" aria-label="Следующий месяц" disabled={month >= "2199-12"} onClick={() => onMonthChange(moveMonth(month, 1))}><ChevronRight /></button>
+    <button type="button" className="cef-icon-btn" aria-label="Следующий месяц" disabled={month >= "2199-12"} onClick={() => onMonthChange(moveMonth(month, 1))}><ChevronRight /></button>
   </div>;
   return <div className="cef cef-page">
     <header className="cef-toolbar">
@@ -91,16 +91,16 @@ export function ClaudeMoneyPage({ month, onMonthChange, workspace, onWorkspaceCh
         event.preventDefault();
         const next = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : (index + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
         tabs[next]?.focus(); tabs[next]?.click();
-      }}>{TABS.map((tab) => <button key={tab.key} role="tab" className={workspace === tab.key ? "cef-active" : ""} id={`finance-tab-${tab.key}`} aria-selected={workspace === tab.key} aria-controls={`finance-panel-${tab.key}`} tabIndex={workspace === tab.key ? 0 : -1} onClick={() => onWorkspaceChange(tab.key)}>{tab.label}</button>)}</div>
-      {writable && <button className="cef-btn cef-blue cef-add" onClick={() => add()}><Plus size={20} />Расход</button>}
+      }}>{TABS.map((tab) => <button type="button" key={tab.key} role="tab" className={workspace === tab.key ? "cef-active" : ""} id={`finance-tab-${tab.key}`} aria-selected={workspace === tab.key} aria-controls={`finance-panel-${tab.key}`} tabIndex={workspace === tab.key ? 0 : -1} onClick={() => onWorkspaceChange(tab.key)}>{tab.label}</button>)}</div>
+      {writable && <button type="button" className="cef-btn cef-blue cef-add" onClick={() => add()}><Plus size={20} />Расход</button>}
     </header>
     <div className="cef-tools">
       {workspace !== "calendar" && monthControls}
       <details ref={toolsRef} className="cef-tool-disclosure" open={!mobile || toolsOpen} onToggle={(event) => { if (mobile) setToolsOpen(event.currentTarget.open); }}>
         <summary className="cef-icon-btn" aria-label="Действия с финансами"><MoreHorizontal aria-hidden="true" /></summary>
         <div className="cef-tool-actions">
-          <button className="cef-btn cef-soft" onClick={() => setCategoriesOpen(true)}><SlidersHorizontal size={18} /><span>Категории и лимиты</span></button>
-          <button className="cef-icon-btn" aria-label="Скачать общую финансовую выгрузку" disabled={exporting} onClick={onExport}><Download /><span className="cef-mobile-action-label">Скачать CSV</span></button>
+          <button type="button" className="cef-btn cef-soft" onClick={() => setCategoriesOpen(true)}><SlidersHorizontal size={18} /><span>Категории и лимиты</span></button>
+          <button type="button" className="cef-icon-btn" aria-label="Скачать общую финансовую выгрузку" disabled={exporting} onClick={onExport}><Download /><span className="cef-mobile-action-label">Скачать CSV</span></button>
           {archiveAllowed && <Link className="cef-icon-btn" aria-label="Архив расходов" to="/archive"><Archive /><span className="cef-mobile-action-label">Архив расходов</span></Link>}
         </div>
       </details>

@@ -1,3 +1,4 @@
+import { Suspense, type ComponentProps } from "react";
 import type { SettingsTabId } from "../../lib/settingsTabs";
 import { CompanySection, DistrictsSection, LandmarksSection } from "../../pages/settings/AgencyTab";
 import { CommissionSection, ExchangeRateSection } from "../../pages/settings/MoneyTab";
@@ -6,7 +7,8 @@ import { MatchingTab } from "../../pages/settings/MatchingTab";
 import { DisciplineSection } from "../../pages/settings/DisciplineTab";
 import { AgentsSection, KpiWeightsSection, LeadDistributionSection, RoyalScoreEventsSection, RoyalScoreToggleSection } from "../../pages/settings/TeamTab";
 import { ChannelsTab } from "../../pages/settings/ChannelsTab";
-import { BotTab } from "../../pages/settings/BotTab";
+import { lazyWithReload } from "../../lib/lazyWithReload";
+import { Skeleton } from "../rh2/Skeleton";
 import { CustomerAgentRolloutSection } from "./CustomerAgentRolloutSection";
 import {
   AssistantAuditSection,
@@ -25,6 +27,18 @@ import { WhatsAppTemplatesSection } from "../../pages/settings/WhatsAppTemplates
 import { SettingsGroupLabel } from "./SettingsSection";
 import type { CleanSettingsTask } from "../../lib/cleanSettingsTasks";
 import { UiShellRolloutSection } from "./UiShellRolloutSection";
+
+// BotTab — 295 КБ (3,9 тыс. строк форм бота): грузим только когда открыта вкладка «Бот»,
+// а не вместе со всеми Настройками. AiLearning импортирует его части напрямую — это отдельный маршрут.
+const BotTabChunk = lazyWithReload(() => import("../../pages/settings/BotTab").then((m) => ({ default: m.BotTab })));
+
+function BotTab(props: ComponentProps<typeof BotTabChunk>) {
+  return (
+    <Suspense fallback={<div role="status" aria-label="Загрузка настроек бота"><Skeleton className="h-4 w-48" /><Skeleton kind="tile" className="mt-3 h-24" /></div>}>
+      <BotTabChunk {...props} />
+    </Suspense>
+  );
+}
 
 /** Same forms as legacy, composed by employee task rather than implementation history. */
 export function CleanSettingsTaskContent({ task, agentRole }: { task: CleanSettingsTask; agentRole?: string }) {

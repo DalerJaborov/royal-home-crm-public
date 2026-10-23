@@ -24,7 +24,7 @@ export function PropertyMiniCard({ property }: { property: NonNullable<Interacti
   const body = (
     <>
       <span className="ph" style={{ width: 48, height: 48, flexShrink: 0 }}>
-        {thumb ? <img src={thumb} alt="" /> : <House className="i" strokeWidth={1.5} />}
+        {thumb ? <img src={thumb} alt="" loading="lazy" decoding="async" /> : <House className="i" strokeWidth={1.5} />}
       </span>
       <span className="t" style={{ minWidth: 0 }}>
         <b style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>

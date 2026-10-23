@@ -208,6 +208,9 @@ html[data-theme^="royal-home-2026-"] .rh2 .scr .rh2-row-link:focus-visible {
 .rh2 .scr .filters{flex-wrap:wrap}
 .rh2 .scr .filters .inp[type="search"]{flex:1 1 100%;max-width:none}
 .rh2 .scr .filters .pill[aria-pressed]{flex:1 1 auto;white-space:normal;text-align:left;height:auto;min-height:40px;padding-block:6px}
+/* Видимые 40, зона нажатия 44 — невидимая накладка (договор §3), вид не меняется. */
+.rh2 .scr .filters .pill[aria-pressed]{position:relative}
+.rh2 .scr .filters .pill[aria-pressed]::before{content:"";position:absolute;inset:-2px 0}
 }
 
 /* 9. ПОЛЯ ВВОДА НЕ МЕЛЬЧЕ 16px НА ТЕЛЕФОНЕ — из-за них приложение и

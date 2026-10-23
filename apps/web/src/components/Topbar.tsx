@@ -174,7 +174,7 @@ function TopbarRow({
                 {/* Плотная панель: стекло только на рамке (контракт), поэтому
                     фон — сплошная карточка темы (`.glass-notice-enter`). */}
                 <div
-                  className="glass-notice-enter fixed z-[60] w-[320px] max-h-[70vh] overflow-y-auto shadow-lg p-2.5"
+                  className="glass-notice-enter fixed z-[60] w-[min(320px,calc(100vw-16px))] max-h-[70vh] overflow-y-auto shadow-lg p-2.5"
                   style={{ top: notifPos.top, right: notifPos.right }}
                 >
                   {notificationsFailed ? <div role="status"><p>Уведомления не загрузились.</p><button type="button" onClick={() => void retryNotifications()}>Повторить</button></div> : notificationsLoading ? <p role="status">Загружаем уведомления…</p> : notificationItems.length === 0 ? (
@@ -302,7 +302,7 @@ function TopbarRow({
 
         {/* КОЛОКОЛЬЧИК ПОКАЗЫВАЕТ НАСТОЯЩИЕ УВЕДОМЛЕНИЯ (аудит №4, 27.08). */}
         <div className="relative">
-          <button
+          <button type="button"
             ref={bellRef}
             onClick={toggleNotifications}
             aria-label="Уведомления"
@@ -380,7 +380,7 @@ export function ThemeQuickSwitch({ buttonClassName }: { buttonClassName?: string
   const current = THEMES.find((t) => t.id === theme) ?? THEMES[0];
 
   return (
-    <button
+    <button type="button"
       onClick={() => setTheme(current.pairId)}
       title={current.isDark ? "Светлая тема" : "Тёмная тема"}
       data-topbar-theme

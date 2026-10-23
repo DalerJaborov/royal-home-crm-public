@@ -597,7 +597,7 @@ function MhPropertyRow({
         )}
         <span className="av" aria-hidden="true" style={{ borderRadius: 10, overflow: "hidden", background: "var(--hover)" }}>
           {p.photos[0] ? (
-            <img src={p.photos[0].thumbUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+            <img src={p.photos[0].thumbUrl} alt="" loading="lazy" decoding="async" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
           ) : (
             <span style={{ fontSize: 13, color: "var(--muted)" }}>Фото</span>
           )}
