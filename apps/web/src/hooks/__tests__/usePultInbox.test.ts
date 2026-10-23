@@ -14,7 +14,7 @@ vi.mock("../../lib/permissions", () => ({ useCan: () => () => true }));
 vi.mock("../../store/auth", () => ({ useAuthStore: () => "DIRECTOR" }));
 
 import {
-  byAge, enabledInboxQueues, formatAge, loadBotAudit, loadComments, loadEditor, loadStuckConversations, loadWaiting,
+  byAge, enabledInboxQueues, formatAge, loadBotAudit, loadClips, loadComments, loadEditor, loadStuckConversations, loadWaiting,
 } from "../usePultInbox";
 
 const dialog = (id: string, over: Record<string, unknown> = {}) => ({
@@ -98,5 +98,19 @@ describe("pult inbox: права и порядок", () => {
     expect(formatAge("2026-10-23T07:00:00Z", now)).toBe("3 ч");
     expect(formatAge("2026-10-21T10:00:00Z", now)).toBe("2 д");
     expect(formatAge(null, now)).toBe("");
+  });
+});
+
+describe("pult inbox: проверка ролика", () => {
+  it("ролики: берёт очередь сервера, считает остаток и открывает очередь только с properties.moderate", async () => {
+    const clip = (id: string, at: string | null) => ({ id, shortId: 7, title: `Объект ${id}`, videoUrl: "/uploads/handoff/a.mp4", coverUrl: null, requestedAt: at, montajer: { id: "m", fullName: "Фарход" } });
+    calls.replies.set("/properties/clip-review/pending", { items: [clip("p1", "2026-10-23T05:00:00Z"), clip("p2", null)], total: 5 });
+    const r = await loadClips();
+    expect(calls.list[0].path).toBe("/properties/clip-review/pending?limit=20");
+    expect(r.total).toBe(5);
+    expect(r.items[0]).toMatchObject({ id: "clips:p1", queue: "clips", group: "video", type: "clip" });
+    expect(r.items[0].detail).toContain("монтажёр Фарход");
+    expect(enabledInboxQueues((p) => p === "properties.moderate", "AGENT").has("clips")).toBe(true);
+    expect(enabledInboxQueues(() => false, "AGENT").has("clips")).toBe(false);
   });
 });

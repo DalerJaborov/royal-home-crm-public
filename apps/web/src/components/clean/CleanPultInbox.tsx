@@ -15,6 +15,7 @@ import { useNavigation } from "../../lib/navigation";
 import { CleanDecisionRow } from "./CleanDecisionRow";
 import { CButton, CCard, CHead } from "./ui";
 import { Link } from "react-router-dom";
+import CleanClipReviewSheet from "./CleanClipReviewSheet";
 
 /**
  * «ЕЩЁ ЖДУТ РЕШЕНИЯ» (23.10.2026): очереди, которые сервер уже решает, а пульт не
@@ -83,6 +84,7 @@ function InboxEntry({ item, show, hidden, onGone, onBack, actions }: {
   const [busy, setBusy] = useState(false);
   const armTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const lock = useRef(false);
+  const [clipOpen, setClipOpen] = useState(false);
 
   /** Оптимистично: строка уходит сразу, при отказе возвращается с текстом. */
   async function optimistic(fn: () => Promise<void>): Promise<boolean> {
@@ -109,7 +111,7 @@ function InboxEntry({ item, show, hidden, onGone, onBack, actions }: {
   // Вторая строка: возраст и суть. `k` выводится после «Требует внимания».
   row.k = [INBOX_GROUP_LABEL[item.group], item.detail].filter(Boolean).join(" · ");
 
-  const customBar = item.type === "dialog" || item.type === "comment" || item.type === "stuckConversations";
+  const customBar = item.type === "dialog" || item.type === "comment" || item.type === "stuckConversations" || item.type === "clip";
   const send = (e: FormEvent) => {
     e.preventDefault();
     const value = text.trim();
@@ -140,12 +142,15 @@ function InboxEntry({ item, show, hidden, onGone, onBack, actions }: {
       </form>}
       {item.type === "dialog" && item.paused && <CButton variant="soft" size="sm" disabled={busy} data-endpoint="POST /api/v1/conversations/:id/resume" onClick={() => void quiet(() => actions.resumeBot(item.conversationId))}>Вернуть бота</CButton>}
       {item.type === "comment" && <CButton variant="soft" size="sm" disabled={busy} data-endpoint="POST /api/v1/instagram-comments/:id/hide" onClick={() => void quiet(() => actions.hideComment(item.commentId))}>Скрыть</CButton>}
+      {item.type === "clip" && <CButton variant="primary" size="sm" aria-haspopup="dialog" onClick={() => setClipOpen(true)}>Смотреть</CButton>}
       {item.type === "stuckConversations" && <CButton variant="primary" size="sm" disabled={busy} data-endpoint="POST /api/v1/errors/stuck-conversations/retry"
         onClick={() => { if (!armed) { arm(); return; } clearTimeout(armTimer.current); setArmed(false); void quiet(() => actions.retryStuckConversations()); }}>
         {busy ? "Выполняем…" : armed ? `Точно? Повторить для ${item.count}` : "Повторить всем"}
       </CButton>}
     </div>}
     {error && <p role="alert" className="clean-decision-error">{error}</p>}
+    {item.type === "clip" && clipOpen && <CleanClipReviewSheet clip={item.clip} actions={actions} onClose={() => setClipOpen(false)}
+      onDecided={() => { setClipOpen(false); onGone(item.id); }} />}
   </div>;
 }
 

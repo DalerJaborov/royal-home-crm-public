@@ -45,6 +45,7 @@ export type InboxQueueId =
   | "reactivation"
   | "duplicates"
   | "editor"
+  | "clips"
   | "videos"
   | "stuckConversations"
   | "stuckWork"
@@ -69,12 +70,24 @@ export type InboxItem = InboxBase &
     | { type: "reactivation"; clientId: string }
     | { type: "duplicate"; clientId: string }
     | { type: "editor"; propertyId: string; canResend: boolean; canHold: boolean }
+    | { type: "clip"; clip: PendingClip }
     | { type: "video"; videoId: string }
     | { type: "stuckConversations"; count: number }
     | { type: "stuckWork"; jobId: string }
     | { type: "audit"; findingId: string }
     | { type: "site"; notificationId: string }
   );
+
+/** Строка GET /properties/clip-review/pending (ролик ждёт проверки модератора). */
+export interface PendingClip {
+  id: string;
+  shortId: number;
+  title: string;
+  videoUrl: string | null;
+  coverUrl: string | null;
+  requestedAt: string | null;
+  montajer: { id: string; fullName: string } | null;
+}
 
 export interface InboxQueueMeta {
   id: InboxQueueId;
@@ -96,6 +109,7 @@ export const INBOX_QUEUES: InboxQueueMeta[] = [
   { id: "reactivation", group: "clients", label: "Вернувшиеся клиенты", href: "/clients" },
   { id: "duplicates", group: "clients", label: "Возможные дубли", href: "/clients" },
   { id: "editor", group: "video", label: "Монтаж просрочен", href: "/marketing" },
+  { id: "clips", group: "video", label: "Проверка ролика", href: "/marketing" },
   { id: "videos", group: "social", label: "Ролик не вышел в соцсети", href: "/social-videos" },
   { id: "stuckConversations", group: "system", label: "Диалоги без ответа бота", href: "/health" },
   { id: "stuckWork", group: "system", label: "Что не доехало", href: "/stuck-work" },
@@ -233,6 +247,23 @@ export async function loadEditor(): Promise<InboxQueueResult> {
   };
 }
 
+export async function loadClips(): Promise<InboxQueueResult> {
+  const r = await api<{ items: PendingClip[]; total: number }>("/properties/clip-review/pending?limit=20");
+  return {
+    total: r.total,
+    items: r.items.map((clip): InboxItem => ({
+      id: `clips:${clip.id}`,
+      queue: "clips",
+      group: "video",
+      type: "clip",
+      clip,
+      title: clip.title,
+      detail: [`Объект №${clip.shortId}`, clip.montajer ? `монтажёр ${clip.montajer.fullName}` : "", clip.requestedAt ? `ждёт ${formatAge(clip.requestedAt)}` : ""].filter(Boolean).join(" · "),
+      at: clip.requestedAt,
+    })),
+  };
+}
+
 function videoError(v: SocialVideoItem): string {
   const failed = Object.values(v.results ?? {}).find((r) => r.state === "FAILED" && r.error);
   return failed?.error ?? (v.status === "PARTIAL" ? "вышел не везде" : "не опубликован");
@@ -336,6 +367,7 @@ const LOADERS: Record<InboxQueueId, { key: unknown[]; load: () => Promise<InboxQ
   reactivation: { key: ["reactivation-offers", "pult-inbox"], load: loadReactivation },
   duplicates: { key: ["clients", "pult-inbox", "duplicates"], load: loadDuplicates },
   editor: { key: ["marketing", "pult-inbox", "editor"], load: loadEditor },
+  clips: { key: ["properties", "pult-inbox", "clips"], load: loadClips },
   videos: { key: ["social-videos", "pult-inbox"], load: loadVideos },
   stuckConversations: { key: ["conversations", "pult-inbox", "stuck"], load: loadStuckConversations },
   stuckWork: { key: ["pult-inbox", "stuck-work"], load: loadStuckWork },
@@ -359,6 +391,7 @@ export function enabledInboxQueues(has: (p: PermissionId) => boolean, role: stri
   if (has("comments.moderate")) out.add("comments");
   if (has("clients.assign")) { out.add("reactivation"); out.add("duplicates"); }
   if (marketing) { out.add("editor"); out.add("videos"); }
+  if (has("properties.moderate")) out.add("clips");
   if (has("auditLog.view")) { out.add("stuckConversations"); out.add("stuckWork"); out.add("botAudit"); }
   if (has("siteChanges.view") && has("siteChanges.resolve")) out.add("siteChanges");
   return out;
@@ -440,6 +473,14 @@ export function usePultInboxActions() {
     holdHandoff: async (propertyId: string) => {
       await api(`/marketing/video-handoff/${propertyId}/hold`, { method: "POST", body: {} });
       settle(qc, [["marketing"], ["properties"], ["property"]]);
+    },
+    approveClip: async (propertyId: string) => {
+      await api(`/properties/${propertyId}/clip-review/approve`, { method: "POST" });
+      settle(qc, [["properties"], ["property"], ["marketing"], ["mission-control"]]);
+    },
+    rejectClip: async (propertyId: string, comment: string) => {
+      await api(`/properties/${propertyId}/clip-review/reject`, { method: "POST", body: { reason: "OTHER", comment } });
+      settle(qc, [["properties"], ["property"], ["marketing"], ["mission-control"]]);
     },
     retryVideo: async (id: string) => {
       await api(`/social-videos/${id}/retry`, { method: "POST", body: {} });

@@ -62,3 +62,14 @@ describe("CleanPultInbox", () => {
     expect(html()).toBe("");
   });
 });
+
+describe("CleanPultInbox: проверка ролика", () => {
+  it("у ролика на проверке есть кнопка «Смотреть»", () => {
+    const clip = { id: "p1", shortId: 7, title: "Квартира", videoUrl: "/uploads/handoff/a.mp4", coverUrl: null, requestedAt: null, montajer: null };
+    const item: InboxItem = { id: "clips:p1", queue: "clips", group: "video", type: "clip", clip, title: "Квартира", detail: "Объект №7", at: null };
+    state.queues = [queue({ id: "clips", group: "video", label: "Проверка ролика", href: "/marketing", items: [item], total: 1 })];
+    const out = html();
+    expect(out).toContain("Проверка ролика");
+    expect(out).toContain("Смотреть");
+  });
+});
