@@ -13,7 +13,7 @@
 | Экранов (адресов в интерфейсе) | 67 |
 | Из них видно в меню | 35 |
 | Модулей сервера | 78 |
-| Адресов сервера всего | 657 |
+| Адресов сервера всего | 659 |
 | Задач по расписанию | 103 |
 | Типов фоновых заданий | 23 |
 | Внешних сервисов | 13 |
@@ -177,7 +177,7 @@
 | `/api/v1/whatsapp-templates` | **без подписи** | 3 | да (1 мест) | `apps/api/src/routes/whatsappTemplates.ts` |
 | `/api/v1/push` | Пуш-уведомления на телефон | 7 | да (2 мест) | `apps/api/src/routes/push.ts` |
 | `/api/v1/webhooks` | Входящие от WhatsApp, Instagram, Telegram, сайта, станции | 11 | нет | `apps/api/src/routes/webhooks.ts` |
-| `/api/v1/public` | Витрина для сайта royalhome.tj | 2 | нет | `apps/api/src/routes/publicFeed.ts` |
+| `/api/v1/public` | Витрина для сайта royalhome.tj | 4 | нет | `apps/api/src/routes/publicFeed.ts` |
 | `/api/v1/expenses` | Расходы агентства | 32 | да (3 мест) | `apps/api/src/routes/expenses.ts` |
 | `/api/v1/finance` | Деньги: доходы, комиссии, прогноз | 1 | да (1 мест) | `apps/api/src/routes/finance.ts` |
 | `/api/v1/security` | Кабинет службы безопасности | 3 | да (1 мест) | `apps/api/src/routes/security.ts` |
