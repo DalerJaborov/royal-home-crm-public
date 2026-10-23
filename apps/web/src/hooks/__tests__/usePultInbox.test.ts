@@ -147,3 +147,13 @@ describe("pult inbox: проверка ролика", () => {
     expect(enabledInboxQueues(() => false, "AGENT").has("clips")).toBe(false);
   });
 });
+
+describe("ageAgo", () => {
+  it("пишет «15 д назад», а не «с 15 д назад»; «только что» без «назад»", async () => {
+    const { ageAgo } = await import("../usePultInbox");
+    const now = Date.parse("2026-10-23T12:00:00Z");
+    expect(ageAgo("2026-10-08T12:00:00Z", now)).toBe("15 д назад");
+    expect(ageAgo("2026-10-23T11:59:50Z", now)).toBe("только что");
+    expect(ageAgo(null, now)).toBe("");
+  });
+});

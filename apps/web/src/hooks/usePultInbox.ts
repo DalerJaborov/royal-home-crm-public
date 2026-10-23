@@ -137,6 +137,12 @@ export function formatAge(iso: string | null | undefined, now = Date.now()): str
   return `${Math.floor(ms / (24 * 60 * MIN))} д`;
 }
 
+/** «15 д назад», «только что» — подпись давности без «с … назад». */
+export function ageAgo(iso: string | null | undefined, now = Date.now()): string {
+  const age = formatAge(iso, now);
+  return !age || age === "только что" ? age : `${age} назад`;
+}
+
 const CHANNEL_LABEL: Record<string, string> = {
   TELEGRAM: "Telegram",
   WHATSAPP: "WhatsApp",
@@ -426,7 +432,7 @@ export async function loadViolations(): Promise<InboxQueueResult> {
       subjectId: f.subjectId,
       href: f.href,
       title: f.title,
-      detail: [f.who ? `агент ${f.who}` : "", f.at ? `с ${formatAge(f.at)} назад` : ""].filter(Boolean).join(" · "),
+      detail: [f.who ? `агент ${f.who}` : "", ageAgo(f.at)].filter(Boolean).join(" · "),
       at: f.at,
     })),
   };
