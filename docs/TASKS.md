@@ -1,5 +1,12 @@
 # Current public source work
 
+- [~] Новое ядро бота, аудит Codex 21–22.10 (F01–F17): ветка `fix/customer-core-23-10`
+  (пачки A–F, см. `docs/handoff-2026-10-23-core-fixes.md`). Ревизия на проде обновлена
+  23.10 (политика 25). Осталось: полный `test:api`, черновик PR, выкат по слову владельца,
+  затем «Обновить версию бота» и живая проверка на трафике.
+- [?] Решение владельца: канал заземлённого свободного текста для модели (сейчас весь текст
+  клиенту — шаблоны рендерера, поэтому бот «не как человек»).
+
 - [ ] Customer workflow parity: bounded queue lanes, accepted name question,
   durable contact-to-CRM follow-through, approved own-word revision continuity.
   Draft source; full CI verification and production adoption pending.

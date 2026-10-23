@@ -7,6 +7,7 @@ import { customerIngressPayloadHash, encryptCustomerIngressPayload, decryptCusto
 import { ensureCustomerEndpoint } from "./customerConversationScope.js";
 import { customerPropertyEventKey, customerPropertyScopeKey } from "./customerPropertyScope.js";
 import { decodeCustomerAgentRevision } from "./customerAgentRevision.js";
+import { NEWER_INPUT_PENDING } from "./customerNewerInboxInput.js";
 
 type Request = object & { rawBody?: Buffer; get(name: string): string | undefined };
 type Stored = { eventKey: string; order: bigint; scopeKey: string; endpointScopeId: string | null; payloadVersion: number | null;
@@ -151,9 +152,17 @@ export async function consumeCustomerInboxTicket(eventKey: string): Promise<
   if (selected?.intakeAgentRevisionId) {
     const { runCustomerDmAgentTurn } = await import("./customerDmAgentTurn.js");
     const result = await runCustomerDmAgentTurn(eventKey);
-    if (result.status === "held") await prisma.$executeRaw`UPDATE "CustomerPropertyIngressTicket"
-      SET "processingState"='HELD',"errorCode"=${result.reason} WHERE "eventKey"=${eventKey}
-      AND "processingState" IN ('RECEIVED','HELD') AND "leaseOwner" IS NULL`;
+    if (result.status === "held") {
+      await prisma.$executeRaw`UPDATE "CustomerPropertyIngressTicket"
+        SET "processingState"='HELD',"errorCode"=${result.reason} WHERE "eventKey"=${eventKey}
+        AND "processingState" IN ('RECEIVED','HELD') AND "leaseOwner" IS NULL`;
+      // This input ended WITHOUT an answer. An older one it had put aside
+      // (`newer_input_pending`) must not be left unanswered with it (F12).
+      if (result.reason !== NEWER_INPUT_PENDING) {
+        const { resumeDeferredCustomerInbox } = await import("./customerDeferredInput.js");
+        await resumeDeferredCustomerInbox(eventKey);
+      }
+    }
     return result;
   }
   const recovered = await recoverCustomerPendingEnvelope(eventKey);

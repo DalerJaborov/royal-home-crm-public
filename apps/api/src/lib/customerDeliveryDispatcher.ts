@@ -17,12 +17,14 @@ import { sendCustomerDeliveryPayload, projectCustomerDeliveryPartTx, supportsCus
 import { admitOutbound } from "./outboundShield.js";
 import { publishMessageNew } from "./livePublish.js";
 import { reconcileCustomerPublicOutboxPart } from "./customerPublicDelivery.js";
+import { logSystemError } from "./systemError.js";
+import { classifyCustomerProviderStatus, classifyCustomerProviderNetworkFailure, isRetryableCustomerDeliveryErrorCode, customerDeliveryRetryDelayMs,
+  withReceiptRetry, CUSTOMER_DELIVERY_MAX_ATTEMPTS, CUSTOMER_DELIVERY_RETRY_WINDOW_MS } from "./customerDeliveryOutcome.js";
 
 import { customerAgentStoredPublicDataCurrent } from "./customerAgentDeliveryEvidence.js";
 import { hasNewerCustomerInboxInput } from "./customerNewerInboxInput.js";
 
 const LEASE_MS = 90_000;
-const NOT_SENT_CODES = new Set(["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN", "ENETUNREACH", "EHOSTUNREACH"]);
 export type CustomerDispatchResult = { status: "accepted" | "available_widget" | "unknown" | "suppressed" | "not_sent" | "waiting" | "missing"; projectionPending?: true };
 
 /** No model call, new action or target inference. Stored plan is server-issued;
@@ -116,13 +118,19 @@ async function beginAttempt(row: CustomerOutboxRow, owner: string): Promise<Cust
     const [current] = await tx.$queryRaw<CustomerOutboxRow[]>`SELECT * FROM "CustomerOutboxPart" WHERE "id"=${row.id} FOR UPDATE`;
     if (!current || current.status !== "IN_FLIGHT" || current.leaseOwner !== owner || current.claimRevision !== row.claimRevision ||
       !current.leaseUntil || current.leaseUntil.getTime() <= Date.now() || !await validatePart(tx, current)) throw new CustomerDeliveryHeldError("stale_before_post");
-    const [existing] = await tx.$queryRaw<{ count: bigint }[]>`SELECT count(*)::bigint AS count FROM "CustomerDeliveryAttempt" WHERE "partId"=${row.id}`;
-    // No automatic second attempt. NOT_SENT may be retried only by an explicit
-    // bounded future recovery decision, never by generic job redelivery.
-    if (existing?.count) throw new CustomerDeliveryHeldError("attempt_already_exists");
+    const [existing] = await tx.$queryRaw<{ count: number; blocking: number }[]>`SELECT count(*)::int AS count,
+      (count(*) FILTER (WHERE "outcome"<>'NOT_SENT' OR "errorCode" IS NULL OR "errorCode" NOT IN ('network_failure','http_408','http_429','http_503')))::int AS blocking
+      FROM "CustomerDeliveryAttempt" WHERE "partId"=${row.id}`;
+    // A second physical POST exists ONLY after every earlier attempt provably did not
+    // reach the provider (NOT_SENT with a retryable code), bounded by MAX_ATTEMPTS.
+    // IN_FLIGHT/UNKNOWN/ACCEPTED/REJECTED history never allows another one; no generic
+    // job redelivery can bypass this (the unique [partId, attemptNo] key backs it).
+    if (existing?.blocking) throw new CustomerDeliveryHeldError("attempt_already_exists");
+    if ((existing?.count ?? 0) >= CUSTOMER_DELIVERY_MAX_ATTEMPTS) throw new CustomerDeliveryHeldError("attempt_limit_reached");
+    const attemptNo = (existing?.count ?? 0) + 1;
     const attempts = await tx.$queryRaw<CustomerAttemptRow[]>`INSERT INTO "CustomerDeliveryAttempt"
       ("id","partId","endpointScopeId","attemptNo","claimRevision","startedAt","outcome","dispatchFenceJson")
-      VALUES (${randomUUID()},${row.id},${row.endpointScopeId},1,${row.claimRevision},now(),'IN_FLIGHT',${JSON.stringify(row.fenceJson)}::jsonb) RETURNING *`;
+      VALUES (${randomUUID()},${row.id},${row.endpointScopeId},${attemptNo},${row.claimRevision},now(),'IN_FLIGHT',${JSON.stringify(row.fenceJson)}::jsonb) RETURNING *`;
     return attempts[0];
   });
 }
@@ -206,32 +214,63 @@ export async function dispatchCustomerOutboxPart(id: string): Promise<CustomerDi
       },
       accepted: async mid => {
         if (!attempted.current) throw new Error("Provider response without durable attempt");
-        await recordCustomerDeliveryAttemptOutcome(attempted.current.id, mid ? "ACCEPTED" : "UNKNOWN", mid, mid ? null : "missing_or_invalid_mid");
+        const attemptId = attempted.current.id;
+        await withReceiptRetry(() => recordCustomerDeliveryAttemptOutcome(attemptId, mid ? "ACCEPTED" : "UNKNOWN", mid, mid ? null : "missing_or_invalid_mid"));
       },
       rejected: async status => {
         if (!attempted.current) throw new Error("Provider rejection without durable attempt");
-        await recordCustomerDeliveryAttemptOutcome(attempted.current.id, status >= 400 && status < 500 ? "REJECTED" : "UNKNOWN", null, `http_${status}`);
+        const attemptId = attempted.current.id;
+        await withReceiptRetry(() => recordCustomerDeliveryAttemptOutcome(attemptId, classifyCustomerProviderStatus(status), null, `http_${status}`));
       },
       networkFailure: async error => {
         if (!attempted.current) throw new Error("Provider failure without durable attempt");
-        const cause = error && typeof error === "object" ? Reflect.get(error, "cause") : null;
-        const directCode = error && typeof error === "object" ? Reflect.get(error, "code") : undefined;
-        const code = directCode ?? (cause && typeof cause === "object" ? Reflect.get(cause, "code") : undefined);
-        await recordCustomerDeliveryAttemptOutcome(attempted.current.id, typeof code === "string" && NOT_SENT_CODES.has(code) ? "NOT_SENT" : "UNKNOWN", null, "network_failure");
+        const attemptId = attempted.current.id;
+        await withReceiptRetry(() => recordCustomerDeliveryAttemptOutcome(attemptId, classifyCustomerProviderNetworkFailure(error), null, "network_failure"));
       },
     }, () => sendCustomerDeliveryPayload(row, decodeCustomerOutboxPayload(row)));
-  } catch {
+  } catch (error) {
+    // Held errors are expected control flow (stale claim, expired ACK). Anything else,
+    // including a receipt write that kept failing after retries, must reach the log:
+    // the part is left IN_FLIGHT and later demoted to UNKNOWN, never resent.
+    if (!(error instanceof CustomerDeliveryHeldError)) await logSystemError("background-jobs",
+      `Исходящее клиенту: сбой при отправке или записи квитанции (часть ${row.id}): ${error instanceof Error ? error.message : String(error)}`.slice(0, 480),
+      { dedupKey: `customer-outbox-dispatch-error:${row.id}` }).catch(() => {});
     if (!attempted.current) await prisma.$executeRaw`UPDATE "CustomerOutboxPart" SET "status"='SUPPRESSED',"leaseOwner"=NULL,"leaseUntil"=NULL,"updatedAt"=now()
       WHERE "id"=${row.id} AND "status"='IN_FLIGHT' AND "claimRevision"=${row.claimRevision} AND "leaseOwner"=${owner}`;
     // If the receipt write itself failed, leave IN_FLIGHT. Recovery demotes it
     // only to UNKNOWN, never READY; no second physical POST is allowed.
   }
   const current = await readCustomerOutboxPart(id);
+  if (current?.status === "NOT_SENT" && await requeueProvablyUnsentPart(current)) return { status: "waiting" };
   if (current?.status === "ACCEPTED") {
     try { if (await projectAccepted(current)) return { status: "accepted" }; } catch { /* Receipt stays durable; repair never sends again. */ }
     return { status: "accepted", projectionPending: true };
   }
   return { status: current?.status === "NOT_SENT" ? "not_sent" : current?.status === "SUPPRESSED" ? "suppressed" : "unknown" };
+}
+
+/** NOT_SENT with a retryable code (connection refused, 408/429/503) is the ONLY state that may
+ * go back to READY: the last attempt proves the provider never processed the request. Bounded
+ * by attempt count, part age and (for a handover ACK) its own deadline; the next physical POST
+ * still passes claim, validate and beginAttempt, which re-check all of it under locks. */
+async function requeueProvablyUnsentPart(part: CustomerOutboxRow): Promise<boolean> {
+  try {
+    const [last] = await prisma.$queryRaw<Array<{ errorCode: string | null; attemptNo: number; claimRevision: bigint }>>`SELECT "errorCode","attemptNo","claimRevision"
+      FROM "CustomerDeliveryAttempt" WHERE "partId"=${part.id} ORDER BY "attemptNo" DESC LIMIT 1`;
+    if (!last || last.claimRevision !== part.claimRevision || !isRetryableCustomerDeliveryErrorCode(last.errorCode) || last.attemptNo >= CUSTOMER_DELIVERY_MAX_ATTEMPTS) return false;
+    if (part.sourceKind === "HANDOVER_ACK" && Date.now() >= customerHandoverAckFenceSchema.parse(part.fenceJson).deadlineAt) return false;
+    const [age] = await prisma.$queryRaw<Array<{ fresh: boolean }>>`SELECT ("createdAt" > now() - ${CUSTOMER_DELIVERY_RETRY_WINDOW_MS}*interval '1 millisecond') AS fresh
+      FROM "CustomerOutboxPart" WHERE "id"=${part.id}`;
+    if (!age?.fresh) return false;
+    const changed = await prisma.$executeRaw`UPDATE "CustomerOutboxPart" SET "status"='READY',"leaseOwner"=NULL,"leaseUntil"=NULL,
+      "nextAttemptAt"=now()+${customerDeliveryRetryDelayMs(last.attemptNo)}*interval '1 millisecond',"updatedAt"=now()
+      WHERE "id"=${part.id} AND "status"='NOT_SENT' AND "claimRevision"=${part.claimRevision} AND "supersededAt" IS NULL AND "cancelRequestedAt" IS NULL`;
+    return changed === 1;
+  } catch (error) {
+    await logSystemError("background-jobs", `Исходящее клиенту: не удалось поставить повтор (часть ${part.id}): ${error instanceof Error ? error.message : String(error)}`.slice(0, 480),
+      { dedupKey: `customer-outbox-requeue:${part.id}` }).catch(() => {});
+    return false;
+  }
 }
 
 /** Expiry cannot prove that a request was not sent. A separate scheduler may

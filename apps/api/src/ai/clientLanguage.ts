@@ -33,7 +33,7 @@ import { stripUntrusted, unwrapUntrusted } from "./untrustedContent.js";
  * рядом с другими маркерами, поэтому потеря невелика; в русской они решают всё.
  */
 const TAJIK_WORDS =
-  /(?<![а-яёҳҷӣӯқғ])(ман|шумо|мо|хона|хонаи|мехохам|мехоҳам|мехаред|дорем|доред|даркор|аст|ҳаст|хаст|чанд|кучо|куҷо|нест|лозим|бошад|мешавад|мешава|кадом|барои|бале|ки|ва|бо|аз|дар|ин)(?![а-яёҳҷӣӯқғ])/giu;
+  /(?<![а-яёҳҷӣӯқғ])(ман|шумо|мо|хона|хонаи|мехохам|мехоҳам|мехаред|дорем|доред|даркор|аст|ҳаст|хаст|чанд|кучо|куҷо|нест|лозим|бошад|мешавад|мешава|кадом|барои|бале|ки|ва|бо|аз|дар|ин|намефамум|намефахмам|намефаҳмам|намефаҳмум|намедонам|наметавонам|уруси|урус|русӣ|маош|кор|нарх(?:аш|и|ат|ро)?|чанпул|чи|ака|апа|хуб|мешид|мегрифти|хавли|мефурӯш(?:ам|ем)?|мефуруш(?:ам|ем)?|мефурош(?:ам|ем)?|фурӯшам|фуруш(?:ам|ем)?|дорам|доштам|доштм)(?![а-яёҳҷӣӯқғ])/giu;
 
 /**
  * ПРИВЕТСТВИЕ И «СПАСИБО» ЯЗЫКА НЕ ЗАДАЮТ (03.10.2026, живой сбой в Instagram).
@@ -44,7 +44,7 @@ const TAJIK_WORDS =
  * слова решают язык, только когда больше в сообщении ничего нет («Салом!»).
  */
 const TAJIK_GREETINGS =
-  /(?<![а-яёҳҷӣӯқғ])(салом|саломалейкум|ассалом|ассалому|ассаломуалейкум|алейкум|алайкум|рахмат|раҳмат|ташаккур)(?![а-яёҳҷӣӯқғ])/giu;
+  /(?<![а-яёҳҷӣӯқғ])(салом|саломалейкум|асалом|асаломалейкум|ассалом|ассалому|ассаломуалейкум|алейкум|алайкум|рахмат|раҳмат|ташаккур)(?![а-яёҳҷӣӯқғ])/giu;
 
 /** Частые русские слова. Тоже служебные: в короткой фразе они попадаются почти всегда. */
 const RUSSIAN_WORDS =
@@ -98,7 +98,31 @@ export type ClientLanguage = "ru" | "tg" | "mixed" | "unknown";
  */
 const SYSTEM_MARKER = /\[[^\]]*\]/g;
 
-export function detectClientLanguage(text: string): ClientLanguage {
+/**
+ * Не язык клиента: ссылки, e-mail, @ники и телефоны. Голая ссылка на рилс
+ * (латиница без кириллицы) считалась таджикской, а ссылка с «/to/» — английской;
+ * это переключало язык диалога без единого слова клиента (23.10.2026).
+ */
+const NON_LANGUAGE = [
+  /[\w.+-]+@[\w-]+(?:\.[\w-]+)+/gu,
+  /(?:https?:\/\/|www\.)\S+/giu,
+  /(?<![\p{L}\p{N}])[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:com|net|org|tj|ru|me|ly|io|co|uz|kg|kz|info|app)(?:\/\S*)?/giu,
+  /(?<![\p{L}\p{N}_.])@[\w.]{2,}/gu,
+  /\+?\d[\d\s().-]{6,}\d/gu,
+];
+export function stripNonLanguage(text: string): string {
+  return NON_LANGUAGE.reduce((acc, pattern) => acc.replace(pattern, " "), text).replace(/\s+/gu, " ").trim();
+}
+
+export type ClientLanguageScores = { tajik: number; russian: number; greetings: number };
+/** Word counts behind detectClientLanguage, for callers that must break a "mixed" tie themselves. */
+export function clientLanguageScores(text: string): ClientLanguageScores {
+  const trimmed = prepare(text);
+  return { tajik: count(TAJIK_LETTER_WORDS, trimmed) + count(TAJIK_WORDS, trimmed), russian: count(RUSSIAN_WORDS, trimmed),
+    greetings: count(TAJIK_GREETINGS, trimmed) };
+}
+
+function prepare(text: string): string {
   /**
    * Присланное клиентом содержимое размечено границами (см. ai/untrustedContent.ts),
    * и для языка эти два вида разметки значат ПРОТИВОПОЛОЖНОЕ:
@@ -111,10 +135,18 @@ export function detectClientLanguage(text: string): ClientLanguage {
    *    было бы не по чему. Поэтому у неё снимаются только границы, а текст остаётся.
    */
   const withoutFiles = stripUntrusted(text, ["video", "document"]);
-  const trimmed = unwrapUntrusted(withoutFiles).replace(SYSTEM_MARKER, " ").trim();
+  return stripNonLanguage(unwrapUntrusted(withoutFiles).replace(SYSTEM_MARKER, " "));
+}
+
+export function detectClientLanguage(text: string): ClientLanguage {
+  const trimmed = prepare(text);
   // Слишком коротко («ок», «👍», «[📷]») — по такому языка не определить, и
   // навязывать модели язык на основании двух букв опаснее, чем не навязывать.
-  if (trimmed.length < 4) return "unknown";
+  if (trimmed.length < 4) {
+    // Три буквы — уже слово, если это однозначно таджикское («Кор», «Ман»); голое «нет»/«ок» язык не задаёт.
+    const long = (re: RegExp) => (trimmed.match(re) ?? []).filter(word => word.length >= 3).length;
+    return long(TAJIK_LETTER_WORDS) + long(TAJIK_WORDS) > 0 && count(RUSSIAN_WORDS, trimmed) === 0 ? "tg" : "unknown";
+  }
 
   /**
    * СЧЁТ, А НЕ «ЕСТЬ ЛИ ХОТЬ ОДНО» (03.10.2026). Одно таджикское слово в русской

@@ -105,3 +105,43 @@ describe("metadata-only managed core trace, prepared source", () => {
     expect(finals.find(row => row.managed?.phase === "delivery")?.managedDelivery).toEqual({ status: "unknown", projectionPending: false });
   });
 });
+
+describe("customer core trace carries a SAFE cause code (23.10)", () => {
+  const managed = { ...start, managed: { surface: "dm" as const, phase: "planning" as const } };
+  it("keeps the exact deadline / error-class cause on a held turn while the bucket stays finite", async () => {
+    const f = recorder();
+    await withBotTurnTrace(managed, async () => {
+      traceCustomerCoreResult({ status: "held", reason: "turn_deadline", cause: "turn_deadline", rounds: 1, toolCalls: 0, evidence: [] });
+    }, f.config);
+    expect(f.rows.at(-1)?.customerCore).toMatchObject({ status: "held", heldReason: "operation_stopped", causeCode: "turn_deadline" });
+    const g = recorder();
+    await withBotTurnTrace(managed, async () => {
+      traceCustomerCoreResult({ status: "held", reason: "turn_unavailable", cause: "TypeError", rounds: 0, toolCalls: 0, evidence: [] });
+      traceCustomerCoreDisposition("held", "turn_unavailable", "TypeError");
+    }, g.config);
+    expect(g.rows.at(-1)?.customerCore).toMatchObject({ heldReason: "other", causeCode: "TypeError" });
+  });
+  it("an adapter-level failure (customer_core_unavailable) gets its cause through the disposition", async () => {
+    const f = recorder();
+    await withBotTurnTrace(managed, async () => { traceCustomerCoreDisposition("held", "customer_core_unavailable", "PrismaClientKnownRequestError"); }, f.config);
+    expect(f.rows.at(-1)?.customerCore).toMatchObject({ status: "held", causeCode: "PrismaClientKnownRequestError" });
+  });
+  it("a malformed cause is dropped without losing the trace, and no text can pass", async () => {
+    const f = recorder();
+    await withBotTurnTrace(managed, async () => {
+      traceCustomerCoreResult({ status: "held", reason: "turn_unavailable", cause: "Bearer sk-secret leaked +992931234567", rounds: 0, toolCalls: 0, evidence: [] });
+    }, f.config);
+    expect(f.rows.at(-1)?.customerCore).toMatchObject({ status: "held", heldReason: "other" });
+    expect(f.rows.at(-1)?.customerCore?.causeCode).toBeUndefined();
+    expect(JSON.stringify(f.rows)).not.toContain("sk-secret");
+  });
+  it("a receipt confirmation is recorded as its own decision source with the reason it replaced", async () => {
+    const f = recorder();
+    await withBotTurnTrace(managed, async () => {
+      traceCustomerCoreResult({ status: "ready", decision: { kind: "reply" }, rounds: 3, toolCalls: 3,
+        evidence: [{ value: { kind: "receipt", outcome: "callback_requested" } }], fallbackReason: "receipt_confirmation", fallbackCause: "round_limit" });
+    }, f.config);
+    expect(f.rows.at(-1)?.customerCore).toMatchObject({ status: "ready", decisionSource: "receipt_confirmation", causeCode: "round_limit", receiptOutcomes: ["callback_requested"] });
+    expect(f.rows.at(-1)?.customerCore?.protocolReason).toBeUndefined();
+  });
+});

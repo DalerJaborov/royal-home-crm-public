@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { expect, it } from "vitest";
 import { encryptCustomerIngressPayload, customerIngressPayloadHash, type CustomerNormalizedIngressInput } from "../src/lib/customerIngressPayload.js";
-import { hasNewerCustomerInboxInput } from "../src/lib/customerNewerInboxInput.js";
+import { hasNewerCustomerInboxInput, newerTicketSupersedes } from "../src/lib/customerNewerInboxInput.js";
 import { customerPropertyScopeKey } from "../src/lib/customerPropertyScope.js";
 
 function newer(change: { echo?: boolean; referral?: boolean; templateEcho?: boolean; publicOnly?: boolean;
@@ -46,4 +46,21 @@ it("rejects a valid ciphertext transplanted to another scope/transport or the sa
   const row = newer({ signedPublic: true });
   expect(await hasNewerCustomerInboxInput("a".repeat(64), db([{ ...row, scopeKey: "f".repeat(64) }]))).toBe(false);
   expect(await hasNewerCustomerInboxInput(row.eventKey, db([row]))).toBe(false);
+});
+// F12 (23.10.2026): a newer input that ENDED without an answer must not keep the older one silent.
+it.each([
+  [null, null, true], ["RECEIVED", null, true], ["CLAIMED", null, true], ["PLANNED", null, true],
+  ["HELD", "newer_input_pending", true],
+  ["HELD", "customer_core_unavailable", false], ["HELD", "original_context_changed", false], ["HELD", null, false],
+  ["FAILED", null, false],
+])("newer ticket %s/%s supersedes an older answer: %s", (state, errorCode, expected) => {
+  expect(newerTicketSupersedes(state, errorCode)).toBe(expected);
+});
+it("does not abort the older response for a newer input that ended HELD or FAILED, but does for one still in flight or itself deferred", async () => {
+  const row = newer({ signedPublic: true });
+  const withState = (processingState: string | null, errorCode: string | null) => db([{ ...row, processingState, errorCode }]);
+  expect(await hasNewerCustomerInboxInput("a".repeat(64), withState("HELD", "customer_core_unavailable"))).toBe(false);
+  expect(await hasNewerCustomerInboxInput("a".repeat(64), withState("FAILED", null))).toBe(false);
+  expect(await hasNewerCustomerInboxInput("a".repeat(64), withState("CLAIMED", null))).toBe(true);
+  expect(await hasNewerCustomerInboxInput("a".repeat(64), withState("HELD", "newer_input_pending"))).toBe(true);
 });

@@ -20,6 +20,14 @@ import { resolveSearchPlace } from "./searchPlace.js";
 import { loadCustomerAgentFeaturePolicy } from "./customerAgentFeaturePolicy.js";
 import { customerAgentVacanciesCallSchema, type CustomerAgentVacanciesObservation } from "@royal-home/shared";
 import { readCustomerOpenVacancies, customerOpenVacanciesCurrent } from "./recruitmentPositions.js";
+import { logSystemError } from "./systemError.js";
+
+/** A failed public read is reported to the system journal (deduplicated), never swallowed. */
+function publicReadFailed(error: unknown): { status: "unavailable"; reason: "public_read_unavailable" } {
+  void logSystemError("api", `customer agent public read failed: ${error instanceof Error ? error.message : String(error)}`.slice(0, 500),
+    { dedupKey: "customer-agent-public-read-failed" });
+  return { status: "unavailable", reason: "public_read_unavailable" };
+}
 
 /** ONE actual source, no copied commission constants/office/customer data. */
 export function readCustomerAgentCompanyKnowledge() {
@@ -126,7 +134,7 @@ export async function readCustomerAgentPublicData(rawCall: unknown, options: Cus
       ...(before.districtName ? { resolvedDistrictName: before.districtName, districtWasNormalized: args.districtName !== before.districtName } : {}) };
     if (!await customerAgentPublicDataCurrent(observation, options)) return { status: "denied", reason: "search_changed" };
     return { status: "observed", observation };
-  } catch { return { status: "unavailable", reason: "public_read_unavailable" }; }
+  } catch (error) { return publicReadFailed(error); }
 }
 
 /** INTERNAL data freshness only. Does not establish an actor, epoch or OUT
@@ -163,7 +171,7 @@ export async function readCustomerAgentPublicTool(principal: unknown, rawCall: u
       linkPreference: principal.visibility === "website_chat" ? "site" : "social" });
     if (!await current(principal)) return { status: "denied", reason: "original_context_changed" };
     return result;
-  } catch { return { status: "unavailable", reason: "public_read_unavailable" }; }
+  } catch (error) { return publicReadFailed(error); }
 }
 
 /** ORIGINAL genuine DM/website authority before/after data-only freshness.

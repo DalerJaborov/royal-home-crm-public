@@ -30,13 +30,17 @@ export function customerPropertyUrl(raw: string): CustomerPropertyUrl {
     return { kind: "site", url: `https://royalhome.tj${url.pathname}` };
   }
   if (host === "instagram.com") {
-    const post = /^\/(?:p|reel|reels)\/([A-Za-z0-9_-]+)\/?$/.exec(url.pathname);
+    // Both "/p/<code>" and the account-qualified "/<user>/p/<code>" shape the app shares.
+    const post = /^\/(?:[A-Za-z0-9._]+\/)?(?:p|reel|reels)\/([A-Za-z0-9_-]+)\/?$/.exec(url.pathname);
     if (post) return { kind: "instagram", shortcode: post[1], url: `https://www.instagram.com/p/${post[1]}/` };
     const story = /^\/stories\/[^/]+\/(\d+)\/?$/.exec(url.pathname);
     if (story) return { kind: "media", mediaId: story[1], url: `https://www.instagram.com${url.pathname}` };
     return { kind: "unsupported" };
   }
-  if (host === "facebook.com" || host === "m.facebook.com") {
+  if (host === "facebook.com" || host === "m.facebook.com" || host === "web.facebook.com") {
+    // "/share/p|r|v/<code>" is an opaque short link: its post id exists only behind a
+    // redirect, and following redirects is not allowed here. Unsupported by design.
+    if (/^\/share\/[prv]\/[A-Za-z0-9_-]+\/?$/.test(url.pathname)) return { kind: "unsupported" };
     const post = /\/(?:reel|posts|videos)\/([\d_]+)\/?$/.exec(url.pathname);
     const video = url.pathname === "/watch/" ? url.searchParams.get("v") : null;
     const story = url.pathname === "/story.php" ? url.searchParams.get("story_fbid") : null;

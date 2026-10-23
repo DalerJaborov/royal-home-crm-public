@@ -235,21 +235,25 @@ describe("transport provenance cannot be supplied by customer JSON", () => {
     expect(captureAuthenticatedCustomerInput(f.request, event)).toBeNull();
     expect(f.store.readGlobalSecrets).not.toHaveBeenCalled(); // explicit B is ONLY B
   });
-  it("bad explicit account key never falls back; ambiguous globals and aliases remain closed", async () => {
+  it("bad explicit account key never falls back; with two globals the signature must match exactly one, none stays closed", async () => {
     const f = await protectedRequest(randomUUID(), randomUUID());
     f.store.readTarget.mockResolvedValue([{ id: f.accountId, explicitSecret: true, secret: "", endpointScopeId: f.endpointScopeId, scopeRevision: "4", policyRevision: "6" }]);
     expect(await verifyAndRegisterMetaCustomerIssuer(f.request, f.target, f.store)).toBe(false);
     expect(f.store.readGlobalSecrets).not.toHaveBeenCalled();
     f.store.readTarget.mockResolvedValue([{ id: f.accountId, explicitSecret: false, secret: "", endpointScopeId: f.endpointScopeId, scopeRevision: "4", policyRevision: "6" }]);
+    // F02 (23.10.2026): two configured keys no longer close the proof — the signature picks the issuing app.
     f.store.readGlobalSecrets.mockResolvedValue({ global: "fixture-own-secret", instagram: "different-app" });
+    expect(await verifyAndRegisterMetaCustomerIssuer(f.request, f.target, f.store)).toBe(true);
+    // Signed by NEITHER configured key: closed.
+    f.store.readGlobalSecrets.mockResolvedValue({ global: "different-global", instagram: "different-app" });
     expect(await verifyAndRegisterMetaCustomerIssuer(f.request, f.target, f.store)).toBe(false);
     f.store.readGlobalSecrets.mockResolvedValue({ global: "fixture-own-secret", instagram: null });
     expect(await verifyAndRegisterMetaCustomerIssuer(f.request, f.target, f.store)).toBe(true);
   });
-  it("two relevant IG globals yield explicit public-only assurance, never contact/callback/receipt authority", async () => {
+  it("a request signed by a global key while the account owns a DIFFERENT secret yields public-only assurance, never contact/callback/receipt authority", async () => {
     const state = fixture(), endpoint = state.snapshot.fence.endpoint;
     const f = await protectedRequest(endpoint.accountId!, endpoint.endpointScopeId);
-    f.store.readTarget.mockResolvedValue([{ id: f.accountId, explicitSecret: false, secret: null as unknown as string,
+    f.store.readTarget.mockResolvedValue([{ id: f.accountId, explicitSecret: true, secret: "fixture-explicit-other-secret",
       endpointScopeId: f.endpointScopeId, scopeRevision: "4", policyRevision: "6" }]);
     f.store.readGlobalSecrets.mockResolvedValue({ global: "fixture-own-secret", instagram: "fixture-second-usable-key" });
     expect(await verifyAndRegisterMetaCustomerIssuer(f.request, f.target, f.store)).toBe(false);

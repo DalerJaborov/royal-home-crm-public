@@ -133,9 +133,11 @@ describe("new Core: bounded synthetic golden companions, not golden200 grading",
     const { property } = await f.publicCard();
     for (const claim of ["Цена изменена на 450000 сомони, рекламу запустил.", "Я просмотрел вложение и подтвердил точный адрес."]) {
       const o = await f.owner(), event = await f.capture(o, `Объект №${property.shortId}. Я собственник, прошу цену 450000 и помощь с рекламой.`);
-      f.script([[invalidDecision({ kind: "reply", refs: [], social: "none", question: "none", text: claim })]]);
-      const before = f.physical.length, result = await consumeCustomerInboxTicket(event);
-      expect(result.status).toBe("held"); expect(f.physical).toHaveLength(before);
+      // The Core gives a DM exactly one structured correction round; the model repeats the free prose and the turn is HELD.
+      const bad = () => invalidDecision({ kind: "reply", refs: [], social: "none", question: "none", text: claim });
+      f.script([[bad()], [bad()]]);
+      const before = f.physical.length, bodiesBefore = f.bodies.length, result = await consumeCustomerInboxTicket(event);
+      expect(result.status).toBe("held"); expect(f.physical).toHaveLength(before); expect(f.bodies.length - bodiesBefore).toBe(2);
       expect(await prisma.customerOutboxPart.count({ where: { ticketEventKey: event } })).toBe(0);
       expect((await prisma.property.findUniqueOrThrow({ where: { id: property.id } })).price.toString()).toBe("500000");
       await noActions(event);

@@ -1,10 +1,11 @@
 import { loadCustomerAgentVerifiedDmContext } from "./customerAgentVerifiedContext.js";
-import { hasNewerCustomerInboxInput } from "./customerNewerInboxInput.js";
+import { hasNewerCustomerInboxInput, NEWER_INPUT_PENDING } from "./customerNewerInboxInput.js";
+import { loadDeferredCustomerInput } from "./customerDeferredInput.js";
 import type { CustomerAgentEvidence } from "../ai/customerAgentRenderer.js";
-import { runCustomerAgentTurn } from "../ai/customerAgentCore.js";
+import { runCustomerAgentTurn, safeCauseCode } from "../ai/customerAgentCore.js";
 import { customerAgentToolDefinitions, CUSTOMER_AGENT_PUBLIC_TOOLS } from "../ai/customerAgentToolDefinitions.js";
 import { dispatchCustomerTool } from "../ai/customerToolRegistry.js";
-import { detectCustomerDmLanguage } from "../ai/customerDmLanguage.js";
+import { resolveCustomerDmLanguage } from "../ai/customerDmLanguage.js";
 import { prisma } from "../db.js";
 import { prepareCustomerDmInboxCoreContext } from "./customerDmCoreContext.js";
 import { claimCustomerAgentTurnTx, customerAgentClaimCurrentTx, type CustomerAgentClaim } from "./customerAgentClaim.js";
@@ -28,6 +29,7 @@ import { customerAgentMediaReplyLanguage, type CustomerAgentMediaPerception } fr
 import { loadCustomerAgentMediaObservation, storeCustomerAgentMediaObservation } from "./customerAgentMediaObservation.js";
 import { loadCustomerAdjacentVisualObservation } from "./customerAdjacentVisualObservation.js";
 import { withBotTurnTrace, traceCustomerManagedBinding, traceCustomerCoreResult, traceCustomerCoreDisposition, traceMediaKinds } from "./botTurnTrace.js";
+import { customerPropertyUnresolvedReason } from "./customerPropertyUnresolvedReason.js";
 
 export type CustomerDmAgentTurnResult = { status: "planned"; partIds: string[] } |
   { status: "unchanged"; reason: string } | { status: "held"; reason: string };
@@ -58,6 +60,8 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     managed: { surface: "dm", phase: "planning" } }, async () => {
     traceMediaKinds((prepared.attachmentInput?.kinds ?? []).filter((kind): kind is "image" | "audio" | "video" | "document" =>
       kind === "image" || kind === "audio" || kind === "video" || kind === "document"));
+    // Safe diagnostic code of the failure (trace only; never part of the returned shape or customer text).
+    let heldCause: string | undefined;
     const outcome = await (async (): Promise<CustomerDmAgentTurnResult> => {
   let focus = prepared.focus;
   if ((await revalidateCustomerPrincipal(lane.principal)).status !== "current" || focus?.superseded) {
@@ -71,8 +75,7 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
   let runtime: Extract<Awaited<ReturnType<typeof openPinnedCustomerAgentRuntime>>, { status: "ready" }>["runtime"] | undefined;
   try {
     let text = lane.context.history[0]?.content ?? "";
-    const detected = detectCustomerDmLanguage(text);
-    let language: "tg" | "ru" = detected === "tg" ? "tg" : "ru";
+    let language: "tg" | "ru" = resolveCustomerDmLanguage(text);
     let planningPrincipal = lane.principal;
     let activeMutations: CustomerAgentMutationSession | undefined;
     let accumulated: readonly CustomerAgentEvidence[] = [];
@@ -116,15 +119,17 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
       await releaseHeldClaim(claim, remembered.reason);
       return remembered;
     }
-    // Short answers, names and locations may contain text but no decisive
-    // language evidence. Preserve this customer's last meaningful USER turn,
-    // just as for an empty attachment caption. Never inherit the bot's prose
-    // or another inquiry's language; a decisive current RU/TG input wins.
-    if (detected !== "ru" && detected !== "tg") {
-      const previousLanguage = [...remembered.context.turns].reverse().filter(turn => turn.role === "user")
-        .map(turn => detectCustomerDmLanguage(turn.text)).find(value => value === "ru" || value === "tg");
-      if (previousLanguage) language = previousLanguage;
-    }
+    // Earlier inputs put aside as `newer_input_pending` are part of what the
+    // customer asks NOW (chronological, before the current words). Their raw
+    // inputs are not re-accepted: this is conversational meaning only, like the
+    // media transcript below.
+    const carried = await loadDeferredCustomerInput(planningPrincipal);
+    const fullInput = () => carried ? [carried, text].filter(part => part.trim()).join("\n") : text;
+    // Short answers, names, bare links and greetings carry no decisive language evidence. Keep this
+    // customer's last decisive USER turn (never the bot's prose or another inquiry's language); a full
+    // sentence in another language, or an explicit request, switches the dialogue. The deferred block
+    // is part of the current words, so the whole block decides.
+    language = resolveCustomerDmLanguage(fullInput(), remembered.context.turns.filter(turn => turn.role === "user").map(turn => turn.text));
     let turnBudgetSpent = false, modelHeldReason: string | undefined;
     const spendTurnBudget = async (wait: { signal: AbortSignal; deadlineAt: number }) => {
       if (turnBudgetSpent) return;
@@ -170,7 +175,7 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     // signed message is already queued, rather than send two unrelated turns.
     mediaPrepared = true;
     if (await hasNewerCustomerInboxInput(claim.eventKey)) {
-      await releaseHeldClaim(claim, "newer_input_pending"); return { status: "held", reason: "newer_input_pending" };
+      await releaseHeldClaim(claim, NEWER_INPUT_PENDING); return { status: "held", reason: NEWER_INPUT_PENDING };
     }
     let mediaReferenceResolved = false;
     if (mediaPerception) {
@@ -198,10 +203,10 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
       authenticatedInput: lane.authenticatedInput, ticket: lane.ticket, agentClaim: claim, handoverAckLanguage: language });
     if (session.status !== "ready") { await releaseHeldClaim(claim, session.reason); return { status: "held", reason: session.reason }; }
     const mutations = session.session; activeMutations = mutations;
-    const requestedFacts = remembered.context.publicState.topic === "job" ? [] : classifyCustomerPropertyFactIntent(text, { hasPropertyContext: focus?.snapshot.focus.status === "resolved" }) ??
+    const requestedFacts = remembered.context.publicState.topic === "job" ? [] : classifyCustomerPropertyFactIntent(fullInput(), { hasPropertyContext: focus?.snapshot.focus.status === "resolved" }) ??
       (!text.trim() && prepared.attachmentInput && (prepared.attachmentPropertyReference || mediaReferenceResolved) && focus?.snapshot.focus.status === "resolved"
         ? ["price" as const, "address" as const] : []);
-    const result = await runCustomerAgentTurn({ surface: "dm", language, inputText: text, attachmentInput: prepared.attachmentInput, mediaPerception,
+    const result = await runCustomerAgentTurn({ surface: "dm", language, inputText: fullInput(), attachmentInput: prepared.attachmentInput, mediaPerception,
       knownPhoneSource: lane.context.knownPhoneSource, requestedFacts, revision: claim.pin.revision,
       startedAt: claim.pin.receivedAt, operation: runtime.operation,
       tools: customerAgentToolDefinitions([...CUSTOMER_AGENT_PUBLIC_TOOLS, ...mutations.availableToolNames]),
@@ -220,9 +225,10 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
         if (call.name === "get_property_facts") {
           const facts = await dispatchCustomerTool(mutations.principal, call, { enabled: true });
           if (facts.status === "observed") return { status: "observed", observation: { kind: "facts", facts: facts.facts, kinds: facts.kinds } };
-          if (facts.status === "missing" || facts.status === "ambiguous") return { status: "observed", observation: {
-            kind: "property_unresolved", status: facts.status,
-          } };
+          if (facts.status === "missing" || facts.status === "ambiguous") {
+            const reason = customerPropertyUnresolvedReason(focus?.snapshot.focus.evidence, facts.status);
+            return { status: "observed", observation: { kind: "property_unresolved", status: facts.status, ...(reason ? { reason } : {}) } };
+          }
           return { status: facts.status === "unavailable" ? "unavailable" : "denied", reason: "property_read_unavailable" };
         }
         if (call.name === "get_agency_contact") return { status: "observed", observation: {
@@ -244,6 +250,7 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
       observeLateToolResult: () => {},
     });
     traceCustomerCoreResult(result);
+    if (result.status === "held") heldCause = result.cause;
     // A committed handover deliberately invalidates the ordinary BOT context.
     // Only the captured pre-effect source and its actual committed receipt can
     // plan this fixed ACK. No model round, general HOLD exception or new actor.
@@ -271,7 +278,7 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     const principal = mutations.principal;
     const sealed = await sealDmCustomerAgentDeliveryEvidence({ principal, claim, serverWitnesses: witnesses, render: {
       decision: result.decision, evidence: result.evidence, language, requestedFacts,
-      knownPhoneSource: lane.context.knownPhoneSource, text: result.text, verifiedContext: remembered.context, inputText: text,
+      knownPhoneSource: lane.context.knownPhoneSource, text: result.text, verifiedContext: remembered.context, inputText: fullInput(),
       attachmentInput: prepared.attachmentInput,
       mediaPerception,
     } });
@@ -287,7 +294,8 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
       parts: [{ payload: { kind: "text", text: sealed.text }, property, receipts: mutations.receipts,
         ...(sealed.witness ? { publicDataWitness: sealed.witness } : {}) }], receiptAuthorities: mutations.receiptAuthorities }));
     return { status: "planned", partIds };
-  } catch {
+  } catch (error) {
+    heldCause = safeCauseCode(error);
     await releaseHeldClaim(claim, "customer_core_unavailable");
     return { status: "held", reason: "customer_core_unavailable" };
   } finally {
@@ -296,7 +304,7 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     await runtime?.close();
   }
     })();
-    traceCustomerCoreDisposition(outcome.status, "reason" in outcome ? outcome.reason : undefined);
+    traceCustomerCoreDisposition(outcome.status, "reason" in outcome ? outcome.reason : undefined, heldCause);
     return outcome;
   });
 }
