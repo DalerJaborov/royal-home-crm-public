@@ -186,6 +186,8 @@ export function CAvatar({
       src={src}
       onError={() => setFailedSrc(src)}
       alt=""
+      loading="lazy"
+      decoding="async"
       style={dim}
       className={cn("shrink-0 rounded-full object-cover", className)}
     />

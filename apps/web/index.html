@@ -18,14 +18,9 @@
          важнее — зум пальцами не ломает интерфейс, а блокировать его нельзя (WCAG 1.4.4). -->
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
-    <!-- Тема «Royal Home 2026»: preload двух базовых начертаний (латиница + кириллица),
-         остальные subset-файлы (latin-ext/cyrillic-ext) грузятся лениво по font-face —
-         preload только то, что почти наверняка понадобится сразу после переключения темы. -->
-    <link rel="preload" href="/fonts/manrope-latin.woff2" as="font" type="font/woff2" crossorigin />
-    <link rel="preload" href="/fonts/manrope-cyrillic.woff2" as="font" type="font/woff2" crossorigin />
-    <!-- Onest грузился последним в цепочке (замер прода: 5,2с) — он держит цифры
-         (tabular figures) на первом экране пульта/дашборда. Preload только latin+cyrillic,
-         *-ext лениво по font-face, как и Manrope выше. -->
+    <!-- Шрифт один — Onest (theme-2026-brand.css). Preload только latin+cyrillic,
+         *-ext грузятся лениво по font-face. Manrope не preload'ится: он перекрыт
+         брендом и зря занимал канал на первом экране (23.10.2026). -->
     <link rel="preload" href="/fonts/onest-latin.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="preload" href="/fonts/onest-cyrillic.woff2" as="font" type="font/woff2" crossorigin />
     <!-- PNG, а не SVG: iOS формат apple-touch-icon в SVG не поддерживает и вместо

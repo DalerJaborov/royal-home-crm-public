@@ -82,7 +82,7 @@ export function MatchPropertyCard({
         />
       )}
       <span className="ph">
-        {p.photos?.[0] ? <img src={p.photos[0].thumbUrl} alt="" /> : <House className="i" strokeWidth={1.5} />}
+        {p.photos?.[0] ? <img src={p.photos[0].thumbUrl} alt="" loading="lazy" decoding="async" /> : <House className="i" strokeWidth={1.5} />}
       </span>
       <div className="t">
         {/* Две строки названия, а не одна с многоточием (28.09.2026): на
