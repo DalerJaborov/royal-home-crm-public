@@ -4,7 +4,7 @@ const h = vi.hoisted(() => ({
   pinned: vi.fn(),
   policy: vi.fn(), stored: vi.fn(),
 }));
-vi.mock("../src/lib/systemError.js", () => ({ logSystemError: h.logSystemError }));
+vi.mock("../src/lib/systemError.js", async importOriginal => ({ ...(await importOriginal<typeof import("../src/lib/systemError.js")>()), logSystemError: h.logSystemError }));
 vi.mock("../src/lib/customerAgentRuntimeArchive.js", async importOriginal => ({
   ...(await importOriginal<typeof import("../src/lib/customerAgentRuntimeArchive.js")>()), loadPinnedCustomerAgentRuntime: h.pinned }));
 vi.mock("../src/db.js", () => ({ prisma: {
