@@ -25,4 +25,3 @@ Dependency execution gate was honored: no API/pure/browser run during parent's b
 ## Scope and remaining validation
 
 Only route, regression, this report and journal entry are authored for AF01. No API/provider writes outside own fixtures, UI edit, sharedschema change, dependency mutation, fullsuite, map regeneration, commit/push/merge/deploy. Parent owns final package review/map/precheck/cloud validation. Real isolated HTTP/PG confirms the contract violation and fix; production incidence and real user logs remain uninspected.
-
