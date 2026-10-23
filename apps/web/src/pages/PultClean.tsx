@@ -34,6 +34,7 @@ import { CleanCallbackRows, CleanDeleteRequestRows } from "../components/clean/C
 import { CleanDirectorAi } from "../components/clean/CleanDirectorAi";
 import { CleanFeaturedProperty } from "../components/clean/CleanFeaturedProperty";
 import { CleanPultExtras } from "../components/clean/CleanPultExtras";
+import { CleanPultInbox } from "../components/clean/CleanPultInbox";
 import { CleanWorkQueues } from "../components/clean/CleanWorkQueues";
 import { CommandPaletteLazy } from "../components/CommandPaletteLazy";
 import { CleanControlTiles, CleanFinancialPulse, CleanSystemBotDetails } from "../components/clean/CleanPultOperations";
@@ -270,6 +271,7 @@ export function PultClean() {
               </div>
             )}
           </CCard>
+          <CleanPultInbox />
           {showFirstLine && <PultFirstLine firstLine={firstLineData} isLoading={isLoading} incomplete={incomplete} />}
         </div>
 
