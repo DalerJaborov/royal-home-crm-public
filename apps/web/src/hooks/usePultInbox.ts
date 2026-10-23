@@ -29,10 +29,11 @@ import type { SiteNotificationsResponse } from "./useSiteNotifications";
  * ["site-notifications"], ["bot-audit"]).
  */
 
-export type InboxGroup = "clients" | "video" | "social" | "system";
+export type InboxGroup = "violations" | "clients" | "video" | "social" | "system";
 
-export const INBOX_GROUP_ORDER: InboxGroup[] = ["clients", "video", "social", "system"];
+export const INBOX_GROUP_ORDER: InboxGroup[] = ["violations", "clients", "video", "social", "system"];
 export const INBOX_GROUP_LABEL: Record<InboxGroup, string> = {
+  violations: "Нарушения",
   clients: "Клиенты",
   video: "Видео",
   social: "Соцсети",
@@ -40,6 +41,7 @@ export const INBOX_GROUP_LABEL: Record<InboxGroup, string> = {
 };
 
 export type InboxQueueId =
+  | "violations"
   | "waiting"
   | "comments"
   | "reactivation"
@@ -74,6 +76,7 @@ export type InboxItem = InboxBase &
     | { type: "stuckWork"; jobId: string }
     | { type: "audit"; findingId: string }
     | { type: "site"; notificationId: string }
+    | { type: "flag"; sliceKey: string; subjectId: string; href: string }
   );
 
 export interface InboxQueueMeta {
@@ -91,6 +94,7 @@ export interface InboxQueueResult {
 }
 
 export const INBOX_QUEUES: InboxQueueMeta[] = [
+  { id: "violations", group: "violations", label: "Красные флаги контроля", href: "/oversight" },
   { id: "waiting", group: "clients", label: "Клиент ждёт человека", href: "/messages" },
   { id: "comments", group: "clients", label: "Комментарии без ответа", href: "/comments" },
   { id: "reactivation", group: "clients", label: "Вернувшиеся клиенты", href: "/clients" },
@@ -330,7 +334,37 @@ export async function loadSiteChanges(): Promise<InboxQueueResult> {
   };
 }
 
+interface OversightFlagRow {
+  sliceKey: string;
+  subjectId: string;
+  title: string;
+  who: string | null;
+  at: string | null;
+  href: string;
+}
+
+/** Сводная лента красных флагов «Контроля» (GET /oversight/flags, до 20, без принятых). */
+export async function loadViolations(): Promise<InboxQueueResult> {
+  const r = await api<{ items: OversightFlagRow[]; total: number }>("/oversight/flags");
+  return {
+    total: r.total,
+    items: r.items.map((f): InboxItem => ({
+      id: `violations:${f.sliceKey}:${f.subjectId}`,
+      queue: "violations",
+      group: "violations",
+      type: "flag",
+      sliceKey: f.sliceKey,
+      subjectId: f.subjectId,
+      href: f.href,
+      title: f.title,
+      detail: [f.who ? `агент ${f.who}` : "", f.at ? `с ${formatAge(f.at)} назад` : ""].filter(Boolean).join(" · "),
+      at: f.at,
+    })),
+  };
+}
+
 const LOADERS: Record<InboxQueueId, { key: unknown[]; load: () => Promise<InboxQueueResult> }> = {
+  violations: { key: ["oversight", "pult-inbox", "flags"], load: loadViolations },
   waiting: { key: ["conversations", "pult-inbox", "waiting"], load: loadWaiting },
   comments: { key: ["instagram-comments", "pult-inbox"], load: loadComments },
   reactivation: { key: ["reactivation-offers", "pult-inbox"], load: loadReactivation },
@@ -355,6 +389,8 @@ export interface InboxQueueState extends InboxQueueMeta {
 export function enabledInboxQueues(has: (p: PermissionId) => boolean, role: string | undefined): Set<InboxQueueId> {
   const marketing = role === "DIRECTOR" || role === "ADMIN" || role === "MARKETING";
   const out = new Set<InboxQueueId>();
+  // Лента флагов и «Принято» — только директор/администратор (серверный запрет тот же).
+  if (role === "DIRECTOR" || role === "ADMIN") out.add("violations");
   if (has("messages.view")) out.add("waiting");
   if (has("comments.moderate")) out.add("comments");
   if (has("clients.assign")) { out.add("reactivation"); out.add("duplicates"); }
@@ -456,6 +492,10 @@ export function usePultInboxActions() {
     resolveAudit: async (id: string, verdict: "bot_right" | "bot_error") => {
       await api(`/bot-audit/${id}/resolve`, { method: "POST", body: { verdict } });
       settle(qc, [["bot-audit"]]);
+    },
+    ackFlag: async (sliceKey: string, subjectId: string, note?: string) => {
+      await api("/oversight/ack", { method: "POST", body: { sliceKey, subjectId, ...(note?.trim() ? { note: note.trim() } : {}) } });
+      settle(qc, [["oversight"], ["mission-control"]]);
     },
     acceptSiteChange: async (id: string) => {
       await api(`/site-notifications/${id}/resolve`, { method: "POST", body: { resolution: "ACCEPTED" } });

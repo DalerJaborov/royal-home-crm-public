@@ -52,6 +52,20 @@ describe("CleanPultInbox", () => {
     expect(out).not.toContain("Всё разобрано");
   });
 
+  it("нарушения: чип первым после «Все», у строки «Принято», заметка и «Открыть»", () => {
+    state.queues = [
+      queue({}),
+      queue({ id: "violations", group: "violations", label: "Красные флаги контроля", href: "/oversight",
+        items: [{ id: "violations:stalled-clients:c1", queue: "violations", group: "violations", type: "flag", sliceKey: "stalled-clients", subjectId: "c1", href: "/oversight#slice-stalled-clients", title: "Иванов: горячий клиент без контакта", detail: "агент Алия", at: null }], total: 1 }),
+    ];
+    const out = html();
+    expect(out.indexOf("Все")).toBeLessThan(out.indexOf("Нарушения"));
+    expect(out.indexOf("Нарушения")).toBeLessThan(out.indexOf("Клиенты"));
+    expect(out).toContain("Принято");
+    expect(out).toContain("Заметка (необязательно)");
+    expect(out).toContain('href="/oversight#slice-stalled-clients"');
+  });
+
   it("скелет, пока ничего не пришло", () => {
     state.queues = [queue({ isLoading: true })];
     expect(html()).toContain("Загружаем очереди");

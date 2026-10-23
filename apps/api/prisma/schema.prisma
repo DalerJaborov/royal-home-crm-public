@@ -349,6 +349,7 @@ enum AdMatchSource {
 
 model Agent {
   recruitmentRecoveries RecruitmentRecovery[]
+  oversightAcks OversightAck[]
   id                          String    @id @default(uuid())
   fullName                    String
   propertyChatConversations   BotConversation[] @relation("PropertyChatAgent")
@@ -10144,4 +10145,20 @@ model RecruitmentSmsReceipt {
   status String
   occurredAt DateTime
   receivedAt DateTime @default(now())
+}
+
+/// «Принято» руководителем по красному флагу «Контроля» (23.10.2026). Сам флаг
+/// вычисляется на лету и нигде не хранится; здесь только отметка, что директор его
+/// увидел. Ключ (sliceKey, subjectId) уникален — повторное «принято» не плодит строк.
+model OversightAck {
+  id        String   @id @default(uuid())
+  sliceKey  String
+  subjectId String
+  ackedById String
+  ackedBy   Agent    @relation(fields: [ackedById], references: [id])
+  ackedAt   DateTime @default(now())
+  note      String?  @db.VarChar(500)
+
+  @@unique([sliceKey, subjectId])
+  @@index([ackedById])
 }
