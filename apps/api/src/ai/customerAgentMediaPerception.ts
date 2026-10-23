@@ -71,7 +71,18 @@ export async function perceiveCustomerAgentMedia(input: {
   const canContainSpeech = input.parts.some(part => part.mimeType.startsWith("audio/") || part.mimeType.startsWith("video/") && part.hasAudio !== false);
   // A valid model call can still hallucinate speech on a silent video/photo.
   // Actual absence of an audio stream is stronger evidence than model text.
-  return canContainSpeech ? perceived : { ...perceived, language: "unknown", transcript: "", speech: "none" };
+  const speechChecked = canContainSpeech ? perceived : { ...perceived, language: "unknown" as const, transcript: "", speech: "none" as const };
+  return enforceCustomerMediaModality(speechChecked, input.parts);
+}
+
+/** The mirror guard: no image/video part means nothing was SEEN. A voice note must
+ * never reach the visual vocabulary ("На изображении вижу…"), whatever the model
+ * labelled it, and an audio-only request has no OCR text either. */
+export function enforceCustomerMediaModality(value: CustomerAgentMediaPerception, parts: readonly Pick<CustomerAgentMediaPart, "mimeType">[]): CustomerAgentMediaPerception {
+  const visual = parts.some(part => part.mimeType.startsWith("image/") || part.mimeType.startsWith("video/"));
+  if (visual) return value;
+  const audioOnly = parts.length > 0 && parts.every(part => part.mimeType.startsWith("audio/"));
+  return { ...value, subject: "not_visible", visible: [], ...(audioOnly ? { readableText: "" } : {}) };
 }
 
 /** Same language detector as legacy chat. An uncertain provider label must not

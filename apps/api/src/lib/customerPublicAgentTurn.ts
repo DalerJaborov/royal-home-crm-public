@@ -28,6 +28,7 @@ import { loadCustomerPublicThreadContext } from './customerPublicThreadContext.j
 import { readCustomerPublicPublicationSource } from './customerPublicPublicationSource.js';
 import { recruitmentPostCode, recruitmentKeyword } from '@royal-home/shared';
 import { readRecruitmentPositions } from './recruitmentPositions.js';
+import { readCustomerPublicAddressee } from './customerPublicAddressee.js';
 
 export type CustomerPublicAgentDraft =
   | { status: 'moderate'; principal: PublicCommentPrincipal }
@@ -70,6 +71,9 @@ export async function prepareCustomerPublicAgentDraft(ref: PublicSourceRef): Pro
     // Deterministic old policy takes precedence over model prose. The effect
     // executor separately verifies current compiled artifacts and its own claim.
     if (customerPublicModerationPlan(original.text)) return { status: 'moderate', principal };
+    // Someone else's conversation (reply under another person's comment, a tag of another account)
+    // or a bare reaction, with no question to the company: an allowed no-reply, never an object card.
+    if ((await readCustomerPublicAddressee(source)).skip) return { status: 'skip', reason: 'no_reply_needed', principal };
     traceCustomerManagedBinding({ revisionId: revision.id, operationId: origin.agentPin.providerOperationId });
     // Explicit presentation preference fixed by this Meta adapter, never model routing.
     const linkPreference = 'social' as const;

@@ -14,6 +14,7 @@ import { createCustomerOutboxPartsTx } from "../src/lib/customerOutbox.js";
 import { dispatchCustomerOutboxPart, acceptLateCustomerDeliveryMid } from "../src/lib/customerDeliveryDispatcher.js";
 import { inspectCustomerDeliveryObservation } from "../src/lib/customerDeliveryObservation.js";
 import * as adapters from "../src/lib/customerDeliveryAdapters.js";
+import { isOwnCustomerOutboxEcho } from "../src/lib/customerOutboxEcho.js";
 import { createCustomerRolloutFixture } from "./helpers/customerRolloutFixture.js";
 
 // Normal PG setup. Real HMAC companion, admission, principal, local transactions,
@@ -251,5 +252,67 @@ describe("actual durable text delivery boundaries", () => {
     }
     expect(await prisma.botConversation.count({ where: { channel: "WEBSITE", subscriberId: sessionId } })).toBe(0);
     expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("provable non-delivery retries and ambiguous-send resolution (F14)", () => {
+  it("429 is a provable NOT_SENT: one bounded retry through READY, then accepted; two attempts are recorded", async () => {
+    const f = await fixture(); const id = f.ids[0];
+    vi.mocked(fetch).mockResolvedValueOnce(new Response("{}", { status: 429 }));
+    expect(await dispatchCustomerOutboxPart(id)).toEqual({ status: "waiting" });
+    const queued = await prisma.customerOutboxPart.findUniqueOrThrow({ where: { id } });
+    expect(queued.status).toBe("READY"); expect(queued.nextAttemptAt!.getTime()).toBeGreaterThan(Date.now());
+    expect(await dispatchCustomerOutboxPart(id)).toEqual({ status: "waiting" }); expect(fetch).toHaveBeenCalledTimes(1);
+    await prisma.customerOutboxPart.update({ where: { id }, data: { nextAttemptAt: new Date(Date.now() - 1000) } });
+    expect(await dispatchCustomerOutboxPart(id)).toEqual({ status: "accepted" });
+    const attempts = await prisma.customerDeliveryAttempt.findMany({ where: { partId: id }, orderBy: { attemptNo: "asc" } });
+    expect(attempts).toMatchObject([{ attemptNo: 1, outcome: "NOT_SENT", errorCode: "http_429" }, { attemptNo: 2, outcome: "ACCEPTED" }]);
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+  it("an ambiguous 500 stays UNKNOWN and is never resent", async () => {
+    const f = await fixture(); const id = f.ids[0];
+    vi.mocked(fetch).mockResolvedValueOnce(new Response("{}", { status: 500 }));
+    expect(await dispatchCustomerOutboxPart(id)).toEqual({ status: "unknown" });
+    expect(await dispatchCustomerOutboxPart(id)).toEqual({ status: "unknown" });
+    expect(fetch).toHaveBeenCalledTimes(1); expect(await prisma.customerDeliveryAttempt.count({ where: { partId: id } })).toBe(1);
+  });
+  it("a hard 4xx is REJECTED and never retried", async () => {
+    const f = await fixture(); const id = f.ids[0];
+    vi.mocked(fetch).mockResolvedValueOnce(new Response("{}", { status: 400 }));
+    expect(await dispatchCustomerOutboxPart(id)).toEqual({ status: "suppressed" });
+    expect(await dispatchCustomerOutboxPart(id)).toEqual({ status: "suppressed" }); expect(fetch).toHaveBeenCalledTimes(1);
+  });
+  it("the retry budget is bounded: three 429 in a row end as NOT_SENT with no fourth POST", async () => {
+    const f = await fixture(); const id = f.ids[0];
+    vi.mocked(fetch).mockImplementation(async () => new Response("{}", { status: 429 }));
+    for (let i = 0; i < 5; i++) {
+      await prisma.customerOutboxPart.update({ where: { id }, data: { nextAttemptAt: new Date(Date.now() - 1000) } }).catch(() => {});
+      await dispatchCustomerOutboxPart(id);
+    }
+    expect(fetch).toHaveBeenCalledTimes(3);
+    expect((await prisma.customerOutboxPart.findUniqueOrThrow({ where: { id } })).status).toBe("NOT_SENT");
+  });
+  it("an own send left UNKNOWN stops holding later input after the ambiguity window", async () => {
+    const f = await fixture(); vi.mocked(fetch).mockResolvedValueOnce(new Response("{}", { status: 200 }));
+    expect(await dispatchCustomerOutboxPart(f.ids[0])).toEqual({ status: "unknown" });
+    const native = await prisma.botConversation.findUniqueOrThrow({ where: { id: f.nativeId } });
+    const target = { endpointScopeId: f.scopeId, peerId: native.subscriberId };
+    expect(await inspectCustomerDeliveryObservation(target)).toEqual({ status: "ambiguous_own_send" });
+    await prisma.$executeRaw`UPDATE "CustomerOutboxPart" SET "createdAt"=now()-interval '16 minutes' WHERE "id"=${f.ids[0]}`;
+    expect(await inspectCustomerDeliveryObservation(target)).toEqual({ status: "none" });
+  });
+  it("the echo of an UNKNOWN own send settles it ACCEPTED exactly once, without a POST; two candidates stay UNKNOWN", async () => {
+    const f = await fixture(["Эхо-ответ"]); const id = f.ids[0], mid = `synthetic-echo-${runId}`;
+    vi.mocked(fetch).mockResolvedValueOnce(new Response("{}", { status: 200 }));
+    expect(await dispatchCustomerOutboxPart(id)).toEqual({ status: "unknown" });
+    const native = await prisma.botConversation.findUniqueOrThrow({ where: { id: f.nativeId } });
+    const echo = { conversationId: f.nativeId, accountId: native.accountId, channel: native.channel, peer: native.subscriberId, text: "Эхо-ответ", messageId: mid };
+    expect(await isOwnCustomerOutboxEcho({ ...echo, text: "Совсем другой текст" })).toBe(false);
+    expect((await prisma.customerOutboxPart.findUniqueOrThrow({ where: { id } })).status).toBe("UNKNOWN");
+    expect(await isOwnCustomerOutboxEcho(echo)).toBe(true);
+    expect(await prisma.customerOutboxPart.findUniqueOrThrow({ where: { id } })).toMatchObject({ status: "ACCEPTED" });
+    expect(await prisma.customerDeliveryAttempt.findMany({ where: { partId: id } })).toMatchObject([{ outcome: "ACCEPTED", providerMid: mid }]);
+    expect(await inspectCustomerDeliveryObservation({ endpointScopeId: f.scopeId, peerId: native.subscriberId, mid })).toMatchObject({ status: "known_own", partId: id });
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 });
