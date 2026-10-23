@@ -1,9 +1,9 @@
 import { formatPropertyCode } from "../lib/clientFormat";
 import { CleanLoadError } from "../components/clean/CleanLoadError";
 import { CleanKpi as Kpi } from "../components/clean/CleanKpi";
+import { CleanCommissionChartLazy } from "../components/clean/CleanCommissionChartLazy";
 import { useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis } from "recharts";
 import {
   ArrowUpRight,
   Bell,
@@ -395,66 +395,7 @@ export function PultClean() {
                 </small>
               </div>
               <div className="mt-2 h-[130px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart
-                    data={commission.months.map((m) => ({
-                      m: monthShort(m.month),
-                      v: Math.round(m.amountTjs),
-                    }))}
-                    margin={{ top: 10, right: 4, left: 4, bottom: 0 }}
-                  >
-                    <defs>
-                      <linearGradient
-                        id="cleanArea"
-                        x1="0"
-                        x2="0"
-                        y1="0"
-                        y2="1"
-                      >
-                        <stop
-                          offset="0%"
-                          stopColor="rgb(var(--rgb-accent))"
-                          stopOpacity={0.28}
-                        />
-                        <stop
-                          offset="100%"
-                          stopColor="rgb(var(--rgb-accent))"
-                          stopOpacity={0}
-                        />
-                      </linearGradient>
-                    </defs>
-                    <XAxis
-                      dataKey="m"
-                      tickLine={false}
-                      axisLine={false}
-                      tick={{ fontSize: 13, fill: "rgb(var(--rgb-g500))" }}
-                      interval="preserveStartEnd"
-                    />
-                    <Tooltip
-                      cursor={{
-                        stroke: "rgb(var(--rgb-accent))",
-                        strokeDasharray: "3 3",
-                      }}
-                      content={({ active, payload, label }) =>
-                        active && payload?.length ? (
-                          <div className="rounded-[10px] border border-line-soft bg-card px-3 py-1.5 text-[13px] font-semibold shadow-md">
-                            {label} ·{" "}
-                            {formatMoney(Number(payload[0].value), "TJS")}
-                          </div>
-                        ) : null
-                      }
-                    />
-                    <Area
-                      type="monotone"
-                      dataKey="v"
-                      stroke="rgb(var(--rgb-accent))"
-                      strokeWidth={2.5}
-                      fill="url(#cleanArea)"
-                      isAnimationActive={false}
-                      animationDuration={1400}
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
+                <CleanCommissionChartLazy months={commission.months} />
               </div>
               <details className="mt-3"><summary className="cursor-pointer text-[16px]">Комиссия по месяцам · значения</summary><table className="w-full text-[16px]"><caption className="sr-only">Комиссия за 12 месяцев, сомони</caption><thead><tr><th scope="col">Месяц</th><th scope="col">Комиссия</th></tr></thead><tbody>{commission.months.map((item) => <tr key={item.month}><th scope="row">{item.month}</th><td>{formatMoney(item.amountTjs, "TJS")}</td></tr>)}</tbody></table></details>
             </CCard>
@@ -868,24 +809,6 @@ function isOnline(lastSeenAt?: string | null): boolean {
   return Date.now() - new Date(lastSeenAt).getTime() < 15 * 60_000;
 }
 
-const MONTHS = [
-  "янв",
-  "фев",
-  "мар",
-  "апр",
-  "май",
-  "июн",
-  "июл",
-  "авг",
-  "сен",
-  "окт",
-  "ноя",
-  "дек",
-];
-function monthShort(ym: string): string {
-  const m = Number(ym.slice(5, 7));
-  return MONTHS[m - 1] ?? ym;
-}
 function dayShort(date: string): string {
   const d = new Date(date);
   return Number.isNaN(d.getTime())
