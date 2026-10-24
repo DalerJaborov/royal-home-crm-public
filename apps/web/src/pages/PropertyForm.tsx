@@ -1,4 +1,5 @@
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { usableRouteId } from "../lib/routeId";
 import { useGoBack } from "../hooks/useGoBack";
 import { PROPERTY_EDIT_LOCKED_MESSAGE, propertyEditLocked } from "@royal-home/shared";
 import { RequestChangeSlot } from "../components/RequestChangeSlot";
@@ -107,7 +108,7 @@ export function PropertyNew() {
 
 /** Полноэкранное редактирование объекта (/properties/:id/edit) — та же страница-раздел. */
 export function PropertyEdit() {
-  const { id } = useParams();
+  const id = usableRouteId(useParams().id);
   const { data: property, isLoading } = useProperty(id);
   const can = useCan();
   // Запасной путь — карточка того же объекта: человек пришёл править именно её,

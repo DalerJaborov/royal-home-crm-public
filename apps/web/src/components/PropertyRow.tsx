@@ -154,7 +154,7 @@ export function PropertyRow({
           Есть снимок — он и стоит в рамке (эталон допускает `.ph img`). */}
       <span className="ph">
         {p.photos[0] ? (
-          <img src={p.photos[0].thumbUrl} alt="" />
+          <img src={p.photos[0].thumbUrl} alt="" loading="lazy" decoding="async" />
         ) : (
           <svg className="i" viewBox="0 0 24 24">
             <path d="M3 11 12 3l9 8v10H3z" />
