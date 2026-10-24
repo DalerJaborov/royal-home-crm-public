@@ -51,3 +51,13 @@ export function customerSellerIntakeQuestion(known: readonly SellerFactKey[], la
   return language === "tg" ? `Барои фурӯш ${fields}-ро нависед. Ҳамаашро дар як паём фиристода метавонед.`
     : `Для продажи напишите ${fields}. Можно всё одним сообщением.`;
 }
+
+/** Every wording customerSellerIntakeQuestion can produce (any subset of known facts), for the read-only memory allow-list. */
+export function customerSellerIntakeQuestionLines(): string[] {
+  const keys = SELLER_FACT_ORDER, lines: string[] = [];
+  for (let mask = 0; mask < 1 << keys.length; mask++) {
+    const known = keys.filter((_, index) => mask & (1 << index));
+    for (const language of ["ru", "tg"] as const) lines.push(customerSellerIntakeQuestion(known, language));
+  }
+  return lines;
+}
