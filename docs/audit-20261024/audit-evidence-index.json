@@ -1,0 +1,2923 @@
+{
+  "version": 1,
+  "generatedAt": "2026-10-24T01:03:03.407Z",
+  "sourcePin": "4897ef97b3a935d69dff8e1610dbe77f79375430",
+  "roots": {
+    "main": "D:/PublicWorktrees-20261021/night-audit-20261024/",
+    "final": "D:/PublicWorktrees-20261021/night-audit-20261024-final/",
+    "phase2": "D:/PublicWorktrees-20261021/night-audit-20261024-phase2/",
+    "final2": "D:/PublicWorktrees-20261021/night-audit-20261024-final2/"
+  },
+  "interpretation": "Cross-reference only, no full module GREEN, no coverage percentage, no global property inferred from passing suites. Missing named evidence means pending in this index, not proof nobody ever tested it. Original inventory.json remains unchanged.",
+  "baseline": {
+    "sha": "87aecdbcc4a69a3f57ad6de23b4e739ca6c9c3b1",
+    "counts": {
+      "sourceFiles": 1958,
+      "existingTestFiles": 1805,
+      "screens": 68,
+      "modules": 78,
+      "cron": 104,
+      "jobs": 23,
+      "external": 13
+    }
+  },
+  "current": {
+    "rawCounts": {
+      "screens": 68,
+      "nav": 37,
+      "modules": 78,
+      "cron": 104,
+      "jobs": 23,
+      "external": 13
+    },
+    "humanTotals": {
+      "screens": 52,
+      "paths": 666,
+      "cron": 108,
+      "jobs": 31,
+      "conditions": 3658,
+      "untranslatedUnique": 396,
+      "untranslatedTotal": 505,
+      "partialUnique": 1029,
+      "translatedShare": 86
+    },
+    "flowTotals": {
+      "endpoints": 666,
+      "forks": 3658,
+      "mounts": 75,
+      "cron": 108,
+      "jobs": 31,
+      "hidden": 0
+    }
+  },
+  "inputSha256": {
+    "product-map.json": "5b56f47afac33f8784b5b3ef199be026001b600d8aef5e81f22f9838dd92d041",
+    "product-map-simple.json": "5d4abaf15e4386fd666416767e4ffe4c941927aec3537c283c60b3d56aa5b693",
+    "product-flows.json": "35100918765c914d400b1431533ec2f7986950d9704f61cfd71600caa1108454"
+  },
+  "groups": [
+    {
+      "id": "role-smoke",
+      "reports": [
+        "README.md",
+        "FRONTEND.md"
+      ],
+      "reportRoot": "main",
+      "layers": [
+        "real_http",
+        "isolated_postgresql",
+        "chrome"
+      ],
+      "roles": [
+        "DIRECTOR",
+        "ADMIN",
+        "AGENT",
+        "MANAGER",
+        "MARKETING",
+        "EDITOR",
+        "SECURITY",
+        "SHAREHOLDER"
+      ],
+      "scope": "Code login, effective finance-view permission, invalid-token rejection, shareholder expense-write rejection; 8 cases / 80 route-viewport visits. Smoke only.",
+      "screens": [
+        "/",
+        "/profile",
+        "/clients",
+        "/properties",
+        "/calendar"
+      ],
+      "routers": [
+        "authRouter",
+        "meRouter",
+        "financeRouter",
+        "expensesRouter"
+      ],
+      "result": "8 passed; overlapping later smoke reruns not summed"
+    },
+    {
+      "id": "frontend-pending-network",
+      "reports": [
+        "FRONTEND.md",
+        "FRONTEND-BASELINE.md"
+      ],
+      "reportRoot": "main",
+      "layers": [
+        "mock_transport",
+        "pure_unit",
+        "chrome_component"
+      ],
+      "scope": "Unknown write outcome copy, DealSubmitModal pending dismissal, deferred feed/editor load-more ordering; 66 focused units and 8 Chrome cases at 1440/390. Caller source inspection is separate.",
+      "screens": [
+        "/deals",
+        "/deferred-clients",
+        "/pipeline"
+      ],
+      "routers": [],
+      "result": "Named cases passed; pinned original baseline failures retained"
+    },
+    {
+      "id": "business-money-reservations",
+      "reports": [
+        "BUSINESS.md",
+        "REVIEW-BUSINESS.md"
+      ],
+      "reportRoot": "main",
+      "layers": [
+        "real_http",
+        "isolated_postgresql",
+        "deterministic_interleaving"
+      ],
+      "scope": "Exchange-rate/payment/accounting-month/forecast and recurring expense boundaries; sold-price commission; reservation renew/expiry and lock-order correction. 71-test and 42-test groups overlap; no unique sum.",
+      "screens": [],
+      "routers": [
+        "expensesRouter",
+        "financeRouter",
+        "dealsRouter"
+      ],
+      "result": "Named focused groups passed; not all finance/deal states"
+    },
+    {
+      "id": "api-roles-files-streams",
+      "reports": [
+        "API-ROLES.md",
+        "REVIEW-API.md"
+      ],
+      "reportRoot": "main",
+      "layers": [
+        "real_http",
+        "isolated_postgresql",
+        "real_local_files",
+        "real_local_stream"
+      ],
+      "scope": "Bulk recruitment/live-call claims, retained portfolio files, live-audio revocation and adjacent stream controls; 77 distinct tests / 10 files. No exhaustive role/ownership audit.",
+      "screens": [],
+      "routers": [
+        "vacanciesRouter",
+        "liveVoiceListenRouter",
+        "agentsRouter"
+      ],
+      "result": "Recovery groups passed; original incomplete green excluded"
+    },
+    {
+      "id": "recruitment-text-limits",
+      "reports": [
+        "PHASE2-FIELDS.md"
+      ],
+      "reportRoot": "final",
+      "layers": [
+        "pure_unit",
+        "chrome_component",
+        "mock_transport",
+        "real_http",
+        "isolated_postgresql"
+      ],
+      "scope": "Create/internal note2000 and rejection reason500; +1/legacy draft/error retention/untruncated retry. Web75, Chrome6 at two widths, API14; no provider calls.",
+      "screens": [
+        "/vacancies",
+        "/vacancies/:id"
+      ],
+      "routers": [
+        "vacanciesRouter"
+      ],
+      "result": "Focused checks passed"
+    },
+    {
+      "id": "csv-import",
+      "reports": [
+        "PHASE2-IMPORT.md",
+        "REVIEW-PHASE2-IMPORT.md"
+      ],
+      "reportRoot": "final",
+      "layers": [
+        "pure_unit",
+        "real_http",
+        "isolated_postgresql"
+      ],
+      "scope": "Quoted separator/logical record parsing; unsupported currency rejection, valid/default currencies and downloadable template roundtrip. 36 focused tests/6 files; regression19 included.",
+      "screens": [],
+      "routers": [
+        "importRouter"
+      ],
+      "result": "10 regression failures on baseline; final group passed"
+    },
+    {
+      "id": "multipart-cleanup",
+      "reports": [
+        "PHASE2-UPLOAD.md",
+        "REVIEW-PHASE2-ASYNC.md"
+      ],
+      "reportRoot": "final",
+      "layers": [
+        "real_http",
+        "isolated_postgresql",
+        "real_local_files",
+        "deterministic_interleaving",
+        "mixed_storage_mocks"
+      ],
+      "scope": "Stale scan versus acknowledged PUT/RAW complete, PG blocking, cleanup disk-failure retention; 49 cases/6 files with mixed evidence levels described per file. Only cleanup changed.",
+      "screens": [],
+      "routers": [
+        "propertiesRouter"
+      ],
+      "cron": [
+        "stale-video-uploads-cleanup"
+      ],
+      "result": "Named group passed; crash atomicity and whole upload lifecycle remain pending"
+    },
+    {
+      "id": "assistant-live-task-selection",
+      "reports": [
+        "PHASE2-TASKS.md"
+      ],
+      "reportRoot": "final",
+      "layers": [
+        "actual_exported_tool",
+        "isolated_postgresql"
+      ],
+      "scope": "Cancelled-only/live-plus-cancelled selection; live CALL/SHOWING, completed/foreign/unaccepted/deleted controls. 25 cases/4 files. No model/provider execution.",
+      "screens": [],
+      "routers": [],
+      "result": "2 RED plus6 controls then25 PASS; no repeat-reminder/date-score policy change"
+    },
+    {
+      "id": "settings-draft-rollback",
+      "reports": [
+        "PHASE2-SETTINGS.md"
+      ],
+      "reportRoot": "final",
+      "layers": [
+        "chrome_component",
+        "mock_transport",
+        "pure_unit"
+      ],
+      "scope": "Actual CompanySection/RoyalScore toggle canonical-success/newer-edit/dirty-pristine rollback; 8 Chrome,14 pure cases. 11 callers source-wired; only two mounted sections.",
+      "screens": [
+        "/settings"
+      ],
+      "routers": [],
+      "result": "Focused checks passed; SMS/OpenAI separate hooks source-checked, not browser validated"
+    },
+    {
+      "id": "assistant-audit-day-range",
+      "reports": [
+        "PHASE2-AUDIT-FILTERS.md"
+      ],
+      "reportRoot": "final",
+      "layers": [
+        "real_http",
+        "isolated_postgresql",
+        "chrome_component_discovery"
+      ],
+      "scope": "Inclusive Dushanbe day/first5h, from/to/clear/invalid/role/list-count/50+3 pagination; actualHTTP/PG28 cases/3files. UI correct; route boundary fix.",
+      "screens": [],
+      "routers": [
+        "aiRouter"
+      ],
+      "result": "3 actualHTTP/PG RED+8 controls then28PASS"
+    },
+    {
+      "id": "report-periods",
+      "reports": [
+        "PHASE2-REPORT-PERIODS.md",
+        "REVIEW-PERIOD-FIXES.md"
+      ],
+      "reportRoot": "final",
+      "layers": [
+        "real_http",
+        "isolated_postgresql",
+        "pure_helper"
+      ],
+      "scope": "Six ads handlers and three ordinary report handlers: impossible dates/months, effective range order, Date compatibility, leap/day/monthyear/default/cap controls. 33 new cases; overlapping adjacent groups kept separate.",
+      "screens": [],
+      "routers": [
+        "adsRouter",
+        "reportsRouter"
+      ],
+      "result": "22 initial failures+8 controls; final33 and adjacent66-run evidence passed"
+    },
+    {
+      "id": "property-seller-atomicity",
+      "reports": [
+        "PHASE2-PROPERTY-SELLER-ATOMIC.md",
+        "REVIEW-PROPERTY-ATOMICITY.md"
+      ],
+      "reportRoot": "final",
+      "layers": [
+        "real_http",
+        "isolated_postgresql",
+        "deterministic_interleaving"
+      ],
+      "scope": "Property insertion and auto-seller rollback on draft close/duplicate/FK failure; existing seller reuse/foreign owner/real unique race. New10 + adjacent63 cases; model/push suppressed.",
+      "screens": [],
+      "routers": [
+        "propertiesRouter"
+      ],
+      "result": "Named real-PG controls passed; postcommit/media/worker lifecycle pending"
+    },
+    {
+      "id": "client-radius-native-step",
+      "reports": [
+        "FINAL-CLIENT-RADIUS.md",
+        "REVIEW-FINAL-CLIENT-DM.md"
+      ],
+      "reportRoot": "final",
+      "layers": [
+        "chrome_component",
+        "mock_transport",
+        "shared_schema"
+      ],
+      "scope": "ClientFormModal new/stored1250 radius Next navigation, integer min/max/1200/fraction reject and normal stepbar payload;14 Chrome cases at1440/390.",
+      "screens": [
+        "/clients",
+        "/clients/:id"
+      ],
+      "routers": [],
+      "result": "4 durable RED+10 controls then14PASS; rejected money candidate not a bug"
+    },
+    {
+      "id": "expense-archive-cas",
+      "reports": [
+        "NEXT-FINANCE-LIFECYCLE-READONLY.md",
+        "FINAL-EXPENSE-TABLE-ARCHIVE.md",
+        "FINAL-EXPENSE-ARCHIVE-VARIANT.md",
+        "REVIEW-FINAL-USER-FLOWS.md"
+      ],
+      "reportRoot": "final",
+      "layers": [
+        "real_http_boundary",
+        "isolated_postgresql_boundary",
+        "chrome_component",
+        "mock_transport",
+        "pure_hook"
+      ],
+      "scope": "One NFL01 family: captured table version and active ExpensesWorkspace opening version, stale409/fresh/read-only controls. ActualPG boundary is separate from synthetic browser CAS;6 Chrome per caller; hook compatibility3 plus adjacent15.",
+      "screens": [
+        "/finance"
+      ],
+      "routers": [
+        "expensesRouter"
+      ],
+      "result": "Both callers focused GREEN; overlapping family/controls not summed as bugs or unique suite"
+    },
+    {
+      "id": "calendar-completion-error",
+      "reports": [
+        "FINAL-CALENDAR-COMPLETE-ERROR.md",
+        "REVIEW-FINAL-USER-FLOWS.md"
+      ],
+      "reportRoot": "final",
+      "layers": [
+        "chrome_component",
+        "mock_transport"
+      ],
+      "roles": [
+        "AGENT"
+      ],
+      "scope": "Actual Calendar/hooks Day: completion error visible, acknowledgement retains task, retry removes via refetch; neighboring showing-edit invalid/pending/error retains draft.6 Chrome1440/390; fixed browser Date.",
+      "screens": [
+        "/calendar"
+      ],
+      "routers": [],
+      "result": "2 normative RED+4 controls then6PASS; no actualHTTP/PG/task-reopen proof"
+    },
+    {
+      "id": "ordinary-numbers-controls",
+      "reports": [
+        "NEXT-NATIVE-NUMBERS-READONLY.md"
+      ],
+      "reportRoot": "final",
+      "layers": [
+        "chrome_component",
+        "mock_transport",
+        "shared_schema"
+      ],
+      "scope": "Stored apartment/house fractions, signed floor/zero windows and new fractional expense;6 Chrome controls at1440/390; no new defect.",
+      "screens": [
+        "/properties/:id/edit",
+        "/finance"
+      ],
+      "routers": [],
+      "result": "6 usablePASS; initial settings-stub harness errors excluded"
+    },
+    {
+      "id": "post-showing-fixture",
+      "reports": [
+        "NEXT-SCHEDULE-RETRY-READONLY.md",
+        "FINAL-SCHEDULE-FIXTURE.md",
+        "REVIEW-FINAL-SCHEDULE.md"
+      ],
+      "reportRoot": "final",
+      "layers": [
+        "actual_scheduler",
+        "isolated_postgresql",
+        "mock_telephony"
+      ],
+      "scope": "Global tick/owned second-client interference, own weekly-limit invariant; clean30 repeats and controlled mechanism, durable44-case file no retry. No live call or scheduler-policy change.",
+      "screens": [],
+      "routers": [],
+      "cron": [
+        "post-showing-call"
+      ],
+      "result": "Fixture correction passed; actual cloud competing row identity unknown"
+    },
+    {
+      "id": "full-suite-ledger",
+      "reports": [
+        "FULL-API-FIRST-PACKAGE.md",
+        "FULL-API-5616.md",
+        "COVERAGE.md"
+      ],
+      "reportRoot": "final",
+      "layers": [
+        "consolidated_tests"
+      ],
+      "scope": "0466 local complete RED;3305 Linux plan failure before API;5616 complete20-shard RED14070PASS/1FAIL/3TODO. Final4897 precheck/full acceptance remains parent-owned and pending at reconciliation.",
+      "screens": [],
+      "routers": [],
+      "result": "Not a full-green claim and never evidence of every mapped scenario"
+    },
+    {
+      "id": "jobs-source-review",
+      "reports": [
+        "NEXT-JOBS-READONLY.md"
+      ],
+      "reportRoot": "main",
+      "layers": [
+        "source_review_only"
+      ],
+      "scope": "Runner timeout/retry/retention, geocode/deferredPush/siteResync adapters; no accepted end-to-end queue/provider proof for all job kinds.",
+      "screens": [],
+      "routers": [],
+      "cron": [
+        "background-jobs"
+      ],
+      "result": "Unresolved hypotheses remain; reading not execution"
+    },
+    {
+      "id": "profile-personal-details",
+      "reports": [
+        "NEXT-PROFILE-DETAILS-READONLY.md"
+      ],
+      "reportRoot": "main",
+      "layers": [
+        "chrome_component_export_only_instrumentation",
+        "mock_transport",
+        "actual_shared_schema"
+      ],
+      "roles": [
+        "AGENT"
+      ],
+      "runtime": {
+        "root": "phase2",
+        "sourcePin": "5616f8e3e886c500d0eeebf5edda924757620a2d",
+        "comparedFinalPin": "4897ef97b3a935d69dff8e1610dbe77f79375430",
+        "sourceSha256": {
+          "apps/web/src/pages/Profile.tsx": "d3e6aaf757261766e05e11ef1e062b94978f2378a948adfc7ca767db93a92633",
+          "apps/web/src/hooks/useMe.ts": "b6945249ed35fe8da525836cb6ffcada7f46e394cea650de096cdcee632b4efc"
+        },
+        "rawDirectory": "reports/night-audit-20261024/profile-details-readonly/",
+        "manifest": "manifest.json"
+      },
+      "scope": "Actual private PersonalInfoSection body unchanged; ignored Vite adds named export only. Chrome1440/390, name/email only, unchanged phone: null email, empty-name400 retains draft, native invalid-email blocks request, rejected-save retains draft/pending guard, success clears email and updates canonical auth/cache. Full Profile/security compositions not mounted.",
+      "screens": [
+        "/profile"
+      ],
+      "routers": [],
+      "result": "Initial8=6PASS+2 overstrict cosmetic-refill oracle failures, explicitly not CRM RED. Only corrected2 success controls rerun2PASS/native0. Eight usable observations, not8singleGREEN; no new bug."
+    },
+    {
+      "id": "team-absence-active-recheck",
+      "reports": [
+        "FINAL-TEAM-ABSENCE-RETURN.md"
+      ],
+      "reportRoot": "final2",
+      "independentReview": {
+        "reportRoot": "main",
+        "reports": [
+          "REVIEW-TEAM-ABSENCE-RETURN.md"
+        ]
+      },
+      "layers": [
+        "actual_exported_helper",
+        "isolated_postgresql",
+        "deterministic_interleaving",
+        "mock_push_queue"
+      ],
+      "runtime": {
+        "root": "final2",
+        "baseSourcePin": "4897ef97b3a935d69dff8e1610dbe77f79375430",
+        "sourceState": "released_uncommitted_at_index_update",
+        "sourceSha256": {
+          "apps/api/src/lib/absenceReturn.ts": "46a0bf590d29462c90c62dcbea73aba43a5e90d371b78455d229c93b93b4dd82",
+          "apps/api/tests/agent-absence-deactivation-race.test.ts": "f8bb4249bfd0bc306fd5f4363470bf6d00f41939a99a049afbb807d7d46af669"
+        },
+        "rawDirectory": "reports/night-audit-20261024/",
+        "finalLog": "team-absence-final2-final-green.log",
+        "exitFile": "team-absence-final2-final-green.exit.txt",
+        "database": "audit_team_absence"
+      },
+      "scope": "TA01 one tx.updateMany isActive:true condition: actual PG due SELECT then committed deactivation before transaction; strict returned0, inactive account/absence metadata/client clock preserved, zero mocked push/batch/queue. Candidate-only SQL scoping keeps original predicate and recipient queries, captured UUID cleanup and unrelated due witness unchanged. Controls exact boundary/idempotent/indefinite/already inactive/future extension/schema.",
+      "screens": [],
+      "routers": [],
+      "cron": [
+        "absence-return"
+      ],
+      "result": "Baseline1 realRED+5controls; final scoped6PASS/native0, explicit TS0/mockguard0. Initial5file52PASS adjacency imported cron for mocked registration/named helper; no credit for wall-clock firing or real sends. isActive remainsfalse; no reactivation claim."
+    }
+  ],
+  "screens": [
+    {
+      "path": "/",
+      "title": "Главная",
+      "file": "apps/web/src/pages/Dashboard.tsx",
+      "state": "named_partial_or_smoke_only",
+      "evidenceIds": [
+        "role-smoke"
+      ],
+      "pending": "Every other workflow/role/viewport/state; full route acceptance is not implied by a related mounted component."
+    },
+    {
+      "path": "/activity",
+      "title": "Активность команды",
+      "file": "apps/web/src/pages/Activity.tsx",
+      "state": "pending_no_named_runtime_evidence_in_this_index",
+      "evidenceIds": [],
+      "pending": "Every other workflow/role/viewport/state; full route acceptance is not implied by a related mounted component."
+    },
+    {
+      "path": "/ads",
+      "title": "Реклама",
+      "file": "apps/web/src/pages/Ads.tsx",
+      "state": "pending_no_named_runtime_evidence_in_this_index",
+      "evidenceIds": [],
+      "pending": "Every other workflow/role/viewport/state; full route acceptance is not implied by a related mounted component."
+    },
+    {
+      "path": "/ai-learning",
+      "title": "Обучение бота",
+      "file": "apps/web/src/pages/AiLearning.tsx",
+      "state": "pending_no_named_runtime_evidence_in_this_index",
+      "evidenceIds": [],
+      "pending": "Every other workflow/role/viewport/state; full route acceptance is not implied by a related mounted component."
+    },
+    {
+      "path": "/archive",
+      "title": "Архив",
+      "file": "apps/web/src/pages/Archive.tsx",
+      "state": "pending_no_named_runtime_evidence_in_this_index",
+      "evidenceIds": [],
+      "pending": "Every other workflow/role/viewport/state; full route acceptance is not implied by a related mounted component."
+    },
+    {
+      "path": "/backups",
+      "title": "Резервные копии",
+      "file": "apps/web/src/pages/Backups.tsx",
+      "state": "pending_no_named_runtime_evidence_in_this_index",
+      "evidenceIds": [],
+      "pending": "Every other workflow/role/viewport/state; full route acceptance is not implied by a related mounted component."
+    },
+    {
+      "path": "/calendar",
+      "title": "Календарь",
+      "file": "apps/web/src/pages/Calendar.tsx",
+      "state": "named_partial_or_smoke_only",
+      "evidenceIds": [
+        "role-smoke",
+        "calendar-completion-error"
+      ],
+      "pending": "Every other workflow/role/viewport/state; full route acceptance is not implied by a related mounted component."
+    },
+    {
+      "path": "/calls",
+      "title": "Звонки",
+      "file": "apps/web/src/pages/Calls.tsx",
+      "state": "pending_no_named_runtime_evidence_in_this_index",
+      "evidenceIds": [],
+      "pending": "Every other workflow/role/viewport/state; full route acceptance is not implied by a related mounted component."
+    },
+    {
+      "path": "/clients",
+      "title": "Клиенты",
+      "file": "apps/web/src/pages/Clients.tsx",
+      "state": "named_partial_or_smoke_only",
+      "evidenceIds": [
+        "role-smoke",
+        "client-radius-native-step"
+      ],
+      "pending": "Every other workflow/role/viewport/state; full route acceptance is not implied by a related mounted component."
+    },
+    {
+      "path": "/clients/:id",
+      "title": "Клиенты: карточка",
+      "file": "apps/web/src/pages/ClientDetail.tsx",
+      "state": "named_partial_or_smoke_only",
+      "evidenceIds": [
+        "client-radius-native-step"
+      ],
+      "pending": "Every other workflow/role/viewport/state; full route acceptance is not implied by a related mounted component."
+    },
+    {
+      "path": "/clients/all-mine",
+      "title": "Все мои",
+      "file": "apps/web/src/pages/Clients.tsx",
+      "state": "pending_no_named_runtime_evidence_in_this_index",
+      "evidenceIds": [],
+      "pending": "Every other workflow/role/viewport/state; full route acceptance is not implied by a related mounted component."
+    },
+    {
+      "path": "/comments",
+      "title": "Комментарии",
+      "file": "apps/web/src/pages/Comments.tsx",
+      "state": "pending_no_named_runtime_evidence_in_this_index",
+      "evidenceIds": [],
+      "pending": "Every other workflow/role/viewport/state; full route acceptance is not implied by a related mounted component."
+    },
+    {
+      "path": "/deals",
+      "title": "Сделки",
+      "file": "apps/web/src/pages/Deals.tsx",
+      "state": "named_partial_or_smoke_only",
+      "evidenceIds": [
+        "frontend-pending-network"
+      ],
+      "pending": "Every other workflow/role/viewport/state; full route acceptance is not implied by a related mounted component."
+    },
+    {
+      "path": "/deferred-clients",
+      "title": "Отложенные",
+      "file": "apps/web/src/pages/DeferredClients.tsx",
+      "state": "named_partial_or_smoke_only",
+      "evidenceIds": [
+        "frontend-pending-network"
+      ],
+      "pending": "Every other workflow/role/viewport/state; full route acceptance is not implied by a related mounted component."
+    },
+    {
+      "path": "/finance",
+      "title": "Финансы",
+      "file": "apps/web/src/pages/Finance.tsx",
+      "state": "named_partial_or_smoke_only",
+      "evidenceIds": [
+        "expense-archive-cas",
+        "ordinary-numbers-controls"
+      ],
+      "pending": "Every other workflow/role/viewport/state; full route acceptance is not implied by a related mounted component."
+    },
+    {
+      "path": "/funnel",
+      "title": "Воронка",
+      "file": "apps/web/src/pages/Funnel.tsx",
+      "state": "pending_no_named_runtime_evidence_in_this_index",
+      "evidenceIds": [],
+      "pending": "Every other workflow/role/viewport/state; full route acceptance is not implied by a related mounted component."
+    },
+    {
+      "path": "/hall-of-fame",
+      "title": "Зал of славы",
+      "file": "apps/web/src/pages/Team.tsx",
+      "state": "pending_no_named_runtime_evidence_in_this_index",
+      "evidenceIds": [],
+      "pending": "Every other workflow/role/viewport/state; full route acceptance is not implied by a related mounted component."
+    },
+    {
+      "path": "/health",
+      "title": "Здоровье системы",
+      "file": "apps/web/src/pages/Health.tsx",
+      "state": "pending_no_named_runtime_evidence_in_this_index",
+      "evidenceIds": [],
+      "pending": "Every other workflow/role/viewport/state; full route acceptance is not implied by a related mounted component."
+    },
+    {
+      "path": "/inactive-clients",
+      "title": "Неактивные клиенты",
+      "file": "apps/web/src/pages/Clients.tsx",
+      "state": "pending_no_named_runtime_evidence_in_this_index",
+      "evidenceIds": [],
+      "pending": "Every other workflow/role/viewport/state; full route acceptance is not implied by a related mounted component."
+    },
+    {
+      "path": "/insights",
+      "title": "Инсайты от ИИ",
+      "file": "apps/web/src/pages/Insights.tsx",
+      "state": "pending_no_named_runtime_evidence_in_this_index",
+      "evidenceIds": [],
+      "pending": "Every other workflow/role/viewport/state; full route acceptance is not implied by a related mounted component."
+    },
+    {
+      "path": "/integrations",
+      "title": "Интеграции и каналы",
+      "file": "apps/web/src/pages/Integrations.tsx",
+      "state": "pending_no_named_runtime_evidence_in_this_index",
+      "evidenceIds": [],
+      "pending": "Every other workflow/role/viewport/state; full route acceptance is not implied by a related mounted component."
+    },
+    {
+      "path": "/integrations/:name",
+      "title": "Интеграции и каналы: карточка",
+      "file": "apps/web/src/pages/ChannelDetail.tsx",
+      "state": "pending_no_named_runtime_evidence_in_this_index",
+      "evidenceIds": [],
+      "pending": "Every other workflow/role/viewport/state; full route acceptance is not implied by a related mounted component."
+    },
+    {
+      "path": "/lead-funnel",
+      "title": "Воронка лидов",
+      "file": "apps/web/src/pages/LeadFunnel.tsx",
+      "state": "pending_no_named_runtime_evidence_in_this_index",
+      "evidenceIds": [],
+      "pending": "Every other workflow/role/viewport/state; full route acceptance is not implied by a related mounted component."
+    },
+    {
+      "path": "/lost-clients",
+      "title": "Потерянные",
+      "file": "apps/web/src/pages/LostClients.tsx",
+      "state": "pending_no_named_runtime_evidence_in_this_index",
+      "evidenceIds": [],
+      "pending": "Every other workflow/role/viewport/state; full route acceptance is not implied by a related mounted component."
+    },
+    {
+      "path": "/marketing",
+      "title": "Маркетинг",
+      "file": "apps/web/src/pages/MarketingCenter.tsx",
+      "state": "pending_no_named_runtime_evidence_in_this_index",
+      "evidenceIds": [],
+      "pending": "Every other workflow/role/viewport/state; full route acceptance is not implied by a related mounted component."
+    },
+    {
+      "path": "/messages",
+      "title": "Чаты",
+      "file": "apps/web/src/pages/Messages.tsx",
+      "state": "pending_no_named_runtime_evidence_in_this_index",
+      "evidenceIds": [],
+      "pending": "Every other workflow/role/viewport/state; full route acceptance is not implied by a related mounted component."
+    },
+    {
+      "path": "/mission-control",
+      "title": "Пульт управление",
+      "file": "apps/web/src/pages/MissionControl.tsx",
+      "state": "pending_no_named_runtime_evidence_in_this_index",
+      "evidenceIds": [],
+      "pending": "Every other workflow/role/viewport/state; full route acceptance is not implied by a related mounted component."
+    },
+    {
+      "path": "/more",
+      "title": "Ещё",
+      "file": "apps/web/src/pages/More.tsx",
+      "state": "pending_no_named_runtime_evidence_in_this_index",
+      "evidenceIds": [],
+      "pending": "Every other workflow/role/viewport/state; full route acceptance is not implied by a related mounted component."
+    },
+    {
+      "path": "/notifications",
+      "title": "Уведомления",
+      "file": "apps/web/src/pages/Notifications.tsx",
+      "state": "pending_no_named_runtime_evidence_in_this_index",
+      "evidenceIds": [],
+      "pending": "Every other workflow/role/viewport/state; full route acceptance is not implied by a related mounted component."
+    },
+    {
+      "path": "/other-inquiries",
+      "title": "Прочие обращения",
+      "file": "apps/web/src/pages/Clients.tsx",
+      "state": "pending_no_named_runtime_evidence_in_this_index",
+      "evidenceIds": [],
+      "pending": "Every other workflow/role/viewport/state; full route acceptance is not implied by a related mounted component."
+    },
+    {
+      "path": "/oversight",
+      "title": "Контроль руководителя",
+      "file": "apps/web/src/pages/Oversight.tsx",
+      "state": "pending_no_named_runtime_evidence_in_this_index",
+      "evidenceIds": [],
+      "pending": "Every other workflow/role/viewport/state; full route acceptance is not implied by a related mounted component."
+    },
+    {
+      "path": "/pipeline",
+      "title": "Подготовка объектов",
+      "file": "apps/web/src/pages/Pipeline.tsx",
+      "state": "named_partial_or_smoke_only",
+      "evidenceIds": [
+        "frontend-pending-network"
+      ],
+      "pending": "Every other workflow/role/viewport/state; full route acceptance is not implied by a related mounted component."
+    },
+    {
+      "path": "/profile",
+      "title": "Мой профиль",
+      "file": "apps/web/src/pages/Profile.tsx",
+      "state": "named_partial_or_smoke_only",
+      "evidenceIds": [
+        "role-smoke",
+        "profile-personal-details"
+      ],
+      "pending": "Every other workflow/role/viewport/state; full route acceptance is not implied by a related mounted component."
+    },
+    {
+      "path": "/properties",
+      "title": "Объекты",
+      "file": "apps/web/src/pages/Properties.tsx",
+      "state": "named_partial_or_smoke_only",
+      "evidenceIds": [
+        "role-smoke"
+      ],
+      "pending": "Every other workflow/role/viewport/state; full route acceptance is not implied by a related mounted component."
+    },
+    {
+      "path": "/properties/:id",
+      "title": "Объекты: карточка",
+      "file": "apps/web/src/pages/PropertyDetail.tsx",
+      "state": "pending_no_named_runtime_evidence_in_this_index",
+      "evidenceIds": [],
+      "pending": "Every other workflow/role/viewport/state; full route acceptance is not implied by a related mounted component."
+    },
+    {
+      "path": "/properties/:id/edit",
+      "title": "Изменить",
+      "file": "apps/web/src/pages/PropertyForm.tsx",
+      "state": "named_partial_or_smoke_only",
+      "evidenceIds": [
+        "ordinary-numbers-controls"
+      ],
+      "pending": "Every other workflow/role/viewport/state; full route acceptance is not implied by a related mounted component."
+    },
+    {
+      "path": "/properties/map",
+      "title": "Карта объектов",
+      "file": "apps/web/src/pages/PropertiesMap.tsx",
+      "state": "pending_no_named_runtime_evidence_in_this_index",
+      "evidenceIds": [],
+      "pending": "Every other workflow/role/viewport/state; full route acceptance is not implied by a related mounted component."
+    },
+    {
+      "path": "/pult",
+      "title": "Пульт",
+      "file": "apps/web/src/pages/Pult.tsx",
+      "state": "pending_no_named_runtime_evidence_in_this_index",
+      "evidenceIds": [],
+      "pending": "Every other workflow/role/viewport/state; full route acceptance is not implied by a related mounted component."
+    },
+    {
+      "path": "/reports",
+      "title": "Отчёты",
+      "file": "apps/web/src/pages/Reports.tsx",
+      "state": "pending_no_named_runtime_evidence_in_this_index",
+      "evidenceIds": [],
+      "pending": "Every other workflow/role/viewport/state; full route acceptance is not implied by a related mounted component."
+    },
+    {
+      "path": "/security",
+      "title": "Проверки",
+      "file": "apps/web/src/pages/SecurityCenter.tsx",
+      "state": "pending_no_named_runtime_evidence_in_this_index",
+      "evidenceIds": [],
+      "pending": "Every other workflow/role/viewport/state; full route acceptance is not implied by a related mounted component."
+    },
+    {
+      "path": "/sellers",
+      "title": "Продавцы",
+      "file": "apps/web/src/pages/Clients.tsx",
+      "state": "pending_no_named_runtime_evidence_in_this_index",
+      "evidenceIds": [],
+      "pending": "Every other workflow/role/viewport/state; full route acceptance is not implied by a related mounted component."
+    },
+    {
+      "path": "/settings",
+      "title": "Настройки CRM",
+      "file": "apps/web/src/pages/Settings.tsx",
+      "state": "named_partial_or_smoke_only",
+      "evidenceIds": [
+        "settings-draft-rollback"
+      ],
+      "pending": "Every other workflow/role/viewport/state; full route acceptance is not implied by a related mounted component."
+    },
+    {
+      "path": "/settings/roles",
+      "title": "Роли и права",
+      "file": "apps/web/src/pages/settings/RolesMatrix.tsx",
+      "state": "pending_no_named_runtime_evidence_in_this_index",
+      "evidenceIds": [],
+      "pending": "Every other workflow/role/viewport/state; full route acceptance is not implied by a related mounted component."
+    },
+    {
+      "path": "/site-changes",
+      "title": "Изменения на сайте",
+      "file": "apps/web/src/pages/SiteChanges.tsx",
+      "state": "pending_no_named_runtime_evidence_in_this_index",
+      "evidenceIds": [],
+      "pending": "Every other workflow/role/viewport/state; full route acceptance is not implied by a related mounted component."
+    },
+    {
+      "path": "/social-videos",
+      "title": "Ролики в соцсети",
+      "file": "apps/web/src/pages/SocialVideos.tsx",
+      "state": "pending_no_named_runtime_evidence_in_this_index",
+      "evidenceIds": [],
+      "pending": "Every other workflow/role/viewport/state; full route acceptance is not implied by a related mounted component."
+    },
+    {
+      "path": "/sources",
+      "title": "Источники лидов",
+      "file": "apps/web/src/pages/Sources.tsx",
+      "state": "pending_no_named_runtime_evidence_in_this_index",
+      "evidenceIds": [],
+      "pending": "Every other workflow/role/viewport/state; full route acceptance is not implied by a related mounted component."
+    },
+    {
+      "path": "/stuck-work",
+      "title": "Что не доехало",
+      "file": "apps/web/src/pages/StuckWork.tsx",
+      "state": "pending_no_named_runtime_evidence_in_this_index",
+      "evidenceIds": [],
+      "pending": "Every other workflow/role/viewport/state; full route acceptance is not implied by a related mounted component."
+    },
+    {
+      "path": "/team",
+      "title": "Команда",
+      "file": "apps/web/src/pages/Team.tsx",
+      "state": "pending_no_named_runtime_evidence_in_this_index",
+      "evidenceIds": [],
+      "pending": "Every other workflow/role/viewport/state; full route acceptance is not implied by a related mounted component."
+    },
+    {
+      "path": "/team/:id",
+      "title": "Команда: карточка",
+      "file": "apps/web/src/pages/TeamMemberDetail.tsx",
+      "state": "pending_no_named_runtime_evidence_in_this_index",
+      "evidenceIds": [],
+      "pending": "Every other workflow/role/viewport/state; full route acceptance is not implied by a related mounted component."
+    },
+    {
+      "path": "/telephony",
+      "title": "Телефония",
+      "file": "apps/web/src/pages/Telephony.tsx",
+      "state": "pending_no_named_runtime_evidence_in_this_index",
+      "evidenceIds": [],
+      "pending": "Every other workflow/role/viewport/state; full route acceptance is not implied by a related mounted component."
+    },
+    {
+      "path": "/vacancies",
+      "title": "Вакансии",
+      "file": "apps/web/src/pages/Vacancies.tsx",
+      "state": "named_partial_or_smoke_only",
+      "evidenceIds": [
+        "recruitment-text-limits"
+      ],
+      "pending": "Every other workflow/role/viewport/state; full route acceptance is not implied by a related mounted component."
+    },
+    {
+      "path": "/vacancies/:id",
+      "title": "Вакансии: карточка",
+      "file": "apps/web/src/pages/VacancyDetail.tsx",
+      "state": "named_partial_or_smoke_only",
+      "evidenceIds": [
+        "recruitment-text-limits"
+      ],
+      "pending": "Every other workflow/role/viewport/state; full route acceptance is not implied by a related mounted component."
+    }
+  ],
+  "otherRouteDefinitions": [
+    {
+      "path": "/*",
+      "component": "NotFound",
+      "redirect": null,
+      "file": "",
+      "state": "pending_not_a_human_screen_entry"
+    },
+    {
+      "path": "/ads/launch/*",
+      "component": "Navigate",
+      "redirect": "/ads",
+      "file": "",
+      "state": "pending_not_a_human_screen_entry"
+    },
+    {
+      "path": "/bot-training",
+      "component": "Navigate",
+      "redirect": "/ai-learning?tab=manner",
+      "file": "",
+      "state": "pending_not_a_human_screen_entry"
+    },
+    {
+      "path": "/dev/ask-panel",
+      "component": "",
+      "redirect": null,
+      "file": "",
+      "state": "pending_not_a_human_screen_entry"
+    },
+    {
+      "path": "/dev/calls-port",
+      "component": "",
+      "redirect": null,
+      "file": "",
+      "state": "pending_not_a_human_screen_entry"
+    },
+    {
+      "path": "/dev/design-lab",
+      "component": "",
+      "redirect": null,
+      "file": "",
+      "state": "pending_not_a_human_screen_entry"
+    },
+    {
+      "path": "/dev/event-feed",
+      "component": "",
+      "redirect": null,
+      "file": "",
+      "state": "pending_not_a_human_screen_entry"
+    },
+    {
+      "path": "/dev/pult-actions",
+      "component": "",
+      "redirect": null,
+      "file": "",
+      "state": "pending_not_a_human_screen_entry"
+    },
+    {
+      "path": "/dev/pult-tiles",
+      "component": "",
+      "redirect": null,
+      "file": "",
+      "state": "pending_not_a_human_screen_entry"
+    },
+    {
+      "path": "/dev/sheets-port",
+      "component": "",
+      "redirect": null,
+      "file": "",
+      "state": "pending_not_a_human_screen_entry"
+    },
+    {
+      "path": "/dev/system-sheets-port",
+      "component": "",
+      "redirect": null,
+      "file": "",
+      "state": "pending_not_a_human_screen_entry"
+    },
+    {
+      "path": "/hot-clients",
+      "component": "Navigate",
+      "redirect": "/clients",
+      "file": "",
+      "state": "pending_not_a_human_screen_entry"
+    },
+    {
+      "path": "/l/:token",
+      "component": "",
+      "redirect": null,
+      "file": "",
+      "state": "pending_not_a_human_screen_entry"
+    },
+    {
+      "path": "/login",
+      "component": "",
+      "redirect": null,
+      "file": "",
+      "state": "pending_not_a_human_screen_entry"
+    },
+    {
+      "path": "/o/:token",
+      "component": "",
+      "redirect": null,
+      "file": "",
+      "state": "pending_not_a_human_screen_entry"
+    },
+    {
+      "path": "/properties/new",
+      "component": "",
+      "redirect": null,
+      "file": "",
+      "state": "pending_not_a_human_screen_entry"
+    }
+  ],
+  "modules": [
+    {
+      "mount": "/api/v1/auth",
+      "router": "testPasswordLoginRouter",
+      "file": "",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/auth",
+      "router": "authRouter",
+      "file": "apps/api/src/routes/auth.ts",
+      "state": "named_endpoint_scenarios_partial",
+      "evidenceIds": [
+        "role-smoke"
+      ],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/events",
+      "router": "eventsRouter",
+      "file": "apps/api/src/routes/events.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/me",
+      "router": "meRouter",
+      "file": "apps/api/src/routes/me.ts",
+      "state": "named_endpoint_scenarios_partial",
+      "evidenceIds": [
+        "role-smoke"
+      ],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/me/notifications",
+      "router": "notificationsRouter",
+      "file": "apps/api/src/routes/notifications.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/agents",
+      "router": "agentsRouter",
+      "file": "apps/api/src/routes/agents.ts",
+      "state": "named_endpoint_scenarios_partial",
+      "evidenceIds": [
+        "api-roles-files-streams"
+      ],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/agents",
+      "router": "agentOverviewRouter",
+      "file": "apps/api/src/routes/team.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/districts",
+      "router": "districtsRouter",
+      "file": "apps/api/src/routes/districts.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/geo",
+      "router": "geoRouter",
+      "file": "apps/api/src/routes/geo.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/landmarks",
+      "router": "landmarksRouter",
+      "file": "apps/api/src/routes/landmarks.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/properties",
+      "router": "propertiesRouter",
+      "file": "apps/api/src/routes/properties.ts",
+      "state": "named_endpoint_scenarios_partial",
+      "evidenceIds": [
+        "multipart-cleanup",
+        "property-seller-atomicity"
+      ],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/clients",
+      "router": "clientsRouter",
+      "file": "apps/api/src/routes/clients.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/deals",
+      "router": "dealsRouter",
+      "file": "apps/api/src/routes/deals.ts",
+      "state": "named_endpoint_scenarios_partial",
+      "evidenceIds": [
+        "business-money-reservations"
+      ],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/deals",
+      "router": "dealDocumentsRouter",
+      "file": "apps/api/src/routes/dealDocuments.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/deals",
+      "router": "dealPayoutRouter",
+      "file": "apps/api/src/routes/dealPayout.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/deals",
+      "router": "dealAnnulRouter",
+      "file": "apps/api/src/routes/dealAnnul.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/dashboard",
+      "router": "dashboardRouter",
+      "file": "apps/api/src/routes/dashboard.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/dashboard",
+      "router": "missionControlRouter",
+      "file": "apps/api/src/routes/dashboardMissionControl.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/dashboard",
+      "router": "pultModulesRouter",
+      "file": "apps/api/src/routes/pultModules.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/dashboard",
+      "router": "briefingRouter",
+      "file": "apps/api/src/routes/briefing.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/calendar",
+      "router": "calendarRouter",
+      "file": "apps/api/src/routes/calendar.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/interactions",
+      "router": "interactionsRouter",
+      "file": "apps/api/src/routes/interactions.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/calls",
+      "router": "callsRouter",
+      "file": "apps/api/src/routes/calls.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/live-voice",
+      "router": "liveVoiceListenRouter",
+      "file": "apps/api/src/routes/liveVoiceListen.ts",
+      "state": "named_endpoint_scenarios_partial",
+      "evidenceIds": [
+        "api-roles-files-streams"
+      ],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/ai",
+      "router": "aiRouter",
+      "file": "apps/api/src/routes/ai.ts",
+      "state": "named_endpoint_scenarios_partial",
+      "evidenceIds": [
+        "assistant-audit-day-range"
+      ],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/transcribe",
+      "router": "transcribeRouter",
+      "file": "apps/api/src/routes/transcribe.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/reports",
+      "router": "reportsRouter",
+      "file": "apps/api/src/routes/reports.ts",
+      "state": "named_endpoint_scenarios_partial",
+      "evidenceIds": [
+        "report-periods"
+      ],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/telephony/whisper",
+      "router": "telephonyWhisperRouter",
+      "file": "apps/api/src/routes/telephonyWhisper.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/settings/restore-points",
+      "router": "settingsRestorePointsRouter",
+      "file": "apps/api/src/routes/settingsRestorePoints.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/settings",
+      "router": "settingsRouter",
+      "file": "apps/api/src/routes/settings.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/ui-shell",
+      "router": "uiShellRouter",
+      "file": "apps/api/src/routes/uiShell.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/sms",
+      "router": "smsRouter",
+      "file": "apps/api/src/routes/sms.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/whatsapp-templates",
+      "router": "whatsappTemplatesRouter",
+      "file": "apps/api/src/routes/whatsappTemplates.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/push",
+      "router": "pushRouter",
+      "file": "apps/api/src/routes/push.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/webhooks",
+      "router": "webhooksRouter",
+      "file": "apps/api/src/routes/webhooks.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/public",
+      "router": "publicFeedRouter",
+      "file": "apps/api/src/routes/publicFeed.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/expenses",
+      "router": "expensesRouter",
+      "file": "apps/api/src/routes/expenses.ts",
+      "state": "named_endpoint_scenarios_partial",
+      "evidenceIds": [
+        "role-smoke",
+        "business-money-reservations",
+        "expense-archive-cas"
+      ],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/finance",
+      "router": "financeRouter",
+      "file": "apps/api/src/routes/finance.ts",
+      "state": "named_endpoint_scenarios_partial",
+      "evidenceIds": [
+        "role-smoke",
+        "business-money-reservations"
+      ],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/security",
+      "router": "securityRouter",
+      "file": "apps/api/src/routes/security.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/marketing",
+      "router": "marketingRouter",
+      "file": "apps/api/src/routes/marketing.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/social-videos",
+      "router": "socialVideosRouter",
+      "file": "apps/api/src/routes/socialVideos.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/webhooks",
+      "router": "budgetWebhookRouter",
+      "file": "apps/api/src/routes/budgetWebhook.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/ads/callback",
+      "router": "adsCallbackRouter",
+      "file": "apps/api/src/routes/ads.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/ads",
+      "router": "adsRouter",
+      "file": "apps/api/src/routes/ads.ts",
+      "state": "named_endpoint_scenarios_partial",
+      "evidenceIds": [
+        "report-periods"
+      ],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/tiktok/oauth/callback",
+      "router": "tiktokCallbackRouter",
+      "file": "apps/api/src/routes/tiktok.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/tiktok",
+      "router": "tiktokRouter",
+      "file": "apps/api/src/routes/tiktok.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/threads/oauth/callback",
+      "router": "threadsCallbackRouter",
+      "file": "apps/api/src/routes/threads.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/threads",
+      "router": "threadsRouter",
+      "file": "apps/api/src/routes/threads.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/search-console/oauth/callback",
+      "router": "searchConsoleCallbackRouter",
+      "file": "apps/api/src/routes/searchConsole.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/search-console/yandex/oauth/callback",
+      "router": "yandexCallbackRouter",
+      "file": "apps/api/src/routes/searchConsole.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/search-console",
+      "router": "searchConsoleRouter",
+      "file": "apps/api/src/routes/searchConsole.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/team",
+      "router": "teamRouter",
+      "file": "apps/api/src/routes/team.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/hall-of-fame",
+      "router": "hallOfFameRouter",
+      "file": "apps/api/src/routes/hallOfFame.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/import",
+      "router": "importRouter",
+      "file": "apps/api/src/routes/import.ts",
+      "state": "named_endpoint_scenarios_partial",
+      "evidenceIds": [
+        "csv-import"
+      ],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/site-notifications",
+      "router": "siteNotificationsRouter",
+      "file": "apps/api/src/routes/siteNotifications.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/contacts",
+      "router": "contactsRouter",
+      "file": "apps/api/src/routes/contacts.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/conversations",
+      "router": "conversationsRouter",
+      "file": "apps/api/src/routes/conversations.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/audit-log",
+      "router": "auditLogRouter",
+      "file": "apps/api/src/routes/auditLog.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/royal-score-events",
+      "router": "royalScoreEventsRouter",
+      "file": "apps/api/src/routes/royalScoreEvents.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/morning-report",
+      "router": "morningReportRouter",
+      "file": "apps/api/src/routes/morningReport.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/errors",
+      "router": "errorLogRouter",
+      "file": "apps/api/src/routes/errorLog.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/integrations",
+      "router": "integrationsRouter",
+      "file": "apps/api/src/routes/integrations.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/stuck-work",
+      "router": "stuckWorkRouter",
+      "file": "apps/api/src/routes/stuckWork.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/backups",
+      "router": "backupsRouter",
+      "file": "apps/api/src/routes/backups.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/bot-audit",
+      "router": "botAuditRouter",
+      "file": "apps/api/src/routes/botAudit.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/bot-learning",
+      "router": "botLearningRouter",
+      "file": "apps/api/src/routes/botLearning.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/bot-trainer",
+      "router": "botTrainerRouter",
+      "file": "apps/api/src/routes/botTrainer.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/bot-scenarios",
+      "router": "botScenariosRouter",
+      "file": "apps/api/src/routes/botScenarios.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/bot-training",
+      "router": "botTrainingRouter",
+      "file": "apps/api/src/routes/botTraining.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/attachments",
+      "router": "attachmentsRouter",
+      "file": "apps/api/src/routes/attachments.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/media",
+      "router": "mediaProxyRouter",
+      "file": "apps/api/src/routes/mediaProxy.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/instagram-comments",
+      "router": "instagramCommentsRouter",
+      "file": "apps/api/src/routes/instagramComments.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/lead-magnets",
+      "router": "leadMagnetsRouter",
+      "file": "apps/api/src/routes/leadMagnets.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/vacancies",
+      "router": "vacanciesRouter",
+      "file": "apps/api/src/routes/vacancies.ts",
+      "state": "named_endpoint_scenarios_partial",
+      "evidenceIds": [
+        "api-roles-files-streams",
+        "recruitment-text-limits"
+      ],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/oversight",
+      "router": "oversightRouter",
+      "file": "apps/api/src/routes/oversight.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/insights",
+      "router": "insightsRouter",
+      "file": "apps/api/src/routes/insights.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/l",
+      "router": "propertyShareRouter",
+      "file": "apps/api/src/routes/propertyShare.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    },
+    {
+      "mount": "/api/v1/public/owner-report",
+      "router": "ownerReportPublicRouter",
+      "file": "apps/api/src/routes/ownerReportPublic.ts",
+      "state": "pending_no_named_execution_in_this_index",
+      "evidenceIds": [],
+      "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
+    }
+  ],
+  "cron": [
+    {
+      "id": "absence-return",
+      "file": "apps/api/src/cron.ts",
+      "state": "named_helper_or_scheduler_scenarios_partial",
+      "evidenceIds": [
+        "team-absence-active-recheck"
+      ],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "agent-mobile-fallback",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "agent-off-crm-alarm",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "agent-unanswered-alarm",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "background-jobs",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [
+        "jobs-source-review"
+      ],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "bot-audit",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "bot-lessons",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "bot-pause-watch",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "buyer-no-call-alarm",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "buyer-thinking-slow-track",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "call-insights",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "callback-connect",
+      "file": "apps/api/src/lib/telephony/callMemoryTicks.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "candidate-phone-ask",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "client-auto-statuses",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "client-follow-ups",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "client-property-count-alarm",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "client-scoring",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "clip-review-resend",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "clip-review-stale-alarm",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "contact-link-sweep",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "customer-inbox-jobs",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "customer-intake-jobs",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "customer-outbox-jobs",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "daily-kpi",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "daily-stories",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "deal-stale-pipeline",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "deferred-clients-return",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "director-alert-queue-flush",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "disk-cleanup",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "duplicate-fuzzy-scan",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "duplicates-weekly-digest",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "exchange-rate",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "expired-property-drafts-cleanup",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "geo-match-nightly-sweep",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "health-automation",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "heartbeat-watchdog",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "inactive-traffic-light",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "inactivity-check",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "incoming-call-lead-sweep",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "incoming-calls-silence",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "insight-digest",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "instagram-comments",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "instagram-online-followers",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "instagram-pending-containers",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "instagram-url-backfill",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "instagram-webhook-subscriptions",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "interview-invite-call",
+      "file": "apps/api/src/lib/telephony/liveVoiceScenarioTicks.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "lead-distribution",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "lead-stale-reassignment",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "live-calls-sweep",
+      "file": "apps/api/src/index.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "live-voice-orphan-sweep",
+      "file": "apps/api/src/lib/telephony/liveVoiceScenarioTicks.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "log-cleanup",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "lost-conversations",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "lost-inactive-trash-sweep",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "meeting-reminders",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "meta-ads-stale-watch",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "meta-ads-sync",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "monthly-problem-report",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "monthly-report",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "morning-report",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "no-answer-tail",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "operator-queue-presence",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "outgoing-media-cleanup",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "phone-lead-watchdog",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "photo-posts-tick",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "post-showing-call",
+      "file": "apps/api/src/lib/telephony/liveVoiceScenarioTicks.ts",
+      "state": "named_helper_or_scheduler_scenarios_partial",
+      "evidenceIds": [
+        "post-showing-fixture"
+      ],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "private-files-cleanup",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "property-auto-statuses",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "property-summaries",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "published-channels-audit",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "reels-autoboost",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "refused-high-score-alarm",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "seller-no-property-alarm",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "seller-probe-call",
+      "file": "apps/api/src/lib/telephony/liveVoiceScenarioTicks.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "seller-property-missing",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "seller-work-stalled-alarm",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "settings-snapshots-prune",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "showing-confirmations",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "silent-client-auto-deactivate",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "site-stats",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "social-digests-tick",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "social-reposts-tick",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "social-video-schedule",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "stale-property-videos-cleanup",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "stale-video-uploads-cleanup",
+      "file": "apps/api/src/cron.ts",
+      "state": "named_helper_or_scheduler_scenarios_partial",
+      "evidenceIds": [
+        "multipart-cleanup"
+      ],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "station-outage-probe",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "stuck-call-stubs",
+      "file": "apps/api/src/lib/telephony/callMemoryTicks.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "stuck-pending-messages",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "supervisor-overdue-digest",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "telegram-bot-api-volume-cleanup",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "telegram-group-comments",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "telephony-station-health",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "telephony-station-traffic",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "token-and-finance-daily",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "tomorrow-digest",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "video-handoff-redelivery",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "video-handoff-stale-alarm",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "video-handoff-unfinished-publish-watchdog",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "voicemail-ingest",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "webhook-dedupe-cleanup",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "weekly-lost-digest",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "weekly-marketing-insights",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "weekly-problem-report",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "weekly-reactivation-campaign",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "weekly-security-review-digest",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "whisper-sync",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "working-hours-daily-alerts",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    },
+    {
+      "id": "youtube-comments",
+      "file": "apps/api/src/cron.ts",
+      "state": "pending_execution",
+      "evidenceIds": [],
+      "pending": "Actual wall-clock scheduling, every eligible row/state, multi-worker behavior and real delivery."
+    }
+  ],
+  "jobs": [
+    {
+      "kind": "ai-reply-retry",
+      "file": "apps/api/src/jobs/aiReplyRetry.ts",
+      "state": "pending_individual_job_execution",
+      "evidenceIds": [
+        "jobs-source-review"
+      ],
+      "note": "Common runner/adapter source reading is not evidence this handler executed; identifiers ending Job may be parser fallback export names."
+    },
+    {
+      "kind": "ai-turn-blocked-followup",
+      "file": "apps/api/src/jobs/aiTurnBlockedFollowup.ts",
+      "state": "pending_individual_job_execution",
+      "evidenceIds": [
+        "jobs-source-review"
+      ],
+      "note": "Common runner/adapter source reading is not evidence this handler executed; identifiers ending Job may be parser fallback export names."
+    },
+    {
+      "kind": "client-reactivation",
+      "file": "apps/api/src/jobs/clientReactivation.ts",
+      "state": "pending_individual_job_execution",
+      "evidenceIds": [
+        "jobs-source-review"
+      ],
+      "note": "Common runner/adapter source reading is not evidence this handler executed; identifiers ending Job may be parser fallback export names."
+    },
+    {
+      "kind": "clip-compress",
+      "file": "apps/api/src/jobs/clipCompress.ts",
+      "state": "pending_individual_job_execution",
+      "evidenceIds": [
+        "jobs-source-review"
+      ],
+      "note": "Common runner/adapter source reading is not evidence this handler executed; identifiers ending Job may be parser fallback export names."
+    },
+    {
+      "kind": "customer-callback-notify",
+      "file": "apps/api/src/jobs/customerCallbackNotify.ts",
+      "state": "pending_individual_job_execution",
+      "evidenceIds": [
+        "jobs-source-review"
+      ],
+      "note": "Common runner/adapter source reading is not evidence this handler executed; identifiers ending Job may be parser fallback export names."
+    },
+    {
+      "kind": "customer-contact-intake",
+      "file": "apps/api/src/jobs/customerContactIntake.ts",
+      "state": "pending_individual_job_execution",
+      "evidenceIds": [
+        "jobs-source-review"
+      ],
+      "note": "Common runner/adapter source reading is not evidence this handler executed; identifiers ending Job may be parser fallback export names."
+    },
+    {
+      "kind": "customer-inbox-consume",
+      "file": "apps/api/src/jobs/customerInboxConsume.ts",
+      "state": "pending_individual_job_execution",
+      "evidenceIds": [
+        "jobs-source-review"
+      ],
+      "note": "Common runner/adapter source reading is not evidence this handler executed; identifiers ending Job may be parser fallback export names."
+    },
+    {
+      "kind": "customer-intake-notify",
+      "file": "apps/api/src/jobs/customerIntakeNotify.ts",
+      "state": "pending_individual_job_execution",
+      "evidenceIds": [
+        "jobs-source-review"
+      ],
+      "note": "Common runner/adapter source reading is not evidence this handler executed; identifiers ending Job may be parser fallback export names."
+    },
+    {
+      "kind": "customer-intake-policy",
+      "file": "apps/api/src/jobs/customerIntakePolicy.ts",
+      "state": "pending_individual_job_execution",
+      "evidenceIds": [
+        "jobs-source-review"
+      ],
+      "note": "Common runner/adapter source reading is not evidence this handler executed; identifiers ending Job may be parser fallback export names."
+    },
+    {
+      "kind": "customer-outbox-dispatch",
+      "file": "apps/api/src/jobs/customerOutboxDispatch.ts",
+      "state": "pending_individual_job_execution",
+      "evidenceIds": [
+        "jobs-source-review"
+      ],
+      "note": "Common runner/adapter source reading is not evidence this handler executed; identifiers ending Job may be parser fallback export names."
+    },
+    {
+      "kind": "customer-showing-notify",
+      "file": "apps/api/src/jobs/customerShowingNotify.ts",
+      "state": "pending_individual_job_execution",
+      "evidenceIds": [
+        "jobs-source-review"
+      ],
+      "note": "Common runner/adapter source reading is not evidence this handler executed; identifiers ending Job may be parser fallback export names."
+    },
+    {
+      "kind": "customer_owner_question_notify",
+      "file": "apps/api/src/jobs/customerOwnerQuestionNotify.ts",
+      "state": "pending_individual_job_execution",
+      "evidenceIds": [
+        "jobs-source-review"
+      ],
+      "note": "Common runner/adapter source reading is not evidence this handler executed; identifiers ending Job may be parser fallback export names."
+    },
+    {
+      "kind": "deal-close-followup",
+      "file": "apps/api/src/jobs/dealCloseFollowup.ts",
+      "state": "pending_individual_job_execution",
+      "evidenceIds": [
+        "jobs-source-review"
+      ],
+      "note": "Common runner/adapter source reading is not evidence this handler executed; identifiers ending Job may be parser fallback export names."
+    },
+    {
+      "kind": "deal-review-ask",
+      "file": "apps/api/src/jobs/dealReviewAsk.ts",
+      "state": "pending_individual_job_execution",
+      "evidenceIds": [
+        "jobs-source-review"
+      ],
+      "note": "Common runner/adapter source reading is not evidence this handler executed; identifiers ending Job may be parser fallback export names."
+    },
+    {
+      "kind": "deferred-push",
+      "file": "apps/api/src/jobs/deferredPush.ts",
+      "state": "pending_individual_job_execution",
+      "evidenceIds": [
+        "jobs-source-review"
+      ],
+      "note": "Common runner/adapter source reading is not evidence this handler executed; identifiers ending Job may be parser fallback export names."
+    },
+    {
+      "kind": "geo-match-sweep",
+      "file": "apps/api/src/jobs/geoMatchSweep.ts",
+      "state": "pending_individual_job_execution",
+      "evidenceIds": [
+        "jobs-source-review"
+      ],
+      "note": "Common runner/adapter source reading is not evidence this handler executed; identifiers ending Job may be parser fallback export names."
+    },
+    {
+      "kind": "geocode",
+      "file": "apps/api/src/jobs/geocode.ts",
+      "state": "pending_individual_job_execution",
+      "evidenceIds": [
+        "jobs-source-review"
+      ],
+      "note": "Common runner/adapter source reading is not evidence this handler executed; identifiers ending Job may be parser fallback export names."
+    },
+    {
+      "kind": "photoPostPublishJob",
+      "file": "apps/api/src/jobs/photoPostPublish.ts",
+      "state": "pending_individual_job_execution",
+      "evidenceIds": [
+        "jobs-source-review"
+      ],
+      "note": "Common runner/adapter source reading is not evidence this handler executed; identifiers ending Job may be parser fallback export names."
+    },
+    {
+      "kind": "recording-search-retry",
+      "file": "apps/api/src/jobs/recordingSearchRetry.ts",
+      "state": "pending_individual_job_execution",
+      "evidenceIds": [
+        "jobs-source-review"
+      ],
+      "note": "Common runner/adapter source reading is not evidence this handler executed; identifiers ending Job may be parser fallback export names."
+    },
+    {
+      "kind": "recruitment-recovery",
+      "file": "apps/api/src/jobs/recruitmentRecovery.ts",
+      "state": "pending_individual_job_execution",
+      "evidenceIds": [
+        "jobs-source-review"
+      ],
+      "note": "Common runner/adapter source reading is not evidence this handler executed; identifiers ending Job may be parser fallback export names."
+    },
+    {
+      "kind": "sellerFactsJob",
+      "file": "apps/api/src/jobs/sellerFacts.ts",
+      "state": "pending_individual_job_execution",
+      "evidenceIds": [
+        "jobs-source-review"
+      ],
+      "note": "Common runner/adapter source reading is not evidence this handler executed; identifiers ending Job may be parser fallback export names."
+    },
+    {
+      "kind": "sellerPhotoInsightJob",
+      "file": "apps/api/src/jobs/sellerPhotoInsight.ts",
+      "state": "pending_individual_job_execution",
+      "evidenceIds": [
+        "jobs-source-review"
+      ],
+      "note": "Common runner/adapter source reading is not evidence this handler executed; identifiers ending Job may be parser fallback export names."
+    },
+    {
+      "kind": "site-resync",
+      "file": "apps/api/src/jobs/siteResync.ts",
+      "state": "pending_individual_job_execution",
+      "evidenceIds": [
+        "jobs-source-review"
+      ],
+      "note": "Common runner/adapter source reading is not evidence this handler executed; identifiers ending Job may be parser fallback export names."
+    },
+    {
+      "kind": "socialRepostPublishJob",
+      "file": "apps/api/src/jobs/socialRepostPublish.ts",
+      "state": "pending_individual_job_execution",
+      "evidenceIds": [
+        "jobs-source-review"
+      ],
+      "note": "Common runner/adapter source reading is not evidence this handler executed; identifiers ending Job may be parser fallback export names."
+    },
+    {
+      "kind": "socialVideoPublishJob",
+      "file": "apps/api/src/jobs/socialVideoPublish.ts",
+      "state": "pending_individual_job_execution",
+      "evidenceIds": [
+        "jobs-source-review"
+      ],
+      "note": "Common runner/adapter source reading is not evidence this handler executed; identifiers ending Job may be parser fallback export names."
+    },
+    {
+      "kind": "telegram-dm-reply-retry",
+      "file": "apps/api/src/jobs/telegramDirectReplyRetry.ts",
+      "state": "pending_individual_job_execution",
+      "evidenceIds": [
+        "jobs-source-review"
+      ],
+      "note": "Common runner/adapter source reading is not evidence this handler executed; identifiers ending Job may be parser fallback export names."
+    },
+    {
+      "kind": "telegram-reply-retry",
+      "file": "apps/api/src/jobs/telegramReplyRetry.ts",
+      "state": "pending_individual_job_execution",
+      "evidenceIds": [
+        "jobs-source-review"
+      ],
+      "note": "Common runner/adapter source reading is not evidence this handler executed; identifiers ending Job may be parser fallback export names."
+    },
+    {
+      "kind": "tiktokPublishRetryJob",
+      "file": "apps/api/src/jobs/tiktokPublishRetry.ts",
+      "state": "pending_individual_job_execution",
+      "evidenceIds": [
+        "jobs-source-review"
+      ],
+      "note": "Common runner/adapter source reading is not evidence this handler executed; identifiers ending Job may be parser fallback export names."
+    },
+    {
+      "kind": "transcription-retry",
+      "file": "apps/api/src/jobs/transcriptionRetry.ts",
+      "state": "pending_individual_job_execution",
+      "evidenceIds": [
+        "jobs-source-review"
+      ],
+      "note": "Common runner/adapter source reading is not evidence this handler executed; identifiers ending Job may be parser fallback export names."
+    },
+    {
+      "kind": "videoHandoffPublishJob",
+      "file": "apps/api/src/jobs/videoHandoffPublish.ts",
+      "state": "pending_individual_job_execution",
+      "evidenceIds": [
+        "jobs-source-review"
+      ],
+      "note": "Common runner/adapter source reading is not evidence this handler executed; identifiers ending Job may be parser fallback export names."
+    },
+    {
+      "kind": "videoOpeningJob",
+      "file": "apps/api/src/jobs/videoOpening.ts",
+      "state": "pending_individual_job_execution",
+      "evidenceIds": [
+        "jobs-source-review"
+      ],
+      "note": "Common runner/adapter source reading is not evidence this handler executed; identifiers ending Job may be parser fallback export names."
+    }
+  ],
+  "external": [
+    {
+      "name": "Instagram Graph через прокси",
+      "state": "pending_live_provider_verification",
+      "evidenceIds": [],
+      "note": "No real external sends/calls/paid generation/production configuration authorized in this audit."
+    },
+    {
+      "name": "Telegram",
+      "state": "pending_live_provider_verification",
+      "evidenceIds": [],
+      "note": "No real external sends/calls/paid generation/production configuration authorized in this audit."
+    },
+    {
+      "name": "WhatsApp, Instagram Direct, Messenger (Meta)",
+      "state": "pending_live_provider_verification",
+      "evidenceIds": [],
+      "note": "No real external sends/calls/paid generation/production configuration authorized in this audit."
+    },
+    {
+      "name": "Бюджет Google Cloud",
+      "state": "pending_live_provider_verification",
+      "evidenceIds": [],
+      "note": "No real external sends/calls/paid generation/production configuration authorized in this audit."
+    },
+    {
+      "name": "Голосовой ИИ на звонках (Gemini Live)",
+      "state": "pending_live_provider_verification",
+      "evidenceIds": [],
+      "note": "No real external sends/calls/paid generation/production configuration authorized in this audit."
+    },
+    {
+      "name": "ИИ Google Gemini",
+      "state": "pending_live_provider_verification",
+      "evidenceIds": [],
+      "note": "No real external sends/calls/paid generation/production configuration authorized in this audit."
+    },
+    {
+      "name": "Отчёты о резервных копиях",
+      "state": "pending_live_provider_verification",
+      "evidenceIds": [],
+      "note": "No real external sends/calls/paid generation/production configuration authorized in this audit."
+    },
+    {
+      "name": "Пуш-уведомления",
+      "state": "pending_live_provider_verification",
+      "evidenceIds": [],
+      "note": "No real external sends/calls/paid generation/production configuration authorized in this audit."
+    },
+    {
+      "name": "Реклама Meta (рекламный кабинет)",
+      "state": "pending_live_provider_verification",
+      "evidenceIds": [],
+      "note": "No real external sends/calls/paid generation/production configuration authorized in this audit."
+    },
+    {
+      "name": "Сайт royalhome.tj",
+      "state": "pending_live_provider_verification",
+      "evidenceIds": [],
+      "note": "No real external sends/calls/paid generation/production configuration authorized in this audit."
+    },
+    {
+      "name": "Телефония FreePBX / Asterisk",
+      "state": "pending_live_provider_verification",
+      "evidenceIds": [],
+      "note": "No real external sends/calls/paid generation/production configuration authorized in this audit."
+    },
+    {
+      "name": "Утренний отчёт наружу",
+      "state": "pending_live_provider_verification",
+      "evidenceIds": [],
+      "note": "No real external sends/calls/paid generation/production configuration authorized in this audit."
+    },
+    {
+      "name": "Хранилище Cloudflare R2",
+      "state": "pending_live_provider_verification",
+      "evidenceIds": [],
+      "note": "No real external sends/calls/paid generation/production configuration authorized in this audit."
+    }
+  ],
+  "differences": {
+    "cronOnlyInFlows": [
+      "interview-invite-call",
+      "live-calls-sweep",
+      "post-showing-call",
+      "seller-probe-call"
+    ],
+    "jobsOnlyInFlows": [
+      {
+        "kind": "photoPostPublishJob",
+        "file": "apps/api/src/jobs/photoPostPublish.ts"
+      },
+      {
+        "kind": "sellerFactsJob",
+        "file": "apps/api/src/jobs/sellerFacts.ts"
+      },
+      {
+        "kind": "sellerPhotoInsightJob",
+        "file": "apps/api/src/jobs/sellerPhotoInsight.ts"
+      },
+      {
+        "kind": "socialRepostPublishJob",
+        "file": "apps/api/src/jobs/socialRepostPublish.ts"
+      },
+      {
+        "kind": "socialVideoPublishJob",
+        "file": "apps/api/src/jobs/socialVideoPublish.ts"
+      },
+      {
+        "kind": "tiktokPublishRetryJob",
+        "file": "apps/api/src/jobs/tiktokPublishRetry.ts"
+      },
+      {
+        "kind": "videoHandoffPublishJob",
+        "file": "apps/api/src/jobs/videoHandoffPublish.ts"
+      },
+      {
+        "kind": "videoOpeningJob",
+        "file": "apps/api/src/jobs/videoOpening.ts"
+      }
+    ]
+  },
+  "updatedAt": "2026-10-24T01:25:22.980Z",
+  "mapSnapshot": {
+    "sourcePin": "4897ef97b3a935d69dff8e1610dbe77f79375430",
+    "meaning": "Frozen generated-map snapshot only. It is not the application source pin for later evidence; per-group runtime/source SHA pins take precedence. TA01 FINAL2 was released but uncommitted when indexed."
+  }
+}

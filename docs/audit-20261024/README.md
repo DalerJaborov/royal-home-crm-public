@@ -1,6 +1,6 @@
 # CRM overnight audit package, 24 October 2026
 
-This source package starts at public baseline `87aecdb`. The FINAL source addresses27confirmed defect families across application behavior and test-stand routing (14first-package,7phase2,3third-batch,1client-radius and2ordinary user-flow families), compatible dependency advisory updates and4separately attributed fixture/test-oracle repairs. Targeted user-flow regressions and independent reviews are complete; the latest frozen-package consolidated verdict remains pending. No production release or exhaustive zero-bug claim is made. Continue the explicitly pending scope in COVERAGE.md/STATUS.md.
+This source package starts at public baseline `87aecdb`. The FINAL source addresses28confirmed defect families across application behavior and test-stand routing (14first-package,7phase2,3third-batch,1client-radius,2ordinary user-flow and1absence-return family), compatible dependency advisory updates and4separately attributed fixture/test-oracle repairs. Targeted user-flow regressions and independent reviews are complete; the latest frozen-package consolidated verdict remains pending. No production release or exhaustive zero-bug claim is made. Continue the explicitly pending scope in COVERAGE.md/STATUS.md.
 
 ## Findings
 
@@ -58,6 +58,12 @@ NFL01 expense deletion: an actual own-PostgreSQL HTTP sequence confirms that a t
 TU01 calendar completion: the ordinary AGENT path previously retained a failed task without showing any completion error. The existing shared mutation-error block now renders the real completion error and a dismiss action. Actual Calendar/hooks/Chrome1440/390:2normative missing-alert failures plus4controls becomes6PASS, checking acknowledgment retains the task without a request and an intentional successful retry refetches it away. Showing-edit rejection retains its draft. Independent review caught a newly added regression-harness date dependency; a test-only browser clock pin and exact final6PASS/native0 rerun correct it. No API/task/score/pending policy change. FINAL-CALENDAR-COMPLETE-ERROR.md separates fixture clock durability from CRM findings.
 
 Exact13a9219 consolidated precheck passed305webfiles/1877tests, builds/all executed guards and104scriptPASS/32conditionalSKIP. It was not pushed or sent to the full workflow because the two later confirmed user-flow corrections were still being integrated. Final checks must name the later committed source, not carry13a9219 acceptance forward.
+
+## Absence-return followup (TA01)
+
+The actual scheduled helper could clear absence metadata and advance inactive-client clocks after an employee was deactivated between candidate selection and the transaction. Its explicit existing contract gives isActivefalse precedence over any due date. One added isActive:true predicate repeats that authority at the actual update. It does not reactivate an account or change absence/deadline/auth policies. Actual own-PostgreSQL baseline1RED+5controls shows returned1, cleared absence and an eight-day wrong client-clock shift; final scoped6PASS retains all fields/clocks, returned0 and zero mocked return effects. Exact deadline/idempotency/indefinite/already-inactive/future-extension controls remain. An owned unrelated due witness is unchanged. TypeScript/mocks guard pass, and independent review approved exact released bytes. FINAL-TEAM-ABSENCE-RETURN.md and REVIEW-TEAM-ABSENCE-RETURN.md disclose test-isolation corrections and the extra adjacent registration-only cron imports; these are not further original CRM bugs.
+
+This fix lives in a separate PUBLIC FINAL2 worktree with its own dependencies from4897, preserving that immutable source/full-run evidence. The new complete API check must name the later committed source; the old4897 run does not test TA01. BUG-REGISTER now has28families and the evidence index21named groups, including this narrowly confirmed followup and ordinary Profile positive controls. The index distinguishes the4897map snapshot from later per-group file pins; pending modules retain explicit limits.
 
 ## First-package checks completed locally
 

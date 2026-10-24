@@ -17902,7 +17902,7 @@
         - const count = await prisma.$transaction(async (tx)
           · всё внутри — одной транзакцией
           · меняет в базе: agent
-          - const res = await tx.agent.updateMany({ where: { id: agent.id, frozenAt: { not: null }, absenceUntil: { not: …
+          - const res = await tx.agent.updateMany({ where: { id: agent.id, isActive: true, frozenAt: { not: null }, absen…
             · меняет в базе: agent
           - если res.count > 0
             - await shiftInactiveClockAfterAbsence(agent.id, agent.frozenAt, now, tx);

@@ -79699,7 +79699,7 @@
              "c": [
               {
                "k": "do",
-               "t": "const res = await tx.agent.updateMany({ where: { id: agent.id, frozenAt: { not: null }, absenceUntil: { not: …",
+               "t": "const res = await tx.agent.updateMany({ where: { id: agent.id, isActive: true, frozenAt: { not: null }, absen…",
                "a": [
                 "меняет в базе: agent"
                ],
