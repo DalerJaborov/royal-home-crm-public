@@ -1,6 +1,6 @@
 import { LegacyAgentTopbar } from "./mobile/LegacyAgentTopbar";
 import { Children, useRef, useState, type Dispatch, type ReactNode, type RefObject, type SetStateAction } from "react";
-import { createPortal } from "react-dom";
+import { RH2_ROW_BUTTON, Rh2Portal } from "./rh2/Rh2Scope";
 import { useNavigation } from "../lib/navigation";
 import { defaultCleanNavigation } from "../lib/cleanNavigationOrder";
 import { Bell, ChevronLeft, Moon, Search, Sun } from "lucide-react";
@@ -163,40 +163,67 @@ function TopbarRow({
             };
   const notificationsPanel = showNotifications &&
             notifPos &&
-            createPortal(
-              <>
+            (
+              <Rh2Portal>
                 {/* Оверлей и панель — ОБА в document.body, одним поддеревом, как в
-                    FabMenu.tsx: шапка стоит на стекле с backdrop-filter, а он
-                    создаёт containing block для fixed-потомков, и подложка внутри
-                    шапки сжималась бы до её высоты (жалоба владельца 30.08.2026).
-                    Координаты top/right — px, снятые с кнопки при открытии. */}
-                <div className="fixed inset-0 z-50" onClick={() => setShowNotifications(false)} />
-                {/* Плотная панель: стекло только на рамке (контракт), поэтому
-                    фон — сплошная карточка темы (`.glass-notice-enter`). */}
+                    FabMenu.tsx и ProfileMenu.tsx: шапка стоит на стекле с
+                    backdrop-filter, а он создаёт containing block для
+                    fixed-потомков, и подложка внутри шапки сжималась бы до её
+                    высоты (жалоба владельца 30.08.2026). Координаты top/right —
+                    px, снятые с кнопки при открытии.
+
+                    Панель в области темы (`Rh2Portal`, 24.10.2026): раньше она
+                    рисовалась вне `.rh2` на Tailwind-классах и `sh-notice-*`,
+                    перепись экранов нашла её «из другой темы». Теперь это
+                    `.card.tight` со строками `.row`, как меню профиля. */}
+                <div className="sheet-back" style={{ backdropFilter: "none", background: "transparent" }} onClick={() => setShowNotifications(false)} />
                 <div
-                  className="glass-notice-enter fixed z-[60] w-[min(320px,calc(100vw-16px))] max-h-[70vh] overflow-y-auto shadow-lg p-2.5"
-                  style={{ top: notifPos.top, right: notifPos.right }}
+                  className="card tight"
+                  style={{
+                    position: "fixed",
+                    zIndex: 41,
+                    top: notifPos.top,
+                    right: notifPos.right,
+                    width: "min(320px, calc(100vw - 16px))",
+                    maxHeight: "70vh",
+                    overflowY: "auto",
+                  }}
                 >
-                  {notificationsFailed ? <div role="status"><p>Уведомления не загрузились.</p><button type="button" onClick={() => void retryNotifications()}>Повторить</button></div> : notificationsLoading ? <p role="status">Загружаем уведомления…</p> : notificationItems.length === 0 ? (
-                    <p className="sh-notice-body p-2">Новых уведомлений нет</p>
+                  {notificationsFailed ? (
+                    <div role="status">
+                      <p className="state err">Уведомления не загрузились.</p>
+                      <button type="button" className="pill ghost sm" onClick={() => void retryNotifications()}>
+                        Повторить
+                      </button>
+                    </div>
+                  ) : notificationsLoading ? (
+                    <p className="state" role="status">Загружаем уведомления…</p>
+                  ) : notificationItems.length === 0 ? (
+                    <p className="state">Новых уведомлений нет</p>
                   ) : (
                     <>
-                      {notificationItems.slice(0, 6).map((n) => (
-                        <button
-                          key={n.id}
-                          type="button"
-                          onClick={() => {
-                            if (!n.read) markRead.mutate(n.id);
-                            setShowNotifications(false);
-                            if (n.url) navigate(n.url);
-                          }}
-                          data-unread={!n.read || undefined}
-                          className="sh-notice-item w-full text-left px-3 py-2.5"
-                        >
-                          <p className="sh-notice-title truncate">{n.title}</p>
-                          {n.body && <p className="sh-notice-body line-clamp-2">{n.body}</p>}
-                        </button>
-                      ))}
+                      <div className="list">
+                        {notificationItems.slice(0, 6).map((n) => (
+                          <button
+                            key={n.id}
+                            type="button"
+                            onClick={() => {
+                              if (!n.read) markRead.mutate(n.id);
+                              setShowNotifications(false);
+                              if (n.url) navigate(n.url);
+                            }}
+                            data-unread={!n.read || undefined}
+                            className="row"
+                            style={RH2_ROW_BUTTON}
+                          >
+                            <span className="t">
+                              <span className="n">{n.title}</span>
+                              {n.body && <span className="s">{n.body}</span>}
+                            </span>
+                            {!n.read && <span className="chip warn">Новое</span>}
+                          </button>
+                        ))}
+                      </div>
                       <button
                         type="button"
                         onClick={() => {
@@ -204,15 +231,15 @@ function TopbarRow({
                           navigate("/notifications");
                         }}
                         data-view-all-notifications
-                        className="glass-btn glass-btn-ghost w-full text-[13px] font-bold mt-1 py-2"
+                        className="pill ghost"
+                        style={{ width: "100%", marginTop: "var(--s2)" }}
                       >
                         Все уведомления
                       </button>
                     </>
                   )}
                 </div>
-              </>,
-              document.body,
+              </Rh2Portal>
             );
   if (legacyAgentMobile) {
     return <LegacyAgentTopbar

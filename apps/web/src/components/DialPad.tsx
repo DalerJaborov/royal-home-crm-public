@@ -6,6 +6,7 @@ import { formatLocalDialNumber, isDialable, LOCAL_NUMBER_LENGTH, toLocalDialDigi
 import { useClients, useDialNumber } from "../hooks/useClients";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import { LAST_DIAL_KEY } from "../lib/lastDial";
+import { Rh2Portal } from "./rh2/Rh2Scope";
 
 /**
  * НАБОРЩИК НОМЕРА — экран `dial` прототипа design_handoff (мобильный редизайн
@@ -243,175 +244,156 @@ export function DialPadModal({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    /* На телефоне — лист на весь экран на фоне приложения (var(--bg)), как экран
-       `dial` макета; на широком — та же светлая карточка по центру поверх
-       затемнения, чтобы наборщик «Телефонии» не расползался на весь монитор. */
-    <div
-      className="fixed inset-0 z-50 flex items-stretch justify-center bg-black/40 backdrop-blur-xs sm:items-center sm:p-4"
-      onClick={onClose}
-    >
-      <div
-        ref={boxRef}
-        tabIndex={-1}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Набор номера"
-        className="flex w-full flex-col bg-bg text-ink outline-hidden sm:max-w-[390px] sm:rounded-[28px] sm:border sm:border-line sm:shadow-lg"
-        onClick={(e) => e.stopPropagation()}
-        style={{ paddingBottom: "calc(26px + env(safe-area-inset-bottom))" }}
-      >
-        {/* Шапка листа: круглая «Назад» 34px + заголовок 17px/700. */}
-        <div className="flex flex-none items-center gap-[11px] px-4 pt-[14px]">
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Закрыть наборщик"
-            className="grid h-[34px] w-[34px] flex-none place-items-center rounded-full bg-ink/8 active:scale-[0.94] transition-transform"
-          >
-            <ChevronLeft className="h-4 w-4" strokeWidth={1.9} />
-          </button>
-          <span className="min-w-0 flex-1 text-[17px] font-bold tracking-[-.02em]">Набор номера</span>
-        </div>
-
-        {/* Номер: снизу вверх — как в макете (колонка прижата к клавиатуре). */}
-        <div className="flex min-h-[108px] flex-1 flex-col items-center justify-end gap-[7px] px-5 pb-2.5 pt-1.5">
-          {clipboardNumber && !digits && (
-            <button
-              type="button"
-              onClick={() => {
-                setDigits(clipboardNumber);
-                setClipboardNumber(null);
-              }}
-              className="px-2.5 py-1 text-[15px] font-semibold text-blue"
-            >
-              Вставить {formatLocalDialNumber(clipboardNumber)}
+    /* Окно живёт в области темы (`Rh2Portal`): прежние Tailwind-классы с
+       полупрозрачным `bg-bg` (`--c-bg` = 60% альфы) пропускали страницу сквозь
+       лист на телефоне — теперь фон листа непрозрачный `var(--page)`, подложка
+       затемняет и размывает всё позади. На телефоне лист снизу (общее правило
+       `[role="dialog"]` в index.css), на широком — карточка по центру. Облик
+       клавиш и размеры прежние, правила — в theme-2026-dialpad.css. */
+    <Rh2Portal>
+      <div className="dp-back" onClick={onClose}>
+        <div
+          ref={boxRef}
+          tabIndex={-1}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Набор номера"
+          className="dp"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Шапка листа: круглая «Назад» + заголовок 17px/700. */}
+          <div className="dp-h">
+            <button type="button" onClick={onClose} aria-label="Закрыть наборщик" className="dp-back-btn">
+              <ChevronLeft className="dp-back-i" strokeWidth={1.9} aria-hidden="true" />
             </button>
-          )}
+            <span className="dp-title">Набор номера</span>
+          </div>
 
-          {digits ? (
-            <div className="flex max-w-full items-baseline justify-center gap-2">
-              {/* Код страны — отдельной меткой: его нельзя стереть, он не «исчезает». */}
-              {!isService && <span className="flex-none text-[17px] font-semibold text-gray-400">+992</span>}
-              <span
-                className={`whitespace-nowrap font-semibold tracking-[.5px] tabular-nums ${
-                  shown.length > 12 ? "text-[26px]" : "text-[31px]"
-                }`}
-              >
-                {shown}
-              </span>
-            </div>
-          ) : (
-            <span className="text-[15px] font-medium text-gray-400">Введите номер</span>
-          )}
-
-          {/* Найденный контакт — белая пилюля с тенью: имя + номер; тап
-              подставляет полный номер (dialMatch из макета). */}
-          {match && (
-            <button
-              type="button"
-              onClick={() => setDigits(match.local)}
-              className="flex max-w-full items-center gap-[7px] rounded-full bg-card px-3 py-1.5 shadow-sm active:scale-[0.96] transition-transform"
-            >
-              <span className="min-w-0 truncate text-[15px] font-bold text-ink">{match.name}</span>
-              <span className="flex-none text-[13px] font-semibold text-gray-400 tabular-nums">
-                {formatLocalDialNumber(match.local)}
-              </span>
-            </button>
-          )}
-
-          {/**
-           * «Нет в базе — создать карточку» (dialUnknownOn/dialNewClient
-           * прототипа) — единственный кусок наборщика, которого у нас не было.
-           * Живой случай: агент набирает номер с бумажки или из объявления,
-           * разговаривает — и карточки по этому разговору не появляется, потому
-           * что заводить её надо идти в другой раздел и вбивать номер заново.
-           * Показываем только на ПОЛНОМ номере: на трёх цифрах «нет в базе» —
-           * ещё не факт, а поиск просто не закончился.
-           */}
-          {/* Клиент найден по этому самому номеру — показываем, кто это, и
-              открываем его карточку вместо предложения завести вторую. */}
-          {!isService && exactMatch && digits.length === LOCAL_NUMBER_LENGTH && (
-            <button
-              type="button"
-              onClick={() => navigate(`/clients/${exactMatch.shortId}`)}
-              className="flex max-w-full items-center gap-[7px] rounded-full bg-card px-3 py-1.5 shadow-sm transition-transform active:scale-[0.96]"
-            >
-              <span className="min-w-0 truncate text-[15px] font-semibold text-ink">{exactMatch.name}</span>
-              <span className="flex-none text-[15px] font-bold text-blue">Открыть карточку</span>
-            </button>
-          )}
-
-          {!isService && !match && !exactMatch && answerIsKnown && digits.length === LOCAL_NUMBER_LENGTH && (
-            <button
-              type="button"
-              onClick={() => navigate(`/clients?new=1&phone=${encodeURIComponent(`+992${digits}`)}`)}
-              className="flex max-w-full items-center gap-[7px] rounded-full bg-card px-3 py-1.5 shadow-sm transition-transform active:scale-[0.96]"
-            >
-              <span className="flex-none text-[15px] font-semibold text-gray-400">Нет в базе</span>
-              <span className="flex-none text-[15px] font-bold text-blue">Создать карточку</span>
-            </button>
-          )}
-
-          {/* Проверить не удалось — честно молчим о том, есть клиент или нет:
-              «Нет в базе» здесь означало бы факт, которого мы не знаем. */}
-          {!isService && lookupFailed && digits.length === LOCAL_NUMBER_LENGTH && (
-            <p className="text-center text-[15px] text-gray-500">Не удалось проверить, есть ли клиент в базе</p>
-          )}
-
-          {error && <p className="text-center text-[15px] text-red">{error}</p>}
-        </div>
-
-        {/* Клавиатура: круглые клавиши, цифра 33px + буквы 9.5px с трекингом. */}
-        <div className="grid flex-none grid-cols-3 justify-items-center gap-x-6 gap-y-3 px-[26px]">
-          {KEYS.map((k) => (
-            <button
-              key={k.digit}
-              type="button"
-              onClick={() => setDigits((d) => (d + k.digit).slice(0, 15))}
-              // Прототип: rgba(120,120,128,.14) / active .34 — было .08/.22, клавиши читались бледнее.
-              className="flex aspect-square w-full max-w-[76px] flex-col items-center justify-center gap-0.5 rounded-full bg-ink/[.14] transition-colors active:bg-ink/34"
-            >
-              <span className="text-[33px] font-normal leading-[0.92] tracking-[-.01em]">{k.digit}</span>
-              <span className="min-h-[10px] text-[13px] font-semibold leading-none tracking-[.16em] indent-[.16em]">
-                {k.letters ?? ""}
-              </span>
-            </button>
-          ))}
-        </div>
-
-        {/* Низ: трубка 74px строго по центру, стирание — справа от неё. */}
-        <div className="grid flex-none grid-cols-[1fr_auto_1fr] items-center px-[30px] pt-3.5">
-          <span />
-          <button
-            type="button"
-            onClick={handleCall}
-            disabled={pending || (!!digits && !canCall)}
-            aria-label="Позвонить"
-            className="grid h-[74px] w-[74px] place-items-center rounded-full bg-green text-white transition-transform active:scale-[0.93] disabled:opacity-40"
-          >
-            {pending ? (
-              <span className="text-[15px] font-semibold">Звоним…</span>
-            ) : (
-              <Phone className="h-[31px] w-[31px]" strokeWidth={1.6} />
-            )}
-          </button>
-          <span className="flex justify-start pl-3.5">
-            {digits && (
+          {/* Номер: снизу вверх — как в макете (колонка прижата к клавиатуре). */}
+          <div className="dp-num">
+            {clipboardNumber && !digits && (
               <button
                 type="button"
-                onClick={handleDeleteClick}
-                onPointerDown={startLongDelete}
-                onPointerUp={stopLongDelete}
-                onPointerLeave={stopLongDelete}
-                aria-label="Стереть цифру"
-                className="grid h-[46px] w-[46px] place-items-center rounded-full text-ink transition-transform active:scale-90"
+                onClick={() => {
+                  setDigits(clipboardNumber);
+                  setClipboardNumber(null);
+                }}
+                className="dp-paste"
               >
-                <Delete className="h-6 w-6" strokeWidth={1.6} />
+                Вставить {formatLocalDialNumber(clipboardNumber)}
               </button>
             )}
-          </span>
+
+            {digits ? (
+              <div className="dp-line">
+                {/* Код страны — отдельной меткой: его нельзя стереть, он не «исчезает». */}
+                {!isService && <span className="dp-cc">+992</span>}
+                <span className={`dp-digits${shown.length > 12 ? " sm" : ""}`}>{shown}</span>
+              </div>
+            ) : (
+              <span className="dp-hint">Введите номер</span>
+            )}
+
+            {/* Найденный контакт — белая пилюля с тенью: имя + номер; тап
+                подставляет полный номер (dialMatch из макета). */}
+            {match && (
+              <button type="button" onClick={() => setDigits(match.local)} className="dp-chip">
+                <span className="dp-chip-n">{match.name}</span>
+                <span className="dp-chip-m">{formatLocalDialNumber(match.local)}</span>
+              </button>
+            )}
+
+            {/**
+             * «Нет в базе — создать карточку» (dialUnknownOn/dialNewClient
+             * прототипа) — единственный кусок наборщика, которого у нас не было.
+             * Живой случай: агент набирает номер с бумажки или из объявления,
+             * разговаривает — и карточки по этому разговору не появляется, потому
+             * что заводить её надо идти в другой раздел и вбивать номер заново.
+             * Показываем только на ПОЛНОМ номере: на трёх цифрах «нет в базе» —
+             * ещё не факт, а поиск просто не закончился.
+             */}
+            {/* Клиент найден по этому самому номеру — показываем, кто это, и
+                открываем его карточку вместо предложения завести вторую. */}
+            {!isService && exactMatch && digits.length === LOCAL_NUMBER_LENGTH && (
+              <button
+                type="button"
+                onClick={() => navigate(`/clients/${exactMatch.shortId}`)}
+                className="dp-chip"
+              >
+                <span className="dp-chip-n">{exactMatch.name}</span>
+                <span className="dp-chip-a">Открыть карточку</span>
+              </button>
+            )}
+
+            {!isService && !match && !exactMatch && answerIsKnown && digits.length === LOCAL_NUMBER_LENGTH && (
+              <button
+                type="button"
+                onClick={() => navigate(`/clients?new=1&phone=${encodeURIComponent(`+992${digits}`)}`)}
+                className="dp-chip"
+              >
+                <span className="dp-chip-m">Нет в базе</span>
+                <span className="dp-chip-a">Создать карточку</span>
+              </button>
+            )}
+
+            {/* Проверить не удалось — честно молчим о том, есть клиент или нет:
+                «Нет в базе» здесь означало бы факт, которого мы не знаем. */}
+            {!isService && lookupFailed && digits.length === LOCAL_NUMBER_LENGTH && (
+              <p className="dp-note">Не удалось проверить, есть ли клиент в базе</p>
+            )}
+
+            {error && <p className="dp-note err">{error}</p>}
+          </div>
+
+          {/* Клавиатура: круглые клавиши, цифра 33px + буквы с трекингом. */}
+          <div className="dp-keys">
+            {KEYS.map((k) => (
+              <button
+                key={k.digit}
+                type="button"
+                onClick={() => setDigits((d) => (d + k.digit).slice(0, 15))}
+                className="dp-key"
+              >
+                <span className="dp-key-d">{k.digit}</span>
+                <span className="dp-key-l">{k.letters ?? ""}</span>
+              </button>
+            ))}
+          </div>
+
+          {/* Низ: трубка 74px строго по центру, стирание — справа от неё. */}
+          <div className="dp-bot">
+            <span />
+            <button
+              type="button"
+              onClick={handleCall}
+              disabled={pending || (!!digits && !canCall)}
+              aria-label="Позвонить"
+              className="dp-call"
+            >
+              {pending ? (
+                <span className="dp-call-t">Звоним…</span>
+              ) : (
+                <Phone className="dp-call-i" strokeWidth={1.6} aria-hidden="true" />
+              )}
+            </button>
+            <span className="dp-del-slot">
+              {digits && (
+                <button
+                  type="button"
+                  onClick={handleDeleteClick}
+                  onPointerDown={startLongDelete}
+                  onPointerUp={stopLongDelete}
+                  onPointerLeave={stopLongDelete}
+                  aria-label="Стереть цифру"
+                  className="dp-del"
+                >
+                  <Delete className="dp-del-i" strokeWidth={1.6} aria-hidden="true" />
+                </button>
+              )}
+            </span>
+          </div>
         </div>
       </div>
-    </div>
+    </Rh2Portal>
   );
 }
