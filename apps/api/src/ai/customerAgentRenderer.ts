@@ -195,6 +195,11 @@ export function customerAgentPropertyQuestionTexts(language: "ru" | "tg"): strin
 export function customerAgentCallbackQuestionText(language: "ru" | "tg"): string { return questions.callback_consent[language]; }
 export function customerAgentNameQuestionText(language: "ru" | "tg"): string { return questions.name[language]; }
 export function customerAgentPropertyQuestionText(language: "ru" | "tg"): string { return questions.property[language]; }
+/** Every fixed question sentence (plain template and "я уточнял" repair) with its purpose. Read-only view for the attack judge. */
+export function customerAgentQuestionCatalog(language: "ru" | "tg"): Array<{ question: CustomerAgentQuestion; text: string }> {
+  return [...Object.entries(questions).flatMap(([question, text]) => text[language] ? [{ question: question as CustomerAgentQuestion, text: text[language] }] : []),
+    ...Object.entries(repairs).map(([question, text]) => ({ question: question as CustomerAgentQuestion, text: text[language] }))];
+}
 // Formatting of already minimized server-loaded context only. This selects no
 // actor, contact, action, proposal or consent; callers still fence the original IN.
 const repairPurposes = ["budget", "location", "rooms", "property", "topic", "role"] as const;
