@@ -1,6 +1,6 @@
 # CRM overnight audit package, 24 October 2026
 
-This source package starts at public baseline `87aecdb`. The FINAL source addresses30confirmed defect families across application behavior and test-stand routing (14first-package,7phase2,3third-batch,1client-radius,2ordinary user-flow and1absence-return plus1Direct-source-count and1manual-return family), compatible dependency advisory updates and4separately attributed fixture/test-oracle repairs. Targeted user-flow regressions and independent reviews are complete; the latest frozen-package consolidated verdict remains pending. No production release or exhaustive zero-bug claim is made. Continue the explicitly pending scope in COVERAGE.md/STATUS.md.
+This source package starts at public baseline `87aecdb`. The FINAL source addresses30confirmed defect families across application behavior and test-stand routing (14first-package,7phase2,3third-batch,1client-radius,2ordinary user-flow and1absence-return plus1Direct-source-count and1manual-return family), compatible dependency advisory updates and4separately attributed fixture/test-oracle repairs. Targeted user-flow regressions and independent reviews are complete. Final application source c684 has accepted complete API and SourceCI results; see FULL-API-c684.md and MORNING-REPORT.md. Later documentation-only commits are identified separately. No production release or exhaustive zero-bug claim is made. Continue the explicitly pending scope in COVERAGE.md/STATUS.md.
 
 ## Findings
 
@@ -100,3 +100,8 @@ SRC01 includes existing Telegram Direct conversations in the existing TELEGRAM s
 ## Last bounded manual-return correction
 
 TA02/TMR01 corrects concurrent manual return double-shifting inactive-client clocks. It compares the exact captured frozenAt inside the existing transaction, shifts once and returns409 for stale requests before success audit/queue. FINAL-TEAM-MANUAL-RETURN.md and REVIEW-TEAM-MANUAL-RETURN.md preserve exact real HTTP/PG tests, normal code-auth fixture, external mocks and ownership. This is separate from automatic TA01 deactivation, bringing the register to30families (29application+1stand); four fixture repairs remain separate. Other inquiries adds positive ordinary ADMIN list/filter/open and normal AGENT gates,6initialPASS+2corrected locatorPASS, no appfix or full route acceptance. The index now has25groups and16/52partial screens/36without named runtime screen evidence. New source full validation remains required separately.
+
+
+## Final application acceptance — c684
+
+Exact c684e84b7c36e5403aab98780342f72e0ad4304f full40053569883 is independently ACCEPTED: 1492physical files/14092terminal assertions=14089PASS/0FAIL/0SKIP/3TODO; all20native0/no rescuedretry/allmachine-aggregate-discovery parity/rootnormalverifier0. SourceCI40053571622/new offlineimage passed. Local exactprecheck306files1880webtests/builds/104scriptPASS32conditionalSKIP/native0. FULL-API-c684.md and MORNING-REPORT.md supersede earlier pending checkpoints for this application source only. Later docs-only head must remain separately identified. Full test-file execution does not approve all modules/roles/devices/providers or production.

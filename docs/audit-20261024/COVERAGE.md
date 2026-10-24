@@ -76,3 +76,8 @@ FINAL3 adds SRC01 actual HTTP/ownPG5case group (baseline4RED/1control→5PASS) a
 
 
 FINAL4 TA02/TMR01 manual return adds actual HTTP/ownPG concurrency/stale-snapshot evidence, separately from TA01 automatic return. Exact durable assertions/checks are in FINAL-TEAM-MANUAL-RETURN.md; no browser/real delivery/account-reactivation claim. Other inquiries positive actual ADMIN/AGENT component controls at1440/390 are6initialPASS+2locator-correctedPASS separately, not one8GREEN and not ClientDetail/server filtering acceptance. Same owned test boundaries. Current index25groups/16partial screens/36without named screen runtime; all modules/endpoints retain pending combinations.
+
+
+## Final application acceptance — c684
+
+Exact c684e84b7c36e5403aab98780342f72e0ad4304f full40053569883 is independently ACCEPTED: 1492physical files/14092terminal assertions=14089PASS/0FAIL/0SKIP/3TODO; all20native0/no rescuedretry/allmachine-aggregate-discovery parity/rootnormalverifier0. SourceCI40053571622/new offlineimage passed. Local exactprecheck306files1880webtests/builds/104scriptPASS32conditionalSKIP/native0. FULL-API-c684.md and MORNING-REPORT.md supersede earlier pending checkpoints for this application source only. Later docs-only head must remain separately identified. Full test-file execution does not approve all modules/roles/devices/providers or production.
