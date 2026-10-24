@@ -46,7 +46,9 @@
     "site:resync-short-ids": "npm run site:resync-short-ids --workspace=apps/api --",
     "map:gate": "node scripts/map-gate.mjs",
     "impact:tests": "node scripts/impact-tests.mjs",
-    "audit:secrets": "node scripts/audit-secrets.mjs"
+    "audit:secrets": "node scripts/audit-secrets.mjs",
+    "attack:core": "node scripts/attack-customer-core.mjs",
+    "attack:import": "node scripts/attack-import-real.mjs"
   },
   "devDependencies": {
     "dependency-cruiser": "^18.1.0",
