@@ -119,13 +119,24 @@ export function Rh2Portal({ children }: { children: ReactNode }) {
  * Область темы прямо на месте, без портала: для встроенных кусков, которые
  * живут внутри ещё не перенесённой разметки (очередь загрузки в форме объекта,
  * полоса «нет соединения» в рамке приложения, подсказка установки).
+ *
+ * `className` ставится на ВНЕШНЮЮ обёртку, а не на узел `.rh2` (24.10.2026,
+ * перепись экранов, P0). Тема лежит в CSS БЕЗ слоя и задаёт `.rh2{position:
+ * relative;margin:0}`, а утилиты Tailwind v4 — в слое `utilities`: бесслойное
+ * правило бьёт слойное при любой специфичности. Поэтому `fixed`/`sticky`/
+ * `absolute`/`inset-*`/`z-*`/`mt-*`/`mb-*` на самом узле `.rh2` молча
+ * проигрывали: подсказка «Поставьте CRM на экран» на третьем заходе оставалась
+ * в потоке и схлопывала приложение в колонку 32 px. Утилиты на внешнем узле
+ * темой не перебиваются; `.scr .card` внутри остаются потомками обёртки, так что
+ * семантические хуки вроде `cef-overview` (`.cef-overview .scr .card`) работают как раньше.
  */
 export function Rh2Inline({ children, className }: { children: ReactNode; className?: string }) {
-  return (
-    <div className={className ? `rh2 screens ${className}` : "rh2 screens"} style={TRANSPARENT}>
+  const scope = (
+    <div className="rh2 screens" style={TRANSPARENT}>
       <div className="scr" style={RH2_SCR_BARE}>
         {children}
       </div>
     </div>
   );
+  return className ? <div className={className}>{scope}</div> : scope;
 }
