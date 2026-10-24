@@ -50,3 +50,109 @@
   overflow: visible;
   text-overflow: clip;
 }
+
+/* ---------- Объекты и «Подготовка объектов» (F4, перепись экранов 24.10.2026) ---------- */
+
+/* 4. Ряд плиток `.pstats` в строке объекта на телефоне (экран «Подготовка
+ *    объектов», `PropertyRow` с модификатором `.wrapt`). Прокрутку внутри ряда
+ *    задаёт theme-2026-color-layer.css (`overflow-x:auto`), но прототипное
+ *    `.prow.wrapt .t span{overflow:visible}` (0,5,1) тяжелее и снимало её:
+ *    плитки выпирали и сдвигали ВСЮ страницу на 53 px. Селектор тяжелее обоих. */
+@media (max-width: 640px) {
+  .rh2 .scr .prow.wrapt .t .pstats {
+    max-width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+}
+
+/* 5. Строка объекта в списке телефона (`MhPropertyRow`): плашка статуса стоит в
+ *    `.s`, а у того `nowrap + overflow:hidden` — «На монтаже, 20 дн.» и «Ждём
+ *    видео, 17 дн.» обрезались по краю колонки. Плашка и подпись переносятся
+ *    рядом; сама плашка при нехватке места переносит текст, а не прячет его. */
+.rh2 .mh .row .s.mh-prop-s {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
+.rh2 .mh .row .s.mh-prop-s .chip {
+  max-width: 100%;
+  height: auto;
+  min-height: 22px;
+  padding-top: 2px;
+  padding-bottom: 2px;
+  white-space: normal;
+  line-height: 1.25;
+}
+.rh2 .mh .row .s.mh-prop-s .tx {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 6. Чекбокс строки объекта на телефоне: был 20×20 (инлайном). Видимый квадрат
+ *    остаётся 20 px, зона нажатия 44×44 — тот же приём, что у `.prow .pick`
+ *    прототипа (theme-2026-proto.css), отрицательные поля возвращают строке
+ *    прежнюю ширину. */
+.rh2 .mh .row > input.mh-pick {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  z-index: 1;
+  flex: none;
+  width: 44px;
+  height: 44px;
+  margin: -12px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.rh2 .mh .row > input.mh-pick::before {
+  content: "";
+  position: absolute;
+  left: 12px;
+  top: 12px;
+  width: 20px;
+  height: 20px;
+  box-sizing: border-box;
+  border-radius: 6px;
+  border: 1.5px solid var(--line-strong);
+  background: var(--card);
+}
+.rh2 .mh .row > input.mh-pick:checked::before {
+  background: var(--pill);
+  border-color: var(--pill);
+}
+.rh2 .mh .row > input.mh-pick:checked::after {
+  content: "";
+  position: absolute;
+  left: 17px;
+  top: 19px;
+  width: 10px;
+  height: 5px;
+  border-left: 2px solid var(--pill-ink);
+  border-bottom: 2px solid var(--pill-ink);
+  transform: rotate(-45deg);
+}
+.rh2 .mh .row > input.mh-pick:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: -9px;
+}
+
+/* 7. Ссылки-кнопки текстовой высоты (подсказки над списком, «Повторить»,
+ *    «Отменить выбор»): видимый размер прежний, зона нажатия 44 px по высоте за
+ *    счёт невидимой накладки. */
+.rh2 .mh .mh-hit {
+  position: relative;
+}
+.rh2 .mh .mh-hit::before {
+  content: "";
+  position: absolute;
+  inset: -12px -6px;
+}

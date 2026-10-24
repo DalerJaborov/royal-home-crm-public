@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
+import { usableRouteId } from "../lib/routeId";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, FileText, MessageCircle, Paperclip, Phone, Printer, UserRound } from "lucide-react";
 import type { RecruitmentPosition } from "@royal-home/shared";
@@ -47,7 +48,7 @@ function backPath(state: unknown): string {
  * `.card.clean-client-sections` с вкладками `.clean-record-tabs`.
  */
 export function VacancyDetail() {
-  const { id } = useParams();
+  const id = usableRouteId(useParams().id);
   const location = useLocation();
   const navigate = useNavigate();
   const back = backPath(location.state);

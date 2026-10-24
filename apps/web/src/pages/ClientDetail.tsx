@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { Rh2EmptyState } from "../components/rh2/Rh2EmptyState";
 import { Rh2Screen } from "../components/rh2/Rh2Screen";
+import { usableRouteId } from "../lib/routeId";
 import { Rh2Sheet } from "../components/rh2/Rh2Sheet";
 import { ApiError } from "../lib/apiError";
 import { assignLeadErrorText } from "../lib/assignLeadError";
@@ -131,13 +132,13 @@ function conversationsOf(client: Client): ClientConversation[] {
 }
 
 export function ClientDetail() {
-  const { id } = useParams();
+  const id = usableRouteId(useParams().id);
   // Drafts, open dialogs and selected objects belong to a person, never to the next route.
   return <ClientDetailCard key={id} />;
 }
 
 function ClientDetailCard() {
-  const { id } = useParams();
+  const id = usableRouteId(useParams().id);
   // Переписка: открыта ли панель и нужно ли сразу поставить курсор в поле ответа
   // (открыли, чтобы ответить, — а не чтобы прочитать; см. ClientChatPanel). Объявлен
   // раньше useClient ниже: тот читает chat.open, чтобы включать поллинг карточки,
