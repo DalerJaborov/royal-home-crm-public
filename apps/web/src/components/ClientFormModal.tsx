@@ -58,7 +58,7 @@ function PlaceRadiusInput({ id, value, onCommit }: { id: string; value: number; 
       inputMode="numeric"
       min={MIN_PLACE_RADIUS_M}
       max={MAX_PLACE_RADIUS_M}
-      step={100}
+      step={1}
       value={text}
       onChange={(e) => {
         setText(e.target.value);

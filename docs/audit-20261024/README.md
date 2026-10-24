@@ -1,6 +1,6 @@
 # CRM overnight audit package, 24 October 2026
 
-This source package starts at public baseline `87aecdb`. It contains24 confirmed defect families across application behavior and test-stand routing (14first-package,7phase2 and3third-batch families), compatible dependency advisory updates and2 separately attributed fixture-isolation repairs. Third-batch targeted regressions and independent reviews are complete; consolidated validation is pending. No production release or exhaustive zero-bug claim is made. Continue the explicitly pending scope in COVERAGE.md/STATUS.md.
+This source package starts at public baseline `87aecdb`. The FINAL source contains25confirmed defect families across application behavior and test-stand routing (14first-package,7phase2,3third-batch and1client-radius family), compatible dependency advisory updates and4separately attributed fixture/test-oracle repairs. Targeted regressions and independent reviews are complete; the latest frozen-package consolidated verdict remains pending. No production release or exhaustive zero-bug claim is made. Continue the explicitly pending scope in COVERAGE.md/STATUS.md.
 
 ## Findings
 
@@ -40,6 +40,16 @@ Exact3305 local precheck completed successfully:305webfiles/1877tests, shared/AP
 The parent and a second specialist independently reviewed the two period corrections; see REVIEW-PERIOD-FIXES.md. NR01 loss-cohort semantics and ambiguous reminder/deadline choices remain OPEN-POLICY-QUESTIONS.md. No silent metric, reminder or ownership-policy change was made.
 
 Independent dependency follow-up corrected one remaining low build-time serialize-javascript advisory using a normal7.1.4 update. Collector r2 has0matching known advisories in1129registry-verified transitive entries,5unverifiable entries and narrower3root-tooling maintainer coverage. This is not proof that dependencies have no vulnerabilities; see PHASE2-DEPENDENCIES.md.
+
+## Final client/oracle batch
+
+Client radius CF01 is corrected with one input attribute: native Next now accepts the same integer-meter values100..10000 already preserved/submitted by the form and admitted by the API. No rounding/default/settings change. Actual Chrome at1440/390: the identical durable14case set goes4RED+10controls→14PASS;12retained writes preserve values with0native-invalid events. App and browser-fixture TypeScript and targeted ESLint pass. FINAL-CLIENT-RADIUS.md and REVIEW-FINAL-CLIENT-DM.md separate source, synthetic-transport browser and unexecuted production layers.
+
+The exact5616 full cloud run completed RED: **1489physical files/14074tests=14070PASS+1FAIL+0SKIP+3TODO**, with all20machine reports retained and independently re-merged/file-discovery checked. The only failing case falsely rejected992 in an allowed PUBLIC district UUID. A stricter independent whole-response test oracle now covers public district/shortId992 and excludes actual private fixture fields, retaining the original residual guard and unchanged application/helper. Targeted33cases passed; after parent caught a retry-fixture uniqueness issue, the corrected16case file and a two-preparation own-PG control passed separately. See FULL-API-5616.md and FINAL-DM-PUBLIC-ORACLE.md. No complete green API verdict is claimed yet.
+
+That full run also rescued one schedule case using the repository's existing CI retry1. Its exact first failure was recovered from JSON: the second GLOBAL tick returned1 instead of0. A controlled two-client fixture reproduces the invalid global-count assumption; the repaired single case checks its actual own showing IDs, weekly limit and exactly one own originate. The durable44case file passed without retry; a later nullable-only assertion access is explicitly left for the complete suite. No scheduling-policy/application change. FINAL-SCHEDULE-FIXTURE.md and REVIEW-FINAL-SCHEDULE.md separate this fourth fixture repair from production bugs. The independent exact5616 source CI and offline API image passed; these historical results do not prove the later FINAL head.
+
+The readonly hiring pass executed actual admin/manager catalogue close/edit/reopen, optimistic revision rollback and ordinary candidate transitions on own PostgreSQL with0external calls; no new defect was confirmed. Its precise positive coverage and untested UI/concurrency choices are recorded in NEXT-VACANCY-READONLY.md. Rejected money-input and other source-only suspicions are not counted as bugs.
 
 ## First-package checks completed locally
 

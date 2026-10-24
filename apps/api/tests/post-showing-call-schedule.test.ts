@@ -307,15 +307,43 @@ describe("кому звоним", () => {
   });
 
   it("второй показ той же недели — второго звонка не будет", async () => {
-    await makeShowing(new Date(NOON.getTime() - 3 * HOUR));
-    expect(await runPostShowingCallTick(NOON)).toBe(1);
+    // The tick is global. Another client's earlier call must not be mistaken
+    // for this fixture's first call, nor counted as its forbidden second call.
+    const competitor = await prisma.client.create({ data: {
+      fullName: "Тест второго клиента недельного лимита", phone: `+99292${String(runId).slice(-7)}`,
+      source: "PHONE_CALL", kind: "BUYER", assignedAgentId: agentId,
+    } });
+    try {
+      await prisma.interaction.create({ data: {
+        clientId: competitor.id, agentId, propertyId, type: "SHOWING", notes: "Тест другого клиента",
+        nextAction: "Показ объекта", nextActionDate: new Date(NOON.getTime() - 4 * HOUR),
+      } });
+      const first = await makeShowing(new Date(NOON.getTime() - 3 * HOUR));
+      const started = await waitFor(async () => {
+        await runPostShowingCallTick(NOON);
+        const call = await prisma.postShowingCall.findUnique({ where: { showingId: first.id } });
+        return call?.status === "CALLING" ? call : null;
+      }, { label: "первый звонок именно по нашему показу" });
+      expect(started?.attempts).toBe(1);
+      expect(started?.lastAttemptAt).toEqual(NOON);
 
-    const later = new Date(NOON.getTime() + 24 * HOUR);
-    await makeShowing(new Date(later.getTime() - 3 * HOUR));
-    expect(await runPostShowingCallTick(later)).toBe(0);
-
-    const skipped = await prisma.postShowingCall.findFirst({ where: { clientId, status: "SKIPPED" } });
-    expect(skipped?.skipReason).toBe("weekly_limit");
+      const later = new Date(NOON.getTime() + 24 * HOUR);
+      const second = await makeShowing(new Date(later.getTime() - 3 * HOUR));
+      const skipped = await waitFor(async () => {
+        await runPostShowingCallTick(later);
+        const call = await prisma.postShowingCall.findUnique({ where: { showingId: second.id } });
+        return call?.status === "SKIPPED" ? call : null;
+      }, { label: "недельный лимит именно по нашему второму показу" });
+      expect(skipped).toMatchObject({ skipReason: "weekly_limit", attempts: 0, lastAttemptAt: null });
+      const calls: ReadonlyArray<ReadonlyArray<unknown>> = originateLiveVoiceScenarioCall.mock.calls;
+      expect(calls.filter(([, scenario]) => typeof scenario === "object" && scenario !== null &&
+        "clientId" in scenario && scenario.clientId === clientId)).toHaveLength(1);
+      expect(await prisma.postShowingCall.count({ where: { clientId, lastAttemptAt: { not: null } } })).toBe(1);
+    } finally {
+      await prisma.postShowingCall.deleteMany({ where: { clientId: competitor.id } });
+      await prisma.interaction.deleteMany({ where: { clientId: competitor.id } });
+      await prisma.client.delete({ where: { id: competitor.id } });
+    }
   });
 });
 
