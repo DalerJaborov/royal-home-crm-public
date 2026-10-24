@@ -230,3 +230,81 @@ html[data-theme="royal-home-2026-night"] {
 .rh2 .scr .row > .t > b > a.lk:active {
   transform: none;
 }
+
+/* ═══ ЗОНЫ НАЖАТИЯ НА ТЕЛЕФОНЕ — 44 PX БЕЗ СМЕНЫ ВИДИМОГО РАЗМЕРА (24.10.2026) ═══
+ * Перепись экранов 24.10 нашла кнопки шапки (40), вкладки (36–40) и чипы-фильтры
+ * (34–36) мельче 44. Невидимые накладки (`::before`/`::after`, `inset:-Npx`) в теме
+ * уже были, но у них три общих изъяна, и каждый оставлял зону мельче 44:
+ *  1) `inset:-2px` у кнопки с рамкой 1px считает от ВНУТРЕННЕГО края (рамка в
+ *     накладку не входит): 40px кнопка получала 38+4 = 42, а не 44. Так у `.sh-btn`
+ *     (шапка), `.rh-tabs button`, `.rh-filters button`, `.fchips button`, `.btn.sm.soft`;
+ *  2) накладка внутри ленты с `overflow-x:auto` ОБРЕЗАЕТСЯ рамкой ленты: у `.lane`
+ *     вертикального запаса не было вовсе, и нажималась только видимая пилюля 34px;
+ *     вкладки раздела (`.seg-ai`, `ScreenTabs`) накладки не имели совсем (36px);
+ *  3) число в `inset` — константа, не привязанная к размеру элемента.
+ * Приём один на всех: `--tap-pad` берёт размер самого элемента (проценты в `inset`
+ * считаются от его же стороны) и добирает недостающее до 44; если элемент уже ≥44,
+ * накладка не нужна (0). Видимый вид не меняется.
+ * Растянутая ссылка строки (`.rh-row-link::after`) и `a.lk::after` сюда не входят
+ * и не затронуты: селекторы ниже называют только перечисленные элементы. */
+:root {
+  --tap-pad: min(0px, calc((100% - 44px) / 2));
+}
+@media (max-width: 819px) {
+  /* Шапка: круглые кнопки поиска/колокольчика/аватара/«назад» (Topbar,
+     LegacyAgentTopbar). Видимые 40, накладка добирает до 44. */
+  html .sh-btn::after {
+    inset: var(--tap-pad);
+  }
+  /* Кнопки шапки, которые не `.sh-btn`: «Профиль и выход» (ProfileMenu) и
+     кнопки LegacyAgentTopbar. Tailwind `h-11 w-11` уже 44 — страховка от
+     переопределения размера, видимого вида не меняет. */
+  [data-topbar-me] button[aria-label="Профиль и выход"],
+  [data-topbar] button[data-topbar-search],
+  [data-topbar] button[data-topbar-bell] {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  /* Вкладки раздела-состояние (components/rh2/Tabs.tsx) и чипы-фильтры
+     (components/rh2/Filters): те же 40px с рамкой, накладка по вертикали. */
+  .rh2 .scr .seg.rh-tabs button::after,
+  .rh2 .scr .rh-filters button::after {
+    inset: var(--tap-pad) 0;
+  }
+
+  /* Вкладки раздела-маршрут (components/ScreenTabs.tsx, `.seg-ai`): 36px, накладки
+     не было. Лента прокручивается вбок (≤640) и срезала бы накладку, поэтому ей
+     даётся вертикальный запас 4px, снятый с полей — раскладка не сдвигается.
+     В чистой оболочке (`data-shell="clean"`) у ссылок уже `min-height:44px`. */
+  html:not([data-shell="clean"]) .rh2 .seg-ai :is(a, button)[data-f] {
+    position: relative;
+  }
+  html:not([data-shell="clean"]) .rh2 .seg-ai :is(a, button)[data-f]::before {
+    content: "";
+    position: absolute;
+    inset: var(--tap-pad) 0;
+  }
+  html:not([data-shell="clean"]) .rh2 .seg-ai {
+    padding-block: 4px;
+    margin-top: 4px;
+    margin-bottom: -4px;
+  }
+
+  /* Ленты чипов телефона (`MhList`, `.mh`): накладка с учётом рамки. */
+  .rh2 .mh .fchips button::before,
+  .rh2 .mh .lane .f::before,
+  .rh2 .scr .filters .pill[aria-pressed]::before {
+    inset: var(--tap-pad) 0;
+  }
+  .rh2 .mh .btn.sm::before {
+    inset: min(-4px, var(--tap-pad));
+  }
+  /* Лента `.lane` резала накладку: вертикальный запас 5px, снятый с отступов
+     (14 сверху → 9+5, 0 снизу → 5-5), видимая раскладка та же. Прижатой ленте
+     (`.lane-sticky`) запас уже задан своим правилом. */
+  .rh2 .mh .lane:not(.lane-sticky) {
+    padding-block: 5px;
+    margin: 9px -16px -5px;
+  }
+}
