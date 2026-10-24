@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **666**. Развилок в самих путях: **2361**; вместе с задачами по расписанию и фоновыми заданиями — **3658**. Модулей: **75**.
+Путей: **666**. Развилок в самих путях: **2363**; вместе с задачами по расписанию и фоновыми заданиями — **3660**. Модулей: **75**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -950,13 +950,19 @@
 - если !agent.frozenAt
   - return res.status(409).json({ error: "Сотрудник не заморожен" });
     · ответ 409 — «Сотрудник не заморожен»
-- await prisma.$transaction(async (tx)
+- const returned = await prisma.$transaction(async (tx)
   · всё внутри — одной транзакцией
   · меняет в базе: agent
-  - await tx.agent.update({ where: { id: agent.id }, data: { frozenAt: null, frozenById: null, frozenReason: null…
+  - const changed = await tx.agent.updateMany({ where: { id: agent.id, frozenAt: agent.frozenAt }, data: { frozen…
     · меняет в базе: agent
+  - если changed.count === 0
+    - return false;
+      · дословно из кода
   - await shiftInactiveClockAfterAbsence(agent.id, agent.frozenAt, new Date(), tx);
     · зовёт shiftInactiveClockAfterAbsence()
+- если !returned
+  - return res.status(409).json({ error: "Отсутствие сотрудника уже изменилось. Обновите карточку" });
+    · ответ 409 — «Отсутствие сотрудника уже изменилось. Обновите карточку»
 - logAudit(req, "AGENT_UNFREEZE", "Agent", agent.id, {});
   · зовёт logAudit()
 - void syncAgentQueuePresence(agent.id).catch(()

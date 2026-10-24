@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 666,
-  "forks": 3658,
+  "forks": 3660,
   "mounts": 75,
   "cron": 108,
   "jobs": 31,
@@ -3841,7 +3841,7 @@
     },
     {
      "k": "do",
-     "t": "await prisma.$transaction(async (tx)",
+     "t": "const returned = await prisma.$transaction(async (tx)",
      "a": [
       "всё внутри — одной транзакцией",
       "меняет в базе: agent"
@@ -3849,17 +3849,47 @@
      "c": [
       {
        "k": "do",
-       "t": "await tx.agent.update({ where: { id: agent.id }, data: { frozenAt: null, frozenById: null, frozenReason: null…",
+       "t": "const changed = await tx.agent.updateMany({ where: { id: agent.id, frozenAt: agent.frozenAt }, data: { frozen…",
        "a": [
         "меняет в базе: agent"
        ],
        "c": []
       },
       {
+       "k": "if",
+       "t": "changed.count === 0",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return false;",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
        "k": "do",
        "t": "await shiftInactiveClockAfterAbsence(agent.id, agent.frozenAt, new Date(), tx);",
        "a": [
         "зовёт shiftInactiveClockAfterAbsence()"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!returned",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"Отсутствие сотрудника уже изменилось. Обновите карточку\" });",
+       "a": [
+        "ответ 409 — «Отсутствие сотрудника уже изменилось. Обновите карточку»"
        ],
        "c": []
       }

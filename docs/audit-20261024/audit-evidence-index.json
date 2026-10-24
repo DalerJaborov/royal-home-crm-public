@@ -7,7 +7,8 @@
     "final": "D:/PublicWorktrees-20261021/night-audit-20261024-final/",
     "phase2": "D:/PublicWorktrees-20261021/night-audit-20261024-phase2/",
     "final2": "D:/PublicWorktrees-20261021/night-audit-20261024-final2/",
-    "final3": "D:/PublicWorktrees-20261021/night-audit-20261024-final3/"
+    "final3": "D:/PublicWorktrees-20261021/night-audit-20261024-final3/",
+    "final4": "D:/PublicWorktrees-20261021/night-audit-20261024-final4/"
   },
   "interpretation": "Cross-reference only, no full module GREEN, no coverage percentage, no global property inferred from passing suites. Missing named evidence means pending in this index, not proof nobody ever tested it. Original inventory.json remains unchanged.",
   "baseline": {
@@ -582,6 +583,71 @@
         }
       },
       "result": "See linked report for exact normative RED and final real HTTP/PG accounting. No Sources screen or provider-handler execution inferred."
+    },
+    {
+      "id": "other-inquiries-ordinary",
+      "reports": [
+        "NEXT-OTHER-INQUIRIES-READONLY.md"
+      ],
+      "reportRoot": "final4",
+      "layers": [
+        "actual_component_hooks_queryClient_Toasts",
+        "chrome",
+        "intercepted_transport"
+      ],
+      "roles": [
+        "ADMIN",
+        "AGENT"
+      ],
+      "screens": [
+        "/other-inquiries"
+      ],
+      "routers": [],
+      "runtime": {
+        "root": "phase2",
+        "sourcePin": "5616f8e3e886c500d0eeebf5edda924757620a2d",
+        "byteIdentityComparedWith": "f6a9076dd831d64db86a807bbb145f26aee68af6",
+        "rawDirectory": "reports/night-audit-20261024/other-inquiries-readonly/"
+      },
+      "scope": "Actual Clients(kindOTHER) empty/load-error/filter and ordinary row-open for ADMIN at1440/390; normal AGENT gate atbothwidths, no fabricated permission. Full shell/detail/server enforcement not mounted. No new defect.",
+      "result": "Eight usable observations: initial6PASS plus only2 corrected locator controlsPASS separately, not a single8-green run. Zero unexpected/external/browser errors; no API/PG/provider or client-detail acceptance."
+    },
+    {
+      "id": "manual-team-return-once",
+      "reports": [
+        "FINAL-TEAM-MANUAL-RETURN.md"
+      ],
+      "reportRoot": "final4",
+      "independentReview": {
+        "reportRoot": "final4",
+        "reports": [
+          "REVIEW-TEAM-MANUAL-RETURN.md"
+        ]
+      },
+      "layers": [
+        "real_http",
+        "isolated_postgresql",
+        "deterministic_interleaving",
+        "mock_external_transports"
+      ],
+      "roles": [
+        "DIRECTOR"
+      ],
+      "screens": [],
+      "routers": [
+        "agentsRouter"
+      ],
+      "runtime": {
+        "root": "final4",
+        "baseSourcePin": "f6a9076dd831d64db86a807bbb145f26aee68af6",
+        "sourceState": "released_uncommitted_at_index_update",
+        "sourceSha256": {
+          "apps/api/src/routes/agents.ts": "1054e252e11c77eb3a8c66070fa8146d8ba83d68bd36a0eaed60fc526cd93852",
+          "apps/api/tests/agent-manual-return-race.test.ts": "9348f09e57193aa609e9e5260b5c91952ca4c8c35585c6cbc5cd0f16308a6550"
+        }
+      },
+      "scope": "TA02/TMR01 manual unfreeze atomically compares the captured frozenAt; only the successful transition shifts inactive clocks. Concurrent or stale requests conflict before success audit/queue. Existing formula/account/permission policy retained; ordinary real code-auth only as fixture prerequisite.",
+      "result": "Discovery actual two preselects returned200/200 and consumed six prior inactive days; single+sequential409 controlpassed. See final report for exact durable RED/GREEN/counts/cleanup. No internal elevation grant, live SMS/provider, browser or cron coverage."
     }
   ],
   "screens": [
@@ -840,8 +906,10 @@
       "path": "/other-inquiries",
       "title": "Прочие обращения",
       "file": "apps/web/src/pages/Clients.tsx",
-      "state": "pending_no_named_runtime_evidence_in_this_index",
-      "evidenceIds": [],
+      "state": "named_partial_or_smoke_only",
+      "evidenceIds": [
+        "other-inquiries-ordinary"
+      ],
       "pending": "Every other workflow/role/viewport/state; full route acceptance is not implied by a related mounted component."
     },
     {
@@ -1201,7 +1269,8 @@
       "file": "apps/api/src/routes/agents.ts",
       "state": "named_endpoint_scenarios_partial",
       "evidenceIds": [
-        "api-roles-files-streams"
+        "api-roles-files-streams",
+        "manual-team-return-once"
       ],
       "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
     },
@@ -2977,7 +3046,7 @@
       }
     ]
   },
-  "updatedAt": "2026-10-24T01:48:27.553Z",
+  "updatedAt": "2026-10-24T02:13:14.510Z",
   "mapSnapshot": {
     "sourcePin": "4897ef97b3a935d69dff8e1610dbe77f79375430",
     "meaning": "Frozen generated-map snapshot only. It is not the application source pin for later evidence; per-group runtime/source SHA pins take precedence. TA01 FINAL2 was released but uncommitted when indexed."
@@ -2992,5 +3061,35 @@
       "product-flows.json": "d152c91780694469cafd3daceb4bd43ecd153624f5e0f20a87d253d0b5b4953c"
     },
     "meaning": "Generated after bounded SRC01 and TU01-notifications variant. Older current/inputSha256/sourcePin/mapSnapshot fields remain the exact historical 4897 map snapshot; no exhaustive coverage inferred."
+  },
+  "currentFinalGeneratedMapSnapshot": {
+    "root": "final4",
+    "baseSourcePin": "f6a9076dd831d64db86a807bbb145f26aee68af6",
+    "sourceState": "released_uncommitted_at_index_update",
+    "inputSha256": {
+      "product-map.json": "5b56f47afac33f8784b5b3ef199be026001b600d8aef5e81f22f9838dd92d041",
+      "product-map-simple.json": "ff86e469025933471ce906c4688f30ae6e98b6b1693710536a1c4a808e95738c",
+      "product-flows.json": "102d81ee0d5b96e2dea8198ee5f73ed2660594ddd0b40814362a565040e884aa"
+    },
+    "flowTotals": {
+      "endpoints": 666,
+      "forks": 3660,
+      "mounts": 75,
+      "cron": 108,
+      "jobs": 31,
+      "hidden": 0
+    },
+    "humanTotals": {
+      "screens": 52,
+      "paths": 666,
+      "cron": 108,
+      "jobs": 31,
+      "conditions": 3660,
+      "untranslatedUnique": 397,
+      "untranslatedTotal": 506,
+      "partialUnique": 1030,
+      "translatedShare": 86
+    },
+    "meaning": "Generated after TA02 guard; original4897 and later FINAL3 map snapshots remain separate historical fields. Branch counts/translated text are not behavioral coverage."
   }
 }

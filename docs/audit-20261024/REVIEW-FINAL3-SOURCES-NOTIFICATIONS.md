@@ -42,3 +42,14 @@ The executed Notifications spec hash is `545cff770a3832998fa55cfd49c279fc63c5957
 Only reports.ts and Notifications.tsx are changed application paths in this patch. No schema/shared/handler/global-query-client/provider/release/dependency delta or foreign cleanup was found. Source counting and synthetic browser evidence remain distinct; neither proves actual Telegram delivery, real notification persistence, all roles/levels/pagination, complete shell behavior or production activation.
 
 Parent-reported full acceptance of sourceB is a separate source/version. These new FINAL3 API bytes still require their own final frozen commit and complete checks. This approval is not a full-run, merge, ship/deploy or absence-of-all-bugs verdict.
+
+## Documentation consistency addendum: committed f6a9076
+
+Read-only cross-check of committed `f6a9076dd831d64db86a807bbb145f26aee68af6`: AUDIT-MAP-RECONCILIATION, audit-evidence-index, BUG-REGISTER and README against actual generated maps. No runtime test/build or frozen-FINAL3 edit was performed.
+
+- Confirmed23 evidence groups and29 registered families (28 application/1 stand); NFY01 remains a TU01 variant. The index marks15 of52 screens partial/smoke-only and37 pending; Sources remains screen-pending with HTTP/PG evidence only. These are not percentages of completed coverage or guarantees of bug-free modules.
+- Actual human/flow counts52screens/666paths/108schedules/31jobs/3658branch nodes match the stated inventory. Screen, raw-route, module, schedule/job and external identities match the corresponding index/map sets. All referenced group reports and local Markdown links in the four reviewed documents resolve; no invalid evidence-group IDs were found.
+- All three historical4897 input hashes match the exact historical Git blobs. The separate laterGeneratedMapSnapshot hashes match the newly generated FINAL3 files. The changed translation-text counts are kept separate from behavioral coverage; old snapshot metadata is intentionally historical.
+- One minor actionable stale statement remains in BUG-REGISTER's limitations: its unqualified instruction to reconcile the “current full run” with1489 files. Latest acceptedB already has1490; the coordinator confirms currentC discovery1491. The coordinator accepted replacing that historical fixed number at the later documentation-only morning checkpoint. FrozenC must remain unchanged during its dispatched full run, and validated application commitf6a9076 must be distinguished from the subsequent documentation SHA.
+
+No other link/count/attribution or overclaim finding was identified in this bounded check. The parent reports C precheck0 and a sole full dispatch; no terminal C verdict is inferred from dispatch or inherited from B's1490files/14081PASS/3TODO receipt.
