@@ -809,22 +809,21 @@ export function PropertyFormModal({
               Владелец 19.08.2026: агент должен решить это ДО того, как заполнит то,
               что потом окажется ненужным, а не после. */}
           {!isEdit && (
-            <div className="wide flex items-start gap-2.5 border border-line-soft rounded-lg p-3 bg-hover-tint">
-              <input
-                id="offSite"
-                type="checkbox"
-                checked={form.offSite}
-                onChange={(e) => set("offSite", e.target.checked)}
-                className="w-4 h-4 mt-0.5 rounded-sm border-line text-blue focus:ring-blue shrink-0"
-              />
-              <label htmlFor="offSite" className="text-[15px]">
-                <span className="font-medium text-gray-700">Только для показа своим клиентам (не публиковать на сайте)</span>
-                <span className="block text-[13px] text-gray-500 mt-0.5">
-                  Объект нашли сами (сосед, знакомый): сразу «В продаже», без проверки фото/видео и
-                  без конвейера Маркетинга. На сайт не попадёт никогда, карта и ссылка на Instagram
-                  не нужны; клиенту можно будет отправить только персональную ссылку.
-                </span>
+            <div className="fld wide">
+              <label className="chk" htmlFor="offSite">
+                <input
+                  id="offSite"
+                  type="checkbox"
+                  checked={form.offSite}
+                  onChange={(e) => set("offSite", e.target.checked)}
+                />
+                Только для показа своим клиентам (не публиковать на сайте)
               </label>
+              <span className="msg">
+                Объект нашли сами (сосед, знакомый): сразу «В продаже», без проверки фото/видео и
+                без конвейера Маркетинга. На сайт не попадёт никогда, карта и ссылка на Instagram
+                не нужны; клиенту можно будет отправить только персональную ссылку.
+              </span>
             </div>
           )}
 
@@ -834,24 +833,26 @@ export function PropertyFormModal({
               на шаге «Фото и контакты»). Продавца ещё нет в CRM (только sellerName) —
               читать нечего, кнопки нет. */}
           {!isEdit && form.sellerClientId && (
-            <div className="sm:col-span-2 flex items-start gap-2.5 border border-line-soft rounded-lg p-3 bg-hover-tint">
-              <Sparkles className="w-4 h-4 mt-0.5 text-blue shrink-0" />
-              <div className="flex-1 min-w-0">
-                <button
-                  type="button"
-                  onClick={handleFillFromSeller}
-                  disabled={propertyDraft.isPending}
-                  className="text-[15px] font-medium text-blue hover:underline disabled:opacity-60 disabled:no-underline inline-flex items-center gap-1.5"
-                >
-                  {propertyDraft.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                  Заполнить из переписки с продавцом
-                </button>
-                <p className="text-[13px] text-gray-500 mt-0.5">
-                  ИИ прочитает переписку и звонки с этим продавцом и подставит площадь, комнаты, этаж,
-                  состояние, цену и другие поля ниже — проверьте перед сохранением.
-                </p>
-                {aiDraftNotice && <p className="text-[13px] text-blue mt-1.5 font-medium">{aiDraftNotice}</p>}
-              </div>
+            <div className="fld wide">
+              <button
+                type="button"
+                onClick={handleFillFromSeller}
+                disabled={propertyDraft.isPending}
+                className="pill ghost"
+                style={{ alignSelf: "flex-start" }}
+              >
+                {propertyDraft.isPending ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />
+                ) : (
+                  <Sparkles className="w-3.5 h-3.5" aria-hidden="true" />
+                )}
+                Заполнить из переписки с продавцом
+              </button>
+              <span className="msg">
+                ИИ прочитает переписку и звонки с этим продавцом и подставит площадь, комнаты, этаж,
+                состояние, цену и другие поля ниже — проверьте перед сохранением.
+              </span>
+              {aiDraftNotice && <span className="msg pf-notice">{aiDraftNotice}</span>}
             </div>
           )}
 
@@ -859,7 +860,7 @@ export function PropertyFormModal({
             <div className="fld wide">
               <span className="lab">
                 Кто принял объект *:{" "}
-                <span className="text-gray-400 font-normal">
+                <span className="pf-lab-note">
                   {/* Размер доли — финансовая информация, менеджеру не показываем. */}
                   агент, принявший продавца{can("finance.view") ? "; получит 0.5% со сделки" : ""}
                 </span>
@@ -901,7 +902,7 @@ export function PropertyFormModal({
 
           <div className="fld">
             <span className="lab">Цена *</span>
-            <div className="flex gap-1.5">
+            <div className="pair">
               <input
                 type="number"
                 inputMode="numeric"
@@ -909,6 +910,7 @@ export function PropertyFormModal({
                 onChange={(e) => set("price", e.target.value)}
               />
               <select
+                className="unit"
                 value={form.currency}
                 onChange={(e) => set("currency", e.target.value as (typeof CURRENCIES)[number])}
               >
@@ -1073,12 +1075,12 @@ export function PropertyFormModal({
           {!form.offSite && (
             <div className="fld wide">
               <span className="lab">Точка на карте</span>
-              <div className="flex items-center justify-between gap-2">
+              <div className="pf-map-row">
                 <button
                   type="button"
                   onClick={() => setShowMap((v) => !v)}
                   disabled={!form.districtId}
-                  className="flex items-center gap-1.5 text-[15px] font-semibold text-blue border border-blue/10 bg-blue/6 rounded-lg px-2.5 py-1.5 hover:bg-blue/10 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="pill ghost"
                   title={!form.districtId ? "Сначала выберите район" : undefined}
                 >
                   <MapPin className="w-3.5 h-3.5" />
@@ -1091,19 +1093,19 @@ export function PropertyFormModal({
                       setCoords(null);
                       setShowMap(false);
                     }}
-                    className="text-[15px] font-medium text-gray-500 hover:text-ink"
+                    className="lnk"
                   >
                     Сбросить
                   </button>
                 )}
               </div>
               {showMap && (
-                <div className="mt-2">
+                <div style={{ marginTop: "var(--s2)" }}>
                   <LocationPicker value={coords} onChange={setCoords} districtName={selectedDistrictName} />
-                  <p className="text-[13px] text-gray-400 mt-1.5">
+                  <span className="msg">
                     Кликните по карте или перетащите метку на нужный дом. Без ручного выбора координаты
                     подберутся автоматически по адресу.
-                  </p>
+                  </span>
                 </div>
               )}
             </div>
@@ -1184,15 +1186,14 @@ export function PropertyFormModal({
             </div>
           ) : null}
 
-          <div className="wide flex items-center gap-2.5">
-            <input
-              id="urgent"
-              type="checkbox"
-              checked={form.urgent}
-              onChange={(e) => set("urgent", e.target.checked)}
-              className="w-4 h-4 rounded-sm border-line text-blue focus:ring-blue"
-            />
-            <label htmlFor="urgent" className="text-[15px] font-medium text-gray-700">
+          <div className="wide">
+            <label className="chk" htmlFor="urgent">
+              <input
+                id="urgent"
+                type="checkbox"
+                checked={form.urgent}
+                onChange={(e) => set("urgent", e.target.checked)}
+              />
               Срочное объявление
             </label>
           </div>
@@ -1201,10 +1202,10 @@ export function PropertyFormModal({
           {typeRules.details.length > 0 && (
           <div className="fld wide">
             <span className="lab">Характеристики</span>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 border border-line-soft rounded-lg p-3">
+            <div className="fgrid">
               {PROPERTY_DETAIL_KEYS.filter((key) => propertyDetailShown(form.type, key)).map((key) => (
-                <div key={key}>
-                  <label className="block text-[13px] text-gray-500 mb-1">{PROPERTY_DETAIL_LABELS[key]}</label>
+                <div key={key} className="fld">
+                  <span className="lab">{PROPERTY_DETAIL_LABELS[key]}</span>
                   <select
                     value={form.details[key]}
                     onChange={(e) => setDetail(key, e.target.value)}
@@ -1300,7 +1301,7 @@ export function PropertyFormModal({
                   {isEdit ? "Контакт владельца" : "Телефон продавца *"}
                 </span>
                 {isEdit && property?.ownerContactHidden ? (
-                  <p className="text-[15px] text-gray-500">Номер скрыт. Поменять его может тот, кому он виден.</p>
+                  <span className="msg" style={{ marginTop: 0 }}>Номер скрыт. Поменять его может тот, кому он виден.</span>
                 ) : (
                   <PhoneInput
                     value={form.ownerContact}
@@ -1310,10 +1311,12 @@ export function PropertyFormModal({
                 )}
               </div>
               {!isEdit && (
-                <p className="wide -mt-1 text-[13px] text-gray-500">
-                  CRM сама заведёт карточку продавца по имени и номеру и свяжет с объектом. Если такой
-                  номер уже есть в базе, привяжет существующую карточку, дубля не будет.
-                </p>
+                <div className="fld wide">
+                  <span className="msg" style={{ marginTop: 0 }}>
+                    CRM сама заведёт карточку продавца по имени и номеру и свяжет с объектом. Если такой
+                    номер уже есть в базе, привяжет существующую карточку, дубля не будет.
+                  </span>
+                </div>
               )}
             </>
           )}
@@ -1335,16 +1338,16 @@ export function PropertyFormModal({
                   а предупреждение В МОМЕНТ ВВОДА: раньше агент узнавал о «не той»
                   ссылке из утренней сводки ошибок у директора. */}
               {form.instagramUrl.trim() !== "" && !isInstagramLink(form.instagramUrl) && (
-                <p className="mt-1 text-[13px] text-amber">
+                <span className="msg pf-warn">
                   Это не ссылка на Instagram, узнавание пересланных рилсов и KPI «Видео» её не засчитают.
-                </p>
+                </span>
               )}
             </div>
           )}
 
           <div className="fld">
             <span className="lab">
-              Документы <span className="text-gray-400 font-normal">(только для сотрудников)</span>
+              Документы <span className="pf-lab-note">(только для сотрудников)</span>
             </span>
             <select
               value={form.documentsPreset}
@@ -1376,12 +1379,12 @@ export function PropertyFormModal({
             />
           </div>
 
-          <div className="wide border-t border-line-soft pt-3.5">
-            <p className="text-[15px] text-gray-400">
+          <div className="fld wide pf-auto-note">
+            <span className="msg" style={{ marginTop: 0 }}>
               {form.offSite
                 ? "Описание объекта формируется автоматически по параметрам выше, отдельно вводить не нужно. SEO-текст для сайта не нужен: объект на сайт не идёт."
                 : "Описание объекта и SEO-текст для сайта формируются автоматически по параметрам выше, отдельно вводить не нужно."}
-            </p>
+            </span>
           </div>
 
         </div>
