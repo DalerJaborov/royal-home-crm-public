@@ -332,6 +332,17 @@ export function Calendar() {
   /** Тихая строка отказа мутации — эталонный .quiet.crit вместо цветной плашки. */
   const mutationNote = (
     <>
+      {complete.isError && (
+        <div className="quiet crit" role="alert">
+          <span className="dot crit" />
+          <span className="txt">
+            {complete.error instanceof Error ? complete.error.message : "Не удалось отметить задачу выполненной"}
+          </span>
+          <button className="lnk" type="button" onClick={() => complete.reset()}>
+            Понятно
+          </button>
+        </div>
+      )}
       {cancelShowing.isError && (
         <div className="quiet crit" role="alert">
           <span className="dot crit" />
