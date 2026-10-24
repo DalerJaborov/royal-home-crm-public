@@ -13,6 +13,12 @@
   background:var(--overlay);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
 .rh2 .scr .dp{display:flex;flex-direction:column;width:100%;background:var(--page);color:var(--ink);outline:0;
   padding-bottom:calc(26px + env(safe-area-inset-bottom));max-height:100dvh;overflow-y:auto;overscroll-behavior:contain}
+/* Нижний отступ листа. Общее правило шторок телефона
+   `html[data-mobile-ux] [role="dialog"]:not([data-no-sheet]){padding-bottom:env(safe-area-inset-bottom)}`
+   (index.css, вес 0-3-1) бьёт `.rh2 .scr .dp` (0-3-0): отступ становился 0, и зелёная трубка
+   вплотную к нижнему краю (замер переписи 24.10: низ кнопки = высота экрана). Правило
+   ниже тяжелее: не меньше 16px и не меньше нижней безопасной зоны, обычно 26px. */
+.rh2 .scr .dp-back .dp{padding-bottom:max(26px,calc(16px + env(safe-area-inset-bottom,0px)))}
 @media (min-width:640px){
   .rh2 .scr .dp-back{align-items:center;padding:var(--s4)}
   .rh2 .scr .dp{max-width:390px;border-radius:28px;border:1px solid var(--line);box-shadow:var(--shadow-pop)}

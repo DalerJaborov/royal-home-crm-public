@@ -1037,6 +1037,8 @@ function ClientRow({
   ) : (
     <Row
       className={canAcceptRow ? "rh-row-wrap" : undefined}
+      // Одна трубка (не корзина, не «Принять/Отклонить», не скрытый номер): остаётся справа в первой строке.
+      compactAction={!isTrashed && !canAcceptRow && !pending}
       avatar={{
         label: name.slice(0, 1),
         node: <ClientAvatar fullName={c.fullName} avatarUrl={c.avatarUrl} size={44} palette="tokens" />,
