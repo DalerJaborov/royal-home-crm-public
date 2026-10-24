@@ -5,6 +5,7 @@ import { prisma } from "../db.js";
 import { CRM_PUBLISHED_POST_KEYS, crmMediaKeys } from "./ads/crmMediaRegistryKeys.js";
 import { customerPropertyScopeKey } from "./customerPropertyScope.js";
 import { customerPropertyUrl } from "./customerPropertyUrls.js";
+import { expandCustomerShareLink } from "./customerShareLinkExpansion.js";
 import { resolvePropertyFromPageUrl } from "./resolvePropertyFromPageUrl.js";
 import type { CustomerPropertyRegistry } from "./customerPropertyResolver.js";
 import { botMayOffer, botPublicVisibility, BOT_OFFER_SELECT } from "./propertyMatch.js";
@@ -58,6 +59,7 @@ export const customerPropertyRegistry: CustomerPropertyRegistry = {
     return ad ? { ids: [...new Set([ad.propertyId, ...ad.properties.map((item) => item.propertyId)].filter((item): item is string => !!item))] } : null;
   },
   media: mediaCandidates,
+  expandShare: (share) => expandCustomerShareLink(share),
   async url(url) {
     if (url.kind === "site") {
       // The pure origin/format gate above precedes this existing read-only helper.

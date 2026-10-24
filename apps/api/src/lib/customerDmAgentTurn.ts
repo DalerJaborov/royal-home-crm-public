@@ -226,7 +226,7 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
           const facts = await dispatchCustomerTool(mutations.principal, call, { enabled: true });
           if (facts.status === "observed") return { status: "observed", observation: { kind: "facts", facts: facts.facts, kinds: facts.kinds } };
           if (facts.status === "missing" || facts.status === "ambiguous") {
-            const reason = customerPropertyUnresolvedReason(focus?.snapshot.focus.evidence, facts.status);
+            const reason = customerPropertyUnresolvedReason(focus?.snapshot.focus.evidence, facts.status, focus?.snapshot.focus.lookupAttempts);
             return { status: "observed", observation: { kind: "property_unresolved", status: facts.status, ...(reason ? { reason } : {}) } };
           }
           return { status: facts.status === "unavailable" ? "unavailable" : "denied", reason: "property_read_unavailable" };

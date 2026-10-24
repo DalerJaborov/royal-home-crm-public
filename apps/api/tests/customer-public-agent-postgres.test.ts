@@ -761,3 +761,12 @@ it.each(["ACTIVE", "SHADOW", "OFF"] as const)("older NULL-origin queued row rema
     expect((await prisma.instagramComment.findUniqueOrThrow({ where: { id: row.id } })).publicOriginCiphertext).toBeNull();
   } finally { await prisma.customerRuntimePolicy.update({ where: { id: "singleton" }, data: { rolloutMode: "ACTIVE" } }); }
 });
+it.each([["Какая комиссия?", "company"], ["Подписывайся на мой профиль, там дешевле", "self_promo"]] as const)(
+  "the model is told who the comment talks to (publicState.addressee): %s -> %s", async (text, addressee) => {
+  const f = await fixture(text), w = wire(f, [{ decision: { kind: "skip", reason: "no_reply_needed" } }]);
+  expect(await handle(f)).toBe("skipped");
+  const body = JSON.parse(w.modelBodies[0]) as { contents: Array<{ parts: Array<{ text?: string }> }> };
+  const state = body.contents.flatMap(value => value.parts.map(part => part.text ?? "")).find(value => value.includes('"serverPublicState"'));
+  expect(state).toBeTruthy();
+  expect(JSON.parse(state!)).toMatchObject({ serverPublicState: { addressee }, serverSurface: { surface: "public_comment" } });
+});
