@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import type { ClientKind, ClientStatus, Currency, DealStage, InteractionOutcome, InteractionType, PropertyStatus, Role } from "@royal-home/shared";
 import { api } from "../lib/api";
+import { usableRouteId } from "../lib/routeId";
 
 /** Ответ GET /agents/:id/overview — карточка сотрудника для руководства (см. team.ts). */
 export interface AgentOverview {
@@ -141,7 +142,7 @@ export function useAgentOverview(agentId: string | undefined) {
   return useQuery({
     queryKey: ["agent-overview", agentId],
     queryFn: () => api<AgentOverview>(`/agents/${agentId}/overview`),
-    enabled: !!agentId,
+    enabled: !!usableRouteId(agentId),
   });
 }
 
@@ -215,7 +216,7 @@ export function useAgentLive(agentId: string | undefined) {
   return useQuery({
     queryKey: ["agent-live", agentId],
     queryFn: () => api<AgentLive>(`/agents/${agentId}/live`),
-    enabled: !!agentId,
+    enabled: !!usableRouteId(agentId),
     // Сотрудник может начать звонок или получить сообщение, пока карточка
     // открыта — блок «Сейчас» обновляется сам, без ручного обновления страницы.
     refetchInterval: 30_000,

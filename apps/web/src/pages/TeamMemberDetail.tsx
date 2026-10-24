@@ -16,6 +16,7 @@ import {
 import { useTeam, type TeamMember } from "../hooks/useTeam";
 import { useMobileUx } from "../hooks/useMobileUx";
 import { useCan } from "../lib/permissions";
+import { usableRouteId } from "../lib/routeId";
 import { ApiError } from "../lib/apiError";
 import { INTERACTION_TYPE_LABELS } from "../lib/clientFormat";
 import { ROLE_LABELS } from "../lib/roles";
@@ -182,7 +183,12 @@ function backState(id: string, fullName: string) {
   return { from: `/team/${id}`, fromLabel: fullName };
 }
 
-function overviewErrorText(err: unknown): string {
+/** Карточку не запрашиваем: нет права team.viewFull или в пути нет настоящего id. */
+type CardBlock = "denied" | "missing" | null;
+
+function overviewErrorText(err: unknown, blocked: CardBlock = null): string {
+  if (blocked === "denied") return "Нет доступа к карточке этого сотрудника";
+  if (blocked === "missing") return "Сотрудник не найден";
   if (err instanceof ApiError) {
     if (err.status === 403) return "Нет доступа к карточке этого сотрудника";
     if (err.status === 404) return "Сотрудник не найден";
@@ -191,17 +197,22 @@ function overviewErrorText(err: unknown): string {
 }
 
 export function TeamMemberDetail() {
-  const { id } = useParams<{ id: string }>();
+  const { id: rawId } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const mobile = useMobileUx();
+  const can = useCan();
+  // Все три ручки карточки (/overview, /live, /team) закрыты правом
+  // team.viewFull: без него запрос заведомо даёт 403, поэтому не шлём его вовсе.
+  const canViewCard = can("team.viewFull");
+  const id = canViewCard ? usableRouteId(rawId) : undefined;
+  const blocked: CardBlock = !canViewCard ? "denied" : id ? null : "missing";
   const overview = useAgentOverview(id);
   const live = useAgentLive(id);
-  const can = useCan();
   const canManageAgents = can("agents.manage");
   // /team уже загружен «Командой» перед переходом сюда — тот же react-query
   // кеш, повторного запроса по сети не будет. Freeze/Handover просят полный
   // TeamMember (frozen, absenceKind…), которого нет ни в /overview, ни в /live.
-  const { data: team } = useTeam(true);
+  const { data: team } = useTeam(!!id);
   const member = useMemo(() => team?.find((m) => m.id === id), [team, id]);
   const callAgent = useCallAgent(id ?? "");
   const [showFreeze, setShowFreeze] = useState(false);
@@ -245,6 +256,7 @@ export function TeamMemberDetail() {
 
   const shared: SharedProps = {
     id: id ?? "",
+    blocked,
     navigate,
     overview,
     live,
@@ -279,6 +291,8 @@ export function TeamMemberDetail() {
 
 interface SharedProps {
   id: string;
+  /** Нет права team.viewFull или нет настоящего id — запросов не шлём, показываем причину. */
+  blocked: CardBlock;
   navigate: ReturnType<typeof useNavigate>;
   overview: ReturnType<typeof useAgentOverview>;
   live: ReturnType<typeof useAgentLive>;
@@ -314,7 +328,7 @@ interface SharedProps {
 
 function TeamMemberDetailDesktop(props: SharedProps) {
   const {
-    id, navigate, overview, live, data, liveData, canManageAgents, member, callAgent,
+    id, blocked, navigate, overview, live, data, liveData, canManageAgents, member, callAgent,
     showFreeze, setShowFreeze, showLeadPause, setShowLeadPause, showHandover, setShowHandover, problemsTotal, callInfo,
     pendingHandover, showRevertConfirm, setShowRevertConfirm, revertHandover, revertResult, setRevertResult,
     revertError, setRevertError,
@@ -329,15 +343,17 @@ function TeamMemberDetailDesktop(props: SharedProps) {
             <p className="state">Загружаем карточку…</p>
           </div>
         )}
-        {overview.isError && (
+        {(overview.isError || blocked) && (
           <div className="card">
             <p className="state err">
               <span className="dot crit" />
-              {overviewErrorText(overview.error)}
+              {overviewErrorText(overview.error, blocked)}
             </p>
-            <button className="lnk" type="button" onClick={() => overview.refetch()}>
+            {!blocked && (
+              <button className="lnk" type="button" onClick={() => overview.refetch()}>
               Повторить
             </button>
+            )}
           </div>
         )}
 
@@ -970,7 +986,7 @@ function TeamMemberDetailDesktop(props: SharedProps) {
 
 function TeamMemberDetailMobile(props: SharedProps) {
   const {
-    id, navigate, overview, live, data, liveData, canManageAgents, member, callAgent,
+    id, blocked, navigate, overview, live, data, liveData, canManageAgents, member, callAgent,
     showFreeze, setShowFreeze, showLeadPause, setShowLeadPause, showHandover, setShowHandover, problemsTotal, callInfo,
     pendingHandover, showRevertConfirm, setShowRevertConfirm, revertHandover, revertResult, setRevertResult,
     revertError, setRevertError,
@@ -1000,17 +1016,19 @@ function TeamMemberDetailMobile(props: SharedProps) {
               </div>
             </div>
           )}
-          {overview.isError && (
+          {(overview.isError || blocked) && (
             <div className="card-s" style={{ padding: 16 }}>
               <div className="quiet">
                 <div className="ln">
                   <i className="c" aria-hidden="true" />
-                  <span>{overviewErrorText(overview.error)}</span>
+                  <span>{overviewErrorText(overview.error, blocked)}</span>
                 </div>
               </div>
-              <button className="lnk" type="button" onClick={() => overview.refetch()}>
+              {!blocked && (
+                <button className="lnk" type="button" onClick={() => overview.refetch()}>
                 Повторить
               </button>
+              )}
             </div>
           )}
 

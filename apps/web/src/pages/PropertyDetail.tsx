@@ -12,6 +12,7 @@ import { useCan, useIsReadOnly } from "../lib/permissions";
 import { floorsMismatch } from "../lib/descriptionFloors";
 import { propertyParams } from "../lib/propertyParams";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
+import { usableRouteId } from "../lib/routeId";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { ApiError } from "../lib/apiError";
 import { MutationError } from "../components/MutationError";
@@ -126,7 +127,7 @@ function leadsProperty(
 }
 
 export function PropertyDetail() {
-  const { id } = useParams();
+  const id = usableRouteId(useParams().id);
   const location = useLocation();
   // Хук прав — вместе с остальными хуками, ДО ранних возвратов: ниже по коду
   // есть выходы «Загрузка…» и «Объект не найден», и вызов после них ломал порядок

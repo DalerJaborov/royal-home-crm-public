@@ -60,7 +60,7 @@ export function SearchableSelect({
   }, [open]);
 
   return (
-    <div className="relative" ref={boxRef}>
+    <div className="rh-select" ref={boxRef}>
       <button
         type="button"
         ref={buttonRef}
@@ -71,13 +71,13 @@ export function SearchableSelect({
         aria-expanded={open}
         aria-controls={open ? listboxId : undefined}
         aria-required={required || undefined}
-        className={`w-full flex items-center justify-between gap-2 border rounded-lg px-3 py-2 text-[15px] outline-hidden text-left transition-colors cursor-pointer bg-card hover:border-blue/50 focus:border-blue disabled:opacity-50 disabled:cursor-not-allowed ${
-          open ? "border-blue ring-2 ring-blue/15" : "border-line"
-        }`}
+        className="rh-select-trigger"
+        data-open={open || undefined}
       >
-        <span className={selected ? "text-ink font-medium" : "text-gray-500"}>{selected?.label ?? placeholder}</span>
+        <span className={selected ? "rh-select-val" : "rh-select-ph"}>{selected?.label ?? placeholder}</span>
         <ChevronDown
-          className={`w-4 h-4 shrink-0 transition-transform ${open ? "rotate-180 text-blue" : "text-gray-500"}`}
+          className="rh-select-chev"
+          aria-hidden="true"
           strokeWidth={2.2}
         />
       </button>
@@ -85,26 +85,26 @@ export function SearchableSelect({
       {required && <input tabIndex={-1} value={value} required onChange={() => {}} className="sr-only" />}
 
       {open && (
-        // bg-card-solid, а НЕ bg-card: обычный --c-card полупрозрачен (матовое стекло,
-        // index.css) — список вариантов просвечивал сквозь содержимое под полем.
-        <div className="absolute z-20 mt-1 w-full bg-card-solid border border-line rounded-lg shadow-lg overflow-hidden">
+        // Вид — список-подсказка темы (`.rh-select-pop`, theme-2026-brand.css): сплошная
+        // карточка с рамкой, а не полупрозрачное стекло.
+        <div className="rh-select-pop">
           <input
             autoFocus
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Поиск..."
             aria-label="Поиск по списку"
-            className="w-full border-b border-line-soft px-3 py-2 text-[15px] outline-hidden"
+            className="rh-select-search"
           />
           {/* «Ничего не найдено» — СНАРУЖИ списка, и роль списка снимается,
               пока вариантов нет: внутри `role="listbox"` разрешены только
               `option`, и абзац рядом с ними роняет axe `aria-required-children`
               (тот же класс, что на пульте — a11y, 10.09.2026). */}
           {filtered.length === 0 && (
-            <div className="px-3 py-2 text-[15px] text-gray-400">Ничего не найдено</div>
+            <div className="rh-select-empty">Ничего не найдено</div>
           )}
           <div
-            className="max-h-52 overflow-y-auto"
+            className="rh-select-list"
             role={filtered.length > 0 ? "listbox" : undefined}
             id={listboxId}
           >
@@ -119,10 +119,10 @@ export function SearchableSelect({
                   setOpen(false);
                   setQuery("");
                 }}
-                className="w-full flex items-center justify-between gap-2 px-3 py-2 text-[15px] text-left hover:bg-hover-tint"
+                className="rh-select-opt"
               >
                 {o.label}
-                {o.value === value && <Check className="w-3.5 h-3.5 text-blue shrink-0" />}
+                {o.value === value && <Check className="rh-select-check" aria-hidden="true" />}
               </button>
             ))}
           </div>
