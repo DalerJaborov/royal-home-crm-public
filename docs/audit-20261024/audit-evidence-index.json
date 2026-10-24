@@ -6,7 +6,8 @@
     "main": "D:/PublicWorktrees-20261021/night-audit-20261024/",
     "final": "D:/PublicWorktrees-20261021/night-audit-20261024-final/",
     "phase2": "D:/PublicWorktrees-20261021/night-audit-20261024-phase2/",
-    "final2": "D:/PublicWorktrees-20261021/night-audit-20261024-final2/"
+    "final2": "D:/PublicWorktrees-20261021/night-audit-20261024-final2/",
+    "final3": "D:/PublicWorktrees-20261021/night-audit-20261024-final3/"
   },
   "interpretation": "Cross-reference only, no full module GREEN, no coverage percentage, no global property inferred from passing suites. Missing named evidence means pending in this index, not proof nobody ever tested it. Original inventory.json remains unchanged.",
   "baseline": {
@@ -523,6 +524,64 @@
         "absence-return"
       ],
       "result": "Baseline1 realRED+5controls; final scoped6PASS/native0, explicit TS0/mockguard0. Initial5file52PASS adjacency imported cron for mocked registration/named helper; no credit for wall-clock firing or real sends. isActive remainsfalse; no reactivation claim."
+    },
+    {
+      "id": "notifications-manual-error",
+      "reports": [
+        "FINAL-NOTIFICATIONS-ERROR.md"
+      ],
+      "reportRoot": "final3",
+      "layers": [
+        "actual_component_hooks_queryClient_Toasts",
+        "chrome",
+        "intercepted_transport"
+      ],
+      "roles": [
+        "AGENT"
+      ],
+      "scope": "Explicit manual read-all rejection becomes a local standard error in both layouts; acknowledgment retains unread state and subsequent intentional retry succeeds. TU01 variant, not another defect family.",
+      "screens": [
+        "/notifications"
+      ],
+      "routers": [],
+      "runtime": {
+        "root": "final3",
+        "baseSourcePin": "8a2d69d0475148611f02cf1751a97585932df482",
+        "sourceState": "released_uncommitted_at_index_update",
+        "sourceSha256": {
+          "apps/web/src/pages/Notifications.tsx": "dffc06c5f8830d4735838e153accce7cb831a9a2cb5c46f269535ff3f6ee437e"
+        }
+      },
+      "result": "See linked report for exact baseline and final browser accounting. No API/PG/provider/physical-device inference."
+    },
+    {
+      "id": "sources-telegram-direct",
+      "reports": [
+        "FINAL-SOURCES-TELEGRAM-DIRECT.md"
+      ],
+      "reportRoot": "final3",
+      "layers": [
+        "real_http",
+        "isolated_postgresql"
+      ],
+      "roles": [
+        "DIRECTOR"
+      ],
+      "scope": "SRC01 includes existing separate Telegram Direct conversations under TELEGRAM using the same createdAt period and existing conversation-based counting; client totals, closed counts and other channels retained. No new human deduplication policy.",
+      "screens": [],
+      "routers": [
+        "reportsRouter"
+      ],
+      "runtime": {
+        "root": "final3",
+        "baseSourcePin": "8a2d69d0475148611f02cf1751a97585932df482",
+        "sourceState": "released_uncommitted_at_index_update",
+        "sourceSha256": {
+          "apps/api/src/routes/reports.ts": "3f88461a1cd62ef215637fdb26310b892eb252758d0e669db49af7ed5ce12412",
+          "apps/api/tests/reports-sources-telegram-direct.test.ts": "4eaa2752e150bdcde4f34baa84d0a8311c18eb6fa218e5d7b0cf66e603101ab1"
+        }
+      },
+      "result": "See linked report for exact normative RED and final real HTTP/PG accounting. No Sources screen or provider-handler execution inferred."
     }
   ],
   "screens": [
@@ -771,8 +830,10 @@
       "path": "/notifications",
       "title": "Уведомления",
       "file": "apps/web/src/pages/Notifications.tsx",
-      "state": "pending_no_named_runtime_evidence_in_this_index",
-      "evidenceIds": [],
+      "state": "named_partial_or_smoke_only",
+      "evidenceIds": [
+        "notifications-manual-error"
+      ],
       "pending": "Every other workflow/role/viewport/state; full route acceptance is not implied by a related mounted component."
     },
     {
@@ -1319,7 +1380,8 @@
       "file": "apps/api/src/routes/reports.ts",
       "state": "named_endpoint_scenarios_partial",
       "evidenceIds": [
-        "report-periods"
+        "report-periods",
+        "sources-telegram-direct"
       ],
       "pending": "All other handlers, fields, roles, concurrency schedules and integration outcomes."
     },
@@ -2915,9 +2977,20 @@
       }
     ]
   },
-  "updatedAt": "2026-10-24T01:25:22.980Z",
+  "updatedAt": "2026-10-24T01:48:27.553Z",
   "mapSnapshot": {
     "sourcePin": "4897ef97b3a935d69dff8e1610dbe77f79375430",
     "meaning": "Frozen generated-map snapshot only. It is not the application source pin for later evidence; per-group runtime/source SHA pins take precedence. TA01 FINAL2 was released but uncommitted when indexed."
+  },
+  "laterGeneratedMapSnapshot": {
+    "root": "final3",
+    "baseSourcePin": "8a2d69d0475148611f02cf1751a97585932df482",
+    "sourceState": "released_uncommitted_at_index_update",
+    "inputSha256": {
+      "product-map.json": "5b56f47afac33f8784b5b3ef199be026001b600d8aef5e81f22f9838dd92d041",
+      "product-map-simple.json": "4a9758a0581b02fb44226d62a2cadc8e6e9730d554622066efe46996f3815e2b",
+      "product-flows.json": "d152c91780694469cafd3daceb4bd43ecd153624f5e0f20a87d253d0b5b4953c"
+    },
+    "meaning": "Generated after bounded SRC01 and TU01-notifications variant. Older current/inputSha256/sourcePin/mapSnapshot fields remain the exact historical 4897 map snapshot; no exhaustive coverage inferred."
   }
 }

@@ -456,6 +456,7 @@ export function Notifications() {
             </button>
           </div>
           <div className="body">
+            <MutationError mutation={markAllRead} variant="rh2" fallback="Не удалось отметить уведомления прочитанными" />
             {isLoading && <MhQuiet>Загружаем ленту…</MhQuiet>}
 
             {isError && (
@@ -516,6 +517,8 @@ export function Notifications() {
             </button>
           </div>
         </div>
+
+        <MutationError mutation={markAllRead} variant="rh2" fallback="Не удалось отметить уведомления прочитанными" />
 
         {/* Три РАЗНЫХ состояния, а не одно: раньше и загрузка, и отказ сервера
             писали «Новых уведомлений нет» — человек закрывал экран уверенный,

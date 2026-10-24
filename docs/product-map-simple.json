@@ -17,8 +17,8 @@
   "cron": 108,
   "jobs": 31,
   "conditions": 3658,
-  "untranslatedUnique": 396,
-  "untranslatedTotal": 505,
+  "untranslatedUnique": 397,
+  "untranslatedTotal": 506,
   "partialUnique": 1029,
   "translatedShare": 86
  },
@@ -393,6 +393,7 @@
   "stageState(p.status, p.stageEnteredAt, deadlines).overdue",
   "stillTalking(c, shootingDate)",
   "stopping || customerBusy[lane]",
+  "telegramConversations + telegramDirectConversations > 0",
   "ticket?.agentRevisionId === row.agentRevisionId && ticket.providerOperationId && ticket.originalConversationI…",
   "tiktokRefreshToken && !skip.has(\"TIKTOK\") && params.localVideoPath.startsWith(\"/uploads/\")",
   "toAgentId === from.id",
@@ -50265,10 +50266,11 @@
      "c": []
     },
     {
-     "t": "если Telegram переписки больше 0",
+     "t": "если telegramConversations + telegramDirectConversations > 0",
      "k": "if",
      "a": [],
-     "c": []
+     "c": [],
+     "raw": "telegramConversations + telegramDirectConversations > 0"
     },
     {
      "t": "если закрыт сделки количество не меньше reports строка предел",

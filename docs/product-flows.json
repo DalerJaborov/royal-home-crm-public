@@ -62838,10 +62838,11 @@
     },
     {
      "k": "do",
-     "t": "const [botConversations, telegramConversations] = await Promise.all([ prisma.botConversation.groupBy({ by: [\"…",
+     "t": "const [botConversations, telegramConversations, telegramDirectConversations] = await Promise.all([ prisma.bot…",
      "a": [
       "считает в базе: botConversation",
-      "считает в базе: telegramConversation"
+      "считает в базе: telegramConversation",
+      "считает в базе: telegramDirectConversation"
      ],
      "c": []
     },
@@ -62862,12 +62863,12 @@
     },
     {
      "k": "if",
-     "t": "telegramConversations > 0",
+     "t": "telegramConversations + telegramDirectConversations > 0",
      "a": [],
      "c": [
       {
        "k": "do",
-       "t": "wroteBySource.set(\"TELEGRAM\", (wroteBySource.get(\"TELEGRAM\") ?? 0) + telegramConversations);",
+       "t": "wroteBySource.set(\"TELEGRAM\", (wroteBySource.get(\"TELEGRAM\") ?? 0) + telegramConversations + telegramDirectCo…",
        "a": [
         "дословно из кода"
        ],

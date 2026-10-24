@@ -14104,14 +14104,15 @@
   - если row.status === "DEAL_CLOSED"
     - entry.closed += row._count._all;
       · дословно из кода
-- const [botConversations, telegramConversations] = await Promise.all([ prisma.botConversation.groupBy({ by: ["…
+- const [botConversations, telegramConversations, telegramDirectConversations] = await Promise.all([ prisma.bot…
   · считает в базе: botConversation
   · считает в базе: telegramConversation
+  · считает в базе: telegramDirectConversation
 - для каждого: const row of botConversations
   - wroteBySource.set(row.channel, (wroteBySource.get(row.channel) ?? 0) + row._count._all);
     · дословно из кода
-- если telegramConversations > 0
-  - wroteBySource.set("TELEGRAM", (wroteBySource.get("TELEGRAM") ?? 0) + telegramConversations);
+- если telegramConversations + telegramDirectConversations > 0
+  - wroteBySource.set("TELEGRAM", (wroteBySource.get("TELEGRAM") ?? 0) + telegramConversations + telegramDirectCo…
     · дословно из кода
 - const closedDeals = await prisma.deal.findMany({ where: { stage: "COMPLETED", closedAt: { gte: from, lte: to …
   · читает в базе: deal

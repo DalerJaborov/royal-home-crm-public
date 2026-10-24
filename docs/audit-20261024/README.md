@@ -1,6 +1,6 @@
 # CRM overnight audit package, 24 October 2026
 
-This source package starts at public baseline `87aecdb`. The FINAL source addresses28confirmed defect families across application behavior and test-stand routing (14first-package,7phase2,3third-batch,1client-radius,2ordinary user-flow and1absence-return family), compatible dependency advisory updates and4separately attributed fixture/test-oracle repairs. Targeted user-flow regressions and independent reviews are complete; the latest frozen-package consolidated verdict remains pending. No production release or exhaustive zero-bug claim is made. Continue the explicitly pending scope in COVERAGE.md/STATUS.md.
+This source package starts at public baseline `87aecdb`. The FINAL source addresses29confirmed defect families across application behavior and test-stand routing (14first-package,7phase2,3third-batch,1client-radius,2ordinary user-flow and1absence-return plus1Direct-source-count family), compatible dependency advisory updates and4separately attributed fixture/test-oracle repairs. Targeted user-flow regressions and independent reviews are complete; the latest frozen-package consolidated verdict remains pending. No production release or exhaustive zero-bug claim is made. Continue the explicitly pending scope in COVERAGE.md/STATUS.md.
 
 ## Findings
 
@@ -90,3 +90,8 @@ Named paths and regression groups above have evidence. Every other source file, 
 2. Obtain final consolidated precheck/API verdict on the frozen phase2 source, then update draft PR45 and this index with exact evidence. Ordinary GitHub connectivity recovered; no network/security setting was changed.
 3. Continue across pending security/input/upload/settings/task/job scenarios, including failure recovery and variant searches using the installed audit skills.
 4. At the overnight deadline publish the exact results, unresolved findings and coverage limits; never call this an exhaustive proof of zero bugs.
+
+
+## FINAL3 final bounded followup
+
+SRC01 includes existing Telegram Direct conversations in the existing TELEGRAM source count; unchanged durable5 real HTTP/PG cases4RED+1control→5PASS. Notifications explicit manual read-all errors now use the local standard error in both layouts:8 actual Chrome cases2RED+6controls→8PASS, with acknowledgment/unread retention and intentional retry. This is a TU01 variant, not a30th family. Reports FINAL-SOURCES-TELEGRAM-DIRECT.md and FINAL-NOTIFICATIONS-ERROR.md preserve exact scope, typing-harness corrections and evidence layers. Exact28-family8a2 full is separately accepted1490files14081PASS0FAIL0SKIP3TODO/no retries; FULL-API-8a2.md. The newer29-family source still needs its own exact complete validation. The index now has23 named evidence groups,15/52 partially linked screens and37 without named runtime screen proof; every screen still has unverified workflows. No Sources browser coverage is inferred from its GET/PG cases.

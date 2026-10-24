@@ -356,13 +356,14 @@ reportsRouter.get("/sources", async (req, res) => {
    * Считает база, по строке на канал: диалогов за месяц тысячи, и тянуть их в
    * память ради подсчёта нельзя.
    */
-  const [botConversations, telegramConversations] = await Promise.all([
+  const [botConversations, telegramConversations, telegramDirectConversations] = await Promise.all([
     prisma.botConversation.groupBy({
       by: ["channel"],
       where: { createdAt: { gte: from, lte: to } },
       _count: { _all: true },
     }),
     prisma.telegramConversation.count({ where: { createdAt: { gte: from, lte: to } } }),
+    prisma.telegramDirectConversation.count({ where: { createdAt: { gte: from, lte: to } } }),
   ]);
 
   const wroteBySource = new Map<string, number>();
@@ -371,8 +372,8 @@ reportsRouter.get("/sources", async (req, res) => {
     // FACEBOOK) — совпадение не случайное, оно заложено в toClientSource.
     wroteBySource.set(row.channel, (wroteBySource.get(row.channel) ?? 0) + row._count._all);
   }
-  if (telegramConversations > 0) {
-    wroteBySource.set("TELEGRAM", (wroteBySource.get("TELEGRAM") ?? 0) + telegramConversations);
+  if (telegramConversations + telegramDirectConversations > 0) {
+    wroteBySource.set("TELEGRAM", (wroteBySource.get("TELEGRAM") ?? 0) + telegramConversations + telegramDirectConversations);
   }
 
   const closedDeals = await prisma.deal.findMany({
