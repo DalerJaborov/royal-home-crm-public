@@ -7,11 +7,14 @@ export function Pagination({
   total,
   onPageChange,
   variant = "classic",
+  loading = false,
 }: {
   page: number;
   pageSize: number;
   total: number;
   onPageChange: (page: number) => void;
+  /** Keep the current page subscribed until it arrives; rapid taps must not skip it. */
+  loading?: boolean;
   /**
    * `rh2` — разметка эталона темы «Royal Home 2026» (`.pager` из
    * screens/comments.html: слева «Показаны N из M», справа «Назад»/«Вперёд»
@@ -66,6 +69,8 @@ export function Pagination({
       <div className="flex items-center justify-center px-4 py-3">
         <button
           type="button"
+          disabled={loading}
+          aria-busy={loading || undefined}
           onClick={() => onPageChange(page + 1)}
           className="pill ghost sm"
         >

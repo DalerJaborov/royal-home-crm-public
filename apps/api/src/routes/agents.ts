@@ -902,6 +902,7 @@ agentsRouter.post("/:id/2fa/reset", requirePermission("agents.reset2fa"), requir
   // и сброс ничего не менял для того, кто уже внутри.
   await revokeOtherSessions(target.id);
   revokeElevation(target.id);
+  closeStreamsForAgent(target.id);
   logAudit(req, "TOTP_RESET_BY_DIRECTOR", "Agent", target.id, { targetName: target.fullName });
   res.json({ totpEnabled: false });
 });
@@ -1413,9 +1414,9 @@ agentsRouter.post("/:id/unfreeze", requirePermission("agents.manage"), requireEl
   // вернувшийся агент на первом же тике терял неактивных клиентов пачкой
   // (см. shiftInactiveClockAfterAbsence), а сдвиг без разморозки сдвинул бы
   // часы у всё ещё отсутствующего.
-  await prisma.$transaction(async (tx) => {
-    await tx.agent.update({
-      where: { id: agent.id },
+  const returned = await prisma.$transaction(async (tx) => {
+    const changed = await tx.agent.updateMany({
+      where: { id: agent.id, frozenAt: agent.frozenAt },
       data: {
         frozenAt: null,
         frozenById: null,
@@ -1428,8 +1429,11 @@ agentsRouter.post("/:id/unfreeze", requirePermission("agents.manage"), requireEl
         absenceUntil: null,
       },
     });
+    if (changed.count === 0) return false;
     await shiftInactiveClockAfterAbsence(agent.id, agent.frozenAt, new Date(), tx);
+    return true;
   });
+  if (!returned) return res.status(409).json({ error: "Отсутствие сотрудника уже изменилось. Обновите карточку" });
   logAudit(req, "AGENT_UNFREEZE", "Agent", agent.id, {});
   void syncAgentQueuePresence(agent.id).catch(() => {});
   res.json({ ok: true });

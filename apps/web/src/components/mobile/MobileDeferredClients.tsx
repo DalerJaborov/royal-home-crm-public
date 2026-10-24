@@ -68,6 +68,7 @@ export function MobileDeferredClients() {
       {total !== undefined && (
         <div className="sec">
           <Pagination
+            loading={feed.isFetching}
             variant="loadMore"
             page={feed.page}
             pageSize={feed.pageSize}

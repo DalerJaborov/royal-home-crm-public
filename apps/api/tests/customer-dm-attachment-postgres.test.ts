@@ -11,6 +11,23 @@ beforeAll(async () => { f = await createCustomerCoreGoldenFixture(); });
 afterEach(() => { vi.restoreAllMocks(); f?.assertIoClean(); });
 afterAll(async () => { await f?.cleanup(); });
 
+type PublicAttachmentFixture = {
+  shortId: number; districtName: string; city: string; privateAddress: string; ownerContact: string;
+};
+function expectRecognizedPublicationReply(text: string, fixture: PublicAttachmentFixture) {
+  // Independent test oracle: literal contract plus saved PUBLIC fixture fields,
+  // never the production renderer/projector that this integration test exercises.
+  const priceLine = `Цена объекта №${fixture.shortId}: 500 000 сомони.`;
+  const locationLine = `Расположение: ${fixture.districtName}, ${fixture.city}.`;
+  expect(text).toBe([priceLine, locationLine, "Что хотите узнать об этом объекте?"].join("\n"));
+  expect(text).not.toContain(fixture.privateAddress);
+  expect(text).not.toContain(fixture.ownerContact);
+  // Only these exact known public lines may contain a public number such as992.
+  // Keep the existing guard intact on everything else; no generic digit scrub.
+  const residual = text.replace(priceLine, "").replace(locationLine, "");
+  expect(residual).not.toMatch(/PRIVATE-OWNER|Какой объект|телефон|992|сотрудник/u);
+}
+
 it.each(["ig_reel", "image", "audio", "video", "file", "unsupported"])("%s without text is answered once through normal outbox without model/fallback/handover", async type => {
   const owner = await f.owner(), before = f.counts();
   const event = await f.capture(owner, "", [{ type, payload: { url: type === "ig_reel" ? "https://www.instagram.com/reel/Unknown123/" : "https://synthetic.invalid/unavailable" } }]);
@@ -27,16 +44,41 @@ it.each(["ig_reel", "image", "audio", "video", "file", "unsupported"])("%s witho
   expect(await prisma.customerAction.count({ where: { inquiry: { conversationId: after.conversationId! } } })).toBe(0);
 });
 
-it("uses actual facts for a recognized shared publication instead of asking for the same property again", async () => {
-  const owner = await f.owner(), { property } = await f.publicCard(), before = f.counts();
+it.each([
+  { name: "ordinary public facts", districtName: "Synthetic public district alpha", numericShortId: false },
+  { name: "public district containing 992", districtName: "Synthetic public district 992", numericShortId: false },
+  { name: "public shortId containing 992", districtName: "Synthetic public district beta", numericShortId: true },
+])("uses actual facts for a recognized shared publication: $name", async ({ districtName, numericShortId }) => {
+  const owner = await f.owner(), card = await f.publicCard(), before = f.counts();
+  const district = await prisma.district.update({ where: { id: card.district.id }, data: { name: `${districtName}-${card.district.id}` } });
+  const ownerContact = "+992000000777";
+  // Reserve only a free synthetic ID; never reset the sequence or modify an
+  // existing fixture merely to obtain a public number containing the digits.
+  let shortId = card.property.shortId;
+  if (numericShortId) {
+    shortId = 1_992_000_000;
+    for (let attempt = 0; attempt < 100; attempt++, shortId++) {
+      if (!await prisma.property.findUnique({ where: { shortId }, select: { id: true } })) break;
+      if (attempt === 99) throw new Error("Synthetic public shortId range is occupied");
+    }
+  }
+  const property = await prisma.property.update({ where: { id: card.property.id }, data: { ownerContact, shortId } });
   const event = await f.capture(owner, "", [{ type: "ig_reel", payload: { url: property.instagramUrl! } }]);
   const prepared = await prepareCustomerDmInboxCoreContext(event);
   expect(prepared).toMatchObject({ status: "prepared", attachmentInput: { kinds: ["share"] }, attachmentPropertyReference: true });
   const result = await f.deliver(event);
-  expect(result.text).toContain(`Цена объекта №${property.shortId}: 500 000 сомони.`);
-  expect(result.text).toContain("Что хотите узнать об этом объекте?");
-  expect(result.text).not.toMatch(/PRIVATE-OWNER|Какой объект|телефон|992|сотрудник/u);
+  expectRecognizedPublicationReply(result.text, { shortId: property.shortId, districtName: district.name,
+    city: district.city, privateAddress: property.address!, ownerContact });
   expect(f.counts()).toEqual(before);
+});
+
+it.each(["extra owner contact", "substituted private address"])("the recognized-publication oracle rejects %s", variant => {
+  const fixture = { shortId: 123, districtName: "Synthetic public district alpha", city: "Душанбе",
+    privateAddress: "Synthetic PRIVATE-OWNER-HOUSE-SENTINEL", ownerContact: "+992000000777" };
+  const publicLines = [`Цена объекта №123: 500 000 сомони.`, `Расположение: ${fixture.districtName}, ${fixture.city}.`, "Что хотите узнать об этом объекте?"];
+  const invalid = variant === "extra owner contact" ? `${publicLines.join("\n")}\n${fixture.ownerContact}`
+    : [publicLines[0], `Расположение: ${fixture.privateAddress}.`, publicLines[2]].join("\n");
+  expect(() => expectRecognizedPublicationReply(invalid, fixture)).toThrow();
 });
 
 it("retains the actual customer's Tajik language for an attachment-only follow-up", async () => {

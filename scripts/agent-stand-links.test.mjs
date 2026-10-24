@@ -16,8 +16,29 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
+import * as stand from "./agent-stand.mjs";
 
 import { linkTargetRealpath, expectedSharedTarget, checkLinkDirections, linkSharedOverride } from "./agent-stand.mjs";
+
+test("stand resolves dependencies from its own Git primary checkout, including worktrees with spaces", () => {
+  const temp = mkdtempSync(path.join(tmpdir(), "crm public stand "));
+  const main = path.join(temp, "public source");
+  const worktree = path.join(temp, "audit worktree");
+  mkdirSync(main);
+  const git = (args) => execFileSync("git", args, { cwd: main, stdio: "pipe" });
+  try {
+    git(["init", "--initial-branch=main"]);
+    git(["-c", "user.name=Test", "-c", "user.email=test@example.invalid", "-c", "core.hooksPath=" + path.join(temp, "hooks"), "commit", "--allow-empty", "-m", "test"]);
+    git(["worktree", "add", "-b", "audit", worktree]);
+    assert.equal(typeof stand.resolveMainTree, "function", "stand must resolve the active repository instead of the archived hardcoded D:/CRM");
+    assert.equal(stand.resolveMainTree(main), main);
+    assert.equal(stand.resolveMainTree(worktree), main);
+    assert.throws(() => stand.resolveMainTree(temp), /git|repository|репозитори/i, "no fallback to a foreign archive when outside Git");
+  } finally {
+    rmSync(temp, { recursive: true, force: true });
+  }
+});
 
 function makeTree() {
   const root = mkdtempSync(path.join(tmpdir(), "rh-stand-link-test-"));

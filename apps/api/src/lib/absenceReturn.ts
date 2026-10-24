@@ -52,7 +52,7 @@ export async function runAbsenceReturnTick(now: Date = new Date()): Promise<{ re
        */
       const count = await prisma.$transaction(async (tx) => {
         const res = await tx.agent.updateMany({
-          where: { id: agent.id, frozenAt: { not: null }, absenceUntil: { not: null, lte: now } },
+          where: { id: agent.id, isActive: true, frozenAt: { not: null }, absenceUntil: { not: null, lte: now } },
           // Ровно то же, что снимает ручная разморозка (routes/agents.ts,
           // POST /:id/unfreeze): недоснятая причина заморозки осталась бы висеть в
           // карточке сотрудника, который уже вернулся.

@@ -964,7 +964,7 @@ export function KpiWeightsSection() {
         KPI_WEIGHT_LABELS.map(({ key }) => [key, kpiFromServer?.[key] ?? DEFAULT_WEIGHTS[key] ?? 0])
       ),
     weights,
-    (patch) => setWeights((w) => ({ ...w, ...patch }) as Record<string, number>)
+    (patch) => setWeights((w) => ({ ...w, ...patch }) as Record<string, number>), settings
   );
 
   const total = Object.values(weights).reduce((s, v) => s + (Number.isFinite(v) ? v : 0), 0);
@@ -1098,7 +1098,7 @@ export function RoyalScoreEventsSection() {
         ])
       ),
     points,
-    (patch) => setPoints((p) => ({ ...p, ...patch }) as Record<string, number>)
+    (patch) => setPoints((p) => ({ ...p, ...patch }) as Record<string, number>), settings
   );
   useServerSyncedFields(
     settings && {
@@ -1108,7 +1108,7 @@ export function RoyalScoreEventsSection() {
     {
       windowDays: [windowDays, setWindowDays],
       startingScore: [startingScore, setStartingScore],
-    }
+    }, settings
   );
 
   async function save() {
@@ -1275,7 +1275,7 @@ export function LeadDistributionSection() {
       start: [start, setStart],
       end: [end, setEnd],
       kpiThreshold: [kpiThreshold, setKpiThreshold],
-    }
+    }, settings
   );
 
   async function handleSave(e: React.FormEvent) {

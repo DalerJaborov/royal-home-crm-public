@@ -45,6 +45,7 @@ export async function processRecurringExpenses(): Promise<{ created: number; rem
 
   const templates = await prisma.recurringExpense.findMany({ where: { active: true,deletedAt:null,startsOn:null } });
   if (templates.length === 0) return { created: 0, reminded: 0 };
+  const paymentMoney = templates.some(t => t.autoPay) ? await loadMoneyContext() : null;
 
   let created = 0;
   let reminded = 0;
@@ -88,6 +89,10 @@ export async function processRecurringExpenses(): Promise<{ created: number; rem
                 recurringId:t.id,
                 occurrenceDate:`${month}-${String(t.dayOfMonth).padStart(2,"0")}`,
                 status:t.autoPay?"PAID":"PLANNED",
+                ...(t.autoPay ? {
+                  exchangeRate: t.currency === "USD" ? paymentMoney!.usdToTjs : 1,
+                  rateCapturedAt: new Date(),
+                } : {}),
                 paymentDate:new Date(`${month}-${String(t.dayOfMonth).padStart(2,"0")}T00:00:00.000Z`),
                 month: monthToDate(month),
                 amount: t.amount,

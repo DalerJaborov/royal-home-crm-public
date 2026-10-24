@@ -134,20 +134,17 @@ export function retryAfterMessage(retryAfterMs: number, method = "GET"): string 
 /**
  * Обрыв связи словами, а не «Failed to fetch»/«Load failed» браузера (аудит
  * 23.09.2026, №15): сырой английский текст TypeError уходил в уведомления.
- * Запись, которую никто не повторит, называется честно — могла не сохраниться.
+ * Потеря ответа не говорит, успел ли сервер выполнить запись. Перед повтором
+ * человек должен проверить результат, иначе успешная запись может задвоиться.
  * Остаётся простым Error: queryClient читает такие как временный сбой.
  */
 export function networkFailureError(err: unknown, method = "GET"): unknown {
   const isWrite = method !== "GET";
-  if (err instanceof TypeError) {
-    return new Error(
-      isWrite
-        ? "Нет связи с сервером — изменение не сохранилось, проверьте интернет и повторите"
-        : "Нет связи с сервером — проверьте интернет"
-    );
+  if (isWrite && (err instanceof TypeError || err instanceof Error && err.message === TIMEOUT_ERROR_MESSAGE)) {
+    return new Error("Не удалось подтвердить результат — связь с сервером пропала. Перед повтором проверьте, применилось ли изменение.");
   }
-  if (isWrite && err instanceof Error && err.message === TIMEOUT_ERROR_MESSAGE) {
-    return new Error("Связь пропала — изменение могло не сохраниться, проверьте и повторите");
+  if (err instanceof TypeError) {
+    return new Error("Нет связи с сервером — проверьте интернет");
   }
   return err;
 }

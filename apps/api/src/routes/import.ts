@@ -140,7 +140,7 @@ importRouter.get("/clients/template", (_req, res) => {
 importRouter.get("/properties/template", (_req, res) => {
   res.setHeader("Content-Type", "text/csv; charset=utf-8");
   res.setHeader("Content-Disposition", "attachment; filename=properties-template.csv");
-  res.send("﻿Название;Тип;Комнаты;Площадь;Этаж;Этажей всего;Цена;Валюта;Район;Адрес;Состояние;Описание;Контакт владельца\n2-комн · Сино;Квартира;2;54;3;9;350000;TJS;Сино;ул. Айни, 10;Хорошее;;+992900000099\n");
+  res.send("﻿Название;Тип;Комнаты;Площадь;Этаж;Этажей всего;Окна;Цена;Валюта;Район;Адрес;Состояние;Описание;Контакт владельца\n2-комн · Сино;Квартира;2;54;3;9;4;350000;TJS;Сино;ул. Айни, 10;Хорошее;;+992900000099\n");
 });
 
 /**
@@ -326,7 +326,7 @@ importRouter.post("/properties", csvUpload.single("file"), async (req, res) => {
 
     const type = toEnum(r["тип"] ?? "", PROPERTY_TYPES, PROPERTY_TYPE_LABELS);
     const condition = toEnum(r["состояние"] ?? "", PROPERTY_CONDITIONS, PROPERTY_CONDITION_LABELS) ?? "GOOD";
-    const currencyRaw = (r["валюта"] ?? "TJS").toUpperCase();
+    const currencyRaw = (r["валюта"] ?? "").trim().toUpperCase() || "TJS";
     const candidate = {
       title: r["название"] ?? "",
       type: type ?? undefined,
@@ -338,7 +338,7 @@ importRouter.post("/properties", csvUpload.single("file"), async (req, res) => {
       // а столбца под них в импорте не было — ни одна такая строка не проходила.
       windowCount: toNumber(r["окна"] ?? ""),
       price: toNumber(r["цена"] ?? ""),
-      currency: currencyRaw === "USD" ? "USD" : "TJS",
+      currency: currencyRaw,
       districtId,
       address: r["адрес"] ?? "",
       condition,

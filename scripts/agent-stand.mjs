@@ -24,12 +24,20 @@
  * 33 секунды на весь стенд против 3-4 минут, и это на каждого агента.
  */
 import { execFileSync, execSync } from "node:child_process";
-import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const MAIN_TREE = "D:\\CRM";
+/** Worktrees share a Git directory with the primary checkout. Never reuse an
+ * archived repository's dependencies after the public-source migration. */
+export function resolveMainTree(root) {
+  const commonDir = execFileSync("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], {
+    cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"],
+  }).trim();
+  return path.dirname(path.resolve(root, commonDir));
+}
+const MAIN_TREE = resolveMainTree(ROOT);
 /**
  * ОДИН КОНТЕЙНЕР НА ВСЕХ, БАЗА ИЗ ШАБЛОНА (12.09.2026, второй заход).
  *
@@ -99,7 +107,9 @@ const has = (c) => {
 function link(from, to) {
   if (existsSync(from)) return "уже есть";
   mkdirSync(path.dirname(from), { recursive: true });
-  execFileSync("cmd", ["/c", "mklink", "/J", from, to], { stdio: "pipe" });
+  // Junctions do not need elevated symlink privileges on Windows. POSIX
+  // uses a directory symlink; both keep the same realpath safety checks.
+  symlinkSync(to, from, process.platform === "win32" ? "junction" : "dir");
   return "создана";
 }
 
@@ -210,7 +220,7 @@ function checkLinkDirections() {
     }
   };
   inspect(ROOT, "это дерево");
-  if (path.resolve(ROOT) !== path.resolve(MAIN_TREE)) inspect(MAIN_TREE, "главное дерево D:\\CRM");
+  if (path.resolve(ROOT) !== path.resolve(MAIN_TREE)) inspect(MAIN_TREE, `главное дерево ${MAIN_TREE}`);
   return problems;
 }
 
@@ -218,7 +228,7 @@ function checkLinkDirections() {
 function check() {
   const problems = checkLinkDirections();
   if (problems.length === 0) {
-    console.log("ссылки @royal-home/shared в порядке (это дерево и главное D:\\CRM)");
+    console.log(`ссылки @royal-home/shared в порядке (это дерево и главное ${MAIN_TREE})`);
     return;
   }
   console.log("⚠ ссылки @royal-home/shared указывают не туда:");
@@ -398,7 +408,7 @@ function up() {
   // агента почти никогда нет повода зайти в D:\CRM и заметить неладное самому.
   const foreignProblems = checkLinkDirections().filter((p) => p.startsWith("главное дерево"));
   if (foreignProblems.length) {
-    console.log("⚠ главное дерево D:\\CRM: ссылки @royal-home/shared указывают не туда (не трогаю, разбирайся руками):");
+    console.log(`⚠ главное дерево ${MAIN_TREE}: ссылки @royal-home/shared указывают не туда (не трогаю, разбирайся руками):`);
     for (const p of foreignProblems) console.log("  " + p);
   }
 

@@ -126,7 +126,10 @@ export function useCreateExpense() {
 export function useDeleteExpense() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => api(`/expenses/${id}`, { method: "DELETE" }),
+    mutationFn: (value: string | { id: string; version?: number }) => {
+      const { id, version } = typeof value === "string" ? { id: value, version: undefined } : value;
+      return api(`/expenses/${id}${version === undefined ? "" : `?version=${version}`}`, { method: "DELETE" });
+    },
     // Удаление отвечало «Сохранено» — глагол не тот (аудит 22.08.2026, раунд 6,
     // тот же класс, что «Проверить связь» в раунде 4). Строка исчезает из списка
     // на глазах, так что подтверждение словом здесь и не нужно.

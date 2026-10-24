@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { ApiError } from "../apiError";
 import type { JobApplication } from "../../types/vacancies";
 import {
-  adjacentCandidateId, bulkResultText, canDeleteCandidates, candidateCreateBody, candidatePrintFacts, chunkIds,
+  adjacentCandidateId, bulkResultText, canDeleteCandidates, candidateCreateBody, candidateStaffTextError, candidatePrintFacts, chunkIds,
   deleteWordMatches, duplicateCandidateId, EMPTY_CANDIDATE_DRAFT, mergeBulkResults, positionChips, positionCandidateCount,
   queueLoadedNote, selectedItems, toggleAllLoaded, toggleSelected,
 } from "../vacancyQueue";
@@ -73,6 +73,20 @@ describe("массовые действия и удаление", () => {
 });
 
 describe("+ Кандидат", () => {
+  it("сохраняет заметку на границе API и отклоняет более длинную без обрезки черновика", () => {
+    const draft = { ...EMPTY_CANDIDATE_DRAFT, name: "Test candidate", positionKey: "test-position", note: "x".repeat(2000) };
+    expect(candidateCreateBody(draft)).toEqual({ body: { name: draft.name, positionKey: draft.positionKey, note: draft.note } });
+    const longer = { ...draft, note: "x".repeat(2001) };
+    expect(candidateCreateBody(longer)).toEqual({ error: expect.stringContaining("не больше 2000") });
+    expect(longer.note).toHaveLength(2001);
+  });
+  it.each([["note", 2000], ["reject", 500]] as const)("%s проверяет сохранённый текст, включая длинное старое значение", (kind, limit) => {
+    expect(candidateStaffTextError("x".repeat(limit), kind)).toBeNull();
+    expect(candidateStaffTextError(`  ${"x".repeat(limit)}  `, kind)).toBeNull();
+    expect(candidateStaffTextError(" ", kind)).toBeNull();
+    expect(candidateStaffTextError("x".repeat(limit + 1), kind)).toContain(`не больше ${limit}`);
+    expect(candidateStaffTextError("x".repeat(4000), kind)).toContain(`не больше ${limit}`);
+  });
   it("имя и вакансия обязательны, пустые поля не уходят", () => {
     expect(candidateCreateBody(EMPTY_CANDIDATE_DRAFT)).toEqual({ error: "Укажите имя кандидата." });
     expect(candidateCreateBody({ ...EMPTY_CANDIDATE_DRAFT, name: "Али" })).toEqual({ error: "Выберите вакансию." });

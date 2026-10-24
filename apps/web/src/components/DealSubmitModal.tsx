@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Rh2Sheet } from "./rh2/Rh2Sheet";
 
 /**
@@ -55,6 +55,8 @@ export function DealSubmitModal({
   // №58): раньше оно закрывалось сразу, и при отказе («не хватает документов»)
   // введённые цена и комиссия пропадали.
   const [busy, setBusy] = useState(false);
+  const pending = useRef(false);
+  const cancel = () => { if (!pending.current) onCancel(); };
   const [error, setError] = useState<string | null>(null);
   const listedPriceNum = Number(listedPrice);
   const initialSoldPrice = initial?.soldPrice ? Number(initial.soldPrice) : listedPriceNum;
@@ -103,12 +105,14 @@ export function DealSubmitModal({
   return (
     <Rh2Sheet
       title={copy.title}
-      onClose={onCancel}
+      onClose={cancel}
+      dismissible={!busy}
       // Как в AddInteractionModal/ClientFormModal: форма с деньгами, которые
       // жалко потерять от случайного клика по подложке или смахивания пальцем.
       closeOnBackdrop={false}
       onSubmit={async () => {
-        if (!valid || busy) return;
+        if (!valid || pending.current) return;
+        pending.current = true;
         setBusy(true);
         setError(null);
         try {
@@ -120,12 +124,13 @@ export function DealSubmitModal({
         } catch (err) {
           setError(err instanceof Error && err.message ? err.message : "Не удалось сохранить. Попробуйте ещё раз.");
         } finally {
+          pending.current = false;
           setBusy(false);
         }
       }}
       footer={
         <>
-          <button type="button" className="pill ghost" onClick={onCancel}>
+          <button type="button" className="pill ghost" disabled={busy} onClick={cancel}>
             Отмена
           </button>
           <button type="submit" className="pill" disabled={!valid || busy}>
@@ -155,6 +160,7 @@ export function DealSubmitModal({
           min={0}
           step="0.01"
           value={soldPrice}
+          disabled={busy}
           onChange={(e) => setSoldPrice(e.target.value)}
           placeholder={listedPriceNum ? String(listedPriceNum) : "Сумма"}
         />
@@ -175,6 +181,7 @@ export function DealSubmitModal({
             min={0}
             step="0.01"
             value={realtor}
+            disabled={busy}
             onChange={(e) => setRealtor(e.target.value)}
             placeholder="0"
           />
@@ -187,6 +194,7 @@ export function DealSubmitModal({
             min={0}
             step="0.01"
             value={company}
+            disabled={busy}
             onChange={(e) => setCompany(e.target.value)}
             placeholder="0"
           />

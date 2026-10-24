@@ -180,7 +180,18 @@ expensesRouter.patch("/:id", requireFinanceWrite, async (req, res) => {
   if(!await validateExpenseCategory(rest.categoryId===undefined?current.categoryId:rest.categoryId,rest.category??current.category,current))return res.status(400).json({error:"Категория не соответствует разделу"});
   const money=await loadMoneyContext();
   const finalPaymentDate = rest.paymentDate === undefined ? current.paymentDate?.toISOString().slice(0, 10) : rest.paymentDate;
-  if((rest.status??current.status)==="PAID"&&finalPaymentDate&&finalPaymentDate>todayExpenseDay())return res.status(400).json({error:"Будущий платёж запишите как план"});
+  const finalStatus = rest.status ?? current.status;
+  const finalCurrency = rest.currency ?? current.currency;
+  if(finalStatus==="PAID"&&finalPaymentDate&&finalPaymentDate>todayExpenseDay())return res.status(400).json({error:"Будущий платёж запишите как план"});
+  // A plan without an explicit rate uses the rate at payment, including payment
+  // through the editor. Currency changes must discard the previous currency's rate.
+  const currencyChanged = finalCurrency !== current.currency;
+  const rateEdited = rest.exchangeRate !== undefined || currencyChanged;
+  const becomesPaid = finalStatus === "PAID" && current.status !== "PAID";
+  const suppliedRate = finalCurrency === "USD"
+    ? rest.exchangeRate !== undefined ? rest.exchangeRate : currencyChanged ? null : current.exchangeRate
+    : 1;
+  const finalRate = suppliedRate ?? (finalStatus === "PAID" ? money.usdToTjs : null);
   const finalCategory = rest.category ?? current.category;
   const finalSource = rest.source === undefined ? current.source : rest.source;
   const finalAgentId = rest.agentId === undefined ? current.agentId : rest.agentId;
@@ -208,8 +219,8 @@ expensesRouter.patch("/:id", requireFinanceWrite, async (req, res) => {
         ...clearStale,
         version:{increment:1},paymentUndo:Prisma.DbNull,
         ...(rest.paymentDate!==undefined?{paymentDate:rest.paymentDate?expenseDay(rest.paymentDate):null}:{}),
-        ...(rest.exchangeRate!==undefined?{exchangeRate:(rest.currency??current.currency)==="USD"?rest.exchangeRate:1,rateCapturedAt:rest.exchangeRate!=null?new Date():null}:rest.currency!==undefined&&rest.currency!==current.currency?{exchangeRate:rest.currency==="USD"?money.usdToTjs:1,rateCapturedAt:new Date()}:{}),
-        ...((rest.status??current.status)==="PAID"&&rest.paymentDate?{month:monthToDate(rest.paymentDate.slice(0,7))}:month ? { month: monthToDate(month) } : {}),
+        ...(rateEdited || becomesPaid ? { exchangeRate: finalRate, rateCapturedAt: finalRate === null ? null : !rateEdited && current.rateCapturedAt ? current.rateCapturedAt : new Date() } : {}),
+        ...(finalStatus==="PAID"&&finalPaymentDate?{month:monthToDate(finalPaymentDate.slice(0,7))}:month ? { month: monthToDate(month) } : {}),
         // Правку СУММЫ у авто-строки помечаем: ночная автоматика (зарплаты,
         // реклама, ИИ) такую строку больше не пересчитывает — раньше она молча
         // откатывала исправление директора ближайшей ночью (аудит №4).

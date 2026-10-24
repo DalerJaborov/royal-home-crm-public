@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { Archive, Ban, CalendarDays, FileText, MoreHorizontal, NotebookPen, Phone, RotateCcw, Sparkles, Trash2, UserRoundCheck, UserX } from "lucide-react";
-import type { RecruitmentPosition } from "@royal-home/shared";
+import { RECRUITMENT_NOTE_MAX_LENGTH, RECRUITMENT_REJECTION_REASON_MAX_LENGTH, type RecruitmentPosition } from "@royal-home/shared";
 import { useSetVacancyStatus, type JobApplication } from "../hooks/useVacancies";
 import { useVacancyContactOptions } from "../hooks/useVacancyContact";
 import { useIsReadOnly } from "../lib/permissions";
@@ -13,6 +13,7 @@ import { VoiceNoteButton, type VoiceNote } from "./VoiceNoteButton";
 import { VacancyContactForm } from "./VacancyContactForm";
 import { candidateMissingFacts, candidateMissingText, candidateTitle, legacyCandidatePositionPatch } from "../lib/vacanciesResume";
 import { canOverrideRejected, interviewInputToIso, interviewIsoToInput, vacancyInterviewLabel } from "../lib/vacanciesView";
+import { candidateStaffTextError } from "../lib/vacancyQueue";
 
 type Mode = "INVITE" | "CLARIFY" | "schedule" | "note" | "reject" | "phone" | "position";
 
@@ -131,19 +132,23 @@ export function VacancyStageActions({ item, positions, positionsLoading = false,
     {mode && (mode === "INVITE" || mode === "CLARIFY") && contact && <VacancyContactForm key={`${item.id}:${mode}`} item={item} options={contact} purpose={mode} onClose={closeForm} />}
     {mode === "position" && <Rh2Sheet title="Вакансия кандидата" onClose={closeForm} dismissible={!busy} closeOnBackdrop={false}>{positionPicker}<MutationError mutation={mutation} fallback="Не удалось сохранить вакансию" /></Rh2Sheet>}
     {mode && ["schedule", "note", "reject", "phone"].includes(mode) && <Rh2Sheet title={mode === "schedule" ? "Дата собеседования" : mode === "reject" ? "Причина отказа" : mode === "phone" ? "Телефон кандидата" : "Заметка руководителя"} onClose={closeForm} dismissible={!busy} closeOnBackdrop={false}
-      onSubmit={event => { event.preventDefault();
+      onSubmit={event => { event.preventDefault(); setFormError("");
         if (mode === "schedule") {
           const iso = interviewInputToIso(interviewAt);
           if (!iso || new Date(iso).getTime() <= Date.now()) { setFormError("Выберите будущую дату и время."); return; }
           mutation.mutate({ id: item.id, status: "INTERVIEW", interviewAt: iso }, { onSuccess: closeForm });
         } else if (mode === "phone") mutation.mutate({ id: item.id, phone: phone.trim() || null }, { onSuccess: closeForm });
-        else mutation.mutate({ id: item.id, ...(mode === "note" ? { interviewNote: note.trim() || null } : { rejectionReason: note.trim() || null,
-          ...(voice ? { rejectionReasonVoiceUrl: voice.url, rejectionReasonVoiceTranscript: voice.transcript } : {}) }) }, { onSuccess: closeForm });
+        else {
+          const noteError = candidateStaffTextError(note, mode === "note" ? "note" : "reject");
+          if (noteError) { setFormError(noteError); return; }
+          mutation.mutate({ id: item.id, ...(mode === "note" ? { interviewNote: note.trim() || null } : { rejectionReason: note.trim() || null,
+            ...(voice ? { rejectionReasonVoiceUrl: voice.url, rejectionReasonVoiceTranscript: voice.transcript } : {}) }) }, { onSuccess: closeForm });
+        }
       }} footer={<><button type="button" className="pill ghost" disabled={busy} onClick={closeForm}>Отмена</button><button type="submit" className="pill" disabled={busy}>{busy ? "Сохраняем…" : "Сохранить"}</button></>}>
       {mode === "schedule" ? <><label className="fld"><span className="lab">Дата и время собеседования</span><input type="datetime-local" value={interviewAt} min={interviewIsoToInput(new Date())} required onChange={event => setInterviewAt(event.target.value)} /><span className="msg">Время Душанбе, UTC+5</span></label>
         <p className="quiet warn"><span className="dot warn" /><span className="txt">Сохранится только дата в CRM. Кандидат не получит SMS или звонок.</span></p></>
         : mode === "phone" ? <label className="fld"><span className="lab">Телефон кандидата</span><input type="tel" autoComplete="tel" value={phone} onChange={event => setPhone(event.target.value)} maxLength={40} /></label>
-          : <><label className="fld"><span className="lab">{mode === "reject" ? "Причина отказа" : "Внутренняя заметка"}</span><textarea rows={5} value={note} maxLength={4000} onChange={event => setNote(event.target.value)} /><span className="msg">Видно только сотрудникам. Кандидату не отправляется.</span></label>
+          : <><label className="fld"><span className="lab">{mode === "reject" ? "Причина отказа" : "Внутренняя заметка"}</span><textarea rows={5} value={note} maxLength={mode === "reject" ? RECRUITMENT_REJECTION_REASON_MAX_LENGTH : RECRUITMENT_NOTE_MAX_LENGTH} onChange={event => setNote(event.target.value)} /><span className="msg">Видно только сотрудникам. Кандидату не отправляется. До {mode === "reject" ? RECRUITMENT_REJECTION_REASON_MAX_LENGTH : RECRUITMENT_NOTE_MAX_LENGTH} символов.</span></label>
             {mode === "reject" && <VoiceNoteButton uploadUrl="/me/voice-notes" value={voice} onChange={setVoice} />}</>}
       {formError && <p className="quiet crit" role="alert"><span className="dot crit" /><span className="txt">{formError}</span></p>}<MutationError mutation={mutation} fallback="Не удалось сохранить" />
     </Rh2Sheet>}

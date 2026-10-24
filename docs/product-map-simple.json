@@ -16,9 +16,9 @@
   "paths": 666,
   "cron": 108,
   "jobs": 31,
-  "conditions": 3653,
+  "conditions": 3660,
   "untranslatedUnique": 397,
-  "untranslatedTotal": 505,
+  "untranslatedTotal": 506,
   "partialUnique": 1030,
   "translatedShare": 86
  },
@@ -132,7 +132,6 @@
   "(finalCategory === \"OFFICE\" || finalCategory === \"OTHER\") && !finalNote?.trim()",
   "(property.publishedChannels ?? []).includes(\"TIKTOK\")",
   "(rest.status??\"PAID\")===\"PAID\"&&rest.paymentDate&&rest.paymentDate>todayExpenseDay()",
-  "(rest.status??current.status)===\"PAID\"&&finalPaymentDate&&finalPaymentDate>todayExpenseDay()",
   "(settings?.leadDistributionStrategy ?? \"fair\") === \"manual\"",
   "Boolean(params.propertyId) === Boolean(params.freeVideoId)",
   "Date.now() - last < REFRESH_EVERY_MS",
@@ -277,12 +276,12 @@
   "existingCorrection.kind === parsed.data.override",
   "existingSession.propertyId !== property.id",
   "existingVideo.propertyId !== property.id",
-  "existing[0]",
   "expected !== `\"${versionOf(raw)}\"`",
   "expiresAt - Date.now() > THREADS_REFRESH_BEFORE_EXPIRY_MS",
   "f.installation.id === row.endpointScopeId && f.source.id === row.originalNativeId && f.sourceRevision === row…",
   "fieldChanges.length > 0 && (data.status === undefined || data.status === existing.status)",
   "finalStatus !== \"INTERVIEW\" || !finalAt || finalAt.getTime() <= Date.now()",
+  "finalStatus===\"PAID\"&&finalPaymentDate&&finalPaymentDate>todayExpenseDay()",
   "firstCallDueAt(client.acceptedAt!, minutes, pauses.get(client.id)) > now",
   "foreignMedia && (mediaDecision === \"replace\" || (parsedBody.data.mode === \"replace\" && attachments.length ===…",
   "found !== interaction.recordingUrl",
@@ -394,6 +393,7 @@
   "stageState(p.status, p.stageEnteredAt, deadlines).overdue",
   "stillTalking(c, shootingDate)",
   "stopping || customerBusy[lane]",
+  "telegramConversations + telegramDirectConversations > 0",
   "ticket?.agentRevisionId === row.agentRevisionId && ticket.providerOperationId && ticket.originalConversationI…",
   "tiktokRefreshToken && !skip.has(\"TIKTOK\") && params.localVideoPath.startsWith(\"/uploads/\")",
   "toAgentId === from.id",
@@ -12040,6 +12040,25 @@
      "c": [
       {
        "t": "меняет: сотрудник",
+       "k": "do",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если количество (изменённые) — «0»",
+       "k": "if",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
+     "t": "если нет: returned",
+     "k": "if",
+     "a": [],
+     "c": [
+      {
+       "t": "отказ: такое уже есть: «Отсутствие сотрудника уже изменилось. Обновите карточку»",
        "k": "do",
        "a": [],
        "c": []
@@ -25791,6 +25810,13 @@
        ],
        "c": [
         {
+         "t": "если data.stage && data.stage !== existing.stage",
+         "k": "if",
+         "a": [],
+         "c": [],
+         "raw": "data.stage && data.stage !== existing.stage"
+        },
+        {
          "t": "если есть is completing",
          "k": "if",
          "a": [],
@@ -27817,7 +27843,7 @@
      "raw": "!await validateExpenseCategory(rest.categoryId===undefined?current.categoryId:rest.categoryId,rest.category??…"
     },
     {
-     "t": "если (rest.status??current.status)===\"PAID\"&&finalPaymentDate&&finalPaymentDate>todayExpenseDay()",
+     "t": "если finalStatus===\"PAID\"&&finalPaymentDate&&finalPaymentDate>todayExpenseDay()",
      "k": "if",
      "a": [],
      "c": [
@@ -27828,7 +27854,7 @@
        "c": []
       }
      ],
-     "raw": "(rest.status??current.status)===\"PAID\"&&finalPaymentDate&&finalPaymentDate>todayExpenseDay()"
+     "raw": "finalStatus===\"PAID\"&&finalPaymentDate&&finalPaymentDate>todayExpenseDay()"
     },
     {
      "t": "если final category — «ADVERTISING» и нет: final source",
@@ -48566,40 +48592,32 @@
          ]
         },
         {
-         "t": "все изменения разом: либо всё, либо ничего",
+         "t": "заводит: клиент",
          "k": "do",
-         "a": [
-          "заводит: клиент"
-         ],
+         "a": [],
          "c": [
           {
-           "t": "если existing[0]",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "raw": "existing[0]",
-           "more": true
-          },
-          {
-           "t": "если есть по exact телефон",
+           "t": "если есть такая запись",
            "k": "if",
            "a": [],
            "c": [],
            "more": true
           },
           {
-           "t": "заводит: клиент",
-           "k": "do",
+           "t": "пробует сделать",
+           "k": "try",
            "a": [],
-           "c": []
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если не получилось",
+           "k": "catch",
+           "a": [],
+           "c": [],
+           "more": true
           }
          ]
-        },
-        {
-         "t": "если нет: auto продавец клиент",
-         "k": "if",
-         "a": [],
-         "c": []
         },
         {
          "t": "если есть auto продавец клиент",
@@ -48694,6 +48712,27 @@
            "c": []
           }
          ]
+        }
+       ]
+      },
+      {
+       "t": "если есть auto продавец клиент",
+       "k": "if",
+       "a": [],
+       "c": [
+        {
+         "t": "если card?.assignedAgentId && card.assignedAgentId !== effectiveIntakeAgentId && !canBindClient(req, card)",
+         "k": "if",
+         "a": [],
+         "c": [
+          {
+           "t": "поломка",
+           "k": "do",
+           "a": [],
+           "c": []
+          }
+         ],
+         "raw": "card?.assignedAgentId && card.assignedAgentId !== effectiveIntakeAgentId && !canBindClient(req, card)"
         }
        ]
       },
@@ -50246,10 +50285,11 @@
      "c": []
     },
     {
-     "t": "если Telegram переписки больше 0",
+     "t": "если telegramConversations + telegramDirectConversations > 0",
      "k": "if",
      "a": [],
-     "c": []
+     "c": [],
+     "raw": "telegramConversations + telegramDirectConversations > 0"
     },
     {
      "t": "если закрыт сделки количество не меньше reports строка предел",
@@ -69406,16 +69446,17 @@
          "a": [],
          "c": [
           {
-           "t": "если await abortLocalUploadSession(session.id)",
-           "k": "if",
-           "a": [],
+           "t": "все изменения разом: либо всё, либо ничего",
+           "k": "do",
+           "a": [
+            "удаляет: видео загрузка сеанс"
+           ],
            "c": [],
-           "raw": "await abortLocalUploadSession(session.id)",
            "more": true
           },
           {
-           "t": "иначе",
-           "k": "else",
+           "t": "если есть cancelled",
+           "k": "if",
            "a": [],
            "c": [],
            "more": true

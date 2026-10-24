@@ -11,6 +11,7 @@ import { clientNamePhoneSafe, phoneSafeText } from "../lib/clientPhone.js";
 import { callAiText, type ImageInput } from "../ai/client.js";
 import { loadMoneyContext, toTjs } from "../lib/money.js";
 import { dushanbeWallClock } from "../lib/dushanbeTime.js";
+import { activityPeriodBounds } from "../lib/activityFeed.js";
 import { thumbsDir } from "../upload.js";
 import { scoreClient } from "../ai/scoring.js";
 import { buildCardFillSuggestion } from "../ai/cardFill.js";
@@ -182,10 +183,11 @@ aiRouter.get("/assistant-audit", requireAuth, requirePermission("auditLog.view")
     return res.status(400).json({ error: "Неверные параметры запроса", details: parsed.error.flatten() });
   }
   const { page, agentId, from, to } = parsed.data;
+  const { start, end } = activityPeriodBounds(from, to);
 
   const where = {
     ...(agentId ? { agentId } : {}),
-    ...(from || to ? { createdAt: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}),
+    ...(start || end ? { createdAt: { ...(start ? { gte: start } : {}), ...(end ? { lte: end } : {}) } } : {}),
   };
 
   const [rows, total] = await Promise.all([

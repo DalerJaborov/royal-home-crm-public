@@ -127,7 +127,7 @@ export function Activity() {
   // даёт новую строку с миллисекундами, а она попадает в queryKey — без memo это
   // гоняло бесконечный цикл перезапросов.
   const from = useMemo(() => periodFrom(PERIODS.find((p) => p.key === period)?.days ?? null), [period]);
-  const { data, isLoading, isError, error, refetch } = useActivityFeed({
+  const { data, isLoading, isFetching, isError, error, refetch } = useActivityFeed({
     page,
     from,
     agentId: agentId || undefined,
@@ -409,6 +409,7 @@ export function Activity() {
 
         {data && (
           <Pagination
+            loading={isFetching}
             variant="loadMore"
             page={data.page}
             pageSize={data.pageSize}

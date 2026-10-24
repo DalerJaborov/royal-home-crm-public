@@ -23,6 +23,7 @@ import { adDelivery, deliveryAsOf, type AdDelivery } from "../lib/ads/adDelivery
 import { textHasPrice, textHasRooms } from "../lib/ads/adMatching.js";
 import { EW } from "../ai/wordBoundary.js";
 import { dushanbeDateString } from "../lib/dushanbeTime.js";
+import { reportCalendarDaySchema, reportCalendarMonthSchema } from "../lib/reportPeriod.js";
 import { syncMetaAds, syncMetaAdsQuietly, FULL_SYNC_DAYS } from "../lib/ads/syncMetaAds.js";
 import { buildConnectUrl, completeConnect, MetaAdsConnectError } from "../lib/ads/metaAdsOAuth.js";
 import { agentAccessCanWriteAds } from "../lib/ads/adsWriteAccess.js";
@@ -440,10 +441,10 @@ adsRouter.patch("/:id/ownership", requireAdsWrite, async (req, res) => {
  */
 const periodSchema = z.object({
   preset: z.enum(["today", "yesterday", "7d", "30d", "month", "prev_month", "all"]).optional(),
-  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  from: reportCalendarDaySchema.optional(),
+  to: reportCalendarDaySchema.optional(),
   /** Совместимость: старые ссылки и вкладки всё ещё передают месяц. */
-  month: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+  month: reportCalendarMonthSchema.optional(),
 });
 
 function resolvePeriod(q: z.infer<typeof periodSchema>): { from: Date; to: Date; label: string } | null {
@@ -457,16 +458,16 @@ function resolvePeriod(q: z.infer<typeof periodSchema>): { from: Date; to: Date;
   if (q.from && q.to) {
     const from = new Date(`${q.from}T00:00:00.000Z`);
     const to = new Date(`${q.to}T00:00:00.000Z`);
-    // Regex схемы пропускает некалендарное «2026-13-99»: Invalid Date доживал до
-    // from.toISOString() в ответе и ронял роут RangeError'ом — 500 вместо 400
-    // (найдено тестами ads-routes 26.08.2026). null — вызывающий отвечает 400.
-    if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) return null;
+    // Validate the effective range before any report query. Each caller maps
+    // null to its existing structured 400 response.
+    if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || from > to) return null;
     return { from, to, label: `${q.from} — ${q.to}` };
   }
   if (q.month) {
-    const [y, m] = q.month.split("-").map(Number);
-    const from = new Date(Date.UTC(y, m - 1, 1));
-    return { from, to: new Date(Date.UTC(y, m, 0)), label: monthLabel(from) };
+    const from = new Date(`${q.month}-01T00:00:00.000Z`);
+    const to = new Date(from);
+    to.setUTCMonth(to.getUTCMonth() + 1, 0);
+    return { from, to, label: monthLabel(from) };
   }
 
   switch (q.preset ?? "30d") {

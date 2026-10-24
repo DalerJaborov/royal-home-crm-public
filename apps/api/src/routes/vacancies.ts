@@ -19,7 +19,8 @@
 
 import { Router, type Request } from "express";
 import { z } from "zod";
-import { customerRecruitmentPortfolioSchema, recruitmentResumeSchema, recruitmentScreeningRulesSchema, assessRecruitmentResume } from "@royal-home/shared";
+import { customerRecruitmentPortfolioSchema, recruitmentResumeSchema, recruitmentScreeningRulesSchema, assessRecruitmentResume,
+  RECRUITMENT_NOTE_MAX_LENGTH, RECRUITMENT_REJECTION_REASON_MAX_LENGTH } from "@royal-home/shared";
 import { recruitmentPositionsRouter } from "./recruitmentPositions.js";
 import { recruitmentCommunicationsRouter } from "./recruitmentCommunications.js";
 import { prisma } from "../db.js";
@@ -46,7 +47,7 @@ import {
   resolveAgentDialTarget,
 } from "../lib/telephony/ariClient.js";
 import { beginOrigination, endOrigination, hasLiveCall } from "../lib/telephony/callTracker.js";
-import type { Prisma } from "../generated/prisma/client.js";
+import { Prisma } from "../generated/prisma/client.js";
 import { dushanbeDayRange } from "../lib/dushanbeTime.js";
 import { sendPrivateFile } from "../lib/sendPrivateFile.js";
 import { r2PresignDownloadUrl } from "../lib/r2Client.js";
@@ -699,8 +700,8 @@ const patchSchema = z
     // undefined не сериализуется в JSON (правило репозитория): чтобы очистить
     // поле, фронт обязан прислать null, а не просто не передать ключ.
     interviewAt: z.string().datetime({ offset: true }).nullable().optional(),
-    interviewNote: z.string().max(2000).nullable().optional(),
-    rejectionReason: z.string().max(500).nullable().optional(),
+    interviewNote: z.string().max(RECRUITMENT_NOTE_MAX_LENGTH).nullable().optional(),
+    rejectionReason: z.string().max(RECRUITMENT_REJECTION_REASON_MAX_LENGTH).nullable().optional(),
     // Только адрес, который выдаёт наша же запись голосовой заметки
     // (POST /me/voice-notes → /me/voice-notes/<uuid>.<ext>, routes/me.ts).
     // Экран проигрывает его через api() с токеном смотрящего, и свободная строка
@@ -1008,7 +1009,7 @@ const createSchema = z.object({
   city: z.string().trim().max(120).nullish(),
   age: z.number().int().min(14).max(90).nullish(),
   experience: z.string().trim().max(2000).nullish(),
-  note: z.string().trim().max(2000).nullish(),
+  note: z.string().trim().max(RECRUITMENT_NOTE_MAX_LENGTH).nullish(),
 });
 
 vacanciesRouter.post("/", requireAuth, requirePermission("vacancies.view"), async (req, res) => {
@@ -1064,6 +1065,11 @@ async function eraseApplications(
   ids: string[]
 ): Promise<{ updated: number; skipped: SkippedItem[] }> {
   const done = await prisma.$transaction(async (tx) => {
+    // Dispatch claims hold this same application lock before changing call
+    // status. Check only after acquiring it, otherwise a concurrent claim can
+    // commit between the busy check and deletion. Stable order avoids cycles
+    // when two overlapping batches arrive in different input orders.
+    await tx.$queryRaw`SELECT "id" FROM "JobApplication" WHERE "id" IN (${Prisma.join(ids)}) ORDER BY "id" FOR UPDATE`;
     const rows = await tx.jobApplication.findMany({
       where: { id: { in: ids } },
       select: { id: true, name: true, phone: true, status: true, customerPositionKey: true, hrPositionKey: true },
@@ -1146,6 +1152,9 @@ vacanciesRouter.post("/bulk", requireAuth, requirePermission("vacancies.view"), 
   }
 
   const result = await prisma.$transaction(async (tx) => {
+    // Same lock as the single PATCH and dispatch; re-read call state after a
+    // concurrent claim commits, before changing its appointment or position.
+    await tx.$queryRaw`SELECT "id" FROM "JobApplication" WHERE "id" IN (${Prisma.join(ids)}) ORDER BY "id" FOR UPDATE`;
     const rows = await tx.jobApplication.findMany({
       where: { id: { in: ids } },
       select: { id: true, status: true, customerInquiryId: true },

@@ -6,6 +6,7 @@ import { clientPhoneFor, phoneSafeText } from "../lib/clientPhone.js";
 import { int16ToBufferLE } from "../lib/telephony/pcmCodec.js";
 import * as liveVoiceMonitor from "../lib/telephony/liveVoiceMonitor.js";
 import type { ListenEvent, ListenSide } from "../lib/telephony/liveVoiceMonitor.js";
+import { registerAuthenticatedStream } from "../lib/authenticatedStreams.js";
 
 /**
  * ПРОСЛУШКА РОБОТА В РЕАЛЬНОМ ВРЕМЕНИ (09.10.2026).
@@ -122,6 +123,7 @@ liveVoiceListenRouter.get("/:id/listen", (req: Request, res: Response) => {
 
   let closed = false;
   let unsubscribe: (() => void) | null = null;
+  let unregisterStream: (() => void) | null = null;
   let flushTimer: NodeJS.Timeout | null = null;
   let heartbeat: NodeJS.Timeout | null = null;
   const close = () => {
@@ -130,6 +132,7 @@ liveVoiceListenRouter.get("/:id/listen", (req: Request, res: Response) => {
     if (flushTimer) clearInterval(flushTimer);
     if (heartbeat) clearInterval(heartbeat);
     unsubscribe?.();
+    unregisterStream?.();
     if (!res.writableEnded) res.end();
   };
 
@@ -158,6 +161,7 @@ liveVoiceListenRouter.get("/:id/listen", (req: Request, res: Response) => {
     close();
     return;
   }
+  unregisterStream = registerAuthenticatedStream(req.agent!.id, close);
   const backlog = liveVoiceMonitor.getBacklog(key);
 
   send("ready", {

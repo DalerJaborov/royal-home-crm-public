@@ -113,6 +113,7 @@ function DeferredClientsDesktop() {
           )}
           {total !== undefined && (
             <Pagination
+              loading={feed.isFetching}
               variant="loadMore"
               page={feed.page}
               pageSize={feed.pageSize}

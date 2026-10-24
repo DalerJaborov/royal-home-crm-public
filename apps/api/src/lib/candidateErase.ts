@@ -67,7 +67,14 @@ export async function removeCandidateFiles(files: string[]): Promise<{ removed: 
       const stillUsed =
         (await isConversationAttachment(name)) ||
         (await prisma.jobApplication.count({
-          where: { OR: [{ cvFile: name }, { rejectionReasonVoiceUrl: { endsWith: name } }] },
+          where: { OR: [
+            { cvFile: name },
+            { rejectionReasonVoiceUrl: { endsWith: name } },
+            // A file may survive only as another application's portfolio item.
+            // PostgreSQL JSON containment matches the file field even when the
+            // item also stores kind, MIME type and its source event witness.
+            { customerPortfolio: { array_contains: [{ file: name }] } },
+          ] },
         })) > 0;
       if (stillUsed) {
         kept++;

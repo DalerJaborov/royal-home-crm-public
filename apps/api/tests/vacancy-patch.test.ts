@@ -49,6 +49,25 @@ function patch(body: Record<string, unknown>) {
   return request(app).patch(`/api/v1/vacancies/${appId}`).set("Authorization", `Bearer ${token}`).send(body);
 }
 
+describe("POST /vacancies — предел заметки при создании", () => {
+  it("сохраняет 2000 символов целиком, а 2001 не создаёт вторую анкету", async () => {
+    const key = `text-limit-${runId}`;
+    await prisma.recruitmentPosition.create({ data: { key, titleRu: "Test position", titleTg: "Test position", isOpen: true } });
+    try {
+      const body = { name: "Test candidate text limit", positionKey: key, note: "x".repeat(2000) };
+      const created = await request(app).post("/api/v1/vacancies").set("Authorization", `Bearer ${token}`).send(body);
+      expect(created.status).toBe(201);
+      expect((await prisma.jobApplication.findUniqueOrThrow({ where: { id: created.body.id } })).interviewNote).toBe(body.note);
+      const rejected = await request(app).post("/api/v1/vacancies").set("Authorization", `Bearer ${token}`).send({ ...body, note: `${body.note}x` });
+      expect(rejected.status).toBe(400);
+      expect(await prisma.jobApplication.count({ where: { hrPositionKey: key } })).toBe(1);
+    } finally {
+      await prisma.jobApplication.deleteMany({ where: { hrPositionKey: key } });
+      await prisma.recruitmentPosition.deleteMany({ where: { key } });
+    }
+  });
+});
+
 describe("PATCH /vacancies/:id — телефон", () => {
   it("нормализует телефон так же, как запись бота", async () => {
     const res = await patch({ phone: "0900112233" });
@@ -90,6 +109,15 @@ describe("PATCH /vacancies/:id — телефон", () => {
 });
 
 describe("PATCH /vacancies/:id — заметка по собеседованию", () => {
+  it.each([["interviewNote", 2000], ["rejectionReason", 500]] as const)("%s сохраняет прежний предел и не меняется при отказе длинному тексту", async (field, limit) => {
+    const text = "x".repeat(limit);
+    expect((await patch({ [field]: text })).status).toBe(200);
+    expect((await prisma.jobApplication.findUniqueOrThrow({ where: { id: appId } }))[field]).toBe(text);
+    const rejected = await patch({ [field]: `${text}x` });
+    expect(rejected.status).toBe(400);
+    expect((await prisma.jobApplication.findUniqueOrThrow({ where: { id: appId } }))[field]).toBe(text);
+    expect((await patch({ [field]: null })).status).toBe(200);
+  });
   it("сохраняет и очищает interviewNote — поле, для которого раньше не было формы", async () => {
     const res = await patch({ interviewNote: "Уверенно держится, есть машина" });
     expect(res.status).toBe(200);

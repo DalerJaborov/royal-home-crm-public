@@ -1,0 +1,9 @@
+# Independent review: property and auto-seller insertion
+
+The parent and a second specialist independently reviewed the actual crud.ts diff after the durable red/green tests. No introduced blocker was found. The prior live-tail SELLER/oldest priority and exact-phone fallback including trash remain; early read-only ownership refusal and the authoritative inner permission check use the existing effective intake owner exception.
+
+The move couples only new seller creation with the existing property/draft insertion transaction, after draft/duplicate/repeat checks. Draft coordination is the existing advisory lock and ordinary active-generation SELECT, not a newly added draft row lock. Client creation reaches the Agent FK before later draft-row closure. The hypothetical Agent-delete inverse cycle was examined against these actual locks; no added cycle was identified. This is a scoped review, not a universal deadlock proof.
+
+A fixed tagged-SQL SAVEPOINT wraps the existing client.create. Only P2002 rolls back to it before exact-phone winner lookup; all other failures and a missing winner propagate. RELEASE sits outside that catch. Keeping create retains the initial StageEvent hook: failed INSERT cannot enqueue, and the outer transaction discards successful-create pending events on rollback. Real PostgreSQL tests cover both uniqueness winners and actual property-FK failure, rather than fabricated Prisma errors. No createMany/event workaround or compensating client deletion was introduced.
+
+The new10case regression and7existing adjacent files/63tests passed in separate recorded runs. The parent read their actual assertions and final cleanup evidence. Postcommit caption/footer, file finalization, audit and concurrent ordinary reassignments retain their previous boundaries; an arbitrary later HTTP error is not promised to roll back an already committed property. PHASE2-PROPERTY-SELLER-ATOMIC.md documents these limits.

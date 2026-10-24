@@ -765,7 +765,7 @@ dealsRouter.patch("/:id", requireAuth, async (req, res) => {
       where: { id: existing.propertyId },
       select: { price: true },
     });
-    const priceBase = Number(existing.soldPrice ?? propertyForBase?.price ?? 0);
+    const priceBase = Number(data.soldPrice ?? existing.soldPrice ?? propertyForBase?.price ?? 0);
     // Округление до копейки здесь же: колонка Decimal(65,30) сохранила бы
     // двоичный хвост процента как есть (см. commissionOf).
     if (priceBase > 0) data.commissionAmount = commissionOf(priceBase, data.commissionPercent);
@@ -774,7 +774,7 @@ dealsRouter.patch("/:id", requireAuth, async (req, res) => {
       where: { id: existing.propertyId },
       select: { price: true },
     });
-    const priceBase = Number(existing.soldPrice ?? propertyForBase?.price ?? 0);
+    const priceBase = Number(data.soldPrice ?? existing.soldPrice ?? propertyForBase?.price ?? 0);
     // До четырёх знаков, как у соседних веток пересчёта: в Decimal(65,30) не должен
     // лечь двоичный хвост деления.
     if (priceBase > 0) {
@@ -872,6 +872,12 @@ dealsRouter.patch("/:id", requireAuth, async (req, res) => {
     // освобождаем после коммита, как в POST.
     let revivedReservedProperty = false;
     const updated = await prisma.$transaction(async (tx) => {
+      // Stage changes also write a timeline Interaction whose property FK
+      // needs a row lock. Always take Property before Deal, as expiry does;
+      // otherwise rejection or the timeline insert can deadlock with expiry.
+      if (data.stage && data.stage !== existing.stage) {
+        await tx.$queryRaw`SELECT "id" FROM "Property" WHERE "id"=${existing.propertyId} FOR UPDATE`;
+      }
       if (isCompleting) {
         const property = await tx.property.findUnique({ where: { id: existing.propertyId } });
         if (!property) throw new DealConflictError("Объект не найден");

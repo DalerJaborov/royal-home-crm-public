@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **666**. Развилок в самих путях: **2358**; вместе с задачами по расписанию и фоновыми заданиями — **3653**. Модулей: **75**.
+Путей: **666**. Развилок в самих путях: **2363**; вместе с задачами по расписанию и фоновыми заданиями — **3660**. Модулей: **75**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -536,6 +536,8 @@
   · зовёт revokeOtherSessions()
 - revokeElevation(target.id);
   · зовёт revokeElevation()
+- closeStreamsForAgent(target.id);
+  · зовёт closeStreamsForAgent()
 - logAudit(req, "TOTP_RESET_BY_DIRECTOR", "Agent", target.id, { targetName: target.fullName });
   · зовёт logAudit()
 - res.json({ totpEnabled: false });
@@ -948,13 +950,19 @@
 - если !agent.frozenAt
   - return res.status(409).json({ error: "Сотрудник не заморожен" });
     · ответ 409 — «Сотрудник не заморожен»
-- await prisma.$transaction(async (tx)
+- const returned = await prisma.$transaction(async (tx)
   · всё внутри — одной транзакцией
   · меняет в базе: agent
-  - await tx.agent.update({ where: { id: agent.id }, data: { frozenAt: null, frozenById: null, frozenReason: null…
+  - const changed = await tx.agent.updateMany({ where: { id: agent.id, frozenAt: agent.frozenAt }, data: { frozen…
     · меняет в базе: agent
+  - если changed.count === 0
+    - return false;
+      · дословно из кода
   - await shiftInactiveClockAfterAbsence(agent.id, agent.frozenAt, new Date(), tx);
     · зовёт shiftInactiveClockAfterAbsence()
+- если !returned
+  - return res.status(409).json({ error: "Отсутствие сотрудника уже изменилось. Обновите карточку" });
+    · ответ 409 — «Отсутствие сотрудника уже изменилось. Обновите карточку»
 - logAudit(req, "AGENT_UNFREEZE", "Agent", agent.id, {});
   · зовёт logAudit()
 - void syncAgentQueuePresence(agent.id).catch(()
@@ -1200,6 +1208,8 @@
 - если !parsed.success
   - return res.status(400).json({ error: "Неверные параметры запроса", details: parsed.error.flatten() });
     · ответ 400 — «Неверные параметры запроса»
+- const { start, end } = activityPeriodBounds(from, to);
+  · зовёт activityPeriodBounds()
 - const [rows, total] = await Promise.all([ prisma.aiAssistantAuditLog.findMany({ where, orderBy: [{ createdAt:…
   · читает в базе: aiAssistantAuditLog
   · считает в базе: aiAssistantAuditLog
@@ -5809,6 +5819,7 @@
   - const updated = await prisma.$transaction(async (tx)
     · ошибка DealConflictError — «Объект не найден»
     · всё внутри — одной транзакцией
+    · обращается к базе своим SQL
     · читает в базе: property
     · меняет в базе: property
     · меняет в базе: client
@@ -5816,6 +5827,9 @@
     · создаёт или меняет в базе: settings
     · читает в базе: deal
     · меняет в базе: deal
+    - если data.stage && data.stage !== existing.stage
+      - await tx.$queryRaw`SELECT "id" FROM "Property" WHERE "id"=${existing.propertyId} FOR UPDATE`;
+        · обращается к базе своим SQL
     - если isCompleting
       - const property = await tx.property.findUnique({ where: { id: existing.propertyId } });
         · читает в базе: property
@@ -6512,7 +6526,7 @@
     · ответ 400 — «Категория не соответствует разделу»
 - const money=await loadMoneyContext();
   · зовёт loadMoneyContext()
-- если (rest.status??current.status)==="PAID"&&finalPaymentDate&&finalPaymentDate>todayExpenseDay()
+- если finalStatus==="PAID"&&finalPaymentDate&&finalPaymentDate>todayExpenseDay()
   - return res.status(400).json({error:"Будущий платёж запишите как план"});
     · ответ 400 — «Будущий платёж запишите как план»
 - если finalCategory === "ADVERTISING" && !finalSource
@@ -7288,7 +7302,7 @@
   · ставит заголовок ответа
 - res.setHeader("Content-Disposition", "attachment; filename=properties-template.csv");
   · ставит заголовок ответа
-- res.send(" Название;Тип;Комнаты;Площадь;Этаж;Этажей всего;Цена;Валюта;Район;Адрес;Состояние;Описание;Контакт …
+- res.send(" Название;Тип;Комнаты;Площадь;Этаж;Этажей всего;Окна;Цена;Валюта;Район;Адрес;Состояние;Описание;Кон…
   · ответ 200
 
 ### POST /api/v1/import/properties
@@ -13489,27 +13503,32 @@
     - если staffMatch
       - return res.status(409).json({ error: staffPhoneError(staffMatch), code: STAFF_PHONE_ERROR_CODE });
         · ответ 409
-    - autoSellerClientId = await prisma.$transaction(async (tx)
+    - resolveAutoSellerClient = async (tx)
       · пробрасывает ошибку дальше
-      · всё внутри — одной транзакцией
       · обращается к базе своим SQL
-      · читает в базе: client
       · создаёт в базе: client
-      - const existing = await tx.$queryRaw<{ id: string }[]>` SELECT "id" FROM "Client" WHERE "deletedAt" IS NULL AN…
+      · читает в базе: client
+      - если existingId
+        - return existingId;
+          · дословно из кода
+      - await tx.$executeRaw`SAVEPOINT property_auto_seller`;
         · обращается к базе своим SQL
-      - если existing[0]
-        - return existing[0].id;
-          · дословно из кода
-      - const byExactPhone = await tx.client.findUnique({ where: { phone: normalizedPhone }, select: { id: true } });
-        · читает в базе: client
-      - если byExactPhone
-        - return byExactPhone.id;
-          · дословно из кода
-      - const created = await tx.client.create({ data: { fullName: sellerNameForCard, phone: normalizedPhone, source:…
-        · создаёт в базе: client
-    - если !autoSellerClientId
-      - const winner = await prisma.client.findUnique({ where: { phone: normalizedPhone }, select: { id: true } });
-        · читает в базе: client
+      - пробует
+        - const created = await tx.client.create({ data: { fullName: sellerNameForCard, phone: normalizedPhone, source:…
+          · создаёт в базе: client
+      - если сорвалось
+        - если (err as { code?: string }).code !== "P2002"
+          - throw err;
+            · пробрасывает ошибку дальше
+        - await tx.$executeRaw`ROLLBACK TO SAVEPOINT property_auto_seller`;
+          · обращается к базе своим SQL
+        - const winner = await tx.client.findUnique({ where: { phone: normalizedPhone }, select: { id: true } });
+          · читает в базе: client
+        - если !winner
+          - throw err;
+            · пробрасывает ошибку дальше
+      - await tx.$executeRaw`RELEASE SAVEPOINT property_auto_seller`;
+        · обращается к базе своим SQL
     - если autoSellerClientId
       - const card = await prisma.client.findUnique({ where: { id: autoSellerClientId }, select: { assignedAgentId: t…
         · читает в базе: client
@@ -13524,6 +13543,7 @@
   · всё внутри — одной транзакцией
   · обращается к базе своим SQL
   · читает в базе: property
+  · читает в базе: client
   · создаёт в базе: property
   · запись в журнал ошибок
   - const sourceDraft = draftId ? (await lockOwnDraft(tx, req.agent!.id), await assertActiveDraft(tx, req.agent!.…
@@ -13550,6 +13570,12 @@
     - если repeat && !(req.query.force === "true" && can(req, "properties.editForeign"))
       - throw new DuplicatePropertyError(repeat);
         · ошибка DuplicatePropertyError — «repeat»
+  - если autoSellerClientId
+    - const card = await tx.client.findUnique({ where: { id: autoSellerClientId }, select: { assignedAgentId: true …
+      · читает в базе: client
+    - если card?.assignedAgentId && card.assignedAgentId !== effectiveIntakeAgentId && !canBindClient(req, card)
+      - throw new SellerBindingDeniedError();
+        · ошибка SellerBindingDeniedError
   - const createdProperty = await tx.property.create({ data: { ...rest, title, canonicalAddress: normalizedAddres…
     · создаёт в базе: property
   - если sourceDraft
@@ -14084,14 +14110,15 @@
   - если row.status === "DEAL_CLOSED"
     - entry.closed += row._count._all;
       · дословно из кода
-- const [botConversations, telegramConversations] = await Promise.all([ prisma.botConversation.groupBy({ by: ["…
+- const [botConversations, telegramConversations, telegramDirectConversations] = await Promise.all([ prisma.bot…
   · считает в базе: botConversation
   · считает в базе: telegramConversation
+  · считает в базе: telegramDirectConversation
 - для каждого: const row of botConversations
   - wroteBySource.set(row.channel, (wroteBySource.get(row.channel) ?? 0) + row._count._all);
     · дословно из кода
-- если telegramConversations > 0
-  - wroteBySource.set("TELEGRAM", (wroteBySource.get("TELEGRAM") ?? 0) + telegramConversations);
+- если telegramConversations + telegramDirectConversations > 0
+  - wroteBySource.set("TELEGRAM", (wroteBySource.get("TELEGRAM") ?? 0) + telegramConversations + telegramDirectCo…
     · дословно из кода
 - const closedDeals = await prisma.deal.findMany({ where: { stage: "COMPLETED", closedAt: { gte: from, lte: to …
   · читает в базе: deal
@@ -16761,10 +16788,13 @@
       · ответ 400 — «Выберите существующую вакансию»
 - const result = await prisma.$transaction(async (tx)
   · всё внутри — одной транзакцией
+  · обращается к базе своим SQL
   · читает в базе: jobApplication
   · читает в базе: recruitmentCommunication
   · меняет в базе: jobApplication
   · меняет в базе: interviewInviteCall
+  - await tx.$queryRaw`SELECT "id" FROM "JobApplication" WHERE "id" IN (${Prisma.join(ids)}) ORDER BY "id" FOR UP…
+    · обращается к базе своим SQL
   - const rows = await tx.jobApplication.findMany({ where: { id: { in: ids } }, select: { id: true, status: true,…
     · читает в базе: jobApplication
   - const busy = await tx.recruitmentCommunication.findMany({ where: { jobApplicationId: { in: ids }, channel: "A…
@@ -17879,7 +17909,7 @@
         - const count = await prisma.$transaction(async (tx)
           · всё внутри — одной транзакцией
           · меняет в базе: agent
-          - const res = await tx.agent.updateMany({ where: { id: agent.id, frozenAt: { not: null }, absenceUntil: { not: …
+          - const res = await tx.agent.updateMany({ where: { id: agent.id, isActive: true, frozenAt: { not: null }, absen…
             · меняет в базе: agent
           - если res.count > 0
             - await shiftInactiveClockAfterAbsence(agent.id, agent.frozenAt, now, tx);
@@ -22423,14 +22453,28 @@
     - const candidates = await prisma.videoUploadSession.findMany({ where: { updatedAt: { lte: emptyCutoff } }, sel…
       · читает в базе: videoUploadSession
     - для каждого: const session of stale
-      - если await abortLocalUploadSession(session.id)
-        - await prisma.videoUploadSession.delete({ where: { id: session.id } });
+      - const cancelled = await prisma.$transaction(async (tx)
+        · всё внутри — одной транзакцией
+        · обращается к базе своим SQL
+        · читает в базе: videoUploadSession
+        · удаляет в базе: videoUploadSession
+        - await tx.$queryRaw`SELECT id FROM "VideoUploadSession" WHERE id = ${session.id} FOR UPDATE`;
+          · обращается к базе своим SQL
+        - const current = await tx.videoUploadSession.findUnique({ where: { id: session.id } });
+          · читает в базе: videoUploadSession
+        - если !current || current.updatedAt > emptyCutoff || (current.updatedAt > cutoff && !(Array.isArray(current.parts) …
+          - return false;
+            · дословно из кода
+        - если !await abortLocalUploadSession(current.id)
+          - result.failed++;
+            · дословно из кода
+          - return false;
+            · дословно из кода
+        - await tx.videoUploadSession.delete({ where: { id: current.id } });
           · удаляет в базе: videoUploadSession
+      - если cancelled
         - await sendPushToAgent(session.createdById, { title: "⚠️ Загрузка видео отменена", body: `ОБ-${String(session.…
           · push-уведомление
-      - иначе
-        - result.failed++;
-          · дословно из кода
     - если result.failed > 0
       - void logSystemError( "storage", `Уборка брошенных загрузок видео: ${result.failed} сессий не удалось отменить…
         · запись в журнал ошибок

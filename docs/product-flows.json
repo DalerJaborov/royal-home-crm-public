@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 666,
-  "forks": 3653,
+  "forks": 3660,
   "mounts": 75,
   "cron": 108,
   "jobs": 31,
@@ -2067,6 +2067,14 @@
     },
     {
      "k": "do",
+     "t": "closeStreamsForAgent(target.id);",
+     "a": [
+      "зовёт closeStreamsForAgent()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
      "t": "logAudit(req, \"TOTP_RESET_BY_DIRECTOR\", \"Agent\", target.id, { targetName: target.fullName });",
      "a": [
       "зовёт logAudit()"
@@ -3833,7 +3841,7 @@
     },
     {
      "k": "do",
-     "t": "await prisma.$transaction(async (tx)",
+     "t": "const returned = await prisma.$transaction(async (tx)",
      "a": [
       "всё внутри — одной транзакцией",
       "меняет в базе: agent"
@@ -3841,17 +3849,47 @@
      "c": [
       {
        "k": "do",
-       "t": "await tx.agent.update({ where: { id: agent.id }, data: { frozenAt: null, frozenById: null, frozenReason: null…",
+       "t": "const changed = await tx.agent.updateMany({ where: { id: agent.id, frozenAt: agent.frozenAt }, data: { frozen…",
        "a": [
         "меняет в базе: agent"
        ],
        "c": []
       },
       {
+       "k": "if",
+       "t": "changed.count === 0",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return false;",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
        "k": "do",
        "t": "await shiftInactiveClockAfterAbsence(agent.id, agent.frozenAt, new Date(), tx);",
        "a": [
         "зовёт shiftInactiveClockAfterAbsence()"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!returned",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"Отсутствие сотрудника уже изменилось. Обновите карточку\" });",
+       "a": [
+        "ответ 409 — «Отсутствие сотрудника уже изменилось. Обновите карточку»"
        ],
        "c": []
       }
@@ -4963,6 +5001,14 @@
        "c": []
       }
      ]
+    },
+    {
+     "k": "do",
+     "t": "const { start, end } = activityPeriodBounds(from, to);",
+     "a": [
+      "зовёт activityPeriodBounds()"
+     ],
+     "c": []
     },
     {
      "k": "do",
@@ -25030,6 +25076,7 @@
        "a": [
         "ошибка DealConflictError — «Объект не найден»",
         "всё внутри — одной транзакцией",
+        "обращается к базе своим SQL",
         "читает в базе: property",
         "меняет в базе: property",
         "меняет в базе: client",
@@ -25039,6 +25086,21 @@
         "меняет в базе: deal"
        ],
        "c": [
+        {
+         "k": "if",
+         "t": "data.stage && data.stage !== existing.stage",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "await tx.$queryRaw`SELECT \"id\" FROM \"Property\" WHERE \"id\"=${existing.propertyId} FOR UPDATE`;",
+           "a": [
+            "обращается к базе своим SQL"
+           ],
+           "c": []
+          }
+         ]
+        },
         {
          "k": "if",
          "t": "isCompleting",
@@ -28331,7 +28393,7 @@
     },
     {
      "k": "if",
-     "t": "(rest.status??current.status)===\"PAID\"&&finalPaymentDate&&finalPaymentDate>todayExpenseDay()",
+     "t": "finalStatus===\"PAID\"&&finalPaymentDate&&finalPaymentDate>todayExpenseDay()",
      "a": [],
      "c": [
       {
@@ -32807,7 +32869,7 @@
     },
     {
      "k": "do",
-     "t": "res.send(\" Название;Тип;Комнаты;Площадь;Этаж;Этажей всего;Цена;Валюта;Район;Адрес;Состояние;Описание;Контакт …",
+     "t": "res.send(\" Название;Тип;Комнаты;Площадь;Этаж;Этажей всего;Окна;Цена;Валюта;Район;Адрес;Состояние;Описание;Кон…",
      "a": [
       "ответ 200"
      ],
@@ -60240,81 +60302,110 @@
         },
         {
          "k": "do",
-         "t": "autoSellerClientId = await prisma.$transaction(async (tx)",
+         "t": "resolveAutoSellerClient = async (tx)",
          "a": [
           "пробрасывает ошибку дальше",
-          "всё внутри — одной транзакцией",
           "обращается к базе своим SQL",
-          "читает в базе: client",
-          "создаёт в базе: client"
+          "создаёт в базе: client",
+          "читает в базе: client"
          ],
          "c": [
           {
+           "k": "if",
+           "t": "existingId",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return existingId;",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
            "k": "do",
-           "t": "const existing = await tx.$queryRaw<{ id: string }[]>` SELECT \"id\" FROM \"Client\" WHERE \"deletedAt\" IS NULL AN…",
+           "t": "await tx.$executeRaw`SAVEPOINT property_auto_seller`;",
            "a": [
             "обращается к базе своим SQL"
            ],
            "c": []
           },
           {
-           "k": "if",
-           "t": "existing[0]",
+           "k": "try",
+           "t": "пробует",
            "a": [],
            "c": [
             {
              "k": "do",
-             "t": "return existing[0].id;",
+             "t": "const created = await tx.client.create({ data: { fullName: sellerNameForCard, phone: normalizedPhone, source:…",
              "a": [
-              "дословно из кода"
+              "создаёт в базе: client"
              ],
              "c": []
             }
            ]
           },
           {
-           "k": "do",
-           "t": "const byExactPhone = await tx.client.findUnique({ where: { phone: normalizedPhone }, select: { id: true } });",
-           "a": [
-            "читает в базе: client"
-           ],
-           "c": []
-          },
-          {
-           "k": "if",
-           "t": "byExactPhone",
+           "k": "catch",
+           "t": "если сорвалось",
            "a": [],
            "c": [
             {
+             "k": "if",
+             "t": "(err as { code?: string }).code !== \"P2002\"",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "throw err;",
+               "a": [
+                "пробрасывает ошибку дальше"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
              "k": "do",
-             "t": "return byExactPhone.id;",
+             "t": "await tx.$executeRaw`ROLLBACK TO SAVEPOINT property_auto_seller`;",
              "a": [
-              "дословно из кода"
+              "обращается к базе своим SQL"
              ],
              "c": []
+            },
+            {
+             "k": "do",
+             "t": "const winner = await tx.client.findUnique({ where: { phone: normalizedPhone }, select: { id: true } });",
+             "a": [
+              "читает в базе: client"
+             ],
+             "c": []
+            },
+            {
+             "k": "if",
+             "t": "!winner",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "throw err;",
+               "a": [
+                "пробрасывает ошибку дальше"
+               ],
+               "c": []
+              }
+             ]
             }
            ]
           },
           {
            "k": "do",
-           "t": "const created = await tx.client.create({ data: { fullName: sellerNameForCard, phone: normalizedPhone, source:…",
+           "t": "await tx.$executeRaw`RELEASE SAVEPOINT property_auto_seller`;",
            "a": [
-            "создаёт в базе: client"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "if",
-         "t": "!autoSellerClientId",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "const winner = await prisma.client.findUnique({ where: { phone: normalizedPhone }, select: { id: true } });",
-           "a": [
-            "читает в базе: client"
+            "обращается к базе своим SQL"
            ],
            "c": []
           }
@@ -60371,6 +60462,7 @@
       "всё внутри — одной транзакцией",
       "обращается к базе своим SQL",
       "читает в базе: property",
+      "читает в базе: client",
       "создаёт в базе: property",
       "запись в журнал ошибок"
      ],
@@ -60482,6 +60574,36 @@
            "t": "throw new DuplicatePropertyError(repeat);",
            "a": [
             "ошибка DuplicatePropertyError — «repeat»"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "autoSellerClientId",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "const card = await tx.client.findUnique({ where: { id: autoSellerClientId }, select: { assignedAgentId: true …",
+         "a": [
+          "читает в базе: client"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "card?.assignedAgentId && card.assignedAgentId !== effectiveIntakeAgentId && !canBindClient(req, card)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "throw new SellerBindingDeniedError();",
+           "a": [
+            "ошибка SellerBindingDeniedError"
            ],
            "c": []
           }
@@ -62746,10 +62868,11 @@
     },
     {
      "k": "do",
-     "t": "const [botConversations, telegramConversations] = await Promise.all([ prisma.botConversation.groupBy({ by: [\"…",
+     "t": "const [botConversations, telegramConversations, telegramDirectConversations] = await Promise.all([ prisma.bot…",
      "a": [
       "считает в базе: botConversation",
-      "считает в базе: telegramConversation"
+      "считает в базе: telegramConversation",
+      "считает в базе: telegramDirectConversation"
      ],
      "c": []
     },
@@ -62770,12 +62893,12 @@
     },
     {
      "k": "if",
-     "t": "telegramConversations > 0",
+     "t": "telegramConversations + telegramDirectConversations > 0",
      "a": [],
      "c": [
       {
        "k": "do",
-       "t": "wroteBySource.set(\"TELEGRAM\", (wroteBySource.get(\"TELEGRAM\") ?? 0) + telegramConversations);",
+       "t": "wroteBySource.set(\"TELEGRAM\", (wroteBySource.get(\"TELEGRAM\") ?? 0) + telegramConversations + telegramDirectCo…",
        "a": [
         "дословно из кода"
        ],
@@ -74658,12 +74781,21 @@
      "t": "const result = await prisma.$transaction(async (tx)",
      "a": [
       "всё внутри — одной транзакцией",
+      "обращается к базе своим SQL",
       "читает в базе: jobApplication",
       "читает в базе: recruitmentCommunication",
       "меняет в базе: jobApplication",
       "меняет в базе: interviewInviteCall"
      ],
      "c": [
+      {
+       "k": "do",
+       "t": "await tx.$queryRaw`SELECT \"id\" FROM \"JobApplication\" WHERE \"id\" IN (${Prisma.join(ids)}) ORDER BY \"id\" FOR UP…",
+       "a": [
+        "обращается к базе своим SQL"
+       ],
+       "c": []
+      },
       {
        "k": "do",
        "t": "const rows = await tx.jobApplication.findMany({ where: { id: { in: ids } }, select: { id: true, status: true,…",
@@ -79598,7 +79730,7 @@
              "c": [
               {
                "k": "do",
-               "t": "const res = await tx.agent.updateMany({ where: { id: agent.id, frozenAt: { not: null }, absenceUntil: { not: …",
+               "t": "const res = await tx.agent.updateMany({ where: { id: agent.id, isActive: true, frozenAt: { not: null }, absen…",
                "a": [
                 "меняет в базе: agent"
                ],
@@ -100909,38 +101041,89 @@
          "a": [],
          "c": [
           {
-           "k": "if",
-           "t": "await abortLocalUploadSession(session.id)",
-           "a": [],
+           "k": "do",
+           "t": "const cancelled = await prisma.$transaction(async (tx)",
+           "a": [
+            "всё внутри — одной транзакцией",
+            "обращается к базе своим SQL",
+            "читает в базе: videoUploadSession",
+            "удаляет в базе: videoUploadSession"
+           ],
            "c": [
             {
              "k": "do",
-             "t": "await prisma.videoUploadSession.delete({ where: { id: session.id } });",
+             "t": "await tx.$queryRaw`SELECT id FROM \"VideoUploadSession\" WHERE id = ${session.id} FOR UPDATE`;",
              "a": [
-              "удаляет в базе: videoUploadSession"
+              "обращается к базе своим SQL"
              ],
              "c": []
             },
             {
              "k": "do",
-             "t": "await sendPushToAgent(session.createdById, { title: \"⚠️ Загрузка видео отменена\", body: `ОБ-${String(session.…",
+             "t": "const current = await tx.videoUploadSession.findUnique({ where: { id: session.id } });",
              "a": [
-              "push-уведомление"
+              "читает в базе: videoUploadSession"
+             ],
+             "c": []
+            },
+            {
+             "k": "if",
+             "t": "!current || current.updatedAt > emptyCutoff || (current.updatedAt > cutoff && !(Array.isArray(current.parts) …",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "return false;",
+               "a": [
+                "дословно из кода"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "if",
+             "t": "!await abortLocalUploadSession(current.id)",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "result.failed++;",
+               "a": [
+                "дословно из кода"
+               ],
+               "c": []
+              },
+              {
+               "k": "do",
+               "t": "return false;",
+               "a": [
+                "дословно из кода"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "do",
+             "t": "await tx.videoUploadSession.delete({ where: { id: current.id } });",
+             "a": [
+              "удаляет в базе: videoUploadSession"
              ],
              "c": []
             }
            ]
           },
           {
-           "k": "else",
-           "t": "иначе",
+           "k": "if",
+           "t": "cancelled",
            "a": [],
            "c": [
             {
              "k": "do",
-             "t": "result.failed++;",
+             "t": "await sendPushToAgent(session.createdById, { title: \"⚠️ Загрузка видео отменена\", body: `ОБ-${String(session.…",
              "a": [
-              "дословно из кода"
+              "push-уведомление"
              ],
              "c": []
             }

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { RecruitmentPosition } from "@royal-home/shared";
+import { RECRUITMENT_NOTE_MAX_LENGTH, type RecruitmentPosition } from "@royal-home/shared";
 import { useCreateVacancy } from "../hooks/useVacancies";
 import { Rh2Sheet } from "./rh2/Rh2Sheet";
 import { MutationError } from "./MutationError";
@@ -42,7 +42,7 @@ export function VacancyCreateSheet({ positions, defaultPositionKey, onClose, onC
         <label className="fld"><span className="lab">Возраст</span><input inputMode="numeric" value={draft.age} onChange={set("age")} maxLength={3} /></label>
       </div>
       <label className="fld"><span className="lab">Опыт</span><textarea rows={3} value={draft.experience} onChange={set("experience")} maxLength={2000} /></label>
-      <label className="fld"><span className="lab">Заметка</span><textarea rows={3} value={draft.note} onChange={set("note")} maxLength={4000} /><span className="msg">Видно только сотрудникам.</span></label>
+      <label className="fld"><span className="lab">Заметка</span><textarea rows={3} value={draft.note} onChange={set("note")} maxLength={RECRUITMENT_NOTE_MAX_LENGTH} /><span className="msg">Видно только сотрудникам. До {RECRUITMENT_NOTE_MAX_LENGTH} символов.</span></label>
       {formError && <p className="quiet crit" role="alert">{formError}</p>}
       {existingId ? <div className="quiet warn" role="alert"><p>Такой кандидат уже есть.</p>
         <button type="button" className="lnk" onClick={() => onOpenExisting(existingId, draft.phone.trim())}>Открыть его анкету</button></div>

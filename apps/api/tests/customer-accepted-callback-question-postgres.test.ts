@@ -37,10 +37,11 @@ const igOrigin = "https://synthetic-accepted-question-ig.invalid";
 const geminiOrigin = "https://synthetic-accepted-question-gemini.invalid";
 let savedSettings: Awaited<ReturnType<typeof settingsSnapshot>>;
 let revisionId: string;
+let receivingAgentId: string;
 let rollout: Awaited<ReturnType<typeof createCustomerRolloutFixture>>;
 function settingsSnapshot() { return prisma.settings.findUniqueOrThrow({ where: { id: "singleton" }, select: {
   botEnabled: true, metaEnabled: true, botInstagramEnabled: true, metaVerifyToken: true,
-  geminiApiKey: true, geminiApiKey2: true, geminiApiKeysExtra: true,
+  geminiApiKey: true, geminiApiKey2: true, geminiApiKeysExtra: true, leadDistributionStrategy: true,
 } }); }
 const phone = () => `+99293${randomInt(1_000_000, 9_999_999)}`;
 const decision = (question: "callback_consent" | "budget" | "phone" | "none" | "clarify_previous" | "name", refs: string[] = []) =>
@@ -175,7 +176,13 @@ beforeAll(async () => {
   savedSettings = await settingsSnapshot();
   await prisma.settings.update({ where: { id: "singleton" }, data: { botEnabled: true, metaEnabled: true,
     botInstagramEnabled: true, metaVerifyToken: encryptSecret("synthetic-question-verify"),
-    geminiApiKey: encryptSecret(apiKey), geminiApiKey2: null, geminiApiKeysExtra: [] } });
+    geminiApiKey: encryptSecret(apiKey), geminiApiKey2: null, geminiApiKeysExtra: [], leadDistributionStrategy: "fair" } });
+  // Working hours alone do not create an eligible lead receiver. Own the
+  // positive assignment precondition instead of depending on a preceding file.
+  receivingAgentId = (await prisma.agent.create({ data: {
+    fullName: "Synthetic accepted question receiver", phone: phone(), role: "AGENT",
+    isActive: true, frozenAt: null, leadsPausedUntil: null, weeklyDaysOff: [], lastSeenAt: new Date(),
+  } })).id;
   vi.stubEnv("IG_PROXY_URL", igOrigin); vi.stubEnv("IG_PROXY_KEY", "");
   vi.stubEnv("GEMINI_PROXY_URL", geminiOrigin); vi.stubEnv("GEMINI_PROXY_KEY", "");
   vi.stubEnv("GEMINI_API_KEY", apiKey); vi.stubEnv("GEMINI_API_KEY_2", ""); vi.stubEnv("BOT_PROPERTY_CONTEXT_ENABLED", "0");
@@ -220,6 +227,7 @@ afterAll(async () => {
       linkCandidatesLeft: { none: {} }, linkCandidatesRight: { none: {} }, mergesIn: { none: {} }, mergesOut: { none: {} } } });
     await prisma.customerEndpointScope.deleteMany({ where: { messengerAccountId: { in: accountIds } } });
     await prisma.messengerAccount.deleteMany({ where: { id: { in: accountIds } } });
+    if (receivingAgentId) await prisma.agent.delete({ where: { id: receivingAgentId } });
   } finally {
     try {
       try { if (savedSettings) await prisma.settings.update({ where: { id: "singleton" }, data: savedSettings }); }
@@ -268,6 +276,7 @@ describe("actual accepted callback question → real next signed IN", () => {
         await processNewCustomerLeadPolicy(action.id);
         const policyApplied = await prisma.customerAction.findUniqueOrThrow({ where: { id: action.id } });
         expect(policyApplied.policyResult).toMatchObject({ intakeOutcome: { mode: working ? "assigned" : "night_pending" } });
+        if (working) expect((await prisma.client.findUniqueOrThrow({ where: { id: client.id } })).assignedAgentId).not.toBeNull();
         const next = await f.beforeClaim(await f.intake("А рассрочка?"));
         expect(next.lane.context.knownPhoneSource).toBe("scoped_contact");
         const claim = await prisma.$transaction(tx => claimCustomerAgentTurnTx(tx, next.lane.principal));

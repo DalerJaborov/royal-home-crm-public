@@ -311,6 +311,7 @@ function ExpenseRow({ e, canManage, usdToTjs }: { e: Expense; canManage: boolean
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState(String(Number(e.amount)));
   const openingVersion = useRef(e.version);
+  const deleteVersion = useRef(e.version);
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -340,7 +341,7 @@ function ExpenseRow({ e, canManage, usdToTjs }: { e: Expense; canManage: boolean
   const deleteExpense = async () => {
     await actionLock.current(async () => {
       setWorking(true); setError(null);
-      try { await remove.mutateAsync(e.id); setConfirmDelete(false); }
+      try { await remove.mutateAsync({ id: e.id, version: deleteVersion.current }); setConfirmDelete(false); }
       catch (err) { setError(err instanceof Error ? err.message : "Не удалось удалить расход. Повторите."); }
       finally { setWorking(false); }
     });
@@ -395,7 +396,7 @@ function ExpenseRow({ e, canManage, usdToTjs }: { e: Expense; canManage: boolean
           <button className="pill ghost sm" type="button" disabled={working} onClick={() => { openingVersion.current = e.version; setValue(String(Number(e.amount))); setError(null); setEditing(true); }}>
             Изменить
           </button>
-          <button className="lnk" type="button" disabled={working} onClick={() => { setError(null); setConfirmDelete(true); }}>
+          <button className="lnk" type="button" disabled={working} onClick={() => { deleteVersion.current = e.version; setError(null); setConfirmDelete(true); }}>
             Удалить
           </button>
         </div>

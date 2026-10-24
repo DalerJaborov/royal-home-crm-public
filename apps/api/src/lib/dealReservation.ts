@@ -69,7 +69,7 @@ type HeldStage = (typeof HELD_STAGES)[number];
 const HELD_REMINDER_INTERVAL_MS = 24 * 3600_000;
 
 async function releaseOneReservation(
-  property: { id: string; shortId: number | string; title: string },
+  property: { id: string; shortId: number | string; title: string; reservedAt: Date | null },
   expiryAction: "cancel" | "keep"
 ): Promise<{
   released: boolean;
@@ -78,6 +78,16 @@ async function releaseOneReservation(
   heldDeal: { id: string; agentId: string; stage: HeldStage } | null;
 }> {
   return prisma.$transaction(async (tx) => {
+    // The scan can be stale by the time this transaction starts: another request
+    // may have renewed the reservation. Lock and match that exact reservation
+    // before either releasing it or marking a held deal as expired.
+    const currentReservation = await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT "id" FROM "Property"
+      WHERE "id" = ${property.id} AND "status" = 'RESERVED'
+        AND "reservedAt" = ${property.reservedAt} AND "deletedAt" IS NULL
+      FOR UPDATE
+    `;
+    if (currentReservation.length === 0) return { released: false, cancelledDeal: null, heldDeal: null };
     // СДЕЛКА ЖДЁТ ОДОБРЕНИЯ ИЛИ ДОГОВОР ПОДПИСАН — НЕ ОТМЕНЯЕМ (глубокая проверка
     // 02.10.2026, C1; «Договор подписан» — решение владельца 02.10 «да, по советам»).
     // Агент всё сдал (документы, цена, доли) или договор с покупателем уже

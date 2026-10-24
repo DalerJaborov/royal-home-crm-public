@@ -725,7 +725,7 @@ function useSectionFeed<T extends { id: string }>(
   resetKey: string,
   page: number,
   setPage: (page: number) => void,
-  query: { data?: Paginated<T>; isLoading: boolean; error: Error | null; refetch: () => unknown },
+  query: { data?: Paginated<T>; isLoading: boolean; isFetching: boolean; error: Error | null; refetch: () => unknown },
   head: { data?: Paginated<T> }
 ) {
   const accumulated = useAccumulatedPages(query.data?.items, page, resetKey, head.data?.items);
@@ -741,6 +741,7 @@ function useSectionFeed<T extends { id: string }>(
     pageSize: CLIENT_SECTION_PAGE_SIZE,
     setPage,
     isLoading: query.isLoading && items.length === 0,
+    isFetching: query.isFetching,
     error: query.error,
     refetch: query.refetch,
   };

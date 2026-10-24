@@ -19,6 +19,25 @@
  */
 export type FormFields = Record<string, unknown>;
 
+type SourceTransition = { kind: "optimistic" } | { kind: "rollback"; from: object };
+// Cache identities only: no markers can leak into settings JSON or persistence.
+const sourceTransitions = new WeakMap<object, SourceTransition>();
+
+export function markOptimisticFormSource(source: object, previous: object): object | undefined {
+  if (source === previous) return undefined;
+  sourceTransitions.set(source, { kind: "optimistic" });
+  return source;
+}
+
+export function markRolledBackFormSource(source: object, optimistic: object): void {
+  if (source === optimistic) sourceTransitions.delete(source);
+  else sourceTransitions.set(source, { kind: "rollback", from: optimistic });
+}
+
+export function markConfirmedFormSource(source: object): void {
+  sourceTransitions.delete(source);
+}
+
 function same(a: unknown, b: unknown): boolean {
   if (a === b) return true;
   // Число и та же строка — одно значение: поле формы держит "15", а
@@ -42,4 +61,26 @@ export function serverRefillPatch<T extends FormFields>(server: T, lastServer: T
     patch[key] = next;
   }
   return patch;
+}
+
+/** Per mounted form: remember which inputs were drafts before an optimistic write. */
+export class ServerFormSyncState<T extends FormFields> {
+  private lastServer: T | undefined;
+  private readonly draftsBeforeOptimism = new WeakMap<object, Set<keyof T>>();
+
+  refill(server: T, local: T, source?: object): Partial<T> {
+    const transition = source && sourceTransitions.get(source);
+    const previous = this.lastServer;
+    if (source && transition?.kind === "optimistic" && previous) {
+      this.draftsBeforeOptimism.set(source, new Set(
+        (Object.keys(server) as (keyof T)[]).filter(key => !same(local[key], previous[key]))
+      ));
+    }
+    const patch = serverRefillPatch(server, this.lastServer, local);
+    if (transition?.kind === "rollback") {
+      for (const key of this.draftsBeforeOptimism.get(transition.from) ?? []) delete patch[key];
+    }
+    this.lastServer = server;
+    return patch;
+  }
 }

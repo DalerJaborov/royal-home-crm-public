@@ -33,7 +33,7 @@ export function EditorDashboard() {
   // объект на монтаже было не увидеть вовсе. Теперь «Показать ещё» под каждым.
   const [editingPage, setEditingPage] = useState(1);
   const [upcomingPage, setUpcomingPage] = useState(1);
-  const { data, isLoading, error } = useEditorQueue(true, { editingPage, upcomingPage });
+  const { data, isLoading, isFetching, error } = useEditorQueue(true, { editingPage, upcomingPage });
   const head = useEditorQueue(editingPage > 1 || upcomingPage > 1, { editingPage: 1, upcomingPage: 1 });
   const editingRows = useAccumulatedPages(data?.inEditing, editingPage, "editing", head.data?.inEditing);
   const upcomingRows = useAccumulatedPages(data?.upcoming, upcomingPage, "upcoming", head.data?.upcoming);
@@ -198,6 +198,7 @@ export function EditorDashboard() {
               {shown && (
                 <Pagination
                   variant="loadMore"
+                  loading={isFetching}
                   page={editingPage}
                   pageSize={shown.pageSize}
                   total={shown.counts.inEditing}
@@ -245,6 +246,7 @@ export function EditorDashboard() {
               {shown && (
                 <Pagination
                   variant="loadMore"
+                  loading={isFetching}
                   page={upcomingPage}
                   pageSize={shown.pageSize}
                   total={shown.counts.upcoming}

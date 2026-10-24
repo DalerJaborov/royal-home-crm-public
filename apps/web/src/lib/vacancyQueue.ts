@@ -1,4 +1,4 @@
-import type { RecruitmentPosition } from "@royal-home/shared";
+import { RECRUITMENT_NOTE_MAX_LENGTH, RECRUITMENT_REJECTION_REASON_MAX_LENGTH, type RecruitmentPosition } from "@royal-home/shared";
 import { ApiError } from "./apiError";
 import { VACANCY_NO_POSITION, type JobApplication, type VacancyBulkResponse, type VacancyCreateInput,
   type VacancyDuplicateBody, type VacancyPriorityFilter } from "../types/vacancies";
@@ -133,6 +133,14 @@ export function duplicateCandidateId(error: unknown): string | null {
 export interface CandidateDraft { name: string; phone: string; positionKey: string; city: string; age: string; experience: string; note: string }
 export const EMPTY_CANDIDATE_DRAFT: CandidateDraft = { name: "", phone: "", positionKey: "", city: "", age: "", experience: "", note: "" };
 
+/** Validate the trimmed text actually sent, retaining the original draft for correction. */
+export function candidateStaffTextError(value: string, kind: "note" | "reject"): string | null {
+  const limit = kind === "reject" ? RECRUITMENT_REJECTION_REASON_MAX_LENGTH : RECRUITMENT_NOTE_MAX_LENGTH;
+  return value.trim().length > limit
+    ? `${kind === "reject" ? "Причина отказа" : "Заметка"} — не больше ${limit} символов. Сократите текст перед сохранением.`
+    : null;
+}
+
 /** Проверка формы «+ Кандидат» до отправки; пустые поля не уходят на сервер. */
 export function candidateCreateBody(draft: CandidateDraft): { body: VacancyCreateInput } | { error: string } {
   const name = draft.name.trim();
@@ -140,6 +148,8 @@ export function candidateCreateBody(draft: CandidateDraft): { body: VacancyCreat
   if (!draft.positionKey) return { error: "Выберите вакансию." };
   const body: VacancyCreateInput = { name, positionKey: draft.positionKey };
   const phone = draft.phone.trim(), city = draft.city.trim(), experience = draft.experience.trim(), note = draft.note.trim();
+  const noteError = candidateStaffTextError(note, "note");
+  if (noteError) return { error: noteError };
   if (phone) {
     if (phone.replace(/\D/g, "").length < 7) return { error: "Проверьте телефон: в нём меньше семи цифр." };
     body.phone = phone;

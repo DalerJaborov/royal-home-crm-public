@@ -1,5 +1,7 @@
-import { describe, expect, it } from "vitest";
-import { networkFailureError, retryAfterMessage } from "../api";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { api, networkFailureError, retryAfterMessage } from "../api";
+
+afterEach(() => vi.unstubAllGlobals());
 
 /**
  * Тексты сбоев не обещают того, чего не будет, и не говорят по-английски
@@ -24,11 +26,27 @@ describe("тексты сбоев связи", () => {
     }
   });
 
-  it("обрыв на записи честно говорит, что изменение не сохранилось", () => {
-    const err = networkFailureError(new TypeError("Failed to fetch"), "PATCH") as Error;
-    expect(err.message).toContain("не сохранилось");
-    const timeout = networkFailureError(new Error("Связь пропала — попробуем ещё раз"), "POST") as Error;
-    expect(timeout.message).not.toContain("попробуем");
+  it.each(["POST", "PATCH", "PUT", "DELETE"])("%s: обрыв и таймаут требуют проверить результат перед повтором", (method) => {
+    for (const failure of [new TypeError("Failed to fetch"), new Error("Связь пропала — попробуем ещё раз")]) {
+      const err = networkFailureError(failure, method) as Error;
+      expect(err.message).toContain("Не удалось подтвердить результат");
+      expect(err.message).toContain("Перед повтором проверьте");
+      expect(err.message).not.toContain("изменение не сохранилось");
+      expect(err.message).not.toContain("попробуем");
+    }
+  });
+
+  it("потеря ответа после записи не утверждает, что запись не произошла", async () => {
+    const stored: unknown[] = [];
+    const transport = vi.fn(async (_url: string, options?: RequestInit) => {
+      stored.push(JSON.parse(String(options?.body)));
+      throw new TypeError("Failed to fetch");
+    });
+    vi.stubGlobal("fetch", transport);
+    await expect(api("/clients/test-only/notes", { method: "POST", body: { text: "test-only" } }))
+      .rejects.toThrow("Перед повтором проверьте");
+    expect(stored).toEqual([{ text: "test-only" }]);
+    expect(transport).toHaveBeenCalledTimes(1);
   });
 
   it("чужие ошибки не подменяются", () => {

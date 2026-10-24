@@ -63,12 +63,24 @@ export async function cleanupStaleVideoUploadSessions(): Promise<VideoUploadClea
     .slice(0, MAX_SESSIONS_PER_RUN);
 
   for (const session of stale) {
-    result.sessions++;
     // Сначала папка сессии на диске, и только потом запись о ней — тот же
     // порядок, что и у уборки видео объектов: обратный терял бы возможность
     // повторить отмену.
-    if (await abortLocalUploadSession(session.id)) {
-      await prisma.videoUploadSession.delete({ where: { id: session.id } });
+    const cancelled = await prisma.$transaction(async (tx) => {
+      // The scan is only a candidate list. A PUT accepted while we were waiting
+      // has refreshed updatedAt. Lock/reload before removing any bytes; normal
+      // PUT metadata updates take this same PostgreSQL row lock implicitly.
+      await tx.$queryRaw`SELECT id FROM "VideoUploadSession" WHERE id = ${session.id} FOR UPDATE`;
+      const current = await tx.videoUploadSession.findUnique({ where: { id: session.id } });
+      if (!current || current.updatedAt > emptyCutoff ||
+        (current.updatedAt > cutoff && !(Array.isArray(current.parts) && current.parts.length === 0))) return false;
+      // Retain the row on a filesystem failure, so a later sweep can retry.
+      if (!await abortLocalUploadSession(current.id)) { result.failed++; return false; }
+      await tx.videoUploadSession.delete({ where: { id: current.id } });
+      return true;
+    }, { timeout: 120_000 });
+    if (cancelled) {
+      result.sessions++;
       // Автору — пуш (07.10.2026): загрузка пропала молча, а он считал, что ролик
       // у объекта уже есть. Тег по сессии — повтор прохода не дублирует.
       await sendPushToAgent(session.createdById, {
@@ -77,8 +89,6 @@ export async function cleanupStaleVideoUploadSessions(): Promise<VideoUploadClea
         url: `/properties/${session.property.shortId}`,
         tag: `video-upload-cancelled-${session.id}`,
       }).catch((err) => console.error("[uploadCleanup] пуш автору:", err instanceof Error ? err.message : err));
-    } else {
-      result.failed++;
     }
   }
 
