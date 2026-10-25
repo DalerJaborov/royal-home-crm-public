@@ -1,6 +1,7 @@
 import type { Client } from "../generated/prisma/client.js";
 import { prisma, type TxClient } from "../db.js";
 import { pickFreeExtraPhones } from "./clientPhones.js";
+import { clientPhoneHash } from "./clientPhoneOrigins.js";
 import { closeClientSatellites } from "./clientSatellites.js";
 import { findAgentsWithPermission } from "./recipients.js";
 import { closeLeadPushNotifications, sendPushToAgent } from "../push.js";
@@ -88,11 +89,13 @@ export async function mergeClients(
       data: { deletedAt: new Date(), deletedById: actorAgentId },
     });
     if (claimed.count === 0) throw new ClientMergeTrashedError("duplicate");
-    const primaryAlive = await tx.client.findFirst({
-      where: { id: primaryId, deletedAt: null },
-      select: { id: true, assignedAgentId: true },
-    });
-    if (!primaryAlive) throw new ClientMergeTrashedError("primary");
+    // Serialize the current primary state with manual edits and phone writes.
+    await tx.$queryRaw`SELECT id FROM "Client" WHERE id = ${primaryId} FOR UPDATE`;
+    const primary = await tx.client.findFirst({ where: { id: primaryId, deletedAt: null } });
+    if (!primary) throw new ClientMergeTrashedError("primary");
+    const lockedIntent = primary;
+    const primaryOrigins = await tx.clientPhoneOrigin.findMany({ where: { clientId: primaryId } });
+    const duplicateOrigins = await tx.clientPhoneOrigin.findMany({ where: { clientId: duplicateId } });
 
     /**
      * ОТКРЫТАЯ СДЕЛКА ДУБЛЯ У ДРУГОГО АГЕНТА — НЕ СКЛЕИВАЕМ (решение владельца
@@ -104,7 +107,7 @@ export async function mergeClients(
       where: {
         clientId: duplicateId,
         stage: OPEN_DEAL_STAGE_FILTER,
-        ...(primaryAlive.assignedAgentId ? { agentId: { not: primaryAlive.assignedAgentId } } : {}),
+        ...(primary.assignedAgentId ? { agentId: { not: primary.assignedAgentId } } : {}),
       },
       select: { agent: { select: { fullName: true } } },
     });
@@ -124,11 +127,11 @@ export async function mergeClients(
     const primaryAgentId = primary.assignedAgentId;
     if (dupAgentId && primaryAgentId && dupAgentId !== primaryAgentId) {
       await tx.interaction.updateMany({
-        where: { clientId: duplicateId, agentId: dupAgentId, nextActionDate: { not: null }, completedAt: null },
+        where: { clientId: duplicateId, agentId: dupAgentId, nextActionDate: { not: null }, completedAt: null, taskCancelledAt: null },
         data: { agentId: primaryAgentId },
       });
       await tx.interaction.updateMany({
-        where: { clientId: duplicateId, agentId: null, subjectAgentId: dupAgentId, nextActionDate: { not: null }, completedAt: null },
+        where: { clientId: duplicateId, agentId: null, subjectAgentId: dupAgentId, nextActionDate: { not: null }, completedAt: null, taskCancelledAt: null },
         data: { subjectAgentId: primaryAgentId },
       });
     }
@@ -215,13 +218,28 @@ export async function mergeClients(
          * (services/leads/intake.ts). Иначе встречный подбор и тревоги продавца
          * переставали видеть вторую сторону.
          */
-        dualIntent:
+        dualIntent: lockedIntent.dualIntentDecisionSource === "MANUAL" ? lockedIntent.dualIntent :
           primary.dualIntent ||
           duplicate.dualIntent ||
           (primary.kind === "BUYER" && duplicate.kind === "SELLER") ||
           (primary.kind === "SELLER" && duplicate.kind === "BUYER"),
       },
     });
+    // The array update fires the future-addition trigger. Merge is not a new
+    // observation: replace its placeholders with source history (or unknown).
+    const existingOriginHashes = new Set(primaryOrigins.map(row => row.phoneHash));
+    const sourceOrigins = new Map(duplicateOrigins.map(row => [row.phoneHash, row]));
+    for (const phone of phonesFromDuplicate) {
+      const hash = clientPhoneHash(phone);
+      if (!existingOriginHashes.has(hash) && !sourceOrigins.has(hash)) {
+        await tx.clientPhoneOrigin.deleteMany({ where: { clientId: primaryId, phoneHash: hash } });
+      }
+    }
+    for (const origin of duplicateOrigins) {
+      if (existingOriginHashes.has(origin.phoneHash)) continue; // Preserve both conflicting history rows, primary wins presentation.
+      await tx.clientPhoneOrigin.deleteMany({ where: { clientId: primaryId, phoneHash: origin.phoneHash } });
+      await tx.clientPhoneOrigin.update({ where: { id: origin.id }, data: { clientId: primaryId } });
+    }
     await logTimeline({
       clientId: primaryId,
       actor: { kind: "agent", agentId: actorAgentId },
@@ -390,6 +408,9 @@ async function recordMergeOwnershipChange(input: {
  * `MERGE_LINKS_LEFT_BEHIND` с причиной.
  */
 export const MERGE_LINKS_MOVED = [
+  // Unique-origin/report collisions remain on the soft-deleted duplicate as
+  // immutable history; primary rows win. Cases retain original caseKey/epoch.
+  "ClientPhoneOrigin.clientId", "InvestigationCase.clientId", "OwnerReportDelivery.sellerClientId",
   "Interaction.clientId",
   "Deal.clientId",
   "IncomingCall.clientId",
@@ -433,6 +454,13 @@ export const MERGE_LINKS_LEFT_BEHIND: Record<string, string> = {
 async function moveRemainingClientLinks(tx: TxClient, from: string, to: string): Promise<void> {
   const move = { where: { clientId: from }, data: { clientId: to } };
   await tx.property.updateMany({ where: { sellerClientId: from }, data: { sellerClientId: to } });
+  await tx.investigationCase.updateMany({ where: { clientId: from }, data: { clientId: to } });
+  const occupiedReports = new Set((await tx.ownerReportDelivery.findMany({ where: { sellerClientId: to }, select: { propertyId: true, period: true } })).map(row => `${row.propertyId}:${row.period}`));
+  for (const report of await tx.ownerReportDelivery.findMany({ where: { sellerClientId: from }, select: { id: true, propertyId: true, period: true } })) {
+    if (!occupiedReports.has(`${report.propertyId}:${report.period}`)) {
+      await tx.ownerReportDelivery.update({ where: { id: report.id }, data: { sellerClientId: to } });
+    }
+  }
   await tx.property.updateMany({ where: { reservedForClientId: from }, data: { reservedForClientId: to } });
   await tx.telegramDirectConversation.updateMany(move);
   await tx.contactProfile.updateMany(move);

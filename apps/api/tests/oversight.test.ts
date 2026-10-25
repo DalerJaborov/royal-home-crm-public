@@ -16,6 +16,7 @@ const password = "testpass123";
 
 let managerId: string;
 let managerToken: string;
+let adminToken: string;
 let plainAgentId: string;
 let plainAgentToken: string;
 let limitAgentId: string;
@@ -78,6 +79,9 @@ beforeAll(async () => {
     })
   ).id;
   agentIds.push(managerId, plainAgentId, limitAgentId);
+  const admin = await prisma.agent.create({ data: { fullName: "Администратор закрытых проверок", phone: `+992959${runId}`, role: "ADMIN", passwordHash } });
+  agentIds.push(admin.id);
+  adminToken = await login(admin.phone);
   managerToken = await login(`+992950${runId}`);
   plainAgentToken = await login(`+992951${runId}`);
 
@@ -692,6 +696,15 @@ describe("GET /oversight/*", () => {
     expect(typeof res.body.overdueTasks).toBe("number");
     expect(typeof res.body.agentsAtLimit).toBe("number");
     expect(res.body.leadLimit).toBe(2);
+    for (const field of ["refusedHighScore", "sellerPropertyMissingWarn", "sellerPropertyMissingCritical", "sellerPropertyMissingWarnDays",
+      "sellerPropertyMissingCriticalDays", "agentLossSeries", "agentLossSeriesThreshold", "agentLossSeriesWindowDays"]) {
+      expect(res.body).not.toHaveProperty(field);
+    }
+  });
+
+  it.each(["refused-high-score", "transfer-pairs", "agent-loss-series"])("руководитель без роли ADMIN/DIRECTOR не читает /%s", async (route) => {
+    const res = await request(app).get(`/api/v1/oversight/${route}`).set("Authorization", `Bearer ${managerToken}`);
+    expect(res.status).toBe(403);
   });
 
   it("/agents-at-limit находит агента, упёршегося в лимит", async () => {
@@ -760,7 +773,7 @@ describe("GET /oversight/*", () => {
   it("/refused-high-score находит отказ с высоким скорингом, отсеивает низкий балл и уже пойманное СБ", async () => {
     const res = await request(app)
       .get("/api/v1/oversight/refused-high-score?pageSize=50")
-      .set("Authorization", `Bearer ${managerToken}`);
+      .set("Authorization", `Bearer ${adminToken}`);
     expect(res.status).toBe(200);
     expect(res.body.threshold).toBe(70);
     const names = res.body.items.map((r: { client: { fullName: string } }) => r.client.fullName);
@@ -771,7 +784,7 @@ describe("GET /oversight/*", () => {
   });
 
   it("/transfer-pairs восстанавливает пару «от кого → кому» по записи перед передачей", async () => {
-    const res = await request(app).get("/api/v1/oversight/transfer-pairs").set("Authorization", `Bearer ${managerToken}`);
+    const res = await request(app).get("/api/v1/oversight/transfer-pairs").set("Authorization", `Bearer ${adminToken}`);
     expect(res.status).toBe(200);
     expect(res.body.windowDays).toBe(30);
     const pair = res.body.pairs.find((p: { from: { id: string }; to: { id: string } }) => p.from.id === agentFromId && p.to.id === agentToId);
@@ -793,7 +806,7 @@ describe("GET /oversight/*", () => {
   });
 
   it("/agent-loss-series находит агента с 3+ переводами/потерями за 7 дней, не считает старую потерю", async () => {
-    const res = await request(app).get("/api/v1/oversight/agent-loss-series").set("Authorization", `Bearer ${managerToken}`);
+    const res = await request(app).get("/api/v1/oversight/agent-loss-series").set("Authorization", `Bearer ${adminToken}`);
     expect(res.status).toBe(200);
     expect(res.body.threshold).toBe(3);
     expect(res.body.windowDays).toBe(7);
@@ -832,7 +845,7 @@ describe("GET /oversight/*", () => {
   });
 
   it("/summary включает endlessNegotiations и agentLossSeries", async () => {
-    const res = await request(app).get("/api/v1/oversight/summary").set("Authorization", `Bearer ${managerToken}`);
+    const res = await request(app).get("/api/v1/oversight/summary").set("Authorization", `Bearer ${adminToken}`);
     expect(res.status).toBe(200);
     expect(res.body.endlessNegotiations).toBeGreaterThanOrEqual(1);
     expect(res.body.sellerNegotiationMaxRounds).toBe(2);

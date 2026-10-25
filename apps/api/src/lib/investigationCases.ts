@@ -25,6 +25,11 @@ export function investigationCaseKey(signal: Pick<InvestigationSignal, "clientId
     signal.showingId ?? null, signal.subjectAgentId ?? null, signal.assignmentAt.toISOString()])).digest("hex");
 }
 
+/** Merge can move the readable link, never the original assignment identity. */
+export function investigationCaseHasOriginalClient(row: { caseKey: string; clientId: string | null; propertyId: string | null; showingId: string | null; subjectAgentId: string | null; assignmentAt: Date | null }): boolean {
+  return !!row.clientId && !!row.assignmentAt && row.caseKey === investigationCaseKey({ ...row, assignmentAt: row.assignmentAt });
+}
+
 /** Called only for newly recorded private evidence. Never scans historical records or sends alerts. */
 export async function recordInvestigationSignal(signal: InvestigationSignal, tx?: TxClient): Promise<{ caseId: string; inserted: boolean; reopened: boolean }> {
   if (!tx) return prisma.$transaction(inner => recordInvestigationSignal(signal, inner));
@@ -86,11 +91,11 @@ export async function decideInvestigation(input: {
     let mirrorWarning: string | null = null;
     if (input.status === "CLEARED" || input.status === "CONFIRMED") {
       const client = current.clientId ? await tx.client.findUnique({ where: { id: current.clientId } }) : null;
-      if (!client || !current.assignmentAt || client.assignedAt.getTime() !== current.assignmentAt.getTime()
+      if (!client || !investigationCaseHasOriginalClient(current) || !current.assignmentAt || client.assignedAt.getTime() !== current.assignmentAt.getTime()
         || client.assignedAgentId !== current.subjectAgentId) mirrorWarning = "Решение сохранено в деле. Назначение клиента изменилось или неизвестно; карточка клиента не изменена.";
       else if (client.securityReview !== "PENDING") mirrorWarning = "Решение сохранено в деле. Карточка не ожидает проверки либо уже имеет отдельный итог; её состояние не перезаписано.";
-      else if (input.status === "CLEARED" && await tx.investigationCase.count({ where: { clientId: client.id,
-        assignmentAt: current.assignmentAt, subjectAgentId: current.subjectAgentId, status: { in: ["OPEN", "REVIEWING"] } } })) {
+      else if (input.status === "CLEARED" && (await tx.investigationCase.findMany({ where: { clientId: client.id,
+        assignmentAt: current.assignmentAt, subjectAgentId: current.subjectAgentId, status: { in: ["OPEN", "REVIEWING"] } } })).some(investigationCaseHasOriginalClient)) {
         mirrorWarning = "Решение сохранено. По текущему назначению остаются другие открытые дела; проверка карточки продолжается.";
       } else await tx.client.update({ where: { id: client.id }, data: { securityReview: input.status,
         securityReviewedAt: new Date(), securityReviewedById: input.actorId, securityNote: input.note } });
@@ -108,7 +113,7 @@ export async function syncLegacyInvestigationVerdict(tx: TxClient, input: {
   for (const row of rows) {
     await tx.$queryRaw`SELECT id FROM "InvestigationCase" WHERE id=${row.id} FOR UPDATE`;
     const current = await tx.investigationCase.findUniqueOrThrow({ where: { id: row.id } });
-    if (current.status !== "OPEN" && current.status !== "REVIEWING") continue;
+    if (!investigationCaseHasOriginalClient(current) || (current.status !== "OPEN" && current.status !== "REVIEWING")) continue;
     const level = input.verdict === "CLEARED" ? "C0" : "C4";
     await tx.investigationCase.update({ where: { id: row.id }, data: { status: input.verdict, level, revision: { increment: 1 }, resolvedAt: new Date() } });
     await tx.investigationDecision.create({ data: { caseId: row.id, requestKey: randomUUID(), actorId: input.actorId,
