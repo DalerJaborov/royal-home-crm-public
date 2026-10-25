@@ -68,6 +68,7 @@ const CHANNEL_NAMES: Record<string, string> = {
 };
 
 import { OpenAiCoversSection } from "./OpenAiCoversSection";
+import { ReelsAutoBoostSection } from "./ReelsAutoBoostSection";
 
 export function ChannelsTab({ area }: { area?: "messengers" | "publishing" | "advertising" | "phone" } = {}) {
   const { data: settings } = useSettings();
@@ -426,6 +427,7 @@ export function ChannelsTab({ area }: { area?: "messengers" | "publishing" | "ad
       </SettingsSection>
 
       <MetaCatalogFeedSection />
+      <ReelsAutoBoostSection />
       </>}
 
       {(!area || area === "phone") && <>

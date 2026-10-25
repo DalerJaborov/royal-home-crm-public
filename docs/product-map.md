@@ -10,11 +10,11 @@
 
 | Что | Сколько |
 |---|---|
-| Экранов (адресов в интерфейсе) | 67 |
+| Экранов (адресов в интерфейсе) | 68 |
 | Из них видно в меню | 35 |
 | Модулей сервера | 78 |
-| Адресов сервера всего | 657 |
-| Задач по расписанию | 103 |
+| Адресов сервера всего | 660 |
+| Задач по расписанию | 104 |
 | Типов фоновых заданий | 23 |
 | Внешних сервисов | 13 |
 
@@ -92,6 +92,7 @@
 | `/team/:id` | TeamMemberDetail | только по ссылке | `apps/web/src/pages/TeamMemberDetail.tsx` |
 | `/telephony` | Telephony | **Телефония** | `apps/web/src/pages/Telephony.tsx` |
 | `/vacancies` | Vacancies | **Вакансии** | `apps/web/src/pages/Vacancies.tsx` |
+| `/vacancies/:id` | VacancyDetail | только по ссылке | `apps/web/src/pages/VacancyDetail.tsx` |
 
 ### Пункты меню по складкам
 
@@ -177,15 +178,15 @@
 | `/api/v1/whatsapp-templates` | **без подписи** | 3 | да (1 мест) | `apps/api/src/routes/whatsappTemplates.ts` |
 | `/api/v1/push` | Пуш-уведомления на телефон | 7 | да (2 мест) | `apps/api/src/routes/push.ts` |
 | `/api/v1/webhooks` | Входящие от WhatsApp, Instagram, Telegram, сайта, станции | 11 | нет | `apps/api/src/routes/webhooks.ts` |
-| `/api/v1/public` | Витрина для сайта royalhome.tj | 2 | нет | `apps/api/src/routes/publicFeed.ts` |
+| `/api/v1/public` | Витрина для сайта royalhome.tj | 4 | нет | `apps/api/src/routes/publicFeed.ts` |
 | `/api/v1/expenses` | Расходы агентства | 32 | да (3 мест) | `apps/api/src/routes/expenses.ts` |
 | `/api/v1/finance` | Деньги: доходы, комиссии, прогноз | 1 | да (1 мест) | `apps/api/src/routes/finance.ts` |
 | `/api/v1/security` | Кабинет службы безопасности | 3 | да (1 мест) | `apps/api/src/routes/security.ts` |
 | `/api/v1/marketing` | Кабинет маркетинга и монтажа | 23 | да (3 мест) | `apps/api/src/routes/marketing.ts` |
 | `/api/v1/social-videos` | **без подписи** | 20 | да (2 мест) | `apps/api/src/routes/socialVideos.ts` |
 | `/api/v1/webhooks` | Входящие от WhatsApp, Instagram, Telegram, сайта, станции | 1 | нет | `apps/api/src/routes/budgetWebhook.ts` |
-| `/api/v1/ads/callback` | Возврат из рекламного кабинета после подключения | 1 | да (1 мест) | `apps/api/src/routes/ads.ts` |
-| `/api/v1/ads` | Реклама Meta: расходы и привязка объявлений | 19 | да (1 мест) | `apps/api/src/routes/ads.ts` |
+| `/api/v1/ads/callback` | Возврат из рекламного кабинета после подключения | 1 | да (2 мест) | `apps/api/src/routes/ads.ts` |
+| `/api/v1/ads` | Реклама Meta: расходы и привязка объявлений | 19 | да (2 мест) | `apps/api/src/routes/ads.ts` |
 | `/api/v1/tiktok/oauth/callback` | Возврат из TikTok после подключения | 1 | да (2 мест) | `apps/api/src/routes/tiktok.ts` |
 | `/api/v1/tiktok` | Публикация в TikTok | 4 | да (2 мест) | `apps/api/src/routes/tiktok.ts` |
 | `/api/v1/threads/oauth/callback` | **без подписи** | 1 | да (1 мест) | `apps/api/src/routes/threads.ts` |
@@ -215,7 +216,7 @@
 | `/api/v1/media` | Отдача файлов чата по ссылке | 1 | нет | `apps/api/src/routes/mediaProxy.ts` |
 | `/api/v1/instagram-comments` | Лента комментариев под публикациями | 4 | да (2 мест) | `apps/api/src/routes/instagramComments.ts` |
 | `/api/v1/lead-magnets` | Чек-листы и выдачи лид-магнитов | 10 | да (1 мест) | `apps/api/src/routes/leadMagnets.ts` |
-| `/api/v1/vacancies` | Кандидаты на вакансии | 18 | да (4 мест) | `apps/api/src/routes/vacancies.ts` |
+| `/api/v1/vacancies` | Кандидаты на вакансии | 19 | да (5 мест) | `apps/api/src/routes/vacancies.ts` |
 | `/api/v1/oversight` | Контроль руководителя | 19 | да (2 мест) | `apps/api/src/routes/oversight.ts` |
 | `/api/v1/insights` | Инсайты от ИИ по звонкам | 4 | да (1 мест) | `apps/api/src/routes/insights.ts` |
 | `/api/v1/l` | Публичная ссылка на объект для клиента | 2 | да (1 мест) | `apps/api/src/routes/propertyShare.ts` |
@@ -292,6 +293,7 @@
 | `property-auto-statuses` | `50 4 * * *` | Чинит расхождение статусов объектов со сделками |
 | `property-summaries` | `12 * * * *` | Почасовой блок по объектам: фото и видео, резерв, напоминания |
 | `published-channels-audit` | `20 5 * * *` | **без подписи** |
+| `reels-autoboost` | `*/30 * * * *` | **без подписи** |
 | `refused-high-score-alarm` | `0 * * * *` | Досылает в рабочие часы сигнал об отказе ценного клиента |
 | `seller-no-property-alarm` | `0 * * * *` | Съёмка была, а объект так и не принят |
 | `seller-property-missing` | `*/30 * * * *` | Продавец без единого объекта дольше нормы уходит в очередь безопасности |
@@ -365,7 +367,7 @@
 |---|---|---|
 | Instagram Graph через прокси | 2 | 1 |
 | Telegram | 5 | 7 |
-| WhatsApp, Instagram Direct, Messenger (Meta) | 9 | 11 |
+| WhatsApp, Instagram Direct, Messenger (Meta) | 9 | 12 |
 | Бюджет Google Cloud | 1 | 1 |
 | Голосовой ИИ на звонках (Gemini Live) | 9 | 5 |
 | ИИ Google Gemini | 18 | 11 |
@@ -382,6 +384,6 @@
 Появилось в коде, но не описано в `docs/product-map-labels.json`. Пустые списки —
 норма; непустые значат, что функция завелась, а объяснить её никто не удосужился.
 
-- Задач по расписанию: `clip-review-resend`, `clip-review-stale-alarm`, `contact-link-sweep`, `customer-inbox-jobs`, `customer-intake-jobs`, `customer-outbox-jobs`, `daily-stories`, `disk-cleanup`, `instagram-online-followers`, `instagram-webhook-subscriptions`, `live-voice-orphan-sweep`, `meta-ads-stale-watch`, `photo-posts-tick`, `published-channels-audit`, `site-stats`, `social-digests-tick`, `social-reposts-tick`, `social-video-schedule`, `telegram-bot-api-volume-cleanup`, `telephony-station-traffic`, `video-handoff-redelivery`, `video-handoff-unfinished-publish-watchdog`
+- Задач по расписанию: `clip-review-resend`, `clip-review-stale-alarm`, `contact-link-sweep`, `customer-inbox-jobs`, `customer-intake-jobs`, `customer-outbox-jobs`, `daily-stories`, `disk-cleanup`, `instagram-online-followers`, `instagram-webhook-subscriptions`, `live-voice-orphan-sweep`, `meta-ads-stale-watch`, `photo-posts-tick`, `published-channels-audit`, `reels-autoboost`, `site-stats`, `social-digests-tick`, `social-reposts-tick`, `social-video-schedule`, `telegram-bot-api-volume-cleanup`, `telephony-station-traffic`, `video-handoff-redelivery`, `video-handoff-unfinished-publish-watchdog`
 - Модулей сервера: `/api/v1/live-voice`, `/api/v1/ui-shell`, `/api/v1/sms`, `/api/v1/whatsapp-templates`, `/api/v1/social-videos`, `/api/v1/threads/oauth/callback`, `/api/v1/threads`, `/api/v1/search-console/oauth/callback`, `/api/v1/search-console/yandex/oauth/callback`, `/api/v1/search-console`, `/api/v1/contacts`, `/api/v1/public/owner-report`
 

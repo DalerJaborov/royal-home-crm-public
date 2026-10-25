@@ -120,6 +120,29 @@ describe("buildHomeListingRows — чистая функция", () => {
     expect(row.custom_label_0).toBe("Испечак");
   });
 
+  it("регион и город никогда не пустые: Meta отклоняет строку без address.region", () => {
+    const [withDistrict] = buildHomeListingRows(
+      // Описание без запятой: ниже строка CSV режется по запятым.
+      [catalogProperty({ description: "Светлая", district: { name: "Сино", city: "Душанбе", lat: 38.55, lng: 68.78 } })],
+      { siteBase: SITE_BASE, crmBase: CRM_BASE, usdToTjsRate: 11 }
+    );
+    expect(withDistrict.city).toBe("Душанбе");
+    expect(withDistrict.region).toBe("Душанбе");
+
+    const [noDistrict] = buildHomeListingRows([catalogProperty({ lat: 38.6, lng: 68.8, district: null })], {
+      siteBase: SITE_BASE,
+      crmBase: CRM_BASE,
+      usdToTjsRate: 11,
+    });
+    expect(noDistrict.city).toBe("Душанбе");
+    expect(noDistrict.region).toBe("Душанбе");
+
+    const csv = renderHomeListingCsv([withDistrict]);
+    const [header, line] = csv.split("\r\n");
+    const regionAt = header.split(",").indexOf('"address.region"');
+    expect(line.split(",")[regionAt]).toBe('"Душанбе"');
+  });
+
   it("без CRM_PUBLIC_URL (crmBase не задан) — ни одной картинки, объект исключён", () => {
     const rows = buildHomeListingRows([catalogProperty({})], {
       siteBase: SITE_BASE,

@@ -32,6 +32,7 @@ export function Row({
   onClick,
   linkLabel,
   actionCount,
+  compactAction = false,
   done = false,
   className,
   ...rest
@@ -51,6 +52,9 @@ export function Row({
   linkLabel?: string;
   /** Сколько кнопок в `actions`: больше одной уводит их под текст (телефон), см. `ROW_STACK_TITLE`. */
   actionCount?: number;
+  /** `actions` — одна круглая кнопка без подписи (трубка): длинный заголовок её под текст НЕ уводит —
+   *  она остаётся справа в первой строке, имя переносится/усекается (перепись 24.10: список клиентов). */
+  compactAction?: boolean;
   done?: boolean;
   className?: string;
   "data-testid"?: string;
@@ -58,7 +62,7 @@ export function Row({
   const hit = href != null || onClick != null;
   // Правило телефона (< 820, CSS `.rh-row-wrap`): несколько кнопок или длинный
   // заголовок уводят действия под текст на всю ширину, а не вправо.
-  const stack = actions != null && ((actionCount ?? 0) > 1 || title.length > ROW_STACK_TITLE);
+  const stack = actions != null && ((actionCount ?? 0) > 1 || (!compactAction && title.length > ROW_STACK_TITLE));
   const name = href != null ? (
     <Link to={href} className="rh-row-link" aria-label={linkLabel}>
       {title}

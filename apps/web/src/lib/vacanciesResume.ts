@@ -5,6 +5,13 @@ export const CANDIDATE_STAGE_LABELS: Record<JobApplication["status"], string> = 
   NEW: "Новый отклик", REVIEWED: "В работе", INTERVIEW: "Назначено собеседование",
   INTERVIEWED: "Ожидает решения", HIRED: "Принят на работу", REJECTED: "Отказ", NOT_CANDIDATE: "Не кандидат",
 };
+/** Короткий чип этапа для строки и шапки карточки: слово + тон словаря `Chip`
+ *  (components/rh2/Chip.tsx). Полное название этапа — CANDIDATE_STAGE_LABELS. */
+export const CANDIDATE_STAGE_CHIP: Record<JobApplication["status"], { label: string; tone: "neutral" | "ok" | "warn" | "crit" | "aqua" | "lav" }> = {
+  NEW: { label: "Новый отклик", tone: "warn" }, REVIEWED: { label: "В работе", tone: "neutral" },
+  INTERVIEW: { label: "Собеседование", tone: "lav" }, INTERVIEWED: { label: "Ждёт решения", tone: "aqua" },
+  HIRED: { label: "Принят", tone: "ok" }, REJECTED: { label: "Отказ", tone: "crit" }, NOT_CANDIDATE: { label: "Не кандидат", tone: "neutral" },
+};
 export type CandidateQueueStage = "ACTIVE" | "ALL" | VacancyStage;
 export const CANDIDATE_QUEUE_PAGE_SIZE = 50;
 export const CANDIDATE_QUEUE_STAGES: Array<{ value: CandidateQueueStage; label: string }> = [

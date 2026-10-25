@@ -195,7 +195,7 @@ export function traceWebsiteMessagesPersisted(conversationId: string, messages: 
 function coreReason(raw: unknown): NonNullable<TraceCustomerCore["heldReason"]> {
   if (typeof raw !== "string") return "other";
   if (["effect_unknown", "receipt_requires_reconciliation"].includes(raw)) return "effect_unknown";
-  if (["operation_stopped", "cancelled", "deadline", "expired"].includes(raw)) return "operation_stopped";
+  if (["operation_stopped", "cancelled", "deadline", "expired", "turn_deadline"].includes(raw)) return "operation_stopped";
   if (["original_context_changed", "context_scope_mismatch", "turn_already_owned"].includes(raw)) return "context_changed";
   if (["round_limit", "tool_limit", "input_limit", "output_limit", "model_payload_limit", "customer_turn_budget_or_context"].includes(raw)) return "limit";
   if (["invalid_model_turn", "mixed_model_protocol", "missing_model_parts", "duplicate_call_id", "invalid_model_call", "invalid_call_id", "call_id_reused", "invalid_model_decision", "duplicate_tool_definition"].includes(raw)) return "protocol_invalid";
@@ -203,10 +203,15 @@ function coreReason(raw: unknown): NonNullable<TraceCustomerCore["heldReason"]> 
   if (["needs_review", "phone_required"].includes(raw)) return "needs_review";
   return "other";
 }
+/** Safe diagnostic only: a snake_case reason / error class name. Anything else is dropped (a bad value must never drop the whole trace). */
+function causeCode(raw: unknown): { causeCode: string } | Record<string, never> {
+  return typeof raw === "string" && /^[A-Za-z][A-Za-z0-9_]{1,47}$/.test(raw) ? { causeCode: raw } : {};
+}
 /** The root coordinator supplies the actual validated Core result, never a
  * model/HTTP route JSON. Strict projection below still drops all text/args/IDs. */
 export function traceCustomerCoreResult(result: { status: "ready" | "held"; decision?: { kind: unknown };
-  rounds: number; toolCalls: number; evidence: readonly { value: { kind: string; outcome?: unknown } }[]; reason?: unknown; fallbackReason?: "invalid_model_decision" }): void {
+  rounds: number; toolCalls: number; evidence: readonly { value: { kind: string; outcome?: unknown } }[]; reason?: unknown; cause?: string;
+  fallbackReason?: "invalid_model_decision" | "receipt_confirmation"; fallbackCause?: string }): void {
   observe(ctx => {
     if (!ctx.payload.managed || ctx.payload.managed.phase !== "planning") return;
     ctx.payload.customerCore = traceCustomerCoreSchema.parse({ status: result.status,
@@ -214,19 +219,20 @@ export function traceCustomerCoreResult(result: { status: "ready" | "held"; deci
       rounds: result.rounds, toolCalls: result.toolCalls,
       receiptOutcomes: [...new Set(result.evidence.filter(e => e.value.kind === "receipt").map(e => e.value.outcome))],
       ...(result.status === "held" ? { heldReason: coreReason(result.reason),
-        ...(coreReason(result.reason) === "protocol_invalid" ? { protocolReason: result.reason } : {}) } : {}),
-      ...(result.status === "ready" && result.rounds > 0 ? { decisionSource: result.fallbackReason ? "verified_public_fallback" : "model",
-        ...(result.fallbackReason ? { protocolReason: result.fallbackReason } : {}) } : {}) });
+        ...(coreReason(result.reason) === "protocol_invalid" ? { protocolReason: result.reason } : {}), ...causeCode(result.cause) } : {}),
+      ...(result.status === "ready" && result.rounds > 0 ? { decisionSource: result.fallbackReason === "receipt_confirmation" ? "receipt_confirmation"
+          : result.fallbackReason ? "verified_public_fallback" : "model",
+        ...(result.fallbackReason === "invalid_model_decision" ? { protocolReason: result.fallbackReason } : {}), ...causeCode(result.fallbackCause) } : {}) });
   }); traceCheckpoint();
 }
 /** PLANNED is local persistence only; this never appends an outgoing receipt. */
-export function traceCustomerCoreDisposition(status: "planned" | "unchanged" | "held", reason?: unknown): void {
+export function traceCustomerCoreDisposition(status: "planned" | "unchanged" | "held", reason?: unknown, cause?: string): void {
   observe(ctx => {
     if (!ctx.payload.managed || ctx.payload.managed.phase !== "planning") return;
     const previous = ctx.payload.customerCore;
     ctx.payload.customerCore = traceCustomerCoreSchema.parse({ ...previous, status,
       rounds: previous?.rounds ?? 0, toolCalls: previous?.toolCalls ?? 0, receiptOutcomes: previous?.receiptOutcomes ?? [],
-      ...(status === "held" ? { heldReason: coreReason(reason) } : {}) });
+      ...(status === "held" ? { heldReason: coreReason(reason), ...causeCode(cause) } : {}) });
   }); traceCheckpoint();
 }
 /** Actual dispatcher result only; no text/resource/MID arguments. The existing

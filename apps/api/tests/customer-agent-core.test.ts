@@ -46,7 +46,7 @@ it("reuses a prefetched vacancy ref when the model reads the same current catalo
   f.modelTurn.mockResolvedValueOnce({ text: "", calls: [{ name: "get_open_vacancies", args: {}, id: "model-read" }],
     modelParts: [{ functionCall: { name: "get_open_vacancies", args: {}, id: "model-read" } }] }).mockResolvedValueOnce(final({ refs: ["e0"] }));
   const result = await runCustomerAgentTurn(f.frame, f.ports);
-  expect(result).toMatchObject({ status: "ready", text: "Сейчас в CRM нет подтверждённых открытых вакансий." });
+  expect(result).toMatchObject({ status: "ready", text: "Сейчас открытых вакансий нет." });
   expect(result.evidence).toHaveLength(1);
   expect(f.executeAllowedTool).toHaveBeenCalledTimes(2);
 });
@@ -137,7 +137,7 @@ describe("Bounded correction of model tool arguments", () => {
       .mockResolvedValueOnce(toolTurn([{ name: "get_property_facts", args: { kinds: ["price"] }, id: "valid-2" }]))
       .mockResolvedValueOnce(final({ refs: ["e0"] }));
     const result = await runCustomerAgentTurn(f.frame, f.ports);
-    expect(result).toMatchObject({ status: "ready", rounds: 3, toolCalls: 2 });
+    expect(result).toMatchObject({ status: "ready", rounds: 3, toolCalls: 1 });
     if (result.status !== "ready") throw Error("Expected corrected public read");
     expect(result.text).toContain("123 456.78");
     expect(f.executeAllowedTool).toHaveBeenCalledTimes(1);
@@ -149,36 +149,40 @@ describe("Bounded correction of model tool arguments", () => {
     const f = fixture({ requestedFacts: [], tools: [{ name: "request_callback", description: "Callback" }, ...fixture().frame.tools] });
     f.modelTurn.mockResolvedValueOnce(toolTurn([{ name: "request_callback", args: { topic: "Позвоните" }, id: "write-1" }, invalid]))
       .mockResolvedValueOnce(final({ kind: "clarify", question: "property" }));
-    expect(await runCustomerAgentTurn(f.frame, f.ports)).toMatchObject({ status: "ready", rounds: 2, toolCalls: 2 });
+    expect(await runCustomerAgentTurn(f.frame, f.ports)).toMatchObject({ status: "ready", rounds: 2, toolCalls: 0 });
     expect(f.executeAllowedTool).not.toHaveBeenCalled();
     expect(JSON.stringify(f.modelTurn.mock.calls[1][0].contents.at(-1))).toContain("batch_not_executed");
   });
-  it("counts rejected calls and terminates repeated invalid arguments at the original round bound", async () => {
+  it("rejected batches spend rounds, not tool budget, and still end at the original round bound", async () => {
     const f = fixture({ requestedFacts: [] });
     f.modelTurn.mockResolvedValue(toolTurn([invalid]));
-    expect(await runCustomerAgentTurn(f.frame, f.ports)).toMatchObject({ status: "held", reason: "round_limit", rounds: 3, toolCalls: 3 });
+    expect(await runCustomerAgentTurn(f.frame, f.ports)).toMatchObject({ status: "held", reason: "round_limit", rounds: 3, toolCalls: 0 });
     expect(f.modelTurn).toHaveBeenCalledTimes(3); expect(f.executeAllowedTool).not.toHaveBeenCalled();
   });
-  it("does not repair unknown or disallowed tool names", async () => {
+  it("gives an unknown tool name ONE structured correction and executes nothing; a repeat stops", async () => {
     const f = fixture({ requestedFacts: [] });
     f.modelTurn.mockResolvedValueOnce(toolTurn([{ name: "delete_client", args: {}, id: "unknown-1" }]))
       .mockResolvedValueOnce(final({ kind: "clarify", question: "property" }));
-    expect(await runCustomerAgentTurn(f.frame, f.ports)).toMatchObject({ status: "held", reason: "unavailable_tool", rounds: 1, toolCalls: 0 });
+    expect(await runCustomerAgentTurn(f.frame, f.ports)).toMatchObject({ status: "ready", rounds: 2, toolCalls: 0 });
     expect(f.executeAllowedTool).not.toHaveBeenCalled();
-    expect(f.modelTurn).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(f.modelTurn.mock.calls[1][0].contents.at(-1))).toContain("unavailable_tool");
+    const twice = fixture({ requestedFacts: [] });
+    twice.modelTurn.mockResolvedValue(toolTurn([{ name: "delete_client", args: {}, id: "unknown-2" }]));
+    expect(await runCustomerAgentTurn(twice.frame, twice.ports)).toMatchObject({ status: "held", reason: "unavailable_tool", rounds: 2, toolCalls: 0 });
+    expect(twice.modelTurn).toHaveBeenCalledTimes(2); expect(twice.executeAllowedTool).not.toHaveBeenCalled();
   });
   it("does not offer a registered tool missing from this turn's allowed declarations", async () => {
     const f = fixture({ requestedFacts: [] });
     f.modelTurn.mockResolvedValue(toolTurn([{ name: "get_agency_contact", args: {}, id: "unavailable-1" }]));
     expect(await runCustomerAgentTurn(f.frame, f.ports)).toMatchObject({ status: "held", reason: "unavailable_tool" });
-    expect(f.modelTurn).toHaveBeenCalledTimes(1); expect(f.executeAllowedTool).not.toHaveBeenCalled();
+    expect(f.modelTurn).toHaveBeenCalledTimes(2); expect(f.executeAllowedTool).not.toHaveBeenCalled();
   });
-  it("does not let corrected calls escape the original call budget", async () => {
+  it("does not let model-requested calls escape the original call budget", async () => {
     const f = fixture({ requestedFacts: [] });
     f.frame = { ...f.frame, revision: { ...f.frame.revision, limits: { ...f.frame.revision.limits, maxToolCalls: 1 } } };
     f.modelTurn.mockResolvedValueOnce(toolTurn([invalid]))
-      .mockResolvedValueOnce(toolTurn([{ name: "get_property_facts", args: { kinds: ["price"] }, id: "valid-2" }]));
-    expect(await runCustomerAgentTurn(f.frame, f.ports)).toMatchObject({ status: "held", reason: "tool_limit", toolCalls: 1 });
+      .mockResolvedValueOnce(toolTurn([{ name: "get_property_facts", args: { kinds: ["price"] }, id: "valid-2" }, { name: "get_property_facts", args: { kinds: ["address"] }, id: "valid-3" }]));
+    expect(await runCustomerAgentTurn(f.frame, f.ports)).toMatchObject({ status: "held", reason: "tool_limit", toolCalls: 0 });
     expect(f.executeAllowedTool).not.toHaveBeenCalled();
   });
   it("does not allow a rejected call ID to be reused with different arguments", async () => {
@@ -362,8 +366,16 @@ describe("CustomerAgentCore draft bounded negative controls", () => {
     const f = fixture({ requestedFacts: [] }); f.modelTurn.mockResolvedValue(final({ refs: ["e99"] }));
     expect(await runCustomerAgentTurn(f.frame, f.ports)).toMatchObject({ status: "held" });
   });
-  it("a failed public read cannot silently become a phone questionnaire", async () => {
+  it("a failed private read asks for the object instead of staying silent or asking a phone", async () => {
     const f = fixture(); f.executeAllowedTool.mockResolvedValue({ status: "unavailable", reason: "synthetic_storage_error" });
+    const result = await runCustomerAgentTurn(f.frame, f.ports);
+    expect(result).toMatchObject({ status: "ready", question: "property", evidence: [] });
+    if (result.status !== "ready") throw Error("Expected a property clarification");
+    expect(result.text).toContain("Пришлите номер объекта"); expect(result.text).not.toMatch(/телефон|сомони|123/u);
+    expect(f.modelTurn).not.toHaveBeenCalled();
+  });
+  it("a failed public read stays held rather than answering a comment without facts", async () => {
+    const f = fixture({ surface: "public_comment" }); f.executeAllowedTool.mockResolvedValue({ status: "unavailable", reason: "synthetic_storage_error" });
     expect(await runCustomerAgentTurn(f.frame, f.ports)).toMatchObject({ status: "held", reason: "facts_unavailable" });
     expect(f.modelTurn).not.toHaveBeenCalled();
   });
@@ -545,4 +557,142 @@ describe("CustomerAgentCore draft bounded negative controls", () => {
     expect(result).toMatchObject({ status: "held", evidence: [], unknownToolCalls: [{ callKey: "wrong-c1", name: "request_callback" }] });
     expect(f.executeAllowedTool).toHaveBeenCalledTimes(1); expect(f.modelTurn).toHaveBeenCalledTimes(1);
   });
+});
+
+describe("A committed write never ends in silence, and the loop recovers from fixable model mistakes (23.10)", () => {
+  const callbackTool = { name: "request_callback" as const, description: "Customer callback request" };
+  const withCallback = () => fixture({ requestedFacts: [], tools: [callbackTool, { name: "get_property_facts", description: "Read public facts" }] });
+  const callback = toolTurn([{ name: "request_callback", args: { topic: "Позвоните мне" }, id: "cb" }]);
+  const readFacts = (id: string, kinds: ("price" | "address" | "availability")[]) => toolTurn([{ name: "get_property_facts", args: { kinds }, id }]);
+  const plain = (text: string): CustomerAgentModelTurn => ({ text, calls: [], modelParts: [] });
+  const committed = (f: ReturnType<typeof withCallback>) => f.executeAllowedTool.mockImplementation(async call => call.name === "request_callback"
+    ? { status: "observed", observation: { kind: "receipt", outcome: "callback_requested" } }
+    : { status: "observed", observation: { kind: "facts", facts, kinds: ["price"] } });
+  const callsOf = (f: ReturnType<typeof withCallback>, name: string) => f.executeAllowedTool.mock.calls.filter(([call]) => call.name === name).length;
+
+  it("write on the LAST round: exactly one write and one server confirmation from the receipt", async () => {
+    const f = withCallback(); committed(f);
+    f.modelTurn.mockResolvedValueOnce(readFacts("r1", ["price"])).mockResolvedValueOnce(readFacts("r2", ["address"])).mockResolvedValueOnce(callback);
+    const result = await runCustomerAgentTurn(f.frame, f.ports);
+    expect(result).toMatchObject({ status: "ready", text: "Запрос на звонок создан.", rounds: 3, fallbackReason: "receipt_confirmation", fallbackCause: "round_limit",
+      decision: { kind: "reply" } });
+    expect(callsOf(f, "request_callback")).toBe(1);
+    expect(f.modelTurn).toHaveBeenCalledTimes(3);
+  });
+  it.each([
+    ["invalid JSON after the one correction", [plain("bad"), plain("bad")], "invalid_model_decision"],
+    ["a decision denied for this surface", [plain('{"kind":"skip","reason":"no_reply_needed"}'), plain('{"kind":"skip","reason":"no_reply_needed"}')], "surface_decision_denied"],
+    ["refs that do not exist", [final({ refs: ["e99"] }), final({ refs: ["e99"] })], "unsupported_decision_evidence"],
+  ])("write, then %s: the receipt is still confirmed once", async (_name, script, cause) => {
+    const f = withCallback(); committed(f);
+    f.modelTurn.mockResolvedValueOnce(callback);
+    for (const step of script) f.modelTurn.mockResolvedValueOnce(step);
+    const result = await runCustomerAgentTurn(f.frame, f.ports);
+    expect(result).toMatchObject({ status: "ready", text: "Запрос на звонок создан.", fallbackReason: "receipt_confirmation", fallbackCause: cause });
+    expect(callsOf(f, "request_callback")).toBe(1);
+  });
+  it("write, then an over-long final: confirmed from the receipt (output_limit)", async () => {
+    const f = withCallback(); committed(f);
+    f.modelTurn.mockResolvedValueOnce(callback).mockResolvedValueOnce(plain("x".repeat(2500)));
+    expect(await runCustomerAgentTurn(f.frame, f.ports)).toMatchObject({ status: "ready", text: "Запрос на звонок создан.", fallbackCause: "output_limit" });
+  });
+  it("a correction round can never repeat the committed write", async () => {
+    const f = withCallback(); committed(f);
+    f.modelTurn.mockResolvedValueOnce(callback).mockResolvedValueOnce(plain("oops"))
+      .mockResolvedValueOnce(toolTurn([{ name: "request_callback", args: { topic: "ещё раз" }, id: "cb2" }]));
+    expect(await runCustomerAgentTurn(f.frame, f.ports)).toMatchObject({ status: "ready", text: "Запрос на звонок создан.", fallbackCause: "repeated_effect_denied" });
+    expect(callsOf(f, "request_callback")).toBe(1);
+  });
+  it("an unsettled (unknown) write is never turned into a confirmation", async () => {
+    const f = withCallback(); f.executeAllowedTool.mockResolvedValue({ status: "unknown", reason: "timeout" });
+    f.modelTurn.mockResolvedValueOnce(callback);
+    expect(await runCustomerAgentTurn(f.frame, f.ports)).toMatchObject({ status: "held", reason: "effect_unknown", unknownToolCalls: [{ name: "request_callback" }] });
+  });
+  it("an operation stopped after the commit still ends HELD with the receipt retained", async () => {
+    const f = withCallback(); committed(f);
+    f.modelTurn.mockResolvedValueOnce(callback).mockImplementationOnce(async () => { f.controller.abort(); return plain("{}"); });
+    expect((await runCustomerAgentTurn(f.frame, f.ports)).status).toBe("held");
+  });
+
+  it("invalid final JSON gets ONE structured correction and then a normal answer", async () => {
+    const f = fixture({ requestedFacts: [] });
+    f.modelTurn.mockResolvedValueOnce(plain("Конечно, вот ответ: {oops")).mockResolvedValueOnce(final({ kind: "clarify", question: "property" }));
+    expect(await runCustomerAgentTurn(f.frame, f.ports)).toMatchObject({ status: "ready", rounds: 2, toolCalls: 0, question: "property" });
+    const feedback = JSON.stringify(f.modelTurn.mock.calls[1][0].contents.at(-1));
+    expect(feedback).toContain("final_not_json"); expect(feedback).not.toContain("oops");
+    expect(f.executeAllowedTool).not.toHaveBeenCalled();
+  });
+  it("a schema-invalid final names only the failing field path", async () => {
+    const f = fixture({ requestedFacts: [] });
+    f.modelTurn.mockResolvedValueOnce(plain('{"kind":"reply","refs":[],"social":"shout","question":"none"}')).mockResolvedValueOnce(final());
+    await runCustomerAgentTurn(f.frame, f.ports);
+    const feedback = JSON.stringify(f.modelTurn.mock.calls[1][0].contents.at(-1));
+    expect(feedback).toContain("final_decision_invalid"); expect(feedback).toContain("social"); expect(feedback).not.toContain("shout");
+  });
+  it("a second invalid final is HELD as before", async () => {
+    const f = fixture({ requestedFacts: [] });
+    f.modelTurn.mockResolvedValue(plain("not json"));
+    expect(await runCustomerAgentTurn(f.frame, f.ports)).toMatchObject({ status: "held", reason: "invalid_model_decision", rounds: 2 });
+    expect(f.modelTurn).toHaveBeenCalledTimes(2);
+  });
+  it("a private customer is told which decisions exist: skip gets one correction, and the set is in the context", async () => {
+    const f = fixture({ requestedFacts: [], verifiedContext: undefined });
+    f.modelTurn.mockResolvedValueOnce(plain('{"kind":"skip","reason":"no_reply_needed"}')).mockResolvedValueOnce(final({ kind: "clarify", question: "property" }));
+    expect(await runCustomerAgentTurn(f.frame, f.ports)).toMatchObject({ status: "ready", rounds: 2 });
+    const feedback = JSON.stringify(f.modelTurn.mock.calls[1][0].contents.at(-1));
+    expect(feedback).toContain("decision_kind_not_allowed"); expect(feedback).toContain('\\"allowedDecisionKinds\\":[\\"reply\\",\\"clarify\\",\\"propose\\",\\"escalate\\"]');
+  });
+  it("explanatory text beside a tool call is ignored instead of silencing the customer", async () => {
+    const f = fixture({ requestedFacts: [] });
+    f.modelTurn.mockResolvedValueOnce({ text: "Сейчас проверю цену.", calls: [{ name: "get_property_facts", args: { kinds: ["price"] }, id: "mix" }],
+      modelParts: [{ text: "Сейчас проверю цену." }, { functionCall: { name: "get_property_facts", args: { kinds: ["price"] }, id: "mix" } }] })
+      .mockResolvedValueOnce(final({ refs: ["e0"] }));
+    const result = await runCustomerAgentTurn(f.frame, f.ports);
+    expect(result).toMatchObject({ status: "ready", rounds: 2, toolCalls: 1 });
+    if (result.status !== "ready") throw Error("Expected an answer");
+    expect(result.text).toContain("123 456.78"); expect(result.text).not.toContain("проверю");
+  });
+
+  it("server pre-reads do not spend the model's four calls", async () => {
+    const f = fixture({ requestedFacts: ["price"] });
+    f.modelTurn.mockResolvedValueOnce(toolTurn([{ name: "get_property_facts", args: { kinds: ["price"] }, id: "a" }, { name: "get_property_facts", args: { kinds: ["address"] }, id: "b" }]))
+      .mockResolvedValueOnce(toolTurn([{ name: "get_property_facts", args: { kinds: ["availability"] }, id: "c" }, { name: "get_property_facts", args: { kinds: ["price", "address"] }, id: "d" }]))
+      .mockResolvedValueOnce(final({ refs: ["e0"] }));
+    expect(await runCustomerAgentTurn(f.frame, f.ports)).toMatchObject({ status: "ready", rounds: 3, toolCalls: 5 });
+    const over = fixture({ requestedFacts: ["price"] });
+    over.modelTurn.mockResolvedValueOnce(toolTurn([1, 2, 3, 4, 5].map(n => ({ name: "get_property_facts" as const, args: { kinds: ["price" as const] }, id: `x${n}` }))));
+    expect(await runCustomerAgentTurn(over.frame, over.ports)).toMatchObject({ status: "held", reason: "tool_limit" });
+  });
+  it("a rejected batch does not spend the budget the corrected batch needs", async () => {
+    const f = fixture({ requestedFacts: [] });
+    const bad = (id: string) => ({ name: "get_property_facts" as const, args: { kinds: ["price"], propertyId: facts.propertyId }, id });
+    f.modelTurn.mockResolvedValueOnce(toolTurn([bad("i1"), bad("i2"), bad("i3")]))
+      .mockResolvedValueOnce(toolTurn([["price"], ["address"], ["availability"], ["price", "address"]].map((kinds, n) => ({ name: "get_property_facts" as const, args: { kinds }, id: `v${n}` }))))
+      .mockResolvedValueOnce(final({ refs: ["e0"] }));
+    expect(await runCustomerAgentTurn(f.frame, f.ports)).toMatchObject({ status: "ready", rounds: 3, toolCalls: 4 });
+  });
+
+  it("an unexpected exception keeps a SAFE cause code and never provider text", async () => {
+    const f = fixture({ requestedFacts: [] });
+    f.modelTurn.mockRejectedValue(new TypeError("Bearer sk-secret-123 leaked into message"));
+    const result = await runCustomerAgentTurn(f.frame, f.ports);
+    expect(result).toMatchObject({ status: "held", reason: "turn_unavailable", cause: "TypeError" });
+    expect(JSON.stringify(result)).not.toContain("sk-secret");
+    const coded = fixture({ requestedFacts: [] }); coded.modelTurn.mockRejectedValue(new Error("provider_quota_exceeded"));
+    expect(await runCustomerAgentTurn(coded.frame, coded.ports)).toMatchObject({ status: "held", reason: "turn_unavailable", cause: "provider_quota_exceeded" });
+  });
+  it("the 120-second turn deadline is its own reason and cause, not a generic turn_unavailable", async () => {
+    const f = fixture({ requestedFacts: [] });
+    expect(await runCustomerAgentTurn({ ...f.frame, startedAt: Date.now() - 31_000 }, f.ports)).toMatchObject({ status: "held", reason: "turn_deadline", cause: "turn_deadline" });
+    expect(f.modelTurn).not.toHaveBeenCalled();
+  });
+});
+it("public comments get no correction round: a malformed final stays one model request", async () => {
+  const f = fixture({ surface: "public_comment", requestedFacts: [], tools: [{ name: "get_agency_contact", description: "Agency contact" }] });
+  f.modelTurn.mockResolvedValue({ text: "not json", calls: [], modelParts: [] });
+  expect(await runCustomerAgentTurn(f.frame, f.ports)).toMatchObject({ status: "held", reason: "invalid_model_decision", rounds: 1 });
+  expect(f.modelTurn).toHaveBeenCalledTimes(1);
+  const unknown = fixture({ surface: "public_comment", requestedFacts: [] });
+  unknown.modelTurn.mockResolvedValue(toolTurn([{ name: "delete_client", args: {}, id: "pub-1" }]));
+  expect(await runCustomerAgentTurn(unknown.frame, unknown.ports)).toMatchObject({ status: "held", reason: "unavailable_tool", rounds: 1 });
 });

@@ -63,7 +63,9 @@ export const traceCustomerCoreSchema = z.strictObject({
   rounds: count.max(8), toolCalls: count.max(17), receiptOutcomes: z.array(receiptOutcome).max(8),
   heldReason: traceCustomerCoreReasonSchema.optional(),
   protocolReason: traceCustomerProtocolReasonSchema.optional(),
-  decisionSource: z.enum(["model", "verified_public_fallback"]).optional(),
+  decisionSource: z.enum(["model", "verified_public_fallback", "receipt_confirmation"]).optional(),
+  /** Safe diagnostic code of a held/fallback turn (snake_case reason or error class name); never text or data. */
+  causeCode: z.string().regex(/^[A-Za-z][A-Za-z0-9_]{1,47}$/).optional(),
 });
 export const traceManagedDeliverySchema = z.strictObject({
   status: z.enum(["accepted", "available_widget", "unknown", "suppressed", "not_sent", "waiting", "missing"]),

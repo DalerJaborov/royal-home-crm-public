@@ -1918,7 +1918,9 @@ async function sendMessageImpl(
    * а не рукой сотрудника. Рука (`origin: "staff"`) не ограничивается ничем.
    */
   outbound?: { origin?: OutboundOrigin; recipientName?: string | null; transport?: CustomerTransportReference;
-    customerReplyPrincipal?: CustomerPrincipal }
+    customerReplyPrincipal?: CustomerPrincipal;
+    /** Ответ ядра на конкретное входящее (см. OutboundRequest.answersInbound). */
+    answersInbound?: boolean }
 ): Promise<string | null> {
   const loaded = await loadCredentials();
   const captured = outbound?.transport ?? await resolveLegacyMetaSendTransport(loaded, channel, recipientId, tokenOverride);
@@ -1930,6 +1932,7 @@ async function sendMessageImpl(
     origin: outbound?.origin,
     recipientName: outbound?.recipientName,
     transport: captured,
+    answersInbound: outbound?.answersInbound,
   });
   if (!verdict.allowed) {
     console.warn(`[щит] ${channel} → ${recipientId}: ${verdict.reasonText}`);

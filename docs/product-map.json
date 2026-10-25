@@ -643,6 +643,13 @@
         "group": "team",
         "gate": ""
       }
+    },
+    {
+      "path": "/vacancies/:id",
+      "component": "VacancyDetail",
+      "file": "apps/web/src/pages/VacancyDetail.tsx",
+      "redirect": null,
+      "nav": null
     }
   ],
   "nav": [
@@ -1154,7 +1161,7 @@
       "mount": "/api/v1/public",
       "router": "publicFeedRouter",
       "file": "apps/api/src/routes/publicFeed.ts",
-      "endpoints": 2,
+      "endpoints": 4,
       "label": "Витрина для сайта royalhome.tj",
       "usedBy": 0
     },
@@ -1212,7 +1219,7 @@
       "file": "apps/api/src/routes/ads.ts",
       "endpoints": 1,
       "label": "Возврат из рекламного кабинета после подключения",
-      "usedBy": 1
+      "usedBy": 2
     },
     {
       "mount": "/api/v1/ads",
@@ -1220,7 +1227,7 @@
       "file": "apps/api/src/routes/ads.ts",
       "endpoints": 19,
       "label": "Реклама Meta: расходы и привязка объявлений",
-      "usedBy": 1
+      "usedBy": 2
     },
     {
       "mount": "/api/v1/tiktok/oauth/callback",
@@ -1458,9 +1465,9 @@
       "mount": "/api/v1/vacancies",
       "router": "vacanciesRouter",
       "file": "apps/api/src/routes/vacancies.ts",
-      "endpoints": 18,
+      "endpoints": 19,
       "label": "Кандидаты на вакансии",
-      "usedBy": 4
+      "usedBy": 5
     },
     {
       "mount": "/api/v1/oversight",
@@ -1832,6 +1839,11 @@
       "label": null
     },
     {
+      "id": "reels-autoboost",
+      "expr": "*/30 * * * *",
+      "label": null
+    },
+    {
       "id": "refused-high-score-alarm",
       "expr": "0 * * * *",
       "label": "Досылает в рабочие часы сигнал об отказе ценного клиента"
@@ -2120,7 +2132,7 @@
     {
       "name": "WhatsApp, Instagram Direct, Messenger (Meta)",
       "keys": 9,
-      "files": 11
+      "files": 12
     },
     {
       "name": "Бюджет Google Cloud",

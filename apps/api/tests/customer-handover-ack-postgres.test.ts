@@ -247,11 +247,19 @@ it("accepted MID survives staff takeover during POST and cannot be replayed afte
 });
 it("crash after physical POST/STARTED before settlement stays unknown after expiry; no second POST", async () => {
   const f = await handover(), id = await plan(f), post = wire(f); expect(id).not.toBeNull();
-  const fault = vi.spyOn(settlement, "recordCustomerDeliveryAttemptOutcome").mockRejectedValueOnce(new Error("Synthetic lost settlement"));
+  // The receipt write is retried on a transient failure, so a LOST settlement means every write failed.
+  const fault = vi.spyOn(settlement, "recordCustomerDeliveryAttemptOutcome").mockRejectedValue(new Error("Synthetic lost settlement"));
   try { expect(await dispatchCustomerOutboxPart(id!)).toMatchObject({ status: "unknown" }); } finally { fault.mockRestore(); }
   await prisma.customerOutboxPart.update({ where: { id: id! }, data: { leaseUntil: new Date(Date.now()-1) } });
   await holdExpiredCustomerDeliveryClaims();
   expect(await dispatchCustomerOutboxPart(id!)).toMatchObject({ status: "unknown" }); expect(post).toHaveBeenCalledTimes(1);
+});
+it("a single transient receipt-write failure is retried: the accepted MID is recorded, still exactly one POST", async () => {
+  const f = await handover(), id = await plan(f), post = wire(f); expect(id).not.toBeNull();
+  const fault = vi.spyOn(settlement, "recordCustomerDeliveryAttemptOutcome").mockRejectedValueOnce(new Error("Synthetic transient settlement failure"));
+  try { expect(await dispatchCustomerOutboxPart(id!)).toMatchObject({ status: "accepted" }); } finally { fault.mockRestore(); }
+  expect(post).toHaveBeenCalledTimes(1);
+  expect(await prisma.customerDeliveryAttempt.count({ where: { partId: id! } })).toBe(1);
 });
 it("JSON copy and a task receipt without genuine pre-execute source grant cannot plan ACK", async () => {
   const f = await handover();

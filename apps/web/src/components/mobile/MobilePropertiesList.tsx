@@ -253,6 +253,7 @@ export function MobilePropertiesList({
                   Вам передано объектов: {handoverPendingCount} —{" "}
                   <Link
                     to={`/properties/${handoverPending?.[0]?.shortId}`}
+                    className="mh-hit"
                     style={{ color: "var(--ink)", fontWeight: 600, textDecoration: "underline" }}
                   >
                     примите их в карточках
@@ -290,6 +291,7 @@ export function MobilePropertiesList({
                   <span>
                     <button
                       type="button"
+                      className="mh-hit"
                       style={{ color: "var(--ink)", fontWeight: 600, textDecoration: "underline" }}
                       onClick={() => setFilters((f) => ({ ...f, status: "PENDING_REVIEW", inPrep: undefined, page: 1 }))}
                     >
@@ -318,20 +320,20 @@ export function MobilePropertiesList({
                 <span>Выбрано {selectedIds.size}.</span>
                 {canPublish && (
                   <>
-                    <button type="button" className="lnk" disabled={isBusy} onClick={() => onBulkAction("publish")}>
+                    <button type="button" className="lnk mh-hit" disabled={isBusy} onClick={() => onBulkAction("publish")}>
                       Опубликовать
                     </button>
-                    <button type="button" className="lnk" disabled={isBusy} onClick={() => onBulkAction("unpublish")}>
+                    <button type="button" className="lnk mh-hit" disabled={isBusy} onClick={() => onBulkAction("unpublish")}>
                       Снять с публикации
                     </button>
                   </>
                 )}
                 {canBulkDelete && (
-                  <button type="button" className="lnk" disabled={isBusy} onClick={() => onBulkAction("trash")}>
+                  <button type="button" className="lnk mh-hit" disabled={isBusy} onClick={() => onBulkAction("trash")}>
                     В корзину
                   </button>
                 )}
-                <button type="button" className="lnk" onClick={onClearSelection}>
+                <button type="button" className="lnk mh-hit" onClick={onClearSelection}>
                   Снять выбор
                 </button>
               </div>
@@ -351,7 +353,7 @@ export function MobilePropertiesList({
           {error ? (
             <div className="state err">
               Каталог не загрузился.
-              <button type="button" className="lnk" onClick={onRetry}>
+              <button type="button" className="lnk mh-hit" onClick={onRetry}>
                 Повторить
               </button>
             </div>
@@ -592,12 +594,12 @@ function MhPropertyRow({
             onClick={(e) => e.stopPropagation()}
             onChange={() => onToggleSelect(p.id)}
             aria-label={`Выбрать объект: ${p.title}`}
-            style={{ position: "relative", zIndex: 1, width: 20, height: 20, flex: "none" }}
+            className="mh-pick"
           />
         )}
         <span className="av" aria-hidden="true" style={{ borderRadius: 10, overflow: "hidden", background: "var(--hover)" }}>
           {p.photos[0] ? (
-            <img src={p.photos[0].thumbUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+            <img src={p.photos[0].thumbUrl} alt="" loading="lazy" decoding="async" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
           ) : (
             <span style={{ fontSize: 13, color: "var(--muted)" }}>Фото</span>
           )}
@@ -614,7 +616,7 @@ function MhPropertyRow({
               <span className="chip warn xs">передан вам</span>
             )}
           </span>
-          <span className="s">
+          <span className="s mh-prop-s">
             {chipClass && <span className={chipClass}>{statusChipLabel(p.status, p.pipeline)}</span>}
             <span className="tx">{meta}</span>
           </span>

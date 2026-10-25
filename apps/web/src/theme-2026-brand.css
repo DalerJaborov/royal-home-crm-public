@@ -214,3 +214,268 @@ html[data-theme="royal-home-2026-night"] {
   --sky: var(--rh-sky);
   --sky-ink: var(--rh-sky-ink);
 }
+
+/* ═══ СТРОКА СПИСКА: НАЖАТИЕ ПО ПОДПИСИ (23.10.2026) ═════════════════════════
+ * `.rh-row-link::after` (theme-royal-home-2026.css) растягивает ссылку-заголовок
+ * на всю строку, чтобы нажималась вся строка, а не только заголовок. Но общее
+ * правило телефона `html[data-mobile-ux] button:active, a:active { transform:
+ * scale(.98) }` (index.css) на время нажатия делает саму кнопку содержащим блоком
+ * для `::after`: растяжка сжимается до размера заголовка, и нажатие по подписи под
+ * ним (pointerdown на кнопке, pointerup уже на подписи) не доходит до кнопки.
+ * Просадка у растянутой ссылки всё равно не видна — просаживать надо строку, не
+ * заголовок, — поэтому у неё преобразование снято. Генерируемые темы не трогаем.
+ * Тот же механизм у растянутой ссылки строк списка на телефоне
+ * (`a.lk::after`, theme-2026-mobile-density.css). */
+.rh2 .rh-row .rh-row-link:active,
+.rh2 .scr .row > .t > b > a.lk:active {
+  transform: none;
+}
+
+/* ═══ ЗОНЫ НАЖАТИЯ НА ТЕЛЕФОНЕ — 44 PX БЕЗ СМЕНЫ ВИДИМОГО РАЗМЕРА (24.10.2026) ═══
+ * Перепись экранов 24.10 нашла кнопки шапки (40), вкладки (36–40) и чипы-фильтры
+ * (34–36) мельче 44. Невидимые накладки (`::before`/`::after`, `inset:-Npx`) в теме
+ * уже были, но у них три общих изъяна, и каждый оставлял зону мельче 44:
+ *  1) `inset:-2px` у кнопки с рамкой 1px считает от ВНУТРЕННЕГО края (рамка в
+ *     накладку не входит): 40px кнопка получала 38+4 = 42, а не 44. Так у `.sh-btn`
+ *     (шапка), `.rh-tabs button`, `.rh-filters button`, `.fchips button`, `.btn.sm.soft`;
+ *  2) накладка внутри ленты с `overflow-x:auto` ОБРЕЗАЕТСЯ рамкой ленты: у `.lane`
+ *     вертикального запаса не было вовсе, и нажималась только видимая пилюля 34px;
+ *     вкладки раздела (`.seg-ai`, `ScreenTabs`) накладки не имели совсем (36px);
+ *  3) число в `inset` — константа, не привязанная к размеру элемента.
+ * Приём один на всех: `--tap-pad` берёт размер самого элемента (проценты в `inset`
+ * считаются от его же стороны) и добирает недостающее до 44; если элемент уже ≥44,
+ * накладка не нужна (0). Видимый вид не меняется.
+ * Растянутая ссылка строки (`.rh-row-link::after`) и `a.lk::after` сюда не входят
+ * и не затронуты: селекторы ниже называют только перечисленные элементы. */
+:root {
+  --tap-pad: min(0px, calc((100% - 44px) / 2));
+}
+@media (max-width: 819px) {
+  /* Шапка: круглые кнопки поиска/колокольчика/аватара/«назад» (Topbar,
+     LegacyAgentTopbar). Видимые 40, накладка добирает до 44. */
+  html .sh-btn::after {
+    inset: var(--tap-pad);
+  }
+  /* Кнопки шапки, которые не `.sh-btn`: «Профиль и выход» (ProfileMenu) и
+     кнопки LegacyAgentTopbar. Tailwind `h-11 w-11` уже 44 — страховка от
+     переопределения размера, видимого вида не меняет. */
+  [data-topbar-me] button[aria-label="Профиль и выход"],
+  [data-topbar] button[data-topbar-search],
+  [data-topbar] button[data-topbar-bell] {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  /* Вкладки раздела-состояние (components/rh2/Tabs.tsx) и чипы-фильтры
+     (components/rh2/Filters): те же 40px с рамкой, накладка по вертикали. */
+  .rh2 .scr .seg.rh-tabs button::after,
+  .rh2 .scr .rh-filters button::after {
+    inset: var(--tap-pad) 0;
+  }
+
+  /* Вкладки раздела-маршрут (components/ScreenTabs.tsx, `.seg-ai`): 36px, накладки
+     не было. Лента прокручивается вбок (≤640) и срезала бы накладку, поэтому ей
+     даётся вертикальный запас 4px, снятый с полей — раскладка не сдвигается.
+     В чистой оболочке (`data-shell="clean"`) у ссылок уже `min-height:44px`. */
+  html:not([data-shell="clean"]) .rh2 .seg-ai :is(a, button)[data-f] {
+    position: relative;
+  }
+  html:not([data-shell="clean"]) .rh2 .seg-ai :is(a, button)[data-f]::before {
+    content: "";
+    position: absolute;
+    inset: var(--tap-pad) 0;
+  }
+  html:not([data-shell="clean"]) .rh2 .seg-ai {
+    padding-block: 4px;
+    margin-top: 4px;
+    margin-bottom: -4px;
+  }
+  /* Замер на стенде (телефон 390, Android-UA, `data-mobile-ux`): ВСЕ 65 вкладок
+     давали зону 40, а не 44. Это чистая оболочка/мобильный режим: правило выше
+     (`:not([data-shell="clean"])`) к ним не относится, а запас `nav.seg-ai` лежит
+     частично ПОД следующим блоком (margin-bottom:-4px), и тот перекрывал его.
+     Лента получает свой слой (`position:relative; z-index:1`), накладка вкладки
+     добирает недостающие до 44 пикселей по вертикали, раскладка не сдвигается. */
+  html .rh2 .seg-ai {
+    position: relative;
+    z-index: 1;
+  }
+  /* Лента вкладок на телефоне переносится на 2-3 строки (proto идёт позже
+     royal-home и возвращает `flex-wrap:wrap`): при зазоре 4px накладки соседних
+     строк делили его пополам и зона была 40. Зазор 8px = шаг строк 44px, каждая
+     вкладка получает свои полные 44. Одна строка не меняется. */
+  html:not([data-shell="clean"]) .rh2 .seg-ai {
+    row-gap: 8px;
+  }
+  html .rh2 .seg-ai :is(a, button)[data-f] {
+    position: relative;
+  }
+  html .rh2 .seg-ai :is(a, button)[data-f]::before {
+    content: "";
+    position: absolute;
+    inset: var(--tap-pad) 0;
+  }
+  /* Кнопки `.pill.rh-btn.sm` (видимые 40, рамка 1px): `inset:-2px` считался от
+     внутреннего края и давал 43. Тот же приём, что у остальных накладок. */
+  .rh2 .scr .pill.sm.rh-btn.rh-btn-sm::after {
+    inset: var(--tap-pad) 0;
+  }
+
+  /* Ленты чипов телефона (`MhList`, `.mh`): накладка с учётом рамки. */
+  .rh2 .mh .fchips button::before,
+  .rh2 .mh .lane .f::before,
+  .rh2 .scr .filters .pill[aria-pressed]::before {
+    inset: var(--tap-pad) 0;
+  }
+  .rh2 .mh .btn.sm::before {
+    inset: min(-4px, var(--tap-pad));
+  }
+  /* Лента `.lane` резала накладку: вертикальный запас 5px, снятый с отступов
+     (14 сверху → 9+5, 0 снизу → 5-5), видимая раскладка та же. Прижатой ленте
+     (`.lane-sticky`) запас уже задан своим правилом. */
+  .rh2 .mh .lane:not(.lane-sticky) {
+    padding-block: 5px;
+    margin: 9px -16px -5px;
+  }
+}
+
+/* ═══ ВЫПАДАЮЩИЙ СПИСОК С ПОИСКОМ (components/SearchableSelect.tsx) — 24.10.2026 ═══
+ * Перепись 24.10: в формах объекта («Кто принял объект», «Район») поле шло на
+ * Tailwind-утилитах, которые общий сброс `.rh2 button{border:0;padding:0}` обнулял —
+ * ни рамки, ни отступов, зона 26px, список без стиля. Теперь поле = поле темы
+ * (`.fld input`: 44px, рамка `--line-strong`, радиус `--r-md`), список = карточка
+ * подсказок темы (`.sugg`). Селекторы с `.rh2`, чтобы бить сброс кнопок. */
+.rh-select {
+  position: relative;
+}
+.rh2 .rh-select .rh-select-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--card);
+  color: var(--ink);
+  font-size: var(--fs-14, 14px);
+  font-family: var(--ff-text);
+  text-align: left;
+}
+.rh2 .rh-select .rh-select-trigger[data-open],
+.rh2 .rh-select .rh-select-trigger:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 0;
+  border-color: transparent;
+}
+.rh2 .rh-select .rh-select-trigger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.rh-select-val {
+  color: var(--ink);
+  font-weight: 500;
+}
+.rh-select-ph {
+  color: var(--muted);
+}
+.rh-select-chev {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  color: var(--muted);
+  transition: transform 0.16s ease-out;
+}
+.rh-select-trigger[data-open] .rh-select-chev {
+  transform: rotate(180deg);
+  color: var(--accent);
+}
+.rh2 .rh-select .rh-select-pop {
+  position: absolute;
+  z-index: 20;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 4px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--card);
+  box-shadow: var(--shadow-sm);
+}
+.rh2 .rh-select .rh-select-search {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 0;
+  border-bottom: 1px solid var(--line-soft);
+  background: transparent;
+  color: var(--ink);
+  font-size: var(--fs-14, 14px);
+  font-family: var(--ff-text);
+  font-weight: 400;
+  border-radius: 0;
+  box-shadow: none;
+  outline: none;
+}
+.rh2 .rh-select .rh-select-search:focus {
+  border-color: var(--line-soft);
+  box-shadow: none;
+  outline: none;
+}
+.rh2 .rh-select .rh-select-empty {
+  padding: 12px 14px;
+  font-size: var(--fs-14, 14px);
+  color: var(--muted);
+}
+.rh2 .rh-select .rh-select-list {
+  max-height: 208px;
+  overflow-y: auto;
+}
+.rh2 .rh-select .rh-select-opt {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: var(--fs-14, 14px);
+  text-align: left;
+}
+.rh2 .rh-select .rh-select-opt:last-child {
+  border-bottom: 0;
+}
+.rh2 .rh-select .rh-select-opt:hover,
+.rh2 .rh-select .rh-select-opt[aria-selected="true"] {
+  background: var(--hover);
+}
+.rh-select-check {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  color: var(--accent);
+}
+
+/* ═══ СТРОКА НАСТРОЕК `.mod` НА ТЕЛЕФОНЕ: КНОПКИ НЕ УХОДЯТ ЗА ЭКРАН (24.10.2026) ═══
+ * Перепись: «Настройки → Деньги», кнопка «Обновить с alif.tj» уходила за экран
+ * (right=458 при ширине 390, горизонтальная прокрутка 68px). Причина: эталон даёт
+ * `.mod .acts{flex:none; flex-wrap:wrap}` — блок с `flex:none` берёт ширину
+ * по содержимому и не сжимается, поэтому перенос внутри него не срабатывает.
+ * Тот же механизм у всех вкладок Настроек (`.mod .acts` во всех
+ * `pages/settings/*Tab.tsx`). Лечение — разрешить блоку сжиматься до ширины строки.
+ * ПК не затронут (правило только до 819px). */
+@media (max-width: 819px) {
+  .rh2 .scr .mod .acts {
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 100%;
+  }
+  .rh2 .scr .mod .acts .pill {
+    max-width: 100%;
+  }
+}

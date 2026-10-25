@@ -1,0 +1,12 @@
+/* ФОРМА ОБЪЕКТА НА ТЕМЕ «ROYAL HOME 2026» (24.10.2026, F3 разбора переписи).
+ * Форма (`components/PropertyFormModal.tsx`) жила на легаси-классах Tailwind
+ * (`text-gray-*`, `border-line-soft`, `bg-hover-tint`); теперь разметка на
+ * `.fld .lab .msg .chk .pill .lnk .pair`, а здесь — только три мелочи, которых
+ * в эталоне нет: пометка внутри подписи, цвет подсказок и ряд «точка на карте».
+ * Не генерируется — править можно. */
+.rh2 .scr .fld .lab .pf-lab-note{color:var(--faint);font-weight:400}
+.rh2 .scr .fld .msg.pf-notice{color:var(--accent);font-weight:500}
+.rh2 .scr .fld .msg.pf-warn{color:var(--warn)}
+.rh2 .scr .fld .pf-map-row{display:flex;align-items:center;justify-content:space-between;gap:var(--s2);flex-wrap:wrap}
+.rh2 .scr .fld .pf-map-row .pill{max-width:100%}
+.rh2 .scr .fld.pf-auto-note{border-top:1px solid var(--line);padding-top:var(--s3)}

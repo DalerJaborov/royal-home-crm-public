@@ -5,6 +5,7 @@ import {
 import type { TxClient } from "../db.js";
 import { readCustomerPropertyFacts } from "../lib/customerPropertyFacts.js";
 import { isCustomerPrincipal, revalidateCustomerPrincipal, type CustomerPrincipal, type CustomerPrincipalSnapshot } from "../lib/customerPrincipal.js";
+import { logSystemError } from "../lib/systemError.js";
 
 export interface CustomerToolOptions {
   /** Server foundation/core switch. This is never taken from model arguments. */
@@ -62,7 +63,9 @@ export async function dispatchCustomerTool(principal: unknown, rawCall: unknown,
     }
     return customerToolResultSchema.parse({ status: "observed", tool: "get_property_facts", facts: fresh,
       kinds: call.data.args.kinds, observedAt: new Date().toISOString() });
-  } catch {
+  } catch (error) {
+    void logSystemError("api", `customer property facts read failed: ${error instanceof Error ? error.message : String(error)}`.slice(0, 500),
+      { dedupKey: "customer-property-facts-read-failed" });
     return { status: "unavailable", reason: "storage_unavailable" };
   }
 }

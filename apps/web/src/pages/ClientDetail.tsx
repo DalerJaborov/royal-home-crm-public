@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
-import { EmptyState } from "../components/EmptyState";
+import { Rh2EmptyState } from "../components/rh2/Rh2EmptyState";
+import { Rh2Screen } from "../components/rh2/Rh2Screen";
+import { usableRouteId } from "../lib/routeId";
 import { Rh2Sheet } from "../components/rh2/Rh2Sheet";
 import { ApiError } from "../lib/apiError";
 import { assignLeadErrorText } from "../lib/assignLeadError";
-import { ArrowLeft, ArrowRightLeft, Bot, Briefcase, CalendarClock, CircleCheck, Clock, Copy, GitMerge, Handshake, Home, MessageCircle, MessageSquare, MoreVertical, Pencil, Phone, RotateCcw, ShieldAlert, Tag, Trash2, UserCog } from "lucide-react";
+import { ArrowLeft, ArrowRightLeft, Bot, Briefcase, CalendarClock, CircleCheck, Clock, Copy, GitMerge, Handshake, Home, MessageCircle, MessageSquare, MoreVertical, Pencil, Phone, RefreshCw, RotateCcw, Search, ShieldAlert, Tag, Trash2, UserCog } from "lucide-react";
 import { ClientMoreMenu, countMoreItems, type MoreGroup, type MoreItem } from "../components/ClientMoreMenu";
 import { useProperties, useProperty } from "../hooks/useProperties";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
@@ -66,7 +68,6 @@ import { ClientAvatar } from "../components/ClientAvatar";
 import { ClientDesiredPlacesMap } from "../components/ClientDesiredPlacesMap";
 import type { Client } from "../types";
 import { primaryConversationId } from "../lib/primaryConversationId";
-import { RH2_SCR_BARE } from "../components/rh2/Rh2Scope";
 import { useMobileUx } from "../hooks/useMobileUx";
 import { useCleanShell } from "../hooks/useCleanShell";
 import { CleanClientDetailHeader, CleanClientDetailSkeleton, CleanClientDetailTabs, cleanClientDetailScale, cleanClientPanelProps, cleanClientShowsPanel } from "../components/clean/CleanClientDetailLayout";
@@ -131,13 +132,13 @@ function conversationsOf(client: Client): ClientConversation[] {
 }
 
 export function ClientDetail() {
-  const { id } = useParams();
+  const id = usableRouteId(useParams().id);
   // Drafts, open dialogs and selected objects belong to a person, never to the next route.
   return <ClientDetailCard key={id} />;
 }
 
 function ClientDetailCard() {
-  const { id } = useParams();
+  const id = usableRouteId(useParams().id);
   // Переписка: открыта ли панель и нужно ли сразу поставить курсор в поле ответа
   // (открыли, чтобы ответить, — а не чтобы прочитать; см. ClientChatPanel). Объявлен
   // раньше useClient ниже: тот читает chat.open, чтобы включать поллинг карточки,
@@ -472,48 +473,42 @@ function ClientDetailCard() {
    */
   const notFoundError = isError && clientError instanceof ApiError && clientError.status === 404;
   if (isError && !notFoundError) {
+    /* Ранние ответы живут в области темы (`Rh2Screen`): прежний `EmptyState`
+       со Tailwind-классами рисовался вне `.rh2`, и кнопке приходилось брать
+       собственную обёртку. Тексты и действие те же. */
     return (
-      <EmptyState
-        illustration="clients"
-        title="Не удалось загрузить карточку"
-        hint={clientError instanceof Error ? clientError.message : "Проверьте соединение и попробуйте ещё раз."}
-        action={
-          /* Пустые состояния до загрузки карточки живут ВНЕ обёртки `.rh2`
-             (ранний return, до неё дело не доходит), поэтому кнопка макета
-             получает свою обёртку: `.rh2 .pill` — потомковый селектор, ему
-             достаточно любого предка с этим классом. */
-          <span className="rh2 screens">
-            <span className="scr" style={RH2_SCR_BARE}>
-              <button className="pill" onClick={() => refetchClient()}>
+      <Rh2Screen>
+        <div className="card">
+          <Rh2EmptyState
+            icon={RefreshCw}
+            title="Не удалось загрузить карточку"
+            hint={clientError instanceof Error ? clientError.message : "Проверьте соединение и попробуйте ещё раз."}
+            action={
+              <button type="button" className="pill ghost" onClick={() => refetchClient()}>
                 Повторить
               </button>
-            </span>
-          </span>
-        }
-      />
+            }
+          />
+        </div>
+      </Rh2Screen>
     );
   }
-  /**
-   * Тупик без выхода был серой строкой в углу пустого экрана. Человек попадает
-   * сюда по ссылке из уведомления или из бота на карточку, которую уже удалили
-   * или передали, — и остаётся ни с чем: ни объяснения, ни куда идти дальше.
-   */
   if (!client)
     return (
-      <EmptyState
-        illustration="clients"
-        title="Карточка не найдена"
-        hint="Карточка удалена, объединена с дубликатом или переведена в кандидаты на вакансию. Проверьте список — возможно, клиент там под другим именем."
-        action={
-          <span className="rh2 screens">
-            <span className="scr" style={RH2_SCR_BARE}>
-              <Link className="pill" to={isSeller ? "/sellers" : isOther ? "/other-inquiries" : "/clients"}>
+      <Rh2Screen>
+        <div className="card">
+          <Rh2EmptyState
+            icon={Search}
+            title="Карточка не найдена"
+            hint="Карточка удалена, объединена с дубликатом или переведена в кандидаты на вакансию. Проверьте список — возможно, клиент там под другим именем."
+            action={
+              <Link className="pill ghost" to={isSeller ? "/sellers" : isOther ? "/other-inquiries" : "/clients"}>
                 К списку
               </Link>
-            </span>
-          </span>
-        }
-      />
+            }
+          />
+        </div>
+      </Rh2Screen>
     );
 
   // Уровень 3: до принятия лида агент видит требования, но не контакты и не может работать с карточкой.

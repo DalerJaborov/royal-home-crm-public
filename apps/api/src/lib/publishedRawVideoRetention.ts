@@ -14,6 +14,17 @@ export function rawVideoPublicationMarks(
   return { [RAW_VIDEO_PUBLISHED_AT]: now.toISOString(), [RAW_VIDEO_PUBLISHED_PATH]: finalPath };
 }
 
+/**
+ * Ролик реально вышел хотя бы в одном канале: у канала из `publishedChannels` в
+ * `publishedPostIds` лежит непустой id поста. Одно правило для хранения исходников
+ * и для публичной ссылки на ролик (lib/propertyPublicVideo.ts) — не копировать.
+ */
+export function hasPublishedPostId(publishedChannels: string[], publishedPostIds: unknown): boolean {
+  if (!publishedPostIds || typeof publishedPostIds !== "object" || Array.isArray(publishedPostIds)) return false;
+  const ids = publishedPostIds as Record<string, unknown>;
+  return publishedChannels.some(c => typeof ids[c] === "string" && !!ids[c]);
+}
+
 export interface PublishedSourceFacts {
   status: string;
   deletedAt: Date | null;
@@ -31,7 +42,7 @@ export function publishedSourceCutoff(p: PublishedSourceFacts, now = new Date())
   const marks = p.publishedPostIds;
   if (!marks || typeof marks !== "object" || Array.isArray(marks)) return null;
   const ids = marks as Record<string, unknown>;
-  if (!p.publishedChannels.some(c => typeof ids[c] === "string" && ids[c])) return null;
+  if (!hasPublishedPostId(p.publishedChannels, marks)) return null;
   if (Object.entries(ids).some(([key, value]) => key.endsWith("_PENDING") && value)) return null;
   if (!p.videoHandoffFinalPath || ids[RAW_VIDEO_PUBLISHED_PATH] !== p.videoHandoffFinalPath) return null;
   const at = ids[RAW_VIDEO_PUBLISHED_AT];

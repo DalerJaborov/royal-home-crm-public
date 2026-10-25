@@ -119,6 +119,7 @@ import { sweepExpiredDuplicateReviews, runDuplicateFuzzyScanTick, remindDuplicat
 import { buildCallInsights } from "./ai/callInsights.js";
 import { findStuckConversations } from "./lib/stuckConversations.js";
 import { syncMetaAdsQuietly } from "./lib/ads/syncMetaAds.js";
+import { runReelsAutoBoostGuarded } from "./lib/ads/reelsAutoBoost.js";
 import { watchStaleSync } from "./lib/ads/adReconcile.js";
 import { refreshMetaAdsTokenIfDue } from "./lib/ads/metaAdsToken.js";
 import { refreshMetaUserTokensIfDue } from "./lib/metaUserTokenRefresh.js";
@@ -1055,6 +1056,19 @@ export function startCronJobs() {
       await watchStaleSync();
     } catch (err) {
       reportCronTickError("Ошибка сторожа давности синхронизации рекламы", err);
+    }
+  });
+
+  /**
+   * Автопродвижение роликов (lib/ads/reelsAutoBoost.ts): новый Reels объекта → объявление
+   * в постоянной кампании Meta, лишнее на паузу. Выключено в Настройках по умолчанию —
+   * тогда тик ничего не читает и не пишет; в пробном режиме в Meta не ходит.
+   */
+  scheduleTracked("reels-autoboost", "*/30 * * * *", async () => {
+    try {
+      await runReelsAutoBoostGuarded();
+    } catch (err) {
+      reportCronTickError("Ошибка автопродвижения роликов", err);
     }
   });
 

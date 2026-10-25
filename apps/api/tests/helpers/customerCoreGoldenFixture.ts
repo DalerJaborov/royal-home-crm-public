@@ -4,7 +4,10 @@ import { customerAgentDecisionSchema, customerAgentToolCallSchema } from "@royal
 import { prisma } from "../../src/db.js";
 import { encryptSecret } from "../../src/crypto.js";
 import { verifySignature, resetMetaAccountCredsCache } from "../../src/messengers/meta.js";
+import * as ingressAuthority from "../../src/lib/customerIngressAuthority.js";
 import { registerAuthenticatedMetaCustomerRequest } from "../../src/lib/customerIngressAuthority.js";
+import { customerDbVerifierCredential } from "../../src/lib/customerOriginCredential.js";
+import { decryptSecret } from "../../src/crypto.js";
 import { persistVerifiedCustomerIngressBatch, consumeCustomerInboxTicket } from "../../src/lib/customerIngressProducer.js";
 import { createCustomerAgentProviderSnapshot } from "../../src/ai/customerAgentProviderConfig.js";
 import { registerCurrentCustomerAgentRevision } from "../../src/lib/customerAgentRegistration.js";
@@ -31,6 +34,11 @@ export const invalidDecision = (value: unknown): ModelPart => {
 export async function createCustomerCoreGoldenFixture(options: { media?: boolean; publicEnvelope?: boolean } = {}) {
   const tag = `synthetic-core-companion-${randomUUID()}`, key = `${tag}-gemini-key`;
   const globalIgSecret = `${tag}-global-ig-secret`;
+  // F02 (23.10.2026): with two global keys the signature now proves the namespace, and routing accepts exactly the
+  // keys the strict proof accepts, so a NEW public_envelope can no longer arise from a real request. The
+  // `publicEnvelope` option therefore simulates a HISTORICAL/weaker pending envelope: the request is a genuine
+  // protected one and only the stored verification is downgraded by the spy below (strict check untouched).
+  let downgrade: { mockRestore(): void } | undefined;
   const accounts: string[] = [], events: string[] = [], partIds: string[] = [], properties: string[] = [], districts: string[] = [];
   const owners = new Map<string, { id: string; externalId: string; token: string; secret: string; peer: string }>();
   const ioViolations: string[] = [], bodies: unknown[] = [], physical: string[] = [], mids: string[] = [];
@@ -47,6 +55,7 @@ export async function createCustomerCoreGoldenFixture(options: { media?: boolean
   } });
   const [savedRollout] = await prisma.$queryRaw<Array<{ rolloutConfig: unknown }>>`SELECT "rolloutConfig" FROM "CustomerRuntimePolicy" WHERE "id"='singleton'`;
   async function restore() {
+    downgrade?.mockRestore(); downgrade = undefined;
     try { await prisma.settings.update({ where: { id: "singleton" }, data: savedSettings }); }
     finally {
       try {
@@ -64,6 +73,15 @@ export async function createCustomerCoreGoldenFixture(options: { media?: boolean
     botInstagramEnabled: true, geminiApiKey: encryptSecret(key), geminiApiKey2: null, geminiApiKeysExtra: [],
     ...(options.publicEnvelope ? { metaAppSecret: encryptSecret(`${tag}-other-global-app-secret`),
       metaIgAppSecret: encryptSecret(globalIgSecret) } : {}) } });
+  if (options.publicEnvelope) {
+    const persisted = (await prisma.settings.findUniqueOrThrow({ where: { id: "singleton" }, select: { metaIgAppSecret: true } })).metaIgAppSecret;
+    const credential = customerDbVerifierCredential("settings_meta_ig_app_secret", "singleton", persisted, persisted ? decryptSecret(persisted) : null);
+    const original = ingressAuthority.captureCustomerPendingVerification;
+    downgrade = vi.spyOn(ingressAuthority, "captureCustomerPendingVerification").mockImplementation(async (...args) => {
+      const proof = await original(...args);
+      return proof ? { ...proof, assurance: "public_envelope", issuerSource: "verified_public_envelope", verifierCredential: credential } : proof;
+    });
+  }
   vi.stubEnv("IG_PROXY_URL", "https://synthetic-core-instagram.invalid"); vi.stubEnv("IG_PROXY_KEY", "");
   vi.stubEnv("GEMINI_PROXY_URL", "https://synthetic-core-gemini.invalid"); vi.stubEnv("GEMINI_PROXY_KEY", "");
   vi.stubEnv("GEMINI_API_KEY", key); vi.stubEnv("GEMINI_API_KEY_2", "");
@@ -157,7 +175,7 @@ export async function createCustomerCoreGoldenFixture(options: { media?: boolean
         secret: `${tag}-secret-${accounts.length}`, peer: `${tag}-peer-${accounts.length}` };
       await prisma.messengerAccount.create({ data: { id, channel: "INSTAGRAM", externalId: o.externalId,
         username: `synthetic_companion_agency_${id.replaceAll("-", "")}`, title: "Synthetic golden companion", enabled: true,
-        token: encryptSecret(o.token), appSecret: options.publicEnvelope ? null : encryptSecret(o.secret) } });
+        token: encryptSecret(o.token), appSecret: encryptSecret(o.secret) } });
       const endpoint = await prisma.$transaction(tx => ensureCustomerEndpoint(tx, { channel: "INSTAGRAM", subscriberId: o.peer,
         accountId: id, accountExternalId: o.externalId }));
       await prisma.$executeRaw`UPDATE "CustomerRuntimePolicy" SET "rolloutConfig"=jsonb_set("rolloutConfig",'{allowed}',
@@ -170,7 +188,7 @@ export async function createCustomerCoreGoldenFixture(options: { media?: boolean
       const eventId = `${tag}-in-${randomUUID()}`, rawBody = Buffer.from(JSON.stringify({ object: "instagram", entry: [{ id: o.externalId,
         messaging: [{ sender: { id: o.peer }, recipient: { id: o.externalId }, timestamp: Date.now(), message: { mid: eventId, text,
           ...(attachments ? { attachments } : {}) } }] }] }));
-      const signature = `sha256=${createHmac("sha256", options.publicEnvelope ? globalIgSecret : o.secret).update(rawBody).digest("hex")}`;
+      const signature = `sha256=${createHmac("sha256", o.secret).update(rawBody).digest("hex")}`;
       expect(await verifySignature(rawBody, signature)).toBe(true);
       const request = { rawBody, get: () => signature }; registerAuthenticatedMetaCustomerRequest(request);
       const stored = await persistVerifiedCustomerIngressBatch(request);

@@ -1,10 +1,10 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 660,
-  "forks": 3642,
-  "mounts": 74,
-  "cron": 107,
+  "endpoints": 666,
+  "forks": 3653,
+  "mounts": 75,
+  "cron": 108,
   "jobs": 31,
   "hidden": 0
  },
@@ -60836,16 +60836,8 @@
    "handlerRef": null,
    "tree": [
     {
-     "k": "do",
-     "t": "const settings = await prisma.settings.findUnique({ where: { id: \"singleton\" }, select: { metaCatalogFeedEnab…",
-     "a": [
-      "читает в базе: settings"
-     ],
-     "c": []
-    },
-    {
      "k": "if",
-     "t": "!settings?.metaCatalogFeedEnabled || !configuredKey || !key || !secretsMatch(key, configuredKey)",
+     "t": "!(await metaCatalogKeyOk(req))",
      "a": [],
      "c": [
       {
@@ -60885,6 +60877,71 @@
     {
      "k": "do",
      "t": "res.send(renderHomeListingCsv(rows));",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/meta-catalog/products-video.csv",
+   "mount": "/api/v1/public",
+   "full": "/api/v1/public/meta-catalog/products-video.csv",
+   "file": "apps/api/src/routes/publicFeed.ts",
+   "router": "publicFeedRouter",
+   "top": "apps/api/src/routes/publicFeed.ts::publicFeedRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "предел частоты запросов"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!(await metaCatalogKeyOk(req))",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).end();",
+       "a": [
+        "ответ 404"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const rows = await loadProductVideoRows();",
+     "a": [
+      "зовёт loadProductVideoRows()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.set(\"Content-Type\", \"text/csv; charset=utf-8\");",
+     "a": [
+      "ставит заголовок ответа"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.set(\"Cache-Control\", \"public, max-age=600\");",
+     "a": [
+      "ставит заголовок ответа"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.send(renderProductVideoCsv(rows));",
      "a": [
       "ответ 200"
      ],
@@ -61033,6 +61090,103 @@
       "ответ 200"
      ],
      "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/property-video/:file",
+   "mount": "/api/v1/public",
+   "full": "/api/v1/public/property-video/:file",
+   "file": "apps/api/src/routes/publicFeed.ts",
+   "router": "publicFeedRouter",
+   "top": "apps/api/src/routes/publicFeed.ts::publicFeedRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "предел частоты запросов"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).end();",
+       "a": [
+        "ответ 404"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const property = await prisma.property.findUnique({ where: { shortId }, select: { shortId: true, status: true…",
+     "a": [
+      "читает в базе: property"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!property || !isPropertyVideoPublic(property)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).end();",
+       "a": [
+        "ответ 404"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.setHeader(\"Content-Type\", \"video/mp4\");",
+     "a": [
+      "ставит заголовок ответа"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.sendFile(fileName, { root: videoHandoffDir, maxAge: \"1d\" }, (err)",
+     "a": [
+      "ответ 404",
+      "запись в журнал ошибок"
+     ],
+     "c": [
+      {
+       "k": "if",
+       "t": "err && !res.headersSent",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "void logSystemError(\"storage\", `Публичный ролик объекта №${shortId} не отдан: ${err.message}`);",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "res.status(404).end();",
+         "a": [
+          "ответ 404"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
     }
    ]
   },
@@ -73694,6 +73848,71 @@
    ]
   },
   {
+   "method": "GET",
+   "path": "/:id",
+   "mount": "/api/v1/vacancies",
+   "full": "/api/v1/vacancies/:id",
+   "file": "apps/api/src/routes/vacancies.ts",
+   "router": "vacanciesRouter",
+   "top": "apps/api/src/routes/vacancies.ts::vacanciesRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: vacancies.view"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!id.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Анкета не найдена\" });",
+       "a": [
+        "ответ 404 — «Анкета не найдена»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const row = await prisma.jobApplication.findFirst({ where: { AND: [{ id: id.data }, NOT_ARCHIVED] }, include:…",
+     "a": [
+      "читает в базе: jobApplication"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!row",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Анкета не найдена\" });",
+       "a": [
+        "ответ 404 — «Анкета не найдена»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.json(presentListItem(row));",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
    "method": "PATCH",
    "path": "/:id",
    "mount": "/api/v1/vacancies",
@@ -79113,6 +79332,204 @@
     {
      "k": "do",
      "t": "res.json(await waTemplatesOverview(req.query.fresh === \"1\"));",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "/run",
+   "mount": "",
+   "full": "/run",
+   "file": "apps/api/src/routes/adsReelsAutoBoost.ts",
+   "router": "router",
+   "top": "apps/api/src/routes/adsReelsAutoBoost.ts::router",
+   "guards": [
+    "guards.write"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const result = await runReelsAutoBoostGuarded();",
+       "a": [
+        "зовёт runReelsAutoBoostGuarded()"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!result",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(409).json({ error: \"Проход уже идёт, подождите минуту\" });",
+         "a": [
+          "ответ 409 — «Проход уже идёт, подождите минуту»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "res.json({ result, overview: await buildOverview() });",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "res.status(500).json({ error: `Проход не удался: ${describeError(err)}` });",
+       "a": [
+        "ответ 500 — «Проход не удался: ${describeError(err)}»"
+       ],
+       "c": []
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/",
+   "mount": "",
+   "full": "",
+   "file": "apps/api/src/routes/adsReelsAutoBoost.ts",
+   "router": "router",
+   "top": "apps/api/src/routes/adsReelsAutoBoost.ts::router",
+   "guards": [
+    "guards.read"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "res.json(await buildOverview());",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "res.status(500).json({ error: `Не удалось прочитать автопродвижение: ${describeError(err)}` });",
+       "a": [
+        "ответ 500 — «Не удалось прочитать автопродвижение: ${describeError(err)}»"
+       ],
+       "c": []
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "method": "PATCH",
+   "path": "/",
+   "mount": "",
+   "full": "",
+   "file": "apps/api/src/routes/adsReelsAutoBoost.ts",
+   "router": "router",
+   "top": "apps/api/src/routes/adsReelsAutoBoost.ts::router",
+   "guards": [
+    "guards.write"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const parsed = reelsAutoBoostSettingsPatchSchema.safeParse(req.body);",
+     "a": [
+      "проверяет данные схемой reelsAutoBoostSettingsPatchSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: parsed.error.issues[0]?.message ?? \"Неверные настройки\" });",
+       "a": [
+        "ответ 400"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const current = await loadReelsAutoBoostSettings();",
+     "a": [
+      "зовёт loadReelsAutoBoostSettings()"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "next.enabled && !next.dryRun && !next.adSetId",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Для боевого режима укажите номер группы объявлений постоянной кампании …",
+       "a": [
+        "ответ 400 — «Для боевого режима укажите номер группы объявлений постоянной…»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "await prisma.settings.update({ where: { id: \"singleton\" }, data: { ...(patch.enabled !== undefined && { reels…",
+     "a": [
+      "меняет в базе: settings"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "logAudit(req, \"SETTINGS_UPDATE\", \"Settings\", \"singleton\", { reelsAutoBoost: patch });",
+     "a": [
+      "зовёт logAudit()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json(await buildOverview());",
      "a": [
       "ответ 200"
      ],
@@ -96752,6 +97169,108 @@
    "file": "apps/api/src/cron.ts"
   },
   {
+   "id": "reels-autoboost",
+   "when": "*/30 * * * *",
+   "tree": [
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "await runReelsAutoBoostGuarded();",
+       "a": [
+        "зовёт runReelsAutoBoostGuarded()"
+       ],
+       "c": [
+        {
+         "k": "if",
+         "t": "tickRunning",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return null;",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "try",
+         "t": "пробует",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return await runReelsAutoBoostTick();",
+           "a": [
+            "зовёт runReelsAutoBoostTick()"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "finally",
+         "t": "в любом случае",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "tickRunning = false;",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ],
+       "from": "runReelsAutoBoostGuarded() — apps/api/src/lib/ads/reelsAutoBoost.ts"
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "reportCronTickError(\"Ошибка автопродвижения роликов\", err);",
+       "a": [
+        "зовёт reportCronTickError()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const reason = markCronTickFailed(label, err);",
+         "a": [
+          "зовёт markCronTickFailed()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        }
+       ],
+       "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
+      }
+     ]
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
    "id": "refused-high-score-alarm",
    "when": "0 * * * *",
    "tree": [
@@ -109933,6 +110452,21 @@
             "обращается к базе своим SQL"
            ],
            "c": []
+          },
+          {
+           "k": "if",
+           "t": "result.reason !== NEWER_INPUT_PENDING",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "await resumeDeferredCustomerInbox(eventKey);",
+             "a": [
+              "зовёт resumeDeferredCustomerInbox()"
+             ],
+             "c": []
+            }
+           ]
           }
          ]
         }

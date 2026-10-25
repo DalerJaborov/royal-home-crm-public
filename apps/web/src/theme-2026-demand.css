@@ -42,6 +42,7 @@
   overflow-wrap: anywhere;
 }
 .rh2 .dsm-d small {
+  font-size: var(--fs-13, 13px);
   display: block;
   font-weight: 400;
   color: var(--muted);

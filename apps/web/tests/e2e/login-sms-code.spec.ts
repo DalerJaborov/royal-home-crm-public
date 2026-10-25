@@ -27,7 +27,7 @@ test("@smoke вход по коду — подсказка номера, отс�
 
   await expect(page.getByText(/Шесть цифр из СМС на номер •• ••• 06 61/)).toBeVisible();
   await expect(page.getByRole("button", { name: "Прислать в Telegram" })).toBeVisible();
-  await expect(page.getByRole("button", { name: /Отправить код ещё раз через \d+ с/ })).toBeDisabled();
+  await expect(page.getByRole("button", { name: /Отправить ещё раз через \d+ с/ })).toBeDisabled();
 
   await page.getByRole("textbox", { name: "Код из СМС" }).fill("123456");
   await page.getByRole("button", { name: "Подтвердить", exact: true }).click();

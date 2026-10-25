@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { customerAgentVacanciesObservationSchema, recruitmentPositionSchema, assessRecruitmentResume,
   type RecruitmentFactKey, type CustomerAgentVacanciesObservation, type RecruitmentPosition } from "@royal-home/shared";
+import { customerTextRole, foldCustomerText } from "./customerAgentRole.js";
 import { extractRecruitmentResumeFacts, extractRecruitmentAnswerFacts } from "../lib/recruitmentResume.js";
 
 /** Pure public-data validation; never imports DB, candidate records or grants. */
@@ -14,29 +15,35 @@ export function isCustomerVacanciesObservation(value: unknown): value is Custome
     result.data.positions.every(row => row.isOpen) && (result.data.collecting || !result.data.positions.length);
 }
 export function customerRecruitmentRequested(text: string): boolean {
-  return /ваканси|ищу\s+работу|хочу\s+работать|хочу\s+(?:стать|устроиться)\s+агент|резюме|ҷойи\s+кор|чои\s+кор|дар\s+бораи\s+кор|(?:о|по)\s+работе|(?:насч[её]т|по\s+поводу)\s+работы|кор\s+(?:меҷӯ|мечу|мекоб|мехо[ҳх]|даркор|лозим)|ба\s+кор\s+(?:гири|қабул|кабул)|SMM|СММ|видеограф/iu.test(text);
+  return /ваканси|ищу\s+работу|хочу\s+работать|хочу\s+(?:стать|устроиться)\s+агент|резюме|ҷойи\s+кор|чои\s+кор|дар\s+бораи\s+кор|(?:о|по)\s+работе|(?:насч[её]т|по\s+поводу)\s+работы|кор\s+(?:меҷӯ|мечу|мекоб|мехо[ҳх]|даркор|лозим)|ба\s+кор\s+(?:гири|қабул|кабул)|(?:есть|имеется)\s+(?:у\s+вас\s+)?(?:сейчас\s+)?(?:какая[\s-]*нибудь\s+)?(?:работ[аы]|работу)(?![\p{L}])|кор\s+доред(?![\p{L}])|SMM|СММ|видеограф/iu.test(text);
 }
 export function customerRecruitmentFactsRequested(text: string): boolean {
   return /ваканси|услови|зарплат|оплат|платит|платят|график|удал[её]н|удал[её]нк|дистанцион|из\s+дома|офис|суббот|выходн|(?:дни|часы)\s+работ|(?:есть|ищу)\s+работ|ҷойи\s+кор|чои\s+кор|маош|шартҳои\s+кор|дар\s+бораи\s+кор|фосилав|аз\s+хона|рӯзҳои\s+кор|соати\s+кор|шанбе|подроб|муфассал/iu.test(text);
 }
 /** Only topic projection. This creates no application, consent or HR verdict. */
 export function customerRecruitmentTopic(text: string, previous: "buyer" | "seller" | "job" | "rent" | "unknown", matchedPublication = false) {
-  if (/(?:хочу\s+купить|куплю|мехарам|харидан\s+мехоҳ)/iu.test(text)) return "buyer" as const;
-  if (/(?:хочу\s+продать|продаю|продать\s+(?:мою|свою)|мефурӯшам|мефурушам)/iu.test(text)) return "seller" as const;
-  // The customer's current request wins over an old recruitment/ad focus.
-  // "Ищу квартиру в аренду" is rental, not buying or applying for a job.
-  if (/(?:аренд|снять\s+(?:квартир|дом|жиль)|иҷора|ичора)/iu.test(text)) return "rent" as const;
-  if (/ищу\s+(?:квартир|дом)/iu.test(text)) return "buyer" as const;
-  return matchedPublication || customerRecruitmentRequested(text) ? "job" as const : previous;
+  // The customer's current request wins over an old recruitment/ad focus, and an explicit job
+  // request wins over buy/sell words in the same text ("продаю 3 года, ищу работу" is a job inquiry).
+  // "Ищу квартиру в аренду" is rental, not buying or applying for a job; a landlord is a seller.
+  return customerTextRole(text, customerRecruitmentRequested(text)) ?? (matchedPublication ? "job" as const : previous);
+}
+/** Words that name no particular vacancy: they must never pick one by themselves. */
+const GENERIC_POSITION_WORDS = new Set(["работа", "работу", "работе", "работы", "работать", "вакансия", "вакансии", "вакансию",
+  "должность", "специалист", "сотрудник", "мутахассис", "мутахассиси", "корманд"]);
+const letterTokens = (text: string) => foldCustomerText(text).split(" ").filter(Boolean);
+/** Whole-word match with an inflection allowance: "видеографом" is "видеограф", "агентство" is not "агент". */
+function mentionsPositionWord(tokens: readonly string[], word: string): boolean {
+  const stem = word.length >= 6 ? word.slice(0, -2) : word;
+  return tokens.some(token => token.startsWith(stem) && token.length <= word.length + 3);
 }
 export function selectedRecruitmentPosition(positions: readonly RecruitmentPosition[], text: string, knownKey?: string): RecruitmentPosition | null {
-  const query = text.toLocaleLowerCase();
+  const tokens = letterTokens(text);
   // Repeated observations of the same catalog row are not two different jobs.
   // A conflicting edition of that key remains ambiguous, never last-write-wins.
   const unique = positions.filter((position, index) => positions.findIndex(other =>
     JSON.stringify(other) === JSON.stringify(position)) === index);
-  const matched = unique.filter(position => [position.titleRu, position.titleTg, ...position.keywords].join(" ").toLocaleLowerCase()
-    .split(/[\s/—–-]+/u).filter(word => word.length >= 3).some(word => query.includes(word)));
+  const matched = unique.filter(position => letterTokens([position.titleRu, position.titleTg, ...position.keywords].join(" "))
+    .filter(word => (word.length >= 4 || /^[a-z]{3}$/u.test(word)) && !GENERIC_POSITION_WORDS.has(word)).some(word => mentionsPositionWord(tokens, word)));
   if (matched.length === 1) return matched[0];
   if (matched.length > 1) return null;
   const known = knownKey ? unique.filter(position => position.key === knownKey) : [];

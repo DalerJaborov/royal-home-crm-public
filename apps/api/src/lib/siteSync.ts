@@ -5,6 +5,7 @@ import { prisma } from "../db.js";
 import { crmPublicBase, publicUploadUrl } from "./crmPublicUrl.js";
 import { enqueueBackgroundJob } from "../jobs/enqueue.js";
 import { sitePropertyFacts } from './sitePropertyFacts.js';
+import { propertyPublicVideoUrl } from "./propertyPublicVideo.js";
 
 /**
  * Pushes property publish/unpublish/sold state to the royalhome.tj website
@@ -123,6 +124,10 @@ function toSitePayload(property: SyncableProperty, usdToTjsRate: number | null) 
     lat: toNum(property.lat) ?? undefined,
     lng: toNum(property.lng) ?? undefined,
     instagramUrl: property.instagramUrl ?? undefined,
+    // Постоянная открытая ссылка на готовый ролик (видео вторым слайдом на сайте) —
+    // только если ролик реально опубликован (lib/propertyPublicVideo.ts). Перемонтаж
+    // меняет `?v=` в ссылке, и сайт перечитывает файл.
+    videoUrl: propertyPublicVideoUrl(property, crmPublicBase()),
   };
 }
 
