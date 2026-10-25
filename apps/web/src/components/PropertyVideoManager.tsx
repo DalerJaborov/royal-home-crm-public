@@ -6,6 +6,7 @@ import { partitionVideosByLimit, videoTooLargeMessage } from "@royal-home/shared
 import { enqueueVideos } from "../lib/uploadQueue";
 import { UploadQueueList } from "./UploadQueueList";
 import { VideoPlayerWithFallback } from "./VideoPlayerWithFallback";
+import { PropertyNarrationManager } from "./PropertyNarrationManager";
 
 function formatSize(bytes: number): string {
   if (bytes >= 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} ГБ`;
@@ -240,12 +241,13 @@ export function PropertyVideoManager({
    * нужны, но с честной подписью вместо «ждём».
    */
   const handoffMoved = handoffStatus === "SENT_TO_EDITOR" || handoffStatus === "RECEIVED";
-  if (handoffMoved && !videos?.length) return null;
+  if (handoffMoved && !videos?.length) return <PropertyNarrationManager propertyId={propertyId} />;
 
   return (
-    /* Карточка эталона: `.sec-h` с действиями справа, ролики строками `.list`/
+    <><PropertyNarrationManager propertyId={propertyId} />
+    {/* Карточка эталона: `.sec-h` с действиями справа, ролики строками `.list`/
        `.row`, служебные пояснения и ошибки — тихими строками `.quiet`.
-       Перетаскивание сохранено: подсказка о нём тоже тихая строка. */
+       Перетаскивание сохранено: подсказка о нём тоже тихая строка. */}
     <div
       onDragEnter={handleDragEnter}
       onDragOver={handleDragOver}
@@ -442,6 +444,6 @@ export function PropertyVideoManager({
           onCancel={() => setDeleteVideoId(null)}
         />
       )}
-    </div>
+    </div></>
   );
 }

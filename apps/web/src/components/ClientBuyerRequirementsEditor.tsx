@@ -3,9 +3,8 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { clientBuyerRequirementsSchema, clientIntents, type PropertyType, type ClientBuyerRequirementsInput } from "@royal-home/shared";
 import { useDistricts } from "../hooks/useDistricts";
 import { api } from "../lib/api";
-import { PROPERTY_TYPE_LABELS } from "../lib/format";
+import { formatMoney, PROPERTY_TYPE_LABELS } from "../lib/format";
 import type { Client } from "../types";
-import { ClientCardFacts } from "./ClientCardContext";
 import { Rh2Sheet } from "./rh2/Rh2Sheet";
 
 type BuyerRequirementsDraft = {
@@ -40,9 +39,19 @@ export function buyerRequirementsPayload(form: BuyerRequirementsDraft) {
 export function ClientBuyerRequirementsEditor({ client, locked }: { client: Client; locked: boolean }) {
   const [open, setOpen] = useState(false);
   if (!clientIntents(client).buys) return null;
+  const current = !client.requirementsFieldsKind || client.requirementsFieldsKind === "BUYER";
+  const chips = current ? [
+    client.desiredType ? PROPERTY_TYPE_LABELS[client.desiredType] : "Тип не указан",
+    client.desiredRooms ? `${client.desiredRooms} комн.` : null,
+    client.budgetMin && client.budgetMax ? `${formatMoney(client.budgetMin, client.currency)} — ${formatMoney(client.budgetMax, client.currency)}` : client.budgetMax ? `До ${formatMoney(client.budgetMax, client.currency)}` : client.budgetMin ? `От ${formatMoney(client.budgetMin, client.currency)}` : "Бюджет не указан",
+    client.desiredDistrict?.name ?? (!(client.desiredPlaces?.length) ? "Район не указан" : null),
+    ...(client.desiredPlaces ?? []).map(place => `${place.label || "Место на карте"} · радиус ${place.radiusM} м`),
+    client.desiredAreaMin ? `От ${client.desiredAreaMin} м²` : null,
+  ].filter(Boolean) : [];
   return <div className="client-buyer-summary">
-    <ClientCardFacts client={client} />
+    <div className="client-request"><b>Запрос покупателя</b>{current ? <ul className="client-request-chips">{chips.map((chip, index) => <li key={`${index}:${chip}`}>{chip}</li>)}</ul> : <p>Уточните параметры покупки: прежние сведения относятся к другой роли.</p>}</div>
     {!locked && !client.pendingAcceptance && <button type="button" className="pill ghost sm" onClick={() => setOpen(true)}>Уточнить пожелания</button>}
+    {current && client.requirementsNotes && <details className="client-request-notes"><summary>Пожелания словами клиента</summary><p>{client.requirementsNotes}</p></details>}
     {open && !locked && !client.pendingAcceptance && <BuyerRequirementsForm key={`${client.id}:${client.requirementsFieldsKind ?? "legacy"}`} client={client} locked={locked} onClose={() => setOpen(false)} />}
   </div>;
 }

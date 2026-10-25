@@ -1507,6 +1507,8 @@ export const leadAcceptSchema = z.object({
 /// (WhatsApp/Instagram) склонен резать простыни текста.
 export const sendPropertiesSchema = z.object({
   propertyIds: z.array(z.guid()).min(1).max(5),
+  /** Integrity of a server-prepared preview; optional only for legacy API clients. */
+  previewFingerprint: z.string().regex(/^[a-f0-9]{64}$/).optional(),
   /**
    * Диалог инбокса, из которого нажали «Отправить» (28.09.2026): `<uuid>` для
    * WhatsApp/Instagram/Messenger/сайта, `tg_<uuid>` для Telegram. Без него

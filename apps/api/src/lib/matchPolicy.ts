@@ -142,12 +142,19 @@ export async function loadMatchPolicy(): Promise<MatchPolicy> {
  * видеть и неназначенных клиентов; автоподбор (единственный, кому нужен только
  * назначенный, чтобы было кого пушить) фильтрует «есть агент» сам, поверх этого where.
  */
+export function confirmedBuyerWhere(): Prisma.ClientWhereInput {
+  return { OR: [{ kind: "BUYER" }, { kind: "SELLER", dualIntent: true, dualIntentConfirmedAt: { not: null } }] };
+}
+
 export function waitingBuyerWhere(policy: MatchPolicy, now: Date = new Date()): Prisma.ClientWhereInput {
   const workStatuses: Array<"ACTIVE" | "INACTIVE" | "DEFERRED"> = ["ACTIVE"];
   if (policy.includeInactive) workStatuses.push("INACTIVE");
   if (policy.includeDeferred) workStatuses.push("DEFERRED");
 
   const and: Prisma.ClientWhereInput[] = [
+    // Keep role predicates inside AND: consumers add their own geographical OR.
+    confirmedBuyerWhere(),
+    { OR: [{ requirementsFieldsKind: null }, { requirementsFieldsKind: "BUYER" }] },
     // buyerStage не заполнен почти никогда (появляется только ПОСЛЕ показа) —
     // `{ not: "NEGOTIATION" }` в SQL превращается в `<>`, а NULL <> значение даёт
     // NULL, не true, и WHERE такую строку молча выбрасывает. Явный `null` в OR
@@ -182,7 +189,6 @@ export function waitingBuyerWhere(policy: MatchPolicy, now: Date = new Date()): 
   }
 
   return {
-    kind: "BUYER",
     deletedAt: null,
     status: { notIn: ["DEAL_CLOSED", "ARCHIVED"] },
     workStatus: { in: workStatuses },

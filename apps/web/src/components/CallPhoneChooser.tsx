@@ -12,6 +12,8 @@ export interface CallPhoneOption {
   /** «Основной» / «WhatsApp» / «Дополнительный» (или «Дополнительный 2» при нескольких). */
   label: string;
   phone: string;
+  phoneKey?: string;
+  detail?: string;
 }
 
 interface CallPhoneChooserProps {
@@ -54,6 +56,7 @@ export function CallPhoneChooser({ clientId, phones, variant = "full", label, cl
       <CallClientButton
         clientId={clientId}
         phone={phones[0].phone}
+        phoneKey={phones[0].phoneKey}
         variant={variant}
         label={label ?? "Позвонить"}
         title={title}
@@ -79,12 +82,14 @@ export function CallPhoneChooser({ clientId, phones, variant = "full", label, cl
                 <span className="t">
                   <b>{p.label}</b>
                   <span>{p.phone}</span>
+                  {p.detail && <span className="text-xs text-slate-500">{p.detail}</span>}
                 </span>
                 {isCallableClientPhone(p.phone) ? (
                   <CallClientButton
                     clientId={clientId}
                     phone={p.phone}
                     callPhone={p.phone}
+                    phoneKey={p.phoneKey}
                     variant="full"
                     label="Позвонить"
                     title="Позвонить через CRM, разговор запишется и попадёт в хронологию"

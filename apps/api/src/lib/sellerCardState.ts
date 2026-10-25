@@ -52,7 +52,7 @@ export type SellerCardOutcome =
   /** Работа продолжается — карточку не трогаем. */
   | { next: "KEEP"; objectsInWork: number };
 
-type Db = Pick<TxClient, "client" | "property" | "deal">;
+type Db = Pick<TxClient, "client" | "property" | "deal" | "$queryRaw">;
 
 export interface SellerCardInput {
   /** Карточка продавца. Строка без внешнего ключа (Property.sellerClientId), поэтому
@@ -91,6 +91,8 @@ export async function recomputeSellerCardState(
   db: Db = prisma,
 ): Promise<SellerCardOutcome | null> {
   try {
+    if (db === prisma) return await prisma.$transaction(tx => recomputeSellerCardState(input, tx));
+    await db.$queryRaw`SELECT id FROM "Client" WHERE id=${input.sellerClientId} FOR UPDATE`;
     const seller = await db.client.findFirst({
       where: { id: input.sellerClientId, deletedAt: null },
       select: {
@@ -98,6 +100,7 @@ export async function recomputeSellerCardState(
         status: true,
         assignedAgentId: true,
         lastAgentId: true,
+        dualIntent: true,
       },
     });
     if (!seller) return null;
@@ -111,6 +114,10 @@ export async function recomputeSellerCardState(
     const inWork = properties.filter((p) =>
       (IN_WORK_STATUSES as readonly string[]).includes(p.status),
     ).length;
+
+    // Removing the seller side cannot terminate buyer work or a live deal.
+    const hasOpenDeal = await db.deal.count({ where: { OR: [{ clientId: seller.id }, { propertyId: { in: properties.map(p => p.id) } }], stage: { notIn: ["COMPLETED", "CANCELLED"] } } });
+    if (seller.dualIntent || hasOpenDeal > 0) return { next: "KEEP", objectsInWork: inWork };
 
     const hasCompletedDeal =
       properties.length > 0 &&

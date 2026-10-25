@@ -68,7 +68,7 @@ export function MatchPropertyCard({
   const personalLink = p.offSite || !p.publishedOnSite;
 
   return (
-    <div className="prow client-match-property">
+    <article className={`client-match-property${selected ? " is-selected" : ""}`}>
       {onToggleSelect && (
         <input
           className="pick"
@@ -82,7 +82,7 @@ export function MatchPropertyCard({
         />
       )}
       <span className="ph">
-        {p.photos?.[0] ? <img src={p.photos[0].thumbUrl} alt="" loading="lazy" decoding="async" /> : <House className="i" strokeWidth={1.5} />}
+        {p.photos?.[0] ? <img src={p.photos[0].thumbUrl} alt={p.title} loading="lazy" decoding="async" /> : <><House className="i" strokeWidth={1.5} /><span>Фото пока нет</span></>}
       </span>
       <div className="t">
         {/* Две строки названия, а не одна с многоточием (28.09.2026): на
@@ -98,7 +98,7 @@ export function MatchPropertyCard({
         >
           {p.title}
         </Link>
-        <span>{[p.district?.name, `${p.areaSqm} м²`, p.rooms ? `${p.rooms} комн.` : null].filter(Boolean).join(" · ")}</span>
+        <span className="client-match-params">{[p.district?.name, p.areaSqm ? `${p.areaSqm} м²` : null, p.rooms ? `${p.rooms} комн.` : null, p.floor != null ? `${p.floor}${p.totalFloors ? `/${p.totalFloors}` : ""} этаж` : null].filter(Boolean).join(" · ")}</span>
         <span className="wrap" style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 4 }}>
           {p.match && <span className={`chip${p.match.tier === "exact" ? " ok" : ""}`}>
             {p.match.tier === "exact" ? "Подходит по параметрам" : p.match.tier === "alternative" ? "Есть компромиссы" : "Нужно уточнить"}
@@ -183,6 +183,6 @@ export function MatchPropertyCard({
             ))}
         </div>
       )}
-    </div>
+    </article>
   );
 }

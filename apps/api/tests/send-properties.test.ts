@@ -5,6 +5,7 @@ import request from "supertest";
 import { app } from "../src/app.js";
 import { prisma } from "../src/db.js";
 import { findClientDeliveryTarget } from "../src/lib/conversationDelivery.js";
+import * as conversationDelivery from "../src/lib/conversationDelivery.js";
 import { createCustomerMessengerFixture, type CustomerMessengerFixture } from "./helpers/customerMessengerFixture.js";
 
 // Real configured routing exists, but transport availability is intentionally
@@ -87,6 +88,34 @@ it("prepares the same safe title as delivery without leaking contact text", asyn
     expect(prepared.body.fallback.text).not.toContain("@testcontact");
     expect(prepared.body.fallback.text).toContain(prepared.body.fallback.links[0].url);
   } finally { await prisma.property.update({ where: { id: unpublishedId }, data: { title: original.title } }); }
+});
+
+it("rejects a changed price before delivery and sends exactly the re-reviewed preview", async () => {
+  const original = await prisma.property.findUniqueOrThrow({ where: { id: unpublishedId } });
+  const delivery = vi.spyOn(conversationDelivery, "deliverToConversation").mockResolvedValue({ ok: true, masked: false, pausedUntil: new Date() });
+  const prepare = () => request(app).post(`/api/v1/clients/${clientWithChatId}/send-properties`)
+    .set("Authorization", `Bearer ${ownToken}`).send({ propertyIds: [unpublishedId], conversationId, prepareOnly: true });
+  try {
+    const first = await prepare();
+    expect(first.status).toBe(200);
+    expect(first.body.previewFingerprint).toMatch(/^[a-f0-9]{64}$/);
+    await prisma.property.update({ where: { id: unpublishedId }, data: { price: Number(original.price) + 1000 } });
+    const rejected = await request(app).post(`/api/v1/clients/${clientWithChatId}/send-properties`)
+      .set("Authorization", `Bearer ${ownToken}`).send({ propertyIds: [unpublishedId], conversationId, previewFingerprint: first.body.previewFingerprint });
+    expect(rejected.status).toBe(409);
+    expect(rejected.body.code).toBe("PREVIEW_CHANGED");
+    expect(delivery).not.toHaveBeenCalled();
+    const reviewed = await prepare();
+    expect(reviewed.status).toBe(200);
+    const sent = await request(app).post(`/api/v1/clients/${clientWithChatId}/send-properties`)
+      .set("Authorization", `Bearer ${ownToken}`).send({ propertyIds: [unpublishedId], conversationId, previewFingerprint: reviewed.body.previewFingerprint });
+    expect(sent.status).toBe(200);
+    expect(delivery).toHaveBeenCalledTimes(1);
+    expect(delivery.mock.calls[0][1]).toBe(reviewed.body.fallback.text);
+  } finally {
+    delivery.mockRestore();
+    await prisma.property.update({ where: { id: unpublishedId }, data: { price: original.price } });
+  }
 });
 
 async function makeProperty(
@@ -212,6 +241,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   const clientIds = [clientWithChatId, clientNoChatId, clientPendingId, clientTwoChatsId, foreignClientId];
+  await prisma.propertyExposure.deleteMany({ where: { clientId: { in: clientIds } } });
   await prisma.interaction.deleteMany({ where: { clientId: { in: clientIds } } });
   await prisma.client.deleteMany({ where: { id: { in: clientIds } } });
   await whatsapp.dispose();

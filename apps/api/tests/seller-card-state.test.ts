@@ -125,6 +125,23 @@ describe("Правило без базы", () => {
 });
 
 describe("Пересчёт по базе", () => {
+  it("снятие последнего объекта не завершает карточку с двойной ролью", async () => {
+    const seller = await makeSeller();
+    await prisma.client.update({ where: { id: seller.id }, data: { dualIntent: true } });
+    await makeProperty(seller.id, "WITHDRAWN");
+    expect(await recomputeSellerCardState({ sellerClientId: seller.id, lostReason: "OWNER_CANCELLED" })).toEqual({ next: "KEEP", objectsInWork: 0 });
+    const after = await prisma.client.findUniqueOrThrow({ where: { id: seller.id } });
+    expect(after.status).toBe(seller.status);
+    expect(after.assignedAgentId).toBe(agentId);
+  });
+  it("снятие объекта не закрывает карточку с открытой сделкой", async () => {
+    const seller = await makeSeller();
+    const property = await makeProperty(seller.id, "WITHDRAWN");
+    const deal = await prisma.deal.create({ data: { clientId: seller.id, propertyId: property.id, agentId, stage: "NEGOTIATION" } });
+    dealIds.push(deal.id);
+    expect(await recomputeSellerCardState({ sellerClientId: seller.id })).toEqual({ next: "KEEP", objectsInWork: 0 });
+    expect((await prisma.client.findUniqueOrThrow({ where: { id: seller.id } })).status).toBe(seller.status);
+  });
   it("продан ОДИН объект из трёх — карточка остаётся активной", async () => {
     const seller = await makeSeller();
     const sold = await makeProperty(seller.id, "SOLD");

@@ -13,8 +13,8 @@
 | Экранов (адресов в интерфейсе) | 68 |
 | Из них видно в меню | 35 |
 | Модулей сервера | 78 |
-| Адресов сервера всего | 660 |
-| Задач по расписанию | 104 |
+| Адресов сервера всего | 679 |
+| Задач по расписанию | 105 |
 | Типов фоновых заданий | 23 |
 | Внешних сервисов | 13 |
 
@@ -153,7 +153,7 @@
 | `/api/v1/districts` | Справочник районов | 2 | да (1 мест) | `apps/api/src/routes/districts.ts` |
 | `/api/v1/geo` | Поиск адреса и точки по собственному справочнику города | 4 | да (3 мест) | `apps/api/src/routes/geo.ts` |
 | `/api/v1/landmarks` | Народные ориентиры, которые ведут агенты | 8 | да (1 мест) | `apps/api/src/routes/landmarks.ts` |
-| `/api/v1/properties` | Объекты: список, карточка, фото, видео, публикация | 109 | да (28 мест) | `apps/api/src/routes/properties.ts` |
+| `/api/v1/properties` | Объекты: список, карточка, фото, видео, публикация | 120 | да (29 мест) | `apps/api/src/routes/properties.ts` |
 | `/api/v1/clients` | Клиенты: карточки, передачи, отказы, подбор — самый крупный модуль | 60 | да (13 мест) | `apps/api/src/routes/clients.ts` |
 | `/api/v1/deals` | Сделки, документы, выплаты | 3 | да (4 мест) | `apps/api/src/routes/deals.ts` |
 | `/api/v1/deals` | Сделки, документы, выплаты | 4 | да (4 мест) | `apps/api/src/routes/dealDocuments.ts` |
@@ -181,7 +181,7 @@
 | `/api/v1/public` | Витрина для сайта royalhome.tj | 4 | нет | `apps/api/src/routes/publicFeed.ts` |
 | `/api/v1/expenses` | Расходы агентства | 32 | да (3 мест) | `apps/api/src/routes/expenses.ts` |
 | `/api/v1/finance` | Деньги: доходы, комиссии, прогноз | 1 | да (1 мест) | `apps/api/src/routes/finance.ts` |
-| `/api/v1/security` | Кабинет службы безопасности | 3 | да (1 мест) | `apps/api/src/routes/security.ts` |
+| `/api/v1/security` | Кабинет службы безопасности | 11 | да (2 мест) | `apps/api/src/routes/security.ts` |
 | `/api/v1/marketing` | Кабинет маркетинга и монтажа | 23 | да (3 мест) | `apps/api/src/routes/marketing.ts` |
 | `/api/v1/social-videos` | **без подписи** | 20 | да (2 мест) | `apps/api/src/routes/socialVideos.ts` |
 | `/api/v1/webhooks` | Входящие от WhatsApp, Instagram, Telegram, сайта, станции | 1 | нет | `apps/api/src/routes/budgetWebhook.ts` |
@@ -287,6 +287,7 @@
 | `no-answer-tail` | `*/30 * * * *` | Хвост дозвона: задачи по клиентам, до которых не дозвонились |
 | `operator-queue-presence` | `*/5 * * * *` | Сверяет очередь входящих на станции с реальным статусом агентов |
 | `outgoing-media-cleanup` | `58 3 * * *` | Удаляет исходящие фото и видео оператора старше недели |
+| `owner-report-monthly-preview` | `20 8 * * *` | **без подписи** |
 | `phone-lead-watchdog` | `*/15 * * * *` | Клиент оставил номер, а карточки нет: оформляет или отдаёт человеку |
 | `photo-posts-tick` | `7 * * * *` | **без подписи** |
 | `private-files-cleanup` | `30 3 * * *` | Удаляет старые вложения переписки, чтобы не переполнить диск |
@@ -384,6 +385,6 @@
 Появилось в коде, но не описано в `docs/product-map-labels.json`. Пустые списки —
 норма; непустые значат, что функция завелась, а объяснить её никто не удосужился.
 
-- Задач по расписанию: `clip-review-resend`, `clip-review-stale-alarm`, `contact-link-sweep`, `customer-inbox-jobs`, `customer-intake-jobs`, `customer-outbox-jobs`, `daily-stories`, `disk-cleanup`, `instagram-online-followers`, `instagram-webhook-subscriptions`, `live-voice-orphan-sweep`, `meta-ads-stale-watch`, `photo-posts-tick`, `published-channels-audit`, `reels-autoboost`, `site-stats`, `social-digests-tick`, `social-reposts-tick`, `social-video-schedule`, `telegram-bot-api-volume-cleanup`, `telephony-station-traffic`, `video-handoff-redelivery`, `video-handoff-unfinished-publish-watchdog`
+- Задач по расписанию: `clip-review-resend`, `clip-review-stale-alarm`, `contact-link-sweep`, `customer-inbox-jobs`, `customer-intake-jobs`, `customer-outbox-jobs`, `daily-stories`, `disk-cleanup`, `instagram-online-followers`, `instagram-webhook-subscriptions`, `live-voice-orphan-sweep`, `meta-ads-stale-watch`, `owner-report-monthly-preview`, `photo-posts-tick`, `published-channels-audit`, `reels-autoboost`, `site-stats`, `social-digests-tick`, `social-reposts-tick`, `social-video-schedule`, `telegram-bot-api-volume-cleanup`, `telephony-station-traffic`, `video-handoff-redelivery`, `video-handoff-unfinished-publish-watchdog`
 - Модулей сервера: `/api/v1/live-voice`, `/api/v1/ui-shell`, `/api/v1/sms`, `/api/v1/whatsapp-templates`, `/api/v1/social-videos`, `/api/v1/threads/oauth/callback`, `/api/v1/threads`, `/api/v1/search-console/oauth/callback`, `/api/v1/search-console/yandex/oauth/callback`, `/api/v1/search-console`, `/api/v1/contacts`, `/api/v1/public/owner-report`
 

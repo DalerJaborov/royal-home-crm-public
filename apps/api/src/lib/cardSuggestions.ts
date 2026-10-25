@@ -79,6 +79,8 @@ export async function buildSuggestionFromCall(params: {
     const already = await prisma.cardSuggestion.findUnique({ where: { interactionId } });
     if (already) return { created: false, reason: "предложение по этому звонку уже есть" };
 
+    const baseline = await prisma.client.findFirst({ where: { id: clientId, deletedAt: null }, select: { updatedAt: true, mutationRevision: true } });
+    if (!baseline) return { created: false, reason: "клиент не найден" };
     const suggestion = await buildCardFillSuggestion(clientId);
     if (suggestion.aiUnavailable) return { created: false, reason: "ИИ недоступен" };
 
@@ -104,6 +106,8 @@ export async function buildSuggestionFromCall(params: {
     const client = await prisma.client.findFirst({
       where: { id: clientId, deletedAt: null },
       select: {
+        updatedAt: true,
+        mutationRevision: true,
         // Имя — для подписи обязательного окна: «окно по uuid» человек не поймёт.
         fullName: true,
         // Кому карточка принадлежит сейчас: молчаливую запись делаем только от
@@ -121,6 +125,8 @@ export async function buildSuggestionFromCall(params: {
       },
     });
     if (!client) return { created: false, reason: "клиент не найден" };
+    // The model used an earlier snapshot. Do not overwrite edits made while it was running.
+    if (client.mutationRevision !== baseline.mutationRevision || client.updatedAt.getTime() !== baseline.updatedAt.getTime()) return { created: false, reason: "карточка изменилась во время разбора" };
 
     const sameNumber = (a: Prisma.Decimal | null, b: number | null) =>
       a !== null && b !== null && Number(a) === b;
@@ -259,7 +265,7 @@ export async function buildSuggestionFromCall(params: {
      * два места: в строку хронологии (человеку) и в CLIENT_AI_UPDATED (истории
      * карточки, структурно).
      */
-    const applied: Prisma.ClientUpdateInput = {};
+    const applied: Prisma.ClientUncheckedUpdateManyInput = {};
     const changes: {
       field: string;
       label: string;
@@ -316,7 +322,7 @@ export async function buildSuggestionFromCall(params: {
       });
     }
     if (heard.districtId !== null) {
-      applied.desiredDistrict = { connect: { id: heard.districtId } };
+      applied.desiredDistrictId = heard.districtId;
       changes.push({
         field: "districtId",
         label: "район",
@@ -393,8 +399,12 @@ export async function buildSuggestionFromCall(params: {
 
       // Карточка, отметка «применено» и след — одной транзакцией: при сбое
       // посередине карточка бы поменялась, а объяснения этому в CRM не осталось.
-      await prisma.$transaction(async (tx) => {
-        await tx.client.update({ where: { id: clientId }, data: applied });
+      const saved = await prisma.$transaction(async (tx) => {
+        const changed = await tx.client.updateMany({ where: { id: clientId, deletedAt: null, updatedAt: client.updatedAt, mutationRevision: client.mutationRevision }, data: applied });
+        if (changed.count !== 1) {
+          await tx.cardSuggestion.update({ where: { id: created.id }, data: { status: "superseded", resolvedAt: new Date() } });
+          return false;
+        }
         await tx.cardSuggestion.update({
           where: { id: created.id },
           data: { status: "applied", resolvedAt: new Date() },
@@ -406,7 +416,9 @@ export async function buildSuggestionFromCall(params: {
           notes: [summaryLine, ...detailLines].join("\n"),
           tx,
         });
+        return true;
       });
+      if (!saved) return { created: false, reason: "карточка изменилась перед сохранением разбора" };
 
       // История карточки: структурный before/after. По нему поле возвращается
       // руками, если машина расслышала неверно. Автор — «Система».

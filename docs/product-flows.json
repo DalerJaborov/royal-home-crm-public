@@ -1,10 +1,10 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 666,
-  "forks": 3653,
-  "mounts": 75,
-  "cron": 108,
+  "endpoints": 685,
+  "forks": 3760,
+  "mounts": 76,
+  "cron": 109,
   "jobs": 31,
   "hidden": 0
  },
@@ -3451,7 +3451,7 @@
     },
     {
      "k": "do",
-     "t": "const overdueTasksAgentWhere = { ...overdueTasksWhere(now), OR: [{ agentId: id }, { subjectAgentId: id }] };",
+     "t": "const overdueTasksAgentWhere = { ...overdueTasksWhere(now), ...visibleInteractionWhere(req.agent?.role), OR: …",
      "a": [
       "зовёт overdueTasksWhere()"
      ],
@@ -6154,6 +6154,22 @@
     },
     {
      "k": "do",
+     "t": "const privateLessonIds = await privateLessonAuditIds(req.agent?.role);",
+     "a": [
+      "зовёт privateLessonAuditIds()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const where = { ...visibleAuditWhere(req.agent?.role, privateLessonIds), ...(entityType ? { entityType } : {}…",
+     "a": [
+      "зовёт visibleAuditWhere()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
      "t": "const [items, total] = await Promise.all([ prisma.auditLog.findMany({ where, orderBy: [{ createdAt: \"desc\" },…",
      "a": [
       "читает в базе: auditLog",
@@ -6163,7 +6179,7 @@
     },
     {
      "k": "do",
-     "t": "res.json({ items: hideClientPhones(req, await hideOwnerContacts(req, items)), total, page, pageSize });",
+     "t": "res.json({ items: hideClientPhones(req, await hideOwnerContacts(req, items.map((row)",
      "a": [
       "ответ 200"
      ],
@@ -7948,6 +7964,21 @@
       },
       {
        "k": "if",
+       "t": "finding?.type === \"agent_bypassed_crm\" && !canViewInvestigations(req.agent?.role)",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(404).json({ error: \"Запись не найдена\" });",
+         "a": [
+          "ответ 404 — «Запись не найдена»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
        "t": "!finding",
        "a": [],
        "c": [
@@ -7980,7 +8011,7 @@
         },
         {
          "k": "if",
-         "t": "verdict === \"bot_error\"",
+         "t": "verdict === \"bot_error\" && finding.type !== \"agent_bypassed_crm\"",
          "a": [],
          "c": [
           {
@@ -8102,6 +8133,21 @@
      ]
     },
     {
+     "k": "if",
+     "t": "type === \"agent_bypassed_crm\" && !canViewInvestigations(req.agent?.role)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Группа не найдена\" });",
+       "a": [
+        "ответ 404 — «Группа не найдена»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
      "k": "do",
      "t": "const rows = await prisma.botAuditFinding.findMany({ where: { type, resolvedAt: null, why: { startsWith: grou…",
      "a": [
@@ -8160,6 +8206,21 @@
      ]
     },
     {
+     "k": "if",
+     "t": "type === \"agent_bypassed_crm\" && !canViewInvestigations(req.agent?.role)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Группа не найдена\" });",
+       "a": [
+        "ответ 404 — «Группа не найдена»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
      "k": "do",
      "t": "const whyPrefix = groupWhyPrefix(why);",
      "a": [
@@ -8209,7 +8270,7 @@
       },
       {
        "k": "if",
-       "t": "verdict === \"bot_error\"",
+       "t": "verdict === \"bot_error\" && type !== \"agent_bypassed_crm\"",
        "a": [],
        "c": [
         {
@@ -8277,7 +8338,7 @@
    "tree": [
     {
      "k": "do",
-     "t": "const { count } = await prisma.botAuditFinding.updateMany({ where: { resolvedAt: null }, data: { resolvedAt: …",
+     "t": "const { count } = await prisma.botAuditFinding.updateMany({ where: { resolvedAt: null, ...(!canViewInvestigat…",
      "a": [
       "меняет в базе: botAuditFinding"
      ],
@@ -8306,6 +8367,7 @@
     "idempotencyGuard",
     "pultWriteRefresh",
     "вход выполнен",
+    "requireInvestigations",
     "есть право: auditLog.view"
    ],
    "handlerRef": null,
@@ -8423,7 +8485,7 @@
     },
     {
      "k": "do",
-     "t": "const rows = ( await prisma.botAuditFinding.findMany({ where: includeResolved ? {} : { resolvedAt: null }, or…",
+     "t": "const rows = ( await prisma.botAuditFinding.findMany({ where: { ...(includeResolved ? {} : { resolvedAt: null…",
      "a": [
       "читает в базе: botAuditFinding"
      ],
@@ -8524,7 +8586,7 @@
      "c": [
       {
        "k": "do",
-       "t": "const updated = await prisma.botLesson.update({ where: { id: req.params.id }, data: { createdAt: new Date() }…",
+       "t": "const updated = await prisma.botLesson.update({ where: { id: req.params.id, investigationOnly: false }, data:…",
        "a": [
         "меняет в базе: botLesson"
        ],
@@ -8590,7 +8652,7 @@
      "c": [
       {
        "k": "do",
-       "t": "const removed = await prisma.botLesson.delete({ where: { id: req.params.id }, select: { id: true, kind: true,…",
+       "t": "const removed = await prisma.botLesson.delete({ where: { id: req.params.id, investigationOnly: false }, selec…",
        "a": [
         "удаляет в базе: botLesson"
        ],
@@ -8717,7 +8779,7 @@
      "c": [
       {
        "k": "do",
-       "t": "const updated = await prisma.botLesson.update({ where: { id: req.params.id }, data, select: LESSON_FIELDS, });",
+       "t": "const updated = await prisma.botLesson.update({ where: { id: req.params.id, investigationOnly: false }, data,…",
        "a": [
         "меняет в базе: botLesson"
        ],
@@ -8866,6 +8928,21 @@
     },
     {
      "k": "if",
+     "t": "await prisma.botLesson.count({ where: { id: { in: ids }, investigationOnly: true } })",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Запись не найдена\" });",
+       "a": [
+        "ответ 404 — «Запись не найдена»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
      "t": "lesson !== undefined",
      "a": [],
      "c": [
@@ -8904,7 +8981,7 @@
     },
     {
      "k": "do",
-     "t": "const result = await prisma.botLesson.updateMany({ where: { id: { in: ids } }, data });",
+     "t": "const result = await prisma.botLesson.updateMany({ where: { id: { in: ids }, investigationOnly: false }, data…",
      "a": [
       "меняет в базе: botLesson"
      ],
@@ -9094,7 +9171,7 @@
     },
     {
      "k": "do",
-     "t": "const pendingProposalsCount = await prisma.botLesson.count({ where: { kind: LOST_LESSON_KIND, active: false }…",
+     "t": "const pendingProposalsCount = await prisma.botLesson.count({ where: { kind: LOST_LESSON_KIND, active: false, …",
      "a": [
       "считает в базе: botLesson"
      ],
@@ -9245,6 +9322,36 @@
      ]
     },
     {
+     "k": "if",
+     "t": "kind === \"finding\" && findingType === \"agent_bypassed_crm\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Запись не найдена\" });",
+       "a": [
+        "ответ 404 — «Запись не найдена»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "referencedLessonIds.length && await prisma.botLesson.count({ where: { id: { in: referencedLessonIds }, invest…",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Запись не найдена\" });",
+       "a": [
+        "ответ 404 — «Запись не найдена»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
      "k": "try",
      "t": "пробует",
      "a": [],
@@ -9385,7 +9492,7 @@
          "c": [
           {
            "k": "do",
-           "t": "await prisma.botLesson.updateMany({ where: { id: { in: ids } }, data: { lesson: EMPTY_LESSON, active: false }…",
+           "t": "await prisma.botLesson.updateMany({ where: { id: { in: ids }, investigationOnly: false }, data: { lesson: EMP…",
            "a": [
             "меняет в базе: botLesson"
            ],
@@ -9400,7 +9507,7 @@
          "c": [
           {
            "k": "do",
-           "t": "await prisma.botLesson.updateMany({ where: { id: { in: ids } }, data: { lesson, active: lesson !== EMPTY_LESS…",
+           "t": "await prisma.botLesson.updateMany({ where: { id: { in: ids }, investigationOnly: false }, data: { lesson, act…",
            "a": [
             "меняет в базе: botLesson"
            ],
@@ -10407,7 +10514,7 @@
     },
     {
      "k": "do",
-     "t": "const [inRange, overdue] = await Promise.all([ prisma.interaction.findMany({ where: { ...baseWhere, nextActio…",
+     "t": "const [inRange, overdue] = await Promise.all([ prisma.interaction.findMany({ where: { ...baseWhere, ...visibl…",
      "a": [
       "читает в базе: interaction"
      ],
@@ -11029,6 +11136,14 @@
      ]
     },
     {
+     "k": "do",
+     "t": "const where: Prisma.InteractionWhereInput = { ...visibleInteractionWhere(req.agent?.role), type: \"CALL\", OR: …",
+     "a": [
+      "зовёт visibleInteractionWhere()"
+     ],
+     "c": []
+    },
+    {
      "k": "if",
      "t": "agentId",
      "a": [],
@@ -11171,12 +11286,27 @@
     },
     {
      "k": "if",
+     "t": "client.assignmentCompletedAt",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"Работа по назначению завершена — требуется новое назначение руководител…",
+       "a": [
+        "ответ 409 — «Работа по назначению завершена — требуется новое назначение…»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
      "t": "client.acceptedAt",
      "a": [],
      "c": [
       {
        "k": "do",
-       "t": "return res.json(presentClient(client, can(req, \"clients.viewPhone\"), can(req, \"clients.viewOrigin\")));",
+       "t": "return res.json(presentClient(client, can(req, \"clients.viewPhone\"), can(req, \"clients.viewOrigin\"), req.agen…",
        "a": [
         "ответ 200"
        ],
@@ -11263,7 +11393,7 @@
     },
     {
      "k": "do",
-     "t": "res.json(presentClient(updated ?? client, can(req, \"clients.viewPhone\"), can(req, \"clients.viewOrigin\")));",
+     "t": "res.json(presentClient(updated ?? client, can(req, \"clients.viewPhone\"), can(req, \"clients.viewOrigin\"), req.…",
      "a": [
       "ответ 200"
      ],
@@ -11477,6 +11607,21 @@
     },
     {
      "k": "if",
+     "t": "(client.assignmentRefusedAt || client.assignmentCompletedAt) && !canViewInvestigations(req.agent?.role)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"После отказа новое назначение доступно только администратору или директ…",
+       "a": [
+        "ответ 403 — «После отказа новое назначение доступно только администратору или…»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
      "t": "client.deletedAt",
      "a": [],
      "c": [
@@ -11676,7 +11821,7 @@
     },
     {
      "k": "do",
-     "t": "res.json(presentClient(updated!, can(req, \"clients.viewPhone\"), can(req, \"clients.viewOrigin\")));",
+     "t": "res.json(presentClient(updated!, can(req, \"clients.viewPhone\"), can(req, \"clients.viewOrigin\"), req.agent?.ro…",
      "a": [
       "ответ 200"
      ],
@@ -12034,7 +12179,7 @@
     },
     {
      "k": "do",
-     "t": "res.json(presentClient(updated, can(req, \"clients.viewPhone\"), can(req, \"clients.viewOrigin\")));",
+     "t": "res.json(presentClient(updated, can(req, \"clients.viewPhone\"), can(req, \"clients.viewOrigin\"), req.agent?.rol…",
      "a": [
       "ответ 200"
      ],
@@ -12152,6 +12297,29 @@
        "t": "return res.status(409).json({ error: \"Карточка в Корзине — сначала восстановите её\" });",
        "a": [
         "ответ 409 — «Карточка в Корзине — сначала восстановите её»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const selection = resolveClientPhoneSelection(client, parsed.data);",
+     "a": [
+      "зовёт resolveClientPhoneSelection()"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "selection.conflict",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"Список номеров изменился или маска неоднозначна. Обновите карточку и вы…",
+       "a": [
+        "ответ 409 — «Список номеров изменился или маска неоднозначна. Обновите карточку и…»"
        ],
        "c": []
       }
@@ -12667,6 +12835,21 @@
        "t": "return res.status(404).json({ error: \"Клиент не найден\" });",
        "a": [
         "ответ 404 — «Клиент не найден»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "client.assignmentRefusedAt",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"Отказ по этому назначению уже сохранён\" });",
+       "a": [
+        "ответ 409 — «Отказ по этому назначению уже сохранён»"
        ],
        "c": []
       }
@@ -13404,6 +13587,21 @@
      ]
     },
     {
+     "k": "if",
+     "t": "automatic && ![\"ADMIN\", \"DIRECTOR\"].includes(req.agent!.role)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Автоматическое определение после ручного решения включает администратор…",
+       "a": [
+        "ответ 403 — «Автоматическое определение после ручного решения включает…»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
      "k": "do",
      "t": "const updated = await prisma.$transaction(async tx",
      "a": [
@@ -13469,8 +13667,45 @@
      ]
     },
     {
+     "k": "if",
+     "t": "automatic",
+     "a": [],
+     "c": [
+      {
+       "k": "try",
+       "t": "пробует",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "await resolveClientIntentsAutomatically(client.id);",
+         "a": [
+          "зовёт resolveClientIntentsAutomatically()"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "catch",
+       "t": "если сорвалось",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "void logSystemError(\"ai\", `Определение ролей после смены режима: ${describeError(error)}`);",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
      "k": "do",
-     "t": "logAudit(req, \"UPDATE\", \"Client\", client.id, { dualIntent, confirmation: \"staff\" });",
+     "t": "logAudit(req, \"UPDATE\", \"Client\", client.id, { dualIntent, confirmation: automatic ? \"automatic-enabled\" : \"s…",
      "a": [
       "зовёт logAudit()"
      ],
@@ -13486,7 +13721,15 @@
     },
     {
      "k": "do",
-     "t": "res.json(presentClient(updated, can(req, \"clients.viewPhone\"), can(req, \"clients.viewOrigin\")));",
+     "t": "const current = automatic ? await prisma.client.findUniqueOrThrow({ where: { id: client.id } }) : updated;",
+     "a": [
+      "читает в базе: client"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json(presentClient(current, can(req, \"clients.viewPhone\"), can(req, \"clients.viewOrigin\"), req.agent?.rol…",
      "a": [
       "ответ 200"
      ],
@@ -14305,7 +14548,7 @@
     },
     {
      "k": "if",
-     "t": "client.kind !== \"BUYER\" && !(client.kind === \"SELLER\" && client.dualIntent && client.dualIntentConfirmedAt)",
+     "t": "!confirmedClientIntents(client).buys",
      "a": [],
      "c": [
       {
@@ -15064,6 +15307,14 @@
      "t": "иначе",
      "a": [],
      "c": [
+      {
+       "k": "do",
+       "t": "const where = { clientId: id.data, type: \"SHOWING\" as const, ...visibleInteractionWhere(req.agent?.role) };",
+       "a": [
+        "зовёт visibleInteractionWhere()"
+       ],
+       "c": []
+      },
       {
        "k": "do",
        "t": "const [rows, count] = await Promise.all([ prisma.interaction.findMany({ where, orderBy: [{ createdAt: \"desc\" …",
@@ -15950,6 +16201,21 @@
    "handlerRef": null,
    "tree": [
     {
+     "k": "if",
+     "t": "!canViewInvestigations(req.agent?.role)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Недостаточно прав\" });",
+       "a": [
+        "ответ 403 — «Недостаточно прав»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
      "k": "do",
      "t": "const parsed = securityReviewSchema.safeParse(req.body);",
      "a": [
@@ -16012,12 +16278,54 @@
     },
     {
      "k": "do",
-     "t": "await prisma.$transaction(async (tx)",
+     "t": "const reviewed = await prisma.$transaction(async (tx)",
      "a": [
       "всё внутри — одной транзакцией",
+      "обращается к базе своим SQL",
+      "читает в базе: client",
+      "читает в базе: deal",
       "меняет в базе: client"
      ],
      "c": [
+      {
+       "k": "do",
+       "t": "await tx.$queryRaw`SELECT id FROM \"Client\" WHERE id = ${client.id} FOR UPDATE`;",
+       "a": [
+        "обращается к базе своим SQL"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "const current = await tx.client.findUnique({ where: { id: client.id } });",
+       "a": [
+        "читает в базе: client"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!current || current.deletedAt || current.securityReview !== \"PENDING\"",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return false;",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const openDeal = await tx.deal.findFirst({ where: { clientId: client.id, stage: { notIn: [\"COMPLETED\", \"CANCE…",
+       "a": [
+        "читает в базе: deal"
+       ],
+       "c": []
+      },
       {
        "k": "do",
        "t": "await tx.client.update({ where: { id: client.id }, data: { securityReview: verdict, securityReviewedAt: new D…",
@@ -16031,6 +16339,29 @@
        "t": "await logTimeline({ clientId: client.id, actor: { kind: \"agent\", agentId: req.agent!.id }, type: \"SYSTEM\", ou…",
        "a": [
         "зовёт logTimeline()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "await syncLegacyInvestigationVerdict(tx, { clientId: client.id, assignmentAt: current.assignedAt, subjectAgen…",
+       "a": [
+        "зовёт syncLegacyInvestigationVerdict()"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!reviewed",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"Проверка уже завершена или карточка изменилась — обновите страницу\" });",
+       "a": [
+        "ответ 409 — «Проверка уже завершена или карточка изменилась — обновите страницу»"
        ],
        "c": []
       }
@@ -16382,9 +16713,24 @@
      "c": [
       {
        "k": "do",
-       "t": "return res.json({ ok: true, prepared: true, sent: 0, propertyIds, fallback });",
+       "t": "return res.json({ ok: true, prepared: true, sent: 0, propertyIds, fallback, previewFingerprint });",
        "a": [
         "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "parsed.data.previewFingerprint && parsed.data.previewFingerprint !== previewFingerprint",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ code: \"PREVIEW_CHANGED\", error: \"Подборка или адресат изменились после предпрос…",
+       "a": [
+        "ответ 409 — «Подборка или адресат изменились после предпросмотра. Проверьте текст…»"
        ],
        "c": []
       }
@@ -16946,6 +17292,14 @@
        "c": []
       }
      ]
+    },
+    {
+     "k": "do",
+     "t": "const baseWhere: Prisma.InteractionWhereInput = { ...visibleInteractionWhere(req.agent?.role), clientId: clie…",
+     "a": [
+      "зовёт visibleInteractionWhere()"
+     ],
+     "c": []
     },
     {
      "k": "do",
@@ -17712,7 +18066,7 @@
     },
     {
      "k": "do",
-     "t": "const [conductedShowing, callsCount, realCalls] = await Promise.all([ hadConductedShowing(client.id), prisma.…",
+     "t": "const [conductedShowing, callsCount, realCalls] = await Promise.all([ prisma.interaction.count({ where: { ...…",
      "a": [
       "считает в базе: interaction",
       "читает в базе: settings"
@@ -17745,9 +18099,9 @@
     },
     {
      "k": "do",
-     "t": "const payload = { ...presentedClient, ...activity, nextStep: activity.nextStep ? { ...activity.nextStep, next…",
+     "t": "const payload = { ...presentedClient, phoneSelectionTokens: gateUntilAccepted ? {} : clientPhoneSelectionToke…",
      "a": [
-      "зовёт phoneSafeText()"
+      "читает в базе: clientPhoneOrigin"
      ],
      "c": []
     },
@@ -18216,7 +18570,7 @@
     },
     {
      "k": "do",
-     "t": "res.json(presentClient(updated, can(req, \"clients.viewPhone\"), can(req, \"clients.viewOrigin\")));",
+     "t": "res.json(presentClient(updated, can(req, \"clients.viewPhone\"), can(req, \"clients.viewOrigin\"), req.agent?.rol…",
      "a": [
       "ответ 200"
      ],
@@ -19275,7 +19629,7 @@
     },
     {
      "k": "do",
-     "t": "res.json(presentClient(merged, can(req, \"clients.viewPhone\"), can(req, \"clients.viewOrigin\")));",
+     "t": "res.json(presentClient(merged, can(req, \"clients.viewPhone\"), can(req, \"clients.viewOrigin\"), req.agent?.role…",
      "a": [
       "ответ 200"
      ],
@@ -19370,13 +19724,108 @@
     },
     {
      "k": "do",
-     "t": "await prisma.$transaction([ prisma.client.update({ where: { id: dispute.clientId }, data: { [field.count]: di…",
+     "t": "const applied = await prisma.$transaction(async tx",
      "a": [
       "всё внутри — одной транзакцией",
-      "меняет в базе: client",
-      "меняет в базе: propertyCountDispute"
+      "обращается к базе своим SQL",
+      "читает в базе: client",
+      "меняет в базе: propertyCountDispute",
+      "меняет в базе: client"
      ],
-     "c": []
+     "c": [
+      {
+       "k": "do",
+       "t": "await tx.$queryRaw`SELECT id FROM \"Client\" WHERE id = ${dispute.clientId} FOR UPDATE`;",
+       "a": [
+        "обращается к базе своим SQL"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "const current = await tx.client.findUnique({ where: { id: dispute.clientId }, select: { deletedAt: true, sell…",
+       "a": [
+        "читает в базе: client"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!current || current.deletedAt",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return \"deleted\" as const;",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "current[field.count] !== dispute.aiCount",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return \"stale\" as const;",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const claimed = await tx.propertyCountDispute.updateMany({ where: { id: dispute.id, status: \"PENDING\" }, data…",
+       "a": [
+        "меняет в базе: propertyCountDispute"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "claimed.count !== 1",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return \"decided\" as const;",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "await tx.client.update({ where: { id: dispute.clientId }, data: { [field.count]: dispute.proposedCount, [fiel…",
+       "a": [
+        "меняет в базе: client"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "applied !== \"applied\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(applied === \"deleted\" ? 404 : 409).json({ error: applied === \"stale\" ? \"Число объектов изме…",
+       "a": [
+        "ответ (код зависит от условия)"
+       ],
+       "c": []
+      }
+     ]
     },
     {
      "k": "do",
@@ -19499,11 +19948,26 @@
     },
     {
      "k": "do",
-     "t": "await prisma.propertyCountDispute.update({ where: { id: dispute.id }, data: { status: \"REJECTED\", decidedById…",
+     "t": "const rejected = await prisma.propertyCountDispute.updateMany({ where: { id: dispute.id, status: \"PENDING\", c…",
      "a": [
       "меняет в базе: propertyCountDispute"
      ],
      "c": []
+    },
+    {
+     "k": "if",
+     "t": "rejected.count !== 1",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"Состояние заявки или клиента изменилось\" });",
+       "a": [
+        "ответ 409 — «Состояние заявки или клиента изменилось»"
+       ],
+       "c": []
+      }
+     ]
     },
     {
      "k": "do",
@@ -19676,6 +20140,14 @@
      "t": "const tomorrow = dushanbeDayRange(new Date(today.end.getTime() + 1));",
      "a": [
       "зовёт dushanbeDayRange()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const showingWhere = (range: { start: Date; end: Date }): Prisma.InteractionWhereInput",
+     "a": [
+      "зовёт visibleInteractionWhere()"
      ],
      "c": []
     },
@@ -20291,7 +20763,7 @@
      "c": [
       {
        "k": "do",
-       "t": "const presented = presentClient( gated, canSeePhone && !gateUntilAccepted, can(req, \"clients.viewOrigin\") );",
+       "t": "const presented = presentClient( gated, canSeePhone && !gateUntilAccepted, can(req, \"clients.viewOrigin\"), re…",
        "a": [
         "зовёт presentClient()"
        ],
@@ -20678,7 +21150,7 @@
     },
     {
      "k": "do",
-     "t": "res.status(201).json(presentClient(client, can(req, \"clients.viewPhone\"), can(req, \"clients.viewOrigin\")));",
+     "t": "res.status(201).json(presentClient(client, can(req, \"clients.viewPhone\"), can(req, \"clients.viewOrigin\"), req…",
      "a": [
       "ответ 201"
      ],
@@ -26225,14 +26697,47 @@
        "k": "do",
        "t": "deal = await prisma.$transaction(async (tx)",
        "a": [
-        "ошибка DealConflictError — «По объекту уже идёт сделка — объект зарезервирован»",
+        "ошибка DealConflictError — «Работа по назначению завершена или клиент передан — обновите карточку»",
         "всё внутри — одной транзакцией",
+        "обращается к базе своим SQL",
+        "читает в базе: client",
         "меняет в базе: property",
         "читает в базе: deal",
         "меняет в базе: client",
         "создаёт в базе: deal"
        ],
        "c": [
+        {
+         "k": "do",
+         "t": "await tx.$queryRaw`SELECT id FROM \"Client\" WHERE id = ${data.clientId} FOR UPDATE`;",
+         "a": [
+          "обращается к базе своим SQL"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "const currentClient = await tx.client.findUnique({ where: { id: data.clientId }, select: { assignmentComplete…",
+         "a": [
+          "читает в базе: client"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "!currentClient || currentClient.deletedAt || (req.agent!.role !== \"ADMIN\" && req.agent!.role !== \"DIRECTOR\" &…",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "throw new DealConflictError(\"Работа по назначению завершена или клиент передан — обновите карточку\");",
+           "a": [
+            "ошибка DealConflictError — «Работа по назначению завершена или клиент передан — обновите карточку»"
+           ],
+           "c": []
+          }
+         ]
+        },
         {
          "k": "do",
          "t": "const reserved = await tx.property.updateMany({ where: { id: property.id, deletedAt: null, OR: [ { status: \"A…",
@@ -33139,7 +33644,7 @@
    "tree": [
     {
      "k": "do",
-     "t": "const digest = await prisma.insightDigest.findUnique({ where: { id }, include: { cases: { orderBy: [{ severit…",
+     "t": "const digest = await prisma.insightDigest.findUnique({ where: { id }, include: { cases: { where: canViewInves…",
      "a": [
       "читает в базе: insightDigest"
      ],
@@ -33236,11 +33741,26 @@
     },
     {
      "k": "do",
-     "t": "const existing = await prisma.insightCase.findUnique({ where: { id }, select: { id: true } });",
+     "t": "const existing = await prisma.insightCase.findUnique({ where: { id }, select: { id: true, kind: true } });",
      "a": [
       "читает в базе: insightCase"
      ],
      "c": []
+    },
+    {
+     "k": "if",
+     "t": "existing?.kind === \"agent_bypass\" && !canViewInvestigations(req.agent?.role)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Дело не найдено\" });",
+       "a": [
+        "ответ 404 — «Дело не найдено»"
+       ],
+       "c": []
+      }
+     ]
     },
     {
      "k": "if",
@@ -33288,6 +33808,7 @@
     "idempotencyGuard",
     "pultWriteRefresh",
     "вход выполнен",
+    "requireInvestigations",
     "есть право: settings.manage"
    ],
    "handlerRef": null,
@@ -34483,7 +35004,7 @@
     },
     {
      "k": "do",
-     "t": "const claimed = await prisma.interaction.updateMany({ where: { id: req.params.id, completedAt: null }, data: …",
+     "t": "const claimed = await prisma.interaction.updateMany({ where: { id: req.params.id, completedAt: null, taskCanc…",
      "a": [
       "меняет в базе: interaction"
      ],
@@ -34585,7 +35106,7 @@
    "tree": [
     {
      "k": "do",
-     "t": "const interaction = await prisma.interaction.findUnique({ where: { id: req.params.id }, select: { id: true, a…",
+     "t": "const interaction = await prisma.interaction.findUnique({ where: { id: req.params.id }, select: { investigati…",
      "a": [
       "читает в базе: interaction"
      ],
@@ -34601,6 +35122,21 @@
        "t": "return res.status(404).json({ error: \"Записи этого разговора нет\" });",
        "a": [
         "ответ 404 — «Записи этого разговора нет»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "interaction.investigationOnly && !canViewInvestigations(req.agent?.role)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Разговор не найден\" });",
+       "a": [
+        "ответ 404 — «Разговор не найден»"
        ],
        "c": []
       }
@@ -34848,7 +35384,7 @@
     },
     {
      "k": "do",
-     "t": "const interaction = await prisma.interaction.findUnique({ where: { id: parsed.data.id }, select: { id: true, …",
+     "t": "const interaction = await prisma.interaction.findUnique({ where: { id: parsed.data.id }, select: { investigat…",
      "a": [
       "читает в базе: interaction"
      ],
@@ -34879,6 +35415,21 @@
        "t": "return res.status(404).json({ error: \"У этого разговора нет записи для повторной расшифровки\" });",
        "a": [
         "ответ 404 — «У этого разговора нет записи для повторной расшифровки»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "interaction.investigationOnly && !canViewInvestigations(req.agent?.role)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Разговор не найден\" });",
+       "a": [
+        "ответ 404 — «Разговор не найден»"
        ],
        "c": []
       }
@@ -35162,7 +35713,7 @@
    "tree": [
     {
      "k": "do",
-     "t": "const interaction = await prisma.interaction.findUnique({ where: { id: req.params.id }, select: { id: true, a…",
+     "t": "const interaction = await prisma.interaction.findUnique({ where: { id: req.params.id }, select: { investigati…",
      "a": [
       "читает в базе: interaction"
      ],
@@ -35171,6 +35722,21 @@
     {
      "k": "if",
      "t": "!interaction",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Разговор не найден\" });",
+       "a": [
+        "ответ 404 — «Разговор не найден»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "interaction.investigationOnly && !canViewInvestigations(req.agent?.role)",
      "a": [],
      "c": [
       {
@@ -35264,7 +35830,7 @@
    "tree": [
     {
      "k": "do",
-     "t": "const interaction = await prisma.interaction.findUnique({ where: { id: req.params.id }, select: { id: true, a…",
+     "t": "const interaction = await prisma.interaction.findUnique({ where: { id: req.params.id }, select: { investigati…",
      "a": [
       "читает в базе: interaction"
      ],
@@ -35273,6 +35839,21 @@
     {
      "k": "if",
      "t": "!interaction",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Разговор не найден\" });",
+       "a": [
+        "ответ 404 — «Разговор не найден»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "interaction.investigationOnly && !canViewInvestigations(req.agent?.role)",
      "a": [],
      "c": [
       {
@@ -35450,7 +36031,7 @@
     },
     {
      "k": "do",
-     "t": "const where = activityWhere({ ownAgentId: scopeToOwnAgent(req), agentId, from, to });",
+     "t": "const where = { ...activityWhere({ ownAgentId: scopeToOwnAgent(req), agentId, from, to }), ...visibleInteract…",
      "a": [
       "зовёт activityWhere()"
      ],
@@ -35545,7 +36126,7 @@
     },
     {
      "k": "do",
-     "t": "const where = activityWhere({ ownAgentId: scopeToOwnAgent(req), agentId, from, to, type });",
+     "t": "const where = { ...activityWhere({ ownAgentId: scopeToOwnAgent(req), agentId, from, to, type }), ...visibleIn…",
      "a": [
       "зовёт activityWhere()"
      ],
@@ -37277,7 +37858,7 @@
     },
     {
      "k": "if",
-     "t": "!active",
+     "t": "!active || !(await mayReadLiveVoiceSession(req.agent?.role, active))",
      "a": [],
      "c": [
       {
@@ -37297,6 +37878,14 @@
        "c": []
       }
      ]
+    },
+    {
+     "k": "do",
+     "t": "const privateStream = active.investigationOnly || await isInvestigationCallChannel(active.channelId);",
+     "a": [
+      "зовёт isInvestigationCallChannel()"
+     ],
+     "c": []
     },
     {
      "k": "do",
@@ -37343,6 +37932,21 @@
      "t": "const send = (event: string, data: unknown)",
      "a": [],
      "c": [
+      {
+       "k": "if",
+       "t": "checkingAccess",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return;",
+         "a": [
+          "дальше не идёт, ничего не меняя"
+         ],
+         "c": []
+        }
+       ]
+      },
       {
        "k": "if",
        "t": "res.writableEnded || res.destroyed",
@@ -37588,9 +38192,93 @@
     },
     {
      "k": "do",
-     "t": "heartbeat = setInterval(()",
-     "a": [],
+     "t": "heartbeat = setInterval(async ()",
+     "a": [
+      "читает в базе: agent"
+     ],
      "c": [
+      {
+       "k": "if",
+       "t": "privateStream",
+       "a": [],
+       "c": [
+        {
+         "k": "if",
+         "t": "checkingAccess || closed",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return;",
+           "a": [
+            "дальше не идёт, ничего не меняя"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "try",
+         "t": "пробует",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const current = await prisma.agent.findUnique({ where: { id: req.agent!.id }, select: { role: true, isActive:…",
+           "a": [
+            "читает в базе: agent"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "!current?.isActive || !canViewInvestigations(current.role)",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return;",
+             "a": [
+              "дальше не идёт, ничего не меняя"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "catch",
+         "t": "если сорвалось",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return;",
+           "a": [
+            "дальше не идёт, ничего не меняя"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "finally",
+         "t": "в любом случае",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "checkingAccess = false;",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ]
+      },
       {
        "k": "if",
        "t": "!res.writableEnded",
@@ -37654,7 +38342,23 @@
    "tree": [
     {
      "k": "do",
-     "t": "res.json({ sessions: liveVoiceMonitor.listActive().map((s)",
+     "t": "const sessions = liveVoiceMonitor.listActive();",
+     "a": [
+      "зовёт listActive()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const allowed = await Promise.all(sessions.map((s)",
+     "a": [
+      "зовёт mayReadLiveVoiceSession()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ sessions: sessions.filter((_, index)",
      "a": [
       "ответ 200"
      ],
@@ -40919,7 +41623,7 @@
     },
     {
      "k": "do",
-     "t": "const result = await prisma.notification.updateMany({ where: { id: parsed.data.id, agentId: req.agent!.id }, …",
+     "t": "const result = await prisma.notification.updateMany({ where: { id: parsed.data.id, ...visibleNotificationsWhe…",
      "a": [
       "меняет в базе: notification"
      ],
@@ -40968,7 +41672,7 @@
    "tree": [
     {
      "k": "do",
-     "t": "await prisma.notification.updateMany({ where: { agentId: req.agent!.id, read: false }, data: { read: true }, …",
+     "t": "await prisma.notification.updateMany({ where: { ...visibleNotificationsWhere(req.agent!.id, req.agent!.role),…",
      "a": [
       "меняет в базе: notification"
      ],
@@ -41025,7 +41729,7 @@
     },
     {
      "k": "do",
-     "t": "const result = await prisma.notification.updateMany({ where: { id: { in: parsed.data.ids }, agentId: req.agen…",
+     "t": "const result = await prisma.notification.updateMany({ where: { id: { in: parsed.data.ids }, ...visibleNotific…",
      "a": [
       "меняет в базе: notification"
      ],
@@ -41079,6 +41783,14 @@
        "c": []
       }
      ]
+    },
+    {
+     "k": "do",
+     "t": "const where = visibleNotificationsWhere(req.agent!.id, req.agent!.role);",
+     "a": [
+      "зовёт visibleNotificationsWhere()"
+     ],
+     "c": []
     },
     {
      "k": "do",
@@ -42262,6 +42974,21 @@
      ]
     },
     {
+     "k": "if",
+     "t": "!canViewInvestigations(req.agent?.role) && await prisma.interaction.findFirst({ where: { investigationOnly: t…",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Файл не найден\" });",
+       "a": [
+        "ответ 404 — «Файл не найден»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
      "k": "do",
      "t": "res.setHeader(\"Content-Type\", privateMimeType(name));",
      "a": [
@@ -42946,7 +43673,8 @@
     "idempotencyGuard",
     "pultWriteRefresh",
     "вход выполнен",
-    "есть право: dashboard.analytics"
+    "есть право: dashboard.analytics",
+    "requireInvestigations"
    ],
    "handlerRef": null,
    "tree": [
@@ -43332,7 +44060,8 @@
     "idempotencyGuard",
     "pultWriteRefresh",
     "вход выполнен",
-    "есть право: dashboard.analytics"
+    "есть право: dashboard.analytics",
+    "requireInvestigations"
    ],
    "handlerRef": null,
    "tree": [
@@ -43367,7 +44096,8 @@
     "idempotencyGuard",
     "pultWriteRefresh",
     "вход выполнен",
-    "есть право: dashboard.analytics"
+    "есть право: dashboard.analytics",
+    "requireInvestigations"
    ],
    "handlerRef": null,
    "tree": [
@@ -43403,13 +44133,29 @@
     "pultWriteRefresh",
     "вход выполнен",
     "есть право: dashboard.analytics",
+    "requireInvestigations",
     "есть право: calls.hearRecording"
    ],
    "handlerRef": null,
    "tree": [
     {
+     "k": "if",
+     "t": "typeof id !== \"string\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Неверный идентификатор\" });",
+       "a": [
+        "ответ 400 — «Неверный идентификатор»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
      "k": "do",
-     "t": "const row = await findPostShowingCallFeedRow(req.params.id);",
+     "t": "const row = await findPostShowingCallFeedRow(id);",
      "a": [
       "зовёт findPostShowingCallFeedRow()"
      ],
@@ -43476,13 +44222,29 @@
     "idempotencyGuard",
     "pultWriteRefresh",
     "вход выполнен",
-    "есть право: dashboard.analytics"
+    "есть право: dashboard.analytics",
+    "requireInvestigations"
    ],
    "handlerRef": null,
    "tree": [
     {
+     "k": "if",
+     "t": "typeof id !== \"string\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Неверный идентификатор\" });",
+       "a": [
+        "ответ 400 — «Неверный идентификатор»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
      "k": "do",
-     "t": "const row = await findPostShowingCallFeedRow(req.params.id);",
+     "t": "const row = await findPostShowingCallFeedRow(id);",
      "a": [
       "зовёт findPostShowingCallFeedRow()"
      ],
@@ -43544,7 +44306,8 @@
     "idempotencyGuard",
     "pultWriteRefresh",
     "вход выполнен",
-    "есть право: dashboard.analytics"
+    "есть право: dashboard.analytics",
+    "requireInvestigations"
    ],
    "handlerRef": null,
    "tree": [
@@ -43681,8 +44444,23 @@
    "handlerRef": null,
    "tree": [
     {
+     "k": "if",
+     "t": "!canViewInvestigations(req.agent!.role)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.json(ordinary);",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
      "k": "do",
-     "t": "res.json(await getOversightSummaryCached());",
+     "t": "res.json(summary);",
      "a": [
       "ответ 200"
      ],
@@ -43730,7 +44508,8 @@
     "idempotencyGuard",
     "pultWriteRefresh",
     "вход выполнен",
-    "есть право: dashboard.analytics"
+    "есть право: dashboard.analytics",
+    "requireInvestigations"
    ],
    "handlerRef": null,
    "tree": [
@@ -46368,6 +47147,1447 @@
    ]
   },
   {
+   "method": "POST",
+   "path": "/:id/narration/:versionId/approve",
+   "mount": "/api/v1/properties",
+   "full": "/api/v1/properties/:id/narration/:versionId/approve",
+   "file": "apps/api/src/routes/properties/narration.ts",
+   "router": "narrationRouter",
+   "top": "apps/api/src/routes/properties/index.ts::propertiesRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "[\"/narration-settings\", \"/:id/narration\"]",
+    "вход выполнен",
+    "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!manager(req.agent?.role)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Текст подтверждает маркетинг или руководство\" });",
+       "a": [
+        "ответ 403 — «Текст подтверждает маркетинг или руководство»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const parsed = narrationActionSchema.safeParse(req.body), versionId = idSchema.safeParse(req.params.versionId…",
+     "a": [
+      "проверяет данные схемой narrationActionSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success || !versionId.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Подтвердите текст и номер версии\" });",
+       "a": [
+        "ответ 400 — «Подтвердите текст и номер версии»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const count = await prisma.$transaction(async (tx)",
+     "a": [
+      "всё внутри — одной транзакцией",
+      "обращается к базе своим SQL",
+      "читает в базе: property",
+      "читает в базе: propertyNarrationVersion",
+      "меняет в базе: propertyNarrationVersion"
+     ],
+     "c": [
+      {
+       "k": "do",
+       "t": "await tx.$queryRaw`SELECT id FROM \"Property\" WHERE id = ${p.id} FOR UPDATE`;",
+       "a": [
+        "обращается к базе своим SQL"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "const current = await tx.property.findUniqueOrThrow({ where: { id: p.id }, include: { district: true } });",
+       "a": [
+        "читает в базе: property"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "const latest = await tx.propertyNarrationVersion.findFirst({ where: { propertyId: p.id }, orderBy: { revision…",
+       "a": [
+        "читает в базе: propertyNarrationVersion"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "current.deletedAt || !latest || latest.id !== versionId.data || latest.revision !== parsed.data.expectedRevis…",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return 0;",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "return (await tx.propertyNarrationVersion.updateMany({ where: { id: latest.id, status: \"DRAFT\" }, data: { app…",
+       "a": [
+        "меняет в базе: propertyNarrationVersion"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!count",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"Факты или версия изменились. Подготовьте и проверьте новый текст.\" });",
+       "a": [
+        "ответ 409 — «Факты или версия изменились. Подготовьте и проверьте новый текст.»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.json({ ok: true });",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/:id/narration/:versionId/audio",
+   "mount": "/api/v1/properties",
+   "full": "/api/v1/properties/:id/narration/:versionId/audio",
+   "file": "apps/api/src/routes/properties/narration.ts",
+   "router": "narrationRouter",
+   "top": "apps/api/src/routes/properties/index.ts::propertiesRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "[\"/narration-settings\", \"/:id/narration\"]",
+    "вход выполнен",
+    "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const versionId = idSchema.safeParse(req.params.versionId);",
+     "a": [
+      "проверяет данные схемой idSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!versionId.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Некорректная версия\" });",
+       "a": [
+        "ответ 400 — «Некорректная версия»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const row = await prisma.propertyNarrationVersion.findFirst({ where: { id: versionId.data, propertyId: res.lo…",
+     "a": [
+      "читает в базе: propertyNarrationVersion"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const file = row?.storageKey ? localVideoFilePath(row.storageKey) : null;",
+     "a": [
+      "зовёт localVideoFilePath()"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!file",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Аудио недоступно\" });",
+       "a": [
+        "ответ 404 — «Аудио недоступно»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.setHeader(\"Cache-Control\", \"private, no-store\");",
+     "a": [
+      "ставит заголовок ответа"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.type(\"audio/mpeg\").sendFile(file);",
+     "a": [
+      "ответ 200",
+      "ставит заголовок ответа"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "/:id/narration/:versionId/generate",
+   "mount": "/api/v1/properties",
+   "full": "/api/v1/properties/:id/narration/:versionId/generate",
+   "file": "apps/api/src/routes/properties/narration.ts",
+   "router": "narrationRouter",
+   "top": "apps/api/src/routes/properties/index.ts::propertiesRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "[\"/narration-settings\", \"/:id/narration\"]",
+    "вход выполнен",
+    "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!manager(req.agent?.role)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Генерация доступна маркетингу и руководству\" });",
+       "a": [
+        "ответ 403 — «Генерация доступна маркетингу и руководству»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const parsed = narrationActionSchema.safeParse(req.body), versionId = idSchema.safeParse(req.params.versionId…",
+     "a": [
+      "проверяет данные схемой narrationActionSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success || !versionId.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Подтвердите генерацию выбранной версии\" });",
+       "a": [
+        "ответ 400 — «Подтвердите генерацию выбранной версии»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!key || !config.modelId || !config.voices.length",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"ElevenLabs не настроен. Добавьте ключ, модель и голоса в настройках.\" }…",
+       "a": [
+        "ответ 409 — «ElevenLabs не настроен. Добавьте ключ, модель и голоса в настройках.»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const claimed = await prisma.$transaction(async (tx)",
+     "a": [
+      "всё внутри — одной транзакцией",
+      "обращается к базе своим SQL",
+      "читает в базе: property",
+      "читает в базе: propertyNarrationVersion",
+      "считает в базе: propertyNarrationVersion",
+      "меняет в базе: propertyNarrationVersion"
+     ],
+     "c": [
+      {
+       "k": "do",
+       "t": "await tx.$queryRaw`SELECT id FROM \"Property\" WHERE id = ${p.id} FOR UPDATE`;",
+       "a": [
+        "обращается к базе своим SQL"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "const current = await tx.property.findUniqueOrThrow({ where: { id: p.id }, include: { district: true } });",
+       "a": [
+        "читает в базе: property"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "const latest = await tx.propertyNarrationVersion.findFirst({ where: { propertyId: p.id }, orderBy: { revision…",
+       "a": [
+        "читает в базе: propertyNarrationVersion"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "current.deletedAt || !latest || latest.id !== versionId.data || latest.revision !== parsed.data.expectedRevis…",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return null;",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "latest.status !== \"DRAFT\"",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return { row: latest, run: false };",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "!latest.voiceId || !config.voices.some((v) => v.id === latest.voiceId) || latest.modelId !== config.modelId",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return null;",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "await tx.propertyNarrationVersion.count({ where: { propertyId: p.id, status: { in: [\"GENERATING\", \"UNKNOWN\"] …",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return null;",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "await tx.propertyNarrationVersion.update({ where: { id: latest.id }, data: { status: \"GENERATING\", generation…",
+       "a": [
+        "меняет в базе: propertyNarrationVersion"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!claimed",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"Проверьте актуальность текста и голоса. Предыдущий запрос с неизвестным…",
+       "a": [
+        "ответ 409 — «Проверьте актуальность текста и голоса. Предыдущий запрос с…»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!claimed.run",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(claimed.row.status === \"READY\" ? 200 : 409).json({ status: claimed.row.status, error: claim…",
+       "a": [
+        "ответ (код зависит от условия)"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const result = await generateNarrationAudio({ script: claimed.row.script, voiceId: claimed.row.voiceId!, conf…",
+     "a": [
+      "зовёт generateNarrationAudio()"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "result.status !== \"READY\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const saved = await prisma.propertyNarrationVersion.updateMany({ where: { id: claimed.row.id, status: \"GENERA…",
+       "a": [
+        "меняет в базе: propertyNarrationVersion"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!saved.count",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(409).json({ error: \"Результат уже проверен руководством. Поздний ответ не изменил решение.\"…",
+         "a": [
+          "ответ 409 — «Результат уже проверен руководством. Поздний ответ не изменил решение.»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "return res.status(502).json({ status: result.status, error: \"Озвучка не получена. Повтор не выполнялся; прове…",
+       "a": [
+        "ответ 502 — «Озвучка не получена. Повтор не выполнялся; проверьте результат в…»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "await localVideoUpload(storageKey, result.audio);",
+       "a": [
+        "зовёт localVideoUpload()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "const saved = await prisma.$transaction(async tx",
+       "a": [
+        "всё внутри — одной транзакцией",
+        "обращается к базе своим SQL",
+        "меняет в базе: propertyNarrationVersion"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "await tx.$queryRaw`SELECT id FROM \"Property\" WHERE id = ${p.id} FOR UPDATE`;",
+         "a": [
+          "обращается к базе своим SQL"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "const changed = await tx.propertyNarrationVersion.updateMany({ where: { id: claimed.row.id, status: \"GENERATI…",
+         "a": [
+          "меняет в базе: propertyNarrationVersion"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "changed.count",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return \"READY\";",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const retained = await tx.propertyNarrationVersion.updateMany({ where: { id: claimed.row.id }, data: { storag…",
+         "a": [
+          "меняет в базе: propertyNarrationVersion"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "saved !== \"READY\"",
+       "a": [],
+       "c": [
+        {
+         "k": "if",
+         "t": "saved === \"REMOVED\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "await localVideoDelete(storageKey);",
+           "a": [
+            "зовёт localVideoDelete()"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "return res.status(409).json({ error: \"Пришёл поздний результат генерации. Решение руководства сохранено; нова…",
+         "a": [
+          "ответ 409 — «Пришёл поздний результат генерации. Решение руководства сохранено;…»"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "await prisma.propertyNarrationVersion.updateMany({ where: { id: claimed.row.id, status: \"GENERATING\", generat…",
+       "a": [
+        "меняет в базе: propertyNarrationVersion"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "return res.status(503).json({ error: \"Провайдер создал аудио, но сохранить его не удалось. Повторная генераци…",
+       "a": [
+        "ответ 503 — «Провайдер создал аудио, но сохранить его не удалось. Повторная…»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const afterGeneration = await prisma.property.findUnique({ where: { id: p.id }, select: { deletedAt: true } }…",
+     "a": [
+      "читает в базе: property"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!afterGeneration",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"Объект уже удалён. Озвучка недоступна.\" });",
+       "a": [
+        "ответ 409 — «Объект уже удалён. Озвучка недоступна.»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.json({ status: \"READY\", propertyTrashed: !!afterGeneration.deletedAt, ...(afterGeneration.deletedAt ? { m…",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "/:id/narration/:versionId/handoff-preview",
+   "mount": "/api/v1/properties",
+   "full": "/api/v1/properties/:id/narration/:versionId/handoff-preview",
+   "file": "apps/api/src/routes/properties/narration.ts",
+   "router": "narrationRouter",
+   "top": "apps/api/src/routes/properties/index.ts::propertiesRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "[\"/narration-settings\", \"/:id/narration\"]",
+    "вход выполнен",
+    "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!manager(req.agent?.role)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Передачу готовит маркетинг или руководство\" });",
+       "a": [
+        "ответ 403 — «Передачу готовит маркетинг или руководство»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const parsed = narrationHandoffSchema.safeParse(req.body), versionId = idSchema.safeParse(req.params.versionI…",
+     "a": [
+      "проверяет данные схемой narrationHandoffSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success || !versionId.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Проверьте параметры передачи\" });",
+       "a": [
+        "ответ 400 — «Проверьте параметры передачи»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const row = await prisma.propertyNarrationVersion.findFirst({ where: { id: versionId.data, propertyId: p.id, …",
+     "a": [
+      "читает в базе: propertyNarrationVersion"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const latest = await prisma.propertyNarrationVersion.findFirst({ where: { propertyId: p.id }, orderBy: { revi…",
+     "a": [
+      "читает в базе: propertyNarrationVersion"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!row || latest?.id !== row.id || row.factsHash !== narrationHash(narrationFacts(p))",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"Нужна готовая актуальная озвучка\" });",
+       "a": [
+        "ответ 409 — «Нужна готовая актуальная озвучка»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "parsed.data.editorId && !await prisma.agent.findFirst({ where: { id: parsed.data.editorId, role: \"EDITOR\", is…",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Монтажёр недоступен\" });",
+       "a": [
+        "ответ 400 — «Монтажёр недоступен»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const existing = await prisma.propertyNarrationDelivery.findUnique({ where: { requestKey: parsed.data.request…",
+     "a": [
+      "читает в базе: propertyNarrationDelivery"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const delivery = existing ?? await prisma.propertyNarrationDelivery.upsert({ where: { requestKey: parsed.data…",
+     "a": [
+      "создаёт или меняет в базе: propertyNarrationDelivery"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "delivery.propertyId !== p.id || delivery.versionId !== row.id || delivery.createdById !== req.agent!.id || de…",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"Ключ передачи уже использован\" });",
+       "a": [
+        "ответ 409 — «Ключ передачи уже использован»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.json({ delivery, propertyCode: p.shortId, audioVersion: row.revision, sent: false, message: \"Передача под…",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "/:id/narration/:versionId/reconcile",
+   "mount": "/api/v1/properties",
+   "full": "/api/v1/properties/:id/narration/:versionId/reconcile",
+   "file": "apps/api/src/routes/properties/narration.ts",
+   "router": "narrationRouter",
+   "top": "apps/api/src/routes/properties/index.ts::propertiesRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "[\"/narration-settings\", \"/:id/narration\"]",
+    "вход выполнен",
+    "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "![\"ADMIN\", \"DIRECTOR\"].includes(req.agent!.role)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Результат проверяет руководство\" });",
+       "a": [
+        "ответ 403 — «Результат проверяет руководство»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const id = idSchema.safeParse(req.params.versionId);",
+     "a": [
+      "проверяет данные схемой idSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success || !id.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Подтвердите проверку истории ElevenLabs и опишите результат (не менее 2…",
+       "a": [
+        "ответ 400 — «Подтвердите проверку истории ElevenLabs и опишите результат (не менее…»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const changed = await prisma.$transaction(async tx",
+     "a": [
+      "всё внутри — одной транзакцией",
+      "обращается к базе своим SQL",
+      "читает в базе: propertyNarrationVersion",
+      "меняет в базе: propertyNarrationVersion",
+      "создаёт в базе: auditLog"
+     ],
+     "c": [
+      {
+       "k": "do",
+       "t": "await tx.$queryRaw`SELECT id FROM \"Property\" WHERE id = ${propertyId} FOR UPDATE`;",
+       "a": [
+        "обращается к базе своим SQL"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "const current = await tx.propertyNarrationVersion.findFirst({ where: { id: id.data, propertyId, revision: par…",
+       "a": [
+        "читает в базе: propertyNarrationVersion"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!current || (current.status !== \"UNKNOWN\" && !(current.status === \"GENERATING\" && current.generationStartedAt…",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return false;",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const result = await tx.propertyNarrationVersion.updateMany({ where: { id: id.data, propertyId, revision: par…",
+       "a": [
+        "меняет в базе: propertyNarrationVersion"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!result.count",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return false;",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "await tx.auditLog.create({ data: { agentId: req.agent!.id, agentName: \"Руководитель\", action: \"PROPERTY_NARRA…",
+       "a": [
+        "создаёт в базе: auditLog"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!changed",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"Версия уже проверена или её состояние изменилось. Обновите карточку.\" }…",
+       "a": [
+        "ответ 409 — «Версия уже проверена или её состояние изменилось. Обновите карточку.»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.json({ status: \"FAILED\", message: \"Проверка сохранена. Автоповтора нет. Возможное списание ElevenLabs не …",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "/:id/narration/owner-report-preview",
+   "mount": "/api/v1/properties",
+   "full": "/api/v1/properties/:id/narration/owner-report-preview",
+   "file": "apps/api/src/routes/properties/narration.ts",
+   "router": "narrationRouter",
+   "top": "apps/api/src/routes/properties/index.ts::propertiesRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "[\"/narration-settings\", \"/:id/narration\"]",
+    "вход выполнен",
+    "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!manager(req.agent?.role)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Нет доступа\" });",
+       "a": [
+        "ответ 403 — «Нет доступа»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Подтвердите согласованный с собственником отчёт\" });",
+       "a": [
+        "ответ 400 — «Подтвердите согласованный с собственником отчёт»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!p.sellerClientId",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"У объекта не выбран собственник\" });",
+       "a": [
+        "ответ 409 — «У объекта не выбран собственник»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const seller = await prisma.client.findFirst({ where: { id: p.sellerClientId, deletedAt: null }, select: { id…",
+     "a": [
+      "читает в базе: client"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!seller",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"Карточка собственника недоступна\" });",
+       "a": [
+        "ответ 409 — «Карточка собственника недоступна»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const link = await findActiveOwnerReportLink(p.id);",
+     "a": [
+      "зовёт findActiveOwnerReportLink()"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!link",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"Сначала создайте ссылку «Отчёт владельцу» в карточке объекта\" });",
+       "a": [
+        "ответ 409 — «Сначала создайте ссылку «Отчёт владельцу» в карточке объекта»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const draft = await prisma.ownerReportDelivery.upsert({ where: { propertyId_sellerClientId_period: { property…",
+     "a": [
+      "создаёт или меняет в базе: ownerReportDelivery"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ draft, sent: false, message: \"Ежемесячный отчёт подготовлен. SMS не отправлено.\" });",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "/:id/narration/publication-preview",
+   "mount": "/api/v1/properties",
+   "full": "/api/v1/properties/:id/narration/publication-preview",
+   "file": "apps/api/src/routes/properties/narration.ts",
+   "router": "narrationRouter",
+   "top": "apps/api/src/routes/properties/index.ts::propertiesRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "[\"/narration-settings\", \"/:id/narration\"]",
+    "вход выполнен",
+    "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!manager(req.agent?.role)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Нет доступа\" });",
+       "a": [
+        "ответ 403 — «Нет доступа»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!z.object({}).strict().safeParse(req.body).success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Некорректный запрос предварительного просмотра\" });",
+       "a": [
+        "ответ 400 — «Некорректный запрос предварительного просмотра»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const hash = narrationHash({ caption: p.reelsCaption, price: String(p.price), channels: p.publishedChannels }…",
+     "a": [
+      "зовёт narrationHash()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const rows = publicationPreview(p.publishedChannels);",
+     "a": [
+      "зовёт publicationPreview()"
+     ],
+     "c": []
+    },
+    {
+     "k": "loop",
+     "t": "для каждого: const row of rows",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "await prisma.publicationMetadataSync.upsert({ where: { propertyId_revisionHash_channel_operation: { propertyI…",
+       "a": [
+        "создаёт или меняет в базе: publicationMetadataSync"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.json({ rows, sent: false });",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/:id/narration",
+   "mount": "/api/v1/properties",
+   "full": "/api/v1/properties/:id/narration",
+   "file": "apps/api/src/routes/properties/narration.ts",
+   "router": "narrationRouter",
+   "top": "apps/api/src/routes/properties/index.ts::propertiesRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "[\"/narration-settings\", \"/:id/narration\"]",
+    "вход выполнен",
+    "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const facts = narrationFacts(p);",
+     "a": [
+      "зовёт narrationFacts()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const versions = await prisma.propertyNarrationVersion.findMany({ where: { propertyId: p.id, ...(req.agent!.r…",
+     "a": [
+      "читает в базе: propertyNarrationVersion"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "[\"ADMIN\", \"DIRECTOR\"].includes(req.agent!.role)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const unresolved = await prisma.propertyNarrationVersion.findMany({ where: { propertyId: p.id, status: { in: …",
+       "a": [
+        "читает в базе: propertyNarrationVersion"
+       ],
+       "c": []
+      },
+      {
+       "k": "loop",
+       "t": "для каждого: const row of unresolved",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "if (!versions.some(v => v.id === row.id)) versions.push(row);",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.json({ versions: versions.map((v)",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "/:id/narration",
+   "mount": "/api/v1/properties",
+   "full": "/api/v1/properties/:id/narration",
+   "file": "apps/api/src/routes/properties/narration.ts",
+   "router": "narrationRouter",
+   "top": "apps/api/src/routes/properties/index.ts::propertiesRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "[\"/narration-settings\", \"/:id/narration\"]",
+    "вход выполнен",
+    "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "req.agent!.role === \"EDITOR\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Монтажёр получает подтверждённую озвучку\" });",
+       "a": [
+        "ответ 403 — «Монтажёр получает подтверждённую озвучку»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const parsed = narrationDraftSchema.safeParse(req.body);",
+     "a": [
+      "проверяет данные схемой narrationDraftSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Некорректный текст или версия\", details: parsed.error.flatten() });",
+       "a": [
+        "ответ 400 — «Некорректный текст или версия»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "parsed.data.voiceId && !config.voices.some((v) => v.id === parsed.data.voiceId)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Выберите голос из настроек\" });",
+       "a": [
+        "ответ 400 — «Выберите голос из настроек»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const facts = narrationFacts(p);",
+     "a": [
+      "зовёт narrationFacts()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const error = narrationScriptError(script);",
+     "a": [
+      "зовёт narrationScriptError()"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "error",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error });",
+       "a": [
+        "ответ 400"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const result = await prisma.$transaction(async (tx)",
+     "a": [
+      "всё внутри — одной транзакцией",
+      "обращается к базе своим SQL",
+      "читает в базе: propertyNarrationVersion",
+      "создаёт в базе: propertyNarrationVersion"
+     ],
+     "c": [
+      {
+       "k": "do",
+       "t": "await tx.$queryRaw`SELECT id FROM \"Property\" WHERE id = ${p.id} FOR UPDATE`;",
+       "a": [
+        "обращается к базе своим SQL"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "const existing = await tx.propertyNarrationVersion.findUnique({ where: { requestKey: parsed.data.requestKey }…",
+       "a": [
+        "читает в базе: propertyNarrationVersion"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "existing",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return existing.propertyId === p.id && existing.createdById === req.agent!.id && existing.script === script &…",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const latest = await tx.propertyNarrationVersion.findFirst({ where: { propertyId: p.id }, orderBy: { revision…",
+       "a": [
+        "читает в базе: propertyNarrationVersion"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "(latest?.revision ?? 0) !== parsed.data.expectedRevision",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return null;",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "latest?.approvedAt && !manager(req.agent?.role)",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return null;",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "return tx.propertyNarrationVersion.create({ data: { propertyId: p.id, revision: parsed.data.expectedRevision …",
+       "a": [
+        "создаёт в базе: propertyNarrationVersion"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!result",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"Версия изменилась или требует прав маркетинга. Обновите карточку.\" });",
+       "a": [
+        "ответ 409 — «Версия изменилась или требует прав маркетинга. Обновите карточку.»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.status(201).json({ id: result.id, revision: result.revision });",
+     "a": [
+      "ответ 201"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
    "method": "DELETE",
    "path": "/:id/owner-report-link",
    "mount": "/api/v1/properties",
@@ -46594,13 +48814,70 @@
     },
     {
      "k": "do",
-     "t": "const detachedAds = await prisma.$transaction(async (tx)",
+     "t": "const purge = await prisma.$transaction(async (tx)",
      "a": [
       "всё внутри — одной транзакцией",
+      "обращается к базе своим SQL",
+      "читает в базе: property",
+      "читает в базе: propertyNarrationVersion",
       "меняет в базе: interaction",
       "удаляет в базе: property"
      ],
      "c": [
+      {
+       "k": "do",
+       "t": "await tx.$queryRaw`SELECT id FROM \"Property\" WHERE id = ${property.id} FOR UPDATE`;",
+       "a": [
+        "обращается к базе своим SQL"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "const current = await tx.property.findUnique({ where: { id: property.id }, select: { deletedAt: true, _count:…",
+       "a": [
+        "читает в базе: property"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!current?.deletedAt || current._count.deals > 0",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return null;",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const narration = await tx.propertyNarrationVersion.findMany({ where: { propertyId: property.id }, select: { …",
+       "a": [
+        "читает в базе: propertyNarrationVersion"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "narration.some(version => version.status === \"GENERATING\")",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return null;",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
       {
        "k": "do",
        "t": "await tx.interaction.updateMany({ where: { propertyId: property.id }, data: { propertyId: null } });",
@@ -46643,8 +48920,31 @@
      ]
     },
     {
+     "k": "if",
+     "t": "!purge",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"Объект изменился или озвучка ещё генерируется. Обновите карточку перед …",
+       "a": [
+        "ответ 409 — «Объект изменился или озвучка ещё генерируется. Обновите карточку…»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "await removePurgedNarrationAudio(property.id, purge.narrationIds);",
+     "a": [
+      "зовёт removePurgedNarrationAudio()"
+     ],
+     "c": []
+    },
+    {
      "k": "loop",
-     "t": "для каждого: const d of detachedAds",
+     "t": "для каждого: const d of purge.detached",
      "a": [],
      "c": [
       {
@@ -53772,7 +56072,30 @@
    "tree": [
     {
      "k": "do",
-     "t": "const result = await trashProperty(req.params.id, req.agent!.id);",
+     "t": "const removal = propertyRemovalSchema.safeParse(req.body ?? {});",
+     "a": [
+      "проверяет данные схемой propertyRemovalSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!removal.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: removal.error.issues[0]?.message ?? \"Неверная причина снятия\" });",
+       "a": [
+        "ответ 400"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const result = await trashProperty(req.params.id, req.agent!.id, removal.data);",
      "a": [
       "зовёт trashProperty()"
      ],
@@ -53930,6 +56253,29 @@
    ],
    "handlerRef": null,
    "tree": [
+    {
+     "k": "do",
+     "t": "const removal = propertyRemovalSchema.safeParse(req.body);",
+     "a": [
+      "проверяет данные схемой propertyRemovalSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!removal.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: removal.error.issues[0]?.message ?? \"Неверная причина снятия\" });",
+       "a": [
+        "ответ 400"
+       ],
+       "c": []
+      }
+     ]
+    },
     {
      "k": "do",
      "t": "const parsed = propertyUpdateSchema.safeParse(req.body);",
@@ -54612,6 +56958,21 @@
          ]
         },
         {
+         "k": "if",
+         "t": "result.count && data.status === \"WITHDRAWN\" && existing.status !== \"WITHDRAWN\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "await recordPropertyRemoval(tx, { ...removal.data, propertyId: existing.id, actorId: req.agent!.id, operation…",
+           "a": [
+            "зовёт recordPropertyRemoval()"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
          "k": "do",
          "t": "return tx.property.findUniqueOrThrow({ where: { id: req.params.id } });",
          "a": [
@@ -54844,6 +57205,21 @@
        "t": "geocodeInBackground(updated.id);",
        "a": [
         "зовёт geocodeInBackground()"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "becameWithdrawn && updated.sellerClientId",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "await recomputeSellerCardState({ sellerClientId: updated.sellerClientId, lostReason: removal.data.removalReas…",
+       "a": [
+        "зовёт recomputeSellerCardState()"
        ],
        "c": []
       }
@@ -55279,6 +57655,29 @@
    "tree": [
     {
      "k": "do",
+     "t": "const removal = propertyRemovalSchema.safeParse(req.body);",
+     "a": [
+      "проверяет данные схемой propertyRemovalSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!removal.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: removal.error.issues[0]?.message ?? \"Неверная причина снятия\" });",
+       "a": [
+        "ответ 400"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
      "t": "const parsed = bulkTrashPropertiesSchema.safeParse(req.body);",
      "a": [
       "проверяет данные схемой bulkTrashPropertiesSchema"
@@ -55302,7 +57701,7 @@
     },
     {
      "k": "do",
-     "t": "const results = await trashProperties(parsed.data.ids, req.agent!.id);",
+     "t": "const results = await trashProperties(parsed.data.ids, req.agent!.id, removal.data);",
      "a": [
       "зовёт trashProperties()"
      ],
@@ -55919,7 +58318,7 @@
        "c": [
         {
          "k": "do",
-         "t": "result = await trashProperty(request.propertyId, req.agent!.id);",
+         "t": "result = await trashProperty(request.propertyId, req.agent!.id, { removalReason: request.reason as PropertyDe…",
          "a": [
           "зовёт trashProperty()"
          ],
@@ -59057,6 +61456,123 @@
     {
      "k": "do",
      "t": "res.json(response);",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/narration-settings",
+   "mount": "/api/v1/properties",
+   "full": "/api/v1/properties/narration-settings",
+   "file": "apps/api/src/routes/properties/narration.ts",
+   "router": "narrationRouter",
+   "top": "apps/api/src/routes/properties/index.ts::propertiesRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "[\"/narration-settings\", \"/:id/narration\"]",
+    "вход выполнен",
+    "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!manager(req.agent?.role)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Настройки доступны маркетингу и руководству\" });",
+       "a": [
+        "ответ 403 — «Настройки доступны маркетингу и руководству»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.json({ config, apiKeyConfigured: !!key, sendsEnabled: false });",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "PUT",
+   "path": "/narration-settings",
+   "mount": "/api/v1/properties",
+   "full": "/api/v1/properties/narration-settings",
+   "file": "apps/api/src/routes/properties/narration.ts",
+   "router": "narrationRouter",
+   "top": "apps/api/src/routes/properties/index.ts::propertiesRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "[\"/narration-settings\", \"/:id/narration\"]",
+    "вход выполнен",
+    "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "![\"ADMIN\", \"DIRECTOR\"].includes(req.agent!.role)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Голоса настраивает руководство\" });",
+       "a": [
+        "ответ 403 — «Голоса настраивает руководство»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const parsed = narrationConfigSchema.safeParse(req.body);",
+     "a": [
+      "проверяет данные схемой narrationConfigSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Проверьте модель и список голосов\", details: parsed.error.flatten() });",
+       "a": [
+        "ответ 400 — «Проверьте модель и список голосов»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "await prisma.settings.upsert({ where: { id: \"singleton\" }, create: { id: \"singleton\", propertyNarrationConfig…",
+     "a": [
+      "создаёт или меняет в базе: settings"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ config: parsed.data, sendsEnabled: false });",
      "a": [
       "ответ 200"
      ],
@@ -62644,7 +65160,8 @@
     "idempotencyGuard",
     "pultWriteRefresh",
     "вход выполнен",
-    "есть право: reports.view"
+    "есть право: reports.view",
+    "requireInvestigations"
    ],
    "handlerRef": null,
    "tree": [
@@ -63924,6 +66441,579 @@
    ]
   },
   {
+   "method": "POST",
+   "path": "/:id/decisions",
+   "mount": "/api/v1/security/cases",
+   "full": "/api/v1/security/cases/:id/decisions",
+   "file": "apps/api/src/routes/investigationCases.ts",
+   "router": "investigationCasesRouter",
+   "top": "apps/api/src/routes/security.ts::securityRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "requireInvestigations",
+    "есть право: clients.securityReview",
+    "вход выполнен",
+    "requireInvestigations",
+    "есть право: clients.securityReview"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const id = idSchema.safeParse(req.params.id), parsed = investigationDecisionSchema.safeParse(req.body);",
+     "a": [
+      "проверяет данные схемой idSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!id.success || !parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Укажите решение и пояснение\" });",
+       "a": [
+        "ответ 400 — «Укажите решение и пояснение»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const decision = await decideInvestigation({ ...parsed.data, caseId: id.data, actorId: req.agent!.id });",
+       "a": [
+        "зовёт decideInvestigation()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "res.json({ decision, mode: \"preview\" });",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "if",
+       "t": "error instanceof InvestigationConflict",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(409).json({ error: error.message });",
+         "a": [
+          "ответ 409"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "throw error;",
+       "a": [
+        "пробрасывает ошибку дальше"
+       ],
+       "c": []
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/:id",
+   "mount": "/api/v1/security/cases",
+   "full": "/api/v1/security/cases/:id",
+   "file": "apps/api/src/routes/investigationCases.ts",
+   "router": "investigationCasesRouter",
+   "top": "apps/api/src/routes/security.ts::securityRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "requireInvestigations",
+    "есть право: clients.securityReview",
+    "вход выполнен",
+    "requireInvestigations",
+    "есть право: clients.securityReview"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const id = idSchema.safeParse(req.params.id);",
+     "a": [
+      "проверяет данные схемой idSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!id.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Неверный идентификатор\" });",
+       "a": [
+        "ответ 400 — «Неверный идентификатор»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const row = await prisma.investigationCase.findUnique({ where: { id: id.data }, include: { ...include, eviden…",
+     "a": [
+      "читает в базе: investigationCase"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!row",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Дело не найдено\" });",
+       "a": [
+        "ответ 404 — «Дело не найдено»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.json({ ...row, evidence: row.evidence.map(item",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/automation-preview",
+   "mount": "/api/v1/security/cases",
+   "full": "/api/v1/security/cases/automation-preview",
+   "file": "apps/api/src/routes/investigationCases.ts",
+   "router": "investigationCasesRouter",
+   "top": "apps/api/src/routes/security.ts::securityRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "requireInvestigations",
+    "есть право: clients.securityReview",
+    "вход выполнен",
+    "requireInvestigations",
+    "есть право: clients.securityReview"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const [buyers, sellers] = await Promise.all([ prisma.postShowingCall.findMany({ where: { previewOnly: true },…",
+     "a": [
+      "читает в базе: postShowingCall",
+      "читает в базе: sellerProbeCall"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ mode: \"PREVIEW\", items: [ ...buyers.map(row",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/config",
+   "mount": "/api/v1/security/cases",
+   "full": "/api/v1/security/cases/config",
+   "file": "apps/api/src/routes/investigationCases.ts",
+   "router": "investigationCasesRouter",
+   "top": "apps/api/src/routes/security.ts::securityRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "requireInvestigations",
+    "есть право: clients.securityReview",
+    "вход выполнен",
+    "requireInvestigations",
+    "есть право: clients.securityReview"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const settings = await prisma.settings.findUnique({ where: { id: \"singleton\" }, select: { investigationCaseCo…",
+     "a": [
+      "читает в базе: settings"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const parsed = investigationCaseConfigSchema.safeParse(settings?.investigationCaseConfig ?? {});",
+     "a": [
+      "проверяет данные схемой investigationCaseConfigSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ config: parsed.success ? parsed.data : null, mode: \"preview\" });",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "PUT",
+   "path": "/config",
+   "mount": "/api/v1/security/cases",
+   "full": "/api/v1/security/cases/config",
+   "file": "apps/api/src/routes/investigationCases.ts",
+   "router": "investigationCasesRouter",
+   "top": "apps/api/src/routes/security.ts::securityRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "requireInvestigations",
+    "есть право: clients.securityReview",
+    "вход выполнен",
+    "requireInvestigations",
+    "есть право: clients.securityReview"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const parsed = investigationCaseConfigUpdateSchema.safeParse(req.body);",
+     "a": [
+      "проверяет данные схемой investigationCaseConfigUpdateSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Укажите положительные целые пороги и период\" });",
+       "a": [
+        "ответ 400 — «Укажите положительные целые пороги и период»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const configured = investigationCaseConfigSchema.safeParse(parsed.data.config);",
+     "a": [
+      "проверяет данные схемой investigationCaseConfigSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "await prisma.settings.upsert({ where: { id: \"singleton\" }, create: { id: \"singleton\", investigationCaseConfig…",
+     "a": [
+      "создаёт или меняет в базе: settings"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ config: configured.success ? configured.data : null, mode: \"preview\" });",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/recurrence",
+   "mount": "/api/v1/security/cases",
+   "full": "/api/v1/security/cases/recurrence",
+   "file": "apps/api/src/routes/investigationCases.ts",
+   "router": "investigationCasesRouter",
+   "top": "apps/api/src/routes/security.ts::securityRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "requireInvestigations",
+    "есть право: clients.securityReview",
+    "вход выполнен",
+    "requireInvestigations",
+    "есть право: clients.securityReview"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const settings = await prisma.settings.findUniqueOrThrow({ where: { id: \"singleton\" }, select: { investigatio…",
+       "a": [
+        "читает в базе: settings"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "const parsed = investigationCaseConfigSchema.safeParse(settings.investigationCaseConfig);",
+       "a": [
+        "проверяет данные схемой investigationCaseConfigSchema"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "const rows = await prisma.investigationCase.findMany({ where: { lastSignalAt: { gte: since } }, take: 10001, …",
+       "a": [
+        "читает в базе: investigationCase"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "const groups = truncated ? [] : evaluateInvestigationRecurrence(config, rows).map(row",
+       "a": [
+        "зовёт evaluateInvestigationRecurrence()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "const clearedCases = await prisma.investigationDecision.groupBy({ by: [\"caseId\"], where: { action: \"CLEARED\",…",
+       "a": [
+        "считает в базе: investigationDecision"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "res.json({ since, config, groups, clearedCases: clearedCases.length, evaluation: truncated ? \"INCOMPLETE_DATA…",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "res.status(503).json({ error: \"Данные проверки временно недоступны\", evaluation: \"DATA_UNAVAILABLE\", mode: \"p…",
+       "a": [
+        "ответ 503 — «Данные проверки временно недоступны»"
+       ],
+       "c": []
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/seller-control-preview",
+   "mount": "/api/v1/security/cases",
+   "full": "/api/v1/security/cases/seller-control-preview",
+   "file": "apps/api/src/routes/investigationCases.ts",
+   "router": "investigationCasesRouter",
+   "top": "apps/api/src/routes/security.ts::securityRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "requireInvestigations",
+    "есть право: clients.securityReview",
+    "вход выполнен",
+    "requireInvestigations",
+    "есть право: clients.securityReview"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const parsed = investigationCasesQuerySchema.safeParse(req.query);",
+     "a": [
+      "проверяет данные схемой investigationCasesQuerySchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Неверные параметры\" });",
+       "a": [
+        "ответ 400 — «Неверные параметры»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const preview = await sellerControlPreview(parsed.data.page);",
+       "a": [
+        "зовёт sellerControlPreview()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "res.json({ ...preview, items: preview.items.map(item",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "res.status(503).json({ error: \"Данные контроля временно недоступны\", mode: \"PREVIEW\", evaluation: \"DATA_UNAVA…",
+       "a": [
+        "ответ 503 — «Данные контроля временно недоступны»"
+       ],
+       "c": []
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/",
+   "mount": "/api/v1/security/cases",
+   "full": "/api/v1/security/cases",
+   "file": "apps/api/src/routes/investigationCases.ts",
+   "router": "investigationCasesRouter",
+   "top": "apps/api/src/routes/security.ts::securityRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "requireInvestigations",
+    "есть право: clients.securityReview",
+    "вход выполнен",
+    "requireInvestigations",
+    "есть право: clients.securityReview"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const parsed = investigationCasesQuerySchema.safeParse(req.query);",
+     "a": [
+      "проверяет данные схемой investigationCasesQuerySchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Неверные параметры\" });",
+       "a": [
+        "ответ 400 — «Неверные параметры»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const [items, total] = await Promise.all([ prisma.investigationCase.findMany({ where, include, orderBy: [{ la…",
+     "a": [
+      "читает в базе: investigationCase",
+      "считает в базе: investigationCase"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ items, total, page, pageSize: 25, mode: \"preview\" });",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
    "method": "GET",
    "path": "/lost-clients",
    "mount": "/api/v1/security",
@@ -63936,6 +67026,7 @@
     "idempotencyGuard",
     "pultWriteRefresh",
     "вход выполнен",
+    "requireInvestigations",
     "есть право: clients.securityReview"
    ],
    "handlerRef": null,
@@ -63978,6 +67069,7 @@
     "idempotencyGuard",
     "pultWriteRefresh",
     "вход выполнен",
+    "requireInvestigations",
     "есть право: clients.securityReview"
    ],
    "handlerRef": null,
@@ -64020,6 +67112,7 @@
     "idempotencyGuard",
     "pultWriteRefresh",
     "вход выполнен",
+    "requireInvestigations",
     "есть право: clients.securityReview"
    ],
    "handlerRef": null,
@@ -66580,6 +69673,21 @@
     },
     {
      "k": "if",
+     "t": "session && !(await mayReadLiveVoiceSession(req.agent?.role, session))",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Записи нет\" });",
+       "a": [
+        "ответ 404 — «Записи нет»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
      "t": "!session?.recordingUrl",
      "a": [],
      "c": [
@@ -66677,7 +69785,7 @@
     },
     {
      "k": "do",
-     "t": "const sessions = await prisma.liveVoiceSession.findMany({ orderBy: { startedAt: \"desc\" }, take: query.data.li…",
+     "t": "const sessions = await prisma.liveVoiceSession.findMany({ where: canViewInvestigations(req.agent?.role) ? {} …",
      "a": [
       "читает в базе: liveVoiceSession"
      ],
@@ -66804,7 +69912,7 @@
     },
     {
      "k": "do",
-     "t": "res.json(await publicSettingsResponse(settings));",
+     "t": "res.json(privateSettingsResponse(await publicSettingsResponse(settings), req.agent?.role));",
      "a": [
       "ответ 200"
      ],
@@ -67944,8 +71052,31 @@
      "c": []
     },
     {
+     "k": "if",
+     "t": "!canViewInvestigations(req.agent?.role)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "delete (response as Record<string, unknown>).postShowingCallEnabled;",
+       "a": [
+        "дословно из кода"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "delete (response as Record<string, unknown>).investigationCaseConfig;",
+       "a": [
+        "дословно из кода"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
      "k": "do",
-     "t": "res.json(isAdmin ? await publicSettingsResponse(settings) : toStaffSettings(settings));",
+     "t": "res.json(response);",
      "a": [
       "ответ 200"
      ],
@@ -67971,6 +71102,21 @@
    ],
    "handlerRef": null,
    "tree": [
+    {
+     "k": "if",
+     "t": "Object.prototype.hasOwnProperty.call(req.body ?? {}, \"postShowingCallEnabled\") && !canViewInvestigations(req.…",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Недостаточно прав\" });",
+       "a": [
+        "ответ 403 — «Недостаточно прав»"
+       ],
+       "c": []
+      }
+     ]
+    },
     {
      "k": "do",
      "t": "const parsed = settingsUpdateSchema.safeParse(req.body);",
@@ -68902,7 +72048,7 @@
          "c": [
           {
            "k": "do",
-           "t": "return res.json(await publicSettingsResponse(refreshed));",
+           "t": "return res.json(privateSettingsResponse(await publicSettingsResponse(refreshed), req.agent?.role));",
            "a": [
             "ответ 200"
            ],
@@ -68964,7 +72110,7 @@
        "c": [
         {
          "k": "do",
-         "t": "return res.json(await publicSettingsResponse(refreshed));",
+         "t": "return res.json(privateSettingsResponse(await publicSettingsResponse(refreshed), req.agent?.role));",
          "a": [
           "ответ 200"
          ],
@@ -68976,7 +72122,7 @@
     },
     {
      "k": "do",
-     "t": "res.json(await publicSettingsResponse(settings));",
+     "t": "res.json(privateSettingsResponse(await publicSettingsResponse(settings), req.agent?.role));",
      "a": [
       "ответ 200"
      ],
@@ -80923,7 +84069,7 @@
        "c": [
         {
          "k": "do",
-         "t": "const raw = await prisma.botLesson.findMany({ where: { lesson: null }, orderBy: { createdAt: \"asc\" }, take: D…",
+         "t": "const raw = await prisma.botLesson.findMany({ where: { lesson: null, investigationOnly: false }, orderBy: { c…",
          "a": [
           "читает в базе: botLesson"
          ],
@@ -80971,7 +84117,7 @@
             },
             {
              "k": "do",
-             "t": "await prisma.botLesson.update({ where: { id: item.id }, data: { lesson: lesson || EMPTY_LESSON, active: !!les…",
+             "t": "await prisma.botLesson.update({ where: { id: item.id, investigationOnly: false }, data: { lesson: lesson || E…",
              "a": [
               "меняет в базе: botLesson"
              ],
@@ -84632,7 +87778,7 @@
        "c": [
         {
          "k": "do",
-         "t": "const due = await prisma.client.findMany({ where: { workStatus: \"DEFERRED\", deletedAt: null, deferredUntil: {…",
+         "t": "const due = await prisma.client.findMany({ where: { workStatus: \"DEFERRED\", deletedAt: null, assignmentComple…",
          "a": [
           "читает в базе: client"
          ],
@@ -84802,7 +87948,7 @@
         },
         {
          "k": "do",
-         "t": "async function resolveRecipients(item: { title: string; recipientPermission: string | null; recipientRoles: s…",
+         "t": "async function resolveRecipients(item: { title: string; tag?: string | null; body?: string | null; recipientP…",
          "a": [
           "читает в базе: agent",
           "запись в журнал ошибок"
@@ -92564,7 +95710,7 @@
       },
       {
        "k": "do",
-       "t": "const staleLessons = await prisma.botLesson.deleteMany({ where: { OR: [{ lesson: null }, { lesson: EMPTY_LESS…",
+       "t": "const staleLessons = await prisma.botLesson.deleteMany({ where: { investigationOnly: false, OR: [{ lesson: nu…",
        "a": [
         "удаляет в базе: botLesson"
        ],
@@ -94918,6 +98064,123 @@
        "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
       }
      ]
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
+   "id": "owner-report-monthly-preview",
+   "when": "20 8 * * *",
+   "tree": [
+    {
+     "k": "do",
+     "t": "await prepareMonthlyOwnerReportPreviews();",
+     "a": [
+      "зовёт prepareMonthlyOwnerReportPreviews()"
+     ],
+     "c": [
+      {
+       "k": "do",
+       "t": "const settings = await prisma.settings.findUnique({ where: { id: \"singleton\" }, select: { propertyNarrationCo…",
+       "a": [
+        "читает в базе: settings"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "const config = narrationConfigSchema.safeParse(settings?.propertyNarrationConfig ?? {});",
+       "a": [
+        "проверяет данные схемой narrationConfigSchema"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!config.success || !config.data.ownerReportPreviewEnabled",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return { prepared: 0 };",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const optIns = await prisma.ownerReportDelivery.findMany({ where: { status: \"PREVIEW\", period: { lt: period }…",
+       "a": [
+        "читает в базе: ownerReportDelivery"
+       ],
+       "c": []
+      },
+      {
+       "k": "loop",
+       "t": "для каждого: const optIn of optIns",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "const property = await prisma.property.findFirst({ where: { id: optIn.propertyId, deletedAt: null, sellerClie…",
+         "a": [
+          "читает в базе: property"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "!property || !await prisma.client.findFirst({ where: { id: optIn.sellerClientId, deletedAt: null }, select: {…",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "continue;",
+           "a": [
+            "переходит к следующему"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const link = await findActiveOwnerReportLink(property.id);",
+         "a": [
+          "зовёт findActiveOwnerReportLink()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "!link",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "continue;",
+           "a": [
+            "переходит к следующему"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const result = await prisma.ownerReportDelivery.createMany({ data: [{ ...optIn, period, reportUrl: presentOwn…",
+         "a": [
+          "создаёт в базе: ownerReportDelivery"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ],
+     "from": "prepareMonthlyOwnerReportPreviews() — apps/api/src/lib/ownerReport/monthlyPreview.ts"
     }
    ],
    "file": "apps/api/src/cron.ts"
@@ -97349,7 +100612,7 @@
         },
         {
          "k": "do",
-         "t": "const directorIds = ( await prisma.agent.findMany({ where: { role: { in: [\"DIRECTOR\", \"ADMIN\", \"HEAD_OF_SALES…",
+         "t": "const directorIds = ( await prisma.agent.findMany({ where: { role: { in: [\"DIRECTOR\", \"ADMIN\"] }, isActive: t…",
          "a": [
           "читает в базе: agent"
          ],
@@ -97933,7 +101196,7 @@
         },
         {
          "k": "do",
-         "t": "const due = await prisma.sellerProbeCall.findMany({ where: { status: { in: [\"PENDING\", \"NO_ANSWER\"] }, schedu…",
+         "t": "const due = await prisma.sellerProbeCall.findMany({ where: { previewOnly: false, status: { in: [\"PENDING\", \"N…",
          "a": [
           "читает в базе: sellerProbeCall"
          ],
@@ -98116,7 +101379,7 @@
           },
           {
            "k": "do",
-           "t": "await logTimeline({ clientId: c.id, actor: { kind: \"system\", source: \"sellerPropertyMissingAntifraud\", subjec…",
+           "t": "await logTimeline({ investigationOnly: true, clientId: c.id, actor: { kind: \"system\", source: \"sellerProperty…",
            "a": [
             "зовёт logTimeline()"
            ],
@@ -105774,21 +109037,21 @@
       },
       {
        "k": "do",
-       "t": "const recipients = await findAgentsWithPermission(\"reports.view\");",
+       "t": "const recipients = await investigationRecipients();",
        "a": [
-        "зовёт findAgentsWithPermission()"
+        "зовёт investigationRecipients()"
        ],
        "c": [
         {
          "k": "do",
-         "t": "const agents = await prisma.agent.findMany({ where: { isActive: true }, select: { id: true, role: true, permi…",
+         "t": "return (await prisma.agent.findMany({ where: { isActive: true, role: { in: [\"ADMIN\", \"DIRECTOR\"] } }, select:…",
          "a": [
           "читает в базе: agent"
          ],
          "c": []
         }
        ],
-       "from": "findAgentsWithPermission() — apps/api/src/lib/recipients.ts"
+       "from": "investigationRecipients() — apps/api/src/lib/investigationNotifications.ts"
       },
       {
        "k": "if",
@@ -109529,6 +112792,14 @@
      ],
      "c": [
       {
+       "k": "do",
+       "t": "agentIds = await filterInvestigationRecipients(agentIds, payload);",
+       "a": [
+        "зовёт filterInvestigationRecipients()"
+       ],
+       "c": []
+      },
+      {
        "k": "if",
        "t": "agentIds.length === 0",
        "a": [],
@@ -110948,6 +114219,14 @@
        ],
        "c": [
         {
+         "k": "do",
+         "t": "agentIds = await filterInvestigationRecipients(agentIds, payload);",
+         "a": [
+          "зовёт filterInvestigationRecipients()"
+         ],
+         "c": []
+        },
+        {
          "k": "if",
          "t": "agentIds.length === 0",
          "a": [],
@@ -112069,6 +115348,21 @@
      ],
      "c": [
       {
+       "k": "if",
+       "t": "!(await filterInvestigationRecipients([agentId], payload)).length",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return 0;",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
        "k": "do",
        "t": "const { granted } = await partitionByPermission([agentId], \"clients.viewPhone\");",
        "a": [
@@ -112405,6 +115699,14 @@
       "push-уведомление"
      ],
      "c": [
+      {
+       "k": "do",
+       "t": "agentIds = await filterInvestigationRecipients(agentIds, payload);",
+       "a": [
+        "зовёт filterInvestigationRecipients()"
+       ],
+       "c": []
+      },
       {
        "k": "if",
        "t": "agentIds.length === 0",
@@ -113337,6 +116639,14 @@
      ],
      "c": [
       {
+       "k": "do",
+       "t": "agentIds = await filterInvestigationRecipients(agentIds, payload);",
+       "a": [
+        "зовёт filterInvestigationRecipients()"
+       ],
+       "c": []
+      },
+      {
        "k": "if",
        "t": "!configured || agentIds.length === 0",
        "a": [],
@@ -113558,6 +116868,14 @@
       },
       {
        "k": "do",
+       "t": "const sellerClientId = (await matchingPropertySellers([property.id])).get(property.id);",
+       "a": [
+        "зовёт matchingPropertySellers()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
        "t": "const money = await loadMoneyContext();",
        "a": [
         "зовёт loadMoneyContext()"
@@ -113589,7 +116907,7 @@
       },
       {
        "k": "do",
-       "t": "const candidates = await prisma.client.findMany({ where: { ...waiting, assignedAgentId: { not: null }, OR: di…",
+       "t": "const candidates = await prisma.client.findMany({ where: { ...waiting, ...(sellerClientId ? { id: { not: sell…",
        "a": [
         "читает в базе: client"
        ],
@@ -119094,6 +122412,14 @@
           "push-уведомление"
          ],
          "c": [
+          {
+           "k": "do",
+           "t": "agentIds = await filterInvestigationRecipients(agentIds, payload);",
+           "a": [
+            "зовёт filterInvestigationRecipients()"
+           ],
+           "c": []
+          },
           {
            "k": "if",
            "t": "agentIds.length === 0",

@@ -7,6 +7,9 @@ import { logAudit } from "../../lib/audit.js";
 import { logTimeline } from "../../lib/timeline.js";
 import { publishClientUpdated } from "../../lib/livePublish.js";
 import { foreignWriteDenied, presentClient, restoreMaskedNotes } from "./shared.js";
+import { resolveClientIntentsAutomatically } from "../../lib/clientIntentResolution.js";
+import { logSystemError } from "../../lib/systemError.js";
+import { describeError } from "../../lib/describeError.js";
 
 export const intentsRouter = Router();
 
@@ -30,22 +33,32 @@ intentsRouter.post("/:id/intents", requireAuth, async (req, res) => {
   if (!client) return;
   if (client.kind === "OTHER") return res.status(409).json({ error: "Сначала выберите тип карточки: продавец или покупатель" });
   const dualIntent = input.data.dualIntent;
+  const automatic = input.data.resolution === "AUTO";
+  if (automatic && !["ADMIN", "DIRECTOR"].includes(req.agent!.role)) return res.status(403).json({ error: "Автоматическое определение после ручного решения включает администратор или директор" });
   const now = new Date();
   const updated = await prisma.$transaction(async tx => {
     // Reassignment or kind changes during confirmation must not authorize a stale form.
     const changed = await tx.client.updateMany({
-      where: { id: client.id, assignedAgentId: client.assignedAgentId, kind: client.kind, acceptedAt: client.acceptedAt, deletedAt: null },
-      data: { dualIntent, dualIntentConfirmedAt: dualIntent ? now : null, dualIntentConfirmedById: dualIntent ? req.agent!.id : null },
+      where: { id: client.id, assignedAgentId: client.assignedAgentId, kind: client.kind, acceptedAt: client.acceptedAt,
+        updatedAt: client.updatedAt, mutationRevision: client.mutationRevision, assignmentCompletedAt: client.assignmentCompletedAt, deletedAt: null },
+      data: automatic ? { dualIntentDecisionSource: "AUTO", dualIntentConfirmedById: null, dualIntentAnalyzedHash: null,
+        dualIntentNeedsReview: false } : { dualIntent, dualIntentConfirmedAt: dualIntent ? now : null, dualIntentConfirmedById: dualIntent ? req.agent!.id : null,
+        dualIntentDecisionSource: "MANUAL", dualIntentNeedsReview: false },
     });
     if (!changed.count) return null;
     await logTimeline({ clientId: client.id, actor: { kind: "agent", agentId: req.agent!.id }, type: "SYSTEM",
-      notes: dualIntent ? "Подтверждено: клиент одновременно продаёт и покупает недвижимость" : `Подтверждена одна актуальная роль: ${client.kind === "SELLER" ? "продавец" : "покупатель"}`, tx });
+      notes: automatic ? "Администратор включил автоматическое определение актуальных ролей клиента" : dualIntent ? "Подтверждено: клиент одновременно продаёт и покупает недвижимость" : `Подтверждена одна актуальная роль: ${client.kind === "SELLER" ? "продавец" : "покупатель"}`, tx });
     return tx.client.findUniqueOrThrow({ where: { id: client.id } });
   });
   if (!updated) return res.status(409).json({ error: "Карточка изменилась. Обновите её и повторите подтверждение" });
-  logAudit(req, "UPDATE", "Client", client.id, { dualIntent, confirmation: "staff" });
+  if (automatic) {
+    try { await resolveClientIntentsAutomatically(client.id); }
+    catch (error) { void logSystemError("ai", `Определение ролей после смены режима: ${describeError(error)}`); }
+  }
+  logAudit(req, "UPDATE", "Client", client.id, { dualIntent, confirmation: automatic ? "automatic-enabled" : "staff" });
   publishClientUpdated({ clientId: client.id, agentIds: [client.assignedAgentId], actorId: req.agent!.id });
-  res.json(presentClient(updated, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), req.agent?.role));
+  const current = automatic ? await prisma.client.findUniqueOrThrow({ where: { id: client.id } }) : updated;
+  res.json(presentClient(current, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), req.agent?.role));
 });
 
 intentsRouter.post("/:id/buyer-requirements", requireAuth, async (req, res) => {
@@ -63,6 +76,7 @@ intentsRouter.post("/:id/buyer-requirements", requireAuth, async (req, res) => {
   const stale = client.requirementsFieldsKind != null && client.requirementsFieldsKind !== "BUYER";
   const updated = await prisma.$transaction(async tx => {
     const changed = await tx.client.updateMany({ where: { id: client.id, assignedAgentId: client.assignedAgentId, kind: client.kind, acceptedAt: client.acceptedAt, deletedAt: null,
+      updatedAt: client.updatedAt, mutationRevision: client.mutationRevision, assignmentCompletedAt: client.assignmentCompletedAt,
       dualIntent: client.dualIntent, dualIntentConfirmedAt: client.dualIntentConfirmedAt }, data: {
       ...(stale ? { budgetMin: null, budgetMax: null, desiredType: null, desiredDistrictId: null, desiredRooms: null,
         desiredAreaMin: null, desiredFloorMin: null, desiredFloorMax: null, desiredTotalFloors: null, requirementsNotes: null } : {}),

@@ -311,6 +311,8 @@ export interface Client {
    *  `phone`. Агенту без права видеть телефон приходят замаскированными, как и
    *  `phone` (см. presentClient в apps/api/src/routes/clients.ts). */
   extraPhones?: string[];
+  phoneSelectionTokens?: Record<string, string>;
+  extraPhoneOrigins?: Array<{ index: number; addedAt: string | null; source?: string }>;
   email: string | null;
   status: ClientStatus;
   /**
@@ -354,6 +356,8 @@ export interface Client {
   dualIntent?: boolean;
   dualIntentConfirmedAt?: string | null;
   dualIntentNeedsConfirmation?: boolean;
+  dualIntentDecisionSource?: "AUTO" | "MANUAL" | null;
+  dualIntentNeedsReview?: boolean;
   /** Сколько объектов на продажу услышал ИИ из разговоров — пишет только ИИ,
    *  агент может подать заявку на пересмотр (владелец 06.09.2026, разбор слепых
    *  зон п.3). null — ИИ ещё ничего не услышал. */

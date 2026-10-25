@@ -1,4 +1,5 @@
 import { useRef, useState, type ReactNode } from "react";
+import "../../theme-client-workspace.css";
 import { useAssignClientToAgent, useClientMatch, useSendProperties, useSendTarget } from "../../hooks/useClients";
 import { useDistricts } from "../../hooks/useDistricts";
 import { useMatchingClients, useProperties, type PropertyFilters } from "../../hooks/useProperties";
@@ -16,6 +17,7 @@ import { MatchPropertyCard } from "./MatchPropertyCard";
 import { MatchClientCard } from "./MatchClientCard";
 import { bookedShowingsByProperty } from "../../lib/clientFormat";
 import type { Client, Property } from "../../types";
+import { ApiError } from "../../lib/apiError";
 
 /**
  * ОДНА ФУНКЦИЯ «ПОДБОР» (владелец, 17.09.2026 вечер, `docs/match-policy-plan-17-09.md`
@@ -64,6 +66,16 @@ export type MatchPanelProps =
     };
 
 const MAX_TO_SEND = 5;
+
+export function SelectedMatchProperties({ items, disabled, onRemove }: {
+  items: { id: string; label: string }[]; disabled: boolean; onRemove: (id: string) => void;
+}) {
+  if (!items.length) return null;
+  return <div className="client-match-selected" aria-label="Состав выбранной подборки">
+    <p>Выбранные объекты сохраняются при смене страницы и фильтра. Перед отправкой проверьте состав.</p>
+    <ul>{items.map(item => <li key={item.id}><span>{item.label}</span><button type="button" className="lnk" disabled={disabled} aria-label={`Убрать из подборки: ${item.label}`} onClick={() => onRemove(item.id)}>Убрать</button></li>)}</ul>
+  </div>;
+}
 
 /** Канал словами — для строки «Объект отправлен в WhatsApp». */
 const CHANNEL_WORD: Record<string, string> = {
@@ -148,6 +160,7 @@ function ClientMatchPanel({
   const [expanded, setExpanded] = useState(false);
   const [showingFor, setShowingFor] = useState<Property | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [selectedNames, setSelectedNames] = useState<Record<string, string>>({});
   const [justOffered, setJustOffered] = useState<Set<string>>(new Set());
   const [sendResult, setSendResult] = useState<string | null>(null);
   const [failure, setFailure] = useState<{
@@ -156,6 +169,7 @@ function ClientMatchPanel({
   const [chosenConversation, setChosenConversation] = useState(conversationId ?? "");
   const effectiveConversation = chosenConversation || undefined;
   const [previewConversation, setPreviewConversation] = useState<string | undefined>();
+  const [previewFingerprint, setPreviewFingerprint] = useState<string | undefined>();
   const target = useSendTarget(client.id, failure?.fallback ? previewConversation : effectiveConversation, open && !readOnly);
   const sendProperties = useSendProperties(client.id);
   const [busy, setBusy] = useState(false);
@@ -167,8 +181,9 @@ function ClientMatchPanel({
     ...(client.telegramConversation ? [{ id: `tg_${client.telegramConversation.id}`, label: "Telegram" }] : []),
   ];
 
-  function toggleSelected(id: string) {
+  function toggleSelected(id: string, label?: string) {
     if (readOnlyRef.current || busyRef.current) return;
+    if (label) setSelectedNames(previous => ({ ...previous, [id]: label }));
     setSendResult(null);
     setFailure(null);
     setSelected(prev => {
@@ -185,6 +200,7 @@ function ClientMatchPanel({
     if (readOnlyRef.current || busyRef.current || ids.length === 0) return;
     setOperationBusy(true);
     setFailure(null);
+    setPreviewFingerprint(undefined);
     setSendResult(null);
     const pinnedConversation = effectiveConversation ?? target.data?.conversationId ?? undefined;
     try {
@@ -192,6 +208,7 @@ function ClientMatchPanel({
       if (readOnlyRef.current) return;
       if (!result.fallback) throw new Error("Не удалось подготовить текст и ссылки. Повторите.");
       setPreviewConversation(pinnedConversation);
+      setPreviewFingerprint(result.previewFingerprint);
       setFailure({ message: "Предпросмотр: клиенту пока ничего не отправлено.", fallback: result.fallback, tone: "warn" });
     } catch (err) {
       if (!readOnlyRef.current) setFailure({ message: err instanceof Error ? err.message : "Не удалось подготовить подборку", fallback: null, tone: "crit" });
@@ -199,14 +216,14 @@ function ClientMatchPanel({
   }
 
   async function sendPrepared() {
-    if (readOnlyRef.current || busyRef.current || !failure?.fallback || !targetReady(target.data) || target.isFetching || target.isError) return;
+    if (readOnlyRef.current || busyRef.current || !failure?.fallback || !previewFingerprint || !targetReady(target.data) || target.isFetching || target.isError) return;
     const pinnedConversation = previewConversation ?? target.data?.conversationId;
     if (!pinnedConversation) return;
     const ids = failure.fallback.links.map(link => link.propertyId);
     setOperationBusy(true);
     setSendResult(null);
     try {
-      const result = await sendProperties.mutateAsync({ propertyIds: ids, conversationId: pinnedConversation });
+      const result = await sendProperties.mutateAsync({ propertyIds: ids, conversationId: pinnedConversation, previewFingerprint });
       if (readOnlyRef.current) return;
       const actualIds = result.propertyIds ?? (result.sent === ids.length ? ids : []);
       setJustOffered(prev => new Set([...prev, ...actualIds]));
@@ -216,6 +233,11 @@ function ClientMatchPanel({
       setFailure(null);
       onSent?.();
     } catch (err) {
+      if (!readOnlyRef.current && err instanceof ApiError && (err.data as { code?: string } | null)?.code === "PREVIEW_CHANGED") {
+        setPreviewFingerprint(undefined);
+        setFailure({ message: "Объект или канал изменился. Подготовьте подборку заново и проверьте новый предпросмотр. Ничего не отправлено.", fallback: null, tone: "warn" });
+        return;
+      }
       if (!readOnlyRef.current) setFailure(prev => ({ message: err instanceof Error ? err.message : "Не удалось отправить", fallback: sendFallbackOf(err) ?? prev?.fallback ?? null, tone: "crit" }));
     } finally { setOperationBusy(false); }
   }
@@ -239,25 +261,25 @@ function ClientMatchPanel({
   const pageSize = source === "match" ? matchQuery.data?.pageSize ?? 12 : catalogQuery.data?.pageSize ?? 20;
   const unfiltered = source === "match" && matchQuery.data?.unfiltered;
   const requirementsCurrent = !client.requirementsFieldsKind || client.requirementsFieldsKind === "BUYER";
-  const deliveryUnavailable = target.isLoading || target.isFetching || target.isError || !targetReady(target.data) || !(previewConversation ?? target.data?.conversationId);
+  const deliveryUnavailable = !previewFingerprint || target.isLoading || target.isFetching || target.isError || !targetReady(target.data) || !(previewConversation ?? target.data?.conversationId);
   function changePage(next: number) {
     if (source === "match") setPage(next);
     else setFilters(prev => ({ ...prev, page: next }));
     setExpanded(true);
   }
-  const toolbar = !readOnly && selected.size > 0 ? <>
-    <span className="state" role="status">Выбрано: {selected.size} из {MAX_TO_SEND}</span>
-    <button type="button" className="pill" disabled={busy} onClick={() => void prepare([...selected])}>
-      {busy ? "Подождите…" : `Подготовить отправку · ${selected.size}`}
+  const toolbar = !readOnly ? <>
+    <span className="state" role="status">{selected.size ? `Выбрано: ${selected.size} из ${MAX_TO_SEND}` : "Выберите до 5 объектов для отправки"}</span>
+    <button type="button" className="pill" disabled={busy || (failure?.fallback ? deliveryUnavailable : selected.size === 0)} onClick={() => failure?.fallback ? void sendPrepared() : void prepare([...selected])}>
+      {busy ? "Подождите…" : failure?.fallback ? `Отправить${target.data?.channel ? ` в ${CHANNEL_WORD[target.data.channel] ?? target.data.channel}` : " через CRM"}` : `Отправить выбранные${selected.size ? ` · ${selected.size}` : ""}`}
     </button>
-    <button type="button" className="pill ghost" disabled={busy} onClick={() => { setSelected(new Set()); setFailure(null); }}>Снять выбор</button>
+    {selected.size > 0 && <button type="button" className="lnk" disabled={busy} onClick={() => { setSelected(new Set()); setFailure(null); }}>Снять выбор</button>}
   </> : undefined;
 
   return <>
-    <PanelShell variant={variant} open={open} layer={layer} title={`Подбор объектов${matchQuery.data ? ` · ${matchQuery.data.total}` : ""}`} onClose={onClose} footer={toolbar}
+    <PanelShell variant={overviewLimit && expanded ? "modal" : variant} open={open} layer={layer} title={`Подбор объектов${matchQuery.data ? ` · ${matchQuery.data.total}` : ""}`} onClose={overviewLimit && expanded ? () => { setPage(1); setSource("match"); setExpanded(false); } : onClose} footer={toolbar}
       sub={<>
         {!overviewLimit && matchQuery.data?.requirementsSummary?.length ? <p className="state">{matchQuery.data.requirementsSummary.join(" · ")}</p> : null}
-        {requirementsCurrent && client.requirementsNotes && <p className="state">Пожелания: {client.requirementsNotes}</p>}
+        {!overviewLimit && requirementsCurrent && client.requirementsNotes && <details className="client-request-notes"><summary>Пожелания клиента</summary><p>{client.requirementsNotes}</p></details>}
         {!requirementsCurrent && <p className="quiet warn">Предыдущие условия относятся к другой роли. Уточните, что клиент хочет купить.</p>}
         {!readOnly && <details className="client-match-delivery" open={selected.size > 0 || !!failure?.fallback}>
           <summary>Способ отправки{target.data?.channel ? ` · ${CHANNEL_WORD[target.data.channel] ?? target.data.channel}` : ""}</summary>
@@ -270,18 +292,17 @@ function ClientMatchPanel({
           <SendTargetNote info={target.data} isLoading={target.isLoading} failed={target.isError} retry={() => target.refetch()} />
         </details>}
       </>}>
-      <div className="seg" role="group" aria-label="Источники объектов">
-        <button type="button" aria-pressed={source === "match"} onClick={() => setSource("match")}>Подбор по всей базе</button>
-        <button type="button" aria-pressed={source === "catalog"} onClick={() => { setSource("catalog"); setExpanded(true); }}>Каталог объектов</button>
+      <div className="client-match-filterbar">
+        <label>Объекты <select className="inp" aria-label="Ответственный за объекты" value={scope} disabled={source === "catalog"} onChange={event => { setScope(event.target.value as "all" | "mine"); setPage(1); }}>
+          <option value="all">Вся база</option><option value="mine">Только мои</option>
+        </select></label>
+        <button type="button" className="lnk" onClick={() => { setSource(source === "match" ? "catalog" : "match"); setExpanded(source === "match"); }}>{source === "match" ? "Открыть каталог без подбора" : "Вернуться к подбору"}</button>
       </div>
       {source === "match" && <>
-        <div className="seg" role="group" aria-label="Ответственный за объекты">
-          <button type="button" aria-pressed={scope === "all"} onClick={() => { setScope("all"); setPage(1); }}>{unfiltered ? "Все варианты" : "Все подходящие"}</button>
-          <button type="button" aria-pressed={scope === "mine"} onClick={() => { setScope("mine"); setPage(1); }}>{unfiltered ? "Мои варианты" : "Мои подходящие"}{matchQuery.data ? ` · ${matchQuery.data.mineTotal}` : ""}</button>
-        </div>
-        {matchQuery.data && <p className="state">Сравнили доступных объектов: {matchQuery.data.scanned}. Сначала качество соответствия, при равном качестве — свои объекты.</p>}
+        {matchQuery.data && <p className="client-match-count">Показано {visibleItems.length} из {total} вариантов{scope === "mine" ? " среди моих объектов" : ""}. Проверено в базе: {matchQuery.data.scanned}. Сначала — лучшее соответствие запросу.</p>}
         {unfiltered && <p className="quiet warn" role="status">Требования ещё не заполнены. Эти варианты нужно уточнить с клиентом.</p>}
       </>}
+      {!readOnly && <SelectedMatchProperties items={[...selected].map(id => ({ id, label: selectedNames[id] ?? "Выбранный объект" }))} disabled={busy} onRemove={id => toggleSelected(id)} />}
         {source === "catalog" && (
           /* На телефоне — поиск во всю ширину и сетка два в ряд (28.09.2026):
              раньше каждое поле занимало целую строку, и до первого объекта
@@ -386,17 +407,15 @@ function ClientMatchPanel({
           smsAvailable={target.data?.smsAvailable ?? false} disabled={busy} onBusyChange={setOperationBusy} layer={layer}
           onDone={ids => { setJustOffered(prev => new Set([...prev, ...ids])); setSelected(prev => new Set([...prev].filter(id => !ids.includes(id)))); }} />
         <p className="state">Отправка через CRM приостановит бота в выбранном диалоге. Копирование и системное меню не подтверждают доставку.</p>
-        <button type="button" className="pill" disabled={busy || deliveryUnavailable} onClick={() => void sendPrepared()}>
-          {busy ? "Подождите…" : `Отправить${target.data?.channel ? ` в ${CHANNEL_WORD[target.data.channel] ?? target.data.channel}` : " через CRM"}`}
-        </button>
+        {!previewFingerprint && <p role="status">Для отправки через CRM нужно обновить предпросмотр. <button type="button" className="lnk" disabled={busy} onClick={() => void prepare([...selected])}>Обновить предпросмотр</button></p>}
       </div> : <p role="alert" className="quiet crit">{failure.message}</p>)}
       {sendResult && <p className="quiet" role="status">{sendResult}</p>}
-      <div className="list">
+      <div className="client-match-grid">
         {visibleItems.map(p => <MatchPropertyCard key={p.id} property={p} selected={selected.has(p.id)}
-          onToggleSelect={readOnly ? undefined : () => toggleSelected(p.id)}
+          onToggleSelect={readOnly ? undefined : () => toggleSelected(p.id, `№${p.shortId} · ${p.title}`)}
           selectionDisabled={busy || (!selected.has(p.id) && selected.size >= MAX_TO_SEND)}
           offered={(p.match?.sentCount ?? 0) > 0 || justOffered.has(p.id)}
-          onSend={readOnly ? undefined : () => void prepare([p.id])} sending={busy}
+          sending={busy}
           bookedShowingAt={bookedShowings.get(p.id) ?? null} onScheduleShowing={readOnly ? undefined : () => setShowingFor(p)}
           onClosePanel={variant === "modal" ? onClose : undefined} />)}
       </div>

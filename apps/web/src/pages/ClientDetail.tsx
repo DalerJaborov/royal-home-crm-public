@@ -605,16 +605,19 @@ function ClientDetailCard() {
    * выбора. Основной первым, дальше WhatsApp (если отличается от основного, как
    * и раньше), дальше ручные запасные — подписи «Дополнительный»/«Дополнительный N».
    */
-  const phoneOptions: CallPhoneOption[] = [{ key: "main", label: "Основной", phone: client.phone }];
+  const phoneOptions: CallPhoneOption[] = [{ key: "main", label: "Основной", phone: client.phone, phoneKey: client.phoneSelectionTokens?.main }];
   if (client.whatsappPhone && digitsOf(client.whatsappPhone) !== digitsOf(client.phone)) {
-    phoneOptions.push({ key: "whatsapp", label: "WhatsApp", phone: client.whatsappPhone });
+    phoneOptions.push({ key: "whatsapp", label: "WhatsApp", phone: client.whatsappPhone, phoneKey: client.phoneSelectionTokens?.whatsapp });
   }
   const extraPhonesList = client.extraPhones ?? [];
   extraPhonesList.forEach((p, i) => {
+    const origin = client.extraPhoneOrigins?.find((item) => item.index === i);
     phoneOptions.push({
       key: `extra-${i}`,
       label: extraPhonesList.length > 1 ? `Дополнительный ${i + 1}` : "Дополнительный",
       phone: p,
+      phoneKey: client.phoneSelectionTokens?.[`extra-${i}`],
+      detail: [origin?.addedAt ? `Добавлен ${dushanbeDate(origin.addedAt, { day: "numeric", month: "long", year: "numeric" })}` : "Дата добавления неизвестна", origin?.source].filter(Boolean).join(" · "),
     });
   });
 

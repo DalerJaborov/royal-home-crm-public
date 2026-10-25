@@ -80,7 +80,7 @@ const ALERT_MIN_INTERVAL_MS = 24 * 60 * 60 * 1000;
  * сдал. `PENDING_REVIEW` сюда не входит — в него объект попадает ровно тогда, когда
  * фото и видео ушли владельцу на одобрение.
  */
-const NOT_YET_ACCEPTED_STATUSES = ["AWAITING_PHOTOS", "AWAITING_VIDEO"] as const;
+export const NOT_YET_ACCEPTED_STATUSES = ["AWAITING_PHOTOS", "AWAITING_VIDEO"] as const;
 
 interface Candidate {
   id: string;

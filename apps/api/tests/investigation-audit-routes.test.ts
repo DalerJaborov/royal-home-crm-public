@@ -7,13 +7,20 @@ vi.mock("../src/db.js", () => ({ prisma: {
   botLesson: { findMany: state.privateLessons },
   property: { findUnique: state.property, findMany: vi.fn().mockResolvedValue([]) },
 } }));
-vi.mock("../src/auth/middleware.js", () => ({
+vi.mock("../src/auth/middleware.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/auth/middleware.js")>()),
   requireAuth: (req: any, _res: any, next: () => void) => { req.agent = { id: "staff", role: state.role }; next(); },
   can: (_req: unknown, permission: string) => permission === "auditLog.view" ? state.broad : true,
 }));
-vi.mock("../src/lib/ownerContact.js", () => ({ stripOwnerContact: () => ({ ownerContactHidden: false }) }));
-vi.mock("../src/lib/propertyChanges.js", () => ({ hideOwnerContactInChanges: (v: unknown) => v }));
-vi.mock("../src/lib/clientPhone.js", () => ({ maskPhonesDeep: (v: unknown) => v }));
+vi.mock("../src/lib/ownerContact.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/ownerContact.js")>()), stripOwnerContact: () => ({ ownerContactHidden: false }),
+}));
+vi.mock("../src/lib/propertyChanges.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/propertyChanges.js")>()), hideOwnerContactInChanges: (v: unknown) => v,
+}));
+vi.mock("../src/lib/clientPhone.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/clientPhone.js")>()), maskPhonesDeep: (v: unknown) => v,
+}));
 import { auditLogRouter } from "../src/routes/auditLog.js";
 import { visibleAuditWhere } from "../src/lib/investigationAudit.js";
 const app = express(); app.use("/audit", auditLogRouter);

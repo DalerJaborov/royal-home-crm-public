@@ -571,6 +571,11 @@ async function notifyDirectorsAboutLostDigest(lostCount: number, proposals: numb
 }
 
 export function startCronJobs() {
+  // Explicit opt-in only; produces current-month drafts, never sends SMS.
+  scheduleTracked("owner-report-monthly-preview", "20 8 * * *", async () => {
+    const { prepareMonthlyOwnerReportPreviews } = await import("./lib/ownerReport/monthlyPreview.js");
+    await prepareMonthlyOwnerReportPreviews();
+  }, { timezone: "Asia/Dushanbe" });
   /** Вечерняя сводка агенту — 18:00 по Душанбе, задачи и встречи на завтра одним
    *  push. Вечером накануне, а не утром в день встречи: агент успевает спланировать. */
   scheduleTracked(

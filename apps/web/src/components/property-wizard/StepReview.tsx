@@ -4,6 +4,7 @@ import type { DraftMediaSummary } from "../../hooks/useDraftMedia";
 import { formatUploadSize } from "../UploadTaskRow";
 import { DETAIL_NOT_SET, needsLandArea, needsRooms, stepIndexOf, validateAll, type WizardValues } from "./types";
 import { useClient } from "../../hooks/useClients";
+import { suggestedNarration } from "@royal-home/shared";
 import { detailFieldLabel, detailOptionLabel } from "./detailCopy";
 
 /**
@@ -164,6 +165,11 @@ export function StepReview({
         </section>
       )}
 
+      <section className="mt-4 rounded-xl border p-4" aria-label="Текст для озвучки">
+        <h3 className="font-semibold">Текст для озвучки</h3>
+        <p className="mt-2 text-sm">{suggestedNarration({ type: values.type, rooms: Number(values.rooms) || null, areaSqm: values.areaSqm || "—", floor: Number(values.floor) || null, totalFloors: Number(values.totalFloors) || null, district: districts.find((d) => d.id === values.districtId)?.name ?? null })}</p>
+        <p className="mt-2 text-xs text-slate-500">После сохранения объекта можно отредактировать текст, выбрать голос ElevenLabs и передать текст на подтверждение маркетингу. Здесь генерация и отправка не запускаются.</p>
+      </section>
       {duplicate && (
         <div className="dup" data-testid="wizard-duplicate-warning">
           <span className="dot" aria-hidden />

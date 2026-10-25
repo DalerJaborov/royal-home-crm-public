@@ -33,6 +33,8 @@
  * `scripts/`), чтобы новый обходной путь не появился незамеченным.
  */
 import { prisma, type TxClient } from "../db.js";
+import { recordInvestigationSignal } from "./investigationCases.js";
+import { confirmedClientIntents } from "@royal-home/shared";
 import type { InteractionType, InteractionOutcome, Prisma } from "../generated/prisma/client.js";
 
 /** Shared transaction type also used by multi-write timeline callers. Nested
@@ -77,6 +79,8 @@ export interface LogTimelineInput {
   type: InteractionType;
   notes: string;
   investigationOnly?: boolean;
+  /** Server-owned origin only; callers must link all interpretations of one call to one independenceKey. */
+  investigationOrigin?: { sourceType: string; sourceId: string; independenceKey: string; kind: string; showingId?: string };
   propertyId?: string | null;
   outcome?: InteractionOutcome | null;
   outcomeSource?: string;
@@ -158,7 +162,7 @@ function actorFields(actor: TimelineActor): {
 export async function logTimeline(input: LogTimelineInput): Promise<LogTimelineResult> {
   // Use the same row lock as final refusal: either this task is written first and
   // cancelled by refusal, or it observes completion and is born cancelled.
-  if ((input.nextAction || input.nextActionDate) && !input.completedAt && !input.tx) {
+  if ((input.type === "SHOWING" || input.investigationOnly || ((input.nextAction || input.nextActionDate) && !input.completedAt)) && !input.tx) {
     return prisma.$transaction(tx => logTimeline({ ...input, tx }));
   }
   let taskCancelledAt: Date | null = null;
@@ -179,7 +183,15 @@ export async function logTimeline(input: LogTimelineInput): Promise<LogTimelineR
     void logSystemError("timeline", message);
   }
 
+  let buyerIntentAtCreation: boolean | null = null;
+  if (input.type === "SHOWING" && input.tx) {
+    await input.tx.$queryRaw`SELECT id FROM "Client" WHERE id=${input.clientId} FOR UPDATE`;
+    const intent = await input.tx.client.findUnique({ where: { id: input.clientId },
+      select: { kind: true, dualIntent: true, dualIntentConfirmedAt: true } });
+    if (intent) buyerIntentAtCreation = confirmedClientIntents(intent).buys;
+  }
   const data: Prisma.InteractionUncheckedCreateInput = {
+    buyerIntentAtCreation,
     clientId: input.clientId,
     actorKind,
     agentId,
@@ -211,6 +223,19 @@ export async function logTimeline(input: LogTimelineInput): Promise<LogTimelineR
 
   const client: Pick<TxClient, "interaction"> = input.tx ?? prisma;
   const created = await client.interaction.create({ data, select: { id: true } });
+  if (input.investigationOnly && input.tx && input.investigationOrigin?.sourceType !== "investigation-decision" && !(input.actor.kind !== "agent" && input.actor.source === "investigation-decision")) {
+    const assignment = await input.tx.client.findUnique({ where: { id: input.clientId },
+      select: { assignedAt: true, assignedAgentId: true } });
+    if (assignment) await recordInvestigationSignal({
+      clientId: input.clientId, propertyId: input.propertyId, subjectAgentId: subjectAgentId ?? assignment.assignedAgentId,
+      assignmentAt: assignment.assignedAt, sourceType: input.investigationOrigin?.sourceType ?? "interaction",
+      sourceId: input.investigationOrigin?.sourceId ?? created.id, showingId: input.investigationOrigin?.showingId,
+      kind: input.actor.kind === "agent" ? "manual" : input.investigationOrigin?.kind ?? input.actor.source,
+      independenceKey: input.actor.kind === "agent" ? `manual:${input.actor.agentId}`
+        : input.investigationOrigin?.independenceKey ?? (input.continuesInteractionId ? `interaction:${input.continuesInteractionId}` : "unverified-origin"),
+      summary: input.notes, occurredAt: input.createdAt ?? new Date(),
+    }, input.tx);
+  }
   return { id: created.id };
 }
 
@@ -268,10 +293,10 @@ export async function logTimelineMany(
     const { logSystemError } = await import("./systemError.js");
     void logSystemError("timeline", message);
   }
-  if (inputs.some(input => (input.nextAction || input.nextActionDate) && !input.completedAt)) {
+  if (inputs.some(input => input.type === "SHOWING" || input.investigationOnly || ((input.nextAction || input.nextActionDate) && !input.completedAt))) {
     if (!tx) return prisma.$transaction(inner => logTimelineMany(inputs, inner));
     // Stable lock ordering prevents two batches from taking client locks in reverse order.
-    for (const clientId of [...new Set(inputs.filter(input => (input.nextAction || input.nextActionDate) && !input.completedAt).map(input => input.clientId))].sort()) {
+    for (const clientId of [...new Set(inputs.filter(input => input.type === "SHOWING" || ((input.nextAction || input.nextActionDate) && !input.completedAt)).map(input => input.clientId))].sort()) {
       await tx.$queryRaw`SELECT id FROM "Client" WHERE id = ${clientId} FOR UPDATE`;
     }
     for (const input of inputs) await logTimeline({ ...input, tx });

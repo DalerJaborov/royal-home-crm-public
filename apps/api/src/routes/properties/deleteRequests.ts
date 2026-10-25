@@ -321,7 +321,9 @@ deleteRequestsRouter.post(
     let result: Awaited<ReturnType<typeof trashProperty>> | null = null;
     if (!alreadyTrashed) {
       try {
-        result = await trashProperty(request.propertyId, req.agent!.id);
+        result = await trashProperty(request.propertyId, req.agent!.id, {
+          removalReason: request.reason as PropertyDeleteRequestReason, removalComment: request.comment ?? undefined, requestId: request.id,
+        });
       } catch (err) {
         await releaseClaim().catch(() => undefined);
         throw err;

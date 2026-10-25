@@ -14,7 +14,8 @@ vi.mock("../src/lib/propertyAutoStatus.js", async (importOriginal) => {
 
 const { prisma } = await import("../src/db.js");
 const { notifyWaitingBuyersOfNewProperty } = await import("../src/lib/propertyMatchFilter.js");
-const { computeDemandCounts, findMatchingClients } = await import("../src/routes/matching.js");
+const { computeDemandCounts, findMatchingClients, findMatchingPropertiesForClient } = await import("../src/routes/matching.js");
+const { loadPriceWaitlist } = await import("../src/lib/priceWaitlist.js");
 const { refreshPropertiesOfSeller } = await import("../src/lib/propertyAutoStatus.js");
 const { checkExplicitRefusal } = await import("../src/lib/explicitRefusalDetector.js");
 
@@ -107,6 +108,49 @@ afterAll(async () => {
 });
 
 describe("Общий рубильник autoMatchEnabled", () => {
+  it("owner routing never returns the client's own property and does not reuse seller criteria", async () => {
+    const client = await makeClient({ budgetMax: 450000, requirementsFieldsKind: "BUYER" });
+    const ownProperty = await makeProperty({ sellerClientId: client.id, intakeAgentId: agentId });
+    const otherProperty = await makeProperty({ intakeAgentId: agentId });
+    const matches = await findMatchingPropertiesForClient(client.id);
+    expect(matches.map((row) => row.propertyId)).not.toContain(ownProperty.id);
+    expect(matches.map((row) => row.propertyId)).toContain(otherProperty.id);
+    await prisma.client.update({ where: { id: client.id }, data: { requirementsFieldsKind: "SELLER", budgetMax: 1 } });
+    expect(await findMatchingPropertiesForClient(client.id)).toEqual([]);
+    const fresh = await findMatchingPropertiesForClient(client.id, { requirements: { budgetMax: 450000 } });
+    expect(fresh.map((row) => row.propertyId)).toContain(otherProperty.id);
+    expect(fresh.map((row) => row.propertyId)).not.toContain(ownProperty.id);
+  });
+
+  it("confirmed buyer side participates everywhere; unconfirmed, stale seller fields and own property do not", async () => {
+    await prisma.settings.update({ where: { id: "singleton" }, data: { matchRequirementTtlDays: 0 } });
+    const confirmed = await makeClient({ kind: "SELLER", dualIntent: true, dualIntentConfirmedAt: new Date(), requirementsFieldsKind: "BUYER", budgetMax: 450000 });
+    const unconfirmed = await makeClient({ kind: "SELLER", dualIntent: true, budgetMax: 450000 });
+    const stale = await makeClient({ kind: "SELLER", dualIntent: true, dualIntentConfirmedAt: new Date(), requirementsFieldsKind: "SELLER", budgetMax: 450000 });
+    const ownProperty = await makeProperty({ sellerClientId: confirmed.id });
+    const otherProperty = await makeProperty();
+
+    const matching = await findMatchingClients(otherProperty.id, 300);
+    expect(matching.items.map((row) => row.id)).toContain(confirmed.id);
+    expect(matching.items.map((row) => row.id)).not.toContain(unconfirmed.id);
+    expect(matching.items.map((row) => row.id)).not.toContain(stale.id);
+    expect((await findMatchingClients(ownProperty.id, 300)).items.map((row) => row.id)).not.toContain(confirmed.id);
+    // Demand callers deliberately use a narrow projection without sellerClientId.
+    const narrow = [ownProperty, otherProperty].map(({ id, price, currency, districtId, rooms, type }) => ({ id, price, currency, districtId, rooms, type }));
+    const demand = await computeDemandCounts(narrow);
+    expect((demand.get(otherProperty.id) ?? 0) - (demand.get(ownProperty.id) ?? 0)).toBe(1);
+    const ownWaitlist = await loadPriceWaitlist(ownProperty.id);
+    const otherWaitlist = await loadPriceWaitlist(otherProperty.id);
+    expect(otherWaitlist!.fitNow - ownWaitlist!.fitNow).toBe(1);
+    await notifyWaitingBuyersOfNewProperty(ownProperty);
+    await notifyWaitingBuyersOfNewProperty(otherProperty);
+    expect((await autoMatchInteractions(ownProperty.id)).map((row) => row.clientId)).not.toContain(confirmed.id);
+    const notified = (await autoMatchInteractions(otherProperty.id)).map((row) => row.clientId);
+    expect(notified).toContain(confirmed.id);
+    expect(notified).not.toContain(unconfirmed.id);
+    expect(notified).not.toContain(stale.id);
+  });
+
   it("выключен — notifyWaitingBuyersOfNewProperty не пишет запись", async () => {
     await prisma.settings.update({ where: { id: "singleton" }, data: { autoMatchEnabled: false } });
     const property = await makeProperty();

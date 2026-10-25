@@ -8,14 +8,17 @@ const state = vi.hoisted(() => ({
 vi.mock("../src/db.js", () => ({ prisma: { $disconnect: vi.fn(), notification: {
   findMany: state.findMany, count: state.count, updateMany: state.updateMany,
 } } }));
-vi.mock("../src/auth/middleware.js", () => ({
+vi.mock("../src/auth/middleware.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/auth/middleware.js")>()),
   requireAuth: (req: any, _res: any, next: () => void) => {
     req.agent = { id: "staff", role: state.role, permissions: new Set(["clients.securityReview", "reports.view", "clients.assign"]) };
     next();
   },
   can: () => true,
 }));
-vi.mock("../src/lib/clientPhone.js", () => ({ maskPhonesInText: (s: string) => s }));
+vi.mock("../src/lib/clientPhone.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/clientPhone.js")>()), maskPhonesInText: (s: string) => s,
+}));
 import { notificationsRouter } from "../src/routes/notifications.js";
 import { visibleNotificationsWhere } from "../src/lib/investigationNotifications.js";
 

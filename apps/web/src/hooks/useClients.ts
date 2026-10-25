@@ -557,10 +557,10 @@ export interface CallStartedResult {
  *  (WhatsApp-номер, запасной) — владелец 20.08.2026. Сервер сам проверяет,
  *  что номер принадлежит этой карточке и что он таджикский — здесь просто
  *  передаётся дальше. Без него звонок идёт по основному телефону, как раньше. */
-export function useCallClient(clientId: string, phone?: string) {
+export function useCallClient(clientId: string, phone?: string, phoneKey?: string) {
   return useMutation({
     mutationFn: () =>
-      api<CallStartedResult>(`/clients/${clientId}/call`, { method: "POST", body: phone ? { phone } : undefined }),
+      api<CallStartedResult>(`/clients/${clientId}/call`, { method: "POST", body: phoneKey ? { phoneKey } : phone ? { phone } : undefined }),
     // Своё сообщение вместо общего «Сохранено» — оно тут прямо вводило в заблуждение.
     meta: { silent: true },
   });
@@ -817,6 +817,7 @@ export interface SendPropertiesResult {
   channel?: string;
   /** Ответ на `prepareOnly`: ничего не ушло, вот текст и ссылки. */
   prepared?: boolean;
+  previewFingerprint?: string;
   fallback?: SendPropertiesFallback;
 }
 
@@ -828,7 +829,7 @@ export function useSendProperties(clientId: string) {
      * берёт самый живой диалог клиента. Отказ приходит `ApiError` с `data.fallback`
      * (готовый текст и ссылки) — см. `sendFallbackOf` в components/match/SendFallback.
      */
-    mutationFn: (input: { propertyIds: string[]; conversationId?: string; prepareOnly?: boolean }) =>
+    mutationFn: (input: { propertyIds: string[]; conversationId?: string; prepareOnly?: boolean; previewFingerprint?: string }) =>
       api<SendPropertiesResult>(`/clients/${clientId}/send-properties`, {
         method: "POST",
         body: input,

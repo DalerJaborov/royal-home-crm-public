@@ -571,7 +571,11 @@ settingsRouter.get("/", requireAuth, async (req, res) => {
   // полный объект получает тот же круг. Остальным — усечённая версия.
   const isAdmin = can(req, "settings.view");
   const response = isAdmin ? await publicSettingsResponse(settings) : toStaffSettings(settings);
-  if (!canViewInvestigations(req.agent?.role)) delete (response as Record<string, unknown>).postShowingCallEnabled;
+  if (!canViewInvestigations(req.agent?.role)) {
+    delete (response as Record<string, unknown>).postShowingCallEnabled;
+    delete (response as Record<string, unknown>).investigationCaseConfig;
+    delete (response as Record<string, unknown>).buyerSellerAutomationMode;
+  }
   res.json(response);
 });
 
@@ -3013,6 +3017,10 @@ settingsRouter.post("/site-admin-reset", requireAuth, requirePermission("siteAdm
 });
 
 function privateSettingsResponse<T extends object>(response: T, role: string | undefined): T {
-  if (!canViewInvestigations(role)) delete (response as Record<string, unknown>).postShowingCallEnabled;
+  if (!canViewInvestigations(role)) {
+    delete (response as Record<string, unknown>).postShowingCallEnabled;
+    delete (response as Record<string, unknown>).investigationCaseConfig;
+    delete (response as Record<string, unknown>).buyerSellerAutomationMode;
+  }
   return response;
 }

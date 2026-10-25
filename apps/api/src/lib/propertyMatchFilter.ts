@@ -11,6 +11,7 @@
 import { propertyTypesWithoutField } from "@royal-home/shared";
 import type { Prisma } from "../generated/prisma/client.js";
 import { prisma } from "../db.js";
+import { matchingPropertySellers } from "./matchingOwnership.js";
 import { recordInterest } from "./propertyInterest.js";
 import { loadMoneyContext, type MoneyContext } from "./money.js";
 import { sendPushToAgent } from "../push.js";
@@ -273,6 +274,7 @@ export async function notifyWaitingBuyersOfNewProperty(property: NewlyAvailableP
   // молчит целиком, список «Кому подойдёт» и счётчик спроса он не затрагивает (это
   // ручной просмотр, не рассылка).
   if (!policy.autoMatchEnabled) return;
+  const sellerClientId = (await matchingPropertySellers([property.id])).get(property.id);
   const money = await loadMoneyContext();
   const hasPoint = property.lat != null && property.lng != null;
   const propertyLat = hasPoint ? Number(property.lat) : null;
@@ -309,6 +311,7 @@ export async function notifyWaitingBuyersOfNewProperty(property: NewlyAvailableP
   const candidates = await prisma.client.findMany({
     where: {
       ...waiting,
+      ...(sellerClientId ? { id: { not: sellerClientId } } : {}),
       assignedAgentId: { not: null },
       OR: districtOrRadiusOr,
       AND: [

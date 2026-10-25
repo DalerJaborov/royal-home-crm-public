@@ -24,6 +24,7 @@ import { PhoneInput } from "./FormField";
 import { LocationPicker } from "./LocationPicker";
 import { Rh2Sheet } from "./rh2/Rh2Sheet";
 import { useAuthStore } from "../store/auth";
+import { ClientIntentConfirmation } from "./ClientIntentConfirmation";
 import { useDraftBeforeUpdate } from "../hooks/useDraftBeforeUpdate";
 import { consumeDraftBeforeUpdate } from "../lib/draftBeforeUpdate";
 import { clientDraftKind, isClientDraftUnchanged, type ClientFormDraft } from "../lib/clientFormDraft";
@@ -604,6 +605,7 @@ export function ClientFormModal({
 
         {step === 0 && (
           <>
+            {client && <ClientIntentConfirmation client={client} locked={accountReadOnly} mode="edit" />}
             {!isEdit && (
               <div className="seg" role="group" aria-label="Кто это" style={{ marginTop: "var(--s4)" }}>
                 <button type="button" {...cleanRecordChoiceProps(clean, newKind === "BUYER")} onClick={() => setNewKind("BUYER")}>

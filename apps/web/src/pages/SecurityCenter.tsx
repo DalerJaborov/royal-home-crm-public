@@ -18,6 +18,7 @@ import { useCounters } from "../hooks/useCounters";
 import { useOversightSummary } from "../hooks/useOversight";
 import { TeamTabs } from "../components/SectionTabs";
 import { Rh2EmptyState } from "../components/rh2/Rh2EmptyState";
+import { InvestigationCasesPanel } from "../components/security/InvestigationCasesPanel";
 
 type Tab = "clients" | "properties";
 type VerdictFilter = SecurityReviewState | "";
@@ -167,6 +168,8 @@ export function SecurityCenter() {
         </div>
 
         <TeamTabs />
+
+        <InvestigationCasesPanel />
 
         <div className="quiet">
           <span className="txt">

@@ -48,6 +48,8 @@ import { CLIENT_PHONE_MASK_CHAR } from "@royal-home/shared";
 import { computeHiddenReason, foreignWriteDenied, normalizePhone, phoneOwnershipError, presentClient, restoreMaskedNotes } from "./shared.js";
 import { findFuzzyDuplicateCandidate } from "../../lib/duplicateReview.js";
 import { phoneTail } from "../../lib/clientPhones.js";
+import { clientPhoneSelectionTokens } from "../../lib/clientPhoneSelection.js";
+import { presentExtraPhoneOrigins } from "../../lib/clientPhoneOrigins.js";
 import { clientNamePhoneSafe } from "../../lib/clientPhone.js";
 import { findStaffPhone, staffPhoneError, STAFF_PHONE_ERROR_CODE } from "../../lib/staffPhoneGuard.js";
 import { interactionPropertySelect } from "../../lib/interactionPropertySelect.js";
@@ -529,6 +531,9 @@ cardRouter.get("/:id", requireAuth, async (req, res) => {
   const activity = gateUntilAccepted ? { propertyActivitySummary: null, nextStep: null } : await loadClientCardActivity(client.id, req.agent?.role);
   const payload = {
     ...presentedClient,
+    phoneSelectionTokens: gateUntilAccepted ? {} : clientPhoneSelectionTokens(client),
+    extraPhoneOrigins: gateUntilAccepted ? [] : presentExtraPhoneOrigins(client.extraPhones,
+      await prisma.clientPhoneOrigin.findMany({ where: { clientId: client.id }, select: { phoneHash: true, addedAt: true, source: true } }), can(req, "clients.viewOrigin")),
     ...activity,
     nextStep: activity.nextStep ? { ...activity.nextStep,
       nextAction: phoneSafeText(activity.nextStep.nextAction, can(req, "clients.viewPhone")),

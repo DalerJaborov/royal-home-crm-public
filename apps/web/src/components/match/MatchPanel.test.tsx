@@ -23,7 +23,7 @@ vi.mock("../AddInteractionModal", () => ({ AddInteractionModal: () => null }));
 vi.mock("../ConfirmDialog", () => ({ ConfirmDialog: () => null }));
 vi.mock("./MatchClientCard", () => ({ MatchClientCard: () => null }));
 vi.mock("../rh2/Rh2Sheet", () => ({ Rh2Sheet: ({ children, footer }: { children: ReactNode; footer?: ReactNode }) => createElement("div", null, children, footer) }));
-import { MatchPanel, PanelShell } from "./MatchPanel";
+import { MatchPanel, PanelShell, SelectedMatchProperties } from "./MatchPanel";
 import { SendFallback, targetReady } from "./SendFallback";
 
 const evidence: ClientPropertyMatchEvidence = { tier: "exact", reasons: ["В пределах бюджета", "Нужное число комнат"], tradeoffs: [], unknowns: [], isMine: false, lastSentAt: null, sentCount: 0 };
@@ -43,6 +43,18 @@ function render(children: ReactNode) {
 
 beforeEach(() => { state.readOnly = false; state.send.mockClear(); state.target.mockClear(); state.properties = [property(1), property(2), property(3), property(4)]; });
 describe("buyer matching workflow", () => {
+  it("keeps off-page selections identifiable and individually removable without current catalog rows", () => {
+    const html = render(createElement(SelectedMatchProperties, { items: [{ id: "off-page", label: "№184 · Квартира у парка" }], disabled: false, onRemove: vi.fn() }));
+    expect(html).toContain('aria-label="Состав выбранной подборки"');
+    expect(html).toContain('aria-label="Убрать из подборки: №184 · Квартира у парка"');
+    expect(html).toContain("Перед отправкой проверьте состав");
+    expect(html).not.toContain("disabled");
+  });
+  it("locks selected-item removal during a pending send and hides an empty tray", () => {
+    expect(render(createElement(SelectedMatchProperties, { items: [], disabled: false, onRemove: vi.fn() }))).toBe("");
+    const html = render(createElement(SelectedMatchProperties, { items: [{ id: "one", label: "№184" }], disabled: true, onRemove: vi.fn() }));
+    expect(html).toContain('disabled=""');
+  });
   it("keeps the batch action footer in the inline surface", () => {
     const html = render(createElement(PanelShell, { variant: "inline", open: true, title: "Подбор", onClose: vi.fn(), children: "Объекты", footer: createElement("button", null, "Подготовить выбранные") }));
     expect(html).toContain('aria-label="Выбранные объекты"');
@@ -56,7 +68,16 @@ describe("buyer matching workflow", () => {
     expect(html).toContain("В пределах бюджета");
     expect(html).not.toContain("99%");
     expect(html).not.toContain('role="button"');
+    expect(html).toContain("Показано 3 из 4 вариантов");
+    expect(html).toContain("Проверено в базе: 100");
+    expect(html).toContain('aria-label="Ответственный за объекты"');
+    expect(html).not.toContain("Все подходящие");
+    expect(html).toContain("client-match-grid");
     expect(state.send).not.toHaveBeenCalled();
+  });
+  it("does not duplicate the buyer's long request inside overview matching", () => {
+    const html = render(createElement(MatchPanel, { mode: "client", client: { ...client(), requirementsNotes: "Длинное пожелание клиента" }, open: true, onClose: vi.fn(), variant: "inline", overviewLimit: 3 }));
+    expect(html).not.toContain("Длинное пожелание клиента");
   });
   it("does not call a showing or note an offer, but shows authoritative sending receipts", () => {
     state.properties = [property(1), property(2, { ...evidence, sentCount: 1, lastSentAt: "2026-10-20T10:00:00Z" })];

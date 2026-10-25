@@ -1,5 +1,6 @@
 import { isDialableTajikNumber } from "@royal-home/shared";
 import { prisma } from "../db.js";
+import { recordInvestigationSignal } from "./investigationCases.js";
 import { buildSellerProbeCallPrompt, SELLER_PROBE_CALL_GREETING_TRIGGER, SELLER_PROBE_CALL_TOOLS } from "../ai/sellerProbeCallPersona.js";
 import { parseSellerProbeCall } from "../ai/sellerProbeCallParse.js";
 import { logSystemAudit } from "./audit.js";
@@ -66,6 +67,7 @@ export const SELLER_PROBE_STATION_RETRY_MS = 60 * 60 * 1000;
  * (`@@unique` по postShowingCallId), повторный проход no-op.
  */
 export async function scheduleSellerProbeCalls(now: Date = new Date()): Promise<number> {
+  const automation = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { buyerSellerAutomationMode: true } });
   const candidates = await findSellerProbeCandidates(now, BATCH * 3);
   let created = 0;
 
@@ -83,6 +85,7 @@ export async function scheduleSellerProbeCalls(now: Date = new Date()): Promise<
       await prisma.sellerProbeCall.create({
         data: {
           postShowingCallId,
+          previewOnly: automation?.buyerSellerAutomationMode !== "LIVE",
           propertyId: dossier.propertyId,
           sellerClientId: dossier.sellerClientId,
           agentId: dossier.agentId,
@@ -121,7 +124,7 @@ export async function runSellerProbeCallTick(now: Date = new Date()): Promise<nu
   if (!isWithinPostShowingCallHours(now)) return 0;
 
   const due = await prisma.sellerProbeCall.findMany({
-    where: { status: { in: ["PENDING", "NO_ANSWER"] }, scheduledFor: { lte: now } },
+    where: { previewOnly: false, status: { in: ["PENDING", "NO_ANSWER"] }, scheduledFor: { lte: now } },
     orderBy: { scheduledFor: "asc" },
     take: BATCH,
     select: { id: true },
@@ -248,12 +251,13 @@ async function dialSellerProbeCall(id: string, now: Date): Promise<DialOutcome> 
     select: {
       id: true,
       attempts: true,
+      previewOnly: true,
       sellerClientId: true,
       seller: { select: { fullName: true, phone: true, deletedAt: true } },
       property: { select: { title: true, status: true, deletedAt: true } },
     },
   });
-  if (!probe) return "skipped";
+  if (!probe || probe.previewOnly) return "skipped";
 
   if (probe.seller.deletedAt) {
     await prisma.sellerProbeCall.update({ where: { id }, data: { status: "SKIPPED", skipReason: "seller_gone" } });
@@ -316,7 +320,7 @@ async function dialSellerProbeCall(id: string, now: Date): Promise<DialOutcome> 
   const before = await prisma.sellerProbeCall.findUnique({ where: { id }, select: { status: true, lastAttemptAt: true } });
   if (!before || (before.status !== "PENDING" && before.status !== "NO_ANSWER")) return "skipped";
   const claimed = await prisma.sellerProbeCall.updateMany({
-    where: { id, status: before.status },
+    where: { id, status: before.status, previewOnly: false },
     data: { status: "CALLING", channelId: null, lastAttemptAt: now },
   });
   if (claimed.count !== 1) return "skipped";
@@ -473,6 +477,7 @@ async function routeSellerProbeOutcome(
     where: { id },
     select: {
       id: true,
+      sellerClientId: true, propertyId: true, createdAt: true, talkedAt: true, channelId: true,
       outcome: true,
       quote: true,
       summary: true,
@@ -484,6 +489,16 @@ async function routeSellerProbeOutcome(
     },
   });
   if (!probe) return;
+
+  if (unconfirmedOutcome || probe.outcome === "SOLD_ELSEWHERE") {
+    await recordInvestigationSignal({ clientId: probe.sellerClientId, propertyId: probe.propertyId,
+      subjectAgentId: probe.agentId, assignmentAt: probe.createdAt, sourceType: "seller-probe-call", sourceId: probe.id,
+      independenceKey: `call:${probe.channelId ?? probe.id}`, kind: "outcome", occurredAt: probe.talkedAt ?? probe.createdAt,
+      summary: unconfirmedOutcome ? "Предположение модели не подтверждено цитатой. Нужна проверка записи, нарушение не установлено."
+        : `${probe.summary ?? "Собственник сообщил о продаже"}${probe.quote ? ` Цитата: ${probe.quote}` : ""}`,
+      payload: { outcome: probe.outcome, unconfirmedOutcome, channelId: probe.channelId },
+    });
+  }
 
   logSystemAudit("seller_probe_call_outcome", "SellerProbeCall", probe.id, {
     outcome: probe.outcome,

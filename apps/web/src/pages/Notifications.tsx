@@ -15,7 +15,7 @@ import {
 } from "../hooks/useNotifications";
 import { api } from "../lib/api";
 import { dushanbeDate, dushanbeDayKey, dushanbeDayLabel, dushanbeTime } from "../lib/date";
-import type { NotificationLevel } from "@royal-home/shared";
+import { groupNotifications, notificationLevel as levelOf, PINNED_NOTIFICATION_LEVELS as PINNED } from "../lib/notificationGroups";
 import type { AppNotification } from "../types";
 import { useMobileUx } from "../hooks/useMobileUx";
 import { MhQuiet } from "../components/home/mh/MhScreen";
@@ -63,8 +63,8 @@ import { Rh2EmptyState } from "../components/rh2/Rh2EmptyState";
  * этот вопрос не отвечает — заявка на удаление не «срочная», она просто ничья,
  * пока её не решили, и человек на той стороне стоит.
  *
- * Теперь секции ровно его: ждёт решения, критичное, инсайты, прочее
- * (NOTIFICATION_LEVELS в @royal-home/shared).
+ * Уровни данных остаются прежними. Для ADMIN/DIRECTOR три визуальные очереди:
+ * согласования, контроль, задачи и подсказки; у остальных четыре прежних раздела.
  *
  * ДВА ВЕРХНИХ РАЗДЕЛА БЕРУТСЯ ИЗ ДВУХ МЕСТ. `data.pinned` — непрочитанное этих
  * уровней по ВСЕЙ ленте, отдельным запросом: строка недельной давности выпадает
@@ -75,15 +75,6 @@ import { Rh2EmptyState } from "../components/rh2/Rh2EmptyState";
  *
  * Записи без level (созданные до появления поля) считаются «прочим».
  */
-const SECTIONS: { level: NotificationLevel; title: string; note: string }[] = [
-  { level: "APPROVAL", title: "Ждёт решения", note: "Пока не решите, работа других стоит" },
-  { level: "CRITICAL", title: "Критичное", note: "Теряем клиента или деньги" },
-  { level: "INSIGHT", title: "Инсайты", note: "Что подсказала система" },
-  { level: "OTHER", title: "Прочее", note: "К сведению" },
-];
-
-/** Уровни, которые тянутся по всей ленте, а не только со страницы. */
-const PINNED: NotificationLevel[] = ["APPROVAL", "CRITICAL"];
 
 // Та же область, что в TeamMemberDetail.tsx / components/home/mh/MhScreen.tsx:
 // оболочка (AppLayout) даёт содержимому поля `px-5 pt-4` и запас снизу под
@@ -96,9 +87,6 @@ const MH_HOST: CSSProperties = {
   flexDirection: "column",
 };
 
-function levelOf(n: AppNotification): NotificationLevel {
-  return n.level ?? "OTHER";
-}
 
 /**
  * Подпись «прочитано» для строки, которая не новая и не передана (владелец,
@@ -286,6 +274,7 @@ export function Notifications() {
   // принять лид может лишь тот, кому он отдан — у чужого «Принять» давало отказ
   // (аудит 23.09.2026, №55).
   const myAgentId = useAuthStore((s) => s.agent?.id);
+  const myRole = useAuthStore((s) => s.agent?.role);
   for (const c of pendingLeadsData?.items ?? []) {
     if (c.assignedAgentId === myAgentId) pendingIdByShortId.set(c.shortId, c.id);
   }
@@ -300,6 +289,7 @@ export function Notifications() {
     if (!pinnedById.has(n.id)) pinnedById.set(n.id, n);
   }
   const pinnedItems = [...pinnedById.values()];
+  const filled = groupNotifications(myRole, items, pinnedItems);
 
   function open(n: AppNotification) {
     if (!n.read) markRead.mutate(n.id);
@@ -433,12 +423,6 @@ export function Notifications() {
     // Тот же разбор, что в hooks/useGoBack.ts: history.length видит и чужие
     // страницы, и «Назад» уносил из приложения наружу.
     const back = goBack;
-    const filled = SECTIONS.map(({ level, title, note }) => ({
-      level,
-      title,
-      note,
-      section: PINNED.includes(level) ? pinnedItems.filter((n) => levelOf(n) === level) : items.filter((n) => levelOf(n) === level),
-    })).filter((s) => s.section.length > 0);
 
     return (
       <div className="rh2" style={MH_HOST}>
@@ -469,7 +453,7 @@ export function Notifications() {
               </>
             )}
 
-            {!isLoading && !isError && items.length === 0 && <MhQuiet>Новых уведомлений нет.</MhQuiet>}
+            {!isLoading && !isError && filled.length === 0 && <MhQuiet>Новых уведомлений нет.</MhQuiet>}
 
             {filled.map(({ level, title, note, section }, i) => (
               <section className="sec" key={level}>
@@ -539,7 +523,7 @@ export function Notifications() {
           </div>
         )}
 
-        {!isLoading && !isError && items.length === 0 && (
+        {!isLoading && !isError && filled.length === 0 && (
           <div className="card tight">
             <Rh2EmptyState icon={Bell} title="Новых уведомлений нет." />
           </div>
@@ -553,14 +537,6 @@ export function Notifications() {
             Два верхних уровня берём из склейки `pinnedItems` (вся лента), два
             нижних — со страницы: «инсайты» и «прочее» листают, а не ищут. */}
         {(() => {
-          const filled = SECTIONS.map(({ level, title, note }) => ({
-            level,
-            title,
-            note,
-            section: PINNED.includes(level)
-              ? pinnedItems.filter((n) => levelOf(n) === level)
-              : items.filter((n) => levelOf(n) === level),
-          })).filter((s) => s.section.length > 0);
 
           return filled.map(({ level, title, note, section }, i) => (
             <section className="card" key={level}>

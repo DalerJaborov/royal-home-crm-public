@@ -1,4 +1,6 @@
-import type { BulkTrashItemResult } from "@royal-home/shared";
+import type { BulkTrashItemResult, PropertyRemovalInput } from "@royal-home/shared";
+import { recordPropertyRemoval } from "./propertyRemovalEvidence.js";
+import { recomputeSellerCardState } from "./sellerCardState.js";
 import { prisma, type TxClient } from "../db.js";
 import { syncPropertiesToSite, type SyncableProperty } from "./siteSync.js";
 import { logSystemError } from "./systemError.js";
@@ -156,7 +158,7 @@ const HAS_DEALS_ERROR = "У объекта есть сделки — снача�
  * Порядок ответа = порядок переданных id: экран показывает отказы напротив тех
  * же строк, которые человек отмечал галочками.
  */
-export async function trashProperties(propertyIds: string[], byAgentId: string): Promise<BulkTrashResultItem[]> {
+export async function trashProperties(propertyIds: string[], byAgentId: string, removal: PropertyRemovalInput & { requestId?: string } = {}): Promise<BulkTrashResultItem[]> {
   const ids = [...new Set(propertyIds)];
   const properties = await prisma.property.findMany({
     where: { id: { in: ids } },
@@ -236,6 +238,7 @@ export async function trashProperties(propertyIds: string[], byAgentId: string):
         where: { id: { in: okIds }, deletedAt: null },
         data: { deletedAt: new Date(), deletedById: byAgentId },
       });
+      for (const propertyId of okIds) await recordPropertyRemoval(tx, { ...removal, propertyId, actorId: byAgentId, operation: "trash" });
     }
   });
 
@@ -262,6 +265,9 @@ export async function trashProperties(propertyIds: string[], byAgentId: string):
   }
   const trashed = eligible.filter((p) => !refusedById.has(p.id));
   if (trashed.length === 0) return results;
+  for (const sellerClientId of new Set(trashed.map(p => p.sellerClientId).filter((id): id is string => !!id))) {
+    await recomputeSellerCardState({ sellerClientId, lostReason: removal.removalReason ?? null });
+  }
 
   // Зеркало правки по клиентам (lib/trashClient.ts, тот же день, живой случай
   // Продавец №0127): заявка агента на удаление гасится вместе с объектом.
@@ -410,8 +416,8 @@ async function cancelOpenShowings(propertyIds: string[], opts: CancelShowingsOpt
 }
 
 /** Одиночное удаление — частный случай партии на один id. */
-export async function trashProperty(propertyId: string, byAgentId: string): Promise<TrashPropertyResult> {
-  const [result] = await trashProperties([propertyId], byAgentId);
+export async function trashProperty(propertyId: string, byAgentId: string, removal: PropertyRemovalInput & { requestId?: string } = {}): Promise<TrashPropertyResult> {
+  const [result] = await trashProperties([propertyId], byAgentId, removal);
   if (!result.ok) {
     return { ok: false, status: result.status ?? 404, error: result.error ?? "Объект не найден" };
   }

@@ -46,7 +46,7 @@ let buyerId: string;
 let sellerId: string;
 let propertyId: string;
 let districtId: string;
-let previousSettings: { postShowingCallEnabled: boolean; liveVoiceEnabled: boolean } | null = null;
+let previousSettings: { postShowingCallEnabled: boolean; liveVoiceEnabled: boolean; buyerSellerAutomationMode: string } | null = null;
 let phoneSeq = 0;
 let sellerPhone = "";
 
@@ -152,11 +152,13 @@ beforeAll(async () => {
   const settings = await prisma.settings.upsert({ where: { id: "singleton" }, update: {}, create: { id: "singleton" } });
   previousSettings = {
     postShowingCallEnabled: settings.postShowingCallEnabled,
+    buyerSellerAutomationMode: settings.buyerSellerAutomationMode,
     liveVoiceEnabled: settings.liveVoiceEnabled,
   };
 });
 
 afterAll(async () => {
+  await prisma.investigationCase.deleteMany({ where: { clientId: { in: [buyerId, sellerId] } } });
   if (previousSettings) await prisma.settings.update({ where: { id: "singleton" }, data: previousSettings });
   await prisma.pendingDirectorAlert.deleteMany({ where: { excludeAgentId: agentId } });
   await prisma.sellerProbeCall.deleteMany({ where: { agentId } });
@@ -185,11 +187,20 @@ beforeEach(async () => {
   await prisma.client.update({ where: { id: sellerId }, data: { lastClientMessageAt: null, source: "WALK_IN", phone: sellerPhone } });
   await prisma.settings.update({
     where: { id: "singleton" },
-    data: { postShowingCallEnabled: true, liveVoiceEnabled: true },
+    data: { postShowingCallEnabled: true, liveVoiceEnabled: true, buyerSellerAutomationMode: "LIVE" },
   });
 });
 
 describe("когда звоним собственнику", () => {
+  it("новая PREVIEW проверка сохраняется без звонка и не оживает после LIVE", async () => {
+    await prisma.settings.update({ where: { id: "singleton" }, data: { buyerSellerAutomationMode: "PREVIEW" } });
+    await makeSuspiciousShowing();
+    expect(await runSellerProbeCallTick(NOW)).toBe(0);
+    expect(await prisma.sellerProbeCall.findFirstOrThrow({ where: { agentId } })).toMatchObject({ previewOnly: true, attempts: 0 });
+    await prisma.settings.update({ where: { id: "singleton" }, data: { buyerSellerAutomationMode: "LIVE" } });
+    expect(await runSellerProbeCallTick(NOW)).toBe(0);
+    expect(originateLiveVoiceScenarioCall).not.toHaveBeenCalled();
+  });
   it("признаки сошлись — набираем, и видно, по каким именно", async () => {
     await makeSuspiciousShowing();
 

@@ -64,11 +64,13 @@ import { ownerReportLinkRouter } from "./ownerReportLink.js";
 import { smsShareRouter } from "./smsShare.js";
 import { groupShareRouter } from "./groupShare.js";
 import { matchingRouter } from "./matching.js";
+import { narrationRouter } from "./narration.js";
 import { propertyDuplicateCheckRouter } from "./duplicateCheck.js";
 import { propertyTransferRouter } from "./transfer.js";
 import { propertiesHealthRouter, statsRouter } from "./stats.js";
 
 export const propertiesRouter = Router();
+propertiesRouter.use(narrationRouter);
 
 // НЕ МЕНЯТЬ ПОРЯДОК: статичные GET-пути (/delete-requests, /summary, /map,
 // /duplicate-check здесь, /export и /trash в list) — до GET /:id; crud

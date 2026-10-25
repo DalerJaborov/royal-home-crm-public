@@ -1,7 +1,9 @@
 import { createHash } from "node:crypto";
 import { prisma } from "../db.js";
+import { recordInvestigationSignal } from "./investigationCases.js";
 import { conductedShowingBaseWhere } from "./conductedShowing.js";
-import { isWeekdayOff } from "@royal-home/shared";
+import { isWeekdayOff, confirmedClientIntents } from "@royal-home/shared";
+import { loadTrafficLightSettings } from "./inactiveTrafficLight.js";
 import { isAlarmDayOff } from "./alarmCalendar.js";
 import { companyDaysOffSnapshot, loadCompanyDaysOff } from "./daysOffCalendar.js";
 import { DUSHANBE_OFFSET_MS, dushanbeWallClock } from "./dushanbeTime.js";
@@ -258,14 +260,33 @@ export function showingWhenLabel(showingAt: Date, now: Date): string {
  * звонок был бы неотличим от показа, которого система не заметила вовсе.
  */
 export async function schedulePostShowingCalls(now: Date = new Date()): Promise<number> {
+  const automation = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { buyerSellerAutomationMode: true } });
   // Снимок общих выходных для alignToCallHours (Настройки, 11.10.2026).
   await loadCompanyDaysOff();
+  // Apply the occurrence window before LIMIT. An appointment created weeks ago
+  // can have happened today; future bookings must not crowd it out of the batch.
+  const candidates = await prisma.$queryRaw<Array<{ id: string }>>`
+    SELECT s.id FROM "Interaction" s JOIN "Client" c ON c.id=s."clientId"
+    CROSS JOIN LATERAL (SELECT CASE
+      WHEN s."nextActionDate" IS NOT NULL
+        AND to_char(s."nextActionDate" + interval '5 hours', 'HH24:MI') <> '00:00'
+      THEN s."nextActionDate" ELSE COALESCE(s."completedAt", s."createdAt") END AS at) occurrence
+    WHERE s.type='SHOWING' AND s."declinedAt" IS NULL AND s."taskCancelledAt" IS NULL
+      AND COALESCE(s."subjectAgentId",s."agentId") IS NOT NULL
+      AND c."deletedAt" IS NULL
+      AND (s."buyerIntentAtCreation"=true OR (s."buyerIntentAtCreation" IS NULL AND
+        (c.kind='BUYER' OR (c.kind='SELLER' AND c."dualIntent"=true AND c."dualIntentConfirmedAt" IS NOT NULL))))
+      AND occurrence.at >= ${new Date(now.getTime() - POST_SHOWING_CALL_STALE_MS)} AND occurrence.at <= ${now}
+      AND NOT EXISTS (SELECT 1 FROM "PostShowingCall" p WHERE p."showingId"=s.id)
+    ORDER BY occurrence.at DESC, s.id LIMIT 100`;
   const showings = await prisma.interaction.findMany({
     where: {
       ...conductedShowingBaseWhere(now),
-      createdAt: { gte: new Date(now.getTime() - POST_SHOWING_CALL_STALE_MS - 24 * 60 * 60 * 1000) },
+      id: { in: candidates.map(row => row.id) },
       postShowingCall: { is: null },
-      client: { deletedAt: null, kind: "BUYER" },
+      client: { deletedAt: null },
+      AND: [{ OR: [{ buyerIntentAtCreation: true }, { buyerIntentAtCreation: null,
+        client: { OR: [{ kind: "BUYER" }, { kind: "SELLER", dualIntent: true, dualIntentConfirmedAt: { not: null } }] } }] }],
     },
     orderBy: { createdAt: "desc" },
     take: 100,
@@ -273,6 +294,7 @@ export async function schedulePostShowingCalls(now: Date = new Date()): Promise<
       id: true,
       clientId: true,
       agentId: true,
+      subjectAgentId: true,
       propertyId: true,
       nextActionDate: true,
       completedAt: true,
@@ -284,7 +306,8 @@ export async function schedulePostShowingCalls(now: Date = new Date()): Promise<
   for (const showing of showings) {
     // Показ без агента (SYSTEM/AI-запись без subjectAgentId) — робозвонок
     // спрашивать некого, пропускаем (П-10, 17.09.2026).
-    if (!showing.agentId) continue;
+    const agentId = showing.subjectAgentId ?? showing.agentId;
+    if (!agentId) continue;
     const showingAt = showingMomentOf(showing);
     if (showingAt.getTime() > now.getTime()) continue;
     if (now.getTime() - showingAt.getTime() > POST_SHOWING_CALL_STALE_MS) continue;
@@ -292,9 +315,10 @@ export async function schedulePostShowingCalls(now: Date = new Date()): Promise<
     const result = await schedulePostShowingCall({
       showingId: showing.id,
       clientId: showing.clientId,
-      agentId: showing.agentId,
+      agentId,
       propertyId: showing.propertyId,
       scheduledFor: postShowingCallDueAt(showingAt, showing.id),
+      previewOnly: automation?.buyerSellerAutomationMode !== "LIVE",
     });
     if (result === "created") scheduled++;
   }
@@ -316,8 +340,9 @@ export async function clientSpokeAfterShowing(clientId: string, showingAt: Date)
   });
   if (client?.lastClientMessageAt && client.lastClientMessageAt > showingAt) return true;
 
+  const settings = await loadTrafficLightSettings();
   const talked = await prisma.interaction.findFirst({
-    where: { clientId, type: "CALL", callAttempt: "TALKED", createdAt: { gt: showingAt } },
+    where: { clientId, type: "CALL", callAttempt: "TALKED", recordingDurationSec: { gte: settings.leadCallMinSeconds }, createdAt: { gt: showingAt } },
     select: { id: true },
   });
   return talked !== null;
@@ -447,15 +472,16 @@ async function dialOnePostShowingCall(callId: string, now: Date): Promise<DialOu
       id: true,
       clientId: true,
       attempts: true,
-      showing: { select: { nextActionDate: true, completedAt: true, createdAt: true } },
-      client: { select: { fullName: true, phone: true, deletedAt: true, kind: true } },
+      previewOnly: true,
+      showing: { select: { nextActionDate: true, completedAt: true, createdAt: true, buyerIntentAtCreation: true } },
+      client: { select: { fullName: true, phone: true, deletedAt: true, kind: true, dualIntent: true, dualIntentConfirmedAt: true } },
       agent: { select: { fullName: true } },
       property: { select: { title: true } },
     },
   });
-  if (!call) return "skipped";
+  if (!call || call.previewOnly) return "skipped";
 
-  if (call.client.deletedAt || call.client.kind !== "BUYER") {
+  if (call.client.deletedAt || !(call.showing.buyerIntentAtCreation ?? confirmedClientIntents(call.client).buys)) {
     await markPostShowingCallSkipped(call.id, "client_gone");
     return "skipped";
   }
@@ -664,6 +690,7 @@ async function routePostShowingCallOutcome(
     where: { id: callId },
     select: {
       id: true,
+      clientId: true, propertyId: true, showingId: true, createdAt: true, talkedAt: true, channelId: true,
       agentId: true,
       outcome: true,
       quote: true,
@@ -675,6 +702,16 @@ async function routePostShowingCallOutcome(
     },
   });
   if (!call) return;
+
+  if (unconfirmedOutcome || (call.outcome && POST_SHOWING_CALL_RED_OUTCOMES.includes(call.outcome))) {
+    await recordInvestigationSignal({ clientId: call.clientId, propertyId: call.propertyId, showingId: call.showingId,
+      subjectAgentId: call.agentId, assignmentAt: call.createdAt, sourceType: "post-showing-call", sourceId: call.id,
+      independenceKey: `call:${call.channelId ?? call.id}`, kind: "outcome", occurredAt: call.talkedAt ?? call.createdAt,
+      summary: unconfirmedOutcome ? "Вывод модели не подтверждён цитатой. Требуется проверка записи; это не доказательство нарушения."
+        : `${call.summary ?? call.outcome}${call.quote ? ` Цитата: ${call.quote}` : ""}`,
+      payload: { outcome: call.outcome, unconfirmedOutcome, channelId: call.channelId },
+    });
+  }
 
   logSystemAudit("post_showing_call_outcome", "PostShowingCall", call.id, {
     outcome: call.outcome,

@@ -21,6 +21,7 @@ interface CallClientButtonProps {
    *  владелец 20.08.2026: основной номер иногда недоступен, а другой у клиента
    *  рабочий. Сервер сам проверяет принадлежность карточке и что номер таджикский. */
   callPhone?: string;
+  phoneKey?: string;
   /** icon — компактная кнопка для тесных списков/тайлов (только иконка).
    *  full — кнопка с подписью, как на карточке клиента. */
   variant?: "icon" | "full";
@@ -92,6 +93,7 @@ export function CallClientButton({
   clientId,
   phone,
   callPhone,
+  phoneKey,
   variant = "icon",
   label,
   className,
@@ -99,7 +101,7 @@ export function CallClientButton({
   stopPropagation = true,
   candidateId,
 }: CallClientButtonProps) {
-  const callClientMutation = useCallClient(clientId ?? "", callPhone);
+  const callClientMutation = useCallClient(clientId ?? "", callPhone, phoneKey);
   const callCandidate = useCallCandidate(candidateId ?? "");
   const callClient = candidateId ? callCandidate : callClientMutation;
   const [error, setError] = useState<string | null>(null);

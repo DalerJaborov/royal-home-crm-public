@@ -26,6 +26,7 @@ export interface ScheduleInput {
   agentId: string;
   propertyId: string | null;
   scheduledFor: Date;
+  previewOnly?: boolean;
 }
 
 /**
@@ -52,6 +53,7 @@ export async function schedulePostShowingCall(input: ScheduleInput): Promise<Sch
           agentId: input.agentId,
           propertyId: input.propertyId,
           scheduledFor: input.scheduledFor,
+          previewOnly: input.previewOnly ?? true,
         },
       });
       return "created";
@@ -94,7 +96,7 @@ export interface DueCall {
  */
 export async function duePostShowingCalls(now: Date, limit = 20): Promise<DueCall[]> {
   return prisma.postShowingCall.findMany({
-    where: { status: { in: ["PENDING", "NO_ANSWER"] }, scheduledFor: { lte: now } },
+    where: { previewOnly: false, status: { in: ["PENDING", "NO_ANSWER"] }, scheduledFor: { lte: now } },
     orderBy: { scheduledFor: "asc" },
     take: limit,
     select: {
@@ -144,7 +146,7 @@ export async function claimPostShowingCall(
   const before = await prisma.postShowingCall.findUnique({ where: { id }, select: { status: true, lastAttemptAt: true } });
   if (!before || (before.status !== "PENDING" && before.status !== "NO_ANSWER")) return null;
   const claimed = await prisma.postShowingCall.updateMany({
-    where: { id, status: before.status },
+    where: { id, status: before.status, previewOnly: false },
     data: { status: "CALLING", channelId: null, lastAttemptAt: now },
   });
   return claimed.count === 1 ? { status: before.status, lastAttemptAt: before.lastAttemptAt } : null;

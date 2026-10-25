@@ -70,7 +70,7 @@ export async function findSellerPropertyMissing(now: Date): Promise<{
     await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
       SELECT c.id
       FROM "Client" c
-      WHERE c.kind = 'SELLER'
+      WHERE (c.kind = 'SELLER' OR (c.kind = 'BUYER' AND c."dualIntent" = true AND c."dualIntentConfirmedAt" IS NOT NULL))
         AND c."deletedAt" IS NULL
         AND c.status NOT IN ('LOST', 'DEAL_CLOSED', 'ARCHIVED')
         AND c."propertyAcceptedAt" IS NOT NULL

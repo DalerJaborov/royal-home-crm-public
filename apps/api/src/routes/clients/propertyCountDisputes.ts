@@ -295,24 +295,30 @@ propertyCountDisputesRouter.post(
     const role = dispute.role as DisputeRole;
     const field = FIELD_BY_ROLE[role];
 
-    await prisma.$transaction([
-      prisma.client.update({
+    const applied = await prisma.$transaction(async tx => {
+      await tx.$queryRaw`SELECT id FROM "Client" WHERE id = ${dispute.clientId} FOR UPDATE`;
+      const current = await tx.client.findUnique({ where: { id: dispute.clientId },
+        select: { deletedAt: true, sellerDeclaredPropertyCount: true, buyerDesiredPropertyCount: true } });
+      if (!current || current.deletedAt) return "deleted" as const;
+      if (current[field.count] !== dispute.aiCount) return "stale" as const;
+      const claimed = await tx.propertyCountDispute.updateMany({
+        where: { id: dispute.id, status: "PENDING" },
+        data: { status: "APPROVED", decidedById: req.agent!.id, decidedAt: new Date(),
+          decisionNote: parsed.data.decisionNote?.trim() || null },
+      });
+      if (claimed.count !== 1) return "decided" as const;
+      await tx.client.update({
         where: { id: dispute.clientId },
         data: {
           [field.count]: dispute.proposedCount,
           [field.at]: new Date(),
         },
-      }),
-      prisma.propertyCountDispute.update({
-        where: { id: dispute.id },
-        data: {
-          status: "APPROVED",
-          decidedById: req.agent!.id,
-          decidedAt: new Date(),
-          decisionNote: parsed.data.decisionNote?.trim() || null,
-        },
-      }),
-    ]);
+      });
+      return "applied" as const;
+    });
+    if (applied !== "applied") return res.status(applied === "deleted" ? 404 : 409).json({
+      error: applied === "stale" ? "Число объектов изменилось после подачи заявки — обновите карточку и пересмотрите заявку" : "Состояние заявки или клиента изменилось",
+    });
 
     logAudit(req, "PROPERTY_COUNT_DISPUTE_APPROVE", "Client", dispute.clientId, {
       disputeId: dispute.id,
@@ -367,8 +373,8 @@ propertyCountDisputesRouter.post(
 
     const field = FIELD_BY_ROLE[dispute.role as DisputeRole];
 
-    await prisma.propertyCountDispute.update({
-      where: { id: dispute.id },
+    const rejected = await prisma.propertyCountDispute.updateMany({
+      where: { id: dispute.id, status: "PENDING", client: { deletedAt: null } },
       data: {
         status: "REJECTED",
         decidedById: req.agent!.id,
@@ -376,6 +382,7 @@ propertyCountDisputesRouter.post(
         decisionNote: parsed.data.decisionNote.trim(),
       },
     });
+    if (rejected.count !== 1) return res.status(409).json({ error: "Состояние заявки или клиента изменилось" });
 
     logAudit(req, "PROPERTY_COUNT_DISPUTE_REJECT", "Client", dispute.clientId, { disputeId: dispute.id, role: dispute.role });
 

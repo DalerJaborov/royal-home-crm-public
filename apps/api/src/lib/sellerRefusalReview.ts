@@ -101,6 +101,6 @@ async function escalateToSecurity(
     body: `${seller.fullName}: объект «${property.title}» снят с продажи${agency ? `, названо агентство: ${agency}` : ""}`,
     url: `/clients/${seller.shortId}`,
     tag: `sold-elsewhere-${property.id}`,
-    recipientPermission: "clients.assign",
+    recipientRoles: ["ADMIN", "DIRECTOR"],
   });
 }

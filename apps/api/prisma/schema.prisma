@@ -348,6 +348,7 @@ enum AdMatchSource {
 }
 
 model Agent {
+  investigationCases InvestigationCase[] @relation("InvestigationSubject")
   recruitmentRecoveries RecruitmentRecovery[]
   oversightAcks OversightAck[]
   id                          String    @id @default(uuid())
@@ -2074,6 +2075,11 @@ model GeoAlias {
 }
 
 model Property {
+  investigationCases InvestigationCase[]
+  narrationVersions PropertyNarrationVersion[]
+  narrationDeliveries PropertyNarrationDelivery[]
+  metadataSyncDrafts PublicationMetadataSync[]
+  ownerReportDeliveries OwnerReportDelivery[]
   id                             String                     @id @default(uuid())
   /// Короткий числовой ID для читаемых URL (/properties/1042) — id остаётся настоящим
   /// первичным ключом для всех связей, shortId используется только для роутинга.
@@ -2814,6 +2820,82 @@ model SocialDigestPost {
 /// (routes/properties.ts, POST /:id/editing/publish) — синхронно в момент
 /// вставки ссылки, и подстраховкой в cron (lib/propertyVideoCleanup.ts) для
 /// объектов, зависших в EDITING дольше разумного срока.
+model ClientPhoneOrigin {
+  id String @id @default(uuid())
+  clientId String
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  phoneHash String
+  addedAt DateTime @default(now())
+  source String @default("UNKNOWN")
+  sourceId String?
+  @@unique([clientId, phoneHash])
+}
+
+model PropertyNarrationVersion {
+  id String @id @default(uuid())
+  propertyId String
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  revision Int
+  script String
+  factsSnapshot Json
+  factsHash String
+  voiceId String?
+  modelId String?
+  status String @default("DRAFT")
+  storageKey String?
+  errorCode String?
+  providerRequestId String?
+  approvedAt DateTime?
+  approvedById String?
+  createdById String
+  requestKey String @unique
+  generationStartedAt DateTime?
+  createdAt DateTime @default(now())
+  deliveries PropertyNarrationDelivery[]
+  @@unique([propertyId, revision])
+}
+
+model PropertyNarrationDelivery {
+  id String @id @default(uuid())
+  propertyId String
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  versionId String
+  version PropertyNarrationVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  editorId String?
+  mode String
+  status String @default("PREVIEW")
+  requestKey String @unique
+  createdById String
+  createdAt DateTime @default(now())
+  @@index([propertyId, createdAt])
+}
+
+model PublicationMetadataSync {
+  id String @id @default(uuid())
+  propertyId String
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  revisionHash String
+  channel String
+  operation String
+  status String @default("PREVIEW")
+  reason String?
+  createdAt DateTime @default(now())
+  @@unique([propertyId, revisionHash, channel, operation], map: "PublicationMetadataSync_revision_channel_operation_key")
+}
+
+model OwnerReportDelivery {
+  id String @id @default(uuid())
+  propertyId String
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  sellerClientId String
+  period String
+  status String @default("PREVIEW")
+  reportUrl String?
+  createdById String
+  createdAt DateTime @default(now())
+  @@unique([propertyId, sellerClientId, period])
+}
+
 model PropertyVideo {
   id           String   @id @default(uuid())
   propertyId   String
@@ -3020,6 +3102,14 @@ enum ClientInactiveLevel {
 /// это тот самый случай, просто вырежи DROP, как и раньше для необъявляемых
 /// сырых индексов, и не трать час на попытку объявить его снова.
 model Client {
+  mutationRevision Int @default(0)
+  contactPhoneOrigins ClientPhoneOrigin[]
+  updatedAt DateTime @default(now()) @updatedAt
+  dualIntentDecisionSource String?
+  dualIntentNeedsReview Boolean @default(false)
+  dualIntentEvidence Json?
+  dualIntentAnalyzedHash String?
+  investigationCases InvestigationCase[]
   /// Final refusal for the current assignment; cleared on a legitimate new assignment.
   assignmentRefusedAt       DateTime?
   assignmentRefusedByAgentId String?
@@ -4498,6 +4588,7 @@ enum TeamRequestStatus {
 }
 
 model Interaction {
+  buyerIntentAtCreation Boolean?
   /// Private investigation evidence; excluded from ordinary activity and timeline reads.
   investigationOnly Boolean @default(false)
   id                     String              @id @default(uuid())
@@ -5448,6 +5539,10 @@ model SiteEditNotification {
 }
 
 model Settings {
+  buyerSellerAutomationMode String @default("PREVIEW")
+  investigationCaseConfig Json @default("{}")
+  /// Property narration only. Owner-selected ElevenLabs voices; no implicit default voice.
+  propertyNarrationConfig Json @default("{}")
   id                                String    @id @default("singleton")
   /// Desktop shell rollout only; null or invalid configuration means OFF.
   uiShellRollout                    Json?
@@ -8159,6 +8254,7 @@ enum PostShowingCallOutcome {
 /// сожгла бы механизм один раз и навсегда (тот же класс, что «спутник светится» в
 /// CLAUDE.md). Разговор целиком лежит в LiveVoiceSession по channelId.
 model PostShowingCall {
+  previewOnly Boolean @default(false)
   id                String                  @id @default(uuid())
   /// Показ, из-за которого звоним. Один звонок на показ — повторная постановка
   /// тем же тиком не создаёт второй записи (@unique, ON CONFLICT DO NOTHING).
@@ -8260,6 +8356,7 @@ enum SellerProbeCallOutcome {
 /// такое естественно, а продавший мимо агентства оказывается перед выбором:
 /// признаться или разрешить нам дальше тратить деньги на рекламу проданного.
 model SellerProbeCall {
+  previewOnly Boolean @default(false)
   id               String                   @id @default(uuid())
   /// Звонок покупателю, из тишины которого выросла эта проверка. Один к одному:
   /// по одному показу собственника спрашивают один раз.
@@ -10235,4 +10332,66 @@ model ReelAutoBoostAd {
 
   @@index([status, createdAt])
   @@index([propertyId])
+}
+
+
+/// Private investigation workspace; signals never equal a finding of guilt.
+model InvestigationCase {
+  assignmentAt DateTime?
+  id String @id @default(uuid())
+  caseKey String @unique
+  clientId String?
+  client Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  propertyId String?
+  property Property? @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+  showingId String?
+  subjectAgentId String?
+  subjectAgent Agent? @relation("InvestigationSubject", fields: [subjectAgentId], references: [id], onDelete: SetNull)
+  title String
+  source String
+  status String @default("OPEN")
+  level String @default("C1")
+  revision Int @default(0)
+  firstOccurredAt DateTime
+  lastSignalAt DateTime
+  resolvedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  evidence InvestigationEvidence[]
+  decisions InvestigationDecision[]
+  @@index([status, lastSignalAt])
+  @@index([clientId, propertyId])
+  @@index([subjectAgentId, lastSignalAt])
+}
+
+model InvestigationEvidence {
+  id String @id @default(uuid())
+  caseId String
+  case InvestigationCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  sourceType String
+  sourceId String
+  independenceKey String
+  kind String
+  summary String
+  payload Json?
+  occurredAt DateTime
+  createdAt DateTime @default(now())
+  @@unique([caseId, sourceType, sourceId, kind])
+  @@index([caseId, occurredAt])
+}
+
+model InvestigationDecision {
+  level String @default("C1")
+  id String @id @default(uuid())
+  caseId String
+  case InvestigationCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  requestKey String @unique
+  actorId String
+  action String
+  note String
+  previousStatus String
+  newStatus String
+  caseRevision Int
+  createdAt DateTime @default(now())
+  @@index([caseId, createdAt])
 }

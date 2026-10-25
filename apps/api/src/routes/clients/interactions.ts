@@ -4,6 +4,7 @@ import { canViewInvestigations } from "@royal-home/shared";
  * (Г2, §1.2). Перенос verbatim.
  */
 import { Router } from "express";
+import { syncLegacyInvestigationVerdict } from "../../lib/investigationCases.js";
 import {
   interactionCreateSchema,
   securityReviewSchema,
@@ -328,6 +329,7 @@ interactionsRouter.post(
         type: "SYSTEM",
         outcome: verdict === "CONFIRMED" ? "NEGATIVE" : "NEUTRAL",
         investigationOnly: true,
+        investigationOrigin: { sourceType: "investigation-decision", sourceId: client.id, independenceKey: `manual:${req.agent!.id}`, kind: "verdict" },
         notes: [`Служба безопасности: ${label}`, note?.trim() ? `Установлено: ${note.trim()}` : null]
           .filter(Boolean)
           .join(". "),
@@ -339,6 +341,8 @@ interactionsRouter.post(
         voiceNoteTranscript: noteVoiceTranscript ?? null,
         tx,
       });
+      await syncLegacyInvestigationVerdict(tx, { clientId: client.id, assignmentAt: current.assignedAt,
+        subjectAgentId: current.assignedAgentId, actorId: req.agent!.id, verdict, note: note?.trim() || `Решение руководителя: ${label}` });
       return true;
     });
     if (!reviewed) return res.status(409).json({ error: "Проверка уже завершена или карточка изменилась — обновите страницу" });

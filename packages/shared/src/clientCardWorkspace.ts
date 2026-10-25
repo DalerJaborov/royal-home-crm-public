@@ -23,7 +23,10 @@ export function confirmedClientIntents(client: { kind?: string | null; dualInten
   return clientIntents({ kind: client.kind, dualIntent: client.dualIntent === true && !!client.dualIntentConfirmedAt });
 }
 
-export const confirmClientIntentSchema = z.object({ dualIntent: z.boolean() }).strict();
+export const confirmClientIntentSchema = z.object({
+  dualIntent: z.boolean(),
+  resolution: z.enum(["MANUAL", "AUTO"]).optional(),
+}).strict();
 
 export const clientPropertyActivityQuerySchema = z.object({
   section: z.enum(["sent", "showings"]).default("sent"),

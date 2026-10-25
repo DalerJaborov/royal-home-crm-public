@@ -35,6 +35,8 @@ const {
   postShowingCallDueAt,
   runPostShowingCallTick,
   showingWhenLabel,
+  schedulePostShowingCalls,
+  clientSpokeAfterShowing,
 } = await import("../src/lib/postShowingCall.js");
 
 /**
@@ -52,7 +54,7 @@ let agentId: string;
 let clientId: string;
 let propertyId: string;
 let districtId: string;
-let previousSettings: { postShowingCallEnabled: boolean; liveVoiceEnabled: boolean } | null = null;
+let previousSettings: { postShowingCallEnabled: boolean; liveVoiceEnabled: boolean; buyerSellerAutomationMode: string } | null = null;
 
 const HOUR = 60 * 60 * 1000;
 /** Полдень 16.09.2026 по Душанбе (UTC+5) — «сейчас» для всех случаев. */
@@ -88,7 +90,7 @@ async function resetState() {
   originateLiveVoiceScenarioCall.mockClear();
   await prisma.postShowingCall.deleteMany({ where: { clientId } });
   await prisma.interaction.deleteMany({ where: { clientId } });
-  await prisma.client.update({ where: { id: clientId }, data: { lastClientMessageAt: null } });
+  await prisma.client.update({ where: { id: clientId }, data: { lastClientMessageAt: null, kind: "BUYER", dualIntent: false, dualIntentConfirmedAt: null } });
 }
 
 beforeAll(async () => {
@@ -132,11 +134,13 @@ beforeAll(async () => {
   });
   previousSettings = {
     postShowingCallEnabled: settings.postShowingCallEnabled,
+    buyerSellerAutomationMode: settings.buyerSellerAutomationMode,
     liveVoiceEnabled: settings.liveVoiceEnabled,
   };
 });
 
 afterAll(async () => {
+  await prisma.investigationCase.deleteMany({ where: { clientId } });
   if (previousSettings) {
     await prisma.settings.update({ where: { id: "singleton" }, data: previousSettings });
   }
@@ -155,11 +159,63 @@ beforeEach(async () => {
   await resetState();
   await prisma.settings.update({
     where: { id: "singleton" },
-    data: { postShowingCallEnabled: true, liveVoiceEnabled: true },
+    data: { postShowingCallEnabled: true, liveVoiceEnabled: true, buyerSellerAutomationMode: "LIVE" },
   });
 });
 
 describe("часы звонка", () => {
+  it("новые PREVIEW записи не звонят и не активируются задним числом при LIVE", async () => {
+    await prisma.settings.update({ where: { id: "singleton" }, data: { buyerSellerAutomationMode: "PREVIEW" } });
+    const showing = await makeShowing(new Date(NOON.getTime() - 4 * HOUR));
+    expect(await runPostShowingCallTick(NOON)).toBe(0);
+    expect(await prisma.postShowingCall.findUniqueOrThrow({ where: { showingId: showing.id } })).toMatchObject({ previewOnly: true, attempts: 0, lastAttemptAt: null });
+    await prisma.settings.update({ where: { id: "singleton" }, data: { buyerSellerAutomationMode: "LIVE" } });
+    expect(await runPostShowingCallTick(NOON)).toBe(0);
+    expect(originateLiveVoiceScenarioCall).not.toHaveBeenCalled();
+  });
+  it("снимок роли на показе сохраняется после смены роли и explicit false не становится покупателем", async () => {
+    const buyer = await makeShowing(new Date(NOON.getTime() - HOUR), { buyerIntentAtCreation: true });
+    await prisma.client.update({ where: { id: clientId }, data: { kind: "SELLER", dualIntent: false } });
+    await schedulePostShowingCalls(NOON);
+    expect(await prisma.postShowingCall.count({ where: { showingId: buyer.id } })).toBe(1);
+    await resetState();
+    const seller = await makeShowing(new Date(NOON.getTime() - HOUR), { buyerIntentAtCreation: false });
+    await schedulePostShowingCalls(NOON);
+    expect(await prisma.postShowingCall.count({ where: { showingId: seller.id } })).toBe(0);
+  });
+  it("находит старую запись перенесённого показа по фактической дате и subjectAgentId", async () => {
+    const row = await prisma.interaction.create({ data: { clientId, type: "SHOWING", actorKind: "BOT",
+      subjectAgentId: agentId, propertyId, notes: "Bot booking", createdAt: new Date(NOON.getTime() - 14 * 86400000),
+      nextActionDate: new Date(NOON.getTime() - HOUR) } });
+    await prisma.interaction.createMany({ data: Array.from({ length: 101 }, () => ({ clientId, agentId, type: "SHOWING" as const,
+      notes: "Future booking must not crowd out a completed one", createdAt: NOON, nextActionDate: new Date(NOON.getTime() + 86400000) })) });
+    await schedulePostShowingCalls(NOON);
+    const scheduled = await prisma.postShowingCall.findUnique({ where: { showingId: row.id } });
+    expect(scheduled?.agentId).toBe(agentId);
+    await schedulePostShowingCalls(NOON);
+    expect(await prisma.postShowingCall.count({ where: { showingId: row.id } })).toBe(1);
+    expect(originateLiveVoiceScenarioCall).not.toHaveBeenCalled();
+  });
+  it("подтверждённая роль покупателя у продавца участвует, неподтверждённая не предполагается", async () => {
+    await prisma.client.update({ where: { id: clientId }, data: { kind: "SELLER", dualIntent: true } });
+    const row = await makeShowing(new Date(NOON.getTime() - HOUR));
+    await schedulePostShowingCalls(NOON);
+    expect(await prisma.postShowingCall.count({ where: { showingId: row.id } })).toBe(0);
+    await prisma.client.update({ where: { id: clientId }, data: { dualIntentConfirmedAt: new Date() } });
+    await schedulePostShowingCalls(NOON);
+    expect(await prisma.postShowingCall.count({ where: { showingId: row.id } })).toBe(1);
+  });
+  it("ручной TALKED и двухсекундный разговор не заменяют подтверждённый разговор", async () => {
+    const at = new Date(NOON.getTime() - HOUR);
+    const row = await prisma.interaction.create({ data: { clientId, agentId, type: "CALL", notes: "Manual TALKED",
+      callAttempt: "TALKED", createdAt: NOON } });
+    expect(await clientSpokeAfterShowing(clientId, at)).toBe(false);
+    await prisma.interaction.update({ where: { id: row.id }, data: { recordingDurationSec: 2 } });
+    expect(await clientSpokeAfterShowing(clientId, at)).toBe(false);
+    const settings = await prisma.settings.findUniqueOrThrow({ where: { id: "singleton" } });
+    await prisma.interaction.update({ where: { id: row.id }, data: { recordingDurationSec: settings.leadCallMinSeconds } });
+    expect(await clientSpokeAfterShowing(clientId, at)).toBe(true);
+  });
   it("показ днём — звонок через 2,5 часа того же дня", () => {
     const due = postShowingCallDueAt(dushanbe("2026-09-16T10:00:00"), "seed");
     const wall = new Date(due.getTime() + 5 * HOUR);
