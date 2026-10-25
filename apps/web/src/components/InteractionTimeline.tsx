@@ -280,7 +280,7 @@ function TimelineRow({ i, firstOfDay }: { i: Interaction; firstOfDay: boolean })
   const Icon = style.icon;
   // Подтверждение показа клиентом: руководитель и агент должны видеть его там
   // же, где читают историю, — иначе о срыве узнают уже на месте.
-  const confirmation = showingConfirmationBadge(i);
+  const confirmation = i.taskCancelledAt ? null : showingConfirmationBadge(i);
   const [open, setOpen] = useState(false);
 
   // Системная запись — это и есть свой заголовок (см. п.3 в шапке файла): «Система»
@@ -301,6 +301,7 @@ function TimelineRow({ i, firstOfDay }: { i: Interaction; firstOfDay: boolean })
   const actor = actorLabel(i);
 
   const statuses: { color: string; label: string }[] = [];
+  if (i.taskCancelledAt) statuses.push({ color: "mute", label: "Отменено" });
   if (i.outcome) {
     statuses.push({
       color: OUTCOME_DOT[i.outcome] ?? "bg-gray-400",
@@ -465,7 +466,7 @@ function TimelineRow({ i, firstOfDay }: { i: Interaction; firstOfDay: boolean })
 
             {i.nextAction && (
               <div className="ev-l">
-                <span className="kind">Далее</span>
+                <span className="kind">{i.taskCancelledAt ? "Отменено" : "Далее"}</span>
                 <span className="txt">
                   {i.nextAction}
                   {/* Через dushanbeDate, как и вся остальная хронология: это было

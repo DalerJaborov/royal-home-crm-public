@@ -86,6 +86,7 @@ async function escalateToSecurity(
   if (seller.assignedAgentId) {
     // requestedById — реальный человек, подавший заявку на снятие объекта (kind agent).
     await logTimeline({
+    investigationOnly: true,
       clientId: seller.id,
       actor: { kind: "agent", agentId: input.requestedById },
       type: "SYSTEM",

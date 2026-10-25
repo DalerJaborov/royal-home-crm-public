@@ -1,12 +1,13 @@
 import { prisma } from "../db.js";
+import { visibleInteractionWhere } from "./investigationPrivacy.js";
 
 /** Full-table facts; never infer absence of a send from the truncated timeline. */
-export async function loadClientCardActivity(clientId: string) {
+export async function loadClientCardActivity(clientId: string, viewerRole?: string) {
   const [sent, showingCount, nextStep] = await Promise.all([
     prisma.propertyExposure.aggregate({ where: { clientId }, _max: { sentAt: true }, _count: true }),
-    prisma.interaction.count({ where: { clientId, type: "SHOWING" } }),
+    prisma.interaction.count({ where: { clientId, type: "SHOWING", ...visibleInteractionWhere(viewerRole) } }),
     prisma.interaction.findFirst({
-      where: { clientId, OR: [{ nextActionDate: { not: null } }, { nextAction: { not: null } }], completedAt: null, declinedAt: null },
+      where: { clientId, ...visibleInteractionWhere(viewerRole), OR: [{ nextActionDate: { not: null } }, { nextAction: { not: null } }], completedAt: null, declinedAt: null, taskCancelledAt: null },
       orderBy: [{ nextActionDate: { sort: "asc", nulls: "last" } }, { createdAt: "desc" }, { id: "desc" }],
       select: { type: true, nextAction: true, nextActionDate: true },
     }),

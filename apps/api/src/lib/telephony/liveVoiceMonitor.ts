@@ -45,6 +45,7 @@ export interface BacklogLine {
 export interface ActiveSessionInfo {
   id: string;
   channelId: string;
+  investigationOnly: boolean;
   startedAt: number;
   callerNumber: string | null;
   direction: string;
@@ -91,6 +92,7 @@ function deliver(entry: Entry, event: ListenEvent): void {
 export function sessionStarted(params: {
   key: string;
   channelId: string;
+  investigationOnly?: boolean;
   callerNumber: string | null;
   direction: string;
   startedAt?: number;
@@ -104,6 +106,7 @@ export function sessionStarted(params: {
       info: {
         id: params.key,
         channelId: params.channelId,
+        investigationOnly: params.investigationOnly === true,
         startedAt: params.startedAt ?? Date.now(),
         callerNumber: params.callerNumber,
         direction: params.direction,

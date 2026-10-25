@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { CLIENT_STATUS_LABELS, REFUSAL_REASON_LABELS } from "@royal-home/shared";
-import { useCan } from "../lib/permissions";
+import { useCan, useCanViewInvestigations } from "../lib/permissions";
 import { pluralizeRu, relativeTime } from "../lib/format";
 import { INACTIVE_LEVEL_TONE } from "../components/InactiveLevelBadge";
 import { trafficLightHref } from "../lib/trafficLightLink";
@@ -1072,6 +1072,7 @@ function TransferPairs() {
 
 export function Oversight() {
   const can = useCan();
+  const investigations = useCanViewInvestigations();
   const canView = can("dashboard.analytics");
   const { data: summary, isError: summaryError, refetch: refetchSummary } = useOversightSummary(canView);
   // Вкладки раздела «Команда» (перенос меню 15.09.2026) — тот же набор и та же
@@ -1159,14 +1160,14 @@ export function Oversight() {
             onClick={() => scrollToSlice("slice-silent-after-showing")}
             title="Список клиентов без контакта после показа ниже на этом экране"
           />
-          <StatTile
+          {investigations && <StatTile
             label="Отказ при скоринге"
             value={summary?.refusedHighScore ?? "—"}
             line={summary ? `за ${summary.recentWindowDays} дней, мимо службы безопасности` : ""}
             onClick={() => scrollToSlice("slice-refused-high-score")}
             title="Список отказов при хорошем скоринге ниже на этом экране"
-          />
-          <StatTile
+          />}
+          {investigations && <StatTile
             label="Продавец без объекта"
             value={sellerMissing ?? "—"}
             line={
@@ -1176,7 +1177,7 @@ export function Oversight() {
             }
             onClick={() => scrollToSlice("slice-seller-property-missing")}
             title="Список продавцов без карточки объекта ниже на этом экране"
-          />
+          />}
           <StatTile
             label="Вечные переговоры"
             value={summary?.endlessNegotiations ?? "—"}
@@ -1184,13 +1185,13 @@ export function Oversight() {
             onClick={() => scrollToSlice("slice-endless-negotiations")}
             title="Список карточек с зацикленными переговорами ниже на этом экране"
           />
-          <StatTile
+          {investigations && <StatTile
             label="Серия у агента"
             value={summary?.agentLossSeries ?? "—"}
             line={summary ? `${summary.agentLossSeriesThreshold} и больше за ${summary.agentLossSeriesWindowDays} дней` : ""}
             onClick={() => scrollToSlice("slice-agent-loss-series")}
             title="Список агентов с серией потерь ниже на этом экране"
-          />
+          />}
           <StatTile
             label="В «Неактивные»"
             value={summary?.recentInactive ?? "—"}
@@ -1228,14 +1229,14 @@ export function Oversight() {
         <AgentsAtLimit />
         <StalledClients />
         <SilentAfterShowing />
-        <SellerPropertyMissing />
+        {investigations && <SellerPropertyMissing />}
         <EndlessNegotiations />
-        <RefusedHighScore />
-        <ShowingSurveyCalls />
-        <AgentLossSeries />
+        {investigations && <RefusedHighScore />}
+        {investigations && <ShowingSurveyCalls />}
+        {investigations && <AgentLossSeries />}
         <InactiveLog />
         <TransfersLog />
-        <TransferPairs />
+        {investigations && <TransferPairs />}
       </div>
     </div>
   );

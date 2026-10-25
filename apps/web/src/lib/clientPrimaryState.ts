@@ -16,7 +16,7 @@ export function clientPrimaryState(c: StateInput): ClientPrimaryState {
   if (c.deletedAt || c.hiddenReason?.kind === "trashed")
     return { id: "trashed", label: "В Корзине", tone: "mute", title: c.hiddenReason?.detail };
   if (c.hiddenReason?.kind === "securityReview")
-    return { id: "hidden", label: c.hiddenReason.label, tone: "warn", title: c.hiddenReason.detail };
+    return { id: "status", label: CLIENT_STATUS_LABELS[c.status], tone: CLIENT_STATUS_CHIP[c.status] };
   if (["LOST", "DEAL_CLOSED", "ARCHIVED"].includes(c.status))
     return { id: "hidden", label: CLIENT_STATUS_LABELS[c.status], tone: CLIENT_STATUS_CHIP[c.status] };
   if (c.kind === "OTHER") return { id: "other", label: "Прочее обращение", tone: "mute" };

@@ -176,11 +176,11 @@ async function transferOpenTasks(clientId: string, fromAgentId: string, toAgentI
       // напоминаниях прежнего агента, а новый о нём не знал.
       await prisma.$transaction([
         prisma.interaction.updateMany({
-          where: { clientId, agentId: fromAgentId, nextActionDate: { not: null }, completedAt: null },
+          where: { clientId, agentId: fromAgentId, nextActionDate: { not: null }, completedAt: null, taskCancelledAt: null },
           data: { agentId: toAgentId },
         }),
         prisma.interaction.updateMany({
-          where: { clientId, agentId: null, subjectAgentId: fromAgentId, nextActionDate: { not: null }, completedAt: null },
+          where: { clientId, agentId: null, subjectAgentId: fromAgentId, nextActionDate: { not: null }, completedAt: null, taskCancelledAt: null },
           data: { subjectAgentId: toAgentId },
         }),
       ]);
@@ -190,7 +190,7 @@ async function transferOpenTasks(clientId: string, fromAgentId: string, toAgentI
       where: {
         clientId,
         nextActionDate: { not: null },
-        completedAt: null,
+        completedAt: null, taskCancelledAt: null,
         OR: [{ agentId: fromAgentId }, { agentId: null, subjectAgentId: fromAgentId }],
       },
       select: { id: true, notes: true },

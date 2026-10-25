@@ -10,6 +10,7 @@ import {
   clientRefuseSchema,
   clientTransferSchema,
   leadAcceptSchema,
+  canViewInvestigations,
 } from "@royal-home/shared";
 import { prisma } from "../../db.js";
 import { can, requireAuth, requirePermission, scopeToOwnAgent } from "../../auth/middleware.js";
@@ -61,7 +62,10 @@ lifecycleRouter.post("/:id/accept", requireAuth, async (req, res) => {
   if (ownAgentId && client.assignedAgentId !== ownAgentId) {
     return res.status(409).json({ error: LEAD_TAKEN_ERROR });
   }
-  if (client.acceptedAt) return res.json(presentClient(client, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin")));
+  if (client.assignmentCompletedAt) {
+    return res.status(409).json({ error: "Работа по назначению завершена — требуется новое назначение руководителем" });
+  }
+  if (client.acceptedAt) return res.json(presentClient(client, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), req.agent?.role));
 
   const parsedAccept = leadAcceptSchema.safeParse(req.body ?? {});
   if (!parsedAccept.success) {
@@ -89,7 +93,7 @@ lifecycleRouter.post("/:id/accept", requireAuth, async (req, res) => {
   });
 
   const updated = await prisma.client.findUnique({ where: { id: client.id } });
-  res.json(presentClient(updated ?? client, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin")));
+  res.json(presentClient(updated ?? client, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), req.agent?.role));
 });
 
 /**
@@ -100,8 +104,11 @@ lifecycleRouter.post("/:id/accept", requireAuth, async (req, res) => {
  */
 lifecycleRouter.post("/:id/decline", requireAuth, async (req, res) => {
   const ownAgentId = scopeToOwnAgent(req);
-  const client = await prisma.client.findUnique({ where: { id: req.params.id }, select: { assignedAgentId: true } });
+  const client = await prisma.client.findUnique({ where: { id: req.params.id }, select: { assignedAgentId: true, assignmentRefusedAt: true } });
   if (!client) return res.status(404).json({ error: "Клиент не найден" });
+  if (client.assignmentRefusedAt) {
+    return res.status(409).json({ error: "Отказ по этому назначению уже сохранён" });
+  }
   if (ownAgentId && client.assignedAgentId !== ownAgentId) {
     return res.status(409).json({ error: LEAD_TAKEN_ERROR });
   }
@@ -189,6 +196,9 @@ lifecycleRouter.post("/:id/assign", requireAuth, requirePermission("clients.assi
   const { agentId, accept } = parsed.data;
   const client = await prisma.client.findUnique({ where: { id: req.params.id } });
   if (!client) return res.status(404).json({ error: "Клиент не найден" });
+  if ((client.assignmentRefusedAt || client.assignmentCompletedAt) && !canViewInvestigations(req.agent?.role)) {
+    return res.status(403).json({ error: "После отказа новое назначение доступно только администратору или директору" });
+  }
   // Карточка в Корзине не назначается — ни одна точка чтения такую карточку
   // никому не покажет (routes/clients/list.ts, card.ts), а без этой проверки
   // /assign «успешно» отдавал удалённого клиента: агент видел «принято», а
@@ -261,6 +271,8 @@ lifecycleRouter.post("/:id/assign", requireAuth, requirePermission("clients.assi
       assignedAgentId: client.assignedAgentId,
       acceptedAt: client.acceptedAt,
       escalatedAt: client.escalatedAt,
+      assignmentRefusedAt: client.assignmentRefusedAt,
+      assignmentCompletedAt: client.assignmentCompletedAt,
     },
     // Свежий старт: новый агент, обнулённый счётчик кругов, снятая эскалация.
     // Принято сразу — и «Взять себе», и назначение другому (см. шапку маршрута).
@@ -371,7 +383,7 @@ lifecycleRouter.post("/:id/assign", requireAuth, requirePermission("clients.assi
   // Надзор назначил лид вручную: списки и окно приёма протухли у назначенного.
   publishClientUpdated({ clientId: client.id, agentIds: [updated?.assignedAgentId], actorId: req.agent!.id });
 
-  res.json(presentClient(updated!, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin")));
+  res.json(presentClient(updated!, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), req.agent?.role));
 });
 
 // POST /:id/claim-pool УДАЛЁН ЦЕЛИКОМ (17.09.2026, закон о владении клиентом
@@ -705,7 +717,7 @@ lifecycleRouter.post("/:id/refuse", requireAuth, async (req, res) => {
     isHot: result.isHot,
     refusalCount: result.refusalCount,
     transferred: result.transferred,
-    securityReview: result.securityReview,
+    ...(canViewInvestigations(req.agent!.role) ? { securityReview: result.securityReview } : {}),
     message: result.message,
   });
 });

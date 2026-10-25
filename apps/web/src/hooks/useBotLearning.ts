@@ -9,6 +9,8 @@ import { SAFETY_REFETCH_MS } from "../lib/refetchIntervals";
  */
 export interface BotLesson {
   id: string;
+  /** Historical investigation material: view only, excluded from the prompt. */
+  investigationOnly?: boolean;
   createdAt: string;
   /** "operator_override" — вместо бота ответил человек; "client_confused" — клиент не понял. */
   kind: "operator_override" | "client_confused" | string;

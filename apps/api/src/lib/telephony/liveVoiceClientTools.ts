@@ -285,7 +285,7 @@ async function myStatusTool(memory: PropertyCallMemory): Promise<LiveVoiceToolRe
       where: {
         clientId: client.id,
         type: "SHOWING",
-        completedAt: null,
+        completedAt: null, taskCancelledAt: null,
         declinedAt: null,
         nextAction: { not: null },
         nextActionDate: { gte: now },
@@ -567,7 +567,7 @@ export async function freeShowingSlots(agentId: string, day: string | undefined,
     where: {
       OR: [{ agentId }, { subjectAgentId: agentId }],
       type: "SHOWING",
-      completedAt: null,
+      completedAt: null, taskCancelledAt: null,
       declinedAt: null,
       nextAction: { not: null },
       nextActionDate: { gte: from, lte: to },

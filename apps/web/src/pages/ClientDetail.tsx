@@ -25,7 +25,7 @@ import {
   useDisputePropertyCount,
   type PropertyCountDisputeRole,
 } from "../hooks/useDeleteRequests";
-import { CLIENT_KINDS, DEAL_STAGE_LABELS, clientIntents, clientCardCanWrite, type ClientKind } from "@royal-home/shared";
+import { CLIENT_KINDS, DEAL_STAGE_LABELS, canViewInvestigations, clientIntents, clientCardCanWrite, type ClientKind } from "@royal-home/shared";
 import { useAgents } from "../hooks/useAgents";
 import { assignableStaff, notAgentConfirmText, notAgentWarningText, staffOptionLabel } from "../lib/assignableStaff";
 import { useSettings } from "../hooks/useSettings";
@@ -533,7 +533,8 @@ function ClientDetailCard() {
    */
   const readOnly = accountReadOnly || (client.assignedAgentId !== me?.id && !canDo("clients.assign"));
   const locked = !clientCardCanWrite({ viewerId: me?.id, assignedAgentId: client.assignedAgentId,
-    canAssign: canAssignClients, readOnly, pending: pending && !canDo("clients.viewAll"), deleted: !!client.deletedAt });
+    canAssign: canAssignClients, readOnly, pending: pending && !canDo("clients.viewAll"), deleted: !!client.deletedAt,
+    assignmentCompletedAt: client.assignmentCompletedAt, canManageCompleted: canViewInvestigations(me?.role) });
   const scheduleShowing = (propertyId?: string) => {
     if (locked) return;
     setShowingMode("schedule"); setShowingPropertyId(propertyId); setShowInteraction(true);
@@ -548,7 +549,8 @@ function ClientDetailCard() {
    * карточки (`clients.assign`, то же право, что уже открывает readOnly выше).
    * Логика — в lib/clientTransferAccess.ts (чистая функция, покрыта тестом).
    */
-  const canCallTransferred = !accountReadOnly && canCallOnTransferredCard(client, canDo("clients.assign"));
+  const canCallTransferred = !accountReadOnly && (!client.assignmentCompletedAt || canViewInvestigations(me?.role))
+    && canCallOnTransferredCard(client, canDo("clients.assign"));
   const transferBanner = transferBannerOf(client);
 
   /**
@@ -1177,7 +1179,10 @@ function ClientDetailCard() {
           честно: показы и шаги приходят пустыми, потому что вся история закрыта. */}
       {!(pending && locked) && <ClientSignals client={client} showNext={false} />}
 
-      {client.securityReview === "PENDING" && <SecurityReviewPanel client={client} />}
+      {canDo("clients.securityReview") && client.securityReview === "PENDING" && <SecurityReviewPanel client={client} />}
+      {client.assignmentCompletedAt && !canViewInvestigations(me?.role) && (
+        <div className="card tight"><p className="state">Работа с клиентом завершена. Карточка и история доступны для просмотра.</p></div>
+      )}
       {/* Право `score.clientLossOverride` существовало с лета без единой кнопки в
           интерфейсе (разведка по мёртвому коду 08.09.2026) — панель сама решает,
           показываться ли: проверяет право (directorOnly) и есть ли вообще событие. */}
@@ -2167,9 +2172,7 @@ function MobileActionSheet({
 /**
  * Карточка ждёт проверки службы безопасности.
  *
- * Видна всем, кто открыл клиента: это состояние карточки, а не секрет. Кнопки —
- * только у того, у кого есть право выносить решение (clients.securityReview);
- * остальные видят, что вопрос открыт, и не гадают, почему лид никому не передан.
+ * Конфиденциальный блок: доступен только руководству с правом проверки.
  *
  * Два исхода, и оба закрывают карточку. Разница в том, что остаётся в истории:
  * «вопросов нет» — обычное закрытие, «нарушение подтверждено» — запись, по которой
@@ -2186,8 +2189,7 @@ function SecurityReviewPanel({ client }: { client: Client }) {
       <div className="quiet warn">
         <ShieldAlert className="i" />
         <span className="txt">
-          <b>Закрытие ждёт проверки службы безопасности.</b> Причина закрытия означает, что сделка прошла
-          мимо компании. До решения карточка не передаётся другому агенту и не считается закрытой.
+          <b>Требуется проверка обстоятельств отказа.</b> Результат проверки сохраняется отдельно от завершения работы агента.
         </span>
       </div>
       {can("clients.securityReview") ? (

@@ -152,7 +152,7 @@ export async function recordLesson(input: RecordInput): Promise<void> {
   try {
     const key = lessonDedupKey(botMessage, humanMessage);
     const recent = await prisma.botLesson.findMany({
-      where: { kind: input.kind, channel: input.channel },
+      where: { kind: input.kind, channel: input.channel, investigationOnly: false },
       orderBy: { createdAt: "desc" },
       take: DUPLICATE_CHECK_LIMIT,
       select: { botMessage: true, humanMessage: true },
@@ -195,7 +195,7 @@ const LESSON_SCHEMA = {
  */
 export async function distillLessons(): Promise<{ processed: number; learned: number }> {
   const raw = await prisma.botLesson.findMany({
-    where: { lesson: null },
+    where: { lesson: null, investigationOnly: false },
     orderBy: { createdAt: "asc" },
     take: DISTILL_BATCH,
   });
@@ -251,7 +251,7 @@ export async function distillLessons(): Promise<{ processed: number; learned: nu
       processed++;
       const lesson = (result?.lesson ?? "").trim().slice(0, 200);
       await prisma.botLesson.update({
-        where: { id: item.id },
+        where: { id: item.id, investigationOnly: false },
         // Пустое правило — тоже результат разбора: помечаем строкой-прочерком, иначе
         // случай вечно возвращался бы в очередь и мы платили бы за него каждую ночь.
         data: { lesson: lesson || EMPTY_LESSON, active: !!lesson },
@@ -282,7 +282,7 @@ export async function distillAllPending(): Promise<{ processed: number; learned:
     learned += batch.learned;
     if (batch.processed < DISTILL_BATCH) return { processed, learned, limited: false };
   }
-  const remaining = await prisma.botLesson.count({ where: { lesson: null } });
+  const remaining = await prisma.botLesson.count({ where: { lesson: null, investigationOnly: false } });
   return { processed, learned, limited: remaining > 0 };
 }
 
@@ -314,7 +314,7 @@ export async function selectActiveLessons(
     // notIn «—»: пустой результат разбора помечается прочерком, и включённая по
     // ошибке такая запись отправляла в промт каждого диалога пункт «- —»
     // (26.08.2026). Фильтр здесь, одним местом, — надёжнее проверки в PATCH.
-    where: { active: true, lesson: { not: null, notIn: [EMPTY_LESSON] } },
+    where: { investigationOnly: false, active: true, lesson: { not: null, notIn: [EMPTY_LESSON] } },
     orderBy: { createdAt: "desc" },
     take: ACTIVE_LESSON_SCAN_LIMIT,
     select: { id: true, lesson: true, channel: true },
@@ -367,7 +367,7 @@ export async function lessonConflictReport(): Promise<{
   conflicts: Array<{ id: string; channel: string; lesson: string; reason: LessonConflictReason }>;
 }> {
   const rows = await prisma.botLesson.findMany({
-    where: { active: true, lesson: { not: null, notIn: [EMPTY_LESSON] } },
+    where: { investigationOnly: false, active: true, lesson: { not: null, notIn: [EMPTY_LESSON] } },
     orderBy: { createdAt: "desc" },
     take: 1000,
     select: { id: true, lesson: true, channel: true },

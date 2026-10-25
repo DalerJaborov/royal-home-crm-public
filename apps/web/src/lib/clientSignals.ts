@@ -57,6 +57,7 @@ export function conductedShowings(interactions: Interaction[]): number {
   return interactions.filter(
     (i) =>
       i.type === "SHOWING" &&
+      !i.taskCancelledAt &&
       !i.declinedAt &&
       (!!i.completedAt || !i.nextActionDate || new Date(i.nextActionDate).getTime() <= Date.now())
   ).length;

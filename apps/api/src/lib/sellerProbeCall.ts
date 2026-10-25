@@ -331,6 +331,7 @@ async function dialSellerProbeCall(id: string, now: Date): Promise<DialOutcome> 
     result = await originateLiveVoiceScenarioCall(
       probe.seller.phone,
       {
+        investigationOnly: true,
         systemInstruction: prompt,
         voiceName: voice.voiceName,
         forceRussianOnly: voice.forceRussianOnly,
@@ -505,7 +506,7 @@ async function routeSellerProbeOutcome(
       url: `/clients/${probe.seller.shortId}`,
       tag: `seller-probe-review-${probe.id}`,
       level: "APPROVAL",
-      recipientPermission: "clients.assign",
+      recipientRoles: ["ADMIN", "DIRECTOR"],
       excludeAgentId: probe.agentId,
     });
     return;
@@ -521,7 +522,7 @@ async function routeSellerProbeOutcome(
       url: `/clients/${probe.seller.shortId}`,
       tag: `seller-probe-changed-mind-${probe.id}`,
       level: "APPROVAL",
-      recipientPermission: "clients.assign",
+      recipientRoles: ["ADMIN", "DIRECTOR"],
       excludeAgentId: probe.agentId,
     });
     return;
@@ -539,7 +540,7 @@ async function routeSellerProbeOutcome(
       ` Робот ответил собственнику, что объект снимут с рекламы, — решите по объекту.`,
     url: `/clients/${probe.seller.shortId}`,
     tag: `seller-probe-${probe.id}`,
-    recipientPermission: "clients.assign",
+    recipientRoles: ["ADMIN", "DIRECTOR"],
     excludeAgentId: probe.agentId,
   });
 }
@@ -577,7 +578,7 @@ async function raiseDeadNumberAlertIfManualCard(id: string): Promise<void> {
       `Объект вёл ${probe.agent.fullName}.`,
     url: `/clients/${probe.seller.shortId}`,
     tag: `seller-probe-dead-${probe.id}`,
-    recipientPermission: "clients.assign",
+    recipientRoles: ["ADMIN", "DIRECTOR"],
     excludeAgentId: probe.agentId,
   });
 }

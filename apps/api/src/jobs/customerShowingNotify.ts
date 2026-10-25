@@ -33,7 +33,7 @@ export const customerShowingNotifyJob: JobHandler<z.infer<typeof schema>> = {
         WHERE a."id"=${payload.actionId} AND a."kind" IN ('book_showing','reschedule_showing','cancel_showing')
           AND a."status"='COMMITTED' AND a."resourceType"='Interaction' AND a."receiptVersion"=2
           AND a."supersededAt" IS NULL AND i."closedAt" IS NULL AND a."bindingRevision"=i."bindingRevision"
-          AND a."resourceRevision"=s."managedShowingRevision" AND s."nextActionDate" IS NOT NULL`;
+          AND a."resourceRevision"=s."managedShowingRevision" AND s."nextActionDate" IS NOT NULL AND s."taskCancelledAt" IS NULL`;
       const row = rows.length === 1 ? rows[0] : null;
       if (!row) return null;
       const parsed = customerActionIntentsSchema.safeParse(row.actionIntents);

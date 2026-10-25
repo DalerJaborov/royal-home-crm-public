@@ -283,5 +283,5 @@ duplicatesRouter.post("/merge", requireAuth, requirePermission("clients.merge"),
   // Просьбы о звонке дубликата уже погашены выше, внутри closeClientSatellites —
   // отдельный вызов здесь был бы вторым, ничего не меняющим (updateMany по
   // doneAt: null идемпотентен), но лишним походом в базу.
-  res.json(presentClient(merged, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin")));
+  res.json(presentClient(merged, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), req.agent?.role));
 });

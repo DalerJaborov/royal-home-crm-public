@@ -45,6 +45,17 @@ afterAll(async () => {
 });
 
 describe("shared showing transaction kernel", () => {
+  it("cannot reschedule a task cancelled by final refusal even after a new assignment", async () => {
+    const { client, property } = await fixture();
+    const showing = await book(client.id, property.id);
+    await prisma.interaction.update({ where: { id: showing.id }, data: { taskCancelledAt: now } });
+    await expect(prisma.$transaction(tx => rescheduleShowingTx(tx, {
+      clientId: client.id, interactionId: showing.id, at: later, now,
+      meetingSummaryAfterShowingMinutes: 90, actorKind: "agent", notes: () => "Must not replace history",
+    }))).rejects.toMatchObject({ reason: "stale_showing" });
+    expect(await prisma.interaction.findUniqueOrThrow({ where: { id: showing.id } }))
+      .toMatchObject({ nextActionDate: at, completedAt: null, taskCancelledAt: now, notes: "Original booking" });
+  });
   it("customer eligibility refuses an unaccepted assigned lead without accepting it or changing legacy booking policy", async () => {
     const { client, property } = await fixture();
     expect(client.acceptedAt).toBeNull();

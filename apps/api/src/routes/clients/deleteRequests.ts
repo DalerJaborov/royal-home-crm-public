@@ -15,6 +15,7 @@
  * (см. комментарий в index.ts).
  */
 import { Router } from "express";
+import { publicClientProjection } from "../../lib/investigationPrivacy.js";
 import {
   clientDeleteRequestApproveSchema,
   clientDeleteRequestRejectSchema,
@@ -115,7 +116,7 @@ deleteRequestsRouter.get(
         requestedBy: r.requestedBy,
         decidedBy: r.decidedBy,
         client: {
-          ...r.client,
+          ...publicClientProjection(r.client, req.agent?.role),
           fullName: clientNamePhoneSafe(r.client.fullName, showPhone),
           phone: showPhone ? r.client.phone : maskPhone(r.client.phone),
         },

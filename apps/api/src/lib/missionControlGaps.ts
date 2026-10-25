@@ -1,4 +1,6 @@
 import { expenseCentsToTjs } from "./money.js";
+import { visibleInteractionWhere } from "./investigationPrivacy.js";
+import { canViewInvestigations } from "@royal-home/shared";
 import { Prisma } from "../generated/prisma/client.js";
 import { prisma } from "../db.js";
 import { dushanbeDayRange, dushanbeStartOfMonth, dushanbeStartOfToday, dushanbeWallClock } from "./dushanbeTime.js";
@@ -442,7 +444,7 @@ const PULSE_DAYS = 30;
  * (`createdAt + 5 часов`), иначе ряд ломался бы на границе суток ровно так же,
  * как ломался «сторож сегодня» до аудита 02.09.
  */
-export async function loadPulse30Days(now: Date): Promise<McPulse> {
+export async function loadPulse30Days(now: Date, viewerRole?: string): Promise<McPulse> {
   const todayStart = dushanbeStartOfToday(now);
   const from = new Date(todayStart.getTime() - (PULSE_DAYS - 1) * 86_400_000);
   const to = dushanbeDayRange(now).end;
@@ -458,6 +460,8 @@ export async function loadPulse30Days(now: Date): Promise<McPulse> {
       SELECT date_trunc('day', "createdAt" + interval '5 hours') AS d, COUNT(*) AS n
         FROM "Interaction"
        WHERE "type" = 'SHOWING' AND "createdAt" >= ${from} AND "createdAt" < ${to}
+         AND (${canViewInvestigations(viewerRole)} OR "investigationOnly" = false)
+         AND "taskCancelledAt" IS NULL
          AND NOT ("nextAction" IS NULL AND "declinedAt" IS NOT NULL)
        GROUP BY 1
     `,
@@ -770,7 +774,7 @@ export interface McTeamDay extends McEmptyable {
  * «Переписка» — записи хронологии типа MESSAGE: отдельной таблицы сообщений в
  * схеме нет, реплики лежат JSONB внутри диалога, и считать их по агенту нечем.
  */
-export async function loadTeamDay(now: Date): Promise<McTeamDay> {
+export async function loadTeamDay(now: Date, viewerRole?: string): Promise<McTeamDay> {
   const { start, end } = dushanbeDayRange(now);
   const window = { gte: start, lt: end };
 
@@ -786,23 +790,25 @@ export async function loadTeamDay(now: Date): Promise<McTeamDay> {
     // routes/team.ts/lib/kpi.ts.
     prisma.interaction.groupBy({
       by: ["agentId"],
-      where: { type: "CALL", createdAt: window, actorKind: "AGENT" },
+      where: { ...visibleInteractionWhere(viewerRole), type: "CALL", createdAt: window, actorKind: "AGENT" },
       _count: { _all: true },
     }),
     prisma.interaction.groupBy({
       by: ["agentId"],
       where: {
         type: "SHOWING",
+        ...visibleInteractionWhere(viewerRole),
+        taskCancelledAt: null,
         createdAt: window,
         actorKind: "AGENT",
         NOT: { nextAction: null, declinedAt: { not: null } },
       },
       _count: { _all: true },
     }),
-    prisma.interaction.groupBy({ by: ["agentId"], where: { completedAt: window, actorKind: "AGENT" }, _count: { _all: true } }),
+    prisma.interaction.groupBy({ by: ["agentId"], where: { ...visibleInteractionWhere(viewerRole), taskCancelledAt: null, completedAt: window, actorKind: "AGENT" }, _count: { _all: true } }),
     prisma.interaction.groupBy({
       by: ["agentId"],
-      where: { type: "MESSAGE", createdAt: window, actorKind: "AGENT" },
+      where: { ...visibleInteractionWhere(viewerRole), type: "MESSAGE", createdAt: window, actorKind: "AGENT" },
       _count: { _all: true },
     }),
   ]);
@@ -868,10 +874,12 @@ export interface McShowingsToday extends McEmptyable {
  * Отменённые (declinedAt при пустом nextAction) исключены тем же условием, что
  * и в календаре, — COUNTED_SHOWING_WHERE.
  */
-export async function loadShowingsToday(now: Date): Promise<McShowingsToday> {
+export async function loadShowingsToday(now: Date, viewerRole?: string): Promise<McShowingsToday> {
   const { start, end } = dushanbeDayRange(now);
   const where = {
     type: "SHOWING",
+    ...visibleInteractionWhere(viewerRole),
+    taskCancelledAt: null,
     nextActionDate: { gte: start, lt: end },
     NOT: { nextAction: null, declinedAt: { not: null } },
   } satisfies Prisma.InteractionWhereInput;
@@ -941,18 +949,18 @@ export interface McPropertiesExtra {
 
 const IDLE_DAYS = 30;
 
-export async function loadPropertiesExtra(now: Date): Promise<McPropertiesExtra> {
+export async function loadPropertiesExtra(now: Date, viewerRole?: string): Promise<McPropertiesExtra> {
   const weekAgo = new Date(now.getTime() - 7 * 86_400_000);
   const monthAgo = new Date(now.getTime() - IDLE_DAYS * 86_400_000);
 
   const [weekShowings, monthShowings, available, districts] = await Promise.all([
     prisma.interaction.groupBy({
       by: ["propertyId"],
-      where: { type: "SHOWING", createdAt: { gte: weekAgo }, propertyId: { not: null } },
+      where: { ...visibleInteractionWhere(viewerRole), taskCancelledAt: null, type: "SHOWING", createdAt: { gte: weekAgo }, propertyId: { not: null } },
       _count: { _all: true },
     }),
     prisma.interaction.findMany({
-      where: { type: "SHOWING", createdAt: { gte: monthAgo }, propertyId: { not: null } },
+      where: { ...visibleInteractionWhere(viewerRole), taskCancelledAt: null, type: "SHOWING", createdAt: { gte: monthAgo }, propertyId: { not: null } },
       select: { propertyId: true },
       take: 5000,
     }),
@@ -1153,8 +1161,10 @@ async function loadAgentPhones(): Promise<McAgentPhones> {
   };
 }
 
-export async function loadControlGaps(now: Date): Promise<McControlGaps> {
+export async function loadControlGaps(now: Date, viewerRole?: string): Promise<McControlGaps> {
   const overdueWhere = {
+    ...visibleInteractionWhere(viewerRole),
+    taskCancelledAt: null,
     completedAt: null,
     nextAction: { not: null },
     nextActionDate: { lt: now },
@@ -1192,7 +1202,7 @@ export async function loadControlGaps(now: Date): Promise<McControlGaps> {
       deletedAt: null,
       status: { notIn: ["LOST", "DEAL_CLOSED", "ARCHIVED"] },
       lastContactAt: { lt: silenceCutoff },
-      interactions: { some: { type: "SHOWING", createdAt: { gte: silenceCutoff } } },
+      interactions: { some: { ...visibleInteractionWhere(viewerRole), taskCancelledAt: null, type: "SHOWING", createdAt: { gte: silenceCutoff } } },
     },
   });
 

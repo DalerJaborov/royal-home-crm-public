@@ -24,11 +24,25 @@
  * наоборот).
  */
 
-import { prisma } from "../db.js";
+import { prisma, type TxClient } from "../db.js";
+import type { Prisma } from "../generated/prisma/client.js";
+
+// Cancellation stops future deadlines; it does not erase an already missed one.
+function overdueAtActiveDeadline(now: Date): Prisma.InteractionWhereInput {
+  return {
+    completedAt: null,
+    nextActionDate: { lte: now, not: null },
+    OR: [
+      { taskCancelledAt: null },
+      { nextActionDate: { lte: prisma.interaction.fields.taskCancelledAt } },
+    ],
+  };
+}
 
 export async function classifyClientLossFault(
   clientId: string,
-  now: Date = new Date()
+  now: Date = new Date(),
+  tx?: TxClient,
 ): Promise<"client_lost_agent_fault" | "client_lost_no_fault"> {
   /**
    * Просроченные обязательные окна из этой проверки ушли 13.09.2026 вместе с
@@ -39,11 +53,10 @@ export async function classifyClientLossFault(
    * Но альтернатива хуже — судить по окнам, которых больше никто не заводит,
    * значит навсегда выносить «не виноват» всем подряд.
    */
-  const overdueTask = await prisma.interaction.findFirst({
+  const overdueTask = await (tx ?? prisma).interaction.findFirst({
     where: {
       clientId,
-      completedAt: null,
-      nextActionDate: { lte: now, not: null },
+      ...overdueAtActiveDeadline(now),
     },
     select: { id: true },
   });
@@ -74,8 +87,7 @@ export async function classifyClientLossFaultBatch(
   const tasks = await prisma.interaction.findMany({
     where: {
       clientId: { in: clientIds },
-      completedAt: null,
-      nextActionDate: { lte: now, not: null },
+      ...overdueAtActiveDeadline(now),
     },
     select: { clientId: true },
   });

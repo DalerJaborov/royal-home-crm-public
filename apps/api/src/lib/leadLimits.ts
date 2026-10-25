@@ -51,6 +51,7 @@ const TERMINAL_STATUSES = ["LOST", "DEAL_CLOSED", "ARCHIVED"] as const;
  * (kind="OTHER") в раздаче не участвуют вовсе — см. acceptingLeadsWhere в leads.ts.
  */
 export const OCCUPIES_SLOT_WHERE = {
+  assignmentCompletedAt: null,
   kind: "BUYER" as const,
   workStatus: "ACTIVE" as const,
   status: { notIn: [...TERMINAL_STATUSES] },
@@ -272,7 +273,7 @@ export async function activeLeadCounts(agentIds: string[]): Promise<Map<string, 
     prisma.interaction.findMany({
       where: {
         clientId: { in: clientIds },
-        completedAt: null,
+        completedAt: null, taskCancelledAt: null,
         nextAction: { in: [...THINKING_TASK_MARKERS] },
       },
       select: { clientId: true },

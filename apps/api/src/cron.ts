@@ -1,3 +1,4 @@
+import { investigationRecipients } from "./lib/investigationNotifications.js";
 import { scheduleTracked, checkCronHeartbeats, markCronTickFailed, reportCronTickError } from "./lib/cronHeartbeat.js";
 import { runAbsenceReturnTick } from "./lib/absenceReturn.js";
 import { cleanupBotTurnTraces } from "./lib/botTurnTraceStore.js";
@@ -1187,6 +1188,7 @@ export function startCronJobs() {
         const learningCutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
         const staleLessons = await prisma.botLesson.deleteMany({
           where: {
+            investigationOnly: false,
             OR: [{ lesson: null }, { lesson: EMPTY_LESSON }],
             createdAt: { lt: learningCutoff },
           },
@@ -1880,7 +1882,7 @@ export function startCronJobs() {
         const already = await prisma.notification.findFirst({ where: { tag }, select: { id: true } });
         if (already) return;
 
-        const recipients = await findAgentsWithPermission("reports.view");
+        const recipients = await investigationRecipients();
         if (recipients.length === 0) return;
 
         const anomalies = digest.byAgent.filter((a) => a.anomaly);

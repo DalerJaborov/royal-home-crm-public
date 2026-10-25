@@ -345,7 +345,7 @@ communicationsRouter.post("/:id/call", requireAuth, async (req, res) => {
     select: {
       id: true,
       shortId: true,
-      assignedAgentId: true,
+      assignmentCompletedAt: true, assignedAgentId: true,
       phone: true,
       fullName: true,
       whatsappPhone: true,
@@ -498,7 +498,7 @@ communicationsRouter.post("/:id/live-voice-call", requireAuth, async (req, res) 
 
   const client = await prisma.client.findUnique({
     where: { id: req.params.id },
-    select: { id: true, shortId: true, assignedAgentId: true, phone: true, fullName: true, deletedAt: true, acceptedAt: true },
+    select: { id: true, shortId: true, assignmentCompletedAt: true, assignedAgentId: true, phone: true, fullName: true, deletedAt: true, acceptedAt: true },
   });
   if (!client) return res.status(404).json({ error: "Клиент не найден" });
   if (!canAccessAssignedAgent(req, client.assignedAgentId)) {
@@ -630,7 +630,7 @@ communicationsRouter.post("/dial", requireAuth, async (req, res) => {
     // к существующей записи, какой бы она ни была.
     const full = await prisma.client.findUniqueOrThrow({
       where: { id: existing.id },
-      select: { id: true, shortId: true, phone: true, fullName: true, assignedAgentId: true },
+      select: { id: true, shortId: true, phone: true, fullName: true, assignedAgentId: true, assignmentCompletedAt: true },
     });
     if (!canAccessAssignedAgent(req, full.assignedAgentId)) {
       return res.status(403).json({ error: "Этот номер уже принадлежит другому клиенту — недостаточно прав" });

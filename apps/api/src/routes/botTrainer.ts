@@ -205,7 +205,7 @@ function ctxBefore(messages: ConversationMessage[], idx: number): { role: "user"
  */
 async function collectQuestions(limit: number): Promise<QueueItem[]> {
   const rows = await prisma.botLesson.findMany({
-    where: { lesson: null },
+    where: { lesson: null, investigationOnly: false },
     orderBy: { createdAt: "desc" },
     take: SCAN_LIMIT,
   });
@@ -264,7 +264,7 @@ async function collectQuestions(limit: number): Promise<QueueItem[]> {
  *  (type, why) — той же группировкой, что и раздел «Аудит диалогов». */
 async function collectFindings(limit: number): Promise<QueueItem[]> {
   const rows = await prisma.botAuditFinding.findMany({
-    where: { resolvedAt: null },
+    where: { resolvedAt: null, type: { not: "agent_bypassed_crm" } },
     orderBy: { createdAt: "desc" },
     take: SCAN_LIMIT,
   });
@@ -384,8 +384,8 @@ botTrainerRouter.get("/queue", requireAuth, requirePermission("settings.manage")
     // попавшие в очередь образцы: их и так не больше SAMPLE_DAILY_LIMIT.
     const [questions, waitingLessons, waitingFindings] = await Promise.all([
       collectQuestions(limit),
-      prisma.botLesson.count({ where: { lesson: null } }),
-      prisma.botAuditFinding.count({ where: { resolvedAt: null } }),
+      prisma.botLesson.count({ where: { lesson: null, investigationOnly: false } }),
+      prisma.botAuditFinding.count({ where: { resolvedAt: null, type: { not: "agent_bypassed_crm" } } }),
     ]);
     const findings = await collectFindings(Math.max(0, limit - questions.length));
     const samples = await collectSamples(Math.max(0, limit - questions.length - findings.length));
@@ -542,7 +542,13 @@ botTrainerRouter.post("/decide", requireAuth, requirePermission("settings.manage
   if (!parsed.success) return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
   const { itemId, kind, verdict, note, channel, conversationId, messageKey, lessonId, lessonGroupIds, findingType, findingWhy, q, a } =
     parsed.data;
+  // Investigation evidence belongs in the private audit, never general bot training.
+  if (kind === "finding" && findingType === "agent_bypassed_crm") return res.status(404).json({ error: "Запись не найдена" });
   const userId = req.agent!.id;
+  const referencedLessonIds = [...new Set([...(lessonGroupIds ?? []), ...(lessonId ? [lessonId] : [])])];
+  if (referencedLessonIds.length && await prisma.botLesson.count({
+    where: { id: { in: referencedLessonIds }, investigationOnly: true },
+  })) return res.status(404).json({ error: "Запись не найдена" });
 
   try {
     let lessonCreated = false;
@@ -567,7 +573,7 @@ botTrainerRouter.post("/decide", requireAuth, requirePermission("settings.manage
       if (kind === "question" && lessonId) {
         await prisma.$transaction([
           prisma.botLesson.create({ data: lessonData }),
-          prisma.botLesson.updateMany({ where: { id: { in: lessonGroupIds ?? [lessonId] } }, data: { lesson: EMPTY_LESSON, active: false } }),
+          prisma.botLesson.updateMany({ where: { id: { in: lessonGroupIds ?? [lessonId] }, investigationOnly: false }, data: { lesson: EMPTY_LESSON, active: false } }),
         ]);
       } else if (kind === "finding" && findingType && findingWhy) {
         await prisma.$transaction([
@@ -595,10 +601,10 @@ botTrainerRouter.post("/decide", requireAuth, requirePermission("settings.manage
       if (verdict === "good") {
         // «Бот прав» — тот же исход, что и у ночного разбора, которому учиться
         // не на чем: EMPTY_LESSON, active:false (см. lib/botLessons.ts, distillLessons).
-        await prisma.botLesson.updateMany({ where: { id: { in: ids } }, data: { lesson: EMPTY_LESSON, active: false } });
+        await prisma.botLesson.updateMany({ where: { id: { in: ids }, investigationOnly: false }, data: { lesson: EMPTY_LESSON, active: false } });
       } else {
         const lesson = note?.trim().slice(0, 300) || EMPTY_LESSON;
-        await prisma.botLesson.updateMany({ where: { id: { in: ids } }, data: { lesson, active: lesson !== EMPTY_LESSON } });
+        await prisma.botLesson.updateMany({ where: { id: { in: ids }, investigationOnly: false }, data: { lesson, active: lesson !== EMPTY_LESSON } });
         lessonCreated = lesson !== EMPTY_LESSON;
       }
     } else if (kind === "finding") {

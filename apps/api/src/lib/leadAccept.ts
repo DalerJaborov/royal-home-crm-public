@@ -100,6 +100,7 @@ export async function acceptLead(input: {
 
   const client = await prisma.client.findUnique({ where: { id: input.clientId } });
   if (!client) return { ok: false, error: "Клиент не найден", status: 404 };
+  if (client.assignmentCompletedAt) return { ok: false, error: "Работа по назначению завершена — требуется новое назначение руководителем", status: 409 };
   // Карточка в Корзине принимать нечего (живой случай 15.09.2026: 30+ клиентов
   // «приняты успешно», а карточки нет ни в одном списке — все точки чтения
   // отсекают deletedAt строго, эта точка записи не отсекала вовсе).
@@ -183,7 +184,7 @@ export async function acceptLead(input: {
       // deletedAt: null закрывает гонку «удалили между чтением клиента выше и
       // этой записью» — без него count всё равно был бы 1, и приём молча
       // "успевал" на уже удалённую карточку.
-      where: { id: client.id, assignedAgentId: input.agentId, acceptedAt: null, deletedAt: null },
+      where: { id: client.id, assignedAgentId: input.agentId, acceptedAt: null, deletedAt: null, assignmentCompletedAt: null },
       /**
        * escalatedAt сбрасываем: как только лид приняли, «требует внимания» снимается.
        *

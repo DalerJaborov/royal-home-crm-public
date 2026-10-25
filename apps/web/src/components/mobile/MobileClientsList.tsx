@@ -736,10 +736,10 @@ function ClientListRow({ client: c, showKind = false }: { client: Client; showKi
         <span className="b">
           <span className="n">
             <span className="nm quiet">{name}</span>
-            <span className="chip mute xs">{c.hiddenReason?.label ?? "В корзине"}</span>
+            <span className="chip mute xs">{c.hiddenReason?.kind === "securityReview" ? "В корзине" : c.hiddenReason?.label ?? "В корзине"}</span>
           </span>
           <span className="s">
-            <span className="tx">{c.hiddenReason?.detail ?? "Карточка удалена"}</span>
+            <span className="tx">{c.hiddenReason?.kind === "securityReview" ? "Карточка удалена" : c.hiddenReason?.detail ?? "Карточка удалена"}</span>
           </span>
         </span>
         <span className="r">
@@ -852,7 +852,7 @@ function ClientListRow({ client: c, showKind = false }: { client: Client; showKi
             )}
             {/* Приходит только во вкладке «Все мои» (задание В §f п.1/2) — OTHER/
                 LOST/DEAL_CLOSED/ARCHIVED/эскалирован/СБ/Отложен/Неактивен. */}
-            {c.hiddenReason && (
+            {c.hiddenReason && c.hiddenReason.kind !== "securityReview" && (
               <span className="chip warn xs" title={c.hiddenReason.detail}>
                 {c.hiddenReason.label}
               </span>

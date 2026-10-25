@@ -12,6 +12,8 @@ import { ROYAL_SCORE_CATEGORIES, type RoyalScoreCategoryKey } from "./scoreJourn
  */
 
 const CACHE_HOURS = 24;
+// Old advice may summarize private investigation events. Do not reuse it.
+const SAFE_ADVICE_PREFIX = "[operational-score-v1]\n";
 
 export interface ScoreAdvice {
   text: string;
@@ -38,10 +40,10 @@ export async function loadCachedScoreAdvice(agentId: string): Promise<ScoreAdvic
     where: { id: agentId },
     select: { lastScoreAdvice: true, lastScoreAdviceAt: true },
   });
-  if (!agent?.lastScoreAdvice || !agent.lastScoreAdviceAt) return null;
+  if (!agent?.lastScoreAdvice?.startsWith(SAFE_ADVICE_PREFIX) || !agent.lastScoreAdviceAt) return null;
   const ageHours = (Date.now() - agent.lastScoreAdviceAt.getTime()) / 3_600_000;
   if (ageHours > CACHE_HOURS) return null;
-  return { text: agent.lastScoreAdvice, updatedAt: agent.lastScoreAdviceAt.toISOString() };
+  return { text: agent.lastScoreAdvice.slice(SAFE_ADVICE_PREFIX.length), updatedAt: agent.lastScoreAdviceAt.toISOString() };
 }
 
 /**
@@ -93,7 +95,7 @@ ${eventsList || "событий за окно ещё не было"}`;
 
   const updated = await prisma.agent.update({
     where: { id: agentId },
-    data: { lastScoreAdvice: result.advice, lastScoreAdviceAt: new Date() },
+    data: { lastScoreAdvice: SAFE_ADVICE_PREFIX + result.advice, lastScoreAdviceAt: new Date() },
     select: { lastScoreAdviceAt: true },
   });
   return { text: result.advice, updatedAt: updated.lastScoreAdviceAt!.toISOString() };

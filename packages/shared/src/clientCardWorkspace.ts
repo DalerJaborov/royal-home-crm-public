@@ -11,8 +11,10 @@ export function clientIntents(client: { kind?: string | null; dualIntent?: boole
 export function clientCardCanWrite(input: {
   viewerId?: string; assignedAgentId?: string | null; canAssign: boolean;
   readOnly: boolean; pending: boolean; deleted?: boolean;
+  assignmentCompletedAt?: string | null; canManageCompleted?: boolean;
 }) {
-  return !input.readOnly && !input.pending && !input.deleted && !!input.viewerId
+  return (!input.assignmentCompletedAt || input.canManageCompleted === true)
+    && !input.readOnly && !input.pending && !input.deleted && !!input.viewerId
     && (input.assignedAgentId === input.viewerId || input.canAssign);
 }
 

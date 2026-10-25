@@ -177,6 +177,7 @@ export { INTERACTION_OUTCOME_LABELS } from "@royal-home/shared";
  */
 export function showingConfirmationBadge(interaction: {
   type: string;
+  taskCancelledAt?: string | null;
   /** Обязателен: по паре «задачи нет + есть отказ» показ отличается от живого. */
   nextAction: string | null;
   confirmAskedAt?: string | null;
@@ -184,6 +185,7 @@ export function showingConfirmationBadge(interaction: {
   declinedAt?: string | null;
 }): { label: string; className: string } | null {
   if (interaction.type !== "SHOWING") return null;
+  if (interaction.taskCancelledAt) return { label: "Отменено", className: "text-muted bg-gray-100" };
   // Отменённый показ — снятая задача вместе с отказом (см. apps/api/src/lib/tasks.ts,
   // COUNTED_SHOWING_WHERE). В хронологии он обязан отличаться от живого: иначе
   // отменённая встреча выглядит назначенной, и агент едет.
@@ -255,11 +257,12 @@ export function clientDisplayName(fullName: string | null | undefined): string {
  */
 export function isLiveShowing(i: {
   type: string;
+  taskCancelledAt?: string | null;
   nextAction: string | null;
   declinedAt?: string | null;
   completedAt?: string | null;
 }): boolean {
-  if (i.type !== "SHOWING" || i.completedAt) return false;
+  if (i.type !== "SHOWING" || i.completedAt || i.taskCancelledAt) return false;
   return !(i.declinedAt && !i.nextAction);
 }
 
@@ -267,6 +270,7 @@ export function isLiveShowing(i: {
 export function bookedShowingsByProperty(
   interactions: ReadonlyArray<{
     type: string;
+    taskCancelledAt?: string | null;
     propertyId?: string | null;
     nextAction: string | null;
     nextActionDate: string | null;

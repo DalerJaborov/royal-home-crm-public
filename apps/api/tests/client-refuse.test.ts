@@ -258,7 +258,7 @@ describe("Закрытия, требующие проверки СБ", () => {
     });
 
     expect(res.status).toBe(200);
-    expect(res.body.securityReview).toBe(true);
+    expect(res.body.securityReview).toBeUndefined();
     expect(res.body.transferred).toBe(false);
 
     const after = await prisma.client.findUnique({ where: { id: c.id } });
@@ -277,7 +277,7 @@ describe("Закрытия, требующие проверки СБ", () => {
     await makeShowing(c.id);
     const res = await refuse(c.id, { reason: "STOPPED_RESPONDING", initiator: "AGENT", comment: "клиент замолчал" });
 
-    expect(res.body.securityReview).toBe(false);
+    expect(res.body.securityReview).toBeUndefined();
     const after = await prisma.client.findUnique({ where: { id: c.id } });
     expect(after?.securityReview).toBeNull();
   });
@@ -296,7 +296,7 @@ describe("Закрытия, требующие проверки СБ", () => {
     await makeShowing(c.id);
     const res = await refuse(c.id, { reason: "STOPPED_RESPONDING", initiator: "CLIENT", comment: "клиент сам сообщил об отказе" });
 
-    expect(res.body.securityReview).toBe(false);
+    expect(res.body.securityReview).toBeUndefined();
     expect(res.body.transferred).toBe(true);
     const after = await prisma.client.findUnique({ where: { id: c.id } });
     expect(after?.securityReview).toBeNull();
@@ -306,13 +306,13 @@ describe("Закрытия, требующие проверки СБ", () => {
     const changedMind = await makeClient({ fullName: "Передумал покупать", phone: `+992944${runId}`, budgetMax: 400000 });
     await makeShowing(changedMind.id);
     const res1 = await refuse(changedMind.id, { reason: "CHANGED_MIND", initiator: "CLIENT", comment: "клиент передумал покупать" });
-    expect(res1.body.securityReview).toBe(false);
+    expect(res1.body.securityReview).toBeUndefined();
     expect((await prisma.client.findUnique({ where: { id: changedMind.id } }))?.securityReview).toBeNull();
 
     const withdrawn = await makeClient({ fullName: "Снял с продажи", phone: `+992928${runId}`, budgetMax: 400000, kind: "SELLER" });
     await makeShowing(withdrawn.id);
     const res2 = await refuse(withdrawn.id, { reason: "WITHDRAWN_FROM_SALE", initiator: "AGENT", comment: "продавец снял объект с продажи" });
-    expect(res2.body.securityReview).toBe(false);
+    expect(res2.body.securityReview).toBeUndefined();
     expect((await prisma.client.findUnique({ where: { id: withdrawn.id } }))?.securityReview).toBeNull();
   });
 
@@ -320,7 +320,7 @@ describe("Закрытия, требующие проверки СБ", () => {
     const boughtSelf = await makeClient({ fullName: "Купил сам всё же", phone: `+992927${runId}`, budgetMax: 400000 });
     await makeShowing(boughtSelf.id);
     const res = await refuse(boughtSelf.id, { reason: "BOUGHT_SELF", initiator: "AGENT", comment: "агент узнал, что клиент купил сам" });
-    expect(res.body.securityReview).toBe(true);
+    expect(res.body.securityReview).toBeUndefined();
     expect((await prisma.client.findUnique({ where: { id: boughtSelf.id } }))?.securityReview).toBe("PENDING");
   });
 });

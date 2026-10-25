@@ -15,7 +15,7 @@ import {
 } from "../hooks/useAgents";
 import { useTeam, type TeamMember } from "../hooks/useTeam";
 import { useMobileUx } from "../hooks/useMobileUx";
-import { useCan } from "../lib/permissions";
+import { useCan, useCanViewInvestigations } from "../lib/permissions";
 import { ApiError } from "../lib/apiError";
 import { INTERACTION_TYPE_LABELS } from "../lib/clientFormat";
 import { ROLE_LABELS } from "../lib/roles";
@@ -197,6 +197,7 @@ export function TeamMemberDetail() {
   const overview = useAgentOverview(id);
   const live = useAgentLive(id);
   const can = useCan();
+  const seesInvestigations = useCanViewInvestigations();
   const canManageAgents = can("agents.manage");
   // /team уже загружен «Командой» перед переходом сюда — тот же react-query
   // кеш, повторного запроса по сети не будет. Freeze/Handover просят полный
@@ -217,7 +218,16 @@ export function TeamMemberDetail() {
   const [revertResult, setRevertResult] = useState<HandoverRevertResult | null>(null);
   const [revertError, setRevertError] = useState<string | null>(null);
 
-  const data = overview.data;
+  const data = !overview.data || seesInvestigations ? overview.data : {
+    ...overview.data,
+    violations: { flaggedShowingCalls: 0, lastFlags: [] },
+    problems: {
+      ...overview.data.problems,
+      refusedHighScore: { ...overview.data.problems.refusedHighScore, total: 0, items: [] },
+      sellerPropertyMissing: { total: 0, items: [] },
+      lossSeries: null,
+    },
+  };
   const liveData = live.data;
 
   // Таймер разговора тикает в браузере от `answeredAt`, не ждёт новый ответ

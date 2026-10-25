@@ -45,7 +45,7 @@ intentsRouter.post("/:id/intents", requireAuth, async (req, res) => {
   if (!updated) return res.status(409).json({ error: "Карточка изменилась. Обновите её и повторите подтверждение" });
   logAudit(req, "UPDATE", "Client", client.id, { dualIntent, confirmation: "staff" });
   publishClientUpdated({ clientId: client.id, agentIds: [client.assignedAgentId], actorId: req.agent!.id });
-  res.json(presentClient(updated, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin")));
+  res.json(presentClient(updated, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), req.agent?.role));
 });
 
 intentsRouter.post("/:id/buyer-requirements", requireAuth, async (req, res) => {
@@ -82,5 +82,5 @@ intentsRouter.post("/:id/buyer-requirements", requireAuth, async (req, res) => {
   if (!updated) return res.status(409).json({ error: "Роли карточки изменились. Обновите карточку и повторите" });
   logAudit(req, "UPDATE", "Client", client.id, { requirementsFieldsKind: "BUYER" });
   publishClientUpdated({ clientId: client.id, agentIds: [client.assignedAgentId], actorId: req.agent!.id });
-  res.json(presentClient(updated, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin")));
+  res.json(presentClient(updated, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), req.agent?.role));
 });

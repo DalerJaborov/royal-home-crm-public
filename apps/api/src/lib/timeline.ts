@@ -76,6 +76,7 @@ export interface LogTimelineInput {
   actor: TimelineActor;
   type: InteractionType;
   notes: string;
+  investigationOnly?: boolean;
   propertyId?: string | null;
   outcome?: InteractionOutcome | null;
   outcomeSource?: string;
@@ -155,6 +156,17 @@ function actorFields(actor: TimelineActor): {
  * автоответчика молча не попадало в хронологию вовсе).
  */
 export async function logTimeline(input: LogTimelineInput): Promise<LogTimelineResult> {
+  // Use the same row lock as final refusal: either this task is written first and
+  // cancelled by refusal, or it observes completion and is born cancelled.
+  if ((input.nextAction || input.nextActionDate) && !input.completedAt && !input.tx) {
+    return prisma.$transaction(tx => logTimeline({ ...input, tx }));
+  }
+  let taskCancelledAt: Date | null = null;
+  if ((input.nextAction || input.nextActionDate) && !input.completedAt && input.tx) {
+    const [assignment] = await input.tx.$queryRaw<Array<{ assignmentCompletedAt: Date | null }>>`
+      SELECT "assignmentCompletedAt" FROM "Client" WHERE id = ${input.clientId} FOR UPDATE`;
+    taskCancelledAt = assignment?.assignmentCompletedAt ? new Date() : null;
+  }
   const { actorKind, agentId, subjectAgentId } = actorFields(input.actor);
 
   const sharedTask = input.actor.kind !== "agent" && input.actor.sharedTask === true;
@@ -174,6 +186,7 @@ export async function logTimeline(input: LogTimelineInput): Promise<LogTimelineR
     subjectAgentId,
     type: input.type,
     notes: input.notes,
+    investigationOnly: input.investigationOnly ?? false,
     propertyId: input.propertyId ?? null,
     outcome: input.outcome ?? null,
     ...(input.outcomeSource !== undefined ? { outcomeSource: input.outcomeSource } : {}),
@@ -191,6 +204,7 @@ export async function logTimeline(input: LogTimelineInput): Promise<LogTimelineR
     continuesInteractionId: input.continuesInteractionId ?? null,
     ...(input.matchNotifiedPriceTjs !== undefined ? { matchNotifiedPriceTjs: input.matchNotifiedPriceTjs } : {}),
     completedAt: input.completedAt ?? null,
+    taskCancelledAt,
     ...(input.createdAt !== undefined ? { createdAt: input.createdAt } : {}),
     autoTaskKind: input.autoTaskKind ?? null,
   };
@@ -225,6 +239,7 @@ export async function logTimelineMany(
       subjectAgentId,
       type: input.type,
       notes: input.notes,
+    investigationOnly: input.investigationOnly ?? false,
       propertyId: input.propertyId ?? null,
       outcome: input.outcome ?? null,
       ...(input.outcomeSource !== undefined ? { outcomeSource: input.outcomeSource } : {}),
@@ -252,6 +267,15 @@ export async function logTimelineMany(
     }
     const { logSystemError } = await import("./systemError.js");
     void logSystemError("timeline", message);
+  }
+  if (inputs.some(input => (input.nextAction || input.nextActionDate) && !input.completedAt)) {
+    if (!tx) return prisma.$transaction(inner => logTimelineMany(inputs, inner));
+    // Stable lock ordering prevents two batches from taking client locks in reverse order.
+    for (const clientId of [...new Set(inputs.filter(input => (input.nextAction || input.nextActionDate) && !input.completedAt).map(input => input.clientId))].sort()) {
+      await tx.$queryRaw`SELECT id FROM "Client" WHERE id = ${clientId} FOR UPDATE`;
+    }
+    for (const input of inputs) await logTimeline({ ...input, tx });
+    return inputs.length;
   }
   const client: Pick<TxClient, "interaction"> = tx ?? prisma;
   const result = await client.interaction.createMany({ data: rows });

@@ -1,5 +1,6 @@
 /** Списки клиентов: GET /, GET /trash, GET /lost (Г2, §1.2). Перенос verbatim. */
 import { Router } from "express";
+import { visibleInteractionWhere } from "../../lib/investigationPrivacy.js";
 import { z } from "zod";
 import { Prisma } from "../../generated/prisma/client.js";
 import {
@@ -549,8 +550,10 @@ listRouter.get("/", requireAuth, async (req, res) => {
     ? await prisma.interaction.findMany({
         where: {
           clientId: { in: items.map((c) => c.id) },
+          ...visibleInteractionWhere(req.agent?.role),
           nextActionDate: { not: null },
           completedAt: null,
+          taskCancelledAt: null,
         },
         orderBy: { nextActionDate: "asc" },
         select: { clientId: true, nextAction: true, nextActionDate: true },
@@ -639,7 +642,7 @@ listRouter.get("/", requireAuth, async (req, res) => {
       const presented = presentClient(
         gated,
         canSeePhone && !gateUntilAccepted,
-        can(req, "clients.viewOrigin")
+        can(req, "clients.viewOrigin"), req.agent?.role
       );
       return {
         // canSeePhone форсированно снят гейтом: право `clients.viewPhone` у
@@ -664,7 +667,7 @@ listRouter.get("/", requireAuth, async (req, res) => {
               hiddenReason: computeHiddenReason({
                 ...c,
                 deletedByName: (c as unknown as { deletedBy?: { fullName: string } | null }).deletedBy?.fullName,
-              }),
+              }, req.agent?.role),
             }
           : {}),
       };
@@ -707,7 +710,7 @@ listRouter.get("/trash", requireAuth, requirePermission("archive.view"), async (
   const canSeePhone = can(req, "clients.viewPhone");
   const canSeeOrigin = can(req, "clients.viewOrigin");
   res.json({
-    items: items.map((c) => presentClient(c, canSeePhone, canSeeOrigin)),
+    items: items.map((c) => presentClient(c, canSeePhone, canSeeOrigin, req.agent?.role)),
     total,
     page,
     pageSize: CLIENT_TRASH_PAGE_SIZE,
@@ -823,7 +826,7 @@ listRouter.get("/lost", requireAuth, requirePermission("clients.assign"), async 
    * Неактивные и возврат.
    */
   const chain = await prisma.interaction.findMany({
-    where: { clientId: { in: clients.map((c) => c.id) }, type: "SYSTEM" },
+    where: { clientId: { in: clients.map((c) => c.id) }, type: "SYSTEM", ...visibleInteractionWhere(req.agent?.role) },
     orderBy: { createdAt: "asc" },
     // Потолок — строки, а не id клиентов (клиентов не больше страницы).
     take: clients.length * LOST_CLIENTS_CHAIN_PER_CLIENT_CAP,

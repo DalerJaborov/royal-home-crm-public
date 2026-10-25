@@ -135,12 +135,12 @@ export function SecurityCenter() {
         <div className="scr">
           <div className="pg-h">
             <div>
-              <h1>Служба безопасности</h1>
+              <h1>Раздел недоступен</h1>
             </div>
           </div>
           <TeamTabs />
           <div className="card tight">
-            <Rh2EmptyState icon={Lock} title="Раздел доступен только службе безопасности." />
+            <Rh2EmptyState icon={Lock} title="Недостаточно прав для просмотра." />
           </div>
         </div>
       </div>

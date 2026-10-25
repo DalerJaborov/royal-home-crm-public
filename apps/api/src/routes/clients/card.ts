@@ -1,3 +1,4 @@
+import { visibleInteractionWhere } from "../../lib/investigationPrivacy.js";
 /**
  * Карточка клиента: GET /:id, POST /, PATCH /:id, DELETE /:id, restore,
  * permanent (Г2, §1.2). Перенос verbatim.
@@ -34,7 +35,7 @@ import { loadMoneyContext } from "../../lib/money.js";
 import { loadMatchWeights, scoreClientProperty } from "../matching.js";
 import { refreshPropertiesOfSeller } from "../../lib/propertyAutoStatus.js";
 import { cardWhereFromParam } from "../../lib/cardIdParam.js";
-import { hadConductedShowing } from "../../lib/conductedShowing.js";
+import { conductedShowingWhere } from "../../lib/conductedShowing.js";
 import { loadSellerPropertyAddress } from "../../lib/sellerPropertyAnchor.js";
 import { presentMessages, type PresentedMessage } from "../../lib/messageAttachments.js";
 import type { MessageSender } from "@royal-home/shared";
@@ -144,6 +145,7 @@ const CARD_TIMELINE_LIMIT = 200;
  * на порядки легче расшифровки, а его счёт виден ещё до раскрытия записи.
  */
 const TIMELINE_INTERACTION_SELECT = {
+  investigationOnly: true,
   id: true,
   clientId: true,
   agentId: true,
@@ -155,6 +157,7 @@ const TIMELINE_INTERACTION_SELECT = {
   nextAction: true,
   nextActionDate: true,
   completedAt: true,
+  taskCancelledAt: true,
   confirmAskedAt: true,
   confirmedAt: true,
   declinedAt: true,
@@ -246,6 +249,7 @@ cardRouter.get("/:id", requireAuth, async (req, res) => {
       // при каждом открытии, хотя дальше первых экранов их никто не листает.
       // Сортировка от новых к старым уже стояла — берём верхушку.
       interactions: {
+        where: visibleInteractionWhere(req.agent?.role),
         // id — вторым ключом: «Показать более ранние» (GET /:id/timeline) идёт
         // курсором (createdAt, id) от последней записи, и порядок обязан быть
         // однозначным даже у записей с одинаковым временем.
@@ -257,7 +261,7 @@ cardRouter.get("/:id", requireAuth, async (req, res) => {
       deals: { include: { property: { select: { title: true } } } },
       // Сколько записей в хронологии ВСЕГО (02.10.2026): список выше режется на
       // 200, и экран писал «Показаны 25 из 200», будто двести — это всё.
-      _count: { select: { interactions: true } },
+      _count: { select: { interactions: { where: visibleInteractionWhere(req.agent?.role) } } },
       // Диалог клиента: у каналов Meta — botConversation, у Telegram своя
       // таблица. Обе отдаём одинаково, чтобы карточка не делила клиентов на сорта:
       // переписка, пауза бота и отправка сообщения работают в любом канале.
@@ -415,8 +419,8 @@ cardRouter.get("/:id", requireAuth, async (req, res) => {
    * гейта (lib/conductedShowing.ts); порог разговора — leadCallMinSeconds.
    */
   const [conductedShowing, callsCount, realCalls] = await Promise.all([
-    hadConductedShowing(client.id),
-    prisma.interaction.count({ where: { clientId: client.id, type: "CALL" } }),
+    prisma.interaction.count({ where: { ...conductedShowingWhere(client.id), ...visibleInteractionWhere(req.agent?.role) } }).then((count) => count > 0),
+    prisma.interaction.count({ where: { clientId: client.id, type: "CALL", ...visibleInteractionWhere(req.agent?.role) } }),
     prisma.settings
       .findUnique({ where: { id: "singleton" }, select: { leadCallMinSeconds: true } })
       .then((s) =>
@@ -424,6 +428,7 @@ cardRouter.get("/:id", requireAuth, async (req, res) => {
           where: {
             clientId: client.id,
             type: "CALL",
+            ...visibleInteractionWhere(req.agent?.role),
             recordingDurationSec: { gte: s?.leadCallMinSeconds ?? 30 },
           },
         })
@@ -519,9 +524,9 @@ cardRouter.get("/:id", requireAuth, async (req, res) => {
   const presentedClient = presentClient(
     responseClient,
     can(req, "clients.viewPhone") && !gateUntilAccepted,
-    can(req, "clients.viewOrigin")
+    can(req, "clients.viewOrigin"), req.agent?.role
   );
-  const activity = gateUntilAccepted ? { propertyActivitySummary: null, nextStep: null } : await loadClientCardActivity(client.id);
+  const activity = gateUntilAccepted ? { propertyActivitySummary: null, nextStep: null } : await loadClientCardActivity(client.id, req.agent?.role);
   const payload = {
     ...presentedClient,
     ...activity,
@@ -535,7 +540,7 @@ cardRouter.get("/:id", requireAuth, async (req, res) => {
     // отдаётся 404 (:206 выше), поэтому здесь может прийти только «мягкое»
     // скрытое состояние (OTHER/LOST/DEAL_CLOSED/ARCHIVED/INACTIVE/DEFERRED/
     // эскалирован/СБ) — тот же текст, что в строке списка и в уведомлении.
-    hiddenReason: computeHiddenReason(client),
+    hiddenReason: computeHiddenReason(client, req.agent?.role),
   };
   res.json(transferAccess ? { ...payload, access: transferAccess } : payload);
 });
@@ -586,7 +591,7 @@ cardRouter.get("/:id/timeline", requireAuth, async (req, res) => {
     return res.json({ items: [], total: 0, hasMore: false });
   }
 
-  const baseWhere: Prisma.InteractionWhereInput = { clientId: client.id, ...(type ? { type } : {}) };
+  const baseWhere: Prisma.InteractionWhereInput = { ...visibleInteractionWhere(req.agent?.role), clientId: client.id, ...(type ? { type } : {}) };
   const where: Prisma.InteractionWhereInput =
     before && beforeId
       ? { ...baseWhere, OR: [{ createdAt: { lt: before } }, { createdAt: before, id: { lt: beforeId } }] }
@@ -949,7 +954,7 @@ function duplicateHint(
   c: Parameters<typeof presentClient>[0] & { id: string; shortId: number; fullName: string; assignedAgentId: string | null },
 ): { id: string; shortId: number; fullName: string } {
   const own = can(req, "clients.viewAll") || c.assignedAgentId === req.agent!.id;
-  const shown = presentClient(c, own && can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"));
+  const shown = presentClient(c, own && can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), req.agent?.role);
   return { id: c.id, shortId: c.shortId, fullName: String((shown as { fullName?: string }).fullName ?? "") };
 }
 
@@ -1183,7 +1188,7 @@ cardRouter.post("/", requireAuth, async (req, res) => {
     }).catch((err) => console.error("[push] новый лид:", err));
   }
 
-  res.status(201).json(presentClient(client, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin")));
+  res.status(201).json(presentClient(client, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), req.agent?.role));
 });
 
 cardRouter.patch("/:id", requireAuth, async (req, res) => {
@@ -1214,7 +1219,7 @@ cardRouter.patch("/:id", requireAuth, async (req, res) => {
     const canSeePhone = can(req, "clients.viewPhone");
     const canSeeOrigin = can(req, "clients.viewOrigin");
     if (!canSeePhone || !canSeeOrigin) {
-      const shown = String(presentClient(existing, canSeePhone, canSeeOrigin).fullName ?? "");
+      const shown = String(presentClient(existing, canSeePhone, canSeeOrigin, req.agent?.role).fullName ?? "");
       if (shown !== existing.fullName && parsed.data.fullName.trim() === shown.trim()) {
         delete parsed.data.fullName;
       } else if (!canSeePhone && parsed.data.fullName.includes(CLIENT_PHONE_MASK_CHAR)) {
@@ -1432,5 +1437,5 @@ cardRouter.patch("/:id", requireAuth, async (req, res) => {
   // Через presentClient, как и все остальные ответы этого файла: без него агенту
   // достаточно было сохранить карточку, чтобы получить в ответе закрытый ему номер
   // (и фронтенд положил бы его в кэш).
-  res.json(presentClient(updated, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin")));
+  res.json(presentClient(updated, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), req.agent?.role));
 });

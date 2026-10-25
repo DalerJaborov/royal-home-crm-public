@@ -158,7 +158,7 @@ export interface ScoreEventView {
  */
 export async function loadScoreEvents(agentId: string, limit = 50): Promise<ScoreEventView[]> {
   const rows = await prisma.royalScoreEvent.findMany({
-    where: { agentId },
+    where: { agentId, kind: { not: "security_review" } },
     orderBy: { at: "desc" },
     take: Math.min(Math.max(1, limit), 200),
     include: { initiator: { select: { fullName: true } } },
@@ -400,7 +400,7 @@ export interface EventPointsGuideRow {
 
 export async function buildEventPointsGuide(): Promise<EventPointsGuideRow[]> {
   const points = await loadEventPoints();
-  return (Object.keys(CATEGORY_OF) as ScoreEventKind[]).map((kind) => ({
+  return (Object.keys(CATEGORY_OF) as ScoreEventKind[]).filter((kind) => kind !== "security_review").map((kind) => ({
     kind,
     label: EVENT_LABELS[kind] ?? kind,
     category: CATEGORY_OF[kind]!,

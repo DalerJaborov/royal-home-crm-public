@@ -107,7 +107,7 @@ duplicateReviewsRouter.post("/:id/duplicate-review/confirm", requireAuth, async 
   if (!merged) return res.status(404).json({ error: "Клиент не найден (гонка с удалением)" });
 
   logAudit(req, "DUPLICATE_REVIEW_CONFIRM", "Client", merged.id, { pendingClientId: req.params.id });
-  res.json({ ok: true, message: "Карточки объединены", client: presentClient(merged, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin")) });
+  res.json({ ok: true, message: "Карточки объединены", client: presentClient(merged, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), req.agent?.role) });
 });
 
 /**

@@ -266,7 +266,7 @@ export async function loadMorningNumbers(options: LoadMorningNumbersOptions = {}
     yesterdayLeads,
   ] = await Promise.all([
     prisma.interaction.count({
-      where: { ...TASK_WHERE, completedAt: null, nextActionDate: { gte: startOfToday, lt: startOfTomorrow } },
+      where: { ...TASK_WHERE, investigationOnly: false, completedAt: null, nextActionDate: { gte: startOfToday, lt: startOfTomorrow } },
     }),
     prisma.client.count({ where: { createdAt: { gte: startOfYesterday, lt: startOfToday }, deletedAt: null } }),
     prisma.deal.count({ where: { stage: "COMPLETED", closedAt: { gte: startOfYesterday, lt: startOfToday } } }),

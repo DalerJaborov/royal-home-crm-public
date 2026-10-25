@@ -123,7 +123,7 @@ async function stillThinking(task: DueTask): Promise<boolean> {
 
 async function advanceTier(marker: string, nextMarker: string, hoursOrDaysMs: number, now: Date): Promise<number> {
   const due = await prisma.interaction.findMany({
-    where: { nextAction: marker, completedAt: null, nextActionDate: { lte: now } },
+    where: { nextAction: marker, completedAt: null, taskCancelledAt: null, nextActionDate: { lte: now } },
     select: {
       id: true,
       clientId: true,
@@ -148,11 +148,11 @@ async function advanceTier(marker: string, nextMarker: string, hoursOrDaysMs: nu
     // Закрытие старой задачи и создание преемника — ОДНА транзакция (аудит Codex 04.10,
     // CHANNEL-NEW-02): раньше старая закрывалась первой, и временный сбой создания
     // преемника оставлял трек без единой незавершённой задачи, которую выборка
-    // подхватила бы повторно. Условие completedAt: null заодно не даёт двум
+    // подхватила бы повторно. Условие completedAt: null, taskCancelledAt: null заодно не даёт двум
     // перекрывшимся тикам завести двух преемников.
     return prisma.$transaction(async (tx) => {
       const claimed = await tx.interaction.updateMany({
-        where: { id: task.id, completedAt: null },
+        where: { id: task.id, completedAt: null, taskCancelledAt: null },
         data: { completedAt: now },
       });
       if (claimed.count === 0) return false;
@@ -180,7 +180,7 @@ async function advanceTier(marker: string, nextMarker: string, hoursOrDaysMs: nu
  *  просто продлит через generic advanceTier(FINAL_TRACK_MARKER, FINAL_TRACK_MARKER, ...)). */
 async function advanceSlowTrackTier(cycles: number, slowTrackMs: number, finalTrackMs: number, now: Date): Promise<number> {
   const due = await prisma.interaction.findMany({
-    where: { nextAction: SLOW_TRACK_MARKER, completedAt: null, nextActionDate: { lte: now } },
+    where: { nextAction: SLOW_TRACK_MARKER, completedAt: null, taskCancelledAt: null, nextActionDate: { lte: now } },
     select: {
       id: true,
       clientId: true,
@@ -205,7 +205,7 @@ async function advanceSlowTrackTier(cycles: number, slowTrackMs: number, finalTr
     // Закрытие и преемник — одна транзакция, как в advanceTier (CHANNEL-NEW-02).
     return prisma.$transaction(async (tx) => {
       const claimed = await tx.interaction.updateMany({
-        where: { id: task.id, completedAt: null },
+        where: { id: task.id, completedAt: null, taskCancelledAt: null },
         data: { completedAt: now },
       });
       if (claimed.count === 0) return false;

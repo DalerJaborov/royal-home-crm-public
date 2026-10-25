@@ -15,6 +15,7 @@ import { CommentWithVoice } from "./CommentWithVoice";
 import { Rh2Sheet } from "./rh2/Rh2Sheet";
 import { toast } from "../store/toast";
 import type { Client } from "../types";
+import { useCanViewInvestigations } from "../lib/permissions";
 
 /**
  * «Завершить сделку → Без сделки» (ТЗ п. 16-18, переработка 12.08.2026 из бывшего
@@ -43,6 +44,7 @@ import type { Client } from "../types";
  * `.sheet` — полупрозрачное стекло с обводкой.
  */
 export function RefuseClientModal({ client, onClose }: { client: Client; onClose: () => void }) {
+  const investigations = useCanViewInvestigations();
   const refuse = useRefuseClient(client.id);
   const navigate = useNavigate();
   const [reason, setReason] = useState<RefusalReason | null>(null);
@@ -56,6 +58,10 @@ export function RefuseClientModal({ client, onClose }: { client: Client; onClose
   const needsBoughtWhat = reason === "BOUGHT_SELF";
 
   async function submit() {
+    if (client.assignmentRefusedAt) {
+      setError("Результат этой работы уже сохранён");
+      return;
+    }
     if (!reason) {
       setError("Выберите причину, без неё передать лид нельзя");
       return;
@@ -84,7 +90,7 @@ export function RefuseClientModal({ client, onClose }: { client: Client; onClose
       // Как и в передаче: результат сообщаем всплывающим уведомлением. Через
       // location.state его никто не читал, и агент не узнавал, ушла ли карточка
       // следующему агенту, руководству или в службу безопасности.
-      toast.success(result.message);
+      toast.success(investigations ? result.message : "Результат работы сохранён");
       navigate("/clients");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Не удалось оформить отказ");
@@ -101,7 +107,7 @@ export function RefuseClientModal({ client, onClose }: { client: Client; onClose
           <button type="button" className="pill ghost" onClick={onClose}>
             Отмена
           </button>
-          <button type="submit" className="pill" disabled={refuse.isPending}>
+          <button type="submit" className="pill" disabled={refuse.isPending || !!client.assignmentRefusedAt}>
             {refuse.isPending ? "Оформление…" : "Завершить без сделки"}
           </button>
         </>

@@ -41,7 +41,7 @@ export async function closeStaleNextActions(
     where: {
       clientId,
       nextAction: { not: null },
-      completedAt: null,
+      completedAt: null, taskCancelledAt: null,
       ...(excludeInteractionId ? { id: { not: excludeInteractionId } } : {}),
     },
     data: { completedAt: now },

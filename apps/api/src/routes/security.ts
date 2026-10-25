@@ -1,3 +1,4 @@
+import { requireInvestigations } from "../auth/investigations.js";
 import { Router, type Request, type Response } from "express";
 import { Prisma } from "../generated/prisma/client.js";
 import { prisma } from "../db.js";
@@ -56,7 +57,7 @@ function extractInitiator(notes: string | null | undefined): RefusalInitiator | 
 
 export const securityRouter = Router();
 
-securityRouter.use(requireAuth, requirePermission("clients.securityReview"));
+securityRouter.use(requireAuth, requireInvestigations, requirePermission("clients.securityReview"));
 
 const clientListSelect = {
   id: true,

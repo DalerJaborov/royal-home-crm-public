@@ -443,6 +443,9 @@ export interface Client {
   /** Проверка службы безопасности: PENDING | CLEARED | CONFIRMED; null — не требовалась. */
   securityReview?: string | null;
   securityNote?: string | null;
+  assignmentCompletedAt?: string | null;
+  assignmentRefusedAt?: string | null;
+  assignmentRefusedByAgentId?: string | null;
   /** true = лид ждёт принятия агентом; для агента контакты замаскированы. */
   pendingAcceptance?: boolean;
   /**
@@ -590,6 +593,8 @@ export interface Interaction {
    *  по нему карточка решает, открывать ли «Передачу» и «Завершить сделку»
    *  (тот же признак, что на сервере: apps/api/src/lib/conductedShowing.ts). */
   completedAt?: string | null;
+  /** Cancelled task remains in history without being marked completed. */
+  taskCancelledAt?: string | null;
   createdAt: string;
   /** Подтверждение показа клиентом (см. apps/api/src/lib/showingConfirmation.ts).
    *  Все три пустые = показ ещё не спрашивали. Спросили и все молчит = «ждём

@@ -33,12 +33,12 @@ export async function lockShowingTx(tx: TxClient, clientId: string, interactionI
   await tx.$queryRaw`SELECT "id" FROM "Interaction" WHERE "id"=${interactionId} AND "clientId"=${clientId} FOR UPDATE`;
   const showing = await tx.interaction.findUnique({ where: { id: interactionId }, select: {
     id: true, clientId: true, type: true, propertyId: true, nextAction: true, nextActionDate: true,
-    completedAt: true, declinedAt: true, notes: true, agentId: true, subjectAgentId: true, remindersSent: true,
+    completedAt: true, taskCancelledAt: true, declinedAt: true, notes: true, agentId: true, subjectAgentId: true, remindersSent: true,
     property: { select: { title: true } },
   } });
   if (!showing || showing.clientId !== clientId || showing.type !== "SHOWING" || !showing.nextActionDate) throw new ShowingMutationError("no_showing");
   if (showing.propertyId !== before.propertyId) throw new ShowingMutationError("stale_showing");
-  if (!showing.nextAction || showing.completedAt) throw new ShowingMutationError("stale_showing");
+  if (!showing.nextAction || showing.completedAt || showing.taskCancelledAt) throw new ShowingMutationError("stale_showing");
   return showing;
 }
 export type LockedShowing = Awaited<ReturnType<typeof lockShowingTx>>;

@@ -34,6 +34,7 @@
  * раз она внутри самой записи, а не только там, где её явно позвали.
  */
 import { prisma } from "../db.js";
+import { assignmentRefusalReset } from "./assignmentCompletion.js";
 import { closeOwnershipSatellites } from "./ownershipSatellites.js";
 import { runClientAutopilotInBackground } from "./clientAutopilot.js";
 import { canAutoTransfer, requireHumanActor, type AutoTransferVerdict } from "../services/leads/ownershipPolicy.js";
@@ -324,7 +325,9 @@ async function run(tx: Tx, input: ChangeClientAgentInput): Promise<RunResult> {
     }
   }
 
-  const data: Record<string, unknown> = { ...input.data, assignedAgentId: input.toAgentId };
+  const data: Record<string, unknown> = { ...input.data, assignedAgentId: input.toAgentId,
+    ...assignmentRefusalReset(input.source, input.actorId, before.assignedAgentId, input.toAgentId),
+  };
 
   // Предложение реактивации прежнему агенту теряет смысл, как только клиент
   // достался кому-то другому (23.09.2026). Раньше оно висело дальше: адресат

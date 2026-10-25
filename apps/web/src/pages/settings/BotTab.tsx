@@ -2980,6 +2980,7 @@ export function BotQuestionsSection() {
    *  одинаковые сообщения») — один и тот же вопрос от разных клиентов не
    *  должен требовать отдельного ответа на каждую карточку. */
   async function answer(item: BotLessonGroup) {
+    if (item.investigationOnly) return;
     const text = (answers[item.id] ?? "").trim();
     if (!text) return;
     setError(null);
@@ -3045,6 +3046,7 @@ export function BotQuestionsSection() {
                   тоже про ЧТО отвечать, просто правило из него ещё не вывелось. */}
               <span className="chip mute">суть</span>
               <LessonMeta item={item} />
+              {item.investigationOnly && <span className="chip mute">Карантин · только просмотр</span>}
               {/* Повтор — тот же вопрос от разных клиентов, схлопнут в одну
                   карточку (владелец 17.09.2026: «повторы исключить полностью»).
                   Ответ ниже уходит СРАЗУ во все записи группы, см. answer(). */}
@@ -3072,13 +3074,14 @@ export function BotQuestionsSection() {
                 maxLength={300}
                 placeholder="Одной фразой"
                 aria-label="Как надо было ответить"
+                disabled={item.investigationOnly}
               />
               <div className="wrap" style={{ marginTop: "var(--s2)" }}>
                 <button
                   className="pill"
                   type="button"
                   onClick={() => void answer(item)}
-                  disabled={update.isPending || !(answers[item.id] ?? "").trim()}
+                  disabled={item.investigationOnly || update.isPending || !(answers[item.id] ?? "").trim()}
                 >
                   Запомнить{item.dupCount > 1 ? ` (×${item.dupCount})` : ""}
                 </button>
@@ -3162,6 +3165,7 @@ export function BotLessonsSection() {
    *  разных случаев показывается одной строкой и включается/выключается одним
    *  нажатием, а не по отдельности на каждый первоисточник. */
   function toggle(item: BotLessonGroup) {
+    if (item.investigationOnly) return;
     setError(null);
     update.mutate(
       { ids: groupIds(item), active: !item.active },
@@ -3174,12 +3178,13 @@ export function BotLessonsSection() {
    *  реально видит промт (см. promptLessonIds). Нет смысла поднимать то, что
    *  уже там, — кнопка не показывается у активных правил из promptLessonIds. */
   function raise(item: BotLessonGroup) {
+    if (item.investigationOnly) return;
     setError(null);
     bump.mutate(item.id, { onError: (err) => setError(err instanceof Error ? err.message : "Не удалось поднять правило") });
   }
 
   function confirmDelete() {
-    if (!pendingDelete) return;
+    if (!pendingDelete || pendingDelete.investigationOnly) return;
     const id = pendingDelete.id;
     setPendingDelete(null);
     setError(null);
@@ -3220,7 +3225,7 @@ export function BotLessonsSection() {
         </div>
       ) : (
         rules.map((item) => {
-          const inPrompt = promptIds?.includes(item.id) ?? false;
+          const inPrompt = !item.investigationOnly && (promptIds?.includes(item.id) ?? false);
           return (
             <div className="mod" key={item.id} style={{ display: "block" }}>
               <div className="wrap">
@@ -3243,12 +3248,13 @@ export function BotLessonsSection() {
                     правила и так есть зачёркивание и подпись ниже. */}
                 {item.active && inPrompt && <span className="chip ok">в промте</span>}
                 {item.dupCount > 1 && <span className="chip">×{item.dupCount}</span>}
-                <Switch on={item.active} onToggle={() => toggle(item)} label={`Правило: ${item.lesson ?? ""}`} />
+                {item.investigationOnly && <span className="chip mute">Карантин · только просмотр</span>}
+                <Switch on={item.active} disabled={item.investigationOnly} onToggle={() => toggle(item)} label={`Правило: ${item.lesson ?? ""}`} />
                 <button
                   className="pill ghost sm"
                   type="button"
                   onClick={() => setPendingDelete(item)}
-                  disabled={remove.isPending}
+                  disabled={item.investigationOnly || remove.isPending}
                   aria-label={`Удалить правило: ${item.lesson ?? ""}`}
                   title="Удалить правило"
                 >
@@ -3259,7 +3265,9 @@ export function BotLessonsSection() {
                   различалось только зачёркиванием, а «зачёркнуто» и
                   «выключено» — не одно и то же на вид. */}
               <p className="msg" style={{ color: "var(--faint)" }}>
-                {!item.active
+                {item.investigationOnly
+                  ? "Историческая запись сохранена. В промт не попадает, изменение недоступно."
+                  : !item.active
                   ? "не действует — в промт не уходит"
                   : inPrompt
                     ? "действует и попадает в промт"
@@ -3271,14 +3279,14 @@ export function BotLessonsSection() {
                     и непонятно, что с ним делать. Видимая кнопка отвечает на
                     это одним нажатием — второй путь к тому же PATCH, что и у
                     тумблера, но названный словами. */}
-                {!item.active && (
+                {!item.investigationOnly && !item.active && (
                   <button className="pill ghost sm" type="button" onClick={() => toggle(item)} disabled={update.isPending}>
                     Правило верное — включить{item.dupCount > 1 ? ` (×${item.dupCount})` : ""}
                   </button>
                 )}
                 {/* «Поднять» — только там, где это вообще что-то меняет: активное
                     правило, которое уже и так в промте, поднимать незачем. */}
-                {item.active && !inPrompt && (
+                {!item.investigationOnly && item.active && !inPrompt && (
                   <button
                     className="pill ghost sm"
                     type="button"

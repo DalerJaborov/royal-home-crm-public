@@ -57,7 +57,7 @@ export async function applyShowingReply(clientId: string, text: string, now: Dat
       where: {
         clientId,
         type: "SHOWING",
-        completedAt: null,
+        completedAt: null, taskCancelledAt: null,
         confirmAskedAt: { not: null, lte: now },
         confirmedAt: null,
         declinedAt: null,

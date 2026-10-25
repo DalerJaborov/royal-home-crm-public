@@ -3018,6 +3018,11 @@ enum ClientInactiveLevel {
 /// это тот самый случай, просто вырежи DROP, как и раньше для необъявляемых
 /// сырых индексов, и не трать час на попытку объявить его снова.
 model Client {
+  /// Final refusal for the current assignment; cleared on a legitimate new assignment.
+  assignmentRefusedAt       DateTime?
+  assignmentRefusedByAgentId String?
+  /// Operational completion only, never a private investigation indicator.
+  assignmentCompletedAt     DateTime?
   id                        String               @id @default(uuid())
   /// Pending new-only intake policy. Morning waves exclude this until its job commits.
   customerIntakeActionId String? @unique
@@ -4491,6 +4496,8 @@ enum TeamRequestStatus {
 }
 
 model Interaction {
+  /// Private investigation evidence; excluded from ordinary activity and timeline reads.
+  investigationOnly Boolean @default(false)
   id                     String              @id @default(uuid())
   customerBookingActionId String? @unique
   customerBookingAction CustomerAction? @relation(fields: [customerBookingActionId], references: [id], onDelete: Restrict)
@@ -4542,6 +4549,8 @@ model Interaction {
   /// терялась безвозвратно). null + nextActionDate в прошлом = просрочена.
   /// Нужно для расчёта KPI "Дисциплина CRM" (см. apps/api/src/kpi.ts).
   completedAt            DateTime?
+  /// Task cancelled when its assignment ends; preserves original text/date without claiming completion.
+  taskCancelledAt        DateTime?
   /// Когда агенту ушёл push «встреча через час» — без этой отметки джоб слал бы
   /// напоминание на каждом тике, пока встреча не наступит. Вечерняя сводка отметки
   /// не требует: она уходит раз в сутки одним сообщением на все задачи дня.
@@ -7405,6 +7414,7 @@ model SettingsSnapshot {
 /// так бот перестаёт наступать на те же грабли (требование владельца 31.07.2026).
 model BotLesson {
   id             String            @id @default(uuid())
+  investigationOnly Boolean        @default(false)
   createdAt      DateTime          @default(now())
   /// "operator_override" — ответил человек; "client_confused" — клиент не понял;
   /// "call_answer" — пара «вопрос клиента → ответ агента» из телефонного разговора
@@ -7959,6 +7969,8 @@ model CallAnalysis {
 /// цель этой таблицы — не потерять текст разговора; дальше это задел на будущее
 /// (см. докстрин liveVoiceBridge.ts).
 model LiveVoiceSession {
+  /// Private robot investigation; set by the originating scenario, never inferred from transcript.
+  investigationOnly Boolean @default(false)
   id          String    @id @default(uuid())
   /// Server-established binding only; CallerID is not customer authorization.
   customerInquiryId String?

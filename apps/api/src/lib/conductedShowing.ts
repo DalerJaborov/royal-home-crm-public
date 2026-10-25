@@ -38,6 +38,7 @@ export function conductedShowingWhere(clientId: string, now: Date = new Date()):
 export function conductedShowingBaseWhere(now: Date = new Date()): Prisma.InteractionWhereInput {
   return {
     type: "SHOWING",
+    taskCancelledAt: null,
     declinedAt: null,
     OR: [{ completedAt: { not: null } }, { nextActionDate: null }, { nextActionDate: { lte: now } }],
   };
@@ -56,9 +57,9 @@ export async function hadConductedShowing(clientId: string): Promise<boolean> {
  * в одном файле, а не расходятся по разным местам кода.
  */
 export function isConductedShowing(
-  interaction: { type: string; declinedAt: Date | null; completedAt: Date | null; nextActionDate: Date | null },
+  interaction: { type: string; declinedAt: Date | null; completedAt: Date | null; nextActionDate: Date | null; taskCancelledAt?: Date | null },
   now: Date = new Date()
 ): boolean {
-  if (interaction.type !== "SHOWING" || interaction.declinedAt !== null) return false;
+  if (interaction.type !== "SHOWING" || interaction.declinedAt !== null || interaction.taskCancelledAt) return false;
   return interaction.completedAt !== null || interaction.nextActionDate === null || interaction.nextActionDate <= now;
 }

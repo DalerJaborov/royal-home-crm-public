@@ -84,7 +84,7 @@ export async function deferClient(input: {
   now?: Date;
 }): Promise<DeferClientResult> {
   const client = await prisma.client.findFirst({
-    where: { id: input.clientId, deletedAt: null },
+    where: { id: input.clientId, deletedAt: null, assignmentCompletedAt: null, assignmentRefusedAt: null },
     select: { id: true, fullName: true, assignedAgentId: true, status: true, workStatus: true },
   });
   if (!client) return { ok: false, error: "Клиент не найден" };
@@ -106,6 +106,7 @@ export async function deferClient(input: {
   const written = await prisma.$transaction(async (tx) => {
     const updated = await tx.client.updateMany({
       where: { id: client.id, deletedAt: null, assignedAgentId: input.agentId,
+        assignmentCompletedAt: null, assignmentRefusedAt: null,
         status: client.status, workStatus: client.workStatus },
       data: {
         ...inactiveExitData(),
@@ -152,7 +153,7 @@ export async function returnDeferredClientToWork(
   actorAgentId?: string | null
 ): Promise<{ ok: boolean }> {
   const client = await prisma.client.findFirst({
-    where: { id: clientId, deletedAt: null, workStatus: "DEFERRED", status: { notIn: [...TERMINAL_CLIENT_STATUSES] } },
+    where: { id: clientId, deletedAt: null, assignmentCompletedAt: null, workStatus: "DEFERRED", status: { notIn: [...TERMINAL_CLIENT_STATUSES] } },
     select: { id: true, shortId: true, fullName: true, assignedAgentId: true, deferredUntil: true },
   });
   // Отложенный клиент без агента структурно не должен встречаться (deferClient
@@ -182,6 +183,7 @@ export async function returnDeferredClientToWork(
   const written = await prisma.$transaction(async (tx) => {
     const updated = await tx.client.updateMany({
       where: { id: client.id, workStatus: "DEFERRED", deletedAt: null,
+        assignmentCompletedAt: null,
         assignedAgentId, deferredUntil: client.deferredUntil, status: { notIn: [...TERMINAL_CLIENT_STATUSES] } },
       data: { ...inactiveExitData(), returnedAt: new Date(), deferredUntil: null, deferredReason: null },
     });
@@ -237,7 +239,7 @@ const DEFERRED_RETURN_BATCH = 200;
  */
 export async function runDeferredClientsReturnTick(now: Date = new Date()): Promise<{ returned: number }> {
   const due = await prisma.client.findMany({
-    where: { workStatus: "DEFERRED", deletedAt: null, deferredUntil: { lte: now }, status: { notIn: [...TERMINAL_CLIENT_STATUSES] } },
+    where: { workStatus: "DEFERRED", deletedAt: null, assignmentCompletedAt: null, deferredUntil: { lte: now }, status: { notIn: [...TERMINAL_CLIENT_STATUSES] } },
     orderBy: { deferredUntil: "asc" },
     take: DEFERRED_RETURN_BATCH,
     select: { id: true },

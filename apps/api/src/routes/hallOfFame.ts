@@ -3,6 +3,7 @@ import { prisma } from "../db.js";
 import { requireAuth } from "../auth/middleware.js";
 import { dushanbeWallClock, dushanbeStartOfMonth, DUSHANBE_OFFSET_MS } from "../lib/dushanbeTime.js";
 import { COUNTED_SHOWING_WHERE } from "../lib/tasks.js";
+import { visibleInteractionWhere } from "../lib/investigationPrivacy.js";
 import { royalScoreEnabled } from "../lib/royalScoreSwitch.js";
 import { RATED_ROLES } from "@royal-home/shared";
 
@@ -30,7 +31,7 @@ function top3(byAgent: Map<string, number>, agents: Map<string, { fullName: stri
  * Три номинации: лучший продажник (закрытые сделки), лидер по показам,
  * лидер по добавленным объектам. Только агенты — руководители не соревнуются.
  */
-hallOfFameRouter.get("/", requireAuth, async (_req, res) => {
+hallOfFameRouter.get("/", requireAuth, async (req, res) => {
   // Начало месяца по Душанбе (сервер на VPS живёт в UTC — без сдвига граница
   // месяца уехала бы на 5 часов).
   const wall = dushanbeWallClock();
@@ -60,7 +61,7 @@ hallOfFameRouter.get("/", requireAuth, async (_req, res) => {
       // client: { deletedAt: null } (27.08.2026) — соседние номинации (объекты
       // строкой ниже, лиды и активные клиенты в /top-agents) этот фильтр уже
       // имели, показы оставались единственной номинацией без него.
-      where: { type: "SHOWING", ...COUNTED_SHOWING_WHERE, createdAt: { gte: startOfMonth }, client: { deletedAt: null } },
+      where: { ...visibleInteractionWhere(req.agent?.role), type: "SHOWING", ...COUNTED_SHOWING_WHERE, createdAt: { gte: startOfMonth }, client: { deletedAt: null } },
       _count: { _all: true },
     }),
     // subjectAgentId (П-10, 17.09.2026): показ, записанный ботом/системой от лица
@@ -71,6 +72,7 @@ hallOfFameRouter.get("/", requireAuth, async (_req, res) => {
       by: ["subjectAgentId"],
       where: {
         type: "SHOWING",
+        ...visibleInteractionWhere(req.agent?.role),
         ...COUNTED_SHOWING_WHERE,
         createdAt: { gte: startOfMonth },
         client: { deletedAt: null },

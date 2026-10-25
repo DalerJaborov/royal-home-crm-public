@@ -532,6 +532,7 @@ async function findActiveShowing(
       type: "SHOWING",
       ...(params.propertyId ? { propertyId: params.propertyId } : {}),
       completedAt: null,
+      taskCancelledAt: null,
       // Признак живой задачи в CRM — непустой nextAction (lib/tasks.ts, TASK_WHERE).
       // Отменённый показ его теряет и переносу больше не подлежит.
       nextAction: { not: null },
@@ -615,6 +616,7 @@ export async function findConflictingShowing(params: {
       clientId: params.clientId,
       type: "SHOWING",
       completedAt: null,
+      taskCancelledAt: null,
       // Признак живой задачи в CRM (lib/tasks.ts, TASK_WHERE) — он же признак
       // «показ не отменён»: отмена снимает именно nextAction.
       nextAction: { not: null },
@@ -659,6 +661,7 @@ export async function findAgentShowingConflict(params: {
       clientId: { not: params.excludeClientId },
       type: "SHOWING",
       completedAt: null,
+      taskCancelledAt: null,
       nextAction: { not: null },
       declinedAt: null,
       nextActionDate: { gte: from, lte: new Date(params.at.getTime() + windowMs) },
@@ -984,6 +987,7 @@ async function loadEditableShowing(interactionId: string) {
       nextActionDate: true,
       notes: true,
       completedAt: true,
+      taskCancelledAt: true,
       remindersSent: true,
       property: { select: { title: true } },
       client: { select: { id: true, shortId: true, fullName: true } },
@@ -996,7 +1000,7 @@ async function loadEditableShowing(interactionId: string) {
   if (showing.type !== "SHOWING" || !showing.nextActionDate) return { ok: false as const, reason: "not_showing" as const };
   // Уже снятый показ (nextAction пуст) второй раз не отменяем и не двигаем: это
   // затёрло бы историю и выдало агенту второе уведомление о том же событии.
-  if (!showing.nextAction || showing.completedAt) return { ok: false as const, reason: "already_cancelled" as const };
+  if (!showing.nextAction || showing.completedAt || showing.taskCancelledAt) return { ok: false as const, reason: "already_cancelled" as const };
   return { ok: true as const, showing };
 }
 

@@ -1,3 +1,5 @@
+import { requireInvestigations } from "../auth/investigations.js";
+import { visibleInteractionWhere } from "../lib/investigationPrivacy.js";
 import { Router, type Request, type Response } from "express";
 import { z } from "zod";
 import {
@@ -173,12 +175,12 @@ reportsRouter.get("/funnel", async (req, res) => {
       by: ["clientId"],
       // client.deletedAt — иначе «На контакте» считалось по удалённым клиентам, и
       // воронка расширялась вместо того, чтобы сужаться: 10 лидов, 12 на контакте.
-      where: { type: { in: ["CALL", "MESSAGE", "MEETING"] }, createdAt: { gte: from, lte: to }, client: { deletedAt: null } },
+      where: { ...visibleInteractionWhere(req.agent?.role), type: { in: ["CALL", "MESSAGE", "MEETING"] }, createdAt: { gte: from, lte: to }, client: { deletedAt: null } },
     }),
     // COUNTED_SHOWING_WHERE — отменённый показ не состоялся, и в воронке ему не
     // место: иначе шаг «Показы» шире шага «На контакте» на встречи, которых не было.
     prisma.interaction.count({
-      where: { type: "SHOWING", ...COUNTED_SHOWING_WHERE, createdAt: { gte: from, lte: to }, client: { deletedAt: null } },
+      where: { ...visibleInteractionWhere(req.agent?.role), type: "SHOWING", ...COUNTED_SHOWING_WHERE, createdAt: { gte: from, lte: to }, client: { deletedAt: null } },
     }),
     prisma.deal.count({ where: { startedAt: { gte: from, lte: to }, client: { deletedAt: null } } }),
     // Сумма по валютам считается базой — одна строка на валюту вместо списка
@@ -248,6 +250,7 @@ reportsRouter.get("/agents", async (req, res) => {
       // счётчика в одном ответе API считали по разным правилам.
       where: {
         agentId: { in: agentIds },
+        ...visibleInteractionWhere(req.agent?.role),
         type: "SHOWING",
         ...COUNTED_SHOWING_WHERE,
         createdAt: { gte: from, lte: to },
@@ -262,6 +265,7 @@ reportsRouter.get("/agents", async (req, res) => {
       by: ["subjectAgentId"],
       where: {
         subjectAgentId: { in: agentIds },
+        ...visibleInteractionWhere(req.agent?.role),
         agentId: null,
         type: "SHOWING",
         ...COUNTED_SHOWING_WHERE,
@@ -682,7 +686,7 @@ reportsRouter.patch("/problems/:id", requirePermission("dashboard.analytics"), a
  * (parseRange выше): сводка по смыслу недельная, молчаливый месячный дефолт
  * удивил бы того, кто открыл её без параметров, ожидая неделю.
  */
-reportsRouter.get("/security-review-digest", async (req, res) => {
+reportsRouter.get("/security-review-digest", requireInvestigations, async (req, res) => {
   const parsed = dateRangeQuerySchema.safeParse(req.query);
   if (!parsed.success) {
     return res.status(400).json({ error: "Неверный период", details: parsed.error.flatten() });

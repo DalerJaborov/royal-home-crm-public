@@ -520,6 +520,7 @@ async function dialOnePostShowingCall(callId: string, now: Date): Promise<DialOu
     result = await originateLiveVoiceScenarioCall(
       call.client.phone,
       {
+        investigationOnly: true,
         systemInstruction: prompt,
         voiceName: voice.voiceName,
         forceRussianOnly: voice.forceRussianOnly,
@@ -694,7 +695,7 @@ async function routePostShowingCallOutcome(
         `Показ вёл ${call.agent.fullName}${call.property?.title ? `, объект «${call.property.title}»` : ""}.`,
       url: `/clients/${call.client.shortId}`,
       tag: `post-showing-call-review-${call.id}`,
-      recipientPermission: "clients.assign",
+      recipientRoles: ["ADMIN", "DIRECTOR"],
       excludeAgentId: call.agentId,
     });
     return;
@@ -717,7 +718,7 @@ async function routePostShowingCallOutcome(
       `${call.quote ? ` Дословно: «${call.quote}»` : ""}`,
     url: `/clients/${call.client.shortId}`,
     tag: `post-showing-call-${call.id}`,
-    recipientPermission: "clients.assign",
+    recipientRoles: ["ADMIN", "DIRECTOR"],
     excludeAgentId: call.agentId,
   });
 }

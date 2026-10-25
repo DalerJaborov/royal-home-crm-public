@@ -107,7 +107,7 @@ export interface UpsertAutoTaskInput {
 }
 
 export interface UpsertAutoTaskResult {
-  interactionId: string;
+  interactionId: string | null;
   /** false — обновили уже существующую открытую автозадачу этого вида у клиента. */
   created: boolean;
 }
@@ -122,9 +122,13 @@ export interface UpsertAutoTaskResult {
  * решает, кому достанется nextAction.
  */
 export async function upsertAutoTask(input: UpsertAutoTaskInput): Promise<UpsertAutoTaskResult> {
+  if (!input.tx) return prisma.$transaction(tx => upsertAutoTask({ ...input, tx }));
   const db = input.tx ?? prisma;
+  await db.$queryRaw`SELECT id FROM "Client" WHERE id = ${input.clientId} FOR UPDATE`;
+  const client = await db.client.findUnique({ where: { id: input.clientId }, select: { assignmentCompletedAt: true } });
+  if (!client || client.assignmentCompletedAt) return { interactionId: null, created: false };
   const existing = await db.interaction.findFirst({
-    where: { clientId: input.clientId, autoTaskKind: input.kind, nextAction: { not: null }, completedAt: null },
+    where: { clientId: input.clientId, autoTaskKind: input.kind, nextAction: { not: null }, completedAt: null, taskCancelledAt: null },
     orderBy: { createdAt: "desc" },
     select: { id: true },
   });
@@ -176,9 +180,13 @@ export async function claimAutoTaskSlot(
   nextActionDate: Date,
   tx?: TimelineTx
 ): Promise<ClaimAutoTaskSlotResult> {
+  if (!tx) return prisma.$transaction(inner => claimAutoTaskSlot(clientId, kind, nextAction, nextActionDate, inner));
   const db = tx ?? prisma;
+  await db.$queryRaw`SELECT id FROM "Client" WHERE id = ${clientId} FOR UPDATE`;
+  const client = await db.client.findUnique({ where: { id: clientId }, select: { assignmentCompletedAt: true } });
+  if (!client || client.assignmentCompletedAt) return { assignToNewRecord: false };
   const existing = await db.interaction.findFirst({
-    where: { clientId, autoTaskKind: kind, nextAction: { not: null }, completedAt: null },
+    where: { clientId, autoTaskKind: kind, nextAction: { not: null }, completedAt: null, taskCancelledAt: null },
     orderBy: { createdAt: "desc" },
     select: { id: true },
   });
@@ -219,6 +227,7 @@ export async function closeAutoTasks(
       autoTaskKind: { in: [...kinds] },
       nextAction: { not: null },
       completedAt: null,
+      taskCancelledAt: null,
     },
     data: { nextAction: null, nextActionDate: null, completedAt: now },
   });

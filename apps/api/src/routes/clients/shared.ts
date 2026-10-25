@@ -1,3 +1,5 @@
+import { publicClientProjection } from "../../lib/investigationPrivacy.js";
+import { canViewInvestigations } from "@royal-home/shared";
 /**
  * Общие хелперы маршрутов клиента (Г2, docs/architecture-blueprint.md §1.2):
  * их используют несколько групп routes/clients/*. Код перенесён из
@@ -36,9 +38,12 @@ import { findPhoneConflicts, type PhoneConflict } from "../../lib/clientPhones.j
  */
 export function foreignWriteDenied(
   req: Request,
-  client: { assignedAgentId: string | null },
+  client: { assignedAgentId: string | null; assignmentCompletedAt?: Date | null },
   ownAgentId: string | undefined
 ): string | null {
+  if (client.assignmentCompletedAt && req.agent!.role !== "ADMIN" && req.agent!.role !== "DIRECTOR") {
+    return "Работа по этому назначению завершена. Дальнейшее решение принимает руководитель";
+  }
   if (ownAgentId) return null; // рядовой агент — его ограничивает своя проверка
   if (can(req, "clients.assign")) return null;
   if (client.assignedAgentId === req.agent!.id) return null;
@@ -96,7 +101,8 @@ export function presentClient<
     dualIntent?: boolean;
     dualIntentConfirmedAt?: Date | null;
   },
->(client: T, canSeePhone: boolean, canSeeOrigin = true): T & { pendingAcceptance: boolean } {
+>(client: T, canSeePhone: boolean, canSeeOrigin = true, viewerRole?: string): T & { pendingAcceptance: boolean } {
+  client = publicClientProjection(client, viewerRole);
   const pending = client.acceptedAt === null && client.kind !== "OTHER" &&
     !["LOST", "ARCHIVED", "DEAL_CLOSED"].includes(client.status ?? "") &&
     !["INACTIVE", "DEFERRED"].includes(client.workStatus ?? "");
@@ -319,7 +325,7 @@ export function computeHiddenReason(client: {
   escalatedAt?: Date | null;
   acceptedAt: Date | null;
   securityReview?: string | null;
-}): HiddenReasonInfo | null {
+}, viewerRole?: string): HiddenReasonInfo | null {
   if (client.deletedAt) {
     return {
       kind: "trashed",
@@ -332,7 +338,7 @@ export function computeHiddenReason(client: {
   if (client.kind === "OTHER") {
     return { kind: "other", label: "Прочее обращение", detail: "Не покупатель и не продавец — вне ваших списков" };
   }
-  if (client.securityReview && client.securityReview !== "CLEARED") {
+  if (canViewInvestigations(viewerRole) && client.securityReview && client.securityReview !== "CLEARED") {
     return { kind: "securityReview", label: "На проверке СБ", detail: "Разбирает служба безопасности" };
   }
   if (client.status === "LOST") {

@@ -1160,6 +1160,7 @@ export function shouldAcceptLiveVoiceChannel(event: AriEvent, settings: LiveVoic
 // ---------------------------------------------------------------------------
 
 interface LiveVoiceSession {
+  investigationOnly: boolean;
   channelId: string;
   bridgeId: string;
   externalMediaChannelId: string;
@@ -1768,6 +1769,7 @@ async function loadLiveVoiceSettings(): Promise<LiveVoiceGateSettings | null> {
  *  либо таймером ниже, если событие почему-то не пришло вовсе (сорвавшийся
  *  Originate, разорванная подписка). */
 interface PendingLiveVoiceCall {
+  investigationOnly?: boolean;
   isManualTestCall: boolean;
   clientId?: string;
   systemInstruction?: string;
@@ -2152,6 +2154,7 @@ export async function originateLiveVoiceCallToClient(
 export async function originateLiveVoiceScenarioCall(
   phoneNumber: string,
   task: {
+    investigationOnly?: boolean;
     systemInstruction: string;
     greetingTrigger?: string;
     tools?: LiveVoiceFunctionDeclaration[];
@@ -2230,6 +2233,7 @@ export async function originateLiveVoiceScenarioCall(
     forceRussianOnly: task.forceRussianOnly,
     language: task.language,
     callKind: "scenario",
+    investigationOnly: task.investigationOnly === true,
     tools: task.tools,
     greetingTrigger: task.greetingTrigger,
     onFinished: task.onFinished,
@@ -2260,6 +2264,7 @@ export async function originateLiveVoiceScenarioCall(
 }
 
 type StartOptions = {
+  investigationOnly?: boolean;
   isManualTestCall?: boolean;
   clientId?: string;
   systemInstruction?: string;
@@ -2802,6 +2807,7 @@ function createSessionRow(session: LiveVoiceSession, clientId: string | null): P
     .create({
       data: {
         id: session.dbId,
+        investigationOnly: session.investigationOnly,
         channelId: session.channelId,
         clientId,
         promptVersion: LIVE_VOICE_PROMPT_VERSION,
@@ -2935,6 +2941,7 @@ async function startLiveVoiceSessionInner(event: AriEvent, ctx: StartContext): P
       clientAudioChunks: [],
       botAudioChunks: [],
       callKind: task ? "consultant" : options.callKind ?? "sales",
+      investigationOnly: options.investigationOnly === true,
       scenarioFinish: task?.onFinished ?? options.onFinished ?? null,
       toolHandler: task?.onToolCall ?? null,
       transcriptionObserver: task?.onTranscription ?? null,
@@ -3061,6 +3068,7 @@ async function startLiveVoiceSessionInner(event: AriEvent, ctx: StartContext): P
     liveVoiceMonitor.sessionStarted({
       key: session.dbId,
       channelId,
+      investigationOnly: session.investigationOnly,
       callerNumber: session.callerNumber,
       direction: session.direction,
       startedAt: session.startedAtMs,
@@ -5181,6 +5189,7 @@ async function processLiveVoiceAriEvent(event: AriEvent): Promise<void> {
       voiceName: pendingCall?.voiceName ?? resolveLiveVoiceVoiceName(settings),
       soundDesign: soundDesignFrom(settings),
       callKind: pendingCall?.callKind,
+      investigationOnly: pendingCall?.investigationOnly,
       tools: pendingCall?.tools,
       greetingTrigger: pendingCall?.greetingTrigger,
       onFinished: pendingCall?.onFinished,

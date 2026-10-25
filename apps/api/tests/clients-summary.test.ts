@@ -80,6 +80,20 @@ afterAll(async () => {
 });
 
 describe("GET /clients/summary", () => {
+  it("приватный показ не добавляется к обычной сводке агента", async () => {
+    const token = await login(agentPhone);
+    const before = await request(app).get("/api/v1/clients/summary").set("Authorization", `Bearer ${token}`);
+    const row = await prisma.interaction.create({ data: {
+      clientId: ids[0], agentId, type: "SHOWING", notes: "Private showing fixture", nextActionDate: new Date(), investigationOnly: true,
+    } });
+    try {
+      const after = await request(app).get("/api/v1/clients/summary").set("Authorization", `Bearer ${token}`);
+      expect(after.status).toBe(200);
+      expect(after.body.showings).toEqual(before.body.showings);
+    } finally {
+      await prisma.interaction.delete({ where: { id: row.id } });
+    }
+  });
   it("агент: свои покупатели и продавцы, непринятая карточка ждёт агента, чужие срезы закрыты", async () => {
     const token = await login(agentPhone);
     const res = await request(app).get("/api/v1/clients/summary").set("Authorization", `Bearer ${token}`);

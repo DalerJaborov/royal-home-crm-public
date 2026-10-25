@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import { assignmentWriteDenied } from "../lib/assignmentCompletion.js";
 import { shieldPauseFor } from "../lib/outboundShield.js";
 import { loadCustomerTransportForConversation } from "../lib/customerConversationScope.js";
 import { Router } from "express";
@@ -67,9 +68,20 @@ conversationsRouter.use(requireAuth, (req, res, next) => {
  */
 conversationsRouter.use("/:id", async (req, res, next) => {
   const agentId = chatScopeAgentId(req);
-  if (!agentId) return next();
-  if (await conversationBelongsTo(req.params.id, agentId)) return next();
-  return res.status(404).json({ error: "Диалог не найден" });
+  if (agentId && !(await conversationBelongsTo(req.params.id, agentId))) {
+    return res.status(404).json({ error: "Диалог не найден" });
+  }
+  // Reading old correspondence remains allowed; completed work cannot send new
+  // replies, pause the bot, or change conversation links through the inbox.
+  if (!["GET", "HEAD", "OPTIONS"].includes(req.method)) {
+    const id = req.params.id;
+    const conversation = id.startsWith(TG_PREFIX)
+      ? await prisma.telegramConversation.findUnique({ where: { id: id.slice(TG_PREFIX.length) }, select: { client: { select: { assignmentCompletedAt: true } } } })
+      : await prisma.botConversation.findUnique({ where: { id }, select: { client: { select: { assignmentCompletedAt: true } } } });
+    const denied = conversation?.client && assignmentWriteDenied(conversation.client, req.agent?.role);
+    if (denied) return res.status(403).json({ error: denied });
+  }
+  return next();
 });
 
 // Форма реплики переписки описана один раз в @royal-home/shared.

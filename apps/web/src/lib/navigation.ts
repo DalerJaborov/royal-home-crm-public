@@ -461,7 +461,7 @@ function buildNavigation(inputs: NavInputs): Navigation {
   const isPipelineRole = role === "MARKETING" || role === "EDITOR";
 
   const nav2: NavItem | undefined =
-    role === "SECURITY"
+    role === "SECURITY" && can("clients.securityReview")
       ? { to: "/security", icon: ShieldAlert, label: "Проверки", group: "team" }
       : role === "MANAGER"
         ? { to: "/calls", icon: PhoneCall, label: "Звонки", group: "inbox" }

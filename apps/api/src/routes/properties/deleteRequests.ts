@@ -11,6 +11,7 @@
  * (см. комментарий в index.ts).
  */
 import { Router } from "express";
+import { canViewInvestigations } from "@royal-home/shared";
 import {
   PROPERTY_DELETE_REQUEST_REASON_LABELS,
   DELETE_REQUEST_STATUSES,
@@ -104,7 +105,7 @@ deleteRequestsRouter.get(
         requestedBy: r.requestedBy,
         decidedBy: r.decidedBy,
         property: r.property,
-        dossier: dossiers.get(r.property.id) ?? null,
+        ...(canViewInvestigations(req.agent?.role) ? { dossier: dossiers.get(r.property.id) ?? null } : {}),
       })),
     });
   }

@@ -25,6 +25,7 @@ const clientSelect = {
   deletedAt: true,
   assignedAgentId: true,
   acceptedAt: true,
+  assignmentCompletedAt: true,
 } as const;
 
 /** Та же лестница отказов, что у сообщения из карточки. null — можно писать. */

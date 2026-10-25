@@ -25,7 +25,8 @@ describe("buildEventPointsGuide", () => {
     const guide = await buildEventPointsGuide();
     const byKind = new Map(guide.map((r) => [r.kind, r]));
 
-    for (const kind of Object.keys(CATEGORY_OF)) {
+    expect(byKind.has("security_review")).toBe(false);
+    for (const kind of Object.keys(CATEGORY_OF).filter((kind) => kind !== "security_review")) {
       const row = byKind.get(kind);
       expect(row, `нет строки для ${kind}`).toBeDefined();
       expect(row!.category).toBe(CATEGORY_OF[kind as keyof typeof CATEGORY_OF]);

@@ -141,6 +141,7 @@ export async function scoreClient(clientId: string): Promise<{ aiScore: number; 
       where: { id: clientId },
       include: {
         interactions: {
+          where: { investigationOnly: false },
           orderBy: { createdAt: "desc" },
           take: MAX_INTERACTIONS,
           // Кто записал (агент) и о ком запись (держатель карточки у системных) —

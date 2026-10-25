@@ -68,7 +68,7 @@ async function findFrozenAppointment(clientId: string, cutoff: Date): Promise<bo
       type: { in: ["MEETING", "SHOWING"] },
       nextAction: { not: null },
       nextActionDate: { lte: cutoff },
-      completedAt: null,
+      completedAt: null, taskCancelledAt: null,
       declinedAt: null,
     },
     select: { id: true },

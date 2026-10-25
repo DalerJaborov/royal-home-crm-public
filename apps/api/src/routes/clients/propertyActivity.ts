@@ -1,9 +1,11 @@
 import { Router } from "express";
+import { visibleInteractionWhere } from "../../lib/investigationPrivacy.js";
 import { z } from "zod";
 import { clientPropertyActivityQuerySchema, type ClientActivityProperty, type ClientPropertyActivity } from "@royal-home/shared";
 import { can, canAccessAssignedAgent, requireAuth, scopeToOwnAgent } from "../../auth/middleware.js";
 import { prisma } from "../../db.js";
 import { phoneSafeText } from "../../lib/clientPhone.js";
+import { assignmentWriteDenied } from "../../lib/assignmentCompletion.js";
 import type { Prisma } from "../../generated/prisma/client.js";
 
 export const propertyActivityRouter = Router();
@@ -29,7 +31,7 @@ propertyActivityRouter.get("/:id/property-activity", requireAuth, async (req, re
   const query = clientPropertyActivityQuerySchema.safeParse(req.query);
   if (!id.success || !query.success) return res.status(400).json({ error: "Неверные параметры списка объектов" });
   const client = await prisma.client.findUnique({ where: { id: id.data },
-    select: { assignedAgentId: true, lastAgentId: true, acceptedAt: true, deletedAt: true } });
+    select: { assignedAgentId: true, lastAgentId: true, acceptedAt: true, deletedAt: true, assignmentCompletedAt: true } });
   if (!client || client.deletedAt) return res.status(404).json({ error: "Клиент не найден" });
   const ownAgentId = scopeToOwnAgent(req);
   if (!canAccessAssignedAgent(req, client.assignedAgentId) && client.lastAgentId !== ownAgentId) {
@@ -56,18 +58,18 @@ propertyActivityRouter.get("/:id/property-activity", requireAuth, async (req, re
       property: presentProperty(row.property, seesPhone, canDelete), channel: can(req, "clients.viewOrigin") ? row.channel : null,
       kind: row.kind === "PHOTO" ? "PHOTO" : "LINK", state: "sent", scheduledAt: null, canManage: false }));
   } else {
-    const where = { clientId: id.data, type: "SHOWING" as const };
+    const where = { clientId: id.data, type: "SHOWING" as const, ...visibleInteractionWhere(req.agent?.role) };
     const [rows, count] = await Promise.all([
       prisma.interaction.findMany({ where, orderBy: [{ createdAt: "desc" }, { id: "desc" }], skip, take: pageSize,
-        select: { id: true, agentId: true, subjectAgentId: true, createdAt: true, nextActionDate: true, completedAt: true, declinedAt: true,
+        select: { id: true, agentId: true, subjectAgentId: true, createdAt: true, nextActionDate: true, completedAt: true, declinedAt: true, taskCancelledAt: true,
           property: { select: selection } } }),
       prisma.interaction.count({ where }),
     ]);
     total = count;
     items = rows.map(row => ({ id: row.id, at: row.createdAt.toISOString(), shortId: row.property?.shortId ?? null,
       property: presentProperty(row.property, seesPhone, canDelete), channel: null, kind: "SHOWING", scheduledAt: row.nextActionDate?.toISOString() ?? null,
-      canManage: req.agent!.role !== "SHAREHOLDER" && (can(req, "clients.assign") || (row.subjectAgentId ?? row.agentId) === req.agent!.id),
-      state: row.declinedAt ? "cancelled" : row.completedAt ? "completed" : row.nextActionDate && row.nextActionDate > new Date() ? "scheduled" : "unrecorded" }));
+      canManage: !row.taskCancelledAt && !assignmentWriteDenied(client, req.agent!.role) && req.agent!.role !== "SHAREHOLDER" && (can(req, "clients.assign") || (row.subjectAgentId ?? row.agentId) === req.agent!.id),
+      state: row.declinedAt || row.taskCancelledAt ? "cancelled" : row.completedAt ? "completed" : row.nextActionDate && row.nextActionDate > new Date() ? "scheduled" : "unrecorded" }));
   }
   res.json({ items, total, page, pageSize } satisfies ClientPropertyActivity);
 });

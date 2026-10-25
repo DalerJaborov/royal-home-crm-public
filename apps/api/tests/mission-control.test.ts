@@ -59,6 +59,26 @@ afterAll(async () => {
 });
 
 describe("GET /dashboard/mission-control", () => {
+  it("приватный звонок исключён из счётчика менеджера и остаётся администратору", async () => {
+    const client = await prisma.client.create({ data: { fullName: "Private call count fixture", phone: `+992799${runId}`, source: "WALK_IN" } });
+    try {
+      invalidateMissionControlCache();
+      const before = await missionControl(managerToken);
+      const adminBefore = await missionControl(adminToken);
+      await prisma.interaction.create({ data: { clientId: client.id, actorKind: "SYSTEM", type: "CALL", notes: "Private call count fixture", investigationOnly: true } });
+      invalidateMissionControlCache();
+      // Populate privileged cache first, then check the ordinary viewer.
+      const adminAfter = await missionControl(adminToken);
+      const after = await missionControl(managerToken);
+      expect(after.status).toBe(200);
+      expect(after.body.calls.today.outgoing).toBe(before.body.calls.today.outgoing);
+      expect(adminAfter.body.calls.today.outgoing).toBe(adminBefore.body.calls.today.outgoing + 1);
+    } finally {
+      await prisma.interaction.deleteMany({ where: { clientId: client.id } });
+      await prisma.client.delete({ where: { id: client.id } });
+      invalidateMissionControlCache();
+    }
+  });
   it("рядовому агенту закрыт — нет dashboard.analytics", async () => {
     const res = await missionControl(agentToken);
     expect(res.status).toBe(403);

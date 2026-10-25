@@ -221,7 +221,7 @@ export async function processNoAnswerTailAnchors(now: Date = new Date()): Promis
     where: {
       type: "SYSTEM",
       nextAction: null,
-      completedAt: null,
+      completedAt: null, taskCancelledAt: null,
       notes: { startsWith: "noAnswerTail:" },
       nextActionDate: { lte: now },
     },
