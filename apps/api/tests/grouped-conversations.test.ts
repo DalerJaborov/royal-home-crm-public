@@ -146,12 +146,23 @@ describe("grouped conversation inbox", () => {
       expect(response.body.telegramConversation).toBeNull();
       expect(response.body.telegramDirectConversations).toEqual([]);
       expect(JSON.stringify(response.body)).not.toContain("Direct history");
+      expect((await get(agentToken, `/clients/${client.shortId}/conversation-export`)).status).toBe(403);
       expect((await prisma.botConversation.findUniqueOrThrow({ where: { id: botIds[0] } })).readAt).toBeNull();
       expect((await prisma.telegramConversation.findUniqueOrThrow({ where: { id: telegramIds[0] } })).readAt).toBeNull();
       expect((await prisma.telegramDirectConversation.findUniqueOrThrow({ where: { id: directIds[0] } })).readAt).toBeNull();
     } finally {
       await prisma.client.update({ where: { id: client.id }, data: { acceptedAt: client.acceptedAt } });
     }
+  });
+  it("exports the same retained channel histories as the unified client view", async () => {
+    const client = await prisma.client.findUniqueOrThrow({ where: { id: clientIds[0] } });
+    const response = await get(agentToken, `/clients/${client.shortId}/conversation-export`);
+    expect(response.status).toBe(200);
+    expect(JSON.stringify(response.body)).toContain("Direct history");
+    expect(JSON.stringify(response.body)).toContain("unrelated source history");
+    expect(JSON.stringify(response.body)).toContain("SearchTarget");
+    const foreign = await get(agentToken, `/clients/${(await prisma.client.findUniqueOrThrow({ where: { id: clientIds[24] } })).shortId}/conversation-export`);
+    expect(foreign.status).toBe(403);
   });
   it("filters sources before exact-client grouping and returns the persisted source IDs", async () => {
     const response = await get(adminToken, `/conversations?grouped=1&q=SearchTarget`);

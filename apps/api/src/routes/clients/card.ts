@@ -694,6 +694,7 @@ cardRouter.get("/:id/conversation-export", requireAuth, async (req, res) => {
         orderBy: { lastMessageAt: "desc" },
       },
       telegramConversation: { select: { messages: true } },
+      telegramDirectConversations: { select: { messages: true }, orderBy: { lastMessageAt: "desc" } },
     },
   });
   if (!client || client.deletedAt) return res.status(404).json({ error: "Клиент не найден" });
@@ -725,6 +726,7 @@ cardRouter.get("/:id/conversation-export", requireAuth, async (req, res) => {
   const rows: ExportRow[] = [
     ...client.botConversation.flatMap((c) => toRows(c.channel, c.messages)),
     ...(client.telegramConversation ? toRows("TELEGRAM", client.telegramConversation.messages) : []),
+    ...client.telegramDirectConversations.flatMap(c => toRows("TELEGRAM_DIRECT", c.messages)),
   ];
 
   // Сортировка по времени там, где оно есть — иначе несколько каналов идут блоками

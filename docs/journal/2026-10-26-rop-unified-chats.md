@@ -10,4 +10,8 @@ Browser acceptance also caught a grouped ID reaching a UUID-only callback-reques
 
 Validation uses isolated local PostgreSQL and synthetic role/client/channel fixtures, a local app-only API without workers, and blocked external fetch. ROP browser receipt/report actions succeeded with actual ordinary task state transitions, desktop/mobile screenshots and no horizontal overflow. Focused API/web checks and exact-source cloud results are recorded separately when completed; this journal does not claim a full green suite or release.
 
+Conversation export includes the newly readable Direct history under the existing card ownership/acceptance/phone/attachment guards, matching the retained histories visible on screen. Pending and foreign-card export denials have explicit regression coverage.
+
+The first exact cloud run also exposed a nondeterministic address privacy fixture: its base-36 run suffix could contain the protected house number `45`. The test-only street suffix now uses letters, retaining the original house/flat/phone privacy assertions and unchanged production behavior. The focused live-voice property-tool suite passes all 27 tests.
+
 No production deployment, merge, provider configuration, real messages/calls or paid generation is authorized by this work. Historical journal evidence remains historical; the owner's current scope supersedes older statements about internal price comparables and proposed new language work.
