@@ -23,6 +23,13 @@ const nonNameQuestionPrefix = /^(?:(?:а|и|ну)[ \t]+)*(?:(?:можно|мог
 // It cannot classify every word as a name or profession; a stored name remains
 // a literal customer claim, never verified identity.
 const nonNameReply = /^(?:(?:а|пожалуйста)[ \t]+)*(?:можно(?:[ \t]+ли)?|можете|могу|подскажите|скажите|напишите|пишите|пиши|свяжитесь|связаться|написать|ответьте|отвечайте|позвоните|перезвоните|звоните|обращайтесь|отправьте|пришлите|сообщите|уточните|удобно|лучше|предпочитаете|да|ага|ҳа|ха|бале|нет|неа|не|не знаю|потом|спасибо|салом|привет|здравствуйте|монтаж[её]р|видеограф|смм(?:-специалист)?|агент(?:[ \t]+по[ \t]+недвижимости)?|риелтор|дизайнер)(?:[ \t]+пожалуйста)?$/iu;
+function hasNonNameContinuation(candidate: string): boolean {
+  const words = candidate.trim().split(/[ \t]+/u);
+  return words.slice(1).some((_, index) => {
+    const suffix = words.slice(index + 1).join(" ");
+    return nonNameQuestionPrefix.test(suffix) || nonNameReply.test(suffix);
+  });
+}
 export function extractRecruitmentResumeFacts(input: string): DraftFacts {
   const facts: DraftFacts = {};
   const text = input.trim();
@@ -34,7 +41,7 @@ export function extractRecruitmentResumeFacts(input: string): DraftFacts {
     if (value >= 14 && value <= 100) facts.age = sourced(value, age[0]);
   }
   const name = clauses.map(clause => /^(?:меня зовут|имя\s*[:—-]|номи ман)\s+([\p{L}][\p{L}'’-]*(?:[ \t]+[\p{L}][\p{L}'’-]*){0,2}?)(?=$|[ \t]*[,;:!?？]|[ \t]+(?:(?:(?:через|в)[ \t]+)?(?:телеграм(?:м)?|telegram|ватсап|whats[ \t]*app|мессенджер|инстаграм|instagram|директ))(?=$|[^\p{L}]))/iu.exec(clause)).find(Boolean);
-  if (name) facts.name = sourced(name[1].trim(), name[0]);
+  if (name && !hasNonNameContinuation(name[1])) facts.name = sourced(name[1].trim(), name[0]);
   const phone = /(?:^|[\n\r])\s*(?:(?:мой\s+)?(?:телефон|номер|phone|тел)\s*[:—-]?\s*)?([+(\d][\d\s()-]{8,25})(?=$|[\n\r])/iu.exec(text);
   if (phone) {
     const value = normalizeCandidatePhone(phone[1]);
@@ -89,9 +96,11 @@ export function extractRecruitmentAnswerFacts(text: string, answerTo?: Recruitme
       // This stores only a customer-stated name claim under an accepted name
       // question; neither the text nor this parser verifies the person's identity.
       if (candidate && mixed.groups?.question && messengerQuestionCue.test(mixed.groups.question) &&
-        !explicitStatusReply.test(candidate) && !nonNameReply.test(candidate) && !nonNameQuestionPrefix.test(candidate)) literal.name = quoted(candidate);
+        !explicitStatusReply.test(candidate) && !nonNameReply.test(candidate) && !nonNameQuestionPrefix.test(candidate) &&
+        !hasNonNameContinuation(candidate)) literal.name = quoted(candidate);
       else if (/^[\p{L}][\p{L}'’-]*(?:\s+[\p{L}][\p{L}'’-]*){0,2}$/u.test(reply) &&
-        !explicitStatusReply.test(reply) && !nonNameReply.test(reply) && !nonNameQuestionPrefix.test(reply)) literal.name = quoted(reply);
+        !explicitStatusReply.test(reply) && !nonNameReply.test(reply) && !nonNameQuestionPrefix.test(reply) &&
+        !hasNonNameContinuation(reply)) literal.name = quoted(reply);
     } else if (["city", "about", "education", "experience", "languages", "startWhen", "skills", "tools"].includes(key)) {
       literal[key as "city" | "about" | "education" | "experience" | "languages" | "startWhen" | "skills" | "tools"] = quoted(reply);
     }

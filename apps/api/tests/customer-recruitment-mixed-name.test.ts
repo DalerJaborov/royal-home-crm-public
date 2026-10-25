@@ -50,6 +50,8 @@ describe("mixed recruitment name answers", () => {
     "Могу ли через телеграм или ватсап?",
     "Можно мне через телеграм или ватсап?",
     "Как через телеграм можно?",
+    "Рустам можно через телеграм можно?",
+    "Меня зовут Рустам можно через телеграм можно?",
   ])("does not treat a multiword question prefix as a name: %s", text => {
     expect(extractRecruitmentAnswerFacts(text, "name").name).toBeUndefined();
   });
