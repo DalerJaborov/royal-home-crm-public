@@ -1,0 +1,8 @@
+# Reviewed false positives: public WorkflowCheckpoint identifiers, not credentials.
+# These fingerprints exclude only the exact historical findings; no rule or path is disabled.
+# seller-intake-appointments-v1: immutable intake source cutover key.
+442e8930e153cbc31e6b637bc3660fb87ece870c:apps/api/src/lib/sellerIntakeAppointments.ts:generic-api-key:26
+# owner-exposure-verification-v1: exposure cursor/checkpoint key.
+442e8930e153cbc31e6b637bc3660fb87ece870c:apps/api/src/lib/ownerVerificationSources.ts:generic-api-key:145
+# The same public checkpoint identifier in a synthetic test fixture.
+442e8930e153cbc31e6b637bc3660fb87ece870c:apps/api/tests/owner-verification-sources.test.ts:generic-api-key:18
