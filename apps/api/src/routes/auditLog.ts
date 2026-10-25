@@ -1,3 +1,4 @@
+import { investigationViewerRole } from "../auth/investigations.js";
 import { visibleAuditWhere, publicAuditMeta, privateLessonAuditIds } from "../lib/investigationAudit.js";
 import { Router, type Request } from "express";
 import { pageQuerySchema } from "@royal-home/shared";
@@ -62,8 +63,8 @@ auditLogRouter.get("/", async (req, res) => {
     }
   }
 
-  const privateLessonIds = await privateLessonAuditIds(req.agent?.role);
-  const where = { ...visibleAuditWhere(req.agent?.role, privateLessonIds), ...(entityType ? { entityType } : {}), ...(entityId ? { entityId } : {}) };
+  const privateLessonIds = await privateLessonAuditIds(investigationViewerRole(req));
+  const where = { ...visibleAuditWhere(investigationViewerRole(req), privateLessonIds), ...(entityType ? { entityType } : {}), ...(entityId ? { entityId } : {}) };
   const [items, total] = await Promise.all([
     prisma.auditLog.findMany({
       where,
@@ -73,7 +74,7 @@ auditLogRouter.get("/", async (req, res) => {
     }),
     prisma.auditLog.count({ where }),
   ]);
-  res.json({ items: hideClientPhones(req, await hideOwnerContacts(req, items.map((row) => publicAuditMeta(row, req.agent?.role)))), total, page, pageSize });
+  res.json({ items: hideClientPhones(req, await hideOwnerContacts(req, items.map((row) => publicAuditMeta(row, investigationViewerRole(req))))), total, page, pageSize });
 });
 
 /**

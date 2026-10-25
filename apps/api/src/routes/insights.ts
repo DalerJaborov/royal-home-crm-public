@@ -1,5 +1,4 @@
-import { canViewInvestigations } from "@royal-home/shared";
-import { requireInvestigations } from "../auth/investigations.js";
+import { canReadInvestigations, requireInvestigations } from "../auth/investigations.js";
 import { Router } from "express";
 import { z } from "zod";
 import { requireAuth, requirePermission } from "../auth/middleware.js";
@@ -60,7 +59,7 @@ insightsRouter.post("/generate", requireAuth, requireInvestigations, requirePerm
 
   const digest = await prisma.insightDigest.findUnique({
     where: { id: digestId },
-    include: { _count: { select: { cases: canViewInvestigations(req.agent?.role) ? true : { where: { kind: { not: "agent_bypass" } } } } } },
+    include: { _count: { select: { cases: canReadInvestigations(req) ? true : { where: { kind: { not: "agent_bypass" } } } } } },
   });
 
   res.json({
@@ -78,7 +77,7 @@ insightsRouter.get("/", requireAuth, requirePermission("insights.view"), async (
   // архив никому не нужен на экране собрания.
   const digests = await prisma.insightDigest.findMany({
     orderBy: { periodStart: "desc" },
-    include: { _count: { select: { cases: canViewInvestigations(req.agent?.role) ? true : { where: { kind: { not: "agent_bypass" } } } } } },
+    include: { _count: { select: { cases: canReadInvestigations(req) ? true : { where: { kind: { not: "agent_bypass" } } } } } },
     take: 60,
   });
 
@@ -89,7 +88,7 @@ insightsRouter.get("/", requireAuth, requirePermission("insights.view"), async (
       periodEnd: d.periodEnd,
       meetingAt: d.meetingAt,
       status: d.status,
-      coverage: canViewInvestigations(req.agent?.role) ? d.coverage : null,
+      coverage: canReadInvestigations(req) ? d.coverage : null,
       createdAt: d.createdAt,
       caseCount: d._count.cases,
       /** @deprecated старое имя, оставлено для совместимости — см. insightDigestListSchema. */
@@ -107,7 +106,7 @@ insightsRouter.get("/:id", requireAuth, requirePermission("insights.view"), asyn
   const digest = await prisma.insightDigest.findUnique({
     where: { id },
     // Сначала самые серьёзные — в таком порядке их и разбирают на собрании.
-    include: { cases: { where: canViewInvestigations(req.agent?.role) ? {} : { kind: { not: "agent_bypass" } }, orderBy: [{ severity: "desc" }, { createdAt: "asc" }] } },
+    include: { cases: { where: canReadInvestigations(req) ? {} : { kind: { not: "agent_bypass" } }, orderBy: [{ severity: "desc" }, { createdAt: "asc" }] } },
   });
 
   if (!digest) {
@@ -170,7 +169,7 @@ insightsRouter.patch("/cases/:id", requireAuth, requirePermission("insights.view
 
   // Несуществующее дело — 404, а не «Внутренняя ошибка» от update (находка №156).
   const existing = await prisma.insightCase.findUnique({ where: { id }, select: { id: true, kind: true } });
-  if (existing?.kind === "agent_bypass" && !canViewInvestigations(req.agent?.role)) return res.status(404).json({ error: "Дело не найдено" });
+  if (existing?.kind === "agent_bypass" && !canReadInvestigations(req)) return res.status(404).json({ error: "Дело не найдено" });
   if (!existing) return res.status(404).json({ error: "Дело не найдено" });
 
   const updatedCase = await prisma.insightCase.update({

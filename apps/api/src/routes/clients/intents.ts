@@ -1,3 +1,4 @@
+import { investigationViewerRole } from "../../auth/investigations.js";
 import { Router, type Request, type Response } from "express";
 import { z } from "zod";
 import { clientBuyerRequirementsSchema, confirmedClientIntents, confirmClientIntentSchema } from "@royal-home/shared";
@@ -58,7 +59,7 @@ intentsRouter.post("/:id/intents", requireAuth, async (req, res) => {
   logAudit(req, "UPDATE", "Client", client.id, { dualIntent, confirmation: automatic ? "automatic-enabled" : "staff" });
   publishClientUpdated({ clientId: client.id, agentIds: [client.assignedAgentId], actorId: req.agent!.id });
   const current = automatic ? await prisma.client.findUniqueOrThrow({ where: { id: client.id } }) : updated;
-  res.json(presentClient(current, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), req.agent?.role));
+  res.json(presentClient(current, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), investigationViewerRole(req)));
 });
 
 intentsRouter.post("/:id/buyer-requirements", requireAuth, async (req, res) => {
@@ -96,5 +97,5 @@ intentsRouter.post("/:id/buyer-requirements", requireAuth, async (req, res) => {
   if (!updated) return res.status(409).json({ error: "Роли карточки изменились. Обновите карточку и повторите" });
   logAudit(req, "UPDATE", "Client", client.id, { requirementsFieldsKind: "BUYER" });
   publishClientUpdated({ clientId: client.id, agentIds: [client.assignedAgentId], actorId: req.agent!.id });
-  res.json(presentClient(updated, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), req.agent?.role));
+  res.json(presentClient(updated, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), investigationViewerRole(req)));
 });

@@ -1,4 +1,5 @@
-import { canViewInvestigations } from "@royal-home/shared";
+import { canReadInvestigations } from "../auth/investigations.js";
+
 import { isPrivateSettingsField, saveWithInvestigationControlAudit } from "../lib/investigationSettingsAudit.js";
 import { Router } from "express";
 import { z } from "zod";
@@ -62,10 +63,10 @@ settingsRestorePointsRouter.get("/", requireAuth, requirePermission("settings.ma
         agentId: point.agentId,
         agentName: point.agentName,
         reason: point.reason,
-        changedFields: point.changedFields.filter(field => canViewInvestigations(req.agent?.role) || !isPrivateSettingsField(field)),
+        changedFields: point.changedFields.filter(field => canReadInvestigations(req) || !isPrivateSettingsField(field)),
         /** false — снимок зашифрован другим ключом: секреты откат не тронет. */
         secretsRestorable: secretsRestorable(point.keyFingerprint),
-        changes: changes.filter(change => canViewInvestigations(req.agent?.role) || !isPrivateSettingsField(change.field)),
+        changes: changes.filter(change => canReadInvestigations(req) || !isPrivateSettingsField(change.field)),
       };
     }),
   });
@@ -107,7 +108,7 @@ settingsRestorePointsRouter.post(
 
     const payload = point.payload as SnapshotPayload;
     const plan = planRestore(payload, current, point.keyFingerprint);
-    if (!canViewInvestigations(req.agent?.role)) {
+    if (!canReadInvestigations(req)) {
       for (const field of Object.keys(plan.data)) if (isPrivateSettingsField(field)) delete plan.data[field];
       plan.changedFields = plan.changedFields.filter(field => !isPrivateSettingsField(field));
     }

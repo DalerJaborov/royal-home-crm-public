@@ -1,5 +1,6 @@
+import { canReadInvestigations } from "../auth/investigations.js";
 import { Router } from "express";
-import { canViewInvestigations } from "@royal-home/shared";
+
 import { Prisma } from "../generated/prisma/client.js";
 import { z } from "zod";
 import { prisma } from "../db.js";
@@ -167,7 +168,7 @@ botLearningRouter.get("/", requireAuth, requirePermission("settings.view"), asyn
   const parsed = feedQuerySchema.safeParse(req.query);
   if (!parsed.success) return res.status(400).json({ error: "Неверные параметры" });
   const { rulesOffset = 0, questionsOffset = 0 } = parsed.data;
-  const visibility: Prisma.BotLessonWhereInput = canViewInvestigations(req.agent?.role) ? {} : { investigationOnly: false };
+  const visibility: Prisma.BotLessonWhereInput = canReadInvestigations(req) ? {} : { investigationOnly: false };
 
   const [rawRules, rawQuestions, rulesTotal, questionsTotal, activeCount, activeLessons] = await Promise.all([
     prisma.botLesson.findMany({
@@ -232,7 +233,7 @@ const EXAMPLES_PER_DIGEST = 10;
  * Отмечает дельное владелец тем же PATCH /:id (active) — второго механизма нет.
  */
 botLearningRouter.get("/lost", requireAuth, requirePermission("settings.view"), async (req, res) => {
-  const visibility: Prisma.BotLessonWhereInput = canViewInvestigations(req.agent?.role) ? {} : { investigationOnly: false };
+  const visibility: Prisma.BotLessonWhereInput = canReadInvestigations(req) ? {} : { investigationOnly: false };
   const [digests, pendingReviews] = await Promise.all([
     prisma.lostClientDigest.findMany({
       orderBy: { periodStart: "desc" },

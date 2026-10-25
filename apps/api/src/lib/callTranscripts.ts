@@ -123,7 +123,7 @@ export function transcriptAccess(
   if (!agent) return { viewerId: null, all: false, own: false, phone: false, hearRecording: false };
   return {
     viewerId: agent.id,
-    investigations: canViewInvestigations(agent.role),
+    investigations: canViewInvestigations(agent.role) && agent.can("clients.securityReview"),
     all: agent.can("calls.transcripts"),
     own: agent.can("calls.ownTranscripts"),
     phone: agent.can("clients.viewPhone"),

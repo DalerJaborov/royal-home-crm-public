@@ -28,11 +28,12 @@ describe("investigation notifications role boundary", () => {
   });
 
   it("rechecks current roles before every delivery, ignoring historical permission recipients", async () => {
-    mocks.findMany.mockResolvedValueOnce([{ id: "director" }]).mockResolvedValueOnce([]);
-    const candidates = ["agent-with-overrides", "rop", "security", "director"];
+    mocks.findMany.mockResolvedValueOnce([{ id: "director", role: "DIRECTOR", permissions: null },
+      { id: "revoked-admin", role: "ADMIN", permissions: { revoked: ["clients.securityReview"] } }]).mockResolvedValueOnce([]);
+    const candidates = ["agent-with-overrides", "rop", "security", "director", "revoked-admin"];
     expect(await filterInvestigationRecipients(candidates, { tag: "post-showing-call-id" })).toEqual(["director"]);
     expect(await filterInvestigationRecipients(candidates, { tag: "post-showing-call-id" })).toEqual([]);
-    expect(mocks.findMany).toHaveBeenCalledWith({ where: { isActive: true, role: { in: ["ADMIN", "DIRECTOR"] } }, select: { id: true } });
+    expect(mocks.findMany).toHaveBeenCalledWith({ where: { isActive: true, role: { in: ["ADMIN", "DIRECTOR"] } }, select: { id: true, role: true, permissions: true } });
   });
 
   it.each(["AGENT", "HEAD_OF_SALES", "MANAGER", "SECURITY", "MARKETING"])("filters history and counters for %s, retaining untagged ordinary rows", (role) => {

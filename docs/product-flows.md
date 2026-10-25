@@ -843,6 +843,8 @@
 
 `apps/api/src/routes/team.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: team.viewFull
 
+- const seesInvestigations = canReadInvestigations(req);
+  · зовёт canReadInvestigations()
 - const agent = await prisma.agent.findUnique({ where: { id }, select: { id: true, fullName: true, phone: true,…
   · читает в базе: agent
 - если !agent
@@ -852,7 +854,7 @@
   · зовёт propertyOwnerWhere()
 - const hotScoreThreshold = await loadHotScoreThreshold();
   · зовёт loadHotScoreThreshold()
-- const overdueTasksAgentWhere = { ...overdueTasksWhere(now), ...visibleInteractionWhere(req.agent?.role), OR: …
+- const overdueTasksAgentWhere = { ...overdueTasksWhere(now), ...visibleInteractionWhere(investigationViewerRol…
   · зовёт overdueTasksWhere()
 - const stalledClientsAgentWhere = { ...stalledClientsWhere(now, hotScoreThreshold), assignedAgentId: id };
   · зовёт stalledClientsWhere()
@@ -1473,9 +1475,9 @@
   - если !isResponsible && !can(req, "properties.viewOwners") && !can(req, "properties.editForeign")
     - return res.status(403).json({ error: "Недостаточно прав" });
       · ответ 403 — «Недостаточно прав»
-- const privateLessonIds = await privateLessonAuditIds(req.agent?.role);
+- const privateLessonIds = await privateLessonAuditIds(investigationViewerRole(req));
   · зовёт privateLessonAuditIds()
-- const where = { ...visibleAuditWhere(req.agent?.role, privateLessonIds), ...(entityType ? { entityType } : {}…
+- const where = { ...visibleAuditWhere(investigationViewerRole(req), privateLessonIds), ...(entityType ? { enti…
   · зовёт visibleAuditWhere()
 - const [items, total] = await Promise.all([ prisma.auditLog.findMany({ where, orderBy: [{ createdAt: "desc" },…
   · читает в базе: auditLog
@@ -1893,7 +1895,7 @@
 - пробует
   - const finding = await prisma.botAuditFinding.findUnique({ where: { id: req.params.id } });
     · читает в базе: botAuditFinding
-  - если finding?.type === "agent_bypassed_crm" && !canViewInvestigations(req.agent?.role)
+  - если finding?.type === "agent_bypassed_crm" && !canReadInvestigations(req)
     - return res.status(404).json({ error: "Запись не найдена" });
       · ответ 404 — «Запись не найдена»
   - если !finding
@@ -1932,7 +1934,7 @@
 - если !parsed.success
   - return res.status(400).json({ error: "Неверные параметры" });
     · ответ 400 — «Неверные параметры»
-- если type === "agent_bypassed_crm" && !canViewInvestigations(req.agent?.role)
+- если type === "agent_bypassed_crm" && !canReadInvestigations(req)
   - return res.status(404).json({ error: "Группа не найдена" });
     · ответ 404 — «Группа не найдена»
 - const rows = await prisma.botAuditFinding.findMany({ where: { type, resolvedAt: null, why: { startsWith: grou…
@@ -1949,7 +1951,7 @@
 - если !parsed.success
   - return res.status(400).json({ error: "Неверные данные" });
     · ответ 400 — «Неверные данные»
-- если type === "agent_bypassed_crm" && !canViewInvestigations(req.agent?.role)
+- если type === "agent_bypassed_crm" && !canReadInvestigations(req)
   - return res.status(404).json({ error: "Группа не найдена" });
     · ответ 404 — «Группа не найдена»
 - const whyPrefix = groupWhyPrefix(why);
@@ -1981,7 +1983,7 @@
 
 `apps/api/src/routes/botAudit.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: auditLog.view
 
-- const { count } = await prisma.botAuditFinding.updateMany({ where: { resolvedAt: null, ...(!canViewInvestigat…
+- const { count } = await prisma.botAuditFinding.updateMany({ where: { resolvedAt: null, ...(!canReadInvestigat…
   · меняет в базе: botAuditFinding
 - res.json({ resolved: count });
   · ответ 200
@@ -2169,6 +2171,8 @@
 
 `apps/api/src/routes/botLearning.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.view
 
+- const visibility: Prisma.BotLessonWhereInput = canReadInvestigations(req) ? {} : { investigationOnly: false };
+  · зовёт canReadInvestigations()
 - const [digests, pendingReviews] = await Promise.all([ prisma.lostClientDigest.findMany({ orderBy: { periodSta…
   · читает в базе: lostClientDigest
   · считает в базе: lostConversation
@@ -2188,6 +2192,8 @@
 - если !parsed.success
   - return res.status(400).json({ error: "Неверные параметры" });
     · ответ 400 — «Неверные параметры»
+- const visibility: Prisma.BotLessonWhereInput = canReadInvestigations(req) ? {} : { investigationOnly: false };
+  · зовёт canReadInvestigations()
 - const [rawRules, rawQuestions, rulesTotal, questionsTotal, activeCount, activeLessons] = await Promise.all([ …
   · читает в базе: botLesson
   · считает в базе: botLesson
@@ -2634,7 +2640,7 @@
 - если !parsedFilters.success
   - return res.status(400).json({ error: "Неверный фильтр списка звонков", details: parsedFilters.error.flatten()…
     · ответ 400 — «Неверный фильтр списка звонков»
-- const where: Prisma.InteractionWhereInput = { ...visibleInteractionWhere(req.agent?.role), type: "CALL", OR: …
+- const where: Prisma.InteractionWhereInput = { ...visibleInteractionWhere(investigationViewerRole(req)), type:…
   · зовёт visibleInteractionWhere()
 - если agentId
   - where.agentId = agentId;
@@ -2674,7 +2680,7 @@
   - return res.status(409).json({ error: "Работа по назначению завершена — требуется новое назначение руководител…
     · ответ 409 — «Работа по назначению завершена — требуется новое назначение…»
 - если client.acceptedAt
-  - return res.json(presentClient(client, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), req.agen…
+  - return res.json(presentClient(client, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), investig…
     · ответ 200
 - const parsedAccept = leadAcceptSchema.safeParse(req.body ?? {});
   · проверяет данные схемой leadAcceptSchema
@@ -2693,7 +2699,7 @@
   · зовёт logAudit()
 - const updated = await prisma.client.findUnique({ where: { id: client.id } });
   · читает в базе: client
-- res.json(presentClient(updated ?? client, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), req.…
+- res.json(presentClient(updated ?? client, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), inve…
   · ответ 200
 
 ### POST /api/v1/clients/:id/activate
@@ -2788,7 +2794,7 @@
     · зовёт closeLeadPushNotifications()
 - publishClientUpdated({ clientId: client.id, agentIds: [updated?.assignedAgentId], actorId: req.agent!.id });
   · зовёт publishClientUpdated()
-- res.json(presentClient(updated!, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), req.agent?.ro…
+- res.json(presentClient(updated!, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), investigation…
   · ответ 200
 
 ### POST /api/v1/clients/:id/bot-pause
@@ -2873,7 +2879,7 @@
   · зовёт logAudit()
 - publishClientUpdated({ clientId: client.id, agentIds: [client.assignedAgentId], actorId: req.agent!.id });
   · зовёт publishClientUpdated()
-- res.json(presentClient(updated, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), req.agent?.rol…
+- res.json(presentClient(updated, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), investigationV…
   · ответ 200
 
 ### POST /api/v1/clients/:id/call
@@ -3223,7 +3229,7 @@
   · зовёт publishClientUpdated()
 - const current = automatic ? await prisma.client.findUniqueOrThrow({ where: { id: client.id } }) : updated;
   · читает в базе: client
-- res.json(presentClient(current, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), req.agent?.rol…
+- res.json(presentClient(current, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), investigationV…
   · ответ 200
 
 ### POST /api/v1/clients/:id/interactions
@@ -3580,7 +3586,7 @@
     · читает в базе: propertyExposure
     · считает в базе: propertyExposure
 - иначе
-  - const where = { clientId: id.data, type: "SHOWING" as const, ...visibleInteractionWhere(req.agent?.role) };
+  - const where = { clientId: id.data, type: "SHOWING" as const, ...visibleInteractionWhere(investigationViewerRo…
     · зовёт visibleInteractionWhere()
   - const [rows, count] = await Promise.all([ prisma.interaction.findMany({ where, orderBy: [{ createdAt: "desc" …
     · читает в базе: interaction
@@ -3764,7 +3770,7 @@
     · ответ 404 — «Клиент не найден в корзине»
 - const owner = client.assignedAgentId ? await prisma.agent.findUnique({ where: { id: client.assignedAgentId },…
   · читает в базе: agent
-- const historicalOwner = !owner?.isActive && client.lastAgentId && !client.assignmentRefusedAt && !client.assi…
+- const historicalOwner = !eligible(owner) && client.lastAgentId && !client.assignmentRefusedAt && !client.assi…
   · читает в базе: agent
 - const restored = await prisma.$transaction(async (tx)
   · пробрасывает ошибку дальше
@@ -3780,11 +3786,13 @@
   - если !current?.deletedAt || current.updatedAt.getTime() !== client.updatedAt.getTime()
     - return false;
       · дословно из кода
-  - для каждого: const [id, expected] of [[client.assignedAgentId, owner?.isActive], [restoredAgentId, true]] as const
+  - для каждого: const [id, expected] of [...checkedOwners].sort((a, b) => (a[0] ?? "").localeCompare(b[0] ?? ""))
     - если id && !completedAssignment
-      - const agent = await tx.agent.findUnique({ where: { id }, select: { isActive: true } });
+      - await tx.$queryRaw`SELECT id FROM "Agent" WHERE id = ${id} FOR SHARE`;
+        · обращается к базе своим SQL
+      - const agent = await tx.agent.findUnique({ where: { id }, select: { isActive: true, frozenAt: true, role: true…
         · читает в базе: agent
-      - если agent?.isActive !== expected
+      - если eligible(agent) !== expected
         - return false;
           · дословно из кода
   - await tx.client.update({ where: { id: client.id }, data: { deletedAt: null, deletedById: null, ...(ownerGone …
@@ -3814,7 +3822,7 @@
 
 `apps/api/src/routes/clients/interactions.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: clients.securityReview
 
-- если !canViewInvestigations(req.agent?.role)
+- если !canReadInvestigations(req)
   - return res.status(403).json({ error: "Недостаточно прав" });
     · ответ 403 — «Недостаточно прав»
 - const parsed = securityReviewSchema.safeParse(req.body);
@@ -4066,7 +4074,7 @@
 - если ownAgentId && ownAgentId === client.assignedAgentId && !client.acceptedAt
   - return res.json({ items: [], total: 0, hasMore: false });
     · ответ 200
-- const baseWhere: Prisma.InteractionWhereInput = { ...visibleInteractionWhere(req.agent?.role), clientId: clie…
+- const baseWhere: Prisma.InteractionWhereInput = { ...visibleInteractionWhere(investigationViewerRole(req)), c…
   · зовёт visibleInteractionWhere()
 - const [rows, total] = await Promise.all([ prisma.interaction.findMany({ where, orderBy: [{ createdAt: "desc" …
   · читает в базе: interaction
@@ -4351,7 +4359,7 @@
 - если data.status === "LOST" && existing.status !== "LOST" && existing.kind === "SELLER"
   - void refreshPropertiesOfSeller(existing.id).catch((err)
     · зовёт refreshPropertiesOfSeller()
-- res.json(presentClient(updated, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), req.agent?.rol…
+- res.json(presentClient(updated, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), investigationV…
   · ответ 200
 
 ### GET /api/v1/clients/deferred
@@ -4591,7 +4599,7 @@
 - если !merged
   - return res.status(404).json({ error: "Клиент не найден" });
     · ответ 404 — «Клиент не найден»
-- res.json(presentClient(merged, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), req.agent?.role…
+- res.json(presentClient(merged, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), investigationVi…
   · ответ 200
 
 ### POST /api/v1/clients/property-count-disputes/:id/approve
@@ -4850,7 +4858,7 @@
     · зовёт phoneSafeText()
 - res.json({ items: items.map((c)
   · ответ 200
-  - const presented = presentClient( gated, canSeePhone && !gateUntilAccepted, can(req, "clients.viewOrigin"), re…
+  - const presented = presentClient( gated, canSeePhone && !gateUntilAccepted, can(req, "clients.viewOrigin"), in…
     · зовёт presentClient()
 
 ### POST /api/v1/clients
@@ -4934,7 +4942,7 @@
 - если !acceptedAt
   - sendLeadPush(assignedAgentId, client.id, { title: "🔔 Новый лид", body: `${client.fullName} — примите заявку,…
     · зовёт sendLeadPush()
-- res.status(201).json(presentClient(client, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), req…
+- res.status(201).json(presentClient(client, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), inv…
   · ответ 201
 
 ## /api/v1/contacts
@@ -7499,7 +7507,7 @@
 
 `apps/api/src/routes/insights.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: insights.view
 
-- const digest = await prisma.insightDigest.findUnique({ where: { id }, include: { cases: { where: canViewInves…
+- const digest = await prisma.insightDigest.findUnique({ where: { id }, include: { cases: { where: canReadInves…
   · читает в базе: insightDigest
 - если !digest
   - return res.status(404).json({ error: "Диджест не найден" });
@@ -7524,7 +7532,7 @@
   · проверяет данные схемой insightCaseReviewSchema
 - const existing = await prisma.insightCase.findUnique({ where: { id }, select: { id: true, kind: true } });
   · читает в базе: insightCase
-- если existing?.kind === "agent_bypass" && !canViewInvestigations(req.agent?.role)
+- если existing?.kind === "agent_bypass" && !canReadInvestigations(req)
   - return res.status(404).json({ error: "Дело не найдено" });
     · ответ 404 — «Дело не найдено»
 - если !existing
@@ -7764,7 +7772,7 @@
 - если !interaction?.recordingUrl
   - return res.status(404).json({ error: "Записи этого разговора нет" });
     · ответ 404 — «Записи этого разговора нет»
-- если interaction.investigationOnly && !canViewInvestigations(req.agent?.role)
+- если interaction.investigationOnly && !canReadInvestigations(req)
   - return res.status(404).json({ error: "Разговор не найден" });
     · ответ 404 — «Разговор не найден»
 - const access = transcriptAccess(req.agent);
@@ -7828,7 +7836,7 @@
 - если interaction.type !== "CALL" || !interaction.recordingUrl
   - return res.status(404).json({ error: "У этого разговора нет записи для повторной расшифровки" });
     · ответ 404 — «У этого разговора нет записи для повторной расшифровки»
-- если interaction.investigationOnly && !canViewInvestigations(req.agent?.role)
+- если interaction.investigationOnly && !canReadInvestigations(req)
   - return res.status(404).json({ error: "Разговор не найден" });
     · ответ 404 — «Разговор не найден»
 - const access = transcriptAccess(req.agent);
@@ -7847,7 +7855,7 @@
     · ответ 429 — «Повторная расшифровка уже запускалась за последние сутки — попробуйте…»
 - res.status(202).json({ queued: true });
   · ответ 202
-- void retranscribeInteraction(interaction.id).catch((err)
+- void withInvestigationPrivacy(interaction.investigationOnly, ()
   · запись в журнал ошибок
 
 ### PATCH /api/v1/interactions/:id/showing/cancel
@@ -7899,7 +7907,7 @@
 - если !interaction
   - return res.status(404).json({ error: "Разговор не найден" });
     · ответ 404 — «Разговор не найден»
-- если interaction.investigationOnly && !canViewInvestigations(req.agent?.role)
+- если interaction.investigationOnly && !canReadInvestigations(req)
   - return res.status(404).json({ error: "Разговор не найден" });
     · ответ 404 — «Разговор не найден»
 - const access = transcriptAccess(req.agent);
@@ -7925,7 +7933,7 @@
 - если !interaction
   - return res.status(404).json({ error: "Разговор не найден" });
     · ответ 404 — «Разговор не найден»
-- если interaction.investigationOnly && !canViewInvestigations(req.agent?.role)
+- если interaction.investigationOnly && !canReadInvestigations(req)
   - return res.status(404).json({ error: "Разговор не найден" });
     · ответ 404 — «Разговор не найден»
 - const access = transcriptAccess(req.agent);
@@ -8433,7 +8441,7 @@
     · дальше не идёт, ничего не меняя
 - const active = liveVoiceMonitor.getActive(key);
   · зовёт getActive()
-- если !active || !(await mayReadLiveVoiceSession(req.agent?.role, active))
+- если !active || !(await mayReadLiveVoiceSession(investigationViewerRole(req), active))
   - res.status(404).json({ error: "Этот разговор уже закончился" });
     · ответ 404 — «Этот разговор уже закончился»
   - return;
@@ -8511,7 +8519,7 @@
     - пробует
       - const current = await prisma.agent.findUnique({ where: { id: req.agent!.id }, select: { role: true, isActive:…
         · читает в базе: agent
-      - если !current?.isActive || !canViewInvestigations(current.role)
+      - если !current?.isActive || !canViewInvestigations(current.role) || !resolvePermissions(current.role, parsePermissi…
         - return;
           · дальше не идёт, ничего не меняя
     - если сорвалось
@@ -9634,7 +9642,7 @@
 - если found.legacy && (await isConversationAttachment(name))
   - return res.status(404).json({ error: "Файл не найден" });
     · ответ 404 — «Файл не найден»
-- если !canViewInvestigations(req.agent?.role) && await prisma.interaction.findFirst({ where: { investigationOnly: t…
+- если !canReadInvestigations(req) && await prisma.interaction.findFirst({ where: { investigationOnly: true, voiceNo…
   - return res.status(404).json({ error: "Файл не найден" });
     · ответ 404 — «Файл не найден»
 - res.setHeader("Content-Type", privateMimeType(name));
@@ -9743,7 +9751,7 @@
 
 `apps/api/src/routes/notifications.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
-- await prisma.notification.updateMany({ where: { ...await loadVisibleNotificationsWhere(req.agent!.id, req.age…
+- await prisma.notification.updateMany({ where: { ...await loadVisibleNotificationsWhere(req.agent!.id, investi…
   · меняет в базе: notification
 - res.json({ ok: true });
   · ответ 200
@@ -9771,7 +9779,7 @@
 - если !parsed.success
   - return res.status(400).json({ error: "Неверный номер страницы", details: parsed.error.flatten() });
     · ответ 400 — «Неверный номер страницы»
-- const where = await loadVisibleNotificationsWhere(req.agent!.id, req.agent!.role);
+- const where = await loadVisibleNotificationsWhere(req.agent!.id, investigationViewerRole(req));
   · зовёт loadVisibleNotificationsWhere()
 - const [items, total, unreadCount, pinned, approvalCount, criticalCount] = await Promise.all([ prisma.notifica…
   · читает в базе: notification
@@ -10053,7 +10061,7 @@
 
 `apps/api/src/routes/oversight.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: dashboard.analytics
 
-- если !canViewInvestigations(req.agent!.role)
+- если !canReadInvestigations(req)
   - return res.json(ordinary);
     · ответ 200
 - res.json(summary);
@@ -15888,7 +15896,7 @@
 
 - const session = await prisma.liveVoiceSession.findUnique({ where: { id: req.params.id }, select: { recordingU…
   · читает в базе: liveVoiceSession
-- если session && !(await mayReadLiveVoiceSession(req.agent?.role, session))
+- если session && !(await mayReadLiveVoiceSession(investigationViewerRole(req), session))
   - return res.status(404).json({ error: "Записи нет" });
     · ответ 404 — «Записи нет»
 - если !session?.recordingUrl
@@ -15913,7 +15921,7 @@
 - если !query.success
   - return res.status(400).json({ error: `Предел списка — от 1 до ${LIVE_VOICE_SESSIONS_MAX}` });
     · ответ 400 — «Предел списка — от 1 до ${LIVE_VOICE_SESSIONS_MAX}»
-- const sessions = await prisma.liveVoiceSession.findMany({ where: canViewInvestigations(req.agent?.role) ? {} …
+- const sessions = await prisma.liveVoiceSession.findMany({ where: canReadInvestigations(req) ? {} : { investig…
   · читает в базе: liveVoiceSession
 - const clients = clientIds.length ? await prisma.client.findMany({ where: { id: { in: clientIds } }, select: {…
   · читает в базе: client
@@ -15940,7 +15948,7 @@
     · ответ 400 — «Файл не передан»
 - const settings = await prisma.settings.upsert({ where: { id: "singleton" }, update: { companyLogoUrl: `/uploa…
   · создаёт или меняет в базе: settings
-- res.json(privateSettingsResponse(await publicSettingsResponse(settings), req.agent?.role));
+- res.json(privateSettingsResponse(await publicSettingsResponse(settings), investigationViewerRole(req)));
   · ответ 200
 
 ### DELETE /api/v1/settings/messenger-accounts/:id
@@ -16105,7 +16113,7 @@
 - const settings = (await prisma.settings.findUnique({ where: { id: "singleton" } })) ?? (await prisma.settings…
   · читает в базе: settings
   · создаёт или меняет в базе: settings
-- если !canViewInvestigations(req.agent?.role)
+- если !canReadInvestigations(req)
   - delete (response as Record<string, unknown>).postShowingCallEnabled;
     · дословно из кода
   - delete (response as Record<string, unknown>).investigationCaseConfig;
@@ -16117,7 +16125,7 @@
 
 `apps/api/src/routes/settings.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
 
-- если Object.prototype.hasOwnProperty.call(req.body ?? {}, "postShowingCallEnabled") && !canViewInvestigations(req.…
+- если Object.prototype.hasOwnProperty.call(req.body ?? {}, "postShowingCallEnabled") && !canReadInvestigations(req)
   - return res.status(403).json({ error: "Недостаточно прав" });
     · ответ 403 — «Недостаточно прав»
 - const parsed = settingsUpdateSchema.safeParse(req.body);
@@ -16306,7 +16314,7 @@
     - const refreshed = await prisma.settings.findUnique({ where: { id: "singleton" } });
       · читает в базе: settings
     - если refreshed
-      - return res.json(privateSettingsResponse(await publicSettingsResponse(refreshed), req.agent?.role));
+      - return res.json(privateSettingsResponse(await publicSettingsResponse(refreshed), investigationViewerRole(req)…
         · ответ 200
 - если metaIgManageToken
   - upgradedMetaToken = (await upgradeStoredMetaUserToken("metaIgManageToken")) || upgradedMetaToken;
@@ -16318,9 +16326,9 @@
   - const refreshed = await prisma.settings.findUnique({ where: { id: "singleton" } });
     · читает в базе: settings
   - если refreshed
-    - return res.json(privateSettingsResponse(await publicSettingsResponse(refreshed), req.agent?.role));
+    - return res.json(privateSettingsResponse(await publicSettingsResponse(refreshed), investigationViewerRole(req)…
       · ответ 200
-- res.json(privateSettingsResponse(await publicSettingsResponse(settings), req.agent?.role));
+- res.json(privateSettingsResponse(await publicSettingsResponse(settings), investigationViewerRole(req)));
   · ответ 200
 
 ## /api/v1/settings/cover-templates
@@ -16646,7 +16654,7 @@
     · ответ 409 — «Настройки ещё не созданы — возвращать нечего»
 - const plan = planRestore(payload, current, point.keyFingerprint);
   · зовёт planRestore()
-- если !canViewInvestigations(req.agent?.role)
+- если !canReadInvestigations(req)
   - для каждого: const field of Object.keys(plan.data)
     - if (isPrivateSettingsField(field)) delete plan.data[field];
       · зовёт isPrivateSettingsField()
@@ -24905,7 +24913,7 @@
       · дальше не идёт, ничего не меняя
   - const recipients = await investigationRecipients();
     · зовёт investigationRecipients()
-    - return (await prisma.agent.findMany({ where: { isActive: true, role: { in: ["ADMIN", "DIRECTOR"] } }, select:…
+    - const agents = await prisma.agent.findMany({ where: { isActive: true, role: { in: ["ADMIN", "DIRECTOR"] } }, …
       · читает в базе: agent
   - если recipients.length === 0
     - return;

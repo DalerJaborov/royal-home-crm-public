@@ -19,7 +19,7 @@
   "conditions": 3931,
   "untranslatedUnique": 442,
   "untranslatedTotal": 569,
-  "partialUnique": 1079,
+  "partialUnique": 1078,
   "translatedShare": 86
  },
  "untranslated": [
@@ -38,7 +38,7 @@
   "!OVERRIDABLE_KINDS.includes(event.kind as (typeof OVERRIDABLE_KINDS)[number])",
   "![\"month\", \"from\", \"to\", \"status\", \"categoryId\", \"rootCategory\", \"counterparty\", \"paymentMethod\", \"q\", \"recur…",
   "!access.all && access.own && interaction.agentId !== access.viewerId && interaction.clientId",
-  "!active || !(await mayReadLiveVoiceSession(req.agent?.role, active))",
+  "!active || !(await mayReadLiveVoiceSession(investigationViewerRole(req), active))",
   "!agent || !agent.isActive || !agent.passwordHash || !(await bcrypt.compare(password, agent.passwordHash))",
   "!agent || agent.totpEnabled || !agent.passwordHash || !(await bcrypt.compare(password, agent.passwordHash))",
   "!alias || alias.targetType !== \"landmark\" || alias.targetId !== req.params.id",
@@ -57,7 +57,7 @@
   "!c || c.deletedAt || !canAccessAssignedAgent(req, c.assignedAgentId) || foreignWriteDenied(req, c, ownAgentId)",
   "!can(req, \"deals.viewAll\") && deal.agentId !== req.agent!.id",
   "!canAccessAssignedAgent(req, client.assignedAgentId) && client.lastAgentId !== ownAgentId",
-  "!canViewInvestigations(req.agent?.role) && await prisma.interaction.findFirst({ where: { investigationOnly: t…",
+  "!canReadInvestigations(req) && await prisma.interaction.findFirst({ where: { investigationOnly: true, voiceNo…",
   "!channel.name.startsWith(\"UnicastRTP/\") || ours.has(channel.id)",
   "!checks.every((c) => c.equal)",
   "!classifyFileName(file.area, path.basename(file.relPath))",
@@ -72,6 +72,7 @@
   "!current || current.effectiveAgentId !== agent.id || current.clientAssignedAgentId !== first.clientAssignedAg…",
   "!current || current.fence.nativeId !== row.conversationId || current.closedAt || !managedCustomerCallbackWitn…",
   "!current?.deletedAt || current.updatedAt.getTime() !== client.updatedAt.getTime()",
+  "!current?.isActive || !canViewInvestigations(current.role) || !resolvePermissions(current.role, parsePermissi…",
   "!currentClient || currentClient.deletedAt || (req.agent!.role !== \"ADMIN\" && req.agent!.role !== \"DIRECTOR\" &…",
   "!customerManagedTraceEnabled()",
   "!data.address?.trim()",
@@ -161,14 +162,12 @@
   "Number(property.price) === body.payload.newPrice && property.currency === currency",
   "Object.keys(data).length === 0",
   "Object.keys(extraPostIds).length > 0",
-  "Object.prototype.hasOwnProperty.call(req.body ?? {}, \"postShowingCallEnabled\") && !canViewInvestigations(req.…",
   "a.urgent !== b.urgent",
   "accountsCache && Date.now() - accountsCache.fetchedAt < 30 * 60 * 1000",
   "action === 'facts' && properties.some(p => p.offSite || p.deletedAt || !p.publishedOnSite || !isSiteListedSta…",
   "agent.id === req.agent!.id",
   "agent.leadsPausedById && agent.leadsPausedById !== req.agent!.id",
   "agent.sipExtension && (SALES_AGENT_ROLES as readonly string[]).includes(agent.role)",
-  "agent?.isActive !== expected",
   "agentId.startsWith(\"none:\")",
   "aiLimited(req.agent!.id, \"caption\")",
   "aiLimited(req.agent!.id, \"cover\")",
@@ -275,6 +274,7 @@
   "delivery.propertyId !== p.id || delivery.versionId !== row.id || delivery.createdById !== req.agent!.id || de…",
   "digits.replace(/\\D/g, \"\").length < 5",
   "dispatchLikelyInProgress(p.videoHandoffDispatchStartedAt, now)",
+  "eligible(agent) !== expected",
   "err instanceof ClientMergeOpenDealError",
   "err instanceof ClientMergeTrashedError",
   "err instanceof ConversationClientLinkError",
@@ -427,7 +427,7 @@
   "scheduledAt.getTime() > now.getTime()",
   "scopeAgentId && !(await contactProfileBelongsTo(req.params.id, scopeAgentId))",
   "scopeToOwnAgent(req) && !client.acceptedAt",
-  "session && !(await mayReadLiveVoiceSession(req.agent?.role, session))",
+  "session && !(await mayReadLiveVoiceSession(investigationViewerRole(req), session))",
   "settings?.metaIgToken && Date.now() - last >= REFRESH_EVERY_MS",
   "shootingDate > new Date(cutoff.getTime() - downMs)",
   "shouldCountOwnerReportView(link.id)",
@@ -14909,7 +14909,7 @@
      "a": [],
      "c": [
       {
-       "t": "если вид — «agent_bypassed_crm» и нельзя просмотр investigations",
+       "t": "если вид — «agent_bypassed_crm» и нельзя прочитано investigations",
        "k": "if",
        "a": [],
        "c": [
@@ -15027,7 +15027,7 @@
      ]
     },
     {
-     "t": "если вид — «agent_bypassed_crm» и нельзя просмотр investigations",
+     "t": "если вид — «agent_bypassed_crm» и нельзя прочитано investigations",
      "k": "if",
      "a": [],
      "c": [
@@ -15080,7 +15080,7 @@
      ]
     },
     {
-     "t": "если вид — «agent_bypassed_crm» и нельзя просмотр investigations",
+     "t": "если вид — «agent_bypassed_crm» и нельзя прочитано investigations",
      "k": "if",
      "a": [],
      "c": [
@@ -20245,11 +20245,11 @@
          "a": [],
          "c": [
           {
-           "t": "если agent?.isActive !== expected",
+           "t": "если eligible(agent) !== expected",
            "k": "if",
            "a": [],
            "c": [],
-           "raw": "agent?.isActive !== expected",
+           "raw": "eligible(agent) !== expected",
            "more": true
           }
          ]
@@ -20336,7 +20336,7 @@
    ],
    "tree": [
     {
-     "t": "если нельзя просмотр investigations",
+     "t": "если нельзя прочитано investigations",
      "k": "if",
      "a": [],
      "c": [
@@ -31465,7 +31465,7 @@
    ],
    "tree": [
     {
-     "t": "если вид (такая запись) — «agent_bypass» и нельзя просмотр investigations",
+     "t": "если вид (такая запись) — «agent_bypass» и нельзя прочитано investigations",
      "k": "if",
      "a": [],
      "c": [
@@ -32365,7 +32365,7 @@
      ]
     },
     {
-     "t": "если есть investigation only и нельзя просмотр investigations",
+     "t": "если есть investigation only и нельзя прочитано investigations",
      "k": "if",
      "a": [],
      "c": [
@@ -32539,7 +32539,7 @@
      ]
     },
     {
-     "t": "если есть investigation only и нельзя просмотр investigations",
+     "t": "если есть investigation only и нельзя прочитано investigations",
      "k": "if",
      "a": [],
      "c": [
@@ -32769,7 +32769,7 @@
      ]
     },
     {
-     "t": "если есть investigation only и нельзя просмотр investigations",
+     "t": "если есть investigation only и нельзя прочитано investigations",
      "k": "if",
      "a": [],
      "c": [
@@ -32851,7 +32851,7 @@
      ]
     },
     {
-     "t": "если есть investigation only и нельзя просмотр investigations",
+     "t": "если есть investigation only и нельзя прочитано investigations",
      "k": "if",
      "a": [],
      "c": [
@@ -34277,7 +34277,7 @@
      ]
     },
     {
-     "t": "если !active || !(await mayReadLiveVoiceSession(req.agent?.role, active))",
+     "t": "если !active || !(await mayReadLiveVoiceSession(investigationViewerRole(req), active))",
      "k": "if",
      "a": [],
      "c": [
@@ -34288,7 +34288,7 @@
        "c": []
       }
      ],
-     "raw": "!active || !(await mayReadLiveVoiceSession(req.agent?.role, active))"
+     "raw": "!active || !(await mayReadLiveVoiceSession(investigationViewerRole(req), active))"
     },
     {
      "t": "всё хорошо, отвечает данными",
@@ -34447,10 +34447,11 @@
          "a": [],
          "c": [
           {
-           "t": "если нет: is активен или нельзя просмотр investigations",
+           "t": "если !current?.isActive || !canViewInvestigations(current.role) || !resolvePermissions(current.role, parsePermissi…",
            "k": "if",
            "a": [],
            "c": [],
+           "raw": "!current?.isActive || !canViewInvestigations(current.role) || !resolvePermissions(current.role, parsePermissi…",
            "more": true
           }
          ]
@@ -38036,7 +38037,7 @@
      ]
     },
     {
-     "t": "если !canViewInvestigations(req.agent?.role) && await prisma.interaction.findFirst({ where: { investigationOnly: t…",
+     "t": "если !canReadInvestigations(req) && await prisma.interaction.findFirst({ where: { investigationOnly: true, voiceNo…",
      "k": "if",
      "a": [],
      "c": [
@@ -38047,7 +38048,7 @@
        "c": []
       }
      ],
-     "raw": "!canViewInvestigations(req.agent?.role) && await prisma.interaction.findFirst({ where: { investigationOnly: t…"
+     "raw": "!canReadInvestigations(req) && await prisma.interaction.findFirst({ where: { investigationOnly: true, voiceNo…"
     },
     {
      "t": "поломка внутри системы: «Не удалось прочитать файл»",
@@ -39032,7 +39033,7 @@
    ],
    "tree": [
     {
-     "t": "если нельзя просмотр investigations",
+     "t": "если нельзя прочитано investigations",
      "k": "if",
      "a": [],
      "c": [
@@ -57033,7 +57034,7 @@
    ],
    "tree": [
     {
-     "t": "если session && !(await mayReadLiveVoiceSession(req.agent?.role, session))",
+     "t": "если session && !(await mayReadLiveVoiceSession(investigationViewerRole(req), session))",
      "k": "if",
      "a": [],
      "c": [
@@ -57044,7 +57045,7 @@
        "c": []
       }
      ],
-     "raw": "session && !(await mayReadLiveVoiceSession(req.agent?.role, session))"
+     "raw": "session && !(await mayReadLiveVoiceSession(investigationViewerRole(req), session))"
     },
     {
      "t": "если нет: recording ссылка",
@@ -57644,7 +57645,7 @@
      ]
     },
     {
-     "t": "если нельзя просмотр investigations",
+     "t": "если нельзя прочитано investigations",
      "k": "if",
      "a": [],
      "c": [
@@ -58068,7 +58069,7 @@
      "c": []
     },
     {
-     "t": "если нельзя просмотр investigations",
+     "t": "если нельзя прочитано investigations",
      "k": "if",
      "a": [],
      "c": []
@@ -58109,7 +58110,7 @@
    ],
    "tree": [
     {
-     "t": "если Object.prototype.hasOwnProperty.call(req.body ?? {}, \"postShowingCallEnabled\") && !canViewInvestigations(req.…",
+     "t": "если есть звонок и нельзя прочитано investigations",
      "k": "if",
      "a": [],
      "c": [
@@ -58119,8 +58120,7 @@
        "a": [],
        "c": []
       }
-     ],
-     "raw": "Object.prototype.hasOwnProperty.call(req.body ?? {}, \"postShowingCallEnabled\") && !canViewInvestigations(req.…"
+     ]
     },
     {
      "t": "если данные заполнены неправильно",

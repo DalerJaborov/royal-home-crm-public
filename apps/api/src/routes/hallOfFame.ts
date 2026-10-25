@@ -1,3 +1,4 @@
+import { investigationViewerRole } from "../auth/investigations.js";
 import { Router } from "express";
 import { prisma } from "../db.js";
 import { requireAuth } from "../auth/middleware.js";
@@ -61,7 +62,7 @@ hallOfFameRouter.get("/", requireAuth, async (req, res) => {
       // client: { deletedAt: null } (27.08.2026) — соседние номинации (объекты
       // строкой ниже, лиды и активные клиенты в /top-agents) этот фильтр уже
       // имели, показы оставались единственной номинацией без него.
-      where: { ...visibleInteractionWhere(req.agent?.role), type: "SHOWING", ...COUNTED_SHOWING_WHERE, createdAt: { gte: startOfMonth }, client: { deletedAt: null } },
+      where: { ...visibleInteractionWhere(investigationViewerRole(req)), type: "SHOWING", ...COUNTED_SHOWING_WHERE, createdAt: { gte: startOfMonth }, client: { deletedAt: null } },
       _count: { _all: true },
     }),
     // subjectAgentId (П-10, 17.09.2026): показ, записанный ботом/системой от лица
@@ -72,7 +73,7 @@ hallOfFameRouter.get("/", requireAuth, async (req, res) => {
       by: ["subjectAgentId"],
       where: {
         type: "SHOWING",
-        ...visibleInteractionWhere(req.agent?.role),
+        ...visibleInteractionWhere(investigationViewerRole(req)),
         ...COUNTED_SHOWING_WHERE,
         createdAt: { gte: startOfMonth },
         client: { deletedAt: null },

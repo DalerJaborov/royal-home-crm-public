@@ -3412,6 +3412,14 @@
    "tree": [
     {
      "k": "do",
+     "t": "const seesInvestigations = canReadInvestigations(req);",
+     "a": [
+      "зовёт canReadInvestigations()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
      "t": "const agent = await prisma.agent.findUnique({ where: { id }, select: { id: true, fullName: true, phone: true,…",
      "a": [
       "читает в базе: agent"
@@ -3451,7 +3459,7 @@
     },
     {
      "k": "do",
-     "t": "const overdueTasksAgentWhere = { ...overdueTasksWhere(now), ...visibleInteractionWhere(req.agent?.role), OR: …",
+     "t": "const overdueTasksAgentWhere = { ...overdueTasksWhere(now), ...visibleInteractionWhere(investigationViewerRol…",
      "a": [
       "зовёт overdueTasksWhere()"
      ],
@@ -6154,7 +6162,7 @@
     },
     {
      "k": "do",
-     "t": "const privateLessonIds = await privateLessonAuditIds(req.agent?.role);",
+     "t": "const privateLessonIds = await privateLessonAuditIds(investigationViewerRole(req));",
      "a": [
       "зовёт privateLessonAuditIds()"
      ],
@@ -6162,7 +6170,7 @@
     },
     {
      "k": "do",
-     "t": "const where = { ...visibleAuditWhere(req.agent?.role, privateLessonIds), ...(entityType ? { entityType } : {}…",
+     "t": "const where = { ...visibleAuditWhere(investigationViewerRole(req), privateLessonIds), ...(entityType ? { enti…",
      "a": [
       "зовёт visibleAuditWhere()"
      ],
@@ -7964,7 +7972,7 @@
       },
       {
        "k": "if",
-       "t": "finding?.type === \"agent_bypassed_crm\" && !canViewInvestigations(req.agent?.role)",
+       "t": "finding?.type === \"agent_bypassed_crm\" && !canReadInvestigations(req)",
        "a": [],
        "c": [
         {
@@ -8134,7 +8142,7 @@
     },
     {
      "k": "if",
-     "t": "type === \"agent_bypassed_crm\" && !canViewInvestigations(req.agent?.role)",
+     "t": "type === \"agent_bypassed_crm\" && !canReadInvestigations(req)",
      "a": [],
      "c": [
       {
@@ -8207,7 +8215,7 @@
     },
     {
      "k": "if",
-     "t": "type === \"agent_bypassed_crm\" && !canViewInvestigations(req.agent?.role)",
+     "t": "type === \"agent_bypassed_crm\" && !canReadInvestigations(req)",
      "a": [],
      "c": [
       {
@@ -8338,7 +8346,7 @@
    "tree": [
     {
      "k": "do",
-     "t": "const { count } = await prisma.botAuditFinding.updateMany({ where: { resolvedAt: null, ...(!canViewInvestigat…",
+     "t": "const { count } = await prisma.botAuditFinding.updateMany({ where: { resolvedAt: null, ...(!canReadInvestigat…",
      "a": [
       "меняет в базе: botAuditFinding"
      ],
@@ -9154,6 +9162,14 @@
    "tree": [
     {
      "k": "do",
+     "t": "const visibility: Prisma.BotLessonWhereInput = canReadInvestigations(req) ? {} : { investigationOnly: false };",
+     "a": [
+      "зовёт canReadInvestigations()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
      "t": "const [digests, pendingReviews] = await Promise.all([ prisma.lostClientDigest.findMany({ orderBy: { periodSta…",
      "a": [
       "читает в базе: lostClientDigest",
@@ -9226,6 +9242,14 @@
        "c": []
       }
      ]
+    },
+    {
+     "k": "do",
+     "t": "const visibility: Prisma.BotLessonWhereInput = canReadInvestigations(req) ? {} : { investigationOnly: false };",
+     "a": [
+      "зовёт canReadInvestigations()"
+     ],
+     "c": []
     },
     {
      "k": "do",
@@ -11137,7 +11161,7 @@
     },
     {
      "k": "do",
-     "t": "const where: Prisma.InteractionWhereInput = { ...visibleInteractionWhere(req.agent?.role), type: \"CALL\", OR: …",
+     "t": "const where: Prisma.InteractionWhereInput = { ...visibleInteractionWhere(investigationViewerRole(req)), type:…",
      "a": [
       "зовёт visibleInteractionWhere()"
      ],
@@ -11306,7 +11330,7 @@
      "c": [
       {
        "k": "do",
-       "t": "return res.json(presentClient(client, can(req, \"clients.viewPhone\"), can(req, \"clients.viewOrigin\"), req.agen…",
+       "t": "return res.json(presentClient(client, can(req, \"clients.viewPhone\"), can(req, \"clients.viewOrigin\"), investig…",
        "a": [
         "ответ 200"
        ],
@@ -11393,7 +11417,7 @@
     },
     {
      "k": "do",
-     "t": "res.json(presentClient(updated ?? client, can(req, \"clients.viewPhone\"), can(req, \"clients.viewOrigin\"), req.…",
+     "t": "res.json(presentClient(updated ?? client, can(req, \"clients.viewPhone\"), can(req, \"clients.viewOrigin\"), inve…",
      "a": [
       "ответ 200"
      ],
@@ -11821,7 +11845,7 @@
     },
     {
      "k": "do",
-     "t": "res.json(presentClient(updated!, can(req, \"clients.viewPhone\"), can(req, \"clients.viewOrigin\"), req.agent?.ro…",
+     "t": "res.json(presentClient(updated!, can(req, \"clients.viewPhone\"), can(req, \"clients.viewOrigin\"), investigation…",
      "a": [
       "ответ 200"
      ],
@@ -12179,7 +12203,7 @@
     },
     {
      "k": "do",
-     "t": "res.json(presentClient(updated, can(req, \"clients.viewPhone\"), can(req, \"clients.viewOrigin\"), req.agent?.rol…",
+     "t": "res.json(presentClient(updated, can(req, \"clients.viewPhone\"), can(req, \"clients.viewOrigin\"), investigationV…",
      "a": [
       "ответ 200"
      ],
@@ -13729,7 +13753,7 @@
     },
     {
      "k": "do",
-     "t": "res.json(presentClient(current, can(req, \"clients.viewPhone\"), can(req, \"clients.viewOrigin\"), req.agent?.rol…",
+     "t": "res.json(presentClient(current, can(req, \"clients.viewPhone\"), can(req, \"clients.viewOrigin\"), investigationV…",
      "a": [
       "ответ 200"
      ],
@@ -15309,7 +15333,7 @@
      "c": [
       {
        "k": "do",
-       "t": "const where = { clientId: id.data, type: \"SHOWING\" as const, ...visibleInteractionWhere(req.agent?.role) };",
+       "t": "const where = { clientId: id.data, type: \"SHOWING\" as const, ...visibleInteractionWhere(investigationViewerRo…",
        "a": [
         "зовёт visibleInteractionWhere()"
        ],
@@ -16103,7 +16127,7 @@
     },
     {
      "k": "do",
-     "t": "const historicalOwner = !owner?.isActive && client.lastAgentId && !client.assignmentRefusedAt && !client.assi…",
+     "t": "const historicalOwner = !eligible(owner) && client.lastAgentId && !client.assignmentRefusedAt && !client.assi…",
      "a": [
       "читает в базе: agent"
      ],
@@ -16154,7 +16178,7 @@
       },
       {
        "k": "loop",
-       "t": "для каждого: const [id, expected] of [[client.assignedAgentId, owner?.isActive], [restoredAgentId, true]] as const",
+       "t": "для каждого: const [id, expected] of [...checkedOwners].sort((a, b) => (a[0] ?? \"\").localeCompare(b[0] ?? \"\"))",
        "a": [],
        "c": [
         {
@@ -16164,7 +16188,15 @@
          "c": [
           {
            "k": "do",
-           "t": "const agent = await tx.agent.findUnique({ where: { id }, select: { isActive: true } });",
+           "t": "await tx.$queryRaw`SELECT id FROM \"Agent\" WHERE id = ${id} FOR SHARE`;",
+           "a": [
+            "обращается к базе своим SQL"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "const agent = await tx.agent.findUnique({ where: { id }, select: { isActive: true, frozenAt: true, role: true…",
            "a": [
             "читает в базе: agent"
            ],
@@ -16172,7 +16204,7 @@
           },
           {
            "k": "if",
-           "t": "agent?.isActive !== expected",
+           "t": "eligible(agent) !== expected",
            "a": [],
            "c": [
             {
@@ -16312,7 +16344,7 @@
    "tree": [
     {
      "k": "if",
-     "t": "!canViewInvestigations(req.agent?.role)",
+     "t": "!canReadInvestigations(req)",
      "a": [],
      "c": [
       {
@@ -17413,7 +17445,7 @@
     },
     {
      "k": "do",
-     "t": "const baseWhere: Prisma.InteractionWhereInput = { ...visibleInteractionWhere(req.agent?.role), clientId: clie…",
+     "t": "const baseWhere: Prisma.InteractionWhereInput = { ...visibleInteractionWhere(investigationViewerRole(req)), c…",
      "a": [
       "зовёт visibleInteractionWhere()"
      ],
@@ -18688,7 +18720,7 @@
     },
     {
      "k": "do",
-     "t": "res.json(presentClient(updated, can(req, \"clients.viewPhone\"), can(req, \"clients.viewOrigin\"), req.agent?.rol…",
+     "t": "res.json(presentClient(updated, can(req, \"clients.viewPhone\"), can(req, \"clients.viewOrigin\"), investigationV…",
      "a": [
       "ответ 200"
      ],
@@ -19747,7 +19779,7 @@
     },
     {
      "k": "do",
-     "t": "res.json(presentClient(merged, can(req, \"clients.viewPhone\"), can(req, \"clients.viewOrigin\"), req.agent?.role…",
+     "t": "res.json(presentClient(merged, can(req, \"clients.viewPhone\"), can(req, \"clients.viewOrigin\"), investigationVi…",
      "a": [
       "ответ 200"
      ],
@@ -20881,7 +20913,7 @@
      "c": [
       {
        "k": "do",
-       "t": "const presented = presentClient( gated, canSeePhone && !gateUntilAccepted, can(req, \"clients.viewOrigin\"), re…",
+       "t": "const presented = presentClient( gated, canSeePhone && !gateUntilAccepted, can(req, \"clients.viewOrigin\"), in…",
        "a": [
         "зовёт presentClient()"
        ],
@@ -21268,7 +21300,7 @@
     },
     {
      "k": "do",
-     "t": "res.status(201).json(presentClient(client, can(req, \"clients.viewPhone\"), can(req, \"clients.viewOrigin\"), req…",
+     "t": "res.status(201).json(presentClient(client, can(req, \"clients.viewPhone\"), can(req, \"clients.viewOrigin\"), inv…",
      "a": [
       "ответ 201"
      ],
@@ -33761,7 +33793,7 @@
    "tree": [
     {
      "k": "do",
-     "t": "const digest = await prisma.insightDigest.findUnique({ where: { id }, include: { cases: { where: canViewInves…",
+     "t": "const digest = await prisma.insightDigest.findUnique({ where: { id }, include: { cases: { where: canReadInves…",
      "a": [
       "читает в базе: insightDigest"
      ],
@@ -33866,7 +33898,7 @@
     },
     {
      "k": "if",
-     "t": "existing?.kind === \"agent_bypass\" && !canViewInvestigations(req.agent?.role)",
+     "t": "existing?.kind === \"agent_bypass\" && !canReadInvestigations(req)",
      "a": [],
      "c": [
       {
@@ -35246,7 +35278,7 @@
     },
     {
      "k": "if",
-     "t": "interaction.investigationOnly && !canViewInvestigations(req.agent?.role)",
+     "t": "interaction.investigationOnly && !canReadInvestigations(req)",
      "a": [],
      "c": [
       {
@@ -35539,7 +35571,7 @@
     },
     {
      "k": "if",
-     "t": "interaction.investigationOnly && !canViewInvestigations(req.agent?.role)",
+     "t": "interaction.investigationOnly && !canReadInvestigations(req)",
      "a": [],
      "c": [
       {
@@ -35630,7 +35662,7 @@
     },
     {
      "k": "do",
-     "t": "void retranscribeInteraction(interaction.id).catch((err)",
+     "t": "void withInvestigationPrivacy(interaction.investigationOnly, ()",
      "a": [
       "запись в журнал ошибок"
      ],
@@ -35853,7 +35885,7 @@
     },
     {
      "k": "if",
-     "t": "interaction.investigationOnly && !canViewInvestigations(req.agent?.role)",
+     "t": "interaction.investigationOnly && !canReadInvestigations(req)",
      "a": [],
      "c": [
       {
@@ -35970,7 +36002,7 @@
     },
     {
      "k": "if",
-     "t": "interaction.investigationOnly && !canViewInvestigations(req.agent?.role)",
+     "t": "interaction.investigationOnly && !canReadInvestigations(req)",
      "a": [],
      "c": [
       {
@@ -38107,7 +38139,7 @@
     },
     {
      "k": "if",
-     "t": "!active || !(await mayReadLiveVoiceSession(req.agent?.role, active))",
+     "t": "!active || !(await mayReadLiveVoiceSession(investigationViewerRole(req), active))",
      "a": [],
      "c": [
       {
@@ -38481,7 +38513,7 @@
           },
           {
            "k": "if",
-           "t": "!current?.isActive || !canViewInvestigations(current.role)",
+           "t": "!current?.isActive || !canViewInvestigations(current.role) || !resolvePermissions(current.role, parsePermissi…",
            "a": [],
            "c": [
             {
@@ -42348,7 +42380,7 @@
    "tree": [
     {
      "k": "do",
-     "t": "await prisma.notification.updateMany({ where: { ...await loadVisibleNotificationsWhere(req.agent!.id, req.age…",
+     "t": "await prisma.notification.updateMany({ where: { ...await loadVisibleNotificationsWhere(req.agent!.id, investi…",
      "a": [
       "меняет в базе: notification"
      ],
@@ -42462,7 +42494,7 @@
     },
     {
      "k": "do",
-     "t": "const where = await loadVisibleNotificationsWhere(req.agent!.id, req.agent!.role);",
+     "t": "const where = await loadVisibleNotificationsWhere(req.agent!.id, investigationViewerRole(req));",
      "a": [
       "зовёт loadVisibleNotificationsWhere()"
      ],
@@ -43651,7 +43683,7 @@
     },
     {
      "k": "if",
-     "t": "!canViewInvestigations(req.agent?.role) && await prisma.interaction.findFirst({ where: { investigationOnly: t…",
+     "t": "!canReadInvestigations(req) && await prisma.interaction.findFirst({ where: { investigationOnly: true, voiceNo…",
      "a": [],
      "c": [
       {
@@ -45121,7 +45153,7 @@
    "tree": [
     {
      "k": "if",
-     "t": "!canViewInvestigations(req.agent!.role)",
+     "t": "!canReadInvestigations(req)",
      "a": [],
      "c": [
       {
@@ -72175,7 +72207,7 @@
     },
     {
      "k": "if",
-     "t": "session && !(await mayReadLiveVoiceSession(req.agent?.role, session))",
+     "t": "session && !(await mayReadLiveVoiceSession(investigationViewerRole(req), session))",
      "a": [],
      "c": [
       {
@@ -72287,7 +72319,7 @@
     },
     {
      "k": "do",
-     "t": "const sessions = await prisma.liveVoiceSession.findMany({ where: canViewInvestigations(req.agent?.role) ? {} …",
+     "t": "const sessions = await prisma.liveVoiceSession.findMany({ where: canReadInvestigations(req) ? {} : { investig…",
      "a": [
       "читает в базе: liveVoiceSession"
      ],
@@ -72414,7 +72446,7 @@
     },
     {
      "k": "do",
-     "t": "res.json(privateSettingsResponse(await publicSettingsResponse(settings), req.agent?.role));",
+     "t": "res.json(privateSettingsResponse(await publicSettingsResponse(settings), investigationViewerRole(req)));",
      "a": [
       "ответ 200"
      ],
@@ -73002,7 +73034,7 @@
     },
     {
      "k": "if",
-     "t": "!canViewInvestigations(req.agent?.role)",
+     "t": "!canReadInvestigations(req)",
      "a": [],
      "c": [
       {
@@ -73569,7 +73601,7 @@
     },
     {
      "k": "if",
-     "t": "!canViewInvestigations(req.agent?.role)",
+     "t": "!canReadInvestigations(req)",
      "a": [],
      "c": [
       {
@@ -73620,7 +73652,7 @@
    "tree": [
     {
      "k": "if",
-     "t": "Object.prototype.hasOwnProperty.call(req.body ?? {}, \"postShowingCallEnabled\") && !canViewInvestigations(req.…",
+     "t": "Object.prototype.hasOwnProperty.call(req.body ?? {}, \"postShowingCallEnabled\") && !canReadInvestigations(req)",
      "a": [],
      "c": [
       {
@@ -74564,7 +74596,7 @@
          "c": [
           {
            "k": "do",
-           "t": "return res.json(privateSettingsResponse(await publicSettingsResponse(refreshed), req.agent?.role));",
+           "t": "return res.json(privateSettingsResponse(await publicSettingsResponse(refreshed), investigationViewerRole(req)…",
            "a": [
             "ответ 200"
            ],
@@ -74626,7 +74658,7 @@
        "c": [
         {
          "k": "do",
-         "t": "return res.json(privateSettingsResponse(await publicSettingsResponse(refreshed), req.agent?.role));",
+         "t": "return res.json(privateSettingsResponse(await publicSettingsResponse(refreshed), investigationViewerRole(req)…",
          "a": [
           "ответ 200"
          ],
@@ -74638,7 +74670,7 @@
     },
     {
      "k": "do",
-     "t": "res.json(privateSettingsResponse(await publicSettingsResponse(settings), req.agent?.role));",
+     "t": "res.json(privateSettingsResponse(await publicSettingsResponse(settings), investigationViewerRole(req)));",
      "a": [
       "ответ 200"
      ],
@@ -112332,7 +112364,7 @@
        "c": [
         {
          "k": "do",
-         "t": "return (await prisma.agent.findMany({ where: { isActive: true, role: { in: [\"ADMIN\", \"DIRECTOR\"] } }, select:…",
+         "t": "const agents = await prisma.agent.findMany({ where: { isActive: true, role: { in: [\"ADMIN\", \"DIRECTOR\"] } }, …",
          "a": [
           "читает в базе: agent"
          ],

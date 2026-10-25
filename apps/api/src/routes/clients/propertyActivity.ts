@@ -1,3 +1,4 @@
+import { investigationViewerRole } from "../../auth/investigations.js";
 import { Router } from "express";
 import { visibleInteractionWhere } from "../../lib/investigationPrivacy.js";
 import { z } from "zod";
@@ -58,7 +59,7 @@ propertyActivityRouter.get("/:id/property-activity", requireAuth, async (req, re
       property: presentProperty(row.property, seesPhone, canDelete), channel: can(req, "clients.viewOrigin") ? row.channel : null,
       kind: row.kind === "PHOTO" ? "PHOTO" : "LINK", state: "sent", scheduledAt: null, canManage: false }));
   } else {
-    const where = { clientId: id.data, type: "SHOWING" as const, ...visibleInteractionWhere(req.agent?.role) };
+    const where = { clientId: id.data, type: "SHOWING" as const, ...visibleInteractionWhere(investigationViewerRole(req)) };
     const [rows, count] = await Promise.all([
       prisma.interaction.findMany({ where, orderBy: [{ createdAt: "desc" }, { id: "desc" }], skip, take: pageSize,
         select: { id: true, agentId: true, subjectAgentId: true, createdAt: true, nextActionDate: true, completedAt: true, declinedAt: true, taskCancelledAt: true,

@@ -1,3 +1,4 @@
+import { canReadInvestigations } from "../auth/investigations.js";
 import { canViewInvestigations } from "@royal-home/shared";
 import { requireInvestigations } from "../auth/investigations.js";
 import { Router, type NextFunction, type Request, type Response } from "express";
@@ -644,7 +645,7 @@ async function getOversightSummaryCached() {
 /** GET /oversight/summary — числа для плиток наверху экрана. */
 oversightRouter.get("/summary", async (req, res) => {
   const summary = await getOversightSummaryCached() as Record<string, unknown>;
-  if (!canViewInvestigations(req.agent!.role)) {
+  if (!canReadInvestigations(req)) {
     const { refusedHighScore, sellerPropertyMissingWarn, sellerPropertyMissingCritical, sellerPropertyMissingWarnDays, sellerPropertyMissingCriticalDays, agentLossSeries, agentLossSeriesThreshold, agentLossSeriesWindowDays, ...ordinary } = summary;
     return res.json(ordinary);
   }

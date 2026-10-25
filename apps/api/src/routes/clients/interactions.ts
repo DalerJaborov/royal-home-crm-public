@@ -1,3 +1,4 @@
+import { canReadInvestigations } from "../../auth/investigations.js";
 import { canViewInvestigations } from "@royal-home/shared";
 /**
  * Хронология: POST /:id/interactions и решение СБ POST /:id/security-review
@@ -291,7 +292,7 @@ interactionsRouter.post(
   requireAuth,
   requirePermission("clients.securityReview"),
   async (req, res) => {
-    if (!canViewInvestigations(req.agent?.role)) return res.status(403).json({ error: "Недостаточно прав" });
+    if (!canReadInvestigations(req)) return res.status(403).json({ error: "Недостаточно прав" });
     const parsed = securityReviewSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });

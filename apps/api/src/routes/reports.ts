@@ -1,3 +1,4 @@
+import { canReadInvestigations, investigationViewerRole } from "../auth/investigations.js";
 import { requireInvestigations } from "../auth/investigations.js";
 import { visibleInteractionWhere } from "../lib/investigationPrivacy.js";
 import { Router, type Request, type Response } from "express";
@@ -201,12 +202,12 @@ reportsRouter.get("/funnel", async (req, res) => {
       by: ["clientId"],
       // client.deletedAt — иначе «На контакте» считалось по удалённым клиентам, и
       // воронка расширялась вместо того, чтобы сужаться: 10 лидов, 12 на контакте.
-      where: { ...visibleInteractionWhere(req.agent?.role), type: { in: ["CALL", "MESSAGE", "MEETING"] }, createdAt: { gte: from, lte: to }, client: { deletedAt: null } },
+      where: { ...visibleInteractionWhere(investigationViewerRole(req)), type: { in: ["CALL", "MESSAGE", "MEETING"] }, createdAt: { gte: from, lte: to }, client: { deletedAt: null } },
     }),
     // COUNTED_SHOWING_WHERE — отменённый показ не состоялся, и в воронке ему не
     // место: иначе шаг «Показы» шире шага «На контакте» на встречи, которых не было.
     prisma.interaction.count({
-      where: { ...visibleInteractionWhere(req.agent?.role), type: "SHOWING", ...COUNTED_SHOWING_WHERE, createdAt: { gte: from, lte: to }, client: { deletedAt: null } },
+      where: { ...visibleInteractionWhere(investigationViewerRole(req)), type: "SHOWING", ...COUNTED_SHOWING_WHERE, createdAt: { gte: from, lte: to }, client: { deletedAt: null } },
     }),
     prisma.deal.count({ where: { startedAt: { gte: from, lte: to }, client: { deletedAt: null } } }),
     // Сумма по валютам считается базой — одна строка на валюту вместо списка
@@ -276,7 +277,7 @@ reportsRouter.get("/agents", async (req, res) => {
       // счётчика в одном ответе API считали по разным правилам.
       where: {
         agentId: { in: agentIds },
-        ...visibleInteractionWhere(req.agent?.role),
+        ...visibleInteractionWhere(investigationViewerRole(req)),
         type: "SHOWING",
         ...COUNTED_SHOWING_WHERE,
         createdAt: { gte: from, lte: to },
@@ -291,7 +292,7 @@ reportsRouter.get("/agents", async (req, res) => {
       by: ["subjectAgentId"],
       where: {
         subjectAgentId: { in: agentIds },
-        ...visibleInteractionWhere(req.agent?.role),
+        ...visibleInteractionWhere(investigationViewerRole(req)),
         agentId: null,
         type: "SHOWING",
         ...COUNTED_SHOWING_WHERE,
@@ -600,7 +601,7 @@ async function presentMonthlyReport<T extends { metrics: unknown; periodStart: D
   let metrics = report.metrics;
   // Historical snapshots retain their source evidence. Strip it at every read boundary,
   // independently from finance grants and without hiding the ordinary monthly figures.
-  if ((!canViewInvestigations(req.agent?.role) || !can(req, "clients.securityReview")) && metrics && typeof metrics === "object" && !Array.isArray(metrics)) {
+  if ((!canReadInvestigations(req) || !can(req, "clients.securityReview")) && metrics && typeof metrics === "object" && !Array.isArray(metrics)) {
     const { postShowingSilence: _private, postShowingCohort: _cohort, ...ordinary } = metrics as Record<string, unknown>;
     metrics = await projectMonthlyPublicInteractions(ordinary, report.periodStart);
   }

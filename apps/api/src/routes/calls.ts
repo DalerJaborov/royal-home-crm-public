@@ -1,3 +1,4 @@
+import { investigationViewerRole } from "../auth/investigations.js";
 import { visibleInteractionWhere } from "../lib/investigationPrivacy.js";
 import { Router } from "express";
 import { z } from "zod";
@@ -101,7 +102,7 @@ callsRouter.get("/", async (req, res) => {
   const agentId = seesEveryone ? requestedAgentId : req.agent!.id;
 
   const where: Prisma.InteractionWhereInput = {
-    ...visibleInteractionWhere(req.agent?.role),
+    ...visibleInteractionWhere(investigationViewerRole(req)),
     type: "CALL",
     // В разделе — то, где есть что смотреть (запись/расшифровка), И недозвоны
     // через CRM (callAttempt заполнен станцией: NO_ANSWER/AGENT_NO_PICKUP/
@@ -804,7 +805,7 @@ callsRouter.get("/telephony/dashboard", supervisorOnly, async (req, res) => {
           .catch(() => ({ online: false, list: [] as Awaited<ReturnType<typeof listEndpoints>> }))
       : Promise.resolve({ online: false, list: [] as Awaited<ReturnType<typeof listEndpoints>> }),
     prisma.incomingCall.count({ where: { startedAt: { gte: dayStart } } }),
-    prisma.interaction.count({ where: { type: "CALL", createdAt: { gte: dayStart }, ...visibleInteractionWhere(req.agent?.role) } }),
+    prisma.interaction.count({ where: { type: "CALL", createdAt: { gte: dayStart }, ...visibleInteractionWhere(investigationViewerRole(req)) } }),
     prisma.incomingCall.count({ where: { startedAt: { gte: dayStart }, answered: false } }),
     prisma.incomingCall.count({
       where: { startedAt: { gte: dayStart }, ...AWAITING_REVIEW_WHERE },

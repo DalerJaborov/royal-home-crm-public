@@ -1,3 +1,4 @@
+import { investigationViewerRole } from "../auth/investigations.js";
 import { visibleInteractionWhere } from "../lib/investigationPrivacy.js";
 import { Router } from "express";
 import { z } from "zod";
@@ -649,7 +650,7 @@ dashboardRouter.get("/summary", requireAuth, async (req, res) => {
     prisma.interaction.findMany({
       // subjectAgentId ?? agentId (П-10, 17.09.2026): лента «последняя активность»
       // теряла записи бота/системы, сделанные от лица держателя карточки.
-      where: { ...visibleInteractionWhere(req.agent?.role), ...(ownAgentId ? { OR: [{ agentId: ownAgentId }, { subjectAgentId: ownAgentId }] } : {}) },
+      where: { ...visibleInteractionWhere(investigationViewerRole(req)), ...(ownAgentId ? { OR: [{ agentId: ownAgentId }, { subjectAgentId: ownAgentId }] } : {}) },
       orderBy: { createdAt: "desc" },
       take: 5,
       include: {

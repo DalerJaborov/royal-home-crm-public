@@ -11,14 +11,13 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
  * «недоступен» → очередь → pickAgentForLead — карточка, включая ПРОДАВЦА,
  * уезжала случайному третьему агенту при живом владельце Б.
  *
- * Правила владельца (docs/JOURNAL.md §4): продавец не уходит никогда; передаёт
- * клиента только владелец. С решения 23.09.2026 («заморозка — только чтобы не
- * приходили новые») покупатель тоже остаётся за своим агентом при любом его
- * отсутствии — до этого при отпуске он уходил в общую очередь. Значит,
- * спрашивать нужно про Б — и карточка остаётся за Б.
+ * Уточнение владельца 25.10.2026: при восстановлении INACTIVE замороженный
+ * текущий владелец исключается, включая отпуск. Если исторический тоже
+ * недоступен, карточка идёт в обычную AUTO-раздачу. Доступный текущий владелец
+ * по-прежнему имеет приоритет над уволенным историческим.
  *
  * Идёт напрямую через createLeadFromChannel (без бота), поэтому рабочие часы
- * здесь ни на что не влияют.
+ * влияют только на момент выдачи AUTO-очереди, но не на исключение замороженного.
  */
 
 const sendPushToAgent = vi.fn(async () => 1);
@@ -96,6 +95,21 @@ async function setOwnerOnVacation(on: boolean) {
   });
 }
 
+async function expectAutomaticReturn(clientId: string) {
+  const after = await prisma.client.findUniqueOrThrow({ where: { id: clientId } });
+  expect(after.assignedAgentId).not.toBe(ownerAgentId);
+  expect(after.assignedAgentId).not.toBe(firedAgentId);
+  expect(after.reactivationOfferedToAgentId).toBeNull();
+  expect(after.workStatus).toBe("ACTIVE");
+  expect(after.acceptedAt).toBeNull();
+  expect(after.escalatedAt).toBeNull();
+  if (after.assignedAgentId) {
+    const owner = await prisma.agent.findUniqueOrThrow({ where: { id: after.assignedAgentId } });
+    expect(owner.isActive).toBe(true);
+    expect(owner.frozenAt).toBeNull();
+  }
+}
+
 describe("Возврат из «Неактивных» после раздачи дел уволенного", () => {
   it("ПРОДАВЕЦ: владелец Б жив — предложение Б, карточка остаётся его, не третьему агенту", async () => {
     const c = await makeHandedOverInactiveClient("SELLER");
@@ -121,35 +135,25 @@ describe("Возврат из «Неактивных» после раздачи
     expect(after?.workStatus).toBe("INACTIVE");
   });
 
-  it("ПРОДАВЕЦ при владельце Б в отпуске — остаётся за Б (продавец не уходит никогда)", async () => {
+  it("ПРОДАВЕЦ восстанавливается при замороженном Б — AUTO-раздача (25.10.2026)", async () => {
     const c = await makeHandedOverInactiveClient("SELLER");
     await setOwnerOnVacation(true);
     try {
       await createLeadFromChannel({ fullName: c.fullName, phone: c.phone, source: "WHATSAPP", kind: "SELLER" });
 
-      const after = await prisma.client.findUnique({ where: { id: c.id } });
-      expect(after?.assignedAgentId).toBe(ownerAgentId);
-      expect(after?.reactivationOfferedToAgentId).toBeNull();
-      expect(after?.workStatus).toBe("ACTIVE");
+      await expectAutomaticReturn(c.id);
     } finally {
       await setOwnerOnVacation(false);
     }
   });
 
-  it("ПОКУПАТЕЛЬ при владельце Б в отпуске — остаётся за Б (решение владельца 23.09.2026)", async () => {
+  it("ПОКУПАТЕЛЬ восстанавливается при замороженном Б — AUTO-раздача (25.10.2026)", async () => {
     const c = await makeHandedOverInactiveClient("BUYER");
     await setOwnerOnVacation(true);
     try {
       await createLeadFromChannel({ fullName: c.fullName, phone: c.phone, source: "WHATSAPP", kind: "BUYER" });
 
-      const after = await prisma.client.findUnique({ where: { id: c.id } });
-      expect(after?.reactivationOfferedToAgentId).toBeNull();
-      expect(after?.workStatus).toBe("ACTIVE");
-      // Раньше здесь ждали очередь: покупателя при отпуске агента отнимали. Теперь
-      // он остаётся за Б — и главное прежнее требование в силе: карточка не
-      // уезжает ни уволенному А, ни случайному третьему агенту.
-      expect(after?.assignedAgentId).toBe(ownerAgentId);
-      expect(after?.assignedAgentId).not.toBe(firedAgentId);
+      await expectAutomaticReturn(c.id);
     } finally {
       await setOwnerOnVacation(false);
     }

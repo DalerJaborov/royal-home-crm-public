@@ -1,4 +1,5 @@
-import { canViewInvestigations } from "@royal-home/shared";
+import { withInvestigationPrivacy } from "../lib/investigationOperations.js";
+import { canReadInvestigations, investigationViewerRole } from "../auth/investigations.js";
 import { assignmentWriteDenied } from "../lib/assignmentCompletion.js";
 import { commandSellerControl, SellerControlConflict } from "../lib/sellerControlEpisodes.js";
 import { visibleInteractionWhere } from "../lib/investigationPrivacy.js";
@@ -84,7 +85,7 @@ interactionsRouter.get("/:id/recording", requireAuth, async (req, res) => {
   });
   if (!interaction?.recordingUrl) return res.status(404).json({ error: "Записи этого разговора нет" });
 
-  if (interaction.investigationOnly && !canViewInvestigations(req.agent?.role)) return res.status(404).json({ error: "Разговор не найден" });
+  if (interaction.investigationOnly && !canReadInvestigations(req)) return res.status(404).json({ error: "Разговор не найден" });
   const access = transcriptAccess(req.agent);
   // Входящий, принятый оператором по очереди, — тоже «свой» для агента, за которым
   // СЕЙЧАС закреплён клиент (см. шапку lib/callTranscripts.ts). Лишний запрос
@@ -218,7 +219,7 @@ interactionsRouter.get("/:id/transcript", requireAuth, async (req, res) => {
   });
   if (!interaction) return res.status(404).json({ error: "Разговор не найден" });
 
-  if (interaction.investigationOnly && !canViewInvestigations(req.agent?.role)) return res.status(404).json({ error: "Разговор не найден" });
+  if (interaction.investigationOnly && !canReadInvestigations(req)) return res.status(404).json({ error: "Разговор не найден" });
   const access = transcriptAccess(req.agent);
   let routedToViewersClient = false;
   if (!access.all && access.own && interaction.agentId !== access.viewerId && interaction.clientId) {
@@ -259,7 +260,7 @@ interactionsRouter.post("/:id/translate", requireAuth, async (req, res) => {
     select: { investigationOnly: true, id: true, agentId: true, clientId: true, transcript: true, transcriptRu: true },
   });
   if (!interaction) return res.status(404).json({ error: "Разговор не найден" });
-  if (interaction.investigationOnly && !canViewInvestigations(req.agent?.role)) return res.status(404).json({ error: "Разговор не найден" });
+  if (interaction.investigationOnly && !canReadInvestigations(req)) return res.status(404).json({ error: "Разговор не найден" });
   const access = transcriptAccess(req.agent);
   let routedToViewersClient = false;
   if (!access.all && access.own && interaction.agentId !== access.viewerId && interaction.clientId) {
@@ -342,7 +343,7 @@ interactionsRouter.post("/:id/retranscribe", requireAuth, async (req, res) => {
     return res.status(404).json({ error: "У этого разговора нет записи для повторной расшифровки" });
   }
 
-  if (interaction.investigationOnly && !canViewInvestigations(req.agent?.role)) return res.status(404).json({ error: "Разговор не найден" });
+  if (interaction.investigationOnly && !canReadInvestigations(req)) return res.status(404).json({ error: "Разговор не найден" });
   const access = transcriptAccess(req.agent);
   let routedToViewersClient = false;
   if (!access.all && access.own && interaction.agentId !== access.viewerId && interaction.clientId) {
@@ -369,9 +370,9 @@ interactionsRouter.post("/:id/retranscribe", requireAuth, async (req, res) => {
 
   res.status(202).json({ queued: true });
 
-  void retranscribeInteraction(interaction.id).catch((err) =>
+  void withInvestigationPrivacy(interaction.investigationOnly, () => retranscribeInteraction(interaction.id).catch((err) =>
     void logSystemError("ai", `Повторная расшифровка по запросу упала: ${describeError(err)}`)
-  );
+  ));
 });
 
 /** Лента активности с пагинацией и фильтром по периоду/агенту («Активность команды»
@@ -402,7 +403,7 @@ interactionsRouter.get("/", requireAuth, async (req, res) => {
   // Само сужение и границы суток по Душанбе живут в lib/activityFeed.ts — общие
   // со сводкой ниже, чтобы плитки и список никогда не считались по-разному.
   // Даты уже разобраны и проверены схемой — Invalid Date сюда не доходит.
-  const where = { ...activityWhere({ ownAgentId: scopeToOwnAgent(req), agentId, from, to, type }), ...visibleInteractionWhere(req.agent?.role) };
+  const where = { ...activityWhere({ ownAgentId: scopeToOwnAgent(req), agentId, from, to, type }), ...visibleInteractionWhere(investigationViewerRole(req)) };
 
   const [items, total] = await Promise.all([
     prisma.interaction.findMany({
@@ -459,7 +460,7 @@ interactionsRouter.get("/summary", requireAuth, async (req, res) => {
     return res.status(400).json({ error: "Неверные параметры запроса", details: parsed.error.flatten() });
   }
   const { agentId, from, to } = parsed.data;
-  const where = { ...activityWhere({ ownAgentId: scopeToOwnAgent(req), agentId, from, to }), ...visibleInteractionWhere(req.agent?.role) };
+  const where = { ...activityWhere({ ownAgentId: scopeToOwnAgent(req), agentId, from, to }), ...visibleInteractionWhere(investigationViewerRole(req)) };
 
   const grouped = await prisma.interaction.groupBy({
     by: ["type"],
@@ -619,7 +620,7 @@ async function foreignTaskWriteDenied(
   interaction: { clientId: string | null; agentId: string | null; subjectAgentId: string | null; investigationOnly?: boolean; taskCancelledAt?: Date | null },
   ownAgentId: string | undefined
 ): Promise<string | null> {
-  if (interaction.investigationOnly && !canViewInvestigations(req.agent?.role)) return "Недостаточно прав";
+  if (interaction.investigationOnly && !canReadInvestigations(req)) return "Недостаточно прав";
   if (interaction.taskCancelledAt) return "Задача отменена";
   const current = interaction.clientId ? await prisma.client.findUnique({ where: { id: interaction.clientId }, select: { assignmentCompletedAt: true } }) : null;
   const completed = current && assignmentWriteDenied(current, req.agent?.role);

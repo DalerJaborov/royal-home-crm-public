@@ -31,7 +31,7 @@ export function investigationNotificationWhere(): Prisma.NotificationWhereInput 
   ] };
 }
 
-export function visibleNotificationsWhere(agentId: string, role: string): Prisma.NotificationWhereInput {
+export function visibleNotificationsWhere(agentId: string, role?: string): Prisma.NotificationWhereInput {
   return canViewInvestigations(role) ? { agentId } : {
     agentId,
     // Nullable tag must be explicitly included (SQL NOT does not include NULL).
@@ -41,7 +41,7 @@ export function visibleNotificationsWhere(agentId: string, role: string): Prisma
 
 /** Old inbox rows retain their tag; join the actual producer instead of guessing
  * from prose. Missing jobs cannot establish a public binding and stay AD-only. */
-export async function loadVisibleNotificationsWhere(agentId: string, role: string): Promise<Prisma.NotificationWhereInput> {
+export async function loadVisibleNotificationsWhere(agentId: string, role?: string): Promise<Prisma.NotificationWhereInput> {
   const base = visibleNotificationsWhere(agentId, role);
   if (canViewInvestigations(role)) return base;
   const publicLegacy = await prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
@@ -66,7 +66,8 @@ export async function isPrivateNotification(notice: Notice): Promise<boolean> {
 }
 
 export async function investigationRecipients(): Promise<string[]> {
-  return (await prisma.agent.findMany({ where: { isActive: true, role: { in: ["ADMIN", "DIRECTOR"] } }, select: { id: true } })).map((a) => a.id);
+  const agents = await prisma.agent.findMany({ where: { isActive: true, role: { in: ["ADMIN", "DIRECTOR"] } }, select: { id: true, role: true, permissions: true } });
+  return agents.filter(agent => canViewInvestigations(agent.role) && resolvePermissions(agent.role, parsePermissionOverrides(agent.permissions)).has("clients.securityReview")).map(agent => agent.id);
 }
 
 export async function filterInvestigationRecipients(agentIds: string[], notice: Notice): Promise<string[]> {

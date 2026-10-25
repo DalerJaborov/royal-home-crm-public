@@ -1,6 +1,7 @@
+import { investigationViewerRole } from "../auth/investigations.js";
 import { Router, type Request, type Response } from "express";
 import { z } from "zod";
-import { canViewInvestigations } from "@royal-home/shared";
+import { canViewInvestigations, parsePermissionOverrides, resolvePermissions } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { requireAuth, requirePermission } from "../auth/middleware.js";
 import { logAudit } from "../lib/audit.js";
@@ -56,7 +57,7 @@ const MAX_BUFFERED_SAMPLES = 16_000;
 liveVoiceListenRouter.get("/active", async (req: Request, res: Response) => {
   const seesPhone = req.agent!.can("clients.viewPhone");
   const sessions = liveVoiceMonitor.listActive();
-  const allowed = await Promise.all(sessions.map((s) => mayReadLiveVoiceSession(req.agent?.role, s)));
+  const allowed = await Promise.all(sessions.map((s) => mayReadLiveVoiceSession(investigationViewerRole(req), s)));
   res.json({
     sessions: sessions.filter((_, index) => allowed[index]).map((s) => ({
       id: s.id,
@@ -90,7 +91,7 @@ liveVoiceListenRouter.get("/:id/listen", async (req: Request, res: Response) => 
   }
   const key = parsed.data.id;
   const active = liveVoiceMonitor.getActive(key);
-  if (!active || !(await mayReadLiveVoiceSession(req.agent?.role, active))) {
+  if (!active || !(await mayReadLiveVoiceSession(investigationViewerRole(req), active))) {
     res.status(404).json({ error: "Этот разговор уже закончился" });
     return;
   }
@@ -185,8 +186,8 @@ liveVoiceListenRouter.get("/:id/listen", async (req: Request, res: Response) => 
       checkingAccess = true;
       try {
         // No access-cache delay for revocation of an already-open private stream.
-        const current = await prisma.agent.findUnique({ where: { id: req.agent!.id }, select: { role: true, isActive: true } });
-        if (!current?.isActive || !canViewInvestigations(current.role)) {
+        const current = await prisma.agent.findUnique({ where: { id: req.agent!.id }, select: { role: true, isActive: true, permissions: true } });
+        if (!current?.isActive || !canViewInvestigations(current.role) || !resolvePermissions(current.role, parsePermissionOverrides(current.permissions)).has("clients.securityReview")) {
           close();
           return;
         }

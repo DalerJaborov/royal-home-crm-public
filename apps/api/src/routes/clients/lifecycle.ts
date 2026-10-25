@@ -1,3 +1,4 @@
+import { canReadInvestigations, investigationViewerRole } from "../../auth/investigations.js";
 /**
  * Жизненный цикл лида/клиента: accept, decline, assign, bot-pause, transfer,
  * activate, refuse (Г2, §1.2). Перенос verbatim. (deactivate — ручной вход в
@@ -65,7 +66,7 @@ lifecycleRouter.post("/:id/accept", requireAuth, async (req, res) => {
   if (client.assignmentCompletedAt) {
     return res.status(409).json({ error: "Работа по назначению завершена — требуется новое назначение руководителем" });
   }
-  if (client.acceptedAt) return res.json(presentClient(client, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), req.agent?.role));
+  if (client.acceptedAt) return res.json(presentClient(client, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), investigationViewerRole(req)));
 
   const parsedAccept = leadAcceptSchema.safeParse(req.body ?? {});
   if (!parsedAccept.success) {
@@ -93,7 +94,7 @@ lifecycleRouter.post("/:id/accept", requireAuth, async (req, res) => {
   });
 
   const updated = await prisma.client.findUnique({ where: { id: client.id } });
-  res.json(presentClient(updated ?? client, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), req.agent?.role));
+  res.json(presentClient(updated ?? client, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), investigationViewerRole(req)));
 });
 
 /**
@@ -383,7 +384,7 @@ lifecycleRouter.post("/:id/assign", requireAuth, requirePermission("clients.assi
   // Надзор назначил лид вручную: списки и окно приёма протухли у назначенного.
   publishClientUpdated({ clientId: client.id, agentIds: [updated?.assignedAgentId], actorId: req.agent!.id });
 
-  res.json(presentClient(updated!, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), req.agent?.role));
+  res.json(presentClient(updated!, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), investigationViewerRole(req)));
 });
 
 // POST /:id/claim-pool УДАЛЁН ЦЕЛИКОМ (17.09.2026, закон о владении клиентом
@@ -717,7 +718,7 @@ lifecycleRouter.post("/:id/refuse", requireAuth, async (req, res) => {
     isHot: result.isHot,
     refusalCount: result.refusalCount,
     transferred: result.transferred,
-    ...(canViewInvestigations(req.agent!.role) ? { securityReview: result.securityReview } : {}),
+    ...(canReadInvestigations(req) ? { securityReview: result.securityReview } : {}),
     message: result.message,
   });
 });

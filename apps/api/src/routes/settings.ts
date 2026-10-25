@@ -1,3 +1,4 @@
+import { canReadInvestigations, investigationViewerRole } from "../auth/investigations.js";
 import { saveWithInvestigationControlAudit } from "../lib/investigationSettingsAudit.js";
 import { canViewInvestigations } from "@royal-home/shared";
 import { investigationCallChannelIds, mayReadLiveVoiceSession } from "../lib/investigationCallChannels.js";
@@ -572,7 +573,7 @@ settingsRouter.get("/", requireAuth, async (req, res) => {
   // полный объект получает тот же круг. Остальным — усечённая версия.
   const isAdmin = can(req, "settings.view");
   const response = isAdmin ? await publicSettingsResponse(settings) : toStaffSettings(settings);
-  if (!canViewInvestigations(req.agent?.role)) {
+  if (!canReadInvestigations(req)) {
     delete (response as Record<string, unknown>).postShowingCallEnabled;
     delete (response as Record<string, unknown>).investigationCaseConfig;
     delete (response as Record<string, unknown>).sellerControlConfig;
@@ -1434,7 +1435,7 @@ const settingsUpdateSchema = z.object({
 });
 
 settingsRouter.patch("/", requireAuth, requirePermission("settings.manage"), requireElevation, async (req, res) => {
-  if (Object.prototype.hasOwnProperty.call(req.body ?? {}, "postShowingCallEnabled") && !canViewInvestigations(req.agent?.role)) return res.status(403).json({ error: "Недостаточно прав" });
+  if (Object.prototype.hasOwnProperty.call(req.body ?? {}, "postShowingCallEnabled") && !canReadInvestigations(req)) return res.status(403).json({ error: "Недостаточно прав" });
   const parsed = settingsUpdateSchema.safeParse(req.body);
   if (!parsed.success) {
     /**
@@ -2066,7 +2067,7 @@ settingsRouter.patch("/", requireAuth, requirePermission("settings.manage"), req
     const upgraded = await upgradeStoredAdsToken(metaAdsToken);
     if (upgraded) {
       const refreshed = await prisma.settings.findUnique({ where: { id: "singleton" } });
-      if (refreshed) return res.json(privateSettingsResponse(await publicSettingsResponse(refreshed), req.agent?.role));
+      if (refreshed) return res.json(privateSettingsResponse(await publicSettingsResponse(refreshed), investigationViewerRole(req)));
     }
   }
 
@@ -2077,10 +2078,10 @@ settingsRouter.patch("/", requireAuth, requirePermission("settings.manage"), req
   if (metaPageToken) upgradedMetaToken = (await upgradeStoredMetaUserToken("metaPageToken")) || upgradedMetaToken;
   if (upgradedMetaToken) {
     const refreshed = await prisma.settings.findUnique({ where: { id: "singleton" } });
-    if (refreshed) return res.json(privateSettingsResponse(await publicSettingsResponse(refreshed), req.agent?.role));
+    if (refreshed) return res.json(privateSettingsResponse(await publicSettingsResponse(refreshed), investigationViewerRole(req)));
   }
 
-  res.json(privateSettingsResponse(await publicSettingsResponse(settings), req.agent?.role));
+  res.json(privateSettingsResponse(await publicSettingsResponse(settings), investigationViewerRole(req)));
 });
 
 /** Ручное обновление курса USD→TJS с alif.tj по кнопке в Настройках — та же логика,
@@ -2394,7 +2395,7 @@ settingsRouter.get("/live-voice/sessions", requireAuth, requirePermission("setti
   const query = liveVoiceSessionsQuerySchema.safeParse(req.query);
   if (!query.success) return res.status(400).json({ error: `Предел списка — от 1 до ${LIVE_VOICE_SESSIONS_MAX}` });
   const sessions = await prisma.liveVoiceSession.findMany({
-    where: canViewInvestigations(req.agent?.role) ? {} : { investigationOnly: false, channelId: { notIn: await investigationCallChannelIds() } },
+    where: canReadInvestigations(req) ? {} : { investigationOnly: false, channelId: { notIn: await investigationCallChannelIds() } },
     orderBy: { startedAt: "desc" },
     take: query.data.limit,
     select: {
@@ -2492,7 +2493,7 @@ settingsRouter.get(
       where: { id: req.params.id },
       select: { recordingUrl: true, channelId: true, investigationOnly: true },
     });
-    if (session && !(await mayReadLiveVoiceSession(req.agent?.role, session))) return res.status(404).json({ error: "Записи нет" });
+    if (session && !(await mayReadLiveVoiceSession(investigationViewerRole(req), session))) return res.status(404).json({ error: "Записи нет" });
     if (!session?.recordingUrl) return res.status(404).json({ error: "Записи нет" });
     const url = await r2PresignDownloadUrl(session.recordingUrl);
     if (!url) return res.status(502).json({ error: "R2 не настроен или не ответил" });
@@ -2965,7 +2966,7 @@ settingsRouter.post("/logo", requireAuth, requirePermission("settings.manage"), 
     update: { companyLogoUrl: `/uploads/${filename}` },
     create: { id: "singleton", companyLogoUrl: `/uploads/${filename}` },
   });
-  res.json(privateSettingsResponse(await publicSettingsResponse(settings), req.agent?.role));
+  res.json(privateSettingsResponse(await publicSettingsResponse(settings), investigationViewerRole(req)));
 });
 
 /**

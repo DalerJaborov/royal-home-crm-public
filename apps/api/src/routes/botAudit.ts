@@ -1,5 +1,4 @@
-import { canViewInvestigations } from "@royal-home/shared";
-import { requireInvestigations } from "../auth/investigations.js";
+import { canReadInvestigations, requireInvestigations } from "../auth/investigations.js";
 import { Router } from "express";
 import { z } from "zod";
 import { Prisma } from "../generated/prisma/client.js";
@@ -70,7 +69,7 @@ botAuditRouter.get("/", requireAuth, requirePermission("auditLog.view"), async (
   const canSeePhone = can(req, "clients.viewPhone");
   const rows = (
     await prisma.botAuditFinding.findMany({
-      where: { ...(includeResolved ? {} : { resolvedAt: null }), ...(!canViewInvestigations(req.agent?.role) ? { type: { not: "agent_bypassed_crm" } } : {}) },
+      where: { ...(includeResolved ? {} : { resolvedAt: null }), ...(!canReadInvestigations(req) ? { type: { not: "agent_bypassed_crm" } } : {}) },
       orderBy: { createdAt: "desc" },
       take: 500,
     })
@@ -96,8 +95,8 @@ botAuditRouter.get("/", requireAuth, requirePermission("auditLog.view"), async (
   // в 500 строк, и без честного итога владелец видел бы «500» и не знал, сколько
   // на самом деле висит неразобранным (на проде это 104 из 104).
   const [unresolvedTotal, resolvedTotal] = await Promise.all([
-    prisma.botAuditFinding.count({ where: { resolvedAt: null, ...(!canViewInvestigations(req.agent?.role) ? { type: { not: "agent_bypassed_crm" } } : {}) } }),
-    prisma.botAuditFinding.count({ where: { NOT: { resolvedAt: null }, ...(!canViewInvestigations(req.agent?.role) ? { type: { not: "agent_bypassed_crm" } } : {}) } }),
+    prisma.botAuditFinding.count({ where: { resolvedAt: null, ...(!canReadInvestigations(req) ? { type: { not: "agent_bypassed_crm" } } : {}) } }),
+    prisma.botAuditFinding.count({ where: { NOT: { resolvedAt: null }, ...(!canReadInvestigations(req) ? { type: { not: "agent_bypassed_crm" } } : {}) } }),
   ]);
   const allGroups = Array.from(groups.values()).sort((a, b) => b.count - a.count);
   const page = allGroups.slice(groupsOffset, groupsOffset + GROUPS_PAGE);
@@ -137,7 +136,7 @@ botAuditRouter.get("/group-examples", requireAuth, requirePermission("auditLog.v
   const parsed = groupExamplesQuerySchema.safeParse(req.query);
   if (!parsed.success) return res.status(400).json({ error: "Неверные параметры" });
   const { type, why, cursor } = parsed.data;
-  if (type === "agent_bypassed_crm" && !canViewInvestigations(req.agent?.role)) return res.status(404).json({ error: "Группа не найдена" });
+  if (type === "agent_bypassed_crm" && !canReadInvestigations(req)) return res.status(404).json({ error: "Группа не найдена" });
   const rows = await prisma.botAuditFinding.findMany({
     where: { type, resolvedAt: null, why: { startsWith: groupWhyPrefix(why), mode: "insensitive" } },
     orderBy: { createdAt: "desc" },
@@ -211,7 +210,7 @@ botAuditRouter.post("/group/resolve", requireAuth, requirePermission("auditLog.v
   const parsed = groupResolveSchema.safeParse(req.body ?? {});
   if (!parsed.success) return res.status(400).json({ error: "Неверные данные" });
   const { type, why, verdict } = parsed.data;
-  if (type === "agent_bypassed_crm" && !canViewInvestigations(req.agent?.role)) return res.status(404).json({ error: "Группа не найдена" });
+  if (type === "agent_bypassed_crm" && !canReadInvestigations(req)) return res.status(404).json({ error: "Группа не найдена" });
   const whyPrefix = groupWhyPrefix(why);
   const matches = await prisma.botAuditFinding.findMany({
     where: { type, resolvedAt: null, why: { startsWith: whyPrefix, mode: "insensitive" } },
@@ -261,7 +260,7 @@ botAuditRouter.post("/:id/resolve", requireAuth, requirePermission("auditLog.vie
   const { verdict } = parsed.data;
   try {
     const finding = await prisma.botAuditFinding.findUnique({ where: { id: req.params.id } });
-    if (finding?.type === "agent_bypassed_crm" && !canViewInvestigations(req.agent?.role)) return res.status(404).json({ error: "Запись не найдена" });
+    if (finding?.type === "agent_bypassed_crm" && !canReadInvestigations(req)) return res.status(404).json({ error: "Запись не найдена" });
     if (!finding) return res.status(404).json({ error: "Запись не найдена" });
 
     // Одна транзакция: закрытие находки и урок для обучения — либо оба, либо
@@ -331,7 +330,7 @@ botAuditRouter.post("/:id/resolve", requireAuth, requirePermission("auditLog.vie
  */
 botAuditRouter.post("/resolve-all", requireAuth, requirePermission("auditLog.view"), async (req, res) => {
   const { count } = await prisma.botAuditFinding.updateMany({
-    where: { resolvedAt: null, ...(!canViewInvestigations(req.agent?.role) ? { type: { not: "agent_bypassed_crm" } } : {}) },
+    where: { resolvedAt: null, ...(!canReadInvestigations(req) ? { type: { not: "agent_bypassed_crm" } } : {}) },
     data: { resolvedAt: new Date(), resolvedById: req.agent!.id },
   });
   res.json({ resolved: count });

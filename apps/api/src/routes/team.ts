@@ -1,3 +1,4 @@
+import { canReadInvestigations, investigationViewerRole } from "../auth/investigations.js";
 import { Router } from "express";
 import { visibleInteractionWhere } from "../lib/investigationPrivacy.js";
 import { canViewInvestigations } from "@royal-home/shared";
@@ -93,7 +94,7 @@ teamRouter.get("/stages", async (req, res) => {
       by: ["agentId"],
       where: {
         agentId: { in: agentIds },
-        ...visibleInteractionWhere(req.agent?.role),
+        ...visibleInteractionWhere(investigationViewerRole(req)),
         type: "SHOWING",
         nextAction: { not: null },
         completedAt: null,
@@ -109,7 +110,7 @@ teamRouter.get("/stages", async (req, res) => {
       by: ["subjectAgentId"],
       where: {
         subjectAgentId: { in: agentIds },
-        ...visibleInteractionWhere(req.agent?.role),
+        ...visibleInteractionWhere(investigationViewerRole(req)),
         agentId: null,
         type: "SHOWING",
         nextAction: { not: null },
@@ -229,7 +230,7 @@ teamRouter.get("/", async (req, res) => {
       // сведён ниже, при разборе по вёдрам (agentId ?? subjectAgentId).
       where: {
         createdAt: { gte: startOfMonth },
-        ...visibleInteractionWhere(req.agent?.role),
+        ...visibleInteractionWhere(investigationViewerRole(req)),
         type: { not: "SYSTEM" },
         OR: [{ agentId: { in: agentIds } }, { agentId: null, subjectAgentId: { in: agentIds } }],
         client: { deletedAt: null },
@@ -398,7 +399,7 @@ const AGENT_OVERVIEW_QUERY_CONCURRENCY = 4;
 
 export const agentOverviewRouter = Router();
 agentOverviewRouter.get("/:id/overview", requireAuth, requirePermission("team.viewFull"), async (req, res) => {
-  const seesInvestigations = canViewInvestigations(req.agent?.role);
+  const seesInvestigations = canReadInvestigations(req);
   const { id } = req.params;
   const agent = await prisma.agent.findUnique({
     where: { id },
@@ -446,7 +447,7 @@ agentOverviewRouter.get("/:id/overview", requireAuth, requirePermission("team.vi
   // subjectAgentId ?? agentId (П-10, 17.09.2026): просроченная задача, заведённая
   // ботом/системой от лица держателя карточки (agentId: null), остаётся ЕГО
   // хвостом — тот же приём, что computeDiscipline в kpi.ts.
-  const overdueTasksAgentWhere = { ...overdueTasksWhere(now), ...visibleInteractionWhere(req.agent?.role), OR: [{ agentId: id }, { subjectAgentId: id }] };
+  const overdueTasksAgentWhere = { ...overdueTasksWhere(now), ...visibleInteractionWhere(investigationViewerRole(req)), OR: [{ agentId: id }, { subjectAgentId: id }] };
   const stalledClientsAgentWhere = { ...stalledClientsWhere(now, hotScoreThreshold), assignedAgentId: id };
 
   const [
@@ -537,7 +538,7 @@ agentOverviewRouter.get("/:id/overview", requireAuth, requirePermission("team.vi
       // — та же оговорка, что и у месячной сводки /team: без неё показ по клиенту
       // из Корзины попадал бы в ленту действующего сотрудника.
       () => prisma.interaction.findMany({
-        where: { agentId: id, type: { not: "SYSTEM" }, client: { deletedAt: null }, ...visibleInteractionWhere(req.agent?.role) },
+        where: { agentId: id, type: { not: "SYSTEM" }, client: { deletedAt: null }, ...visibleInteractionWhere(investigationViewerRole(req)) },
         orderBy: { createdAt: "desc" },
         take: 8,
         select: {
@@ -809,7 +810,7 @@ agentOverviewRouter.get("/:id/live", requireAuth, requirePermission("team.viewFu
           prisma.interaction.findFirst({
             where: {
               OR: [{ agentId: id }, { subjectAgentId: id }],
-              ...visibleInteractionWhere(req.agent?.role),
+              ...visibleInteractionWhere(investigationViewerRole(req)),
               nextAction: { not: null },
               nextActionDate: { gte: now },
               completedAt: null,
@@ -858,7 +859,7 @@ agentOverviewRouter.get("/:id/live", requireAuth, requirePermission("team.viewFu
         () =>
           prisma.interaction.groupBy({
             by: ["callAttempt"],
-            where: { agentId: id, type: "CALL", createdAt: { gte: weekAgo }, client: { deletedAt: null }, ...visibleInteractionWhere(req.agent?.role) },
+            where: { agentId: id, type: "CALL", createdAt: { gte: weekAgo }, client: { deletedAt: null }, ...visibleInteractionWhere(investigationViewerRole(req)) },
             _count: { _all: true },
           }),
         // 6) Пропущенные ЕМУ входящие за неделю.
@@ -878,7 +879,7 @@ agentOverviewRouter.get("/:id/live", requireAuth, requirePermission("team.viewFu
             where: {
               agentId: id,
               type: "CALL",
-              ...visibleInteractionWhere(req.agent?.role),
+              ...visibleInteractionWhere(investigationViewerRole(req)),
               client: { deletedAt: null },
               OR: [{ recordingUrl: { not: null } }, { transcript: { not: null } }],
             },
