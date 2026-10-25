@@ -108,6 +108,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  await prisma.propertyExposure.deleteMany({ where: { propertyId: { in: [propertyId, quietPropertyId] } } });
   await prisma.sellerProbeCall.deleteMany({ where: { agentId } });
   await prisma.postShowingCall.deleteMany({ where: { clientId: buyerId } });
   await prisma.deal.deleteMany({ where: { propertyId: { in: [propertyId, quietPropertyId] } } });
@@ -120,6 +121,7 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
+  await prisma.propertyExposure.deleteMany({ where: { propertyId: { in: [propertyId, quietPropertyId] } } });
   await prisma.sellerProbeCall.deleteMany({ where: { agentId } });
   await prisma.postShowingCall.deleteMany({ where: { clientId: buyerId } });
   await prisma.deal.deleteMany({ where: { propertyId: { in: [propertyId, quietPropertyId] } } });
@@ -128,10 +130,18 @@ beforeEach(async () => {
 });
 
 describe("досье к заявке на удаление", () => {
+  it("отправка без показа сохраняется в досье, но не означает просмотр или нарушение", async () => {
+    const property = await prisma.property.findUniqueOrThrow({ where: { id: quietPropertyId }, select: { shortId: true } });
+    await prisma.propertyExposure.create({ data: { propertyId: quietPropertyId, clientId: buyerId, shortId: property.shortId, channel: "WHATSAPP", recipientId: `test-${runId}`, kind: "LINK", sentAt: SHOWING_AT } });
+    const dossier = (await buildPropertyDeleteDossiers([quietPropertyId], NOW)).get(quietPropertyId);
+    expect(dossier?.showingsCount).toBe(0); expect(dossier?.exposuresCount).toBe(1);
+    expect(dossier?.lines.join(" ")).toContain("Отправка не подтверждает просмотр");
+    expect(dossier?.hasConcerns).toBe(false);
+  });
   it("показов не было — сказать об этом прямо и тревогу не поднимать", async () => {
     const dossier = (await buildPropertyDeleteDossiers([quietPropertyId], NOW)).get(quietPropertyId);
     expect(dossier?.showingsCount).toBe(0);
-    expect(dossier?.lines[0]).toContain("Показов по объекту не было");
+    expect(dossier?.lines.join(" ")).toContain("Показов по объекту не было");
     expect(dossier?.hasConcerns).toBe(false);
   });
 

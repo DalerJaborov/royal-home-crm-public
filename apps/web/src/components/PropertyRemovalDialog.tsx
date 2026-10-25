@@ -1,3 +1,4 @@
+import { PropertyRemovalDossier } from "./PropertyRemovalDossier";
 import { useState } from "react";
 import { PROPERTY_DELETE_REQUEST_REASONS, PROPERTY_DELETE_REQUEST_REASON_LABELS, propertyDeleteRequestSchema, type PropertyRemovalInput } from "@royal-home/shared";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -7,8 +8,8 @@ export function parseRemovalChoice(reason: string, comment: string): PropertyRem
   return parsed.success ? { removalReason: parsed.data.reason, removalComment: parsed.data.comment } : null;
 }
 
-export function PropertyRemovalDialog({ title, description, confirmLabel, onConfirm, onClose }: {
-  title: string; description: string; confirmLabel: string;
+export function PropertyRemovalDialog({ title, description, confirmLabel, onConfirm, onClose, propertyIds = [] }: {
+  title: string; description: string; confirmLabel: string; propertyIds?: string[];
   onConfirm: (body: PropertyRemovalInput) => Promise<unknown>; onClose: () => void;
 }) {
   const [reason, setReason] = useState("");
@@ -25,6 +26,7 @@ export function PropertyRemovalDialog({ title, description, confirmLabel, onConf
       try { await onConfirm(body); onClose(); } catch (failure) { setError(failure instanceof Error ? failure.message : "Не удалось сохранить. Повторите попытку."); }
       finally { setBusy(false); }
     }}>
+    <PropertyRemovalDossier propertyIds={propertyIds} />
     <label className="fld"><span className="lab">Причина</span><select className="inp" value={reason} disabled={busy} onChange={event => setReason(event.target.value)}><option value="">Выберите причину</option>{PROPERTY_DELETE_REQUEST_REASONS.map(value => <option key={value} value={value}>{PROPERTY_DELETE_REQUEST_REASON_LABELS[value]}</option>)}</select></label>
     <label className="fld"><span className="lab">Комментарий{reason === "OTHER" || reason === "SOLD_ELSEWHERE" ? " · обязательно" : ""}</span><textarea className="inp" rows={3} maxLength={1000} value={comment} disabled={busy} onChange={event => setComment(event.target.value)} /></label>
     {error && <p role="alert">{error}</p>}

@@ -79,7 +79,7 @@ describe("private investigation episodes", () => {
   it("rejects agents and legacy security role even with an investigation permission override", async () => {
     const created = await recordInvestigationSignal(signal({ showingId: randomUUID(), summary: "PRIVATE-EVIDENCE-CANARY" }));
     const passwordHash = await bcrypt.hash("case-test-password", 4);
-    for (const role of ["AGENT", "SECURITY", "ADMIN", "DIRECTOR"] as const) {
+    for (const role of ["AGENT", "MANAGER", "SECURITY", "ADMIN", "DIRECTOR"] as const) {
       const phone = `+992${Date.now()}${roleIds.length}`;
       const agent = await prisma.agent.create({ data: { fullName: `Case role ${role}`, phone, role, passwordHash,
         permissions: { granted: ["clients.securityReview", "settings.view"], revoked: [] } } });
@@ -88,12 +88,12 @@ describe("private investigation episodes", () => {
       expect(login.status).toBe(200);
       const response = await request(app).get("/api/v1/security/cases").set("Authorization", `Bearer ${login.body.accessToken}`);
       expect(response.status).toBe(role === "ADMIN" || role === "DIRECTOR" ? 200 : 403);
-      for (const path of ["/config", "/recurrence", "/automation-preview", "/seller-control-preview", `/${created.caseId}`]) {
+      for (const path of ["/config", "/recurrence", "/automation-preview", "/seller-control-preview", "/buyer-showing-candidates", "/workflow-observations", "/manual-contact-preview", "/named-assignment-preview", `/${created.caseId}`]) {
         const detail = await request(app).get(`/api/v1/security/cases${path}`).set("Authorization", `Bearer ${login.body.accessToken}`);
         expect(detail.status).toBe(role === "ADMIN" || role === "DIRECTOR" ? 200 : 403);
         if (detail.status === 403) expect(JSON.stringify(detail.body)).not.toContain("PRIVATE-EVIDENCE-CANARY");
       }
-      if (role === "AGENT" || role === "SECURITY") {
+      if (role === "AGENT" || role === "MANAGER" || role === "SECURITY") {
         const settings = await request(app).get("/api/v1/settings").set("Authorization", `Bearer ${login.body.accessToken}`);
         expect(settings.status).toBe(200);
         expect(settings.body).not.toHaveProperty("investigationCaseConfig");
@@ -101,6 +101,11 @@ describe("private investigation episodes", () => {
           .set("Authorization", `Bearer ${login.body.accessToken}`)
           .send({ requestKey: randomUUID(), revision: 1, status: "CONFIRMED", note: "Forged decision must fail" });
         expect(decision.status).toBe(403);
+        expect((await request(app).get("/api/v1/security/cases/workflow-agent-preview").set("Authorization", `Bearer ${login.body.accessToken}`)).status).toBe(403);
+        expect((await request(app).post("/api/v1/security/cases/seller-control/buyer-candidate").set("Authorization", `Bearer ${login.body.accessToken}`)
+          .send({ buyerCandidateId: randomUUID(), candidateRevision: 1, ropAgentId: actorId, requestKey: randomUUID() })).status).toBe(403);
+        expect((await request(app).post(`/api/v1/security/cases/${created.caseId}/severity`).set("Authorization", `Bearer ${login.body.accessToken}`)
+          .send({ requestKey: randomUUID(), revision: 1, level: "C4", confirmC4: true, note: "Forged severity decision" })).status).toBe(403);
         expect((await request(app).put("/api/v1/security/cases/config").set("Authorization", `Bearer ${login.body.accessToken}`)
           .send({ config: { minSample: 1, repeatThreshold: 1 } })).status).toBe(403);
       }

@@ -1,3 +1,4 @@
+import { isPrivateSettingsField } from "./investigationSettingsAudit.js";
 import { canViewInvestigations } from "@royal-home/shared";
 import type { Prisma } from "../generated/prisma/client.js";
 import { prisma } from "../db.js";
@@ -24,7 +25,7 @@ export function visibleAuditWhere(role?: string | null, privateLessonIds: string
       { entityId: null },
       { entityId: { notIn: privateLessonIds } },
     ] }] : []),
-    { entityType: { notIn: ["PostShowingCall", "SellerProbeCall", "ShowingSurveyCall"] } },
+    { entityType: { notIn: ["PostShowingCall", "SellerProbeCall", "ShowingSurveyCall", "InvestigationControl"] } },
     { action: { notIn: ["CLIENT_SECURITY_REVIEW", "CLIENT_REFUSAL_SUSPECTED"] } },
     { OR: [
       { action: { notIn: ["BOT_AUDIT_RESOLVE", "BOT_AUDIT_RESOLVE_GROUP"] } },
@@ -37,5 +38,7 @@ export function publicAuditMeta<T extends { meta: unknown }>(row: T, role?: stri
   if (canViewInvestigations(role) || !row.meta || typeof row.meta !== "object" || Array.isArray(row.meta)) return row;
   const meta = { ...row.meta } as Record<string, unknown>;
   for (const field of ["securityReview", "securityNote", "securityReviewedAt", "securityReviewedById", "investigationOnly"]) delete meta[field];
+  for (const key of Object.keys(meta)) if (isPrivateSettingsField(key)) delete meta[key];
+  if (Array.isArray(meta.fields)) meta.fields = meta.fields.filter(field => typeof field !== "string" || !isPrivateSettingsField(field));
   return { ...row, meta };
 }

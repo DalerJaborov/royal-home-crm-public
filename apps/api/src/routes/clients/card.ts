@@ -809,7 +809,11 @@ cardRouter.post("/:id/restore", requireAuth, requirePermission("clients.delete")
   const owner = client.assignedAgentId
     ? await prisma.agent.findUnique({ where: { id: client.assignedAgentId }, select: { isActive: true } })
     : null;
-  const ownerGone = client.assignedAgentId != null && (!owner || !owner.isActive);
+  const historicalOwner = !owner?.isActive && client.lastAgentId && !client.assignmentRefusedAt && !client.assignmentCompletedAt
+    ? await prisma.agent.findUnique({ where: { id: client.lastAgentId }, select: { id: true, isActive: true } }) : null;
+  const restoredAgentId = client.kind !== "OTHER" && historicalOwner?.isActive ? historicalOwner.id : null;
+  const completedAssignment = Boolean(client.assignmentRefusedAt || client.assignmentCompletedAt);
+  const ownerGone = !completedAssignment && client.assignedAgentId != null && (!owner || !owner.isActive);
   /**
    * КАРТОЧКА БЕЗ АГЕНТА ПОСЛЕ ВОССТАНОВЛЕНИЯ — В РАЗДАЧУ, И РУКОВОДСТВО ЗНАЕТ
    * (23.09.2026, проверка раздачи, пункты 20 и 24). Раньше при уволенном агенте
@@ -820,13 +824,25 @@ cardRouter.post("/:id/restore", requireAuth, requirePermission("clients.delete")
    * агентов (не «Прочее») встаёт в очередь как новый лид: волна отдаст её
    * агенту, и тот примет её сам. Руководство получает пуш «назначьте агента».
    */
-  const endsWithoutAgent = ownerGone || client.assignedAgentId == null;
-  const toQueue = endsWithoutAgent && client.kind !== "OTHER";
+  const endsWithoutAgent = !restoredAgentId && (ownerGone || client.assignedAgentId == null);
+  const toQueue = !completedAssignment && endsWithoutAgent && client.kind !== "OTHER";
   const queueData = toQueue
     ? { escalatedAt: null, acceptedAt: null, assignedAt: new Date(), triedAgentIds: [], reassignCount: 0 }
     : {};
 
-  await prisma.$transaction(async (tx) => {
+  const restoreConflict = new Error("Restore conflict");
+  const restored = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "Client" WHERE id = ${client.id} FOR UPDATE`;
+    const current = await tx.client.findUnique({ where: { id: client.id } });
+    if (!current?.deletedAt || current.updatedAt.getTime() !== client.updatedAt.getTime()) {
+      return false;
+    }
+    for (const [id, expected] of [[client.assignedAgentId, owner?.isActive], [restoredAgentId, true]] as const) {
+      if (id && !completedAssignment) {
+        const agent = await tx.agent.findUnique({ where: { id }, select: { isActive: true } });
+        if (agent?.isActive !== expected) return false;
+      }
+    }
     // Часы ночного переноса в Корзину — заново с момента восстановления
     // (23.09.2026). Карточку, которую перенос убрал сам (Потерянный/Неактивный
     // старше срока), он в ту же ночь уносил обратно: lostAt и inactiveSince
@@ -842,18 +858,21 @@ cardRouter.post("/:id/restore", requireAuth, requirePermission("clients.delete")
         ...(client.workStatus === "INACTIVE" && client.inactiveSince ? { inactiveSince: now, inactivePingCount: 0 } : {}),
       },
     });
-    if (ownerGone) {
-      await changeClientAgent({
+    if (ownerGone || restoredAgentId) {
+      const changed = await changeClientAgent({
         clientId: client.id,
-        toAgentId: null,
-        reason: "Восстановление из Корзины: агент карточки уволен/неактивен — карточка в очереди раздачи",
+        toAgentId: restoredAgentId,
+        reason: restoredAgentId ? "Восстановление из Корзины: возвращена прежнему активному агенту" : "Восстановление из Корзины: агент карточки уволен/неактивен — карточка в очереди раздачи",
         actorId: req.agent!.id,
         source: "restore",
-        data: toQueue ? queueData : { escalatedAt: new Date() },
+        data: restoredAgentId ? { assignedAt: now, acceptedAt: null, escalatedAt: null } : toQueue ? queueData : { escalatedAt: new Date() },
         tx,
       });
+      if (!changed.ok) throw restoreConflict;
     }
-  });
+    return true;
+  }).catch(error => { if (error === restoreConflict) return false; throw error; });
+  if (!restored) return res.status(409).json({ error: "Карточка изменилась. Обновите страницу" });
   if (toQueue) {
     const supervisors = (await findAgentsWithPermission("clients.assign")).filter((id) => id !== req.agent!.id);
     sendPushToAgents(supervisors, {

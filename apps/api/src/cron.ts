@@ -571,7 +571,28 @@ async function notifyDirectorsAboutLostDigest(lostCount: number, proposals: numb
 }
 
 export function startCronJobs() {
-  // Explicit opt-in only; produces current-month drafts, never sends SMS.
+  scheduleTracked("owner-exposure-verification-preview", "15 * * * *", async () => {
+    const { runExposureOwnerPreviewTick } = await import("./lib/ownerVerificationSources.js");
+    await runExposureOwnerPreviewTick();
+  });
+  scheduleTracked("approved-owner-verification", "25 * * * *", async () => {
+    const { runNewOwnerVerificationTick } = await import("./lib/sellerProbeCall.js");
+    await runNewOwnerVerificationTick(new Date(), { allowLive: true });
+  });
+  // Default server gates are PREVIEW. These workers never promote stored previews.
+  scheduleTracked("narration-version-delivery", "* * * * *", async () => {
+    const { executeQueuedNarrationDeliveries } = await import("./lib/narrationDelivery.js");
+    await executeQueuedNarrationDeliveries();
+  });
+  scheduleTracked("seller-control-episodes", "* * * * *", async () => {
+    const { runSellerControlTick } = await import("./lib/sellerControlEpisodes.js");
+    await runSellerControlTick();
+  });
+  scheduleTracked("owner-report-delivery", "* * * * *", async () => {
+    const { executeQueuedOwnerReports } = await import("./lib/ownerReport/delivery.js");
+    await executeQueuedOwnerReports();
+  });
+  // Explicit consent only; current-month PREVIEW by default, LIVE requires both persisted consent mode and server gate.
   scheduleTracked("owner-report-monthly-preview", "20 8 * * *", async () => {
     const { prepareMonthlyOwnerReportPreviews } = await import("./lib/ownerReport/monthlyPreview.js");
     await prepareMonthlyOwnerReportPreviews();

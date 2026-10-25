@@ -278,7 +278,8 @@ export async function loadPropertyVoice(
     }),
     prisma.interaction.findMany({
       where: { propertyId, type: "SHOWING", createdAt: { gte: windowStart } },
-      select: { clientId: true, type: true, declinedAt: true, completedAt: true, nextActionDate: true },
+      select: { clientId: true, type: true, declinedAt: true, completedAt: true, nextActionDate: true,
+        taskCancelledAt: true, showingEvidenceVersion: true, propertyId: true, showingOffCrm: true, showingOffCrmDetails: true },
       orderBy: { createdAt: "desc" },
       take: TAKE_TEXTS,
     }),

@@ -137,7 +137,8 @@ export async function runAgentOffCrmAlarmTick(now: Date = new Date()): Promise<{
     const frozen = !silent && (await findFrozenAppointment(c.id, cutoffForClient));
     if (!silent && !frozen) continue;
 
-    const { explained, unchecked } = await checkClientExplainedPause(c.id);
+    const { explained, unchecked } = await checkClientExplainedPause(c.id, { since: c.phoneAskFlaggedAt ?? undefined });
+    if (unchecked) { skipped++; continue; }
     if (explained) {
       // Разобрано без аларма — клиент сам всё объяснил, агент не виноват.
       // Отмечаем, чтобы не гонять ИИ-проверку повторно на каждом тике.

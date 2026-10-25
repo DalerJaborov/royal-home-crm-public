@@ -1,5 +1,6 @@
 import { canViewInvestigations } from "@royal-home/shared";
 import { assignmentWriteDenied } from "../lib/assignmentCompletion.js";
+import { commandSellerControl, SellerControlConflict } from "../lib/sellerControlEpisodes.js";
 import { visibleInteractionWhere } from "../lib/investigationPrivacy.js";
 import { Router, type Request } from "express";
 import { z } from "zod";
@@ -36,6 +37,26 @@ import { closeMeetingReminderPushes } from "../lib/meetingReminders.js";
 import { interactionPropertySelect } from "../lib/interactionPropertySelect.js";
 
 export const interactionsRouter = Router();
+
+/** Ordinary assignee acknowledgement. No episode identifiers or private facts leave this route. */
+interactionsRouter.post("/:id/work-response", requireAuth, async (req, res) => {
+  const parsed = z.object({ requestKey: z.string().uuid(), action: z.enum(["RECEIPT", "ACTION"]), note: z.string().trim().min(3).max(2000).optional() })
+    .strict().refine(value => value.action !== "ACTION" || !!value.note).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Проверьте ответ по задаче" });
+  const task = await prisma.interaction.findUnique({ where: { id: req.params.id } });
+  if (!task || task.subjectAgentId !== req.agent!.id || task.investigationOnly || task.taskCancelledAt)
+    return res.status(404).json({ error: "Задача недоступна" });
+  const episode = await prisma.sellerControlEpisode.findUnique({ where: { ropTaskId: task.id } });
+  if (!episode || episode.executionMode !== "LIVE" || episode.ropAgentId !== req.agent!.id)
+    return res.status(404).json({ error: "Задача недоступна" });
+  try {
+    await commandSellerControl(episode.id, { ...parsed.data, revision: episode.revision }, req.agent!.id, { taskId: task.id });
+    return res.status(204).send();
+  } catch (error) {
+    if (error instanceof SellerControlConflict) return res.status(409).json({ error: "Задача изменилась. Обновите страницу" });
+    throw error;
+  }
+});
 
 /**
  * Послушать запись разговора.

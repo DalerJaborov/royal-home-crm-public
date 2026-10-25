@@ -22,8 +22,8 @@ import {
 } from "@royal-home/shared";
 import { z } from "zod";
 import { prisma } from "../../db.js";
-import { buildPropertyDeleteDossiers } from "../../lib/propertyDeleteDossier.js";
-import { requireAuth, requirePermission } from "../../auth/middleware.js";
+import { buildPropertyDeleteDossiers, presentPropertyDeleteDossier } from "../../lib/propertyDeleteDossier.js";
+import { requireAuth, requirePermission, can } from "../../auth/middleware.js";
 import { logAudit } from "../../lib/audit.js";
 import { findAgentsWithPermission } from "../../lib/recipients.js";
 import { sendPushToAgent, closeLeadPushNotifications } from "../../push.js";
@@ -88,7 +88,8 @@ deleteRequestsRouter.get(
     // (см. lib/propertyDeleteDossier.ts: там же дословная тревога владельца).
     // Считается ПАЧКОЙ на весь список: по запросу на строку это были бы сотни
     // обращений к базе.
-    const dossiers = await buildPropertyDeleteDossiers(items.map((r) => r.property.id));
+    const seesDossier = canViewInvestigations(req.agent?.role) && can(req, "clients.securityReview");
+    const dossiers = seesDossier ? await buildPropertyDeleteDossiers(items.map((r) => r.property.id)) : new Map();
 
     res.json({
       items: items.map((r) => ({
@@ -105,7 +106,7 @@ deleteRequestsRouter.get(
         requestedBy: r.requestedBy,
         decidedBy: r.decidedBy,
         property: r.property,
-        ...(canViewInvestigations(req.agent?.role) ? { dossier: dossiers.get(r.property.id) ?? null } : {}),
+        ...(seesDossier ? { dossier: presentPropertyDeleteDossier(dossiers.get(r.property.id), can(req, "clients.viewPhone")) } : {}),
       })),
     });
   }

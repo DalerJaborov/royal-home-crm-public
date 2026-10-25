@@ -1,3 +1,4 @@
+import { PropertyComparables } from "../components/PropertyComparables";
 import { useCleanShell } from "../hooks/useCleanShell";
 import { PropertyRemovalDialog } from "../components/PropertyRemovalDialog";
 import { CleanPropertyDetailHeader, CleanPropertyDetailLayout, CleanPropertyDetailSkeleton, CleanPropertySlot, CleanPropertySummary, cleanPropertyDetailScale } from "../components/clean/CleanPropertyDetailLayout";
@@ -939,6 +940,7 @@ function PropertyViewCard({
             <>
               {/* Сведения, которым не место на первом экране: когда принят, номер,
                   сайт (review-mobile.md, п. 4 «Меньше информации: что под раскрытие»). */}
+              {canInlineEdit && <PropertyComparables propertyId={property.id} />}
               <Card title="Сведения">
                 <List>
                   <Row
@@ -1215,7 +1217,7 @@ function StatusRow({
           <span className="txt">{statusError}</span>
         </div>
       )}
-      {withdrawOpen && <PropertyRemovalDialog title="Снять объект с продажи" description="Причина сохранится в истории объекта." confirmLabel="Снять с продажи" onClose={() => setWithdrawOpen(false)} onConfirm={body => updateProperty.mutateAsync({ status: "WITHDRAWN", ...body })} />}
+      {withdrawOpen && <PropertyRemovalDialog propertyIds={[property.id]} title="Снять объект с продажи" description="Причина сохранится в истории объекта." confirmLabel="Снять с продажи" onClose={() => setWithdrawOpen(false)} onConfirm={body => updateProperty.mutateAsync({ status: "WITHDRAWN", ...body })} />}
     </>
   );
 }
@@ -2082,6 +2084,7 @@ function DeletePropertyDialog({ propertyId, onClose }: { propertyId: string; onC
   const navigate = useNavigate();
   return (
     <PropertyRemovalDialog
+      propertyIds={[propertyId]}
       title="Удалить объект?"
       description="Объект снимется с сайта и уйдёт в корзину раздела «Архив». Оттуда его можно вернуть или стереть навсегда."
       confirmLabel={deleteProperty.isPending ? "Удаление…" : "Удалить"}

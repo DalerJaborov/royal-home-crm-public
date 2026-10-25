@@ -1,3 +1,4 @@
+import { isPrivateOperation } from "./investigationOperations.js";
 import { prisma } from "../db.js";
 import { isShuttingDown } from "./shutdownState.js";
 import { requestPultSnapshot } from "./pultCacheHook.js";
@@ -42,6 +43,7 @@ const DEDUP_WINDOW_MS = 10 * 60 * 1000;
 export const DEDUP_TEXT_LEN = 160;
 
 export type SystemErrorSource =
+  | "investigation"
   | "ai"
   | "site-sync"
   | "telegram"
@@ -146,6 +148,8 @@ export async function logSystemError(
     silent?: boolean;
   }
 ): Promise<void> {
+  if (isPrivateOperation()) source = "investigation";
+  if (source === "investigation") context = { ...context, silent: true };
   // ОБЩИЙ МЕХАНИЗМ ОСТАНОВКИ (17.09.2026, shutdownState.ts). Фоновые задачи
   // зовут logSystemError из ~150 мест по всему проекту; во время мягкой
   // остановки пул Prisma уже закрыт или закрывается, и попытка записи здесь —

@@ -3,6 +3,8 @@ import { prisma } from "../db.js";
 import { isPultModuleEnabled } from "../lib/pultModules.js";
 import { pultModuleOfJob } from "./jobModules.js";
 import { logSystemError } from "../lib/systemError.js";
+import { isPrivateBackgroundJob } from "../lib/backgroundJobPrivacy.js";
+import { isPrivateOperation, withInvestigationPrivacy } from "../lib/investigationOperations.js";
 
 export type EnqueueResult = { enqueued: true } | { enqueued: false; skipped: "module:off" | "error" };
 
@@ -33,6 +35,9 @@ export async function enqueueBackgroundJob(input: {
   /** Отложенный старт; по умолчанию — сейчас. */
   runAt?: Date;
 }): Promise<EnqueueResult> {
+  const privateJob = isPrivateOperation() || await isPrivateBackgroundJob(input).catch(() => true);
+  if (privateJob && input.payload && typeof input.payload === "object" && !Array.isArray(input.payload)) input = { ...input, payload: { ...input.payload, investigationOnly: true } };
+  return withInvestigationPrivacy(privateJob, async () => {
   // Гейт по модулю пульта (jobs/jobModules.ts): задание выключенного модуля
   // не ставится вовсе — так оно не занимает партию и не тратит ресурсы.
   const module = pultModuleOfJob(input.type);
@@ -93,4 +98,5 @@ export async function enqueueBackgroundJob(input: {
       .catch((err2) => console.error("[jobs] перезавод задания:", err2 instanceof Error ? err2.message : err2));
     return { enqueued: true };
   }
+  });
 }

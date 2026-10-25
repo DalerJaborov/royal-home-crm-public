@@ -7,6 +7,7 @@ import { findMatchingPropertiesForClient } from "../../routes/matching.js";
 import { findAgentByInstagramPost } from "../../lib/instagramPostLead.js";
 import { changeClientAgent } from "../../lib/changeClientAgent.js";
 import { logTimeline } from "../../lib/timeline.js";
+import { recordNamedAssignmentDeclaration } from "../../lib/clientWorkflowObservations.js";
 import { notifyFeedOnly } from "../../lib/notifications.js";
 import { orderByKpiQueue, pickAgentForLead } from "./selection.js";
 
@@ -425,6 +426,7 @@ export async function recordAssignReasonTx(
    * ветка — без ownPropertyLead и без matchedPropertyId, которые считают комиссию.
    */
   if (assignment.reason === "requested_by_client") {
+    await recordNamedAssignmentDeclaration(tx, clientId, agentId);
     await tx.client.update({ where: { id: clientId }, data: { assignReason: assignment.reason } });
     // SYSTEM — это объяснение алгоритма распределения, не действие агента
     // (П-10, 17.09.2026); subjectAgentId — держатель лида ПОСЛЕ назначения.

@@ -1,3 +1,5 @@
+import { isNumberBlocked } from "./telephony/stationBlacklist.js";
+import { ownerVerificationSourceBlock, newOwnerProbeMode } from "./ownerVerificationSources.js";
 import { isDialableTajikNumber } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { recordInvestigationSignal } from "./investigationCases.js";
@@ -124,7 +126,7 @@ export async function runSellerProbeCallTick(now: Date = new Date()): Promise<nu
   if (!isWithinPostShowingCallHours(now)) return 0;
 
   const due = await prisma.sellerProbeCall.findMany({
-    where: { previewOnly: false, status: { in: ["PENDING", "NO_ANSWER"] }, scheduledFor: { lte: now } },
+    where: { sourceKind: "POST_SHOWING", previewOnly: false, status: { in: ["PENDING", "NO_ANSWER"] }, scheduledFor: { lte: now } },
     orderBy: { scheduledFor: "asc" },
     take: BATCH,
     select: { id: true },
@@ -151,12 +153,17 @@ async function releaseStuckSellerProbeCalls(now: Date): Promise<void> {
   const stuck = await prisma.sellerProbeCall.findMany({
     where: { status: "CALLING", lastAttemptAt: { lt: new Date(now.getTime() - POST_SHOWING_CALL_STUCK_MS) } },
     take: BATCH,
-    select: { id: true, attempts: true, skipReason: true, channelId: true },
+    select: { id: true, attempts: true, skipReason: true, channelId: true, sourceKind: true },
   });
   // Недозвон мост сообщает сам (reason "no_answer"); строка, провисевшая дольше
   // потолка сессии, — итог, потерянный нами (выкат, упавший обработчик). Это не
   // довод «номер мёртвый».
   for (const row of stuck) {
+    if (row.sourceKind !== "POST_SHOWING") {
+      await prisma.sellerProbeCall.updateMany({ where: { id: row.id, status: "CALLING", lastAttemptAt: { lt: new Date(now.getTime() - POST_SHOWING_CALL_STUCK_MS) } },
+        data: { status: "UNKNOWN", skipReason: "provider_outcome_unknown_no_retry" } });
+      continue;
+    }
     // ЗАНЯТА, НО НЕ НАБРАНА (третий аудит 02.10.2026, В3): канала нет, `attempts` не
     // увеличивался — звонка не было. Возвращать попытку нечего; прежний «возврат»
     // вычитал её у строки, которой никто не набирал (см. postShowingCall.ts).
@@ -245,19 +252,28 @@ async function handleSellerProbeOurSideFailure(
 /** Чем кончилась попытка набора: начат звонок, линия занята, станция отказала, запись закрыта без звонка. */
 type DialOutcome = "started" | "busy" | "station_failed" | "skipped";
 
-async function dialSellerProbeCall(id: string, now: Date): Promise<DialOutcome> {
+async function dialSellerProbeCall(id: string, now: Date, allowNewSource = false): Promise<DialOutcome> {
   const probe = await prisma.sellerProbeCall.findUnique({
     where: { id },
     select: {
       id: true,
       attempts: true,
-      previewOnly: true,
+      previewOnly: true, sourceKind: true,
       sellerClientId: true,
       seller: { select: { fullName: true, phone: true, deletedAt: true } },
       property: { select: { title: true, status: true, deletedAt: true } },
     },
   });
   if (!probe || probe.previewOnly) return "skipped";
+  const newSource = probe.sourceKind !== "POST_SHOWING";
+  if (newSource) {
+    if (!allowNewSource || newOwnerProbeMode() !== "LIVE") return "skipped";
+    const reason = await ownerVerificationSourceBlock(id, now);
+    if (reason) {
+      await prisma.sellerProbeCall.updateMany({ where: { id, status: { in: ["PENDING", "NO_ANSWER"] } }, data: { status: "SKIPPED", skipReason: reason } });
+      return "skipped";
+    }
+  }
 
   if (probe.seller.deletedAt) {
     await prisma.sellerProbeCall.update({ where: { id }, data: { status: "SKIPPED", skipReason: "seller_gone" } });
@@ -267,7 +283,7 @@ async function dialSellerProbeCall(id: string, now: Date): Promise<DialOutcome> 
   // проверку завели, и тем, как настал час звонка — `property.deletedAt` уже
   // выбирался выше, но никогда не сравнивался, и робот звонил собственнику про
   // объект, которого в системе больше нет.
-  if (probe.property.deletedAt) {
+  if (probe.property.deletedAt && probe.sourceKind !== "EXPOSURE_PAIR") {
     await prisma.sellerProbeCall.update({ where: { id }, data: { status: "SKIPPED", skipReason: "property_gone" } });
     return "skipped";
   }
@@ -279,6 +295,19 @@ async function dialSellerProbeCall(id: string, now: Date): Promise<DialOutcome> 
   // «Не беспокойте» и чёрный список станции (аудит 02.10.2026, А4): собственник,
   // попросивший оставить его в покое, роботом не набирается. Это не «мёртвый
   // номер» и не повод для тревоги — запись просто закрывается.
+  if (newSource) {
+    let blacklist: Awaited<ReturnType<typeof isNumberBlocked>>;
+    try { blacklist = await isNumberBlocked(probe.seller.phone); }
+    catch { blacklist = { ok: false, error: "unavailable" }; }
+    if (!blacklist.ok) {
+      await prisma.sellerProbeCall.updateMany({ where: { id, status: { in: ["PENDING", "NO_ANSWER"] } }, data: { status: "SKIPPED", skipReason: "blacklist_unverified_no_call" } });
+      return "skipped";
+    }
+    if (blacklist.blocked) {
+      await prisma.sellerProbeCall.updateMany({ where: { id, status: { in: ["PENDING", "NO_ANSWER"] } }, data: { status: "SKIPPED", skipReason: "blacklisted" } });
+      return "skipped";
+    }
+  }
   const block = await scenarioCallBlockReason({ phone: probe.seller.phone, clientId: probe.sellerClientId });
   if (block) {
     await prisma.sellerProbeCall.update({ where: { id }, data: { status: "SKIPPED", skipReason: block } });
@@ -293,6 +322,11 @@ async function dialSellerProbeCall(id: string, now: Date): Promise<DialOutcome> 
    * «дело в номере» отличается от «дело в станции» не по тексту ошибки.
    */
   if (!isDialableTajikNumber(probe.seller.phone)) {
+    if (newSource) {
+      await prisma.sellerProbeCall.updateMany({ where: { id, status: { in: ["PENDING", "NO_ANSWER"] } },
+        data: { status: "SKIPPED", skipReason: "station_number_format_unsupported" } });
+      return "skipped";
+    }
     await prisma.sellerProbeCall.update({
       where: { id },
       data: { status: "GIVEN_UP", deadNumber: true, attempts: SELLER_PROBE_MAX_ATTEMPTS },
@@ -303,7 +337,7 @@ async function dialSellerProbeCall(id: string, now: Date): Promise<DialOutcome> 
 
   // Голос — до промта: имя и «сотрудница/сотрудник» в нём от пола голоса (02.10.2026).
   const voice = await scenarioVoice();
-  const prompt = buildSellerProbeCallPrompt({
+  const prompt = newSource ? `Вы сотрудник Royal Home. Честно скажите, что уточняете данные квартиры «${probe.property.title}». Спросите, является ли собеседник собственником, продаётся ли квартира, или планы изменились. Не утверждайте, что реклама сейчас идёт или что показ был. Не обвиняйте, не обещайте автоматического снятия. При просьбе не звонить закончите разговор. Используйте инструмент завершения разговора.` : buildSellerProbeCallPrompt({
     sellerName: firstName(probe.seller.fullName),
     propertyLabel: probe.property.title,
     voiceGender: voice.gender,
@@ -317,16 +351,17 @@ async function dialSellerProbeCall(id: string, now: Date): Promise<DialOutcome> 
    * статусов: кто занял — тот звонит. Зависшее занятие (процесс умер посреди
    * набора) снимет releaseStuckSellerProbeCalls.
    */
+  if (newSource && await ownerVerificationSourceBlock(id, now)) return "skipped";
   const before = await prisma.sellerProbeCall.findUnique({ where: { id }, select: { status: true, lastAttemptAt: true } });
   if (!before || (before.status !== "PENDING" && before.status !== "NO_ANSWER")) return "skipped";
   const claimed = await prisma.sellerProbeCall.updateMany({
-    where: { id, status: before.status, previewOnly: false },
+    where: { id, status: before.status, previewOnly: false, lastAttemptAt: before.lastAttemptAt, sourceKind: probe.sourceKind },
     data: { status: "CALLING", channelId: null, lastAttemptAt: now },
   });
   if (claimed.count !== 1) return "skipped";
   const releaseClaim = (scheduledFor?: Date) =>
     prisma.sellerProbeCall.updateMany({
-      where: { id, status: "CALLING", channelId: null },
+      where: { id, status: "CALLING", channelId: null, lastAttemptAt: now },
       data: { status: before.status, lastAttemptAt: before.lastAttemptAt, ...(scheduledFor ? { scheduledFor } : {}) },
     });
 
@@ -347,6 +382,10 @@ async function dialSellerProbeCall(id: string, now: Date): Promise<DialOutcome> 
       { callerId: "Royal Home" }
     );
   } catch (err) {
+    if (newSource) {
+      await prisma.sellerProbeCall.updateMany({ where: { id, status: "CALLING", lastAttemptAt: now }, data: { status: "UNKNOWN", skipReason: "provider_exception_no_retry" } });
+      return "station_failed";
+    }
     await releaseClaim();
     throw err;
   }
@@ -359,6 +398,10 @@ async function dialSellerProbeCall(id: string, now: Date): Promise<DialOutcome> 
     return "busy";
   }
   if (!result.ok || !result.channelId) {
+    if (newSource) {
+      await prisma.sellerProbeCall.updateMany({ where: { id, status: "CALLING", lastAttemptAt: now }, data: { status: "UNKNOWN", skipReason: "provider_acceptance_unknown_no_retry" } });
+      return "station_failed";
+    }
     /**
      * ОТКАЗ СТАНЦИИ — НЕ ПРИГОВОР НОМЕРУ (02.10.2026, аудит фона №3). Раньше любой
      * отказ набора закрывал проверку как GIVEN_UP + deadNumber и поднимал
@@ -371,7 +414,7 @@ async function dialSellerProbeCall(id: string, now: Date): Promise<DialOutcome> 
      * только finishSellerProbeCall — две попытки без разговора.
      */
     void logSystemError(
-      "telephony",
+      "investigation",
       `Проверка продавца: станция не приняла набор (проверка ${probe.id}): ${result.error ?? "без причины"}`,
       { dedupKey: "seller-probe-originate" }
     );
@@ -379,8 +422,8 @@ async function dialSellerProbeCall(id: string, now: Date): Promise<DialOutcome> 
     return "station_failed";
   }
 
-  await prisma.sellerProbeCall.update({
-    where: { id },
+  await prisma.sellerProbeCall.updateMany({
+    where: { id, status: "CALLING", channelId: null, lastAttemptAt: now },
     data: { status: "CALLING", channelId: result.channelId, lastAttemptAt: now, attempts: { increment: 1 } },
   });
   return "started";
@@ -391,7 +434,7 @@ export async function finishSellerProbeCall(result: LiveVoiceScenarioResult, now
   const probe = await prisma.sellerProbeCall.findFirst({
     where: { channelId: result.channelId },
     orderBy: { lastAttemptAt: "desc" },
-    select: { id: true, attempts: true, skipReason: true, status: true },
+    select: { id: true, attempts: true, skipReason: true, status: true, sourceKind: true },
   });
   if (!probe) return;
   // Итог принимается только у звонка, который ещё идёт (третий аудит 02.10.2026, С6):
@@ -403,6 +446,11 @@ export async function finishSellerProbeCall(result: LiveVoiceScenarioResult, now
   // не ответ и не «мёртвый номер» (аудит №3, №4). Исключение — сбой ПОСЛЕ состоявшегося
   // разговора (С2): слова собственника разбираются, а не выбрасываются.
   if (isOurSideCallFailure(result.reason) && !hasSubstantialClientSpeech(result.transcript)) {
+    if (probe.sourceKind !== "POST_SHOWING") {
+      await prisma.sellerProbeCall.updateMany({ where: { id: probe.id, status: "CALLING", channelId: result.channelId },
+        data: { status: "UNKNOWN", skipReason: "provider_session_unknown_no_retry" } });
+      return;
+    }
     await handleSellerProbeOurSideFailure(probe, now);
     return;
   }
@@ -416,6 +464,7 @@ export async function finishSellerProbeCall(result: LiveVoiceScenarioResult, now
   if (kind === "wrong_person") {
     logSystemAudit("seller_probe_call_wrong_person", "SellerProbeCall", probe.id, { attempts: probe.attempts });
     await markSellerProbeNoAnswer(probe, now, ["line_alive", "wrong_person"]);
+    if (probe.sourceKind !== "POST_SHOWING") await raiseDeadNumberAlertIfManualCard(probe.id);
     return;
   }
   // Автоответчик и «перезвоните позже» — трубку сняли, номер живой.
@@ -477,7 +526,7 @@ async function routeSellerProbeOutcome(
     where: { id },
     select: {
       id: true,
-      sellerClientId: true, propertyId: true, createdAt: true, talkedAt: true, channelId: true,
+      sellerClientId: true, propertyId: true, createdAt: true, talkedAt: true, channelId: true, sourceKind: true, assignmentAt: true,
       outcome: true,
       quote: true,
       summary: true,
@@ -492,7 +541,7 @@ async function routeSellerProbeOutcome(
 
   if (unconfirmedOutcome || probe.outcome === "SOLD_ELSEWHERE") {
     await recordInvestigationSignal({ clientId: probe.sellerClientId, propertyId: probe.propertyId,
-      subjectAgentId: probe.agentId, assignmentAt: probe.createdAt, sourceType: "seller-probe-call", sourceId: probe.id,
+      subjectAgentId: probe.agentId, assignmentAt: probe.assignmentAt ?? probe.createdAt, sourceType: "seller-probe-call", sourceId: probe.id,
       independenceKey: `call:${probe.channelId ?? probe.id}`, kind: "outcome", occurredAt: probe.talkedAt ?? probe.createdAt,
       summary: unconfirmedOutcome ? "Предположение модели не подтверждено цитатой. Нужна проверка записи, нарушение не установлено."
         : `${probe.summary ?? "Собственник сообщил о продаже"}${probe.quote ? ` Цитата: ${probe.quote}` : ""}`,
@@ -549,7 +598,7 @@ async function routeSellerProbeOutcome(
     title: "🚩 Собственник говорит, что уже продал",
     body:
       `«${probe.property.title}»: ${probe.seller.fullName} сказал, что квартира продана, а сделки в CRM нет. ` +
-      `Показ вёл ${probe.agent.fullName}.` +
+      (probe.sourceKind === "POST_SHOWING" ? `Показ вёл ${probe.agent.fullName}.` : `Карточку ведёт ${probe.agent.fullName}.`) +
       `${probe.quote ? ` Дословно: «${probe.quote}»` : ""}` +
       ` Почему позвонили: ${probe.signals.length} совпавших признака.` +
       ` Робот ответил собственнику, что объект снимут с рекламы, — решите по объекту.`,
@@ -575,7 +624,7 @@ async function raiseDeadNumberAlertIfManualCard(id: string): Promise<void> {
   const probe = await prisma.sellerProbeCall.findUnique({
     where: { id },
     select: {
-      id: true,
+      id: true, sourceKind: true, assignmentAt: true, createdAt: true, sellerClientId: true, propertyId: true,
       agentId: true,
       agent: { select: { fullName: true } },
       seller: { select: { fullName: true, shortId: true, source: true } },
@@ -584,6 +633,13 @@ async function raiseDeadNumberAlertIfManualCard(id: string): Promise<void> {
   });
   if (!probe) return;
   if (probe.seller.source !== "WALK_IN") return;
+  if (probe.sourceKind !== "POST_SHOWING") {
+    await recordInvestigationSignal({ clientId: probe.sellerClientId, propertyId: probe.propertyId, subjectAgentId: probe.agentId,
+      assignmentAt: probe.assignmentAt ?? probe.createdAt, sourceType: "manual-owner-verification", sourceId: probe.id,
+      independenceKey: `owner-verification:${probe.id}`, kind: "number_unverified", occurredAt: new Date(),
+      summary: "Ручной номер собственника не подтверждён. Это не доказательство нарушения." });
+    return;
+  }
 
   await enqueueDirectorAlert({
     title: "🚩 До собственника не дозвониться, а номер вписан вручную",
@@ -602,4 +658,23 @@ function firstName(fullName: string | null): string | null {
   if (!fullName) return null;
   const first = fullName.trim().split(/\s+/)[0];
   return first && first.length > 1 ? first : null;
+}
+
+
+/** Explicit internal executor. PREVIEW rows never drain, even after an environment change. */
+export async function runNewOwnerVerificationTick(now = new Date(), options: { allowLive?: boolean } = {}): Promise<number> {
+  if (!options.allowLive || newOwnerProbeMode() !== 'LIVE') return 0;
+  const settings = await prisma.settings.findUnique({ where: { id: 'singleton' }, select: { liveVoiceEnabled: true, postShowingCallEnabled: true } });
+  if (!settings?.liveVoiceEnabled || !settings.postShowingCallEnabled) return 0;
+  await loadCompanyDaysOff();
+  await releaseStuckSellerProbeCalls(now);
+  if (!isWithinPostShowingCallHours(now)) return 0;
+  const rows = await prisma.sellerProbeCall.findMany({ where: { sourceKind: { in: ['EXPOSURE_PAIR', 'MANUAL_OWNER'] },
+    previewOnly: false, status: { in: ['PENDING', 'NO_ANSWER'] }, scheduledFor: { lte: now } },
+    orderBy: { scheduledFor: 'asc' }, take: BATCH, select: { id: true } });
+  for (const row of rows) {
+    const outcome = await dialSellerProbeCall(row.id, now, true);
+    if (outcome !== 'skipped') return outcome === 'started' ? 1 : 0;
+  }
+  return 0;
 }

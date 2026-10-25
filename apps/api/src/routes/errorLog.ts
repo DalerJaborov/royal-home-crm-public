@@ -1,3 +1,5 @@
+import { visibleErrorLogs } from "../lib/systemErrorVisibility.js";
+import { visibleSystemErrorWhere } from "../lib/investigationOperations.js";
 import { Router } from "express";
 import { z } from "zod";
 import { Prisma } from "../generated/prisma/client.js";
@@ -91,10 +93,10 @@ errorLogRouter.get("/", requireAuth, requirePermission("auditLog.view"), async (
   // Отбор по категории — в самой выборке (errorLogPriorityWhere), а не в памяти
   // после неё: иначе всплеск шума вытеснял из окна все настоящие ошибки.
   const listWhere: Prisma.ErrorLogWhereInput = {
-    AND: [includeResolved ? {} : unresolved, priorityFilter ? errorLogPriorityWhere(priorityFilter) : {}],
+    AND: [visibleSystemErrorWhere(req.agent?.role), includeResolved ? {} : unresolved, priorityFilter ? errorLogPriorityWhere(priorityFilter) : {}],
   };
   const [rows, total, weekUnresolved, resolvedCount] = await Promise.all([
-    prisma.errorLog.findMany({
+    visibleErrorLogs(can(req, "clients.securityReview") ? req.agent?.role : undefined).findMany({
       where: listWhere,
       // id — добивка порядка: ошибки одной пачки пишутся в одну миллисекунду,
       // и без неё строки перескакивали бы между страницами.
@@ -102,17 +104,17 @@ errorLogRouter.get("/", requireAuth, requirePermission("auditLog.view"), async (
       skip: (page - 1) * pageSize,
       take: pageSize,
     }),
-    prisma.errorLog.count({ where: listWhere }),
+    visibleErrorLogs(can(req, "clients.securityReview") ? req.agent?.role : undefined).count({ where: listWhere }),
     // Одна выборка на оба счётчика (24ч/7д) и на операционный шум: priority не
     // поле в базе, а текстовая классификация — считать её можно только в
     // памяти. take — предел выборки; неделя редко даёт больше пары тысяч строк,
     // а затяжную аварию такой запас всё равно покрывает с кратным запасом.
-    prisma.errorLog.findMany({
-      where: { ...unresolved, createdAt: { gte: weekAgo } },
+    visibleErrorLogs(can(req, "clients.securityReview") ? req.agent?.role : undefined).findMany({
+      where: { ...visibleSystemErrorWhere(req.agent?.role), ...unresolved, createdAt: { gte: weekAgo } },
       select: { source: true, message: true, createdAt: true },
       take: 5000,
     }),
-    prisma.errorLog.count({ where: { resolvedAt: { not: null } } }),
+    visibleErrorLogs(can(req, "clients.securityReview") ? req.agent?.role : undefined).count({ where: { ...visibleSystemErrorWhere(req.agent?.role), resolvedAt: { not: null } } }),
   ]);
   const recent = rows.map((r) => ({ ...r, priority: classifyErrorLog(r.source, r.message) as ErrorLogPriority }));
   const actionableWeek = weekUnresolved.filter((r) => classifyErrorLog(r.source, r.message) === "actionable");
@@ -140,8 +142,8 @@ errorLogRouter.post("/gemini-health-check", requireAuth, requirePermission("audi
 /** Отметить ошибку разобранной — она уходит из счётчиков и из утреннего уведомления. */
 errorLogRouter.post("/:id/resolve", requireAuth, requirePermission("auditLog.view"), async (req, res) => {
   try {
-    await prisma.errorLog.update({
-      where: { id: req.params.id },
+    await visibleErrorLogs(can(req, "clients.securityReview") ? req.agent?.role : undefined).update({
+      where: { ...visibleSystemErrorWhere(req.agent?.role), id: req.params.id },
       data: { resolvedAt: new Date(), resolvedById: req.agent!.id },
     });
     res.status(204).end();
@@ -156,8 +158,8 @@ errorLogRouter.post("/:id/resolve", requireAuth, requirePermission("auditLog.vie
 /** Вернуть ошибку в работу, если отметили разобранной по ошибке. */
 errorLogRouter.post("/:id/reopen", requireAuth, requirePermission("auditLog.view"), async (req, res) => {
   try {
-    await prisma.errorLog.update({
-      where: { id: req.params.id },
+    await visibleErrorLogs(can(req, "clients.securityReview") ? req.agent?.role : undefined).update({
+      where: { ...visibleSystemErrorWhere(req.agent?.role), id: req.params.id },
       data: { resolvedAt: null, resolvedById: null },
     });
     res.status(204).end();
@@ -179,8 +181,9 @@ const resolveAllSchema = z.object({ scope: z.enum(["all", "today"]).default("all
 errorLogRouter.post("/resolve-all", requireAuth, requirePermission("auditLog.view"), async (req, res) => {
   const parsed = resolveAllSchema.safeParse(req.body ?? {});
   if (!parsed.success) return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
-  const { count } = await prisma.errorLog.updateMany({
+  const { count } = await visibleErrorLogs(can(req, "clients.securityReview") ? req.agent?.role : undefined).updateMany({
     where: {
+      ...visibleSystemErrorWhere(req.agent?.role),
       resolvedAt: null,
       ...(parsed.data.scope === "today" ? { createdAt: { gte: dushanbeStartOfToday(new Date()) } } : {}),
     },

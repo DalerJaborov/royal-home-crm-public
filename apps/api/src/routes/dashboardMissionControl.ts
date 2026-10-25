@@ -1,3 +1,7 @@
+import { visibleErrorLogs } from "../lib/systemErrorVisibility.js";
+import { visibleCronWhere, visibleSystemErrorWhere } from "../lib/investigationOperations.js";
+import { Prisma } from "../generated/prisma/client.js";
+import { countVisibleBackgroundJobs } from "../lib/backgroundJobPrivacy.js";
 import { Router, type Request } from "express";
 import { canViewInvestigations } from "@royal-home/shared";
 import { investigationCallChannelIds } from "../lib/investigationCallChannels.js";
@@ -132,7 +136,11 @@ async function buildContext(req: Request): Promise<McContext> {
   // Реестр модулей (аудит 02.09.2026 §4): выключенная секция НЕ СЧИТАЕТСЯ и
   // отсутствует в ответе — не null и не { error }. Фронт рисует только то, что пришло.
   const off = await loadDisabledPultModules();
-  return { now, startOfDay, startOfYesterday, today, seesMoney, canSeePhone, seesInvestigations: canViewInvestigations(req.agent?.role), viewerRole: req.agent?.role, off };
+  const seesInvestigations = canViewInvestigations(req.agent?.role) && can(req, "clients.securityReview");
+  // All downstream investigation projections must receive effective access,
+  // including charts and team counters, rather than the unqualified role.
+  return { now, startOfDay, startOfYesterday, today, seesMoney, canSeePhone, seesInvestigations,
+    viewerRole: seesInvestigations ? req.agent?.role : undefined, off };
 }
 
 /** Секция модуля: выключен → undefined (ключа не будет), иначе — через кэш своего темпа. */
@@ -627,20 +635,19 @@ async function buildZones(ctx: McContext) {
       const [heartbeats, jobsRunning, jobsGivenUp, jobsFailedRecent, newApplications, errorsToday, unresolvedTotal] =
         await Promise.all([
           prisma.cronHeartbeat.findMany({
+            where: visibleCronWhere(ctx.seesInvestigations ? ctx.viewerRole : undefined),
             orderBy: { name: "asc" },
             take: 100,
             select: { name: true, expr: true, lastRunAt: true, lastOkAt: true, lastError: true },
           }),
-          prisma.backgroundJob.count({ where: { status: "RUNNING" } }),
-          prisma.backgroundJob.count({ where: givenUpVisibleWhere() }),
-          prisma.backgroundJob.count({
-            where: { status: "GIVEN_UP", updatedAt: { gte: new Date(now.getTime() - 24 * 60 * 60 * 1000) } },
-          }),
+          countVisibleBackgroundJobs(Prisma.sql`status='RUNNING'`, ctx.seesInvestigations),
+          countVisibleBackgroundJobs(Prisma.sql`status='GIVEN_UP' AND "updatedAt">=${givenUpVisibleWhere(now).updatedAt.gte}`, ctx.seesInvestigations),
+          countVisibleBackgroundJobs(Prisma.sql`status='GIVEN_UP' AND "updatedAt">=${new Date(now.getTime() - 24 * 60 * 60 * 1000)}`, ctx.seesInvestigations),
           // Те же «новые кандидаты», что в сайдбаре и во вкладке «Подходят»
           // (lib/vacancyVisibility.ts): без отсеянных и без анкет без номера.
           prisma.jobApplication.count({ where: visibleNewCandidatesWhere() }),
-          prisma.errorLog.count({ where: { createdAt: { gte: startOfDay }, resolvedAt: null } }),
-          prisma.errorLog.count({ where: { resolvedAt: null } }),
+          visibleErrorLogs(ctx.seesInvestigations ? ctx.viewerRole : undefined).count({ where: { ...visibleSystemErrorWhere(ctx.seesInvestigations ? ctx.viewerRole : undefined), createdAt: { gte: startOfDay }, resolvedAt: null } }),
+          visibleErrorLogs(ctx.seesInvestigations ? ctx.viewerRole : undefined).count({ where: { ...visibleSystemErrorWhere(ctx.seesInvestigations ? ctx.viewerRole : undefined), resolvedAt: null } }),
         ]);
       return {
         crons: heartbeats.map((h) => ({

@@ -1,3 +1,4 @@
+import { captureExplicitClientPhone } from "../lib/clientPhoneCapture.js";
 import { readCustomerDmSubjectExecution } from "../lib/customerAgentEnrollment.js";
 import { prisma } from "../db.js";
 import { CustomerScopeDenied, ensureScopedBotConversation, findScopedBotConversation, resolveCustomerEndpoint, loadCustomerTransportForConversation,
@@ -87,6 +88,8 @@ import { resolveBotPropertyMention, resolveMentionedPropertyId } from "../lib/bo
 import { reactivateClientFromLost } from "../lib/clientLifecycle.js";
 import { detectClientLanguage, type ClientLanguage } from "../ai/clientLanguage.js";
 import { applyShowingRequestInBackground } from "../lib/showingBooking.js";
+import { rememberConversationShowingRequest } from "../lib/buyerShowingCandidates.js";
+import { recordConversationNamedRequest } from "../lib/clientWorkflowObservations.js";
 import { fetchAttachments, storeFetchedAttachments, type AttachmentSource, type FetchedImage } from "./attachments.js";
 import { resolveIncomingAccount } from "./accounts.js";
 import { isTranscriptionEnabled, transcribeAudio } from "../ai/transcribe.js";
@@ -1753,6 +1756,7 @@ export async function acceptLead(
   // Direct связывают сразу, а здесь связь появлялась только со следующим входящим
   // ходом (processMessengerTurn), и до него досье жило с clientId=null. Не бросает.
   if (linked.contactProfileId) await linkContactProfileToClient(linked.contactProfileId, clientId);
+  await recordConversationNamedRequest(conversationId, { initialLead: true });
   // Атрибуция рекламы доезжает до карточки в момент привязки: диалог помнит
   // ad_id с первого сообщения, карточка появилась только сейчас. Только в
   // пустое поле — какое объявление ПРИВЕЛО клиента, а не последнее увиденное.
@@ -1766,7 +1770,10 @@ export async function acceptLead(
   // Собственник, которому бот написал по его объявлению под нашим постом, —
   // агенту в карточку: откуда пришёл и какие покупатели в базе подходят.
   await noteOwnerCommentOrigin(clientId, conversation.channel, conversation.subscriberId);
-  if (pendingShowing) applyShowingRequestInBackground(clientId, pendingShowing, channel);
+  if (pendingShowing) {
+    await rememberConversationShowingRequest(conversationId, pendingShowing);
+    applyShowingRequestInBackground(clientId, pendingShowing, channel);
+  }
   // Если в этой переписке висит незакрытая просьба «соедините с оператором» —
   // номер только что появился вместе с карточкой, самое время соединять
   // (обычный порядок: «соедините» → «ваш номер?» → номер → заявка → звонок).
@@ -2009,6 +2016,7 @@ export function processMessengerTurn(input: MessengerTurnInput): Promise<Messeng
   });
 }
 async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<MessengerTurnResult> {
+  const contactReceivedAt = new Date();
   let propertyAdmission = input.customerPropertyAdmission;
   let propertyBatch = input.customerPropertyBatch ?? (propertyAdmission ? [propertyAdmission] : []);
   let propertyTickets: CustomerPropertyAdmission[] = propertyBatch.flatMap((entry) => entry.status === "admitted" ? [entry.ticket] : []);
@@ -2665,6 +2673,8 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
   const userMessage = (content: string): ChatMessage => ({
     role: "user",
     content,
+    at: contactReceivedAt.toISOString(),
+    ...(input.fromStaff ? { by: { kind: "manual" as const } } : {}),
     ...(saved.length > 0 ? { attachments: saved } : {}),
     ...(turnMid ? { mid: turnMid } : {}),
     ...(turnReplyToMid ? { replyToMid: turnReplyToMid } : {}),
@@ -2715,6 +2725,10 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
      * текстом при сбое (ключ не настроен, БД недоступна) — потеря маскировки не
      * повод терять само сообщение клиента.
      */
+    if (conversation.clientId && !input.fromStaff && !input.sharedPost) {
+      await captureExplicitClientPhone({ kind: "CONVERSATION", id: conversation.id, clientId: conversation.clientId, at: contactReceivedAt, text: content })
+        .catch(error => { void logSystemError("api", "Сохранение подтверждённого номера клиента: " + (error instanceof Error ? error.name : "UnknownError")); });
+    }
     let scrubbedText = content;
     let mentionedPhonesEncrypted: string[] = [];
     try {
@@ -3261,63 +3275,7 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
      * рабочий»), и это тоже полезно записать. pickFreeExtraPhones сам отсекает
      * чужие/уже занятые номера — тот же путь, что и при приёме заявки.
      */
-    const mentionedPhones = extractAllPhones(text);
-    if (mentionedPhones.length > 0) {
-      const client = await prisma.client.findUnique({
-        where: { id: conversation.clientId },
-        select: { phone: true, whatsappPhone: true, extraPhones: true },
-      });
-      if (client) {
-        const fresh = await pickFreeExtraPhones(mentionedPhones, {
-          clientId: conversation.clientId,
-          phone: client.phone,
-          whatsappPhone: client.whatsappPhone,
-          existing: client.extraPhones,
-        });
-        if (fresh.length > 0) {
-          /**
-           * КЛИЕНТ ИСПРАВЛЯЕТ НОМЕР — НОВЫЙ СТАНОВИТСЯ ОСНОВНЫМ (22.08.2026).
-           *
-           * Живой случай этого дня: человек продиктовал 980001027, бот ответил
-           * «принято», клиент написал «Бахшиш хато шуд» и следом верный номер. В
-           * карточку верный лёг ЗАПАСНЫМ, а звонить агент будет по основному —
-           * то есть по ошибочному. Лид оплачен рекламой и потерян на ровном месте.
-           *
-           * Обычное правило «дописываем, а не перетираем» остаётся: клиент часто
-           * даёт второй номер просто так, и затирать первый нельзя. Меняем местами
-           * только когда он ПРЯМО СКАЗАЛ, что ошибся, — по словам, а не по догадке.
-           * Старый номер не выбрасываем, он уходит в запасные: вдруг ошибся как раз
-           * во второй раз.
-           */
-          const correcting = PHONE_CORRECTION.test(text);
-          const corrected = correcting ? fresh[fresh.length - 1] : null;
-          const nextExtra = corrected
-            ? [...client.extraPhones.filter((p) => p !== corrected), ...(client.phone ? [client.phone] : [])]
-            : [...client.extraPhones, ...fresh];
-          await prisma.client
-            .update({
-              where: { id: conversation.clientId },
-              data: {
-                extraPhones: { set: [...new Set(nextExtra)] },
-                ...(corrected ? { phone: corrected } : {}),
-              },
-            })
-            .catch(() => {});
-          if (corrected) {
-            // Номера и текст сообщения — под маску (22.09.2026): «Здоровье
-            // системы» (GET /error-log, право auditLog.view) читают без
-            // clients.viewPhone, а incomingCalls.ts:437 уже устанавливает это
-            // правило для журнала. maskPhonesInFreeText — свободный текст
-            // сообщения клиента может нести номер словами.
-            void logSystemError(
-              "ai",
-              `Клиент исправил номер: основным стал ${maskClientPhone(corrected)}, прежний ${client.phone ? maskClientPhone(client.phone) : "—"} ушёл в запасные. ` +
-                `Сообщение: «${maskPhonesInFreeText(text.replace(/\s+/g, " ").slice(0, 120))}»`
-            );
-          }
-        }
-      }
-    }
+    // Own additional numbers and explicit corrections are captured at authenticated ingress before masking.
 
     /**
      * НОВЫЙ ПОВОД ОБРАТИТЬСЯ — ОТДЕЛЬНОЕ УВЕДОМЛЕНИЕ, А НЕ ТОЛЬКО ОТВЕТ БОТА
@@ -4027,6 +3985,7 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
     if (requestedAgent.status === "matched") mergedDraft.requestedAgentId = requestedAgent.agentId;
     const namedNote = requestedAgentNote(requestedAgent);
     if (namedNote) mergedDraft.requestedAgentNote = namedNote;
+    if (conversation.clientId && requestedAgent.status === "matched" && turnMid) await recordConversationNamedRequest(conversation.id, { messageId: turnMid });
     // Описанное объявление («видел у вас … у Бодомзора за 300») — тем же
     // узнаванием, что звонок; только по черновику ЭТОГО хода (lib/botPropertyMention.ts).
     const namedPropertyId = mentionedPropertyId ?? (await describedPropertyIn(merged, mergedDraft));
@@ -4034,6 +3993,8 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
     // Продавец говорит о СВОЁМ объекте: номер в его словах — не наш объект, и
     // отдавать его агенту чужой карточки нельзя (ревизия 02.10.2026).
     if (namedPropertyId && mergedDraft.intent !== "sell") mergedDraft.requestedPropertyId = namedPropertyId;
+    if (conversation.clientId && mergedDraft.pendingShowing)
+      await rememberConversationShowingRequest(conversation.id, mergedDraft.pendingShowing);
 
     // Бот пообещал уточнить у собственника — превращаем обещание в запись, иначе
     // возвращаться будет нечему (см. lib/ownerQuestions.ts). Не ждём: ход диалога

@@ -1,3 +1,4 @@
+import { captureExplicitClientPhone } from "../lib/clientPhoneCapture.js";
 import path from "node:path";
 import { handleModerationCallback, handleModerationText, claimCallback } from "../lib/telegramModeration.js";
 import { handleClipReviewCallback, handleClipReviewText } from "./clipReviewBot.js";
@@ -1000,6 +1001,7 @@ export async function finishTelegramQualifyTurn(params: {
  * она у всех частей альбома одна и та же.
  */
 async function handleClientMessages(msgs: TelegramIncomingMessage[]): Promise<TelegramUpdateAccepted | void> {
+  const contactReceivedAt = new Date();
   const msg = msgs[0];
   const chatId = String(msg.chat.id);
 
@@ -1236,6 +1238,10 @@ async function handleClientMessages(msgs: TelegramIncomingMessage[]): Promise<Te
     // Запасной номер, названный клиентом, маскируем до записи в историю —
     // тот же приём, что в messengers/conversation.ts (04.09.2026, требование
     // владельца, см. lib/clientPhoneMasking.ts).
+    if (conversation.clientId && msgs.every(message => !message.forward_origin && !message.forward_from_message_id)) {
+      await captureExplicitClientPhone({ kind: "CONVERSATION", id: conversation.id, clientId: conversation.clientId, at: contactReceivedAt, text: content, telegram: true })
+        .catch(error => console.error("[contact-capture]", error instanceof Error ? error.name : "UnknownError"));
+    }
     let scrubbedContent = content;
     let mentionedPhonesEncrypted: string[] = [];
     try {

@@ -14,7 +14,7 @@ import { sendLeadPush } from "../../lib/pushLeadActions.js";
 import { findAgentsWithPermission } from "../../lib/recipients.js";
 import { activeLeadCounts, loadLeadLimits, slotsTaken } from "../../lib/leadLimits.js";
 import { requestedAgentStillAvailable } from "../../lib/requestedAgent.js";
-import { decideReturningClient, returningAgentStillAvailable } from "../../lib/returningClientRouting.js";
+import { decideReturningClient, preferredReturningOwnerId } from "../../lib/returningClientRouting.js";
 import { notifyOwnerReturningBuyerSickAgent } from "../../lib/returningBuyerOwnerNotice.js";
 import { noticeAbsentAgentReturn } from "../../lib/absentAgentNotice.js";
 import { fuzzySimilarClientNotes } from "../../lib/fuzzySearch.js";
@@ -408,6 +408,9 @@ async function resumeExistingChannelLeadInner(
   existing: Client,
   input: ChannelLeadInput
 ): Promise<{ clientId: string; created: boolean }> {
+  // A new inbound message is retained by its channel, but cannot silently reopen
+  // a completed/refused assignment. A manager makes that separate decision.
+  if (existing.assignmentRefusedAt || existing.assignmentCompletedAt) return { clientId: existing.id, created: false };
   /**
    * НОМЕР СОТРУДНИКА В extraPhones/whatsappPhone ЭТОЙ КАРТОЧКИ НЕ ДОПИСЫВАЕМ
    * (см. lib/staffPhoneGuard.ts). Карточка `existing` уже легитимна (её номер —
@@ -458,7 +461,7 @@ async function resumeExistingChannelLeadInner(
     const route = await decideReturningClient({
       clientId: existing.id,
       kind: revivedKind,
-      lastAgentId: existing.lastAgentId,
+      lastAgentId: await preferredReturningOwnerId(existing.assignedAgentId, existing.lastAgentId),
     });
     const offerAgentId = route.kind === "offer" ? route.agentId : null;
     /**
@@ -747,7 +750,7 @@ async function resumeExistingChannelLeadInner(
    * что тогда делать с покупателем — по-прежнему решает decideReturningClient:
    * эта строка меняет лишь того, о ком спрашивают.
    */
-  const returningHolderId = existing.assignedAgentId ?? existing.lastAgentId;
+  const returningHolderId = await preferredReturningOwnerId(existing.assignedAgentId, existing.lastAgentId);
   // Тот же разбор, что и в ветке Корзины выше (lib/returningClientRouting.ts).
   const route = reactivating
     ? await decideReturningClient({ clientId: existing.id, kind: existing.kind, lastAgentId: returningHolderId })
@@ -837,19 +840,27 @@ async function resumeExistingChannelLeadInner(
    * «продавец не уходит», а его исчезновение — легальный случай
    * agent_unavailable (см. `lib/reactivationOffers.ts`).
    */
-  const lostHolderId = existing.assignedAgentId ?? existing.lastAgentId;
+  const lostHolderId = returningHolderId;
   const lostHolderUnavailable =
     existing.status === "LOST" &&
     !reactivating &&
-    !!lostHolderId &&
-    // Пауза лидов держателя не уводит его клиента (B1, 02.10.2026): то же правило, что у звонка и переписки.
-    !(await returningAgentStillAvailable(lostHolderId));
+    !lostHolderId;
   if (lostHolderUnavailable) {
     // LAW-A2-PENDING: та же ветка enrich, что keepAgentId/fallback выше, —
     // прямая запись мимо changeClientAgent; в AuditLog уходит строкой
     // CLIENT_AGENT_CHANGE (source intake.lost-holder-unavailable) ниже.
     enrich.assignedAgentId = null;
-    enrich.escalatedAt = new Date();
+    enrich.escalatedAt = existing.kind === "OTHER" ? new Date() : null;
+    enrich.acceptedAt = null;
+    enrich.assignedAt = new Date();
+    enrich.triedAgentIds = [];
+    enrich.reassignCount = 0;
+  }
+  if (existing.kind !== "OTHER" && existing.status === "LOST" && !reactivating && lostHolderId && lostHolderId !== existing.assignedAgentId) {
+    enrich.assignedAgentId = lostHolderId;
+    enrich.acceptedAt = null;
+    enrich.assignedAt = new Date();
+    enrich.escalatedAt = null;
   }
   /**
    * СЧЁТЧИК ОТКАЗОВ СБРАСЫВАЕТСЯ И ЗДЕСЬ, НЕ ТОЛЬКО НА ЗАКРЫТОЙ СДЕЛКЕ

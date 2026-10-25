@@ -327,7 +327,7 @@ async function flagAgentBypassSuspicion(clientId: string): Promise<void> {
       tag: `security-review-${client.id}`,
     });
   } catch (err) {
-    void logSystemError("ai", `Проверка СБ по находке аудита (клиент ${clientId}) не поставлена: ${describeError(err)}`);
+    void logSystemError("investigation", `Проверка СБ по находке аудита (клиент ${clientId}) не поставлена: ${describeError(err)}`);
   }
 }
 

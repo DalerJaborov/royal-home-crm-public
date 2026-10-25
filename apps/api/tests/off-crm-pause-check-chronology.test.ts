@@ -26,7 +26,7 @@ const tgConvIds: string[] = [];
 
 beforeEach(() => {
   callAiText.mockReset();
-  callAiText.mockResolvedValue({ explained: true, reason: "уехал" });
+  callAiText.mockResolvedValue({ explained: true, reason: "уехал", quote: "Покупку отложим, уехали с гостями в отпуск" });
 });
 
 afterAll(async () => {

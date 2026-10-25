@@ -225,9 +225,11 @@ export function showingMomentOf(showing: {
   nextActionDate: Date | null;
   completedAt: Date | null;
   createdAt: Date;
+  showingEvidenceVersion?: number;
 }): Date {
   const planned = showing.nextActionDate;
   if (planned) {
+    if ((showing.showingEvidenceVersion ?? 0) >= 1) return planned;
     const wall = dushanbeWallClock(planned);
     const isMidnight = wall.getUTCHours() === 0 && wall.getUTCMinutes() === 0;
     if (!isMidnight) return planned;
@@ -269,9 +271,11 @@ export async function schedulePostShowingCalls(now: Date = new Date()): Promise<
     SELECT s.id FROM "Interaction" s JOIN "Client" c ON c.id=s."clientId"
     CROSS JOIN LATERAL (SELECT CASE
       WHEN s."nextActionDate" IS NOT NULL
-        AND to_char(s."nextActionDate" + interval '5 hours', 'HH24:MI') <> '00:00'
+        AND (s."showingEvidenceVersion" >= 1 OR to_char(s."nextActionDate" + interval '5 hours', 'HH24:MI') <> '00:00')
       THEN s."nextActionDate" ELSE COALESCE(s."completedAt", s."createdAt") END AS at) occurrence
     WHERE s.type='SHOWING' AND s."declinedAt" IS NULL AND s."taskCancelledAt" IS NULL
+      AND s."nextActionDate" IS NOT NULL
+      AND (s."showingEvidenceVersion" >= 1 OR to_char(s."nextActionDate" + interval '5 hours', 'HH24:MI') <> '00:00')
       AND COALESCE(s."subjectAgentId",s."agentId") IS NOT NULL
       AND c."deletedAt" IS NULL
       AND (s."buyerIntentAtCreation"=true OR (s."buyerIntentAtCreation" IS NULL AND
@@ -299,6 +303,7 @@ export async function schedulePostShowingCalls(now: Date = new Date()): Promise<
       nextActionDate: true,
       completedAt: true,
       createdAt: true,
+      showingEvidenceVersion: true,
     },
   });
 
@@ -473,13 +478,20 @@ async function dialOnePostShowingCall(callId: string, now: Date): Promise<DialOu
       clientId: true,
       attempts: true,
       previewOnly: true,
-      showing: { select: { nextActionDate: true, completedAt: true, createdAt: true, buyerIntentAtCreation: true } },
+      showing: { select: { nextActionDate: true, completedAt: true, createdAt: true, buyerIntentAtCreation: true,
+        showingEvidenceVersion: true, declinedAt: true, taskCancelledAt: true } },
       client: { select: { fullName: true, phone: true, deletedAt: true, kind: true, dualIntent: true, dualIntentConfirmedAt: true } },
       agent: { select: { fullName: true } },
       property: { select: { title: true } },
     },
   });
   if (!call || call.previewOnly) return "skipped";
+  if (call.showing.declinedAt || call.showing.taskCancelledAt || !call.showing.nextActionDate
+    || call.showing.nextActionDate > now || (call.showing.showingEvidenceVersion === 0
+      && dushanbeWallClock(call.showing.nextActionDate).getUTCHours() === 0 && dushanbeWallClock(call.showing.nextActionDate).getUTCMinutes() === 0)) {
+    await markPostShowingCallSkipped(call.id, "showing_time_unconfirmed_or_cancelled");
+    return "skipped";
+  }
 
   if (call.client.deletedAt || !(call.showing.buyerIntentAtCreation ?? confirmedClientIntents(call.client).buys)) {
     await markPostShowingCallSkipped(call.id, "client_gone");
@@ -585,7 +597,7 @@ async function dialOnePostShowingCall(callId: string, now: Date): Promise<DialOu
     // тексте): раньше каждый отказ имел свой текст и каждый будил руководство
     // пушем «новая ошибка».
     void logSystemError(
-      "telephony",
+      "investigation",
       `Опрос после показа: станция не приняла набор (звонок ${call.id}): ${result.error ?? "без причины"}`,
       { dedupKey: "post-showing-originate" }
     );

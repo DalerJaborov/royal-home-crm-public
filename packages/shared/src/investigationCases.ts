@@ -18,6 +18,13 @@ export const investigationDecisionSchema = z.object({
 export const investigationCasesQuerySchema = z.object({
   status: investigationStatusSchema.optional(), page: z.coerce.number().int().min(1).default(1),
 });
+export const investigationSeveritySchema = z.object({
+  requestKey: z.string().uuid(), revision: z.number().int().nonnegative(),
+  level: z.enum(["C1", "C2", "C3", "C4"]), note: z.string().trim().min(5).max(4000),
+  confirmC4: z.boolean().optional(),
+}).strict().superRefine((data, ctx) => {
+  if (data.level === "C4" && data.confirmC4 !== true) ctx.addIssue({ code: "custom", path: ["confirmC4"], message: "Подтвердите отдельное решение об уровне C4" });
+});
 export const investigationCaseRowSchema = z.object({
   id: z.string(), clientId: z.string().nullable(), propertyId: z.string().nullable(), showingId: z.string().nullable(),
   title: z.string(), status: z.string(), level: z.string(), revision: z.number(), lastSignalAt: z.string(), resolvedAt: z.string().nullable(),
@@ -26,6 +33,7 @@ export const investigationCaseRowSchema = z.object({
 });
 export type InvestigationCaseRow = z.infer<typeof investigationCaseRowSchema>;
 export type InvestigationCaseDetail = InvestigationCaseRow & {
+  recommendation?: { level: string; basis: string; evidenceIds: string[]; mode: string };
   independentSources: number;
   evidence: Array<{ id: string; sourceType: string; sourceId: string; independenceKey: string; kind: string; summary: string; occurredAt: string }>;
   decisions: Array<{ id: string; actorId: string; action: string; level: string; note: string; previousStatus: string; newStatus: string; createdAt: string }>;

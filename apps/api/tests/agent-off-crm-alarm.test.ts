@@ -83,7 +83,7 @@ describe("runAgentOffCrmAlarmTick", () => {
 
     const { alerted } = await runAgentOffCrmAlarmTick(NOW);
     expect(alerted).toBeGreaterThanOrEqual(1);
-    expect(checkClientExplainedPause).toHaveBeenCalledWith(c.id);
+    expect(checkClientExplainedPause).toHaveBeenCalledWith(c.id, { since: c.phoneAskFlaggedAt });
 
     const note = await prisma.notification.findFirst({ where: { tag: `agent-off-crm-${c.id}` } });
     expect(note).not.toBeNull();
@@ -105,6 +105,15 @@ describe("runAgentOffCrmAlarmTick", () => {
     await makeClient({ phoneAskFlaggedAt: null, lastContactAt: new Date(NOW.getTime() - 30 * DAY_MS) });
     await runAgentOffCrmAlarmTick(NOW);
     expect(checkClientExplainedPause).not.toHaveBeenCalled();
+  });
+
+  it("непроверенная пауза не создаёт уведомление и не помечается разобранной", async () => {
+    checkClientExplainedPause.mockResolvedValue({ explained: false, unchecked: true });
+    const c = await makeClient({ phoneAskFlaggedAt: new Date(NOW.getTime() - (OFF_CRM_SILENCE_DAYS + 1) * DAY_MS),
+      lastContactAt: new Date(NOW.getTime() - (OFF_CRM_SILENCE_DAYS + 1) * DAY_MS) });
+    expect((await runAgentOffCrmAlarmTick(NOW)).alerted).toBe(0);
+    expect(await prisma.notification.findFirst({ where: { tag: `agent-off-crm-${c.id}` } })).toBeNull();
+    expect((await prisma.client.findUniqueOrThrow({ where: { id: c.id } })).offCrmAlarmNotifiedAt).toBeNull();
   });
 
   it("клиент сам объяснил паузу (ИИ вернул explained=true) → аларма нет, но случай отмечен как разобранный", async () => {
@@ -151,7 +160,7 @@ describe("runAgentOffCrmAlarmTick", () => {
     });
 
     await runAgentOffCrmAlarmTick(NOW);
-    expect(checkClientExplainedPause).toHaveBeenCalledWith(c.id);
+    expect(checkClientExplainedPause).toHaveBeenCalledWith(c.id, { since: newFlag });
   });
 
   it("брошенная встреча (просрочена, не закрыта, не отменена) без тишины → аларм", async () => {
@@ -175,7 +184,7 @@ describe("runAgentOffCrmAlarmTick", () => {
 
     const { alerted } = await runAgentOffCrmAlarmTick(NOW);
     expect(alerted).toBeGreaterThanOrEqual(1);
-    expect(checkClientExplainedPause).toHaveBeenCalledWith(c.id);
+    expect(checkClientExplainedPause).toHaveBeenCalledWith(c.id, { since: c.phoneAskFlaggedAt });
   });
 
   it("встреча отменена клиентом (declinedAt) → не считается брошенной, аларма нет", async () => {

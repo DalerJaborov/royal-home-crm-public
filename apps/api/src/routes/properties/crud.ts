@@ -1,3 +1,4 @@
+import { scheduleManualOwnerVerification } from "../../lib/ownerVerificationSources.js";
 /** Жизненный цикл карточки объекта: POST /, PATCH /:id, POST /:id/complete-editing,
  * DELETE /:id, POST /:id/restore, DELETE /:id/permanent (Г3, §1.3). Перенос verbatim. */
 import { Router } from "express";
@@ -699,6 +700,7 @@ crudRouter.post("/", requireAuth, async (req, res) => {
       include: { district: true, photos: true },
     });
     if (sourceDraft) draftAttachment = await attachDraftRows(tx, sourceDraft, createdProperty, req.agent!.id, coverUploadKey);
+    await scheduleManualOwnerVerification(tx, createdProperty.id, req.agent!.id);
     return createdProperty;
   }).catch((err) => {
     if (err instanceof DraftConflictError) { res.status(409).json(err.response()); return null; }

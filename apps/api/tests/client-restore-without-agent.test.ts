@@ -68,6 +68,33 @@ afterAll(async () => {
 });
 
 describe("восстановление из Корзины без агента", () => {
+  it("возвращает прежнему активному агенту, сохраняя отказ отдельно от обычного возврата", async () => {
+    const c = await trashedClient(null);
+    await prisma.client.update({ where: { id: c.id }, data: { lastAgentId: freeId } });
+    const res = await request(app).post(`/api/v1/clients/${c.id}/restore`).set("Authorization", `Bearer ${directorToken}`);
+    expect(res.status).toBe(204);
+    expect((await prisma.client.findUniqueOrThrow({ where: { id: c.id } })).assignedAgentId).toBe(freeId);
+  });
+
+  it("не переоткрывает завершённое назначение восстановлением из корзины", async () => {
+    const c = await trashedClient(null);
+    const completedAt = new Date();
+    await prisma.client.update({ where: { id: c.id }, data: { lastAgentId: freeId, assignmentRefusedAt: completedAt, assignmentCompletedAt: completedAt } });
+    const res = await request(app).post(`/api/v1/clients/${c.id}/restore`).set("Authorization", `Bearer ${directorToken}`);
+    expect(res.status).toBe(204);
+    const after = await prisma.client.findUniqueOrThrow({ where: { id: c.id } });
+    expect(after.assignedAgentId).toBeNull();
+    expect(after.assignmentCompletedAt).toEqual(completedAt);
+    expect(after.assignmentRefusedAt).toEqual(completedAt);
+  });
+
+  it("действующий текущий владелец важнее истории прежнего агента", async () => {
+    const c = await trashedClient(freeId);
+    await prisma.client.update({ where: { id: c.id }, data: { lastAgentId: directorId } });
+    const res = await request(app).post(`/api/v1/clients/${c.id}/restore`).set("Authorization", `Bearer ${directorToken}`);
+    expect(res.status).toBe(204);
+    expect((await prisma.client.findUniqueOrThrow({ where: { id: c.id } })).assignedAgentId).toBe(freeId);
+  });
   it("агент уволен — карточка в очереди раздачи, руководство получает пуш, волна её отдаёт", async () => {
     const c = await trashedClient(firedId);
     sendPushToAgents.mockClear();

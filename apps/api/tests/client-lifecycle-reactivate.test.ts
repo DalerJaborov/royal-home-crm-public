@@ -86,7 +86,22 @@ async function makeInactiveClient() {
 }
 
 describe("reactivateClientFromLost (B3)", () => {
-  it("LOST → реактивация без agentId: статус NEW, очередь руководителя", async () => {
+  it("возврат без действующего владельца ставит в обычную очередь раздачи", async () => {
+    const client = await makeLostClient();
+    await prisma.client.update({ where: { id: client.id }, data: { lastAgentId: null } });
+    expect((await reactivateClientFromLost({ clientId: client.id, reason: "Возврат без владельца" })).ok).toBe(true);
+    const after = await prisma.client.findUniqueOrThrow({ where: { id: client.id } });
+    expect(after).toMatchObject({ assignedAgentId: null, acceptedAt: null, escalatedAt: null, status: "NEW" });
+  });
+
+  it("входящий контакт не переоткрывает окончательный отказ", async () => {
+    const client = await makeLostClient();
+    const completedAt = new Date();
+    await prisma.client.update({ where: { id: client.id }, data: { assignmentRefusedAt: completedAt, assignmentCompletedAt: completedAt } });
+    expect((await reactivateClientFromLost({ clientId: client.id, reason: "Повторное обращение", agentId })).ok).toBe(false);
+    expect(await prisma.client.findUniqueOrThrow({ where: { id: client.id } })).toMatchObject({ status: "LOST", assignmentCompletedAt: completedAt });
+  });
+  it("LOST → реактивация без agentId: возвращается историческому активному агенту", async () => {
     const client = await makeLostClient();
     const result = await reactivateClientFromLost({
       clientId: client.id,
@@ -95,13 +110,13 @@ describe("reactivateClientFromLost (B3)", () => {
 
     expect(result.ok).toBe(true);
     expect(result.client?.status).toBe("NEW");
-    expect(result.client?.assignedAgentId).toBeNull();
+    expect(result.client?.assignedAgentId).toBe(agentId);
 
     const reloaded = await prisma.client.findUniqueOrThrow({ where: { id: client.id } });
     expect(reloaded.status).toBe("NEW");
     expect(reloaded.lostAt).toBeNull();
-    expect(reloaded.assignedAgentId).toBeNull();
-    expect(reloaded.escalatedAt).not.toBeNull();
+    expect(reloaded.assignedAgentId).toBe(agentId);
+    expect(reloaded.escalatedAt).toBeNull();
 
     const interactions = await prisma.interaction.findMany({
       where: { clientId: client.id, type: "SYSTEM" },
@@ -111,7 +126,7 @@ describe("reactivateClientFromLost (B3)", () => {
     expect(interactions[0]?.notes).toContain("возврат в очередь");
   });
 
-  it("LOST → реактивация с agentId: назначен конкретному агенту", async () => {
+  it("LOST → caller hint не подменяет действующего прежнего агента", async () => {
     const client = await makeLostClient();
     const result = await reactivateClientFromLost({
       clientId: client.id,
@@ -121,12 +136,12 @@ describe("reactivateClientFromLost (B3)", () => {
 
     expect(result.ok).toBe(true);
     expect(result.client?.status).toBe("NEW");
-    expect(result.client?.assignedAgentId).toBe(supervisorId);
+    expect(result.client?.assignedAgentId).toBe(agentId);
 
     const reloaded = await prisma.client.findUniqueOrThrow({ where: { id: client.id } });
     expect(reloaded.status).toBe("NEW");
     expect(reloaded.lostAt).toBeNull();
-    expect(reloaded.assignedAgentId).toBe(supervisorId);
+    expect(reloaded.assignedAgentId).toBe(agentId);
     expect(reloaded.escalatedAt).toBeNull();
   });
 
@@ -151,7 +166,7 @@ describe("reactivateClientFromLost (B3)", () => {
     );
     expect(auditRow).not.toBeNull();
     expect((auditRow?.meta as Record<string, unknown> | null)?.source).toBe("lifecycle");
-    expect((auditRow?.meta as Record<string, unknown> | null)?.toAgentId).toBe(supervisorId);
+    expect((auditRow?.meta as Record<string, unknown> | null)?.toAgentId).toBe(agentId);
   });
 
   it("LOST → реактивация с agentId и accept (звонок = принятие): acceptedAt стоит", async () => {
@@ -159,7 +174,7 @@ describe("reactivateClientFromLost (B3)", () => {
     const result = await reactivateClientFromLost({ clientId: client.id, reason: "Тест: звонок", agentId: supervisorId, accept: true });
     expect(result.ok).toBe(true);
     const reloaded = await prisma.client.findUniqueOrThrow({ where: { id: client.id } });
-    expect(reloaded.assignedAgentId).toBe(supervisorId);
+    expect(reloaded.assignedAgentId).toBe(agentId);
     expect(reloaded.acceptedAt).not.toBeNull();
     expect(reloaded.refusalCount).toBe(0);
   });

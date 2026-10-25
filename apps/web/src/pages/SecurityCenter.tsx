@@ -1,3 +1,4 @@
+import { WeeklyOperationalPreviewPanel } from "../components/security/WeeklyOperationalPreviewPanel";
 import { useMemo, useState } from "react";
 import { Lock } from "lucide-react";
 import { useCan } from "../lib/permissions";
@@ -170,6 +171,7 @@ export function SecurityCenter() {
         <TeamTabs />
 
         <InvestigationCasesPanel />
+        <WeeklyOperationalPreviewPanel />
 
         <div className="quiet">
           <span className="txt">

@@ -40,7 +40,7 @@ export type SmsProvider = (typeof SMS_PROVIDERS)[number];
  *  (lib/telephony/liveVoicePropertyTools.ts, 24.09.2026). */
 /** SHOWING_CONFIRM — подтверждение показа, который робот записал в звонке
  *  (lib/telephony/liveVoiceClientTools.ts, 09.10.2026). */
-export type SmsPurpose = "LOGIN_CODE" | "PROPERTY_SHARE" | "CALL_PROPERTIES" | "SHOWING_CONFIRM" | "TEST";
+export type SmsPurpose = "LOGIN_CODE" | "PROPERTY_SHARE" | "CALL_PROPERTIES" | "SHOWING_CONFIRM" | "OWNER_REPORT" | "TEST";
 
 export interface SmsConfig extends PayomCredentials {
   provider: SmsProvider;
@@ -84,7 +84,7 @@ export async function smsConfigured(): Promise<boolean> {
   return (await loadSmsConfig()) !== null;
 }
 
-export type SendSmsResult = { ok: true; id: string; parts: number | null } | { ok: false; error: string };
+export type SendSmsResult = { ok: true; id: string; parts: number | null; dryRun?: boolean; providerMessageId?: string | null; deliveryStatus?: string | null } | { ok: false; error: string; failureOutcome?: "refused" | "unknown" };
 
 export async function sendSms(params: {
   phone: string;
@@ -95,12 +95,13 @@ export async function sendSms(params: {
   agentId?: string | null;
   clientId?: string | null;
   propertyId?: string | null;
+  includeReceipt?: boolean;
 }): Promise<SendSmsResult> {
   const phone = toSmsPhone(params.phone);
-  if (!phone) return { ok: false, error: "Номер не таджикский или записан неполностью — СМС на него не отправить" };
+  if (!phone) return { ok: false, error: "Номер не таджикский или записан неполностью — СМС на него не отправить", ...(params.includeReceipt ? { failureOutcome: "refused" as const } : {}) };
 
   const config = await loadSmsConfig();
-  if (!config) return { ok: false, error: "СМС не подключены: заполните раздел «СМС» в Настройках → Каналы связи" };
+  if (!config) return { ok: false, error: "СМС не подключены: заполните раздел «СМС» в Настройках → Каналы связи", ...(params.includeReceipt ? { failureOutcome: "refused" as const } : {}) };
 
   const dryRun = isDryRun();
   const result: ProviderSendResult = dryRun
@@ -127,9 +128,9 @@ export async function sendSms(params: {
 
   if (!result.ok) {
     void logSystemError("sms", `СМС не отправлено (${params.purpose}): ${result.error}`);
-    return { ok: false, error: result.error };
+    return { ok: false, error: result.error, ...(params.includeReceipt ? { failureOutcome: result.failureOutcome ?? "unknown" } : {}) };
   }
-  return { ok: true, id: row.id, parts: result.parts };
+  return { ok: true, id: row.id, parts: result.parts, ...(params.includeReceipt ? { dryRun, providerMessageId: result.messageId, deliveryStatus: result.deliveryStatus } : {}) };
 }
 
 export async function smsBalance(): Promise<{ ok: true; balance: number; currency: string } | { ok: false; error: string }> {

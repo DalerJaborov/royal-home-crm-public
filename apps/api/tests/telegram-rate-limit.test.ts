@@ -80,4 +80,9 @@ describe("Telegram 429 — retry_after уважается и повтор дов
     await expect(sendDocumentFile("123", Buffer.from("сырой ролик"), "ролик.mp4")).rejects.toThrow(/chat not found/);
     expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
+  it("durable narration single-attempt transport never waits/retries beyond its claim", async () => {
+    fetchSpy.mockResolvedValueOnce(rateLimited(60));
+    await expect(sendDocumentFile("123", Buffer.from("audio"), "narration.mp3", "version", 60000, true)).rejects.toThrow(/sendDocument/);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
 });

@@ -1,3 +1,4 @@
+import { visibleErrorLogs } from "./systemErrorVisibility.js";
 import { expenseCentsToTjs } from "./money.js";
 import { visibleInteractionWhere } from "./investigationPrivacy.js";
 import { canViewInvestigations } from "@royal-home/shared";
@@ -173,7 +174,7 @@ export async function loadChannelsHealth(now: Date = new Date()): Promise<McChan
   const dayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
   const [snapshots, openaiMoneyErrors] = await Promise.all([
     prisma.integrationHealthSnapshot.findMany({ orderBy: { name: "asc" }, take: 100 }),
-    prisma.errorLog.count({
+    visibleErrorLogs().count({
       where: {
         resolvedAt: null,
         createdAt: { gte: dayAgo },
@@ -209,7 +210,7 @@ export async function loadChannelsHealth(now: Date = new Date()): Promise<McChan
         threadsUserId: true,
       },
     }),
-    prisma.errorLog.count({ where: { resolvedAt: null, source: { in: ["meta", "telegram"] } } }),
+    visibleErrorLogs().count({ where: { resolvedAt: null, source: { in: ["meta", "telegram"] } } }),
   ]);
 
   const [botInstagram, botFacebook, botTelegram] = await Promise.all([

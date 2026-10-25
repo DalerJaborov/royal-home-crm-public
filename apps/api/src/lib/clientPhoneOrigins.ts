@@ -8,7 +8,7 @@ export function presentExtraPhoneOrigins(phones: string[], rows: Array<{ phoneHa
   return phones.map((phone, index) => {
     const row = lookup.get(clientPhoneHash(phone));
     return { index, addedAt: row?.addedAt.toISOString() ?? null,
-      ...(canSeeOrigin ? { source: row?.source === "MANUAL" ? "Добавлен сотрудником" : row?.source === "CONVERSATION" ? "Подтверждён в переписке" : "Источник не установлен" } : {}),
+      ...(canSeeOrigin ? { source: row?.source === "MANUAL" ? "Добавлен сотрудником" : row?.source === "CONVERSATION" ? "Подтверждён в переписке" : row?.source === "CALL" ? "Подтверждён в разговоре" : "Источник не установлен" } : {}),
     };
   });
 }

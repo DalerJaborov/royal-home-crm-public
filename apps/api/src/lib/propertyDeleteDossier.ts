@@ -1,4 +1,5 @@
-import { prisma } from "../db.js";
+import { phoneSafeText } from "./clientPhone.js";
+import { prisma, type TxClient } from "../db.js";
 import { conductedShowingBaseWhere } from "./conductedShowing.js";
 import { hasScenarioCallMark } from "./postShowingCalls.js";
 
@@ -28,6 +29,9 @@ import { hasScenarioCallMark } from "./postShowingCalls.js";
 export interface PropertyDeleteDossier {
   /** Сколько покупателей реально приводили на объект. */
   showingsCount: number;
+  exposuresCount: number;
+  exposedBuyersCount: number;
+  lastExposureAt: Date | null;
   lastShowingAt: Date | null;
   lastShowingAgentName: string | null;
   lastShowingClientName: string | null;
@@ -46,6 +50,17 @@ export interface PropertyDeleteDossier {
   hasConcerns: boolean;
 }
 
+/** Keep Dates intact while masking response text. */
+export function presentPropertyDeleteDossier(dossier: PropertyDeleteDossier | null | undefined, canSeePhone: boolean) {
+  if (!dossier) return null;
+  return { ...dossier,
+    lastShowingAgentName: phoneSafeText(dossier.lastShowingAgentName, canSeePhone),
+    lastShowingClientName: phoneSafeText(dossier.lastShowingClientName, canSeePhone),
+    sellerProbeOutcome: phoneSafeText(dossier.sellerProbeOutcome, canSeePhone),
+    lines: dossier.lines.map(line => phoneSafeText(line, canSeePhone)),
+  };
+}
+
 const OUTCOME_LABELS: Record<string, string> = {
   STILL_SELLING: "собственник подтвердил, что квартира ещё в продаже",
   SOLD_ELSEWHERE: "собственник сказал, что уже продал",
@@ -60,13 +75,14 @@ function daysBetween(from: Date, to: Date): number {
 
 export async function buildPropertyDeleteDossiers(
   propertyIds: string[],
-  now: Date = new Date()
+  now: Date = new Date(),
+  db: TxClient = prisma
 ): Promise<Map<string, PropertyDeleteDossier>> {
   const result = new Map<string, PropertyDeleteDossier>();
   if (propertyIds.length === 0) return result;
 
-  const [showings, properties, deals] = await Promise.all([
-    prisma.interaction.findMany({
+  const [showings, properties, deals, exposures] = await Promise.all([
+    db.interaction.findMany({
       where: { propertyId: { in: propertyIds }, ...conductedShowingBaseWhere(now) },
       orderBy: { createdAt: "desc" },
       select: {
@@ -79,14 +95,16 @@ export async function buildPropertyDeleteDossiers(
         client: { select: { fullName: true, shortId: true } },
       },
     }),
-    prisma.property.findMany({
+    db.property.findMany({
       where: { id: { in: propertyIds } },
       select: { id: true, sellerClientId: true },
     }),
-    prisma.deal.findMany({
+    db.deal.findMany({
       where: { propertyId: { in: propertyIds }, stage: { notIn: ["CANCELLED"] } },
       select: { propertyId: true },
     }),
+    db.propertyExposure.findMany({ where: { propertyId: { in: propertyIds }, sentAt: { gte: new Date(now.getTime() - 30 * 86_400_000), lte: now } },
+      select: { id: true, propertyId: true, clientId: true, sentAt: true }, orderBy: { sentAt: "desc" } }),
   ]);
 
   const showingIds = showings.map((s) => s.id);
@@ -96,18 +114,18 @@ export async function buildPropertyDeleteDossiers(
 
   const [calls, sellers, probes] = await Promise.all([
     showingIds.length
-      ? prisma.postShowingCall.findMany({
+      ? db.postShowingCall.findMany({
           where: { showingId: { in: showingIds } },
           select: { showingId: true, status: true, outcome: true, skipReason: true },
         })
       : Promise.resolve([]),
     sellerIds.length
-      ? prisma.client.findMany({
+      ? db.client.findMany({
           where: { id: { in: sellerIds } },
           select: { id: true, lastClientMessageAt: true },
         })
       : Promise.resolve([]),
-    prisma.sellerProbeCall.findMany({
+    db.sellerProbeCall.findMany({
       where: { propertyId: { in: propertyIds }, outcome: { not: null } },
       orderBy: { createdAt: "desc" },
       select: { propertyId: true, outcome: true },
@@ -147,7 +165,9 @@ export async function buildPropertyDeleteDossiers(
     const hasDeal = dealProperties.has(propertyId);
     const sellerProbeOutcome = probeByProperty.get(propertyId) ?? null;
 
-    const lines: string[] = [];
+    const sent = exposures.filter(row => row.propertyId === propertyId);
+    const exposedBuyersCount = new Set(sent.flatMap(row => row.clientId ? [row.clientId] : [])).size;
+    const lines: string[] = [`Отправок за 30 дней: ${sent.length}, известных покупателей: ${exposedBuyersCount}. Отправка не подтверждает просмотр.`];
     if (own.length === 0) {
       lines.push("Показов по объекту не было ни одного.");
     } else {
@@ -172,6 +192,7 @@ export async function buildPropertyDeleteDossiers(
 
     result.set(propertyId, {
       showingsCount: own.length,
+      exposuresCount: sent.length, exposedBuyersCount, lastExposureAt: sent[0]?.sentAt ?? null,
       lastShowingAt: last?.at ?? null,
       lastShowingAgentName: last?.agent?.fullName ?? null,
       lastShowingClientName: last?.client.fullName ?? null,

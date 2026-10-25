@@ -1,10 +1,10 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 685,
-  "forks": 3760,
-  "mounts": 76,
-  "cron": 109,
+  "endpoints": 713,
+  "forks": 3931,
+  "mounts": 78,
+  "cron": 114,
   "jobs": 31,
   "hidden": 0
  },
@@ -16103,12 +16103,92 @@
     },
     {
      "k": "do",
-     "t": "await prisma.$transaction(async (tx)",
+     "t": "const historicalOwner = !owner?.isActive && client.lastAgentId && !client.assignmentRefusedAt && !client.assi…",
      "a": [
+      "читает в базе: agent"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const restored = await prisma.$transaction(async (tx)",
+     "a": [
+      "пробрасывает ошибку дальше",
       "всё внутри — одной транзакцией",
+      "обращается к базе своим SQL",
+      "читает в базе: client",
+      "читает в базе: agent",
       "меняет в базе: client"
      ],
      "c": [
+      {
+       "k": "do",
+       "t": "await tx.$queryRaw`SELECT id FROM \"Client\" WHERE id = ${client.id} FOR UPDATE`;",
+       "a": [
+        "обращается к базе своим SQL"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "const current = await tx.client.findUnique({ where: { id: client.id } });",
+       "a": [
+        "читает в базе: client"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!current?.deletedAt || current.updatedAt.getTime() !== client.updatedAt.getTime()",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return false;",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "loop",
+       "t": "для каждого: const [id, expected] of [[client.assignedAgentId, owner?.isActive], [restoredAgentId, true]] as const",
+       "a": [],
+       "c": [
+        {
+         "k": "if",
+         "t": "id && !completedAssignment",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const agent = await tx.agent.findUnique({ where: { id }, select: { isActive: true } });",
+           "a": [
+            "читает в базе: agent"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "agent?.isActive !== expected",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return false;",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        }
+       ]
+      },
       {
        "k": "do",
        "t": "await tx.client.update({ where: { id: client.id }, data: { deletedAt: null, deletedById: null, ...(ownerGone …",
@@ -16119,18 +16199,48 @@
       },
       {
        "k": "if",
-       "t": "ownerGone",
+       "t": "ownerGone || restoredAgentId",
        "a": [],
        "c": [
         {
          "k": "do",
-         "t": "await changeClientAgent({ clientId: client.id, toAgentId: null, reason: \"Восстановление из Корзины: агент кар…",
+         "t": "const changed = await changeClientAgent({ clientId: client.id, toAgentId: restoredAgentId, reason: restoredAg…",
          "a": [
           "зовёт changeClientAgent()"
          ],
          "c": []
+        },
+        {
+         "k": "if",
+         "t": "!changed.ok",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "throw restoreConflict;",
+           "a": [
+            "пробрасывает ошибку дальше"
+           ],
+           "c": []
+          }
+         ]
         }
        ]
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!restored",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"Карточка изменилась. Обновите страницу\" });",
+       "a": [
+        "ответ 409 — «Карточка изменилась. Обновите страницу»"
+       ],
+       "c": []
       }
      ]
     },
@@ -16781,6 +16891,14 @@
        "c": []
       }
      ]
+    },
+    {
+     "k": "do",
+     "t": "await recordPropertyDispatchAccepted(client.id, client.assignedAt, propertyIds, targetChannel(target), req.ag…",
+     "a": [
+      "зовёт recordPropertyDispatchAccepted()"
+     ],
+     "c": []
     },
     {
      "k": "do",
@@ -27068,9 +27186,9 @@
      "c": [
       {
        "k": "do",
-       "t": "await prisma.errorLog.update({ where: { id: req.params.id }, data: { resolvedAt: null, resolvedById: null }, …",
+       "t": "await visibleErrorLogs(can(req, \"clients.securityReview\") ? req.agent?.role : undefined).update({ where: { ..…",
        "a": [
-        "меняет в базе: errorLog"
+        "зовёт visibleErrorLogs()"
        ],
        "c": []
       },
@@ -27140,9 +27258,9 @@
      "c": [
       {
        "k": "do",
-       "t": "await prisma.errorLog.update({ where: { id: req.params.id }, data: { resolvedAt: new Date(), resolvedById: re…",
+       "t": "await visibleErrorLogs(can(req, \"clients.securityReview\") ? req.agent?.role : undefined).update({ where: { ..…",
        "a": [
-        "меняет в базе: errorLog"
+        "зовёт visibleErrorLogs()"
        ],
        "c": []
       },
@@ -27265,9 +27383,9 @@
     },
     {
      "k": "do",
-     "t": "const { count } = await prisma.errorLog.updateMany({ where: { resolvedAt: null, ...(parsed.data.scope === \"to…",
+     "t": "const { count } = await visibleErrorLogs(can(req, \"clients.securityReview\") ? req.agent?.role : undefined).up…",
      "a": [
-      "меняет в базе: errorLog"
+      "зовёт visibleErrorLogs()"
      ],
      "c": []
     },
@@ -27408,18 +27526,17 @@
     },
     {
      "k": "do",
-     "t": "const listWhere: Prisma.ErrorLogWhereInput = { AND: [includeResolved ? {} : unresolved, priorityFilter ? erro…",
+     "t": "const listWhere: Prisma.ErrorLogWhereInput = { AND: [visibleSystemErrorWhere(req.agent?.role), includeResolve…",
      "a": [
-      "зовёт errorLogPriorityWhere()"
+      "зовёт visibleSystemErrorWhere()"
      ],
      "c": []
     },
     {
      "k": "do",
-     "t": "const [rows, total, weekUnresolved, resolvedCount] = await Promise.all([ prisma.errorLog.findMany({ where: li…",
+     "t": "const [rows, total, weekUnresolved, resolvedCount] = await Promise.all([ visibleErrorLogs(can(req, \"clients.s…",
      "a": [
-      "читает в базе: errorLog",
-      "считает в базе: errorLog"
+      "зовёт visibleErrorLogs()"
      ],
      "c": []
     },
@@ -35991,6 +36108,138 @@
    ]
   },
   {
+   "method": "POST",
+   "path": "/:id/work-response",
+   "mount": "/api/v1/interactions",
+   "full": "/api/v1/interactions/:id/work-response",
+   "file": "apps/api/src/routes/interactions.ts",
+   "router": "interactionsRouter",
+   "top": "apps/api/src/routes/interactions.ts::interactionsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Проверьте ответ по задаче\" });",
+       "a": [
+        "ответ 400 — «Проверьте ответ по задаче»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const task = await prisma.interaction.findUnique({ where: { id: req.params.id } });",
+     "a": [
+      "читает в базе: interaction"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!task || task.subjectAgentId !== req.agent!.id || task.investigationOnly || task.taskCancelledAt",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Задача недоступна\" });",
+       "a": [
+        "ответ 404 — «Задача недоступна»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const episode = await prisma.sellerControlEpisode.findUnique({ where: { ropTaskId: task.id } });",
+     "a": [
+      "читает в базе: sellerControlEpisode"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!episode || episode.executionMode !== \"LIVE\" || episode.ropAgentId !== req.agent!.id",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Задача недоступна\" });",
+       "a": [
+        "ответ 404 — «Задача недоступна»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "await commandSellerControl(episode.id, { ...parsed.data, revision: episode.revision }, req.agent!.id, { taskI…",
+       "a": [
+        "зовёт commandSellerControl()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "return res.status(204).send();",
+       "a": [
+        "ответ 204"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "if",
+       "t": "error instanceof SellerControlConflict",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(409).json({ error: \"Задача изменилась. Обновите страницу\" });",
+         "a": [
+          "ответ 409 — «Задача изменилась. Обновите страницу»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "throw error;",
+       "a": [
+        "пробрасывает ошибку дальше"
+       ],
+       "c": []
+      }
+     ]
+    }
+   ]
+  },
+  {
    "method": "GET",
    "path": "/summary",
    "mount": "/api/v1/interactions",
@@ -38367,6 +38616,434 @@
    ]
   },
   {
+   "method": "POST",
+   "path": "/:id/apply",
+   "mount": "/api/v1/maintenance/data-corrections",
+   "full": "/api/v1/maintenance/data-corrections/:id/apply",
+   "file": "apps/api/src/routes/manualDataCorrections.ts",
+   "router": "manualDataCorrectionsRouter",
+   "top": "apps/api/src/routes/manualDataCorrections.ts::manualDataCorrectionsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "requireInvestigations",
+    "есть право: settings.manage",
+    "есть право: clients.viewPhone"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "process.env.MANUAL_DATA_CORRECTIONS_LIVE !== \"explicitly-approved\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"Применение ручных исправлений выключено. Доступен только план.\" });",
+       "a": [
+        "ответ 409 — «Применение ручных исправлений выключено. Доступен только план.»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!z.string().uuid().safeParse(req.params.id).success || !parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Укажите проверенный план\" });",
+       "a": [
+        "ответ 400 — «Укажите проверенный план»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.json(await applyManualCorrection({ planId: req.params.id, actorId: req.agent!.id, ...parsed.data }…",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "if",
+       "t": "error instanceof ManualCorrectionConflict",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(409).json({ error: error.message });",
+         "a": [
+          "ответ 409"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "return res.status(503).json({ error: \"Исправление не выполнено; проверьте состояние плана перед повтором\" });",
+       "a": [
+        "ответ 503 — «Исправление не выполнено; проверьте состояние плана перед повтором»"
+       ],
+       "c": []
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/:id/review",
+   "mount": "/api/v1/maintenance/data-corrections",
+   "full": "/api/v1/maintenance/data-corrections/:id/review",
+   "file": "apps/api/src/routes/manualDataCorrections.ts",
+   "router": "manualDataCorrectionsRouter",
+   "top": "apps/api/src/routes/manualDataCorrections.ts::manualDataCorrectionsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "requireInvestigations",
+    "есть право: settings.manage",
+    "есть право: clients.viewPhone"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!z.string().uuid().safeParse(req.params.id).success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Некорректный план\" });",
+       "a": [
+        "ответ 400 — «Некорректный план»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const plan = await prisma.manualDataCorrection.findFirst({ where: { id: req.params.id, actorId: req.agent!.id…",
+     "a": [
+      "читает в базе: manualDataCorrection"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!plan",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"План не найден\" });",
+       "a": [
+        "ответ 404 — «План не найден»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "return res.json(plan);",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/:id",
+   "mount": "/api/v1/maintenance/data-corrections",
+   "full": "/api/v1/maintenance/data-corrections/:id",
+   "file": "apps/api/src/routes/manualDataCorrections.ts",
+   "router": "manualDataCorrectionsRouter",
+   "top": "apps/api/src/routes/manualDataCorrections.ts::manualDataCorrectionsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "requireInvestigations",
+    "есть право: settings.manage",
+    "есть право: clients.viewPhone"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!z.string().uuid().safeParse(req.params.id).success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Некорректный план\" });",
+       "a": [
+        "ответ 400 — «Некорректный план»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const plan = await prisma.manualDataCorrection.findFirst({ where: { id: req.params.id, actorId: req.agent!.id…",
+     "a": [
+      "читает в базе: manualDataCorrection"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!plan",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"План не найден\" });",
+       "a": [
+        "ответ 404 — «План не найден»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "return res.json(plan);",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "/plans",
+   "mount": "/api/v1/maintenance/data-corrections",
+   "full": "/api/v1/maintenance/data-corrections/plans",
+   "file": "apps/api/src/routes/manualDataCorrections.ts",
+   "router": "manualDataCorrectionsRouter",
+   "top": "apps/api/src/routes/manualDataCorrections.ts::manualDataCorrectionsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "requireInvestigations",
+    "есть право: settings.manage",
+    "есть право: clients.viewPhone"
+   ],
+   "handlerRef": "prepare(true) — раскрыто по коду функции prepare()",
+   "tree": [
+    {
+     "k": "do",
+     "t": "return async (req, res)",
+     "a": [
+      "ответ 400 — «Некорректный план ручного исправления»",
+      "проверяет данные схемой manualDataCorrectionSchema"
+     ],
+     "c": [
+      {
+       "k": "do",
+       "t": "const parsed = manualDataCorrectionSchema.safeParse({ ...req.body, actorId: req.agent!.id });",
+       "a": [
+        "проверяет данные схемой manualDataCorrectionSchema"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!parsed.success",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(400).json({ error: \"Некорректный план ручного исправления\" });",
+         "a": [
+          "ответ 400 — «Некорректный план ручного исправления»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "try",
+       "t": "пробует",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.json(await previewManualCorrection(parsed.data, persist));",
+         "a": [
+          "ответ 200"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "catch",
+       "t": "если сорвалось",
+       "a": [],
+       "c": [
+        {
+         "k": "if",
+         "t": "error instanceof ManualCorrectionConflict",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return res.status(409).json({ error: error.message });",
+           "a": [
+            "ответ 409"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "return res.status(503).json({ error: \"Подготовка исправления недоступна\" });",
+         "a": [
+          "ответ 503 — «Подготовка исправления недоступна»"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "/preview",
+   "mount": "/api/v1/maintenance/data-corrections",
+   "full": "/api/v1/maintenance/data-corrections/preview",
+   "file": "apps/api/src/routes/manualDataCorrections.ts",
+   "router": "manualDataCorrectionsRouter",
+   "top": "apps/api/src/routes/manualDataCorrections.ts::manualDataCorrectionsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "requireInvestigations",
+    "есть право: settings.manage",
+    "есть право: clients.viewPhone"
+   ],
+   "handlerRef": "prepare(false) — раскрыто по коду функции prepare()",
+   "tree": [
+    {
+     "k": "do",
+     "t": "return async (req, res)",
+     "a": [
+      "ответ 400 — «Некорректный план ручного исправления»",
+      "проверяет данные схемой manualDataCorrectionSchema"
+     ],
+     "c": [
+      {
+       "k": "do",
+       "t": "const parsed = manualDataCorrectionSchema.safeParse({ ...req.body, actorId: req.agent!.id });",
+       "a": [
+        "проверяет данные схемой manualDataCorrectionSchema"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!parsed.success",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(400).json({ error: \"Некорректный план ручного исправления\" });",
+         "a": [
+          "ответ 400 — «Некорректный план ручного исправления»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "try",
+       "t": "пробует",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.json(await previewManualCorrection(parsed.data, persist));",
+         "a": [
+          "ответ 200"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "catch",
+       "t": "если сорвалось",
+       "a": [],
+       "c": [
+        {
+         "k": "if",
+         "t": "error instanceof ManualCorrectionConflict",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return res.status(409).json({ error: error.message });",
+           "a": [
+            "ответ 409"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "return res.status(503).json({ error: \"Подготовка исправления недоступна\" });",
+         "a": [
+          "ответ 503 — «Подготовка исправления недоступна»"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
    "method": "GET",
    "path": "/channels-status",
    "mount": "/api/v1/marketing",
@@ -38388,8 +39065,7 @@
      "t": "const [settings, capabilities, publishedCount, recentErrors] = await Promise.all([ prisma.settings.findUnique…",
      "a": [
       "читает в базе: settings",
-      "считает в базе: property",
-      "считает в базе: errorLog"
+      "считает в базе: property"
      ],
      "c": []
     },
@@ -41623,7 +42299,7 @@
     },
     {
      "k": "do",
-     "t": "const result = await prisma.notification.updateMany({ where: { id: parsed.data.id, ...visibleNotificationsWhe…",
+     "t": "const result = await prisma.notification.updateMany({ where: { id: parsed.data.id, ...await loadVisibleNotifi…",
      "a": [
       "меняет в базе: notification"
      ],
@@ -41672,7 +42348,7 @@
    "tree": [
     {
      "k": "do",
-     "t": "await prisma.notification.updateMany({ where: { ...visibleNotificationsWhere(req.agent!.id, req.agent!.role),…",
+     "t": "await prisma.notification.updateMany({ where: { ...await loadVisibleNotificationsWhere(req.agent!.id, req.age…",
      "a": [
       "меняет в базе: notification"
      ],
@@ -41729,7 +42405,7 @@
     },
     {
      "k": "do",
-     "t": "const result = await prisma.notification.updateMany({ where: { id: { in: parsed.data.ids }, ...visibleNotific…",
+     "t": "const result = await prisma.notification.updateMany({ where: { id: { in: parsed.data.ids }, ...await loadVisi…",
      "a": [
       "меняет в базе: notification"
      ],
@@ -41786,9 +42462,9 @@
     },
     {
      "k": "do",
-     "t": "const where = visibleNotificationsWhere(req.agent!.id, req.agent!.role);",
+     "t": "const where = await loadVisibleNotificationsWhere(req.agent!.id, req.agent!.role);",
      "a": [
-      "зовёт visibleNotificationsWhere()"
+      "зовёт loadVisibleNotificationsWhere()"
      ],
      "c": []
     },
@@ -43510,9 +44186,9 @@
     },
     {
      "k": "do",
-     "t": "const [numbers, errorRows, stuck] = await Promise.all([ loadMorningNumbers(), prisma.errorLog.findMany({ wher…",
+     "t": "const [numbers, errorRows, stuck] = await Promise.all([ loadMorningNumbers(), visibleErrorLogs().findMany({ w…",
      "a": [
-      "читает в базе: errorLog"
+      "зовёт loadMorningNumbers()"
      ],
      "c": []
     },
@@ -45524,6 +46200,109 @@
      "t": "res.status(202).json({ clipVideoStatus: \"PROCESSING\" });",
      "a": [
       "ответ 202"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/:id/comparables",
+   "mount": "/api/v1/properties",
+   "full": "/api/v1/properties/:id/comparables",
+   "file": "apps/api/src/routes/properties/comparables.ts",
+   "router": "propertyComparablesRouter",
+   "top": "apps/api/src/routes/properties/index.ts::propertiesRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!id.success || !z.object({}).strict().safeParse(req.query).success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Некорректный запрос\" });",
+       "a": [
+        "ответ 400 — «Некорректный запрос»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const subject = await prisma.property.findUnique({ where: { id: id.data } });",
+     "a": [
+      "читает в базе: property"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!subject || subject.deletedAt",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Объект не найден\" });",
+       "a": [
+        "ответ 404 — «Объект не найден»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!canManageProperty(req, subject)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Нет доступа к сравнению объекта\" });",
+       "a": [
+        "ответ 403 — «Нет доступа к сравнению объекта»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!subject.districtId || !Number.isFinite(area) || area <= 0",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.json({ ...summarizeComparableListings({ price: Number(subject.price), currency: subject.currency, …",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const [total, rows] = await Promise.all([prisma.property.count({ where }), prisma.property.findMany({ where, …",
+     "a": [
+      "считает в базе: property",
+      "читает в базе: property"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ ...summarizeComparableListings({ price: Number(subject.price), currency: subject.currency, areaSqm…",
+     "a": [
+      "ответ 200"
      ],
      "c": []
     }
@@ -47893,6 +48672,36 @@
      "c": []
     },
     {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "prepared = await prepareNarrationDeliveryPlan(p.id, row.id, parsed.data.mode, parsed.data.editorId);",
+       "a": [
+        "зовёт prepareNarrationDeliveryPlan()"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: err instanceof Error ? err.message : \"Передача недоступна\" });",
+       "a": [
+        "ответ 409"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
      "k": "do",
      "t": "const delivery = existing ?? await prisma.propertyNarrationDelivery.upsert({ where: { requestKey: parsed.data…",
      "a": [
@@ -48083,6 +48892,367 @@
   },
   {
    "method": "POST",
+   "path": "/:id/narration/deliveries/:deliveryId/queue",
+   "mount": "/api/v1/properties",
+   "full": "/api/v1/properties/:id/narration/deliveries/:deliveryId/queue",
+   "file": "apps/api/src/routes/properties/narration.ts",
+   "router": "narrationRouter",
+   "top": "apps/api/src/routes/properties/index.ts::propertiesRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "[\"/narration-settings\", \"/:id/narration\"]",
+    "вход выполнен",
+    "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!manager(req.agent?.role)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Нет доступа\" });",
+       "a": [
+        "ответ 403 — «Нет доступа»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const deliveryId = idSchema.safeParse(req.params.deliveryId);",
+     "a": [
+      "проверяет данные схемой idSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success || !deliveryId.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Подтвердите актуальный план\" });",
+       "a": [
+        "ответ 400 — «Подтвердите актуальный план»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "mediaExecutionMode(\"NARRATION\") !== \"LIVE\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"Внешняя отправка ещё не включена на сервере\" });",
+       "a": [
+        "ответ 409 — «Внешняя отправка ещё не включена на сервере»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const result = await prisma.$transaction(async tx",
+     "a": [
+      "всё внутри — одной транзакцией",
+      "обращается к базе своим SQL",
+      "читает в базе: propertyNarrationDelivery",
+      "считает в базе: propertyNarrationDelivery",
+      "меняет в базе: propertyNarrationDelivery"
+     ],
+     "c": [
+      {
+       "k": "do",
+       "t": "await tx.$queryRaw`SELECT id FROM \"Property\" WHERE id = ${p.id} FOR UPDATE`;",
+       "a": [
+        "обращается к базе своим SQL"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "const row = await tx.propertyNarrationDelivery.findFirst({ where: { id: deliveryId.data, propertyId: p.id } }…",
+       "a": [
+        "читает в базе: propertyNarrationDelivery"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!row || row.status !== \"PREVIEW\" || !row.plan || narrationHash(row.plan) !== parsed.data.planHash",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return false;",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "await tx.propertyNarrationDelivery.count({ where: { propertyId: p.id, status: { in: [\"QUEUED\", \"SENDING\", \"UN…",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return false;",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "await tx.propertyNarrationDelivery.count({ where: { propertyId: p.id, versionId: row.versionId, editorId: row…",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return false;",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const current = await prepareNarrationDeliveryPlan(p.id, row.versionId, row.mode, row.editorId ?? undefined);",
+       "a": [
+        "зовёт prepareNarrationDeliveryPlan()"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "narrationHash(current.plan) !== parsed.data.planHash",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return false;",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "return !!(await tx.propertyNarrationDelivery.updateMany({ where: { id: row.id, status: \"PREVIEW\" }, data: { s…",
+       "a": [
+        "меняет в базе: propertyNarrationDelivery"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!result",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"План изменился или передача уже выполнена/требует проверки\" });",
+       "a": [
+        "ответ 409 — «План изменился или передача уже выполнена/требует проверки»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.json({ status: \"QUEUED\", sent: false });",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "/:id/narration/delivery-reconcile",
+   "mount": "/api/v1/properties",
+   "full": "/api/v1/properties/:id/narration/delivery-reconcile",
+   "file": "apps/api/src/routes/properties/narration.ts",
+   "router": "narrationRouter",
+   "top": "apps/api/src/routes/properties/index.ts::propertiesRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "[\"/narration-settings\", \"/:id/narration\"]",
+    "вход выполнен",
+    "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "![\"ADMIN\", \"DIRECTOR\"].includes(req.agent!.role)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Сверку сохраняет руководство\" });",
+       "a": [
+        "ответ 403 — «Сверку сохраняет руководство»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Проверьте историю доставки у провайдера и опишите результат (от 20 симв…",
+       "a": [
+        "ответ 400 — «Проверьте историю доставки у провайдера и опишите результат (от 20…»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const changed = await prisma.$transaction(async tx",
+     "a": [
+      "всё внутри — одной транзакцией",
+      "обращается к базе своим SQL",
+      "читает в базе: propertyNarrationDelivery",
+      "читает в базе: ownerReportDelivery",
+      "меняет в базе: propertyNarrationDelivery",
+      "меняет в базе: ownerReportDelivery",
+      "создаёт в базе: auditLog"
+     ],
+     "c": [
+      {
+       "k": "do",
+       "t": "await tx.$queryRaw`SELECT id FROM \"Property\" WHERE id = ${p.id} FOR UPDATE`;",
+       "a": [
+        "обращается к базе своим SQL"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "const row = kind === \"NARRATION\" ? await tx.propertyNarrationDelivery.findUnique({ where: { id: deliveryId } …",
+       "a": [
+        "читает в базе: propertyNarrationDelivery",
+        "читает в базе: ownerReportDelivery"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "const budget = kind === \"NARRATION\" ? narrationDeliveryAttemptBudgetMs(row && \"plan\" in row ? row.plan : null…",
+       "a": [
+        "зовёт narrationDeliveryAttemptBudgetMs()"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!row || row.propertyId !== p.id || !(row.status === \"UNKNOWN\" || row.status === \"SENDING\" && row.claimStarted…",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return false;",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const result = kind === \"NARRATION\" ? await tx.propertyNarrationDelivery.updateMany({ where, data }) : await …",
+       "a": [
+        "меняет в базе: propertyNarrationDelivery",
+        "меняет в базе: ownerReportDelivery"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!result.count",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return false;",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "await tx.auditLog.create({ data: { agentId: req.agent!.id, agentName: \"Руководитель\", action: \"MEDIA_DELIVERY…",
+       "a": [
+        "создаёт в базе: auditLog"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!changed",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"Попытка ещё выполняется или уже сверена. Обновите карточку.\" });",
+       "a": [
+        "ответ 409 — «Попытка ещё выполняется или уже сверена. Обновите карточку.»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.json({ status: \"FAILED\", sent: false, message: \"Сверка сохранена. Возможное списание не отменено. Автопов…",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "POST",
    "path": "/:id/narration/owner-report-preview",
    "mount": "/api/v1/properties",
    "full": "/api/v1/properties/:id/narration/owner-report-preview",
@@ -48130,15 +49300,74 @@
      ]
     },
     {
+     "k": "do",
+     "t": "await setOwnerReportConsent(p.id, req.agent!.id, true);",
+     "a": [
+      "зовёт setOwnerReportConsent()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const draft = await prepareOwnerReportDelivery(p.id);",
+     "a": [
+      "зовёт prepareOwnerReportDelivery()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ draft, sent: false, message: draft ? \"Согласие сохранено. Отчёт подготовлен; доставка отражается о…",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "/:id/narration/owner-report-revoke",
+   "mount": "/api/v1/properties",
+   "full": "/api/v1/properties/:id/narration/owner-report-revoke",
+   "file": "apps/api/src/routes/properties/narration.ts",
+   "router": "narrationRouter",
+   "top": "apps/api/src/routes/properties/index.ts::propertiesRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "[\"/narration-settings\", \"/:id/narration\"]",
+    "вход выполнен",
+    "async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
      "k": "if",
-     "t": "!p.sellerClientId",
+     "t": "!manager(req.agent?.role)",
      "a": [],
      "c": [
       {
        "k": "do",
-       "t": "return res.status(409).json({ error: \"У объекта не выбран собственник\" });",
+       "t": "return res.status(403).json({ error: \"Нет доступа\" });",
        "a": [
-        "ответ 409 — «У объекта не выбран собственник»"
+        "ответ 403 — «Нет доступа»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!z.object({ confirmed: z.literal(true) }).strict().safeParse(req.body).success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Подтвердите отзыв\" });",
+       "a": [
+        "ответ 400 — «Подтвердите отзыв»"
        ],
        "c": []
       }
@@ -48146,61 +49375,15 @@
     },
     {
      "k": "do",
-     "t": "const seller = await prisma.client.findFirst({ where: { id: p.sellerClientId, deletedAt: null }, select: { id…",
+     "t": "await setOwnerReportConsent(res.locals.narrationProperty.id, req.agent!.id, false);",
      "a": [
-      "читает в базе: client"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "!seller",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(409).json({ error: \"Карточка собственника недоступна\" });",
-       "a": [
-        "ответ 409 — «Карточка собственника недоступна»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const link = await findActiveOwnerReportLink(p.id);",
-     "a": [
-      "зовёт findActiveOwnerReportLink()"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "!link",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(409).json({ error: \"Сначала создайте ссылку «Отчёт владельцу» в карточке объекта\" });",
-       "a": [
-        "ответ 409 — «Сначала создайте ссылку «Отчёт владельцу» в карточке объекта»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const draft = await prisma.ownerReportDelivery.upsert({ where: { propertyId_sellerClientId_period: { property…",
-     "a": [
-      "создаёт или меняет в базе: ownerReportDelivery"
+      "зовёт setOwnerReportConsent()"
      ],
      "c": []
     },
     {
      "k": "do",
-     "t": "res.json({ draft, sent: false, message: \"Ежемесячный отчёт подготовлен. SMS не отправлено.\" });",
+     "t": "res.json({ active: false });",
      "a": [
       "ответ 200"
      ],
@@ -48258,34 +49441,11 @@
     },
     {
      "k": "do",
-     "t": "const hash = narrationHash({ caption: p.reelsCaption, price: String(p.price), channels: p.publishedChannels }…",
+     "t": "const rows = await preparePublicationMetadataPreview(p.id);",
      "a": [
-      "зовёт narrationHash()"
+      "зовёт preparePublicationMetadataPreview()"
      ],
      "c": []
-    },
-    {
-     "k": "do",
-     "t": "const rows = publicationPreview(p.publishedChannels);",
-     "a": [
-      "зовёт publicationPreview()"
-     ],
-     "c": []
-    },
-    {
-     "k": "loop",
-     "t": "для каждого: const row of rows",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "await prisma.publicationMetadataSync.upsert({ where: { propertyId_revisionHash_channel_operation: { propertyI…",
-       "a": [
-        "создаёт или меняет в базе: publicationMetadataSync"
-       ],
-       "c": []
-      }
-     ]
     },
     {
      "k": "do",
@@ -48360,6 +49520,38 @@
        ]
       }
      ]
+    },
+    {
+     "k": "do",
+     "t": "const deliveries = manager(req.agent?.role) ? await prisma.propertyNarrationDelivery.findMany({ where: { prop…",
+     "a": [
+      "читает в базе: propertyNarrationDelivery"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const subscription = manager(req.agent?.role) ? await prisma.ownerReportSubscription.findUnique({ where: { pr…",
+     "a": [
+      "читает в базе: ownerReportSubscription"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const reports = manager(req.agent?.role) ? await prisma.ownerReportDelivery.findMany({ where: { propertyId: p…",
+     "a": [
+      "читает в базе: ownerReportDelivery"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const smsReceipts = smsIds.length ? await prisma.smsMessage.findMany({ where: { id: { in: smsIds }, propertyI…",
+     "a": [
+      "читает в базе: smsMessage"
+     ],
+     "c": []
     },
     {
      "k": "do",
@@ -51073,6 +52265,160 @@
        "c": []
       }
      ]
+    }
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "/:id/publication-metadata/:attemptId/reconcile",
+   "mount": "/api/v1/properties",
+   "full": "/api/v1/properties/:id/publication-metadata/:attemptId/reconcile",
+   "file": "apps/api/src/routes/properties/publicationMetadata.ts",
+   "router": "publicationMetadataRouter",
+   "top": "apps/api/src/routes/properties/index.ts::propertiesRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "![\"ADMIN\",\"DIRECTOR\"].includes(req.agent!.role)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({error:\"Проверку фиксирует руководство\"});",
+       "a": [
+        "ответ 403 — «Проверку фиксирует руководство»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const propertyId=z.string().uuid().safeParse(req.params.id),attemptId=z.string().uuid().safeParse(req.params.…",
+     "a": [
+      "проверяет данные схемой bodySchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!propertyId.success||!attemptId.success||!body.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({error:\"Подтвердите проверку площадки и опишите фактический результат (не менее20…",
+       "a": [
+        "ответ 400 — «Подтвердите проверку площадки и опишите фактический результат (не…»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const changed=await prisma.$transaction(async tx",
+     "a": [
+      "всё внутри — одной транзакцией",
+      "обращается к базе своим SQL",
+      "читает в базе: publicationMetadataSync",
+      "меняет в базе: publicationMetadataSync",
+      "создаёт в базе: auditLog"
+     ],
+     "c": [
+      {
+       "k": "do",
+       "t": "await tx.$queryRaw`SELECT id FROM \"PublicationMetadataSync\" WHERE id = ${attemptId.data} FOR UPDATE`;",
+       "a": [
+        "обращается к базе своим SQL"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "const row=await tx.publicationMetadataSync.findFirst({where:{id:attemptId.data,propertyId:propertyId.data}});",
+       "a": [
+        "читает в базе: publicationMetadataSync"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!row?.startedAt || row.startedAt.toISOString()!==body.data.expectedStartedAt || ![\"EXECUTING\",\"UNKNOWN\"].incl…",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return null;",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const updated=await tx.publicationMetadataSync.updateMany({where:{id:row.id,status:row.status,startedAt:row.s…",
+       "a": [
+        "меняет в базе: publicationMetadataSync"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!updated.count",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return null;",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "await tx.auditLog.create({data:{agentId:req.agent!.id,agentName:'Руководитель',action:'PUBLICATION_METADATA_R…",
+       "a": [
+        "создаёт в базе: auditLog"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!changed",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({error:\"Попытка уже изменилась. Обновите карточку; повтор не выполнен.\"});",
+       "a": [
+        "ответ 409 — «Попытка уже изменилась. Обновите карточку; повтор не выполнен.»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.json({status:changed,operatorAttestation:true,sent:false});",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
     }
    ]
   },
@@ -58600,7 +59946,7 @@
     },
     {
      "k": "do",
-     "t": "const dossiers = await buildPropertyDeleteDossiers(items.map((r)",
+     "t": "const dossiers = seesDossier ? await buildPropertyDeleteDossiers(items.map((r)",
      "a": [
       "зовёт buildPropertyDeleteDossiers()"
      ],
@@ -61637,6 +62983,70 @@
    ]
   },
   {
+   "method": "POST",
+   "path": "/removal-dossiers",
+   "mount": "/api/v1/properties",
+   "full": "/api/v1/properties/removal-dossiers",
+   "file": "apps/api/src/routes/properties/removalDossier.ts",
+   "router": "propertyRemovalDossierRouter",
+   "top": "apps/api/src/routes/properties/index.ts::propertiesRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!canViewInvestigations(req.agent?.role) || !can(req, \"clients.securityReview\")",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: 'Недостаточно прав' });",
+       "a": [
+        "ответ 403 — «Недостаточно прав»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: 'Некорректный список объектов' });",
+       "a": [
+        "ответ 400 — «Некорректный список объектов»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const rows = await buildPropertyDeleteDossiers(ids);",
+     "a": [
+      "зовёт buildPropertyDeleteDossiers()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ items: ids.map(id",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
    "method": "DELETE",
    "path": "/share-links/:linkId",
    "mount": "/api/v1/properties",
@@ -63027,6 +64437,14 @@
          "c": []
         }
        ]
+      },
+      {
+       "k": "do",
+       "t": "await scheduleManualOwnerVerification(tx, createdProperty.id, req.agent!.id);",
+       "a": [
+        "зовёт scheduleManualOwnerVerification()"
+       ],
+       "c": []
       }
      ]
     },
@@ -64766,7 +66184,7 @@
     },
     {
      "k": "do",
-     "t": "res.json(presentMonthlyReport(req, updated));",
+     "t": "res.json(await presentMonthlyReport(req, updated));",
      "a": [
       "ответ 200"
      ],
@@ -64837,11 +66255,199 @@
     },
     {
      "k": "do",
-     "t": "res.json(reports.map((r)",
+     "t": "res.json(await Promise.all(reports.map((r)",
      "a": [
       "ответ 200"
      ],
      "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/post-showing-cohort/config",
+   "mount": "/api/v1/reports",
+   "full": "/api/v1/reports/post-showing-cohort/config",
+   "file": "apps/api/src/routes/reports.ts",
+   "router": "reportsRouter",
+   "top": "apps/api/src/routes/reports.ts::reportsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: reports.view",
+    "requireInvestigations",
+    "есть право: clients.securityReview"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const settings = await prisma.settings.findUniqueOrThrow({ where: { id: \"singleton\" }, select: { postShowingC…",
+     "a": [
+      "читает в базе: settings"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ config: postShowingCohortConfigSchema.parse(settings.postShowingCohortConfig), classification: \"OB…",
+     "a": [
+      "ответ 200",
+      "проверяет данные схемой postShowingCohortConfigSchema"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "PUT",
+   "path": "/post-showing-cohort/config",
+   "mount": "/api/v1/reports",
+   "full": "/api/v1/reports/post-showing-cohort/config",
+   "file": "apps/api/src/routes/reports.ts",
+   "router": "reportsRouter",
+   "top": "apps/api/src/routes/reports.ts::reportsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: reports.view",
+    "requireInvestigations",
+    "есть право: clients.securityReview"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const parsed = postShowingCohortConfigSchema.safeParse(req.body);",
+     "a": [
+      "проверяет данные схемой postShowingCohortConfigSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Проверьте период, размеры выборок и пороги сравнения\" });",
+       "a": [
+        "ответ 400 — «Проверьте период, размеры выборок и пороги сравнения»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "await prisma.settings.upsert({ where: { id: \"singleton\" }, create: { id: \"singleton\", postShowingCohortConfig…",
+     "a": [
+      "создаёт или меняет в базе: settings"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ config: parsed.data, classification: \"OBSERVED_FOLLOWUP_COMPARISON\", automaticVerdict: false });",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/post-showing-cohort",
+   "mount": "/api/v1/reports",
+   "full": "/api/v1/reports/post-showing-cohort",
+   "file": "apps/api/src/routes/reports.ts",
+   "router": "reportsRouter",
+   "top": "apps/api/src/routes/reports.ts::reportsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: reports.view",
+    "requireInvestigations",
+    "есть право: clients.securityReview"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Некорректный период\" });",
+       "a": [
+        "ответ 400 — «Некорректный период»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const settings = await prisma.settings.findUniqueOrThrow({ where: { id: \"singleton\" }, select: { postShowingC…",
+       "a": [
+        "читает в базе: settings"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "const config = postShowingCohortConfigSchema.parse(settings.postShowingCohortConfig);",
+       "a": [
+        "проверяет данные схемой postShowingCohortConfigSchema"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "const result = await collectPostShowingCohort(new Date(now.getTime() - (parsed.data.days ?? config.windowDays…",
+       "a": [
+        "зовёт collectPostShowingCohort()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "res.json(can(req, \"clients.viewPhone\") ? result : { ...result, agents: result.agents.map(row",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "res.status(503).json({ evaluation: \"DATA_UNAVAILABLE\", error: \"Источники статистики временно недоступны. Это …",
+       "a": [
+        "ответ 503 — «Источники статистики временно недоступны. Это не нулевая доля.»"
+       ],
+       "c": []
+      }
+     ]
     }
    ]
   },
@@ -66540,6 +68146,97 @@
    ]
   },
   {
+   "method": "POST",
+   "path": "/:id/severity",
+   "mount": "/api/v1/security/cases",
+   "full": "/api/v1/security/cases/:id/severity",
+   "file": "apps/api/src/routes/investigationCases.ts",
+   "router": "investigationCasesRouter",
+   "top": "apps/api/src/routes/security.ts::securityRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "requireInvestigations",
+    "есть право: clients.securityReview",
+    "вход выполнен",
+    "requireInvestigations",
+    "есть право: clients.securityReview"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const id = idSchema.safeParse(req.params.id), body = investigationSeveritySchema.safeParse(req.body);",
+     "a": [
+      "проверяет данные схемой idSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!id.success || !body.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Проверьте уровень и отдельное подтверждение C4\" });",
+       "a": [
+        "ответ 400 — «Проверьте уровень и отдельное подтверждение C4»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "res.json({ decision: await setInvestigationSeverity({ ...body.data, caseId: id.data, actorId: req.agent!.id }…",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "if",
+       "t": "error instanceof InvestigationConflict",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(409).json({ error: error.message });",
+         "a": [
+          "ответ 409"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "throw error;",
+       "a": [
+        "пробрасывает ошибку дальше"
+       ],
+       "c": []
+      }
+     ]
+    }
+   ]
+  },
+  {
    "method": "GET",
    "path": "/:id",
    "mount": "/api/v1/security/cases",
@@ -66608,7 +68305,38 @@
     },
     {
      "k": "do",
-     "t": "res.json({ ...row, evidence: row.evidence.map(item",
+     "t": "res.json({ ...row, recommendation: await loadInvestigationRecommendation(row), evidence: row.evidence.map(item",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/agency-label-preview",
+   "mount": "/api/v1/security/cases",
+   "full": "/api/v1/security/cases/agency-label-preview",
+   "file": "apps/api/src/routes/investigationCases.ts",
+   "router": "investigationCasesRouter",
+   "top": "apps/api/src/routes/security.ts::securityRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "requireInvestigations",
+    "есть право: clients.securityReview",
+    "вход выполнен",
+    "requireInvestigations",
+    "есть право: clients.securityReview"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "res.json(presentEvidencePayload(await previewAgencyLabelCoincidences(), can(req, \"clients.viewPhone\")));",
      "a": [
       "ответ 200"
      ],
@@ -66649,6 +68377,37 @@
     {
      "k": "do",
      "t": "res.json({ mode: \"PREVIEW\", items: [ ...buyers.map(row",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/buyer-showing-candidates",
+   "mount": "/api/v1/security/cases",
+   "full": "/api/v1/security/cases/buyer-showing-candidates",
+   "file": "apps/api/src/routes/investigationCases.ts",
+   "router": "investigationCasesRouter",
+   "top": "apps/api/src/routes/security.ts::securityRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "requireInvestigations",
+    "есть право: clients.securityReview",
+    "вход выполнен",
+    "requireInvestigations",
+    "есть право: clients.securityReview"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "res.json({ mode: \"PREVIEW\", items: presentEvidencePayload(await previewBuyerShowingCandidates(), can(req, \"cl…",
      "a": [
       "ответ 200"
      ],
@@ -66766,6 +68525,91 @@
     {
      "k": "do",
      "t": "res.json({ config: configured.success ? configured.data : null, mode: \"preview\" });",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/manual-contact-preview",
+   "mount": "/api/v1/security/cases",
+   "full": "/api/v1/security/cases/manual-contact-preview",
+   "file": "apps/api/src/routes/investigationCases.ts",
+   "router": "investigationCasesRouter",
+   "top": "apps/api/src/routes/security.ts::securityRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "requireInvestigations",
+    "есть право: clients.securityReview",
+    "вход выполнен",
+    "requireInvestigations",
+    "есть право: clients.securityReview"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const query = investigationCasesQuerySchema.safeParse(req.query);",
+     "a": [
+      "проверяет данные схемой investigationCasesQuerySchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!query.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Неверные параметры\" });",
+       "a": [
+        "ответ 400 — «Неверные параметры»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.json(await previewManualContactOnly(query.data.page));",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/named-assignment-preview",
+   "mount": "/api/v1/security/cases",
+   "full": "/api/v1/security/cases/named-assignment-preview",
+   "file": "apps/api/src/routes/investigationCases.ts",
+   "router": "investigationCasesRouter",
+   "top": "apps/api/src/routes/security.ts::securityRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "requireInvestigations",
+    "есть право: clients.securityReview",
+    "вход выполнен",
+    "requireInvestigations",
+    "есть право: clients.securityReview"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "res.json(presentEvidencePayload(await previewNamedAssignments(), can(req, \"clients.viewPhone\")));",
      "a": [
       "ответ 200"
      ],
@@ -66947,6 +68791,664 @@
        "c": []
       }
      ]
+    }
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "/:id/commands",
+   "mount": "/api/v1/security/cases/seller-control",
+   "full": "/api/v1/security/cases/seller-control/:id/commands",
+   "file": "apps/api/src/routes/sellerControl.ts",
+   "router": "sellerControlRouter",
+   "top": "apps/api/src/routes/security.ts::securityRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "requireInvestigations",
+    "есть право: clients.securityReview",
+    "вход выполнен",
+    "requireInvestigations",
+    "есть право: clients.securityReview",
+    "вход выполнен",
+    "requireInvestigations",
+    "есть право: clients.securityReview"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const parsed = sellerControlCommandSchema.safeParse(req.body);",
+     "a": [
+      "проверяет данные схемой sellerControlCommandSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!id.success || !parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Проверьте действие и комментарий\" });",
+       "a": [
+        "ответ 400 — «Проверьте действие и комментарий»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const episode = await prisma.sellerControlEpisode.findUnique({ where: { id: id.data }, select: { executionMod…",
+     "a": [
+      "читает в базе: sellerControlEpisode"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!episode",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Эпизод не найден\" });",
+       "a": [
+        "ответ 404 — «Эпизод не найден»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "episode.executionMode === \"LIVE\" && ![\"RESOLVE\", \"CANCEL\"].includes(parsed.data.action)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"Реальное получение и действие отмечает назначенный руководитель в своей…",
+       "a": [
+        "ответ 409 — «Реальное получение и действие отмечает назначенный руководитель в…»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "episode.executionMode === \"LIVE\" && process.env.SELLER_CONTROL_INTERNAL_LIVE !== \"explicitly-approved\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"Рабочее исполнение выключено\" });",
+       "a": [
+        "ответ 409 — «Рабочее исполнение выключено»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "![\"PREVIEW\", \"LIVE\"].includes(episode.executionMode)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"Неизвестный режим эпизода\" });",
+       "a": [
+        "ответ 409 — «Неизвестный режим эпизода»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "res.json(await commandSellerControl(id.data, parsed.data, req.agent!.id, { simulated: episode.executionMode =…",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "if",
+       "t": "error instanceof SellerControlConflict",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(409).json({ error: error.message });",
+         "a": [
+          "ответ 409"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "throw error;",
+       "a": [
+        "пробрасывает ошибку дальше"
+       ],
+       "c": []
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "/buyer-candidate",
+   "mount": "/api/v1/security/cases/seller-control",
+   "full": "/api/v1/security/cases/seller-control/buyer-candidate",
+   "file": "apps/api/src/routes/sellerControl.ts",
+   "router": "sellerControlRouter",
+   "top": "apps/api/src/routes/security.ts::securityRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "requireInvestigations",
+    "есть право: clients.securityReview",
+    "вход выполнен",
+    "requireInvestigations",
+    "есть право: clients.securityReview",
+    "вход выполнен",
+    "requireInvestigations",
+    "есть право: clients.securityReview"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Укажите договорённость и ответственного руководителя\" });",
+       "a": [
+        "ответ 400 — «Укажите договорённость и ответственного руководителя»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const candidate = await prisma.buyerShowingCandidate.findUnique({ where: { id: parsed.data.buyerCandidateId }…",
+     "a": [
+      "читает в базе: buyerShowingCandidate"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!candidate",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Договорённость не найдена\" });",
+       "a": [
+        "ответ 404 — «Договорённость не найдена»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "res.json(await startSellerControl({ ...parsed.data, clientId: candidate.clientId, actorId: req.agent!.id, liv…",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "if",
+       "t": "error instanceof SellerControlConflict",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(409).json({ error: error.message });",
+         "a": [
+          "ответ 409"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "throw error;",
+       "a": [
+        "пробрасывает ошибку дальше"
+       ],
+       "c": []
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "method": "PUT",
+   "path": "/config",
+   "mount": "/api/v1/security/cases/seller-control",
+   "full": "/api/v1/security/cases/seller-control/config",
+   "file": "apps/api/src/routes/sellerControl.ts",
+   "router": "sellerControlRouter",
+   "top": "apps/api/src/routes/security.ts::securityRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "requireInvestigations",
+    "есть право: clients.securityReview",
+    "вход выполнен",
+    "requireInvestigations",
+    "есть право: clients.securityReview",
+    "вход выполнен",
+    "requireInvestigations",
+    "есть право: clients.securityReview"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const parsed = sellerControlConfigUpdateSchema.safeParse(req.body);",
+     "a": [
+      "проверяет данные схемой sellerControlConfigUpdateSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Заполните все три положительных срока или очистите настройку\" });",
+       "a": [
+        "ответ 400 — «Заполните все три положительных срока или очистите настройку»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "\"defaultRopAgentId\" in parsed.data.config && parsed.data.config.defaultRopAgentId",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const rop = await prisma.agent.findUnique({ where: { id: parsed.data.config.defaultRopAgentId }, select: { ro…",
+       "a": [
+        "читает в базе: agent"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!rop?.isActive || ![\"MANAGER\", \"ADMIN\", \"DIRECTOR\"].includes(rop.role)",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(400).json({ error: \"Выберите действующего руководителя\" });",
+         "a": [
+          "ответ 400 — «Выберите действующего руководителя»"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "await saveWithInvestigationControlAudit({ sellerControlConfig: parsed.data.config }, { id: req.agent!.id, nam…",
+     "a": [
+      "меняет в базе: settings"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ config: readSellerControlConfig(parsed.data.config), mode: \"PREVIEW\" });",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/",
+   "mount": "/api/v1/security/cases/seller-control",
+   "full": "/api/v1/security/cases/seller-control",
+   "file": "apps/api/src/routes/sellerControl.ts",
+   "router": "sellerControlRouter",
+   "top": "apps/api/src/routes/security.ts::securityRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "requireInvestigations",
+    "есть право: clients.securityReview",
+    "вход выполнен",
+    "requireInvestigations",
+    "есть право: clients.securityReview",
+    "вход выполнен",
+    "requireInvestigations",
+    "есть право: clients.securityReview"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const [settings, episodes] = await Promise.all([ prisma.settings.findUnique({ where: { id: \"singleton\" }, sel…",
+     "a": [
+      "читает в базе: settings",
+      "читает в базе: sellerControlEpisode"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const config = readSellerControlConfig(settings?.sellerControlConfig);",
+     "a": [
+      "зовёт readSellerControlConfig()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const safeEpisodes = episodes.map(episode",
+     "a": [
+      "зовёт maskPhonesDeep()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ config, configurationState: config ? \"CONFIGURED\" : \"NOT_CONFIGURED\", mode: \"PREVIEW\", episodes: s…",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "/",
+   "mount": "/api/v1/security/cases/seller-control",
+   "full": "/api/v1/security/cases/seller-control",
+   "file": "apps/api/src/routes/sellerControl.ts",
+   "router": "sellerControlRouter",
+   "top": "apps/api/src/routes/security.ts::securityRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "requireInvestigations",
+    "есть право: clients.securityReview",
+    "вход выполнен",
+    "requireInvestigations",
+    "есть право: clients.securityReview",
+    "вход выполнен",
+    "requireInvestigations",
+    "есть право: clients.securityReview"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Укажите карточку и ответственного руководителя\" });",
+       "a": [
+        "ответ 400 — «Укажите карточку и ответственного руководителя»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "res.json(await startSellerControl({ ...parsed.data, actorId: req.agent!.id }));",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "if",
+       "t": "error instanceof SellerControlConflict",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(409).json({ error: error.message });",
+         "a": [
+          "ответ 409"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "throw error;",
+       "a": [
+        "пробрасывает ошибку дальше"
+       ],
+       "c": []
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/weekly-operational-preview",
+   "mount": "/api/v1/security/cases",
+   "full": "/api/v1/security/cases/weekly-operational-preview",
+   "file": "apps/api/src/routes/investigationCases.ts",
+   "router": "investigationCasesRouter",
+   "top": "apps/api/src/routes/security.ts::securityRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "requireInvestigations",
+    "есть право: clients.securityReview",
+    "вход выполнен",
+    "requireInvestigations",
+    "есть право: clients.securityReview"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const query = weeklyOperationalPreviewQuerySchema.safeParse(req.query);",
+     "a": [
+      "проверяет данные схемой weeklyOperationalPreviewQuerySchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!query.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Неверные параметры сводки\" });",
+       "a": [
+        "ответ 400 — «Неверные параметры сводки»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.json(presentEvidencePayload(await previewWeeklyOperations(query.data.kind, query.data.page), can(req, \"cl…",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/workflow-agent-preview",
+   "mount": "/api/v1/security/cases",
+   "full": "/api/v1/security/cases/workflow-agent-preview",
+   "file": "apps/api/src/routes/investigationCases.ts",
+   "router": "investigationCasesRouter",
+   "top": "apps/api/src/routes/security.ts::securityRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "requireInvestigations",
+    "есть право: clients.securityReview",
+    "вход выполнен",
+    "requireInvestigations",
+    "есть право: clients.securityReview"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "res.json(presentEvidencePayload(await previewWorkflowAgentCounts(), can(req, \"clients.viewPhone\")));",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/workflow-observations",
+   "mount": "/api/v1/security/cases",
+   "full": "/api/v1/security/cases/workflow-observations",
+   "file": "apps/api/src/routes/investigationCases.ts",
+   "router": "investigationCasesRouter",
+   "top": "apps/api/src/routes/security.ts::securityRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "requireInvestigations",
+    "есть право: clients.securityReview",
+    "вход выполнен",
+    "requireInvestigations",
+    "есть право: clients.securityReview"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const active = await prisma.workflowCheckpoint.findUnique({ where: { key: \"client-workflow-observations-v1\" }…",
+     "a": [
+      "читает в базе: workflowCheckpoint"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!active",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.json({ mode: \"PREVIEW\", coverage: \"NOT_ACTIVATED\", items: [] });",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const rows = await prisma.clientWorkflowObservation.findMany({ where: { executionMode: \"PREVIEW\" }, orderBy: …",
+     "a": [
+      "читает в базе: clientWorkflowObservation"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ mode: \"PREVIEW\", coverage: \"FUTURE_SOURCES_ONLY\", items: presentEvidencePayload(rows, can(req, \"cl…",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
     }
    ]
   },
@@ -70499,6 +73001,28 @@
      "c": []
     },
     {
+     "k": "if",
+     "t": "!canViewInvestigations(req.agent?.role)",
+     "a": [],
+     "c": [
+      {
+       "k": "loop",
+       "t": "для каждого: const field of Object.keys(plan.data)",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "if (isPrivateSettingsField(field)) delete plan.data[field];",
+         "a": [
+          "зовёт isPrivateSettingsField()"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
      "k": "do",
      "t": "const skippedStaff = await dropUnavailableStaffFromPlan(plan);",
      "a": [
@@ -70569,7 +73093,7 @@
     },
     {
      "k": "do",
-     "t": "await prisma.settings.update({ where: { id: \"singleton\" }, data: plan.data });",
+     "t": "await saveWithInvestigationControlAudit(plan.data, { id: req.agent!.id, name: agent?.fullName ?? \"Неизвестно\"…",
      "a": [
       "меняет в базе: settings"
      ],
@@ -70662,14 +73186,6 @@
        "t": "const changes = current ? diffSnapshot(point.payload as SnapshotPayload, current) : [];",
        "a": [
         "зовёт diffSnapshot()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "return { id: point.id, createdAt: point.createdAt, agentId: point.agentId, agentName: point.agentName, reason…",
-       "a": [
-        "зовёт secretsRestorable()"
        ],
        "c": []
       }
@@ -71815,7 +74331,7 @@
     },
     {
      "k": "do",
-     "t": "const settings = await prisma.settings.upsert({ where: { id: \"singleton\" }, update: data, create: { id: \"sing…",
+     "t": "const settings = await saveWithInvestigationControlAudit(data, { id: req.agent!.id, name: actor?.fullName ?? …",
      "a": [
       "создаёт или меняет в базе: settings"
      ],
@@ -72722,7 +75238,15 @@
     },
     {
      "k": "do",
-     "t": "res.json({ ok: true, parts: sent.parts });",
+     "t": "const receipt = await prisma.smsMessage.findUnique({ where: { id: sent.id }, select: { status: true } });",
+     "a": [
+      "читает в базе: smsMessage"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ ok: true, parts: sent.parts, status: receipt?.status ?? \"UNKNOWN\" });",
      "a": [
       "ответ 200"
      ],
@@ -74135,7 +76659,7 @@
    "tree": [
     {
      "k": "do",
-     "t": "const outcome = await retryStuckWorkItem(req.params.id);",
+     "t": "const outcome = await retryStuckWorkItem(req.params.id, canViewInvestigations(req.agent?.role) && can(req, \"c…",
      "a": [
       "зовёт retryStuckWorkItem()"
      ],
@@ -83223,11 +85747,26 @@
           },
           {
            "k": "do",
-           "t": "const { explained, unchecked } = await checkClientExplainedPause(c.id);",
+           "t": "const { explained, unchecked } = await checkClientExplainedPause(c.id, { since: c.phoneAskFlaggedAt ?? undefi…",
            "a": [
             "зовёт checkClientExplainedPause()"
            ],
            "c": []
+          },
+          {
+           "k": "if",
+           "t": "unchecked",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "continue;",
+             "a": [
+              "переходит к следующему"
+             ],
+             "c": []
+            }
+           ]
           },
           {
            "k": "if",
@@ -83510,6 +86049,114 @@
    "file": "apps/api/src/cron.ts"
   },
   {
+   "id": "approved-owner-verification",
+   "when": "25 * * * *",
+   "tree": [
+    {
+     "k": "do",
+     "t": "await runNewOwnerVerificationTick(new Date(), { allowLive: true });",
+     "a": [
+      "зовёт runNewOwnerVerificationTick()"
+     ],
+     "c": [
+      {
+       "k": "if",
+       "t": "!options.allowLive || newOwnerProbeMode() !== 'LIVE'",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return 0;",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const settings = await prisma.settings.findUnique({ where: { id: 'singleton' }, select: { liveVoiceEnabled: t…",
+       "a": [
+        "читает в базе: settings"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!settings?.liveVoiceEnabled || !settings.postShowingCallEnabled",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return 0;",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "await loadCompanyDaysOff();",
+       "a": [
+        "зовёт loadCompanyDaysOff()"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!isWithinPostShowingCallHours(now)",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return 0;",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const rows = await prisma.sellerProbeCall.findMany({ where: { sourceKind: { in: ['EXPOSURE_PAIR', 'MANUAL_OWN…",
+       "a": [
+        "читает в базе: sellerProbeCall"
+       ],
+       "c": []
+      },
+      {
+       "k": "loop",
+       "t": "для каждого: const row of rows",
+       "a": [],
+       "c": [
+        {
+         "k": "if",
+         "t": "outcome !== 'skipped'",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return outcome === 'started' ? 1 : 0;",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ]
+      }
+     ],
+     "from": "runNewOwnerVerificationTick() — apps/api/src/lib/sellerProbeCall.ts"
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
    "id": "background-jobs",
    "when": "* * * * *",
    "tree": [
@@ -83703,6 +86350,36 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "if",
+         "t": "isPrivateOperation()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "source = \"investigation\";",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "source === \"investigation\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, silent: true };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
         {
          "k": "if",
          "t": "isShuttingDown()",
@@ -88915,6 +91592,36 @@
          "c": [
           {
            "k": "if",
+           "t": "isPrivateOperation()",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "source = \"investigation\";",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "source === \"investigation\"",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "context = { ...context, silent: true };",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
            "t": "isShuttingDown()",
            "a": [],
            "c": [
@@ -89083,6 +91790,36 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "if",
+         "t": "isPrivateOperation()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "source = \"investigation\";",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "source === \"investigation\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, silent: true };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
         {
          "k": "if",
          "t": "isShuttingDown()",
@@ -89724,7 +92461,7 @@
           },
           {
            "k": "do",
-           "t": "await logSystemError( \"cron\", `Крон-тик «${name}» молчит ${silentMin} мин (расписание ${meta.expr}, ` + `след…",
+           "t": "await logSystemError( isPrivateCron(name) ? \"investigation\" : \"cron\", `Крон-тик «${name}» молчит ${silentMin}…",
            "a": [
             "запись в журнал ошибок"
            ],
@@ -91438,6 +94175,36 @@
        "c": [
         {
          "k": "if",
+         "t": "isPrivateOperation()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "source = \"investigation\";",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "source === \"investigation\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, silent: true };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
          "t": "isShuttingDown()",
          "a": [],
          "c": [
@@ -91938,6 +94705,36 @@
          "c": [
           {
            "k": "if",
+           "t": "isPrivateOperation()",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "source = \"investigation\";",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "source === \"investigation\"",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "context = { ...context, silent: true };",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
            "t": "isShuttingDown()",
            "a": [],
            "c": [
@@ -92081,6 +94878,36 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "if",
+         "t": "isPrivateOperation()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "source = \"investigation\";",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "source === \"investigation\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, silent: true };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
         {
          "k": "if",
          "t": "isShuttingDown()",
@@ -97532,6 +100359,99 @@
    "file": "apps/api/src/cron.ts"
   },
   {
+   "id": "narration-version-delivery",
+   "when": "* * * * *",
+   "tree": [
+    {
+     "k": "do",
+     "t": "await executeQueuedNarrationDeliveries();",
+     "a": [
+      "зовёт executeQueuedNarrationDeliveries()"
+     ],
+     "c": [
+      {
+       "k": "if",
+       "t": "mediaExecutionMode(\"NARRATION\") !== \"LIVE\"",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return;",
+         "a": [
+          "дальше не идёт, ничего не меняя"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const pending = await prisma.propertyNarrationDelivery.findMany({ where: { status: \"SENDING\", claimStartedAt:…",
+       "a": [
+        "читает в базе: propertyNarrationDelivery"
+       ],
+       "c": []
+      },
+      {
+       "k": "loop",
+       "t": "для каждого: const row of pending",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "const budget = narrationDeliveryAttemptBudgetMs(row.plan);",
+         "a": [
+          "зовёт narrationDeliveryAttemptBudgetMs()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "row.claimStartedAt && now.getTime() - row.claimStartedAt.getTime() > budget",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "await prisma.propertyNarrationDelivery.updateMany({ where: { id: row.id, status: \"SENDING\", claimStartedAt: r…",
+           "a": [
+            "меняет в базе: propertyNarrationDelivery"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const rows = await prisma.propertyNarrationDelivery.findMany({ where: { status: \"QUEUED\", executionMode: \"LIV…",
+       "a": [
+        "читает в базе: propertyNarrationDelivery"
+       ],
+       "c": []
+      },
+      {
+       "k": "loop",
+       "t": "для каждого: const row of rows",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "await executeNarrationDelivery(row.id);",
+         "a": [
+          "зовёт executeNarrationDelivery()"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ],
+     "from": "executeQueuedNarrationDeliveries() — apps/api/src/lib/narrationDelivery.ts"
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
    "id": "no-answer-tail",
    "when": "*/30 * * * *",
    "tree": [
@@ -98069,6 +100989,171 @@
    "file": "apps/api/src/cron.ts"
   },
   {
+   "id": "owner-exposure-verification-preview",
+   "when": "15 * * * *",
+   "tree": [
+    {
+     "k": "do",
+     "t": "await runExposureOwnerPreviewTick();",
+     "a": [
+      "зовёт runExposureOwnerPreviewTick()"
+     ],
+     "c": [
+      {
+       "k": "do",
+       "t": "const checkpoint = await prisma.workflowCheckpoint.upsert({ where: { key: checkpointKey }, update: {}, create…",
+       "a": [
+        "создаёт или меняет в базе: workflowCheckpoint"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "const claimed = await prisma.workflowCheckpoint.updateMany({ where: { key: checkpointKey, revision: checkpoin…",
+       "a": [
+        "меняет в базе: workflowCheckpoint"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "claimed.count !== 1",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return { created: 0, busy: true };",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "try",
+       "t": "пробует",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "const result = await scheduleExposureOwnerVerifications(now, checkpoint.cursor ?? undefined, checkpoint.creat…",
+         "a": [
+          "зовёт scheduleExposureOwnerVerifications()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "await prisma.workflowCheckpoint.updateMany({ where: { key: checkpointKey, leaseToken }, data: { cursor: resul…",
+         "a": [
+          "меняет в базе: workflowCheckpoint"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "catch",
+       "t": "если сорвалось",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "await prisma.workflowCheckpoint.updateMany({ where: { key: checkpointKey, leaseToken }, data: { leaseToken: n…",
+         "a": [
+          "меняет в базе: workflowCheckpoint"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "throw error;",
+         "a": [
+          "пробрасывает ошибку дальше"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ],
+     "from": "runExposureOwnerPreviewTick() — apps/api/src/lib/ownerVerificationSources.ts"
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
+   "id": "owner-report-delivery",
+   "when": "* * * * *",
+   "tree": [
+    {
+     "k": "do",
+     "t": "await executeQueuedOwnerReports();",
+     "a": [
+      "зовёт executeQueuedOwnerReports()"
+     ],
+     "c": [
+      {
+       "k": "if",
+       "t": "mediaExecutionMode(\"OWNER_REPORT\") !== \"LIVE\"",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return;",
+         "a": [
+          "дальше не идёт, ничего не меняя"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "await prisma.ownerReportDelivery.updateMany({ where: { status: \"QUEUED\", executionMode: \"LIVE\", period: { lt:…",
+       "a": [
+        "меняет в базе: ownerReportDelivery"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "await prisma.ownerReportDelivery.updateMany({ where: { status: \"SENDING\", claimStartedAt: { lt: new Date(now.…",
+       "a": [
+        "меняет в базе: ownerReportDelivery"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "const rows = await prisma.ownerReportDelivery.findMany({ where: { status: \"QUEUED\", executionMode: \"LIVE\", pe…",
+       "a": [
+        "читает в базе: ownerReportDelivery"
+       ],
+       "c": []
+      },
+      {
+       "k": "loop",
+       "t": "для каждого: const row of rows",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "await executeOwnerReportDelivery(row.id, now);",
+         "a": [
+          "зовёт executeOwnerReportDelivery()"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ],
+     "from": "executeQueuedOwnerReports() — apps/api/src/lib/ownerReport/delivery.ts"
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
    "id": "owner-report-monthly-preview",
    "when": "20 8 * * *",
    "tree": [
@@ -98112,9 +101197,9 @@
       },
       {
        "k": "do",
-       "t": "const optIns = await prisma.ownerReportDelivery.findMany({ where: { status: \"PREVIEW\", period: { lt: period }…",
+       "t": "const optIns = await prisma.ownerReportSubscription.findMany({ where: { active: true, revokedAt: null }, sele…",
        "a": [
-        "читает в базе: ownerReportDelivery"
+        "читает в базе: ownerReportSubscription"
        ],
        "c": []
       },
@@ -98124,60 +101209,51 @@
        "a": [],
        "c": [
         {
-         "k": "do",
-         "t": "const property = await prisma.property.findFirst({ where: { id: optIn.propertyId, deletedAt: null, sellerClie…",
-         "a": [
-          "читает в базе: property"
-         ],
-         "c": []
-        },
-        {
-         "k": "if",
-         "t": "!property || !await prisma.client.findFirst({ where: { id: optIn.sellerClientId, deletedAt: null }, select: {…",
+         "k": "try",
+         "t": "пробует",
          "a": [],
          "c": [
           {
-           "k": "do",
-           "t": "continue;",
-           "a": [
-            "переходит к следующему"
-           ],
-           "c": []
+           "k": "if",
+           "t": "await prepareOwnerReportDelivery(optIn.propertyId, now)",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "prepared++;",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
           }
          ]
         },
         {
-         "k": "do",
-         "t": "const link = await findActiveOwnerReportLink(property.id);",
-         "a": [
-          "зовёт findActiveOwnerReportLink()"
-         ],
-         "c": []
-        },
-        {
-         "k": "if",
-         "t": "!link",
+         "k": "catch",
+         "t": "если сорвалось",
          "a": [],
          "c": [
           {
            "k": "do",
-           "t": "continue;",
+           "t": "await logSystemError(\"cron\", `Не удалось подготовить ежемесячный отчёт объекта ${optIn.propertyId}: ${error i…",
            "a": [
-            "переходит к следующему"
+            "запись в журнал ошибок"
            ],
            "c": []
           }
          ]
-        },
-        {
-         "k": "do",
-         "t": "const result = await prisma.ownerReportDelivery.createMany({ data: [{ ...optIn, period, reportUrl: presentOwn…",
-         "a": [
-          "создаёт в базе: ownerReportDelivery"
-         ],
-         "c": []
         }
        ]
+      },
+      {
+       "k": "do",
+       "t": "await executeQueuedOwnerReports(now);",
+       "a": [
+        "зовёт executeQueuedOwnerReports()"
+       ],
+       "c": []
       }
      ],
      "from": "prepareMonthlyOwnerReportPreviews() — apps/api/src/lib/ownerReport/monthlyPreview.ts"
@@ -100751,6 +103827,128 @@
    "file": "apps/api/src/cron.ts"
   },
   {
+   "id": "seller-control-episodes",
+   "when": "* * * * *",
+   "tree": [
+    {
+     "k": "do",
+     "t": "await runSellerControlTick();",
+     "a": [
+      "зовёт runSellerControlTick()"
+     ],
+     "c": [
+      {
+       "k": "if",
+       "t": "process.env.SELLER_CONTROL_INTERNAL_LIVE !== \"explicitly-approved\"",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return { mode: \"PREVIEW\", processed: 0 };",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "await enrollDueBuyerCandidates(now);",
+       "a": [
+        "зовёт enrollDueBuyerCandidates()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "await enrollDueSellerIntakes(now);",
+       "a": [
+        "зовёт enrollDueSellerIntakes()"
+       ],
+       "c": []
+      },
+      {
+       "k": "loop",
+       "t": "для каждого: true",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "const rows = await prisma.sellerControlEpisode.findMany({ where: { executionMode: \"LIVE\", createdAt: { lte: n…",
+         "a": [
+          "читает в базе: sellerControlEpisode"
+         ],
+         "c": []
+        },
+        {
+         "k": "loop",
+         "t": "для каждого: const row of rows",
+         "a": [],
+         "c": [
+          {
+           "k": "try",
+           "t": "пробует",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "await commandSellerControl(row.id, { requestKey: randomUUID(), revision: row.revision, action: \"TICK\" }, null…",
+             "a": [
+              "зовёт commandSellerControl()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "catch",
+           "t": "если сорвалось",
+           "a": [],
+           "c": [
+            {
+             "k": "if",
+             "t": "!(error instanceof SellerControlConflict)",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "throw error;",
+               "a": [
+                "пробрасывает ошибку дальше"
+               ],
+               "c": []
+              }
+             ]
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "rows.length < 100",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "break;",
+           "a": [
+            "прекращает перебор"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ]
+      }
+     ],
+     "from": "runSellerControlTick() — apps/api/src/lib/sellerControlEpisodes.ts"
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
    "id": "seller-no-property-alarm",
    "when": "0 * * * *",
    "tree": [
@@ -100993,7 +104191,7 @@
           },
           {
            "k": "do",
-           "t": "const pause = await checkClientExplainedPause(c.id);",
+           "t": "const pause = await checkClientExplainedPause(c.id, { since: c.shootingDate });",
            "a": [
             "зовёт checkClientExplainedPause()"
            ],
@@ -101001,7 +104199,7 @@
           },
           {
            "k": "if",
-           "t": "pause.explained",
+           "t": "pause.explained || pause.unchecked",
            "a": [],
            "c": [
             {
@@ -101196,7 +104394,7 @@
         },
         {
          "k": "do",
-         "t": "const due = await prisma.sellerProbeCall.findMany({ where: { previewOnly: false, status: { in: [\"PENDING\", \"N…",
+         "t": "const due = await prisma.sellerProbeCall.findMany({ where: { sourceKind: \"POST_SHOWING\", previewOnly: false, …",
          "a": [
           "читает в базе: sellerProbeCall"
          ],
@@ -102718,6 +105916,36 @@
            "c": [
             {
              "k": "if",
+             "t": "isPrivateOperation()",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "source = \"investigation\";",
+               "a": [
+                "дословно из кода"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "if",
+             "t": "source === \"investigation\"",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "context = { ...context, silent: true };",
+               "a": [
+                "дословно из кода"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "if",
              "t": "isShuttingDown()",
              "a": [],
              "c": [
@@ -102853,6 +106081,36 @@
           "запись в журнал ошибок"
          ],
          "c": [
+          {
+           "k": "if",
+           "t": "isPrivateOperation()",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "source = \"investigation\";",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "source === \"investigation\"",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "context = { ...context, silent: true };",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
           {
            "k": "if",
            "t": "isShuttingDown()",
@@ -108380,6 +111638,36 @@
        "c": [
         {
          "k": "if",
+         "t": "isPrivateOperation()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "source = \"investigation\";",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "source === \"investigation\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, silent: true };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
          "t": "isShuttingDown()",
          "a": [],
          "c": [
@@ -109913,6 +113201,36 @@
        "c": [
         {
          "k": "if",
+         "t": "isPrivateOperation()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "source = \"investigation\";",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "source === \"investigation\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, silent: true };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
          "t": "isShuttingDown()",
          "a": [],
          "c": [
@@ -110292,6 +113610,36 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "if",
+         "t": "isPrivateOperation()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "source = \"investigation\";",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "source === \"investigation\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, silent: true };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
         {
          "k": "if",
          "t": "isShuttingDown()",
@@ -111123,6 +114471,36 @@
          "c": [
           {
            "k": "if",
+           "t": "isPrivateOperation()",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "source = \"investigation\";",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "source === \"investigation\"",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "context = { ...context, silent: true };",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
            "t": "isShuttingDown()",
            "a": [],
            "c": [
@@ -111269,20 +114647,20 @@
        "c": [
         {
          "k": "do",
-         "t": "const module = pultModuleOfJob(input.type);",
+         "t": "const privateJob = isPrivateOperation() || await isPrivateBackgroundJob(input).catch(()",
          "a": [
-          "зовёт pultModuleOfJob()"
+          "зовёт isPrivateOperation()"
          ],
          "c": []
         },
         {
          "k": "if",
-         "t": "module && !(await isPultModuleEnabled(module))",
+         "t": "privateJob && input.payload && typeof input.payload === \"object\" && !Array.isArray(input.payload)",
          "a": [],
          "c": [
           {
            "k": "do",
-           "t": "return { enqueued: false, skipped: \"module:off\" };",
+           "t": "input = { ...input, payload: { ...input.payload, investigationOnly: true } };",
            "a": [
             "дословно из кода"
            ],
@@ -111291,55 +114669,89 @@
          ]
         },
         {
-         "k": "try",
-         "t": "пробует",
-         "a": [],
+         "k": "do",
+         "t": "return withInvestigationPrivacy(privateJob, async ()",
+         "a": [
+          "создаёт в базе: backgroundJob",
+          "меняет в базе: backgroundJob",
+          "запись в журнал ошибок"
+         ],
          "c": [
           {
            "k": "do",
-           "t": "await prisma.backgroundJob.create({ data });",
+           "t": "const module = pultModuleOfJob(input.type);",
            "a": [
-            "создаёт в базе: backgroundJob"
+            "зовёт pultModuleOfJob()"
            ],
            "c": []
-          }
-         ]
-        },
-        {
-         "k": "catch",
-         "t": "если сорвалось",
-         "a": [],
-         "c": [
+          },
           {
            "k": "if",
-           "t": "(err as { code?: string }).code !== \"P2002\" || !input.dedupeKey",
+           "t": "module && !(await isPultModuleEnabled(module))",
            "a": [],
            "c": [
             {
              "k": "do",
-             "t": "console.error(\"[jobs] постановка задания:\", message);",
+             "t": "return { enqueued: false, skipped: \"module:off\" };",
              "a": [
-              "пишет строку в журнал сервера"
-             ],
-             "c": []
-            },
-            {
-             "k": "do",
-             "t": "void logSystemError(\"background-jobs\", `Не удалось поставить задание «${input.type}» в очередь: ${message}`, …",
-             "a": [
-              "запись в журнал ошибок"
+              "дословно из кода"
              ],
              "c": []
             }
            ]
           },
           {
-           "k": "do",
-           "t": "await prisma.backgroundJob .updateMany({ where: { dedupeKey: input.dedupeKey, status: { in: [\"DONE\", \"GIVEN_U…",
-           "a": [
-            "меняет в базе: backgroundJob"
-           ],
-           "c": []
+           "k": "try",
+           "t": "пробует",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "await prisma.backgroundJob.create({ data });",
+             "a": [
+              "создаёт в базе: backgroundJob"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "catch",
+           "t": "если сорвалось",
+           "a": [],
+           "c": [
+            {
+             "k": "if",
+             "t": "(err as { code?: string }).code !== \"P2002\" || !input.dedupeKey",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "console.error(\"[jobs] постановка задания:\", message);",
+               "a": [
+                "пишет строку в журнал сервера"
+               ],
+               "c": []
+              },
+              {
+               "k": "do",
+               "t": "void logSystemError(\"background-jobs\", `Не удалось поставить задание «${input.type}» в очередь: ${message}`, …",
+               "a": [
+                "запись в журнал ошибок"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "do",
+             "t": "await prisma.backgroundJob .updateMany({ where: { dedupeKey: input.dedupeKey, status: { in: [\"DONE\", \"GIVEN_U…",
+             "a": [
+              "меняет в базе: backgroundJob"
+             ],
+             "c": []
+            }
+           ]
           }
          ]
         }
@@ -111353,6 +114765,36 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "if",
+         "t": "isPrivateOperation()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "source = \"investigation\";",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "source === \"investigation\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, silent: true };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
         {
          "k": "if",
          "t": "isShuttingDown()",
@@ -111567,6 +115009,36 @@
       "запись в журнал ошибок"
      ],
      "c": [
+      {
+       "k": "if",
+       "t": "isPrivateOperation()",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "source = \"investigation\";",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "source === \"investigation\"",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "context = { ...context, silent: true };",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
       {
        "k": "if",
        "t": "isShuttingDown()",
@@ -111996,6 +115468,36 @@
        "c": [
         {
          "k": "if",
+         "t": "isPrivateOperation()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "source = \"investigation\";",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "source === \"investigation\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, silent: true };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
          "t": "isShuttingDown()",
          "a": [],
          "c": [
@@ -112221,6 +115723,36 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "if",
+         "t": "isPrivateOperation()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "source = \"investigation\";",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "source === \"investigation\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, silent: true };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
         {
          "k": "if",
          "t": "isShuttingDown()",
@@ -112492,6 +116024,36 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "if",
+         "t": "isPrivateOperation()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "source = \"investigation\";",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "source === \"investigation\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, silent: true };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
         {
          "k": "if",
          "t": "isShuttingDown()",
@@ -112868,6 +116430,36 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "if",
+         "t": "isPrivateOperation()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "source = \"investigation\";",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "source === \"investigation\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, silent: true };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
         {
          "k": "if",
          "t": "isShuttingDown()",
@@ -113374,6 +116966,36 @@
          "c": [
           {
            "k": "if",
+           "t": "isPrivateOperation()",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "source = \"investigation\";",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "source === \"investigation\"",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "context = { ...context, silent: true };",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
            "t": "isShuttingDown()",
            "a": [],
            "c": [
@@ -113524,6 +117146,36 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "if",
+         "t": "isPrivateOperation()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "source = \"investigation\";",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "source === \"investigation\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, silent: true };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
         {
          "k": "if",
          "t": "isShuttingDown()",
@@ -113859,6 +117511,36 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "if",
+         "t": "isPrivateOperation()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "source = \"investigation\";",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "source === \"investigation\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, silent: true };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
         {
          "k": "if",
          "t": "isShuttingDown()",
@@ -114339,6 +118021,36 @@
        "c": [
         {
          "k": "if",
+         "t": "isPrivateOperation()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "source = \"investigation\";",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "source === \"investigation\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, silent: true };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
          "t": "isShuttingDown()",
          "a": [],
          "c": [
@@ -114603,6 +118315,36 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "if",
+         "t": "isPrivateOperation()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "source = \"investigation\";",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "source === \"investigation\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, silent: true };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
         {
          "k": "if",
          "t": "isShuttingDown()",
@@ -114985,6 +118727,36 @@
        "c": [
         {
          "k": "if",
+         "t": "isPrivateOperation()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "source = \"investigation\";",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "source === \"investigation\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, silent: true };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
          "t": "isShuttingDown()",
          "a": [],
          "c": [
@@ -115118,6 +118890,36 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "if",
+         "t": "isPrivateOperation()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "source = \"investigation\";",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "source === \"investigation\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, silent: true };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
         {
          "k": "if",
          "t": "isShuttingDown()",
@@ -115449,6 +119251,36 @@
        "c": [
         {
          "k": "if",
+         "t": "isPrivateOperation()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "source = \"investigation\";",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "source === \"investigation\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, silent: true };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
          "t": "isShuttingDown()",
          "a": [],
          "c": [
@@ -115768,6 +119600,36 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "if",
+         "t": "isPrivateOperation()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "source = \"investigation\";",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "source === \"investigation\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, silent: true };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
         {
          "k": "if",
          "t": "isShuttingDown()",
@@ -116310,6 +120172,36 @@
        "c": [
         {
          "k": "if",
+         "t": "isPrivateOperation()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "source = \"investigation\";",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "source === \"investigation\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, silent: true };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
          "t": "isShuttingDown()",
          "a": [],
          "c": [
@@ -116504,6 +120396,36 @@
        "c": [
         {
          "k": "if",
+         "t": "isPrivateOperation()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "source = \"investigation\";",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "source === \"investigation\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, silent: true };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
          "t": "isShuttingDown()",
          "a": [],
          "c": [
@@ -116684,6 +120606,36 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "if",
+         "t": "isPrivateOperation()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "source = \"investigation\";",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "source === \"investigation\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, silent: true };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
         {
          "k": "if",
          "t": "isShuttingDown()",
@@ -117306,6 +121258,36 @@
        "c": [
         {
          "k": "if",
+         "t": "isPrivateOperation()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "source = \"investigation\";",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "source === \"investigation\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, silent: true };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
          "t": "isShuttingDown()",
          "a": [],
          "c": [
@@ -117647,6 +121629,36 @@
        "c": [
         {
          "k": "if",
+         "t": "isPrivateOperation()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "source = \"investigation\";",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "source === \"investigation\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, silent: true };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
          "t": "isShuttingDown()",
          "a": [],
          "c": [
@@ -117926,6 +121938,36 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "if",
+         "t": "isPrivateOperation()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "source = \"investigation\";",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "source === \"investigation\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, silent: true };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
         {
          "k": "if",
          "t": "isShuttingDown()",
@@ -118492,6 +122534,36 @@
        "c": [
         {
          "k": "if",
+         "t": "isPrivateOperation()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "source = \"investigation\";",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "source === \"investigation\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, silent: true };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
          "t": "isShuttingDown()",
          "a": [],
          "c": [
@@ -118788,6 +122860,36 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "if",
+         "t": "isPrivateOperation()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "source = \"investigation\";",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "source === \"investigation\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, silent: true };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
         {
          "k": "if",
          "t": "isShuttingDown()",
@@ -119415,6 +123517,36 @@
        "c": [
         {
          "k": "if",
+         "t": "isPrivateOperation()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "source = \"investigation\";",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "source === \"investigation\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, silent: true };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
          "t": "isShuttingDown()",
          "a": [],
          "c": [
@@ -119737,6 +123869,36 @@
        "c": [
         {
          "k": "if",
+         "t": "isPrivateOperation()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "source = \"investigation\";",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "source === \"investigation\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, silent: true };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
          "t": "isShuttingDown()",
          "a": [],
          "c": [
@@ -120023,6 +124185,36 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "if",
+         "t": "isPrivateOperation()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "source = \"investigation\";",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "source === \"investigation\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, silent: true };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
         {
          "k": "if",
          "t": "isShuttingDown()",
@@ -120611,6 +124803,36 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "if",
+         "t": "isPrivateOperation()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "source = \"investigation\";",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "source === \"investigation\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, silent: true };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
         {
          "k": "if",
          "t": "isShuttingDown()",
@@ -121484,6 +125706,36 @@
        "c": [
         {
          "k": "if",
+         "t": "isPrivateOperation()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "source = \"investigation\";",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "source === \"investigation\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, silent: true };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
          "t": "isShuttingDown()",
          "a": [],
          "c": [
@@ -122263,6 +126515,36 @@
        "c": [
         {
          "k": "if",
+         "t": "isPrivateOperation()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "source = \"investigation\";",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "source === \"investigation\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, silent: true };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
          "t": "isShuttingDown()",
          "a": [],
          "c": [
@@ -122485,6 +126767,36 @@
          "c": [
           {
            "k": "if",
+           "t": "isPrivateOperation()",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "source = \"investigation\";",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "source === \"investigation\"",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "context = { ...context, silent: true };",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
            "t": "isShuttingDown()",
            "a": [],
            "c": [
@@ -122704,6 +127016,36 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "if",
+         "t": "isPrivateOperation()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "source = \"investigation\";",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "source === \"investigation\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, silent: true };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
         {
          "k": "if",
          "t": "isShuttingDown()",
@@ -123975,6 +128317,36 @@
        "c": [
         {
          "k": "if",
+         "t": "isPrivateOperation()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "source = \"investigation\";",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "source === \"investigation\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, silent: true };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
          "t": "isShuttingDown()",
          "a": [],
          "c": [
@@ -124167,6 +128539,36 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "if",
+         "t": "isPrivateOperation()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "source = \"investigation\";",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "source === \"investigation\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, silent: true };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
         {
          "k": "if",
          "t": "isShuttingDown()",
@@ -124459,6 +128861,36 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "if",
+         "t": "isPrivateOperation()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "source = \"investigation\";",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "source === \"investigation\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, silent: true };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
         {
          "k": "if",
          "t": "isShuttingDown()",
@@ -124956,6 +129388,36 @@
         "запись в журнал ошибок"
        ],
        "c": [
+        {
+         "k": "if",
+         "t": "isPrivateOperation()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "source = \"investigation\";",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "source === \"investigation\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, silent: true };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
         {
          "k": "if",
          "t": "isShuttingDown()",

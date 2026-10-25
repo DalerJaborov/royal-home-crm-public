@@ -1,3 +1,4 @@
+import { saveWithInvestigationControlAudit } from "../lib/investigationSettingsAudit.js";
 import { canViewInvestigations } from "@royal-home/shared";
 import { investigationCallChannelIds, mayReadLiveVoiceSession } from "../lib/investigationCallChannels.js";
 import { customerAgentSettingsRouter } from "./customerAgentSettings.js";
@@ -574,6 +575,8 @@ settingsRouter.get("/", requireAuth, async (req, res) => {
   if (!canViewInvestigations(req.agent?.role)) {
     delete (response as Record<string, unknown>).postShowingCallEnabled;
     delete (response as Record<string, unknown>).investigationCaseConfig;
+    delete (response as Record<string, unknown>).sellerControlConfig;
+    delete (response as Record<string, unknown>).postShowingCohortConfig;
     delete (response as Record<string, unknown>).buyerSellerAutomationMode;
   }
   res.json(response);
@@ -1893,11 +1896,11 @@ settingsRouter.patch("/", requireAuth, requirePermission("settings.manage"), req
         )?.videoMontajerAgentId ?? null
       : undefined;
 
-  const settings = await prisma.settings.upsert({
+  const settings = await saveWithInvestigationControlAudit(data, { id: req.agent!.id, name: actor?.fullName ?? "Неизвестно" }, tx => tx.settings.upsert({
     where: { id: "singleton" },
     update: data,
     create: { id: "singleton", ...data },
-  });
+  }));
 
   /**
    * СМЕНА МОНТАЖЁРА ПРИ ОБЪЕКТЕ НА РУКАХ (23.09.2026, находка B4; переписано
@@ -3020,6 +3023,8 @@ function privateSettingsResponse<T extends object>(response: T, role: string | u
   if (!canViewInvestigations(role)) {
     delete (response as Record<string, unknown>).postShowingCallEnabled;
     delete (response as Record<string, unknown>).investigationCaseConfig;
+    delete (response as Record<string, unknown>).sellerControlConfig;
+    delete (response as Record<string, unknown>).postShowingCohortConfig;
     delete (response as Record<string, unknown>).buyerSellerAutomationMode;
   }
   return response;

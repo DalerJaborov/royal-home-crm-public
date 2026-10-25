@@ -1,3 +1,4 @@
+import { buildPropertyDeleteDossiers } from "./propertyDeleteDossier.js";
 import { randomUUID } from "node:crypto";
 import { PROPERTY_DELETE_REQUEST_REASON_LABELS, type PropertyRemovalInput } from "@royal-home/shared";
 import type { TxClient } from "../db.js";
@@ -14,6 +15,7 @@ export async function recordPropertyRemoval(tx: TxClient, input: PropertyRemoval
   const reason = input.removalReason ?? "OTHER";
   const legacy = !input.removalReason;
   const now = new Date();
+  const dossier = (await buildPropertyDeleteDossiers([property.id], now, tx)).get(property.id);
   await recordInvestigationSignal({ clientId: seller?.id ?? null, propertyId: property.id,
     subjectAgentId: seller?.assignedAgentId ?? property.assignedAgentId,
     assignmentAt: seller?.assignedAt ?? property.createdAt,
@@ -22,6 +24,7 @@ export async function recordPropertyRemoval(tx: TxClient, input: PropertyRemoval
     independenceKey: `manual:${input.actorId}`, occurredAt: now,
     summary: legacy ? "Причина снятия не указана: операция выполнена старым клиентом CRM. Это не признак нарушения."
       : `${PROPERTY_DELETE_REQUEST_REASON_LABELS[reason]}${input.removalComment ? `: ${input.removalComment}` : ""}`,
-    payload: { reason, legacyReasonMissing: legacy, operation: input.operation, actorId: input.actorId },
+    payload: { reason, legacyReasonMissing: legacy, operation: input.operation, actorId: input.actorId,
+      dossier: dossier ? JSON.parse(JSON.stringify(dossier)) : null },
   }, tx);
 }

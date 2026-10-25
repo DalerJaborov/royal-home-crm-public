@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **685**. Развилок в самих путях: **2461**; вместе с задачами по расписанию и фоновыми заданиями — **3760**. Модулей: **76**.
+Путей: **713**. Развилок в самих путях: **2526**; вместе с задачами по расписанию и фоновыми заданиями — **3931**. Модулей: **78**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -3764,14 +3764,40 @@
     · ответ 404 — «Клиент не найден в корзине»
 - const owner = client.assignedAgentId ? await prisma.agent.findUnique({ where: { id: client.assignedAgentId },…
   · читает в базе: agent
-- await prisma.$transaction(async (tx)
+- const historicalOwner = !owner?.isActive && client.lastAgentId && !client.assignmentRefusedAt && !client.assi…
+  · читает в базе: agent
+- const restored = await prisma.$transaction(async (tx)
+  · пробрасывает ошибку дальше
   · всё внутри — одной транзакцией
+  · обращается к базе своим SQL
+  · читает в базе: client
+  · читает в базе: agent
   · меняет в базе: client
+  - await tx.$queryRaw`SELECT id FROM "Client" WHERE id = ${client.id} FOR UPDATE`;
+    · обращается к базе своим SQL
+  - const current = await tx.client.findUnique({ where: { id: client.id } });
+    · читает в базе: client
+  - если !current?.deletedAt || current.updatedAt.getTime() !== client.updatedAt.getTime()
+    - return false;
+      · дословно из кода
+  - для каждого: const [id, expected] of [[client.assignedAgentId, owner?.isActive], [restoredAgentId, true]] as const
+    - если id && !completedAssignment
+      - const agent = await tx.agent.findUnique({ where: { id }, select: { isActive: true } });
+        · читает в базе: agent
+      - если agent?.isActive !== expected
+        - return false;
+          · дословно из кода
   - await tx.client.update({ where: { id: client.id }, data: { deletedAt: null, deletedById: null, ...(ownerGone …
     · меняет в базе: client
-  - если ownerGone
-    - await changeClientAgent({ clientId: client.id, toAgentId: null, reason: "Восстановление из Корзины: агент кар…
+  - если ownerGone || restoredAgentId
+    - const changed = await changeClientAgent({ clientId: client.id, toAgentId: restoredAgentId, reason: restoredAg…
       · зовёт changeClientAgent()
+    - если !changed.ok
+      - throw restoreConflict;
+        · пробрасывает ошибку дальше
+- если !restored
+  - return res.status(409).json({ error: "Карточка изменилась. Обновите страницу" });
+    · ответ 409 — «Карточка изменилась. Обновите страницу»
 - если toQueue
   - const supervisors = (await findAgentsWithPermission("clients.assign")).filter((id)
     · зовёт findAgentsWithPermission()
@@ -3923,6 +3949,8 @@
 - если !delivery.ok
   - return res.status(delivery.status).json({ error: delivery.error, code: delivery.code, fallback });
     · ответ (код зависит от условия)
+- await recordPropertyDispatchAccepted(client.id, client.assignedAt, propertyIds, targetChannel(target), req.ag…
+  · зовёт recordPropertyDispatchAccepted()
 - await recordExposures( exposureChannelName, exposureRecipientId, properties.map((p)
   · зовёт recordExposures()
 - если client.assignedAgentId
@@ -6264,8 +6292,8 @@
 `apps/api/src/routes/errorLog.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: auditLog.view
 
 - пробует
-  - await prisma.errorLog.update({ where: { id: req.params.id }, data: { resolvedAt: null, resolvedById: null }, …
-    · меняет в базе: errorLog
+  - await visibleErrorLogs(can(req, "clients.securityReview") ? req.agent?.role : undefined).update({ where: { ..…
+    · зовёт visibleErrorLogs()
   - res.status(204).end();
     · ответ 204
 - если сорвалось
@@ -6280,8 +6308,8 @@
 `apps/api/src/routes/errorLog.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: auditLog.view
 
 - пробует
-  - await prisma.errorLog.update({ where: { id: req.params.id }, data: { resolvedAt: new Date(), resolvedById: re…
-    · меняет в базе: errorLog
+  - await visibleErrorLogs(can(req, "clients.securityReview") ? req.agent?.role : undefined).update({ where: { ..…
+    · зовёт visibleErrorLogs()
   - res.status(204).end();
     · ответ 204
 - если сорвалось
@@ -6309,8 +6337,8 @@
 - если !parsed.success
   - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
     · ответ 400 — «Неверные данные»
-- const { count } = await prisma.errorLog.updateMany({ where: { resolvedAt: null, ...(parsed.data.scope === "to…
-  · меняет в базе: errorLog
+- const { count } = await visibleErrorLogs(can(req, "clients.securityReview") ? req.agent?.role : undefined).up…
+  · зовёт visibleErrorLogs()
 - res.json({ resolved: count });
   · ответ 200
 
@@ -6344,11 +6372,10 @@
 - если !paging.success
   - return res.status(400).json({ error: "Неверные параметры", details: paging.error.flatten() });
     · ответ 400 — «Неверные параметры»
-- const listWhere: Prisma.ErrorLogWhereInput = { AND: [includeResolved ? {} : unresolved, priorityFilter ? erro…
-  · зовёт errorLogPriorityWhere()
-- const [rows, total, weekUnresolved, resolvedCount] = await Promise.all([ prisma.errorLog.findMany({ where: li…
-  · читает в базе: errorLog
-  · считает в базе: errorLog
+- const listWhere: Prisma.ErrorLogWhereInput = { AND: [visibleSystemErrorWhere(req.agent?.role), includeResolve…
+  · зовёт visibleSystemErrorWhere()
+- const [rows, total, weekUnresolved, resolvedCount] = await Promise.all([ visibleErrorLogs(can(req, "clients.s…
+  · зовёт visibleErrorLogs()
 - const recent = rows.map((r)
   · зовёт classifyErrorLog()
 - res.json({ recent, total, page, pageSize, count24h, count7d, resolvedCount, operationalUnresolvedCount });
@@ -7928,6 +7955,35 @@
 - res.json({ transcriptRu: phoneSafeText(translated, can(req, "clients.viewPhone")) });
   · ответ 200
 
+### POST /api/v1/interactions/:id/work-response
+
+`apps/api/src/routes/interactions.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- если !parsed.success
+  - return res.status(400).json({ error: "Проверьте ответ по задаче" });
+    · ответ 400 — «Проверьте ответ по задаче»
+- const task = await prisma.interaction.findUnique({ where: { id: req.params.id } });
+  · читает в базе: interaction
+- если !task || task.subjectAgentId !== req.agent!.id || task.investigationOnly || task.taskCancelledAt
+  - return res.status(404).json({ error: "Задача недоступна" });
+    · ответ 404 — «Задача недоступна»
+- const episode = await prisma.sellerControlEpisode.findUnique({ where: { ropTaskId: task.id } });
+  · читает в базе: sellerControlEpisode
+- если !episode || episode.executionMode !== "LIVE" || episode.ropAgentId !== req.agent!.id
+  - return res.status(404).json({ error: "Задача недоступна" });
+    · ответ 404 — «Задача недоступна»
+- пробует
+  - await commandSellerControl(episode.id, { ...parsed.data, revision: episode.revision }, req.agent!.id, { taskI…
+    · зовёт commandSellerControl()
+  - return res.status(204).send();
+    · ответ 204
+- если сорвалось
+  - если error instanceof SellerControlConflict
+    - return res.status(409).json({ error: "Задача изменилась. Обновите страницу" });
+      · ответ 409 — «Задача изменилась. Обновите страницу»
+  - throw error;
+    · пробрасывает ошибку дальше
+
 ### GET /api/v1/interactions/summary
 
 `apps/api/src/routes/interactions.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
@@ -8484,6 +8540,70 @@
 - res.json({ sessions: sessions.filter((_, index)
   · ответ 200
 
+## /api/v1/maintenance/data-corrections
+
+### POST /api/v1/maintenance/data-corrections/:id/apply
+
+`apps/api/src/routes/manualDataCorrections.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: settings.manage, есть право: clients.viewPhone
+
+- если process.env.MANUAL_DATA_CORRECTIONS_LIVE !== "explicitly-approved"
+  - return res.status(409).json({ error: "Применение ручных исправлений выключено. Доступен только план." });
+    · ответ 409 — «Применение ручных исправлений выключено. Доступен только план.»
+- если !z.string().uuid().safeParse(req.params.id).success || !parsed.success
+  - return res.status(400).json({ error: "Укажите проверенный план" });
+    · ответ 400 — «Укажите проверенный план»
+- пробует
+  - return res.json(await applyManualCorrection({ planId: req.params.id, actorId: req.agent!.id, ...parsed.data }…
+    · ответ 200
+- если сорвалось
+  - если error instanceof ManualCorrectionConflict
+    - return res.status(409).json({ error: error.message });
+      · ответ 409
+  - return res.status(503).json({ error: "Исправление не выполнено; проверьте состояние плана перед повтором" });
+    · ответ 503 — «Исправление не выполнено; проверьте состояние плана перед повтором»
+
+### GET /api/v1/maintenance/data-corrections/:id/review
+
+`apps/api/src/routes/manualDataCorrections.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: settings.manage, есть право: clients.viewPhone
+
+- если !z.string().uuid().safeParse(req.params.id).success
+  - return res.status(400).json({ error: "Некорректный план" });
+    · ответ 400 — «Некорректный план»
+- const plan = await prisma.manualDataCorrection.findFirst({ where: { id: req.params.id, actorId: req.agent!.id…
+  · читает в базе: manualDataCorrection
+- если !plan
+  - return res.status(404).json({ error: "План не найден" });
+    · ответ 404 — «План не найден»
+- return res.json(plan);
+  · ответ 200
+
+### GET /api/v1/maintenance/data-corrections/:id
+
+`apps/api/src/routes/manualDataCorrections.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: settings.manage, есть право: clients.viewPhone
+
+- если !z.string().uuid().safeParse(req.params.id).success
+  - return res.status(400).json({ error: "Некорректный план" });
+    · ответ 400 — «Некорректный план»
+- const plan = await prisma.manualDataCorrection.findFirst({ where: { id: req.params.id, actorId: req.agent!.id…
+  · читает в базе: manualDataCorrection
+- если !plan
+  - return res.status(404).json({ error: "План не найден" });
+    · ответ 404 — «План не найден»
+- return res.json(plan);
+  · ответ 200
+
+### POST /api/v1/maintenance/data-corrections/plans
+
+`apps/api/src/routes/manualDataCorrections.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: settings.manage, есть право: clients.viewPhone
+
+- обработчик вынесен: `prepare(true) — раскрыто по коду функции prepare()`
+
+### POST /api/v1/maintenance/data-corrections/preview
+
+`apps/api/src/routes/manualDataCorrections.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: settings.manage, есть право: clients.viewPhone
+
+- обработчик вынесен: `prepare(false) — раскрыто по коду функции prepare()`
+
 ## /api/v1/marketing
 
 ### GET /api/v1/marketing/channels-status
@@ -8493,7 +8613,6 @@
 - const [settings, capabilities, publishedCount, recentErrors] = await Promise.all([ prisma.settings.findUnique…
   · читает в базе: settings
   · считает в базе: property
-  · считает в базе: errorLog
 - const [botInstagram, botFacebook, botTelegram] = await Promise.all([ isBotEnabledForChannel("INSTAGRAM"), isB…
   · зовёт isBotEnabledForChannel()
 - res.json({ autoPublishEnabled: settings?.autoPublishEnabled ?? false, publishedCount, openErrors: recentError…
@@ -9612,7 +9731,7 @@
 - если !parsed.success
   - return res.status(400).json({ error: "Неверный идентификатор" });
     · ответ 400 — «Неверный идентификатор»
-- const result = await prisma.notification.updateMany({ where: { id: parsed.data.id, ...visibleNotificationsWhe…
+- const result = await prisma.notification.updateMany({ where: { id: parsed.data.id, ...await loadVisibleNotifi…
   · меняет в базе: notification
 - если result.count === 0
   - return res.status(404).json({ error: "Уведомление не найдено" });
@@ -9624,7 +9743,7 @@
 
 `apps/api/src/routes/notifications.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
-- await prisma.notification.updateMany({ where: { ...visibleNotificationsWhere(req.agent!.id, req.agent!.role),…
+- await prisma.notification.updateMany({ where: { ...await loadVisibleNotificationsWhere(req.agent!.id, req.age…
   · меняет в базе: notification
 - res.json({ ok: true });
   · ответ 200
@@ -9638,7 +9757,7 @@
 - если !parsed.success
   - return res.status(400).json({ error: "Неверный список уведомлений", details: parsed.error.flatten() });
     · ответ 400 — «Неверный список уведомлений»
-- const result = await prisma.notification.updateMany({ where: { id: { in: parsed.data.ids }, ...visibleNotific…
+- const result = await prisma.notification.updateMany({ where: { id: { in: parsed.data.ids }, ...await loadVisi…
   · меняет в базе: notification
 - res.json({ ok: true, count: result.count });
   · ответ 200
@@ -9652,8 +9771,8 @@
 - если !parsed.success
   - return res.status(400).json({ error: "Неверный номер страницы", details: parsed.error.flatten() });
     · ответ 400 — «Неверный номер страницы»
-- const where = visibleNotificationsWhere(req.agent!.id, req.agent!.role);
-  · зовёт visibleNotificationsWhere()
+- const where = await loadVisibleNotificationsWhere(req.agent!.id, req.agent!.role);
+  · зовёт loadVisibleNotificationsWhere()
 - const [items, total, unreadCount, pinned, approvalCount, criticalCount] = await Promise.all([ prisma.notifica…
   · читает в базе: notification
   · считает в базе: notification
@@ -9701,8 +9820,8 @@
 - если !serviceTokenValid(req)
   - return res.status(401).json({ error: "Нужен служебный токен" });
     · ответ 401 — «Нужен служебный токен»
-- const [numbers, errorRows, stuck] = await Promise.all([ loadMorningNumbers(), prisma.errorLog.findMany({ wher…
-  · читает в базе: errorLog
+- const [numbers, errorRows, stuck] = await Promise.all([ loadMorningNumbers(), visibleErrorLogs().findMany({ w…
+  · зовёт loadMorningNumbers()
 - const errorGroups = groupErrorLogEntries(actionableRows).slice(0, 30);
   · зовёт groupErrorLogEntries()
 - res.json({ tasksToday: numbers.tasksToday, leadsYesterday: numbers.leadsYesterday, dealsYesterday: numbers.de…
@@ -10176,6 +10295,30 @@
     · ответ 503 — «Не удалось поставить видео в обработку — попробуйте ещё раз»
 - res.status(202).json({ clipVideoStatus: "PROCESSING" });
   · ответ 202
+
+### GET /api/v1/properties/:id/comparables
+
+`apps/api/src/routes/properties/comparables.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- если !id.success || !z.object({}).strict().safeParse(req.query).success
+  - return res.status(400).json({ error: "Некорректный запрос" });
+    · ответ 400 — «Некорректный запрос»
+- const subject = await prisma.property.findUnique({ where: { id: id.data } });
+  · читает в базе: property
+- если !subject || subject.deletedAt
+  - return res.status(404).json({ error: "Объект не найден" });
+    · ответ 404 — «Объект не найден»
+- если !canManageProperty(req, subject)
+  - return res.status(403).json({ error: "Нет доступа к сравнению объекта" });
+    · ответ 403 — «Нет доступа к сравнению объекта»
+- если !subject.districtId || !Number.isFinite(area) || area <= 0
+  - return res.json({ ...summarizeComparableListings({ price: Number(subject.price), currency: subject.currency, …
+    · ответ 200
+- const [total, rows] = await Promise.all([prisma.property.count({ where }), prisma.property.findMany({ where, …
+  · считает в базе: property
+  · читает в базе: property
+- res.json({ ...summarizeComparableListings({ price: Number(subject.price), currency: subject.currency, areaSqm…
+  · ответ 200
 
 ### POST /api/v1/properties/:id/complete-editing
 
@@ -10727,6 +10870,12 @@
     · ответ 400 — «Монтажёр недоступен»
 - const existing = await prisma.propertyNarrationDelivery.findUnique({ where: { requestKey: parsed.data.request…
   · читает в базе: propertyNarrationDelivery
+- пробует
+  - prepared = await prepareNarrationDeliveryPlan(p.id, row.id, parsed.data.mode, parsed.data.editorId);
+    · зовёт prepareNarrationDeliveryPlan()
+- если сорвалось
+  - return res.status(409).json({ error: err instanceof Error ? err.message : "Передача недоступна" });
+    · ответ 409
 - const delivery = existing ?? await prisma.propertyNarrationDelivery.upsert({ where: { requestKey: parsed.data…
   · создаёт или меняет в базе: propertyNarrationDelivery
 - если delivery.propertyId !== p.id || delivery.versionId !== row.id || delivery.createdById !== req.agent!.id || de…
@@ -10773,6 +10922,95 @@
 - res.json({ status: "FAILED", message: "Проверка сохранена. Автоповтора нет. Возможное списание ElevenLabs не …
   · ответ 200
 
+### POST /api/v1/properties/:id/narration/deliveries/:deliveryId/queue
+
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+
+- если !manager(req.agent?.role)
+  - return res.status(403).json({ error: "Нет доступа" });
+    · ответ 403 — «Нет доступа»
+- const deliveryId = idSchema.safeParse(req.params.deliveryId);
+  · проверяет данные схемой idSchema
+- если !parsed.success || !deliveryId.success
+  - return res.status(400).json({ error: "Подтвердите актуальный план" });
+    · ответ 400 — «Подтвердите актуальный план»
+- если mediaExecutionMode("NARRATION") !== "LIVE"
+  - return res.status(409).json({ error: "Внешняя отправка ещё не включена на сервере" });
+    · ответ 409 — «Внешняя отправка ещё не включена на сервере»
+- const result = await prisma.$transaction(async tx
+  · всё внутри — одной транзакцией
+  · обращается к базе своим SQL
+  · читает в базе: propertyNarrationDelivery
+  · считает в базе: propertyNarrationDelivery
+  · меняет в базе: propertyNarrationDelivery
+  - await tx.$queryRaw`SELECT id FROM "Property" WHERE id = ${p.id} FOR UPDATE`;
+    · обращается к базе своим SQL
+  - const row = await tx.propertyNarrationDelivery.findFirst({ where: { id: deliveryId.data, propertyId: p.id } }…
+    · читает в базе: propertyNarrationDelivery
+  - если !row || row.status !== "PREVIEW" || !row.plan || narrationHash(row.plan) !== parsed.data.planHash
+    - return false;
+      · дословно из кода
+  - если await tx.propertyNarrationDelivery.count({ where: { propertyId: p.id, status: { in: ["QUEUED", "SENDING", "UN…
+    - return false;
+      · дословно из кода
+  - если await tx.propertyNarrationDelivery.count({ where: { propertyId: p.id, versionId: row.versionId, editorId: row…
+    - return false;
+      · дословно из кода
+  - const current = await prepareNarrationDeliveryPlan(p.id, row.versionId, row.mode, row.editorId ?? undefined);
+    · зовёт prepareNarrationDeliveryPlan()
+  - если narrationHash(current.plan) !== parsed.data.planHash
+    - return false;
+      · дословно из кода
+  - return !!(await tx.propertyNarrationDelivery.updateMany({ where: { id: row.id, status: "PREVIEW" }, data: { s…
+    · меняет в базе: propertyNarrationDelivery
+- если !result
+  - return res.status(409).json({ error: "План изменился или передача уже выполнена/требует проверки" });
+    · ответ 409 — «План изменился или передача уже выполнена/требует проверки»
+- res.json({ status: "QUEUED", sent: false });
+  · ответ 200
+
+### POST /api/v1/properties/:id/narration/delivery-reconcile
+
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+
+- если !["ADMIN", "DIRECTOR"].includes(req.agent!.role)
+  - return res.status(403).json({ error: "Сверку сохраняет руководство" });
+    · ответ 403 — «Сверку сохраняет руководство»
+- если !parsed.success
+  - return res.status(400).json({ error: "Проверьте историю доставки у провайдера и опишите результат (от 20 симв…
+    · ответ 400 — «Проверьте историю доставки у провайдера и опишите результат (от 20…»
+- const changed = await prisma.$transaction(async tx
+  · всё внутри — одной транзакцией
+  · обращается к базе своим SQL
+  · читает в базе: propertyNarrationDelivery
+  · читает в базе: ownerReportDelivery
+  · меняет в базе: propertyNarrationDelivery
+  · меняет в базе: ownerReportDelivery
+  · создаёт в базе: auditLog
+  - await tx.$queryRaw`SELECT id FROM "Property" WHERE id = ${p.id} FOR UPDATE`;
+    · обращается к базе своим SQL
+  - const row = kind === "NARRATION" ? await tx.propertyNarrationDelivery.findUnique({ where: { id: deliveryId } …
+    · читает в базе: propertyNarrationDelivery
+    · читает в базе: ownerReportDelivery
+  - const budget = kind === "NARRATION" ? narrationDeliveryAttemptBudgetMs(row && "plan" in row ? row.plan : null…
+    · зовёт narrationDeliveryAttemptBudgetMs()
+  - если !row || row.propertyId !== p.id || !(row.status === "UNKNOWN" || row.status === "SENDING" && row.claimStarted…
+    - return false;
+      · дословно из кода
+  - const result = kind === "NARRATION" ? await tx.propertyNarrationDelivery.updateMany({ where, data }) : await …
+    · меняет в базе: propertyNarrationDelivery
+    · меняет в базе: ownerReportDelivery
+  - если !result.count
+    - return false;
+      · дословно из кода
+  - await tx.auditLog.create({ data: { agentId: req.agent!.id, agentName: "Руководитель", action: "MEDIA_DELIVERY…
+    · создаёт в базе: auditLog
+- если !changed
+  - return res.status(409).json({ error: "Попытка ещё выполняется или уже сверена. Обновите карточку." });
+    · ответ 409 — «Попытка ещё выполняется или уже сверена. Обновите карточку.»
+- res.json({ status: "FAILED", sent: false, message: "Сверка сохранена. Возможное списание не отменено. Автопов…
+  · ответ 200
+
 ### POST /api/v1/properties/:id/narration/owner-report-preview
 
 `apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
@@ -10783,22 +11021,26 @@
 - если !parsed.success
   - return res.status(400).json({ error: "Подтвердите согласованный с собственником отчёт" });
     · ответ 400 — «Подтвердите согласованный с собственником отчёт»
-- если !p.sellerClientId
-  - return res.status(409).json({ error: "У объекта не выбран собственник" });
-    · ответ 409 — «У объекта не выбран собственник»
-- const seller = await prisma.client.findFirst({ where: { id: p.sellerClientId, deletedAt: null }, select: { id…
-  · читает в базе: client
-- если !seller
-  - return res.status(409).json({ error: "Карточка собственника недоступна" });
-    · ответ 409 — «Карточка собственника недоступна»
-- const link = await findActiveOwnerReportLink(p.id);
-  · зовёт findActiveOwnerReportLink()
-- если !link
-  - return res.status(409).json({ error: "Сначала создайте ссылку «Отчёт владельцу» в карточке объекта" });
-    · ответ 409 — «Сначала создайте ссылку «Отчёт владельцу» в карточке объекта»
-- const draft = await prisma.ownerReportDelivery.upsert({ where: { propertyId_sellerClientId_period: { property…
-  · создаёт или меняет в базе: ownerReportDelivery
-- res.json({ draft, sent: false, message: "Ежемесячный отчёт подготовлен. SMS не отправлено." });
+- await setOwnerReportConsent(p.id, req.agent!.id, true);
+  · зовёт setOwnerReportConsent()
+- const draft = await prepareOwnerReportDelivery(p.id);
+  · зовёт prepareOwnerReportDelivery()
+- res.json({ draft, sent: false, message: draft ? "Согласие сохранено. Отчёт подготовлен; доставка отражается о…
+  · ответ 200
+
+### POST /api/v1/properties/:id/narration/owner-report-revoke
+
+`apps/api/src/routes/properties/narration.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, ["/narration-settings", "/:id/narration"], вход выполнен, async (req, res, next) => { const parsed = idSchema.safeParse(req.params.id
+
+- если !manager(req.agent?.role)
+  - return res.status(403).json({ error: "Нет доступа" });
+    · ответ 403 — «Нет доступа»
+- если !z.object({ confirmed: z.literal(true) }).strict().safeParse(req.body).success
+  - return res.status(400).json({ error: "Подтвердите отзыв" });
+    · ответ 400 — «Подтвердите отзыв»
+- await setOwnerReportConsent(res.locals.narrationProperty.id, req.agent!.id, false);
+  · зовёт setOwnerReportConsent()
+- res.json({ active: false });
   · ответ 200
 
 ### POST /api/v1/properties/:id/narration/publication-preview
@@ -10811,13 +11053,8 @@
 - если !z.object({}).strict().safeParse(req.body).success
   - return res.status(400).json({ error: "Некорректный запрос предварительного просмотра" });
     · ответ 400 — «Некорректный запрос предварительного просмотра»
-- const hash = narrationHash({ caption: p.reelsCaption, price: String(p.price), channels: p.publishedChannels }…
-  · зовёт narrationHash()
-- const rows = publicationPreview(p.publishedChannels);
-  · зовёт publicationPreview()
-- для каждого: const row of rows
-  - await prisma.publicationMetadataSync.upsert({ where: { propertyId_revisionHash_channel_operation: { propertyI…
-    · создаёт или меняет в базе: publicationMetadataSync
+- const rows = await preparePublicationMetadataPreview(p.id);
+  · зовёт preparePublicationMetadataPreview()
 - res.json({ rows, sent: false });
   · ответ 200
 
@@ -10835,6 +11072,14 @@
   - для каждого: const row of unresolved
     - if (!versions.some(v => v.id === row.id)) versions.push(row);
       · дословно из кода
+- const deliveries = manager(req.agent?.role) ? await prisma.propertyNarrationDelivery.findMany({ where: { prop…
+  · читает в базе: propertyNarrationDelivery
+- const subscription = manager(req.agent?.role) ? await prisma.ownerReportSubscription.findUnique({ where: { pr…
+  · читает в базе: ownerReportSubscription
+- const reports = manager(req.agent?.role) ? await prisma.ownerReportDelivery.findMany({ where: { propertyId: p…
+  · читает в базе: ownerReportDelivery
+- const smsReceipts = smsIds.length ? await prisma.smsMessage.findMany({ where: { id: { in: smsIds }, propertyI…
+  · читает в базе: smsMessage
 - res.json({ versions: versions.map((v)
   · ответ 200
 
@@ -11443,6 +11688,44 @@
     · запись в журнал ошибок
   - res.status(500).json({ error: "Не удалось собрать лист ожидания по цене" });
     · ответ 500 — «Не удалось собрать лист ожидания по цене»
+
+### POST /api/v1/properties/:id/publication-metadata/:attemptId/reconcile
+
+`apps/api/src/routes/properties/publicationMetadata.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- если !["ADMIN","DIRECTOR"].includes(req.agent!.role)
+  - return res.status(403).json({error:"Проверку фиксирует руководство"});
+    · ответ 403 — «Проверку фиксирует руководство»
+- const propertyId=z.string().uuid().safeParse(req.params.id),attemptId=z.string().uuid().safeParse(req.params.…
+  · проверяет данные схемой bodySchema
+- если !propertyId.success||!attemptId.success||!body.success
+  - return res.status(400).json({error:"Подтвердите проверку площадки и опишите фактический результат (не менее20…
+    · ответ 400 — «Подтвердите проверку площадки и опишите фактический результат (не…»
+- const changed=await prisma.$transaction(async tx
+  · всё внутри — одной транзакцией
+  · обращается к базе своим SQL
+  · читает в базе: publicationMetadataSync
+  · меняет в базе: publicationMetadataSync
+  · создаёт в базе: auditLog
+  - await tx.$queryRaw`SELECT id FROM "PublicationMetadataSync" WHERE id = ${attemptId.data} FOR UPDATE`;
+    · обращается к базе своим SQL
+  - const row=await tx.publicationMetadataSync.findFirst({where:{id:attemptId.data,propertyId:propertyId.data}});
+    · читает в базе: publicationMetadataSync
+  - если !row?.startedAt || row.startedAt.toISOString()!==body.data.expectedStartedAt || !["EXECUTING","UNKNOWN"].incl…
+    - return null;
+      · дословно из кода
+  - const updated=await tx.publicationMetadataSync.updateMany({where:{id:row.id,status:row.status,startedAt:row.s…
+    · меняет в базе: publicationMetadataSync
+  - если !updated.count
+    - return null;
+      · дословно из кода
+  - await tx.auditLog.create({data:{agentId:req.agent!.id,agentName:'Руководитель',action:'PUBLICATION_METADATA_R…
+    · создаёт в базе: auditLog
+- если !changed
+  - return res.status(409).json({error:"Попытка уже изменилась. Обновите карточку; повтор не выполнен."});
+    · ответ 409 — «Попытка уже изменилась. Обновите карточку; повтор не выполнен.»
+- res.json({status:changed,operatorAttestation:true,sent:false});
+  · ответ 200
 
 ### POST /api/v1/properties/:id/publish-at
 
@@ -13125,7 +13408,7 @@
     · ответ 400 — «Неверный запрос»
 - const items = await prisma.propertyDeleteRequest.findMany({ where: { status }, orderBy: { createdAt: "desc" }…
   · читает в базе: propertyDeleteRequest
-- const dossiers = await buildPropertyDeleteDossiers(items.map((r)
+- const dossiers = seesDossier ? await buildPropertyDeleteDossiers(items.map((r)
   · зовёт buildPropertyDeleteDossiers()
 - res.json({ items: items.map((r)
   · ответ 200
@@ -13814,6 +14097,21 @@
   - res.status(500).json({ error: "Не удалось собрать объекты, которым нужна помощь" });
     · ответ 500 — «Не удалось собрать объекты, которым нужна помощь»
 
+### POST /api/v1/properties/removal-dossiers
+
+`apps/api/src/routes/properties/removalDossier.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- если !canViewInvestigations(req.agent?.role) || !can(req, "clients.securityReview")
+  - return res.status(403).json({ error: 'Недостаточно прав' });
+    · ответ 403 — «Недостаточно прав»
+- если !parsed.success
+  - return res.status(400).json({ error: 'Некорректный список объектов' });
+    · ответ 400 — «Некорректный список объектов»
+- const rows = await buildPropertyDeleteDossiers(ids);
+  · зовёт buildPropertyDeleteDossiers()
+- res.json({ items: ids.map(id
+  · ответ 200
+
 ### DELETE /api/v1/properties/share-links/:linkId
 
 `apps/api/src/routes/properties/shareLinks.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
@@ -14126,6 +14424,8 @@
   - если sourceDraft
     - draftAttachment = await attachDraftRows(tx, sourceDraft, createdProperty, req.agent!.id, coverUploadKey);
       · зовёт attachDraftRows()
+  - await scheduleManualOwnerVerification(tx, createdProperty.id, req.agent!.id);
+    · зовёт scheduleManualOwnerVerification()
 - если !property
   - return;
     · дальше не идёт, ничего не меняя
@@ -14538,7 +14838,7 @@
     · ответ 404 — «Отчёт не найден»
 - const updated = await prisma.monthlyReport.update({ where: { id: existing.id }, data: { notes: parsed.data.no…
   · меняет в базе: monthlyReport
-- res.json(presentMonthlyReport(req, updated));
+- res.json(await presentMonthlyReport(req, updated));
   · ответ 200
 
 ### POST /api/v1/reports/monthly/generate
@@ -14556,8 +14856,52 @@
 
 - const reports = await prisma.monthlyReport.findMany({ orderBy: { periodStart: "desc" }, take: 12, include: { …
   · читает в базе: monthlyReport
-- res.json(reports.map((r)
+- res.json(await Promise.all(reports.map((r)
   · ответ 200
+
+### GET /api/v1/reports/post-showing-cohort/config
+
+`apps/api/src/routes/reports.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view, requireInvestigations, есть право: clients.securityReview
+
+- const settings = await prisma.settings.findUniqueOrThrow({ where: { id: "singleton" }, select: { postShowingC…
+  · читает в базе: settings
+- res.json({ config: postShowingCohortConfigSchema.parse(settings.postShowingCohortConfig), classification: "OB…
+  · ответ 200
+  · проверяет данные схемой postShowingCohortConfigSchema
+
+### PUT /api/v1/reports/post-showing-cohort/config
+
+`apps/api/src/routes/reports.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view, requireInvestigations, есть право: clients.securityReview
+
+- const parsed = postShowingCohortConfigSchema.safeParse(req.body);
+  · проверяет данные схемой postShowingCohortConfigSchema
+- если !parsed.success
+  - return res.status(400).json({ error: "Проверьте период, размеры выборок и пороги сравнения" });
+    · ответ 400 — «Проверьте период, размеры выборок и пороги сравнения»
+- await prisma.settings.upsert({ where: { id: "singleton" }, create: { id: "singleton", postShowingCohortConfig…
+  · создаёт или меняет в базе: settings
+- res.json({ config: parsed.data, classification: "OBSERVED_FOLLOWUP_COMPARISON", automaticVerdict: false });
+  · ответ 200
+
+### GET /api/v1/reports/post-showing-cohort
+
+`apps/api/src/routes/reports.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: reports.view, requireInvestigations, есть право: clients.securityReview
+
+- если !parsed.success
+  - return res.status(400).json({ error: "Некорректный период" });
+    · ответ 400 — «Некорректный период»
+- пробует
+  - const settings = await prisma.settings.findUniqueOrThrow({ where: { id: "singleton" }, select: { postShowingC…
+    · читает в базе: settings
+  - const config = postShowingCohortConfigSchema.parse(settings.postShowingCohortConfig);
+    · проверяет данные схемой postShowingCohortConfigSchema
+  - const result = await collectPostShowingCohort(new Date(now.getTime() - (parsed.data.days ?? config.windowDays…
+    · зовёт collectPostShowingCohort()
+  - res.json(can(req, "clients.viewPhone") ? result : { ...result, agents: result.agents.map(row
+    · ответ 200
+- если сорвалось
+  - res.status(503).json({ evaluation: "DATA_UNAVAILABLE", error: "Источники статистики временно недоступны. Это …
+    · ответ 503 — «Источники статистики временно недоступны. Это не нулевая доля.»
 
 ### PATCH /api/v1/reports/problems/:id
 
@@ -15007,6 +15351,25 @@
   - throw error;
     · пробрасывает ошибку дальше
 
+### POST /api/v1/security/cases/:id/severity
+
+`apps/api/src/routes/investigationCases.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview
+
+- const id = idSchema.safeParse(req.params.id), body = investigationSeveritySchema.safeParse(req.body);
+  · проверяет данные схемой idSchema
+- если !id.success || !body.success
+  - return res.status(400).json({ error: "Проверьте уровень и отдельное подтверждение C4" });
+    · ответ 400 — «Проверьте уровень и отдельное подтверждение C4»
+- пробует
+  - res.json({ decision: await setInvestigationSeverity({ ...body.data, caseId: id.data, actorId: req.agent!.id }…
+    · ответ 200
+- если сорвалось
+  - если error instanceof InvestigationConflict
+    - return res.status(409).json({ error: error.message });
+      · ответ 409
+  - throw error;
+    · пробрасывает ошибку дальше
+
 ### GET /api/v1/security/cases/:id
 
 `apps/api/src/routes/investigationCases.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview
@@ -15021,7 +15384,14 @@
 - если !row
   - return res.status(404).json({ error: "Дело не найдено" });
     · ответ 404 — «Дело не найдено»
-- res.json({ ...row, evidence: row.evidence.map(item
+- res.json({ ...row, recommendation: await loadInvestigationRecommendation(row), evidence: row.evidence.map(item
+  · ответ 200
+
+### GET /api/v1/security/cases/agency-label-preview
+
+`apps/api/src/routes/investigationCases.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview
+
+- res.json(presentEvidencePayload(await previewAgencyLabelCoincidences(), can(req, "clients.viewPhone")));
   · ответ 200
 
 ### GET /api/v1/security/cases/automation-preview
@@ -15032,6 +15402,13 @@
   · читает в базе: postShowingCall
   · читает в базе: sellerProbeCall
 - res.json({ mode: "PREVIEW", items: [ ...buyers.map(row
+  · ответ 200
+
+### GET /api/v1/security/cases/buyer-showing-candidates
+
+`apps/api/src/routes/investigationCases.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview
+
+- res.json({ mode: "PREVIEW", items: presentEvidencePayload(await previewBuyerShowingCandidates(), can(req, "cl…
   · ответ 200
 
 ### GET /api/v1/security/cases/config
@@ -15059,6 +15436,25 @@
 - await prisma.settings.upsert({ where: { id: "singleton" }, create: { id: "singleton", investigationCaseConfig…
   · создаёт или меняет в базе: settings
 - res.json({ config: configured.success ? configured.data : null, mode: "preview" });
+  · ответ 200
+
+### GET /api/v1/security/cases/manual-contact-preview
+
+`apps/api/src/routes/investigationCases.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview
+
+- const query = investigationCasesQuerySchema.safeParse(req.query);
+  · проверяет данные схемой investigationCasesQuerySchema
+- если !query.success
+  - return res.status(400).json({ error: "Неверные параметры" });
+    · ответ 400 — «Неверные параметры»
+- res.json(await previewManualContactOnly(query.data.page));
+  · ответ 200
+
+### GET /api/v1/security/cases/named-assignment-preview
+
+`apps/api/src/routes/investigationCases.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview
+
+- res.json(presentEvidencePayload(await previewNamedAssignments(), can(req, "clients.viewPhone")));
   · ответ 200
 
 ### GET /api/v1/security/cases/recurrence
@@ -15100,6 +15496,39 @@
   - res.status(503).json({ error: "Данные контроля временно недоступны", mode: "PREVIEW", evaluation: "DATA_UNAVA…
     · ответ 503 — «Данные контроля временно недоступны»
 
+### GET /api/v1/security/cases/weekly-operational-preview
+
+`apps/api/src/routes/investigationCases.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview
+
+- const query = weeklyOperationalPreviewQuerySchema.safeParse(req.query);
+  · проверяет данные схемой weeklyOperationalPreviewQuerySchema
+- если !query.success
+  - return res.status(400).json({ error: "Неверные параметры сводки" });
+    · ответ 400 — «Неверные параметры сводки»
+- res.json(presentEvidencePayload(await previewWeeklyOperations(query.data.kind, query.data.page), can(req, "cl…
+  · ответ 200
+
+### GET /api/v1/security/cases/workflow-agent-preview
+
+`apps/api/src/routes/investigationCases.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview
+
+- res.json(presentEvidencePayload(await previewWorkflowAgentCounts(), can(req, "clients.viewPhone")));
+  · ответ 200
+
+### GET /api/v1/security/cases/workflow-observations
+
+`apps/api/src/routes/investigationCases.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview
+
+- const active = await prisma.workflowCheckpoint.findUnique({ where: { key: "client-workflow-observations-v1" }…
+  · читает в базе: workflowCheckpoint
+- если !active
+  - return res.json({ mode: "PREVIEW", coverage: "NOT_ACTIVATED", items: [] });
+    · ответ 200
+- const rows = await prisma.clientWorkflowObservation.findMany({ where: { executionMode: "PREVIEW" }, orderBy: …
+  · читает в базе: clientWorkflowObservation
+- res.json({ mode: "PREVIEW", coverage: "FUTURE_SOURCES_ONLY", items: presentEvidencePayload(rows, can(req, "cl…
+  · ответ 200
+
 ### GET /api/v1/security/cases
 
 `apps/api/src/routes/investigationCases.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview
@@ -15114,6 +15543,114 @@
   · считает в базе: investigationCase
 - res.json({ items, total, page, pageSize: 25, mode: "preview" });
   · ответ 200
+
+## /api/v1/security/cases/seller-control
+
+### POST /api/v1/security/cases/seller-control/:id/commands
+
+`apps/api/src/routes/sellerControl.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview
+
+- const parsed = sellerControlCommandSchema.safeParse(req.body);
+  · проверяет данные схемой sellerControlCommandSchema
+- если !id.success || !parsed.success
+  - return res.status(400).json({ error: "Проверьте действие и комментарий" });
+    · ответ 400 — «Проверьте действие и комментарий»
+- const episode = await prisma.sellerControlEpisode.findUnique({ where: { id: id.data }, select: { executionMod…
+  · читает в базе: sellerControlEpisode
+- если !episode
+  - return res.status(404).json({ error: "Эпизод не найден" });
+    · ответ 404 — «Эпизод не найден»
+- если episode.executionMode === "LIVE" && !["RESOLVE", "CANCEL"].includes(parsed.data.action)
+  - return res.status(409).json({ error: "Реальное получение и действие отмечает назначенный руководитель в своей…
+    · ответ 409 — «Реальное получение и действие отмечает назначенный руководитель в…»
+- если episode.executionMode === "LIVE" && process.env.SELLER_CONTROL_INTERNAL_LIVE !== "explicitly-approved"
+  - return res.status(409).json({ error: "Рабочее исполнение выключено" });
+    · ответ 409 — «Рабочее исполнение выключено»
+- если !["PREVIEW", "LIVE"].includes(episode.executionMode)
+  - return res.status(409).json({ error: "Неизвестный режим эпизода" });
+    · ответ 409 — «Неизвестный режим эпизода»
+- пробует
+  - res.json(await commandSellerControl(id.data, parsed.data, req.agent!.id, { simulated: episode.executionMode =…
+    · ответ 200
+- если сорвалось
+  - если error instanceof SellerControlConflict
+    - return res.status(409).json({ error: error.message });
+      · ответ 409
+  - throw error;
+    · пробрасывает ошибку дальше
+
+### POST /api/v1/security/cases/seller-control/buyer-candidate
+
+`apps/api/src/routes/sellerControl.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview
+
+- если !parsed.success
+  - return res.status(400).json({ error: "Укажите договорённость и ответственного руководителя" });
+    · ответ 400 — «Укажите договорённость и ответственного руководителя»
+- const candidate = await prisma.buyerShowingCandidate.findUnique({ where: { id: parsed.data.buyerCandidateId }…
+  · читает в базе: buyerShowingCandidate
+- если !candidate
+  - return res.status(404).json({ error: "Договорённость не найдена" });
+    · ответ 404 — «Договорённость не найдена»
+- пробует
+  - res.json(await startSellerControl({ ...parsed.data, clientId: candidate.clientId, actorId: req.agent!.id, liv…
+    · ответ 200
+- если сорвалось
+  - если error instanceof SellerControlConflict
+    - return res.status(409).json({ error: error.message });
+      · ответ 409
+  - throw error;
+    · пробрасывает ошибку дальше
+
+### PUT /api/v1/security/cases/seller-control/config
+
+`apps/api/src/routes/sellerControl.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview
+
+- const parsed = sellerControlConfigUpdateSchema.safeParse(req.body);
+  · проверяет данные схемой sellerControlConfigUpdateSchema
+- если !parsed.success
+  - return res.status(400).json({ error: "Заполните все три положительных срока или очистите настройку" });
+    · ответ 400 — «Заполните все три положительных срока или очистите настройку»
+- если "defaultRopAgentId" in parsed.data.config && parsed.data.config.defaultRopAgentId
+  - const rop = await prisma.agent.findUnique({ where: { id: parsed.data.config.defaultRopAgentId }, select: { ro…
+    · читает в базе: agent
+  - если !rop?.isActive || !["MANAGER", "ADMIN", "DIRECTOR"].includes(rop.role)
+    - return res.status(400).json({ error: "Выберите действующего руководителя" });
+      · ответ 400 — «Выберите действующего руководителя»
+- await saveWithInvestigationControlAudit({ sellerControlConfig: parsed.data.config }, { id: req.agent!.id, nam…
+  · меняет в базе: settings
+- res.json({ config: readSellerControlConfig(parsed.data.config), mode: "PREVIEW" });
+  · ответ 200
+
+### GET /api/v1/security/cases/seller-control
+
+`apps/api/src/routes/sellerControl.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview
+
+- const [settings, episodes] = await Promise.all([ prisma.settings.findUnique({ where: { id: "singleton" }, sel…
+  · читает в базе: settings
+  · читает в базе: sellerControlEpisode
+- const config = readSellerControlConfig(settings?.sellerControlConfig);
+  · зовёт readSellerControlConfig()
+- const safeEpisodes = episodes.map(episode
+  · зовёт maskPhonesDeep()
+- res.json({ config, configurationState: config ? "CONFIGURED" : "NOT_CONFIGURED", mode: "PREVIEW", episodes: s…
+  · ответ 200
+
+### POST /api/v1/security/cases/seller-control
+
+`apps/api/src/routes/sellerControl.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview, вход выполнен, requireInvestigations, есть право: clients.securityReview
+
+- если !parsed.success
+  - return res.status(400).json({ error: "Укажите карточку и ответственного руководителя" });
+    · ответ 400 — «Укажите карточку и ответственного руководителя»
+- пробует
+  - res.json(await startSellerControl({ ...parsed.data, actorId: req.agent!.id }));
+    · ответ 200
+- если сорвалось
+  - если error instanceof SellerControlConflict
+    - return res.status(409).json({ error: error.message });
+      · ответ 409
+  - throw error;
+    · пробрасывает ошибку дальше
 
 ## /api/v1/settings
 
@@ -15721,7 +16258,7 @@
     · запись в журнал ошибок
 - const previousMontajerAgentId = pair.videoMontajerAgentId !== undefined ? ( await prisma.settings.findUnique(…
   · читает в базе: settings
-- const settings = await prisma.settings.upsert({ where: { id: "singleton" }, update: data, create: { id: "sing…
+- const settings = await saveWithInvestigationControlAudit(data, { id: req.agent!.id, name: actor?.fullName ?? …
   · создаёт или меняет в базе: settings
 - если previousMontajerAgentId !== undefined && pair.videoMontajerAgentId !== previousMontajerAgentId
   - const holder = await prisma.property.findFirst({ where: EDITOR_HOLDER_WHERE, select: { id: true, shortId: tru…
@@ -16109,6 +16646,10 @@
     · ответ 409 — «Настройки ещё не созданы — возвращать нечего»
 - const plan = planRestore(payload, current, point.keyFingerprint);
   · зовёт planRestore()
+- если !canViewInvestigations(req.agent?.role)
+  - для каждого: const field of Object.keys(plan.data)
+    - if (isPrivateSettingsField(field)) delete plan.data[field];
+      · зовёт isPrivateSettingsField()
 - const skippedStaff = await dropUnavailableStaffFromPlan(plan);
   · зовёт dropUnavailableStaffFromPlan()
 - если plan.changedFields.length === 0
@@ -16124,7 +16665,7 @@
     · запись в журнал ошибок
   - return res.status(500).json({ error: "Не удалось сохранить текущее состояние — откат отменён" });
     · ответ 500 — «Не удалось сохранить текущее состояние — откат отменён»
-- await prisma.settings.update({ where: { id: "singleton" }, data: plan.data });
+- await saveWithInvestigationControlAudit(plan.data, { id: req.agent!.id, name: agent?.fullName ?? "Неизвестно"…
   · меняет в базе: settings
 - applySettingsSideEffects(plan.changedFields);
   · зовёт applySettingsSideEffects()
@@ -16149,8 +16690,6 @@
   · ответ 200
   - const changes = current ? diffSnapshot(point.payload as SnapshotPayload, current) : [];
     · зовёт diffSnapshot()
-  - return { id: point.id, createdAt: point.createdAt, agentId: point.agentId, agentName: point.agentName, reason…
-    · зовёт secretsRestorable()
 
 ## /api/v1/site-notifications
 
@@ -16291,7 +16830,9 @@
 - если !sent.ok
   - return res.status(502).json({ error: sent.error });
     · ответ 502
-- res.json({ ok: true, parts: sent.parts });
+- const receipt = await prisma.smsMessage.findUnique({ where: { id: sent.id }, select: { status: true } });
+  · читает в базе: smsMessage
+- res.json({ ok: true, parts: sent.parts, status: receipt?.status ?? "UNKNOWN" });
   · ответ 200
 
 ### POST /api/v1/sms/webhook/payom/:key
@@ -16632,7 +17173,7 @@
 
 `apps/api/src/routes/stuckWork.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: auditLog.view
 
-- const outcome = await retryStuckWorkItem(req.params.id);
+- const outcome = await retryStuckWorkItem(req.params.id, canViewInvestigations(req.agent?.role) && can(req, "c…
   · зовёт retryStuckWorkItem()
 - если outcome === "not-found"
   - return res.status(404).json({ error: "Задание не найдено" });
@@ -18695,8 +19236,11 @@
       - если !silent && !frozen
         - continue;
           · переходит к следующему
-      - const { explained, unchecked } = await checkClientExplainedPause(c.id);
+      - const { explained, unchecked } = await checkClientExplainedPause(c.id, { since: c.phoneAskFlaggedAt ?? undefi…
         · зовёт checkClientExplainedPause()
+      - если unchecked
+        - continue;
+          · переходит к следующему
       - если explained
         - await prisma.client.update({ where: { id: c.id }, data: { offCrmAlarmNotifiedAt: now } }).catch(()
           · меняет в базе: client
@@ -18755,6 +19299,30 @@
     - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
       · запись в журнал ошибок
 
+### approved-owner-verification — 25 * * * *
+
+- await runNewOwnerVerificationTick(new Date(), { allowLive: true });
+  · зовёт runNewOwnerVerificationTick()
+  - если !options.allowLive || newOwnerProbeMode() !== 'LIVE'
+    - return 0;
+      · дословно из кода
+  - const settings = await prisma.settings.findUnique({ where: { id: 'singleton' }, select: { liveVoiceEnabled: t…
+    · читает в базе: settings
+  - если !settings?.liveVoiceEnabled || !settings.postShowingCallEnabled
+    - return 0;
+      · дословно из кода
+  - await loadCompanyDaysOff();
+    · зовёт loadCompanyDaysOff()
+  - если !isWithinPostShowingCallHours(now)
+    - return 0;
+      · дословно из кода
+  - const rows = await prisma.sellerProbeCall.findMany({ where: { sourceKind: { in: ['EXPOSURE_PAIR', 'MANUAL_OWN…
+    · читает в базе: sellerProbeCall
+  - для каждого: const row of rows
+    - если outcome !== 'skipped'
+      - return outcome === 'started' ? 1 : 0;
+        · дословно из кода
+
 ### background-jobs — * * * * *
 
 - если isBackgroundJobsTickRunning
@@ -18796,6 +19364,12 @@
         · дословно из кода
   - void logSystemError("background-jobs", `Тик очереди заданий упал: ${err instanceof Error ? err.message : Stri…
     · запись в журнал ошибок
+    - если isPrivateOperation()
+      - source = "investigation";
+        · дословно из кода
+    - если source === "investigation"
+      - context = { ...context, silent: true };
+        · дословно из кода
     - если isShuttingDown()
       - console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…
         · пишет строку в журнал сервера
@@ -19908,6 +20482,12 @@
           · дословно из кода
     - void logSystemError("exchange-rate", `Курс USD→TJS не обновлён: ${result.error}`);
       · запись в журнал ошибок
+      - если isPrivateOperation()
+        - source = "investigation";
+          · дословно из кода
+      - если source === "investigation"
+        - context = { ...context, silent: true };
+          · дословно из кода
       - если isShuttingDown()
         - console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…
           · пишет строку в журнал сервера
@@ -19942,6 +20522,12 @@
         · дословно из кода
   - void logSystemError("exchange-rate", `Курс USD→TJS не обновлён: ${reason}`);
     · запись в журнал ошибок
+    - если isPrivateOperation()
+      - source = "investigation";
+        · дословно из кода
+    - если source === "investigation"
+      - context = { ...context, silent: true };
+        · дословно из кода
     - если isShuttingDown()
       - console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…
         · пишет строку в журнал сервера
@@ -20079,7 +20665,7 @@
       - если alertedAt > lastSeen && now - alertedAt < REALERT_MS
         - continue;
           · переходит к следующему
-      - await logSystemError( "cron", `Крон-тик «${name}» молчит ${silentMin} мин (расписание ${meta.expr}, ` + `след…
+      - await logSystemError( isPrivateCron(name) ? "investigation" : "cron", `Крон-тик «${name}» молчит ${silentMin}…
         · запись в журнал ошибок
       - await prisma.cronHeartbeat .updateMany({ where: { name }, data: { alertedAt: new Date() } }) .catch(()
         · меняет в базе: cronHeartbeat
@@ -20442,6 +21028,12 @@
         · дословно из кода
   - void logSystemError("api", `Insight digest cron failed: ${err instanceof Error ? err.message : String(err)}`);
     · запись в журнал ошибок
+    - если isPrivateOperation()
+      - source = "investigation";
+        · дословно из кода
+    - если source === "investigation"
+      - context = { ...context, silent: true };
+        · дословно из кода
     - если isShuttingDown()
       - console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…
         · пишет строку в журнал сервера
@@ -20546,6 +21138,12 @@
   - иначе
     - void logSystemError("meta", `Сбор «подписчики Instagram в сети» не удался: ${result.error}`, { dedupKey: "ins…
       · запись в журнал ошибок
+      - если isPrivateOperation()
+        - source = "investigation";
+          · дословно из кода
+      - если source === "investigation"
+        - context = { ...context, silent: true };
+          · дословно из кода
       - если isShuttingDown()
         - console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…
           · пишет строку в журнал сервера
@@ -20575,6 +21173,12 @@
     · пишет строку в журнал сервера
   - void logSystemError("meta", `Сбор «подписчики Instagram в сети» упал: ${reason}`, { dedupKey: "instagram-onli…
     · запись в журнал ошибок
+    - если isPrivateOperation()
+      - source = "investigation";
+        · дословно из кода
+    - если source === "investigation"
+      - context = { ...context, silent: true };
+        · дословно из кода
     - если isShuttingDown()
       - console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…
         · пишет строку в журнал сервера
@@ -21738,6 +22342,27 @@
     - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
       · запись в журнал ошибок
 
+### narration-version-delivery — * * * * *
+
+- await executeQueuedNarrationDeliveries();
+  · зовёт executeQueuedNarrationDeliveries()
+  - если mediaExecutionMode("NARRATION") !== "LIVE"
+    - return;
+      · дальше не идёт, ничего не меняя
+  - const pending = await prisma.propertyNarrationDelivery.findMany({ where: { status: "SENDING", claimStartedAt:…
+    · читает в базе: propertyNarrationDelivery
+  - для каждого: const row of pending
+    - const budget = narrationDeliveryAttemptBudgetMs(row.plan);
+      · зовёт narrationDeliveryAttemptBudgetMs()
+    - если row.claimStartedAt && now.getTime() - row.claimStartedAt.getTime() > budget
+      - await prisma.propertyNarrationDelivery.updateMany({ where: { id: row.id, status: "SENDING", claimStartedAt: r…
+        · меняет в базе: propertyNarrationDelivery
+  - const rows = await prisma.propertyNarrationDelivery.findMany({ where: { status: "QUEUED", executionMode: "LIV…
+    · читает в базе: propertyNarrationDelivery
+  - для каждого: const row of rows
+    - await executeNarrationDelivery(row.id);
+      · зовёт executeNarrationDelivery()
+
 ### no-answer-tail — */30 * * * *
 
 - пробует
@@ -21854,6 +22479,45 @@
     - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
       · запись в журнал ошибок
 
+### owner-exposure-verification-preview — 15 * * * *
+
+- await runExposureOwnerPreviewTick();
+  · зовёт runExposureOwnerPreviewTick()
+  - const checkpoint = await prisma.workflowCheckpoint.upsert({ where: { key: checkpointKey }, update: {}, create…
+    · создаёт или меняет в базе: workflowCheckpoint
+  - const claimed = await prisma.workflowCheckpoint.updateMany({ where: { key: checkpointKey, revision: checkpoin…
+    · меняет в базе: workflowCheckpoint
+  - если claimed.count !== 1
+    - return { created: 0, busy: true };
+      · дословно из кода
+  - пробует
+    - const result = await scheduleExposureOwnerVerifications(now, checkpoint.cursor ?? undefined, checkpoint.creat…
+      · зовёт scheduleExposureOwnerVerifications()
+    - await prisma.workflowCheckpoint.updateMany({ where: { key: checkpointKey, leaseToken }, data: { cursor: resul…
+      · меняет в базе: workflowCheckpoint
+  - если сорвалось
+    - await prisma.workflowCheckpoint.updateMany({ where: { key: checkpointKey, leaseToken }, data: { leaseToken: n…
+      · меняет в базе: workflowCheckpoint
+    - throw error;
+      · пробрасывает ошибку дальше
+
+### owner-report-delivery — * * * * *
+
+- await executeQueuedOwnerReports();
+  · зовёт executeQueuedOwnerReports()
+  - если mediaExecutionMode("OWNER_REPORT") !== "LIVE"
+    - return;
+      · дальше не идёт, ничего не меняя
+  - await prisma.ownerReportDelivery.updateMany({ where: { status: "QUEUED", executionMode: "LIVE", period: { lt:…
+    · меняет в базе: ownerReportDelivery
+  - await prisma.ownerReportDelivery.updateMany({ where: { status: "SENDING", claimStartedAt: { lt: new Date(now.…
+    · меняет в базе: ownerReportDelivery
+  - const rows = await prisma.ownerReportDelivery.findMany({ where: { status: "QUEUED", executionMode: "LIVE", pe…
+    · читает в базе: ownerReportDelivery
+  - для каждого: const row of rows
+    - await executeOwnerReportDelivery(row.id, now);
+      · зовёт executeOwnerReportDelivery()
+
 ### owner-report-monthly-preview — 20 8 * * *
 
 - await prepareMonthlyOwnerReportPreviews();
@@ -21865,21 +22529,18 @@
   - если !config.success || !config.data.ownerReportPreviewEnabled
     - return { prepared: 0 };
       · дословно из кода
-  - const optIns = await prisma.ownerReportDelivery.findMany({ where: { status: "PREVIEW", period: { lt: period }…
-    · читает в базе: ownerReportDelivery
+  - const optIns = await prisma.ownerReportSubscription.findMany({ where: { active: true, revokedAt: null }, sele…
+    · читает в базе: ownerReportSubscription
   - для каждого: const optIn of optIns
-    - const property = await prisma.property.findFirst({ where: { id: optIn.propertyId, deletedAt: null, sellerClie…
-      · читает в базе: property
-    - если !property || !await prisma.client.findFirst({ where: { id: optIn.sellerClientId, deletedAt: null }, select: {…
-      - continue;
-        · переходит к следующему
-    - const link = await findActiveOwnerReportLink(property.id);
-      · зовёт findActiveOwnerReportLink()
-    - если !link
-      - continue;
-        · переходит к следующему
-    - const result = await prisma.ownerReportDelivery.createMany({ data: [{ ...optIn, period, reportUrl: presentOwn…
-      · создаёт в базе: ownerReportDelivery
+    - пробует
+      - если await prepareOwnerReportDelivery(optIn.propertyId, now)
+        - prepared++;
+          · дословно из кода
+    - если сорвалось
+      - await logSystemError("cron", `Не удалось подготовить ежемесячный отчёт объекта ${optIn.propertyId}: ${error i…
+        · запись в журнал ошибок
+  - await executeQueuedOwnerReports(now);
+    · зовёт executeQueuedOwnerReports()
 
 ### phone-lead-watchdog — */15 * * * *
 
@@ -22423,6 +23084,32 @@
     - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
       · запись в журнал ошибок
 
+### seller-control-episodes — * * * * *
+
+- await runSellerControlTick();
+  · зовёт runSellerControlTick()
+  - если process.env.SELLER_CONTROL_INTERNAL_LIVE !== "explicitly-approved"
+    - return { mode: "PREVIEW", processed: 0 };
+      · дословно из кода
+  - await enrollDueBuyerCandidates(now);
+    · зовёт enrollDueBuyerCandidates()
+  - await enrollDueSellerIntakes(now);
+    · зовёт enrollDueSellerIntakes()
+  - для каждого: true
+    - const rows = await prisma.sellerControlEpisode.findMany({ where: { executionMode: "LIVE", createdAt: { lte: n…
+      · читает в базе: sellerControlEpisode
+    - для каждого: const row of rows
+      - пробует
+        - await commandSellerControl(row.id, { requestKey: randomUUID(), revision: row.revision, action: "TICK" }, null…
+          · зовёт commandSellerControl()
+      - если сорвалось
+        - если !(error instanceof SellerControlConflict)
+          - throw error;
+            · пробрасывает ошибку дальше
+    - если rows.length < 100
+      - break;
+        · прекращает перебор
+
 ### seller-no-property-alarm — 0 * * * *
 
 - пробует
@@ -22475,9 +23162,9 @@
       - если !(await shouldAlert(tag, ALERT_MIN_INTERVAL_MS, now))
         - continue;
           · переходит к следующему
-      - const pause = await checkClientExplainedPause(c.id);
+      - const pause = await checkClientExplainedPause(c.id, { since: c.shootingDate });
         · зовёт checkClientExplainedPause()
-      - если pause.explained
+      - если pause.explained || pause.unchecked
         - continue;
           · переходит к следующему
       - пробует
@@ -22519,7 +23206,7 @@
     - если !isWithinPostShowingCallHours(now)
       - return 0;
         · дословно из кода
-    - const due = await prisma.sellerProbeCall.findMany({ where: { previewOnly: false, status: { in: ["PENDING", "N…
+    - const due = await prisma.sellerProbeCall.findMany({ where: { sourceKind: "POST_SHOWING", previewOnly: false, …
       · читает в базе: sellerProbeCall
     - для каждого: const row of due
       - если outcome !== "skipped"
@@ -22843,6 +23530,12 @@
     - если сорвалось
       - void logSystemError("api", `«Объект загорелся» не разослан: ${err instanceof Error ? err.message : String(err…
         · запись в журнал ошибок
+        - если isPrivateOperation()
+          - source = "investigation";
+            · дословно из кода
+        - если source === "investigation"
+          - context = { ...context, silent: true };
+            · дословно из кода
         - если isShuttingDown()
           - console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…
             · пишет строку в журнал сервера
@@ -22870,6 +23563,12 @@
   - иначе если !result.notConfigured
     - void logSystemError("site-sync", `Статистика сайта не собрана: ${result.error}`, { dedupKey: result.siteNotDe…
       · запись в журнал ошибок
+      - если isPrivateOperation()
+        - source = "investigation";
+          · дословно из кода
+      - если source === "investigation"
+        - context = { ...context, silent: true };
+          · дословно из кода
       - если isShuttingDown()
         - console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…
           · пишет строку в журнал сервера
@@ -24057,6 +24756,12 @@
         · дословно из кода
   - void logSystemError("ai", `Еженедельный пуш с разбором маркетинга не отправлен: ${err instanceof Error ? err.…
     · запись в журнал ошибок
+    - если isPrivateOperation()
+      - source = "investigation";
+        · дословно из кода
+    - если source === "investigation"
+      - context = { ...context, silent: true };
+        · дословно из кода
     - если isShuttingDown()
       - console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…
         · пишет строку в журнал сервера
@@ -24387,6 +25092,12 @@
         · дословно из кода
   - void logSystemError("api", `Прогноз перерасхода не посчитан: ${err instanceof Error ? err.message : String(er…
     · запись в журнал ошибок
+    - если isPrivateOperation()
+      - source = "investigation";
+        · дословно из кода
+    - если source === "investigation"
+      - context = { ...context, silent: true };
+        · дословно из кода
     - если isShuttingDown()
       - console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…
         · пишет строку в журнал сервера
@@ -24464,6 +25175,12 @@
         · дословно из кода
   - void logSystemError("meta", `Сигналы рекламы не проверены: ${err instanceof Error ? err.message : String(err)…
     · запись в журнал ошибок
+    - если isPrivateOperation()
+      - source = "investigation";
+        · дословно из кода
+    - если source === "investigation"
+      - context = { ...context, silent: true };
+        · дословно из кода
     - если isShuttingDown()
       - console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…
         · пишет строку в журнал сервера
@@ -24641,6 +25358,12 @@
   - если giveUps < PERMANENT_AFTER_GIVE_UPS
     - await logSystemError( "ai", `Ход (${payload.conversationId}) не дождался ИИ за всё окно фонового повтора — кл…
       · запись в журнал ошибок
+      - если isPrivateOperation()
+        - source = "investigation";
+          · дословно из кода
+      - если source === "investigation"
+        - context = { ...context, silent: true };
+          · дословно из кода
       - если isShuttingDown()
         - console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…
           · пишет строку в журнал сервера
@@ -24671,24 +25394,39 @@
     · меняет в базе: botConversation
   - await enqueueBackgroundJob({ type: "ai-turn-blocked-followup", payload: { conversationId: payload.conversatio…
     · зовёт enqueueBackgroundJob()
-    - const module = pultModuleOfJob(input.type);
-      · зовёт pultModuleOfJob()
-    - если module && !(await isPultModuleEnabled(module))
-      - return { enqueued: false, skipped: "module:off" };
+    - const privateJob = isPrivateOperation() || await isPrivateBackgroundJob(input).catch(()
+      · зовёт isPrivateOperation()
+    - если privateJob && input.payload && typeof input.payload === "object" && !Array.isArray(input.payload)
+      - input = { ...input, payload: { ...input.payload, investigationOnly: true } };
         · дословно из кода
-    - пробует
-      - await prisma.backgroundJob.create({ data });
-        · создаёт в базе: backgroundJob
-    - если сорвалось
-      - если (err as { code?: string }).code !== "P2002" || !input.dedupeKey
-        - console.error("[jobs] постановка задания:", message);
-          · пишет строку в журнал сервера
-        - void logSystemError("background-jobs", `Не удалось поставить задание «${input.type}» в очередь: ${message}`, …
-          · запись в журнал ошибок
-      - await prisma.backgroundJob .updateMany({ where: { dedupeKey: input.dedupeKey, status: { in: ["DONE", "GIVEN_U…
-        · меняет в базе: backgroundJob
+    - return withInvestigationPrivacy(privateJob, async ()
+      · создаёт в базе: backgroundJob
+      · меняет в базе: backgroundJob
+      · запись в журнал ошибок
+      - const module = pultModuleOfJob(input.type);
+        · зовёт pultModuleOfJob()
+      - если module && !(await isPultModuleEnabled(module))
+        - return { enqueued: false, skipped: "module:off" };
+          · дословно из кода
+      - пробует
+        - await prisma.backgroundJob.create({ data });
+          · создаёт в базе: backgroundJob
+      - если сорвалось
+        - если (err as { code?: string }).code !== "P2002" || !input.dedupeKey
+          - console.error("[jobs] постановка задания:", message);
+            · пишет строку в журнал сервера
+          - void logSystemError("background-jobs", `Не удалось поставить задание «${input.type}» в очередь: ${message}`, …
+            · запись в журнал ошибок
+        - await prisma.backgroundJob .updateMany({ where: { dedupeKey: input.dedupeKey, status: { in: ["DONE", "GIVEN_U…
+          · меняет в базе: backgroundJob
   - await logSystemError( "ai", `Ход (${payload.conversationId}) не проходит через ИИ ${giveUps}-й раз подряд (бо…
     · запись в журнал ошибок
+    - если isPrivateOperation()
+      - source = "investigation";
+        · дословно из кода
+    - если source === "investigation"
+      - context = { ...context, silent: true };
+        · дословно из кода
     - если isShuttingDown()
       - console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…
         · пишет строку в журнал сервера
@@ -24736,6 +25474,12 @@
     · дальше не идёт, ничего не меняя
 - void logSystemError( "ai", `Диалог (${payload.conversationId}, ${conversation.channel}) не проходит через ИИ …
   · запись в журнал ошибок
+  - если isPrivateOperation()
+    - source = "investigation";
+      · дословно из кода
+  - если source === "investigation"
+    - context = { ...context, silent: true };
+      · дословно из кода
   - если isShuttingDown()
     - console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…
       · пишет строку в журнал сервера
@@ -24828,6 +25572,12 @@
 - если !taskAgentId
   - await logSystemError( "background-jobs", `Реактивация клиента ${payload.clientId}: не нашлось ни владельца, н…
     · запись в журнал ошибок
+    - если isPrivateOperation()
+      - source = "investigation";
+        · дословно из кода
+    - если source === "investigation"
+      - context = { ...context, silent: true };
+        · дословно из кода
     - если isShuttingDown()
       - console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…
         · пишет строку в журнал сервера
@@ -24875,6 +25625,12 @@
 - когда попытки кончились
   - await logSystemError( "background-jobs", `Реактивационное сообщение клиенту ${payload.clientId} (неделя ${pay…
     · запись в журнал ошибок
+    - если isPrivateOperation()
+      - source = "investigation";
+        · дословно из кода
+    - если source === "investigation"
+      - context = { ...context, silent: true };
+        · дословно из кода
     - если isShuttingDown()
       - console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…
         · пишет строку в журнал сервера
@@ -24933,6 +25689,12 @@
 - когда попытки кончились
   - await logSystemError( "storage", `Сжатие видео объекта ${payload.propertyId} не удалось после всех попыток — …
     · запись в журнал ошибок
+    - если isPrivateOperation()
+      - source = "investigation";
+        · дословно из кода
+    - если source === "investigation"
+      - context = { ...context, silent: true };
+        · дословно из кода
     - если isShuttingDown()
       - console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…
         · пишет строку в журнал сервера
@@ -25016,6 +25778,12 @@
 - когда попытки кончились
   - await logSystemError("background-jobs", "Уведомление о записанной просьбе клиента не подтверждено; задача ост…
     · запись в журнал ошибок
+    - если isPrivateOperation()
+      - source = "investigation";
+        · дословно из кода
+    - если source === "investigation"
+      - context = { ...context, silent: true };
+        · дословно из кода
     - если isShuttingDown()
       - console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…
         · пишет строку в журнал сервера
@@ -25124,6 +25892,12 @@
   - пробует
     - await logSystemError("background-jobs", "Не подтверждено сохранение новой заявки после хода; проверьте журнал…
       · запись в журнал ошибок
+      - если isPrivateOperation()
+        - source = "investigation";
+          · дословно из кода
+      - если source === "investigation"
+        - context = { ...context, silent: true };
+          · дословно из кода
       - если isShuttingDown()
         - console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…
           · пишет строку в журнал сервера
@@ -25154,6 +25928,12 @@
 - когда попытки кончились
   - await logSystemError("background-jobs", "Обработка контакта после ответа требует проверки; автоматической пер…
     · запись в журнал ошибок
+    - если isPrivateOperation()
+      - source = "investigation";
+        · дословно из кода
+    - если source === "investigation"
+      - context = { ...context, silent: true };
+        · дословно из кода
     - если isShuttingDown()
       - console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…
         · пишет строку в журнал сервера
@@ -25227,6 +26007,12 @@
 - когда попытки кончились
   - await logSystemError("background-jobs", "Сохранённое входящее сообщение требует проверки обработки", { dedupK…
     · запись в журнал ошибок
+    - если isPrivateOperation()
+      - source = "investigation";
+        · дословно из кода
+    - если source === "investigation"
+      - context = { ...context, silent: true };
+        · дословно из кода
     - если isShuttingDown()
       - console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…
         · пишет строку в журнал сервера
@@ -25330,6 +26116,12 @@
 - когда попытки кончились
   - await logSystemError("background-jobs", "Уведомление о сохранённой новой заявке не подтверждено; карточка ост…
     · запись в журнал ошибок
+    - если isPrivateOperation()
+      - source = "investigation";
+        · дословно из кода
+    - если source === "investigation"
+      - context = { ...context, silent: true };
+        · дословно из кода
     - если isShuttingDown()
       - console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…
         · пишет строку в журнал сервера
@@ -25389,6 +26181,12 @@
 - когда попытки кончились
   - await logSystemError("background-jobs", "Новая заявка сохранена, но её правило назначения не завершилось; про…
     · запись в журнал ошибок
+    - если isPrivateOperation()
+      - source = "investigation";
+        · дословно из кода
+    - если source === "investigation"
+      - context = { ...context, silent: true };
+        · дословно из кода
     - если isShuttingDown()
       - console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…
         · пишет строку в журнал сервера
@@ -25470,6 +26268,12 @@
 - если result.status === "unknown" || result.status === "not_sent"
   - await logSystemError("background-jobs", "Площадка не подтвердила сохранённую отправку; автоматический повтор …
     · запись в журнал ошибок
+    - если isPrivateOperation()
+      - source = "investigation";
+        · дословно из кода
+    - если source === "investigation"
+      - context = { ...context, silent: true };
+        · дословно из кода
     - если isShuttingDown()
       - console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…
         · пишет строку в журнал сервера
@@ -25497,6 +26301,12 @@
 - когда попытки кончились
   - await logSystemError("background-jobs", "Сохранённая отправка требует проверки квитанции или локальной истори…
     · запись в журнал ошибок
+    - если isPrivateOperation()
+      - source = "investigation";
+        · дословно из кода
+    - если source === "investigation"
+      - context = { ...context, silent: true };
+        · дословно из кода
     - если isShuttingDown()
       - console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…
         · пишет строку в журнал сервера
@@ -25571,6 +26381,12 @@
 - когда попытки кончились
   - await logSystemError("background-jobs", "Уведомление сотруднику о сохранённом показе не подтверждено; показ о…
     · запись в журнал ошибок
+    - если isPrivateOperation()
+      - source = "investigation";
+        · дословно из кода
+    - если source === "investigation"
+      - context = { ...context, silent: true };
+        · дословно из кода
     - если isShuttingDown()
       - console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…
         · пишет строку в журнал сервера
@@ -25641,6 +26457,12 @@
 - когда попытки кончились
   - await logSystemError("background-jobs", "Уведомление о вопросе собственнику не подтверждено; вопрос остаётся …
     · запись в журнал ошибок
+    - если isPrivateOperation()
+      - source = "investigation";
+        · дословно из кода
+    - если source === "investigation"
+      - context = { ...context, silent: true };
+        · дословно из кода
     - если isShuttingDown()
       - console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…
         · пишет строку в журнал сервера
@@ -25756,6 +26578,12 @@
 - когда попытки кончились
   - await logSystemError( "site-sync", `Пост-закрытие сделки (${payload.dealId}) не выполнено после всех попыток …
     · запись в журнал ошибок
+    - если isPrivateOperation()
+      - source = "investigation";
+        · дословно из кода
+    - если source === "investigation"
+      - context = { ...context, silent: true };
+        · дословно из кода
     - если isShuttingDown()
       - console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…
         · пишет строку в журнал сервера
@@ -25799,6 +26627,12 @@
 - когда попытки кончились
   - await logSystemError( "background-jobs", `Вопрос об отзыве по сделке ${payload.dealId} не отправлен после все…
     · запись в журнал ошибок
+    - если isPrivateOperation()
+      - source = "investigation";
+        · дословно из кода
+    - если source === "investigation"
+      - context = { ...context, silent: true };
+        · дословно из кода
     - если isShuttingDown()
       - console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…
         · пишет строку в журнал сервера
@@ -25840,6 +26674,12 @@
 - когда попытки кончились
   - await logSystemError( "background-jobs", `Отложенное на утро уведомление «${payload.payload.title}» не ушло п…
     · запись в журнал ошибок
+    - если isPrivateOperation()
+      - source = "investigation";
+        · дословно из кода
+    - если source === "investigation"
+      - context = { ...context, silent: true };
+        · дословно из кода
     - если isShuttingDown()
       - console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…
         · пишет строку в журнал сервера
@@ -25975,6 +26815,12 @@
 - когда попытки кончились
   - await logSystemError( "background-jobs", `Ночной гео-подбор (${payload.dayKey}): объект ${payload.propertyId}…
     · запись в журнал ошибок
+    - если isPrivateOperation()
+      - source = "investigation";
+        · дословно из кода
+    - если source === "investigation"
+      - context = { ...context, silent: true };
+        · дословно из кода
     - если isShuttingDown()
       - console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…
         · пишет строку в журнал сервера
@@ -26049,6 +26895,12 @@
 - если !result
   - await logSystemError( "geocode", `Адрес объекта №${property.shortId} не найден ни в справочнике домов, ни в N…
     · запись в журнал ошибок
+    - если isPrivateOperation()
+      - source = "investigation";
+        · дословно из кода
+    - если source === "investigation"
+      - context = { ...context, silent: true };
+        · дословно из кода
     - если isShuttingDown()
       - console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…
         · пишет строку в журнал сервера
@@ -26106,6 +26958,12 @@
     · читает в базе: property
   - await logSystemError( "geocode", `Координаты объекта ${payload.propertyId} не получены после всех попыток (ад…
     · запись в журнал ошибок
+    - если isPrivateOperation()
+      - source = "investigation";
+        · дословно из кода
+    - если source === "investigation"
+      - context = { ...context, silent: true };
+        · дословно из кода
     - если isShuttingDown()
       - console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…
         · пишет строку в журнал сервера
@@ -26225,6 +27083,12 @@
       · меняет в базе: propertyPhotoPost
   - void logSystemError("meta", `Фото-пост объекта ${payload.propertyId} не запущен: ${summary.reason}`, { dedupK…
     · запись в журнал ошибок
+    - если isPrivateOperation()
+      - source = "investigation";
+        · дословно из кода
+    - если source === "investigation"
+      - context = { ...context, silent: true };
+        · дословно из кода
     - если isShuttingDown()
       - console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…
         · пишет строку в журнал сервера
@@ -26290,6 +27154,12 @@
 - когда попытки кончились
   - await logSystemError( "telephony", `Разговор ${payload.interactionId} был отвечен, но запись так и не нашлась…
     · запись в журнал ошибок
+    - если isPrivateOperation()
+      - source = "investigation";
+        · дословно из кода
+    - если source === "investigation"
+      - context = { ...context, silent: true };
+        · дословно из кода
     - если isShuttingDown()
       - console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…
         · пишет строку в журнал сервера
@@ -26432,6 +27302,12 @@
 - когда попытки кончились
   - await logSystemError("ai", `Факты объекта продавца ${payload.clientId} не обновлены: сбой базы на обеих попыт…
     · запись в журнал ошибок
+    - если isPrivateOperation()
+      - source = "investigation";
+        · дословно из кода
+    - если source === "investigation"
+      - context = { ...context, silent: true };
+        · дословно из кода
     - если isShuttingDown()
       - console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…
         · пишет строку в журнал сервера
@@ -26499,6 +27375,12 @@
 - когда попытки кончились
   - void logSystemError("ai", `Оценка фото продавца не удалась после всех попыток (клиент ${payload.clientId})`);
     · запись в журнал ошибок
+    - если isPrivateOperation()
+      - source = "investigation";
+        · дословно из кода
+    - если source === "investigation"
+      - context = { ...context, silent: true };
+        · дословно из кода
     - если isShuttingDown()
       - console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…
         · пишет строку в журнал сервера
@@ -26562,6 +27444,12 @@
 - когда попытки кончились
   - await logSystemError( "site-sync", `Объект не дошёл до сайта после всех попыток (${payload.context}) — витрин…
     · запись в журнал ошибок
+    - если isPrivateOperation()
+      - source = "investigation";
+        · дословно из кода
+    - если source === "investigation"
+      - context = { ...context, silent: true };
+        · дословно из кода
     - если isShuttingDown()
       - console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…
         · пишет строку в журнал сервера
@@ -26687,6 +27575,12 @@
       · меняет в базе: propertySocialRepost
   - void logSystemError("meta", `Повтор объекта ${payload.propertyId} (круг ${payload.round}) не запущен: ${summa…
     · запись в журнал ошибок
+    - если isPrivateOperation()
+      - source = "investigation";
+        · дословно из кода
+    - если source === "investigation"
+      - context = { ...context, silent: true };
+        · дословно из кода
     - если isShuttingDown()
       - console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…
         · пишет строку в журнал сервера
@@ -26880,6 +27774,12 @@
       · дальше не идёт, ничего не меняя
   - await logSystemError( "ai", `Ход (${payload.conversationId}, личные сообщения Telegram-канала) не дождался ИИ…
     · запись в журнал ошибок
+    - если isPrivateOperation()
+      - source = "investigation";
+        · дословно из кода
+    - если source === "investigation"
+      - context = { ...context, silent: true };
+        · дословно из кода
     - если isShuttingDown()
       - console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…
         · пишет строку в журнал сервера
@@ -27051,6 +27951,12 @@
     · меняет в базе: telegramConversation
   - await logSystemError( "ai", `Ход (${payload.conversationId}, TELEGRAM) не дождался ИИ за всё окно фонового по…
     · запись в журнал ошибок
+    - если isPrivateOperation()
+      - source = "investigation";
+        · дословно из кода
+    - если source === "investigation"
+      - context = { ...context, silent: true };
+        · дословно из кода
     - если isShuttingDown()
       - console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…
         · пишет строку в журнал сервера
@@ -27097,6 +28003,12 @@
   - если сорвалось
     - void logSystemError( "ai", `Не удалось позвать человека на непроходимый диалог Telegram ${payload.conversatio…
       · запись в журнал ошибок
+      - если isPrivateOperation()
+        - source = "investigation";
+          · дословно из кода
+      - если source === "investigation"
+        - context = { ...context, silent: true };
+          · дословно из кода
       - если isShuttingDown()
         - console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…
           · пишет строку в журнал сервера
@@ -27145,6 +28057,12 @@
 - если blocked
   - void logSystemError("tiktok", `Объект №${property.shortId}: отложенный повтор TikTok отменён — ${blocked}`);
     · запись в журнал ошибок
+    - если isPrivateOperation()
+      - source = "investigation";
+        · дословно из кода
+    - если source === "investigation"
+      - context = { ...context, silent: true };
+        · дословно из кода
     - если isShuttingDown()
       - console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…
         · пишет строку в журнал сервера
@@ -27411,6 +28329,12 @@
 - когда попытки кончились
   - await logSystemError( "ai", `Разговор ${payload.interactionId} так и не расшифрован после всех попыток — запи…
     · запись в журнал ошибок
+    - если isPrivateOperation()
+      - source = "investigation";
+        · дословно из кода
+    - если source === "investigation"
+      - context = { ...context, silent: true };
+        · дословно из кода
     - если isShuttingDown()
       - console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…
         · пишет строку в журнал сервера
@@ -27454,6 +28378,12 @@
 - если !PUBLISHABLE_STATUSES.includes(property.status)
   - void logSystemError( "video-handoff", `Объект ${property.id}: ролик принят, но публикация пропущена — объект …
     · запись в журнал ошибок
+    - если isPrivateOperation()
+      - source = "investigation";
+        · дословно из кода
+    - если source === "investigation"
+      - context = { ...context, silent: true };
+        · дословно из кода
     - если isShuttingDown()
       - console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…
         · пишет строку в журнал сервера
@@ -27514,6 +28444,12 @@
 - если !diskPath || !(await fileExists(diskPath))
   - void logSystemError( "video-handoff", `Объект ${property.id}: задание публикации запущено, но файла ролика на…
     · запись в журнал ошибок
+    - если isPrivateOperation()
+      - source = "investigation";
+        · дословно из кода
+    - если source === "investigation"
+      - context = { ...context, silent: true };
+        · дословно из кода
     - если isShuttingDown()
       - console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…
         · пишет строку в журнал сервера
@@ -27622,6 +28558,12 @@
 - когда попытки кончились
   - void logSystemError("api", `Первые секунды ролика: разбор не удался (объект ${payload.propertyId})`, { dedupK…
     · запись в журнал ошибок
+    - если isPrivateOperation()
+      - source = "investigation";
+        · дословно из кода
+    - если source === "investigation"
+      - context = { ...context, silent: true };
+        · дословно из кода
     - если isShuttingDown()
       - console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…
         · пишет строку в журнал сервера

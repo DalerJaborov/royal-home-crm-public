@@ -81,6 +81,15 @@ export async function returningAgentStillAvailable(agentId: string | null | unde
   return blockedOnlyByPause ? agentId : null;
 }
 
+/** Current active owner wins; a departed holder must not hide a live historical owner. */
+export async function preferredReturningOwnerId(currentId: string | null, historicalId: string | null): Promise<string | null> {
+  for (const id of [...new Set([currentId, historicalId].filter((value): value is string => !!value))]) {
+    const agent = await prisma.agent.findUnique({ where: { id }, select: { isActive: true } });
+    if (agent?.isActive) return id;
+  }
+  return null;
+}
+
 export interface ReturningClientInput {
   clientId: string;
   kind: string;

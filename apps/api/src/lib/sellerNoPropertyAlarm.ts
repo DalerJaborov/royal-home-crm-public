@@ -261,8 +261,8 @@ export async function runSellerNoPropertyAlarmTick(now: Date = new Date()): Prom
      * единицы карточек за тик, и вызов ИИ на каждую не бьёт по бюджету (та же
      * логика, что в lib/agentOffCrmAlarm.ts, откуда эта проверка и взята).
      */
-    const pause = await checkClientExplainedPause(c.id);
-    if (pause.explained) continue;
+    const pause = await checkClientExplainedPause(c.id, { since: c.shootingDate });
+    if (pause.explained || pause.unchecked) continue;
 
     const daysSince = Math.floor((now.getTime() - c.shootingDate.getTime()) / (24 * 60 * 60 * 1000));
     const payload = {

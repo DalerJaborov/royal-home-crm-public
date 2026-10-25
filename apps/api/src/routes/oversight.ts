@@ -198,7 +198,8 @@ export async function findSilentAfterShowing(now: Date) {
     where: { clientId: { in: candidates.map((c) => c.id) }, type: { not: "SYSTEM" } },
     orderBy: [{ clientId: "asc" }, { createdAt: "desc" }],
     distinct: ["clientId"],
-    select: { clientId: true, type: true, completedAt: true, nextActionDate: true, declinedAt: true, createdAt: true },
+    select: { clientId: true, type: true, completedAt: true, nextActionDate: true, declinedAt: true, createdAt: true,
+      taskCancelledAt: true, showingEvidenceVersion: true, propertyId: true, showingOffCrm: true, showingOffCrmDetails: true },
     // Потолок — строки, а не id клиентов: distinct уже держит по одной строке на
     // клиента, но потолок здесь пишем явно (22.09.2026, класс «Пагинация»), чтобы
     // граница не зависела от того, что distinct не уберут при следующей правке.

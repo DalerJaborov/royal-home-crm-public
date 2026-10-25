@@ -1,6 +1,7 @@
 import { maskClientPhone } from "../clientPhone.js";
 import { formatPropertyCode, type QualifyIncomingCallInput, type QualifyIncomingCallResult } from "@royal-home/shared";
 import { prisma } from "../../db.js";
+import { recordIncomingNamedDeclaration } from "../clientWorkflowObservations.js";
 // Через крючок, не напрямую из services/leads/selection.js: этот файл (в
 // отличие от callTracker.ts/kpiQueueRouting.ts) приходит туда обратно через
 // agentOccupancyShield.ts, прямой импорт замыкал бы цикл (аудит циклов
@@ -497,6 +498,9 @@ ${propertyNote}` : "");
         tx,
       });
     }
+    if (assignedNow && assignedToRequested && requestedAgentId) await recordIncomingNamedDeclaration(tx, {
+      clientId: client.id, callId: call.id, interactionId: call.interactionId, requestedAgentId, operatorId: input.operatorId,
+    });
     return saved;
   });
 

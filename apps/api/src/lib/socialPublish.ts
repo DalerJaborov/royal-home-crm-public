@@ -1029,14 +1029,19 @@ export async function publishFacebookReel(
  *  что и при публикации (POST /{video-id} с полем description), в отличие от
  *  Instagram Graph API это штатно поддерживается. Зовёт lib/publishedListingSync.ts
  *  при смене цены, чтобы не постить дубль. */
+/** Metadata ledger owns retries; never retry an ambiguous write. */
+async function fetchMetadataOnce(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+  return fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs), redirect: "error" });
+}
 export async function updateFacebookVideoDescription(
   videoId: string,
   token: string,
-  description: string
+  description: string,
+  singleAttempt = false
 ): Promise<{ ok: boolean; error?: string }> {
   try {
     const url = `https://graph.facebook.com/${GRAPH_VERSION}/${videoId}`;
-    const res = await fetchWithRetry(
+    const res = await (singleAttempt ? fetchMetadataOnce : fetchWithRetry)(
       url,
       {
         method: "POST",
@@ -1046,7 +1051,7 @@ export async function updateFacebookVideoDescription(
       PUBLISH_TIMEOUT_MS
     );
     const body = await readJson(res);
-    if (!res.ok || body.success === false) {
+    if (!res.ok || body.success === false || (singleAttempt && body.success !== true)) {
       // Код и подкод Meta — в текст (25.09.2026): на проде правка подписи давала
       // голое «An unknown error has occurred.» по 17 объектам, и без кода причину
       // (ролик ушёл в Reels, нет права страницы, частота) не отличить.
@@ -1427,21 +1432,31 @@ export async function updateYouTubeDescription(
   creds: YouTubeCredentials,
   videoId: string,
   title: string,
-  description: string
+  description: string,
+  singleAttempt = false
 ): Promise<{ ok: boolean; error?: string }> {
   try {
     if (!creds.clientId || !creds.clientSecret || !creds.refreshToken) {
       return { ok: false, error: "YouTube не настроен (нет client_id/client_secret/refresh_token в Настройках)" };
     }
     const accessToken = await youtubeAccessToken(creds);
-    const res = await fetchWithRetry(
+    let preservedSnippet: Record<string, unknown> | undefined;
+    if (singleAttempt) {
+      const existing = await fetchMetadataOnce('https://www.googleapis.com/youtube/v3/videos?part=snippet&id=' + encodeURIComponent(videoId), { headers: { Authorization: 'Bearer ' + accessToken } }, PUBLISH_TIMEOUT_MS);
+      if (!existing.ok) return { ok: false, error: "Cannot read existing YouTube metadata" };
+      const data = await existing.json() as { items?: Array<{ snippet?: Record<string, unknown> }> };
+      const original = data.items?.[0]?.snippet;
+      if (!original || typeof original.title !== "string" || typeof original.categoryId !== "string") return { ok: false, error: "Existing YouTube metadata unavailable" };
+      preservedSnippet = Object.fromEntries(["title", "categoryId", "tags", "defaultLanguage", "defaultAudioLanguage"].filter(key => original[key] !== undefined).map(key => [key, original[key]]));
+    }
+    const res = await (singleAttempt ? fetchMetadataOnce : fetchWithRetry)(
       "https://www.googleapis.com/youtube/v3/videos?part=snippet",
       {
         method: "PUT",
         headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
         body: JSON.stringify({
           id: videoId,
-          snippet: { title: title.slice(0, 100) || "Reels", description, categoryId: "22" },
+          snippet: preservedSnippet ? { ...preservedSnippet, description } : { title: title.slice(0, 100) || "Reels", description, categoryId: "22" },
         }),
       },
       PUBLISH_TIMEOUT_MS
@@ -1450,6 +1465,7 @@ export async function updateYouTubeDescription(
       const body = await readJson(res);
       return { ok: false, error: graphErrorMessage(body, `HTTP ${res.status}`) };
     }
+    if (singleAttempt) { const receipt = await readJson(res); if (receipt.id !== videoId) return { ok: false, error: "Metadata acknowledgement missing" }; }
     return { ok: true };
   } catch (err) {
     return { ok: false, error: describeError(err) };
@@ -1463,7 +1479,7 @@ export async function updateYouTubeDescription(
  * Facebook не идемпотентен — повторять его ради превью нельзя). Возвращают
  * строку для журнала публикации; null — обложка встала.
  */
-export async function setFacebookVideoThumbnail(videoId: string, token: string, squareAbsolutePath: string): Promise<string | null> {
+export async function setFacebookVideoThumbnail(videoId: string, token: string, squareAbsolutePath: string, strictAcknowledgement = false): Promise<string | null> {
   try {
     const form = new FormData();
     form.append("access_token", token);
@@ -1475,7 +1491,7 @@ export async function setFacebookVideoThumbnail(videoId: string, token: string, 
       signal: AbortSignal.timeout(PUBLISH_TIMEOUT_MS),
     });
     const body = await readJson(res);
-    if (!res.ok || body.success === false) return `Facebook не принял обложку: ${graphErrorMessage(body, `HTTP ${res.status}`)} — видео опубликовано с превью Facebook`;
+    if (!res.ok || body.success === false || (strictAcknowledgement && body.success !== true && typeof body.id !== "string")) return `Facebook не принял обложку: ${graphErrorMessage(body, `HTTP ${res.status}`)} — видео опубликовано с превью Facebook`;
     return null;
   } catch (err) {
     return `Обложка в Facebook не ушла: ${describeError(err)} — видео опубликовано с превью Facebook`;
@@ -1488,7 +1504,7 @@ export async function youtubeThumbnailFromSquare(squareAbsolutePath: string): Pr
   return sharp(square).extend({ left: 280, right: 280, top: 0, bottom: 0, background: "#07130F" }).jpeg({ quality: 88 }).toBuffer();
 }
 
-export async function setYouTubeThumbnail(creds: YouTubeCredentials, videoId: string, squareAbsolutePath: string): Promise<string | null> {
+export async function setYouTubeThumbnail(creds: YouTubeCredentials, videoId: string, squareAbsolutePath: string, strictAcknowledgement = false): Promise<string | null> {
   try {
     const accessToken = await youtubeAccessToken(creds);
     const image = await youtubeThumbnailFromSquare(squareAbsolutePath);
@@ -1498,7 +1514,10 @@ export async function setYouTubeThumbnail(creds: YouTubeCredentials, videoId: st
       body: new Uint8Array(image),
       signal: AbortSignal.timeout(PUBLISH_TIMEOUT_MS),
     });
-    if (res.ok) return null;
+    if (res.ok) {
+      if (strictAcknowledgement) { const receipt = await readJson(res); if (!Array.isArray(receipt.items) || !receipt.items.length) return "Thumbnail acknowledgement missing"; }
+      return null;
+    }
     const body = await readJson(res);
     const message = graphErrorMessage(body, `HTTP ${res.status}`);
     if (res.status === 403 && /insufficient|scope/i.test(message)) {

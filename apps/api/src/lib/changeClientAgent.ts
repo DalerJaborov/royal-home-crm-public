@@ -236,6 +236,7 @@ async function run(tx: Tx, input: ChangeClientAgentInput): Promise<RunResult> {
     select: {
       id: true,
       assignedAgentId: true,
+      assignedAt: true,
       lastAgentId: true,
       deletedAt: true,
       shortId: true,
@@ -469,7 +470,7 @@ async function run(tx: Tx, input: ChangeClientAgentInput): Promise<RunResult> {
   }
 
   const agentName = input.actorName ?? (await resolveAgentName(tx, input.actorId ?? null));
-  await tx.auditLog.create({
+  const assignmentAudit = await tx.auditLog.create({
     data: {
       action: "CLIENT_AGENT_CHANGE",
       entityType: "Client",
@@ -484,6 +485,15 @@ async function run(tx: Tx, input: ChangeClientAgentInput): Promise<RunResult> {
       },
     },
   });
+  const nextAssignmentAt = data.assignedAt instanceof Date ? data.assignedAt
+    : typeof data.assignedAt === "string" ? new Date(data.assignedAt) : before.assignedAt;
+  if (input.toAgentId && (before.assignedAgentId !== input.toAgentId || nextAssignmentAt.getTime() !== before.assignedAt.getTime())) {
+    const { recordClientWorkflowObservation } = await import("./clientWorkflowObservations.js");
+    await recordClientWorkflowObservation(tx, { clientId: input.clientId, kind: "ASSIGNMENT_SNAPSHOT", sourceType: "OWNERSHIP_AUDIT",
+      sourceId: assignmentAudit.id, occurredAt: new Date(), payload: { source: input.source, actorId: input.actorId ?? null,
+        fromAgentId: before.assignedAgentId, toAgentId: input.toAgentId, auditId: assignmentAudit.id,
+        timestampAdvanced: nextAssignmentAt.getTime() !== before.assignedAt.getTime(), assessment: "NOT_A_VERDICT" } });
+  }
 
   // СВЯЗКА «ПРОДАВЕЦ + ОБЪЕКТ» (24.09.2026): объекты продавца, которыми владел
   // прежний агент, уходят новому в той же транзакции — здесь, в единственной

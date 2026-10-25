@@ -1,3 +1,5 @@
+import { visibleErrorLogs } from "../lib/systemErrorVisibility.js";
+import { visibleSystemErrorWhere } from "../lib/investigationOperations.js";
 /**
  * Утренний отчёт для рабочей Claude-сессии — те же числа, что уходят директору
  * пушем в 08:00 (см. cron.ts sendDirectorDigest), плюс сами пойманные ошибки.
@@ -50,8 +52,8 @@ morningReportRouter.get("/", async (req, res) => {
      * take — предел выборки (CLAUDE.md: у любого массива обязана быть
      * граница), 2000 с запасом покрывает даже затяжную аварию за неделю.
      */
-    prisma.errorLog.findMany({
-      where: { resolvedAt: null, createdAt: { gte: new Date(Date.now() - 7 * 86400000) } },
+    visibleErrorLogs().findMany({
+      where: { ...visibleSystemErrorWhere(), resolvedAt: null, createdAt: { gte: new Date(Date.now() - 7 * 86400000) } },
       orderBy: { createdAt: "desc" },
       take: 2000,
       select: { id: true, source: true, message: true, url: true, createdAt: true },

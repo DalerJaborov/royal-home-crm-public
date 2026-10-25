@@ -6,6 +6,7 @@
  */
 import { Router, type Request, type Response } from "express";
 import { createHash } from "node:crypto";
+import { recordPropertyDispatchAccepted } from "../../lib/clientWorkflowObservations.js";
 import { confirmedClientIntents, clientPropertyMatchQuerySchema, maskPhones, sendPropertiesSchema, type SendPropertiesFallback, type SendTargetInfo } from "@royal-home/shared";
 import { z } from "zod";
 import { prisma } from "../../db.js";
@@ -284,6 +285,7 @@ matchingRouter.post("/:id/send-properties", requireAuth, async (req, res) => {
   if (!delivery.ok) {
     return res.status(delivery.status).json({ error: delivery.error, code: delivery.code, fallback });
   }
+  await recordPropertyDispatchAccepted(client.id, client.assignedAt, propertyIds, targetChannel(target), req.agent!.id);
 
   /**
    * PropertyExposure — тем же путём, что и у бота (messengers/propertyShowcase.ts::

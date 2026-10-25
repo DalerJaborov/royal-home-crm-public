@@ -9,6 +9,7 @@
  * логикой замены статуса — теперь один.
  */
 import { prisma } from "../db.js";
+import { decideReturningClient, preferredReturningOwnerId } from "./returningClientRouting.js";
 import { logSystemError } from "./systemError.js";
 import { logTimeline } from "./timeline.js";
 import { changeClientAgent, type ChangeClientAgentResult, type Tx } from "./changeClientAgent.js";
@@ -90,9 +91,11 @@ export async function reactivateClientFromLost(
 ): Promise<ReactivateClientResult> {
   const client = await prisma.client.findFirst({
     where: { id: input.clientId, deletedAt: null },
-    select: { id: true, status: true, workStatus: true, assignedAgentId: true, lastAgentId: true },
+    select: { id: true, kind: true, status: true, workStatus: true, assignedAgentId: true, lastAgentId: true,
+      assignedAt: true, assignmentRefusedAt: true, assignmentCompletedAt: true },
   });
   if (!client) return { ok: false };
+  if (client.assignmentRefusedAt || client.assignmentCompletedAt) return { ok: false };
 
   // Уже активен и не потерян — ничего делать не нужно.
   if (client.status !== "LOST" && client.workStatus === "ACTIVE") {
@@ -120,7 +123,10 @@ export async function reactivateClientFromLost(
    * subjectAgentId — держатель ПОСЛЕ реактивации (новый агент либо последний
    * исторический), чтобы запись оставалась видна в его работе с клиентом.
    */
-  const subjectAgentId = input.agentId ?? client.lastAgentId ?? null;
+  const previous = await preferredReturningOwnerId(client.assignedAgentId, client.lastAgentId);
+  const route = await decideReturningClient({ clientId: client.id, kind: client.kind, lastAgentId: previous });
+  const targetAgentId = route.kind === "queue" ? null : route.agentId;
+  const subjectAgentId = targetAgentId;
 
   const now = new Date();
   const data = reactivationResetData(client);
@@ -129,7 +135,7 @@ export async function reactivateClientFromLost(
   // LAW-A2-PENDING: reactivateClientFromLost (Х3, ownership policy 17.09.2026) —
   // прямая запись мимо changeClientAgent; перевод — пачка А2.
   // Назначение: либо конкретный агент, либо очередь руководителя.
-  if (input.agentId) {
+  if (targetAgentId) {
     data.assignedAt = now;
     data.acceptedAt = input.accept ? now : null;
     data.escalatedAt = null;
@@ -143,7 +149,11 @@ export async function reactivateClientFromLost(
     // Возврат в очередь руководителя: assignedAgentId остаётся null (или
     // очищается), escalatedAt ставится, чтобы карточка попала в список
     // «требует назначения».
-    data.escalatedAt = now;
+    data.escalatedAt = client.kind === "OTHER" ? now : null;
+    data.acceptedAt = null;
+    data.assignedAt = now;
+    data.triedAgentIds = [];
+    data.reassignCount = 0;
   }
 
   try {
@@ -166,10 +176,12 @@ export async function reactivateClientFromLost(
     const changed = await prisma.$transaction((tx) =>
       changeClientAgent({
         clientId: client.id,
-        toAgentId: input.agentId ?? null,
+        toAgentId: targetAgentId,
         reason: input.reason,
         actorId: null, // автоматика/клиент — источник, не человек-агент
         source: "lifecycle",
+        guardWhere: { assignedAgentId: client.assignedAgentId, assignedAt: client.assignedAt,
+          status: client.status, workStatus: client.workStatus, assignmentRefusedAt: null, assignmentCompletedAt: null },
         data,
         skipInteraction: true,
         tx,

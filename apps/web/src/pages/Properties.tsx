@@ -360,7 +360,7 @@ export function Properties() {
   // расходились при каждой правке текста.
   const bulkBusy = syncToSite.isPending || bulkTrash.isPending;
 
-  const bulkConfirmDialog = confirmBulkAction === "trash" ? <PropertyRemovalDialog
+  const bulkConfirmDialog = confirmBulkAction === "trash" ? <PropertyRemovalDialog propertyIds={[...selectedIds]}
     title={BULK_CONFIRM.trash.title} description={`${BULK_CONFIRM.trash.describe(selectedIds.size)} Указанная причина относится ко всем выбранным объектам.`}
     confirmLabel={BULK_CONFIRM.trash.confirmLabel} onClose={() => setConfirmBulkAction(null)} onConfirm={trashSelected}
   /> : confirmBulkAction && (

@@ -1,3 +1,4 @@
+import { isPrivateCron, withCronPrivacy } from "./investigationOperations.js";
 import { AsyncLocalStorage } from "node:async_hooks";
 import cron from "node-cron";
 import { prisma } from "../db.js";
@@ -343,7 +344,7 @@ export function scheduleTracked(
         activeTicks--;
       };
       activeTicks++;
-      const work = tickContext.run(tick, () => Promise.resolve().then(fn));
+      const work = tickContext.run(tick, () => withCronPrivacy(name, () => Promise.resolve().then(fn)));
       work.then(uncount, uncount);
       const result = await Promise.race([work.then(() => "done" as const), timeout]);
       if (result === "timeout") {
@@ -352,7 +353,7 @@ export function scheduleTracked(
         const minutes = Math.round(timeoutMs / MINUTE);
         const message = `Крон «${name}» не завершил тик за ${minutes} мин — снят с замка`;
         beat(name, { lastError: message });
-        await logSystemError("cron", message).catch(() => {});
+        await logSystemError(isPrivateCron(name) ? "investigation" : "cron", message).catch(() => {});
         console.error(`[cron:${name}] ${message}`);
         // Замок снимается ниже, в finally — следующий тик пойдёт по расписанию.
         // Сам зависший промис fn() продолжает висеть в фоне: его результат
@@ -366,7 +367,7 @@ export function scheduleTracked(
       // обязана быть последним рубежом, а не местом, где ошибка меняет маршрут.
       beat(name, { lastError: errorText(err).slice(0, 500) });
       console.error(`[cron:${name}]`, errorText(err));
-      await logSystemError("cron", `Крон «${name}» упал: ${errorText(err)}`).catch(() => {});
+      await logSystemError(isPrivateCron(name) ? "investigation" : "cron", `Крон «${name}» упал: ${errorText(err)}`).catch(() => {});
     } finally {
       if (timer) clearTimeout(timer);
       running = false;
@@ -492,7 +493,7 @@ export async function checkCronHeartbeats(): Promise<number> {
     alerts++;
     const silentMin = Math.round((now - lastSeen) / MINUTE);
     await logSystemError(
-      "cron",
+      isPrivateCron(name) ? "investigation" : "cron",
       `Крон-тик «${name}» молчит ${silentMin} мин (расписание ${meta.expr}, ` +
         `следующий ожидался: ${expectedNextRun.toISOString()}; последний запуск: ` +
         `${row?.lastRunAt?.toISOString() ?? "ни разу с этого деплоя"}` +

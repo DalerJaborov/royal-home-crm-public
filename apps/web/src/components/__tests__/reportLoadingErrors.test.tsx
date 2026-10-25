@@ -15,7 +15,8 @@ const state = vi.hoisted(() => ({
   mutation: { isPending: false, isError: false, error: null as Error | null, mutate: vi.fn(), reset: vi.fn() },
 }));
 
-vi.mock("@tanstack/react-query", () => ({
+vi.mock("@tanstack/react-query", async importOriginal => ({
+  ...await importOriginal<typeof import("@tanstack/react-query")>(),
   useQuery: () => state.query,
   useMutation: () => state.mutation,
   useQueryClient: () => ({ invalidateQueries: vi.fn(), setQueryData: vi.fn() }),

@@ -4,8 +4,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { InvestigationCaseDetail, InvestigationCaseRow, InvestigationCaseConfig, SellerControlPreviewPage } from "@royal-home/shared";
 import { api } from "../../lib/api";
 import { Rh2Sheet } from "../rh2/Rh2Sheet";
+import { SellerControlPanel } from "./SellerControlPanel";
+import { BuyerShowingCandidatesPanel } from "./BuyerShowingCandidatesPanel";
+import { WorkflowObservationsPanel } from "./WorkflowObservationsPanel";
 
-const statuses = { OPEN: "Новая проверка", REVIEWING: "На рассмотрении", CLEARED: "Подозрение снято", CONFIRMED: "Подтверждено руководителем" } as const;
+const statuses = { OPEN: "Новая проверка", REVIEWING: "На рассмотрении", CLEARED: "Подозрение снято", CONFIRMED: "Факт подтверждён" } as const;
 type Status = keyof typeof statuses;
 const label = (status: string) => statuses[status as Status] ?? status;
 
@@ -19,6 +22,9 @@ export function InvestigationCasesPanel() {
     <p className="sub">Закрытый разбор для руководства. Сигналы не означают вину; решение не отправляет уведомлений и не меняет баллы.</p>
     <RecurrenceConfig />
     <SellerControlPreview />
+    <SellerControlPanel />
+    <BuyerShowingCandidatesPanel />
+    <WorkflowObservationsPanel />
     <details className="card my-3"><summary>Предпросмотр новых проверок — без звонков</summary>
       <p className="sub">Эти записи не набирают клиентов. Изменение настроек позже не активирует их задним числом. Показаны последние 25 записей каждого вида.</p>
       {preview.isPending ? <p>Загрузка…</p> : preview.isError ? <p role="alert">Не удалось загрузить предпросмотр. <button type="button" onClick={() => void preview.refetch()}>Повторить</button></p>
@@ -48,7 +54,7 @@ function CaseDetail({ id, onClose }: { id: string; onClose: () => void }) {
   const [level, setLevel] = useState<"C1" | "C2" | "C3">("C1");
   // Keep the exact request on an uncertain response; explicit refresh starts a new decision.
   const [attempt, setAttempt] = useState<{ requestKey: string; revision: number; status: Status; note: string; level?: "C1" | "C2" | "C3" } | null>(null);
-  const mutation = useMutation({ retry: false, mutationFn: (body: NonNullable<typeof attempt>) => api<{ decision: { mirrorWarning?: string | null } }>(`/security/cases/${id}/decisions`, { method: "POST", body: JSON.stringify(body) }),
+  const mutation = useMutation({ retry: false, mutationFn: (body: NonNullable<typeof attempt>) => api<{ decision: { mirrorWarning?: string | null } }>(`/security/cases/${id}/decisions`, { method: "POST", body }),
     onSuccess: async (result) => { setDecisionMessage(result.decision.mirrorWarning ?? "Решение сохранено"); setAttempt(null); setNote(""); await cache.invalidateQueries({ queryKey: ["investigation-cases"] }); await detail.refetch(); },
   });
   return <Rh2Sheet title="Разбор дела" onClose={onClose} dismissible={!mutation.isPending}>
@@ -59,11 +65,16 @@ function CaseDetail({ id, onClose }: { id: string; onClose: () => void }) {
         {detail.data.propertyId && <a className="pill ghost" href={`/properties/${detail.data.propertyId}`}>Карточка объекта</a>}
       </div>
       <p className="sub">Групп источников: {detail.data.independentSources}. Несколько выводов из одного звонка не считаются отдельными подтверждениями.</p>
+      {detail.data.recommendation && <p className="sub">Предварительная оценка: {detail.data.recommendation.level}. {
+        detail.data.recommendation.basis === "RECORDED_RED_OUTCOME_WITH_VERIFIED_QUOTE" ? "Найдена цитата человека в записи проверочного разговора."
+          : detail.data.recommendation.basis === "DISTINCT_RECORDED_TRACES_REQUIRE_REVIEW" ? "Сошлись разные зафиксированные следы; требуется проверка."
+            : detail.data.recommendation.basis === "HUMAN_CLEARED" ? "Подозрение снято решением руководителя." : "Данных для повышения уровня недостаточно."} Это рекомендация, сохранённый уровень и уведомления не меняются.</p>}
       <h3>Материалы</h3>
       {detail.data.evidence.map(item => <article key={item.id} className="card min-w-0 break-words"><p className="whitespace-pre-wrap">{item.summary}</p><small>{dushanbeDateTime(item.occurredAt)} · {item.sourceType}</small></article>)}
       <h3>История решений</h3>
       {!detail.data.decisions.length && <p>Решений пока нет.</p>}
-      {detail.data.decisions.map(item => <article key={item.id} className="card break-words"><strong>{label(item.newStatus)}</strong><p className="whitespace-pre-wrap">{item.note}</p><small>{dushanbeDateTime(item.createdAt)}</small></article>)}
+      {detail.data.decisions.map(item => <article key={item.id} className="card break-words"><strong>{item.action === "SET_SEVERITY" ? `Отдельное решение об уровне ${item.level}` : label(item.newStatus)}</strong><p className="whitespace-pre-wrap">{item.note}</p><small>{dushanbeDateTime(item.createdAt)}</small></article>)}
+      <p className="sub">Подтверждение факта само по себе не назначает C4. Такой уровень требует отдельного решения ниже.</p>
       <label>Решение<select className="w-full" value={status} disabled={mutation.isPending || !!attempt} onChange={e => setStatus(e.target.value as Status)}>{Object.entries(statuses).map(([value, text]) => <option key={value} value={value}>{text}</option>)}</select></label>
       {status === "REVIEWING" && <label>Уровень рассмотрения<select className="w-full" value={level} disabled={mutation.isPending || !!attempt} onChange={e => setLevel(e.target.value as typeof level)}>
         <option value="C1">C1 — первичный сигнал</option><option value="C2">C2 — требуется проверка обстоятельств</option><option value="C3">C3 — углублённая проверка</option>
@@ -76,8 +87,30 @@ function CaseDetail({ id, onClose }: { id: string; onClose: () => void }) {
         setAttempt(body); mutation.mutate(body);
       }}>{mutation.isPending ? "Сохранение…" : attempt ? "Повторить то же решение" : "Сохранить решение"}</button>
       {attempt && !mutation.isPending && <button type="button" className="pill ghost" onClick={async () => { await detail.refetch(); setAttempt(null); mutation.reset(); }}>Обновить дело</button>}</div>
+      {detail.data.status === "CONFIRMED" && <SeverityDecision key={`${id}:${detail.data.revision}`} id={id} revision={detail.data.revision} disabled={mutation.isPending || !!attempt} />}
     </div>}
   </Rh2Sheet>;
+}
+
+function SeverityDecision({ id, revision, disabled }: { id: string; revision: number; disabled: boolean }) {
+  const cache = useQueryClient();
+  const [level, setLevel] = useState<"C1" | "C2" | "C3" | "C4">("C1");
+  const [note, setNote] = useState(""); const [confirmC4, setConfirmC4] = useState(false);
+  const [attempt, setAttempt] = useState<{ requestKey: string; revision: number; level: typeof level; note: string; confirmC4: boolean } | null>(null);
+  const mutation = useMutation({ retry: false, mutationFn: (body: NonNullable<typeof attempt>) => api(`/security/cases/${id}/severity`, { method: "POST", body }),
+    onSuccess: async () => { await cache.invalidateQueries({ queryKey: ["investigation-cases"] }); await cache.invalidateQueries({ queryKey: ["investigation-case", id] }); } });
+  return <section className="card grid gap-3"><h3>Отдельное решение об уровне</h3>
+    <label>Уровень<select value={level} disabled={disabled || mutation.isPending || !!attempt} onChange={event => { setLevel(event.target.value as typeof level); setConfirmC4(false); }}>
+      <option value="C1">C1 — первичный сигнал</option><option value="C2">C2 — проверка обстоятельств</option><option value="C3">C3 — углублённая проверка</option><option value="C4">C4 — отдельное решение руководителя</option>
+    </select></label>
+    <label>Основания уровня<textarea value={note} maxLength={4000} disabled={disabled || mutation.isPending || !!attempt} onChange={event => setNote(event.target.value)} /></label>
+    {level === "C4" && <label><input type="checkbox" checked={confirmC4} disabled={disabled || mutation.isPending || !!attempt} onChange={event => setConfirmC4(event.target.checked)} /> Принимаю отдельное решение об уровне C4; это не автоматический результат подтверждения факта.</label>}
+    {mutation.isError && <p role="alert">{mutation.error instanceof Error ? mutation.error.message : "Уровень не сохранён"}</p>}
+    <button type="button" className="pill" disabled={disabled || mutation.isPending || note.trim().length < 5 || level === "C4" && !confirmC4} onClick={() => {
+      const body = attempt ?? { requestKey: crypto.randomUUID(), revision, level, note: note.trim(), confirmC4 }; setAttempt(body); mutation.mutate(body);
+    }}>{attempt ? "Повторить то же решение об уровне" : "Сохранить отдельное решение об уровне"}</button>
+    {attempt && !mutation.isPending && <button type="button" onClick={() => void cache.invalidateQueries({ queryKey: ["investigation-case", id] })}>Обновить дело</button>}
+  </section>;
 }
 
 function RecurrenceConfig() {
@@ -88,7 +121,7 @@ function RecurrenceConfig() {
   const [sample, setSample] = useState("");
   const [repeat, setRepeat] = useState("");
   const [days, setDays] = useState("30");
-  const save = useMutation({ retry: false, mutationFn: (value: InvestigationCaseConfig | null) => api("/security/cases/config", { method: "PUT", body: JSON.stringify({ config: value }) }),
+  const save = useMutation({ retry: false, mutationFn: (value: InvestigationCaseConfig | null) => api("/security/cases/config", { method: "PUT", body: { config: value } }),
     onSuccess: async () => { setEditing(false); await cache.invalidateQueries({ queryKey: ["investigation-config"] }); await cache.invalidateQueries({ queryKey: ["investigation-recurrence"] }); },
   });
   const names: Record<string, string> = { NOT_CONFIGURED: "Пороги не заданы", INSUFFICIENT_SAMPLE: "Недостаточно дел для оценки", REPEATED_CASES_FOR_REVIEW: "Повторяющиеся дела — изучить вручную", BELOW_REPEAT_THRESHOLD: "Ниже выбранного порога", INCOMPLETE_DATA: "Выборка неполная", PREVIEW: "Предварительный обзор" };

@@ -54,6 +54,7 @@ let propertyId = "";
 const extraAgentIds: string[] = [];
 
 afterAll(async () => {
+  await prisma.sellerControlEpisode.deleteMany({ where: { clientId: { in: clientIds } } });
   await prisma.investigationCase.deleteMany({ where: { clientId: { in: clientIds } } });
   await prisma.property.deleteMany({ where: { id: propertyId } });
   await prisma.jobApplication.deleteMany({ where: { clientId: { in: clientIds } } });
@@ -119,6 +120,10 @@ describe("Слияние двух карточек продавца", () => {
     const reportTarget = await prisma.ownerReportDelivery.create({ data: { propertyId, sellerClientId: primary.id, period: "2026-10", createdById: agentId } });
     const reportCollision = await prisma.ownerReportDelivery.create({ data: { propertyId, sellerClientId: duplicate.id, period: "2026-10", createdById: agentId } });
     const reportMoved = await prisma.ownerReportDelivery.create({ data: { propertyId, sellerClientId: duplicate.id, period: "2026-11", createdById: agentId } });
+    const subscription = await prisma.ownerReportSubscription.create({ data: { propertyId, sellerClientId: duplicate.id, active: true,
+      executionMode: "LIVE", consentAt: new Date(), consentById: agentId } });
+    const control = await prisma.sellerControlEpisode.create({ data: { episodeKey: randomUUID(), clientId: duplicate.id,
+      assignmentAt: duplicate.assignedAt, agentId, status: "AGENT_TASK" } });
     const historical = await recordInvestigationSignal({ clientId: duplicate.id, assignmentAt: primary.assignedAt, subjectAgentId: agentId,
       sourceType: "MERGE_TEST", sourceId: randomUUID(), kind: "finding", independenceKey: randomUUID(), summary: "Synthetic historical evidence", occurredAt: new Date() });
     const beforeCase = await prisma.investigationCase.findUniqueOrThrow({ where: { id: historical.caseId }, include: { evidence: true } });
@@ -127,6 +132,11 @@ describe("Слияние двух карточек продавца", () => {
     await decideInvestigation({ caseId: historical.caseId, actorId: agentId, requestKey: randomUUID(), revision: 1, status: "REVIEWING", note: "Historical review preserved" });
     await prisma.client.update({ where: { id: primary.id }, data: { securityReview: "PENDING" } });
     await mergeClients(primary.id, duplicate.id, agentId, "тест: слияние продавцов");
+    const revoked = await prisma.ownerReportSubscription.findUniqueOrThrow({ where: { id: subscription.id } });
+    expect(revoked).toMatchObject({ active: false, revision: 2, sellerClientId: duplicate.id });
+    expect(revoked.revokedAt).not.toBeNull();
+    expect((await prisma.sellerControlEpisode.findUniqueOrThrow({ where: { id: control.id } })).status).toBe("CANCELLED");
+    expect(await prisma.sellerControlEvent.count({ where: { episodeId: control.id, type: "MERGED" } })).toBe(1);
 
     const known = await prisma.clientPhoneOrigin.findUniqueOrThrow({ where: { clientId_phoneHash: { clientId: primary.id, phoneHash: knownHash } } });
     expect(known.addedAt).toEqual(oldDate); expect(known.source).toBe("MANUAL");
@@ -173,7 +183,13 @@ describe("Слияние двух карточек продавца", () => {
         type: "SYSTEM", notes: "Synthetic merge task", nextAction: "Synthetic follow-up", nextActionDate: new Date(Date.now() + 86400000), taskCancelledAt: cancelled ? new Date() : null } });
       taskIds.push(task.id);
     }
+    const controlTask = await prisma.interaction.create({ data: { clientId: duplicate.id, actorKind: "BOT", subjectAgentId: former.id,
+      type: "SYSTEM", notes: "Synthetic former-assignment control task", nextAction: "Ordinary follow-up", nextActionDate: new Date(Date.now() + 86400000) } });
+    await prisma.sellerControlEpisode.create({ data: { episodeKey: randomUUID(), clientId: duplicate.id,
+      assignmentAt: duplicate.assignedAt, agentId: former.id, executionMode: "LIVE", agentTaskId: controlTask.id } });
     await mergeClients(primary.id, duplicate.id, agentId, "Synthetic manual intent merge");
+    const controlAfter = await prisma.interaction.findUniqueOrThrow({ where: { id: controlTask.id } });
+    expect(controlAfter.taskCancelledAt).not.toBeNull(); expect(controlAfter.subjectAgentId).toBe(former.id);
     const merged = await prisma.client.findUniqueOrThrow({ where: { id: primary.id } });
     expect(merged.dualIntent).toBe(false); expect(merged.dualIntentDecisionSource).toBe("MANUAL"); expect(merged.dualIntentConfirmedAt).toBeNull();
     for (const [index, id] of taskIds.entries()) {

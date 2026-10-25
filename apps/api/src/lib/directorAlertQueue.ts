@@ -1,4 +1,4 @@
-import { isInvestigationNotification, investigationRecipients } from "./investigationNotifications.js";
+import { isPrivateNotification, investigationRecipients } from "./investigationNotifications.js";
 import {
   isPushKind,
   notificationLevelOf,
@@ -116,7 +116,7 @@ export async function flushDirectorAlertQueue(now: Date = new Date()): Promise<n
     recipientRoles: string[];
     excludeAgentId: string | null;
   }): Promise<{ resolved: string[]; filtered: string[]; fallback: boolean }> {
-    if (isInvestigationNotification(item)) {
+    if (await isPrivateNotification(item)) {
       const resolved = await investigationRecipients();
       return { resolved, filtered: item.excludeAgentId ? resolved.filter((id) => id !== item.excludeAgentId) : resolved, fallback: false };
     }

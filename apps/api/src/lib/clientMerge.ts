@@ -112,6 +112,7 @@ export async function mergeClients(
       select: { agent: { select: { fullName: true } } },
     });
     if (foreignOpenDeal) throw new ClientMergeOpenDealError(foreignOpenDeal.agent.fullName);
+    await closeMergedSellerControls(tx, duplicateId, primaryId);
 
     /**
      * ОТКРЫТЫЕ ЗАДАЧИ ДУБЛЯ — ВЛАДЕЛЬЦУ ОСНОВНОЙ КАРТОЧКИ (B6, 02.10.2026). Задачи и
@@ -446,6 +447,12 @@ export const MERGE_LINKS_MOVED = [
 
 /** Ссылки, которые при слиянии намеренно остаются у дубля. */
 export const MERGE_LINKS_LEFT_BEHIND: Record<string, string> = {
+  "OwnerReportSubscription.sellerClientId": "согласие старой карточки не переносится: подписка отозвана, требуется новое подтверждение",
+  "SellerControlEpisode.clientId": "эпизод старого назначения закрывается при слиянии; исходные факты и события сохраняются",
+  "BuyerShowingCandidate.clientId": "кандидат старого назначения закрывается при слиянии; исходная реплика и история сохраняются",
+  "SellerProbeCall.buyerClientId": "исторический покупатель нового источника проверки не переименовывается: слияние делает исходное назначение недействительным",
+  "SellerIntakeAppointmentEvidence.clientId": "неизменяемый источник прежнего назначения; после слияния не используется как новая приёмка",
+  "ClientWorkflowObservation.clientId": "неизменяемое наблюдение прежней карточки, не новое основание по назначению основной карточки",
   "ClientDeleteRequest.clientId": "заявка на удаление дубля закрывается отдельно (closePendingDeleteRequestsOnMerge)",
   "PushActionToken.clientId": "одноразовые токены кнопок в пуше: истекают сами, переносить нечего",
   "Client.duplicateReviewOfClientId": "проверка дублей ведёт свой цикл и сама гасит ссылку на удалённую карточку",
@@ -454,6 +461,8 @@ export const MERGE_LINKS_LEFT_BEHIND: Record<string, string> = {
 async function moveRemainingClientLinks(tx: TxClient, from: string, to: string): Promise<void> {
   const move = { where: { clientId: from }, data: { clientId: to } };
   await tx.property.updateMany({ where: { sellerClientId: from }, data: { sellerClientId: to } });
+  await tx.ownerReportSubscription.updateMany({ where: { sellerClientId: from, active: true },
+    data: { active: false, revokedAt: new Date(), revision: { increment: 1 } } });
   await tx.investigationCase.updateMany({ where: { clientId: from }, data: { clientId: to } });
   const occupiedReports = new Set((await tx.ownerReportDelivery.findMany({ where: { sellerClientId: to }, select: { propertyId: true, period: true } })).map(row => `${row.propertyId}:${row.period}`));
   for (const report of await tx.ownerReportDelivery.findMany({ where: { sellerClientId: from }, select: { id: true, propertyId: true, period: true } })) {
@@ -487,4 +496,19 @@ async function moveRemainingClientLinks(tx: TxClient, from: string, to: string):
   const primaryFacts = await tx.sellerObjectFacts.findUnique({ where: { clientId: to }, select: { clientId: true } });
   if (!primaryFacts) await tx.sellerObjectFacts.updateMany(move);
   await tx.whatsAppFirstContact.updateMany(move);
+}
+
+/** Cancel before open-task reassignment so historical assignees stay intact. */
+async function closeMergedSellerControls(tx: TxClient, from: string, to: string) {
+  for (const candidate of await tx.buyerShowingCandidate.findMany({ where: { clientId: from, status: { notIn: ["RESOLVED", "CANCELLED"] } } })) {
+    await tx.buyerShowingCandidate.update({ where: { id: candidate.id }, data: { status: "CANCELLED", revision: { increment: 1 } } });
+    if (candidate.taskId) await tx.interaction.updateMany({ where: { id: candidate.taskId, completedAt: null, taskCancelledAt: null }, data: { taskCancelledAt: new Date() } });
+  }
+  for (const episode of await tx.sellerControlEpisode.findMany({ where: { clientId: from, resolvedAt: null } })) {
+    await tx.sellerControlEpisode.update({ where: { id: episode.id }, data: { status: "CANCELLED", resolvedAt: new Date(), revision: { increment: 1 } } });
+    await tx.sellerControlEvent.create({ data: { episodeId: episode.id, requestKey: `merge:${from}:${episode.id}`,
+      type: "MERGED", payload: { previousClientId: from, primaryClientId: to } } });
+    const taskIds = [episode.agentTaskId, episode.ropTaskId].filter((id): id is string => !!id);
+    if (taskIds.length) await tx.interaction.updateMany({ where: { id: { in: taskIds }, completedAt: null, taskCancelledAt: null }, data: { taskCancelledAt: new Date() } });
+  }
 }

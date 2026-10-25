@@ -9,7 +9,7 @@ import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import { useDistricts } from "../hooks/useDistricts";
 import { useProperties, useProperty } from "../hooks/useProperties";
 import { useSpeechRecognition } from "../hooks/useSpeechRecognition";
-import { CALL_OUTCOME_CHOICES, SELLER_CALL_OUTCOME_CHOICES, type InteractionOutcome } from "@royal-home/shared";
+import { CALL_OUTCOME_CHOICES, SELLER_CALL_OUTCOME_CHOICES, showingEvidenceIssues, type InteractionOutcome } from "@royal-home/shared";
 import { INTERACTION_OUTCOME_LABELS, INTERACTION_TYPE_LABELS, formatPropertyCode } from "../lib/clientFormat";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { Rh2Sheet } from "./rh2/Rh2Sheet";
@@ -166,6 +166,8 @@ export function AddInteractionModal({
   const [type, setType] = useState<(typeof TYPES)[number]>(scheduling ? "SHOWING" : initialType ?? "CALL");
   // Объект показа. Список тянем только когда он реально нужен — при выборе «Показ».
   const [propertyId, setPropertyId] = useState(initialPropertyId ?? "");
+  const [showingOffCrm, setShowingOffCrm] = useState(false);
+  const [showingOffCrmDetails, setShowingOffCrmDetails] = useState("");
   // Список объектов — в ShowingPropertyPicker (поиск), монтируется только для показа.
   // Тип шире, чем набор кнопок текущего клиента (OUTCOMES/SELLER_OUTCOMES не
   // пересекаются целиком с 28.08.2026 — у продавца больше нет «Ждёт показ»/«Ждёт
@@ -177,7 +179,7 @@ export function AddInteractionModal({
    *  Указано — придёт push за час до встречи; не указано — только вечерняя сводка. */
   const [nextActionTime, setNextActionTime] = useState("");
   useDraftBeforeUpdate(`interaction:${clientId}:${initialType ?? "CALL"}:${initialPropertyId ?? ""}`,
-    { notes, nextAction, nextActionDate, nextActionTime, type, propertyId, outcome, step, aiNote, clientUpdates, applyClientUpdates, interactionSaved },
+    { notes, nextAction, nextActionDate, nextActionTime, type, propertyId, showingOffCrm, showingOffCrmDetails, outcome, step, aiNote, clientUpdates, applyClientUpdates, interactionSaved },
     (draft) => {
       if (scheduling && (draft?.type !== "SHOWING" || draft?.step !== 1)) return;
       if (!draft || typeof draft !== "object" || typeof draft.notes !== "string" || typeof draft.nextAction !== "string"
@@ -185,6 +187,8 @@ export function AddInteractionModal({
         || !TYPES.includes(draft.type) || !Number.isInteger(draft.step) || draft.step < 1 || draft.step > 3
         || (draft.outcome !== "" && !outcomeChoices.some((choice) => choice === draft.outcome))) return;
       setNotes(draft.notes); setNextAction(draft.nextAction); setNextActionDate(draft.nextActionDate); setNextActionTime(draft.nextActionTime);
+      setShowingOffCrm(draft.showingOffCrm === true);
+      setShowingOffCrmDetails(typeof draft.showingOffCrmDetails === "string" ? draft.showingOffCrmDetails : "");
       setType(draft.type); setPropertyId(draft.propertyId); setOutcome(draft.outcome); setStep(draft.step);
       if (typeof draft.aiNote === "string" || draft.aiNote === null) setAiNote(draft.aiNote);
       if (typeof draft.applyClientUpdates === "boolean") setApplyClientUpdates(draft.applyClientUpdates);
@@ -211,7 +215,7 @@ export function AddInteractionModal({
     nextAction.trim().length > 0 ||
     nextActionDate.length > 0 ||
     outcome !== "" ||
-    propertyId !== (initialPropertyId ?? "");
+    propertyId !== (initialPropertyId ?? "") || showingOffCrm || showingOffCrmDetails.trim().length > 0;
   function requestClose() {
     if (dirty) setConfirmClose(true);
     else onClose();
@@ -307,11 +311,14 @@ export function AddInteractionModal({
     }
     // Будущий показ без даты и времени — не показ, а пометка: календарь и
     // напоминания (за 2 часа и 40 минут) отсчитываются именно от них.
-    if (scheduling && (!nextActionDate || !nextActionTime)) {
+    if (type === "SHOWING" && (!nextActionDate || !nextActionTime)) {
       setError("Укажите дату и время показа");
+      if (!scheduling) setStep(3);
       return;
     }
-    if (scheduling && !propertyId) { setError("Выберите объект показа"); return; }
+    const showingIssue = showingEvidenceIssues({ type, propertyId: propertyId || null, showingOffCrm, showingOffCrmDetails,
+      nextActionDate: nextActionDate && nextActionTime ? dushanbeInputToIso(nextActionDate, nextActionTime) : null })[0];
+    if (showingIssue) { setError(showingIssue.message); if (!scheduling) setStep(2); return; }
     if (scheduling && new Date(dushanbeInputToIso(nextActionDate, nextActionTime)).getTime() <= Date.now()) {
       setError("Выберите будущее время показа"); return;
     }
@@ -342,6 +349,7 @@ export function AddInteractionModal({
             // Без этого показ не засчитывается объекту вовсе — счётчик показов
             // на карточке объекта всегда оставался нулём.
             propertyId: type === "SHOWING" && propertyId ? propertyId : undefined,
+            ...(type === "SHOWING" ? { showingOffCrm, showingOffCrmDetails: showingOffCrm ? showingOffCrmDetails.trim() : undefined } : {}),
             outcome: outcome || undefined,
             nextAction: nextAction || undefined,
             // Дата без времени уходит как есть — сервер трактует полночь как «на этот день»
@@ -426,7 +434,9 @@ export function AddInteractionModal({
           <>
             <div className="fld">
               <span className="lab">Объект</span>
-              <ShowingPropertyPicker value={propertyId} onChange={setPropertyId} sellerClientId={sellerClientId} />
+              {!showingOffCrm && <ShowingPropertyPicker value={propertyId} onChange={setPropertyId} sellerClientId={sellerClientId} />}
+              <label><input type="checkbox" checked={showingOffCrm} onChange={e => { setShowingOffCrm(e.target.checked); if (e.target.checked) setPropertyId(""); }} /> Объект ещё не внесён в CRM</label>
+              {showingOffCrm && <label>Адрес и описание объекта<textarea value={showingOffCrmDetails} minLength={10} maxLength={1000} required onChange={e => setShowingOffCrmDetails(e.target.value)} /></label>}
             </div>
             <div className="fgrid" style={{ marginTop: "var(--s3)" }}>
               <label className="fld">
@@ -528,9 +538,11 @@ export function AddInteractionModal({
             {type === "SHOWING" && (
               <div className="fld">
                 <span className="lab">Какой объект показывали</span>
-                <ShowingPropertyPicker value={propertyId} onChange={setPropertyId} allowEmpty />
+                {!showingOffCrm && <ShowingPropertyPicker value={propertyId} onChange={setPropertyId} allowEmpty />}
+                <label><input type="checkbox" checked={showingOffCrm} onChange={e => { setShowingOffCrm(e.target.checked); if (e.target.checked) setPropertyId(""); }} /> Объект ещё не внесён в CRM</label>
+                {showingOffCrm && <label>Адрес и описание объекта<textarea value={showingOffCrmDetails} minLength={10} maxLength={1000} required onChange={e => setShowingOffCrmDetails(e.target.value)} /></label>}
                 <span className="msg">
-                  Показ засчитается объекту: по этому счётчику видно, какие объекты возят смотреть, а какие лежат.
+                  {showingOffCrm ? "Сохраним дату и описание встречи. Объект ещё не привязан к каталогу." : "Показ будет связан с выбранным объектом."}
                 </span>
               </div>
             )}
@@ -626,16 +638,16 @@ export function AddInteractionModal({
             </label>
             <div className="fgrid" style={{ marginTop: "var(--s3)" }}>
               <label className="fld">
-                <span className="lab">Дата следующего шага{outcome === "WAITING_SHOWING" && " *"}</span>
+                <span className="lab">{type === "SHOWING" ? "Дата показа *" : <>Дата следующего шага{outcome === "WAITING_SHOWING" && " *"}</>}</span>
                 <input
                   type="date"
-                  required={outcome === "WAITING_SHOWING"}
+                  required={type === "SHOWING" || outcome === "WAITING_SHOWING"}
                   value={nextActionDate}
                   onChange={(e) => setNextActionDate(e.target.value)}
                 />
               </label>
               <label className="fld">
-                <span className="lab">Время{outcome === "WAITING_SHOWING" && " *"}</span>
+                <span className="lab">Время{(type === "SHOWING" || outcome === "WAITING_SHOWING") && " *"}</span>
                 <input
                   type="time"
                   value={nextActionTime}

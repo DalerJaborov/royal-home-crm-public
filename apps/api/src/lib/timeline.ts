@@ -34,7 +34,7 @@
  */
 import { prisma, type TxClient } from "../db.js";
 import { recordInvestigationSignal } from "./investigationCases.js";
-import { confirmedClientIntents } from "@royal-home/shared";
+import { confirmedClientIntents, showingEvidenceIssues } from "@royal-home/shared";
 import type { InteractionType, InteractionOutcome, Prisma } from "../generated/prisma/client.js";
 
 /** Shared transaction type also used by multi-write timeline callers. Nested
@@ -82,6 +82,8 @@ export interface LogTimelineInput {
   /** Server-owned origin only; callers must link all interpretations of one call to one independenceKey. */
   investigationOrigin?: { sourceType: string; sourceId: string; independenceKey: string; kind: string; showingId?: string };
   propertyId?: string | null;
+  showingOffCrm?: boolean;
+  showingOffCrmDetails?: string | null;
   outcome?: InteractionOutcome | null;
   outcomeSource?: string;
   nextAction?: string | null;
@@ -160,6 +162,8 @@ function actorFields(actor: TimelineActor): {
  * автоответчика молча не попадало в хронологию вовсе).
  */
 export async function logTimeline(input: LogTimelineInput): Promise<LogTimelineResult> {
+  const showingIssue = showingEvidenceIssues(input)[0];
+  if (showingIssue) throw new Error(showingIssue.message);
   // Use the same row lock as final refusal: either this task is written first and
   // cancelled by refusal, or it observes completion and is born cancelled.
   if ((input.type === "SHOWING" || input.investigationOnly || ((input.nextAction || input.nextActionDate) && !input.completedAt)) && !input.tx) {
@@ -191,6 +195,9 @@ export async function logTimeline(input: LogTimelineInput): Promise<LogTimelineR
     if (intent) buyerIntentAtCreation = confirmedClientIntents(intent).buys;
   }
   const data: Prisma.InteractionUncheckedCreateInput = {
+    showingEvidenceVersion: input.type === "SHOWING" ? 1 : 0,
+    showingOffCrm: input.type === "SHOWING" && input.showingOffCrm === true,
+    showingOffCrmDetails: input.type === "SHOWING" && input.showingOffCrm ? input.showingOffCrmDetails?.trim() : null,
     buyerIntentAtCreation,
     clientId: input.clientId,
     actorKind,
@@ -235,6 +242,11 @@ export async function logTimeline(input: LogTimelineInput): Promise<LogTimelineR
         : input.investigationOrigin?.independenceKey ?? (input.continuesInteractionId ? `interaction:${input.continuesInteractionId}` : "unverified-origin"),
       summary: input.notes, occurredAt: input.createdAt ?? new Date(),
     }, input.tx);
+  }
+  if (input.type === "SHOWING" && input.propertyId && input.tx) {
+    const { recordShowingDeliveryObservation } = await import("./clientWorkflowObservations.js");
+    await recordShowingDeliveryObservation(input.tx, { clientId: input.clientId, propertyId: input.propertyId,
+      showingId: created.id, occurredAt: input.createdAt ?? new Date() });
   }
   return { id: created.id };
 }

@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
+import { loadInvestigationRecommendation } from "../lib/investigationRecommendation.js";
 import { investigationCasesQuerySchema, investigationDecisionSchema, investigationCaseConfigSchema, investigationCaseConfigUpdateSchema } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { can, requireAuth, requirePermission } from "../auth/middleware.js";
@@ -8,11 +9,60 @@ import { requireInvestigations } from "../auth/investigations.js";
 import { decideInvestigation, InvestigationConflict } from "../lib/investigationCases.js";
 import { evaluateInvestigationRecurrence } from "../lib/investigationRecurrence.js";
 import { sellerControlPreview } from "../lib/sellerControlPreview.js";
+import { sellerControlRouter } from "./sellerControl.js";
+import { previewBuyerShowingCandidates } from "../lib/buyerShowingCandidates.js";
+import { previewManualContactOnly } from "../lib/manualContactPreview.js";
+import { previewNamedAssignments } from "../lib/namedAssignmentPreview.js";
+import { previewWorkflowAgentCounts } from "../lib/workflowAgentPreview.js";
+import { weeklyOperationalPreviewQuerySchema } from "@royal-home/shared";
+import { previewWeeklyOperations } from "../lib/weeklyOperationalPreview.js";
+import { previewAgencyLabelCoincidences } from "../lib/agencyLabelPreview.js";
+import { investigationSeveritySchema } from "@royal-home/shared";
+import { setInvestigationSeverity } from "../lib/investigationSeverity.js";
 
 export const investigationCasesRouter = Router();
 investigationCasesRouter.use(requireAuth, requireInvestigations, requirePermission("clients.securityReview"));
+investigationCasesRouter.use("/seller-control", sellerControlRouter);
 const include = { subjectAgent: { select: { id: true, fullName: true } }, _count: { select: { evidence: true, decisions: true } } } as const;
 const idSchema = z.string().uuid();
+
+investigationCasesRouter.get("/agency-label-preview", async (req, res) => {
+  res.json(presentEvidencePayload(await previewAgencyLabelCoincidences(), can(req, "clients.viewPhone")));
+});
+
+investigationCasesRouter.get("/weekly-operational-preview", async (req, res) => {
+  const query = weeklyOperationalPreviewQuerySchema.safeParse(req.query);
+  if (!query.success) return res.status(400).json({ error: "Неверные параметры сводки" });
+  res.json(presentEvidencePayload(await previewWeeklyOperations(query.data.kind, query.data.page), can(req, "clients.viewPhone")));
+});
+
+investigationCasesRouter.post("/:id/severity", async (req, res) => {
+  const id = idSchema.safeParse(req.params.id), body = investigationSeveritySchema.safeParse(req.body);
+  if (!id.success || !body.success) return res.status(400).json({ error: "Проверьте уровень и отдельное подтверждение C4" });
+  try { res.json({ decision: await setInvestigationSeverity({ ...body.data, caseId: id.data, actorId: req.agent!.id }) }); }
+  catch (error) { if (error instanceof InvestigationConflict) return res.status(409).json({ error: error.message }); throw error; }
+});
+
+investigationCasesRouter.get("/buyer-showing-candidates", async (req, res) => {
+  res.json({ mode: "PREVIEW", items: presentEvidencePayload(await previewBuyerShowingCandidates(), can(req, "clients.viewPhone")) });
+});
+
+investigationCasesRouter.get("/workflow-observations", async (req, res) => {
+  const active = await prisma.workflowCheckpoint.findUnique({ where: { key: "client-workflow-observations-v1" }, select: { key: true } });
+  if (!active) return res.json({ mode: "PREVIEW", coverage: "NOT_ACTIVATED", items: [] });
+  const rows = await prisma.clientWorkflowObservation.findMany({ where: { executionMode: "PREVIEW" }, orderBy: { createdAt: "desc" }, take: 100 });
+  res.json({ mode: "PREVIEW", coverage: "FUTURE_SOURCES_ONLY", items: presentEvidencePayload(rows, can(req, "clients.viewPhone")) });
+});
+
+investigationCasesRouter.get("/manual-contact-preview", async (req, res) => {
+  const query = investigationCasesQuerySchema.safeParse(req.query);
+  if (!query.success) return res.status(400).json({ error: "Неверные параметры" });
+  res.json(await previewManualContactOnly(query.data.page));
+});
+investigationCasesRouter.get("/workflow-agent-preview", async (req, res) => { res.json(presentEvidencePayload(await previewWorkflowAgentCounts(), can(req, "clients.viewPhone"))); });
+investigationCasesRouter.get("/named-assignment-preview", async (req, res) => {
+  res.json(presentEvidencePayload(await previewNamedAssignments(), can(req, "clients.viewPhone")));
+});
 
 investigationCasesRouter.get("/seller-control-preview", async (req, res) => {
   const parsed = investigationCasesQuerySchema.safeParse(req.query);
@@ -24,6 +74,7 @@ investigationCasesRouter.get("/seller-control-preview", async (req, res) => {
   catch { res.status(503).json({ error: "Данные контроля временно недоступны", mode: "PREVIEW", evaluation: "DATA_UNAVAILABLE" }); }
 });
 function presentEvidencePayload(value: unknown, canSeePhone: boolean): unknown {
+  if (value instanceof Date) return value.toISOString();
   if (typeof value === "string") return phoneSafeText(value, canSeePhone);
   if (Array.isArray(value)) return value.map(item => presentEvidencePayload(item, canSeePhone));
   if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, presentEvidencePayload(item, canSeePhone)]));
@@ -98,7 +149,7 @@ investigationCasesRouter.get("/:id", async (req, res) => {
   } });
   if (!row) return res.status(404).json({ error: "Дело не найдено" });
   const canSeePhone = can(req, "clients.viewPhone");
-  res.json({ ...row,
+  res.json({ ...row, recommendation: await loadInvestigationRecommendation(row),
     evidence: row.evidence.map(item => ({ ...item, summary: phoneSafeText(item.summary, canSeePhone), payload: presentEvidencePayload(item.payload, canSeePhone) })),
     decisions: row.decisions.map(item => ({ ...item, note: phoneSafeText(item.note, canSeePhone) })),
     independentSources: new Set(row.evidence.map(e => e.independenceKey)).size,

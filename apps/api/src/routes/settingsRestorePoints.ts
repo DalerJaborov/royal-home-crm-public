@@ -1,3 +1,5 @@
+import { canViewInvestigations } from "@royal-home/shared";
+import { isPrivateSettingsField, saveWithInvestigationControlAudit } from "../lib/investigationSettingsAudit.js";
 import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../db.js";
@@ -60,10 +62,10 @@ settingsRestorePointsRouter.get("/", requireAuth, requirePermission("settings.ma
         agentId: point.agentId,
         agentName: point.agentName,
         reason: point.reason,
-        changedFields: point.changedFields,
+        changedFields: point.changedFields.filter(field => canViewInvestigations(req.agent?.role) || !isPrivateSettingsField(field)),
         /** false — снимок зашифрован другим ключом: секреты откат не тронет. */
         secretsRestorable: secretsRestorable(point.keyFingerprint),
-        changes,
+        changes: changes.filter(change => canViewInvestigations(req.agent?.role) || !isPrivateSettingsField(change.field)),
       };
     }),
   });
@@ -105,6 +107,10 @@ settingsRestorePointsRouter.post(
 
     const payload = point.payload as SnapshotPayload;
     const plan = planRestore(payload, current, point.keyFingerprint);
+    if (!canViewInvestigations(req.agent?.role)) {
+      for (const field of Object.keys(plan.data)) if (isPrivateSettingsField(field)) delete plan.data[field];
+      plan.changedFields = plan.changedFields.filter(field => !isPrivateSettingsField(field));
+    }
     // Уволенный/замороженный с тех пор сотрудник в поля «монтажёр/дежурный» не
     // возвращается — та же планка, что у обычного сохранения (G7, 02.10.2026).
     const skippedStaff = await dropUnavailableStaffFromPlan(plan);
@@ -141,7 +147,7 @@ settingsRestorePointsRouter.post(
       return res.status(500).json({ error: "Не удалось сохранить текущее состояние — откат отменён" });
     }
 
-    await prisma.settings.update({ where: { id: "singleton" }, data: plan.data });
+    await saveWithInvestigationControlAudit(plan.data, { id: req.agent!.id, name: agent?.fullName ?? "Неизвестно" }, tx => tx.settings.update({ where: { id: "singleton" }, data: plan.data }));
     applySettingsSideEffects(plan.changedFields);
 
     // В журнал — куда вернулись и какие поля тронули. Значения секретов сюда не

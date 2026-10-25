@@ -12,6 +12,8 @@ import {
   responseSpeedQuerySchema,
   REFUSAL_REASON_LABELS,
   CLIENT_SOURCE_LABELS,
+  canViewInvestigations,
+  postShowingCohortConfigSchema,
   type RefusalReason,
 } from "@royal-home/shared";
 import { prisma } from "../db.js";
@@ -19,6 +21,8 @@ import { can, requireAuth, requirePermission } from "../auth/middleware.js";
 import { loadMoneyContext, roundMoney, toTjs } from "../lib/money.js";
 import { dushanbeStartOfMonth, dushanbeEndOfDay, dushanbeDayRange } from "../lib/dushanbeTime.js";
 import { generateMonthlyReport } from "../lib/monthlyReport.js";
+import { collectPostShowingCohort } from "../lib/postShowingCohort.js";
+import { projectMonthlyPublicInteractions } from "../lib/monthlyPublicProjection.js";
 import { generateProblemReport } from "../lib/problemReport.js";
 import { buildMarketingFunnel } from "../lib/marketingFunnel.js";
 import { clientNamePhoneSafe, phoneSafeText } from "../lib/clientPhone.js";
@@ -61,6 +65,28 @@ import { logSystemError } from "../lib/systemError.js";
 export const reportsRouter = Router();
 
 reportsRouter.use(requireAuth, requirePermission("reports.view"));
+
+reportsRouter.get("/post-showing-cohort/config", requireInvestigations, requirePermission("clients.securityReview"), async (_req, res) => {
+  const settings = await prisma.settings.findUniqueOrThrow({ where: { id: "singleton" }, select: { postShowingCohortConfig: true } });
+  res.json({ config: postShowingCohortConfigSchema.parse(settings.postShowingCohortConfig), classification: "OBSERVED_FOLLOWUP_COMPARISON", automaticVerdict: false });
+});
+reportsRouter.put("/post-showing-cohort/config", requireInvestigations, requirePermission("clients.securityReview"), async (req, res) => {
+  const parsed = postShowingCohortConfigSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Проверьте период, размеры выборок и пороги сравнения" });
+  await prisma.settings.upsert({ where: { id: "singleton" }, create: { id: "singleton", postShowingCohortConfig: parsed.data }, update: { postShowingCohortConfig: parsed.data } });
+  res.json({ config: parsed.data, classification: "OBSERVED_FOLLOWUP_COMPARISON", automaticVerdict: false });
+});
+reportsRouter.get("/post-showing-cohort", requireInvestigations, requirePermission("clients.securityReview"), async (req, res) => {
+  const parsed = z.object({ days: z.coerce.number().int().min(1).max(365).optional() }).strict().safeParse(req.query);
+  if (!parsed.success) return res.status(400).json({ error: "Некорректный период" });
+  try {
+    const settings = await prisma.settings.findUniqueOrThrow({ where: { id: "singleton" }, select: { postShowingCohortConfig: true } });
+    const config = postShowingCohortConfigSchema.parse(settings.postShowingCohortConfig);
+    const now = new Date();
+    const result = await collectPostShowingCohort(new Date(now.getTime() - (parsed.data.days ?? config.windowDays) * 86400000), now, now);
+    res.json(can(req, "clients.viewPhone") ? result : { ...result, agents: result.agents.map(row => ({ ...row, agentName: phoneSafeText(row.agentName, false) })) });
+  } catch { res.status(503).json({ evaluation: "DATA_UNAVAILABLE", error: "Источники статистики временно недоступны. Это не нулевая доля." }); }
+});
 
 /**
  * ЧЕМ ИНТЕРЕСУЮТСЯ ПРЯМО СЕЙЧАС (владелец 09.09.2026).
@@ -564,14 +590,48 @@ reportsRouter.get("/monthly", async (req, res) => {
     include: { updatedBy: { select: { fullName: true } } },
   });
   // Комиссия и расходы месяца — только с правом на финансы (аудит 23.09.2026, №44).
-  res.json(reports.map((r) => presentMonthlyReport(req, r)));
+  res.json(await Promise.all(reports.map((r) => presentMonthlyReport(req, r))));
 });
 
 /** Комиссия и расходы месяца — только с правом на финансы. Одна функция и для
  *  GET, и для PATCH заметок: ответ записи отдавал строку целиком, и аналитик без
  *  finance.view получал деньги, закрытые в списке (аудит Codex 04.10.2026, ACCESS-04). */
-function presentMonthlyReport<T extends { metrics: unknown }>(req: Request, report: T): T {
-  return can(req, "finance.view") ? report : { ...report, metrics: withoutMoney(report.metrics) };
+async function presentMonthlyReport<T extends { metrics: unknown; periodStart: Date }>(req: Request, report: T): Promise<T> {
+  let metrics = report.metrics;
+  // Historical snapshots retain their source evidence. Strip it at every read boundary,
+  // independently from finance grants and without hiding the ordinary monthly figures.
+  if ((!canViewInvestigations(req.agent?.role) || !can(req, "clients.securityReview")) && metrics && typeof metrics === "object" && !Array.isArray(metrics)) {
+    const { postShowingSilence: _private, postShowingCohort: _cohort, ...ordinary } = metrics as Record<string, unknown>;
+    metrics = await projectMonthlyPublicInteractions(ordinary, report.periodStart);
+  }
+  if (!can(req, "clients.viewPhone") && metrics && typeof metrics === "object" && !Array.isArray(metrics)) {
+    const source = { ...metrics } as Record<string, unknown>;
+    for (const key of ["postShowingSilence", "postShowingCohort"]) {
+      const section = source[key];
+      if (section && typeof section === "object" && !Array.isArray(section)) {
+        const value = section as Record<string, unknown>;
+        if (Array.isArray(value.agents)) source[key] = { ...value, agents: value.agents.map(row => {
+          if (!row || typeof row !== "object" || Array.isArray(row)) return row;
+          const agent = row as Record<string, unknown>;
+          return typeof agent.agentName === "string" ? { ...agent, agentName: phoneSafeText(agent.agentName, false) } : row;
+        }) };
+      }
+    }
+    metrics = source;
+    const section = source.postShowingSilence;
+    if (section && typeof section === "object" && !Array.isArray(section)) {
+      const sectionRecord = section as Record<string, unknown>;
+      const evidence = sectionRecord.provableCase;
+      if (evidence && typeof evidence === "object" && !Array.isArray(evidence)) {
+        const safeEvidence = { ...evidence } as Record<string, unknown>;
+        for (const key of ["clientName", "agentName", "propertyTitle", "quote", "what"]) {
+          if (typeof safeEvidence[key] === "string") safeEvidence[key] = phoneSafeText(safeEvidence[key], false);
+        }
+        metrics = { ...source, postShowingSilence: { ...sectionRecord, provableCase: safeEvidence } };
+      }
+    }
+  }
+  return { ...report, metrics: can(req, "finance.view") ? metrics : withoutMoney(metrics) };
 }
 
 /** Собрать отчёт за прошлый месяц немедленно — на случай, если ждать первого числа
@@ -596,7 +656,7 @@ reportsRouter.patch("/monthly/:id", requirePermission("dashboard.analytics"), as
     data: { notes: parsed.data.notes.trim() || null, updatedById: req.agent!.id },
     include: { updatedBy: { select: { fullName: true } } },
   });
-  res.json(presentMonthlyReport(req, updated));
+  res.json(await presentMonthlyReport(req, updated));
 });
 
 /**

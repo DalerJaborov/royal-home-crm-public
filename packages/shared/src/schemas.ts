@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { refineShowingEvidence, showingEvidenceFields, showingInputGuardSchema } from "./showingEvidence.js";
 import { expenseWorkspaceFields } from "./expenseWorkspace.js";
 import { daysOffSchema } from "./daysOff.js";
 import { customerRevisionSchema } from "./customerState.js";
@@ -910,9 +911,10 @@ export const replyFeedbackSchema = z.object({
  * WAITING_CALL/WAITING_OPTIONS такой привязки не требуют, у них нет момента
  * встречи, который нужно на что-то забронировать.
  */
-export const interactionCreateSchema = z
+export const interactionCreateSchema = showingInputGuardSchema.pipe(z
   .object({
     type: z.enum(INTERACTION_TYPES),
+    ...showingEvidenceFields,
     propertyId: z.guid().optional(),
     notes: z.string().min(1),
     outcome: z.enum(INTERACTION_OUTCOMES).optional(),
@@ -920,6 +922,7 @@ export const interactionCreateSchema = z
     nextActionDate: requiredDate.optional(),
   })
   .superRefine((data, ctx) => {
+    refineShowingEvidence(data, ctx);
     if (data.outcome === "WAITING_SHOWING" && !data.nextActionDate) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -927,7 +930,7 @@ export const interactionCreateSchema = z
         message: "Укажите дату и время показа",
       });
     }
-  });
+  }));
 
 /** Причина переноса/отмены показа руками из CRM — обязательный текст (решение
  *  владельца 16.08.2026: «Отменить» без причины теряет её след в карточке
