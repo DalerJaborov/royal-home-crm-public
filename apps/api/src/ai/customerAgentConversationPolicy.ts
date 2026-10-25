@@ -2,8 +2,9 @@
  * Public praise uses the same free social path as the legacy comment handler,
  * but a positive allowlist avoids thanking an angry/ambiguous reaction. */
 import {detectClientLanguage} from './clientLanguage.js';
+import {customerColloquialTajikLanguage} from './customerDmLanguage.js';
 const positiveEmoji = /(?:👍|👏|🙌|🤝|💪|🔥|✨|🌟|⭐|❤|🧡|💛|💚|💙|💜|🤍|🩷|💕|💖|💗|💓|💞|😍|🥰|🤩|😊|💐|🌹)[\uFE0F\u{1F3FB}-\u{1F3FF}]*/gu;
-const appreciation = /^(?:спасибо(?: большое| вам)?|большое спасибо|благодарю|благодарим|(?:очень )?красивая квартира|красиво|очень красиво|красота|класс|супер|круто|отлично|молодцы|рахмат|раҳмат|ташаккур|зур|зӯр|офарин|аҳсан|зебо(?: бдай)?|бисёр зебо|(?:бехтарин|беҳтарин)(?: хона(?: бдай)?)?)$/u;
+const appreciation = /^(?:спасибо(?: большое| вам)?|большое спасибо|благодарю|благодарим|(?:очень )?красивая квартира|красиво|очень красиво|красота|класс|супер|круто|отлично|молодцы|рахмат|раҳмат|ташаккур|зур|зӯр|офарин|аҳсан|зебо(?: бдай)?|бисёр зебо|(?:бехтарин|беҳтарин)(?: (?:хона|макон)(?: бдай)?)?)$/u;
 
 /** Complete standalone reactions only; mixed questions remain tool-driven. */
 export function customerPublicReaction(input:string): 'price_objection'|'appearance_objection'|null {
@@ -24,6 +25,7 @@ export function customerPublicLanguage(input:string):'ru'|'tg' {
   const text=input.replace(/@[\p{L}\p{N}_.-]+/gu,' ').trim();
   const detected=detectClientLanguage(text);
   if(detected==='tg')return 'tg';
+  if(customerColloquialTajikLanguage(text))return 'tg';
   if(detected==='ru')return 'ru';
   const tajikReaction=customerPublicReaction(text)&&/безеб|бе зеб|ика бардакай|кимат/iu.test(text);
   const tajikPraise=isCustomerPublicAppreciation(text)&&/зебо|бехтарин|офарин|зур/iu.test(text);
