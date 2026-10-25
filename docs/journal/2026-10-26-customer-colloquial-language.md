@@ -1,0 +1,16 @@
+# Customer core: colloquial language continuity
+
+The customer core treated unaccented Tajik requests about a floor plan, sale status and location as Russian. A short ambiguous follow-up after an initial Tajik greeting also lost its earlier language.
+
+Add spelling hints scoped to customer core only. Russian translation questions and quoted/document text do not become Tajik requests. Substantive earlier language and explicit language changes keep priority; ambiguous follow-ups can retain the initial greeting's language. Standalone positive place reactions join the existing appreciation allowlist. Legacy/voice language routing stays unchanged.
+
+Include the customer DM language module in the registered core artifact hash so a future language change requires the normal guarded version refresh. No provider, tool, permission, budget, enrollment, history or delivery change.
+
+Verification: the five original language probes reproduce the wrong language on the unchanged previous source and pass on this source;56 focused pure checks across4 files pass with no DB setup or provider calls. Full source/build/API verification and production adoption remain separate requirements. This is a limited language correction, not proof of complete legacy parity or general conversational quality.
+The first source workflow exposed three reviewed false positives after PR49 squash changed their commit fingerprints: public WorkflowCheckpoint identifiers, not credentials. Retain exact historical fingerprints and annotate only the same three literal lines so later squash commits do not reintroduce the finding. No scanner rule or path is disabled; a full history scan with the pinned official scanner reports no leaks.
+
+The 72-hour review also exposed bounded reply defects. Recruitment language-permission questions now receive a direct answer, a repeated greeting becomes a short acknowledgement, furniture inclusion is explicitly unknown when not present in verified facts, and a standalone follow request does not trigger an office/contact dump. Genuine proposed actions keep their original confirmation. A verified preceding name question can extract a literal name followed by a separate messenger question; action/question prefixes are rejected. No claim of general intent or identity recognition is made.
+
+Grouped chat management now targets only the explicitly selected writable source. The group itself is never passed to pause/resume. Existing messages.view and read-only gates remain; aggregate labels distinguish mixed pause and history-only state on desktop/mobile.
+
+Final local checks:191 API checks in10 pure suites and24 web checks in2 suites passed without DB/provider calls. An additional DB-dependent renderer suite could not load locally because this source has no generated Prisma client; normal fresh cloud verification is required. Synthetic browser integration verified4 actual loopback POSTs (resume/pause on each layout), negative agent/read-only/Direct/stale-source cases and final mixed labels. No production customer message, call, paid evaluation or replay was used. A prior network-unknown delivery remains unproven and was not retried. These fixes do not establish exhaustive legacy parity or eliminate every possible conversational error.

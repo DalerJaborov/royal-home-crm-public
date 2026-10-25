@@ -37,6 +37,16 @@ export function detectCustomerDmLanguage(input: string) {
   return customerDmLanguagePreference(input) ?? detectClientLanguage(input);
 }
 
+/** Customer-core spelling hints only; do not change legacy or voice routing.
+ * A Russian question quoting one unfamiliar word still wins by its own words. */
+export function customerColloquialTajikLanguage(input: string): boolean {
+  const own = stripNonLanguage(clientOwnWords(input)).replace(/«[^»]*»|“[^”]*”|"[^"]*"/gu, " ");
+  if (/по[-\s]русски|на русском/iu.test(own)) return false;
+  const words = foldCustomerText(own).split(" ");
+  const hints = words.filter(word => /^(?:схемаша|схемаш|планировкаша|партоен|партоед|фурухта|шуд|шуда|кичода|кичо|кучода|кучо|бехтарин|макон)$/u.test(word)).length;
+  return hints > clientLanguageScores(own).russian;
+}
+
 /** Words that carry no language evidence of their own (greeting, thanks, ok/yes/no), folded alphabet. */
 const NEUTRAL_WORDS = new Set(["привет", "здравствуйте", "здравствуй", "добрый", "доброе", "день", "вечер", "утро", "спасибо",
   "благодарю", "ок", "окей", "ok", "okay", "хорошо", "ладно", "да", "нет", "ага", "угу", "понятно", "ясно", "отлично", "супер",
@@ -46,7 +56,7 @@ const NEUTRAL_WORDS = new Set(["привет", "здравствуйте", "зд
 /** Up to two neutral words, or nothing readable at all (a bare link, @handle, emoji): no reason to switch the dialogue language. */
 export function isNeutralShortReply(input: string): boolean {
   const words = foldCustomerText(stripNonLanguage(clientOwnWords(input))).split(" ").filter(word => /\p{L}/u.test(word));
-  return words.length <= 2 && words.every(word => NEUTRAL_WORDS.has(word));
+  return words.length <= 2 && words.every(word => NEUTRAL_WORDS.has(word) || /^а[л]+о+$/u.test(word));
 }
 
 /** "ru"/"tg" by the larger word count; null on an exact tie. */
@@ -59,6 +69,7 @@ function decisiveLanguage(text: string): "ru" | "tg" | null {
   const preference = customerDmLanguagePreference(text);
   if (preference) return preference;
   if (isNeutralShortReply(text)) return null;
+  if (customerColloquialTajikLanguage(text)) return "tg";
   const detected: ClientLanguage = detectClientLanguage(text);
   return detected === "ru" || detected === "tg" ? detected : detected === "mixed" ? majority(text) : null;
 }
@@ -72,8 +83,11 @@ function decisiveLanguage(text: string): "ru" | "tg" | null {
 export function resolveCustomerDmLanguage(text: string, priorUserTexts: readonly string[] = []): "ru" | "tg" {
   const preference = customerDmLanguagePreference(text);
   if (preference) return preference;
-  const earlier = [...priorUserTexts].reverse().map(decisiveLanguage).find((value): value is "ru" | "tg" => value !== null);
+  const prior = [...priorUserTexts].reverse();
+  const earlier = prior.map(decisiveLanguage).find((value): value is "ru" | "tg" => value !== null)
+    ?? prior.filter(isNeutralShortReply).map(detectClientLanguage).find((value): value is "ru" | "tg" => value === "ru" || value === "tg");
   if (isNeutralShortReply(text)) return earlier ?? (detectClientLanguage(text) === "tg" ? "tg" : "ru");
+  if (customerColloquialTajikLanguage(text)) return "tg";
   const detected = detectClientLanguage(text);
   if (detected === "ru" || detected === "tg") return detected;
   return earlier ?? (detected === "mixed" ? majority(text) : null) ?? "ru";

@@ -15,7 +15,7 @@ beforeEach(() => {
   state.seller.mockResolvedValue({ id: 'stand-seller', assignedAgentId: 'stand-agent', assignedAt: now, source: 'WALK_IN', phone: '+992000000021', lastClientMessageAt: null, deletedAt: null });
   state.call.mockResolvedValue(null); state.raw.mockResolvedValue([]); state.epoch.mockResolvedValue('AUDIT:initial'); state.epochCurrent.mockResolvedValue(true);
   state.owners.mockResolvedValue([{ id: 'stand-seller', assignedAgentId: 'stand-agent', assignedAt: now, phone: '+992000000021', deletedAt: null }]);
-  state.checkpoint.mockResolvedValue({ key: "owner-exposure-verification-v1", createdAt: now, cursor: null, revision: 1 });
+  state.checkpoint.mockResolvedValue({ key: "owner-exposure-verification-v1", createdAt: now, cursor: null, revision: 1 }); // gitleaks:allow -- public workflow checkpoint identifier in a synthetic fixture
   state.lease.mockResolvedValue({ count: 1 }); state.exposures.mockResolvedValue([]);
 });
 afterEach(() => vi.unstubAllEnvs());

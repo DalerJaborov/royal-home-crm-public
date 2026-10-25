@@ -23,7 +23,7 @@ export async function rememberSellerIntakeAppointment(interactionId: string, pro
   return prisma.$transaction(async tx => {
     const source = await tx.interaction.findUnique({ where: { id: interactionId } });
     if (!source || source.type !== "CALL" || source.callAttempt !== "TALKED" || !source.recordingUrl || !source.transcript || source.investigationOnly) return null;
-    const cutover = await tx.workflowCheckpoint.findUnique({ where: { key: "seller-intake-appointments-v1" }, select: { createdAt: true } });
+    const cutover = await tx.workflowCheckpoint.findUnique({ where: { key: "seller-intake-appointments-v1" }, select: { createdAt: true } }); // gitleaks:allow -- public workflow checkpoint identifier, not a credential
     if (!cutover || source.createdAt < cutover.createdAt) return null;
     await tx.$queryRaw`SELECT id FROM "Client" WHERE id=${source.clientId} FOR UPDATE`;
     const client = await tx.client.findUnique({ where: { id: source.clientId } });

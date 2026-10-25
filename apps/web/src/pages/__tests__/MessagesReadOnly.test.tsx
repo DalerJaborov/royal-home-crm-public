@@ -166,6 +166,27 @@ describe("read-only chat actors", () => {
     expect(operatorHtml).toContain(`data-conversation-id=""`);
     h.groupedConversation = null;
   });
+
+  it("shows a grouped source pause without exposing a group-wide bot control", () => {
+    h.readOnly = false; h.narrow = false;
+    h.groupedConversation = {
+      id: "client:client", clientId: "client", clientShortId: "1", name: "Клиент", profileName: null,
+      channel: "MULTI", messages: [], clientPhone: null, firstContactAt: new Date().toISOString(),
+      pausedUntil: null, contact: null, subscriberId: null,
+      sources: [{ id: conversationId, channel: "WHATSAPP", canReply: true, pausedUntil: "2099-01-01T00:00:00Z" }],
+    };
+    try {
+      const html = renderToStaticMarkup(createElement(MemoryRouter, null,
+        createElement(ConversationView, { id: "client:client", onBack: () => {}, clean: true })));
+      expect(html).toContain('data-paused="true">Бот на паузе</span>');
+      expect(html).toContain("Общий чат");
+      expect(html).not.toContain('data-paused="false">Бот не на паузе</span>');
+      expect(html).not.toContain("Вернуть боту");
+      expect(html).not.toContain("Поставить на паузу…");
+    } finally {
+      h.groupedConversation = null;
+    }
+  });
   it("permits an existing translation as local reading, but cannot request a new translation", () => {
     const message = { role: "user" as const, content: "Ман хона мехоҳам", at: new Date().toISOString() };
     const untranslated = renderToStaticMarkup(createElement(TranslatableMessageText, { content: message.content, message, conversationId: "chat", readOnly: true }));

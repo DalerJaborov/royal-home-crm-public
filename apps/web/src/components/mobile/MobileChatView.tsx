@@ -61,6 +61,7 @@ import { stripBotHints, humanizeAttachmentTags } from "../../lib/botMessages";
 import { TranslatableMessageText } from "../MessageTranslateToggle";
 import { BotReplyFeedback } from "../BotReplyFeedback";
 import { PAUSE_OPTIONS, pausedUntilIso } from "../../lib/botPauseOptions";
+import { conversationBotState } from "../../lib/conversationBotState";
 import { useCan, useIsReadOnly } from "../../lib/permissions";
 import { useAuthStore } from "../../store/auth";
 import { useConversationSearch } from "../../hooks/useConversationSearch";
@@ -409,8 +410,10 @@ export function MobileChatView({ id, onBack, onPromoteToClient }: { id: string; 
   const [mediaError, setMediaError] = useState<string | null>(null);
   const [pendingMedia, setPendingMedia] = useState<File | null>(null);
   const mediaInputRef = useRef<HTMLInputElement>(null);
-  const resume = useResumeConversationBot(isGrouped ? null : id);
-  const pause = usePauseConversationBot(isGrouped ? null : id);
+  const botState = conversationBotState({ id, grouped: isGrouped, pausedUntil: conversation?.pausedUntil,
+    sources: conversation?.sources, selectedSourceId: selectedReplySourceId });
+  const resume = useResumeConversationBot(botState.controlId);
+  const pause = usePauseConversationBot(botState.controlId);
   const navigate = useNavigate();
   const [text, setText] = useState("");
   // Черновик ответа переживает принудительную перезагрузку при автообновлении
@@ -471,14 +474,14 @@ export function MobileChatView({ id, onBack, onPromoteToClient }: { id: string; 
    * `role` стал пускать в UI управления ботом того, кому сервер (routes/
    * conversations.ts, /pause и /resume) уже отказывает по messages.view.
    */
-  const canManageBot = useCan()("messages.view") && !readOnly && !isGrouped;
+  const canManageBot = useCan()("messages.view") && !readOnly && !!botState.controlId;
   // Стоимость ИИ по разговору (13.09.2026) — служебная цифра, только директору/
   // руководителю (finance.view, тот же рубильник, что у /finance/*); запрос не
   // уходит вовсе, если права нет (см. enabled у useAiConversationCost).
   const seesMoney = useCan()("finance.view");
   const aiCost = useAiConversationCost(isGrouped ? null : id, seesMoney && showInfo && !isGrouped);
 
-  const paused = !!conversation?.pausedUntil && new Date(conversation.pausedUntil).getTime() > Date.now();
+  const paused = botState.paused;
 
   useEffect(() => {
     setVisibleCount(MESSAGES_CHUNK);
@@ -677,8 +680,8 @@ export function MobileChatView({ id, onBack, onPromoteToClient }: { id: string; 
                 экран агента, и там написано «бот на паузе». */}
             <span>
               {conversation?.channel && <ChannelIcon channel={conversation.channel} size={12} />}
-              {meta ? `${meta.label}${conversation?.clientPhone ? " · номер в CRM" : ""}` : ""}
-              {paused ? " · бот на паузе" : ""}
+              {isGrouped && (!conversation?.channel || conversation.channel === "MULTI") ? "Общий чат" : meta ? `${meta.label}${conversation?.clientPhone ? " · номер в CRM" : ""}` : ""}
+              {isGrouped ? ` · ${botState.label}` : paused ? " · бот на паузе" : ""}
             </span>
           </div>
           <button
