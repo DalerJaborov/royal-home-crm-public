@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { afterAll, beforeAll, expect, it } from "vitest";
+import { afterAll, beforeAll, expect, it, vi } from "vitest";
+vi.mock("../src/ai/client.js", async importOriginal => ({ ...await importOriginal<typeof import("../src/ai/client.js")>(), callAiText: vi.fn() }));
+import { callAiText } from "../src/ai/client.js";
 import request from "supertest";
 import { app } from "../src/app.js";
 import { prisma } from "../src/db.js";
@@ -27,6 +29,26 @@ afterAll(async () => {
 });
 const read = () => request(app).get(`/api/v1/clients/${seller}`).set("Authorization", `Bearer ${tokens.AGENT}`);
 const confirm = (role: string, both: boolean, id = seller) => request(app).post(`/api/v1/clients/${id}/intents`).set("Authorization", `Bearer ${tokens[role]}`).send({ dualIntent: both });
+
+it("returns the committed AUTO setting even when its optional classifier is unavailable", async () => {
+  const c = await prisma.client.create({ data: { fullName: "test-auto-failure", phone: `test-auto-failure-${tag}`, kind: "BUYER", source: "PHONE_CALL", assignedAgentId: agentIds[0], acceptedAt: new Date(), dualIntentDecisionSource: "MANUAL" } });
+  clientIds.push(c.id);
+  await prisma.interaction.create({ data: { clientId: c.id, agentId: agentIds[0], type: "CALL", notes: "Synthetic current-role fixture", transcript: "Клиент: Я сейчас продаю свою квартиру.", recordingDurationSec: 40 } });
+  vi.mocked(callAiText).mockRejectedValueOnce(new Error("synthetic provider unavailable"));
+  const response = await request(app).post(`/api/v1/clients/${c.id}/intents`).set("Authorization", `Bearer ${tokens.ADMIN}`).send({ dualIntent: false, resolution: "AUTO" });
+  expect(response.status).toBe(200);
+  expect(response.body.dualIntentDecisionSource).toBe("AUTO");
+  expect(response.body.kind).toBe("BUYER");
+});
+
+it("does not allow the owning agent to edit roles or requirements after completion, but admin can correct roles", async () => {
+  const c = await prisma.client.create({ data: { fullName: "test-completed-intent", phone: `test-completed-intent-${tag}`, kind: "BUYER", source: "PHONE_CALL", assignedAgentId: agentIds[0], acceptedAt: new Date(), assignmentCompletedAt: new Date() } });
+  clientIds.push(c.id);
+  expect((await confirm("AGENT", true, c.id)).status).toBe(403);
+  const requirements = await request(app).post(`/api/v1/clients/${c.id}/buyer-requirements`).set("Authorization", `Bearer ${tokens.AGENT}`).send({ budgetMax: 600000 });
+  expect(requirements.status).toBe(403);
+  expect((await confirm("ADMIN", true, c.id)).status).toBe(200);
+});
 
 it("does not present an automatic historical role signal as two actual roles", async () => {
   const response = await read();

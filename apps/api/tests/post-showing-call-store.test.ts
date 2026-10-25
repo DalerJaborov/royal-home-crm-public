@@ -92,7 +92,7 @@ afterAll(async () => {
 });
 
 function schedule(showingId: string, at: Date) {
-  return schedulePostShowingCall({ showingId, clientId, agentId, propertyId, scheduledFor: at });
+  return schedulePostShowingCall({ showingId, clientId, agentId, propertyId, scheduledFor: at, previewOnly: false });
 }
 
 describe("постановка звонка", () => {

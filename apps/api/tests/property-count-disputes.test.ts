@@ -68,6 +68,33 @@ async function makeClientWithAiCount(
 }
 
 describe("Заявка на пересмотр числа объектов", () => {
+  it("одновременное одобрение и отклонение имеют одного победителя", async () => {
+    const client = await makeClientWithAiCount("race", 3);
+    const created = await request(app).post(`/api/v1/clients/${client.id}/property-count-dispute`)
+      .set("Authorization", `Bearer ${agentToken}`).send({ role: "SELLER", proposedCount: 1, reason: "Исправить ошибку числа" });
+    expect(created.status).toBe(201);
+    disputeIds.push(created.body.id);
+    const results = await Promise.all(["approve", "reject"].map(action => request(app)
+      .post(`/api/v1/clients/property-count-disputes/${created.body.id}/${action}`)
+      .set("Authorization", `Bearer ${adminToken}`).send({ decisionNote: "Проверено руководителем" })));
+    expect(results.map(r => r.status).sort()).toEqual([200, 409]);
+    const dispute = await prisma.propertyCountDispute.findUniqueOrThrow({ where: { id: created.body.id } });
+    const current = await prisma.client.findUniqueOrThrow({ where: { id: client.id } });
+    expect(current.sellerDeclaredPropertyCount).toBe(dispute.status === "APPROVED" ? 1 : 3);
+  });
+  it("устаревшее согласование не перезаписывает новое число", async () => {
+    const client = await makeClientWithAiCount("stale", 3);
+    const created = await request(app).post(`/api/v1/clients/${client.id}/property-count-dispute`)
+      .set("Authorization", `Bearer ${agentToken}`).send({ role: "SELLER", proposedCount: 1, reason: "Исправить ошибку числа" });
+    expect(created.status).toBe(201);
+    disputeIds.push(created.body.id);
+    await prisma.client.update({ where: { id: client.id }, data: { sellerDeclaredPropertyCount: 5 } });
+    const response = await request(app).post(`/api/v1/clients/property-count-disputes/${created.body.id}/approve`)
+      .set("Authorization", `Bearer ${adminToken}`).send({});
+    expect(response.status).toBe(409);
+    expect((await prisma.client.findUniqueOrThrow({ where: { id: client.id } })).sellerDeclaredPropertyCount).toBe(5);
+    expect((await prisma.propertyCountDispute.findUniqueOrThrow({ where: { id: created.body.id } })).status).toBe("PENDING");
+  });
   it("агент подаёт заявку (продавец) — 201, число ИИ на карточке не меняется", async () => {
     const client = await makeClientWithAiCount("a", 3);
 

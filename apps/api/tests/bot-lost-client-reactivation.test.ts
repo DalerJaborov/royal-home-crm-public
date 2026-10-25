@@ -168,7 +168,7 @@ describe("Сообщение потерянного клиента снимае�
     expect(reloaded.acceptedAt).not.toBeNull();
   });
 
-  it("прежний агент заморожен — карточка уходит в очередь руководителя", async () => {
+  it("прежний агент заморожен — карточка возвращается в обычную AUTO-очередь", async () => {
     callAi.mockResolvedValue({ reply: ["Хуб, раҳмат!"], ready: false, confident: true, topic: "other", openQuestion: "", clientAnsweredOpenQuestion: false });
     const client = await makeLostClient(frozenAgentId);
     const subscriberId = `lost-chat-${runId}-2`;
@@ -178,8 +178,11 @@ describe("Сообщение потерянного клиента снимае�
 
     const reloaded = await prisma.client.findUniqueOrThrow({ where: { id: client.id } });
     expect(reloaded.status).not.toBe("LOST");
+    expect(reloaded.assignedAgentId).not.toBe(frozenAgentId);
     expect(reloaded.assignedAgentId).toBeNull();
-    expect(reloaded.escalatedAt).not.toBeNull();
+    expect(reloaded.acceptedAt).toBeNull();
+    expect(reloaded.workStatus).toBe("ACTIVE");
+    expect(reloaded.escalatedAt).toBeNull();
   });
 
   it("клиент не LOST — реактивация не трогает карточку", async () => {

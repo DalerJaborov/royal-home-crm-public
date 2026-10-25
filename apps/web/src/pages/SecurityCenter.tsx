@@ -1,3 +1,4 @@
+import { WeeklyOperationalPreviewPanel } from "../components/security/WeeklyOperationalPreviewPanel";
 import { useMemo, useState } from "react";
 import { Lock } from "lucide-react";
 import { useCan } from "../lib/permissions";
@@ -18,6 +19,7 @@ import { useCounters } from "../hooks/useCounters";
 import { useOversightSummary } from "../hooks/useOversight";
 import { TeamTabs } from "../components/SectionTabs";
 import { Rh2EmptyState } from "../components/rh2/Rh2EmptyState";
+import { InvestigationCasesPanel } from "../components/security/InvestigationCasesPanel";
 
 type Tab = "clients" | "properties";
 type VerdictFilter = SecurityReviewState | "";
@@ -135,12 +137,12 @@ export function SecurityCenter() {
         <div className="scr">
           <div className="pg-h">
             <div>
-              <h1>Служба безопасности</h1>
+              <h1>Раздел недоступен</h1>
             </div>
           </div>
           <TeamTabs />
           <div className="card tight">
-            <Rh2EmptyState icon={Lock} title="Раздел доступен только службе безопасности." />
+            <Rh2EmptyState icon={Lock} title="Недостаточно прав для просмотра." />
           </div>
         </div>
       </div>
@@ -167,6 +169,9 @@ export function SecurityCenter() {
         </div>
 
         <TeamTabs />
+
+        <InvestigationCasesPanel />
+        <WeeklyOperationalPreviewPanel />
 
         <div className="quiet">
           <span className="txt">

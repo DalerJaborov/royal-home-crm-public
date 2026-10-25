@@ -249,18 +249,13 @@ describe("buildSecurityReviewDigest", () => {
   });
 });
 
-/**
- * Право доступа — reports.view (то же, что у остального роутера reports.ts),
- * НЕ clients.securityReview: «пока СБ нет, сводку видит всё руководство»
- * (решение владельца, план §E). Рядовой АГЕНТ этого права не имеет
- * (packages/shared/src/permissions.ts, ROLE_PRESETS.AGENT) — используем его
- * же для проверки отказа, MANAGER — для проверки успеха.
- */
+/** Investigation digest is ADMIN/DIRECTOR only; reports.view is insufficient. */
 describe("GET /api/v1/reports/security-review-digest", () => {
   const password = "testpass123";
   let plainAgentToken: string;
   let managerAgentId: string;
   let managerToken: string;
+  let adminToken: string;
 
   beforeAll(async () => {
     const passwordHash = await bcrypt.hash(password, 10);
@@ -271,6 +266,11 @@ describe("GET /api/v1/reports/security-review-digest", () => {
       data: { fullName: `Руководитель СБ-эндпоинт ${runId}`, phone: `+992924${runId}`, role: "MANAGER", passwordHash },
     });
     managerAgentId = manager.id;
+    const admin = await prisma.agent.create({ data: { fullName: `Администратор сводки ${runId}`, phone: `+992925${runId}`, role: "ADMIN", passwordHash } });
+    extraAgentIds.push(admin.id);
+    const adminRes = await request(app).post("/api/v1/auth/login").send({ phone: `+992925${runId}`, password });
+    expect(adminRes.status).toBe(200);
+    adminToken = adminRes.body.accessToken as string;
     // В extraAgentIds, а не в свой afterAll — см. комментарий у объявления
     // extraAgentIds выше (порядок hook'ов и FK на assignedAgentId).
     extraAgentIds.push(plainAgent.id, manager.id);
@@ -291,7 +291,12 @@ describe("GET /api/v1/reports/security-review-digest", () => {
     expect(res.status).toBe(403);
   });
 
-  it("руководителю с reports.view — 200, данные за явно заданный период", async () => {
+  it("менеджеру с reports.view — 403", async () => {
+    const res = await request(app).get("/api/v1/reports/security-review-digest").set("Authorization", `Bearer ${managerToken}`);
+    expect(res.status).toBe(403);
+  });
+
+  it("администратору — 200, данные за явно заданный период", async () => {
     const c = await makeClient("BUYER", managerAgentId, "http1");
     // Полдень UTC 10 января — заведомо внутри суток «10 января» при любом
     // разумном смещении часового пояса (Душанбе UTC+5), без риска соскользнуть
@@ -306,7 +311,7 @@ describe("GET /api/v1/reports/security-review-digest", () => {
     const res = await request(app)
       .get("/api/v1/reports/security-review-digest")
       .query({ from: "2021-01-10", to: "2021-01-11" })
-      .set("Authorization", `Bearer ${managerToken}`);
+      .set("Authorization", `Bearer ${adminToken}`);
     expect(res.status).toBe(200);
     expect(res.body.securityReviewCount).toBeGreaterThanOrEqual(1);
     expect(Array.isArray(res.body.cases)).toBe(true);

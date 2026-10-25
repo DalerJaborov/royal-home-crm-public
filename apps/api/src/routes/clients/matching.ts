@@ -5,7 +5,9 @@
  * WhatsApp (lib/whatsappFirstContact.ts), а цена в двух местах не должна разойтись.
  */
 import { Router, type Request, type Response } from "express";
-import { clientPropertyMatchQuerySchema, maskPhones, sendPropertiesSchema, type SendPropertiesFallback, type SendTargetInfo } from "@royal-home/shared";
+import { createHash } from "node:crypto";
+import { recordPropertyDispatchAccepted } from "../../lib/clientWorkflowObservations.js";
+import { confirmedClientIntents, clientPropertyMatchQuerySchema, maskPhones, sendPropertiesSchema, type SendPropertiesFallback, type SendTargetInfo } from "@royal-home/shared";
 import { z } from "zod";
 import { prisma } from "../../db.js";
 import { foreignWriteDenied } from "./shared.js";
@@ -247,11 +249,25 @@ matchingRouter.post("/:id/send-properties", requireAuth, async (req, res) => {
     text,
     links: properties.map((p) => ({ propertyId: p.id, shortId: p.shortId, url: propertyLinks.get(p.id)! })),
   };
+  // Integrity token, not authorization: all ordinary ownership/channel checks remain.
+  // Hash only stable recipient identity, never transport credentials.
+  const previewFingerprint = createHash("sha256").update(JSON.stringify({
+    clientId: client.id, propertyIds, text,
+    target: !target ? null : { kind: target.kind, id: target.id, subscriberId: target.subscriberId,
+      channel: target.kind === "bot" ? target.channel : "TELEGRAM",
+      accountId: target.kind === "bot" ? target.accountId ?? null : null,
+      endpointScopeId: target.kind === "bot" ? target.transport?.endpointScopeId ?? null : null,
+      scopeRevision: target.kind === "bot" ? target.transport?.scopeRevision ?? null : null },
+  })).digest("hex");
 
   // Подготовка без отправки: текст и ссылки (личные ссылки уже заведены выше —
   // по ним СМС и «открыл/не открыл»), бот не трогается, в хронологию не пишем.
   if (parsed.data.prepareOnly) {
-    return res.json({ ok: true, prepared: true, sent: 0, propertyIds, fallback });
+    return res.json({ ok: true, prepared: true, sent: 0, propertyIds, fallback, previewFingerprint });
+  }
+
+  if (parsed.data.previewFingerprint && parsed.data.previewFingerprint !== previewFingerprint) {
+    return res.status(409).json({ code: "PREVIEW_CHANGED", error: "Подборка или адресат изменились после предпросмотра. Проверьте текст заново — ничего не отправлено." });
   }
 
   if (!target) {
@@ -269,6 +285,7 @@ matchingRouter.post("/:id/send-properties", requireAuth, async (req, res) => {
   if (!delivery.ok) {
     return res.status(delivery.status).json({ error: delivery.error, code: delivery.code, fallback });
   }
+  await recordPropertyDispatchAccepted(client.id, client.assignedAt, propertyIds, targetChannel(target), req.agent!.id);
 
   /**
    * PropertyExposure — тем же путём, что и у бота (messengers/propertyShowcase.ts::
@@ -358,7 +375,7 @@ matchingRouter.get("/:id/match", requireAuth, async (req, res) => {
     return res.json(empty("pending_acceptance"));
   }
   // A second role is intentional, human-confirmed data; old raw dualIntent is not evidence.
-  if (client.kind !== "BUYER" && !(client.kind === "SELLER" && client.dualIntent && client.dualIntentConfirmedAt)) {
+  if (!confirmedClientIntents(client).buys) {
     return res.json(empty("not_buyer"));
   }
   const result = await clientPropertyMatchingCatalog(client.id, currentBuyerMatchingCriteria(client), {

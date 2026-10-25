@@ -1,4 +1,6 @@
 import { hostname } from "node:os";
+import { isPrivateBackgroundJob } from "../lib/backgroundJobPrivacy.js";
+import { withInvestigationPrivacy } from "../lib/investigationOperations.js";
 import { Prisma, type BackgroundJob } from "../generated/prisma/client.js";
 import { prisma } from "../db.js";
 import { logSystemError } from "../lib/systemError.js";
@@ -157,6 +159,9 @@ export function nextAttemptDelayMs(err: unknown, backoffMs: number): number {
 }
 
 async function runOne(job: BackgroundJob): Promise<void> {
+  return withInvestigationPrivacy(await isPrivateBackgroundJob(job).catch(() => true), () => runOneInContext(job));
+}
+async function runOneInContext(job: BackgroundJob): Promise<void> {
   const handler = jobHandlerOf(job.type);
   if (!handler) {
     await prisma.backgroundJob.update({

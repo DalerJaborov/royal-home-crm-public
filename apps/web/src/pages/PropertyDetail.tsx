@@ -1,4 +1,5 @@
 import { useCleanShell } from "../hooks/useCleanShell";
+import { PropertyRemovalDialog } from "../components/PropertyRemovalDialog";
 import { CleanPropertyDetailHeader, CleanPropertyDetailLayout, CleanPropertyDetailSkeleton, CleanPropertySlot, CleanPropertySummary, cleanPropertyDetailScale } from "../components/clean/CleanPropertyDetailLayout";
 import { useLegacyAgentMobile } from "../hooks/useLegacyAgentMobile";
 import { LegacyAgentPropertyView } from "../components/mobile/LegacyAgentPropertyView";
@@ -1152,6 +1153,7 @@ function StatusRow({
   updateProperty: ReturnType<typeof useUpdateProperty>;
 }) {
   const [statusError, setStatusError] = useState<string | null>(null);
+  const [withdrawOpen, setWithdrawOpen] = useState(false);
 
   return (
     <>
@@ -1190,6 +1192,7 @@ function StatusRow({
                 disabled={isTrashed || statusOptions.length <= 1}
                 onChange={(e) => {
                   setStatusError(null);
+                  if (e.target.value === "WITHDRAWN") { setWithdrawOpen(true); return; }
                   updateProperty.mutate(
                     { status: e.target.value },
                     { onError: (err) => setStatusError(err instanceof Error ? err.message : "Не удалось изменить статус") }
@@ -1212,6 +1215,7 @@ function StatusRow({
           <span className="txt">{statusError}</span>
         </div>
       )}
+      {withdrawOpen && <PropertyRemovalDialog propertyIds={[property.id]} title="Снять объект с продажи" description="Причина сохранится в истории объекта." confirmLabel="Снять с продажи" onClose={() => setWithdrawOpen(false)} onConfirm={body => updateProperty.mutateAsync({ status: "WITHDRAWN", ...body })} />}
     </>
   );
 }
@@ -2077,22 +2081,16 @@ function DeletePropertyDialog({ propertyId, onClose }: { propertyId: string; onC
   const deleteProperty = useDeleteProperty();
   const navigate = useNavigate();
   return (
-    <ConfirmDialog
+    <PropertyRemovalDialog
+      propertyIds={[propertyId]}
       title="Удалить объект?"
       description="Объект снимется с сайта и уйдёт в корзину раздела «Архив». Оттуда его можно вернуть или стереть навсегда."
       confirmLabel={deleteProperty.isPending ? "Удаление…" : "Удалить"}
-      confirmDisabled={deleteProperty.isPending}
-      danger
-      onConfirm={async () => {
-        try {
-          await deleteProperty.mutateAsync(propertyId);
+      onConfirm={async (body) => {
+          await deleteProperty.mutateAsync({ id: propertyId, ...body });
           navigate("/properties");
-        } catch (err) {
-          toast.error(err instanceof Error ? err.message : "Не удалось удалить объект");
-          onClose();
-        }
       }}
-      onCancel={onClose}
+      onClose={onClose}
     />
   );
 }

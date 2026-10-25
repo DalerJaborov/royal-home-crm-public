@@ -35,6 +35,7 @@ beforeAll(async () => {
   districtId = (await prisma.district.create({ data: { name: `Kernel district ${run}` } })).id;
 });
 afterAll(async () => {
+  await prisma.investigationCase.deleteMany({ where: { clientId: { in: clientIds } } });
   const interactions = await prisma.interaction.findMany({ where: { clientId: { in: clientIds } }, select: { id: true } });
   await prisma.pendingSummary.deleteMany({ where: { subjectId: { in: interactions.map((row) => row.id) }, kind: "meeting" } });
   await prisma.interaction.deleteMany({ where: { clientId: { in: clientIds } } });
@@ -45,6 +46,34 @@ afterAll(async () => {
 });
 
 describe("shared showing transaction kernel", () => {
+  it("late cancellation records one private fact, early cancellation none, without completed KPI or extra timeline task", async () => {
+    for (const late of [false, true]) {
+      const { client, property } = await fixture();
+      const showing = await book(client.id, property.id);
+      const cancellation = { clientId: client.id, interactionId: showing.id, actorKind: "agent" as const,
+        now: new Date(at.getTime() + (late ? 1000 : -1000)), notes: (row: { notes: string }) => `${row.notes}\nCancelled` };
+      await prisma.$transaction(tx => cancelShowingTx(tx, cancellation));
+      await expect(prisma.$transaction(tx => cancelShowingTx(tx, cancellation))).rejects.toThrow("stale_showing");
+      const facts = await prisma.investigationEvidence.findMany({ where: { case: { clientId: client.id }, kind: "late-cancellation" } });
+      expect(facts).toHaveLength(late ? 1 : 0);
+      expect(await prisma.interaction.count({ where: { clientId: client.id } })).toBe(1);
+      const row = await prisma.interaction.findUniqueOrThrow({ where: { id: showing.id } });
+      expect(row.completedAt).toBeNull();
+      expect(row.nextAction).toBeNull();
+      expect(row.declinedAt).not.toBeNull();
+    }
+  });
+  it("cannot reschedule a task cancelled by final refusal even after a new assignment", async () => {
+    const { client, property } = await fixture();
+    const showing = await book(client.id, property.id);
+    await prisma.interaction.update({ where: { id: showing.id }, data: { taskCancelledAt: now } });
+    await expect(prisma.$transaction(tx => rescheduleShowingTx(tx, {
+      clientId: client.id, interactionId: showing.id, at: later, now,
+      meetingSummaryAfterShowingMinutes: 90, actorKind: "agent", notes: () => "Must not replace history",
+    }))).rejects.toMatchObject({ reason: "stale_showing" });
+    expect(await prisma.interaction.findUniqueOrThrow({ where: { id: showing.id } }))
+      .toMatchObject({ nextActionDate: at, completedAt: null, taskCancelledAt: now, notes: "Original booking" });
+  });
   it("customer eligibility refuses an unaccepted assigned lead without accepting it or changing legacy booking policy", async () => {
     const { client, property } = await fixture();
     expect(client.acceptedAt).toBeNull();

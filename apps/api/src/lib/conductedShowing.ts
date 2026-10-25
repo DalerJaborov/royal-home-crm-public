@@ -13,16 +13,16 @@ import { prisma } from "../db.js";
  * показ на следующий месяц и тут же получал обе кнопки. Отменённый показ
  * засчитывался наравне с проведённым. Правило ТЗ не работало вовсе.
  *
- * Проведённым считается показ, который:
+ * Исторические записи evidenceVersion=0 сохраняют прежнее правило:
  *  • не отменён (`declinedAt` пуст — отмена, см. Interaction.declinedAt), И
  *  • либо отмечен выполненным (`completedAt`),
  *  • либо записан задним числом (`nextActionDate` пуст — так пишут уже
  *    состоявшийся показ из карточки),
  *  • либо его время уже прошло (назначенный показ, до которого дожили).
  *
- * Последний пункт совпадает с тем, по какому признаку CRM открывает обязательное
- * окно «Итог показа» (lib/pendingSummaries.ts): если система уже спрашивает про
- * итог показа, то для неё показ состоялся.
+ * Новые записи evidenceVersion>=1 требуют известного объекта (или явного
+ * описания вне CRM) и прошедшей даты/времени. Ранняя отметка completedAt сама
+ * по себе не превращает будущую встречу в проведённую.
  */
 export function conductedShowingWhere(clientId: string, now: Date = new Date()): Prisma.InteractionWhereInput {
   return { clientId, ...conductedShowingBaseWhere(now) };
@@ -38,8 +38,14 @@ export function conductedShowingWhere(clientId: string, now: Date = new Date()):
 export function conductedShowingBaseWhere(now: Date = new Date()): Prisma.InteractionWhereInput {
   return {
     type: "SHOWING",
+    taskCancelledAt: null,
     declinedAt: null,
-    OR: [{ completedAt: { not: null } }, { nextActionDate: null }, { nextActionDate: { lte: now } }],
+    OR: [
+      // Retain historical reporting semantics, never manufacture a new legacy row.
+      { showingEvidenceVersion: 0, OR: [{ completedAt: { not: null } }, { nextActionDate: null }, { nextActionDate: { lte: now } }] },
+      { showingEvidenceVersion: { gte: 1 }, nextActionDate: { not: null, lte: now },
+        OR: [{ propertyId: { not: null } }, { showingOffCrm: true, showingOffCrmDetails: { not: null } }] },
+    ],
   };
 }
 
@@ -56,9 +62,12 @@ export async function hadConductedShowing(clientId: string): Promise<boolean> {
  * в одном файле, а не расходятся по разным местам кода.
  */
 export function isConductedShowing(
-  interaction: { type: string; declinedAt: Date | null; completedAt: Date | null; nextActionDate: Date | null },
+  interaction: { type: string; declinedAt: Date | null; completedAt: Date | null; nextActionDate: Date | null; taskCancelledAt?: Date | null;
+    showingEvidenceVersion?: number; propertyId?: string | null; showingOffCrm?: boolean; showingOffCrmDetails?: string | null },
   now: Date = new Date()
 ): boolean {
-  if (interaction.type !== "SHOWING" || interaction.declinedAt !== null) return false;
+  if (interaction.type !== "SHOWING" || interaction.declinedAt !== null || interaction.taskCancelledAt) return false;
+  if ((interaction.showingEvidenceVersion ?? 0) >= 1) return !!interaction.nextActionDate && interaction.nextActionDate <= now
+    && (!!interaction.propertyId || interaction.showingOffCrm === true && (interaction.showingOffCrmDetails?.trim().length ?? 0) >= 10);
   return interaction.completedAt !== null || interaction.nextActionDate === null || interaction.nextActionDate <= now;
 }

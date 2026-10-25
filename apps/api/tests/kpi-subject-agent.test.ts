@@ -46,6 +46,53 @@ afterAll(async () => {
 });
 
 describe("computeCrm видит задачу бота через subjectAgentId", () => {
+  it("отмена завтра не улучшает вчерашний KPI и не создаёт будущих хвостов после переназначения", async () => {
+    const day = new Date("2001-07-09T07:00:00Z");
+    const { start, end } = dushanbeDayRange(day);
+    const cancelledAt = new Date(end.getTime() + 60_000);
+    const rows = await prisma.interaction.createManyAndReturn({ data: [0, -1].map(offset => ({
+      clientId, actorKind: "SYSTEM", subjectAgentId: agentId, type: "SYSTEM", notes: "Temporal cancellation KPI fixture",
+      nextAction: "Call", nextActionDate: new Date(start.getTime() + offset * 86_400_000),
+      createdAt: new Date(start.getTime() - 172_800_000),
+    })), select: { id: true } });
+    const ids = rows.map(row => row.id);
+    try {
+      const before = await calculateDailyKPI(agentId, day);
+      expect(before.breakdown.crm).toEqual({ earned: 0, max: 20 });
+      expect(before.breakdown.discipline).toEqual({ earned: 15, max: 20 });
+      await prisma.interaction.updateMany({ where: { id: { in: ids } }, data: { taskCancelledAt: cancelledAt } });
+      await prisma.client.update({ where: { id: clientId }, data: { assignmentCompletedAt: cancelledAt } });
+      const after = await calculateDailyKPI(agentId, day);
+      expect(after.breakdown.crm).toEqual(before.breakdown.crm);
+      expect(after.breakdown.discipline).toEqual(before.breakdown.discipline);
+      await prisma.client.update({ where: { id: clientId }, data: { assignmentCompletedAt: null } });
+      const reassigned = await calculateDailyKPI(agentId, day);
+      expect(reassigned.breakdown.crm).toEqual(before.breakdown.crm);
+      expect(reassigned.breakdown.discipline).toEqual(before.breakdown.discipline);
+      const later = await calculateDailyKPI(agentId, new Date(end.getTime() + 86_400_000));
+      expect(later.breakdown.crm).toEqual({ earned: 20, max: 20 });
+      expect(later.breakdown.discipline).toEqual({ earned: 20, max: 20 });
+    } finally {
+      await prisma.client.update({ where: { id: clientId }, data: { assignmentCompletedAt: null } });
+      await prisma.interaction.deleteMany({ where: { id: { in: ids } } });
+    }
+  });
+  it("приватные незакрытые задачи не меняют публичные crm и discipline", async () => {
+    const day = new Date("2033-07-09T07:00:00Z");
+    const { start } = dushanbeDayRange(day);
+    const before = await calculateDailyKPI(agentId, day);
+    const rows = await prisma.interaction.createManyAndReturn({ data: [0, -1].map((offset) => ({
+      clientId, actorKind: "SYSTEM", subjectAgentId: agentId, type: "SYSTEM", notes: "Private KPI task fixture", investigationOnly: true,
+      nextAction: "Private task", nextActionDate: new Date(start.getTime() + offset * 86_400_000),
+    })), select: { id: true } });
+    try {
+      const after = await calculateDailyKPI(agentId, day);
+      expect(after.breakdown.crm).toEqual(before.breakdown.crm);
+      expect(after.breakdown.discipline).toEqual(before.breakdown.discipline);
+    } finally {
+      await prisma.interaction.deleteMany({ where: { id: { in: rows.map((row) => row.id) } } });
+    }
+  });
   it("незакрытая задача бота на сегодня снижает crm держателю, а не прячется", async () => {
     const today = new Date();
     const { start } = dushanbeDayRange(today);

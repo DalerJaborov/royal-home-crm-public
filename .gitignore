@@ -135,6 +135,7 @@ apps/api/.g/
 docs/design/parity/*/
 
 # Private runtime data must never enter the public source repository.
+.playwright-cli/
 *.db
 *.db-wal
 *.db-shm

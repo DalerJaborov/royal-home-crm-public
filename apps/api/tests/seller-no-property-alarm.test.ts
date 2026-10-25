@@ -1,4 +1,8 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+// This suite verifies alarm/calendar policy after a completed pause review.
+// AI outages and source attribution are tested separately by off-crm-pause-check-*.
+const { checkClientExplainedPause } = vi.hoisted(() => ({ checkClientExplainedPause: vi.fn() }));
+vi.mock("../src/ai/offCrmPauseCheck.js", () => ({ checkClientExplainedPause }));
 import bcrypt from "bcrypt";
 import { prisma } from "../src/db.js";
 import { runSellerNoPropertyAlarmTick, ALARM_DAYS } from "../src/lib/sellerNoPropertyAlarm.js";
@@ -124,6 +128,8 @@ beforeAll(async () => {
   directorId = director.id;
 });
 
+beforeEach(() => { checkClientExplainedPause.mockReset(); checkClientExplainedPause.mockResolvedValue({ explained: false }); });
+
 afterAll(async () => {
   await prisma.notification.deleteMany({
     where: { tag: { startsWith: "alarm-seller-no-prop-" } },
@@ -131,11 +137,18 @@ afterAll(async () => {
   await prisma.interaction.deleteMany({ where: { id: { in: interactionIds } } });
   await prisma.property.deleteMany({ where: { id: { in: propertyIds } } });
   await prisma.client.deleteMany({ where: { id: { in: clientIds } } });
-  await prisma.agent.deleteMany({ where: { id: { in: [agentId, directorId] } } });
-  await prisma.district.delete({ where: { id: districtId } });
+  await prisma.agent.deleteMany({ where: { id: { in: [agentId, directorId].filter((id): id is string => typeof id === "string") } } });
+  if (districtId) await prisma.district.delete({ where: { id: districtId } });
 });
 
 describe("runSellerNoPropertyAlarmTick", () => {
+  it("incomplete pause review postpones alarm without marking the seller reviewed", async () => {
+    checkClientExplainedPause.mockResolvedValue({ explained: false, unchecked: true });
+    const c = await makeSeller({ daysSinceMeeting: ALARM_DAYS + 1, aiScore: HIGH_SCORE_THRESHOLD });
+    await runSellerNoPropertyAlarmTick(NOW);
+    expect(checkClientExplainedPause).toHaveBeenCalledWith(c.id, { since: expect.any(Date) });
+    expect(await alarmSentFor(c.id)).toBe(false);
+  });
   /**
    * Ревью 03.09.2026: выборка кандидатов фильтровала propertyAcceptedAt IS NOT NULL,
    * и продавец с проведённой встречей, но без исхода «Объект принят» (ровно тот

@@ -208,7 +208,7 @@ export function Calendar() {
   // `?type=SHOWING|MEETING` из адреса — сервер отдаёт диапазон целиком, фильтр
   // клиентский, как и остальная раскладка календаря.
   const tasks = useMemo(
-    () => (typeFilter ? (rawTasks ?? []).filter((t) => t.type === typeFilter) : rawTasks),
+    () => rawTasks?.filter((t) => !t.taskCancelledAt && (!typeFilter || t.type === typeFilter)),
     [rawTasks, typeFilter]
   );
 

@@ -4,6 +4,8 @@ import type { Prisma } from "../generated/prisma/client.js";
 import { prisma } from "../db.js";
 import { loadMoneyContext, toTjs, type MoneyContext } from "../lib/money.js";
 import { propertyOwnerAgentId } from "../lib/propertyOwner.js";
+import { matchingPropertySellers } from "../lib/matchingOwnership.js";
+import { currentBuyerMatchingCriteria } from "../lib/clientPropertyMatching.js";
 import {
   budgetWindowTjs,
   clientRequirementsForPropertyWhere,
@@ -275,6 +277,7 @@ export function scoreClientProperty(
 export async function computeDemandCounts(properties: MatchableProperty[]): Promise<Map<string, number>> {
   const counts = new Map<string, number>();
   if (properties.length === 0) return counts;
+  const sellers = await matchingPropertySellers(properties.map((property) => property.id));
 
   // Сужаем выборку до районов, реально представленных на этой странице объектов:
   // раньше на КАЖДУЮ отрисовку списка поднимались все активные клиенты компании,
@@ -314,6 +317,7 @@ export async function computeDemandCounts(properties: MatchableProperty[]): Prom
       ],
     },
     select: {
+      id: true,
       budgetMin: true,
       budgetMax: true,
       currency: true,
@@ -332,7 +336,7 @@ export async function computeDemandCounts(properties: MatchableProperty[]): Prom
   });
 
   for (const property of properties) {
-    const count = candidateClients.filter((c) => clientMatchesProperty(c, property, money, policy)).length;
+    const count = candidateClients.filter((c) => c.id !== sellers.get(property.id) && clientMatchesProperty(c, property, money, policy)).length;
     if (count > 0) counts.set(property.id, count);
   }
   return counts;
@@ -394,6 +398,7 @@ export async function findMatchingClientsForProperty(
   property: MatchableProperty,
   limit = 10
 ): Promise<MatchingClientsResponse> {
+  const sellerClientId = (await matchingPropertySellers([property.id])).get(property.id);
   // Гео-предфильтр (блок D2): та же bbox-логика, что в notifyWaitingBuyersOfNewProperty
   // — грубый потолок MAX_DESIRED_PLACE_RADIUS_M, точный радиус каждого места
   // клиента уточняет nearestDesiredPlace в JS уже после выборки.
@@ -409,6 +414,7 @@ export async function findMatchingClientsForProperty(
   const clients = await prisma.client.findMany({
     where: {
       ...waiting,
+      ...(sellerClientId ? { id: { not: sellerClientId } } : {}),
       AND: [
         ...(Array.isArray(waiting.AND) ? waiting.AND : []),
         { OR: districtOrRadiusOr },
@@ -516,6 +522,8 @@ export async function findMatchingPropertiesForClient(
   const stored = await prisma.client.findFirst({
     where: { id: clientId, deletedAt: null },
     select: {
+      requirementsFieldsKind: true,
+      requirementsNotes: true,
       budgetMin: true,
       budgetMax: true,
       currency: true,
@@ -533,11 +541,13 @@ export async function findMatchingPropertiesForClient(
   const overrides = Object.fromEntries(
     Object.entries(options.requirements ?? {}).filter(([, v]) => v !== undefined && v !== null)
   ) as unknown as Partial<typeof stored>;
-  const client = { ...stored, ...overrides };
+  if (stored.requirementsFieldsKind != null && stored.requirementsFieldsKind !== "BUYER" && Object.keys(overrides).length === 0) return [];
+  const client = { ...currentBuyerMatchingCriteria(stored), ...overrides };
 
   const where: Prisma.PropertyWhereInput = {
     status: "AVAILABLE",
     deletedAt: null,
+    AND: [{ OR: [{ sellerClientId: null }, { sellerClientId: { not: clientId } }] }],
     // Хозяин хоть в каком-то из трёх полей — иначе объект без интейкера, но
     // с риелтором или создателем, молча выпадал бы из подбора.
     OR: [{ intakeAgentId: { not: null } }, { assignedAgentId: { not: null } }, { createdById: { not: null } }],
@@ -558,7 +568,7 @@ export async function findMatchingPropertiesForClient(
       lng: { not: null },
       OR: desiredPlaces.map((p) => pointBboxWhere(Number(p.lat), Number(p.lng), p.radiusM)),
     });
-    where.AND = [{ OR: districtOrRadius }];
+    where.AND = [...(Array.isArray(where.AND) ? where.AND : []), { OR: districtOrRadius }];
   } else if (client.desiredDistrictId) {
     where.districtId = client.desiredDistrictId;
   }

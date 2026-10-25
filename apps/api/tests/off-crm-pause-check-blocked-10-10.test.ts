@@ -17,7 +17,7 @@ vi.mock("../src/db.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/db.js")>()),
   prisma: {
     botConversation: {
-      findMany: () => Promise.resolve([{ messages: [{ role: "user", content: "Салом, хона" }], lastMessageAt: new Date() }]),
+      findMany: () => Promise.resolve([{ messages: [{ role: "user", content: "Салом, хона", at: new Date().toISOString() }], lastMessageAt: new Date() }]),
     },
     telegramConversation: { findUnique: () => Promise.resolve(null) },
     interaction: { findMany: () => Promise.resolve([{ type: "CALL", notes: "Позвонил, клиент думает", createdAt: new Date() }]) },
@@ -38,9 +38,17 @@ describe("off-crm-pause-check: блокировка Google — «не прове
     expect(callAiText.mock.calls[0][0]).toMatchObject({ endpoint: "off-crm-pause-check", clientId: "client-blocked-1" });
   });
 
-  it("обычный отказ ИИ — прежнее «не объяснено», без пометки «не проверено»", async () => {
+  it("обычный отказ ИИ откладывает вывод, как и блокировка", async () => {
     callAiText.mockReset();
     callAiText.mockResolvedValue(null);
-    expect(await checkClientExplainedPause("client-plain-2")).toEqual({ explained: false });
+    expect(await checkClientExplainedPause("client-plain-2")).toEqual({ explained: false, unchecked: true });
+  });
+  it("ошибка ИИ не превращается в отсутствие объяснения", async () => {
+    callAiText.mockRejectedValue(new Error("PRIVATE_PROVIDER_ERROR"));
+    expect(await checkClientExplainedPause("client-failed")).toEqual({ explained: false, unchecked: true });
+  });
+  it("не принимает объяснение без дословного источника клиента", async () => {
+    callAiText.mockResolvedValue({ explained: true, reason: "сказал агент", quote: "клиент думает" });
+    expect(await checkClientExplainedPause("client-unattributed")).toEqual({ explained: false, unchecked: true });
   });
 });

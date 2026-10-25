@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import { Link } from "react-router-dom";
 import { lazyWithReload } from "../lib/lazyWithReload";
 import { useAuthStore } from "../store/auth";
 import { useLegacyAgentMobile } from "../hooks/useLegacyAgentMobile";
@@ -25,11 +26,9 @@ const AgentHome = lazyWithReload(() => import("../components/home/AgentHome").th
 const ManagerHome = lazyWithReload(() =>
   import("../components/home/ManagerHome").then((m) => ({ default: m.ManagerHome }))
 );
+const HeadOfSalesHome = lazyWithReload(() => import("../components/home/HeadOfSalesHome").then(module => ({ default: module.HeadOfSalesHome })));
 const MarketingHome = lazyWithReload(() =>
   import("../components/home/MarketingHome").then((m) => ({ default: m.MarketingHome }))
-);
-const SecurityHome = lazyWithReload(() =>
-  import("../components/home/SecurityHome").then((m) => ({ default: m.SecurityHome }))
 );
 
 // «/» для DIRECTOR/ADMIN — один адаптивный пульт на ПК и телефоне (контракт
@@ -60,9 +59,6 @@ const MobileManagerHome = lazyWithReload(() =>
 // данные и права не менялись, только разметка сравнялась с остальными 4 ролями.
 const MobileMarketingHome = lazyWithReload(() =>
   import("../components/home/mh/MobileMarketingHome").then((m) => ({ default: m.MobileMarketingHome }))
-);
-const MobileSecurityHome = lazyWithReload(() =>
-  import("../components/home/mh/MobileSecurityHome").then((m) => ({ default: m.MobileSecurityHome }))
 );
 const MobileEditorHome = lazyWithReload(() =>
   import("../components/home/mh/MobileEditorHome").then((m) => ({ default: m.MobileEditorHome }))
@@ -108,6 +104,8 @@ export function Dashboard() {
         )
       ) : role === "DIRECTOR" || role === "ADMIN" ? (
         clean ? <PultClean /> : <DirectorHome />
+      ) : role === "HEAD_OF_SALES" ? (
+        <HeadOfSalesHome />
       ) : role === "AGENT" ? (
         legacyAgentMobile ? <MobileAgentHome /> : <AgentHome />
       ) : role === "MARKETING" ? (
@@ -117,11 +115,10 @@ export function Dashboard() {
           <MarketingHome />
         )
       ) : role === "SECURITY" ? (
-        mobile ? (
-          <MobileSecurityHome />
-        ) : (
-          <SecurityHome />
-        )
+        <section className="card"><h1>Рабочие разделы</h1><div className="wrap">
+          <Link className="pill" to="/clients">Клиенты</Link>
+          <Link className="pill" to="/properties">Объекты</Link>
+        </div></section>
       ) : mobile ? (
         <MobileManagerHome />
       ) : (

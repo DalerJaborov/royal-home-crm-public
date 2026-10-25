@@ -1,3 +1,4 @@
+import { investigationRecipients } from "./lib/investigationNotifications.js";
 import { scheduleTracked, checkCronHeartbeats, markCronTickFailed, reportCronTickError } from "./lib/cronHeartbeat.js";
 import { runAbsenceReturnTick } from "./lib/absenceReturn.js";
 import { cleanupBotTurnTraces } from "./lib/botTurnTraceStore.js";
@@ -570,6 +571,32 @@ async function notifyDirectorsAboutLostDigest(lostCount: number, proposals: numb
 }
 
 export function startCronJobs() {
+  scheduleTracked("owner-exposure-verification-preview", "15 * * * *", async () => {
+    const { runExposureOwnerPreviewTick } = await import("./lib/ownerVerificationSources.js");
+    await runExposureOwnerPreviewTick();
+  });
+  scheduleTracked("approved-owner-verification", "25 * * * *", async () => {
+    const { runNewOwnerVerificationTick } = await import("./lib/sellerProbeCall.js");
+    await runNewOwnerVerificationTick(new Date(), { allowLive: true });
+  });
+  // Default server gates are PREVIEW. These workers never promote stored previews.
+  scheduleTracked("narration-version-delivery", "* * * * *", async () => {
+    const { executeQueuedNarrationDeliveries } = await import("./lib/narrationDelivery.js");
+    await executeQueuedNarrationDeliveries();
+  });
+  scheduleTracked("seller-control-episodes", "* * * * *", async () => {
+    const { runSellerControlTick } = await import("./lib/sellerControlEpisodes.js");
+    await runSellerControlTick();
+  });
+  scheduleTracked("owner-report-delivery", "* * * * *", async () => {
+    const { executeQueuedOwnerReports } = await import("./lib/ownerReport/delivery.js");
+    await executeQueuedOwnerReports();
+  });
+  // Explicit consent only; current-month PREVIEW by default, LIVE requires both persisted consent mode and server gate.
+  scheduleTracked("owner-report-monthly-preview", "20 8 * * *", async () => {
+    const { prepareMonthlyOwnerReportPreviews } = await import("./lib/ownerReport/monthlyPreview.js");
+    await prepareMonthlyOwnerReportPreviews();
+  }, { timezone: "Asia/Dushanbe" });
   /** Вечерняя сводка агенту — 18:00 по Душанбе, задачи и встречи на завтра одним
    *  push. Вечером накануне, а не утром в день встречи: агент успевает спланировать. */
   scheduleTracked(
@@ -1201,6 +1228,7 @@ export function startCronJobs() {
         const learningCutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
         const staleLessons = await prisma.botLesson.deleteMany({
           where: {
+            investigationOnly: false,
             OR: [{ lesson: null }, { lesson: EMPTY_LESSON }],
             createdAt: { lt: learningCutoff },
           },
@@ -1894,7 +1922,7 @@ export function startCronJobs() {
         const already = await prisma.notification.findFirst({ where: { tag }, select: { id: true } });
         if (already) return;
 
-        const recipients = await findAgentsWithPermission("reports.view");
+        const recipients = await investigationRecipients();
         if (recipients.length === 0) return;
 
         const anomalies = digest.byAgent.filter((a) => a.anomaly);

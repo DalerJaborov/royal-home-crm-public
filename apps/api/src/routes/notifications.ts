@@ -1,3 +1,5 @@
+import { investigationViewerRole } from "../auth/investigations.js";
+import { loadVisibleNotificationsWhere } from "../lib/investigationNotifications.js";
 import { Router } from "express";
 import { z } from "zod";
 import { pageQuerySchema } from "@royal-home/shared";
@@ -48,7 +50,7 @@ notificationsRouter.get("/", async (req, res) => {
     return res.status(400).json({ error: "Неверный номер страницы", details: parsed.error.flatten() });
   }
   const { page } = parsed.data;
-  const where = { agentId: req.agent!.id };
+  const where = await loadVisibleNotificationsWhere(req.agent!.id, investigationViewerRole(req));
 
   /**
    * ДВА ВЕРХНИХ УРОВНЯ ТЯНЕМ ПО ВСЕЙ ЛЕНТЕ, а не только со страницы.
@@ -107,7 +109,7 @@ notificationsRouter.post("/:id/read", async (req, res) => {
   if (!parsed.success) return res.status(400).json({ error: "Неверный идентификатор" });
 
   const result = await prisma.notification.updateMany({
-    where: { id: parsed.data.id, agentId: req.agent!.id },
+    where: { id: parsed.data.id, ...await loadVisibleNotificationsWhere(req.agent!.id, investigationViewerRole(req)) },
     data: { read: true },
   });
   if (result.count === 0) return res.status(404).json({ error: "Уведомление не найдено" });
@@ -126,7 +128,7 @@ notificationsRouter.post("/read-many", async (req, res) => {
   if (!parsed.success) return res.status(400).json({ error: "Неверный список уведомлений", details: parsed.error.flatten() });
 
   const result = await prisma.notification.updateMany({
-    where: { id: { in: parsed.data.ids }, agentId: req.agent!.id, read: false },
+    where: { id: { in: parsed.data.ids }, ...await loadVisibleNotificationsWhere(req.agent!.id, investigationViewerRole(req)), read: false },
     data: { read: true },
   });
   res.json({ ok: true, count: result.count });
@@ -135,7 +137,7 @@ notificationsRouter.post("/read-many", async (req, res) => {
 /** Отметить всю ленту прочитанной — кнопка «Прочитать всё». */
 notificationsRouter.post("/read-all", async (req, res) => {
   await prisma.notification.updateMany({
-    where: { agentId: req.agent!.id, read: false },
+    where: { ...await loadVisibleNotificationsWhere(req.agent!.id, investigationViewerRole(req)), read: false },
     data: { read: true },
   });
   res.json({ ok: true });

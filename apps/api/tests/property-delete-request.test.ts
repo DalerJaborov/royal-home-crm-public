@@ -1,5 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import bcrypt from "bcrypt";
+import { Prisma } from "../src/generated/prisma/client.js";
+import { invalidateAgentAccess } from "../src/auth/middleware.js";
 
 /**
  * Заявки агента на удаление ОБЪЕКТА (31.08.2026) — зеркало заявок на удаление
@@ -405,5 +407,28 @@ describe("Заявка на удаление скрывает объект то�
     expect(rejected.status).toBe(200);
 
     expect(await listSeesProperty(agentToken, property.shortId)).toBe(true);
+  });
+});
+
+
+describe('deletion request dossier effective permission', () => {
+  it('keeps approval queue available while omitting dossier for revoked ADMIN', async () => {
+    const property = await makeProperty({ assignedAgentId: agentId });
+    await prisma.propertyDeleteRequest.create({ data: { propertyId: property.id, requestedById: agentId, reason: 'OTHER', comment: 'Synthetic request for permission regression' } });
+    const visible = await request(app).get('/api/v1/properties/delete-requests').set('Authorization', `Bearer ${adminToken}`);
+    expect(visible.status).toBe(200);
+    expect(visible.body.items.find((row: { property: { id: string } }) => row.property.id === property.id)).toHaveProperty('dossier');
+    const prior = await prisma.agent.findUniqueOrThrow({ where: { id: adminId }, select: { permissions: true } });
+    try {
+      await prisma.agent.update({ where: { id: adminId }, data: { permissions: { granted: [], revoked: ['clients.securityReview'] } } });
+      invalidateAgentAccess(adminId);
+      const hidden = await request(app).get('/api/v1/properties/delete-requests').set('Authorization', `Bearer ${adminToken}`);
+      expect(hidden.status).toBe(200);
+      const row = hidden.body.items.find((item: { property: { id: string } }) => item.property.id === property.id);
+      expect(row).toBeDefined(); expect(row).not.toHaveProperty('dossier');
+    } finally {
+      await prisma.agent.update({ where: { id: adminId }, data: { permissions: prior.permissions === null ? Prisma.DbNull : prior.permissions as Prisma.InputJsonValue } });
+      invalidateAgentAccess(adminId);
+    }
   });
 });

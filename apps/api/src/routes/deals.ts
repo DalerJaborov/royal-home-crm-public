@@ -366,6 +366,15 @@ dealsRouter.post("/", requireAuth, async (req, res) => {
   let deal;
   try {
     deal = await prisma.$transaction(async (tx) => {
+      // Same lock as final refusal: a new deal must not race a completed assignment.
+      await tx.$queryRaw`SELECT id FROM "Client" WHERE id = ${data.clientId} FOR UPDATE`;
+      const currentClient = await tx.client.findUnique({ where: { id: data.clientId },
+        select: { assignmentCompletedAt: true, deletedAt: true, assignedAgentId: true } });
+      if (!currentClient || currentClient.deletedAt ||
+          (req.agent!.role !== "ADMIN" && req.agent!.role !== "DIRECTOR" &&
+           (currentClient.assignmentCompletedAt || currentClient.assignedAgentId !== client.assignedAgentId))) {
+        throw new DealConflictError("Работа по назначению завершена или клиент передан — обновите карточку");
+      }
       // Резерв строго по условию AVAILABLE — или уже своя более ранняя бронь с
       // «Договора» в «Итоге показа», сделанная под ЭТОГО ЖЕ клиента — внутри
       // транзакции: два конкурентных POST по одному объекту не создадут две

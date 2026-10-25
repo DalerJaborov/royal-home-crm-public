@@ -37,7 +37,9 @@ describe("scheduleTranscriptionRetry (персистентная очередь)
     expect(job!.type).toBe("transcription-retry");
     expect(job!.status).toBe("PENDING");
     expect(job!.maxAttempts).toBe(TRANSCRIPTION_RETRY_MAX_ATTEMPTS);
-    expect(job!.payload).toEqual({ interactionId: INTERACTION_ID });
+    // This fixture deliberately has no Interaction parent: visibility must fail closed.
+    expect(await prisma.interaction.findUnique({ where: { id: INTERACTION_ID } })).toBeNull();
+    expect(job!.payload).toEqual({ interactionId: INTERACTION_ID, investigationOnly: true });
     // Первая попытка — не раньше чем через ~5 минут (первая ступень лесенки).
     expect(job!.runAt.getTime()).toBeGreaterThan(Date.now() + TRANSCRIPTION_RETRY_DELAYS_MS[0] - 60_000);
   });

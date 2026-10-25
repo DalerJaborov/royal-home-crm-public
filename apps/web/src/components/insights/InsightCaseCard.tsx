@@ -1,3 +1,4 @@
+import { useCanViewInvestigations } from "../../lib/permissions";
 import { useState } from "react";
 import { AlertTriangle, CheckCircle, ChevronDown, Loader2, Star } from "lucide-react";
 import type { InsightCaseKind } from "@royal-home/shared";
@@ -43,6 +44,8 @@ export function InsightCaseCard({ item, digestId }: { item: InsightCaseView; dig
   const [note, setNote] = useState(item.meetingNote ?? "");
   const review = useReviewInsightCase(digestId);
   const reviewed = !!item.reviewedAt;
+  const investigations = useCanViewInvestigations();
+  if (item.kind === "agent_bypass" && !investigations) return null;
 
   return (
     <article className="acc">

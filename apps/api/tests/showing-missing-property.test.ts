@@ -50,7 +50,7 @@ const post = (propertyIdValue: string) =>
   request(app)
     .post(`/api/v1/clients/${clientId}/interactions`)
     .set("Authorization", `Bearer ${token}`)
-    .send({ type: "SHOWING", notes: "Показ", propertyId: propertyIdValue });
+    .send({ type: "SHOWING", notes: "Показ", propertyId: propertyIdValue, nextActionDate: new Date(Date.now() - 60_000).toISOString() });
 
 describe("показ с объектом, которого нет (№153)", () => {
   it("несуществующий объект — 404, а не 500, записи нет", async () => {

@@ -47,7 +47,7 @@ export function CloseDealChoiceModal({ client, onClose }: { client: Client; onCl
       title={`Завершить сделку: ${client.fullName}`}
       onClose={onClose}
       footer={
-        <button type="button" className="pill ghost" onClick={() => setShowRefuse(true)}>
+        <button type="button" className="pill ghost" disabled={!!client.assignmentRefusedAt} onClick={() => setShowRefuse(true)}>
           Без сделки, указать причину
         </button>
       }

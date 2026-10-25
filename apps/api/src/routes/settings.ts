@@ -1,3 +1,7 @@
+import { canReadInvestigations, investigationViewerRole } from "../auth/investigations.js";
+import { saveWithInvestigationControlAudit } from "../lib/investigationSettingsAudit.js";
+import { canViewInvestigations } from "@royal-home/shared";
+import { investigationCallChannelIds, mayReadLiveVoiceSession } from "../lib/investigationCallChannels.js";
 import { customerAgentSettingsRouter } from "./customerAgentSettings.js";
 import { settingsInstagramAppBindingRouter } from "./settingsInstagramAppBinding.js";
 import fs from "node:fs";
@@ -568,7 +572,15 @@ settingsRouter.get("/", requireAuth, async (req, res) => {
   // Настройки на запись доступны только ADMIN/DIRECTOR (PATCH ниже) — на чтение
   // полный объект получает тот же круг. Остальным — усечённая версия.
   const isAdmin = can(req, "settings.view");
-  res.json(isAdmin ? await publicSettingsResponse(settings) : toStaffSettings(settings));
+  const response = isAdmin ? await publicSettingsResponse(settings) : toStaffSettings(settings);
+  if (!canReadInvestigations(req)) {
+    delete (response as Record<string, unknown>).postShowingCallEnabled;
+    delete (response as Record<string, unknown>).investigationCaseConfig;
+    delete (response as Record<string, unknown>).sellerControlConfig;
+    delete (response as Record<string, unknown>).postShowingCohortConfig;
+    delete (response as Record<string, unknown>).buyerSellerAutomationMode;
+  }
+  res.json(response);
 });
 
 /**
@@ -1423,6 +1435,7 @@ const settingsUpdateSchema = z.object({
 });
 
 settingsRouter.patch("/", requireAuth, requirePermission("settings.manage"), requireElevation, async (req, res) => {
+  if (Object.prototype.hasOwnProperty.call(req.body ?? {}, "postShowingCallEnabled") && !canReadInvestigations(req)) return res.status(403).json({ error: "Недостаточно прав" });
   const parsed = settingsUpdateSchema.safeParse(req.body);
   if (!parsed.success) {
     /**
@@ -1884,11 +1897,11 @@ settingsRouter.patch("/", requireAuth, requirePermission("settings.manage"), req
         )?.videoMontajerAgentId ?? null
       : undefined;
 
-  const settings = await prisma.settings.upsert({
+  const settings = await saveWithInvestigationControlAudit(data, { id: req.agent!.id, name: actor?.fullName ?? "Неизвестно" }, tx => tx.settings.upsert({
     where: { id: "singleton" },
     update: data,
     create: { id: "singleton", ...data },
-  });
+  }));
 
   /**
    * СМЕНА МОНТАЖЁРА ПРИ ОБЪЕКТЕ НА РУКАХ (23.09.2026, находка B4; переписано
@@ -2054,7 +2067,7 @@ settingsRouter.patch("/", requireAuth, requirePermission("settings.manage"), req
     const upgraded = await upgradeStoredAdsToken(metaAdsToken);
     if (upgraded) {
       const refreshed = await prisma.settings.findUnique({ where: { id: "singleton" } });
-      if (refreshed) return res.json(await publicSettingsResponse(refreshed));
+      if (refreshed) return res.json(privateSettingsResponse(await publicSettingsResponse(refreshed), investigationViewerRole(req)));
     }
   }
 
@@ -2065,10 +2078,10 @@ settingsRouter.patch("/", requireAuth, requirePermission("settings.manage"), req
   if (metaPageToken) upgradedMetaToken = (await upgradeStoredMetaUserToken("metaPageToken")) || upgradedMetaToken;
   if (upgradedMetaToken) {
     const refreshed = await prisma.settings.findUnique({ where: { id: "singleton" } });
-    if (refreshed) return res.json(await publicSettingsResponse(refreshed));
+    if (refreshed) return res.json(privateSettingsResponse(await publicSettingsResponse(refreshed), investigationViewerRole(req)));
   }
 
-  res.json(await publicSettingsResponse(settings));
+  res.json(privateSettingsResponse(await publicSettingsResponse(settings), investigationViewerRole(req)));
 });
 
 /** Ручное обновление курса USD→TJS с alif.tj по кнопке в Настройках — та же логика,
@@ -2382,6 +2395,7 @@ settingsRouter.get("/live-voice/sessions", requireAuth, requirePermission("setti
   const query = liveVoiceSessionsQuerySchema.safeParse(req.query);
   if (!query.success) return res.status(400).json({ error: `Предел списка — от 1 до ${LIVE_VOICE_SESSIONS_MAX}` });
   const sessions = await prisma.liveVoiceSession.findMany({
+    where: canReadInvestigations(req) ? {} : { investigationOnly: false, channelId: { notIn: await investigationCallChannelIds() } },
     orderBy: { startedAt: "desc" },
     take: query.data.limit,
     select: {
@@ -2477,8 +2491,9 @@ settingsRouter.get(
   async (req, res) => {
     const session = await prisma.liveVoiceSession.findUnique({
       where: { id: req.params.id },
-      select: { recordingUrl: true },
+      select: { recordingUrl: true, channelId: true, investigationOnly: true },
     });
+    if (session && !(await mayReadLiveVoiceSession(investigationViewerRole(req), session))) return res.status(404).json({ error: "Записи нет" });
     if (!session?.recordingUrl) return res.status(404).json({ error: "Записи нет" });
     const url = await r2PresignDownloadUrl(session.recordingUrl);
     if (!url) return res.status(502).json({ error: "R2 не настроен или не ответил" });
@@ -2951,7 +2966,7 @@ settingsRouter.post("/logo", requireAuth, requirePermission("settings.manage"), 
     update: { companyLogoUrl: `/uploads/${filename}` },
     create: { id: "singleton", companyLogoUrl: `/uploads/${filename}` },
   });
-  res.json(await publicSettingsResponse(settings));
+  res.json(privateSettingsResponse(await publicSettingsResponse(settings), investigationViewerRole(req)));
 });
 
 /**
@@ -3004,3 +3019,14 @@ settingsRouter.post("/site-admin-reset", requireAuth, requirePermission("siteAdm
     res.status(502).json({ error: message });
   }
 });
+
+function privateSettingsResponse<T extends object>(response: T, role: string | undefined): T {
+  if (!canViewInvestigations(role)) {
+    delete (response as Record<string, unknown>).postShowingCallEnabled;
+    delete (response as Record<string, unknown>).investigationCaseConfig;
+    delete (response as Record<string, unknown>).sellerControlConfig;
+    delete (response as Record<string, unknown>).postShowingCohortConfig;
+    delete (response as Record<string, unknown>).buyerSellerAutomationMode;
+  }
+  return response;
+}

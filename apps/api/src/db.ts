@@ -328,9 +328,13 @@ function scopedTransaction(arg: unknown, options?: unknown): Promise<unknown> {
   );
 }
 
-export const prisma = withGuard.$extends({
+// The last extension replaces only an existing client method. Keep its public
+// type identical to withGuard: embedding $transaction into every model's
+// InternalArgs makes recursive relation payloads exceed TypeScript's depth limit.
+// All query extensions and the runtime transaction scope remain in place.
+export const prisma: typeof withGuard = withGuard.$extends({
   client: { $transaction: scopedTransaction as typeof withGuard.$transaction },
-});
+}) as unknown as typeof withGuard;
 
 /**
  * Тип клиента после $extends — им, а не голым PrismaClient, обязаны типизироваться

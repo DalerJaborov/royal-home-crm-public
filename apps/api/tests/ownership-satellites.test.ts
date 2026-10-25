@@ -42,6 +42,7 @@ import { fileURLToPath } from "node:url";
 const publishClientUpdated = vi.fn();
 vi.mock("../src/lib/livePublish.js", () => ({
   publishClientUpdated,
+  publishNotificationNew: vi.fn(),
   OVERSEER_ROLES: ["DIRECTOR", "ADMIN", "MANAGER", "SECURITY"],
 }));
 

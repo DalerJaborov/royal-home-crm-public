@@ -311,6 +311,8 @@ export interface Client {
    *  `phone`. Агенту без права видеть телефон приходят замаскированными, как и
    *  `phone` (см. presentClient в apps/api/src/routes/clients.ts). */
   extraPhones?: string[];
+  phoneSelectionTokens?: Record<string, string>;
+  extraPhoneOrigins?: Array<{ index: number; addedAt: string | null; source?: string }>;
   email: string | null;
   status: ClientStatus;
   /**
@@ -354,6 +356,8 @@ export interface Client {
   dualIntent?: boolean;
   dualIntentConfirmedAt?: string | null;
   dualIntentNeedsConfirmation?: boolean;
+  dualIntentDecisionSource?: "AUTO" | "MANUAL" | null;
+  dualIntentNeedsReview?: boolean;
   /** Сколько объектов на продажу услышал ИИ из разговоров — пишет только ИИ,
    *  агент может подать заявку на пересмотр (владелец 06.09.2026, разбор слепых
    *  зон п.3). null — ИИ ещё ничего не услышал. */
@@ -443,6 +447,9 @@ export interface Client {
   /** Проверка службы безопасности: PENDING | CLEARED | CONFIRMED; null — не требовалась. */
   securityReview?: string | null;
   securityNote?: string | null;
+  assignmentCompletedAt?: string | null;
+  assignmentRefusedAt?: string | null;
+  assignmentRefusedByAgentId?: string | null;
   /** true = лид ждёт принятия агентом; для агента контакты замаскированы. */
   pendingAcceptance?: boolean;
   /**
@@ -526,6 +533,14 @@ export interface Client {
     pausedUntil: string | null;
     messages: ConversationMessage[];
   } | null;
+  /** Telegram Direct topic histories are read-only in the CRM composer. */
+  telegramDirectConversations?: {
+    id: string;
+    pausedUntil: string | null;
+    channel: "TELEGRAM_DIRECT";
+    canReply: false;
+    messages: ConversationMessage[];
+  }[];
   /** Мягкое удаление — заполнено только для записей из Корзины (GET /clients/trash). */
   deletedAt?: string | null;
   deletedBy?: { id: string; fullName: string } | null;
@@ -590,6 +605,8 @@ export interface Interaction {
    *  по нему карточка решает, открывать ли «Передачу» и «Завершить сделку»
    *  (тот же признак, что на сервере: apps/api/src/lib/conductedShowing.ts). */
   completedAt?: string | null;
+  /** Cancelled task remains in history without being marked completed. */
+  taskCancelledAt?: string | null;
   createdAt: string;
   /** Подтверждение показа клиентом (см. apps/api/src/lib/showingConfirmation.ts).
    *  Все три пустые = показ ещё не спрашивали. Спросили и все молчит = «ждём

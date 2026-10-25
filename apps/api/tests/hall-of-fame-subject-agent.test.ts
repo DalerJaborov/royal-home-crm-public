@@ -46,6 +46,9 @@ beforeAll(async () => {
       clientId,
       actor: { kind: "bot" as const, source: "test-bot-hof-showing", subjectAgentId: agentId, channel: "whatsapp" },
       type: "SHOWING" as const,
+      nextActionDate: new Date(),
+      showingOffCrm: true,
+      showingOffCrmDetails: "Тестовый объект вне CRM, улица Проверочная 1",
       notes: `Бот записал показ доски почёта ${runId}-${i}`,
     }))
   );
@@ -59,6 +62,17 @@ afterAll(async () => {
 });
 
 describe("Доска почёта: показ бота засчитывается держателю", () => {
+  it("приватные показы не дают место в публичном рейтинге", async () => {
+    await prisma.interaction.updateMany({ where: { clientId }, data: { investigationOnly: true } });
+    try {
+      const res = await request(app).get("/api/v1/hall-of-fame").set("Authorization", `Bearer ${agentToken}`);
+      expect(res.status).toBe(200);
+      const showings = res.body.nominations.find((n: { key: string }) => n.key === "showings");
+      expect(showings.nominees.some((n: { id: string }) => n.id === agentId)).toBe(false);
+    } finally {
+      await prisma.interaction.updateMany({ where: { clientId }, data: { investigationOnly: false } });
+    }
+  });
   it("«Лидер по показам» видит агента с одним показом, записанным от лица бота", async () => {
     const res = await request(app).get("/api/v1/hall-of-fame").set("Authorization", `Bearer ${agentToken}`);
     expect(res.status).toBe(200);

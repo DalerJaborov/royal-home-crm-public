@@ -1,6 +1,5 @@
 import { prisma } from "./db.js";
 import { dushanbeDayRange } from "./lib/dushanbeTime.js";
-import { TASK_WHERE } from "./lib/tasks.js";
 import { isClientCardFilled, RATED_ROLES } from "@royal-home/shared";
 import { computeRoyalScore } from "./lib/scoreJournal.js";
 import { reportCronRowError } from "./lib/cronHeartbeat.js";
@@ -72,7 +71,7 @@ async function computeResponse({ agentId, start, end }: MetricContext): Promise<
   // берём взаимодействия агента по этим клиентам и оставляем самое раннее после
   // назначения (лидов за день единицы, сортировка в памяти дешевле N обращений к БД).
   const interactions = await prisma.interaction.findMany({
-    where: { agentId, clientId: { in: leads.map((l) => l.id) }, createdAt: { gt: start } },
+    where: { investigationOnly: false, agentId, clientId: { in: leads.map((l) => l.id) }, createdAt: { gt: start } },
     orderBy: { createdAt: "asc" },
     select: { id: true, clientId: true, createdAt: true },
   });
@@ -112,12 +111,30 @@ async function computeResponse({ agentId, start, end }: MetricContext): Promise<
  * день, выполненных вовремя. Постоянная метрика: если задач не было — полный
  * балл (отсутствие задачи не штраф, презумпция невиновности).
  */
+// The current task list hides cancelled work immediately. Historical KPI must
+// retain tasks that were still active at that day's boundary, even after reassignment.
+function taskVisibleAtDayEnd(end: Date) {
+  return {
+    nextAction: { not: null },
+    investigationOnly: false,
+    client: { deletedAt: null },
+    AND: [
+      { OR: [{ taskCancelledAt: null }, { taskCancelledAt: { gte: end } }] },
+      { OR: [
+        { completedAt: { not: null } },
+        { client: { assignmentCompletedAt: null } },
+        { client: { assignmentCompletedAt: { gte: end } } },
+      ] },
+    ],
+  };
+}
+
 async function computeCrm({ agentId, start, end }: MetricContext): Promise<number> {
   const dueToday = await prisma.interaction.findMany({
     // subjectAgentId ?? agentId (П-10, 17.09.2026): задачу мог завести бот/система
     // от лица держателя карточки (agentId: null) — она остаётся ЕГО задачей для
     // KPI дисциплины, как и раньше, когда agentId всегда был держателем.
-    where: { OR: [{ agentId }, { subjectAgentId: agentId }], ...TASK_WHERE, nextActionDate: { gte: start, lt: end } },
+    where: { ...taskVisibleAtDayEnd(end), OR: [{ agentId }, { subjectAgentId: agentId }], nextActionDate: { gte: start, lt: end } },
     select: { completedAt: true },
   });
   if (dueToday.length === 0) return 1;
@@ -138,8 +155,8 @@ async function computeDiscipline({ agentId, start, end }: MetricContext): Promis
     where: {
       // subjectAgentId ?? agentId (П-10, 17.09.2026): см. computeCrm выше — хвост
       // от бота/системы остаётся хвостом держателя карточки.
-      AND: [{ OR: [{ agentId }, { subjectAgentId: agentId }] }, { OR: [{ completedAt: null }, { completedAt: { gte: end } }] }],
-      ...TASK_WHERE,
+      ...taskVisibleAtDayEnd(end),
+      AND: [...taskVisibleAtDayEnd(end).AND, { OR: [{ agentId }, { subjectAgentId: agentId }] }, { OR: [{ completedAt: null }, { completedAt: { gte: end } }] }],
       nextActionDate: { lt: start },
     },
   });

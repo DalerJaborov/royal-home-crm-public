@@ -1,3 +1,5 @@
+import { visibleErrorLogs } from "./systemErrorVisibility.js";
+import { visibleSystemErrorWhere } from "./investigationOperations.js";
 import { ALL_SCREENS, type AdsDigestSummary } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { dushanbeStartOfToday, dushanbeStartOfMonth } from "./dushanbeTime.js";
@@ -266,7 +268,7 @@ export async function loadMorningNumbers(options: LoadMorningNumbersOptions = {}
     yesterdayLeads,
   ] = await Promise.all([
     prisma.interaction.count({
-      where: { ...TASK_WHERE, completedAt: null, nextActionDate: { gte: startOfToday, lt: startOfTomorrow } },
+      where: { ...TASK_WHERE, investigationOnly: false, completedAt: null, nextActionDate: { gte: startOfToday, lt: startOfTomorrow } },
     }),
     prisma.client.count({ where: { createdAt: { gte: startOfYesterday, lt: startOfToday }, deletedAt: null } }),
     prisma.deal.count({ where: { stage: "COMPLETED", closedAt: { gte: startOfYesterday, lt: startOfToday } } }),
@@ -284,8 +286,8 @@ export async function loadMorningNumbers(options: LoadMorningNumbersOptions = {}
     // эксплуатационный шум ИИ-конвейера от того, что ждёт действия человека
     // (classifyErrorLog ниже). Предел выборки — сутки редко дают тысячи строк,
     // но без take счётчик остался бы небезопасным при затяжной аварии.
-    prisma.errorLog.findMany({
-      where: { createdAt: { gte: startOfYesterday, lt: startOfToday }, resolvedAt: null },
+    visibleErrorLogs().findMany({
+      where: { ...visibleSystemErrorWhere(), createdAt: { gte: startOfYesterday, lt: startOfToday }, resolvedAt: null },
       select: { source: true, message: true },
       take: 5000,
     }),
@@ -421,7 +423,7 @@ const AD_POST_URL_RE = /instagram\.com\/\S+/i;
 /** См. doc-comment у MorningNumbers.unlinkedAdPosts выше. */
 async function loadUnlinkedAdPosts(): Promise<{ url: string; count: number }[]> {
   const since = new Date(Date.now() - 24 * 3600_000);
-  const rows = await prisma.errorLog.findMany({
+  const rows = await visibleErrorLogs().findMany({
     where: {
       source: "meta",
       message: { contains: "лид-магнит её не узнаёт" },

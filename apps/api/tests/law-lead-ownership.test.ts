@@ -3,8 +3,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import bcrypt from "bcrypt";
+import { manualDataCorrectionSchema } from "@royal-home/shared";
 import { prisma } from "../src/db.js";
 import { changeClientAgent } from "../src/lib/changeClientAgent.js";
+import { preferredReturningOwnerId } from "../src/lib/returningClientRouting.js";
+import { computeHiddenReason } from "../src/routes/clients/shared.js";
 import {
   hasContactAttempt,
   canAutoTransfer,
@@ -15,7 +18,7 @@ import {
 /**
  * Закон о владении клиентом (17.09.2026) — `docs/law/lead-ownership.md`.
  * Тесты именуются `П-N: …`; мета-тест ниже требует хотя бы один такой тест на
- * каждый номер, помеченный в законе «реализовано в А1», а на остальные —
+ * каждый номер, помеченный реализованным в включённой пачке, а на остальные —
  * `it.todo("П-N")`, чтобы неполнота была видна, а не потерялась молча.
  */
 
@@ -218,10 +221,48 @@ describe("Закон о владении клиентом — интеграци
     ).rejects.toThrow();
   });
 
-  // П-8, П-11, П-12 — пачки Б/В/Г, не входят в это слияние (см. docs/law/lead-ownership.md).
-  it.todo("П-8");
-  it.todo("П-11");
-  it.todo("П-12");
+  // П-8/П-11/П-12: contract tests below complement the actual PostgreSQL suites.
+  // P-12 covers registered CLIENT_LABELS only, never arbitrary database repairs.
+
+  it("П-8: текущий активный держатель приоритетнее истории, отсутствие держателей даёт очередь", async () => {
+    expect(await preferredReturningOwnerId(holderId, nextAgentId)).toBe(holderId);
+    expect(await preferredReturningOwnerId(null, nextAgentId)).toBe(nextAgentId);
+    expect(await preferredReturningOwnerId(null, null)).toBeNull();
+  });
+
+  it("П-11: обычные причины видимости объясняются без признаков закрытого разбора", () => {
+    const base = { deletedAt: null, kind: "BUYER" as const, status: "NEW", workStatus: "ACTIVE", acceptedAt: new Date(), securityReview: "PENDING" };
+    for (const role of ["AGENT", "MANAGER", "SECURITY"]) {
+      expect(computeHiddenReason(base, role)).toBeNull();
+      expect(computeHiddenReason({ ...base, deletedAt: new Date() }, role)?.kind).toBe("trashed");
+      expect(computeHiddenReason({ ...base, kind: "OTHER" }, role)?.kind).toBe("other");
+      expect(computeHiddenReason({ ...base, workStatus: "INACTIVE" }, role)?.kind).toBe("inactive");
+      expect(computeHiddenReason({ ...base, status: "LOST" }, role)?.kind).toBe("lost");
+      expect(computeHiddenReason({ ...base, workStatus: "DEFERRED", deferredUntil: new Date() }, role)?.kind).toBe("deferred");
+    }
+    expect(computeHiddenReason(base, "ADMIN")?.kind).toBe("securityReview");
+  });
+
+  it("П-12: зарегистрированное исправление допускает только имя/фамилию, не SQL или поля процесса", () => {
+    const target = { clientId: "00000000-0000-4000-8000-000000000001", patch: { fullName: "Исправленное имя", lastName: "Фамилия" } };
+    const command = { requestKey: "00000000-0000-4000-8000-000000000002", actorId: "00000000-0000-4000-8000-000000000003",
+      operation: "CLIENT_LABELS", reason: "Подтверждённое исправление опечатки в имени", targets: [target] };
+    expect(manualDataCorrectionSchema.safeParse(command).success).toBe(true);
+    for (const patch of [{}, { assignedAgentId: target.clientId }, { status: "NEW" }, { securityReview: "CLEARED" },
+      { phone: "+992911234567" }, { assignmentCompletedAt: null }, { fullName: "Имя", nextAction: "Задача" }]) {
+      expect(manualDataCorrectionSchema.safeParse({ ...command, targets: [{ ...target, patch }] }).success).toBe(false);
+    }
+    expect(manualDataCorrectionSchema.safeParse({ ...command, operation: "SQL", sql: "UPDATE Client SET status='NEW'" }).success).toBe(false);
+    expect(manualDataCorrectionSchema.safeParse({ ...command, targets: [target, target] }).success).toBe(false);
+    // Presence of the executable integration suite is a coverage link, not a claim
+    // that inspecting its source proves its assertions. Root runs it on isolated PG.
+    const suitePath = fileURLToPath(new URL("./manual-data-correction.test.ts", import.meta.url));
+    expect(fs.existsSync(suitePath)).toBe(true);
+    const suite = fs.readFileSync(suitePath, "utf8");
+    expect(suite).toContain("await applyManualCorrection(command)");
+    expect(suite).toContain('toBe("ALREADY_APPLIED")');
+    expect(suite).toContain("rolls back the entire multi-card plan");
+  });
 
   /**
    * П-6 (пачка А2). Содержательная интеграционная проверка — releaseCandidates
@@ -297,15 +338,14 @@ describe("Закон о владении клиентом — интеграци
  * даёт закону разойтись с тестами молча — ни забытый номер, ни забытый it.todo
  * не проскочат.
  *
- * Список реализованных пачек РАСШИРЕН 17.09.2026 при слиянии Б1 (изначально
- * тест знал только про «реализовано в А1» — на момент его написания А2 и Б1
- * ещё не были слиты в одну ветку). Когда в эту ветку сольётся пачка В/Г,
- * список нужно расширить тем же способом.
+ * 25.10.2026 включены В/Г после isolated-PG подтверждения возвратов и
+ * зарегистрированного ручного исправления. Статусы описывают конкретный scope
+ * закона, а не обещают поддержку произвольных полей или новых уведомлений.
  */
 describe("Закон о владении клиентом — полнота (мета-тест)", () => {
   const LAW_PATH = path.resolve(fileURLToPath(new URL(".", import.meta.url)), "../../../docs/law/lead-ownership.md");
   const THIS_FILE = fileURLToPath(new URL(".", import.meta.url)) + "law-lead-ownership.test.ts";
-  const IMPLEMENTED_BATCHES = /реализовано в (А1|А2|Б1)/;
+  const IMPLEMENTED_BATCHES = /реализовано в (А1|А2|Б1|В|Г)/;
 
   it("на каждый номер закона со статусом «реализовано в <слитая пачка>» есть хотя бы один it(\"П-N: …\"), на остальные — it.todo", () => {
     // \r\n → \n: найдено 17.09.2026 при слиянии — CRLF в docs/law/lead-ownership.md

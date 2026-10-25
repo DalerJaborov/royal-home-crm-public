@@ -11,6 +11,7 @@
  * (см. комментарий в index.ts).
  */
 import { Router } from "express";
+import { canViewInvestigations } from "@royal-home/shared";
 import {
   PROPERTY_DELETE_REQUEST_REASON_LABELS,
   DELETE_REQUEST_STATUSES,
@@ -21,8 +22,8 @@ import {
 } from "@royal-home/shared";
 import { z } from "zod";
 import { prisma } from "../../db.js";
-import { buildPropertyDeleteDossiers } from "../../lib/propertyDeleteDossier.js";
-import { requireAuth, requirePermission } from "../../auth/middleware.js";
+import { buildPropertyDeleteDossiers, presentPropertyDeleteDossier } from "../../lib/propertyDeleteDossier.js";
+import { requireAuth, requirePermission, can } from "../../auth/middleware.js";
 import { logAudit } from "../../lib/audit.js";
 import { findAgentsWithPermission } from "../../lib/recipients.js";
 import { sendPushToAgent, closeLeadPushNotifications } from "../../push.js";
@@ -87,7 +88,8 @@ deleteRequestsRouter.get(
     // (см. lib/propertyDeleteDossier.ts: там же дословная тревога владельца).
     // Считается ПАЧКОЙ на весь список: по запросу на строку это были бы сотни
     // обращений к базе.
-    const dossiers = await buildPropertyDeleteDossiers(items.map((r) => r.property.id));
+    const seesDossier = canViewInvestigations(req.agent?.role) && can(req, "clients.securityReview");
+    const dossiers = seesDossier ? await buildPropertyDeleteDossiers(items.map((r) => r.property.id)) : new Map();
 
     res.json({
       items: items.map((r) => ({
@@ -104,7 +106,7 @@ deleteRequestsRouter.get(
         requestedBy: r.requestedBy,
         decidedBy: r.decidedBy,
         property: r.property,
-        dossier: dossiers.get(r.property.id) ?? null,
+        ...(seesDossier ? { dossier: presentPropertyDeleteDossier(dossiers.get(r.property.id), can(req, "clients.viewPhone")) } : {}),
       })),
     });
   }
@@ -320,7 +322,9 @@ deleteRequestsRouter.post(
     let result: Awaited<ReturnType<typeof trashProperty>> | null = null;
     if (!alreadyTrashed) {
       try {
-        result = await trashProperty(request.propertyId, req.agent!.id);
+        result = await trashProperty(request.propertyId, req.agent!.id, {
+          removalReason: request.reason as PropertyDeleteRequestReason, removalComment: request.comment ?? undefined, requestId: request.id,
+        });
       } catch (err) {
         await releaseClaim().catch(() => undefined);
         throw err;

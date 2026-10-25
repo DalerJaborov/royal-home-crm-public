@@ -105,7 +105,8 @@ smsRouter.post("/test", requireAuth, requirePermission("settings.manage"), requi
     agentId: req.agent!.id,
   });
   if (!sent.ok) return res.status(502).json({ error: sent.error });
-  res.json({ ok: true, parts: sent.parts });
+  const receipt = await prisma.smsMessage.findUnique({ where: { id: sent.id }, select: { status: true } });
+  res.json({ ok: true, parts: sent.parts, status: receipt?.status ?? "UNKNOWN" });
 });
 
 smsRouter.get("/balance", requireAuth, requirePermission("settings.view"), async (_req, res) => {

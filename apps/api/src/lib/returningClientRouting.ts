@@ -81,6 +81,19 @@ export async function returningAgentStillAvailable(agentId: string | null | unde
   return blockedOnlyByPause ? agentId : null;
 }
 
+/** P8: доступный текущий владелец, затем исторический, иначе AUTO-очередь.
+ * Уточнение владельца 25.10.2026: при восстановлении любая заморозка,
+ * включая отпуск/больничный, исключает прежнего агента. Пауза новых лидов
+ * не исключает своего клиента. Прямую политику отсутствия для уже активной
+ * работы в decideReturningClient это исключение не меняет. */
+export async function preferredReturningOwnerId(currentId: string | null, historicalId: string | null): Promise<string | null> {
+  for (const id of [...new Set([currentId, historicalId].filter((value): value is string => !!value))]) {
+    const agent = await prisma.agent.findUnique({ where: { id }, select: { isActive: true, role: true, frozenAt: true } });
+    if (agent?.isActive && agent.frozenAt === null && (SALES_AGENT_ROLES as readonly string[]).includes(agent.role)) return id;
+  }
+  return null;
+}
+
 export interface ReturningClientInput {
   clientId: string;
   kind: string;

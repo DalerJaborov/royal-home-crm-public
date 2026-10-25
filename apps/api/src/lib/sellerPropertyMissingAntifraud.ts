@@ -70,7 +70,7 @@ export async function findSellerPropertyMissing(now: Date): Promise<{
     await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
       SELECT c.id
       FROM "Client" c
-      WHERE c.kind = 'SELLER'
+      WHERE (c.kind = 'SELLER' OR (c.kind = 'BUYER' AND c."dualIntent" = true AND c."dualIntentConfirmedAt" IS NOT NULL))
         AND c."deletedAt" IS NULL
         AND c.status NOT IN ('LOST', 'DEAL_CLOSED', 'ARCHIVED')
         AND c."propertyAcceptedAt" IS NOT NULL
@@ -155,6 +155,7 @@ export async function escalateSellerPropertyMissing(now: Date = new Date()): Pro
     // обвиняемого агента — actor system, subjectAgentId (не agentId) указывает,
     // о ком речь, без ложного «сам на себя написал».
     await logTimeline({
+    investigationOnly: true,
       clientId: c.id,
       actor: { kind: "system", source: "sellerPropertyMissingAntifraud", subjectAgentId: c.assignedAgent?.id ?? null },
       type: "SYSTEM",
@@ -170,7 +171,7 @@ export async function escalateSellerPropertyMissing(now: Date = new Date()): Pro
       tag: `seller-property-missing-${c.id}`,
       // Карточка уже ушла в СБ — это верхняя ступень антифрода, а не сводка.
       level: "CRITICAL",
-      recipientPermission: "clients.assign",
+      recipientRoles: ["ADMIN", "DIRECTOR"],
     });
   }
   return { escalated };

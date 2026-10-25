@@ -25,9 +25,10 @@ import { waitFor } from "./helpers/waitFor.js";
  */
 
 let aiReply: Record<string, unknown> | null = null;
+let duringAiReply: (() => Promise<void>) | null = null;
 vi.mock("../src/ai/client.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/ai/client.js")>()),
-  callAiText: async () => aiReply,
+  callAiText: async () => { await duringAiReply?.(); return aiReply; },
 }));
 
 const { prisma } = await import("../src/db.js");
@@ -292,5 +293,25 @@ describe("ИИ сам обновляет карточку по разговор�
     expect(card.desiredRooms).toBe(3); // осталось прежним, не перезаписалось на 4
 
     await prisma.client.update({ where: { id: clientId }, data: { deletedAt: null } });
+  });
+
+  it("does not overwrite a manual edit made while the model was reading the card", async () => {
+    aiReply = { budgetMax: 450000, rooms: 4, evidence: ["четыре комнаты"] };
+    const call = await prisma.interaction.create({ data: { clientId, agentId, type: "CALL", notes: "Synthetic concurrent edit fixture", transcript: "Ищу четыре комнаты" } });
+    duringAiReply = async () => {
+      const before = await prisma.client.findUniqueOrThrow({ where: { id: clientId } });
+      // Timestamp collision must not bypass the optimistic guard.
+      await prisma.client.update({ where: { id: clientId }, data: { budgetMax: 780000, updatedAt: before.updatedAt } });
+    };
+    try {
+      const result = await buildSuggestionFromCall({ clientId, agentId, interactionId: call.id, talkSeconds: 120 });
+      expect(result).toEqual({ created: false, reason: "карточка изменилась во время разбора" });
+      const card = await prisma.client.findUniqueOrThrow({ where: { id: clientId } });
+      expect(Number(card.budgetMax)).toBe(780000);
+      expect(card.desiredRooms).toBe(3);
+      expect(await prisma.cardSuggestion.count({ where: { interactionId: call.id } })).toBe(0);
+    } finally {
+      duringAiReply = null;
+    }
   });
 });

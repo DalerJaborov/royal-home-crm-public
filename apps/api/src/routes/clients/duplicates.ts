@@ -1,3 +1,4 @@
+import { investigationViewerRole } from "../../auth/investigations.js";
 /** Дубликаты: GET /duplicates, similar-notes, POST /merge (Г2, §1.2). Перенос verbatim. */
 import { Router } from "express";
 import { clientsMergeSchema } from "@royal-home/shared";
@@ -283,5 +284,5 @@ duplicatesRouter.post("/merge", requireAuth, requirePermission("clients.merge"),
   // Просьбы о звонке дубликата уже погашены выше, внутри closeClientSatellites —
   // отдельный вызов здесь был бы вторым, ничего не меняющим (updateMany по
   // doneAt: null идемпотентен), но лишним походом в базу.
-  res.json(presentClient(merged, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin")));
+  res.json(presentClient(merged, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), investigationViewerRole(req)));
 });

@@ -103,7 +103,7 @@ export function telegramRetryDelayMs(data: TelegramApiResponse<unknown>, attempt
   return after * 1000 + RATE_LIMIT_EXTRA_MS;
 }
 
-async function call<T>(method: string, body: Record<string, unknown>, timeoutMs = CALL_TIMEOUT_MS, validateResult?: (data: unknown, status: number) => T, beforePost?: () => Promise<void>): Promise<T> {
+async function call<T>(method: string, body: Record<string, unknown>, timeoutMs = CALL_TIMEOUT_MS, validateResult?: (data: unknown, status: number) => T, beforePost?: () => Promise<void>, singleAttempt = false): Promise<T> {
   if (!BASE_URL) throw new Error("TELEGRAM_BOT_TOKEN не настроен");
   for (let attempt = 0; ; attempt++) {
     // Без таймаута зависшее соединение вешает вызов навсегда. Для long polling это
@@ -119,7 +119,7 @@ async function call<T>(method: string, body: Record<string, unknown>, timeoutMs 
     const data = (await res.json()) as TelegramApiResponse<T>;
     if (data.ok) return validateResult ? validateResult(data, res.status) : data.result as T;
     const waitMs = telegramRetryDelayMs(data, attempt);
-    if (waitMs !== null) {
+    if (!singleAttempt && waitMs !== null) {
       await sleep(waitMs);
       continue;
     }
@@ -489,7 +489,8 @@ export async function editMessageCaption(
   chatId: string,
   messageId: number,
   caption: string,
-  buttons?: TelegramInlineButton[][] | null
+  buttons?: TelegramInlineButton[][] | null,
+  singleAttempt = false
 ): Promise<void> {
   try {
     await call("editMessageCaption", {
@@ -497,7 +498,7 @@ export async function editMessageCaption(
       message_id: messageId,
       caption: caption.slice(0, 1024),
       ...(buttons !== undefined ? { reply_markup: { inline_keyboard: buttons ?? [] } } : {}),
-    });
+    }, CALL_TIMEOUT_MS, undefined, undefined, singleAttempt);
   } catch (err) {
     if (err instanceof Error && /message is not modified/i.test(err.message)) return;
     throw err;
@@ -515,7 +516,8 @@ async function postMultipartWithRetry(
   url: string,
   buildForm: () => FormData,
   timeoutMs: number,
-  label: string
+  label: string,
+  singleAttempt = false,
 ): Promise<unknown> {
   for (let attempt = 0; ; attempt++) {
     const res = await fetch(url, {
@@ -525,7 +527,7 @@ async function postMultipartWithRetry(
     });
     const data = (await res.json()) as TelegramApiResponse<unknown>;
     if (data.ok) return data.result;
-    const waitMs = telegramRetryDelayMs(data, attempt);
+    const waitMs = singleAttempt ? null : telegramRetryDelayMs(data, attempt);
     if (waitMs !== null) {
       await sleep(waitMs);
       continue;
@@ -551,7 +553,8 @@ export async function sendDocumentFile(
   file: Buffer | Blob,
   filename: string,
   caption?: string,
-  timeoutMs = 60_000
+  timeoutMs = 60_000,
+  singleAttempt = false,
 ): Promise<TelegramSentDocument> {
   if (!BASE_URL) throw new Error("TELEGRAM_BOT_TOKEN не настроен");
   const result = await postMultipartWithRetry(
@@ -564,7 +567,8 @@ export async function sendDocumentFile(
       return form;
     },
     timeoutMs,
-    "sendDocument (файлом)"
+    "sendDocument (файлом)",
+    singleAttempt,
   );
   return result as TelegramSentDocument;
 }

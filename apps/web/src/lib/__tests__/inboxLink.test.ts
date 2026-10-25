@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { inboxOpenHref } from "../inboxLink";
+import { inboxClientConversationHref, inboxClientConversationId, inboxOpenHref } from "../inboxLink";
 
 const SRC = path.join(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -24,6 +24,11 @@ describe("ссылка на диалог в «Сообщениях»", () => {
 
   it("Telegram — с префиксом tg_, иначе раздел его не найдёт", () => {
     expect(inboxOpenHref("TELEGRAM", "abc")).toBe("/messages?open=tg_abc");
+  });
+
+  it("linked client chats open the grouped detail route, with the id safely encoded in the query", () => {
+    expect(inboxClientConversationId("client-uuid")).toBe("client:client-uuid");
+    expect(inboxClientConversationHref("client-uuid")).toBe("/messages?open=client%3Aclient-uuid");
   });
 
   it("никто не ведёт на ?conversation= — раздел этот параметр не читает и открывает чужой диалог (23.09.2026)", () => {

@@ -1,5 +1,6 @@
 import { clearIfUnchanged } from "../lib/clearSentText";
 import { formatWaiting } from "../lib/formatWaiting";
+import { inboxClientConversationId } from "../lib/inboxLink";
 import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import { hasMaskablePhone } from "@royal-home/shared";
 import { useCan, useIsReadOnly } from "../lib/permissions";
@@ -20,6 +21,7 @@ import {
   isWindowClosedError,
   segmentFromFilters,
   useConversation,
+  useGroupedConversation,
   useConversations,
   usePauseConversationBot,
   useReplyToConversation,
@@ -73,7 +75,7 @@ import { InboxTabs } from "../components/SectionTabs";
 import { useSellerObject } from "../hooks/useSellerObject";
 import { SellerObjectStrip } from "../components/chat/SellerObjectStrip";
 import { ChatPhotoViewer } from "../components/chat/ChatPhotoViewer";
-import { CustomerRequestsPanel } from "../components/chat/CustomerRequestsPanel";
+import { callbackRequestConversationIds, CustomerRequestsPanel } from "../components/chat/CustomerRequestsPanel";
 import { buildChatPhotoList, chatPhotoOffsetForMessage } from "../lib/chatPhotos";
 import { useCleanShell } from "../hooks/useCleanShell";
 import { CleanInboxFilters } from "../components/chat/CleanInboxFilters";
@@ -81,6 +83,23 @@ import { CleanInboxFilters } from "../components/chat/CleanInboxFilters";
 /** Сколько последних сообщений рендерим сразу; более ранние — по кнопке сверху,
  *  чтобы диалог на тысячи реплик не подвешивал страницу. История хранится целиком. */
 const MESSAGES_CHUNK = 60;
+
+export function replySourceLabels(channels: Array<string | null>): string[] {
+  return channels.map((channel, index) => {
+    if (!channel) return `Чат ${index + 1}`;
+    const label = channelMeta(channel).label;
+    return channels.filter((candidate) => candidate === channel).length > 1 ? `${label} ${index + 1}` : label;
+  });
+}
+
+export function messageTimeText(at: string | null | undefined): string {
+  return at ? dushanbeTime(at) : "Время сообщения неизвестно";
+}
+
+export function messageRenderKey(message: ConversationMessage, index: number): string {
+  const localKey = message.mid ?? `idx:${message.sourceMessageIndex ?? index}`;
+  return message.sourceConversationId ? `${message.sourceConversationId}:${localKey}` : message.mid ?? `msg-${index}`;
+}
 
 // Scope readable desktop typography to this inbox; shared mobile rows stay intact.
 const CLEAN_DESKTOP_INBOX = [
@@ -162,7 +181,7 @@ export function Messages() {
 
   // enabled: агенту этот эндпоинт отвечает 403 — не ходим за ним вовсе, иначе
   // журнал ошибок засоряется отказами при каждом заходе по прямой ссылке.
-  const { data, isLoading, error, refetch } = useConversations(filters, { enabled: !noAccess });
+  const { data, isLoading, error, refetch } = useConversations({ ...filters, grouped: true }, { enabled: !noAccess });
   const conversations = data?.items;
 
   // Копим страницы поверх обычной пагинации (решение владельца 15.09.2026):
@@ -172,7 +191,7 @@ export function Messages() {
   // самой страницы.
   // Свежая первая страница, пока пролистано дальше неё (аудит №38, useAccumulatedPages).
   const { data: headPage } = useConversations(
-    { ...filters, page: 1 },
+    { ...filters, page: 1, grouped: true },
     { enabled: !noAccess && (filters.page ?? 1) > 1 }
   );
   const feedItems = useAccumulatedPages(
@@ -298,7 +317,7 @@ export function Messages() {
    */
   if (narrow && !clean) {
     return selectedId ? (
-      <MobileChatView key={selectedId} id={selectedId} onBack={() => setLegacySelectedId(null)} />
+      <MobileChatView key={selectedId} id={selectedId} onBack={closeConversation} onPromoteToClient={(clientId) => selectConversation(inboxClientConversationId(clientId))} />
     ) : (
       <MobileChatsList
         data={feedData}
@@ -326,7 +345,7 @@ export function Messages() {
           <div>
             <h1>Чаты</h1>
             <p className="sub">
-              {data ? `${data.total} диалогов. ` : ""}
+              {data?.total != null ? `${data.total} диалогов. ` : data?.groupedIncomplete ? "Показана часть чатов. " : ""}
               {clean ? "Все каналы в одном месте. Откройте диалог, чтобы увидеть историю и ответить клиенту." : "Переписка ИИ-бота с клиентами из мессенджеров. Можно вмешаться, бот встанет на паузу."}
             </p>
           </div>
@@ -442,7 +461,7 @@ export function Messages() {
           {/* key=id — принудительный ремонт при смене диалога: без него состояние ошибки
               неудачной отправки (useReplyToConversation) переживало переключение и
               показывало «не удалось отправить» под совсем другим, ещё не тронутым диалогом. */}
-          {selectedId && <ConversationView key={selectedId} id={selectedId} clean={clean} onBack={closeConversation} />}
+          {selectedId && <ConversationView key={selectedId} id={selectedId} clean={clean} onBack={closeConversation} onPromoteToClient={(clientId) => selectConversation(inboxClientConversationId(clientId))} />}
           {clean && !selectedId && <section className="card clean-conversation clean-conversation-placeholder" aria-label="Переписка">
             <div className="clean-chat-empty"><MessageSquare className="i" aria-hidden="true" /><h2>Выберите диалог</h2><p>Сообщения, вложения и данные клиента откроются здесь. Черновик сохраняется отдельно для каждого диалога.</p></div>
           </section>}
@@ -510,7 +529,7 @@ function ConversationList({
       <div className="pane-h">
         <div className="t">
           <b>{clean ? "Входящие" : "Диалоги"}</b>
-          <span>{data ? `${data.total} всего` : "загружаем"}</span>
+          <span>{data?.total != null ? `${data.total} всего` : data?.groupedIncomplete ? "Чатов много" : "загружаем"}</span>
         </div>
       </div>
 
@@ -524,6 +543,11 @@ function ConversationList({
           placeholder="Имя, номер, слово из переписки"
           aria-label="Поиск по чатам"
         />
+        {data?.groupedIncomplete && (
+          <p className="meta" role="status" style={{ marginTop: 8 }}>
+            Показана часть чатов: найдено больше историй, чем помещается в список. Уточните поиск.
+          </p>
+        )}
         {/* Срез «Все / Ждут человека / Бот на паузе / Мои» (эталон `#tpl-messages`,
             шаг 5 переноса, 10.09.2026) — счётчики из GET /conversations `counts`
             (apps/api/src/routes/conversations.ts, loadSegmentCounts), а не
@@ -533,7 +557,7 @@ function ConversationList({
           <div style={{ marginTop: 12 }}>
             <div className={clean ? "seg !flex-wrap [&_button]:!min-h-11 [&_button]:!text-sm" : "seg"} role="tablist" aria-label="Срезы диалогов">
               <button type="button" role="tab" aria-selected={segment === "all"} onClick={() => onSegmentChange("all")}>
-                Все <span className="n">{data.counts.all}</span>
+                Все <span className="n">{data.counts?.all ?? "—"}</span>
               </button>
               <button
                 type="button"
@@ -541,13 +565,13 @@ function ConversationList({
                 aria-selected={segment === "needsHuman"}
                 onClick={() => onSegmentChange("needsHuman")}
               >
-                Ждут человека <span className="n">{data.counts.needsHuman}</span>
+                Ждут человека <span className="n">{data.counts?.needsHuman ?? "—"}</span>
               </button>
               <button type="button" role="tab" aria-selected={segment === "paused"} onClick={() => onSegmentChange("paused")}>
-                Бот на паузе <span className="n">{data.counts.paused}</span>
+                Бот на паузе <span className="n">{data.counts?.paused ?? "—"}</span>
               </button>
               <button type="button" role="tab" aria-selected={segment === "mine"} onClick={() => onSegmentChange("mine")}>
-                Мои <span className="n">{data.counts.mine}</span>
+                Мои <span className="n">{data.counts?.mine ?? "—"}</span>
               </button>
             </div>
           </div>
@@ -712,7 +736,7 @@ function ConversationList({
         )}
       </div>
 
-      {data && (
+      {data?.total != null && (
         <div className="pane-b" style={{ borderTop: "1px solid var(--line-soft)" }}>
           <Pagination
             variant="loadMore"
@@ -873,10 +897,10 @@ const ConversationMessageList = memo(function ConversationMessageList({
         // входящим), и относительный индекс переиспользовал компонент с
         // данными СОСЕДНЕГО сообщения — играющее голосовое обрывалось, а
         // открытое фото молча подменялось чужим.
-        <Fragment key={m.mid ?? `msg-${absoluteIndex}`}>
+        <Fragment key={messageRenderKey(m, absoluteIndex)}>
           {showDay && m.at && <span className="day">{dushanbeDayLabel(m.at)}</span>}
         <div
-          data-chat-message={m.mid ?? `msg-${absoluteIndex}`}
+          data-chat-message={messageRenderKey(m, absoluteIndex)}
           ref={(el) => {
             if (el) messageRefs.current.set(absoluteIndex, el);
             else messageRefs.current.delete(absoluteIndex);
@@ -892,16 +916,17 @@ const ConversationMessageList = memo(function ConversationMessageList({
           )}
           {/* На что этот ответ. Ищем по ВСЕЙ ленте, а не по показанной части:
               цитируемая реплика вполне может быть выше свёрнутого хвоста. */}
-          <MessageQuote quoted={quotedMessage(allMessages, m.replyToMid, allMessages.indexOf(m))} />
+          <MessageQuote quoted={quotedMessage(allMessages, m.replyToMid, allMessages.indexOf(m), m.sourceConversationId)} />
+          {m.sourceChannel && <span className="meta" data-message-channel style={{ display: "inline-block", marginRight: 6 }}>{channelMeta(m.sourceChannel).label}</span>}
           {/* Текст расшифровки голосового агенту и в CRM не показываем (решение
               владельца 16.08.2026) — только сам звук: расшифровка бывает выдумана
               (тихая запись даёт Gemini повод сочинить фразу), а в базе она всё
               равно остаётся — боту она нужна как память уже проговоренного. */}
           {!hasVoiceAttachment(m.attachments) &&
-            (searchQuery ? (
+            (m.sourceChannel === "TELEGRAM_DIRECT" ? <span>{content}</span> : searchQuery ? (
               highlightText(content, searchQuery, isActiveSearchMatch)
             ) : (
-              <TranslatableMessageText content={content} message={m} conversationId={conversationId} clientId={clientId} readOnly={readOnly} />
+              <TranslatableMessageText content={content} message={m} conversationId={m.sourceConversationId ?? conversationId} clientId={clientId} readOnly={readOnly} />
             ))}
           {/* Фото, голосовые и видео клиента прямо в пузыре: раньше от них
               оставалась только пометка «[вложение: image]». */}
@@ -910,25 +935,23 @@ const ConversationMessageList = memo(function ConversationMessageList({
             onImageClick={(imgIdx) => onOpenPhoto(absoluteIndex, imgIdx)}
           />
           {/* Оценка ответа бота прямо в чате (17.09.2026) — см. BotReplyFeedback.tsx. */}
-          {isBotAnswer && !readOnly && (
+          {isBotAnswer && !readOnly && m.sourceChannel !== "TELEGRAM_DIRECT" && (
             <BotReplyFeedback
-              conversationId={conversationId}
+              conversationId={m.sourceConversationId ?? conversationId}
               message={m}
-              messageKey={m.mid ?? `idx:${absoluteIndex}`}
-              index={absoluteIndex}
+              messageKey={m.mid ?? `idx:${m.sourceMessageIndex ?? absoluteIndex}`}
+              index={m.sourceMessageIndex ?? absoluteIndex}
             />
           )}
           {/* Время — часами ДУШАНБЕ, а не устройства: директор может смотреть из
               другой страны, и «в 14:30» обязано значить одно и то же для всех. */}
-          {m.at && (
-            <span className="tm">
-              <time dateTime={m.at} title={`${dushanbeDayLabel(m.at)}, ${dushanbeTime(m.at)}`}>{dushanbeTime(m.at)}</time>
-              {/* Галочки доставки — были только на мобильном (владелец
-                  22.08.2026: «полная имитация мессенджера»), десктоп молчал
-                  о статусе, хотя WhatsApp его присылает. */}
-              {m.role === "assistant" && <DeliveryTicks status={m.deliveryStatus} />}
-            </span>
-          )}
+          <span className="tm" data-message-time-unknown={!m.at || undefined}>
+            {m.at ? <time dateTime={m.at} title={`${dushanbeDayLabel(m.at)}, ${dushanbeTime(m.at)}`}>{messageTimeText(m.at)}</time> : messageTimeText(m.at)}
+            {/* Галочки доставки — были только на мобильном (владелец
+                22.08.2026: «полная имитация мессенджера»), десктоп молчал
+                о статусе, хотя WhatsApp его присылает. */}
+          {m.role === "assistant" && <DeliveryTicks status={m.deliveryStatus} />}
+          </span>
         </div>
         </Fragment>
         );
@@ -989,8 +1012,24 @@ const ConversationMessageList = memo(function ConversationMessageList({
   );
 });
 
-export function ConversationView({ id, onBack, clean = false }: { id: string; onBack: () => void; clean?: boolean }) {
-  const { data: conversation, error: conversationError, isLoading: conversationLoading, refetch: reloadConversation } = useConversation(id);
+export function ConversationView({ id, onBack, clean = false, onPromoteToClient }: { id: string; onBack: () => void; clean?: boolean; onPromoteToClient?: (clientId: string) => void }) {
+  const isClientGroup = id.startsWith("client:");
+  const isGroupedEntry = isClientGroup || id.startsWith("td_");
+  const groupedQuery = useGroupedConversation(isGroupedEntry ? id : null);
+  const singleQuery = useConversation(isGroupedEntry ? null : id);
+  const conversation = isGroupedEntry ? groupedQuery.data : singleQuery.data;
+  useEffect(() => {
+    if (!id.startsWith("client:") && conversation?.clientId) onPromoteToClient?.(conversation.clientId);
+  }, [id, conversation?.clientId, onPromoteToClient]);
+  const conversationError = isGroupedEntry ? groupedQuery.error : singleQuery.error;
+  const conversationLoading = isGroupedEntry ? groupedQuery.isLoading : singleQuery.isLoading;
+  const reloadConversation = isGroupedEntry ? groupedQuery.refetch : singleQuery.refetch;
+  const [selectedReplySource, setSelectedReplySource] = useState("");
+  const replySource = conversation?.sources?.find((source) => source.id === selectedReplySource && source.canReply);
+  const replyTargetId = isGroupedEntry ? (replySource?.id ?? null) : id;
+  const customerRequestConversationIds = callbackRequestConversationIds(isGroupedEntry
+    ? (conversation?.sources ?? []).map((source) => source.id)
+    : [id]);
   // Полная история — нужна и здесь (окно "показать более ранние" ниже), и
   // поиску (useConversationSearch ищет по ВСЕЙ переписке, а не только по
   // видимому хвосту, — иначе не находил бы то, что ещё свёрнуто).
@@ -1004,10 +1043,13 @@ export function ConversationView({ id, onBack, clean = false }: { id: string; on
   const search = useConversationSearch(allMessages);
   const { close: closeConversationSearch } = search;
   // Проактивно, ДО отправки (владелец 18.09.2026) — см. lib/messagingWindow.ts.
-  const windowClosed = isMessagingWindowClosed(
-    conversation?.channel,
-    conversation ? lastInboundMessageAt(conversation.messages) : null,
+  const replySourceMessages = useMemo(
+    () => isGroupedEntry && replySource ? allMessages.filter((message) => message.sourceConversationId === replySource.id) : allMessages,
+    [allMessages, isGroupedEntry, replySource],
   );
+  const windowClosed = isGroupedEntry
+    ? !!replySource && isMessagingWindowClosed(replySource.channel, lastInboundMessageAt(replySourceMessages))
+    : isMessagingWindowClosed(conversation?.channel, conversation ? lastInboundMessageAt(conversation.messages) : null);
   // Продавец: полоса под шапкой (21.09.2026) и кнопка «Добавить объект» в
   // просмотрщике фото читают ОДИН и тот же запрос (общий queryKey в
   // useSellerObject) — второго похода на сервер здесь нет.
@@ -1026,11 +1068,11 @@ export function ConversationView({ id, onBack, clean = false }: { id: string; on
     },
     [allMessages]
   );
-  const reply = useReplyToConversation(id);
-  const voiceMessage = useSendVoiceMessage(id);
+  const reply = useReplyToConversation(replyTargetId);
+  const voiceMessage = useSendVoiceMessage(replyTargetId);
   const [voiceError, setVoiceError] = useState<string | null>(null);
-  const mediaUpload = useUploadConversationMediaWithProgress(id);
-  const pendingUploads = usePendingMediaUploads(id);
+  const mediaUpload = useUploadConversationMediaWithProgress(replyTargetId);
+  const pendingUploads = usePendingMediaUploads(replyTargetId);
   const [mediaError, setMediaError] = useState<string | null>(null);
   const [pendingMedia, setPendingMedia] = useState<File | null>(null);
   const [mediaPreview, setMediaPreview] = useState<string | null>(null);
@@ -1042,8 +1084,8 @@ export function ConversationView({ id, onBack, clean = false }: { id: string; on
   }, [pendingMedia]);
   const mediaInputRef = useRef<HTMLInputElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
-  const resume = useResumeConversationBot(id);
-  const pause = usePauseConversationBot(id);
+  const resume = useResumeConversationBot(isGroupedEntry ? null : id);
+  const pause = usePauseConversationBot(isGroupedEntry ? null : id);
   // Меню «Пауза» в шапке (TASKS.md 10.09 «с обзора прода глазами», п.6): тот же
   // приём, что уже применён на телефоне (MobileChatView.tsx, «Раньше здесь
   // стояли пять контролов... нативный select паузы») — пилюля-триггер вместо
@@ -1052,6 +1094,7 @@ export function ConversationView({ id, onBack, clean = false }: { id: string; on
   const pauseMenu = useDismissableMenu<HTMLButtonElement>();
   const navigate = useNavigate();
   const [text, setText] = useState("");
+  useEffect(() => setSelectedReplySource(""), [id]);
   useEffect(() => {
     const input = composerRef.current;
     if (!clean || !input) return;
@@ -1087,7 +1130,7 @@ export function ConversationView({ id, onBack, clean = false }: { id: string; on
 
   const paused = !!conversation?.pausedUntil && new Date(conversation.pausedUntil).getTime() > Date.now();
   // Управление ботом — только руководству. См. комментарий у самого блока ниже.
-  const canManageBot = useCan()("messages.view") && !readOnly;
+  const canManageBot = useCan()("messages.view") && !readOnly && !isGroupedEntry;
 
   // Новый диалог — сбрасываем окно истории, панель и поиск.
   useEffect(() => {
@@ -1138,7 +1181,7 @@ export function ConversationView({ id, onBack, clean = false }: { id: string; on
 
   async function handleSend() {
     const value = text.trim();
-    if (readOnly || !value || reply.isPending || (clean && !conversation)) return;
+    if (readOnly || !value || reply.isPending || !replyTargetId || (clean && !conversation)) return;
     try {
       const minutes = customPauseMinutes ?? PAUSE_OPTIONS[pauseOptionIndex].minutesFromNow();
       await reply.mutateAsync({ text: value, pausedUntil: pausedUntilIso(minutes) });
@@ -1154,9 +1197,9 @@ export function ConversationView({ id, onBack, clean = false }: { id: string; on
    *  диалога уже известен, дожидаться ответа сервера ради очевидного отказа незачем.
    *  У видео это больше не отказ по каналу (гибридный режим) — только 1 ГБ предохранитель. */
   function handlePickMedia(file: File | undefined) {
-    if (!file || readOnly) return;
+    if (!file || readOnly || !replyTargetId) return;
     setMediaError(null);
-    const error = validateOutgoingMediaPick(file, conversation?.channel);
+    const error = validateOutgoingMediaPick(file, (isGroupedEntry ? replySource?.channel : conversation?.channel) ?? undefined);
     if (error) {
       setMediaError(error);
       return;
@@ -1171,7 +1214,7 @@ export function ConversationView({ id, onBack, clean = false }: { id: string; on
    * ввода, ни остальной чат не блокируются, пока идёт загрузка.
    */
   function handleSendMedia() {
-    if (!pendingMedia || readOnly) return;
+    if (!pendingMedia || readOnly || !replyTargetId) return;
     mediaUpload.start(pendingMedia, text.trim() || undefined);
     setPendingMedia(null);
     setText("");
@@ -1359,13 +1402,13 @@ export function ConversationView({ id, onBack, clean = false }: { id: string; on
               </section>
               <section className="clean-contact-profile" aria-label="Информация о клиенте">
                 <h3>Информация о клиенте</h3>
-                <ConversationClientLink conversationId={id} clientId={conversation.clientId} readOnly={readOnly} />
+                {!isGroupedEntry && <ConversationClientLink conversationId={id} clientId={conversation.clientId} readOnly={readOnly} />}
                 {conversation.contact ? <ContactProfilePanel contact={conversation.contact} readOnly={readOnly} /> : <p>Дополнительных сведений пока нет.</p>}
               </section>
-              <details className="clean-contact-support"><summary>Данные для поддержки</summary>
+              {!isGroupedEntry && <details className="clean-contact-support"><summary>Данные для поддержки</summary>
                 <dl className="clean-contact-facts"><div><dt>Идентификатор в канале</dt><dd>{conversation.subscriberId}</dd></div></dl>
                 <p>Ссылка на профиль недоступна.</p>
-              </details>
+              </details>}
             </> : <>
             <div className="quiet">
               <span className="txt">
@@ -1390,7 +1433,7 @@ export function ConversationView({ id, onBack, clean = false }: { id: string; on
               )}
             </div>
             {/* Что бот знает о человеке вообще — общий компонент с телефоном. */}
-            <ConversationClientLink conversationId={id} clientId={conversation.clientId} readOnly={readOnly} />
+            {!isGroupedEntry && <ConversationClientLink conversationId={id} clientId={conversation.clientId} readOnly={readOnly} />}
             <ContactProfilePanel contact={conversation.contact} readOnly={readOnly} />
             <div className="quiet">
               <span className="txt">
@@ -1461,7 +1504,7 @@ export function ConversationView({ id, onBack, clean = false }: { id: string; on
       )}
 
 
-      {conversation && <CustomerRequestsPanel conversationId={id} />}
+      {conversation && <CustomerRequestsPanel conversationIds={customerRequestConversationIds} />}
 
       <div ref={scrollRef} className="thread" tabIndex={0} aria-label="Переписка" style={{ flex: 1, minHeight: 0 }} onScroll={clean ? reading.onScroll : undefined}>
         <div ref={reading.contentRef} className={clean ? "clean-thread-content" : undefined} style={clean ? undefined : { display: "contents" }}>
@@ -1598,6 +1641,30 @@ export function ConversationView({ id, onBack, clean = false }: { id: string; on
 
       {clean && !narrow && <p className="clean-compose-keyboard-hint m-0 px-5 pb-2 text-sm text-gray">Enter — отправить · Shift+Enter — новая строка</p>}
       <form className="compose" onSubmit={(e) => e.preventDefault()}>
+        {isGroupedEntry && (conversation?.sources?.some((source) => source.canReply) || isClientGroup) && (
+          <label className="sr-only" htmlFor="inbox-reply-source">Канал ответа</label>
+        )}
+        {isGroupedEntry && (conversation?.sources?.some((source) => source.canReply) || isClientGroup) && (
+          <select
+            id="inbox-reply-source"
+            className="inp"
+            value={selectedReplySource}
+            onChange={(event) => setSelectedReplySource(event.target.value)}
+            aria-label="Куда ответить"
+          >
+            <option value="">Выберите канал для ответа</option>
+            {(() => {
+              const sources = (conversation?.sources ?? []).filter((source) => source.canReply);
+              const labels = replySourceLabels(sources.map((source) => source.channel));
+              return sources.map((source, index) => (
+                <option key={source.id} value={source.id}>{labels[index]}</option>
+              ));
+            })()}
+          </select>
+        )}
+        {isGroupedEntry && !(conversation?.sources ?? []).some((source) => source.canReply) && (
+          <span className="meta" role="note">История доступна только для чтения: для этих каналов нет безопасной отправки из CRM.</span>
+        )}
         <textarea
           ref={composerRef}
           value={text}
@@ -1612,7 +1679,7 @@ export function ConversationView({ id, onBack, clean = false }: { id: string; on
             }
           }}
           rows={1}
-          placeholder="Ответ клиенту"
+          placeholder={isGroupedEntry ? (replySource ? `Ответить в ${replySource.channel ?? "выбранный канал"}` : "Сначала выберите канал") : "Ответ клиенту"}
           aria-label="Текст ответа"
         />
         <input
@@ -1629,7 +1696,7 @@ export function ConversationView({ id, onBack, clean = false }: { id: string; on
           type="button"
           className="call"
           onClick={() => mediaInputRef.current?.click()}
-          disabled={reply.isPending}
+          disabled={reply.isPending || !replyTargetId}
           title="Прикрепить фото или видео"
           aria-label="Прикрепить фото или видео"
         >
@@ -1637,12 +1704,12 @@ export function ConversationView({ id, onBack, clean = false }: { id: string; on
         </button>
         {/* Быстрая отправка объекта из чата (владелец 21.08.2026) — вся логика в
             компоненте, здесь только кнопка. */}
-        <ChatPropertySend
+        {conversation?.clientId && conversation.clientShortId && <ChatPropertySend
           clientId={conversation?.clientId ?? null}
           clientShortId={conversation?.clientShortId ?? null}
-          conversationId={id}
-          disabled={reply.isPending}
-        />
+          conversationId={replyTargetId ?? undefined}
+          disabled={reply.isPending || conversationLoading || !replyTargetId}
+        />}
         {/* «Предложить ответ» (черновик от ИИ рядом с микрофоном) убрана
             целиком (владелец 06.09.2026: «зачем она?») — не отвечала на
             явную потребность и добавляла кнопку туда, где должно быть
@@ -1650,13 +1717,13 @@ export function ConversationView({ id, onBack, clean = false }: { id: string; on
         <VoiceRecordButton
           send={(blob) => voiceMessage.mutateAsync(blob)}
           onError={setVoiceError}
-          disabled={reply.isPending}
+          disabled={reply.isPending || !replyTargetId}
         />
         <button
           type="button"
           className="pill"
           onClick={handleSend}
-          disabled={!text.trim() || reply.isPending}
+          disabled={!text.trim() || reply.isPending || !replyTargetId}
           title="Отправить (Enter)"
         >
           Отправить

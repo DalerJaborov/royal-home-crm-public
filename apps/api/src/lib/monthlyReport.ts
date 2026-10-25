@@ -6,7 +6,8 @@ import { findAgentsWithPermission, partitionByPermission } from "./recipients.js
 import { COUNTED_SHOWING_WHERE } from "./tasks.js";
 import { districtDemandForMonth } from "./propertyInterest.js";
 import { computeAgentSilenceStats, findMostProvableCase, type AgentSilenceStat, type ProvableCase } from "./postShowingSilencePattern.js";
-import { RATED_ROLES } from "@royal-home/shared";
+import { RATED_ROLES, type PostShowingCohortView } from "@royal-home/shared";
+import { collectPostShowingCohort } from "./postShowingCohort.js";
 
 /**
  * Месячный отчёт директору и админу (примечание владельца от 30.07: «сделать формулу
@@ -20,6 +21,8 @@ import { RATED_ROLES } from "@royal-home/shared";
  * Заметки владельца живут отдельным полем поверх цифр и правятся когда угодно.
  */
 export interface MonthlyMetrics {
+  publicInteractionScopeVersion: 1;
+  postShowingCohort?: PostShowingCohortView | { version: 2; evaluation: "DATA_UNAVAILABLE" };
   /** Воронка месяца: сколько лидов дошло до каждого шага. */
   funnel: { key: string; label: string; count: number }[];
   /** Деньги месяца в сомони. */
@@ -103,14 +106,14 @@ export async function buildMonthlyMetrics(periodStart: Date): Promise<MonthlyMet
     await Promise.all([
       prisma.client.count({ where: { createdAt: period, deletedAt: null } }),
       prisma.interaction.findMany({
-        where: { type: { in: ["CALL", "MESSAGE", "MEETING"] }, createdAt: period, client: { deletedAt: null } },
+        where: { investigationOnly: false, type: { in: ["CALL", "MESSAGE", "MEETING"] }, createdAt: period, client: { deletedAt: null } },
         distinct: ["clientId"],
         select: { clientId: true },
       }),
       prisma.interaction.findMany({
         // Отменённый показ в снапшот месяца не идёт: цифры фиксируются навсегда, и
         // встреча, которой не было, осталась бы в отчёте до конца времён.
-        where: { type: "SHOWING", ...COUNTED_SHOWING_WHERE, createdAt: period, client: { deletedAt: null } },
+        where: { investigationOnly: false, type: "SHOWING", ...COUNTED_SHOWING_WHERE, createdAt: period, client: { deletedAt: null } },
         // subjectAgentId (П-10, 17.09.2026): показ ботом/системой от лица клиента
         // (agentId: null) по-прежнему на счету держателя карточки — см. ниже,
         // где agentId и subjectAgentId сведены в holderAgentId.
@@ -166,8 +169,13 @@ export async function buildMonthlyMetrics(periodStart: Date): Promise<MonthlyMet
       console.error("[monthly-report] тишина после показа не посчиталась:", err instanceof Error ? err.message : err);
       return { agents: [] as AgentSilenceStat[], provableCase: null };
     });
+  const postShowingCohort = await collectPostShowingCohort(from, to).catch((error) => {
+    console.error("[monthly-report] cohort data unavailable:", error instanceof Error ? error.message : error);
+    return { version: 2 as const, evaluation: "DATA_UNAVAILABLE" as const };
+  });
 
   return {
+    publicInteractionScopeVersion: 1,
     funnel: [
       { key: "leads", label: "Новые лиды", count: newLeads },
       { key: "contacted", label: "На контакте", count: contacted.length },
@@ -177,6 +185,7 @@ export async function buildMonthlyMetrics(periodStart: Date): Promise<MonthlyMet
     ],
     commission,
     postShowingSilence,
+    postShowingCohort,
     dealsCompleted: completedDeals.length,
     expenses: expensesTjs,
     agents: agents

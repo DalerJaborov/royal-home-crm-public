@@ -22,7 +22,7 @@ const runId = Date.now();
 const password = "testpass123";
 
 let agentId: string;
-let securityToken: string;
+let adminToken: string;
 const clientIds: string[] = [];
 const interactionIds: string[] = [];
 let faultClientId: string;
@@ -41,10 +41,10 @@ beforeAll(async () => {
       data: { fullName: "Агент сводки СБ", phone: `+992965${runId}`, role: "AGENT", passwordHash },
     })
   ).id;
-  const securityAgent = await prisma.agent.create({
-    data: { fullName: "СБ сводки", phone: `+992966${runId}`, role: "SECURITY", passwordHash },
+  const adminAgent = await prisma.agent.create({
+    data: { fullName: "Администратор сводки", phone: `+992966${runId}`, role: "ADMIN", passwordHash },
   });
-  securityToken = await login(`+992966${runId}`);
+  adminToken = await login(`+992966${runId}`);
 
   const faultClient = await prisma.client.create({
     data: {
@@ -84,7 +84,7 @@ beforeAll(async () => {
   });
   noFaultClientId = noFaultClient.id;
   clientIds.push(noFaultClientId);
-  void securityAgent;
+  void adminAgent;
 });
 
 afterAll(async () => {
@@ -101,7 +101,7 @@ describe("GET /security/summary", () => {
     // clients-summary.test.ts).
     const res = await request(app)
       .get("/api/v1/security/summary?tab=clients")
-      .set("Authorization", `Bearer ${securityToken}`);
+      .set("Authorization", `Bearer ${adminToken}`);
     expect(res.status).toBe(200);
     expect(res.body.pending).toBeGreaterThanOrEqual(1);
     expect(res.body.cleared).toBeGreaterThanOrEqual(1);
@@ -159,7 +159,7 @@ describe("GET /security/summary — плитки макета c99db05f (alerts)"
     try {
       const res = await request(app)
         .get("/api/v1/security/summary?tab=clients")
-        .set("Authorization", `Bearer ${securityToken}`);
+        .set("Authorization", `Bearer ${adminToken}`);
       expect(res.status).toBe(200);
       expect(res.body.alerts.newDeviceLogins).toBeGreaterThanOrEqual(1);
       expect(res.body.alerts.permissionChangeCount).toBeGreaterThanOrEqual(1);
@@ -180,7 +180,7 @@ describe("GET /security/lost-clients?agentFault=1", () => {
   it("отдаёт только карточки с просроченной задачей/окном", async () => {
     const res = await request(app)
       .get("/api/v1/security/lost-clients?agentFault=1")
-      .set("Authorization", `Bearer ${securityToken}`);
+      .set("Authorization", `Bearer ${adminToken}`);
     expect(res.status).toBe(200);
     const ids = res.body.items.map((i: { id: string }) => i.id);
     expect(ids).toContain(faultClientId);
@@ -193,7 +193,7 @@ describe("GET /security/lost-clients?agentFault=1", () => {
   it("agentFault=0 отдаёт только карточки без вины", async () => {
     const res = await request(app)
       .get("/api/v1/security/lost-clients?agentFault=0")
-      .set("Authorization", `Bearer ${securityToken}`);
+      .set("Authorization", `Bearer ${adminToken}`);
     expect(res.status).toBe(200);
     const ids = res.body.items.map((i: { id: string }) => i.id);
     expect(ids).toContain(noFaultClientId);

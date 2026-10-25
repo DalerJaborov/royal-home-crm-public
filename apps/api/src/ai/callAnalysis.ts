@@ -2,9 +2,12 @@ import {
   CALL_OUTCOME_CHOICES,
   INACTIVE_REASON_LABELS,
   MIN_ANALYZED_TRANSCRIPT_CHARS,
+  confirmedClientIntents,
   type InactiveReason,
 } from "@royal-home/shared";
 import { prisma } from "../db.js";
+import { rememberCallShowingCandidate } from "../lib/buyerShowingCandidates.js";
+import { rememberSellerIntakeAppointment } from "../lib/sellerIntakeAppointments.js";
 import { wrapUntrusted } from "./untrustedContent.js";
 import { callAiText } from "./client.js";
 import { dushanbeDateTimeString, dushanbeInputToDate, dushanbeWallClock } from "../lib/dushanbeTime.js";
@@ -127,6 +130,7 @@ interface AnalysisExtract {
   coaching?: string;
   /** «Встретимся сегодня в шесть» → "2026-08-10T18:00". Пусто — о встрече не говорили. */
   showingAt?: string | null;
+  showingAgreementQuote?: string | null;
   /** Черновик для окна «Как прошёл звонок»: предложенный исход и следующий шаг. */
   outcome?: string | null;
   nextAction?: string | null;
@@ -279,7 +283,11 @@ const analysisSchema = {
       description:
         "Если договорились о встрече или показе — дата и время в формате YYYY-MM-DDTHH:MM (местное время Душанбе). " +
         "«Сегодня в шесть вечера» при разговоре 10 августа 2026 — «2026-08-10T18:00». " +
-        "Договорились о встрече без времени — поставь 12:00 того дня. О встрече не говорили — пусто.",
+        "Только явно согласованное время. Без времени или дня оставь пусто: не подставляй полдень. О встрече не говорили — пусто.",
+    },
+    showingAgreementQuote: {
+      type: "string",
+      description: "Дословная короткая цитата из расшифровки о договорённости показать объект покупателю, даже без точного времени. Не приём квартиры собственника. Не переводить и не пересказывать; нет договорённости — пусто.",
     },
     /**
      * СИГНАЛ «УЖЕ ОБРАЩАЛСЯ» (владелец 19.08.2026) — живой случай: клиент позвонил
@@ -359,6 +367,7 @@ export function parseShowingAt(raw: string | null | undefined, callAt: Date): Da
   if (!match) return null;
   const at = dushanbeInputToDate(match[1], match[2]);
   if (Number.isNaN(at.getTime())) return null;
+  if (dushanbeWallClock(at).toISOString().slice(0, 16) !== raw.trim()) return null;
   // Час назад — допускаем: разбор идёт через минуты после разговора, и «через
   // полчаса» не должно отсекаться округлением.
   if (at.getTime() < callAt.getTime() - 3600_000) return null;
@@ -477,6 +486,10 @@ export async function analyzeCall(interactionId: string): Promise<{ ok: boolean;
      * Теперь запись разбора и правка заметки живут или не живут вместе, а
      * уникальность interactionId служит замком: проигравший откатывает и заметку.
      */
+    const candidateAt = parseShowingAt(extract.showingAt, interaction.createdAt);
+    if (extract.outcome !== "SELLER_MEETING" && (candidateAt || extract.showingAgreementQuote))
+      await rememberCallShowingCandidate(interactionId, candidateAt, callPropertyId, extract.showingAgreementQuote);
+    if (candidateAt && extract.outcome === "SELLER_MEETING") await rememberSellerIntakeAppointment(interactionId, candidateAt);
     try {
       await prisma.$transaction([
         prisma.callAnalysis.create({
@@ -736,7 +749,7 @@ export async function analyzeCall(interactionId: string): Promise<{ ok: boolean;
        */
       const client = await prisma.client.findFirst({
         where: { id: interaction.clientId, deletedAt: null },
-        select: { id: true, fullName: true, kind: true },
+        select: { id: true, fullName: true, kind: true, dualIntent: true, dualIntentConfirmedAt: true },
       });
       /**
        * ПРОДАВЦУ ПОКАЗ НЕ НАЗНАЧАЮТ (живой случай 17.08.2026, разбор с владельцем).
@@ -756,12 +769,15 @@ export async function analyzeCall(interactionId: string): Promise<{ ok: boolean;
        * Правильный путь продавца — исход «Объект принят в работу» и окно «Итог
        * объекта» через 36 часов (см. propertyAcceptedAt и requirePropertySummaries).
        */
-      if (client && client.kind === "SELLER") {
+      if (client && (!confirmedClientIntents(client).buys || extract.outcome === "SELLER_MEETING")) {
         console.log(
           `[разбор] показ не предлагаем: клиент ${interaction.clientId} — продавец, встреча по объекту это приём, а не показ`
         );
         return { ok: true };
       }
+      // Newly eligible dual-intent sellers are collected privately above. Do not
+      // broaden the legacy live autobooking/push path without activation approval.
+      if (client?.kind === "SELLER") return { ok: true };
       if (client) {
         /**
          * ПОКАЗ НАЗНАЧАЕТСЯ САМ — НО ТОЛЬКО КОГДА ОДНОЗНАЧНО (владелец 18.08.2026,

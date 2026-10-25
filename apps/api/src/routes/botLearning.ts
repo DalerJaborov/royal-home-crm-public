@@ -1,4 +1,6 @@
+import { canReadInvestigations } from "../auth/investigations.js";
 import { Router } from "express";
+
 import { Prisma } from "../generated/prisma/client.js";
 import { z } from "zod";
 import { prisma } from "../db.js";
@@ -64,6 +66,7 @@ const QUESTIONS_SCAN_LIMIT = 2000;
  *  всегда: без него правило нечем проверить, и выключать его пришлось бы вслепую. */
 const LESSON_FIELDS = {
   id: true,
+  investigationOnly: true,
   createdAt: true,
   kind: true,
   channel: true,
@@ -105,7 +108,7 @@ interface GroupedLessonRow extends LessonRow {
 function groupByDedupKey(rows: LessonRow[], keyFn: (row: LessonRow) => string): GroupedLessonRow[] {
   const groups = new Map<string, LessonRow[]>();
   for (const row of rows) {
-    const key = keyFn(row);
+    const key = `${row.investigationOnly ? "quarantine" : "ordinary"}:${keyFn(row)}`;
     const list = groups.get(key);
     if (list) list.push(row);
     else groups.set(key, [row]);
@@ -165,23 +168,24 @@ botLearningRouter.get("/", requireAuth, requirePermission("settings.view"), asyn
   const parsed = feedQuerySchema.safeParse(req.query);
   if (!parsed.success) return res.status(400).json({ error: "Неверные параметры" });
   const { rulesOffset = 0, questionsOffset = 0 } = parsed.data;
+  const visibility: Prisma.BotLessonWhereInput = canReadInvestigations(req) ? {} : { investigationOnly: false };
 
   const [rawRules, rawQuestions, rulesTotal, questionsTotal, activeCount, activeLessons] = await Promise.all([
     prisma.botLesson.findMany({
-      where: RULE_WHERE,
+      where: { ...RULE_WHERE, ...visibility },
       orderBy: { createdAt: "desc" },
       take: RULES_SCAN_LIMIT,
       select: LESSON_FIELDS,
     }),
     prisma.botLesson.findMany({
-      where: QUESTION_WHERE,
+      where: { ...QUESTION_WHERE, ...visibility },
       orderBy: { createdAt: "desc" },
       take: QUESTIONS_SCAN_LIMIT,
       select: LESSON_FIELDS,
     }),
-    prisma.botLesson.count({ where: RULE_WHERE }),
-    prisma.botLesson.count({ where: QUESTION_WHERE }),
-    prisma.botLesson.count({ where: { ...RULE_WHERE, active: true } }),
+    prisma.botLesson.count({ where: { ...RULE_WHERE, ...visibility } }),
+    prisma.botLesson.count({ where: { ...QUESTION_WHERE, ...visibility } }),
+    prisma.botLesson.count({ where: { ...RULE_WHERE, investigationOnly: false, active: true } }),
     // Тот же отбор, что реально видит промт (selectActiveLessons — единственный
     // источник, см. lib/botLessons.ts): без него чип «в промте» на экране был бы
     // догадкой, а не фактом.
@@ -228,7 +232,8 @@ const EXAMPLES_PER_DIGEST = 10;
  *
  * Отмечает дельное владелец тем же PATCH /:id (active) — второго механизма нет.
  */
-botLearningRouter.get("/lost", requireAuth, requirePermission("settings.view"), async (_req, res) => {
+botLearningRouter.get("/lost", requireAuth, requirePermission("settings.view"), async (req, res) => {
+  const visibility: Prisma.BotLessonWhereInput = canReadInvestigations(req) ? {} : { investigationOnly: false };
   const [digests, pendingReviews] = await Promise.all([
     prisma.lostClientDigest.findMany({
       orderBy: { periodStart: "desc" },
@@ -236,7 +241,7 @@ botLearningRouter.get("/lost", requireAuth, requirePermission("settings.view"), 
       include: {
         // Вложенные take вместо запроса на каждую сводку: восемь сводок — восемь
         // лишних round-trip'ов на ровном месте.
-        proposals: { orderBy: { createdAt: "asc" }, select: LESSON_FIELDS },
+        proposals: { where: visibility, orderBy: { createdAt: "asc" }, select: LESSON_FIELDS },
         reviews: {
           orderBy: { lastMessageAt: "desc" },
           take: EXAMPLES_PER_DIGEST,
@@ -269,7 +274,7 @@ botLearningRouter.get("/lost", requireAuth, requirePermission("settings.view"), 
   // take (см. include.proposals выше), но сводок отдаётся только DIGESTS_LIMIT —
   // отдельный count() по всей базе не зависит от того, сколько сводок загружено.
   const pendingProposalsCount = await prisma.botLesson.count({
-    where: { kind: LOST_LESSON_KIND, active: false },
+    where: { kind: LOST_LESSON_KIND, active: false, ...visibility },
   });
   res.json({ digests, pendingReviews, reviewsTotal, pendingProposalsCount });
 });
@@ -409,6 +414,9 @@ botLearningRouter.patch(
       return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
     }
     const { ids, lesson: rawLesson, active: rawActive } = parsed.data;
+    if (await prisma.botLesson.count({ where: { id: { in: ids }, investigationOnly: true } })) {
+      return res.status(404).json({ error: "Запись не найдена" });
+    }
     const lesson = rawLesson?.trim();
     const data: { active?: boolean; lesson?: string } = {};
     if (lesson !== undefined) {
@@ -417,7 +425,7 @@ botLearningRouter.patch(
     }
     if (rawActive !== undefined) data.active = rawActive;
 
-    const result = await prisma.botLesson.updateMany({ where: { id: { in: ids } }, data });
+    const result = await prisma.botLesson.updateMany({ where: { id: { in: ids }, investigationOnly: false }, data });
     logAudit(req, "BOT_LESSON_UPDATE_GROUP", "BotLesson", ids[0], {
       count: result.count,
       ids,
@@ -442,7 +450,7 @@ botLearningRouter.post(
   async (req, res) => {
     try {
       const updated = await prisma.botLesson.update({
-        where: { id: req.params.id },
+        where: { id: req.params.id, investigationOnly: false },
         data: { createdAt: new Date() },
         select: LESSON_FIELDS,
       });
@@ -498,7 +506,7 @@ botLearningRouter.patch(
 
     try {
       const updated = await prisma.botLesson.update({
-        where: { id: req.params.id },
+        where: { id: req.params.id, investigationOnly: false },
         data,
         select: LESSON_FIELDS,
       });
@@ -530,7 +538,7 @@ botLearningRouter.delete(
   async (req, res) => {
     try {
       const removed = await prisma.botLesson.delete({
-        where: { id: req.params.id },
+        where: { id: req.params.id, investigationOnly: false },
         select: { id: true, kind: true, lesson: true },
       });
       // В журнал — сам текст правила: восстановить запись уже нельзя, и без него

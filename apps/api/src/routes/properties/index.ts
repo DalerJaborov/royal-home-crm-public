@@ -1,3 +1,5 @@
+import { propertyRemovalDossierRouter } from "./removalDossier.js";
+import { publicationMetadataRouter } from "./publicationMetadata.js";
 /**
  * Г3 (docs/architecture-blueprint.md §1.3, §3): бывший routes/properties.ts (2999
  * строк, 39 роутов) распилен на группы по сюжетам. Сборка групп в один роутер —
@@ -64,11 +66,15 @@ import { ownerReportLinkRouter } from "./ownerReportLink.js";
 import { smsShareRouter } from "./smsShare.js";
 import { groupShareRouter } from "./groupShare.js";
 import { matchingRouter } from "./matching.js";
+import { narrationRouter } from "./narration.js";
 import { propertyDuplicateCheckRouter } from "./duplicateCheck.js";
 import { propertyTransferRouter } from "./transfer.js";
 import { propertiesHealthRouter, statsRouter } from "./stats.js";
 
 export const propertiesRouter = Router();
+propertiesRouter.use(propertyRemovalDossierRouter);
+propertiesRouter.use(narrationRouter);
+propertiesRouter.use(publicationMetadataRouter);
 
 // НЕ МЕНЯТЬ ПОРЯДОК: статичные GET-пути (/delete-requests, /summary, /map,
 // /duplicate-check здесь, /export и /trash в list) — до GET /:id; crud

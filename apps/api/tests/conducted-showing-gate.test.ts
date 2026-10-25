@@ -111,6 +111,22 @@ afterAll(async () => {
 });
 
 describe("«Передача» считает проведённые показы, а не назначенные", () => {
+  it("new API writes cannot fabricate a conducted showing without date/object or via early completion", async () => {
+    const c = await makeClient();
+    const post = (body: object) => request(app).post(`/api/v1/clients/${c.id}/interactions`).set("Authorization", `Bearer ${token}`).send(body);
+    for (const body of [{ type: "SHOWING", notes: "Без даты", propertyId },
+      { type: "SHOWING", notes: "Без времени", propertyId, nextActionDate: "2026-10-25" },
+      { type: "SHOWING", notes: "Без объекта", nextActionDate: new Date().toISOString() }])
+      expect((await post(body)).status).toBe(400);
+    expect(await prisma.interaction.count({ where: { clientId: c.id } })).toBe(0);
+    const created = await post({ type: "SHOWING", notes: "Будущий показ", propertyId,
+      nextActionDate: new Date(Date.now() + 86400_000).toISOString(), showingEvidenceVersion: 0 });
+    expect(created.status).toBe(201);
+    const row = await prisma.interaction.findFirstOrThrow({ where: { clientId: c.id, type: "SHOWING" } });
+    expect(row.showingEvidenceVersion).toBe(1);
+    await prisma.interaction.update({ where: { id: row.id }, data: { completedAt: new Date() } });
+    expect((await transfer(c.id)).status).toBe(409);
+  });
   it("показ назначен на будущее — 409: работа ещё не началась", async () => {
     const c = await makeClient();
     await scheduleFutureShowing(c.id);

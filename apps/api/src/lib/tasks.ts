@@ -19,7 +19,10 @@ import type { Prisma } from "../generated/prisma/client.js";
  */
 export const TASK_WHERE = {
   nextAction: { not: null },
+  taskCancelledAt: null,
   client: { deletedAt: null },
+  // Preserve completed history; an unfinished task cannot burden a closed assignment.
+  NOT: { completedAt: null, client: { assignmentCompletedAt: { not: null } } },
 } satisfies Prisma.InteractionWhereInput;
 
 /**
@@ -42,5 +45,6 @@ export const TASK_WHERE = {
  * отчёты, месячный отчёт, доска почёта, дашборд, сводка по команде.
  */
 export const COUNTED_SHOWING_WHERE = {
+  taskCancelledAt: null,
   NOT: { nextAction: null, declinedAt: { not: null } },
 } satisfies Prisma.InteractionWhereInput;

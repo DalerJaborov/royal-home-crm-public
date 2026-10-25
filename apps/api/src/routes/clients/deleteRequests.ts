@@ -1,3 +1,4 @@
+import { investigationViewerRole } from "../../auth/investigations.js";
 /**
  * ЗАЯВКИ АГЕНТА НА УДАЛЕНИЕ КЛИЕНТА (решение владельца 30.08.2026).
  *
@@ -15,6 +16,7 @@
  * (см. комментарий в index.ts).
  */
 import { Router } from "express";
+import { publicClientProjection } from "../../lib/investigationPrivacy.js";
 import {
   clientDeleteRequestApproveSchema,
   clientDeleteRequestRejectSchema,
@@ -115,7 +117,7 @@ deleteRequestsRouter.get(
         requestedBy: r.requestedBy,
         decidedBy: r.decidedBy,
         client: {
-          ...r.client,
+          ...publicClientProjection(r.client, investigationViewerRole(req)),
           fullName: clientNamePhoneSafe(r.client.fullName, showPhone),
           phone: showPhone ? r.client.phone : maskPhone(r.client.phone),
         },

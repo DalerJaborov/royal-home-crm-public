@@ -245,6 +245,8 @@ export const conversationQuerySchema = z.object({
   paused: z.literal("1").optional(),
   /** Срез «Мои» — диалоги клиентов, закреплённых за текущим сотрудником. */
   mine: z.literal("1").optional(),
+  /** Opt-in inbox rows grouped by exact linked CRM client. */
+  grouped: z.literal("1").optional(),
   page,
 });
 export type ConversationQuery = z.infer<typeof conversationQuerySchema>;

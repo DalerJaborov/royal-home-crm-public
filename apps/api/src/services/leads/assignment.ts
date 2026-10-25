@@ -7,6 +7,7 @@ import { findMatchingPropertiesForClient } from "../../routes/matching.js";
 import { findAgentByInstagramPost } from "../../lib/instagramPostLead.js";
 import { changeClientAgent } from "../../lib/changeClientAgent.js";
 import { logTimeline } from "../../lib/timeline.js";
+import { recordNamedAssignmentDeclaration } from "../../lib/clientWorkflowObservations.js";
 import { notifyFeedOnly } from "../../lib/notifications.js";
 import { orderByKpiQueue, pickAgentForLead } from "./selection.js";
 
@@ -425,6 +426,7 @@ export async function recordAssignReasonTx(
    * ветка — без ownPropertyLead и без matchedPropertyId, которые считают комиссию.
    */
   if (assignment.reason === "requested_by_client") {
+    await recordNamedAssignmentDeclaration(tx, clientId, agentId);
     await tx.client.update({ where: { id: clientId }, data: { assignReason: assignment.reason } });
     // SYSTEM — это объяснение алгоритма распределения, не действие агента
     // (П-10, 17.09.2026); subjectAgentId — держатель лида ПОСЛЕ назначения.
@@ -540,7 +542,7 @@ export async function declineLead(clientId: string, agentId: string): Promise<De
   if (client.assignedAgentId !== agentId) return { ok: false, reason: "not_own" };
   // Отклонить можно только НЕпринятый лид — после «Принять» это уже не «получение
   // нового лида», а работающий клиент, и его судьба решается отказом (refuse), не отказом от приёма.
-  if (client.acceptedAt) return { ok: false, reason: "already_accepted" };
+  if (client.acceptedAt || client.assignmentRefusedAt || client.assignmentCompletedAt) return { ok: false, reason: "already_accepted" };
 
   /**
    * ЗАХВАТ — АТОМАРНЫЙ, ВСЁ ОСТАЛЬНОЕ — ТОЛЬКО ПОСЛЕ НЕГО (26.08.2026).
@@ -634,7 +636,7 @@ export async function declineLead(clientId: string, agentId: string): Promise<De
         actorId: null,
         source: "decline.escalate",
         interactionAgentId: agentId,
-        guardWhere: { assignedAgentId: agentId, acceptedAt: null, escalatedAt: client.escalatedAt },
+        guardWhere: { assignedAgentId: agentId, acceptedAt: null, escalatedAt: client.escalatedAt, assignmentRefusedAt: null, assignmentCompletedAt: null },
         data: { escalatedAt: new Date(), triedAgentIds: triedNow, declinedAgentIds: declinedNow },
         tx,
       });
@@ -672,7 +674,7 @@ export async function declineLead(clientId: string, agentId: string): Promise<De
       actorId: null,
       source: "decline.reassign",
       interactionAgentId: nextAgentId,
-      guardWhere: { assignedAgentId: agentId, acceptedAt: null },
+      guardWhere: { assignedAgentId: agentId, acceptedAt: null, assignmentRefusedAt: null, assignmentCompletedAt: null },
       data: {
         assignedAt: new Date(),
         reassignCount: { increment: 1 },

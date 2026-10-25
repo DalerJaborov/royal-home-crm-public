@@ -173,7 +173,7 @@ function buildItems(role: string | undefined, can: (p: PermissionId) => boolean)
     return [objectNew, sources, clientNew].filter(Boolean) as FabMenuItem[];
   }
   if (role === "SECURITY") {
-    return [checkNew, callsList].filter(Boolean) as FabMenuItem[];
+    return [can("clients.securityReview") ? checkNew : null, callsList].filter(Boolean) as FabMenuItem[];
   }
   if (role === "MANAGER") {
     return [acceptCall, routeInquiry, clientNew, showNew];

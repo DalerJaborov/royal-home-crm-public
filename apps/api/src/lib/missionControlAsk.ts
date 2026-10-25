@@ -1,4 +1,8 @@
+import { visibleErrorLogs } from "./systemErrorVisibility.js";
+import { visibleCronWhere, visibleSystemErrorWhere } from "./investigationOperations.js";
 import { prisma } from "../db.js";
+import { Prisma } from "../generated/prisma/client.js";
+import { countVisibleBackgroundJobs } from "./backgroundJobPrivacy.js";
 import { loadMoneyContext, roundMoney, toTjs } from "./money.js";
 import { computePlanForecast } from "./dashboardInsights.js";
 import { buildFinancePulse } from "./financePulse.js";
@@ -87,7 +91,7 @@ export async function buildAskContext(seesMoney: boolean, now: Date = new Date()
     seesMoney ? buildFinancePulse() : null,
     prisma.client.count({ where: { createdAt: { gte: startOfDay }, deletedAt: null } }),
     prisma.incomingCall.count({ where: { startedAt: { gte: startOfDay } } }),
-    prisma.interaction.count({ where: { type: "CALL", createdAt: { gte: startOfDay } } }),
+    prisma.interaction.count({ where: { investigationOnly: false, type: "CALL", createdAt: { gte: startOfDay } } }),
     prisma.incomingCall.count({ where: { startedAt: { gte: startOfDay }, answered: false } }),
     prisma.agent.findMany({
       where: { role: { in: [...RATED_ROLES] }, isActive: true },
@@ -98,9 +102,9 @@ export async function buildAskContext(seesMoney: boolean, now: Date = new Date()
     buildMarketingFunnel(seesMoney, now),
     prisma.property.count({ where: { deletedAt: null, status: "AVAILABLE" } }),
     prisma.property.count({ where: { deletedAt: null, status: "RESERVED" } }),
-    prisma.cronHeartbeat.findMany({ select: { lastRunAt: true, lastOkAt: true } }),
-    prisma.backgroundJob.count({ where: givenUpVisibleWhere() }),
-    prisma.errorLog.count({ where: { createdAt: { gte: startOfDay }, resolvedAt: null } }),
+    prisma.cronHeartbeat.findMany({ where: visibleCronWhere(), select: { lastRunAt: true, lastOkAt: true } }),
+    countVisibleBackgroundJobs(Prisma.sql`status='GIVEN_UP' AND "updatedAt">=${givenUpVisibleWhere(now).updatedAt.gte}`),
+    visibleErrorLogs().count({ where: { ...visibleSystemErrorWhere(), createdAt: { gte: startOfDay }, resolvedAt: null } }),
   ]);
 
   const ids = agents.map((a) => a.id);

@@ -80,6 +80,11 @@ export interface RawShowing {
   declinedAt: Date | null;
   completedAt: Date | null;
   nextActionDate: Date | null;
+  taskCancelledAt?: Date | null;
+  showingEvidenceVersion?: number;
+  propertyId?: string | null;
+  showingOffCrm?: boolean;
+  showingOffCrmDetails?: string | null;
 }
 
 export interface RawFeedbackCall {

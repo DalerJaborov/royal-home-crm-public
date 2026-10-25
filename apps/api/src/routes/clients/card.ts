@@ -1,3 +1,5 @@
+import { investigationViewerRole } from "../../auth/investigations.js";
+import { visibleInteractionWhere } from "../../lib/investigationPrivacy.js";
 /**
  * Карточка клиента: GET /:id, POST /, PATCH /:id, DELETE /:id, restore,
  * permanent (Г2, §1.2). Перенос verbatim.
@@ -11,6 +13,7 @@ import {
   CLIENT_STATUS_LABELS,
   isClientCardFilled,
   INTERACTION_TYPES,
+  SALES_AGENT_ROLES,
 } from "@royal-home/shared";
 import { z } from "zod";
 import { prisma } from "../../db.js";
@@ -34,7 +37,7 @@ import { loadMoneyContext } from "../../lib/money.js";
 import { loadMatchWeights, scoreClientProperty } from "../matching.js";
 import { refreshPropertiesOfSeller } from "../../lib/propertyAutoStatus.js";
 import { cardWhereFromParam } from "../../lib/cardIdParam.js";
-import { hadConductedShowing } from "../../lib/conductedShowing.js";
+import { conductedShowingWhere } from "../../lib/conductedShowing.js";
 import { loadSellerPropertyAddress } from "../../lib/sellerPropertyAnchor.js";
 import { presentMessages, type PresentedMessage } from "../../lib/messageAttachments.js";
 import type { MessageSender } from "@royal-home/shared";
@@ -47,6 +50,8 @@ import { CLIENT_PHONE_MASK_CHAR } from "@royal-home/shared";
 import { computeHiddenReason, foreignWriteDenied, normalizePhone, phoneOwnershipError, presentClient, restoreMaskedNotes } from "./shared.js";
 import { findFuzzyDuplicateCandidate } from "../../lib/duplicateReview.js";
 import { phoneTail } from "../../lib/clientPhones.js";
+import { clientPhoneSelectionTokens } from "../../lib/clientPhoneSelection.js";
+import { presentExtraPhoneOrigins } from "../../lib/clientPhoneOrigins.js";
 import { clientNamePhoneSafe } from "../../lib/clientPhone.js";
 import { findStaffPhone, staffPhoneError, STAFF_PHONE_ERROR_CODE } from "../../lib/staffPhoneGuard.js";
 import { interactionPropertySelect } from "../../lib/interactionPropertySelect.js";
@@ -144,6 +149,7 @@ const CARD_TIMELINE_LIMIT = 200;
  * на порядки легче расшифровки, а его счёт виден ещё до раскрытия записи.
  */
 const TIMELINE_INTERACTION_SELECT = {
+  investigationOnly: true,
   id: true,
   clientId: true,
   agentId: true,
@@ -155,6 +161,7 @@ const TIMELINE_INTERACTION_SELECT = {
   nextAction: true,
   nextActionDate: true,
   completedAt: true,
+  taskCancelledAt: true,
   confirmAskedAt: true,
   confirmedAt: true,
   declinedAt: true,
@@ -246,6 +253,7 @@ cardRouter.get("/:id", requireAuth, async (req, res) => {
       // при каждом открытии, хотя дальше первых экранов их никто не листает.
       // Сортировка от новых к старым уже стояла — берём верхушку.
       interactions: {
+        where: visibleInteractionWhere(investigationViewerRole(req)),
         // id — вторым ключом: «Показать более ранние» (GET /:id/timeline) идёт
         // курсором (createdAt, id) от последней записи, и порядок обязан быть
         // однозначным даже у записей с одинаковым временем.
@@ -257,7 +265,7 @@ cardRouter.get("/:id", requireAuth, async (req, res) => {
       deals: { include: { property: { select: { title: true } } } },
       // Сколько записей в хронологии ВСЕГО (02.10.2026): список выше режется на
       // 200, и экран писал «Показаны 25 из 200», будто двести — это всё.
-      _count: { select: { interactions: true } },
+      _count: { select: { interactions: { where: visibleInteractionWhere(investigationViewerRole(req)) } } },
       // Диалог клиента: у каналов Meta — botConversation, у Telegram своя
       // таблица. Обе отдаём одинаково, чтобы карточка не делила клиентов на сорта:
       // переписка, пауза бота и отправка сообщения работают в любом канале.
@@ -272,6 +280,10 @@ cardRouter.get("/:id", requireAuth, async (req, res) => {
       // диалог (`/messages?open=tg_<id>`, TG_PREFIX из routes/conversations.ts),
       // а не открывала плавающую панель поверх карточки (владелец 15.09.2026).
       telegramConversation: { select: { id: true, pausedUntil: true, messages: true } },
+      telegramDirectConversations: {
+        select: { id: true, pausedUntil: true, messages: true, lastMessageAt: true },
+        orderBy: { lastMessageAt: "desc" },
+      },
     },
   });
   if (!client || client.deletedAt) return res.status(404).json({ error: "Клиент не найден" });
@@ -300,10 +312,11 @@ cardRouter.get("/:id", requireAuth, async (req, res) => {
   // firstOpenedAt ниже: без await список клиентов, запрошенный сразу следом
   // (в т.ч. фронтом при возврате назад), иногда увидел бы ещё не сброшенный
   // индикатор. Сбой записи не должен ронять открытие карточки.
-  if (ownAgentId && client.assignedAgentId === ownAgentId) {
+  if (ownAgentId && client.assignedAgentId === ownAgentId && client.acceptedAt) {
     await Promise.all([
       prisma.botConversation.updateMany({ where: { clientId: client.id }, data: { readAt: new Date() } }).catch(() => {}),
       prisma.telegramConversation.updateMany({ where: { clientId: client.id }, data: { readAt: new Date() } }).catch(() => {}),
+      prisma.telegramDirectConversation.updateMany({ where: { clientId: client.id }, data: { readAt: new Date() } }).catch(() => {}),
     ]);
   }
   // АВТОФИКСАЦИЯ ВРЕМЁН (Royal Score): первое открытие карточки — факт, который
@@ -415,8 +428,8 @@ cardRouter.get("/:id", requireAuth, async (req, res) => {
    * гейта (lib/conductedShowing.ts); порог разговора — leadCallMinSeconds.
    */
   const [conductedShowing, callsCount, realCalls] = await Promise.all([
-    hadConductedShowing(client.id),
-    prisma.interaction.count({ where: { clientId: client.id, type: "CALL" } }),
+    prisma.interaction.count({ where: { ...conductedShowingWhere(client.id), ...visibleInteractionWhere(investigationViewerRole(req)) } }).then((count) => count > 0),
+    prisma.interaction.count({ where: { clientId: client.id, type: "CALL", ...visibleInteractionWhere(investigationViewerRole(req)) } }),
     prisma.settings
       .findUnique({ where: { id: "singleton" }, select: { leadCallMinSeconds: true } })
       .then((s) =>
@@ -424,6 +437,7 @@ cardRouter.get("/:id", requireAuth, async (req, res) => {
           where: {
             clientId: client.id,
             type: "CALL",
+            ...visibleInteractionWhere(investigationViewerRole(req)),
             recordingDurationSec: { gte: s?.leadCallMinSeconds ?? 30 },
           },
         })
@@ -458,6 +472,12 @@ cardRouter.get("/:id", requireAuth, async (req, res) => {
       ...client.telegramConversation,
       messages: presentMessages(client.telegramConversation.messages, attachmentsAllowed, phonesAllowed),
     },
+    telegramDirectConversations: client.telegramDirectConversations.map((c) => ({
+      ...c,
+      channel: "TELEGRAM_DIRECT",
+      canReply: false,
+      messages: presentMessages(c.messages, attachmentsAllowed, phonesAllowed),
+    })),
   };
 
   /**
@@ -504,6 +524,7 @@ cardRouter.get("/:id", requireAuth, async (req, res) => {
         deals: [],
         botConversation: [],
         telegramConversation: null,
+        telegramDirectConversations: [],
       }
     : withMessages;
 
@@ -519,11 +540,14 @@ cardRouter.get("/:id", requireAuth, async (req, res) => {
   const presentedClient = presentClient(
     responseClient,
     can(req, "clients.viewPhone") && !gateUntilAccepted,
-    can(req, "clients.viewOrigin")
+    can(req, "clients.viewOrigin"), investigationViewerRole(req)
   );
-  const activity = gateUntilAccepted ? { propertyActivitySummary: null, nextStep: null } : await loadClientCardActivity(client.id);
+  const activity = gateUntilAccepted ? { propertyActivitySummary: null, nextStep: null } : await loadClientCardActivity(client.id, investigationViewerRole(req));
   const payload = {
     ...presentedClient,
+    phoneSelectionTokens: gateUntilAccepted ? {} : clientPhoneSelectionTokens(client),
+    extraPhoneOrigins: gateUntilAccepted ? [] : presentExtraPhoneOrigins(client.extraPhones,
+      await prisma.clientPhoneOrigin.findMany({ where: { clientId: client.id }, select: { phoneHash: true, addedAt: true, source: true } }), can(req, "clients.viewOrigin")),
     ...activity,
     nextStep: activity.nextStep ? { ...activity.nextStep,
       nextAction: phoneSafeText(activity.nextStep.nextAction, can(req, "clients.viewPhone")),
@@ -535,7 +559,7 @@ cardRouter.get("/:id", requireAuth, async (req, res) => {
     // отдаётся 404 (:206 выше), поэтому здесь может прийти только «мягкое»
     // скрытое состояние (OTHER/LOST/DEAL_CLOSED/ARCHIVED/INACTIVE/DEFERRED/
     // эскалирован/СБ) — тот же текст, что в строке списка и в уведомлении.
-    hiddenReason: computeHiddenReason(client),
+    hiddenReason: computeHiddenReason(client, investigationViewerRole(req)),
   };
   res.json(transferAccess ? { ...payload, access: transferAccess } : payload);
 });
@@ -586,7 +610,7 @@ cardRouter.get("/:id/timeline", requireAuth, async (req, res) => {
     return res.json({ items: [], total: 0, hasMore: false });
   }
 
-  const baseWhere: Prisma.InteractionWhereInput = { clientId: client.id, ...(type ? { type } : {}) };
+  const baseWhere: Prisma.InteractionWhereInput = { ...visibleInteractionWhere(investigationViewerRole(req)), clientId: client.id, ...(type ? { type } : {}) };
   const where: Prisma.InteractionWhereInput =
     before && beforeId
       ? { ...baseWhere, OR: [{ createdAt: { lt: before } }, { createdAt: before, id: { lt: beforeId } }] }
@@ -670,6 +694,7 @@ cardRouter.get("/:id/conversation-export", requireAuth, async (req, res) => {
         orderBy: { lastMessageAt: "desc" },
       },
       telegramConversation: { select: { messages: true } },
+      telegramDirectConversations: { select: { messages: true }, orderBy: { lastMessageAt: "desc" } },
     },
   });
   if (!client || client.deletedAt) return res.status(404).json({ error: "Клиент не найден" });
@@ -701,6 +726,7 @@ cardRouter.get("/:id/conversation-export", requireAuth, async (req, res) => {
   const rows: ExportRow[] = [
     ...client.botConversation.flatMap((c) => toRows(c.channel, c.messages)),
     ...(client.telegramConversation ? toRows("TELEGRAM", client.telegramConversation.messages) : []),
+    ...client.telegramDirectConversations.flatMap(c => toRows("TELEGRAM_DIRECT", c.messages)),
   ];
 
   // Сортировка по времени там, где оно есть — иначе несколько каналов идут блоками
@@ -789,17 +815,24 @@ cardRouter.delete("/:id", requireAuth, requirePermission("clients.delete"), asyn
  * ПРОВЕРКА АГЕНТА (аудит владения 11.09.2026, дыра №3, `docs/ownership-audit-11-09.md`):
  * карточка могла пролежать в Корзине неделями, а агент за это время уволиться —
  * `restore` без проверки оживил бы клиента на уволенном (isActive=false), который
- * его физически не увидит. Заморозка (frozenAt) сюда не относится: замороженный
- * агент продолжает работать в CRM и дописывать историю (см. `routes/agents.ts::/freeze`).
+ * его физически не увидит. По явному уточнению П8 от 25.10.2026 восстановление
+ * исключает также любую заморозку; действующий портфель вне восстановления
+ * это правило не перераспределяет.
  */
 cardRouter.post("/:id/restore", requireAuth, requirePermission("clients.delete"), async (req, res) => {
   const client = await prisma.client.findUnique({ where: { id: req.params.id } });
   if (!client || !client.deletedAt) return res.status(404).json({ error: "Клиент не найден в корзине" });
 
+  const eligible = (agent: { isActive: boolean; frozenAt: Date | null; role: string } | null | undefined) =>
+    !!agent?.isActive && agent.frozenAt === null && (SALES_AGENT_ROLES as readonly string[]).includes(agent.role);
   const owner = client.assignedAgentId
-    ? await prisma.agent.findUnique({ where: { id: client.assignedAgentId }, select: { isActive: true } })
+    ? await prisma.agent.findUnique({ where: { id: client.assignedAgentId }, select: { isActive: true, frozenAt: true, role: true } })
     : null;
-  const ownerGone = client.assignedAgentId != null && (!owner || !owner.isActive);
+  const historicalOwner = !eligible(owner) && client.lastAgentId && !client.assignmentRefusedAt && !client.assignmentCompletedAt
+    ? await prisma.agent.findUnique({ where: { id: client.lastAgentId }, select: { id: true, isActive: true, frozenAt: true, role: true } }) : null;
+  const restoredAgentId = client.kind !== "OTHER" && eligible(historicalOwner) ? historicalOwner!.id : null;
+  const completedAssignment = Boolean(client.assignmentRefusedAt || client.assignmentCompletedAt);
+  const ownerGone = !completedAssignment && client.assignedAgentId != null && !eligible(owner);
   /**
    * КАРТОЧКА БЕЗ АГЕНТА ПОСЛЕ ВОССТАНОВЛЕНИЯ — В РАЗДАЧУ, И РУКОВОДСТВО ЗНАЕТ
    * (23.09.2026, проверка раздачи, пункты 20 и 24). Раньше при уволенном агенте
@@ -810,13 +843,30 @@ cardRouter.post("/:id/restore", requireAuth, requirePermission("clients.delete")
    * агентов (не «Прочее») встаёт в очередь как новый лид: волна отдаст её
    * агенту, и тот примет её сам. Руководство получает пуш «назначьте агента».
    */
-  const endsWithoutAgent = ownerGone || client.assignedAgentId == null;
-  const toQueue = endsWithoutAgent && client.kind !== "OTHER";
+  const endsWithoutAgent = !restoredAgentId && (ownerGone || client.assignedAgentId == null);
+  const toQueue = !completedAssignment && endsWithoutAgent && client.kind !== "OTHER";
   const queueData = toQueue
     ? { escalatedAt: null, acceptedAt: null, assignedAt: new Date(), triedAgentIds: [], reassignCount: 0 }
     : {};
 
-  await prisma.$transaction(async (tx) => {
+  const restoreConflict = new Error("Restore conflict");
+  const restored = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "Client" WHERE id = ${client.id} FOR UPDATE`;
+    const current = await tx.client.findUnique({ where: { id: client.id } });
+    if (!current?.deletedAt || current.updatedAt.getTime() !== client.updatedAt.getTime()) {
+      return false;
+    }
+    const checkedOwners = [[client.assignedAgentId, eligible(owner)], [historicalOwner?.id ?? null, eligible(historicalOwner)]] as const;
+    // Не назначать сотрудника, которого заморозили/уволили между выбором и записью.
+    // FOR SHARE удерживает eligibility до коммита; одинаковый порядок исключает
+    // взаимную блокировку двух восстановлений с обратной парой владельцев.
+    for (const [id, expected] of [...checkedOwners].sort((a, b) => (a[0] ?? "").localeCompare(b[0] ?? ""))) {
+      if (id && !completedAssignment) {
+        await tx.$queryRaw`SELECT id FROM "Agent" WHERE id = ${id} FOR SHARE`;
+        const agent = await tx.agent.findUnique({ where: { id }, select: { isActive: true, frozenAt: true, role: true } });
+        if (eligible(agent) !== expected) return false;
+      }
+    }
     // Часы ночного переноса в Корзину — заново с момента восстановления
     // (23.09.2026). Карточку, которую перенос убрал сам (Потерянный/Неактивный
     // старше срока), он в ту же ночь уносил обратно: lostAt и inactiveSince
@@ -832,18 +882,21 @@ cardRouter.post("/:id/restore", requireAuth, requirePermission("clients.delete")
         ...(client.workStatus === "INACTIVE" && client.inactiveSince ? { inactiveSince: now, inactivePingCount: 0 } : {}),
       },
     });
-    if (ownerGone) {
-      await changeClientAgent({
+    if (ownerGone || restoredAgentId) {
+      const changed = await changeClientAgent({
         clientId: client.id,
-        toAgentId: null,
-        reason: "Восстановление из Корзины: агент карточки уволен/неактивен — карточка в очереди раздачи",
+        toAgentId: restoredAgentId,
+        reason: restoredAgentId ? "Восстановление из Корзины: возвращена прежнему активному агенту" : "Восстановление из Корзины: агент карточки недоступен — карточка в очереди раздачи",
         actorId: req.agent!.id,
         source: "restore",
-        data: toQueue ? queueData : { escalatedAt: new Date() },
+        data: restoredAgentId ? { assignedAt: now, acceptedAt: null, escalatedAt: null } : toQueue ? queueData : { escalatedAt: new Date() },
         tx,
       });
+      if (!changed.ok) throw restoreConflict;
     }
-  });
+    return true;
+  }).catch(error => { if (error === restoreConflict) return false; throw error; });
+  if (!restored) return res.status(409).json({ error: "Карточка изменилась. Обновите страницу" });
   if (toQueue) {
     const supervisors = (await findAgentsWithPermission("clients.assign")).filter((id) => id !== req.agent!.id);
     sendPushToAgents(supervisors, {
@@ -949,7 +1002,7 @@ function duplicateHint(
   c: Parameters<typeof presentClient>[0] & { id: string; shortId: number; fullName: string; assignedAgentId: string | null },
 ): { id: string; shortId: number; fullName: string } {
   const own = can(req, "clients.viewAll") || c.assignedAgentId === req.agent!.id;
-  const shown = presentClient(c, own && can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"));
+  const shown = presentClient(c, own && can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), investigationViewerRole(req));
   return { id: c.id, shortId: c.shortId, fullName: String((shown as { fullName?: string }).fullName ?? "") };
 }
 
@@ -1183,7 +1236,7 @@ cardRouter.post("/", requireAuth, async (req, res) => {
     }).catch((err) => console.error("[push] новый лид:", err));
   }
 
-  res.status(201).json(presentClient(client, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin")));
+  res.status(201).json(presentClient(client, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), investigationViewerRole(req)));
 });
 
 cardRouter.patch("/:id", requireAuth, async (req, res) => {
@@ -1214,7 +1267,7 @@ cardRouter.patch("/:id", requireAuth, async (req, res) => {
     const canSeePhone = can(req, "clients.viewPhone");
     const canSeeOrigin = can(req, "clients.viewOrigin");
     if (!canSeePhone || !canSeeOrigin) {
-      const shown = String(presentClient(existing, canSeePhone, canSeeOrigin).fullName ?? "");
+      const shown = String(presentClient(existing, canSeePhone, canSeeOrigin, investigationViewerRole(req)).fullName ?? "");
       if (shown !== existing.fullName && parsed.data.fullName.trim() === shown.trim()) {
         delete parsed.data.fullName;
       } else if (!canSeePhone && parsed.data.fullName.includes(CLIENT_PHONE_MASK_CHAR)) {
@@ -1432,5 +1485,5 @@ cardRouter.patch("/:id", requireAuth, async (req, res) => {
   // Через presentClient, как и все остальные ответы этого файла: без него агенту
   // достаточно было сохранить карточку, чтобы получить в ответе закрытый ему номер
   // (и фронтенд положил бы его в кэш).
-  res.json(presentClient(updated, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin")));
+  res.json(presentClient(updated, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), investigationViewerRole(req)));
 });

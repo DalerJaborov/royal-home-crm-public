@@ -23,6 +23,9 @@ const { createTestAgent } = await import("./helpers/ownAgent.js");
 const { deleteAgentsWithTraces } = await import("./helpers/cleanupAgents.js");
 
 const runId = Date.now().toString(36);
+// Street fixture must not accidentally include the digits searched for by the
+// house-number privacy assertion below; encode the run suffix as letters.
+const safeStreetToken = runId.replace(/\d/g, (digit) => String.fromCharCode(97 + Number(digit)));
 const agentIds: string[] = [];
 const propertyIds: string[] = [];
 let open = { id: "", shortId: 0 };
@@ -407,7 +410,7 @@ describe("аудит 09.10: что из карточки уходит модел
 
   beforeAll(async () => {
     house = await makeProperty({
-      address: `Айни${runId}, д. 45, кв. 12`,
+      address: `Айни${safeStreetToken}, д. 45, кв. 12`,
       description: "Звоните собственнику 93 555 12 34. Хозяин отдаст за 700 тысяч. Ремонт свежий, двор тихий.",
       floor: 4,
       totalFloors: 9,
@@ -432,7 +435,7 @@ describe("аудит 09.10: что из карточки уходит модел
   it("get_property: в ответе нет номера дома, квартиры, телефона и «другой цены»; сырые числа — скрытым полем", async () => {
     const reply = await handlePropertyTool(newPropertyCallMemory({ callerPhone: CALLER, clientId: null }), call("get_property", { query: String(house.shortId) }));
     const r = reply!.response as Record<string, unknown>;
-    expect(String(r.where)).toContain(`Айни${runId}`);
+    expect(String(r.where)).toContain(`Айни${safeStreetToken}`);
     expect(String(r.where)).not.toMatch(/45|кв/);
     expect(String(r.description)).not.toMatch(/93\s?555|700/);
     const json = JSON.stringify(r);

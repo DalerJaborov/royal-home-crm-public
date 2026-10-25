@@ -1,22 +1,25 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { ClientSource } from "@royal-home/shared";
+import type { ClientSource, PostShowingCohortView } from "@royal-home/shared";
 import { api } from "../lib/api";
 import { CLIENT_SOURCE_LABELS } from "../lib/clientFormat";
 import { useCan } from "../lib/permissions";
 import { Rh2Bars } from "./rh2/Rh2Bars";
 import { Rh2Money } from "./rh2/Rh2Money";
+import { PostShowingCohort, PostShowingCohortFacts } from "./PostShowingCohort";
 import { scrollableRegion } from "../lib/a11y";
 import { createReportDraft, reconcileReportDraft, reportDraftConflict } from "../lib/reportDraft";
 
 interface MonthlyMetrics {
-  funnel: { key: string; label: string; count: number }[];
+  postShowingCohort?: PostShowingCohortView | { version: 2; evaluation: "DATA_UNAVAILABLE" };
+  publicInteractionCountersBasis?: "CURRENT_RECORDED_PUBLIC_EVENTS" | "UNAVAILABLE";
+  funnel: { key: string; label: string; count: number | null }[];
   /** null — у смотрящего нет права на финансы (аудит 23.09.2026, №44). */
   commission: number | null;
   dealsCompleted: number;
   expenses: number | null;
-  agents: { agentId: string; fullName: string; leads: number; showings: number; deals: number; commission: number | null }[];
+  agents: { agentId: string; fullName: string; leads: number; showings: number | null; deals: number; commission: number | null }[];
   sources: { source: string; count: number }[];
   propertiesAdded: number;
   propertiesSold: number;
@@ -108,6 +111,7 @@ export function MonthlyReports() {
 
   return (
     <>
+      <PostShowingCohort />
       <div className="sec-h">
         <h2>Месячные отчёты</h2>
         <span className="wrap">
@@ -182,7 +186,7 @@ export function MonthlyReports() {
   );
 }
 
-function ReportBody({ report, canEdit }: { report: MonthlyReport; canEdit: boolean }) {
+export function ReportBody({ report, canEdit }: { report: MonthlyReport; canEdit: boolean }) {
   const qc = useQueryClient();
   const [draft, setDraft] = useState(() => createReportDraft(report.id, { notes: report.notes ?? "" }));
   const { notes } = draft.value;
@@ -205,7 +209,7 @@ function ReportBody({ report, canEdit }: { report: MonthlyReport; canEdit: boole
   });
 
   const m = report.metrics;
-  const funnelMax = Math.max(1, ...m.funnel.map((s) => s.count));
+  const funnelMax = Math.max(1, ...m.funnel.map((s) => s.count ?? 0));
   // Без права на финансы сервер отдаёт деньги пустыми — тогда полосы по сделкам.
   const seesMoney = m.commission !== null;
   const agentsMax = Math.max(1, ...m.agents.map((a) => (seesMoney ? (a.commission ?? 0) : a.deals)));
@@ -214,6 +218,7 @@ function ReportBody({ report, canEdit }: { report: MonthlyReport; canEdit: boole
 
   return (
     <>
+      {m.postShowingCohort && <section className="mt-4 space-y-2"><h3>Факты после показов · сохранённый срез версии 2</h3>{"agents" in m.postShowingCohort ? <PostShowingCohortFacts data={m.postShowingCohort} /> : <p role="status">Источник был недоступен при сборке отчёта. Это не нулевая доля.</p>}</section>}
       <div className="prog-legend" style={{ flexWrap: "wrap", marginTop: "var(--s4)" }}>
         <span>
           <b>{m.dealsCompleted}</b>сделок закрыто
@@ -246,12 +251,13 @@ function ReportBody({ report, canEdit }: { report: MonthlyReport; canEdit: boole
             items={m.funnel.map((s) => ({
               key: s.key,
               name: s.label,
-              share: s.count / funnelMax,
-              value: String(s.count),
+              share: (s.count ?? 0) / funnelMax,
+              value: s.count === null ? "Недоступно" : String(s.count),
             }))}
           />
         </>
       )}
+      {m.publicInteractionCountersBasis && <p role="status">{m.publicInteractionCountersBasis === "UNAVAILABLE" ? "Счётчики контактов и показов недоступны. Это не нулевые значения." : "Контакты и показы рассчитаны по сохранившимся доступным событиям за месяц. Остальные показатели — сохранённый снимок."}</p>}
 
       {m.agents.length > 0 && (
         <>
@@ -272,7 +278,7 @@ function ReportBody({ report, canEdit }: { report: MonthlyReport; canEdit: boole
                   <tr key={a.agentId}>
                     <td>{a.fullName}</td>
                     <td className="num">{a.leads}</td>
-                    <td className="num">{a.showings}</td>
+                    <td className="num">{a.showings ?? "Недоступно"}</td>
                     <td className="num">{a.deals}</td>
                     {seesMoney && (
                       <td className="num">
@@ -311,6 +317,7 @@ function ReportBody({ report, canEdit }: { report: MonthlyReport; canEdit: boole
               агентству дало бы перекос: сильный агент сам тянет среднюю вверх и сам
               себе поднимает планку, с которой его же сравнивают. */}
           <div className="sec-t">Показы, кончившиеся тишиной</div>
+          <p className="state">Архивная формула по записям опросов, а не по всем показам. REFUSED/UNCLEAR означают неуточнённый результат. Сохранённые цифры не пересчитывались; это не доказательство виновности.</p>
           <div className="tbl-wrap only-wide" {...scrollableRegion("Тишина после показа по агентам")}>
             <table className="tbl">
               <thead>

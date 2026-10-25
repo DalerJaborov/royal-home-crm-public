@@ -113,7 +113,7 @@ smsShareRouter.post("/:id/sms-share", requireAuth, async (req, res) => {
   const ids = [...new Set(parsed.data.clientIds)];
   const clients = await prisma.client.findMany({
     where: { id: { in: ids } },
-    select: { id: true, phone: true, deletedAt: true, assignedAgentId: true, acceptedAt: true },
+    select: { id: true, phone: true, deletedAt: true, assignedAgentId: true, acceptedAt: true, assignmentCompletedAt: true },
   });
   const byId = new Map(clients.map((c) => [c.id, c]));
   const ownAgentId = scopeToOwnAgent(req);

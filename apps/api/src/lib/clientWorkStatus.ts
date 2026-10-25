@@ -70,9 +70,10 @@ export async function reactivateClient(input: {
 }): Promise<{ ok: boolean }> {
   const client = await prisma.client.findFirst({
     where: { id: input.clientId, deletedAt: null },
-    select: { id: true, status: true, workStatus: true, assignedAgentId: true, inactiveSince: true },
+    select: { id: true, status: true, workStatus: true, assignedAgentId: true, inactiveSince: true, assignmentCompletedAt: true },
   });
   if (!client) return { ok: false };
+  if (client.assignmentCompletedAt) return { ok: false };
   if (client.assignedAgentId !== input.agentId || client.status === "ARCHIVED" || client.status === "DEAL_CLOSED")
     return { ok: false };
   // Уже активен — не пишем в хронологию пустое событие: повторное нажатие кнопки
@@ -99,6 +100,7 @@ export async function reactivateClient(input: {
   const written = await prisma.$transaction(async (tx) => {
     const updated = await tx.client.updateMany({
       where: { id: client.id, deletedAt: null, assignedAgentId: input.agentId,
+        assignmentCompletedAt: null,
         status: client.status, workStatus: "INACTIVE", inactiveSince: client.inactiveSince },
       data: { ...reactivationResetData({
         status: client.status,

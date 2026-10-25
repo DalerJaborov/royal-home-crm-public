@@ -68,7 +68,10 @@ describe("карточка объекта: правка на месте", () => 
     expect(view).toContain('deleteMode === "delete"');
     expect(view).toContain('deleteMode === "request" && !pendingDeleteRequest');
     expect(view).toContain("<DeletePropertyDialog");
-    expect(src).toContain("<ConfirmDialog");
+    expect(src).toContain("<PropertyRemovalDialog");
+    const removal = readFileSync(join(__dirname, "../../components/PropertyRemovalDialog.tsx"), "utf8");
+    expect(removal).toContain("<ConfirmDialog");
+    expect(removal).toContain("confirmDisabled={!body || busy}");
     // Права: заявка только тому, кто ведёт объект (иначе сервер отвечает 403).
     expect(src).toContain("!isTrashed && canRequestDeletePropertyPerm && !canDelete && isResponsibleForProperty");
   });

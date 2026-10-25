@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useCanViewInvestigations } from "../lib/permissions";
 import { ShieldAlert } from "lucide-react";
 import { exactDateTime } from "../lib/format";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -103,6 +104,7 @@ interface ExpandedState {
 }
 
 export function BotAuditSection() {
+  const investigations = useCanViewInvestigations();
   const { data, isLoading, isError, refetch } = useBotAuditList();
   const run = useRunBotAudit();
   const resolveOne = useResolveAuditFinding();
@@ -325,7 +327,7 @@ export function BotAuditSection() {
         </div>
       ) : (
         <>
-          {groups.map((g) => {
+          {groups.filter(g => investigations || g.type !== "agent_bypassed_crm").map((g) => {
             const key = groupKeyOf(g);
             const extra = expanded[key];
             const examples = [...g.examples, ...(extra?.items ?? [])];

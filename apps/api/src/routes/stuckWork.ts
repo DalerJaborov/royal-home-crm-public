@@ -1,7 +1,8 @@
 import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../db.js";
-import { requireAuth, requirePermission } from "../auth/middleware.js";
+import { can, requireAuth, requirePermission } from "../auth/middleware.js";
+import { canViewInvestigations } from "@royal-home/shared";
 import { GIVEN_UP_MAX, listStuckWork, retryStuckWorkItem } from "../lib/stuckWork.js";
 
 /** Сколько сдавшихся показать: экран растит это число кнопкой «Показать ещё». */
@@ -26,7 +27,7 @@ stuckWorkRouter.get("/", requireAuth, requirePermission("auditLog.view"), async 
   const parsed = listQuerySchema.safeParse(req.query);
   if (!parsed.success) return res.status(400).json({ error: "Неверные параметры" });
   const [queue, instagramContainers] = await Promise.all([
-    listStuckWork({ givenUpLimit: parsed.data.givenUpLimit }),
+    listStuckWork({ givenUpLimit: parsed.data.givenUpLimit, includePrivate: canViewInvestigations(req.agent?.role) && can(req, "clients.securityReview") }),
     prisma.pendingInstagramContainer.findMany({
       where: { status: { in: ["REJECTED", "EXPIRED"] } },
       orderBy: { createdAt: "desc" },
@@ -65,7 +66,7 @@ stuckWorkRouter.get("/", requireAuth, requirePermission("auditLog.view"), async 
  * опрашивать бессмысленно, публикация начнётся заново своим обычным путём.
  */
 stuckWorkRouter.post("/:id/retry", requireAuth, requirePermission("auditLog.view"), async (req, res) => {
-  const outcome = await retryStuckWorkItem(req.params.id);
+  const outcome = await retryStuckWorkItem(req.params.id, canViewInvestigations(req.agent?.role) && can(req, "clients.securityReview"));
   if (outcome === "not-found") return res.status(404).json({ error: "Задание не найдено" });
   if (outcome === "not-stuck") return res.status(409).json({ error: "Задание не застряло — сейчас его нечем повторять" });
   res.status(204).end();

@@ -1,4 +1,6 @@
+import { investigationViewerRole } from "../../auth/investigations.js";
 import { Router } from "express";
+import { visibleInteractionWhere } from "../../lib/investigationPrivacy.js";
 import type { ClientStatus } from "@royal-home/shared";
 import type { Prisma } from "../../generated/prisma/client.js";
 import { prisma } from "../../db.js";
@@ -110,8 +112,10 @@ summaryRouter.get("/summary", requireAuth, async (req, res) => {
     workStatus: "ACTIVE",
   };
   const showingWhere = (range: { start: Date; end: Date }): Prisma.InteractionWhereInput => ({
+    ...visibleInteractionWhere(investigationViewerRole(req)),
     type: "SHOWING",
     completedAt: null,
+    taskCancelledAt: null,
     declinedAt: null,
     nextActionDate: { gte: range.start, lte: range.end },
     client: { deletedAt: null },

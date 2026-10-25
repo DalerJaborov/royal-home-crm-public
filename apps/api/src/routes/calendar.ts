@@ -1,3 +1,5 @@
+import { investigationViewerRole } from "../auth/investigations.js";
+import { visibleInteractionWhere } from "../lib/investigationPrivacy.js";
 import { Router } from "express";
 import { dushanbeDayRange, dushanbeEndOfDay } from "../lib/dushanbeTime.js";
 import { dateRangeQuerySchema } from "@royal-home/shared";
@@ -56,7 +58,7 @@ calendarRouter.get("/tasks", requireAuth, async (req, res) => {
   } as const;
   const [inRange, overdue] = await Promise.all([
     prisma.interaction.findMany({
-      where: { ...baseWhere, nextActionDate: { lte: rangeEnd, gte: rangeFrom ?? now } },
+      where: { ...baseWhere, ...visibleInteractionWhere(investigationViewerRole(req)), nextActionDate: { lte: rangeEnd, gte: rangeFrom ?? now } },
       orderBy: { nextActionDate: "asc" },
       take: CALENDAR_RANGE_CAP,
       include,
@@ -64,7 +66,7 @@ calendarRouter.get("/tasks", requireAuth, async (req, res) => {
     // Просроченные не ограничены снизу по дате — без take список бы рос без
     // предела по мере накопления истории агентства. Берём самые свежие.
     prisma.interaction.findMany({
-      where: { ...baseWhere, nextActionDate: { lt: now } },
+      where: { ...baseWhere, ...visibleInteractionWhere(investigationViewerRole(req)), nextActionDate: { lt: now } },
       orderBy: { nextActionDate: "desc" },
       take: CALENDAR_OVERDUE_CAP,
       include,

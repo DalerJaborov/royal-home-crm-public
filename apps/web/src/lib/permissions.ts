@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { resolvePermissions, type PermissionId } from "@royal-home/shared";
+import { canViewInvestigations, resolvePermissions, type PermissionId } from "@royal-home/shared";
 import { useAuthStore } from "../store/auth";
 import { useMyProfile } from "../hooks/useMe";
 
@@ -20,9 +20,19 @@ export function usePermissions(): Set<PermissionId> {
   const { data } = useMyProfile();
   const granted = data?.permissions;
   return useMemo(() => {
-    if (granted) return new Set(granted);
+    if (granted) {
+      const effective = new Set(granted);
+      if (!canViewInvestigations(data?.role ?? role)) effective.delete("clients.securityReview");
+      return effective;
+    }
     return role ? resolvePermissions(role, null) : new Set<PermissionId>();
-  }, [granted, role]);
+  }, [granted, role, data?.role]);
+}
+
+export function useCanViewInvestigations(): boolean {
+  const role = useAuthStore((s) => s.agent?.role);
+  const { data } = useMyProfile();
+  return canViewInvestigations(data?.role ?? role);
 }
 
 /** `const can = useCan(); ... can("finance.view")` — короткая проверка в разметке. */

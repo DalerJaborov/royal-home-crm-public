@@ -117,7 +117,7 @@ export async function findStalledSellers(
   const planned = await prisma.interaction.findMany({
     where: {
       clientId: { in: candidates.map((c) => c.id) },
-      completedAt: null,
+      completedAt: null, taskCancelledAt: null,
       nextActionDate: { gt: now },
     },
     select: { clientId: true },

@@ -105,6 +105,9 @@ describe("logTimeline — actorKind/agentId/subjectAgentId", () => {
       actor: { kind: "bot", source: "showing-bot", subjectAgentId: agentAId, channel: "whatsapp" },
       type: "SHOWING",
       notes: "Показ назначен ботом по договорённости с клиентом",
+      nextActionDate: new Date(Date.now() + 86_400_000),
+      showingOffCrm: true,
+      showingOffCrmDetails: "Объект вне CRM, тестовая улица 15",
     });
     const botRow = await prisma.interaction.findUniqueOrThrow({ where: { id: bot.id } });
     expect(botRow.actorKind).toBe("BOT");

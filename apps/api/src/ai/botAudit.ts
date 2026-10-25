@@ -1,3 +1,4 @@
+import { investigationRecipients } from "../lib/investigationNotifications.js";
 import { Prisma } from "../generated/prisma/client.js";
 import { formatClientCode, formatClientName } from "@royal-home/shared";
 import { prisma } from "../db.js";
@@ -5,7 +6,6 @@ import { callAiText } from "./client.js";
 import { logSystemError } from "../lib/systemError.js";
 import { neutralizeFence } from "./untrustedContent.js";
 import { describeError } from "../lib/describeError.js";
-import { findAgentsWithPermission } from "../lib/recipients.js";
 import { sendPushToAgents } from "../push.js";
 import { resolveBotPersona, BOT_CORE_RULES } from "./leadQualifier.js";
 import type { ChatMessage } from "./shared.js";
@@ -319,7 +319,7 @@ async function flagAgentBypassSuspicion(clientId: string): Promise<void> {
       data: { securityReview: "PENDING", securityReviewedAt: null, securityReviewedById: null },
     });
 
-    const reviewers = await findAgentsWithPermission("clients.securityReview");
+    const reviewers = await investigationRecipients();
     await sendPushToAgents(reviewers, {
       title: `⚠️ ${formatClientName(client)}: подозрение на увод сделки`,
       body: `Аудит диалогов нашёл, что агент мог обойти CRM — ${formatClientCode(client.shortId, client.kind)}. Требуется проверка СБ.`,
@@ -327,7 +327,7 @@ async function flagAgentBypassSuspicion(clientId: string): Promise<void> {
       tag: `security-review-${client.id}`,
     });
   } catch (err) {
-    void logSystemError("ai", `Проверка СБ по находке аудита (клиент ${clientId}) не поставлена: ${describeError(err)}`);
+    void logSystemError("investigation", `Проверка СБ по находке аудита (клиент ${clientId}) не поставлена: ${describeError(err)}`);
   }
 }
 

@@ -46,6 +46,9 @@ beforeAll(async () => {
     clientId,
     actor: { kind: "bot", source: "test-bot-reports-agents-showing", subjectAgentId: agentId, channel: "whatsapp" },
     type: "SHOWING",
+    nextActionDate: new Date(),
+    showingOffCrm: true,
+    showingOffCrmDetails: "Тестовый объект вне CRM, улица Проверочная 1",
     notes: `Бот записал показ отчёта показов ${runId}`,
   });
 });
@@ -62,6 +65,19 @@ afterAll(async () => {
 });
 
 describe("GET /reports/agents: показ бота засчитывается держателю", () => {
+  it("приватные показы агента и системы не меняют обычный отчёт", async () => {
+    const privateRows = await prisma.interaction.createManyAndReturn({ data: [
+      { clientId, agentId, type: "SHOWING", investigationOnly: true, notes: "private authored" },
+      { clientId, actorKind: "SYSTEM", subjectAgentId: agentId, type: "SHOWING", investigationOnly: true, notes: "private system" },
+    ], select: { id: true } });
+    try {
+      const res = await request(app).get("/api/v1/reports/agents").set("Authorization", `Bearer ${managerToken}`);
+      expect(res.status).toBe(200);
+      expect(res.body.find((r: { agentId: string }) => r.agentId === agentId).showings).toBe(1);
+    } finally {
+      await prisma.interaction.deleteMany({ where: { id: { in: privateRows.map((r) => r.id) } } });
+    }
+  });
   it("строка агента считает показ, записанный ботом от его лица", async () => {
     const res = await request(app).get("/api/v1/reports/agents").set("Authorization", `Bearer ${managerToken}`);
     expect(res.status).toBe(200);

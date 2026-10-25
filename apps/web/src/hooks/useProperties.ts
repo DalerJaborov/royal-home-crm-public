@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Dispatch, SetStateAction } from "react";
-import type { BulkTrashItemResult, MatchingClient, SiteSyncItemResult } from "@royal-home/shared";
+import type { BulkTrashItemResult, MatchingClient, SiteSyncItemResult, PropertyRemovalInput } from "@royal-home/shared";
 import { api, refreshAccessToken } from "../lib/api";
 import { keepWhilePaging, keepWhilePagingIndexed } from "../lib/keepWhilePaging";
 import { ApiError } from "../lib/apiError";
@@ -320,7 +320,10 @@ export function useRejectPropertyMaterial(id: string) {
 export function useDeleteProperty() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => api(`/properties/${id}`, { method: "DELETE" }),
+    mutationFn: (input: string | ({ id: string } & PropertyRemovalInput)) => {
+      const { id, ...body } = typeof input === "string" ? { id: input } : input;
+      return api(`/properties/${id}`, { method: "DELETE", body });
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["properties"] });
       // Карточка закеширована под shortId — точечно не найдём, сносим весь префикс.
@@ -346,10 +349,10 @@ export type BulkAction = "publish" | "unpublish" | "trash";
 export function useBulkTrashProperties() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (ids: string[]) =>
+    mutationFn: (input: string[] | ({ ids: string[] } & PropertyRemovalInput)) =>
       api<{ trashed: number; failed: number; results: BulkTrashItemResult[] }>("/properties/bulk-trash", {
         method: "POST",
-        body: { ids },
+        body: Array.isArray(input) ? { ids: input } : input,
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["properties"] });

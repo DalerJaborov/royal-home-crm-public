@@ -961,9 +961,9 @@
       "mount": "/api/v1/properties",
       "router": "propertiesRouter",
       "file": "apps/api/src/routes/properties.ts",
-      "endpoints": 109,
+      "endpoints": 125,
       "label": "Объекты: список, карточка, фото, видео, публикация",
-      "usedBy": 28
+      "usedBy": 31
     },
     {
       "mount": "/api/v1/clients",
@@ -1009,9 +1009,9 @@
       "mount": "/api/v1/dashboard",
       "router": "dashboardRouter",
       "file": "apps/api/src/routes/dashboard.ts",
-      "endpoints": 9,
+      "endpoints": 10,
       "label": "Главная, пульт директора, модули пульта, утренняя сводка",
-      "usedBy": 7
+      "usedBy": 8
     },
     {
       "mount": "/api/v1/dashboard",
@@ -1019,7 +1019,7 @@
       "file": "apps/api/src/routes/dashboardMissionControl.ts",
       "endpoints": 5,
       "label": "Главная, пульт директора, модули пульта, утренняя сводка",
-      "usedBy": 7
+      "usedBy": 8
     },
     {
       "mount": "/api/v1/dashboard",
@@ -1027,7 +1027,7 @@
       "file": "apps/api/src/routes/pultModules.ts",
       "endpoints": 2,
       "label": "Главная, пульт директора, модули пульта, утренняя сводка",
-      "usedBy": 7
+      "usedBy": 8
     },
     {
       "mount": "/api/v1/dashboard",
@@ -1035,7 +1035,7 @@
       "file": "apps/api/src/routes/briefing.ts",
       "endpoints": 2,
       "label": "Главная, пульт директора, модули пульта, утренняя сводка",
-      "usedBy": 7
+      "usedBy": 8
     },
     {
       "mount": "/api/v1/calendar",
@@ -1049,9 +1049,9 @@
       "mount": "/api/v1/interactions",
       "router": "interactionsRouter",
       "file": "apps/api/src/routes/interactions.ts",
-      "endpoints": 9,
+      "endpoints": 10,
       "label": "Звонки, показы, встречи — всё, что агент отмечает",
-      "usedBy": 3
+      "usedBy": 4
     },
     {
       "mount": "/api/v1/calls",
@@ -1089,9 +1089,9 @@
       "mount": "/api/v1/reports",
       "router": "reportsRouter",
       "file": "apps/api/src/routes/reports.ts",
-      "endpoints": 17,
+      "endpoints": 20,
       "label": "Отчёты за период",
-      "usedBy": 3
+      "usedBy": 4
     },
     {
       "mount": "/api/v1/telephony/whisper",
@@ -1185,9 +1185,17 @@
       "mount": "/api/v1/security",
       "router": "securityRouter",
       "file": "apps/api/src/routes/security.ts",
-      "endpoints": 3,
+      "endpoints": 24,
       "label": "Кабинет службы безопасности",
-      "usedBy": 1
+      "usedBy": 6
+    },
+    {
+      "mount": "/api/v1/maintenance/data-corrections",
+      "router": "manualDataCorrectionsRouter",
+      "file": "apps/api/src/routes/manualDataCorrections.ts",
+      "endpoints": 5,
+      "label": null,
+      "usedBy": 0
     },
     {
       "mount": "/api/v1/marketing",
@@ -1329,7 +1337,7 @@
       "mount": "/api/v1/conversations",
       "router": "conversationsRouter",
       "file": "apps/api/src/routes/conversations.ts",
-      "endpoints": 10,
+      "endpoints": 11,
       "label": "Переписка по всем каналам",
       "usedBy": 3
     },
@@ -1522,6 +1530,11 @@
       "id": "agent-unanswered-alarm",
       "expr": "0 * * * *",
       "label": "Продавец пишет, а агент молчит день-два"
+    },
+    {
+      "id": "approved-owner-verification",
+      "expr": "25 * * * *",
+      "label": null
     },
     {
       "id": "background-jobs",
@@ -1794,6 +1807,11 @@
       "label": "Утренний дайджест директорам"
     },
     {
+      "id": "narration-version-delivery",
+      "expr": "* * * * *",
+      "label": null
+    },
+    {
       "id": "no-answer-tail",
       "expr": "*/30 * * * *",
       "label": "Хвост дозвона: задачи по клиентам, до которых не дозвонились"
@@ -1807,6 +1825,21 @@
       "id": "outgoing-media-cleanup",
       "expr": "58 3 * * *",
       "label": "Удаляет исходящие фото и видео оператора старше недели"
+    },
+    {
+      "id": "owner-exposure-verification-preview",
+      "expr": "15 * * * *",
+      "label": null
+    },
+    {
+      "id": "owner-report-delivery",
+      "expr": "* * * * *",
+      "label": null
+    },
+    {
+      "id": "owner-report-monthly-preview",
+      "expr": "20 8 * * *",
+      "label": null
     },
     {
       "id": "phone-lead-watchdog",
@@ -1847,6 +1880,11 @@
       "id": "refused-high-score-alarm",
       "expr": "0 * * * *",
       "label": "Досылает в рабочие часы сигнал об отказе ценного клиента"
+    },
+    {
+      "id": "seller-control-episodes",
+      "expr": "* * * * *",
+      "label": null
     },
     {
       "id": "seller-no-property-alarm",

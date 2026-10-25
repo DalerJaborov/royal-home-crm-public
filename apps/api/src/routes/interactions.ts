@@ -1,3 +1,8 @@
+import { withInvestigationPrivacy } from "../lib/investigationOperations.js";
+import { canReadInvestigations, investigationViewerRole } from "../auth/investigations.js";
+import { assignmentWriteDenied } from "../lib/assignmentCompletion.js";
+import { commandSellerControl, SellerControlConflict } from "../lib/sellerControlEpisodes.js";
+import { visibleInteractionWhere } from "../lib/investigationPrivacy.js";
 import { Router, type Request } from "express";
 import { z } from "zod";
 import { foreignWriteDenied } from "./clients/shared.js";
@@ -34,6 +39,26 @@ import { interactionPropertySelect } from "../lib/interactionPropertySelect.js";
 
 export const interactionsRouter = Router();
 
+/** Ordinary assignee acknowledgement. No episode identifiers or private facts leave this route. */
+interactionsRouter.post("/:id/work-response", requireAuth, async (req, res) => {
+  const parsed = z.object({ requestKey: z.string().uuid(), action: z.enum(["RECEIPT", "ACTION"]), note: z.string().trim().min(3).max(2000).optional() })
+    .strict().refine(value => value.action !== "ACTION" || !!value.note).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Проверьте ответ по задаче" });
+  const task = await prisma.interaction.findUnique({ where: { id: req.params.id } });
+  if (!task || task.subjectAgentId !== req.agent!.id || task.investigationOnly || task.taskCancelledAt || task.declinedAt || !task.nextAction)
+    return res.status(404).json({ error: "Задача недоступна" });
+  const episode = await prisma.sellerControlEpisode.findUnique({ where: { ropTaskId: task.id } });
+  if (!episode || episode.executionMode !== "LIVE" || episode.ropAgentId !== req.agent!.id)
+    return res.status(404).json({ error: "Задача недоступна" });
+  try {
+    await commandSellerControl(episode.id, { ...parsed.data, revision: episode.revision }, req.agent!.id, { taskId: task.id });
+    return res.status(204).send();
+  } catch (error) {
+    if (error instanceof SellerControlConflict) return res.status(409).json({ error: "Задача изменилась. Обновите страницу" });
+    throw error;
+  }
+});
+
 /**
  * Послушать запись разговора.
  *
@@ -56,10 +81,11 @@ export const interactionsRouter = Router();
 interactionsRouter.get("/:id/recording", requireAuth, async (req, res) => {
   const interaction = await prisma.interaction.findUnique({
     where: { id: req.params.id },
-    select: { id: true, agentId: true, recordingUrl: true, createdAt: true, clientId: true },
+    select: { investigationOnly: true, id: true, agentId: true, recordingUrl: true, createdAt: true, clientId: true },
   });
   if (!interaction?.recordingUrl) return res.status(404).json({ error: "Записи этого разговора нет" });
 
+  if (interaction.investigationOnly && !canReadInvestigations(req)) return res.status(404).json({ error: "Разговор не найден" });
   const access = transcriptAccess(req.agent);
   // Входящий, принятый оператором по очереди, — тоже «свой» для агента, за которым
   // СЕЙЧАС закреплён клиент (см. шапку lib/callTranscripts.ts). Лишний запрос
@@ -189,10 +215,11 @@ interactionsRouter.get("/:id/recording", requireAuth, async (req, res) => {
 interactionsRouter.get("/:id/transcript", requireAuth, async (req, res) => {
   const interaction = await prisma.interaction.findUnique({
     where: { id: req.params.id },
-    select: { id: true, agentId: true, clientId: true, transcript: true, transcriptRu: true },
+    select: { investigationOnly: true, id: true, agentId: true, clientId: true, transcript: true, transcriptRu: true },
   });
   if (!interaction) return res.status(404).json({ error: "Разговор не найден" });
 
+  if (interaction.investigationOnly && !canReadInvestigations(req)) return res.status(404).json({ error: "Разговор не найден" });
   const access = transcriptAccess(req.agent);
   let routedToViewersClient = false;
   if (!access.all && access.own && interaction.agentId !== access.viewerId && interaction.clientId) {
@@ -230,9 +257,10 @@ interactionsRouter.get("/:id/transcript", requireAuth, async (req, res) => {
 interactionsRouter.post("/:id/translate", requireAuth, async (req, res) => {
   const interaction = await prisma.interaction.findUnique({
     where: { id: req.params.id },
-    select: { id: true, agentId: true, clientId: true, transcript: true, transcriptRu: true },
+    select: { investigationOnly: true, id: true, agentId: true, clientId: true, transcript: true, transcriptRu: true },
   });
   if (!interaction) return res.status(404).json({ error: "Разговор не найден" });
+  if (interaction.investigationOnly && !canReadInvestigations(req)) return res.status(404).json({ error: "Разговор не найден" });
   const access = transcriptAccess(req.agent);
   let routedToViewersClient = false;
   if (!access.all && access.own && interaction.agentId !== access.viewerId && interaction.clientId) {
@@ -308,13 +336,14 @@ interactionsRouter.post("/:id/retranscribe", requireAuth, async (req, res) => {
 
   const interaction = await prisma.interaction.findUnique({
     where: { id: parsed.data.id },
-    select: { id: true, agentId: true, clientId: true, type: true, recordingUrl: true },
+    select: { investigationOnly: true, id: true, agentId: true, clientId: true, type: true, recordingUrl: true },
   });
   if (!interaction) return res.status(404).json({ error: "Разговор не найден" });
   if (interaction.type !== "CALL" || !interaction.recordingUrl) {
     return res.status(404).json({ error: "У этого разговора нет записи для повторной расшифровки" });
   }
 
+  if (interaction.investigationOnly && !canReadInvestigations(req)) return res.status(404).json({ error: "Разговор не найден" });
   const access = transcriptAccess(req.agent);
   let routedToViewersClient = false;
   if (!access.all && access.own && interaction.agentId !== access.viewerId && interaction.clientId) {
@@ -341,9 +370,9 @@ interactionsRouter.post("/:id/retranscribe", requireAuth, async (req, res) => {
 
   res.status(202).json({ queued: true });
 
-  void retranscribeInteraction(interaction.id).catch((err) =>
+  void withInvestigationPrivacy(interaction.investigationOnly, () => retranscribeInteraction(interaction.id).catch((err) =>
     void logSystemError("ai", `Повторная расшифровка по запросу упала: ${describeError(err)}`)
-  );
+  ));
 });
 
 /** Лента активности с пагинацией и фильтром по периоду/агенту («Активность команды»
@@ -374,7 +403,7 @@ interactionsRouter.get("/", requireAuth, async (req, res) => {
   // Само сужение и границы суток по Душанбе живут в lib/activityFeed.ts — общие
   // со сводкой ниже, чтобы плитки и список никогда не считались по-разному.
   // Даты уже разобраны и проверены схемой — Invalid Date сюда не доходит.
-  const where = activityWhere({ ownAgentId: scopeToOwnAgent(req), agentId, from, to, type });
+  const where = { ...activityWhere({ ownAgentId: scopeToOwnAgent(req), agentId, from, to, type }), ...visibleInteractionWhere(investigationViewerRole(req)) };
 
   const [items, total] = await Promise.all([
     prisma.interaction.findMany({
@@ -431,7 +460,7 @@ interactionsRouter.get("/summary", requireAuth, async (req, res) => {
     return res.status(400).json({ error: "Неверные параметры запроса", details: parsed.error.flatten() });
   }
   const { agentId, from, to } = parsed.data;
-  const where = activityWhere({ ownAgentId: scopeToOwnAgent(req), agentId, from, to });
+  const where = { ...activityWhere({ ownAgentId: scopeToOwnAgent(req), agentId, from, to }), ...visibleInteractionWhere(investigationViewerRole(req)) };
 
   const grouped = await prisma.interaction.groupBy({
     by: ["type"],
@@ -503,7 +532,7 @@ interactionsRouter.patch("/:id/complete", requireAuth, async (req, res) => {
    * lib/telephony/qualifyIncoming.ts).
    */
   const claimed = await prisma.interaction.updateMany({
-    where: { id: req.params.id, completedAt: null },
+    where: { id: req.params.id, completedAt: null, taskCancelledAt: null },
     data: { completedAt: now },
   });
 
@@ -588,9 +617,14 @@ interactionsRouter.patch("/:id/complete", requireAuth, async (req, res) => {
  */
 async function foreignTaskWriteDenied(
   req: Request,
-  interaction: { clientId: string | null; agentId: string | null; subjectAgentId: string | null },
+  interaction: { clientId: string | null; agentId: string | null; subjectAgentId: string | null; investigationOnly?: boolean; taskCancelledAt?: Date | null },
   ownAgentId: string | undefined
 ): Promise<string | null> {
+  if (interaction.investigationOnly && !canReadInvestigations(req)) return "Недостаточно прав";
+  if (interaction.taskCancelledAt) return "Задача отменена";
+  const current = interaction.clientId ? await prisma.client.findUnique({ where: { id: interaction.clientId }, select: { assignmentCompletedAt: true } }) : null;
+  const completed = current && assignmentWriteDenied(current, req.agent?.role);
+  if (completed) return completed;
   if (ownAgentId) return null;
   if ((interaction.subjectAgentId ?? interaction.agentId) === req.agent!.id) return null;
   if (!interaction.clientId) return null;
@@ -620,7 +654,7 @@ async function authorizeShowingAction(req: Request, interactionId: string, actor
   const [interaction, actor] = await Promise.all([
     prisma.interaction.findUnique({
       where: { id: interactionId },
-      select: { agentId: true, subjectAgentId: true, clientId: true },
+      select: { agentId: true, subjectAgentId: true, clientId: true, investigationOnly: true },
     }),
     prisma.agent.findUnique({ where: { id: actorId }, select: { fullName: true } }),
   ]);

@@ -1,3 +1,4 @@
+import { visibleErrorLogs } from "../lib/systemErrorVisibility.js";
 import { Router } from "express";
 import { prisma } from "../db.js";
 import { requireAuth } from "../auth/middleware.js";
@@ -470,7 +471,7 @@ marketingRouter.get("/channels-status", requireMarketingRole, async (_req, res) 
     prisma.property.count({ where: { deletedAt: null, OR: [{ publishedChannels: { isEmpty: false } }, HAS_INSTAGRAM_LINK_WHERE] } }),
     // Тот же источник, что «Здоровье системы» — источники meta/telegram нарочно
     // не смешаны с ai/telephony: экран про каналы, не про весь автопилот.
-    prisma.errorLog.count({ where: { resolvedAt: null, source: { in: ["meta", "telegram"] } } }),
+    visibleErrorLogs().count({ where: { resolvedAt: null, source: { in: ["meta", "telegram"] } } }),
   ]);
 
   const [botInstagram, botFacebook, botTelegram] = await Promise.all([

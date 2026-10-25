@@ -131,7 +131,7 @@ export async function runRefusedHighScoreAlarmTick(now: Date = new Date()): Prom
   if (pending.length === 0) return { alerted: 0 };
 
   const directorIds = (
-    await prisma.agent.findMany({ where: { role: { in: ["DIRECTOR", "ADMIN", "HEAD_OF_SALES"] }, isActive: true }, select: { id: true } })
+    await prisma.agent.findMany({ where: { role: { in: ["DIRECTOR", "ADMIN"] }, isActive: true }, select: { id: true } })
   ).map((d) => d.id);
   if (directorIds.length === 0) return { alerted: 0 };
 

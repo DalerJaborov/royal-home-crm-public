@@ -14,9 +14,11 @@ const runId = Date.now();
 const password = "testpass123";
 
 let agentId: string;
+let adminAgentId: string;
+let adminToken: string;
+let plainAgentToken: string;
 let securityAgentId: string;
 let securityToken: string;
-let plainAgentToken: string;
 const clientIds: string[] = [];
 
 async function login(phone: string) {
@@ -32,13 +34,15 @@ beforeAll(async () => {
       data: { fullName: "Агент СБ-теста", phone: `+992960${runId}`, role: "AGENT", passwordHash },
     })
   ).id;
-  securityAgentId = (
+  adminAgentId = (
     await prisma.agent.create({
-      data: { fullName: "Служба безопасности", phone: `+992961${runId}`, role: "SECURITY", passwordHash },
+      data: { fullName: "Администратор проверок", phone: `+992961${runId}`, role: "ADMIN", passwordHash },
     })
   ).id;
   plainAgentToken = await login(`+992960${runId}`);
-  securityToken = await login(`+992961${runId}`);
+  adminToken = await login(`+992961${runId}`);
+  securityAgentId = (await prisma.agent.create({ data: { fullName: "СБ без доступа к расследованиям", phone: `+992969${runId}`, role: "SECURITY", passwordHash } })).id;
+  securityToken = await login(`+992969${runId}`);
 
   const buyer = await prisma.client.create({
     data: {
@@ -69,7 +73,7 @@ beforeAll(async () => {
       assignedAgentId: agentId,
       securityReview: "CONFIRMED",
       securityReviewedAt: new Date(),
-      securityReviewedById: securityAgentId,
+      securityReviewedById: adminAgentId,
       securityNote: "Продал в обход агентства",
     },
   });
@@ -99,7 +103,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await prisma.interaction.deleteMany({ where: { clientId: { in: clientIds } } });
   await prisma.client.deleteMany({ where: { id: { in: clientIds } } });
-  await prisma.agent.deleteMany({ where: { id: { in: [agentId, securityAgentId] } } });
+  await prisma.agent.deleteMany({ where: { id: { in: [agentId, adminAgentId, securityAgentId] } } });
 });
 
 describe("GET /security/lost-clients", () => {
@@ -113,7 +117,7 @@ describe("GET /security/lost-clients", () => {
   it("возвращает только BUYER/OTHER с непустым securityReview, с причиной и инициатором", async () => {
     const res = await request(app)
       .get("/api/v1/security/lost-clients")
-      .set("Authorization", `Bearer ${securityToken}`);
+      .set("Authorization", `Bearer ${adminToken}`);
     expect(res.status).toBe(200);
     const ids = res.body.items.map((i: { id: string }) => i.id);
     expect(ids).toContain(clientIds[0]);
@@ -134,10 +138,10 @@ describe("GET /security/lost-clients", () => {
  * запись в PATCH /clients/:id решался только первым правом. Проверяющий мог
  * переписать разбираемую карточку — стереть название агентства-конкурента или
  * поправить комментарий об уходе клиента. Тест держит границу с обеих сторон:
- * читать СБ по-прежнему может всё (проверки выше), писать в чужую карточку — нет.
+ * читать материалы расследования СБ больше не может; писать в чужую карточку также нельзя.
  */
 describe("PATCH /clients/:id — правка чужой карточки", () => {
-  it("служба безопасности читает, но не правит", async () => {
+  it("служба безопасности не правит чужую карточку", async () => {
     const res = await request(app)
       .patch(`/api/v1/clients/${clientIds[0]}`)
       .set("Authorization", `Bearer ${securityToken}`)
@@ -153,7 +157,7 @@ describe("GET /security/lost-properties", () => {
   it("возвращает только SELLER с непустым securityReview, с вердиктом и проверяющим", async () => {
     const res = await request(app)
       .get("/api/v1/security/lost-properties")
-      .set("Authorization", `Bearer ${securityToken}`);
+      .set("Authorization", `Bearer ${adminToken}`);
     expect(res.status).toBe(200);
     const ids = res.body.items.map((i: { id: string }) => i.id);
     expect(ids).toContain(clientIds[1]);
@@ -161,7 +165,14 @@ describe("GET /security/lost-properties", () => {
 
     const row = res.body.items.find((i: { id: string }) => i.id === clientIds[1]);
     expect(row.securityReview).toBe("CONFIRMED");
-    expect(row.reviewedBy?.id).toBe(securityAgentId);
+    expect(row.reviewedBy?.id).toBe(adminAgentId);
     expect(row.initiator).toBe("OWNER");
+  });
+});
+
+describe("SECURITY role has no investigation access", () => {
+  it.each(["lost-clients", "lost-properties", "summary"])("denies /security/%s", async (route) => {
+    const res = await request(app).get(`/api/v1/security/${route}`).set("Authorization", `Bearer ${securityToken}`);
+    expect(res.status).toBe(403);
   });
 });

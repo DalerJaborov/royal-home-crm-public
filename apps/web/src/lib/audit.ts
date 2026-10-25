@@ -16,6 +16,8 @@
  * в прогоне перед пушем и в CI): новое действие без подписи заворачивается.
  */
 export const AUDIT_ACTION_LABELS: Record<string, string> = {
+  INVESTIGATION_CONTROL_DISABLED: "Проверка отключена · запись без отправки",
+  CLIENT_MANUAL_CORRECTION: "Ручное исправление данных с проверкой плана",
   INSTAGRAM_SIGNER_OWNER_CONFIGURED: "Instagram: администратор настроил подписанта входящих сообщений",
   SETTINGS_MAINTENANCE_ACCESS: "Доступ к настройкам в период обслуживания",
   CONVERSATION_CLIENT_LINK: "Переписка связана с клиентом",
@@ -247,6 +249,7 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
 };
 
 export const AUDIT_ENTITY_LABELS: Record<string, string> = {
+  InvestigationControl: "Настройки проверок",
   Expense: "Расход",
   ExpenseCategoryDefinition: "Категория расходов",
   ExpenseReceipt: "Чек расхода",

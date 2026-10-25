@@ -95,6 +95,13 @@ afterAll(async () => {
 });
 
 describe("findSellerPropertyMissing", () => {
+  it("учитывает подтверждённую роль продавца у покупателя, не предполагая её по сырой AI-метке", async () => {
+    const c = await makeSeller(10);
+    await prisma.client.update({ where: { id: c.id }, data: { kind: "BUYER", dualIntent: true } });
+    expect((await findSellerPropertyMissing(new Date())).items.some(row => row.id === c.id)).toBe(false);
+    await prisma.client.update({ where: { id: c.id }, data: { dualIntentConfirmedAt: new Date() } });
+    expect((await findSellerPropertyMissing(new Date())).items.some(row => row.id === c.id)).toBe(true);
+  });
   it("свежий приём (< warnDays) — не попадает вовсе", async () => {
     const c = await makeSeller(1);
     const { items } = await findSellerPropertyMissing(new Date());

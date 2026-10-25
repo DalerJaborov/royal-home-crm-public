@@ -1,4 +1,5 @@
 import { prisma } from "../db.js";
+import { resolveClientIntentsAutomatically } from "./clientIntentResolution.js";
 import type { Prisma } from "../generated/prisma/client.js";
 import { buildCardFillSuggestion } from "../ai/cardFill.js";
 import { scoreClient, SCORABLE_CLIENT_STATUSES } from "../ai/scoring.js";
@@ -138,6 +139,12 @@ export async function runClientAutopilot(clientId: string, reason: AutopilotReas
       },
     });
     if (!client || client.deletedAt) return result;
+    // Independent of empty card fields: a complete card can acquire a second current role.
+    try {
+      await resolveClientIntentsAutomatically(clientId);
+    } catch (error) {
+      void logSystemError("ai", `Определение актуальных ролей: ${describeError(error)}`);
+    }
 
     /**
      * ИМЯ ЕЩЁ ЗАПАСНОЕ — ОБЩИЙ ПРИЗНАК НА ВЕСЬ ПРОЕКТ (lib/placeholderName.ts).

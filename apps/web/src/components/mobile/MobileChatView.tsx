@@ -18,6 +18,7 @@ import {
   isWindowClosedError,
   useAiConversationCost,
   useConversation,
+  useGroupedConversation,
   usePauseConversationBot,
   useReplyToConversation,
   useResumeConversationBot,
@@ -26,6 +27,23 @@ import {
 } from "../../hooks/useConversations";
 import type { ConversationMessage } from "../../types";
 import { channelMeta, initialsFromName } from "../../lib/channelMeta";
+
+export function replySourceLabels(channels: Array<string | null>): string[] {
+  return channels.map((channel, index) => {
+    if (!channel) return `Чат ${index + 1}`;
+    const label = channelMeta(channel).label;
+    return channels.filter((candidate) => candidate === channel).length > 1 ? `${label} ${index + 1}` : label;
+  });
+}
+
+export function messageTimeText(at: string | null | undefined): string {
+  return at ? dushanbeTime(at) : "Время сообщения неизвестно";
+}
+
+export function messageRenderKey(message: ConversationMessage, index: number): string {
+  const localKey = message.mid ?? `idx:${message.sourceMessageIndex ?? index}`;
+  return message.sourceConversationId ? `${message.sourceConversationId}:${localKey}` : message.mid ?? `msg-${index}`;
+}
 import { isMessagingWindowClosed, lastInboundMessageAt } from "../../lib/messagingWindow";
 import { ContactProfilePanel } from "../ContactProfilePanel";
 import { ConversationClientLink } from "../ConversationClientLink";
@@ -55,7 +73,7 @@ import { validateOutgoingMediaPick } from "../../lib/mediaUpload";
 import { usePendingMediaUploads, type PendingMediaUpload } from "../../store/mediaUploads";
 import { useSellerObject } from "../../hooks/useSellerObject";
 import { SellerObjectStrip } from "../chat/SellerObjectStrip";
-import { CustomerRequestsPanel } from "../chat/CustomerRequestsPanel";
+import { callbackRequestConversationIds, CustomerRequestsPanel } from "../chat/CustomerRequestsPanel";
 import { ChatPhotoViewer } from "../chat/ChatPhotoViewer";
 import { buildChatPhotoList, chatPhotoOffsetForMessage } from "../../lib/chatPhotos";
 import { clearIfUnchanged } from "../../lib/clearSentText";
@@ -204,7 +222,7 @@ const MobileMessageList = memo(function MobileMessageList({
           // Абсолютный индекс, а не относительный: окно скользит, и по
           // относительному ключу аудио/фото перескакивали на чужое
           // сообщение (аудит №4, 27.08).
-          <Fragment key={m.mid ?? `msg-${absoluteIndex}`}>
+          <Fragment key={messageRenderKey(m, absoluteIndex)}>
             {showDay && m.at && <span className="day">{dushanbeDayLabel(m.at)}</span>}
             <div
               ref={(el) => {
@@ -239,14 +257,15 @@ const MobileMessageList = memo(function MobileMessageList({
                   : (
                       <MessageSenderBadge sender={m.by} viewerAgentId={viewerAgentId} className="who" />
                     ))}
-              <MessageQuote quoted={quotedMessage(allMessages, m.replyToMid, allMessages.indexOf(m))} />
+              {m.sourceChannel && <span className="meta" data-message-channel style={{ display: "inline-block", marginRight: 6 }}>{channelMeta(m.sourceChannel).label}</span>}
+              <MessageQuote quoted={quotedMessage(allMessages, m.replyToMid, allMessages.indexOf(m), m.sourceConversationId)} />
               {/* Расшифровку голосового не показываем — только звук (решение
                   владельца 16.08.2026, см. десктопный ConversationView). */}
               {!hasVoiceAttachment(m.attachments) &&
-                (searchQuery ? (
+                (m.sourceChannel === "TELEGRAM_DIRECT" ? content : searchQuery ? (
                   highlightText(content, searchQuery, isActiveSearchMatch)
                 ) : (
-                  <TranslatableMessageText content={content} message={m} conversationId={conversationId} clientId={clientId} readOnly={readOnly} />
+                  <TranslatableMessageText content={content} message={m} conversationId={m.sourceConversationId ?? conversationId} clientId={clientId} readOnly={readOnly} />
                 ))}
               <MessageAttachments
                 attachments={m.attachments}
@@ -254,24 +273,22 @@ const MobileMessageList = memo(function MobileMessageList({
               />
               {/* Оценка ответа бота прямо в чате (17.09.2026) — тот же компонент,
                   что и в десктопном инбоксе (Messages.tsx), не копия. */}
-              {isBotAnswer && !readOnly && (
+              {isBotAnswer && !readOnly && m.sourceChannel !== "TELEGRAM_DIRECT" && (
                 <BotReplyFeedback
-                  conversationId={conversationId}
+                  conversationId={m.sourceConversationId ?? conversationId}
                   message={m}
-                  messageKey={m.mid ?? `idx:${absoluteIndex}`}
-                  index={absoluteIndex}
+                  messageKey={m.mid ?? `idx:${m.sourceMessageIndex ?? absoluteIndex}`}
+                  index={m.sourceMessageIndex ?? absoluteIndex}
                 />
               )}
-              {m.at && (
-                <span className="tm">
+              <span className="tm" data-message-time-unknown={!m.at || undefined}>
                   {/* Бот помечен иконкой у времени, а не пунктирной рамкой на
                       весь пузырь (10.09.2026): рамка читалась как «черновик».
                       Стиль рамки снят в theme-2026-mobile-chat.css. */}
                   {m.role === "assistant" && !humanReply && <Bot className="i" aria-label="Ответил бот" />}
-                  {dushanbeTime(m.at)}
+                  {messageTimeText(m.at)}
                   {m.role === "assistant" && <DeliveryTicks status={m.deliveryStatus} />}
-                </span>
-              )}
+              </span>
             </div>
           </Fragment>
         );
@@ -325,13 +342,22 @@ const MobileMessageList = memo(function MobileMessageList({
   );
 });
 
-export function MobileChatView({ id, onBack }: { id: string; onBack: () => void }) {
+export function MobileChatView({ id, onBack, onPromoteToClient }: { id: string; onBack: () => void; onPromoteToClient?: (clientId: string) => void }) {
   const readOnly = useIsReadOnly();
+  const isGrouped = id.startsWith("client:") || id.startsWith("td_");
   // Отказ загрузки самой переписки раньше не читался вовсе: шапка навсегда
   // оставалась с «…», лента пустой, а композер — полностью рабочим, и человек
   // отправлял сообщение в диалог, который не загрузился, не понимая, дошло ли
   // оно и кому. Теперь отказ виден, а поле ввода заперто до успешной загрузки.
-  const { data: conversation, isError: loadFailed, error: loadError, refetch } = useConversation(id);
+  const singleQuery = useConversation(id, { enabled: !isGrouped });
+  const groupedQuery = useGroupedConversation(isGrouped ? id : null);
+  const conversation = isGrouped ? groupedQuery.data : singleQuery.data;
+  useEffect(() => {
+    if (!id.startsWith("client:") && conversation?.clientId) onPromoteToClient?.(conversation.clientId);
+  }, [id, conversation?.clientId, onPromoteToClient]);
+  const loadFailed = isGrouped ? groupedQuery.isError : singleQuery.isError;
+  const loadError = isGrouped ? groupedQuery.error : singleQuery.error;
+  const refetch = isGrouped ? groupedQuery.refetch : singleQuery.refetch;
   // Полная история — нужна и окну "показать более ранние" ниже, и поиску
   // (useConversationSearch ищет по ВСЕЙ переписке, не только по видимому хвосту).
   // useMemo, а не голый `?? []` (21.09.2026): массив теперь входит в deps двух
@@ -341,9 +367,22 @@ export function MobileChatView({ id, onBack }: { id: string; onBack: () => void 
   const search = useConversationSearch(allMessages);
   const { close: closeConversationSearch } = search;
   // Проактивно, ДО отправки (владелец 18.09.2026) — см. lib/messagingWindow.ts.
+  const [selectedReplySourceId, setSelectedReplySourceId] = useState<string | null>(null);
+  const replySources = (conversation?.sources ?? []).filter((source) => source.canReply);
+  const replySourceLabelsForSelect = replySourceLabels(replySources.map((source) => source.channel));
+  const selectedReplySource = replySources.find((source) => source.id === selectedReplySourceId) ?? null;
+  const customerRequestConversationIds = callbackRequestConversationIds(isGrouped
+    ? (conversation?.sources ?? []).map((source) => source.id)
+    : [id]);
+  const replyTargetId = isGrouped ? selectedReplySource?.id ?? null : id;
+  const replyChannel = selectedReplySource?.channel ?? conversation?.channel ?? null;
+  const sourceMessages = useMemo(
+    () => isGrouped && replyTargetId ? allMessages.filter((message) => message.sourceConversationId === replyTargetId) : allMessages,
+    [allMessages, isGrouped, replyTargetId],
+  );
   const windowClosed = isMessagingWindowClosed(
-    conversation?.channel,
-    conversation ? lastInboundMessageAt(conversation.messages) : null,
+    replyChannel ?? undefined,
+    sourceMessages.length ? lastInboundMessageAt(sourceMessages) : null,
   );
   // Продавец: полоса под шапкой (21.09.2026) и «Добавить объект» в просмотрщике
   // фото — тот же приём, что в десктопном ConversationView (Messages.tsx),
@@ -360,18 +399,18 @@ export function MobileChatView({ id, onBack }: { id: string; onBack: () => void 
     },
     [allMessages]
   );
-  const reply = useReplyToConversation(id);
-  const voiceMessage = useSendVoiceMessage(id);
+  const reply = useReplyToConversation(replyTargetId);
+  const voiceMessage = useSendVoiceMessage(replyTargetId);
   const [voiceError, setVoiceError] = useState<string | null>(null);
   // Фото/видео из чата (22.09.2026, перенос с десктопа Messages.tsx) — тот же
   // хук с прогрессом, тот же стор загрузок на уровне conversationId.
-  const mediaUpload = useUploadConversationMediaWithProgress(id);
-  const pendingUploads = usePendingMediaUploads(id);
+  const mediaUpload = useUploadConversationMediaWithProgress(replyTargetId);
+  const pendingUploads = usePendingMediaUploads(replyTargetId);
   const [mediaError, setMediaError] = useState<string | null>(null);
   const [pendingMedia, setPendingMedia] = useState<File | null>(null);
   const mediaInputRef = useRef<HTMLInputElement>(null);
-  const resume = useResumeConversationBot(id);
-  const pause = usePauseConversationBot(id);
+  const resume = useResumeConversationBot(isGrouped ? null : id);
+  const pause = usePauseConversationBot(isGrouped ? null : id);
   const navigate = useNavigate();
   const [text, setText] = useState("");
   // Черновик ответа переживает принудительную перезагрузку при автообновлении
@@ -432,18 +471,19 @@ export function MobileChatView({ id, onBack }: { id: string; onBack: () => void 
    * `role` стал пускать в UI управления ботом того, кому сервер (routes/
    * conversations.ts, /pause и /resume) уже отказывает по messages.view.
    */
-  const canManageBot = useCan()("messages.view") && !readOnly;
+  const canManageBot = useCan()("messages.view") && !readOnly && !isGrouped;
   // Стоимость ИИ по разговору (13.09.2026) — служебная цифра, только директору/
   // руководителю (finance.view, тот же рубильник, что у /finance/*); запрос не
   // уходит вовсе, если права нет (см. enabled у useAiConversationCost).
   const seesMoney = useCan()("finance.view");
-  const aiCost = useAiConversationCost(id, seesMoney && showInfo);
+  const aiCost = useAiConversationCost(isGrouped ? null : id, seesMoney && showInfo && !isGrouped);
 
   const paused = !!conversation?.pausedUntil && new Date(conversation.pausedUntil).getTime() > Date.now();
 
   useEffect(() => {
     setVisibleCount(MESSAGES_CHUNK);
     setShowInfo(false);
+    setSelectedReplySourceId(null);
     closeConversationSearch();
     initialScrollDone.current = false;
   }, [id, closeConversationSearch]);
@@ -483,7 +523,7 @@ export function MobileChatView({ id, onBack }: { id: string; onBack: () => void 
 
   async function handleSend() {
     const value = text.trim();
-    if (readOnly || !value || reply.isPending) return;
+    if (readOnly || !replyTargetId || !value || reply.isPending) return;
     try {
       // Пауза после ручного ответа — фиксированная «Бессрочно» (последний пресет
       // PAUSE_OPTIONS, то же число, что OPERATOR_REPLY_PAUSE_MS на сервере; решение
@@ -511,9 +551,9 @@ export function MobileChatView({ id, onBack }: { id: string; onBack: () => void 
   /** Файл выбран в скрытом `<input>` — та же проверка, что на десктопе
    *  (lib/mediaUpload.ts::validateOutgoingMediaPick), один источник правды. */
   function handlePickMedia(file: File | undefined) {
-    if (!file || readOnly) return;
+    if (!file || readOnly || !replyTargetId) return;
     setMediaError(null);
-    const error = validateOutgoingMediaPick(file, conversation?.channel);
+    const error = validateOutgoingMediaPick(file, replyChannel ?? undefined);
     if (error) {
       setMediaError(error);
       return;
@@ -524,7 +564,7 @@ export function MobileChatView({ id, onBack }: { id: string; onBack: () => void 
   /** Отправка фото/видео — тот же приём, что на десктопе: пузырь с прогрессом
    *  появляется в ленте сразу, запрос грузится в фоне. */
   function handleSendMedia() {
-    if (!pendingMedia || readOnly) return;
+    if (!pendingMedia || readOnly || !replyTargetId) return;
     mediaUpload.start(pendingMedia, text.trim() || undefined);
     setPendingMedia(null);
     setText("");
@@ -532,7 +572,7 @@ export function MobileChatView({ id, onBack }: { id: string; onBack: () => void 
 
   const hiddenCount = Math.max(0, allMessages.length - visibleCount);
   const visibleMessages = hiddenCount > 0 ? allMessages.slice(hiddenCount) : allMessages;
-  const meta = conversation ? channelMeta(conversation.channel) : null;
+  const meta = conversation?.channel ? channelMeta(conversation.channel) : null;
 
   /**
    * БЫСТРЫЕ ОТВЕТЫ над полем, пока оно пустое (артефакт de2845f1, лента
@@ -653,7 +693,7 @@ export function MobileChatView({ id, onBack }: { id: string; onBack: () => void 
         </div>
 
         <SellerObjectStrip clientId={conversation?.clientId} />
-        {conversation && <CustomerRequestsPanel conversationId={id} />}
+        {conversation && <CustomerRequestsPanel conversationIds={customerRequestConversationIds} />}
 
         {menuOpen && (
           <div data-chat-menu>
@@ -794,7 +834,7 @@ export function MobileChatView({ id, onBack }: { id: string; onBack: () => void 
             <div className="list">
               <div className="quiet">
                 <span className="txt">
-                  Канал: <b>{channelMeta(conversation.channel).label}</b>. Имя в соцсети:{" "}
+                  Канал: <b>{conversation.channel ? channelMeta(conversation.channel).label : "несколько"}</b>. Имя в соцсети:{" "}
                   <b>{conversation.profileName ?? "не передано"}</b>. Первое сообщение:{" "}
                   <b>{relativeTime(conversation.firstContactAt)}</b>. Сообщений:{" "}
                   <b>{conversation.messages.length}</b>.
@@ -808,7 +848,7 @@ export function MobileChatView({ id, onBack }: { id: string; onBack: () => void 
                 </div>
               )}
               {/* То же досье, что на десктопе: один компонент, одна правда. */}
-              <ConversationClientLink conversationId={id} clientId={conversation.clientId} readOnly={readOnly} />
+              {!isGrouped && <ConversationClientLink conversationId={id} clientId={conversation.clientId} readOnly={readOnly} />}
               <ContactProfilePanel contact={conversation.contact} readOnly={readOnly} />
               <div className="quiet">
                 <span className="txt">Телефон:</span>
@@ -978,7 +1018,7 @@ export function MobileChatView({ id, onBack }: { id: string; onBack: () => void 
         {/* Быстрые ответы — лента чипов над полем, ТОЛЬКО пока поле пустое
             (артефакт: `quick.hidden = has`). Нажатие подставляет фразу в поле,
             не отправляя её: агент дописывает имя и правит цифры. */}
-        {!text.trim() && quickReplies.length > 0 && !loadFailed && (
+        {!text.trim() && quickReplies.length > 0 && !loadFailed && !isGrouped && (
           <div className="quick" data-chat-quick role="group" aria-label="Быстрые ответы">
             {quickReplies.map((q) => (
               <button key={q} type="button" onClick={() => setText(q)}>
@@ -993,18 +1033,36 @@ export function MobileChatView({ id, onBack }: { id: string; onBack: () => void 
             который становится стрелкой «отправить», как только появился текст, —
             как в Telegram. Раньше эталон переносил поле на всю ширину, а кнопки со
             широкой серой «Отправить» — второй строкой: 190 px на блок ввода. */}
-        <form className="compose" data-chat-compose onSubmit={(e) => e.preventDefault()}>
+        <form className="compose" data-chat-compose onSubmit={(e) => e.preventDefault()} style={isGrouped && !readOnly ? { flexWrap: "wrap" } : undefined}>
+          {isGrouped && !readOnly && (
+            <div className="pane-b" data-reply-source style={{ flex: "0 0 100%", width: "100%", display: "grid", gap: 6, padding: "8px 0" }}>
+              <label className="meta" htmlFor="mobile-reply-source">Куда отправить</label>
+              <select
+                id="mobile-reply-source"
+                className="inp w-full"
+                value={selectedReplySourceId ?? ""}
+                onChange={(event) => setSelectedReplySourceId(event.target.value || null)}
+                disabled={replySources.length === 0 || loadFailed}
+              >
+                <option value="">Выберите канал</option>
+                {replySources.map((source, index) => (
+                  <option key={source.id} value={source.id}>{replySourceLabelsForSelect[index]}</option>
+                ))}
+              </select>
+              {replySources.length === 0 && <span className="meta">Для этих переписок отправка из CRM недоступна.</span>}
+            </div>
+          )}
           {/* ОТПРАВИТЬ ОБЪЕКТ ПРЯМО ИЗ ЧАТА (просьба владельца 21.08.2026,
               совет экспертов 26.08, пункт 10). Кнопка была только на десктопе, а
               агенты живут в телефоне. Компонент один и тот же. */}
-          <span data-compose-slot>
+          {conversation?.clientId && conversation.clientShortId && <span data-compose-slot>
             <ChatPropertySend
               clientId={conversation?.clientId ?? null}
               clientShortId={conversation?.clientShortId ?? null}
-              conversationId={id}
-              disabled={reply.isPending || loadFailed}
+              conversationId={replyTargetId ?? undefined}
+              disabled={reply.isPending || loadFailed || !replyTargetId}
             />
-          </span>
+          </span>}
           {/* ФОТО/ВИДЕО ИЗ ЧАТА (22.09.2026, перенос с десктопа Messages.tsx —
               баг класса «desktop и mobile ship together»): агенты живут в
               телефоне, а отправить снимок клиенту могли только с компьютера.
@@ -1025,7 +1083,7 @@ export function MobileChatView({ id, onBack }: { id: string; onBack: () => void 
               type="button"
               className="call"
               onClick={() => mediaInputRef.current?.click()}
-              disabled={reply.isPending || loadFailed}
+              disabled={reply.isPending || loadFailed || !replyTargetId}
               title="Прикрепить фото или видео"
               aria-label="Прикрепить фото или видео"
             >
@@ -1050,8 +1108,8 @@ export function MobileChatView({ id, onBack }: { id: string; onBack: () => void 
             rows={1}
             // Переписка не загрузилась — писать в неё нельзя: иначе человек
             // отправляет вслепую в диалог, содержимого которого он не видел.
-            disabled={loadFailed}
-            placeholder={loadFailed ? "Переписка не загрузилась" : "Сообщение"}
+            disabled={loadFailed || !replyTargetId}
+            placeholder={loadFailed ? "Переписка не загрузилась" : isGrouped && !replyTargetId ? "Выберите канал" : "Сообщение"}
             aria-label="Текст ответа"
           />
           {/* «Предложить ответ» убрана целиком (владелец 06.09.2026: «зачем
@@ -1062,7 +1120,7 @@ export function MobileChatView({ id, onBack }: { id: string; onBack: () => void 
               type="button"
               data-compose-btn="send"
               onClick={handleSend}
-              disabled={reply.isPending || loadFailed}
+              disabled={reply.isPending || loadFailed || !replyTargetId}
               aria-label="Отправить"
             >
               <ArrowUp className="i" strokeWidth={2.2} />
@@ -1072,7 +1130,7 @@ export function MobileChatView({ id, onBack }: { id: string; onBack: () => void 
               <VoiceRecordButton
                 send={(blob) => voiceMessage.mutateAsync(blob)}
                 onError={setVoiceError}
-                disabled={reply.isPending || loadFailed}
+                disabled={reply.isPending || loadFailed || !replyTargetId}
               />
             </span>
           )}

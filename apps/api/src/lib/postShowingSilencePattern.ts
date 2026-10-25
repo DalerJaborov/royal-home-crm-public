@@ -74,7 +74,7 @@ export async function computeAgentSilenceStats(
   to: Date = new Date()
 ): Promise<AgentSilenceStat[]> {
   const rows = await prisma.postShowingCall.findMany({
-    where: { createdAt: { gte: from, lt: to }, status: { in: ["GIVEN_UP", "DONE", "NO_ANSWER"] } },
+    where: { previewOnly: false, createdAt: { gte: from, lt: to }, status: { in: ["GIVEN_UP", "DONE", "NO_ANSWER"] } },
     select: { agentId: true, status: true, outcome: true, skipReason: true, agent: { select: { fullName: true } } },
   });
 
@@ -149,7 +149,7 @@ export interface ProvableCase {
 export async function findMostProvableCase(from: Date, to: Date = new Date()): Promise<ProvableCase | null> {
   const [sellerConfirmed, buyerRed] = await Promise.all([
     prisma.sellerProbeCall.findMany({
-      where: { createdAt: { gte: from, lt: to }, outcome: "SOLD_ELSEWHERE", quote: { not: null } },
+      where: { previewOnly: false, postShowingCallId: { not: null }, createdAt: { gte: from, lt: to }, outcome: "SOLD_ELSEWHERE", quote: { not: null } },
       orderBy: { createdAt: "desc" },
       take: 5,
       select: {
@@ -163,6 +163,8 @@ export async function findMostProvableCase(from: Date, to: Date = new Date()): P
     }),
     prisma.postShowingCall.findMany({
       where: {
+        previewOnly: false,
+        outcomeConfidence: { gte: 0.7 },
         createdAt: { gte: from, lt: to },
         outcome: { in: ["BYPASS", "NO_MEETING", "AGENT_COMPLAINT"] },
         quote: { not: null },
@@ -181,15 +183,15 @@ export async function findMostProvableCase(from: Date, to: Date = new Date()): P
     }),
   ]);
 
-  const best = sellerConfirmed[0];
-  if (best) {
+  const best = sellerConfirmed.find(row => row.postShowingCall !== null);
+  if (best?.postShowingCall) {
     return {
       clientName: best.postShowingCall.client.fullName,
       clientShortId: best.postShowingCall.client.shortId,
       agentName: best.agent.fullName,
       agentId: best.agentId,
       propertyTitle: best.property.title,
-      what: "Собственник сказал, что квартира уже продана, а сделки в CRM нет — покупатель после показа молчит",
+      what: "В опросе собственника записана продажа в другом месте. Уверенность не записана; цитата требует проверки человеком и сопоставления со сделками. Это не вывод о виновности агента",
       quote: best.quote,
       at: best.createdAt,
     };

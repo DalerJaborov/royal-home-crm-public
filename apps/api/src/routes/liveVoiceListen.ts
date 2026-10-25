@@ -1,8 +1,12 @@
+import { investigationViewerRole } from "../auth/investigations.js";
 import { Router, type Request, type Response } from "express";
 import { z } from "zod";
+import { canViewInvestigations, parsePermissionOverrides, resolvePermissions } from "@royal-home/shared";
+import { prisma } from "../db.js";
 import { requireAuth, requirePermission } from "../auth/middleware.js";
 import { logAudit } from "../lib/audit.js";
 import { clientPhoneFor, phoneSafeText } from "../lib/clientPhone.js";
+import { isInvestigationCallChannel, mayReadLiveVoiceSession } from "../lib/investigationCallChannels.js";
 import { int16ToBufferLE } from "../lib/telephony/pcmCodec.js";
 import * as liveVoiceMonitor from "../lib/telephony/liveVoiceMonitor.js";
 import type { ListenEvent, ListenSide } from "../lib/telephony/liveVoiceMonitor.js";
@@ -50,10 +54,12 @@ const HEARTBEAT_MS = 15_000;
  *  не успевает, лишнее выбрасывается, а не копится в памяти. */
 const MAX_BUFFERED_SAMPLES = 16_000;
 
-liveVoiceListenRouter.get("/active", (req: Request, res: Response) => {
+liveVoiceListenRouter.get("/active", async (req: Request, res: Response) => {
   const seesPhone = req.agent!.can("clients.viewPhone");
+  const sessions = liveVoiceMonitor.listActive();
+  const allowed = await Promise.all(sessions.map((s) => mayReadLiveVoiceSession(investigationViewerRole(req), s)));
   res.json({
-    sessions: liveVoiceMonitor.listActive().map((s) => ({
+    sessions: sessions.filter((_, index) => allowed[index]).map((s) => ({
       id: s.id,
       channelId: s.channelId,
       startedAt: new Date(s.startedAt).toISOString(),
@@ -77,7 +83,7 @@ export function encodePcmChunks(chunks: readonly Int16Array[]): string {
   return int16ToBufferLE(all).toString("base64");
 }
 
-liveVoiceListenRouter.get("/:id/listen", (req: Request, res: Response) => {
+liveVoiceListenRouter.get("/:id/listen", async (req: Request, res: Response) => {
   const parsed = idParams.safeParse(req.params);
   if (!parsed.success) {
     res.status(400).json({ error: "Некорректный номер разговора" });
@@ -85,10 +91,11 @@ liveVoiceListenRouter.get("/:id/listen", (req: Request, res: Response) => {
   }
   const key = parsed.data.id;
   const active = liveVoiceMonitor.getActive(key);
-  if (!active) {
+  if (!active || !(await mayReadLiveVoiceSession(investigationViewerRole(req), active))) {
     res.status(404).json({ error: "Этот разговор уже закончился" });
     return;
   }
+  const privateStream = active.investigationOnly || await isInvestigationCallChannel(active.channelId);
   const seesPhone = req.agent!.can("clients.viewPhone");
 
   res.status(200);
@@ -99,7 +106,9 @@ liveVoiceListenRouter.get("/:id/listen", (req: Request, res: Response) => {
   res.setHeader("X-Accel-Buffering", "no");
   res.flushHeaders?.();
 
+  let checkingAccess = false;
   const send = (event: string, data: unknown) => {
+    if (checkingAccess) return;
     if (res.writableEnded || res.destroyed) return;
     res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   };
@@ -171,7 +180,24 @@ liveVoiceListenRouter.get("/:id/listen", (req: Request, res: Response) => {
 
   flushTimer = setInterval(flushAudio, AUDIO_FLUSH_MS);
   flushTimer.unref?.();
-  heartbeat = setInterval(() => {
+  heartbeat = setInterval(async () => {
+    if (privateStream) {
+      if (checkingAccess || closed) return;
+      checkingAccess = true;
+      try {
+        // No access-cache delay for revocation of an already-open private stream.
+        const current = await prisma.agent.findUnique({ where: { id: req.agent!.id }, select: { role: true, isActive: true, permissions: true } });
+        if (!current?.isActive || !canViewInvestigations(current.role) || !resolvePermissions(current.role, parsePermissionOverrides(current.permissions)).has("clients.securityReview")) {
+          close();
+          return;
+        }
+      } catch {
+        close();
+        return;
+      } finally {
+        checkingAccess = false;
+      }
+    }
     if (!res.writableEnded) res.write(": ping\n\n");
   }, HEARTBEAT_MS);
   heartbeat.unref?.();

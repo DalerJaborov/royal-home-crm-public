@@ -1,3 +1,4 @@
+import { smsTestResultLabel } from "../../lib/smsTestResult";
 import { useState } from "react";
 import { useServerSyncedFields } from "../../hooks/useServerSyncedForm";
 import { MessageSquareText } from "lucide-react";
@@ -112,8 +113,8 @@ export function SmsSection() {
               disabled={busy || testPhone.replace(/\D/g, "").length < 9}
               onClick={() =>
                 run(async () => {
-                  await api("/sms/test", { method: "POST", body: { phone: testPhone } });
-                  return "Проверочное СМС отправлено. Если оно пришло, всё настроено.";
+                  const result = await api<{ status?: string }>("/sms/test", { method: "POST", body: { phone: testPhone } });
+                  return smsTestResultLabel(result.status);
                 })
               }
             >

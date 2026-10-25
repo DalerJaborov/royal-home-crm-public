@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import bcrypt from "bcrypt";
 import { prisma } from "../src/db.js";
-import { decideReturningClient } from "../src/lib/returningClientRouting.js";
+import { decideReturningClient, preferredReturningOwnerId } from "../src/lib/returningClientRouting.js";
 
 /**
  * Кому достаётся вернувшийся клиент, когда его агента нет на работе
@@ -251,4 +251,45 @@ describe("Особые случаи", () => {
       await prisma.agent.update({ where: { id: agentId }, data: { isActive: true } });
     }
   });
+});
+
+it("P8 selector: frozen/current role cannot hide an eligible historical owner; new-lead pause is allowed", async () => {
+  const ids: string[] = [];
+  try {
+    for (const suffix of ["current", "history"]) {
+      const agent = await prisma.agent.create({ data: {
+        fullName: `P8 selector ${suffix} ${runId}`, phone: `+992${runId}${suffix === "current" ? "81" : "82"}`,
+        passwordHash: "synthetic-test-only", role: "AGENT", isActive: true,
+      } });
+      ids.push(agent.id);
+    }
+    const [current, historical] = ids;
+    expect(await preferredReturningOwnerId(current, historical)).toBe(current);
+    await prisma.agent.update({ where: { id: current }, data: { leadsPausedUntil: new Date(Date.now() + 86_400_000) } });
+    expect(await preferredReturningOwnerId(current, historical)).toBe(current);
+    await prisma.agent.update({ where: { id: current }, data: { frozenAt: new Date() } });
+    expect(await preferredReturningOwnerId(current, historical)).toBe(historical);
+    expect(await preferredReturningOwnerId(current, current)).toBeNull();
+    const returning = await makeClient("BUYER");
+    for (const absenceKind of ["VACATION", "SICK"] as const) {
+      await prisma.agent.update({ where: { id: current }, data: { absenceKind, absenceUntil: new Date(Date.now() + 86_400_000) } });
+      const preferred = await preferredReturningOwnerId(current, historical);
+      expect(preferred).toBe(historical);
+      expect(await preferredReturningOwnerId(current, current)).toBeNull();
+      expect(await decideReturningClient({ clientId: returning.id, kind: returning.kind, lastAgentId: preferred })).toEqual({ kind: "offer", agentId: historical });
+      expect(await decideReturningClient({ clientId: returning.id, kind: returning.kind, lastAgentId: null })).toEqual({ kind: "queue", reason: "no-agent" });
+      // Вне восстановления прежняя прямая политика отсутствия сохранена.
+      expect(await decideReturningClient({ clientId: returning.id, kind: returning.kind, lastAgentId: current })).toMatchObject({ kind: "keep", agentId: current });
+    }
+    await prisma.agent.update({ where: { id: current }, data: { absenceKind: "OTHER", absenceUntil: null } });
+    expect(await preferredReturningOwnerId(current, historical)).toBe(historical);
+    await prisma.agent.update({ where: { id: current }, data: { frozenAt: null, isActive: false } });
+    expect(await preferredReturningOwnerId(current, historical)).toBe(historical);
+    await prisma.agent.update({ where: { id: current }, data: { isActive: true, role: "SECURITY" } });
+    expect(await preferredReturningOwnerId(current, historical)).toBe(historical);
+    await prisma.agent.update({ where: { id: historical }, data: { frozenAt: new Date() } });
+    expect(await preferredReturningOwnerId(current, historical)).toBeNull();
+  } finally {
+    await prisma.agent.deleteMany({ where: { id: { in: ids } } });
+  }
 });

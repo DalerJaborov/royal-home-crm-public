@@ -43,6 +43,9 @@ beforeAll(async () => {
     clientId,
     actor: { kind: "bot", source: "test-bot-summary-showing", subjectAgentId: agentId, channel: "whatsapp" },
     type: "SHOWING",
+    nextActionDate: new Date(),
+    showingOffCrm: true,
+    showingOffCrmDetails: "Тестовый объект вне CRM, улица Проверочная 1",
     notes: `Бот записал показ воронки ${runId}`,
   });
   await logTimeline({

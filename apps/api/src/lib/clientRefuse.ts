@@ -27,6 +27,7 @@ import {
   type RefusalInitiator,
 } from "@royal-home/shared";
 import { prisma } from "../db.js";
+import { refusalNeedsManagementDecision } from "./assignmentCompletion.js";
 import { logTimeline } from "./timeline.js";
 import { pickNextAgentByKpiQueue } from "../leads.js";
 import { hadConductedShowing } from "./conductedShowing.js";
@@ -140,6 +141,9 @@ export async function checkRefusalPreconditions(
     prisma.settings.findUnique({ where: { id: "singleton" }, select: { autoRouteRefusedLeads: true } }),
   ]);
   if (!client) return { ok: false, status: 404, error: "Клиент не найден" };
+  if (client.assignmentRefusedAt) {
+    return { ok: false, status: 409, error: "Отказ по этому назначению уже оформлен" };
+  }
   if (client.kind === "OTHER" || !client.assignedAgentId) {
     return { ok: false, status: 409, error: "У этого обращения нет агента — отказ ему не оформляется" };
   }
@@ -225,7 +229,7 @@ export async function refuseClient(input: RefuseClientInput): Promise<RefuseClie
   const reasonLabel = REFUSAL_REASON_LABELS[reason];
   const refusalCount = client.refusalCount + 1;
   const maxTransfers = await loadMaxTransfers();
-  const escalate = transfersExhausted(refusalCount, maxTransfers);
+  const transferLimitReached = transfersExhausted(refusalCount, maxTransfers);
 
   /**
    * ПРОВЕРКА СБ (03.09.2026, план §E: решает ТОЛЬКО причина, не инициатор).
@@ -239,14 +243,20 @@ export async function refuseClient(input: RefuseClientInput): Promise<RefuseClie
    * место с точно такой же формулой для отказа продавца через «Итог объекта».
    */
   const needsSecurityReview = REASONS_REQUIRING_SECURITY_REVIEW.includes(reason);
+  const openDeal = await prisma.deal.findFirst({
+    where: { clientId: client.id, stage: { notIn: ["COMPLETED", "CANCELLED"] } },
+    select: { id: true },
+  });
+  const needsManagementDecision = refusalNeedsManagementDecision(client, !!openDeal);
+  const escalate = !needsManagementDecision && transferLimitReached;
   // Отказавший агент не получает лид обратно; после эскалации выбор делает руководитель.
   // На проверке СБ передача не происходит вовсе: пока не разобрались, кому именно
   // ушла сделка, отдавать карточку следующему агенту незачем.
   const nextAgentId =
-    escalate || needsSecurityReview || !settingsRow?.autoRouteRefusedLeads
+    needsManagementDecision || escalate || needsSecurityReview || !settingsRow?.autoRouteRefusedLeads
       ? null
       : await pickNextAgentByKpiQueue([client.assignedAgentId]);
-  const unassignToQueue = !nextAgentId && !escalate && !needsSecurityReview;
+  const unassignToQueue = !needsManagementDecision && !nextAgentId && !escalate && !needsSecurityReview;
 
   const noteParts = [
     `Клиент отказался (${reasonLabel})`,
@@ -255,8 +265,10 @@ export async function refuseClient(input: RefuseClientInput): Promise<RefuseClie
     reason === "BOUGHT_SELF" && boughtWhat?.trim() ? `Что приобрёл клиент: ${boughtWhat.trim()}` : null,
     comment?.trim() ? `Комментарий: ${comment.trim()}` : null,
     hadShowing ? "Был показ — клиент горячий" : cardFilled ? "Карточка заполнена — клиент горячий" : null,
-    needsSecurityReview
-      ? `Отказ №${refusalCount} — причина требует проверки службы безопасности, карточка передана на проверку и не распределяется до решения`
+    needsManagementDecision
+      ? `Отказ №${refusalCount} зафиксирован. Текущая работа сохранена до решения руководителя`
+      : needsSecurityReview
+      ? `Отказ №${refusalCount} — работа по назначению завершена`
       : escalate
       ? `Отказ №${refusalCount} — предел передач (${maxTransfers}) исчерпан, карточка помечена «Потерянный» и больше не распределяется автоматически`
       : !nextAgentId
@@ -274,6 +286,7 @@ export async function refuseClient(input: RefuseClientInput): Promise<RefuseClie
 
   // Объект отказа читается ДО транзакции: это справочное чтение, ему незачем держать её.
   const refusalPropertyId = hadShowing ? await lastConductedShowingPropertyId(client.id) : null;
+  const lossSnapshot: { kind: Awaited<ReturnType<typeof classifyClientLossFault>> } = { kind: "client_lost_no_fault" };
 
   /**
    * ГОНКА С «/assign» (ночная проверка 24.09.2026, находка №5): снимок клиента
@@ -285,6 +298,24 @@ export async function refuseClient(input: RefuseClientInput): Promise<RefuseClie
    */
   try {
     await prisma.$transaction(async (tx) => {
+      // Serialize refusals and recheck the exception under the same client lock.
+      await tx.$queryRaw`SELECT id FROM "Client" WHERE id = ${client.id} FOR UPDATE`;
+      const current = await tx.client.findUnique({ where: { id: client.id } });
+      const currentDeal = await tx.deal.findFirst({
+        where: { clientId: client.id, stage: { notIn: ["COMPLETED", "CANCELLED"] } }, select: { id: true },
+      });
+      if (!current || current.assignmentRefusedAt || current.assignedAgentId !== client.assignedAgentId ||
+          current.assignedAt.getTime() !== client.assignedAt.getTime() ||
+          refusalNeedsManagementDecision(current, !!currentDeal) !== needsManagementDecision) {
+        throw new ClientOwnerRaceError("race");
+      }
+      if (!needsManagementDecision) {
+        if (escalate && !needsSecurityReview) lossSnapshot.kind = await classifyClientLossFault(client.id, new Date(), tx);
+        await tx.interaction.updateMany({
+          where: { clientId: client.id, OR: [{ nextAction: { not: null } }, { nextActionDate: { not: null } }], completedAt: null, taskCancelledAt: null },
+          data: { taskCancelledAt: new Date() },
+        });
+      }
       // Актор — реальный человек, оформивший отказ (обычно ответственный агент,
       // но не всегда — см. actorAgentId выше), либо ИИ-детектор явного отказа в
       // переписке, когда actorAgentId не передан (П-10, 17.09.2026).
@@ -303,6 +334,16 @@ export async function refuseClient(input: RefuseClientInput): Promise<RefuseClie
         voiceNoteTranscript: voiceNoteTranscript ?? null,
         tx,
       });
+      if (needsSecurityReview) {
+        await logTimeline({
+          clientId: client.id,
+          actor: { kind: "system", source: "refusal-investigation", subjectAgentId: client.assignedAgentId },
+          type: "SYSTEM",
+          investigationOnly: true,
+          notes: `Причина отказа требует внутренней проверки: ${reasonLabel}`,
+          tx,
+        });
+      }
       const changed = await changeClientAgent({
         clientId: client.id,
         toAgentId,
@@ -312,16 +353,21 @@ export async function refuseClient(input: RefuseClientInput): Promise<RefuseClie
         // Interaction содержательная уже написана выше (текст отказа, голосовая
         // заметка) — системная запись changeClientAgent стала бы дублем.
         skipInteraction: true,
-        guardWhere: { assignedAgentId: client.assignedAgentId },
+        guardWhere: { assignedAgentId: client.assignedAgentId, assignedAt: client.assignedAt,
+          assignmentRefusedAt: null, refusalCount: client.refusalCount },
         data: {
           refusalReason: reason,
           refusalCount,
+          assignmentRefusedAt: new Date(),
+          assignmentRefusedByAgentId: client.assignedAgentId,
+          assignmentCompletedAt: needsManagementDecision ? null : new Date(),
           // «Потерянный» перебивает и «горячего», и «холодного»: это не оценка
           // клиента, а факт про нас — предел передач исчерпан, автоматика с этой
           // карточкой закончила. Проверка СБ идёт ПЕРВОЙ по приоритету: пока
           // человек не решил, карточка на проверке, а не «потерянная»/«холодная».
           ...(needsSecurityReview
             ? { securityReview: "PENDING" as const, securityReviewedAt: null, securityReviewedById: null }
+            : needsManagementDecision ? {}
             : escalate
               ? {
                   status: "LOST" as const,
@@ -334,7 +380,7 @@ export async function refuseClient(input: RefuseClientInput): Promise<RefuseClie
               : isHot
                 ? { hotSince: client.hotSince ?? new Date(), status: "HOT" as const }
                 : { status: "COLD" as const }),
-          ...(nextAgentId ? { assignedAt: new Date(), acceptedAt: null } : { escalatedAt: new Date() }),
+          ...(needsManagementDecision ? {} : nextAgentId ? { assignedAt: new Date(), acceptedAt: null } : { escalatedAt: new Date() }),
         },
         tx,
       });
@@ -345,16 +391,11 @@ export async function refuseClient(input: RefuseClientInput): Promise<RefuseClie
     throw err;
   }
 
-  if (unassignToQueue && client.assignedAgentId) {
-  }
-
-  if (escalate && client.assignedAgentId) {
-  }
-
-  if (escalate && client.assignedAgentId) {
+  // A review or a preserved second role is not a lost client and earns no loss event.
+  if (escalate && !needsSecurityReview && client.assignedAgentId) {
     const lostAgentId = client.assignedAgentId;
     void (async () => {
-      const kind = await classifyClientLossFault(client.id);
+      const kind = lossSnapshot.kind;
       const points = await loadEventPoints();
       recordScoreEvent({
         agentId: lostAgentId,
@@ -385,16 +426,18 @@ export async function refuseClient(input: RefuseClientInput): Promise<RefuseClie
       body: `${reasonLabel}${comment?.trim() ? ` — ${comment.trim().slice(0, 80)}` : ""}`,
       url: `/clients/${client.shortId}`,
       tag: `security-review-${client.id}`,
-      recipientPermission: "clients.securityReview",
+      recipientRoles: ["ADMIN", "DIRECTOR"],
     });
   } else {
     // Некому передать или третий отказ — владельцу и всем, кто назначает лидов.
     void enqueueDirectorAlert({
       title: `⚠️ ${client.fullName}: отказ №${refusalCount}`,
-      body: `${reasonLabel}. Передача остановлена — назначьте агента вручную.`,
+      body: needsManagementDecision
+        ? `${reasonLabel}. У клиента вторая роль или открытая сделка: работа сохранена, требуется решение руководителя.`
+        : `${reasonLabel}. Передача остановлена — назначьте агента вручную.`,
       url: `/clients/${client.shortId}`,
       tag: `refusal-escalated-${client.id}`,
-      recipientPermission: "clients.assign",
+      ...(needsManagementDecision ? { recipientRoles: ["ADMIN", "DIRECTOR"] as const } : { recipientPermission: "clients.assign" as const }),
     });
   }
 
@@ -418,8 +461,8 @@ export async function refuseClient(input: RefuseClientInput): Promise<RefuseClie
         // Когда/от кого(агент)/про кого(клиент)/что — одним текстом, без перехода по ссылке.
         body: `${dushanbeDateTimeString(now)}, агент ${agent?.fullName ?? "неизвестен"}: ${reasonLabel}${comment?.trim() ? ` — ${comment.trim().slice(0, 80)}` : ""}`,
         url: `/clients/${client.shortId}`,
-        tag: `deal-failed-${client.id}`,
-        recipientRoles: ["DIRECTOR", "ADMIN", "HEAD_OF_SALES"],
+        tag: needsSecurityReview ? `investigation-deal-failed-${client.id}` : `deal-failed-${client.id}`,
+        recipientRoles: needsSecurityReview ? ["DIRECTOR", "ADMIN"] : ["DIRECTOR", "ADMIN", "HEAD_OF_SALES"],
       });
 
       void alertRefusedHighScoreBuyer(client).catch((err) =>
@@ -442,12 +485,8 @@ export async function refuseClient(input: RefuseClientInput): Promise<RefuseClie
     transferred: !!nextAgentId,
     securityReview: needsSecurityReview,
     nextAgentId,
-    message: needsSecurityReview
-      ? "Причина требует проверки — карточка передана службе безопасности"
-      : nextAgentId
-        ? isHot
-          ? "Клиент помечен горячим и передан следующему агенту по очереди KPI"
-          : "Лид передан другому агенту"
-        : "Передача остановлена — лид у руководства",
+    message: needsManagementDecision
+      ? "Отказ сохранён. Текущая работа сохранена до решения руководителя"
+      : "Отказ сохранён",
   };
 }

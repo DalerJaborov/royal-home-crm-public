@@ -1,3 +1,6 @@
+import { canReadInvestigations } from "../auth/investigations.js";
+import { canViewInvestigations } from "@royal-home/shared";
+import { requireInvestigations } from "../auth/investigations.js";
 import { Router, type NextFunction, type Request, type Response } from "express";
 import { Prisma } from "../generated/prisma/client.js";
 import { prisma } from "../db.js";
@@ -196,7 +199,8 @@ export async function findSilentAfterShowing(now: Date) {
     where: { clientId: { in: candidates.map((c) => c.id) }, type: { not: "SYSTEM" } },
     orderBy: [{ clientId: "asc" }, { createdAt: "desc" }],
     distinct: ["clientId"],
-    select: { clientId: true, type: true, completedAt: true, nextActionDate: true, declinedAt: true, createdAt: true },
+    select: { clientId: true, type: true, completedAt: true, nextActionDate: true, declinedAt: true, createdAt: true,
+      taskCancelledAt: true, showingEvidenceVersion: true, propertyId: true, showingOffCrm: true, showingOffCrmDetails: true },
     // Потолок — строки, а не id клиентов: distinct уже держит по одной строке на
     // клиента, но потолок здесь пишем явно (22.09.2026, класс «Пагинация»), чтобы
     // граница не зависела от того, что distinct не уберут при следующей правке.
@@ -639,8 +643,13 @@ async function getOversightSummaryCached() {
 }
 
 /** GET /oversight/summary — числа для плиток наверху экрана. */
-oversightRouter.get("/summary", async (_req, res) => {
-  res.json(await getOversightSummaryCached());
+oversightRouter.get("/summary", async (req, res) => {
+  const summary = await getOversightSummaryCached() as Record<string, unknown>;
+  if (!canReadInvestigations(req)) {
+    const { refusedHighScore, sellerPropertyMissingWarn, sellerPropertyMissingCritical, sellerPropertyMissingWarnDays, sellerPropertyMissingCriticalDays, agentLossSeries, agentLossSeriesThreshold, agentLossSeriesWindowDays, ...ordinary } = summary;
+    return res.json(ordinary);
+  }
+  res.json(summary);
 });
 
 /**
@@ -843,7 +852,7 @@ oversightRouter.get("/silent-after-showing", async (req, res) => {
  * GET /oversight/refused-high-score — красный флаг «Отказ при хорошем скоринге»
  * (см. findRefusedHighScore выше).
  */
-oversightRouter.get("/refused-high-score", async (req, res) => {
+oversightRouter.get("/refused-high-score", requireInvestigations, async (req, res) => {
   const { page, pageSize } = parsePage(req);
   const { threshold, items } = await findRefusedHighScore(new Date(Date.now() - RECENT_EVENTS_MS));
   const canSeePhone = req.agent!.can("clients.viewPhone");
@@ -892,7 +901,7 @@ const TRANSFER_PAIRS_WINDOW_DAYS = 30;
 const TRANSFER_PAIRS_WINDOW_MS = TRANSFER_PAIRS_WINDOW_DAYS * 24 * 60 * 60 * 1000;
 const TRANSFER_PAIRS_FREQUENT_THRESHOLD = 3;
 
-oversightRouter.get("/transfer-pairs", async (_req, res) => {
+oversightRouter.get("/transfer-pairs", requireInvestigations, async (_req, res) => {
   const since = new Date(Date.now() - TRANSFER_PAIRS_WINDOW_MS);
   const transfers = await prisma.interaction.findMany({
     where: { ...transferEventsWhere(), createdAt: { gte: since } },
@@ -973,7 +982,7 @@ oversightRouter.get("/transfer-pairs", async (_req, res) => {
  * тем же приёмом, что и /silent-after-showing: кандидатов уже ограничивает
  * take(500) внутри поиска.
  */
-oversightRouter.get("/seller-property-missing", async (req, res) => {
+oversightRouter.get("/seller-property-missing", requireInvestigations, async (req, res) => {
   const { page, pageSize } = parsePage(req);
   const { warnDays, criticalDays, items } = await findSellerPropertyMissing(new Date());
   const canSeePhone = req.agent!.can("clients.viewPhone");
@@ -1018,7 +1027,7 @@ oversightRouter.get("/endless-negotiations", async (req, res) => {
  * (см. findAgentLossSeries выше). Список короткий (штат агентов), без пагинации —
  * тем же приёмом, что и /transfer-pairs.
  */
-oversightRouter.get("/agent-loss-series", async (_req, res) => {
+oversightRouter.get("/agent-loss-series", requireInvestigations, async (_req, res) => {
   const since = new Date(Date.now() - AGENT_LOSS_SERIES_WINDOW_MS);
   const { threshold, windowDays, items } = await findAgentLossSeries(since);
   res.json({ items, threshold, windowDays });
@@ -1042,7 +1051,7 @@ oversightRouter.get("/agent-loss-series", async (_req, res) => {
  * ?onlyFlagged=1 — только звонки с находками (быстрый фильтр для директора,
  * которому не всегда нужны все прозвоны, а именно тревожные).
  */
-oversightRouter.get("/showing-survey-calls", async (req, res) => {
+oversightRouter.get("/showing-survey-calls", requireInvestigations, async (req, res) => {
   const { page, pageSize } = parsePage(req);
   const onlyFlagged = req.query.onlyFlagged === "1" || req.query.onlyFlagged === "true";
   const { items, total } = await listPostShowingCallFeed({ page, pageSize, onlyFlagged });
@@ -1097,8 +1106,10 @@ oversightRouter.get("/showing-survey-calls", async (req, res) => {
 
 /** Полная расшифровка одного звонка-опроса — отдельным запросом, не в списке
  *  (список отдаёт только превью, см. выше). */
-oversightRouter.get("/showing-survey-calls/:id", async (req, res) => {
-  const row = await findPostShowingCallFeedRow(req.params.id);
+oversightRouter.get("/showing-survey-calls/:id", requireInvestigations, async (req, res) => {
+  const id = req.params.id;
+  if (typeof id !== "string") return res.status(400).json({ error: "Неверный идентификатор" });
+  const row = await findPostShowingCallFeedRow(id);
   if (!row) return res.status(404).json({ error: "Звонок не найден" });
   const [agent, client, property] = await Promise.all([
     prisma.agent.findUnique({ where: { id: row.agentId }, select: { id: true, fullName: true } }),
@@ -1130,8 +1141,10 @@ oversightRouter.get("/showing-survey-calls/:id", async (req, res) => {
 
 /** Presigned-ссылка на запись звонка-опроса — тот же приём (10 минут), что у
  *  /settings/live-voice/sessions/:id/recording. */
-oversightRouter.get("/showing-survey-calls/:id/recording", requirePermission("calls.hearRecording"), async (req, res) => {
-  const row = await findPostShowingCallFeedRow(req.params.id);
+oversightRouter.get("/showing-survey-calls/:id/recording", requireInvestigations, requirePermission("calls.hearRecording"), async (req, res) => {
+  const id = req.params.id;
+  if (typeof id !== "string") return res.status(400).json({ error: "Неверный идентификатор" });
+  const row = await findPostShowingCallFeedRow(id);
   if (!row?.recordingUrl) return res.status(404).json({ error: "Записи нет" });
   const url = await r2PresignDownloadUrl(row.recordingUrl);
   if (!url) return res.status(502).json({ error: "R2 не настроен или не ответил" });

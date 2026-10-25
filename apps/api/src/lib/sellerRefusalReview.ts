@@ -86,6 +86,7 @@ async function escalateToSecurity(
   if (seller.assignedAgentId) {
     // requestedById — реальный человек, подавший заявку на снятие объекта (kind agent).
     await logTimeline({
+    investigationOnly: true,
       clientId: seller.id,
       actor: { kind: "agent", agentId: input.requestedById },
       type: "SYSTEM",
@@ -100,6 +101,6 @@ async function escalateToSecurity(
     body: `${seller.fullName}: объект «${property.title}» снят с продажи${agency ? `, названо агентство: ${agency}` : ""}`,
     url: `/clients/${seller.shortId}`,
     tag: `sold-elsewhere-${property.id}`,
-    recipientPermission: "clients.assign",
+    recipientRoles: ["ADMIN", "DIRECTOR"],
   });
 }

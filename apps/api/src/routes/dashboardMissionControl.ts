@@ -1,4 +1,11 @@
+import { visibleErrorLogs } from "../lib/systemErrorVisibility.js";
+import { visibleCronWhere, visibleSystemErrorWhere } from "../lib/investigationOperations.js";
+import { Prisma } from "../generated/prisma/client.js";
+import { countVisibleBackgroundJobs } from "../lib/backgroundJobPrivacy.js";
 import { Router, type Request } from "express";
+import { canViewInvestigations } from "@royal-home/shared";
+import { investigationCallChannelIds } from "../lib/investigationCallChannels.js";
+import { listActive as activeRobotCalls } from "../lib/telephony/liveVoiceMonitor.js";
 import { prisma } from "../db.js";
 import { can, requireAuth, requirePermission } from "../auth/middleware.js";
 import { loadMoneyContext, roundMoney, toTjs } from "../lib/money.js";
@@ -105,6 +112,8 @@ interface McContext {
    *  незнакомых звонивших лежит именно в имени. Входит В КЛЮЧ КЭША ниже — иначе
    *  первый запрос директора наполнил бы кэш открытыми данными для менеджера. */
   canSeePhone: boolean;
+  seesInvestigations: boolean;
+  viewerRole?: string;
   off: ReadonlySet<PultModuleId>;
 }
 
@@ -127,7 +136,11 @@ async function buildContext(req: Request): Promise<McContext> {
   // Реестр модулей (аудит 02.09.2026 §4): выключенная секция НЕ СЧИТАЕТСЯ и
   // отсутствует в ответе — не null и не { error }. Фронт рисует только то, что пришло.
   const off = await loadDisabledPultModules();
-  return { now, startOfDay, startOfYesterday, today, seesMoney, canSeePhone, off };
+  const seesInvestigations = canViewInvestigations(req.agent?.role) && can(req, "clients.securityReview");
+  // All downstream investigation projections must receive effective access,
+  // including charts and team counters, rather than the unqualified role.
+  return { now, startOfDay, startOfYesterday, today, seesMoney, canSeePhone, seesInvestigations,
+    viewerRole: seesInvestigations ? req.agent?.role : undefined, off };
 }
 
 /** Секция модуля: выключен → undefined (ключа не будет), иначе — через кэш своего темпа. */
@@ -135,7 +148,7 @@ function makeGated(ctx: McContext) {
   return <T,>(module: PultModuleId, fn: () => Promise<T>): Promise<SectionResult<T> | undefined> =>
     ctx.off.has(module)
       ? Promise.resolve(undefined)
-      : cachedSection(`${module}:${ctx.seesMoney}:${ctx.canSeePhone}`, LIVE_MODULES.has(module) ? LIVE_TTL_MS : ZONES_TTL_MS, () =>
+      : cachedSection(`${module}:${ctx.seesMoney}:${ctx.canSeePhone}:${ctx.seesInvestigations}`, LIVE_MODULES.has(module) ? LIVE_TTL_MS : ZONES_TTL_MS, () =>
           section(module, fn)
         );
 }
@@ -247,7 +260,7 @@ async function buildLive(ctx: McContext) {
         staleContact,
         importantOther,
       ] = await Promise.all([
-        findSellerPropertyMissing(now),
+        ctx.seesInvestigations ? findSellerPropertyMissing(now) : Promise.resolve({ items: [], total: 0 }),
         findSilentAfterShowing(now),
         prisma.deal.count({ where: { stage: "PENDING_APPROVAL" } }),
         prisma.clientDeleteRequest.count({ where: { status: "PENDING" } }),
@@ -354,22 +367,26 @@ async function buildLive(ctx: McContext) {
     // Звонки — wallboard: живые разговоры прямо сейчас (in-memory, самая
     // "живая" плитка системы), сегодняшние счётчики, неразобранная очередь.
     gated("calls", async () => {
+      const privateChannels = new Set(ctx.seesInvestigations ? [] : [
+        ...await investigationCallChannelIds(),
+        ...activeRobotCalls().filter((call) => call.investigationOnly).map((call) => call.channelId),
+      ]);
       const [incomingToday, outgoingToday, missedToday, unqualified] = await Promise.all([
         prisma.incomingCall.count({ where: { startedAt: { gte: startOfDay } } }),
-        prisma.interaction.count({ where: { type: "CALL", createdAt: { gte: startOfDay } } }),
+        prisma.interaction.count({ where: { ...(ctx.seesInvestigations ? {} : { investigationOnly: false }), type: "CALL", createdAt: { gte: startOfDay } } }),
         prisma.incomingCall.count({ where: { startedAt: { gte: startOfDay }, answered: false } }),
         prisma.incomingCall.count({ where: { startedAt: { gte: startOfDay }, ...AWAITING_REVIEW_WHERE } }),
       ]);
       return {
         live: {
-          incoming: liveIncomingCalls().map((c) => ({
+          incoming: liveIncomingCalls().filter((c) => !privateChannels.has(c.channelId)).map((c) => ({
             channelId: c.channelId,
             clientName: c.clientName ? clientNamePhoneSafe(c.clientName, canSeePhone) : null,
             clientShortId: c.clientShortId ?? null,
             answered: !!c.answeredAt,
             seconds: c.talkSeconds,
           })),
-          outgoing: liveOutgoingCalls().map((c) => ({
+          outgoing: liveOutgoingCalls().filter((c) => !privateChannels.has(c.channelId)).map((c) => ({
             channelId: c.channelId,
             clientName: c.clientName ? clientNamePhoneSafe(c.clientName, canSeePhone) : c.clientName,
             clientShortId: c.clientShortId,
@@ -474,8 +491,8 @@ async function buildZones(ctx: McContext) {
           .sort((a, b) => b.activeLoad - a.activeLoad),
         // «День команды» и «Показы сегодня» — блоки, которые до 12.09.2026 стояли
         // с подписью «нет данных»: разметка артефакта была, считалки не было.
-        day: await loadTeamDay(now),
-        showingsToday: await loadShowingsToday(now),
+        day: await loadTeamDay(now, ctx.viewerRole),
+        showingsToday: await loadShowingsToday(now, ctx.viewerRole),
       };
     }),
 
@@ -531,7 +548,7 @@ async function buildZones(ctx: McContext) {
         buildMarketingFunnel(seesMoney, now),
         loadPublishQueue(now),
         loadChannelsHealth(),
-        loadPulse30Days(now),
+        loadPulse30Days(now, ctx.viewerRole),
       ]);
       return {
         instagramCommentsWaiting: igWaiting,
@@ -608,7 +625,7 @@ async function buildZones(ctx: McContext) {
       }));
       // «Объект дня», «Объекты месяц без показов» и разбивка по районам —
       // три карточки, стоявшие пустыми с переноса артефакта (владелец 12.09.2026).
-      const extra = await loadPropertiesExtra(now);
+      const extra = await loadPropertiesExtra(now, ctx.viewerRole);
       return { available, newThisWeek, reserved, portfolioValueTjs, items, extra };
     }),
 
@@ -618,20 +635,19 @@ async function buildZones(ctx: McContext) {
       const [heartbeats, jobsRunning, jobsGivenUp, jobsFailedRecent, newApplications, errorsToday, unresolvedTotal] =
         await Promise.all([
           prisma.cronHeartbeat.findMany({
+            where: visibleCronWhere(ctx.seesInvestigations ? ctx.viewerRole : undefined),
             orderBy: { name: "asc" },
             take: 100,
             select: { name: true, expr: true, lastRunAt: true, lastOkAt: true, lastError: true },
           }),
-          prisma.backgroundJob.count({ where: { status: "RUNNING" } }),
-          prisma.backgroundJob.count({ where: givenUpVisibleWhere() }),
-          prisma.backgroundJob.count({
-            where: { status: "GIVEN_UP", updatedAt: { gte: new Date(now.getTime() - 24 * 60 * 60 * 1000) } },
-          }),
+          countVisibleBackgroundJobs(Prisma.sql`status='RUNNING'`, ctx.seesInvestigations),
+          countVisibleBackgroundJobs(Prisma.sql`status='GIVEN_UP' AND "updatedAt">=${givenUpVisibleWhere(now).updatedAt.gte}`, ctx.seesInvestigations),
+          countVisibleBackgroundJobs(Prisma.sql`status='GIVEN_UP' AND "updatedAt">=${new Date(now.getTime() - 24 * 60 * 60 * 1000)}`, ctx.seesInvestigations),
           // Те же «новые кандидаты», что в сайдбаре и во вкладке «Подходят»
           // (lib/vacancyVisibility.ts): без отсеянных и без анкет без номера.
           prisma.jobApplication.count({ where: visibleNewCandidatesWhere() }),
-          prisma.errorLog.count({ where: { createdAt: { gte: startOfDay }, resolvedAt: null } }),
-          prisma.errorLog.count({ where: { resolvedAt: null } }),
+          visibleErrorLogs(ctx.seesInvestigations ? ctx.viewerRole : undefined).count({ where: { ...visibleSystemErrorWhere(ctx.seesInvestigations ? ctx.viewerRole : undefined), createdAt: { gte: startOfDay }, resolvedAt: null } }),
+          visibleErrorLogs(ctx.seesInvestigations ? ctx.viewerRole : undefined).count({ where: { ...visibleSystemErrorWhere(ctx.seesInvestigations ? ctx.viewerRole : undefined), resolvedAt: null } }),
         ]);
       return {
         crons: heartbeats.map((h) => ({
@@ -652,7 +668,7 @@ async function buildZones(ctx: McContext) {
         unresolvedTotal,
         // Три плитки «Контроля» (просроченные задачи, предел нагрузки, молчание
         // после показа) до 12.09.2026 всегда показывали «нет данных».
-        control: await loadControlGaps(now),
+        control: await loadControlGaps(now, ctx.viewerRole),
       };
     }),
 

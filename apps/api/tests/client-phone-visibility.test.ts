@@ -36,8 +36,8 @@ let directorToken = "";
  * Менеджер и СБ — не «ещё две роли для полноты», а единственные, кто ловит подмену
  * права. У пресета AGENT нет НИ `clients.viewAll`, НИ `clients.viewPhone`, поэтому
  * маршрут, спрашивающий не то право, под токеном агента ведёт себя правильно, и
- * проверка проходит вхолостую. У MANAGER есть viewAll и нет viewPhone, у SECURITY —
- * securityReview и viewAll, тоже без viewPhone. На этом 09.08.2026 и попались
+ * проверка проходит вхолостую. У MANAGER есть viewAll и нет viewPhone; SECURITY
+ * теперь исключён из расследований границей ADMIN/DIRECTOR. На этом 09.08.2026 и попались
  * календарь (спрашивал viewAll) и кабинет СБ (не спрашивал ничего).
  */
 let managerId = "";
@@ -196,13 +196,11 @@ describe("Телефон клиента закрыт от сотрудника �
     expect(isMasked(task.client.phone), `пришло: ${task.client.phone}`).toBe(true);
   });
 
-  it("кабинет СБ: у роли SECURITY нет права на номера", async () => {
+  it("кабинет СБ: роль SECURITY не получает ни расследования, ни номера", async () => {
     await prisma.client.update({ where: { id: clientId }, data: { securityReview: "PENDING" } });
     const res = await request(app).get("/api/v1/security/lost-clients").set("Authorization", `Bearer ${securityToken}`);
-    expect(res.status).toBe(200);
-    const row = res.body.items.find((c: { id: string }) => c.id === clientId);
-    expect(row, "клиент не найден в кабинете СБ").toBeDefined();
-    expect(isMasked(row.phone), `пришло: ${row.phone}`).toBe(true);
+    expect(res.status).toBe(403);
+    expect(res.body).not.toHaveProperty("items");
     await prisma.client.update({ where: { id: clientId }, data: { securityReview: null } });
   });
 

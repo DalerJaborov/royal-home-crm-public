@@ -348,6 +348,7 @@ enum AdMatchSource {
 }
 
 model Agent {
+  investigationCases InvestigationCase[] @relation("InvestigationSubject")
   recruitmentRecoveries RecruitmentRecovery[]
   oversightAcks OversightAck[]
   id                          String    @id @default(uuid())
@@ -2074,6 +2075,12 @@ model GeoAlias {
 }
 
 model Property {
+  investigationCases InvestigationCase[]
+  narrationVersions PropertyNarrationVersion[]
+  narrationDeliveries PropertyNarrationDelivery[]
+  metadataSyncDrafts PublicationMetadataSync[]
+  ownerReportDeliveries OwnerReportDelivery[]
+  ownerReportSubscription OwnerReportSubscription?
   id                             String                     @id @default(uuid())
   /// Короткий числовой ID для читаемых URL (/properties/1042) — id остаётся настоящим
   /// первичным ключом для всех связей, shortId используется только для роутинга.
@@ -2814,6 +2821,244 @@ model SocialDigestPost {
 /// (routes/properties.ts, POST /:id/editing/publish) — синхронно в момент
 /// вставки ссылки, и подстраховкой в cron (lib/propertyVideoCleanup.ts) для
 /// объектов, зависших в EDITING дольше разумного срока.
+model ClientPhoneOrigin {
+  id String @id @default(uuid())
+  clientId String
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  phoneHash String
+  addedAt DateTime @default(now())
+  source String @default("UNKNOWN")
+  sourceId String?
+  @@unique([clientId, phoneHash])
+}
+
+model PropertyNarrationVersion {
+  id String @id @default(uuid())
+  propertyId String
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  revision Int
+  script String
+  factsSnapshot Json
+  factsHash String
+  voiceId String?
+  modelId String?
+  status String @default("DRAFT")
+  storageKey String?
+  errorCode String?
+  providerRequestId String?
+  approvedAt DateTime?
+  approvedById String?
+  createdById String
+  requestKey String @unique
+  generationStartedAt DateTime?
+  createdAt DateTime @default(now())
+  deliveries PropertyNarrationDelivery[]
+  @@unique([propertyId, revision])
+}
+
+model PropertyNarrationDelivery {
+  id String @id @default(uuid())
+  propertyId String
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  versionId String
+  version PropertyNarrationVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  editorId String?
+  mode String
+  status String @default("PREVIEW")
+  requestKey String @unique
+  createdById String
+  createdAt DateTime @default(now())
+  plan Json?
+  receipts Json @default("{}")
+  executionMode String @default("PREVIEW")
+  claimStartedAt DateTime?
+  deliveredAt DateTime?
+  lastError String?
+  @@index([propertyId, createdAt])
+}
+
+model PublicationMetadataSync {
+  id String @id @default(uuid())
+  propertyId String
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  revisionHash String
+  channel String
+  operation String
+  status String @default("PREVIEW")
+  reason String?
+  payload Json?
+  startedAt DateTime?
+  finishedAt DateTime?
+  result Json?
+  attemptedById String?
+  executionMode String @default("PREVIEW")
+  createdAt DateTime @default(now())
+  @@unique([propertyId, revisionHash, channel, operation], map: "PublicationMetadataSync_revision_channel_operation_key")
+}
+
+model OwnerReportDelivery {
+  id String @id @default(uuid())
+  propertyId String
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  sellerClientId String
+  period String
+  status String @default("PREVIEW")
+  reportUrl String?
+  createdById String
+  createdAt DateTime @default(now())
+  executionMode String @default("PREVIEW")
+  claimStartedAt DateTime?
+  deliveredAt DateTime?
+  lastError String?
+  subscriptionVersion Int?
+  recipientHash String?
+  contentHash String?
+  providerReceipt Json?
+  @@unique([propertyId, sellerClientId, period])
+}
+
+model OwnerReportSubscription {
+  id String @id @default(uuid())
+  propertyId String @unique
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  sellerClientId String
+  revision Int @default(1)
+  active Boolean @default(false)
+  executionMode String @default("PREVIEW")
+  consentAt DateTime?
+  consentById String?
+  revokedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+}
+
+model SellerControlEpisode {
+  id String @id @default(uuid())
+  buyerCandidateId String? @unique
+  sellerIntakeEvidenceId String? @unique
+  episodeKey String @unique
+  clientId String
+  assignmentAt DateTime
+  agentId String?
+  expectedCount Int?
+  baselineAccepted Int @default(0)
+  status String @default("AGENT_TASK")
+  executionMode String @default("PREVIEW")
+  revision Int @default(1)
+  sourceFingerprint String?
+  agentTaskId String? @unique
+  ropTaskId String? @unique
+  ropAgentId String?
+  agentDueAt DateTime?
+  ropReceiptDueAt DateTime?
+  ropReceiptAt DateTime?
+  ropActionDueAt DateTime?
+  ropDueAt DateTime?
+  resolvedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+  events SellerControlEvent[]
+  @@index([clientId, status])
+}
+
+model SellerControlEvent {
+  id String @id @default(uuid())
+  episodeId String
+  episode SellerControlEpisode @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+  requestKey String @unique
+  type String
+  actorId String?
+  occurredAt DateTime @default(now())
+  payload Json @default("{}")
+  @@index([episodeId, occurredAt])
+}
+
+model BuyerShowingCandidate {
+  id String @id @default(uuid())
+  sourceKey String @unique
+  sourceType String
+  sourceId String
+  sourceInteractionId String?
+  sourceConversationId String?
+  clientId String
+  agentId String?
+  assignmentAt DateTime
+  proposedAt DateTime?
+  sourceExcerpt String?
+  sourceOccurredAt DateTime?
+  propertyId String?
+  detectedAt DateTime @default(now())
+  reviewDueAt DateTime
+  status String @default("OPEN")
+  executionMode String @default("PREVIEW")
+  revision Int @default(1)
+  taskId String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+  @@index([clientId, status])
+  @@index([status, reviewDueAt])
+}
+
+model WorkflowCheckpoint {
+  key String @id
+  cursor String?
+  leaseToken String?
+  leaseUntil DateTime?
+  revision Int @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+}
+
+model SellerIntakeAppointmentEvidence {
+  id String @id @default(uuid())
+  executionMode String @default("PREVIEW")
+  controlEpisodeId String?
+  sourceKey String @unique
+  sourceInteractionId String @unique
+  clientId String
+  agentId String?
+  assignmentAt DateTime
+  proposedAt DateTime
+  sourceOccurredAt DateTime
+  sourceExcerpt String
+  detectedAt DateTime @default(now())
+  @@index([clientId, assignmentAt, sourceOccurredAt])
+  @@index([executionMode, controlEpisodeId, sourceOccurredAt], map: "SellerIntakeEvidence_control_source_idx")
+}
+
+model ClientWorkflowObservation {
+  id String @id @default(uuid())
+  sourceKey String @unique
+  kind String
+  clientId String
+  propertyId String?
+  subjectAgentId String?
+  assignmentAt DateTime
+  sourceType String
+  sourceId String
+  occurredAt DateTime
+  payload Json
+  executionMode String @default("PREVIEW")
+  createdAt DateTime @default(now())
+  @@index([clientId, assignmentAt, occurredAt])
+  @@index([kind, occurredAt])
+}
+
+model ManualDataCorrection {
+  id String @id @default(uuid())
+  requestKey String @unique
+  actorId String
+  reason String
+  operation String
+  status String @default("PLANNED")
+  planHash String
+  targets Json
+  impact Json
+  result Json?
+  createdAt DateTime @default(now())
+  appliedAt DateTime?
+}
+
 model PropertyVideo {
   id           String   @id @default(uuid())
   propertyId   String
@@ -3020,6 +3265,19 @@ enum ClientInactiveLevel {
 /// это тот самый случай, просто вырежи DROP, как и раньше для необъявляемых
 /// сырых индексов, и не трать час на попытку объявить его снова.
 model Client {
+  mutationRevision Int @default(0)
+  contactPhoneOrigins ClientPhoneOrigin[]
+  updatedAt DateTime @default(now()) @updatedAt
+  dualIntentDecisionSource String?
+  dualIntentNeedsReview Boolean @default(false)
+  dualIntentEvidence Json?
+  dualIntentAnalyzedHash String?
+  investigationCases InvestigationCase[]
+  /// Final refusal for the current assignment; cleared on a legitimate new assignment.
+  assignmentRefusedAt       DateTime?
+  assignmentRefusedByAgentId String?
+  /// Operational completion only, never a private investigation indicator.
+  assignmentCompletedAt     DateTime?
   id                        String               @id @default(uuid())
   /// Pending new-only intake policy. Morning waves exclude this until its job commits.
   customerIntakeActionId String? @unique
@@ -4493,6 +4751,12 @@ enum TeamRequestStatus {
 }
 
 model Interaction {
+  showingEvidenceVersion Int @default(0)
+  showingOffCrm Boolean @default(false)
+  showingOffCrmDetails String?
+  buyerIntentAtCreation Boolean?
+  /// Private investigation evidence; excluded from ordinary activity and timeline reads.
+  investigationOnly Boolean @default(false)
   id                     String              @id @default(uuid())
   customerBookingActionId String? @unique
   customerBookingAction CustomerAction? @relation(fields: [customerBookingActionId], references: [id], onDelete: Restrict)
@@ -4544,6 +4808,8 @@ model Interaction {
   /// терялась безвозвратно). null + nextActionDate в прошлом = просрочена.
   /// Нужно для расчёта KPI "Дисциплина CRM" (см. apps/api/src/kpi.ts).
   completedAt            DateTime?
+  /// Task cancelled when its assignment ends; preserves original text/date without claiming completion.
+  taskCancelledAt        DateTime?
   /// Когда агенту ушёл push «встреча через час» — без этой отметки джоб слал бы
   /// напоминание на каждом тике, пока встреча не наступит. Вечерняя сводка отметки
   /// не требует: она уходит раз в сутки одним сообщением на все задачи дня.
@@ -5439,6 +5705,12 @@ model SiteEditNotification {
 }
 
 model Settings {
+  buyerSellerAutomationMode String @default("PREVIEW")
+  investigationCaseConfig Json @default("{}")
+  sellerControlConfig Json @default("{}")
+  postShowingCohortConfig Json @default("{}")
+  /// Property narration only. Owner-selected ElevenLabs voices; no implicit default voice.
+  propertyNarrationConfig Json @default("{}")
   id                                String    @id @default("singleton")
   /// Desktop shell rollout only; null or invalid configuration means OFF.
   uiShellRollout                    Json?
@@ -7427,6 +7699,7 @@ model SettingsSnapshot {
 /// так бот перестаёт наступать на те же грабли (требование владельца 31.07.2026).
 model BotLesson {
   id             String            @id @default(uuid())
+  investigationOnly Boolean        @default(false)
   createdAt      DateTime          @default(now())
   /// "operator_override" — ответил человек; "client_confused" — клиент не понял;
   /// "call_answer" — пара «вопрос клиента → ответ агента» из телефонного разговора
@@ -7981,6 +8254,8 @@ model CallAnalysis {
 /// цель этой таблицы — не потерять текст разговора; дальше это задел на будущее
 /// (см. докстрин liveVoiceBridge.ts).
 model LiveVoiceSession {
+  /// Private robot investigation; set by the originating scenario, never inferred from transcript.
+  investigationOnly Boolean @default(false)
   id          String    @id @default(uuid())
   /// Server-established binding only; CallerID is not customer authorization.
   customerInquiryId String?
@@ -8147,6 +8422,7 @@ enum PostShowingCallOutcome {
 /// сожгла бы механизм один раз и навсегда (тот же класс, что «спутник светится» в
 /// CLAUDE.md). Разговор целиком лежит в LiveVoiceSession по channelId.
 model PostShowingCall {
+  previewOnly Boolean @default(false)
   id                String                  @id @default(uuid())
   /// Показ, из-за которого звоним. Один звонок на показ — повторная постановка
   /// тем же тиком не создаёт второй записи (@unique, ON CONFLICT DO NOTHING).
@@ -8211,6 +8487,7 @@ enum SellerProbeCallStatus {
   NO_ANSWER
   GIVEN_UP
   SKIPPED
+  UNKNOWN
 }
 
 /// Что собственник сказал про свою квартиру.
@@ -8248,11 +8525,20 @@ enum SellerProbeCallOutcome {
 /// такое естественно, а продавший мимо агентства оказывается перед выбором:
 /// признаться или разрешить нам дальше тратить деньги на рекламу проданного.
 model SellerProbeCall {
+  previewOnly Boolean @default(false)
   id               String                   @id @default(uuid())
   /// Звонок покупателю, из тишины которого выросла эта проверка. Один к одному:
   /// по одному показу собственника спрашивают один раз.
-  postShowingCallId String                  @unique
-  postShowingCall  PostShowingCall          @relation(fields: [postShowingCallId], references: [id], onDelete: Cascade)
+  postShowingCallId String?                 @unique
+  postShowingCall  PostShowingCall?         @relation(fields: [postShowingCallId], references: [id], onDelete: Cascade)
+  sourceKind       String                   @default("POST_SHOWING")
+  sourceId         String?
+  sourceKey        String?                  @unique
+  anchorAt         DateTime?
+  assignmentAt     DateTime?
+  buyerClientId    String?
+  evidence         Json?
+  sourcePhoneHash  String?
   propertyId       String
   property         Property                 @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   sellerClientId   String
@@ -8284,6 +8570,7 @@ model SellerProbeCall {
 
   @@index([status, scheduledFor])
   @@index([sellerClientId])
+  @@index([sourceKind, anchorAt])
   @@index([agentId, createdAt])
   @@index([channelId])
 }
@@ -10223,4 +10510,67 @@ model ReelAutoBoostAd {
 
   @@index([status, createdAt])
   @@index([propertyId])
+}
+
+
+/// Private investigation workspace; signals never equal a finding of guilt.
+model InvestigationCase {
+  assignmentAt DateTime?
+  assignmentEpochKey String?
+  id String @id @default(uuid())
+  caseKey String @unique
+  clientId String?
+  client Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  propertyId String?
+  property Property? @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+  showingId String?
+  subjectAgentId String?
+  subjectAgent Agent? @relation("InvestigationSubject", fields: [subjectAgentId], references: [id], onDelete: SetNull)
+  title String
+  source String
+  status String @default("OPEN")
+  level String @default("C1")
+  revision Int @default(0)
+  firstOccurredAt DateTime
+  lastSignalAt DateTime
+  resolvedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  evidence InvestigationEvidence[]
+  decisions InvestigationDecision[]
+  @@index([status, lastSignalAt])
+  @@index([clientId, propertyId])
+  @@index([subjectAgentId, lastSignalAt])
+}
+
+model InvestigationEvidence {
+  id String @id @default(uuid())
+  caseId String
+  case InvestigationCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  sourceType String
+  sourceId String
+  independenceKey String
+  kind String
+  summary String
+  payload Json?
+  occurredAt DateTime
+  createdAt DateTime @default(now())
+  @@unique([caseId, sourceType, sourceId, kind])
+  @@index([caseId, occurredAt])
+}
+
+model InvestigationDecision {
+  level String @default("C1")
+  id String @id @default(uuid())
+  caseId String
+  case InvestigationCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  requestKey String @unique
+  actorId String
+  action String
+  note String
+  previousStatus String
+  newStatus String
+  caseRevision Int
+  createdAt DateTime @default(now())
+  @@index([caseId, createdAt])
 }

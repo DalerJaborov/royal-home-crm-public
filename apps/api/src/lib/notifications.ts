@@ -1,3 +1,4 @@
+import { filterInvestigationRecipients } from "./investigationNotifications.js";
 import { Prisma } from "../generated/prisma/client.js";
 import { prisma } from "../db.js";
 import { notificationLevelOf, type NotificationLevel } from "@royal-home/shared";
@@ -89,6 +90,7 @@ export async function createNotification(input: {
   level?: NotificationLevel;
 }): Promise<void> {
   try {
+    if (!(await filterInvestigationRecipients([input.agentId], input)).length) return;
     // Группа ровно одна — получатель один; пустой она не бывает.
     const [group] = await splitByPhoneRight([input.agentId], input);
     await upsertByTag(group ? { ...input, title: group.payload.title, body: group.payload.body } : input);
@@ -128,6 +130,7 @@ export async function notifyFeedOnly(
     level?: NotificationLevel;
   }
 ): Promise<void> {
+  agentIds = await filterInvestigationRecipients(agentIds, payload);
   if (agentIds.length === 0) return;
   await createNotifications(agentIds, payload);
   publishNotificationNew(agentIds);
@@ -145,6 +148,7 @@ export async function createNotifications(
     level?: NotificationLevel;
   }
 ): Promise<void> {
+  agentIds = await filterInvestigationRecipients(agentIds, payload);
   if (agentIds.length === 0) return;
   try {
     // Телефон клиента — по праву получателя (см. splitByPhoneRight выше): текст

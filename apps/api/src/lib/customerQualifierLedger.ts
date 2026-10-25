@@ -1,3 +1,4 @@
+import { captureConversationPhoneMessages } from "./clientPhoneCapture.js";
 import type { CustomerPropertyAdmission } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { authenticatedInputMatchesFence, inspectAuthenticatedCustomerInput, type AuthenticatedCustomerInput } from "./customerIngressAuthority.js";
@@ -41,6 +42,7 @@ export async function recordScopedCustomerInput(input: Pick<MessengerTurnInput, 
       if (stored.inputRecordedAt) return true;
       if (input.skipSaveIncoming) return false;
       const msg: ChatMessage = { role: "user", content: evidence.inputText || "[вложение без текста]", mid: evidence.eventId,
+        at: new Date(evidence.issuedAt).toISOString(),
         customerPropertyAdmission: ticket, ...(input.replyToMessageId ? { replyToMid: input.replyToMessageId } : {}) };
       const result = await appendConversationMessagesInTransaction(tx, ticket.conversationId, [msg]);
       if (result.affectedRows !== 1) throw new Error("Scoped input append unavailable");
@@ -51,7 +53,10 @@ export async function recordScopedCustomerInput(input: Pick<MessengerTurnInput, 
       appended = result.messages;
       return true;
     });
-    if (saved && appended.length) void publishMessageNew("bot", ticket.conversationId, "IN");
+    if (saved && appended.length) {
+      void captureConversationPhoneMessages(ticket.conversationId, appended.map(message => ({ ...message, at: new Date(evidence.issuedAt).toISOString() }))).catch(error => console.error("[contact-capture]", error instanceof Error ? error.name : "UnknownError"));
+      void publishMessageNew("bot", ticket.conversationId, "IN");
+    }
     return saved;
   } catch (error) {
     console.error("[customer-qualifier] input ledger unavailable:", error instanceof Error ? error.name : "UnknownError");

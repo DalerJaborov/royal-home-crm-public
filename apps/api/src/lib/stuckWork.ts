@@ -1,5 +1,6 @@
-import type { BackgroundJob } from "../generated/prisma/client.js";
-import { channelLabel } from "@royal-home/shared";
+import { Prisma, type BackgroundJob } from "../generated/prisma/client.js";
+import { channelLabel, parsePermissionOverrides, resolvePermissions } from "@royal-home/shared";
+import { publicBackgroundJobSql, isPrivateBackgroundJob, countVisibleBackgroundJobs } from "./backgroundJobPrivacy.js";
 import { prisma } from "../db.js";
 import { describeError } from "./describeError.js";
 import { notifyFeedOnly } from "./notifications.js";
@@ -290,10 +291,20 @@ export function givenUpVisibleWhere(now: Date = new Date()) {
 export const GIVEN_UP_PAGE = 50;
 export const GIVEN_UP_MAX = 1000;
 
-export async function listStuckWork(opts: { givenUpLimit?: number } = {}): Promise<StuckWorkSnapshot> {
+export async function listStuckWork(opts: { givenUpLimit?: number; includePrivate?: boolean } = {}): Promise<StuckWorkSnapshot> {
   const givenUpLimit = Math.min(Math.max(1, opts.givenUpLimit ?? GIVEN_UP_PAGE), GIVEN_UP_MAX);
   const givenUpWhere = givenUpVisibleWhere();
-  const [givenUpRows, givenUpCount, pendingOverdueRows, runningStuckRows, hangingCount] = await Promise.all([
+  const visible = opts.includePrivate === true ? Prisma.sql`TRUE` : publicBackgroundJobSql();
+  const givenUpSql = Prisma.sql`status = 'GIVEN_UP' AND "updatedAt" >= ${givenUpWhere.updatedAt.gte}`;
+  const pendingSql = Prisma.sql`status = 'PENDING' AND "runAt" < ${minutesAgo(PENDING_OVERDUE_MIN)}`;
+  const runningSql = Prisma.sql`status = 'RUNNING' AND "lockedAt" < ${minutesAgo(RUNNING_STUCK_MIN)}`;
+  const [givenUpRows, givenUpCount, pendingOverdueRows, runningStuckRows, hangingCount] = opts.includePrivate !== true ? await Promise.all([
+    prisma.$queryRaw<BackgroundJob[]>(Prisma.sql`SELECT * FROM "BackgroundJob" WHERE ${givenUpSql} AND ${visible} ORDER BY "updatedAt" DESC, id DESC LIMIT ${givenUpLimit}`),
+    countVisibleBackgroundJobs(givenUpSql),
+    prisma.$queryRaw<BackgroundJob[]>(Prisma.sql`SELECT * FROM "BackgroundJob" WHERE ${pendingSql} AND ${visible} ORDER BY "runAt" LIMIT 200`),
+    prisma.$queryRaw<BackgroundJob[]>(Prisma.sql`SELECT * FROM "BackgroundJob" WHERE ${runningSql} AND ${visible} ORDER BY "lockedAt" LIMIT 200`),
+    countVisibleBackgroundJobs(Prisma.sql`(${pendingSql} OR ${runningSql})`),
+  ]) : await Promise.all([
     prisma.backgroundJob.findMany({
       where: givenUpWhere,
       orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
@@ -352,7 +363,14 @@ export type RetryOutcome = "ok" | "not-found" | "not-stuck";
  * задание кнопка не трогает, чтобы не путать «стоит в очереди штатно» с
  * «нажали и ничего не поменялось».
  */
-export async function retryStuckWorkItem(id: string): Promise<RetryOutcome> {
+export async function retryStuckWorkItem(id: string, includePrivate = false): Promise<RetryOutcome> {
+  if (!includePrivate) {
+    const updated = await prisma.$executeRaw(Prisma.sql`UPDATE "BackgroundJob" SET status='PENDING', attempts=0, "runAt"=now(), "lockedAt"=NULL, "lockedBy"=NULL, "updatedAt"=now()
+      WHERE id=${id} AND ${publicBackgroundJobSql()} AND (status='GIVEN_UP' OR (status='PENDING' AND "runAt" < ${minutesAgo(PENDING_OVERDUE_MIN)}) OR (status='RUNNING' AND "lockedAt" < ${minutesAgo(RUNNING_STUCK_MIN)}))`);
+    if (updated) return "ok";
+    const visible = await prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`SELECT id FROM "BackgroundJob" WHERE id=${id} AND ${publicBackgroundJobSql()}`);
+    return visible.length ? "not-stuck" : "not-found";
+  }
   const job = await prisma.backgroundJob.findUnique({ where: { id } });
   if (!job) return "not-found";
   const isStuck =
@@ -369,20 +387,13 @@ export async function retryStuckWorkItem(id: string): Promise<RetryOutcome> {
 
 /** Сколько заданий сдалось за окно [since, сейчас) — для утреннего отчёта. */
 export async function countStuckWorkGivenUpSince(since: Date): Promise<number> {
-  return prisma.backgroundJob.count({ where: { status: "GIVEN_UP", updatedAt: { gte: since } } });
+  return countVisibleBackgroundJobs(Prisma.sql`status='GIVEN_UP' AND "updatedAt">=${since}`);
 }
 
 /** Сколько сейчас висит (просроченный PENDING + зависший RUNNING) — то же
  *  условие, что и hanging в listStuckWork, но одним COUNT без выборки строк. */
 export async function countStuckWorkHangingNow(): Promise<number> {
-  return prisma.backgroundJob.count({
-    where: {
-      OR: [
-        { status: "PENDING", runAt: { lt: minutesAgo(PENDING_OVERDUE_MIN) } },
-        { status: "RUNNING", lockedAt: { lt: minutesAgo(RUNNING_STUCK_MIN) } },
-      ],
-    },
-  });
+  return countVisibleBackgroundJobs(Prisma.sql`((status='PENDING' AND "runAt"<${minutesAgo(PENDING_OVERDUE_MIN)}) OR (status='RUNNING' AND "lockedAt"<${minutesAgo(RUNNING_STUCK_MIN)}))`);
 }
 
 /**
@@ -402,13 +413,14 @@ export async function countStuckWorkHangingNow(): Promise<number> {
  */
 export async function notifyStuckWorkGivenUp(job: BackgroundJob): Promise<void> {
   try {
+    const privateJob = await isPrivateBackgroundJob(job);
     const { label, ownerAgentId } = await describeJob(job.type, job.payload);
     const directors = await prisma.agent.findMany({
       where: { role: { in: ["DIRECTOR", "ADMIN"] }, isActive: true },
-      select: { id: true },
+      select: { id: true, role: true, permissions: true },
     });
-    const recipients = new Set<string>(directors.map((d) => d.id));
-    if (ownerAgentId) recipients.add(ownerAgentId);
+    const recipients = new Set<string>(directors.filter(d => !privateJob || resolvePermissions(d.role, parsePermissionOverrides(d.permissions)).has("clients.securityReview")).map((d) => d.id));
+    if (ownerAgentId && !privateJob) recipients.add(ownerAgentId);
     if (recipients.size === 0) return;
 
     const reason = job.lastError ? job.lastError.slice(0, 200) : "процесс умирал на этом задании";
@@ -417,7 +429,7 @@ export async function notifyStuckWorkGivenUp(job: BackgroundJob): Promise<void> 
       title: "Задание не доехало",
       body: `${label}: «${jobTypeLabel(job.type)}» сдалось после ${job.attempts} попыток — ${reason}. Открыть «Что не доехало» и повторить.`,
       url: "/stuck-work",
-      tag: `background-job-given-up:${job.id}`,
+      tag: `${privateJob ? "investigation-" : ""}background-job-given-up:${job.id}`,
     });
   } catch (err) {
     // Уведомление — довесок к уже случившемуся GIVEN_UP (тот уже в journal

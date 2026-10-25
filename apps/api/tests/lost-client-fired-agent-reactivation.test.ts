@@ -92,7 +92,42 @@ async function makeLostClient(
   return created.clientId;
 }
 
+async function expectAvailableAutomaticOwner(client: { assignedAgentId: string | null; escalatedAt: Date | null; acceptedAt: Date | null; deletedAt: Date | null; workStatus: string }, formerId: string) {
+  expect(client.assignedAgentId).not.toBe(formerId);
+  if (client.assignedAgentId) {
+    const holder = await prisma.agent.findUniqueOrThrow({ where: { id: client.assignedAgentId } });
+    expect(holder.isActive).toBe(true);
+    expect(holder.frozenAt).toBeNull();
+  } else {
+    // Обычная AUTO-очередь может ждать следующего прохода раздачи.
+    // Это не ручная эскалация и не сохранение карточки у недоступного агента.
+    expect(client.acceptedAt).toBeNull();
+    expect(client.deletedAt).toBeNull();
+    expect(client.workStatus).toBe("ACTIVE");
+  }
+  expect(client.escalatedAt).toBeNull();
+}
+
 describe("LOST-клиент уволенного/замороженного агента пишет снова", () => {
+  it("активный исторический владелец получает LOST через центральную смену с аудитом", async () => {
+    const formerId = await makeAgent("Уволенный текущий", { isActive: false });
+    const historicalId = await makeAgent("Активный исторический");
+    const phone = `+992914${runId}`;
+    const clientId = await makeLostClient(phone, formerId);
+    await prisma.client.update({ where: { id: clientId }, data: { lastAgentId: historicalId, acceptedAt: null, firstContactAt: null } });
+
+    await createLeadFromChannel({ fullName: "Вернулся к прежнему", phone, source: "WHATSAPP" });
+
+    const updated = await prisma.client.findUniqueOrThrow({ where: { id: clientId } });
+    expect(updated.status).toBe("NEW");
+    expect(updated.assignedAgentId).toBe(historicalId);
+    expect(updated.escalatedAt).toBeNull();
+    expect(updated.returnAcceptDueAt).not.toBeNull();
+    const audits = await prisma.auditLog.findMany({ where: { entityId: clientId, action: "CLIENT_AGENT_CHANGE", meta: { path: ["source"], equals: "intake.lost-historical-owner" } } });
+    expect(audits).toHaveLength(1);
+    expect(audits[0].meta).toMatchObject({ fromAgentId: formerId, toAgentId: historicalId });
+    expect(await prisma.interaction.count({ where: { clientId, type: "SYSTEM", notes: { contains: "intake.lost-historical-owner" } } })).toBe(1);
+  });
   it("держатель активен — карточка возвращается ему, как раньше", async () => {
     const agentId = await makeAgent("Активный держатель");
     const phone = `+992910${runId}`;
@@ -106,7 +141,7 @@ describe("LOST-клиент уволенного/замороженного аг
     expect(updated.escalatedAt).toBeNull();
   });
 
-  it("держатель уволен (isActive:false) — карточка уходит в очередь руководителя", async () => {
+  it("держатель уволен (isActive:false) — карточка автоматически назначается доступному агенту", async () => {
     const agentId = await makeAgent("Уволенный держатель", { isActive: false });
     const phone = `+992911${runId}`;
     const clientId = await makeLostClient(phone, agentId);
@@ -115,11 +150,10 @@ describe("LOST-клиент уволенного/замороженного аг
 
     const updated = await prisma.client.findUniqueOrThrow({ where: { id: clientId } });
     expect(updated.status).toBe("NEW");
-    expect(updated.assignedAgentId).toBeNull();
-    expect(updated.escalatedAt).not.toBeNull();
+    await expectAvailableAutomaticOwner(updated, agentId);
   });
 
-  it("держатель заморожен (frozenAt) — карточка уходит в очередь руководителя", async () => {
+  it("держатель заморожен (frozenAt) — карточка автоматически назначается доступному агенту", async () => {
     const agentId = await makeAgent("Замороженный держатель", { frozenAt: new Date() });
     const phone = `+992912${runId}`;
     const clientId = await makeLostClient(phone, agentId);
@@ -128,11 +162,10 @@ describe("LOST-клиент уволенного/замороженного аг
 
     const updated = await prisma.client.findUniqueOrThrow({ where: { id: clientId } });
     expect(updated.status).toBe("NEW");
-    expect(updated.assignedAgentId).toBeNull();
-    expect(updated.escalatedAt).not.toBeNull();
+    await expectAvailableAutomaticOwner(updated, agentId);
   });
 
-  it("продавец тоже уходит в очередь, если держателя уволили — агента больше нет вовсе", async () => {
+  it("продавец автоматически раздаётся, если держателя уволили", async () => {
     const agentId = await makeAgent("Уволенный держатель продавца", { isActive: false });
     const phone = `+992913${runId}`;
     const clientId = await makeLostClient(phone, agentId, "SELLER");
@@ -141,7 +174,6 @@ describe("LOST-клиент уволенного/замороженного аг
 
     const updated = await prisma.client.findUniqueOrThrow({ where: { id: clientId } });
     expect(updated.status).toBe("NEW");
-    expect(updated.assignedAgentId).toBeNull();
-    expect(updated.escalatedAt).not.toBeNull();
+    await expectAvailableAutomaticOwner(updated, agentId);
   });
 });

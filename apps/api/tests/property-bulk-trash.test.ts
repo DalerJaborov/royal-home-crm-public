@@ -77,6 +77,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  await prisma.investigationCase.deleteMany({ where: { propertyId: { in: propertyIds } } });
   await prisma.deal.deleteMany({ where: { id: { in: dealIds } } });
   await prisma.property.deleteMany({ where: { id: { in: propertyIds } } });
   await prisma.client.deleteMany({ where: { id: { in: clientIds } } });
@@ -86,6 +87,29 @@ afterAll(async () => {
 });
 
 describe("Массовое удаление объектов в Корзину", () => {
+  it("сохраняет структурированную причину и честный legacy-пробел в закрытом досье", async () => {
+    const explicit = await makeProperty();
+    const legacy = await makeProperty();
+    const removed = await request(app).delete(`/api/v1/properties/${explicit.id}`)
+      .set("Authorization", `Bearer ${adminToken}`).send({ removalReason: "OWNER_CANCELLED", removalComment: "Собственник передумал" });
+    expect(removed.status).toBe(204);
+    const oldApi = await request(app).delete(`/api/v1/properties/${legacy.id}`)
+      .set("Authorization", `Bearer ${adminToken}`);
+    expect(oldApi.status).toBe(204);
+    const evidence = await prisma.investigationEvidence.findMany({ where: { case: { propertyId: { in: [explicit.id, legacy.id] } } } });
+    expect(evidence).toHaveLength(2);
+    expect(evidence.some(e => e.kind === "legacy_reason_missing")).toBe(true);
+    expect(evidence.some(e => (e.payload as { reason: string }).reason === "OWNER_CANCELLED")).toBe(true);
+    expect(await prisma.investigationDecision.count({ where: { case: { propertyId: { in: [explicit.id, legacy.id] } } } })).toBe(0);
+  });
+  it("не удаляет объект при невалидной причине", async () => {
+    const property = await makeProperty();
+    const response = await request(app).delete(`/api/v1/properties/${property.id}`)
+      .set("Authorization", `Bearer ${adminToken}`).send({ removalReason: "SOLD_ELSEWHERE", removalComment: "" });
+    expect(response.status).toBe(400);
+    expect((await prisma.property.findUniqueOrThrow({ where: { id: property.id } })).deletedAt).toBeNull();
+    expect(await prisma.investigationCase.count({ where: { propertyId: property.id } })).toBe(0);
+  });
   it("агент без properties.delete не может удалить партию (403)", async () => {
     const property = await makeProperty();
     const res = await request(app)

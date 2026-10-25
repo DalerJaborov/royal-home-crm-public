@@ -7,8 +7,9 @@ import { liveVoiceErrorForPerson } from "../../lib/telephony/liveVoiceUserError.
 import { markAgentAttempt } from "../../lib/clientWorkStalled.js";
 import { Router } from "express";
 import { z } from "zod";
-import { clientMessageSchema, CLIENT_PHONE_MASK_CHAR } from "@royal-home/shared";
+import { clientMessageSchema } from "@royal-home/shared";
 import { maskClientPhone } from "../../lib/clientPhone.js";
+import { resolveClientPhoneSelection } from "../../lib/clientPhoneSelection.js";
 import { prisma } from "../../db.js";
 import { foreignWriteDenied } from "./shared.js";
 import { canAccessAssignedAgent, requireAuth, scopeToOwnAgent } from "../../auth/middleware.js";
@@ -334,6 +335,7 @@ const callBodySchema = z.object({
    *  иначе транк звонок не наберёт, а звонить мимо этой карточки чужому номеру
    *  через эту кнопку нельзя (для этого есть отдельный «Набрать номер»). */
   phone: z.string().min(5).max(30).optional(),
+  phoneKey: z.string().min(1).max(100).optional(),
 });
 
 communicationsRouter.post("/:id/call", requireAuth, async (req, res) => {
@@ -345,7 +347,7 @@ communicationsRouter.post("/:id/call", requireAuth, async (req, res) => {
     select: {
       id: true,
       shortId: true,
-      assignedAgentId: true,
+      assignmentCompletedAt: true, assignedAgentId: true,
       phone: true,
       fullName: true,
       whatsappPhone: true,
@@ -368,6 +370,8 @@ communicationsRouter.post("/:id/call", requireAuth, async (req, res) => {
     if (denied) return res.status(403).json({ error: denied });
   }
   if (client.deletedAt) return res.status(409).json({ error: "Карточка в Корзине — сначала восстановите её" });
+  const selection = resolveClientPhoneSelection(client, parsed.data);
+  if (selection.conflict) return res.status(409).json({ error: "Список номеров изменился или маска неоднозначна. Обновите карточку и выберите номер снова." });
 
   /**
    * ТРОТТЛИНГ ПОВТОРНОГО НАБОРА ПОСЛЕ AGENT_NO_PICKUP (24.09.2026, найдено
@@ -427,10 +431,7 @@ communicationsRouter.post("/:id/call", requireAuth, async (req, res) => {
    * номерами ЭТОЙ карточки. Наружу цифры при этом не уходят: агент отправил то, что
    * ему и так показали, а набирает станция.
    */
-  const knownPhones = [client.phone, ...(client.whatsappPhone ? [client.whatsappPhone] : []), ...client.extraPhones];
-  const requestedPhone = parsed.data.phone?.includes(CLIENT_PHONE_MASK_CHAR)
-    ? knownPhones.find((p) => maskClientPhone(p) === parsed.data.phone)
-    : parsed.data.phone;
+  const requestedPhone = selection.phone;
   if (parsed.data.phone && !requestedPhone) {
     return res.status(400).json({ error: "Этот номер не принадлежит карточке клиента" });
   }
@@ -498,7 +499,7 @@ communicationsRouter.post("/:id/live-voice-call", requireAuth, async (req, res) 
 
   const client = await prisma.client.findUnique({
     where: { id: req.params.id },
-    select: { id: true, shortId: true, assignedAgentId: true, phone: true, fullName: true, deletedAt: true, acceptedAt: true },
+    select: { id: true, shortId: true, assignmentCompletedAt: true, assignedAgentId: true, phone: true, fullName: true, deletedAt: true, acceptedAt: true },
   });
   if (!client) return res.status(404).json({ error: "Клиент не найден" });
   if (!canAccessAssignedAgent(req, client.assignedAgentId)) {
@@ -630,7 +631,7 @@ communicationsRouter.post("/dial", requireAuth, async (req, res) => {
     // к существующей записи, какой бы она ни была.
     const full = await prisma.client.findUniqueOrThrow({
       where: { id: existing.id },
-      select: { id: true, shortId: true, phone: true, fullName: true, assignedAgentId: true },
+      select: { id: true, shortId: true, phone: true, fullName: true, assignedAgentId: true, assignmentCompletedAt: true },
     });
     if (!canAccessAssignedAgent(req, full.assignedAgentId)) {
       return res.status(403).json({ error: "Этот номер уже принадлежит другому клиенту — недостаточно прав" });

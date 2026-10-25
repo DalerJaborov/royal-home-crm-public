@@ -1,3 +1,4 @@
+import { investigationViewerRole } from "../../auth/investigations.js";
 /**
  * ПРОВЕРКА НА ДУБЛЬ ПРИ РАЗДАЧЕ — ПОДТВЕРДИТЬ/ОТКЛОНИТЬ (раздел L, 03.09.2026, план
  * вечерней сессии §L). Устройство — сознательный слепок routes/clients/reactivationOffers.ts:
@@ -107,7 +108,7 @@ duplicateReviewsRouter.post("/:id/duplicate-review/confirm", requireAuth, async 
   if (!merged) return res.status(404).json({ error: "Клиент не найден (гонка с удалением)" });
 
   logAudit(req, "DUPLICATE_REVIEW_CONFIRM", "Client", merged.id, { pendingClientId: req.params.id });
-  res.json({ ok: true, message: "Карточки объединены", client: presentClient(merged, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin")) });
+  res.json({ ok: true, message: "Карточки объединены", client: presentClient(merged, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), investigationViewerRole(req)) });
 });
 
 /**

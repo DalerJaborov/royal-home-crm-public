@@ -607,7 +607,6 @@ export const ROLE_PRESETS: Record<Role, PermissionId[]> = {
   // карточку — roles-check.md §2.1/2.2, слой 3 08.09.2026.
   SECURITY: [
     "clients.viewAll",
-    "clients.securityReview",
     "deals.viewAll",
     "properties.viewOwners",
     "reports.view",
@@ -681,6 +680,14 @@ export const ROLE_PRESETS: Record<Role, PermissionId[]> = {
   ],
 };
 
+export type SellerControlRopRole = Extract<Role, "HEAD_OF_SALES" | "MANAGER" | "ADMIN" | "DIRECTOR">;
+
+/** Roles eligible to receive seller-control ROP tasks. MANAGER remains supported
+ * for existing CRM assignments; this is separate from investigation visibility. */
+export function isSellerControlRopRole(role: string | null | undefined): role is SellerControlRopRole {
+  return role === "HEAD_OF_SALES" || role === "MANAGER" || role === "ADMIN" || role === "DIRECTOR";
+}
+
 export interface PermissionOverrides {
   granted: PermissionId[];
   revoked: PermissionId[];
@@ -744,6 +751,11 @@ export function parsePermissionOverrides(raw: unknown): PermissionOverrides {
  * невозможным повышение до директора через granted, даже если запись в БД
  * подделана в обход API.
  */
+/** Investigation access is a role boundary; personal grants cannot widen it. */
+export function canViewInvestigations(role: string | null | undefined): boolean {
+  return role === "ADMIN" || role === "DIRECTOR";
+}
+
 export function resolvePermissions(role: Role, overrides?: PermissionOverrides | null): Set<PermissionId> {
   if (role === "DIRECTOR") {
     return new Set<PermissionId>(PERMISSION_IDS);
@@ -753,6 +765,7 @@ export function resolvePermissions(role: Role, overrides?: PermissionOverrides |
   for (const id of overrides?.granted ?? []) effective.add(id);
   for (const id of overrides?.revoked ?? []) effective.delete(id);
   for (const id of DIRECTOR_ONLY_PERMISSIONS) effective.delete(id);
+  if (!canViewInvestigations(role)) effective.delete("clients.securityReview");
   return effective;
 }
 
@@ -767,7 +780,8 @@ export function normalizeOverrides(role: Role, overrides: PermissionOverrides): 
   const assignable = new Set<PermissionId>(ASSIGNABLE_PERMISSIONS);
   const revoked = overrides.revoked.filter((id) => assignable.has(id) && preset.has(id));
   const revokedSet = new Set(revoked);
-  const granted = overrides.granted.filter((id) => assignable.has(id) && !preset.has(id) && !revokedSet.has(id));
+  const granted = overrides.granted.filter((id) => assignable.has(id) && !preset.has(id) && !revokedSet.has(id)
+    && (id !== "clients.securityReview" || canViewInvestigations(role)));
   return { granted: [...new Set(granted)], revoked: [...new Set(revoked)] };
 }
 
@@ -775,7 +789,8 @@ export function normalizeOverrides(role: Role, overrides: PermissionOverrides): 
 export function describePermissions(role: Role, overrides?: PermissionOverrides | null) {
   const effective = resolvePermissions(role, overrides);
   const preset = new Set<PermissionId>(role === "DIRECTOR" ? PERMISSION_IDS : (ROLE_PRESETS[role] ?? []));
-  return PERMISSIONS.filter((p) => !("directorOnly" in p) && !("deprecated" in p)).map((p) => ({
+  return PERMISSIONS.filter((p) => !("directorOnly" in p) && !("deprecated" in p)
+    && (p.id !== "clients.securityReview" || canViewInvestigations(role))).map((p) => ({
     ...p,
     enabled: effective.has(p.id),
     /** true — значение отличается от того, что даёт роль по умолчанию. */
@@ -790,7 +805,7 @@ export const ROLE_PRESET_SUMMARY: Record<Role, string> = {
   AGENT: "Только свои объекты, клиенты, сделки, записи собственных разговоров и чаты своих клиентов.",
   MARKETING: "Конвейер подготовки объекта: проверка карточки, фото, видео. Все объекты, без клиентов и денег.",
   EDITOR: "Монтаж видео: видит все объекты, забирает в работу и возвращает готовое.",
-  SECURITY: "Проверка причин закрытия: видит клиентов, сделки и объекты, но ничего не меняет.",
+  SECURITY: "Видит клиентов, сделки и объекты, но ничего не меняет. Конфиденциальные проверки доступны только руководству.",
   SHAREHOLDER: "Видит всё, включая деньги; ничего не меняет; телефоны клиентов скрыты.",
   HEAD_OF_SALES: "Работает как агент и управляет продажами: все клиенты, передачи, одобрение сделок, отчёты по команде; без денег компании и настроек.",
 };

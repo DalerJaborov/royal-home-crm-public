@@ -1,3 +1,4 @@
+import { scheduleManualOwnerVerification } from "../../lib/ownerVerificationSources.js";
 /** Жизненный цикл карточки объекта: POST /, PATCH /:id, POST /:id/complete-editing,
  * DELETE /:id, POST /:id/restore, DELETE /:id/permanent (Г3, §1.3). Перенос verbatim. */
 import { Router } from "express";
@@ -50,6 +51,7 @@ import { reelsCaptionValuesFromProperty, withPostFooter } from "../../lib/reelsC
 import { generateReelsCaptionWithAi } from "../../ai/reelsCaptionAi.js";
 import { loadEventPoints, recordScoreEvent } from "../../lib/scoreJournal.js";
 import { localVideoDelete } from "../../lib/localVideoStorage.js";
+import { removePurgedNarrationAudio } from "../../lib/propertyNarrationCleanup.js";
 import { propertyOwnedFilePaths } from "../../lib/diskCleanup.js";
 import {
   skipVideoHandoffOnManualPublish,
@@ -58,6 +60,9 @@ import {
 import { describeError } from "../../lib/describeError.js";
 import { closeWorkAfterLeavingSale } from "../../lib/propertyLeftSale.js";
 import { reopenWorkAfterRestore, trashProperties, trashProperty } from "../../lib/trashProperty.js";
+import { propertyRemovalSchema } from "@royal-home/shared";
+import { recordPropertyRemoval } from "../../lib/propertyRemovalEvidence.js";
+import { recomputeSellerCardState } from "../../lib/sellerCardState.js";
 import {
   assignableAgentError,
   canManageProperty,
@@ -695,6 +700,7 @@ crudRouter.post("/", requireAuth, async (req, res) => {
       include: { district: true, photos: true },
     });
     if (sourceDraft) draftAttachment = await attachDraftRows(tx, sourceDraft, createdProperty, req.agent!.id, coverUploadKey);
+    await scheduleManualOwnerVerification(tx, createdProperty.id, req.agent!.id);
     return createdProperty;
   }).catch((err) => {
     if (err instanceof DraftConflictError) { res.status(409).json(err.response()); return null; }
@@ -894,6 +900,8 @@ crudRouter.post("/", requireAuth, async (req, res) => {
 });
 
 crudRouter.patch("/:id", requireAuth, async (req, res) => {
+  const removal = propertyRemovalSchema.safeParse(req.body);
+  if (!removal.success) return res.status(400).json({ error: removal.error.issues[0]?.message ?? "Неверная причина снятия" });
   const parsed = propertyUpdateSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
@@ -1377,6 +1385,9 @@ crudRouter.patch("/:id", requireAuth, async (req, res) => {
       if (clientVersion !== undefined && result.count === 0) {
         throw new PropertyConflictError();
       }
+      if (result.count && data.status === "WITHDRAWN" && existing.status !== "WITHDRAWN") {
+        await recordPropertyRemoval(tx, { ...removal.data, propertyId: existing.id, actorId: req.agent!.id, operation: "withdraw" });
+      }
       return tx.property.findUniqueOrThrow({ where: { id: req.params.id } });
     });
   } catch (err) {
@@ -1525,6 +1536,9 @@ crudRouter.patch("/:id", requireAuth, async (req, res) => {
   // «Снято» на сайте не бейдж, как «Продано», а отсутствие объявления: собственник
   // ушёл, и рекламировать его квартиру мы больше не вправе.
   const becameWithdrawn = data.status === "WITHDRAWN" && existing.status !== "WITHDRAWN";
+  if (becameWithdrawn && updated.sellerClientId) {
+    await recomputeSellerCardState({ sellerClientId: updated.sellerClientId, lostReason: removal.data.removalReason ?? null });
+  }
   const becameReserved = data.status === "RESERVED" && existing.status !== "RESERVED";
   // Объект из продажи вернули в подготовку (маркетинг, находка №180): объявление
   // на сайте больше не показывается покупателям так же, как при снятии.
@@ -1732,12 +1746,14 @@ crudRouter.post("/:id/complete-editing", requireAuth, async (req, res) => {
  * он всё равно ДО DELETE /:id — рядом с тем, что делает то же самое.
  */
 crudRouter.post("/bulk-trash", requireAuth, requirePermission("properties.delete"), async (req, res) => {
+  const removal = propertyRemovalSchema.safeParse(req.body);
+  if (!removal.success) return res.status(400).json({ error: removal.error.issues[0]?.message ?? "Неверная причина снятия" });
   const parsed = bulkTrashPropertiesSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
   }
 
-  const results = await trashProperties(parsed.data.ids, req.agent!.id);
+  const results = await trashProperties(parsed.data.ids, req.agent!.id, removal.data);
 
   // Журнал — построчно и тем же действием TRASH, что и одиночное удаление:
   // история объекта не должна зависеть от того, каким входом его удалили.
@@ -1774,7 +1790,9 @@ crudRouter.post("/bulk-trash", requireAuth, requirePermission("properties.delete
  * (routes/properties/deleteRequests.ts), и второй копии этой логики быть не
  * должно — см. комментарий там и урок trashClient.ts. */
 crudRouter.delete("/:id", requireAuth, requirePermission("properties.delete"), async (req, res) => {
-  const result = await trashProperty(req.params.id, req.agent!.id);
+  const removal = propertyRemovalSchema.safeParse(req.body ?? {});
+  if (!removal.success) return res.status(400).json({ error: removal.error.issues[0]?.message ?? "Неверная причина снятия" });
+  const result = await trashProperty(req.params.id, req.agent!.id, removal.data);
   if (!result.ok) return res.status(result.status).json({ error: result.error });
 
   logAudit(req, "TRASH", "Property", result.property.id, {
@@ -1871,7 +1889,12 @@ crudRouter.delete("/:id/permanent", requireAuth, requirePermission("properties.p
    * сохраняются, основной объект пересчитывается, assetCount не уменьшается — объявление
    * встаёт в «нужна проверка», а не тихо переписывает деньги.
    */
-  const detachedAds = await prisma.$transaction(async (tx) => {
+  const purge = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "Property" WHERE id = ${property.id} FOR UPDATE`;
+    const current = await tx.property.findUnique({ where: { id: property.id }, select: { deletedAt: true, _count: { select: { deals: true } } } });
+    if (!current?.deletedAt || current._count.deals > 0) return null;
+    const narration = await tx.propertyNarrationVersion.findMany({ where: { propertyId: property.id }, select: { id: true, status: true } });
+    if (narration.some(version => version.status === "GENERATING")) return null;
     await tx.interaction.updateMany({ where: { propertyId: property.id }, data: { propertyId: null } });
     for (const s of openShowings) {
       await tx.interaction.update({
@@ -1885,9 +1908,11 @@ crudRouter.delete("/:id/permanent", requireAuth, requirePermission("properties.p
     }
     const detached = await detachPropertyFromAds(tx, property.id);
     await tx.property.delete({ where: { id: property.id } });
-    return detached;
+    return { detached, narrationIds: narration.map(version => version.id) };
   });
-  for (const d of detachedAds) {
+  if (!purge) return res.status(409).json({ error: "Объект изменился или озвучка ещё генерируется. Обновите карточку перед удалением." });
+  await removePurgedNarrationAudio(property.id, purge.narrationIds);
+  for (const d of purge.detached) {
     logAudit(req, "UPDATE", "Ad", d.adId, {
       reason: "property-purged",
       propertyId: property.id,

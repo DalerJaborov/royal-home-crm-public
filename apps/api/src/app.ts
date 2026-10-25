@@ -80,6 +80,7 @@ import { instagramCommentsRouter } from "./routes/instagramComments.js";
 import { leadMagnetsRouter } from "./routes/leadMagnets.js";
 import { vacanciesRouter } from "./routes/vacancies.js";
 import { securityRouter } from "./routes/security.js";
+import { manualDataCorrectionsRouter } from "./routes/manualDataCorrections.js";
 import { marketingRouter } from "./routes/marketing.js";
 import { socialVideosRouter } from "./routes/socialVideos.js";
 import { adsRouter, adsCallbackRouter } from "./routes/ads.js";
@@ -733,6 +734,7 @@ app.use("/api/v1/expenses", expensesRouter);
 // Расчёты поверх денег (прогноз комиссии) — рядом с расходами, но своим путём.
 app.use("/api/v1/finance", financeRouter);
 app.use("/api/v1/security", securityRouter);
+app.use("/api/v1/maintenance/data-corrections", manualDataCorrectionsRouter);
 app.use("/api/v1/marketing", marketingRouter);
 // Свободные ролики в соцсети (12.10.2026): промо-ролик без объекта, кросспостинг по выбору.
 app.use("/api/v1/social-videos", socialVideosRouter);

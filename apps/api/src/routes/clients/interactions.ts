@@ -1,8 +1,11 @@
+import { canReadInvestigations } from "../../auth/investigations.js";
+import { canViewInvestigations } from "@royal-home/shared";
 /**
  * Хронология: POST /:id/interactions и решение СБ POST /:id/security-review
  * (Г2, §1.2). Перенос verbatim.
  */
 import { Router } from "express";
+import { syncLegacyInvestigationVerdict } from "../../lib/investigationCases.js";
 import {
   interactionCreateSchema,
   securityReviewSchema,
@@ -289,6 +292,7 @@ interactionsRouter.post(
   requireAuth,
   requirePermission("clients.securityReview"),
   async (req, res) => {
+    if (!canReadInvestigations(req)) return res.status(403).json({ error: "Недостаточно прав" });
     const parsed = securityReviewSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
@@ -302,7 +306,12 @@ interactionsRouter.post(
     const { verdict, note, noteVoiceUrl, noteVoiceTranscript } = parsed.data;
     const label = SECURITY_REVIEW_LABELS[verdict];
 
-    await prisma.$transaction(async (tx) => {
+    const reviewed = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "Client" WHERE id = ${client.id} FOR UPDATE`;
+      const current = await tx.client.findUnique({ where: { id: client.id } });
+      if (!current || current.deletedAt || current.securityReview !== "PENDING") return false;
+      const openDeal = await tx.deal.findFirst({ where: { clientId: client.id,
+        stage: { notIn: ["COMPLETED", "CANCELLED"] } }, select: { id: true } });
       await tx.client.update({
         where: { id: client.id },
         data: {
@@ -312,7 +321,7 @@ interactionsRouter.post(
           securityNote: note?.trim() || null,
           // Карточка закрывается только ПОСЛЕ вердикта — до него она висела в
           // прежнем статусе нарочно, чтобы не выглядеть решённой.
-          status: "ARCHIVED",
+          ...(!current.dualIntent && !openDeal ? { status: "ARCHIVED" as const } : {}),
         },
       });
       await logTimeline({
@@ -320,6 +329,8 @@ interactionsRouter.post(
         actor: { kind: "agent", agentId: req.agent!.id },
         type: "SYSTEM",
         outcome: verdict === "CONFIRMED" ? "NEGATIVE" : "NEUTRAL",
+        investigationOnly: true,
+        investigationOrigin: { sourceType: "investigation-decision", sourceId: client.id, independenceKey: `manual:${req.agent!.id}`, kind: "verdict" },
         notes: [`Служба безопасности: ${label}`, note?.trim() ? `Установлено: ${note.trim()}` : null]
           .filter(Boolean)
           .join(". "),
@@ -331,7 +342,11 @@ interactionsRouter.post(
         voiceNoteTranscript: noteVoiceTranscript ?? null,
         tx,
       });
+      await syncLegacyInvestigationVerdict(tx, { clientId: client.id, assignmentAt: current.assignedAt,
+        subjectAgentId: current.assignedAgentId, actorId: req.agent!.id, verdict, note: note?.trim() || `Решение руководителя: ${label}` });
+      return true;
     });
+    if (!reviewed) return res.status(409).json({ error: "Проверка уже завершена или карточка изменилась — обновите страницу" });
 
     logAudit(req, "CLIENT_SECURITY_REVIEW", "Client", client.id, { verdict });
 

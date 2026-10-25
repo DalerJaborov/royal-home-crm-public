@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderToString } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { callbackRequestViewSchema } from "@royal-home/shared";
-import { CustomerRequestsPanel } from "../chat/CustomerRequestsPanel";
+import { callbackRequestConversationIds, CustomerRequestsPanel } from "../chat/CustomerRequestsPanel";
 
 const view = vi.hoisted(() => ({ agentId: "agent-a", allowed: true }));
 vi.mock("../../store/auth", async importOriginal => ({ ...(await importOriginal<typeof import("../../store/auth")>()),
@@ -12,17 +12,17 @@ vi.mock("../../store/auth", async importOriginal => ({ ...(await importOriginal<
 vi.mock("../../lib/permissions", async importOriginal => ({ ...(await importOriginal<typeof import("../../lib/permissions")>()),
   useCan: () => () => view.allowed,
 }));
-const conversationId = "conversation-a";
+const conversationId = "00000000-0000-4000-8000-000000000001";
 function item(overrides: Record<string, unknown> = {}) {
   return callbackRequestViewSchema.parse({ id: "ec811ec4-3693-44d8-b071-b28654347e35", requestKind: "CALLBACK", lifecycleStatus: "QUEUED",
     lifecycleRevision: "7", assignedAgentId: null, acceptedAt: null, closureReason: null, topic: "Набрать вечером",
     channel: "INSTAGRAM", phone: null, requestedAt: "2026-10-15T10:00:00Z", conversationId,
     clientId: null, clientShortId: null, clientName: null, ...overrides });
 }
-function render(rows = [item()], cacheConversation = conversationId, cacheAgent = view.agentId) {
+function render(rows = [item()], cacheConversation = conversationId, cacheAgent = view.agentId, conversationIds = [conversationId]) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity }, mutations: { retry: false } } });
   client.setQueryData(["customer-requests", cacheConversation, cacheAgent], rows);
-  const html = renderToString(<QueryClientProvider client={client}><CustomerRequestsPanel conversationId={conversationId} /></QueryClientProvider>);
+  const html = renderToString(<QueryClientProvider client={client}><CustomerRequestsPanel conversationIds={conversationIds} /></QueryClientProvider>);
   client.clear(); return html.replace(/<!-- -->/g, "");
 }
 beforeEach(() => { view.agentId = "agent-a"; view.allowed = true; });
@@ -43,11 +43,28 @@ describe("conversation-local customer requests SSR", () => {
     expect(html).toContain("Принят другим сотрудником"); expect(html).not.toContain("<button");
   });
   it("another conversation or actor cache cannot become this conversation's panel", () => {
-    expect(render([item({ topic: "FOREIGN-CONVERSATION-SENTINEL" })], "conversation-b")).not.toContain("FOREIGN-CONVERSATION-SENTINEL");
+    expect(render([item({ topic: "FOREIGN-CONVERSATION-SENTINEL" })], "00000000-0000-4000-8000-000000000002")).not.toContain("FOREIGN-CONVERSATION-SENTINEL");
     expect(render([item({ topic: "FOREIGN-ACTOR-SENTINEL" })], conversationId, "agent-b")).not.toContain("FOREIGN-ACTOR-SENTINEL");
   });
   it("missing permission or signed-in actor hides a populated cached panel", () => {
     view.allowed = false; expect(render()).toBe("");
     view.allowed = true; view.agentId = ""; expect(render()).toBe("");
+  });
+  it("aggregates only UUID-backed native sources for a grouped client", () => {
+    const sourceB = "00000000-0000-4000-8000-000000000002";
+    const sourceC = "00000000-0000-4000-8000-000000000003";
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
+    client.setQueryData(["customer-requests", conversationId, view.agentId], [item({ id: "ec811ec4-3693-44d8-b071-b28654347e35", topic: "FIRST-SOURCE-TASK" })]);
+    client.setQueryData(["customer-requests", sourceB, view.agentId], [item({ id: "ac811ec4-3693-44d8-b071-b28654347e35", conversationId: sourceB, topic: "SECOND-SOURCE-TASK" })]);
+    client.setQueryData(["customer-requests", sourceC, view.agentId], [item({ id: "bc811ec4-3693-44d8-b071-b28654347e35", conversationId: sourceC, topic: "UNLINKED-SOURCE-SENTINEL" })]);
+    const html = renderToString(<QueryClientProvider client={client}><CustomerRequestsPanel conversationIds={[conversationId, `tg_${sourceB}`, `td_${sourceC}`, sourceB]} /></QueryClientProvider>);
+    client.clear();
+    expect(html).toContain("FIRST-SOURCE-TASK");
+    expect(html).toContain("SECOND-SOURCE-TASK");
+    expect(html).not.toContain("UNLINKED-SOURCE-SENTINEL");
+  });
+  it("rejects group IDs and Telegram-prefixed IDs before issuing the UUID query", () => {
+    expect(callbackRequestConversationIds(["client:client-id", "tg_00000000-0000-4000-8000-000000000001", "td_00000000-0000-4000-8000-000000000002", conversationId, conversationId]))
+      .toEqual([conversationId]);
   });
 });

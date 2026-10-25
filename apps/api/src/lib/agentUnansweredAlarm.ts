@@ -185,6 +185,7 @@ export async function findUnansweredClients(now: Date = new Date()): Promise<Una
     SELECT "id" FROM "Client"
     WHERE "kind" <> 'OTHER'
       AND "deletedAt" IS NULL
+      AND "assignmentCompletedAt" IS NULL
       AND "assignedAgentId" IS NOT NULL
       AND "acceptedAt" IS NOT NULL
       AND "lastClientMessageAt" IS NOT NULL

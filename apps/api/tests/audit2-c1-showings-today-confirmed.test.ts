@@ -58,6 +58,20 @@ afterAll(async () => {
 });
 
 describe("loadShowingsToday: confirmed считается по всем показам суток, не по превью", () => {
+  it("приватные показы скрыты до подсчёта, отменённые не считаются даже администратору", async () => {
+    await prisma.interaction.updateMany({ where: { id: { in: interactionIds.slice(0, 2) } }, data: { investigationOnly: true } });
+    await prisma.interaction.update({ where: { id: interactionIds[2] }, data: { taskCancelledAt: NOW } });
+    try {
+      const ordinary = await loadShowingsToday(NOW, "MANAGER");
+      const admin = await loadShowingsToday(NOW, "ADMIN");
+      expect(ordinary.count).toBe(7);
+      expect(ordinary.confirmed).toBe(6);
+      expect(admin.count).toBe(9);
+      expect(admin.confirmed).toBe(8);
+    } finally {
+      await prisma.interaction.updateMany({ where: { id: { in: interactionIds } }, data: { investigationOnly: false, taskCancelledAt: null } });
+    }
+  });
   it("10 показов, 9 подтверждены, в превью 6 строк: confirmed = 9", async () => {
     const res = await loadShowingsToday(NOW);
     expect(res.count).toBe(10);

@@ -1,3 +1,4 @@
+import { filterInvestigationRecipients } from "./lib/investigationNotifications.js";
 import webpush from "web-push";
 import type { Prisma } from "./generated/prisma/client.js";
 import type { PushPayload } from "@royal-home/shared";
@@ -293,6 +294,7 @@ function maskPayloadPhones(payload: PushPayload): PushPayload {
 }
 
 export async function sendPushToAgent(agentId: string, payload: PushPayload): Promise<number> {
+  if (!(await filterInvestigationRecipients([agentId], payload)).length) return 0;
   const { granted } = await partitionByPermission([agentId], "clients.viewPhone");
   if (granted.length === 0) payload = maskPayloadPhones(payload);
   void createNotification({
@@ -325,6 +327,7 @@ export async function sendPushToAgent(agentId: string, payload: PushPayload): Pr
  * растёт произведением, а не суммой.
  */
 export async function sendPushToAgents(agentIds: string[], payload: PushPayload): Promise<number> {
+  agentIds = await filterInvestigationRecipients(agentIds, payload);
   if (agentIds.length === 0) return 0;
   // Телефон клиента — по получателю (см. maskPayloadPhones выше): один и тот же
   // текст уходит пачке сотрудников с разными правами, поэтому получатели
@@ -372,6 +375,7 @@ async function sendPushToAgentsSameText(agentIds: string[], payload: PushPayload
  * иначе пуш пройдёт мимо и ленты, и тихих часов.
  */
 export async function deliverPushToAgents(agentIds: string[], payload: PushPayload): Promise<number> {
+  agentIds = await filterInvestigationRecipients(agentIds, payload);
   if (!configured || agentIds.length === 0) return 0;
   // Только действующим сотрудникам (23.09.2026): отключённому уволенному на
   // телефон продолжали приходить пуши с именами и телефонами клиентов — клиенты

@@ -36,6 +36,10 @@ async function agentWith(name: string, granted: string[], revoked: string[] = []
 }
 
 beforeAll(async () => {
+  const adminId = await createTestAgent("Администратор Прослушки");
+  ids.push(adminId);
+  await prisma.agent.update({ where: { id: adminId }, data: { role: "ADMIN" } });
+  tokens.admin = signAccessToken({ sub: adminId, role: "ADMIN" });
   tokens.listener = await agentWith("Слушатель Полный", [
     "settings.manage",
     "calls.transcripts",
@@ -60,16 +64,34 @@ afterAll(async () => {
 
 afterEach(() => resetLiveVoiceMonitorForTests());
 
-const startCall = (transcript: string[] = []) =>
+const startCall = (transcript: string[] = [], investigationOnly = false) =>
   sessionStarted({
     key: SESSION_ID,
     channelId: "ch-route",
+    investigationOnly,
     callerNumber: "+992901234567",
     direction: "inbound",
     backlog: () => transcript.map((t) => ({ role: "client" as const, text: t })),
   });
 
 describe("доступ к прослушке", () => {
+  it("права на обычные звонки не открывают проверку: список и прямой поток закрыты", async () => {
+    startCall(["Закрытая проверка"], true);
+    const list = await request(app).get("/api/v1/live-voice/active").set("Authorization", `Bearer ${tokens.listener}`);
+    expect(list.status).toBe(200);
+    expect(list.body.sessions).toEqual([]);
+    const stream = await request(app).get(`/api/v1/live-voice/${SESSION_ID}/listen`).set("Authorization", `Bearer ${tokens.listener}`);
+    expect(stream.status).toBe(404);
+    expect(stream.text).not.toContain("Закрытая проверка");
+  });
+
+  it("администратор видит текущую закрытую проверку", async () => {
+    startCall([], true);
+    const list = await request(app).get("/api/v1/live-voice/active").set("Authorization", `Bearer ${tokens.admin}`);
+    expect(list.status).toBe(200);
+    expect(list.body.sessions).toHaveLength(1);
+    expect(list.body.sessions[0].id).toBe(SESSION_ID);
+  });
   it("без входа — 401", async () => {
     expect((await request(app).get("/api/v1/live-voice/active")).status).toBe(401);
   });
@@ -107,6 +129,85 @@ describe("доступ к прослушке", () => {
 });
 
 describe("поток событий", () => {
+  it("отзыв securityReview без смены ADMIN закрывает private stream, но сохраняет обычный", async () => {
+    const id = await createTestAgent("Отзыв права открытой Прослушки"); ids.push(id);
+    await prisma.agent.update({ where: { id }, data: { role: "ADMIN", permissions: { granted: [], revoked: [] } } });
+    const token = signAccessToken({ sub: id, role: "ADMIN" });
+    const ordinaryId = "6f1c1b0e-6a5d-4f0e-9b1e-0a7d4c3b2a11";
+    startCall(["Private before revoke"], true);
+    sessionStarted({ key: ordinaryId, channelId: "ordinary-revocation-control", investigationOnly: false,
+      callerNumber: "+992901234568", direction: "inbound", backlog: () => [{ role: "client", text: "Public before revoke" }] });
+    const connections: http.ClientRequest[] = [];
+    const open = (sessionId: string) => {
+      const chunks: string[] = []; let ended = false;
+      let finish: () => void = () => {};
+      const closed = new Promise<void>(resolve => { finish = resolve; });
+      const ready = new Promise<void>((resolve, reject) => {
+        const req = http.get({ port, path: `/api/v1/live-voice/${sessionId}/listen`, headers: { Authorization: `Bearer ${token}` } }, res => {
+          if (res.statusCode !== 200) { reject(new Error(`Unexpected stream status ${res.statusCode}`)); res.resume(); return; }
+          res.setEncoding("utf8");
+          res.on("data", (chunk: string) => { chunks.push(chunk); if (chunks.join("").includes("event: backlog")) resolve(); });
+          res.on("end", () => { ended = true; finish(); }); res.on("error", reject);
+        });
+        connections.push(req); req.on("error", reject);
+      });
+      return { chunks, ready, closed, ended: () => ended };
+    };
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const privateStream = open(SESSION_ID), ordinary = open(ordinaryId);
+      await Promise.all([privateStream.ready, ordinary.ready]);
+      await prisma.agent.update({ where: { id }, data: { permissions: { granted: [], revoked: ["clients.securityReview"] } } });
+      // Do not invalidate auth cache: this verifies the open-stream database heartbeat itself.
+      await Promise.race([privateStream.closed, new Promise<never>((_resolve, reject) => {
+        deadline = setTimeout(() => reject(new Error("Private stream survived the 15s permission heartbeat")), 20_000);
+      })]);
+      expect((await prisma.agent.findUniqueOrThrow({ where: { id }, select: { role: true } })).role).toBe("ADMIN");
+      expect(ordinary.ended()).toBe(false);
+      publishTranscript(SESSION_ID, "bot", "Private after revoke");
+      publishTranscript(ordinaryId, "bot", "Public after revoke");
+      for (let tries = 0; tries < 40 && !ordinary.chunks.join("").includes("Public after revoke"); tries++) await new Promise(resolve => setTimeout(resolve, 25));
+      expect(privateStream.chunks.join("")).not.toContain("Private after revoke");
+      expect(ordinary.chunks.join("")).toContain("Public after revoke");
+    } finally {
+      if (deadline) clearTimeout(deadline);
+      for (const connection of connections) connection.destroy();
+      sessionEnded(SESSION_ID, "fixture_cleanup"); sessionEnded(ordinaryId, "fixture_cleanup");
+    }
+  }, 25_000);
+
+  it("закрывает уже открытый поток проверки после понижения администратора", async () => {
+    const id = await createTestAgent("Отозванная Прослушка");
+    ids.push(id);
+    await prisma.agent.update({ where: { id }, data: { role: "ADMIN" } });
+    const token = signAccessToken({ sub: id, role: "ADMIN" });
+    startCall(["До отзыва"], true);
+    const chunks: string[] = [];
+    let demoted = false;
+    await new Promise<void>((resolve, reject) => {
+      const req = http.get(
+        { port, path: `/api/v1/live-voice/${SESSION_ID}/listen`, headers: { Authorization: `Bearer ${token}` } },
+        (res) => {
+          expect(res.statusCode).toBe(200);
+          res.setEncoding("utf8");
+          res.on("data", (chunk: string) => {
+            chunks.push(chunk);
+            if (!demoted && chunks.join("").includes("event: backlog")) {
+              demoted = true;
+              void prisma.agent.update({ where: { id }, data: { role: "AGENT" } }).catch(reject);
+            }
+          });
+          res.on("end", resolve);
+          res.on("error", reject);
+        }
+      );
+      req.on("error", reject);
+    });
+    expect(demoted).toBe(true);
+    publishTranscript(SESSION_ID, "bot", "После отзыва");
+    expect(chunks.join("")).not.toContain("После отзыва");
+  }, 25_000);
+
   it("отдаёт накопленное, потом живые реплики и звук, в конце — end и закрытие", async () => {
     startCall(["Алло"]);
     const chunks: string[] = [];

@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
+import type { PropertyRemovalInput } from "@royal-home/shared";
+import { PropertyRemovalDialog } from "../components/PropertyRemovalDialog";
 import { ChevronDown, Plus, SlidersHorizontal } from "lucide-react";
 import { useCleanShell } from "../hooks/useCleanShell";
 import { CButton } from "../components/clean/ui";
@@ -317,10 +319,10 @@ export function Properties() {
    * остальные. Неудавшиеся ОСТАЮТСЯ отмеченными — человек видит ровно те строки,
    * с которыми ещё предстоит разобраться, а не ищет их заново среди пятидесяти.
    */
-  async function trashSelected() {
+  async function trashSelected(body: PropertyRemovalInput) {
     setBulkError(null);
     try {
-      const result = await bulkTrash.mutateAsync([...selectedIds]);
+      const result = await bulkTrash.mutateAsync({ ids: [...selectedIds], ...body });
       const failed = result.results.filter((r) => !r.ok);
       const trashed = result.results.filter((r) => r.ok).map((r) => r.id);
       if (trashed.length > 0) setTrashedIds((prev) => new Set([...prev, ...trashed]));
@@ -339,8 +341,6 @@ export function Properties() {
     }
   }
 
-  const handleBulkAction = (action: BulkAction) =>
-    action === "trash" ? trashSelected() : syncIds([...selectedIds], action);
   const handleRowPublishToggle = (id: string, action: "publish" | "unpublish") => syncIds([id], action);
 
   const allOnPageSelected = !!feedData && feedData.items.length > 0 && feedData.items.every((p) => selectedIds.has(p.id));
@@ -360,7 +360,10 @@ export function Properties() {
   // расходились при каждой правке текста.
   const bulkBusy = syncToSite.isPending || bulkTrash.isPending;
 
-  const bulkConfirmDialog = confirmBulkAction && (
+  const bulkConfirmDialog = confirmBulkAction === "trash" ? <PropertyRemovalDialog propertyIds={[...selectedIds]}
+    title={BULK_CONFIRM.trash.title} description={`${BULK_CONFIRM.trash.describe(selectedIds.size)} Указанная причина относится ко всем выбранным объектам.`}
+    confirmLabel={BULK_CONFIRM.trash.confirmLabel} onClose={() => setConfirmBulkAction(null)} onConfirm={trashSelected}
+  /> : confirmBulkAction && (
     <ConfirmDialog
       title={BULK_CONFIRM[confirmBulkAction].title}
       description={BULK_CONFIRM[confirmBulkAction].describe(selectedIds.size)}
@@ -368,7 +371,7 @@ export function Properties() {
       danger={BULK_CONFIRM[confirmBulkAction].danger}
       onCancel={() => setConfirmBulkAction(null)}
       onConfirm={() => {
-        void handleBulkAction(confirmBulkAction);
+        void syncIds([...selectedIds], confirmBulkAction);
         setConfirmBulkAction(null);
       }}
     />

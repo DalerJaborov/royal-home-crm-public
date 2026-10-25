@@ -1,3 +1,4 @@
+import { canViewInvestigations } from "@royal-home/shared";
 import type { PermissionId } from "@royal-home/shared";
 import { maskPhonesDeep, phoneSafeText } from "./clientPhone.js";
 
@@ -87,6 +88,7 @@ export interface InteractionWithRecording {
 
 /** Что этот сотрудник вправе услышать и прочитать. */
 export interface TranscriptAccess {
+  investigations?: boolean;
   /** Кто смотрит — по нему разговор считается своим или чужим. */
   viewerId: string | null;
   /** Право на ЧУЖИЕ разговоры (calls.transcripts). */
@@ -116,11 +118,12 @@ export interface TranscriptAccess {
 
 /** Из req.agent — без импорта express в общий модуль правил. */
 export function transcriptAccess(
-  agent: { id: string; can: (permission: PermissionId) => boolean } | undefined
+  agent: { id: string; role?: string; can: (permission: PermissionId) => boolean } | undefined
 ): TranscriptAccess {
   if (!agent) return { viewerId: null, all: false, own: false, phone: false, hearRecording: false };
   return {
     viewerId: agent.id,
+    investigations: canViewInvestigations(agent.role) && agent.can("clients.securityReview"),
     all: agent.can("calls.transcripts"),
     own: agent.can("calls.ownTranscripts"),
     phone: agent.can("clients.viewPhone"),
@@ -270,7 +273,7 @@ export function presentInteractions<T extends InteractionWithRecording & { id: s
   /** id записей с расшифровкой — когда выборка шла без самого текста (см. выше). */
   transcriptIds?: ReadonlySet<string>
 ): PresentedInteraction<T>[] {
-  return interactions.map((i) =>
+  return interactions.filter((i) => access.investigations || !(i as { investigationOnly?: boolean }).investigationOnly).map((i) =>
     presentInteraction(i, access, routedToViewersClientIds?.has(i.id) ?? false, transcriptIds?.has(i.id))
   );
 }

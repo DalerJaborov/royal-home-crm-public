@@ -1,3 +1,4 @@
+import { captureExplicitClientPhone } from "../clientPhoneCapture.js";
 import { runClientAutopilotInBackground } from "../clientAutopilot.js";
 import { prisma } from "../../db.js";
 import { scheduleSellerFactsRefresh } from "../sellerFacts.js";
@@ -1190,6 +1191,7 @@ async function transcribeAndEnrich(params: {
   const context = await prisma.interaction.findUnique({
     where: { id: interactionId },
     select: {
+      clientId: true, createdAt: true, investigationOnly: true,
       client: { select: { phone: true, whatsappPhone: true, extraPhones: true } },
       agent: { select: { fullName: true, sipExtension: true } },
     },
@@ -1267,6 +1269,10 @@ async function transcribeAndEnrich(params: {
    * `context` уже поднят выше (для transcribeOptions) — второй одинаковый запрос
    * здесь не нужен.
    */
+  if (context?.clientId && !context.investigationOnly) {
+    await captureExplicitClientPhone({ kind: "CALL", id: interactionId, clientId: context.clientId, at: context.createdAt, text })
+      .catch(error => { void logSystemError("telephony", "Сохранение подтверждённого номера из звонка: " + (error instanceof Error ? error.name : "UnknownError"), { dedupKey: "call-confirmed-phone-capture-failed" }); });
+  }
   let scrubbed: { text: string; mentionedPhonesEncrypted: string[] };
   try {
     scrubbed = scrubMentionedPhones(

@@ -1,3 +1,4 @@
+import { visibleInteractionWhere } from "../lib/investigationPrivacy.js";
 import { expenseCentsToTjs } from "../lib/money.js";
 import { prisma } from "../db.js";
 import { geminiFunctionResponsePart } from "./providerContract.js";
@@ -777,7 +778,7 @@ export async function runTool(name: string, input: Record<string, unknown>, acto
       return { error: "Нет доступа: клиент закреплён за другим агентом" };
     }
     const interactions = await prisma.interaction.findMany({
-      where: { clientId: client.id },
+      where: { clientId: client.id, ...visibleInteractionWhere(actor.role) },
       orderBy: { createdAt: "desc" },
       take: 10,
       include: { agent: { select: { fullName: true } } },

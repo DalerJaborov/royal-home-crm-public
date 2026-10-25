@@ -92,6 +92,7 @@ export async function executeCustomerShowingTx(tx: TxClient, input: Reference & 
       WHERE a."inquiryId"=${input.inquiryId} AND a."kind"='book_showing' AND a."status"='COMMITTED'
         AND a."resourceType"='Interaction' AND a."bindingRevision"=i."bindingRevision"
         AND s."clientId"=${input.clientId} AND s."nextAction" IS NOT NULL AND s."completedAt" IS NULL
+        AND s."taskCancelledAt" IS NULL
         AND s."nextActionDate" IS NOT NULL LIMIT 2`;
     if (eligible.length !== 1 || eligible[0].id !== origin.interactionId) throw new ShowingMutationError("stale_showing");
   }
@@ -100,7 +101,7 @@ export async function executeCustomerShowingTx(tx: TxClient, input: Reference & 
   let originBookingActionId: string;
   if (input.kind === "book_showing") {
     if (!input.propertyId) throw new ShowingMutationError("no_property");
-    if (await tx.interaction.findFirst({ where: { clientId: input.clientId, type: "SHOWING", completedAt: null,
+    if (await tx.interaction.findFirst({ where: { clientId: input.clientId, type: "SHOWING", completedAt: null, taskCancelledAt: null,
       nextAction: { not: null }, nextActionDate: { gte: input.now } }, select: { id: true } })) throw new ShowingMutationError("stale_showing");
     if (!input.validateLockedTarget) throw new ShowingMutationError("stale_showing");
     await input.validateLockedTarget(tx);

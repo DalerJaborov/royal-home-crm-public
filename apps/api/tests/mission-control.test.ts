@@ -1,7 +1,9 @@
+import { invalidateAgentAccess } from "../src/auth/middleware.js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import request from "supertest";
 import { app } from "../src/app.js";
 import { prisma } from "../src/db.js";
+import { Prisma } from "../src/generated/prisma/client.js";
 import { signAccessToken } from "../src/auth/jwt.js";
 import { dushanbeWallClock } from "../src/lib/dushanbeTime.js";
 import { invalidateMissionControlCache } from "../src/lib/missionControlCache.js";
@@ -59,6 +61,60 @@ afterAll(async () => {
 });
 
 describe("GET /dashboard/mission-control", () => {
+  it("ADMIN с отозванным securityReview не видит приватный cron даже с доступом к пульту", async () => {
+    const name = "seller-probe-call";
+    const previous = await prisma.cronHeartbeat.findUnique({ where: { name } });
+    const adminBefore = await prisma.agent.findUniqueOrThrow({ where: { id: adminId }, select: { permissions: true } });
+    await prisma.cronHeartbeat.upsert({ where: { name }, create: { name, expr: "25 * * * *", lastError: "private-cron-canary" }, update: { lastError: "private-cron-canary" } });
+    try {
+      await prisma.agent.update({ where: { id: adminId }, data: { permissions: { granted: [], revoked: ["clients.securityReview"] } } });
+      invalidateAgentAccess(adminId);
+      invalidateMissionControlCache();
+      const response = await missionControl(adminToken);
+      expect(response.status).toBe(200);
+      expect(response.body.system?.crons?.some((row: { name: string }) => row.name === name)).toBe(false);
+      expect(JSON.stringify(response.body)).not.toContain("private-cron-canary");
+    } finally {
+      await prisma.agent.update({ where: { id: adminId }, data: { permissions: adminBefore.permissions ?? {} } });
+      invalidateAgentAccess(adminId);
+      if (previous) await prisma.cronHeartbeat.update({ where: { name }, data: { lastError: previous.lastError } });
+      else await prisma.cronHeartbeat.deleteMany({ where: { name } });
+      invalidateMissionControlCache();
+    }
+  });
+  it("приватный звонок исключён из счётчика менеджера и остаётся администратору", async () => {
+    const client = await prisma.client.create({ data: { fullName: "Private call count fixture", phone: `+992799${runId}`, source: "WALK_IN" } });
+    const permissionsBefore = (await prisma.agent.findUniqueOrThrow({ where: { id: adminId }, select: { permissions: true } })).permissions;
+    try {
+      invalidateMissionControlCache();
+      const before = await missionControl(managerToken);
+      const adminBefore = await missionControl(adminToken);
+      await prisma.interaction.create({ data: { clientId: client.id, actorKind: "SYSTEM", type: "CALL", notes: "Private call count fixture", investigationOnly: true } });
+      await prisma.interaction.create({ data: { clientId: client.id, actorKind: "SYSTEM", type: "SHOWING", notes: "Private chart fixture", investigationOnly: true } });
+      invalidateMissionControlCache();
+      // Populate privileged cache first, then check the ordinary viewer.
+      const adminAfter = await missionControl(adminToken);
+      const after = await missionControl(managerToken);
+      expect(after.status).toBe(200);
+      expect(after.body.calls.today.outgoing).toBe(before.body.calls.today.outgoing);
+      expect(adminAfter.body.calls.today.outgoing).toBe(adminBefore.body.calls.today.outgoing + 1);
+      expect(after.body.marketing.pulse30.showingsTotal).toBe(before.body.marketing.pulse30.showingsTotal);
+      expect(adminAfter.body.marketing.pulse30.showingsTotal).toBe(adminBefore.body.marketing.pulse30.showingsTotal + 1);
+      await prisma.agent.update({ where: { id: adminId }, data: { permissions: { granted: [], revoked: ["clients.securityReview"] } } });
+      invalidateAgentAccess(adminId);
+      invalidateMissionControlCache();
+      const revoked = await missionControl(adminToken);
+      expect(revoked.status).toBe(200);
+      expect(revoked.body.calls.today.outgoing).toBe(after.body.calls.today.outgoing);
+      expect(revoked.body.marketing.pulse30.showingsTotal).toBe(after.body.marketing.pulse30.showingsTotal);
+    } finally {
+      await prisma.agent.update({ where: { id: adminId }, data: { permissions: permissionsBefore === null ? Prisma.DbNull : permissionsBefore } });
+      invalidateAgentAccess(adminId);
+      await prisma.interaction.deleteMany({ where: { clientId: client.id } });
+      await prisma.client.delete({ where: { id: client.id } });
+      invalidateMissionControlCache();
+    }
+  });
   it("рядовому агенту закрыт — нет dashboard.analytics", async () => {
     const res = await missionControl(agentToken);
     expect(res.status).toBe(403);

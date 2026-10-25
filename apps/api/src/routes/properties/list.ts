@@ -1,3 +1,4 @@
+import { visibleErrorLogs } from "../../lib/systemErrorVisibility.js";
 /** Списки и карточка объекта: GET /, GET /export, GET /trash, GET /:id (Г3, §1.3).
  * Перенос verbatim. Статичные /export и /trash объявлены ДО /:id — как в исходном
  * файле (см. комментарий у GET /trash и правило №8 чертежа в index.ts). */
@@ -47,7 +48,7 @@ const PUBLISH_ERROR_CHANNEL_MARKERS: [string, string][] = [
 ];
 
 async function loadPublishErrorsByChannel(propertyId: string): Promise<Record<string, string>> {
-  const rows = await prisma.errorLog.findMany({
+  const rows = await visibleErrorLogs().findMany({
     where: {
       resolvedAt: null,
       message: { contains: `(объект ${propertyId})` },

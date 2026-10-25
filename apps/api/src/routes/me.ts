@@ -1,3 +1,4 @@
+import { canReadInvestigations } from "../auth/investigations.js";
 import path from "node:path";
 import { Router, type Request } from "express";
 import { z } from "zod";
@@ -44,6 +45,7 @@ import { buildRegistrationOptions, confirmRegistration, listPasskeys, removePass
 import { sendPushToAgent } from "../push.js";
 import { buildRoyalScoreView } from "../lib/royalScore.js";
 import { royalScoreEnabled } from "../lib/royalScoreSwitch.js";
+import { canViewInvestigations } from "@royal-home/shared";
 import { generateScoreAdvice, loadCachedScoreAdvice } from "../lib/scoreRecommendation.js";
 import { loadEventPoints, scoreEventPoints, type ScoreEventKind } from "../lib/scoreJournal.js";
 import { loadScoreEvents, buildEventPointsGuide } from "../lib/scoreJournal.js";
@@ -856,6 +858,11 @@ meRouter.get("/voice-notes/:name", requireAuth, async (req, res) => {
   // Тот же ответ, что на «нет файла». Подкаталог заметок пишет только этот
   // маршрут, там проверка не нужна — и три скана переписок на каждую выдачу тоже.
   if (found.legacy && (await isConversationAttachment(name))) return res.status(404).json({ error: "Файл не найден" });
+  // A previously disclosed URL cannot bypass the current investigation boundary.
+  if (!canReadInvestigations(req) && await prisma.interaction.findFirst({
+    where: { investigationOnly: true, voiceNoteUrl: { endsWith: `/${name}` } },
+    select: { id: true },
+  })) return res.status(404).json({ error: "Файл не найден" });
   res.setHeader("Content-Type", privateMimeType(name));
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("Content-Disposition", "inline");

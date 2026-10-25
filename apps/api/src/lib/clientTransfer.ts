@@ -47,6 +47,11 @@ export type TransferGate = { allowed: true } | { allowed: false; reason: string 
  * если показ состоялся, контакт заведомо был.
  */
 export async function canTransferClient(clientId: string): Promise<TransferGate> {
+  const assignment = await prisma.client.findUnique({ where: { id: clientId },
+    select: { assignmentRefusedAt: true, assignmentCompletedAt: true } });
+  if (assignment?.assignmentRefusedAt || assignment?.assignmentCompletedAt) {
+    return { allowed: false, reason: "После отказа новое назначение выполняет администратор или директор" };
+  }
   if (await hadConductedShowing(clientId)) return { allowed: true };
   const settings = await loadTrafficLightSettings();
   const { attempts } = await countContactTrace(clientId, settings.leadCallMinSeconds);
@@ -295,9 +300,13 @@ async function transferClientByAgentUnguarded(input: {
 }): Promise<TransferByAgentResult> {
   const client = await prisma.client.findFirst({
     where: { id: input.clientId, deletedAt: null },
-    select: { id: true, fullName: true, shortId: true, assignedAgentId: true, refusalCount: true },
+    select: { id: true, fullName: true, shortId: true, assignedAgentId: true, refusalCount: true,
+      assignmentRefusedAt: true, assignmentCompletedAt: true },
   });
   if (!client) return { ok: false, error: "Клиент не найден", status: 404 };
+  if (client.assignmentRefusedAt || client.assignmentCompletedAt) {
+    return { ok: false, error: "После отказа новое назначение выполняет администратор или директор", status: 409 };
+  }
   if (client.assignedAgentId !== input.agentId) {
     return { ok: false, error: "Клиент закреплён за другим агентом", status: 403 };
   }
@@ -362,7 +371,7 @@ async function transferClientByAgentUnguarded(input: {
         },
         // Владелец из снимка — иначе «Потерянный» ложился бы на карточку, которую
         // руководитель только что отдал другому (ночная проверка 24.09.2026).
-        guardWhere: { assignedAgentId: input.agentId },
+        guardWhere: { assignedAgentId: input.agentId, assignmentRefusedAt: null, assignmentCompletedAt: null },
         tx,
       });
       throwIfNotClaimed(changed);
@@ -427,7 +436,7 @@ async function transferClientByAgentUnguarded(input: {
         source: "transfer.escalate",
         skipInteraction: true,
         data: { refusalCount, escalatedAt: new Date() },
-        guardWhere: { assignedAgentId: input.agentId },
+        guardWhere: { assignedAgentId: input.agentId, assignmentRefusedAt: null, assignmentCompletedAt: null },
         tx,
       });
       throwIfNotClaimed(changed);
@@ -479,7 +488,7 @@ async function transferClientByAgentUnguarded(input: {
         source: "transfer.pending",
         skipInteraction: true,
         data: { refusalCount, escalatedAt: new Date() },
-        guardWhere: { assignedAgentId: input.agentId },
+        guardWhere: { assignedAgentId: input.agentId, assignmentRefusedAt: null, assignmentCompletedAt: null },
         tx,
       });
       throwIfNotClaimed(changed);
@@ -556,12 +565,15 @@ export async function transferClientToAgent(input: {
   actorId?: string | null;
 }): Promise<ClientTransferResult> {
   const tasks = await prisma.$transaction(async (tx) => {
+    // Final refusal locks the client before cancelling tasks; use the same order.
+    await tx.$queryRaw`SELECT id FROM "Client" WHERE id = ${input.clientId} FOR UPDATE`;
     const t = await tx.interaction.updateMany({
       where: {
         clientId: input.clientId,
         agentId: input.fromAgentId,
         nextAction: { not: null },
         completedAt: null,
+        taskCancelledAt: null,
       },
       data: { agentId: input.toAgentId },
     });
@@ -604,7 +616,7 @@ export async function transferClientToAgent(input: {
       // переехавшие строкой выше, откатываются вместе с транзакцией. Для
       // `lib/leadAccept.ts::releaseClient` ошибка уходит в его catch —
       // reportReleaseFailure.
-      guardWhere: { assignedAgentId: input.fromAgentId },
+      guardWhere: { assignedAgentId: input.fromAgentId, assignmentRefusedAt: null, assignmentCompletedAt: null },
       tx,
     });
     throwIfNotClaimed(changed);

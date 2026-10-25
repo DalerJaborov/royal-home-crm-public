@@ -206,6 +206,7 @@ export async function loadPriceWaitlist(propertyId: string, options: LoadPriceWa
     where: { id: propertyId, deletedAt: null },
     select: {
       id: true,
+      sellerClientId: true,
       status: true,
       price: true,
       currency: true,
@@ -251,6 +252,7 @@ export async function loadPriceWaitlist(propertyId: string, options: LoadPriceWa
 }
 
 interface WaitlistProperty {
+  sellerClientId: string | null;
   price: unknown;
   currency: string | null;
   districtId: string | null;
@@ -301,6 +303,7 @@ async function fetchClients(property: WaitlistProperty, policy: MatchPolicy, mon
   return prisma.client.findMany({
     where: {
       ...waiting,
+      ...(property.sellerClientId ? { id: { not: property.sellerClientId } } : {}),
       AND: [
         ...(Array.isArray(waiting.AND) ? waiting.AND : []),
         { OR: districtOrRadiusOr },

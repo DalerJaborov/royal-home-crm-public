@@ -1,4 +1,4 @@
-import { forwardRef, memo, useCallback, useEffect, useRef, useState } from "react";
+import { forwardRef, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Virtuoso, type ItemProps, type ListProps } from "react-virtuoso";
 import { Download, MessageCircle, SendHorizonal, User, X } from "lucide-react";
 import { hasMaskablePhone } from "@royal-home/shared";
@@ -113,10 +113,29 @@ export interface ClientConversation {
   pausedUntil: string | null;
   channel: string;
   messages: ConversationMessage[];
+  /** Telegram Direct has readable history but no safe CRM send route. */
+  canReply?: boolean;
 }
 
 function channelLabel(channel: string): string {
   return CLIENT_SOURCE_LABELS[channel as keyof typeof CLIENT_SOURCE_LABELS] ?? channel;
+}
+
+export function replyTargetLabels(channels: string[]): string[] {
+  return channels.map((channel, index) => {
+    if (!channel) return `Чат ${index + 1}`;
+    const label = channelLabel(channel);
+    return channels.filter((candidate) => candidate === channel).length > 1 ? `${label} ${index + 1}` : label;
+  });
+}
+
+export function messageTimeText(at: string | null | undefined): string {
+  return at ? dushanbeTime(at) : "Время сообщения неизвестно";
+}
+
+export function messageRenderKey(message: ConversationMessage, index: number): string {
+  const localKey = message.mid ?? `idx:${message.sourceMessageIndex ?? index}`;
+  return message.sourceConversationId ? `${message.sourceConversationId}:${localKey}` : message.mid ?? `msg-${index}`;
 }
 
 /**
@@ -263,35 +282,36 @@ const ChatMessageList = memo(function ChatMessageList({
               </span>
               {/* На что этот ответ — ищем по всей ленте, `index` уже абсолютный
                   (Virtuoso всегда передаёт позицию в полном массиве `data`). */}
-              <MessageQuote quoted={quotedMessage(messages, m.replyToMid, index)} rh2 />
+              <MessageQuote quoted={quotedMessage(messages, m.replyToMid, index, m.sourceConversationId)} rh2 />
+              {m.sourceChannel && <span className="meta" data-message-channel style={{ display: "inline-block", marginRight: 6 }}>{channelLabel(m.sourceChannel)}</span>}
               {/* Текст расшифровки голосового агенту и в CRM не показываем (решение
                   владельца 16.08.2026) — только сам звук: расшифровка бывает выдумана
                   (тихая запись даёт Gemini повод сочинить фразу), а в базе она всё
                   равно остаётся — боту она нужна как память уже проговоренного. */}
               {!hasVoiceAttachment(m.attachments) && (
-                <TranslatableMessageText content={content} message={m} conversationId={conversationId} clientId={clientId} readOnly={readOnly} rh2 />
+                m.sourceChannel === "TELEGRAM_DIRECT" ? <span>{content}</span> : (
+                  <TranslatableMessageText content={content} message={m} conversationId={m.sourceConversationId ?? conversationId} clientId={clientId} readOnly={readOnly} rh2 />
+                )
               )}
               {/* Фото и голосовые клиента видно прямо здесь: агенту со своим
                   клиентом инбокс закрыт правом, и это его единственное окно. */}
               <MessageAttachments attachments={m.attachments} rh2 />
               {/* Оценка ответа бота прямо в чате (17.09.2026) — тот же компонент,
                   что и в инбоксе (Messages.tsx), не копия. */}
-              {!readOnly && m.role === "assistant" && (!m.by || m.by.kind === "bot") && feedbackConversationId && (
+              {!readOnly && m.sourceChannel !== "TELEGRAM_DIRECT" && m.role === "assistant" && (!m.by || m.by.kind === "bot") && (m.sourceConversationId || feedbackConversationId) && (
                 <BotReplyFeedback
-                  conversationId={feedbackConversationId}
+                  conversationId={m.sourceConversationId ?? feedbackConversationId!}
                   message={m}
-                  messageKey={m.mid ?? `idx:${index}`}
-                  index={index}
+                  messageKey={m.mid ?? `idx:${m.sourceMessageIndex ?? index}`}
+                  index={m.sourceMessageIndex ?? index}
                 />
               )}
-              {m.at && (
-                <span className="tm">
-                  {dushanbeTime(m.at)}
+              <span className="tm" data-message-time-unknown={!m.at || undefined}>
+                  {messageTimeText(m.at)}
                   {/* Галочки доставки — как в инбоксе (аудит №4, 27.08): только у
                       ответов компании, статус приходит от мессенджер-платформы. */}
                   {m.role === "assistant" && <DeliveryTicks status={m.deliveryStatus} rh2 />}
-                </span>
-              )}
+              </span>
             </div>
           </div>
         </>
@@ -322,7 +342,7 @@ const ChatMessageList = memo(function ChatMessageList({
       followOutput
       // Открываем панель сразу внизу истории — как в любом мессенджере.
       initialTopMostItemIndex={messages.length - 1}
-      computeItemKey={(index, m) => m.mid ?? `msg-${index}`}
+      computeItemKey={(index, m) => messageRenderKey(m, index)}
       components={{ List: VirtuosoList, Item: VirtuosoItem }}
       itemContent={renderItem}
     />
@@ -372,10 +392,11 @@ export function ClientChatPanel({
   const [exporting, setExporting] = useState(false);
   const [text, setText] = useState("");
   const [confirmClose, setConfirmClose] = useState(false);
-  const [selected, setSelected] = useState(0);
-  const conversation = conversations[selected] ?? conversations[0];
-  // Текст и голосовое уходят в диалог ВЫБРАННОЙ вкладки, а не в «самый живой» (WEB-PAGES01).
-  const sendConversationId = inboxConversationId(conversation.channel, conversation.id);
+  const [selectedSendTarget, setSelectedSendTarget] = useState("");
+  const sendableConversations = conversations.filter((c) => c.canReply !== false);
+  const sendTargetLabels = replyTargetLabels(sendableConversations.map((source) => source.channel));
+  const selectedConversation = sendableConversations.find((c) => inboxConversationId(c.channel, c.id) === selectedSendTarget);
+  const sendConversationId = selectedConversation ? selectedSendTarget : undefined;
   const sendMessage = useSendClientMessage(clientId, sendConversationId);
   const voiceMessage = useSendClientVoiceMessage(clientId, sendConversationId);
   /** Панель ВЫЕЗЖАЕТ, а не возникает: первый кадр рисуется сдвинутой за правый
@@ -384,9 +405,20 @@ export function ClientChatPanel({
   const [entered, setEntered] = useState(false);
   const replyRef = useRef<HTMLTextAreaElement>(null);
 
-  const messages = conversation.messages ?? [];
-  const pausedAt = conversation.pausedUntil ? new Date(conversation.pausedUntil) : null;
-  const isPaused = agentActivelyAssigned || (!!pausedAt && pausedAt.getTime() > Date.now());
+  const messages = useMemo(() => conversations.flatMap((source) => {
+    const sourceId = inboxConversationId(source.channel, source.id);
+    return (source.messages ?? []).map((message, sourceMessageIndex) => ({
+      ...message,
+      sourceConversationId: sourceId,
+      sourceChannel: source.channel,
+      sourceMessageIndex,
+    }));
+  }).map((message, index) => ({ message, index }))
+    .sort((a, b) => {
+      const at = a.message.at ? Date.parse(a.message.at) : Number.NEGATIVE_INFINITY;
+      const bt = b.message.at ? Date.parse(b.message.at) : Number.NEGATIVE_INFINITY;
+      return at - bt || a.index - b.index;
+    }).map(({ message }) => message), [conversations]);
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => setEntered(true));
@@ -427,7 +459,7 @@ export function ClientChatPanel({
 
   function send() {
     const value = text.trim();
-    if (readOnly || !value || sendMessage.isPending) return;
+    if (readOnly || !selectedConversation || !value || sendMessage.isPending) return;
     // Паузу боту ставит сервер (см. useSendClientMessage): агент вступил в
     // переписку — двух ответов подряд клиент получить не должен.
     // Не стираем текст, набранный, пока шёл запрос (WEB-PAGES02).
@@ -488,8 +520,7 @@ export function ClientChatPanel({
                 {clientName}
               </b>
               <span className="note">
-                Переписка · {channelLabel(conversation.channel)}
-                <AiConversationCostBadge conversationId={conversation.id} />
+                Переписка · {conversations.length} канал(а)
               </span>
             </div>
             <button
@@ -506,27 +537,6 @@ export function ClientChatPanel({
               <X className="i" />
             </button>
           </div>
-
-          {/* Переключатель каналов (19.08.2026) — только когда их правда несколько:
-              одна вкладка сама по себе не несла бы смысла, только занимала строку.
-              `.seg` прототипа — тот же переключатель срезов, что в messages.html. */}
-          {conversations.length > 1 && (
-            <div className="pane-b">
-              <div className="seg" role="tablist" aria-label="Каналы клиента">
-                {conversations.map((c, idx) => (
-                  <button
-                    key={`${c.channel}-${idx}`}
-                    type="button"
-                    role="tab"
-                    aria-selected={idx === selected}
-                    onClick={() => setSelected(idx)}
-                  >
-                    {channelLabel(c.channel)}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
 
             {/* УПРАВЛЕНИЯ БОТОМ ЗДЕСЬ БОЛЬШЕ НЕТ (владелец 07.09.2026).
                 Дословно: «пусть это больше не решают агенты, а только админ и
@@ -554,20 +564,13 @@ export function ClientChatPanel({
               сломал бы виртуализацию — Virtuoso должна быть единственным
               владельцем скролла ленты. */}
           <div className="thread" style={{ minHeight: 0, flex: "1 1 62dvh", padding: 0, display: "block" }}>
-            {/* key={selected} — принудительный ремонт при смене вкладки-канала:
-                разные диалоги не должны наследовать друг у друга положение
-                скролла и измеренные высоты сообщений (см. ChatMessageList выше). */}
             <ChatMessageList
-              key={selected}
+              key={clientId}
               messages={messages}
               readOnly={readOnly}
               clientId={clientId}
-              conversationId={
-                conversation ? (conversation.channel === "TELEGRAM" ? `tg_${conversation.id}` : conversation.id) : null
-              }
-              feedbackConversationId={
-                conversation ? (conversation.channel === "TELEGRAM" ? `tg_${conversation.id}` : conversation.id) : null
-              }
+              conversationId={null}
+              feedbackConversationId={null}
             />
           </div>
 
@@ -584,6 +587,22 @@ export function ClientChatPanel({
             className="compose"
             style={{ flexWrap: "wrap" }}
           >
+            <label className="sr-only" htmlFor="client-chat-target">Канал ответа</label>
+            <select
+              id="client-chat-target"
+              className="inp"
+              value={selectedSendTarget}
+              onChange={(event) => setSelectedSendTarget(event.target.value)}
+              required
+              aria-label="Куда ответить"
+            >
+              <option value="">Выберите канал для ответа</option>
+              {sendableConversations.map((source, index) => (
+                <option key={inboxConversationId(source.channel, source.id)} value={inboxConversationId(source.channel, source.id)}>
+                  {sendTargetLabels[index]}
+                </option>
+              ))}
+            </select>
             {/* Предупреждение ДО отправки — тем же правилом, что применит сервер.
                 Тихой строкой `.quiet`, не карточкой (договор §6.1). */}
             {hasMaskablePhone(text) && (
@@ -625,17 +644,17 @@ export function ClientChatPanel({
                   }
                 }}
                 maxLength={2000}
-              placeholder={`Написать в ${channelLabel(conversation.channel)}…`}
+              placeholder={selectedConversation ? `Написать в ${channelLabel(selectedConversation.channel)}…` : "Сначала выберите канал"}
             />
             <VoiceRecordButton
               send={(blob) => voiceMessage.mutateAsync(blob)}
               onError={setVoiceError}
-              disabled={sendMessage.isPending}
+              disabled={sendMessage.isPending || !selectedConversation}
             />
             <button
               className="pill"
               type="submit"
-              disabled={sendMessage.isPending || !text.trim()}
+              disabled={sendMessage.isPending || !selectedConversation || !text.trim()}
               title="Отправить (Enter)"
             >
               <SendHorizonal className="i" />

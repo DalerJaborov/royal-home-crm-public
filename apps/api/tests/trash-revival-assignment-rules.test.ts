@@ -119,6 +119,21 @@ describe("возврат из Корзины в общую раздачу", () =
     expect(after.requestedPropertyId).toBe(propertyId);
   });
 
+  it("LOST без прежнего держателя ночью ждёт обычной раздачи, не эскалации", async () => {
+    const c = await trashedClient();
+    await prisma.client.update({ where: { id: c.id }, data: { deletedAt: null, status: "LOST", lostAt: new Date() } });
+    await createLeadFromChannel({ fullName: c.fullName, phone: c.phone, source: "INSTAGRAM", kind: "BUYER", deferAssignment: true });
+    expect(await prisma.client.findUniqueOrThrow({ where: { id: c.id } })).toMatchObject({ status: "NEW", assignedAgentId: null, escalatedAt: null, acceptedAt: null });
+  });
+
+  it("входящее обращение не обходит окончательный отказ через корзину", async () => {
+    const c = await trashedClient();
+    const completedAt = new Date();
+    await prisma.client.update({ where: { id: c.id }, data: { lastAgentId: freeAgentId, assignmentRefusedAt: completedAt, assignmentCompletedAt: completedAt } });
+    await createLeadFromChannel({ fullName: c.fullName, phone: c.phone, source: "INSTAGRAM", kind: "BUYER" });
+    expect(await prisma.client.findUniqueOrThrow({ where: { id: c.id } })).toMatchObject({ deletedAt: c.deletedAt, assignedAgentId: null, assignmentCompletedAt: completedAt });
+  });
+
   it("днём клиент, спросивший про объект, уходит агенту этого объекта", async () => {
     const c = await trashedClient();
     await createLeadFromChannel({

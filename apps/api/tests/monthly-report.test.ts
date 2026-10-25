@@ -139,6 +139,9 @@ describe("Месячный отчёт", () => {
       clientId,
       actor: { kind: "bot", source: "test-bot-showing", subjectAgentId: agentId, channel: "whatsapp" },
       type: "SHOWING",
+      nextActionDate: new Date(periodStart.getTime() + 2 * 24 * 60 * 60 * 1000),
+      showingOffCrm: true,
+      showingOffCrmDetails: "Тестовый объект вне CRM, улица Проверочная 1",
       notes: `Бот записал показ ${runId}`,
       createdAt: new Date(periodStart.getTime() + 2 * 24 * 60 * 60 * 1000),
     });
