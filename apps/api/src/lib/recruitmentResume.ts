@@ -15,8 +15,14 @@ const statusAnswers = {
   },
 };
 // Explicit work/study verbs are status replies, not bare personal names.
-// This deliberately recognizes no vocabulary of real names or professions.
 const explicitStatusReply = /(?:^|\s)(?:учусь|обучаюсь|работаю|учится|работает|учиться|работать|намехонам|мехонам|намекунам|мекунам|мехонад|мекунад|намехонад|намекунад)(?=\s|$)/iu;
+const mixedMessengerNameReply = /^(?<name>[\p{L}][\p{L}'’-]*(?:[ \t]+[\p{L}][\p{L}'’-]*){0,2}?)[ \t]+(?:(?:через|в)[ \t]+)?(?:телеграм(?:м)?|telegram|ватсап|whats[ \t]*app|мессенджер|инстаграм|instagram|директ)(?=$|[^\p{L}])(?<question>[^\r\n]{0,160}[?？])$/iu;
+const messengerQuestionCue = /(?:^|[^\p{L}])(?:можно(?:[ \t]+ли)?|удобно|лучше|предпочитаете|написать|связаться|общаться|или|мумкин|метавонам)(?=$|[^\p{L}])/iu;
+const nonNameQuestionPrefix = /^(?:(?:а|и|ну)[ \t]+)*(?:(?:можно|могу|можете)(?:[ \t]+(?:ли|мне|нам|вам|тебе))?|как(?:[ \t]+(?:мне|нам|вам|тебе))?(?:[ \t]+(?:можно|лучше))?)$/iu;
+// Finite guard for common role labels, greetings, and communication requests.
+// It cannot classify every word as a name or profession; a stored name remains
+// a literal customer claim, never verified identity.
+const nonNameReply = /^(?:(?:а|пожалуйста)[ \t]+)*(?:можно(?:[ \t]+ли)?|можете|могу|подскажите|скажите|напишите|пишите|пиши|свяжитесь|связаться|написать|ответьте|отвечайте|позвоните|перезвоните|звоните|обращайтесь|отправьте|пришлите|сообщите|уточните|удобно|лучше|предпочитаете|да|ага|ҳа|ха|бале|нет|неа|не|не знаю|потом|спасибо|салом|привет|здравствуйте|монтаж[её]р|видеограф|смм(?:-специалист)?|агент(?:[ \t]+по[ \t]+недвижимости)?|риелтор|дизайнер)(?:[ \t]+пожалуйста)?$/iu;
 export function extractRecruitmentResumeFacts(input: string): DraftFacts {
   const facts: DraftFacts = {};
   const text = input.trim();
@@ -27,7 +33,7 @@ export function extractRecruitmentResumeFacts(input: string): DraftFacts {
     const value = Number(age[1] ?? age[2] ?? age[3]);
     if (value >= 14 && value <= 100) facts.age = sourced(value, age[0]);
   }
-  const name = clauses.map(clause => /^(?:меня зовут|имя\s*[:—-]|номи ман)\s+([\p{L}][\p{L}'’-]*(?:[ \t]+[\p{L}][\p{L}'’-]*){0,2})/iu.exec(clause)).find(Boolean);
+  const name = clauses.map(clause => /^(?:меня зовут|имя\s*[:—-]|номи ман)\s+([\p{L}][\p{L}'’-]*(?:[ \t]+[\p{L}][\p{L}'’-]*){0,2}?)(?=$|[ \t]*[,;:!?？]|[ \t]+(?:(?:(?:через|в)[ \t]+)?(?:телеграм(?:м)?|telegram|ватсап|whats[ \t]*app|мессенджер|инстаграм|instagram|директ))(?=$|[^\p{L}]))/iu.exec(clause)).find(Boolean);
   if (name) facts.name = sourced(name[1].trim(), name[0]);
   const phone = /(?:^|[\n\r])\s*(?:(?:мой\s+)?(?:телефон|номер|phone|тел)\s*[:—-]?\s*)?([+(\d][\d\s()-]{8,25})(?=$|[\n\r])/iu.exec(text);
   if (phone) {
@@ -60,9 +66,12 @@ export function extractRecruitmentResumeFacts(input: string): DraftFacts {
 export function extractRecruitmentAnswerFacts(text: string, answerTo?: RecruitmentFactKey | null): DraftFacts {
   const literal = extractRecruitmentResumeFacts(text);
   const reply = text.trim();
+  // Keep the complete message as provenance when a label already supplied the
+  // name; the label-derived value remains untouched.
+  if (answerTo === "name" && literal.name && reply.length <= 2000) literal.name = { ...literal.name, quote: reply };
   // Only a server-proven immediately preceding accepted question may interpret
-  // a bare answer. Documents never acquire this conversational interpretation.
-  if (answerTo && reply && reply.length <= 2000 && !/[?？]/u.test(reply)) {
+  // conversational answer text. Documents never acquire this interpretation.
+  if (answerTo && reply && reply.length <= 2000 && (!/[?？]/u.test(reply) || answerTo === "name")) {
     const key = answerTo, quoted = <T extends string | number | boolean>(value: T) => ({ value, quote: reply });
     if (key === "age" && /^\d{2}(?:\s*(?:лет|года|год|сола))?$/iu.test(reply)) {
       const value = Number.parseInt(reply, 10); if (value >= 14 && value <= 100) literal.age = quoted(value);
@@ -74,9 +83,16 @@ export function extractRecruitmentAnswerFacts(text: string, answerTo?: Recruitme
       if (negative || positive) literal[key] = quoted(!negative);
     } else if (key === "phone") {
       const value = normalizeCandidatePhone(reply); if (value) literal.phone = quoted(value);
-    } else if (key === "name" && /^[\p{L}][\p{L}'’-]*(?:\s+[\p{L}][\p{L}'’-]*){0,2}$/u.test(reply) &&
-      !explicitStatusReply.test(reply) && !/^(?:да|ага|ҳа|ха|бале|нет|неа|не|не знаю|потом|спасибо|салом|привет|здравствуйте)$/iu.test(reply)) literal.name = quoted(reply);
-    else if (["city", "about", "education", "experience", "languages", "startWhen", "skills", "tools"].includes(key)) {
+    } else if (key === "name" && !literal.name) {
+      const mixed = mixedMessengerNameReply.exec(reply);
+      const candidate = mixed?.groups?.name;
+      // This stores only a customer-stated name claim under an accepted name
+      // question; neither the text nor this parser verifies the person's identity.
+      if (candidate && mixed.groups?.question && messengerQuestionCue.test(mixed.groups.question) &&
+        !explicitStatusReply.test(candidate) && !nonNameReply.test(candidate) && !nonNameQuestionPrefix.test(candidate)) literal.name = quoted(candidate);
+      else if (/^[\p{L}][\p{L}'’-]*(?:\s+[\p{L}][\p{L}'’-]*){0,2}$/u.test(reply) &&
+        !explicitStatusReply.test(reply) && !nonNameReply.test(reply) && !nonNameQuestionPrefix.test(reply)) literal.name = quoted(reply);
+    } else if (["city", "about", "education", "experience", "languages", "startWhen", "skills", "tools"].includes(key)) {
       literal[key as "city" | "about" | "education" | "experience" | "languages" | "startWhen" | "skills" | "tools"] = quoted(reply);
     }
   }

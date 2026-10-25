@@ -3,7 +3,9 @@ import type { CustomerPropertyFactKind, CustomerPropertyFacts, CustomerMutationR
   CustomerAgentDecision, CustomerAgentQuestion, CustomerAgentSurface, CustomerAgentVerifiedContext } from "@royal-home/shared";
 import { customerPropertyCharacteristicLines, customerPropertyAvailabilityLine, customerAgentPublicationObservationSchema } from "@royal-home/shared";
 import { PUBLIC_AGENCY_CONTACT } from "../lib/publicAgencyContact.js";
-import { customerPublicThanks, customerRequestedAgencyContact, isCustomerPublicAppreciation, customerPublicReaction, customerPublicReactionText } from "./customerAgentConversationPolicy.js";
+import { customerPublicThanks, customerRequestedAgencyContact, customerRecruitmentLanguagePermissionQuestion,
+  customerFollowRequest, customerStandaloneFurnitureQuestion, isCustomerPublicAppreciation,
+  customerPublicReaction, customerPublicReactionText } from "./customerAgentConversationPolicy.js";
 import { customerAgentIntake, customerSellerIntakeQuestion } from "./customerAgentIntake.js";
 import { customerRecruitmentRequested, customerRecruitmentFactsRequested, isCustomerVacanciesObservation, recruitmentPositionForTurn,
   recruitmentMissingForTurn, recruitmentRequiredQuestion } from "./customerAgentRecruitmentProtocol.js";
@@ -338,6 +340,14 @@ export function renderCustomerAgentDecision(input: {
 }): string | null {
   const d = input.decision, lang = input.language;
   if (d.kind === "skip" || d.kind === "escalate" || d.kind === "moderation_proposal") return "";
+  const mayOverrideConversation = d.kind !== "propose";
+  const followRequest = mayOverrideConversation && input.surface === "dm" && customerFollowRequest(input.inputText ?? "");
+  const languagePermissionQuestion = mayOverrideConversation && input.surface === "dm" && input.verifiedContext?.publicState.topic === "job" &&
+    customerRecruitmentLanguagePermissionQuestion(input.inputText ?? "");
+  const furnitureQuestion = mayOverrideConversation && (input.surface === "dm" || input.surface === "public_comment") &&
+    customerStandaloneFurnitureQuestion(input.inputText ?? "");
+  const continuingRecruitment = mayOverrideConversation && input.surface === "dm" && input.verifiedContext?.publicState.topic === "job" &&
+    input.verifiedContext.turns.some(turn => turn.role === "assistant");
   const selected = d.kind === "propose" ? [d.ref] : d.refs;
   const mandatory = input.requestedFacts.length ? input.evidence.filter(e => e.value.kind === "facts" || e.value.kind === "property_unresolved" || e.value.kind === "publication_properties") : [];
   const publicContactQuestion = input.surface === "public_comment" && d.kind !== "propose" && ["phone", "name", "callback_consent"].includes(d.question);
@@ -366,6 +376,7 @@ export function renderCustomerAgentDecision(input: {
   if (d.kind !== "propose" && evidence.some(e => e?.value.kind === "proposal")) return null;
   const lines: string[] = [];
   let experienceInvitationIncluded = false;
+  let furnitureAnswerIncluded = false;
   const applicationSaved = evidence.some(e => e?.value.kind === "receipt" && e.value.outcome === "job_application_saved");
   const requestedKinds = (kinds: readonly CustomerPropertyFactKind[]) => input.requestedFacts.length
     ? kinds.filter(kind => input.requestedFacts.includes(kind)) : [...kinds];
@@ -397,11 +408,22 @@ export function renderCustomerAgentDecision(input: {
   }
   if (input.surface === "public_comment" && d.social === "thank" && isCustomerPublicAppreciation(input.inputText ?? "")) {
     lines.push(customerPublicThanks(input.inputText!, lang));
-  } else if (social[d.social][lang]) lines.push(social[d.social][lang]);
+  } else if (continuingRecruitment && d.social === "greet") lines.push(social.acknowledge[lang]);
+  else if (social[d.social][lang]) lines.push(social[d.social][lang]);
+  if (followRequest) lines.push(lang === "tg" ? "Ман худам ба сайт ё аккаунт обуна шуда наметавонам." : "Я не могу сам подписаться на сайт или аккаунт.");
+  if (languagePermissionQuestion) lines.push(lang === "tg" ? "Бале, албатта. Дар бораи худ ва таҷрибаатон ба тоҷикӣ нақл кунед." : "Да, конечно. Расскажите о себе и своём опыте на таджикском.");
   const renderedFactLines = new Set<string>();
   const appendFacts = (value: Extract<CustomerAgentObservation, { kind: "facts" }>) => {
     const f = value.facts;
-    for (const line of factSegments({ ...value, kinds: requestedKinds(value.kinds) }, lang, input.inputText)) {
+    const linesForFacts = furnitureQuestion
+      ? [...(f.availability === "SOLD" || f.availability === "RESERVED"
+        ? factSegments({ ...value, kinds: ["availability"] }, lang, input.inputText) : []),
+        ...(!furnitureAnswerIncluded ? [lang === "tg"
+          ? "Маълумоти тасдиқшуда нест, ки мебел бо объект дода мешавад ё ба нарх дохил аст."
+          : "В подтверждённых данных не указано, останется ли мебель и входит ли она в стоимость."] : [])]
+      : factSegments({ ...value, kinds: requestedKinds(value.kinds) }, lang, input.inputText);
+    if (furnitureQuestion) furnitureAnswerIncluded = true;
+    for (const line of linesForFacts) {
       const implicitReserve = lang === "tg" ? "Объект ҳоло дар брон аст." : "Объект сейчас в брони.";
       const availability = f.availability === "RESERVED" &&
         (line === implicitReserve || line === customerPropertyAvailabilityLine(f, lang));
@@ -439,10 +461,12 @@ export function renderCustomerAgentDecision(input: {
     }
     if (item.value.kind === "company_information") {
       if (!isCustomerCompanyInformation(item.value)) return null;
+      if (followRequest || languagePermissionQuestion) continue;
       lines.push(...companyInformationLines(item.value, lang, input.inputText ?? ""));
     }
     if (item.value.kind === "open_vacancies") {
       if (!isCustomerVacanciesObservation(item.value)) return null;
+      if (languagePermissionQuestion) continue;
       // An actual saved application receipt answers a candidate's submission.
       // Reading the catalog to validate the role is not a request to repeat it.
       // Explicit questions about conditions still retain their verified answer.
@@ -490,6 +514,9 @@ export function renderCustomerAgentDecision(input: {
       if (requestedContact) lines.push(`${lang === "tg" ? "Занг занед" : "Позвоните"}: ${item.value.contact.phone}.`);
     }
   }
+  if (furnitureQuestion && !furnitureAnswerIncluded) lines.push(lang === "tg"
+    ? "Маълумоти тасдиқшуда нест, ки мебел бо объект дода мешавад ё ба нарх дохил аст."
+    : "В подтверждённых данных не указано, останется ли мебель и входит ли она в стоимость.");
   const attachmentOnly = input.surface === "dm" && input.verifiedContext?.publicState.topic !== "job" && input.inputText !== undefined && !input.inputText.trim() && !!input.attachmentInput && !perception;
   if (attachmentOnly) {
     const attachment = customerAgentAttachmentInputSchema.safeParse(input.attachmentInput);
@@ -499,7 +526,8 @@ export function renderCustomerAgentDecision(input: {
     const text = lines.filter(Boolean).join("\n");
     return text && text.length <= input.maxOutputChars ? text : null;
   }
-  const question = customerAgentRenderedQuestion({ ...input, ...material, evidence: evidence.filter((e): e is CustomerAgentEvidence => !!e) });
+  const question = followRequest || languagePermissionQuestion || furnitureQuestion ? "none"
+    : customerAgentRenderedQuestion({ ...input, ...material, evidence: evidence.filter((e): e is CustomerAgentEvidence => !!e) });
   const intake = intakeProgress(input);
   // Suppress only the redundant/private question, preserve useful verified
   // facts or a local receipt. No whole-answer erasure or invented success.
@@ -520,7 +548,7 @@ export function renderCustomerAgentDecision(input: {
     : question === "clarify_previous" && input.surface === "dm"
       ? repairPreviousQuestion(input.verifiedContext, lang) ?? questions[question][lang] : questions[question][lang]);
   if (question === "confirmation") lines.push(lang === "tg" ? "Тасдиқ мекунед?" : "Подтверждаете?");
-  if (!evidence.length && question === "none" && d.social === "none" && !visualSummary) return null;
+  if (!evidence.length && question === "none" && d.social === "none" && !visualSummary && !followRequest && !languagePermissionQuestion && !furnitureQuestion) return null;
   // A suppressed personal-data request by itself is not a useful completed
   // reply, even if the model attached "Понял" to it.
   if ((publicContactQuestion || (d.kind !== "propose" && d.question === "phone" && input.knownPhoneSource !== "none")) &&

@@ -3,6 +3,7 @@
  * but a positive allowlist avoids thanking an angry/ambiguous reaction. */
 import {detectClientLanguage} from './clientLanguage.js';
 import {customerColloquialTajikLanguage} from './customerDmLanguage.js';
+import {clientOwnWords} from './untrustedContent.js';
 const positiveEmoji = /(?:👍|👏|🙌|🤝|💪|🔥|✨|🌟|⭐|❤|🧡|💛|💚|💙|💜|🤍|🩷|💕|💖|💗|💓|💞|😍|🥰|🤩|😊|💐|🌹)[\uFE0F\u{1F3FB}-\u{1F3FF}]*/gu;
 const appreciation = /^(?:спасибо(?: большое| вам)?|большое спасибо|благодарю|благодарим|(?:очень )?красивая квартира|красиво|очень красиво|красота|класс|супер|круто|отлично|молодцы|рахмат|раҳмат|ташаккур|зур|зӯр|офарин|аҳсан|зебо(?: бдай)?|бисёр зебо|(?:бехтарин|беҳтарин)(?: (?:хона|макон)(?: бдай)?)?)$/u;
 
@@ -71,4 +72,29 @@ export function customerPublicThanks(input: string, language: "ru" | "tg"): stri
   let index = 0;
   for (const point of input) index = (index + point.codePointAt(0)!) % variants.length;
   return variants[index];
+}
+
+/** Standalone candidate language-permission questions only. A mixed question
+ * stays in the normal verified-facts flow; document text is not an instruction. */
+export function customerRecruitmentLanguagePermissionQuestion(input: string): boolean {
+  const text = clientOwnWords(input).normalize("NFKC").toLowerCase().replace(/ё/gu, "е")
+    .replace(/[!?？.,]+/gu, " ").replace(/\s+/gu, " ").trim();
+  return /^(?:(?:а\s+)?можно\s+(?:мне\s+)?(?:рассказать|написать|говорить)\s+(?:о\s+себе|про\s+себя)\s+(?:на\s+таджикск\p{L}*|по[-\s]таджикск\p{L}*)|(?:на\s+таджикск\p{L}*|по[-\s]таджикск\p{L}*)\s+(?:можно\s+)?(?:рассказать|написать)\s+(?:о\s+себе|про\s+себя)|(?:метавонам|мумкин\s+аст)\s+(?:бо\s+забони\s+)?тоҷикӣ\s+(?:дар\s+бораи\s+худ|худам)\s+(?:нақл\s+кунам|нависам))$/u.test(text);
+}
+
+/** A narrowly phrased request to follow/subscribe to the customer's page.
+ * This grants no action and does not catch mixed questions. */
+export function customerFollowRequest(input: string): boolean {
+  const text = clientOwnWords(input).normalize("NFKC").toLowerCase().replace(/ё/gu, "е")
+    .replace(/@[^\s]+/gu, " аккаунт ").replace(/\p{Extended_Pictographic}|\p{Emoji_Modifier}|[\uFE0E\uFE0F\u200D]/gu, " ")
+    .replace(/[!?？.,]+/gu, " ").replace(/\s+/gu, " ").trim();
+  return /^(?:(?:пожалуйста\s+)?(?:подпишитесь|подпишись|follow|subscribe)\s+(?:на\s+)?(?:мой\s+)?(?:сайт\S*|страниц\S*|канал\S*|аккаунт\S*|инстаграм\S*)|(?:сайт\S*|страниц\S*|канал\S*|аккаунт\S*|инстаграм\S*)\s+(?:(?:нав\S*|нов\S*)\s+)?(?:мой\s+)?(?:подпишитесь|подпишись|под\s*кн\S*|follow|subscribe))$/u.test(text);
+}
+
+/** The property fact schema has no furniture-inclusion field. Match only a
+ * standalone furnishing question; never infer price inclusion from photos. */
+export function customerStandaloneFurnitureQuestion(input: string): boolean {
+  const text = clientOwnWords(input).normalize("NFKC").toLowerCase().replace(/ё/gu, "е")
+    .replace(/[!?？.,]+/gu, " ").replace(/\s+/gu, " ").trim();
+  return /^(?:(?:а\s+)?(?:с\s+|бо\s+)?(?:мебель\S*|мебел\S*|вещ\S*|чизу\s*чора\S*)(?:\s+(?:есть|идет|входит|остается|прилагается|комплекте|цену))?|бо\s+чизу\s*чора\S*)$/u.test(text);
 }

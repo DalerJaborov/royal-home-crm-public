@@ -54,6 +54,7 @@ import { dushanbeDate, dushanbeDayLabel, dushanbeTime } from "../lib/date";
 import { stripBotHints, humanizeAttachmentTags } from "../lib/botMessages";
 import { TranslatableMessageText } from "../components/MessageTranslateToggle";
 import { PAUSE_OPTIONS, pausedUntilIso } from "../lib/botPauseOptions";
+import { conversationBotState } from "../lib/conversationBotState";
 import { useDismissableMenu } from "../hooks/useDismissableMenu";
 // Метаданные каналов и инициалы вынесены в lib/channelMeta.ts (мобильный
 // редизайн 17.08.2026): их делят десктопный инбокс и мобильный список чатов.
@@ -1084,8 +1085,10 @@ export function ConversationView({ id, onBack, clean = false, onPromoteToClient 
   }, [pendingMedia]);
   const mediaInputRef = useRef<HTMLInputElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
-  const resume = useResumeConversationBot(isGroupedEntry ? null : id);
-  const pause = usePauseConversationBot(isGroupedEntry ? null : id);
+  const botState = conversationBotState({ id, grouped: isGroupedEntry, pausedUntil: conversation?.pausedUntil,
+    sources: conversation?.sources, selectedSourceId: selectedReplySource });
+  const resume = useResumeConversationBot(botState.controlId);
+  const pause = usePauseConversationBot(botState.controlId);
   // Меню «Пауза» в шапке (TASKS.md 10.09 «с обзора прода глазами», п.6): тот же
   // приём, что уже применён на телефоне (MobileChatView.tsx, «Раньше здесь
   // стояли пять контролов... нативный select паузы») — пилюля-триггер вместо
@@ -1128,9 +1131,9 @@ export function ConversationView({ id, onBack, clean = false, onPromoteToClient 
   // ленты (эффект чуть ниже) через них не идёт, ему хватает scrollRef.
   const messageRefs = useRef<Map<number, HTMLDivElement>>(new Map());
 
-  const paused = !!conversation?.pausedUntil && new Date(conversation.pausedUntil).getTime() > Date.now();
+  const paused = botState.paused;
   // Управление ботом — только руководству. См. комментарий у самого блока ниже.
-  const canManageBot = useCan()("messages.view") && !readOnly && !isGroupedEntry;
+  const canManageBot = useCan()("messages.view") && !readOnly && !!botState.controlId;
 
   // Новый диалог — сбрасываем окно истории, панель и поиск.
   useEffect(() => {
@@ -1275,9 +1278,9 @@ export function ConversationView({ id, onBack, clean = false, onPromoteToClient 
           </b>
           {clean ? <span className="!flex !items-center !gap-2 !text-sm">
             {ChannelIcon && <ChannelIcon className="h-4 w-4 shrink-0" aria-hidden="true" />}
-            {meta?.label}
-            <span className="clean-bot-state" data-paused={paused}>{paused ? "Бот на паузе" : "Бот не на паузе"}</span>
-          </span> : <span>{meta ? meta.label : ""}</span>}
+            {isGroupedEntry && (!conversation?.channel || conversation.channel === "MULTI") ? "Общий чат" : meta?.label}
+            <span className="clean-bot-state" data-paused={paused}>{botState.label}</span>
+          </span> : <span>{isGroupedEntry && (!conversation?.channel || conversation.channel === "MULTI") ? "Общий чат" : meta?.label ?? ""}</span>}
         </div>
         {/* Поиск ВНУТРИ уже открытого диалога (06.09.2026) — отдельно от поиска
             по списку слева (ConversationList выше ищет диалог целиком). */}
