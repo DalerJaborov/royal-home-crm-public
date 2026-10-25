@@ -6,3 +6,7 @@
 442e8930e153cbc31e6b637bc3660fb87ece870c:apps/api/src/lib/ownerVerificationSources.ts:generic-api-key:145
 # The same public checkpoint identifier in a synthetic test fixture.
 442e8930e153cbc31e6b637bc3660fb87ece870c:apps/api/tests/owner-verification-sources.test.ts:generic-api-key:18
+# The same reviewed identifiers in the PR49 squash commit; no credential values.
+43cabd508f89e5e005793c82616860952147ff47:apps/api/src/lib/sellerIntakeAppointments.ts:generic-api-key:26
+43cabd508f89e5e005793c82616860952147ff47:apps/api/src/lib/ownerVerificationSources.ts:generic-api-key:145
+43cabd508f89e5e005793c82616860952147ff47:apps/api/tests/owner-verification-sources.test.ts:generic-api-key:18

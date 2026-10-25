@@ -142,7 +142,7 @@ export async function ownerVerificationSourceBlock(id: string, now = new Date(),
 
 /** First activation observes only future events. This never seeds the historical cleanup cohort. */
 export async function runExposureOwnerPreviewTick(now = new Date()) {
-  const checkpointKey = 'owner-exposure-verification-v1';
+  const checkpointKey = 'owner-exposure-verification-v1'; // gitleaks:allow -- public workflow checkpoint identifier, not a credential
   const checkpoint = await prisma.workflowCheckpoint.upsert({ where: { key: checkpointKey }, update: {}, create: { key: checkpointKey, createdAt: now } });
   const leaseToken = randomUUID();
   const claimed = await prisma.workflowCheckpoint.updateMany({ where: { key: checkpointKey, revision: checkpoint.revision,
