@@ -13,21 +13,34 @@ const eventNames: Record<string, string> = { STARTED: "Эпизод начат",
   ROP_RECEIPT_NOT_RECORDED: "Получение в срок не отмечено", ROP_RESULT_NOT_CONFIRMED: "Результат в срок не подтверждён",
   RESOLVED_BY_MANAGER: "Закрыто руководителем", CANCELLED_BY_MANAGER: "Прекращено руководителем",
   INVENTORY_COMPLETE: "Объекты дополнены", ASSIGNMENT_ENDED: "Назначение завершено" };
+type ConfigDraft = { days: string[]; buyerFollowup: string; defaultRop: string };
+// Owner-approved starting proposal; not an executable or persisted configuration.
+const starterDraft: ConfigDraft = { days: ["2", "1", "2"], buyerFollowup: "2", defaultRop: "" };
 export function SellerControlPanel() {
   const queryClient = useQueryClient();
   const page = useQuery({ queryKey: ["seller-control-episodes"], queryFn: () => api<SellerControlPage>("/security/cases/seller-control") });
   const candidates = useQuery({ queryKey: ["seller-control-candidates"], queryFn: () => api<SellerControlPreviewPage>("/security/cases/seller-control-preview?page=1") });
   const agents = useAgents();
-  const [days, setDays] = useState(["", "", ""]);
-  const [buyerFollowup, setBuyerFollowup] = useState("");
-  const [defaultRop, setDefaultRop] = useState("");
+  const [configDraft, setConfigDraft] = useState<ConfigDraft | null>(null);
+  const savedConfig = page.data?.config;
+  // Refetches refresh untouched fields; an in-progress edit keeps all its values.
+  const editor = configDraft ?? (savedConfig ? {
+    days: [savedConfig?.agentDueWorkingDays, savedConfig?.ropReceiptDueWorkingDays, savedConfig?.ropActionDueWorkingDays].map(value => value == null ? "" : String(value)),
+    buyerFollowup: savedConfig?.buyerCandidateFollowupWorkingDays == null ? "" : String(savedConfig.buyerCandidateFollowupWorkingDays),
+    defaultRop: savedConfig?.defaultRopAgentId ?? "",
+  } : starterDraft);
+  const { days, buyerFollowup, defaultRop } = editor;
   const [clientId, setClientId] = useState("");
   const [ropAgentId, setRopAgentId] = useState("");
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
   const mutation = useMutation({ retry: false, mutationFn: ({ path, body, method = "POST" }: { path: string; body: object; method?: string }) =>
     api(`/security/cases/seller-control${path}`, { method, body }),
-  onSuccess: () => { setError(""); void queryClient.invalidateQueries({ queryKey: ["seller-control-episodes"] }); },
+  onSuccess: async (_data, variables) => {
+    setError("");
+    await queryClient.invalidateQueries({ queryKey: ["seller-control-episodes"] });
+    if (variables.path === "/config") setConfigDraft(null);
+  },
   onError: (cause: Error) => setError(cause.message) });
   const save = () => {
     const config = { agentDueWorkingDays: Number(days[0]), ropReceiptDueWorkingDays: Number(days[1]), ropActionDueWorkingDays: Number(days[2]),
@@ -43,15 +56,17 @@ export function SellerControlPanel() {
   return <details className="card my-3"><summary>Контроль работы с продавцом — моделирование</summary>
     <p className="sub">Только для руководства. Моделирование не создаёт задачи сотрудникам и не отправляет сообщения. Отметки моделирования не станут реальными при последующем запуске.</p>
     {page.isPending ? <p>Загрузка…</p> : page.isError ? <p role="alert">Не удалось загрузить контроль</p> : <>
-      <p>{page.data.config ? `Настроенные сроки: агент — ${page.data.config.agentDueWorkingDays}, получение руководителем — ${page.data.config.ropReceiptDueWorkingDays}, действие — ${page.data.config.ropActionDueWorkingDays} рабочих дней.` : "Сроки не настроены. Эпизоды не запускаются."}</p>
+      <p>{page.data.config ? `Настроенные сроки: агент — ${page.data.config.agentDueWorkingDays}, получение руководителем — ${page.data.config.ropReceiptDueWorkingDays}, действие — ${page.data.config.ropActionDueWorkingDays} рабочих дней.` : "Стартовые сроки подготовлены, но не сохранены. Эпизоды не запускаются."}</p>
+      <p className="sub">Стартовый набор: агент — 2 рабочих дня, подтверждение руководителем — 1, действия руководителя — 2. Все сроки можно изменить; сохранение не включает рабочее исполнение.</p>
       <div className="grid gap-3 sm:grid-cols-3">{["Срок агента", "Срок получения руководителем", "Срок действия руководителя"].map((title, index) =>
-        <label key={title}>{title}<input className="w-full" type="number" min={1} max={365} value={days[index]} placeholder="Рабочих дней" onChange={e => setDays(old => old.map((value, i) => i === index ? e.target.value : value))} /></label>)}</div>
+        <label key={title}>{title}<input className="w-full" type="number" min={1} max={365} value={days[index]} placeholder="Рабочих дней" onChange={e => setConfigDraft({ ...editor, days: days.map((value, i) => i === index ? e.target.value : value) })} /></label>)}</div>
       <label className="block my-3">Повторная проверка кандидата показа: рабочих дней после первых трёх дней ожидания (необязательно)
-        <input className="w-full" type="number" min={1} max={365} value={buyerFollowup} placeholder="Не настроено" onChange={e => setBuyerFollowup(e.target.value)} /></label>
+        <input className="w-full" type="number" min={1} max={365} value={buyerFollowup} placeholder="Не настроено" onChange={e => setConfigDraft({ ...editor, buyerFollowup: e.target.value })} /></label>
       <p className="sub">Текущее значение: {page.data.config?.buyerCandidateFollowupWorkingDays ?? "не настроено"}. Только предварительная закрытая оценка; задачи и сообщения не отправляются.</p>
-      <label>Руководитель для будущих автоматических задач по показам (необязательно)<select className="w-full" value={defaultRop} onChange={e => setDefaultRop(e.target.value)}><option value="">Не выбран</option>{agents.data?.filter(a => a.isActive && ["MANAGER", "ADMIN", "DIRECTOR"].includes(a.role)).map(a => <option key={a.id} value={a.id}>{a.fullName}</option>)}</select></label>
+      <label>Руководитель для будущих автоматических задач по показам (необязательно)<select className="w-full" value={defaultRop} onChange={e => setConfigDraft({ ...editor, defaultRop: e.target.value })}><option value="">Не выбран</option>{agents.data?.filter(a => a.isActive && ["MANAGER", "ADMIN", "DIRECTOR"].includes(a.role)).map(a => <option key={a.id} value={a.id}>{a.fullName}</option>)}</select></label>
       <p className="sub">Выбор руководителя не включает исполнение: необходим отдельный серверный допуск. Предварительные записи никогда не становятся рабочими автоматически.</p>
       <div className="flex flex-wrap gap-2 my-3"><button className="pill" disabled={mutation.isPending} onClick={save}>Сохранить сроки</button>
+        <button type="button" className="pill ghost" disabled={mutation.isPending} onClick={() => setConfigDraft({ ...starterDraft, defaultRop: editor.defaultRop })}>Заполнить стартовые сроки</button>
         <button className="pill ghost" disabled={mutation.isPending} onClick={() => mutation.mutate({ path: "/config", method: "PUT", body: { config: {} } })}>Отключить настройку</button></div>
       <div className="grid gap-3 sm:grid-cols-2"><label>Текущая карточка<select className="w-full" value={clientId} onChange={e => setClientId(e.target.value)}><option value="">Выберите карточку</option>
         {candidates.data?.items.filter(item => item.state === "MISSING").map(item => <option key={item.id} value={item.id}>{item.name} · принято {item.accepted} из {item.expected}</option>)}</select></label>
