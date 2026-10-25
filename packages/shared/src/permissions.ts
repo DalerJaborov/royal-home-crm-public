@@ -680,6 +680,14 @@ export const ROLE_PRESETS: Record<Role, PermissionId[]> = {
   ],
 };
 
+export type SellerControlRopRole = Extract<Role, "HEAD_OF_SALES" | "MANAGER" | "ADMIN" | "DIRECTOR">;
+
+/** Roles eligible to receive seller-control ROP tasks. MANAGER remains supported
+ * for existing CRM assignments; this is separate from investigation visibility. */
+export function isSellerControlRopRole(role: string | null | undefined): role is SellerControlRopRole {
+  return role === "HEAD_OF_SALES" || role === "MANAGER" || role === "ADMIN" || role === "DIRECTOR";
+}
+
 export interface PermissionOverrides {
   granted: PermissionId[];
   revoked: PermissionId[];

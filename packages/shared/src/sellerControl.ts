@@ -24,3 +24,11 @@ export interface SellerControlEpisodeView {
 export interface SellerControlPage {
   config: SellerControlConfig | null; configurationState: string; mode: "PREVIEW"; episodes: SellerControlEpisodeView[];
 }
+
+/** Ordinary assigned work only; investigation identifiers and reasons are never exposed. */
+export interface SalesControlHome {
+  tasks: Array<{ id: string; clientId: string; clientShortId: number; clientName: string;
+    title: string; dueAt: string | null; responseAction: "RECEIPT" | "ACTION" | null }>;
+  limited: boolean;
+  actionsEnabled: boolean;
+}

@@ -1,7 +1,7 @@
 import { saveWithInvestigationControlAudit } from "../lib/investigationSettingsAudit.js";
 import { Router } from "express";
 import { z } from "zod";
-import { sellerControlCommandSchema, sellerControlConfigUpdateSchema } from "@royal-home/shared";
+import { isSellerControlRopRole, sellerControlCommandSchema, sellerControlConfigUpdateSchema } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { commandSellerControl, SellerControlConflict, startSellerControl } from "../lib/sellerControlEpisodes.js";
 import { readSellerControlConfig } from "../lib/sellerControlMachine.js";
@@ -26,7 +26,7 @@ sellerControlRouter.put("/config", async (req, res) => {
   if (!parsed.success) return res.status(400).json({ error: "Заполните все три положительных срока или очистите настройку" });
   if ("defaultRopAgentId" in parsed.data.config && parsed.data.config.defaultRopAgentId) {
     const rop = await prisma.agent.findUnique({ where: { id: parsed.data.config.defaultRopAgentId }, select: { role: true, isActive: true } });
-    if (!rop?.isActive || !["MANAGER", "ADMIN", "DIRECTOR"].includes(rop.role)) return res.status(400).json({ error: "Выберите действующего руководителя" });
+    if (!rop?.isActive || !isSellerControlRopRole(rop.role)) return res.status(400).json({ error: "Выберите действующего руководителя" });
   }
   await saveWithInvestigationControlAudit({ sellerControlConfig: parsed.data.config }, { id: req.agent!.id, name: req.agent!.id }, tx => tx.settings.update({ where: { id: "singleton" }, data: { sellerControlConfig: parsed.data.config } }));
   res.json({ config: readSellerControlConfig(parsed.data.config), mode: "PREVIEW" });

@@ -64,10 +64,10 @@ import { ClientInsight } from "../components/ClientInsight";
 import { ClientSignals } from "../components/ClientSignals";
 import { ClientCardSkeleton } from "../components/rh2/Skeleton";
 import { digitsOf } from "../lib/phone";
+import { inboxClientConversationHref } from "../lib/inboxLink";
 import { ClientAvatar } from "../components/ClientAvatar";
 import { ClientDesiredPlacesMap } from "../components/ClientDesiredPlacesMap";
 import type { Client } from "../types";
-import { primaryConversationId } from "../lib/primaryConversationId";
 import { useMobileUx } from "../hooks/useMobileUx";
 import { useCleanShell } from "../hooks/useCleanShell";
 import { CleanClientDetailHeader, CleanClientDetailSkeleton, CleanClientDetailTabs, cleanClientDetailScale, cleanClientPanelProps, cleanClientShowsPanel } from "../components/clean/CleanClientDetailLayout";
@@ -120,6 +120,15 @@ function conversationsOf(client: Client): ClientConversation[] {
       pausedUntil: client.telegramConversation.pausedUntil,
       channel: "TELEGRAM",
       messages: client.telegramConversation.messages,
+    });
+  }
+  for (const direct of client.telegramDirectConversations ?? []) {
+    list.push({
+      id: direct.id,
+      pausedUntil: direct.pausedUntil,
+      channel: "TELEGRAM_DIRECT",
+      canReply: false,
+      messages: direct.messages,
     });
   }
   return list.sort((a, b) => {
@@ -1508,8 +1517,7 @@ function ClientDetailCard() {
               // тот же роут ?open=, что у пуша о брошенном диалоге
               // (см. Messages.tsx). Панель-шторка остаётся резервом на случай,
               // если id диалога вдруг не нашёлся.
-              const cid = primaryConversationId(client);
-              if (cid) navigate(`/messages?open=${cid}`);
+              if (conversationsOf(client).length > 0) navigate(inboxClientConversationHref(client.id));
               else setChat({ open: true, focusReply: true });
             }}
             onShowInteraction={() => scheduleShowing()}

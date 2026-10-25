@@ -34,6 +34,8 @@ export interface ConversationFilters {
   paused?: boolean;
   /** Срез «Мои» — диалоги клиентов, закреплённых за текущим сотрудником. */
   mine?: boolean;
+  /** Show one row per exact linked client, with standalone unlinked chats. */
+  grouped?: boolean;
   page?: number;
 }
 
@@ -69,6 +71,10 @@ export interface ConversationListItem {
    *  (владелец 18.09.2026) — список ставит такой диалог первым и красным,
    *  пока это не null. Гасится реальным ответом/звонком закреплённого агента. */
   agentAttentionRequestedAt: string | null;
+  /** Source conversation IDs represented by this row (grouped inbox only). */
+  sourceConversationIds?: string[];
+  /** Channels represented by this row (hidden unless clients.viewOrigin). */
+  channels?: string[];
 }
 
 /** Ответ списка диалогов: пагинация + фактический список каналов для фильтра. */
@@ -92,22 +98,25 @@ export interface ConversationAlerts {
   pausedOverDay: { count: number; names: string[] };
 }
 
-export type ConversationsPage = Paginated<ConversationListItem> & {
+export type ConversationsPage = Omit<Paginated<ConversationListItem>, "total"> & {
+  total: number | null;
   channels: string[];
   /** Подключённые аккаунты — для переключателя над списком. */
   accounts: InboxAccount[];
-  counts: ConversationSegmentCounts;
+  counts: ConversationSegmentCounts | null;
+  /** Grouped source loading reached the safety cap; totals and segment counts are intentionally omitted. */
+  groupedIncomplete?: boolean;
   alerts: ConversationAlerts;
 };
 
 export interface ConversationDetail {
   id: string;
-  channel: string;
+  channel: string | null;
   name: string | null;
   /** Имя профиля из соцсети (как прислал мессенджер) — может отличаться от ФИО в CRM. */
   profileName: string | null;
   /** ID подписчика на бот-платформе — стабильный идентификатор профиля. */
-  subscriberId: string;
+  subscriberId: string | null;
   clientId: string | null;
   clientShortId: string | null;
   clientPhone: string | null;
@@ -126,6 +135,9 @@ export interface ConversationDetail {
    * чем досье появились: панель об этом пишет прямо, а не показывает пустоту.
    */
   contact: ContactProfileView | null;
+  /** Source metadata for messages in a grouped timeline. */
+  grouped?: boolean;
+  sources?: Array<{ id: string; channel: string | null; canReply: boolean; pausedUntil: string | null }>;
 }
 
 /** Срез списка чатов (эталон messages.html, `#tpl-messages`, `.seg`): «Все / Ждут
@@ -152,6 +164,7 @@ function toQuery(filters: ConversationFilters) {
   if (filters.needsHuman) params.set("needsHuman", "1");
   if (filters.paused) params.set("paused", "1");
   if (filters.mine) params.set("mine", "1");
+  if (filters.grouped) params.set("grouped", "1");
   if (filters.page) params.set("page", String(filters.page));
   const qs = params.toString();
   return qs ? `?${qs}` : "";
@@ -180,7 +193,7 @@ export function useConversations(filters: ConversationFilters = {}, options?: { 
 /** Открытый диалог обновляем чаще: оператор ждёт реплику клиента в реальном времени.
  *  Сервер при открытии помечает диалог прочитанным (readAt) — синхронно гасим
  *  синий индикатор в закэшированных страницах списка, не дожидаясь поллинга. */
-export function useConversation(id: string | null) {
+export function useConversation(id: string | null, options?: { enabled?: boolean }) {
   const queryClient = useQueryClient();
   return useQuery<ConversationDetail>({
     queryKey: ["conversations", id],
@@ -195,10 +208,32 @@ export function useConversation(id: string | null) {
       );
       return detail;
     },
-    enabled: !!id,
+    enabled: !!id && (options?.enabled ?? true),
     // Было 8 секунд, потом 60 — теперь новое сообщение приезжает событием
     // message.new мгновенно, а таймер лишь страхует на случай, когда поток
     // не дошёл (22.09.2026: часть шторма 429 — вклад одной открытой вкладки).
+    refetchInterval: 120_000,
+  });
+}
+
+/** Grouped inbox detail is opt-in so existing single-conversation consumers keep
+ * their established API and cache contract. */
+export function useGroupedConversation(id: string | null) {
+  const queryClient = useQueryClient();
+  return useQuery<ConversationDetail>({
+    // Existing live events and send/pause/media mutations invalidate this prefix.
+    queryKey: ["conversations", "groups", id],
+    queryFn: async () => {
+      const detail = await api<ConversationDetail>(`/conversations/groups/${encodeURIComponent(id!)}`);
+      queryClient.setQueriesData<ConversationsPage>(
+        { queryKey: ["conversations"], exact: false },
+        old => old && Array.isArray(old.items)
+          ? { ...old, items: old.items.map(c => c.id === id ? { ...c, unread: false, unreadCount: 0 } : c) }
+          : old,
+      );
+      return detail;
+    },
+    enabled: !!id,
     refetchInterval: 120_000,
   });
 }
@@ -457,6 +492,9 @@ export function useReplyFeedback(id: string | null) {
         messages[variables.index] = { ...messages[variables.index], feedback: data.feedback };
         return { ...old, messages };
       });
+      // A merged timeline uses original source indices; refetch its projection
+      // rather than applying a source-array index to the combined array.
+      void queryClient.invalidateQueries({ queryKey: ["conversations", "groups"] });
     },
   });
 }

@@ -9,7 +9,7 @@ vi.mock("../hooks/useMobileUx", () => ({ useMobileUx: () => state.narrow }));
 vi.mock("../hooks/useCleanShell", () => ({ useCleanShell: () => state.clean }));
 vi.mock("../lib/lazyWithReload", () => ({ lazyWithReload: (factory: () => unknown) => {
   const source = factory.toString();
-  const name = source.includes("MobileAgentHome") ? "legacy-agent-home" : source.includes("AgentHome") ? "desktop-agent-home" : factory === state.cleanFactory ? "clean-director-home" : "other-role-home";
+  const name = source.includes("HeadOfSalesHome") ? "head-of-sales-home" : source.includes("MobileManagerHome") ? "mobile-manager-home" : source.includes("MobileAgentHome") ? "legacy-agent-home" : source.includes("AgentHome") ? "desktop-agent-home" : source.includes("ManagerHome") ? "manager-home" : factory === state.cleanFactory ? "clean-director-home" : "other-role-home";
   return () => <div>{name}</div>;
 } }));
 describe("actual Dashboard route selection", () => {
@@ -25,5 +25,19 @@ describe("actual Dashboard route selection", () => {
   it("preserves the clean director home on desktop", () => {
     state.role = "DIRECTOR"; state.narrow = false; state.clean = true;
     expect(renderToStaticMarkup(<Dashboard />)).toContain("clean-director-home");
+  });
+  it("routes HEAD_OF_SALES to its dedicated home on desktop and mobile", () => {
+    state.role = "HEAD_OF_SALES"; state.clean = false;
+    state.narrow = false;
+    expect(renderToStaticMarkup(<Dashboard />)).toContain("head-of-sales-home");
+    state.narrow = true;
+    expect(renderToStaticMarkup(<Dashboard />)).toContain("head-of-sales-home");
+  });
+  it("keeps legacy MANAGER routing unchanged on desktop and mobile", () => {
+    state.role = "MANAGER"; state.clean = false;
+    state.narrow = false;
+    expect(renderToStaticMarkup(<Dashboard />)).toContain("manager-home");
+    state.narrow = true;
+    expect(renderToStaticMarkup(<Dashboard />)).toContain("mobile-manager-home");
   });
 });

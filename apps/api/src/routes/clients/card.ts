@@ -280,6 +280,10 @@ cardRouter.get("/:id", requireAuth, async (req, res) => {
       // диалог (`/messages?open=tg_<id>`, TG_PREFIX из routes/conversations.ts),
       // а не открывала плавающую панель поверх карточки (владелец 15.09.2026).
       telegramConversation: { select: { id: true, pausedUntil: true, messages: true } },
+      telegramDirectConversations: {
+        select: { id: true, pausedUntil: true, messages: true, lastMessageAt: true },
+        orderBy: { lastMessageAt: "desc" },
+      },
     },
   });
   if (!client || client.deletedAt) return res.status(404).json({ error: "Клиент не найден" });
@@ -308,10 +312,11 @@ cardRouter.get("/:id", requireAuth, async (req, res) => {
   // firstOpenedAt ниже: без await список клиентов, запрошенный сразу следом
   // (в т.ч. фронтом при возврате назад), иногда увидел бы ещё не сброшенный
   // индикатор. Сбой записи не должен ронять открытие карточки.
-  if (ownAgentId && client.assignedAgentId === ownAgentId) {
+  if (ownAgentId && client.assignedAgentId === ownAgentId && client.acceptedAt) {
     await Promise.all([
       prisma.botConversation.updateMany({ where: { clientId: client.id }, data: { readAt: new Date() } }).catch(() => {}),
       prisma.telegramConversation.updateMany({ where: { clientId: client.id }, data: { readAt: new Date() } }).catch(() => {}),
+      prisma.telegramDirectConversation.updateMany({ where: { clientId: client.id }, data: { readAt: new Date() } }).catch(() => {}),
     ]);
   }
   // АВТОФИКСАЦИЯ ВРЕМЁН (Royal Score): первое открытие карточки — факт, который
@@ -467,6 +472,12 @@ cardRouter.get("/:id", requireAuth, async (req, res) => {
       ...client.telegramConversation,
       messages: presentMessages(client.telegramConversation.messages, attachmentsAllowed, phonesAllowed),
     },
+    telegramDirectConversations: client.telegramDirectConversations.map((c) => ({
+      ...c,
+      channel: "TELEGRAM_DIRECT",
+      canReply: false,
+      messages: presentMessages(c.messages, attachmentsAllowed, phonesAllowed),
+    })),
   };
 
   /**
@@ -513,6 +524,7 @@ cardRouter.get("/:id", requireAuth, async (req, res) => {
         deals: [],
         botConversation: [],
         telegramConversation: null,
+        telegramDirectConversations: [],
       }
     : withMessages;
 

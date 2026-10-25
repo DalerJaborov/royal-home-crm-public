@@ -45,7 +45,7 @@ interactionsRouter.post("/:id/work-response", requireAuth, async (req, res) => {
     .strict().refine(value => value.action !== "ACTION" || !!value.note).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Проверьте ответ по задаче" });
   const task = await prisma.interaction.findUnique({ where: { id: req.params.id } });
-  if (!task || task.subjectAgentId !== req.agent!.id || task.investigationOnly || task.taskCancelledAt)
+  if (!task || task.subjectAgentId !== req.agent!.id || task.investigationOnly || task.taskCancelledAt || task.declinedAt || !task.nextAction)
     return res.status(404).json({ error: "Задача недоступна" });
   const episode = await prisma.sellerControlEpisode.findUnique({ where: { ropTaskId: task.id } });
   if (!episode || episode.executionMode !== "LIVE" || episode.ropAgentId !== req.agent!.id)

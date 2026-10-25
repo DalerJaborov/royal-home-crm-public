@@ -4,7 +4,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 import { CONTACT_FACT_DOMAINS, MESSAGE_PHONE_MASK, type ContactProfileView } from "@royal-home/shared";
-const h = vi.hoisted(() => ({ readOnly: false, narrow: false, mutation: vi.fn() }));
+const conversationId = "00000000-0000-4000-8000-000000000001";
+const h = vi.hoisted(() => ({ readOnly: false, narrow: false, mutation: vi.fn(), groupedConversation: null as unknown }));
 vi.mock("../../lib/permissions", () => ({ useCan: () => () => true, useIsReadOnly: () => h.readOnly }));
 vi.mock("../../store/auth", () => ({ useAuthStore: Object.assign((select: (state: unknown) => unknown) => select({ agent: { id: "actor", role: h.readOnly ? "SHAREHOLDER" : "MANAGER" }, sessionEpoch: 1 }), { getState: () => ({ agent: { id: "actor" }, sessionEpoch: 1 }), subscribe: () => () => {} }) }));
 vi.mock("../../hooks/useNarrowScreen", () => ({ useNarrowScreen: () => h.narrow }));
@@ -12,10 +13,13 @@ vi.mock("../../hooks/useSellerObject", () => ({ useSellerObject: () => ({ data: 
 vi.mock("../../hooks/useDraftBeforeUpdate", () => ({ useDraftBeforeUpdate: () => {} }));
 vi.mock("../../hooks/useCleanChatDraft", () => ({ useCleanChatDraft: () => {} }));
 vi.mock("../../store/mediaUploads", () => ({ usePendingMediaUploads: () => [] }));
-vi.mock("../../hooks/useConversations", () => {
+vi.mock("../../hooks/useConversations", async importOriginal => {
+  const original = await importOriginal<typeof import("../../hooks/useConversations")>();
   const mutation = () => ({ isPending: false, isError: false, mutate: h.mutation, mutateAsync: h.mutation });
   return {
-    useConversation: () => ({ data: { id: "chat", name: "Клиент", profileName: null, channel: "WHATSAPP", messages: [{ role: "user", content: "Телефон: «телефон скрыт»", at: new Date().toISOString() }], clientId: "client", clientShortId: "1", clientPhone: null, firstContactAt: new Date().toISOString(), pausedUntil: null, contact: null, subscriberId: "peer" }, isLoading: false, refetch: h.mutation }),
+    ...original,
+    useConversation: () => ({ data: { id: conversationId, name: "Клиент", profileName: null, channel: "WHATSAPP", messages: [{ role: "user", content: "Телефон: «телефон скрыт»", at: new Date().toISOString() }], clientId: "client", clientShortId: "1", clientPhone: null, firstContactAt: new Date().toISOString(), pausedUntil: null, contact: null, subscriberId: "peer" }, isLoading: false, refetch: h.mutation }),
+    useGroupedConversation: () => ({ data: h.groupedConversation, isLoading: false, isError: false, error: null, refetch: h.mutation }),
     useReplyToConversation: mutation, useSendVoiceMessage: mutation, useResumeConversationBot: mutation,
     usePauseConversationBot: mutation, useUploadConversationMediaWithProgress: () => ({ start: h.mutation, retry: h.mutation, cancel: h.mutation }),
     useAiConversationCost: () => ({ data: null }),
@@ -24,7 +28,7 @@ vi.mock("../../hooks/useConversations", () => {
 });
 vi.mock("../../components/CallClientButton", () => ({ CallClientButton: () => createElement("button", null, "Позвонить") }));
 vi.mock("../../components/VoiceRecordButton", () => ({ VoiceRecordButton: () => createElement("button", null, "Голосовое") }));
-vi.mock("../../components/ChatPropertySend", () => ({ ChatPropertySend: () => createElement("button", null, "Отправить объект") }));
+vi.mock("../../components/ChatPropertySend", () => ({ ChatPropertySend: ({ disabled, conversationId }: { disabled?: boolean; conversationId?: string }) => createElement("button", { disabled, "data-conversation-id": conversationId ?? "" }, "Отправить объект") }));
 vi.mock("../../components/BotReplyFeedback", () => ({ BotReplyFeedback: () => createElement("button", null, "Обучить бота") }));
 vi.mock("../../hooks/useContactProfile", () => ({ useSetContactCategory: () => ({ mutate: h.mutation, isPending: false, isError: false }) }));
 vi.mock("../../hooks/useClients", () => ({ useSendClientMessage: () => ({ isPending: false, isError: false, mutate: h.mutation }), useSendClientVoiceMessage: () => ({ mutateAsync: h.mutation }), downloadClientConversation: h.mutation }));
@@ -41,15 +45,15 @@ import { ContactProfilePanel } from "../../components/ContactProfilePanel";
 
 function renderToStaticMarkup(node: ReactNode) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  client.setQueryData(["customer-requests", "chat", "actor"], [{
-    id: "request", conversationId: "chat", requestKind: "HUMAN", lifecycleRevision: "revision-1",
+  client.setQueryData(["customer-requests", conversationId, "actor"], [{
+    id: "request", conversationId, requestKind: "HUMAN", lifecycleRevision: "revision-1",
     lifecycleStatus: "QUEUED", assignedAgentId: null, topic: "Нужна помощь сотрудника",
   }]);
   return renderMarkup(createElement(QueryClientProvider, { client }, node));
 }
 
 function desktop(clean: boolean) {
-  return renderToStaticMarkup(createElement(MemoryRouter, null, createElement(ConversationView, { id: "chat", onBack: () => {}, clean })));
+  return renderToStaticMarkup(createElement(MemoryRouter, null, createElement(ConversationView, { id: conversationId, onBack: () => {}, clean })));
 }
 describe("read-only chat actors", () => {
   for (const readOnly of [true, false]) {
@@ -57,7 +61,7 @@ describe("read-only chat actors", () => {
       h.readOnly = readOnly; h.narrow = false; h.mutation.mockClear();
       const html = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(ClientChatPanel, {
         clientId: "client", clientShortId: 1, clientName: "Клиент", onClose: () => {}, autoFocusReply: true,
-        conversations: [{ id: "chat", channel: "WHATSAPP", pausedUntil: null, messages: [
+        conversations: [{ id: conversationId, channel: "WHATSAPP", pausedUntil: null, messages: [
           { role: "user", content: "Ман хона мехоҳам", translatedRu: "Хочу квартиру", at: new Date().toISOString() },
           { role: "assistant", content: "Ответ бота" },
           { role: "user", content: "Непереведённое сообщение: мехоҳам", at: new Date().toISOString() },
@@ -102,7 +106,7 @@ describe("read-only chat actors", () => {
   for (const readOnly of [true, false]) {
     it(`${readOnly ? "shareholder" : "operator"} has correct actions in the legacy phone fallback`, () => {
       h.readOnly = readOnly; h.narrow = true;
-      const html = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(MobileChatView, { id: "chat", onBack: () => {} })));
+      const html = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(MobileChatView, { id: conversationId, onBack: () => {} })));
       if (readOnly) {
         expect(html).toContain("Режим просмотра");
         expect(html).not.toContain('<textarea');
@@ -138,6 +142,29 @@ describe("read-only chat actors", () => {
     expect(html).toContain("Нужна помощь сотрудника");
     expect(html).toContain("Принять в работу");
     expect(html).toContain("Закрыть запрос");
+  });
+  it("keeps grouped client history read-only for shareholders and preserves operator source controls", () => {
+    const groupedConversation = {
+      id: "client:client", clientId: "client", clientShortId: "1", name: "Клиент", profileName: null,
+      channel: "MULTI", messages: [{ role: "user", content: "Старое сообщение", at: new Date().toISOString(), sourceConversationId: conversationId, sourceChannel: "WHATSAPP" }],
+      clientPhone: null, firstContactAt: new Date().toISOString(), pausedUntil: null, contact: null, subscriberId: null,
+      sources: [{ id: conversationId, channel: "WHATSAPP", canReply: true, pausedUntil: null }],
+    };
+    h.groupedConversation = groupedConversation;
+    h.readOnly = true; h.narrow = false; h.mutation.mockClear();
+    const readonlyHtml = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(ConversationView, { id: "client:client", onBack: () => {}, clean: true })));
+    expect(readonlyHtml).toContain("Старое сообщение");
+    expect(readonlyHtml).toContain("Режим просмотра");
+    expect(readonlyHtml).not.toContain("Отправить объект");
+    expect(readonlyHtml).not.toContain("Поставить на паузу");
+    expect(h.mutation).not.toHaveBeenCalled();
+
+    h.readOnly = false;
+    const operatorHtml = renderToStaticMarkup(createElement(MemoryRouter, null, createElement(ConversationView, { id: "client:client", onBack: () => {}, clean: true })));
+    expect(operatorHtml).toContain("Куда ответить");
+    expect(operatorHtml).toContain("Отправить объект");
+    expect(operatorHtml).toContain(`data-conversation-id=""`);
+    h.groupedConversation = null;
   });
   it("permits an existing translation as local reading, but cannot request a new translation", () => {
     const message = { role: "user" as const, content: "Ман хона мехоҳам", at: new Date().toISOString() };

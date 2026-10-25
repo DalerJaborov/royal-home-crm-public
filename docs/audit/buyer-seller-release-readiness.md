@@ -31,7 +31,7 @@ Working-day calendar, absence and outage rules remain in force. Seller source el
 
 Use the separate execution prerequisites in `buyer-seller-execution-gates.md`. Server flags, persisted execution modes, cutovers, current assignment/consent, supported provider operations and configured deadlines must all agree. A saved form or successful HTTP response alone does not establish delivery.
 
-Run the separately authorized 20 RU + 20 TJ pilot, including no answer, refusal to speak, unclear answers, cancellations, duplicate/late receipts, changed ownership, absence and explicit sale/purchase evidence. Review transcripts and recording quality manually. Observe operational noise for two weeks before widening automation. Do not infer agent guilt from missing records or an inconclusive robot call.
+RU/TJ language handling already exists. A new language implementation is not a release prerequisite. Before separately approved real voice activation, verify the actual selected voices/provider and outcomes such as no answer, refusal to speak, unclear answers, cancellation and duplicate/late receipts. The owner manages WhatsApp and telephony integration; this change does not configure or activate them. Do not infer agent guilt from missing records or an inconclusive robot call.
 
 ## Rollback preparation
 
@@ -43,4 +43,10 @@ The isolated browser pass covers initial rendering of all 52 mapped routes at de
 
 The synthetic backup/restore rehearsal preserves the snapshot and its migration checksums. PostgreSQL may reparenthesize AND-only CHECK expressions while restoring; verify the exact differences rather than requiring byte equality of dump text or ignoring arbitrary constraints.
 
-Universal social-network discovery and an external market-price parser remain outside the implemented integration coverage. Known channel bindings, internal asking-price comparables and explicit manual handling of unsupported publication edits remain the truthful limits.
+The owner cancelled both internal price comparisons and external market-price scraping. The comparison UI, route and shared contract have been removed. Ordinary listing prices/history, buyer budgets and property matching remain. Universal social-network discovery by phone is not an implemented capability; only persisted known channel links are used.
+
+## Dedicated ROP home and unified chat (26 October)
+
+HEAD_OF_SALES receives its own responsive home in the existing Clean design. It shows only neutral ordinary tasks assigned to the current actor; private investigation metadata is excluded. Receipt aligns the existing task's deadline; a recorded action completes that task without declaring the underlying control episode resolved. Execution gates remain mandatory. Legacy MANAGER routing is preserved.
+
+The grouped inbox uses persisted Client.id and groups visible source conversations before counting and pagination. Known linked histories appear together; unlinked sources remain separate. Message IDs retain their actual source for quotes, read state and replies. Unsupported Telegram Direct sending remains read-only. Channel-specific integration setup and activation are separate from aggregating already stored history.

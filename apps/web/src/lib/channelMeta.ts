@@ -11,6 +11,8 @@ export const CHANNEL_META: Record<string, { label: string; icon: typeof Instagra
   WHATSAPP: { label: "WhatsApp", icon: Phone, tint: "text-green" },
   FACEBOOK: { label: "Facebook", icon: MessageSquare, tint: "text-blue" },
   TELEGRAM: { label: "Telegram", icon: SendHorizonal, tint: "text-blue" },
+  TELEGRAM_DIRECT: { label: "Telegram Direct", icon: SendHorizonal, tint: "text-blue" },
+  MULTI: { label: "Несколько каналов", icon: MessageSquare, tint: "text-gray-400" },
   VIBER: { label: "Viber", icon: MessageSquare, tint: "text-purple-500" },
   VK: { label: "ВКонтакте", icon: MessageSquare, tint: "text-blue" },
   // Площадки публикации, а не мессенджеры: в переписке они не встречаются, но

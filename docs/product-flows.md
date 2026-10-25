@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **713**. Развилок в самих путях: **2526**; вместе с задачами по расписанию и фоновыми заданиями — **3931**. Модулей: **78**.
+Путей: **714**. Развилок в самих путях: **2541**; вместе с задачами по расписанию и фоновыми заданиями — **3946**. Модулей: **78**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -4218,10 +4218,11 @@
   - если !hasDeal && wasMine
     - transferAccess = await loadTransferAccess(client.id, ownAgentId);
       · дословно из кода
-- если ownAgentId && client.assignedAgentId === ownAgentId
+- если ownAgentId && client.assignedAgentId === ownAgentId && client.acceptedAt
   - await Promise.all([ prisma.botConversation.updateMany({ where: { clientId: client.id }, data: { readAt: new D…
     · меняет в базе: botConversation
     · меняет в базе: telegramConversation
+    · меняет в базе: telegramDirectConversation
 - если !client.firstOpenedAt
   - пробует
     - await prisma.client.updateMany({ where: { id: client.id, firstOpenedAt: null }, data: { firstOpenedAt: new Da…
@@ -5248,6 +5249,74 @@
 - res.json({ id: conversation.id, channel: shown.channel, name: shown.name, profileName: canSeeOrigin && profil…
   · ответ 200
 
+### GET /api/v1/conversations/groups/:groupId
+
+`apps/api/src/routes/conversations.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, (req, res, next) => { if (can(req, "messages.view") || can(req, "messages.viewOwn")) return next(, async (req, res, next) => { const agentId = chatScopeAgentId(req, вход выполнен
+
+- const ownAgentId = chatScopeAgentId(req);
+  · зовёт chatScopeAgentId()
+- если key.startsWith("client:")
+  - если !z.string().uuid().safeParse(clientId).success
+    - return res.status(404).json({ error: "Диалог не найден" });
+      · ответ 404 — «Диалог не найден»
+  - const client = await prisma.client.findUnique({ where: { id: clientId }, select: { id: true, shortId: true, f…
+    · читает в базе: client
+  - если !client || client.deletedAt
+    - return res.status(404).json({ error: "Диалог не найден" });
+      · ответ 404 — «Диалог не найден»
+  - const [bots, telegrams, direct] = await Promise.all([ prisma.botConversation.findMany({ where: { clientId, ..…
+    · читает в базе: botConversation
+    · читает в базе: telegramConversation
+    · читает в базе: telegramDirectConversation
+- иначе если key.startsWith("td_")
+  - const direct = await prisma.telegramDirectConversation.findUnique({ where: { id: key.slice(3) }, select: { id…
+    · читает в базе: telegramDirectConversation
+  - если !direct || (ownAgentId && (!direct.client || direct.client.deletedAt || direct.client.assignedAgentId !== own…
+    - return res.status(404).json({ error: "Диалог не найден" });
+      · ответ 404 — «Диалог не найден»
+  - если direct.client
+    - clientDetails = direct.client;
+      · дословно из кода
+- иначе
+  - return res.status(404).json({ error: "Диалог не найден" });
+    · ответ 404 — «Диалог не найден»
+- если sources.length === 0
+  - return res.status(404).json({ error: "Диалог не найден" });
+    · ответ 404 — «Диалог не найден»
+- если clientId && !clientDetails
+  - clientDetails = await prisma.client.findUnique({ where: { id: clientId }, select: { id: true, shortId: true, …
+    · читает в базе: client
+- await Promise.all(sources.map(async (source)
+  · меняет в базе: botConversation
+  · меняет в базе: telegramConversation
+  · меняет в базе: telegramDirectConversation
+  - если !needsReadReceipt(source)
+    - return;
+      · дальше не идёт, ничего не меняя
+  - если source.kind === "bot"
+    - await prisma.botConversation.update({ where: { id: source.id }, data: { readAt: now } });
+      · меняет в базе: botConversation
+  - иначе если source.kind === "telegram"
+    - await prisma.telegramConversation.update({ where: { id: source.id }, data: { readAt: now } });
+      · меняет в базе: telegramConversation
+  - иначе
+    - await prisma.telegramDirectConversation.update({ where: { id: source.id }, data: { readAt: now } });
+      · меняет в базе: telegramDirectConversation
+  - void publishConversationUpdated(source.kind, source.id);
+    · зовёт publishConversationUpdated()
+- для каждого: const [sourceOrder, source] of sources.entries()
+  - если !Array.isArray(source.messages)
+    - continue;
+      · переходит к следующему
+  - для каждого: const [sourceMessageIndex, rawMessage] of source.messages.entries()
+    - const [message] = presentMessages([rawMessage], attachmentsAllowed, canSeePhone);
+      · зовёт presentMessages()
+    - если !message
+      - continue;
+        · переходит к следующему
+- res.json({ id: key, channel: canSeeOrigin ? (channelNames.length === 1 ? channelNames[0] : "MULTI") : null, n…
+  · ответ 200
+
 ### GET /api/v1/conversations
 
 `apps/api/src/routes/conversations.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, (req, res, next) => { if (can(req, "messages.view") || can(req, "messages.viewOwn")) return next(, async (req, res, next) => { const agentId = chatScopeAgentId(req, вход выполнен
@@ -5262,6 +5331,13 @@
   · считает в базе: telegramConversation
 - const ownAgentId = chatScopeAgentId(req);
   · зовёт chatScopeAgentId()
+- если grouped
+  - const directCount = accountId || (channel && channel !== "TELEGRAM_DIRECT") ? 0 : await prisma.telegramDirect…
+    · считает в базе: telegramDirectConversation
+  - res.json({ items: result.items, total: result.total, page, pageSize: PAGE_SIZE, channels: canSeeOrigin ? [...…
+    · ответ 200
+  - return;
+    · дальше не идёт, ничего не меняя
 - res.json({ items: pageRows.map((r)
   · ответ 200
 
@@ -5521,6 +5597,40 @@
   · читает в базе: agent
 - res.json({ modules });
   · ответ 200
+
+### GET /api/v1/dashboard/sales-control
+
+`apps/api/src/routes/dashboardSalesControl.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- если !isSellerControlRopRole(req.agent?.role)
+  - return res.status(403).json({ error: "Недостаточно прав" });
+    · ответ 403 — «Недостаточно прав»
+- если !z.object({}).strict().safeParse(req.query).success
+  - return res.status(400).json({ error: "Некорректный запрос" });
+    · ответ 400 — «Некорректный запрос»
+- return withInvestigationPrivacy(true, async ()
+  · ответ 200
+  · обращается к базе своим SQL
+  · читает в базе: agent
+  - const actor = await prisma.agent.findUnique({ where: { id: actorId }, select: { isActive: true, frozenAt: tru…
+    · читает в базе: agent
+  - для каждого: result.tasks.length <= 100
+    - const rows = await prisma.$queryRaw<Array<{ clientId: string; clientShortId: number; clientName: string; agen…
+      · обращается к базе своим SQL
+    - для каждого: const row of rows
+      - если !await assignmentSourceEpochIsCurrent(prisma, { clientId: row.clientId, subjectAgentId: row.agentId, assignme…
+        - continue;
+          · переходит к следующему
+      - const buyerEnabled = !row.buyerCandidateId || buyerCandidateLiveEnabled();
+        · зовёт buyerCandidateLiveEnabled()
+      - если result.tasks.length > 100
+        - break;
+          · прекращает перебор
+    - если rows.length < 101
+      - break;
+        · прекращает перебор
+  - return res.json(result);
+    · ответ 200
 
 ### GET /api/v1/dashboard/summary
 
@@ -7972,7 +8082,7 @@
     · ответ 400 — «Проверьте ответ по задаче»
 - const task = await prisma.interaction.findUnique({ where: { id: req.params.id } });
   · читает в базе: interaction
-- если !task || task.subjectAgentId !== req.agent!.id || task.investigationOnly || task.taskCancelledAt
+- если !task || task.subjectAgentId !== req.agent!.id || task.investigationOnly || task.taskCancelledAt || task.decl…
   - return res.status(404).json({ error: "Задача недоступна" });
     · ответ 404 — «Задача недоступна»
 - const episode = await prisma.sellerControlEpisode.findUnique({ where: { ropTaskId: task.id } });
@@ -10303,30 +10413,6 @@
     · ответ 503 — «Не удалось поставить видео в обработку — попробуйте ещё раз»
 - res.status(202).json({ clipVideoStatus: "PROCESSING" });
   · ответ 202
-
-### GET /api/v1/properties/:id/comparables
-
-`apps/api/src/routes/properties/comparables.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
-
-- если !id.success || !z.object({}).strict().safeParse(req.query).success
-  - return res.status(400).json({ error: "Некорректный запрос" });
-    · ответ 400 — «Некорректный запрос»
-- const subject = await prisma.property.findUnique({ where: { id: id.data } });
-  · читает в базе: property
-- если !subject || subject.deletedAt
-  - return res.status(404).json({ error: "Объект не найден" });
-    · ответ 404 — «Объект не найден»
-- если !canManageProperty(req, subject)
-  - return res.status(403).json({ error: "Нет доступа к сравнению объекта" });
-    · ответ 403 — «Нет доступа к сравнению объекта»
-- если !subject.districtId || !Number.isFinite(area) || area <= 0
-  - return res.json({ ...summarizeComparableListings({ price: Number(subject.price), currency: subject.currency, …
-    · ответ 200
-- const [total, rows] = await Promise.all([prisma.property.count({ where }), prisma.property.findMany({ where, …
-  · считает в базе: property
-  · читает в базе: property
-- res.json({ ...summarizeComparableListings({ price: Number(subject.price), currency: subject.currency, areaSqm…
-  · ответ 200
 
 ### POST /api/v1/properties/:id/complete-editing
 
@@ -15621,7 +15707,7 @@
 - если "defaultRopAgentId" in parsed.data.config && parsed.data.config.defaultRopAgentId
   - const rop = await prisma.agent.findUnique({ where: { id: parsed.data.config.defaultRopAgentId }, select: { ro…
     · читает в базе: agent
-  - если !rop?.isActive || !["MANAGER", "ADMIN", "DIRECTOR"].includes(rop.role)
+  - если !rop?.isActive || !isSellerControlRopRole(rop.role)
     - return res.status(400).json({ error: "Выберите действующего руководителя" });
       · ответ 400 — «Выберите действующего руководителя»
 - await saveWithInvestigationControlAudit({ sellerControlConfig: parsed.data.config }, { id: req.agent!.id, nam…

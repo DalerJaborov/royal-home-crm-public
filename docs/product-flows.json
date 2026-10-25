@@ -1,8 +1,8 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 713,
-  "forks": 3931,
+  "endpoints": 714,
+  "forks": 3946,
   "mounts": 78,
   "cron": 114,
   "jobs": 31,
@@ -18078,7 +18078,7 @@
     },
     {
      "k": "if",
-     "t": "ownAgentId && client.assignedAgentId === ownAgentId",
+     "t": "ownAgentId && client.assignedAgentId === ownAgentId && client.acceptedAt",
      "a": [],
      "c": [
       {
@@ -18086,7 +18086,8 @@
        "t": "await Promise.all([ prisma.botConversation.updateMany({ where: { clientId: client.id }, data: { readAt: new D…",
        "a": [
         "меняет в базе: botConversation",
-        "меняет в базе: telegramConversation"
+        "меняет в базе: telegramConversation",
+        "меняет в базе: telegramDirectConversation"
        ],
        "c": []
       }
@@ -22643,6 +22644,319 @@
   },
   {
    "method": "GET",
+   "path": "/groups/:groupId",
+   "mount": "/api/v1/conversations",
+   "full": "/api/v1/conversations/groups/:groupId",
+   "file": "apps/api/src/routes/conversations.ts",
+   "router": "conversationsRouter",
+   "top": "apps/api/src/routes/conversations.ts::conversationsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "(req, res, next) => { if (can(req, \"messages.view\") || can(req, \"messages.viewOwn\")) return next(",
+    "async (req, res, next) => { const agentId = chatScopeAgentId(req",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const ownAgentId = chatScopeAgentId(req);",
+     "a": [
+      "зовёт chatScopeAgentId()"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "key.startsWith(\"client:\")",
+     "a": [],
+     "c": [
+      {
+       "k": "if",
+       "t": "!z.string().uuid().safeParse(clientId).success",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(404).json({ error: \"Диалог не найден\" });",
+         "a": [
+          "ответ 404 — «Диалог не найден»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const client = await prisma.client.findUnique({ where: { id: clientId }, select: { id: true, shortId: true, f…",
+       "a": [
+        "читает в базе: client"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!client || client.deletedAt",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(404).json({ error: \"Диалог не найден\" });",
+         "a": [
+          "ответ 404 — «Диалог не найден»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const [bots, telegrams, direct] = await Promise.all([ prisma.botConversation.findMany({ where: { clientId, ..…",
+       "a": [
+        "читает в базе: botConversation",
+        "читает в базе: telegramConversation",
+        "читает в базе: telegramDirectConversation"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "elseif",
+     "t": "key.startsWith(\"td_\")",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const direct = await prisma.telegramDirectConversation.findUnique({ where: { id: key.slice(3) }, select: { id…",
+       "a": [
+        "читает в базе: telegramDirectConversation"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!direct || (ownAgentId && (!direct.client || direct.client.deletedAt || direct.client.assignedAgentId !== own…",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(404).json({ error: \"Диалог не найден\" });",
+         "a": [
+          "ответ 404 — «Диалог не найден»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "direct.client",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "clientDetails = direct.client;",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "else",
+     "t": "иначе",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Диалог не найден\" });",
+       "a": [
+        "ответ 404 — «Диалог не найден»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "sources.length === 0",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Диалог не найден\" });",
+       "a": [
+        "ответ 404 — «Диалог не найден»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "clientId && !clientDetails",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "clientDetails = await prisma.client.findUnique({ where: { id: clientId }, select: { id: true, shortId: true, …",
+       "a": [
+        "читает в базе: client"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "await Promise.all(sources.map(async (source)",
+     "a": [
+      "меняет в базе: botConversation",
+      "меняет в базе: telegramConversation",
+      "меняет в базе: telegramDirectConversation"
+     ],
+     "c": [
+      {
+       "k": "if",
+       "t": "!needsReadReceipt(source)",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return;",
+         "a": [
+          "дальше не идёт, ничего не меняя"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "source.kind === \"bot\"",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "await prisma.botConversation.update({ where: { id: source.id }, data: { readAt: now } });",
+         "a": [
+          "меняет в базе: botConversation"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "elseif",
+       "t": "source.kind === \"telegram\"",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "await prisma.telegramConversation.update({ where: { id: source.id }, data: { readAt: now } });",
+         "a": [
+          "меняет в базе: telegramConversation"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "else",
+       "t": "иначе",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "await prisma.telegramDirectConversation.update({ where: { id: source.id }, data: { readAt: now } });",
+         "a": [
+          "меняет в базе: telegramDirectConversation"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "void publishConversationUpdated(source.kind, source.id);",
+       "a": [
+        "зовёт publishConversationUpdated()"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "loop",
+     "t": "для каждого: const [sourceOrder, source] of sources.entries()",
+     "a": [],
+     "c": [
+      {
+       "k": "if",
+       "t": "!Array.isArray(source.messages)",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "continue;",
+         "a": [
+          "переходит к следующему"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "loop",
+       "t": "для каждого: const [sourceMessageIndex, rawMessage] of source.messages.entries()",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "const [message] = presentMessages([rawMessage], attachmentsAllowed, canSeePhone);",
+         "a": [
+          "зовёт presentMessages()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "!message",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "continue;",
+           "a": [
+            "переходит к следующему"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.json({ id: key, channel: canSeeOrigin ? (channelNames.length === 1 ? channelNames[0] : \"MULTI\") : null, n…",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
    "path": "/",
    "mount": "/api/v1/conversations",
    "full": "/api/v1/conversations",
@@ -22699,6 +23013,37 @@
       "зовёт chatScopeAgentId()"
      ],
      "c": []
+    },
+    {
+     "k": "if",
+     "t": "grouped",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const directCount = accountId || (channel && channel !== \"TELEGRAM_DIRECT\") ? 0 : await prisma.telegramDirect…",
+       "a": [
+        "считает в базе: telegramDirectConversation"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "res.json({ items: result.items, total: result.total, page, pageSize: PAGE_SIZE, channels: canSeeOrigin ? [...…",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
     },
     {
      "k": "do",
@@ -23754,6 +24099,156 @@
       "ответ 200"
      ],
      "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/sales-control",
+   "mount": "/api/v1/dashboard",
+   "full": "/api/v1/dashboard/sales-control",
+   "file": "apps/api/src/routes/dashboardSalesControl.ts",
+   "router": "dashboardSalesControlRouter",
+   "top": "apps/api/src/routes/dashboard.ts::dashboardRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!isSellerControlRopRole(req.agent?.role)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Недостаточно прав\" });",
+       "a": [
+        "ответ 403 — «Недостаточно прав»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "!z.object({}).strict().safeParse(req.query).success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Некорректный запрос\" });",
+       "a": [
+        "ответ 400 — «Некорректный запрос»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "return withInvestigationPrivacy(true, async ()",
+     "a": [
+      "ответ 200",
+      "обращается к базе своим SQL",
+      "читает в базе: agent"
+     ],
+     "c": [
+      {
+       "k": "do",
+       "t": "const actor = await prisma.agent.findUnique({ where: { id: actorId }, select: { isActive: true, frozenAt: tru…",
+       "a": [
+        "читает в базе: agent"
+       ],
+       "c": []
+      },
+      {
+       "k": "loop",
+       "t": "для каждого: result.tasks.length <= 100",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "const rows = await prisma.$queryRaw<Array<{ clientId: string; clientShortId: number; clientName: string; agen…",
+         "a": [
+          "обращается к базе своим SQL"
+         ],
+         "c": []
+        },
+        {
+         "k": "loop",
+         "t": "для каждого: const row of rows",
+         "a": [],
+         "c": [
+          {
+           "k": "if",
+           "t": "!await assignmentSourceEpochIsCurrent(prisma, { clientId: row.clientId, subjectAgentId: row.agentId, assignme…",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "continue;",
+             "a": [
+              "переходит к следующему"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const buyerEnabled = !row.buyerCandidateId || buyerCandidateLiveEnabled();",
+           "a": [
+            "зовёт buyerCandidateLiveEnabled()"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "result.tasks.length > 100",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "break;",
+             "a": [
+              "прекращает перебор"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "rows.length < 101",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "break;",
+           "a": [
+            "прекращает перебор"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "return res.json(result);",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
     }
    ]
   },
@@ -36180,7 +36675,7 @@
     },
     {
      "k": "if",
-     "t": "!task || task.subjectAgentId !== req.agent!.id || task.investigationOnly || task.taskCancelledAt",
+     "t": "!task || task.subjectAgentId !== req.agent!.id || task.investigationOnly || task.taskCancelledAt || task.decl…",
      "a": [],
      "c": [
       {
@@ -46232,109 +46727,6 @@
      "t": "res.status(202).json({ clipVideoStatus: \"PROCESSING\" });",
      "a": [
       "ответ 202"
-     ],
-     "c": []
-    }
-   ]
-  },
-  {
-   "method": "GET",
-   "path": "/:id/comparables",
-   "mount": "/api/v1/properties",
-   "full": "/api/v1/properties/:id/comparables",
-   "file": "apps/api/src/routes/properties/comparables.ts",
-   "router": "propertyComparablesRouter",
-   "top": "apps/api/src/routes/properties/index.ts::propertiesRouter",
-   "guards": [
-    "общий предел частоты запросов",
-    "idempotencyGuard",
-    "pultWriteRefresh",
-    "вход выполнен"
-   ],
-   "handlerRef": null,
-   "tree": [
-    {
-     "k": "if",
-     "t": "!id.success || !z.object({}).strict().safeParse(req.query).success",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(400).json({ error: \"Некорректный запрос\" });",
-       "a": [
-        "ответ 400 — «Некорректный запрос»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const subject = await prisma.property.findUnique({ where: { id: id.data } });",
-     "a": [
-      "читает в базе: property"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "!subject || subject.deletedAt",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(404).json({ error: \"Объект не найден\" });",
-       "a": [
-        "ответ 404 — «Объект не найден»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "!canManageProperty(req, subject)",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(403).json({ error: \"Нет доступа к сравнению объекта\" });",
-       "a": [
-        "ответ 403 — «Нет доступа к сравнению объекта»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "!subject.districtId || !Number.isFinite(area) || area <= 0",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.json({ ...summarizeComparableListings({ price: Number(subject.price), currency: subject.currency, …",
-       "a": [
-        "ответ 200"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const [total, rows] = await Promise.all([prisma.property.count({ where }), prisma.property.findMany({ where, …",
-     "a": [
-      "считает в базе: property",
-      "читает в базе: property"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "res.json({ ...summarizeComparableListings({ price: Number(subject.price), currency: subject.currency, areaSqm…",
-     "a": [
-      "ответ 200"
      ],
      "c": []
     }
@@ -69159,7 +69551,7 @@
       },
       {
        "k": "if",
-       "t": "!rop?.isActive || ![\"MANAGER\", \"ADMIN\", \"DIRECTOR\"].includes(rop.role)",
+       "t": "!rop?.isActive || !isSellerControlRopRole(rop.role)",
        "a": [],
        "c": [
         {

@@ -1,4 +1,5 @@
 import { investigationViewerRole } from "../auth/investigations.js";
+import { dashboardSalesControlRouter } from "./dashboardSalesControl.js";
 import { visibleInteractionWhere } from "../lib/investigationPrivacy.js";
 import { Router } from "express";
 import { z } from "zod";
@@ -41,6 +42,7 @@ import { RATED_ROLES } from "@royal-home/shared";
 import { UNASSIGNED_LEADS_LIMIT, UNASSIGNED_LEADS_WHERE } from "../lib/unassignedLeads.js";
 
 export const dashboardRouter = Router();
+dashboardRouter.use(dashboardSalesControlRouter);
 
 /**
  * Потолок строк для месячных/недельных выборок дашборда (22.09.2026, класс

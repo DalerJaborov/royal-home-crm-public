@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { sellerControlConfigSchema, type SellerControlPage, type SellerControlPreviewPage, type SellerControlCommand } from "@royal-home/shared";
+import { isSellerControlRopRole, sellerControlConfigSchema, type SellerControlPage, type SellerControlPreviewPage, type SellerControlCommand } from "@royal-home/shared";
 import { api } from "../../lib/api";
 import { dushanbeDateTime } from "../../lib/date";
 import { useAgents } from "../../hooks/useAgents";
@@ -63,7 +63,7 @@ export function SellerControlPanel() {
       <label className="block my-3">Повторная проверка кандидата показа: рабочих дней после первых трёх дней ожидания (необязательно)
         <input className="w-full" type="number" min={1} max={365} value={buyerFollowup} placeholder="Не настроено" onChange={e => setConfigDraft({ ...editor, buyerFollowup: e.target.value })} /></label>
       <p className="sub">Текущее значение: {page.data.config?.buyerCandidateFollowupWorkingDays ?? "не настроено"}. Только предварительная закрытая оценка; задачи и сообщения не отправляются.</p>
-      <label>Руководитель для будущих автоматических задач по показам (необязательно)<select className="w-full" value={defaultRop} onChange={e => setConfigDraft({ ...editor, defaultRop: e.target.value })}><option value="">Не выбран</option>{agents.data?.filter(a => a.isActive && ["MANAGER", "ADMIN", "DIRECTOR"].includes(a.role)).map(a => <option key={a.id} value={a.id}>{a.fullName}</option>)}</select></label>
+      <label>Руководитель для будущих автоматических задач по показам (необязательно)<select className="w-full" value={defaultRop} onChange={e => setConfigDraft({ ...editor, defaultRop: e.target.value })}><option value="">Не выбран</option>{agents.data?.filter(a => a.isActive && isSellerControlRopRole(a.role)).map(a => <option key={a.id} value={a.id}>{a.fullName}</option>)}</select></label>
       <p className="sub">Выбор руководителя не включает исполнение: необходим отдельный серверный допуск. Предварительные записи никогда не становятся рабочими автоматически.</p>
       <div className="flex flex-wrap gap-2 my-3"><button className="pill" disabled={mutation.isPending} onClick={save}>Сохранить сроки</button>
         <button type="button" className="pill ghost" disabled={mutation.isPending} onClick={() => setConfigDraft({ ...starterDraft, defaultRop: editor.defaultRop })}>Заполнить стартовые сроки</button>
@@ -71,7 +71,7 @@ export function SellerControlPanel() {
       <div className="grid gap-3 sm:grid-cols-2"><label>Текущая карточка<select className="w-full" value={clientId} onChange={e => setClientId(e.target.value)}><option value="">Выберите карточку</option>
         {candidates.data?.items.filter(item => item.state === "MISSING").map(item => <option key={item.id} value={item.id}>{item.name} · принято {item.accepted} из {item.expected}</option>)}</select></label>
         <label>Ответственный руководитель<select className="w-full" value={ropAgentId} onChange={e => setRopAgentId(e.target.value)}><option value="">Выберите руководителя</option>
-          {agents.data?.filter(agent => agent.isActive && ["MANAGER", "ADMIN", "DIRECTOR"].includes(agent.role)).map(agent => <option key={agent.id} value={agent.id}>{agent.fullName}</option>)}</select></label></div>
+          {agents.data?.filter(agent => agent.isActive && isSellerControlRopRole(agent.role)).map(agent => <option key={agent.id} value={agent.id}>{agent.fullName}</option>)}</select></label></div>
       <p className="sub">Первые 50 текущих карточек; черновики не считаются принятыми объектами. Недостоверное количество требует уточнения.</p>
       <button className="pill my-3" disabled={mutation.isPending || !page.data.config || !clientId || !ropAgentId} onClick={() => mutation.mutate({ path: "", body: { clientId, ropAgentId, requestKey: crypto.randomUUID() } })}>Начать моделирование</button>
       <label className="block">Комментарий к действию<textarea className="w-full" maxLength={2000} value={note} onChange={e => setNote(e.target.value)} /></label>

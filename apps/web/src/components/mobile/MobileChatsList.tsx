@@ -100,7 +100,7 @@ export function MobileChatsList({
     {
       key: "all",
       label: "Все",
-      count: data?.counts.all ?? null,
+      count: data?.counts?.all ?? null,
       active: segment === "all" && noFilter,
       onSelect: () => {
         onSegmentChange("all");
@@ -111,14 +111,14 @@ export function MobileChatsList({
     {
       key: "needsHuman",
       label: "Без ответа",
-      count: data?.counts.needsHuman ?? null,
+      count: data?.counts?.needsHuman ?? null,
       active: segment === "needsHuman",
       onSelect: () => onSegmentChange("needsHuman"),
     },
     {
       key: "mine",
       label: "Мои",
-      count: data?.counts.mine ?? null,
+      count: data?.counts?.mine ?? null,
       active: segment === "mine",
       onSelect: () => onSegmentChange("mine"),
     },
@@ -128,7 +128,7 @@ export function MobileChatsList({
     {
       key: "paused",
       label: "Бот на паузе",
-      count: data?.counts.paused ?? null,
+      count: data?.counts?.paused ?? null,
       active: segment === "paused",
       onSelect: () => onSegmentChange("paused"),
     },
@@ -193,6 +193,10 @@ export function MobileChatsList({
             />
           </div>
         </div>
+      )}
+
+      {data?.groupedIncomplete && (
+        <p className="meta" role="status">Показана часть чатов: найдено больше историй, чем помещается в список. Уточните поиск.</p>
       )}
 
       <MhLane label="Срезы чатов" chips={chips} />
@@ -311,7 +315,7 @@ export function MobileChatsList({
       {/* Без обёртки «total > pageSize» (02.10.2026): Pagination сама прячется
           на одной странице и сама возвращает страницу за краем выдачи; условие
           ниже только не рисует пустой отступ, а со второй страницы держит её на месте. */}
-      {data && (data.total > data.pageSize || data.page > 1) && (
+      {data?.total != null && (data.total > data.pageSize || data.page > 1) && (
         <div className="sec">
           <Pagination variant="loadMore" page={data.page} pageSize={data.pageSize} total={data.total} onPageChange={onPageChange} />
         </div>

@@ -961,9 +961,9 @@
       "mount": "/api/v1/properties",
       "router": "propertiesRouter",
       "file": "apps/api/src/routes/properties.ts",
-      "endpoints": 126,
+      "endpoints": 125,
       "label": "Объекты: список, карточка, фото, видео, публикация",
-      "usedBy": 32
+      "usedBy": 31
     },
     {
       "mount": "/api/v1/clients",
@@ -1009,9 +1009,9 @@
       "mount": "/api/v1/dashboard",
       "router": "dashboardRouter",
       "file": "apps/api/src/routes/dashboard.ts",
-      "endpoints": 9,
+      "endpoints": 10,
       "label": "Главная, пульт директора, модули пульта, утренняя сводка",
-      "usedBy": 7
+      "usedBy": 8
     },
     {
       "mount": "/api/v1/dashboard",
@@ -1019,7 +1019,7 @@
       "file": "apps/api/src/routes/dashboardMissionControl.ts",
       "endpoints": 5,
       "label": "Главная, пульт директора, модули пульта, утренняя сводка",
-      "usedBy": 7
+      "usedBy": 8
     },
     {
       "mount": "/api/v1/dashboard",
@@ -1027,7 +1027,7 @@
       "file": "apps/api/src/routes/pultModules.ts",
       "endpoints": 2,
       "label": "Главная, пульт директора, модули пульта, утренняя сводка",
-      "usedBy": 7
+      "usedBy": 8
     },
     {
       "mount": "/api/v1/dashboard",
@@ -1035,7 +1035,7 @@
       "file": "apps/api/src/routes/briefing.ts",
       "endpoints": 2,
       "label": "Главная, пульт директора, модули пульта, утренняя сводка",
-      "usedBy": 7
+      "usedBy": 8
     },
     {
       "mount": "/api/v1/calendar",
@@ -1051,7 +1051,7 @@
       "file": "apps/api/src/routes/interactions.ts",
       "endpoints": 10,
       "label": "Звонки, показы, встречи — всё, что агент отмечает",
-      "usedBy": 3
+      "usedBy": 4
     },
     {
       "mount": "/api/v1/calls",
@@ -1337,7 +1337,7 @@
       "mount": "/api/v1/conversations",
       "router": "conversationsRouter",
       "file": "apps/api/src/routes/conversations.ts",
-      "endpoints": 10,
+      "endpoints": 11,
       "label": "Переписка по всем каналам",
       "usedBy": 3
     },

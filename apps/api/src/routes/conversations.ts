@@ -68,6 +68,9 @@ conversationsRouter.use(requireAuth, (req, res, next) => {
  */
 conversationsRouter.use("/:id", async (req, res, next) => {
   const agentId = chatScopeAgentId(req);
+  // `/groups/:groupId` has its own linked-client/direct-source ownership checks
+  // below. The generic `/:id` middleware also matches its `groups` prefix.
+  if (req.params.id === "groups") return next();
   if (agentId && !(await conversationBelongsTo(req.params.id, agentId))) {
     return res.status(404).json({ error: "Диалог не найден" });
   }
@@ -89,8 +92,7 @@ type StoredMessage = ConversationMessage;
 
 /** Размер страницы инбокса — как у списка клиентов (Clients.tsx), для единообразия UI. */
 const PAGE_SIZE = 20;
-/** Потолок строк, которые инбокс поднимает из ОДНОЙ таблицы, чтобы собрать страницу
- *  объединённого списка. Двадцать тысяч диалогов — это уже не листание глазами. */
+/** Потолок legacy single-source inbox. Grouped inbox pages/counts in SQL without this cap. */
 const MAX_MERGE_CANDIDATES = 20_000;
 
 /** Telegram-диалоги живут в отдельной таблице (TelegramConversation) — в едином
@@ -127,6 +129,7 @@ interface ListRow {
   /** messages -> -1: последний элемент массива, NULL если реплик нет. */
   lastMessage: StoredMessage | null;
   clientId: string | null;
+  clientAssignedAgentId?: string | null;
   clientShortId: number | null;
   clientFullName: string | null;
   clientPhone: string | null;
@@ -163,6 +166,125 @@ interface UnifiedConversation {
   contactProfileId: string | null;
   client: { id: string; shortId: number; fullName: string; phone: string | null } | null;
 }
+
+type GroupMessage = StoredMessage & { sourceConversationId: string; sourceChannel: string | null };
+
+/** Read one exact linked client's histories for the grouped inbox. The client
+ * relation is the only grouping key; every source is independently constrained
+ * to the viewer's existing chat scope before its messages enter the timeline. */
+conversationsRouter.get("/groups/:groupId", requireAuth, async (req, res) => {
+  const key = req.params.groupId;
+  const ownAgentId = chatScopeAgentId(req);
+  const canSeeOrigin = can(req, "clients.viewOrigin");
+  const canSeePhone = can(req, "clients.viewPhone");
+  const attachmentsAllowed = can(req, "messages.viewAttachments");
+  let clientId: string | null = null;
+  let clientDetails: { id: string; shortId: number; fullName: string; phone: string | null } | null = null;
+  let sources: Array<{ id: string; kind: "bot" | "telegram" | "telegram-direct"; channel: string; name: string | null; messages: unknown; pausedUntil: Date | null; readAt: Date | null; createdAt: Date; lastMessageAt: Date | null }> = [];
+
+  if (key.startsWith("client:")) {
+    clientId = key.slice("client:".length);
+    if (!z.string().uuid().safeParse(clientId).success) return res.status(404).json({ error: "Диалог не найден" });
+    const client = await prisma.client.findUnique({ where: { id: clientId }, select: { id: true, shortId: true, fullName: true, phone: true, assignedAgentId: true, acceptedAt: true, deletedAt: true } });
+    if (!client || client.deletedAt) {
+      return res.status(404).json({ error: "Диалог не найден" });
+    }
+    clientDetails = client;
+    const canReadAcceptedSources = !ownAgentId || (client.assignedAgentId === ownAgentId && !!client.acceptedAt);
+    const [bots, telegrams, direct] = await Promise.all([
+      prisma.botConversation.findMany({ where: { clientId, ...(ownAgentId ? ownBotConversationWhere(ownAgentId) : {}) }, orderBy: [{ createdAt: "asc" }, { id: "asc" }], select: { id: true, channel: true, name: true, messages: true, pausedUntil: true, readAt: true, createdAt: true, lastMessageAt: true } }),
+      canReadAcceptedSources ? prisma.telegramConversation.findMany({ where: { clientId }, orderBy: [{ createdAt: "asc" }, { id: "asc" }], select: { id: true, username: true, messages: true, pausedUntil: true, readAt: true, createdAt: true, lastMessageAt: true } }) : Promise.resolve([]),
+      canReadAcceptedSources ? prisma.telegramDirectConversation.findMany({ where: { clientId }, orderBy: [{ createdAt: "asc" }, { id: "asc" }], select: { id: true, username: true, messages: true, pausedUntil: true, readAt: true, createdAt: true, lastMessageAt: true } }) : Promise.resolve([]),
+    ]);
+    sources = [
+      ...bots.map((c) => ({ ...c, kind: "bot" as const })),
+      ...telegrams.map((c) => ({ ...c, kind: "telegram" as const, channel: "TELEGRAM", name: c.username ? `@${c.username}` : null })),
+      ...direct.map((c) => ({ ...c, kind: "telegram-direct" as const, channel: "TELEGRAM_DIRECT", name: c.username ? `@${c.username}` : null })),
+    ];
+  } else if (key.startsWith("td_")) {
+    const direct = await prisma.telegramDirectConversation.findUnique({
+      where: { id: key.slice(3) },
+      select: {
+        id: true, chatId: true, topicId: true, username: true, messages: true, pausedUntil: true,
+        readAt: true, createdAt: true, lastMessageAt: true, clientId: true,
+        client: { select: { id: true, shortId: true, fullName: true, phone: true, assignedAgentId: true, acceptedAt: true, deletedAt: true } },
+      },
+    });
+    if (!direct || (ownAgentId && (!direct.client || direct.client.deletedAt || direct.client.assignedAgentId !== ownAgentId || !direct.client.acceptedAt))) {
+      return res.status(404).json({ error: "Диалог не найден" });
+    }
+    clientId = direct.clientId;
+    if (direct.client) clientDetails = direct.client;
+    sources = [{
+      id: direct.id, kind: "telegram-direct", channel: "TELEGRAM_DIRECT",
+      name: direct.username ? `@${direct.username}` : null, messages: direct.messages,
+      pausedUntil: direct.pausedUntil, readAt: direct.readAt, createdAt: direct.createdAt,
+      lastMessageAt: direct.lastMessageAt,
+    }];
+  } else {
+    return res.status(404).json({ error: "Диалог не найден" });
+  }
+
+  if (sources.length === 0) return res.status(404).json({ error: "Диалог не найден" });
+  if (clientId && !clientDetails) {
+    clientDetails = await prisma.client.findUnique({ where: { id: clientId }, select: { id: true, shortId: true, fullName: true, phone: true } });
+  }
+
+  const now = new Date();
+  await Promise.all(sources.map(async (source) => {
+    if (!needsReadReceipt(source)) return;
+    if (source.kind === "bot") await prisma.botConversation.update({ where: { id: source.id }, data: { readAt: now } });
+    else if (source.kind === "telegram") await prisma.telegramConversation.update({ where: { id: source.id }, data: { readAt: now } });
+    else await prisma.telegramDirectConversation.update({ where: { id: source.id }, data: { readAt: now } });
+    void publishConversationUpdated(source.kind, source.id);
+  }));
+
+  const sourceList = sources.map((source) => {
+    const id = source.kind === "telegram" ? `${TG_PREFIX}${source.id}` : source.kind === "telegram-direct" ? `td_${source.id}` : source.id;
+    return { id, channel: canSeeOrigin ? source.channel : null, canReply: source.kind !== "telegram-direct", pausedUntil: source.pausedUntil?.toISOString() ?? null };
+  });
+  const messages: Array<GroupMessage & { sourceOrder: number }> = [];
+  for (const [sourceOrder, source] of sources.entries()) {
+    const id = source.kind === "telegram" ? `${TG_PREFIX}${source.id}` : source.kind === "telegram-direct" ? `td_${source.id}` : source.id;
+    if (!Array.isArray(source.messages)) continue;
+    for (const [sourceMessageIndex, rawMessage] of source.messages.entries()) {
+      const [message] = presentMessages([rawMessage], attachmentsAllowed, canSeePhone);
+      if (!message) continue;
+      messages.push({
+        ...message,
+        sourceConversationId: id,
+        sourceMessageIndex,
+        sourceChannel: canSeeOrigin ? source.channel : null,
+        sourceOrder,
+      });
+    }
+  }
+  messages.sort((a, b) => {
+    const at = a.at ? Date.parse(a.at) : Number.NEGATIVE_INFINITY;
+    const bt = b.at ? Date.parse(b.at) : Number.NEGATIVE_INFINITY;
+    return at - bt || a.sourceOrder - b.sourceOrder;
+  });
+  const channelNames = [...new Set(sources.map((source) => source.channel))];
+  res.json({
+    id: key,
+    channel: canSeeOrigin ? (channelNames.length === 1 ? channelNames[0] : "MULTI") : null,
+    name: clientDetails
+      ? (canSeeOrigin ? clientNamePhoneSafe(clientDetails.fullName, canSeePhone) : "Клиент")
+      : (canSeeOrigin ? sources[0]?.name ?? "Без имени" : "Клиент"),
+    profileName: null,
+    subscriberId: null,
+    clientId: clientDetails?.id ?? null,
+    clientShortId: clientDetails ? String(clientDetails.shortId) : null,
+    clientPhone: clientDetails?.phone ? clientPhoneFor(clientDetails.phone, canSeePhone) : null,
+    firstContactAt: sources.reduce((first, source) => source.createdAt < first ? source.createdAt : first, sources[0]!.createdAt).toISOString(),
+    pausedUntil: null,
+    shieldPause: null,
+    messages: messages.map(({ sourceOrder: _sourceOrder, ...message }) => message),
+    contact: null,
+    grouped: true,
+    sources: sourceList,
+  });
+});
 
 const clientSelect = { select: { id: true, shortId: true, fullName: true, phone: true } } as const;
 
@@ -282,7 +404,7 @@ async function loadPageCandidates(
                  c."lastMessageAt", c."readAt", c."createdAt", c."updatedAt", c."pausedUntil", c."botPausedAt",
                  CASE WHEN jsonb_typeof(c.messages) = 'array' THEN jsonb_array_length(c.messages) ELSE 0 END AS "messagesCount",
                  CASE WHEN jsonb_typeof(c.messages) = 'array' THEN c.messages -> -1 ELSE NULL END AS "lastMessage",
-                 cl.id AS "clientId", cl."shortId" AS "clientShortId",
+                 cl.id AS "clientId", cl."assignedAgentId" AS "clientAssignedAgentId", cl."shortId" AS "clientShortId",
                  cl."fullName" AS "clientFullName", cl.phone AS "clientPhone",
                  cl.kind AS "clientKind", cl.source AS "clientSource",
                  cl."agentAttentionRequestedAt" AS "agentAttentionRequestedAt"
@@ -325,7 +447,7 @@ async function loadPageCandidates(
                  c."lastMessageAt", c."readAt", c."createdAt", c."updatedAt", c."pausedUntil", c."botPausedAt",
                  CASE WHEN jsonb_typeof(c.messages) = 'array' THEN jsonb_array_length(c.messages) ELSE 0 END AS "messagesCount",
                  CASE WHEN jsonb_typeof(c.messages) = 'array' THEN c.messages -> -1 ELSE NULL END AS "lastMessage",
-                 cl.id AS "clientId", cl."shortId" AS "clientShortId",
+                 cl.id AS "clientId", cl."assignedAgentId" AS "clientAssignedAgentId", cl."shortId" AS "clientShortId",
                  cl."fullName" AS "clientFullName", cl.phone AS "clientPhone",
                  cl.kind AS "clientKind", cl.source AS "clientSource",
                  cl."agentAttentionRequestedAt" AS "agentAttentionRequestedAt"
@@ -742,7 +864,9 @@ async function loadInboxAlerts(
 async function loadUnreadCounts(rows: ListRow[]): Promise<Map<string, number>> {
   const botIds = rows.filter((r) => !r.id.startsWith(TG_PREFIX)).map((r) => r.id);
   const tgIds = rows.filter((r) => r.id.startsWith(TG_PREFIX)).map((r) => r.id.slice(TG_PREFIX.length));
-  if (botIds.length === 0 && tgIds.length === 0) return new Map();
+  const directIds = rows.filter((r) => r.id.startsWith("td_")).map((r) => r.id.slice(3));
+  const realBotIds = botIds.filter((id) => !id.startsWith("td_"));
+  if (realBotIds.length === 0 && tgIds.length === 0 && directIds.length === 0) return new Map();
 
   // Хвост клиента: реплики с порядковым номером БОЛЬШЕ, чем у последней реплики
   // не-клиента. Нет ответов вовсе — граница 0, и считается вся переписка.
@@ -761,11 +885,14 @@ async function loadUnreadCounts(rows: ListRow[]): Promise<Map<string, number>> {
      WHERE jsonb_typeof(c."messages") = 'array'`;
 
   const parts: Prisma.Sql[] = [];
-  if (botIds.length > 0) parts.push(Prisma.sql`${tailSql("BotConversation")} AND c.id = ANY(${botIds}::text[])`);
+  if (realBotIds.length > 0) parts.push(Prisma.sql`${tailSql("BotConversation")} AND c.id = ANY(${realBotIds}::text[])`);
   if (tgIds.length > 0) {
     parts.push(
       Prisma.sql`SELECT ${TG_PREFIX} || t.id AS id, t.n AS n FROM (${tailSql("TelegramConversation")} AND c.id = ANY(${tgIds}::text[])) t`
     );
+  }
+  if (directIds.length > 0) {
+    parts.push(Prisma.sql`SELECT ${"td_"} || t.id AS id, t.n AS n FROM (${tailSql("TelegramDirectConversation")} AND c.id = ANY(${directIds}::text[])) t`);
   }
 
   const result = await prisma.$queryRaw<{ id: string; n: number }[]>(Prisma.join(parts, " UNION ALL "));
@@ -850,12 +977,228 @@ function presentListRow(c: ListRow, canSeeOrigin: boolean, phonesAllowed: boolea
   };
 }
 
+interface GroupedInboxRow extends ListRow {
+  groupId: string;
+  sourceConversationIds: string[];
+  channels: string[];
+  unreadCount: number;
+  unread: boolean;
+  awaitingHumanSince: Date | null;
+  messagesCount: number;
+}
+
+/**
+ * The grouped inbox is an explicit, opt-in view. It first collects the readable
+ * source conversations, then groups by the exact persisted Client.id; unlinked
+ * conversations remain separate. Pagination is applied only after grouping.
+ *
+ * The source-filtered set is grouped and counted in SQL before page boundaries;
+ * only page source summaries and unread tails are materialized.
+ */
+async function loadGroupedInboxRows(input: {
+  channel?: string;
+  q?: string;
+  accountId?: string;
+  ownAgentId: string | null;
+  viewerAgentId: string;
+  page: number;
+  segments: SegmentFilters;
+  canSeeOrigin: boolean;
+  phonesAllowed: boolean;
+}) {
+  const { channel, q, accountId, ownAgentId, viewerAgentId, page, segments, canSeeOrigin, phonesAllowed } = input;
+  const like = toLikePattern(q);
+  const includeBot = !channel || (channel !== TELEGRAM_CHANNEL && channel !== "TELEGRAM_DIRECT");
+  const includeTelegram = (!channel || channel === TELEGRAM_CHANNEL) && !accountId;
+  // Telegram Direct is a read-only source: it has no safe CRM reply transport.
+  const includeDirect = (!channel || channel === "TELEGRAM_DIRECT") && !accountId;
+  const botScope = ownBotConversationSql(ownAgentId);
+  const ownClientScope = ownAgentId
+    ? Prisma.sql`cl.id IS NOT NULL AND cl."assignedAgentId" = ${ownAgentId} AND cl."deletedAt" IS NULL AND cl."acceptedAt" IS NOT NULL`
+    : Prisma.sql`cl.id IS NULL OR cl."deletedAt" IS NULL`;
+  const botRows = includeBot ? Prisma.sql`
+    SELECT c.id, c.id AS "sourceId", 'bot'::text AS kind, c.channel,
+      c.name, c."subscriberId", c."accountId", acc.title AS "accountTitle",
+      c."lastMessageAt", c."readAt", c."createdAt", c."updatedAt", c."pausedUntil", c."botPausedAt",
+      CASE WHEN jsonb_typeof(c.messages) = 'array' THEN jsonb_array_length(c.messages) ELSE 0 END AS "messagesCount",
+      CASE WHEN jsonb_typeof(c.messages) = 'array' THEN c.messages -> -1 ELSE NULL END AS "lastMessage",
+      cl.id AS "clientId", cl."assignedAgentId" AS "clientAssignedAgentId", cl."shortId" AS "clientShortId",
+      cl."fullName" AS "clientFullName", cl.phone AS "clientPhone", cl.kind AS "clientKind", cl.source AS "clientSource",
+      cl."agentAttentionRequestedAt" AS "agentAttentionRequestedAt"
+    FROM "BotConversation" c LEFT JOIN "Client" cl ON cl.id = c."clientId"
+    LEFT JOIN "MessengerAccount" acc ON acc.id = c."accountId"
+    WHERE (${channel ?? null}::text IS NULL OR c.channel = ${channel ?? null})
+      AND (${accountId ?? null}::text IS NULL OR c."accountId" = ${accountId ?? null})
+      AND (${like}::text IS NULL OR cl."fullName" ILIKE ${like} OR c.name ILIKE ${like} OR c.messages::text ILIKE ${like})
+      AND (${botScope})
+  ` : Prisma.sql`SELECT NULL::text AS id, NULL::text AS "sourceId", NULL::text AS kind, NULL::text AS channel,
+      NULL::text AS name, NULL::text AS "subscriberId", NULL::text AS "accountId", NULL::text AS "accountTitle",
+      NULL::timestamp AS "lastMessageAt", NULL::timestamp AS "readAt", NULL::timestamp AS "createdAt", NULL::timestamp AS "updatedAt",
+      NULL::timestamp AS "pausedUntil", NULL::timestamp AS "botPausedAt", 0::int AS "messagesCount", NULL::jsonb AS "lastMessage",
+      NULL::text AS "clientId", NULL::text AS "clientAssignedAgentId", NULL::int AS "clientShortId", NULL::text AS "clientFullName",
+      NULL::text AS "clientPhone", NULL::text AS "clientKind", NULL::text AS "clientSource", NULL::timestamp AS "agentAttentionRequestedAt" WHERE FALSE`;
+  const telegramRows = includeTelegram ? Prisma.sql`
+    SELECT ${TG_PREFIX} || c.id AS id, ${TG_PREFIX} || c.id AS "sourceId", 'telegram'::text AS kind, ${TELEGRAM_CHANNEL}::text AS channel,
+      CASE WHEN c.username IS NULL THEN NULL ELSE '@' || c.username END AS name, c."chatId" AS "subscriberId",
+      NULL::text AS "accountId", NULL::text AS "accountTitle", c."lastMessageAt", c."readAt", c."createdAt", c."updatedAt",
+      c."pausedUntil", c."botPausedAt", CASE WHEN jsonb_typeof(c.messages) = 'array' THEN jsonb_array_length(c.messages) ELSE 0 END AS "messagesCount",
+      CASE WHEN jsonb_typeof(c.messages) = 'array' THEN c.messages -> -1 ELSE NULL END AS "lastMessage",
+      cl.id AS "clientId", cl."assignedAgentId" AS "clientAssignedAgentId", cl."shortId" AS "clientShortId",
+      cl."fullName" AS "clientFullName", cl.phone AS "clientPhone", cl.kind AS "clientKind", cl.source AS "clientSource",
+      cl."agentAttentionRequestedAt" AS "agentAttentionRequestedAt"
+    FROM "TelegramConversation" c LEFT JOIN "Client" cl ON cl.id = c."clientId"
+    WHERE (${like}::text IS NULL OR cl."fullName" ILIKE ${like} OR c.username ILIKE ${like} OR c.messages::text ILIKE ${like})
+      AND (${ownAgentId ?? null}::text IS NULL OR (${ownClientScope}))
+  ` : Prisma.sql`SELECT NULL::text AS id, NULL::text AS "sourceId", NULL::text AS kind, NULL::text AS channel,
+      NULL::text AS name, NULL::text AS "subscriberId", NULL::text AS "accountId", NULL::text AS "accountTitle",
+      NULL::timestamp AS "lastMessageAt", NULL::timestamp AS "readAt", NULL::timestamp AS "createdAt", NULL::timestamp AS "updatedAt",
+      NULL::timestamp AS "pausedUntil", NULL::timestamp AS "botPausedAt", 0::int AS "messagesCount", NULL::jsonb AS "lastMessage",
+      NULL::text AS "clientId", NULL::text AS "clientAssignedAgentId", NULL::int AS "clientShortId", NULL::text AS "clientFullName",
+      NULL::text AS "clientPhone", NULL::text AS "clientKind", NULL::text AS "clientSource", NULL::timestamp AS "agentAttentionRequestedAt" WHERE FALSE`;
+  const directRows = includeDirect ? Prisma.sql`
+    SELECT 'td_' || c.id AS id, 'td_' || c.id AS "sourceId", 'telegram-direct'::text AS kind, 'TELEGRAM_DIRECT'::text AS channel,
+      CASE WHEN c.username IS NULL THEN NULL ELSE '@' || c.username END AS name,
+      c."chatId" || ':' || c."topicId" AS "subscriberId", NULL::text AS "accountId", NULL::text AS "accountTitle",
+      c."lastMessageAt", c."readAt", c."createdAt", c."updatedAt", c."pausedUntil", NULL::timestamp AS "botPausedAt",
+      CASE WHEN jsonb_typeof(c.messages) = 'array' THEN jsonb_array_length(c.messages) ELSE 0 END AS "messagesCount",
+      CASE WHEN jsonb_typeof(c.messages) = 'array' THEN c.messages -> -1 ELSE NULL END AS "lastMessage",
+      cl.id AS "clientId", cl."assignedAgentId" AS "clientAssignedAgentId", cl."shortId" AS "clientShortId",
+      cl."fullName" AS "clientFullName", cl.phone AS "clientPhone", cl.kind AS "clientKind", cl.source AS "clientSource",
+      cl."agentAttentionRequestedAt" AS "agentAttentionRequestedAt"
+    FROM "TelegramDirectConversation" c LEFT JOIN "Client" cl ON cl.id = c."clientId"
+    WHERE (${like}::text IS NULL OR cl."fullName" ILIKE ${like} OR c.username ILIKE ${like} OR c.messages::text ILIKE ${like})
+      AND (${ownAgentId ?? null}::text IS NULL OR (${ownClientScope}))
+  ` : Prisma.sql`SELECT NULL::text AS id, NULL::text AS "sourceId", NULL::text AS kind, NULL::text AS channel,
+      NULL::text AS name, NULL::text AS "subscriberId", NULL::text AS "accountId", NULL::text AS "accountTitle",
+      NULL::timestamp AS "lastMessageAt", NULL::timestamp AS "readAt", NULL::timestamp AS "createdAt", NULL::timestamp AS "updatedAt",
+      NULL::timestamp AS "pausedUntil", NULL::timestamp AS "botPausedAt", 0::int AS "messagesCount", NULL::jsonb AS "lastMessage",
+      NULL::text AS "clientId", NULL::text AS "clientAssignedAgentId", NULL::int AS "clientShortId", NULL::text AS "clientFullName",
+      NULL::text AS "clientPhone", NULL::text AS "clientKind", NULL::text AS "clientSource", NULL::timestamp AS "agentAttentionRequestedAt" WHERE FALSE`;
+
+  type GroupedSourceRow = ListRow & {
+    kind: "bot" | "telegram" | "telegram-direct";
+    groupId: string;
+    sourceIds: string[];
+    channels: string[];
+    groupMessagesCount: number;
+    groupUnread: boolean;
+    groupUnreadCount: number;
+    awaitingHumanSince: Date | null;
+    groupTotal: bigint;
+    countAll: bigint;
+    countNeedsHuman: bigint;
+    countPaused: bigint;
+    countMine: bigint;
+  };
+  const sourceRowsSql = Prisma.sql`${botRows} UNION ALL ${telegramRows} UNION ALL ${directRows}`;
+  const now = new Date();
+  const countRows = await prisma.$queryRaw<{ groupTotal: bigint; countAll: bigint; countNeedsHuman: bigint; countPaused: bigint; countMine: bigint }[]>(Prisma.sql`
+    WITH source_rows AS (${sourceRowsSql}), keyed AS (
+      SELECT s.*, CASE WHEN s."clientId" IS NOT NULL THEN 'client:' || s."clientId" ELSE 'source:' || s."sourceId" END AS "groupId",
+        COALESCE(s."lastMessageAt", s."updatedAt") AS "activityAt",
+        (s."lastMessage" ->> 'role') = 'user' AS "waitingUser",
+        (s."pausedUntil" IS NOT NULL AND s."pausedUntil" > ${now}) AS "isPaused"
+      FROM source_rows s
+    ), grouped AS (
+      SELECT "groupId", BOOL_OR("waitingUser") AS "waitingUser", BOOL_OR("isPaused") AS "isPaused",
+        BOOL_OR("clientAssignedAgentId" = ${viewerAgentId}) AS "isMine"
+      FROM keyed GROUP BY "groupId"
+    )
+    SELECT COUNT(*) AS "groupTotal", COUNT(*) FILTER (WHERE "waitingUser") AS "countNeedsHuman",
+      COUNT(*) FILTER (WHERE "isPaused") AS "countPaused", COUNT(*) FILTER (WHERE "isMine") AS "countMine",
+      COUNT(*) FILTER (WHERE (${segments.needsHuman ?? false}::boolean = FALSE OR "waitingUser")
+        AND (${segments.paused ?? false}::boolean = FALSE OR "isPaused")
+        AND (${segments.mine ?? false}::boolean = FALSE OR "isMine")) AS "countAll"
+    FROM grouped
+  `);
+  const rows = await prisma.$queryRaw<GroupedSourceRow[]>(Prisma.sql`
+    WITH source_rows AS (${sourceRowsSql}), keyed AS (
+      SELECT s.*, CASE WHEN s."clientId" IS NOT NULL THEN 'client:' || s."clientId" ELSE 'source:' || s."sourceId" END AS "groupId",
+        COALESCE(s."lastMessageAt", s."updatedAt") AS "activityAt",
+        (s."lastMessage" ->> 'role') = 'user' AS "waitingUser",
+        (s."pausedUntil" IS NOT NULL AND s."pausedUntil" > ${now}) AS "isPaused"
+      FROM source_rows s
+    ), grouped AS (
+      SELECT "groupId", MAX("activityAt") AS "activityAt", BOOL_OR("agentAttentionRequestedAt" IS NOT NULL) AS attention,
+        BOOL_OR("waitingUser") AS "waitingUser", BOOL_OR("isPaused") AS "isPaused",
+        BOOL_OR("clientAssignedAgentId" = ${viewerAgentId}) AS "isMine",
+        SUM("messagesCount")::int AS "groupMessagesCount", ARRAY_AGG(DISTINCT channel ORDER BY channel) AS channels,
+        ARRAY_AGG("sourceId" ORDER BY "activityAt" DESC, "sourceId" DESC) AS "sourceIds",
+        MAX("agentAttentionRequestedAt") AS "agentAttentionRequestedAt",
+        MIN("activityAt") FILTER (WHERE "waitingUser") AS "awaitingHumanSince"
+      FROM keyed GROUP BY "groupId"
+    ), metrics AS (
+      SELECT COUNT(*) AS "groupTotal", COUNT(*) FILTER (WHERE "waitingUser") AS "countNeedsHuman",
+        COUNT(*) FILTER (WHERE "isPaused") AS "countPaused", COUNT(*) FILTER (WHERE "isMine") AS "countMine"
+      FROM grouped
+    ), selected AS (
+      SELECT g.*, m."groupTotal", m."countNeedsHuman", m."countPaused", m."countMine",
+        ROW_NUMBER() OVER (ORDER BY g.attention DESC, g."activityAt" DESC, g."groupId" DESC) AS rn
+      FROM grouped g CROSS JOIN metrics m
+      WHERE (${segments.needsHuman ?? false}::boolean = FALSE OR g."waitingUser")
+        AND (${segments.paused ?? false}::boolean = FALSE OR g."isPaused")
+        AND (${segments.mine ?? false}::boolean = FALSE OR g."isMine")
+    ), page_groups AS (
+      SELECT * FROM selected WHERE rn > ${(page - 1) * PAGE_SIZE} AND rn <= ${page * PAGE_SIZE}
+    )
+    SELECT k.*, p."groupId", p."sourceIds", p.channels, p."groupMessagesCount", p."groupTotal",
+      p."waitingUser" AS "groupUnread", 0::int AS "groupUnreadCount", p."awaitingHumanSince",
+      p."countNeedsHuman", p."countPaused", p."countMine",
+      (SELECT COUNT(*) FROM selected) AS "countAll"
+    FROM page_groups p JOIN keyed k ON k."groupId" = p."groupId"
+    ORDER BY p.rn, k."activityAt" DESC, k."sourceId" DESC
+  `);
+
+  const groups = new Map<string, { sources: ListRow[]; meta: GroupedSourceRow }>();
+  for (const row of rows) {
+    const group = groups.get(row.groupId) ?? { sources: [], meta: row };
+    group.sources.push(row);
+    groups.set(row.groupId, group);
+  }
+  const pageRows = [...groups.values()];
+  const unreadCounts = await loadUnreadCounts(pageRows.flatMap(({ sources }) => sources));
+  const items = pageRows.map(({ sources, meta }) => {
+    const latest = sources[0]!;
+    const channels = [...new Set(meta.channels)].sort();
+    const groupUnreadCount = sources.reduce((sum, source) => {
+      const last = source.lastMessage && typeof source.lastMessage === "object" ? source.lastMessage : null;
+      const lastAt = source.lastMessageAt ?? source.updatedAt;
+      const unread = last?.role === "user" && (!source.readAt || lastAt.getTime() > source.readAt.getTime());
+      return sum + (unread ? unreadCounts.get(source.id) ?? 1 : 0);
+    }, 0);
+    const row: GroupedInboxRow = {
+      ...latest,
+      id: meta.groupId.startsWith("client:") ? meta.groupId : latest.id,
+      groupId: meta.groupId,
+      channel: channels.length === 1 ? channels[0]! : "MULTI",
+      channels: canSeeOrigin ? channels : [],
+      sourceConversationIds: meta.sourceIds,
+      messagesCount: Number(meta.groupMessagesCount),
+      unread: sources.some((source) => {
+        const last = source.lastMessage && typeof source.lastMessage === "object" ? source.lastMessage : null;
+        const lastAt = source.lastMessageAt ?? source.updatedAt;
+        return last?.role === "user" && (!source.readAt || lastAt.getTime() > source.readAt.getTime());
+      }),
+      unreadCount: groupUnreadCount,
+      awaitingHumanSince: meta.awaitingHumanSince,
+    };
+    const present = presentListRow(row, canSeeOrigin, phonesAllowed, new Map());
+    return { ...present, id: row.id, sourceConversationIds: row.sourceConversationIds, channels: row.channels, unread: row.unread, unreadCount: row.unreadCount };
+  });
+  const summary = countRows[0];
+  const counts = summary ? {
+    all: Number(summary.groupTotal), needsHuman: Number(summary.countNeedsHuman),
+    paused: Number(summary.countPaused), mine: Number(summary.countMine),
+  } : { all: 0, needsHuman: 0, paused: 0, mine: 0 };
+  return { items, total: summary ? Number(summary.countAll) : 0, counts, truncated: false };
+}
+
 conversationsRouter.get("/", requireAuth, async (req, res) => {
   const parsed = conversationQuerySchema.safeParse(req.query);
   if (!parsed.success) {
     return res.status(400).json({ error: "Неверные параметры запроса", details: parsed.error.flatten() });
   }
-  const { q, page, channel, accountId, needsHuman, paused, mine } = parsed.data;
+  const { q, page, channel, accountId, needsHuman, paused, mine, grouped } = parsed.data;
 
   // Список каналов для фильтра строится ИЗ ДАННЫХ: новый канал, подключённый
   // канал (Messenger и т.п.) появляется в фильтре автоматически.
@@ -876,6 +1219,33 @@ conversationsRouter.get("/", requireAuth, async (req, res) => {
   const viewerAgentId = req.agent!.id;
   const segments: SegmentFilters = { needsHuman: !!needsHuman, paused: !!paused, mine: !!mine, viewerAgentId };
   const canSeeOrigin = can(req, "clients.viewOrigin");
+  const phonesAllowed = can(req, "clients.viewPhone");
+  if (grouped) {
+    const result = await loadGroupedInboxRows({
+      channel, q, accountId, ownAgentId, viewerAgentId, page, segments, canSeeOrigin, phonesAllowed,
+    });
+    const directCount = accountId || (channel && channel !== "TELEGRAM_DIRECT")
+      ? 0
+      : await prisma.telegramDirectConversation.count({
+          where: ownAgentId
+            ? { client: { is: { assignedAgentId: ownAgentId, deletedAt: null, acceptedAt: { not: null } } } }
+        : { OR: [{ clientId: null }, { client: { is: { deletedAt: null } } }] },
+        });
+    res.json({
+      items: result.items,
+      total: result.total,
+      page,
+      pageSize: PAGE_SIZE,
+      channels: canSeeOrigin ? [...new Set([...channels, ...(directCount > 0 ? ["TELEGRAM_DIRECT"] : [])])].sort() : [],
+      accounts: canSeeOrigin
+        ? (await listAccounts()).filter((a) => a.enabled).map((a) => ({ id: a.id, title: a.title, channel: a.channel }))
+        : [],
+      counts: result.counts,
+      groupedIncomplete: result.truncated,
+      alerts: await loadInboxAlerts(ownAgentId, canSeeOrigin, phonesAllowed),
+    });
+    return;
+  }
   const [rows, total, counts, alerts] = await Promise.all([
     loadPageCandidates(page, channel, q, accountId, ownAgentId, segments),
     countMatches(channel, q, accountId, ownAgentId, segments),
@@ -892,7 +1262,7 @@ conversationsRouter.get("/", requireAuth, async (req, res) => {
   // пишут клиенты. Агенту их не отдаём вовсе (решение владельца 17.08.2026): иначе
   // скрытый значок канала возвращается фильтром, а скрытое название аккаунта —
   // переключателем. Пустые списки интерфейс просто не рисует.
-  const phonesAllowed = can(req, "clients.viewPhone");
+
   // Непрочитанные числом считаются ПО СТРАНИЦЕ, уже после нарезки: один запрос
   // на двадцать строк вместо разворота jsonb у всех кандидатов (см. loadUnreadCounts).
   const pageRows = rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);

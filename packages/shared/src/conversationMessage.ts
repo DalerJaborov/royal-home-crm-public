@@ -128,6 +128,13 @@ export interface ConversationMessage {
    * тогда цитата просто не рисуется.
    */
   replyToMid?: string;
+  /** Present only in the grouped CRM timeline; points back to the underlying
+   * conversation for source-aware translation, quoting, feedback and replies. */
+  sourceConversationId?: string;
+  /** Original zero-based array position inside sourceConversationId's history. */
+  sourceMessageIndex?: number;
+  /** Per-message channel badge in a grouped timeline. Null when origin is hidden. */
+  sourceChannel?: string | null;
   /**
    * Статус доставки НАШЕГО сообщения у клиента (18.08.2026, только WhatsApp —
    * Instagram/Messenger такого не присылают). Отсутствует — статус ещё не

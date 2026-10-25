@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import type { BuyerShowingCandidatePreview } from "@royal-home/shared";
+import { isSellerControlRopRole, type BuyerShowingCandidatePreview } from "@royal-home/shared";
 import { api } from "../../lib/api";
 import { dushanbeDateTime } from "../../lib/date";
 import { useAgents } from "../../hooks/useAgents";
@@ -15,7 +15,7 @@ export function BuyerShowingCandidatesPanel() {
   const query = useQuery({ queryKey: ["buyer-showing-candidates"], queryFn: () => api<{ items: BuyerShowingCandidatePreview[] }>("/security/cases/buyer-showing-candidates") });
   return <details className="card my-3"><summary>Договорённости о показе — предпросмотр</summary>
     <p className="sub">Последние 100 договорённостей из разговоров и переписки. Предварительные записи не создают задач. Рабочее исполнение доступно только новым отдельно разрешённым записям и при включённом серверном допуске.</p>
-    {query.data?.items.some(row => row.executionMode === "LIVE") && <label>Ответственный руководитель<select value={ropAgentId} onChange={e => setRopAgentId(e.target.value)}><option value="">Выберите</option>{agents.data?.filter(a => a.isActive && ["MANAGER", "ADMIN", "DIRECTOR"].includes(a.role)).map(a => <option key={a.id} value={a.id}>{a.fullName}</option>)}</select></label>}
+    {query.data?.items.some(row => row.executionMode === "LIVE") && <label>Ответственный руководитель<select value={ropAgentId} onChange={e => setRopAgentId(e.target.value)}><option value="">Выберите</option>{agents.data?.filter(a => a.isActive && isSellerControlRopRole(a.role)).map(a => <option key={a.id} value={a.id}>{a.fullName}</option>)}</select></label>}
     {start.isError && <p role="alert">{start.error.message}</p>}
     {query.isPending ? <p>Загрузка…</p> : query.isError ? <p role="alert">Не удалось загрузить договорённости. <button onClick={() => void query.refetch()}>Повторить</button></p>
       : !query.data?.items.length ? <p>Новых договорённостей нет. Старые данные автоматически не импортируются.</p>

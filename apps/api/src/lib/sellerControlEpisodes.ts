@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { confirmedClientIntents, type SellerControlCommand } from "@royal-home/shared";
+import { confirmedClientIntents, isSellerControlRopRole, type SellerControlCommand } from "@royal-home/shared";
 import { prisma, type TxClient } from "../db.js";
 import { classifySellerInventory } from "./sellerControlPreview.js";
 import { planSellerControl, readSellerControlConfig } from "./sellerControlMachine.js";
@@ -99,7 +99,7 @@ export async function startSellerControl(input: { clientId: string; ropAgentId: 
       }
     }
     const rop = await tx.agent.findUnique({ where: { id: input.ropAgentId }, select: { role: true, isActive: true, frozenAt: true, absenceUntil: true } });
-    if (!rop?.isActive || !["MANAGER", "ADMIN", "DIRECTOR"].includes(rop.role)) throw new SellerControlConflict("Укажите действующего руководителя");
+    if (!rop?.isActive || !isSellerControlRopRole(rop.role)) throw new SellerControlConflict("Укажите действующего руководителя");
     if (live) {
       const owner = await tx.agent.findUnique({ where: { id: client.assignedAgentId! }, select: { isActive: true, frozenAt: true, absenceUntil: true } });
       if (!controlRecipientAvailable(owner, now) || !controlRecipientAvailable(rop, now)) throw new SellerControlConflict("Ответственный временно недоступен; рабочая задача не создана");
@@ -167,7 +167,7 @@ export async function commandSellerControl(id: string, command: SellerControlCom
     const intakeAmbiguous = intakeSources.length > 1 && intakeSources[0].sourceOccurredAt.getTime() === intakeSources[1].sourceOccurredAt.getTime();
     const { config, calendar } = await context(tx, episode.ropAgentId);
     const rop = episode.ropAgentId ? await tx.agent.findUnique({ where: { id: episode.ropAgentId }, select: { isActive: true, role: true, frozenAt: true, absenceUntil: true, weeklyDaysOff: true } }) : null;
-    const eligibleRop = !!rop?.isActive && ["MANAGER", "ADMIN", "DIRECTOR"].includes(rop.role);
+    const eligibleRop = rop?.isActive === true && isSellerControlRopRole(rop.role);
     if (options.taskId && !eligibleRop) throw new SellerControlConflict("Задача больше не назначена действующему руководителю");
     const plan = planSellerControl({ state: episode, config, calendar, now, action: command.action,
       assignmentCurrent: (buyer ? buyer.current : currentSeller(client)) && client.assignedAgentId === episode.agentId && client.assignedAt.getTime() === episode.assignmentAt.getTime()
@@ -199,6 +199,22 @@ export async function commandSellerControl(id: string, command: SellerControlCom
       payload: { action: command.action, note: command.note ?? null, expected: inventory.expected, accepted: inventory.accepted,
         directorNotices, noticeMeaning: "INBOX_RECORDED_READ_MEANS_OPENED_NOT_RESOLVED" } } });
     const updated = await tx.sellerControlEpisode.update({ where: { id }, data: { ...plan.patch, revision: { increment: 1 } } });
+    if (options.taskId && episode.executionMode === "LIVE" && event === "ROP_RECEIVED" && updated.ropActionDueAt) {
+      const taskUpdate = await tx.interaction.updateMany({
+        where: { id: options.taskId, clientId: episode.clientId, subjectAgentId: actorId, investigationOnly: false,
+          completedAt: null, taskCancelledAt: null, declinedAt: null, nextAction: { not: null } },
+        data: { nextActionDate: updated.ropActionDueAt },
+      });
+      if (taskUpdate.count !== 1) throw new SellerControlConflict("Задача больше не активна");
+    }
+    if (options.taskId && episode.executionMode === "LIVE" && event === "ROP_ACTION_RECORDED") {
+      const taskUpdate = await tx.interaction.updateMany({
+        where: { id: options.taskId, clientId: episode.clientId, subjectAgentId: actorId, investigationOnly: false,
+          completedAt: null, taskCancelledAt: null, declinedAt: null, nextAction: { not: null } },
+        data: { completedAt: now },
+      });
+      if (taskUpdate.count !== 1) throw new SellerControlConflict("Задача больше не активна");
+    }
     if (episode.executionMode === "LIVE" && plan.patch.status === "ROP_RECEIPT" && episode.ropAgentId) {
       const wording = buyer ? "Уточнить и записать договорённость о показе" : neutralTask;
       const task = await logTimeline({ actor: { kind: "system", source: "client-plan", subjectAgentId: episode.ropAgentId },
@@ -242,7 +258,7 @@ export async function enrollDueSellerIntakes(now = new Date()) {
   const config = readSellerControlConfig(settings?.sellerControlConfig);
   if (!config?.defaultRopAgentId) return { state: "NOT_CONFIGURED", created: 0 };
   const rop = await prisma.agent.findUnique({ where: { id: config.defaultRopAgentId }, select: { isActive: true, role: true } });
-  if (!rop?.isActive || !["MANAGER", "ADMIN", "DIRECTOR"].includes(rop.role)) return { state: "ROP_UNAVAILABLE", created: 0 };
+  if (!rop?.isActive || !isSellerControlRopRole(rop.role)) return { state: "ROP_UNAVAILABLE", created: 0 };
   let afterId: string | undefined, created = 0;
   while (true) {
     const rows = await prisma.sellerIntakeAppointmentEvidence.findMany({ where: { executionMode: "LIVE", controlEpisodeId: null, sourceOccurredAt: { gte: new Date(from), lte: now },
@@ -269,7 +285,7 @@ export async function enrollDueBuyerCandidates(now = new Date()) {
   const config = readSellerControlConfig(settings?.sellerControlConfig);
   if (!config?.defaultRopAgentId || !config.buyerCandidateFollowupWorkingDays) return { state: "NOT_CONFIGURED", created: 0 };
   const rop = await prisma.agent.findUnique({ where: { id: config.defaultRopAgentId }, select: { isActive: true, role: true } });
-  if (!rop?.isActive || !["MANAGER", "ADMIN", "DIRECTOR"].includes(rop.role)) return { state: "ROP_UNAVAILABLE", created: 0 };
+  if (!rop?.isActive || !isSellerControlRopRole(rop.role)) return { state: "ROP_UNAVAILABLE", created: 0 };
   let afterId: string | undefined, created = 0;
   while (true) {
     const rows = await prisma.buyerShowingCandidate.findMany({ where: { executionMode: "LIVE", status: "OPEN",

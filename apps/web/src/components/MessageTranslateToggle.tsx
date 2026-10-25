@@ -39,17 +39,16 @@ export function TranslatableMessageText({
    *  тот же текст, что раньше шёл прямо в MessageText. */
   content: string;
   message: ConversationMessage;
-  /** "tg_"-префиксованный id у Telegram-диалога, как в остальном инбоксе (TG_PREFIX,
-   *  routes/conversations.ts) — сервер сам отвечает честным 400 «перевод не
-   *  поддержан для Telegram» по этому префиксу; кнопка всё равно рисуется и рабочим
-   *  выглядит только запрос, а не молчаливая пропажа переключателя. */
+  /** Conversation id used by translate endpoint. Telegram `tg_` and Telegram
+   *  Direct `td_` ids are intentionally unsupported and render as plain text. */
   conversationId?: string | null;
   clientId?: string | null;
   rh2?: boolean;
   readOnly?: boolean;
 }) {
+  const translationSupported = !!conversationId && !conversationId.startsWith("tg_") && !conversationId.startsWith("td_");
   const [translatedRu, setTranslatedRu] = useState<string | null>(message.translatedRu ?? null);
-  const [showTranslation, setShowTranslation] = useState(!!message.translatedRu);
+  const [showTranslation, setShowTranslation] = useState(translationSupported && !!message.translatedRu);
   const [translating, setTranslating] = useState(false);
   const [notNeeded, setNotNeeded] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -57,8 +56,9 @@ export function TranslatableMessageText({
   // Только реплика клиента, и только если у неё есть `at` — сервер ищет по нему
   // (см. routes/conversations.ts POST /:id/translate); у реплик до 01.08.2026
   // поля нет вовсе, для них переключателя не будет, как и у звонков без даты.
-  const canTranslate = message.role === "user" && !!message.at && !!conversationId;
+  const canTranslate = message.role === "user" && !!message.at && translationSupported;
   const showToggle = canTranslate && (!!translatedRu || (!readOnly && LIKELY_TAJIK.test(message.content)));
+  const displayTranslation = translationSupported && showTranslation && !!translatedRu;
 
   async function requestTranslation() {
     if (readOnly) return;
@@ -84,7 +84,7 @@ export function TranslatableMessageText({
 
   return (
     <>
-      <MessageText content={showTranslation && translatedRu ? translatedRu : content} clientId={clientId} rh2={rh2} readOnly={readOnly} />
+      <MessageText content={displayTranslation ? translatedRu! : content} clientId={clientId} rh2={rh2} readOnly={readOnly} />
       {showToggle && (
         <div style={{ marginTop: 4, fontSize: 13 }}>
           {translatedRu ? (

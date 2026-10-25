@@ -1,6 +1,5 @@
 import { propertyRemovalDossierRouter } from "./removalDossier.js";
 import { publicationMetadataRouter } from "./publicationMetadata.js";
-import { propertyComparablesRouter } from "./comparables.js";
 /**
  * Г3 (docs/architecture-blueprint.md §1.3, §3): бывший routes/properties.ts (2999
  * строк, 39 роутов) распилен на группы по сюжетам. Сборка групп в один роутер —
@@ -75,7 +74,6 @@ import { propertiesHealthRouter, statsRouter } from "./stats.js";
 export const propertiesRouter = Router();
 propertiesRouter.use(propertyRemovalDossierRouter);
 propertiesRouter.use(narrationRouter);
-propertiesRouter.use(propertyComparablesRouter);
 propertiesRouter.use(publicationMetadataRouter);
 
 // НЕ МЕНЯТЬ ПОРЯДОК: статичные GET-пути (/delete-requests, /summary, /map,

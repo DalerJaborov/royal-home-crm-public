@@ -13,7 +13,7 @@
 | Экранов (адресов в интерфейсе) | 68 |
 | Из них видно в меню | 35 |
 | Модулей сервера | 79 |
-| Адресов сервера всего | 707 |
+| Адресов сервера всего | 708 |
 | Задач по расписанию | 110 |
 | Типов фоновых заданий | 23 |
 | Внешних сервисов | 13 |
@@ -153,18 +153,18 @@
 | `/api/v1/districts` | Справочник районов | 2 | да (1 мест) | `apps/api/src/routes/districts.ts` |
 | `/api/v1/geo` | Поиск адреса и точки по собственному справочнику города | 4 | да (3 мест) | `apps/api/src/routes/geo.ts` |
 | `/api/v1/landmarks` | Народные ориентиры, которые ведут агенты | 8 | да (1 мест) | `apps/api/src/routes/landmarks.ts` |
-| `/api/v1/properties` | Объекты: список, карточка, фото, видео, публикация | 126 | да (32 мест) | `apps/api/src/routes/properties.ts` |
+| `/api/v1/properties` | Объекты: список, карточка, фото, видео, публикация | 125 | да (31 мест) | `apps/api/src/routes/properties.ts` |
 | `/api/v1/clients` | Клиенты: карточки, передачи, отказы, подбор — самый крупный модуль | 60 | да (13 мест) | `apps/api/src/routes/clients.ts` |
 | `/api/v1/deals` | Сделки, документы, выплаты | 3 | да (4 мест) | `apps/api/src/routes/deals.ts` |
 | `/api/v1/deals` | Сделки, документы, выплаты | 4 | да (4 мест) | `apps/api/src/routes/dealDocuments.ts` |
 | `/api/v1/deals` | Сделки, документы, выплаты | 2 | да (4 мест) | `apps/api/src/routes/dealPayout.ts` |
 | `/api/v1/deals` | Сделки, документы, выплаты | 1 | да (4 мест) | `apps/api/src/routes/dealAnnul.ts` |
-| `/api/v1/dashboard` | Главная, пульт директора, модули пульта, утренняя сводка | 9 | да (7 мест) | `apps/api/src/routes/dashboard.ts` |
-| `/api/v1/dashboard` | Главная, пульт директора, модули пульта, утренняя сводка | 5 | да (7 мест) | `apps/api/src/routes/dashboardMissionControl.ts` |
-| `/api/v1/dashboard` | Главная, пульт директора, модули пульта, утренняя сводка | 2 | да (7 мест) | `apps/api/src/routes/pultModules.ts` |
-| `/api/v1/dashboard` | Главная, пульт директора, модули пульта, утренняя сводка | 2 | да (7 мест) | `apps/api/src/routes/briefing.ts` |
+| `/api/v1/dashboard` | Главная, пульт директора, модули пульта, утренняя сводка | 10 | да (8 мест) | `apps/api/src/routes/dashboard.ts` |
+| `/api/v1/dashboard` | Главная, пульт директора, модули пульта, утренняя сводка | 5 | да (8 мест) | `apps/api/src/routes/dashboardMissionControl.ts` |
+| `/api/v1/dashboard` | Главная, пульт директора, модули пульта, утренняя сводка | 2 | да (8 мест) | `apps/api/src/routes/pultModules.ts` |
+| `/api/v1/dashboard` | Главная, пульт директора, модули пульта, утренняя сводка | 2 | да (8 мест) | `apps/api/src/routes/briefing.ts` |
 | `/api/v1/calendar` | Календарь задач и показов | 1 | да (1 мест) | `apps/api/src/routes/calendar.ts` |
-| `/api/v1/interactions` | Звонки, показы, встречи — всё, что агент отмечает | 10 | да (3 мест) | `apps/api/src/routes/interactions.ts` |
+| `/api/v1/interactions` | Звонки, показы, встречи — всё, что агент отмечает | 10 | да (4 мест) | `apps/api/src/routes/interactions.ts` |
 | `/api/v1/calls` | Журнал звонков и расшифровки | 6 | да (1 мест) | `apps/api/src/routes/calls.ts` |
 | `/api/v1/live-voice` | **без подписи** | 2 | да (1 мест) | `apps/api/src/routes/liveVoiceListen.ts` |
 | `/api/v1/ai` | Запросы к ИИ из интерфейса | 9 | да (3 мест) | `apps/api/src/routes/ai.ts` |
@@ -200,7 +200,7 @@
 | `/api/v1/import` | Загрузка данных пачкой | 4 | нет | `apps/api/src/routes/import.ts` |
 | `/api/v1/site-notifications` | Изменения, прилетевшие с сайта | 3 | да (2 мест) | `apps/api/src/routes/siteNotifications.ts` |
 | `/api/v1/contacts` | **без подписи** | 5 | да (2 мест) | `apps/api/src/routes/contacts.ts` |
-| `/api/v1/conversations` | Переписка по всем каналам | 10 | да (3 мест) | `apps/api/src/routes/conversations.ts` |
+| `/api/v1/conversations` | Переписка по всем каналам | 11 | да (3 мест) | `apps/api/src/routes/conversations.ts` |
 | `/api/v1/audit-log` | Журнал действий сотрудников | 1 | да (1 мест) | `apps/api/src/routes/auditLog.ts` |
 | `/api/v1/royal-score-events` | Начисления и списания баллов агентам | 2 | да (1 мест) | `apps/api/src/routes/royalScoreEvents.ts` |
 | `/api/v1/morning-report` | Служебная выдача для внешней сессии, интерфейс её не зовёт | 1 | нет | `apps/api/src/routes/morningReport.ts` |

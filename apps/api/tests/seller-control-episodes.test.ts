@@ -77,4 +77,26 @@ describe("seller control execution boundary", () => {
     expect(mock.timeline.mock.calls[1][0].actor.subjectAgentId).toBe("rop");
     await expect(commandSellerControl("episode", { requestKey: "foreign", revision: 2, action: "RECEIPT" }, "other-manager", { taskId: "ordinary-task" }, now)).rejects.toThrow("Задача не назначена вам");
   });
+  it("keeps the assigned ROP task due date in sync on receipt and completes it only after reported action", async () => {
+    vi.stubEnv("SELLER_CONTROL_INTERNAL_LIVE", "explicitly-approved");
+    mock.tasks.mockResolvedValue({ count: 1 });
+    const started = await startSellerControl({ ...start, live: true }, now);
+    const receiptDue = new Date("2026-10-27T10:00:00Z");
+    const assigned = await commandSellerControl(started.id, { requestKey: "tick", revision: 1, action: "TICK" }, null, {}, receiptDue);
+    const taskId = "ordinary-task";
+    const received = await commandSellerControl(assigned.episode.id,
+      { requestKey: "receipt", revision: assigned.episode.revision, action: "RECEIPT" }, "rop", { taskId }, new Date(receiptDue.getTime() + 1000));
+    const activeTask = { id: taskId, clientId: "client", subjectAgentId: "rop", investigationOnly: false,
+      completedAt: null, taskCancelledAt: null, declinedAt: null, nextAction: { not: null } };
+    expect(mock.tasks).toHaveBeenLastCalledWith({ where: activeTask,
+      data: { nextActionDate: received.episode.ropActionDueAt } });
+
+    const action = { requestKey: "action", revision: received.episode.revision, action: "ACTION" as const, note: "Связался и согласовал план" };
+    await commandSellerControl(received.episode.id, action, "rop", { taskId }, new Date(receiptDue.getTime() + 2000));
+    expect(mock.tasks).toHaveBeenLastCalledWith({ where: activeTask,
+      data: { completedAt: new Date(receiptDue.getTime() + 2000) } });
+    const updateCount = mock.tasks.mock.calls.length;
+    expect((await commandSellerControl(received.episode.id, action, "rop", { taskId }, new Date(receiptDue.getTime() + 2000))).replay).toBe(true);
+    expect(mock.tasks).toHaveBeenCalledTimes(updateCount);
+  });
 });

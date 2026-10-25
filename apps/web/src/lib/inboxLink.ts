@@ -11,11 +11,22 @@ export function inboxOpenHref(kind: "BOT" | "TELEGRAM", id: string): string {
   return `/messages?open=${kind === "TELEGRAM" ? `tg_${id}` : id}`;
 }
 
+/** Grouped detail for a known CRM client, keeping every linked source in one chat. */
+export function inboxClientConversationId(clientId: string): string {
+  return `client:${clientId}`;
+}
+
+export function inboxClientConversationHref(clientId: string): string {
+  return `/messages?open=${encodeURIComponent(inboxClientConversationId(clientId))}`;
+}
+
 /**
  * Id диалога в общем инбоксе: Telegram с префиксом `tg_`, диалог бота как есть.
  * Так сервер понимает `conversationId` у отправки из карточки клиента, и вкладка
  * канала решает, КУДА уйдёт текст и голосовое (аудит 04.10.2026, WEB-PAGES01).
  */
 export function inboxConversationId(channel: string, id: string): string {
-  return channel === "TELEGRAM" ? `tg_${id}` : id;
+  if (channel === "TELEGRAM") return `tg_${id}`;
+  if (channel === "TELEGRAM_DIRECT") return `td_${id}`;
+  return id;
 }

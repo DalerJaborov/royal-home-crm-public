@@ -533,6 +533,14 @@ export interface Client {
     pausedUntil: string | null;
     messages: ConversationMessage[];
   } | null;
+  /** Telegram Direct topic histories are read-only in the CRM composer. */
+  telegramDirectConversations?: {
+    id: string;
+    pausedUntil: string | null;
+    channel: "TELEGRAM_DIRECT";
+    canReply: false;
+    messages: ConversationMessage[];
+  }[];
   /** Мягкое удаление — заполнено только для записей из Корзины (GET /clients/trash). */
   deletedAt?: string | null;
   deletedBy?: { id: string; fullName: string } | null;

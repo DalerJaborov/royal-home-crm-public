@@ -115,10 +115,13 @@ export function quotedMessage(
    *
    * Не передан — ведём себя как раньше и цитируем всегда.
    */
-  index?: number
+  index?: number,
+  sourceConversationId?: string
 ): ConversationMessage | undefined {
   if (!replyToMid) return undefined;
-  const quotedIndex = messages.findIndex((m) => m.mid === replyToMid || m.mid2 === replyToMid);
+  const quotedIndex = messages.findIndex((m) =>
+    (!sourceConversationId || m.sourceConversationId === sourceConversationId)
+    && (m.mid === replyToMid || m.mid2 === replyToMid));
   if (quotedIndex < 0) return undefined;
   if (index !== undefined && quotedIndex === index - 1) return undefined;
   return messages[quotedIndex];

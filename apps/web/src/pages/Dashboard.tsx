@@ -26,6 +26,7 @@ const AgentHome = lazyWithReload(() => import("../components/home/AgentHome").th
 const ManagerHome = lazyWithReload(() =>
   import("../components/home/ManagerHome").then((m) => ({ default: m.ManagerHome }))
 );
+const HeadOfSalesHome = lazyWithReload(() => import("../components/home/HeadOfSalesHome").then(module => ({ default: module.HeadOfSalesHome })));
 const MarketingHome = lazyWithReload(() =>
   import("../components/home/MarketingHome").then((m) => ({ default: m.MarketingHome }))
 );
@@ -103,6 +104,8 @@ export function Dashboard() {
         )
       ) : role === "DIRECTOR" || role === "ADMIN" ? (
         clean ? <PultClean /> : <DirectorHome />
+      ) : role === "HEAD_OF_SALES" ? (
+        <HeadOfSalesHome />
       ) : role === "AGENT" ? (
         legacyAgentMobile ? <MobileAgentHome /> : <AgentHome />
       ) : role === "MARKETING" ? (

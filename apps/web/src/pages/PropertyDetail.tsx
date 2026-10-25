@@ -1,4 +1,3 @@
-import { PropertyComparables } from "../components/PropertyComparables";
 import { useCleanShell } from "../hooks/useCleanShell";
 import { PropertyRemovalDialog } from "../components/PropertyRemovalDialog";
 import { CleanPropertyDetailHeader, CleanPropertyDetailLayout, CleanPropertyDetailSkeleton, CleanPropertySlot, CleanPropertySummary, cleanPropertyDetailScale } from "../components/clean/CleanPropertyDetailLayout";
@@ -940,7 +939,6 @@ function PropertyViewCard({
             <>
               {/* Сведения, которым не место на первом экране: когда принят, номер,
                   сайт (review-mobile.md, п. 4 «Меньше информации: что под раскрытие»). */}
-              {canInlineEdit && <PropertyComparables propertyId={property.id} />}
               <Card title="Сведения">
                 <List>
                   <Row
