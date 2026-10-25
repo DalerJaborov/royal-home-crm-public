@@ -132,9 +132,8 @@ export async function reactivateClientFromLost(
   const data = reactivationResetData(client);
   data.returnedAt = now;
 
-  // LAW-A2-PENDING: reactivateClientFromLost (Х3, ownership policy 17.09.2026) —
-  // прямая запись мимо changeClientAgent; перевод — пачка А2.
-  // Назначение: либо конкретный агент, либо очередь руководителя.
+  // Владелец записывается ниже через changeClientAgent в одной транзакции
+  // с историей возврата. Без доступного прежнего — обычная AUTO-очередь.
   if (targetAgentId) {
     data.assignedAt = now;
     data.acceptedAt = input.accept ? now : null;
@@ -145,10 +144,8 @@ export async function reactivateClientFromLost(
       data.returnAcceptDueAt = await returnAcceptDueFromNow(now);
     }
   } else {
-    // LAW-A2-PENDING (см. отметку у начала функции выше).
-    // Возврат в очередь руководителя: assignedAgentId остаётся null (или
-    // очищается), escalatedAt ставится, чтобы карточка попала в список
-    // «требует назначения».
+    // Обычная очередь раздачи без ручной эскалации. OTHER остаётся
+    // отдельным обращением руководству и не назначается торговому агенту.
     data.escalatedAt = client.kind === "OTHER" ? now : null;
     data.acceptedAt = null;
     data.assignedAt = now;

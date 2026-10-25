@@ -135,7 +135,7 @@ describe("A11: имя-номер не уходит тем, кому номер �
     const res = await request(app)
       .post(`/api/v1/clients/${acceptedId}/interactions`)
       .set("Authorization", `Bearer ${agentToken}`)
-      .send({ type: "SHOWING", notes: "ещё показ", nextAction: "Показ", nextActionDate: at.toISOString() });
+      .send({ type: "SHOWING", notes: "ещё показ", nextAction: "Показ", nextActionDate: at.toISOString(), showingOffCrm: true, showingOffCrmDetails: "Объект вне CRM, тестовая улица 15" });
     expect(res.status).toBe(201);
     expect(res.body.showingConflict).toBeDefined();
     expect(JSON.stringify(res.body.showingConflict)).not.toContain(NAME_DIGITS);

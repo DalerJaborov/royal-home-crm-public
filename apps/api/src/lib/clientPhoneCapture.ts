@@ -1,15 +1,21 @@
 import { prisma, type TxClient } from "../db.js";
-import { explicitOwnPhoneFact, fullPhoneIdentity } from "./clientPhoneFacts.js";
+import { explicitOwnPhoneFact, fullPhoneIdentity, contextualOwnPhoneFact } from "./clientPhoneFacts.js";
 import { clientPhoneHash } from "./clientPhoneOrigins.js";
 
 type Source = { kind: "CALL" | "CONVERSATION"; id: string; at: Date; text: string; clientId: string; telegram?: boolean };
 /** Called only with authenticated incoming client text or attributed raw call transcript. Never model output. */
 export async function captureExplicitClientPhone(source: Source, tx?: TxClient): Promise<boolean> {
-  const fact=explicitOwnPhoneFact(source.text,source.kind);
+  let fact=explicitOwnPhoneFact(source.text,source.kind);
+  const contextual = !fact && source.kind === "CONVERSATION" && !source.telegram;
+  if (contextual) {
+    const conversation = await (tx ?? prisma).botConversation.findUnique({ where: { id: source.id }, select: { clientId: true, messages: true } });
+    if (conversation?.clientId === source.clientId) fact = contextualOwnPhoneFact(source.text, conversation.messages, undefined, source.at);
+  }
   if(!fact || !Number.isFinite(source.at.getTime())) return false;
+  const acceptedFact = fact;
   const apply=async(db:TxClient)=>{
-    const identity=fullPhoneIdentity(fact.phone);
-    await db.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`client-phone:${identity}`}))`;
+    const identity=fullPhoneIdentity(acceptedFact.phone);
+    await db.$queryRaw`SELECT 1 FROM pg_advisory_xact_lock(hashtext(${`client-phone:${identity}`}))`;
     if (source.kind === "CALL") await db.$queryRaw`SELECT id FROM "Interaction" WHERE id = ${source.id} FOR UPDATE`;
     else if (source.telegram) await db.$queryRaw`SELECT id FROM "TelegramConversation" WHERE id = ${source.id} FOR UPDATE`;
     else await db.$queryRaw`SELECT id FROM "BotConversation" WHERE id = ${source.id} FOR UPDATE`;
@@ -20,8 +26,9 @@ export async function captureExplicitClientPhone(source: Source, tx?: TxClient):
       const call=await db.interaction.findFirst({where:{id:source.id,clientId:client.id,investigationOnly:false,type:'CALL',createdAt:{gte:client.assignedAt}},select:{id:true}});
       if(!call) return false;
     } else {
-      const conversation=source.telegram ? await db.telegramConversation.findFirst({where:{id:source.id,clientId:client.id},select:{id:true}}) : await db.botConversation.findFirst({where:{id:source.id,clientId:client.id},select:{id:true}});
+      const conversation=source.telegram ? await db.telegramConversation.findFirst({where:{id:source.id,clientId:client.id},select:{id:true}}) : await db.botConversation.findFirst({where:{id:source.id,clientId:client.id},select:{id:true,messages:true}});
       if(!conversation) return false;
+      if (contextual && contextualOwnPhoneFact(source.text, "messages" in conversation ? conversation.messages : null, client.assignedAt, source.at)?.phone !== acceptedFact.phone) return false;
     }
     if([client.phone,client.whatsappPhone,...client.extraPhones].filter((p):p is string=>!!p).some(p=>fullPhoneIdentity(p)===identity)) return false;
     // Exact full identity: local9 canonicalises only to +992; different country prefixes never collapse.
@@ -32,11 +39,11 @@ export async function captureExplicitClientPhone(source: Source, tx?: TxClient):
     if(conflict.length) return false;
     const staff=await db.agent.findMany({select:{phone:true}});
     if(staff.some(a=>a.phone && fullPhoneIdentity(a.phone)===identity)) return false;
-    const extra=fact.correction ? [...client.extraPhones,...(client.phone?[client.phone]:[])] : [...client.extraPhones,fact.phone];
-    const changed=await db.client.updateMany({where:{id:client.id,updatedAt:client.updatedAt,assignedAgentId:client.assignedAgentId,assignedAt:client.assignedAt,assignmentCompletedAt:null,deletedAt:null},data:{extraPhones:[...new Set(extra)],...(fact.correction?{phone:fact.phone}:{})}});
+    const extra=acceptedFact.correction ? [...client.extraPhones,...(client.phone?[client.phone]:[])] : [...client.extraPhones,acceptedFact.phone];
+    const changed=await db.client.updateMany({where:{id:client.id,updatedAt:client.updatedAt,assignedAgentId:client.assignedAgentId,assignedAt:client.assignedAt,assignmentCompletedAt:null,deletedAt:null},data:{extraPhones:[...new Set(extra)],...(acceptedFact.correction?{phone:acceptedFact.phone}:{})}});
     if(!changed.count) return false;
     // Trigger records the timestamp; explicit source is written in the same transaction, never inferred for old numbers.
-    if(!fact.correction) await db.clientPhoneOrigin.updateMany({where:{clientId:client.id,phoneHash:clientPhoneHash(fact.phone)},data:{source:source.kind,sourceId:source.id}});
+    if(!acceptedFact.correction) await db.clientPhoneOrigin.updateMany({where:{clientId:client.id,phoneHash:clientPhoneHash(acceptedFact.phone)},data:{source:source.kind,sourceId:source.id}});
     return true;
   };
   return tx ? apply(tx) : prisma.$transaction(apply);

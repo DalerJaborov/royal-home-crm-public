@@ -215,6 +215,9 @@ describe("GET /me/score-months: показ бота засчитывается �
       clientId: client.id,
       actor: { kind: "bot", source: "test-bot-score-months-showing", subjectAgentId: agent.id, channel: "whatsapp" },
       type: "SHOWING",
+      nextActionDate: new Date(),
+      showingOffCrm: true,
+      showingOffCrmDetails: "Тестовый объект вне CRM, улица Проверочная 1",
       notes: `Бот записал показ против себя ${runId}`,
     });
 

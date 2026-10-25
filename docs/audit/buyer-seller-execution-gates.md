@@ -25,6 +25,8 @@ These names are deployment settings, not UI instructions to enable them. Actual 
 
 Sources retain their original assignment epoch. A→B→A with a reused timestamp does not revive old evidence or tasks. Merges retain original evidence identity, revoke source owner-report consent and cancel only the source's additional control work.
 
+Restoring a closed/inactive card excludes a frozen previous owner, including vacation/sick leave; it selects an eligible recorded owner or the normal automatic queue. This explicit restoration rule does not move already active clients merely because their owner is frozen.
+
 New SHOWING writes require a real time plus a property or explicit off-CRM description. Unknown times remain unknown. Buyer candidates are separate from conducted showings; an already recorded matching booking prevents a duplicate reminder. Uncertain object/time or ambiguous matching does not start an execution task.
 
 Control tasks use the existing working-day calendar and explicit configured deadlines. Delayed first enrollment grants time from the actual reminder. A new appointment recorded in a genuine call can replace the previous control; ordinary manual task movement cannot. Same-date repetition does not reset deadlines, and simultaneous conflicting sources do not establish an ordering.

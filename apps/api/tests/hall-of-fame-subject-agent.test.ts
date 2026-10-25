@@ -46,6 +46,9 @@ beforeAll(async () => {
       clientId,
       actor: { kind: "bot" as const, source: "test-bot-hof-showing", subjectAgentId: agentId, channel: "whatsapp" },
       type: "SHOWING" as const,
+      nextActionDate: new Date(),
+      showingOffCrm: true,
+      showingOffCrmDetails: "Тестовый объект вне CRM, улица Проверочная 1",
       notes: `Бот записал показ доски почёта ${runId}-${i}`,
     }))
   );

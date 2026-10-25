@@ -96,13 +96,13 @@ describe("intake.ts — Корзина: предложение прежнему 
     expect(after?.assignedAgentId).toBeNull();
   });
 
-  it("lastAgentId нет — обычная раздача по очереди, как раньше", async () => {
+  it("нет текущего и прежнего владельца — обычная автоматическая раздача", async () => {
     const phone = `+992${runId}63`;
     const first = await createLeadFromChannel({ fullName: "Клиент без lastAgentId", phone, source: "INSTAGRAM", kind: "BUYER" });
     clientIds.push(first.clientId);
     await prisma.client.update({
       where: { id: first.clientId },
-      data: { deletedAt: new Date(), deletedById: agentId },
+      data: { deletedAt: new Date(), deletedById: agentId, assignedAgentId: null, lastAgentId: null },
     });
 
     const result = await createLeadFromChannel({
@@ -133,8 +133,9 @@ describe("intake.ts — Корзина: предложение прежнему 
     const phone = `+992${runId}70`;
     const first = await createLeadFromChannel({ fullName: "Клиент для аудита Х1", phone, source: "INSTAGRAM", kind: "BUYER" });
     clientIds.push(first.clientId);
-    // Явно другой прежний владелец, без lastAgentId — гарантированно ветка "очередь",
-    // а не "keep"/"offer".
+    // Недоступный текущий владелец и отсутствие исторического — автоматическая
+    // раздача. Активный текущий владелец теперь имеет приоритет, даже без lastAgentId.
+    await prisma.agent.update({ where: { id: otherAgentId }, data: { isActive: false } });
     await prisma.client.update({
       where: { id: first.clientId },
       data: { deletedAt: new Date(), deletedById: agentId, assignedAgentId: otherAgentId, lastAgentId: null },
@@ -143,7 +144,9 @@ describe("intake.ts — Корзина: предложение прежнему 
     await createLeadFromChannel({ fullName: "Клиент для аудита Х1", phone, source: "WHATSAPP", kind: "BUYER" });
 
     const after = await prisma.client.findUnique({ where: { id: first.clientId } });
-    if (after?.assignedAgentId !== otherAgentId) {
+    expect(after?.assignedAgentId).not.toBeNull();
+    expect(after?.assignedAgentId).not.toBe(otherAgentId);
+    {
       /**
        * ДВОЙНАЯ ПРИЧИНА ФЛЕЙКА (найдено при слиянии 17.09.2026, 2 из 3 запусков
        * подряд даже в одиночном прогоне):
@@ -169,6 +172,7 @@ describe("intake.ts — Корзина: предложение прежнему 
       expect((auditRow?.meta as Record<string, unknown> | null)?.source).toBe("intake.basket-return");
       expect((auditRow?.meta as Record<string, unknown> | null)?.from).toBe(otherAgentId);
     }
+    await prisma.agent.update({ where: { id: otherAgentId }, data: { isActive: true } });
   });
 });
 

@@ -15,3 +15,27 @@ describe('trusted phone capture',()=>{
   it('does not collapse equal tails across countries',async()=>{state.tx.client.findUnique.mockResolvedValue({...client,phone:'+7900000001'});expect(await captureExplicitClientPhone(source)).toBe(true);});
   it('never enriches assistant/staff/unattributed historic messages',async()=>{await captureConversationPhoneMessages('chat',[{role:'assistant',content:source.text,at:at.toISOString()},{role:'user',by:{kind:'agent'},content:source.text,at:at.toISOString()},{role:'user',content:source.text}]);expect(state.tx.botConversation.findUnique).not.toHaveBeenCalled();});
 });
+
+it('captures an own extra number only as direct reply to a recorded current-assignment question', async () => {
+  const messages = [{ role: 'user', content: 'Фаридун', at: at.toISOString() }, { role: 'assistant', by: {kind:'bot'}, content: 'Раҳмат, Фаридун! Ва боз рақами дигаре доред?' }];
+  state.tx.botConversation.findUnique.mockResolvedValue({ clientId: 'client', messages });
+  state.tx.botConversation.findFirst.mockResolvedValue({ id: 'chat', messages });
+  expect(await captureExplicitClientPhone({...source,text:'да, вот ещё 930001028'})).toBe(true);
+  expect(state.tx.client.updateMany.mock.calls[0][0].data).toEqual({extraPhones:['+992930001028']});
+  state.tx.client.updateMany.mockClear();
+  for (const text of ['да, вот ещё брата 930001028','не мой номер 930001028','да, вот ещё 930001028 и 930001029']) {
+    expect(await captureExplicitClientPhone({...source,text})).toBe(false);
+  }
+  state.tx.botConversation.findFirst.mockResolvedValue({id:'chat',messages:[...messages,{role:'assistant',content:'Другой вопрос?'}]});
+  expect(await captureExplicitClientPhone({...source,text:'да, вот ещё 930001028'})).toBe(false);
+  state.tx.botConversation.findFirst.mockResolvedValue({id:'chat',messages:[{...messages[0],at:'2027-01-01T00:00:00Z'},messages[1]]});
+  expect(await captureExplicitClientPhone({...source,text:'да, вот ещё 930001028'})).toBe(false);
+  state.tx.botConversation.findFirst.mockResolvedValue({id:'chat',messages:[{...messages[0],at:'2020-01-01T00:00:00Z'},messages[1]]});
+  expect(await captureExplicitClientPhone({...source,text:'да, вот ещё 930001028'})).toBe(false);
+  expect(state.tx.client.updateMany).not.toHaveBeenCalled();
+});
+it('does not infer ownership from a bare extra-number reply without a recorded question', async () => {
+  state.tx.botConversation.findUnique.mockResolvedValue({clientId:'client',messages:[]});
+  expect(await captureExplicitClientPhone({...source,text:'да, вот ещё 930001028'})).toBe(false);
+  expect(state.tx.client.updateMany).not.toHaveBeenCalled();
+});

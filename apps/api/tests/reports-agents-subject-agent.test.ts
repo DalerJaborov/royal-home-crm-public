@@ -46,6 +46,9 @@ beforeAll(async () => {
     clientId,
     actor: { kind: "bot", source: "test-bot-reports-agents-showing", subjectAgentId: agentId, channel: "whatsapp" },
     type: "SHOWING",
+    nextActionDate: new Date(),
+    showingOffCrm: true,
+    showingOffCrmDetails: "Тестовый объект вне CRM, улица Проверочная 1",
     notes: `Бот записал показ отчёта показов ${runId}`,
   });
 });

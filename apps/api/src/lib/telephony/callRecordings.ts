@@ -1271,7 +1271,7 @@ async function transcribeAndEnrich(params: {
    */
   if (context?.clientId && !context.investigationOnly) {
     await captureExplicitClientPhone({ kind: "CALL", id: interactionId, clientId: context.clientId, at: context.createdAt, text })
-      .catch(error => { void logSystemError("telephony", "Сохранение подтверждённого номера из звонка: " + (error instanceof Error ? error.name : "UnknownError")); });
+      .catch(error => { void logSystemError("telephony", "Сохранение подтверждённого номера из звонка: " + (error instanceof Error ? error.name : "UnknownError"), { dedupKey: "call-confirmed-phone-capture-failed" }); });
   }
   let scrubbed: { text: string; mentionedPhonesEncrypted: string[] };
   try {

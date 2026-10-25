@@ -1,6 +1,6 @@
 import { postShowingCohortConfigSchema, type PostShowingCohortView } from "@royal-home/shared";
 import { prisma } from "../db.js";
-import { showingMomentOf } from "./postShowingCall.js";
+import { showingMomentOf } from "./showingMoment.js";
 import { hasScenarioCallMark } from "./postShowingCalls.js";
 import { COUNTED_SHOWING_WHERE } from "./tasks.js";
 import { outagesBetween } from "./stationOutage.js";

@@ -856,8 +856,9 @@ async function resumeExistingChannelLeadInner(
     enrich.triedAgentIds = [];
     enrich.reassignCount = 0;
   }
-  if (existing.kind !== "OTHER" && existing.status === "LOST" && !reactivating && lostHolderId && lostHolderId !== existing.assignedAgentId) {
-    enrich.assignedAgentId = lostHolderId;
+  const lostHistoricalOwnerId = existing.kind !== "OTHER" && existing.status === "LOST" && !reactivating && lostHolderId !== existing.assignedAgentId
+    ? lostHolderId : null;
+  if (lostHistoricalOwnerId) {
     enrich.acceptedAt = null;
     enrich.assignedAt = new Date();
     enrich.escalatedAt = null;
@@ -910,7 +911,7 @@ async function resumeExistingChannelLeadInner(
     ? reactivationFallbackAgentId
     : lostHolderUnavailable
       ? null
-      : existing.assignedAgentId;
+      : lostHistoricalOwnerId ?? existing.assignedAgentId;
   /**
    * ТАЙМЕР ВОЗВРАТА (владелец 21.08.2026) — ТОЛЬКО для двух случаев выше
    * (реактивация из Неактивных или из Потерянных), не на любое обычное
@@ -927,7 +928,19 @@ async function resumeExistingChannelLeadInner(
     enrich.returnAcceptDueAt = await returnAcceptDueFromNow();
   }
   if (Object.keys(enrich).length > 0) {
-    await prisma.client.update({ where: { id: existing.id }, data: enrich });
+    if (lostHistoricalOwnerId) {
+      const changed = await changeClientAgent({
+        clientId: existing.id,
+        toAgentId: lostHistoricalOwnerId,
+        source: "intake.lost-historical-owner",
+        reason: "Клиент снова обратился — возвращён прежнему активному агенту",
+        data: enrich,
+        guardWhere: { assignedAgentId: existing.assignedAgentId, assignedAt: existing.assignedAt, status: "LOST" },
+      });
+      if (!changed.ok) return { clientId: existing.id, created: false };
+    } else {
+      await prisma.client.update({ where: { id: existing.id }, data: enrich });
+    }
   }
   /**
    * П-1/П-10 (17.09.2026, `docs/audit/lead-ownership-17-09.md` §2, §4, Х2 из
@@ -964,7 +977,7 @@ async function resumeExistingChannelLeadInner(
       reason: kindOtherDropped
         ? "Обращение оказалось не про покупку или продажу (прочее обращение) — карточка снята с агента"
         : lostHolderUnavailable
-          ? "Потерянный клиент написал сам — прежний держатель уволен/заморожен, карточка ушла в очередь руководителя"
+          ? "Потерянный клиент написал сам — прежний держатель недоступен, карточка возвращена в очередь раздачи"
           : "Возврат из Неактивных — прежнего агента предложить не вышло, назначен по очереди",
     });
   }
