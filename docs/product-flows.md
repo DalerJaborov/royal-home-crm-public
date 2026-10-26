@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **714**. Развилок в самих путях: **2541**; вместе с задачами по расписанию и фоновыми заданиями — **3946**. Модулей: **78**.
+Путей: **716**. Развилок в самих путях: **2547**; вместе с задачами по расписанию и фоновыми заданиями — **3952**. Модулей: **78**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -16661,6 +16661,18 @@
 `apps/api/src/routes/customerAgentSettings.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
 
 - обработчик вынесен: `handler(killCustomerAgentForOwner) — раскрыто по коду функции handler()`
+
+### POST /api/v1/settings/customer-agent/recover-quality
+
+`apps/api/src/routes/customerAgentSettings.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
+
+- обработчик вынесен: `handler(recoverCustomerAgentQualityForOwner) — раскрыто по коду функции handler()`
+
+### GET /api/v1/settings/customer-agent/recovery-state
+
+`apps/api/src/routes/customerAgentSettings.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
+
+- обработчик вынесен: `handler(actor=>readCustomerAgentQualityRecoveryStateForOwner(actor)) — раскрыто по коду функции handler()`
 
 ### POST /api/v1/settings/customer-agent/refresh-current
 

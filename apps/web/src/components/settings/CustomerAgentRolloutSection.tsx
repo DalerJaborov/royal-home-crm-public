@@ -6,6 +6,7 @@ import { api, ApiError } from "../../lib/api";
 import { SettingsSection } from "./SettingsSection";
 import { ConfirmDialog } from "../ConfirmDialog";
 import { Switch } from "../Switch";
+import { CustomerAgentRecoverySection } from "./CustomerAgentRecoverySection";
 
 const key = ["settings", "customer-agent"] as const;
 type Registration = { revisionId: string; activated: false };
@@ -142,6 +143,7 @@ export function CustomerAgentRolloutSection() {
       </>}
       {data.counts.map(({ lane, count }) => <p className="state" key={lane}>{lane === "CORE" ? "Новый бот" : "Прежний бот"}: {count}</p>)}
     </>}
+    {data && <CustomerAgentRecoverySection />}
     {(register.isError || publish.isError || kill.isError || adopt.isError) && <p className="state err" role="alert">{message(register.error ?? publish.error ?? kill.error ?? adopt.error)}</p>}
     {confirm && <ConfirmDialog title={confirm === "kill" ? "Немедленно выключить агента?" : confirm === "refresh" ? "Обновить установленную версию бота?" : "Опубликовать настройки агента?"}
       description={confirm === "kill" ? "Новые отправки остановятся. Уже начатая отправка может завершиться; история и подтверждённые действия сохранятся." : confirm === "refresh" ? "Применится версия, уже установленная на сервере. Действующие процент, каналы, права и лимиты расходов останутся прежними. Изменения в форме настроек этим действием не применяются." : changingRevision ? "Будущие ходы нового бота получат исправленную версию только при отсутствии незавершённых отправок и действий. Доля выбирает новые диалоги. История и подтверждения сохраняются." : "Изменение применяется только к новым подходящим диалогам и может расходовать средства."}

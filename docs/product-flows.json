@@ -1,8 +1,8 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 714,
-  "forks": 3946,
+  "endpoints": 716,
+  "forks": 3952,
   "mounts": 78,
   "cron": 114,
   "jobs": 31,
@@ -71548,6 +71548,197 @@
     "requireElevation"
    ],
    "handlerRef": "handler(killCustomerAgentForOwner) — раскрыто по коду функции handler()",
+   "tree": [
+    {
+     "k": "do",
+     "t": "return async(req:import('express').Request,res:import('express').Response,next:import('express').NextFunction)",
+     "a": [
+      "ответ 401 — «unauthenticated»"
+     ],
+     "c": [
+      {
+       "k": "if",
+       "t": "!req.agent",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(401).json({error:'unauthenticated'});",
+         "a": [
+          "ответ 401 — «unauthenticated»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "try",
+       "t": "пробует",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.json(await run(req.agent.id,req.body));",
+         "a": [
+          "ответ 200"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "catch",
+       "t": "если сорвалось",
+       "a": [],
+       "c": [
+        {
+         "k": "if",
+         "t": "error instanceof CustomerAgentOwnerError",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return res.status(error.status).json({error:error.code,...(error.status===428?{stepUpRequired:true}:{})});",
+           "a": [
+            "ответ (код зависит от условия)"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "error instanceof ZodError",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return res.status(400).json({error:'invalid_customer_agent_control',issues:error.issues.map(i",
+           "a": [
+            "ответ 400 — «invalid_customer_agent_control»"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "/recover-quality",
+   "mount": "/api/v1/settings/customer-agent",
+   "full": "/api/v1/settings/customer-agent/recover-quality",
+   "file": "apps/api/src/routes/customerAgentSettings.ts",
+   "router": "customerAgentSettingsRouter",
+   "top": "apps/api/src/routes/settings.ts::settingsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: settings.manage",
+    "requireElevation"
+   ],
+   "handlerRef": "handler(recoverCustomerAgentQualityForOwner) — раскрыто по коду функции handler()",
+   "tree": [
+    {
+     "k": "do",
+     "t": "return async(req:import('express').Request,res:import('express').Response,next:import('express').NextFunction)",
+     "a": [
+      "ответ 401 — «unauthenticated»"
+     ],
+     "c": [
+      {
+       "k": "if",
+       "t": "!req.agent",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(401).json({error:'unauthenticated'});",
+         "a": [
+          "ответ 401 — «unauthenticated»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "try",
+       "t": "пробует",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.json(await run(req.agent.id,req.body));",
+         "a": [
+          "ответ 200"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "catch",
+       "t": "если сорвалось",
+       "a": [],
+       "c": [
+        {
+         "k": "if",
+         "t": "error instanceof CustomerAgentOwnerError",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return res.status(error.status).json({error:error.code,...(error.status===428?{stepUpRequired:true}:{})});",
+           "a": [
+            "ответ (код зависит от условия)"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "error instanceof ZodError",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return res.status(400).json({error:'invalid_customer_agent_control',issues:error.issues.map(i",
+           "a": [
+            "ответ 400 — «invalid_customer_agent_control»"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/recovery-state",
+   "mount": "/api/v1/settings/customer-agent",
+   "full": "/api/v1/settings/customer-agent/recovery-state",
+   "file": "apps/api/src/routes/customerAgentSettings.ts",
+   "router": "customerAgentSettingsRouter",
+   "top": "apps/api/src/routes/settings.ts::settingsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: settings.manage"
+   ],
+   "handlerRef": "handler(actor=>readCustomerAgentQualityRecoveryStateForOwner(actor)) — раскрыто по коду функции handler()",
    "tree": [
     {
      "k": "do",

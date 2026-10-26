@@ -27,3 +27,21 @@ export const customerAgentRefreshRequestSchema = z.object({ expectedPolicyRevisi
   confirmRecruitmentResumeUpgrade: z.literal(true).optional() }).strict();
 export type CustomerAgentRefreshRequest = z.infer<typeof customerAgentRefreshRequestSchema>;
 export type CustomerAgentPublishRequest = z.infer<typeof customerAgentPublishRequestSchema>;
+
+/** A reserve artifact chooses its own reviewed recovery target. Client IDs and
+ * generic publication acknowledgements are deliberately not accepted here. */
+export const customerAgentQualityRecoveryRequestSchema = z.object({
+  expectedPolicyRevision: customerRevisionSchema, requestId: z.string().uuid(), reason,
+  confirmQualityRecovery: z.literal(true), acknowledgeResumeFromOff: z.literal(true).optional(),
+}).strict();
+export const customerAgentQualityRecoveryStateSchema = z.object({
+  status: z.enum(["ready", "blocked", "already_recovered"]), reason: z.string().min(1),
+  requiresResumeFromOff: z.boolean(), policyRevision: customerRevisionSchema,
+}).strict();
+export const customerAgentQualityRecoveryResultSchema = z.object({
+  policyRevision: customerRevisionSchema, rolloutMode: z.literal("ACTIVE"), recoveryVersion: z.literal("quality-v1"),
+  revisionId: z.string().regex(/^[a-f0-9]{64}$/), alreadyApplied: z.boolean(),
+}).strict();
+export type CustomerAgentQualityRecoveryRequest = z.infer<typeof customerAgentQualityRecoveryRequestSchema>;
+export type CustomerAgentQualityRecoveryState = z.infer<typeof customerAgentQualityRecoveryStateSchema>;
+export type CustomerAgentQualityRecoveryResult = z.infer<typeof customerAgentQualityRecoveryResultSchema>;

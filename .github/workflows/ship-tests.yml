@@ -109,6 +109,18 @@ jobs:
       - run: npm run prisma:generate
       - run: npm run precheck -- --no-tests
       - run: npm run test:scripts
+      # Recovery pins attest the compiled release, not tsx source bytes. Reuse
+      # the API already built by precheck; every shard receives this same SHA.
+      - name: Mark compiled recovery-test runtime
+        env:
+          COMPILED_SOURCE_SHA: ${{ steps.p.outputs.sha }}
+        run: printf '%s\n' "$COMPILED_SOURCE_SHA" > apps/api/dist/source-sha.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: compiled-api-${{ steps.p.outputs.sha }}
+          path: apps/api/dist/
+          retention-days: 1
+          if-no-files-found: error
 
   tests:
     name: машина ${{ matrix.machine }}
@@ -176,6 +188,17 @@ jobs:
         run: |
           npm run build:shared
           npm run prisma:generate
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: compiled-api-${{ needs.plan.outputs.sha }}
+          path: apps/api/dist/
+      - name: Verify compiled recovery-test runtime source
+        env:
+          COMPILED_SOURCE_SHA: ${{ needs.plan.outputs.sha }}
+        run: |
+          test "$(cat apps/api/dist/source-sha.txt)" = "$COMPILED_SOURCE_SHA"
+          test -s apps/api/dist/app.js
 
       - name: Миграции и засев тестовой базы
         run: |

@@ -30,6 +30,38 @@ async function fileGroup(paths: readonly URL[]): Promise<string> {
 const allTools = [...CUSTOMER_AGENT_PUBLIC_TOOLS, "save_contact", "request_callback", "request_handover", "book_showing",
   "reschedule_showing", "cancel_showing", "ask_owner", "save_job_application"] as const;
 
+const recoveryPinsPath = "./customerAgentRecoveryPins.js";
+const customerAgentCorePaths = [
+  "../ai/customerAgentCore.js", "../ai/customerAgentModel.js", "../ai/customerAgentToolDefinitions.js", "../ai/customerAgentIntake.js", "../ai/sellerIntake.js", "./customerCompanyInformation.js", "./customerAgentFeaturePolicy.js", "./recruitmentPositions.js", "../ai/customerAgentRecruitmentProtocol.js",
+  "../ai/providerContract.js", "../ai/providerBudget.js", "../ai/geminiClient.js", "../ai/geminiOperationRuntime.js", "../ai/geminiCountedTools.js",
+  "../ai/geminiFunctionDeclarations.js", "../ai/geminiManagedToolsUsage.js", "../ai/geminiManagedMedia.js",
+  "../ai/geminiCapabilities.js", "../ai/customerAgentMediaPerception.js", "../ai/customerAgentModelContracts.js", "../ai/clientLanguage.js", "../ai/customerDmLanguage.js", "../ai/untrustedContent.js", "./customerDmMediaContent.js", "./customerAgentMediaObservation.js", "./customerAgentMediaFocus.js",
+  "./customerPropertyFocus.js", "./customerPropertyEvidence.js", "./customerPropertyResolver.js", "./customerPropertyRegistry.js", "./customerPropertyUrls.js", "./customerOwnSiteIdentity.js", "./propertyMatch.js", "./customerSharedPublication.js", "./customerMediaAudioTrack.js",
+  "./customerAgentClaim.js", "./customerAgentRevision.js", "./customerAgentContinuation.js", "./customerDmCoreContext.js",
+  "./customerDmAgentTurn.js", "./customerDmAttachmentInput.js", "./customerAgentMutationSession.js", "./customerContactIntent.js", "./customerAgentDeliveryEvidence.js", "./customerAgentVerifiedContext.js",
+  "./customerHandoverAck.js", "./customerDeliveryContracts.js", "./customerDeliveryDispatcher.js", "./customerDeliveryAdapters.js", "./customerOutboxEcho.js", "../messengers/inFlightEcho.js",
+  "./customerDeliveryObservation.js", "./botTurnTrace.js", "./botTurnTracePrivacy.js", "./customerAgentDeliveryTrace.js", "../jobs/customerOutboxDispatch.js",
+  "./customerPublicAgentTurn.js", "./customerPublicThreadContext.js", "./customerPublicPublicationSource.js", "./customerPublicationCatalog.js", "./customerSearchHistory.js", "./customerSearchSelection.js", "./customerOutboxCodec.js", "./customerAgentPublicReads.js", "./searchPlace.js", "../ai/geoMentions.js", "./geoNormalize.js", "../ai/folkPlaces.js", "./customerPublicCommentStore.js", "./customerPublicAgentFailure.js", "./customerAgentRevisionAdvance.js", "../messengers/comments.js", "../messengers/customerQualifierTurn.js",
+  "./customerAgentEnrollment.js", "./customerAgentIngressRouting.js", "./customerAgentRoutingReference.js", "./customerOriginalSource.js", "./customerPropertyAdmission.js", "./customerAgentOwnerPolicy.js", "./customerAgentQualityRecovery.js", "./customerRecruitmentUpgrade.js", "./customerQualifierContext.js",
+  "./customerIngressProducer.js", "./customerIngressAuthority.js", "./customerIngressPayload.js", "./customerIngressNormalize.js", "./customerIngressRecovery.js",
+  "./customerIngressClassification.js", "./customerOriginPayload.js", "./customerQualifierLedger.js",
+  "./customerAgentRegistration.js", "./customerAgentRuntimeArchive.js", "./customerAgentRuntime.js", "./customerState.js", "./customerActionJournal.js",
+  "./customerCallbackConsent.js", "./customerAcceptedCallbackQuestion.js", "./customerAcceptedNameQuestion.js",
+  "./customerNewLeadBridge.js", "./customerOwnedIntakeContinuity.js", "./outboundShield.js", "./customerShieldPause.js", "./customerIntakeContext.js", "../jobs/customerContactIntake.js", "../jobs/customerInboxConsume.js",
+  "./customerRecruitmentIntake.js", "./customerRecruitmentAttachments.js", "./recruitmentResume.js", "./recruitmentAnsweredFact.js", "./recruitmentDocumentText.js", "./customerActionEffects.js", "./customerActionProperty.js", "./ownerQuestionMutation.js", "./customerActionCommand.js", "./customerMutationIntent.js",
+  "./customerOutbox.js", "./customerPublicOrigin.js", "./customerPublicModeration.js", "./customerPublicModerationPolicy.js",
+  "./customerPublicOutreachMemory.js", recoveryPinsPath,
+] as const;
+
+/** Full core identity and the same ordered material without only its pin file. */
+export async function readCustomerAgentRecoveryCoreAttestation(): Promise<{ coreHash: string; materialHash: string }> {
+  const [coreHash, materialHash] = await Promise.all([
+    fileGroup(customerAgentCorePaths.map(apiFile)),
+    fileGroup(customerAgentCorePaths.filter(path => path !== recoveryPinsPath).map(apiFile)),
+  ]);
+  return { coreHash, materialHash };
+}
+
 /** Explicit artifact coverage, not a claim to hash every dependency/package in
  * the monorepo. coreHash lists only files whose bytes decide what the agent does:
  * decision, guards, tools, rendering, schemas, delivery, state. Shared utilities
@@ -42,25 +74,7 @@ const allTools = [...CUSTOMER_AGENT_PUBLIC_TOOLS, "save_contact", "request_callb
 export async function buildCurrentCustomerAgentManifest(rawSnapshot: unknown): Promise<CustomerAgentManifest> {
   const snapshot = decodeCustomerAgentProviderSnapshot(rawSnapshot), identity = customerAgentProviderIdentities(snapshot);
   const [coreHash, rendererHash, modelSchemaHash, knowledgeSchemaHash] = await Promise.all([
-    fileGroup(["../ai/customerAgentCore.js", "../ai/customerAgentModel.js", "../ai/customerAgentToolDefinitions.js", "../ai/customerAgentIntake.js", "../ai/sellerIntake.js", "./customerCompanyInformation.js", "./customerAgentFeaturePolicy.js", "./recruitmentPositions.js", "../ai/customerAgentRecruitmentProtocol.js",
-      "../ai/providerContract.js", "../ai/providerBudget.js", "../ai/geminiClient.js", "../ai/geminiOperationRuntime.js", "../ai/geminiCountedTools.js",
-      "../ai/geminiFunctionDeclarations.js", "../ai/geminiManagedToolsUsage.js", "../ai/geminiManagedMedia.js",
-      "../ai/geminiCapabilities.js", "../ai/customerAgentMediaPerception.js", "../ai/customerAgentModelContracts.js", "../ai/clientLanguage.js", "../ai/customerDmLanguage.js", "../ai/untrustedContent.js", "./customerDmMediaContent.js", "./customerAgentMediaObservation.js", "./customerAgentMediaFocus.js",
-      "./customerPropertyFocus.js", "./customerPropertyEvidence.js", "./customerPropertyResolver.js", "./customerPropertyRegistry.js", "./customerPropertyUrls.js", "./customerOwnSiteIdentity.js", "./propertyMatch.js", "./customerSharedPublication.js", "./customerMediaAudioTrack.js", 
-      "./customerAgentClaim.js", "./customerAgentRevision.js", "./customerAgentContinuation.js", "./customerDmCoreContext.js",
-      "./customerDmAgentTurn.js", "./customerDmAttachmentInput.js", "./customerAgentMutationSession.js", "./customerContactIntent.js", "./customerAgentDeliveryEvidence.js", "./customerAgentVerifiedContext.js",
-      "./customerHandoverAck.js", "./customerDeliveryContracts.js", "./customerDeliveryDispatcher.js", "./customerDeliveryAdapters.js", "./customerOutboxEcho.js", "../messengers/inFlightEcho.js",
-      "./customerDeliveryObservation.js", "./botTurnTrace.js", "./botTurnTracePrivacy.js", "./customerAgentDeliveryTrace.js", "../jobs/customerOutboxDispatch.js",
-      "./customerPublicAgentTurn.js", "./customerPublicThreadContext.js", "./customerPublicPublicationSource.js", "./customerPublicationCatalog.js", "./customerSearchHistory.js", "./customerSearchSelection.js", "./customerOutboxCodec.js", "./customerAgentPublicReads.js", "./searchPlace.js", "../ai/geoMentions.js", "./geoNormalize.js", "../ai/folkPlaces.js", "./customerPublicCommentStore.js", "./customerPublicAgentFailure.js", "./customerAgentRevisionAdvance.js", "../messengers/comments.js", "../messengers/customerQualifierTurn.js",
-      "./customerAgentEnrollment.js", "./customerAgentIngressRouting.js", "./customerAgentRoutingReference.js", "./customerOriginalSource.js", "./customerPropertyAdmission.js", "./customerAgentOwnerPolicy.js", "./customerRecruitmentUpgrade.js", "./customerQualifierContext.js",
-      "./customerIngressProducer.js", "./customerIngressAuthority.js", "./customerIngressPayload.js", "./customerIngressNormalize.js", "./customerIngressRecovery.js",
-      "./customerIngressClassification.js", "./customerOriginPayload.js", "./customerQualifierLedger.js",
-      "./customerAgentRegistration.js", "./customerAgentRuntimeArchive.js", "./customerAgentRuntime.js", "./customerState.js", "./customerActionJournal.js",
-      "./customerCallbackConsent.js", "./customerAcceptedCallbackQuestion.js", "./customerAcceptedNameQuestion.js",
-      "./customerNewLeadBridge.js", "./customerOwnedIntakeContinuity.js", "./outboundShield.js", "./customerShieldPause.js", "./customerIntakeContext.js", "../jobs/customerContactIntake.js", "../jobs/customerInboxConsume.js",
-      "./customerRecruitmentIntake.js", "./customerRecruitmentAttachments.js", "./recruitmentResume.js", "./recruitmentAnsweredFact.js", "./recruitmentDocumentText.js", "./customerActionEffects.js", "./customerActionProperty.js", "./ownerQuestionMutation.js", "./customerActionCommand.js", "./customerMutationIntent.js",
-      "./customerOutbox.js", "./customerPublicOrigin.js", "./customerPublicModeration.js", "./customerPublicModerationPolicy.js",
-      "./customerPublicOutreachMemory.js"].map(apiFile)),
+    readCustomerAgentRecoveryCoreAttestation().then(value => value.coreHash),
     fileGroup(["../ai/customerAgentRenderer.js", "../ai/customerAgentIntake.js", "../ai/sellerIntake.js", "../ai/customerAgentAttachmentInput.js", "../ai/customerAgentMediaPerception.js", "../ai/customerAgentConversationPolicy.js", "../ai/customerAgentPublicProtocol.js", "./publicAgencyContact.js",
       "./customerPropertyFacts.js"].map(apiFile).concat(["customerPropertyPresentation.js", "propertyFinish.js", "propertyTypeFields.js"].map(path => new URL(path, sharedEntry)))),
     fileGroup(["customerAgent.js", "customerMutation.js", "customerState.js", "customerTools.js", "customerHandoverAck.js", "botTurnTrace.js", "customerAgentRollout.js", "customerAgentOwnerControls.js"].map(path => new URL(path, sharedEntry))),

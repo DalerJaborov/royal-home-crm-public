@@ -2,12 +2,14 @@
 // customer identity. Only the authenticated settings actor can publish policy.
 import { z } from "zod";
 import { ROLES, resolvePermissions, parsePermissionOverrides, isReadOnlyRole, customerAgentPublishRequestSchema,
-  customerAgentKillRequestSchema, customerAgentRegisterRequestSchema, customerAgentOwnerStateSchema, customerAgentRefreshRequestSchema } from "@royal-home/shared";
+  customerAgentKillRequestSchema, customerAgentRegisterRequestSchema, customerAgentOwnerStateSchema, customerAgentRefreshRequestSchema,
+  customerAgentQualityRecoveryRequestSchema, customerAgentQualityRecoveryStateSchema, customerAgentQualityRecoveryResultSchema,
+  type CustomerAgentQualityRecoveryRequest } from "@royal-home/shared";
 import { prisma, type TxClient } from "../db.js";
 import { isElevated } from "./stepUp.js";
 import { settingsMaintenanceUntil, type SettingsMaintenanceActor } from "./settingsMaintenance.js";
 import { decodeCustomerAgentRevision } from "./customerAgentRevision.js";
-import { loadVerifiedCustomerAgentRevision, registerCurrentCustomerAgentRevision } from "./customerAgentRegistration.js";
+import { buildCurrentCustomerAgentManifest, loadVerifiedCustomerAgentRevision, registerCurrentCustomerAgentRevision } from "./customerAgentRegistration.js";
 import { createCustomerAgentMediaProviderSnapshot as createCustomerAgentProviderSnapshot, isCustomerAgentMediaProfileUpgrade } from "../ai/customerAgentProviderConfig.js";
 import { loadPinnedCustomerAgentRuntime } from "./customerAgentRuntimeArchive.js";
 import { decryptSecretSafe } from "../crypto.js";
@@ -16,6 +18,9 @@ import { isDeepStrictEqual } from "node:util";
 import { customerAgentRolloutConfigSchema } from "@royal-home/shared";
 import { customerAgentRevisionReachable } from "./customerAgentRevisionAdvance.js";
 import { isCustomerRecruitmentUpgradeV1, isCustomerRecruitmentResumeUpgradeV2 } from "./customerRecruitmentUpgrade.js";
+import { customerAgentManifestId } from "./customerAgentRevision.js";
+import { customerQualityRecoveryBlockedReason, customerQualityRecoveryHash, isCustomerQualityRecoveryTarget,
+  type CustomerQualityRecoveryPolicy } from "./customerAgentQualityRecovery.js";
 
 export class CustomerAgentOwnerError extends Error {
   constructor(readonly status: number, readonly code: string) { super(code); }
@@ -77,7 +82,91 @@ export async function readCustomerAgentOwnerState(actorId: string) {
   });
 }
 type PublishSpec = Pick<z.infer<typeof customerAgentPublishRequestSchema>, 'expectedPolicyRevision'|'rollout'|'capabilities'|'advanceIdleRevision'|'confirmMediaProfileUpgrade'|'confirmCatalogFactsUpgrade'|'confirmRecruitmentResumeUpgrade'|'reason'>;
-type PublishAuthority = 'step_up' | 'retained_policy_refresh';
+type RecoveryAuthority = Readonly<{ kind: 'quality_recovery'; command: CustomerAgentQualityRecoveryRequest;
+  requestHash: string; original: CustomerQualityRecoveryPolicy }>;
+type PublishAuthority = 'step_up' | 'retained_policy_refresh' | RecoveryAuthority;
+
+function recoveryConfiguration(current: CustomerQualityRecoveryPolicy) {
+  return { contractVersion: current.contractVersion, rolloutMode: current.rolloutMode, activeAgentRevisionId: current.activeAgentRevisionId,
+    rolloutConfig: current.rolloutConfig, capabilities: current.capabilities };
+}
+async function workRequiresIdleTx(tx: TxClient): Promise<boolean> {
+  const [inflight]=await tx.$queryRaw<Array<{blocked:boolean}>>`SELECT
+    EXISTS(SELECT 1 FROM "CustomerPropertyIngressTicket" WHERE "intakeAgentRevisionId" IS NOT NULL
+      AND "processingState" IN ('RECEIVED','CLAIMED')) OR
+    EXISTS(SELECT 1 FROM "InstagramComment" WHERE "publicOriginCiphertext" IS NOT NULL AND "status" IN ('PENDING','WORKING','WORKING_STAFF','ERROR')) OR
+    EXISTS(SELECT 1 FROM "TelegramGroupComment" WHERE "publicOriginCiphertext" IS NOT NULL AND "status" IN ('PENDING','WORKING','WORKING_STAFF','ERROR')) OR
+    customer_agent_delivery_requires_idle() OR
+    EXISTS(SELECT 1 FROM "CustomerPublicEffect" WHERE "status"='IN_FLIGHT' AND "createdAt">clock_timestamp()-interval '5 minutes') OR
+    EXISTS(SELECT 1 FROM "AiProviderOperation" WHERE "policyKey"='royal-customer-gemini' AND "reservedUsd">0
+      AND "status"='OPEN' AND "deadlineAt">clock_timestamp()) AS blocked`;
+  return inflight?.blocked === true;
+}
+async function appliedRecoveryTx(tx: TxClient, actorId: string, command: CustomerAgentQualityRecoveryRequest,
+  targetId: string, current: CustomerQualityRecoveryPolicy) {
+  const matches = await tx.auditLog.findMany({ where: { action: 'CUSTOMER_AGENT_PUBLISH', entityType: 'CustomerAgentPolicy', entityId: 'singleton', agentId: actorId,
+    meta: { path: ['recoveryRequestId'], equals: command.requestId } }, select: { meta: true }, take: 2 });
+  if (!matches.length) return null;
+  const meta = matches.length === 1 && matches[0].meta && typeof matches[0].meta === 'object' && !Array.isArray(matches[0].meta) ? matches[0].meta : null;
+  if (!meta || meta.recoveryRequestHash !== customerQualityRecoveryHash(command)) fail(409, 'recovery_request_conflict');
+  if (meta.qualityRecoveryVersion !== 'quality-v1' || meta.candidate !== targetId || meta.newRevision !== current.policyRevision.toString() ||
+    current.activeAgentRevisionId !== targetId || current.rolloutMode !== 'ACTIVE' ||
+    meta.recoveryConfigurationHash !== customerQualityRecoveryHash(recoveryConfiguration(current))) fail(409, 'recovery_result_changed');
+  return customerAgentQualityRecoveryResultSchema.parse({ policyRevision: current.policyRevision.toString(), rolloutMode: 'ACTIVE',
+    recoveryVersion: 'quality-v1', revisionId: targetId, alreadyApplied: true });
+}
+
+export async function readCustomerAgentQualityRecoveryStateForOwner(actorId: string) {
+  await prisma.$transaction(tx => actorTx(tx, actorId, false));
+  const target = await buildCurrentCustomerAgentManifest(createCustomerAgentProviderSnapshot()), targetId = customerAgentManifestId(target);
+  return prisma.$transaction(async tx => {
+    await actorTx(tx, actorId, false);
+    const current = await tx.customerRuntimePolicy.findUniqueOrThrow({ where: { id: 'singleton' } });
+    const recoveryAudit = current.activeAgentRevisionId === targetId && await tx.auditLog.findFirst({ where: { action: 'CUSTOMER_AGENT_PUBLISH',
+      entityType: 'CustomerAgentPolicy', entityId: 'singleton', meta: { path: ['qualityRecoveryVersion'], equals: 'quality-v1' } }, orderBy: { createdAt: 'desc' }, select: { meta: true } });
+    let reason = await customerQualityRecoveryBlockedReason(tx, current, target);
+    const meta = recoveryAudit && recoveryAudit.meta && typeof recoveryAudit.meta === 'object' && !Array.isArray(recoveryAudit.meta) ? recoveryAudit.meta : null;
+    const alreadyRecovered = await isCustomerQualityRecoveryTarget(target) && current.rolloutMode === 'ACTIVE' && meta?.candidate === targetId &&
+      meta.newRevision === current.policyRevision.toString() && meta.recoveryConfigurationHash === customerQualityRecoveryHash(recoveryConfiguration(current));
+    if (!reason && await workRequiresIdleTx(tx)) reason = 'core_work_requires_idle_publication';
+    return customerAgentQualityRecoveryStateSchema.parse({ status: alreadyRecovered ? 'already_recovered' : reason ? 'blocked' : 'ready',
+      reason: alreadyRecovered ? 'quality_recovery_already_applied' : reason ?? 'quality_recovery_ready',
+      requiresResumeFromOff: current.rolloutMode === 'OFF', policyRevision: current.policyRevision.toString() });
+  });
+}
+
+/** This is the only issuer of the closed recovery publication authority. */
+export async function recoverCustomerAgentQualityForOwner(actorId: string, raw: unknown) {
+  const command = customerAgentQualityRecoveryRequestSchema.parse(raw), factory = createCustomerAgentProviderSnapshot();
+  await prisma.$transaction(tx => actorTx(tx, actorId));
+  const target = await buildCurrentCustomerAgentManifest(factory), targetId = customerAgentManifestId(target);
+  const initial = await prisma.$transaction(async tx => {
+    await actorTx(tx, actorId);
+    const current = await tx.customerRuntimePolicy.findUniqueOrThrow({ where: { id: 'singleton' } });
+    const replay = await appliedRecoveryTx(tx, actorId, command, targetId, current);
+    if (replay) return { replay };
+    if (current.policyRevision.toString() !== command.expectedPolicyRevision) fail(409, 'policy_changed');
+    if (current.rolloutMode === 'OFF' && !command.acknowledgeResumeFromOff) fail(409, 'recovery_resume_confirmation_required');
+    if (current.rolloutMode !== 'OFF' && command.acknowledgeResumeFromOff) fail(409, 'recovery_resume_not_required');
+    const reason = await customerQualityRecoveryBlockedReason(tx, current, target);
+    if (reason) fail(409, reason);
+    if (await workRequiresIdleTx(tx)) fail(409, 'core_work_requires_idle_publication');
+    return { current };
+  });
+  if ('replay' in initial) return initial.replay;
+  const revision = await registerCurrentCustomerAgentRevision(factory, {
+    beforeWrite: async tx => { await actorTx(tx, actorId); },
+    afterWrite: async (tx, value) => { const actor = await actorTx(tx, actorId); await auditTx(tx, actor, 'CUSTOMER_AGENT_REGISTER', value.id,
+      { configId: factory.configRevision, reason: command.reason, authority: 'quality_recovery_preparation' });
+      if (!settingsStepUpSatisfied(actor)) fail(428, 'step_up_required'); },
+  });
+  if (revision.id !== targetId) fail(409, 'recovery_artifact_changed');
+  const rollout = customerAgentRolloutConfigSchema.parse(initial.current.rolloutConfig);
+  return publishVerifiedCustomerAgentForOwner(actorId, { expectedPolicyRevision: command.expectedPolicyRevision, reason: command.reason,
+    rollout: { ...rollout, candidateRevisionId: revision.id, cohortId: randomUUID() },
+    capabilities: customerAgentOwnerStateSchema.shape.capabilities.parse(initial.current.capabilities), advanceIdleRevision: true },
+    Object.freeze({ kind: 'quality_recovery', command, requestHash: customerQualityRecoveryHash(command), original: initial.current }));
+}
 
 /** No client policy/manifest/config overrides. This is an explicit signed-in
  * administrator action, not an automatic recovery, fallback or new grant. */
@@ -131,6 +220,7 @@ export async function publishCustomerAgentForOwner(actorId:string,raw:unknown) {
 }
 async function publishVerifiedCustomerAgentForOwner(actorId:string,body:PublishSpec,authority:PublishAuthority) {
   const routine=authority==='retained_policy_refresh';
+  const recovery=typeof authority==='object' ? authority : null;
   // Authorize before artifact reads AND reread after those awaits in final TX.
   await prisma.$transaction(tx=>actorTx(tx,actorId,!routine));
   const stored=await prisma.customerAgentRevision.findUnique({where:{id:body.rollout.candidateRevisionId}});
@@ -172,7 +262,20 @@ async function publishVerifiedCustomerAgentForOwner(actorId:string,body:PublishS
     }
     const [current]=await tx.$queryRaw<Array<{policyRevision:bigint;contractVersion:string;rolloutMode:string;activeAgentRevisionId:string|null;rolloutConfig:unknown;capabilities:unknown}>>`
       SELECT "policyRevision","contractVersion","rolloutMode","activeAgentRevisionId","rolloutConfig","capabilities" FROM "CustomerRuntimePolicy" WHERE "id"='singleton' FOR UPDATE`;
+    if (current && recovery) {
+      const replay = await appliedRecoveryTx(tx, actorId, recovery.command, verified.revision.id, current);
+      if (replay) return replay;
+    }
     if(!current || current.policyRevision.toString()!==body.expectedPolicyRevision) fail(409,"policy_changed");
+    if (recovery) {
+      if (!isDeepStrictEqual(recoveryConfiguration(current), recoveryConfiguration(recovery.original)) ||
+        !body.advanceIdleRevision || body.confirmCatalogFactsUpgrade || body.confirmRecruitmentResumeUpgrade || body.confirmMediaProfileUpgrade ||
+        !isDeepStrictEqual({ ...body.rollout, candidateRevisionId: recovery.original.activeAgentRevisionId,
+          cohortId: customerAgentRolloutConfigSchema.parse(recovery.original.rolloutConfig).cohortId }, recovery.original.rolloutConfig) ||
+        !isDeepStrictEqual(body.capabilities, customerAgentOwnerStateSchema.shape.capabilities.parse(current.capabilities))) fail(409, 'recovery_configuration_changed');
+      const blocked = await customerQualityRecoveryBlockedReason(tx, current, verified.revision);
+      if (blocked) fail(409, blocked);
+    }
     if(routine) {
       const before=customerAgentRolloutConfigSchema.safeParse(current.rolloutConfig);
       if(current.contractVersion!=='scoped'||current.rolloutMode!=='ACTIVE'||!before.success||
@@ -187,19 +290,10 @@ async function publishVerifiedCustomerAgentForOwner(actorId:string,body:PublishS
     const [incumbent]=await tx.$queryRaw<Array<{blocked:boolean}>>`SELECT EXISTS(SELECT 1 FROM "CustomerAgentRolloutAssignment" WHERE "lane"='CORE'
       AND NOT customer_agent_revision_reachable("candidateRevisionId","cohortId",${body.rollout.candidateRevisionId},${body.rollout.cohortId})) AS blocked`;
     if(incumbent?.blocked && !body.advanceIdleRevision) fail(409,"existing_core_requires_idle_promotion");
-    const [inflight]=await tx.$queryRaw<Array<{blocked:boolean}>>`SELECT
-      EXISTS(SELECT 1 FROM "CustomerPropertyIngressTicket" WHERE "intakeAgentRevisionId" IS NOT NULL
-        AND "processingState" IN ('RECEIVED','CLAIMED')) OR
-      EXISTS(SELECT 1 FROM "InstagramComment" WHERE "publicOriginCiphertext" IS NOT NULL AND "status" IN ('PENDING','WORKING','WORKING_STAFF','ERROR')) OR
-      EXISTS(SELECT 1 FROM "TelegramGroupComment" WHERE "publicOriginCiphertext" IS NOT NULL AND "status" IN ('PENDING','WORKING','WORKING_STAFF','ERROR')) OR
-      customer_agent_delivery_requires_idle() OR
-      EXISTS(SELECT 1 FROM "CustomerPublicEffect" WHERE "status"='IN_FLIGHT' AND "createdAt">clock_timestamp()-interval '5 minutes') OR
-      EXISTS(SELECT 1 FROM "AiProviderOperation" WHERE "policyKey"='royal-customer-gemini' AND "reservedUsd">0
-        AND "status"='OPEN' AND "deadlineAt">clock_timestamp()) AS blocked`;
     // Current policyRevision is also an execution/credential fence. Until the
     // separate enrollment-only CAS below is reviewed, never silently invalidate
     // READY/RAW turns merely to change a percentage. Kill remains unconditional.
-    if(inflight?.blocked) fail(409,"core_work_requires_idle_publication");
+    if(await workRequiresIdleTx(tx)) fail(409,"core_work_requires_idle_publication");
     const [cohort]=await tx.$queryRaw<Array<{blocked:boolean}>>`SELECT EXISTS(SELECT 1 FROM "CustomerAgentRolloutAssignment" WHERE "cohortId"=${body.rollout.cohortId}
       AND "candidateRevisionId" IS DISTINCT FROM ${body.rollout.candidateRevisionId}) AS blocked`;
     if(cohort?.blocked) fail(409,"cohort_candidate_immutable");
@@ -221,10 +315,10 @@ async function publishVerifiedCustomerAgentForOwner(actorId:string,body:PublishS
       if(body.confirmRecruitmentResumeUpgrade&&!resumePair) fail(409,'recruitment_resume_upgrade_not_qualified');
       recruitmentResumeUpgrade=resumePair&&body.confirmRecruitmentResumeUpgrade===true;
       recruitmentProtocolUpgrade=recruitmentResumeUpgrade || body.confirmCatalogFactsUpgrade===true && isCustomerRecruitmentUpgradeV1(prior,next);
-      if(prior.promptHash!==next.promptHash && !recruitmentProtocolUpgrade) fail(409,"revision_advance_configuration_changed");
-      if (catalogChanged && !body.confirmCatalogFactsUpgrade && !recruitmentResumeUpgrade) fail(409,"catalog_facts_upgrade_confirmation_required");
+      if(prior.promptHash!==next.promptHash && !recruitmentProtocolUpgrade && !recovery) fail(409,"revision_advance_configuration_changed");
+      if (catalogChanged && !body.confirmCatalogFactsUpgrade && !recruitmentResumeUpgrade && !recovery) fail(409,"catalog_facts_upgrade_confirmation_required");
       if (!catalogChanged && body.confirmCatalogFactsUpgrade && !recruitmentResumeUpgrade) fail(409,"catalog_facts_upgrade_not_required");
-      if ((catalogChanged || recruitmentResumeUpgrade) && (prior.providerProfileHash !== next.providerProfileHash || prior.providerPolicyHash !== next.providerPolicyHash ||
+      if ((catalogChanged || recruitmentResumeUpgrade || recovery) && (prior.providerProfileHash !== next.providerProfileHash || prior.providerPolicyHash !== next.providerPolicyHash ||
         !isDeepStrictEqual([...before.data.allowed].sort((a,b)=>a.endpointScopeId.localeCompare(b.endpointScopeId)),
           [...body.rollout.allowed].sort((a,b)=>a.endpointScopeId.localeCompare(b.endpointScopeId))) ||
         before.data.percentBasisPoints !== body.rollout.percentBasisPoints ||
@@ -260,12 +354,18 @@ async function publishVerifiedCustomerAgentForOwner(actorId:string,body:PublishS
     await auditTx(tx,actor,'CUSTOMER_AGENT_PUBLISH','singleton',{oldRevision:current.policyRevision.toString(),newRevision:updated.policyRevision.toString(),
       candidate:body.rollout.candidateRevisionId,cohort:body.rollout.cohortId,percentBasisPoints:body.rollout.percentBasisPoints,
       scopes:scopeIds,configId:factory.configRevision,paidConfirmed:routine?null:true,noDailyCapAcknowledged:routine?null:true,
-      authority,routineRefresh:routine,retainedPaidAuthority:routine,idleRevisionAdvanced:body.advanceIdleRevision===true,
+      authority:recovery?'quality_recovery_step_up':authority as string,routineRefresh:routine,retainedPaidAuthority:routine||!!recovery,idleRevisionAdvanced:body.advanceIdleRevision===true,
       catalogFactsUpgrade:body.confirmCatalogFactsUpgrade===true,
       recruitmentProtocolUpgrade,
       recruitmentResumeUpgradeVersion:recruitmentResumeUpgrade?'v2':null,
-      mediaProfileUpgrade:body.confirmMediaProfileUpgrade===true,reason:body.reason});
+      mediaProfileUpgrade:body.confirmMediaProfileUpgrade===true,reason:body.reason,
+      ...(recovery ? { qualityRecoveryVersion: 'quality-v1', recoveryRequestId: recovery.command.requestId, recoveryRequestHash: recovery.requestHash,
+        recoveryResumedFromOff: current.rolloutMode === 'OFF', recoverySourceRevisionId: current.activeAgentRevisionId,
+        recoveryConfigurationHash: customerQualityRecoveryHash({ contractVersion: 'scoped', rolloutMode: 'ACTIVE', activeAgentRevisionId: body.rollout.candidateRevisionId,
+          rolloutConfig: body.rollout, capabilities: body.capabilities }) } : {}) });
     if(!routine&&!settingsStepUpSatisfied(actor)) fail(428,"step_up_required");
+    if (recovery) return customerAgentQualityRecoveryResultSchema.parse({ policyRevision: updated.policyRevision.toString(), rolloutMode: 'ACTIVE',
+      recoveryVersion: 'quality-v1', revisionId: verified.revision.id, alreadyApplied: false });
     return {policyRevision:updated.policyRevision.toString(),rolloutMode:'ACTIVE',existingPromotion:'not_implemented'};
   });
 }
