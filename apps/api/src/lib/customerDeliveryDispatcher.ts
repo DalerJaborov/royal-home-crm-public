@@ -11,7 +11,7 @@ import { customerPropertyReplyFactsFresh } from "./customerPropertyDelivery.js";
 import { observeManagedCustomerResource } from "./customerActionEffects.js";
 import { decodeCustomerOutboxPayload, decodeCustomerOutboxPublicData, readCustomerOutboxPart } from "./customerOutbox.js";
 import { customerDeliveryFenceSchema, customerDeliveryTransportSchema, customerDeliveryP03Schema,
-  customerDeliveryControllerFence, customerDeliveryReceiptsSchema, type CustomerOutboxRow, type CustomerAttemptRow } from "./customerDeliveryContracts.js";
+  customerDeliveryControllerFence, customerDeliveryReceiptsSchema, type CustomerDeliveryPayload, type CustomerOutboxRow, type CustomerAttemptRow } from "./customerDeliveryContracts.js";
 import { CustomerDeliveryHeldError, withCustomerDeliveryTransport } from "./customerDeliveryTransport.js";
 import { sendCustomerDeliveryPayload, projectCustomerDeliveryPartTx, supportsCustomerDeliveryPayload } from "./customerDeliveryAdapters.js";
 import { admitOutbound } from "./outboundShield.js";
@@ -23,6 +23,9 @@ import { classifyCustomerProviderStatus, classifyCustomerProviderNetworkFailure,
 
 import { customerAgentStoredPublicDataCurrent } from "./customerAgentDeliveryEvidence.js";
 import { hasNewerCustomerInboxInput } from "./customerNewerInboxInput.js";
+import { customerPropertyMediaFocusCurrent, customerPropertyMediaWitnessCurrent } from "./customerPropertyMedia.js";
+import { decodeCustomerAgentRevision } from "./customerAgentRevision.js";
+import { loadVerifiedCustomerAgentRevision } from "./customerAgentRegistration.js";
 
 const LEASE_MS = 90_000;
 export type CustomerDispatchResult = { status: "accepted" | "available_widget" | "unknown" | "suppressed" | "not_sent" | "waiting" | "missing"; projectionPending?: true };
@@ -53,10 +56,30 @@ async function validatePart(tx: TxClient, row: CustomerOutboxRow): Promise<boole
       AND i."lastAcceptedEventKey"=t."eventKey" AND i."lastAcceptedOrder"=t."order") AS current`;
   if (!ticket?.current) return false;
   if (row.agentRevisionId && await hasNewerCustomerInboxInput(row.ticketEventKey, tx)) return false;
-  const payload = decodeCustomerOutboxPayload(row);
-  const publicData = decodeCustomerOutboxPublicData(row);
+  let payload: CustomerDeliveryPayload, publicData: ReturnType<typeof decodeCustomerOutboxPublicData>;
+  try { payload = decodeCustomerOutboxPayload(row); publicData = decodeCustomerOutboxPublicData(row); }
+  catch { return false; }
   if (publicData && !await customerAgentStoredPublicDataCurrent(publicData, row.agentRevisionId)) return false;
   if (!supportsCustomerDeliveryPayload(row, payload)) return false;
+  if (payload.kind === "image") {
+    const witness = payload.mediaWitness, endpoint = { ...transport, peerId: fence.endpoint.peerId };
+    const [ticketPin] = row.agentRevisionId ? await tx.$queryRaw<{ pinned: boolean }[]>`
+      SELECT EXISTS(SELECT 1 FROM "CustomerPropertyIngressTicket" WHERE "eventKey"=${row.ticketEventKey}
+        AND "conversationId"=${row.originalNativeId} AND "endpointScopeId"=${row.endpointScopeId}
+        AND "agentRevisionId"=${row.agentRevisionId}) AS pinned` : [];
+    const [revision] = row.agentRevisionId ? await tx.$queryRaw<Array<{ id: string; manifestJson: unknown }>>`
+      SELECT "id","manifestJson" FROM "CustomerAgentRevision" WHERE "id"=${row.agentRevisionId}` : [];
+    const verifiedRevision = revision ? await loadVerifiedCustomerAgentRevision(decodeCustomerAgentRevision(revision)) : null;
+    if (!row.agentRevisionId || !ticketPin?.pinned || witness.agentRevisionId !== row.agentRevisionId || witness.eventKey !== row.ticketEventKey ||
+        verifiedRevision?.status !== "current" || row.p03Json !== null || customerDeliveryReceiptsSchema.parse(row.receiptRefsJson).length !== 0 ||
+        witness.endpoint.channel !== transport.channel || witness.endpoint.endpointScopeId !== transport.endpointScopeId ||
+        witness.endpoint.accountId !== transport.accountId || witness.endpoint.peerId !== fence.endpoint.peerId ||
+        witness.endpoint.transportKey !== transport.transportKey || witness.endpoint.scopeRevision !== transport.scopeRevision ||
+        !await customerPropertyMediaFocusCurrent({ db: tx, conversationId: row.originalNativeId,
+          scopeKey: witness.scopeKey, eventKey: row.ticketEventKey, witness }) ||
+        !await customerPropertyMediaWitnessCurrent({ witness, endpoint, eventKey: row.ticketEventKey,
+          agentRevisionId: row.agentRevisionId, focusGeneration: witness.focusGeneration, db: tx })) return false;
+  }
   if (row.p03Json !== null) {
     const delivery = customerDeliveryP03Schema.parse(row.p03Json);
     if (delivery.inputEventKey !== row.ticketEventKey || !await customerPropertyReplyFactsFresh({

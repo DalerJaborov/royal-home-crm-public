@@ -1,5 +1,8 @@
-import { createHmac, randomUUID } from "node:crypto";
+import { createHash, createHmac, randomUUID } from "node:crypto";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import dns from "node:dns/promises";
+import path from "node:path";
+import sharp from "sharp";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { prisma } from "../src/db.js";
 import { encryptSecret } from "../src/crypto.js";
@@ -9,6 +12,9 @@ import { registerAuthenticatedMetaCustomerRequest, verifyAndRegisterMetaCustomer
 import { persistVerifiedCustomerIngressBatch, consumeCustomerInboxTicket } from "../src/lib/customerIngressProducer.js";
 import { runCustomerDmAgentTurn } from "../src/lib/customerDmAgentTurn.js";
 import { decodeCustomerOutboxPayload, decodeCustomerOutboxPublicData } from "../src/lib/customerOutbox.js";
+import { dispatchCustomerOutboxPart } from "../src/lib/customerDeliveryDispatcher.js";
+import { customerPropertyRegistry } from "../src/lib/customerPropertyRegistry.js";
+import { uploadsDir } from "../src/upload.js";
 import { customerAgentManifestId } from "../src/lib/customerAgentRevision.js";
 import * as runtimeModule from "../src/lib/customerAgentRuntime.js";
 import * as actionModule from "../src/lib/customerActionJournal.js";
@@ -20,7 +26,7 @@ import { readCustomerActionProperty } from "../src/lib/customerActionProperty.js
 
 // Actual signed durable intake → FINAL → elected owner → real counted model
 // adapter → tools → encrypted P12 plan. Only external HTTP is synthetic.
-const accounts: string[] = [], events: string[] = [];
+const accounts: string[] = [], events: string[] = [], mediaFiles: string[] = [];
 const ownLinkProperties: string[] = [];
 let dnsLookup: ReturnType<typeof vi.spyOn>;
 const cohortId = randomUUID();
@@ -30,7 +36,8 @@ let settings: Awaited<ReturnType<typeof readSettings>>, policy: Awaited<ReturnTy
 let revisionId: string;
 let savedRolloutConfig: unknown;
 function readSettings() { return prisma.settings.findUniqueOrThrow({ where: { id: "singleton" }, select: {
-  botEnabled: true, metaEnabled: true, botInstagramEnabled: true, geminiApiKey: true, geminiApiKey2: true, geminiApiKeysExtra: true,
+  botEnabled: true, metaEnabled: true, botInstagramEnabled: true, botCanSendPhotos: true, botPhotosPerOffer: true,
+  geminiApiKey: true, geminiApiKey2: true, geminiApiKeysExtra: true,
 } }); }
 function readPolicy() { return prisma.customerRuntimePolicy.findUniqueOrThrow({ where: { id: "singleton" } }); }
 
@@ -66,11 +73,17 @@ async function fixture(text = "Здравствуйте, хочу купить �
   const eventKey = stored.tickets[0].eventKey; events.push(eventKey);
   const io: string[] = [], bodies: unknown[] = [];
   let generated = 0, countOk = true;
+  let missingMetaMid = false;
   let onGenerate: (() => Promise<void>) | undefined;
   let siteRead: ((id: number) => Promise<{ crmShortId: number; sold?: boolean } | null>) | undefined;
   let replies: unknown[][] = [[{ text: JSON.stringify({ kind: "reply", refs: [], social: "greet", question: "budget" }) }]];
   vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
     const u = new URL(String(url));
+    if (u.origin === "https://synthetic-core-instagram.invalid" && init?.method === "POST") {
+      const body = JSON.parse(String(init.body));
+      io.push(body.message?.attachment?.type === "image" ? "meta-image" : "meta-text");
+      return new Response(JSON.stringify(missingMetaMid ? {} : { message_id: `synthetic-meta-mid-${randomUUID()}` }), { status: 200 });
+    }
     if (u.origin === "https://royalhome.tj" && u.pathname === "/api/trpc/listing.getById" && init?.method === undefined) {
       expect(init).toMatchObject({ redirect: "manual", credentials: "omit", headers: { Accept: "application/json" } });
       expect(Object.keys(init.headers!)).toEqual(["Accept"]);
@@ -104,7 +117,7 @@ async function fixture(text = "Здравствуйте, хочу купить �
     }
     throw new Error("Unqualified synthetic endpoint");
   }));
-  return { eventKey, io, bodies, setCountInvalid() { countOk = false; },
+  return { eventKey, io, bodies, setCountInvalid() { countOk = false; }, setMissingMetaMid(value = true) { missingMetaMid = value; },
     setReplies(value: unknown[][]) { replies = value; generated = 0; }, setOnGenerate(value: () => Promise<void>) { onGenerate = value; },
     setSiteRead(value: NonNullable<typeof siteRead>) { siteRead = value; },
     async receive(text: string) {
@@ -136,6 +149,7 @@ beforeAll(async () => {
   vi.stubEnv("GEMINI_PROXY_URL", "https://synthetic-core-gemini.invalid");
   vi.stubEnv("GEMINI_PROXY_KEY", ""); vi.stubEnv("GEMINI_API_KEY", apiKey); vi.stubEnv("GEMINI_API_KEY_2", "");
   vi.stubEnv("BOT_PROPERTY_CONTEXT_ENABLED", "0");
+  vi.stubEnv("CUSTOMER_PROPERTY_MEDIA_EXECUTION_MODE", "OFF");
   revisionId = (await registerCurrentCustomerAgentRevision(createCustomerAgentProviderSnapshot())).id;
   await prisma.customerRuntimePolicy.update({ where: { id: "singleton" }, data: {
     contractVersion: "scoped", rolloutMode: "ACTIVE", activeAgentRevisionId: revisionId, capabilities: { publicRead: true },
@@ -167,6 +181,7 @@ afterAll(async () => {
   await prisma.customerEndpointScope.deleteMany({ where: { messengerAccountId: { in: accounts } } });
   await prisma.messengerAccount.deleteMany({ where: { id: { in: accounts } } });
   await prisma.property.deleteMany({ where: { id: { in: ownLinkProperties } } });
+  for (const file of mediaFiles.splice(0)) await rm(file, { force: true });
   } finally {
   if (settings) await prisma.settings.update({ where: { id: "singleton" }, data: settings });
   if (policy) await prisma.customerRuntimePolicy.update({ where: { id: "singleton" }, data: {
@@ -183,6 +198,43 @@ async function ownLinkProperty(data: { siteListingId?: number; status?: "AVAILAB
   const p = await prisma.property.create({ data: { title: "Synthetic own-link property", type: "APARTMENT", status: "AVAILABLE",
     publishedOnSite: true, price: 456789, currency: "TJS", rooms: 2, areaSqm: 60, condition: "GOOD", ...data } });
   ownLinkProperties.push(p.id); return p;
+}
+async function ownMediaProperty() {
+  const property = await ownLinkProperty();
+  await mkdir(uploadsDir, { recursive: true });
+  for (let order = 0; order < 3; order++) {
+    const filename = `customer-property-media-${randomUUID()}.png`, file = path.join(uploadsDir, filename);
+    mediaFiles.push(file);
+    await writeFile(file, await sharp({ create: { width: 24, height: 16, channels: 3,
+      background: { r: 40 + order * 50, g: 90, b: 170 - order * 40 } } }).png().toBuffer());
+    await prisma.propertyPhoto.create({ data: { propertyId: property.id, url: `/uploads/${filename}`, thumbUrl: `/uploads/${filename}`, order } });
+  }
+  return property;
+}
+async function withLivePhotoPolicy<T>(run: () => Promise<T>): Promise<T> {
+  const previous = await prisma.settings.findUniqueOrThrow({ where: { id: "singleton" }, select: { botCanSendPhotos: true, botPhotosPerOffer: true } });
+  await prisma.settings.update({ where: { id: "singleton" }, data: { botCanSendPhotos: true, botPhotosPerOffer: 2 } });
+  vi.stubEnv("CRM_PUBLIC_URL", "https://crm-media.synthetic.example");
+  vi.stubEnv("CUSTOMER_PROPERTY_MEDIA_EXECUTION_MODE", "LIVE");
+  try { return await run(); }
+  finally {
+    vi.stubEnv("CUSTOMER_PROPERTY_MEDIA_EXECUTION_MODE", "OFF");
+    await prisma.settings.update({ where: { id: "singleton" }, data: previous });
+  }
+}
+async function mediaPlannedTurn() {
+  const property = await ownMediaProperty(), f = await fixture(`Объект №${property.shortId}, пожалуйста, пришлите фото`);
+  f.setReplies([[{ functionCall: { name: "get_property_facts", args: { kinds: ["price"] }, id: "media-property-facts" } }],
+    [{ text: JSON.stringify({ kind: "reply", refs: ["e0"], social: "none", question: "none" }) }]]);
+  const result = await runCustomerDmAgentTurn(f.eventKey);
+  if (result.status !== "planned") throw new Error(`Photo request did not plan: ${JSON.stringify(result)}`);
+  const parts = await prisma.customerOutboxPart.findMany({ where: { id: { in: result.partIds } }, orderBy: { ordinal: "asc" } });
+  await prisma.backgroundJob.updateMany({ where: { dedupeKey: { in: result.partIds.map(id => `customer-outbox-dispatch:${id}`) } }, data: { runAt: new Date("2099-01-01") } });
+  for (const part of parts) {
+    const payload = decodeCustomerOutboxPayload(part);
+    if (payload.kind === "image") mediaFiles.push(path.join(uploadsDir, "msg", path.basename(payload.mediaWitness.assetPath)));
+  }
+  return { property, f, parts };
 }
 function answerFacts(f: Awaited<ReturnType<typeof fixture>>) {
   f.setReplies([[{ functionCall: { name: "get_property_facts", args: { kinds: ["price", "availability"] }, id: "actual-linked-facts" } }],
@@ -310,6 +362,134 @@ describe("actual durable DM common core", () => {
     expect(f.io.filter(value => value === "count")).toHaveLength(1);
     expect(f.io.filter(value => value === "generate")).toHaveLength(1);
     expect(await prisma.customerPropertyIngressTicket.findUniqueOrThrow({ where: { eventKey: f.eventKey } })).toMatchObject({ processingState: "PLANNED", leaseOwner: null });
+  });
+  it("keeps explicit photo requests text-only while media execution is OFF", async () => {
+    expect(process.env.CUSTOMER_PROPERTY_MEDIA_EXECUTION_MODE).toBe("OFF");
+    const property = await ownMediaProperty(), f = await fixture(`Объект №${property.shortId}, пожалуйста, пришлите фото`);
+    f.setReplies([[{ functionCall: { name: "get_property_facts", args: { kinds: ["price"] }, id: "off-photo-facts" } }],
+      [{ text: JSON.stringify({ kind: "reply", refs: ["e0"], social: "none", question: "none" }) }]]);
+    const result = await runCustomerDmAgentTurn(f.eventKey);
+    expect(result.status).toBe("planned"); if (result.status !== "planned") throw new Error(JSON.stringify(result));
+    const rows = await prisma.customerOutboxPart.findMany({ where: { id: { in: result.partIds } }, orderBy: { ordinal: "asc" } });
+    expect(rows).toHaveLength(1);
+    expect(decodeCustomerOutboxPayload(rows[0]).kind).toBe("text");
+    expect(f.io).not.toContain("meta-image");
+  });
+  it("plans text first and only the owner's existing photo cap as independently witnessed parts", async () => {
+    await withLivePhotoPolicy(async () => {
+      const { property, f, parts } = await mediaPlannedTurn();
+      expect(parts).toHaveLength(3);
+      expect(parts.map(row => row.ordinal)).toEqual([0, 1, 2]);
+      expect(parts.map(row => row.status)).toEqual(["READY", "READY", "READY"]);
+      const text = decodeCustomerOutboxPayload(parts[0]);
+      expect(text.kind).toBe("text");
+      expect(parts[0].p03Json).not.toBeNull();
+      expect(parts[1].p03Json).toBeNull(); expect(parts[2].p03Json).toBeNull();
+      expect(parts[1].receiptRefsJson).toEqual([]); expect(parts[2].receiptRefsJson).toEqual([]);
+      const media = [decodeCustomerOutboxPayload(parts[1]), decodeCustomerOutboxPayload(parts[2])];
+      expect(media.every(item => item.kind === "image")).toBe(true);
+      for (const item of media) {
+        if (item.kind !== "image") continue;
+        expect(item.mediaWitness).toMatchObject({ propertyId: property.id, shortId: property.shortId,
+          agentRevisionId: revisionId, eventKey: parts[0].ticketEventKey, photosPerOffer: 2,
+          endpoint: { channel: "INSTAGRAM", peerId: expect.any(String) } });
+        expect(item.url).toBe(item.mediaWitness.publicUrl);
+      }
+      expect(await dispatchCustomerOutboxPart(parts[0].id)).toEqual({ status: "accepted" });
+      expect(await dispatchCustomerOutboxPart(parts[1].id)).toEqual({ status: "accepted" });
+      expect(await dispatchCustomerOutboxPart(parts[2].id)).toEqual({ status: "accepted" });
+      expect(await dispatchCustomerOutboxPart(parts[1].id)).toEqual({ status: "accepted" });
+      expect((await prisma.customerOutboxPart.findUniqueOrThrow({ where: { id: parts[1].id } })).projectionRecordedAt).toBeInstanceOf(Date);
+      expect(f.io.filter(value => value === "meta-text")).toHaveLength(1);
+      expect(f.io.filter(value => value === "meta-image")).toHaveLength(2);
+      const history = await prisma.botConversation.findUniqueOrThrow({ where: { id: parts[0].originalNativeId } });
+      expect(history.messages).toEqual(expect.arrayContaining([
+        expect.objectContaining({ customerOutboxPartId: parts[1].id, mid: expect.stringMatching(/^synthetic-meta-mid-/),
+          customerPropertyReference: { scopeKey: media[0].kind === "image" ? media[0].mediaWitness.scopeKey : "", propertyId: property.id },
+          customerPropertyMedia: expect.objectContaining({ propertyId: property.id }),
+          attachments: [expect.objectContaining({ kind: "image", mime: "image/jpeg", mid: expect.stringMatching(/^synthetic-meta-mid-/) })] }),
+        expect.objectContaining({ customerOutboxPartId: parts[2].id, customerPropertyMedia: expect.objectContaining({ propertyId: property.id }) }),
+      ]));
+      const photoMessage = (history.messages as unknown as Array<Record<string, unknown>>).find(message => message.customerOutboxPartId === parts[1].id)!;
+      const photoMid = String(photoMessage.mid);
+      expect(await customerPropertyRegistry.reply(photoMid, { conversationId: parts[1].originalNativeId,
+        scopeKey: (media[0] as Extract<typeof media[number], { kind: "image" }>).mediaWitness.scopeKey,
+        channel: "INSTAGRAM", accountId: parts[1].transportJson && (parts[1].transportJson as { accountId: string }).accountId,
+        endpointScopeId: parts[1].endpointScopeId })).toContain(property.id);
+    });
+  });
+  it("retains already accepted text and never retries an image whose provider result is UNKNOWN", async () => {
+    await withLivePhotoPolicy(async () => {
+      const { f, parts } = await mediaPlannedTurn();
+      expect(await dispatchCustomerOutboxPart(parts[0].id)).toEqual({ status: "accepted" });
+      f.setMissingMetaMid();
+      expect(await dispatchCustomerOutboxPart(parts[1].id)).toEqual({ status: "unknown" });
+      expect(await dispatchCustomerOutboxPart(parts[1].id)).toEqual({ status: "unknown" });
+      expect(f.io.filter(value => value === "meta-text")).toHaveLength(1);
+      expect(f.io.filter(value => value === "meta-image")).toHaveLength(1);
+      const part = await prisma.customerOutboxPart.findUniqueOrThrow({ where: { id: parts[1].id } });
+      expect(part.status).toBe("UNKNOWN");
+      const history = await prisma.botConversation.findUniqueOrThrow({ where: { id: part.originalNativeId } });
+      expect(history.messages).toEqual(expect.arrayContaining([expect.objectContaining({
+        customerOutboxPartId: parts[0].id, role: "assistant",
+      })]));
+      expect(history.messages).not.toEqual(expect.arrayContaining([expect.objectContaining({
+        customerOutboxPartId: parts[1].id, attachments: expect.any(Array),
+      })]));
+    });
+  });
+  it("suppresses media after either photo permission is revoked or source bytes change, without recalling text", async () => {
+    await withLivePhotoPolicy(async () => {
+      const a = await mediaPlannedTurn();
+      expect(await dispatchCustomerOutboxPart(a.parts[0].id)).toEqual({ status: "accepted" });
+      await prisma.settings.update({ where: { id: "singleton" }, data: { botCanSendPhotos: false } });
+      expect(await dispatchCustomerOutboxPart(a.parts[1].id)).toEqual({ status: "suppressed" });
+      expect(a.f.io).not.toContain("meta-image");
+
+      await prisma.settings.update({ where: { id: "singleton" }, data: { botCanSendPhotos: true, botPhotosPerOffer: 2 } });
+      const b = await mediaPlannedTurn();
+      expect(await dispatchCustomerOutboxPart(b.parts[0].id)).toEqual({ status: "accepted" });
+      const payload = decodeCustomerOutboxPayload(b.parts[1]);
+      if (payload.kind !== "image") throw new Error("Image expected");
+      await writeFile(path.join(uploadsDir, path.basename(payload.mediaWitness.sourcePath)), await sharp({ create: {
+        width: 24, height: 16, channels: 3, background: { r: 5, g: 240, b: 40 } } }).png().toBuffer());
+      expect(await dispatchCustomerOutboxPart(b.parts[1].id)).toEqual({ status: "suppressed" });
+      expect(b.f.io).not.toContain("meta-image");
+    });
+  });
+  it("suppresses queued property images when customer opt-out or a manual pause is set after text acceptance", async () => {
+    await withLivePhotoPolicy(async () => {
+      const optedOut = await mediaPlannedTurn();
+      expect(await dispatchCustomerOutboxPart(optedOut.parts[0].id)).toEqual({ status: "accepted" });
+      await prisma.botConversation.update({ where: { id: optedOut.parts[0].originalNativeId }, data: { optedOutAt: new Date() } });
+      expect(await dispatchCustomerOutboxPart(optedOut.parts[1].id)).toEqual({ status: "suppressed" });
+      expect(optedOut.f.io).not.toContain("meta-image");
+
+      const paused = await mediaPlannedTurn();
+      expect(await dispatchCustomerOutboxPart(paused.parts[0].id)).toEqual({ status: "accepted" });
+      await prisma.botConversation.update({ where: { id: paused.parts[0].originalNativeId },
+        data: { pausedUntil: new Date(Date.now() + 60 * 60_000) } });
+      expect(await dispatchCustomerOutboxPart(paused.parts[1].id)).toEqual({ status: "suppressed" });
+      expect(paused.f.io).not.toContain("meta-image");
+    });
+  });
+  it("binds actual planned image parts to the registered revision and leaves them queued until dispatch", async () => {
+    await withLivePhotoPolicy(async () => {
+      const { f, parts } = await mediaPlannedTurn();
+      const payload = decodeCustomerOutboxPayload(parts[1]);
+      if (payload.kind !== "image") throw new Error("Image expected");
+      expect(payload.mediaWitness.agentRevisionId).toBe(revisionId);
+      expect(parts[1].agentRevisionId).toBe(revisionId);
+      const before = await prisma.customerOutboxPart.findUniqueOrThrow({ where: { id: parts[1].id } });
+      const stale = JSON.stringify({ ...payload, mediaWitness: { ...payload.mediaWitness, agentRevisionId: "d".repeat(64) } });
+      await expect(prisma.customerOutboxPart.update({ where: { id: parts[1].id }, data: {
+        payloadEncrypted: encryptSecret(stale), payloadHash: createHash("sha256").update(stale).digest("hex"),
+      } })).rejects.toThrow(/customer outbox original target and payload are immutable/u);
+      const after = await prisma.customerOutboxPart.findUniqueOrThrow({ where: { id: parts[1].id } });
+      expect(after.payloadHash).toBe(before.payloadHash);
+      expect(decodeCustomerOutboxPayload(after)).toMatchObject({ kind: "image", mediaWitness: { agentRevisionId: revisionId } });
+      expect(f.io).not.toContain("meta-image");
+    });
   });
   it("refuses an oversized counted request without a generation, refund or new operation on retry", async () => {
     const f = await fixture(); f.setCountInvalid();

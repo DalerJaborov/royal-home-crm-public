@@ -16,6 +16,7 @@ import { readCustomerPropertyFacts } from "./customerPropertyFacts.js";
 import { managedCustomerPropertyReply } from "./customerPropertyDelivery.js";
 import { PUBLIC_AGENCY_CONTACT } from "./publicAgencyContact.js";
 import { createCustomerOutboxPartsTx } from "./customerOutbox.js";
+import type { CustomerDeliveryPayload } from "./customerDeliveryContracts.js";
 import { createCustomerAgentMutationSession, type CustomerAgentMutationSession } from "./customerAgentMutationSession.js";
 import { enrichCustomerAgentMediaFocus, enrichCustomerAgentSelectionFocus, enrichCustomerAgentLinkFocus, createCustomerAgentLinkReads } from "./customerAgentMediaFocus.js";
 import { issueCustomerHandoverAckTx, planCustomerHandoverAckTx } from "./customerHandoverAck.js";
@@ -30,6 +31,9 @@ import { loadCustomerAgentMediaObservation, storeCustomerAgentMediaObservation }
 import { loadCustomerAdjacentVisualObservation } from "./customerAdjacentVisualObservation.js";
 import { withBotTurnTrace, traceCustomerManagedBinding, traceCustomerCoreResult, traceCustomerCoreDisposition, traceMediaKinds } from "./botTurnTrace.js";
 import { customerPropertyUnresolvedReason } from "./customerPropertyUnresolvedReason.js";
+import { loadCustomerAgentFeaturePolicy } from "./customerAgentFeaturePolicy.js";
+import { customerPropertyMediaEndpointSchema, customerPropertyMediaExecutionMode, explicitCustomerPropertyPhotoRequest, prepareCustomerPropertyMedia } from "./customerPropertyMedia.js";
+import { reconcileCustomerShowcaseReply } from "./customerShowcaseReceipt.js";
 
 export type CustomerDmAgentTurnResult = { status: "planned"; partIds: string[] } |
   { status: "unchanged"; reason: string } | { status: "held"; reason: string };
@@ -286,13 +290,49 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
       await releaseHeldClaim(claim, sealed.reason);
       return { status: "held", reason: sealed.reason };
     }
+    const mediaMode = customerPropertyMediaExecutionMode();
+    const photoRequested = mediaMode !== "OFF" && explicitCustomerPropertyPhotoRequest(text);
+    let imageParts: { payload: CustomerDeliveryPayload }[] = [];
+    if (photoRequested) {
+      // This checked legacy acknowledgement matcher is used as a detector only:
+      // the managed adapter never rewrites immutable renderer text. If the model
+      // claims photos already went out before a provider MID, hold the turn for
+      // review rather than make a false statement.
+      const claimCheck = reconcileCustomerShowcaseReply({ reply: sealed.text },
+        { deliveryStatus: "not_sent", attachments: [], linkMid: null, websiteCard: null }, language);
+      if (claimCheck.changed) {
+        await releaseHeldClaim(claim, "photo_ack_requires_delivery_review");
+        return { status: "held", reason: "photo_ack_requires_delivery_review" };
+      }
+      const currentFocus = focus?.snapshot.focus;
+      const focusedProperty = currentFocus?.status === "resolved" && currentFocus.propertyId &&
+        currentFocus.eventKey === lane.ticket.eventKey && currentFocus.scopeKey === lane.ticket.scopeKey ? currentFocus : null;
+      const policy = await loadCustomerAgentFeaturePolicy();
+      if (focusedProperty && policy.photos && policy.photosPerOffer > 0 &&
+          ["INSTAGRAM", "FACEBOOK", "WHATSAPP"].includes(mutations.principal.scope.channel)) {
+        const currentPrincipal = await revalidateCustomerPrincipal(mutations.principal);
+        const capturedTransport = currentPrincipal.status === "current" ? currentPrincipal.snapshot.transport : undefined;
+        if (capturedTransport) {
+          const endpoint = customerPropertyMediaEndpointSchema.safeParse({ ...capturedTransport, peerId: mutations.principal.scope.peer });
+          if (endpoint.success) {
+            const preparedMedia = await prepareCustomerPropertyMedia({ propertyId: focusedProperty.propertyId!,
+              endpoint: endpoint.data, capability: { photos: policy.photos, photosPerOffer: policy.photosPerOffer },
+              agentRevisionId: claim.pin.agentRevisionId, eventKey: lane.ticket.eventKey, scopeKey: lane.ticket.scopeKey,
+              focusGeneration: focusedProperty.generation });
+            if (preparedMedia.status === "ready" && mediaMode === "LIVE") {
+              imageParts = preparedMedia.images.map(image => ({ payload: image.payload }));
+            }
+          }
+        }
+      }
+    }
     const propertyUsed = result.evidence.some(e => e.value.kind === "facts" || e.value.kind === "property_unresolved");
     const property = propertyUsed ? managedCustomerPropertyReply({ id: principal.scope.conversationId,
       channel: principal.scope.channel, subscriberId: principal.scope.peer, accountId: principal.scope.accountId,
       endpointScopeId: principal.scope.endpointScopeId }, focus, result.text, { status: "admitted", ticket: lane.ticket }).delivery : undefined;
     const partIds = await prisma.$transaction(tx => createCustomerOutboxPartsTx(tx, { principal, agentClaim: claim,
       parts: [{ payload: { kind: "text", text: sealed.text }, property, receipts: mutations.receipts,
-        ...(sealed.witness ? { publicDataWitness: sealed.witness } : {}) }], receiptAuthorities: mutations.receiptAuthorities }));
+        ...(sealed.witness ? { publicDataWitness: sealed.witness } : {}) }, ...imageParts], receiptAuthorities: mutations.receiptAuthorities }));
     return { status: "planned", partIds };
   } catch (error) {
     heldCause = safeCauseCode(error);

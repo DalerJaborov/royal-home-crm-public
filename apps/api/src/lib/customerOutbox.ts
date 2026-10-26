@@ -15,6 +15,8 @@ import { pinCustomerAgentTurnTx } from "./customerAgentRevision.js";
 import { customerDeliveryPayloadSchema, customerDeliveryTransportSchema, customerDeliveryReceiptsSchema,
   customerDeliveryP03Schema, customerDeliveryFenceSchema, type CustomerDeliveryPayload, type CustomerOutboxRow } from "./customerDeliveryContracts.js";
 import type { CustomerPropertyDelivery, CustomerMutationReceipt } from "@royal-home/shared";
+import { customerPropertyMediaExecutionMode, customerPropertyMediaFocusCurrent,
+  customerPropertyMediaWitnessCurrent, customerPropertyMediaWitnessIssuedBy } from "./customerPropertyMedia.js";
 
 export const CUSTOMER_OUTBOX_JOB = "customer-outbox-dispatch";
 export const customerOutboxJobSchema = z.object({ version: z.literal(1), partId: z.string().uuid() }).strict();
@@ -72,6 +74,14 @@ export async function createCustomerOutboxPartsTx(tx: TxClient, input: {
       transport.channel !== fence.endpoint.channel || transport.scopeRevision !== fence.scopeRevision) throw new Error("Delivery transport mismatch");
   const ids: string[] = [];
   for (const [ordinal, spec] of input.parts.entries()) {
+    const rawMediaWitness = spec.payload && typeof spec.payload === "object" && "kind" in spec.payload && spec.payload.kind === "image"
+      ? (spec.payload as { kind: "image"; mediaWitness?: unknown }).mediaWitness : undefined;
+    const rawFocusGeneration = rawMediaWitness && typeof rawMediaWitness === "object" && "focusGeneration" in rawMediaWitness
+      ? (rawMediaWitness as { focusGeneration?: unknown }).focusGeneration : undefined;
+    const mediaWitnessIssued = !!input.agentClaim && !!agentRevisionId && rawMediaWitness !== undefined &&
+      typeof rawFocusGeneration === "string" &&
+      customerPropertyMediaWitnessIssuedBy({ witness: rawMediaWitness, eventKey: principal.admission.eventKey,
+        agentRevisionId, focusGeneration: rawFocusGeneration });
     const payload = customerDeliveryPayloadSchema.parse(spec.payload);
     if (spec.publicDataWitness && (!input.agentClaim || !agentRevisionId || payload.kind !== "text")) {
       throw new Error("Original core text delivery witness required");
@@ -79,6 +89,21 @@ export async function createCustomerOutboxPartsTx(tx: TxClient, input: {
     const publicData = spec.publicDataWitness && input.agentClaim && payload.kind === "text"
       ? await serializeDmCustomerAgentDeliveryEvidence(tx, { principal, claim: input.agentClaim,
         witness: spec.publicDataWitness, text: payload.text }) : null;
+    if (payload.kind === "image") {
+      const witness = payload.mediaWitness;
+      const endpoint = { ...transport, peerId: fence.endpoint.peerId };
+      if (mode !== "LIVE" || customerPropertyMediaExecutionMode() !== "LIVE" || !input.agentClaim || !agentRevisionId ||
+          witness.scopeKey !== principal.admission.scopeKey ||
+          !mediaWitnessIssued ||
+          !await customerPropertyMediaFocusCurrent({ db: tx, conversationId: fence.nativeId!, scopeKey: principal.admission.scopeKey,
+            eventKey: principal.admission.eventKey, witness }) ||
+          !await customerPropertyMediaWitnessCurrent({ witness, endpoint, eventKey: principal.admission.eventKey,
+            agentRevisionId, focusGeneration: witness.focusGeneration, db: tx }) ||
+          witness.endpoint.channel !== transport.channel || witness.endpoint.endpointScopeId !== transport.endpointScopeId ||
+          witness.endpoint.accountId !== transport.accountId || witness.endpoint.peerId !== fence.endpoint.peerId ||
+          witness.endpoint.transportKey !== transport.transportKey || witness.endpoint.scopeRevision !== transport.scopeRevision ||
+          spec.property || spec.receipts?.length) throw new Error("Current server property media witness required");
+    }
     const text = JSON.stringify(publicData ? { ...payload, publicData } : payload), payloadHash = hash(text);
     const property = spec.property ? customerDeliveryP03Schema.parse(spec.property) : null;
     if (property && (property.inputEventKey !== principal.admission.eventKey || property.scopeKey !== principal.admission.scopeKey)) {

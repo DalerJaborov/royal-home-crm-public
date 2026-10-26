@@ -1,9 +1,28 @@
 import { z } from "zod";
 import { customerFenceSchema, customerMutationReceiptSchema, customerPropertyDeliverySchema, customerRevisionSchema, customerHandoverAckFenceSchema } from "@royal-home/shared";
 
+export const customerPropertyMediaWitnessSchema = z.object({ version: z.literal(1), propertyId: z.string().uuid(), shortId: z.number().int().positive(),
+  propertyFactsSignature: z.string().regex(/^[a-f0-9]{64}$/), ordinal: z.number().int().min(0).max(4),
+  sourcePath: z.string().regex(/^\/uploads\/[^/\\?#]+$/), sourceSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  assetPath: z.string().regex(/^\/uploads\/msg\/customer-property-[a-f0-9]{64}\.jpg$/), assetSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  publicUrl: z.string().url().refine(value => value.startsWith("https://")),
+  endpoint: z.object({ channel: z.enum(["INSTAGRAM", "FACEBOOK", "WHATSAPP"]), endpointScopeId: z.string().uuid(),
+    accountId: z.string().uuid().nullable(), peerId: z.string().min(1).max(512), transportKey: z.string().min(1).max(1024),
+    scopeRevision: z.string().regex(/^\d+$/) }).strict(),
+  photosPerOffer: z.number().int().min(1).max(5), agentRevisionId: z.string().regex(/^[a-f0-9]{64}$/),
+  eventKey: z.string().regex(/^[a-f0-9]{64}$/), scopeKey: z.string().regex(/^[a-f0-9]{64}$/), focusGeneration: z.string().uuid(),
+  fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+}).strict().superRefine((witness, context) => {
+  if (!witness.publicUrl.endsWith(witness.assetPath)) context.addIssue({ code: "custom", message: "invalid_media_witness" });
+});
+export type CustomerPropertyMediaWitness = z.infer<typeof customerPropertyMediaWitnessSchema>;
+
 export const customerDeliveryPayloadSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("text"), text: z.string().trim().min(1).max(12000) }).strict(),
-  z.object({ kind: z.literal("image"), url: z.string().url().max(4096).refine(value => value.startsWith("https://")) }).strict(),
+  z.object({ kind: z.literal("image"), url: z.string().url().max(4096).refine(value => value.startsWith("https://")),
+    mediaWitness: customerPropertyMediaWitnessSchema }).strict().superRefine((payload, context) => {
+      if (payload.url !== payload.mediaWitness.publicUrl) context.addIssue({ code: "custom", message: "image_url_witness_mismatch" });
+    }),
   z.object({ kind: z.literal("audio"), url: z.string().url().max(4096).refine(value => value.startsWith("https://")) }).strict(),
   z.object({ kind: z.literal("file"), url: z.string().url().max(4096).refine(value => value.startsWith("https://")), name: z.string().min(1).max(200) }).strict(),
 ]);

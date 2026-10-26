@@ -25976,6 +25976,10 @@
       - если requirementsNotes.length + text.length + 1 <= 4000
         - requirementsNotes = text + (requirementsNotes ? "\n" + requirementsNotes : "");
           · дословно из кода
+    - const baseContext: CustomerIntakeContext = { version: 1, kind: intake.role === "buyer" ? "BUYER" : intake.rol…
+      · зовёт isWithinWorkingHours()
+    - const context: CustomerIntakeContext = { ...(intake.role === "buyer" ? deriveOwnBuyerPreferences(own) : {}), …
+      · зовёт deriveOwnBuyerPreferences()
   - если сорвалось
     - return { status: "unavailable", reason: "intake_read_unavailable" };
       · дословно из кода

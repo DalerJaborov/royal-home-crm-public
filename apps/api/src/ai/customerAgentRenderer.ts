@@ -58,6 +58,27 @@ function recruitmentAboutHandled(input: RecruitmentMaterial & { verifiedContext?
   const asks = (["ru", "tg"] as const).flatMap(language => [recruitmentRequiredQuestion("about", language), questions.job_experience[language]]);
   return !!input.verifiedContext?.turns.some(turn => turn.role === "assistant" && asks.some(question => turn.text.includes(question)));
 }
+function recruitmentPositionPreviouslyPresented(input: { verifiedContext?: CustomerAgentVerifiedContext;
+  position: { titleRu: string; titleTg: string; detailsRu?: string; detailsTg?: string } }): boolean {
+  const ruDetails = (input.position.detailsRu ?? "").split(/\r?\n/u).map(value => value.trim()).filter(Boolean);
+  const tgDetails = (input.position.detailsTg ?? "").split(/\r?\n/u).map(value => value.trim()).filter(Boolean);
+  return !!input.verifiedContext?.turns.some(turn => {
+    if (turn.role !== "assistant") return false;
+    const languageWasPresented = (title: string, currentDetails: string[], unavailableLine: string) => {
+      if (!turn.text.includes(title)) return false;
+      if (!currentDetails.length) return turn.text.includes(unavailableLine);
+      // The normal initial vacancy answer contains its first two authored
+      // paragraphs; an explicit full-details answer contains all of them.
+      // Title-only questions and stale conditions therefore do not count.
+      const presented = currentDetails.length <= 2 ? [currentDetails] : [currentDetails.slice(0, 2), currentDetails];
+      return presented.some(required => required.every(paragraph => turn.text.includes(paragraph)));
+    };
+    // Evaluate each title/details pair independently: some roles share a
+    // title across languages, so a RU title match must not mask TG evidence.
+    return languageWasPresented(input.position.titleRu, ruDetails, "Подробные условия этой должности пока не опубликованы.") ||
+      languageWasPresented(input.position.titleTg, tgDetails, "Шартҳои муфассали ин вазифа ҳоло нашр нашудаанд.");
+  });
+}
 function recruitmentNextFact(input: RecruitmentMaterial & { evidence: readonly CustomerAgentEvidence[]; verifiedContext?: CustomerAgentVerifiedContext;
   inputText?: string; knownPhoneSource: "none" | "current_input" | "scoped_contact" }) {
   const openings = input.evidence.flatMap(e => e.value.kind === "open_vacancies" ? e.value.positions : []);
@@ -472,7 +493,14 @@ export function renderCustomerAgentDecision(input: {
       // Explicit questions about conditions still retain their verified answer.
       const ownQuestion = input.inputText ?? "";
       const explicitQuestion = /[?？]|(?:^|[\s.!])(?:сколько|какой|какая|какие|как|где|когда|чанд|кай|куҷо)(?:[\s?!]|$)/iu.test(ownQuestion);
-      if (applicationSaved && !customerRecruitmentFactsRequested(ownQuestion) && !explicitQuestion) continue;
+      const currentPosition = item.value.collecting && item.value.positions.length
+        ? recruitmentPositionForTurn(item.value.positions, { inputText: ownQuestion,
+          mediaText: perception?.success ? [perception.data.transcript, perception.data.readableText].join("\n") : "",
+          knownKey: input.verifiedContext?.publicState.jobPositionKey, turns: input.verifiedContext?.turns })
+        : null;
+      const alreadyPresented = input.surface === "dm" && d.kind !== "propose" && !!currentPosition &&
+        recruitmentPositionPreviouslyPresented({ verifiedContext: input.verifiedContext, position: currentPosition });
+      if ((applicationSaved || alreadyPresented) && !customerRecruitmentFactsRequested(ownQuestion) && !explicitQuestion) continue;
       if (!item.value.collecting) {
         // The switch is off: a different fact from an empty catalog, and it says so.
         lines.push(lang === "tg" ? "Қабули дархостҳои кор тавассути ин чат ҳоло ба роҳ монда нашудааст." : "Приём откликов через этот чат сейчас не ведётся.");

@@ -14,6 +14,7 @@ import { lockCustomerNative } from "./customerNativeLock.js";
 import { recoverAuthenticatedCustomerInput, inspectAuthenticatedCustomerInput, authenticatedInputMatchesFence } from "./customerIngressAuthority.js";
 import { decryptCustomerFinalOrigin } from "./customerOriginPayload.js";
 import { customerAgentIntake } from "../ai/customerAgentIntake.js";
+import { deriveOwnBuyerPreferences } from "./customerBuyerPreferences.js";
 import { phoneSafeText } from "./clientPhone.js";
 import { isWithinWorkingHours } from "./workingHours.js";
 
@@ -98,12 +99,14 @@ export async function createCustomerLeadAfterContactAction(actionId: string): Pr
     for (const text of [...own].reverse()) {
       if (requirementsNotes.length + text.length + 1 <= 4000) requirementsNotes = text + (requirementsNotes ? "\n" + requirementsNotes : "");
     }
+    const baseContext: CustomerIntakeContext = { version: 1,
+      kind: intake.role === "buyer" ? "BUYER" : intake.role === "seller" ? "SELLER" : "OTHER",
+      deferAssignment: !(await isWithinWorkingHours()) };
+    const context: CustomerIntakeContext = { ...(intake.role === "buyer" ? deriveOwnBuyerPreferences(own) : {}), ...baseContext };
     return executeBridge({ fence: snapshot.fence, generation: intent.generation, eventKey: recovered.ticket.eventKey,
       order: recovered.ticket.order, currentInputText: current.inputText, provenance: current.provenance,
       protectedMetaEndpointScopeId: current.protectedMetaEndpointScopeId, protectedMetaAccountId: current.protectedMetaAccountId,
-      contactEventKey, completedContactActionId: source.id, requirementsNotes }, { version: 1,
-      kind: intake.role === "buyer" ? "BUYER" : intake.role === "seller" ? "SELLER" : "OTHER",
-      deferAssignment: !(await isWithinWorkingHours()) }); // Existing CRM distribution hours; no chat-owner handover.
+      contactEventKey, completedContactActionId: source.id, requirementsNotes }, context); // Existing CRM distribution hours; no chat-owner handover.
   } catch { return { status: "unavailable", reason: "intake_read_unavailable" }; }
 }
 
