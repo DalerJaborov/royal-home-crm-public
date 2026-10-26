@@ -203,7 +203,9 @@ describe("модерация в Telegram", () => {
     expect(tg.editMessageText.mock.calls[0]?.[2]).toContain("Объект удалён");
   });
 
-  it("6+8. большое видео — ссылка в CRM, карточка всё равно уходит; телефон собственника скрыт", async () => {
+  // С 26.10.2026 видео больше предела бота уходит копией (lib/clipReviewPreview.ts) —
+  // здесь до Telegram его не пускает отсутствующий на диске файл, ветка ссылки та же.
+  it("6+8. видео не дошло — ссылка в CRM, карточка всё равно уходит; телефон собственника скрыт", async () => {
     const p = await makePendingProperty({ videoBytes: 60 * 1024 * 1024 });
     tg.sendPhotoFromDisk.mockRejectedValueOnce(new Error(`Forbidden: bot was blocked by the user ${runId}`));
     await mod.notifyTelegramReview(p.id);

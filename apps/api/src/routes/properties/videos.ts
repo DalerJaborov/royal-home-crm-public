@@ -177,6 +177,20 @@ async function canManageOrIsHandoffMontajer(req: Request, property: { status: st
 }
 
 /**
+ * ЗАГРУЗИЛ МОДЕРАТОР — ПРОВЕРКА НЕ НУЖНА (26.10.2026, владелец: «я загружаю
+ * ролик сам из CRM, а мне в Telegram приходит модерация — зачем, если я сам
+ * добавил»). Тот, у кого есть право решать по роликам (properties.moderate,
+ * то же, что у кнопки «Одобрить» — clipReview.ts::canReviewClip), своей
+ * загрузкой уже решил. Монтажёр (EDITOR или назначенный в Настройках) проверку
+ * не обходит — ради его роликов она и существует.
+ */
+async function selfApprovedClipOpts(req: Request): Promise<{ approvedById?: string }> {
+  if (!req.agent || req.agent.role === "EDITOR" || !req.agent.can("properties.moderate")) return {};
+  const settings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { videoMontajerAgentId: true } });
+  return settings?.videoMontajerAgentId === req.agent.id ? {} : { approvedById: req.agent.id };
+}
+
+/**
  * Кто может ОТКРЫТЬ приём готового ролика у объекта, который его сейчас не
  * ждёт (`videoHandoffStatus !== "SENT_TO_EDITOR"`) — одна проверка вместо
  * двух копий (25.09.2026, панель монтажёра, В1 спецификации). Ведущий объект
@@ -418,8 +432,9 @@ videosRouter.post("/:id/video-handoff/upload", requireAuth, anyParams(videoHando
     // загрузка большого ролика роняла API. Файл уже на диске — переносим его
     // тем же путём, что и докачку частями; finally ниже уберёт остаток, если
     // перенос не состоялся.
+    const clipOpts = await selfApprovedClipOpts(req);
     outcome = await finishHandoffAfterStateCheck(req, property, () =>
-      receiveEditedVideoFromFile(property.id, file.path, file.originalname)
+      receiveEditedVideoFromFile(property.id, file.path, file.originalname, clipOpts)
     );
   } finally {
     await fs.rm(file.path, { force: true });
@@ -1168,7 +1183,7 @@ videosRouter.post("/:id/videos/upload-sessions/:sessionId/complete", requireAuth
       // Части на диске остаются: повтор завершения не требует загружать файл заново.
       return res.status(502).json({ error: "Не удалось собрать файл — попробуйте ещё раз" });
     }
-    const result = await receiveEditedVideoFromFile(property.id, assembledPath, session.filename);
+    const result = await receiveEditedVideoFromFile(property.id, assembledPath, session.filename, await selfApprovedClipOpts(req));
     // Сессия свою роль сыграла независимо от исхода приёма — часть на диске уже
     // разобрана (успешно или нет, файл перенесён/удалён внутри receiveEditedVideoFromFile).
     await prisma.videoUploadSession.delete({ where: { id: session.id } }).catch(() => {});

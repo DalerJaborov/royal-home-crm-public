@@ -56349,7 +56349,7 @@
       },
       {
        "k": "do",
-       "t": "const result = await receiveEditedVideoFromFile(property.id, assembledPath, session.filename);",
+       "t": "const result = await receiveEditedVideoFromFile(property.id, assembledPath, session.filename, await selfAppro…",
        "a": [
         "зовёт receiveEditedVideoFromFile()"
        ],

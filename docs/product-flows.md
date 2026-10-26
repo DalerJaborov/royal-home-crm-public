@@ -12619,7 +12619,7 @@
       · запись в журнал ошибок
     - return res.status(502).json({ error: "Не удалось собрать файл — попробуйте ещё раз" });
       · ответ 502 — «Не удалось собрать файл — попробуйте ещё раз»
-  - const result = await receiveEditedVideoFromFile(property.id, assembledPath, session.filename);
+  - const result = await receiveEditedVideoFromFile(property.id, assembledPath, session.filename, await selfAppro…
     · зовёт receiveEditedVideoFromFile()
   - await prisma.videoUploadSession.delete({ where: { id: session.id } }).catch(()
     · удаляет в базе: videoUploadSession
