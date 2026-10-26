@@ -107,7 +107,7 @@ it("requires separate catalog-schema consent and preserves model,50%,scopes and 
 it("requires separate quality/continuity consent and retains percentage, scopes and capabilities on elevated publication",async()=>{
   const baseline=await readPolicy(),next=await registerCurrentCustomerAgentRevision(createCustomerAgentProviderSnapshot());
   const {id:_,...manifest}=next,pair=CUSTOMER_AGENT_QUALITY_CONTINUITY_UPGRADE_V1;
-  const previous={...manifest,promptHash:pair.fromPrompt,toolSchemaHash:pair.toolSchemaHash},previousId=customerAgentManifestId(previous);
+  const previous={...manifest,promptHash:pair.fromPrompt,toolSchemaHash:pair.toolSchemaHash,knowledgeSchemaHash:pair.fromKnowledgeSchema},previousId=customerAgentManifestId(previous);
   await prisma.$executeRaw`INSERT INTO "CustomerAgentRevision" ("id","manifestJson","createdAt") VALUES (${previousId},${JSON.stringify(previous)}::jsonb,now()) ON CONFLICT DO NOTHING`;
   const value=await publication({advanceIdleRevision:true});value.rollout={...value.rollout,percentBasisPoints:10000,cohortId:randomUUID()};
   const oldRollout={...value.rollout,candidateRevisionId:previousId,cohortId:randomUUID()};
@@ -120,7 +120,7 @@ it("requires separate quality/continuity consent and retains percentage, scopes 
     expect(unconfirmed.status).toBe(409);expect(unconfirmed.body.error).toBe("quality_continuity_upgrade_confirmation_required");
     const before=await readPolicy();
     for(const [extra,error] of [[{confirmQualityContinuityUpgrade:true,confirmRecruitmentResumeUpgrade:true},"recruitment_resume_upgrade_not_qualified"],
-      [{confirmQualityContinuityUpgrade:true,confirmCatalogFactsUpgrade:true},"catalog_facts_upgrade_not_required"]] as const) {
+      [{confirmQualityContinuityUpgrade:true,confirmCatalogFactsUpgrade:true},"quality_continuity_upgrade_configuration_changed"]] as const) {
       const rejected=await request(app).put(`${base}/rollout`).set(auth()).send(await command(extra));
       expect(rejected.status).toBe(409);expect(rejected.body.error).toBe(error);expect(await readPolicy()).toEqual(before);
     }

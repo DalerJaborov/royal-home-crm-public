@@ -52,6 +52,7 @@ describe("Customer agent owner settings", () => {
     expect(acknowledgement).not.toContain('checked=""');
     expect(acknowledgement).toContain("Требуется действующее подтверждение администратора");
     expect(acknowledgement).toContain("права CRM и лимиты остаются прежними");
+    expect(acknowledgement).toContain("Реальная отправка вложений включается отдельно");
     expect(render({ ...state, rolloutMode: "OFF" })).not.toContain("Обновить качество и продолжение диалога");
   });
   it("offers retained50 refresh only from a complete active policy, with an explicit reason", () => {

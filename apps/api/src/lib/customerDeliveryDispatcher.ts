@@ -11,10 +11,12 @@ import { customerPropertyReplyFactsFresh } from "./customerPropertyDelivery.js";
 import { observeManagedCustomerResource } from "./customerActionEffects.js";
 import { decodeCustomerOutboxPayload, decodeCustomerOutboxPublicData, readCustomerOutboxPart } from "./customerOutbox.js";
 import { customerDeliveryFenceSchema, customerDeliveryTransportSchema, customerDeliveryP03Schema,
-  customerDeliveryControllerFence, customerDeliveryReceiptsSchema, type CustomerDeliveryPayload, type CustomerOutboxRow, type CustomerAttemptRow } from "./customerDeliveryContracts.js";
+  customerDeliveryMediaEndpointSchema, customerDeliveryControllerFence, customerDeliveryReceiptsSchema,
+  type CustomerDeliveryPayload, type CustomerOutboxRow, type CustomerAttemptRow } from "./customerDeliveryContracts.js";
 import { CustomerDeliveryHeldError, withCustomerDeliveryTransport } from "./customerDeliveryTransport.js";
 import { sendCustomerDeliveryPayload, projectCustomerDeliveryPartTx, supportsCustomerDeliveryPayload } from "./customerDeliveryAdapters.js";
 import { admitOutbound } from "./outboundShield.js";
+import { isOwnAccountSender } from "./ownAccountGuard.js";
 import { publishMessageNew } from "./livePublish.js";
 import { reconcileCustomerPublicOutboxPart } from "./customerPublicDelivery.js";
 import { logSystemError } from "./systemError.js";
@@ -24,8 +26,10 @@ import { classifyCustomerProviderStatus, classifyCustomerProviderNetworkFailure,
 import { customerAgentStoredPublicDataCurrent } from "./customerAgentDeliveryEvidence.js";
 import { hasNewerCustomerInboxInput } from "./customerNewerInboxInput.js";
 import { customerPropertyMediaFocusCurrent, customerPropertyMediaWitnessCurrent } from "./customerPropertyMedia.js";
+import { customerAgentMediaExecutionMode, customerApprovedFileMediaWitnessCurrent, customerVoiceMediaWitnessCurrent } from "./customerDeliveryMedia.js";
 import { decodeCustomerAgentRevision } from "./customerAgentRevision.js";
 import { loadVerifiedCustomerAgentRevision } from "./customerAgentRegistration.js";
+import { customerBuyerGuideFollowText } from "../ai/customerAgentRenderer.js";
 
 const LEASE_MS = 90_000;
 export type CustomerDispatchResult = { status: "accepted" | "available_widget" | "unknown" | "suppressed" | "not_sent" | "waiting" | "missing"; projectionPending?: true };
@@ -41,6 +45,9 @@ async function validatePart(tx: TxClient, row: CustomerOutboxRow): Promise<boole
   if (!row.inquiryId || !row.ticketEventKey || !row.conversationId || row.sourceKind !== "BOT_TURN" ||
       row.publicMetaCommentId !== null || row.publicTelegramCommentId !== null || row.publicSourceRevision !== null) return false;
   const fence = customerDeliveryFenceSchema.parse(row.fenceJson), transport = customerDeliveryTransportSchema.parse(row.transportJson);
+  const mediaEndpoint = customerDeliveryMediaEndpointSchema.safeParse({ channel: transport.channel,
+    endpointScopeId: transport.endpointScopeId, accountId: transport.accountId, peerId: fence.endpoint.peerId,
+    transportKey: transport.transportKey, scopeRevision: transport.scopeRevision });
   if (row.mode !== "LIVE" || row.sourceKind !== "BOT_TURN" || row.sourceKey !== row.ticketEventKey ||
       row.cancelRequestedAt || row.supersededAt || row.conversationId !== row.originalNativeId ||
       fence.nativeId !== row.originalNativeId || row.inquiryId !== fence.inquiryId || transport.channel !== row.channel ||
@@ -50,19 +57,29 @@ async function validatePart(tx: TxClient, row: CustomerOutboxRow): Promise<boole
   const recovery = await tx.$queryRaw<Array<{ blocked: boolean }>>`SELECT EXISTS(SELECT 1 FROM "RecruitmentRecovery" WHERE "originalConversationId"=${row.originalNativeId} AND "status"='IN_FLIGHT' AND "fenceJson"=${JSON.stringify(customerDeliveryControllerFence(row))}::jsonb) AS blocked`;
   if (recovery[0]?.blocked) return false;
   await resolveCustomerEndpoint({ channel: row.channel, subscriberId: fence.endpoint.peerId, transport }, tx);
-  const [ticket] = await tx.$queryRaw<{ current: boolean }[]>`SELECT EXISTS(SELECT 1 FROM "CustomerPropertyIngressTicket" t
+  const [ticket] = await tx.$queryRaw<{ current: boolean; scopeKey: string }[]>`SELECT current_ticket."scopeKey", EXISTS(SELECT 1 FROM "CustomerPropertyIngressTicket" t
     JOIN "CustomerInquiry" i ON i."id"=${row.inquiryId} WHERE t."eventKey"=${row.ticketEventKey}
       AND t."conversationId"=${row.originalNativeId} AND t."endpointScopeId"=${row.endpointScopeId}
-      AND i."lastAcceptedEventKey"=t."eventKey" AND i."lastAcceptedOrder"=t."order") AS current`;
+      AND i."lastAcceptedEventKey"=t."eventKey" AND i."lastAcceptedOrder"=t."order") AS current
+    FROM "CustomerPropertyIngressTicket" current_ticket WHERE current_ticket."eventKey"=${row.ticketEventKey}`;
   if (!ticket?.current) return false;
   if (row.agentRevisionId && await hasNewerCustomerInboxInput(row.ticketEventKey, tx)) return false;
-  let payload: CustomerDeliveryPayload, publicData: ReturnType<typeof decodeCustomerOutboxPublicData>;
+  let payload: ReturnType<typeof decodeCustomerOutboxPayload>, publicData: ReturnType<typeof decodeCustomerOutboxPublicData>;
   try { payload = decodeCustomerOutboxPayload(row); publicData = decodeCustomerOutboxPublicData(row); }
   catch { return false; }
   if (publicData && !await customerAgentStoredPublicDataCurrent(publicData, row.agentRevisionId)) return false;
   if (!supportsCustomerDeliveryPayload(row, payload)) return false;
+  const hasGuideFollowSideband = !!(publicData && typeof publicData === "object" && Reflect.get(publicData, "guideFollow"));
+  if ((payload.kind === "text" && hasGuideFollowSideband) !== (row.approvedAssetPurpose === "buyer_guide_follow")) return false;
+  // Native media endpoints do not pass through sendMessage's text shield.
+  // The accepted base text/outbound fence are already enforced here; repeat
+  // the read-only hard self-account stop immediately before their own POST.
+  if (payload.kind === "image" || payload.kind === "audio" || payload.kind === "file" || payload.kind === "link") {
+    const [native] = await tx.$queryRaw<{ name: string | null }[]>`SELECT "name" FROM "BotConversation" WHERE "id"=${row.originalNativeId}`;
+    if (await isOwnAccountSender({ senderId: fence.endpoint.peerId, senderName: native?.name })) return false;
+  }
   if (payload.kind === "image") {
-    const witness = payload.mediaWitness, endpoint = { ...transport, peerId: fence.endpoint.peerId };
+    const witness = payload.mediaWitness;
     const [ticketPin] = row.agentRevisionId ? await tx.$queryRaw<{ pinned: boolean }[]>`
       SELECT EXISTS(SELECT 1 FROM "CustomerPropertyIngressTicket" WHERE "eventKey"=${row.ticketEventKey}
         AND "conversationId"=${row.originalNativeId} AND "endpointScopeId"=${row.endpointScopeId}
@@ -70,16 +87,67 @@ async function validatePart(tx: TxClient, row: CustomerOutboxRow): Promise<boole
     const [revision] = row.agentRevisionId ? await tx.$queryRaw<Array<{ id: string; manifestJson: unknown }>>`
       SELECT "id","manifestJson" FROM "CustomerAgentRevision" WHERE "id"=${row.agentRevisionId}` : [];
     const verifiedRevision = revision ? await loadVerifiedCustomerAgentRevision(decodeCustomerAgentRevision(revision)) : null;
-    if (!row.agentRevisionId || !ticketPin?.pinned || witness.agentRevisionId !== row.agentRevisionId || witness.eventKey !== row.ticketEventKey ||
+    if (!mediaEndpoint.success || !row.agentRevisionId || !ticketPin?.pinned || witness.agentRevisionId !== row.agentRevisionId || witness.eventKey !== row.ticketEventKey ||
         verifiedRevision?.status !== "current" || row.p03Json !== null || customerDeliveryReceiptsSchema.parse(row.receiptRefsJson).length !== 0 ||
         witness.endpoint.channel !== transport.channel || witness.endpoint.endpointScopeId !== transport.endpointScopeId ||
         witness.endpoint.accountId !== transport.accountId || witness.endpoint.peerId !== fence.endpoint.peerId ||
         witness.endpoint.transportKey !== transport.transportKey || witness.endpoint.scopeRevision !== transport.scopeRevision ||
         !await customerPropertyMediaFocusCurrent({ db: tx, conversationId: row.originalNativeId,
           scopeKey: witness.scopeKey, eventKey: row.ticketEventKey, witness }) ||
-        !await customerPropertyMediaWitnessCurrent({ witness, endpoint, eventKey: row.ticketEventKey,
+        !await customerPropertyMediaWitnessCurrent({ witness, endpoint: mediaEndpoint.data, eventKey: row.ticketEventKey,
           agentRevisionId: row.agentRevisionId, focusGeneration: witness.focusGeneration, db: tx })) return false;
   }
+  if (payload.kind === "audio") {
+    const witness = payload.mediaWitness, endpoint = mediaEndpoint;
+    const [ticketPin] = row.agentRevisionId ? await tx.$queryRaw<{ pinned: boolean }[]>`
+      SELECT EXISTS(SELECT 1 FROM "CustomerPropertyIngressTicket" WHERE "eventKey"=${row.ticketEventKey}
+        AND "conversationId"=${row.originalNativeId} AND "endpointScopeId"=${row.endpointScopeId}
+        AND "agentRevisionId"=${row.agentRevisionId}) AS pinned` : [];
+    const [revision] = row.agentRevisionId ? await tx.$queryRaw<Array<{ id: string; manifestJson: unknown }>>`
+      SELECT "id","manifestJson" FROM "CustomerAgentRevision" WHERE "id"=${row.agentRevisionId}` : [];
+    const verifiedRevision = revision ? await loadVerifiedCustomerAgentRevision(decodeCustomerAgentRevision(revision)) : null;
+    if (customerAgentMediaExecutionMode() !== "LIVE" || row.approvedAssetPurpose !== null || !row.agentRevisionId || !ticketPin?.pinned ||
+        witness.agentRevisionId !== row.agentRevisionId || witness.eventKey !== row.ticketEventKey || witness.scopeKey !== ticket.scopeKey ||
+        witness.turnKey !== row.turnKey || verifiedRevision?.status !== "current" || row.p03Json !== null ||
+        customerDeliveryReceiptsSchema.parse(row.receiptRefsJson).length !== 0 || witness.endpoint.channel !== transport.channel ||
+        witness.endpoint.endpointScopeId !== transport.endpointScopeId || witness.endpoint.accountId !== transport.accountId ||
+        !endpoint.success || witness.endpoint.peerId !== fence.endpoint.peerId || witness.endpoint.transportKey !== transport.transportKey ||
+        witness.endpoint.scopeRevision !== transport.scopeRevision || !await customerVoiceMediaWitnessCurrent({ witness, endpoint: endpoint.data,
+          eventKey: row.ticketEventKey, scopeKey: ticket.scopeKey, turnKey: row.turnKey, agentRevisionId: row.agentRevisionId, db: tx })) return false;
+  }
+  if (payload.kind === "file" || payload.kind === "link") {
+    const witness = payload.mediaWitness, endpoint = mediaEndpoint;
+    const [ticketPin] = row.agentRevisionId ? await tx.$queryRaw<{ pinned: boolean }[]>`
+      SELECT EXISTS(SELECT 1 FROM "CustomerPropertyIngressTicket" WHERE "eventKey"=${row.ticketEventKey}
+        AND "conversationId"=${row.originalNativeId} AND "endpointScopeId"=${row.endpointScopeId}
+        AND "agentRevisionId"=${row.agentRevisionId}) AS pinned` : [];
+    const [revision] = row.agentRevisionId ? await tx.$queryRaw<Array<{ id: string; manifestJson: unknown }>>`
+      SELECT "id","manifestJson" FROM "CustomerAgentRevision" WHERE "id"=${row.agentRevisionId}` : [];
+    const verifiedRevision = revision ? await loadVerifiedCustomerAgentRevision(decodeCustomerAgentRevision(revision)) : null;
+    if (customerAgentMediaExecutionMode() !== "LIVE" || row.approvedAssetPurpose !== "buyer_guide" || !row.agentRevisionId || !ticketPin?.pinned ||
+        witness.agentRevisionId !== row.agentRevisionId || witness.eventKey !== row.ticketEventKey || witness.scopeKey !== ticket.scopeKey ||
+        witness.turnKey !== row.turnKey || verifiedRevision?.status !== "current" || row.p03Json !== null ||
+        customerDeliveryReceiptsSchema.parse(row.receiptRefsJson).length !== 0 || witness.endpoint.channel !== transport.channel ||
+        witness.endpoint.endpointScopeId !== transport.endpointScopeId || witness.endpoint.accountId !== transport.accountId ||
+        !endpoint.success || witness.endpoint.peerId !== fence.endpoint.peerId || witness.endpoint.transportKey !== transport.transportKey ||
+        witness.endpoint.scopeRevision !== transport.scopeRevision || !await customerApprovedFileMediaWitnessCurrent({ witness, endpoint: endpoint.data,
+          authority: { endpointScopeId: transport.endpointScopeId, accountId: transport.accountId, transportKey: transport.transportKey,
+            scopeRevision: transport.scopeRevision, peer: fence.endpoint.peerId, agentRevisionId: row.agentRevisionId,
+            eventKey: row.ticketEventKey, scopeKey: ticket.scopeKey, turnKey: row.turnKey },
+          stillCurrent: async authority => authority.eventKey === row.ticketEventKey && authority.scopeKey === ticket.scopeKey &&
+            authority.turnKey === row.turnKey && authority.agentRevisionId === row.agentRevisionId &&
+            (await assertCustomerFence(tx, fence, "outbound")).status === "current" &&
+            !await hasNewerCustomerInboxInput(row.ticketEventKey!, tx) })) return false;
+  }
+  if (payload.kind === "text" && row.approvedAssetPurpose === "buyer_guide_follow") {
+    const guideFollow = publicData && typeof publicData === "object" ? Reflect.get(publicData, "guideFollow") : undefined;
+    const language = guideFollow && typeof guideFollow === "object" ? Reflect.get(guideFollow, "language") : undefined;
+    if (customerAgentMediaExecutionMode() !== "LIVE" || row.channel !== "INSTAGRAM" || row.payloadVersion !== 2 ||
+        !guideFollow || Reflect.get(guideFollow, "version") !== 1 || Reflect.get(guideFollow, "kind") !== "buyer_guide_follow" ||
+        (language !== "ru" && language !== "tg") || !payload.text.includes(customerBuyerGuideFollowText(language))) return false;
+  } else if (row.approvedAssetPurpose === "buyer_guide_follow" || row.approvedAssetPurpose !== null &&
+      row.approvedAssetPurpose !== "buyer_guide") return false;
+  if ((payload.kind === "file" || payload.kind === "link") !== (row.approvedAssetPurpose === "buyer_guide")) return false;
   if (row.p03Json !== null) {
     const delivery = customerDeliveryP03Schema.parse(row.p03Json);
     if (delivery.inputEventKey !== row.ticketEventKey || !await customerPropertyReplyFactsFresh({

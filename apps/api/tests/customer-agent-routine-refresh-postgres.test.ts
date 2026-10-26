@@ -273,7 +273,7 @@ it('retains the catalog-only refresh path separately from the pinned quality/con
 });
 it('requires a distinct elevated quality/continuity acknowledgement before advancing the actual current factory',async()=>{
   const pair=CUSTOMER_AGENT_QUALITY_CONTINUITY_UPGRADE_V1;
-  await install(await historical({promptHash:pair.fromPrompt,toolSchemaHash:pair.toolSchemaHash}),'ACTIVE',10000);
+  await install(await historical({promptHash:pair.fromPrompt,toolSchemaHash:pair.toolSchemaHash,knowledgeSchemaHash:pair.fromKnowledgeSchema}),'ACTIVE',10000);
   const before=await readPolicy();
   const denied=await request(app).post(`${base}/refresh-current`).set(auth()).send(await command());
   expect(denied.status).toBe(409);expect(denied.body.error).toBe('quality_continuity_upgrade_confirmation_required');
@@ -288,7 +288,7 @@ it('requires a distinct elevated quality/continuity acknowledgement before advan
   expect(after.capabilities).toEqual(before.capabilities);
   expect(after.rolloutConfig).toMatchObject({percentBasisPoints:10000,allowed:(before.rolloutConfig as {allowed:unknown}).allowed});
   const audit=await prisma.auditLog.findFirstOrThrow({where:{agentId:actorId,action:'CUSTOMER_AGENT_PUBLISH'},orderBy:{createdAt:'desc'}});
-  expect(audit.meta).toMatchObject({authority:'quality_continuity_step_up',routineRefresh:true,qualityContinuityUpgradeVersion:'v1',recruitmentResumeUpgradeVersion:null,percentBasisPoints:10000,paidConfirmed:null,noDailyCapAcknowledged:null});
+  expect(audit.meta).toMatchObject({authority:'quality_continuity_step_up',routineRefresh:true,qualityContinuityUpgradeVersion:'v1',recruitmentResumeUpgradeVersion:null,catalogFactsUpgrade:false,percentBasisPoints:10000,paidConfirmed:null,noDailyCapAcknowledged:null});
   // Elevation is the existing timed settings session, not a consumed one-shot grant.
   expect((await request(app).get('/api/v1/auth/step-up').set(auth())).body.elevated).toBe(true);
 });
@@ -308,11 +308,12 @@ it('rejects quality acknowledgement for an unqualified prompt and a current-vers
   expect(response.status).toBe(409);expect(response.body.error).toBe('quality_continuity_upgrade_not_required');
   expect(await readPolicy()).toEqual(already);
 });
-it.each(['tools','knowledge','limits','provider-profile','provider-policy'] as const)('quality/continuity acknowledgement cannot change another %s',async field=>{
+it.each(['tools','knowledge','knowledge-schema','limits','provider-profile','provider-policy'] as const)('quality/continuity acknowledgement cannot change another %s',async field=>{
   const pair=CUSTOMER_AGENT_QUALITY_CONTINUITY_UPGRADE_V1;
-  const change:Record<string,unknown>={promptHash:pair.fromPrompt,toolSchemaHash:pair.toolSchemaHash};
+  const change:Record<string,unknown>={promptHash:pair.fromPrompt,toolSchemaHash:pair.toolSchemaHash,knowledgeSchemaHash:pair.fromKnowledgeSchema};
   if(field==='tools')change.toolSchemaHash='f'.repeat(64);
   if(field==='knowledge')change.knowledgeSourceHash='f'.repeat(64);
+  if(field==='knowledge-schema')change.knowledgeSchemaHash='f'.repeat(64);
   if(field==='limits')change.limits={...manifest.limits,maxModelOutputTokens:manifest.limits.maxModelOutputTokens+1};
   if(field==='provider-profile')change.providerProfileHash='f'.repeat(64);
   if(field==='provider-policy')change.providerPolicyHash='f'.repeat(64);

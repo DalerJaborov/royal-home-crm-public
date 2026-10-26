@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { customerAgentDecisionSchema, customerAgentDeliveryObservationSchema, customerAgentDeliveryEvidenceSchema, customerToolCallSchema,
   customerAgentVerifiedContextSchema, type CustomerAgentVerifiedContext, type CustomerAgentDeliveryObservation, type CustomerAgentDeliveryEvidence,
-  type CustomerAgentRevision, type CustomerAgentDecision, type CustomerPropertyFactKind } from "@royal-home/shared";
+  type CustomerAgentRevision, type CustomerAgentDecision, type CustomerPropertyFactKind, type CustomerAgentApprovedFileState } from "@royal-home/shared";
 import { prisma, type TxClient } from "../db.js";
 import { isActiveTransactionClient } from "./transactionScope.js";
 import { isCustomerPrincipal, revalidateCustomerPrincipal, type CustomerPrincipal } from "./customerPrincipal.js";
@@ -11,7 +11,7 @@ import { inspectPublicCommentPrincipal, revalidatePublicCommentPrincipal, type P
 import { readPublicSourceRow, publicCommentOrigin } from "./customerPublicCommentStore.js";
 import { decodeCustomerAgentRevision } from "./customerAgentRevision.js";
 import { readCustomerAgentPublicData, customerAgentPublicDataCurrent } from "./customerAgentPublicReads.js";
-import { renderCustomerAgentDecision, customerAgentRenderedQuestion, customerAgentCallbackQuestionText, customerAgentNameQuestionText, type CustomerAgentEvidence } from "../ai/customerAgentRenderer.js";
+import { renderCustomerAgentDecision, customerAgentRenderedQuestion, customerAgentCallbackQuestionText, customerAgentNameQuestionText, customerBuyerGuideFollowText, type CustomerAgentEvidence } from "../ai/customerAgentRenderer.js";
 import type { CustomerAgentAttachmentInput } from "../ai/customerAgentAttachmentInput.js";
 import { readCustomerShownSearchProperties, readCustomerPublicShownProperties } from "./customerSearchHistory.js";
 import { readCustomerPublicPublicationSource } from "./customerPublicPublicationSource.js";
@@ -110,6 +110,7 @@ export interface CustomerAgentDeliveryRender {
   verifiedContext?: CustomerAgentVerifiedContext;
   inputText?: string;
   attachmentInput?: CustomerAgentAttachmentInput;
+  approvedFileState?: CustomerAgentApprovedFileState;
 }
 type SealResult = { status: "sealed"; text: string; witness: CustomerAgentDeliveryWitness | null } | { status: "held"; reason: string };
 async function seal(binding: Binding | null, render: CustomerAgentDeliveryRender, serverWitnesses: readonly CustomerAgentDataReadWitness[]): Promise<SealResult> {
@@ -136,8 +137,11 @@ async function seal(binding: Binding | null, render: CustomerAgentDeliveryRender
     const nameQuestion = binding.surface === "dm" && customerAgentRenderedQuestion({ ...render, surface: "dm" }) === "name" &&
       text.endsWith(customerAgentNameQuestionText(render.language))
       ? { version: 1 as const, kind: "name" as const, language: render.language } : undefined;
+    const guideFollow = binding.surface === "dm" && decision.kind === "reply" && decision.attachment === "buyer_guide" &&
+      render.approvedFileState === "needs_follow" && text.split("\n").includes(customerBuyerGuideFollowText(render.language))
+      ? { version: 1 as const, kind: "buyer_guide_follow" as const, language: render.language } : undefined;
     if (!await current(binding)) return { status: "held", reason: "original_context_changed" };
-    if (!observations.length && !callbackQuestion && !nameQuestion) return { status: "sealed", text, witness: null };
+    if (!observations.length && !callbackQuestion && !nameQuestion && !guideFollow) return { status: "sealed", text, witness: null };
     for (const observation of observations) {
       if (!serverWitnesses.some(token => {
         const issued = reads.get(token); return !!issued && same(issued.binding, binding) && digest(issued.observation) === digest(observation);
@@ -148,7 +152,7 @@ async function seal(binding: Binding | null, render: CustomerAgentDeliveryRender
     if (!await current(binding)) return { status: "held", reason: "original_context_changed" };
     const sideband = frozen(customerAgentDeliveryEvidenceSchema.parse({ version: 1, agentRevisionId: binding.revision.id,
       knowledgeSourceHash: binding.revision.knowledgeSourceHash, linkPreference: binding.linkPreference, observations,
-      ...(callbackQuestion ? { callbackQuestion } : {}), ...(nameQuestion ? { nameQuestion } : {}) }));
+      ...(callbackQuestion ? { callbackQuestion } : {}), ...(nameQuestion ? { nameQuestion } : {}), ...(guideFollow ? { guideFollow } : {}) }));
     const witness = Object.freeze({}) as CustomerAgentDeliveryWitness;
     bundles.set(witness, { binding, text, sideband });
     return { status: "sealed", text, witness };

@@ -126,7 +126,8 @@ export async function refreshCurrentCustomerAgentForOwner(actorId:string,raw:unk
     capabilities:current.capabilities,advanceIdleRevision:true,
     ...(body.confirmRecruitmentResumeUpgrade?{confirmRecruitmentResumeUpgrade:true as const}:{}),
     ...(body.confirmQualityContinuityUpgrade?{confirmQualityContinuityUpgrade:true as const}:{}),
-    ...(prior.toolSchemaHash!==revision.toolSchemaHash||prior.knowledgeSchemaHash!==revision.knowledgeSchemaHash?{confirmCatalogFactsUpgrade:true as const}:{}),
+    ...((prior.toolSchemaHash!==revision.toolSchemaHash||prior.knowledgeSchemaHash!==revision.knowledgeSchemaHash) &&
+      !isCustomerAgentQualityContinuityUpgradeV1(prior,revision)?{confirmCatalogFactsUpgrade:true as const}:{}),
   },'retained_policy_refresh');
 }
 
@@ -230,10 +231,12 @@ async function publishVerifiedCustomerAgentForOwner(actorId:string,body:PublishS
       const qualityContinuityUpgrade=qualityContinuityPair&&body.confirmQualityContinuityUpgrade===true;
       if(qualityContinuityPair&&!body.confirmQualityContinuityUpgrade) fail(409,'quality_continuity_upgrade_confirmation_required');
       if(body.confirmQualityContinuityUpgrade&&!qualityContinuityPair) fail(409,'quality_continuity_upgrade_not_qualified');
-      if(qualityContinuityUpgrade&&catalogChanged) fail(409,'quality_continuity_upgrade_configuration_changed');
       recruitmentProtocolUpgrade=recruitmentResumeUpgrade || body.confirmCatalogFactsUpgrade===true && isCustomerRecruitmentUpgradeV1(prior,next);
       if(prior.promptHash!==next.promptHash && !recruitmentProtocolUpgrade && !qualityContinuityUpgrade) fail(409,"revision_advance_configuration_changed");
-      if (catalogChanged && !body.confirmCatalogFactsUpgrade && !recruitmentResumeUpgrade) fail(409,"catalog_facts_upgrade_confirmation_required");
+      // The exact quality pair separately acknowledges its pinned delivery-proof
+      // schema. It cannot acknowledge any other catalog/tool change.
+      if (qualityContinuityUpgrade && body.confirmCatalogFactsUpgrade) fail(409,"quality_continuity_upgrade_configuration_changed");
+      if (catalogChanged && !body.confirmCatalogFactsUpgrade && !recruitmentResumeUpgrade && !qualityContinuityUpgrade) fail(409,"catalog_facts_upgrade_confirmation_required");
       if (!catalogChanged && body.confirmCatalogFactsUpgrade && !recruitmentResumeUpgrade) fail(409,"catalog_facts_upgrade_not_required");
       if ((catalogChanged || recruitmentResumeUpgrade || qualityContinuityUpgrade) && (prior.providerProfileHash !== next.providerProfileHash || prior.providerPolicyHash !== next.providerPolicyHash ||
         !isDeepStrictEqual([...before.data.allowed].sort((a,b)=>a.endpointScopeId.localeCompare(b.endpointScopeId)),

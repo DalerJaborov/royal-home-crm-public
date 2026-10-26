@@ -62,6 +62,7 @@ export const CI_UNSET_VARS = [
   "BUYER_CANDIDATE_LIVE_FROM",
   "MANUAL_DATA_CORRECTIONS_LIVE",
   "CUSTOMER_PROPERTY_MEDIA_EXECUTION_MODE",
+  "CUSTOMER_AGENT_MEDIA_EXECUTION_MODE",
 ] as const;
 
 export type EnvLike = Record<string, string | undefined>;

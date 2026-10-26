@@ -24,8 +24,8 @@ it("keeps the historical recruitment pair pinned while recognizing the distinct 
   expect(currentTools).toBe(quality.toolSchemaHash);
   expect(currentTools).not.toBe(pair.toTools);
   expect(isCustomerAgentQualityContinuityUpgradeV1(
-    {promptHash:quality.fromPrompt,toolSchemaHash:quality.toolSchemaHash},
-    {promptHash:sha(CUSTOMER_AGENT_SYSTEM),toolSchemaHash:currentTools})).toBe(true);
+    {promptHash:quality.fromPrompt,toolSchemaHash:quality.toolSchemaHash,knowledgeSchemaHash:quality.fromKnowledgeSchema},
+    {promptHash:sha(CUSTOMER_AGENT_SYSTEM),toolSchemaHash:currentTools,knowledgeSchemaHash:quality.toKnowledgeSchema})).toBe(true);
   expect(isCustomerRecruitmentResumeUpgradeV2(historicalResumeFrom,
     {promptHash:sha(CUSTOMER_AGENT_SYSTEM),toolSchemaHash:currentTools})).toBe(false);
   expect(isCustomerRecruitmentUpgradeV1(prior,next)).toBe(true);
@@ -74,13 +74,15 @@ it.each(["prior-prompt","prior-tools","next-prompt","next-tools","reverse","repl
   if(which==="replay")Object.assign(a,next);
   expect(isCustomerRecruitmentUpgradeV1(a,b)).toBe(false);
 });
-it.each(["prior-prompt","prior-tools","next-prompt","next-tools","reverse","replay"])("keeps quality/continuity upgrade closed to another pair: %s",which=>{
-  const a={promptHash:quality.fromPrompt,toolSchemaHash:quality.toolSchemaHash};
-  const b={promptHash:quality.toPrompt,toolSchemaHash:quality.toolSchemaHash},other="f".repeat(64);
+it.each(["prior-prompt","prior-tools","prior-knowledge","next-prompt","next-tools","next-knowledge","reverse","replay"])("keeps quality/continuity upgrade closed to another pair: %s",which=>{
+  const a={promptHash:quality.fromPrompt,toolSchemaHash:quality.toolSchemaHash,knowledgeSchemaHash:quality.fromKnowledgeSchema};
+  const b={promptHash:quality.toPrompt,toolSchemaHash:quality.toolSchemaHash,knowledgeSchemaHash:quality.toKnowledgeSchema},other="f".repeat(64);
   if(which==="prior-prompt")a.promptHash=other;
   if(which==="prior-tools")a.toolSchemaHash=other;
   if(which==="next-prompt")b.promptHash=other;
   if(which==="next-tools")b.toolSchemaHash=other;
+  if(which==="prior-knowledge")a.knowledgeSchemaHash=other;
+  if(which==="next-knowledge")b.knowledgeSchemaHash=other;
   if(which==="reverse"){const previous={...a};Object.assign(a,b);Object.assign(b,previous);}
   if(which==="replay")Object.assign(a,b);
   expect(isCustomerAgentQualityContinuityUpgradeV1(a,b)).toBe(false);

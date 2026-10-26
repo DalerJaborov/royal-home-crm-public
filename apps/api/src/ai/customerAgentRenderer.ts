@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { CustomerPropertyFactKind, CustomerPropertyFacts, CustomerMutationReceipt,
-  CustomerAgentDecision, CustomerAgentQuestion, CustomerAgentSurface, CustomerAgentVerifiedContext } from "@royal-home/shared";
+  CustomerAgentDecision, CustomerAgentQuestion, CustomerAgentSurface, CustomerAgentVerifiedContext, CustomerAgentApprovedFileState } from "@royal-home/shared";
 import { customerPropertyCharacteristicLines, customerPropertyAvailabilityLine, customerAgentPublicationObservationSchema } from "@royal-home/shared";
 import { PUBLIC_AGENCY_CONTACT } from "../lib/publicAgencyContact.js";
 import { customerPublicThanks, customerRequestedAgencyContact, customerRecruitmentLanguagePermissionQuestion,
@@ -101,10 +101,11 @@ function intakeProgress(input: { verifiedContext?: CustomerAgentVerifiedContext;
 }
 export function customerAgentRenderedQuestion(input: { decision: CustomerAgentDecision; evidence: readonly CustomerAgentEvidence[];
   surface: CustomerAgentSurface; knownPhoneSource: "none" | "current_input" | "scoped_contact"; requestedFacts?: readonly CustomerPropertyFactKind[];
-  verifiedContext?: CustomerAgentVerifiedContext; inputText?: string } & RecruitmentMaterial): CustomerAgentRenderedQuestion {
+  verifiedContext?: CustomerAgentVerifiedContext; inputText?: string; approvedFileState?: CustomerAgentApprovedFileState } & RecruitmentMaterial): CustomerAgentRenderedQuestion {
   const d = input.decision;
   if (d.kind === "skip" || d.kind === "escalate" || d.kind === "moderation_proposal") return "none";
   if (d.kind === "propose") return "confirmation";
+  if (input.surface === "dm" && d.kind === "reply" && d.attachment === "buyer_guide" && input.approvedFileState === "needs_follow") return "none";
   const referencedCards = input.evidence.filter(e => d.refs.includes(e.ref)).flatMap(e =>
     e.value.kind === "facts" ? [e.value.facts] : e.value.kind === "publication_properties" ? e.value.cards : []);
   if (referencedCards.length && referencedCards.every(f => f.availability === "SOLD") &&
@@ -346,6 +347,12 @@ function searchSegments(value: CustomerAgentSearchObservation, language: "ru" | 
   return lines;
 }
 
+export function customerBuyerGuideFollowText(language: "ru" | "tg"): string {
+  return language === "tg"
+    ? "Ин файл барои обуначиёни саҳифа дастрас аст. Обуна шавед ва ҳамин ҷо нависед."
+    : "Этот файл доступен подписчикам страницы. Подпишитесь и напишите здесь.";
+}
+
 /** No model prose can invent an amount, date, contact or completed action.
  * Public observations/receipts are supplied by server ports; this rendering
  * itself confers no authority, physical send or proposal-presentation proof. */
@@ -359,10 +366,22 @@ export function renderCustomerAgentDecision(input: {
   inputText?: string;
   attachmentInput?: CustomerAgentAttachmentInput;
   mediaPerception?: CustomerAgentMediaPerception;
+  approvedFileState?: CustomerAgentApprovedFileState;
 }): string | null {
   const d = input.decision, lang = input.language;
   if (d.kind === "skip" || d.kind === "escalate" || d.kind === "moderation_proposal") return "";
   const mayOverrideConversation = d.kind !== "propose";
+  const guideIntent = input.surface === "dm" && d.kind === "reply" && d.attachment === "buyer_guide";
+  const guideFollowPrompt = guideIntent && input.approvedFileState === "needs_follow";
+  const guideText: Record<CustomerAgentApprovedFileState, { ru: string; tg: string }> = {
+    available: { ru: "Памятка по покупке квартиры.", tg: "Ёддошт барои харидани манзил." },
+    needs_follow: { ru: customerBuyerGuideFollowText("ru"), tg: customerBuyerGuideFollowText("tg") },
+    awaiting_follow: { ru: "Памятка доступна подписчикам страницы.", tg: "Ёддошт барои обуначиёни саҳифа дастрас аст." },
+    unavailable: { ru: "Сейчас не могу отправить памятку.", tg: "Ҳоло ёддоштро фиристода наметавонам." },
+    already_sent: { ru: "Памятка уже отправлена в этом чате.", tg: "Ёддошт аллакай дар ҳамин чат фиристода шудааст." },
+    pending_delivery: { ru: "Пока не могу подтвердить, отправился ли файл.", tg: "Ҳоло тасдиқ карда наметавонам, ки файл фиристода шуд ё не." },
+  };
+  const guidePresentation = guideIntent && input.approvedFileState ? guideText[input.approvedFileState]?.[lang] : undefined;
   const followRequest = mayOverrideConversation && input.surface === "dm" && customerFollowRequest(input.inputText ?? "");
   const languagePermissionRequested = mayOverrideConversation && input.surface === "dm" && input.verifiedContext?.publicState.topic === "job" &&
     customerRecruitmentLanguagePermissionRequested(input.inputText ?? "");
@@ -440,6 +459,7 @@ export function renderCustomerAgentDecision(input: {
   if (languagePermissionRequested) lines.push(lang === "tg" ? "Бале, албатта. Дар бораи худ ва таҷрибаатон ба тоҷикӣ нақл кунед." : "Да, конечно. Расскажите о себе и своём опыте на таджикском.");
   if (messengerChannelQuestion) lines.push(lang === "tg" ? "Метавонем ҳамин ҷо, дар ҳамин чат, идома диҳем." : "Можем продолжить здесь, в текущем чате.");
   const renderedFactLines = new Set<string>();
+  if (guidePresentation) lines.push(guidePresentation);
   const appendFacts = (value: Extract<CustomerAgentObservation, { kind: "facts" }>) => {
     const f = value.facts;
     const furnitureUnknown = lang === "tg"
@@ -562,7 +582,7 @@ export function renderCustomerAgentDecision(input: {
     const text = lines.filter(Boolean).join("\n");
     return text && text.length <= input.maxOutputChars ? text : null;
   }
-  const question = followRequest || languagePermissionOnly || furnitureOnly ? "none"
+  const question = followRequest || languagePermissionOnly || furnitureOnly || guideFollowPrompt ? "none"
     : customerAgentRenderedQuestion({ ...input, ...material, evidence: evidence.filter((e): e is CustomerAgentEvidence => !!e) });
   const intake = intakeProgress(input);
   // Suppress only the redundant/private question, preserve useful verified
@@ -584,7 +604,7 @@ export function renderCustomerAgentDecision(input: {
     : question === "clarify_previous" && input.surface === "dm"
       ? repairPreviousQuestion(input.verifiedContext, lang) ?? questions[question][lang] : questions[question][lang]);
   if (question === "confirmation") lines.push(lang === "tg" ? "Тасдиқ мекунед?" : "Подтверждаете?");
-  if (!evidence.length && question === "none" && d.social === "none" && !visualSummary && !followRequest && !languagePermissionRequested && !messengerChannelQuestion && !furnitureQuestion) return null;
+  if (!evidence.length && question === "none" && d.social === "none" && !visualSummary && !followRequest && !languagePermissionRequested && !messengerChannelQuestion && !furnitureQuestion && !guidePresentation) return null;
   // A suppressed personal-data request by itself is not a useful completed
   // reply, even if the model attached "Понял" to it.
   if ((publicContactQuestion || (d.kind !== "propose" && d.question === "phone" && input.knownPhoneSource !== "none")) &&

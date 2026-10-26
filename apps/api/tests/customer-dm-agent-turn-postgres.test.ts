@@ -10,10 +10,12 @@ import { createCustomerAgentProviderSnapshot } from "../src/ai/customerAgentProv
 import { registerCurrentCustomerAgentRevision } from "../src/lib/customerAgentRegistration.js";
 import { registerAuthenticatedMetaCustomerRequest, verifyAndRegisterMetaCustomerIssuer } from "../src/lib/customerIngressAuthority.js";
 import { persistVerifiedCustomerIngressBatch, consumeCustomerInboxTicket } from "../src/lib/customerIngressProducer.js";
-import { runCustomerDmAgentTurn } from "../src/lib/customerDmAgentTurn.js";
+import { runCustomerDmAgentTurn, customerVoiceTriggerForCurrentInput } from "../src/lib/customerDmAgentTurn.js";
 import { decodeCustomerOutboxPayload, decodeCustomerOutboxPublicData } from "../src/lib/customerOutbox.js";
 import { dispatchCustomerOutboxPart } from "../src/lib/customerDeliveryDispatcher.js";
 import { customerPropertyRegistry } from "../src/lib/customerPropertyRegistry.js";
+import * as ttsModule from "../src/ai/tts.js";
+import * as audioTranscodeModule from "../src/lib/audioTranscode.js";
 import { uploadsDir } from "../src/upload.js";
 import { customerAgentManifestId } from "../src/lib/customerAgentRevision.js";
 import * as runtimeModule from "../src/lib/customerAgentRuntime.js";
@@ -26,35 +28,52 @@ import { readCustomerActionProperty } from "../src/lib/customerActionProperty.js
 
 // Actual signed durable intake → FINAL → elected owner → real counted model
 // adapter → tools → encrypted P12 plan. Only external HTTP is synthetic.
-const accounts: string[] = [], events: string[] = [], mediaFiles: string[] = [];
+const accounts: string[] = [], events: string[] = [], mediaFiles: string[] = [], campaigns: string[] = [];
 const ownLinkProperties: string[] = [];
+let whatsappFixtureAccount: { id: string; externalId: string; secret: string; token: string } | null = null;
+let whatsappPeerCounter = 0;
 let dnsLookup: ReturnType<typeof vi.spyOn>;
 const cohortId = randomUUID();
-const allowedEndpoints: Array<{ surface: "dm"; channel: "INSTAGRAM"; endpointScopeId: string }> = [];
+const allowedEndpoints: Array<{ surface: "dm"; channel: "INSTAGRAM" | "WHATSAPP"; endpointScopeId: string }> = [];
 const apiKey = "synthetic-root-customer-core-key";
 let settings: Awaited<ReturnType<typeof readSettings>>, policy: Awaited<ReturnType<typeof readPolicy>>;
 let revisionId: string;
 let savedRolloutConfig: unknown;
 function readSettings() { return prisma.settings.findUniqueOrThrow({ where: { id: "singleton" }, select: {
   botEnabled: true, metaEnabled: true, botInstagramEnabled: true, botCanSendPhotos: true, botPhotosPerOffer: true,
+  botCanSendVoiceReplies: true,
   geminiApiKey: true, geminiApiKey2: true, geminiApiKeysExtra: true,
 } }); }
 function readPolicy() { return prisma.customerRuntimePolicy.findUniqueOrThrow({ where: { id: "singleton" } }); }
 
-async function fixture(text = "Здравствуйте, хочу купить квартиру", legacyAtIntake = false) {
-  const id = randomUUID(), externalId = `synthetic-dm-core-own-${id}`, peer = `synthetic-dm-core-peer-${id}`;
-  const secret = `synthetic-dm-core-secret-${id}`, token = `synthetic-dm-core-token-${id}`;
-  await prisma.messengerAccount.create({ data: { id, channel: "INSTAGRAM", externalId,
-    username: `synthetic_core_agency_${id.replaceAll("-", "")}`, title: "Synthetic full DM core", enabled: true,
-    token: encryptSecret(token), appSecret: encryptSecret(secret) } }); accounts.push(id);
-  const endpoint = await prisma.$transaction(tx => ensureCustomerEndpoint(tx, { channel: "INSTAGRAM", subscriberId: peer, accountId: id, accountExternalId: externalId }));
-  if (!legacyAtIntake) allowedEndpoints.push({ surface: "dm", channel: "INSTAGRAM", endpointScopeId: endpoint.endpointScopeId });
+async function fixture(text = "Здравствуйте, хочу купить квартиру", legacyAtIntake = false,
+  channel: "INSTAGRAM" | "WHATSAPP" = "INSTAGRAM", inboundAudio = false) {
+  let id = randomUUID(), externalId = `synthetic-dm-core-own-${id}`;
+  let secret = `synthetic-dm-core-secret-${id}`, token = `synthetic-dm-core-token-${id}`;
+  if (channel === "WHATSAPP" && whatsappFixtureAccount) ({ id, externalId, secret, token } = whatsappFixtureAccount);
+  else {
+    await prisma.messengerAccount.create({ data: { id, channel, externalId,
+      username: `synthetic_core_agency_${id.replaceAll("-", "")}`, title: "Synthetic full DM core", enabled: true,
+      token: encryptSecret(token), appSecret: encryptSecret(secret) } }); accounts.push(id);
+    if (channel === "WHATSAPP") whatsappFixtureAccount = { id, externalId, secret, token };
+  }
+  const peer = channel === "WHATSAPP" ? `992918${String(++whatsappPeerCounter).padStart(6, "0")}` : `synthetic-dm-core-peer-${id}`;
+  const endpoint = await prisma.$transaction(tx => ensureCustomerEndpoint(tx, { channel, subscriberId: peer, accountId: id, accountExternalId: externalId }));
+  if (!legacyAtIntake && !allowedEndpoints.some(value => value.endpointScopeId === endpoint.endpointScopeId)) {
+    allowedEndpoints.push({ surface: "dm", channel, endpointScopeId: endpoint.endpointScopeId });
+  }
   const allowed = [...allowedEndpoints];
   await prisma.$executeRaw`UPDATE "CustomerRuntimePolicy" SET "rolloutConfig"=${JSON.stringify({ version: 1, cohortId,
     candidateRevisionId: revisionId, percentBasisPoints: 10_000, allowed })}::jsonb WHERE "id"='singleton'`;
-  const rawBody = Buffer.from(JSON.stringify({ object: "instagram", entry: [{ id: externalId, messaging: [{
-    sender: { id: peer }, recipient: { id: externalId }, timestamp: Date.now(), message: { mid: randomUUID(), text },
-  }] }] }));
+  const eventId = randomUUID(), assetRef = `synthetic-audio-${id}`;
+  const body = channel === "INSTAGRAM" ? { object: "instagram", entry: [{ id: externalId, messaging: [{
+    sender: { id: peer }, recipient: { id: externalId }, timestamp: Date.now(), message: { mid: eventId, text },
+  }] }] } : { object: "whatsapp_business_account", entry: [{ id: externalId, changes: [{ field: "messages", value: {
+    metadata: { phone_number_id: externalId, display_phone_number: "+992 918 999 999" }, contacts: [{ wa_id: peer, profile: { name: "Synthetic customer" } }],
+    messages: [{ from: peer, id: eventId, timestamp: String(Math.floor(Date.now() / 1000)),
+      ...(inboundAudio ? { type: "audio", audio: { id: assetRef, mime_type: "audio/ogg" } } : { type: "text", text: { body: text } }) }],
+  } }] }] };
+  const rawBody = Buffer.from(JSON.stringify(body));
   const request = { rawBody, get: () => `sha256=${createHmac("sha256", secret).update(rawBody).digest("hex")}` };
   registerAuthenticatedMetaCustomerRequest(request);
   let stored = await persistVerifiedCustomerIngressBatch(request);
@@ -68,20 +87,25 @@ async function fixture(text = "Здравствуйте, хочу купить �
     if(admitted.status!=="admitted") throw new Error("Actual legacy admission unavailable");
     stored={status:"persisted",tickets:[{eventKey:admitted.ticket.eventKey,order:admitted.ticket.order,fresh:admitted.fresh}],unsupported:0};
   }
-  if (stored.status !== "persisted") throw new Error("Actual synthetic producer did not persist");
-  expect(await verifyAndRegisterMetaCustomerIssuer(request, { channel: "INSTAGRAM", accountId: id, accountExternalId: externalId })).toBe(true);
+  if (stored.status !== "persisted") throw new Error(`Actual synthetic producer did not persist: ${JSON.stringify(stored)}`);
+  expect(await verifyAndRegisterMetaCustomerIssuer(request, { channel, accountId: id, accountExternalId: externalId })).toBe(true);
   const eventKey = stored.tickets[0].eventKey; events.push(eventKey);
   const io: string[] = [], bodies: unknown[] = [];
   let generated = 0, countOk = true;
   let missingMetaMid = false;
+  let followerState = true;
   let onGenerate: (() => Promise<void>) | undefined;
   let siteRead: ((id: number) => Promise<{ crmShortId: number; sold?: boolean } | null>) | undefined;
   let replies: unknown[][] = [[{ text: JSON.stringify({ kind: "reply", refs: [], social: "greet", question: "budget" }) }]];
   vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
     const u = new URL(String(url));
-    if (u.origin === "https://synthetic-core-instagram.invalid" && init?.method === "POST") {
+    if ((u.origin === "https://synthetic-core-instagram.invalid" || u.origin === "https://graph.facebook.com") && init?.method === "POST") {
       const body = JSON.parse(String(init.body));
-      io.push(body.message?.attachment?.type === "image" ? "meta-image" : "meta-text");
+      io.push(body.type === "audio" || body.message?.attachment?.type === "audio" ? "meta-audio"
+        : body.type === "document" || body.message?.attachment?.type === "file" ? "meta-file"
+        : body.message?.attachment?.type === "image" ? "meta-image"
+        : body.message?.attachment?.type === "audio" ? "meta-audio"
+        : typeof body.message?.text === "string" && body.message.text.startsWith("https://crm-media.synthetic.example/uploads/msg-files/customer-approved-") ? "guide-link" : "meta-text");
       return new Response(JSON.stringify(missingMetaMid ? {} : { message_id: `synthetic-meta-mid-${randomUUID()}` }), { status: 200 });
     }
     if (u.origin === "https://royalhome.tj" && u.pathname === "/api/trpc/listing.getById" && init?.method === undefined) {
@@ -98,6 +122,12 @@ async function fixture(text = "Здравствуйте, хочу купить �
         u.searchParams.get("fields") === "username" && u.searchParams.get("access_token") === token &&
         [...u.searchParams.keys()].length === 2 && init?.method === "GET") {
       io.push("profile"); return new Response(JSON.stringify({ id: peer, username: "synthetic_core_customer" }));
+    }
+    if (u.origin === "https://synthetic-core-instagram.invalid" && u.pathname === `/v23.0/${peer}` &&
+        u.searchParams.get("fields") === "username,name,profile_pic,follower_count,is_user_follow_business" &&
+        u.searchParams.get("access_token") === token && [...u.searchParams.keys()].length === 2 &&
+        (init?.method === undefined || init.method === "GET")) {
+      io.push("guide-profile"); return new Response(JSON.stringify({ id: peer, is_user_follow_business: followerState }));
     }
     if (u.origin !== "https://synthetic-core-gemini.invalid" || init?.method !== "POST" ||
         (init.headers as Record<string, string>)?.["x-goog-api-key"] !== apiKey) throw new Error("Unexpected synthetic core HTTP");
@@ -119,16 +149,22 @@ async function fixture(text = "Здравствуйте, хочу купить �
   }));
   return { eventKey, io, bodies, setCountInvalid() { countOk = false; }, setMissingMetaMid(value = true) { missingMetaMid = value; },
     setReplies(value: unknown[][]) { replies = value; generated = 0; }, setOnGenerate(value: () => Promise<void>) { onGenerate = value; },
+    setFollowerState(value: boolean) { followerState = value; },
     setSiteRead(value: NonNullable<typeof siteRead>) { siteRead = value; },
     async receive(text: string) {
-      const body = Buffer.from(JSON.stringify({ object: "instagram", entry: [{ id: externalId, messaging: [{
-        sender: { id: peer }, recipient: { id: externalId }, timestamp: Date.now(), message: { mid: randomUUID(), text },
-      }] }] }));
+      const nextId = randomUUID();
+      const nextBody = channel === "INSTAGRAM" ? { object: "instagram", entry: [{ id: externalId, messaging: [{
+        sender: { id: peer }, recipient: { id: externalId }, timestamp: Date.now(), message: { mid: nextId, text },
+      }] }] } : { object: "whatsapp_business_account", entry: [{ id: externalId, changes: [{ field: "messages", value: {
+        metadata: { phone_number_id: externalId, display_phone_number: "+992 918 999 999" }, contacts: [{ wa_id: peer, profile: { name: "Synthetic customer" } }],
+        messages: [{ from: peer, id: nextId, timestamp: String(Math.floor(Date.now() / 1000)), type: "text", text: { body: text } }],
+      } }] }] };
+      const body = Buffer.from(JSON.stringify(nextBody));
       const next = { rawBody: body, get: () => `sha256=${createHmac("sha256", secret).update(body).digest("hex")}` };
       registerAuthenticatedMetaCustomerRequest(next);
       const saved = await persistVerifiedCustomerIngressBatch(next);
       if (saved.status !== "persisted") throw Error("Actual same-scope signed next input not persisted");
-      expect(await verifyAndRegisterMetaCustomerIssuer(next, { channel: "INSTAGRAM", accountId: id, accountExternalId: externalId })).toBe(true);
+      expect(await verifyAndRegisterMetaCustomerIssuer(next, { channel, accountId: id, accountExternalId: externalId })).toBe(true);
       events.push(saved.tickets[0].eventKey); return saved.tickets[0].eventKey;
     } };
 }
@@ -175,6 +211,7 @@ afterAll(async () => {
   await prisma.customerPropertyIngressTicket.deleteMany({ where: { eventKey: { in: events } } });
   await prisma.callbackRequest.deleteMany({ where: { customerActionId: { in: actionIds } } });
   await prisma.customerAction.deleteMany({ where: { id: { in: actionIds } } });
+  await prisma.leadMagnetCampaign.deleteMany({ where: { id: { in: campaigns } } });
   await prisma.customerInquiry.deleteMany({ where: { conversationId: { in: nativeIds } } });
   await prisma.botConversation.deleteMany({ where: { id: { in: nativeIds } } });
   await prisma.outboundShieldState.deleteMany({ where: { endpointScope: { messengerAccountId: { in: accounts } } } });
@@ -222,6 +259,32 @@ async function withLivePhotoPolicy<T>(run: () => Promise<T>): Promise<T> {
     await prisma.settings.update({ where: { id: "singleton" }, data: previous });
   }
 }
+async function withLiveGuide<T>(run: () => Promise<T>): Promise<T> {
+  vi.stubEnv("CRM_PUBLIC_URL", "https://crm-media.synthetic.example");
+  vi.stubEnv("CUSTOMER_AGENT_MEDIA_EXECUTION_MODE", "LIVE");
+  try { return await run(); }
+  finally { vi.stubEnv("CUSTOMER_AGENT_MEDIA_EXECUTION_MODE", "OFF"); }
+}
+async function withVoiceFeature<T>(run: () => Promise<T>, enabled = true, mode: "LIVE" | "PREVIEW" = "LIVE"): Promise<T> {
+  const before = await prisma.settings.findUniqueOrThrow({ where: { id: "singleton" }, select: { botCanSendVoiceReplies: true } });
+  await prisma.settings.update({ where: { id: "singleton" }, data: { botCanSendVoiceReplies: enabled } });
+  vi.stubEnv("CUSTOMER_AGENT_MEDIA_EXECUTION_MODE", mode);
+  try { return await run(); }
+  finally { vi.stubEnv("CUSTOMER_AGENT_MEDIA_EXECUTION_MODE", "OFF");
+    await prisma.settings.update({ where: { id: "singleton" }, data: before }); }
+}
+async function ownBuyerGuide() {
+  const id = randomUUID(), filePath = `/uploads/lead-magnets/${id}-${Date.now()}.pdf`, file = path.join(uploadsDir, "lead-magnets", path.basename(filePath));
+  await mkdir(path.dirname(file), { recursive: true });
+  const bytes = Buffer.from("%PDF-1.4\n% synthetic guide\n"); await writeFile(file, bytes); mediaFiles.push(file);
+  const assetHash = createHash("sha256").update(bytes).digest("hex");
+  mediaFiles.push(path.join(uploadsDir, "msg-files", `customer-approved-${assetHash}.pdf`));
+  const campaign = await prisma.leadMagnetCampaign.create({ data: { id, name: `Synthetic guide ${id}`, enabled: true,
+    inviteText: "Synthetic invite", followText: "Synthetic follow", notFollowingText: "Synthetic not following",
+    deliveredText: "Synthetic delivered", filePath, fileName: "Перед покупкой квартиры.pdf", fileSize: bytes.length,
+    deliverIfUnsure: false } });
+  campaigns.push(campaign.id); return campaign;
+}
 async function mediaPlannedTurn() {
   const property = await ownMediaProperty(), f = await fixture(`Объект №${property.shortId}, пожалуйста, пришлите фото`);
   f.setReplies([[{ functionCall: { name: "get_property_facts", args: { kinds: ["price"] }, id: "media-property-facts" } }],
@@ -235,6 +298,21 @@ async function mediaPlannedTurn() {
     if (payload.kind === "image") mediaFiles.push(path.join(uploadsDir, "msg", path.basename(payload.mediaWitness.assetPath)));
   }
   return { property, f, parts };
+}
+async function voicePlannedTurn() {
+  const property = await ownLinkProperty();
+  const f = await fixture(`https://royalhome.tj/tg/khona/${property.shortId} Сколько стоит? Пожалуйста, ответьте голосом.`);
+  f.setSiteRead(async id => { expect(id).toBe(property.shortId); return { crmShortId: property.shortId }; });
+  answerFacts(f);
+  const result = await runCustomerDmAgentTurn(f.eventKey);
+  if (result.status !== "planned") throw new Error(`Voice request did not plan: ${JSON.stringify(result)}`);
+  const parts = await prisma.customerOutboxPart.findMany({ where: { id: { in: result.partIds } }, orderBy: { ordinal: "asc" } });
+  await prisma.backgroundJob.updateMany({ where: { dedupeKey: { in: result.partIds.map(id => `customer-outbox-dispatch:${id}`) } }, data: { runAt: new Date("2099-01-01") } });
+  for (const part of parts) {
+    const payload = decodeCustomerOutboxPayload(part);
+    if (payload.kind === "audio") mediaFiles.push(path.join(uploadsDir, "msg-voice", path.basename(payload.mediaWitness.assetPath)));
+  }
+  return { f, parts };
 }
 function answerFacts(f: Awaited<ReturnType<typeof fixture>>) {
   f.setReplies([[{ functionCall: { name: "get_property_facts", args: { kinds: ["price", "availability"] }, id: "actual-linked-facts" } }],
@@ -356,6 +434,20 @@ describe("actual durable DM common core", () => {
     expect(result.partIds).toHaveLength(1);
     const row = await prisma.customerOutboxPart.findUniqueOrThrow({ where: { id: result.partIds[0] } });
     expect(row).toMatchObject({ status: "READY", agentRevisionId: revisionId, sourceKind: "BOT_TURN" });
+    // SQL permits v2 only for the sealed buyer-guide follow purpose. An
+    // ordinary v1 text plan cannot acquire v2 metadata or authority by row edit.
+    await expect(prisma.$executeRaw`UPDATE "CustomerOutboxPart" SET "payloadVersion"=2 WHERE "id"=${row.id}`).rejects.toBeTruthy();
+    expect(await prisma.customerOutboxPart.findUniqueOrThrow({ where: { id: row.id } })).toMatchObject({ payloadVersion: 1, approvedAssetPurpose: null });
+    const invalidId = randomUUID(), invalidPartKey = createHash("sha256").update(`invalid-follow-${invalidId}`).digest("hex");
+    await expect(prisma.$executeRaw`INSERT INTO "CustomerOutboxPart"
+      ("id","partKey","ticketEventKey","inquiryId","originalNativeId","conversationId","turnKey","ordinal","mode","sourceKind","sourceKey",
+       "channel","endpointScopeId","transportJson","payloadEncrypted","payloadHash","payloadVersion","fenceJson","p03Json","receiptRefsJson",
+       "agentRevisionId","approvedAssetPurpose","status","claimRevision","createdAt","updatedAt")
+      SELECT ${invalidId},${invalidPartKey},source."ticketEventKey",source."inquiryId",source."originalNativeId",NULL,${randomUUID()},0,'LIVE','BOT_TURN',
+       source."sourceKey",source."channel",source."endpointScopeId",source."transportJson",source."payloadEncrypted",${row.payloadHash},2,
+       source."fenceJson",NULL,'[]'::jsonb,source."agentRevisionId",'buyer_guide_follow','SUPPRESSED',0,now(),now()
+      FROM "CustomerOutboxPart" source WHERE source."id"=${row.id}`).rejects.toBeTruthy();
+    expect(row.partKey).toBe(createHash("sha256").update(JSON.stringify([row.inquiryId, "BOT_TURN", f.eventKey, 0, "LIVE"])).digest("hex"));
     expect(decodeCustomerOutboxPayload(row)).toEqual({ kind: "text", text: "Здравствуйте!\nКакой бюджет вы рассматриваете?" });
     expect(await prisma.backgroundJob.count({ where: { dedupeKey: `customer-outbox-dispatch:${row.id}` } })).toBe(1);
     expect(await consumeCustomerInboxTicket(f.eventKey)).toEqual({ status: "unchanged", reason: "already_planned" });
@@ -374,6 +466,301 @@ describe("actual durable DM common core", () => {
     expect(rows).toHaveLength(1);
     expect(decodeCustomerOutboxPayload(rows[0]).kind).toBe("text");
     expect(f.io).not.toContain("meta-image");
+  });
+  it("plans the approved Instagram buyer-guide link after text, then suppresses it if the native opt-out changes", async () => {
+    await withLiveGuide(async () => {
+      await ownBuyerGuide();
+      const f = await fixture("Хочу памятку по документам для покупки квартиры");
+      f.setReplies([[{ text: JSON.stringify({ kind: "reply", refs: [], social: "none", question: "none", attachment: "buyer_guide" }) }]]);
+      const result = await runCustomerDmAgentTurn(f.eventKey);
+      expect(result.status, JSON.stringify(result)).toBe("planned"); if (result.status !== "planned") throw Error(JSON.stringify(result));
+      const parts = await prisma.customerOutboxPart.findMany({ where: { id: { in: result.partIds } }, orderBy: { ordinal: "asc" } });
+      expect(parts).toHaveLength(2);
+      expect(parts[0]).toMatchObject({ ordinal: 0, approvedAssetPurpose: null, payloadVersion: 1 });
+      expect(decodeCustomerOutboxPayload(parts[0])).toMatchObject({ kind: "text", text: expect.stringContaining("Памятка по покупке квартиры.") });
+      const link = decodeCustomerOutboxPayload(parts[1]);
+      expect(parts[1]).toMatchObject({ ordinal: 1, approvedAssetPurpose: "buyer_guide", payloadVersion: 1, p03Json: null, receiptRefsJson: [] });
+      expect(link).toMatchObject({ kind: "link", url: expect.stringMatching(/^https:\/\/crm-media\.synthetic\.example\/uploads\/msg-files\/customer-approved-/u),
+        mediaWitness: { approvedFile: { sha256: expect.any(String), sourceId: expect.any(String), deliveryKind: "link" } } });
+      expect(await dispatchCustomerOutboxPart(parts[0].id)).toEqual({ status: "accepted" });
+      await prisma.botConversation.update({ where: { id: parts[0].originalNativeId }, data: { optedOutAt: new Date() } });
+      expect(await dispatchCustomerOutboxPart(parts[1].id)).toEqual({ status: "suppressed" });
+      expect(f.io.filter(value => value === "meta-text")).toHaveLength(1);
+      expect(f.io).not.toContain("guide-link");
+    });
+  });
+  it("sends the current approved guide as a native WhatsApp file, records accepted state, and never sends it twice", async () => {
+    await withLiveGuide(async () => {
+      await ownBuyerGuide();
+      const f = await fixture("Хочу памятку по документам для покупки квартиры", false, "WHATSAPP");
+      f.setReplies([[{ text: JSON.stringify({ kind: "reply", refs: [], social: "none", question: "none", attachment: "buyer_guide" }) }]]);
+      const result = await runCustomerDmAgentTurn(f.eventKey);
+      expect(result.status, JSON.stringify(result)).toBe("planned"); if (result.status !== "planned") throw Error(JSON.stringify(result));
+      const parts = await prisma.customerOutboxPart.findMany({ where: { id: { in: result.partIds } }, orderBy: { ordinal: "asc" } });
+      expect(parts).toHaveLength(2);
+      const file = decodeCustomerOutboxPayload(parts[1]);
+      if (file.kind !== "file") throw new Error("Expected a verified native guide file payload");
+      expect(file).toMatchObject({ kind: "file", name: "Перед покупкой квартиры.pdf",
+        mediaWitness: { approvedFile: { channel: "WHATSAPP", deliveryKind: "file" } } });
+      expect(await dispatchCustomerOutboxPart(parts[0].id)).toEqual({ status: "accepted" });
+      expect(await dispatchCustomerOutboxPart(parts[1].id)).toEqual({ status: "accepted" });
+      expect(f.io.filter(value => value === "meta-file")).toHaveLength(1);
+      const nativeId = parts[0].originalNativeId;
+      const native = await prisma.botConversation.findUniqueOrThrow({ where: { id: nativeId } });
+      expect(native).toMatchObject({ guideSentAt: expect.any(Date) });
+      const acceptedFile = (native.messages as Array<Record<string, unknown>>).find(message => message.customerOutboxPartId === parts[1].id);
+      expect(acceptedFile).toMatchObject({ customerApprovedFile: { kind: "file", assetPath: file.mediaWitness.approvedFile.assetPath },
+        attachments: [{ kind: "file", url: file.mediaWitness.approvedFile.publicUrl, mime: "application/pdf" }] });
+
+      const nextEvent = await f.receive("Можно еще раз прислать памятку?");
+      f.setReplies([[{ text: JSON.stringify({ kind: "reply", refs: [], social: "none", question: "none", attachment: "buyer_guide" }) }]]);
+      const second = await runCustomerDmAgentTurn(nextEvent);
+      expect(second.status, JSON.stringify(second)).toBe("planned"); if (second.status !== "planned") throw Error(JSON.stringify(second));
+      const secondParts = await prisma.customerOutboxPart.findMany({ where: { id: { in: second.partIds } }, orderBy: { ordinal: "asc" } });
+      expect(secondParts).toHaveLength(1); expect(secondParts[0].approvedAssetPurpose).toBeNull();
+      expect(decodeCustomerOutboxPayload(secondParts[0])).toMatchObject({ kind: "text", text: "Памятка уже отправлена в этом чате." });
+      expect(secondParts[0].payloadVersion).toBe(1);
+      expect(f.io.filter(value => value === "meta-file")).toHaveLength(1);
+    });
+  });
+  it("accepts one fixed Instagram follow instruction, then offers the file only after follower confirmation within the wait", async () => {
+    await withLiveGuide(async () => {
+      await ownBuyerGuide();
+      const f = await fixture("Хочу памятку по документам для покупки квартиры"); f.setFollowerState(false);
+      f.setReplies([[{ text: JSON.stringify({ kind: "reply", refs: [], social: "none", question: "none", attachment: "buyer_guide" }) }]]);
+      const prompt = await runCustomerDmAgentTurn(f.eventKey);
+      expect(prompt.status, JSON.stringify(prompt)).toBe("planned"); if (prompt.status !== "planned") throw Error(JSON.stringify(prompt));
+      const promptParts = await prisma.customerOutboxPart.findMany({ where: { id: { in: prompt.partIds } }, orderBy: { ordinal: "asc" } });
+      expect(promptParts).toHaveLength(1);
+      expect(promptParts[0]).toMatchObject({ ordinal: 0, payloadVersion: 2, approvedAssetPurpose: "buyer_guide_follow" });
+      expect(decodeCustomerOutboxPayload(promptParts[0])).toMatchObject({ kind: "text", text: "Этот файл доступен подписчикам страницы. Подпишитесь и напишите здесь." });
+      expect(decodeCustomerOutboxPublicData(promptParts[0])).toMatchObject({ guideFollow: { version: 1, kind: "buyer_guide_follow" } });
+      expect(await dispatchCustomerOutboxPart(promptParts[0].id)).toEqual({ status: "accepted" });
+      const waiting = await prisma.botConversation.findUniqueOrThrow({ where: { id: promptParts[0].originalNativeId } });
+      expect(waiting).toMatchObject({ guideSentAt: null, guideAwaitFollowAt: expect.any(Date) });
+
+      f.setFollowerState(true);
+      const nextEvent = await f.receive("Я подписался, отправьте памятку");
+      f.setReplies([[{ text: JSON.stringify({ kind: "reply", refs: [], social: "none", question: "none", attachment: "buyer_guide" }) }]]);
+      const delivery = await runCustomerDmAgentTurn(nextEvent);
+      expect(delivery.status, JSON.stringify(delivery)).toBe("planned"); if (delivery.status !== "planned") throw Error(JSON.stringify(delivery));
+      const fileParts = await prisma.customerOutboxPart.findMany({ where: { id: { in: delivery.partIds } }, orderBy: { ordinal: "asc" } });
+      expect(fileParts).toHaveLength(2); expect(fileParts[1]).toMatchObject({ approvedAssetPurpose: "buyer_guide", payloadVersion: 1 });
+      expect(decodeCustomerOutboxPayload(fileParts[1]).kind).toBe("link");
+      expect(await dispatchCustomerOutboxPart(fileParts[0].id)).toEqual({ status: "accepted" });
+      expect(await dispatchCustomerOutboxPart(fileParts[1].id)).toEqual({ status: "accepted" });
+      expect(await prisma.botConversation.findUniqueOrThrow({ where: { id: promptParts[0].originalNativeId } }))
+        .toMatchObject({ guideSentAt: expect.any(Date), guideAwaitFollowAt: null });
+    });
+  });
+  it("starts a fresh seven-day wait from a newly accepted follow prompt after the prior wait expired", async () => {
+    await withLiveGuide(async () => {
+      await ownBuyerGuide();
+      const f = await fixture("Хочу памятку по документам для покупки квартиры"); f.setFollowerState(false);
+      f.setReplies([[{ text: JSON.stringify({ kind: "reply", refs: [], social: "none", question: "none", attachment: "buyer_guide" }) }]]);
+      const first = await runCustomerDmAgentTurn(f.eventKey);
+      expect(first.status).toBe("planned"); if (first.status !== "planned") throw Error(JSON.stringify(first));
+      const [firstPrompt] = await prisma.customerOutboxPart.findMany({ where: { id: { in: first.partIds } } });
+      expect(firstPrompt.approvedAssetPurpose).toBe("buyer_guide_follow");
+      expect(await dispatchCustomerOutboxPart(firstPrompt.id)).toEqual({ status: "accepted" });
+      const oldWait = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000);
+      await prisma.botConversation.update({ where: { id: firstPrompt.originalNativeId }, data: { guideAwaitFollowAt: oldWait } });
+
+      const nextEvent = await f.receive("Хочу памятку по документам для покупки квартиры еще раз");
+      f.setReplies([[{ text: JSON.stringify({ kind: "reply", refs: [], social: "none", question: "none", attachment: "buyer_guide" }) }]]);
+      const second = await runCustomerDmAgentTurn(nextEvent);
+      expect(second.status).toBe("planned"); if (second.status !== "planned") throw Error(JSON.stringify(second));
+      const [secondPrompt] = await prisma.customerOutboxPart.findMany({ where: { id: { in: second.partIds } } });
+      expect(secondPrompt.approvedAssetPurpose).toBe("buyer_guide_follow");
+      expect(await dispatchCustomerOutboxPart(secondPrompt.id)).toEqual({ status: "accepted" });
+      const accepted = await prisma.customerOutboxPart.findUniqueOrThrow({ where: { id: secondPrompt.id } });
+      const conversation = await prisma.botConversation.findUniqueOrThrow({ where: { id: firstPrompt.originalNativeId } });
+      expect(accepted.acceptedAt).toBeInstanceOf(Date);
+      expect(conversation.guideAwaitFollowAt).toEqual(accepted.acceptedAt);
+      expect(conversation.guideAwaitFollowAt!.getTime()).toBeGreaterThan(oldWait.getTime());
+    });
+  });
+  it("a queued or ambiguous follow instruction reserves the workflow and cannot enqueue a duplicate prompt", async () => {
+    await withLiveGuide(async () => {
+      await ownBuyerGuide();
+      const f = await fixture("Хочу памятку по документам для покупки квартиры"); f.setFollowerState(false);
+      f.setReplies([[{ text: JSON.stringify({ kind: "reply", refs: [], social: "none", question: "none", attachment: "buyer_guide" }) }]]);
+      const first = await runCustomerDmAgentTurn(f.eventKey);
+      expect(first.status).toBe("planned"); if (first.status !== "planned") throw Error(JSON.stringify(first));
+      const firstParts = await prisma.customerOutboxPart.findMany({ where: { id: { in: first.partIds } }, orderBy: { ordinal: "asc" } });
+      expect(firstParts).toHaveLength(1); expect(firstParts[0].approvedAssetPurpose).toBe("buyer_guide_follow");
+
+      const nextEvent = await f.receive("Памятку можно получить?");
+      f.setReplies([[{ text: JSON.stringify({ kind: "reply", refs: [], social: "none", question: "none", attachment: "buyer_guide" }) }]]);
+      const second = await runCustomerDmAgentTurn(nextEvent);
+      // The closed intent can produce an honest plain-text status while the
+      // first instruction is unresolved, without minting a duplicate prompt.
+      expect(second.status).toBe("planned");
+      const secondParts = await prisma.customerOutboxPart.findMany({ where: { ticketEventKey: nextEvent } });
+      expect(secondParts).toHaveLength(1);
+      expect(secondParts[0].approvedAssetPurpose).toBeNull();
+      expect(decodeCustomerOutboxPayload(secondParts[0])).toMatchObject({ kind: "text", text: "Сейчас не могу отправить памятку." });
+      expect(await prisma.customerOutboxPart.count({ where: { originalNativeId: firstParts[0].originalNativeId,
+        approvedAssetPurpose: "buyer_guide_follow" } })).toBe(1);
+    });
+  });
+  it("keeps an aged UNKNOWN follow prompt immutable but allows a fresh confirmed request to receive the first guide file", async () => {
+    await withLiveGuide(async () => {
+      await ownBuyerGuide();
+      const f = await fixture("Хочу памятку по документам для покупки квартиры"); f.setFollowerState(false);
+      f.setReplies([[{ text: JSON.stringify({ kind: "reply", refs: [], social: "none", question: "none", attachment: "buyer_guide" }) }]]);
+      const first = await runCustomerDmAgentTurn(f.eventKey);
+      expect(first.status).toBe("planned"); if (first.status !== "planned") throw Error(JSON.stringify(first));
+      const [follow] = await prisma.customerOutboxPart.findMany({ where: { id: { in: first.partIds } }, orderBy: { ordinal: "asc" } });
+      expect(follow.approvedAssetPurpose).toBe("buyer_guide_follow");
+      const historicAt = new Date(Date.now() - 48 * 60 * 60 * 1000);
+      await prisma.customerOutboxPart.update({ where: { id: follow.id }, data: { createdAt: historicAt } });
+      f.setMissingMetaMid();
+      expect(await dispatchCustomerOutboxPart(follow.id)).toEqual({ status: "unknown" });
+      const unknownBefore = await prisma.customerOutboxPart.findUniqueOrThrow({ where: { id: follow.id } });
+      const attemptsBefore = await prisma.customerDeliveryAttempt.findMany({ where: { partId: follow.id } });
+      expect(unknownBefore.status).toBe("UNKNOWN"); expect(attemptsBefore).toHaveLength(1);
+
+      f.setFollowerState(true); f.setMissingMetaMid(false);
+      const nextEvent = await f.receive("Хочу памятку по документам для покупки квартиры, пришлите пожалуйста");
+      f.setReplies([[{ text: JSON.stringify({ kind: "reply", refs: [], social: "none", question: "none", attachment: "buyer_guide" }) }]]);
+      const fresh = await runCustomerDmAgentTurn(nextEvent);
+      expect(fresh.status, JSON.stringify(fresh)).toBe("planned"); if (fresh.status !== "planned") throw Error(JSON.stringify(fresh));
+      const newParts = await prisma.customerOutboxPart.findMany({ where: { id: { in: fresh.partIds } }, orderBy: { ordinal: "asc" } });
+      expect(newParts).toHaveLength(2); expect(newParts[1].approvedAssetPurpose).toBe("buyer_guide");
+      expect(decodeCustomerOutboxPayload(newParts[1])).toMatchObject({ kind: "link",
+        url: expect.stringMatching(/^https:\/\/crm-media\.synthetic\.example\/uploads\/msg-files\/customer-approved-/u) });
+      expect(await dispatchCustomerOutboxPart(newParts[0].id)).toEqual({ status: "accepted" });
+      expect(await dispatchCustomerOutboxPart(newParts[1].id)).toEqual({ status: "accepted" });
+      expect(f.io.filter(value => value === "guide-link")).toHaveLength(1);
+      expect(await prisma.customerOutboxPart.findUniqueOrThrow({ where: { id: follow.id } })).toEqual(unknownBefore);
+      expect(await prisma.customerDeliveryAttempt.findMany({ where: { partId: follow.id } })).toEqual(attemptsBefore);
+      expect(await prisma.customerOutboxPart.count({ where: { originalNativeId: follow.originalNativeId, approvedAssetPurpose: "buyer_guide_follow" } })).toBe(1);
+      expect(await prisma.customerOutboxPart.count({ where: { originalNativeId: follow.originalNativeId, approvedAssetPurpose: "buyer_guide" } })).toBe(1);
+    });
+  });
+  it("suppresses a queued buyer-guide follow instruction if the media execution gate is switched OFF", async () => {
+    await withLiveGuide(async () => {
+      await ownBuyerGuide();
+      const f = await fixture("Хочу памятку по документам для покупки квартиры"); f.setFollowerState(false);
+      f.setReplies([[{ text: JSON.stringify({ kind: "reply", refs: [], social: "none", question: "none", attachment: "buyer_guide" }) }]]);
+      const result = await runCustomerDmAgentTurn(f.eventKey);
+      expect(result.status).toBe("planned"); if (result.status !== "planned") throw Error(JSON.stringify(result));
+      const [part] = await prisma.customerOutboxPart.findMany({ where: { id: { in: result.partIds } } });
+      expect(part.approvedAssetPurpose).toBe("buyer_guide_follow");
+      vi.stubEnv("CUSTOMER_AGENT_MEDIA_EXECUTION_MODE", "OFF");
+      expect(await dispatchCustomerOutboxPart(part.id)).toEqual({ status: "suppressed" });
+      expect(f.io).not.toContain("meta-text");
+    });
+  });
+  it("synthesizes only the explicit sealed reply, sends the witnessed audio after text, and projects its accepted MID", async () => {
+    const tts = vi.spyOn(ttsModule, "synthesizeChatVoiceReply").mockResolvedValue({
+      audioBase64: Buffer.alloc(24_000, 7).toString("base64"), sampleRateHz: 24_000,
+    });
+    const transcode = vi.spyOn(audioTranscodeModule, "transcodeToM4a").mockResolvedValue(Buffer.from("synthetic-m4a-audio"));
+    try {
+      await withVoiceFeature(async () => {
+        const { f, parts } = await voicePlannedTurn();
+        expect(parts).toHaveLength(2); expect(parts[0].ordinal).toBe(0); expect(parts[1].ordinal).toBe(1);
+        expect(decodeCustomerOutboxPayload(parts[0]).kind).toBe("text");
+        const audio = decodeCustomerOutboxPayload(parts[1]);
+        expect(parts[1].approvedAssetPurpose).toBeNull();
+        expect(audio).toMatchObject({ kind: "audio", mediaWitness: { synthesizer: "gemini_tts", voiceReplies: true,
+          endpoint: { channel: "INSTAGRAM" }, assetPath: expect.stringMatching(/\.m4a$/u) } });
+        expect(tts).toHaveBeenCalledTimes(1);
+        expect(await dispatchCustomerOutboxPart(parts[0].id)).toEqual({ status: "accepted" });
+        expect(await dispatchCustomerOutboxPart(parts[1].id)).toEqual({ status: "accepted" });
+        expect(f.io.filter(value => value === "meta-audio")).toHaveLength(1);
+        const history = await prisma.botConversation.findUniqueOrThrow({ where: { id: parts[1].originalNativeId } });
+        expect(history.messages).toEqual(expect.arrayContaining([expect.objectContaining({ customerOutboxPartId: parts[1].id,
+          mid: expect.stringMatching(/^synthetic-meta-mid-/u), attachments: [expect.objectContaining({ kind: "audio",
+            mid: expect.stringMatching(/^synthetic-meta-mid-/u) })] })]));
+      });
+    } finally { tts.mockRestore(); transcode.mockRestore(); }
+  });
+  it("mirrors a current authenticated WhatsApp audio message only when voice is not explicitly declined", async () => {
+    const tts = vi.spyOn(ttsModule, "synthesizeChatVoiceReply").mockResolvedValue({
+      audioBase64: Buffer.alloc(24_000, 7).toString("base64"), sampleRateHz: 24_000,
+    });
+    const transcode = vi.spyOn(audioTranscodeModule, "transcodeToOggOpus").mockResolvedValue(Buffer.from("synthetic-ogg-audio"));
+    const actualOpen = runtimeModule.openPinnedCustomerAgentRuntime;
+    const open = vi.spyOn(runtimeModule, "openPinnedCustomerAgentRuntime").mockImplementation(async input => {
+      const result = await actualOpen(input);
+      if (result.status === "ready") result.runtime.mediaEnabled = false; // No inbound-media/provider work in this test.
+      return result;
+    });
+    try {
+      await withVoiceFeature(async () => {
+        const f = await fixture("", false, "WHATSAPP", true);
+        // The audio fixture has no transcript, so its honest text-first reply is
+        // a clarification, not a fabricated content answer without evidence.
+        f.setReplies([[{ text: JSON.stringify({ kind: "clarify", refs: [], social: "none", question: "clarify_previous" }) }]]);
+        const result = await runCustomerDmAgentTurn(f.eventKey);
+        expect(result.status, JSON.stringify(result)).toBe("planned"); if (result.status !== "planned") throw Error(JSON.stringify(result));
+        const parts = await prisma.customerOutboxPart.findMany({ where: { id: { in: result.partIds } }, orderBy: { ordinal: "asc" } });
+        expect(parts).toHaveLength(2); expect(await dispatchCustomerOutboxPart(parts[0].id)).toEqual({ status: "accepted" });
+        const audio = decodeCustomerOutboxPayload(parts[1]);
+        expect(audio).toMatchObject({ kind: "audio", mediaWitness: { voiceTrigger: { kind: "inbound_voice",
+          messageId: expect.any(String), attachmentId: expect.stringMatching(/^synthetic-audio-/u) }, endpoint: { channel: "WHATSAPP" } } });
+        expect(await dispatchCustomerOutboxPart(parts[1].id)).toEqual({ status: "accepted" });
+        expect(tts).toHaveBeenCalledTimes(1); expect(f.io.filter(value => value === "meta-audio")).toHaveLength(1);
+      });
+      expect(customerVoiceTriggerForCurrentInput({ inputText: "ответьте только текстом", eventId: "current-message", eventKind: "message" },
+        [{ kind: "audio", assetRef: "original-audio" }])).toBeNull();
+      expect(customerVoiceTriggerForCurrentInput({ inputText: "Пожалуйста, ответьте голосом", eventId: "current-message", eventKind: "message" },
+        [{ kind: "audio", assetRef: "original-audio" }])).toEqual({ kind: "explicit_request", messageId: "current-message" });
+    } finally { open.mockRestore(); tts.mockRestore(); transcode.mockRestore(); }
+  });
+  it("does no TTS in PREVIEW and suppresses queued audio after a native pause without retrying", async () => {
+    const tts = vi.spyOn(ttsModule, "synthesizeChatVoiceReply").mockResolvedValue({
+      audioBase64: Buffer.alloc(24_000, 7).toString("base64"), sampleRateHz: 24_000,
+    });
+    try {
+      const preview = await withVoiceFeature(async () => voicePlannedTurn(), true, "PREVIEW");
+      expect(preview.parts).toHaveLength(1); expect(tts).not.toHaveBeenCalled();
+      const capabilityOff = await withVoiceFeature(async () => voicePlannedTurn(), false, "LIVE");
+      expect(capabilityOff.parts).toHaveLength(1); expect(tts).not.toHaveBeenCalled();
+      const transcode = vi.spyOn(audioTranscodeModule, "transcodeToM4a").mockResolvedValue(Buffer.from("synthetic-m4a-audio"));
+      try {
+        const live = await withVoiceFeature(async () => voicePlannedTurn());
+        expect(live.parts).toHaveLength(2); expect(tts).toHaveBeenCalledTimes(1);
+        expect(await dispatchCustomerOutboxPart(live.parts[0].id)).toEqual({ status: "accepted" });
+        await prisma.botConversation.update({ where: { id: live.parts[0].originalNativeId },
+          data: { pausedUntil: new Date(Date.now() + 60_000) } });
+        expect(await dispatchCustomerOutboxPart(live.parts[1].id)).toEqual({ status: "suppressed" });
+        expect(live.f.io).not.toContain("meta-audio");
+      } finally { transcode.mockRestore(); }
+    } finally { tts.mockRestore(); }
+  });
+  it("does not call paid TTS when LIVE has no safe public voice asset base", async () => {
+    const previousPublicBase = process.env.CRM_PUBLIC_URL;
+    vi.stubEnv("CRM_PUBLIC_URL", "https://user:secret@crm-media.synthetic.example");
+    const tts = vi.spyOn(ttsModule, "synthesizeChatVoiceReply");
+    try {
+      const result = await withVoiceFeature(async () => voicePlannedTurn(), true, "LIVE");
+      expect(result.parts).toHaveLength(1);
+      expect(tts).not.toHaveBeenCalled();
+    } finally {
+      tts.mockRestore();
+      vi.stubEnv("CRM_PUBLIC_URL", previousPublicBase ?? "");
+    }
+  });
+  it("does not resend voice after an ambiguous provider outcome", async () => {
+    const tts = vi.spyOn(ttsModule, "synthesizeChatVoiceReply").mockResolvedValue({
+      audioBase64: Buffer.alloc(24_000, 7).toString("base64"), sampleRateHz: 24_000,
+    });
+    const transcode = vi.spyOn(audioTranscodeModule, "transcodeToM4a").mockResolvedValue(Buffer.from("synthetic-m4a-audio"));
+    try {
+      await withVoiceFeature(async () => {
+        const { f, parts } = await voicePlannedTurn();
+        expect(await dispatchCustomerOutboxPart(parts[0].id)).toEqual({ status: "accepted" });
+        f.setMissingMetaMid();
+        expect(await dispatchCustomerOutboxPart(parts[1].id)).toEqual({ status: "unknown" });
+        expect(await dispatchCustomerOutboxPart(parts[1].id)).toEqual({ status: "unknown" });
+        expect(f.io.filter(value => value === "meta-audio")).toHaveLength(1);
+        expect(await prisma.customerOutboxPart.findUniqueOrThrow({ where: { id: parts[1].id } })).toMatchObject({ status: "UNKNOWN" });
+      });
+    } finally { tts.mockRestore(); transcode.mockRestore(); }
   });
   it("plans text first and only the owner's existing photo cap as independently witnessed parts", async () => {
     await withLivePhotoPolicy(async () => {
