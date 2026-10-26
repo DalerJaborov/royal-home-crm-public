@@ -55,8 +55,11 @@ const argv = process.argv.slice(2);
 const baseArg = argv.find((a) => a.startsWith("--base="));
 const BASE = baseArg ? baseArg.slice("--base=".length) : "origin/main";
 
+// core.quotePath=false (26.10.2026): иначе git отдаёт имя с кириллицей экранированным
+// ("docs/journal/2026-10-26-\321\200…"), и запись журнала с русским именем
+// не узнаётся — сторож краснел на правке, у которой запись была.
 function git(args) {
-  const r = spawnSync("git", args, { cwd: ROOT, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+  const r = spawnSync("git", ["-c", "core.quotePath=false", ...args], { cwd: ROOT, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
   return r.status === 0 ? r.stdout : null;
 }
 
