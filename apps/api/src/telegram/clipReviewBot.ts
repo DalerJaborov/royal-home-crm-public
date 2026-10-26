@@ -215,13 +215,25 @@ export async function runClipReviewResendTick(now: Date = new Date()): Promise<{
   return { resent };
 }
 
-/** Напоминание сторожа — короткой строкой со ссылкой, без вторых кнопок решения. */
-async function remindClipReview(_propertyId: string, shortId: number, hours: number): Promise<void> {
+/**
+ * Напоминание сторожа — с теми же кнопками решения, что под видео (26.10.2026,
+ * владелец: «чтобы решалось прямо из бота без перехода в CRM» — видео к тому
+ * времени ушло далеко вверх). Сообщение записано как CLIP_TEXT: решение гасит
+ * его кнопки вместе с видео, а новый ролик от монтажёра делает их устаревшими
+ * (notifyClipReview → resolveMessages) — старое напоминание не одобрит невиданный файл.
+ */
+async function remindClipReview(propertyId: string, shortId: number, hours: number): Promise<void> {
   if (!isTelegramEnabled()) return;
+  const p = await prisma.property.findUnique({ where: { id: propertyId }, select: { id: true, version: true } });
+  if (!p) return;
+  const text = `⏰ Ролик по объекту №${shortId} ждёт проверки уже ${hours} ч. Видео — выше, решить можно здесь.`;
   for (const r of await listClipReviewers()) {
-    await sendMessageWithButtons(r.chatId, `⏰ Ролик по объекту №${shortId} ждёт проверки уже ${hours} ч. Кнопки — под видео выше.`, [
-      [{ text: "🔗 Открыть в CRM", url: crmPropertyUrl(shortId) }],
-    ]).catch((err) => reportSendFailure(r, shortId, err));
+    try {
+      const sent = await sendMessageWithButtons(r.chatId, text, clipReviewButtons(shortId));
+      await recordMessage({ kind: "CLIP_TEXT", propertyId: p.id, mod: r, messageId: sent.message_id, text, version: p.version });
+    } catch (err) {
+      reportSendFailure(r, shortId, err);
+    }
   }
 }
 

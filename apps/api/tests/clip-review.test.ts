@@ -461,6 +461,52 @@ describe("решение в CRM", () => {
   });
 });
 
+describe("ролик загружен из CRM (26.10.2026)", () => {
+  async function uploadFromCrm(propertyId: string, token: string) {
+    const res = await request(app)
+      .post(`/api/v1/properties/${propertyId}/video-handoff/upload`)
+      .set("Authorization", `Bearer ${token}`)
+      .attach("video", randomBytes(vh.SAME_FINAL_MIN_BYTES + 4096), "final.mp4");
+    const row = await prisma.property.findUniqueOrThrow({ where: { id: propertyId }, select: { videoHandoffFinalPath: true } });
+    if (row.videoHandoffFinalPath) files.push(path.join(videoHandoffDir, path.basename(row.videoHandoffFinalPath)));
+    return res;
+  }
+
+  it("модератор загрузил сам — одобрено на его имя, слот и задание сразу, на проверку не рассылается", async () => {
+    await setClipReview(true);
+    const p = await makeHolder("crm-модератор");
+    const res = await uploadFromCrm(p.id, reviewerToken);
+    expect(res.status).toBe(200);
+    expect(res.body.clipReviewPending).toBe(false);
+    expect(res.body.scheduledPublishAt).toBeTruthy();
+
+    const after = await prisma.property.findUniqueOrThrow({ where: { id: p.id } });
+    expect(after.clipReviewStatus).toBe("APPROVED");
+    expect(after.clipReviewDecidedById).toBe(reviewer.id);
+    expect((await jobFor(p.id))?.status).toBe("PENDING");
+    await waitFor(() => prisma.auditLog.findFirst({ where: { entityId: p.id, action: "PROPERTY_CLIP_APPROVED" } }));
+
+    await vh.settleBackgroundHandoffDispatches();
+    await new Promise((r) => setTimeout(r, 200));
+    expect(tg.sendVideoFromDisk.mock.calls.some((c) => String(c[2]).includes(`Объект №${p.shortId}`))).toBe(false);
+    expect(await prisma.telegramModerationMessage.count({ where: { propertyId: p.id } })).toBe(0);
+    await prisma.property.update({ where: { id: p.id }, data: { videoHandoffStatus: "NONE" } });
+  });
+
+  it("монтажёр загрузил через CRM — проверка остаётся", async () => {
+    await setClipReview(true);
+    const p = await makeHolder("crm-монтажёр");
+    const montajerToken = await login(`+99296${runId}1`);
+    const res = await uploadFromCrm(p.id, montajerToken);
+    expect(res.status).toBe(200);
+    expect(res.body.clipReviewPending).toBe(true);
+    const after = await prisma.property.findUniqueOrThrow({ where: { id: p.id } });
+    expect(after.clipReviewStatus).toBe("PENDING");
+    await waitFor(() => prisma.telegramModerationMessage.findFirst({ where: { propertyId: p.id, kind: "CLIP" } }));
+    await prisma.property.update({ where: { id: p.id }, data: { videoHandoffStatus: "NONE" } });
+  });
+});
+
 describe("сторож «ролик ждёт проверки»", () => {
   it("дольше 3 часов — напоминание один раз, повтор не раньше чем через 6 часов", async () => {
     // Окно тревог по умолчанию — 09:50–14:45 по Душанбе (workingHours.ts): «сейчас» и
@@ -477,6 +523,11 @@ describe("сторож «ролик ждёт проверки»", () => {
 
     await bot.runClipReviewStaleAlarmTick(now);
     expect(remindedTo()).toHaveLength(1);
+    // Решить можно прямо из напоминания (26.10.2026) — те же кнопки, что под видео,
+    // и сообщение записано: решение или новый ролик гасят его кнопки вместе с видео.
+    expect(JSON.stringify(remindedTo()[0][2])).toContain(`cr:a:${p.shortId}`);
+    expect(JSON.stringify(remindedTo()[0][2])).toContain(`cr:r:${p.shortId}`);
+    expect(await prisma.telegramModerationMessage.count({ where: { propertyId: p.id, kind: "CLIP_TEXT", resolvedAt: null } })).toBe(1);
     expect(sendPushToAgents).toHaveBeenCalledWith(expect.arrayContaining([reviewer.id]), expect.objectContaining({ tag: `clip-review-stale-${p.id}` }));
 
     await bot.runClipReviewStaleAlarmTick(new Date(now.getTime() + 60 * 60_000));
