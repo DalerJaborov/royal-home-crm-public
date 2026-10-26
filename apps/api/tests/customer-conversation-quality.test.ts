@@ -2,11 +2,14 @@ import { describe, expect, it } from "vitest";
 import { renderCustomerAgentDecision } from "../src/ai/customerAgentRenderer.js";
 import { customerAgentCompanyInformationHash } from "../src/ai/customerAgentPublicProtocol.js";
 import { customerFollowRequest, customerRecruitmentLanguagePermissionQuestion,
-  customerStandaloneFurnitureQuestion } from "../src/ai/customerAgentConversationPolicy.js";
+  customerStandaloneFurnitureQuestion, customerRecruitmentLanguagePermissionRequested,
+  customerFurnitureQuestionRequested, customerMessengerChannelQuestion } from "../src/ai/customerAgentConversationPolicy.js";
+import { customerRecruitmentFactsRequested, recruitmentCatalogHash } from "../src/ai/customerAgentRecruitmentProtocol.js";
+import { recruitmentPositionTemplates } from "../src/lib/recruitmentPositionTemplates.js";
 
-const context = (topic: "job" | "property", turns: Array<{ role: "user" | "assistant"; text: string }>) => ({
+const context = (topic: "job" | "property", turns: Array<{ role: "user" | "assistant"; text: string }>, jobPositionKey: string | null = null) => ({
   surface: "dm", revisionId: "a".repeat(64), turns,
-  publicState: { topic, jobPositionKey: null, role: "unknown" },
+  publicState: { topic, jobPositionKey, role: "unknown" },
 }) as never;
 
 const base = {
@@ -25,14 +28,47 @@ describe("customer conversation quality", () => {
     expect(result).toBe("Да, конечно. Расскажите о себе и своём опыте на таджикском.");
   });
 
-  it("does not swallow a mixed candidate question", () => {
+  it("keeps exact-only language classification narrow but recognizes a mixed language and salary request", () => {
     const mixed = "Можно рассказать о себе по-таджикски и какая зарплата?";
     expect(customerRecruitmentLanguagePermissionQuestion(mixed)).toBe(false);
+    expect(customerRecruitmentLanguagePermissionRequested(mixed)).toBe(true);
+    expect(customerRecruitmentFactsRequested(mixed)).toBe(true);
     expect(customerRecruitmentLanguagePermissionQuestion("Можно рассказать о себе?" )).toBe(false);
-    expect(renderCustomerAgentDecision({ ...base,
+    expect(customerRecruitmentLanguagePermissionRequested('«Можно рассказать о себе по-таджикски?» и какая зарплата?')).toBe(false);
+    expect(customerRecruitmentFactsRequested('Не спрашиваю про зарплату.')).toBe(false);
+    expect(customerRecruitmentFactsRequested('«Какая зарплата?»')).toBe(false);
+    expect(customerRecruitmentFactsRequested("Зарплата")).toBe(true);
+    expect(customerRecruitmentFactsRequested("Маош")).toBe(true);
+    expect(customerRecruitmentFactsRequested("Не зарплата")).toBe(false);
+
+    const position = { ...recruitmentPositionTemplates().find(row => row.key === "smm-videographer")!, isOpen: true, revision: 1 };
+    const catalogFacts = { collecting: true, positions: [position] };
+    const vacancies = { kind: "open_vacancies" as const, ...catalogFacts, sourceHash: recruitmentCatalogHash(catalogFacts) };
+    const result = renderCustomerAgentDecision({ ...base,
       decision: { kind: "reply", refs: [], social: "none", question: "job_position" },
-      inputText: mixed, language: "ru", verifiedContext: context("job", []),
-    })).toBe("Какая должность вас интересует?");
+      inputText: mixed, language: "ru", verifiedContext: context("job", [], position.key),
+      evidence: [{ ref: "e0", value: vacancies }],
+    });
+    expect(result).toContain("Да, конечно. Расскажите о себе и своём опыте на таджикском.");
+    expect(result).toContain("Размер зарплаты и точные часы пока не опубликованы.");
+    expect(result).not.toMatch(/\b\d{4,}\b/u);
+    expect(result).not.toContain("Какая должность вас интересует?");
+  });
+
+  it("answers mixed Tajik-language and salary requests in Tajik from current vacancy details", () => {
+    const mixed = "Метавонам дар бораи худ ба тоҷикӣ нақл кунам ва маош чанд аст?";
+    const position = { ...recruitmentPositionTemplates().find(row => row.key === "smm-videographer")!, isOpen: true, revision: 1 };
+    const catalogFacts = { collecting: true, positions: [position] };
+    const vacancies = { kind: "open_vacancies" as const, ...catalogFacts, sourceHash: recruitmentCatalogHash(catalogFacts) };
+    expect(customerRecruitmentLanguagePermissionRequested(mixed)).toBe(true);
+    expect(customerRecruitmentFactsRequested(mixed)).toBe(true);
+    const result = renderCustomerAgentDecision({ ...base,
+      decision: { kind: "reply", refs: [], social: "none", question: "job_position" }, inputText: mixed, language: "tg",
+      verifiedContext: context("job", [], position.key), evidence: [{ ref: "e0", value: vacancies }],
+    });
+    expect(result).toContain("Бале, албатта. Дар бораи худ ва таҷрибаатон ба тоҷикӣ нақл кунед.");
+    expect(result).toContain("Маош ва соатҳои дақиқ ҳоло нашр нашудаанд.");
+    expect(result).not.toMatch(/\b\d{4,}\b/u);
   });
 
   it("replaces repeated recruitment greetings with a bounded acknowledgement and preserves receipts", () => {
@@ -65,7 +101,7 @@ describe("customer conversation quality", () => {
         floor: 2, totalFloors: 8, condition: null, marketType: null, stage: null } };
     const render = (cards: Array<typeof sold | typeof reserved>) => renderCustomerAgentDecision({ ...base, surface: "public_comment",
       decision: { kind: "reply", refs: ["e0"], social: "none", question: "rooms" },
-      inputText: "Бо чизу чорааш?", language: "tg",
+      inputText: "Бо чизу чорааш", language: "tg",
       evidence: [{ ref: "e0", value: { kind: "publication_properties", source: { channel: "INSTAGRAM", resourceId: "test-resource", publicationId: "test-publication" },
         mappingSignature: "e".repeat(64), kinds: ["price", "characteristics"], cards } }],
     });
@@ -81,9 +117,42 @@ describe("customer conversation quality", () => {
     expect(many).not.toContain("Ҳуҷраҳо");
   });
 
+  it("answers a mixed furniture and area question with verified area and an honest furniture unknown", () => {
+    const facts = { propertyId: "00000000-0000-4000-8000-000000000004", shortId: 12348,
+      price: null, currency: "TJS" as const, availability: "AVAILABLE" as const, publicAddress: null,
+      addressPolicy: "district_city_only" as const, builder: null, publicLink: null,
+      updatedAt: "2026-01-01T00:00:00.000Z", signature: "f".repeat(64),
+      characteristics: { type: "APARTMENT" as const, rooms: 2, areaSqm: "70", landAreaSotka: null,
+        floor: 2, totalFloors: 8, condition: null, marketType: null, stage: null } };
+    const render = (inputText: string, language: "ru" | "tg" = "ru") => renderCustomerAgentDecision({ ...base,
+      decision: { kind: "reply", refs: ["e0"], social: "none", question: "none" }, inputText, language,
+      requestedFacts: ["characteristics"],
+      evidence: [{ ref: "e0", value: { kind: "facts", facts, kinds: ["characteristics"] } }],
+    });
+    const mixed = "Мебель остаётся и какая площадь?";
+    expect(customerFurnitureQuestionRequested(mixed)).toBe(true);
+    const answer = render(mixed);
+    expect(answer).toContain("70 м²");
+    expect(answer).toContain("В подтверждённых данных не указано, останется ли мебель и входит ли она в стоимость.");
+    expect(customerFurnitureQuestionRequested("Не спрашиваю про мебель, какая площадь?")).toBe(false);
+    expect(customerFurnitureQuestionRequested('«Мебель остается?» Какая площадь?')).toBe(false);
+    const unrelated = render("Не спрашиваю про мебель, какая площадь?");
+    expect(unrelated).toContain("70 м²");
+    expect(unrelated).not.toContain("не указано, останется ли мебель");
+
+    const tajikMixed = "Бо чизу чорааш ва масоҳаташ чанд?";
+    expect(customerStandaloneFurnitureQuestion("Бо чизу чорааш")).toBe(true);
+    expect(customerFurnitureQuestionRequested("Бо чизу чорааш")).toBe(true);
+    expect(customerFurnitureQuestionRequested(tajikMixed)).toBe(true);
+    const tajikAnswer = render(tajikMixed, "tg");
+    expect(tajikAnswer).toContain("70 м²");
+    expect(tajikAnswer).toContain("Маълумоти тасдиқшуда нест, ки мебел бо объект дода мешавад ё ба нарх дохил аст.");
+    expect(customerFurnitureQuestionRequested("Бо чизу чорааш лозим нест, масоҳаташ чанд?")).toBe(false);
+  });
+
   it("does not suppress proposal confirmation for conversational-looking input", () => {
     const summary = { ru: "Отклик на вакансию сохранён.", tg: "Дархости кор сабт шуд." };
-    for (const inputText of ["По таджикский можно рассказать о себе?", "сайти навмай под кне 🫂🖤", "Бо чизу чорааш?"]) {
+    for (const inputText of ["По таджикский можно рассказать о себе?", "сайти навмай под кне 🫂🖤", "Бо чизу чорааш?", "Рустам через телеграм можно или ватсап?"]) {
       const result = renderCustomerAgentDecision({ ...base,
         decision: { kind: "propose", ref: "e0", social: "none" }, inputText, language: "ru",
         verifiedContext: context("job", [{ role: "assistant", text: "Шумо чӣ гуна кор мехоҳед?" }]),
@@ -124,6 +193,23 @@ describe("customer conversation quality", () => {
     expect(customerRecruitmentLanguagePermissionQuestion("Можно рассказать о себе на таджикском?")).toBe(true);
   });
 
+  it("answers a mixed messenger question only with a current-chat continuation", () => {
+    const ru = "Рустам через телеграм можно или ватсап?";
+    const tg = "Рустам тавассути WhatsApp навиштан мумкин аст?";
+    expect(customerMessengerChannelQuestion(ru)).toBe(true);
+    expect(customerMessengerChannelQuestion(tg)).toBe(true);
+    expect(customerMessengerChannelQuestion('«через телеграм можно?»')).toBe(false);
+    expect(customerMessengerChannelQuestion("Не пишите через телеграм, продолжим здесь.")).toBe(false);
+    expect(customerMessengerChannelQuestion("Я работаю с Telegram, какая зарплата?")).toBe(false);
+    const render = (inputText: string, language: "ru" | "tg") => renderCustomerAgentDecision({ ...base,
+      decision: { kind: "reply", refs: [], social: "none", question: "none" }, inputText, language,
+      verifiedContext: context("job", []),
+    });
+    expect(render(ru, "ru")).toBe("Можем продолжить здесь, в текущем чате.");
+    expect(render(tg, "tg")).toBe("Метавонем ҳамин ҷо, дар ҳамин чат, идома диҳем.");
+    expect(render(ru, "ru")).not.toMatch(/telegram|whatsapp|телеграм|ватсап/iu);
+  });
+
   it("preserves an actual receipt while declining a follow request", () => {
     const result = renderCustomerAgentDecision({ ...base,
       decision: { kind: "reply", refs: ["e0"], social: "none", question: "none" },
@@ -131,6 +217,17 @@ describe("customer conversation quality", () => {
       evidence: [{ ref: "e0", value: { kind: "receipt", outcome: "job_application_saved" } }],
     });
     expect(result).toContain("Я не могу сам подписаться на сайт или аккаунт.");
+    expect(result).toContain("Сведения добавлены к отклику на вакансию.");
+  });
+
+  it("preserves a saved-application receipt alongside the current-chat answer", () => {
+    const result = renderCustomerAgentDecision({ ...base,
+      decision: { kind: "reply", refs: ["e0"], social: "none", question: "none" },
+      inputText: "Рустам через телеграм можно или ватсап?", language: "ru",
+      evidence: [{ ref: "e0", value: { kind: "receipt", outcome: "job_application_saved" } }],
+      verifiedContext: context("job", []),
+    });
+    expect(result).toContain("Можем продолжить здесь, в текущем чате.");
     expect(result).toContain("Сведения добавлены к отклику на вакансию.");
   });
 });

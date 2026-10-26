@@ -16,6 +16,7 @@ import { isDeepStrictEqual } from "node:util";
 import { customerAgentRolloutConfigSchema } from "@royal-home/shared";
 import { customerAgentRevisionReachable } from "./customerAgentRevisionAdvance.js";
 import { isCustomerRecruitmentUpgradeV1, isCustomerRecruitmentResumeUpgradeV2 } from "./customerRecruitmentUpgrade.js";
+import { isCustomerAgentQualityContinuityUpgradeV1 } from "./customerAgentQualityContinuityUpgrade.js";
 
 export class CustomerAgentOwnerError extends Error {
   constructor(readonly status: number, readonly code: string) { super(code); }
@@ -76,15 +77,16 @@ export async function readCustomerAgentOwnerState(actorId: string) {
       configId:createCustomerAgentProviderSnapshot().configRevision });
   });
 }
-type PublishSpec = Pick<z.infer<typeof customerAgentPublishRequestSchema>, 'expectedPolicyRevision'|'rollout'|'capabilities'|'advanceIdleRevision'|'confirmMediaProfileUpgrade'|'confirmCatalogFactsUpgrade'|'confirmRecruitmentResumeUpgrade'|'reason'>;
+type PublishSpec = Pick<z.infer<typeof customerAgentPublishRequestSchema>, 'expectedPolicyRevision'|'rollout'|'capabilities'|'advanceIdleRevision'|'confirmMediaProfileUpgrade'|'confirmCatalogFactsUpgrade'|'confirmRecruitmentResumeUpgrade'|'confirmQualityContinuityUpgrade'|'reason'>;
 type PublishAuthority = 'step_up' | 'retained_policy_refresh';
 
 /** No client policy/manifest/config overrides. This is an explicit signed-in
  * administrator action, not an automatic recovery, fallback or new grant. */
 export async function refreshCurrentCustomerAgentForOwner(actorId:string,raw:unknown) {
   const body=customerAgentRefreshRequestSchema.parse(raw);
+  const qualityStepUp=body.confirmQualityContinuityUpgrade===true;
   const current=await prisma.$transaction(async tx=>{
-    await actorTx(tx,actorId,false);
+    await actorTx(tx,actorId,qualityStepUp);
     const policy=await tx.customerRuntimePolicy.findUniqueOrThrow({where:{id:'singleton'}});
     if(policy.policyRevision.toString()!==body.expectedPolicyRevision) fail(409,'policy_changed');
     if(policy.contractVersion!=='scoped'||policy.rolloutMode!=='ACTIVE') fail(409,'routine_refresh_requires_active_policy');
@@ -94,18 +96,19 @@ export async function refreshCurrentCustomerAgentForOwner(actorId:string,raw:unk
   });
   const factory=createCustomerAgentProviderSnapshot();
   const revision=await registerCurrentCustomerAgentRevision(factory,{
-    beforeWrite:async tx=>{await actorTx(tx,actorId,false);},
+    beforeWrite:async tx=>{await actorTx(tx,actorId,qualityStepUp);},
     afterWrite:async(tx,value)=>{
-      const actor=await actorTx(tx,actorId,false);
+      const actor=await actorTx(tx,actorId,qualityStepUp);
       await auditTx(tx,actor,'CUSTOMER_AGENT_REGISTER',value.id,{configId:factory.configRevision,reason:body.reason,authority:'retained_policy_refresh'});
     },
   });
   if(revision.id===current.policy.activeAgentRevisionId) {
     if(body.confirmRecruitmentResumeUpgrade) fail(409,'recruitment_resume_upgrade_not_required');
+    if(body.confirmQualityContinuityUpgrade) fail(409,'quality_continuity_upgrade_not_required');
     const verified=await loadVerifiedCustomerAgentRevision(revision);
     if(verified.status!=='current') fail(409,'revision_not_current');
     return prisma.$transaction(async tx=>{
-      await actorTx(tx,actorId,false);
+      await actorTx(tx,actorId,qualityStepUp);
       const row=await tx.customerRuntimePolicy.findUniqueOrThrow({where:{id:'singleton'}});
       if(row.policyRevision.toString()!==body.expectedPolicyRevision) fail(409,'policy_changed');
       if(row.contractVersion!==current.policy.contractVersion||row.rolloutMode!==current.policy.rolloutMode||
@@ -122,6 +125,7 @@ export async function refreshCurrentCustomerAgentForOwner(actorId:string,raw:unk
     rollout:{...current.rollout,candidateRevisionId:revision.id,cohortId:randomUUID()},
     capabilities:current.capabilities,advanceIdleRevision:true,
     ...(body.confirmRecruitmentResumeUpgrade?{confirmRecruitmentResumeUpgrade:true as const}:{}),
+    ...(body.confirmQualityContinuityUpgrade?{confirmQualityContinuityUpgrade:true as const}:{}),
     ...(prior.toolSchemaHash!==revision.toolSchemaHash||prior.knowledgeSchemaHash!==revision.knowledgeSchemaHash?{confirmCatalogFactsUpgrade:true as const}:{}),
   },'retained_policy_refresh');
 }
@@ -131,8 +135,9 @@ export async function publishCustomerAgentForOwner(actorId:string,raw:unknown) {
 }
 async function publishVerifiedCustomerAgentForOwner(actorId:string,body:PublishSpec,authority:PublishAuthority) {
   const routine=authority==='retained_policy_refresh';
+  const requiresStepUp=!routine||body.confirmQualityContinuityUpgrade===true;
   // Authorize before artifact reads AND reread after those awaits in final TX.
-  await prisma.$transaction(tx=>actorTx(tx,actorId,!routine));
+  await prisma.$transaction(tx=>actorTx(tx,actorId,requiresStepUp));
   const stored=await prisma.customerAgentRevision.findUnique({where:{id:body.rollout.candidateRevisionId}});
   if(!stored) fail(409,"revision_not_registered");
   const verified=await loadVerifiedCustomerAgentRevision(decodeCustomerAgentRevision(stored));
@@ -140,7 +145,7 @@ async function publishVerifiedCustomerAgentForOwner(actorId:string,body:PublishS
   const factory=createCustomerAgentProviderSnapshot();
   if(verified.snapshot.configRevision!==factory.configRevision || verified.snapshot.budget.maxDailyUsd!==null) fail(409,"spending_configuration_not_supported");
   return prisma.$transaction(async tx=>{
-    const actor=await actorTx(tx,actorId,!routine);
+    const actor=await actorTx(tx,actorId,requiresStepUp);
     // Lock credentials BEFORE scopes/policy. Rotation cannot acquire opposite
     // locks after our policy row. Values stay inside server, never audit/result.
     await tx.$queryRaw`SELECT "id" FROM "Settings" WHERE "id"='singleton' FOR SHARE`;
@@ -182,6 +187,7 @@ async function publishVerifiedCustomerAgentForOwner(actorId:string,body:PublishS
     }
     let recruitmentProtocolUpgrade=false, recruitmentResumeUpgrade=false;
     if(body.confirmRecruitmentResumeUpgrade&&!body.advanceIdleRevision) fail(409,'recruitment_resume_upgrade_requires_idle');
+    if(body.confirmQualityContinuityUpgrade&&!body.advanceIdleRevision) fail(409,'quality_continuity_upgrade_requires_idle');
     // Updating existing CORE requires an explicit owner-approved idle edge.
     // Assignments, original sources and receipts are never rewritten.
     const [incumbent]=await tx.$queryRaw<Array<{blocked:boolean}>>`SELECT EXISTS(SELECT 1 FROM "CustomerAgentRolloutAssignment" WHERE "lane"='CORE'
@@ -217,19 +223,24 @@ async function publishVerifiedCustomerAgentForOwner(actorId:string,body:PublishS
         if(!isDeepStrictEqual(prior[field],next[field])) fail(409,"revision_advance_configuration_changed");
       const catalogChanged = prior.knowledgeSchemaHash !== next.knowledgeSchemaHash || prior.toolSchemaHash !== next.toolSchemaHash;
       const resumePair=isCustomerRecruitmentResumeUpgradeV2(prior,next);
+      const qualityContinuityPair=isCustomerAgentQualityContinuityUpgradeV1(prior,next);
       if(resumePair&&!body.confirmRecruitmentResumeUpgrade) fail(409,'recruitment_resume_upgrade_confirmation_required');
       if(body.confirmRecruitmentResumeUpgrade&&!resumePair) fail(409,'recruitment_resume_upgrade_not_qualified');
       recruitmentResumeUpgrade=resumePair&&body.confirmRecruitmentResumeUpgrade===true;
+      const qualityContinuityUpgrade=qualityContinuityPair&&body.confirmQualityContinuityUpgrade===true;
+      if(qualityContinuityPair&&!body.confirmQualityContinuityUpgrade) fail(409,'quality_continuity_upgrade_confirmation_required');
+      if(body.confirmQualityContinuityUpgrade&&!qualityContinuityPair) fail(409,'quality_continuity_upgrade_not_qualified');
+      if(qualityContinuityUpgrade&&catalogChanged) fail(409,'quality_continuity_upgrade_configuration_changed');
       recruitmentProtocolUpgrade=recruitmentResumeUpgrade || body.confirmCatalogFactsUpgrade===true && isCustomerRecruitmentUpgradeV1(prior,next);
-      if(prior.promptHash!==next.promptHash && !recruitmentProtocolUpgrade) fail(409,"revision_advance_configuration_changed");
+      if(prior.promptHash!==next.promptHash && !recruitmentProtocolUpgrade && !qualityContinuityUpgrade) fail(409,"revision_advance_configuration_changed");
       if (catalogChanged && !body.confirmCatalogFactsUpgrade && !recruitmentResumeUpgrade) fail(409,"catalog_facts_upgrade_confirmation_required");
       if (!catalogChanged && body.confirmCatalogFactsUpgrade && !recruitmentResumeUpgrade) fail(409,"catalog_facts_upgrade_not_required");
-      if ((catalogChanged || recruitmentResumeUpgrade) && (prior.providerProfileHash !== next.providerProfileHash || prior.providerPolicyHash !== next.providerPolicyHash ||
+      if ((catalogChanged || recruitmentResumeUpgrade || qualityContinuityUpgrade) && (prior.providerProfileHash !== next.providerProfileHash || prior.providerPolicyHash !== next.providerPolicyHash ||
         !isDeepStrictEqual([...before.data.allowed].sort((a,b)=>a.endpointScopeId.localeCompare(b.endpointScopeId)),
           [...body.rollout.allowed].sort((a,b)=>a.endpointScopeId.localeCompare(b.endpointScopeId))) ||
         before.data.percentBasisPoints !== body.rollout.percentBasisPoints ||
         !isDeepStrictEqual(customerAgentOwnerStateSchema.shape.capabilities.parse(current.capabilities),body.capabilities))) {
-        fail(409,"catalog_facts_upgrade_configuration_changed");
+        fail(409,qualityContinuityUpgrade?"quality_continuity_upgrade_configuration_changed":"catalog_facts_upgrade_configuration_changed");
       }
       const profileChanged=prior.providerProfileHash!==next.providerProfileHash || prior.providerPolicyHash!==next.providerPolicyHash;
       if(routine&&profileChanged) fail(409,'routine_refresh_provider_changed');
@@ -252,7 +263,7 @@ async function publishVerifiedCustomerAgentForOwner(actorId:string,body:PublishS
       for(const root of roots) if(!await customerAgentRevisionReachable(tx,root,body.rollout.candidateRevisionId,body.rollout.cohortId))
         fail(409,"revision_advance_target_unreachable");
     }
-    if(!routine&&!settingsStepUpSatisfied(actor)) fail(428,"step_up_required");
+    if(requiresStepUp&&!settingsStepUpSatisfied(actor)) fail(428,"step_up_required");
     const [updated]=await tx.$queryRaw<Array<{policyRevision:bigint}>>`UPDATE "CustomerRuntimePolicy" SET "contractVersion"='scoped',"rolloutMode"='ACTIVE',
       "activeAgentRevisionId"=${body.rollout.candidateRevisionId},"rolloutConfig"=${JSON.stringify(body.rollout)}::jsonb,"policyRevision"="policyRevision"+1,
       "capabilities"=${JSON.stringify(body.capabilities)}::jsonb,"updatedAt"=now() WHERE "id"='singleton' AND "policyRevision"=${BigInt(body.expectedPolicyRevision)} RETURNING "policyRevision"`;
@@ -260,12 +271,14 @@ async function publishVerifiedCustomerAgentForOwner(actorId:string,body:PublishS
     await auditTx(tx,actor,'CUSTOMER_AGENT_PUBLISH','singleton',{oldRevision:current.policyRevision.toString(),newRevision:updated.policyRevision.toString(),
       candidate:body.rollout.candidateRevisionId,cohort:body.rollout.cohortId,percentBasisPoints:body.rollout.percentBasisPoints,
       scopes:scopeIds,configId:factory.configRevision,paidConfirmed:routine?null:true,noDailyCapAcknowledged:routine?null:true,
-      authority,routineRefresh:routine,retainedPaidAuthority:routine,idleRevisionAdvanced:body.advanceIdleRevision===true,
+      authority:body.confirmQualityContinuityUpgrade&&routine?'quality_continuity_step_up':authority,
+      routineRefresh:routine,retainedPaidAuthority:routine,idleRevisionAdvanced:body.advanceIdleRevision===true,
       catalogFactsUpgrade:body.confirmCatalogFactsUpgrade===true,
       recruitmentProtocolUpgrade,
       recruitmentResumeUpgradeVersion:recruitmentResumeUpgrade?'v2':null,
+      qualityContinuityUpgradeVersion:body.confirmQualityContinuityUpgrade?'v1':null,
       mediaProfileUpgrade:body.confirmMediaProfileUpgrade===true,reason:body.reason});
-    if(!routine&&!settingsStepUpSatisfied(actor)) fail(428,"step_up_required");
+    if(requiresStepUp&&!settingsStepUpSatisfied(actor)) fail(428,"step_up_required");
     return {policyRevision:updated.policyRevision.toString(),rolloutMode:'ACTIVE',existingPromotion:'not_implemented'};
   });
 }

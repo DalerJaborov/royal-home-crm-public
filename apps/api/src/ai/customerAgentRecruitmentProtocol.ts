@@ -3,6 +3,7 @@ import { customerAgentVacanciesObservationSchema, recruitmentPositionSchema, ass
   type RecruitmentFactKey, type CustomerAgentVacanciesObservation, type RecruitmentPosition } from "@royal-home/shared";
 import { customerTextRole, foldCustomerText } from "./customerAgentRole.js";
 import { extractRecruitmentResumeFacts, extractRecruitmentAnswerFacts } from "../lib/recruitmentResume.js";
+import { customerOwnUnquotedText } from "./customerAgentConversationPolicy.js";
 
 /** Pure public-data validation; never imports DB, candidate records or grants. */
 export function recruitmentCatalogHash(value: Omit<CustomerAgentVacanciesObservation, "kind" | "sourceHash">): string {
@@ -18,7 +19,18 @@ export function customerRecruitmentRequested(text: string): boolean {
   return /ваканси|ищу\s+работу|хочу\s+работать|хочу\s+(?:стать|устроиться)\s+агент|резюме|ҷойи\s+кор|чои\s+кор|дар\s+бораи\s+кор|(?:о|по)\s+работе|(?:насч[её]т|по\s+поводу)\s+работы|кор\s+(?:меҷӯ|мечу|мекоб|мехо[ҳх]|даркор|лозим)|ба\s+кор\s+(?:гири|қабул|кабул)|(?:есть|имеется)\s+(?:у\s+вас\s+)?(?:сейчас\s+)?(?:какая[\s-]*нибудь\s+)?(?:работ[аы]|работу)(?![\p{L}])|кор\s+доред(?![\p{L}])|SMM|СММ|видеограф/iu.test(text);
 }
 export function customerRecruitmentFactsRequested(text: string): boolean {
-  return /ваканси|услови|зарплат|оплат|платит|платят|график|удал[её]н|удал[её]нк|дистанцион|из\s+дома|офис|суббот|выходн|(?:дни|часы)\s+работ|(?:есть|ищу)\s+работ|ҷойи\s+кор|чои\s+кор|маош|шартҳои\s+кор|дар\s+бораи\s+кор|фосилав|аз\s+хона|рӯзҳои\s+кор|соати\s+кор|шанбе|подроб|муфассал/iu.test(text);
+  const own = customerOwnUnquotedText(text);
+  const nonSalaryFact = /ваканси|услови|график|удал[её]н|удал[её]нк|дистанцион|из\s+дома|офис|суббот|выходн|(?:дни|часы)\s+работ|(?:есть|ищу)\s+работ|ҷойи\s+кор|чои\s+кор|шартҳои\s+кор|дар\s+бораи\s+кор|фосилав|аз\s+хона|рӯзҳои\s+кор|соати\s+кор|шанбе|подроб|муфассал/iu;
+  if (nonSalaryFact.test(own)) return true;
+  const salary = /зарплат|оклад|оплат|платит|платят|заработ|доход|комисси|маош|даромад|музд/iu;
+  const salaryOnly = /^(?:а\s+)?(?:зарплат\p{L}*|оклад\p{L}*|оплат\p{L}*|маош\p{L}*|даромад\p{L}*|музд\p{L}*)$/iu;
+  const asks = /[?？]|(?<!\p{L})(?:какая|какой|какие|сколько|размер|узнать|интересует|расскажите|напишите|про|насчет|даромад)(?!\p{L})/iu;
+  const rejects = /(?<!\p{L})(?:не\s+(?:спрашиваю|интересует|интересно|нужно|надо|хочу|важно)|без\s+(?:вопроса|зарплаты|зарплат|оплаты|маош))(?!\p{L})/iu;
+  return own.split(/(?<=[?？!.,;\n])\s+|\s+(?:и|а|но|ҳам|ва)\s+/iu)
+    .some(clause => {
+      const normalized = clause.normalize("NFKC").toLowerCase().replace(/ё/gu, "е").replace(/[?？]+/gu, " ").replace(/\s+/gu, " ").trim();
+      return salary.test(clause) && (asks.test(clause) || salaryOnly.test(normalized)) && !rejects.test(clause);
+    });
 }
 /** Only topic projection. This creates no application, consent or HR verdict. */
 export function customerRecruitmentTopic(text: string, previous: "buyer" | "seller" | "job" | "rent" | "unknown", matchedPublication = false) {

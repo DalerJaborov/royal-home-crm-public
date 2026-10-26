@@ -25,6 +25,9 @@ function message(error: unknown): string {
   if (!(error instanceof ApiError)) return error instanceof Error ? error.message : "Не удалось выполнить действие.";
   if (error.message === "recruitment_resume_upgrade_confirmation_required") return "Установлено обновление вопросов найма. Отметьте отдельное подтверждение обновления анкет кандидатов и повторите действие.";
   if (["recruitment_resume_upgrade_not_required", "recruitment_resume_upgrade_not_qualified"].includes(error.message)) return "Это подтверждение не подходит к установленной версии. Снимите отметку обновления анкет кандидатов и обновите состояние.";
+  if (error.message === "quality_continuity_upgrade_confirmation_required") return "Для этой версии требуется отдельное подтверждение качества и продолжения диалога. Отметьте его и повторите действие.";
+  if (["quality_continuity_upgrade_not_required", "quality_continuity_upgrade_not_qualified"].includes(error.message)) return "Подтверждение качества и продолжения не соответствует установленной версии. Обновите состояние и проверьте точную версию.";
+  if (error.message === "quality_continuity_upgrade_configuration_changed") return "Это обновление допускается только без изменения модели, лимитов, доли, каналов и прав CRM.";
   if (error.status === 409) return "Настройки уже изменились или работа ещё занята. Обновите состояние и проверьте его перед новым действием.";
   if (error.status === 403) return "Право управления настройками отозвано. Обновите страницу.";
   if (error.status === 428) return "Нужно повторно подтвердить личность. После подтверждения проверьте состояние и нажмите действие ещё раз.";
@@ -43,6 +46,7 @@ export function CustomerAgentRolloutSection() {
   const [mediaUpgrade, setMediaUpgrade] = useState(false);
   const [catalogUpgrade, setCatalogUpgrade] = useState(false);
   const [recruitmentUpgrade, setRecruitmentUpgrade] = useState(false);
+  const [qualityContinuityUpgrade, setQualityContinuityUpgrade] = useState(false);
   const [candidate, setCandidate] = useState<string | null>(null);
   const [capabilities, setCapabilities] = useState<CustomerAgentOwnerState["capabilities"]>({
     publicRead: false, contactWrite: false, callbackWrite: false, newLeadBridge: false,
@@ -57,7 +61,7 @@ export function CustomerAgentRolloutSection() {
   });
   const publish = useMutation({
     mutationFn: (body: CustomerAgentPublishRequest) => api<Publication>("/settings/customer-agent/rollout", { method: "PUT", body }),
-    retry: false, onSuccess: async () => { setConfirm(null); setCandidate(null); setPaid(false); setNoCap(false); setAdvanceIdle(false); setCatalogUpgrade(false); setRecruitmentUpgrade(false); await refresh(); },
+    retry: false, onSuccess: async () => { setConfirm(null); setCandidate(null); setPaid(false); setNoCap(false); setAdvanceIdle(false); setCatalogUpgrade(false); setRecruitmentUpgrade(false); setQualityContinuityUpgrade(false); await refresh(); },
   });
   const kill = useMutation({
     mutationFn: (body: { expectedPolicyRevision: string; reason: string }) => api<KillResult>("/settings/customer-agent/kill", { method: "POST", body }),
@@ -65,7 +69,7 @@ export function CustomerAgentRolloutSection() {
   });
   const adopt = useMutation({
     mutationFn: (body: CustomerAgentRefreshRequest) => api<{ policyRevision: string }>("/settings/customer-agent/refresh-current", { method: "POST", body }),
-    retry: false, onSuccess: async () => { setConfirm(null); setCandidate(null); setRecruitmentUpgrade(false); await refresh(); },
+    retry: false, onSuccess: async () => { setConfirm(null); setCandidate(null); setRecruitmentUpgrade(false); setQualityContinuityUpgrade(false); await refresh(); },
   });
   const data = state.data;
   useEffect(() => {
@@ -97,6 +101,7 @@ export function CustomerAgentRolloutSection() {
       ...(changingRevision && mediaUpgrade ? { confirmMediaProfileUpgrade: true as const } : {}),
       ...(changingRevision && catalogUpgrade ? { confirmCatalogFactsUpgrade: true as const } : {}),
       ...(changingRevision && recruitmentUpgrade ? { confirmRecruitmentResumeUpgrade: true as const } : {}),
+      ...(changingRevision && qualityContinuityUpgrade ? { confirmQualityContinuityUpgrade: true as const } : {}),
       reason: reason.trim(),
     });
   }
@@ -107,7 +112,8 @@ export function CustomerAgentRolloutSection() {
   function submitRefresh() {
     if (!data || !reason.trim()) return;
     adopt.mutate({ expectedPolicyRevision: data.policyRevision, reason: reason.trim(),
-      ...(recruitmentUpgrade ? { confirmRecruitmentResumeUpgrade: true as const } : {}) });
+      ...(recruitmentUpgrade ? { confirmRecruitmentResumeUpgrade: true as const } : {}),
+      ...(qualityContinuityUpgrade ? { confirmQualityContinuityUpgrade: true as const } : {}) });
   }
 
   return <SettingsSection icon={Bot} title="Текстовый агент клиентов" badge={active ? "активен" : "выключен"} defaultOpen>
@@ -116,11 +122,12 @@ export function CustomerAgentRolloutSection() {
     {data && <>
       <div className="mod"><div className="t"><b>{active ? "Включён" : "Выключен"}</b><span>Только новые подходящие диалоги получают назначение. Существующие назначения сохраняются.</span></div><div className="acts"><Switch on={active} disabled={busy} label="Текстовый агент включён" onToggle={() => setConfirm(active ? "kill" : "publish")} /></div></div>
       <p className="state">Диалог продолжает вести тот бот, с которым он начался. Эта настройка выбирает бота для новых диалогов.</p>
-      {active && data.rollout && data.activeAgentRevisionId === data.rollout.candidateRevisionId && <div className="mod"><div className="t"><b>Обновить установленную версию</b><span>Сохраняет текущую долю {Math.floor(data.rollout.percentBasisPoints / 100)}%, каналы, права, модель и лимиты. Доступно администратору без повторного кода после завершения текущих отправок.</span></div><button type="button" className="pill" disabled={busy || !reason.trim()} onClick={() => setConfirm("refresh")}>Обновить версию бота</button></div>}
+      {active && data.rollout && data.activeAgentRevisionId === data.rollout.candidateRevisionId && <div className="mod"><div className="t"><b>Обновить установленную версию</b><span>Сохраняет текущую долю {Math.floor(data.rollout.percentBasisPoints / 100)}%, каналы, права, модель и лимиты. Обычное обновление доступно без повторного кода после завершения текущих отправок; отдельное обновление качества требует действующего подтверждения администратора.</span></div><button type="button" className="pill" disabled={busy || !reason.trim()} onClick={() => setConfirm("refresh")}>Обновить версию бота</button></div>}
       {changingRevision && <label className="mod"><span className="t"><b>Обновить версию нового бота</b><span>После завершения текущих ходов новые сообщения уже подключённых к ядру диалогов получат исправленную версию. История, отправки и подтверждения сохранятся. Диалоги прежнего бота не переводятся.</span></span><input type="checkbox" checked={advanceIdle} onChange={event => setAdvanceIdle(event.target.checked)} /></label>}
       {changingRevision && data.configId === "royal-customer-g36-media-20261017-v3" && <label className="mod"><span className="t"><b>Подключить понимание фото, видео и голосовых</b><span>Gemini получит содержимое присланных файлов. Лимит расходов на ход, доля диалогов, каналы и права остаются прежними. Отдельное подтверждение нужно только при переходе с текстового профиля.</span></span><input type="checkbox" checked={mediaUpgrade} onChange={event => setMediaUpgrade(event.target.checked)} /></label>}
       {changingRevision && <label className="mod"><span className="t"><b>Обновить характеристики объектов и модерацию комментариев</b><span>Разрешить проверенную версию схемы публичных характеристик и обработки объявлений. Модель, расходы, доля диалогов, каналы и права не меняются.</span></span><input type="checkbox" checked={catalogUpgrade} onChange={event => setCatalogUpgrade(event.target.checked)} /></label>}
       {(active || changingRevision) && <label className="mod"><span className="t"><b>Обновить вопросы и анкеты кандидатов</b><span>Отдельно подтверждаю проверенную версию найма: вопросы по правилам выбранной вакансии и сохранение сведений с источниками. Решение о найме принимает человек. Процент диалогов, каналы, права, модель и лимиты сохраняются.</span></span><input type="checkbox" checked={recruitmentUpgrade} onChange={event => setRecruitmentUpgrade(event.target.checked)} /></label>}
+      {(active || changingRevision) && <label className="mod"><span className="t"><b>Обновить качество и продолжение диалога</b><span>Отдельно подтверждаю проверенную версию правил диалога. Требуется действующее подтверждение администратора. Модель, расходы, доля, каналы, области, права CRM и лимиты остаются прежними.</span></span><input type="checkbox" checked={qualityContinuityUpgrade} onChange={event => setQualityContinuityUpgrade(event.target.checked)} /></label>}
       <p className="state">Текстовые личные сообщения и публичные комментарии используют текущие проверки отправки/модерации. Параллельное сравнение, голос, сайт, Telegram и YouTube здесь не включены.</p>
       <label className="fld"><span>Причина изменения</span><input value={reason} maxLength={500} onChange={event => setReason(event.target.value)} /></label>
       {!candidate && <button type="button" className="pill ghost" disabled={busy || !reason.trim()} onClick={() => register.mutate()}>Подготовить нового бота</button>}
@@ -144,7 +151,7 @@ export function CustomerAgentRolloutSection() {
     </>}
     {(register.isError || publish.isError || kill.isError || adopt.isError) && <p className="state err" role="alert">{message(register.error ?? publish.error ?? kill.error ?? adopt.error)}</p>}
     {confirm && <ConfirmDialog title={confirm === "kill" ? "Немедленно выключить агента?" : confirm === "refresh" ? "Обновить установленную версию бота?" : "Опубликовать настройки агента?"}
-      description={confirm === "kill" ? "Новые отправки остановятся. Уже начатая отправка может завершиться; история и подтверждённые действия сохранятся." : confirm === "refresh" ? "Применится версия, уже установленная на сервере. Действующие процент, каналы, права и лимиты расходов останутся прежними. Изменения в форме настроек этим действием не применяются." : changingRevision ? "Будущие ходы нового бота получат исправленную версию только при отсутствии незавершённых отправок и действий. Доля выбирает новые диалоги. История и подтверждения сохраняются." : "Изменение применяется только к новым подходящим диалогам и может расходовать средства."}
+      description={confirm === "kill" ? "Новые отправки остановятся. Уже начатая отправка может завершиться; история и подтверждённые действия сохранятся." : confirm === "refresh" ? qualityContinuityUpgrade ? "Применится отдельно подтверждённое обновление качества и продолжения диалога после проверки незавершённой работы и действующего подтверждения администратора. Доля, каналы, области, права CRM, модель и лимиты расходов останутся прежними." : "Применится версия, уже установленная на сервере. Действующие процент, каналы, права и лимиты расходов останутся прежними. Изменения в форме настроек этим действием не применяются." : changingRevision ? "Будущие ходы нового бота получат исправленную версию только при отсутствии незавершённых отправок и действий. Доля выбирает новые диалоги. История и подтверждения сохраняются." : "Изменение применяется только к новым подходящим диалогам и может расходовать средства."}
       confirmLabel={confirm === "kill" ? "Выключить сейчас" : confirm === "refresh" ? "Обновить версию" : "Опубликовать"} dismissible={!busy}
       onCancel={() => setConfirm(null)} onConfirm={confirm === "kill" ? submitKill : confirm === "refresh" ? submitRefresh : submitPublish}
       confirmDisabled={busy || (confirm === "publish" && !canPublish) || !reason.trim()}
