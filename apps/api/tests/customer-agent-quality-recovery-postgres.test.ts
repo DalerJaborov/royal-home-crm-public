@@ -100,6 +100,8 @@ async function unchanged(before: Awaited<ReturnType<typeof readPolicy>>) {
   expect(await prisma.customerAgentRevisionAdvance.count({ where: { fromRevisionId: sourceId, fromCohortId: bCohort } })).toBe(0);
 }
 beforeAll(async () => {
+  const [{ database }] = await prisma.$queryRaw<Array<{ database: string }>>`SELECT current_database() AS database`;
+  expect(database).toBe(new URL(process.env.DATABASE_URL!).pathname.slice(1));
   savedPolicy = await readPolicy();
   const actor = await prisma.agent.create({ data: { fullName: tag, phone: `synthetic-${randomUUID()}`, role: "DIRECTOR", passwordHash: await bcrypt.hash(password, 4) } });
   actorId = actor.id; token = signAccessToken({ sub: actor.id, role: "DIRECTOR" });
@@ -158,6 +160,9 @@ afterEach(async () => {
   await prisma.customerInquiry.deleteMany({ where: { conversationId: { in: nativeIds } } });
   await prisma.botConversation.deleteMany({ where: { id: { in: nativeIds } } });
   await prisma.customerAgentRolloutAssignment.deleteMany({ where: { endpointScopeId: scopeId } });
+  // Real signed ingress creates shield state even when the old turn is held.
+  // Delete only this fixture's scope; retained production shield data is never touched.
+  await prisma.outboundShieldState.deleteMany({ where: { endpointScopeId: scopeId } });
   await prisma.aiLog.deleteMany({ where: { operationId: { in: operations } } });
   await prisma.aiProviderOperation.deleteMany({ where: { id: { in: operations } } });
   await prisma.auditLog.deleteMany({ where: { agentId: actorId } });
@@ -169,6 +174,7 @@ afterAll(async () => {
     rolloutMode: savedPolicy.rolloutMode, activeAgentRevisionId: savedPolicy.activeAgentRevisionId,
     rolloutConfig: savedPolicy.rolloutConfig === null ? Prisma.DbNull : savedPolicy.rolloutConfig,
     capabilities: savedPolicy.capabilities === null ? Prisma.DbNull : savedPolicy.capabilities } });
+  if (scopeId) await prisma.outboundShieldState.deleteMany({ where: { endpointScopeId: scopeId } });
   await prisma.customerEndpointScope.deleteMany({ where: { messengerAccountId: accountId } });
   await prisma.messengerAccount.delete({ where: { id: accountId } });
   await prisma.auditLog.deleteMany({ where: { agentId: { in: [actorId, staffId] } } });
@@ -205,6 +211,9 @@ describe("compiled reserve C authenticated recovery", () => {
     const unknown = await part(), originalUnknown = await prisma.customerOutboxPart.findUniqueOrThrow({ where: { id: unknown } });
     const originalAttempts = await prisma.customerDeliveryAttempt.findMany({ where: { partId: unknown } });
     const assignments = await prisma.customerAgentRolloutAssignment.findMany({ where: { endpointScopeId: scopeId }, orderBy: { id: "asc" } });
+    await prisma.outboundShieldState.create({ data: { endpointScopeId: scopeId, channel: "INSTAGRAM", subscriberId: `${tag}-retained-shield`,
+      botSentSinceInbound: 1, hourCount: 2, dayCount: 3, firedCount: 1, lastInboundId: `${tag}-inbound`, lastInboundAt: new Date() } });
+    const shield = await prisma.outboundShieldState.findMany({ where: { endpointScopeId: scopeId }, orderBy: { id: "asc" } });
     const before = await readPolicy(), body = await command(); await elevate();
     const result = await post(body); expect(result.status, JSON.stringify(result.body)).toBe(200);
     expect(result.body).toMatchObject({ rolloutMode: "ACTIVE", recoveryVersion: "quality-v1", revisionId: currentC.id, alreadyApplied: false });
@@ -219,6 +228,7 @@ describe("compiled reserve C authenticated recovery", () => {
     for (const key of ["intakeAgentRevisionId", "agentRevisionId", "providerOperationId", "providerDeadlineAt", "payloadCiphertext", "payloadHash", "order"] as const) expect(retained[key]).toEqual(originalPin[key]);
     expect(await prisma.customerOutboxPart.findUniqueOrThrow({ where: { id: unknown } })).toEqual(originalUnknown);
     expect(await prisma.customerDeliveryAttempt.findMany({ where: { partId: unknown } })).toEqual(originalAttempts);
+    expect(await prisma.outboundShieldState.findMany({ where: { endpointScopeId: scopeId }, orderBy: { id: "asc" } })).toEqual(shield);
     for (const peer of Object.values(peers)) {
       const future = await capture(peer);
       expect(await prisma.customerPropertyIngressTicket.findUniqueOrThrow({ where: { eventKey: future } })).toMatchObject({ intakeAgentRevisionId: currentC.id });
