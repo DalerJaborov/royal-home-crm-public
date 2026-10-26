@@ -282,6 +282,8 @@ describe("приём ролика при включённой проверке",
     expect(String(call[2])).toContain("Монтажёр: Проверка ролика 1");
     expect(JSON.stringify(call[4])).toContain(`cr:a:${holder.shortId}`);
     expect(JSON.stringify(call[4])).toContain(`cr:r:${holder.shortId}`);
+    // Размеры и длительность — Telegram иначе показывает чёрный кадр «00:00» или ролик боком (26.10.2026).
+    expect(call[5]).toMatchObject({ width: 1080, height: 1920, durationSec: 42 });
     await waitFor(() => prisma.telegramModerationMessage.findFirst({ where: { propertyId: holder.id, kind: "CLIP" } }));
 
     // Место монтажёра освобождено — следующий из очереди его занял.

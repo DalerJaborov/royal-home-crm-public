@@ -56,6 +56,7 @@ import {
   SEND_PAUSE_MS,
 } from "../lib/telegramModeration.js";
 import { onClipReviewRequested, propertyFactsForMontajer, videoHandoffFinalDiskPath } from "../lib/videoHandoff.js";
+import { prepareClipForTelegram, type ClipForTelegram } from "../lib/clipReviewPreview.js";
 import { probeMediaInfo } from "../lib/ffmpeg.js";
 import { formatDurationShort } from "../lib/rawVideoFacts.js";
 import { logSystemError } from "../lib/systemError.js";
@@ -121,14 +122,13 @@ async function sendClipTo(
   r: ClipReviewer,
   p: { id: string; shortId: number; version: number },
   caption: string,
-  diskPath: string | null,
-  sizeBytes: number | null
+  clip: ClipForTelegram | null
 ): Promise<void> {
   const buttons = clipReviewButtons(p.shortId);
   try {
-    const tooBig = sizeBytes != null && sizeBytes > TELEGRAM_BOT_SEND_LIMIT_BYTES;
-    if (!diskPath || sizeBytes == null || tooBig) throw new Error(tooBig ? "файл больше предела Telegram" : "файл ролика не найден");
-    const sent = await sendVideoFromDisk(r.chatId, diskPath, caption, undefined, buttons);
+    const tooBig = clip != null && clip.sizeBytes > TELEGRAM_BOT_SEND_LIMIT_BYTES;
+    if (!clip || tooBig) throw new Error(tooBig ? "файл больше предела Telegram" : "файл ролика не найден");
+    const sent = await sendVideoFromDisk(r.chatId, clip.videoPath, caption, undefined, buttons, clip);
     await recordMessage({ kind: "CLIP", propertyId: p.id, mod: r, messageId: sent.message_id, text: caption, version: p.version });
     return;
   } catch (err) {
@@ -175,9 +175,16 @@ export async function notifyClipReview(propertyId: string): Promise<void> {
       sizeBytes: fileStat?.size ?? null,
       hasAudio: media ? media.hasAudio : null,
     });
-    for (const [i, r] of reviewers.entries()) {
-      if (i > 0) await sleep(SEND_PAUSE_MS);
-      await sendClipTo(r, p, caption, fileStat ? diskPath : null, fileStat?.size ?? null);
+    // Один раз на всех модераторов: оригинал с размерами и обложкой, а
+    // перевёрнутый/HEVC/огромный — копией для просмотра (lib/clipReviewPreview.ts).
+    const clip = fileStat && diskPath ? await prepareClipForTelegram(diskPath, media, fileStat.size, TELEGRAM_BOT_SEND_LIMIT_BYTES) : null;
+    try {
+      for (const [i, r] of reviewers.entries()) {
+        if (i > 0) await sleep(SEND_PAUSE_MS);
+        await sendClipTo(r, p, caption, clip);
+      }
+    } finally {
+      await clip?.cleanup();
     }
   } catch (err) {
     void logSystemError("telegram", `Проверка ролика: рассылка объекта ${propertyId} упала: ${err instanceof Error ? err.message : String(err)}`);

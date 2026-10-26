@@ -58,6 +58,8 @@ import {
 import { logSystemError } from "./systemError.js";
 import { logAgentAudit } from "./audit.js";
 import { localVideoFilePath } from "./localVideoStorage.js";
+import { prepareClipForTelegram } from "./clipReviewPreview.js";
+import { probeMediaInfo } from "./ffmpeg.js";
 import { formatDurationShort } from "./rawVideoFacts.js";
 import { publicAppUrl } from "./crmPublicUrl.js";
 import { buildPriceDisplay, generateReelsCaptionFromTemplates, reelsCaptionValuesFromProperty } from "./reelsCaptionTemplate.js";
@@ -326,14 +328,21 @@ async function sendMaterials(mod: Moderator, p: CardProperty, opts: { photos?: A
     await sleep(SEND_PAUSE_MS);
   }
   const diskPath = localVideoFilePath(video.storageKey);
-  const tooBig = video.sizeBytes > TELEGRAM_BOT_SEND_LIMIT_BYTES;
+  // Видео с телефона (HEVC, поворот, 4K) Telegram показывал боком или чёрным —
+  // тот же приём, что у проверки готового ролика (lib/clipReviewPreview.ts):
+  // оригинал с размерами и обложкой, проблемный или слишком большой — копией.
+  let clip: Awaited<ReturnType<typeof prepareClipForTelegram>> | null = null;
   try {
-    if (!diskPath || tooBig) throw new Error(tooBig ? "файл больше предела Telegram" : "файл не найден в хранилище");
-    await stat(diskPath);
-    await sendVideoFromDisk(mod.chatId, diskPath, p.videos.length > 1 ? `Видео 1: ${video.filename}` : undefined);
+    if (!diskPath) throw new Error("файл не найден в хранилище");
+    const fileStat = await stat(diskPath);
+    clip = await prepareClipForTelegram(diskPath, await probeMediaInfo(diskPath).catch(() => null), fileStat.size, TELEGRAM_BOT_SEND_LIMIT_BYTES);
+    if (clip.sizeBytes > TELEGRAM_BOT_SEND_LIMIT_BYTES) throw new Error("файл больше предела Telegram");
+    await sendVideoFromDisk(mod.chatId, clip.videoPath, p.videos.length > 1 ? `Видео 1: ${video.filename}` : undefined, undefined, undefined, clip);
   } catch (err) {
     reportSendFailure(mod, `видео №${p.shortId}`, err);
     await sendMessage(mod.chatId, `🎬 Видео не удалось прислать сюда — смотреть и скачать в CRM: ${crmPropertyUrl(p.shortId)}`).catch(() => {});
+  } finally {
+    await clip?.cleanup();
   }
   await sleep(SEND_PAUSE_MS);
 }
