@@ -37,6 +37,7 @@ import { prisma, type TxClient } from "../db.js";
 import type { Prisma, PropertyVideo } from "../generated/prisma/client.js";
 import type { VideoHandoffMoveBody, VideoHandoffQueueState, PropertyVideoHandoffCard } from "@royal-home/shared";
 import { logSystemError } from "./systemError.js";
+import { logAgentAudit } from "./audit.js";
 import { montageCopyNote, sendMontageCopies, montageNotificationRecipients, sendToMontajer } from "./montageObservers.js";
 import { describeError } from "./describeError.js";
 import { publishApprovedPost } from "./socialPublish.js";
@@ -1901,6 +1902,12 @@ export type ReceiveEditedVideoResult =
     }
   | { ok: false; error: string };
 
+export interface ReceiveEditedVideoOpts {
+  /** Ролик загрузил из CRM модератор роликов (не монтажёр) — проверка ему не
+   *  нужна: ролик принимается сразу одобренным на его имя (26.10.2026). */
+  approvedById?: string;
+}
+
 /**
  * В КАКИХ СОСТОЯНИЯХ ОБЪЕКТА ГОТОВЫЙ РОЛИК ЕЩЁ УМЕСТНО ПУБЛИКОВАТЬ — одно место
  * для задания публикации (jobs/videoHandoffPublish.ts, 24.09.2026, ночная
@@ -2034,7 +2041,8 @@ async function handoffNotPublishingReason(property: { status: string; publishedC
 async function finishReceivingVideo(
   property: NonNullable<Awaited<ReturnType<typeof prisma.property.findUnique>>>,
   publicPath: string,
-  originalFilename: string
+  originalFilename: string,
+  opts: ReceiveEditedVideoOpts = {}
 ): Promise<ReceiveEditedVideoResult> {
   const propertyId = property.id;
   const destPath = path.join(videoHandoffDir, path.basename(publicPath));
@@ -2071,7 +2079,12 @@ async function finishReceivingVideo(
   // но слот публикации не считается и задание не ставится, пока модератор не
   // нажмёт «Одобрить» (lib/clipReview.ts::approveClip → schedulePublishAfterAccept).
   const clipReviewSettings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { clipReviewEnabled: true } });
-  const clipReview = clipReviewSettings?.clipReviewEnabled ?? false;
+  // Ролик загрузил из CRM сам модератор (26.10.2026, владелец: «я загружаю ролик сам
+  // из CRM, а мне в Telegram приходит модерация — зачем, если я сам добавил») —
+  // загрузка и есть его решение: APPROVED на его имя, без рассылки на проверку.
+  const reviewOn = clipReviewSettings?.clipReviewEnabled ?? false;
+  const selfApprovedById = reviewOn ? (opts.approvedById ?? null) : null;
+  const clipReview = reviewOn && !selfApprovedById;
 
   // Приём пишется одной записью с условием на статус (24.09.2026, проверка по
   // классам): статус читался до переноса файла, ffprobe и md5 — секунды, а на
@@ -2100,10 +2113,10 @@ async function finishReceivingVideo(
           videoHandoffManualSince: null,
           scheduledPublishAt: null,
           scheduledPublishReason: null,
-          clipReviewStatus: clipReview ? "PENDING" : "NONE",
-          clipReviewRequestedAt: clipReview ? now : null,
-          clipReviewDecidedAt: null,
-          clipReviewDecidedById: null,
+          clipReviewStatus: clipReview ? "PENDING" : selfApprovedById ? "APPROVED" : "NONE",
+          clipReviewRequestedAt: clipReview || selfApprovedById ? now : null,
+          clipReviewDecidedAt: selfApprovedById ? now : null,
+          clipReviewDecidedById: selfApprovedById,
           clipReviewComment: null,
         },
       });
@@ -2180,6 +2193,15 @@ async function finishReceivingVideo(
   }
 
   const scheduled = await schedulePublishAfterAccept(propertyId);
+  if (selfApprovedById) {
+    // Та же строка журнала, что у «Одобрить» (clipReview.ts::approveClip) — кто решил, видно.
+    logAgentAudit(selfApprovedById, "PROPERTY_CLIP_APPROVED", "Property", propertyId, {
+      shortId: property.shortId,
+      source: "crm-upload",
+      scheduledPublishAt: scheduled.scheduledPublishAt?.toISOString() ?? null,
+      notPublishingReason: scheduled.notPublishingReason ?? null,
+    });
+  }
   return {
     ...base,
     scheduledPublishAt: scheduled.scheduledPublishAt ?? undefined,
@@ -2556,7 +2578,12 @@ export async function receiveEditedVideo(
  * EXDEV между томами, тот же приём, что upload.ts::moveUploadedFile), не чтение
  * гигабайтного файла в оперативную память процесса (лимит контейнера — 768 МБ).
  */
-export async function receiveEditedVideoFromFile(propertyId: string, srcPath: string, originalFilename: string): Promise<ReceiveEditedVideoResult> {
+export async function receiveEditedVideoFromFile(
+  propertyId: string,
+  srcPath: string,
+  originalFilename: string,
+  opts: ReceiveEditedVideoOpts = {}
+): Promise<ReceiveEditedVideoResult> {
   const loaded = await loadPropertyAwaitingHandoff(propertyId);
   if (!loaded.ok) {
     await fs.promises.rm(srcPath, { force: true }).catch(() => {});
@@ -2583,7 +2610,7 @@ export async function receiveEditedVideoFromFile(propertyId: string, srcPath: st
     );
     return { ok: false, error: "Не получилось сохранить файл на сервере — объект по-прежнему ждёт, пришлите ролик ещё раз." };
   }
-  return finishReceivingVideo(loaded.property, `/uploads/handoff/${destName}`, originalFilename);
+  return finishReceivingVideo(loaded.property, `/uploads/handoff/${destName}`, originalFilename, opts);
 }
 
 /**

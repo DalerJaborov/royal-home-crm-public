@@ -448,16 +448,31 @@ export async function sendPhotoFromDisk(
 /** Видео файлом с диска, лениво (см. sendMediaGroupFiles) — ролик агента бывает сотни МБ.
  *  `buttons` — инлайн-кнопки под самим видео (проверка готового ролика модератором,
  *  lib/clipReview.ts, 25.09.2026): видео, а не документ, чтобы смотреть прямо в чате. */
+/**
+ * Экранные размеры, длительность и обложка ролика (26.10.2026). Без них Telegram
+ * гадает сам: чёрный кадр с «00:00», портретный ролик ложится боком
+ * (lib/clipReviewPreview.ts).
+ */
+export interface SendVideoMeta {
+  width?: number | null;
+  height?: number | null;
+  durationSec?: number | null;
+  /** JPEG не больше 320 по стороне. */
+  thumbnailPath?: string | null;
+}
+
 export async function sendVideoFromDisk(
   chatId: string,
   filePath: string,
   caption?: string,
   timeoutMs = 300_000,
-  buttons?: TelegramInlineButton[][]
+  buttons?: TelegramInlineButton[][],
+  meta?: SendVideoMeta
 ): Promise<TelegramSentMessage> {
   if (!BASE_URL) throw new Error("TELEGRAM_BOT_TOKEN не настроен");
   const { openAsBlob } = await import("node:fs");
   const blob = await openAsBlob(filePath);
+  const thumb = meta?.thumbnailPath ? await openAsBlob(meta.thumbnailPath).catch(() => null) : null;
   const result = await postMultipartWithRetry(
     `${BASE_URL}/sendVideo`,
     () => {
@@ -465,6 +480,10 @@ export async function sendVideoFromDisk(
       form.append("chat_id", chatId);
       if (caption) form.append("caption", caption.slice(0, CAPTION_MAX_CHARS));
       form.append("supports_streaming", "true");
+      if (meta?.width) form.append("width", String(meta.width));
+      if (meta?.height) form.append("height", String(meta.height));
+      if (meta?.durationSec && meta.durationSec > 0) form.append("duration", String(Math.round(meta.durationSec)));
+      if (thumb) form.append("thumbnail", thumb, "thumb.jpg");
       if (buttons) form.append("reply_markup", JSON.stringify({ inline_keyboard: buttons }));
       form.append("video", blob, "video.mp4");
       return form;
