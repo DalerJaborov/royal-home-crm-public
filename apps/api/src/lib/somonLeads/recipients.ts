@@ -11,7 +11,11 @@ export async function replaceSomonRecipients(agentIds: string[]): Promise<void> 
     await tx.$queryRaw`SELECT 1 FROM pg_advisory_xact_lock(hashtext('somon-owner-delivery'))`;
     const count = await tx.agent.count({ where: { id: { in: agentIds }, role: "AGENT", isActive: true } });
     if (count !== agentIds.length) throw new SomonRecipientError("All recipients must be active agents");
+    const blocked = await tx.somonRecipient.findMany({ where: { enabled: false }, select: { agentId: true } });
+    const blockedIds = new Set(blocked.map(x => x.agentId));
+    const allowed = agentIds.filter(id => !blockedIds.has(id));
     await tx.somonRecipient.deleteMany();
-    if (agentIds.length) await tx.somonRecipient.createMany({ data: agentIds.map((agentId, position) => ({ agentId, position })) });
+    const rows = [...allowed.map(agentId => ({ agentId, enabled: true })), ...blocked.map(x => ({ agentId: x.agentId, enabled: false }))];
+    if (rows.length) await tx.somonRecipient.createMany({ data: rows.map((row, position) => ({ ...row, position })) });
   }, { timeout: 35000 });
 }

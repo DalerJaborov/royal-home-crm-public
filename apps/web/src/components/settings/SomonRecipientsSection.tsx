@@ -21,6 +21,7 @@ function SomonRecipientsEditor({ data }: { data: Data }) {
   const qc = useQueryClient();
   const [selected, setSelected] = useState(() => data.selected.filter(id => data.agents.some(a => a.id === id)));
   const save = useMutation({ mutationFn: () => api<{ ok: boolean }>("/settings/somon/recipients", { method: "PUT", body: { agentIds: selected } }), onSuccess: () => { void qc.invalidateQueries({ queryKey: ["somon-recipients"] }); } });
+  const unblock = useMutation({ mutationFn: (id: string) => api<{ ok: boolean }>(`/settings/somon/recipients/${id}/unblock`, { method: "POST", body: { checked: true } }), onSuccess: (_data, id) => { setSelected(ids => ids.includes(id) ? ids : [...ids, id]); void qc.invalidateQueries({ queryKey: ["somon-recipients"] }); } });
   function toggle(id: string, checked: boolean) { setSelected(ids => checked ? [...ids, id] : ids.filter(x => x !== id)); }
   function move(id: string, direction: -1 | 1) {
     setSelected(ids => { const i = ids.indexOf(id), j = i + direction; if (i < 0 || j < 0 || j >= ids.length) return ids; const next = [...ids]; [next[i], next[j]] = [next[j], next[i]]; return next; });
@@ -29,11 +30,12 @@ function SomonRecipientsEditor({ data }: { data: Data }) {
     <div className="sec-h stack"><h2 id="somon-recipients-title">Очередь Somon.tj</h2><span className="note">Выберите агентов и задайте порядок. Без привязки Telegram сотрудник временно пропускается.</span></div>
     {data.agents.length === 0 ? <p>Нет действующих агентов.</p> : <div className="stack">{data.agents.map(a => {
       const index = selected.indexOf(a.id);
-      return <div className="mod" key={a.id}><div className="t"><label><input type="checkbox" checked={index >= 0} onChange={e => toggle(a.id, e.target.checked)} /> {a.fullName}</label><span>{a.deliveryBlocked ? "Отправка отклонена Telegram — проверьте чат перед повторным включением" : a.telegramLinked ? "Telegram привязан" : "Telegram не привязан"}{index >= 0 ? ` · очередь ${index + 1}` : ""}</span></div>{index >= 0 && <div className="acts"><button className="pill ghost sm" type="button" aria-label={`Поднять ${a.fullName}`} disabled={index === 0} onClick={() => move(a.id, -1)}>↑</button><button className="pill ghost sm" type="button" aria-label={`Опустить ${a.fullName}`} disabled={index === selected.length - 1} onClick={() => move(a.id, 1)}>↓</button></div>}</div>;
+      return <div className="mod" key={a.id}><div className="t"><label><input type="checkbox" checked={index >= 0 && !a.deliveryBlocked} disabled={a.deliveryBlocked} onChange={e => toggle(a.id, e.target.checked)} /> {a.fullName}</label><span>{a.deliveryBlocked ? "Отправка отклонена Telegram — проверьте чат перед повторным включением" : a.telegramLinked ? "Telegram привязан" : "Telegram не привязан"}{index >= 0 && !a.deliveryBlocked ? ` · очередь ${index + 1}` : ""}</span></div>{a.deliveryBlocked && <button className="pill ghost sm" type="button" disabled={!a.telegramLinked || unblock.isPending} onClick={() => unblock.mutate(a.id)}>Чат проверен — включить</button>}{index >= 0 && !a.deliveryBlocked && <div className="acts"><button className="pill ghost sm" type="button" aria-label={`Поднять ${a.fullName}`} disabled={index === 0} onClick={() => move(a.id, -1)}>↑</button><button className="pill ghost sm" type="button" aria-label={`Опустить ${a.fullName}`} disabled={index === selected.length - 1} onClick={() => move(a.id, 1)}>↓</button></div>}</div>;
     })}</div>}
     <button className="pill primary" type="button" disabled={save.isPending} onClick={() => save.mutate()}>Сохранить очередь</button>
     {save.isSuccess && <p role="status">Очередь сохранена.</p>}
     {save.isError && <p role="alert">Не удалось сохранить очередь. Проверьте доступ и повторите попытку.</p>}
+    {unblock.isError && <p role="alert">Не удалось включить получателя. Проверьте привязку Telegram и доступ.</p>}
     <SomonMonitorControls />
   </section>;
 }

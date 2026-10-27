@@ -15,8 +15,8 @@ settingsSomonRouter.get("/status", async (_req, res, next) => {
     const state = await prisma.somonMonitor.findUnique({ where: { id: "singleton" } });
     const [pending, uncertain, review] = await Promise.all([
       prisma.somonSeenAdvert.count({ where: { status: "PENDING", baseline: false } }),
-      prisma.somonDelivery.count({ where: { OR: [{ status: { in: ["UNKNOWN", "FAILED", "CANCELLED"] } }, { status: "SENDING", updatedAt: { lt: new Date(Date.now() - 120000) } }] } }),
-      prisma.somonDelivery.findMany({ where: { OR: [{ status: { in: ["UNKNOWN", "FAILED", "CANCELLED"] } }, { status: "SENDING", updatedAt: { lt: new Date(Date.now() - 120000) } }] }, orderBy: { updatedAt: "desc" }, take: 20 }),
+      prisma.somonDelivery.count({ where: { OR: [{ status: "UNKNOWN" }, { status: "SENDING", updatedAt: { lt: new Date(Date.now() - 120000) } }] } }),
+      prisma.somonDelivery.findMany({ where: { OR: [{ status: "UNKNOWN" }, { status: "SENDING", updatedAt: { lt: new Date(Date.now() - 120000) } }] }, orderBy: { updatedAt: "desc" }, take: 20 }),
     ]);
     const [seen, agents] = await Promise.all([
       prisma.somonSeenAdvert.findMany({ where: { advertId: { in: review.map(x => x.advertId) } }, select: { advertId: true, slug: true } }),
@@ -57,7 +57,7 @@ settingsSomonRouter.post("/review/:advertId/resolve", requireElevation, async (r
   try {
     const count = await prisma.$transaction(async tx => {
       await tx.$queryRaw`SELECT 1 FROM pg_advisory_xact_lock(hashtext('somon-owner-delivery'))`;
-      const result = await tx.somonDelivery.updateMany({ where: { advertId: parsed.data.advertId, OR: [{ status: { in: ["UNKNOWN", "FAILED", "CANCELLED"] } }, { status: "SENDING", updatedAt: { lt: new Date(Date.now() - 120000) } }] }, data: { status: "REVIEWED" } });
+      const result = await tx.somonDelivery.updateMany({ where: { advertId: parsed.data.advertId, OR: [{ status: "UNKNOWN" }, { status: "SENDING", updatedAt: { lt: new Date(Date.now() - 120000) } }] }, data: { status: "REVIEWED" } });
       if (result.count) await tx.somonSeenAdvert.updateMany({ where: { advertId: parsed.data.advertId }, data: { slug: null, status: "REVIEWED" } });
       return result.count;
     }, { timeout: 35000 });
@@ -73,7 +73,8 @@ settingsSomonRouter.post("/source/recover", requireElevation, async (req, res, n
       await tx.$queryRaw`SELECT 1 FROM pg_advisory_xact_lock(hashtext('somon-source-budget'))`;
       const state = await tx.somonMonitor.findUnique({ where: { id: "singleton" } });
       if (!state?.sourceStopped || (state.requestLeaseUntil && state.requestLeaseUntil > new Date())) return false;
-      await tx.somonMonitor.update({ where: { id: "singleton" }, data: { sourceStopped: false, sourceFailures: 0, sourceLastFailureAt: null, requestLeaseToken: null, requestLeaseUntil: null, blockedUntil: new Date(Date.now() + 120000) } });
+      const blockedUntil = new Date(Math.max(state.blockedUntil?.getTime() ?? 0, Date.now() + 120000));
+      await tx.somonMonitor.update({ where: { id: "singleton" }, data: { sourceStopped: false, sourceFailures: 0, sourceLastFailureAt: null, requestLeaseToken: null, requestLeaseUntil: null, blockedUntil } });
       return true;
     });
     if (!recovered) return res.status(409).json({ error: "Источник не остановлен или запрос ещё выполняется" });
@@ -89,6 +90,21 @@ settingsSomonRouter.get("/recipients", async (_req, res, next) => {
     ]);
     res.json({ agents: agents.map(a => ({ id: a.id, fullName: a.fullName, telegramLinked: !!a.telegramChatId, deliveryBlocked: selected.some(s => s.agentId === a.id && !s.enabled) })), selected: selected.filter(a => a.enabled).map(a => a.agentId) });
   } catch (error) { next(error); }
+});
+settingsSomonRouter.post("/recipients/:agentId/unblock", requireElevation, async (req, res, next) => {
+  const parsed = z.object({ agentId: z.string().min(1).max(128) }).safeParse(req.params);
+  if (!parsed.success || !z.object({ checked: z.literal(true) }).strict().safeParse(req.body).success) return res.status(400).json({ error: "Подтвердите проверку чата" });
+  try {
+    const count = await prisma.$transaction(async tx => {
+      await tx.$queryRaw`SELECT 1 FROM pg_advisory_xact_lock(hashtext('somon-owner-delivery'))`;
+      const agent = await tx.agent.findFirst({ where: { id: parsed.data.agentId, role: "AGENT", isActive: true, telegramChatId: { not: null } }, select: { id: true } });
+      if (!agent) return 0;
+      return (await tx.somonRecipient.updateMany({ where: { agentId: agent.id, enabled: false }, data: { enabled: true } })).count;
+    }, { timeout: 35000 });
+    if (!count) return res.status(409).json({ error: "Получатель недоступен или уже включён" });
+    logAudit(req, "SOMON_RECIPIENT_UNBLOCKED", "SomonMonitor", "singleton");
+    return res.json({ ok: true });
+  } catch (error) { return next(error); }
 });
 settingsSomonRouter.put("/recipients", requireElevation, async (req, res, next) => {
   const parsed = somonRecipientsSchema.safeParse(req.body);

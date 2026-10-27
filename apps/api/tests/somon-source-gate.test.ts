@@ -14,6 +14,7 @@ describe("Somon source request gate", () => {
     const forbidden = applySourceResponse(state, 403, 1000);
     expect(reserveSourceRequest(forbidden, 1000000, 1000)).toBeNull();
     expect(applySourceResponse(state, 429, 1000, Number.POSITIVE_INFINITY).stopped).toBe(true);
+    expect(applySourceResponse(state, 429, 1000, 8 * 86400000).nextAllowedAt).toBe(1000 + 8 * 86400000);
     expect(applySourceResponse(state, 0, 1000).nextAllowedAt).toBe(61000);
   });
 });

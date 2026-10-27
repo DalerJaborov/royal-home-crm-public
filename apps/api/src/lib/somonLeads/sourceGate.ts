@@ -10,7 +10,11 @@ export function reserveSourceRequest(gate: SourceGate, now: number, minIntervalM
 export function applySourceResponse(gate: SourceGate, status: number, now: number, retryAfterMs?: number): SourceGate {
   if (status === 403) return { ...gate, stopped: true };
   if (status === 0 || status === 429 || status >= 500) {
-    if (retryAfterMs !== undefined && (!Number.isFinite(retryAfterMs) || retryAfterMs > 7 * 24 * 60 * 60 * 1000)) return { ...gate, stopped: true };
+    if (retryAfterMs !== undefined && (!Number.isFinite(retryAfterMs) || retryAfterMs > 7 * 24 * 60 * 60 * 1000)) {
+      const farFuture = Date.UTC(9999, 11, 31);
+      const until = Number.isFinite(retryAfterMs) ? Math.min(now + retryAfterMs, farFuture) : farFuture;
+      return { stopped: true, nextAllowedAt: Math.max(gate.nextAllowedAt, until) };
+    }
     const pause = Number.isFinite(retryAfterMs) && retryAfterMs! > 0 ? retryAfterMs! : 60_000;
     return { ...gate, nextAllowedAt: Math.max(gate.nextAllowedAt, now + pause) };
   }

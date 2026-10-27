@@ -47,16 +47,34 @@ describe("Somon settings access", () => {
     grantElevation(adminId);
     expect((await request(app).put(url).set("Authorization", auth).send({ agentIds: [agentId, agentId] })).status).toBe(400);
     expect((await request(app).put(url).set("Authorization", auth).send({ agentIds: [agentId] })).status).toBe(200);
+    await prisma.somonRecipient.update({ where: { agentId }, data: { enabled: false } });
+    expect((await request(app).put(url).set("Authorization", auth).send({ agentIds: [agentId] })).status).toBe(200);
+    expect((await prisma.somonRecipient.findUniqueOrThrow({ where: { agentId } })).enabled).toBe(false);
+    expect((await request(app).post(`/settings/somon/recipients/${agentId}/unblock`).set("Authorization", auth).send({})).status).toBe(400);
+    expect((await request(app).post(`/settings/somon/recipients/${agentId}/unblock`).set("Authorization", auth).send({ checked: true })).status).toBe(200);
     expect((await request(app).put("/settings/somon/state").set("Authorization", auth).send({ enabled: true })).status).toBe(200);
     const state = await prisma.somonMonitor.findUniqueOrThrow({ where: { id: "singleton" } });
     expect(state.enabled).toBe(true); expect(state.baselineAt).toBeNull();
-    await prisma.somonMonitor.update({ where: { id: "singleton" }, data: { sourceStopped: true, sourceFailures: 5 } });
+    const longPause = new Date(Date.now() + 3600000);
+    await prisma.somonMonitor.update({ where: { id: "singleton" }, data: { sourceStopped: true, sourceFailures: 5, blockedUntil: longPause } });
     expect((await request(app).post("/settings/somon/source/recover").set("Authorization", auth).send({})).status).toBe(400);
     expect((await request(app).post("/settings/somon/source/recover").set("Authorization", `Bearer ${agentToken}`).send({ checked: true })).status).toBe(403);
     const before = Date.now();
     expect((await request(app).post("/settings/somon/source/recover").set("Authorization", auth).send({ checked: true })).status).toBe(200);
     const recovered = await prisma.somonMonitor.findUniqueOrThrow({ where: { id: "singleton" } });
     expect(recovered.sourceStopped).toBe(false); expect(recovered.sourceFailures).toBe(0); expect(recovered.blockedUntil!.getTime()).toBeGreaterThanOrEqual(before + 120000);
+    expect(recovered.blockedUntil!.getTime()).toBe(longPause.getTime());
+    const advertId = String(Date.now()) + "98765";
+    try {
+      await prisma.somonSeenAdvert.create({ data: { advertId, slug: `${advertId}_test`, status: "PENDING" } });
+      await prisma.somonDelivery.create({ data: { advertId, agentId, status: "FAILED" } });
+      expect((await request(app).post(`/settings/somon/review/${advertId}/resolve`).set("Authorization", auth)).status).toBe(409);
+      const seen = await prisma.somonSeenAdvert.findUniqueOrThrow({ where: { advertId } });
+      expect(seen.status).toBe("PENDING"); expect(seen.slug).not.toBeNull();
+    } finally {
+      await prisma.somonDelivery.deleteMany({ where: { advertId } });
+      await prisma.somonSeenAdvert.deleteMany({ where: { advertId } });
+    }
     expect((await request(app).put("/settings/somon/state").set("Authorization", auth).send({ enabled: false })).status).toBe(200);
   });
 });
