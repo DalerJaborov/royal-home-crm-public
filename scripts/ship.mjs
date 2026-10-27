@@ -58,6 +58,7 @@ import { mkdtempSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { fetchOriginMain, READ_NETWORK_DELAYS_MS, READ_NETWORK_WINDOW_MS } from "./read-network-recovery.mjs";
 
 export const STATUS_CONTEXT = "проверено";
 
@@ -497,10 +498,13 @@ export function github(token, { owner, repo }, { fetchImpl = fetch, sleep, log =
    * «на сайт ничего не ушло». Для вливания повтора нет: этап 9 спрашивает GitHub,
    * влилось ли, и верит ответу, а не догадке.
    */
-  const call = async (method, path, body, { retries = method === "GET" ? 3 : 0 } = {}) => {
-    let attempt = 0;
+  const call = async (method, path, body, options = {}) => {
+    const retries = options.retries ?? (method === "GET" ? 3 : 0);
+    const networkRetries = options.retries ?? (method === "GET" ? READ_NETWORK_DELAYS_MS.length : 0);
+    const readSignal = method === "GET" ? AbortSignal.timeout(READ_NETWORK_WINDOW_MS) : undefined;
+    let networkAttempt = 0, statusAttempt = 0;
     for (;;) {
-      let res;
+      let res, text, responseReceived = false;
       try {
         res = await fetchImpl(`https://api.github.com${path.replace("{repo}", `repos/${owner}/${repo}`)}`, {
           method,
@@ -511,21 +515,33 @@ export function github(token, { owner, repo }, { fetchImpl = fetch, sleep, log =
             ...(body ? { "content-type": "application/json" } : {}),
           },
           body: body ? JSON.stringify(body) : undefined,
+          ...(readSignal ? { signal: readSignal } : {}),
         });
+        responseReceived = true;
+        text = await res.text();
       } catch (err) {
-        const code = networkErrorCode(err);
+        // A write may have been applied before its response body was lost.
+        // Preserve the caller's reconciliation path; do not replay that write.
+        if (method !== "GET" && responseReceived) {
+          const bodyCode = networkErrorCode(err);
+          if (bodyCode === null) throw err;
+          const stop = new Stop(`GitHub ${method} ${path}: ответ оборвался (${bodyCode}); результат требует проверки`);
+          stop.network = bodyCode;
+          throw stop;
+        }
+        const code = readSignal?.aborted ? "ETIMEDOUT" : networkErrorCode(err);
         if (code === null) throw err;
-        if (attempt >= retries) {
+        if (readSignal?.aborted || networkAttempt >= networkRetries) {
           const stop = new Stop(`GitHub ${method} ${path}: связь оборвалась (${code})`);
           stop.network = code;
           throw stop;
         }
-        attempt += 1;
-        log(`  связь с GitHub оборвалась (${code}), попытка ${attempt} из ${retries} через ${1.5 * attempt} с`);
-        await wait(1500 * attempt);
+        const delay = method === "GET" ? READ_NETWORK_DELAYS_MS[networkAttempt] ?? 30000 : 1500 * (networkAttempt + 1);
+        networkAttempt += 1;
+        log(`  связь с GitHub оборвалась (${code}), повтор ${networkAttempt} из ${networkRetries} через ${delay / 1000} с`);
+        await wait(delay);
         continue;
       }
-      const text = await res.text();
       let json = null;
       try {
         json = text ? JSON.parse(text) : null;
@@ -533,10 +549,10 @@ export function github(token, { owner, repo }, { fetchImpl = fetch, sleep, log =
         json = { message: text };
       }
       if (!res.ok) {
-        if (RETRYABLE_STATUS.has(res.status) && attempt < retries) {
-          attempt += 1;
-          log(`  GitHub ответил ${res.status}, попытка ${attempt} из ${retries} через ${1.5 * attempt} с`);
-          await wait(1500 * attempt);
+        if (RETRYABLE_STATUS.has(res.status) && statusAttempt < retries) {
+          statusAttempt += 1;
+          log(`  GitHub ответил ${res.status}, попытка ${statusAttempt} из ${retries} через ${1.5 * statusAttempt} с`);
+          await wait(1500 * statusAttempt);
           continue;
         }
         throw new Stop(`GitHub ${method} ${path} → ${res.status}: ${json?.message ?? text}`);
@@ -580,8 +596,8 @@ export async function main(argv = process.argv.slice(2)) {
   if (!token) blockers.push("нет доступа к GitHub: задай GH_TOKEN или войди `gh auth login`");
   console.log(`  ветка ${branch}, репозиторий ${repo.owner}/${repo.repo}`);
 
-  const r0 = run("git", ["fetch", "origin", "main"]);
-  if (r0.code !== 0) throw new Stop("git fetch origin main не прошёл");
+  const r0 = await fetchOriginMain();
+  if (r0.status !== 0) throw new Stop("git fetch origin main не прошёл");
   const mainSha = git("rev-parse", "refs/remotes/origin/main");
   console.log(`  main = ${mainSha.slice(0, 9)} — сводится, проверяется и вливается ровно он`);
 
@@ -833,15 +849,20 @@ export async function main(argv = process.argv.slice(2)) {
     });
   } catch (err) {
     if (!err.network) throw err;
+    state.mergeOutcomeUnknown = true;
     console.log(`  ${err.message} — спрашиваю GitHub, влилось ли`);
     const after = await gh.call("GET", `/{repo}/pulls/${pr.number}`);
-    if (after?.merged && after.merge_commit_sha) {
+    if (after?.merged === true && typeof after.merge_commit_sha === "string" && /^[0-9a-f]{40}$/i.test(after.merge_commit_sha)) {
+      state.mergeOutcomeUnknown = false;
       merged = { merged: true, sha: after.merge_commit_sha };
       console.log("  влилось до обрыва");
-    } else {
+    } else if (after?.merged === false) {
+      state.mergeOutcomeUnknown = false;
       throw new Stop(
         `${err.message}; GitHub говорит, что правка НЕ влита — npm run ship заново (ничего на сайт не ушло)`,
       );
+    } else {
+      throw new Stop("GitHub не подтвердил итог слияния; сначала проверь состояние правки, не повторяй слияние");
     }
   }
   if (!merged?.merged) throw new Stop(`GitHub не влил: ${merged?.message ?? "без объяснения"}`);
@@ -850,7 +871,7 @@ export async function main(argv = process.argv.slice(2)) {
 
   // ── 10. после ──
   stage(10, "main после вливания");
-  run("git", ["fetch", "origin", "main"]);
+  if ((await fetchOriginMain()).status !== 0) throw new Stop("git fetch origin main после вливания не прошёл");
   const newMain = git("rev-parse", "refs/remotes/origin/main");
   const sameTree = git("rev-parse", `${newMain}^{tree}`) === verified.tree;
   if (sameTree) {
@@ -908,7 +929,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
         console.error(
           state.mergedSha
             ? `Правка УЖЕ влита (main ${state.mergedSha.slice(0, 9)}) и уезжает на сайт — красное выше чинить сразу.`
-            : "На сайт ничего не ушло.",
+            : state.mergeOutcomeUnknown
+              ? "Итог слияния не подтверждён: проверь GitHub и сервер перед любым повтором."
+              : "На сайт ничего не ушло.",
         );
       } else console.error(err);
       process.exit(1);
