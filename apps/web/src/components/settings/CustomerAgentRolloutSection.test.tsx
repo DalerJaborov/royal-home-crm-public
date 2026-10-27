@@ -45,6 +45,16 @@ describe("Customer agent owner settings", () => {
     expect(html).toContain("Решение о найме принимает человек");
     expect(render({ ...state, rolloutMode: "OFF" })).not.toContain("Обновить вопросы и анкеты кандидатов");
   });
+  it("keeps quality/continuity consent separate and unchecked until the owner selects it", () => {
+    const html = render(state);
+    const acknowledgement = html.match(/Обновить качество и продолжение диалога[\s\S]*?<input[^>]*>/)?.[0];
+    expect(acknowledgement).toBeDefined();
+    expect(acknowledgement).not.toContain('checked=""');
+    expect(acknowledgement).toContain("Требуется действующее подтверждение администратора");
+    expect(acknowledgement).toContain("права CRM и лимиты остаются прежними");
+    expect(acknowledgement).toContain("Реальная отправка вложений включается отдельно");
+    expect(render({ ...state, rolloutMode: "OFF" })).not.toContain("Обновить качество и продолжение диалога");
+  });
   it("offers retained50 refresh only from a complete active policy, with an explicit reason", () => {
     const ready = customerAgentOwnerStateSchema.parse({ ...state, rollout: {
       version: 1, cohortId: "10000000-0000-4000-8000-000000000002", candidateRevisionId: state.activeAgentRevisionId,

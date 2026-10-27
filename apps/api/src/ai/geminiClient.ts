@@ -1098,6 +1098,19 @@ export interface GeminiToolTurn {
   tokens: number;
 }
 
+type ManagedToolTurnStopCause = "model_prompt_blocked" | "model_candidate_missing" | "model_output_incomplete" |
+  "model_function_call_malformed" | "model_output_blocked" | "model_finish_not_stop";
+class ManagedToolTurnStopError extends Error {
+  constructor(cause: ManagedToolTurnStopCause) { super(cause); this.name = "ManagedToolTurnStopError"; }
+}
+const blockedToolFinishReasons = new Set([
+  "SAFETY", "RECITATION", "LANGUAGE", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII", "IMAGE_SAFETY",
+  "IMAGE_PROHIBITED_CONTENT", "IMAGE_RECITATION", "IMAGE_OTHER", "ESCALATION", "PUP_LIMITED_DISABLED",
+]);
+const malformedToolFinishReasons = new Set([
+  "MALFORMED_FUNCTION_CALL", "UNEXPECTED_TOOL_CALL", "MISSING_THOUGHT_SIGNATURE", "MALFORMED_RESPONSE", "TOO_MANY_TOOL_CALLS",
+]);
+
 export interface GeminiToolDefinition {
   name: string;
   description: string;
@@ -1216,7 +1229,30 @@ async function callGeminiToolsOnce(params: {
     traceModelCache(traceAttempt, typeof traceCache === "number" && Number.isFinite(traceCache) && traceCache >= 0 ? traceCache > 0 : null);
     providerAttempt?.reportUsage(data.usageMetadata);
     providerAttempt?.check();
-    const modelParts = data.candidates?.[0]?.content?.parts ?? [];
+    const candidate = data.candidates?.[0];
+    if (params.providerOperation?.managed) {
+      let stopCause: ManagedToolTurnStopCause | undefined;
+      if (data.promptFeedback?.blockReason) stopCause = "model_prompt_blocked";
+      else if (!candidate) stopCause = "model_candidate_missing";
+      else if (!candidate.finishReason || candidate.finishReason === "MAX_TOKENS" || candidate.finishReason === "CONTINUATION") {
+        // Empty finishReason means generation did not finish. MAX_TOKENS and
+        // CONTINUATION are explicitly incomplete; their parts never reach tool execution.
+        stopCause = "model_output_incomplete";
+      } else if (candidate.finishReason !== "STOP") {
+        stopCause = malformedToolFinishReasons.has(candidate.finishReason) ? "model_function_call_malformed"
+          : blockedToolFinishReasons.has(candidate.finishReason) ? "model_output_blocked" : "model_finish_not_stop";
+      }
+      if (stopCause) {
+        const blocked = stopCause === "model_prompt_blocked" || stopCause === "model_output_blocked";
+        attemptOutcome = blocked ? "blocked" : "invalid";
+        traceResult = blocked ? "blocked" : candidate ? "invalid" : "empty";
+        // A valid-looking partial functionCall is still not an authorized
+        // completed model turn. The stop code is closed/safe; provider payload
+        // and finish-reason strings never become diagnostic text.
+        throw new ManagedToolTurnStopError(stopCause);
+      }
+    }
+    const modelParts = candidate?.content?.parts ?? [];
     const calls: GeminiToolCall[] = modelParts
       .filter((p) => p.functionCall)
       .map((p) => ({
@@ -1344,6 +1380,7 @@ export async function callGeminiTools(params: {
       return turn;
     } catch (err) {
       if (isProviderOperationError(err)) throw err;
+      if (err instanceof ManagedToolTurnStopError) throw err;
       lastErr = err;
       const status = (err as Error & { status?: number })?.status;
       if (status != null) {

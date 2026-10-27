@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
-import { botTurnTracePayloadSchema, BOT_TURN_TRACE_COVERAGE, BOT_CUSTOMER_AGENT_TRACE_COVERAGE, traceManagedContextSchema, traceCustomerCoreSchema, traceManagedDeliverySchema, type TraceCustomerCore, type TraceManagedContext, type TraceManagedDelivery, type BotTurnTracePayload, type BotIngressShape, type TraceModelAttempt, type TraceOutgoingPart, type TraceOutcome, type TraceStage } from "@royal-home/shared";
+import { botTurnTracePayloadSchema, BOT_TURN_TRACE_COVERAGE, BOT_CUSTOMER_AGENT_TRACE_COVERAGE, traceManagedContextSchema, traceCustomerCoreSchema, traceCustomerCoreStopCodeSchema, traceManagedDeliverySchema, type TraceCustomerCore, type TraceManagedContext, type TraceManagedDelivery, type BotTurnTracePayload, type BotIngressShape, type TraceModelAttempt, type TraceOutgoingPart, type TraceOutcome, type TraceStage } from "@royal-home/shared";
 import { boundedTracePayload, projectTraceModel, sanitizeTraceText, tracePseudonym } from "./botTurnTracePrivacy.js";
 
 type Channel = BotTurnTracePayload["channel"];
@@ -207,10 +207,15 @@ function coreReason(raw: unknown): NonNullable<TraceCustomerCore["heldReason"]> 
 function causeCode(raw: unknown): { causeCode: string } | Record<string, never> {
   return typeof raw === "string" && /^[A-Za-z][A-Za-z0-9_]{1,47}$/.test(raw) ? { causeCode: raw } : {};
 }
+function stopCode(raw: unknown): { stopCode: string } | Record<string, never> {
+  const parsed = traceCustomerCoreStopCodeSchema.safeParse(raw);
+  return parsed.success ? { stopCode: parsed.data } : {};
+}
 /** The root coordinator supplies the actual validated Core result, never a
  * model/HTTP route JSON. Strict projection below still drops all text/args/IDs. */
 export function traceCustomerCoreResult(result: { status: "ready" | "held"; decision?: { kind: unknown };
   rounds: number; toolCalls: number; evidence: readonly { value: { kind: string; outcome?: unknown } }[]; reason?: unknown; cause?: string;
+  rejectedDecisionKind?: unknown; skipReason?: unknown;
   fallbackReason?: "invalid_model_decision" | "receipt_confirmation"; fallbackCause?: string }): void {
   observe(ctx => {
     if (!ctx.payload.managed || ctx.payload.managed.phase !== "planning") return;
@@ -219,6 +224,11 @@ export function traceCustomerCoreResult(result: { status: "ready" | "held"; deci
       rounds: result.rounds, toolCalls: result.toolCalls,
       receiptOutcomes: [...new Set(result.evidence.filter(e => e.value.kind === "receipt").map(e => e.value.outcome))],
       ...(result.status === "held" ? { heldReason: coreReason(result.reason),
+        ...stopCode(result.reason),
+        ...(result.reason === "surface_decision_denied" && (result.rejectedDecisionKind === "skip" || result.rejectedDecisionKind === "moderation_proposal")
+          ? { rejectedDecisionKind: result.rejectedDecisionKind,
+              ...(result.rejectedDecisionKind === "skip" && ["no_reply_needed", "duplicate", "unsupported"].includes(String(result.skipReason))
+                ? { skipReason: result.skipReason } : {}) } : {}),
         ...(coreReason(result.reason) === "protocol_invalid" ? { protocolReason: result.reason } : {}), ...causeCode(result.cause) } : {}),
       ...(result.status === "ready" && result.rounds > 0 ? { decisionSource: result.fallbackReason === "receipt_confirmation" ? "receipt_confirmation"
           : result.fallbackReason ? "verified_public_fallback" : "model",
@@ -232,7 +242,7 @@ export function traceCustomerCoreDisposition(status: "planned" | "unchanged" | "
     const previous = ctx.payload.customerCore;
     ctx.payload.customerCore = traceCustomerCoreSchema.parse({ ...previous, status,
       rounds: previous?.rounds ?? 0, toolCalls: previous?.toolCalls ?? 0, receiptOutcomes: previous?.receiptOutcomes ?? [],
-      ...(status === "held" ? { heldReason: coreReason(reason), ...causeCode(cause) } : {}) });
+      ...(status === "held" ? { heldReason: coreReason(reason), ...stopCode(reason), ...causeCode(cause) } : {}) });
   }); traceCheckpoint();
 }
 /** Actual dispatcher result only; no text/resource/MID arguments. The existing

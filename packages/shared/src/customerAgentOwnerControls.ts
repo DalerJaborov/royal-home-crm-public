@@ -14,16 +14,19 @@ export const customerAgentPublishRequestSchema = z.object({
   confirmMediaProfileUpgrade: z.literal(true).optional(),
   confirmCatalogFactsUpgrade: z.literal(true).optional(),
   confirmRecruitmentResumeUpgrade: z.literal(true).optional(),
+  confirmQualityContinuityUpgrade: z.literal(true).optional(),
   confirmManagedPaidCalls: z.literal(true), acknowledgeNoDailyCap: z.literal(true), reason,
 }).strict().refine(value => !value.confirmMediaProfileUpgrade || value.advanceIdleRevision === true,
   { message: "Media profile upgrade requires explicit idle revision advancement" })
   .refine(value => !value.confirmCatalogFactsUpgrade || value.advanceIdleRevision === true,
     { message: "Catalog facts upgrade requires explicit idle revision advancement" })
   .refine(value => !value.confirmRecruitmentResumeUpgrade || value.advanceIdleRevision === true,
-    { message: "Recruitment résumé upgrade requires explicit idle revision advancement" });
+    { message: "Recruitment résumé upgrade requires explicit idle revision advancement" })
+  .refine(value => !value.confirmQualityContinuityUpgrade || value.advanceIdleRevision === true,
+    { message: "Quality/continuity upgrade requires explicit idle revision advancement" });
 export const customerAgentKillRequestSchema = z.object({ expectedPolicyRevision: customerRevisionSchema, reason }).strict();
 /** The server chooses the deployed factory and retains the existing policy. */
 export const customerAgentRefreshRequestSchema = z.object({ expectedPolicyRevision: customerRevisionSchema, reason,
-  confirmRecruitmentResumeUpgrade: z.literal(true).optional() }).strict();
+  confirmRecruitmentResumeUpgrade: z.literal(true).optional(), confirmQualityContinuityUpgrade: z.literal(true).optional() }).strict();
 export type CustomerAgentRefreshRequest = z.infer<typeof customerAgentRefreshRequestSchema>;
 export type CustomerAgentPublishRequest = z.infer<typeof customerAgentPublishRequestSchema>;

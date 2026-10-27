@@ -19,11 +19,16 @@ export const customerAgentFactKindSchema = customerPropertyFactKindSchema;
 export const customerAgentQuestionSchema = z.enum(["none", "property", "budget", "location", "rooms", "name", "phone", "callback_consent", "topic", "role", "clarify_previous", "seller_details", "preferences", "job_position", "job_experience", "job_portfolio", "job_tools", "job_format", "job_start", "job_required"]);
 export type CustomerAgentQuestion = z.infer<typeof customerAgentQuestionSchema>;
 export const customerAgentSocialActSchema = z.enum(["none", "greet", "thank", "acknowledge", "apologize"]);
+/** Server presentation state, never model-selected file authority. */
+export const customerAgentApprovedFileStateSchema = z.enum(["available", "needs_follow", "awaiting_follow", "unavailable", "already_sent", "pending_delivery"]);
+export type CustomerAgentApprovedFileState = z.infer<typeof customerAgentApprovedFileStateSchema>;
 const evidenceRef = z.string().regex(/^e(?:0|[1-9]\d{0,3})$/);
 const refs = z.array(evidenceRef).max(8).refine(values => new Set(values).size === values.length);
 const reply = z.object({
   kind: z.literal("reply"), refs, social: customerAgentSocialActSchema,
   question: customerAgentQuestionSchema,
+  /** A suggestion to the server planner; never a URL, asset ID or send receipt. */
+  attachment: z.literal("buyer_guide").optional(),
 }).strict();
 export const customerAgentDecisionSchema = z.discriminatedUnion("kind", [
   reply,

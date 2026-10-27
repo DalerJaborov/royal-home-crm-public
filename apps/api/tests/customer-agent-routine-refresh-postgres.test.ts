@@ -2,6 +2,7 @@
 // synthetic. No principal/permission mocks, model calls or delivery attempts.
 import { createHash, createHmac, randomUUID } from 'node:crypto';
 import request from 'supertest';
+import bcrypt from 'bcrypt';
 import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest';
 import { app } from '../src/app.js';
 import { prisma } from '../src/db.js';
@@ -20,11 +21,13 @@ import { drainBackgroundTasks } from '../src/lib/shutdownState.js';
 import { inspectCustomerDeliveryObservation } from '../src/lib/customerDeliveryObservation.js';
 import { dispatchCustomerOutboxPart } from '../src/lib/customerDeliveryDispatcher.js';
 import { CUSTOMER_RECRUITMENT_UPGRADE_V1, CUSTOMER_RECRUITMENT_RESUME_UPGRADE_V2 } from '../src/lib/customerRecruitmentUpgrade.js';
+import { CUSTOMER_AGENT_QUALITY_CONTINUITY_UPGRADE_V1 } from '../src/lib/customerAgentQualityContinuityUpgrade.js';
 import {customerAgentRevisionReachable} from '../src/lib/customerAgentRevisionAdvance.js';
 import {readCustomerDmSourceExecution} from '../src/lib/customerAgentEnrollment.js';
 import * as revisionLineage from '../src/lib/customerAgentRevisionAdvance.js';
 
 const tag=`synthetic-routine-refresh-${randomUUID()}`, base='/api/v1/settings/customer-agent';
+const password=`Synthetic-${tag}`;
 const accountId=randomUUID(),resource=`${tag}-resource`,peer=`${tag}-peer`,secret=`${tag}-secret`;
 const events:string[]=[];
 const isolatedParts:string[]=[];
@@ -59,7 +62,7 @@ async function capturePending() {
 }
 beforeAll(async()=>{
   savedPolicy=await readPolicy();savedSettings=await prisma.settings.findUniqueOrThrow({where:{id:'singleton'}});
-  const actor=await prisma.agent.create({data:{fullName:tag,phone:`synthetic-${randomUUID()}`,role:'DIRECTOR'}});
+  const actor=await prisma.agent.create({data:{fullName:tag,phone:`synthetic-${randomUUID()}`,role:'DIRECTOR',passwordHash:await bcrypt.hash(password,4)}});
   actorId=actor.id;token=signAccessToken({sub:actorId,role:'DIRECTOR'});
   const staff=await prisma.agent.create({data:{fullName:tag,phone:`synthetic-${randomUUID()}`,role:'AGENT',permissions:{granted:['settings.manage'],revoked:[]}}});
   staffId=staff.id;staffToken=signAccessToken({sub:staffId,role:'AGENT'});
@@ -254,9 +257,9 @@ it('a failed prospective lineage observation rolls back the tentative edge and p
   expect(await prisma.auditLog.count({where:{agentId:actorId,action:'CUSTOMER_AGENT_PUBLISH'}})).toBe(count);
   expect((await prisma.customerPropertyIngressTicket.findUniqueOrThrow({where:{eventKey:source.eventKey}})).intakeAgentRevisionId).toBe(oldId);
 });
-it('retains the catalog-only refresh path separately from the pinned résumé prompt change',async()=>{
+it('retains the catalog-only refresh path separately from the pinned quality/continuity prompt change',async()=>{
   const pair=CUSTOMER_RECRUITMENT_UPGRADE_V1;
-  expect(manifest.promptHash).toBe(CUSTOMER_RECRUITMENT_RESUME_UPGRADE_V2.toPrompt);
+  expect(manifest.promptHash).toBe(CUSTOMER_AGENT_QUALITY_CONTINUITY_UPGRADE_V1.toPrompt);
   expect(manifest.toolSchemaHash).toBe('16dcce629b9cec908e64942333769bdc05353fbe5675726fe9c9cfd3c9ee7b67');
   await install(await historical({toolSchemaHash:pair.toTools}));
   const before=await readPolicy();
@@ -268,41 +271,55 @@ it('retains the catalog-only refresh path separately from the pinned résumé pr
   const audit=await prisma.auditLog.findFirstOrThrow({where:{agentId:actorId,action:'CUSTOMER_AGENT_PUBLISH'},orderBy:{createdAt:'desc'}});
   expect(audit.meta).toMatchObject({authority:'retained_policy_refresh',catalogFactsUpgrade:true,recruitmentProtocolUpgrade:false,paidConfirmed:null});
 });
-it('requires a distinct résumé-v2 acknowledgement before advancing the actual current factory',async()=>{
-  const pair=CUSTOMER_RECRUITMENT_RESUME_UPGRADE_V2;
-  await install(await historical({promptHash:pair.fromPrompt,toolSchemaHash:pair.fromTools}));
+it('requires a distinct elevated quality/continuity acknowledgement before advancing the actual current factory',async()=>{
+  const pair=CUSTOMER_AGENT_QUALITY_CONTINUITY_UPGRADE_V1;
+  await install(await historical({promptHash:pair.fromPrompt,toolSchemaHash:pair.toolSchemaHash,knowledgeSchemaHash:pair.fromKnowledgeSchema}),'ACTIVE',10000);
   const before=await readPolicy();
   const denied=await request(app).post(`${base}/refresh-current`).set(auth()).send(await command());
-  expect(denied.status).toBe(409);expect(denied.body.error).toBe('recruitment_resume_upgrade_confirmation_required');
+  expect(denied.status).toBe(409);expect(denied.body.error).toBe('quality_continuity_upgrade_confirmation_required');
   expect(await readPolicy()).toEqual(before);
-  const response=await request(app).post(`${base}/refresh-current`).set(auth()).send(await command({confirmRecruitmentResumeUpgrade:true}));
+  const noElevation=await request(app).post(`${base}/refresh-current`).set(auth()).send(await command({confirmQualityContinuityUpgrade:true}));
+  expect(noElevation.status).toBe(428);expect(noElevation.body.error).toBe('step_up_required');
+  expect(await readPolicy()).toEqual(before);
+  expect((await request(app).post('/api/v1/auth/step-up').set(auth()).send({password})).status).toBe(200);
+  const response=await request(app).post(`${base}/refresh-current`).set(auth()).send(await command({confirmQualityContinuityUpgrade:true}));
   expect(response.status,JSON.stringify(response.body)).toBe(200);
   const after=await readPolicy();expect(after.activeAgentRevisionId).toBe(newId);
   expect(after.capabilities).toEqual(before.capabilities);
-  expect(after.rolloutConfig).toMatchObject({percentBasisPoints:5000,allowed:(before.rolloutConfig as {allowed:unknown}).allowed});
+  expect(after.rolloutConfig).toMatchObject({percentBasisPoints:10000,allowed:(before.rolloutConfig as {allowed:unknown}).allowed});
   const audit=await prisma.auditLog.findFirstOrThrow({where:{agentId:actorId,action:'CUSTOMER_AGENT_PUBLISH'},orderBy:{createdAt:'desc'}});
-  expect(audit.meta).toMatchObject({authority:'retained_policy_refresh',recruitmentProtocolUpgrade:true,recruitmentResumeUpgradeVersion:'v2',paidConfirmed:null});
-  expect((await request(app).get('/api/v1/auth/step-up').set(auth())).body.elevated).toBe(false);
+  expect(audit.meta).toMatchObject({authority:'quality_continuity_step_up',routineRefresh:true,qualityContinuityUpgradeVersion:'v1',recruitmentResumeUpgradeVersion:null,catalogFactsUpgrade:false,percentBasisPoints:10000,paidConfirmed:null,noDailyCapAcknowledged:null});
+  // Elevation is the existing timed settings session, not a consumed one-shot grant.
+  expect((await request(app).get('/api/v1/auth/step-up').set(auth())).body.elevated).toBe(true);
 });
-it('rejects résumé acknowledgement for an unqualified prompt and a current-version replay',async()=>{
+it('rejects quality acknowledgement for an unqualified prompt and a current-version replay',async()=>{
+  expect((await request(app).post('/api/v1/auth/step-up').set(auth()).send({password})).status).toBe(200);
+  const historicalResume=CUSTOMER_RECRUITMENT_RESUME_UPGRADE_V2;
+  await install(await historical({promptHash:historicalResume.fromPrompt,toolSchemaHash:historicalResume.fromTools}));
+  const oldResumeBefore=await readPolicy();
+  const oldResume=await request(app).post(`${base}/refresh-current`).set(auth()).send(await command({confirmRecruitmentResumeUpgrade:true}));
+  expect(oldResume.status).toBe(409);expect(oldResume.body.error).toBe('recruitment_resume_upgrade_not_qualified');
+  expect(await readPolicy()).toEqual(oldResumeBefore);
   await install(await historical({promptHash:'f'.repeat(64)}));const before=await readPolicy();
-  expect((await request(app).post(`${base}/refresh-current`).set(auth()).send(await command({confirmRecruitmentResumeUpgrade:true}))).status).toBe(409);
+  expect((await request(app).post(`${base}/refresh-current`).set(auth()).send(await command({confirmQualityContinuityUpgrade:true}))).status).toBe(409);
   expect(await readPolicy()).toEqual(before);
   await install(newId);const already=await readPolicy();
-  const response=await request(app).post(`${base}/refresh-current`).set(auth()).send(await command({confirmRecruitmentResumeUpgrade:true}));
-  expect(response.status).toBe(409);expect(response.body.error).toBe('recruitment_resume_upgrade_not_required');
+  const response=await request(app).post(`${base}/refresh-current`).set(auth()).send(await command({confirmQualityContinuityUpgrade:true}));
+  expect(response.status).toBe(409);expect(response.body.error).toBe('quality_continuity_upgrade_not_required');
   expect(await readPolicy()).toEqual(already);
 });
-it.each(['tools','knowledge','limits','provider-profile','provider-policy'] as const)('résumé v2 acknowledgement cannot change another %s',async field=>{
-  const pair=CUSTOMER_RECRUITMENT_RESUME_UPGRADE_V2;
-  const change:Record<string,unknown>={promptHash:pair.fromPrompt,toolSchemaHash:pair.fromTools};
+it.each(['tools','knowledge','knowledge-schema','limits','provider-profile','provider-policy'] as const)('quality/continuity acknowledgement cannot change another %s',async field=>{
+  const pair=CUSTOMER_AGENT_QUALITY_CONTINUITY_UPGRADE_V1;
+  const change:Record<string,unknown>={promptHash:pair.fromPrompt,toolSchemaHash:pair.toolSchemaHash,knowledgeSchemaHash:pair.fromKnowledgeSchema};
   if(field==='tools')change.toolSchemaHash='f'.repeat(64);
   if(field==='knowledge')change.knowledgeSourceHash='f'.repeat(64);
+  if(field==='knowledge-schema')change.knowledgeSchemaHash='f'.repeat(64);
   if(field==='limits')change.limits={...manifest.limits,maxModelOutputTokens:manifest.limits.maxModelOutputTokens+1};
   if(field==='provider-profile')change.providerProfileHash='f'.repeat(64);
   if(field==='provider-policy')change.providerPolicyHash='f'.repeat(64);
   await install(await historical(change));const before=await readPolicy();
-  const response=await request(app).post(`${base}/refresh-current`).set(auth()).send(await command({confirmRecruitmentResumeUpgrade:true}));
+  expect((await request(app).post('/api/v1/auth/step-up').set(auth()).send({password})).status).toBe(200);
+  const response=await request(app).post(`${base}/refresh-current`).set(auth()).send(await command({confirmQualityContinuityUpgrade:true}));
   expect(response.status,JSON.stringify(response.body)).toBe(409);expect(await readPolicy()).toEqual(before);
 });
 it('does not extend the historical recruitment prompt permission to a different availability tool catalog',async()=>{

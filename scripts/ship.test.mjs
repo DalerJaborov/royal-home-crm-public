@@ -633,6 +633,61 @@ test("чтение: обрывы не кончаются — остановка 
   });
 });
 
+test("read recovery survives the observed four connection timeouts without accepting stale data", async () => {
+  let calls = 0;
+  const waits = [];
+  const gh = github("t", { owner: "o", repo: "r" }, {
+    sleep: async ms => waits.push(ms), log: () => {},
+    fetchImpl: async () => {
+      if (++calls <= 4) throw netError("UND_ERR_CONNECT_TIMEOUT");
+      return ok({ head_sha: "fresh-exact-head", conclusion: "success" });
+    },
+  });
+  assert.deepEqual(await gh.call("GET", "/{repo}/actions/runs/7"),
+    { head_sha: "fresh-exact-head", conclusion: "success" });
+  assert.equal(calls, 5);
+  assert.equal(waits.length, 4);
+  assert.ok(waits.reduce((a, b) => a + b, 0) <= 120000);
+});
+
+test("a truncated GET body is retried as a read; HTTP403 is never retried", async () => {
+  let calls = 0;
+  const gh = github("t", { owner: "o", repo: "r" }, { ...quiet,
+    fetchImpl: async () => ++calls === 1
+      ? { ok: true, status: 200, text: async () => { throw netError("UND_ERR_BODY_TIMEOUT"); } }
+      : ok({ verified: true }) });
+  assert.deepEqual(await gh.call("GET", "/{repo}/actions/runs/7"), { verified: true });
+  assert.equal(calls, 2);
+  let forbidden = 0;
+  const denied = github("t", { owner: "o", repo: "r" }, { ...quiet,
+    fetchImpl: async () => { forbidden++; return httpErr(403, "Forbidden"); } });
+  await assert.rejects(() => denied.call("GET", "/{repo}/actions/runs/7"), /403: Forbidden/);
+  assert.equal(forbidden, 1);
+});
+
+test("lost PUT response body is not replayed and is marked for merge readback", async () => {
+  let calls = 0;
+  const gh = github("t", { owner: "o", repo: "r" }, { ...quiet,
+    fetchImpl: async () => { calls++; return { ok: true, status: 200,
+      text: async () => { throw netError("UND_ERR_BODY_TIMEOUT"); } }; } });
+  await assert.rejects(() => gh.call("PUT", "/{repo}/pulls/7/merge", { sha: "exact-head" }),
+    error => error.network === "UND_ERR_BODY_TIMEOUT");
+  assert.equal(calls, 1);
+});
+
+test("explicit zero retries and the total read deadline both fail closed", async t => {
+  let calls = 0;
+  const gh = github("t", { owner: "o", repo: "r" }, { ...quiet,
+    fetchImpl: async () => { calls++; throw netError("UND_ERR_CONNECT_TIMEOUT"); } });
+  await assert.rejects(() => gh.call("GET", "/{repo}/actions/runs/7", undefined, { retries: 0 }));
+  assert.equal(calls, 1);
+  const aborted = AbortSignal.abort();
+  t.mock.method(AbortSignal, "timeout", ms => { assert.equal(ms, 120000); return aborted; });
+  calls = 0;
+  await assert.rejects(() => gh.call("GET", "/{repo}/actions/runs/7"), e => e.network === "ETIMEDOUT");
+  assert.equal(calls, 1);
+});
+
 test("чтение: 502 повторяется, 404 — нет (ответ сервера, а не обрыв)", async () => {
   let n = 0;
   const flaky = github("t", { owner: "o", repo: "r" }, {

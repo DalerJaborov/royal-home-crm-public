@@ -44,6 +44,7 @@
  */
 import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
+import { fetchOriginMain } from "./read-network-recovery.mjs";
 
 function git(...args) {
   return execFileSync("git", args, { encoding: "utf8" }).trim();
@@ -71,12 +72,13 @@ function fail(message) {
   process.exit(1);
 }
 
-process.on("uncaughtException", (err) => {
+function reportFailure(err) {
   const where = err?.failedCommand ? `«${err.failedCommand}»` : "скрипт";
   console.error(`\n✘ Не сложилось: ${where} вернула ошибку.`);
   console.error("Вывод команды выше. Слияние, если оно началось, оставлено как есть — разбери руками или откати: git merge --abort");
   process.exit(1);
-});
+}
+process.on("uncaughtException", reportFailure);
 
 const argv = process.argv.slice(2);
 const ontoArg = argv.find((a) => a.startsWith("--onto="));
@@ -105,7 +107,7 @@ export function splitConflicts(paths) {
 }
 
 
-function main() {
+async function main() {
   const branch = git("rev-parse", "--abbrev-ref", "HEAD");
   if (branch === "main" || branch === "HEAD") {
     fail(`Ветка «${branch}» — сводить нечего. Скрипт для своей рабочей ветки.`);
@@ -124,7 +126,11 @@ function main() {
     console.log(`── Доделываю свод ${branch}: слияние уже разведено`);
   } else {
     console.log(`── Свожу ${branch} с ${onto === "origin/main" ? "origin/main" : `main ${onto.slice(0, 9)}`}`);
-    run("git", ["fetch", "origin", "main"]);
+    if ((await fetchOriginMain()).status !== 0) {
+      const err = new Error("git fetch origin main failed");
+      err.failedCommand = "git fetch origin main";
+      throw err;
+    }
 
     const behind = Number(git("rev-list", "--count", `HEAD..${onto}`));
     if (behind === 0) {
@@ -183,4 +189,4 @@ function main() {
 }
 
 // Запуск как команды (а не импорт из теста).
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main();
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main().catch(reportFailure);

@@ -4518,6 +4518,7 @@ model CustomerOutboxPart {
   fenceJson Json
   p03Json Json?
   receiptRefsJson Json
+  approvedAssetPurpose String?
   status String @default("READY")
   claimRevision BigInt @default(0)
   leaseOwner String?

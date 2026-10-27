@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { collectRecruitmentResume, extractRecruitmentAnswerFacts } from "../src/lib/recruitmentResume.js";
+import { customerMessengerChannelQuestion } from "../src/ai/customerAgentConversationPolicy.js";
 
 const eventKey = "a".repeat(64);
 
@@ -8,11 +9,14 @@ describe("mixed recruitment name answers", () => {
     const text = "Рустам через телеграм можно или ватсап?";
     const fact = collectRecruitmentResume({ text, sourceEventKey: eventKey, sourceKind: "message", answerTo: "name" }).facts.name;
 
+    expect(customerMessengerChannelQuestion(text)).toBe(true);
     expect(fact).toMatchObject({ value: "Рустам", quote: text, sourceEventKey: eventKey, sourceKind: "message" });
   });
 
   it("does not interpret the same mixed message as a name without name-question evidence", () => {
-    expect(extractRecruitmentAnswerFacts("Рустам через телеграм можно или ватсап?").name).toBeUndefined();
+    const text = "Рустам через телеграм можно или ватсап?";
+    expect(extractRecruitmentAnswerFacts(text).name).toBeUndefined();
+    expect(customerMessengerChannelQuestion(text)).toBe(true);
   });
 
   it.each(["Монтажёр через телеграм можно?", "Не работаю через телеграм можно?", "Привет через телеграм можно?"])(

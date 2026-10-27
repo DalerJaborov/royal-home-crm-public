@@ -117335,6 +117335,22 @@
            ]
           }
          ]
+        },
+        {
+         "k": "do",
+         "t": "const baseContext: CustomerIntakeContext = { version: 1, kind: intake.role === \"buyer\" ? \"BUYER\" : intake.rol…",
+         "a": [
+          "зовёт isWithinWorkingHours()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "const context: CustomerIntakeContext = { ...(intake.role === \"buyer\" ? deriveOwnBuyerPreferences(own) : {}), …",
+         "a": [
+          "зовёт deriveOwnBuyerPreferences()"
+         ],
+         "c": []
         }
        ]
       },

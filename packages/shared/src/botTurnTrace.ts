@@ -54,6 +54,18 @@ const decisionKind = z.union(customerAgentDecisionSchema.options.map(option => o
 const receiptOutcome = z.union(customerMutationReceiptSchema.options.map(option => option.shape.outcome));
 export const traceCustomerCoreReasonSchema = z.enum(["context_changed", "operation_stopped", "effect_unknown", "protocol_invalid", "limit", "unsupported", "needs_review", "other"]);
 export const traceCustomerProtocolReasonSchema = z.enum(["invalid_model_turn", "mixed_model_protocol", "missing_model_parts", "duplicate_call_id", "invalid_model_call", "invalid_call_id", "call_id_reused", "invalid_model_decision", "duplicate_tool_definition"]);
+/** Exact internal held reason, retained only when it matches a known Core stop code. */
+export const traceCustomerCoreStopCodeSchema = z.enum([
+  "managed_operation_required", "publication_context_invalid", "context_scope_mismatch", "media_surface_unqualified", "input_limit",
+  "duplicate_tool_definition", "public_write_definition_denied", "unsupported_decision_evidence", "facts_unavailable", "invalid_model_turn",
+  "missing_model_parts", "duplicate_call_id", "invalid_model_call", "invalid_call_id", "call_id_reused", "effect_unknown",
+  "repeated_effect_denied", "invalid_model_decision", "surface_decision_denied", "receipt_requires_reconciliation", "model_payload_limit",
+  "tool_limit", "unavailable_tool", "output_limit", "round_limit", "operation_stopped", "turn_deadline", "turn_unavailable",
+  "port_not_started", "port_deadline", "port_cancelled", "original_context_changed", "public_write_denied", "invalid_server_observation",
+  "cancelled", "deadline", "expired", "customer_core_unavailable",
+]);
+const traceCustomerDecisionKindSchema = decisionKind;
+const traceCustomerSkipReasonSchema = z.enum(["no_reply_needed", "duplicate", "unsupported"]);
 export const traceManagedContextSchema = z.strictObject({
   surface: customerAgentSurfaceSchema.exclude(["voice"]), phase: z.enum(["planning", "delivery"]),
   revisionId: z.string().regex(/^[a-f0-9]{64}$/).optional(), operationKey: key,
@@ -63,9 +75,20 @@ export const traceCustomerCoreSchema = z.strictObject({
   rounds: count.max(8), toolCalls: count.max(17), receiptOutcomes: z.array(receiptOutcome).max(8),
   heldReason: traceCustomerCoreReasonSchema.optional(),
   protocolReason: traceCustomerProtocolReasonSchema.optional(),
+  /** Exact finite Core stop plus only schema-validated surface-denied decision fields. */
+  stopCode: traceCustomerCoreStopCodeSchema.optional(),
+  rejectedDecisionKind: traceCustomerDecisionKindSchema.optional(),
+  skipReason: traceCustomerSkipReasonSchema.optional(),
   decisionSource: z.enum(["model", "verified_public_fallback", "receipt_confirmation"]).optional(),
   /** Safe diagnostic code of a held/fallback turn (snake_case reason or error class name); never text or data. */
   causeCode: z.string().regex(/^[A-Za-z][A-Za-z0-9_]{1,47}$/).optional(),
+}).superRefine((value, ctx) => {
+  if (value.skipReason !== undefined && value.rejectedDecisionKind !== "skip") {
+    ctx.addIssue({ code: "custom", path: ["skipReason"], message: "skipReason requires rejectedDecisionKind=skip" });
+  }
+  if ((value.rejectedDecisionKind !== undefined || value.skipReason !== undefined) && value.stopCode !== "surface_decision_denied") {
+    ctx.addIssue({ code: "custom", path: ["rejectedDecisionKind"], message: "rejected decisions require a surface decision stop" });
+  }
 });
 export const traceManagedDeliverySchema = z.strictObject({
   status: z.enum(["accepted", "available_widget", "unknown", "suppressed", "not_sent", "waiting", "missing"]),
