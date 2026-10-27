@@ -4,6 +4,7 @@ import { canViewInvestigations } from "@royal-home/shared";
 import { investigationCallChannelIds, mayReadLiveVoiceSession } from "../lib/investigationCallChannels.js";
 import { customerAgentSettingsRouter } from "./customerAgentSettings.js";
 import { settingsInstagramAppBindingRouter } from "./settingsInstagramAppBinding.js";
+import { settingsSomonRouter } from "./settingsSomon.js";
 import fs from "node:fs";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
@@ -90,6 +91,7 @@ const KPI_WEIGHT_KEYS = Object.keys(DEFAULT_KPI_WEIGHTS) as [KpiMetricKey, ...Kp
 const SCORE_EVENT_KEYS = EDITABLE_SCORE_EVENT_KEYS;
 
 export const settingsRouter = Router();
+settingsRouter.use("/somon", settingsSomonRouter);
 settingsRouter.use("/customer-agent", customerAgentSettingsRouter);
 settingsRouter.use("/messenger-accounts", settingsInstagramAppBindingRouter);
 

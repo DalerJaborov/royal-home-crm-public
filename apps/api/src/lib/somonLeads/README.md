@@ -1,0 +1,7 @@
+# Somon owner leads — staged implementation, not yet released
+
+Monitoring is disabled by default. A paginated ID-only baseline must finish before any advertisement can be sent. Later first observations have an explicit uncertain-date warning; they are not asserted to be new publications. Only listings with positive owner indications, at most two total active adverts, a non-business profile, matching category and Dushanbe, and a usable telephone pass automatically. These signals do not prove ownership.
+
+Source requests use a database-backed budget and lease. 403 stops the source; 429 and network/5xx errors pause it. The listing scan has a durable cursor and warns if the coverage limit or a backlog is reached. The Telegram send is reserved atomically and fenced against stop/recipient changes; an unconfirmed result is never automatically replayed. Contact fingerprints are keyed and phone values/photos are not stored. Accepted receipts expire; minimal seen IDs and contact fingerprints are retained to suppress duplicate outreach. The keyed fingerprints depend on the current settings encryption key: key rotation requires an explicit migration/disable plan before use.
+
+Remaining release work: complete targeted access-control, source-lease, initial scan, provider failure and concurrency tests; validate actual source semantics and live behavior without sending to staff; verify UI mobile/desktop and full official CRM release gates. Do not mark production ready until current owner/release coordination and separate production acceptance are complete.

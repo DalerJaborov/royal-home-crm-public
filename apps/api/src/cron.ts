@@ -571,6 +571,10 @@ async function notifyDirectorsAboutLostDigest(lostCount: number, proposals: numb
 }
 
 export function startCronJobs() {
+  scheduleTracked("somon-owner-leads", "* * * * *", async () => {
+    const { runSomonMonitorTick } = await import("./lib/somonLeads/monitor.js");
+    await runSomonMonitorTick();
+  });
   scheduleTracked("owner-exposure-verification-preview", "15 * * * *", async () => {
     const { runExposureOwnerPreviewTick } = await import("./lib/ownerVerificationSources.js");
     await runExposureOwnerPreviewTick();

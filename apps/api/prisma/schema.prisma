@@ -10575,3 +10575,64 @@ model InvestigationDecision {
   createdAt DateTime @default(now())
   @@index([caseId, createdAt])
 }
+
+// Isolated Somon monitoring state; off by default until explicitly configured.
+model SomonMonitor {
+  id                  String   @id @default("singleton")
+  enabled             Boolean  @default(false)
+  activatedAt         DateTime?
+  baselineAt          DateTime?
+  baselineNextPage    Int      @default(1)
+  baselineLastPage    Int?
+  nextScanAt          DateTime?
+  scanPage            Int      @default(1)
+  scanRegularPage     Int?
+  scanLeaseToken      String?
+  scanLeaseUntil      DateTime?
+  contactKeyFingerprint String?
+  lastAssignedAgentId String?
+  blockedUntil        DateTime?
+  requestLeaseUntil   DateTime?
+  requestLeaseToken   String?
+  sourceStopped       Boolean  @default(false)
+  sourceFailures      Int      @default(0)
+  sourceLastFailureAt DateTime?
+  updatedAt           DateTime @updatedAt
+}
+
+model SomonRecipient {
+  agentId   String  @id
+  position  Int     @unique
+  enabled   Boolean @default(true)
+}
+
+// Retain only an advert ID and delivery state; no seller phone or photos.
+model SomonDelivery {
+  advertId  String   @id
+  agentId   String
+  status    String
+  dateUncertain Boolean @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, updatedAt])
+}
+
+// Baseline IDs suppress the existing listings; pending IDs contain no contact data.
+model SomonSeenAdvert {
+  advertId  String   @id
+  seenAt    DateTime @default(now())
+  baseline  Boolean  @default(false)
+  slug      String?
+  status    String   @default("PENDING")
+
+  @@index([seenAt])
+}
+
+// Keyed, non-reversible contact fingerprint prevents repeated outreach without storing a phone.
+model SomonContactReceipt {
+  phoneHash String   @id
+  agentId   String
+  advertId  String   @unique
+  createdAt DateTime @default(now())
+}

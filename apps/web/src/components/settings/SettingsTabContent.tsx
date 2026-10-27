@@ -27,6 +27,7 @@ import { WhatsAppTemplatesSection } from "../../pages/settings/WhatsAppTemplates
 import { SettingsGroupLabel } from "./SettingsSection";
 import type { CleanSettingsTask } from "../../lib/cleanSettingsTasks";
 import { UiShellRolloutSection } from "./UiShellRolloutSection";
+import { SomonRecipientsSection } from "./SomonRecipientsSection";
 
 // BotTab — 295 КБ (3,9 тыс. строк форм бота): грузим только когда открыта вкладка «Бот»,
 // а не вместе со всеми Настройками. AiLearning импортирует его части напрямую — это отдельный маршрут.
@@ -48,7 +49,7 @@ export function CleanSettingsTaskContent({ task, agentRole }: { task: CleanSetti
     case "money/commission": return <CommissionSection part="commission" />;
     case "money/currency": return <ExchangeRateSection />;
     case "leads/intake": return <LeadsTab limitsTask />;
-    case "leads/distribution": return <LeadDistributionSection />;
+    case "leads/distribution": return <><LeadDistributionSection /><SomonRecipientsSection /></>;
     case "leads/deadlines": return <><CommissionSection part="operations" /><DisciplineSection /></>;
     case "matching/matching": return <MatchingTab />;
     case "team/people": return <AgentsSection />;
@@ -111,6 +112,7 @@ export function SettingsTabContent({ tab, agentRole }: { tab: SettingsTabId; age
       <>
         <AgentsSection />
         <LeadDistributionSection />
+        <SomonRecipientsSection />
         <RoyalScoreToggleSection />
         <KpiWeightsSection />
         <RoyalScoreEventsSection />
