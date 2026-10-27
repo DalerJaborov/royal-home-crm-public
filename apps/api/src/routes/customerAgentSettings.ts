@@ -4,7 +4,8 @@ import { ZodError } from "zod";
 import { requireAuth, requirePermission } from "../auth/middleware.js";
 import { requireElevation } from "../lib/stepUp.js";
 import { CustomerAgentOwnerError, registerCustomerAgentForOwner, publishCustomerAgentForOwner,
-  killCustomerAgentForOwner, readCustomerAgentOwnerState, refreshCurrentCustomerAgentForOwner } from "../lib/customerAgentOwnerPolicy.js";
+  killCustomerAgentForOwner, readCustomerAgentOwnerState, refreshCurrentCustomerAgentForOwner,
+  readCustomerAgentQualityRecoveryStateForOwner, recoverCustomerAgentQualityForOwner } from "../lib/customerAgentOwnerPolicy.js";
 export const customerAgentSettingsRouter=Router();
 customerAgentSettingsRouter.use(requireAuth,requirePermission('settings.manage'));
 function handler(run:(actorId:string,body:unknown)=>Promise<unknown>) {
@@ -19,6 +20,8 @@ function handler(run:(actorId:string,body:unknown)=>Promise<unknown>) {
   };
 }
 customerAgentSettingsRouter.get('/',handler(actor=>readCustomerAgentOwnerState(actor)));
+customerAgentSettingsRouter.get('/recovery-state',handler(actor=>readCustomerAgentQualityRecoveryStateForOwner(actor)));
+customerAgentSettingsRouter.post('/recover-quality',requireElevation,handler(recoverCustomerAgentQualityForOwner));
 // Explicit routine release adoption: existing signed-in owner, retained policy.
 // Arbitrary registration, rollout/permission changes and kill remain elevated.
 customerAgentSettingsRouter.post('/refresh-current',handler(refreshCurrentCustomerAgentForOwner));

@@ -62,8 +62,7 @@ export const customerAgentDeliveryEvidenceSchema = z.object({
   observations: z.array(customerAgentDeliveryObservationSchema).max(8),
   callbackQuestion: z.object({ version: z.literal(1), kind: z.literal("callback_consent"), language: z.enum(["ru", "tg"]) }).strict().optional(),
   nameQuestion: z.object({ version: z.literal(1), kind: z.literal("name"), language: z.enum(["ru", "tg"]) }).strict().optional(),
-  guideFollow: z.object({ version: z.literal(1), kind: z.literal("buyer_guide_follow"), language: z.enum(["ru", "tg"]) }).strict().optional(),
-}).strict().refine(value => value.observations.length > 0 || !!value.callbackQuestion || !!value.nameQuestion || !!value.guideFollow, "Empty delivery evidence");
+}).strict().refine(value => value.observations.length > 0 || !!value.callbackQuestion || !!value.nameQuestion, "Empty delivery evidence");
 export type CustomerAgentDeliveryEvidence = z.infer<typeof customerAgentDeliveryEvidenceSchema>;
 export const customerAgentStoredTextPayloadSchema = z.object({
   kind: z.literal("text"), text: z.string().trim().min(1).max(12000),

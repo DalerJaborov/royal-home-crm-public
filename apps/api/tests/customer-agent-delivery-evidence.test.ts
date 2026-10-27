@@ -18,9 +18,9 @@ function metadata() {
     observations: [customerAgentCompanyPolicyObservationSchema.parse({ kind: "company_policy", topic,
       sourceHash: currentCustomerAgentKnowledgeHash(), knowledge: readCustomerAgentCompanyKnowledge() })] });
 }
-function encrypted(raw: unknown, payloadVersion = 1) {
+function encrypted(raw: unknown) {
   const plain = JSON.stringify(raw);
-  return { payloadVersion, payloadEncrypted: encryptSecret(plain),
+  return { payloadVersion: 1, payloadEncrypted: encryptSecret(plain),
     payloadHash: createHash("sha256").update(plain).digest("hex") };
 }
 
@@ -37,26 +37,15 @@ describe("P12 exact public-data sideband boundary", () => {
     expect(decodeCustomerOutboxPayload(legacy)).toEqual({ kind: "text", text: "Здравствуйте." });
     expect(decodeCustomerOutboxPublicData(legacy)).toBeNull();
     const image = encrypted({ kind: "image", url: "https://example.invalid/owned.jpg" });
-    expect(decodeCustomerOutboxPayload(image)).toEqual({ kind: "legacy_image", url: "https://example.invalid/owned.jpg" });
+    expect(decodeCustomerOutboxPayload(image)).toEqual({ kind: "image", url: "https://example.invalid/owned.jpg" });
     expect(decodeCustomerOutboxPublicData(image)).toBeNull();
     const malformed = encrypted({ kind: "text", text: "Ответ", publicData: { ...metadata(), permission: true } });
     expect(() => decodeCustomerOutboxPayload(malformed)).toThrow();
     expect(() => decodeCustomerOutboxPublicData(malformed)).toThrow();
   });
-  it("accepts v2 only for the sealed buyer-guide follow base text", () => {
-    const guideFollow = customerAgentDeliveryEvidenceSchema.parse({ version: 1, agentRevisionId: revision,
-      knowledgeSourceHash: currentCustomerAgentKnowledgeHash(), linkPreference: "social", observations: [],
-      guideFollow: { version: 1, kind: "buyer_guide_follow", language: "ru" } });
-    const allowed = encrypted({ kind: "text", text: "Этот файл доступен подписчикам страницы. Подпишитесь и напишите здесь.", publicData: guideFollow }, 2);
-    expect(decodeCustomerOutboxPayload(allowed)).toMatchObject({ kind: "text" });
-    expect(decodeCustomerOutboxPublicData(allowed)).toEqual(guideFollow);
-    const unrelated = encrypted({ kind: "text", text: "Ответ", publicData: metadata() }, 2);
-    expect(() => decodeCustomerOutboxPayload(unrelated)).toThrow();
-    expect(() => decodeCustomerOutboxPublicData(unrelated)).toThrow();
-  });
-  it("retains encrypted-payload integrity checks for both decoding surfaces", () => {
+  it("retains encrypted-payload integrity and version checks for both decoding surfaces", () => {
     const row = encrypted({ kind: "text", text: "Ответ", publicData: metadata() });
-    for (const bad of [{ ...row, payloadVersion: 9 }, { ...row, payloadHash: "0".repeat(64) }]) {
+    for (const bad of [{ ...row, payloadVersion: 2 }, { ...row, payloadHash: "0".repeat(64) }]) {
       expect(() => decodeCustomerOutboxPayload(bad)).toThrow();
       expect(() => decodeCustomerOutboxPublicData(bad)).toThrow();
     }

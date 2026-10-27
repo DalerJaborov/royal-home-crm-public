@@ -1,9 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createHash } from "node:crypto";
 import type { CustomerTransportReference } from "../src/lib/customerConversationScope.js";
 
 const fixture = vi.hoisted(() => ({
-  readTransport: vi.fn(), sendText: vi.fn(), sendAudio: vi.fn(), sendImage: vi.fn(), sendVideo: vi.fn(), sendFile: vi.fn(),
+  readTransport: vi.fn(), sendText: vi.fn(), sendAudio: vi.fn(), sendImage: vi.fn(), sendVideo: vi.fn(),
   append: vi.fn(), update: vi.fn(), transcribe: vi.fn(), upload: vi.fn(),
 }));
 vi.mock("../src/loadEnv.js", () => ({}));
@@ -22,7 +21,7 @@ vi.mock("../src/messengers/meta.js", async importOriginal => ({
   ...(await importOriginal<typeof import("../src/messengers/meta.js")>()),
   asMetaChannel: (channel: string) => channel,
   isMetaChannelEnabled: async () => true,
-  sendMessage: fixture.sendText, sendAudio: fixture.sendAudio, sendImage: fixture.sendImage, sendVideo: fixture.sendVideo, sendFile: fixture.sendFile,
+  sendMessage: fixture.sendText, sendAudio: fixture.sendAudio, sendImage: fixture.sendImage, sendVideo: fixture.sendVideo,
 }));
 vi.mock("../src/messengers/appendMessages.js", async importOriginal => ({
   ...(await importOriginal<typeof import("../src/messengers/appendMessages.js")>()),
@@ -36,10 +35,6 @@ vi.mock("../src/lib/outgoingMedia.js", async importOriginal => ({
 }));
 
 import { deliverToConversation, deliverVoiceToConversation, deliverMediaToConversation } from "../src/lib/conversationDelivery.js";
-import { encryptSecret } from "../src/crypto.js";
-import { decodeCustomerOutboxPayload } from "../src/lib/customerOutboxCodec.js";
-import { sendCustomerDeliveryPayload, supportsCustomerDeliveryPayload } from "../src/lib/customerDeliveryAdapters.js";
-import type { CustomerOutboxRow } from "../src/lib/customerDeliveryContracts.js";
 
 const reference: CustomerTransportReference = { channel: "WHATSAPP", accountId: null,
   endpointScopeId: "fixture-settings-scope", transportKey: "settings:WHATSAPP:fixture-resource",
@@ -52,20 +47,6 @@ beforeEach(() => {
 });
 
 describe("delivery captures authorized native transport before expensive work", () => {
-  it.each(["image", "audio", "file"] as const)("retains a stored v1 legacy %s for reading without granting an adapter send", async kind => {
-    vi.stubEnv("SETTINGS_ENCRYPTION_KEY", "1".repeat(64));
-    try {
-      const plaintext = JSON.stringify({ kind, url: "https://media.synthetic.example/retained", ...(kind === "file" ? { name: "retained.pdf" } : {}) });
-      const row = { channel: "WHATSAPP", payloadVersion: 1, payloadEncrypted: encryptSecret(plaintext),
-        payloadHash: createHash("sha256").update(plaintext).digest("hex") } as CustomerOutboxRow;
-      const decoded = decodeCustomerOutboxPayload(row);
-      expect(decoded.kind).toBe(`legacy_${kind}`);
-      expect(supportsCustomerDeliveryPayload(row, decoded)).toBe(false);
-      await expect(sendCustomerDeliveryPayload(row, decoded)).rejects.toThrow("unsupported_payload_adapter");
-      for (const send of [fixture.sendText, fixture.sendAudio, fixture.sendImage, fixture.sendVideo, fixture.sendFile]) expect(send).not.toHaveBeenCalled();
-    } finally { vi.unstubAllEnvs(); }
-  });
-
   it("passes the captured Settings resource to the actual text transport boundary", async () => {
     expect(await deliverToConversation(target, "Здравствуйте")).toMatchObject({ ok: true });
     expect(fixture.readTransport).toHaveBeenCalledWith(target.id);

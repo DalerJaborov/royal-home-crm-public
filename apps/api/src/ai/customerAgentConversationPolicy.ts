@@ -74,28 +74,12 @@ export function customerPublicThanks(input: string, language: "ru" | "tg"): stri
   return variants[index];
 }
 
-/** Keep code-driven subintent detection on the customer's own, unquoted words.
- * Document/video/CRM text is already removed by clientOwnWords; paired quotes
- * are removed too so copied prompts cannot trigger a deterministic response. */
-export function customerOwnUnquotedText(input: string): string {
-  return clientOwnWords(input).replace(/"[^"\r\n]*"|«[^»\r\n]*»|“[^”\r\n]*”|„[^”\r\n]*”|‘[^’\r\n]*’/gu, " ");
-}
-function ownIntentClauses(input: string): string[] {
-  return customerOwnUnquotedText(input).split(/(?<=[?？!.,;\n])\s+|\s+(?:и|а|но|ҳам|ва)\s+/iu)
-    .map(part => part.trim()).filter(Boolean);
-}
-function normalizeOwnIntent(input: string): string {
-  return input.normalize("NFKC").toLowerCase().replace(/ё/gu, "е").replace(/[!?？.,;:]+/gu, " ").replace(/\s+/gu, " ").trim();
-}
-const languagePermissionClause = /^(?:(?:а\s+)?можно\s+(?:мне\s+)?(?:рассказать|написать|говорить)\s+(?:о\s+себе|про\s+себя)\s+(?:на\s+таджикск\p{L}*|по[-\s]таджикск\p{L}*)|(?:на\s+таджикск\p{L}*|по[-\s]таджикск\p{L}*)\s+(?:можно\s+)?(?:рассказать|написать)\s+(?:о\s+себе|про\s+себя)|(?:метавонам|мумкин\s+аст)\s+(?:(?:бо\s+забони\s+)?тоҷикӣ\s+)?(?:дар\s+бораи\s+худ|худам)\s+(?:ба\s+тоҷикӣ\s+)?(?:нақл\s+кунам|нависам))$/u;
-
-/** Exact standalone intent remains useful to suppress only an unrelated
- * vacancy question. The plural detector can coexist with another subintent. */
+/** Standalone candidate language-permission questions only. A mixed question
+ * stays in the normal verified-facts flow; document text is not an instruction. */
 export function customerRecruitmentLanguagePermissionQuestion(input: string): boolean {
-  return languagePermissionClause.test(normalizeOwnIntent(customerOwnUnquotedText(input)));
-}
-export function customerRecruitmentLanguagePermissionRequested(input: string): boolean {
-  return ownIntentClauses(input).some(part => languagePermissionClause.test(normalizeOwnIntent(part)));
+  const text = clientOwnWords(input).normalize("NFKC").toLowerCase().replace(/ё/gu, "е")
+    .replace(/[!?？.,]+/gu, " ").replace(/\s+/gu, " ").trim();
+  return /^(?:(?:а\s+)?можно\s+(?:мне\s+)?(?:рассказать|написать|говорить)\s+(?:о\s+себе|про\s+себя)\s+(?:на\s+таджикск\p{L}*|по[-\s]таджикск\p{L}*)|(?:на\s+таджикск\p{L}*|по[-\s]таджикск\p{L}*)\s+(?:можно\s+)?(?:рассказать|написать)\s+(?:о\s+себе|про\s+себя)|(?:метавонам|мумкин\s+аст)\s+(?:бо\s+забони\s+)?тоҷикӣ\s+(?:дар\s+бораи\s+худ|худам)\s+(?:нақл\s+кунам|нависам))$/u.test(text);
 }
 
 /** A narrowly phrased request to follow/subscribe to the customer's page.
@@ -110,35 +94,7 @@ export function customerFollowRequest(input: string): boolean {
 /** The property fact schema has no furniture-inclusion field. Match only a
  * standalone furnishing question; never infer price inclusion from photos. */
 export function customerStandaloneFurnitureQuestion(input: string): boolean {
-  const text = customerOwnUnquotedText(input).normalize("NFKC").toLowerCase().replace(/ё/gu, "е")
+  const text = clientOwnWords(input).normalize("NFKC").toLowerCase().replace(/ё/gu, "е")
     .replace(/[!?？.,]+/gu, " ").replace(/\s+/gu, " ").trim();
   return /^(?:(?:а\s+)?(?:с\s+|бо\s+)?(?:мебель\S*|мебел\S*|вещ\S*|чизу\s*чора\S*)(?:\s+(?:есть|идет|входит|остается|прилагается|комплекте|цену))?|бо\s+чизу\s*чора\S*)$/u.test(text);
-}
-
-/** Recognize a furnishing question inside a mixed message without treating a
- * quoted/negated mention as a request. Unlike the standalone predicate, this
- * leaves any independently requested verified property facts renderable. */
-export function customerFurnitureQuestionRequested(input: string): boolean {
-  const furniture = /(?:мебел\p{L}*|вещ\p{L}*|чизу\s*чора\p{L}*)/iu;
-  const explicitQuestion = /[?？]|(?<!\p{L})(?:есть|идет|входит|остается|прилагается|комплекте|дорад|мемонад|дохил|ба\s+нарх)(?!\p{L})/iu;
-  const negativeIntent = /(?<!\p{L})(?:не\s+(?:спрашиваю|интересует|интересно|нужно|надо|хочу)|без\s+(?:мебели|мебел|вещей|чизу\s*чора))(?!\p{L})/iu;
-  const hasQuestionElsewhere = /[?？]/u.test(customerOwnUnquotedText(input));
-  // Preserve the legacy exact standalone forms, which are often sent without
-  // punctuation (for example, “Бо чизу чораш”).
-  if (customerStandaloneFurnitureQuestion(input)) return true;
-  return ownIntentClauses(input).some(clause => {
-    const normalized = normalizeOwnIntent(clause);
-    const standaloneFurnishingClause = hasQuestionElsewhere && customerStandaloneFurnitureQuestion(clause);
-    return furniture.test(normalized) && (/[?？]/u.test(clause) || explicitQuestion.test(normalized) || standaloneFurnishingClause) && !negativeIntent.test(normalized);
-  });
-}
-
-/** A bounded request for a private chat channel. The reply only confirms that
- * this conversation can continue here; it never promises another integration. */
-export function customerMessengerChannelQuestion(input: string): boolean {
-  const channel = /(?:telegram|телеграм\p{L}*|whatsapp|ватсап\p{L}*|вотсап\p{L}*)/iu;
-  const direction = /(?:через|(?<!\p{L})(?:в|по)(?!\p{L})|тавассути)\s+(?:telegram|телеграм\p{L}*|whatsapp|ватсап\p{L}*|вотсап\p{L}*)/iu;
-  const request = /(?<!\p{L})(?:можно|можете|сможете|напиш\p{L}*|пиш\p{L}*|свяж\p{L}*|связаться|написать|позвонить|тамос|мумкин\s+аст|метавон\p{L}*|навиштан)(?!\p{L})/iu;
-  const negativeIntent = /(?:^|\s)(?:не|нет|без)\s+\p{L}+/iu;
-  return ownIntentClauses(input).some(clause => channel.test(clause) && direction.test(clause) && request.test(clause) && !negativeIntent.test(normalizeOwnIntent(clause)));
 }
