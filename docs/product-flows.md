@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **714**. Развилок в самих путях: **2541**; вместе с задачами по расписанию и фоновыми заданиями — **3946**. Модулей: **78**.
+Путей: **721**. Развилок в самих путях: **2558**; вместе с задачами по расписанию и фоновыми заданиями — **3987**. Модулей: **79**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -16785,6 +16785,218 @@
   - const changes = current ? diffSnapshot(point.payload as SnapshotPayload, current) : [];
     · зовёт diffSnapshot()
 
+## /api/v1/settings/somon
+
+### POST /api/v1/settings/somon/recipients/:agentId/unblock
+
+`apps/api/src/routes/settingsSomon.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
+
+- если !parsed.success || !z.object({ checked: z.literal(true) }).strict().safeParse(req.body).success
+  - return res.status(400).json({ error: "Подтвердите проверку чата" });
+    · ответ 400 — «Подтвердите проверку чата»
+- пробует
+  - const count = await prisma.$transaction(async tx
+    · всё внутри — одной транзакцией
+    · обращается к базе своим SQL
+    · читает в базе: agent
+    · меняет в базе: somonRecipient
+    - await tx.$queryRaw`SELECT 1 FROM pg_advisory_xact_lock(hashtext('somon-owner-delivery'))`;
+      · обращается к базе своим SQL
+    - const agent = await tx.agent.findFirst({ where: { id: parsed.data.agentId, role: "AGENT", isActive: true, tel…
+      · читает в базе: agent
+    - если !agent
+      - return 0;
+        · дословно из кода
+    - return (await tx.somonRecipient.updateMany({ where: { agentId: agent.id, enabled: false }, data: { enabled: t…
+      · меняет в базе: somonRecipient
+  - если !count
+    - return res.status(409).json({ error: "Получатель недоступен или уже включён" });
+      · ответ 409 — «Получатель недоступен или уже включён»
+  - logAudit(req, "SOMON_RECIPIENT_UNBLOCKED", "SomonMonitor", "singleton");
+    · зовёт logAudit()
+  - return res.json({ ok: true });
+    · ответ 200
+- если сорвалось
+  - return next(error);
+    · дословно из кода
+
+### GET /api/v1/settings/somon/recipients
+
+`apps/api/src/routes/settingsSomon.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
+
+- пробует
+  - const [agents, selected] = await Promise.all([ prisma.agent.findMany({ where: { role: "AGENT", isActive: true…
+    · читает в базе: agent
+    · читает в базе: somonRecipient
+  - res.json({ agents: agents.map(a
+    · ответ 200
+- если сорвалось
+  - next(error);
+    · дословно из кода
+
+### PUT /api/v1/settings/somon/recipients
+
+`apps/api/src/routes/settingsSomon.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
+
+- const parsed = somonRecipientsSchema.safeParse(req.body);
+  · проверяет данные схемой somonRecipientsSchema
+- если !parsed.success
+  - return res.status(400).json({ error: "Некорректный список сотрудников" });
+    · ответ 400 — «Некорректный список сотрудников»
+- пробует
+  - await replaceSomonRecipients(parsed.data.agentIds);
+    · зовёт replaceSomonRecipients()
+  - logAudit(req, "SOMON_RECIPIENTS_UPDATED", "SomonMonitor", "singleton", { count: parsed.data.agentIds.length }…
+    · зовёт logAudit()
+  - return res.json({ ok: true });
+    · ответ 200
+- если сорвалось
+  - если error instanceof SomonRecipientError
+    - return res.status(400).json({ error: "Выберите действующих агентов" });
+      · ответ 400 — «Выберите действующих агентов»
+
+### POST /api/v1/settings/somon/review/:advertId/resolve
+
+`apps/api/src/routes/settingsSomon.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
+
+- если !parsed.success
+  - return res.status(400).json({ error: "Некорректный ID объявления" });
+    · ответ 400 — «Некорректный ID объявления»
+- пробует
+  - const count = await prisma.$transaction(async tx
+    · всё внутри — одной транзакцией
+    · обращается к базе своим SQL
+    · меняет в базе: somonDelivery
+    · меняет в базе: somonSeenAdvert
+    - await tx.$queryRaw`SELECT 1 FROM pg_advisory_xact_lock(hashtext('somon-owner-delivery'))`;
+      · обращается к базе своим SQL
+    - const result = await tx.somonDelivery.updateMany({ where: { advertId: parsed.data.advertId, OR: [{ status: "U…
+      · меняет в базе: somonDelivery
+    - если result.count
+      - await tx.somonSeenAdvert.updateMany({ where: { advertId: parsed.data.advertId }, data: { slug: null, status: …
+        · меняет в базе: somonSeenAdvert
+  - если !count
+    - return res.status(409).json({ error: "Запись уже проверена или отправка ещё идёт" });
+      · ответ 409 — «Запись уже проверена или отправка ещё идёт»
+  - logAudit(req, "SOMON_DELIVERY_REVIEWED", "SomonDelivery", parsed.data.advertId);
+    · зовёт logAudit()
+  - return res.json({ ok: true });
+    · ответ 200
+- если сорвалось
+  - return next(error);
+    · дословно из кода
+
+### POST /api/v1/settings/somon/source/recover
+
+`apps/api/src/routes/settingsSomon.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
+
+- если !z.object({ checked: z.literal(true) }).strict().safeParse(req.body).success
+  - return res.status(400).json({ error: "Подтвердите проверку причины остановки" });
+    · ответ 400 — «Подтвердите проверку причины остановки»
+- пробует
+  - const recovered = await prisma.$transaction(async tx
+    · всё внутри — одной транзакцией
+    · обращается к базе своим SQL
+    · читает в базе: somonMonitor
+    · меняет в базе: somonMonitor
+    - await tx.$queryRaw`SELECT 1 FROM pg_advisory_xact_lock(hashtext('somon-source-budget'))`;
+      · обращается к базе своим SQL
+    - const state = await tx.somonMonitor.findUnique({ where: { id: "singleton" } });
+      · читает в базе: somonMonitor
+    - если !state?.sourceStopped || (state.requestLeaseUntil && state.requestLeaseUntil > new Date())
+      - return false;
+        · дословно из кода
+    - await tx.somonMonitor.update({ where: { id: "singleton" }, data: { sourceStopped: false, sourceFailures: 0, s…
+      · меняет в базе: somonMonitor
+  - если !recovered
+    - return res.status(409).json({ error: "Источник не остановлен или запрос ещё выполняется" });
+      · ответ 409 — «Источник не остановлен или запрос ещё выполняется»
+  - logAudit(req, "SOMON_SOURCE_RECOVERED", "SomonMonitor", "singleton");
+    · зовёт logAudit()
+  - return res.json({ ok: true });
+    · ответ 200
+- если сорвалось
+  - return next(error);
+    · дословно из кода
+
+### PUT /api/v1/settings/somon/state
+
+`apps/api/src/routes/settingsSomon.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
+
+- const parsed = somonMonitorStateSchema.safeParse(req.body);
+  · проверяет данные схемой somonMonitorStateSchema
+- если !parsed.success
+  - return res.status(400).json({ error: "Некорректное состояние" });
+    · ответ 400 — «Некорректное состояние»
+- пробует
+  - const result = await prisma.$transaction(async tx
+    · всё внутри — одной транзакцией
+    · обращается к базе своим SQL
+    · читает в базе: somonMonitor
+    · читает в базе: somonRecipient
+    · считает в базе: agent
+    · создаёт или меняет в базе: somonMonitor
+    - await tx.$queryRaw`SELECT 1 FROM pg_advisory_xact_lock(hashtext('somon-owner-delivery'))`;
+      · обращается к базе своим SQL
+    - const state = await tx.somonMonitor.findUnique({ where: { id: "singleton" } });
+      · читает в базе: somonMonitor
+    - если parsed.data.enabled
+      - если state?.sourceStopped
+        - return "source_stopped" as const;
+          · дословно из кода
+      - пробует
+        - fingerprint = somonKeyFingerprint();
+          · зовёт somonKeyFingerprint()
+      - если сорвалось
+        - return "identity_unavailable" as const;
+          · дословно из кода
+      - если state?.contactKeyFingerprint && state.contactKeyFingerprint !== fingerprint
+        - return "identity_unavailable" as const;
+          · дословно из кода
+      - const recipients = await tx.somonRecipient.findMany({ where: { enabled: true }, select: { agentId: true } });
+        · читает в базе: somonRecipient
+      - const count = await tx.agent.count({ where: { id: { in: recipients.map(x
+        · считает в базе: agent
+      - если !count
+        - return "no_linked_agents" as const;
+          · дословно из кода
+    - await tx.somonMonitor.upsert({ where: { id: "singleton" }, create: { id: "singleton", enabled: parsed.data.en…
+      · создаёт или меняет в базе: somonMonitor
+  - если result !== "ok"
+    - return res.status(409).json({ error: result === "no_linked_agents" ? "Выберите хотя бы одного агента с привяз…
+      · ответ 409
+  - logAudit(req, parsed.data.enabled ? "SOMON_MONITOR_ENABLED" : "SOMON_MONITOR_DISABLED", "SomonMonitor", "sing…
+    · зовёт logAudit()
+  - return res.json({ ok: true });
+    · ответ 200
+- если сорвалось
+  - return next(error);
+    · дословно из кода
+
+### GET /api/v1/settings/somon/status
+
+`apps/api/src/routes/settingsSomon.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage
+
+- пробует
+  - const state = await prisma.somonMonitor.findUnique({ where: { id: "singleton" } });
+    · читает в базе: somonMonitor
+  - const [pending, uncertain, review] = await Promise.all([ prisma.somonSeenAdvert.count({ where: { status: "PEN…
+    · считает в базе: somonSeenAdvert
+    · считает в базе: somonDelivery
+    · читает в базе: somonDelivery
+  - const [seen, agents] = await Promise.all([ prisma.somonSeenAdvert.findMany({ where: { advertId: { in: review.…
+    · читает в базе: somonSeenAdvert
+    · читает в базе: agent
+  - пробует
+    - identityReady = !!state?.contactKeyFingerprint && state.contactKeyFingerprint === somonKeyFingerprint();
+      · зовёт somonKeyFingerprint()
+  - если сорвалось
+  - res.json({ enabled: state?.enabled ?? false, sourceStopped: state?.sourceStopped ?? false, identityReady, bas…
+    · ответ 200
+- если сорвалось
+  - next(error);
+    · дословно из кода
+
 ## /api/v1/site-notifications
 
 ### POST /api/v1/site-notifications/:id/resolve
@@ -23869,6 +24081,122 @@
       · зовёт markCronTickFailed()
     - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
       · запись в журнал ошибок
+
+### somon-owner-leads — * * * * *
+
+- await runSomonMonitorTick();
+  · зовёт runSomonMonitorTick()
+  - const stuck = await prisma.somonDelivery.count({ where: { status: "SENDING", updatedAt: { lt: new Date(Date.n…
+    · считает в базе: somonDelivery
+  - если stuck
+    - await logSystemError("telegram", "Somon: обнаружены отправки с неизвестным результатом; автоматического повто…
+      · запись в журнал ошибок
+  - let state = await prisma.somonMonitor.findUnique({ where: { id: "singleton" } });
+    · читает в базе: somonMonitor
+  - если !state?.enabled || state.sourceStopped || (state.blockedUntil && state.blockedUntil > new Date())
+    - return;
+      · дальше не идёт, ничего не меняя
+  - пробует
+    - если !state.contactKeyFingerprint || state.contactKeyFingerprint !== somonKeyFingerprint()
+      - throw new Error("contact identity key changed");
+        · ошибка Error — «contact identity key changed»
+  - если сорвалось
+    - await logSystemError("cron", "Somon: проверка повторных контактов недоступна; мониторинг остановлен", { dedup…
+      · запись в журнал ошибок
+    - return;
+      · дальше не идёт, ничего не меняя
+  - пробует
+    - если !state.baselineAt
+      - для каждого: let count = 0; count < MAX_PAGES_PER_TICK && Date.now() < deadline; count++
+        - state = await prisma.somonMonitor.findUnique({ where: { id: "singleton" } });
+          · читает в базе: somonMonitor
+        - если !state?.enabled || state.baselineAt || state.sourceStopped
+          - return;
+            · дальше не идёт, ничего не меняя
+        - пробует
+        - если сорвалось
+          - если n > 1 && ((error instanceof SomonSourceUnavailable && error.status === 404) || error instanceof SomonEmptyLis…
+            - await pause(10200);
+              · дословно из кода
+            - const first = await page(1);
+              · дословно из кода
+          - throw error;
+            · пробрасывает ошибку дальше
+        - если data.last < n
+          - если await finishShrunkBaseline(n, first.last)
+            - return;
+              · дальше не идёт, ничего не меняя
+          - throw new Error("Somon baseline pagination changed unexpectedly");
+            · ошибка Error — «Somon baseline pagination changed unexpectedly»
+        - const result = await recordBaselinePage(n, data.last, data.ads.map(a
+          · зовёт recordBaselinePage()
+        - если result === "complete" || result === "disabled"
+          - return;
+            · дальше не идёт, ничего не меняя
+        - если Date.now() < deadline
+          - await pause(10200);
+            · дословно из кода
+      - return;
+        · дальше не идёт, ничего не меняя
+    - если token
+      - пробует
+        - для каждого: let count = 0; count < MAX_PAGES_PER_TICK && Date.now() < deadline; count++
+          - state = await prisma.somonMonitor.findUnique({ where: { id: "singleton" } });
+            · читает в базе: somonMonitor
+          - если !state?.enabled || state.sourceStopped || state.scanLeaseToken !== token
+            - return;
+              · дальше не идёт, ничего не меняя
+          - если rejectedSlug
+            - await logSystemError("cron", "Somon: часть ссылок объявлений не удалось обработать", { dedupKey: "somon-inval…
+              · запись в журнал ошибок
+          - await recordNewObservations(listings);
+            · зовёт recordNewObservations()
+          - const safeTail = firstRegular !== null && n > firstRegular && regular.length > 0 && clearlyOlderThanTenMinute…
+            · зовёт clearlyOlderThanTenMinutes()
+          - если !(await advanceScan(token, n, firstRegular, done))
+            - return;
+              · дальше не идёт, ничего не меняя
+          - если capped && !safeTail && n < data.last
+            - await logSystemError("cron", "Somon: достигнут предел страниц; часть новых объявлений могла быть пропущена", …
+              · запись в журнал ошибок
+          - если done
+            - break;
+              · прекращает перебор
+          - если Date.now() < deadline
+            - await pause(10200);
+              · дословно из кода
+      - в любом случае
+        - await releaseScan(token);
+          · дословно из кода
+      - если Date.now() < deadline
+        - await pause(10200);
+          · дословно из кода
+    - если Date.now() < deadline
+      - const pending = await prisma.somonSeenAdvert.findMany({ where: { status: "PENDING", baseline: false }, orderB…
+        · читает в базе: somonSeenAdvert
+      - если pending[0] && Date.now() - pending[0].seenAt.getTime() > 15 * 60_000
+        - await logSystemError("cron", "Somon: очередь объявлений задерживается более 15 минут", { dedupKey: "somon-pen…
+          · запись в журнал ошибок
+      - для каждого: const item of pending
+        - если Date.now() >= deadline
+          - break;
+            · прекращает перебор
+        - const result = await processSomonPending(item.advertId, pause);
+          · зовёт processSomonPending()
+        - если result === "waiting" || result === "unknown"
+          - break;
+            · прекращает перебор
+        - если Date.now() < deadline
+          - await pause(10200);
+            · дословно из кода
+    - await cleanupSomonReceipts();
+      · зовёт cleanupSomonReceipts()
+  - если сорвалось
+    - если error instanceof SomonSourceUnavailable && error.reason === "not_ready"
+      - return;
+        · дальше не идёт, ничего не меняя
+    - throw error;
+      · пробрасывает ошибку дальше
 
 ### stale-property-videos-cleanup — 50 3 * * *
 
