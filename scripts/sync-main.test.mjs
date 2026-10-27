@@ -10,6 +10,33 @@
 // безусловной пересборки, и после ручного разрешения карта не собиралась вовсе.
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { fetchOriginMain } from "./read-network-recovery.mjs";
+
+test("fetch recovery repeats only the same remote read and preserves the final error", async () => {
+  let time = 0, calls = 0;
+  const commands = [];
+  const failed = { status: 128, stderr: "Failed to connect to github.com:443 after 21093 ms: Could not connect to server" };
+  const run = (command, args, options) => {
+    commands.push([command, args]); assert.ok(options.timeout <= 120000 && options.timeout > 0);
+    time += 21000; return ++calls < 3 ? failed : { status: 0 };
+  };
+  const result = await fetchOriginMain({ run, now: () => time, wait: async ms => { time += ms; }, log: () => {} });
+  assert.equal(result.status, 0); assert.equal(calls, 3);
+  assert.ok(commands.every(([cmd, args]) => cmd === "git" && JSON.stringify(args) === JSON.stringify(["fetch", "origin", "main"])));
+  calls = 0; time = 0;
+  const exhausted = await fetchOriginMain({ run: () => { calls++; time += 21000; return failed; },
+    now: () => time, wait: async ms => { time += ms; }, log: () => {} });
+  assert.equal(exhausted, failed); assert.ok(calls <= 5); assert.ok(time <= 120000);
+});
+
+test("fetch never retries access, certificate or local-ref failures", async () => {
+  for (const stderr of ["remote: Permission denied", "SSL certificate problem: unable to get local issuer certificate", "cannot lock ref refs/remotes/origin/main"]) {
+    let calls = 0;
+    const result = await fetchOriginMain({ run: () => { calls++; return { status: 128, stderr }; },
+      wait: async () => { throw Error("must not wait"); }, log: () => {} });
+    assert.equal(result.status, 128); assert.equal(calls, 1);
+  }
+});
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, chmodSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
