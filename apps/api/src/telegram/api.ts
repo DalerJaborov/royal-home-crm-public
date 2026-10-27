@@ -103,6 +103,12 @@ export function telegramRetryDelayMs(data: TelegramApiResponse<unknown>, attempt
   return after * 1000 + RATE_LIMIT_EXTRA_MS;
 }
 
+export class TelegramApiError extends Error {
+  constructor(public readonly errorCode: number | undefined, method: string, description: string) {
+    super(`Telegram API ${method}: ${description}`);
+  }
+}
+
 async function call<T>(method: string, body: Record<string, unknown>, timeoutMs = CALL_TIMEOUT_MS, validateResult?: (data: unknown, status: number) => T, beforePost?: () => Promise<void>, singleAttempt = false): Promise<T> {
   if (!BASE_URL) throw new Error("TELEGRAM_BOT_TOKEN не настроен");
   for (let attempt = 0; ; attempt++) {
@@ -123,7 +129,7 @@ async function call<T>(method: string, body: Record<string, unknown>, timeoutMs 
       await sleep(waitMs);
       continue;
     }
-    throw new Error(`Telegram API ${method}: ${data.description ?? "неизвестная ошибка"}`);
+    throw new TelegramApiError(data.error_code, method, data.description ?? "неизвестная ошибка");
   }
 }
 
@@ -160,7 +166,7 @@ export async function sendMessage(
    * с сообщения все ограничения: живой сотрудник отвечает клиенту из CRM.
    * Умолчание — бот.
    */
-  outbound?: { origin?: OutboundOrigin; beforePost?: () => Promise<void>; requireReply?: boolean }
+  outbound?: { origin?: OutboundOrigin; beforePost?: () => Promise<void>; requireReply?: boolean; singleAttempt?: boolean }
 ): Promise<unknown> {
   /**
    * ЩИТ СТОРОЖИТ ТОЛЬКО КЛИЕНТСКИЕ ЧАТЫ (`onlyIfKnown`).
@@ -215,7 +221,7 @@ export async function sendMessage(
     }, CALL_TIMEOUT_MS, outbound?.requireReply ? (data, status) => {
       if (status < 200 || status >= 300 || !data || typeof data !== "object" || !("ok" in data) || data.ok !== true || ("success" in data && data.success === false) || "error_code" in data || !("result" in data)) throw new Error("Telegram public reply unconfirmed");
       return (data as TelegramApiResponse<unknown>).result;
-    } : undefined, outbound?.beforePost);
+    } : undefined, outbound?.beforePost, outbound?.singleAttempt);
     first = false;
   }
   return last;
@@ -328,8 +334,8 @@ const CAPTION_MAX_CHARS = 1024;
 const fitCaption = (caption?: string) =>
   caption ? { caption: caption.length > CAPTION_MAX_CHARS ? `${caption.slice(0, CAPTION_MAX_CHARS - 1)}…` : caption } : {};
 
-export function sendPhoto(chatId: string, photoUrl: string, caption?: string): Promise<unknown> {
-  return call("sendPhoto", { chat_id: chatId, photo: photoUrl, ...fitCaption(caption) });
+export function sendPhoto(chatId: string, photoUrl: string, caption?: string, options?: { singleAttempt?: boolean }): Promise<unknown> {
+  return call("sendPhoto", { chat_id: chatId, photo: photoUrl, ...fitCaption(caption) }, CALL_TIMEOUT_MS, undefined, undefined, options?.singleAttempt);
 }
 
 /**

@@ -1,10 +1,10 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 714,
-  "forks": 3946,
-  "mounts": 78,
-  "cron": 114,
+  "endpoints": 721,
+  "forks": 3987,
+  "mounts": 79,
+  "cron": 115,
   "jobs": 31,
   "hidden": 0
  },
@@ -73754,6 +73754,898 @@
   },
   {
    "method": "POST",
+   "path": "/recipients/:agentId/unblock",
+   "mount": "/api/v1/settings/somon",
+   "full": "/api/v1/settings/somon/recipients/:agentId/unblock",
+   "file": "apps/api/src/routes/settingsSomon.ts",
+   "router": "settingsSomonRouter",
+   "top": "apps/api/src/routes/settings.ts::settingsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: settings.manage",
+    "requireElevation"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!parsed.success || !z.object({ checked: z.literal(true) }).strict().safeParse(req.body).success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Подтвердите проверку чата\" });",
+       "a": [
+        "ответ 400 — «Подтвердите проверку чата»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const count = await prisma.$transaction(async tx",
+       "a": [
+        "всё внутри — одной транзакцией",
+        "обращается к базе своим SQL",
+        "читает в базе: agent",
+        "меняет в базе: somonRecipient"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "await tx.$queryRaw`SELECT 1 FROM pg_advisory_xact_lock(hashtext('somon-owner-delivery'))`;",
+         "a": [
+          "обращается к базе своим SQL"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "const agent = await tx.agent.findFirst({ where: { id: parsed.data.agentId, role: \"AGENT\", isActive: true, tel…",
+         "a": [
+          "читает в базе: agent"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "!agent",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return 0;",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "return (await tx.somonRecipient.updateMany({ where: { agentId: agent.id, enabled: false }, data: { enabled: t…",
+         "a": [
+          "меняет в базе: somonRecipient"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "!count",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(409).json({ error: \"Получатель недоступен или уже включён\" });",
+         "a": [
+          "ответ 409 — «Получатель недоступен или уже включён»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "logAudit(req, \"SOMON_RECIPIENT_UNBLOCKED\", \"SomonMonitor\", \"singleton\");",
+       "a": [
+        "зовёт logAudit()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "return res.json({ ok: true });",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return next(error);",
+       "a": [
+        "дословно из кода"
+       ],
+       "c": []
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/recipients",
+   "mount": "/api/v1/settings/somon",
+   "full": "/api/v1/settings/somon/recipients",
+   "file": "apps/api/src/routes/settingsSomon.ts",
+   "router": "settingsSomonRouter",
+   "top": "apps/api/src/routes/settings.ts::settingsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: settings.manage"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const [agents, selected] = await Promise.all([ prisma.agent.findMany({ where: { role: \"AGENT\", isActive: true…",
+       "a": [
+        "читает в базе: agent",
+        "читает в базе: somonRecipient"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "res.json({ agents: agents.map(a",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "next(error);",
+       "a": [
+        "дословно из кода"
+       ],
+       "c": []
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "method": "PUT",
+   "path": "/recipients",
+   "mount": "/api/v1/settings/somon",
+   "full": "/api/v1/settings/somon/recipients",
+   "file": "apps/api/src/routes/settingsSomon.ts",
+   "router": "settingsSomonRouter",
+   "top": "apps/api/src/routes/settings.ts::settingsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: settings.manage",
+    "requireElevation"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const parsed = somonRecipientsSchema.safeParse(req.body);",
+     "a": [
+      "проверяет данные схемой somonRecipientsSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Некорректный список сотрудников\" });",
+       "a": [
+        "ответ 400 — «Некорректный список сотрудников»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "await replaceSomonRecipients(parsed.data.agentIds);",
+       "a": [
+        "зовёт replaceSomonRecipients()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "logAudit(req, \"SOMON_RECIPIENTS_UPDATED\", \"SomonMonitor\", \"singleton\", { count: parsed.data.agentIds.length }…",
+       "a": [
+        "зовёт logAudit()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "return res.json({ ok: true });",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "if",
+       "t": "error instanceof SomonRecipientError",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(400).json({ error: \"Выберите действующих агентов\" });",
+         "a": [
+          "ответ 400 — «Выберите действующих агентов»"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "/review/:advertId/resolve",
+   "mount": "/api/v1/settings/somon",
+   "full": "/api/v1/settings/somon/review/:advertId/resolve",
+   "file": "apps/api/src/routes/settingsSomon.ts",
+   "router": "settingsSomonRouter",
+   "top": "apps/api/src/routes/settings.ts::settingsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: settings.manage",
+    "requireElevation"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Некорректный ID объявления\" });",
+       "a": [
+        "ответ 400 — «Некорректный ID объявления»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const count = await prisma.$transaction(async tx",
+       "a": [
+        "всё внутри — одной транзакцией",
+        "обращается к базе своим SQL",
+        "меняет в базе: somonDelivery",
+        "меняет в базе: somonSeenAdvert"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "await tx.$queryRaw`SELECT 1 FROM pg_advisory_xact_lock(hashtext('somon-owner-delivery'))`;",
+         "a": [
+          "обращается к базе своим SQL"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "const result = await tx.somonDelivery.updateMany({ where: { advertId: parsed.data.advertId, OR: [{ status: \"U…",
+         "a": [
+          "меняет в базе: somonDelivery"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "result.count",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "await tx.somonSeenAdvert.updateMany({ where: { advertId: parsed.data.advertId }, data: { slug: null, status: …",
+           "a": [
+            "меняет в базе: somonSeenAdvert"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "!count",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(409).json({ error: \"Запись уже проверена или отправка ещё идёт\" });",
+         "a": [
+          "ответ 409 — «Запись уже проверена или отправка ещё идёт»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "logAudit(req, \"SOMON_DELIVERY_REVIEWED\", \"SomonDelivery\", parsed.data.advertId);",
+       "a": [
+        "зовёт logAudit()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "return res.json({ ok: true });",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return next(error);",
+       "a": [
+        "дословно из кода"
+       ],
+       "c": []
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "/source/recover",
+   "mount": "/api/v1/settings/somon",
+   "full": "/api/v1/settings/somon/source/recover",
+   "file": "apps/api/src/routes/settingsSomon.ts",
+   "router": "settingsSomonRouter",
+   "top": "apps/api/src/routes/settings.ts::settingsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: settings.manage",
+    "requireElevation"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!z.object({ checked: z.literal(true) }).strict().safeParse(req.body).success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Подтвердите проверку причины остановки\" });",
+       "a": [
+        "ответ 400 — «Подтвердите проверку причины остановки»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const recovered = await prisma.$transaction(async tx",
+       "a": [
+        "всё внутри — одной транзакцией",
+        "обращается к базе своим SQL",
+        "читает в базе: somonMonitor",
+        "меняет в базе: somonMonitor"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "await tx.$queryRaw`SELECT 1 FROM pg_advisory_xact_lock(hashtext('somon-source-budget'))`;",
+         "a": [
+          "обращается к базе своим SQL"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "const state = await tx.somonMonitor.findUnique({ where: { id: \"singleton\" } });",
+         "a": [
+          "читает в базе: somonMonitor"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "!state?.sourceStopped || (state.requestLeaseUntil && state.requestLeaseUntil > new Date())",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return false;",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "await tx.somonMonitor.update({ where: { id: \"singleton\" }, data: { sourceStopped: false, sourceFailures: 0, s…",
+         "a": [
+          "меняет в базе: somonMonitor"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "!recovered",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(409).json({ error: \"Источник не остановлен или запрос ещё выполняется\" });",
+         "a": [
+          "ответ 409 — «Источник не остановлен или запрос ещё выполняется»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "logAudit(req, \"SOMON_SOURCE_RECOVERED\", \"SomonMonitor\", \"singleton\");",
+       "a": [
+        "зовёт logAudit()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "return res.json({ ok: true });",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return next(error);",
+       "a": [
+        "дословно из кода"
+       ],
+       "c": []
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "method": "PUT",
+   "path": "/state",
+   "mount": "/api/v1/settings/somon",
+   "full": "/api/v1/settings/somon/state",
+   "file": "apps/api/src/routes/settingsSomon.ts",
+   "router": "settingsSomonRouter",
+   "top": "apps/api/src/routes/settings.ts::settingsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: settings.manage",
+    "requireElevation"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const parsed = somonMonitorStateSchema.safeParse(req.body);",
+     "a": [
+      "проверяет данные схемой somonMonitorStateSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Некорректное состояние\" });",
+       "a": [
+        "ответ 400 — «Некорректное состояние»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const result = await prisma.$transaction(async tx",
+       "a": [
+        "всё внутри — одной транзакцией",
+        "обращается к базе своим SQL",
+        "читает в базе: somonMonitor",
+        "читает в базе: somonRecipient",
+        "считает в базе: agent",
+        "создаёт или меняет в базе: somonMonitor"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "await tx.$queryRaw`SELECT 1 FROM pg_advisory_xact_lock(hashtext('somon-owner-delivery'))`;",
+         "a": [
+          "обращается к базе своим SQL"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "const state = await tx.somonMonitor.findUnique({ where: { id: \"singleton\" } });",
+         "a": [
+          "читает в базе: somonMonitor"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "parsed.data.enabled",
+         "a": [],
+         "c": [
+          {
+           "k": "if",
+           "t": "state?.sourceStopped",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return \"source_stopped\" as const;",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "try",
+           "t": "пробует",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "fingerprint = somonKeyFingerprint();",
+             "a": [
+              "зовёт somonKeyFingerprint()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "catch",
+           "t": "если сорвалось",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return \"identity_unavailable\" as const;",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "state?.contactKeyFingerprint && state.contactKeyFingerprint !== fingerprint",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return \"identity_unavailable\" as const;",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const recipients = await tx.somonRecipient.findMany({ where: { enabled: true }, select: { agentId: true } });",
+           "a": [
+            "читает в базе: somonRecipient"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "const count = await tx.agent.count({ where: { id: { in: recipients.map(x",
+           "a": [
+            "считает в базе: agent"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "!count",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return \"no_linked_agents\" as const;",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "await tx.somonMonitor.upsert({ where: { id: \"singleton\" }, create: { id: \"singleton\", enabled: parsed.data.en…",
+         "a": [
+          "создаёт или меняет в базе: somonMonitor"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "result !== \"ok\"",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(409).json({ error: result === \"no_linked_agents\" ? \"Выберите хотя бы одного агента с привяз…",
+         "a": [
+          "ответ 409"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "logAudit(req, parsed.data.enabled ? \"SOMON_MONITOR_ENABLED\" : \"SOMON_MONITOR_DISABLED\", \"SomonMonitor\", \"sing…",
+       "a": [
+        "зовёт logAudit()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "return res.json({ ok: true });",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return next(error);",
+       "a": [
+        "дословно из кода"
+       ],
+       "c": []
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/status",
+   "mount": "/api/v1/settings/somon",
+   "full": "/api/v1/settings/somon/status",
+   "file": "apps/api/src/routes/settingsSomon.ts",
+   "router": "settingsSomonRouter",
+   "top": "apps/api/src/routes/settings.ts::settingsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: settings.manage"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const state = await prisma.somonMonitor.findUnique({ where: { id: \"singleton\" } });",
+       "a": [
+        "читает в базе: somonMonitor"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "const [pending, uncertain, review] = await Promise.all([ prisma.somonSeenAdvert.count({ where: { status: \"PEN…",
+       "a": [
+        "считает в базе: somonSeenAdvert",
+        "считает в базе: somonDelivery",
+        "читает в базе: somonDelivery"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "const [seen, agents] = await Promise.all([ prisma.somonSeenAdvert.findMany({ where: { advertId: { in: review.…",
+       "a": [
+        "читает в базе: somonSeenAdvert",
+        "читает в базе: agent"
+       ],
+       "c": []
+      },
+      {
+       "k": "try",
+       "t": "пробует",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "identityReady = !!state?.contactKeyFingerprint && state.contactKeyFingerprint === somonKeyFingerprint();",
+         "a": [
+          "зовёт somonKeyFingerprint()"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "catch",
+       "t": "если сорвалось",
+       "a": [],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "res.json({ enabled: state?.enabled ?? false, sourceStopped: state?.sourceStopped ?? false, identityReady, bas…",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "next(error);",
+       "a": [
+        "дословно из кода"
+       ],
+       "c": []
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "method": "POST",
    "path": "/telephony-audio/:kind",
    "mount": "/api/v1/settings",
    "full": "/api/v1/settings/telephony-audio/:kind",
@@ -107481,6 +108373,571 @@
        "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
       }
      ]
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
+   "id": "somon-owner-leads",
+   "when": "* * * * *",
+   "tree": [
+    {
+     "k": "do",
+     "t": "await runSomonMonitorTick();",
+     "a": [
+      "зовёт runSomonMonitorTick()"
+     ],
+     "c": [
+      {
+       "k": "do",
+       "t": "const stuck = await prisma.somonDelivery.count({ where: { status: \"SENDING\", updatedAt: { lt: new Date(Date.n…",
+       "a": [
+        "считает в базе: somonDelivery"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "stuck",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "await logSystemError(\"telegram\", \"Somon: обнаружены отправки с неизвестным результатом; автоматического повто…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "let state = await prisma.somonMonitor.findUnique({ where: { id: \"singleton\" } });",
+       "a": [
+        "читает в базе: somonMonitor"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!state?.enabled || state.sourceStopped || (state.blockedUntil && state.blockedUntil > new Date())",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return;",
+         "a": [
+          "дальше не идёт, ничего не меняя"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "try",
+       "t": "пробует",
+       "a": [],
+       "c": [
+        {
+         "k": "if",
+         "t": "!state.contactKeyFingerprint || state.contactKeyFingerprint !== somonKeyFingerprint()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "throw new Error(\"contact identity key changed\");",
+           "a": [
+            "ошибка Error — «contact identity key changed»"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "k": "catch",
+       "t": "если сорвалось",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "await logSystemError(\"cron\", \"Somon: проверка повторных контактов недоступна; мониторинг остановлен\", { dedup…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "return;",
+         "a": [
+          "дальше не идёт, ничего не меняя"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "try",
+       "t": "пробует",
+       "a": [],
+       "c": [
+        {
+         "k": "if",
+         "t": "!state.baselineAt",
+         "a": [],
+         "c": [
+          {
+           "k": "loop",
+           "t": "для каждого: let count = 0; count < MAX_PAGES_PER_TICK && Date.now() < deadline; count++",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "state = await prisma.somonMonitor.findUnique({ where: { id: \"singleton\" } });",
+             "a": [
+              "читает в базе: somonMonitor"
+             ],
+             "c": []
+            },
+            {
+             "k": "if",
+             "t": "!state?.enabled || state.baselineAt || state.sourceStopped",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "return;",
+               "a": [
+                "дальше не идёт, ничего не меняя"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "try",
+             "t": "пробует",
+             "a": [],
+             "c": []
+            },
+            {
+             "k": "catch",
+             "t": "если сорвалось",
+             "a": [],
+             "c": [
+              {
+               "k": "if",
+               "t": "n > 1 && ((error instanceof SomonSourceUnavailable && error.status === 404) || error instanceof SomonEmptyLis…",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "await pause(10200);",
+                 "a": [
+                  "дословно из кода"
+                 ],
+                 "c": []
+                },
+                {
+                 "k": "do",
+                 "t": "const first = await page(1);",
+                 "a": [
+                  "дословно из кода"
+                 ],
+                 "c": []
+                }
+               ]
+              },
+              {
+               "k": "do",
+               "t": "throw error;",
+               "a": [
+                "пробрасывает ошибку дальше"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "if",
+             "t": "data.last < n",
+             "a": [],
+             "c": [
+              {
+               "k": "if",
+               "t": "await finishShrunkBaseline(n, first.last)",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "return;",
+                 "a": [
+                  "дальше не идёт, ничего не меняя"
+                 ],
+                 "c": []
+                }
+               ]
+              },
+              {
+               "k": "do",
+               "t": "throw new Error(\"Somon baseline pagination changed unexpectedly\");",
+               "a": [
+                "ошибка Error — «Somon baseline pagination changed unexpectedly»"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "do",
+             "t": "const result = await recordBaselinePage(n, data.last, data.ads.map(a",
+             "a": [
+              "зовёт recordBaselinePage()"
+             ],
+             "c": []
+            },
+            {
+             "k": "if",
+             "t": "result === \"complete\" || result === \"disabled\"",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "return;",
+               "a": [
+                "дальше не идёт, ничего не меняя"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "if",
+             "t": "Date.now() < deadline",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "await pause(10200);",
+               "a": [
+                "дословно из кода"
+               ],
+               "c": []
+              }
+             ]
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "return;",
+           "a": [
+            "дальше не идёт, ничего не меняя"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "token",
+         "a": [],
+         "c": [
+          {
+           "k": "try",
+           "t": "пробует",
+           "a": [],
+           "c": [
+            {
+             "k": "loop",
+             "t": "для каждого: let count = 0; count < MAX_PAGES_PER_TICK && Date.now() < deadline; count++",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "state = await prisma.somonMonitor.findUnique({ where: { id: \"singleton\" } });",
+               "a": [
+                "читает в базе: somonMonitor"
+               ],
+               "c": []
+              },
+              {
+               "k": "if",
+               "t": "!state?.enabled || state.sourceStopped || state.scanLeaseToken !== token",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "return;",
+                 "a": [
+                  "дальше не идёт, ничего не меняя"
+                 ],
+                 "c": []
+                }
+               ]
+              },
+              {
+               "k": "if",
+               "t": "rejectedSlug",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "await logSystemError(\"cron\", \"Somon: часть ссылок объявлений не удалось обработать\", { dedupKey: \"somon-inval…",
+                 "a": [
+                  "запись в журнал ошибок"
+                 ],
+                 "c": []
+                }
+               ]
+              },
+              {
+               "k": "do",
+               "t": "await recordNewObservations(listings);",
+               "a": [
+                "зовёт recordNewObservations()"
+               ],
+               "c": []
+              },
+              {
+               "k": "do",
+               "t": "const safeTail = firstRegular !== null && n > firstRegular && regular.length > 0 && clearlyOlderThanTenMinute…",
+               "a": [
+                "зовёт clearlyOlderThanTenMinutes()"
+               ],
+               "c": []
+              },
+              {
+               "k": "if",
+               "t": "!(await advanceScan(token, n, firstRegular, done))",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "return;",
+                 "a": [
+                  "дальше не идёт, ничего не меняя"
+                 ],
+                 "c": []
+                }
+               ]
+              },
+              {
+               "k": "if",
+               "t": "capped && !safeTail && n < data.last",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "await logSystemError(\"cron\", \"Somon: достигнут предел страниц; часть новых объявлений могла быть пропущена\", …",
+                 "a": [
+                  "запись в журнал ошибок"
+                 ],
+                 "c": []
+                }
+               ]
+              },
+              {
+               "k": "if",
+               "t": "done",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "break;",
+                 "a": [
+                  "прекращает перебор"
+                 ],
+                 "c": []
+                }
+               ]
+              },
+              {
+               "k": "if",
+               "t": "Date.now() < deadline",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "await pause(10200);",
+                 "a": [
+                  "дословно из кода"
+                 ],
+                 "c": []
+                }
+               ]
+              }
+             ]
+            }
+           ]
+          },
+          {
+           "k": "finally",
+           "t": "в любом случае",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "await releaseScan(token);",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "Date.now() < deadline",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "await pause(10200);",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "Date.now() < deadline",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const pending = await prisma.somonSeenAdvert.findMany({ where: { status: \"PENDING\", baseline: false }, orderB…",
+           "a": [
+            "читает в базе: somonSeenAdvert"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "pending[0] && Date.now() - pending[0].seenAt.getTime() > 15 * 60_000",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "await logSystemError(\"cron\", \"Somon: очередь объявлений задерживается более 15 минут\", { dedupKey: \"somon-pen…",
+             "a": [
+              "запись в журнал ошибок"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "loop",
+           "t": "для каждого: const item of pending",
+           "a": [],
+           "c": [
+            {
+             "k": "if",
+             "t": "Date.now() >= deadline",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "break;",
+               "a": [
+                "прекращает перебор"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "do",
+             "t": "const result = await processSomonPending(item.advertId, pause);",
+             "a": [
+              "зовёт processSomonPending()"
+             ],
+             "c": []
+            },
+            {
+             "k": "if",
+             "t": "result === \"waiting\" || result === \"unknown\"",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "break;",
+               "a": [
+                "прекращает перебор"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "if",
+             "t": "Date.now() < deadline",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "await pause(10200);",
+               "a": [
+                "дословно из кода"
+               ],
+               "c": []
+              }
+             ]
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "await cleanupSomonReceipts();",
+         "a": [
+          "зовёт cleanupSomonReceipts()"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "catch",
+       "t": "если сорвалось",
+       "a": [],
+       "c": [
+        {
+         "k": "if",
+         "t": "error instanceof SomonSourceUnavailable && error.reason === \"not_ready\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return;",
+           "a": [
+            "дальше не идёт, ничего не меняя"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "throw error;",
+         "a": [
+          "пробрасывает ошибку дальше"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ],
+     "from": "runSomonMonitorTick() — apps/api/src/lib/somonLeads/monitor.ts"
     }
    ],
    "file": "apps/api/src/cron.ts"

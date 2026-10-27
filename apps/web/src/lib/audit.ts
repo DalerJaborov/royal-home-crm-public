@@ -16,6 +16,12 @@
  * в прогоне перед пушем и в CI): новое действие без подписи заворачивается.
  */
 export const AUDIT_ACTION_LABELS: Record<string, string> = {
+  SOMON_DELIVERY_REVIEWED: "Отправка Somon проверена",
+  SOMON_MONITOR_DISABLED: "Мониторинг Somon остановлен",
+  SOMON_MONITOR_ENABLED: "Мониторинг Somon запущен",
+  SOMON_RECIPIENTS_UPDATED: "Очередь Somon изменена",
+  SOMON_RECIPIENT_UNBLOCKED: "Получатель Somon включён после проверки",
+  SOMON_SOURCE_RECOVERED: "Доступ к Somon возобновлён после проверки",
   INVESTIGATION_CONTROL_DISABLED: "Проверка отключена · запись без отправки",
   CLIENT_MANUAL_CORRECTION: "Ручное исправление данных с проверкой плана",
   INSTAGRAM_SIGNER_OWNER_CONFIGURED: "Instagram: администратор настроил подписанта входящих сообщений",
@@ -249,6 +255,8 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
 };
 
 export const AUDIT_ENTITY_LABELS: Record<string, string> = {
+  SomonDelivery: "Отправка Somon",
+  SomonMonitor: "Мониторинг Somon",
   InvestigationControl: "Настройки проверок",
   Expense: "Расход",
   ExpenseCategoryDefinition: "Категория расходов",
