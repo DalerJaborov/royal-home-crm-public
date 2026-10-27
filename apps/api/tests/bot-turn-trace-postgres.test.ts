@@ -1,6 +1,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
 import type { BotTurnTracePayload } from "@royal-home/shared";
+import { BOT_CUSTOMER_AGENT_TRACE_COVERAGE, botTurnTracePayloadSchema } from "@royal-home/shared";
 // Explicit narrow run supplies DATABASE_URL before import; don't load local keys.
 vi.mock("../src/loadEnv.js", () => ({}));
 import { prisma } from "../src/db.js";
@@ -28,6 +29,21 @@ afterEach(async () => { await prisma.botTurnTrace.deleteMany({ where: { id: { in
 afterAll(async () => { await prisma.$disconnect(); });
 
 describe("real PostgreSQL turn trace fences and bounded export", () => {
+  it("retains the quality release diagnostic fields in reserve-build exports without changing stored history", async () => {
+    const createdAt = new Date("2031-02-03T12:00:00Z"), base = await payload(createdAt);
+    const trace: BotTurnTracePayload = { ...base, coverage: BOT_CUSTOMER_AGENT_TRACE_COVERAGE, channel: "INSTAGRAM", source: "internal",
+      managed: { surface: "dm", phase: "planning", operationKey: null },
+      customerCore: { status: "held", rounds: 1, toolCalls: 0, receiptOutcomes: [], heldReason: "unsupported",
+        stopCode: "surface_decision_denied", rejectedDecisionKind: "skip", skipReason: "unsupported" } };
+    await writeBotTurnTrace(trace);
+    const before = await prisma.botTurnTrace.findUniqueOrThrow({ where: { id: trace.traceId } });
+    const exported = await readTraceExport(prisma.botTurnTrace, { from: createdAt, to: new Date("2031-02-04T00:00:00Z"), limit: 10 }, createdAt);
+    expect(exported.omitted).toBe(0); expect(exported.payloads).toHaveLength(1);
+    expect(exported.payloads[0].customerCore).toEqual(trace.customerCore);
+    expect(await prisma.botTurnTrace.findUniqueOrThrow({ where: { id: trace.traceId } })).toEqual(before);
+    expect(botTurnTracePayloadSchema.safeParse({ ...trace, customerCore: { ...trace.customerCore, stopCode: "private free text" } }).success).toBe(false);
+    expect(botTurnTracePayloadSchema.safeParse({ ...trace, customerCore: { ...trace.customerCore, rejectedDecisionKind: "reply" } }).success).toBe(false);
+  });
   it("lower/equal sequences cannot replace the latest checkpoint; account binding persists", async () => {
     const first = await payload(); await writeBotTurnTrace({ ...first, checkpointSeq: 2 });
     await writeBotTurnTrace({ ...first, checkpointSeq: 4, accountKey: "a".repeat(64), conversationKey: "b".repeat(64) });

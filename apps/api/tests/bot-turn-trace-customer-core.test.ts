@@ -121,30 +121,6 @@ describe("customer core trace carries a SAFE cause code (23.10)", () => {
     }, g.config);
     expect(g.rows.at(-1)?.customerCore).toMatchObject({ heldReason: "other", causeCode: "TypeError" });
   });
-  it("projects exact closed stop and rejected-decision codes without accepting prose or legacy payload changes", async () => {
-    const f = recorder();
-    await withBotTurnTrace(managed, async () => {
-      traceCustomerCoreResult({ status: "held", reason: "surface_decision_denied", rounds: 2, toolCalls: 0, evidence: [],
-        rejectedDecisionKind: "skip", skipReason: "unsupported", rawResponse: "PRIVATE https://private.example" });
-    }, f.config);
-    const core = f.rows.at(-1)?.customerCore;
-    expect(core).toMatchObject({ status: "held", heldReason: "unsupported", stopCode: "surface_decision_denied",
-      rejectedDecisionKind: "skip", skipReason: "unsupported" });
-    expect(JSON.stringify(core)).not.toMatch(/PRIVATE|private\.example/);
-    expect(botTurnTracePayloadSchema.safeParse(f.rows.at(-1)).success).toBe(true);
-    expect(botTurnTracePayloadSchema.safeParse({ ...f.rows.at(-1), customerCore: { ...core, stopCode: "PRIVATE" } }).success).toBe(false);
-    expect(botTurnTracePayloadSchema.safeParse({ ...f.rows.at(-1), customerCore: { ...core, skipReason: "PRIVATE" } }).success).toBe(false);
-  });
-  it("does not invent a denied decision for unknown-write recovery or old trace payloads", async () => {
-    const f = recorder();
-    await withBotTurnTrace(managed, async () => {
-      traceCustomerCoreResult({ status: "held", reason: "effect_unknown", rounds: 1, toolCalls: 1, evidence: [] });
-    }, f.config);
-    const core = f.rows.at(-1)?.customerCore!;
-    expect(core).toMatchObject({ heldReason: "effect_unknown", stopCode: "effect_unknown" });
-    expect(core.rejectedDecisionKind).toBeUndefined(); expect(core.skipReason).toBeUndefined();
-    expect(botTurnTracePayloadSchema.safeParse({ ...f.rows.at(-1), customerCore: { ...core, stopCode: undefined } }).success).toBe(true);
-  });
   it("an adapter-level failure (customer_core_unavailable) gets its cause through the disposition", async () => {
     const f = recorder();
     await withBotTurnTrace(managed, async () => { traceCustomerCoreDisposition("held", "customer_core_unavailable", "PrismaClientKnownRequestError"); }, f.config);

@@ -197,15 +197,6 @@ const CHAT_VOICE_STYLE_PROMPT =
   "как будто быстро надиктовал голосовое сообщение знакомому клиенту, а не читаешь текст " +
   "вслух — с естественными паузами на знаках препинания, без дикторской чёткости: ";
 
-/** Exact remaining input capacity after the existing style prefix. This lets
- * strict callers skip audio rather than letting synthesizeSpeech silently
- * truncate the sealed text. Legacy callers retain their existing truncation. */
-export const CHAT_VOICE_REPLY_MAX_TEXT_CHARS = MAX_INPUT_CHARS - CHAT_VOICE_STYLE_PROMPT.length;
-
-export function chatVoiceReplyFitsTtsInputLimit(text: string): boolean {
-  return text.trim().length > 0 && CHAT_VOICE_STYLE_PROMPT.length + text.length <= MAX_INPUT_CHARS;
-}
-
 /**
  * Озвучка ГОЛОСОВОГО ОТВЕТА БОТА В ПЕРЕПИСКЕ (Meta/Telegram-личка/Telegram
  * Direct) — единственная точка входа для этой задачи, чтобы стиль не разошёлся
