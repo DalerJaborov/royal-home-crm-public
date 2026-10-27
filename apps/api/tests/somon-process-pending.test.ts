@@ -2,8 +2,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 const mocks = vi.hoisted(() => ({ detail: vi.fn(), phone: vi.fn(), sendPhoto: vi.fn(), sendMessage: vi.fn() }));
 vi.mock("../src/lib/somonLeads/sourceClient.js", () => ({ fetchSomon: mocks.detail, SomonSourceUnavailable: class SomonSourceUnavailable extends Error { reason = "not_ready"; } }));
 vi.mock("../src/lib/somonLeads/phone.js", () => ({ fetchSomonPhone: mocks.phone }));
-vi.mock("../src/telegram/api.js", () => ({ sendPhoto: mocks.sendPhoto, sendMessage: mocks.sendMessage, TelegramApiError: class TelegramApiError extends Error { constructor(public errorCode: number) { super("Telegram rejected"); } } }));
-vi.mock("../src/lib/systemError.js", () => ({ logSystemError: vi.fn().mockResolvedValue(undefined) }));
+vi.mock("../src/telegram/api.js", async importOriginal => ({ ...(await importOriginal<typeof import("../src/telegram/api.js")>()), sendPhoto: mocks.sendPhoto, sendMessage: mocks.sendMessage }));
+vi.mock("../src/lib/systemError.js", async importOriginal => ({ ...(await importOriginal<typeof import("../src/lib/systemError.js")>()), logSystemError: vi.fn().mockResolvedValue(undefined) }));
 import { prisma } from "../src/db.js";
 import { processSomonPending } from "../src/lib/somonLeads/processPending.js";
 import { sendReservedSomon } from "../src/lib/somonLeads/sendReserved.js";
