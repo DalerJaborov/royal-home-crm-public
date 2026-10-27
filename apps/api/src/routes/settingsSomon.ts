@@ -118,4 +118,3 @@ settingsSomonRouter.put("/recipients", requireElevation, async (req, res, next) 
     return next(error);
   }
 });
-

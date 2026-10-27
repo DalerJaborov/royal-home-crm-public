@@ -20,4 +20,3 @@ describe("Somon card boundary", () => {
     expect(parseSomonDetail({ ...detail, categories: [{ slug: "arenda-kvartir" }] }, "42").inScope).toBe(false);
   });
 });
-

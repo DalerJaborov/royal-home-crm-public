@@ -173,4 +173,3 @@ describe("Somon durable delivery reservation", () => {
     expect(await finishShrunkBaseline(2, 1, now)).toBe(true);
   });
 });
-

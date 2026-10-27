@@ -59,4 +59,3 @@ export async function processSomonPending(advertId: string, pause: (ms: number) 
   }
   return outcome === "sent" ? "sent" : outcome === "cancelled" ? "skipped" : "unknown";
 }
-

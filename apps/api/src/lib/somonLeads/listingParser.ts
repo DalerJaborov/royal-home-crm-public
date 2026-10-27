@@ -237,4 +237,3 @@ export function toListing(ad: SomonRawAd): ParsedListing | null {
     raw: ad,
   };
 }
-

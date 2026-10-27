@@ -114,5 +114,3 @@ describe("Somon pending flow on isolated database", () => {
     expect(stopped).toBe(true);
   });
 });
-
-

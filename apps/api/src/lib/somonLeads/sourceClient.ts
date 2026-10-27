@@ -49,4 +49,3 @@ export async function fetchSomon(path: string, now = new Date(), request: typeof
   if (!response.ok) throw new SomonSourceUnavailable("http", response.status);
   return response;
 }
-
