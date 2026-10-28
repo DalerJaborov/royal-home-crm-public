@@ -13,7 +13,7 @@
 | Экранов (адресов в интерфейсе) | 68 |
 | Из них видно в меню | 35 |
 | Модулей сервера | 79 |
-| Адресов сервера всего | 715 |
+| Адресов сервера всего | 716 |
 | Задач по расписанию | 111 |
 | Типов фоновых заданий | 23 |
 | Внешних сервисов | 13 |
@@ -172,7 +172,7 @@
 | `/api/v1/reports` | Отчёты за период | 20 | да (4 мест) | `apps/api/src/routes/reports.ts` |
 | `/api/v1/telephony/whisper` | Станция забирает подсказки оператору | 2 | нет | `apps/api/src/routes/telephonyWhisper.ts` |
 | `/api/v1/settings/restore-points` | Точки возврата настроек | 2 | да (11 мест) | `apps/api/src/routes/settingsRestorePoints.ts` |
-| `/api/v1/settings` | Настройки CRM и точки возврата | 49 | да (11 мест) | `apps/api/src/routes/settings.ts` |
+| `/api/v1/settings` | Настройки CRM и точки возврата | 50 | да (11 мест) | `apps/api/src/routes/settings.ts` |
 | `/api/v1/ui-shell` | **без подписи** | 3 | да (2 мест) | `apps/api/src/routes/uiShell.ts` |
 | `/api/v1/sms` | **без подписи** | 6 | да (2 мест) | `apps/api/src/routes/sms.ts` |
 | `/api/v1/whatsapp-templates` | **без подписи** | 3 | да (1 мест) | `apps/api/src/routes/whatsappTemplates.ts` |

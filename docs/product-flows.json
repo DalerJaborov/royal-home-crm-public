@@ -1,8 +1,8 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 721,
-  "forks": 3987,
+  "endpoints": 722,
+  "forks": 3989,
   "mounts": 79,
   "cron": 115,
   "jobs": 31,
@@ -74178,6 +74178,102 @@
   },
   {
    "method": "POST",
+   "path": "/seller-review/:advertId/resolve",
+   "mount": "/api/v1/settings/somon",
+   "full": "/api/v1/settings/somon/seller-review/:advertId/resolve",
+   "file": "apps/api/src/routes/settingsSomon.ts",
+   "router": "settingsSomonRouter",
+   "top": "apps/api/src/routes/settings.ts::settingsRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: settings.manage",
+    "requireElevation"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Некорректный ID объявления\" });",
+       "a": [
+        "ответ 400 — «Некорректный ID объявления»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const result = await prisma.somonSeenAdvert.updateMany({ where: { advertId: parsed.data.advertId, status: \"RE…",
+       "a": [
+        "меняет в базе: somonSeenAdvert"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!result.count",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(409).json({ error: \"Запись уже проверена\" });",
+         "a": [
+          "ответ 409 — «Запись уже проверена»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "logAudit(req, \"SOMON_SELLER_REVIEWED\", \"SomonMonitor\", \"singleton\");",
+       "a": [
+        "зовёт logAudit()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "return res.json({ ok: true });",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return next(error);",
+       "a": [
+        "дословно из кода"
+       ],
+       "c": []
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "method": "POST",
    "path": "/source/recover",
    "mount": "/api/v1/settings/somon",
    "full": "/api/v1/settings/somon/source/recover",
@@ -74584,6 +74680,15 @@
         "считает в базе: somonSeenAdvert",
         "считает в базе: somonDelivery",
         "читает в базе: somonDelivery"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "const [sellerReview, sellerReviewCount] = await Promise.all([ prisma.somonSeenAdvert.findMany({ where: { stat…",
+       "a": [
+        "читает в базе: somonSeenAdvert",
+        "считает в базе: somonSeenAdvert"
        ],
        "c": []
       },
