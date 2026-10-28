@@ -3,6 +3,7 @@ import { isNewAfterActivation } from "./freshness.js";
 import { nextSomonAgent } from "./roundRobin.js";
 import { somonKeyFingerprint, somonPhoneHash } from "./contactIdentity.js";
 import { findPhoneOwners } from "../clientPhones.js";
+import { Prisma } from "../../generated/prisma/client.js";
 
 type Reservation = { status: "reserved"; agentId: string; chatId: string } | { status: "disabled" | "not_new" | "duplicate" | "known_contact" | "no_agent" };
 export type DateEvidence = { kind: "verified"; publishedAt: Date } | { kind: "uncertain" };
@@ -28,7 +29,7 @@ export async function reserveSomonDelivery(advertId: string, phone: string, evid
     const existingContact = await tx.somonContactReceipt.findUnique({ where: { phoneHash } });
     const knownClients = await findPhoneOwners([phone], { db: tx, includeDeleted: true, limit: 1 });
     if (existingContact || knownClients.length) {
-      await tx.somonSeenAdvert.update({ where: { advertId }, data: { status: "KNOWN_CONTACT", slug: null } });
+      await tx.somonSeenAdvert.update({ where: { advertId }, data: { status: "KNOWN_CONTACT", slug: null, sellerCheck: Prisma.DbNull } });
       return { status: "known_contact" };
     }
     const recipients = await tx.somonRecipient.findMany({ orderBy: { position: "asc" } });
@@ -39,7 +40,7 @@ export async function reserveSomonDelivery(advertId: string, phone: string, evid
     if (!agent?.telegramChatId) return { status: "no_agent" };
     await tx.somonDelivery.upsert({ where: { advertId }, create: { advertId, agentId: agent.id, status: "SENDING", dateUncertain: evidence.kind === "uncertain" }, update: { agentId: agent.id, status: "SENDING", dateUncertain: evidence.kind === "uncertain" } });
     await tx.somonContactReceipt.create({ data: { phoneHash, agentId: agent.id, advertId } });
-    await tx.somonSeenAdvert.update({ where: { advertId }, data: { status: "DISPATCHED" } });
+    await tx.somonSeenAdvert.update({ where: { advertId }, data: { status: "DISPATCHED", sellerCheck: Prisma.DbNull } });
     await tx.somonMonitor.update({ where: { id: "singleton" }, data: { lastAssignedAgentId: agent.id } });
     return { status: "reserved", agentId: agent.id, chatId: agent.telegramChatId };
   }, { timeout: 35000 });
@@ -53,7 +54,7 @@ export async function cleanupSomonReceipts(now = new Date()): Promise<number> {
   const seenCutoff = new Date(now.getTime() - 180 * 24 * 60 * 60 * 1000);
   await prisma.$executeRaw`DELETE FROM "SomonSeenAdvert" s
     WHERE s."baseline" = false AND s."seenAt" < ${seenCutoff}
-      AND s."status" IN ('REJECTED', 'NO_PHONE', 'EXPIRED', 'UNAVAILABLE', 'INVALID', 'DISPATCHED')
+      AND s."status" IN ('REJECTED', 'REVIEW_SELLER', 'KNOWN_CONTACT', 'NO_PHONE', 'EXPIRED', 'UNAVAILABLE', 'INVALID', 'DISPATCHED')
       AND NOT EXISTS (SELECT 1 FROM "SomonDelivery" d WHERE d."advertId" = s."advertId" AND d."status" IN ('SENDING', 'UNKNOWN', 'FAILED', 'CANCELLED'))`;
   return result.count;
 }

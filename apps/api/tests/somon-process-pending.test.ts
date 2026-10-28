@@ -10,7 +10,7 @@ import { sendReservedSomon } from "../src/lib/somonLeads/sendReserved.js";
 import { reserveSomonDelivery } from "../src/lib/somonLeads/deliveryStore.js";
 import { somonKeyFingerprint } from "../src/lib/somonLeads/contactIdentity.js";
 const agentId = "stand-somon-process-agent";
-const adIds = ["987651001", "987651002", "987651003", "987651004", "987651005", "987651006", "987651007"];
+const adIds = ["987651001", "987651002", "987651003", "987651004", "987651005", "987651006", "987651007", "987651008", "987651009", "987651010", "987651011"];
 let previousMonitor: Awaited<ReturnType<typeof prisma.somonMonitor.findUnique>> = null;
 let previousRecipients: Awaited<ReturnType<typeof prisma.somonRecipient.findMany>> = [];
 const fakeCard = (id: string, description = "Собственник") => ({ id: Number(id), name: "Квартира", description, price: { price: "100 c." }, location: { name: "Душанбе" }, gallery: { preview: ["https://cdntj.somon.tj/stand.jpg"] }, user: { name: "Продавец", active_adverts: "1 активное объявление", is_business_account: false, is_company: false }, categories: [{ slug: "nedvizhimost" }, { slug: "prodazha-kvartir" }], is_closed: false });
@@ -112,5 +112,65 @@ describe("Somon pending flow on isolated database", () => {
     expect(await sending).toBe("sent");
     await stop;
     expect(stopped).toBe(true);
+  });
+  it("sends an unclaimed owner with one property and two unrelated ads after checking categories", async () => {
+    await prisma.somonMonitor.update({ where: { id: "singleton" }, data: { enabled: true } });
+    const current = { ...fakeCard(adIds[7], "Продам квартиру"), user: { ...fakeCard(adIds[7]).user, id: 7, active_adverts: "3 активных объявления" } };
+    const profile = `<a href="/items/author/7/">seller</a><span>Найдено 3 объявлений</span>${[adIds[7], "987652001", "987652002"].map(id => `<div class="advert-grid" data-advert-id="${id}"><a href="/adv/${id}_stand/">item</a></div>`).join("")}`;
+    mocks.detail.mockImplementation(async (path: string) => {
+      if (path === "/items/author/7/") return new Response(profile);
+      if (path.includes(adIds[7])) return new Response(JSON.stringify(current));
+      const id = path.includes("987652001") ? 987652001 : 987652002;
+      return new Response(JSON.stringify({ id, is_closed: false, user: { id: 7 }, categories: [{ slug: "vakansii" }] }));
+    });
+    expect(await processSomonPending(adIds[7], async () => {})).toBe("waiting");
+    expect(await processSomonPending(adIds[7], async () => {})).toBe("waiting");
+    expect(await processSomonPending(adIds[7], async () => {})).toBe("waiting");
+    expect(await processSomonPending(adIds[7], async () => {})).toBe("sent");
+    expect(mocks.sendPhoto).toHaveBeenCalledTimes(1);
+    expect(mocks.sendPhoto.mock.calls[0][2]).toContain("Вероятно собственник");
+  });
+  it("does not send a seller with three real-estate advertisements", async () => {
+    const current = { ...fakeCard(adIds[8], "Продам квартиру"), user: { ...fakeCard(adIds[8]).user, id: 7, active_adverts: "3 активных объявления" } };
+    const profile = `<a href="/items/author/7/">seller</a><span>Найдено 3 объявлений</span>${[adIds[8], "987653001", "987653002"].map(id => `<div class="advert-grid" data-advert-id="${id}"><a href="/adv/${id}_stand/">item</a></div>`).join("")}`;
+    mocks.detail.mockImplementation(async (path: string) => {
+      if (path === "/items/author/7/") return new Response(profile);
+      if (path.includes(adIds[8])) return new Response(JSON.stringify(current));
+      const id = path.includes("987653001") ? 987653001 : 987653002;
+      return new Response(JSON.stringify({ id, is_closed: false, user: { id: 7 }, categories: [{ slug: "nedvizhimost" }] }));
+    });
+    expect(await processSomonPending(adIds[8], async () => {})).toBe("waiting");
+    expect(await processSomonPending(adIds[8], async () => {})).toBe("waiting");
+    expect(await processSomonPending(adIds[8], async () => {})).toBe("skipped");
+    expect(mocks.sendPhoto).not.toHaveBeenCalled();
+    expect((await prisma.somonSeenAdvert.findUniqueOrThrow({ where: { advertId: adIds[8] } })).status).toBe("REJECTED");
+  });
+  it("holds for review when a seller replaces an advert while the total is unchanged", async () => {
+    const current = { ...fakeCard(adIds[9], "Продам квартиру"), user: { ...fakeCard(adIds[9]).user, id: 7, active_adverts: "3 активных объявления" } };
+    let profileCalls = 0;
+    const profile = (last: string) => `<a href="/items/author/7/">seller</a><span>Найдено 3 объявлений</span>${[adIds[9], "987654001", last].map(id => `<div class="advert-grid" data-advert-id="${id}"><a href="/adv/${id}_stand/">item</a></div>`).join("")}`;
+    mocks.detail.mockImplementation(async (path: string) => {
+      if (path === "/items/author/7/") return new Response(profile(++profileCalls === 1 ? "987654002" : "987654003"));
+      if (path.includes(adIds[9])) return new Response(JSON.stringify(current));
+      const id = path.includes("987654001") ? 987654001 : 987654002;
+      return new Response(JSON.stringify({ id, is_closed: false, user: { id: 7 }, categories: [{ slug: "vakansii" }] }));
+    });
+    expect(await processSomonPending(adIds[9], async () => {})).toBe("waiting");
+    expect(await processSomonPending(adIds[9], async () => {})).toBe("waiting");
+    expect(await processSomonPending(adIds[9], async () => {})).toBe("waiting");
+    expect(await processSomonPending(adIds[9], async () => {})).toBe("skipped");
+    expect(mocks.sendPhoto).not.toHaveBeenCalled();
+    expect((await prisma.somonSeenAdvert.findUniqueOrThrow({ where: { advertId: adIds[9] } })).status).toBe("REVIEW_SELLER");
+  });
+  it("holds for review when a seller profile disappears", async () => {
+    const { SomonSourceUnavailable } = await import("../src/lib/somonLeads/sourceClient.js");
+    const current = { ...fakeCard(adIds[10], "Продам квартиру"), user: { ...fakeCard(adIds[10]).user, id: 7, active_adverts: "3 активных объявления" } };
+    mocks.detail.mockImplementation(async (path: string) => {
+      if (path === "/items/author/7/") throw Object.assign(new SomonSourceUnavailable("http", 404), { status: 404 });
+      return new Response(JSON.stringify(current));
+    });
+    expect(await processSomonPending(adIds[10], async () => {})).toBe("skipped");
+    const seen = await prisma.somonSeenAdvert.findUniqueOrThrow({ where: { advertId: adIds[10] } });
+    expect(seen.status).toBe("REVIEW_SELLER"); expect(seen.slug).not.toBeNull();
   });
 });

@@ -10625,6 +10625,8 @@ model SomonSeenAdvert {
   baseline  Boolean  @default(false)
   slug      String?
   status    String   @default("PENDING")
+  sellerCheck Json?
+  lastCheckedAt DateTime?
 
   @@index([seenAt])
 }

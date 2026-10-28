@@ -18,14 +18,28 @@ settingsSomonRouter.get("/status", async (_req, res, next) => {
       prisma.somonDelivery.count({ where: { OR: [{ status: "UNKNOWN" }, { status: "SENDING", updatedAt: { lt: new Date(Date.now() - 120000) } }] } }),
       prisma.somonDelivery.findMany({ where: { OR: [{ status: "UNKNOWN" }, { status: "SENDING", updatedAt: { lt: new Date(Date.now() - 120000) } }] }, orderBy: { updatedAt: "desc" }, take: 20 }),
     ]);
+    const [sellerReview, sellerReviewCount] = await Promise.all([
+      prisma.somonSeenAdvert.findMany({ where: { status: "REVIEW_SELLER", slug: { not: null } }, select: { advertId: true, slug: true }, orderBy: { seenAt: "asc" }, take: 20 }),
+      prisma.somonSeenAdvert.count({ where: { status: "REVIEW_SELLER", slug: { not: null } } }),
+    ]);
     const [seen, agents] = await Promise.all([
       prisma.somonSeenAdvert.findMany({ where: { advertId: { in: review.map(x => x.advertId) } }, select: { advertId: true, slug: true } }),
       prisma.agent.findMany({ where: { id: { in: review.map(x => x.agentId) } }, select: { id: true, fullName: true } }),
     ]);
     let identityReady = false;
     try { identityReady = !!state?.contactKeyFingerprint && state.contactKeyFingerprint === somonKeyFingerprint(); } catch { /* unavailable */ }
-    res.json({ enabled: state?.enabled ?? false, sourceStopped: state?.sourceStopped ?? false, identityReady, baselineDone: !!state?.baselineAt, baselineNextPage: state?.baselineNextPage ?? 1, baselineLastPage: state?.baselineLastPage ?? null, pending, uncertain, review: review.map(x => ({ advertId: x.advertId, agentName: agents.find(a => a.id === x.agentId)?.fullName ?? "Сотрудник недоступен", status: x.status, updatedAt: x.updatedAt, sourceUrl: (() => { const slug = seen.find(s => s.advertId === x.advertId)?.slug; return slug ? `https://somon.tj/adv/${slug}/` : null; })() })) });
+    res.json({ enabled: state?.enabled ?? false, sourceStopped: state?.sourceStopped ?? false, identityReady, baselineDone: !!state?.baselineAt, baselineNextPage: state?.baselineNextPage ?? 1, baselineLastPage: state?.baselineLastPage ?? null, pending, uncertain, sellerReviewCount, sellerReview: sellerReview.map(x => ({ advertId: x.advertId, sourceUrl: `https://somon.tj/adv/${x.slug}/` })), review: review.map(x => ({ advertId: x.advertId, agentName: agents.find(a => a.id === x.agentId)?.fullName ?? "Сотрудник недоступен", status: x.status, updatedAt: x.updatedAt, sourceUrl: (() => { const slug = seen.find(s => s.advertId === x.advertId)?.slug; return slug ? `https://somon.tj/adv/${slug}/` : null; })() })) });
   } catch (error) { next(error); }
+});
+settingsSomonRouter.post("/seller-review/:advertId/resolve", requireElevation, async (req, res, next) => {
+  const parsed = z.object({ advertId: z.string().regex(/^\d{1,20}$/) }).safeParse(req.params);
+  if (!parsed.success) return res.status(400).json({ error: "Некорректный ID объявления" });
+  try {
+    const result = await prisma.somonSeenAdvert.updateMany({ where: { advertId: parsed.data.advertId, status: "REVIEW_SELLER" }, data: { status: "REJECTED", slug: null } });
+    if (!result.count) return res.status(409).json({ error: "Запись уже проверена" });
+    logAudit(req, "SOMON_SELLER_REVIEWED", "SomonMonitor", "singleton");
+    return res.json({ ok: true });
+  } catch (error) { return next(error); }
 });
 settingsSomonRouter.put("/state", requireElevation, async (req, res, next) => {
   const parsed = somonMonitorStateSchema.safeParse(req.body);

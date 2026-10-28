@@ -13,10 +13,10 @@
  },
  "totals": {
   "screens": 52,
-  "paths": 721,
+  "paths": 722,
   "cron": 115,
   "jobs": 31,
-  "conditions": 3987,
+  "conditions": 3989,
   "untranslatedUnique": 458,
   "untranslatedTotal": 586,
   "partialUnique": 1085,
@@ -1126,11 +1126,6 @@
      "conf": "через общую часть"
     },
     {
-     "i": 632,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
      "i": 633,
      "direct": false,
      "conf": "через общую часть"
@@ -1146,7 +1141,12 @@
      "conf": "через общую часть"
     },
     {
-     "i": 677,
+     "i": 636,
+     "direct": false,
+     "conf": "через общую часть"
+    },
+    {
+     "i": 678,
      "direct": false,
      "conf": "через общую часть"
     }
@@ -1809,11 +1809,6 @@
      "conf": "через общую часть"
     },
     {
-     "i": 631,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
      "i": 632,
      "direct": false,
      "conf": "через общую часть"
@@ -1830,6 +1825,11 @@
     },
     {
      "i": 635,
+     "direct": false,
+     "conf": "через общую часть"
+    },
+    {
+     "i": 636,
      "direct": false,
      "conf": "через общую часть"
     }
@@ -2497,27 +2497,22 @@
      "conf": "через общую часть"
     },
     {
-     "i": 683,
+     "i": 684,
      "direct": false,
      "conf": "через часть экрана"
     },
     {
-     "i": 684,
+     "i": 685,
      "direct": false,
      "conf": "через общую часть"
     },
     {
-     "i": 686,
+     "i": 687,
      "direct": false,
      "conf": "через общую часть"
     },
     {
-     "i": 690,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 692,
+     "i": 691,
      "direct": false,
      "conf": "через общую часть"
     },
@@ -2537,7 +2532,7 @@
      "conf": "через общую часть"
     },
     {
-     "i": 700,
+     "i": 696,
      "direct": false,
      "conf": "через общую часть"
     },
@@ -2548,6 +2543,11 @@
     },
     {
      "i": 702,
+     "direct": false,
+     "conf": "через общую часть"
+    },
+    {
+     "i": 703,
      "direct": false,
      "conf": "через общую часть"
     }
@@ -2803,11 +2803,6 @@
      "conf": "через часть экрана"
     },
     {
-     "i": 632,
-     "direct": false,
-     "conf": "через часть экрана"
-    },
-    {
      "i": 633,
      "direct": false,
      "conf": "через часть экрана"
@@ -2823,27 +2818,27 @@
      "conf": "через часть экрана"
     },
     {
-     "i": 683,
+     "i": 636,
      "direct": false,
      "conf": "через часть экрана"
     },
     {
      "i": 684,
      "direct": false,
-     "conf": "через общую часть"
+     "conf": "через часть экрана"
     },
     {
-     "i": 686,
+     "i": 685,
      "direct": false,
      "conf": "через общую часть"
     },
     {
-     "i": 690,
+     "i": 687,
      "direct": false,
      "conf": "через общую часть"
     },
     {
-     "i": 692,
+     "i": 691,
      "direct": false,
      "conf": "через общую часть"
     },
@@ -2863,7 +2858,7 @@
      "conf": "через общую часть"
     },
     {
-     "i": 700,
+     "i": 696,
      "direct": false,
      "conf": "через общую часть"
     },
@@ -2874,6 +2869,11 @@
     },
     {
      "i": 702,
+     "direct": false,
+     "conf": "через общую часть"
+    },
+    {
+     "i": 703,
      "direct": false,
      "conf": "через общую часть"
     }
@@ -3580,11 +3580,6 @@
      "conf": "через общую часть"
     },
     {
-     "i": 632,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
      "i": 633,
      "direct": false,
      "conf": "через общую часть"
@@ -3600,7 +3595,7 @@
      "conf": "через общую часть"
     },
     {
-     "i": 640,
+     "i": 636,
      "direct": false,
      "conf": "через общую часть"
     },
@@ -3615,7 +3610,7 @@
      "conf": "через общую часть"
     },
     {
-     "i": 715,
+     "i": 643,
      "direct": false,
      "conf": "через общую часть"
     },
@@ -3626,6 +3621,11 @@
     },
     {
      "i": 717,
+     "direct": false,
+     "conf": "через общую часть"
+    },
+    {
+     "i": 718,
      "direct": false,
      "conf": "через общую часть"
     }
@@ -3988,11 +3988,6 @@
      "conf": "через часть экрана"
     },
     {
-     "i": 632,
-     "direct": false,
-     "conf": "через часть экрана"
-    },
-    {
      "i": 633,
      "direct": false,
      "conf": "через часть экрана"
@@ -4008,7 +4003,12 @@
      "conf": "через часть экрана"
     },
     {
-     "i": 683,
+     "i": 636,
+     "direct": false,
+     "conf": "через часть экрана"
+    },
+    {
+     "i": 684,
      "direct": false,
      "conf": "через часть экрана"
     }
@@ -4532,17 +4532,17 @@
      "conf": "через часть экрана"
     },
     {
-     "i": 667,
-     "direct": false,
-     "conf": "через часть экрана"
-    },
-    {
      "i": 668,
      "direct": false,
      "conf": "через часть экрана"
     },
     {
-     "i": 683,
+     "i": 669,
+     "direct": false,
+     "conf": "через часть экрана"
+    },
+    {
+     "i": 684,
      "direct": false,
      "conf": "через часть экрана"
     }
@@ -4723,11 +4723,6 @@
      "conf": "через часть экрана"
     },
     {
-     "i": 632,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
      "i": 633,
      "direct": false,
      "conf": "через общую часть"
@@ -4743,7 +4738,12 @@
      "conf": "через общую часть"
     },
     {
-     "i": 666,
+     "i": 636,
+     "direct": false,
+     "conf": "через общую часть"
+    },
+    {
+     "i": 667,
      "direct": true,
      "conf": "точно"
     }
@@ -4932,7 +4932,7 @@
      "conf": "через часть экрана"
     },
     {
-     "i": 683,
+     "i": 684,
      "direct": false,
      "conf": "через часть экрана"
     }
@@ -5570,7 +5570,7 @@
      "conf": "через часть экрана"
     },
     {
-     "i": 677,
+     "i": 678,
      "direct": false,
      "conf": "через часть экрана"
     }
@@ -5691,27 +5691,22 @@
      "conf": "через общую часть"
     },
     {
-     "i": 683,
+     "i": 684,
      "direct": false,
      "conf": "через часть экрана"
     },
     {
-     "i": 684,
+     "i": 685,
      "direct": false,
      "conf": "через общую часть"
     },
     {
-     "i": 686,
+     "i": 687,
      "direct": false,
      "conf": "через общую часть"
     },
     {
-     "i": 690,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 692,
+     "i": 691,
      "direct": false,
      "conf": "через общую часть"
     },
@@ -5731,7 +5726,7 @@
      "conf": "через общую часть"
     },
     {
-     "i": 700,
+     "i": 696,
      "direct": false,
      "conf": "через общую часть"
     },
@@ -5742,6 +5737,11 @@
     },
     {
      "i": 702,
+     "direct": false,
+     "conf": "через общую часть"
+    },
+    {
+     "i": 703,
      "direct": false,
      "conf": "через общую часть"
     }
@@ -6102,11 +6102,6 @@
      "conf": "через общую часть"
     },
     {
-     "i": 632,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
      "i": 633,
      "direct": false,
      "conf": "через общую часть"
@@ -6122,7 +6117,12 @@
      "conf": "через общую часть"
     },
     {
-     "i": 677,
+     "i": 636,
+     "direct": false,
+     "conf": "через общую часть"
+    },
+    {
+     "i": 678,
      "direct": false,
      "conf": "через общую часть"
     }
@@ -6726,12 +6726,12 @@
      "conf": "через часть экрана"
     },
     {
-     "i": 677,
+     "i": 678,
      "direct": false,
      "conf": "через часть экрана"
     },
     {
-     "i": 683,
+     "i": 684,
      "direct": false,
      "conf": "через часть экрана"
     }
@@ -7077,11 +7077,6 @@
      "conf": "через часть экрана"
     },
     {
-     "i": 632,
-     "direct": false,
-     "conf": "через часть экрана"
-    },
-    {
      "i": 633,
      "direct": false,
      "conf": "через часть экрана"
@@ -7097,7 +7092,12 @@
      "conf": "через часть экрана"
     },
     {
-     "i": 683,
+     "i": 636,
+     "direct": false,
+     "conf": "через часть экрана"
+    },
+    {
+     "i": 684,
      "direct": false,
      "conf": "через часть экрана"
     }
@@ -7338,7 +7338,7 @@
      "conf": "через часть экрана"
     },
     {
-     "i": 683,
+     "i": 684,
      "direct": false,
      "conf": "через часть экрана"
     }
@@ -8294,11 +8294,6 @@
      "conf": "через часть экрана"
     },
     {
-     "i": 640,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
      "i": 641,
      "direct": false,
      "conf": "через общую часть"
@@ -8309,9 +8304,9 @@
      "conf": "через общую часть"
     },
     {
-     "i": 675,
+     "i": 643,
      "direct": false,
-     "conf": "через часть экрана"
+     "conf": "через общую часть"
     },
     {
      "i": 676,
@@ -8324,12 +8319,17 @@
      "conf": "через часть экрана"
     },
     {
-     "i": 679,
+     "i": 678,
      "direct": false,
      "conf": "через часть экрана"
     },
     {
-     "i": 683,
+     "i": 680,
+     "direct": false,
+     "conf": "через часть экрана"
+    },
+    {
+     "i": 684,
      "direct": false,
      "conf": "через часть экрана"
     }
@@ -8526,17 +8526,17 @@
      "conf": "через часть экрана"
     },
     {
-     "i": 636,
-     "direct": false,
-     "conf": "через часть экрана"
-    },
-    {
      "i": 637,
      "direct": false,
      "conf": "через часть экрана"
     },
     {
      "i": 638,
+     "direct": false,
+     "conf": "через часть экрана"
+    },
+    {
+     "i": 639,
      "direct": false,
      "conf": "через часть экрана"
     }
@@ -8673,7 +8673,7 @@
      "conf": "через часть экрана"
     },
     {
-     "i": 683,
+     "i": 684,
      "direct": false,
      "conf": "через часть экрана"
     }
@@ -9161,17 +9161,17 @@
      "conf": "через общую часть"
     },
     {
-     "i": 639,
+     "i": 632,
      "direct": false,
      "conf": "через общую часть"
     },
     {
-     "i": 643,
+     "i": 640,
      "direct": false,
      "conf": "через общую часть"
     },
     {
-     "i": 681,
+     "i": 644,
      "direct": false,
      "conf": "через общую часть"
     },
@@ -9182,6 +9182,11 @@
     },
     {
      "i": 683,
+     "direct": false,
+     "conf": "через общую часть"
+    },
+    {
+     "i": 684,
      "direct": false,
      "conf": "через часть экрана"
     }
@@ -9207,17 +9212,17 @@
    "redirect": null,
    "eps": [
     {
-     "i": 636,
-     "direct": false,
-     "conf": "через часть экрана"
-    },
-    {
      "i": 637,
      "direct": false,
      "conf": "через часть экрана"
     },
     {
      "i": 638,
+     "direct": false,
+     "conf": "через часть экрана"
+    },
+    {
+     "i": 639,
      "direct": false,
      "conf": "через часть экрана"
     }
@@ -9232,11 +9237,6 @@
    "inMenu": true,
    "redirect": null,
    "eps": [
-    {
-     "i": 645,
-     "direct": false,
-     "conf": "через часть экрана"
-    },
     {
      "i": 646,
      "direct": false,
@@ -9319,6 +9319,11 @@
     },
     {
      "i": 662,
+     "direct": false,
+     "conf": "через часть экрана"
+    },
+    {
+     "i": 663,
      "direct": false,
      "conf": "через часть экрана"
     }
@@ -9409,7 +9414,7 @@
      "conf": "через часть экрана"
     },
     {
-     "i": 683,
+     "i": 684,
      "direct": false,
      "conf": "через часть экрана"
     }
@@ -9425,12 +9430,12 @@
    "redirect": null,
    "eps": [
     {
-     "i": 665,
+     "i": 666,
      "direct": true,
      "conf": "точно"
     },
     {
-     "i": 666,
+     "i": 667,
      "direct": true,
      "conf": "точно"
     }
@@ -9491,17 +9496,17 @@
      "conf": "через часть экрана"
     },
     {
-     "i": 667,
-     "direct": false,
-     "conf": "через часть экрана"
-    },
-    {
      "i": 668,
      "direct": false,
      "conf": "через часть экрана"
     },
     {
-     "i": 683,
+     "i": 669,
+     "direct": false,
+     "conf": "через часть экрана"
+    },
+    {
+     "i": 684,
      "direct": false,
      "conf": "через часть экрана"
     }
@@ -9632,12 +9637,12 @@
      "conf": "через часть экрана"
     },
     {
-     "i": 667,
+     "i": 668,
      "direct": false,
      "conf": "через часть экрана"
     },
     {
-     "i": 668,
+     "i": 669,
      "direct": false,
      "conf": "через часть экрана"
     }
@@ -9719,39 +9724,34 @@
      "conf": "через часть экрана"
     },
     {
-     "i": 683,
-     "direct": false,
-     "conf": "через часть экрана"
-    },
-    {
      "i": 684,
      "direct": false,
      "conf": "через часть экрана"
     },
     {
-     "i": 686,
+     "i": 685,
      "direct": false,
      "conf": "через часть экрана"
     },
     {
-     "i": 690,
+     "i": 687,
      "direct": false,
      "conf": "через часть экрана"
     },
     {
-     "i": 692,
+     "i": 691,
      "direct": false,
      "conf": "через часть экрана"
     },
     {
      "i": 693,
-     "direct": true,
-     "conf": "точно"
+     "direct": false,
+     "conf": "через часть экрана"
     },
     {
      "i": 694,
-     "direct": false,
-     "conf": "через часть экрана"
+     "direct": true,
+     "conf": "точно"
     },
     {
      "i": 695,
@@ -9780,16 +9780,21 @@
     },
     {
      "i": 700,
-     "direct": true,
-     "conf": "точно"
-    },
-    {
-     "i": 701,
      "direct": false,
      "conf": "через часть экрана"
     },
     {
+     "i": 701,
+     "direct": true,
+     "conf": "точно"
+    },
+    {
      "i": 702,
+     "direct": false,
+     "conf": "через часть экрана"
+    },
+    {
+     "i": 703,
      "direct": false,
      "conf": "через часть экрана"
     }
@@ -9810,11 +9815,6 @@
      "conf": "через общую часть"
     },
     {
-     "i": 683,
-     "direct": false,
-     "conf": "через часть экрана"
-    },
-    {
      "i": 684,
      "direct": false,
      "conf": "через часть экрана"
@@ -9822,17 +9822,17 @@
     {
      "i": 685,
      "direct": false,
-     "conf": "через общую часть"
+     "conf": "через часть экрана"
     },
     {
      "i": 686,
      "direct": false,
-     "conf": "через часть экрана"
+     "conf": "через общую часть"
     },
     {
-     "i": 688,
+     "i": 687,
      "direct": false,
-     "conf": "через общую часть"
+     "conf": "через часть экрана"
     },
     {
      "i": 689,
@@ -9842,22 +9842,22 @@
     {
      "i": 690,
      "direct": false,
-     "conf": "через часть экрана"
+     "conf": "через общую часть"
     },
     {
-     "i": 692,
+     "i": 691,
      "direct": false,
      "conf": "через часть экрана"
     },
     {
      "i": 693,
-     "direct": true,
-     "conf": "точно"
+     "direct": false,
+     "conf": "через часть экрана"
     },
     {
      "i": 694,
-     "direct": false,
-     "conf": "через часть экрана"
+     "direct": true,
+     "conf": "точно"
     },
     {
      "i": 695,
@@ -9865,17 +9865,22 @@
      "conf": "через часть экрана"
     },
     {
-     "i": 700,
-     "direct": true,
-     "conf": "точно"
-    },
-    {
-     "i": 701,
+     "i": 696,
      "direct": false,
      "conf": "через часть экрана"
     },
     {
+     "i": 701,
+     "direct": true,
+     "conf": "точно"
+    },
+    {
      "i": 702,
+     "direct": false,
+     "conf": "через часть экрана"
+    },
+    {
+     "i": 703,
      "direct": false,
      "conf": "через часть экрана"
     }
@@ -58463,6 +58468,79 @@
   },
   {
    "i": 628,
+   "title": "Закрыть находку",
+   "where": "apps/api/src/routes/settingsSomon.ts",
+   "method": "POST",
+   "full": "/api/v1/settings/somon/seller-review/:advertId/resolve",
+   "mount": "/api/v1/settings/somon",
+   "module": "/api/v1/settings/somon",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: settings.manage",
+    "requireElevation"
+   ],
+   "screens": [
+    "/settings"
+   ],
+   "tree": [
+    {
+     "t": "если данные заполнены неправильно",
+     "k": "if",
+     "a": [],
+     "c": [
+      {
+       "t": "отказ: данные неверные: «Некорректный ID объявления»",
+       "k": "do",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
+     "t": "пробует сделать",
+     "k": "try",
+     "a": [],
+     "c": [
+      {
+       "t": "меняет: somon просмотрено advert",
+       "k": "do",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если нет: количество (ответ)",
+       "k": "if",
+       "a": [],
+       "c": [
+        {
+         "t": "отказ: такое уже есть: «Запись уже проверена»",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
+      },
+      {
+       "t": "всё хорошо, отвечает данными",
+       "k": "do",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
+     "t": "если не получилось",
+     "k": "catch",
+     "a": [],
+     "c": []
+    }
+   ]
+  },
+  {
+   "i": 629,
    "title": "Добавить: recover",
    "where": "apps/api/src/routes/settingsSomon.ts",
    "method": "POST",
@@ -58552,7 +58630,7 @@
    ]
   },
   {
-   "i": 629,
+   "i": 630,
    "title": "Заменить: state",
    "where": "apps/api/src/routes/settingsSomon.ts",
    "method": "PUT",
@@ -58677,7 +58755,7 @@
    ]
   },
   {
-   "i": 630,
+   "i": 631,
    "title": "Показать: статус",
    "where": "apps/api/src/routes/settingsSomon.ts",
    "method": "GET",
@@ -58729,7 +58807,7 @@
    ]
   },
   {
-   "i": 631,
+   "i": 632,
    "title": "Добавить: телефония звук",
    "where": "apps/api/src/routes/settings.ts",
    "method": "POST",
@@ -58829,7 +58907,7 @@
    ]
   },
   {
-   "i": 632,
+   "i": 633,
    "title": "Показать: телефония звук",
    "where": "apps/api/src/routes/settings.ts",
    "method": "GET",
@@ -58889,7 +58967,7 @@
    ]
   },
   {
-   "i": 633,
+   "i": 634,
    "title": "Показать: телефония светофор",
    "where": "apps/api/src/routes/settings.ts",
    "method": "GET",
@@ -58923,7 +59001,7 @@
    ]
   },
   {
-   "i": 634,
+   "i": 635,
    "title": "Показать: настройки",
    "where": "apps/api/src/routes/settings.ts",
    "method": "GET",
@@ -58968,7 +59046,7 @@
    ]
   },
   {
-   "i": 635,
+   "i": 636,
    "title": "Изменить: настройки",
    "where": "apps/api/src/routes/settings.ts",
    "method": "PATCH",
@@ -59624,7 +59702,7 @@
    ]
   },
   {
-   "i": 636,
+   "i": 637,
    "title": "Закрыть находку",
    "where": "apps/api/src/routes/siteNotifications.ts",
    "method": "POST",
@@ -59678,7 +59756,7 @@
    ]
   },
   {
-   "i": 637,
+   "i": 638,
    "title": "Закрыть все находки",
    "where": "apps/api/src/routes/siteNotifications.ts",
    "method": "POST",
@@ -59766,7 +59844,7 @@
    ]
   },
   {
-   "i": 638,
+   "i": 639,
    "title": "Показать: сайт уведомления",
    "where": "apps/api/src/routes/siteNotifications.ts",
    "method": "GET",
@@ -59807,7 +59885,7 @@
    ]
   },
   {
-   "i": 639,
+   "i": 640,
    "title": "Показать: balance",
    "where": "apps/api/src/routes/sms.ts",
    "method": "GET",
@@ -59840,7 +59918,7 @@
    ]
   },
   {
-   "i": 640,
+   "i": 641,
    "title": "Показать: настройки",
    "where": "apps/api/src/routes/sms.ts",
    "method": "GET",
@@ -59868,7 +59946,7 @@
    ]
   },
   {
-   "i": 641,
+   "i": 642,
    "title": "Изменить: настройки",
    "where": "apps/api/src/routes/sms.ts",
    "method": "PATCH",
@@ -59967,7 +60045,7 @@
    ]
   },
   {
-   "i": 642,
+   "i": 643,
    "title": "Показать: статус",
    "where": "apps/api/src/routes/sms.ts",
    "method": "GET",
@@ -59994,7 +60072,7 @@
    ]
   },
   {
-   "i": 643,
+   "i": 644,
    "title": "Добавить: проверка",
    "where": "apps/api/src/routes/sms.ts",
    "method": "POST",
@@ -60042,7 +60120,7 @@
    ]
   },
   {
-   "i": 644,
+   "i": 645,
    "title": "Добавить: payom",
    "where": "apps/api/src/routes/sms.ts",
    "method": "POST",
@@ -60110,7 +60188,7 @@
    ]
   },
   {
-   "i": 645,
+   "i": 646,
    "title": "Добавить: add destinations",
    "where": "apps/api/src/routes/socialVideos.ts",
    "method": "POST",
@@ -60150,7 +60228,7 @@
    ]
   },
   {
-   "i": 646,
+   "i": 647,
    "title": "Добавить: copy",
    "where": "apps/api/src/routes/socialVideos.ts",
    "method": "POST",
@@ -60177,7 +60255,7 @@
    ]
   },
   {
-   "i": 647,
+   "i": 648,
    "title": "Добавить: ии",
    "where": "apps/api/src/routes/socialVideos.ts",
    "method": "POST",
@@ -60251,7 +60329,7 @@
    ]
   },
   {
-   "i": 648,
+   "i": 649,
    "title": "Удалить: обложка",
    "where": "apps/api/src/routes/socialVideos.ts",
    "method": "DELETE",
@@ -60278,7 +60356,7 @@
    ]
   },
   {
-   "i": 649,
+   "i": 650,
    "title": "Добавить: обложка",
    "where": "apps/api/src/routes/socialVideos.ts",
    "method": "POST",
@@ -60361,7 +60439,7 @@
    ]
   },
   {
-   "i": 650,
+   "i": 651,
    "title": "Добавить: mark removed",
    "where": "apps/api/src/routes/socialVideos.ts",
    "method": "POST",
@@ -60401,7 +60479,7 @@
    ]
   },
   {
-   "i": 651,
+   "i": 652,
    "title": "Опубликовать",
    "where": "apps/api/src/routes/socialVideos.ts",
    "method": "POST",
@@ -60441,7 +60519,7 @@
    ]
   },
   {
-   "i": 652,
+   "i": 653,
    "title": "Добавить: remove from socials",
    "where": "apps/api/src/routes/socialVideos.ts",
    "method": "POST",
@@ -60481,7 +60559,7 @@
    ]
   },
   {
-   "i": 653,
+   "i": 654,
    "title": "Добавить: повторить",
    "where": "apps/api/src/routes/socialVideos.ts",
    "method": "POST",
@@ -60521,7 +60599,7 @@
    ]
   },
   {
-   "i": 654,
+   "i": 655,
    "title": "Добавить: unschedule",
    "where": "apps/api/src/routes/socialVideos.ts",
    "method": "POST",
@@ -60548,7 +60626,7 @@
    ]
   },
   {
-   "i": 655,
+   "i": 656,
    "title": "Удалить: social videos",
    "where": "apps/api/src/routes/socialVideos.ts",
    "method": "DELETE",
@@ -60575,7 +60653,7 @@
    ]
   },
   {
-   "i": 656,
+   "i": 657,
    "title": "Открыть: social videos",
    "where": "apps/api/src/routes/socialVideos.ts",
    "method": "GET",
@@ -60602,7 +60680,7 @@
    ]
   },
   {
-   "i": 657,
+   "i": 658,
    "title": "Изменить: social videos",
    "where": "apps/api/src/routes/socialVideos.ts",
    "method": "PATCH",
@@ -60642,7 +60720,7 @@
    ]
   },
   {
-   "i": 658,
+   "i": 659,
    "title": "Добавить: ии подпись",
    "where": "apps/api/src/routes/socialVideos.ts",
    "method": "POST",
@@ -60696,7 +60774,7 @@
    ]
   },
   {
-   "i": 659,
+   "i": 660,
    "title": "Показать: ии providers",
    "where": "apps/api/src/routes/socialVideos.ts",
    "method": "GET",
@@ -60723,7 +60801,7 @@
    ]
   },
   {
-   "i": 660,
+   "i": 661,
    "title": "Показать: вживую",
    "where": "apps/api/src/routes/socialVideos.ts",
    "method": "GET",
@@ -60750,7 +60828,7 @@
    ]
   },
   {
-   "i": 661,
+   "i": 662,
    "title": "Показать: каналы",
    "where": "apps/api/src/routes/socialVideos.ts",
    "method": "GET",
@@ -60777,7 +60855,7 @@
    ]
   },
   {
-   "i": 662,
+   "i": 663,
    "title": "Показать: trends",
    "where": "apps/api/src/routes/socialVideos.ts",
    "method": "GET",
@@ -60804,7 +60882,7 @@
    ]
   },
   {
-   "i": 663,
+   "i": 664,
    "title": "Показать: social videos",
    "where": "apps/api/src/routes/socialVideos.ts",
    "method": "GET",
@@ -60842,7 +60920,7 @@
    ]
   },
   {
-   "i": 664,
+   "i": 665,
    "title": "Добавить: social videos",
    "where": "apps/api/src/routes/socialVideos.ts",
    "method": "POST",
@@ -60935,7 +61013,7 @@
    ]
   },
   {
-   "i": 665,
+   "i": 666,
    "title": "Добавить: повторить",
    "where": "apps/api/src/routes/stuckWork.ts",
    "method": "POST",
@@ -60988,7 +61066,7 @@
    ]
   },
   {
-   "i": 666,
+   "i": 667,
    "title": "Показать: застрявшие work",
    "where": "apps/api/src/routes/stuckWork.ts",
    "method": "GET",
@@ -61029,7 +61107,7 @@
    ]
   },
   {
-   "i": 667,
+   "i": 668,
    "title": "Показать: этапы",
    "where": "apps/api/src/routes/team.ts",
    "method": "GET",
@@ -61097,7 +61175,7 @@
    ]
   },
   {
-   "i": 668,
+   "i": 669,
    "title": "Показать: команда",
    "where": "apps/api/src/routes/team.ts",
    "method": "GET",
@@ -61197,7 +61275,7 @@
    ]
   },
   {
-   "i": 669,
+   "i": 670,
    "title": "Показать: файл",
    "where": "apps/api/src/routes/telephonyWhisper.ts",
    "method": "GET",
@@ -61267,7 +61345,7 @@
    ]
   },
   {
-   "i": 670,
+   "i": 671,
    "title": "Показать: список файлов",
    "where": "apps/api/src/routes/telephonyWhisper.ts",
    "method": "GET",
@@ -61349,7 +61427,7 @@
    ]
   },
   {
-   "i": 671,
+   "i": 672,
    "title": "Отключить",
    "where": "apps/api/src/routes/threads.ts",
    "method": "POST",
@@ -61380,7 +61458,7 @@
    ]
   },
   {
-   "i": 672,
+   "i": 673,
    "title": "Показать: возврат из внешнего кабинета",
    "where": "apps/api/src/routes/threads.ts",
    "method": "GET",
@@ -61520,7 +61598,7 @@
    ]
   },
   {
-   "i": 673,
+   "i": 674,
    "title": "Показать: начало",
    "where": "apps/api/src/routes/threads.ts",
    "method": "GET",
@@ -61558,7 +61636,7 @@
    ]
   },
   {
-   "i": 674,
+   "i": 675,
    "title": "Показать: мой профиль",
    "where": "apps/api/src/routes/threads.ts",
    "method": "GET",
@@ -61636,7 +61714,7 @@
    ]
   },
   {
-   "i": 675,
+   "i": 676,
    "title": "Показать: автор сведения",
    "where": "apps/api/src/routes/tiktok.ts",
    "method": "GET",
@@ -61703,7 +61781,7 @@
    ]
   },
   {
-   "i": 676,
+   "i": 677,
    "title": "Отключить",
    "where": "apps/api/src/routes/tiktok.ts",
    "method": "POST",
@@ -61762,7 +61840,7 @@
    ]
   },
   {
-   "i": 677,
+   "i": 678,
    "title": "Показать: находки ИИ",
    "where": "apps/api/src/routes/tiktok.ts",
    "method": "GET",
@@ -61826,7 +61904,7 @@
    ]
   },
   {
-   "i": 678,
+   "i": 679,
    "title": "Показать: возврат из внешнего кабинета",
    "where": "apps/api/src/routes/tiktok.ts",
    "method": "GET",
@@ -61934,7 +62012,7 @@
    ]
   },
   {
-   "i": 679,
+   "i": 680,
    "title": "Показать: начало",
    "where": "apps/api/src/routes/tiktok.ts",
    "method": "GET",
@@ -61974,7 +62052,7 @@
    ]
   },
   {
-   "i": 680,
+   "i": 681,
    "title": "Добавить: расшифровать",
    "where": "apps/api/src/routes/transcribe.ts",
    "method": "POST",
@@ -62034,7 +62112,7 @@
    ]
   },
   {
-   "i": 681,
+   "i": 682,
    "title": "Показать: настройка",
    "where": "apps/api/src/routes/uiShell.ts",
    "method": "GET",
@@ -62063,7 +62141,7 @@
    ]
   },
   {
-   "i": 682,
+   "i": 683,
    "title": "Заменить: настройка",
    "where": "apps/api/src/routes/uiShell.ts",
    "method": "PUT",
@@ -62248,7 +62326,7 @@
    ]
   },
   {
-   "i": 683,
+   "i": 684,
    "title": "Показать: ui shell",
    "where": "apps/api/src/routes/uiShell.ts",
    "method": "GET",
@@ -62290,7 +62368,7 @@
    ]
   },
   {
-   "i": 684,
+   "i": 685,
    "title": "Добавить: звонок",
    "where": "apps/api/src/routes/vacancies.ts",
    "method": "POST",
@@ -62419,7 +62497,7 @@
    ]
   },
   {
-   "i": 685,
+   "i": 686,
    "title": "Показать: contact options",
    "where": "apps/api/src/routes/recruitmentCommunications.ts",
    "method": "GET",
@@ -62460,7 +62538,7 @@
    ]
   },
   {
-   "i": 686,
+   "i": 687,
    "title": "Показать: переписка",
    "where": "apps/api/src/routes/vacancies.ts",
    "method": "GET",
@@ -62530,7 +62608,7 @@
    ]
   },
   {
-   "i": 687,
+   "i": 688,
    "title": "Показать: cv",
    "where": "apps/api/src/routes/vacancies.ts",
    "method": "GET",
@@ -62576,7 +62654,7 @@
    ]
   },
   {
-   "i": 688,
+   "i": 689,
    "title": "Добавить: предпросмотр",
    "where": "apps/api/src/routes/recruitmentCommunications.ts",
    "method": "POST",
@@ -62630,7 +62708,7 @@
    ]
   },
   {
-   "i": 689,
+   "i": 690,
    "title": "Добавить: invitations",
    "where": "apps/api/src/routes/recruitmentCommunications.ts",
    "method": "POST",
@@ -62684,7 +62762,7 @@
    ]
   },
   {
-   "i": 690,
+   "i": 691,
    "title": "Показать: invite звонок recording",
    "where": "apps/api/src/routes/vacancies.ts",
    "method": "GET",
@@ -62734,7 +62812,7 @@
    ]
   },
   {
-   "i": 691,
+   "i": 692,
    "title": "Показать: portfolio",
    "where": "apps/api/src/routes/vacancies.ts",
    "method": "GET",
@@ -62780,7 +62858,7 @@
    ]
   },
   {
-   "i": 692,
+   "i": 693,
    "title": "Удалить: вакансии",
    "where": "apps/api/src/routes/vacancies.ts",
    "method": "DELETE",
@@ -62852,7 +62930,7 @@
    ]
   },
   {
-   "i": 693,
+   "i": 694,
    "title": "Открыть: вакансии",
    "where": "apps/api/src/routes/vacancies.ts",
    "method": "GET",
@@ -62909,7 +62987,7 @@
    ]
   },
   {
-   "i": 694,
+   "i": 695,
    "title": "Изменить: вакансии",
    "where": "apps/api/src/routes/vacancies.ts",
    "method": "PATCH",
@@ -63285,7 +63363,7 @@
    ]
   },
   {
-   "i": 695,
+   "i": 696,
    "title": "Добавить: пачкой",
    "where": "apps/api/src/routes/vacancies.ts",
    "method": "POST",
@@ -63476,7 +63554,7 @@
    ]
   },
   {
-   "i": 696,
+   "i": 697,
    "title": "Заменить: positions",
    "where": "apps/api/src/routes/recruitmentPositions.ts",
    "method": "PUT",
@@ -63650,7 +63728,7 @@
    ]
   },
   {
-   "i": 697,
+   "i": 698,
    "title": "Показать: recovery",
    "where": "apps/api/src/routes/recruitmentPositions.ts",
    "method": "GET",
@@ -63705,7 +63783,7 @@
    ]
   },
   {
-   "i": 698,
+   "i": 699,
    "title": "Добавить: recovery",
    "where": "apps/api/src/routes/recruitmentPositions.ts",
    "method": "POST",
@@ -63761,7 +63839,7 @@
    ]
   },
   {
-   "i": 699,
+   "i": 700,
    "title": "Показать: templates",
    "where": "apps/api/src/routes/recruitmentPositions.ts",
    "method": "GET",
@@ -63788,7 +63866,7 @@
    ]
   },
   {
-   "i": 700,
+   "i": 701,
    "title": "Показать: positions",
    "where": "apps/api/src/routes/recruitmentPositions.ts",
    "method": "GET",
@@ -63839,7 +63917,7 @@
    ]
   },
   {
-   "i": 701,
+   "i": 702,
    "title": "Показать: вакансии",
    "where": "apps/api/src/routes/vacancies.ts",
    "method": "GET",
@@ -63883,7 +63961,7 @@
    ]
   },
   {
-   "i": 702,
+   "i": 703,
    "title": "Добавить: вакансии",
    "where": "apps/api/src/routes/vacancies.ts",
    "method": "POST",
@@ -63980,7 +64058,7 @@
    ]
   },
   {
-   "i": 703,
+   "i": 704,
    "title": "Добавить: Google бюджет",
    "where": "apps/api/src/routes/budgetWebhook.ts",
    "method": "POST",
@@ -64131,7 +64209,7 @@
    ]
   },
   {
-   "i": 704,
+   "i": 705,
    "title": "Показать: Meta",
    "where": "apps/api/src/routes/webhooks.ts",
    "method": "GET",
@@ -64167,7 +64245,7 @@
    ]
   },
   {
-   "i": 705,
+   "i": 706,
    "title": "Добавить: Meta",
    "where": "apps/api/src/routes/webhooks.ts",
    "method": "POST",
@@ -64397,7 +64475,7 @@
    ]
   },
   {
-   "i": 706,
+   "i": 707,
    "title": "Добавить: сайт обложка картинка",
    "where": "apps/api/src/routes/webhooks.ts",
    "method": "POST",
@@ -64509,7 +64587,7 @@
    ]
   },
   {
-   "i": 707,
+   "i": 708,
    "title": "Добавить: сайт заявка статус",
    "where": "apps/api/src/routes/webhooks.ts",
    "method": "POST",
@@ -64606,7 +64684,7 @@
    ]
   },
   {
-   "i": 708,
+   "i": 709,
    "title": "Добавить: сайт публикация изменённые",
    "where": "apps/api/src/routes/webhooks.ts",
    "method": "POST",
@@ -64730,7 +64808,7 @@
    ]
   },
   {
-   "i": 709,
+   "i": 710,
    "title": "Добавить: сайт публикация добавленные или обновлённые",
    "where": "apps/api/src/routes/webhooks.ts",
    "method": "POST",
@@ -64983,7 +65061,7 @@
    ]
   },
   {
-   "i": 710,
+   "i": 711,
    "title": "Добавить: Telegram",
    "where": "apps/api/src/routes/webhooks.ts",
    "method": "POST",
@@ -65066,7 +65144,7 @@
    ]
   },
   {
-   "i": 711,
+   "i": 712,
    "title": "Показать: сайт чат",
    "where": "apps/api/src/routes/webhooks.ts",
    "method": "GET",
@@ -65142,7 +65220,7 @@
    ]
   },
   {
-   "i": 712,
+   "i": 713,
    "title": "Добавить: сайт чат",
    "where": "apps/api/src/routes/webhooks.ts",
    "method": "POST",
@@ -65263,7 +65341,7 @@
    ]
   },
   {
-   "i": 713,
+   "i": 714,
    "title": "Добавить: сайт заявка",
    "where": "apps/api/src/routes/webhooks.ts",
    "method": "POST",
@@ -65364,7 +65442,7 @@
    ]
   },
   {
-   "i": 714,
+   "i": 715,
    "title": "Показать: сайт рабочие часы",
    "where": "apps/api/src/routes/webhooks.ts",
    "method": "GET",
@@ -65408,7 +65486,7 @@
    ]
   },
   {
-   "i": 715,
+   "i": 716,
    "title": "Изменить: account",
    "where": "apps/api/src/routes/whatsappTemplates.ts",
    "method": "PATCH",
@@ -65454,7 +65532,7 @@
    ]
   },
   {
-   "i": 716,
+   "i": 717,
    "title": "Добавить: submit",
    "where": "apps/api/src/routes/whatsappTemplates.ts",
    "method": "POST",
@@ -65515,7 +65593,7 @@
    ]
   },
   {
-   "i": 717,
+   "i": 718,
    "title": "Показать: WhatsApp templates",
    "where": "apps/api/src/routes/whatsappTemplates.ts",
    "method": "GET",
@@ -65542,7 +65620,7 @@
    ]
   },
   {
-   "i": 718,
+   "i": 719,
    "title": "Добавить: запустить",
    "where": "apps/api/src/routes/adsReelsAutoBoost.ts",
    "method": "POST",
@@ -65596,7 +65674,7 @@
    ]
   },
   {
-   "i": 719,
+   "i": 720,
    "title": "Показать: ",
    "where": "apps/api/src/routes/adsReelsAutoBoost.ts",
    "method": "GET",
@@ -65637,7 +65715,7 @@
    ]
   },
   {
-   "i": 720,
+   "i": 721,
    "title": "Изменить: ",
    "where": "apps/api/src/routes/adsReelsAutoBoost.ts",
    "method": "PATCH",

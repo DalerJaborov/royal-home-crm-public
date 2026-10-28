@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **721**. Развилок в самих путях: **2558**; вместе с задачами по расписанию и фоновыми заданиями — **3987**. Модулей: **79**.
+Путей: **722**. Развилок в самих путях: **2560**; вместе с задачами по расписанию и фоновыми заданиями — **3989**. Модулей: **79**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -16886,6 +16886,27 @@
   - return next(error);
     · дословно из кода
 
+### POST /api/v1/settings/somon/seller-review/:advertId/resolve
+
+`apps/api/src/routes/settingsSomon.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
+
+- если !parsed.success
+  - return res.status(400).json({ error: "Некорректный ID объявления" });
+    · ответ 400 — «Некорректный ID объявления»
+- пробует
+  - const result = await prisma.somonSeenAdvert.updateMany({ where: { advertId: parsed.data.advertId, status: "RE…
+    · меняет в базе: somonSeenAdvert
+  - если !result.count
+    - return res.status(409).json({ error: "Запись уже проверена" });
+      · ответ 409 — «Запись уже проверена»
+  - logAudit(req, "SOMON_SELLER_REVIEWED", "SomonMonitor", "singleton");
+    · зовёт logAudit()
+  - return res.json({ ok: true });
+    · ответ 200
+- если сорвалось
+  - return next(error);
+    · дословно из кода
+
 ### POST /api/v1/settings/somon/source/recover
 
 `apps/api/src/routes/settingsSomon.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: settings.manage, requireElevation
@@ -16984,6 +17005,9 @@
     · считает в базе: somonSeenAdvert
     · считает в базе: somonDelivery
     · читает в базе: somonDelivery
+  - const [sellerReview, sellerReviewCount] = await Promise.all([ prisma.somonSeenAdvert.findMany({ where: { stat…
+    · читает в базе: somonSeenAdvert
+    · считает в базе: somonSeenAdvert
   - const [seen, agents] = await Promise.all([ prisma.somonSeenAdvert.findMany({ where: { advertId: { in: review.…
     · читает в базе: somonSeenAdvert
     · читает в базе: agent

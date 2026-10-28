@@ -17,6 +17,7 @@
  */
 export const AUDIT_ACTION_LABELS: Record<string, string> = {
   SOMON_DELIVERY_REVIEWED: "Отправка Somon проверена",
+  SOMON_SELLER_REVIEWED: "Продавец Somon проверен",
   SOMON_MONITOR_DISABLED: "Мониторинг Somon остановлен",
   SOMON_MONITOR_ENABLED: "Мониторинг Somon запущен",
   SOMON_RECIPIENTS_UPDATED: "Очередь Somon изменена",
