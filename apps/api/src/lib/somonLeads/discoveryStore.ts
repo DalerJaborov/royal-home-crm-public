@@ -41,7 +41,7 @@ export async function recordNewObservations(listings: SeenListing[], now = new D
     await tx.$queryRaw`SELECT 1 FROM pg_advisory_xact_lock(hashtext('somon-owner-delivery'))`;
     const state = await tx.somonMonitor.findUnique({ where: { id: "singleton" } });
     if (!state?.enabled || !state.baselineAt || now <= state.baselineAt) return 0;
-    const result = await tx.somonSeenAdvert.createMany({ data: listings.map(x => ({ advertId: x.id, slug: x.slug, seenAt: now, baseline: false, status: "PENDING" })), skipDuplicates: true });
+    const result = await tx.somonSeenAdvert.createMany({ data: listings.map(x => ({ advertId: x.id, slug: x.slug, seenAt: now, lastCheckedAt: now, baseline: false, status: "PENDING" })), skipDuplicates: true });
     return result.count;
   }, { timeout: 35000 });
 }

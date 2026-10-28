@@ -15,6 +15,7 @@ function retryDelay(header: string | null, now: number): number | undefined {
 /** All background Somon calls must go through this budgeted entry point. */
 export async function fetchSomon(path: string, now = new Date(), request: typeof fetch = fetch): Promise<Response> {
   const permitted = /^\/nedvizhimost\/prodazha-kvartir\/dushanbe\/(?:\?page=\d{1,5})?$/.test(path)
+    || /^\/items\/author\/\d{1,20}\/$/.test(path)
     || /^\/api\/items\/get_phone\/\d{1,20}\/$/.test(path)
     || /^\/api\/v2\/spa\/adverts\/card\/[\w%-]+\/$/.test(path);
   if (!permitted) throw new Error("Invalid Somon source path");

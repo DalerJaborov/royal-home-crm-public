@@ -41,6 +41,22 @@ describe("Somon settings access", () => {
     expect((await request(app).get("/settings/somon/recipients")).status).toBe(401);
     expect((await request(app).get("/settings/somon/recipients").set("Authorization", `Bearer ${agentToken}`)).status).toBe(403);
   });
+  it("shows unresolved seller reviews and lets an elevated administrator clear one", async () => {
+    const advertId = String(Date.now()) + "98764";
+    try {
+      await prisma.somonSeenAdvert.create({ data: { advertId, slug: `${advertId}_stand`, status: "REVIEW_SELLER" } });
+      const auth = `Bearer ${adminToken}`;
+      const status = await request(app).get("/settings/somon/status").set("Authorization", auth);
+      expect(status.status).toBe(200);
+      expect(status.body.sellerReviewCount).toBeGreaterThanOrEqual(1);
+      expect(status.body.sellerReview).toContainEqual({ advertId, sourceUrl: `https://somon.tj/adv/${advertId}_stand/` });
+      expect((await request(app).post(`/settings/somon/seller-review/${advertId}/resolve`).set("Authorization", auth)).status).toBe(428);
+      grantElevation(adminId);
+      expect((await request(app).post(`/settings/somon/seller-review/${advertId}/resolve`).set("Authorization", auth)).status).toBe(200);
+      const seen = await prisma.somonSeenAdvert.findUniqueOrThrow({ where: { advertId } });
+      expect(seen.status).toBe("REJECTED"); expect(seen.slug).toBeNull();
+    } finally { revokeElevation(adminId); await prisma.somonSeenAdvert.deleteMany({ where: { advertId } }); }
+  });
   it("requires elevation, validates the list, and starts only with a linked agent", async () => {
     const url = "/settings/somon/recipients", auth = `Bearer ${adminToken}`;
     expect((await request(app).put(url).set("Authorization", auth).send({ agentIds: [agentId] })).status).toBe(428);

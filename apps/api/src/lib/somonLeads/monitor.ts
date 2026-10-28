@@ -114,7 +114,7 @@ export async function runSomonMonitorTick(pause: (ms: number) => Promise<void> =
       if (Date.now() < deadline) await pause(10200);
     }
     if (Date.now() < deadline) {
-      const pending = await prisma.somonSeenAdvert.findMany({ where: { status: "PENDING", baseline: false }, orderBy: { seenAt: "asc" }, take: 2, select: { advertId: true, seenAt: true } });
+      const pending = await prisma.somonSeenAdvert.findMany({ where: { status: "PENDING", baseline: false }, orderBy: [{ lastCheckedAt: { sort: "asc", nulls: "first" } }, { seenAt: "asc" }], take: 2, select: { advertId: true, seenAt: true } });
       if (pending[0] && Date.now() - pending[0].seenAt.getTime() > 15 * 60_000) await logSystemError("cron", "Somon: очередь объявлений задерживается более 15 минут", { dedupKey: "somon-pending-delay" });
       for (const item of pending) {
         if (Date.now() >= deadline) break;

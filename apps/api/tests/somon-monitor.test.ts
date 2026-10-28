@@ -37,6 +37,7 @@ describe("Somon monitor baseline", () => {
     await runSomonMonitorTick(async () => {});
     expect(mocks.process).toHaveBeenCalledTimes(1);
     expect(mocks.process.mock.calls[0][0]).toBe(ids[2]);
+    expect((await prisma.somonSeenAdvert.findUniqueOrThrow({ where: { advertId: ids[2] } })).lastCheckedAt).not.toBeNull();
   });
   it("does not treat an ambiguous 'today' as an old timestamp", () => {
     expect(clearlyOlderThanTenMinutes("Сегодня")).toBe(false);
