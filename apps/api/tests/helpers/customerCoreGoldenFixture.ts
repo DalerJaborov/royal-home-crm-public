@@ -31,7 +31,10 @@ export const invalidDecision = (value: unknown): ModelPart => {
   return { text: JSON.stringify(value) };
 };
 
-export async function createCustomerCoreGoldenFixture(options: { media?: boolean; publicEnvelope?: boolean } = {}) {
+/** Optional replacement for the scripted-queue model wire (attack harness: scripted policy or live Gemini forward). Returns
+ * synthetic parts, or a ready Response. Absent: the strict script queue below, exactly as before. */
+export type CoreModelWire = (request: { body: Record<string, unknown>; raw: string; path: string }) => Promise<{ parts: ModelPart[] } | { response: Response }>;
+export async function createCustomerCoreGoldenFixture(options: { media?: boolean; publicEnvelope?: boolean; modelWire?: CoreModelWire } = {}) {
   const tag = `synthetic-core-companion-${randomUUID()}`, key = `${tag}-gemini-key`;
   const globalIgSecret = `${tag}-global-ig-secret`;
   // F02 (23.10.2026): with two global keys the signature now proves the namespace, and routing accepts exactly the
@@ -147,7 +150,14 @@ export async function createCustomerCoreGoldenFixture(options: { media?: boolean
       counted++; return new Response(JSON.stringify({ totalTokens: 1000 }));
     }
     if (url.pathname !== "/gemini/v1beta/models/gemini-3.6-flash:generateContent") return denied("unexpected_synthetic_model_method_path");
-    bodies.push(JSON.parse(String(init.body))); const parts = scripts.shift(); generated++;
+    bodies.push(JSON.parse(String(init.body)));
+    if (options.modelWire) {
+      generated++; const wired = await options.modelWire({ body: bodies.at(-1) as Record<string, unknown>, raw: String(init.body), path: url.pathname });
+      if ("response" in wired) return wired.response;
+      return new Response(JSON.stringify({ candidates: [{ content: { role: "model", parts: wired.parts }, finishReason: "STOP" }],
+        usageMetadata: { promptTokenCount: 1000, candidatesTokenCount: 30, thoughtsTokenCount: 0, cachedContentTokenCount: 0 } }));
+    }
+    const parts = scripts.shift(); generated++;
     if (!parts) return denied("unscripted_extra_generation");
     return new Response(JSON.stringify({ candidates: [{ content: { role: "model", parts }, finishReason: "STOP" }],
       usageMetadata: { promptTokenCount: 1000, candidatesTokenCount: 30, thoughtsTokenCount: 0, cachedContentTokenCount: 0 } }));
