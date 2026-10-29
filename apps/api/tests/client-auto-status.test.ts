@@ -38,6 +38,12 @@ const facts = (over: Partial<Facts> = {}): Facts => ({
 });
 
 describe("Автостатус: переходы вперёд", () => {
+  it.each([30, 60, 90])("рабочий объект защищает продавца после %s дней ожидания", (days) => {
+    expect(decideStatus(client({ status: "CONTACTED" }), facts({
+      talked: true, lastEventAt: ago(days), lastClientActivityAt: ago(days),
+      sellerPropertyInWork: true,
+    }), now)).toBeNull();
+  });
   it("поговорили — «На контакте»", () => {
     expect(decideStatus(client(), facts({ talked: true, lastClientActivityAt: ago(1) }), now)).toBe("CONTACTED");
   });

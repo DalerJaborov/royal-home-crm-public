@@ -1,4 +1,5 @@
 import { scheduleManualOwnerVerification } from "../../lib/ownerVerificationSources.js";
+import { refreshSellerAfterPropertyChange } from "../../lib/clientAutoStatus.js";
 /** Жизненный цикл карточки объекта: POST /, PATCH /:id, POST /:id/complete-editing,
  * DELETE /:id, POST /:id/restore, DELETE /:id/permanent (Г3, §1.3). Перенос verbatim. */
 import { Router } from "express";
@@ -715,6 +716,7 @@ crudRouter.post("/", requireAuth, async (req, res) => {
     throw err;
   });
   if (!property) return;
+  await refreshSellerAfterPropertyChange(property.sellerClientId);
 
   /**
    * ПОДВАЛ ПОДПИСИ — ПОСЛЕ СОЗДАНИЯ, А НЕ ДО (23.09.2026). Номер объекта
@@ -1829,6 +1831,7 @@ crudRouter.post("/:id/restore", requireAuth, requirePermission("properties.delet
   // Очередь монтажа и публикация принятого ролика — тем же списком, что и у
   // «Откатить» удаление сайтом (lib/trashProperty.ts::reopenWorkAfterRestore).
   await reopenWorkAfterRestore(property);
+  await refreshSellerAfterPropertyChange(property.sellerClientId);
 
   logAudit(req, "RESTORE", "Property", property.id, { shortId: property.shortId, title: property.title });
   publishPropertyUpdated({ propertyId: property.id, agentId: property.assignedAgentId, stage: property.status, actorId: req.agent!.id });

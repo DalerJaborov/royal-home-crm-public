@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **722**. Развилок в самих путях: **2560**; вместе с задачами по расписанию и фоновыми заданиями — **3989**. Модулей: **79**.
+Путей: **722**. Развилок в самих путях: **2560**; вместе с задачами по расписанию и фоновыми заданиями — **3990**. Модулей: **79**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -11946,6 +11946,8 @@
   · меняет в базе: property
 - await reopenWorkAfterRestore(property);
   · зовёт reopenWorkAfterRestore()
+- await refreshSellerAfterPropertyChange(property.sellerClientId);
+  · зовёт refreshSellerAfterPropertyChange()
 - logAudit(req, "RESTORE", "Property", property.id, { shortId: property.shortId, title: property.title });
   · зовёт logAudit()
 - publishPropertyUpdated({ propertyId: property.id, agentId: property.assignedAgentId, stage: property.status, …
@@ -14523,6 +14525,8 @@
 - если !property
   - return;
     · дальше не идёт, ничего не меняя
+- await refreshSellerAfterPropertyChange(property.sellerClientId);
+  · зовёт refreshSellerAfterPropertyChange()
 - const captionWithFooter = withPostFooter(property.reelsCaption ?? "", property.shortId);
   · зовёт withPostFooter()
 - property = await prisma.property.update({ where: { id: property.id }, data: { reelsCaption: captionWithFooter…
@@ -23766,7 +23770,13 @@
             · зовёт inactiveLevelFields()
           - const written = await prisma.$transaction(async (tx)
             · всё внутри — одной транзакцией
+            · обращается к базе своим SQL
             · меняет в базе: client
+            - await tx.$queryRaw`SELECT id FROM "Client" WHERE id = ${c.id} FOR UPDATE`;
+              · обращается к базе своим SQL
+            - если c.kind === "SELLER" && (await sellersWithPropertyInWork([c.id], {}, tx)).has(c.id)
+              - return false;
+                · дословно из кода
             - const updated = await tx.client.updateMany({ where: { id: c.id, deletedAt: null, workStatus: "ACTIVE", kind: …
               · меняет в базе: client
             - если updated.count !== 1

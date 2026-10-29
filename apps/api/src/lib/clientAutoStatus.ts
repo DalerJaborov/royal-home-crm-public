@@ -1,7 +1,10 @@
 import type { ClientStatus } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { logTimeline } from "./timeline.js";
-import { isHeldMeeting, isRealCallContact } from "./clientContact.js";
+import { isHeldMeeting, isRealCallContact, inactiveExitData, TERMINAL_CLIENT_STATUSES } from "./clientContact.js";
+import { sellersWithPropertyInWork } from "./sellerCardState.js";
+import { publishClientUpdated } from "./livePublish.js";
+import { logSystemError } from "./systemError.js";
 
 /**
  * Статус клиента ставится сам.
@@ -108,6 +111,8 @@ export interface AutoStatusFacts {
   /** ИИ-скоринг содержания разговоров (0-100), только у продавца — см. шапку
    *  файла «AISCORE У ПРОДАВЦА». У покупателя всегда undefined. */
   aiScore?: number | null;
+  /** An existing listing is ongoing seller work even without recent contact. */
+  sellerPropertyInWork?: boolean;
 }
 
 /**
@@ -141,6 +146,7 @@ export function decideStatus(client: AutoStatusInput, facts: AutoStatusFacts, no
     ) {
       return "HOT";
     }
+    if (facts.sellerPropertyInWork) return "CONTACTED";
     if (facts.noAnswerStreak >= NO_ANSWER_STREAK) return "UNRESPONSIVE";
 
     const silence = now.getTime() - facts.lastEventAt.getTime();
@@ -259,7 +265,7 @@ export async function collectFacts(clientId: string): Promise<AutoStatusFacts> {
  *    не дублируем и не создаём второй источник правды.
  */
 export async function collectFactsForSeller(clientId: string): Promise<AutoStatusFacts> {
-  const [shared, deals, client] = await Promise.all([
+  const [shared, deals, client, sellersInWork] = await Promise.all([
     collectSharedFacts(clientId, ["MEETING"]),
     prisma.deal.findMany({
       where: { property: { sellerClientId: clientId } },
@@ -270,6 +276,7 @@ export async function collectFactsForSeller(clientId: string): Promise<AutoStatu
     // client, но своим набором select, не включающим aiScore; плодить второй
     // источник правды через передачу facts вручную дороже, чем один Int-select.
     prisma.client.findUnique({ where: { id: clientId }, select: { aiScore: true } }),
+    sellersWithPropertyInWork([clientId]),
   ]);
 
   return {
@@ -277,6 +284,7 @@ export async function collectFactsForSeller(clientId: string): Promise<AutoStatu
     activeDeal: deals.some((d) => d.stage !== "COMPLETED" && d.stage !== "CANCELLED"),
     dealClosed: false,
     aiScore: client?.aiScore ?? null,
+    sellerPropertyInWork: sellersInWork.has(clientId),
   };
 }
 
@@ -303,6 +311,8 @@ export async function refreshClientStatus(clientId: string, now: Date = new Date
       workStatus: true,
       returnedAt: true,
       lastClientMessageAt: true,
+      assignmentCompletedAt: true,
+      inactiveSince: true,
     },
   });
   // «Прочие обращения» (OTHER) не трогаем — для них нет ни описанных правил, ни
@@ -312,7 +322,9 @@ export async function refreshClientStatus(clientId: string, now: Date = new Date
 
   const facts = client.kind === "SELLER" ? await collectFactsForSeller(clientId) : await collectFacts(clientId);
   const next = decideStatus(client, facts, now);
-  if (!next) return null;
+  const restoreSeller = facts.sellerPropertyInWork && client.workStatus === "INACTIVE" &&
+    !client.assignmentCompletedAt && !TERMINAL_CLIENT_STATUSES.some(s => s === client.status);
+  if (!next && !restoreSeller) return null;
 
   const from = client.status;
   // Автор записи — system (logTimeline, П-10): статус переставила автоматика, а
@@ -326,22 +338,46 @@ export async function refreshClientStatus(clientId: string, now: Date = new Date
   // (CHANNEL-NEW-21). Пишем только если статус, отметка ручной правки и Корзина всё ещё
   // как в снимке; иначе чужая запись выигрывает, а в хронологию ничего не пишем.
   const written = await prisma.$transaction(async (tx) => {
+    // Serialize with seller lifecycle operations and recheck the live object.
+    await tx.$queryRaw`SELECT id FROM "Client" WHERE id = ${clientId} FOR UPDATE`;
+    // A listing added or removed during fact collection invalidates the decision.
+    if (client.kind === "SELLER" &&
+      (await sellersWithPropertyInWork([clientId], {}, tx)).has(clientId) !== facts.sellerPropertyInWork) return false;
     const updated = await tx.client.updateMany({
       where: { id: clientId, deletedAt: null, status: client.status, statusSetManuallyAt: client.statusSetManuallyAt,
-        workStatus: client.workStatus, returnedAt: client.returnedAt, lastClientMessageAt: client.lastClientMessageAt },
-      data: { status: next },
+        workStatus: client.workStatus, returnedAt: client.returnedAt, lastClientMessageAt: client.lastClientMessageAt,
+        assignmentCompletedAt: client.assignmentCompletedAt, kind: client.kind,
+        assignedAgentId: client.assignedAgentId, inactiveSince: client.inactiveSince },
+      data: { ...(next ? { status: next } : {}), ...(restoreSeller ? inactiveExitData() : {}) },
     });
     if (updated.count !== 1) return false;
     await logTimeline({
       clientId,
       actor: { kind: "system", source: "clientAutoStatus", subjectAgentId: client.assignedAgentId },
       type: "STATUS_CHANGE",
-      notes: `Статус изменён автоматически: «${STATUS_LABEL[from]}» → «${STATUS_LABEL[next]}»`,
+      notes: restoreSeller
+        ? "Продавец возвращён в работу: есть действующий объект; ожидание покупателя не является неактивностью"
+        : `Статус изменён автоматически: «${STATUS_LABEL[from]}» → «${STATUS_LABEL[next!]}»`,
       tx,
     });
     return true;
   });
-  return written ? next : null;
+  if (written) publishClientUpdated({ clientId, agentIds: [client.assignedAgentId],
+    stage: restoreSeller ? "ACTIVE" : next });
+  return written ? next ?? client.status : null;
+}
+
+/** Post-commit listing hook; a failed recalculation must not undo a saved listing. */
+export async function refreshSellerAfterPropertyChange(sellerClientId: string | null): Promise<void> {
+  if (!sellerClientId) return;
+  try {
+    if ((await sellersWithPropertyInWork([sellerClientId])).has(sellerClientId)) {
+      await refreshClientStatus(sellerClientId);
+    }
+  }
+  catch (err) {
+    await logSystemError("api", `Пересчёт продавца после изменения объекта: ${String(err)}`);
+  }
 }
 
 /** Подписи для хронологии — короткие, как в интерфейсе. */

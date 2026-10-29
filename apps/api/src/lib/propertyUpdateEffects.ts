@@ -21,6 +21,7 @@ import { resyncPhotosIfPublished } from "./siteSync.js";
 import { syncPublishedPriceChange, type PriceSyncResult } from "./publishedListingSync.js";
 import { CAPTION_FACT_FIELDS, rewriteStoredCaptionAfterEdit } from "./publishedVideoFix.js";
 import { logSystemError } from "./systemError.js";
+import { refreshSellerAfterPropertyChange } from "./clientAutoStatus.js";
 
 /** Поля объекта, от которых зависит автосгенерированный SEO-текст — при их изменении
  * текст пересобирается заново, чтобы не разъезжаться с фактическими параметрами. */
@@ -133,6 +134,9 @@ export interface PostUpdateEffectsResult {
  */
 export async function runPostUpdateEffects(input: PostUpdateEffectsInput): Promise<PostUpdateEffectsResult> {
   const { existing, updated, changedFields, priceActuallyChanged } = input;
+  if (existing.sellerClientId !== updated.sellerClientId || existing.status !== updated.status) {
+    await refreshSellerAfterPropertyChange(updated.sellerClientId);
+  }
 
   // ДЕДУП И ПОВТОРНОЕ УВЕДОМЛЕНИЕ (решение владельца 12.09.2026, «все да» п.5):
   // notifyWaitingBuyersOfNewProperty пропускает клиента, которому этот объект уже предлагался,
