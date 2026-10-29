@@ -1,3 +1,4 @@
+import type { CustomerAgentSayDropReason } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { traceGuardHit } from "../lib/botTurnTrace.js";
 import { dushanbeDateString, dushanbeWallClock } from "../lib/dushanbeTime.js";
@@ -118,7 +119,13 @@ export type GuardName =
    * чтобы оба ползли вниз). См. messengers/replyChain.ts::finalizeBotReply.
    */
   | "reply_regenerated"
-  | "reply_neutral_fallback";
+  | "reply_neutral_fallback"
+  /*
+   * ЖИВАЯ ФРАЗА МОДЕЛИ (`say`, 24.10.2026, ai/customerAgentSay.ts): принята целиком или отброшена целиком с кодом причины.
+   * `say_dropped_shadow` — фраза прошла проверку, но режим «тень» её не отправил (считаем, как часто она была бы годной).
+   */
+  | "say_used"
+  | `say_dropped_${CustomerAgentSayDropReason}`;
 
 /**
  * ПОДПИСИ ДЛЯ ЭКРАНА «ОБУЧЕНИЕ БОТА» — по-русски и в одном месте.
@@ -160,6 +167,23 @@ export const GUARD_LABELS: Record<GuardName, string> = {
   category_primary_source: "Тип карточки взят из категории досье (ход сам неуверен)",
   reply_regenerated: "Ответ съели фильтры — модель ответила второй раз",
   reply_neutral_fallback: "Ответ съели фильтры — ушла короткая нейтральная реплика",
+  say_used: "Живая фраза бота ушла клиенту",
+  say_dropped_surface_disabled: "Живая фраза отброшена: не личные сообщения",
+  say_dropped_language_disabled: "Живая фраза отброшена: язык ещё не включён (таджикский)",
+  say_dropped_length: "Живая фраза отброшена: длина, число предложений или перенос строки",
+  say_dropped_question: "Живая фраза отброшена: вопрос или просьба написать",
+  say_dropped_number_or_date: "Живая фраза отброшена: цифра, сумма, дата или срок",
+  say_dropped_contact: "Живая фраза отброшена: контакт, ссылка, латиница или просьба номера",
+  say_dropped_promise: "Живая фраза отброшена: обещание или будущее действие",
+  say_dropped_fact_claim: "Живая фраза отброшена: утверждение о наличии, цене или условиях",
+  say_dropped_place: "Живая фраза отброшена: место, которое клиент не называл",
+  say_dropped_meta: "Живая фраза отброшена: служебные слова или самораскрытие",
+  say_dropped_cliche: "Живая фраза отброшена: ИИ-штамп",
+  say_dropped_language: "Живая фраза отброшена: не тот язык или смесь языков",
+  say_dropped_echo: "Живая фраза отброшена: дословный повтор слов клиента",
+  say_dropped_repeat: "Живая фраза отброшена: повтор прежней реплики бота",
+  say_dropped_double_greet: "Живая фраза отброшена: второе приветствие",
+  say_dropped_shadow: "Живая фраза годная, но режим «тень» её не отправил",
 };
 
 export function guardFired(name: GuardName, times = 1): void {
