@@ -16,7 +16,7 @@ import { isDeepStrictEqual } from "node:util";
 import { customerAgentRolloutConfigSchema } from "@royal-home/shared";
 import { customerAgentRevisionReachable } from "./customerAgentRevisionAdvance.js";
 import { isCustomerRecruitmentUpgradeV1, isCustomerRecruitmentResumeUpgradeV2 } from "./customerRecruitmentUpgrade.js";
-import { isCustomerAgentQualityContinuityUpgradeV1 } from "./customerAgentQualityContinuityUpgrade.js";
+import { customerAgentQualityContinuityUpgradeVersion, type CustomerAgentQualityContinuityUpgradeVersion } from "./customerAgentQualityContinuityUpgrade.js";
 
 export class CustomerAgentOwnerError extends Error {
   constructor(readonly status: number, readonly code: string) { super(code); }
@@ -127,7 +127,7 @@ export async function refreshCurrentCustomerAgentForOwner(actorId:string,raw:unk
     ...(body.confirmRecruitmentResumeUpgrade?{confirmRecruitmentResumeUpgrade:true as const}:{}),
     ...(body.confirmQualityContinuityUpgrade?{confirmQualityContinuityUpgrade:true as const}:{}),
     ...((prior.toolSchemaHash!==revision.toolSchemaHash||prior.knowledgeSchemaHash!==revision.knowledgeSchemaHash) &&
-      !isCustomerAgentQualityContinuityUpgradeV1(prior,revision)?{confirmCatalogFactsUpgrade:true as const}:{}),
+      customerAgentQualityContinuityUpgradeVersion(prior,revision)===null?{confirmCatalogFactsUpgrade:true as const}:{}),
   },'retained_policy_refresh');
 }
 
@@ -186,7 +186,7 @@ async function publishVerifiedCustomerAgentForOwner(actorId:string,body:PublishS
         !isDeepStrictEqual({...body.rollout,candidateRevisionId:before.data.candidateRevisionId,cohortId:before.data.cohortId},before.data)||
         !isDeepStrictEqual(customerAgentOwnerStateSchema.shape.capabilities.parse(current.capabilities),body.capabilities)) fail(409,'routine_refresh_configuration_changed');
     }
-    let recruitmentProtocolUpgrade=false, recruitmentResumeUpgrade=false;
+    let recruitmentProtocolUpgrade=false, recruitmentResumeUpgrade=false, qualityContinuityVersion:CustomerAgentQualityContinuityUpgradeVersion|null=null;
     if(body.confirmRecruitmentResumeUpgrade&&!body.advanceIdleRevision) fail(409,'recruitment_resume_upgrade_requires_idle');
     if(body.confirmQualityContinuityUpgrade&&!body.advanceIdleRevision) fail(409,'quality_continuity_upgrade_requires_idle');
     // Updating existing CORE requires an explicit owner-approved idle edge.
@@ -224,7 +224,7 @@ async function publishVerifiedCustomerAgentForOwner(actorId:string,body:PublishS
         if(!isDeepStrictEqual(prior[field],next[field])) fail(409,"revision_advance_configuration_changed");
       const catalogChanged = prior.knowledgeSchemaHash !== next.knowledgeSchemaHash || prior.toolSchemaHash !== next.toolSchemaHash;
       const resumePair=isCustomerRecruitmentResumeUpgradeV2(prior,next);
-      const qualityContinuityPair=isCustomerAgentQualityContinuityUpgradeV1(prior,next);
+      qualityContinuityVersion=customerAgentQualityContinuityUpgradeVersion(prior,next);const qualityContinuityPair=qualityContinuityVersion!==null;
       if(resumePair&&!body.confirmRecruitmentResumeUpgrade) fail(409,'recruitment_resume_upgrade_confirmation_required');
       if(body.confirmRecruitmentResumeUpgrade&&!resumePair) fail(409,'recruitment_resume_upgrade_not_qualified');
       recruitmentResumeUpgrade=resumePair&&body.confirmRecruitmentResumeUpgrade===true;
@@ -279,7 +279,7 @@ async function publishVerifiedCustomerAgentForOwner(actorId:string,body:PublishS
       catalogFactsUpgrade:body.confirmCatalogFactsUpgrade===true,
       recruitmentProtocolUpgrade,
       recruitmentResumeUpgradeVersion:recruitmentResumeUpgrade?'v2':null,
-      qualityContinuityUpgradeVersion:body.confirmQualityContinuityUpgrade?'v1':null,
+      qualityContinuityUpgradeVersion:body.confirmQualityContinuityUpgrade?qualityContinuityVersion:null,
       mediaProfileUpgrade:body.confirmMediaProfileUpgrade===true,reason:body.reason});
     if(requiresStepUp&&!settingsStepUpSatisfied(actor)) fail(428,"step_up_required");
     return {policyRevision:updated.policyRevision.toString(),rolloutMode:'ACTIVE',existingPromotion:'not_implemented'};

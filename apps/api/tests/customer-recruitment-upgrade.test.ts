@@ -2,8 +2,9 @@ import { createHash } from "node:crypto";
 import { expect, it } from "vitest";
 import { CUSTOMER_RECRUITMENT_UPGRADE_V1 as pair, isCustomerRecruitmentUpgradeV1,
   CUSTOMER_RECRUITMENT_RESUME_UPGRADE_V2 as resume, isCustomerRecruitmentResumeUpgradeV2 } from "../src/lib/customerRecruitmentUpgrade.js";
-import { CUSTOMER_AGENT_QUALITY_CONTINUITY_UPGRADE_V1 as quality,
-  isCustomerAgentQualityContinuityUpgradeV1 } from "../src/lib/customerAgentQualityContinuityUpgrade.js";
+import { CUSTOMER_AGENT_QUALITY_CONTINUITY_UPGRADE_V1 as quality, isCustomerAgentQualityContinuityUpgradeV1,
+  CUSTOMER_AGENT_QUALITY_CONTINUITY_UPGRADE_V2 as quality2, isCustomerAgentQualityContinuityUpgradeV2,
+  customerAgentQualityContinuityUpgradeVersion } from "../src/lib/customerAgentQualityContinuityUpgrade.js";
 import { CUSTOMER_AGENT_SYSTEM } from "../src/ai/customerAgentPrompt.js";
 import { customerAgentToolDefinitions, CUSTOMER_AGENT_PUBLIC_TOOLS } from "../src/ai/customerAgentToolDefinitions.js";
 import { customerAgentPublishRequestSchema, customerAgentRefreshRequestSchema } from "@royal-home/shared";
@@ -16,16 +17,27 @@ it("keeps the historical recruitment pair pinned while recognizing the distinct 
   const historicalResumeFrom={promptHash:resume.fromPrompt,toolSchemaHash:resume.fromTools};
   const historicalResumeTo={promptHash:resume.toPrompt,toolSchemaHash:resume.toTools};
   expect(isCustomerRecruitmentResumeUpgradeV2(historicalResumeFrom,historicalResumeTo)).toBe(true);
-  expect(sha(CUSTOMER_AGENT_SYSTEM)).toBe(quality.toPrompt);
+  expect(sha(CUSTOMER_AGENT_SYSTEM)).toBe(quality2.toPrompt);
+  expect(quality2.fromPrompt).toBe(quality.toPrompt);
+  expect(quality2.fromKnowledgeSchema).toBe(quality.toKnowledgeSchema);
+  expect(quality2.toolSchemaHash).toBe(quality.toolSchemaHash);
   expect(resume.fromPrompt).toBe(pair.toPrompt);
   expect(resume.toPrompt).toBe(quality.fromPrompt);
   const currentTools=sha(JSON.stringify(customerAgentToolDefinitions(names)));
   expect(currentTools).toBe("16dcce629b9cec908e64942333769bdc05353fbe5675726fe9c9cfd3c9ee7b67");
-  expect(currentTools).toBe(quality.toolSchemaHash);
+  expect(currentTools).toBe(quality2.toolSchemaHash);
   expect(currentTools).not.toBe(pair.toTools);
-  expect(isCustomerAgentQualityContinuityUpgradeV1(
-    {promptHash:quality.fromPrompt,toolSchemaHash:quality.toolSchemaHash,knowledgeSchemaHash:quality.fromKnowledgeSchema},
-    {promptHash:sha(CUSTOMER_AGENT_SYSTEM),toolSchemaHash:currentTools,knowledgeSchemaHash:quality.toKnowledgeSchema})).toBe(true);
+  const v1From={promptHash:quality.fromPrompt,toolSchemaHash:quality.toolSchemaHash,knowledgeSchemaHash:quality.fromKnowledgeSchema};
+  const v1To={promptHash:quality.toPrompt,toolSchemaHash:quality.toolSchemaHash,knowledgeSchemaHash:quality.toKnowledgeSchema};
+  const current={promptHash:sha(CUSTOMER_AGENT_SYSTEM),toolSchemaHash:currentTools,knowledgeSchemaHash:quality2.toKnowledgeSchema};
+  expect(isCustomerAgentQualityContinuityUpgradeV1(v1From,v1To)).toBe(true);
+  expect(isCustomerAgentQualityContinuityUpgradeV2(v1To,current)).toBe(true);
+  expect(isCustomerAgentQualityContinuityUpgradeV1(v1From,current)).toBe(false);
+  expect(isCustomerAgentQualityContinuityUpgradeV2(v1From,current)).toBe(false);
+  expect(customerAgentQualityContinuityUpgradeVersion(v1From,v1To)).toBe("v1");
+  expect(customerAgentQualityContinuityUpgradeVersion(v1To,current)).toBe("v2");
+  expect(customerAgentQualityContinuityUpgradeVersion(v1From,current)).toBeNull();
+  expect(customerAgentQualityContinuityUpgradeVersion(current,v1To)).toBeNull();
   expect(isCustomerRecruitmentResumeUpgradeV2(historicalResumeFrom,
     {promptHash:sha(CUSTOMER_AGENT_SYSTEM),toolSchemaHash:currentTools})).toBe(false);
   expect(isCustomerRecruitmentUpgradeV1(prior,next)).toBe(true);
