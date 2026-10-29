@@ -16,7 +16,7 @@ import { customerAgentStoredPublicDataCurrent } from "./customerAgentDeliveryEvi
 import { readCustomerPropertyFacts } from "./customerPropertyFacts.js";
 import { phoneSafeText } from "./clientPhone.js";
 import { PUBLIC_AGENCY_CONTACT } from "./publicAgencyContact.js";
-import { renderCustomerAgentDecision, type CustomerAgentEvidence } from "../ai/customerAgentRenderer.js";
+import { renderCustomerAgentDecision, customerAgentFixedLines, type CustomerAgentEvidence } from "../ai/customerAgentRenderer.js";
 import { customerAgentAttachmentQuestion } from "../ai/customerAgentAttachmentInput.js";
 import { customerDmAttachmentInput } from "./customerDmAttachmentInput.js";
 import { decodeCustomerAgentMediaObservation } from "./customerAgentMediaObservation.js";
@@ -147,7 +147,9 @@ function historicalText(row: NonNullable<MemoryTicket>, current: Current, ownWor
   } catch { return null; }
 }
 function safePublicLines(evidence: readonly CustomerAgentEvidence[], revision: Readonly<CustomerAgentRevision>): Set<string> {
-  const lines = new Set<string>();
+  // Fixed server wording (questions, repeat notices, neutral replies) is as safe in history as the templates below;
+  // without it a turn made only of such a line vanished, and neither the model nor the repeat check saw it was asked.
+  const lines = customerAgentFixedLines();
   for (const language of ["ru", "tg"] as const) {
     // Fixed transport clarifications may enter memory only AFTER the ordinary
     // genuine accepted-OUT checks below, never from a draft/attempt or caption.

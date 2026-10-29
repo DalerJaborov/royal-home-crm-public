@@ -7,9 +7,10 @@ import { customerPublicThanks, customerRequestedAgencyContact, customerRecruitme
   customerRecruitmentLanguagePermissionRequested, customerFollowRequest, customerStandaloneFurnitureQuestion,
   customerFurnitureQuestionRequested, customerMessengerChannelQuestion, isCustomerPublicAppreciation,
   customerPublicReaction, customerPublicReactionText } from "./customerAgentConversationPolicy.js";
-import { customerAgentIntake, customerSellerIntakeQuestion } from "./customerAgentIntake.js";
+import { customerAgentIntake, customerSellerIntakeQuestion, customerSellerIntakeQuestionLines } from "./customerAgentIntake.js";
 import { customerRecruitmentRequested, customerRecruitmentFactsRequested, isCustomerVacanciesObservation, recruitmentPositionForTurn,
-  recruitmentMissingForTurn, recruitmentRequiredQuestion } from "./customerAgentRecruitmentProtocol.js";
+  recruitmentMissingForTurn, recruitmentRequiredQuestion, recruitmentFactQuestionLines } from "./customerAgentRecruitmentProtocol.js";
+import { customerDmAbuseKind, customerDmAbuseReply, customerDmAbuseLines } from "./customerAgentAbuse.js";
 import { customerRecruitmentReplyDetails, containsRecruitmentExperienceInvitation } from "./customerRecruitmentReply.js";
 import { clientOwnWords } from "./untrustedContent.js";
 import { BW, EW, TAIL } from "./wordBoundary.js";
@@ -295,6 +296,8 @@ export function customerCompanyInformationRequested(text: string): boolean {
   // appointment deadline or quoted publication is not our office/schedule.
   // Ambiguous questions remain available to the model's normal read tools.
   const own = clientOwnWords(text).trim();
+  // "сожгу ваш офис" names the office but asks nothing about it.
+  if (customerDmAbuseKind(own)) return false;
   const agencyLocation = /ваш(?:его|ем|им)?\s+офис|офис[ае]?\s+(?:ваш|агентств|royal\s*home)|адрес\s+агентства|где\s+вы\s+находитесь|как\s+к\s+вам\s+(?:добраться|пройти|проехать|доехать|попасть)|(?:дафтари|идораи)\s+шумо|суроғаи\s+(?:шумо|агент)/iu;
   const agencyHours = /когда\s+(?:вы\s+)?работаете|до\s+скольки\s+(?:вы\s+)?работаете|во\s+сколько\s+(?:вы\s+)?открываетесь|ваши\s+часы\s+работы|у\s+вас\s+(?:часы|время)\s+работы|соат[иҳое]*\s+кор(?:иатон|и\s+шумо)/iu;
   const standaloneHours = /^(?:(?:какие\s+)?часы\s+работы|соат[иҳое]*\s+кори?(?:\s+чанд)?)[?.!\s]*$/iu;
@@ -361,7 +364,7 @@ export function customerBuyerGuideFollowText(language: "ru" | "tg"): string {
 /** No model prose can invent an amount, date, contact or completed action.
  * Public observations/receipts are supplied by server ports; this rendering
  * itself confers no authority, physical send or proposal-presentation proof. */
-export function renderCustomerAgentDecision(input: {
+function renderDecisionCore(input: {
   decision: CustomerAgentDecision; evidence: readonly CustomerAgentEvidence[]; language: "ru" | "tg";
   requestedFacts: readonly CustomerPropertyFactKind[]; knownPhoneSource: "none" | "current_input" | "scoped_contact";
   maxOutputChars: number; surface: CustomerAgentSurface; knowledgeSourceHash?: string;
@@ -587,8 +590,12 @@ export function renderCustomerAgentDecision(input: {
     const text = lines.filter(Boolean).join("\n");
     return text && text.length <= input.maxOutputChars ? text : null;
   }
+  // The job question is decided against the catalog the core read, whether or not its text is shown this turn
+  // (an unshown catalog used to leave "Какая должность вас интересует?" asked after the customer named the role).
+  const questionEvidence = [...evidence.filter((e): e is CustomerAgentEvidence => !!e),
+    ...input.evidence.filter(e => e.value.kind === "open_vacancies" && e.value.positions.length > 0 && !evidence.includes(e))];
   const question = followRequest || languagePermissionOnly || furnitureOnly || guideFollowPrompt ? "none"
-    : customerAgentRenderedQuestion({ ...input, ...material, evidence: evidence.filter((e): e is CustomerAgentEvidence => !!e) });
+    : customerAgentRenderedQuestion({ ...input, ...material, evidence: questionEvidence });
   const intake = intakeProgress(input);
   // Suppress only the redundant/private question, preserve useful verified
   // facts or a local receipt. No whole-answer erasure or invented success.
@@ -617,4 +624,98 @@ export function renderCustomerAgentDecision(input: {
   const text = lines.filter(Boolean).join("\n");
   // Never truncate a monetary value, receipt or critical proposal summary.
   return text && text.length <= input.maxOutputChars ? text : null;
+}
+
+/**
+ * A DM reply never repeats the previous bot turn (24.10.2026, attack stand: "Что ещё важно при выборе…"
+ * or "Какая должность вас интересует?" echoed every turn, then the outbound shield swallowed the third
+ * identical text and the customer got silence). Server text only, no model words:
+ *  - a fixed question the previous turn already asked is not asked again; what is left of the reply stays;
+ *  - nothing left: the buyer's finished questionnaire moves to the next step (an object), anything else gets an
+ *    honest "I wrote this above" notice, a different one each time;
+ *  - the same facts again are introduced with "Повторю ещё раз".
+ * Hostile or promotional input is answered by one neutral line before any of this (no company fact for a threat).
+ */
+const REPEAT_LEAD = { ru: "Повторю ещё раз:", tg: "Бори дигар такрор мекунам:" };
+const REPEAT_NOTICES: ReadonlyArray<{ ru: string; tg: string }> = [
+  { ru: "Я уже писал об этом выше. Уточните, пожалуйста, что именно непонятно или что вы хотите узнать.",
+    tg: "Ман инро дар боло навишта будам. Лутфан бигӯед, кадом қисми он нофаҳмо аст ё чиро донистан мехоҳед." },
+  { ru: "Если мой вопрос выше был неясен, напишите своими словами, что вам нужно.",
+    tg: "Агар саволи ман дар боло номафҳум буд, бо суханони худ нависед, ки шуморо чӣ лозим аст." },
+  { ru: "Чтобы помочь точнее, напишите одним сообщением, что вас интересует: покупка, продажа недвижимости или работа.",
+    tg: "Барои дақиқтар кӯмак расондан дар як паём нависед, ки шуморо чӣ ҷалб мекунад: харид, фурӯши амвол ё кор." },
+];
+const PREFERENCES_DONE = { ru: "Понял, учту. Если хотите посмотреть конкретный вариант, пришлите номер объекта или ссылку на него.",
+  tg: "Фаҳмидам, ба назар мегирам. Агар хоҳед вариантро аз наздик бинед, рақам ё пайванди объектро фиристед." };
+/** Same meaning, different words: a bare greeting/thanks/acknowledgement is not sent twice in a row. */
+const SOCIAL_FAMILIES: ReadonlyArray<ReadonlyArray<{ ru: string; tg: string }>> = [
+  [social.acknowledge, { ru: "Хорошо, принято.", tg: "Хуб, қабул шуд." }, { ru: "Ясно, спасибо.", tg: "Равшан аст, ташаккур." }],
+  [social.thank, { ru: "Благодарю!", tg: "Миннатдорам!" }, { ru: "Спасибо вам!", tg: "Сипос!" }],
+  [social.greet, { ru: "Добрый день!", tg: "Ассалому алайкум!" }, { ru: "Здравствуйте, рад вас слышать!", tg: "Салом, хуш омадед!" }],
+];
+const lineSet = (...lists: ReadonlyArray<readonly string[]>) => new Set(lists.flat());
+let fixedQuestionLines: Set<string> | undefined;
+/** Fixed question sentences (templates, "я уточнял" repairs, résumé/seller questions): the only lines the repeat check may drop. */
+function questionLineSet(): Set<string> {
+  return fixedQuestionLines ??= lineSet(Object.values(questions).flatMap(line => [line.ru, line.tg]).filter(Boolean),
+    Object.values(repairs).flatMap(line => [line.ru, line.tg]), recruitmentFactQuestionLines(), customerSellerIntakeQuestionLines());
+}
+const socialLineSet = () => lineSet(SOCIAL_FAMILIES.flat().flatMap(line => [line.ru, line.tg]));
+const noticeLineSet = () => lineSet(REPEAT_NOTICES.flatMap(line => [line.ru, line.tg]), [REPEAT_LEAD.ru, REPEAT_LEAD.tg]);
+/** Every fixed line the renderer can produce on its own, for the read-only conversation-memory allow-list
+ * (an assistant turn made only of such lines is kept in the model's and the renderer's history). */
+export function customerAgentFixedLines(): Set<string> {
+  return lineSet([...questionLineSet()], [...noticeLineSet()], customerDmAbuseLines(),
+    [PREFERENCES_DONE.ru, PREFERENCES_DONE.tg], SOCIAL_FAMILIES.flat().flatMap(line => [line.ru, line.tg]));
+}
+const splitLines = (text: string) => text.split("\n").map(line => line.trim()).filter(Boolean);
+
+function avoidRepeatedReply(text: string, input: { language: "ru" | "tg"; verifiedContext?: CustomerAgentVerifiedContext }): string {
+  const turns = input.verifiedContext?.turns ?? [];
+  if (input.verifiedContext?.surface !== "dm" || turns.at(-1)?.role !== "assistant") return text;
+  const notices = noticeLineSet(), questionLines = questionLineSet(), socials = socialLineSet(), lang = input.language;
+  const assistant = turns.filter(turn => turn.role === "assistant");
+  const previous = splitLines(assistant.at(-1)!.text);
+  // A notice answers a repeated question; the question it replaced is still the one on the table.
+  const asked = new Set(previous.every(line => notices.has(line)) && assistant.length > 1 ? [...previous, ...splitLines(assistant.at(-2)!.text)] : previous);
+  const lines = splitLines(text);
+  // A bare greeting/thanks/acknowledgement already sent twice: the next wording of the same meaning, if any is left.
+  const family = lines.length === 1 ? SOCIAL_FAMILIES.find(words => words.some(word => word[lang] === lines[0])) : undefined;
+  if (family) {
+    // Twice is natural ("Понял." after two answers); the third identical text is what the shield would swallow.
+    const said = assistant.map(turn => turn.text.trim());
+    return said.filter(turn => turn === lines[0]).length >= 2 ? family.map(word => word[lang]).find(word => !said.includes(word)) ?? text : text;
+  }
+  const repeatedQuestions = lines.filter(line => questionLines.has(line) && asked.has(line));
+  const noticesUsed = assistant.filter(turn => splitLines(turn.text).some(line => notices.has(line))).length;
+  const notice = () => {
+    for (let index = Math.min(noticesUsed, REPEAT_NOTICES.length - 1); index < REPEAT_NOTICES.length; index++) {
+      const candidate = REPEAT_NOTICES[index][lang];
+      if (!asked.has(candidate)) return candidate;
+    }
+    return REPEAT_NOTICES[REPEAT_NOTICES.length - 1][lang];
+  };
+  if (repeatedQuestions.length) {
+    const rest = lines.filter(line => !repeatedQuestions.includes(line));
+    if (rest.length) return rest.join("\n");
+    return repeatedQuestions.includes(questions.preferences[lang]) ? PREFERENCES_DONE[lang] : notice();
+  }
+  // The same facts again: introduce, then say so honestly. Greetings and thanks repeat freely.
+  if (lines.every(line => asked.has(line)) && !lines.every(line => socials.has(line))) {
+    return asked.has(REPEAT_LEAD[lang]) ? notice() : `${REPEAT_LEAD[lang]}\n${text}`;
+  }
+  return text;
+}
+
+export function renderCustomerAgentDecision(input: Parameters<typeof renderDecisionCore>[0]): string | null {
+  const d = input.decision;
+  if (input.surface === "dm" && (d.kind === "reply" || d.kind === "clarify") && !input.evidence.some(e => e.value.kind === "receipt" || e.value.kind === "proposal")) {
+    const abuse = customerDmAbuseKind(input.inputText ?? "");
+    if (abuse) {
+      const reply = customerDmAbuseReply(abuse, input.language);
+      return reply.length <= input.maxOutputChars ? reply : null;
+    }
+  }
+  const text = renderDecisionCore(input);
+  return text ? avoidRepeatedReply(text, input) : text;
 }

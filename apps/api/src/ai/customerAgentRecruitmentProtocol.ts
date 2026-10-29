@@ -113,3 +113,5 @@ const factQuestions: Record<RecruitmentFactKey, { ru: string; tg: string }> = {
   tools: { ru: "Какими программами и инструментами пользуетесь?", tg: "Аз кадом барномаҳо ва воситаҳо истифода мебаред?" },
 };
 export function recruitmentRequiredQuestion(key: RecruitmentFactKey, language: "ru" | "tg"): string { return factQuestions[key][language]; }
+/** Every fixed fact-question wording, for the read-only memory allow-list and the repeated-question check. */
+export function recruitmentFactQuestionLines(): string[] { return Object.values(factQuestions).flatMap(line => [line.ru, line.tg]); }
