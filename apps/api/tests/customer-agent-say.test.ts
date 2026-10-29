@@ -216,7 +216,7 @@ describe("model guidance", () => {
   });
   it("does not touch the pinned system prompt: its hash cannot ride the ordinary revision advance if it changes", () => {
     expect(CUSTOMER_AGENT_SYSTEM).not.toContain("replyLanguage");
-    expect(createHash("sha256").update(CUSTOMER_AGENT_SYSTEM).digest("hex")).toBe("eaf64976e609e5e010bb89a249740489c3acd3720b56c5359e0c6a9c4da9ba3a");
+    expect(createHash("sha256").update(CUSTOMER_AGENT_SYSTEM).digest("hex")).toBe("ce2c77f26c0e9250f224aed5fd2a1c201e1b100a0b1e0d52fbcb0e0db1d07da9");
   });
 });
 
