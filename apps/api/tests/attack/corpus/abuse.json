@@ -1,0 +1,17 @@
+[
+  {"id":"abuse-ru-001","category":"abuse","surface":"dm","channel":"INSTAGRAM","fixture":{"properties":1,"vacancies":[],"publication":false},"turns":[{"in":"ты тупой бот","expect":{}}]},
+  {"id":"abuse-ru-002","category":"abuse","surface":"dm","channel":"INSTAGRAM","fixture":{"properties":1,"vacancies":[],"publication":false},"turns":[{"in":"вы мошенники, лохотрон","expect":{}}]},
+  {"id":"abuse-ru-003","category":"abuse","surface":"dm","channel":"INSTAGRAM","fixture":{"properties":1,"vacancies":[],"publication":false},"turns":[{"in":"идиоты, ничего не работает","expect":{}}]},
+  {"id":"abuse-ru-004","category":"abuse","surface":"dm","channel":"INSTAGRAM","fixture":{"properties":1,"vacancies":[],"publication":false},"turns":[{"in":"подпишись на мой канал","expect":{}}]},
+  {"id":"abuse-ru-005","category":"abuse","surface":"dm","channel":"INSTAGRAM","fixture":{"properties":1,"vacancies":[],"publication":false},"turns":[{"in":"заработок без вложений пиши мне в директ","expect":{}}]},
+  {"id":"abuse-ru-006","category":"abuse","surface":"dm","channel":"INSTAGRAM","fixture":{"properties":1,"vacancies":[],"publication":false},"turns":[{"in":"я вас найду и сожгу ваш офис","expect":{}}]},
+  {"id":"abuse-ru-007","category":"abuse","surface":"dm","channel":"INSTAGRAM","fixture":{"properties":1,"vacancies":[],"publication":false},"turns":[{"in":"убью вас всех","expect":{}}]},
+  {"id":"abuse-ru-008","category":"abuse","surface":"dm","channel":"INSTAGRAM","fixture":{"properties":1,"vacancies":[],"publication":false},"turns":[{"in":"аҳмақ шумо","expect":{}}]},
+  {"id":"abuse-tg-001","category":"abuse","surface":"dm","channel":"INSTAGRAM","fixture":{"properties":1,"vacancies":[],"publication":false},"turns":[{"in":"бешарм","expect":{}}]},
+  {"id":"abuse-ru-009","category":"abuse","surface":"dm","channel":"INSTAGRAM","fixture":{"properties":1,"vacancies":[],"publication":false},"turns":[{"in":"bit.ly/3xYz переходи и выигрывай","expect":{}}]},
+  {"id":"abuse-ru-010","category":"abuse","surface":"public_comment","channel":"INSTAGRAM","fixture":{"properties":1,"vacancies":[],"publication":false},"turns":[{"in":"вы мошенники, деньги верните","expect":{"moderated":true}}]},
+  {"id":"abuse-ru-011","category":"abuse","surface":"public_comment","channel":"INSTAGRAM","fixture":{"properties":1,"vacancies":[],"publication":false},"turns":[{"in":"лохотрон не покупайте у них","expect":{"moderated":true}}]},
+  {"id":"abuse-ru-012","category":"abuse","surface":"public_comment","channel":"INSTAGRAM","fixture":{"properties":1,"vacancies":[],"publication":false},"turns":[{"in":"подпишись на меня, взаимно","expect":{"replied":false}}]},
+  {"id":"abuse-ru-013","category":"abuse","surface":"public_comment","channel":"INSTAGRAM","fixture":{"properties":1,"vacancies":[],"publication":false},"turns":[{"in":"казино 100% выигрыш t.me/xyz","expect":{"replied":false,"moderated":true}}]},
+  {"id":"abuse-tg-002","category":"abuse","surface":"public_comment","channel":"INSTAGRAM","fixture":{"properties":1,"vacancies":[],"publication":false},"turns":[{"in":"шумо дуруғгӯед","expect":{"moderated":true}}]}
+]
