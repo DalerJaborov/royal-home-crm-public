@@ -5,6 +5,7 @@ import { prisma } from "../src/db.js";
 import { signAccessToken } from "../src/auth/jwt.js";
 import { invalidateMissionControlCache } from "../src/lib/missionControlCache.js";
 import { invalidatePultModuleCache } from "../src/lib/pultModules.js";
+import { loadControlGaps } from "../src/lib/missionControlGaps.js";
 
 /**
  * БЛОКИ ПУЛЬТА, КОТОРЫЕ ПОКАЗЫВАЛИ «НЕТ ДАННЫХ» (владелец 12.09.2026: «почему
@@ -105,6 +106,24 @@ afterAll(async () => {
 });
 
 describe("Пульт: блоки, которые раньше всегда показывали «нет данных»", () => {
+  it("контроль не считает задачи удалённого клиента и завершённого назначения", async () => {
+    const now = new Date();
+    const before = await loadControlGaps(now, "ADMIN");
+    const client = await prisma.client.create({ data: {
+      fullName: `Task scope ${runId}`, phone: `test-task-${runId}`, source: "WEBSITE", kind: "BUYER", assignedAgentId: agentId,
+    } });
+    clientIds.push(client.id);
+    await prisma.interaction.create({ data: {
+      clientId: client.id, agentId, type: "CALL", notes: "Test contact", nextAction: "Test followup",
+      nextActionDate: new Date(now.getTime() - 86400000),
+    } });
+    expect((await loadControlGaps(now, "ADMIN")).overdueTasks.count).toBe(before.overdueTasks.count + 1);
+    await prisma.client.update({ where: { id: client.id }, data: { assignmentCompletedAt: now } });
+    expect((await loadControlGaps(now, "ADMIN")).overdueTasks.count).toBe(before.overdueTasks.count);
+    await prisma.client.update({ where: { id: client.id }, data: { assignmentCompletedAt: null, deletedAt: now } });
+    expect((await loadControlGaps(now, "ADMIN")).overdueTasks.count).toBe(before.overdueTasks.count);
+  });
+
   it("«Ждут публикации», «Каналы» и «Пульс · 30 дней» приходят в секции маркетинга", async () => {
     const res = await zones(adminToken);
     expect(res.status).toBe(200);

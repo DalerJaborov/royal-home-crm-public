@@ -12,6 +12,7 @@ import { loadCredentials } from "../messengers/meta.js";
 import { HAS_INSTAGRAM_LINK_WHERE, NO_INSTAGRAM_LINK_WHERE } from "./instagramLink.js";
 import { getExtensionStatuses } from "./telephony/extensionPool.js";
 import { RATED_ROLES } from "@royal-home/shared";
+import { TASK_WHERE } from "./tasks.js";
 
 /**
  * БЛОКИ ПУЛЬТА, КОТОРЫЕ ПОКАЗЫВАЛИ «НЕТ ДАННЫХ» (владелец 12.09.2026: «почему
@@ -1164,10 +1165,9 @@ async function loadAgentPhones(): Promise<McAgentPhones> {
 
 export async function loadControlGaps(now: Date, viewerRole?: string): Promise<McControlGaps> {
   const overdueWhere = {
+    ...TASK_WHERE,
     ...visibleInteractionWhere(viewerRole),
-    taskCancelledAt: null,
     completedAt: null,
-    nextAction: { not: null },
     nextActionDate: { lt: now },
   } satisfies Prisma.InteractionWhereInput;
 
@@ -1228,7 +1228,9 @@ export async function loadControlGaps(now: Date, viewerRole?: string): Promise<M
           ? null
           : agents.length === 0
             ? "Активных агентов нет."
-            : `Ни у кого не выбран предел в ${limits.activeLimit} активных клиентов.`,
+            : limits.activeLimit <= 0
+              ? "Лимит активных клиентов отключён."
+              : `Ни один агент не достиг лимита в ${limits.activeLimit} активных клиентов.`,
     },
     silentAfterShowing: {
       count: silentAfterShowing,
