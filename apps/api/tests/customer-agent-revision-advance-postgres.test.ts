@@ -19,7 +19,7 @@ import { customerAgentRevisionReachable } from "../src/lib/customerAgentRevision
 import { readCustomerDmSourceExecution } from "../src/lib/customerAgentEnrollment.js";
 import { Prisma } from "../src/generated/prisma/client.js";
 import { drainBackgroundTasks } from "../src/lib/shutdownState.js";
-import { CUSTOMER_AGENT_QUALITY_CONTINUITY_UPGRADE_V1 } from "../src/lib/customerAgentQualityContinuityUpgrade.js";
+import { CUSTOMER_AGENT_QUALITY_CONTINUITY_UPGRADE_V2 } from "../src/lib/customerAgentQualityContinuityUpgrade.js";
 
 const tag=`synthetic-idle-advance-${randomUUID()}`, password=`Synthetic-${tag}`, accountId=randomUUID(), oldCohort=randomUUID(),newCohort=randomUUID();
 const resource=`${tag}-resource`,peer=`${tag}-peer`,secret=`${tag}-secret`,base="/api/v1/settings/customer-agent";
@@ -106,7 +106,7 @@ it("requires separate catalog-schema consent and preserves model,50%,scopes and 
 });
 it("requires separate quality/continuity consent and retains percentage, scopes and capabilities on elevated publication",async()=>{
   const baseline=await readPolicy(),next=await registerCurrentCustomerAgentRevision(createCustomerAgentProviderSnapshot());
-  const {id:_,...manifest}=next,pair=CUSTOMER_AGENT_QUALITY_CONTINUITY_UPGRADE_V1;
+  const {id:_,...manifest}=next,pair=CUSTOMER_AGENT_QUALITY_CONTINUITY_UPGRADE_V2;
   const previous={...manifest,promptHash:pair.fromPrompt,toolSchemaHash:pair.toolSchemaHash,knowledgeSchemaHash:pair.fromKnowledgeSchema},previousId=customerAgentManifestId(previous);
   await prisma.$executeRaw`INSERT INTO "CustomerAgentRevision" ("id","manifestJson","createdAt") VALUES (${previousId},${JSON.stringify(previous)}::jsonb,now()) ON CONFLICT DO NOTHING`;
   const value=await publication({advanceIdleRevision:true});value.rollout={...value.rollout,percentBasisPoints:10000,cohortId:randomUUID()};
@@ -134,7 +134,7 @@ it("requires separate quality/continuity consent and retains percentage, scopes 
     expect(response.status,JSON.stringify(response.body)).toBe(200);
     expect((await readPolicy()).rolloutConfig).toMatchObject({candidateRevisionId:newId,percentBasisPoints:10000,allowed:oldRollout.allowed});
     const audit=await prisma.auditLog.findFirstOrThrow({where:{agentId:actorId,action:"CUSTOMER_AGENT_PUBLISH"},orderBy:{createdAt:"desc"}});
-    expect(audit.meta).toMatchObject({authority:"step_up",qualityContinuityUpgradeVersion:"v1",recruitmentResumeUpgradeVersion:null,percentBasisPoints:10000});
+    expect(audit.meta).toMatchObject({authority:"step_up",qualityContinuityUpgradeVersion:"v2",recruitmentResumeUpgradeVersion:null,percentBasisPoints:10000});
   }finally{
     await prisma.$executeRaw`UPDATE "CustomerRuntimePolicy" SET "activeAgentRevisionId"=${baseline.activeAgentRevisionId},
       "rolloutConfig"=${JSON.stringify(baseline.rolloutConfig)}::jsonb,"capabilities"=${JSON.stringify(baseline.capabilities)}::jsonb WHERE "id"='singleton'`;

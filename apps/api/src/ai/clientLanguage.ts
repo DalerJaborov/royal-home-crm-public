@@ -33,7 +33,7 @@ import { stripUntrusted, unwrapUntrusted } from "./untrustedContent.js";
  * рядом с другими маркерами, поэтому потеря невелика; в русской они решают всё.
  */
 const TAJIK_WORDS =
-  /(?<![а-яёҳҷӣӯқғ])(ман|шумо|мо|хона|хонаи|мехохам|мехоҳам|мехаред|дорем|доред|даркор|аст|ҳаст|хаст|чанд|кучо|куҷо|нест|лозим|бошад|мешавад|мешава|кадом|барои|бале|ки|ва|бо|аз|дар|ин|намефамум|намефахмам|намефаҳмам|намефаҳмум|намедонам|наметавонам|уруси|урус|русӣ|маош|кор|нарх(?:аш|и|ат|ро)?|чанпул|чи|ака|апа|хуб|мешид|мегрифти|хавли|мефурӯш(?:ам|ем)?|мефуруш(?:ам|ем)?|мефурош(?:ам|ем)?|фурӯшам|фуруш(?:ам|ем)?|дорам|доштам|доштм)(?![а-яёҳҷӣӯқғ])/giu;
+  /(?<![а-яёҳҷӣӯқғ])(ман|шумо|мо|хона|хонаи|мехохам|мехоҳам|мехаред|дорем|доред|даркор|аст|ҳаст|хаст|чанд|кучо|куҷо|нест|лозим|бошад|мешавад|мешава|кадом|барои|бале|ки|ва|бо|аз|дар|ин|намефамум|намефахмам|намефаҳмам|намефаҳмум|намедонам|наметавонам|уруси|урус|русӣ|маош|кор|нарх(?:аш|и|ат|ро)?|чанпул|чи|ака|апа|хуб|мешид|мегрифти|хавли|мефурӯш(?:ам|ем)?|мефуруш(?:ам|ем)?|мефурош(?:ам|ем)?|фурӯшам|фуруш(?:ам|ем)?|дорам|доштам|доштм|кучост|куҷост|кучо|пул|пули|офисатон|офистон|хонаатон|мумкин|лутфан|биёед|харидан|фурухтан|ичора|арзон|кай|акс|фиристед|фиристам|мефиристам|мефиристед|метавонам|метавонед|метавонем|метавонад|кунам|кунем|кунед|кунад|тамошо|фардо|ошёна|ошёнаи|чандум|вазифа|вазифаи|вазифаҳо|кушода|бинам|бинед|нависам|нависед|гирам|гиред|биёям|биёед|мерасам|барам)(?![а-яёҳҷӣӯқғ])/giu;
 
 /**
  * ПРИВЕТСТВИЕ И «СПАСИБО» ЯЗЫКА НЕ ЗАДАЮТ (03.10.2026, живой сбой в Instagram).
@@ -73,6 +73,16 @@ const HAS_LATIN = /[a-z]/i;
  */
 const ENGLISH_WORDS =
   /(^|[^a-z])(the|and|you|your|are|is|do|does|have|has|can|could|would|want|need|price|how|much|many|what|where|when|hello|hi|please|thanks|thank|apartment|apartments|house|buy|sell|rent|for|with|about|in|of|to)([^a-z]|$)/i;
+
+/**
+ * Таджикские слова латиницей (24.10.2026, атакующий стенд): «salom, in khona chand pul» уходило в
+ * «unknown» (а значит, русский ответ), потому что «in» стоит и в английском списке. Эти слова
+ * английскими не бывают; «in»/«to» сюда НЕ входят, они двусмысленны и в английском счёте не участвуют.
+ */
+const TAJIK_LATIN_WORDS =
+  /(^|[^a-z])(salom|assalomu|alaykum|alejkum|rahmat|tashakkur|khona|xona|hona|honai|khonai|xonai|chand|chandta|pul|kuja|kujo|kucho|kuchost|kujost|narkh|narx|narxi|narxash|nark|dorem|doram|dorad|darkor|nest|hast|ast|ki|va|bo|ba|az|dar|baroi|mekhokham|mexoham|mehocham|mekhoham|lozim|mumkin|khub|xub|chi|kay|arzon|qimat|kor|bormi|kvartira|ofis|ofisatonro?)([^a-z]|$)/gi;
+const ENGLISH_STRONG_WORDS =
+  /(^|[^a-z])(the|and|you|your|are|is|does|have|has|can|could|would|want|need|price|how|much|many|what|where|when|hello|please|thanks|thank|apartment|apartments|house|buy|sell|rent|for|with|about|of)([^a-z]|$)/gi;
 
 export type ClientLanguage = "ru" | "tg" | "mixed" | "unknown";
 
@@ -170,6 +180,9 @@ export function detectClientLanguage(text: string): ClientLanguage {
   // («salom, hona darkor»), а не английский. Но если в тексте есть английские
   // служебные слова, язык не навязываем вовсе: пусть решает модель по переписке.
   if (!HAS_CYRILLIC.test(trimmed) && HAS_LATIN.test(trimmed)) {
+    // Таджикские слова латиницей перевешивают случайное «in»/«to»; чисто английская фраза остаётся «unknown».
+    const tajikLatin = count(TAJIK_LATIN_WORDS, trimmed), english = count(ENGLISH_STRONG_WORDS, trimmed);
+    if (tajikLatin > 0 && tajikLatin >= english) return "tg";
     return ENGLISH_WORDS.test(trimmed) ? "unknown" : "tg";
   }
   return "unknown";
