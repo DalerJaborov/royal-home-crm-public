@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 722,
-  "forks": 3989,
+  "forks": 3990,
   "mounts": 79,
   "cron": 115,
   "jobs": 31,
@@ -53374,6 +53374,14 @@
     },
     {
      "k": "do",
+     "t": "await refreshSellerAfterPropertyChange(property.sellerClientId);",
+     "a": [
+      "зовёт refreshSellerAfterPropertyChange()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
      "t": "logAudit(req, \"RESTORE\", \"Property\", property.id, { shortId: property.shortId, title: property.title });",
      "a": [
       "зовёт logAudit()"
@@ -64886,6 +64894,14 @@
        "c": []
       }
      ]
+    },
+    {
+     "k": "do",
+     "t": "await refreshSellerAfterPropertyChange(property.sellerClientId);",
+     "a": [
+      "зовёт refreshSellerAfterPropertyChange()"
+     ],
+     "c": []
     },
     {
      "k": "do",
@@ -106887,9 +106903,33 @@
                "t": "const written = await prisma.$transaction(async (tx)",
                "a": [
                 "всё внутри — одной транзакцией",
+                "обращается к базе своим SQL",
                 "меняет в базе: client"
                ],
                "c": [
+                {
+                 "k": "do",
+                 "t": "await tx.$queryRaw`SELECT id FROM \"Client\" WHERE id = ${c.id} FOR UPDATE`;",
+                 "a": [
+                  "обращается к базе своим SQL"
+                 ],
+                 "c": []
+                },
+                {
+                 "k": "if",
+                 "t": "c.kind === \"SELLER\" && (await sellersWithPropertyInWork([c.id], {}, tx)).has(c.id)",
+                 "a": [],
+                 "c": [
+                  {
+                   "k": "do",
+                   "t": "return false;",
+                   "a": [
+                    "дословно из кода"
+                   ],
+                   "c": []
+                  }
+                 ]
+                },
                 {
                  "k": "do",
                  "t": "const updated = await tx.client.updateMany({ where: { id: c.id, deletedAt: null, workStatus: \"ACTIVE\", kind: …",

@@ -1,5 +1,5 @@
 import { deactivateClient } from "../src/lib/clientWorkStatus.js";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { prisma } from "../src/db.js";
 import { runSilentClientAutoDeactivate } from "../src/lib/silentClientAutoDeactivate.js";
 
@@ -163,6 +163,26 @@ describe("Автоперевод молчаливых клиентов в Неа
 });
 
 describe("Продавец с объектом в работе не «молчит» (владелец 23.09.2026)", () => {
+  it.each(["cron", "analysis"])("%s повторно проверяет объект, добавленный после предварительной проверки", async path => {
+    const client = await makeSilentClient(`race-${path}`);
+    await prisma.client.update({ where: { id: client.id }, data: { kind: "SELLER" } });
+    const real = prisma.property.findMany.bind(prisma.property);
+    const spy = vi.spyOn(prisma.property, "findMany").mockImplementationOnce((async (args: never) => {
+      const rows = await real(args);
+      await prisma.property.create({ data: {
+        title: "Test concurrent listing", type: "APARTMENT", areaSqm: 50,
+        price: 100, condition: "GOOD", status: "AVAILABLE", sellerClientId: client.id,
+      } });
+      return rows;
+    }) as never);
+    try {
+      if (path === "cron") await runSilentClientAutoDeactivate(now);
+      else await deactivateClient({ clientId: client.id, reason: "STOPPED_RESPONDING",
+        initiator: "CLIENT", actualNeeds: "Ожидает покупателя", actor: { kind: "system", source: "test" } });
+    } finally { spy.mockRestore(); }
+    expect((await prisma.client.findUniqueOrThrow({ where: { id: client.id } })).workStatus).toBe("ACTIVE");
+    expect(await prisma.interaction.count({ where: { clientId: client.id } })).toBe(0);
+  });
   it("продавец, чей объект в продаже, остаётся в работе", async () => {
     const client = await makeSilentClient("7");
     await prisma.client.update({

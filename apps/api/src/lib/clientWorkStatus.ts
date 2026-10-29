@@ -229,9 +229,12 @@ export async function deactivateClient(
     (input.comment?.trim() ? `. ${input.comment.trim()}` : "");
 
   const written = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "Client" WHERE id = ${client.id} FOR UPDATE`;
+    if (client.kind === "SELLER" && (await sellersWithPropertyInWork([client.id], {}, tx)).has(client.id)) return false;
     const updated = await tx.client.updateMany({
       where: {
         id: client.id, deletedAt: null, status: { notIn: [...TERMINAL_CLIENT_STATUSES] }, workStatus: "ACTIVE",
+        kind: client.kind,
         assignedAgentId: client.assignedAgentId, returnedAt: client.returnedAt,
         lastClientMessageAt: client.lastClientMessageAt,
         reactivationOfferedToAgentId: null,

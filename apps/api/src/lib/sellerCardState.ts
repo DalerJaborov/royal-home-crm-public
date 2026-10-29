@@ -204,12 +204,13 @@ export const ON_SALE_STATUSES = ["AVAILABLE", "RESERVED"] as const;
 export async function sellersWithPropertyInWork(
   clientIds: string[],
   opts: { onSaleOnly?: boolean } = {},
+  db: Pick<TxClient, "property"> = prisma,
 ): Promise<Set<string>> {
   if (clientIds.length === 0) return new Set();
   const statuses = opts.onSaleOnly
     ? [...ON_SALE_STATUSES]
     : [...IN_WORK_STATUSES];
-  const rows = await prisma.property.findMany({
+  const rows = await db.property.findMany({
     where: {
       sellerClientId: { in: clientIds },
       deletedAt: null,

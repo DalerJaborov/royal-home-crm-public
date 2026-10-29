@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { prisma } from "../src/db.js";
 
 const { collectFactsForSeller, refreshClientStatus, refreshStatusesByTime } = await import(
@@ -177,6 +177,70 @@ describe("collectFactsForSeller: откуда берутся факты у пр�
 });
 
 describe("refreshClientStatus: движок теперь двигает статус продавца", () => {
+  it.each([30, 60, 90])("ожидание %i дней с объектом не архивирует и не деактивирует", async days => {
+    const seller = await makeSeller();
+    const old = new Date(Date.now() - days * 86400000);
+    await prisma.client.update({ where: { id: seller.id }, data: { status: "CONTACTED", lastContactAt: old } });
+    await prisma.interaction.create({ data: { clientId: seller.id, agentId, type: "CALL", outcome: "WAITING_CALL", notes: "Ожидает покупателя", createdAt: old } });
+    await makeProperty(seller.id);
+    await refreshClientStatus(seller.id);
+    const after = await prisma.client.findUniqueOrThrow({ where: { id: seller.id } });
+    expect(after.status).toBe("CONTACTED");
+    expect(after.workStatus).toBe("ACTIVE");
+    expect(after.assignedAgentId).toBe(agentId);
+  });
+  it("объект, появившийся во время сбора фактов, отменяет устаревшее архивирование", async () => {
+    const seller = await makeSeller();
+    const real = prisma.property.findMany.bind(prisma.property);
+    const spy = vi.spyOn(prisma.property, "findMany").mockImplementationOnce((async (args: never) => {
+      const rows = await real(args);
+      await makeProperty(seller.id);
+      return rows;
+    }) as never);
+    try { expect(await refreshClientStatus(seller.id)).toBeNull(); }
+    finally { spy.mockRestore(); }
+    expect((await prisma.client.findUniqueOrThrow({ where: { id: seller.id } })).status).toBe("NEW");
+  });
+  it("повторный пересчёт не дублирует возврат и хронологию", async () => {
+    const seller = await makeSeller();
+    await makeProperty(seller.id);
+    await prisma.client.update({ where: { id: seller.id }, data: { status: "CONTACTED", workStatus: "INACTIVE" } });
+    await refreshClientStatus(seller.id);
+    expect(await refreshClientStatus(seller.id)).toBeNull();
+    expect(await prisma.interaction.count({ where: { clientId: seller.id, type: "STATUS_CHANGE" } })).toBe(1);
+  });
+  it.each(["LOST", "ARCHIVED", "DEAL_CLOSED"] as const)("объект не отменяет терминальное решение %s", async (status) => {
+    const seller = await makeSeller();
+    await makeProperty(seller.id);
+    await prisma.client.update({ where: { id: seller.id }, data: { status, workStatus: "INACTIVE" } });
+    await refreshClientStatus(seller.id);
+    const after = await prisma.client.findUniqueOrThrow({ where: { id: seller.id } });
+    expect(after.status).toBe(status);
+    expect(after.workStatus).toBe("INACTIVE");
+  });
+  it("удалённый объект не возвращает продавца", async () => {
+    const seller = await makeSeller();
+    const property = await makeProperty(seller.id);
+    await prisma.property.update({ where: { id: property.id }, data: { deletedAt: new Date() } });
+    await prisma.client.update({ where: { id: seller.id }, data: { workStatus: "INACTIVE" } });
+    await refreshClientStatus(seller.id);
+    expect((await prisma.client.findUniqueOrThrow({ where: { id: seller.id } })).workStatus).toBe("INACTIVE");
+  });
+  it("добавленный объект возвращает неактивного продавца без нового звонка", async () => {
+    const seller = await makeSeller();
+    await prisma.client.update({ where: { id: seller.id }, data: {
+      status: "CONTACTED", workStatus: "INACTIVE", inactiveLevel: "GREEN",
+      inactiveSince: new Date(Date.now() - 60 * 86400000), inactivePingCount: 3,
+    } });
+    await makeProperty(seller.id);
+    await refreshClientStatus(seller.id);
+    const after = await prisma.client.findUniqueOrThrow({ where: { id: seller.id } });
+    expect(after.workStatus).toBe("ACTIVE");
+    expect(after.inactiveSince).toBeNull();
+    expect(after.inactiveLevel).toBeNull();
+    expect(after.inactivePingCount).toBe(0);
+    expect(after.assignedAgentId).toBe(agentId);
+  });
   it("был ответивший звонок — статус уходит в «На контакте»", async () => {
     const seller = await makeSeller();
     await prisma.interaction.create({
