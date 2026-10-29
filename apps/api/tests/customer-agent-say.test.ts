@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { CUSTOMER_AGENT_SYSTEM } from "../src/ai/customerAgentPrompt.js";
+import { CUSTOMER_AGENT_QUALITY_CONTINUITY_UPGRADE_V2 } from "../src/lib/customerAgentQualityContinuityUpgrade.js";
 import { validateCustomerAgentSay, validateCustomerAgentSayForDecision, normalizeSayText, SAY_ENABLED_LANGUAGES, CUSTOMER_AGENT_SAY_EXAMPLES, CUSTOMER_AGENT_SAY_GUIDANCE,
   type CustomerAgentSayInput } from "../src/ai/customerAgentSay.js";
 import { summarizeCustomerAgentSayDay, reportCustomerAgentSayDay } from "../src/lib/customerAgentSayStats.js";
@@ -216,7 +217,8 @@ describe("model guidance", () => {
   });
   it("does not touch the pinned system prompt: its hash cannot ride the ordinary revision advance if it changes", () => {
     expect(CUSTOMER_AGENT_SYSTEM).not.toContain("replyLanguage");
-    expect(createHash("sha256").update(CUSTOMER_AGENT_SYSTEM).digest("hex")).toBe("ce2c77f26c0e9250f224aed5fd2a1c201e1b100a0b1e0d52fbcb0e0db1d07da9");
+    // The current prompt is the latest separately approved pinned edge; `say` guidance rides in per-turn server facts.
+    expect(createHash("sha256").update(CUSTOMER_AGENT_SYSTEM).digest("hex")).toBe(CUSTOMER_AGENT_QUALITY_CONTINUITY_UPGRADE_V2.toPrompt);
   });
 });
 
