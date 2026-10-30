@@ -86,5 +86,11 @@ export function scriptedParts(request: Request, context: ScriptedContext, tools:
     : topic === "seller" ? (pub ? "topic" : next(["seller_details"]))
     : topic === "buyer" ? (pub ? "property" : next(["location", "rooms", "budget", "preferences"], given))
     : PRAISE.test(text) ? "none" : next(["topic"]);
-  return [decision({ kind: "reply", refs: [], social: pick === "none" && social === "none" ? "acknowledge" : social, question: pick })];
+  const finalSocial = pick === "none" && social === "none" ? "acknowledge" : social;
+  // ATTACK_SCRIPTED_CROOKED_SHAPE=1: the live-Gemini mistake (propose carrying a question, no ref) on every buyer question of a private
+  // chat, so the scripted run proves the server repairs the shape instead of going silent.
+  if (process.env.ATTACK_SCRIPTED_CROOKED_SHAPE === "1" && !pub && topic === "buyer" && pick !== "none") {
+    return [{ text: JSON.stringify({ kind: "propose", question: pick, social: finalSocial }) }];
+  }
+  return [decision({ kind: "reply", refs: [], social: finalSocial, question: pick })];
 }
