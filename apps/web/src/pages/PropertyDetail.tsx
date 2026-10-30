@@ -948,7 +948,7 @@ function PropertyViewCard({
                   />
                   <Row title="Номер объекта" meta={formatPropertyCode(property.shortId)} />
                   <Row title="Сайт royalhome.tj" meta={property.publishedOnSite ? "Опубликован" : "Не опубликован"} />
-                  {property.viewsCount > 0 && <Row title="Показов клиентам" meta={String(property.viewsCount)} />}
+                  {property.conductedShowingsCount != null && <Row title="Проведено показов" meta={String(property.conductedShowingsCount)} />}
                   {!!property.demandCount && !can("clients.viewAll") && (
                     <Row title="Покупателей ждут такой объект" meta={String(property.demandCount)} />
                   )}

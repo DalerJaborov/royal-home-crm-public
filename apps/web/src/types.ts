@@ -143,6 +143,8 @@ export interface Property {
    *  (canManageProperty). Сервер отдаёт поле всегда (presentProperty). */
   createdById?: string | null;
   viewsCount: number;
+  /** Detail API: conducted showings, excluding cancelled/future/private rows. */
+  conductedShowingsCount?: number;
   demandCount?: number;
   /** Балл совпадения с требованиями клиента (0..100) — только в ответе
    *  `GET /clients/:id/match` (панель «Подбор», режим клиента, 17.09.2026).

@@ -77,6 +77,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  await prisma.interaction.deleteMany({ where: { propertyId } });
   await prisma.property.deleteMany({ where: { id: propertyId } });
   await prisma.client.deleteMany({ where: { id: { in: clientIds } } });
   await prisma.district.deleteMany({ where: { id: districtId } });
@@ -87,6 +88,26 @@ const view = (token: string) =>
   request(app).get(`/api/v1/properties/${propertyId}`).set("Authorization", `Bearer ${token}`);
 
 describe("Собственник в карточке объекта", () => {
+  it("карточка считает состоявшиеся показы, исключая будущее, отмену и скрытую проверку", async () => {
+    const past = new Date(Date.now() - 3600_000);
+    const future = new Date(Date.now() + 86400_000);
+    const base = { clientId: clientIds[0], agentId: agentIds[0], propertyId, type: "SHOWING" as const,
+      showingEvidenceVersion: 1, notes: "Synthetic property card showing count" };
+    await prisma.property.update({ where: { id: propertyId }, data: { viewsCount: 99 } });
+    await prisma.interaction.createMany({ data: [
+      { ...base, nextActionDate: past, completedAt: past },
+      { ...base, nextActionDate: future },
+      { ...base, nextActionDate: past, declinedAt: past },
+      { ...base, nextActionDate: past, taskCancelledAt: past },
+      { ...base, nextActionDate: past, investigationOnly: true },
+    ] });
+    const res = await view(strangerToken);
+    expect(res.status).toBe(200);
+    expect(res.body.conductedShowingsCount).toBe(1);
+    expect(res.body).not.toHaveProperty("interactions");
+    // Neither the obsolete counter nor a truncated history supplies this fact.
+    expect(res.body.viewsCount).toBe(99);
+  });
   it("руководитель видит имя продавца и может открыть его карточку", async () => {
     const res = await view(directorToken);
     expect(res.status).toBe(200);
