@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import type { ClientSource } from "@royal-home/shared";
+import { reportDateRangeError } from "@royal-home/shared";
 import { useCan } from "../lib/permissions";
 import {
   useSourcesReport,
@@ -167,7 +168,8 @@ function SourcesScreen() {
   const [to, setTo] = useState(dushanbeTodayKey());
   const [channelsShown, setChannelsShown] = useState(PAGE);
 
-  const { data, isLoading, error, refetch } = useSourcesReport({ from, to }, true);
+  const rangeError = reportDateRangeError(from, to);
+  const { data, isLoading, error, refetch } = useSourcesReport({ from, to }, !rangeError);
   // Тепловая карта живёт под двумя правами: «руководящее» dashboard.analytics
   // и reports.view, которым гейтится весь этот экран (сервер проверяет ту же
   // пару, см. GET /dashboard/heatmap). Раньше здесь стояло только первое, и
@@ -304,7 +306,7 @@ function SourcesScreen() {
                 }}
               />
             </label>
-            <button className="pill" type="button" onClick={() => refetch()}>
+            <button className="pill" type="button" disabled={!!rangeError} onClick={() => refetch()}>
               Показать
             </button>
           </div>
@@ -319,7 +321,8 @@ function SourcesScreen() {
 
         {/* Иначе при отказе сервера на экране остаются только заголовок и поля
             дат: ни таблицы, ни объяснения — выглядит как «источников нет». */}
-        {error && !isLoading && (
+        {rangeError && <p className="state err" role="alert">{rangeError}. Исправьте период, чтобы увидеть показатели.</p>}
+        {!rangeError && error && !isLoading && (
           <div className="state err">
             <span className="dot crit" />{" "}
             {error instanceof Error ? error.message : "Источники не загрузились"}. Это сбой связи, а не нулевой период.
@@ -334,7 +337,7 @@ function SourcesScreen() {
           </div>
         )}
 
-        {data && sources.length === 0 && !isLoading && (
+        {!rangeError && data && sources.length === 0 && !isLoading && (
           <div className="card tight">
             <div className="empty">
               <span className="ic">
@@ -354,7 +357,7 @@ function SourcesScreen() {
           </div>
         )}
 
-        {data && sources.length > 0 && (
+        {!rangeError && data && sources.length > 0 && (
           <>
             <div className="tiles">
               <StatTile

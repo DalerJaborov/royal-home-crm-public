@@ -282,6 +282,14 @@ export const dateRangeQuerySchema = z.object({
 });
 export type DateRangeQuery = z.infer<typeof dateRangeQuerySchema>;
 
+/** One error contract for report inputs and resolved API date boundaries. */
+export function reportDateRangeError(from: string | Date, to: string | Date): string | null {
+  const start = new Date(from).getTime();
+  const end = new Date(to).getTime();
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return "Укажите обе даты отчёта";
+  return start > end ? "Дата начала не может быть позже даты окончания" : null;
+}
+
 /**
  * Лента активности команды: период, страница и фильтр по сотруднику.
  *

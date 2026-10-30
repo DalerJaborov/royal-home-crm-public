@@ -5,6 +5,7 @@ import { Router, type Request, type Response } from "express";
 import { z } from "zod";
 import {
   dateRangeQuerySchema,
+  reportDateRangeError,
   demandSupplyQuerySchema,
   monthlyReportNotesSchema,
   problemReportGenerateSchema,
@@ -176,6 +177,8 @@ function parseRange(query: Record<string, unknown>) {
   // dushanbeStartOfMonth) расходились в цифрах за один и тот же месяц.
   const to_ = dushanbeEndOfDay(to);
   let from = parsed.from ? dushanbeDayRange(parsed.from).start : dushanbeStartOfMonth();
+  const rangeError = reportDateRangeError(from, to_);
+  if (rangeError) throw new z.ZodError([{ code: "custom", path: ["from"], message: rangeError }]);
   if (to_.getTime() - from.getTime() > MAX_RANGE_MS) {
     from = new Date(to_.getTime() - MAX_RANGE_MS);
   }
