@@ -35,6 +35,9 @@ import { loadCustomerAdjacentVisualObservation } from "./customerAdjacentVisualO
 import { withBotTurnTrace, traceCustomerManagedBinding, traceCustomerCoreResult, traceCustomerCoreDisposition, traceMediaKinds } from "./botTurnTrace.js";
 import { customerPropertyUnresolvedReason } from "./customerPropertyUnresolvedReason.js";
 import { customerAgentMarkForeignShare } from "../ai/customerAgentAttachmentInput.js";
+import { customerSpamMuteGate, customerSpamTurn, SPAM_MUTED_NO_REPLY } from "../ai/customerSpamMute.js";
+import { clearCustomerSpamMute, readCustomerSpamMute, recordCustomerSpamTurn } from "./customerSpamMuteStore.js";
+import { logSystemError } from "./systemError.js";
 import { loadCustomerAgentFeaturePolicy } from "./customerAgentFeaturePolicy.js";
 import { customerPropertyMediaEndpointSchema, customerPropertyMediaExecutionMode, explicitCustomerPropertyPhotoRequest, prepareCustomerPropertyMedia } from "./customerPropertyMedia.js";
 import { reconcileCustomerShowcaseReply } from "./customerShowcaseReceipt.js";
@@ -154,6 +157,11 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     // media transcript below.
     const carried = await loadDeferredCustomerInput(planningPrincipal);
     const fullInput = () => carried ? [carried, text].filter(part => part.trim()).join("\n") : text;
+    // A dialogue marked "spammer" (two like-exchange / foreign-reel turns within a week): the input is already stored for the
+    // operator; no media download, no perception, no model, no reply. Real interest in the customer's own words lifts the mark.
+    const spamGate = customerSpamMuteGate(await readCustomerSpamMute(lane.ticket.conversationId), { inputText: fullInput(), now: new Date() });
+    if (spamGate === "muted") { await releaseHeldClaim(claim, SPAM_MUTED_NO_REPLY); return { status: "held", reason: SPAM_MUTED_NO_REPLY }; }
+    if (spamGate === "released") await clearCustomerSpamMute(lane.ticket.conversationId);
     // Short answers, names, bare links and greetings carry no decisive language evidence. Keep this
     // customer's last decisive USER turn (never the bot's prose or another inquiry's language); a full
     // sentence in another language, or an explicit request, switches the dialogue. The deferred block
@@ -329,7 +337,7 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     const unlinked = prepared.foreignShareCandidate && !!currentFocus && currentFocus.eventKey === lane.ticket.eventKey && currentFocus.status === "missing" &&
       customerPropertyUnresolvedReason(currentFocus.evidence, currentFocus.status, currentFocus.lookupAttempts) === "not_found";
     const attachmentInput = customerAgentMarkForeignShare(prepared.attachmentInput,
-      unlinked && ownPublicationFound ? "own_share_unlinked" : unlinked && !mediaPerception ? "foreign_share" : false);
+      unlinked && ownPublicationFound && !mediaPerception ? "own_share_unlinked" : unlinked && !mediaPerception ? "foreign_share" : false);
     const result = await runCustomerAgentTurn({ surface: "dm", language, inputText: fullInput(), attachmentInput, mediaPerception,
       knownPhoneSource: lane.context.knownPhoneSource, requestedFacts, revision: claim.pin.revision,
       approvedFileState, ...(followUp ? { followUp } : {}), ...(cheaperCall ? { preReads: [cheaperCall] } : {}),
@@ -376,6 +384,12 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     });
     traceCustomerCoreResult(result);
     if (result.status === "ready") recordCustomerAgentSay(result.say);
+    // Count a spam turn (a foreign reel / like-exchange words with nothing asked) toward the mute. Never allowed to break the turn.
+    if ((result.status === "ready" || result.status === "held" && result.reason === "foreign_share_no_reply") &&
+        customerSpamTurn({ inputText: fullInput(), attachmentInput })) {
+      await recordCustomerSpamTurn(lane.ticket.conversationId, { eventKey: claim.eventKey }).catch(error =>
+        logSystemError("ai", `customer spam mute not recorded: ${error instanceof Error ? error.message : String(error)}`.slice(0, 500), { dedupKey: "customer-spam-mute-write" }));
+    }
     if (result.status === "held") heldCause = result.cause;
     // A committed handover deliberately invalidates the ordinary BOT context.
     // Only the captured pre-effect source and its actual committed receipt can

@@ -153,7 +153,7 @@ function safePublicLines(evidence: readonly CustomerAgentEvidence[], revision: R
   for (const language of ["ru", "tg"] as const) {
     // Fixed transport clarifications may enter memory only AFTER the ordinary
     // genuine accepted-OUT checks below, never from a draft/attempt or caption.
-    for (const kind of ["image", "audio", "video", "document", "share", "link", "unknown"] as const) {
+    for (const kind of ["image", "audio", "video", "document", "share", "link", "ephemeral", "unknown"] as const) {
       for (const hasProperty of [false, true]) lines.add(customerAgentAttachmentQuestion({ kinds: [kind] }, language, hasProperty));
     }
     const render = (decision: Parameters<typeof renderCustomerAgentDecision>[0]["decision"], values: readonly CustomerAgentEvidence[] = []) => {

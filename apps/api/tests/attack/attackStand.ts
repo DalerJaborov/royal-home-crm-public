@@ -155,7 +155,7 @@ export async function createAttackStand(options: AttackStandOptions): Promise<At
       async turn(text: string, attach: AttackAttach | null | undefined, options?: { storyReply?: boolean }): Promise<TurnOutcome> {
         const before = { generated: core.counts().generated, physical: core.physical.length };
         lastDecision = null; current.input = expand(text); current.surface = "dm";
-        current.perception = attach ? { language: "unknown", transcript: "", subject: "not_visible", visible: [], readableText: "", speech: "none", ...attach.perception } : null;
+        current.perception = attach && attach.type !== "ephemeral" ? { language: "unknown", transcript: "", subject: "not_visible", visible: [], readableText: "", speech: "none", ...attach.perception } : null;
         let status: TurnOutcome["status"] = "silent", heldReason: string | undefined, error: string | undefined;
         const observations: unknown[] = [];
         try {
@@ -174,6 +174,8 @@ export async function createAttackStand(options: AttackStandOptions): Promise<At
             // A reel of somebody else: a permalink and a reel id that no card of ours carries, nothing in our own media feed.
             const code = `Zforeign${Math.floor(Math.random() * 1e9)}`;
             attachments = [{ type: "ig_reel", payload: { url: `https://www.instagram.com/reel/${code}/`, reel_video_id: String(30000000 + Math.floor(Math.random() * 9e6)) } }];
+          } else if (attach?.type === "ephemeral") {
+            attachments = [{ type: "ephemeral", payload: {} }];
           } else if (attach) {
             attachments = [{ type: attach.type === "document" ? "file" : attach.type, payload: { url: await mediaUrl(attach) } }];
           }

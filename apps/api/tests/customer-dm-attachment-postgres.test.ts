@@ -20,7 +20,7 @@ it.each(["ig_reel", "image", "audio", "video", "file", "unsupported"])("%s witho
   const result = await f.deliver(event);
   // An unknown reel is somebody else's publication (30.10.2026): one short line, not a question about it. An unopenable file gets a human sentence.
   if (type === "ig_reel") expect(result.text).toBe("Эта публикация не наша. Если ищете жильё, напишите, что нужно.");
-  else if (type === "unsupported") expect(result.text).toBe("Вложение не открылось. Напишите текстом, что вас интересует.");
+  else if (type === "unsupported") expect(result.text).toBe("Что вас интересует: покупка или продажа недвижимости?");
   else expect(result.text).toContain("?");
   expect(result.text).not.toMatch(/992|сотрудник|записал|передал|ссылка не открылась|Вижу|прослушал/iu);
   const after = await prisma.customerPropertyIngressTicket.findUniqueOrThrow({ where: { eventKey: event } });
@@ -47,12 +47,12 @@ it("retains the actual customer's Tajik language for an attachment-only follow-u
   await f.deliver(await f.capture(owner, "Салом, хона харидан мехоҳам"));
   const before = f.counts();
   const result = await f.deliver(await f.capture(owner, "", [{ type: "audio", payload: { url: "https://synthetic.invalid/voice" } }]));
-  expect(result.text).toContain("Паёми овозиро гирифтам"); expect(result.text).not.toContain("Получил");
+  expect(result.text).toContain("Шуморо чӣ лозим"); expect(result.text).not.toContain("Получил");
   expect(f.counts()).toEqual(before);
   const modelStart = f.bodies.length; f.script([[reply([], "budget")]]);
   await f.deliver(await f.capture(owner, "Хонаи дуҳуҷрагӣ мехоҳам"));
   const memory = JSON.stringify(f.bodies.slice(modelStart));
-  expect(memory).toContain("incomingAttachments"); expect(memory).toContain("Паёми овозиро гирифтам");
+  expect(memory).toContain("incomingAttachments"); expect(memory).toContain("Шуморо чӣ лозим");
   expect(memory).not.toContain("https://synthetic.invalid/voice");
 });
 

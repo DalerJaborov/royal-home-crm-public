@@ -60,7 +60,7 @@ export async function buildCurrentCustomerAgentManifest(rawSnapshot: unknown): P
       "./customerNewLeadBridge.js", "./customerOwnedIntakeContinuity.js", "./outboundShield.js", "./customerShieldPause.js", "./customerIntakeContext.js", "../jobs/customerContactIntake.js", "../jobs/customerInboxConsume.js",
       "./customerRecruitmentIntake.js", "./customerRecruitmentAttachments.js", "./recruitmentResume.js", "./recruitmentAnsweredFact.js", "./recruitmentDocumentText.js", "./customerActionEffects.js", "./customerActionProperty.js", "./ownerQuestionMutation.js", "./customerActionCommand.js", "./customerMutationIntent.js",
       "./customerOutbox.js", "./customerPublicOrigin.js", "./customerPublicModeration.js", "./customerPublicModerationPolicy.js",
-      "./customerPublicOutreachMemory.js"].map(apiFile)),
+      "./customerPublicOutreachMemory.js", "../ai/customerSpamMute.js", "./customerSpamMuteStore.js"].map(apiFile)),
     fileGroup(["../ai/customerAgentRenderer.js", "../ai/customerAgentSay.js", "../ai/customerAgentIntake.js", "../ai/sellerIntake.js", "../ai/customerAgentAttachmentInput.js", "../ai/customerAgentMediaPerception.js", "../ai/customerAgentConversationPolicy.js", "../ai/customerAgentPublicProtocol.js", "./publicAgencyContact.js",
       "./customerPropertyFacts.js"].map(apiFile).concat(["customerPropertyPresentation.js", "propertyFinish.js", "propertyTypeFields.js"].map(path => new URL(path, sharedEntry)))),
     fileGroup(["customerAgent.js", "customerAgentDeliveryEvidence.js", "customerMutation.js", "customerState.js", "customerTools.js", "customerHandoverAck.js", "botTurnTrace.js", "customerAgentRollout.js", "customerAgentOwnerControls.js"].map(path => new URL(path, sharedEntry))),

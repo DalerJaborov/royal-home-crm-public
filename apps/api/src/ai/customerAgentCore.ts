@@ -8,7 +8,7 @@ import { renderCustomerAgentDecision, customerAgentRenderedQuestion, isCanonical
   type CustomerAgentRenderedQuestion, type CustomerAgentEvidence, type CustomerAgentObservation } from "./customerAgentRenderer.js";
 import { isPinnedCompanyPolicy, isPublicPropertySearch, publicSearchProjection, isCustomerCompanyInformation } from "./customerAgentPublicProtocol.js";
 import { customerRequestedAgencyContact, isCustomerPublicAppreciation, customerPublicReaction } from "./customerAgentConversationPolicy.js";
-import { customerAgentAttachmentInputSchema, customerAgentForeignShareAnswered, customerAgentForeignShareOnly, customerAgentOwnUnlinkedOnly,
+import { customerAgentAttachmentInputSchema, customerAgentAttachmentQuestionAsked, customerAgentForeignShareAnswered, customerAgentForeignShareOnly, customerAgentOwnUnlinkedOnly,
   type CustomerAgentAttachmentInput } from "./customerAgentAttachmentInput.js";
 import { customerDmForeignShareNoise } from "./customerAgentAbuse.js";
 import { customerAgentMediaPerceptionSchema, type CustomerAgentMediaPerception } from "./customerAgentMediaPerception.js";
@@ -367,7 +367,10 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
     if (new Set(frame.tools.map(t => t.name)).size !== frame.tools.length) return held("duplicate_tool_definition");
     if (frame.surface === "public_comment" && frame.tools.some(t => writeNames.has(t.name))) return held("public_write_definition_denied");
     await check();
+    const assistantTexts = (context?.turns ?? []).filter(turn => turn.role === "assistant").map(turn => turn.text);
     if (perception?.speech === "unintelligible" && perception.subject === "not_visible" && !frame.inputText.trim() && !frame.requestedFacts.length) {
+      // The same business question was the last thing we said: say nothing rather than ask it twice.
+      if (customerAgentAttachmentQuestionAsked(assistantTexts)) return held("attachment_question_repeat_no_reply", "attachment_question_repeat_no_reply");
       const decision = customerAgentDecisionSchema.parse({ kind: "clarify", refs: [], social: "none", question: "clarify_previous" });
       const text = renderCustomerAgentDecision({ decision, evidence: [], language: frame.language, requestedFacts: [],
         knownPhoneSource: frame.knownPhoneSource, maxOutputChars: revision.limits.maxOutputChars, surface: frame.surface,
@@ -390,7 +393,8 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
     // read or model round: the first one gets one short line, every later one no answer at all ("no reply needed", not a stop of
     // the dialogue: the next real message is a new turn). Facts, the office address and questions to the buyer never ride on it.
     if (frame.surface === "dm" && context?.publicState.topic !== "job" &&
-        ((!perception && customerAgentForeignShareOnly(frame.attachmentInput)) || customerAgentOwnUnlinkedOnly(frame.attachmentInput)) &&
+        // Own unlinked publication that WAS read (perception) is answered from what we saw, not with the "not linked" line.
+        !perception && (customerAgentForeignShareOnly(frame.attachmentInput) || customerAgentOwnUnlinkedOnly(frame.attachmentInput)) &&
         customerDmForeignShareNoise(frame.inputText)) {
       if (customerAgentForeignShareAnswered((context?.turns ?? []).filter(turn => turn.role === "assistant").map(turn => turn.text))) {
         return held("foreign_share_no_reply", "foreign_share_no_reply");
@@ -448,6 +452,8 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
       // A file without a caption supplies neither intent nor consent. Resolve
       // its real public reference first, then ask one normal clarification.
       // Do not invoke an unqualified media API or pretend to have seen pixels.
+      // Nothing was read from the file and nothing is in focus: the fixed question was already asked, so a second empty file gets no answer.
+      if (!evidence.length && customerAgentAttachmentQuestionAsked(assistantTexts)) return held("attachment_question_repeat_no_reply", "attachment_question_repeat_no_reply");
       const decision = customerAgentDecisionSchema.parse({ kind: "clarify", refs: evidence.map(e => e.ref), social: "none", question: "clarify_previous" });
       const text = renderCustomerAgentDecision({ decision, evidence, inputText: frame.inputText, attachmentInput: frame.attachmentInput,
         language: frame.language, requestedFacts: frame.requestedFacts, knownPhoneSource: frame.knownPhoneSource,
