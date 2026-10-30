@@ -12,6 +12,7 @@ import {
   handoffSkippedByStatusReason,
   blockDuplicateFinalBeforePublish,
 } from "../lib/videoHandoff.js";
+import { replaceOldPostsBeforeRemakePublish } from "../lib/publishedVideoFix.js";
 import type { JobHandler } from "./registry.js";
 
 /**
@@ -132,6 +133,12 @@ export const videoHandoffPublishJob: JobHandler<Payload> = {
       return;
     }
 
+    // Перемонтаж по новой цене/данным: старые посты уходят сейчас, перед выходом нового
+    // ролика (владелец 30.10.2026), а не при возврате монтажёру. Сбой снятия публикацию
+    // не останавливает — занятый канал она просто пропустит, причина уже в журнале.
+    await replaceOldPostsBeforeRemakePublish(property.id).catch((err) =>
+      logSystemError("meta", `Объект ${property.id}: замена старых постов перед публикацией перемонтажа не удалась: ${err instanceof Error ? err.message : String(err)}`)
+    );
     const summary = await publishHandoffResult(property.id, property.videoHandoffFinalPath);
     await notifyVideoHandoffPublishResult(property.id, summary);
     // Подстраховка, не основной путь (21.09.2026, расстановка публикаций по

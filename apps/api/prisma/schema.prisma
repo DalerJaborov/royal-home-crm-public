@@ -1310,6 +1310,12 @@ model VideoRemakeRequest {
   /// видеть, что отправляется монтажёру»). GET /:id/montajer-preview зовёт ту же функцию
   /// с теми же входами и обязан вернуть то же самое — на этом стоит тест.
   messageText   String?
+  /// Старые посты ролика снимаются не при возврате, а когда выходит новый ролик
+  /// (владелец 30.10.2026: «когда выйдет новый»). Ставит возврат по смене цены или
+  /// данных карточки; выполняет задание публикации (replaceOldPostsBeforeRemakePublish).
+  replaceOldPostsOnPublish Boolean   @default(false)
+  /// Когда задание публикации нового ролика сняло старые посты; null — ещё не снимало.
+  oldPostsReplacedAt       DateTime?
   createdAt     DateTime @default(now())
 
   @@index([propertyId])

@@ -84492,6 +84492,12 @@
      "raw": "await blockDuplicateFinalBeforePublish(property.id, property.shortId, diskPath)"
     },
     {
+     "t": "запись в журнал ошибок",
+     "k": "do",
+     "a": [],
+     "c": []
+    },
+    {
      "t": "если не получилось",
      "k": "catch",
      "a": [],
