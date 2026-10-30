@@ -5,7 +5,7 @@ import { prisma } from "../src/db.js";
 import { signAccessToken } from "../src/auth/jwt.js";
 import { invalidateMissionControlCache } from "../src/lib/missionControlCache.js";
 import { invalidatePultModuleCache } from "../src/lib/pultModules.js";
-import { loadControlGaps } from "../src/lib/missionControlGaps.js";
+import { loadControlGaps, loadShowingsToday } from "../src/lib/missionControlGaps.js";
 import { findSilentAfterShowing } from "../src/routes/oversight.js";
 
 /**
@@ -107,6 +107,32 @@ afterAll(async () => {
 });
 
 describe("Пульт: блоки, которые раньше всегда показывали «нет данных»", () => {
+  it("сегодняшние показы не возвращают выполненные встречи в ожидание подтверждения", async () => {
+    const now = new Date("2080-01-15T12:00:00Z");
+    const at = new Date("2080-01-15T07:00:00Z");
+    const client = await prisma.client.create({ data: {
+      fullName: `Showing queue ${runId}`, phone: `test-showing-queue-${runId}`,
+      source: "WEBSITE", kind: "BUYER", assignedAgentId: agentId,
+    } });
+    clientIds.push(client.id);
+    const base = { clientId: client.id, agentId, type: "SHOWING" as const,
+      nextAction: "Показ объекта", nextActionDate: at, notes: "Synthetic queue regression" };
+    const pending = await prisma.interaction.create({ data: base });
+    const confirmed = await prisma.interaction.create({ data: { ...base, confirmedAt: at } });
+    await prisma.interaction.create({ data: { ...base, completedAt: at } });
+    await prisma.interaction.create({ data: { ...base, completedAt: at, confirmedAt: at } });
+    await prisma.interaction.create({ data: { ...base, taskCancelledAt: at } });
+    await prisma.interaction.create({ data: { ...base, nextAction: null, declinedAt: at } });
+    const result = await loadShowingsToday(now, "DIRECTOR");
+    expect(result.count).toBe(2);
+    expect(result.confirmed).toBe(1);
+    expect(result.items.map(row => row.id).sort()).toEqual([pending.id, confirmed.id].sort());
+    await prisma.interaction.updateMany({ where: { id: { in: [pending.id, confirmed.id] } }, data: { completedAt: at } });
+    const finished = await loadShowingsToday(now, "DIRECTOR");
+    expect(finished).toMatchObject({ count: 0, confirmed: 0, items: [] });
+    expect(finished.reason).toBeTruthy();
+  });
+
   it("тишина после проведённого показа совпадает с контролем и учитывает срок настройки", async () => {
     const now = new Date();
     const old = new Date(now.getTime() - 10 * 86400000);
