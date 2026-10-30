@@ -386,7 +386,8 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
     // read or model round: the first one gets one short line, every later one no answer at all ("no reply needed", not a stop of
     // the dialogue: the next real message is a new turn). Facts, the office address and questions to the buyer never ride on it.
     if (frame.surface === "dm" && context?.publicState.topic !== "job" &&
-        ((!perception && customerAgentForeignShareOnly(frame.attachmentInput)) || customerAgentOwnUnlinkedOnly(frame.attachmentInput)) &&
+        // Own unlinked publication that WAS read (perception) is answered from what we saw, not with the "not linked" line.
+        !perception && (customerAgentForeignShareOnly(frame.attachmentInput) || customerAgentOwnUnlinkedOnly(frame.attachmentInput)) &&
         customerDmForeignShareNoise(frame.inputText)) {
       if (customerAgentForeignShareAnswered((context?.turns ?? []).filter(turn => turn.role === "assistant").map(turn => turn.text))) {
         return held("foreign_share_no_reply", "foreign_share_no_reply");

@@ -325,7 +325,7 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     const unlinked = prepared.foreignShareCandidate && !!currentFocus && currentFocus.eventKey === lane.ticket.eventKey && currentFocus.status === "missing" &&
       customerPropertyUnresolvedReason(currentFocus.evidence, currentFocus.status, currentFocus.lookupAttempts) === "not_found";
     const attachmentInput = customerAgentMarkForeignShare(prepared.attachmentInput,
-      unlinked && ownPublicationFound ? "own_share_unlinked" : unlinked && !mediaPerception ? "foreign_share" : false);
+      unlinked && ownPublicationFound && !mediaPerception ? "own_share_unlinked" : unlinked && !mediaPerception ? "foreign_share" : false);
     const result = await runCustomerAgentTurn({ surface: "dm", language, inputText: fullInput(), attachmentInput, mediaPerception,
       knownPhoneSource: lane.context.knownPhoneSource, requestedFacts, revision: claim.pin.revision,
       approvedFileState,
