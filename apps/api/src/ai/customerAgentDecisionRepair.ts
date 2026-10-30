@@ -18,7 +18,7 @@ const ALLOWED: Record<string, readonly string[]> = {
 };
 const REF = /^e(?:0|[1-9]\d{0,3})$/;
 
-export function repairCustomerAgentDecision(raw: unknown, ctx: { surface: CustomerAgentSurface; knownRefs: readonly string[] }): CustomerAgentDecisionRepair | null {
+export function repairCustomerAgentDecision(raw: unknown, ctx: { surface: CustomerAgentSurface; knownRefs: readonly string[]; searchRefs?: readonly string[] }): CustomerAgentDecisionRepair | null {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
   const src = raw as Record<string, unknown>;
   if (typeof src.kind !== "string") return null;
@@ -42,7 +42,12 @@ export function repairCustomerAgentDecision(raw: unknown, ctx: { surface: Custom
   if (kind === "propose") {
     const ref = typeof src.ref === "string" && REF.test(src.ref) && known.has(src.ref) ? src.ref : null;
     if (ref) out = { kind, ref, social: socialValue };
-    else {
+    else if (ctx.surface === "dm" && ctx.searchRefs?.length === 1 && !(question.success && question.data !== "none")) {
+      // The server already read the catalogue for this very request (customerAgentSearchIntent) and the model "proposed" with nothing to
+      // propose: a `propose` ref must be a proposal, so the answer is a reply built from that one search result.
+      out = { kind: "reply", refs: [ctx.searchRefs[0]], social: socialValue, question: "none" };
+      repairs.push("propose_bare_to_search_reply");
+    } else {
       const asked = question.success && question.data !== "none" ? question.data : ctx.surface === "dm" ? "property" : null;
       if (!asked) return null;
       out = { kind: "clarify", refs: keptRefs, question: asked, social: socialValue };

@@ -7,6 +7,8 @@ import { customerAgentSayMode } from "./customerAgentFeaturePolicy.js";
 import { recordCustomerAgentSay } from "./customerAgentSayStats.js";
 import { customerAgentToolDefinitions, CUSTOMER_AGENT_PUBLIC_TOOLS } from "../ai/customerAgentToolDefinitions.js";
 import { dispatchCustomerTool } from "../ai/customerToolRegistry.js";
+import { customerSearchIntent, customerSearchPreRead } from "../ai/customerAgentSearchIntent.js";
+import { resolveSearchPlace } from "./searchPlace.js";
 import { customerAffirmationFollowUp, customerBareAffirmation, customerCheaperRequested, customerCheaperSearchCall } from "../ai/customerAgentFollowUp.js";
 import { resolveCustomerDmLanguage } from "../ai/customerDmLanguage.js";
 import { prisma } from "../db.js";
@@ -255,6 +257,21 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
       ? customerAffirmationFollowUp(previousTurn?.role === "assistant" ? previousTurn.text : undefined, !!resolvedFocusId) ?? undefined : undefined;
     const cheaperCall = plainTurn && !followUp && resolvedFocusId && customerCheaperRequested(fullInput())
       ? customerCheaperSearchCall(await readCustomerPropertyFacts(resolvedFocusId, planningPrincipal.scope.channel)) : null;
+    // «Ищу двушку в Сино», «есть ли двушки»: the model did not start the search on its own (live 30-31.10), so the server reads the
+    // bounded catalogue first and the model answers from the result. Only without an object in focus and with the tool's own required args.
+    let searchCall: ReturnType<typeof customerSearchPreRead> = null;
+    if (plainTurn && !followUp && !cheaperCall && !resolvedFocusId) {
+      const intent = customerSearchIntent(fullInput(), language);
+      if (intent) {
+        let placeDistrict: string | undefined;
+        if (!intent.districtName && intent.placeText) {
+          const place = await resolveSearchPlace(intent.placeText).catch(() => null);
+          placeDistrict = place && !place.suburban ? place.districtName ?? place.placeDistrictName ?? undefined : undefined;
+        }
+        searchCall = customerSearchPreRead(intent, placeDistrict);
+      }
+    }
+    const preReadCall = cheaperCall ?? searchCall;
     // Buyer-guide availability is a server hint only. It is deliberately not
     // exposed on unrelated job/seller turns, and no model marker can mint a
     // file send without the exact current campaign witness below.
@@ -340,7 +357,7 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
       unlinked && ownPublicationFound && !mediaPerception ? "own_share_unlinked" : unlinked && !mediaPerception ? "foreign_share" : false);
     const result = await runCustomerAgentTurn({ surface: "dm", language, inputText: fullInput(), attachmentInput, mediaPerception,
       knownPhoneSource: lane.context.knownPhoneSource, requestedFacts, revision: claim.pin.revision,
-      approvedFileState, ...(followUp ? { followUp } : {}), ...(cheaperCall ? { preReads: [cheaperCall] } : {}),
+      approvedFileState, ...(followUp ? { followUp } : {}), ...(preReadCall ? { preReads: [preReadCall] } : {}),
       startedAt: claim.pin.receivedAt, operation: runtime.operation,
       tools: customerAgentToolDefinitions([...CUSTOMER_AGENT_PUBLIC_TOOLS, ...mutations.availableToolNames]),
       verifiedContext: remembered.context, sayMode: customerAgentSayMode(),
