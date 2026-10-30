@@ -44,6 +44,6 @@ function ChoicePhoto({ photo }: { photo?: Property["photos"][number] }) {
   const sources = [...new Set([photo?.thumbUrl, photo?.url].filter((url): url is string => !!url))];
   return sources[attempt]
     ? <img src={sources[attempt]} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" onError={() => setAttempt((n) => n + 1)} />
-    : <span className="px-1 text-center text-[14px] text-gray-500">{sources.length ? "Фото недоступно" : "Нет фото"}</span>;
+    : <span className="w-full break-words px-1 text-center text-[14px] text-gray-500">{sources.length ? "Фото недоступно" : "Нет фото"}</span>;
 }
 
