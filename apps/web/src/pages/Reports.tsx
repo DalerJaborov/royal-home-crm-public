@@ -242,7 +242,7 @@ function ReportsScreen() {
                   </button>
                   <button type="button" className="tile" onClick={() => scrollToSection("funnel-section")} title="Воронка за период — ниже">
                     <div className="v">{toDeal !== null ? `${toDeal} %` : "—"}</div>
-                    <div className="l">конверсия лид → сделка</div>
+                    <div className="l">сделки / новые лиды за период</div>
                   </button>
                 </div>
               </div>
@@ -405,7 +405,7 @@ function ReportsScreen() {
           <StatTile label="Закрытые сделки" value={deals?.count ?? "—"} line="за выбранный период" onClick={() => scrollToSection("funnel-section")} />
           {deals?.commission != null
             ? <StatTile label="Комиссия" value={<Rh2Money value={deals.commission} cur="сомони" />} line="по закрытым сделкам" onClick={() => scrollToSection("funnel-section")} />
-            : <StatTile label="Лид → сделка" value={toDeal === null ? "—" : `${toDeal} %`} line="конверсия за период" onClick={() => scrollToSection("funnel-section")} />}
+            : <StatTile label="Сделки / новые лиды" value={toDeal === null ? "—" : `${toDeal} %`} line="соотношение событий за период" onClick={() => scrollToSection("funnel-section")} />}
         </div>}
 
         {/* Воронка за период */}
@@ -464,12 +464,12 @@ function ReportsScreen() {
                 <div className="prog-legend" style={{ marginTop: 16 }}>
                   {toDeal !== null && (
                     <span>
-                      <b>{toDeal} %</b>лид доходит до сделки
+                      <b>{toDeal} %</b>сделки / новые лиды за период
                     </span>
                   )}
                   {toNegotiation !== null && (
                     <span>
-                      <b>{toNegotiation} %</b>показ доходит до переговоров
+                      <b>{toNegotiation} %</b>переговоры / показы за период
                     </span>
                   )}
                   {deals?.commission != null && (
@@ -481,6 +481,10 @@ function ReportsScreen() {
                     </span>
                   )}
                 </div>
+                {(toDeal !== null || toNegotiation !== null) && <p className="note">
+                  Это соотношения событий, а не конверсия одних и тех же клиентов. События считаются по своим датам,
+                  поэтому результат может быть больше 100 %.
+                </p>}
               </>
             )}
           </div>

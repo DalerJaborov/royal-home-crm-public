@@ -130,11 +130,21 @@ export function Clients({ kind = "BUYER" }: { kind?: "BUYER" | "SELLER" | "OTHER
    */
   const gateRole = useAuthStore((s) => s.agent?.role);
   const legacyAgentMobile = useLegacyAgentMobile();
+  const readOnly = useIsReadOnly();
+  const [formParams] = useSearchParams();
+  const [formKind, setFormKind] = useState<"BUYER" | "SELLER" | null>(() =>
+    kind !== "OTHER" && formParams.get("new") === "1"
+      ? readKindParam(formParams.get("kind")).sectionKind ?? kind : null);
+  const [newClientPhone] = useState(() => formParams.get("phone") ?? undefined);
   if (kind !== "OTHER" && (gateRole === "MARKETING" || gateRole === "EDITOR")) {
     return <RoleGate title="Клиенты" text="Раздел недоступен этой роли." />;
   }
-  if (legacyAgentMobile) return kind === "OTHER" ? <MobileInquiries /> : <MobileClientsList kind={kind} />;
-  return <ClientsList kind={kind} />;
+  return <>
+    {legacyAgentMobile
+      ? kind === "OTHER" ? <MobileInquiries /> : <MobileClientsList kind={kind} onAddClient={() => setFormKind(kind)} />
+      : <ClientsList kind={kind} onAddClient={setFormKind} />}
+    {formKind && !readOnly && <ClientFormModal kind={formKind} initialPhone={newClientPhone} onClose={() => setFormKind(null)} />}
+  </>;
 }
 
 /** Экран роли без доступа — тихой строкой прототипа (договор §6.12), а не пустотой. */
@@ -149,7 +159,7 @@ function RoleGate({ title, text }: { title: string; text: string }) {
   );
 }
 
-function ClientsList({ kind = "BUYER" }: { kind?: "BUYER" | "SELLER" | "OTHER" } = {}) {
+function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER" | "OTHER"; onAddClient: (kind: "BUYER" | "SELLER") => void }) {
   const clean = useCleanShell();
   const isSeller = kind === "SELLER";
   const isOther = kind === "OTHER";
@@ -241,9 +251,7 @@ function ClientsList({ kind = "BUYER" }: { kind?: "BUYER" | "SELLER" | "OTHER" }
    * установленного приложения и «+» → «Новый клиент» (FabMenu). Читаем один раз и
    * тут же убираем ключ из адреса (в `drop` ниже): иначе он останется в закладке.
    */
-  const [showForm, setShowForm] = useState(() => !isOther && searchParams.get("new") === "1");
   /** `?phone=` вместе с `?new=1` — из наборщика: набранного номера нет в базе. */
-  const [newClientPhone] = useState(() => searchParams.get("phone") ?? undefined);
   const [showDuplicates, setShowDuplicates] = useState(false);
   /** Шторка «Фильтры»: срез, статус, источник, район, агент, порядок. */
   const [showFilters, setShowFilters] = useState(false);
@@ -471,11 +479,11 @@ function ClientsList({ kind = "BUYER" }: { kind?: "BUYER" | "SELLER" | "OTHER" }
     <Rh2Screen title={title} back={isAllMineRoute ? sectionPath(section) : undefined} actions={shellActions} className={clean ? "clean-clients-page" : undefined}>
       {mobile ? (
         // Заголовок на телефоне стоит в шапке оболочки; для скринридера он остаётся.
-        clean && !isOther && !readOnly ? <div className="flex justify-end"><h1 className="sr-only">{title}</h1><CButton onClick={() => setShowForm(true)}><Plus size={18} aria-hidden />Добавить клиента</CButton></div> : <h1 className="sr-only">{title}</h1>
+        clean && !isOther && !readOnly ? <div className="flex justify-end"><h1 className="sr-only">{title}</h1><CButton onClick={() => onAddClient(section)}><Plus size={18} aria-hidden />Добавить клиента</CButton></div> : <h1 className="sr-only">{title}</h1>
       ) : clean ? (
         <div className="mb-5 flex flex-wrap items-center justify-between gap-4">
           <div><h1 className="text-[28px] font-semibold tracking-tight text-ink">{title}</h1><p className="mt-2 text-[16px] text-gray-500">{sub}</p></div>
-          <div className="flex flex-wrap items-center gap-3">{segment}{!isOther && !readOnly && <CButton onClick={() => setShowForm(true)}><Plus size={18} aria-hidden />Добавить клиента</CButton>}</div>
+          <div className="flex flex-wrap items-center gap-3">{segment}{!isOther && !readOnly && <CButton onClick={() => onAddClient(section)}><Plus size={18} aria-hidden />Добавить клиента</CButton>}</div>
         </div>
       ) : (
         <PageHeader
@@ -495,7 +503,7 @@ function ClientsList({ kind = "BUYER" }: { kind?: "BUYER" | "SELLER" | "OTHER" }
               {/* «Прочие обращения» приходят извне — вручную такая карточка не заводится.
                   Единственная синяя кнопка экрана. */}
               {!isOther && !readOnly && (
-                <Button icon={<Plus size={18} aria-hidden />} onClick={() => setShowForm(true)}>
+                <Button icon={<Plus size={18} aria-hidden />} onClick={() => onAddClient(section)}>
                   Клиент
                 </Button>
               )}
@@ -652,7 +660,7 @@ function ClientsList({ kind = "BUYER" }: { kind?: "BUYER" | "SELLER" | "OTHER" }
             }
             action={
               !isOther && !readOnly && !pendingSlice && !inactiveView ? (
-                <Button variant="ghost" onClick={() => setShowForm(true)}>
+                <Button variant="ghost" onClick={() => onAddClient(section)}>
                   Завести карточку
                 </Button>
               ) : undefined
@@ -851,9 +859,6 @@ function ClientsList({ kind = "BUYER" }: { kind?: "BUYER" | "SELLER" | "OTHER" }
             <Rh2EmptyState icon={UserRound} title="На первой странице таких карточек нет." hint="Остальные смотрите в полном списке." />
           )}
         </Rh2Sheet>
-      )}
-      {showForm && !readOnly && (
-        <ClientFormModal kind={section} initialPhone={newClientPhone} onClose={() => setShowForm(false)} />
       )}
       {showDuplicates && <DuplicatesModal onClose={() => setShowDuplicates(false)} />}
     </Rh2Screen>

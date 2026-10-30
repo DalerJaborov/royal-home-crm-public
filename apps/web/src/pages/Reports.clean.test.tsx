@@ -41,6 +41,22 @@ beforeEach(() => {
 });
 
 describe("Clean report hierarchy", () => {
+  it.each([true, false])("does not describe independent period counts as cohort conversion (clean=%s)", clean => {
+    state.clean = clean;
+    state.funnel = [
+      { key: "leads", label: "Лиды", count: 1 },
+      { key: "showings", label: "Показы", count: 2 },
+      { key: "negotiations", label: "Переговоры", count: 5 },
+      { key: "deals", label: "Сделки", count: 3 },
+    ];
+    const html = render();
+    expect(html).toContain("250 %");
+    expect(html).toContain("переговоры / показы за период");
+    expect(html).toContain("Это соотношения событий, а не конверсия одних и тех же клиентов");
+    expect(html).not.toContain("показ доходит до переговоров");
+    expect(html).not.toContain("лид доходит до сделки");
+    expect(html).not.toContain("конверсия за период");
+  });
   it("shows headline metrics by stable stage keys and retains detailed native sections below", () => {
     const html = render(); const summary = overview(html);
     expect(summary).toMatch(/Новые лиды[\s\S]*?<b>41<\/b>/);
@@ -55,7 +71,7 @@ describe("Clean report hierarchy", () => {
     state.funnel = state.funnel.map((row) => ({ ...row, commission: null }));
     const html = render();
     expect(overview(html)).not.toContain("Комиссия");
-    expect(overview(html)).toContain("Лид → сделка");
+    expect(overview(html)).toContain("Сделки / новые лиды");
     expect(html).toContain("Ваши показатели по фактическим записям CRM");
   });
   it.each(["loading", "error"] as const)("does not invent headline numbers during %s", (key) => {

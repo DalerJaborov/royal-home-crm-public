@@ -5,6 +5,7 @@ import { InsightCaseCard, formatDayMonth } from "../components/insights/InsightC
 import { DigestStatusBadge, GenerateDigestButton, TeamTalkingPoints, formatPeriod, pluralCases } from "../components/insights/DigestBits";
 import { useInsightCases, useInsightDigests } from "../hooks/useInsights";
 import { useMobileUx } from "../hooks/useMobileUx";
+import { useCan } from "../lib/permissions";
 import { MoneyTabs } from "../components/SectionTabs";
 import { Rh2ErrorState } from "../components/rh2/Rh2ErrorState";
 import { Rh2EmptyState } from "../components/rh2/Rh2EmptyState";
@@ -25,6 +26,11 @@ import { Rh2EmptyState } from "../components/rh2/Rh2EmptyState";
  */
 export function Insights() {
   const mobile = useMobileUx();
+  const can = useCan();
+  if (!can("insights.view")) return <div className="rh2 screens"><div className="scr">
+    <div className="pg-h"><h1>Инсайты от ИИ</h1></div>
+    <div className="card tight"><p>Недостаточно прав для просмотра этого раздела.</p></div>
+  </div></div>;
   if (mobile) return <MobileInsights />;
   return <DesktopInsights />;
 }

@@ -38,9 +38,9 @@ describe("Clean source report duration", () => {
     state.clean = true; state.duration = null;
     expect(durationTile()).toContain("<b>нет</b>");
   });
-  it("leaves the legacy presentation unchanged", () => {
+  it("also rejects invalid chronology in the legacy presentation", () => {
     state.clean = false; state.duration = -12;
-    expect(durationTile()).toContain("<b>-12</b>");
-    expect(durationTile()).not.toContain("Проверьте даты");
+    expect(durationTile()).not.toContain("<b>-12</b>");
+    expect(durationTile()).toContain("Проверьте даты клиента и сделки");
   });
 });

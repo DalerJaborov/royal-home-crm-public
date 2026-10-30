@@ -66,6 +66,16 @@ import { MarketingTabs } from "../components/SectionTabs";
  * `.state`, как в макете.
  */
 export function Ads() {
+  const can = useCan();
+  const role = useAuthStore((s) => s.agent?.role);
+  if (role !== "MARKETING" && !can("finance.view")) return <div className="rh2 screens"><div className="scr">
+    <div className="pg-h"><h1>Реклама</h1></div>
+    <div className="card tight"><p>Недостаточно прав для просмотра расходов на рекламу.</p></div>
+  </div></div>;
+  return <AdsContent />;
+}
+
+function AdsContent() {
   const [period, setPeriod] = useState<AdPeriodPreset>("30d");
   const [tab, setTab] = useState<Tab>("ads");
   const [unmatchedPage, setUnmatchedPage] = useState(1);

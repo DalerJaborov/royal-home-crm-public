@@ -203,7 +203,7 @@ function SourcesScreen() {
   const dealsTotal = sources.reduce((s, x) => s + x.closed, 0);
   // Imported/demo chronology can place a closed deal before the client's CRM
   // creation. Do not present a negative duration as a useful KPI or invent zero.
-  const invalidLeadDuration = clean && data?.avgDaysNewToClosed != null
+  const invalidLeadDuration = data?.avgDaysNewToClosed != null
     && (!Number.isFinite(data.avgDaysNewToClosed) || data.avgDaysNewToClosed < 0);
 
   const donutRows = sources.filter((s) => s.total > 0).sort((a, b) => b.total - a.total);
