@@ -364,9 +364,11 @@ export function ExchangeRateSection() {
   const [refreshError, setRefreshError] = useState<string | null>(null);
 
   useServerSyncedFields(
-    settings && {
+    // The settings cache is optimistic while saving. A rollback must not
+    // become a server refill that erases the user's unsaved rate.
+    !updateSettings.isPending && settings ? {
       rate: settings.usdToTjsRate ?? "",
-    },
+    } : undefined,
     {
       rate: [rate, setRate],
     }
