@@ -874,8 +874,8 @@ export interface McShowingsToday extends McEmptyable {
  * «Показы сегодня» — назначенные на сегодня встречи (`nextActionDate` внутри
  * суток по Душанбе), а не проведённые: карточка на пульте отвечает на вопрос
  * «что у команды сегодня», и вчерашние состоявшиеся показы в ней бесполезны.
- * Отменённые (declinedAt при пустом nextAction) исключены тем же условием, что
- * и в календаре, — COUNTED_SHOWING_WHERE.
+ * Выполненные исключаются явно, как в календаре: nextActionDate сохраняется
+ * для истории и KPI после завершения. Отменённые также не входят в очередь.
  */
 export async function loadShowingsToday(now: Date, viewerRole?: string): Promise<McShowingsToday> {
   const { start, end } = dushanbeDayRange(now);
@@ -883,6 +883,7 @@ export async function loadShowingsToday(now: Date, viewerRole?: string): Promise
     type: "SHOWING",
     ...visibleInteractionWhere(viewerRole),
     taskCancelledAt: null,
+    completedAt: null,
     nextActionDate: { gte: start, lt: end },
     NOT: { nextAction: null, declinedAt: { not: null } },
   } satisfies Prisma.InteractionWhereInput;
