@@ -15,6 +15,7 @@ import { customerRecruitmentReplyDetails, containsRecruitmentExperienceInvitatio
 import { clientOwnWords } from "./untrustedContent.js";
 import { validateCustomerAgentSayForDecision } from "./customerAgentSay.js";
 import { BW, EW, TAIL } from "./wordBoundary.js";
+import { customerCheaperVisibleCards, isCheaperThanSearch } from "./customerAgentCheaperCards.js";
 import { customerAsksPricePerSqm, pricePerSqmLine } from "../lib/customerPropertyPerSqm.js";
 import type { CustomerPropertyUnresolvedReason } from "../lib/customerPropertyUnresolvedReason.js";
 import { customerCallbackConsentDecision } from "../lib/customerCallbackConsent.js";
@@ -338,7 +339,10 @@ function companyInformationLines(value: import("@royal-home/shared").CustomerAge
 }
 function searchSegments(value: CustomerAgentSearchObservation, language: "ru" | "tg"): string[] {
   const tg = language === "tg";
-  if (!value.cards.length) return [tg ? "Дар интихоби ҷорӣ варианти мувофиқ ёфт нашуд." : "В текущей подборке подходящих вариантов не найдено."];
+  const cards = customerCheaperVisibleCards(value);
+  if (!cards.length) return [isCheaperThanSearch(value.query)
+    ? tg ? "Вариантҳои арзонтар ҳоло ёфт нашуданд." : "Вариантов дешевле сейчас не нашлось."
+    : tg ? "Дар интихоби ҷорӣ варианти мувофиқ ёфт нашуд." : "В текущей подборке подходящих вариантов не найдено."];
   const lines = [tg ? "Ин вариантҳоро дида баромадан мумкин аст:" : "Можно рассмотреть эти варианты:"];
   if (value.districtWasNormalized && value.resolvedDistrictName) lines.push(tg
     ? `Интихоб аз ноҳияи ${value.resolvedDistrictName} аст. Наздикии дақиқ ба нишонии гуфтаатон ҳоло тасдиқ нашудааст.`
@@ -351,7 +355,7 @@ function searchSegments(value: CustomerAgentSearchObservation, language: "ru" | 
     rooms_unknown: { ru: "число комнат не подтверждено", tg: "шумораи ҳуҷраҳо тасдиқ нашудааст" },
     price_unknown: { ru: "соответствие бюджету не подтверждено", tg: "мувофиқат ба буҷет тасдиқ нашудааст" },
   };
-  for (const [index, card] of value.cards.entries()) {
+  for (const [index, card] of cards.entries()) {
     lines.push(`${index + 1}. ${tg ? "Объект" : "Объект"} №${card.facts.shortId}`);
     lines.push(...factSegments({ kind: "facts", facts: card.facts, kinds: ["price", "address"] }, language));
     if (card.listing.rooms !== null && card.listing.type === "APARTMENT") lines.push(tg ? `Ҳуҷраҳо: ${card.listing.rooms}.` : `Комнат: ${card.listing.rooms}.`);
