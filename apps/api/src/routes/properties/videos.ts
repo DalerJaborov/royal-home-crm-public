@@ -8,11 +8,11 @@ import express, { Router, type Request } from "express";
 import path from "node:path";
 import { makePropertyCover, storeManualCover } from "../../lib/video/coverOpenAi.js";
 import fs from "node:fs/promises";
-import { createReadStream } from "node:fs";
+import { streamFileArchive } from "../../lib/streamFileArchive.js";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import multer from "multer";
-import { ZipArchive } from "archiver";
+
 import type { Prisma, PropertyVideo } from "../../generated/prisma/client.js";
 import { prisma } from "../../db.js";
 import { requireAuth } from "../../auth/middleware.js";
@@ -1405,26 +1405,15 @@ videosRouter.get("/:id/videos/archive.zip", requireAuth, async (req, res) => {
   });
   if (!videos.length) return res.status(400).json({ error: "Видео не загружены" });
 
-  res.setHeader("Content-Type", "application/zip");
-  res.setHeader("Content-Disposition", `attachment; filename="videos-${property.shortId}.zip"`);
-
-  // Видео уже сжаты кодеком — level 0 (store, без повторного deflate) экономит CPU,
-  // не меняя итоговый размер архива заметно.
-  const archive = new ZipArchive({ zlib: { level: 0 } });
-  archive.on("error", (err: Error) => {
-    void logSystemError("storage", `Архив видео объекта ${property.id} не собран: ${err.message}`);
-    if (!res.headersSent) res.status(500);
-    res.end();
-  });
-  archive.pipe(res);
-
+  const files: { path: string; name: string }[] = [];
   for (const video of videos) {
     const filePath = localVideoFilePath(video.storageKey);
     if (!filePath || !(await localVideoExists(video.storageKey))) continue;
-    archive.append(createReadStream(filePath), { name: video.filename });
+    files.push({ path: filePath, name: video.filename });
   }
-
-  await archive.finalize();
+  await streamFileArchive(res, files, `videos-${property.shortId}.zip`, 0, (err) => {
+    void logSystemError("storage", `Архив видео объекта ${property.id} не собран: ${err.message}`);
+  });
 });
 
 videosRouter.delete("/:id/videos/:videoId", requireAuth, async (req, res) => {

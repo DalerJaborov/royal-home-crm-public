@@ -5,10 +5,10 @@
 import { Router } from "express";
 import path from "node:path";
 import fs from "node:fs/promises";
-import { createReadStream } from "node:fs";
+import { streamFileArchive } from "../../lib/streamFileArchive.js";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import { ZipArchive } from "archiver";
+
 import type { PropertyPhoto } from "../../generated/prisma/client.js";
 import { prisma } from "../../db.js";
 import { requireAuth } from "../../auth/middleware.js";
@@ -715,21 +715,11 @@ photosRouter.get("/:id/photos/archive.zip", requireAuth, async (req, res) => {
   if (!canManageProperty(req, property)) return res.status(403).json({ error: "Недостаточно прав" });
   if (!property.photos.length) return res.status(400).json({ error: "Фото не загружены" });
 
-  res.setHeader("Content-Type", "application/zip");
-  res.setHeader("Content-Disposition", `attachment; filename="photos-${property.shortId}.zip"`);
-
-  const archive = new ZipArchive({ zlib: { level: 6 } });
-  archive.on("error", (err: Error) => {
-    void logSystemError("storage", `Архив фото объекта ${property.id} не собран: ${err.message}`);
-    if (!res.headersSent) res.status(500);
-    res.end();
-  });
-  archive.pipe(res);
-
-  property.photos.forEach((photo, i) => {
+  const files = property.photos.map((photo, i) => {
     const filePath = path.join(uploadsDir, path.basename(photo.url));
-    archive.append(createReadStream(filePath), { name: `photo-${i + 1}${path.extname(filePath) || ".webp"}` });
+    return { path: filePath, name: `photo-${i + 1}${path.extname(filePath) || ".webp"}` };
   });
-
-  await archive.finalize();
+  await streamFileArchive(res, files, `photos-${property.shortId}.zip`, 6, (err) => {
+    void logSystemError("storage", `Архив фото объекта ${property.id} не собран: ${err.message}`);
+  });
 });

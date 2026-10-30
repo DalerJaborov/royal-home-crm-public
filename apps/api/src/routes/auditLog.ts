@@ -1,7 +1,7 @@
 import { investigationViewerRole } from "../auth/investigations.js";
 import { visibleAuditWhere, publicAuditMeta, privateLessonAuditIds } from "../lib/investigationAudit.js";
 import { Router, type Request } from "express";
-import { pageQuerySchema } from "@royal-home/shared";
+import { pageQuerySchema, DEAL_STAGES } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { can, requireAuth } from "../auth/middleware.js";
 import { stripOwnerContact } from "../lib/ownerContact.js";
@@ -64,7 +64,14 @@ auditLogRouter.get("/", async (req, res) => {
   }
 
   const privateLessonIds = await privateLessonAuditIds(investigationViewerRole(req));
-  const where = { ...visibleAuditWhere(investigationViewerRole(req), privateLessonIds), ...(entityType ? { entityType } : {}), ...(entityId ? { entityId } : {}) };
+  const propertyHistory = entityType === "Property" && !!entityId;
+  const visibility = visibleAuditWhere(investigationViewerRole(req), privateLessonIds);
+  // Deal lifecycle transitions also change the property's availability. Read the
+  // existing evidence, including older deals, without duplicating audit records.
+  const where = propertyHistory ? { AND: [visibility, { OR: [
+    { entityType: "Property", entityId },
+    { entityType: "Deal", action: { in: ["DEAL_CREATE", "DEAL_STAGE_CHANGE", "DEAL_COMPLETE", "DEAL_CANCEL", "DEAL_REJECT", "DEAL_ANNUL"] }, meta: { path: ["propertyId"], equals: entityId } },
+  ] }] } : { ...visibility, ...(entityType ? { entityType } : {}), ...(entityId ? { entityId } : {}) };
   const [items, total] = await Promise.all([
     prisma.auditLog.findMany({
       where,
@@ -74,7 +81,19 @@ auditLogRouter.get("/", async (req, res) => {
     }),
     prisma.auditLog.count({ where }),
   ]);
-  res.json({ items: hideClientPhones(req, await hideOwnerContacts(req, items.map((row) => publicAuditMeta(row, investigationViewerRole(req))))), total, page, pageSize });
+  const publicItems = items.map((row) => {
+    if (propertyHistory && row.entityType === "Deal") {
+      // Property-history access does not grant access to client/financial data.
+      // Only enum stages are useful here; never forward arbitrary deal metadata.
+      const source = row.meta as Record<string, unknown> | null;
+      const stages = new Set<string>(DEAL_STAGES);
+      const meta: Record<string, string> = {};
+      for (const key of ["from", "to"]) if (typeof source?.[key] === "string" && stages.has(source[key])) meta[key] = source[key];
+      return { ...row, meta };
+    }
+    return publicAuditMeta(row, investigationViewerRole(req));
+  });
+  res.json({ items: hideClientPhones(req, await hideOwnerContacts(req, publicItems)), total, page, pageSize });
 });
 
 /**
