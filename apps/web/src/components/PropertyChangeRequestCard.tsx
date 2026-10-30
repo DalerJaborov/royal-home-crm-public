@@ -77,7 +77,7 @@ export function PropertyChangeRequestCard({
   /** `?changeRequest=<id>` из уведомления директору: прокрутить к заявке и подсветить. */
   highlightId?: string | null;
 }) {
-  if (!mode) return null;
+  if (!mode || property.offSite) return null;
   return <ChangeRequestsPanel property={property} mode={mode} highlightId={highlightId ?? null} />;
 }
 

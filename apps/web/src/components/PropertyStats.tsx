@@ -1,41 +1,22 @@
 import { daysSince, pluralizeRu } from "../lib/format";
 import type { Property } from "../types";
 
-/**
- * ТРИ ЦИФРЫ ПОД НАЗВАНИЕМ ОБЪЕКТА — плитками, как в Livento-кейсе.
- *
- * Бриф цветного слоя (docs/archive/agent-briefs/color-layer.md, пункт 6): в кейсе под
- * карточкой объекта стоят три маленькие плитки — 175 Sold / 125 Rented / 2K+
- * Views. Фото слева в строке каталога уже было (`.ph` эталона); здесь добавлены
- * цифры.
- *
- * ЧТО ПОКАЗЫВАЕМ И ПОЧЕМУ ИМЕННО ЭТО. Взяты только поля, которые ДЕЙСТВИТЕЛЬНО
- * приходят в ответе списка (apps/api/src/routes/properties/list.ts):
- *   · `viewsCount`        — просмотры карточки;
- *   · `listingAcceptedAt` — отсюда «дней в продаже»;
- *   · `demandCount`       — сколько клиентов подходит объекту по требованиям.
- *
- * Третьей цифрой брифа значились «показы». Их в ответе списка НЕТ: проведённые
- * показы живут в Interaction(type=SHOWING) и по объектам страницы не считаются.
- * Выдумывать нечем, поэтому вместо них честный «спрос» — то, что этот же список
- * уже считает. Плитка, для которой поля нет, не рисуется вовсе.
- *
- * Один компонент на ПК и телефон: строка каталога у них общая по разметке
- * (`.prow`), и две копии этих же трёх цифр разъехались бы при первой же правке.
- */
+/** Shared desktop/mobile metrics. Legacy viewsCount counts showing bookings,
+ * including cancellations, and is not evidence of card views or completed showings.
+ * Show conducted showings only when the API supplies the verified aggregate. */
 export function PropertyStats({ property: p }: { property: Property }) {
   const cells: { value: string; label: string; title: string; key: string }[] = [];
 
-  if (typeof p.viewsCount === "number") {
+  if (typeof p.conductedShowingsCount === "number") {
     cells.push({
-      key: "views",
-      value: String(p.viewsCount),
+      key: "showings",
+      value: String(p.conductedShowingsCount),
       // Подпись сокращена намеренно: колонка названия в широкой строке каталога
       // всего 255 px (замер 11.09), и три полных слова уезжали во вторую строку,
       // добавляя 57 px высоты каждой строке списка из двадцати. Полная
       // формулировка осталась в подсказке.
-      label: "просм.",
-      title: `Просмотров карточки: ${p.viewsCount}`,
+      label: "показов",
+      title: `Проведено показов: ${p.conductedShowingsCount}`,
     });
   }
 

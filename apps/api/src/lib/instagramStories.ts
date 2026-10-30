@@ -105,6 +105,16 @@ export interface StoriesPublishSummary {
   error?: string;
 }
 
+/** force bypasses scheduling switches, never the property's privacy boundary. */
+async function storyPublicationBlock(propertyId: string): Promise<string | null> {
+  const property = await prisma.property.findUnique({
+    where: { id: propertyId }, select: { offSite: true, deletedAt: true },
+  });
+  if (!property || property.deletedAt) return "Объект не найден или удалён — истории не опубликованы";
+  if (property.offSite) return "Объект только для своих клиентов — публикация в историях запрещена";
+  return null;
+}
+
 /**
  * `localVideoPath` — путь вида `/uploads/handoff/xxx.mp4` (тот же формат, что
  * принимает publishApprovedPost). Части режутся во временные файлы рядом (в
@@ -122,6 +132,8 @@ export async function publishPropertyInstagramStories(
   options?: { force?: boolean; resumeOnly?: boolean }
 ): Promise<StoriesPublishSummary> {
   const empty: StoriesPublishSummary = { attempted: false, publishedParts: 0, totalParts: 0 };
+  const blocked = await storyPublicationBlock(propertyId);
+  if (blocked) return { ...empty, error: blocked };
   const settings = await prisma.settings.findUnique({
     where: { id: "singleton" },
     select: { instagramStoriesEnabled: true, facebookStoriesEnabled: true },
@@ -411,6 +423,8 @@ async function publishCardStory(params: {
     return { attempted: true, publishedParts: 0, totalParts: 1, error };
   };
   const empty: StoriesPublishSummary = { attempted: false, publishedParts: 0, totalParts: 1 };
+  const blocked = await storyPublicationBlock(propertyId);
+  if (blocked) return { ...empty, error: blocked };
 
   // Settings читаем всегда (не только при !force) — facebookStoriesEnabled
   // «под своим тумблером» проверяется НЕЗАВИСИМО от force, см. докстринг
