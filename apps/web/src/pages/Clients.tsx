@@ -1023,6 +1023,7 @@ function ClientRow({
     />
   );
 
+  const visibleNextStep = !isTrashed && !c.hiddenReason && !pending && (!c.workStatus || c.workStatus === "ACTIVE") ? c.nextStep : null;
   const row = clean && !inSheet ? (
     <CleanClientRow
       id={c.id}
@@ -1032,7 +1033,8 @@ function ClientRow({
       identity={[formatClientCode(c.shortId, c.kind), showKind && c.kind ? CLIENT_KIND_LABELS[c.kind] : null, isRecentlyReturned(c.returnedAt) ? "вернулся" : null].filter(Boolean).join(" · ")}
       request={isOther ? [c.phone && !c.phone.includes("•") ? c.phone : null, `в работе ${daysInWork} дн.`].filter(Boolean).join(" · ") : [c.desiredRooms ? `${c.desiredRooms} комн` : null, c.desiredDistrict?.name, budgetShort(c)].filter(Boolean).join(" · ") || "Запрос пока не заполнен"}
       source={CLIENT_SOURCE_LABELS[c.source] ?? c.source}
-      nextAction={canAcceptRow ? <Chip tone="warn">Нужно принять лид</Chip> : chip || (!isTrashed && !c.hiddenReason && !pending && (!c.workStatus || c.workStatus === "ACTIVE") && c.nextStep?.nextAction ? <span className="text-[14px] text-ink">{c.nextStep.nextAction}</span> : null)}
+      nextAction={canAcceptRow ? <Chip tone="warn">Нужно принять лид</Chip> : chip || (visibleNextStep?.nextAction ? <span className="text-[14px] text-ink">{visibleNextStep.nextAction}</span> : null)}
+      nextActionDate={!canAcceptRow && !chip ? visibleNextStep?.nextActionDate : null}
       lastContact={relativeTime(c.lastContactAt)}
       staleContact={stale && !chip && !canAcceptRow}
       showAgent={showAgent}
