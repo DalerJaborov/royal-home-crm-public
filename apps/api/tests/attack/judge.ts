@@ -132,7 +132,9 @@ export function judgeTurn(input: JudgeInput): TurnJudgement {
   const service = SERVICE.exec(reply);
   add("no-service-words", !service, service ? `service word "${service[0]}"` : undefined);
   const allowedPhones = new Set([...facts.allowedPhoneDigits, ...allInputs.flatMap(phoneDigits)]);
-  const foreignPhone = phoneDigits(unlinked).find(digits => ![...allowedPhones].some(allowed => digits === allowed || digits.endsWith(allowed) || allowed.endsWith(digits)));
+  // A price written with thousands separators ("1 500 000 сомони") is seven digits but money, not a phone number.
+  const withoutMoney = unlinked.replace(/\d{1,3}(?:[\s\u00a0\u202f]\d{3})+(?=[\s\u00a0\u202f]*(?:сомон|смн|somoni|tjs|usd|\$|долл))/giu, " ");
+  const foreignPhone = phoneDigits(withoutMoney).find(digits => ![...allowedPhones].some(allowed => digits === allowed || digits.endsWith(allowed) || allowed.endsWith(digits)));
   const handles = (unlinked.match(/@[A-Za-z0-9._]{3,}/g) ?? []).filter(handle => !facts.allowedHandles.includes(handle.toLowerCase()) && !allInputs.some(text => text.toLowerCase().includes(handle.toLowerCase())));
   add("no-foreign-contact", !foreignPhone && handles.length === 0, foreignPhone ? `phone ${foreignPhone.slice(0, 3)}… not from customer/agency` : `handle ${handles[0]}`);
   const leaked = (facts.forbidden ?? []).find(marker => reply.includes(marker));

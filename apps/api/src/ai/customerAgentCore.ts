@@ -2,7 +2,7 @@ import { repairCustomerAgentDecision } from "./customerAgentDecisionRepair.js";
 import { customerAgentApprovedFileStateSchema, customerAgentDecisionSchema, customerAgentRevisionSchema, customerAgentToolCallSchema, customerAgentVerifiedContextSchema, customerAgentPublicationObservationSchema,
   customerPropertyFactsSchema, customerPropertyFactKindSchema, type CustomerAgentDecision, type CustomerAgentSayDropReason, type CustomerAgentSayMode, type CustomerAgentRevision, type CustomerAgentSurface,
   type CustomerAgentToolCall, type CustomerAgentVerifiedContext, type CustomerPropertyFactKind, type CustomerAgentApprovedFileState } from "@royal-home/shared";
-import { customerCheaperVisibleCards } from "./customerAgentCheaperCards.js";
+import { customerCheaperVisibleCards, isCheaperThanSearch } from "./customerAgentCheaperCards.js";
 import type { ProviderOperation } from "./providerContract.js";
 import { renderCustomerAgentDecision, customerAgentRenderedQuestion, isCanonicalAgencyContact, customerCompanyInformationRequested,
   type CustomerAgentRenderedQuestion, type CustomerAgentEvidence, type CustomerAgentObservation } from "./customerAgentRenderer.js";
@@ -428,7 +428,7 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
       }
       // Nothing cheaper in the catalogue: say so honestly and ask the one open question (budget), without a model round.
       const searches = evidence.filter(e => e.value.kind === "property_search");
-      if (searches.length && searches.length === evidence.length && searches.every(e => e.value.kind === "property_search" && !customerCheaperVisibleCards(e.value).length)) {
+      if (searches.length && searches.length === evidence.length && searches.every(e => e.value.kind === "property_search" && isCheaperThanSearch(e.value.query) && !customerCheaperVisibleCards(e.value).length)) {
         const decision = customerAgentDecisionSchema.parse({ kind: "reply", refs: searches.map(e => e.ref), social: "none", question: "budget" });
         const text = renderDecision(decision);
         if (text) return await ready(decision, text);
@@ -536,7 +536,7 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
         // Last resort only: the correction round comes first (live 30.10: a server-side fix of `propose` without `ref` skipped the
         // round in which the model goes on to search, and buyers got silence). When no round is left, a wrong SHAPE with a clear
         // intent is fixed by the server instead of ending the turn held.
-        const repaired = repairCustomerAgentDecision(decisionJson, { surface: frame.surface, knownRefs: evidence.map(e => e.ref) });
+        const repaired = repairCustomerAgentDecision(decisionJson, { surface: frame.surface, knownRefs: evidence.map(e => e.ref), searchRefs: evidence.filter(e => e.value.kind === "property_search").map(e => e.ref) });
         const reparsed = repaired ? customerAgentDecisionSchema.safeParse(repaired.decision) : null;
         if (repaired && reparsed?.success) {
           parsed = reparsed; fallbackReason = "invalid_model_decision"; fallbackCause = `repair_${repaired.repairs[0]}`.slice(0, 48);
