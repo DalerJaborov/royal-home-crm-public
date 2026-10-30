@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **722**. Развилок в самих путях: **2561**; вместе с задачами по расписанию и фоновыми заданиями — **3991**. Модулей: **79**.
+Путей: **722**. Развилок в самих путях: **2560**; вместе с задачами по расписанию и фоновыми заданиями — **3990**. Модулей: **79**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -1477,12 +1477,19 @@
       · ответ 403 — «Недостаточно прав»
 - const privateLessonIds = await privateLessonAuditIds(investigationViewerRole(req));
   · зовёт privateLessonAuditIds()
-- const where = { ...visibleAuditWhere(investigationViewerRole(req), privateLessonIds), ...(entityType ? { enti…
+- const visibility = visibleAuditWhere(investigationViewerRole(req), privateLessonIds);
   · зовёт visibleAuditWhere()
 - const [items, total] = await Promise.all([ prisma.auditLog.findMany({ where, orderBy: [{ createdAt: "desc" },…
   · читает в базе: auditLog
   · считает в базе: auditLog
-- res.json({ items: hideClientPhones(req, await hideOwnerContacts(req, items.map((row)
+- const publicItems = items.map((row)
+  - если propertyHistory && row.entityType === "Deal"
+    - для каждого: const key of ["from", "to"]
+      - if (typeof source?.[key] === "string" && stages.has(source[key])) meta[key] = source[key];
+        · дословно из кода
+  - return publicAuditMeta(row, investigationViewerRole(req));
+    · зовёт publicAuditMeta()
+- res.json({ items: hideClientPhones(req, await hideOwnerContacts(req, publicItems)), total, page, pageSize });
   · ответ 200
 
 ## /api/v1/auth
@@ -11570,20 +11577,10 @@
 - если !property.photos.length
   - return res.status(400).json({ error: "Фото не загружены" });
     · ответ 400 — «Фото не загружены»
-- res.setHeader("Content-Type", "application/zip");
-  · ставит заголовок ответа
-- res.setHeader("Content-Disposition", `attachment; filename="photos-${property.shortId}.zip"`);
-  · ставит заголовок ответа
-- archive.on("error", (err: Error)
-  · ответ 500
+- await streamFileArchive(res, files, `photos-${property.shortId}.zip`, 6, (err)
   · запись в журнал ошибок
   - void logSystemError("storage", `Архив фото объекта ${property.id} не собран: ${err.message}`);
     · запись в журнал ошибок
-  - если !res.headersSent
-    - res.status(500);
-      · ответ 500
-  - res.end();
-    · ответ 200
 
 ### PATCH /api/v1/properties/:id/photos/order
 
@@ -12561,26 +12558,16 @@
 - если !videos.length
   - return res.status(400).json({ error: "Видео не загружены" });
     · ответ 400 — «Видео не загружены»
-- res.setHeader("Content-Type", "application/zip");
-  · ставит заголовок ответа
-- res.setHeader("Content-Disposition", `attachment; filename="videos-${property.shortId}.zip"`);
-  · ставит заголовок ответа
-- archive.on("error", (err: Error)
-  · ответ 500
-  · запись в журнал ошибок
-  - void logSystemError("storage", `Архив видео объекта ${property.id} не собран: ${err.message}`);
-    · запись в журнал ошибок
-  - если !res.headersSent
-    - res.status(500);
-      · ответ 500
-  - res.end();
-    · ответ 200
 - для каждого: const video of videos
   - const filePath = localVideoFilePath(video.storageKey);
     · зовёт localVideoFilePath()
   - если !filePath || !(await localVideoExists(video.storageKey))
     - continue;
       · переходит к следующему
+- await streamFileArchive(res, files, `videos-${property.shortId}.zip`, 0, (err)
+  · запись в журнал ошибок
+  - void logSystemError("storage", `Архив видео объекта ${property.id} не собран: ${err.message}`);
+    · запись в журнал ошибок
 
 ### POST /api/v1/properties/:id/videos/upload-sessions/:sessionId/complete
 
