@@ -9,6 +9,7 @@ import {
   type ClientFilters,
 } from "../../hooks/useClients";
 import { useCan } from "../../lib/permissions";
+import { clientListScope } from "../../lib/clientListScope";
 import { useAccumulatedPages } from "../../hooks/useAccumulatedPages";
 import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import { useMarkSectionSeen } from "../../hooks/useCounters";
@@ -163,7 +164,7 @@ export function MobileClientsList({ kind, onAddClient }: { kind: "BUYER" | "SELL
 
   const [slice, setSlice] = useState<"all" | "mine">("all");
   const [page, setPage] = useState(1);
-  const [q, setQ] = useState("");
+  const [q, setQ] = useState(() => urlParams.get("q") ?? "");
   const [searchOpen, setSearchOpen] = useState(false);
   const [showDuplicates, setShowDuplicates] = useState(false);
   /** Шторка «Фильтры» — статус, источник, район, агент, порядок (та же шторка,
@@ -213,6 +214,8 @@ export function MobileClientsList({ kind, onAddClient }: { kind: "BUYER" | "SELL
     setPage(1);
   }, [sectionKind]);
   const debouncedQ = useDebouncedValue(q, 350);
+  const searching = !!debouncedQ.trim();
+  const searchAcrossKinds = searching && (me?.role === "AGENT" || can("otherInquiries.view"));
 
   const filters: ClientFilters = {
     ...(isAllMineRoute
@@ -220,7 +223,7 @@ export function MobileClientsList({ kind, onAddClient }: { kind: "BUYER" | "SELL
       : isInactiveRoute
         ? // Раздел задан — сужаем и по виду: иначе у продавцов лежат покупатели.
           { workStatus: "INACTIVE" as const, ...(sectionKind ? { kind: sectionKind } : {}) }
-        : { kind }),
+        : { kind: pendingSlice || searchAcrossKinds ? undefined : sectionKind ?? kind }),
     page,
     q: debouncedQ?.trim() || undefined,
     ...(slice === "mine" && me && !isAllMineRoute ? { agentId: me.id } : {}),
@@ -230,6 +233,9 @@ export function MobileClientsList({ kind, onAddClient }: { kind: "BUYER" | "SELL
     ...(pendingSlice ? { pendingAcceptance: true } : {}),
     ...(noResponseYesterday ? { noFirstContactYesterday: true, sort: "created_desc" as const } : {}),
     ...(urlWorkStatus ? { workStatus: urlWorkStatus } : {}),
+    scope: clientListScope({ allMine: isAllMineRoute, other: false, searching,
+      status: extraFilters.status, workStatus: isInactiveRoute ? "INACTIVE" : urlWorkStatus,
+      pending: pendingSlice, noResponseYesterday }),
   };
   const { data, isLoading, error, refetch } = useClients(filters);
   // Свежая первая страница, пока пролистано дальше неё (аудит №38, useAccumulatedPages).

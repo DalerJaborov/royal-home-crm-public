@@ -22,6 +22,8 @@ import { cardWhereFromParam } from "../../lib/cardIdParam.js";
 import { videoHandoffCardForProperty } from "../../lib/videoHandoff.js";
 import { csvSafeText } from "../../lib/csv.js";
 import { propertyOwnerWhere } from "../../lib/propertyOwner.js";
+import { conductedShowingBaseWhere } from "../../lib/conductedShowing.js";
+import { visibleInteractionWhere } from "../../lib/investigationPrivacy.js";
 
 export const listRouter = Router();
 
@@ -482,7 +484,9 @@ listRouter.get("/:id", requireAuth, async (req, res) => {
       // по объекту, берёт их отдельным запросом со своей проверкой прав.
       // Только счётчик: сами ролики карточка тянет отдельным запросом (у него своя
       // проверка прав), а экрану проверки нужно лишь знать, есть ли что одобрять.
-      _count: { select: { videos: true } },
+      _count: { select: { videos: true, interactions: { where: {
+        ...conductedShowingBaseWhere(), ...visibleInteractionWhere(req.agent!.role),
+      } } } },
     },
   });
   // Мягко удалённый объект ведёт себя как несуществующий: для всех, кроме тех,
@@ -504,6 +508,9 @@ listRouter.get("/:id", requireAuth, async (req, res) => {
     demandCount: (await computeDemandCounts([property])).get(property.id) ?? 0,
     /** Сколько сырых роликов загрузил агент — по ним маркетинг одобряет видео. */
     videoCount: property._count.videos,
+    // viewsCount increments at booking time and includes cancellations. Use the
+    // same conducted-showing rule as reports, without returning private rows.
+    conductedShowingsCount: property._count.interactions,
     pipeline: stageState(property.status, property.stageEnteredAt, await loadPipelineDeadlines()),
     /** «Видно, где ролик есть, а где нет» (ОБ-000113) — свежая неразобранная
      *  причина отказа публикации по каждому из пяти каналов, см. функцию выше. */
