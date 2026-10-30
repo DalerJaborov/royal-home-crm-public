@@ -110775,7 +110775,6 @@
   },
   {
    "id": "telephony-station-health",
-   "when": "*/15 * * * *",
    "tree": [
     {
      "k": "if",
@@ -111114,7 +111113,7 @@
      ]
     }
    ],
-   "file": "apps/api/src/cron.ts"
+   "file": "apps/api/src/index.ts"
   },
   {
    "id": "telephony-station-traffic",
