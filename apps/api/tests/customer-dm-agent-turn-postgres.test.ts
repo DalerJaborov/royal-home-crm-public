@@ -1063,3 +1063,47 @@ describe("actual durable DM common core", () => {
     }
   });
 });
+
+// 30.10.2026: the "spammer" mute. Two like-exchange turns within a week mark the dialogue; a marked dialogue gets no model, no
+// media perception and no reply, and a real request in the customer's own words lifts the mark again.
+describe("spammer mute", () => {
+  const spamReply = { text: JSON.stringify({ kind: "reply", refs: [], social: "none", question: "none" }) };
+  const conversationOf = async (eventKey: string) => (await prisma.customerPropertyIngressTicket.findUniqueOrThrow({
+    where: { eventKey }, select: { conversationId: true } })).conversationId!;
+  const draftOf = async (eventKey: string) => (await prisma.botConversation.findUniqueOrThrow({
+    where: { id: await conversationOf(eventKey) }, select: { leadDraft: true } })).leadDraft as Record<string, unknown>;
+  it("marks after two spam turns, then answers nothing and calls no model; a real question lifts the mark", async () => {
+    const f = await fixture("Лайк камент паделится");
+    f.setReplies([[spamReply], [spamReply]]);
+    expect((await runCustomerDmAgentTurn(f.eventKey)).status).toBe("planned");
+    expect((await draftOf(f.eventKey)).spamMute).toMatchObject({ turns: [expect.anything()] });
+    const secondKey = await f.receive("лайк за лайк");
+    expect((await runCustomerDmAgentTurn(secondKey)).status).toBe("planned");
+    const muted = (await draftOf(f.eventKey)) as { spamMute?: { mutedUntil?: string } };
+    expect(Date.parse(muted.spamMute?.mutedUntil ?? "")).toBeGreaterThan(Date.now() + 29 * 24 * 3600 * 1000);
+
+    const before = f.io.filter(value => value === "generate" || value === "count").length;
+    const thirdKey = await f.receive("Лайк камент поделись");
+    expect(await runCustomerDmAgentTurn(thirdKey)).toEqual({ status: "held", reason: "spam_muted_no_reply" });
+    expect(f.io.filter(value => value === "generate" || value === "count")).toHaveLength(before);
+    expect(await prisma.customerOutboxPart.count({ where: { ticketEventKey: thirdKey } })).toBe(0);
+    // The input itself stays stored for the operator.
+    const conversation = await prisma.botConversation.findUniqueOrThrow({ where: { id: await conversationOf(thirdKey) }, select: { messages: true } });
+    expect(JSON.stringify(conversation.messages)).toContain("Лайк камент поделись");
+
+    f.setReplies([[spamReply]]);
+    const fourthKey = await f.receive("нархаш чанд?");
+    expect((await runCustomerDmAgentTurn(fourthKey)).status).toBe("planned");
+    expect(await draftOf(f.eventKey)).not.toHaveProperty("spamMute");
+  });
+  it("never silences the first turn of a new customer, and an expired mark answers again", async () => {
+    const f = await fixture("Лайк камент паделится");
+    f.setReplies([[spamReply], [spamReply]]);
+    expect((await runCustomerDmAgentTurn(f.eventKey)).status).toBe("planned");
+    expect(f.io.filter(value => value === "generate")).toHaveLength(1);
+    await prisma.botConversation.update({ where: { id: await conversationOf(f.eventKey) }, data: { leadDraft: { stage: "chatting",
+      spamMute: { turns: [], mutedUntil: new Date(Date.now() - 1000).toISOString() } } } });
+    expect((await runCustomerDmAgentTurn(await f.receive("лайк за лайк"))).status).toBe("planned");
+    expect(f.io.filter(value => value === "generate")).toHaveLength(2);
+  });
+});

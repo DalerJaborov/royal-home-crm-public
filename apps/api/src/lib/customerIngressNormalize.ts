@@ -51,7 +51,7 @@ function metaSource(body: unknown, input: MetaIncoming): Source | null {
   return found.length === 1 ? found[0] : null;
 }
 function mediaKind(value: string | undefined): CustomerNormalizedIngressInput["media"][number]["kind"] {
-  return value === "image" || value === "video" || value === "audio" || value === "document" || value === "share" || value === "link" ? value : "unknown";
+  return value === "image" || value === "video" || value === "audio" || value === "document" || value === "share" || value === "link" || value === "ephemeral" ? value : "unknown";
 }
 function observedMediaKind(value: string | undefined): CustomerNormalizedIngressInput["media"][number]["kind"] {
   if (value === "ig_reel" || value === "ig_post") return "share";

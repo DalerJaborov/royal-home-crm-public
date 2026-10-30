@@ -4,7 +4,7 @@ import { z } from "zod";
  * Derived only from the original authenticated DM envelope. No URL, caption,
  * phone, consent or executable instructions enter this value. */
 export const customerAgentAttachmentInputSchema = z.object({
-  kinds: z.array(z.enum(["image", "audio", "video", "document", "share", "foreign_share", "own_share_unlinked", "link", "unknown"])).min(1).max(16),
+  kinds: z.array(z.enum(["image", "audio", "video", "document", "share", "foreign_share", "own_share_unlinked", "link", "ephemeral", "unknown"])).min(1).max(16),
 }).strict();
 export type CustomerAgentAttachmentInput = z.infer<typeof customerAgentAttachmentInputSchema>;
 
@@ -38,22 +38,31 @@ export function customerAgentMarkForeignShare(input: CustomerAgentAttachmentInpu
   return { kinds: input.kinds.map(() => kind) };
 }
 
+/** The one question for anything we cannot (or need not) read: never a word about the file failing to open. */
+export const BUSINESS_QUESTION = {
+  ru: "Что вас интересует: покупка или продажа недвижимости?",
+  tg: "Шуморо чӣ лозим: харид ё фурӯши манзил?",
+} as const;
+/** A disappearing (one-time) photo or video cannot be kept by anybody: ask for an ordinary one. */
+export const EPHEMERAL_PHOTO_LINE = {
+  ru: "Пришлите, пожалуйста, обычным фото — так агент его сохранит.",
+  tg: "Лутфан, ҳамчун акси оддӣ фиристед — агент онро нигоҳ медорад.",
+} as const;
 const ATTACHMENT_OBJECT_QUESTION = { ru: "Что хотите узнать об этом объекте?", tg: "Дар бораи ин объект чиро донистан мехоҳед?" };
 const ATTACHMENT_QUESTIONS = {
     share: { ru: "Что хотите узнать по этой публикации?", tg: "Дар бораи ин нашрия чиро донистан мехоҳед?" },
     foreign_share: FOREIGN_SHARE_LINE,
     own_share_unlinked: OWN_SHARE_UNLINKED_LINE,
     link: { ru: "Что хотите узнать по этой ссылке?", tg: "Дар бораи ин пайванд чиро донистан мехоҳед?" },
-    image: { ru: "Получил фото, но его содержимое мне сейчас недоступно. Что вы хотели уточнить?", tg: "Аксро гирифтам, аммо муҳтавояш ҳоло ба ман дастрас нест. Чиро пурсидан мехостед?" },
-    audio: { ru: "Получил голосовое, но его содержимое мне сейчас недоступно. Можете написать ваш вопрос текстом?", tg: "Паёми овозиро гирифтам, аммо муҳтавояш ҳоло ба ман дастрас нест. Метавонед саволатонро бо матн нависед?" },
-    video: { ru: "Получил видео, но его содержимое мне сейчас недоступно. Что вы хотели узнать?", tg: "Видеоро гирифтам, аммо муҳтавояш ҳоло ба ман дастрас нест. Чиро донистан мехостед?" },
-    document: { ru: "Получил документ, но его содержимое мне сейчас недоступно. Какой вопрос вы хотели обсудить?", tg: "Ҳуҷҷатро гирифтам, аммо муҳтавояш ҳоло ба ман дастрас нест. Кадом саволро муҳокима кардан мехостед?" },
-    unknown: { ru: "Вложение не открылось. Напишите текстом, что вас интересует.", tg: "Файл кушода нашуд. Бо матн нависед, чӣ лозим аст." },
+    image: BUSINESS_QUESTION, audio: BUSINESS_QUESTION, video: BUSINESS_QUESTION, document: BUSINESS_QUESTION,
+    ephemeral: BUSINESS_QUESTION, unknown: BUSINESS_QUESTION,
 };
 
-export function customerAgentAttachmentQuestion(input: CustomerAgentAttachmentInput, language: "ru" | "tg", hasProperty: boolean): string {
-  if (hasProperty) return ATTACHMENT_OBJECT_QUESTION[language];
+/** `focused`: an object is in focus or the customer is a seller (then a one-time photo is worth asking to be resent as an ordinary one). */
+export function customerAgentAttachmentQuestion(input: CustomerAgentAttachmentInput, language: "ru" | "tg", hasProperty: boolean, focused = hasProperty): string {
   const kinds = [...new Set(input.kinds)];
+  if (kinds.length === 1 && kinds[0] === "ephemeral" && focused) return EPHEMERAL_PHOTO_LINE[language];
+  if (hasProperty) return ATTACHMENT_OBJECT_QUESTION[language];
   return ATTACHMENT_QUESTIONS[kinds.length === 1 ? kinds[0] : "unknown"][language];
 }
 /** True when an earlier assistant turn of this dialogue already answered a forwarded publication with a fixed line
@@ -64,5 +73,16 @@ export function customerAgentForeignShareAnswered(assistantTexts: readonly strin
 }
 /** Every fixed line above: the repeat guard must see them as questions already asked, and the memory allow-list as renderer text. */
 export function customerAgentAttachmentLines(): string[] {
-  return [...Object.values(ATTACHMENT_QUESTIONS), ATTACHMENT_OBJECT_QUESTION].flatMap(line => [line.ru, line.tg]);
+  return [...Object.values(ATTACHMENT_QUESTIONS), ATTACHMENT_OBJECT_QUESTION, EPHEMERAL_PHOTO_LINE].flatMap(line => [line.ru, line.tg]);
+}
+
+/** The LAST assistant turn was only this kind of fixed attachment question (business question, ephemeral request, object question):
+ * asking it again would be a repeat, so the answer to a second file with the same nothing in it is silence. */
+export function customerAgentAttachmentQuestionAsked(assistantTexts: readonly string[]): boolean {
+  const last = assistantTexts.at(-1);
+  if (!last) return false;
+  const lines = new Set([BUSINESS_QUESTION.ru, BUSINESS_QUESTION.tg, EPHEMERAL_PHOTO_LINE.ru, EPHEMERAL_PHOTO_LINE.tg,
+    ATTACHMENT_OBJECT_QUESTION.ru, ATTACHMENT_OBJECT_QUESTION.tg]);
+  const parts = last.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  return parts.length > 0 && parts.every(line => lines.has(line));
 }

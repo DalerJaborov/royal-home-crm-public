@@ -38,5 +38,26 @@
     {"in":"Где ваш офис?","expect":{"replied":true,"topic":"company"}}]},
   {"id":"dm-share-ru-012","category":"dm-share","surface":"dm","channel":"INSTAGRAM","fixture":{"properties":2,"vacancies":[],"publication":false},"note":"Our own reel without a linked object: not 'not ours', said once, then silence.","turns":[
     {"in":"","attach":{"type":"ig_reel_own_unlinked"},"expect":{"replied":true,"mustContain":["наша публикация"],"mustNotContain":["не наша","Офис"]}},
-    {"in":"","attach":{"type":"ig_reel_own_unlinked"},"expect":{"replied":false}}]}
+    {"in":"","attach":{"type":"ig_reel_own_unlinked"},"expect":{"replied":false}}]},
+  {"id":"dm-share-mute-001","category":"dm-share","surface":"dm","channel":"INSTAGRAM","fixture":{"properties":2,"vacancies":[],"publication":false},"note":"A spammer sends the same foreign reel four times: only the first gets a line.","turns":[
+    {"in":"Лайк камент паделится","attach":{"type":"ig_reel_foreign"},"expect":{"replied":true}},
+    {"in":"Лайк камент паделится","attach":{"type":"ig_reel_foreign"},"expect":{"replied":false}},
+    {"in":"Лайк камент паделится","attach":{"type":"ig_reel_foreign"},"expect":{"replied":false}},
+    {"in":"Лайк камент паделится","attach":{"type":"ig_reel_foreign"},"expect":{"replied":false}}]},
+  {"id":"dm-share-mute-002","category":"dm-share","surface":"dm","channel":"INSTAGRAM","fixture":{"properties":2,"vacancies":[],"publication":false},"note":"A muted spammer who then really asks is answered on the merits.","turns":[
+    {"in":"лайк за лайк","attach":{"type":"ig_reel_foreign"},"expect":{"replied":true}},
+    {"in":"лайк за лайк","attach":{"type":"ig_reel_foreign"},"expect":{"replied":false}},
+    {"in":"лайк за лайк","attach":{"type":"ig_reel_foreign"},"expect":{"replied":false}},
+    {"in":"хонаи 2 ҳуҷрагӣ доред?","expect":{"replied":true,"language":"tg"}}]},
+  {"id":"dm-share-ephemeral-001","category":"dm-share","surface":"dm","channel":"INSTAGRAM","fixture":{"properties":2,"vacancies":[],"publication":false},"note":"A one-time photo from a seller: ask for an ordinary one, once.","turns":[
+    {"in":"Хочу продать квартиру","expect":{"replied":true}},
+    {"in":"","attach":{"type":"ephemeral"},"expect":{"replied":true,"mustContain":["обычным фото"],"mustNotContain":["не открыл","недоступ"]}},
+    {"in":"","attach":{"type":"ephemeral"},"expect":{"replied":false}}]},
+  {"id":"dm-share-ephemeral-002","category":"dm-share","surface":"dm","channel":"INSTAGRAM","fixture":{"properties":2,"vacancies":[],"publication":false},"note":"A one-time photo with no context: the business question, never a failure phrase.","turns":[
+    {"in":"","attach":{"type":"ephemeral"},"expect":{"replied":true,"mustContain":["покупка или продажа"],"mustNotContain":["не открыл","недоступ","аренд"]}}]},
+  {"id":"dm-share-media-001","category":"dm-share","surface":"dm","channel":"INSTAGRAM","fixture":{"properties":2,"vacancies":[],"publication":false},"note":"An empty file twice: the business question once, then silence.","turns":[
+    {"in":"","attach":{"type":"document"},"expect":{"replied":true,"mustNotContain":["не открыл","недоступ","не удалось"]}},
+    {"in":"","attach":{"type":"document"},"expect":{"replied":false}}]},
+  {"id":"dm-share-link-001","category":"dm-share","surface":"dm","channel":"INSTAGRAM","fixture":{"properties":2,"vacancies":[],"publication":false},"note":"A link to somebody else's site: the link is not mentioned.","turns":[
+    {"in":"https://other-site.example/flat/1","expect":{"replied":true,"mustNotContain":["не открыл","недоступ","не удалось","не получилось"]}}]}
 ]

@@ -153,7 +153,7 @@ describe("renderer: attachment templates are not repeated", () => {
     expect(again).not.toBe(asked("image")); expect(again).toMatch(/уже писал/);
   });
   it("the unknown attachment line is a human sentence", () => {
-    expect(asked("unknown")).toBe("Вложение не открылось. Напишите текстом, что вас интересует.");
-    expect(customerAgentAttachmentQuestion({ kinds: ["unknown"] }, "tg", false)).toBe("Файл кушода нашуд. Бо матн нависед, чӣ лозим аст.");
+    expect(asked("unknown")).toBe("Что вас интересует: покупка или продажа недвижимости?");
+    expect(customerAgentAttachmentQuestion({ kinds: ["unknown"] }, "tg", false)).toBe("Шуморо чӣ лозим: харид ё фурӯши манзил?");
   });
 });

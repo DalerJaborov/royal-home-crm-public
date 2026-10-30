@@ -19,7 +19,7 @@ import { customerAsksPricePerSqm, pricePerSqmLine } from "../lib/customerPropert
 import type { CustomerPropertyUnresolvedReason } from "../lib/customerPropertyUnresolvedReason.js";
 import { customerCallbackConsentDecision } from "../lib/customerCallbackConsent.js";
 import { customerAgentAttachmentInputSchema, customerAgentAttachmentQuestion, customerAgentAttachmentLines, customerAgentShareNotice,
-  type CustomerAgentAttachmentInput } from "./customerAgentAttachmentInput.js";
+  BUSINESS_QUESTION, type CustomerAgentAttachmentInput } from "./customerAgentAttachmentInput.js";
 import { customerAgentMediaPerceptionSchema, customerAgentVisualSummary, type CustomerAgentMediaPerception } from "./customerAgentMediaPerception.js";
 import { isPinnedCompanyPolicy, isPublicPropertySearch, isCustomerCompanyInformation, type CustomerAgentCompanyPolicyObservation,
   type CustomerAgentSearchObservation } from "./customerAgentPublicProtocol.js";
@@ -183,10 +183,10 @@ function publicRecruitmentQuestion(question: CustomerAgentQuestion, language: "r
  * question (which stays a separate line, so a bare-number answer is still understood). */
 const unresolvedReasons: Record<CustomerPropertyUnresolvedReason, { ru: string; tg: string } | null> = {
   no_reference: null,
-  unsupported: { ru: "Эту ссылку открыть не получилось: такой формат ссылок я не читаю.", tg: "Ин пайвандро кушода натавонистам: чунин намуди пайвандҳоро намехонам." },
-  untrusted_origin: { ru: "Эта ссылка ведёт не на наши публикации, по ней объект определить не могу.", tg: "Ин пайванд ба нашрияҳои мо намебарад, аз рӯи он объектро муайян карда наметавонам." },
+  unsupported: null,
+  untrusted_origin: null,
   not_found: { ru: "По этой ссылке или номеру объект не нашёлся.", tg: "Аз рӯи ин пайванд ё рақам объект ёфт нашуд." },
-  lookup_unavailable: { ru: "Сейчас не получилось проверить объект, это временный сбой. Попробуйте ещё раз чуть позже.", tg: "Ҳоло объектро санҷида натавонистам, ин хатои муваққатӣ аст. Баъдтар бори дигар кӯшиш кунед." },
+  lookup_unavailable: null,
 };
 function unresolvedPropertyLine(value: Extract<CustomerAgentObservation, { kind: "property_unresolved" }>, language: "ru" | "tg"): string | null {
   if (value.status === "ambiguous") return language === "tg" ? "Ба ин нишона якчанд объект мувофиқ аст, як объектро интихоб карда наметавонам." : "Под это описание подходит несколько объектов, выбрать один не могу.";
@@ -456,11 +456,9 @@ function renderDecisionCore(input: {
   const visualSummary = perception?.success && !recruitmentMedia && input.verifiedContext?.publicState.topic !== "job"
     ? customerAgentVisualSummary(perception.data, lang) : null;
   if (visualSummary) lines.push(visualSummary);
-  if (perception?.success && perception.data.incomplete) lines.push(lang === "tg" ? "Як қисми файлҳои фиристодаатон кушода нашуд." : "Часть присланных файлов не удалось открыть.");
   if (perception?.success && perception.data.speech === "unintelligible" && d.kind === "clarify" && d.question === "clarify_previous" &&
       !(input.inputText ?? "").trim() && !visualSummary && !evidence.length) {
-    const text = lang === "tg" ? "Сухан дар сабт нофаҳмо аст. Метавонед паёми овозиро бори дигар фиристед?"
-      : "Речь на записи не удалось разобрать. Можете прислать голосовое ещё раз?";
+    const text = BUSINESS_QUESTION[lang];
     return text.length <= input.maxOutputChars ? text : null;
   }
   if (input.surface === "public_comment" && evidence.some(e => e?.value.kind === "receipt" || e?.value.kind === "proposal")) return null;
@@ -605,7 +603,9 @@ function renderDecisionCore(input: {
     const attachment = customerAgentAttachmentInputSchema.safeParse(input.attachmentInput);
     if (!attachment.success || d.kind !== "clarify" || d.social !== "none" || d.question !== "clarify_previous" ||
         evidence.some(e => e?.value.kind !== "facts")) return null;
-    lines.push(customerAgentAttachmentQuestion(attachment.data, lang, evidence.some(e => e?.value.kind === "facts")));
+    const seller = input.verifiedContext?.publicState.topic === "seller" || intakeProgress(input).role === "seller";
+    lines.push(customerAgentAttachmentQuestion(attachment.data, lang, evidence.some(e => e?.value.kind === "facts"),
+      evidence.some(e => e?.value.kind === "facts") || seller));
     const text = lines.filter(Boolean).join("\n");
     return text && text.length <= input.maxOutputChars ? text : null;
   }
@@ -627,6 +627,9 @@ function renderDecisionCore(input: {
   if (question !== "none" && question !== "confirmation" && !aboutHandled) lines.push(question === "property" &&
       evidence.some(e => e?.value.kind === "publication_properties" && e.value.cards.length > 1)
     ? lang === "tg" ? "Кадоме аз ин объектҳо ба шумо писанд омад?" : "Какой из этих объектов вас заинтересовал?"
+    // A link to somebody else's site is not mentioned at all: the question is about what the customer wants.
+    : question === "property" && evidence.some(e => e?.value.kind === "property_unresolved" && (e.value.reason === "untrusted_origin" || e.value.reason === "unsupported"))
+      ? BUSINESS_QUESTION[lang]
     : input.surface === "public_comment" && question.startsWith("job_")
       ? publicRecruitmentQuestion(requiredFact === "about" ? "job_experience" : question, lang, experienceInvitationIncluded)
     : question === "job_required" && requiredFact ? recruitmentRequiredQuestion(requiredFact, lang)
