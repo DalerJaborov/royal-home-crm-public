@@ -256,6 +256,9 @@ export async function createCustomerCoreGoldenFixture(options: { media?: boolean
         await prisma.customerPropertyIngressTicket.deleteMany({ where: { endpointScopeId: { in: scopeIds } } });
         await prisma.callbackRequest.deleteMany({ where: { customerActionId: { in: actionIds } } });
         await prisma.customerAction.deleteMany({ where: { id: { in: actionIds } } });
+        const jobApplicationIds = (await prisma.jobApplication.findMany({ where: { customerInquiryId: { in: inquiryIds } }, select: { id: true } })).map(row => row.id);
+        await prisma.recruitmentCommunication.deleteMany({ where: { jobApplicationId: { in: jobApplicationIds } } });
+        await prisma.jobApplication.deleteMany({ where: { id: { in: jobApplicationIds } } });
         await prisma.customerInquiry.deleteMany({ where: { id: { in: inquiryIds } } });
         await prisma.botConversation.deleteMany({ where: { id: { in: nativeIds } } });
         await prisma.customerEndpointScope.deleteMany({ where: { id: { in: scopeIds } } });
