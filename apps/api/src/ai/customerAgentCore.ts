@@ -526,8 +526,10 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
       const { say: modelSay, rest: decisionJson } = liftSay(raw);
       let parsed = customerAgentDecisionSchema.safeParse(decisionJson);
       let fallbackReason: "invalid_model_decision" | undefined, fallbackCause: string | undefined;
-      if (!parsed.success && !notJson) {
-        // Wrong SHAPE with a clear intent (e.g. `propose` carrying a `question`) is fixed by the server, not by a second model round.
+      if (!parsed.success && !notJson && !canCorrect()) {
+        // Last resort only: the correction round comes first (live 30.10: a server-side fix of `propose` without `ref` skipped the
+        // round in which the model goes on to search, and buyers got silence). When no round is left, a wrong SHAPE with a clear
+        // intent is fixed by the server instead of ending the turn held.
         const repaired = repairCustomerAgentDecision(decisionJson, { surface: frame.surface, knownRefs: evidence.map(e => e.ref) });
         const reparsed = repaired ? customerAgentDecisionSchema.safeParse(repaired.decision) : null;
         if (repaired && reparsed?.success) {

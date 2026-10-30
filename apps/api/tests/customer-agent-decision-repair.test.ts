@@ -46,7 +46,7 @@ describe("repairCustomerAgentDecision", () => {
 
 describe("core: malformed propose is repaired without a second model round", () => {
   const hash = "a".repeat(64);
-  it("greeting + budget question reaches the customer in one attempt", async () => {
+  it("a model that repeats the wrong shape after the correction round still reaches the customer (repair is the last resort)", async () => {
     const controller = new AbortController();
     const operation = createProviderOperation({ managed: true, deadlineAt: Date.now() + 30_000, maxAttempts: 8, signal: controller.signal,
       accountant: { reserve: async () => true, settle: async () => {} }, supports: () => true });
@@ -60,8 +60,9 @@ describe("core: malformed propose is repaired without a second model round", () 
     const ports: CustomerCorePorts = { modelTurn: async (...a) => { calls++; return modelTurn(); }, executeAllowedTool: async () => ({ status: "failed" } as never),
       assertCurrent: async () => true, requestStop: r => controller.abort(r), observeLateToolResult: () => {} };
     const result = await runCustomerAgentTurn(frame, ports);
-    expect(calls).toBe(1);
-    expect(result).toMatchObject({ status: "ready", rounds: 1, fallbackReason: "invalid_model_decision", fallbackCause: "repair_propose_question_to_clarify",
+    // The correction round comes first (the model may go on to search); the server repair only replaces a held turn.
+    expect(calls).toBe(2);
+    expect(result).toMatchObject({ status: "ready", rounds: 2, fallbackReason: "invalid_model_decision", fallbackCause: "repair_propose_question_to_clarify",
       decision: { kind: "clarify", question: "budget", social: "greet" } });
     if (result.status === "ready") expect(result.text.length).toBeGreaterThan(0);
   });
