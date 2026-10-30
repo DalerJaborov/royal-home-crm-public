@@ -64,3 +64,25 @@ describe("repair: a bare propose next to exactly one search result", () => {
     expect(repairCustomerAgentDecision({ kind: "propose", social: "none", question: "budget" }, ctx)?.decision).toMatchObject({ kind: "clarify", question: "budget" });
   });
 });
+
+describe("propose pointed at a search result (live 31.10)", () => {
+  it("renders as a reply with the search ref instead of a silent held turn", async () => {
+    const hash = "a".repeat(64);
+    const controller = new AbortController();
+    const operation = createProviderOperation({ managed: true, deadlineAt: Date.now() + 30_000, maxAttempts: 8, signal: controller.signal,
+      accountant: { reserve: async () => true, settle: async () => {} }, supports: () => true });
+    let calls = 0;
+    const result = await runCustomerAgentTurn({ surface: "dm", language: "ru", inputText: "ищу двушку в Сино", knownPhoneSource: "none", requestedFacts: [],
+      revision: { id: hash, coreHash: hash, modelSchemaHash: hash, toolSchemaHash: hash, rendererHash: hash, knowledgeSchemaHash: hash, knowledgeSourceHash: hash,
+        providerProfileHash: hash, providerPolicyHash: hash, promptHash: hash,
+        limits: { maxRounds: 3, maxToolCalls: 4, maxInputChars: 20_000, maxOutputChars: 2000, maxModelOutputTokens: 1024, deadlineMs: 30_000 } },
+      startedAt: Date.now(), operation, tools: [{ name: "search_public_properties", description: "search" }],
+      preReads: [{ name: "search_public_properties", args: { type: "APARTMENT", districtName: "Сино", rooms: 2 } }] } as never, {
+      modelTurn: async () => { calls++; return { text: JSON.stringify({ kind: "propose", ref: "e0", social: "none" }), calls: [], modelParts: [] }; },
+      executeAllowedTool: async () => ({ status: "observed", observation: { kind: "property_search", query: { type: "APARTMENT", districtName: "Сино", rooms: 2 },
+        coverage: "bounded_ranked_pool", poolLimit: 500, policyHash: hash, cards: [], linksAllowed: true, resolvedDistrictName: "Сино", districtWasNormalized: false } }) as never,
+      assertCurrent: async () => true, requestStop: r => controller.abort(r), observeLateToolResult: () => {} });
+    expect(calls).toBe(1);
+    expect(result).toMatchObject({ status: "ready", decision: { kind: "reply", refs: ["e0"] }, fallbackCause: "repair_propose_search_to_reply" });
+  });
+});

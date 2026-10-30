@@ -573,7 +573,14 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
       // Server repair: a seller never receives a rental refusal / bare commission that nobody asked for (customerAgentSellerGuard).
       const sellerRepair = guardSellerDecision({ decision: parsed.data, evidence, surface: frame.surface, inputText: frame.inputText, verifiedContext: context ?? undefined });
       if (sellerRepair) fallbackReason = "invalid_model_decision";
-      const d = sellerRepair?.decision ?? parsed.data;
+      let d = sellerRepair?.decision ?? parsed.data;
+      // `propose` renders only a proposal observation. Pointed at a SEARCH result (live 31.10: «ищу двушку в Сино» → propose e0 →
+      // render null → silence) it is the search answer: shown as a reply with that ref, cards or an honest "nothing found".
+      const proposedRef = d.kind === "propose" ? d.ref : null;
+      if (d.kind === "propose" && proposedRef && evidence.find(e => e.ref === proposedRef)?.value.kind === "property_search") {
+        d = customerAgentDecisionSchema.parse({ kind: "reply", refs: [proposedRef], social: d.social, question: "none" });
+        fallbackReason = "invalid_model_decision"; fallbackCause = "repair_propose_search_to_reply";
+      }
       if (d.kind === "moderation_proposal" || d.kind === "skip" && (d.reason === "no_reply_needed" || d.reason === "duplicate")) {
         suppressionDecisionSeen = true;
       }
