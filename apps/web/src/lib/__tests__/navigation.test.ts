@@ -42,6 +42,14 @@ function routes(items: { to: string }[]): string[] {
 }
 
 describe("buildNavigation — плоское меню из девяти строк", () => {
+  it.each(["HEAD_OF_SALES", "MANAGER", "AGENT", "SECURITY", "SHAREHOLDER"] as Role[])("%s does not gain marketing queue access from object moderation", role => {
+    const nav = buildNavigation({ ...makeInputs(role), can: () => true });
+    expect(routes(nav.all)).not.toContain("/pipeline");
+    expect(routes(nav.all)).not.toContain("/marketing");
+  });
+  it.each(["DIRECTOR", "ADMIN", "MARKETING", "EDITOR"] as Role[])("%s retains server-supported preparation queue", role => {
+    expect(routes(buildNavigation(makeInputs(role)).all)).toContain("/pipeline");
+  });
   it("DIRECTOR: десять строк в заданном порядке", () => {
     const nav = buildNavigation(makeInputs("DIRECTOR"));
     expect(nav.main.map((i) => i.label)).toEqual([

@@ -1,3 +1,4 @@
+import { canReadPreparation } from "./preparationAccess";
 import {
   Activity as ActivityIcon,
   Antenna,
@@ -169,17 +170,9 @@ export function useNavigation(): Navigation {
   return buildNavigation(inputs);
 }
 
-/**
- * Раздел «Маркетинг»/«Монтаж» — видимость по ПРАВУ, не по роли
- * (layer-3-plan.md §2.2, `roles-check.md` §2.3): то же условие, что стоит на
- * сервере (`properties.moderate` для одобрения, `properties.aiListing` для
- * генерации описаний/подписи к видео). На день правки задачи 3 право уже есть в
- * пресетах MARKETING/EDITOR/DIRECTOR/ADMIN (см. `permissions.ts`), поэтому
- * предикат-заглушка с TODO на L3-T1 не понадобился — если задача 1 слоя 3
- * когда-нибудь сузит пресеты, эта строка обязана быть частью того же PR.
- */
-function canSeeMarketing(inputs: Pick<NavInputs, "can">): boolean {
-  return inputs.can("properties.moderate") || inputs.can("properties.aiListing");
+/** Queue access follows server role gates, not permission to moderate an individual property. */
+function canSeeMarketing(inputs: Pick<NavInputs, "role">): boolean {
+  return canReadPreparation(inputs.role);
 }
 
 /**

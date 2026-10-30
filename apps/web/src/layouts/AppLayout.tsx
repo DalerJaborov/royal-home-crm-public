@@ -23,6 +23,7 @@ import { useCleanShellSelection } from "../hooks/useCleanShell";
 import { CleanShell } from "../components/clean/CleanShell";
 import { useCleanViewport } from "../hooks/useCleanViewport";
 import { ShellAppearanceRecovery } from "../components/clean/ShellAppearanceRecovery";
+import { useRouteViewportKey } from "../hooks/useRouteViewportKey";
 
 /**
  * СПУТНИКИ ОБОЛОЧКИ — СВОИМ КУСКОМ (10.09.2026, разгрузка входного куска).
@@ -86,6 +87,7 @@ export function AppLayout() {
   }, [clean]);
   const navigate = useNavigate();
   const { pathname } = useLocation();
+  const viewportKey = useRouteViewportKey(pathname, clean);
   const scrollRef = useRef<HTMLDivElement>(null);
   /**
    * ПЕРЕНЕСЁН ЛИ ЭКРАН НА ТЕМУ «ROYAL HOME 2026».
@@ -268,7 +270,7 @@ export function AppLayout() {
         {/* Clean keeps the viewport/Suspense mounted while a cold route chunk loads.
             The legacy shell retains its established per-route entrance behavior. */}
         <main id="main" tabIndex={-1}
-          key={clean ? "clean-main" : pathname}
+          key={viewportKey}
           data-page-enter
           // px-4 md:px-6 — боковые поля контракта оболочки (06.10.2026: 16 на
           // телефоне, 24 от 820 px). Было px-5 с 10.09 ради полосы, в которой
@@ -320,7 +322,7 @@ export function AppLayout() {
                 раздел, не перезагружая страницу. resetKey сбрасывает ошибку при
                 переходе — верхняя граница этого не умела, потому что стоит выше
                 роутера и о смене маршрута не знает. */}
-            <ErrorBoundary key={clean ? "clean-route" : pathname} resetKey={clean ? pathname : undefined}>
+            <ErrorBoundary resetKey={pathname}>
               {/* Разделы грузятся отдельными файлами (см. App.tsx): без этого при
                   первом заходе в раздел React выбрасывал бы «suspended while
                   rendering» вместо экрана. Заглушка нарочно скромная и только на

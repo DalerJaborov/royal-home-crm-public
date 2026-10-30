@@ -19,7 +19,6 @@ import { useDuplicates } from "../../hooks/useDuplicates";
 import { useTransferClient } from "../../hooks/useMissionControl";
 import { avatarInitial, avatarToneClass } from "../../lib/avatarTone";
 import { ChannelIcon, hasChannelGlyph, sourceChannel } from "../ChannelIcon";
-import { ClientFormModal } from "../ClientFormModal";
 import { ConfirmDialog } from "../ConfirmDialog";
 import { DuplicatesModal } from "../DuplicatesModal";
 import { MutationError } from "../MutationError";
@@ -102,7 +101,7 @@ const num = (n: number) => n.toLocaleString("ru-RU");
  *    хозяина, поэтому подойдёт та же разметка `.seg`/`.fld`, что у ПК и у
  *    MobilePropertiesList.tsx) — статус, источник, район, агент, порядок.
  */
-export function MobileClientsList({ kind }: { kind: "BUYER" | "SELLER" }) {
+export function MobileClientsList({ kind, onAddClient }: { kind: "BUYER" | "SELLER"; onAddClient: () => void }) {
   const me = useAuthStore((s) => s.agent);
   const navigate = useNavigate();
   const can = useCan();
@@ -158,7 +157,6 @@ export function MobileClientsList({ kind }: { kind: "BUYER" | "SELLER" }) {
   const [urlWorkStatus] = useState(() =>
     !isInactiveRoute && urlParams.get("workStatus") === "INACTIVE" ? ("INACTIVE" as const) : undefined
   );
-  const [newClientPhone] = useState(() => urlParams.get("phone") ?? undefined);
   const [noResponseYesterday, setNoResponseYesterday] = useState(
     () => urlParams.get("slice") === "noResponseYesterday"
   );
@@ -167,7 +165,6 @@ export function MobileClientsList({ kind }: { kind: "BUYER" | "SELLER" }) {
   const [page, setPage] = useState(1);
   const [q, setQ] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
-  const [showForm, setShowForm] = useState(() => urlParams.get("new") === "1");
   const [showDuplicates, setShowDuplicates] = useState(false);
   /** Шторка «Фильтры» — статус, источник, район, агент, порядок (та же шторка,
    *  что на ПК, тот же корпус Rh2Sheet). */
@@ -389,7 +386,7 @@ export function MobileClientsList({ kind }: { kind: "BUYER" | "SELLER" }) {
             type="button"
             className="ico card"
             aria-label={kind === "SELLER" ? "Новый продавец" : "Новый клиент"}
-            onClick={() => setShowForm(true)}
+            onClick={onAddClient}
           >
             <Plus className="i" aria-hidden />
           </button>
@@ -571,7 +568,6 @@ export function MobileClientsList({ kind }: { kind: "BUYER" | "SELLER" }) {
         </div>
       )}
 
-      {showForm && <ClientFormModal kind={kind} initialPhone={newClientPhone} onClose={() => setShowForm(false)} />}
       {showDuplicates && <DuplicatesModal onClose={() => setShowDuplicates(false)} />}
 
       {/* Шторка «Фильтры» — статус, источник, район, агент, порядок. Тот же

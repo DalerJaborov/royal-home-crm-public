@@ -1021,131 +1021,6 @@
      "conf": "через общую часть"
     },
     {
-     "i": 585,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 586,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 592,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 594,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 595,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 596,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 597,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 598,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 599,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 600,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 606,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 608,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 609,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 610,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 611,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 612,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 613,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 614,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 620,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 621,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 622,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 633,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 634,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 635,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 636,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
      "i": 678,
      "direct": false,
      "conf": "через общую часть"
@@ -1684,16 +1559,6 @@
      "conf": "через общую часть"
     },
     {
-     "i": 585,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 586,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
      "i": 588,
      "direct": false,
      "conf": "через общую часть"
@@ -1709,127 +1574,12 @@
      "conf": "через общую часть"
     },
     {
-     "i": 592,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 594,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 595,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 596,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 597,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 598,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 599,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 600,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 606,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
      "i": 607,
      "direct": false,
      "conf": "через часть экрана"
     },
     {
-     "i": 608,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 609,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 610,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 611,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 612,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 613,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 614,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 620,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 621,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 622,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
      "i": 632,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 633,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 634,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 635,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 636,
      "direct": false,
      "conf": "через общую часть"
     }
@@ -2894,6 +2644,11 @@
      "conf": "через общую часть"
     },
     {
+     "i": 115,
+     "direct": false,
+     "conf": "через общую часть"
+    },
+    {
      "i": 134,
      "direct": false,
      "conf": "через общую часть"
@@ -3475,131 +3230,6 @@
      "conf": "через часть экрана"
     },
     {
-     "i": 585,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 586,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 592,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 594,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 595,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 596,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 597,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 598,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 599,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 600,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 606,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 608,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 609,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 610,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 611,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 612,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 613,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 614,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 620,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 621,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 622,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 633,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 634,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 635,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 636,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
      "i": 641,
      "direct": false,
      "conf": "через общую часть"
@@ -3642,6 +3272,11 @@
    "eps": [
     {
      "i": 103,
+     "direct": false,
+     "conf": "через общую часть"
+    },
+    {
+     "i": 115,
      "direct": false,
      "conf": "через общую часть"
     },
@@ -4613,134 +4248,9 @@
      "conf": "через часть экрана"
     },
     {
-     "i": 585,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 586,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 592,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 594,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 595,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 596,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 597,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 598,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 599,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 600,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 606,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 608,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 609,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 610,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 611,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 612,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 613,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 614,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 620,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 621,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 622,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
      "i": 623,
      "direct": false,
      "conf": "через часть экрана"
-    },
-    {
-     "i": 633,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 634,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 635,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 636,
-     "direct": false,
-     "conf": "через общую часть"
     },
     {
      "i": 667,
@@ -4760,6 +4270,11 @@
    "eps": [
     {
      "i": 103,
+     "direct": false,
+     "conf": "через общую часть"
+    },
+    {
+     "i": 115,
      "direct": false,
      "conf": "через общую часть"
     },
@@ -5997,131 +5512,6 @@
      "conf": "через общую часть"
     },
     {
-     "i": 585,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 586,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 592,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 594,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 595,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 596,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 597,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 598,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 599,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 600,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 606,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 608,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 609,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 610,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 611,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 612,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 613,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 614,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 620,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 621,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 622,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 633,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 634,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 635,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 636,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
      "i": 678,
      "direct": false,
      "conf": "через общую часть"
@@ -6380,6 +5770,11 @@
    "eps": [
     {
      "i": 103,
+     "direct": false,
+     "conf": "через общую часть"
+    },
+    {
+     "i": 115,
      "direct": false,
      "conf": "через общую часть"
     },
@@ -8896,6 +8291,11 @@
    "eps": [
     {
      "i": 103,
+     "direct": false,
+     "conf": "через общую часть"
+    },
+    {
+     "i": 115,
      "direct": false,
      "conf": "через общую часть"
     },
@@ -18623,7 +18023,12 @@
     "вход выполнен"
    ],
    "screens": [
-    "/clients/:id"
+    "/clients",
+    "/clients/:id",
+    "/clients/all-mine",
+    "/inactive-clients",
+    "/other-inquiries",
+    "/sellers"
    ],
    "tree": [
     {
@@ -55477,13 +54882,8 @@
     "requireElevation"
    ],
    "screens": [
-    "/",
-    "/ai-learning",
     "/calls",
-    "/clients/:id",
     "/deals",
-    "/health",
-    "/more",
     "/profile"
    ],
    "tree": [
@@ -55551,13 +54951,8 @@
     "requireElevation"
    ],
    "screens": [
-    "/",
-    "/ai-learning",
     "/calls",
-    "/clients/:id",
     "/deals",
-    "/health",
-    "/more",
     "/profile"
    ],
    "tree": [
@@ -55838,13 +55233,8 @@
     "requireElevation"
    ],
    "screens": [
-    "/",
-    "/ai-learning",
     "/calls",
-    "/clients/:id",
     "/deals",
-    "/health",
-    "/more",
     "/profile"
    ],
    "tree": [
@@ -55986,13 +55376,8 @@
     "requireElevation"
    ],
    "screens": [
-    "/",
-    "/ai-learning",
     "/calls",
-    "/clients/:id",
     "/deals",
-    "/health",
-    "/more",
     "/profile"
    ],
    "tree": [
@@ -56041,13 +55426,8 @@
     "upload.single(\"image\")"
    ],
    "screens": [
-    "/",
-    "/ai-learning",
     "/calls",
-    "/clients/:id",
     "/deals",
-    "/health",
-    "/more",
     "/profile"
    ],
    "tree": [
@@ -56126,13 +55506,8 @@
     "есть право: settings.manage"
    ],
    "screens": [
-    "/",
-    "/ai-learning",
     "/calls",
-    "/clients/:id",
     "/deals",
-    "/health",
-    "/more",
     "/profile"
    ],
    "tree": [
@@ -56199,13 +55574,8 @@
     "есть право: settings.manage"
    ],
    "screens": [
-    "/",
-    "/ai-learning",
     "/calls",
-    "/clients/:id",
     "/deals",
-    "/health",
-    "/more",
     "/profile"
    ],
    "tree": [
@@ -56234,13 +55604,8 @@
     "requireElevation"
    ],
    "screens": [
-    "/",
-    "/ai-learning",
     "/calls",
-    "/clients/:id",
     "/deals",
-    "/health",
-    "/more",
     "/profile"
    ],
    "tree": [
@@ -56287,13 +55652,8 @@
     "есть право: settings.manage"
    ],
    "screens": [
-    "/",
-    "/ai-learning",
     "/calls",
-    "/clients/:id",
     "/deals",
-    "/health",
-    "/more",
     "/profile"
    ],
    "tree": [
@@ -56323,13 +55683,8 @@
     "coverTemplatesUpload.fields([ { name: \"svg\", maxCount: 1 }, { name: \"spec\", maxCount: 1 }, { name: \"leaves\", …"
    ],
    "screens": [
-    "/",
-    "/ai-learning",
     "/calls",
-    "/clients/:id",
     "/deals",
-    "/health",
-    "/more",
     "/profile"
    ],
    "tree": [
@@ -56944,13 +56299,8 @@
     "requireElevation"
    ],
    "screens": [
-    "/",
-    "/ai-learning",
     "/calls",
-    "/clients/:id",
     "/deals",
-    "/health",
-    "/more",
     "/profile"
    ],
    "tree": [
@@ -57060,13 +56410,8 @@
     "requireElevation"
    ],
    "screens": [
-    "/",
-    "/ai-learning",
     "/calls",
-    "/clients/:id",
     "/deals",
-    "/health",
-    "/more",
     "/profile"
    ],
    "tree": [
@@ -57148,13 +56493,8 @@
     "requireElevation"
    ],
    "screens": [
-    "/",
-    "/ai-learning",
     "/calls",
-    "/clients/:id",
     "/deals",
-    "/health",
-    "/more",
     "/profile"
    ],
    "tree": [
@@ -57216,13 +56556,8 @@
     "requireElevation"
    ],
    "screens": [
-    "/",
-    "/ai-learning",
     "/calls",
-    "/clients/:id",
     "/deals",
-    "/health",
-    "/more",
     "/profile"
    ],
    "tree": [
@@ -57303,13 +56638,8 @@
     "предел частоты запросов"
    ],
    "screens": [
-    "/",
-    "/ai-learning",
     "/calls",
-    "/clients/:id",
     "/deals",
-    "/health",
-    "/more",
     "/profile"
    ],
    "tree": [
@@ -57358,13 +56688,8 @@
     "есть право: calls.hearRecording"
    ],
    "screens": [
-    "/",
-    "/ai-learning",
     "/calls",
-    "/clients/:id",
     "/deals",
-    "/health",
-    "/more",
     "/profile"
    ],
    "tree": [
@@ -57426,13 +56751,8 @@
     "есть право: calls.transcripts"
    ],
    "screens": [
-    "/",
-    "/ai-learning",
     "/calls",
-    "/clients/:id",
     "/deals",
-    "/health",
-    "/more",
     "/profile"
    ],
    "tree": [
@@ -57503,13 +56823,8 @@
     "upload.single(\"logo\")"
    ],
    "screens": [
-    "/",
-    "/ai-learning",
     "/calls",
-    "/clients/:id",
     "/deals",
-    "/health",
-    "/more",
     "/profile"
    ],
    "tree": [
@@ -57902,13 +57217,8 @@
     "requireElevation"
    ],
    "screens": [
-    "/",
-    "/ai-learning",
     "/calls",
-    "/clients/:id",
     "/deals",
-    "/health",
-    "/more",
     "/profile"
    ],
    "tree": [
@@ -57943,13 +57253,8 @@
     "requireElevation"
    ],
    "screens": [
-    "/",
-    "/ai-learning",
     "/calls",
-    "/clients/:id",
     "/deals",
-    "/health",
-    "/more",
     "/profile"
    ],
    "tree": [
@@ -58060,13 +57365,8 @@
     "есть право: settings.manage"
    ],
    "screens": [
-    "/",
-    "/ai-learning",
     "/calls",
-    "/clients/:id",
     "/deals",
-    "/health",
-    "/more",
     "/profile"
    ],
    "tree": [
@@ -58928,13 +58228,8 @@
     "есть право: settings.manage"
    ],
    "screens": [
-    "/",
-    "/ai-learning",
     "/calls",
-    "/clients/:id",
     "/deals",
-    "/health",
-    "/more",
     "/profile"
    ],
    "tree": [
@@ -58988,13 +58283,8 @@
     "есть право: settings.manage"
    ],
    "screens": [
-    "/",
-    "/ai-learning",
     "/calls",
-    "/clients/:id",
     "/deals",
-    "/health",
-    "/more",
     "/profile"
    ],
    "tree": [
@@ -59021,13 +58311,8 @@
     "вход выполнен"
    ],
    "screens": [
-    "/",
-    "/ai-learning",
     "/calls",
-    "/clients/:id",
     "/deals",
-    "/health",
-    "/more",
     "/profile"
    ],
    "tree": [
@@ -59068,13 +58353,8 @@
     "requireElevation"
    ],
    "screens": [
-    "/",
-    "/ai-learning",
     "/calls",
-    "/clients/:id",
     "/deals",
-    "/health",
-    "/more",
     "/profile"
    ],
    "tree": [

@@ -41,7 +41,14 @@ export function PullToRefresh({ children }: { children: React.ReactNode }) {
     return () => window.clearTimeout(t);
   }, [refreshing]);
 
-  if (!enabled) return <>{children}</>;
+  // Keep the same parent and child positions when the device mode changes.
+  // Swapping a fragment for this div remounted every form under the viewport.
+  useEffect(() => {
+    if (!enabled) {
+      drag.current = null;
+      setPull(0);
+    }
+  }, [enabled]);
 
   const atTop = () => (window.scrollY || document.documentElement.scrollTop || 0) <= 0;
 
@@ -80,13 +87,16 @@ export function PullToRefresh({ children }: { children: React.ReactNode }) {
 
   return (
     <div
+      style={!enabled ? { display: "contents" } : undefined}
       onTouchStart={(e) => {
+        if (!enabled) return;
         drag.current = {
           y: e.touches[0].clientY,
           active: atTop() && !refreshing && !insideScrolledArea(e.target),
         };
       }}
       onTouchMove={(e) => {
+        if (!enabled) return;
         const d = drag.current;
         if (!d || !d.active) return;
         const delta = e.touches[0].clientY - d.y;
@@ -99,6 +109,7 @@ export function PullToRefresh({ children }: { children: React.ReactNode }) {
         setPull(Math.min(MAX_PULL, delta * 0.5));
       }}
       onTouchEnd={() => {
+        if (!enabled) return;
         const shouldRun = pull >= TRIGGER;
         drag.current = null;
         setPull(0);
@@ -110,7 +121,7 @@ export function PullToRefresh({ children }: { children: React.ReactNode }) {
       <div
         className="flex items-center justify-center overflow-hidden text-gray-400"
         style={{
-          height: refreshing ? 44 : pull,
+          height: !enabled ? 0 : refreshing ? 44 : pull,
           transition: drag.current ? "none" : "height 220ms cubic-bezier(0.16, 1, 0.3, 1)",
         }}
       >
