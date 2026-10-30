@@ -16,10 +16,10 @@
   "paths": 722,
   "cron": 115,
   "jobs": 31,
-  "conditions": 3990,
+  "conditions": 3992,
   "untranslatedUnique": 458,
   "untranslatedTotal": 586,
-  "partialUnique": 1086,
+  "partialUnique": 1087,
   "translatedShare": 85
  },
  "untranslated": [
@@ -63572,7 +63572,15 @@
          "t": "если есть original route и lane не «LEGACY»",
          "k": "if",
          "a": [],
-         "c": []
+         "c": [
+          {
+           "t": "если lane — «CORE» и есть сообщение и есть account external",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
         },
         {
          "t": "если есть referral only",

@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 722,
-  "forks": 3990,
+  "forks": 3992,
   "mounts": 79,
   "cron": 115,
   "jobs": 31,
@@ -83079,6 +83079,36 @@
          "t": "originalRoute && originalRoute.execution.lane !== \"LEGACY\"",
          "a": [],
          "c": [
+          {
+           "k": "if",
+           "t": "originalRoute.execution.lane === \"CORE\" && message.messageId && message.accountExternalId",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "const spent = peekAdReferral(message.channel, message.senderId, message.accountExternalId);",
+             "a": [
+              "зовёт peekAdReferral()"
+             ],
+             "c": []
+            },
+            {
+             "k": "if",
+             "t": "spent",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "consumeAdReferral(message.channel, message.senderId, message.accountExternalId, spent);",
+               "a": [
+                "зовёт consumeAdReferral()"
+               ],
+               "c": []
+              }
+             ]
+            }
+           ]
+          },
           {
            "k": "do",
            "t": "continue;",
