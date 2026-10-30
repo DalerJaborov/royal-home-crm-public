@@ -131119,6 +131119,14 @@
     },
     {
      "k": "do",
+     "t": "await replaceOldPostsBeforeRemakePublish(property.id).catch((err)",
+     "a": [
+      "запись в журнал ошибок"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
      "t": "const summary = await publishHandoffResult(property.id, property.videoHandoffFinalPath);",
      "a": [
       "зовёт publishHandoffResult()"

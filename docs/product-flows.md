@@ -28948,6 +28948,8 @@
     · зовёт releaseQueueIfClear()
   - return;
     · дальше не идёт, ничего не меняя
+- await replaceOldPostsBeforeRemakePublish(property.id).catch((err)
+  · запись в журнал ошибок
 - const summary = await publishHandoffResult(property.id, property.videoHandoffFinalPath);
   · зовёт publishHandoffResult()
 - await notifyVideoHandoffPublishResult(property.id, summary);

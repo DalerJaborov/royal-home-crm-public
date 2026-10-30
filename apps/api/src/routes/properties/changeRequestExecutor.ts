@@ -437,14 +437,15 @@ async function executeFieldsChange(a: {
     : pre.kind === "PRICE_CHANGE"
       ? "Цена изменилась."
       : "Данные карточки изменились.";
-  // Старый ролик со старой ценой/данными из соцсетей снимаем: иначе публикация пропустила бы
-  // каналы, где он уже стоит, и новый ролик туда не ушёл бы (см. sendBackToMontajer).
+  // Старый ролик со старой ценой/данными снимается, КОГДА ВЫЙДЕТ НОВЫЙ (владелец 30.10.2026):
+  // пока монтажёр работает, объект остаётся виден. Снимает задание публикации нового ролика
+  // (replaceOldPostsBeforeRemakePublish) — иначе публикация пропустила бы занятые каналы.
   const failure = await executeRemake({
     propertyId: pre.propertyId,
     actorId: a.actorId,
     reason: "CARD_DATA_CHANGED",
     comment: [label, pre.comment?.trim()].filter(Boolean).join(" "),
-    removeSocial: true,
+    removeSocial: "on-new-video",
     result,
   });
   return failure ? `Данные обновлены, но ролик не ушёл на перемонтаж: ${failure}` : null;
@@ -456,7 +457,7 @@ async function executeRemake(a: {
   actorId: string;
   reason: Parameters<typeof sendBackToMontajer>[2];
   comment: string | null;
-  removeSocial: boolean;
+  removeSocial: boolean | "on-new-video";
   result: PropertyChangeResult;
 }): Promise<string | null> {
   const sent = await sendBackToMontajer(a.propertyId, a.actorId, a.reason, a.comment?.trim() || null, null, {

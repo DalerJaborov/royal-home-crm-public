@@ -68,6 +68,8 @@ import {
 import { tiktokPublishRetryDedupeKey } from "../jobs/tiktokPublishRetryPolicy.js";
 import { logTimeline } from "./timeline.js";
 import { localVideoDelete } from "./localVideoStorage.js";
+import { propertyOwnerAgentId } from "./propertyOwner.js";
+import { sendPushToAgent } from "../push.js";
 import { VIDEO_REMAKE_REASON_LABELS, type VideoRemakeReason } from "@royal-home/shared";
 
 /** Каналы, где ПОДПИСЬ поддаётся правке из кода (refreshPublishedCaptions ниже) —
@@ -227,7 +229,11 @@ export function isTelegramMessageGone(err: unknown): boolean {
  * Канал, который снять не удалось, из списка НЕ вычёркивается: иначе второй
  * ролик встал бы рядом с первым вместо того, чтобы его заменить.
  */
-export async function removeFromSocial(propertyId: string, only?: string[]): Promise<SocialRemovalResult> {
+export async function removeFromSocial(
+  propertyId: string,
+  only?: string[],
+  opts: { insidePublishJob?: boolean } = {}
+): Promise<SocialRemovalResult> {
   const property = await prisma.property.findUnique({
     where: { id: propertyId },
     select: { id: true, deletedAt: true, publishedChannels: true, publishedPostIds: true, instagramUrl: true },
@@ -237,8 +243,10 @@ export async function removeFromSocial(propertyId: string, only?: string[]): Pro
   // вышедший канал в конце своего шага: снятие посреди него вычеркнуло бы
   // канал, а задание вписало бы его обратно — и старый ролик вышел бы уже
   // после «удалили». Удалённый объект — не наш: его посты разбирают из корзины.
+  // Само задание публикации (insidePublishJob) снимает старые посты ДО своего
+  // шага публикации — это не гонка с ним, а его же первый шаг.
   if (property.deletedAt) return { removed: [], failed: [], manual: [], notes: [], blocked: "Объект удалён — снимать его посты отсюда нельзя." };
-  if (await isHandoffPublishRunning(propertyId)) {
+  if (!opts.insidePublishJob && (await isHandoffPublishRunning(propertyId))) {
     return { removed: [], failed: [], manual: [], notes: [], blocked: HANDOFF_PUBLISH_RUNNING_ERROR };
   }
 
@@ -687,7 +695,9 @@ export async function sendBackToMontajer(
   reason: VideoRemakeReason,
   comment?: string | null,
   replaceVideoIds?: string[] | null,
-  options?: { removeFromSocial?: boolean }
+  /** removeFromSocial: true — снять старые посты сейчас; "on-new-video" — когда
+   *  выйдет новый ролик (задание публикации, replaceOldPostsBeforeRemakePublish). */
+  options?: { removeFromSocial?: boolean | "on-new-video" }
 ): Promise<SendBackResult> {
   const replacing = replaceVideoIds && replaceVideoIds.length > 0 ? [...new Set(replaceVideoIds)] : null;
 
@@ -867,7 +877,14 @@ export async function sendBackToMontajer(
       data: { status: "CANCELLED", resolvedAt: new Date(), error: "Ролик возвращён монтажёру — Reels прежнего ролика отменён" },
     });
     await tx.videoRemakeRequest.create({
-      data: { propertyId, reason, comment: comment ?? null, requestedById, messageText },
+      data: {
+        propertyId,
+        reason,
+        comment: comment ?? null,
+        requestedById,
+        messageText,
+        replaceOldPostsOnPublish: options?.removeFromSocial === "on-new-video",
+      },
     });
 
     if (property.sellerClientId) {
@@ -913,7 +930,7 @@ export async function sendBackToMontajer(
   // дозвона монтажёру ниже. Неудача снятия НЕ отменяет возврат монтажёру:
   // removeFromSocial сам пишет неудачные каналы в failed и в logSystemError,
   // мы только прокидываем итог наружу.
-  const social = options?.removeFromSocial ? await removeFromSocial(propertyId) : undefined;
+  const social = options?.removeFromSocial === true ? await removeFromSocial(propertyId) : undefined;
 
   // Дозвон монтажёру (Telegram, сеть) — вне замка, как и в queueVideoHandoff
   // (videoHandoff.ts): держать advisory-лок объекта на время сетевого похода
@@ -930,6 +947,75 @@ export async function sendBackToMontajer(
     ...(social ? { social } : {}),
     ...(lockResult.data.clipReviewWasPending ? { clipReviewWasPending: true } : {}),
   };
+}
+
+/**
+ * СТАРЫЕ ПОСТЫ УХОДЯТ, КОГДА ВЫХОДИТ НОВЫЙ РОЛИК (30.10.2026, владелец: «когда выйдет
+ * новый»). Возврат по смене цены или данных карточки (`removeFromSocial: "on-new-video"`)
+ * оставляет старый ролик висеть, пока монтажёр работает, — объект всё это время виден.
+ * Зовёт задание публикации нового ролика ПЕРЕД публикацией (jobs/videoHandoffPublish.ts):
+ *
+ *  1. снимает старые посты тем же removeFromSocial, что у кнопки «Убрать из соцсетей»;
+ *  2. Instagram и TikTok, которые снять нельзя (только руками), вычёркивает из
+ *     `publishedChannels` — иначе публикация пропустила бы их, и новая цена туда не
+ *     попала бы; хозяину объекта уходит пуш со ссылками на старые посты;
+ *  3. канал, где снятие отказало по сбою, остаётся в карточке: новый ролик туда не
+ *     выйдет, зато не встанет дублем рядом со старым (причина — в журнале).
+ *
+ * Отметка `oldPostsReplacedAt` ставится один раз: повтор задания после сбоя сети не
+ * снимает уже вышедший НОВЫЙ ролик. Возвращает null, если замены не просили.
+ */
+export async function replaceOldPostsBeforeRemakePublish(
+  propertyId: string
+): Promise<{ social: SocialRemovalResult; manual: ManualStep[] } | null> {
+  const request = await prisma.videoRemakeRequest.findFirst({
+    where: { propertyId, replaceOldPostsOnPublish: true, oldPostsReplacedAt: null },
+    orderBy: { createdAt: "desc" },
+    select: { id: true },
+  });
+  if (!request) return null;
+  // Отметка ДО сетевых вызовов: упади задание посреди снятия — повтор не пойдёт снимать
+  // второй раз то, что могло уже стать новым роликом.
+  const claimed = await prisma.videoRemakeRequest.updateMany({
+    where: { propertyId, replaceOldPostsOnPublish: true, oldPostsReplacedAt: null },
+    data: { oldPostsReplacedAt: new Date() },
+  });
+  if (claimed.count === 0) return null;
+
+  const social = await removeFromSocial(propertyId, undefined, { insidePublishJob: true });
+  const manual = social.manual.filter((s) => s.channel === "INSTAGRAM" || s.channel === "TIKTOK");
+  if (manual.length > 0) {
+    const leave = manual.map((s) => s.channel as string);
+    await updatePublishedMarks(propertyId, (current) => {
+      const nextPostIds = { ...current.postIds };
+      for (const c of leave) delete nextPostIds[c];
+      return {
+        channels: current.channels.filter((c) => !leave.includes(c)),
+        postIds: nextPostIds,
+        ...(leave.includes("INSTAGRAM") ? { data: { instagramUrl: null } } : {}),
+      };
+    });
+    const property = await prisma.property.findUnique({
+      where: { id: propertyId },
+      select: { shortId: true, title: true, intakeAgentId: true, assignedAgentId: true, createdById: true },
+    });
+    const body = manual.map((s) => `${s.channel === "INSTAGRAM" ? "Instagram" : "TikTok"}: ${s.url ?? "найдите старый ролик в приложении"}`).join("\n");
+    void logSystemError(
+      "meta",
+      `Объект №${property?.shortId ?? propertyId}: вышел перемонтированный ролик, старый удалите руками — ${body.replace(/\n/g, "; ")}`,
+      { dedupKey: "Объект №…: вышел перемонтированный ролик, старый удалите руками" }
+    );
+    const ownerId = property ? propertyOwnerAgentId(property) : null;
+    if (ownerId && property) {
+      void sendPushToAgent(ownerId, {
+        title: `Новый ролик №${property.shortId} выходит — удалите старый`,
+        body: `${property.title}\n${body}`,
+        url: `/properties/${property.shortId}`,
+        tag: `remake-old-posts-${propertyId}`,
+      }).catch(() => {});
+    }
+  }
+  return { social, manual };
 }
 
 /**

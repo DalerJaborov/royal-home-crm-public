@@ -258,7 +258,7 @@ describe("«Принять»: цена", () => {
     expect(await prisma.priceChange.count({ where: { propertyId: property.id } })).toBe(1);
   });
 
-  it("remake=true: после цены ролик уходит монтажёру, старые посты снимаются", async () => {
+  it("remake=true: после цены ролик уходит монтажёру, старые посты снимаются, когда выйдет новый", async () => {
     const property = await seedProperty();
     const created = await post(agentToken, property.id, {
       kind: "PRICE_CHANGE",
@@ -274,7 +274,7 @@ describe("«Принять»: цена", () => {
     expect(args[0]).toBe(property.id);
     expect(args[2]).toBe("CARD_DATA_CHANGED");
     expect(String(args[3])).toContain("Новая цена");
-    expect(args[5]).toEqual({ removeFromSocial: true });
+    expect(args[5]).toEqual({ removeFromSocial: "on-new-video" });
   });
 });
 
