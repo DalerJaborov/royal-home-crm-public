@@ -164,13 +164,16 @@ describe("F07 the résumé is asked once", () => {
 describe("F06 an unresolved reference says why", () => {
   const unresolved = (reason?: string, status: "missing" | "ambiguous" = "missing") => ev({ kind: "property_unresolved", status, ...(reason ? { reason } : {}) } as CustomerAgentObservation);
   const question = "Какой объект вы имеете в виду? Пришлите номер объекта или ссылку.";
+  const business = "Что вас интересует: покупка или продажа недвижимости?";
+  // Failures of the reference are never voiced (30.10.2026): a foreign link gets the business question, a transient failure just the question.
   it.each([
-    ["unsupported", "Эту ссылку открыть не получилось: такой формат ссылок я не читаю."],
-    ["untrusted_origin", "Эта ссылка ведёт не на наши публикации, по ней объект определить не могу."],
-    ["not_found", "По этой ссылке или номеру объект не нашёлся."],
-    ["lookup_unavailable", "Сейчас не получилось проверить объект, это временный сбой. Попробуйте ещё раз чуть позже."],
-  ])("%s", (reason, line) => {
-    expect(render([unresolved(reason)], {}, "property")).toBe(`${line}\n${question}`);
+    ["unsupported", business],
+    ["untrusted_origin", business],
+    ["not_found", `По этой ссылке или номеру объект не нашёлся.
+${question}`],
+    ["lookup_unavailable", question],
+  ])("%s", (reason, expected) => {
+    expect(render([unresolved(reason)], {}, "property")).toBe(expected);
   });
   it("plain question without a reason, and a different one for an ambiguous match", () => {
     expect(render([unresolved()], {}, "property")).toBe(question);

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { loadCorpusDir, selectScenarios, SYNTHETIC_CORPUS_DIR } from "./corpus.js";
 
 // Guards the committed synthetic corpus: it must parse against the scenario schema, keep unique ids and the agreed minimum volume per category.
-const MINIMUM: Record<string, number> = { buyer: 60, seller: 40, job: 50, comment: 40, link: 30, media: 20, language: 30, abuse: 15, injection: 15, "multi-turn": 20 };
+const MINIMUM: Record<string, number> = { buyer: 60, seller: 40, job: 50, comment: 40, link: 30, media: 20, language: 30, abuse: 15, injection: 15, "multi-turn": 20, "dm-share": 12 };
 describe("synthetic attack corpus", () => {
   const all = loadCorpusDir(SYNTHETIC_CORPUS_DIR);
   it("is at least 300 scenarios and parses against the schema", () => { expect(all.length).toBeGreaterThanOrEqual(300); });

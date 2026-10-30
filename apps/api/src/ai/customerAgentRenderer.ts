@@ -10,15 +10,17 @@ import { customerPublicThanks, customerRequestedAgencyContact, customerRecruitme
 import { customerAgentIntake, customerSellerIntakeQuestion, customerSellerIntakeQuestionLines } from "./customerAgentIntake.js";
 import { customerRecruitmentRequested, customerRecruitmentFactsRequested, isCustomerVacanciesObservation, recruitmentPositionForTurn,
   recruitmentMissingForTurn, recruitmentRequiredQuestion, recruitmentFactQuestionLines } from "./customerAgentRecruitmentProtocol.js";
-import { customerDmAbuseKind, customerDmAbuseReply, customerDmAbuseLines } from "./customerAgentAbuse.js";
+import { customerDmAbuseKind, customerDmAbuseReply, customerDmAbuseLines, customerDmForeignShareNoise } from "./customerAgentAbuse.js";
 import { customerRecruitmentReplyDetails, containsRecruitmentExperienceInvitation } from "./customerRecruitmentReply.js";
 import { clientOwnWords } from "./untrustedContent.js";
 import { validateCustomerAgentSayForDecision } from "./customerAgentSay.js";
 import { BW, EW, TAIL } from "./wordBoundary.js";
+import { customerCheaperVisibleCards, isCheaperThanSearch } from "./customerAgentCheaperCards.js";
 import { customerAsksPricePerSqm, pricePerSqmLine } from "../lib/customerPropertyPerSqm.js";
 import type { CustomerPropertyUnresolvedReason } from "../lib/customerPropertyUnresolvedReason.js";
 import { customerCallbackConsentDecision } from "../lib/customerCallbackConsent.js";
-import { customerAgentAttachmentInputSchema, customerAgentAttachmentQuestion, type CustomerAgentAttachmentInput } from "./customerAgentAttachmentInput.js";
+import { customerAgentAttachmentInputSchema, customerAgentAttachmentQuestion, customerAgentAttachmentLines, customerAgentShareNotice,
+  BUSINESS_QUESTION, type CustomerAgentAttachmentInput } from "./customerAgentAttachmentInput.js";
 import { customerAgentMediaPerceptionSchema, customerAgentVisualSummary, type CustomerAgentMediaPerception } from "./customerAgentMediaPerception.js";
 import { isPinnedCompanyPolicy, isPublicPropertySearch, isCustomerCompanyInformation, type CustomerAgentCompanyPolicyObservation,
   type CustomerAgentSearchObservation } from "./customerAgentPublicProtocol.js";
@@ -182,10 +184,11 @@ function publicRecruitmentQuestion(question: CustomerAgentQuestion, language: "r
  * question (which stays a separate line, so a bare-number answer is still understood). */
 const unresolvedReasons: Record<CustomerPropertyUnresolvedReason, { ru: string; tg: string } | null> = {
   no_reference: null,
-  unsupported: { ru: "Эту ссылку открыть не получилось: такой формат ссылок я не читаю.", tg: "Ин пайвандро кушода натавонистам: чунин намуди пайвандҳоро намехонам." },
-  untrusted_origin: { ru: "Эта ссылка ведёт не на наши публикации, по ней объект определить не могу.", tg: "Ин пайванд ба нашрияҳои мо намебарад, аз рӯи он объектро муайян карда наметавонам." },
+  unsupported: null,
+  untrusted_origin: null,
   not_found: { ru: "По этой ссылке или номеру объект не нашёлся.", tg: "Аз рӯи ин пайванд ё рақам объект ёфт нашуд." },
-  lookup_unavailable: { ru: "Сейчас не получилось проверить объект, это временный сбой. Попробуйте ещё раз чуть позже.", tg: "Ҳоло объектро санҷида натавонистам, ин хатои муваққатӣ аст. Баъдтар бори дигар кӯшиш кунед." },
+  ad_unmapped: { ru: "По этой рекламе объект не определился.", tg: "Аз рӯи ин реклама объект муайян нашуд." },
+  lookup_unavailable: null,
 };
 function unresolvedPropertyLine(value: Extract<CustomerAgentObservation, { kind: "property_unresolved" }>, language: "ru" | "tg"): string | null {
   if (value.status === "ambiguous") return language === "tg" ? "Ба ин нишона якчанд объект мувофиқ аст, як объектро интихоб карда наметавонам." : "Под это описание подходит несколько объектов, выбрать один не могу.";
@@ -292,6 +295,11 @@ const OFFICE_QUESTION = word(`где|адрес${TAIL}|офис${TAIL}|дафт�
 const SERVICES_QUESTION = word(`какие\\s+(?:у\\s+вас\\s+)?услуг${TAIL}|какими\\s+услугами|чем\\s+(?:вы\\s+)?занимаетесь|чем\\s+занимается\\s+(?:ваша\\s+)?(?:компания|агентство)|(?<!ҳаққи\\s)хизматҳо${TAIL}|кадом\\s+хизмат${TAIL}|шумо\\s+чӣ\\s+кор\\s+мекунед`);
 export function customerCompanyServicesRequested(text: string): boolean { return SERVICES_QUESTION.test(clientOwnWords(text)); }
 const SERVICES_TG: Record<string, string> = { "Продажа и помощь в покупке": "фурӯш ва кӯмак дар харидани амвол" };
+/** Wider than the automatic-read gate: any office/hours/services word counts as an agency question for what may be PRINTED. */
+function companyInformationAsked(text: string): boolean {
+  const own = clientOwnWords(text);
+  return customerCompanyInformationRequested(text) || OFFICE_QUESTION.test(own) || HOURS_QUESTION.test(own) || SERVICES_QUESTION.test(own);
+}
 export function customerCompanyInformationRequested(text: string): boolean {
   // Automatic reads need an explicit agency question. A commercial property,
   // appointment deadline or quoted publication is not our office/schedule.
@@ -331,7 +339,10 @@ function companyInformationLines(value: import("@royal-home/shared").CustomerAge
 }
 function searchSegments(value: CustomerAgentSearchObservation, language: "ru" | "tg"): string[] {
   const tg = language === "tg";
-  if (!value.cards.length) return [tg ? "Дар интихоби ҷорӣ варианти мувофиқ ёфт нашуд." : "В текущей подборке подходящих вариантов не найдено."];
+  const cards = customerCheaperVisibleCards(value);
+  if (!cards.length) return [isCheaperThanSearch(value.query)
+    ? tg ? "Вариантҳои арзонтар ҳоло ёфт нашуданд." : "Вариантов дешевле сейчас не нашлось."
+    : tg ? "Дар интихоби ҷорӣ варианти мувофиқ ёфт нашуд." : "В текущей подборке подходящих вариантов не найдено."];
   const lines = [tg ? "Ин вариантҳоро дида баромадан мумкин аст:" : "Можно рассмотреть эти варианты:"];
   if (value.districtWasNormalized && value.resolvedDistrictName) lines.push(tg
     ? `Интихоб аз ноҳияи ${value.resolvedDistrictName} аст. Наздикии дақиқ ба нишонии гуфтаатон ҳоло тасдиқ нашудааст.`
@@ -344,7 +355,7 @@ function searchSegments(value: CustomerAgentSearchObservation, language: "ru" | 
     rooms_unknown: { ru: "число комнат не подтверждено", tg: "шумораи ҳуҷраҳо тасдиқ нашудааст" },
     price_unknown: { ru: "соответствие бюджету не подтверждено", tg: "мувофиқат ба буҷет тасдиқ нашудааст" },
   };
-  for (const [index, card] of value.cards.entries()) {
+  for (const [index, card] of cards.entries()) {
     lines.push(`${index + 1}. ${tg ? "Объект" : "Объект"} №${card.facts.shortId}`);
     lines.push(...factSegments({ kind: "facts", facts: card.facts, kinds: ["price", "address"] }, language));
     if (card.listing.rooms !== null && card.listing.type === "APARTMENT") lines.push(tg ? `Ҳуҷраҳо: ${card.listing.rooms}.` : `Комнат: ${card.listing.rooms}.`);
@@ -408,6 +419,9 @@ function renderDecisionCore(input: {
   const requestedContact = customerRequestedAgencyContact(input.inputText ?? "");
   const contact = publicContactQuestion && requestedContact ? input.evidence.filter(e => e.value.kind === "agency_contact") : [];
   const company = customerCompanyInformationRequested(input.inputText ?? "") ? input.evidence.filter(e => e.value.kind === "company_information") : [];
+  // The office address and hours are printed only for a customer who asked about the agency (30.10.2026: "Лайк камент паделится"
+  // got the full address). A model-chosen read nobody asked for is dropped here, silently; a job candidate keeps it.
+  const companyUnsolicited = input.verifiedContext?.publicState.topic !== "job" && !companyInformationAsked(input.inputText ?? "");
   const recruitment = customerRecruitmentFactsRequested(input.inputText ?? "") || !input.inputText?.trim() && !!input.verifiedContext?.publicState.jobPositionKey
     ? input.evidence.filter(e => e.value.kind === "open_vacancies") : [];
   const refs = [...new Set([...mandatory.map(e => e.ref), ...selected, ...contact.map(e => e.ref), ...company.map(e => e.ref), ...recruitment.map(e => e.ref)])];
@@ -447,11 +461,9 @@ function renderDecisionCore(input: {
   const visualSummary = perception?.success && !recruitmentMedia && input.verifiedContext?.publicState.topic !== "job"
     ? customerAgentVisualSummary(perception.data, lang) : null;
   if (visualSummary) lines.push(visualSummary);
-  if (perception?.success && perception.data.incomplete) lines.push(lang === "tg" ? "Як қисми файлҳои фиристодаатон кушода нашуд." : "Часть присланных файлов не удалось открыть.");
   if (perception?.success && perception.data.speech === "unintelligible" && d.kind === "clarify" && d.question === "clarify_previous" &&
       !(input.inputText ?? "").trim() && !visualSummary && !evidence.length) {
-    const text = lang === "tg" ? "Сухан дар сабт нофаҳмо аст. Метавонед паёми овозиро бори дигар фиристед?"
-      : "Речь на записи не удалось разобрать. Можете прислать голосовое ещё раз?";
+    const text = BUSINESS_QUESTION[lang];
     return text.length <= input.maxOutputChars ? text : null;
   }
   if (input.surface === "public_comment" && evidence.some(e => e?.value.kind === "receipt" || e?.value.kind === "proposal")) return null;
@@ -528,7 +540,7 @@ function renderDecisionCore(input: {
     }
     if (item.value.kind === "company_information") {
       if (!isCustomerCompanyInformation(item.value)) return null;
-      if (followRequest || languagePermissionOnly) continue;
+      if (followRequest || languagePermissionOnly || companyUnsolicited) continue;
       lines.push(...companyInformationLines(item.value, lang, input.inputText ?? ""));
     }
     if (item.value.kind === "open_vacancies") {
@@ -596,7 +608,9 @@ function renderDecisionCore(input: {
     const attachment = customerAgentAttachmentInputSchema.safeParse(input.attachmentInput);
     if (!attachment.success || d.kind !== "clarify" || d.social !== "none" || d.question !== "clarify_previous" ||
         evidence.some(e => e?.value.kind !== "facts")) return null;
-    lines.push(customerAgentAttachmentQuestion(attachment.data, lang, evidence.some(e => e?.value.kind === "facts")));
+    const seller = input.verifiedContext?.publicState.topic === "seller" || intakeProgress(input).role === "seller";
+    lines.push(customerAgentAttachmentQuestion(attachment.data, lang, evidence.some(e => e?.value.kind === "facts"),
+      evidence.some(e => e?.value.kind === "facts") || seller));
     const text = lines.filter(Boolean).join("\n");
     return text && text.length <= input.maxOutputChars ? text : null;
   }
@@ -618,6 +632,9 @@ function renderDecisionCore(input: {
   if (question !== "none" && question !== "confirmation" && !aboutHandled) lines.push(question === "property" &&
       evidence.some(e => e?.value.kind === "publication_properties" && e.value.cards.length > 1)
     ? lang === "tg" ? "Кадоме аз ин объектҳо ба шумо писанд омад?" : "Какой из этих объектов вас заинтересовал?"
+    // A link to somebody else's site is not mentioned at all: the question is about what the customer wants.
+    : question === "property" && evidence.some(e => e?.value.kind === "property_unresolved" && (e.value.reason === "untrusted_origin" || e.value.reason === "unsupported"))
+      ? BUSINESS_QUESTION[lang]
     : input.surface === "public_comment" && question.startsWith("job_")
       ? publicRecruitmentQuestion(requiredFact === "about" ? "job_experience" : question, lang, experienceInvitationIncluded)
     : question === "job_required" && requiredFact ? recruitmentRequiredQuestion(requiredFact, lang)
@@ -668,7 +685,7 @@ let fixedQuestionLines: Set<string> | undefined;
 /** Fixed question sentences (templates, "я уточнял" repairs, résumé/seller questions): the only lines the repeat check may drop. */
 function questionLineSet(): Set<string> {
   return fixedQuestionLines ??= lineSet(Object.values(questions).flatMap(line => [line.ru, line.tg]).filter(Boolean),
-    Object.values(repairs).flatMap(line => [line.ru, line.tg]), recruitmentFactQuestionLines(), customerSellerIntakeQuestionLines());
+    Object.values(repairs).flatMap(line => [line.ru, line.tg]), recruitmentFactQuestionLines(), customerSellerIntakeQuestionLines(), customerAgentAttachmentLines());
 }
 const socialLineSet = () => lineSet(SOCIAL_FAMILIES.flat().flatMap(line => [line.ru, line.tg]));
 const noticeLineSet = () => lineSet(REPEAT_NOTICES.flatMap(line => [line.ru, line.tg]), [REPEAT_LEAD.ru, REPEAT_LEAD.tg]);
@@ -719,6 +736,12 @@ function avoidRepeatedReply(text: string, input: { language: "ru" | "tg"; verifi
 
 export function renderCustomerAgentDecision(input: Parameters<typeof renderDecisionCore>[0]): string | null {
   const d = input.decision;
+  // A forwarded publication that is not ours, with nothing asked (nothing, a heart, like-exchange words): one short line, no fact.
+  if (input.surface === "dm" && (d.kind === "reply" || d.kind === "clarify") && customerAgentShareNotice(input.attachmentInput, input.language) !== null &&
+      customerDmForeignShareNoise(input.inputText ?? "") && !input.evidence.some(e => e.value.kind === "receipt" || e.value.kind === "proposal")) {
+    const line = customerAgentShareNotice(input.attachmentInput, input.language)!;
+    return line.length <= input.maxOutputChars ? line : null;
+  }
   if (input.surface === "dm" && (d.kind === "reply" || d.kind === "clarify") && !input.evidence.some(e => e.value.kind === "receipt" || e.value.kind === "proposal")) {
     const abuse = customerDmAbuseKind(input.inputText ?? "");
     if (abuse) {

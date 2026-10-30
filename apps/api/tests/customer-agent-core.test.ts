@@ -108,12 +108,12 @@ describe("Perceived media stays in the common customer brain", () => {
     expect(JSON.stringify(f.modelTurn.mock.calls[0][0].contents)).toContain("untrustedCustomerMedia");
     expect(f.executeAllowedTool).not.toHaveBeenCalled();
   });
-  it.each(["ru", "tg"] as const)("asks for a new recording only after actual %s speech was unintelligible", async language => {
+  it.each(["ru", "tg"] as const)("asks the business question only after actual %s speech was unintelligible", async language => {
     const f = fixture({ inputText: "", language, requestedFacts: [], mediaPerception: { ...visual, language, subject: "not_visible", visible: [], speech: "unintelligible" } });
     const result = await runCustomerAgentTurn(f.frame, f.ports);
     expect(result).toMatchObject({ status: "ready", rounds: 0 });
     if (result.status !== "ready") throw Error("Expected honest media repair");
-    expect(result.text).toContain(language === "ru" ? "голосовое ещё раз" : "овозиро бори дигар");
+    expect(result.text).toContain(language === "ru" ? "покупка или продажа" : "харид ё фурӯши");
     expect(result.text).not.toMatch(/текстом|сотрудник|передал|992/iu);
     expect(f.modelTurn).not.toHaveBeenCalled();
   });
@@ -134,7 +134,8 @@ describe("Customer attachment-only turns", () => {
     const result = await runCustomerAgentTurn({ ...f.frame, attachmentInput: { kinds: [kind] } }, f.ports);
     expect(result).toMatchObject({ status: "ready", question: "clarify_previous", rounds: 0, toolCalls: 0 });
     if (result.status !== "ready") throw Error("Attachment should get a normal clarification");
-    expect(result.text).toContain("?");
+    // The unopenable-file line is a plain request to write the question in text (no question mark by design, 30.10.2026).
+    if (kind !== "unknown") expect(result.text).toContain("?");
     expect(result.text).not.toMatch(/992|сотрудник|передал|записал|увидел|вижу|прослушал|ссылка не открылась/iu);
     expect(f.modelTurn).not.toHaveBeenCalled(); expect(f.executeAllowedTool).not.toHaveBeenCalled();
   });

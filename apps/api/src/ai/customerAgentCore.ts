@@ -1,15 +1,20 @@
+import { repairCustomerAgentDecision } from "./customerAgentDecisionRepair.js";
 import { customerAgentApprovedFileStateSchema, customerAgentDecisionSchema, customerAgentRevisionSchema, customerAgentToolCallSchema, customerAgentVerifiedContextSchema, customerAgentPublicationObservationSchema,
   customerPropertyFactsSchema, customerPropertyFactKindSchema, type CustomerAgentDecision, type CustomerAgentSayDropReason, type CustomerAgentSayMode, type CustomerAgentRevision, type CustomerAgentSurface,
   type CustomerAgentToolCall, type CustomerAgentVerifiedContext, type CustomerPropertyFactKind, type CustomerAgentApprovedFileState } from "@royal-home/shared";
+import { customerCheaperVisibleCards } from "./customerAgentCheaperCards.js";
 import type { ProviderOperation } from "./providerContract.js";
 import { renderCustomerAgentDecision, customerAgentRenderedQuestion, isCanonicalAgencyContact, customerCompanyInformationRequested,
   type CustomerAgentRenderedQuestion, type CustomerAgentEvidence, type CustomerAgentObservation } from "./customerAgentRenderer.js";
 import { isPinnedCompanyPolicy, isPublicPropertySearch, publicSearchProjection, isCustomerCompanyInformation } from "./customerAgentPublicProtocol.js";
 import { customerRequestedAgencyContact, isCustomerPublicAppreciation, customerPublicReaction } from "./customerAgentConversationPolicy.js";
-import { customerAgentAttachmentInputSchema, type CustomerAgentAttachmentInput } from "./customerAgentAttachmentInput.js";
+import { customerAgentAttachmentInputSchema, customerAgentAttachmentQuestionAsked, customerAgentForeignShareAnswered, customerAgentForeignShareOnly, customerAgentOwnUnlinkedOnly,
+  type CustomerAgentAttachmentInput } from "./customerAgentAttachmentInput.js";
+import { customerDmForeignShareNoise } from "./customerAgentAbuse.js";
 import { customerAgentMediaPerceptionSchema, type CustomerAgentMediaPerception } from "./customerAgentMediaPerception.js";
 import { customerRecruitmentRequested, isCustomerVacanciesObservation, recruitmentPositionForTurn, recruitmentMissingForTurn } from "./customerAgentRecruitmentProtocol.js";
 import { customerPropertyUrl } from "../lib/customerPropertyUrls.js";
+import { guardSellerDecision } from "./customerAgentSellerGuard.js";
 import { validateCustomerAgentSayForDecision, CUSTOMER_AGENT_SAY_GUIDANCE } from "./customerAgentSay.js";
 import type { CustomerAgentAwaitContext, CustomerAgentModelTurn } from "./customerAgentModelContracts.js";
 export type { CustomerAgentAwaitContext, CustomerAgentModelTurn } from "./customerAgentModelContracts.js";
@@ -40,6 +45,10 @@ export interface CustomerCoreFrame {
   readonly publicationCardCount?: number;
   /** Grounded free-phrase channel. `shadow` (the default) validates and counts the model's `say` but never lets it reach the customer; `live` must be set explicitly. */
   readonly sayMode?: CustomerAgentSayMode;
+  /** Server reads run before the first model round (DM, never a job inquiry); e.g. "cheaper than the object in focus". */
+  readonly preReads?: readonly CustomerAgentToolCall[];
+  /** A bare "yes" after the bot's own clarifying question: the server re-asks, the model is not consulted. */
+  readonly followUp?: "clarify_previous" | "property";
 }
 export interface CustomerUnknownToolCall { callKey: string; name: CustomerAgentToolCall["name"] }
 export interface CustomerCorePorts {
@@ -98,7 +107,7 @@ function safeObservation(value: CustomerAgentObservation, knowledgeSourceHash: s
   if (value.kind === "facts") return customerPropertyFactsSchema.safeParse(value.facts).success &&
     value.kinds.length > 0 && value.kinds.length <= customerPropertyFactKindSchema.options.length && value.kinds.every(k => customerPropertyFactKindSchema.safeParse(k).success);
   if (value.kind === "property_unresolved") return (value.status === "missing" || value.status === "ambiguous") &&
-    (value.reason === undefined || ["no_reference", "unsupported", "untrusted_origin", "not_found", "lookup_unavailable"].includes(value.reason));
+    (value.reason === undefined || ["no_reference", "unsupported", "untrusted_origin", "not_found", "lookup_unavailable", "ad_unmapped"].includes(value.reason));
   if (value.kind === "agency_contact") return isCanonicalAgencyContact(value);
   if (value.kind === "company_policy") return isPinnedCompanyPolicy(value, knowledgeSourceHash);
   if (value.kind === "company_information") return isCustomerCompanyInformation(value);
@@ -358,7 +367,10 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
     if (new Set(frame.tools.map(t => t.name)).size !== frame.tools.length) return held("duplicate_tool_definition");
     if (frame.surface === "public_comment" && frame.tools.some(t => writeNames.has(t.name))) return held("public_write_definition_denied");
     await check();
+    const assistantTexts = (context?.turns ?? []).filter(turn => turn.role === "assistant").map(turn => turn.text);
     if (perception?.speech === "unintelligible" && perception.subject === "not_visible" && !frame.inputText.trim() && !frame.requestedFacts.length) {
+      // The same business question was the last thing we said: say nothing rather than ask it twice.
+      if (customerAgentAttachmentQuestionAsked(assistantTexts)) return held("attachment_question_repeat_no_reply", "attachment_question_repeat_no_reply");
       const decision = customerAgentDecisionSchema.parse({ kind: "clarify", refs: [], social: "none", question: "clarify_previous" });
       const text = renderCustomerAgentDecision({ decision, evidence: [], language: frame.language, requestedFacts: [],
         knownPhoneSource: frame.knownPhoneSource, maxOutputChars: revision.limits.maxOutputChars, surface: frame.surface,
@@ -377,11 +389,50 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
       await check();
       return { status: "ready", decision, question: "none", text, evidence: [], rounds, toolCalls };
     }
+    // A publication of somebody else's, forwarded with nothing asked (30.10.2026: like-exchange chains). Decided here, before any
+    // read or model round: the first one gets one short line, every later one no answer at all ("no reply needed", not a stop of
+    // the dialogue: the next real message is a new turn). Facts, the office address and questions to the buyer never ride on it.
+    if (frame.surface === "dm" && context?.publicState.topic !== "job" &&
+        // Own unlinked publication that WAS read (perception) is answered from what we saw, not with the "not linked" line.
+        !perception && (customerAgentForeignShareOnly(frame.attachmentInput) || customerAgentOwnUnlinkedOnly(frame.attachmentInput)) &&
+        customerDmForeignShareNoise(frame.inputText)) {
+      if (customerAgentForeignShareAnswered((context?.turns ?? []).filter(turn => turn.role === "assistant").map(turn => turn.text))) {
+        return held("foreign_share_no_reply", "foreign_share_no_reply");
+      }
+      const decision = customerAgentDecisionSchema.parse({ kind: "clarify", refs: [], social: "none", question: "clarify_previous" });
+      const text = renderCustomerAgentDecision({ decision, evidence: [], inputText: frame.inputText, attachmentInput: frame.attachmentInput,
+        language: frame.language, requestedFacts: [], knownPhoneSource: frame.knownPhoneSource, maxOutputChars: revision.limits.maxOutputChars,
+        surface: frame.surface, verifiedContext: context ?? undefined });
+      if (text === null) return held("unsupported_decision_evidence");
+      await check();
+      return { status: "ready", decision, question: "clarify_previous", text, evidence: [], rounds, toolCalls };
+    }
+    if (frame.followUp && frame.surface === "dm" && !frame.attachmentInput && !perception && !frame.requestedFacts.length && !evidence.length && context?.publicState.topic !== "job") {
+      const decision = customerAgentDecisionSchema.parse({ kind: "clarify", refs: [], social: "none", question: frame.followUp });
+      const text = renderDecision(decision);
+      if (text) return await ready(decision, text);
+    }
     if (customerCompanyInformationRequested(frame.inputText) && frame.tools.some(tool => tool.name === "get_company_information")) {
       await execute({ name: "get_company_information", args: {} }, undefined, true);
     }
     if ((customerRecruitmentRequested([frame.inputText, perception?.transcript, perception?.readableText].filter(Boolean).join("\n")) || context?.publicState.topic === "job") && frame.tools.some(tool => tool.name === "get_open_vacancies")) {
       await execute({ name: "get_open_vacancies", args: {} }, undefined, true);
+    }
+    if (frame.surface === "dm" && frame.preReads?.length && context?.publicState.topic !== "job") {
+      for (const read of frame.preReads) {
+        if (!frame.tools.some(tool => tool.name === read.name)) continue;
+        const result = await execute(read, undefined, true);
+        if ((result as { status?: string }).status === "observed") {
+          contents.splice(contents.length - 1, 0, { role: "user", parts: [{ text: JSON.stringify({ serverObservation: result }) }] });
+        }
+      }
+      // Nothing cheaper in the catalogue: say so honestly and ask the one open question (budget), without a model round.
+      const searches = evidence.filter(e => e.value.kind === "property_search");
+      if (searches.length && searches.length === evidence.length && searches.every(e => e.value.kind === "property_search" && !customerCheaperVisibleCards(e.value).length)) {
+        const decision = customerAgentDecisionSchema.parse({ kind: "reply", refs: searches.map(e => e.ref), social: "none", question: "budget" });
+        const text = renderDecision(decision);
+        if (text) return await ready(decision, text);
+      }
     }
     if (frame.requestedFacts.length && context?.publicState.topic !== "job") {
       const result = await execute({ name: "get_property_facts", args: { kinds: frame.requestedFacts } }, undefined, true);
@@ -401,10 +452,14 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
       // A file without a caption supplies neither intent nor consent. Resolve
       // its real public reference first, then ask one normal clarification.
       // Do not invoke an unqualified media API or pretend to have seen pixels.
+      // Nothing was read from the file and nothing is in focus: the fixed question was already asked, so a second empty file gets no answer.
+      if (!evidence.length && customerAgentAttachmentQuestionAsked(assistantTexts)) return held("attachment_question_repeat_no_reply", "attachment_question_repeat_no_reply");
       const decision = customerAgentDecisionSchema.parse({ kind: "clarify", refs: evidence.map(e => e.ref), social: "none", question: "clarify_previous" });
       const text = renderCustomerAgentDecision({ decision, evidence, inputText: frame.inputText, attachmentInput: frame.attachmentInput,
         language: frame.language, requestedFacts: frame.requestedFacts, knownPhoneSource: frame.knownPhoneSource,
-        maxOutputChars: revision.limits.maxOutputChars, surface: frame.surface });
+        maxOutputChars: revision.limits.maxOutputChars, surface: frame.surface,
+        // With the verified context, so the repeat guard acts HERE and the sealed re-render (which has it) gives the same text.
+        verifiedContext: context ?? undefined });
       if (text === null) return held("unsupported_decision_evidence");
       await check();
       return { status: "ready", decision, question: "clarify_previous", text, evidence: clone(evidence), rounds, toolCalls };
@@ -476,7 +531,17 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
       // The free phrase leaves the raw JSON BEFORE the strict parse: a bad `say` must never void an otherwise valid decision (or cost a correction round).
       const { say: modelSay, rest: decisionJson } = liftSay(raw);
       let parsed = customerAgentDecisionSchema.safeParse(decisionJson);
-      let fallbackReason: "invalid_model_decision" | undefined;
+      let fallbackReason: "invalid_model_decision" | undefined, fallbackCause: string | undefined;
+      if (!parsed.success && !notJson && !canCorrect()) {
+        // Last resort only: the correction round comes first (live 30.10: a server-side fix of `propose` without `ref` skipped the
+        // round in which the model goes on to search, and buyers got silence). When no round is left, a wrong SHAPE with a clear
+        // intent is fixed by the server instead of ending the turn held.
+        const repaired = repairCustomerAgentDecision(decisionJson, { surface: frame.surface, knownRefs: evidence.map(e => e.ref) });
+        const reparsed = repaired ? customerAgentDecisionSchema.safeParse(repaired.decision) : null;
+        if (repaired && reparsed?.success) {
+          parsed = reparsed; fallbackReason = "invalid_model_decision"; fallbackCause = `repair_${repaired.repairs[0]}`.slice(0, 48);
+        }
+      }
       if (!parsed.success && frame.surface === "public_comment" && !unsettledWrites.size) {
         // Public tools are read-only. A malformed final suggestion must not
         // discard verified search/facts already obtained in this SAME turn.
@@ -486,7 +551,7 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
         const refs = evidence.filter(e => ["facts", "property_search", "company_policy", "property_unresolved", "publication_properties"].includes(e.value.kind)).map(e => e.ref).slice(-8);
         if (refs.length) {
           parsed = customerAgentDecisionSchema.safeParse({ kind: "reply", refs, social: "none", question: "none" });
-          fallbackReason = "invalid_model_decision";
+          fallbackReason = "invalid_model_decision"; fallbackCause = "public_refs_fallback";
         }
       }
       /** The model's own final stays in the transcript so it can see what to fix; only schema paths/codes come back. */
@@ -505,7 +570,10 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
         }
         return await confirmCommitted("invalid_model_decision");
       }
-      const d = parsed.data;
+      // Server repair: a seller never receives a rental refusal / bare commission that nobody asked for (customerAgentSellerGuard).
+      const sellerRepair = guardSellerDecision({ decision: parsed.data, evidence, surface: frame.surface, inputText: frame.inputText, verifiedContext: context ?? undefined });
+      if (sellerRepair) fallbackReason = "invalid_model_decision";
+      const d = sellerRepair?.decision ?? parsed.data;
       if (d.kind === "moderation_proposal" || d.kind === "skip" && (d.reason === "no_reply_needed" || d.reason === "duplicate")) {
         suppressionDecisionSeen = true;
       }
@@ -542,7 +610,9 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
       }
       const text = renderDecision(planned);
       if (text === null) return await confirmCommitted("unsupported_decision_evidence");
-      return await ready(planned, text, { ...(fallbackReason ? { fallbackReason } : {}), say });
+      // Seller guard repairs win over shape repairs; trace cause codes must not contain ":" (botTurnTrace drops them).
+      const cause = sellerRepair ? sellerRepair.cause.replace(/:/g, "_") : fallbackCause;
+      return await ready(planned, text, { ...(fallbackReason ? { fallbackReason } : {}), ...(cause ? { fallbackCause: cause } : {}), say });
     }
     return await confirmCommitted("round_limit");
   } catch (error) {

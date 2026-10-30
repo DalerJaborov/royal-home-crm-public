@@ -53,7 +53,7 @@ export interface AttackStand {
   expand(text: string): string;
   /** Apply a scenario fixture (published cards, open vacancies, publication mapping). */
   arrange(spec: AttackFixtureSpec): Promise<void>;
-  newDmSession(): Promise<{ turn(text: string, attach: AttackAttach | null | undefined): Promise<TurnOutcome> }>;
+  newDmSession(): Promise<{ turn(text: string, attach: AttackAttach | null | undefined, options?: { storyReply?: boolean }): Promise<TurnOutcome> }>;
   publicComment(channel: "INSTAGRAM" | "FACEBOOK", text: string, spec: AttackFixtureSpec): Promise<TurnOutcome>;
   /** Total Gemini generateContent calls (decisions + perceptions) and perceptions alone. */
   modelCalls(): { total: number; perception: number };
@@ -152,10 +152,10 @@ export async function createAttackStand(options: AttackStandOptions): Promise<At
     await setAllowed(publicAllowed);
     const owner = await core.owner();
     return {
-      async turn(text: string, attach: AttackAttach | null | undefined): Promise<TurnOutcome> {
+      async turn(text: string, attach: AttackAttach | null | undefined, options?: { storyReply?: boolean }): Promise<TurnOutcome> {
         const before = { generated: core.counts().generated, physical: core.physical.length };
         lastDecision = null; current.input = expand(text); current.surface = "dm";
-        current.perception = attach ? { language: "unknown", transcript: "", subject: "not_visible", visible: [], readableText: "", speech: "none", ...attach.perception } : null;
+        current.perception = attach && attach.type !== "ephemeral" ? { language: "unknown", transcript: "", subject: "not_visible", visible: [], readableText: "", speech: "none", ...attach.perception } : null;
         let status: TurnOutcome["status"] = "silent", heldReason: string | undefined, error: string | undefined;
         const observations: unknown[] = [];
         try {
@@ -165,10 +165,28 @@ export async function createAttackStand(options: AttackStandOptions): Promise<At
             const mediaUrlValue = core.mediaFixture("image/png", PNG, true);
             core.publicationFixture(owner, [{ id: String(17890000 + Math.floor(Math.random() * 9000)), permalink, media_type: "IMAGE", media_url: mediaUrlValue }]);
             attachments = [{ type: attach.type, payload: { url: permalink, ...(attach.type === "ig_reel" ? { reel_video_id: "12345678" } : { ig_post_media_id: "17890001" }) } }];
+          } else if (attach?.type === "ig_reel_own_unlinked") {
+            // Our own account's reel (found by the feed lookup) that no card of ours is linked to.
+            const code = `Zown${Math.floor(Math.random() * 1e9)}`, permalink = `https://www.instagram.com/reel/${code}/`;
+            core.publicationFixture(owner, [{ id: String(17890000 + Math.floor(Math.random() * 9000)), permalink, media_type: "IMAGE", media_url: core.mediaFixture("image/png", PNG, true) }]);
+            attachments = [{ type: "ig_reel", payload: { url: permalink, reel_video_id: String(40000000 + Math.floor(Math.random() * 9e6)) } }];
+          } else if (attach?.type === "ig_reel_foreign") {
+            // A reel of somebody else: a permalink and a reel id that no card of ours carries, nothing in our own media feed.
+            const code = `Zforeign${Math.floor(Math.random() * 1e9)}`;
+            attachments = [{ type: "ig_reel", payload: { url: `https://www.instagram.com/reel/${code}/`, reel_video_id: String(30000000 + Math.floor(Math.random() * 9e6)) } }];
+          } else if (attach?.type === "ephemeral") {
+            attachments = [{ type: "ephemeral", payload: {} }];
           } else if (attach) {
             attachments = [{ type: attach.type === "document" ? "file" : attach.type, payload: { url: await mediaUrl(attach) } }];
           }
-          const event = await core.capture(owner, current.input, attachments);
+          let replyToStory: { id: string; url: string } | undefined;
+          if (options?.storyReply) {
+            // Our story card of the first fixture object: the registry knows it by the Instagram media id, Meta's url is only a CDN link.
+            const storyId = `1811${Date.now()}${Math.floor(Math.random() * 10000)}`;
+            await prisma.propertyStoryPost.create({ data: { propertyId: cards[0].id, channel: "INSTAGRAM", mediaId: storyId, kind: "CARD" } });
+            replyToStory = { id: storyId, url: "https://scontent-fra5-1.cdninstagram.com/v/t51.12442-15/synthetic_story.jpg?token=synthetic" };
+          }
+          const event = await core.capture(owner, current.input, attachments, replyToStory);
           const result = await consumeCustomerInboxTicket(event);
           if (result.status === "planned") {
             for (const partId of result.partIds) {

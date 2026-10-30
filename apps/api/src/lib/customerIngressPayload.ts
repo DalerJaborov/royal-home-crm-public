@@ -20,11 +20,11 @@ export const customerNormalizedIngressSchema = z.object({
       recipientPhoneDigits: z.string().regex(/^\d{8,15}$/).optional(),
       // Optional transport classification, excluded from stable event identity.
       // Older encrypted envelopes remain readable and are never rewritten.
-      mediaKinds: z.array(z.enum(["image", "video", "audio", "document", "share", "link", "unknown"])).max(16).optional(),
+      mediaKinds: z.array(z.enum(["image", "video", "audio", "document", "share", "link", "ephemeral", "unknown"])).max(16).optional(),
     }).strict().optional(),
   }).strict(),
   providerOccurredAt: z.string().datetime({ offset: true }).optional(),
-  media: z.array(z.object({ kind: z.enum(["image", "video", "audio", "document", "share", "link", "unknown"]),
+  media: z.array(z.object({ kind: z.enum(["image", "video", "audio", "document", "share", "link", "ephemeral", "unknown"]),
     url: z.string().min(1).max(4096).optional(), assetRef: reference.optional(),
     mimeType: z.string().max(160).optional(), publicationId: reference.optional(),
   }).strict()).max(16),

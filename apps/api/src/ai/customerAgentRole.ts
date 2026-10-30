@@ -43,6 +43,7 @@ const BUY_WEAK = [
 const RENT_TENANT = re(`${BW}(?:аренд\\p{L}*|снять|снимать|сниму|ичора)${EW}`);
 // "is it for sale / do you sell" is a buyer's question, not an offer to sell.
 const BUYER_ASK = re(`${BW}(?:продается|продаются|продаете) ли${EW}|${BW}что (?:у вас )?продает\\p{L}*${EW}`);
+const ON_SALE = re(`${BW}на продажу${EW}`);
 const FOR_SALE = re(`${BW}в продаже${EW}`);
 const ASKING = new RegExp(`${BW}ли${EW}|${BW}у вас${EW}`, "u");
 const NEGATED_BEFORE = new RegExp(`(?:^|\\s)(?:не|ни|намех\\p{L}*)\\s+(?:\\p{L}+\\s+)?$`, "u");
@@ -65,7 +66,7 @@ export function customerRoleSignals(text: string): CustomerRoleSignals {
   const buyerAsk = plain(norm, BUYER_ASK) || (passive && question) || (question && plain(norm, FOR_SALE));
   const landlord = plain(norm, LANDLORD_TG) ||
     (plain(norm, LANDLORD_ACTIVE) || (plain(norm, LANDLORD_PASSIVE) && !question)) && (RENT_HINT.test(norm) || HOUSING_WORD.test(norm));
-  const sell = plain(norm, SELL_ACTIVE) || (passive && !question && !buyerAsk) || plain(norm, SELL_OWN) || plain(norm, OWN_HOUSING);
+  const sell = plain(norm, SELL_ACTIVE) || (passive && !question && !buyerAsk) || plain(norm, SELL_OWN) || (!question && !buyerAsk && plain(norm, ON_SALE)) || plain(norm, OWN_HOUSING);
   return { buyStrong: buyerAsk || plain(norm, BUY_STRONG), buyWeak: plain(norm, BUY_WEAK), sell, landlord,
     rent: plain(norm, RENT_TENANT) };
 }

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { CustomerAgentAttachmentInput } from "../ai/customerAgentAttachmentInput.js";
 import { customerDmAttachmentInput } from "./customerDmAttachmentInput.js";
+import { customerForeignShareCandidate } from "./customerSharedPublication.js";
 import type { CustomerNormalizedIngressInput } from "./customerIngressPayload.js";
 import { resolveCustomerPropertyTurnContext, type CustomerPropertyTurnContext } from "./customerPropertyTurnContext.js";
 import { prisma } from "../db.js";
@@ -15,6 +16,8 @@ import { noteRealInbound } from "./outboundShield.js";
 export type PreparedCustomerDmCoreContext =
   | { status: "prepared"; lane: ScopedCustomerQualifierLane; focus: CustomerPropertyTurnContext | null;
       attachmentInput?: CustomerAgentAttachmentInput; attachmentPropertyReference: boolean;
+      /** Necessary condition for "somebody else's publication"; the lookup outcome decides the rest (see customerDmAgentTurn). */
+      foreignShareCandidate: boolean;
       media: CustomerNormalizedIngressInput["media"] }
   | { status: "already_planned" }
   | { status: "ignored"; reason: string }
@@ -78,8 +81,10 @@ export async function prepareCustomerDmInboxCoreContext(eventKey: unknown): Prom
     if (lane.mode !== "scoped") return { status: "held", reason: "original_context_changed" };
     const current = await refreshCustomerQualifierProjection(lane);
     if (current.status !== "current") return { status: "held", reason: "original_context_changed" };
+    const attachmentInput = customerDmAttachmentInput(payload.payload);
     return { status: "prepared", lane: { ...lane, context: current.context }, focus,
-      attachmentInput: customerDmAttachmentInput(payload.payload), media: structuredClone(payload.payload.media),
+      attachmentInput, media: structuredClone(payload.payload.media),
+      foreignShareCandidate: customerForeignShareCandidate({ kinds: attachmentInput?.kinds, propertyEvidence: payload.payload.propertyEvidence }),
       attachmentPropertyReference: payload.payload.propertyEvidence.some(item =>
         ["media", "url", "ad", "public_selector", "reply"].includes(item.kind)) };
   } catch {

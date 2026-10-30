@@ -101,3 +101,19 @@ describe("judge modes", () => {
     expect(failed(run(s, [outcome("Спасибо!")]))).toContain("replied");
   });
 });
+
+describe("judge: seller lane rules (30.10.2026)", () => {
+  const extra = new Set(["no-commission-first"]);
+  const judge = (s: AttackScenario, o: TurnOutcome[]) => judgeTurn({ scenario: s, turnIndex: o.length - 1, outcomes: o, facts, mode: "live", extraRules: extra });
+  it("no-commission-first stays RED when nobody asked and GREEN when the customer asked (ru+tg)", () => {
+    expect(failed(judge(scenario([{ in: "продам квартиру" }]), [outcome("Комиссия для продавца — 2%.")]))).toContain("no-commission-first");
+    for (const ask of ["сколько берёте с продавца", "сколько получу на руки", "рекламатон чанпул?", "ҳаққи хизмат чанд фоиз"]) {
+      expect(failed(judge(scenario([{ in: ask }]), [outcome("Комиссия для продавца — 2%.")]))).not.toContain("no-commission-first");
+    }
+  });
+  it("topic:seller accepts an honest rental refusal to a rental message, still rejects it for a sale", () => {
+    const s = (text: string) => scenario([{ in: text, expect: { topic: "seller" } }]);
+    expect(failed(judge(s("сдам квартиру"), [outcome("Сейчас арендой не занимаемся.")]))).not.toContain("topic:seller");
+    expect(failed(judge(s("у меня дом на продажу"), [outcome("Сейчас арендой не занимаемся.")]))).toContain("topic:seller");
+  });
+});

@@ -1698,7 +1698,15 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
         for (const message of incoming) {
           if (message.isEcho) continue;
           const originalRoute = inspectCustomerDmRouting(customerDmRoutingForIncoming(req, message));
-          if (originalRoute && originalRoute.execution.lane !== "LEGACY") continue; // P11 owns CORE; HELD never falls through.
+          if (originalRoute && originalRoute.execution.lane !== "LEGACY") {
+            // CORE has already read the remembered ad click into this message's evidence at intake
+            // (customerIngressNormalize); it belongs to this one message, so it is spent here.
+            if (originalRoute.execution.lane === "CORE" && message.messageId && message.accountExternalId) {
+              const spent = peekAdReferral(message.channel, message.senderId, message.accountExternalId);
+              if (spent) consumeAdReferral(message.channel, message.senderId, message.accountExternalId, spent);
+            }
+            continue; // P11 owns CORE; HELD never falls through.
+          }
           // The first referral can precede any namespace. Remember only an
           // exactly configured target, without creating scope/native/admission.
           // Its evidence is bound later to the next genuine MID in this tuple.

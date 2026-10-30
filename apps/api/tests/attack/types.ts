@@ -3,7 +3,7 @@ import { z } from "zod";
 // Attack-harness contracts: scenario corpus (synthetic in git, real outside git), per-turn outcome, judge verdicts.
 // Pure data only: no prisma, no model, no network, so the judge and the importer are unit-testable without a database.
 
-export const ATTACK_CATEGORIES = ["buyer", "seller", "job", "comment", "link", "media", "language", "abuse", "injection", "multi-turn", "real"] as const;
+export const ATTACK_CATEGORIES = ["buyer", "seller", "job", "comment", "link", "media", "language", "abuse", "injection", "multi-turn", "dm-share", "real"] as const;
 export type AttackCategory = typeof ATTACK_CATEGORIES[number];
 export const QUESTION_PURPOSES = ["property", "budget", "location", "rooms", "name", "phone", "callback_consent", "topic", "role", "clarify_previous",
   "seller_details", "preferences", "job_position", "job_experience", "job_portfolio", "job_tools", "job_format", "job_start"] as const;
@@ -39,13 +39,15 @@ export const perceptionSchema = z.object({
   speech: z.enum(["clear", "partial", "none", "unintelligible"]).default("none"),
 }).strict();
 export const attachSchema = z.object({
-  type: z.enum(["image", "video", "audio", "document", "ig_reel", "ig_post"]),
+  type: z.enum(["image", "video", "audio", "document", "ig_reel", "ig_post", "ig_reel_foreign", "ig_reel_own_unlinked", "ephemeral"]),
   /** What the media perception returns for this file (the fixture supplies it in both model modes). */
   perception: perceptionSchema.optional(),
 }).strict();
 export type AttackAttach = z.infer<typeof attachSchema>;
 
-export const turnSchema = z.object({ in: z.string().max(3000), attach: attachSchema.nullish(), expect: expectSchema.optional() }).strict();
+export const turnSchema = z.object({ in: z.string().max(3000), attach: attachSchema.nullish(),
+  /** The customer answers OUR story of the first fixture card (Meta sends reply_to.story with the media id and a CDN url). */
+  storyReply: z.boolean().optional(), expect: expectSchema.optional() }).strict();
 export type AttackTurn = z.infer<typeof turnSchema>;
 
 export const fixtureSchema = z.object({

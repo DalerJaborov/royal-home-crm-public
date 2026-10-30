@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import { parseIncoming, type MetaIncoming } from "../messengers/meta.js";
 import { WEBSITE_SESSION_RE } from "../messengers/websiteChat.js";
+import { adReferralBoundToEvent, peekAdReferral } from "../messengers/metaPeerMemory.js";
 import { customerPropertyEvidenceFromMeta, customerPropertyEvidenceFromText } from "./customerPropertyEvidence.js";
 import { authenticatedCustomerRequestEvidence } from "./customerIngressAuthority.js";
 import { customerNormalizedIngressSchema, type CustomerNormalizedIngressInput } from "./customerIngressPayload.js";
@@ -51,12 +52,27 @@ function metaSource(body: unknown, input: MetaIncoming): Source | null {
   return found.length === 1 ? found[0] : null;
 }
 function mediaKind(value: string | undefined): CustomerNormalizedIngressInput["media"][number]["kind"] {
-  return value === "image" || value === "video" || value === "audio" || value === "document" || value === "share" || value === "link" ? value : "unknown";
+  return value === "image" || value === "video" || value === "audio" || value === "document" || value === "share" || value === "link" || value === "ephemeral" ? value : "unknown";
 }
 function observedMediaKind(value: string | undefined): CustomerNormalizedIngressInput["media"][number]["kind"] {
   if (value === "ig_reel" || value === "ig_post") return "share";
   if (value === "file") return "document";
   return mediaKind(value);
+}
+
+/** A click on our ad arrives as its own event without a message (MetaIncoming.referralOnly); the webhook
+ * remembers it per account/peer after checking the signed target. The next CORE message of that peer
+ * inside ten minutes gets it as ad evidence, but only when the message has no property reference of its own
+ * (a typed link or number, a shared post, a story, a reply, a button) and no ad of its own: a second source
+ * would turn into a conflict instead of help. Reading does not consume and the outcome is fixed per MID: the same event normalised again
+ * (redelivery, recovery) gives the same evidence; the webhook consumes the memory once the message is taken. */
+const REMEMBERED_AD_WINDOW_MS = 10 * 60_000;
+function withRememberedAdReferral(message: MetaIncoming): MetaIncoming {
+  if (message.isEcho || message.referralOnly || message.adId || message.adPostId || !message.messageId || !message.accountExternalId) return message;
+  if (customerPropertyEvidenceFromMeta(message).length) return message;
+  const ref = adReferralBoundToEvent(message.channel, message.senderId, message.accountExternalId, message.messageId,
+    () => peekAdReferral(message.channel, message.senderId, message.accountExternalId!, Date.now(), REMEMBERED_AD_WINDOW_MS)?.ref ?? null);
+  return ref ? { ...message, ...ref, fromAd: true, propertyReferralOrigin: "remembered_referral" } : message;
 }
 
 /** Only raw bytes belonging to this genuinely authenticated request are parsed.
@@ -106,7 +122,7 @@ export function normalizeAuthenticatedCustomerIngress(request: VerifiedRequest):
         classifier: { version: 1, bareTemplateEcho: !message.text && message.attachmentType === "template",
           ...(mediaKinds.length ? { mediaKinds } : {}),
           ...(source.recipientPhoneDigits ? { recipientPhoneDigits: source.recipientPhoneDigits } : {}) } }, media,
-      propertyEvidence: customerPropertyEvidenceFromMeta(message),
+      propertyEvidence: customerPropertyEvidenceFromMeta(withRememberedAdReferral(message)),
     });
   }) };
 }

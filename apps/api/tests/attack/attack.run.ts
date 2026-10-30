@@ -63,7 +63,7 @@ describe(`attack corpus (${mode}, ${scenarios.length} scenarios)`, () => {
       const session = scenario.surface === "dm" ? await active.newDmSession() : null;
       const outcomes: TurnOutcome[] = [];
       for (const [index, turn] of scenario.turns.entries()) {
-        const outcome = session ? await session.turn(turn.in, turn.attach)
+        const outcome = session ? await session.turn(turn.in, turn.attach, { storyReply: turn.storyReply })
           : await active.publicComment(scenario.channel === "FACEBOOK" ? "FACEBOOK" : "INSTAGRAM", turn.in, scenario.fixture);
         outcomes.push(outcome);
         const judgement = judgeTurn({ scenario: expanded, turnIndex: index, outcomes, facts: active.facts, mode, extraRules });

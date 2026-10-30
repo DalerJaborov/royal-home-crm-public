@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **722**. Развилок в самих путях: **2560**; вместе с задачами по расписанию и фоновыми заданиями — **3990**. Модулей: **79**.
+Путей: **722**. Развилок в самих путях: **2562**; вместе с задачами по расписанию и фоновыми заданиями — **3992**. Модулей: **79**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -18654,6 +18654,12 @@
     - const originalRoute = inspectCustomerDmRouting(customerDmRoutingForIncoming(req, message));
       · зовёт inspectCustomerDmRouting()
     - если originalRoute && originalRoute.execution.lane !== "LEGACY"
+      - если originalRoute.execution.lane === "CORE" && message.messageId && message.accountExternalId
+        - const spent = peekAdReferral(message.channel, message.senderId, message.accountExternalId);
+          · зовёт peekAdReferral()
+        - если spent
+          - consumeAdReferral(message.channel, message.senderId, message.accountExternalId, spent);
+            · зовёт consumeAdReferral()
       - continue;
         · переходит к следующему
     - если message.referralOnly
