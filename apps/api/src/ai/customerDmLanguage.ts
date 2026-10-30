@@ -1,7 +1,23 @@
-import { clientLanguageScores, detectClientLanguage, stripNonLanguage, type ClientLanguage } from "./clientLanguage.js";
+import { clientLanguageScores, detectClientLanguage as detectRawClientLanguage, isUnreadableLatin, stripNonLanguage, type ClientLanguage } from "./clientLanguage.js";
 import { foldCustomerText } from "./customerAgentRole.js";
 import { clientOwnWords } from "./untrustedContent.js";
 import { BW, EW } from "./wordBoundary.js";
+
+/** Customer-core view of the detector: Latin noise is no evidence of Tajik (the legacy detector guesses "tg"). */
+function detectClientLanguage(input: string): ClientLanguage {
+  return isUnreadableLatin(input) ? "unknown" : detectRawClientLanguage(input);
+}
+
+/** History stores a turn without words as a JSON stand-in (`{"incomingAttachments":[..]}`,
+ * `{"previouslyObservedCustomerMedia":..}`). Those are our literals, never the customer's language. */
+const PLACEHOLDER_KEYS = /^\{\s*"(?:incomingAttachments|previouslyObservedCustomerMedia)"\s*:/u;
+export function isCustomerHistoryPlaceholder(text: string): boolean {
+  return PLACEHOLDER_KEYS.test(text.trim());
+}
+/** The customer's own words of a history turn: placeholder lines removed. */
+export function customerHistoryOwnWords(text: string): string {
+  return text.split("\n").filter(line => !isCustomerHistoryPlaceholder(line)).join("\n").trim();
+}
 
 // "I do not understand Russian" is a request for Tajik (and the mirror for Tajik). Written in the
 // folded alphabet of `foldCustomerText` (ӣ->и, ӯ->у, ҳ->х, ...). First person only: "вы не понимаете" is not a request.
@@ -80,11 +96,16 @@ function decisiveLanguage(text: string): "ru" | "tg" | null {
  * decisive earlier customer turn; a mixed or unreadable turn falls back to history, then to the larger word
  * count, then to Russian. `priorUserTexts` are the customer's earlier turns, oldest first.
  */
-export function resolveCustomerDmLanguage(text: string, priorUserTexts: readonly string[] = []): "ru" | "tg" {
+export function resolveCustomerDmLanguage(text: string, priorUserTexts: readonly string[] = [],
+  storedLanguage?: "ru" | "tg" | "mixed" | "unknown"): "ru" | "tg" {
+  text = customerHistoryOwnWords(text);
   const preference = customerDmLanguagePreference(text);
   if (preference) return preference;
-  const prior = [...priorUserTexts].reverse();
-  const earlier = prior.map(decisiveLanguage).find((value): value is "ru" | "tg" => value !== null)
+  const prior = [...priorUserTexts].reverse().map(customerHistoryOwnWords).filter(Boolean);
+  const stored = storedLanguage === "ru" || storedLanguage === "tg" ? storedLanguage : undefined;
+  // Window evidence is fresher than the stored value; the stored one keeps the language across a revision
+  // change (the window drops older tickets) and in long dialogues.
+  const earlier = prior.map(decisiveLanguage).find((value): value is "ru" | "tg" => value !== null) ?? stored
     ?? prior.filter(isNeutralShortReply).map(detectClientLanguage).find((value): value is "ru" | "tg" => value === "ru" || value === "tg");
   if (isNeutralShortReply(text)) return earlier ?? (detectClientLanguage(text) === "tg" ? "tg" : "ru");
   if (customerColloquialTajikLanguage(text)) return "tg";

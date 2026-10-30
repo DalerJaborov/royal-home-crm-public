@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { clientLanguageScores, detectClientLanguage } from "../src/ai/clientLanguage.js";
-import { isNeutralShortReply, resolveCustomerDmLanguage } from "../src/ai/customerDmLanguage.js";
+import { customerHistoryOwnWords, isCustomerHistoryPlaceholder, isNeutralShortReply, resolveCustomerDmLanguage } from "../src/ai/customerDmLanguage.js";
 
 const RU = "Здравствуйте, сколько стоит квартира в центре?";
 const TG = "Салом, мехоҳам хона харам, нархаш чанд аст?";
@@ -61,5 +61,39 @@ describe("dialogue language across turns", () => {
     expect(isNeutralShortReply("Спасибо, а сколько стоит?")).toBe(false);
     expect(isNeutralShortReply("Кор")).toBe(false);
     expect(isNeutralShortReply("Нарх")).toBe(false);
+  });
+});
+
+describe("language survives attachment-only turns, placeholders and revision changes (30.10.2026)", () => {
+  const TG_HISTORY = ["Салом, мехоҳам хона харам", "Нархаш чанд аст?"];
+  const PLACEHOLDER = JSON.stringify({ incomingAttachments: ["share"] });
+  it("an empty text (reel without words) after Tajik history stays Tajik", () => {
+    expect(resolveCustomerDmLanguage("", TG_HISTORY)).toBe("tg");
+  });
+  it("the attachment placeholder in history is not language evidence", () => {
+    expect(isCustomerHistoryPlaceholder(PLACEHOLDER)).toBe(true);
+    expect(isCustomerHistoryPlaceholder("Салом")).toBe(false);
+    expect(resolveCustomerDmLanguage("", [PLACEHOLDER])).toBe("ru");
+    expect(resolveCustomerDmLanguage("", [RU, PLACEHOLDER])).toBe("ru");
+    expect(resolveCustomerDmLanguage("", [...TG_HISTORY, PLACEHOLDER, PLACEHOLDER])).toBe("tg");
+    const observed = `${JSON.stringify({ previouslyObservedCustomerMedia: { subject: "x", visible: [], readableText: "" }, authority: "Historical customer content" })}`;
+    expect(resolveCustomerDmLanguage("", [observed])).toBe("ru");
+    expect(customerHistoryOwnWords(`Нархаш чанд аст?\n${observed}`)).toBe("Нархаш чанд аст?");
+  });
+  it("the stored dialogue language survives a window that lost the earlier turns", () => {
+    expect(resolveCustomerDmLanguage("", [], "tg")).toBe("tg");
+    expect(resolveCustomerDmLanguage("", [PLACEHOLDER], "tg")).toBe("tg");
+    expect(resolveCustomerDmLanguage("Спасибо", [], "tg")).toBe("tg");
+    expect(resolveCustomerDmLanguage("", [], "unknown")).toBe("ru");
+    expect(resolveCustomerDmLanguage("", [RU], "tg")).toBe("ru");
+    expect(resolveCustomerDmLanguage("Сколько стоит квартира в центре?", [], "tg")).toBe("ru");
+  });
+  it("Latin noise is not decisive: the earlier language stays", () => {
+    for (const noise of ["Binenw", "Blizkiyoooo"]) {
+      expect(resolveCustomerDmLanguage(noise, TG_HISTORY)).toBe("tg");
+      expect(resolveCustomerDmLanguage(noise, [RU])).toBe("ru");
+      expect(resolveCustomerDmLanguage(noise, [noise, RU])).toBe("ru");
+    }
+    expect(resolveCustomerDmLanguage("salom, in khona chand pul", [RU])).toBe("tg");
   });
 });

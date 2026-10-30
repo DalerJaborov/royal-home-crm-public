@@ -84,6 +84,13 @@ const TAJIK_LATIN_WORDS =
 const ENGLISH_STRONG_WORDS =
   /(^|[^a-z])(the|and|you|your|are|is|does|have|has|can|could|would|want|need|price|how|much|many|what|where|when|hello|please|thanks|thank|apartment|apartments|house|buy|sell|rent|for|with|about|of)([^a-z]|$)/gi;
 
+/** Latin letters with no Cyrillic and no known Tajik-in-Latin word ("Binenw", "Blizkiyoooo"): noise, not evidence of Tajik. */
+export function isUnreadableLatin(text: string): boolean {
+  const trimmed = prepare(text);
+  return !HAS_CYRILLIC.test(trimmed) && HAS_LATIN.test(trimmed) && count(TAJIK_LATIN_WORDS, trimmed) === 0 &&
+    count(TAJIK_GREETINGS, trimmed) === 0;
+}
+
 export type ClientLanguage = "ru" | "tg" | "mixed" | "unknown";
 
 /**
