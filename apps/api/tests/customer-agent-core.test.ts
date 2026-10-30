@@ -134,7 +134,8 @@ describe("Customer attachment-only turns", () => {
     const result = await runCustomerAgentTurn({ ...f.frame, attachmentInput: { kinds: [kind] } }, f.ports);
     expect(result).toMatchObject({ status: "ready", question: "clarify_previous", rounds: 0, toolCalls: 0 });
     if (result.status !== "ready") throw Error("Attachment should get a normal clarification");
-    expect(result.text).toContain("?");
+    // The unopenable-file line is a plain request to write the question in text (no question mark by design, 30.10.2026).
+    if (kind !== "unknown") expect(result.text).toContain("?");
     expect(result.text).not.toMatch(/992|сотрудник|передал|записал|увидел|вижу|прослушал|ссылка не открылась/iu);
     expect(f.modelTurn).not.toHaveBeenCalled(); expect(f.executeAllowedTool).not.toHaveBeenCalled();
   });

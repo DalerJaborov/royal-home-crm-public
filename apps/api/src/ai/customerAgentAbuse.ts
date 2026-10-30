@@ -30,6 +30,13 @@ const SPAM = new RegExp([
   `${BW}заработок\\s+без\\s+вложени${TAIL}`, `${BW}пиши(?:те)?\\s+мне\\s+в\\s+(?:директ|лс|личк${TAIL}|телеграм)`,
   `${BW}казино${EW}`, `${BW}ставки\\s+на\\s+спорт`, `${BW}выигрыш${TAIL}\\s+100`,
   `${BW}переходи(?:те)?\\s+и\\s+(?:выигрывай|заработай)`,
+  // Like-exchange chain ("Лайк камент паделится", "лайк за лайк", "взаимка", like4like). A share word counts only next to
+  // the like/comment word: "поделитесь номером" on its own is an ordinary request.
+  `${BW}(?:лайк|like|лойк)\\p{L}*${EW}[^\\p{L}\\p{N}]{0,3}(?:(?:за|на|и)\\s+)?(?:лайк|like|камент|коммент|подел|падел|подпис|подпиш|взаим|follow)\\p{L}*`,
+  `${BW}(?:лайк|like)\\p{L}*${EW}.{0,14}${BW}(?:камент|коммент|подел|падел|взаим|жду${EW})`,
+  `${BW}(?:камент|коммент)\\p{L}*${EW}.{0,12}${BW}(?:подел|падел|лайк|подпис|подпиш)`,
+  `${BW}взаимк${TAIL}`, `${BW}взаимн\\p{L}*\\s+(?:лайк|подпис|коммент)`,
+  `${BW}(?:l4l|f4f|like4like|follow4follow|like\\s+for\\s+like|follow\\s+for\\s+follow)${EW}`,
 ].join("|"), "iu");
 
 export type CustomerDmAbuse = "threat" | "insult" | "spam";
@@ -57,3 +64,23 @@ const NEUTRAL: Record<CustomerDmAbuse, { ru: string; tg: string }> = {
 export function customerDmAbuseReply(kind: CustomerDmAbuse, language: "ru" | "tg"): string { return NEUTRAL[kind][language]; }
 /** Every fixed line above, for the read-only memory allow-list. */
 export function customerDmAbuseLines(): string[] { return Object.values(NEUTRAL).flatMap(line => [line.ru, line.tg]); }
+
+/** Latin one-word replies that DO carry a request or a greeting (transliterated Russian/Tajik): never noise. */
+const LATIN_INTENT = new RegExp(`${BW}(?:salom|salam|assalom\\p{L}*|aleykum|privet|hello|hi|hey|ok|okey|price|narx\\p{L}*|qimat|kimat|cena|tsena|skolko|kvartira|xona|hona|dom|adres\\p{L}*|address|nomer|number|telefon|info|vacancy|rabota|kor)${EW}`, "iu");
+
+/**
+ * What a customer attaches to a forwarded foreign publication when nothing in it asks anything (30.10.2026, live cases:
+ * the forward alone, "Лайк камент паделится", "Blizkiyoooo ❤️", "Binenw 💕", a bare heart). Pure text, no verdict about
+ * the publication itself. True for: no letters/digits at all (empty, emoji only), the like-exchange spam above, and one or
+ * two Latin-script words with no digit, no question mark and no greeting/intent word. Anything that can be a question stays
+ * with the model.
+ */
+export function customerDmForeignShareNoise(text: string): boolean {
+  const own = clientOwnWords(text).normalize("NFKC");
+  if (!/[\p{L}\p{N}]/u.test(own)) return true;
+  if (customerDmAbuseKind(own) === "spam") return true;
+  if (/[?？]/u.test(own) || /\p{N}/u.test(own)) return false;
+  const words = own.split(/[^\p{L}]+/u).filter(Boolean);
+  if (!words.length || words.length > 2 || words.some(word => !/^\p{Script=Latin}+$/u.test(word))) return false;
+  return !LATIN_INTENT.test(foldCustomerText(own));
+}

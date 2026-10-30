@@ -18,8 +18,11 @@ it.each(["ig_reel", "image", "audio", "video", "file", "unsupported"])("%s witho
   const original = await prisma.customerPropertyIngressTicket.findUniqueOrThrow({ where: { eventKey: event } });
   expect(original.originCiphertext).not.toBeNull();
   const result = await f.deliver(event);
-  expect(result.text).toContain("?"); expect(result.text).not.toMatch(/992|сотрудник|записал|передал|ссылка не открылась|Вижу|прослушал/iu);
-  if (type === "ig_reel") expect(result.text).toContain("публикации");
+  // An unknown reel is somebody else's publication (30.10.2026): one short line, not a question about it. An unopenable file gets a human sentence.
+  if (type === "ig_reel") expect(result.text).toBe("Эта публикация не наша. Если ищете жильё, напишите, что нужно.");
+  else if (type === "unsupported") expect(result.text).toBe("Вложение не открылось. Напишите текстом, что вас интересует.");
+  else expect(result.text).toContain("?");
+  expect(result.text).not.toMatch(/992|сотрудник|записал|передал|ссылка не открылась|Вижу|прослушал/iu);
   const after = await prisma.customerPropertyIngressTicket.findUniqueOrThrow({ where: { eventKey: event } });
   expect(after.payloadHash).toBe(original.payloadHash); expect(after.payloadCiphertext).toBe(original.payloadCiphertext);
   expect(after.order).toBe(original.order); expect(after.originCiphertext).toBe(original.originCiphertext);

@@ -1,0 +1,42 @@
+[
+  {"id":"dm-share-ru-001","category":"dm-share","surface":"dm","channel":"INSTAGRAM","fixture":{"properties":2,"vacancies":[],"publication":false},"note":"Foreign reel without text twice in a row: one short line, then silence.","turns":[
+    {"in":"","attach":{"type":"ig_reel_foreign"},"expect":{"replied":true,"mustContain":["не наша"],"mustNotContain":["Офис","Сотрудники на связи"]}},
+    {"in":"","attach":{"type":"ig_reel_foreign"},"expect":{"replied":false}}]},
+  {"id":"dm-share-ru-002","category":"dm-share","surface":"dm","channel":"INSTAGRAM","fixture":{"properties":2,"vacancies":[],"publication":false},"note":"Like-exchange words: no thanks, no office address.","turns":[
+    {"in":"Лайк камент паделится","attach":{"type":"ig_reel_foreign"},"expect":{"replied":true,"mustContain":["не наша"],"mustNotContain":["Офис","Сотрудники на связи","Ташаккур","Спасибо"]}}]},
+  {"id":"dm-share-ru-003","category":"dm-share","surface":"dm","channel":"INSTAGRAM","fixture":{"properties":2,"vacancies":[],"publication":false},"turns":[
+    {"in":"❤️","attach":{"type":"ig_reel_foreign"},"expect":{"replied":true,"mustContain":["не наша"],"mustNotContain":["Офис"]}}]},
+  {"id":"dm-share-lat-001","category":"dm-share","surface":"dm","channel":"INSTAGRAM","fixture":{"properties":2,"vacancies":[],"publication":false},"turns":[
+    {"in":"Blizkiyoooo ❤️","attach":{"type":"ig_reel_foreign"},"expect":{"replied":true,"mustContain":["не наша"],"mustNotContain":["Офис"]}}]},
+  {"id":"dm-share-lat-002","category":"dm-share","surface":"dm","channel":"INSTAGRAM","fixture":{"properties":2,"vacancies":[],"publication":false},"turns":[
+    {"in":"Binenw 💕","attach":{"type":"ig_reel_foreign"},"expect":{"replied":true,"mustContain":["не наша"],"mustNotContain":["Офис"]}},
+    {"in":"❤️","attach":{"type":"ig_reel_foreign"},"expect":{"replied":false}}]},
+  {"id":"dm-share-tg-001","category":"dm-share","surface":"dm","channel":"INSTAGRAM","fixture":{"properties":2,"vacancies":[],"publication":false},"note":"Tajik dialogue: the foreign-share line is Tajik.","turns":[
+    {"in":"Салом, хонаи ду хонагӣ мехоҳам","expect":{"language":"tg"}},
+    {"in":"","attach":{"type":"ig_reel_foreign"},"expect":{"replied":true,"language":"tg","mustContain":["нест"],"mustNotContain":["Офис"]}},
+    {"in":"","attach":{"type":"ig_reel_foreign"},"expect":{"replied":false}}]},
+  {"id":"dm-share-ru-004","category":"dm-share","surface":"dm","channel":"INSTAGRAM","fixture":{"properties":2,"vacancies":[],"publication":false},"note":"Our own reel without text must still ask about the object.","turns":[
+    {"in":"","attach":{"type":"ig_reel"},"expect":{"replied":true,"mustNotContain":["не наша"]}}]},
+  {"id":"dm-share-ru-005","category":"dm-share","surface":"dm","channel":"INSTAGRAM","fixture":{"properties":2,"vacancies":[],"publication":false},"note":"Photo without text: a human line, not the robot phrase.","turns":[
+    {"in":"","attach":{"type":"image"},"expect":{"replied":true,"mustNotContain":["Получил вложение","недоступно"]}}]},
+  {"id":"dm-share-ru-006","category":"dm-share","surface":"dm","channel":"INSTAGRAM","fixture":{"properties":2,"vacancies":[],"publication":false},"note":"Two photos in a row: the template is not repeated verbatim.","turns":[
+    {"in":"","attach":{"type":"image"},"expect":{"replied":true}},
+    {"in":"","attach":{"type":"image"},"expect":{"replied":true}}]},
+  {"id":"dm-share-tg-002","category":"dm-share","surface":"dm","channel":"INSTAGRAM","fixture":{"properties":2,"vacancies":[],"publication":false},"note":"A real Tajik question with a foreign reel is answered on the merits.","turns":[
+    {"in":"ин хона чанд аст?","attach":{"type":"ig_reel_foreign"},"expect":{"replied":true,"language":"tg","mustNotContain":["Офис"]}}]},
+  {"id":"dm-share-ru-007","category":"dm-share","surface":"dm","channel":"INSTAGRAM","fixture":{"properties":2,"vacancies":[],"publication":false},"turns":[
+    {"in":"Сколько стоит эта квартира?","attach":{"type":"ig_reel_foreign"},"expect":{"replied":true,"mustNotContain":["Офис"]}}]},
+  {"id":"dm-share-ru-008","category":"dm-share","surface":"dm","channel":"INSTAGRAM","fixture":{"properties":2,"vacancies":[],"publication":false},"note":"After the foreign reel and the silence, a real request is answered normally.","turns":[
+    {"in":"","attach":{"type":"ig_reel_foreign"},"expect":{"replied":true}},
+    {"in":"","attach":{"type":"ig_reel_foreign"},"expect":{"replied":false}},
+    {"in":"Хочу двушку в Сино","expect":{"replied":true,"topic":"property"}}]},
+  {"id":"dm-share-ru-009","category":"dm-share","surface":"dm","channel":"INSTAGRAM","fixture":{"properties":2,"vacancies":[],"publication":false},"note":"Thanks beside a foreign reel: no office address.","turns":[
+    {"in":"Спасибо!","attach":{"type":"ig_reel_foreign"},"expect":{"replied":true,"mustNotContain":["Офис","Сотрудники на связи"]}}]},
+  {"id":"dm-share-ru-010","category":"dm-share","surface":"dm","channel":"INSTAGRAM","fixture":{"properties":2,"vacancies":[],"publication":false},"note":"Like-exchange text without any attachment: the neutral spam line, no address.","turns":[
+    {"in":"Лайк камент паделится","expect":{"replied":true,"mustNotContain":["Офис","Сотрудники на связи"]}}]},
+  {"id":"dm-share-ru-011","category":"dm-share","surface":"dm","channel":"INSTAGRAM","fixture":{"properties":2,"vacancies":[],"publication":false},"note":"The office address is still given to a customer who asks for it.","turns":[
+    {"in":"Где ваш офис?","expect":{"replied":true,"topic":"company"}}]},
+  {"id":"dm-share-ru-012","category":"dm-share","surface":"dm","channel":"INSTAGRAM","fixture":{"properties":2,"vacancies":[],"publication":false},"note":"Our own reel without a linked object: not 'not ours', said once, then silence.","turns":[
+    {"in":"","attach":{"type":"ig_reel_own_unlinked"},"expect":{"replied":true,"mustContain":["наша публикация"],"mustNotContain":["не наша","Офис"]}},
+    {"in":"","attach":{"type":"ig_reel_own_unlinked"},"expect":{"replied":false}}]}
+]

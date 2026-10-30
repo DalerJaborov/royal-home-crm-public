@@ -10,7 +10,7 @@ import { customerPublicThanks, customerRequestedAgencyContact, customerRecruitme
 import { customerAgentIntake, customerSellerIntakeQuestion, customerSellerIntakeQuestionLines } from "./customerAgentIntake.js";
 import { customerRecruitmentRequested, customerRecruitmentFactsRequested, isCustomerVacanciesObservation, recruitmentPositionForTurn,
   recruitmentMissingForTurn, recruitmentRequiredQuestion, recruitmentFactQuestionLines } from "./customerAgentRecruitmentProtocol.js";
-import { customerDmAbuseKind, customerDmAbuseReply, customerDmAbuseLines } from "./customerAgentAbuse.js";
+import { customerDmAbuseKind, customerDmAbuseReply, customerDmAbuseLines, customerDmForeignShareNoise } from "./customerAgentAbuse.js";
 import { customerRecruitmentReplyDetails, containsRecruitmentExperienceInvitation } from "./customerRecruitmentReply.js";
 import { clientOwnWords } from "./untrustedContent.js";
 import { validateCustomerAgentSayForDecision } from "./customerAgentSay.js";
@@ -18,7 +18,8 @@ import { BW, EW, TAIL } from "./wordBoundary.js";
 import { customerAsksPricePerSqm, pricePerSqmLine } from "../lib/customerPropertyPerSqm.js";
 import type { CustomerPropertyUnresolvedReason } from "../lib/customerPropertyUnresolvedReason.js";
 import { customerCallbackConsentDecision } from "../lib/customerCallbackConsent.js";
-import { customerAgentAttachmentInputSchema, customerAgentAttachmentQuestion, type CustomerAgentAttachmentInput } from "./customerAgentAttachmentInput.js";
+import { customerAgentAttachmentInputSchema, customerAgentAttachmentQuestion, customerAgentAttachmentLines, customerAgentShareNotice,
+  type CustomerAgentAttachmentInput } from "./customerAgentAttachmentInput.js";
 import { customerAgentMediaPerceptionSchema, customerAgentVisualSummary, type CustomerAgentMediaPerception } from "./customerAgentMediaPerception.js";
 import { isPinnedCompanyPolicy, isPublicPropertySearch, isCustomerCompanyInformation, type CustomerAgentCompanyPolicyObservation,
   type CustomerAgentSearchObservation } from "./customerAgentPublicProtocol.js";
@@ -293,6 +294,11 @@ const OFFICE_QUESTION = word(`где|адрес${TAIL}|офис${TAIL}|дафт�
 const SERVICES_QUESTION = word(`какие\\s+(?:у\\s+вас\\s+)?услуг${TAIL}|какими\\s+услугами|чем\\s+(?:вы\\s+)?занимаетесь|чем\\s+занимается\\s+(?:ваша\\s+)?(?:компания|агентство)|(?<!ҳаққи\\s)хизматҳо${TAIL}|кадом\\s+хизмат${TAIL}|шумо\\s+чӣ\\s+кор\\s+мекунед`);
 export function customerCompanyServicesRequested(text: string): boolean { return SERVICES_QUESTION.test(clientOwnWords(text)); }
 const SERVICES_TG: Record<string, string> = { "Продажа и помощь в покупке": "фурӯш ва кӯмак дар харидани амвол" };
+/** Wider than the automatic-read gate: any office/hours/services word counts as an agency question for what may be PRINTED. */
+function companyInformationAsked(text: string): boolean {
+  const own = clientOwnWords(text);
+  return customerCompanyInformationRequested(text) || OFFICE_QUESTION.test(own) || HOURS_QUESTION.test(own) || SERVICES_QUESTION.test(own);
+}
 export function customerCompanyInformationRequested(text: string): boolean {
   // Automatic reads need an explicit agency question. A commercial property,
   // appointment deadline or quoted publication is not our office/schedule.
@@ -409,6 +415,9 @@ function renderDecisionCore(input: {
   const requestedContact = customerRequestedAgencyContact(input.inputText ?? "");
   const contact = publicContactQuestion && requestedContact ? input.evidence.filter(e => e.value.kind === "agency_contact") : [];
   const company = customerCompanyInformationRequested(input.inputText ?? "") ? input.evidence.filter(e => e.value.kind === "company_information") : [];
+  // The office address and hours are printed only for a customer who asked about the agency (30.10.2026: "Лайк камент паделится"
+  // got the full address). A model-chosen read nobody asked for is dropped here, silently; a job candidate keeps it.
+  const companyUnsolicited = input.verifiedContext?.publicState.topic !== "job" && !companyInformationAsked(input.inputText ?? "");
   const recruitment = customerRecruitmentFactsRequested(input.inputText ?? "") || !input.inputText?.trim() && !!input.verifiedContext?.publicState.jobPositionKey
     ? input.evidence.filter(e => e.value.kind === "open_vacancies") : [];
   const refs = [...new Set([...mandatory.map(e => e.ref), ...selected, ...contact.map(e => e.ref), ...company.map(e => e.ref), ...recruitment.map(e => e.ref)])];
@@ -529,7 +538,7 @@ function renderDecisionCore(input: {
     }
     if (item.value.kind === "company_information") {
       if (!isCustomerCompanyInformation(item.value)) return null;
-      if (followRequest || languagePermissionOnly) continue;
+      if (followRequest || languagePermissionOnly || companyUnsolicited) continue;
       lines.push(...companyInformationLines(item.value, lang, input.inputText ?? ""));
     }
     if (item.value.kind === "open_vacancies") {
@@ -669,7 +678,7 @@ let fixedQuestionLines: Set<string> | undefined;
 /** Fixed question sentences (templates, "я уточнял" repairs, résumé/seller questions): the only lines the repeat check may drop. */
 function questionLineSet(): Set<string> {
   return fixedQuestionLines ??= lineSet(Object.values(questions).flatMap(line => [line.ru, line.tg]).filter(Boolean),
-    Object.values(repairs).flatMap(line => [line.ru, line.tg]), recruitmentFactQuestionLines(), customerSellerIntakeQuestionLines());
+    Object.values(repairs).flatMap(line => [line.ru, line.tg]), recruitmentFactQuestionLines(), customerSellerIntakeQuestionLines(), customerAgentAttachmentLines());
 }
 const socialLineSet = () => lineSet(SOCIAL_FAMILIES.flat().flatMap(line => [line.ru, line.tg]));
 const noticeLineSet = () => lineSet(REPEAT_NOTICES.flatMap(line => [line.ru, line.tg]), [REPEAT_LEAD.ru, REPEAT_LEAD.tg]);
@@ -720,6 +729,12 @@ function avoidRepeatedReply(text: string, input: { language: "ru" | "tg"; verifi
 
 export function renderCustomerAgentDecision(input: Parameters<typeof renderDecisionCore>[0]): string | null {
   const d = input.decision;
+  // A forwarded publication that is not ours, with nothing asked (nothing, a heart, like-exchange words): one short line, no fact.
+  if (input.surface === "dm" && (d.kind === "reply" || d.kind === "clarify") && customerAgentShareNotice(input.attachmentInput, input.language) !== null &&
+      customerDmForeignShareNoise(input.inputText ?? "") && !input.evidence.some(e => e.value.kind === "receipt" || e.value.kind === "proposal")) {
+    const line = customerAgentShareNotice(input.attachmentInput, input.language)!;
+    return line.length <= input.maxOutputChars ? line : null;
+  }
   if (input.surface === "dm" && (d.kind === "reply" || d.kind === "clarify") && !input.evidence.some(e => e.value.kind === "receipt" || e.value.kind === "proposal")) {
     const abuse = customerDmAbuseKind(input.inputText ?? "");
     if (abuse) {
