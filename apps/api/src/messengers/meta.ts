@@ -593,6 +593,9 @@ export interface MetaIncoming {
   /** Клиент ответил на нашу историю: тут её адрес. Без этого признака ответ на
    *  историю выглядел пустым сообщением, и бот молчал. */
   replyToStoryUrl?: string;
+  /** Идентификатор нашей истории (media id Instagram): по нему реестр публикаций находит
+   *  объект (PropertyStoryPost.mediaId). Адрес истории у Meta — CDN-ссылка, объекта по ней не узнать. */
+  replyToStoryId?: string;
   /** Идентификатор медиа у WhatsApp: адрес файла добывается по нему отдельно. */
   mediaId?: string;
   /** Идентификатор сообщения у Meta — им помечаем «прочитано» в WhatsApp, и по нему
@@ -1192,6 +1195,7 @@ export function parseIncoming(body: unknown, expectedWaPhoneId?: string | string
           ...(captureReferences ? sharedPostFields(a?.payload) : {}) }))
         .filter((a) => a.url || ("attachmentMediaId" in a && a.attachmentMediaId));
       const replyToStoryUrl = event.message.reply_to?.story?.url;
+      const replyToStoryId = String(event.message.reply_to?.story?.id ?? "").trim() || undefined;
       // Ответ на обычное сообщение (не на историю): раньше это поле выбрасывалось,
       // и в CRM было не понять, к чему относится короткое «да» или «подходит».
       const replyToMessageId = event.message.reply_to?.mid;
@@ -1201,7 +1205,7 @@ export function parseIncoming(body: unknown, expectedWaPhoneId?: string | string
       // Клик по нашей рекламе Meta присылает то внутри сообщения, то отдельным
       // полем события — берём любое из двух (см. MetaReferral).
       const referral = event.message.referral ?? event.referral;
-      if (!text && !attachmentType && !replyToStoryUrl && !payload && !referral) continue;
+      if (!text && !attachmentType && !replyToStoryUrl && !replyToStoryId && !payload && !referral) continue;
       out.push({
         channel,
         accountExternalId: event.recipient?.id || entryId,
@@ -1217,6 +1221,7 @@ export function parseIncoming(body: unknown, expectedWaPhoneId?: string | string
         adRef: referral?.ref,
         ...adContextFields(referral),
         replyToStoryUrl,
+        ...(replyToStoryId ? { replyToStoryId } : {}),
         replyToMessageId,
         messageId: event.message.mid,
         payload,

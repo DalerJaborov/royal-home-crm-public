@@ -194,10 +194,11 @@ export async function createCustomerCoreGoldenFixture(options: { media?: boolean
       accounts.push(id); owners.set(id, o); resetMetaAccountCredsCache(); return o;
     },
     async capture(o: { id: string; externalId: string; token: string; secret: string; peer: string }, text: string,
-      attachments?: Array<{ type: string; payload: { url?: string; reel_video_id?: string; ig_post_media_id?: string } }>) {
+      attachments?: Array<{ type: string; payload: { url?: string; reel_video_id?: string; ig_post_media_id?: string } }>,
+      replyToStory?: { id: string; url: string }) {
       const eventId = `${tag}-in-${randomUUID()}`, rawBody = Buffer.from(JSON.stringify({ object: "instagram", entry: [{ id: o.externalId,
         messaging: [{ sender: { id: o.peer }, recipient: { id: o.externalId }, timestamp: Date.now(), message: { mid: eventId, text,
-          ...(attachments ? { attachments } : {}) } }] }] }));
+          ...(attachments ? { attachments } : {}), ...(replyToStory ? { reply_to: { story: replyToStory } } : {}) } }] }] }));
       const signature = `sha256=${createHmac("sha256", o.secret).update(rawBody).digest("hex")}`;
       expect(await verifySignature(rawBody, signature)).toBe(true);
       const request = { rawBody, get: () => signature }; registerAuthenticatedMetaCustomerRequest(request);

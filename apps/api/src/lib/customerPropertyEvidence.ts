@@ -52,7 +52,11 @@ export function customerPropertyEvidenceFromMeta(message: MetaIncoming): Custome
   // WA mediaId is a downloadable file ID, never a published-property ID.
   if (message.attachmentMediaId) evidence.push({ kind: "media", origin: "shared_media", reference: message.attachmentMediaId });
   if (message.replyToMessageId) evidence.push({ kind: "reply", origin: "reply_to", reference: message.replyToMessageId });
-  if (message.replyToStoryUrl) evidence.push(urlEvidence(message.replyToStoryUrl, "story"));
+  // Our own story is identified by its Instagram media id (PropertyStoryPost.mediaId). Its CDN url is
+  // transport data and would only poison the resolution as an untrusted origin, so it is kept only
+  // when Meta sent no id.
+  if (message.replyToStoryId) evidence.push({ kind: "media", origin: "story", reference: message.replyToStoryId });
+  else if (message.replyToStoryUrl) evidence.push(urlEvidence(message.replyToStoryUrl, "story"));
   const attachments = [{ type: message.attachmentType, url: message.attachmentUrl, attachmentMediaId: message.attachmentMediaId },
     ...message.extraAttachments ?? []];
   for (const attachment of attachments) {
