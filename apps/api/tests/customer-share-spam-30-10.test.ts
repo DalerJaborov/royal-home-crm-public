@@ -5,7 +5,7 @@ import { createProviderOperation } from "../src/ai/providerContract.js";
 import { renderCustomerAgentDecision, type CustomerAgentEvidence, type CustomerAgentObservation } from "../src/ai/customerAgentRenderer.js";
 import { customerAgentCompanyInformationHash } from "../src/ai/customerAgentPublicProtocol.js";
 import { customerDmAbuseKind, customerDmForeignShareNoise } from "../src/ai/customerAgentAbuse.js";
-import { customerAgentAttachmentQuestion, customerAgentMarkForeignShare, FOREIGN_SHARE_LINE } from "../src/ai/customerAgentAttachmentInput.js";
+import { customerAgentAttachmentQuestion, customerAgentMarkForeignShare, FOREIGN_SHARE_LINE, OWN_SHARE_UNLINKED_LINE } from "../src/ai/customerAgentAttachmentInput.js";
 import { customerForeignShareCandidate } from "../src/lib/customerSharedPublication.js";
 
 const hash = "a".repeat(64);
@@ -49,10 +49,10 @@ describe("foreign-share noise", () => {
 
 describe("foreign share marking", () => {
   it("marks only a lone-share input, only when the server says so", () => {
-    expect(customerAgentMarkForeignShare({ kinds: ["share"] }, true)).toEqual(foreign);
+    expect(customerAgentMarkForeignShare({ kinds: ["share"] }, "foreign_share")).toEqual(foreign);
     expect(customerAgentMarkForeignShare({ kinds: ["share"] }, false)).toEqual({ kinds: ["share"] });
-    expect(customerAgentMarkForeignShare({ kinds: ["share", "image"] }, true)).toEqual({ kinds: ["share", "image"] });
-    expect(customerAgentMarkForeignShare(undefined, true)).toBeUndefined();
+    expect(customerAgentMarkForeignShare({ kinds: ["share", "image"] }, "foreign_share")).toEqual({ kinds: ["share", "image"] });
+    expect(customerAgentMarkForeignShare(undefined, "foreign_share")).toBeUndefined();
   });
   it("is only a candidate when the share is the sole property evidence", () => {
     const shared = { origin: "shared_media" };
@@ -103,6 +103,24 @@ describe("core: a publication of somebody else", () => {
     const f = fixture({ verifiedContext: context([], { topic: "job" }) });
     const result = await runCustomerAgentTurn(f.frame, f.ports);
     expect(result.status === "ready" && result.text === FOREIGN_SHARE_LINE.ru).toBe(false);
+  });
+});
+
+describe("core: our own publication without a linked object", () => {
+  const own = { kinds: ["own_share_unlinked" as const] };
+  it("marks a lone share as own-unlinked and keeps it distinct from foreign", () => {
+    expect(customerAgentMarkForeignShare({ kinds: ["share"] }, "own_share_unlinked")).toEqual(own);
+  });
+  it.each([["ru", OWN_SHARE_UNLINKED_LINE.ru], ["tg", OWN_SHARE_UNLINKED_LINE.tg]] as const)("says it once in %s, even with perception", async (language, line) => {
+    const f = fixture({ attachmentInput: own, language });
+    expect(await runCustomerAgentTurn(f.frame, f.ports)).toMatchObject({ status: "ready", text: line, rounds: 0 });
+    expect(f.modelTurn).not.toHaveBeenCalled();
+    const text = line.includes("наша") ? "Это наша" : "";
+    expect(line).not.toContain("не наша"); expect(text).toBeDefined();
+  });
+  it("is silent the second time", async () => {
+    const f = fixture({ attachmentInput: own, verifiedContext: context([{ role: "assistant", text: OWN_SHARE_UNLINKED_LINE.ru }]) });
+    expect(await runCustomerAgentTurn(f.frame, f.ports)).toMatchObject({ status: "held", reason: "foreign_share_no_reply" });
   });
 });
 

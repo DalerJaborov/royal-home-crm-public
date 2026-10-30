@@ -165,6 +165,11 @@ export async function createAttackStand(options: AttackStandOptions): Promise<At
             const mediaUrlValue = core.mediaFixture("image/png", PNG, true);
             core.publicationFixture(owner, [{ id: String(17890000 + Math.floor(Math.random() * 9000)), permalink, media_type: "IMAGE", media_url: mediaUrlValue }]);
             attachments = [{ type: attach.type, payload: { url: permalink, ...(attach.type === "ig_reel" ? { reel_video_id: "12345678" } : { ig_post_media_id: "17890001" }) } }];
+          } else if (attach?.type === "ig_reel_own_unlinked") {
+            // Our own account's reel (found by the feed lookup) that no card of ours is linked to.
+            const code = `Zown${Math.floor(Math.random() * 1e9)}`, permalink = `https://www.instagram.com/reel/${code}/`;
+            core.publicationFixture(owner, [{ id: String(17890000 + Math.floor(Math.random() * 9000)), permalink, media_type: "IMAGE", media_url: core.mediaFixture("image/png", PNG, true) }]);
+            attachments = [{ type: "ig_reel", payload: { url: permalink, reel_video_id: String(40000000 + Math.floor(Math.random() * 9e6)) } }];
           } else if (attach?.type === "ig_reel_foreign") {
             // A reel of somebody else: a permalink and a reel id that no card of ours carries, nothing in our own media feed.
             const code = `Zforeign${Math.floor(Math.random() * 1e9)}`;

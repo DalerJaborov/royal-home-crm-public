@@ -6,7 +6,7 @@ import { renderCustomerAgentDecision, customerAgentRenderedQuestion, isCanonical
   type CustomerAgentRenderedQuestion, type CustomerAgentEvidence, type CustomerAgentObservation } from "./customerAgentRenderer.js";
 import { isPinnedCompanyPolicy, isPublicPropertySearch, publicSearchProjection, isCustomerCompanyInformation } from "./customerAgentPublicProtocol.js";
 import { customerRequestedAgencyContact, isCustomerPublicAppreciation, customerPublicReaction } from "./customerAgentConversationPolicy.js";
-import { customerAgentAttachmentInputSchema, customerAgentForeignShareAnswered, customerAgentForeignShareOnly,
+import { customerAgentAttachmentInputSchema, customerAgentForeignShareAnswered, customerAgentForeignShareOnly, customerAgentOwnUnlinkedOnly,
   type CustomerAgentAttachmentInput } from "./customerAgentAttachmentInput.js";
 import { customerDmForeignShareNoise } from "./customerAgentAbuse.js";
 import { customerAgentMediaPerceptionSchema, type CustomerAgentMediaPerception } from "./customerAgentMediaPerception.js";
@@ -382,7 +382,8 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
     // A publication of somebody else's, forwarded with nothing asked (30.10.2026: like-exchange chains). Decided here, before any
     // read or model round: the first one gets one short line, every later one no answer at all ("no reply needed", not a stop of
     // the dialogue: the next real message is a new turn). Facts, the office address and questions to the buyer never ride on it.
-    if (frame.surface === "dm" && !perception && context?.publicState.topic !== "job" && customerAgentForeignShareOnly(frame.attachmentInput) &&
+    if (frame.surface === "dm" && context?.publicState.topic !== "job" &&
+        ((!perception && customerAgentForeignShareOnly(frame.attachmentInput)) || customerAgentOwnUnlinkedOnly(frame.attachmentInput)) &&
         customerDmForeignShareNoise(frame.inputText)) {
       if (customerAgentForeignShareAnswered((context?.turns ?? []).filter(turn => turn.role === "assistant").map(turn => turn.text))) {
         return held("foreign_share_no_reply", "foreign_share_no_reply");

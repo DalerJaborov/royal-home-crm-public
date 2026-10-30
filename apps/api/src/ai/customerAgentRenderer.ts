@@ -18,8 +18,8 @@ import { BW, EW, TAIL } from "./wordBoundary.js";
 import { customerAsksPricePerSqm, pricePerSqmLine } from "../lib/customerPropertyPerSqm.js";
 import type { CustomerPropertyUnresolvedReason } from "../lib/customerPropertyUnresolvedReason.js";
 import { customerCallbackConsentDecision } from "../lib/customerCallbackConsent.js";
-import { customerAgentAttachmentInputSchema, customerAgentAttachmentQuestion, customerAgentAttachmentLines, customerAgentForeignShareOnly,
-  FOREIGN_SHARE_LINE, type CustomerAgentAttachmentInput } from "./customerAgentAttachmentInput.js";
+import { customerAgentAttachmentInputSchema, customerAgentAttachmentQuestion, customerAgentAttachmentLines, customerAgentShareNotice,
+  type CustomerAgentAttachmentInput } from "./customerAgentAttachmentInput.js";
 import { customerAgentMediaPerceptionSchema, customerAgentVisualSummary, type CustomerAgentMediaPerception } from "./customerAgentMediaPerception.js";
 import { isPinnedCompanyPolicy, isPublicPropertySearch, isCustomerCompanyInformation, type CustomerAgentCompanyPolicyObservation,
   type CustomerAgentSearchObservation } from "./customerAgentPublicProtocol.js";
@@ -729,9 +729,9 @@ function avoidRepeatedReply(text: string, input: { language: "ru" | "tg"; verifi
 export function renderCustomerAgentDecision(input: Parameters<typeof renderDecisionCore>[0]): string | null {
   const d = input.decision;
   // A forwarded publication that is not ours, with nothing asked (nothing, a heart, like-exchange words): one short line, no fact.
-  if (input.surface === "dm" && (d.kind === "reply" || d.kind === "clarify") && customerAgentForeignShareOnly(input.attachmentInput) &&
+  if (input.surface === "dm" && (d.kind === "reply" || d.kind === "clarify") && customerAgentShareNotice(input.attachmentInput, input.language) !== null &&
       customerDmForeignShareNoise(input.inputText ?? "") && !input.evidence.some(e => e.value.kind === "receipt" || e.value.kind === "proposal")) {
-    const line = FOREIGN_SHARE_LINE[input.language];
+    const line = customerAgentShareNotice(input.attachmentInput, input.language)!;
     return line.length <= input.maxOutputChars ? line : null;
   }
   if (input.surface === "dm" && (d.kind === "reply" || d.kind === "clarify") && !input.evidence.some(e => e.value.kind === "receipt" || e.value.kind === "proposal")) {

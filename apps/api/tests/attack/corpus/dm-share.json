@@ -35,5 +35,8 @@
   {"id":"dm-share-ru-010","category":"dm-share","surface":"dm","channel":"INSTAGRAM","fixture":{"properties":2,"vacancies":[],"publication":false},"note":"Like-exchange text without any attachment: the neutral spam line, no address.","turns":[
     {"in":"Лайк камент паделится","expect":{"replied":true,"mustNotContain":["Офис","Сотрудники на связи"]}}]},
   {"id":"dm-share-ru-011","category":"dm-share","surface":"dm","channel":"INSTAGRAM","fixture":{"properties":2,"vacancies":[],"publication":false},"note":"The office address is still given to a customer who asks for it.","turns":[
-    {"in":"Где ваш офис?","expect":{"replied":true,"topic":"company"}}]}
+    {"in":"Где ваш офис?","expect":{"replied":true,"topic":"company"}}]},
+  {"id":"dm-share-ru-012","category":"dm-share","surface":"dm","channel":"INSTAGRAM","fixture":{"properties":2,"vacancies":[],"publication":false},"note":"Our own reel without a linked object: not 'not ours', said once, then silence.","turns":[
+    {"in":"","attach":{"type":"ig_reel_own_unlinked"},"expect":{"replied":true,"mustContain":["наша публикация"],"mustNotContain":["не наша","Офис"]}},
+    {"in":"","attach":{"type":"ig_reel_own_unlinked"},"expect":{"replied":false}}]}
 ]

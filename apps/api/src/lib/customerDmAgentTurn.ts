@@ -173,13 +173,14 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
       await spendAiTurns(lane.ticket.conversationId, budget.dayKey);
       turnBudgetSpent = true;
     };
-    let mediaPerception: CustomerAgentMediaPerception | undefined;
+    let mediaPerception: CustomerAgentMediaPerception | undefined, ownPublicationFound = false;
     if (runtime.mediaEnabled && prepared.media.length) {
       const wait = { signal: runtime.operation.signal!, deadlineAt: runtime.operation.deadlineAt };
       mediaPerception = await loadCustomerAgentMediaObservation(claim) ?? undefined;
       if (!mediaPerception) {
         const loaded = await loadCustomerDmMediaContent({ principal: planningPrincipal, media: prepared.media, wait, assertCurrent: current,
           preserveAttachments: remembered.context.publicState.topic === "job" });
+        ownPublicationFound = loaded.publicationFound === true;
         if (loaded.storedAttachments?.length) await recordCustomerRecruitmentAttachments(planningPrincipal, claim, loaded.storedAttachments);
         if (loaded.parts.length) {
           await spendTurnBudget(wait);
@@ -312,9 +313,11 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     // Somebody else's publication: shared as an attachment, nothing of ours pointed at, and the lookup in our own catalog FINISHED
     // with "no such object" for the current event (a transient failure is not "foreign"). Server fact; the model never sets it.
     const currentFocus = focus?.snapshot.focus;
-    const attachmentInput = customerAgentMarkForeignShare(prepared.attachmentInput, prepared.foreignShareCandidate && !mediaPerception &&
-      !!currentFocus && currentFocus.eventKey === lane.ticket.eventKey && currentFocus.status === "missing" &&
-      customerPropertyUnresolvedReason(currentFocus.evidence, currentFocus.status, currentFocus.lookupAttempts) === "not_found");
+    // Found in OUR account (the lookup returned the publication) but no object is linked: our own, not foreign.
+    const unlinked = prepared.foreignShareCandidate && !!currentFocus && currentFocus.eventKey === lane.ticket.eventKey && currentFocus.status === "missing" &&
+      customerPropertyUnresolvedReason(currentFocus.evidence, currentFocus.status, currentFocus.lookupAttempts) === "not_found";
+    const attachmentInput = customerAgentMarkForeignShare(prepared.attachmentInput,
+      unlinked && ownPublicationFound ? "own_share_unlinked" : unlinked && !mediaPerception ? "foreign_share" : false);
     const result = await runCustomerAgentTurn({ surface: "dm", language, inputText: fullInput(), attachmentInput, mediaPerception,
       knownPhoneSource: lane.context.knownPhoneSource, requestedFacts, revision: claim.pin.revision,
       approvedFileState,

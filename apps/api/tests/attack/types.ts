@@ -39,7 +39,7 @@ export const perceptionSchema = z.object({
   speech: z.enum(["clear", "partial", "none", "unintelligible"]).default("none"),
 }).strict();
 export const attachSchema = z.object({
-  type: z.enum(["image", "video", "audio", "document", "ig_reel", "ig_post", "ig_reel_foreign"]),
+  type: z.enum(["image", "video", "audio", "document", "ig_reel", "ig_post", "ig_reel_foreign", "ig_reel_own_unlinked"]),
   /** What the media perception returns for this file (the fixture supplies it in both model modes). */
   perception: perceptionSchema.optional(),
 }).strict();
