@@ -15,6 +15,8 @@
  * tests/live-voice-ticks-process.test.ts).
  */
 export const API_PROCESS_TICKS = {
+  // stationHealth reads the ARI subscription and pause state owned by index.ts.
+  "telephony-station-health": "*/15 * * * *",
   "live-calls-sweep": "*/5 * * * *",
   // Карта живых звонков (E2/E3 глубокой проверки 02.10.2026) —
   // lib/telephony/callMemoryTicks.ts; выражения там же строкой, сверка — тестом.

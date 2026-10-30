@@ -37,7 +37,7 @@ import { runIncomingCallsSilenceTick } from "./lib/telephony/incomingCallsSilenc
 import { reconcileOperatorQueuePresence } from "./lib/telephony/operatorQueue.js";
 import { reconcileAgentMobileFallback } from "./lib/telephony/agentMobileFallback.js";
 import { reconcileIncomingQueue } from "./lib/telephony/agentIncomingReadiness.js";
-import { runStationHealthTick } from "./lib/telephony/stationHealth.js";
+
 import { runStationTrafficTick } from "./lib/telephony/stationTraffic.js";
 import { schedulePhotoPostsTick } from "./lib/photoPosts.js";
 import { insightDigestPeriod, isInsightMeetingDay } from "./lib/insightDigestPeriod.js";
@@ -978,34 +978,6 @@ export function startCronJobs() {
       reportCronTickError("Сверка мобильного плеча агентов", err);
     } finally {
       isMobileFallbackSyncRunning = false;
-    }
-  });
-
-  /**
-   * СВОДНАЯ ПРОВЕРКА ТЕЛЕФОНИИ — каждые 15 минут (разбор 20.09.2026, см. заголовок
-   * lib/telephony/stationHealth.ts). Три поломки в один день (мёртвая статическая
-   * трубка в очереди приёма, транк подставлял чужой CID, таймаут вебсокета 0,1 с)
-   * не поймала ни одна существующая проверка — узнали от владельца, а не от
-   * системы. Этот тик закрывает то, что не видят узкие сторожа рядом: жив ли
-   * ARI/AMI, загружен ли диалплан РЕАЛЬНО (не только в файле), доступен ли хоть
-   * один участник очереди прямо сейчас, на месте ли права AMI. Тревогу поднимает
-   * не с первого отказа, а только когда он подтвердился на следующем проходе
-   * подряд — тот же приём, что уже в этом файле у соседних телефонных тиков,
-   * потому что связь идёт через туннель и штатно моргает на десятки секунд.
-   */
-  let isStationHealthCheckRunning = false;
-  scheduleTracked("telephony-station-health", "*/15 * * * *", async () => {
-    if (isStationHealthCheckRunning) return;
-    isStationHealthCheckRunning = true;
-    try {
-      const { confirmedBroken } = await runStationHealthTick();
-      if (confirmedBroken.length > 0) {
-        console.log(`[cron] Телефония: подтверждённые поломки — ${confirmedBroken.join(", ")}`);
-      }
-    } catch (err) {
-      reportCronTickError("Сводная проверка телефонии", err);
-    } finally {
-      isStationHealthCheckRunning = false;
     }
   });
 

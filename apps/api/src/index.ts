@@ -1,3 +1,4 @@
+import { runStationHealthTick } from "./lib/telephony/stationHealth.js";
 import "./loadEnv.js";
 import { assertProductionEnv } from "./env-check.js";
 import { app } from "./app.js";
@@ -126,6 +127,37 @@ const server = app.listen(port, () => {
   // Зависшие заготовки звонков и автопрозвон по просьбам — тоже здесь: оба
   // читают или пишут карту живых звонков этого процесса (02.10.2026).
   startCallMemoryTicks();
+
+  // Reads process-local ARI subscription and robot pause state: must run in API.
+  /**
+   * СВОДНАЯ ПРОВЕРКА ТЕЛЕФОНИИ — каждые 15 минут (разбор 20.09.2026, см. заголовок
+   * lib/telephony/stationHealth.ts). Три поломки в один день (мёртвая статическая
+   * трубка в очереди приёма, транк подставлял чужой CID, таймаут вебсокета 0,1 с)
+   * не поймала ни одна существующая проверка — узнали от владельца, а не от
+   * системы. Этот тик закрывает то, что не видят узкие сторожа рядом: жив ли
+   * ARI/AMI, загружен ли диалплан РЕАЛЬНО (не только в файле), доступен ли хоть
+   * один участник очереди прямо сейчас, на месте ли права AMI. Тревогу поднимает
+   * не с первого отказа, а только когда он подтвердился на следующем проходе
+   * подряд — тот же приём, что уже в этом файле у соседних телефонных тиков,
+   * потому что связь идёт через туннель и штатно моргает на десятки секунд.
+   */
+  let isStationHealthCheckRunning = false;
+  scheduleTracked("telephony-station-health", API_PROCESS_TICKS["telephony-station-health"], async () => {
+    if (isStationHealthCheckRunning) return;
+    isStationHealthCheckRunning = true;
+    try {
+      const { confirmedBroken } = await runStationHealthTick();
+      if (confirmedBroken.length > 0) {
+        console.log(`[cron] Телефония: подтверждённые поломки — ${confirmedBroken.join(", ")}`);
+      }
+    } catch (err) {
+      reportCronTickError("Сводная проверка телефонии", err);
+    } finally {
+      isStationHealthCheckRunning = false;
+    }
+  });
+
+
 
   /**
    * ДОСЧЁТ РАЗГОВОРОВ, У КОТОРЫХ КОНВЕЙЕР ОБОРВАЛО РЕСТАРТОМ (21.09.2026).

@@ -24599,7 +24599,7 @@
   - isTelegramCommentsRunning = false;
     · дословно из кода
 
-### telephony-station-health — */15 * * * *
+### telephony-station-health — undefined
 
 - если isStationHealthCheckRunning
   - return;
