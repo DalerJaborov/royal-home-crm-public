@@ -216,7 +216,7 @@ export const clientQuerySchema = z.object({
    * Без прав руководства (archive.view/clients.assign) не расширяется:
    * граница прав та же, что у обычного списка.
    */
-  scope: z.enum(["allMine"]).optional(),
+  scope: z.enum(["allMine", "inWork"]).optional(),
 });
 export type ClientQuery = z.infer<typeof clientQuerySchema>;
 

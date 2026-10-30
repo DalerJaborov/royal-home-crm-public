@@ -5,6 +5,7 @@ import type { ClientStatus } from "@royal-home/shared";
 import type { Prisma } from "../../generated/prisma/client.js";
 import { prisma } from "../../db.js";
 import { can, requireAuth, scopeToOwnAgent } from "../../auth/middleware.js";
+import { CLIENT_IN_WORK_WHERE } from "../../lib/clientInWork.js";
 import { clientNamePhoneSafe } from "../../lib/clientPhone.js";
 import { dushanbeDayRange } from "../../lib/dushanbeTime.js";
 import { activeLeadCounts, loadLeadLimits, slotsTaken } from "../../lib/leadLimits.js";
@@ -140,8 +141,8 @@ summaryRouter.get("/summary", requireAuth, async (req, res) => {
     deferred,
     trashedMine,
   ] = await Promise.all([
-      prisma.client.count({ where: { ...base, kind: "BUYER" } }),
-      prisma.client.count({ where: { ...base, kind: "SELLER" } }),
+      prisma.client.count({ where: { ...base, ...CLIENT_IN_WORK_WHERE, kind: "BUYER" } }),
+      prisma.client.count({ where: { ...base, ...CLIENT_IN_WORK_WHERE, kind: "SELLER" } }),
       /**
        * СОГЛАСОВАНО СО СПИСКОМ (18.09.2026, задание В §f п.4, §c разведки 17.09:
        * «Мои N» расходилось со списком agentId=me»). Раньше здесь стояли

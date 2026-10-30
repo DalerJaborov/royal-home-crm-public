@@ -68,7 +68,7 @@ export interface ClientFilters {
   noFirstContactYesterday?: boolean;
   /** Вкладка «Все мои клиенты» (18.09.2026, задание В §f п.1) — снимает Корзину/
    *  kind/status-срезы у своего агента, см. серверный комментарий (routes/clients/list.ts). */
-  scope?: "allMine";
+  scope?: "allMine" | "inWork";
 }
 
 function toQuery(filters: ClientFilters) {
