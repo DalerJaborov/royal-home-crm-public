@@ -364,9 +364,11 @@ export function ExchangeRateSection() {
   const [refreshError, setRefreshError] = useState<string | null>(null);
 
   useServerSyncedFields(
-    settings && {
+    // The settings cache is optimistic while saving. A rollback must not
+    // become a server refill that erases the user's unsaved rate.
+    !updateSettings.isPending && settings ? {
       rate: settings.usdToTjsRate ?? "",
-    },
+    } : undefined,
     {
       rate: [rate, setRate],
     }
@@ -374,7 +376,11 @@ export function ExchangeRateSection() {
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
-    await updateSettings.mutateAsync({ usdToTjsRate: Number(rate) });
+    try {
+      await updateSettings.mutateAsync({ usdToTjsRate: Number(rate) });
+    } catch {
+      // The mutation error remains visible beside this form.
+    }
   }
 
   async function handleRefresh() {
@@ -415,7 +421,8 @@ export function ExchangeRateSection() {
             <input
               type="number"
               step="0.0001"
-              min="0"
+              min="5"
+              max="15"
               value={rate}
               onChange={(e) => setRate(e.target.value)}
               aria-label="1 доллар в сомони"
@@ -431,6 +438,11 @@ export function ExchangeRateSection() {
           </button>
         </div>
       </form>
+      {updateSettings.isError && (
+        <div className="quiet crit" role="alert">
+          <span className="txt">{updateSettings.error instanceof Error ? updateSettings.error.message : "Не удалось сохранить курс"}</span>
+        </div>
+      )}
       {refreshError && (
         <div className="quiet crit" role="alert">
           <span className="dot crit" />
