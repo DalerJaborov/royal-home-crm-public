@@ -1,4 +1,5 @@
 import { todayLabel, pluralizeRu, relativeTime } from "../../lib/format";
+import { ROLE_LABELS } from "../../lib/roles";
 import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Calendar, TriangleAlert, Users } from "lucide-react";
@@ -71,7 +72,7 @@ export function ManagerHome() {
       <HomeAppHeader firstName={firstName} />
       <div className="rh2 screens">
         <div className="scr" data-stagger ref={listRef}>
-          <HomePageHead title="Главная" sub={`${agent?.fullName ?? ""}, менеджер. ${todayLabel()}. ${teamLive?.unacceptedTotal ?? 0} ${pluralizeRu(teamLive?.unacceptedTotal ?? 0, ["заявка ждёт", "заявки ждут", "заявок ждут"])} принятия.`} />
+          <HomePageHead title="Главная" sub={`${agent?.fullName ?? ""}, ${agent ? ROLE_LABELS[agent.role].toLowerCase() : "сотрудник"}. ${todayLabel()}. ${teamLive?.unacceptedTotal ?? 0} ${pluralizeRu(teamLive?.unacceptedTotal ?? 0, ["заявка ждёт", "заявки ждут", "заявок ждут"])} принятия.`} />
           <section className="card aib" aria-labelledby="aib-hi">
             <div className="aib-now">
               <i aria-hidden="true" />
@@ -165,7 +166,7 @@ export function ManagerHome() {
                   : ""}
                 . С вышедшим таймером принятия <b>{teamLive.escalatedTotal}</b>, без агента{" "}
                 <b>{teamLive.queuedTotal}</b>. В команде {teamLive.agents.length}{" "}
-                {pluralizeRu(teamLive.agents.length, ["агент", "агента", "агентов"])}, свободных от заявок{" "}
+                {pluralizeRu(teamLive.agents.length, ["агент", "агента", "агентов"])}, без заявок, ожидающих принятия:{" "}
                 <b>{teamLive.agents.filter((a) => a.pendingAccept === 0).length}</b>.
               </p>
             )}
