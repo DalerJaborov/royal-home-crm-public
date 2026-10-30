@@ -6,7 +6,9 @@ import { renderCustomerAgentDecision, customerAgentRenderedQuestion, isCanonical
   type CustomerAgentRenderedQuestion, type CustomerAgentEvidence, type CustomerAgentObservation } from "./customerAgentRenderer.js";
 import { isPinnedCompanyPolicy, isPublicPropertySearch, publicSearchProjection, isCustomerCompanyInformation } from "./customerAgentPublicProtocol.js";
 import { customerRequestedAgencyContact, isCustomerPublicAppreciation, customerPublicReaction } from "./customerAgentConversationPolicy.js";
-import { customerAgentAttachmentInputSchema, type CustomerAgentAttachmentInput } from "./customerAgentAttachmentInput.js";
+import { customerAgentAttachmentInputSchema, customerAgentForeignShareAnswered, customerAgentForeignShareOnly,
+  type CustomerAgentAttachmentInput } from "./customerAgentAttachmentInput.js";
+import { customerDmForeignShareNoise } from "./customerAgentAbuse.js";
 import { customerAgentMediaPerceptionSchema, type CustomerAgentMediaPerception } from "./customerAgentMediaPerception.js";
 import { customerRecruitmentRequested, isCustomerVacanciesObservation, recruitmentPositionForTurn, recruitmentMissingForTurn } from "./customerAgentRecruitmentProtocol.js";
 import { customerPropertyUrl } from "../lib/customerPropertyUrls.js";
@@ -377,6 +379,22 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
       await check();
       return { status: "ready", decision, question: "none", text, evidence: [], rounds, toolCalls };
     }
+    // A publication of somebody else's, forwarded with nothing asked (30.10.2026: like-exchange chains). Decided here, before any
+    // read or model round: the first one gets one short line, every later one no answer at all ("no reply needed", not a stop of
+    // the dialogue: the next real message is a new turn). Facts, the office address and questions to the buyer never ride on it.
+    if (frame.surface === "dm" && !perception && context?.publicState.topic !== "job" && customerAgentForeignShareOnly(frame.attachmentInput) &&
+        customerDmForeignShareNoise(frame.inputText)) {
+      if (customerAgentForeignShareAnswered((context?.turns ?? []).filter(turn => turn.role === "assistant").map(turn => turn.text))) {
+        return held("foreign_share_no_reply", "foreign_share_no_reply");
+      }
+      const decision = customerAgentDecisionSchema.parse({ kind: "clarify", refs: [], social: "none", question: "clarify_previous" });
+      const text = renderCustomerAgentDecision({ decision, evidence: [], inputText: frame.inputText, attachmentInput: frame.attachmentInput,
+        language: frame.language, requestedFacts: [], knownPhoneSource: frame.knownPhoneSource, maxOutputChars: revision.limits.maxOutputChars,
+        surface: frame.surface, verifiedContext: context ?? undefined });
+      if (text === null) return held("unsupported_decision_evidence");
+      await check();
+      return { status: "ready", decision, question: "clarify_previous", text, evidence: [], rounds, toolCalls };
+    }
     if (customerCompanyInformationRequested(frame.inputText) && frame.tools.some(tool => tool.name === "get_company_information")) {
       await execute({ name: "get_company_information", args: {} }, undefined, true);
     }
@@ -404,7 +422,9 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
       const decision = customerAgentDecisionSchema.parse({ kind: "clarify", refs: evidence.map(e => e.ref), social: "none", question: "clarify_previous" });
       const text = renderCustomerAgentDecision({ decision, evidence, inputText: frame.inputText, attachmentInput: frame.attachmentInput,
         language: frame.language, requestedFacts: frame.requestedFacts, knownPhoneSource: frame.knownPhoneSource,
-        maxOutputChars: revision.limits.maxOutputChars, surface: frame.surface });
+        maxOutputChars: revision.limits.maxOutputChars, surface: frame.surface,
+        // With the verified context, so the repeat guard acts HERE and the sealed re-render (which has it) gives the same text.
+        verifiedContext: context ?? undefined });
       if (text === null) return held("unsupported_decision_evidence");
       await check();
       return { status: "ready", decision, question: "clarify_previous", text, evidence: clone(evidence), rounds, toolCalls };

@@ -33,6 +33,7 @@ import { loadCustomerAgentMediaObservation, storeCustomerAgentMediaObservation }
 import { loadCustomerAdjacentVisualObservation } from "./customerAdjacentVisualObservation.js";
 import { withBotTurnTrace, traceCustomerManagedBinding, traceCustomerCoreResult, traceCustomerCoreDisposition, traceMediaKinds } from "./botTurnTrace.js";
 import { customerPropertyUnresolvedReason } from "./customerPropertyUnresolvedReason.js";
+import { customerAgentMarkForeignShare } from "../ai/customerAgentAttachmentInput.js";
 import { loadCustomerAgentFeaturePolicy } from "./customerAgentFeaturePolicy.js";
 import { customerPropertyMediaEndpointSchema, customerPropertyMediaExecutionMode, explicitCustomerPropertyPhotoRequest, prepareCustomerPropertyMedia } from "./customerPropertyMedia.js";
 import { reconcileCustomerShowcaseReply } from "./customerShowcaseReceipt.js";
@@ -308,7 +309,13 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
         }
       }
     }
-    const result = await runCustomerAgentTurn({ surface: "dm", language, inputText: fullInput(), attachmentInput: prepared.attachmentInput, mediaPerception,
+    // Somebody else's publication: shared as an attachment, nothing of ours pointed at, and the lookup in our own catalog FINISHED
+    // with "no such object" for the current event (a transient failure is not "foreign"). Server fact; the model never sets it.
+    const currentFocus = focus?.snapshot.focus;
+    const attachmentInput = customerAgentMarkForeignShare(prepared.attachmentInput, prepared.foreignShareCandidate && !mediaPerception &&
+      !!currentFocus && currentFocus.eventKey === lane.ticket.eventKey && currentFocus.status === "missing" &&
+      customerPropertyUnresolvedReason(currentFocus.evidence, currentFocus.status, currentFocus.lookupAttempts) === "not_found");
+    const result = await runCustomerAgentTurn({ surface: "dm", language, inputText: fullInput(), attachmentInput, mediaPerception,
       knownPhoneSource: lane.context.knownPhoneSource, requestedFacts, revision: claim.pin.revision,
       approvedFileState,
       startedAt: claim.pin.receivedAt, operation: runtime.operation,
@@ -383,7 +390,7 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     const sealed = await sealDmCustomerAgentDeliveryEvidence({ principal, claim, serverWitnesses: witnesses, render: {
       decision: result.decision, evidence: result.evidence, language, requestedFacts,
       knownPhoneSource: lane.context.knownPhoneSource, text: result.text, verifiedContext: remembered.context, inputText: fullInput(),
-      attachmentInput: prepared.attachmentInput, approvedFileState,
+      attachmentInput, approvedFileState,
       mediaPerception,
     } });
     if (sealed.status !== "sealed") {
