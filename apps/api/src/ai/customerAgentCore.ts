@@ -10,6 +10,7 @@ import { customerAgentAttachmentInputSchema, type CustomerAgentAttachmentInput }
 import { customerAgentMediaPerceptionSchema, type CustomerAgentMediaPerception } from "./customerAgentMediaPerception.js";
 import { customerRecruitmentRequested, isCustomerVacanciesObservation, recruitmentPositionForTurn, recruitmentMissingForTurn } from "./customerAgentRecruitmentProtocol.js";
 import { customerPropertyUrl } from "../lib/customerPropertyUrls.js";
+import { guardSellerDecision, SELLER_POLICY_MISMATCH_CAUSE } from "./customerAgentSellerGuard.js";
 import { validateCustomerAgentSayForDecision, CUSTOMER_AGENT_SAY_GUIDANCE } from "./customerAgentSay.js";
 import type { CustomerAgentAwaitContext, CustomerAgentModelTurn } from "./customerAgentModelContracts.js";
 export type { CustomerAgentAwaitContext, CustomerAgentModelTurn } from "./customerAgentModelContracts.js";
@@ -505,7 +506,10 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
         }
         return await confirmCommitted("invalid_model_decision");
       }
-      const d = parsed.data;
+      // Server repair: a seller never receives a rental refusal / bare commission that nobody asked for (customerAgentSellerGuard).
+      const sellerRepair = guardSellerDecision({ decision: parsed.data, evidence, surface: frame.surface, inputText: frame.inputText, verifiedContext: context ?? undefined });
+      if (sellerRepair) fallbackReason = "invalid_model_decision";
+      const d = sellerRepair ?? parsed.data;
       if (d.kind === "moderation_proposal" || d.kind === "skip" && (d.reason === "no_reply_needed" || d.reason === "duplicate")) {
         suppressionDecisionSeen = true;
       }
@@ -542,7 +546,7 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
       }
       const text = renderDecision(planned);
       if (text === null) return await confirmCommitted("unsupported_decision_evidence");
-      return await ready(planned, text, { ...(fallbackReason ? { fallbackReason } : {}), say });
+      return await ready(planned, text, { ...(fallbackReason ? { fallbackReason } : {}), ...(sellerRepair ? { fallbackCause: SELLER_POLICY_MISMATCH_CAUSE } : {}), say });
     }
     return await confirmCommitted("round_limit");
   } catch (error) {

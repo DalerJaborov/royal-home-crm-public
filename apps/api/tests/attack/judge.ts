@@ -45,6 +45,11 @@ const TOPIC_CLASH: Partial<Record<NonNullable<AttackExpect["topic"]>, RegExp>> =
   job: word("какой\\s+объект|кадом\\s+объект\\p{L}*|бюджет\\p{L}*|буҷет\\p{L}*"),
 };
 
+/** The customer asked about commission/price of the service (ru+tg): a commission answer is then the right first sentence. */
+export const COMMISSION_ASKED = /комисси|процент|сколько\s+(?:стоит|берете|получу|с\s+меня|с\s+продавц)|на\s+руки|стоимост|тариф|чанпул|чанд\s+пул|ҳаққи\s+хизмат|хаққи\s+хизмат|нархи\s+хизмат|фоиз|кобиш|%/iu;
+const RENT_TALK = /аренд|сда[мюе]|сдать|снять|иҷора|ичора/iu;
+const RENT_REFUSAL = /аренд|иҷора/iu;
+
 const GIVEN: Record<"budget" | "rooms" | "location" | "phone" | "name", RegExp> = {
   budget: new RegExp(`(?:\\d[\\d ]{2,}\\s*(?:сомон\\p{L}*|сом${EW}|somoni|tjs|usd|\\$|долл\\p{L}*|смн|тыс\\p{L}*|ҳазор)|(?:бюджет|буҷет|budget)\\D{0,14}\\d|\\$\\s*\\d{4,})`, "iu"),
   rooms: new RegExp(`(?:${BW}[1-5]\\s*[- ]?\\s*(?:комн\\p{L}*|ком${EW}|ҳуҷр\\p{L}*|хона\\p{L}*|к${EW})|${BW}(?:одно|двух|трех|трёх|четырёх|четырех)\\p{L}*\\s*комн|${BW}(?:двушк|однушк|трешк|трёшк|трехк|трёхк)\\p{L}*|${BW}(?:як|ду|се|чор)\\s*(?:хона|ҳуҷра)\\p{L}*)`, "iu"),
@@ -182,7 +187,9 @@ export function judgeTurn(input: JudgeInput): TurnJudgement {
 
   // 8. Topic (semantic) -----------------------------------------------------------------------------------------
   if (expect.topic) {
-    const on = TOPIC_MARKERS[expect.topic].test(reply), clash = TOPIC_CLASH[expect.topic]?.test(reply) ?? false;
+    // An honest rental refusal to a customer who talked about renting is the right seller-lane answer.
+    const honestRentRefusal = expect.topic === "seller" && RENT_TALK.test(norm(turn.in)) && RENT_REFUSAL.test(reply);
+    const on = honestRentRefusal || TOPIC_MARKERS[expect.topic].test(reply), clash = TOPIC_CLASH[expect.topic]?.test(reply) ?? false;
     add(`topic:${expect.topic}`, on && !clash, on ? `drifted to another topic ("${TOPIC_CLASH[expect.topic]?.exec(reply)?.[0]}")` : `no ${expect.topic} content in the reply`, true);
   }
 
@@ -193,7 +200,7 @@ export function judgeTurn(input: JudgeInput): TurnJudgement {
     const link = /https?:\/\/|www\./i.test(reply), phone = phoneDigits(unlinked).length > 0;
     add("public-no-links-phone", !(link || phone) || (agency && !link), link ? "link in a public reply" : "phone in a public reply without an explicit contact request");
   }
-  if (extra?.has("no-commission-first") && !/комисси|процент|ҳаққи хизмат|нархи хизмат|кобиш|%/iu.test(norm(turn.in))) {
+  if (extra?.has("no-commission-first") && !COMMISSION_ASKED.test(norm(turn.in))) {
     const first = reply.split(/(?<=[.!?])\s+/u)[0] ?? "";
     add("no-commission-first", !/комисси|ҳаққи хизмат/iu.test(first), "the reply opens with commission although the customer did not ask");
   }

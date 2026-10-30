@@ -39,5 +39,9 @@
   {"id":"seller-neg-002","category":"seller","surface":"dm","channel":"INSTAGRAM","fixture":{"properties":2,"vacancies":[],"publication":false},"turns":[{"in":"я не продавец, я покупатель","expect":{"topic":"property"}}]},
   {"id":"seller-neg-003","category":"seller","surface":"dm","channel":"INSTAGRAM","fixture":{"properties":2,"vacancies":[],"publication":false},"turns":[{"in":"ман намефурӯшам, харидорам","expect":{"language":"tg","topic":"property"}}]},
   {"id":"seller-neg-004","category":"seller","surface":"dm","channel":"INSTAGRAM","fixture":{"properties":2,"vacancies":[],"publication":false},"turns":[{"in":"ищу, а не продаю, двушку в Сино","expect":{"topic":"property"}}]},
-  {"id":"seller-neg-005","category":"seller","surface":"dm","channel":"INSTAGRAM","fixture":{"properties":2,"vacancies":[],"publication":false},"turns":[{"in":"не хочу продавать, просто спросить цену на {{p1.short}}","expect":{"topic":"property"}}]}
+  {"id":"seller-neg-005","category":"seller","surface":"dm","channel":"INSTAGRAM","fixture":{"properties":2,"vacancies":[],"publication":false},"turns":[{"in":"не хочу продавать, просто спросить цену на {{p1.short}}","expect":{"topic":"property"}}]},
+  {"id":"seller-media-001","category":"seller","surface":"dm","channel":"INSTAGRAM","fixture":{"properties":2,"vacancies":[],"publication":false},"turns":[{"in":"у меня дом на продажу, фото скину","expect":{"topic":"seller"}}]},
+  {"id":"seller-media-002","category":"seller","surface":"dm","channel":"INSTAGRAM","fixture":{"properties":2,"vacancies":[],"publication":false},"turns":[{"in":"продам двушку 65 м 5 этаж 450000, видео скину","expect":{"topic":"seller"}}]},
+  {"id":"seller-media-003","category":"seller","surface":"dm","channel":"INSTAGRAM","fixture":{"properties":2,"vacancies":[],"publication":false},"turns":[{"in":"видео квартиры которую хочу продать","expect":{"topic":"seller"}}]},
+  {"id":"seller-media-004","category":"seller","surface":"dm","channel":"INSTAGRAM","fixture":{"properties":2,"vacancies":[],"publication":false},"turns":[{"in":"продам квартиру в новостройке, сколько получу на руки","expect":{"topic":"policy"}}]}
 ]
