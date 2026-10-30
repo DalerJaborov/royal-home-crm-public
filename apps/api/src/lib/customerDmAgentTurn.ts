@@ -7,6 +7,7 @@ import { customerAgentSayMode } from "./customerAgentFeaturePolicy.js";
 import { recordCustomerAgentSay } from "./customerAgentSayStats.js";
 import { customerAgentToolDefinitions, CUSTOMER_AGENT_PUBLIC_TOOLS } from "../ai/customerAgentToolDefinitions.js";
 import { dispatchCustomerTool } from "../ai/customerToolRegistry.js";
+import { customerAffirmationFollowUp, customerBareAffirmation, customerCheaperRequested, customerCheaperSearchCall } from "../ai/customerAgentFollowUp.js";
 import { resolveCustomerDmLanguage } from "../ai/customerDmLanguage.js";
 import { prisma } from "../db.js";
 import { prepareCustomerDmInboxCoreContext } from "./customerDmCoreContext.js";
@@ -233,6 +234,16 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     const requestedFacts = remembered.context.publicState.topic === "job" ? [] : classifyCustomerPropertyFactIntent(fullInput(), { hasPropertyContext: focus?.snapshot.focus.status === "resolved" }) ??
       (!text.trim() && prepared.attachmentInput && (prepared.attachmentPropertyReference || mediaReferenceResolved) && focus?.snapshot.focus.status === "resolved"
         ? ["price" as const, "address" as const] : []);
+    // Short-word reads (customer words only): "дорого / дешевле есть?" about the object in focus reads the cheaper
+    // catalogue entries before the model answers; a bare "да" after the bot's own clarifying question is re-asked
+    // by the server. Neither applies to a job inquiry, media, a fact question or a fresh attachment.
+    const plainTurn = remembered.context.publicState.topic !== "job" && !requestedFacts.length && !prepared.attachmentInput && !mediaPerception;
+    const resolvedFocusId = focus?.snapshot.focus.status === "resolved" ? focus.snapshot.focus.propertyId : null;
+    const previousTurn = remembered.context.turns.at(-1);
+    const followUp = plainTurn && !carried && customerBareAffirmation(text)
+      ? customerAffirmationFollowUp(previousTurn?.role === "assistant" ? previousTurn.text : undefined, !!resolvedFocusId) ?? undefined : undefined;
+    const cheaperCall = plainTurn && !followUp && resolvedFocusId && customerCheaperRequested(fullInput())
+      ? customerCheaperSearchCall(await readCustomerPropertyFacts(resolvedFocusId, planningPrincipal.scope.channel)) : null;
     // Buyer-guide availability is a server hint only. It is deliberately not
     // exposed on unrelated job/seller turns, and no model marker can mint a
     // file send without the exact current campaign witness below.
@@ -310,7 +321,7 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     }
     const result = await runCustomerAgentTurn({ surface: "dm", language, inputText: fullInput(), attachmentInput: prepared.attachmentInput, mediaPerception,
       knownPhoneSource: lane.context.knownPhoneSource, requestedFacts, revision: claim.pin.revision,
-      approvedFileState,
+      approvedFileState, ...(followUp ? { followUp } : {}), ...(cheaperCall ? { preReads: [cheaperCall] } : {}),
       startedAt: claim.pin.receivedAt, operation: runtime.operation,
       tools: customerAgentToolDefinitions([...CUSTOMER_AGENT_PUBLIC_TOOLS, ...mutations.availableToolNames]),
       verifiedContext: remembered.context, sayMode: customerAgentSayMode(),

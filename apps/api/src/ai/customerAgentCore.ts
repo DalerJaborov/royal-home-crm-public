@@ -1,6 +1,7 @@
 import { customerAgentApprovedFileStateSchema, customerAgentDecisionSchema, customerAgentRevisionSchema, customerAgentToolCallSchema, customerAgentVerifiedContextSchema, customerAgentPublicationObservationSchema,
   customerPropertyFactsSchema, customerPropertyFactKindSchema, type CustomerAgentDecision, type CustomerAgentSayDropReason, type CustomerAgentSayMode, type CustomerAgentRevision, type CustomerAgentSurface,
   type CustomerAgentToolCall, type CustomerAgentVerifiedContext, type CustomerPropertyFactKind, type CustomerAgentApprovedFileState } from "@royal-home/shared";
+import { customerCheaperVisibleCards } from "./customerAgentCheaperCards.js";
 import type { ProviderOperation } from "./providerContract.js";
 import { renderCustomerAgentDecision, customerAgentRenderedQuestion, isCanonicalAgencyContact, customerCompanyInformationRequested,
   type CustomerAgentRenderedQuestion, type CustomerAgentEvidence, type CustomerAgentObservation } from "./customerAgentRenderer.js";
@@ -40,6 +41,10 @@ export interface CustomerCoreFrame {
   readonly publicationCardCount?: number;
   /** Grounded free-phrase channel. `shadow` (the default) validates and counts the model's `say` but never lets it reach the customer; `live` must be set explicitly. */
   readonly sayMode?: CustomerAgentSayMode;
+  /** Server reads run before the first model round (DM, never a job inquiry); e.g. "cheaper than the object in focus". */
+  readonly preReads?: readonly CustomerAgentToolCall[];
+  /** A bare "yes" after the bot's own clarifying question: the server re-asks, the model is not consulted. */
+  readonly followUp?: "clarify_previous" | "property";
 }
 export interface CustomerUnknownToolCall { callKey: string; name: CustomerAgentToolCall["name"] }
 export interface CustomerCorePorts {
@@ -377,11 +382,32 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
       await check();
       return { status: "ready", decision, question: "none", text, evidence: [], rounds, toolCalls };
     }
+    if (frame.followUp && frame.surface === "dm" && !frame.attachmentInput && !perception && !frame.requestedFacts.length && !evidence.length && context?.publicState.topic !== "job") {
+      const decision = customerAgentDecisionSchema.parse({ kind: "clarify", refs: [], social: "none", question: frame.followUp });
+      const text = renderDecision(decision);
+      if (text) return await ready(decision, text);
+    }
     if (customerCompanyInformationRequested(frame.inputText) && frame.tools.some(tool => tool.name === "get_company_information")) {
       await execute({ name: "get_company_information", args: {} }, undefined, true);
     }
     if ((customerRecruitmentRequested([frame.inputText, perception?.transcript, perception?.readableText].filter(Boolean).join("\n")) || context?.publicState.topic === "job") && frame.tools.some(tool => tool.name === "get_open_vacancies")) {
       await execute({ name: "get_open_vacancies", args: {} }, undefined, true);
+    }
+    if (frame.surface === "dm" && frame.preReads?.length && context?.publicState.topic !== "job") {
+      for (const read of frame.preReads) {
+        if (!frame.tools.some(tool => tool.name === read.name)) continue;
+        const result = await execute(read, undefined, true);
+        if ((result as { status?: string }).status === "observed") {
+          contents.splice(contents.length - 1, 0, { role: "user", parts: [{ text: JSON.stringify({ serverObservation: result }) }] });
+        }
+      }
+      // Nothing cheaper in the catalogue: say so honestly and ask the one open question (budget), without a model round.
+      const searches = evidence.filter(e => e.value.kind === "property_search");
+      if (searches.length && searches.length === evidence.length && searches.every(e => e.value.kind === "property_search" && !customerCheaperVisibleCards(e.value).length)) {
+        const decision = customerAgentDecisionSchema.parse({ kind: "reply", refs: searches.map(e => e.ref), social: "none", question: "budget" });
+        const text = renderDecision(decision);
+        if (text) return await ready(decision, text);
+      }
     }
     if (frame.requestedFacts.length && context?.publicState.topic !== "job") {
       const result = await execute({ name: "get_property_facts", args: { kinds: frame.requestedFacts } }, undefined, true);
