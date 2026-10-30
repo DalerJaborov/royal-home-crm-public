@@ -40,3 +40,12 @@ describe("customerSearchIntent", () => {
     expect(customerSearchPreRead(null)).toBeNull();
   });
 });
+
+describe("bare purchase wish is a consultation, not a search (cloud ship #80)", () => {
+  it.each(["Хочу купить квартиру, нужна консультация.", "Хона харидан мехоҳам, маслиҳат лозим аст."])("%s → no server search", text => {
+    expect(customerSearchPreRead(customerSearchIntent(text, /[ҳҷқӣӯғ]/iu.test(text) ? "tg" : "ru"))).toBeNull();
+  });
+  it("one concrete condition is enough", () => {
+    expect(customerSearchPreRead(customerSearchIntent("хочу купить двушку", "ru"))).toMatchObject({ args: { type: "APARTMENT", rooms: 2 } });
+  });
+});

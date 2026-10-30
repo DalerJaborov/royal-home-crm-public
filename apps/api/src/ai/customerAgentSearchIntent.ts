@@ -130,6 +130,9 @@ export function customerSearchPreRead(intent: CustomerSearchIntent | null, distr
   if (!intent) return null;
   const district = intent.districtName ?? districtName;
   if (!intent.type && !district) return null;
+  // A bare «хочу купить квартиру» is a consultation, not a search: three arbitrary cards would hijack qualification and the
+  // callback flow (cloud ship #80). The server searches only with at least one concrete condition beyond the type.
+  if (!district && !intent.rooms && !intent.budget && !intent.sort) return null;
   const parsed = customerAgentPropertySearchCallSchema.safeParse({ name: "search_public_properties", args: {
     ...(intent.type ? { type: intent.type } : {}), ...(district ? { districtName: district } : {}),
     ...(intent.rooms ? { rooms: intent.rooms } : {}),
