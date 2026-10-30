@@ -7,3 +7,5 @@
 Почему: прогон Gemini 30.10, продавец 30/41.
 Проверено: build apps/api 0; `customer-agent-seller-guard.test.ts` (красный без подмены, зелёный с ней), `attack/judge.test.ts`, core/renderer/intake, `--model scripted --category seller` 45/45.
 Осталось: «Чиро муфассалтар...» покрыто только для пустого reply с topic; живой прогон Gemini не повторялся. Хук в core вне зоны P6 (P2 правит ветку attachmentOnly) — вставка 4 строк.
+
+Доработка: если продавец спросил про комиссию, а модель ответила reply с комиссией и question none, ответ сохраняется, вопрос меняется на seller_details (fallbackCause repair:seller_commission_no_intake). Сценарий seller-media-005; scripted seller 46/46.

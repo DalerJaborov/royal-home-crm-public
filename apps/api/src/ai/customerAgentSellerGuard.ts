@@ -10,13 +10,14 @@ import { BW, EW } from "./wordBoundary.js";
  * honest only when the customer spoke about renting; the commission is an answer only when the customer asked about it.
  */
 export const SELLER_POLICY_MISMATCH_CAUSE = "repair:seller_policy_mismatch";
+export const SELLER_COMMISSION_NO_INTAKE_CAUSE = "repair:seller_commission_no_intake";
 
 const RENT_MENTION = new RegExp(`${BW}(?:аренд\\p{L}*|сдам|сдаю|сдаем|сда(?:ть|вать)|сдается|сдаются|сними\\p{L}*|снять|снимать|ичора\\p{L}*|наем\\p{L}*)${EW}`, "u");
 const COMMISSION_ASK = new RegExp(`${BW}(?:комисс\\p{L}*|процент\\p{L}*|фоиз\\p{L}*|чанпул|чанд пул|хаки хизмат|хакки хизмат|кобиш|стоимост\\p{L}*|тариф\\p{L}*|оплат\\p{L}*|берете|берет|возьмете|возьмет|получу|получит\\p{L}*|на руки)${EW}|${BW}сколько (?:стоит|будет стоить|с меня|с продавц\\p{L}*|вы берете|берут|ваш\\p{L}*)${EW}|${BW}какой (?:у вас )?процент${EW}`, "u");
 
 type Evidence = { ref: string; value: { kind: string; topic?: string } };
 export function guardSellerDecision(input: { decision: CustomerAgentDecision; evidence: readonly Evidence[]; surface: string;
-  inputText: string; verifiedContext?: Pick<CustomerAgentVerifiedContext, "intake" | "turns"> }): CustomerAgentDecision | null {
+  inputText: string; verifiedContext?: Pick<CustomerAgentVerifiedContext, "intake" | "turns"> }): { decision: CustomerAgentDecision; cause: string } | null {
   const d = input.decision;
   if (input.surface !== "dm" || (d.kind !== "reply" && d.kind !== "clarify")) return null;
   const topicOnly = !d.refs.length && d.question === "topic";
@@ -31,5 +32,9 @@ export function guardSellerDecision(input: { decision: CustomerAgentDecision; ev
   const rentTopic = referenced.every(value => value?.topic === "rental"), commissionTopic = referenced.every(value => value?.topic === "commission");
   // A bare "what should I explain?" to a seller who just named an object is the same miss (30.10: "хонаи фуруши дорам").
   const mismatch = topicOnly || rentTopic && !RENT_MENTION.test(words) || commissionTopic && !COMMISSION_ASK.test(words);
-  return mismatch ? { kind: "clarify", refs: [], social: d.social, question: "seller_details", ...(d.say ? { say: d.say } : {}) } : null;
+  if (mismatch) return { cause: SELLER_POLICY_MISMATCH_CAUSE,
+    decision: { kind: "clarify", refs: [], social: d.social, question: "seller_details", ...(d.say ? { say: d.say } : {}) } };
+  // The seller asked about the commission: keep the verified answer, but do not leave the intake unanswered (question: none).
+  if (commissionTopic && d.kind === "reply" && d.question === "none") return { cause: SELLER_COMMISSION_NO_INTAKE_CAUSE, decision: { ...d, question: "seller_details" } };
+  return null;
 }

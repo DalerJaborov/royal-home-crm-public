@@ -55,9 +55,18 @@ describe("seller is not answered with an unasked rental refusal or commission (3
     ["хочу купить, аренда есть?", "ru", "rental"],
   ] as const)("keeps the model answer when the customer asked: %s", async (text, language, topic) => {
     const result = await run(text, language, topic, { question: "none" });
-    expect(result.status === "ready" && result.fallbackCause).toBeFalsy();
+    expect(result.status === "ready" && result.fallbackCause).not.toBe("repair:seller_policy_mismatch");
     expect(result.status === "ready" && result.decision.kind).toBe("reply");
   });
+  it.each([["сколько берёте с продавца, продам квартиру", "ru"], ["продам квартиру, сколько получу на руки", "ru"], ["хонаи фуруши дорам, чанд фоиз мегиред", "tg"]] as const)(
+    "commission asked by a seller keeps the commission and adds seller_details: %s", async (text, language) => {
+      const result = await run(text, language, "commission", { question: "none" });
+      expect(result.status).toBe("ready");
+      if (result.status !== "ready") return;
+      expect(result.decision).toMatchObject({ kind: "reply", question: "seller_details", refs: ["e0"] });
+      expect(result.fallbackCause).toBe("repair:seller_commission_no_intake");
+      expect(result.text).toMatch(/2\s*%/u);
+    });
   it("recognises 'на продажу' as a seller", () => {
     expect(customerTextRole("у меня дом на продажу, фото скину", false)).toBe("seller");
     expect(customerTextRole("есть ли квартиры на продажу?", false)).not.toBe("seller");

@@ -43,5 +43,6 @@
   {"id":"seller-media-001","category":"seller","surface":"dm","channel":"INSTAGRAM","fixture":{"properties":2,"vacancies":[],"publication":false},"turns":[{"in":"у меня дом на продажу, фото скину","expect":{"topic":"seller"}}]},
   {"id":"seller-media-002","category":"seller","surface":"dm","channel":"INSTAGRAM","fixture":{"properties":2,"vacancies":[],"publication":false},"turns":[{"in":"продам двушку 65 м 5 этаж 450000, видео скину","expect":{"topic":"seller"}}]},
   {"id":"seller-media-003","category":"seller","surface":"dm","channel":"INSTAGRAM","fixture":{"properties":2,"vacancies":[],"publication":false},"turns":[{"in":"видео квартиры которую хочу продать","expect":{"topic":"seller"}}]},
-  {"id":"seller-media-004","category":"seller","surface":"dm","channel":"INSTAGRAM","fixture":{"properties":2,"vacancies":[],"publication":false},"turns":[{"in":"продам квартиру в новостройке, сколько получу на руки","expect":{"topic":"policy"}}]}
+  {"id":"seller-media-004","category":"seller","surface":"dm","channel":"INSTAGRAM","fixture":{"properties":2,"vacancies":[],"publication":false},"turns":[{"in":"продам квартиру в новостройке, сколько получу на руки","expect":{"topic":"policy"}}]},
+  {"id":"seller-media-005","category":"seller","surface":"dm","channel":"INSTAGRAM","fixture":{"properties":2,"vacancies":[],"publication":false},"turns":[{"in":"продам трёшку с видом, сколько берёте с продавца","expect":{"topic":"policy"}}]}
 ]
