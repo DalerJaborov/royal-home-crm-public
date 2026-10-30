@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 const boundary = vi.hoisted(() => ({ credentials: vi.fn(async () => { throw new Error("External credential boundary reached"); }) }));
-vi.mock("../src/messengers/meta.js", async original => ({
-  ...(await original<typeof import("../src/messengers/meta.js")>()), loadCredentials: boundary.credentials,
+vi.mock("../src/messengers/meta.js", async importOriginal => ({
+  ...(await importOriginal<typeof import("../src/messengers/meta.js")>()), loadCredentials: boundary.credentials,
 }));
 import { prisma } from "../src/db.js";
 import { publishPropertyCardStory, publishPropertySoldStory, publishPropertyPriceDropStory, publishPropertyInstagramStories } from "../src/lib/instagramStories.js";
@@ -23,3 +23,4 @@ describe("private properties never reach external story publication", () => {
     });
   }
 });
+
