@@ -1,3 +1,4 @@
+import { repairCustomerAgentDecision } from "./customerAgentDecisionRepair.js";
 import { customerAgentApprovedFileStateSchema, customerAgentDecisionSchema, customerAgentRevisionSchema, customerAgentToolCallSchema, customerAgentVerifiedContextSchema, customerAgentPublicationObservationSchema,
   customerPropertyFactsSchema, customerPropertyFactKindSchema, type CustomerAgentDecision, type CustomerAgentSayDropReason, type CustomerAgentSayMode, type CustomerAgentRevision, type CustomerAgentSurface,
   type CustomerAgentToolCall, type CustomerAgentVerifiedContext, type CustomerPropertyFactKind, type CustomerAgentApprovedFileState } from "@royal-home/shared";
@@ -497,7 +498,15 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
       // The free phrase leaves the raw JSON BEFORE the strict parse: a bad `say` must never void an otherwise valid decision (or cost a correction round).
       const { say: modelSay, rest: decisionJson } = liftSay(raw);
       let parsed = customerAgentDecisionSchema.safeParse(decisionJson);
-      let fallbackReason: "invalid_model_decision" | undefined;
+      let fallbackReason: "invalid_model_decision" | undefined, fallbackCause: string | undefined;
+      if (!parsed.success && !notJson) {
+        // Wrong SHAPE with a clear intent (e.g. `propose` carrying a `question`) is fixed by the server, not by a second model round.
+        const repaired = repairCustomerAgentDecision(decisionJson, { surface: frame.surface, knownRefs: evidence.map(e => e.ref) });
+        const reparsed = repaired ? customerAgentDecisionSchema.safeParse(repaired.decision) : null;
+        if (repaired && reparsed?.success) {
+          parsed = reparsed; fallbackReason = "invalid_model_decision"; fallbackCause = `repair_${repaired.repairs[0]}`.slice(0, 48);
+        }
+      }
       if (!parsed.success && frame.surface === "public_comment" && !unsettledWrites.size) {
         // Public tools are read-only. A malformed final suggestion must not
         // discard verified search/facts already obtained in this SAME turn.
@@ -507,7 +516,7 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
         const refs = evidence.filter(e => ["facts", "property_search", "company_policy", "property_unresolved", "publication_properties"].includes(e.value.kind)).map(e => e.ref).slice(-8);
         if (refs.length) {
           parsed = customerAgentDecisionSchema.safeParse({ kind: "reply", refs, social: "none", question: "none" });
-          fallbackReason = "invalid_model_decision";
+          fallbackReason = "invalid_model_decision"; fallbackCause = "public_refs_fallback";
         }
       }
       /** The model's own final stays in the transcript so it can see what to fix; only schema paths/codes come back. */
@@ -563,7 +572,7 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
       }
       const text = renderDecision(planned);
       if (text === null) return await confirmCommitted("unsupported_decision_evidence");
-      return await ready(planned, text, { ...(fallbackReason ? { fallbackReason } : {}), say });
+      return await ready(planned, text, { ...(fallbackReason ? { fallbackReason } : {}), ...(fallbackCause ? { fallbackCause } : {}), say });
     }
     return await confirmCommitted("round_limit");
   } catch (error) {
