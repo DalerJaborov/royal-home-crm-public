@@ -24,6 +24,7 @@ import { budgetSortKey, computeHiddenReason, maskPhone, presentClient } from "./
 import { TERMINAL_CLIENT_STATUSES } from "../../lib/clientContact.js";
 import { clientNamePhoneSafe, phoneSafeText } from "../../lib/clientPhone.js";
 import { dushanbeStartOfToday } from "../../lib/dushanbeTime.js";
+import { CLIENT_IN_WORK_WHERE } from "../../lib/clientInWork.js";
 
 export const listRouter = Router();
 
@@ -427,6 +428,8 @@ listRouter.get("/", requireAuth, async (req, res) => {
     // должно находить и карточку №42, и телефон, в котором встречается «42».
     where.AND = shortIdMatch !== null ? [{ OR: [{ shortId: shortIdMatch }, { AND: byTokens }] }] : byTokens;
   }
+  // Keep the scope outside the text-search AND, which fuzzy search replaces.
+  if (scope === "inWork") Object.assign(where, CLIENT_IN_WORK_WHERE);
 
   // Список выдаёт 20 записей на страницу, но селекты-справочники («Назначить
   // клиенту» на карточке объекта) берут первую страницу и других не запрашивают —

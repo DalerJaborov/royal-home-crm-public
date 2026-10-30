@@ -16,10 +16,10 @@
   "paths": 722,
   "cron": 115,
   "jobs": 31,
-  "conditions": 3990,
+  "conditions": 3991,
   "untranslatedUnique": 458,
   "untranslatedTotal": 586,
-  "partialUnique": 1085,
+  "partialUnique": 1086,
   "translatedShare": 85
  },
  "untranslated": [
@@ -23287,6 +23287,12 @@
     },
     {
      "t": "если клиент tokens количество больше 0",
+     "k": "if",
+     "a": [],
+     "c": []
+    },
+    {
+     "t": "если scope — «inWork»",
      "k": "if",
      "a": [],
      "c": []

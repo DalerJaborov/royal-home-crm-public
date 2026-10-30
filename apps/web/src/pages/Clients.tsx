@@ -4,6 +4,7 @@ import { useCleanShell } from "../hooks/useCleanShell";
 import { CleanClientRow, cleanClientColumns } from "../components/clean/CleanClientRow";
 import { CButton, cn } from "../components/clean/ui";
 import { lazyWithReload } from "../lib/lazyWithReload";
+import { clientListScope } from "../lib/clientListScope";
 const MobileClientsList = lazyWithReload(() => import("../components/mobile/MobileClientsList").then((m) => ({ default: m.MobileClientsList })));
 const MobileInquiries = lazyWithReload(() => import("../components/mobile/MobileInquiries").then((m) => ({ default: m.MobileInquiries })));
 import { useCallback, useEffect, useState } from "react";
@@ -314,7 +315,8 @@ function ClientsList({ kind = "BUYER" }: { kind?: "BUYER" | "SELLER" | "OTHER" }
     // «Ждут принятия» — и покупатели, и продавцы разом: так считает число в шторке
     // (useClientsSummary.awaitingAgent), и срез по разделу давал список короче числа.
     kind: kindForQuery,
-    ...(isAllMineRoute ? { scope: "allMine" as const } : {}),
+    scope: clientListScope({ allMine: isAllMineRoute, other: isOther, searching,
+      status: filters.status, workStatus: filters.workStatus, pending: pendingSlice, noResponseYesterday }),
     ...(pendingSlice ? { pendingAcceptance: true } : {}),
     ...(noResponseYesterday ? { noFirstContactYesterday: true, sort: "created_desc" as const } : {}),
     // «Прочие обращения»: свежие сверху (серверный порядок по умолчанию и есть рабочий).

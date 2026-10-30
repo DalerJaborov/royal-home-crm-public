@@ -25,6 +25,43 @@ let agentId = "";
 /** Возраст непринятой карточки — считается по тому же правилу, что и фикстура. */
 let pendingWaitingMinutes = 0;
 
+it("счётчик и список В работе исключают неактивных и закрытые назначения, поиск сохраняет историю", async () => {
+  const token = await login(agentPhone);
+  const get = (path: string) => request(app).get(path).set("Authorization", `Bearer ${token}`);
+  const before = await get("/api/v1/clients/summary");
+  const marker = `workscope${runId}`;
+  const fixtures = [
+    { status: "CONTACTED", workStatus: "ACTIVE" },
+    { status: "CONTACTED", workStatus: "INACTIVE" },
+    { status: "LOST", workStatus: "ACTIVE" },
+    { status: "ARCHIVED", workStatus: "ACTIVE" },
+    { status: "DEAL_CLOSED", workStatus: "ACTIVE" },
+    { status: "CONTACTED", workStatus: "ACTIVE", assignmentCompletedAt: new Date() },
+  ] as const;
+  const created: string[] = [];
+  try {
+    for (const [i, state] of fixtures.entries()) {
+      const c = await prisma.client.create({ data: {
+        fullName: `${marker} ${i}`, phone: `test-${marker}-${i}`, source: "WEBSITE",
+        kind: "BUYER", assignedAgentId: agentId, acceptedAt: new Date(), ...state,
+      } });
+      created.push(c.id);
+    }
+    const after = await get("/api/v1/clients/summary");
+    expect(after.body.buyers).toBe(before.body.buyers + 1);
+    const work = await get(`/api/v1/clients?scope=inWork&kind=BUYER&q=${marker}`);
+    expect(work.status).toBe(200);
+    expect(work.body.items.map((c: { id: string }) => c.id)).toEqual([created[0]]);
+    const search = await get(`/api/v1/clients?q=${marker}`);
+    expect(search.status).toBe(200);
+    expect(search.body.items).toHaveLength(fixtures.length);
+    const inactive = await get(`/api/v1/clients?workStatus=INACTIVE&q=${marker}`);
+    expect(inactive.body.items.map((c: { id: string }) => c.id)).toEqual([created[1]]);
+  } finally {
+    await prisma.client.deleteMany({ where: { id: { in: created } } });
+  }
+});
+
 async function login(phone: string): Promise<string> {
   const res = await request(app).post("/api/v1/auth/login").send({ phone, password });
   expect(res.status).toBe(200);

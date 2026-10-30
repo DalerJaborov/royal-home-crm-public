@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 722,
-  "forks": 3990,
+  "forks": 3991,
   "mounts": 79,
   "cron": 115,
   "jobs": 31,
@@ -20754,6 +20754,21 @@
        "t": "const byTokens = clientTokens.map((token, i)",
        "a": [
         "зовёт toTokenVariants()"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "scope === \"inWork\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "Object.assign(where, CLIENT_IN_WORK_WHERE);",
+       "a": [
+        "дословно из кода"
        ],
        "c": []
       }
