@@ -1,3 +1,4 @@
+import { PropertyChoiceList } from "./PropertyChoiceList";
 import { useIsReadOnly } from "../lib/permissions";
 import { CleanRecordForm, ReadOnlyRecordFields, CleanInteractionContext } from "./clean/CleanRecordForm";
 import { useCleanShell } from "../hooks/useCleanShell";
@@ -10,7 +11,7 @@ import { useDistricts } from "../hooks/useDistricts";
 import { useProperties, useProperty } from "../hooks/useProperties";
 import { useSpeechRecognition } from "../hooks/useSpeechRecognition";
 import { CALL_OUTCOME_CHOICES, SELLER_CALL_OUTCOME_CHOICES, showingEvidenceIssues, type InteractionOutcome } from "@royal-home/shared";
-import { INTERACTION_OUTCOME_LABELS, INTERACTION_TYPE_LABELS, formatPropertyCode } from "../lib/clientFormat";
+import { INTERACTION_OUTCOME_LABELS, INTERACTION_TYPE_LABELS } from "../lib/clientFormat";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { Rh2Sheet } from "./rh2/Rh2Sheet";
 import { dushanbeInputToIso, dushanbeTodayKey } from "../lib/date";
@@ -68,24 +69,12 @@ function ShowingPropertyPicker({
         placeholder="Номер ОБ-…, название или адрес"
         aria-label="Поиск объекта"
       />
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        size={Math.min(Math.max(options.length + (allowEmpty ? 1 : 0), 2), 6)}
-        aria-label="Объект"
-      >
-        {!allowEmpty && <option value="">Выберите объект</option>}
-        {allowEmpty && <option value="">не указывать</option>}
-        {options.map((p) => (
-          <option key={p.id} value={p.id}>
-            {formatPropertyCode(p.shortId)} · {p.title}
-          </option>
-        ))}
-      </select>
-      {found.isLoading && <span className="msg">Ищу…</span>}
-      {found.isError && <span role="alert">Не удалось загрузить объекты. <button type="button" onClick={() => void found.refetch()}>Повторить</button></span>}
-      {!found.isLoading && !found.isError && !q && items.length === 0 && <span className="msg">Нет доступных объектов. Сначала добавьте объект в CRM.</span>}
-      {!found.isLoading && q && items.length === 0 && <span className="msg">Ничего не нашли.</span>}
+      <PropertyChoiceList items={options} value={value} onChange={onChange}
+        emptyLabel={allowEmpty ? "Не указывать объект" : undefined}
+        loading={found.isLoading || selectedFetched.isLoading}
+        error={found.isError || selectedFetched.isError}
+        onRetry={() => { void found.refetch(); if (value && !selectedInList) void selectedFetched.refetch(); }} />
+      {!found.isFetching && !found.isError && q && items.length === 0 && selected && <p role="status">По этому запросу ничего не найдено. Выбранный объект сохранён выше.</p>}
     </div>
   );
 }
