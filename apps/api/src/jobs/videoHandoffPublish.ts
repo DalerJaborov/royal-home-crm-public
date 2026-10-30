@@ -137,7 +137,7 @@ export const videoHandoffPublishJob: JobHandler<Payload> = {
     // ролика (владелец 30.10.2026), а не при возврате монтажёру. Сбой снятия публикацию
     // не останавливает — занятый канал она просто пропустит, причина уже в журнале.
     await replaceOldPostsBeforeRemakePublish(property.id).catch((err) =>
-      logSystemError("meta", `Объект ${property.id}: замена старых постов перед публикацией перемонтажа не удалась: ${err instanceof Error ? err.message : String(err)}`)
+      logSystemError("meta", `Объект ${property.id}: замена старых постов перед публикацией перемонтажа не удалась: ${err instanceof Error ? err.message : String(err)}`, { dedupKey: "Объект …: замена старых постов перед публикацией перемонтажа не удалась" })
     );
     const summary = await publishHandoffResult(property.id, property.videoHandoffFinalPath);
     await notifyVideoHandoffPublishResult(property.id, summary);

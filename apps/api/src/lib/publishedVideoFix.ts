@@ -1002,7 +1002,8 @@ export async function replaceOldPostsBeforeRemakePublish(
     const body = manual.map((s) => `${s.channel === "INSTAGRAM" ? "Instagram" : "TikTok"}: ${s.url ?? "найдите старый ролик в приложении"}`).join("\n");
     void logSystemError(
       "meta",
-      `Объект №${property?.shortId ?? propertyId}: вышел перемонтированный ролик, старый удалите руками — ${body.replace(/\n/g, "; ")}`
+      `Объект №${property?.shortId ?? propertyId}: вышел перемонтированный ролик, старый удалите руками — ${body.replace(/\n/g, "; ")}`,
+      { dedupKey: "Объект №…: вышел перемонтированный ролик, старый удалите руками" }
     );
     const ownerId = property ? propertyOwnerAgentId(property) : null;
     if (ownerId && property) {
