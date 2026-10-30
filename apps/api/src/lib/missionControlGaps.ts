@@ -13,6 +13,7 @@ import { HAS_INSTAGRAM_LINK_WHERE, NO_INSTAGRAM_LINK_WHERE } from "./instagramLi
 import { getExtensionStatuses } from "./telephony/extensionPool.js";
 import { RATED_ROLES } from "@royal-home/shared";
 import { TASK_WHERE } from "./tasks.js";
+import { findSilentAfterShowing } from "./silentAfterShowing.js";
 
 /**
  * БЛОКИ ПУЛЬТА, КОТОРЫЕ ПОКАЗЫВАЛИ «НЕТ ДАННЫХ» (владелец 12.09.2026: «почему
@@ -1197,15 +1198,7 @@ export async function loadControlGaps(now: Date, viewerRole?: string): Promise<M
 
   const phones = await loadAgentPhones();
 
-  const silenceCutoff = new Date(now.getTime() - 3 * 86_400_000);
-  const silentAfterShowing = await prisma.client.count({
-    where: {
-      deletedAt: null,
-      status: { notIn: ["LOST", "DEAL_CLOSED", "ARCHIVED"] },
-      lastContactAt: { lt: silenceCutoff },
-      interactions: { some: { ...visibleInteractionWhere(viewerRole), taskCancelledAt: null, type: "SHOWING", createdAt: { gte: silenceCutoff } } },
-    },
-  });
+  const silentAfterShowing = (await findSilentAfterShowing(now, viewerRole)).items.length;
 
   return {
     phones,
