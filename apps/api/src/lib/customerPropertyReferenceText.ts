@@ -19,9 +19,11 @@ export const STRONG_PROPERTY_NUMBER_SOURCE = `${BW}(?:(?:объект[а-яё]*|
  * — at most six digits and not the head of a longer digit group ("номер 98 765 4321"). */
 export const WEAK_PROPERTY_NUMBER_SOURCE =
   `${BW}(?:номер(?:а|у|ом)?|рақам(?:и)?(?:\\s+объект\\p{L}*)?|id|ид|айди)\\s*[:№#]?\\s*([1-9]\\d{0,5})(?!\\d|[ \\-]\\d)${EW}`;
+/** The CRM object code as the customer copies it ("ОБ-000088", "ob-88"): the dash is required, so "об этом 5 этаже" is not a number. */
+export const OBJECT_CODE_NUMBER_SOURCE = `${BW}(?:об|ob)\\s*[-–—]\\s*0*([1-9]\\d{0,8})(?!\\d)`;
 export function propertyNumberSelectors(text: string): string[] {
   const numbers = new Set<string>();
-  for (const source of [STRONG_PROPERTY_NUMBER_SOURCE, WEAK_PROPERTY_NUMBER_SOURCE]) {
+  for (const source of [STRONG_PROPERTY_NUMBER_SOURCE, WEAK_PROPERTY_NUMBER_SOURCE, OBJECT_CODE_NUMBER_SOURCE]) {
     for (const match of text.matchAll(new RegExp(source, "giu"))) numbers.add(match[1]);
   }
   return [...numbers].filter(value => Number(value) > 0);

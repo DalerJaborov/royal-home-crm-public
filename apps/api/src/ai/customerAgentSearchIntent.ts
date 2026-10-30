@@ -1,5 +1,6 @@
 import { customerAgentPropertySearchCallSchema, type CustomerAgentPropertySearchArgs } from "@royal-home/shared";
 import { BW, EW, TAIL } from "./wordBoundary.js";
+import { customerAgentQuestionCatalog } from "./customerAgentRenderer.js";
 
 /**
  * The customer's explicit request to PICK properties ("ищу двушку в Сино", "есть ли двушки", "хочу купить квартиру до 600000
@@ -26,7 +27,7 @@ const norm = (text: string) => text.toLowerCase().replaceAll("ё", "е").normali
 
 const SELLER_OR_JOB = new RegExp([
   `${BW}(?:продам|продаю|продается|продаётся|продается|продать|сдам|сдаю|сдать|сдается)${EW}`, `${BW}продаж${TAIL}`,
-  `${BW}(?:фур[уӯ]ш${TAIL}|фур[уӯ]хт${TAIL}|ба иҷора медиҳам|иҷорa медиҳам)`,
+  `${BW}(?:(?:ме)?фур[уӯ]ш${TAIL}|фур[уӯ]хт${TAIL}|ба иҷора медиҳам|иҷорa медиҳам)`,
   `${BW}(?:вакан${TAIL}|резюме|работ[аеуы]${EW}|ҷойи\\s+кор|кор\\s+меҷӯям|маош)`,
 ].join("|"), "iu");
 
@@ -101,7 +102,10 @@ export function customerSearchIntent(text: string, _language: "ru" | "tg" = "ru"
   if (!own.trim() || own.length > 300) return null;
   if (SELLER_OR_JOB.test(own) || RENT_ONLY.test(own)) return null;
   if (!REQUEST.test(own)) return null;
+  return readIntent(own);
+}
 
+function readIntent(own: string): CustomerSearchIntent {
   const intent: CustomerSearchIntent = {};
   for (const { type, re } of TYPES) if (re.test(own)) { intent.type = type; break; }
   const roomsByWord = ROOM_WORDS.find(({ re }) => re.test(own))?.n;
@@ -119,6 +123,27 @@ export function customerSearchIntent(text: string, _language: "ru" | "tg" = "ru"
   // «Недорого» without a stated ceiling asks for the cheapest first; with a ceiling the budget already bounds the list.
   if (!budget && new RegExp(`${BW}(?:недорог${TAIL}|подешевл${TAIL}|дешев${TAIL}|арзон${TAIL}|бюджетн${TAIL})`, "iu").test(own)) intent.sort = "cheap";
   return intent;
+}
+
+const hasCondition = (intent: CustomerSearchIntent) => !!(intent.type || intent.districtName || intent.placeText || intent.rooms || intent.budget);
+
+/**
+ * The customer ANSWERS the bot's own question about a district / rooms / budget ("двушка" -> «Какой район вам подходит?» ->
+ * "в Фирдавси", live 31.10: the bot asked "Какой объект вы имеете в виду?"). The answer carries no request word, so the conditions
+ * are the answer plus what the customer said in the last user turns. Only right after the bot's fixed location/rooms/budget question;
+ * the answer itself must name a condition ("не знаю" is not one).
+ */
+export function customerSearchContinuation(text: string, turns: ReadonlyArray<{ role: "user" | "assistant"; text: string }>): CustomerSearchIntent | null {
+  const last = turns.at(-1);
+  if (last?.role !== "assistant") return null;
+  const lines = last.text.split("\n").map(line => line.trim());
+  const asked = (["ru", "tg"] as const).some(language => customerAgentQuestionCatalog(language).some(({ question, text: sentence }) =>
+    (question === "location" || question === "rooms" || question === "budget") && lines.includes(sentence)));
+  const own = norm(text);
+  if (!asked || !own.trim() || own.length > 120 || !hasCondition(readIntent(own))) return null;
+  const combined = norm([...turns.filter(turn => turn.role === "user").slice(-2).map(turn => turn.text), text].join(". "));
+  if (SELLER_OR_JOB.test(combined) || RENT_ONLY.test(combined)) return null;
+  return readIntent(combined);
 }
 
 /**

@@ -20,7 +20,9 @@ export function guardSellerDecision(input: { decision: CustomerAgentDecision; ev
   inputText: string; verifiedContext?: Pick<CustomerAgentVerifiedContext, "intake" | "turns"> }): { decision: CustomerAgentDecision; cause: string } | null {
   const d = input.decision;
   if (input.surface !== "dm" || (d.kind !== "reply" && d.kind !== "clarify")) return null;
-  const topicOnly = !d.refs.length && d.question === "topic";
+  // "clarify_previous" with no bot question before it has nothing to repair: live Gemini 31.10 answered "хонаи фуруши дорам" with it ("Чиро муфассалтар шарҳ диҳам?").
+  const nothingToRepair = input.verifiedContext?.turns.at(-1)?.role !== "assistant";
+  const topicOnly = !d.refs.length && (d.question === "topic" || d.question === "clarify_previous" && nothingToRepair);
   if (!d.refs.length && !topicOnly) return null;
   const referenced = d.refs.map(ref => input.evidence.find(e => e.ref === ref)?.value);
   if (!topicOnly && referenced.some(value => !value || value.kind !== "company_policy")) return null;
