@@ -98,7 +98,7 @@ function safeObservation(value: CustomerAgentObservation, knowledgeSourceHash: s
   if (value.kind === "facts") return customerPropertyFactsSchema.safeParse(value.facts).success &&
     value.kinds.length > 0 && value.kinds.length <= customerPropertyFactKindSchema.options.length && value.kinds.every(k => customerPropertyFactKindSchema.safeParse(k).success);
   if (value.kind === "property_unresolved") return (value.status === "missing" || value.status === "ambiguous") &&
-    (value.reason === undefined || ["no_reference", "unsupported", "untrusted_origin", "not_found", "lookup_unavailable"].includes(value.reason));
+    (value.reason === undefined || ["no_reference", "unsupported", "untrusted_origin", "not_found", "lookup_unavailable", "ad_unmapped"].includes(value.reason));
   if (value.kind === "agency_contact") return isCanonicalAgencyContact(value);
   if (value.kind === "company_policy") return isPinnedCompanyPolicy(value, knowledgeSourceHash);
   if (value.kind === "company_information") return isCustomerCompanyInformation(value);

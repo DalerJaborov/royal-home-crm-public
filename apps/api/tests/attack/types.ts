@@ -45,7 +45,9 @@ export const attachSchema = z.object({
 }).strict();
 export type AttackAttach = z.infer<typeof attachSchema>;
 
-export const turnSchema = z.object({ in: z.string().max(3000), attach: attachSchema.nullish(), expect: expectSchema.optional() }).strict();
+export const turnSchema = z.object({ in: z.string().max(3000), attach: attachSchema.nullish(),
+  /** The customer answers OUR story of the first fixture card (Meta sends reply_to.story with the media id and a CDN url). */
+  storyReply: z.boolean().optional(), expect: expectSchema.optional() }).strict();
 export type AttackTurn = z.infer<typeof turnSchema>;
 
 export const fixtureSchema = z.object({
