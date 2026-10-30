@@ -919,10 +919,13 @@ export function usePropertyPickerOptions(clientId: string | undefined, q?: strin
     useCatalog
   );
   return useCatalog
-    ? { properties: fallback.data?.items, isLoading: fallback.isLoading, usedFallback: true, unfiltered: false }
+    ? { properties: fallback.data?.items, isLoading: fallback.isLoading, isFetching: fallback.isFetching, isError: fallback.isError, refetch: fallback.refetch, usedFallback: true, unfiltered: false }
     : {
         properties: matched.data?.properties,
         isLoading: matched.isLoading,
+        isFetching: matched.isFetching,
+        isError: matched.isError,
+        refetch: matched.refetch,
         usedFallback: false,
         unfiltered: matched.data?.unfiltered ?? false,
       };

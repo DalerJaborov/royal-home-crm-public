@@ -14,6 +14,20 @@ const fixture: Props = {
 const render = (props: Partial<Props> = {}) => renderToStaticMarkup(<MemoryRouter><CleanClientRow {...fixture} {...props} /></MemoryRouter>);
 
 describe("clean client row", () => {
+  it("separates a future action deadline from the last contact time", () => {
+    const html = render({ nextAction: <span>Показ объекта</span>, nextActionDate: "2026-11-03T11:00:00.000Z", lastContact: "30.10 21:36" } as Partial<Props>);
+    expect(html).toContain("Срок: ");
+    expect(html).toContain("03.11");
+    expect(html).toContain("16:00");
+    expect(html).toContain("Последний контакт: ");
+    expect(html).toContain("30.10 21:36");
+  });
+  it("does not invent a deadline for missing, invalid or hidden next steps", () => {
+    for (const props of [{ nextActionDate: null }, { nextActionDate: "invalid" }, { nextAction: null, nextActionDate: "2026-11-03T11:00:00.000Z" }]) {
+      expect(render(props)).not.toContain("Срок: ");
+      expect(render(props)).toContain("Последний контакт: ");
+    }
+  });
   it("keeps identity, request, next action and responsible person distinct", () => {
     const html = render();
     for (const text of [fixture.name, fixture.identity, fixture.request, fixture.source, "Позвонить сейчас", "Фаррух", "2 дня назад"]) expect(html).toContain(text);

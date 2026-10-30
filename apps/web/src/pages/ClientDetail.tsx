@@ -1,3 +1,4 @@
+import { PropertyChoiceList } from "../components/PropertyChoiceList";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { Rh2EmptyState } from "../components/rh2/Rh2EmptyState";
@@ -2380,7 +2381,7 @@ function LiveVoiceCallSheet({ clientId, onClose }: { clientId: string; onClose: 
         Голосовой помощник сам наберёт клиента, представится и поговорит. Агент в разговоре не участвует.
       </p>
       <div className="cd-fld">
-        <label htmlFor={`live-voice-property-${clientId}`}>О каком объекте рассказать</label>
+        <span>О каком объекте рассказать</span>
         <input
           type="search"
           className="inp"
@@ -2390,20 +2391,11 @@ function LiveVoiceCallSheet({ clientId, onClose }: { clientId: string; onClose: 
           placeholder="Номер ОБ-…, название или адрес"
           aria-label="Поиск объекта"
         />
-        <select
-          id={`live-voice-property-${clientId}`}
-          className="inp"
-          value={propertyId}
-          disabled={call.isPending}
-          onChange={(e) => setPropertyId(e.target.value)}
-        >
-          <option value="">Без объекта</option>
-          {pickerOptions.map((p) => (
-            <option key={p.id} value={p.id}>
-              {`№${p.shortId} · ${p.title}${p.district?.name ? `, ${p.district.name}` : ""}`}
-            </option>
-          ))}
-        </select>
+        <PropertyChoiceList items={pickerOptions} value={propertyId} onChange={setPropertyId}
+          emptyLabel="Без объекта" disabled={call.isPending} loading={picker.isLoading || chosen.isLoading}
+          error={picker.isError || chosen.isError}
+          onRetry={() => { void picker.refetch(); if (chosenMissing) void chosen.refetch(); }} />
+        {!picker.isFetching && !picker.isError && propertyQ && !pickerList.length && chosen.data && <p role="status">По этому запросу ничего не найдено. Выбранный объект сохранён выше.</p>}
       </div>
       <MutationError mutation={call} variant="rh2" fallback="Робот не смог позвонить. Попробуйте позже." />
     </Rh2Sheet>

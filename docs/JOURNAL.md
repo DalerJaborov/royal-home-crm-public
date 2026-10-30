@@ -1,5 +1,9 @@
 # Public source journal
 
+## Решения
+
+- 2026-10-30: при выборе объекта показывать доступные фото, цену, адрес и характеристики вместе с номером; не заставлять сотрудника угадывать объект по названию. Использовать единый компонент для однотипных форм, честные состояния отсутствующих данных и прежние ограничения доступа.
+
 The current source was exported on 2026-10-20. Historical incident reports, customer records, screenshots and prior pull requests remain in the private archive.
 
 ## 2026-10-22 — Package Prisma's migration engine for the runtime ABI
