@@ -24,6 +24,7 @@ import { Rh2Sheet } from "../rh2/Rh2Sheet";
 import { ConfirmDialog } from "../ConfirmDialog";
 import { useCleanShell } from "../../hooks/useCleanShell";
 import { CleanExpenseWizard } from "./CleanExpenseWizard";
+import { prepareCleanExpense } from "./cleanExpenseDraft";
 
 /**
  * РАСХОДЫ — раздел «Расходы» экрана /finance, перенесённый из прототипа темы
@@ -435,38 +436,20 @@ function NewExpenseSheet({ open, onClose, month }: { open: boolean; onClose: () 
 
   const needsSource = category === "ADVERTISING";
   const needsAgent = category === "SALARY";
-  const needsNote = category === "OFFICE" || category === "OTHER";
-  const ready =
-    Number(amount) > 0 &&
-    (!needsSource || source) &&
-    (!needsAgent || agentId) &&
-    (!needsNote || note.trim()) &&
-    (!repeat || note.trim());
+  const request = prepareCleanExpense({ amount, category, note, source, agentId, month, repeat, day });
+  const ready = request.ok;
 
   const submit = async () => {
     setError(null);
+    if (!request.ok) {
+      setError(request.message);
+      return;
+    }
     try {
-      if (repeat) {
-        // Шаблон повторяющегося платежа: дальше CRM заводит строку сама каждый месяц.
-        await createRecurring.mutateAsync({
-          title: note.trim(),
-          amount: Number(amount),
-          currency: "TJS",
-          category,
-          dayOfMonth: Math.min(28, Math.max(1, Number(day) || 1)),
-          // Канал и сотрудник шаблона копируются в каждый ежемесячный расход (CRM-07).
-          source: needsSource ? (source as ClientSource) : undefined,
-          agentId: needsAgent ? agentId : undefined,
-        });
+      if (request.kind === "recurring") {
+        await createRecurring.mutateAsync(request.body);
       } else {
-        await create.mutateAsync({
-          month,
-          category,
-          amount: Number(amount),
-          note: note.trim() || undefined,
-          source: needsSource ? source : undefined,
-          agentId: needsAgent ? agentId : undefined,
-        });
+        await create.mutateAsync(request.body);
       }
       setNote("");
       setAmount("");
@@ -583,8 +566,13 @@ function NewExpenseSheet({ open, onClose, month }: { open: boolean; onClose: () 
               inputMode="numeric"
               value={day}
               onChange={(e) => setDay(e.target.value)}
+              aria-invalid={!request.ok && request.field === "day"}
+              aria-describedby="recurring-day-help"
             />
           </label>
+          <p id="recurring-day-help" className={!request.ok && request.field === "day" ? "state err" : "state"}>
+            Выберите число от 1 до 28: оно есть в каждом месяце.
+          </p>
           <div className="sec-t">Частые платежи</div>
           <div className="seg" role="group" aria-label="Готовые названия платежей">
             {RECURRING_PRESETS.map((p) => (
