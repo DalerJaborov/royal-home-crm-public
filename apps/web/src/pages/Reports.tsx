@@ -2,6 +2,7 @@ import { ShellOwnHeader } from "../components/rh2/ShellOwnHeader";
 import { useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import type { ClientSource } from "@royal-home/shared";
+import { reportDateRangeError } from "@royal-home/shared";
 import { useCan } from "../lib/permissions";
 import { useAuthStore } from "../store/auth";
 import { useMobileUx } from "../hooks/useMobileUx";
@@ -142,21 +143,22 @@ function ReportsScreen() {
   const [agentsShown, setAgentsShown] = useState(PAGE);
 
   const range = { from, to };
+  const rangeError = reportDateRangeError(from, to);
   const {
     data: funnelData,
     isLoading: funnelLoading,
     isError: funnelError,
     error: funnelErrObj,
     refetch: refetchFunnel,
-  } = useFunnelReport(range, true);
+  } = useFunnelReport(range, !rangeError);
   const {
     data: agentsData,
     isLoading: agentsLoading,
     isError: agentsError,
     error: agentsErrObj,
     refetch: refetchAgents,
-  } = useAgentsReport(range, true);
-  const { data: sourcesData, isLoading: sourcesLoading, isError: sourcesError, refetch: refetchSources } = useSourcesReport(range, true);
+  } = useAgentsReport(range, !rangeError);
+  const { data: sourcesData, isLoading: sourcesLoading, isError: sourcesError, refetch: refetchSources } = useSourcesReport(range, !rangeError);
 
   function applyPreset(key: PresetKey) {
     const r = presetRange(key);
@@ -202,7 +204,7 @@ function ReportsScreen() {
   // Убираем прежнюю ровно тогда, когда отрисована макетная, — и только её
   // текстовую часть: кнопки выгрузки живут в том же `.pg-h` и нужны на обеих
   // ширинах.
-  const mhHeaderShown = mobile && !clean && !funnelLoading && !funnelError && funnel.length > 0;
+  const mhHeaderShown = !rangeError && mobile && !clean && !funnelLoading && !funnelError && funnel.length > 0;
 
   return (
     <ReportsFrame clean={clean}>
@@ -393,12 +395,14 @@ function ReportsScreen() {
                 refetchAgents();
                 refetchSources();
               }}
+              disabled={!!rangeError}
             >
               Обновить
             </button>
           </div>
         </div>
 
+        {rangeError ? <p className="state err" role="alert">{rangeError}. Исправьте период, чтобы увидеть показатели.</p> : <>
         {clean && funnelData && !funnelLoading && !funnelError && <div className="tiles" aria-label="Основные показатели за выбранный период">
           <StatTile label="Новые лиды" value={leads?.count ?? "—"} line="за выбранный период" onClick={() => scrollToSection("funnel-section")} />
           <StatTile label="Показы" value={showings?.count ?? "—"} line="за выбранный период" onClick={() => scrollToSection("funnel-section")} />
@@ -652,6 +656,7 @@ function ReportsScreen() {
         </div>
         </div>
 
+        </>}
         {/* «Горячие объекты» (28.09.2026) — чем интересуются прямо сейчас:
             сервер считал это с 09.09, а экрана не было. */}
         <HotPropertiesSection />
