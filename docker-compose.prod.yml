@@ -152,6 +152,12 @@ services:
       BOT_TURN_TRACE_TEXT_ENABLED: "${BOT_TURN_TRACE_TEXT_ENABLED:-0}"
       # P03 fact-only replies. Mixed CRM actions stay on the legacy path.
       BOT_PROPERTY_CONTEXT_ENABLED: "${BOT_PROPERTY_CONTEXT_ENABLED:-0}"
+      # Customer core switches (31.10.2026). Without these lines a value in
+      # .env.production never reaches the container. Both are off by default:
+      # legacy-subject cutover (PR #82, owner decision 31.10) and the `say`
+      # free phrase mode (shadow|live, PR #44; live only after the shadow week).
+      CUSTOMER_AGENT_LEGACY_CUTOVER: "${CUSTOMER_AGENT_LEGACY_CUTOVER:-off}"
+      CUSTOMER_AGENT_SAY_MODE: "${CUSTOMER_AGENT_SAY_MODE:-}"
       # connection_limit ЯВНО (аудит №4, 27.08): по умолчанию Prisma берёт
       # пул примерно в 5 соединений на процесс. Журнал переходов (db.ts) читает
       # состояние «до» отдельным запросом, и когда правка статуса идёт внутри
