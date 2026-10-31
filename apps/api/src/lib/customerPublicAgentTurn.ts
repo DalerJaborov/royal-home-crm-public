@@ -1,4 +1,5 @@
 import { readCustomerPublicSourceExecution } from "./customerAgentEnrollment.js";
+import { customerAgentAssignmentSuperseded } from "./customerAgentLegacyCutover.js";
 import { customerPublicModerationPlan } from "./customerPublicModerationPolicy.js";
 import { finishUnsentPublicAgentFailure } from "./customerPublicAgentFailure.js";
 // Common core public adapter: source-specific authority stays in this closure.
@@ -229,8 +230,13 @@ export async function prepareCustomerPublicAgentDraft(ref: PublicSourceRef): Pro
 
 /** Fresh row/policy gate only. A retained managed origin never falls back to
  * legacy just because the current rollout was switched OFF. No new issuer. */
-export async function publicAgentCommentLane(id: string): Promise<'legacy' | 'managed'> {
+export async function publicAgentCommentLane(id: string): Promise<'legacy' | 'managed' | 'moved'> {
   const original = await readCustomerPublicSourceExecution(prisma, { table: 'meta', id });
+  // Effective lane (owner 31.10): a legacy-pinned row of a thread already moved
+  // to the core never reaches the old engine; it has no core origin either, so
+  // the caller closes it without a reply instead of a second brain answering.
+  if (original.lane === 'LEGACY' && original.assignment &&
+      await customerAgentAssignmentSuperseded(prisma, original.assignment.id)) return 'moved';
   return original.lane === 'LEGACY' ? 'legacy' : 'managed'; // HELD cannot fall through.
 }
 

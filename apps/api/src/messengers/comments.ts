@@ -1564,7 +1564,13 @@ export async function handleComment(row: QueuedComment): Promise<keyof CommentRu
   // A retained managed origin cannot enter legacy account/funnel/DM/moderation,
   // even after rollout OFF or when its genuine source proof has expired.
   try {
-    if (await publicAgentCommentLane(row.id) === "managed") {
+    const lane = await publicAgentCommentLane(row.id);
+    if (lane === "moved") {
+      // Ветка уже переведена на ядро (31.10): старый движок здесь не отвечает.
+      await finish(row.id, { status: "SKIPPED", note: "legacy_lane_moved" });
+      return "skipped";
+    }
+    if (lane === "managed") {
       const draft = await prepareCustomerPublicAgentDraft({ table: "meta", id: row.id });
       if (draft.status === "moderate") {
         const outcome = await executeCustomerPublicModeration(draft.principal);

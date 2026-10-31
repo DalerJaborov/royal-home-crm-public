@@ -10,7 +10,8 @@ import { isActiveTransactionClient } from "./transactionScope.js";
 import { decodeCustomerAgentRevision } from "./customerAgentRevision.js";
 import { customerPropertyScopeKey } from "./customerPropertyScope.js";
 import { customerAgentRevisionReachable } from "./customerAgentRevisionAdvance.js";
-import { CUSTOMER_AGENT_LEGACY_CUTOVER_REASON, customerAgentLegacyCutoverEnabled, readCustomerLegacyCutoverReadiness } from "./customerAgentLegacyCutover.js";
+import { CUSTOMER_AGENT_LEGACY_CUTOVER_REASON, customerAgentLegacyCutoverEnabled, readCustomerLegacyCutoverReadiness,
+  readCustomerPublicLegacyCutoverReadiness } from "./customerAgentLegacyCutover.js";
 
 type Db = Pick<TxClient, "$queryRaw">;
 type Assignment = CustomerAgentRolloutAssignment;
@@ -154,9 +155,10 @@ export async function enrollCustomerAgentSubjectTx(tx: TxClient, raw: CustomerAg
   if (!policy || !["compat", "scoped"].includes(policy.contractVersion) || !["OFF", "SHADOW", "ACTIVE"].includes(policy.rolloutMode)) return held("policy_missing_or_invalid");
   const previous = await assignment(tx, s.surface, e.endpointScopeId, key);
   if (previous?.lane === "LEGACY") {
-    // Owner 31.10: the NEXT genuinely new DM input of an idle legacy subject
-    // moves it to the core. History rows and old sources keep generation 0.
-    if (options.legacyCutover === true && s.surface === "dm" && customerAgentLegacyCutoverEnabled()) {
+    // Owner 31.10: the NEXT genuinely new input (DM, or a new comment of a
+    // public thread) of an idle legacy subject moves it to the core. History
+    // rows and old sources keep generation 0.
+    if (options.legacyCutover === true && customerAgentLegacyCutoverEnabled()) {
       const moved = await cutoverLegacySubjectTx(tx, s, key, previous, policy);
       if (moved) return moved;
     }
@@ -218,17 +220,17 @@ export async function enrollCustomerAgentSubjectTx(tx: TxClient, raw: CustomerAg
   return winner ? fromAssignment(winner) : held("assignment_commit_missing");
 }
 
-/** Append-only LEGACY → CORE transition of one DM subject (owner 31.10.2026).
- * Runs inside the routing transaction that already holds the scope/policy
- * share locks. Returns null when the subject must stay LEGACY: current
- * campaign does not cover it, manual mode, or unfinished legacy work. */
-async function cutoverLegacySubjectTx(tx: TxClient, s: Extract<CustomerAgentEnrollmentSubject, { surface: "dm" }>, key: string,
+/** Append-only LEGACY → CORE transition of one DM subject or public comment
+ * thread (owner 31.10.2026). Runs inside the routing transaction that already
+ * holds the scope/policy share locks. Returns null when the subject must stay
+ * LEGACY: current campaign does not cover it, manual mode, or unfinished legacy work. */
+async function cutoverLegacySubjectTx(tx: TxClient, s: CustomerAgentEnrollmentSubject, key: string,
   previous: Assignment, policy: Policy): Promise<CustomerAgentExecution | null> {
   if (policy.contractVersion !== "scoped" || policy.rolloutMode !== "ACTIVE") return null;
   const config = customerAgentRolloutConfigSchema.safeParse(policy.rolloutConfig);
   if (!config.success || policy.activeAgentRevisionId !== config.data.candidateRevisionId) return null;
   const e = s.endpoint, c = config.data;
-  if (!c.allowed.some(row => row.surface === "dm" && row.channel === e.channel && row.endpointScopeId === e.endpointScopeId)) return null;
+  if (!c.allowed.some(row => row.surface === s.surface && row.channel === e.channel && row.endpointScopeId === e.endpointScopeId)) return null;
   const bucketBps = Number.parseInt(sha([1, c.cohortId, key]).slice(0, 8), 16) % 10_000;
   if (bucketBps >= c.percentBasisPoints) return null;
   const [different] = await tx.$queryRaw<Array<{ mismatch: boolean }>>`SELECT EXISTS(SELECT 1 FROM "CustomerAgentRolloutAssignment"
@@ -238,14 +240,25 @@ async function cutoverLegacySubjectTx(tx: TxClient, s: Extract<CustomerAgentEnro
     WHERE "id"=${c.candidateRevisionId}`;
   if (!revision) return null;
   decodeCustomerAgentRevision(revision);
-  const readiness = await readCustomerLegacyCutoverReadiness(tx, { channel: e.channel, peer: s.peer, endpointScopeId: e.endpointScopeId,
-    scopeKey: customerPropertyScopeKey(e.channel, s.peer, e.accountId, e.endpointScopeId) });
+  // Public thread: the original LEGACY row is locked FOR UPDATE before the
+  // readiness read. A concurrent capture of a new legacy-pinned comment takes
+  // KEY SHARE on the same row through its FK, so either its PENDING row is
+  // visible to the readiness below, or it waits and then sees the successor
+  // (commitVerifiedMetaPublicCapture refuses a fresh legacy row in a moved thread).
+  if (s.surface === "public_comment") {
+    await tx.$queryRaw`SELECT "id" FROM "CustomerAgentRolloutAssignment" WHERE "id"=${previous.id} FOR UPDATE`;
+  }
+  const readiness = s.surface === "dm"
+    ? await readCustomerLegacyCutoverReadiness(tx, { channel: e.channel, peer: s.peer, endpointScopeId: e.endpointScopeId,
+      scopeKey: customerPropertyScopeKey(e.channel, s.peer, e.accountId, e.endpointScopeId) })
+    : await readCustomerPublicLegacyCutoverReadiness(tx, { channel: e.channel, accountExternalId: s.target.accountExternalId,
+      publicationId: s.target.publicationId, threadId: s.target.threadId });
   if (!readiness.ready) return null;
   const id = randomUUID();
   const inserted = await tx.$executeRaw(Prisma.sql`INSERT INTO "CustomerAgentRolloutAssignment"
     ("id","cohortId","surface","endpointScopeId","subjectKey","bucketBps","lane","candidateRevisionId","createdAt",
       "generation","supersedesAssignmentId","transitionReason")
-    SELECT ${id},${c.cohortId},'dm',${e.endpointScopeId},${key},${bucketBps},'CORE',${c.candidateRevisionId},now(),
+    SELECT ${id},${c.cohortId},${s.surface},${e.endpointScopeId},${key},${bucketBps},'CORE',${c.candidateRevisionId},now(),
       1,${previous.id},${CUSTOMER_AGENT_LEGACY_CUTOVER_REASON}
     WHERE NOT EXISTS(SELECT 1 FROM "CustomerAgentRolloutAssignment" WHERE "supersedesAssignmentId"=${previous.id})
     ON CONFLICT ("surface","endpointScopeId","subjectKey","generation") DO NOTHING`);
@@ -254,9 +267,9 @@ async function cutoverLegacySubjectTx(tx: TxClient, s: Extract<CustomerAgentEnro
     // No customer identifiers in meta, only server routing references.
     await tx.auditLog.create({ data: { action: "CUSTOMER_AGENT_LANE_CUTOVER", entityType: "CustomerAgentRolloutAssignment",
       entityId: id, agentId: null, agentName: "Система", meta: { fromAssignmentId: previous.id, fromLane: "LEGACY", toLane: "CORE",
-        reason: CUSTOMER_AGENT_LEGACY_CUTOVER_REASON, endpointScopeId: e.endpointScopeId, channel: e.channel,
+        reason: CUSTOMER_AGENT_LEGACY_CUTOVER_REASON, surface: s.surface, endpointScopeId: e.endpointScopeId, channel: e.channel,
         cohortId: c.cohortId, candidateRevisionId: c.candidateRevisionId } } });
   }
-  const winner = await assignment(tx, "dm", e.endpointScopeId, key);
+  const winner = await assignment(tx, s.surface, e.endpointScopeId, key);
   return winner?.lane === "CORE" ? fromAssignment(winner) : null;
 }
