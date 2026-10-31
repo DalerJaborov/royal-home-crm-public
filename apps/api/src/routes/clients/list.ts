@@ -16,7 +16,14 @@ import { prisma } from "../../db.js";
 import { can, requireAuth, requirePermission, scopeToOwnAgent } from "../../auth/middleware.js";
 import { loadMoneyContext } from "../../lib/money.js";
 import { logSystemError } from "../../lib/systemError.js";
-import { toSearchTokens, toTokenVariants } from "../../lib/searchTokens.js";
+import { toSearchTokens } from "../../lib/searchTokens.js";
+import {
+  AGENT_CLIENT_KIND_SCOPE,
+  buildClientTextSearchAnd,
+  clientFieldFilters,
+  clientIdsWithUnreadReply,
+  pendingDeleteHiddenClientIds,
+} from "../../lib/clientSearchWhere.js";
 import { fuzzyClientIds } from "../../lib/fuzzySearch.js";
 import { loadSellerPropertyAddresses } from "../../lib/sellerPropertyAnchor.js";
 import { loadLeadReasons } from "../../lib/leadReason.js";
@@ -27,45 +34,6 @@ import { dushanbeStartOfToday } from "../../lib/dushanbeTime.js";
 import { CLIENT_IN_WORK_WHERE } from "../../lib/clientInWork.js";
 
 export const listRouter = Router();
-
-/**
- * Клиенты из списка id, у кого последняя реплика в переписке — от самого
- * клиента, и диалог не открывали после неё (BotConversation/TelegramConversation).
- * Один признак «непрочитано» на два места: бейдж непрочитанного в обычном
- * списке (ниже) и исключение из фильтра «скрыл заявку на удаление» — если
- * клиент написал, пока заявка висит, карточка обязана остаться на виду
- * (владелец 18.09.2026, разбор «что если клиент напишет во время заявки»).
- */
-/** Сколько висящих заявок на удаление читаем за раз — см. место применения ниже. */
-const PENDING_DELETE_SCAN_LIMIT = 500;
-
-async function clientIdsWithUnreadReply(ids: string[]): Promise<Set<string>> {
-  if (ids.length === 0) return new Set();
-  const rows = await prisma.$queryRaw<{ clientId: string; unread: boolean }[]>`
-    SELECT "clientId", bool_or(unread) AS unread FROM (
-      SELECT c."clientId" AS "clientId",
-             (
-               jsonb_typeof(c.messages) = 'array'
-               AND (c.messages -> -1 ->> 'role') = 'user'
-               AND (c."readAt" IS NULL OR COALESCE(c."lastMessageAt", c."updatedAt") > c."readAt")
-             ) AS unread
-      FROM "BotConversation" c
-      WHERE c."clientId" IN (${Prisma.join(ids)})
-      UNION ALL
-      SELECT c."clientId" AS "clientId",
-             (
-               jsonb_typeof(c.messages) = 'array'
-               AND (c.messages -> -1 ->> 'role') = 'user'
-               AND (c."readAt" IS NULL OR COALESCE(c."lastMessageAt", c."updatedAt") > c."readAt")
-             ) AS unread
-      FROM "TelegramConversation" c
-      WHERE c."clientId" IN (${Prisma.join(ids)})
-    ) t
-    WHERE t."clientId" IS NOT NULL
-    GROUP BY "clientId"
-  `;
-  return new Set(rows.filter((r) => r.unread).map((r) => r.clientId));
-}
 
 /**
  * Порядок выборки для каждого режима сортировки (словарь режимов — CLIENT_SORTS
@@ -183,33 +151,8 @@ listRouter.get("/", requireAuth, async (req, res) => {
    * (intake.ts заявку на удаление не проверяет вовсе). Прячем только те
    * карточки, где нет непрочитанной реплики клиента.
    */
-  if (!can(req, "clients.delete")) {
-    const pendingDeleteIds = (
-      await prisma.clientDeleteRequest.findMany({
-        where: { status: "PENDING", ...(ownAgentId ? { client: { assignedAgentId: ownAgentId } } : {}) },
-        select: { clientId: true },
-        // ПОТОЛОК ОБЯЗАТЕЛЕН (19.09.2026). Очередь заявок на удаление
-        // рассасывается только когда руководство до неё дошло, то есть расти
-        // может без предела — а читается она здесь на КАЖДУЮ отрисовку списка
-        // клиентов, самого горячего экрана после дашборда. Следом идёт разбор
-        // непрочитанного по `messages -> -1` (никаким индексом не
-        // обслуживается) и `notIn` с этим же списком в основном запросе: без
-        // потолка цена растёт вместе с очередью, и список клиентов начинает
-        // отваливаться по таймауту в случайное время дня.
-        //
-        // Отказ здесь безопасен в правильную сторону: не попавшая в выборку
-        // заявка означает, что карточка ОСТАНЕТСЯ на виду у агента, а не
-        // исчезнет. Пятьсот — тот же кап, что у общекомандных хелперов
-        // антифрода (routes/oversight.ts).
-        take: PENDING_DELETE_SCAN_LIMIT,
-      })
-    ).map((r) => r.clientId);
-    if (pendingDeleteIds.length > 0) {
-      const unread = await clientIdsWithUnreadReply(pendingDeleteIds);
-      const idsToHide = pendingDeleteIds.filter((id) => !unread.has(id));
-      if (idsToHide.length > 0) where.id = { notIn: idsToHide };
-    }
-  }
+  const idsToHide = await pendingDeleteHiddenClientIds({ ownAgentId, canDelete: can(req, "clients.delete") });
+  if (idsToHide.length > 0) where.id = { notIn: idsToHide };
   if (allMine) {
     /**
      * ВКЛАДКА «ВСЕ МОИ КЛИЕНТЫ» (18.09.2026, задание В §f п.1, Р-2/Р-7
@@ -243,13 +186,12 @@ listRouter.get("/", requireAuth, async (req, res) => {
      * Умеджоном» это не мусор, и назначенный агент обязан её видеть. Назначить и
      * спрятать было бы хуже, чем не назначать вовсе.
      */
-    where.OR = [{ kind: { in: ["BUYER", "SELLER"] } }, { assignReason: "requested_by_client" }];
+    where.OR = AGENT_CLIENT_KIND_SCOPE;
   } else if (agentId) where.assignedAgentId = agentId;
   // Разделяем вкладки: «Клиенты» (BUYER) и «Продавцы» (SELLER). Без фильтра — все.
-  if (kind) where.kind = kind;
-  if (status) where.status = status;
-  if (source) where.source = source;
-  if (districtId) where.desiredDistrictId = districtId;
+  // kind/status/source/район/«горячие» — один набор простых фильтров с помощником
+  // (lib/clientSearchWhere.ts::clientFieldFilters); `hot` ниже по файлу убран туда же.
+  Object.assign(where, clientFieldFilters({ kind, status, source, districtId, hot: Boolean(hot) }));
   // «Светофор неактивных» (routes/oversight.ts, /traffic-light-summary) — клик
   // по числу матрицы агент×цвет ведёт сюда с этими двумя фильтрами. inactiveLevel
   // без workStatus не имеет смысла (поле хранит ПОСЛЕДНИЙ цвет и после возврата
@@ -266,8 +208,6 @@ listRouter.get("/", requireAuth, async (req, res) => {
   if (workStatus === "INACTIVE" && !status) where.status = { notIn: [...TERMINAL_CLIENT_STATUSES] };
   if (workStatus === "INACTIVE" && !kind) where.kind = { in: ["BUYER", "SELLER"] };
   if (inactiveLevel) where.inactiveLevel = inactiveLevel;
-  // Раздел «Горячие клиенты»: отказные с заполненной карточкой или после показа.
-  if (hot) where.hotSince = { not: null };
   /**
    * СРЕЗ «ЖДУТ ПРИНЯТИЯ» — ЧЕСТНО НА СЕРВЕРЕ (07.09.2026, «дашборд агента против ТЗ»).
    *
@@ -323,111 +263,13 @@ listRouter.get("/", requireAuth, async (req, res) => {
   // раньше не находило «Гулнора Исмоилова», а «Ismoilova» — вообще ничего.
   // Телефон ищем самим словом без вариантов: цифрам раскладка не нужна.
   const clientTokens = q ? toSearchTokens(q) : [];
-  /**
-   * НОМЕР КЛИЕНТА (ТЗ п. 2: номер должен работать «в карточке; в поиске; в
-   * списках»). Разбираем ВЕСЬ запрос целиком, ДО разбиения на слова: «ПК-000042»
-   * распадается на «ПК» и «000042», и требование найти оба слова в имени не
-   * выполнялось никогда. До 14.08.2026 поиск умел только ФИО и телефон, и номер
-   * не находил вовсе — при том что он показан в карточке и агенты диктуют его
-   * друг другу.
-   */
-  const shortIdMatch = q ? parseShortCode(q) : null;
-  if (clientTokens.length > 0) {
-    /**
-     * ПОИСК ПО НОМЕРУ — ТОЛЬКО ТОМУ, КОМУ НОМЕР ВИДЕН (владелец 30.08.2026).
-     *
-     * Прочитать номер агент не может, а подтвердить догадку — мог: маска
-     * `+992•••••57` показывает две последние цифры, и перебор по хвосту в этой же
-     * строке поиска отвечал «да/нет» на каждую попытку. Право, которое
-     * обходится перебором, правом не является; поиск по имени и по номеру
-     * карточки при этом остаётся у всех.
-     */
-    const canSearchByPhone = can(req, "clients.viewPhone");
-    /**
-     * ЗАПАСНОЙ И WHATSAPP-НОМЕР ТОЖЕ ИЩУТСЯ (04.09.2026).
-     *
-     * До этого дня строка поиска смотрела только в `phone` — карточка с номером,
-     * записанным ЗАПАСНЫМ (`extraPhones`) или как адрес WhatsApp, не находилась
-     * вообще, хотя оба поля видны в самой карточке. Владелец наткнулся на это на
-     * себе: его личный номер был вторым (`extraPhones`) на тестовой карточке, и
-     * поиск по нему не находил ничего.
-     *
-     * `extraPhones` — массив, Prisma не умеет `contains` по его элементам, поэтому
-     * подстрочное совпадение (по духу — то же самое, что и `findPhoneOwners` в
-     * lib/clientPhones.ts, только по подстроке, а не по хвосту) считается сырым SQL.
-     *
-     * ИНДЕКС ПОД ЭТОТ ЗАПРОС (аудит надёжности 13.09.2026, находка 1): раньше
-     * здесь стоял `EXISTS (SELECT 1 FROM unnest(...) AS p WHERE p ILIKE ...)` —
-     * без индекса, годного под ILIKE по элементу массива (GIN(gin_trgm_ops) строит
-     * триграммы по значению КОЛОНКИ, не по элементам массива в ней). Запрос
-     * переписан на `client_extra_phones_search_text(...) ILIKE` — то же самое
-     * «встречается ли подстрока хоть в одном из номеров» (функция склеивает
-     * элементы через пробел; пробел-разделитель не даёт совпадению перескочить
-     * между номерами — toSearchTokens режет запрос по не-буквам-не-цифрам,
-     * поэтому token сам пробела никогда не содержит), но теперь именно эта форма
-     * индексирована — см. миграцию 20260914140000_client_phone_trgm_search,
-     * "Client_extraPhones_trgm_idx". Вызов здесь обязан совпадать с индексным
-     * выражением СЛОВО В СЛОВО, иначе планировщик индекс не увидит; функция —
-     * не голый array_to_string, потому что тот помечен в каталоге STABLE, а
-     * индексное выражение требует IMMUTABLE (см. миграцию).
-     */
-    const extraPhoneMatches =
-      canSearchByPhone && clientTokens.length > 0
-        ? await Promise.all(
-            clientTokens.map((token) =>
-              prisma.$queryRaw<{ id: string }[]>`
-                SELECT "id" FROM "Client"
-                WHERE "whatsappPhone" ILIKE ${"%" + token + "%"}
-                   OR client_extra_phones_search_text("extraPhones") ILIKE ${"%" + token + "%"}
-              `
-            )
-          )
-        : [];
-    /**
-     * ПОИСК ПО НИКУ СОЦСЕТИ — ТОЛЬКО ТОМУ, КОМУ НИК ВИДЕН (clientOrigin.ts).
-     *
-     * Ник заведён «чтобы админ и директор с лёгкостью даже через поиск могли их
-     * искать» (docs/razbor-zhaloby-admina-31-08-2026.md §10) — но именно потому,
-     * что это самая короткая дорога к клиенту в обход агентства, агенту он нигде
-     * не показывается (lib/clientOrigin.ts). Открыть его поиском значило бы
-     * прятать поле в карточке и тут же выдавать его строкой поиска — то же самое
-     * дырявое правило, которого урок уже дважды учил на телефоне.
-     */
-    const canSearchByOrigin = can(req, "clients.viewOrigin");
-    const byTokens = clientTokens.map((token, i) => ({
-      OR: [
-        ...toTokenVariants(token).map((variant) => ({
-          fullName: { contains: variant, mode: "insensitive" as const },
-        })),
-        ...(canSearchByPhone ? [{ phone: { contains: token } }] : []),
-        ...(extraPhoneMatches[i]?.length ? [{ id: { in: extraPhoneMatches[i].map((r) => r.id) } }] : []),
-        // Раскладка/транслит здесь не нужны: ник — не имя, которое произносят и
-        // могли записать на слух в другом алфавите, а точная строка из профиля
-        // соцсети. Ищем токен как есть, без учёта регистра.
-        ...(canSearchByOrigin ? [{ socialUsername: { contains: token, mode: "insensitive" as const } }] : []),
-        /**
-         * ОСТАЛЬНЫЕ ПОЛЯ КАРТОЧКИ (04.09.2026, «поиск по всем параметрам»).
-         *
-         * Почта, адрес, ник телеграма и свободные пожелания клиента видны в
-         * карточке всем, у кого вообще есть доступ к списку, — без отдельного
-         * права, в отличие от телефона и соцсети выше. Почта ДО принятия лида
-         * в самой карточке скрыта (presentClient), но здесь это не важно:
-         * ищется совпадение, а не отдаётся значение поля.
-         */
-        { email: { contains: token, mode: "insensitive" as const } },
-        { address: { contains: token, mode: "insensitive" as const } },
-        { requirementsNotes: { contains: token, mode: "insensitive" as const } },
-        { telegramUsername: { contains: token, mode: "insensitive" as const } },
-        // Район желаемого поиска — часть якоря отображаемого имени («ищет 2к
-        // Сино…», владелец 21.09.2026), обязан находиться тем же поиском, что
-        // и остальные поля карточки, иначе якорь виден, а найти по нему нельзя.
-        { desiredDistrict: { name: { contains: token, mode: "insensitive" as const } } },
-      ],
-    }));
-    // Номер — АЛЬТЕРНАТИВА словам, а не дополнительное условие к ним: голое «42»
-    // должно находить и карточку №42, и телефон, в котором встречается «42».
-    where.AND = shortIdMatch !== null ? [{ OR: [{ shortId: shortIdMatch }, { AND: byTokens }] }] : byTokens;
-  }
+  // Номер карточки («ПК-000042»), слова по ФИО/почте/адресу/заметкам/району, телефон и ник —
+  // только тому, кому они видны: всё в lib/clientSearchWhere.ts, одно на REST и помощника.
+  const textSearchAnd = await buildClientTextSearchAnd(q, {
+    canSearchByPhone: can(req, "clients.viewPhone"),
+    canSearchByOrigin: can(req, "clients.viewOrigin"),
+  });
+  if (textSearchAnd) where.AND = textSearchAnd;
   // Keep the scope outside the text-search AND, which fuzzy search replaces.
   if (scope === "inWork") Object.assign(where, CLIENT_IN_WORK_WHERE);
 
