@@ -20,6 +20,15 @@ import { tryAssistantFastPath } from "../ai/assistantFastPath.js";
 import { logAssistantToolCall } from "../lib/aiAssistantAudit.js";
 import { formatPrice, stripDashes } from "../ai/seoGenerator.js";
 import { TG_PREFIX } from "./conversations.js";
+import type { Request, Response } from "express";
+import {
+  AssistantActionError,
+  cancelAssistantAction,
+  confirmAssistantAction,
+  undoAssistantAction,
+  type AssistantActionActor,
+  type AssistantActionOutcome,
+} from "../lib/assistantActions.js";
 import { agentSpeechLimiter } from "../lib/agentSpeechLimiter.js";
 
 export const aiRouter = Router();
@@ -927,3 +936,52 @@ async function computeStalePropertyInsights(ownAgentId: string | undefined) {
     };
   });
 }
+
+/**
+ * ДЕЙСТВИЯ ПОМОЩНИКА С ПОДТВЕРЖДЕНИЕМ (П2, задача 2.3): «Подтвердить», «Отмена»,
+ * «Отменить» по карточке «было → станет». Вся логика — в lib/assistantActions.ts
+ * (ConfirmationBroker); маршрут только собирает актора из req.agent и переводит
+ * ошибку брокера в HTTP. Актор собирается на КАЖДОМ нажатии — права
+ * перечитываются, а не берутся из момента показа превью.
+ *
+ * Тот же рубильник, что у /assistant: выключенный помощник не исполняет и ранее
+ * показанных действий. Лимит — те же числа, что у /assistant, но своим счётчиком:
+ * нажатие «Подтвердить» не должно съедать квоту на сам разговор.
+ */
+const assistantActionLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 40,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => `agent:${req.agent!.id}`,
+  message: { error: "Слишком много запросов к ИИ-ассистенту за час, подождите" },
+});
+const assistantActionParamsSchema = z.object({ id: z.string().uuid() });
+type AssistantActionHandler = (id: string, actor: AssistantActionActor) => Promise<AssistantActionOutcome>;
+
+function assistantActionRoute(handler: AssistantActionHandler) {
+  return async (req: Request<{ id: string }>, res: Response) => {
+    if (!(await isAiAssistantEnabled())) {
+      return res.status(403).json({ error: "ИИ-ассистент выключен в Настройках" });
+    }
+    const params = assistantActionParamsSchema.safeParse(req.params);
+    if (!params.success) {
+      return res.status(400).json({ error: "Неверный идентификатор действия", details: params.error.flatten() });
+    }
+    const agent = req.agent!;
+    const actor: AssistantActionActor = { agentId: agent.id, channel: "crm", can: (permission) => agent.can(permission) };
+    try {
+      const outcome = await handler(params.data.id, actor);
+      return res.json(outcome);
+    } catch (err) {
+      if (err instanceof AssistantActionError) {
+        return res.status(err.status).json({ error: err.message, code: err.code, ...err.extra });
+      }
+      throw err;
+    }
+  };
+}
+
+aiRouter.post("/assistant/actions/:id/confirm", requireAuth, assistantActionLimiter, assistantActionRoute(confirmAssistantAction));
+aiRouter.post("/assistant/actions/:id/cancel", requireAuth, assistantActionLimiter, assistantActionRoute(cancelAssistantAction));
+aiRouter.post("/assistant/actions/:id/undo", requireAuth, assistantActionLimiter, assistantActionRoute(undoAssistantAction));
