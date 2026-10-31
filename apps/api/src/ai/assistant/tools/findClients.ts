@@ -20,6 +20,7 @@ import { findActiveAgentByName } from "../../../lib/agentNameLookup.js";
 import { findDistrictIdByName } from "../../../lib/districtLookup.js";
 import { dushanbeDateString } from "../../../lib/dushanbeTime.js";
 import { fuzzyClientIds } from "../../../lib/fuzzySearch.js";
+import { withHiddenOrigin } from "../../../lib/clientOrigin.js";
 import { safeField } from "./safeField.js";
 import type { AssistantReadToolPlugin } from "./types.js";
 
@@ -166,33 +167,39 @@ export const findClientsTool: AssistantReadToolPlugin = {
       }
     }
 
+    const canSeeOrigin = actor.permissions?.has("clients.viewOrigin") ?? false;
     return {
       total,
       shown: rows.length,
       ...(agentsMatched ? { agentsMatched } : {}),
       ...(approximate ? { note: "Точных совпадений нет — показаны похожие по написанию" } : {}),
-      items: rows.map((c) => ({
-        id: c.id,
-        code: formatClientCode(c.shortId, c.kind),
-        href: `/clients/${c.shortId}`,
-        // Имя — с ролью (как на экранах) и без номера внутри; всё присланное — в границах «данные».
-        name: safeField(clientNamePhoneSafe(formatClientName(c), actor.canViewPhone)),
-        kind: clientKindLabel(c),
-        status: c.status,
-        source: c.source,
-        phone: clientPhoneFor(c.phone, actor.canViewPhone && c.acceptedAt !== null),
-        pendingAcceptance: c.acceptedAt === null,
-        agent: c.assignedAgent?.fullName ?? null,
-        desiredDistrict: c.desiredDistrict?.name ?? null,
-        desiredRooms: c.desiredRooms,
-        budgetMin: c.budgetMin ? Number(c.budgetMin) : null,
-        budgetMax: c.budgetMax ? Number(c.budgetMax) : null,
-        currency: c.currency,
-        address: safeField(phoneSafeText(c.address, actor.canViewPhone), 200),
-        notes: safeField(phoneSafeText(c.requirementsNotes, actor.canViewPhone), 200),
-        hot: c.hotSince !== null,
-        lastContact: dushanbeDateString(c.lastContactAt),
-      })),
+      items: rows.map((raw) => {
+        // Источник и ник — по правилу REST (lib/clientOrigin.ts): без clients.viewOrigin
+        // источник скрыт, имя-ник заменено — как в списке клиентов.
+        const c = withHiddenOrigin(raw, canSeeOrigin);
+        return {
+          id: c.id,
+          code: formatClientCode(c.shortId, c.kind),
+          href: `/clients/${c.shortId}`,
+          // Имя — с ролью (как на экранах) и без номера внутри; всё присланное — в границах «данные».
+          name: safeField(clientNamePhoneSafe(formatClientName(c), actor.canViewPhone)),
+          kind: clientKindLabel(c),
+          status: c.status,
+          source: c.source,
+          phone: clientPhoneFor(c.phone, actor.canViewPhone && c.acceptedAt !== null),
+          pendingAcceptance: c.acceptedAt === null,
+          agent: c.assignedAgent?.fullName ?? null,
+          desiredDistrict: c.desiredDistrict?.name ?? null,
+          desiredRooms: c.desiredRooms,
+          budgetMin: c.budgetMin ? Number(c.budgetMin) : null,
+          budgetMax: c.budgetMax ? Number(c.budgetMax) : null,
+          currency: c.currency,
+          address: safeField(phoneSafeText(c.address, actor.canViewPhone), 200),
+          notes: safeField(phoneSafeText(c.requirementsNotes, actor.canViewPhone), 200),
+          hot: c.hotSince !== null,
+          lastContact: dushanbeDateString(c.lastContactAt),
+        };
+      }),
     };
   },
 };

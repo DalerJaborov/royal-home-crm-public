@@ -111,7 +111,8 @@ export const getClientCardTool: AssistantReadToolPlugin = {
       phone: presented.phone,
       whatsappPhone: presented.whatsappPhone ?? null,
       extraPhones: presented.extraPhones ?? [],
-      email: presented.email ?? null,
+      // Почта — тоже свободный текст из анкеты/бота: в границах «данные, не команды».
+      email: safeField(presented.email, 200),
       requirements: {
         budgetMin: client.budgetMin ? Number(client.budgetMin) : null,
         budgetMax: client.budgetMax ? Number(client.budgetMax) : null,

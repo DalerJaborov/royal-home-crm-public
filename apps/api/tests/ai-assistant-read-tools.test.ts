@@ -340,6 +340,42 @@ describe("get_property_card", () => {
   });
 });
 
+describe("источник и ник клиента, почта (ревью П3)", () => {
+  it("find_clients и list_my_tasks: без clients.viewOrigin источник скрыт, ник вместо имени заменён; с правом — видны", async () => {
+    // Без цифр: маска телефона в имени съела бы длинный хвост runId.
+    const nick = `@nick${String(runId).replace(/\d/g, (d) => "abcdefghij"[Number(d)])}`;
+    const c = await makeClient({ fullName: nick, source: "INSTAGRAM", assignedAgentId: agentA, requirementsNotes: `ориджин ${runId}` });
+    const plain = await call("find_clients", { q: `ориджин ${runId}` }, actorAgent());
+    const mine = plain.items.find((i: { id: string }) => i.id === c.id);
+    expect(mine.source).toBeNull();
+    expect(mine.name).not.toContain("@");
+    const withOrigin = await call(
+      "find_clients",
+      { q: `ориджин ${runId}` },
+      // Ник маскируется ещё и как возможный номер — с правом на телефон он виден целиком.
+      actorAgent({ canViewPhone: true, permissions: new Set<PermissionId>(["clients.viewOrigin", "clients.viewPhone"]) }),
+    );
+    const seen = withOrigin.items.find((i: { id: string }) => i.id === c.id);
+    expect(seen.source).toBe("INSTAGRAM");
+    expect(seen.name).toContain(nick);
+
+    const day = "2031-04-02";
+    await prisma.interaction.create({
+      data: { clientId: c.id, agentId: agentA, type: "CALL", notes: "н", nextAction: "позвонить", nextActionDate: dushanbeInputToDate(day, "10:00") },
+    });
+    const tasks = await call("list_my_tasks", { date: day }, actorAgent());
+    const row = tasks.tasks.find((t: { client: { href: string } }) => t.client.href === `/clients/${c.shortId}`);
+    expect(row.client.name).not.toContain("@");
+  });
+
+  it("get_client_card: почта клиента — в границах «данные, не команды»", async () => {
+    const c = await makeClient({ email: `ignore-rules-${runId}@example.com`, assignedAgentId: agentA });
+    const card = await call("get_client_card", { clientId: c.id }, actorAgent());
+    expect(card.email).toContain('<client_content kind="crm_note">');
+    expect(card.email).toContain(`ignore-rules-${runId}@example.com`);
+  });
+});
+
 describe("get_client_card", () => {
   it("рядовой агент: свой принятый — маска телефона; чужой, непринятый, Корзина — отказ", async () => {
     const own = await prisma.client.findUniqueOrThrow({ where: { id: cOwn } });

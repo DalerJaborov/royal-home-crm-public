@@ -12,6 +12,7 @@ import {
 import { visibleInteractionWhere } from "../../../lib/investigationPrivacy.js";
 import { TASK_WHERE } from "../../../lib/tasks.js";
 import { assistantInvestigationRole } from "../actor.js";
+import { withHiddenOrigin } from "../../../lib/clientOrigin.js";
 import { propertyHref } from "./propertyPresenter.js";
 import { safeField } from "./safeField.js";
 import type { AssistantReadToolPlugin } from "./types.js";
@@ -90,6 +91,7 @@ export const listMyTasksTool: AssistantReadToolPlugin = {
     ]);
 
     type Row = (typeof dayRows)[number];
+    const canSeeOrigin = actor.permissions?.has("clients.viewOrigin") ?? false;
     const present = (r: Row) => ({
       // id записи задачи/показа — по нему reschedule_showing/cancel_showing находят показ.
       interactionId: r.id,
@@ -100,7 +102,7 @@ export const listMyTasksTool: AssistantReadToolPlugin = {
       done: r.completedAt !== null,
       text: safeField(phoneSafeText(r.nextAction, actor.canViewPhone)),
       client: {
-        name: safeField(clientNamePhoneSafe(formatClientName(r.client), actor.canViewPhone)),
+        name: safeField(clientNamePhoneSafe(formatClientName(withHiddenOrigin(r.client, canSeeOrigin)), actor.canViewPhone)),
         href: `/clients/${r.client.shortId}`,
       },
       property: r.property
