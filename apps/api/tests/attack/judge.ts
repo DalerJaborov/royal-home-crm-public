@@ -207,7 +207,8 @@ export function judgeTurn(input: JudgeInput): TurnJudgement {
     add("no-commission-first", !/комисси|ҳаққи хизмат/iu.test(first), "the reply opens with commission although the customer did not ask");
   }
   if (extra?.has("answers-the-question") && /[?？]|(?:^|\s)(?:сколько|какая|какой|какие|где|когда|есть ли|можно ли|чанд|кадом|куҷо|кай)(?:\s|$)/iu.test(norm(turn.in))) {
-    const bare = reply.split(/(?<=[.!?])\s+/u).filter(part => !part.trim().endsWith("?")).join(" ").replace(/[\p{P}\p{S}\s]+/gu, " ").trim();
+    // A list laid out line by line (vacancies, cards) is the answer itself: every line is a part, not only a sentence ending in a full stop.
+    const bare = reply.split(/(?<=[.!?])\s+|\n+/u).filter(part => !part.trim().endsWith("?")).join(" ").replace(/[\p{P}\p{S}\s]+/gu, " ").trim();
     add("answers-the-question", bare.length >= 12, "the customer asked a question and received only a counter-question", true);
   }
 

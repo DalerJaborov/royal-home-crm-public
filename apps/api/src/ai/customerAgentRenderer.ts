@@ -635,6 +635,8 @@ function renderDecisionCore(input: {
     // A link to somebody else's site is not mentioned at all: the question is about what the customer wants.
     : question === "property" && evidence.some(e => e?.value.kind === "property_unresolved" && (e.value.reason === "untrusted_origin" || e.value.reason === "unsupported"))
       ? BUSINESS_QUESTION[lang]
+    : question === "property" && input.surface === "dm" && evidence.some(e => e?.value.kind === "property_unresolved") && shownObjectQuestion(input.verifiedContext, lang)
+      ? shownObjectQuestion(input.verifiedContext, lang)!
     : input.surface === "public_comment" && question.startsWith("job_")
       ? publicRecruitmentQuestion(requiredFact === "about" ? "job_experience" : question, lang, experienceInvitationIncluded)
     : question === "job_required" && requiredFact ? recruitmentRequiredQuestion(requiredFact, lang)
@@ -695,9 +697,18 @@ export function customerAgentFixedLines(): Set<string> {
   return lineSet([...questionLineSet()], [...noticeLineSet()], customerDmAbuseLines(),
     [PREFERENCES_DONE.ru, PREFERENCES_DONE.tg], SOCIAL_FAMILIES.flat().flatMap(line => [line.ru, line.tg]));
 }
+/** The numbers of the objects the bot's last message listed ("1. Объект №69"): a fact question after a list asks which of THEM. */
+function shownObjectQuestion(context: CustomerAgentVerifiedContext | undefined, lang: "ru" | "tg"): string | null {
+  const last = context?.turns.at(-1);
+  if (context?.surface !== "dm" || last?.role !== "assistant") return null;
+  const numbers = [...new Set([...last.text.matchAll(/^\s*\d+\.\s*Объект\s*№\s*(\d{1,9})(?!\d)/gmu)].map(match => match[1]))].slice(0, 6);
+  if (numbers.length < 2) return null;
+  const list = numbers.map(number => `№${number}`), tail = list.pop()!;
+  return lang === "tg" ? `Кадом объектро дар назар доред: ${[...list].join(", ")} ё ${tail}?` : `Какой из объектов вы имеете в виду: ${list.join(", ")} или ${tail}?`;
+}
 const splitLines = (text: string) => text.split("\n").map(line => line.trim()).filter(Boolean);
 
-function avoidRepeatedReply(text: string, input: { language: "ru" | "tg"; verifiedContext?: CustomerAgentVerifiedContext }): string {
+function avoidRepeatedReply(text: string, input: { language: "ru" | "tg"; verifiedContext?: CustomerAgentVerifiedContext; requestedFacts?: readonly unknown[] }): string {
   const turns = input.verifiedContext?.turns ?? [];
   if (input.verifiedContext?.surface !== "dm" || turns.at(-1)?.role !== "assistant") return text;
   const notices = noticeLineSet(), questionLines = questionLineSet(), socials = socialLineSet(), lang = input.language;
@@ -725,10 +736,16 @@ function avoidRepeatedReply(text: string, input: { language: "ru" | "tg"; verifi
   if (repeatedQuestions.length) {
     const rest = lines.filter(line => !repeatedQuestions.includes(line));
     if (rest.length) return rest.join("\n");
+    if (repeatedQuestions.includes(questions.property[lang])) {
+      // "цена" twice with no object: the second time says what was asked ("я уточнял"), then the honest notice. Never a bare "I already wrote".
+      return asked.has(repairs.property[lang]) ? notice() : repairs.property[lang];
+    }
     return repeatedQuestions.includes(questions.preferences[lang]) ? PREFERENCES_DONE[lang] : notice();
   }
   // The same facts again: introduce, then say so honestly. Greetings and thanks repeat freely.
   if (lines.every(line => asked.has(line)) && !lines.every(line => socials.has(line))) {
+    // The customer asked for exactly this fact right now ("этаж", "район"): it is the answer, said again, never a notice (31.10 live).
+    if (input.requestedFacts?.length) return asked.has(REPEAT_LEAD[lang]) ? text : `${REPEAT_LEAD[lang]}\n${text}`;
     return asked.has(REPEAT_LEAD[lang]) ? notice() : `${REPEAT_LEAD[lang]}\n${text}`;
   }
   return text;

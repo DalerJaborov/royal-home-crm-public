@@ -122,10 +122,10 @@ export async function createAttackStand(options: AttackStandOptions): Promise<At
   const facts: JudgeFacts = { numbers: factNumbersOf(cards), allowedPhoneDigits: [PUBLIC_AGENCY_CONTACT.digits, PUBLIC_AGENCY_CONTACT.digits.slice(-9)], allowedHandles: [],
     forbidden: [PRIVATE_MARKER, ...cards.map(card => card.id)] };
 
-  /** `{{p1.short}}`, `{{p1.ig}}`, `{{p1.ig_url}}`, `{{p1.site}}`, `{{p1.price}}` are expanded in customer inputs. */
-  const expand = (text: string) => text.replace(/\{\{(p[1-4])\.(short|ig|ig_url|site|sid|price|code)\}\}/g, (_all, key: string, what: string) => {
+  /** `{{p1.short}}`, `{{p1.ob}}` (the CRM code "ОБ-000088"), `{{p1.ig}}`, `{{p1.ig_url}}`, `{{p1.site}}`, `{{p1.price}}` are expanded in customer inputs. */
+  const expand = (text: string) => text.replace(/\{\{(p[1-4])\.(short|ob|ig|ig_url|site|sid|price|code)\}\}/g, (_all, key: string, what: string) => {
     const card = cards.find(item => item.key === key)!;
-    return what === "short" ? String(card.shortId) : what === "ig" || what === "ig_url" ? `https://www.instagram.com/p/${card.instagramCode}/`
+    return what === "short" ? String(card.shortId) : what === "ob" ? `ОБ-${String(card.shortId).padStart(6, "0")}` : what === "ig" || what === "ig_url" ? `https://www.instagram.com/p/${card.instagramCode}/`
       : what === "code" ? card.instagramCode : what === "sid" ? String(card.siteListingId) : what === "site" ? `https://royalhome.tj/listing/${card.siteListingId}` : String(card.price);
   });
 

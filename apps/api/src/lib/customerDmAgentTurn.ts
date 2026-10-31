@@ -7,7 +7,7 @@ import { customerAgentSayMode } from "./customerAgentFeaturePolicy.js";
 import { recordCustomerAgentSay } from "./customerAgentSayStats.js";
 import { customerAgentToolDefinitions, CUSTOMER_AGENT_PUBLIC_TOOLS } from "../ai/customerAgentToolDefinitions.js";
 import { dispatchCustomerTool } from "../ai/customerToolRegistry.js";
-import { customerSearchIntent, customerSearchPreRead } from "../ai/customerAgentSearchIntent.js";
+import { customerSearchContinuation, customerSearchIntent, customerSearchPreRead } from "../ai/customerAgentSearchIntent.js";
 import { resolveSearchPlace } from "./searchPlace.js";
 import { customerAffirmationFollowUp, customerBareAffirmation, customerCheaperRequested, customerCheaperSearchCall } from "../ai/customerAgentFollowUp.js";
 import { resolveCustomerDmLanguage } from "../ai/customerDmLanguage.js";
@@ -261,7 +261,7 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     // bounded catalogue first and the model answers from the result. Only without an object in focus and with the tool's own required args.
     let searchCall: ReturnType<typeof customerSearchPreRead> = null;
     if (plainTurn && !followUp && !cheaperCall && !resolvedFocusId) {
-      const intent = customerSearchIntent(fullInput(), language);
+      const intent = customerSearchIntent(fullInput(), language) ?? customerSearchContinuation(fullInput(), remembered.context.turns);
       if (intent) {
         let placeDistrict: string | undefined;
         if (!intent.districtName && intent.placeText) {
