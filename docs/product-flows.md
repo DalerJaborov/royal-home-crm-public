@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **725**. Развилок в самих путях: **2553**; вместе с задачами по расписанию и фоновыми заданиями — **3985**. Модулей: **79**.
+Путей: **725**. Развилок в самих путях: **2537**; вместе с задачами по расписанию и фоновыми заданиями — **3969**. Модулей: **79**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -2789,58 +2789,12 @@
 - если !parsed.success
   - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
     · ответ 400 — «Неверные данные»
-- const client = await prisma.client.findUnique({ where: { id: req.params.id } });
-  · читает в базе: client
-- если !client
-  - return res.status(404).json({ error: "Клиент не найден" });
-    · ответ 404 — «Клиент не найден»
-- если (client.assignmentRefusedAt || client.assignmentCompletedAt) && !canViewInvestigations(req.agent?.role)
-  - return res.status(403).json({ error: "После отказа новое назначение доступно только администратору или директ…
-    · ответ 403 — «После отказа новое назначение доступно только администратору или…»
-- если client.deletedAt
-  - return res.status(400).json({ error: "Карточка в Корзине — сначала восстановите её, назначать пока нечего" });
-    · ответ 400 — «Карточка в Корзине — сначала восстановите её, назначать пока нечего»
-- если client.kind === "OTHER"
-  - return res.status(400).json({ error: "Это «прочее обращение» (аренда, работа, другой город и т.п.) — агентам …
-    · ответ 400 — «Это «прочее обращение» (аренда, работа, другой город и т.п.) —…»
-- const [checked, supervisor] = await Promise.all([ checkManualAssignTarget(agentId), prisma.agent.findUnique({…
-  · читает в базе: agent
-- если !checked.ok
-  - return res.status(checked.status).json({ error: checked.error });
+- const outcome = await assignClientManually({ clientId: req.params.id, toAgentId: parsed.data.agentId, accept:…
+  · зовёт assignClientManually()
+- если !outcome.ok
+  - return res.status(outcome.status).json({ error: outcome.error });
     · ответ (код зависит от условия)
-- const claimResult = await changeClientAgent({ clientId: client.id, toAgentId: agentId, reason: assignReason, …
-  · зовёт changeClientAgent()
-- если !claimed
-  - если claimResult.reason === "deleted"
-    - return res.status(409).json({ error: "Клиент перемещён в Корзину, пока вы смотрели карточку — назначить его н…
-      · ответ 409 — «Клиент перемещён в Корзину, пока вы смотрели карточку — назначить его…»
-  - если claimResult.reason === "open_deal"
-    - return res.status(409).json({ error: "У клиента открытая сделка — сначала закройте или отмените её." });
-      · ответ 409 — «У клиента открытая сделка — сначала закройте или отмените её.»
-  - const current = await prisma.client.findUnique({ where: { id: client.id }, select: { acceptedAt: true, assign…
-    · читает в базе: client
-  - return res.status(409).json({ error: current?.assignedAgent ? `Заявку уже разобрали, пока вы смотрели карточк…
-    · ответ 409
-- const updated = await prisma.client.findUnique({ where: { id: client.id } });
-  · читает в базе: client
-- logAudit(req, "LEAD_ASSIGN", "Client", client.id, { shortId: client.shortId, fullName: client.fullName, toAge…
-  · зовёт logAudit()
-- если !toSelf
-  - sendPushToAgent(agentId, { kind: "lead", title: "📌 Вам назначили клиента", body: `${supervisor?.fullName ?? …
-    · push-уведомление
-- publishLeadAccepted(client.id, agentId);
-  · зовёт publishLeadAccepted()
-- если client.assignedAgentId && client.assignedAgentId !== agentId
-  - closeLeadPushNotification(client.assignedAgentId, `lead-${client.id}`).catch((err)
-    · зовёт closeLeadPushNotification()
-- void (async ()
-  - const supervisors = await findAgentsWithPermission("clients.assign");
-    · зовёт findAgentsWithPermission()
-  - await closeLeadPushNotifications( supervisors.flatMap((id)
-    · зовёт closeLeadPushNotifications()
-- publishClientUpdated({ clientId: client.id, agentIds: [updated?.assignedAgentId], actorId: req.agent!.id });
-  · зовёт publishClientUpdated()
-- res.json(presentClient(updated!, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), investigation…
+- res.json(presentClient(outcome.client, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), investi…
   · ответ 200
 
 ### POST /api/v1/clients/:id/bot-pause
@@ -4809,35 +4763,21 @@
     · ответ 403 — «Недостаточно прав»
 - const ownAgentId = scopeToOwnAgent(req);
   · зовёт scopeToOwnAgent()
-- если !can(req, "clients.delete")
-  - const pendingDeleteIds = ( await prisma.clientDeleteRequest.findMany({ where: { status: "PENDING", ...(ownAge…
-    · читает в базе: clientDeleteRequest
-  - если pendingDeleteIds.length > 0
-    - если idsToHide.length > 0
-      - where.id = { notIn: idsToHide };
-        · дословно из кода
+- const idsToHide = await pendingDeleteHiddenClientIds({ ownAgentId, canDelete: can(req, "clients.delete") });
+  · зовёт pendingDeleteHiddenClientIds()
+- если idsToHide.length > 0
+  - where.id = { notIn: idsToHide };
+    · дословно из кода
 - если allMine
   - where.OR = [{ assignedAgentId: ownAgentId }, { lastAgentId: ownAgentId }];
     · дословно из кода
 - иначе если ownAgentId
   - where.assignedAgentId = ownAgentId;
     · дословно из кода
-  - where.OR = [{ kind: { in: ["BUYER", "SELLER"] } }, { assignReason: "requested_by_client" }];
+  - where.OR = AGENT_CLIENT_KIND_SCOPE;
     · дословно из кода
 - иначе если agentId
   - where.assignedAgentId = agentId;
-    · дословно из кода
-- если kind
-  - where.kind = kind;
-    · дословно из кода
-- если status
-  - where.status = status;
-    · дословно из кода
-- если source
-  - where.source = source;
-    · дословно из кода
-- если districtId
-  - where.desiredDistrictId = districtId;
     · дословно из кода
 - если workStatus
   - where.workStatus = workStatus;
@@ -4851,9 +4791,6 @@
 - если inactiveLevel
   - where.inactiveLevel = inactiveLevel;
     · дословно из кода
-- если hot
-  - where.hotSince = { not: null };
-    · дословно из кода
 - если pendingAcceptance
   - если !status
     - where.status = { notIn: ["LOST", "DEAL_CLOSED", "ARCHIVED"] };
@@ -4866,11 +4803,11 @@
     · зовёт dushanbeStartOfToday()
 - const clientTokens = q ? toSearchTokens(q) : [];
   · зовёт toSearchTokens()
-- если clientTokens.length > 0
-  - const extraPhoneMatches = canSearchByPhone && clientTokens.length > 0 ? await Promise.all( clientTokens.map((…
-    · обращается к базе своим SQL
-  - const byTokens = clientTokens.map((token, i)
-    · зовёт toTokenVariants()
+- const textSearchAnd = await buildClientTextSearchAnd(q, { canSearchByPhone: can(req, "clients.viewPhone"), ca…
+  · зовёт buildClientTextSearchAnd()
+- если textSearchAnd
+  - where.AND = textSearchAnd;
+    · дословно из кода
 - если scope === "inWork"
   - Object.assign(where, CLIENT_IN_WORK_WHERE);
     · дословно из кода
@@ -4893,6 +4830,8 @@
     - stepByClient.set(step.clientId, { nextAction: step.nextAction, nextActionDate: step.nextActionDate });
       · дословно из кода
 - если ownAgentId && items.length > 0
+  - const unread = await clientIdsWithUnreadReply(items.map((c)
+    · зовёт clientIdsWithUnreadReply()
   - для каждого: const id of unread
     - unreadByClient.set(id, true);
       · дословно из кода

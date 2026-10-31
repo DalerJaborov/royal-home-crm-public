@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 725,
-  "forks": 3985,
+  "forks": 3969,
   "mounts": 79,
   "cron": 116,
   "jobs": 31,
@@ -12089,88 +12089,20 @@
     },
     {
      "k": "do",
-     "t": "const client = await prisma.client.findUnique({ where: { id: req.params.id } });",
+     "t": "const outcome = await assignClientManually({ clientId: req.params.id, toAgentId: parsed.data.agentId, accept:…",
      "a": [
-      "читает в базе: client"
+      "зовёт assignClientManually()"
      ],
      "c": []
     },
     {
      "k": "if",
-     "t": "!client",
+     "t": "!outcome.ok",
      "a": [],
      "c": [
       {
        "k": "do",
-       "t": "return res.status(404).json({ error: \"Клиент не найден\" });",
-       "a": [
-        "ответ 404 — «Клиент не найден»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "(client.assignmentRefusedAt || client.assignmentCompletedAt) && !canViewInvestigations(req.agent?.role)",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(403).json({ error: \"После отказа новое назначение доступно только администратору или директ…",
-       "a": [
-        "ответ 403 — «После отказа новое назначение доступно только администратору или…»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "client.deletedAt",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(400).json({ error: \"Карточка в Корзине — сначала восстановите её, назначать пока нечего\" });",
-       "a": [
-        "ответ 400 — «Карточка в Корзине — сначала восстановите её, назначать пока нечего»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "client.kind === \"OTHER\"",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(400).json({ error: \"Это «прочее обращение» (аренда, работа, другой город и т.п.) — агентам …",
-       "a": [
-        "ответ 400 — «Это «прочее обращение» (аренда, работа, другой город и т.п.) —…»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const [checked, supervisor] = await Promise.all([ checkManualAssignTarget(agentId), prisma.agent.findUnique({…",
-     "a": [
-      "читает в базе: agent"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "!checked.ok",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(checked.status).json({ error: checked.error });",
+       "t": "return res.status(outcome.status).json({ error: outcome.error });",
        "a": [
         "ответ (код зависит от условия)"
        ],
@@ -12180,153 +12112,7 @@
     },
     {
      "k": "do",
-     "t": "const claimResult = await changeClientAgent({ clientId: client.id, toAgentId: agentId, reason: assignReason, …",
-     "a": [
-      "зовёт changeClientAgent()"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "!claimed",
-     "a": [],
-     "c": [
-      {
-       "k": "if",
-       "t": "claimResult.reason === \"deleted\"",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return res.status(409).json({ error: \"Клиент перемещён в Корзину, пока вы смотрели карточку — назначить его н…",
-         "a": [
-          "ответ 409 — «Клиент перемещён в Корзину, пока вы смотрели карточку — назначить его…»"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "if",
-       "t": "claimResult.reason === \"open_deal\"",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return res.status(409).json({ error: \"У клиента открытая сделка — сначала закройте или отмените её.\" });",
-         "a": [
-          "ответ 409 — «У клиента открытая сделка — сначала закройте или отмените её.»"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "do",
-       "t": "const current = await prisma.client.findUnique({ where: { id: client.id }, select: { acceptedAt: true, assign…",
-       "a": [
-        "читает в базе: client"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "return res.status(409).json({ error: current?.assignedAgent ? `Заявку уже разобрали, пока вы смотрели карточк…",
-       "a": [
-        "ответ 409"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const updated = await prisma.client.findUnique({ where: { id: client.id } });",
-     "a": [
-      "читает в базе: client"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "logAudit(req, \"LEAD_ASSIGN\", \"Client\", client.id, { shortId: client.shortId, fullName: client.fullName, toAge…",
-     "a": [
-      "зовёт logAudit()"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "!toSelf",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "sendPushToAgent(agentId, { kind: \"lead\", title: \"📌 Вам назначили клиента\", body: `${supervisor?.fullName ?? …",
-       "a": [
-        "push-уведомление"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "publishLeadAccepted(client.id, agentId);",
-     "a": [
-      "зовёт publishLeadAccepted()"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "client.assignedAgentId && client.assignedAgentId !== agentId",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "closeLeadPushNotification(client.assignedAgentId, `lead-${client.id}`).catch((err)",
-       "a": [
-        "зовёт closeLeadPushNotification()"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "void (async ()",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "const supervisors = await findAgentsWithPermission(\"clients.assign\");",
-       "a": [
-        "зовёт findAgentsWithPermission()"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "await closeLeadPushNotifications( supervisors.flatMap((id)",
-       "a": [
-        "зовёт closeLeadPushNotifications()"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "publishClientUpdated({ clientId: client.id, agentIds: [updated?.assignedAgentId], actorId: req.agent!.id });",
-     "a": [
-      "зовёт publishClientUpdated()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "res.json(presentClient(updated!, can(req, \"clients.viewPhone\"), can(req, \"clients.viewOrigin\"), investigation…",
+     "t": "res.json(presentClient(outcome.client, can(req, \"clients.viewPhone\"), can(req, \"clients.viewOrigin\"), investi…",
      "a": [
       "ответ 200"
      ],
@@ -20933,39 +20719,25 @@
      "c": []
     },
     {
+     "k": "do",
+     "t": "const idsToHide = await pendingDeleteHiddenClientIds({ ownAgentId, canDelete: can(req, \"clients.delete\") });",
+     "a": [
+      "зовёт pendingDeleteHiddenClientIds()"
+     ],
+     "c": []
+    },
+    {
      "k": "if",
-     "t": "!can(req, \"clients.delete\")",
+     "t": "idsToHide.length > 0",
      "a": [],
      "c": [
       {
        "k": "do",
-       "t": "const pendingDeleteIds = ( await prisma.clientDeleteRequest.findMany({ where: { status: \"PENDING\", ...(ownAge…",
+       "t": "where.id = { notIn: idsToHide };",
        "a": [
-        "читает в базе: clientDeleteRequest"
+        "дословно из кода"
        ],
        "c": []
-      },
-      {
-       "k": "if",
-       "t": "pendingDeleteIds.length > 0",
-       "a": [],
-       "c": [
-        {
-         "k": "if",
-         "t": "idsToHide.length > 0",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "where.id = { notIn: idsToHide };",
-           "a": [
-            "дословно из кода"
-           ],
-           "c": []
-          }
-         ]
-        }
-       ]
       }
      ]
     },
@@ -20999,7 +20771,7 @@
       },
       {
        "k": "do",
-       "t": "where.OR = [{ kind: { in: [\"BUYER\", \"SELLER\"] } }, { assignReason: \"requested_by_client\" }];",
+       "t": "where.OR = AGENT_CLIENT_KIND_SCOPE;",
        "a": [
         "дословно из кода"
        ],
@@ -21015,66 +20787,6 @@
       {
        "k": "do",
        "t": "where.assignedAgentId = agentId;",
-       "a": [
-        "дословно из кода"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "kind",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "where.kind = kind;",
-       "a": [
-        "дословно из кода"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "status",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "where.status = status;",
-       "a": [
-        "дословно из кода"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "source",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "where.source = source;",
-       "a": [
-        "дословно из кода"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "districtId",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "where.desiredDistrictId = districtId;",
        "a": [
         "дословно из кода"
        ],
@@ -21144,21 +20856,6 @@
     },
     {
      "k": "if",
-     "t": "hot",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "where.hotSince = { not: null };",
-       "a": [
-        "дословно из кода"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
      "t": "pendingAcceptance",
      "a": [],
      "c": [
@@ -21218,23 +20915,23 @@
      "c": []
     },
     {
+     "k": "do",
+     "t": "const textSearchAnd = await buildClientTextSearchAnd(q, { canSearchByPhone: can(req, \"clients.viewPhone\"), ca…",
+     "a": [
+      "зовёт buildClientTextSearchAnd()"
+     ],
+     "c": []
+    },
+    {
      "k": "if",
-     "t": "clientTokens.length > 0",
+     "t": "textSearchAnd",
      "a": [],
      "c": [
       {
        "k": "do",
-       "t": "const extraPhoneMatches = canSearchByPhone && clientTokens.length > 0 ? await Promise.all( clientTokens.map((…",
+       "t": "where.AND = textSearchAnd;",
        "a": [
-        "обращается к базе своим SQL"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const byTokens = clientTokens.map((token, i)",
-       "a": [
-        "зовёт toTokenVariants()"
+        "дословно из кода"
        ],
        "c": []
       }
@@ -21338,6 +21035,14 @@
      "t": "ownAgentId && items.length > 0",
      "a": [],
      "c": [
+      {
+       "k": "do",
+       "t": "const unread = await clientIdsWithUnreadReply(items.map((c)",
+       "a": [
+        "зовёт clientIdsWithUnreadReply()"
+       ],
+       "c": []
+      },
       {
        "k": "loop",
        "t": "для каждого: const id of unread",
