@@ -1,11 +1,9 @@
 import { withInvestigationPrivacy } from "../lib/investigationOperations.js";
 import { canReadInvestigations, investigationViewerRole } from "../auth/investigations.js";
-import { assignmentWriteDenied } from "../lib/assignmentCompletion.js";
 import { commandSellerControl, SellerControlConflict } from "../lib/sellerControlEpisodes.js";
 import { visibleInteractionWhere } from "../lib/investigationPrivacy.js";
 import { Router, type Request } from "express";
 import { z } from "zod";
-import { foreignWriteDenied } from "./clients/shared.js";
 import {
   activitySummaryQuerySchema,
   emptyActivitySummaryByType,
@@ -21,6 +19,7 @@ import { can, requireAuth, scopeToOwnAgent } from "../auth/middleware.js";
 import { canHearCall, canReadCall, presentInteractions, transcriptAccess } from "../lib/callTranscripts.js";
 import { incomingInteractionIds } from "../lib/telephony/incomingInteractions.js";
 import { phoneSafeText, withMaskedClient } from "../lib/clientPhone.js";
+import { foreignTaskWriteDeniedFor, showingActionAccess, type TaskWriteSubject } from "../lib/showingAccess.js";
 import { cancelShowingById, rescheduleShowingById, type ShowingActor } from "../lib/showingBooking.js";
 import { loadEventPoints, recordScoreEvent, type ScoreEventKind } from "../lib/scoreJournal.js";
 import {
@@ -620,16 +619,19 @@ async function foreignTaskWriteDenied(
   interaction: { clientId: string | null; agentId: string | null; subjectAgentId: string | null; investigationOnly?: boolean; taskCancelledAt?: Date | null },
   ownAgentId: string | undefined
 ): Promise<string | null> {
-  if (interaction.investigationOnly && !canReadInvestigations(req)) return "Недостаточно прав";
-  if (interaction.taskCancelledAt) return "Задача отменена";
-  const current = interaction.clientId ? await prisma.client.findUnique({ where: { id: interaction.clientId }, select: { assignmentCompletedAt: true } }) : null;
-  const completed = current && assignmentWriteDenied(current, req.agent?.role);
-  if (completed) return completed;
-  if (ownAgentId) return null;
-  if ((interaction.subjectAgentId ?? interaction.agentId) === req.agent!.id) return null;
-  if (!interaction.clientId) return null;
-  const client = await prisma.client.findUnique({ where: { id: interaction.clientId }, select: { assignedAgentId: true } });
-  return client ? foreignWriteDenied(req, client, ownAgentId) : null;
+  // Само правило — в lib/showingAccess.ts: его же зовёт ИИ-помощник (reschedule_showing,
+  // cancel_showing), чтобы у REST и помощника не было двух проверок.
+  return foreignTaskWriteDeniedFor(taskWriteSubject(req), interaction, ownAgentId);
+}
+
+/** Кто действует — из `req.agent`, в том виде, как его принимает lib/showingAccess.ts. */
+function taskWriteSubject(req: Request): TaskWriteSubject {
+  return {
+    id: req.agent!.id,
+    role: req.agent!.role,
+    canAssignClients: can(req, "clients.assign"),
+    canReadInvestigations: canReadInvestigations(req),
+  };
 }
 
 /** Ошибки showingBooking → коды HTTP. Разные причины — разные подсказки человеку. */
@@ -651,22 +653,11 @@ const SHOWING_ERRORS: Record<string, { status: number; error: string }> = {
  * не разобрать, показ отменил клиент или руководитель.
  */
 async function authorizeShowingAction(req: Request, interactionId: string, actorId: string, ownAgentId?: string) {
-  const [interaction, actor] = await Promise.all([
-    prisma.interaction.findUnique({
-      where: { id: interactionId },
-      select: { agentId: true, subjectAgentId: true, clientId: true, investigationOnly: true },
-    }),
+  const [access, actor] = await Promise.all([
+    showingActionAccess(taskWriteSubject(req), interactionId, ownAgentId),
     prisma.agent.findUnique({ where: { id: actorId }, select: { fullName: true } }),
   ]);
-  if (!interaction) return { ok: false as const, ...SHOWING_ERRORS.not_found };
-  // Показ, назначенный ботом или системой, хранит агента в subjectAgentId, а
-  // agentId пуст (П-10) — проверка только по agentId не пускала своего же
-  // агента (аудит 23.09.2026, №29).
-  if (ownAgentId && (interaction.subjectAgentId ?? interaction.agentId) !== ownAgentId) {
-    return { ok: false as const, status: 403, error: "Недостаточно прав" };
-  }
-  const denied = await foreignTaskWriteDenied(req, interaction, ownAgentId);
-  if (denied) return { ok: false as const, status: 403, error: denied };
+  if (!access.ok) return { ok: false as const, status: access.status, error: access.error };
   const showingActor: ShowingActor = { kind: "agent", agentId: actorId, agentName: actor?.fullName ?? "сотрудник" };
   return { ok: true as const, actor: showingActor };
 }

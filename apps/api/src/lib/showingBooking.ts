@@ -345,6 +345,13 @@ export async function bookShowing(params: {
    */
   actor?: ShowingActor;
   now?: Date;
+  /**
+   * false — отказ вернуть вызывающему и НЕ писать «Бот не смог назначить показ» с
+   * push агенту. Нужно ИИ-помощнику (31.10.2026): отказ он показывает самому
+   * сотруднику в чате; запись в карточку клиента и push коллеге о неудавшейся
+   * попытке сотрудника — шум. По умолчанию true: путь бота не меняется.
+   */
+  reportFailures?: boolean;
 }): Promise<BookShowingResult> {
   const now = params.now ?? new Date();
   const actor: ShowingActor = params.actor ?? { kind: "client", channel: params.channel };
@@ -355,7 +362,7 @@ export async function bookShowing(params: {
   if (!client) return { ok: false, reason: "no_client" };
 
   const fail = async (reason: BookingProblem): Promise<BookShowingResult> => {
-    await reportBookingProblem(client, reason);
+    if (params.reportFailures !== false) await reportBookingProblem(client, reason);
     return { ok: false, reason };
   };
 
@@ -522,7 +529,7 @@ export async function bookShowing(params: {
  * же транзакции, где происходит вставка (см. bookShowing, гонка 22.08.2026): проверка
  * снаружи не видит незакоммиченную запись параллельного вызова.
  */
-async function findActiveShowing(
+export async function findActiveShowing(
   params: { clientId: string; propertyId?: string; now: Date },
   db: TxClient = prisma
 ) {
@@ -581,7 +588,7 @@ async function findActiveShowing(
  * лишний показ в календаре (агент его увидит и уточнит), чем молча стёртая
  * договорённость, о которой клиент не подозревает.
  */
-function isReplacementOfOtherShowing(action: ShowingAction | null | undefined, existingAt: Date, at: Date): boolean {
+export function isReplacementOfOtherShowing(action: ShowingAction | null | undefined, existingAt: Date, at: Date): boolean {
   if (action === "reschedule") return true;
   // То же окно, что и у общей проверки на дубль, — см. SHOWING_CONFLICT_WINDOW_MS.
   return Math.abs(at.getTime() - existingAt.getTime()) < SHOWING_CONFLICT_WINDOW_MS;
@@ -687,11 +694,20 @@ export type ShowingActor =
   /** Бот по прямым словам клиента в переписке. */
   | { kind: "client"; channel?: string }
   /** Живой человек в интерфейсе CRM. */
-  | { kind: "agent"; agentId: string; agentName: string };
+  | {
+      kind: "agent";
+      agentId: string;
+      agentName: string;
+      /** Действие выполнил ИИ-помощник по подтверждению человека (31.10.2026): в записи
+       *  так и пишется — «через ИИ-помощника», а не «определено автоматически». */
+      via?: "assistant";
+    };
 
 /** Хвост записи о ПЕРЕНОСЕ: «ботом (WHATSAPP)» либо «в CRM (Иванов)». */
 function movedBySuffix(actor: ShowingActor): string {
-  return actor.kind === "client" ? `ботом${actor.channel ? ` (${actor.channel})` : ""}` : `в CRM (${actor.agentName})`;
+  return actor.kind === "client"
+    ? `ботом${actor.channel ? ` (${actor.channel})` : ""}`
+    : `в CRM${actor.via === "assistant" ? " через ИИ-помощника" : ""} (${actor.agentName})`;
 }
 
 /** Хвост записи о НОВОМ показе: «ботом в переписке (WHATSAPP) по договорённости с
@@ -701,7 +717,9 @@ function movedBySuffix(actor: ShowingActor): string {
 function bookedBySuffix(actor: ShowingActor): string {
   return actor.kind === "client"
     ? `ботом в переписке${actor.channel ? ` (${actor.channel})` : ""} по договорённости с клиентом`
-    : `по переписке агента ${actor.agentName} — определено автоматически`;
+    : actor.via === "assistant"
+      ? `через ИИ-помощника (${actor.agentName}) по подтверждению сотрудника`
+      : `по переписке агента ${actor.agentName} — определено автоматически`;
 }
 
 /** Хвост записи об ОТМЕНЕ. Отменяет не бот, а клиент его словами, — так и пишем:
@@ -709,7 +727,7 @@ function bookedBySuffix(actor: ShowingActor): string {
 function cancelledBySuffix(actor: ShowingActor): string {
   return actor.kind === "client"
     ? `клиентом в переписке${actor.channel ? ` (${actor.channel})` : ""}`
-    : `в CRM (${actor.agentName})`;
+    : `в CRM${actor.via === "assistant" ? " через ИИ-помощника" : ""} (${actor.agentName})`;
 }
 
 /**
@@ -749,6 +767,8 @@ async function rescheduleShowing(params: {
   /** Почему переносят — обязательна для ручного переноса из CRM (см.
    *  rescheduleShowingById), у бота её нет: слова клиента уже в notes. */
   reason?: string;
+  /** Условный перенос (ИИ-помощник): показ обязан стоять на этом времени. */
+  expectedAt?: Date;
   now?: Date;
 }): Promise<BookShowingResult> {
   const { client, property, existing, at, actor, reason } = params;
@@ -761,7 +781,7 @@ async function rescheduleShowing(params: {
 
   const current = await prisma.$transaction((tx) => rescheduleShowingTx(tx, {
     clientId: client.id, interactionId: existing.id, at, now, propertyId: property?.id,
-    meetingSummaryAfterShowingMinutes, actorKind: actor.kind,
+    meetingSummaryAfterShowingMinutes, actorKind: actor.kind, expectedAt: params.expectedAt,
     notes: (current) => {
       const previousAt = current.nextActionDate!;
       const previousTitle = current.property?.title ?? "прежний объект";
@@ -906,12 +926,14 @@ async function applyCancellation(params: {
    *  и есть признак «отменил человек руками», по нему заводим задачу-напоминание
    *  ниже, чтобы клиент не завис без следующего шага. */
   reason?: string;
+  /** Условная отмена (ИИ-помощник): показ обязан стоять на этом времени. */
+  expectedAt?: Date;
 }): Promise<CancelShowingResult> {
   const { showing, client, actor, now, reason } = params;
   const reasonSuffix = reason ? `. Причина: ${reason}` : "";
 
   const current = await prisma.$transaction((tx) => cancelShowingTx(tx, {
-    clientId: client.id, interactionId: showing.id, now, actorKind: actor.kind,
+    clientId: client.id, interactionId: showing.id, now, actorKind: actor.kind, expectedAt: params.expectedAt,
     notes: (locked) => `${locked.notes}\nОтменён ${cancelledBySuffix(actor)}: ` +
       `был назначен на ${showingTimeLabel(locked.nextActionDate!)}${reasonSuffix}`,
     ...(reason ? { followUp: {
@@ -1011,12 +1033,14 @@ export async function cancelShowingById(params: {
   interactionId: string;
   actor: ShowingActor;
   reason: string;
+  /** Условная отмена: показ обязан стоять на этом времени, иначе ShowingMutationError("stale_showing"). */
+  expectedAt?: Date;
   now?: Date;
 }): Promise<CancelShowingResult | { ok: false; reason: ShowingByIdProblem }> {
   const loaded = await loadEditableShowing(params.interactionId);
   if (!loaded.ok) return loaded;
   const { client, ...showing } = loaded.showing;
-  return applyCancellation({ showing, client, actor: params.actor, now: params.now ?? new Date(), reason: params.reason });
+  return applyCancellation({ showing, client, actor: params.actor, now: params.now ?? new Date(), reason: params.reason, expectedAt: params.expectedAt });
 }
 
 /**
@@ -1031,6 +1055,8 @@ export async function rescheduleShowingById(params: {
   at: Date;
   actor: ShowingActor;
   reason: string;
+  /** Условный перенос: показ обязан стоять на этом времени, иначе ShowingMutationError("stale_showing"). */
+  expectedAt?: Date;
   now?: Date;
 }): Promise<BookShowingResult | { ok: false; reason: ShowingByIdProblem }> {
   const now = params.now ?? new Date();
@@ -1047,6 +1073,7 @@ export async function rescheduleShowingById(params: {
     at: params.at,
     actor: params.actor,
     reason: params.reason,
+    expectedAt: params.expectedAt,
     now,
   });
 }
