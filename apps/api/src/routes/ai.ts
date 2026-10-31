@@ -16,6 +16,8 @@ import { scoreClient } from "../ai/scoring.js";
 import { buildCardFillSuggestion } from "../ai/cardFill.js";
 import { buildPropertyDraftSuggestion } from "../ai/propertyDraft.js";
 import { isAiAssistantEnabled, runAssistant } from "../ai/assistant.js";
+import { tryAssistantFastPath } from "../ai/assistantFastPath.js";
+import { logAssistantToolCall } from "../lib/aiAssistantAudit.js";
 import { formatPrice, stripDashes } from "../ai/seoGenerator.js";
 import { TG_PREFIX } from "./conversations.js";
 import { agentSpeechLimiter } from "../lib/agentSpeechLimiter.js";
@@ -95,30 +97,52 @@ aiRouter.post("/assistant", requireAuth, assistantLimiter, async (req, res) => {
   res.setHeader("X-Accel-Buffering", "no");
   res.flushHeaders?.();
 
-  const sendEvent = (event: "status" | "done" | "error", data: unknown) => {
+  const sendEvent = (event: "status" | "card" | "done" | "error", data: unknown) => {
     if (res.writableEnded) return;
     res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   };
 
+  const actor = {
+    id: req.agent!.id,
+    role: req.agent!.role,
+    canViewAllClients: req.agent!.can("clients.viewAll"),
+    // Ассистент ходит в базу под правами вызвавшего — включая право на телефон.
+    canViewPhone: req.agent!.can("clients.viewPhone"),
+    // Те же права, что закрывают REST /reports и /expenses — get_lead_sources и
+    // get_finance_summary обязаны отказывать ровно тем же, кому отказывает интерфейс.
+    canViewReports: req.agent!.can("reports.view"),
+    canViewFinance: req.agent!.can("finance.view"),
+    // Сделки — своим правом (deals.viewAll), а не правом на клиентов: на экране
+    // «Сделки» их скоупит именно оно (scopeDealsToOwnAgent).
+    canViewAllDeals: req.agent!.can("deals.viewAll"),
+  };
+
   try {
-    const reply = await runAssistant(
-      parsed.data.messages,
-      {
-        id: req.agent!.id,
-        role: req.agent!.role,
-        canViewAllClients: req.agent!.can("clients.viewAll"),
-        // Ассистент ходит в базу под правами вызвавшего — включая право на телефон.
-        canViewPhone: req.agent!.can("clients.viewPhone"),
-        // Те же права, что закрывают REST /reports и /expenses — get_lead_sources и
-        // get_finance_summary обязаны отказывать ровно тем же, кому отказывает интерфейс.
-        canViewReports: req.agent!.can("reports.view"),
-        canViewFinance: req.agent!.can("finance.view"),
-        // Сделки — своим правом (deals.viewAll), а не правом на клиентов: на экране
-        // «Сделки» их скоупит именно оно (scopeDealsToOwnAgent).
-        canViewAllDeals: req.agent!.can("deals.viewAll"),
-      },
-      { onStatus: (message) => sendEvent("status", { message }) },
-    );
+    // Полоса А (ai/assistantFastPath.ts): номер карточки, телефон или ссылка Instagram
+    // целиком — ответ из базы без модели. Сбой быстрого пути не фатален: уходим на обычный.
+    const lastMessage = parsed.data.messages[parsed.data.messages.length - 1];
+    if (lastMessage?.role === "user") {
+      try {
+        const fast = await tryAssistantFastPath(lastMessage.content, actor);
+        if (fast) {
+          void logAssistantToolCall({
+            agentId: actor.id,
+            tool: fast.tool,
+            argsSummary: fast.argsSummary,
+            resultCount: fast.cards.length,
+          });
+          for (const card of fast.cards) sendEvent("card", card);
+          sendEvent("done", { reply: fast.reply });
+          return;
+        }
+      } catch (err) {
+        console.error("[ai:assistant:fast-path]", err instanceof Error ? err.message : err);
+      }
+    }
+
+    const reply = await runAssistant(parsed.data.messages, actor, {
+      onStatus: (message) => sendEvent("status", { message }),
+    });
     if (!reply) {
       sendEvent("error", { error: "ИИ недоступен: проверьте ключ Gemini в Настройках или повторите позже" });
     } else {
