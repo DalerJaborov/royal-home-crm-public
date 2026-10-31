@@ -44,7 +44,7 @@ import { logAudit } from "../../lib/audit.js";
 import { detachPropertyFromAds } from "../../lib/ads/adAllocation.js";
 import { applySellerPhoneFix, planOwnerPhoneChange, type OwnerPhonePlan } from "../../lib/propertyOwnerRelink.js";
 import { removeMessagePhoto } from "../../lib/messagePhoto.js";
-import { normalizeDigits } from "../../ai/leadQualifier.js";
+import { normalizeDigits } from "../../lib/shared/phoneText.js";
 import { phoneTail } from "../../lib/clientPhones.js";
 import { generateSeoFields } from "../../ai/seoGenerator.js";
 import { embedAndSaveProperty, EMBEDDING_RELEVANT_FIELDS } from "../../ai/embeddings.js";

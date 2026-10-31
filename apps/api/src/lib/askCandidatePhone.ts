@@ -51,13 +51,13 @@
  */
 import { pathToFileURL } from "node:url";
 import { prisma } from "../db.js";
-import { shortAgentReply } from "../ai/leadQualifier.js";
+import { shortAgentReply } from "../ai/shortAgentReply.js";
 import type { ChatMessage } from "../ai/client.js";
 import { sendBotMessageWithMid } from "../messengers/sendBotMessage.js";
 import { accountTokenById } from "../messengers/accounts.js";
 import { BOT_CHANNELS, asBotChannel, loadBotChannelToggles, type BotChannelToggles } from "../messengers/botChannels.js";
 import { loadBotCapabilities } from "../messengers/botCapabilities.js";
-import { appendConversationMessages, appendTelegramConversationMessages } from "../messengers/conversation.js";
+import { appendConversationMessages, appendTelegramConversationMessages } from "../messengers/appendMessages.js";
 import { sendMessage as sendTelegramMessage } from "../telegram/api.js";
 import { describeError } from "./describeError.js";
 

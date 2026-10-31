@@ -7,7 +7,7 @@ import { looksLikeRentRequest } from "./rentGuard.js";
 import { looksLikeMoneyRequest } from "./moneyRequestGuard.js";
 import { clientSaidNothingSubstantive } from "./adTemplateOpener.js";
 import { clientStatedDirection, detectIntentDirectionMismatch } from "./intentDirectionGuard.js";
-import type { LeadIntent } from "./leadQualifier.js";
+import type { LeadIntent } from "./botContract.js";
 import { MIN_MONTHLY_RENT_TJS, MIN_REAL_PURCHASE_TJS } from "./moneyThresholds.js";
 
 /**

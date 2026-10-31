@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { parseIncoming, type MetaIncoming } from "../messengers/meta.js";
-import { WEBSITE_SESSION_RE } from "../messengers/websiteChat.js";
+import { WEBSITE_SESSION_RE } from "./shared/websiteSession.js";
 import { adReferralBoundToEvent, peekAdReferral } from "../messengers/metaPeerMemory.js";
 import { customerPropertyEvidenceFromMeta, customerPropertyEvidenceFromText } from "./customerPropertyEvidence.js";
 import { authenticatedCustomerRequestEvidence } from "./customerIngressAuthority.js";

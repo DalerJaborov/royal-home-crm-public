@@ -3,7 +3,8 @@ import { prisma } from "../db.js";
 import { logSystemError } from "./systemError.js";
 import { publicUploadUrl } from "./crmPublicUrl.js";
 import { instagramShortcode } from "../messengers/sharedMedia.js";
-import { appendConversationMessages, ensureConversationId } from "../messengers/conversation.js";
+import { appendConversationMessages } from "../messengers/appendMessages.js";
+import { ensureConversationId } from "../messengers/conversationStore.js";
 import { accountTokenById, listAccounts, resolveIncomingAccount } from "../messengers/accounts.js";
 import { detectSpam } from "./incomingSpam.js";
 import {

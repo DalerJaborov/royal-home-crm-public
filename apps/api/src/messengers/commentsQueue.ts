@@ -2,7 +2,7 @@ import { prisma } from "../db.js";
 import { requestPultSnapshot } from "../lib/pultCacheHook.js";
 import { logSystemError } from "../lib/systemError.js";
 import { describeError } from "../lib/describeError.js";
-import type { MessengerChannel } from "./conversation.js";
+import type { MessengerChannel } from "./turnTypes.js";
 import type { PublicResult, PublicSourceRef } from "../lib/publicCommentTypes.js";
 
 /**

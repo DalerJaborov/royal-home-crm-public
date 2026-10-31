@@ -15,7 +15,7 @@ vi.mock("../src/db.js", async importOriginal => {
     $transaction: (callback: (tx: unknown) => unknown) => callback({ customerPropertyIngressTicket: { findUnique: fixture.ticketRevision } }),
     $disconnect: () => original.prisma.$disconnect() } };
 });
-vi.mock("../src/ai/leadQualifier.js", async (importOriginal) => ({ ...(await importOriginal<typeof import("../src/ai/leadQualifier.js")>()), extractVolunteeredPhone: fixture.extract }));
+vi.mock("../src/lib/shared/phoneText.js", async (importOriginal) => ({ ...(await importOriginal<typeof import("../src/lib/shared/phoneText.js")>()), extractVolunteeredPhone: fixture.extract }));
 vi.mock("../src/lib/customerIngressAuthority.js", async (importOriginal) => ({ ...(await importOriginal<typeof import("../src/lib/customerIngressAuthority.js")>()), inspectAuthenticatedCustomerInput: (value: object) => fixture.frames.get(value) ?? null }));
 vi.mock("../src/lib/customerPrincipal.js", async (importOriginal) => ({ ...(await importOriginal<typeof import("../src/lib/customerPrincipal.js")>()), loadPublicCustomerPrincipal: fixture.load, revalidateCustomerPrincipal: fixture.revalidate }));
 vi.mock("../src/lib/customerActionJournal.js", async (importOriginal) => ({ ...(await importOriginal<typeof import("../src/lib/customerActionJournal.js")>()), observeProtectedInquiryPhone: fixture.phone }));

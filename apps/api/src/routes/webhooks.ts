@@ -45,14 +45,10 @@ import {
   vacancyTurnHint,
 } from "../ai/adTemplateOpener.js";
 import { isVacancyPostCode } from "../lib/vacancyPosts.js";
-import {
-  appendConversationMessages,
-  markLastReplyUndelivered,
-  markMessageDeliveryStatus,
-  processMessengerTurn,
-  stampOutgoingMid,
-  type MessengerChannel,
-} from "../messengers/conversation.js";
+import { appendConversationMessages } from "../messengers/appendMessages.js";
+import { markLastReplyUndelivered, markMessageDeliveryStatus, stampOutgoingMid } from "../messengers/conversationStore.js";
+import { processMessengerTurn } from "../messengers/conversation.js";
+import type { MessengerChannel } from "../messengers/turnTypes.js";
 import {
   instagramShortcode,
   isSharedPost,
@@ -119,8 +115,8 @@ import {
   isWebsiteChatEnabled,
   loadWebsiteChatMessages,
   recordWebsiteChatMessageOnly,
-  WEBSITE_SESSION_RE,
 } from "../messengers/websiteChat.js";
+import { WEBSITE_SESSION_RE } from "../lib/shared/websiteSession.js";
 import { secretsMatch } from "../lib/secretCompare.js";
 import fs from "node:fs";
 import path from "node:path";
@@ -135,7 +131,7 @@ import { isDuplicateDelivery, markProcessedMessageComplete, releaseProcessedMess
 import { trackBackgroundTask } from "../lib/shutdownState.js";
 import { leadMagnetSilencesBot, tryLeadMagnetMessage } from "../lib/leadMagnet.js";
 import { isWithinWorkingHours } from "../lib/workingHours.js";
-import { normalizeDigits } from "../ai/leadQualifier.js";
+import { normalizeDigits } from "../lib/shared/phoneText.js";
 import { handleTelegramUpdate, isAlbumPart } from "../telegram/bot.js";
 import type { TelegramUpdate } from "../telegram/api.js";
 import { withTelegramUpdateRetry } from "../telegram/updateRetry.js";

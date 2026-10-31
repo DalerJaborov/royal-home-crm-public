@@ -9,7 +9,8 @@ import { loadCustomerTransportForConversation, type CustomerTransportReference }
 import { sendManagedCustomerPropertyReply } from "./customerPropertyDelivery.js";
 import { withBotTurnTrace, traceOutcome, traceNoReply, traceBindAccount, traceDeferUntil } from "./botTurnTrace.js";
 import { dushanbeStartOfToday } from "./dushanbeTime.js";
-import { markLastReplyUndelivered, processMessengerTurn, stampOutgoingMid } from "../messengers/conversation.js";
+import { markLastReplyUndelivered, stampOutgoingMid } from "../messengers/conversationStore.js";
+import { processMessengerTurn } from "../messengers/conversation.js";
 import { asMetaChannel, sendMessage as sendMetaMessage } from "../messengers/meta.js";
 import { WEBSITE_CHANNEL } from "../messengers/channels.js";
 import { isOutboundBlockedError } from "./outboundShield.js";

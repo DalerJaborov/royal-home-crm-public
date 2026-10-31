@@ -40,7 +40,7 @@ import { prisma } from "../db.js";
 import { callGraph, fetchWithRetry, GRAPH_VERSION, isMetaChannelEnabled, loadCredentials } from "../messengers/meta.js";
 import { resolveIncomingAccount } from "../messengers/accounts.js";
 import { appendConversationMessages } from "../messengers/appendMessages.js";
-import { recordExposures } from "../messengers/propertyShowcase.js";
+import { recordExposures } from "./propertyExposures.js";
 import { ensureCustomerEndpoint, ensureScopedBotConversation, loadCustomerTransportForConversation,
   type CustomerTransportReference } from "./customerConversationScope.js";
 import {
