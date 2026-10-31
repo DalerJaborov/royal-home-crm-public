@@ -22,6 +22,26 @@ vi.mock("../src/push.js", async (importOriginal) => ({
   sendPushToAgents: push,
 }));
 
+/**
+ * Окно «между чтением-сверкой и самой записью» в assignClientManually: проверка
+ * получателя идёт ПОСЛЕ сверки снимка и ДО updateMany. Подмена выполняет здесь
+ * чужую правку карточки — так тест ловит именно условие WHERE самой записи, а не
+ * чтение-сверку перед ней (ревью П3).
+ */
+const { betweenCheckAndWrite } = vi.hoisted(() => ({ betweenCheckAndWrite: { hook: null as null | (() => Promise<void>) } }));
+vi.mock("../src/lib/manualAssignTarget.js", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../src/lib/manualAssignTarget.js")>();
+  return {
+    ...original,
+    checkManualAssignTarget: async (...args: Parameters<typeof original.checkManualAssignTarget>) => {
+      const hook = betweenCheckAndWrite.hook;
+      betweenCheckAndWrite.hook = null;
+      if (hook) await hook();
+      return original.checkManualAssignTarget(...args);
+    },
+  };
+});
+
 const { prisma } = await import("../src/db.js");
 await import("../src/ai/assistant/tools/index.js");
 const { changeClientAgentExecutor } = await import("../src/ai/assistant/tools/changeClientAgentTool.js");
@@ -275,6 +295,46 @@ describe("исполнение", () => {
     await expectError(confirmAssistantAction(view.id, managerActor()), 409, "STALE");
     const after = await prisma.client.findUniqueOrThrow({ where: { id: c.id } });
     expect(after.assignedAgentId).toBe(otherId);
+  });
+
+  it("запись условная по полям СНИМКА: статус изменили между сверкой и записью — 409, назначение не записано", async () => {
+    const c = await client();
+    const snapshot = await changeClientAgentExecutor.snapshot({ clientId: c.id, agentName: targetName }, managerActor());
+    // status — поле снимка помощника (expected), а не базовое условие REST:
+    // ловит только WHERE самой записи, сверка перед ней уже прошла.
+    betweenCheckAndWrite.hook = async () => {
+      await prisma.client.update({ where: { id: c.id }, data: { status: "CONTACTED" } });
+    };
+    await expectError(
+      changeClientAgentExecutor.execute({ clientId: c.id, agentName: targetName }, managerActor(), {
+        actionId: "test",
+        snapshotBefore: snapshot,
+      }),
+      409,
+      "STALE"
+    );
+    expect(betweenCheckAndWrite.hook).toBeNull(); // правка действительно прошла в окне
+    const after = await prisma.client.findUniqueOrThrow({ where: { id: c.id } });
+    expect(after.assignedAgentId).toBe(holderId);
+    expect(after.status).toBe("CONTACTED");
+  });
+
+  it("запись условная по базовым полям REST: эскалацию отметили между сверкой и записью — 409", async () => {
+    const c = await client();
+    const snapshot = await changeClientAgentExecutor.snapshot({ clientId: c.id, agentName: targetName }, managerActor());
+    betweenCheckAndWrite.hook = async () => {
+      await prisma.client.update({ where: { id: c.id }, data: { escalatedAt: new Date() } });
+    };
+    await expectError(
+      changeClientAgentExecutor.execute({ clientId: c.id, agentName: targetName }, managerActor(), {
+        actionId: "test",
+        snapshotBefore: snapshot,
+      }),
+      409,
+      "STALE"
+    );
+    const after = await prisma.client.findUniqueOrThrow({ where: { id: c.id } });
+    expect(after.assignedAgentId).toBe(holderId);
   });
 
   it("запись условная: исполнитель со снимком, который уже не совпадает с базой, не пишет (сверка → запись)", async () => {
