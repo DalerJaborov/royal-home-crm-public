@@ -17,11 +17,10 @@ import { deleteAgentsWithTraces } from "./helpers/cleanupAgents.js";
  * проверять.
  *
  * 25.09.2026 (правило «нашёл баг — ищи весь класс»): те же два поведения
- * добавлены и для videoModeratorAgentId (модератор видео, пикер в интерфейсе
- * убран, но поле живёт) и liveVoiceTransferAgentId (консультант на телефоне,
+ * добавлены и для liveVoiceTransferAgentId (консультант на телефоне,
  * робозвонок) — та же форма поля, та же дыра.
  *
- * Два поведения на все пять полей:
+ * Два поведения на все поля:
  *  1. PATCH /settings отклоняет id уволенного/замороженного сотрудника (400).
  *  2. Увольнение/заморозка сотрудника, УЖЕ стоящего в одной из этих настроек,
  *     снимает его оттуда сама (routes/agents.ts, lib/agentSettingsCleanup.ts) —
@@ -44,7 +43,6 @@ let savedSettings: {
   callbackOperatorAgentId: string | null;
   videoMontajerAgentId: string | null;
   incomingDutyAgentIds: string[];
-  videoModeratorAgentId: string | null;
   liveVoiceTransferAgentId: string | null;
 } | null = null;
 
@@ -126,7 +124,6 @@ beforeAll(async () => {
       callbackOperatorAgentId: true,
       videoMontajerAgentId: true,
       incomingDutyAgentIds: true,
-      videoModeratorAgentId: true,
       liveVoiceTransferAgentId: true,
     },
   });
@@ -224,17 +221,7 @@ describe("PATCH /settings — сотрудник в поле обязан ещё
     expect(fresh?.incomingDutyAgentIds).toEqual([workingAgentId, deactivatableAgentId]);
   });
 
-  // 25.09.2026 — та же проверка для двух полей, добавленных разбором класса.
-  it("уволенный в videoModeratorAgentId — 400 с человеческим текстом", async () => {
-    const res = await patchSettings({ videoModeratorAgentId: firedAgentId });
-    expect(res.status).toBe(400);
-    expect(res.body.error).toMatch(/уволен/);
-    expect(res.body.error).toMatch(/Уволенный сотрудник/);
-
-    const fresh = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { videoModeratorAgentId: true } });
-    expect(fresh?.videoModeratorAgentId).toBe(savedSettings?.videoModeratorAgentId ?? null);
-  });
-
+  // 25.09.2026 — та же проверка для поля, добавленного разбором класса.
   it("замороженный в liveVoiceTransferAgentId — 400 с человеческим текстом", async () => {
     const res = await patchSettings({ liveVoiceTransferAgentId: frozenAgentId });
     expect(res.status).toBe(400);
@@ -248,18 +235,16 @@ describe("PATCH /settings — сотрудник в поле обязан ещё
     expect(fresh?.liveVoiceTransferAgentId).toBe(savedSettings?.liveVoiceTransferAgentId ?? null);
   });
 
-  it("работающий сотрудник в videoModeratorAgentId и liveVoiceTransferAgentId — 200", async () => {
+  it("работающий сотрудник в liveVoiceTransferAgentId — 200", async () => {
     const res = await patchSettings({
-      videoModeratorAgentId: workingAgentId,
       liveVoiceTransferAgentId: workingAgentId,
     });
     expect(res.status).toBe(200);
 
     const fresh = await prisma.settings.findUnique({
       where: { id: "singleton" },
-      select: { videoModeratorAgentId: true, liveVoiceTransferAgentId: true },
+      select: { liveVoiceTransferAgentId: true },
     });
-    expect(fresh?.videoModeratorAgentId).toBe(workingAgentId);
     expect(fresh?.liveVoiceTransferAgentId).toBe(workingAgentId);
   });
 });
@@ -331,14 +316,14 @@ describe("Увольнение/заморозка снимает сотрудн�
     expect(meta.fields).toEqual(["videoMontajerAgentId"]);
   });
 
-  it("отключение учётки чистит videoModeratorAgentId (25.09.2026, разбор класса)", async () => {
-    await prisma.settings.update({ where: { id: "singleton" }, data: { videoModeratorAgentId: deactivatableAgentId2 } });
+  it("отключение учётки чистит liveVoiceTransferAgentId (25.09.2026, разбор класса)", async () => {
+    await prisma.settings.update({ where: { id: "singleton" }, data: { liveVoiceTransferAgentId: deactivatableAgentId2 } });
 
     const res = await patchAgent(deactivatableAgentId2, { isActive: false });
     expect(res.status).toBe(200);
 
-    const fresh = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { videoModeratorAgentId: true } });
-    expect(fresh?.videoModeratorAgentId).toBeNull();
+    const fresh = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { liveVoiceTransferAgentId: true } });
+    expect(fresh?.liveVoiceTransferAgentId).toBeNull();
 
     const entry = await waitFor(
       () =>
@@ -350,12 +335,12 @@ describe("Увольнение/заморозка снимает сотрудн�
           },
           orderBy: { createdAt: "desc" },
         }),
-      { label: "запись об отключённом (videoModeratorAgentId) в журнале" }
+      { label: "запись об отключённом (liveVoiceTransferAgentId) в журнале" }
     );
     expect(entry).toBeTruthy();
     const meta = entry!.meta as { agentId?: string; fields?: string[] };
     expect(meta.agentId).toBe(deactivatableAgentId2);
-    expect(meta.fields).toEqual(["videoModeratorAgentId"]);
+    expect(meta.fields).toEqual(["liveVoiceTransferAgentId"]);
   });
 
   it("заморозка чистит liveVoiceTransferAgentId (25.09.2026, разбор класса)", async () => {

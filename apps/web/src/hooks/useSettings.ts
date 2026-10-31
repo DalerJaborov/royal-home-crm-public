@@ -191,7 +191,6 @@ export interface Settings {
   agentPauseMaxHours: number;
   agentPauseCooldownHours: number;
   /** Обязательные окна: отсрочка и её предел, сроки требований, дневное окно. */
-  propertySummaryAfterHours: number;
   propertySummaryWindowStart: string;
   propertySummaryWindowEnd: string;
   // waitingCheckAfterMinutes/waitingCheckMaxRepeats и callSummaryAfterMinutes убраны
@@ -463,8 +462,6 @@ export interface Settings {
   rawReviewRequired: boolean;
   /** Готовый ролик проверяет модератор перед публикацией (25.09.2026, lib/clipReview.ts). */
   clipReviewEnabled: boolean;
-  /** Адресат пуша «объект ждёт проверки» по умолчанию — не заменяет право properties.moderate. */
-  videoModeratorAgentId: string | null;
   /** Единственный монтажёр, получающий сырые ролики в очереди «строго один-в-работе». */
   videoMontajerAgentId: string | null;
   /** Этап 4 (телефония): подключение к Asterisk ARI. URL/логин — как есть, пароль — маска. */

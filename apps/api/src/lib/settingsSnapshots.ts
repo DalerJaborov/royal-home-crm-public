@@ -118,7 +118,6 @@ export function isSystemSettingsField(field: string): boolean {
 const STAFF_SINGLE_FIELDS = [
   "callbackOperatorAgentId",
   "videoMontajerAgentId",
-  "videoModeratorAgentId",
   "liveVoiceTransferAgentId",
 ] as const;
 

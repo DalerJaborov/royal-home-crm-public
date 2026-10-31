@@ -16,10 +16,10 @@
   "paths": 725,
   "cron": 116,
   "jobs": 31,
-  "conditions": 4007,
+  "conditions": 4004,
   "untranslatedUnique": 459,
   "untranslatedTotal": 589,
-  "partialUnique": 1091,
+  "partialUnique": 1090,
   "translatedShare": 85
  },
  "untranslated": [
@@ -58688,12 +58688,6 @@
      "c": []
     },
     {
-     "t": "если есть видео moderator сотрудник",
-     "k": "if",
-     "a": [],
-     "c": []
-    },
-    {
      "t": "если есть вживую голос передать сотрудник (пара)",
      "k": "if",
      "a": [],
@@ -58786,26 +58780,6 @@
           }
          ],
          "raw": "!byId.get(pair.videoMontajerAgentId)?.telegramChatId"
-        }
-       ]
-      },
-      {
-       "t": "если есть видео moderator сотрудник",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "если есть проблема",
-         "k": "if",
-         "a": [],
-         "c": [
-          {
-           "t": "отказ: данные неверные",
-           "k": "do",
-           "a": [],
-           "c": []
-          }
-         ]
         }
        ]
       },

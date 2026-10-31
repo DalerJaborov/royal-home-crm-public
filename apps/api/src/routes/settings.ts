@@ -1054,13 +1054,8 @@ const settingsUpdateSchema = z.object({
   rawReviewRequired: z.boolean().optional(),
   /** Готовый ролик проверяет модератор перед публикацией (25.09.2026, lib/clipReview.ts). */
   clipReviewEnabled: z.boolean().optional(),
-  /** «Модератор видео по умолчанию» убран из интерфейса 23.09.2026 (пуш «Объект
-   *  ждёт проверки» никому по этому полю не уходит — ни одна строка сервера его
-   *  не читает). Поле и колонка в базе остаются как исторический архив.
-   *  Существование/активность id при сохранении всё равно проверяются (ночная
-   *  проверка 24.09.2026, М12-в, и разбор класса 25.09.2026) — мёртвое для
-   *  бота поле не повод оставлять его без защиты от опечатки/уволенного. */
-  videoModeratorAgentId: z.string().max(64).nullable().optional(),
+  // videoModeratorAgentId УБРАН из схемы (01.11.2026): интерфейс убран 23.09.2026,
+  // ни одна строка сервера поле не читает. Колонка в базе остаётся до общего дропа.
   videoMontajerAgentId: z.string().max(64).nullable().optional(),
   /** YouTube Shorts (31.08.2026) — OAuth2 Google, отдельно от Meta. clientId не
    *  секрет (хранится как есть), clientSecret/refreshToken — зашифрованы. */
@@ -1472,25 +1467,23 @@ settingsRouter.patch("/", requireAuth, requirePermission("settings.manage"), req
 
   /**
    * СОТРУДНИК В ПОЛЯХ «ДЕЖУРНЫЙ ОПЕРАТОР / МОНТАЖЁР / ДЕЖУРНЫЕ ПО ВХОДЯЩИМ /
-   * МОДЕРАТОР ВИДЕО / КОНСУЛЬТАНТ НА ТЕЛЕФОНЕ» ОБЯЗАН ЕЩЁ РАБОТАТЬ (ночная
+   * КОНСУЛЬТАНТ НА ТЕЛЕФОНЕ» ОБЯЗАН ЕЩЁ РАБОТАТЬ (ночная
    * проверка 24.09.2026, М12-в, решение владельца: проверять — раньше
    * комментарий у incomingDutyAgentIds прямо говорил, что несуществующий/
    * уволенный id это «agent_not_found» в журнале входящих, а не отказ здесь;
    * тем же путём молча принимались и остальные четыре поля).
    *
    * Найден целый класс («нашёл баг — ищи весь класс», CLAUDE.md), а не только
-   * первые три поля: videoModeratorAgentId и liveVoiceTransferAgentId — та же
-   * ссылка на сотрудника той же формы (`z.string().max(64).nullable()`), без
-   * своей защиты от сохранения id уволенного/замороженного. Добавлены той же
-   * правкой (25.09.2026), отдельным коммитом.
+   * первые три поля: liveVoiceTransferAgentId — та же ссылка на сотрудника той
+   * же формы (`z.string().max(64).nullable()`), без своей защиты от сохранения
+   * id уволенного/замороженного. Добавлен той же правкой (25.09.2026).
    *
-   * Один запрос на все пять полей разом (класс «N+1», CLAUDE.md) — id может
+   * Один запрос на все поля разом (класс «N+1», CLAUDE.md) — id может
    * повторяться (например, монтажёр и дежурный по входящим — один человек).
    */
   const agentIdsToCheck = new Set<string>();
   if (pair.callbackOperatorAgentId) agentIdsToCheck.add(pair.callbackOperatorAgentId);
   if (pair.videoMontajerAgentId) agentIdsToCheck.add(pair.videoMontajerAgentId);
-  if (pair.videoModeratorAgentId) agentIdsToCheck.add(pair.videoModeratorAgentId);
   if (pair.liveVoiceTransferAgentId) agentIdsToCheck.add(pair.liveVoiceTransferAgentId);
   for (const id of pair.incomingDutyAgentIds ?? []) agentIdsToCheck.add(id);
   if (agentIdsToCheck.size > 0) {
@@ -1521,10 +1514,6 @@ settingsRouter.patch("/", requireAuth, requirePermission("settings.manage"), req
           .status(400)
           .json({ error: "У сотрудника не привязан Telegram — монтажёр не сможет получать ролики." });
       }
-    }
-    if (pair.videoModeratorAgentId) {
-      const problem = agentProblem(pair.videoModeratorAgentId);
-      if (problem) return res.status(400).json({ error: problem });
     }
     if (pair.liveVoiceTransferAgentId) {
       const problem = agentProblem(pair.liveVoiceTransferAgentId);
