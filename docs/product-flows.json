@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 725,
-  "forks": 4007,
+  "forks": 4004,
   "mounts": 79,
   "cron": 116,
   "jobs": 31,
@@ -75571,21 +75571,6 @@
     },
     {
      "k": "if",
-     "t": "pair.videoModeratorAgentId",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "agentIdsToCheck.add(pair.videoModeratorAgentId);",
-       "a": [
-        "дословно из кода"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
      "t": "pair.liveVoiceTransferAgentId",
      "a": [],
      "c": [
@@ -75731,28 +75716,6 @@
            "t": "return res .status(400) .json({ error: \"У сотрудника не привязан Telegram — монтажёр не сможет получать ролик…",
            "a": [
             "ответ 400 — «У сотрудника не привязан Telegram — монтажёр не сможет получать…»"
-           ],
-           "c": []
-          }
-         ]
-        }
-       ]
-      },
-      {
-       "k": "if",
-       "t": "pair.videoModeratorAgentId",
-       "a": [],
-       "c": [
-        {
-         "k": "if",
-         "t": "problem",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "return res.status(400).json({ error: problem });",
-           "a": [
-            "ответ 400"
            ],
            "c": []
           }
