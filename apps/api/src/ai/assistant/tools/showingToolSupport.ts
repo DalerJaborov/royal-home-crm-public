@@ -5,7 +5,6 @@ import { AssistantActionError, type AssistantActionActor, type AssistantActionEx
 import { showingActionAccess, type TaskWriteSubject } from "../../../lib/showingAccess.js";
 import { dushanbeDateTimeString, dushanbeInputToDate } from "../../../lib/dushanbeTime.js";
 import { actorFromAccess, type AssistantActor } from "../actor.js";
-import { neutralizeFence } from "../../untrustedContent.js";
 import type { AssistantWriteToolPlugin } from "./types.js";
 
 /**
@@ -37,22 +36,6 @@ export async function loadToolActor(actionActor: AssistantActionActor): Promise<
     throw new AssistantActionError(403, "FORBIDDEN", "Режим только для чтения: это действие вам недоступно");
   }
   return { actor: actorFromAccess(actionActor.agentId, access), agentName: agent.fullName };
-}
-
-/**
- * Текст из карточки (имя клиента, название объекта) — в превью, которое видит и
- * человек, и модель. Обёртка `wrapUntrusted` в карточке подтверждения показалась бы
- * человеку тегами, поэтому здесь иное: угловые скобки гасятся (граница не закрывается
- * изнутри), переводы строк и управляющие знаки уходят, длина режется.
- */
-export function plainField(value: string | null | undefined, maxChars = 120): string {
-  if (!value) return "";
-  const flat = neutralizeFence(value)
-    // eslint-disable-next-line no-control-regex
-    .replace(/[\u0000-\u001f\u007f]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  return flat.length > maxChars ? `${flat.slice(0, maxChars - 1)}…` : flat;
 }
 
 const WALL_CLOCK = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})(?::\d{2}(?:\.\d+)?)?$/;

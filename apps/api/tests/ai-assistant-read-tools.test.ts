@@ -286,9 +286,12 @@ describe("find_property", () => {
   it("автор висящей заявки на удаление не видит объект (без properties.delete), руководитель видит", async () => {
     const p = await makeProperty({ address: `заявка ${WORD}` });
     await prisma.propertyDeleteRequest.create({ data: { propertyId: p.id, requestedById: agentA, reason: "тест" } });
-    const mine = await call("find_property", { ref: String(p.shortId) }, actorAgent());
+    // Номер С ПРЕФИКСОМ: голое «88» ищет ещё и по словам адреса, и объект соседнего
+    // файла с этими цифрами в адресе (runId) красил тест при общем прогоне.
+    const code = `ОБ-${String(p.shortId).padStart(6, "0")}`;
+    const mine = await call("find_property", { ref: code }, actorAgent());
     expect(mine.items).toEqual([]);
-    const boss = await call("find_property", { ref: String(p.shortId) }, actorDirector());
+    const boss = await call("find_property", { ref: code }, actorDirector());
     expect(boss.items.map((i: { id: string }) => i.id)).toEqual([p.id]);
   });
 });

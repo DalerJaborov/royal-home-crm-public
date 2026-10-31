@@ -18,7 +18,7 @@ import {
   saleReadinessBlock,
 } from "../../../lib/propertyStatusDealGuards.js";
 import { makeChangeRequestExecutor } from "./changeRequestTool.js";
-import { plainField } from "./propertyToolSupport.js";
+import { plainField } from "./safeField.js";
 import type { AssistantWriteToolPlugin } from "./types.js";
 
 /**

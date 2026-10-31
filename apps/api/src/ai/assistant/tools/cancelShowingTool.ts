@@ -9,12 +9,12 @@ import {
   asPluginExecutor,
   loadShowingForAction,
   loadToolActor,
-  plainField,
   showingByIdError,
   showingSnapshot,
   showingTimeText,
   staleShowingError,
 } from "./showingToolSupport.js";
+import { plainField } from "./safeField.js";
 import type { AssistantWriteToolPlugin } from "./types.js";
 
 /**

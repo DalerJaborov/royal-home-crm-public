@@ -8,7 +8,7 @@ import {
 } from "@royal-home/shared";
 import { AssistantActionError } from "../../../lib/assistantActions.js";
 import { makeChangeRequestExecutor } from "./changeRequestTool.js";
-import { plainField } from "./propertyToolSupport.js";
+import { plainField } from "./safeField.js";
 import type { AssistantWriteToolPlugin } from "./types.js";
 
 /**

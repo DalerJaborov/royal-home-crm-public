@@ -26,8 +26,9 @@ const PROPERTY_STATUS_LABEL: Record<PropertyStatus, string> = {
   WITHDRAWN: "Снят с продажи",
 };
 
-export function propertyHref(shortId: number): string {
-  return `/properties/${shortId}`;
+/** Ссылка для интерфейса (карточка объекта/заявки рисуется по `href`). Одна на все инструменты. */
+export function propertyHref(shortId: number, query = ""): string {
+  return `/properties/${shortId}${query}`;
 }
 
 export function presentPropertyBrief(p: PropertyRefRecord, money: MoneyContext) {

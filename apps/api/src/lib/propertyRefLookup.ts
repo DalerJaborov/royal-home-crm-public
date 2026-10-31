@@ -123,3 +123,61 @@ export async function findPropertiesByRef(
   const properties = [...exact, ...byText].slice(0, limit);
   return { kind: exact.length > 0 ? "shortId" : "text", properties };
 }
+
+/**
+ * РОВНО ОДИН ОБЪЕКТ — для ЗАПИСЫВАЮЩИХ инструментов помощника (группа «prop»).
+ * Тот же разбор, что `findPropertiesByRef` (одна реализация на оба случая, сведено
+ * при сборке П3), но для записи строже: неоднозначность и «не найден» — понятный
+ * отказ со списком кандидатов, выбирать за человека нельзя (изменится не тот объект).
+ *  - номер («ОБ-000088» или голое «88») — только карточка с этим номером; нет её —
+ *    «не найден», а не объект со словом «88» в адресе;
+ *  - слова короче трёх букв — «не найден» (слишком широко для записи);
+ *  - Somon — «в карточке не хранится».
+ * Корзина не находится; проданный/снятый — находится, инструмент сам скажет, что с ним можно.
+ */
+export interface PropertyRefCandidate {
+  id: string;
+  shortId: number;
+  title: string;
+  address: string | null;
+}
+
+export type PropertyRefResolution =
+  | { ok: true; id: string; shortId: number }
+  | { ok: false; reason: "NOT_FOUND" | "AMBIGUOUS" | "EMPTY"; message: string; candidates: PropertyRefCandidate[] };
+
+/** Предел кандидатов в ответе человеку. */
+const CANDIDATES_LIMIT = 5;
+const NOT_FOUND_MESSAGE = "Такой объект не найден. Укажите номер ОБ- из карточки.";
+
+export async function resolvePropertyRef(rawRef: string): Promise<PropertyRefResolution> {
+  const ref = rawRef.trim();
+  if (!ref) return { ok: false, reason: "EMPTY", message: "Укажите номер объекта (например, ОБ-000088).", candidates: [] };
+  const notFound = (message = NOT_FOUND_MESSAGE): PropertyRefResolution => ({
+    ok: false,
+    reason: "NOT_FOUND",
+    message,
+    candidates: [],
+  });
+
+  const found = await findPropertiesByRef(ref, { limit: CANDIDATES_LIMIT });
+  if (found.kind === "somon") return notFound("Ссылки Somon в карточке объекта не хранятся — укажите номер ОБ-.");
+  if (found.kind === "id" || found.kind === "shortId") {
+    const exact = found.properties[0];
+    return exact ? { ok: true, id: exact.id, shortId: exact.shortId } : notFound();
+  }
+  // Номер без такой карточки и слишком короткие слова — не угадываем по адресу.
+  if (parseShortCode(ref) !== null || (found.kind === "text" && ref.length < 3)) return notFound();
+
+  const rows = found.properties;
+  if (rows.length === 1) return { ok: true, id: rows[0].id, shortId: rows[0].shortId };
+  if (rows.length > 1) {
+    return {
+      ok: false,
+      reason: "AMBIGUOUS",
+      message: "Подходит несколько объектов — уточните номер ОБ-.",
+      candidates: rows.map((p) => ({ id: p.id, shortId: p.shortId, title: p.title, address: p.address })),
+    };
+  }
+  return notFound(found.kind === "instagram" ? "По этой ссылке на Instagram объект в CRM не найден." : NOT_FOUND_MESSAGE);
+}

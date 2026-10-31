@@ -9,7 +9,6 @@ import {
   asPluginExecutor,
   loadShowingForAction,
   loadToolActor,
-  plainField,
   requireShowingInstant,
   showingByIdError,
   showingSnapshot,
@@ -17,6 +16,7 @@ import {
   staleShowingError,
   TIME_PARAM_DESCRIPTION,
 } from "./showingToolSupport.js";
+import { plainField } from "./safeField.js";
 import type { AssistantWriteToolPlugin } from "./types.js";
 
 /**

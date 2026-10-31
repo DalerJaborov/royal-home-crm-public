@@ -4,7 +4,7 @@ import { CURRENCIES, PROPERTY_CHANGE_KIND_HINTS, formatPropertyCode } from "@roy
 import { formatPrice } from "../../seoGenerator.js";
 import { roundMoney } from "../../../lib/money.js";
 import { makeChangeRequestExecutor } from "./changeRequestTool.js";
-import { plainField } from "./propertyToolSupport.js";
+import { plainField } from "./safeField.js";
 import type { AssistantWriteToolPlugin } from "./types.js";
 
 /**

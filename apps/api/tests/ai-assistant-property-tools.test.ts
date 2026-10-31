@@ -202,6 +202,27 @@ describe("change_property_price", () => {
     await expectRefused(ownerId, AGENT_PERMS, "change_property_price", { ref: "   ", newPrice: 1 }, 400);
   });
 
+  it("общий разбор ссылки (lib/propertyRefLookup): голый номер без карточки не угадывается по адресу; Somon — отказ; фото-пост Instagram — находит", async () => {
+    // Номер, которого нет среди карточек, но который стоит в адресе другого объекта:
+    // для записи «88» — это карточка №88, а не «что-то с 88 в адресе».
+    const missing = 900_000_000 + (runId % 1_000_000);
+    await seed({ address: `Цифровая ${missing}` });
+    await expectRefused(ownerId, AGENT_PERMS, "change_property_price", { ref: String(missing), newPrice: 1 }, 404);
+    await expectRefused(ownerId, AGENT_PERMS, "change_property_price", { ref: "https://somon.tj/adv/123_x", newPrice: 1 }, 404, /Somon/);
+
+    // Фото-пост (карусель) — разбор чтения find_property, теперь общий и для записи.
+    const property = await seed();
+    const code = `Ph${runId}`;
+    await prisma.propertyPhotoPost.create({
+      data: { propertyId: property.id, channel: "INSTAGRAM", status: "PUBLISHED", permalink: `https://www.instagram.com/p/${code}/` },
+    });
+    const pending = await preview(ownerId, AGENT_PERMS, "change_property_price", {
+      ref: `https://instagram.com/p/${code}/?igsh=abc`,
+      newPrice: 390000,
+    });
+    expect(pending.preview.was.Объект).toContain(formatPropertyCode(property.shortId));
+  });
+
   it("права: свой — можно; чужой агент — 403; руководитель — можно; без права на заявки — 403; акционер — 403", async () => {
     const property = await seed();
     const args = { ref: String(property.shortId), newPrice: 390000 };

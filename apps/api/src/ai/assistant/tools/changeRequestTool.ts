@@ -18,7 +18,8 @@ import {
   checkPropertyChangeRequest,
   createPropertyChangeRequest,
 } from "../../../lib/propertyChangeRequestService.js";
-import { changeActor, failureToError, loadWriterRole, propertyHref, resolveRefOrThrow } from "./propertyToolSupport.js";
+import { changeActor, failureToError, loadWriterRole, resolveRefOrThrow } from "./propertyToolSupport.js";
+import { propertyHref } from "./propertyPresenter.js";
 
 /**
  * ОБЩИЙ ИСПОЛНИТЕЛЬ ИНСТРУМЕНТОВ, КОТОРЫЕ ПОДАЮТ ЗАЯВКУ НА ИЗМЕНЕНИЕ ОБЪЕКТА

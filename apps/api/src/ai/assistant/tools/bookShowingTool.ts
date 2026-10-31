@@ -16,7 +16,8 @@ import {
 } from "../../../lib/showingBooking.js";
 import { dushanbeDateString, dushanbeTimeString } from "../../../lib/dushanbeTime.js";
 import { assertClientWritable } from "../actor.js";
-import { asPluginExecutor, loadToolActor, plainField, requireShowingInstant, showingTimeText, TIME_PARAM_DESCRIPTION } from "./showingToolSupport.js";
+import { asPluginExecutor, loadToolActor, requireShowingInstant, showingTimeText, TIME_PARAM_DESCRIPTION } from "./showingToolSupport.js";
+import { plainField } from "./safeField.js";
 import type { AssistantWriteToolPlugin } from "./types.js";
 
 /**

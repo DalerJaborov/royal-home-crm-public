@@ -11,7 +11,9 @@ import { prisma } from "../../../db.js";
 import { AssistantActionError, type AssistantActionActor } from "../../../lib/assistantActions.js";
 import { buildMontajerMessageText } from "../../../lib/videoHandoff.js";
 import { sendBackDenied, sendPropertyBackToMontajerAs, type SendBackActor } from "../../../lib/propertySendBack.js";
-import { loadWriterRole, plainField, propertyHref, resolveRefOrThrow } from "./propertyToolSupport.js";
+import { loadWriterRole, resolveRefOrThrow } from "./propertyToolSupport.js";
+import { propertyHref } from "./propertyPresenter.js";
+import { plainField } from "./safeField.js";
 import type { AssistantWriteToolPlugin } from "./types.js";
 
 /**
