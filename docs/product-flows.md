@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **722**. Развилок в самих путях: **2562**; вместе с задачами по расписанию и фоновыми заданиями — **3992**. Модулей: **79**.
+Путей: **722**. Развилок в самих путях: **2566**; вместе с задачами по расписанию и фоновыми заданиями — **3996**. Модулей: **79**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -1232,18 +1232,37 @@
   · ставит заголовок ответа
 - res.setHeader("X-Accel-Buffering", "no");
   · ставит заголовок ответа
-- const sendEvent = (event: "status" | "done" | "error", data: unknown)
-  - если res.writableEnded
+- const sendEvent = (event: "status" | "card" | "done" | "error", data: unknown)
+  - если res.writableEnded || res.destroyed
     - return;
       · дальше не идёт, ничего не меняя
-- пробует
-  - const reply = await runAssistant( parsed.data.messages, { id: req.agent!.id, role: req.agent!.role, canViewAl…
-    · зовёт runAssistant()
-  - если !reply
-    - sendEvent("error", { error: "ИИ недоступен: проверьте ключ Gemini в Настройках или повторите позже" });
+- res.on("close", ()
+  - если !res.writableFinished
+    - clientGone.abort();
       · дословно из кода
-  - иначе
-    - sendEvent("done", { reply });
+- пробует
+  - если lastMessage?.role === "user"
+    - пробует
+      - const fast = await tryAssistantFastPath(lastMessage.content, actor);
+        · зовёт tryAssistantFastPath()
+      - если fast
+        - void logAssistantToolCall({ agentId: actor.id, tool: fast.tool, argsSummary: fast.argsSummary, resultCount: f…
+          · зовёт logAssistantToolCall()
+        - для каждого: const card of fast.cards
+          - sendEvent("card", card);
+            · дословно из кода
+        - return;
+          · дальше не идёт, ничего не меняя
+    - если сорвалось
+      - console.error("[ai:assistant:fast-path]", err instanceof Error ? err.message : err);
+        · пишет строку в журнал сервера
+  - const outcome = await runAssistantDetailed( parsed.data.messages, actor, { onStatus: (message)
+    · зовёт runAssistantDetailed()
+  - если outcome.ok
+    - sendEvent("done", { reply: outcome.reply });
+      · дословно из кода
+  - иначе если outcome.code !== "aborted"
+    - sendEvent("error", { error: ASSISTANT_ERROR_MESSAGES[outcome.code], code: outcome.code, retryable: outcome.re…
       · дословно из кода
 - если сорвалось
   - console.error("[ai:assistant:sse]", err instanceof Error ? err.message : err);
