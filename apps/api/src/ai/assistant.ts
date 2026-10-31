@@ -34,7 +34,7 @@ import { noteTaskRescheduleAndAlarmIfAnomalous } from "../lib/taskRescheduleAnom
 import { UNTRUSTED_CONTENT_RULE, wrapUntrusted } from "./untrustedContent.js";
 import { logTimeline } from "../lib/timeline.js";
 import { findDistrictIdByName } from "../lib/districtLookup.js";
-import { assertClientWritable, assistantToolAllowed, type AssistantActor } from "./assistant/actor.js";
+import { assertClientWritable, assistantInvestigationRole, assistantToolAllowed, type AssistantActor } from "./assistant/actor.js";
 import { assistantSectionsGuide } from "./assistant/promptSections.js";
 import { findAssistantToolPlugin, listAssistantToolPlugins } from "./assistant/tools/index.js";
 import { runAssistantToolPlugin, type RunPluginHooks } from "./assistant/tools/run.js";
@@ -695,7 +695,7 @@ export async function runTool(name: string, input: Record<string, unknown>, acto
         nextActionDate: { not: null },
         completedAt: null,
         taskCancelledAt: null,
-        ...visibleInteractionWhere(actor.role),
+        ...visibleInteractionWhere(assistantInvestigationRole(actor)),
         ...(ownScope ? { OR: [{ subjectAgentId: ownScope }, { subjectAgentId: null, agentId: ownScope }] } : {}),
       },
       orderBy: { nextActionDate: "desc" },
@@ -732,7 +732,7 @@ export async function runTool(name: string, input: Record<string, unknown>, acto
       return { error: "Нет доступа: клиент закреплён за другим агентом" };
     }
     const interactions = await prisma.interaction.findMany({
-      where: { clientId: client.id, ...visibleInteractionWhere(actor.role) },
+      where: { clientId: client.id, ...visibleInteractionWhere(assistantInvestigationRole(actor)) },
       orderBy: { createdAt: "desc" },
       take: 10,
       include: { agent: { select: { fullName: true } } },

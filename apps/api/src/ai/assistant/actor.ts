@@ -1,6 +1,7 @@
 import { isReadOnlyRole, type PermissionId } from "@royal-home/shared";
 import { READ_ONLY_ROLE_RESPONSE, type AgentAccess } from "../../auth/middleware.js";
 import { clientWriteDenied } from "../../lib/clientWriteAccess.js";
+import { investigationRoleFor } from "../../auth/investigations.js";
 
 /**
  * «КТО СПРАШИВАЕТ» У ИИ-ПОМОЩНИКА — ОДНИМ РАЗБОРОМ ПРАВ НА ВСЮ CRM (31.10.2026,
@@ -76,6 +77,15 @@ export function actorFromAccess(agentId: string, access: Pick<AgentAccess, "role
     canRequestChange: has("properties.requestChange"),
     permissions: access.permissions,
   };
+}
+
+/**
+ * Роль для записей «только для проверки» — как `investigationViewerRole(req)` в REST:
+ * ADMIN/DIRECTOR И право clients.securityReview; иначе undefined (только публичное).
+ * Голая `actor.role` сюда не передаётся: директор с отозванным правом видел бы закрытое.
+ */
+export function assistantInvestigationRole(actor: AssistantActor): string | undefined {
+  return investigationRoleFor(actor.role, actor.permissions?.has("clients.securityReview") ?? false);
 }
 
 export const FOREIGN_CLIENT_SCOPE_MESSAGE = "Нет доступа: клиент закреплён за другим агентом";

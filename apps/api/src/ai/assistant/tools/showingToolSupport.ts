@@ -1,10 +1,10 @@
-import { canViewInvestigations, isReadOnlyRole } from "@royal-home/shared";
+import { isReadOnlyRole } from "@royal-home/shared";
 import { loadAgentAccess } from "../../../auth/middleware.js";
 import { prisma } from "../../../db.js";
 import { AssistantActionError, type AssistantActionActor, type AssistantActionExecutor } from "../../../lib/assistantActions.js";
 import { showingActionAccess, type TaskWriteSubject } from "../../../lib/showingAccess.js";
 import { dushanbeDateTimeString, dushanbeInputToDate } from "../../../lib/dushanbeTime.js";
-import { actorFromAccess, type AssistantActor } from "../actor.js";
+import { actorFromAccess, assistantInvestigationRole, type AssistantActor } from "../actor.js";
 import type { AssistantWriteToolPlugin } from "./types.js";
 
 /**
@@ -84,7 +84,7 @@ export function taskWriteSubjectOf(actor: AssistantActor): TaskWriteSubject {
     id: actor.id,
     role: actor.role,
     canAssignClients: actor.canAssignClients,
-    canReadInvestigations: canViewInvestigations(actor.role) && (actor.permissions?.has("clients.securityReview") ?? false),
+    canReadInvestigations: assistantInvestigationRole(actor) !== undefined,
   };
 }
 

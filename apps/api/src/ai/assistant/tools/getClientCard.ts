@@ -7,7 +7,7 @@ import { dushanbeDateString, dushanbeDateTimeString } from "../../../lib/dushanb
 import { visibleInteractionWhere } from "../../../lib/investigationPrivacy.js";
 import { COUNTED_SHOWING_WHERE, TASK_WHERE } from "../../../lib/tasks.js";
 import { presentClient } from "../../../routes/clients/shared.js";
-import { FOREIGN_CLIENT_SCOPE_MESSAGE } from "../actor.js";
+import { assistantInvestigationRole, FOREIGN_CLIENT_SCOPE_MESSAGE } from "../actor.js";
 import { propertyHref } from "./propertyPresenter.js";
 import { safeField } from "./safeField.js";
 import type { AssistantReadToolPlugin } from "./types.js";
@@ -61,14 +61,15 @@ export const getClientCardTool: AssistantReadToolPlugin = {
     if (ownScope && client.assignedAgentId !== ownScope) return { error: FOREIGN_CLIENT_SCOPE_MESSAGE };
 
     const canSeePhone = actor.canViewPhone && client.acceptedAt !== null;
+    const investigationRole = assistantInvestigationRole(actor);
     const presented = presentClient(
       client,
       canSeePhone,
       actor.permissions?.has("clients.viewOrigin") ?? false,
-      actor.role
+      investigationRole
     );
 
-    const visible = visibleInteractionWhere(actor.role);
+    const visible = visibleInteractionWhere(investigationRole);
     const [lastInteraction, nextTask, nextShowing] = await Promise.all([
       prisma.interaction.findFirst({
         where: { clientId: client.id, ...visible },

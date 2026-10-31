@@ -11,6 +11,7 @@ import {
 } from "../../../lib/dushanbeTime.js";
 import { visibleInteractionWhere } from "../../../lib/investigationPrivacy.js";
 import { TASK_WHERE } from "../../../lib/tasks.js";
+import { assistantInvestigationRole } from "../actor.js";
 import { propertyHref } from "./propertyPresenter.js";
 import { safeField } from "./safeField.js";
 import type { AssistantReadToolPlugin } from "./types.js";
@@ -68,7 +69,7 @@ export const listMyTasksTool: AssistantReadToolPlugin = {
 
     const mine: Prisma.InteractionWhereInput = {
       ...TASK_WHERE,
-      ...visibleInteractionWhere(actor.role),
+      ...visibleInteractionWhere(assistantInvestigationRole(actor)),
       OR: [{ agentId: actor.id }, { subjectAgentId: actor.id }],
     };
     const [dayRows, overdueRows] = await Promise.all([
