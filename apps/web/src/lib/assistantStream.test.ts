@@ -83,6 +83,42 @@ describe("streamAssistant", () => {
     expect(onCard).toHaveBeenCalledWith(card);
   });
 
+  it("token: текст копится по мере прихода, reset начинает черновик заново, итог — из done", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        streamResponse(
+          sse(
+            ["token", { text: "Сейчас " }],
+            ["token", { text: "посмотрю" }],
+            ["status", { message: "Уточняю данные…" }],
+            ["token", { text: "Нашёл ", reset: true }],
+            ["token", { text: "двоих." }],
+            ["done", { reply: "Нашёл двоих." }],
+          ),
+        ),
+      ),
+    );
+    const onToken = vi.fn();
+    await expect(streamAssistant(ask, () => undefined, { onToken })).resolves.toBe("Нашёл двоих.");
+    expect(onToken.mock.calls.map((c) => c[0])).toEqual(["Сейчас ", "Сейчас посмотрю", "Нашёл ", "Нашёл двоих."]);
+  });
+
+  it("без событий token (старый сервер, быстрый путь) — текст берётся из done, onToken не зовётся", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => streamResponse(sse(["done", { reply: "Только done" }]))));
+    const onToken = vi.fn();
+    await expect(streamAssistant(ask, () => undefined, { onToken })).resolves.toBe("Только done");
+    expect(onToken).not.toHaveBeenCalled();
+  });
+
+  it("токены пришли, а потока done нет — обрыв, а не полуответ", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => streamResponse(sse(["token", { text: "Начало" }]))));
+    await expect(streamAssistant(ask, () => undefined, { onToken: () => undefined })).rejects.toMatchObject({
+      code: "server",
+      retryable: true,
+    });
+  });
+
   it("зависший сервер: через таймаут — ошибка timeout с повтором, а не вечная «загрузка»", async () => {
     vi.stubGlobal("fetch", hangingFetch());
     const err = await streamAssistant(ask, () => undefined, { timeoutMs: 20 }).catch((e) => e);

@@ -1250,7 +1250,7 @@
   · ставит заголовок ответа
 - res.setHeader("X-Accel-Buffering", "no");
   · ставит заголовок ответа
-- const sendEvent = (event: "status" | "card" | "done" | "error", data: unknown)
+- const sendEvent = (event: "status" | "card" | "token" | "done" | "error", data: unknown)
   - если res.writableEnded || res.destroyed
     - return;
       · дальше не идёт, ничего не меняя

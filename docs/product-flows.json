@@ -5435,7 +5435,7 @@
     },
     {
      "k": "do",
-     "t": "const sendEvent = (event: \"status\" | \"card\" | \"done\" | \"error\", data: unknown)",
+     "t": "const sendEvent = (event: \"status\" | \"card\" | \"token\" | \"done\" | \"error\", data: unknown)",
      "a": [],
      "c": [
       {

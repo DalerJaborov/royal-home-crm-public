@@ -79,9 +79,9 @@ const aiGenerationLimiter = rateLimit({
  * SSE (план B3, docs/ai-bots-audit-13-09.md): вместо одного JSON-ответа в конце
  * отдаём поток событий `status` (пошаговые статусы раундов/тулов — см.
  * runAssistant/onStatus в ai/assistant.ts) и финальный `done`/`error`. Заголовки —
- * по образцу routes/events.ts:130-137. Полный токен-стриминг Gemini-ответа не
- * делается — `:streamGenerateContent` в проекте не используется нигде, это
- * отдельная и более рискованная задача (частичный JSON тул-коллов).
+ * по образцу routes/events.ts:130-137. С 31.10.2026 (задача 1.6) текст ответа
+ * идёт ещё и событием `token` по мере генерации (`:streamGenerateContent`,
+ * callGeminiToolsStream в ai/geminiClient.ts); `done` по-прежнему несёт весь текст.
  */
 aiRouter.post("/assistant", requireAuth, assistantLimiter, async (req, res) => {
   // Рубильник (Настройки → ИИ). Выключен по умолчанию: разделом пока никто не
@@ -107,7 +107,7 @@ aiRouter.post("/assistant", requireAuth, assistantLimiter, async (req, res) => {
   res.setHeader("X-Accel-Buffering", "no");
   res.flushHeaders?.();
 
-  const sendEvent = (event: "status" | "card" | "done" | "error", data: unknown) => {
+  const sendEvent = (event: "status" | "card" | "token" | "done" | "error", data: unknown) => {
     if (res.writableEnded || res.destroyed) return;
     res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   };
@@ -156,7 +156,13 @@ aiRouter.post("/assistant", requireAuth, assistantLimiter, async (req, res) => {
     const outcome = await runAssistantDetailed(
       parsed.data.messages,
       actor,
-      { onStatus: (message) => sendEvent("status", { message }), signal: clientGone.signal },
+      {
+        onStatus: (message) => sendEvent("status", { message }),
+        // Текст ответа по мере генерации (задача 1.6) — событием `token` до `done`;
+        // `done` всё равно несёт полный текст: клиент без стриминга берёт его.
+        onToken: (token) => sendEvent("token", token),
+        signal: clientGone.signal,
+      },
     );
     if (outcome.ok) {
       sendEvent("done", { reply: outcome.reply });
