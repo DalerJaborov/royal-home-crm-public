@@ -6,6 +6,7 @@ import { Sidebar } from "../components/Sidebar";
 import { PullToRefresh } from "../components/PullToRefresh";
 import { Topbar } from "../components/Topbar";
 import { BottomNav } from "../components/BottomNav";
+import { AssistantHost } from "../components/AssistantHost";
 import { OfflineBanner } from "../components/OfflineBanner";
 import { UploadIndicator } from "../components/UploadIndicator";
 import { Toaster } from "../components/ui/Toaster";
@@ -336,6 +337,9 @@ export function AppLayout() {
         </main>
       </div>
       <BottomNav />
+      {/* Панель ИИ-помощника — одна на все входы (удержание «+», кнопка в шапке,
+          Ctrl+/); сам кусок панели грузится по нажатию, см. AssistantPanelLazy. */}
+      <AssistantHost />
       {/* Предложение установить CRM как приложение — на третий заход, только на
           телефоне и только если она ещё не установлена. См. InstallAppHint. */}
       <Suspense fallback={null}>

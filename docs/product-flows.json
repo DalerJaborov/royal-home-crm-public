@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 722,
-  "forks": 3992,
+  "forks": 3994,
   "mounts": 79,
   "cron": 115,
   "jobs": 31,
@@ -5096,7 +5096,7 @@
     },
     {
      "k": "do",
-     "t": "const sendEvent = (event: \"status\" | \"done\" | \"error\", data: unknown)",
+     "t": "const sendEvent = (event: \"status\" | \"card\" | \"done\" | \"error\", data: unknown)",
      "a": [],
      "c": [
       {
@@ -5122,8 +5122,83 @@
      "a": [],
      "c": [
       {
+       "k": "if",
+       "t": "lastMessage?.role === \"user\"",
+       "a": [],
+       "c": [
+        {
+         "k": "try",
+         "t": "пробует",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const fast = await tryAssistantFastPath(lastMessage.content, actor);",
+           "a": [
+            "зовёт tryAssistantFastPath()"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "fast",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "void logAssistantToolCall({ agentId: actor.id, tool: fast.tool, argsSummary: fast.argsSummary, resultCount: f…",
+             "a": [
+              "зовёт logAssistantToolCall()"
+             ],
+             "c": []
+            },
+            {
+             "k": "loop",
+             "t": "для каждого: const card of fast.cards",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "sendEvent(\"card\", card);",
+               "a": [
+                "дословно из кода"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "do",
+             "t": "return;",
+             "a": [
+              "дальше не идёт, ничего не меняя"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "catch",
+         "t": "если сорвалось",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "console.error(\"[ai:assistant:fast-path]\", err instanceof Error ? err.message : err);",
+           "a": [
+            "пишет строку в журнал сервера"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ]
+      },
+      {
        "k": "do",
-       "t": "const reply = await runAssistant( parsed.data.messages, { id: req.agent!.id, role: req.agent!.role, canViewAl…",
+       "t": "const reply = await runAssistant(parsed.data.messages, actor, { onStatus: (message)",
        "a": [
         "зовёт runAssistant()"
        ],

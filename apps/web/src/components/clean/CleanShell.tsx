@@ -6,14 +6,13 @@ import { defaultCleanNavigation, partitionCleanNavigation } from "../../lib/clea
 import { useUiPrefs } from "../../store/uiPrefs";
 import { CleanNavigationOrderSheet } from "./CleanNavigationOrderSheet";
 export { partitionCleanNavigation } from "../../lib/cleanNavigationOrder";
-import { useCan, useCanCreateProperty, useIsReadOnly } from "../../lib/permissions";
+import { useCan, useCanCreateProperty } from "../../lib/permissions";
 import { useAuthStore } from "../../store/auth";
 import { mcOk, useMissionControlLive } from "../../hooks/useMissionControl";
 import { CleanCriticalNotice } from "./CleanCriticalNotice";
 import { useShellStore } from "../../store/shell";
-import { useSettings } from "../../hooks/useSettings";
+import { ASSISTANT_ENTRY_LABEL, ASSISTANT_ENTRY_TITLE, useAssistantEntry } from "../../hooks/useAssistantEntry";
 import { Topbar } from "../Topbar";
-import { AssistantPanelLazy } from "../AssistantPanelLazy";
 import { CButton, CLink } from "./ui";
 import { permitsCleanChunkWarming, scheduleCleanRouteChunks, warmCleanRouteChunk, type WarmConnection } from "../../lib/cleanRouteChunks";
 
@@ -57,7 +56,6 @@ export function CleanShell() {
   }, [actorId, epoch, permittedPaths]);
   const overflowUnread = overflow.reduce((total, item) => total + (item.badgeQuiet ? 0 : item.badge ?? 0), 0);
   const canCreate = useCanCreateProperty();
-  const readOnly = useIsReadOnly();
   const { pathname } = useLocation();
   // `all` is rebuilt on every counter refresh; only a route change may move focus.
   const routeLabel = defaultCleanNavigation(main, all).sort((a, b) => b.to.length - a.to.length).find((item) => pathname === item.to || item.to !== "/" && pathname.startsWith(`${item.to}/`))?.label;
@@ -70,8 +68,8 @@ export function CleanShell() {
   const back = useShellStore((s) => s.back);
   const ownHeader = useShellStore((s) => s.ownHeader);
   const title = useShellStore((s) => s.title);
-  const { data: settings } = useSettings();
-  const [assistantOpen, setAssistantOpen] = useState(false);
+  // Панель помощника одна на все входы и монтируется в AssistantHost (AppLayout).
+  const assistantEntry = useAssistantEntry();
   const menu = useRef<HTMLDetailsElement>(null);
   const header = useRef<HTMLElement>(null);
   const menuButton = useRef<HTMLElement>(null);
@@ -131,12 +129,11 @@ export function CleanShell() {
       </details>}
       <div className="clean-header-tools">
         {actorId && overflow.length === 0 && <CButton variant="soft" size="icon-md" disabled={!prefsHydrated} aria-label="Настроить порядок вкладок" onClick={openNavigationEditor}><SlidersHorizontal /></CButton>}
-        {settings?.aiAssistantEnabled && !readOnly && <CButton variant="soft" size="icon-md" className="clean-ai" aria-label="ИИ-помощник" onClick={() => setAssistantOpen(true)}><Sparkles /></CButton>}
+        {assistantEntry.visible && <CButton variant="soft" size="icon-md" className="clean-ai" aria-label={ASSISTANT_ENTRY_LABEL} title={ASSISTANT_ENTRY_TITLE} onClick={assistantEntry.open} {...assistantEntry.preloadProps}><Sparkles /></CButton>}
         {canCreate && <CLink to="/properties/new" className="clean-create" variant="soft" size="icon-md" aria-label="Создать объект"><Plus /></CLink>}
       </div>
       <div className="clean-existing-topbar"><Topbar clean /></div>
     </header>
-    {assistantOpen && !readOnly && <AssistantPanelLazy onClose={() => setAssistantOpen(false)} />}
     {navigationEditor && navigationEditor.actorId === actorId && navigationEditor.epoch === epoch && <CleanNavigationOrderSheet key={`${actorId}:${epoch}`} items={defaultCleanNavigation(main, all)} savedOrder={savedOrder} onSave={saveOrder} onClose={() => setNavigationEditor(null)} />}
     <CleanCriticalHost />
   </>;
