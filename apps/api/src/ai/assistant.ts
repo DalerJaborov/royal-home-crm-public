@@ -1180,14 +1180,22 @@ function failureOf(err: unknown, signal: AbortSignal): { code: AssistantErrorCod
 }
 
 /** Один инструмент + запись в журнал обращений. */
-async function runAuditedTool(call: GeminiToolCall, actor: AssistantActor, hooks: RunPluginHooks): Promise<unknown> {
+/** Хуки раунда: плюс признак «клиент умеет показать подтверждение». */
+type RoundHooks = RunPluginHooks & { confirmUi: boolean };
+
+async function runAuditedTool(call: GeminiToolCall, actor: AssistantActor, hooks: RoundHooks): Promise<unknown> {
   const plugin = findAssistantToolPlugin(call.name);
   // Плагин, недоступный актору, не объявлялся модели; если она всё же назвала его
   // имя — отказ здесь, а не исполнение (объявление — подсказка, не защита).
+  // То же для записи без карточки подтверждения (сборка П3): без confirmUi запись
+  // не объявлялась, и названная моделью наугад (или из старой истории) не
+  // исполняется — уровень B иначе записал бы сразу, без кнопки «Отменить».
   const result = plugin
     ? plugin.allowed && !plugin.allowed(actor)
       ? { error: "Нет доступа к этому действию" }
-      : await runAssistantToolPlugin(plugin, call.args ?? {}, actor, hooks)
+      : plugin.level !== "A" && !hooks.confirmUi
+        ? { error: "Это действие здесь недоступно: нужна карточка подтверждения в CRM" }
+        : await runAssistantToolPlugin(plugin, call.args ?? {}, actor, hooks)
     : await runTool(call.name, call.args, actor);
   // Одна точка на все инструменты — журнал обращений (аудит-лог, не защита
   // доступа: та стоит внутри runTool через ownScope). Запись НЕ ждётся (задача
@@ -1216,7 +1224,7 @@ async function runRoundTools(
   actor: AssistantActor,
   signal: AbortSignal,
   onStatus: ((message: string) => void) | undefined,
-  hooks: RunPluginHooks,
+  hooks: RoundHooks,
 ): Promise<unknown[]> {
   const results: unknown[] = new Array(calls.length);
   let i = 0;
@@ -1421,6 +1429,7 @@ export async function runAssistantDetailed(
       const results = await runRoundTools(turn.calls, actor, signal, onStatus, {
         channel: options.channel ?? "crm",
         onConfirm: options.onConfirm,
+        confirmUi: options.confirmUi === true,
       });
       // Keep optional provider IDs; names alone cannot identify two calls to
       // the same function. Original signed model parts were appended above.
