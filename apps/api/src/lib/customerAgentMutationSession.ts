@@ -69,6 +69,7 @@ export async function createCustomerAgentMutationSession(raw: {
   const features = await loadCustomerAgentFeaturePolicy();
   const available = strong ? (Object.keys(kinds) as WriteName[]).filter(name =>
     customerActionCapability(initial.snapshot.state, kinds[name]) && (name !== "book_showing" || features.showings) &&
+    (name !== "request_callback" || features.callbacks) && (name !== "ask_owner" || features.ownerQuestions) &&
     (name !== "save_job_application" || features.vacancies && initial.snapshot.state.publicState.topic === "job" && !!initial.snapshot.state.publicState.jobPositionKey) &&
     !(name === "request_callback" && initial.snapshot.state.publicState.topic === "job")) : [];
   let principal = original, state: SessionState = "current", busy = false;
