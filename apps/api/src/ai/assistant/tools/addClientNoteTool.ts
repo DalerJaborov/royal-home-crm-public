@@ -23,6 +23,12 @@ import type { AssistantWriteToolPlugin } from "./types.js";
  * успели передать другому, пока человек читал превью, значит писать от прежних прав уже
  * нельзя (409 STALE).
  *
+ * ПОВТОР НЕ ДУБЛИРУЕТ (сборка П3, ревью): уровень B пишет без кнопки, а ключ повтора
+ * брокера после исполнения меняется (снимок считает заметки). Поэтому идемпотентность —
+ * по факту: такая же заметка (тот же сотрудник, клиент и текст) за последние
+ * `NOTE_REPEAT_WINDOW_MS` уже лежит — отдаём её, вторую не пишем. Проверка — под той же
+ * блокировкой строки клиента, что и вставка: два параллельных вызова не проскочат оба.
+ *
  * ОТКАТ удаляет ТОЛЬКО созданную этой записью заметку (id из результата) и только пока
  * она такая же, какой была создана: тип, автор, точный текст, без задачи и без отметки
  * о выполнении. Тронули — `deleteMany` ничего не находит, откат отказывает (409), чужая
@@ -31,6 +37,8 @@ import type { AssistantWriteToolPlugin } from "./types.js";
 export const NOTE_MAX_CHARS = 2000;
 const NOTE_PREFIX = "Заметка (ИИ-помощник): ";
 const NOTE_SOURCE = "assistant.add_client_note";
+/** Окно, в котором та же заметка считается повтором, а не новой записью. */
+export const NOTE_REPEAT_WINDOW_MS = 10 * 60_000;
 
 const argsSchema = z.object({
   clientId: z.string().trim().min(1).max(64),
@@ -96,16 +104,36 @@ export const addClientNoteExecutor: AssistantActionExecutor<Args> = {
       if (!row || row.deletedAt !== null || row.assignedAgentId !== (ctx.snapshotBefore.assignedAgentId ?? null)) {
         throw new AssistantActionError(409, "STALE", "Карточка клиента изменилась — проверьте ещё раз");
       }
-      return logTimeline({
+      const notes = `${NOTE_PREFIX}${args.text}`;
+      const repeat = await tx.interaction.findFirst({
+        where: {
+          clientId: args.clientId,
+          actorKind: "AI",
+          subjectAgentId: actor.id,
+          type: "SYSTEM",
+          notes,
+          createdAt: { gte: new Date(Date.now() - NOTE_REPEAT_WINDOW_MS) },
+        },
+        orderBy: { createdAt: "desc" },
+        select: { id: true },
+      });
+      if (repeat) return { id: repeat.id, repeated: true };
+      const row2 = await logTimeline({
         clientId: args.clientId,
         actor: { kind: "ai", source: NOTE_SOURCE, subjectAgentId: actor.id },
         type: "SYSTEM",
-        notes: `${NOTE_PREFIX}${args.text}`,
+        notes,
         tx,
       });
+      return { id: row2.id, repeated: false };
     });
     return {
-      result: { noteId: created.id, clientId: args.clientId, href: `/clients/${args.clientId}` },
+      result: {
+        noteId: created.id,
+        clientId: args.clientId,
+        href: `/clients/${args.clientId}`,
+        ...(created.repeated ? { repeated: true, note: "Такая заметка уже записана — вторую не добавляю" } : {}),
+      },
       audit: { entityType: "Interaction", entityId: created.id },
     };
   },

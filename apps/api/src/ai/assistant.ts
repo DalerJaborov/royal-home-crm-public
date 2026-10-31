@@ -39,6 +39,7 @@ import { assistantSectionsGuide } from "./assistant/promptSections.js";
 import { findAssistantToolPlugin, listAssistantToolPlugins } from "./assistant/tools/index.js";
 import { runAssistantToolPlugin, type RunPluginHooks } from "./assistant/tools/run.js";
 import { safeField } from "./assistant/tools/safeField.js";
+import { canonicalJson } from "../lib/canonicalJson.js";
 import type { AssistantActionView } from "../lib/assistantActions.js";
 
 /**
@@ -1180,8 +1181,17 @@ function failureOf(err: unknown, signal: AbortSignal): { code: AssistantErrorCod
 }
 
 /** Один инструмент + запись в журнал обращений. */
-/** Хуки раунда: плюс признак «клиент умеет показать подтверждение». */
-type RoundHooks = RunPluginHooks & { confirmUi: boolean };
+/**
+ * ПОТОЛОК ЗАПИСЕЙ ЗА ОДИН ОТВЕТ ПОМОЩНИКА (сборка П3, ревью). Уровень B пишет без
+ * кнопки, и зациклившаяся модель за четыре раунда успела бы наделать заметок и задач.
+ * Считаются все вызовы записи (create_task/reschedule_task и плагины B/C); дубль
+ * внутри раунда не считается — он получает ответ первого вызова.
+ */
+export const MAX_WRITES_PER_ANSWER = 3;
+export const WRITE_LIMIT_ERROR = `Лимит записей за ответ: не больше ${MAX_WRITES_PER_ANSWER}. Остальное — следующим сообщением.`;
+
+/** Хуки раунда: признак «клиент умеет показать подтверждение» и общий на ответ счётчик записей. */
+type RoundHooks = RunPluginHooks & { confirmUi: boolean; writeBudget: { left: number } };
 
 async function runAuditedTool(call: GeminiToolCall, actor: AssistantActor, hooks: RoundHooks): Promise<unknown> {
   const plugin = findAssistantToolPlugin(call.name);
@@ -1227,13 +1237,25 @@ async function runRoundTools(
   hooks: RoundHooks,
 ): Promise<unknown[]> {
   const results: unknown[] = new Array(calls.length);
+  // Одна и та же запись дважды в одном ходе модели (то же имя и те же аргументы) —
+  // исполняется один раз, второй вызов получает тот же ответ.
+  const writesThisRound = new Map<string, unknown>();
   let i = 0;
   while (i < calls.length) {
     if (signal.aborted) throw signal.reason;
     if (isWriteTool(calls[i].name)) {
-      onStatus?.(toolStatusPhrase(calls[i].name));
-      // Начатая запись дожидается конца, срок её не обрывает (см. WRITE_TOOLS).
-      results[i] = await runAuditedTool(calls[i], actor, hooks);
+      const key = `${calls[i].name}|${canonicalJson(calls[i].args ?? {})}`;
+      if (writesThisRound.has(key)) {
+        results[i] = writesThisRound.get(key);
+      } else if (hooks.writeBudget.left <= 0) {
+        results[i] = { error: WRITE_LIMIT_ERROR, code: "WRITE_LIMIT" };
+      } else {
+        hooks.writeBudget.left -= 1;
+        onStatus?.(toolStatusPhrase(calls[i].name));
+        // Начатая запись дожидается конца, срок её не обрывает (см. WRITE_TOOLS).
+        results[i] = await runAuditedTool(calls[i], actor, hooks);
+        writesThisRound.set(key, results[i]);
+      }
       i++;
       continue;
     }
@@ -1353,6 +1375,7 @@ export async function runAssistantDetailed(
     };
 
     // `<`, а не `<=` (22.08.2026): ровно MAX_TOOL_ROUNDS походов в Gemini, не больше.
+    const writeBudget = { left: MAX_WRITES_PER_ANSWER };
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
       // Перечитываем рубильник перед КАЖДЫМ следующим раундом (через кэш на 15 с,
       // ai/assistant/runtime.ts), чтобы выключение директором прямо во время
@@ -1430,6 +1453,7 @@ export async function runAssistantDetailed(
         channel: options.channel ?? "crm",
         onConfirm: options.onConfirm,
         confirmUi: options.confirmUi === true,
+        writeBudget,
       });
       // Keep optional provider IDs; names alone cannot identify two calls to
       // the same function. Original signed model parts were appended above.

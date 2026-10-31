@@ -574,6 +574,22 @@ describe("add_client_note", () => {
     expect(await notesOf(clientId)).toHaveLength(0);
   });
 
+  it("модель позвала add_client_note дважды с тем же текстом (две разные заявки) — заметка одна, второй ответ указывает на неё", async () => {
+    const first = await runNote(ownClientId, "повтор той же заметки", agents.owner);
+    const second = await runNote(ownClientId, "повтор той же заметки", agents.owner);
+    expect(first.done).toBe(true);
+    expect(second.done).toBe(true);
+    expect(second.actionId).not.toBe(first.actionId);
+    expect(second.result!.noteId).toBe(first.result!.noteId);
+    expect(await notesOf(ownClientId)).toHaveLength(1);
+    // Другой текст — уже новая заметка.
+    await runNote(ownClientId, "другая заметка", agents.owner);
+    expect(await notesOf(ownClientId)).toHaveLength(2);
+    // Параллельно — тоже одна: проверка под замком строки клиента.
+    await Promise.all([runNote(ownClientId, "параллельная", agents.owner), runNote(ownClientId, "параллельная", agents.owner)]);
+    expect(await notesOf(ownClientId)).toHaveLength(3);
+  });
+
   it("повторное подтверждение той же заметки не дублирует её", async () => {
     const action = await pending("add_client_note", { clientId: ownClientId, text: "одна заметка" }, agents.owner);
     await confirmAssistantAction(action.id, actorFor(agents.owner));

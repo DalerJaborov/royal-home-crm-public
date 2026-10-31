@@ -195,6 +195,41 @@ describe("ядро + инструменты П3 (модель подменена
     expect(push).not.toHaveBeenCalled();
   });
 
+  it("дубль записи в одном ходе исполняется один раз; больше трёх записей за ответ — отказ «лимит»", async () => {
+    const note = (text: string, id: string) => ({ name: "add_client_note", args: { clientId, text }, id });
+    callGeminiTools
+      .mockResolvedValueOnce(callsTurn([note(`A ${runId}`, "n1"), note(`A ${runId}`, "n2"), note(`B ${runId}`, "n3")]))
+      .mockResolvedValueOnce(callsTurn([note(`C ${runId}`, "n4"), note(`D ${runId}`, "n5")]))
+      .mockResolvedValueOnce(textTurn("Записал."));
+
+    const outcome = await runAssistantDetailed([{ role: "user", content: "Запиши заметки" }], actor(), {
+      confirmUi: true,
+      deadlineMs: 15_000,
+    });
+    expect(outcome).toEqual({ ok: true, reply: "Записал." });
+
+    type NoteResult = { done?: boolean; result?: { noteId: string }; error?: string; code?: string };
+    // История одна на весь диалог (подмена видит её по ссылке) — ответы всех раундов по порядку.
+    const all = requestAt(2)
+      .contents.flatMap((c) => c.parts)
+      .filter((p) => p.functionResponse)
+      .map((p) => p.functionResponse!.response.result as NoteResult);
+    expect(all).toHaveLength(5);
+    const [a1, a2, b, c, d] = all;
+    expect(a1.done).toBe(true);
+    expect(a2).toEqual(a1); // тот же ответ, вторая заметка не писалась
+    expect(b.done).toBe(true);
+    expect(c.done).toBe(true);
+    expect(d.code).toBe("WRITE_LIMIT");
+    expect(d.error).toMatch(/Лимит записей/);
+
+    const notes = await prisma.interaction.findMany({
+      where: { clientId, actorKind: "AI", notes: { contains: runId } },
+      select: { notes: true },
+    });
+    expect(notes.map((n) => n.notes.replace(/^.*: /, "")).sort()).toEqual([`A ${runId}`, `B ${runId}`, `C ${runId}`]);
+  });
+
   it("без confirmUi запись модели не объявляется, а названная наугад — не исполняется и карточки не создаёт", async () => {
     const writeNames = listAssistantToolPlugins()
       .filter((p) => p.level !== "A")
