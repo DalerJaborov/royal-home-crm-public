@@ -79,7 +79,12 @@ import { districtFromMap } from "../../lib/propertyDistrict.js";
 import { attachDraftRows, finishDraftAttachment, type DraftAttachmentPlan } from "./draftAttach.js";
 import { DraftConflictError, assertActiveDraft, lockOwnDraft, withDraftLock } from "./draftLifecycle.js";
 import { findStaffPhone, staffPhoneError, STAFF_PHONE_ERROR_CODE } from "../../lib/staffPhoneGuard.js";
-import { dealStageForManualStatus, propertyStatusTransitionBlock } from "../../lib/propertyStatusTransitions.js";
+import {
+  PROPERTY_MODERATION_REQUIRED_MESSAGE,
+  completedDealRevertBlock,
+  manualStatusChangeBlock,
+  saleReadinessBlock,
+} from "../../lib/propertyStatusDealGuards.js";
 import { presentProperty, stripOwnerContact } from "../../lib/ownerContact.js";
 
 import { publishPropertyUpdated } from "../../lib/livePublish.js";
@@ -978,57 +983,17 @@ crudRouter.patch("/:id", requireAuth, async (req, res) => {
     });
   }
 
-  // «Продано»/«Снято» вручную с открытой сделкой — рассинхронизация: объект уходит из
-  // продажи, а сделка остаётся висеть на CONTRACT_SIGNED/NEGOTIATION/... и никогда не
-  // попадёт в завершённые/отменённые (и в комиссию). Правильный путь — завершить или
-  // отменить саму сделку (см. PATCH /deals/:id), она сама переставит статус объекта.
-  //
-  // RESERVED → AVAILABLE — тот же случай (глубокая проверка 02.10.2026, D11):
-  // резерв держит живая сделка, снятый руками он выставлял объект «в продажу»
-  // второму покупателю, а сделка первого висела. Снимает резерв отмена сделки.
-  if (
-    parsed.data.status !== undefined &&
-    parsed.data.status !== existing.status &&
-    (["SOLD", "WITHDRAWN"].includes(parsed.data.status) ||
-      (existing.status === "RESERVED" && parsed.data.status === "AVAILABLE"))
-  ) {
-    const activeDeal = await prisma.deal.findFirst({
-      where: { propertyId: existing.id, stage: { notIn: ["COMPLETED", "CANCELLED"] } },
-      select: { id: true },
-    });
-    if (activeDeal) {
-      return res.status(409).json({
-        error: "У объекта есть открытая сделка — завершите или отмените её, статус объекта обновится сам",
-      });
-    }
-  }
-
   /**
-   * ПЕРЕХОДЫ, КОТОРЫХ НЕТ НИ В ОДНОЙ ТАБЛИЦЕ (находка №182). Раньше их отсекал
-   * только список статусов на экране: прямой PATCH ставил «Резерв»/«Продано» без
-   * сделки и возвращал объект из продажи в любой этап подготовки. Правила — в
-   * lib/propertyStatusTransitions.ts, право на шаг конвейера проверяется ниже.
+   * Смена статуса вручную: открытая сделка (SOLD/WITHDRAWN, резерв → в продаже), затем
+   * ПЕРЕХОДЫ, КОТОРЫХ НЕТ НИ В ОДНОЙ ТАБЛИЦЕ (находка №182: раньше их отсекал только
+   * список статусов на экране, прямой PATCH ставил «Резерв»/«Продано» без сделки и
+   * возвращал объект из продажи в любой этап подготовки), затем «Резерв»/«Продано» ставит
+   * сделка. Тело — lib/propertyStatusDealGuards.ts (его же зовёт ИИ-помощник); право на
+   * шаг конвейера проверяется ниже.
    */
   if (parsed.data.status !== undefined && parsed.data.status !== existing.status) {
-    const block = propertyStatusTransitionBlock(existing.status, parsed.data.status, can(req, "properties.moderate"));
+    const block = await manualStatusChangeBlock(existing, parsed.data.status, can(req, "properties.moderate"));
     if (block) return res.status(block.status).json({ error: block.error });
-    // «Резерв»/«Продано» ставит сделка. Руками — только если сделка под этим
-    // статусом уже есть (резерв — живая, «Продано» — завершённая).
-    const dealNeeded = dealStageForManualStatus(parsed.data.status);
-    if (dealNeeded) {
-      const deal = await prisma.deal.findFirst({
-        where: {
-          propertyId: existing.id,
-          ...(dealNeeded === "SOLD" ? { stage: "COMPLETED" } : { stage: { notIn: ["COMPLETED", "CANCELLED"] } }),
-        },
-        select: { id: true },
-      });
-      if (!deal) {
-        return res.status(409).json({
-          error: "Резерв и продажу оформляет сделка: заведите её, статус объекта обновится сам.",
-        });
-      }
-    }
   }
 
   /**
@@ -1050,10 +1015,7 @@ crudRouter.patch("/:id", requireAuth, async (req, res) => {
     requiresPropertyModeration(existing.status, parsed.data.status) &&
     !can(req, "properties.moderate")
   ) {
-    return res.status(403).json({
-      error:
-        "Этот шаг конвейера — за маркетингом: объект двигают кнопки «Одобрить» и «Запросить новые материалы».",
-    });
+    return res.status(403).json({ error: PROPERTY_MODERATION_REQUIRED_MESSAGE });
   }
 
   // ВЫХОД ИЗ КОНВЕЙЕРА ПОДГОТОВКИ. Последний этап — монтажёр публикует видео-обзор
@@ -1071,35 +1033,17 @@ crudRouter.patch("/:id", requireAuth, async (req, res) => {
   // 13.09.2026, без этой строки возврат из WITHDRAWN пропускал проверку готовности
   // целиком (см. requiresPropertyModeration выше — та же дыра была и в праве).
   if (parsed.data.status === "AVAILABLE" && (isPipelineStatus(existing.status) || existing.status === "WITHDRAWN")) {
-    const photoCount = await prisma.propertyPhoto.count({ where: { propertyId: existing.id } });
     const instagramUrl =
       parsed.data.instagramUrl !== undefined ? parsed.data.instagramUrl : existing.instagramUrl;
-    const blockers = blockersForSale({ instagramUrl, photoCount });
-    if (blockers.length > 0) {
-      return res.status(409).json({
-        error: `Объект не готов к продаже: ${blockers.join(", ")}. Последний шаг подготовки — видео-обзор в Instagram и ссылка на него в карточке.`,
-      });
-    }
+    const notReady = await saleReadinessBlock(existing, instagramUrl);
+    if (notReady) return res.status(notReady.status).json({ error: notReady.error });
   }
 
-  // Обратный переход из SOLD запрещён, если по объекту уже есть ЗАКРЫТАЯ сделка.
-  // Иначе объект возвращался в продажу, по нему заводилась вторая сделка, её тоже
-  // закрывали — и комиссия по одному и тому же объекту попадала в отчёты дважды.
-  if (
-    parsed.data.status !== undefined &&
-    existing.status === "SOLD" &&
-    parsed.data.status !== "SOLD"
-  ) {
-    const completed = await prisma.deal.count({
-      where: { propertyId: existing.id, stage: "COMPLETED" },
-    });
-    if (completed > 0) {
-      return res.status(409).json({
-        error:
-          "Объект продан по закрытой сделке — вернуть его в продажу нельзя. " +
-          "Если сделка была ошибочной, заведите объект заново или обратитесь к директору.",
-      });
-    }
+  // Обратный переход из SOLD запрещён, если по объекту уже есть ЗАКРЫТАЯ сделка
+  // (lib/propertyStatusDealGuards.ts).
+  if (parsed.data.status !== undefined) {
+    const revert = await completedDealRevertBlock(existing, parsed.data.status);
+    if (revert) return res.status(revert.status).json({ error: revert.error });
   }
 
   /**
