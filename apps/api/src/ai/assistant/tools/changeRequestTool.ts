@@ -1,6 +1,7 @@
 import {
   createPropertyChangeRequestSchema,
   formatPropertyCode,
+  PROPERTY_CHANGE_KIND_LABELS,
   type CreatePropertyChangeRequestInput,
   type PropertyChangeKind,
 } from "@royal-home/shared";
@@ -67,6 +68,23 @@ interface Snap {
   [extra: string]: unknown;
 }
 
+/**
+ * «Уже есть ждущая заявка» — понятно человеку. Правило REST (одна ждущая на пару
+ * «объект + вид») не меняется; но смена статуса и «попросить руководителя» у
+ * помощника обе идут видом «Другое» (своего вида у статуса нет) и блокируют друг
+ * друга — поэтому для «Другое» прямо говорим, ЧТО именно ждёт (ревью П3).
+ */
+function duplicateError(kind: PropertyChangeKind, shortId: number): AssistantActionError {
+  const code = formatPropertyCode(shortId);
+  const message =
+    kind === "OTHER"
+      ? `По объекту ${code} уже есть ждущая заявка «Другое» — дождитесь решения руководителя или отзовите её в карточке объекта. ` +
+        "Пока она ждёт, новую заявку «Другое» (в том числе смену статуса через помощника) подать нельзя."
+      : `По объекту ${code} уже есть такая заявка («${PROPERTY_CHANGE_KIND_LABELS[kind]}»), она ждёт решения руководителя. ` +
+        "Дождитесь решения или отзовите её в карточке объекта.";
+  return new AssistantActionError(409, "DUPLICATE", message);
+}
+
 export function makeChangeRequestExecutor<A extends { ref: string }>(
   spec: ChangeRequestToolSpec<A>
 ): AssistantActionExecutor<A> {
@@ -120,13 +138,7 @@ export function makeChangeRequestExecutor<A extends { ref: string }>(
       const snap = snapshot as Snap;
       const property = await loadProperty(snap);
       const { payloadObject } = await checkedBody(args, property, actor);
-      if (snap.pendingRequestId) {
-        throw new AssistantActionError(
-          409,
-          "DUPLICATE",
-          `По объекту ${formatPropertyCode(property.shortId)} уже есть такая заявка, она ждёт решения руководителя. Дождитесь решения или отзовите её в карточке объекта.`,
-        );
-      }
+      if (snap.pendingRequestId) throw duplicateError(kindOf(args), property.shortId);
       const described = spec.describe(args, property, payloadObject);
       return {
         ...described,
@@ -149,7 +161,9 @@ export function makeChangeRequestExecutor<A extends { ref: string }>(
         expect: { priceCents: toCents(before.price), currency: before.currency, status: before.status },
         auditSource: { source: "assistant", actionId: ctx.actionId, tool: spec.tool },
       });
-      if (!created.ok) throw failureToError(created);
+      if (!created.ok) {
+        throw created.code === "DUPLICATE" ? duplicateError(kindOf(args), property.shortId) : failureToError(created);
+      }
       return {
         result: {
           requestId: created.request.id,

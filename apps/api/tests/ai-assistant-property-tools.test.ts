@@ -333,6 +333,25 @@ describe("change_property_status", () => {
     await expectRefused(ownerId, AGENT_PERMS, "change_property_status", { ref: String(property.shortId), status: "WITHDRAWN" }, 409, /открытая сделка/);
   });
 
+  it("смена статуса и «попросить руководителя» обе идут видом «Другое»: вторая — понятный отказ, что именно ждёт", async () => {
+    const property = await seed();
+    const ref = String(property.shortId);
+    const pending = await preview(ownerId, AGENT_PERMS, "change_property_status", { ref, status: "WITHDRAWN" });
+    await confirmAssistantAction(pending.id, actorFor(ownerId, AGENT_PERMS));
+    expect(await requests(property.id, "OTHER")).toHaveLength(1);
+
+    const text = "Поправьте, пожалуйста, описание подъезда";
+    await expectRefused(ownerId, AGENT_PERMS, "request_property_change", { ref, kind: "OTHER", text }, 409, /ждущая заявка «Другое».*дождитесь решения/);
+    // И в обратную сторону: ждущая «Другое» не даёт подать смену статуса.
+    const other = await seed();
+    const ref2 = String(other.shortId);
+    const req = await preview(ownerId, AGENT_PERMS, "request_property_change", { ref: ref2, kind: "OTHER", text });
+    await confirmAssistantAction(req.id, actorFor(ownerId, AGENT_PERMS));
+    await expectRefused(ownerId, AGENT_PERMS, "change_property_status", { ref: ref2, status: "WITHDRAWN" }, 409, /смену статуса через помощника/);
+    // REST-правило не менялось: заявка одна.
+    expect(await requests(other.id, "OTHER")).toHaveLength(1);
+  });
+
   it("резерв без сделки, этапы подготовки, тот же статус, чужой объект, акционер", async () => {
     const property = await seed();
     const ref = String(property.shortId);
