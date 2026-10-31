@@ -36,7 +36,8 @@ let revision: Readonly<CustomerAgentRevision>, staffId: string | undefined;
 let rollout: Awaited<ReturnType<typeof createCustomerRolloutFixture>>;
 const owners = new Map<string, { id: string; externalId: string; secret: string; token: string }>();
 const physical: string[] = [], claims = new Map<string, CustomerAgentClaim>();
-function settings() { return prisma.settings.findUniqueOrThrow({ where: { id: "singleton" }, select: { botEnabled: true, metaEnabled: true, botInstagramEnabled: true } }); }
+function settings() { return prisma.settings.findUniqueOrThrow({ where: { id: "singleton" }, select: { botEnabled: true, metaEnabled: true, botInstagramEnabled: true,
+  botCanRequestCallback: true, botCanAskOwner: true } }); }
 function policy() { return prisma.customerRuntimePolicy.findUniqueOrThrow({ where: { id: "singleton" }, select: {
   contractVersion: true, rolloutMode: true, capabilities: true, activeAgentRevisionId: true } }); }
 async function owner() {
@@ -103,7 +104,8 @@ beforeAll(async () => {
     role: "AGENT", passwordHash: "synthetic-not-a-login-hash", isActive: true } }); staffId = staff.id;
   revision = await registerCurrentCustomerAgentRevision(createCustomerAgentProviderSnapshot());
   rollout = await createCustomerRolloutFixture(revision.id);
-  await prisma.settings.update({ where: { id: "singleton" }, data: { botEnabled: true, metaEnabled: true, botInstagramEnabled: true } });
+  await prisma.settings.update({ where: { id: "singleton" }, data: { botEnabled: true, metaEnabled: true, botInstagramEnabled: true,
+    botCanRequestCallback: true, botCanAskOwner: true } });
   await prisma.customerRuntimePolicy.update({ where: { id: "singleton" }, data: { contractVersion: "scoped", rolloutMode: "ACTIVE",
     capabilities: { publicRead: true, contactWrite: true, callbackWrite: true }, activeAgentRevisionId: revision.id } });
   vi.stubEnv("IG_PROXY_URL", ""); vi.stubEnv("GEMINI_PROXY_URL", ""); vi.stubEnv("BOT_PROPERTY_CONTEXT_ENABLED", "0");

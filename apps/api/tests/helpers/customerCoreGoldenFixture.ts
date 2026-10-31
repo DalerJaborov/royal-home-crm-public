@@ -51,7 +51,7 @@ export async function createCustomerCoreGoldenFixture(options: { media?: boolean
     children?: { data: Array<{ id: string; media_type: string; media_url: string }> } }>>();
   const savedSettings = await prisma.settings.findUniqueOrThrow({ where: { id: "singleton" }, select: {
     botEnabled: true, metaEnabled: true, botInstagramEnabled: true, geminiApiKey: true, geminiApiKey2: true, geminiApiKeysExtra: true,
-    metaAppSecret: true, metaIgAppSecret: true,
+    metaAppSecret: true, metaIgAppSecret: true, botCanRequestCallback: true, botCanAskOwner: true,
   } });
   const savedPolicy = await prisma.customerRuntimePolicy.findUniqueOrThrow({ where: { id: "singleton" }, select: {
     contractVersion: true, rolloutMode: true, capabilities: true, activeAgentRevisionId: true,
@@ -74,6 +74,8 @@ export async function createCustomerCoreGoldenFixture(options: { media?: boolean
   try {
   await prisma.settings.update({ where: { id: "singleton" }, data: { botEnabled: true, metaEnabled: true,
     botInstagramEnabled: true, geminiApiKey: encryptSecret(key), geminiApiKey2: null, geminiApiKeysExtra: [],
+    // Тумблеры экрана «Бот» (31.10.2026) включены: стенд проверяет полный набор инструментов ядра.
+    botCanRequestCallback: true, botCanAskOwner: true,
     ...(options.publicEnvelope ? { metaAppSecret: encryptSecret(`${tag}-other-global-app-secret`),
       metaIgAppSecret: encryptSecret(globalIgSecret) } : {}) } });
   if (options.publicEnvelope) {
