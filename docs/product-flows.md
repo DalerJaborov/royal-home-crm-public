@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **725**. Развилок в самих путях: **2575**; вместе с задачами по расписанию и фоновыми заданиями — **4007**. Модулей: **79**.
+Путей: **725**. Развилок в самих путях: **2568**; вместе с задачами по расписанию и фоновыми заданиями — **4000**. Модулей: **79**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -1250,7 +1250,7 @@
   · ставит заголовок ответа
 - res.setHeader("X-Accel-Buffering", "no");
   · ставит заголовок ответа
-- const sendEvent = (event: "status" | "card" | "token" | "done" | "error", data: unknown)
+- const sendEvent = (event: "status" | "card" | "token" | "confirm" | "done" | "error", data: unknown)
   - если res.writableEnded || res.destroyed
     - return;
       · дальше не идёт, ничего не меняя
@@ -4809,35 +4809,21 @@
     · ответ 403 — «Недостаточно прав»
 - const ownAgentId = scopeToOwnAgent(req);
   · зовёт scopeToOwnAgent()
-- если !can(req, "clients.delete")
-  - const pendingDeleteIds = ( await prisma.clientDeleteRequest.findMany({ where: { status: "PENDING", ...(ownAge…
-    · читает в базе: clientDeleteRequest
-  - если pendingDeleteIds.length > 0
-    - если idsToHide.length > 0
-      - where.id = { notIn: idsToHide };
-        · дословно из кода
+- const idsToHide = await pendingDeleteHiddenClientIds({ ownAgentId, canDelete: can(req, "clients.delete") });
+  · зовёт pendingDeleteHiddenClientIds()
+- если idsToHide.length > 0
+  - where.id = { notIn: idsToHide };
+    · дословно из кода
 - если allMine
   - where.OR = [{ assignedAgentId: ownAgentId }, { lastAgentId: ownAgentId }];
     · дословно из кода
 - иначе если ownAgentId
   - where.assignedAgentId = ownAgentId;
     · дословно из кода
-  - where.OR = [{ kind: { in: ["BUYER", "SELLER"] } }, { assignReason: "requested_by_client" }];
+  - where.OR = AGENT_CLIENT_KIND_SCOPE;
     · дословно из кода
 - иначе если agentId
   - where.assignedAgentId = agentId;
-    · дословно из кода
-- если kind
-  - where.kind = kind;
-    · дословно из кода
-- если status
-  - where.status = status;
-    · дословно из кода
-- если source
-  - where.source = source;
-    · дословно из кода
-- если districtId
-  - where.desiredDistrictId = districtId;
     · дословно из кода
 - если workStatus
   - where.workStatus = workStatus;
@@ -4851,9 +4837,6 @@
 - если inactiveLevel
   - where.inactiveLevel = inactiveLevel;
     · дословно из кода
-- если hot
-  - where.hotSince = { not: null };
-    · дословно из кода
 - если pendingAcceptance
   - если !status
     - where.status = { notIn: ["LOST", "DEAL_CLOSED", "ARCHIVED"] };
@@ -4866,11 +4849,11 @@
     · зовёт dushanbeStartOfToday()
 - const clientTokens = q ? toSearchTokens(q) : [];
   · зовёт toSearchTokens()
-- если clientTokens.length > 0
-  - const extraPhoneMatches = canSearchByPhone && clientTokens.length > 0 ? await Promise.all( clientTokens.map((…
-    · обращается к базе своим SQL
-  - const byTokens = clientTokens.map((token, i)
-    · зовёт toTokenVariants()
+- const textSearchAnd = await buildClientTextSearchAnd(q, { canSearchByPhone: can(req, "clients.viewPhone"), ca…
+  · зовёт buildClientTextSearchAnd()
+- если textSearchAnd
+  - where.AND = textSearchAnd;
+    · дословно из кода
 - если scope === "inWork"
   - Object.assign(where, CLIENT_IN_WORK_WHERE);
     · дословно из кода
@@ -4893,6 +4876,8 @@
     - stepByClient.set(step.clientId, { nextAction: step.nextAction, nextActionDate: step.nextActionDate });
       · дословно из кода
 - если ownAgentId && items.length > 0
+  - const unread = await clientIdsWithUnreadReply(items.map((c)
+    · зовёт clientIdsWithUnreadReply()
   - для каждого: const id of unread
     - unreadByClient.set(id, true);
       · дословно из кода
