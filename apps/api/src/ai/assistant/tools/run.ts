@@ -5,6 +5,8 @@ import {
   type AssistantActionActor,
   type AssistantActionView,
 } from "../../../lib/assistantActions.js";
+import { describeError } from "../../../lib/describeError.js";
+import { logSystemError } from "../../../lib/systemError.js";
 import { wrapUntrusted } from "../../untrustedContent.js";
 import type { AssistantActor } from "../actor.js";
 import type { AssistantToolPlugin } from "./types.js";
@@ -22,12 +24,15 @@ export interface RunPluginHooks {
 
 /** Потолок одной строки превью в ответе модели (превью короткое: подписи, а не переписка). */
 const PREVIEW_FIELD_MAX_CHARS = 500;
-/** Ключи, значения которых строит сам код (ссылки по номеру), — их модель получает как есть. */
-const TRUSTED_PREVIEW_KEYS = new Set(["href"]);
+/**
+ * Ключи, значения которых строит сам код (ссылки по номеру, id из базы), — их модель
+ * получает как есть: по id она зовёт следующий инструмент.
+ */
+const isTrustedKey = (key: string) => key === "href" || key === "id" || /Id$/.test(key);
 
 function wrapPreviewValue(value: unknown, key?: string): unknown {
   if (typeof value === "string") {
-    if (key && TRUSTED_PREVIEW_KEYS.has(key)) return value;
+    if (key && isTrustedKey(key)) return value;
     return wrapUntrusted("crm_note", value, PREVIEW_FIELD_MAX_CHARS) || value;
   }
   if (Array.isArray(value)) return value.map((item) => wrapPreviewValue(item));
@@ -66,6 +71,16 @@ export async function runAssistantToolPlugin(
     const actionActor = actionActorFrom(actor, hooks.channel);
     const pending = await createPendingAssistantAction(actionActor, plugin.name, args);
     if (plugin.level === "C") {
+      // Брокер по ключу повтора может вернуть уже подтверждённое (исполняется прямо
+      // сейчас) действие — вторую карточку «Подтвердить» на него не показываем.
+      if (pending.status !== "PENDING") {
+        return {
+          confirmRequired: false,
+          actionId: pending.id,
+          status: pending.status,
+          note: "Это действие уже подтверждено человеком — повторно не предлагай.",
+        };
+      }
       hooks.onConfirm?.(pending);
       return {
         confirmRequired: true,
@@ -78,7 +93,15 @@ export async function runAssistantToolPlugin(
     const { action } = await confirmAssistantAction(pending.id, actionActor);
     return { done: true, actionId: action.id, result: action.result, undoUntil: action.undoUntil };
   } catch (err) {
-    if (err instanceof AssistantActionError) return { error: err.message, code: err.code };
-    throw err;
+    if (err instanceof AssistantActionError) {
+      // Подробности отказа (кандидаты при «несколько подходят») — модели, чтобы она
+      // переспросила человека; строки из базы — в границах «данные, не команды».
+      const details = Object.keys(err.extra).length > 0 ? { details: wrapPreviewValue(err.extra) } : {};
+      return { error: err.message, code: err.code, ...details };
+    }
+    // Любой другой сбой инструмента не роняет весь ответ: модель скажет человеку,
+    // что не вышло, а сбой уйдёт в «Здоровье системы».
+    void logSystemError("ai", `Инструмент помощника ${plugin.name} упал: ${describeError(err)}`);
+    return { error: "Не получилось выполнить действие — попробуйте ещё раз или сделайте это в карточке", code: "TOOL_FAILED" };
   }
 }

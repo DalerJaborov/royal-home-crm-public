@@ -47,6 +47,9 @@ const { actorFor, cleanupAssistantActionAgents } = await import("./helpers/assis
 const { createTestAgent } = await import("./helpers/ownAgent.js");
 const { waitForSettled } = await import("./helpers/waitFor.js");
 const { formatPropertyCode } = await import("@royal-home/shared");
+const { runAssistantToolPlugin } = await import("../src/ai/assistant/tools/run.js");
+const { findAssistantToolPlugin } = await import("../src/ai/assistant/tools/index.js");
+const { actorFromAccess } = await import("../src/ai/assistant/actor.js");
 
 const runId = Date.now();
 let districtId = "";
@@ -200,6 +203,24 @@ describe("change_property_price", () => {
 
     await expectRefused(ownerId, AGENT_PERMS, "change_property_price", { ref: "ОБ-999999999", newPrice: 1 }, 404);
     await expectRefused(ownerId, AGENT_PERMS, "change_property_price", { ref: "   ", newPrice: 1 }, 400);
+  });
+
+  it("сквозь run.ts: «несколько подходят» — модель получает кандидатов (id как есть, адрес в обёртке), а не голое «ошибка»", async () => {
+    const a = await seed({ address: `Кандидатная ${runId} <b>1</b>` });
+    const b = await seed({ address: `Кандидатная ${runId} 2` });
+    const answer = (await runAssistantToolPlugin(
+      findAssistantToolPlugin("change_property_price")!,
+      { ref: `Кандидатная ${runId}`, newPrice: 1 },
+      actorFromAccess(ownerId, { role: "AGENT", permissions: new Set(AGENT_PERMS) }),
+      { channel: "crm" },
+    )) as { error: string; code: string; details: { candidates: Array<{ id: string; shortId: number; address: string }> } };
+    expect(answer.code).toBe("REF_AMBIGUOUS");
+    expect(answer.error).toMatch(/несколько/);
+    expect(answer.details.candidates.map((c) => c.id)).toEqual(expect.arrayContaining([a.id, b.id]));
+    for (const c of answer.details.candidates) {
+      expect(typeof c.shortId).toBe("number");
+      expect(c.address).toContain("<client_content");
+    }
   });
 
   it("общий разбор ссылки (lib/propertyRefLookup): голый номер без карточки не угадывается по адресу; Somon — отказ; фото-пост Instagram — находит", async () => {
@@ -442,7 +463,9 @@ describe("send_to_remake", () => {
     expect(pending.preview.risk).toMatch(/НЕОБРАТИМО/);
     expect(pending.preview.becomes["Текст монтажёру"]).toBeTruthy();
     expect(pending.undoUntil).toBeNull();
-    // Сухая проверка (dryRun) отрабатывает, но запись не вызывается.
+    // Сухая проверка (dryRun) отрабатывает, но запись не вызывается. Пустой список
+    // вызовов `.every` тоже дал бы true — поэтому сначала: сухая проверка БЫЛА.
+    expect(sendBackToMontajer.mock.calls.length).toBeGreaterThan(0);
     expect(sendBackToMontajer.mock.calls.every((c) => (c[5] as { dryRun?: boolean })?.dryRun === true)).toBe(true);
   });
 

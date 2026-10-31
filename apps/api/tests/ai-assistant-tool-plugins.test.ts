@@ -11,7 +11,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 const { z } = await import("zod");
 const { prisma } = await import("../src/db.js");
-const { pluginDeclarations, runTool } = await import("../src/ai/assistant.js");
+const { pluginDeclarations, runTool, runAuditedTool } = await import("../src/ai/assistant.js");
 const { registerAssistantToolPlugin } = await import("../src/ai/assistant/tools/index.js");
 const { runAssistantToolPlugin } = await import("../src/ai/assistant/tools/run.js");
 const { confirmAssistantAction, undoAssistantAction } = await import("../src/lib/assistantActions.js");
@@ -115,8 +115,22 @@ describe("объявление инструментов модели", () => {
   });
 
   it("плагин, закрытый актору, не объявляется и не исполняется", async () => {
-    const plugin = register(writePlugin("C", { allowed: () => false }));
-    expect(pluginDeclarations(actorOf() as never, true).map((d) => d.name)).not.toContain(plugin.name);
+    for (const level of ["B", "C"] as const) {
+      const plugin = register(writePlugin(level, { allowed: () => false }));
+      expect(pluginDeclarations(actorOf() as never, true).map((d) => d.name)).not.toContain(plugin.name);
+      // Модель всё же назвала его — ядро отказывает, исполнитель не зовётся, карточки нет.
+      const shown: unknown[] = [];
+      const answer = await runAuditedTool({ name: plugin.name, args: { value: 7 } }, actorOf() as never, {
+        channel: "crm",
+        confirmUi: true,
+        writeBudget: { left: 3 },
+        onConfirm: (a) => shown.push(a),
+      });
+      expect(answer).toEqual({ error: "Нет доступа к этому действию" });
+      expect(shown).toHaveLength(0);
+      expect(state.executed).toBe(0);
+      expect(await prisma.assistantAction.count({ where: { tool: plugin.name } })).toBe(0);
+    }
   });
 
   it("имя исполнителя обязано совпадать с именем инструмента", () => {
@@ -162,6 +176,50 @@ describe("уровень C: готовит, но не исполняет", () =>
     // Невалидные аргументы — ошибка вызова, а не молчаливое исполнение.
     expect(state.executed).toBe(0);
     expect(answer).toBeDefined();
+  });
+});
+
+describe("сбои и повторы не роняют ход (ревью П3)", () => {
+  it("неожиданное исключение инструмента — модели {error}, ход не падает", async () => {
+    const read = register({
+      name: `test_boom_${runId}_${seq++}`,
+      level: "A",
+      description: "падает",
+      statusPhrase: "Падаю…",
+      run: async () => {
+        throw new Error("база недоступна");
+      },
+    } as Plugin);
+    expect(await runAssistantToolPlugin(read, {}, actorOf() as never, { channel: "crm" })).toMatchObject({
+      error: expect.any(String),
+      code: "TOOL_FAILED",
+    });
+    const write = writePlugin("C");
+    (write as unknown as { executor: { snapshot: () => Promise<never> } }).executor.snapshot = async () => {
+      throw new TypeError("неожиданное");
+    };
+    register(write);
+    expect(await runAssistantToolPlugin(write, { value: 2 }, actorOf({ id: agentId }) as never, { channel: "crm" })).toMatchObject({
+      code: "TOOL_FAILED",
+    });
+  });
+
+  it("onConfirm — только для ждущего действия: уже подтверждённое повтором не показывается второй раз", async () => {
+    const plugin = register(writePlugin("C"));
+    const shown: unknown[] = [];
+    const hooks = { channel: "crm" as const, onConfirm: (a: unknown) => shown.push(a) };
+    const first = (await runAssistantToolPlugin(plugin, { value: 4 }, actorOf({ id: agentId }) as never, hooks)) as { actionId: string };
+    expect(shown).toHaveLength(1);
+    // Человек нажал «Подтвердить», исполнение идёт; модель зовёт то же самое ещё раз.
+    await prisma.assistantAction.update({ where: { id: first.actionId }, data: { status: "CONFIRMED" } });
+    const again = (await runAssistantToolPlugin(plugin, { value: 4 }, actorOf({ id: agentId }) as never, hooks)) as {
+      confirmRequired: boolean;
+      actionId: string;
+      status: string;
+    };
+    expect(again).toMatchObject({ confirmRequired: false, actionId: first.actionId, status: "CONFIRMED" });
+    expect(shown).toHaveLength(1);
+    expect(state.executed).toBe(0);
   });
 });
 

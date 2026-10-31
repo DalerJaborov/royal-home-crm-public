@@ -1191,9 +1191,9 @@ export const MAX_WRITES_PER_ANSWER = 3;
 export const WRITE_LIMIT_ERROR = `Лимит записей за ответ: не больше ${MAX_WRITES_PER_ANSWER}. Остальное — следующим сообщением.`;
 
 /** Хуки раунда: признак «клиент умеет показать подтверждение» и общий на ответ счётчик записей. */
-type RoundHooks = RunPluginHooks & { confirmUi: boolean; writeBudget: { left: number } };
+export type RoundHooks = RunPluginHooks & { confirmUi: boolean; writeBudget: { left: number } };
 
-async function runAuditedTool(call: GeminiToolCall, actor: AssistantActor, hooks: RoundHooks): Promise<unknown> {
+export async function runAuditedTool(call: GeminiToolCall, actor: AssistantActor, hooks: RoundHooks): Promise<unknown> {
   const plugin = findAssistantToolPlugin(call.name);
   // Плагин, недоступный актору, не объявлялся модели; если она всё же назвала его
   // имя — отказ здесь, а не исполнение (объявление — подсказка, не защита).
