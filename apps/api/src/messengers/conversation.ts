@@ -83,10 +83,9 @@ import {
   requestedAgentNotice,
   type RequestedAgentMatch,
 } from "../lib/requestedAgent.js";
-import { returningAgentStillAvailable } from "../lib/returningClientRouting.js";
 import { FRUSTRATION_HINT, looksFrustrated } from "../ai/frustrationGuard.js";
 import { resolveBotPropertyMention, resolveMentionedPropertyId } from "../lib/botPropertyMention.js";
-import { reactivateClientFromLost } from "../lib/clientLifecycle.js";
+import { applyInboundSideEffects, applyKnownClientMessageEffects } from "../lib/inboundSideEffects.js";
 import { detectClientLanguage, type ClientLanguage } from "../ai/clientLanguage.js";
 import { applyShowingRequestInBackground } from "../lib/showingBooking.js";
 import { rememberConversationShowingRequest } from "../lib/buyerShowingCandidates.js";
@@ -126,10 +125,9 @@ import { notifyPropertyChatMessage } from "../lib/propertyChatMessageAlert.js";
 import { propertyChatLeadPropertyId } from "../lib/ownBotConversationScope.js";
 import { analyzeMessageForPropertyCounts } from "../ai/chatPropertyCount.js";
 import { scrubMentionedClientPhonesInText } from "../lib/clientPhoneMasking.js";
-import { checkExplicitRefusal } from "../lib/explicitRefusalDetector.js";
 import { isClosingMessage, isOptOutMessage } from "../lib/botFollowUps.js";
 import { isConfusedMessage, recordLesson } from "../lib/botLessons.js";
-import { linkWhatsAppConversationToClient, resolveWhatsAppLeadIdentity } from "../lib/whatsappPhone.js";
+import { resolveWhatsAppLeadIdentity } from "../lib/whatsappPhone.js";
 import { dedupePhones, pickFreeExtraPhones } from "../lib/clientPhones.js";
 import { maskClientPhone, maskPhonesInFreeText } from "../lib/clientPhone.js";
 import { isBotEnabledForChannel } from "./botChannels.js";
@@ -143,7 +141,6 @@ import {
 } from "./propertyShowcase.js";
 import { ensureConversationScenario } from "../ai/salesScenarios.js";
 import { runClientAutopilotInBackground } from "../lib/clientAutopilot.js";
-import { detectNewInquiryFromKnownClient } from "../lib/newInquiryDetector.js";
 import { checkClientInactiveSignal } from "../lib/clientInactiveTextDetector.js";
 import { botAbilitiesOf, loadBotCapabilities } from "./botCapabilities.js";
 import { enqueueBackgroundJob } from "../jobs/enqueue.js";
@@ -152,13 +149,10 @@ import { logSystemError } from "../lib/systemError.js";
 import {
   categoryForLeadKind,
   linkContactProfileToClient,
-  recordContactTurn,
 } from "../lib/contactProfiles.js";
 import { contactProfileForPrompt, rememberContactTurn } from "../lib/contactProfileMemory.js";
 import { collectSellerFacts } from "../ai/sellerIntake.js";
 import { describeError } from "../lib/describeError.js";
-import { recordAudienceMessage } from "../lib/audienceHeatmap.js";
-import { tryHandleDealReviewReply } from "../lib/dealReviewIntake.js";
 import {
   aiDailyBudgetOf,
   noticeAiBudgetHandover,
@@ -1761,34 +1755,21 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
   traceKnownContacts([resolved.name]);
   if (input.adPropertyId !== undefined) traceResolution("ad", input.adPropertyId);
   if (input.sharedPropertyId !== undefined) traceResolution("shared", input.sharedPropertyId);
-  // В WhatsApp номер отправителя известен из самого транспорта (wa_id), поэтому
-  // писавшего раньше клиента узнаём сразу — до пуша агенту, иначе он не получит
-  // уведомление о сообщении собственного клиента.
-  const link = await linkWhatsAppConversationToClient(resolved.id, channel, subscriberId);
-  if (link.linked) resolved = { ...resolved, clientId: link.clientId };
-  // Карточка клиента наконец нашлась — связываем её с досье: досье есть у всех
-  // написавших, Client — только у оформленного, и без этой связи они жили бы
-  // рядом, ничего не зная друг о друге.
-  if (resolved.contactProfileId && resolved.clientId) {
-    await linkContactProfileToClient(resolved.contactProfileId, resolved.clientId);
+  // ДЕЙСТВИЯ CRM НА ВХОДЯЩЕЕ (31.10.2026) — связка WhatsApp с карточкой, досье,
+  // тепловая карта, опрос о сделке, пуш агенту, пуш по чату объекта, число
+  // объектов, явный отказ — живут в lib/inboundSideEffects.ts и срабатывают там
+  // же для ядра. Идемпотентно по идентификатору сообщения у поставщика: повторная
+  // доставка не шлёт второй пуш. Повтор зависшего хода (skipSaveIncoming) — не
+  // новое сообщение, реплика сотрудника со своего аккаунта — не клиент: в
+  // тепловую карту их не считаем, как и раньше.
+  const inboundEffects = await applyInboundSideEffects({
+    source: "legacy", channel, peer: subscriberId, conversationId: resolved.id, text,
+    eventId: input.skipSaveIncoming ? null : input.messageId,
+    countAudience: !input.skipSaveIncoming && !input.fromStaff,
+  });
+  if (inboundEffects.status === "applied" && inboundEffects.clientId && inboundEffects.clientId !== resolved.clientId) {
+    resolved = { ...resolved, clientId: inboundEffects.clientId };
   }
-  // ОТМЕТКА КАСАНИЯ В ДОСЬЕ: счётчик сообщений и язык человека. Язык решается по
-  // большинству входящих, а не по последнему сообщению — одно «salom» не делает
-  // переписку таджикской (lib/contactProfiles.ts). Одно и то же правило во всех
-  // каналах: ровно этого владелец и просил 21.09.2026.
-  // СЧЁТЧИК ТЕПЛОВОЙ КАРТЫ: каждое сообщение клиента в свой час
-  // (lib/audienceHeatmap.ts). Повтор зависшего хода (skipSaveIncoming) — не новое
-  // сообщение, реплика сотрудника со своего аккаунта — не клиент. Не ждём:
-  // приём сообщения важнее карты.
-  if (!input.skipSaveIncoming && !input.fromStaff) void recordAudienceMessage(channel);
-  if (resolved.contactProfileId) {
-    await recordContactTurn({
-      profileId: resolved.contactProfileId,
-      language: text ? detectClientLanguage(text) : null,
-      conversationId: resolved.id,
-    });
-  }
-
 
   /**
    * КАРТОЧКА УШЛА В КОРЗИНУ — ДИАЛОГ ОТВЯЗЫВАЕМ (аудит №4, 27.08).
@@ -1798,7 +1779,8 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
    * в одном списке — ни лида, ни таймеров, ни ответственного, и пуш «клиент
    * написал» уходил агенту на удалённого клиента. Отвязка возвращает диалог на
    * обычный путь: приём заявки воскресит карточку из Корзины штатно
-   * (resumeExistingChannelLead).
+   * (resumeExistingChannelLead). Пуш и прочие действия по удалённой карточке
+   * applyInboundSideEffects уже не выполнил.
    */
   if (resolved.clientId) {
     const owner = await prisma.client.findUnique({
@@ -1823,45 +1805,20 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
   }
 
   /**
-   * ОТВЕТ НА ВОПРОС ОБ ОТЗЫВЕ (Пачка 11, 11.09.2026) — перехватывается ДО AI и
-   * до дебаунса: если у клиента висит неотвеченный DealReview, разбираем ответ
-   * лёгким парсером и отвечаем сами, минуя модель (см. lib/dealReviewIntake.ts).
-   * Не разобрали (handled: false) — ход идёт обычным путём, как будто этой
-   * проверки не было вовсе.
+   * ОТВЕТ НА ВОПРОС ОБ ОТЗЫВЕ (Пачка 11, 11.09.2026) — разобран в
+   * applyInboundSideEffects ДО AI и до дебаунса; отвечаем сами, минуя модель
+   * (см. lib/dealReviewIntake.ts).
    */
-  if (resolved.clientId) {
-    const reviewIntake = await tryHandleDealReviewReply(resolved.clientId, text).catch((err) => {
-      console.error("[отзыв] перехват ответа упал:", err instanceof Error ? err.message : err);
-      return { handled: false as const };
-    });
-    if (reviewIntake.handled) {
-      // Записываем ход в историю сам — обычный путь ниже (debounceAndMerge/AI)
-      // здесь не выполняется, и без этого реплика клиента и наш ответ выпали
-      // бы из переписки, видимой в CRM. processMessengerTurn всегда работает с
-      // BotConversation (Telegram — отдельный поллер со своим диалогом).
-      await appendConversationMessages(resolved.id, [
-        { role: "user", content: text },
-        { role: "assistant", content: reviewIntake.reply ?? "" },
-      ]).catch(() => {});
-      return { reply: reviewIntake.reply ?? "", ready: true, accepted: true };
-    }
-  }
-
-  if (resolved.clientId) void notifyAgentOfClientMessage(resolved.clientId, text, channel, subscriberId, resolved.propertyChatAgentId ? resolved.id : undefined);
-  if (Array.isArray(resolved.messages) && resolved.messages.length > 0) void notifyPropertyChatMessage(resolved.id);
-  // ЧИСЛО ОБЪЕКТОВ ИЗ ПЕРЕПИСКИ (владелец 06.09.2026, разбор слепых зон п.3) —
-  // фоново, ПОСЛЕ того как ответ клиенту уже готовится/отправлен, не мешая
-  // живому мозгу бота (ai/leadQualifier.ts). См. ai/chatPropertyCount.ts.
-  void analyzeMessageForPropertyCounts(resolved.clientId, text);
-
-  // Детектор явного отказа в переписке (план 03.09.2026 §D) — «не буду покупать»,
-  // «уже купил», «передумал продавать» и т.п. Фоново, не задерживает ответ бота;
-  // не путать со светофором неактивных (та же CLAUDE.md уже предупреждает не
-  // путать эти две задачи) — это окончательный ответ клиента, а не пауза.
-  if (resolved.clientId) {
-    void checkExplicitRefusal({ clientId: resolved.clientId, text }).catch((err) =>
-      console.error("[отказ] проверка явного отказа в переписке:", err instanceof Error ? err.message : err)
-    );
+  if (inboundEffects.status === "applied" && inboundEffects.dealReview) {
+    // Записываем ход в историю сам — обычный путь ниже (debounceAndMerge/AI)
+    // здесь не выполняется, и без этого реплика клиента и наш ответ выпали
+    // бы из переписки, видимой в CRM. processMessengerTurn всегда работает с
+    // BotConversation (Telegram — отдельный поллер со своим диалогом).
+    await appendConversationMessages(resolved.id, [
+      { role: "user", content: text },
+      { role: "assistant", content: inboundEffects.dealReview.reply },
+    ]).catch(() => {});
+    return { reply: inboundEffects.dealReview.reply, ready: true, accepted: true };
   }
 
   // С какого объявления пришёл человек — пишем первым касанием и не перезаписываем:
@@ -2884,37 +2841,12 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
   if (conversation.clientId) {
     /**
      * СНЯТИЕ LOST СООБЩЕНИЕМ КЛИЕНТА (18.09.2026, решение владельца — «он же сам
-     * обратился», тот же принцип, что уже действует для входящего звонка,
-     * `lib/telephony/inboundRouting.ts`: «клиент в статусе LOST, который сам
-     * звонит в CRM, больше не считается потерянным»). Карточка, уже привязанная
-     * к этому диалогу (`conversation.clientId`), уходит прямиком в ветку короткого
-     * ответа ниже и раньше сюда не заходила ни разу — «Коротко от ИИ» и подбор
-     * объектов молчали навсегда, даже когда клиент писал сам через месяцы.
-     *
-     * Реактивация ДО saveIncoming/автопилота — иначе client_message ниже читает
-     * ещё не обновлённый статус LOST и молча пропускает пересчёт (см.
-     * ai/scoring.ts::SCORABLE_CLIENT_STATUSES).
+     * обратился»), автопилот карточки и «новый повод обратиться» — общие с ядром,
+     * lib/inboundSideEffects.ts (applyKnownClientMessageEffects). Реактивация там
+     * идёт ДО автопилота — иначе client_message читает ещё LOST и молча
+     * пропускает пересчёт (ai/scoring.ts::SCORABLE_CLIENT_STATUSES).
      */
-    const lostCheck = await prisma.client.findUnique({
-      where: { id: conversation.clientId },
-      select: { status: true, lastAgentId: true, deletedAt: true },
-    });
-    if (lostCheck && !lostCheck.deletedAt && lostCheck.status === "LOST") {
-      // Исход как у звонка и заявки (B1, 02.10.2026): прежнему агенту — принятым,
-      // с таймером возврата и пушем; пауза лидов — не помеха (returningClientRouting).
-      const previousAgentId = await returningAgentStillAvailable(lostCheck.lastAgentId);
-      await reactivateClientFromLost({
-        clientId: conversation.clientId,
-        reason: previousAgentId
-          ? "Написал сам, потерянный клиент — возвращён прежнему агенту"
-          : "Написал сам, потерянный клиент — прежний агент недоступен, очередь руководителя",
-        agentId: previousAgentId ?? undefined,
-        accept: !!previousAgentId,
-        returnTimer: !!previousAgentId,
-      }).catch((err) =>
-        console.error("[messenger] реактивация LOST по сообщению:", err instanceof Error ? err.message : err)
-      );
-    }
+    await applyKnownClientMessageEffects(conversation.clientId, text);
 
     /**
      * ЗАЯВКА УЖЕ ПРИНЯТА — БОТ БОЛЬШЕ НЕ ОГРАНИЧИВАЕТ СЕБЯ ОДНОЙ ФРАЗОЙ
@@ -2949,7 +2881,7 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
      * теперь решает `debounceAndMerge` ниже (он и был написан для неё же,
      * просто раньше эта ветка была не под ним).
      */
-    if (text) runClientAutopilotInBackground(conversation.clientId, "client_message");
+    // (автопилот и «новый повод обратиться» — в applyKnownClientMessageEffects выше)
 
     /**
      * ОТВЕТ НА ДОГОНЯЮЩИЙ ВОПРОС ПРО ИМЯ — СОХРАНЕНО И ПОСЛЕ ОТМЕНЫ 18.09.2026
@@ -3003,7 +2935,7 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
      * только заметить постфактум в переписке. Фоново, без ожидания: не должно
      * задерживать сам ответ.
      */
-    void detectNewInquiryFromKnownClient(conversation.clientId, text);
+    // (автопилот и «новый повод обратиться» — в applyKnownClientMessageEffects выше)
 
     /**
      * ТО, ЧТО СКАЗАНО ПОСЛЕ НОМЕРА, ТОЖЕ ДОЛЖНО ДОЕХАТЬ В КАРТОЧКУ (жалоба

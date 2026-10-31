@@ -4,6 +4,13 @@
 // synthetic. No mocked authority, receipt, question sideband or model adapter.
 import { createHmac, randomInt, randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+// Действия CRM на входящее (lib/inboundSideEffects.ts) зовут свои модели в фоне —
+// здесь они съедали бы сценарные ответы поддельного Gemini у самого хода ядра.
+// Сами действия проверяет tests/inbound-side-effects-postgres.test.ts.
+vi.mock("../src/lib/inboundSideEffects.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/inboundSideEffects.js")>()),
+  applyInboundSideEffects: vi.fn(async () => ({ status: "duplicate" as const })),
+}));
 import { customerActionIntentsSchema } from "@royal-home/shared";
 import { prisma } from "../src/db.js";
 import { encryptSecret } from "../src/crypto.js";
@@ -40,7 +47,7 @@ let revisionId: string;
 let rollout: Awaited<ReturnType<typeof createCustomerRolloutFixture>>;
 function settingsSnapshot() { return prisma.settings.findUniqueOrThrow({ where: { id: "singleton" }, select: {
   botEnabled: true, metaEnabled: true, botInstagramEnabled: true, metaVerifyToken: true,
-  geminiApiKey: true, geminiApiKey2: true, geminiApiKeysExtra: true,
+  geminiApiKey: true, geminiApiKey2: true, geminiApiKeysExtra: true, botCanRequestCallback: true, botCanAskOwner: true,
 } }); }
 const phone = () => `+99293${randomInt(1_000_000, 9_999_999)}`;
 const decision = (question: "callback_consent" | "budget" | "phone" | "none" | "clarify_previous" | "name", refs: string[] = []) =>
@@ -175,7 +182,9 @@ beforeAll(async () => {
   savedSettings = await settingsSnapshot();
   await prisma.settings.update({ where: { id: "singleton" }, data: { botEnabled: true, metaEnabled: true,
     botInstagramEnabled: true, metaVerifyToken: encryptSecret("synthetic-question-verify"),
-    geminiApiKey: encryptSecret(apiKey), geminiApiKey2: null, geminiApiKeysExtra: [] } });
+    geminiApiKey: encryptSecret(apiKey), geminiApiKey2: null, geminiApiKeysExtra: [],
+    // Тумблеры экрана «Бот» (31.10.2026): выключенный скрывает request_callback от модели.
+    botCanRequestCallback: true, botCanAskOwner: true } });
   vi.stubEnv("IG_PROXY_URL", igOrigin); vi.stubEnv("IG_PROXY_KEY", "");
   vi.stubEnv("GEMINI_PROXY_URL", geminiOrigin); vi.stubEnv("GEMINI_PROXY_KEY", "");
   vi.stubEnv("GEMINI_API_KEY", apiKey); vi.stubEnv("GEMINI_API_KEY_2", ""); vi.stubEnv("BOT_PROPERTY_CONTEXT_ENABLED", "0");

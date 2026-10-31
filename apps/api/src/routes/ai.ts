@@ -16,10 +16,20 @@ import { scoreClient } from "../ai/scoring.js";
 import { buildCardFillSuggestion } from "../ai/cardFill.js";
 import { buildPropertyDraftSuggestion } from "../ai/propertyDraft.js";
 import { ASSISTANT_ERROR_MESSAGES, isAiAssistantEnabled, runAssistantDetailed } from "../ai/assistant.js";
+import { actorFromAccess } from "../ai/assistant/actor.js";
 import { tryAssistantFastPath } from "../ai/assistantFastPath.js";
 import { logAssistantToolCall } from "../lib/aiAssistantAudit.js";
 import { formatPrice, stripDashes } from "../ai/seoGenerator.js";
 import { TG_PREFIX } from "./conversations.js";
+import type { Request, Response } from "express";
+import {
+  AssistantActionError,
+  cancelAssistantAction,
+  confirmAssistantAction,
+  undoAssistantAction,
+  type AssistantActionActor,
+  type AssistantActionOutcome,
+} from "../lib/assistantActions.js";
 import { agentSpeechLimiter } from "../lib/agentSpeechLimiter.js";
 
 export const aiRouter = Router();
@@ -69,9 +79,9 @@ const aiGenerationLimiter = rateLimit({
  * SSE (план B3, docs/ai-bots-audit-13-09.md): вместо одного JSON-ответа в конце
  * отдаём поток событий `status` (пошаговые статусы раундов/тулов — см.
  * runAssistant/onStatus в ai/assistant.ts) и финальный `done`/`error`. Заголовки —
- * по образцу routes/events.ts:130-137. Полный токен-стриминг Gemini-ответа не
- * делается — `:streamGenerateContent` в проекте не используется нигде, это
- * отдельная и более рискованная задача (частичный JSON тул-коллов).
+ * по образцу routes/events.ts:130-137. С 31.10.2026 (задача 1.6) текст ответа
+ * идёт ещё и событием `token` по мере генерации (`:streamGenerateContent`,
+ * callGeminiToolsStream в ai/geminiClient.ts); `done` по-прежнему несёт весь текст.
  */
 aiRouter.post("/assistant", requireAuth, assistantLimiter, async (req, res) => {
   // Рубильник (Настройки → ИИ). Выключен по умолчанию: разделом пока никто не
@@ -97,7 +107,7 @@ aiRouter.post("/assistant", requireAuth, assistantLimiter, async (req, res) => {
   res.setHeader("X-Accel-Buffering", "no");
   res.flushHeaders?.();
 
-  const sendEvent = (event: "status" | "card" | "done" | "error", data: unknown) => {
+  const sendEvent = (event: "status" | "card" | "token" | "done" | "error", data: unknown) => {
     if (res.writableEnded || res.destroyed) return;
     res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   };
@@ -116,20 +126,9 @@ aiRouter.post("/assistant", requireAuth, assistantLimiter, async (req, res) => {
     if (!res.writableFinished) clientGone.abort();
   });
 
-  const actor = {
-    id: req.agent!.id,
-    role: req.agent!.role,
-    canViewAllClients: req.agent!.can("clients.viewAll"),
-    // Ассистент ходит в базу под правами вызвавшего — включая право на телефон.
-    canViewPhone: req.agent!.can("clients.viewPhone"),
-    // Те же права, что закрывают REST /reports и /expenses — get_lead_sources и
-    // get_finance_summary обязаны отказывать ровно тем же, кому отказывает интерфейс.
-    canViewReports: req.agent!.can("reports.view"),
-    canViewFinance: req.agent!.can("finance.view"),
-    // Сделки — своим правом (deals.viewAll), а не правом на клиентов: на экране
-    // «Сделки» их скоупит именно оно (scopeDealsToOwnAgent).
-    canViewAllDeals: req.agent!.can("deals.viewAll"),
-  };
+  // Помощник ходит в базу под правами вызвавшего — тот же разбор прав, что у
+  // requireAuth, одной функцией (ai/assistant/actor.ts, задача 2.1).
+  const actor = actorFromAccess(req.agent!.id, req.agent!);
 
   try {
     // Полоса А (ai/assistantFastPath.ts): номер карточки, телефон или ссылка Instagram
@@ -157,7 +156,16 @@ aiRouter.post("/assistant", requireAuth, assistantLimiter, async (req, res) => {
     const outcome = await runAssistantDetailed(
       parsed.data.messages,
       actor,
-      { onStatus: (message) => sendEvent("status", { message }), signal: clientGone.signal },
+      {
+        onStatus: (message) => sendEvent("status", { message }),
+        // Текст ответа по мере генерации (задача 1.6) — событием `token` до `done`;
+        // `done` всё равно несёт полный текст. Поток включает только клиент, который
+        // его показывает (заголовок X-Assistant-Stream: 1): ответ, который никто не
+        // видит по словам, не должен терять повтор/запасную модель после первого
+        // слова (ревью 31.10.2026).
+        onToken: req.header("x-assistant-stream") === "1" ? (token) => sendEvent("token", token) : undefined,
+        signal: clientGone.signal,
+      },
     );
     if (outcome.ok) {
       sendEvent("done", { reply: outcome.reply });
@@ -927,3 +935,52 @@ async function computeStalePropertyInsights(ownAgentId: string | undefined) {
     };
   });
 }
+
+/**
+ * ДЕЙСТВИЯ ПОМОЩНИКА С ПОДТВЕРЖДЕНИЕМ (П2, задача 2.3): «Подтвердить», «Отмена»,
+ * «Отменить» по карточке «было → станет». Вся логика — в lib/assistantActions.ts
+ * (ConfirmationBroker); маршрут только собирает актора из req.agent и переводит
+ * ошибку брокера в HTTP. Актор собирается на КАЖДОМ нажатии — права
+ * перечитываются, а не берутся из момента показа превью.
+ *
+ * Тот же рубильник, что у /assistant: выключенный помощник не исполняет и ранее
+ * показанных действий. Лимит — те же числа, что у /assistant, но своим счётчиком:
+ * нажатие «Подтвердить» не должно съедать квоту на сам разговор.
+ */
+const assistantActionLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 40,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => `agent:${req.agent!.id}`,
+  message: { error: "Слишком много запросов к ИИ-ассистенту за час, подождите" },
+});
+const assistantActionParamsSchema = z.object({ id: z.string().uuid() });
+type AssistantActionHandler = (id: string, actor: AssistantActionActor) => Promise<AssistantActionOutcome>;
+
+function assistantActionRoute(handler: AssistantActionHandler) {
+  return async (req: Request<{ id: string }>, res: Response) => {
+    if (!(await isAiAssistantEnabled())) {
+      return res.status(403).json({ error: "ИИ-ассистент выключен в Настройках" });
+    }
+    const params = assistantActionParamsSchema.safeParse(req.params);
+    if (!params.success) {
+      return res.status(400).json({ error: "Неверный идентификатор действия", details: params.error.flatten() });
+    }
+    const agent = req.agent!;
+    const actor: AssistantActionActor = { agentId: agent.id, channel: "crm", can: (permission) => agent.can(permission) };
+    try {
+      const outcome = await handler(params.data.id, actor);
+      return res.json(outcome);
+    } catch (err) {
+      if (err instanceof AssistantActionError) {
+        return res.status(err.status).json({ error: err.message, code: err.code, ...err.extra });
+      }
+      throw err;
+    }
+  };
+}
+
+aiRouter.post("/assistant/actions/:id/confirm", requireAuth, assistantActionLimiter, assistantActionRoute(confirmAssistantAction));
+aiRouter.post("/assistant/actions/:id/cancel", requireAuth, assistantActionLimiter, assistantActionRoute(cancelAssistantAction));
+aiRouter.post("/assistant/actions/:id/undo", requireAuth, assistantActionLimiter, assistantActionRoute(undoAssistantAction));

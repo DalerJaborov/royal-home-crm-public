@@ -13,8 +13,12 @@ export function customerAgentSayMode(env: Readonly<Record<string, string | undef
 export async function loadCustomerAgentFeaturePolicy() {
   const row = await prisma.settings.findUnique({ where: { id: "singleton" }, select: {
     botCanSendLinks: true, botCanSendPhotos: true, botPhotosPerOffer: true, botCanBookShowings: true, botCanHandleVacancies: true,
+    botCanRequestCallback: true, botCanAskOwner: true,
   } });
   return { links: row?.botCanSendLinks === true, photos: row?.botCanSendPhotos === true,
     photosPerOffer: Math.max(0, Math.min(5, row?.botPhotosPerOffer ?? 0)),
-    showings: row?.botCanBookShowings === true, vacancies: row?.botCanHandleVacancies === true };
+    showings: row?.botCanBookShowings === true, vacancies: row?.botCanHandleVacancies === true,
+    // Тумблеры экрана «Бот» (31.10.2026): выключенный — инструмент не предлагается
+    // модели на этом ходе. Каталог инструментов в toolSchemaHash ревизии не меняется.
+    callbacks: row?.botCanRequestCallback === true, ownerQuestions: row?.botCanAskOwner === true };
 }

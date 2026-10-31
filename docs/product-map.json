@@ -1073,7 +1073,7 @@
       "mount": "/api/v1/ai",
       "router": "aiRouter",
       "file": "apps/api/src/routes/ai.ts",
-      "endpoints": 9,
+      "endpoints": 12,
       "label": "Запросы к ИИ из интерфейса",
       "usedBy": 2
     },
@@ -1534,6 +1534,11 @@
     {
       "id": "approved-owner-verification",
       "expr": "25 * * * *",
+      "label": null
+    },
+    {
+      "id": "assistant-actions-sweep",
+      "expr": "35 * * * *",
       "label": null
     },
     {
