@@ -36,6 +36,9 @@ import { logTimeline } from "../lib/timeline.js";
 import { findDistrictIdByName } from "../lib/districtLookup.js";
 import { assertClientWritable, assistantToolAllowed, type AssistantActor } from "./assistant/actor.js";
 import { assistantSectionsGuide } from "./assistant/promptSections.js";
+import { findAssistantToolPlugin, listAssistantToolPlugins } from "./assistant/tools/index.js";
+import { runAssistantToolPlugin, type RunPluginHooks } from "./assistant/tools/run.js";
+import type { AssistantActionView } from "../lib/assistantActions.js";
 
 /**
  * СРОК НА ВЕСЬ ДИАЛОГ — 25 СЕКУНД (31.10.2026, пачка П1 задача 1.1,
@@ -169,7 +172,7 @@ function formatGroundedReply(result: GeminiGroundedResult): string {
  * Пишется в AiLog.promptVersion при каждом ответе ассистента (см. finally
  * runAssistant ниже) — по ней журнал говорит, какой текст промта отвечал.
  */
-export const SYSTEM_PROMPT_VERSION = "2026-10-31.2-rights";
+export const SYSTEM_PROMPT_VERSION = "2026-10-31.3-write-tools";
 
 const SYSTEM_PROMPT = `Ты — встроенный ассистент CRM агентства недвижимости (Душанбе, Таджикистан).
 Отвечай кратко и по-русски. Валюта по умолчанию — сомони (TJS).
@@ -179,6 +182,11 @@ const SYSTEM_PROMPT = `Ты — встроенный ассистент CRM аг
 заголовков (#), без _курсива_, кроме единственного формата ссылки [Текст](/путь) выше. Списки — обычным
 текстом, каждый пункт с новой строки через дефис или просто с переносом строки, без звёздочек и решёток.
 Создавать задачи и переносить встречи можно только после явной просьбы пользователя. Даты — ISO (YYYY-MM-DD).
+Изменения (цена, статус, агент клиента, показ, перемонтаж) делают инструменты записи: они только ГОТОВЯТ действие.
+Если инструмент вернул confirmRequired — действие ещё не выполнено: скажи одной короткой фразой, что подготовлено,
+и попроси нажать «Подтвердить» в карточке; сам ничего не подтверждай и не повторяй вызов. Если вернул done — скажи,
+что сделано, и что это можно отменить. Удаление, деньги, права, настройки, публикацию в соцсетях и сообщения
+клиентам ты не делаешь: на такую просьбу назови раздел CRM, где это делается руками.
 На вопросы «где найти…», «как сделать…», «куда нажать…» отвечай конкретным путём кликов по разделам CRM
 (меню слева, на мобильном — нижняя панель/бургер). Разделы, ОТКРЫТЫЕ ЭТОМУ пользователю (по его правам):
 {{SECTIONS}}
@@ -996,6 +1004,12 @@ const GEMINI_TOOLS_WITH_REFERENCE: GeminiToolDefinition[] = [...GEMINI_TOOLS, WE
  * получить «не успел», когда задача на самом деле создана.
  */
 const WRITE_TOOLS = new Set(["create_task", "reschedule_task"]);
+/** Запись — и встроенные create_task/reschedule_task, и плагины уровней B/C. */
+function isWriteTool(name: string): boolean {
+  if (WRITE_TOOLS.has(name)) return true;
+  const plugin = findAssistantToolPlugin(name);
+  return plugin !== null && plugin.level !== "A";
+}
 
 /**
  * Короткий словарь имя-тула → русская фраза для пошаговых статусов (план B3,
@@ -1017,7 +1031,22 @@ const TOOL_STATUS_PHRASES: Record<string, string> = {
 };
 
 function toolStatusPhrase(name: string): string {
-  return TOOL_STATUS_PHRASES[name] ?? "Обрабатываю запрос…";
+  return TOOL_STATUS_PHRASES[name] ?? findAssistantToolPlugin(name)?.statusPhrase ?? "Обрабатываю запрос…";
+}
+
+/**
+ * Объявления инструментов-плагинов для этого актора. Запись (B, C) — только если
+ * клиент умеет показать подтверждение (`confirmUi`): иначе модель просила бы нажать
+ * кнопку, которой нет.
+ */
+export function pluginDeclarations(actor: AssistantActor, confirmUi: boolean): GeminiToolDefinition[] {
+  return listAssistantToolPlugins()
+    .filter((p) => (p.level === "A" || confirmUi) && (p.allowed ? p.allowed(actor) : true))
+    .map((p) => ({
+      name: p.name,
+      description: p.description,
+      ...(p.parameters ? { parameters: p.parameters } : {}),
+    }));
 }
 
 /**
@@ -1070,6 +1099,15 @@ export interface RunAssistantOptions {
    * Итог runAssistantDetailed от этого не меняется: полный текст — в reply.
    */
   onToken?: (event: AssistantTokenEvent) => void;
+  /**
+   * Клиент умеет показать карточку подтверждения (заголовок X-Assistant-Confirm: 1).
+   * Нет — инструменты записи модели не объявляются вовсе (П3, tools/types.ts).
+   */
+  confirmUi?: boolean;
+  /** Карточка подтверждения готова (SSE-событие `confirm`). */
+  onConfirm?: (action: AssistantActionView) => void;
+  /** Откуда пришёл вопрос; Telegram не вводит step-up, поэтому часть действий ему закрыта. */
+  channel?: "crm" | "telegram";
 }
 
 /** Причина остановки диалога — кладётся в AbortSignal.reason и по ней же
@@ -1147,8 +1185,15 @@ function failureOf(err: unknown, signal: AbortSignal): { code: AssistantErrorCod
 }
 
 /** Один инструмент + запись в журнал обращений. */
-async function runAuditedTool(call: GeminiToolCall, actor: AssistantActor): Promise<unknown> {
-  const result = await runTool(call.name, call.args, actor);
+async function runAuditedTool(call: GeminiToolCall, actor: AssistantActor, hooks: RunPluginHooks): Promise<unknown> {
+  const plugin = findAssistantToolPlugin(call.name);
+  // Плагин, недоступный актору, не объявлялся модели; если она всё же назвала его
+  // имя — отказ здесь, а не исполнение (объявление — подсказка, не защита).
+  const result = plugin
+    ? plugin.allowed && !plugin.allowed(actor)
+      ? { error: "Нет доступа к этому действию" }
+      : await runAssistantToolPlugin(plugin, call.args ?? {}, actor, hooks)
+    : await runTool(call.name, call.args, actor);
   // Одна точка на все инструменты — журнал обращений (аудит-лог, не защита
   // доступа: та стоит внутри runTool через ownScope). Запись НЕ ждётся (задача
   // 1.4): вставка в журнал на критическом пути каждого инструмента — лишний поход
@@ -1176,23 +1221,24 @@ async function runRoundTools(
   actor: AssistantActor,
   signal: AbortSignal,
   onStatus: ((message: string) => void) | undefined,
+  hooks: RunPluginHooks,
 ): Promise<unknown[]> {
   const results: unknown[] = new Array(calls.length);
   let i = 0;
   while (i < calls.length) {
     if (signal.aborted) throw signal.reason;
-    if (WRITE_TOOLS.has(calls[i].name)) {
+    if (isWriteTool(calls[i].name)) {
       onStatus?.(toolStatusPhrase(calls[i].name));
       // Начатая запись дожидается конца, срок её не обрывает (см. WRITE_TOOLS).
-      results[i] = await runAuditedTool(calls[i], actor);
+      results[i] = await runAuditedTool(calls[i], actor, hooks);
       i++;
       continue;
     }
     let j = i;
-    while (j < calls.length && !WRITE_TOOLS.has(calls[j].name)) j++;
+    while (j < calls.length && !isWriteTool(calls[j].name)) j++;
     const batch = calls.slice(i, j);
     for (const call of batch) onStatus?.(toolStatusPhrase(call.name));
-    const batchResults = await untilAborted(Promise.all(batch.map((call) => runAuditedTool(call, actor))), signal);
+    const batchResults = await untilAborted(Promise.all(batch.map((call) => runAuditedTool(call, actor, hooks))), signal);
     batchResults.forEach((result, k) => {
       results[i + k] = result;
     });
@@ -1274,9 +1320,12 @@ export async function runAssistantDetailed(
     }));
     const lastUserText = [...history].reverse().find((m) => m.role === "user")?.content ?? "";
     // Недоступный актору инструмент модели не объявляется (задача 2.5).
-    const tools = (settings.groundedSearchEnabled ? GEMINI_TOOLS_WITH_REFERENCE : GEMINI_TOOLS).filter((t) =>
-      assistantToolAllowed(actor, t.name),
-    );
+    const tools = [
+      ...(settings.groundedSearchEnabled ? GEMINI_TOOLS_WITH_REFERENCE : GEMINI_TOOLS).filter((t) =>
+        assistantToolAllowed(actor, t.name),
+      ),
+      ...pluginDeclarations(actor, options.confirmUi === true),
+    ];
 
     // Задача 4 (docs/ai-bots-audit-13-09.md): фиксируем состояние рубильника НА
     // СТАРТЕ диалога. runAssistant вызывается и напрямую, в обход роута — если
@@ -1374,7 +1423,10 @@ export async function runAssistantDetailed(
       // Реплику модели возвращаем в историю ЦЕЛИКОМ: без неё следующий ход не видит
       // собственной просьбы модели и запрашивает те же инструменты по кругу.
       conversation.push({ role: "model", parts: turn.modelParts as never });
-      const results = await runRoundTools(turn.calls, actor, signal, onStatus);
+      const results = await runRoundTools(turn.calls, actor, signal, onStatus, {
+        channel: options.channel ?? "crm",
+        onConfirm: options.onConfirm,
+      });
       // Keep optional provider IDs; names alone cannot identify two calls to
       // the same function. Original signed model parts were appended above.
       conversation.push({

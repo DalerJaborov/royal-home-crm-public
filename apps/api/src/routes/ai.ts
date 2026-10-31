@@ -107,7 +107,7 @@ aiRouter.post("/assistant", requireAuth, assistantLimiter, async (req, res) => {
   res.setHeader("X-Accel-Buffering", "no");
   res.flushHeaders?.();
 
-  const sendEvent = (event: "status" | "card" | "token" | "done" | "error", data: unknown) => {
+  const sendEvent = (event: "status" | "card" | "token" | "confirm" | "done" | "error", data: unknown) => {
     if (res.writableEnded || res.destroyed) return;
     res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   };
@@ -164,6 +164,10 @@ aiRouter.post("/assistant", requireAuth, assistantLimiter, async (req, res) => {
         // видит по словам, не должен терять повтор/запасную модель после первого
         // слова (ревью 31.10.2026).
         onToken: req.header("x-assistant-stream") === "1" ? (token) => sendEvent("token", token) : undefined,
+        // Инструменты записи объявляются модели только клиенту, который покажет карточку
+        // подтверждения (заголовок X-Assistant-Confirm: 1) — иначе просить «нажмите кнопку» не у кого.
+        confirmUi: req.header("x-assistant-confirm") === "1",
+        onConfirm: (action) => sendEvent("confirm", action),
         signal: clientGone.signal,
       },
     );
