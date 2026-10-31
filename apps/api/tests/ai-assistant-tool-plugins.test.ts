@@ -11,7 +11,8 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 const { z } = await import("zod");
 const { prisma } = await import("../src/db.js");
-const { pluginDeclarations, runTool, runAuditedTool } = await import("../src/ai/assistant.js");
+const { pluginDeclarations, runTool, runAuditedTool, auditArgsSummary } = await import("../src/ai/assistant.js");
+const { waitFor } = await import("./helpers/waitFor.js");
 const { registerAssistantToolPlugin } = await import("../src/ai/assistant/tools/index.js");
 const { runAssistantToolPlugin } = await import("../src/ai/assistant/tools/run.js");
 const { confirmAssistantAction, undoAssistantAction } = await import("../src/lib/assistantActions.js");
@@ -220,6 +221,41 @@ describe("сбои и повторы не роняют ход (ревью П3)",
     expect(again).toMatchObject({ confirmRequired: false, actionId: first.actionId, status: "CONFIRMED" });
     expect(shown).toHaveLength(1);
     expect(state.executed).toBe(0);
+  });
+});
+
+describe("журнал обращений (ревью П3)", () => {
+  it("аргументы: номер в тексте замаскирован, длинная строка обрезана", () => {
+    const summary = auditArgsSummary({ text: `перезвонить +992 93 123 45 67 ${"а".repeat(200)}`, clientId: "id-1", limit: 5 });
+    expect(summary).not.toContain("123 45 67");
+    expect(summary).toContain("id-1");
+    expect(summary).toContain("5");
+    expect(JSON.parse(summary).text.length).toBeLessThanOrEqual(80);
+  });
+
+  it("плагин: успех — с числом записей, отказ — пометкой и без числа", async () => {
+    const ok = register({
+      name: `test_list_${runId}_${seq++}`,
+      level: "A",
+      description: "список",
+      statusPhrase: "Ищу…",
+      run: async () => ({ items: [1, 2, 3] }),
+    } as Plugin);
+    const bad = register({
+      name: `test_refuse_${runId}_${seq++}`,
+      level: "A",
+      description: "отказ",
+      statusPhrase: "Ищу…",
+      run: async () => ({ error: "нельзя", code: "FORBIDDEN" }),
+    } as Plugin);
+    const hooks = { channel: "crm" as const, confirmUi: true, writeBudget: { left: 3 } };
+    await runAuditedTool({ name: ok.name, args: { q: "x" } }, actorOf() as never, hooks);
+    await runAuditedTool({ name: bad.name, args: { q: "y" } }, actorOf() as never, hooks);
+    const okRow = await waitFor(() => prisma.aiAssistantAuditLog.findFirst({ where: { agentId, tool: ok.name } }));
+    const badRow = await waitFor(() => prisma.aiAssistantAuditLog.findFirst({ where: { agentId, tool: bad.name } }));
+    expect(okRow?.resultCount).toBe(3);
+    expect(badRow?.resultCount).toBeNull();
+    expect(badRow?.argsSummary).toMatch(/^\[отказ: FORBIDDEN\]/);
   });
 });
 

@@ -1193,6 +1193,48 @@ export const WRITE_LIMIT_ERROR = `Лимит записей за ответ: н�
 /** Хуки раунда: признак «клиент умеет показать подтверждение» и общий на ответ счётчик записей. */
 export type RoundHooks = RunPluginHooks & { confirmUi: boolean; writeBudget: { left: number } };
 
+/** Длина одной строки аргумента в журнале обращений: это след, а не копия переписки. */
+const AUDIT_ARG_MAX_CHARS = 80;
+
+/**
+ * Аргументы вызова для журнала обращений (видит «Система» в Настройках): текст
+ * заметки и строка поиска — свободный текст, туда диктуют номера. Каждая строка
+ * обрезается и проходит маску телефона (lib/clientPhone.ts), как везде в CRM.
+ */
+export function auditArgsSummary(args: Record<string, unknown> | undefined): string {
+  const safe = (value: unknown): unknown => {
+    if (typeof value === "string") {
+      const masked = phoneSafeText(value, false) ?? "";
+      return masked.length > AUDIT_ARG_MAX_CHARS ? `${masked.slice(0, AUDIT_ARG_MAX_CHARS - 1)}…` : masked;
+    }
+    if (Array.isArray(value)) return value.slice(0, 10).map(safe);
+    if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, safe(v)]));
+    return value;
+  };
+  return JSON.stringify(safe(args ?? {}));
+}
+
+/** Код отказа инструмента ({error}) или null, если это не отказ. */
+function toolFailure(result: unknown): string | null {
+  if (!result || typeof result !== "object" || Array.isArray(result) || !("error" in result)) return null;
+  const code = (result as { code?: unknown }).code;
+  return typeof code === "string" ? code : "error";
+}
+
+/**
+ * Сколько записей вернул инструмент. Встроенные списки — длина массива; плагины
+ * отвечают объектом: список — `items`/`tasks`, действие — 1 (подготовлено/исполнено),
+ * карточка — 1. Отказ сюда не попадает (null и пометка в argsSummary).
+ */
+function toolResultCount(result: unknown, isPlugin: boolean): number | null {
+  if (Array.isArray(result)) return result.length;
+  if (!isPlugin || !result || typeof result !== "object") return null;
+  const r = result as { items?: unknown; tasks?: unknown };
+  if (Array.isArray(r.items)) return r.items.length;
+  if (Array.isArray(r.tasks)) return r.tasks.length;
+  return 1;
+}
+
 export async function runAuditedTool(call: GeminiToolCall, actor: AssistantActor, hooks: RoundHooks): Promise<unknown> {
   const plugin = findAssistantToolPlugin(call.name);
   // Плагин, недоступный актору, не объявлялся модели; если она всё же назвала его
@@ -1213,11 +1255,12 @@ export async function runAuditedTool(call: GeminiToolCall, actor: AssistantActor
   // в базу до ответа человеку. logAssistantToolCall сам ловит свой отказ и пишет
   // его в «Здоровье системы»; .catch здесь — на непредвиденный throw, чтобы он тоже
   // попал в журнал, а не стал необработанным отказом.
+  const failed = toolFailure(result);
   void logAssistantToolCall({
     agentId: actor.id,
     tool: call.name,
-    argsSummary: JSON.stringify(call.args ?? {}),
-    resultCount: Array.isArray(result) ? result.length : null,
+    argsSummary: `${failed ? `[отказ: ${failed}] ` : ""}${auditArgsSummary(call.args)}`,
+    resultCount: failed ? null : toolResultCount(result, Boolean(plugin)),
   }).catch((err: unknown) => {
     void logSystemError("ai", `Журнал обращений ИИ-ассистента не записан (${call.name}): ${describeError(err)}`);
   });
