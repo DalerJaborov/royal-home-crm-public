@@ -140,6 +140,7 @@ async function run(
       headers: {
         "Content-Type": "application/json",
         "X-Device-Id": getOrCreateDeviceId(),
+        ...(onToken ? { "X-Assistant-Stream": "1" } : {}),
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       body: JSON.stringify({ messages }),

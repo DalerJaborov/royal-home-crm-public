@@ -348,7 +348,7 @@ describe("1.6 — маршрут POST /ai/assistant", () => {
 
     const res = await realFetch(`http://127.0.0.1:${port}/api/v1/ai/assistant`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, "X-Assistant-Stream": "1" },
       body: JSON.stringify({ messages: [{ role: "user", content: "Кто ты?" }] }),
     });
     const text = await res.text();
@@ -360,5 +360,36 @@ describe("1.6 — маршрут POST /ai/assistant", () => {
     const streamed = events.filter((e) => e.event === "token").map((e) => e.data.text).join("");
     expect(streamed).toBe("Привет, это помощник.");
     expect(events.find((e) => e.event === "done")?.data).toEqual({ reply: "Привет, это помощник." });
+  });
+
+  it("без заголовка X-Assistant-Stream — прежний generateContent, событий token нет", async () => {
+    const realFetch = globalThis.fetch;
+    const googleUrls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: unknown, init?: RequestInit) => {
+        if (String(url).includes("generativelanguage") || String(url).includes(":generateContent")) {
+          googleUrls.push(String(url));
+          return new Response(JSON.stringify(textChunk("Обычный ответ.", { finishReason: "STOP" })), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return realFetch(url as string, init);
+      }),
+    );
+    const { port } = server.address() as AddressInfo;
+
+    const res = await realFetch(`http://127.0.0.1:${port}/api/v1/ai/assistant`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ messages: [{ role: "user", content: "Кто ты?" }] }),
+    });
+    const text = await res.text();
+
+    const events = [...text.matchAll(/event: (\w+)\ndata: (.*)\n\n/g)].map((m) => ({ event: m[1], data: JSON.parse(m[2]) }));
+    expect(events.map((e) => e.event)).not.toContain("token");
+    expect(events.find((e) => e.event === "done")?.data).toEqual({ reply: "Обычный ответ." });
+    expect(googleUrls.some((u) => u.includes(":streamGenerateContent"))).toBe(false);
   });
 });

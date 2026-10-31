@@ -159,8 +159,11 @@ aiRouter.post("/assistant", requireAuth, assistantLimiter, async (req, res) => {
       {
         onStatus: (message) => sendEvent("status", { message }),
         // Текст ответа по мере генерации (задача 1.6) — событием `token` до `done`;
-        // `done` всё равно несёт полный текст: клиент без стриминга берёт его.
-        onToken: (token) => sendEvent("token", token),
+        // `done` всё равно несёт полный текст. Поток включает только клиент, который
+        // его показывает (заголовок X-Assistant-Stream: 1): ответ, который никто не
+        // видит по словам, не должен терять повтор/запасную модель после первого
+        // слова (ревью 31.10.2026).
+        onToken: req.header("x-assistant-stream") === "1" ? (token) => sendEvent("token", token) : undefined,
         signal: clientGone.signal,
       },
     );
