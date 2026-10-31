@@ -12,7 +12,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
  */
 
 const shortAgentReply = vi.fn(async () => "Ещё уточняю, скоро вернусь.");
-vi.mock("../src/ai/leadQualifier.js", () => ({ shortAgentReply }));
+vi.mock("../src/ai/shortAgentReply.js", async (importOriginal) => ({ ...(await importOriginal<typeof import("../src/ai/shortAgentReply.js")>()), shortAgentReply }));
 
 const deliverToConversation = vi.fn(async () => ({ ok: true, masked: false, pausedUntil: new Date() }));
 const findClientDeliveryTarget = vi.fn(async () => null);

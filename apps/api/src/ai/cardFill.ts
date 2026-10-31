@@ -9,7 +9,7 @@ import type { ConversationMessage } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { callAiText } from "./client.js";
 import { loadMoneyContext } from "../lib/money.js";
-import type { LeadDraft } from "./leadQualifier.js";
+import type { LeadDraft } from "./leadDraft.js";
 import { clientSelfStatedName, normalizeClientName } from "./replyGuards.js";
 import { clipHeadTail } from "./untrustedContent.js";
 

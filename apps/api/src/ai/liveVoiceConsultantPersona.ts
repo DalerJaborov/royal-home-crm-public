@@ -1,5 +1,5 @@
 import { callbackPromise as decideCallbackPromise, callbackPromiseLine, type CallbackPromise } from "./agencyFacts.js";
-import { AGENCY_COMPANY_INFO, AGENCY_VOICE } from "./leadQualifier.js";
+import { AGENCY_COMPANY_INFO, AGENCY_VOICE } from "./agencyVoice.js";
 import { VOICE_CENTER_RULE, VOICE_CENTER_RULE_RU_ONLY } from "./folkPlaces.js";
 import {
   LIVE_VOICE_DIRECTION_INBOUND,

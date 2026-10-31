@@ -1,6 +1,6 @@
 import type { ClientKind } from "@royal-home/shared";
 import { decideLeadKind, type LeadKindDecision, type LeadKindInput } from "../../ai/leadKind.js";
-import type { LeadIntent } from "../../ai/leadQualifier.js";
+import type { LeadIntent } from "../../ai/botContract.js";
 import { assignAgentForLead } from "./assignment.js";
 import type { LeadAssignContext, LeadAssignment, LeadAssignReason } from "./assignmentTypes.js";
 

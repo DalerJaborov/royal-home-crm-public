@@ -1,4 +1,4 @@
-import { extractPhoneOccurrences, unclearRawMatchesKnownTail } from "../../ai/leadQualifier.js";
+import { extractPhoneOccurrences, unclearRawMatchesKnownTail } from "../shared/phoneText.js";
 import { phoneTail } from "../clientPhones.js";
 import { encryptPhone, maskPhoneRaw } from "../phoneCrypto.js";
 import { logSystemError } from "../systemError.js";

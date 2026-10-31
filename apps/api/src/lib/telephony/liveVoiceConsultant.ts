@@ -13,7 +13,7 @@ import {
   type ConsultantCaller,
 } from "../../ai/liveVoiceConsultantPersona.js";
 import { loadLiveVoiceKnowledge } from "../../ai/liveVoiceKnowledge.js";
-import type { LeadDraft } from "../../ai/leadQualifier.js";
+import type { LeadDraft } from "../../ai/leadDraft.js";
 import { sendPushToAgent } from "../../push.js";
 import { claimAutoTaskSlot } from "../autoTasks.js";
 import { attachContactProfile, recordContactTurn, setContactNameFromCall } from "../contactProfiles.js";
@@ -22,7 +22,7 @@ import { describeError } from "../describeError.js";
 import { logSystemError } from "../systemError.js";
 import { findClientByPhoneDigits } from "../whatsappPhone.js";
 import { dedupePhones, pickFreeExtraPhones } from "../clientPhones.js";
-import { extractAllPhones } from "../../ai/leadQualifier.js";
+import { extractAllPhones } from "../shared/phoneText.js";
 import { looksLikeNoContactComplaint, looksLikeWantsHumanAgent } from "../../ai/complaintGuard.js";
 import { BW, TAIL } from "../../ai/wordBoundary.js";
 import { findAgentsWithPermission } from "../recipients.js";

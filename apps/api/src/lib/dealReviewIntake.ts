@@ -1,5 +1,5 @@
 import { prisma } from "../db.js";
-import { normalizeDigits } from "../ai/leadQualifier.js";
+import { normalizeDigits } from "./shared/phoneText.js";
 import { parseDealReviewReply } from "./dealReviewParser.js";
 import { findPendingDealReview, markDealReviewAnswered } from "./dealReviews.js";
 import { recordScoreEvent } from "./scoreJournal.js";

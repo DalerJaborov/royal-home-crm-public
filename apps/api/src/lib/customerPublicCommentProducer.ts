@@ -1,7 +1,7 @@
 import { prisma } from "../db.js";
 import { createMetaPublicCapture } from "./metaPublicCommentCapture.js";
 import { legacyCompatibleMetaPublicCapturePort as defaultMetaPublicCapturePort } from "./customerPublicCommentStore.js";
-import { ingestManagedMetaPublicComments, parseIncomingComments } from "../messengers/comments.js";
+import { ingestManagedMetaPublicComments, parseIncomingComments } from "../messengers/commentIngest.js";
 import type { PublicSourceRef } from "@royal-home/shared";
 const captureMetaPublic = createMetaPublicCapture(defaultMetaPublicCapturePort);
 export type PublicCommentIntakeResult = { status: "bypassed" | "not_applicable" }
