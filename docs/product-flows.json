@@ -5139,6 +5139,14 @@
      ]
     },
     {
+     "k": "do",
+     "t": "const actor = actorFromAccess(req.agent!.id, req.agent!);",
+     "a": [
+      "зовёт actorFromAccess()"
+     ],
+     "c": []
+    },
+    {
      "k": "try",
      "t": "пробует",
      "a": [],

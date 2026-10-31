@@ -1240,6 +1240,8 @@
   - если !res.writableFinished
     - clientGone.abort();
       · дословно из кода
+- const actor = actorFromAccess(req.agent!.id, req.agent!);
+  · зовёт actorFromAccess()
 - пробует
   - если lastMessage?.role === "user"
     - пробует
