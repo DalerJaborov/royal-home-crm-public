@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **725**. Развилок в самих путях: **2575**; вместе с задачами по расписанию и фоновыми заданиями — **4007**. Модулей: **79**.
+Путей: **725**. Развилок в самих путях: **2566**; вместе с задачами по расписанию и фоновыми заданиями — **3998**. Модулей: **79**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -1250,7 +1250,7 @@
   · ставит заголовок ответа
 - res.setHeader("X-Accel-Buffering", "no");
   · ставит заголовок ответа
-- const sendEvent = (event: "status" | "card" | "token" | "done" | "error", data: unknown)
+- const sendEvent = (event: "status" | "card" | "token" | "confirm" | "done" | "error", data: unknown)
   - если res.writableEnded || res.destroyed
     - return;
       · дальше не идёт, ничего не меняя
@@ -2789,58 +2789,12 @@
 - если !parsed.success
   - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
     · ответ 400 — «Неверные данные»
-- const client = await prisma.client.findUnique({ where: { id: req.params.id } });
-  · читает в базе: client
-- если !client
-  - return res.status(404).json({ error: "Клиент не найден" });
-    · ответ 404 — «Клиент не найден»
-- если (client.assignmentRefusedAt || client.assignmentCompletedAt) && !canViewInvestigations(req.agent?.role)
-  - return res.status(403).json({ error: "После отказа новое назначение доступно только администратору или директ…
-    · ответ 403 — «После отказа новое назначение доступно только администратору или…»
-- если client.deletedAt
-  - return res.status(400).json({ error: "Карточка в Корзине — сначала восстановите её, назначать пока нечего" });
-    · ответ 400 — «Карточка в Корзине — сначала восстановите её, назначать пока нечего»
-- если client.kind === "OTHER"
-  - return res.status(400).json({ error: "Это «прочее обращение» (аренда, работа, другой город и т.п.) — агентам …
-    · ответ 400 — «Это «прочее обращение» (аренда, работа, другой город и т.п.) —…»
-- const [checked, supervisor] = await Promise.all([ checkManualAssignTarget(agentId), prisma.agent.findUnique({…
-  · читает в базе: agent
-- если !checked.ok
-  - return res.status(checked.status).json({ error: checked.error });
+- const outcome = await assignClientManually({ clientId: req.params.id, toAgentId: parsed.data.agentId, accept:…
+  · зовёт assignClientManually()
+- если !outcome.ok
+  - return res.status(outcome.status).json({ error: outcome.error });
     · ответ (код зависит от условия)
-- const claimResult = await changeClientAgent({ clientId: client.id, toAgentId: agentId, reason: assignReason, …
-  · зовёт changeClientAgent()
-- если !claimed
-  - если claimResult.reason === "deleted"
-    - return res.status(409).json({ error: "Клиент перемещён в Корзину, пока вы смотрели карточку — назначить его н…
-      · ответ 409 — «Клиент перемещён в Корзину, пока вы смотрели карточку — назначить его…»
-  - если claimResult.reason === "open_deal"
-    - return res.status(409).json({ error: "У клиента открытая сделка — сначала закройте или отмените её." });
-      · ответ 409 — «У клиента открытая сделка — сначала закройте или отмените её.»
-  - const current = await prisma.client.findUnique({ where: { id: client.id }, select: { acceptedAt: true, assign…
-    · читает в базе: client
-  - return res.status(409).json({ error: current?.assignedAgent ? `Заявку уже разобрали, пока вы смотрели карточк…
-    · ответ 409
-- const updated = await prisma.client.findUnique({ where: { id: client.id } });
-  · читает в базе: client
-- logAudit(req, "LEAD_ASSIGN", "Client", client.id, { shortId: client.shortId, fullName: client.fullName, toAge…
-  · зовёт logAudit()
-- если !toSelf
-  - sendPushToAgent(agentId, { kind: "lead", title: "📌 Вам назначили клиента", body: `${supervisor?.fullName ?? …
-    · push-уведомление
-- publishLeadAccepted(client.id, agentId);
-  · зовёт publishLeadAccepted()
-- если client.assignedAgentId && client.assignedAgentId !== agentId
-  - closeLeadPushNotification(client.assignedAgentId, `lead-${client.id}`).catch((err)
-    · зовёт closeLeadPushNotification()
-- void (async ()
-  - const supervisors = await findAgentsWithPermission("clients.assign");
-    · зовёт findAgentsWithPermission()
-  - await closeLeadPushNotifications( supervisors.flatMap((id)
-    · зовёт closeLeadPushNotifications()
-- publishClientUpdated({ clientId: client.id, agentIds: [updated?.assignedAgentId], actorId: req.agent!.id });
-  · зовёт publishClientUpdated()
-- res.json(presentClient(updated!, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), investigation…
+- res.json(presentClient(outcome.client, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), investi…
   · ответ 200
 
 ### POST /api/v1/clients/:id/bot-pause

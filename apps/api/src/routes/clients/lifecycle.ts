@@ -11,7 +11,6 @@ import {
   clientRefuseSchema,
   clientTransferSchema,
   leadAcceptSchema,
-  canViewInvestigations,
 } from "@royal-home/shared";
 import { prisma } from "../../db.js";
 import { can, requireAuth, requirePermission, scopeToOwnAgent } from "../../auth/middleware.js";
@@ -19,20 +18,15 @@ import { declineLead } from "../../leads.js";
 import { acceptLead, LEAD_TAKEN_ERROR } from "../../lib/leadAccept.js";
 import { transferClientByAgent, canTransferClient } from "../../lib/clientTransfer.js";
 import { reactivateClient } from "../../lib/clientWorkStatus.js";
-import { reactivationResetData } from "../../lib/clientLifecycle.js";
-import { findAgentsWithPermission } from "../../lib/recipients.js";
-import { sendPushToAgent, closeLeadPushNotification, closeLeadPushNotifications } from "../../push.js";
 import { logAudit } from "../../lib/audit.js";
 import { isDeferredReason, deferClient, returnDeferredClientManually } from "../../lib/deferredClients.js";
 import { noteAgentHandoffAndAlarmIfAnomalous } from "../../lib/agentHandoffAnomalyAlarm.js";
 import { refuseClient, checkRefusalPreconditions } from "../../lib/clientRefuse.js";
-import { changeClientAgent } from "../../lib/changeClientAgent.js";
 import { convertClientToJobApplication } from "../../lib/clientToCandidate.js";
 import { deferredReturnMessage, foreignWriteDenied, presentClient } from "./shared.js";
 
-import { publishClientUpdated, publishLeadAccepted } from "../../lib/livePublish.js";
-import { SUPERVISOR_ASSIGN_REASON } from "../../lib/leadReason.js";
-import { checkManualAssignTarget } from "../../lib/manualAssignTarget.js";
+import { publishClientUpdated } from "../../lib/livePublish.js";
+import { assignClientManually } from "../../lib/assignClientManually.js";
 
 export const lifecycleRouter = Router();
 
@@ -194,197 +188,17 @@ lifecycleRouter.post("/:id/assign", requireAuth, requirePermission("clients.assi
   if (!parsed.success) {
     return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
   }
-  const { agentId, accept } = parsed.data;
-  const client = await prisma.client.findUnique({ where: { id: req.params.id } });
-  if (!client) return res.status(404).json({ error: "Клиент не найден" });
-  if ((client.assignmentRefusedAt || client.assignmentCompletedAt) && !canViewInvestigations(req.agent?.role)) {
-    return res.status(403).json({ error: "После отказа новое назначение доступно только администратору или директору" });
-  }
-  // Карточка в Корзине не назначается — ни одна точка чтения такую карточку
-  // никому не покажет (routes/clients/list.ts, card.ts), а без этой проверки
-  // /assign «успешно» отдавал удалённого клиента: агент видел «принято», а
-  // карточки не было нигде (живой случай 15.09.2026 — 30+ клиентов из Корзины).
-  if (client.deletedAt) {
-    return res.status(400).json({ error: "Карточка в Корзине — сначала восстановите её, назначать пока нечего" });
-  }
-
-  /**
-   * «ПРОЧЕЕ ОБРАЩЕНИЕ» АГЕНТУ НЕ НАЗНАЧАЕТСЯ (разбор 30.08.2026).
-   *
-   * OTHER — это карточка, которую CRM намеренно держит вне раздачи: аренда,
-   * работа, чужой город, реклама конкурентов (см. services/leads/intake.ts).
-   * Ручное назначение этого не проверяло вовсе и было прямой дверью мимо
-   * правила: два клика — и электрик у агента в портфеле, вместе с лимитом,
-   * таймером принятия и KPI.
-   *
-   * Отказ с ВИДИМЫМ ТЕКСТОМ причины, а не молча: руководителю надо сказать, что
-   * делать дальше — сменить тип карточки, если человек всё-таки покупатель.
-   */
-  if (client.kind === "OTHER") {
-    return res.status(400).json({
-      error:
-        "Это «прочее обращение» (аренда, работа, другой город и т.п.) — агентам такие карточки не раздаются. " +
-        "Если человек всё-таки покупатель или продавец, сначала смените тип клиента в карточке.",
-    });
-  }
-
-  // Получатель (B13, решение владельца 02.10.2026): отключённому или
-  // замороженному — нельзя, с понятной причиной; не агенту (директору) — можно,
-  // экран предупреждает перед нажатием (lib/manualAssignTarget.ts).
-  const [checked, supervisor] = await Promise.all([
-    checkManualAssignTarget(agentId),
-    prisma.agent.findUnique({ where: { id: req.agent!.id }, select: { fullName: true } }),
-  ]);
-  if (!checked.ok) {
-    return res.status(checked.status).json({ error: checked.error });
-  }
-  const target = checked.agent;
-
-  const now = new Date();
-  /**
-   * ЗАХВАТ ПО СНИМКУ СОСТОЯНИЯ, А НЕ БЕЗУСЛОВНАЯ ЗАПИСЬ (найдено 07.09.2026 —
-   * жалоба владельца: лид, уже принятый Нозой, «сам» уехал другому агенту).
-   *
-   * Этот маршрут — единственная точка приёма/переназначения лида во всём CRM,
-   * которая писала update() без проверки, что клиент за время между открытием
-   * карточки (или устаревшим пуш-уведомлением) и нажатием кнопки не изменился.
-   * Остальные точки (acceptLead, claimLead в reassignStaleLeads, /claim-pool)
-   * все используют conditional updateMany по снимку — тут его не было вовсе.
-   * Сценарий: руководитель А уже разобрал эскалацию и назначил лид Нозе, она
-   * приняла; руководитель Б — с ещё не погашенным (баг рядом) уведомлением или
-   * просто с открытой старой вкладкой — жмёт «Взять себе»/«Назначить», и
-   * прежний код молча переписывал assignedAgentId поверх уже принятого лида.
-   * where сверяет ровно те три поля, что определяют «эта заявка ещё в том
-   * состоянии, которое видел разбирающий» — count=0 значит гонка, ответ 409.
-   */
-  const toSelf = agentId === req.agent!.id;
-  const assignReason =
-    accept || toSelf
-      ? `${supervisor?.fullName ?? "Руководитель"} забрал(а) заявку себе и принял(а) её`
-      : `${supervisor?.fullName ?? "Руководитель"} вручную назначил(а) заявку агенту ${target.fullName} — принята автоматически`;
-  const claimResult = await changeClientAgent({
-    clientId: client.id,
-    toAgentId: agentId,
-    reason: assignReason,
-    actorId: req.agent!.id,
-    source: "lifecycle.assign",
-    guardWhere: {
-      assignedAgentId: client.assignedAgentId,
-      acceptedAt: client.acceptedAt,
-      escalatedAt: client.escalatedAt,
-      assignmentRefusedAt: client.assignmentRefusedAt,
-      assignmentCompletedAt: client.assignmentCompletedAt,
-    },
-    // Свежий старт: новый агент, обнулённый счётчик кругов, снятая эскалация.
-    // Принято сразу — и «Взять себе», и назначение другому (см. шапку маршрута).
-    data: {
-      assignedAt: now,
-      reassignCount: 0,
-      triedAgentIds: [],
-      escalatedAt: null,
-      acceptedAt: now,
-      // Причина «почему лид ваш» — назначил руководитель, а не очередь или объект.
-      // Пометки «свой объект» снимаются: решение руководителя их отменяет, иначе
-      // на новом агенте лид пошёл бы по ветке «напоминание хозяину объекта».
-      ...(toSelf ? {} : { assignReason: SUPERVISOR_ASSIGN_REASON }),
-      ownPropertyLead: false,
-      ownPropertyReminderSentAt: null,
-      /**
-       * СНИМАЕМ ЗАМОРОЗКУ (найдено 20.08.2026 на живом случае: руководитель
-       * разобрал эскалацию и назначил агента, агент два дня реально вёл
-       * клиента, а карточка так и провисела LOST — звонок клиента продолжал
-       * падать мимо нового агента в очередь, потому что inboundRouting.ts не
-       * переводит LOST/INACTIVE напрямую, см. decideRoute). Разбор эскалации —
-       * это и есть решение «клиент снова в работе»: не переносить его на
-       * статус означало бы, что назначение выглядит сделанным, а на самом
-       * деле продолжает мешать маршрутизации и лимиту лидов агента.
-       * Набор сбрасываемых полей — общий с lib/clientLifecycle.ts (B3).
-       */
-      ...reactivationResetData(client),
-    },
+  // Проверки, условная запись через changeClientAgent и всё, что после неё
+  // (пуши, живые события, AuditLog LEAD_ASSIGN), — в lib/assignClientManually.ts:
+  // ту же функцию зовёт ИИ-помощник (change_client_agent), копий нет.
+  const outcome = await assignClientManually({
+    clientId: req.params.id,
+    toAgentId: parsed.data.agentId,
+    accept: parsed.data.accept,
+    actor: { id: req.agent!.id, role: req.agent?.role },
   });
-  const claimed = claimResult.ok;
-
-  if (!claimed) {
-    if (claimResult.reason === "deleted") {
-      return res.status(409).json({ error: "Клиент перемещён в Корзину, пока вы смотрели карточку — назначить его нельзя." });
-    }
-    // ОТКРЫТАЯ СДЕЛКА (ночная проверка 24.09.2026, находка №208/С2-4): смена
-    // владельца заблокирована в changeClientAgent — см. комментарий там.
-    if (claimResult.reason === "open_deal") {
-      return res.status(409).json({ error: "У клиента открытая сделка — сначала закройте или отмените её." });
-    }
-    const current = await prisma.client.findUnique({
-      where: { id: client.id },
-      select: { acceptedAt: true, assignedAgent: { select: { fullName: true } } },
-    });
-    return res.status(409).json({
-      error: current?.assignedAgent
-        ? `Заявку уже разобрали, пока вы смотрели карточку — сейчас она у ${current.assignedAgent.fullName}${current.acceptedAt ? " (принята)" : ""}. Обновите страницу.`
-        : "Заявку уже разобрали, пока вы смотрели карточку — обновите страницу.",
-    });
-  }
-  const updated = await prisma.client.findUnique({ where: { id: client.id } });
-
-  logAudit(req, "LEAD_ASSIGN", "Client", client.id, {
-    shortId: client.shortId,
-    fullName: client.fullName,
-    toAgentId: agentId,
-    toAgentName: target.fullName,
-    accepted: true,
-    previousAgentId: client.assignedAgentId,
-  });
-
-  // Назначенному агенту нужен push — его никто не спрашивал, лид «прилетел» вручную.
-  // kind "lead" — та же строка ложится в колокольчик, и агент увидит её и без
-  // подписки на уведомления. Спутники смены владельца (задачи, заявки, пуши
-  // прежнего) закрывает сам changeClientAgent.
-  if (!toSelf) {
-    sendPushToAgent(agentId, {
-      kind: "lead",
-      title: "📌 Вам назначили клиента",
-      body: `${supervisor?.fullName ?? "Руководитель"} назначил(а) вам ${client.fullName} — заявка уже ваша, позвоните клиенту`,
-      url: `/clients/${client.shortId}`,
-      tag: `lead-${client.id}`,
-    }).catch((err) => console.error("[push] ручное назначение лида:", err));
-  }
-  publishLeadAccepted(client.id, agentId);
-  // Прежний держатель заявки (если был и это не тот же агент) не должен видеть
-  // у себя в шторке «🔔 Новый лид» по карточке, которую руководитель только что
-  // забрал/передал дальше — владелец 19.08.2026.
-  if (client.assignedAgentId && client.assignedAgentId !== agentId) {
-    closeLeadPushNotification(client.assignedAgentId, `lead-${client.id}`).catch((err) =>
-      console.error("[push] закрытие уведомления после ручного назначения:", err)
-    );
-  }
-  // Руководитель только что вручную решил вопрос назначения — у ОСТАЛЬНЫХ
-  // руководителей ни один из «требует внимания» пушей по этой карточке больше
-  // не актуален (владелец 19.08.2026 завёл первые два; шесть остальных
-  // добавлены 07.09.2026 — та же дыра, что и стёртый лид Нозы: рассылка всем
-  // руководителям, а закрытие — только тому, кто разобрал вопрос, или не было
-  // вовсе). lead-unassigned-*/repeat-contact-*/lead-call-escalated-* — три
-  // разных повода, у которых один и тот же способ решения: назначить агента
-  // вручную, то есть именно этот маршрут.
-  void (async () => {
-    const supervisors = await findAgentsWithPermission("clients.assign");
-    await closeLeadPushNotifications(
-      supervisors.flatMap((id) => [
-        { agentId: id, tag: `transfer-pending-${client.id}` },
-        { agentId: id, tag: `transfer-exhausted-${client.id}` },
-        { agentId: id, tag: `lead-escalated-${client.id}` },
-        { agentId: id, tag: `refusal-escalated-${client.id}` },
-        { agentId: id, tag: `transfer-conflict-${client.id}` },
-        { agentId: id, tag: `lead-unassigned-${client.id}` },
-        { agentId: id, tag: `repeat-contact-${client.id}` },
-        { agentId: id, tag: `lead-call-escalated-${client.id}` },
-      ])
-    );
-  })().catch((err) => console.error("[push] закрытие эскалаций после назначения:", err));
-
-  // Надзор назначил лид вручную: списки и окно приёма протухли у назначенного.
-  publishClientUpdated({ clientId: client.id, agentIds: [updated?.assignedAgentId], actorId: req.agent!.id });
-
-  res.json(presentClient(updated!, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), investigationViewerRole(req)));
+  if (!outcome.ok) return res.status(outcome.status).json({ error: outcome.error });
+  res.json(presentClient(outcome.client, can(req, "clients.viewPhone"), can(req, "clients.viewOrigin"), investigationViewerRole(req)));
 });
 
 // POST /:id/claim-pool УДАЛЁН ЦЕЛИКОМ (17.09.2026, закон о владении клиентом
