@@ -10651,3 +10651,58 @@ model SomonContactReceipt {
   advertId  String   @unique
   createdAt DateTime @default(now())
 }
+
+/// Статус действия ИИ-помощника, требующего подтверждения (lib/assistantActions.ts).
+enum AssistantActionStatus {
+  PENDING
+  CONFIRMED
+  EXECUTED
+  FAILED
+  CANCELLED
+  EXPIRED
+  UNDONE
+}
+
+/// Действие ИИ-помощника уровня C: «было → станет» показано, ждёт явного
+/// «Подтвердить» (docs/design/internal-assistant-architecture-2026-10-31.md, 2.3).
+/// Брокер — lib/assistantActions.ts; чистка — jobs/assistantActionsSweep.ts.
+///
+/// agentId БЕЗ внешнего ключа на Agent намеренно: миграция только создаёт новую
+/// таблицу и не берёт блокировок на существующие (ни FK, ни обратного поля в
+/// модели Agent). Сотрудников не удаляют, а гасят; строка без хозяина просто
+/// никому не подтверждается.
+///
+/// idempotencyKey занят, пока действие «живое» (PENDING/CONFIRMED), и
+/// обнуляется на любом выходе из него: NULL в уникальном индексе Postgres не
+/// конфликтует, поэтому та же просьба после отмены/истечения/отката снова
+/// заводит новое действие, а двойной вызов инструмента — нет.
+model AssistantAction {
+  id             String                @id @default(uuid())
+  agentId        String
+  channel        String                @default("crm")
+  tool           String
+  args           Json
+  argsHash       String
+  /// {title, was, becomes, risk?, irreversible?} — то, что видел сотрудник.
+  preview        Json
+  /// Снимок затронутых полей ДО исполнения; на confirm сверяется с текущим.
+  snapshotBefore Json
+  /// Снимок ПОСЛЕ исполнения; на undo сверяется с текущим.
+  snapshotAfter  Json?
+  status         AssistantActionStatus @default(PENDING)
+  /// Почему действие ушло в FAILED/CANCELLED (текст для журнала, не для клиента).
+  statusReason   String?
+  idempotencyKey String?               @unique
+  expiresAt      DateTime
+  confirmedAt    DateTime?
+  executedAt     DateTime?
+  result         Json?
+  /// Захват отката: ставится атомарно, чтобы двойное «Отменить» откатило один раз.
+  undoClaimedAt  DateTime?
+  undoneAt       DateTime?
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+
+  @@index([agentId, createdAt])
+  @@index([status, expiresAt])
+}

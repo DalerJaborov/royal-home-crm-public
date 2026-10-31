@@ -1,10 +1,10 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 722,
-  "forks": 3996,
+  "endpoints": 725,
+  "forks": 4007,
   "mounts": 79,
-  "cron": 115,
+  "cron": 116,
   "jobs": 31,
   "hidden": 0
  },
@@ -4996,6 +4996,345 @@
       "ответ 200"
      ],
      "c": []
+    }
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "/assistant/actions/:id/cancel",
+   "mount": "/api/v1/ai",
+   "full": "/api/v1/ai/assistant/actions/:id/cancel",
+   "file": "apps/api/src/routes/ai.ts",
+   "router": "aiRouter",
+   "top": "apps/api/src/routes/ai.ts::aiRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "предел частоты запросов"
+   ],
+   "handlerRef": "assistantActionRoute(cancelAssistantAction) — раскрыто по коду функции assistantActionRoute()",
+   "tree": [
+    {
+     "k": "do",
+     "t": "return async (req: Request<{ id: string }>, res: Response)",
+     "a": [
+      "ответ 403 — «ИИ-ассистент выключен в Настройках»",
+      "пробрасывает ошибку дальше",
+      "проверяет данные схемой assistantActionParamsSchema"
+     ],
+     "c": [
+      {
+       "k": "if",
+       "t": "!(await isAiAssistantEnabled())",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(403).json({ error: \"ИИ-ассистент выключен в Настройках\" });",
+         "a": [
+          "ответ 403 — «ИИ-ассистент выключен в Настройках»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const params = assistantActionParamsSchema.safeParse(req.params);",
+       "a": [
+        "проверяет данные схемой assistantActionParamsSchema"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!params.success",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(400).json({ error: \"Неверный идентификатор действия\", details: params.error.flatten() });",
+         "a": [
+          "ответ 400 — «Неверный идентификатор действия»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "try",
+       "t": "пробует",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.json(outcome);",
+         "a": [
+          "ответ 200"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "catch",
+       "t": "если сорвалось",
+       "a": [],
+       "c": [
+        {
+         "k": "if",
+         "t": "err instanceof AssistantActionError",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return res.status(err.status).json({ error: err.message, code: err.code, ...err.extra });",
+           "a": [
+            "ответ (код зависит от условия)"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "throw err;",
+         "a": [
+          "пробрасывает ошибку дальше"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "/assistant/actions/:id/confirm",
+   "mount": "/api/v1/ai",
+   "full": "/api/v1/ai/assistant/actions/:id/confirm",
+   "file": "apps/api/src/routes/ai.ts",
+   "router": "aiRouter",
+   "top": "apps/api/src/routes/ai.ts::aiRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "предел частоты запросов"
+   ],
+   "handlerRef": "assistantActionRoute(confirmAssistantAction) — раскрыто по коду функции assistantActionRoute()",
+   "tree": [
+    {
+     "k": "do",
+     "t": "return async (req: Request<{ id: string }>, res: Response)",
+     "a": [
+      "ответ 403 — «ИИ-ассистент выключен в Настройках»",
+      "пробрасывает ошибку дальше",
+      "проверяет данные схемой assistantActionParamsSchema"
+     ],
+     "c": [
+      {
+       "k": "if",
+       "t": "!(await isAiAssistantEnabled())",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(403).json({ error: \"ИИ-ассистент выключен в Настройках\" });",
+         "a": [
+          "ответ 403 — «ИИ-ассистент выключен в Настройках»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const params = assistantActionParamsSchema.safeParse(req.params);",
+       "a": [
+        "проверяет данные схемой assistantActionParamsSchema"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!params.success",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(400).json({ error: \"Неверный идентификатор действия\", details: params.error.flatten() });",
+         "a": [
+          "ответ 400 — «Неверный идентификатор действия»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "try",
+       "t": "пробует",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.json(outcome);",
+         "a": [
+          "ответ 200"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "catch",
+       "t": "если сорвалось",
+       "a": [],
+       "c": [
+        {
+         "k": "if",
+         "t": "err instanceof AssistantActionError",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return res.status(err.status).json({ error: err.message, code: err.code, ...err.extra });",
+           "a": [
+            "ответ (код зависит от условия)"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "throw err;",
+         "a": [
+          "пробрасывает ошибку дальше"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "/assistant/actions/:id/undo",
+   "mount": "/api/v1/ai",
+   "full": "/api/v1/ai/assistant/actions/:id/undo",
+   "file": "apps/api/src/routes/ai.ts",
+   "router": "aiRouter",
+   "top": "apps/api/src/routes/ai.ts::aiRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "предел частоты запросов"
+   ],
+   "handlerRef": "assistantActionRoute(undoAssistantAction) — раскрыто по коду функции assistantActionRoute()",
+   "tree": [
+    {
+     "k": "do",
+     "t": "return async (req: Request<{ id: string }>, res: Response)",
+     "a": [
+      "ответ 403 — «ИИ-ассистент выключен в Настройках»",
+      "пробрасывает ошибку дальше",
+      "проверяет данные схемой assistantActionParamsSchema"
+     ],
+     "c": [
+      {
+       "k": "if",
+       "t": "!(await isAiAssistantEnabled())",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(403).json({ error: \"ИИ-ассистент выключен в Настройках\" });",
+         "a": [
+          "ответ 403 — «ИИ-ассистент выключен в Настройках»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const params = assistantActionParamsSchema.safeParse(req.params);",
+       "a": [
+        "проверяет данные схемой assistantActionParamsSchema"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!params.success",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(400).json({ error: \"Неверный идентификатор действия\", details: params.error.flatten() });",
+         "a": [
+          "ответ 400 — «Неверный идентификатор действия»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "try",
+       "t": "пробует",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.json(outcome);",
+         "a": [
+          "ответ 200"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "catch",
+       "t": "если сорвалось",
+       "a": [],
+       "c": [
+        {
+         "k": "if",
+         "t": "err instanceof AssistantActionError",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return res.status(err.status).json({ error: err.message, code: err.code, ...err.extra });",
+           "a": [
+            "ответ (код зависит от условия)"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "throw err;",
+         "a": [
+          "пробрасывает ошибку дальше"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
     }
    ]
   },
@@ -87696,6 +88035,117 @@
       }
      ],
      "from": "runNewOwnerVerificationTick() — apps/api/src/lib/sellerProbeCall.ts"
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
+   "id": "assistant-actions-sweep",
+   "when": "35 * * * *",
+   "tree": [
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const { expired, stuckFailed, deleted } = await runAssistantActionsSweep();",
+       "a": [
+        "зовёт runAssistantActionsSweep()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const expired = await prisma.assistantAction.updateMany({ where: { status: \"PENDING\", expiresAt: { lte: now }…",
+         "a": [
+          "меняет в базе: assistantAction"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "const stuck = await prisma.assistantAction.updateMany({ where: { status: \"CONFIRMED\", confirmedAt: { lte: new…",
+         "a": [
+          "меняет в базе: assistantAction"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "stuck.count > 0",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "await logSystemError( \"ai\", `Помощник: ${stuck.count} подтверждённых действий не завершились — проверьте вруч…",
+           "a": [
+            "запись в журнал ошибок"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const deleted = await prisma.assistantAction.deleteMany({ where: { status: \"EXPIRED\", expiresAt: { lt: new Da…",
+         "a": [
+          "удаляет в базе: assistantAction"
+         ],
+         "c": []
+        }
+       ],
+       "from": "runAssistantActionsSweep() — apps/api/src/jobs/assistantActionsSweep.ts"
+      },
+      {
+       "k": "if",
+       "t": "expired > 0 || stuckFailed > 0 || deleted > 0",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "console.log(`[cron] Действия помощника: истекло ${expired}, прервано ${stuckFailed}, удалено ${deleted}`);",
+         "a": [
+          "пишет строку в журнал сервера"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "reportCronTickError(\"Ошибка чистки действий ИИ-помощника\", err);",
+       "a": [
+        "зовёт reportCronTickError()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const reason = markCronTickFailed(label, err);",
+         "a": [
+          "зовёт markCronTickFailed()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        }
+       ],
+       "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
+      }
+     ]
     }
    ],
    "file": "apps/api/src/cron.ts"

@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **722**. Развилок в самих путях: **2566**; вместе с задачами по расписанию и фоновыми заданиями — **3996**. Модулей: **79**.
+Путей: **725**. Развилок в самих путях: **2575**; вместе с задачами по расписанию и фоновыми заданиями — **4007**. Модулей: **79**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -1209,6 +1209,24 @@
   · читает в базе: client
 - res.json({ items: rows.map((r)
   · ответ 200
+
+### POST /api/v1/ai/assistant/actions/:id/cancel
+
+`apps/api/src/routes/ai.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, предел частоты запросов
+
+- обработчик вынесен: `assistantActionRoute(cancelAssistantAction) — раскрыто по коду функции assistantActionRoute()`
+
+### POST /api/v1/ai/assistant/actions/:id/confirm
+
+`apps/api/src/routes/ai.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, предел частоты запросов
+
+- обработчик вынесен: `assistantActionRoute(confirmAssistantAction) — раскрыто по коду функции assistantActionRoute()`
+
+### POST /api/v1/ai/assistant/actions/:id/undo
+
+`apps/api/src/routes/ai.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, предел частоты запросов
+
+- обработчик вынесен: `assistantActionRoute(undoAssistantAction) — раскрыто по коду функции assistantActionRoute()`
 
 ### POST /api/v1/ai/assistant
 
@@ -19673,6 +19691,31 @@
     - если outcome !== 'skipped'
       - return outcome === 'started' ? 1 : 0;
         · дословно из кода
+
+### assistant-actions-sweep — 35 * * * *
+
+- пробует
+  - const { expired, stuckFailed, deleted } = await runAssistantActionsSweep();
+    · зовёт runAssistantActionsSweep()
+    - const expired = await prisma.assistantAction.updateMany({ where: { status: "PENDING", expiresAt: { lte: now }…
+      · меняет в базе: assistantAction
+    - const stuck = await prisma.assistantAction.updateMany({ where: { status: "CONFIRMED", confirmedAt: { lte: new…
+      · меняет в базе: assistantAction
+    - если stuck.count > 0
+      - await logSystemError( "ai", `Помощник: ${stuck.count} подтверждённых действий не завершились — проверьте вруч…
+        · запись в журнал ошибок
+    - const deleted = await prisma.assistantAction.deleteMany({ where: { status: "EXPIRED", expiresAt: { lt: new Da…
+      · удаляет в базе: assistantAction
+  - если expired > 0 || stuckFailed > 0 || deleted > 0
+    - console.log(`[cron] Действия помощника: истекло ${expired}, прервано ${stuckFailed}, удалено ${deleted}`);
+      · пишет строку в журнал сервера
+- если сорвалось
+  - reportCronTickError("Ошибка чистки действий ИИ-помощника", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
 
 ### background-jobs — * * * * *
 
