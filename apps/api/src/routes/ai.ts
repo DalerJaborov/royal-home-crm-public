@@ -16,6 +16,7 @@ import { scoreClient } from "../ai/scoring.js";
 import { buildCardFillSuggestion } from "../ai/cardFill.js";
 import { buildPropertyDraftSuggestion } from "../ai/propertyDraft.js";
 import { ASSISTANT_ERROR_MESSAGES, isAiAssistantEnabled, runAssistantDetailed } from "../ai/assistant.js";
+import { actorFromAccess } from "../ai/assistant/actor.js";
 import { tryAssistantFastPath } from "../ai/assistantFastPath.js";
 import { logAssistantToolCall } from "../lib/aiAssistantAudit.js";
 import { formatPrice, stripDashes } from "../ai/seoGenerator.js";
@@ -116,20 +117,9 @@ aiRouter.post("/assistant", requireAuth, assistantLimiter, async (req, res) => {
     if (!res.writableFinished) clientGone.abort();
   });
 
-  const actor = {
-    id: req.agent!.id,
-    role: req.agent!.role,
-    canViewAllClients: req.agent!.can("clients.viewAll"),
-    // Ассистент ходит в базу под правами вызвавшего — включая право на телефон.
-    canViewPhone: req.agent!.can("clients.viewPhone"),
-    // Те же права, что закрывают REST /reports и /expenses — get_lead_sources и
-    // get_finance_summary обязаны отказывать ровно тем же, кому отказывает интерфейс.
-    canViewReports: req.agent!.can("reports.view"),
-    canViewFinance: req.agent!.can("finance.view"),
-    // Сделки — своим правом (deals.viewAll), а не правом на клиентов: на экране
-    // «Сделки» их скоупит именно оно (scopeDealsToOwnAgent).
-    canViewAllDeals: req.agent!.can("deals.viewAll"),
-  };
+  // Помощник ходит в базу под правами вызвавшего — тот же разбор прав, что у
+  // requireAuth, одной функцией (ai/assistant/actor.ts, задача 2.1).
+  const actor = actorFromAccess(req.agent!.id, req.agent!);
 
   try {
     // Полоса А (ai/assistantFastPath.ts): номер карточки, телефон или ссылка Instagram

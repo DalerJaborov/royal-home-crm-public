@@ -24,7 +24,9 @@ function touchLastSeen(agentId: string) {
   prisma.agent.update({ where: { id: agentId }, data: { lastSeenAt: new Date() } }).catch(() => {});
 }
 
-interface AgentAccess {
+/** Вывезен (31.10.2026): по нему же ИИ-помощник строит своего «актора»
+ *  (ai/assistant/actor.ts, actorFromAccess) — один разбор прав на всю CRM. */
+export interface AgentAccess {
   role: Role;
   isActive: boolean;
   permissions: Set<PermissionId>;
