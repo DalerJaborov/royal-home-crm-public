@@ -164,6 +164,16 @@ export function geminiGenerateUrlFor(model: string): string {
   return geminiUrl(`/v1beta/models/${model}:generateContent`);
 }
 
+/**
+ * Адрес ПОТОКОВОЙ генерации (помощник CRM, задача 1.6): тот же путь модели, метод
+ * `:streamGenerateContent`, `alt=sse` — ответ строками `data: <GenerateContentResponse>`.
+ * Без `alt=sse` Google отдаёт тот же поток одним JSON-массивом; разбор в
+ * ai/geminiStream.ts понимает оба вида (на случай прокси, теряющего строку запроса).
+ */
+export function geminiStreamUrlFor(model: string): string {
+  return geminiUrl(`/v1beta/models/${model}:streamGenerateContent?alt=sse`);
+}
+
 /** Адрес генерации для модели по умолчанию — самый частый случай из всех. */
 export function geminiGenerateUrl(): string {
   return geminiGenerateUrlFor(GEMINI_MODEL);

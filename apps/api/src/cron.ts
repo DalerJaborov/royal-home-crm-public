@@ -4,6 +4,7 @@ import { runAbsenceReturnTick } from "./lib/absenceReturn.js";
 import { cleanupBotTurnTraces } from "./lib/botTurnTraceStore.js";
 import { runSocialVideoScheduleTick } from "./lib/socialVideoPosts.js";
 import { runBackgroundJobsTick, runCustomerJobsTick } from "./jobs/runner.js";
+import { runAssistantActionsSweep } from "./jobs/assistantActionsSweep.js";
 import { enqueueBackgroundJob } from "./jobs/enqueue.js";
 import { AI_REPLY_RETRY_MAX_ATTEMPTS } from "./jobs/aiReplyRetryPolicy.js";
 import { scoreAllActiveClients } from "./ai/scoring.js";
@@ -2215,6 +2216,22 @@ export function startCronJobs() {
       if (alerted > 0) console.log(`[cron] Аларм «монтаж завис»: ${alerted}`);
     } catch (err) {
       reportCronTickError("Ошибка аларма «монтаж завис»", err);
+    }
+  });
+
+  /**
+   * ДЕЙСТВИЯ ИИ-ПОМОЩНИКА (П2, 2.6): истёкшие «ждёт подтверждения» → EXPIRED,
+   * зависшие посреди исполнения → FAILED с записью в журнал, EXPIRED старше
+   * 7 дней удаляются. Логика и тест — jobs/assistantActionsSweep.ts.
+   */
+  scheduleTracked("assistant-actions-sweep", "35 * * * *", async () => {
+    try {
+      const { expired, stuckFailed, deleted } = await runAssistantActionsSweep();
+      if (expired > 0 || stuckFailed > 0 || deleted > 0) {
+        console.log(`[cron] Действия помощника: истекло ${expired}, прервано ${stuckFailed}, удалено ${deleted}`);
+      }
+    } catch (err) {
+      reportCronTickError("Ошибка чистки действий ИИ-помощника", err);
     }
   });
 
