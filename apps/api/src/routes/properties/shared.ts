@@ -9,13 +9,13 @@ import {
   PROPERTY_EDIT_LOCKED_CODE,
   PROPERTY_EDIT_LOCKED_MESSAGE,
   PROPERTY_EDIT_LOCKED_REASON_PUBLISHED,
-  PROPERTY_PUBLISHED_ACTION_DENIED_MESSAGE,
   foldTajikLetters,
   propertyEditLocked,
   transliterateLatin,
   SALES_AGENT_ROLES,
 } from "@royal-home/shared";
 import { can } from "../../auth/middleware.js";
+import { canManagePropertyAs, publishedActionDeniedReasonAs } from "../../lib/propertyAccess.js";
 import { enqueueBackgroundJob } from "../../jobs/enqueue.js";
 import { GEOCODE_MAX_ATTEMPTS } from "../../jobs/geocode.js";
 import { prisma } from "../../db.js";
@@ -185,11 +185,8 @@ export function canManageProperty(
   property: { assignedAgentId?: string | null; intakeAgentId?: string | null; createdById?: string | null }
 ): boolean {
   if (!req.agent) return false;
-  // «Руководитель» теперь определяется правом видеть все объекты, а не ролью:
-  // так объекты коллег можно открыть конкретному сотруднику галочкой — или,
-  // наоборот, закрыть менеджеру, не трогая остальных.
-  if (can(req, "properties.editForeign")) return true;
-  return [property.assignedAgentId, property.intakeAgentId, property.createdById].includes(req.agent.id);
+  // Само правило — lib/propertyAccess.ts (одно на REST и на ИИ-помощника).
+  return canManagePropertyAs({ agentId: req.agent.id, can: (permission) => can(req, permission) }, property);
 }
 
 /**
@@ -255,7 +252,7 @@ export function publishedActionDeniedReason(
   req: Request,
   property: { status: string; offSite?: boolean | null }
 ): string | null {
-  return propertyEditLocked(property, can(req, "properties.editForeign")) ? PROPERTY_PUBLISHED_ACTION_DENIED_MESSAGE : null;
+  return publishedActionDeniedReasonAs({ agentId: req.agent?.id ?? "", can: (permission) => can(req, permission) }, property);
 }
 
 /**

@@ -44,6 +44,11 @@ export async function lockShowingTx(tx: TxClient, clientId: string, interactionI
 }
 export type LockedShowing = Awaited<ReturnType<typeof lockShowingTx>>;
 
+/** Условие «показ всё ещё на то время, что видел человек». Без `expected` — прежнее поведение. */
+function assertExpectedShowingAt(current: { nextActionDate: Date | null }, expected: Date | undefined): void {
+  if (expected && current.nextActionDate?.getTime() !== expected.getTime()) throw new ShowingMutationError("stale_showing");
+}
+
 export async function createShowingTx(tx: TxClient, input: {
   clientId: string; propertyId: string; at: Date; now: Date; notes: string;
   actor: { kind: "agent"; agentId: string } | { kind: "bot"; channel?: string };
@@ -68,6 +73,9 @@ export async function createShowingTx(tx: TxClient, input: {
 export async function rescheduleShowingTx(tx: TxClient, input: {
   clientId: string; interactionId: string; at: Date; now: Date; propertyId?: string;
   meetingSummaryAfterShowingMinutes: number; actorKind: "agent" | "client";
+  /** Условная запись (ИИ-помощник, 31.10.2026): время показа, каким его видел человек на
+   *  подтверждении. Под блокировкой строки не совпало — «stale_showing», ничего не пишется. */
+  expectedAt?: Date;
   /** Pure formatting only: receives the locked row, never stale preflight notes. */
   notes: (current: LockedShowing) => string;
 }) {
@@ -79,6 +87,7 @@ export async function rescheduleShowingTx(tx: TxClient, input: {
   await lockShowingPropertiesTx(tx, [before.propertyId, input.propertyId]);
   const current = await lockShowingTx(tx, input.clientId, input.interactionId);
   if (current.propertyId !== before.propertyId) throw new ShowingMutationError("stale_showing");
+  assertExpectedShowingAt(current, input.expectedAt);
   const moved = !!input.propertyId && current.propertyId !== input.propertyId;
   if (moved) {
     const property = await tx.property.findUnique({ where: { id: input.propertyId }, select: { status: true, deletedAt: true } });
@@ -103,10 +112,13 @@ export async function rescheduleShowingTx(tx: TxClient, input: {
 
 export async function cancelShowingTx(tx: TxClient, input: {
   clientId: string; interactionId: string; now: Date; actorKind: "agent" | "client";
+  /** См. rescheduleShowingTx: условная отмена для ИИ-помощника. */
+  expectedAt?: Date;
   notes: (current: LockedShowing) => string;
   followUp?: { actor: TimelineActor; notes: string };
 }) {
   const current = await lockShowingTx(tx, input.clientId, input.interactionId);
+  assertExpectedShowingAt(current, input.expectedAt);
   await tx.interaction.update({ where: { id: current.id }, data: { nextAction: null, declinedAt: input.now, notes: input.notes(current) } });
   if (current.nextActionDate && input.now > current.nextActionDate) {
     const client = await tx.client.findUniqueOrThrow({ where: { id: input.clientId }, select: { assignedAt: true, assignedAgentId: true } });

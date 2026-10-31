@@ -314,6 +314,10 @@ describe("AiAssistantAuditLog — одна точка записи на все �
     const rows = await prisma.aiAssistantAuditLog.findMany({ where: { agentId: agentAId }, orderBy: { createdAt: "asc" } });
     const last = rows[rows.length - 1];
     expect(last.tool).toBe("search_clients");
-    expect(last.argsSummary).toContain(String(runId));
+    // Строка поиска в журнале — под маской телефона (ревью П3, п.8): длинный ряд цифр
+    // похож на номер, поэтому виден только хвост; сам вызов при этом опознаётся.
+    expect(last.argsSummary).toContain('"q"');
+    expect(last.argsSummary).toContain(String(runId).slice(-2));
+    expect(last.argsSummary).not.toContain(String(runId));
   });
 });

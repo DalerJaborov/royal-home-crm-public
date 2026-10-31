@@ -16,6 +16,7 @@ import {
   HANDOFF_DISPATCH_BUSY_WINDOW_MS,
 } from "../lib/videoHandoff.js";
 import { logAudit } from "../lib/audit.js";
+import { hasMarketingRole } from "../lib/marketingRole.js";
 import { HAS_INSTAGRAM_LINK_WHERE } from "../lib/instagramLink.js";
 import { PROPERTY_LIST_INCLUDE, presentPropertyListItems, type PropertyListRecord } from "../lib/propertyListItem.js";
 import {
@@ -86,9 +87,7 @@ import { parseTelegramChatIds } from "../lib/telegramChats.js";
  *  с removeFromSocial:true (routes/properties/videos.ts) применяет её условно,
  *  только когда поле передано, — обычному requireMarketingRole как middleware
  *  этого не сделать, а вторая копия списка ролей разошлась бы с этой. */
-export function hasMarketingRole(role: string | undefined): boolean {
-  return role === "MARKETING" || role === "DIRECTOR" || role === "ADMIN";
-}
+export { hasMarketingRole };
 
 /** Экспортирована (17.09.2026): TikTok (routes/tiktok.ts) использует те же права,
  *  что кабинет маркетинга — общий helper, а не вторая копия проверки роли. */
