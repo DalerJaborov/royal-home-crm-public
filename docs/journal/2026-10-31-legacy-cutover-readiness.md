@@ -1,67 +1,54 @@
-# 31.10.2026 — перевод клиентов LEGACY на ядро: допуск готов, смена полосы упёрлась в миграцию
+# 31.10.2026 — перевод клиентов LEGACY на ядро (поколение назначения)
 
 Решение владельца 31.10: «переводи старых клиентов на ядро». Пачка P10.
+Затем неделя наблюдения и удаление старого движка для IG/WA/FB (не здесь; Telegram не трогается).
 
-## Что выяснено (разведка)
+## Почему понадобилась миграция
 
-- Полоса живёт в `CustomerAgentRolloutAssignment`: одна строка на субъекта
-  (unique `surface+endpointScopeId+subjectKey`) и **неизменяемая** — триггер
-  `customer_rollout_assignment_immutable` (миграция `20261015012000`) отвергает любой UPDATE.
-  Вторую строку на того же субъекта не вставить из-за unique. Оба факта закреплены тестом.
-- Билеты ядра обязаны ссылаться на назначение с `lane='CORE'`: триггер
-  `customer_rollout_ticket_source` (LEGACY-назначение запрещает `intakeAgentRevisionId`),
-  приём контакта и мост новой заявки (`customerActionJournal.ts` ~:361,
-  `customerNewLeadBridge.ts` ~:158) ищут `a."lane"='CORE'`. Перевод «в обход» назначения
-  (билет без `rolloutAssignmentId`) потерял бы создание лида — неприемлемо.
-- Где читается полоса: `customerAgentEnrollment.ts` (`assignment()`, `fromAssignment`,
-  `readCustomerDmSubjectExecution`, `readCustomerDmSourceExecution`), `customerAgentIngressRouting.ts`
-  (единственная транзакция выбора полосы для нового входящего), `customerIngressProducer.ts`,
-  `customerIngressRecovery.ts`, `customerQualifierContext.ts:37`, `messengers/conversation.ts:1988`,
-  `routes/webhooks.ts` ~:1701 и ~:2026, `customerPropertyAdmission.ts:70`, `customerAgentRevisionAdvance.ts`
-  (родословная по назначению), `customerAgentOwnerPolicy.ts` (счётчики).
-- Ручной режим: `BotConversation.pausedUntil` (оператор/сдача повтора), `propertyChatAgentId`,
-  `spamFlaggedAt`, `CustomerInquiry.ownerMode='HUMAN'`, `closedAt`.
-- Незавершённая работа: `pendingSince`/`pendingMessages`/`pendingAttachments` (дебаунс),
-  `BackgroundJob` PENDING/RUNNING с `payload.conversationId` (`ai-reply-retry` и др.),
-  `CustomerOutboxPart` READY/IN_FLIGHT, билеты RECEIVED/CLAIMED.
-- История для ядра: `customerAgentVerifiedContext` строит окно только из билетов с
-  зашифрованным исходным FINAL и принятых частей ядра той же ревизии. Перенос реплик
-  `BotConversation.messages` (там же ответы старого движка и сотрудников) ломает эту
-  модель доверия — слишком широко, к тому же файл в зоне P3. Перевод — без истории.
+`CustomerAgentRolloutAssignment` был одной неизменяемой строкой на субъекта (триггер
+`customer_rollout_assignment_immutable`, unique `surface+endpointScopeId+subjectKey`), а билеты ядра,
+приём контакта и мост новой заявки (`customerActionJournal.ts` ~:361, `customerNewLeadBridge.ts` ~:158)
+требуют у билета назначение с `lane='CORE'`. Перевести «мимо назначения» значило потерять создание лида.
 
 ## Что сделано
 
-- `apps/api/src/lib/customerAgentLegacyCutover.ts`: `readCustomerLegacyCutoverReadiness`
-  (только чтение, в транзакции вызывающего; причины отказа перечислены),
-  `customerAgentLegacyCutoverEnabled` (переменная `CUSTOMER_AGENT_LEGACY_CUTOVER=on`,
-  по умолчанию выключено), константа причины `legacy_cutover_owner_31_10`.
-  В маршрутизацию НЕ подключено — без миграции нечего записывать.
-- Тест `apps/api/tests/customer-agent-legacy-cutover-postgres.test.ts` (6 тестов).
+- Миграция `20261031120000_customer_agent_legacy_cutover` (аддитивная): колонки `generation` (по умолчанию 0),
+  `supersedesAssignmentId` (unique, FK RESTRICT на прежнюю строку), `transitionReason`; CHECK формы;
+  unique `(surface,endpointScopeId,subjectKey,generation)` вместо прежнего на три поля. Запрет UPDATE
+  сохранён. Триггер вставки дополнительно требует для поколения >0: только dm, только LEGACY→CORE, ровно
+  следующее поколение того же субъекта, причина `legacy_cutover_owner_31_10`, текущая кампания (как у
+  первичной CORE-вставки). `prisma migrate diff` после применения — пусто.
+- `customerAgentEnrollment.ts`: эффективная полоса = строка с наибольшим поколением; новая
+  `cutoverLegacySubjectTx` — внутри той же транзакции маршрутизации, где читается полоса; вставка
+  поколения 1 + запись `AuditLog` `CUSTOMER_AGENT_LANE_CUTOVER` (from/to, причина, без данных клиента)
+  в той же транзакции, только если строка реально вставлена.
+- `customerAgentIngressRouting.ts`: перевод разрешён только для нового входящего с MID и без исходного
+  билета (не повтор). Выключатель `CUSTOMER_AGENT_LEGACY_CUTOVER=on`, по умолчанию выкл.
+- `customerAgentLegacyCutover.ts` — допуск. Остаётся LEGACY: пауза бота, HUMAN-владелец, закрытый
+  диалог, закрепление за агентом, спам; незавершённая работа (пачка дебаунса, фоновое задание по диалогу,
+  доставка READY/IN_FLIGHT/UNKNOWN — решение владельца, билет RECEIVED/CLAIMED). Ничего не меняет.
+- `customerAgentOwnerPolicy.ts`: счётчики полос на пульте считают только действующую строку субъекта.
+- Старая переписка в память ядра не переносится (решение владельца); ядро видит карточку клиента как обычно.
 
-## Нужная миграция (решение владельца/ревью Opus)
+## Поведение
 
-Append-only «поколение» назначения вместо перезаписи:
-
-1. `CustomerAgentRolloutAssignment`: колонки `generation INT NOT NULL DEFAULT 0`,
-   `supersedesAssignmentId TEXT NULL UNIQUE REFERENCES` (self, RESTRICT),
-   `transitionReason TEXT NULL`; CHECK: `generation=0` ⇔ `supersedes IS NULL AND reason IS NULL`;
-   при `generation>0` — `lane='CORE'` и `reason='legacy_cutover_owner_31_10'`.
-2. Unique `(surface,endpointScopeId,subjectKey)` → `(surface,endpointScopeId,subjectKey,generation)`.
-3. Триггер вставки: для `generation>0` — предыдущая строка того же субъекта с
-   `generation-1` и `lane='LEGACY'`, политика scoped/ACTIVE, субъект в `allowed`,
-   когорта/кандидат = текущий конфиг (как у первичной CORE-вставки).
-4. Код: `assignment()` берёт строку с наибольшим `generation` (сейчас бросает на >1 строки);
-   старые LEGACY-билеты продолжают ссылаться на строку поколения 0 и читаются как раньше
-   (повторная доставка старого сообщения не попадёт в ядро и не даст второго ответа).
-5. Подключение: в `customerAgentIngressRouting.ts` только для `!source && eventKey`
-   (новое входящее, не повтор), при `customerAgentLegacyCutoverEnabled()` и
-   `readCustomerLegacyCutoverReadiness().ready` — вставка поколения 1 в той же транзакции,
-   плюс запись аудита `CUSTOMER_AGENT_LANE_CUTOVER` (old→new, причина) там же, через `tx`.
-
-Откат: выключить переменную — новые переводы прекращаются; уже переведённые остаются
-CORE (строка неизменяема, как и у остальных CORE-субъектов).
+- Повтор того же нового сообщения: тот же билет ядра, второго задания нет.
+- Повтор СТАРОГО сообщения, которое отвечал старый движок: его билет указывает на поколение 0 → маршрут
+  HELD → вебхук 503, ни старый движок, ни ядро не отвечают (так же, как прочие HELD-случаи).
+- Окно выката: `ops/deploy.sh` применяет миграцию до замены контейнеров. Старый код в эти секунды
+  на ВСТАВКЕ нового субъекта (`ON CONFLICT` по трём полям) получит ошибку → маршрут HELD → 503 → Meta
+  повторит. Чтение старым кодом не ломается (поколений >0 до выката нового кода нет). `findUnique` по
+  старому ключу в коде нет.
+- Откат: убрать переменную — новые переводы прекращаются; переведённые остаются CORE (строки неизменны).
 
 ## Чем проверено
 
-- `npx vitest run tests/customer-agent-legacy-cutover-postgres.test.ts tests/customer-agent-enrollment-postgres.test.ts` — 16/16.
-- `npm run build --workspace=apps/api` — код 0.
+- `tests/customer-agent-legacy-cutover-postgres.test.ts` — 10/10; без подключения в маршрутизацию два
+  теста перевода красные (проверено).
+- Задетые postgres-тесты назначения/входящих/вебхуков — см. отчёт пачки.
+- `npm run build --workspace=apps/api` — 0; `npm run map` + `map:check` — зелёные.
+
+## На проде (делает владелец)
+
+Выкат через `npm run ship`, затем `CUSTOMER_AGENT_LEGACY_CUTOVER=on` в `.env.production` и пересоздать
+api (и worker). Смотреть `AuditLog` `CUSTOMER_AGENT_LANE_CUTOVER` и счётчики полос на пульте.

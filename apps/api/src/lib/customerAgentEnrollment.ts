@@ -10,6 +10,7 @@ import { isActiveTransactionClient } from "./transactionScope.js";
 import { decodeCustomerAgentRevision } from "./customerAgentRevision.js";
 import { customerPropertyScopeKey } from "./customerPropertyScope.js";
 import { customerAgentRevisionReachable } from "./customerAgentRevisionAdvance.js";
+import { CUSTOMER_AGENT_LEGACY_CUTOVER_REASON, customerAgentLegacyCutoverEnabled, readCustomerLegacyCutoverReadiness } from "./customerAgentLegacyCutover.js";
 
 type Db = Pick<TxClient, "$queryRaw">;
 type Assignment = CustomerAgentRolloutAssignment;
@@ -30,8 +31,8 @@ function fromAssignment(value: Assignment): CustomerAgentExecution {
 }
 async function assignment(db: Db, surface: string, endpointScopeId: string, subjectKey: string): Promise<Assignment | null> {
   const rows = await db.$queryRaw<Assignment[]>`SELECT "id","cohortId","surface","endpointScopeId","subjectKey","bucketBps","lane","candidateRevisionId"
-    FROM "CustomerAgentRolloutAssignment" WHERE "surface"=${surface} AND "endpointScopeId"=${endpointScopeId} AND "subjectKey"=${subjectKey}`;
-  if (rows.length > 1) throw new Error("Nonunique enrollment subject");
+    FROM "CustomerAgentRolloutAssignment" WHERE "surface"=${surface} AND "endpointScopeId"=${endpointScopeId} AND "subjectKey"=${subjectKey}
+    ORDER BY "generation" DESC LIMIT 1`; // Effective lane = latest append-only generation (legacy cutover 31.10).
   return rows.length ? customerAgentRolloutAssignmentSchema.parse(rows[0]) : null;
 }
 /** Read-only early legacy controller guard, including retries without the
@@ -133,7 +134,7 @@ export async function readCustomerPublicSourceExecution(db: Db, ref: { table: "m
  * native/Inquiry/Part locks. Source commit revalidates this stored row later.
  * Input is a captured server transport reference, not caller enrollment intent. */
 export async function enrollCustomerAgentSubjectTx(tx: TxClient, raw: CustomerAgentEnrollmentSubject,
-  options: { legacyOnly?: true } = {}): Promise<CustomerAgentExecution> {
+  options: { legacyOnly?: true; legacyCutover?: true } = {}): Promise<CustomerAgentExecution> {
   if (!isActiveTransactionClient(tx)) return held("active_transaction_required");
   const parsed = customerAgentEnrollmentSubjectSchema.safeParse(raw);
   if (!parsed.success) return held("subject_invalid");
@@ -152,7 +153,15 @@ export async function enrollCustomerAgentSubjectTx(tx: TxClient, raw: CustomerAg
     FROM "CustomerRuntimePolicy" WHERE "id"='singleton' FOR SHARE`;
   if (!policy || !["compat", "scoped"].includes(policy.contractVersion) || !["OFF", "SHADOW", "ACTIVE"].includes(policy.rolloutMode)) return held("policy_missing_or_invalid");
   const previous = await assignment(tx, s.surface, e.endpointScopeId, key);
-  if (previous?.lane === "LEGACY") return fromAssignment(previous);
+  if (previous?.lane === "LEGACY") {
+    // Owner 31.10: the NEXT genuinely new DM input of an idle legacy subject
+    // moves it to the core. History rows and old sources keep generation 0.
+    if (options.legacyCutover === true && s.surface === "dm" && customerAgentLegacyCutoverEnabled()) {
+      const moved = await cutoverLegacySubjectTx(tx, s, key, previous, policy);
+      if (moved) return moved;
+    }
+    return fromAssignment(previous);
+  }
   if (previous && (policy.contractVersion !== "scoped" || policy.rolloutMode !== "ACTIVE")) return held("owned_subject_stopped");
   const config = customerAgentRolloutConfigSchema.safeParse(policy.rolloutConfig);
   const unconfigured = policy.rolloutConfig === null && (policy.contractVersion === "compat" || policy.rolloutMode === "OFF");
@@ -202,9 +211,52 @@ export async function enrollCustomerAgentSubjectTx(tx: TxClient, raw: CustomerAg
     config.data.allowed.some(row => row.surface === s.surface && row.channel === e.channel && row.endpointScopeId === e.endpointScopeId);
   const lane = config.success && eligible && bucketBps !== null && bucketBps < config.data.percentBasisPoints ? "CORE" : "LEGACY";
   await tx.$executeRaw(Prisma.sql`INSERT INTO "CustomerAgentRolloutAssignment"
-    ("id","cohortId","surface","endpointScopeId","subjectKey","bucketBps","lane","candidateRevisionId","createdAt")
-    VALUES (${randomUUID()},${config.success ? config.data.cohortId : null},${s.surface},${e.endpointScopeId},${key},${bucketBps},${lane},${config.success ? config.data.candidateRevisionId : null},now())
-    ON CONFLICT ("surface","endpointScopeId","subjectKey") DO NOTHING`);
+    ("id","cohortId","surface","endpointScopeId","subjectKey","bucketBps","lane","candidateRevisionId","createdAt","generation")
+    VALUES (${randomUUID()},${config.success ? config.data.cohortId : null},${s.surface},${e.endpointScopeId},${key},${bucketBps},${lane},${config.success ? config.data.candidateRevisionId : null},now(),0)
+    ON CONFLICT ("surface","endpointScopeId","subjectKey","generation") DO NOTHING`);
   const winner = await assignment(tx, s.surface, e.endpointScopeId, key);
   return winner ? fromAssignment(winner) : held("assignment_commit_missing");
+}
+
+/** Append-only LEGACY → CORE transition of one DM subject (owner 31.10.2026).
+ * Runs inside the routing transaction that already holds the scope/policy
+ * share locks. Returns null when the subject must stay LEGACY: current
+ * campaign does not cover it, manual mode, or unfinished legacy work. */
+async function cutoverLegacySubjectTx(tx: TxClient, s: Extract<CustomerAgentEnrollmentSubject, { surface: "dm" }>, key: string,
+  previous: Assignment, policy: Policy): Promise<CustomerAgentExecution | null> {
+  if (policy.contractVersion !== "scoped" || policy.rolloutMode !== "ACTIVE") return null;
+  const config = customerAgentRolloutConfigSchema.safeParse(policy.rolloutConfig);
+  if (!config.success || policy.activeAgentRevisionId !== config.data.candidateRevisionId) return null;
+  const e = s.endpoint, c = config.data;
+  if (!c.allowed.some(row => row.surface === "dm" && row.channel === e.channel && row.endpointScopeId === e.endpointScopeId)) return null;
+  const bucketBps = Number.parseInt(sha([1, c.cohortId, key]).slice(0, 8), 16) % 10_000;
+  if (bucketBps >= c.percentBasisPoints) return null;
+  const [different] = await tx.$queryRaw<Array<{ mismatch: boolean }>>`SELECT EXISTS(SELECT 1 FROM "CustomerAgentRolloutAssignment"
+    WHERE "cohortId"=${c.cohortId} AND "candidateRevisionId"<>${c.candidateRevisionId}) AS mismatch`;
+  if (different?.mismatch) return null;
+  const [revision] = await tx.$queryRaw<Array<{ id: string; manifestJson: unknown }>>`SELECT "id","manifestJson" FROM "CustomerAgentRevision"
+    WHERE "id"=${c.candidateRevisionId}`;
+  if (!revision) return null;
+  decodeCustomerAgentRevision(revision);
+  const readiness = await readCustomerLegacyCutoverReadiness(tx, { channel: e.channel, peer: s.peer, endpointScopeId: e.endpointScopeId,
+    scopeKey: customerPropertyScopeKey(e.channel, s.peer, e.accountId, e.endpointScopeId) });
+  if (!readiness.ready) return null;
+  const id = randomUUID();
+  const inserted = await tx.$executeRaw(Prisma.sql`INSERT INTO "CustomerAgentRolloutAssignment"
+    ("id","cohortId","surface","endpointScopeId","subjectKey","bucketBps","lane","candidateRevisionId","createdAt",
+      "generation","supersedesAssignmentId","transitionReason")
+    SELECT ${id},${c.cohortId},'dm',${e.endpointScopeId},${key},${bucketBps},'CORE',${c.candidateRevisionId},now(),
+      1,${previous.id},${CUSTOMER_AGENT_LEGACY_CUTOVER_REASON}
+    WHERE NOT EXISTS(SELECT 1 FROM "CustomerAgentRolloutAssignment" WHERE "supersedesAssignmentId"=${previous.id})
+    ON CONFLICT ("surface","endpointScopeId","subjectKey","generation") DO NOTHING`);
+  if (inserted === 1) {
+    // Same transaction as the lane row: no fire-and-forget audit for routing.
+    // No customer identifiers in meta, only server routing references.
+    await tx.auditLog.create({ data: { action: "CUSTOMER_AGENT_LANE_CUTOVER", entityType: "CustomerAgentRolloutAssignment",
+      entityId: id, agentId: null, agentName: "Система", meta: { fromAssignmentId: previous.id, fromLane: "LEGACY", toLane: "CORE",
+        reason: CUSTOMER_AGENT_LEGACY_CUTOVER_REASON, endpointScopeId: e.endpointScopeId, channel: e.channel,
+        cohortId: c.cohortId, candidateRevisionId: c.candidateRevisionId } } });
+  }
+  const winner = await assignment(tx, "dm", e.endpointScopeId, key);
+  return winner?.lane === "CORE" ? fromAssignment(winner) : null;
 }

@@ -67,7 +67,8 @@ export async function readCustomerAgentOwnerState(actorId: string) {
       FROM "CustomerEndpointScope" s LEFT JOIN "MessengerAccount" a ON a."id"=s."messengerAccountId" WHERE
       (s."realmKey"='royal-home' AND s."kind"='NORMAL' AND s."channel" IN ('INSTAGRAM','FACEBOOK','WHATSAPP')) OR
       (s."realmKey"='customer-public' AND s."kind"='PUBLIC' AND s."channel" IN ('INSTAGRAM','FACEBOOK')) ORDER BY s."id" LIMIT 101`;
-    const counts = await tx.$queryRaw<Array<{lane:string; n:bigint}>>`SELECT "lane",count(*)::bigint AS n FROM "CustomerAgentRolloutAssignment" GROUP BY "lane"`;
+    const counts = await tx.$queryRaw<Array<{lane:string; n:bigint}>>`SELECT a."lane",count(*)::bigint AS n FROM "CustomerAgentRolloutAssignment" a
+      WHERE NOT EXISTS(SELECT 1 FROM "CustomerAgentRolloutAssignment" n WHERE n."supersedesAssignmentId"=a."id") GROUP BY a."lane"`;
     return customerAgentOwnerStateSchema.parse({ policyRevision:p.policyRevision.toString(),contractVersion:p.contractVersion,rolloutMode:p.rolloutMode,
       activeAgentRevisionId:p.activeAgentRevisionId,rollout:p.rolloutConfig,capabilities:p.capabilities,
       scopes:scopes.slice(0,100).map(s=>({endpointScopeId:s.id,channel:s.channel,displayLabel:s.displayLabel.slice(0,160),surface:s.realmKey==='royal-home'?'dm':'public_comment',writeAssurance:'per_event_required'})),
