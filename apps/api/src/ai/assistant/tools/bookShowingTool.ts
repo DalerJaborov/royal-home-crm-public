@@ -65,11 +65,17 @@ function bookingError(reason: BookingProblem): AssistantActionError {
 
 type Plan = "create" | "same" | "reschedule" | "replace_other";
 
+/** Потолок Int в Postgres: номер длиннее — заведомо не номер карточки (иначе Prisma бросит «out of range»). */
+const MAX_SHORT_ID = 2_147_483_647;
+
 async function resolveProperty(propertyId: string) {
   const select = { id: true, shortId: true, title: true, status: true, deletedAt: true, assignedAgentId: true } as const;
-  return /^\d+$/.test(propertyId)
-    ? prisma.property.findFirst({ where: { shortId: Number(propertyId) }, select })
-    : prisma.property.findUnique({ where: { id: propertyId }, select });
+  if (/^\d+$/.test(propertyId)) {
+    const shortId = Number(propertyId);
+    if (!Number.isSafeInteger(shortId) || shortId < 1 || shortId > MAX_SHORT_ID) return null;
+    return prisma.property.findFirst({ where: { shortId }, select });
+  }
+  return prisma.property.findUnique({ where: { id: propertyId }, select });
 }
 
 export const bookShowingExecutor: AssistantActionExecutor<Args> = {
@@ -145,10 +151,13 @@ export const bookShowingExecutor: AssistantActionExecutor<Args> = {
     const { actor } = await loadToolActor(actionActor);
     const at = new Date(args.at);
     const [client, property, agent] = await Promise.all([
-      prisma.client.findUniqueOrThrow({ where: { id: String(snapshot.clientId) }, select: { fullName: true } }),
-      prisma.property.findUniqueOrThrow({ where: { id: String(snapshot.propertyId) }, select: { title: true } }),
+      prisma.client.findUnique({ where: { id: String(snapshot.clientId) }, select: { fullName: true } }),
+      prisma.property.findUnique({ where: { id: String(snapshot.propertyId) }, select: { title: true } }),
       prisma.agent.findUnique({ where: { id: String(snapshot.agentId) }, select: { fullName: true } }),
     ]);
+    // Между снимком и превью карточку могли удалить совсем — понятный 404, а не сбой Prisma.
+    if (!client) throw new AssistantActionError(404, "NOT_FOUND", "Клиент не найден");
+    if (!property) throw new AssistantActionError(404, "NOT_FOUND", "Объект не найден");
     const existing = snapshot.existing as { at: string; propertyTitle: string | null } | null;
     const plan = snapshot.plan as Plan;
     const warnings: string[] = [];

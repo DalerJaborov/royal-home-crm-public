@@ -215,6 +215,9 @@ describe("book_showing: превью и права", () => {
     expect(sold.status).toBe(409);
     const missing = await pendingError("book_showing", { clientId: ownClientId, propertyId: "net-takogo", at: futureAt(2, "15:00") }, agents.owner);
     expect(missing.status).toBe(404);
+    // Номер длиннее Int (11 цифр) — понятный 404, а не сбой Prisma «out of range».
+    const huge = await pendingError("book_showing", { clientId: ownClientId, propertyId: "12345678901", at: futureAt(2, "15:00") }, agents.owner);
+    expect(huge).toMatchObject({ status: 404, code: "NOT_FOUND" });
   });
 
   it("часы 09:00–20:00 и прошлое держит сервис: вне часов и в прошлом — отказ", async () => {
