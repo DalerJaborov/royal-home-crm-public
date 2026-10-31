@@ -1019,14 +1019,24 @@ function toolStatusPhrase(name: string): string {
   return TOOL_STATUS_PHRASES[name] ?? findAssistantToolPlugin(name)?.statusPhrase ?? "Обрабатываю запрос…";
 }
 
+/** Имена встроенных инструментов (не плагинов) — для сверки реестра: имя у модели одно на всё. */
+export const BUILTIN_ASSISTANT_TOOL_NAMES: readonly string[] = [...TOOLS.map((t) => t.name), WEB_REFERENCE_TOOL];
+
 /**
  * Объявления инструментов-плагинов для этого актора. Запись (B, C) — только если
  * клиент умеет показать подтверждение (`confirmUi`): иначе модель просила бы нажать
- * кнопку, которой нет.
+ * кнопку, которой нет. И только в канале, который пускает исполнитель
+ * (`executor.channels`, по умолчанию только CRM — из Telegram step-up не ввести):
+ * иначе модель предлагала бы действие, которое брокер отвергнет CHANNEL_NOT_ALLOWED.
  */
-export function pluginDeclarations(actor: AssistantActor, confirmUi: boolean): GeminiToolDefinition[] {
+export function pluginDeclarations(
+  actor: AssistantActor,
+  confirmUi: boolean,
+  channel: "crm" | "telegram" = "crm",
+): GeminiToolDefinition[] {
   return listAssistantToolPlugins()
-    .filter((p) => (p.level === "A" || confirmUi) && (p.allowed ? p.allowed(actor) : true))
+    .filter((p) => p.level === "A" || (confirmUi && (p.executor.channels ?? ["crm"]).includes(channel)))
+    .filter((p) => (p.allowed ? p.allowed(actor) : true))
     .map((p) => ({
       name: p.name,
       description: p.description,
@@ -1309,7 +1319,7 @@ export async function runAssistantDetailed(
       ...(settings.groundedSearchEnabled ? GEMINI_TOOLS_WITH_REFERENCE : GEMINI_TOOLS).filter((t) =>
         assistantToolAllowed(actor, t.name),
       ),
-      ...pluginDeclarations(actor, options.confirmUi === true),
+      ...pluginDeclarations(actor, options.confirmUi === true, options.channel ?? "crm"),
     ];
 
     // Задача 4 (docs/ai-bots-audit-13-09.md): фиксируем состояние рубильника НА

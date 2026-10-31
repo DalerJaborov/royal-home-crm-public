@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { isReadOnlyRole } from "@royal-home/shared";
+import { isReadOnlyRole, MARKET_TYPES, PROPERTY_CONDITIONS, PROPERTY_TYPES } from "@royal-home/shared";
 import {
   PROPERTY_CHANGE_KIND_HINTS,
   PROPERTY_CHANGE_KIND_LABELS,
@@ -9,6 +9,7 @@ import {
 import { AssistantActionError } from "../../../lib/assistantActions.js";
 import { makeChangeRequestExecutor } from "./changeRequestTool.js";
 import { plainField } from "./safeField.js";
+import type { CAPTION_FACT_FIELDS } from "../../../lib/publishedVideoFix.js";
 import type { AssistantWriteToolPlugin } from "./types.js";
 
 /**
@@ -81,6 +82,26 @@ export const requestPropertyChangeExecutor = makeChangeRequestExecutor<z.infer<t
   },
 });
 
+/**
+ * Поля patch для Gemini. Пустую схему объекта (`{type:"object"}` без свойств) Gemini
+ * отвергает с 400 — и падал бы ВЕСЬ запрос помощника, а не только этот инструмент
+ * (поймано тестом реестра при сборке П3). Ключи — подмножество CAPTION_FACT_FIELDS
+ * (проверяется типом); набор и значения всё равно проверяет сервер заявок
+ * (`parseCardPatch`). Район, детали и удобства — сложные поля, их — через kind=OTHER.
+ */
+const CARD_PATCH_PROPERTIES: Partial<Record<(typeof CAPTION_FACT_FIELDS)[number], Record<string, unknown>>> = {
+  type: { type: "string", enum: [...PROPERTY_TYPES], description: "Тип объекта" },
+  rooms: { type: "integer", description: "Комнат" },
+  areaSqm: { type: "number", description: "Площадь, м²" },
+  floor: { type: "integer", description: "Этаж" },
+  totalFloors: { type: "integer", description: "Этажей в доме" },
+  windowCount: { type: "integer", description: "Окон" },
+  condition: { type: "string", enum: [...PROPERTY_CONDITIONS], description: "Состояние/ремонт" },
+  marketType: { type: "string", enum: [...MARKET_TYPES], description: "Рынок: новостройка/вторичка/котлован" },
+  address: { type: "string", description: "Адрес" },
+  documents: { type: "string", description: "Документы" },
+};
+
 export const requestPropertyChangePlugin: AssistantWriteToolPlugin = {
   name: "request_property_change",
   level: "C",
@@ -96,7 +117,11 @@ export const requestPropertyChangePlugin: AssistantWriteToolPlugin = {
       ref: { type: "string", description: "Номер объекта: «ОБ-000088», «88» или id" },
       kind: { type: "string", enum: [...KINDS], description: "CARD_DATA — данные карточки, UNPUBLISH — убрать из соцсетей, OTHER — другое" },
       text: { type: "string", description: "Для kind=OTHER: что нужно изменить (не короче 10 символов)" },
-      patch: { type: "object", description: "Для kind=CARD_DATA: поля карточки и новые значения, например {\"rooms\": 3}" },
+      patch: {
+        type: "object",
+        description: "Для kind=CARD_DATA: только поля, которые меняются, например {\"rooms\": 3}",
+        properties: CARD_PATCH_PROPERTIES,
+      },
       channels: { type: "array", items: { type: "string" }, description: "Для kind=UNPUBLISH: каналы (INSTAGRAM, FACEBOOK…); не указывай — все" },
       comment: { type: "string", description: "Пояснение руководителю (необязательно)" },
     },
