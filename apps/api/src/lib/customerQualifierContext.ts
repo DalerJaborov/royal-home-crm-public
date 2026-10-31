@@ -3,7 +3,7 @@ import { resolveCustomerEndpoint, loadCustomerTransportForConversation, type Cus
 import { assertCustomerInboxPlannableTx } from "./customerIngressInbox.js";
 import type { CustomerPropertyAdmission, CustomerPropertyAdmissionResult, CustomerStateSnapshot } from "@royal-home/shared";
 import { prisma } from "../db.js";
-import { extractVolunteeredPhone } from "../ai/leadQualifier.js";
+import { extractVolunteeredPhone } from "./shared/phoneText.js";
 import type { ScopedCustomerQualifierContext } from "../ai/customerPromptMemory.js";
 import { isPublicAgencyPhone, isRetiredPublicAgencyPhone } from "./publicAgencyContact.js";
 import { inspectAuthenticatedCustomerInput, type AuthenticatedCustomerInput } from "./customerIngressAuthority.js";

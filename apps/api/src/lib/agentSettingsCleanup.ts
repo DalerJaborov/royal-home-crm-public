@@ -8,14 +8,12 @@ import type { Tx } from "./changeClientAgent.js";
  * работает — до правки комментарий в схеме прямо говорил, что несуществующий/
  * уволенный id это «agent_not_found» в фоновом коде, а не забота настроек).
  *
- * Пять полей со ссылкой на сотрудника, которых это касается — три из находки
+ * Четыре поля со ссылкой на сотрудника, которых это касается — три из находки
  * М12-в и ещё два той же формы, добавленные разбором класса (25.09.2026,
  * «нашёл баг — ищи весь класс», CLAUDE.md):
  *  - callbackOperatorAgentId — дежурный оператор обратных звонков;
  *  - videoMontajerAgentId — монтажёр;
  *  - incomingDutyAgentIds — дежурные по входящим (список, порядок важен);
- *  - videoModeratorAgentId — модератор видео (пикер в интерфейсе убран
- *    23.09.2026, но поле и колонка в базе остаются);
  *  - liveVoiceTransferAgentId — консультант на телефоне (робозвонок), кому
  *    переводить звонок без агента объекта и своего агента.
  *
@@ -37,7 +35,6 @@ export async function clearAgentFromSettingsReferences(
       callbackOperatorAgentId: true,
       videoMontajerAgentId: true,
       incomingDutyAgentIds: true,
-      videoModeratorAgentId: true,
       liveVoiceTransferAgentId: true,
     },
   });
@@ -52,10 +49,6 @@ export async function clearAgentFromSettingsReferences(
   if (settings.videoMontajerAgentId === agentId) {
     data.videoMontajerAgentId = null;
     cleared.push("videoMontajerAgentId");
-  }
-  if (settings.videoModeratorAgentId === agentId) {
-    data.videoModeratorAgentId = null;
-    cleared.push("videoModeratorAgentId");
   }
   if (settings.liveVoiceTransferAgentId === agentId) {
     data.liveVoiceTransferAgentId = null;

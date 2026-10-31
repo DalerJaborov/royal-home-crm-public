@@ -6,7 +6,7 @@ import { nowBlock } from "./conversationTime.js";
 import { MANDATORY_BOT_RULES } from "./dushanbeGeography.js";
 import { folkGeographyBlock } from "./folkPlaces.js";
 import { INSPECTION_CHECKLIST_BLOCK } from "./inspectionChecklist.js";
-import { resolveSellerRules } from "./leadQualifier.js";
+import { resolveSellerRules } from "./agencyVoice.js";
 import { LEGAL_FAQ_BLOCK } from "./legalFaq.js";
 import { SALES_FACTS } from "./salesPlaybook.js";
 import { agencyHoursBlock, resolveClientHours } from "./agencyFacts.js";

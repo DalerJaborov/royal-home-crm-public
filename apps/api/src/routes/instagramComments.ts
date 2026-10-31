@@ -15,7 +15,7 @@ import { requireAuth, requirePermission } from "../auth/middleware.js";
 import { logAudit } from "../lib/audit.js";
 import { logSystemError } from "../lib/systemError.js";
 import { describeError } from "../messengers/meta.js";
-import { isCommentGone, postCommentReply, postCommentReplyResponse, setCommentHidden } from "../messengers/comments.js";
+import { isCommentGone, postCommentReply, postCommentReplyResponse, setCommentHidden } from "../messengers/commentGraphActions.js";
 import { resolveIncomingAccount } from "../messengers/accounts.js";
 import { publicReplyReceipt } from "../messengers/publicCommentReply.js";
 import { claimPublicManualCommentReply, assertPublicManualReplyCurrent, completePublicManualReply,

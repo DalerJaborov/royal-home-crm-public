@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **725**. Развилок в самих путях: **2537**; вместе с задачами по расписанию и фоновыми заданиями — **3969**. Модулей: **79**.
+Путей: **725**. Развилок в самих путях: **2534**; вместе с задачами по расписанию и фоновыми заданиями — **3966**. Модулей: **79**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -16114,9 +16114,6 @@
 - если pair.videoMontajerAgentId
   - agentIdsToCheck.add(pair.videoMontajerAgentId);
     · дословно из кода
-- если pair.videoModeratorAgentId
-  - agentIdsToCheck.add(pair.videoModeratorAgentId);
-    · дословно из кода
 - если pair.liveVoiceTransferAgentId
   - agentIdsToCheck.add(pair.liveVoiceTransferAgentId);
     · дословно из кода
@@ -16147,10 +16144,6 @@
     - если !byId.get(pair.videoMontajerAgentId)?.telegramChatId
       - return res .status(400) .json({ error: "У сотрудника не привязан Telegram — монтажёр не сможет получать ролик…
         · ответ 400 — «У сотрудника не привязан Telegram — монтажёр не сможет получать…»
-  - если pair.videoModeratorAgentId
-    - если problem
-      - return res.status(400).json({ error: problem });
-        · ответ 400
   - если pair.liveVoiceTransferAgentId
     - если problem
       - return res.status(400).json({ error: problem });

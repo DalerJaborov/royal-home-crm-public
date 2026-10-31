@@ -71,7 +71,7 @@ export const SETTINGS_SECTIONS: Record<SettingsTabId, readonly SettingsSectionMe
     { title: "Пульт директора", aliases: ["Модули пульта"] },
     { title: "Диалоги без ответа сегодня" },
     { title: "Разбор проблемных мест", aliases: ["Проблемные отчёты", "Проблемные отчеты"] },
-    { title: "Подтверждение личности" }, { title: "Код по СМС при входе", aliases: ["Вход по СМС"] },
+    { title: "Подтверждение личности" },
     { title: "Точки возврата настроек", aliases: ["Точки восстановления"] }, { title: "Импорт данных" },
     { title: "Админка сайта royalhome.tj", directorOnly: true },
   ],

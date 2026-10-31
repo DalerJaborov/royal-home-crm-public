@@ -1,6 +1,7 @@
 import type { ChatMessage } from "../ai/client.js";
 import { detectClientLanguage } from "../ai/clientLanguage.js";
-import { shortAgentReply, type LeadDraft } from "../ai/leadQualifier.js";
+import { shortAgentReply } from "../ai/shortAgentReply.js";
+import { type LeadDraft } from "../ai/leadDraft.js";
 import { handoffInstruction } from "../lib/handoffPromise.js";
 import type { FallbackText } from "./replyChain.js";
 import { PUBLIC_AGENCY_CONTACT } from "../lib/publicAgencyContact.js";

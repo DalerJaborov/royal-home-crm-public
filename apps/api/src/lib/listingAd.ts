@@ -30,7 +30,7 @@
  */
 
 import { BW, EW, TAIL } from "../ai/wordBoundary.js";
-import { extractAllPhones } from "../ai/leadQualifier.js";
+import { extractAllPhones } from "./shared/phoneText.js";
 
 export interface ListingAdVerdict {
   /** Какие признаки сошлись — для пометки в ленте комментариев. */

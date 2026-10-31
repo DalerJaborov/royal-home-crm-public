@@ -38,9 +38,9 @@ export const CLEAN_SETTINGS_TASKS: readonly CleanSettingsTask[] = [
   { tab: "bot", id: "rollout", title: "Внедрение нового помощника", hint: "Управление этапами запуска клиентского помощника", topics: ["Текстовый агент клиентов", "Клиентский ИИ-агент", "Развёртывание помощника"] },
   { tab: "system", id: "monitoring", title: "Состояние и диагностика", hint: "Здоровье системы, журналы и проблемы в работе", topics: [...topics("system", 0, 2), ...topics("system", 3, 5)] },
   { tab: "system", id: "workspace", title: "Интерфейс и главный экран", hint: "Включение новой темы и состав пульта директора", topics: [...topics("agency", 3), ...topics("system", 2, 3), "Новый интерфейс CRM"] },
-  { tab: "system", id: "security", title: "Безопасность входа", hint: "Подтверждение личности и вход по коду СМС", topics: topics("system", 5, 7) },
-  { tab: "system", id: "data", title: "Импорт и восстановление", hint: "Загрузка данных и точки возврата настроек", topics: topics("system", 7, 9) },
-  { tab: "system", id: "website", title: "Управление сайтом", hint: "Доступ к администрированию royalhome.tj", topics: topics("system", 9), directorOnly: true },
+  { tab: "system", id: "security", title: "Безопасность входа", hint: "Подтверждение личности и срок открытого раздела", topics: topics("system", 5, 6) },
+  { tab: "system", id: "data", title: "Импорт и восстановление", hint: "Загрузка данных и точки возврата настроек", topics: topics("system", 6, 8) },
+  { tab: "system", id: "website", title: "Управление сайтом", hint: "Доступ к администрированию royalhome.tj", topics: topics("system", 8), directorOnly: true },
 ];
 
 export const CLEAN_SETTINGS_LABELS: Record<SettingsTabId, string> = {

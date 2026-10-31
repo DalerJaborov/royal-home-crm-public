@@ -1,6 +1,6 @@
 import { customerMutationCommandSchema, type CustomerPropertyAdmission } from "@royal-home/shared";
 import { prisma } from "../db.js";
-import { extractAllPhones, normalizeDigits } from "../ai/leadQualifier.js";
+import { extractAllPhones, normalizeDigits } from "./shared/phoneText.js";
 import { stripUntrusted } from "../ai/untrustedContent.js";
 import { sanitizeSpokenName } from "./spokenName.js";
 import { inspectAuthenticatedCustomerInput, authenticatedInputMatchesFence, readVerifiedCustomerFinalOrigin, type AuthenticatedCustomerInput } from "./customerIngressAuthority.js";

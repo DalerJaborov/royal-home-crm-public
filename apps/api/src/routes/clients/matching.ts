@@ -28,7 +28,7 @@ import { siteListingUrl } from "../../lib/siteListingUrl.js";
 import { getOrCreatePropertyShareLinks } from "../../lib/propertyShareLink.js";
 import { buildPropertyOfferText, formatPriceForClient } from "../../lib/propertyOfferText.js";
 import { detectClientLanguage } from "../../ai/clientLanguage.js";
-import { recordExposures } from "../../messengers/propertyShowcase.js";
+import { recordExposures } from "../../lib/propertyExposures.js";
 import { loadMatchPolicy } from "../../lib/matchPolicy.js";
 import { propertyOwnerAgentId } from "../../lib/propertyOwner.js";
 import { sendPushToAgent } from "../../push.js";
