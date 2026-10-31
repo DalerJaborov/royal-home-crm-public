@@ -6,7 +6,7 @@ import { requireAuth, requirePermission } from "../auth/middleware.js";
 import { logSystemError } from "../lib/systemError.js";
 import { describeError } from "../lib/describeError.js";
 import { sanitizeStyleText } from "../ai/styleLearning.js";
-import { buildShortReplySystem } from "../ai/leadQualifier.js";
+import { buildShortReplySystem } from "../ai/shortAgentReply.js";
 import { callAiText } from "../ai/client.js";
 import { EMPTY_LESSON, lessonDedupKey } from "../lib/botLessons.js";
 import { groupKey, groupWhyPrefix } from "../lib/botAuditGroups.js";

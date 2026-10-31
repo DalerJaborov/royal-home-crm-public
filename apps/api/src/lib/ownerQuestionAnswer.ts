@@ -18,7 +18,7 @@ import {
   findClientDeliveryTarget,
   type DeliveryTarget,
 } from "./conversationDelivery.js";
-import { shortAgentReply } from "../ai/leadQualifier.js";
+import { shortAgentReply } from "../ai/shortAgentReply.js";
 import type { ChatMessage } from "../ai/client.js";
 import { logSystemError } from "./systemError.js";
 import { describeError } from "./describeError.js";

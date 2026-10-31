@@ -7,7 +7,7 @@ import { findAgentsWithPermission } from "../lib/recipients.js";
 import { sendPushToAgents } from "../push.js";
 import { OPERATOR_REPLY_PAUSE_MS } from "../lib/conversationDelivery.js";
 import type { ChatMessage } from "../ai/client.js";
-import type { LeadDraft } from "../ai/leadQualifier.js";
+import type { LeadDraft } from "../ai/leadDraft.js";
 import { runQualifyTurn } from "../ai/leadQualifier.js";
 import { botAbilitiesOf, loadBotCapabilities } from "../messengers/botCapabilities.js";
 import { finishTelegramQualifyTurn } from "../telegram/bot.js";

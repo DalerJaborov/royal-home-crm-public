@@ -7,7 +7,7 @@ import {
 } from "@royal-home/shared";
 import { Prisma } from "../generated/prisma/client.js";
 import { prisma, type TxClient } from "../db.js";
-import { extractAllPhones, normalizeDigits } from "../ai/leadQualifier.js";
+import { extractAllPhones, normalizeDigits } from "./shared/phoneText.js";
 import { customerCallbackConsentDecision, isCustomerCallbackAffirmative } from "./customerCallbackConsent.js";
 import { acceptedCallbackQuestionCurrentTx } from "./customerAcceptedCallbackQuestion.js";
 import { stripUntrusted } from "../ai/untrustedContent.js";

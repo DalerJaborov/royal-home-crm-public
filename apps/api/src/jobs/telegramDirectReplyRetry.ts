@@ -4,7 +4,7 @@ import { prisma } from "../db.js";
 import { logSystemError } from "../lib/systemError.js";
 import { describeError } from "../lib/describeError.js";
 import type { ChatMessage } from "../ai/client.js";
-import type { LeadDraft } from "../ai/leadQualifier.js";
+import type { LeadDraft } from "../ai/leadDraft.js";
 import { runQualifyTurn } from "../ai/leadQualifier.js";
 import { botAbilitiesOf, loadBotCapabilities } from "../messengers/botCapabilities.js";
 import { finishTelegramDirectQualifyTurn, isTelegramDirectMessagesEnabled } from "../messengers/telegramDirectMessages.js";

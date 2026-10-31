@@ -1,5 +1,5 @@
 /** Server-only capture factory. Root P12 atomic port must be supplied before runtime activation. */
-import { parseIncomingComments } from "../messengers/comments.js";
+import { parseIncomingComments } from "../messengers/commentIngest.js";
 import type { IncomingComment } from "../messengers/commentsQueue.js";
 import { verifyMetaCustomerReferralTarget, authenticatedCustomerRequestEvidence, type CustomerMetaIssuerStore } from "./customerIngressAuthority.js";
 import { samePublicInstallation } from "./publicCommentSourceIdentity.js";
