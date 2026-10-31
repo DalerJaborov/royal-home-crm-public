@@ -585,7 +585,12 @@ export type SendBackResult =
        *  lib/clipReview.ts): вызывающий гасит кнопки у модераторов в Telegram. */
       clipReviewWasPending?: boolean;
     }
-  | { ok: false; error: string };
+  | {
+      ok: false;
+      error: string;
+      /** true — объект изменился после того, как вызывающий его видел (`options.guard`). */
+      stale?: true;
+    };
 
 /**
  * «УДАЛЕНО В ПРИЛОЖЕНИИ» (24.09.2026) — человек снял пост руками там, где программа
@@ -697,7 +702,23 @@ export async function sendBackToMontajer(
   replaceVideoIds?: string[] | null,
   /** removeFromSocial: true — снять старые посты сейчас; "on-new-video" — когда
    *  выйдет новый ролик (задание публикации, replaceOldPostsBeforeRemakePublish). */
-  options?: { removeFromSocial?: boolean | "on-new-video" }
+  options?: {
+    removeFromSocial?: boolean | "on-new-video";
+    /**
+     * УСЛОВИЕ ЗАПИСИ (31.10.2026, ИИ-помощник, П3): `Property.videoRemakeCount` растёт при
+     * каждом возврате, поэтому «счётчик всё ещё тот, что видел человек в превью» значит
+     * «объект никто не отправлял на перемонтаж с тех пор». Проверяется ПОД замком, до
+     * записи; расхождение — отказ с `stale: true`. REST поле не передаёт.
+     */
+    guard?: { videoRemakeCount: number };
+    /**
+     * ПРОВЕРКА БЕЗ ЗАПИСИ (31.10.2026, ИИ-помощник, П3): прогоняет все отказы функции
+     * (занят монтажёром, продан, нет истории ролика, нет исходников, рубильник) под тем же
+     * замком и возвращает `ok` ДО первой записи. Превью помощника показывает отказ
+     * теми же словами, что и настоящая отправка, а не своей копией условий.
+     */
+    dryRun?: boolean;
+  }
 ): Promise<SendBackResult> {
   const replacing = replaceVideoIds && replaceVideoIds.length > 0 ? [...new Set(replaceVideoIds)] : null;
 
@@ -708,7 +729,7 @@ export async function sendBackToMontajer(
     queueOutcome: { dispatch: false } | { dispatch: true; propertyId: string; montajerAgentId: string };
     clipReviewWasPending: boolean;
   };
-  type LockResult = { ok: true; data: Prepared } | { ok: false; error: string };
+  type LockResult = { ok: true; data: Prepared } | { ok: true; dryRun: true } | { ok: false; error: string; stale?: true };
 
   // ВСЁ, ЧТО РЕШАЕТ СУДЬБУ ЭТОГО ОБЪЕКТА (проверка состояния + запись), — под
   // одним замком (п.2): второй параллельный вызов, пришедший, пока первый ещё
@@ -728,10 +749,14 @@ export async function sendBackToMontajer(
         instagramUrl: true,
         sellerClientId: true,
         clipReviewStatus: true,
+        videoRemakeCount: true,
         _count: { select: { videos: true } },
       },
     });
     if (!property || property.deletedAt) return { ok: false, error: "Объект не найден или удалён." };
+    if (options?.guard && property.videoRemakeCount !== options.guard.videoRemakeCount) {
+      return { ok: false, error: "Объект уже отправляли на перемонтаж после показа превью — проверьте ещё раз.", stale: true };
+    }
     if (property.videoHandoffStatus === "QUEUED" || property.videoHandoffStatus === "SENT_TO_EDITOR") {
       return { ok: false, error: "Объект уже у монтажёра или стоит в очереди — второй раз отправлять нечего." };
     }
@@ -805,6 +830,7 @@ export async function sendBackToMontajer(
     if (!settings.videoMontajerAgentId) {
       return { ok: false, error: "Монтажёр не назначен в Настройках → Публикации." };
     }
+    if (options?.dryRun) return { ok: true, dryRun: true };
 
     const reasonLabel = VIDEO_REMAKE_REASON_LABELS[reason];
     // Тот же builder, что и настоящая отправка/превью (buildMontajerMessageText,
@@ -921,6 +947,7 @@ export async function sendBackToMontajer(
   });
 
   if (!lockResult.ok) return lockResult;
+  if ("dryRun" in lockResult) return { ok: true, queued: false, message: "Проверка пройдена, ничего не записано." };
   for (const key of lockResult.data.removedStorageKeys) void localVideoDelete(key);
 
   // П.4 (24.09.2026): снять старый ролик из соцсетей тем же removeFromSocial,

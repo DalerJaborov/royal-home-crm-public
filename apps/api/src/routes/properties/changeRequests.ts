@@ -15,28 +15,26 @@
 import { Router } from "express";
 import { z } from "zod";
 import {
-  PROPERTY_CHANGE_KIND_LABELS,
   PROPERTY_CHANGE_STATUSES,
   createPropertyChangeRequestSchema,
   decidePropertyChangeRequestSchema,
   rejectPropertyChangeRequestSchema,
 } from "@royal-home/shared";
-import type { Prisma } from "../../generated/prisma/client.js";
 import { prisma } from "../../db.js";
 import { can, requireAuth, requirePermission } from "../../auth/middleware.js";
 import { logAudit } from "../../lib/audit.js";
-import { enqueueDirectorAlert } from "../../lib/directorAlertQueue.js";
-import { findAgentsWithPermission } from "../../lib/recipients.js";
-import { sendPushToAgent, closeLeadPushNotifications } from "../../push.js";
+import { sendPushToAgent } from "../../push.js";
 import { publishRequestUpdated } from "../../lib/livePublish.js";
-import { withPropertyLock } from "../../lib/videoHandoff.js";
 import {
   CHANGE_REQUEST_INCLUDE,
-  isPublishedForChangeRequest,
-  parseCardPatch,
   summarizeChangeRequest,
   toChangeRequestDto,
 } from "../../lib/propertyChangeRequests.js";
+import {
+  cancelPropertyChangeRequest,
+  closeForOtherReviewers,
+  createPropertyChangeRequest,
+} from "../../lib/propertyChangeRequestService.js";
 import { canManageProperty } from "./shared.js";
 import { approvePropertyChangeRequest } from "./changeRequestExecutor.js";
 
@@ -151,37 +149,9 @@ changeRequestsRouter.post(
 
 /** POST /properties/change-requests/:rid/cancel — отзывает автор, пока заявка ждёт решения. */
 changeRequestsRouter.post("/change-requests/:rid/cancel", requireAuth, async (req, res) => {
-  const request = await prisma.propertyChangeRequest.findUnique({
-    where: { id: req.params.rid },
-    select: { id: true, status: true, authorId: true, propertyId: true, kind: true },
-  });
-  if (!request) return res.status(404).json({ error: "Заявка не найдена" });
-  if (request.authorId !== req.agent!.id) return res.status(403).json({ error: "Отозвать заявку может только тот, кто её подал" });
-  if (request.status !== "PENDING") return res.status(409).json({ error: "Заявка уже решена — отозвать нельзя" });
-
-  const done = await prisma.propertyChangeRequest.updateMany({
-    where: { id: request.id, status: "PENDING" },
-    data: { status: "CANCELLED", decidedAt: new Date(), decisionNote: "Отозвана автором" },
-  });
-  if (done.count === 0) return res.status(409).json({ error: "Заявка уже решена — отозвать нельзя" });
-
-  logAudit(req, "PROPERTY_CHANGE_REQUEST_CANCELLED", "Property", request.propertyId, {
-    requestId: request.id,
-    kind: request.kind,
-  });
-  void closeForOtherReviewers(request.id, null);
-  publishRequestUpdated({
-    requestId: request.id,
-    propertyId: request.propertyId,
-    agentIds: [request.authorId],
-    stage: "CANCELLED",
-    actorId: req.agent!.id,
-  });
-  const row = await prisma.propertyChangeRequest.findUniqueOrThrow({
-    where: { id: request.id },
-    include: CHANGE_REQUEST_INCLUDE,
-  });
-  res.json({ request: toChangeRequestDto(row), message: "Заявка отозвана" });
+  const result = await cancelPropertyChangeRequest({ requestId: req.params.rid, actorId: req.agent!.id });
+  if (!result.ok) return res.status(result.status).json({ error: result.error });
+  res.json({ request: result.request, message: "Заявка отозвана" });
 });
 
 /** GET /properties/:id/change-requests — заявки по объекту: автор видит свои, руководство (properties.delete) — все. */
@@ -219,109 +189,15 @@ changeRequestsRouter.post(
     if (!parsed.success) {
       return res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Неверные данные заявки" });
     }
-    const body = parsed.data;
-
-    const property = await prisma.property.findUnique({ where: { id: req.params.id } });
-    if (!property || property.deletedAt) return res.status(404).json({ error: "Объект не найден" });
-    if (!canManageProperty(req, property)) {
-      return res.status(403).json({ error: "Заявку подаёт агент, который ведёт этот объект" });
-    }
-    if (!isPublishedForChangeRequest(property.status)) {
-      return res.status(409).json({ error: "До публикации карточку можно править самому" });
-    }
-
-    // Проверки по виду; тело, которое ляжет в базу, — уже разобранное (для данных — только поля из набора).
-    let payloadObject: object = body.payload;
-    if (body.kind === "PRICE_CHANGE") {
-      const currency = body.payload.currency ?? property.currency;
-      if (Number(property.price) === body.payload.newPrice && property.currency === currency) {
-        return res.status(400).json({ error: "Новая цена совпадает с текущей" });
-      }
-      if (property.status === "SOLD") {
-        return res.status(409).json({ error: "Цену проданного объекта исправляет руководитель напрямую" });
-      }
-    } else if (body.kind === "CARD_DATA") {
-      const patch = parseCardPatch(body.payload.patch, property as unknown as Record<string, unknown>);
-      if (!patch.ok) return res.status(400).json({ error: patch.error });
-      payloadObject = { patch: patch.patch, remake: body.payload.remake };
-    } else if (body.kind === "UNPUBLISH") {
-      const published = property.publishedChannels ?? [];
-      if (published.length === 0) {
-        return res.status(409).json({ error: "Ролик нигде не отмечен опубликованным — снимать нечего" });
-      }
-      const foreign = (body.payload.channels ?? []).filter((c) => !published.includes(c));
-      if (foreign.length > 0) {
-        return res.status(400).json({ error: `Ролик не опубликован в: ${foreign.join(", ")}` });
-      }
-    }
-
-    // В базу тело ложится как JSON (undefined-поля отпадают так же, как при сериализации ответа).
-    const payload = JSON.parse(JSON.stringify(payloadObject)) as Prisma.InputJsonObject;
-
-    // Проверка «одна ждущая на пару» и создание — под замком объекта: два быстрых нажатия кнопки не дадут две заявки.
-    const created = await withPropertyLock(property.id, async (tx) => {
-      const existing = await tx.propertyChangeRequest.findFirst({
-        where: { propertyId: property.id, kind: body.kind, status: "PENDING" },
-        select: { id: true },
-      });
-      if (existing) return null;
-      return tx.propertyChangeRequest.create({
-        data: {
-          propertyId: property.id,
-          authorId: req.agent!.id,
-          kind: body.kind,
-          payload,
-          comment: body.comment?.trim() || null,
-        },
-        include: CHANGE_REQUEST_INCLUDE,
-      });
+    // Сама подача заявки (проверки по виду, замок, журнал, уведомление руководству) —
+    // lib/propertyChangeRequestService.ts: её же зовёт ИИ-помощник.
+    const result = await createPropertyChangeRequest({
+      propertyId: req.params.id,
+      actor: { agentId: req.agent!.id, can: (permission) => can(req, permission) },
+      body: parsed.data,
     });
-    if (!created) return res.status(409).json({ error: "Такая заявка уже отправлена" });
-
-    const summary = summarizeChangeRequest(body.kind, payload, property);
-    logAudit(req, "PROPERTY_CHANGE_REQUEST", "Property", property.id, {
-      requestId: created.id,
-      kind: body.kind,
-      summary,
-      shortId: property.shortId,
-      title: property.title,
-      comment: created.comment,
-    });
-
-    // Кому решать — тем и сообщаем, по праву, а не по роли. Часы алармов (07.09.2026): заявка уже
-    // в очереди, откладывается только пуш о ней.
-    void enqueueDirectorAlert({
-      title: `📝 ${PROPERTY_CHANGE_KIND_LABELS[body.kind]}: объект №${property.shortId}`,
-      body: `${created.author.fullName}: ${summary}`,
-      url: `/properties/${property.shortId}?changeRequest=${created.id}`,
-      kind: "property-change-request",
-      level: "APPROVAL",
-      tag: `property-change-request-${created.id}`,
-      recipientPermission: "properties.delete",
-      excludeAgentId: req.agent!.id,
-    });
-    publishRequestUpdated({
-      requestId: created.id,
-      propertyId: property.id,
-      agentIds: [req.agent!.id],
-      stage: "PENDING",
-      actorId: req.agent!.id,
-    });
-
-    res.status(201).json({ request: toChangeRequestDto(created) });
+    if (!result.ok) return res.status(result.status).json({ error: result.error });
+    res.status(201).json({ request: result.request });
   }
 );
 
-/** Гасит уведомление о заявке у руководителей, которые её не решали (зеркало заявок на удаление). */
-async function closeForOtherReviewers(requestId: string, exceptAgentId: string | null): Promise<void> {
-  try {
-    const recipients = await findAgentsWithPermission("properties.delete");
-    await closeLeadPushNotifications(
-      recipients
-        .filter((id) => id !== exceptAgentId)
-        .map((agentId) => ({ agentId, tag: `property-change-request-${requestId}` }))
-    );
-  } catch (err) {
-    console.error("[push] закрытие заявки на изменение у остальных согласующих:", err);
-  }
-}
