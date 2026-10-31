@@ -122,7 +122,10 @@ export async function prepareVerifiedCustomerDmRouting(request: Request): Promis
             return { execution: { lane: "HELD" as const, reason: "original_native_source_already_observed" } };
           }
         }
-        const enrolled = await enrollCustomerAgentSubjectTx(tx, subject, input.eventId ? {} : { legacyOnly: true });
+        // Only a genuinely NEW keyed input (no original source yet) may move an
+        // idle LEGACY subject to the core; redeliveries keep their original owner.
+        const enrolled = await enrollCustomerAgentSubjectTx(tx, subject,
+          !input.eventId ? { legacyOnly: true } : !source && eventKey ? { legacyCutover: true } : {});
         if (!eventKey && enrolled.lane === "CORE") return { execution: { lane: "HELD" as const, reason: "unkeyed_core_input_unsupported" } };
         if (source?.lane === "LEGACY") return { execution: enrolled.lane === "LEGACY" ? source : { lane: "HELD" as const, reason: "historical_legacy_selection_conflict" } };
         if (enrolled.lane === "LEGACY" && eventKey && input.eventId) {

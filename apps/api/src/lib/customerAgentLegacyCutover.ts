@@ -1,12 +1,9 @@
 // Перевод клиентов полосы LEGACY на ядро (решение владельца 31.10.2026).
 //
-// ЗДЕСЬ ТОЛЬКО ДОПУСК, без записи полосы. Сама смена полосы требует миграции:
-// строка CustomerAgentRolloutAssignment неизменяема (триггер
-// customer_rollout_assignment_immutable) и единственна на субъекта (unique
-// surface+endpointScopeId+subjectKey), а приём лида и мост новой заявки
-// (customerActionJournal, customerNewLeadBridge) требуют у билета ссылку на
-// назначение с lane='CORE'. Нужная миграция описана в
-// docs/journal/2026-10-31-legacy-cutover-readiness.md.
+// Здесь допуск и выключатель. Сама смена полосы — новая строка назначения
+// поколения 1 (миграция 20261031120000, функция cutoverLegacySubjectTx в
+// customerAgentEnrollment.ts): прежняя строка LEGACY неизменна, эффективная
+// полоса — последнее поколение. Разбор — docs/journal/2026-10-31-legacy-cutover-readiness.md.
 //
 // Допуск отвечает на один вопрос: можно ли СЛЕДУЮЩЕЕ новое входящее этого
 // субъекта отдать ядру, не перехватив диалог у человека и не оборвав
@@ -25,7 +22,7 @@ export type CustomerLegacyCutoverBlocker =
   | "spam_silenced"
   | "legacy_batch_pending"
   | "legacy_job_pending"
-  | "delivery_in_flight"
+  | "delivery_unsettled"
   | "ingress_pending";
 
 export type CustomerLegacyCutoverReadiness =
@@ -44,9 +41,10 @@ export function customerAgentLegacyCutoverEnabled(env: NodeJS.ProcessEnv = proce
  * диалог закреплён за агентом по объекту, бот замолчал по спаму, владелец
  * диалога в учёте — человек, диалог закрыт.
  * Незавершённая работа: пачка дебаунса не отвечена, ждёт фоновое задание
- * по этому диалогу, доставка в полёте (READY/IN_FLIGHT), входящий билет
- * ещё не обработан (RECEIVED/CLAIMED). Доставки UNKNOWN и билеты HELD не
- * блокируют и НЕ трогаются: их не воскрешает ни этот допуск, ни перевод.
+ * по этому диалогу, доставка не прояснена (READY/IN_FLIGHT/UNKNOWN — решение
+ * владельца 31.10: неопределённая отправка держит перевод), входящий билет ещё
+ * не обработан (RECEIVED/CLAIMED). Ничего из этого допуск не меняет и не
+ * воскрешает: HOLD/UNKNOWN остаются как есть.
  */
 export async function readCustomerLegacyCutoverReadiness(db: Db, subject: {
   channel: string; peer: string; endpointScopeId: string; scopeKey: string;
@@ -76,10 +74,10 @@ export async function readCustomerLegacyCutoverReadiness(db: Db, subject: {
     const [work] = await db.$queryRaw<Array<{ job: boolean; delivery: boolean }>>`SELECT
       EXISTS(SELECT 1 FROM "BackgroundJob" WHERE "status" IN ('PENDING','RUNNING')
         AND "payload"->>'conversationId'=${native.id}) AS job,
-      EXISTS(SELECT 1 FROM "CustomerOutboxPart" WHERE "originalNativeId"=${native.id}
-        AND "status" IN ('READY','IN_FLIGHT')) AS delivery`;
+      EXISTS(SELECT 1 FROM "CustomerOutboxPart" WHERE ("originalNativeId"=${native.id} OR "conversationId"=${native.id})
+        AND "status" IN ('READY','IN_FLIGHT','UNKNOWN')) AS delivery`;
     if (work?.job) return { ready: false, reason: "legacy_job_pending" };
-    if (work?.delivery) return { ready: false, reason: "delivery_in_flight" };
+    if (work?.delivery) return { ready: false, reason: "delivery_unsettled" };
   }
   const [ingress] = await db.$queryRaw<Array<{ pending: boolean }>>`SELECT EXISTS(SELECT 1 FROM "CustomerPropertyIngressTicket"
     WHERE "endpointScopeId"=${subject.endpointScopeId} AND "scopeKey"=${subject.scopeKey} AND "tombstonedAt" IS NULL

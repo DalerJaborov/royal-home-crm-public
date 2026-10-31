@@ -10382,10 +10382,17 @@ model CustomerAgentRolloutAssignment {
   candidateRevisionId String?
   candidateRevision CustomerAgentRevision? @relation(fields:[candidateRevisionId],references:[id],onDelete:Restrict,onUpdate:Restrict)
   createdAt DateTime @default(now())
+  /// Append-only lane generation (31.10.2026, owner: move old LEGACY clients to the core).
+  /// 0 = original enrollment; 1 = CORE row superseding the LEGACY row. Effective lane = max generation.
+  generation Int @default(0)
+  supersedesAssignmentId String? @unique
+  supersedesAssignment CustomerAgentRolloutAssignment? @relation("CustomerAgentLaneCutover", fields:[supersedesAssignmentId], references:[id], onDelete:Restrict, onUpdate:Restrict)
+  supersededBy CustomerAgentRolloutAssignment? @relation("CustomerAgentLaneCutover")
+  transitionReason String?
   ingressTickets CustomerPropertyIngressTicket[]
   metaComments InstagramComment[]
   telegramComments TelegramGroupComment[]
-  @@unique([surface,endpointScopeId,subjectKey],map:"CustomerAgentRolloutAssignment_subject_key")
+  @@unique([surface,endpointScopeId,subjectKey,generation],map:"CustomerAgentRolloutAssignment_subject_generation_key")
   @@index([cohortId])
 }
 
