@@ -34,6 +34,12 @@ describe("Customer agent owner settings", () => {
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Опубликовать изменения/);
     expect(html).toContain("отсутствие настроенного дневного лимита");
   });
+  it("names what is missing instead of a silently disabled publish button", () => {
+    const html = render(state);
+    expect(html).toContain("Чтобы опубликовать, не хватает: причина изменения");
+    expect(html).toContain("галочка «Платные обращения»");
+    expect(html).toContain("галочка «Дневной потолок расходов»");
+  });
   it("rejects malformed server state rather than guessing account ownership", () => {
     expect(customerAgentOwnerStateSchema.safeParse({ ...state, scopes: [{ ...state.scopes[0], endpointScopeId: "caller-picked" }] }).success).toBe(false);
   });
