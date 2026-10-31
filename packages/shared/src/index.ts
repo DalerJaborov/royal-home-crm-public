@@ -114,3 +114,4 @@ export * from "./postShowingCohort.js";
 
 export * from "./weeklyOperationalPreview.js";
 export * from "./somonLeads.js";
+export * from "./assistantCard.js";
