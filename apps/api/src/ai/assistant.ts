@@ -2,12 +2,14 @@ import { visibleInteractionWhere } from "../lib/investigationPrivacy.js";
 import { expenseCentsToTjs } from "../lib/money.js";
 import { prisma } from "../db.js";
 import { geminiFunctionResponsePart } from "./providerContract.js";
-import { formatClientName, parseShortCode, trimAssistantHistory } from "@royal-home/shared";
+import { formatClientName, parseShortCode, trimAssistantHistory, type AssistantTokenEvent } from "@royal-home/shared";
 import type { Prisma, PropertyStatus } from "../generated/prisma/client.js";
 import { toSearchTokens, toTokenVariants } from "../lib/searchTokens.js";
 import {
   callGeminiGrounded,
   callGeminiTools,
+  callGeminiToolsStream,
+  type GeminiStreamInterruptedError,
   type GeminiGroundedResult,
   type GeminiToolCall,
   type GeminiToolDefinition,
@@ -1048,6 +1050,7 @@ export type AssistantErrorCode =
   | "provider_unavailable"
   | "provider_rejected"
   | "empty_reply"
+  | "stream_interrupted"
   | "internal";
 
 export type AssistantOutcome =
@@ -1062,6 +1065,7 @@ export const ASSISTANT_ERROR_MESSAGES: Record<AssistantErrorCode, string> = {
   provider_unavailable: "ИИ сейчас перегружен — повторите через несколько секунд",
   provider_rejected: "ИИ отклонил запрос: проверьте ключ и модель Gemini в Настройках",
   empty_reply: "ИИ не нашёл, что ответить — переформулируйте вопрос",
+  stream_interrupted: "Ответ оборвался на полуслове — повторите вопрос",
   internal: "ИИ недоступен, попробуйте позже",
 };
 
@@ -1074,6 +1078,12 @@ export interface RunAssistantOptions {
   signal?: AbortSignal;
   /** Срок на весь диалог, мс. По умолчанию ASSISTANT_DEADLINE_MS. */
   deadlineMs?: number;
+  /**
+   * Текст ответа по мере генерации (задача 1.6, SSE-событие `token`). Передан —
+   * раунды идут потоком (callGeminiToolsStream), нет — прежним callGeminiTools.
+   * Итог runAssistantDetailed от этого не меняется: полный текст — в reply.
+   */
+  onToken?: (event: AssistantTokenEvent) => void;
 }
 
 /** Причина остановки диалога — кладётся в AbortSignal.reason и по ней же
@@ -1135,6 +1145,10 @@ function failureOf(err: unknown, signal: AbortSignal): { code: AssistantErrorCod
   if (stop) return { code: stop.code, retryable: true };
   if (err instanceof AssistantFailure) {
     return { code: err.code, retryable: err.code !== "no_key" && err.code !== "provider_rejected" };
+  }
+  // По коду, а не instanceof: узкие подмены geminiClient в тестах класса не отдают.
+  if (err instanceof ModelCallError && (err.original as Partial<GeminiStreamInterruptedError> | null)?.code === "stream_interrupted") {
+    return { code: "stream_interrupted", retryable: true };
   }
   if (err instanceof ModelCallError) {
     // Без HTTP-кода — сеть или таймаут попытки: та же «сейчас не получилось», что и 503.
@@ -1280,6 +1294,22 @@ export async function runAssistantDetailed(
     // и цикл ниже не должен из-за этого прерываться.
     const wasEnabledAtStart = settings.enabled;
 
+    // Поток токенов (задача 1.6). Первая дельта раунда после уже показанного
+    // текста идёт с reset: модель начала отвечать, потом попросила данные CRM, и
+    // черновик прошлого раунда человеку больше не нужен.
+    let streamedText = false;
+    const roundTokenSink = (): ((delta: string) => void) | undefined => {
+      const onToken = options.onToken;
+      if (!onToken) return undefined;
+      let first = true;
+      return (delta) => {
+        const reset = first && streamedText;
+        first = false;
+        streamedText = true;
+        onToken(reset ? { text: delta, reset: true } : { text: delta });
+      };
+    };
+
     // `<`, а не `<=` (22.08.2026): ровно MAX_TOOL_ROUNDS походов в Gemini, не больше.
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
       // Перечитываем рубильник перед КАЖДЫМ следующим раундом (через кэш на 15 с,
@@ -1294,18 +1324,20 @@ export async function runAssistantDetailed(
       }
 
       onStatus?.(round === 0 ? "Думаю над ответом…" : "Уточняю данные…");
+      const request = {
+        apiKey,
+        system,
+        contents: conversation as never,
+        tools,
+        maxTokens: 1500,
+        timeoutMs: ATTEMPT_TIMEOUT_MS,
+        signal,
+        deadlineAt,
+        runtime: gemini,
+      };
+      const onToken = roundTokenSink();
       const turn = await modelCall(() =>
-        callGeminiTools({
-          apiKey,
-          system,
-          contents: conversation as never,
-          tools,
-          maxTokens: 1500,
-          timeoutMs: ATTEMPT_TIMEOUT_MS,
-          signal,
-          deadlineAt,
-          runtime: gemini,
-        }),
+        onToken ? callGeminiToolsStream({ ...request, onToken }) : callGeminiTools(request),
       );
       tokens += turn.tokens;
 

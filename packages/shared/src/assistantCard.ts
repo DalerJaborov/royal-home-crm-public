@@ -46,3 +46,17 @@ export interface AssistantClientCard {
 }
 
 export type AssistantCard = AssistantPropertyCard | AssistantClientCard;
+
+/**
+ * SSE-событие `token` (задача 1.6): кусок текста ответа по мере генерации.
+ * Приходит ДО `done`; `done.reply` всё равно несёт полный текст и считается
+ * окончательным (клиент без стриминга и сверка берут его).
+ *
+ * `reset: true` — показанный до этого черновик больше не нужен: модель начала
+ * ответ, потом попросила данные CRM, и новый раунд пишет ответ заново. Клиент
+ * очищает накопленный текст и начинает с `text` этого события.
+ */
+export interface AssistantTokenEvent {
+  text: string;
+  reset?: true;
+}

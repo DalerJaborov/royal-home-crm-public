@@ -8,6 +8,7 @@ import {
   geminiGenerateUrlFor,
   geminiModelFamily,
   geminiProxyHeaders,
+  geminiStreamUrlFor,
   geminiThinkingConfig,
   isRetryableGeminiStatus,
   sleep,
@@ -19,6 +20,7 @@ import { ProviderOperationError, isProviderOperationError, type ProviderOperatio
 import { resolveGeminiOperationRuntime as providerRuntime, assertBoundGeminiRuntimeKey as assertBoundRuntimeKey, boundGeminiCountContext } from "./geminiOperationRuntime.js";
 import { countGeminiToolsRequest, consumeGeminiToolsCount } from "./geminiCountedTools.js";
 import { GEMINI_MANAGED_MEDIA_USAGE_PROTOCOL, managedGeminiMediaFeatures } from "./geminiManagedMedia.js";
+import { createSseDataReader, createToolStreamAccumulator, GeminiStreamFormatError, type GeminiStreamChunk } from "./geminiStream.js";
 
 function managedThinking(model: string): false | "budget" | "level" {
   return thinkingConfigRejected[model] ? false : "thinkingBudget" in geminiThinkingConfig(model) ? "budget" : "level";
@@ -1166,6 +1168,96 @@ export interface GeminiToolDefinition {
   parameters?: Record<string, unknown>;
 }
 
+/** Тело запроса с инструментами — одно на обычный и потоковый вызов. */
+function toolsRequestBody(
+  params: { system: string; contents: unknown; requiredFunctionName?: string; maxTokens?: number; model: string },
+  declarations: unknown,
+  counted: { thinkingLevel: unknown } | undefined,
+): Record<string, unknown> {
+  return {
+    contents: params.contents,
+    systemInstruction: { parts: [{ text: params.system }] },
+    tools: [{ functionDeclarations: declarations }],
+    ...(params.requiredFunctionName ? { toolConfig: { functionCallingConfig: { mode: "ANY", allowedFunctionNames: [params.requiredFunctionName] } } } : {}),
+    generationConfig: {
+      maxOutputTokens: params.maxTokens ?? 1500,
+      // Та же глушилка «размышления», что в callGemini, и по той же причине: мысли
+      // списываются из maxOutputTokens и способны выжечь весь лимит до ответа. Форма
+      // параметра — по семейству модели (см. geminiThinkingConfig).
+      ...(counted ? { thinkingConfig: { thinkingLevel: counted.thinkingLevel } }
+        : thinkingConfigRejected[params.model] ? {} : { thinkingConfig: geminiThinkingConfig(params.model) }),
+    },
+  };
+}
+
+/**
+ * Отказ Google по HTTP на пути инструментов — запись в журнал и ошибка со статусом.
+ * Одна реализация на обычный и потоковый вызов (у потокового managed не бывает).
+ */
+async function toolsHttpError(res: Response, model: string, managedFailure: boolean): Promise<Error> {
+  // Managed: тело читаем только ради безопасных полей (status/code/reason/field);
+  // сырой текст и error.message наружу не уходят. Сбой чтения — просто без деталей.
+  const managedSummary = managedFailure ? await readManagedGeminiErrorSummary(res) : "";
+  const rawDetail = managedFailure ? "" : (await res.text()).slice(0, 300);
+  // Bound/managed failures may echo prompt, tool args or credentials. Keep
+  // legacy diagnostics unchanged, but never export their raw body here.
+  const detail = managedFailure ? "managed_provider_http_error" : rawDetail;
+  const logDetail = managedFailure && managedSummary ? `${detail} (${managedSummary})` : detail;
+  if (!managedFailure && res.status === 400 && /thinking/i.test(rawDetail) && !thinkingConfigRejected[model]) {
+    thinkingConfigRejected[model] = true;
+    void logSystemError(
+      "ai",
+      `Gemini (${model}, семейство ${geminiModelFamily(model)}) отверг thinkingConfig в вызове с инструментами: ${detail}`
+    );
+  }
+  // В журнал CRM, а не только в исключение: слепота к отказам поставщика — это
+  // ровно то, из-за чего 404 Gemini прожил два месяца незамеченным.
+  void logSystemError("ai", `Gemini не ответил (ассистент, ${model}): HTTP ${res.status}: ${logDetail}`);
+  const err = new Error(`Gemini HTTP ${res.status}: ${detail}`);
+  (err as Error & { status?: number }).status = res.status;
+  return err;
+}
+
+/** Просьбы модели об инструментах из частей реплики. */
+function toolCallsOf(modelParts: GeminiPart[]): GeminiToolCall[] {
+  return modelParts
+    .filter((p) => p.functionCall)
+    .map((p) => ({
+      name: p.functionCall!.name,
+      args: (p.functionCall!.args ?? {}) as Record<string, unknown>,
+      ...(typeof p.functionCall!.id === "string" ? { id: p.functionCall!.id } : {}),
+    }));
+}
+
+/** Пустой ответ и ответ резервной модели — в журнал, одинаково для обоих путей. */
+function reportToolTurnOddities(turn: {
+  text: string;
+  calls: GeminiToolCall[];
+  finishReason: string | undefined;
+  blockReason: string | undefined;
+  thoughts: number | undefined;
+  model: string;
+  primaryModel: string;
+}): void {
+  // Ни текста, ни просьбы об инструментах — причина всегда написана в ответе, и без
+  // неё пустота выглядит загадкой. Ровно так 31.07 выглядело выжигание лимита
+  // «размышлением»: finishReason=MAX_TOKENS при пустом содержимом.
+  if (!turn.text && turn.calls.length === 0) {
+    void logSystemError(
+      "ai",
+      `Gemini вернул пустой ответ (ассистент): finishReason=${turn.finishReason ?? "нет"}${
+        turn.blockReason ? `, blockReason=${turn.blockReason}` : ""
+      }, мыслей=${turn.thoughts ?? 0}`
+    );
+  }
+  if (turn.model !== turn.primaryModel) {
+    void logSystemError(
+      "ai",
+      `Ассистент ответил на РЕЗЕРВНОЙ модели ${turn.model} — основная ${turn.primaryModel} недоступна.`
+    );
+  }
+}
+
 async function callGeminiToolsOnce(params: {
   apiKey: string;
   system: string;
@@ -1188,25 +1280,11 @@ async function callGeminiToolsOnce(params: {
   const mediaFeatures = params.providerOperation?.managed && countContext?.usageProtocol === GEMINI_MANAGED_MEDIA_USAGE_PROTOCOL
     ? managedGeminiMediaFeatures(params.contents.flatMap(content => content.parts))
     : { images: params.providerOperation?.managed ? managedPartsHaveImages(params.contents.flatMap(content => content.parts)) : false };
-  const toolsFamily = geminiModelFamily(params.model);
   const declarations = countContext?.policy.functionDeclarationProtocol === GEMINI_FUNCTION_DECLARATION_PROTOCOL
     ? managedGeminiFunctionDeclarations(params.tools) : params.tools;
   if (params.requiredFunctionName && (countContext?.usageProtocol !== GEMINI_MANAGED_MEDIA_USAGE_PROTOCOL ||
       params.tools.length !== 1 || params.tools[0].name !== params.requiredFunctionName)) throw new ProviderOperationError("unsupported");
-  const body: Record<string, unknown> = {
-    contents: params.contents,
-    systemInstruction: { parts: [{ text: params.system }] },
-    tools: [{ functionDeclarations: declarations }],
-    ...(params.requiredFunctionName ? { toolConfig: { functionCallingConfig: { mode: "ANY", allowedFunctionNames: [params.requiredFunctionName] } } } : {}),
-    generationConfig: {
-      maxOutputTokens: params.maxTokens ?? 1500,
-      // Та же глушилка «размышления», что в callGemini, и по той же причине: мысли
-      // списываются из maxOutputTokens и способны выжечь весь лимит до ответа. Форма
-      // параметра — по семейству модели (см. geminiThinkingConfig).
-      ...(countContext ? { thinkingConfig: { thinkingLevel: countContext.policy.thinkingLevel } }
-        : thinkingConfigRejected[params.model] ? {} : { thinkingConfig: geminiThinkingConfig(params.model) }),
-    },
-  };
+  const body = toolsRequestBody(params, declarations, countContext ? { thinkingLevel: countContext.policy.thinkingLevel } : undefined);
   // Only explicitly counted profiles use this immutable snapshot. Legacy wire
   // keeps its old serialization/settings behavior. No model/body field binds it.
   const target = countContext?.selectTarget(params.model, params.apiKey);
@@ -1248,28 +1326,7 @@ async function callGeminiToolsOnce(params: {
     });
     if (!res.ok) {
       traceResult = res.status >= 400 && res.status < 500 && res.status !== 429 ? "blocked" : "error";
-      const managedFailure = params.providerOperation?.managed === true;
-      // Managed: тело читаем только ради безопасных полей (status/code/reason/field);
-      // сырой текст и error.message наружу не уходят. Сбой чтения — просто без деталей.
-      const managedSummary = managedFailure ? await readManagedGeminiErrorSummary(res) : "";
-      const rawDetail = managedFailure ? "" : (await res.text()).slice(0, 300);
-      // Bound/managed failures may echo prompt, tool args or credentials. Keep
-      // legacy diagnostics unchanged, but never export their raw body here.
-      const detail = managedFailure ? "managed_provider_http_error" : rawDetail;
-      const logDetail = managedFailure && managedSummary ? `${detail} (${managedSummary})` : detail;
-      if (!managedFailure && res.status === 400 && /thinking/i.test(rawDetail) && !thinkingConfigRejected[params.model]) {
-        thinkingConfigRejected[params.model] = true;
-        void logSystemError(
-          "ai",
-          `Gemini (${params.model}, семейство ${toolsFamily}) отверг thinkingConfig в вызове с инструментами: ${detail}`
-        );
-      }
-      // В журнал CRM, а не только в исключение: слепота к отказам поставщика — это
-      // ровно то, из-за чего 404 Gemini прожил два месяца незамеченным.
-      void logSystemError("ai", `Gemini не ответил (ассистент, ${params.model}): HTTP ${res.status}: ${logDetail}`);
-      const err = new Error(`Gemini HTTP ${res.status}: ${detail}`);
-      (err as Error & { status?: number }).status = res.status;
-      throw err;
+      throw await toolsHttpError(res, params.model, params.providerOperation?.managed === true);
     }
     const data = (await res.json()) as {
       candidates?: { content?: { parts?: GeminiPart[] }; finishReason?: string }[];
@@ -1304,37 +1361,20 @@ async function callGeminiToolsOnce(params: {
       }
     }
     const modelParts = candidate?.content?.parts ?? [];
-    const calls: GeminiToolCall[] = modelParts
-      .filter((p) => p.functionCall)
-      .map((p) => ({
-        name: p.functionCall!.name,
-        args: (p.functionCall!.args ?? {}) as Record<string, unknown>,
-        ...(typeof p.functionCall!.id === "string" ? { id: p.functionCall!.id } : {}),
-      }));
+    const calls = toolCallsOf(modelParts);
     const text = modelParts
       .map((p) => p.text ?? "")
       .join("")
       .trim();
-    // Ни текста, ни просьбы об инструментах — причина всегда написана в ответе, и без
-    // неё пустота выглядит загадкой. Ровно так 31.07 выглядело выжигание лимита
-    // «размышлением»: finishReason=MAX_TOKENS при пустом содержимом.
-    if (!text && calls.length === 0) {
-      const finish = data.candidates?.[0]?.finishReason ?? "нет";
-      const thoughts = data.usageMetadata?.thoughtsTokenCount ?? 0;
-      const blockReason = data.promptFeedback?.blockReason;
-      void logSystemError(
-        "ai",
-        `Gemini вернул пустой ответ (ассистент): finishReason=${finish}${
-          blockReason ? `, blockReason=${blockReason}` : ""
-        }, мыслей=${thoughts}`
-      );
-    }
-    if (params.model !== params.primaryModel) {
-      void logSystemError(
-        "ai",
-        `Ассистент ответил на РЕЗЕРВНОЙ модели ${params.model} — основная ${params.primaryModel} недоступна.`
-      );
-    }
+    reportToolTurnOddities({
+      text,
+      calls,
+      finishReason: data.candidates?.[0]?.finishReason,
+      blockReason: data.promptFeedback?.blockReason,
+      thoughts: data.usageMetadata?.thoughtsTokenCount,
+      model: params.model,
+      primaryModel: params.primaryModel,
+    });
     attemptOutcome = data.promptFeedback?.blockReason ? "blocked" : !text && calls.length === 0 ? "invalid" : "success";
     // JSON/provider return is not customer decision-schema validation. The
     // coordinator records validated decision kind separately after Core.
@@ -1487,10 +1527,15 @@ export async function callGeminiTools(params: {
  * Привязанный путь (providerOperation — клиентский агент) сюда не ходит: у него
  * свой учёт попыток и денег, и менять его этой пачкой нельзя.
  */
+/** Параметры одной попытки на пути инструментов (обычной или потоковой). */
+type ToolsAttemptParams = Parameters<typeof callGeminiToolsOnce>[0];
+
 async function callGeminiToolsWithRetries(
   params: Parameters<typeof callGeminiTools>[0],
   runtime: GeminiRuntime,
   modelsToTry: string[],
+  /** Одна попытка: обычный generateContent или поток (callGeminiToolsStream). */
+  attemptOnce: (attempt: ToolsAttemptParams) => Promise<GeminiToolTurn> = callGeminiToolsOnce,
 ): Promise<GeminiToolTurn> {
   const start = Date.now();
   const deadline = Math.min(start + TOTAL_BUDGET_MS, params.deadlineAt ?? Infinity);
@@ -1515,7 +1560,7 @@ async function callGeminiToolsWithRetries(
       const left = phaseDeadline - Date.now();
       if (left <= 0) break;
       try {
-        const turn = await callGeminiToolsOnce({
+        const turn = await attemptOnce({
           apiKey: params.apiKey,
           system: params.system,
           contents: params.contents,
@@ -1534,6 +1579,8 @@ async function callGeminiToolsWithRetries(
         if (params.signal?.aborted) throw abortReason(params.signal);
         if (isProviderOperationError(err)) throw err;
         if (err instanceof ManagedToolTurnStopError) throw err;
+        // Поток оборвался после показанного слова — повтор дал бы второй текст поверх.
+        if (err instanceof GeminiStreamInterruptedError) throw err;
         lastErr = err;
         const status = (err as Error & { status?: number })?.status;
         if (status == null) continue; // сеть или таймаут попытки — как 503, повторяем
@@ -1549,6 +1596,166 @@ async function callGeminiToolsWithRetries(
     if (deadline - Date.now() <= 0) break;
   }
   throw lastErr ?? new Error("Gemini (ассистент): нет доступной модели — все пропущены предохранителем или вышел срок");
+}
+
+/**
+ * ПОТОК ОБОРВАЛСЯ ПОСЛЕ ПЕРВОГО ПОКАЗАННОГО СЛОВА (31.10.2026, помощник CRM, задача 1.6).
+ *
+ * Пока человеку не ушло ни одного слова, сбой потока — обычный сбой попытки: её
+ * повторяют и переводят на резервную модель по той же политике, что и обычный
+ * вызов. После первого слова повтор означал бы второй, другой текст поверх уже
+ * показанного — поэтому не повторяем, а заканчиваем ошибкой с кодом, по которому
+ * интерфейс предлагает «Повторить» (retryable).
+ */
+export class GeminiStreamInterruptedError extends Error {
+  readonly code = "stream_interrupted" as const;
+  readonly retryable = true;
+  constructor(readonly original: unknown) {
+    super(`Поток Gemini оборвался после начала ответа: ${original instanceof Error ? original.message : String(original)}`);
+    this.name = "GeminiStreamInterruptedError";
+  }
+}
+
+/** Одна потоковая попытка. Те же параметры, что у callGeminiToolsOnce, плюс onToken. */
+async function callGeminiToolsStreamOnce(
+  params: ToolsAttemptParams & { onToken: (delta: string) => void },
+): Promise<GeminiToolTurn> {
+  throwIfAborted(params.signal);
+  const body = toolsRequestBody(params, params.tools, undefined);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), params.timeoutMs ?? 60_000);
+  const unlinkAbort = linkAbort(controller, params.signal);
+  const traceStarted = performance.now();
+  const traceAttempt = traceModelStart(params.model, null, "assistant-tools");
+  let traceResult: Parameters<typeof traceModelFinish>[1] = "error";
+  let emitted = false;
+  const acc = createToolStreamAccumulator();
+  const emit = (delta: string) => {
+    if (!delta) return;
+    emitted = true;
+    try {
+      params.onToken(delta);
+    } catch (err) {
+      // Сбой показа (закрытый сокет) — не сбой модели: ответ всё равно собирается.
+      console.warn("[ai:gemini-stream] onToken бросил:", err instanceof Error ? err.message : err);
+    }
+  };
+  try {
+    const res = await fetch(geminiStreamUrlFor(params.model), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-goog-api-key": params.apiKey, ...geminiProxyHeaders() },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      traceResult = res.status >= 400 && res.status < 500 && res.status !== 429 ? "blocked" : "error";
+      throw await toolsHttpError(res, params.model, false);
+    }
+    if (!res.body) throw new GeminiStreamFormatError("ответ без тела");
+    if ((res.headers.get("content-type") ?? "").includes("application/json")) {
+      // Без alt=sse (прокси потерял строку запроса) Google отдаёт весь поток одним
+      // JSON-массивом: ответ правильный, только приходит целиком в конце.
+      const all = (await res.json()) as unknown;
+      for (const chunk of Array.isArray(all) ? all : [all]) emit(acc.push(chunk as GeminiStreamChunk));
+    } else {
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      const sse = createSseDataReader();
+      // Отмена (срок попытки, срок диалога, уход клиента) обязана остановить и
+      // ЧТЕНИЕ, а не только запрос: тело, которое не слушает сигнал, иначе держало
+      // бы цикл до конца генерации. cancel() завершает ожидающий read() пустым.
+      const stopReading = () => void reader.cancel(controller.signal.reason).catch(() => undefined);
+      controller.signal.addEventListener("abort", stopReading, { once: true });
+      try {
+        for (;;) {
+          const { done, value } = await reader.read();
+          // Пустой read() после отмены — не конец ответа, а его обрыв.
+          if (controller.signal.aborted) throw controller.signal.reason ?? new Error("Поток Gemini прерван");
+          const payloads = done ? [...sse.push(decoder.decode()), ...sse.end()] : sse.push(decoder.decode(value, { stream: true }));
+          for (const payload of payloads) emit(acc.pushData(payload));
+          if (done) break;
+        }
+      } finally {
+        controller.signal.removeEventListener("abort", stopReading);
+        void reader.cancel().catch(() => undefined);
+      }
+    }
+    const streamed = acc.result();
+    // Поток кончился без finishReason — это обрыв, а не ответ: вызовы инструментов
+    // из такого потока не исполняются никогда.
+    if (!streamed.finishReason && !streamed.blockReason) {
+      throw new GeminiStreamFormatError("поток кончился без finishReason");
+    }
+    const traceCache = streamed.usage ? Reflect.get(streamed.usage, "cachedContentTokenCount") : undefined;
+    traceModelCache(traceAttempt, typeof traceCache === "number" && Number.isFinite(traceCache) && traceCache >= 0 ? traceCache > 0 : null);
+    const modelParts = streamed.parts as GeminiPart[];
+    const calls = toolCallsOf(modelParts);
+    const text = modelParts
+      .filter((p) => p.thought !== true)
+      .map((p) => p.text ?? "")
+      .join("")
+      .trim();
+    reportToolTurnOddities({
+      text,
+      calls,
+      finishReason: streamed.finishReason,
+      blockReason: streamed.blockReason,
+      thoughts: streamed.usage?.thoughtsTokenCount,
+      model: params.model,
+      primaryModel: params.primaryModel,
+    });
+    traceResult = streamed.blockReason ? "blocked" : !text && calls.length === 0 ? "empty" : "returned";
+    return {
+      text,
+      calls,
+      modelParts,
+      tokens: (streamed.usage?.promptTokenCount ?? 0) + (streamed.usage?.candidatesTokenCount ?? 0),
+    };
+  } catch (err) {
+    // Отмена снаружи пробрасывается как есть (её разбирает вызывающий).
+    if (params.signal?.aborted) throw abortReason(params.signal);
+    if (emitted) throw new GeminiStreamInterruptedError(err);
+    throw err;
+  } finally {
+    traceModelFinish(traceAttempt, traceResult, traceStarted);
+    clearTimeout(timeout);
+    unlinkAbort();
+  }
+}
+
+/**
+ * ПОТОКОВЫЙ ВЫЗОВ С ИНСТРУМЕНТАМИ (31.10.2026, помощник CRM, задача 1.6,
+ * docs/design/internal-assistant-architecture-2026-10-31.md).
+ *
+ * `streamGenerateContent?alt=sse`: текст уходит человеку по мере генерации через
+ * onToken(delta), вызовы инструментов собираются целиком и отдаются только после
+ * конца потока. Результат тот же GeminiToolTurn, что у callGeminiTools, — цикл
+ * раундов помощника не различает два пути.
+ *
+ * Политика та же, что у непривязанного callGeminiTools (callGeminiToolsWithRetries):
+ * ключ, модели и резервная, повторы с паузами, предохранитель, срок deadlineAt,
+ * внешняя отмена signal. Отличие одно: сбой ПОСЛЕ первого показанного слова не
+ * повторяется (GeminiStreamInterruptedError). Привязанного пути (providerOperation,
+ * клиентский агент) здесь нет намеренно: его учёт денег на поток не рассчитан.
+ */
+export async function callGeminiToolsStream(params: {
+  apiKey: string;
+  system: string;
+  contents: { role: "user" | "model"; parts: GeminiPart[] }[];
+  tools: GeminiToolDefinition[];
+  maxTokens?: number;
+  timeoutMs?: number;
+  signal?: AbortSignal;
+  deadlineAt?: number;
+  runtime?: GeminiRuntime;
+  /** Текстовая дельта — сразу, как пришла от Google. Размышления сюда не попадают. */
+  onToken: (delta: string) => void;
+}): Promise<GeminiToolTurn> {
+  throwIfAborted(params.signal);
+  const runtime = params.runtime ?? (await providerRuntime(undefined));
+  return callGeminiToolsWithRetries(params, runtime, [runtime.model, ...runtime.fallbackModels], (attempt) =>
+    callGeminiToolsStreamOnce({ ...attempt, onToken: params.onToken }),
+  );
 }
 
 /** Один источник, на который сослалась модель при grounded-поиске. */

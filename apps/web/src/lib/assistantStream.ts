@@ -1,4 +1,4 @@
-import { ASSISTANT_HISTORY_WINDOW, type AssistantCard } from "@royal-home/shared";
+import { ASSISTANT_HISTORY_WINDOW, type AssistantCard, type AssistantTokenEvent } from "@royal-home/shared";
 import { refreshAccessToken } from "./api";
 import { getOrCreateDeviceId } from "./deviceId";
 import { httpStatusMessage } from "./httpStatusMessage";
@@ -55,6 +55,12 @@ export interface StreamAssistantOptions {
   timeoutMs?: number;
   /** Карточка результата, пришедшая раньше финального текста (быстрый путь без модели). */
   onCard?: (card: AssistantCard) => void;
+  /**
+   * Текст ответа по мере генерации (SSE-событие `token`, задача 1.6): в колбэк
+   * приходит ВЕСЬ накопленный на сей момент текст, а не дельта. Окончательный
+   * ответ — всё равно возвращаемое значение (текст из `done`).
+   */
+  onToken?: (textSoFar: string) => void;
 }
 
 interface SseData {
@@ -96,7 +102,7 @@ export async function streamAssistant(
   else options.signal?.addEventListener("abort", onOuterAbort, { once: true });
 
   try {
-    return await run(windowMessages(messages), onStatus, options.onCard, controller.signal);
+    return await run(windowMessages(messages), onStatus, options, controller.signal);
   } catch (err) {
     throw normalizeError(err, timedOut, options.signal?.aborted === true);
   } finally {
@@ -123,7 +129,7 @@ function normalizeError(err: unknown, timedOut: boolean, abortedOutside: boolean
 async function run(
   messages: AssistantMessage[],
   onStatus: (message: string) => void,
-  onCard: StreamAssistantOptions["onCard"],
+  { onCard, onToken }: Pick<StreamAssistantOptions, "onCard" | "onToken">,
   signal: AbortSignal,
 ): Promise<string> {
   const doFetch = (token: string | null) =>
@@ -179,6 +185,7 @@ async function run(
   let buffer = "";
   let reply: string | null = null;
   let errorMessage: string | null = null;
+  let streamed = "";
 
   try {
     while (true) {
@@ -204,6 +211,13 @@ async function run(
           if (isCard(data)) onCard?.(data);
           continue;
         }
+        if (event === "token") {
+          if (isToken(data)) {
+            streamed = data.reset ? data.text : streamed + data.text;
+            onToken?.(streamed);
+          }
+          continue;
+        }
         const payload = data as SseData;
         if (event === "status" && payload.message) onStatus(payload.message);
         else if (event === "done") reply = payload.reply ?? "";
@@ -223,7 +237,13 @@ async function run(
   assertSameSession();
   if (errorMessage) throw new AssistantStreamError("server", errorMessage, true);
   if (reply === null) throw new AssistantStreamError("server", "Ответ оборвался. Попробуйте ещё раз", true);
-  return reply;
+  // `done` — окончательный текст. Пустой `done` при показанных токенах (старый
+  // сервер так не делает, но сверка дешёвая) — берём накопленное, а не пустоту.
+  return reply || streamed;
+}
+
+function isToken(value: unknown): value is AssistantTokenEvent {
+  return !!value && typeof value === "object" && typeof (value as { text?: unknown }).text === "string";
 }
 
 function isCard(value: unknown): value is AssistantCard {
