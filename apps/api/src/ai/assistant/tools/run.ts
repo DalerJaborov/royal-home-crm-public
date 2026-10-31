@@ -5,6 +5,7 @@ import {
   type AssistantActionActor,
   type AssistantActionView,
 } from "../../../lib/assistantActions.js";
+import { wrapUntrusted } from "../../untrustedContent.js";
 import type { AssistantActor } from "../actor.js";
 import type { AssistantToolPlugin } from "./types.js";
 
@@ -17,6 +18,35 @@ export interface RunPluginHooks {
   channel: AssistantActionActor["channel"];
   /** Карточка подтверждения готова — отдать клиенту событием `confirm`. */
   onConfirm?: (action: AssistantActionView) => void;
+}
+
+/** Потолок одной строки превью в ответе модели (превью короткое: подписи, а не переписка). */
+const PREVIEW_FIELD_MAX_CHARS = 500;
+/** Ключи, значения которых строит сам код (ссылки по номеру), — их модель получает как есть. */
+const TRUSTED_PREVIEW_KEYS = new Set(["href"]);
+
+function wrapPreviewValue(value: unknown, key?: string): unknown {
+  if (typeof value === "string") {
+    if (key && TRUSTED_PREVIEW_KEYS.has(key)) return value;
+    return wrapUntrusted("crm_note", value, PREVIEW_FIELD_MAX_CHARS) || value;
+  }
+  if (Array.isArray(value)) return value.map((item) => wrapPreviewValue(item));
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, wrapPreviewValue(v, k)]));
+  }
+  return value;
+}
+
+/**
+ * ПРЕВЬЮ ДЛЯ МОДЕЛИ — КОПИЯ, ГДЕ КАЖДАЯ СТРОКА В ГРАНИЦАХ «ДАННЫЕ, НЕ КОМАНДЫ»
+ * (сборка П3). Превью собирают инструменты из карточек: имя клиента, адрес,
+ * название объекта, причина — свободный текст из базы, и голым в контекст модели
+ * он не идёт (тот же приём, что `safeField`). Событие `confirm` для интерфейса
+ * получает ИСХОДНОЕ превью без обёрток: его читает человек, теги ему не нужны.
+ * Исходник не меняется — копия строится заново.
+ */
+export function previewForModel(preview: AssistantActionView["preview"]): unknown {
+  return wrapPreviewValue(preview);
 }
 
 /**
@@ -40,7 +70,7 @@ export async function runAssistantToolPlugin(
       return {
         confirmRequired: true,
         actionId: pending.id,
-        preview: pending.preview,
+        preview: previewForModel(pending.preview),
         note: "Действие ЕЩЁ НЕ выполнено: человек должен нажать «Подтвердить» в карточке. Не подтверждай сам.",
       };
     }

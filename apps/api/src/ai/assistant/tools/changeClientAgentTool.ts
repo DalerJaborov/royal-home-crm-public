@@ -21,7 +21,7 @@ import {
 } from "../../../lib/assignClientManually.js";
 import { clientNamePhoneSafe } from "../../../lib/clientPhone.js";
 import { checkManualAssignTarget } from "../../../lib/manualAssignTarget.js";
-import { wrapUntrusted } from "../../untrustedContent.js";
+import { plainField } from "./safeField.js";
 import type { AssistantWriteToolPlugin } from "./types.js";
 
 /**
@@ -203,8 +203,10 @@ export const changeClientAgentExecutor: AssistantActionExecutor<Args> = {
       title: `Передать клиента ${code}: ${fromName === QUEUE_LABEL ? "из очереди" : fromName} → ${target.fullName}`.slice(0, 200),
       was: {
         client: code,
-        // Имя клиента — чужой текст (его пишет бот со слов клиента): в ответ модели только обёрнутым.
-        clientName: wrapUntrusted("crm_note", clientNamePhoneSafe(client!.fullName, actor.can("clients.viewPhone")), 120),
+        // Имя клиента — чужой текст (его пишет бот со слов клиента). Превью читает
+        // человек — здесь без тегов, только погашенные скобки; для модели всё превью
+        // оборачивает previewForModel (tools/run.ts).
+        clientName: plainField(clientNamePhoneSafe(client!.fullName, actor.can("clients.viewPhone")), 120),
         href: `/clients/${client!.shortId}`,
         agent: fromName,
         accepted: Boolean(snap.fields.acceptedAt),
