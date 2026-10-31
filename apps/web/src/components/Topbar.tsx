@@ -3,7 +3,8 @@ import { Children, useRef, useState, type Dispatch, type ReactNode, type RefObje
 import { RH2_ROW_BUTTON, Rh2Portal } from "./rh2/Rh2Scope";
 import { useNavigation } from "../lib/navigation";
 import { defaultCleanNavigation } from "../lib/cleanNavigationOrder";
-import { Bell, ChevronLeft, Moon, Search, Sun } from "lucide-react";
+import { Bell, ChevronLeft, Moon, Search, Sparkles, Sun } from "lucide-react";
+import { ASSISTANT_ENTRY_LABEL, ASSISTANT_ENTRY_TITLE, useAssistantEntry } from "../hooks/useAssistantEntry";
 import { useUiPrefs } from "../store/uiPrefs";
 import { THEMES } from "../lib/themes";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -101,6 +102,7 @@ export function Topbar({ clean = false }: { clean?: boolean }) {
         navigate={navigate}
         showSearch={showSearch}
         setShowSearch={setShowSearch}
+        clean={clean}
       />
     </div>
   );
@@ -125,6 +127,8 @@ interface TopbarRowProps {
   navigate: (to: string) => void;
   showSearch: boolean;
   setShowSearch: (v: boolean) => void;
+  /** Строка стоит внутри чистой оболочки (CleanShell) — у той свой вход в помощника. */
+  clean: boolean;
 }
 
 /** Сама верхняя строка — вынесена из `Topbar`, чтобы над ней встала лента разделов. */
@@ -147,8 +151,10 @@ function TopbarRow({
   navigate,
   showSearch,
   setShowSearch,
+  clean,
 }: TopbarRowProps) {
   const agent = useAuthStore((s) => s.agent);
+  const assistantEntry = useAssistantEntry();
   const legacyAgentMobile = useLegacyAgentMobile();
   const [showMore, setShowMore] = useState(false);
   // До двух круглых кнопок справа (контракт); лишние шапка не рисует. Без своих
@@ -325,6 +331,23 @@ function TopbarRow({
       </button>
 
       <div className="hidden md:flex ml-auto items-center gap-2">
+        {/* Вход в ИИ-помощника на компьютере (31.10.2026): раньше его не было вовсе,
+            единственный вход — удержание «+» на телефоне. В чистой оболочке кнопка
+            уже стоит в её собственной шапке (CleanShell), второй не рисуем. Панель
+            одна для всех входов — AssistantHost. */}
+        {!clean && assistantEntry.visible && (
+          <button
+            type="button"
+            onClick={assistantEntry.open}
+            {...assistantEntry.preloadProps}
+            aria-label={ASSISTANT_ENTRY_LABEL}
+            title={ASSISTANT_ENTRY_TITLE}
+            data-topbar-ai
+            className="sh-btn flex items-center justify-center"
+          >
+            <Sparkles className="w-[19px] h-[19px]" strokeWidth={1.8} />
+          </button>
+        )}
         <ThemeQuickSwitch />
 
         {/* КОЛОКОЛЬЧИК ПОКАЗЫВАЕТ НАСТОЯЩИЕ УВЕДОМЛЕНИЯ (аудит №4, 27.08). */}

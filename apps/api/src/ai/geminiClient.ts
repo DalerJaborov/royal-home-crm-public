@@ -13,7 +13,7 @@ import {
   sleep,
 } from "./geminiTransport.js";
 import { logSystemError } from "../lib/systemError.js";
-import { resolveGeminiRuntime } from "./geminiSettings.js";
+import { resolveGeminiRuntime, type GeminiRuntime } from "./geminiSettings.js";
 import { resolveGeminiCache } from "./geminiCache.js";
 import { ProviderOperationError, isProviderOperationError, type ProviderOperation, type ProviderAttempt } from "./providerContract.js";
 import { resolveGeminiOperationRuntime as providerRuntime, assertBoundGeminiRuntimeKey as assertBoundRuntimeKey, boundGeminiCountContext } from "./geminiOperationRuntime.js";
@@ -127,6 +127,53 @@ const ATTEMPTS_PER_MODEL = GEMINI_RETRY_DELAYS_MS.length + 1;
  */
 const WIDEN_STEP_TOKENS = 1000;
 const WIDEN_MAX_TOKENS = 2000;
+
+/**
+ * ВНЕШНЯЯ ОТМЕНА ВЫЗОВА (31.10.2026, пачка П1 задача 1.1 помощника CRM).
+ *
+ * Помощник отдаёт свой AbortSignal: клиент закрыл соединение или истёк общий срок
+ * диалога (25 с). Отмена — не отказ модели: её не повторяют, не переводят на
+ * резервную модель и не засчитывают в предохранитель. Причина отмены (signal.reason)
+ * пробрасывается как есть, чтобы вызывающий отличил «клиент ушёл» от «срок вышел».
+ */
+function abortReason(signal: AbortSignal): unknown {
+  return signal.reason ?? new DOMException("Вызов Gemini отменён", "AbortError");
+}
+
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) throw abortReason(signal);
+}
+
+/** Пауза перед повтором, которую прерывает внешняя отмена: ждать четыре секунды
+ *  ответа, который уже некому показать, незачем. */
+function sleepUnlessAborted(ms: number, signal: AbortSignal | undefined): Promise<void> {
+  if (!signal) return sleep(ms);
+  return new Promise<void>((resolve, reject) => {
+    if (signal.aborted) return reject(abortReason(signal));
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(abortReason(signal));
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+/** Связать внешнюю отмену с контроллером одной попытки. Возвращает отвязку —
+ *  вызывать в finally, иначе долгий сигнал копит слушателей по числу попыток. */
+function linkAbort(controller: AbortController, signal: AbortSignal | undefined): () => void {
+  if (!signal) return () => {};
+  if (signal.aborted) {
+    controller.abort(abortReason(signal));
+    return () => {};
+  }
+  const onAbort = () => controller.abort(abortReason(signal));
+  signal.addEventListener("abort", onAbort, { once: true });
+  return () => signal.removeEventListener("abort", onAbort);
+}
 
 /**
  * Поставщик отверг блок thinkingConfig — больше его не шлём этому СЕМЕЙСТВУ моделей
@@ -1133,7 +1180,10 @@ async function callGeminiToolsOnce(params: {
    *  запись «ответил на резервной» сравнивала с настроенной, а не с константой .env. */
   primaryModel: string;
   providerOperation?: ProviderOperation;
+  /** Внешняя отмена (помощник CRM): прерывает запрос к Google на лету. */
+  signal?: AbortSignal;
 }): Promise<GeminiToolTurn> {
+  throwIfAborted(params.signal);
   const countContext = params.providerOperation ? boundGeminiCountContext(params.providerOperation) : null;
   const mediaFeatures = params.providerOperation?.managed && countContext?.usageProtocol === GEMINI_MANAGED_MEDIA_USAGE_PROTOCOL
     ? managedGeminiMediaFeatures(params.contents.flatMap(content => content.parts))
@@ -1166,6 +1216,7 @@ async function callGeminiToolsOnce(params: {
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), params.timeoutMs ?? 60_000);
+  const unlinkAbort = linkAbort(controller, params.signal);
   let providerAttempt: ProviderAttempt | undefined;
   let attemptOutcome: Parameters<ProviderAttempt["finish"]>[0] = "error";
   let traceAttempt: number | null = null, traceStarted = 0;
@@ -1297,6 +1348,7 @@ async function callGeminiToolsOnce(params: {
   } finally {
     traceModelFinish(traceAttempt, traceResult, traceStarted); // NEVER raw provider/tool payload
     clearTimeout(timeout);
+    unlinkAbort();
     await providerAttempt?.finish(attemptOutcome);
   }
 }
@@ -1362,13 +1414,27 @@ export async function callGeminiTools(params: {
   tools: GeminiToolDefinition[];
   requiredFunctionName?: string;
   maxTokens?: number;
+  /** Потолок ОДНОЙ попытки. На непривязанном пути дополнительно режется сроком. */
   timeoutMs?: number;
   providerOperation?: ProviderOperation;
+  /** Внешняя отмена (помощник CRM: клиент закрыл соединение, истёк срок диалога).
+   *  Только для непривязанного пути — у providerOperation своя отмена. */
+  signal?: AbortSignal;
+  /** Абсолютный срок по часам Date.now(): позже него не начинаются ни попытка, ни
+   *  пауза. Без него — прежний общий потолок TOTAL_BUDGET_MS. */
+  deadlineAt?: number;
+  /** Уже прочитанные ключи и модели (кэш помощника, ai/assistant/runtime.ts) —
+   *  без чтения Settings на каждом раунде. С providerOperation не используется:
+   *  там runtime привязан к операции. */
+  runtime?: GeminiRuntime;
 }): Promise<GeminiToolTurn> {
   params.providerOperation?.check();
-  const runtime = await providerRuntime(params.providerOperation);
+  throwIfAborted(params.signal);
+  const runtime =
+    params.runtime && !params.providerOperation ? params.runtime : await providerRuntime(params.providerOperation);
   assertBoundRuntimeKey(params.providerOperation, runtime, params.apiKey);
   const modelsToTry = [runtime.model, ...runtime.fallbackModels];
+  if (!params.providerOperation) return callGeminiToolsWithRetries(params, runtime, modelsToTry);
   let lastErr: unknown;
   for (const [modelIndex, model] of modelsToTry.entries()) {
     // Тот же предохранитель, что и у обычных ответов бота, и состояние у них общее:
@@ -1398,6 +1464,91 @@ export async function callGeminiTools(params: {
     }
   }
   throw lastErr;
+}
+
+/**
+ * ПОВТОРЫ И РЕЗЕРВНАЯ МОДЕЛЬ НА ПУТИ ИНСТРУМЕНТОВ (31.10.2026, пачка П1 задача 1.2
+ * помощника CRM, docs/design/internal-assistant-architecture-2026-10-31.md §1.2 №5).
+ *
+ * До этого непривязанный путь (помощник CRM) делал ОДНУ попытку на модель и без
+ * пауз: первый же 429/503/таймаут у основной модели при пустом
+ * GEMINI_FALLBACK_MODEL означал отказ всего ответа, хотя классификатор рядом в том
+ * же запросе делал четыре попытки. Теперь политика та же, что у callGemini:
+ *  - на модель до ATTEMPTS_PER_MODEL попыток с паузами GEMINI_RETRY_DELAYS_MS, но
+ *    только на повторяемых отказах (429/5xx, сеть, таймаут попытки);
+ *  - 404 — эта модель снята, сразу к следующей; прочие 4xx — сам запрос неверен,
+ *    сразу наверх (следующая модель не поможет);
+ *  - пока впереди есть резервная модель, основная работает в урезанном окне
+ *    (FALLBACK_RESERVE_MS), чтобы зависшая основная не съела время резервной;
+ *  - ВСЁ укладывается в срок: min(deadlineAt, TOTAL_BUDGET_MS) — пауза не длиннее
+ *    остатка, попытка не длиннее остатка, после срока новых попыток нет.
+ * Внешняя отмена (signal) прерывает и попытку, и паузу и пробрасывается как есть.
+ *
+ * Привязанный путь (providerOperation — клиентский агент) сюда не ходит: у него
+ * свой учёт попыток и денег, и менять его этой пачкой нельзя.
+ */
+async function callGeminiToolsWithRetries(
+  params: Parameters<typeof callGeminiTools>[0],
+  runtime: GeminiRuntime,
+  modelsToTry: string[],
+): Promise<GeminiToolTurn> {
+  const start = Date.now();
+  const deadline = Math.min(start + TOTAL_BUDGET_MS, params.deadlineAt ?? Infinity);
+  const attemptCap = params.timeoutMs ?? 60_000;
+  let lastErr: unknown;
+  for (const [modelIndex, model] of modelsToTry.entries()) {
+    // Тот же предохранитель, что и у обычных ответов бота, и состояние у них общее:
+    // модель, которая только что легла для диалогов, лежит и для ассистента.
+    if (skipModelForNow(model, modelIndex, modelsToTry.length)) continue;
+    const phaseDeadline =
+      modelIndex < modelsToTry.length - 1
+        ? deadline - Math.min(FALLBACK_RESERVE_MS, Math.max(0, Math.floor((deadline - start) / 2)))
+        : deadline;
+    for (let attempt = 0; attempt < ATTEMPTS_PER_MODEL; attempt++) {
+      if (attempt > 0) {
+        await sleepUnlessAborted(
+          Math.min(GEMINI_RETRY_DELAYS_MS[attempt - 1], Math.max(0, phaseDeadline - Date.now())),
+          params.signal,
+        );
+      }
+      throwIfAborted(params.signal);
+      const left = phaseDeadline - Date.now();
+      if (left <= 0) break;
+      try {
+        const turn = await callGeminiToolsOnce({
+          apiKey: params.apiKey,
+          system: params.system,
+          contents: params.contents,
+          tools: params.tools,
+          requiredFunctionName: params.requiredFunctionName,
+          maxTokens: params.maxTokens,
+          timeoutMs: Math.min(attemptCap, left),
+          model,
+          primaryModel: runtime.model,
+          signal: params.signal,
+        });
+        noteGeminiModelSuccess(model);
+        return turn;
+      } catch (err) {
+        // Отмена снаружи — не отказ модели: не повторяем и не считаем в предохранитель.
+        if (params.signal?.aborted) throw abortReason(params.signal);
+        if (isProviderOperationError(err)) throw err;
+        if (err instanceof ManagedToolTurnStopError) throw err;
+        lastErr = err;
+        const status = (err as Error & { status?: number })?.status;
+        if (status == null) continue; // сеть или таймаут попытки — как 503, повторяем
+        if (status === 404) {
+          reportUnknownModel(model, model === runtime.model, (err as Error).message.slice(0, 300));
+        }
+        noteGeminiModelFailure(model, status, model === runtime.model);
+        if (status === 404) break; // снята ИМЕННО эта модель — к следующей
+        if (!isRetryableGeminiStatus(status)) throw err;
+      }
+    }
+    // Срок вышел целиком — к резервной модели идти уже не с чем.
+    if (deadline - Date.now() <= 0) break;
+  }
+  throw lastErr ?? new Error("Gemini (ассистент): нет доступной модели — все пропущены предохранителем или вышел срок");
 }
 
 /** Один источник, на который сослалась модель при grounded-поиске. */
@@ -1445,16 +1596,27 @@ export async function callGeminiGrounded(params: {
   maxTokens?: number;
   timeoutMs?: number;
   providerOperation?: ProviderOperation;
+  /** Внешняя отмена (помощник CRM). Прерывает попытку и паузу и пробрасывается
+   *  наверх как есть — это не «Google не ответил», в журнал отказом не пишется. */
+  signal?: AbortSignal;
+  /** Абсолютный срок по часам Date.now(): позже него не начинаются ни попытка, ни
+   *  пауза, и попытка не длиннее остатка. Без него поведение прежнее. */
+  deadlineAt?: number;
+  /** Уже прочитанные ключи и модели (кэш помощника); с providerOperation не используется. */
+  runtime?: GeminiRuntime;
 }): Promise<GeminiGroundedResult | null> {
   params.providerOperation?.check();
+  throwIfAborted(params.signal);
   const start = Date.now();
   let ok = false;
   const spent = emptyUsage();
   let lastError: unknown;
   let usedModel = GEMINI_MODEL;
+  const deadline = params.deadlineAt ?? Infinity;
 
   try {
-    const runtime = await providerRuntime(params.providerOperation);
+    const runtime =
+      params.runtime && !params.providerOperation ? params.runtime : await providerRuntime(params.providerOperation);
     assertBoundRuntimeKey(params.providerOperation, runtime, params.apiKey);
     usedModel = runtime.model;
     const modelsToTry = [runtime.model, ...runtime.fallbackModels];
@@ -1465,11 +1627,21 @@ export async function callGeminiGrounded(params: {
       if (skipModelForNow(model, modelIndex, modelsToTry.length)) continue;
       for (let attempt = 0; attempt < ATTEMPTS_PER_MODEL; attempt++) {
         if (attempt > 0) {
-          if (params.providerOperation) await params.providerOperation.sleep(GEMINI_RETRY_DELAYS_MS[attempt - 1]);
-          else await sleep(GEMINI_RETRY_DELAYS_MS[attempt - 1]);
+          const pause = Math.min(GEMINI_RETRY_DELAYS_MS[attempt - 1], Math.max(0, deadline - Date.now()));
+          if (params.providerOperation) await params.providerOperation.sleep(pause);
+          else await sleepUnlessAborted(pause, params.signal);
+        }
+        throwIfAborted(params.signal);
+        const left = deadline - Date.now();
+        if (left <= 0) {
+          lastError = new Error(
+            "Срок вызова grounded-поиска истёк" + (lastError instanceof Error ? `; последняя причина: ${lastError.message}` : "")
+          );
+          break models;
         }
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), params.timeoutMs ?? 45_000);
+        const timeout = setTimeout(() => controller.abort(), Math.min(params.timeoutMs ?? 45_000, left));
+        const unlinkAbort = linkAbort(controller, params.signal);
         let providerAttempt: ProviderAttempt | undefined;
         let attemptOutcome: Parameters<ProviderAttempt["finish"]>[0] = "error";
         try {
@@ -1575,9 +1747,11 @@ export async function callGeminiGrounded(params: {
           return { text, sources };
         } catch (err) {
           if (isProviderOperationError(err)) throw err;
+          if (params.signal?.aborted) throw abortReason(params.signal);
           lastError = err;
         } finally {
           clearTimeout(timeout);
+          unlinkAbort();
           await providerAttempt?.finish(attemptOutcome);
         }
       }
