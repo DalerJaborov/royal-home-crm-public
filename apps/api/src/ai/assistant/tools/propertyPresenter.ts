@@ -3,6 +3,7 @@ import type { PropertyStatus } from "../../../generated/prisma/client.js";
 import { stripOwnerContact } from "../../../lib/ownerContact.js";
 import { toTjs, type MoneyContext } from "../../../lib/money.js";
 import { siteListingUrl } from "../../../lib/siteListingUrl.js";
+import { dushanbeDateString, dushanbeDateTimeString } from "../../../lib/dushanbeTime.js";
 import type { PropertyRefRecord } from "../../../lib/propertyRefLookup.js";
 import type { AssistantActor } from "../actor.js";
 import { safeField } from "./safeField.js";
@@ -72,7 +73,7 @@ export function presentPropertyCard(p: PropertyRefRecord, actor: AssistantActor,
     intakeAgent: p.intakeAgent?.fullName ?? null,
     assignedAgent: p.assignedAgent?.fullName ?? null,
     reserved: p.reservedAt !== null,
-    soldAt: p.soldAt ? p.soldAt.toISOString().slice(0, 10) : null,
+    soldAt: p.soldAt ? dushanbeDateString(p.soldAt) : null,
     video: {
       instagramUrl: p.instagramUrl,
       handoffStatus: p.videoHandoffStatus,
@@ -83,10 +84,10 @@ export function presentPropertyCard(p: PropertyRefRecord, actor: AssistantActor,
       onSite: p.publishedOnSite,
       siteUrl: siteListingUrl(p),
       channels: p.publishedChannels,
-      scheduledAt: p.scheduledPublishAt ? p.scheduledPublishAt.toISOString() : null,
+      scheduledAt: p.scheduledPublishAt ? dushanbeDateTimeString(p.scheduledPublishAt) : null,
     },
     // Ссылки Somon в карточке объекта нет вовсе (поля в схеме нет) — не выдумывать.
     somonLink: "в карточке не хранится",
-    createdAt: p.createdAt.toISOString().slice(0, 10),
+    createdAt: dushanbeDateString(p.createdAt),
   };
 }

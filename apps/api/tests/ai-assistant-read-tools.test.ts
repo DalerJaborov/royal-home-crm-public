@@ -309,6 +309,15 @@ describe("get_property_card", () => {
     expect(byCode.id).toBe(p.id);
   });
 
+  it("даты карточки — по Душанбе: 22:30 UTC — это уже следующий день", async () => {
+    const lateUtc = new Date("2030-05-10T22:30:00.000Z"); // 03:30 11.05 в Душанбе
+    const p = await makeProperty({ status: "SOLD", soldAt: lateUtc, createdAt: lateUtc, scheduledPublishAt: lateUtc });
+    const card = await call("get_property_card", { propertyId: p.id }, actorDirector());
+    expect(card.soldAt).toBe("2030-05-11");
+    expect(card.createdAt).toBe("2030-05-11");
+    expect(JSON.stringify(card)).toContain("2030-05-11 03:30");
+  });
+
   it("контакт собственника: чужому агенту скрыт, своему и руководителю виден", async () => {
     const p = await makeProperty({ ownerContact: "+992900000111", intakeAgentId: agentB });
     const foreign = await call("get_property_card", { propertyId: p.id }, actorAgent());
