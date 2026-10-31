@@ -5,9 +5,10 @@ import { cardWhereFromParam } from "../../../lib/cardIdParam.js";
 import { phoneSafeText } from "../../../lib/clientPhone.js";
 import { dushanbeDateString, dushanbeDateTimeString } from "../../../lib/dushanbeTime.js";
 import { visibleInteractionWhere } from "../../../lib/investigationPrivacy.js";
-import { TASK_WHERE } from "../../../lib/tasks.js";
+import { COUNTED_SHOWING_WHERE, TASK_WHERE } from "../../../lib/tasks.js";
 import { presentClient } from "../../../routes/clients/shared.js";
 import { FOREIGN_CLIENT_SCOPE_MESSAGE } from "../actor.js";
+import { propertyHref } from "./propertyPresenter.js";
 import { safeField } from "./safeField.js";
 import type { AssistantReadToolPlugin } from "./types.js";
 
@@ -28,7 +29,7 @@ export const getClientCardTool: AssistantReadToolPlugin = {
   level: "A",
   description:
     "Полная карточка ОДНОГО клиента: статус, агент, требования (бюджет, район, комнаты), заметки, последний контакт, " +
-    "ближайшая задача. Телефон — с маской, если у человека нет права его видеть. Зови, когда нужны детали " +
+    "ближайшая задача и ближайший показ (их interactionId — для reschedule_showing/cancel_showing). Телефон — с маской, если у человека нет права его видеть. Зови, когда нужны детали " +
     "известного клиента (id из find_clients/search_clients или номер ПК-000042). НЕ зови для поиска клиентов; " +
     "переписка и история — в get_client_history.",
   parameters: {
@@ -68,7 +69,7 @@ export const getClientCardTool: AssistantReadToolPlugin = {
     );
 
     const visible = visibleInteractionWhere(actor.role);
-    const [lastInteraction, nextTask] = await Promise.all([
+    const [lastInteraction, nextTask, nextShowing] = await Promise.all([
       prisma.interaction.findFirst({
         where: { clientId: client.id, ...visible },
         orderBy: { createdAt: "desc" },
@@ -77,7 +78,21 @@ export const getClientCardTool: AssistantReadToolPlugin = {
       prisma.interaction.findFirst({
         where: { clientId: client.id, ...TASK_WHERE, ...visible, completedAt: null, nextActionDate: { not: null } },
         orderBy: { nextActionDate: "asc" },
-        select: { type: true, nextAction: true, nextActionDate: true },
+        select: { id: true, type: true, nextAction: true, nextActionDate: true },
+      }),
+      // Ближайший предстоящий показ: его interactionId нужен модели, чтобы предложить
+      // перенос/отмену (reschedule_showing/cancel_showing проверяют права сами).
+      prisma.interaction.findFirst({
+        where: {
+          clientId: client.id,
+          type: "SHOWING",
+          ...COUNTED_SHOWING_WHERE,
+          ...visible,
+          completedAt: null,
+          nextActionDate: { gte: new Date() },
+        },
+        orderBy: { nextActionDate: "asc" },
+        select: { id: true, nextActionDate: true, property: { select: { shortId: true, title: true } } },
       }),
     ]);
 
@@ -118,9 +133,19 @@ export const getClientCardTool: AssistantReadToolPlugin = {
       },
       nextTask: nextTask
         ? {
+            interactionId: nextTask.id,
             type: nextTask.type,
             text: safeField(phoneSafeText(nextTask.nextAction, canSeePhone)),
             at: nextTask.nextActionDate ? dushanbeDateTimeString(nextTask.nextActionDate) : null,
+          }
+        : null,
+      nextShowing: nextShowing
+        ? {
+            interactionId: nextShowing.id,
+            at: nextShowing.nextActionDate ? dushanbeDateTimeString(nextShowing.nextActionDate) : null,
+            property: nextShowing.property
+              ? { title: safeField(nextShowing.property.title), href: propertyHref(nextShowing.property.shortId) }
+              : null,
           }
         : null,
       createdAt: dushanbeDateString(client.createdAt),

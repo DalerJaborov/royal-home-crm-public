@@ -365,6 +365,19 @@ describe("get_client_card", () => {
     const card = await call("get_client_card", { clientId: cOwn }, actorAgent());
     expect(card.lastContact.lastRecord.type).toBe("CALL");
     expect(card.nextTask.text).toContain("перезвонить");
+    expect(card.nextTask.interactionId).toBeTruthy();
+  });
+
+  it("ближайший показ отдаётся с interactionId (для переноса/отмены); прошедший и отменённый — нет", async () => {
+    const mk = (data: Record<string, unknown>) =>
+      prisma.interaction.create({ data: { clientId: cOwn, agentId: agentA, type: "SHOWING", notes: "показ", ...data } as never });
+    await mk({ nextAction: "прошедший показ", nextActionDate: new Date(Date.now() - 3_600_000) });
+    await mk({ nextAction: "отменённый показ", nextActionDate: new Date(Date.now() + 1_800_000), taskCancelledAt: new Date() });
+    const upcoming = await mk({ nextAction: "показ квартиры", nextActionDate: new Date(Date.now() + 2 * 3_600_000) });
+    const card = await call("get_client_card", { clientId: cOwn }, actorAgent());
+    expect(card.nextShowing.interactionId).toBe(upcoming.id);
+    expect(card.nextShowing.at).toBeTruthy();
+    await prisma.interaction.update({ where: { id: upcoming.id }, data: { taskCancelledAt: new Date() } });
   });
 });
 
@@ -389,17 +402,17 @@ describe("list_my_tasks", () => {
     const overdue = await mk({ nextAction: "просрочена", nextActionDate: at(yesterdayDate, "10:00") });
 
     const res = await call("list_my_tasks", { date: day }, actorAgent());
-    const ids = res.tasks.map((t: { id: string }) => t.id);
+    const ids = res.tasks.map((t: { interactionId: string }) => t.interactionId);
     expect(ids).toEqual([morning.id, bySubject.id, showing.id, lateNight.id]); // по времени 09:00, 13:00, 15:00, 23:30
-    expect(res.tasks.find((t: { id: string }) => t.id === showing.id).kind).toBe("showing");
+    expect(res.tasks.find((t: { interactionId: string }) => t.interactionId === showing.id).kind).toBe("showing");
     expect(res.tasks[0].time).toBe("09:00");
     for (const hidden of [nextDay, foreign, cancelled, inTrash]) expect(ids).not.toContain(hidden.id);
     expect(res.tasks[0].text).toContain("client_content");
     expect(res.tasks[0].client.href).toMatch(/^\/clients\/\d+$/);
-    expect(res.overdue.map((t: { id: string }) => t.id)).toContain(overdue.id);
+    expect(res.overdue.map((t: { interactionId: string }) => t.interactionId)).toContain(overdue.id);
 
     const tomorrow = await call("list_my_tasks", { date: "2031-03-11" }, actorAgent());
-    expect(tomorrow.tasks.map((t: { id: string }) => t.id)).toEqual([nextDay.id]);
+    expect(tomorrow.tasks.map((t: { interactionId: string }) => t.interactionId)).toEqual([nextDay.id]);
   });
 
   it("«мои» — свои и у руководителя; неверная дата отвергается", async () => {

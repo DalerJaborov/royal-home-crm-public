@@ -47,7 +47,8 @@ export const listMyTasksTool: AssistantReadToolPlugin = {
   description:
     "Мои задачи и показы на день (по умолчанию сегодня) и мои просроченные. Зови на «что у меня сегодня/завтра», " +
     "«какие у меня показы». Дата — ГГГГ-ММ-ДД по Душанбе. НЕ зови для задач других сотрудников и для общей " +
-    "статистики; для будущих показов всей команды есть get_upcoming_showings.",
+    "статистики; для будущих показов всей команды есть get_upcoming_showings. У каждой строки interactionId — " +
+    "для показа передавай его в reschedule_showing/cancel_showing (задачу переносит reschedule_task по clientId).",
   parameters: {
     type: "object",
     properties: {
@@ -89,7 +90,8 @@ export const listMyTasksTool: AssistantReadToolPlugin = {
 
     type Row = (typeof dayRows)[number];
     const present = (r: Row) => ({
-      id: r.id,
+      // id записи задачи/показа — по нему reschedule_showing/cancel_showing находят показ.
+      interactionId: r.id,
       kind: r.type === "SHOWING" ? "showing" : "task",
       type: r.type,
       date: r.nextActionDate ? dushanbeDateString(r.nextActionDate) : null,
