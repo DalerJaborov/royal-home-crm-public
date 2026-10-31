@@ -82,7 +82,9 @@ async function client(data: { status?: "NEW" | "LOST"; assigned?: boolean; lastA
   return row;
 }
 
-const pushesFor = (id: string) => sendPushToAgent.mock.calls.filter((call) => (call as unknown[])[0] === id && JSON.stringify((call as unknown[])[1]).includes("/clients/"));
+// Фоновые пуши и автопилот соседнего теста могут прийти после mockClear — считать только свою карточку.
+const pushesFor = (id: string, card?: { shortId: number | string }) => sendPushToAgent.mock.calls.filter((call) =>
+  (call as unknown[])[0] === id && JSON.stringify((call as unknown[])[1]).includes(card ? `/clients/${card.shortId}` : "/clients/"));
 
 beforeAll(async () => {
   oldSettings = await prisma.settings.findUniqueOrThrow({ where: { id: "singleton" }, select: { botEnabled: true, metaEnabled: true, botInstagramEnabled: true } });
@@ -169,13 +171,13 @@ describe("действия CRM на входящее в старом ходе", 
     const eventId = randomUUID(); lockKeys.push(`INSTAGRAM:${eventId}`);
     const event = { source: "legacy" as const, channel: "INSTAGRAM", peer: conv.subscriberId, conversationId: conv.id, text: "Добрый день", eventId };
     expect(await applyInboundSideEffects(event)).toEqual({ status: "applied", clientId: card.id, dealReview: null });
-    await waitFor(() => pushesFor(agentId).length === 1, { label: "пуш старого хода" });
+    await waitFor(() => pushesFor(agentId, card).length === 1, { label: "пуш старого хода" });
     resetClientMessageThrottle();
     expect(await applyInboundSideEffects(event)).toEqual({ status: "duplicate" });
     // Старый ход сам решает про автопилот после склейки — здесь он не зовётся.
-    expect(runClientAutopilotInBackground).not.toHaveBeenCalled();
+    expect(runClientAutopilotInBackground.mock.calls.filter(call => call[0] === card.id)).toHaveLength(0);
     await new Promise((resolve) => setTimeout(resolve, 200));
-    expect(pushesFor(agentId)).toHaveLength(1);
+    expect(pushesFor(agentId, card)).toHaveLength(1);
   });
 
   it("карточка в Корзине — ни пуша, ни карточки в результате", async () => {
@@ -186,6 +188,6 @@ describe("действия CRM на входящее в старом ходе", 
     expect(await applyInboundSideEffects({ source: "legacy", channel: "INSTAGRAM", peer: conv.subscriberId, conversationId: conv.id, text: "Алло" }))
       .toEqual({ status: "applied", clientId: null, dealReview: null });
     await new Promise((resolve) => setTimeout(resolve, 200));
-    expect(pushesFor(agentId)).toHaveLength(0);
+    expect(pushesFor(agentId, card)).toHaveLength(0);
   });
 });
