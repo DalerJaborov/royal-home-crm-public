@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **722**. Развилок в самих путях: **2562**; вместе с задачами по расписанию и фоновыми заданиями — **3992**. Модулей: **79**.
+Путей: **722**. Развилок в самих путях: **2564**; вместе с задачами по расписанию и фоновыми заданиями — **3994**. Модулей: **79**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -1233,17 +1233,21 @@
 - res.setHeader("X-Accel-Buffering", "no");
   · ставит заголовок ответа
 - const sendEvent = (event: "status" | "done" | "error", data: unknown)
-  - если res.writableEnded
+  - если res.writableEnded || res.destroyed
     - return;
       · дальше не идёт, ничего не меняя
-- пробует
-  - const reply = await runAssistant( parsed.data.messages, { id: req.agent!.id, role: req.agent!.role, canViewAl…
-    · зовёт runAssistant()
-  - если !reply
-    - sendEvent("error", { error: "ИИ недоступен: проверьте ключ Gemini в Настройках или повторите позже" });
+- res.on("close", ()
+  - если !res.writableFinished
+    - clientGone.abort();
       · дословно из кода
-  - иначе
-    - sendEvent("done", { reply });
+- пробует
+  - const outcome = await runAssistantDetailed( parsed.data.messages, { id: req.agent!.id, role: req.agent!.role,…
+    · зовёт runAssistantDetailed()
+  - если outcome.ok
+    - sendEvent("done", { reply: outcome.reply });
+      · дословно из кода
+  - иначе если outcome.code !== "aborted"
+    - sendEvent("error", { error: ASSISTANT_ERROR_MESSAGES[outcome.code], code: outcome.code, retryable: outcome.re…
       · дословно из кода
 - если сорвалось
   - console.error("[ai:assistant:sse]", err instanceof Error ? err.message : err);

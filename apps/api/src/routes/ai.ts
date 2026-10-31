@@ -15,7 +15,7 @@ import { thumbsDir } from "../upload.js";
 import { scoreClient } from "../ai/scoring.js";
 import { buildCardFillSuggestion } from "../ai/cardFill.js";
 import { buildPropertyDraftSuggestion } from "../ai/propertyDraft.js";
-import { isAiAssistantEnabled, runAssistant } from "../ai/assistant.js";
+import { ASSISTANT_ERROR_MESSAGES, isAiAssistantEnabled, runAssistantDetailed } from "../ai/assistant.js";
 import { formatPrice, stripDashes } from "../ai/seoGenerator.js";
 import { TG_PREFIX } from "./conversations.js";
 import { agentSpeechLimiter } from "../lib/agentSpeechLimiter.js";
@@ -96,12 +96,26 @@ aiRouter.post("/assistant", requireAuth, assistantLimiter, async (req, res) => {
   res.flushHeaders?.();
 
   const sendEvent = (event: "status" | "done" | "error", data: unknown) => {
-    if (res.writableEnded) return;
+    if (res.writableEnded || res.destroyed) return;
     res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   };
 
+  /**
+   * КЛИЕНТ УШЁЛ — РАУНДЫ ОСТАНАВЛИВАЮТСЯ (31.10.2026, пачка П1 задача 1.1).
+   * Раньше закрытая панель не значила ничего: сервер дорабатывал все раунды и жёг
+   * квоту Gemini на ответ, который некому показать. Слушаем `res`, а не `req`:
+   * у входящего запроса событие close в Node 16+ приходит, как только прочитано
+   * ТЕЛО (а express.json() читает его ещё до этого обработчика), то есть означало
+   * бы «отменить сразу». У ответа close — это закрытие соединения; если ответ к
+   * этому моменту уже дописан, отменять нечего.
+   */
+  const clientGone = new AbortController();
+  res.on("close", () => {
+    if (!res.writableFinished) clientGone.abort();
+  });
+
   try {
-    const reply = await runAssistant(
+    const outcome = await runAssistantDetailed(
       parsed.data.messages,
       {
         id: req.agent!.id,
@@ -117,19 +131,25 @@ aiRouter.post("/assistant", requireAuth, assistantLimiter, async (req, res) => {
         // «Сделки» их скоупит именно оно (scopeDealsToOwnAgent).
         canViewAllDeals: req.agent!.can("deals.viewAll"),
       },
-      { onStatus: (message) => sendEvent("status", { message }) },
+      { onStatus: (message) => sendEvent("status", { message }), signal: clientGone.signal },
     );
-    if (!reply) {
-      sendEvent("error", { error: "ИИ недоступен: проверьте ключ Gemini в Настройках или повторите позже" });
-    } else {
-      sendEvent("done", { reply });
+    if (outcome.ok) {
+      sendEvent("done", { reply: outcome.reply });
+    } else if (outcome.code !== "aborted") {
+      // Код и «повтор поможет» — рядом с текстом (задача 1.2): интерфейс решает по
+      // ним, предлагать ли «Повторить», а не гадает по строке.
+      sendEvent("error", {
+        error: ASSISTANT_ERROR_MESSAGES[outcome.code],
+        code: outcome.code,
+        retryable: outcome.retryable,
+      });
     }
   } catch (err) {
     // runAssistant само ловит и логирует свои ошибки (logSystemError) и штатно не
     // бросает наружу — эта ветка на непредвиденный throw, чтобы соединение не
     // зависло без единого события (клиент иначе ждал бы `done` бесконечно).
     console.error("[ai:assistant:sse]", err instanceof Error ? err.message : err);
-    sendEvent("error", { error: "ИИ недоступен, попробуйте позже" });
+    sendEvent("error", { error: ASSISTANT_ERROR_MESSAGES.internal, code: "internal", retryable: true });
   } finally {
     res.end();
   }
