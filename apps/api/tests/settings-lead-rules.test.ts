@@ -37,7 +37,6 @@ const TOUCHED = [
   "handoverClientsToHighKpi",
   "handoverPropertiesToLowKpi",
   "pushLeadActionsEnabled",
-  "pushActionTtlMinutes",
   "botTopicLockEnabled",
   "botTopicDriftTurns",
   "askClientsToConfirmShowings",
@@ -91,7 +90,6 @@ describe("Правила «свой объект» правятся в Наст�
       handoverClientsToHighKpi: false,
       handoverPropertiesToLowKpi: false,
       pushLeadActionsEnabled: false,
-      pushActionTtlMinutes: 10,
       botTopicLockEnabled: false,
       botTopicDriftTurns: 3,
     });
@@ -106,7 +104,6 @@ describe("Правила «свой объект» правятся в Наст�
     // И читается обратно тем же значением — правка дошла до базы, а не только до ответа.
     const fresh = await prisma.settings.findUnique({ where: { id: "singleton" } });
     expect(fresh?.botTopicDriftTurns).toBe(3);
-    expect(fresh?.pushActionTtlMinutes).toBe(10);
   });
 
   it("loadLeadLimits отдаёт то, что стоит в Настройках", async () => {
@@ -195,12 +192,12 @@ describe("Правила «свой объект» правятся в Наст�
     expect(fresh?.ownPropertyReleaseMode).toBe(before?.ownPropertyReleaseMode);
   });
 
-  it("срок жизни кнопок в уведомлении ограничен часом", async () => {
-    // Маркер действия вкладывается в само уведомление. Живущий сутки — это уже
-    // не одноразовое действие, а ключ, лежащий в шторке.
-    expect((await patch({ pushActionTtlMinutes: 240 })).status).toBe(400);
-    expect((await patch({ pushActionTtlMinutes: 1 })).status).toBe(400);
-    expect((await patch({ pushActionTtlMinutes: 60 })).status).toBe(200);
+  it("срок жизни кнопок в уведомлении через PATCH больше не правится (константа 30 мин с 01.11.2026)", async () => {
+    // Поле выпало из схемы правки: значение молча отбрасывается и в базу не пишется.
+    const before = await prisma.settings.findUniqueOrThrow({ where: { id: "singleton" }, select: { pushActionTtlMinutes: true } });
+    expect((await patch({ pushActionTtlMinutes: 45 })).status).toBe(200);
+    const after = await prisma.settings.findUniqueOrThrow({ where: { id: "singleton" }, select: { pushActionTtlMinutes: true } });
+    expect(after.pushActionTtlMinutes).toBe(before.pushActionTtlMinutes);
   });
 
   it("окно показов меньше суток не принимается", async () => {

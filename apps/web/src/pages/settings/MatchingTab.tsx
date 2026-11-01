@@ -3,8 +3,6 @@ import { useServerSyncedFields } from "../../hooks/useServerSyncedForm";
 import { useSettings, useUpdateSettings } from "../../hooks/useSettings";
 import { SwitchRow } from "../../components/Switch";
 import { NumberRow, SaveRow } from "../../components/settings/SettingsRows";
-import { Link } from "react-router-dom";
-import { ownPropertyThresholdNote } from "../../lib/settingsDependencies";
 
 /**
  * Вкладка «Подбор объектов» — единая политика «клиент ↔ объект»
@@ -24,7 +22,6 @@ export function MatchingTab() {
   const updateSettings = useUpdateSettings();
 
   const [ttlDays, setTtlDays] = useState("");
-  const [priceDropPct, setPriceDropPct] = useState("");
   const [savedAutoMatch, setSavedAutoMatch] = useState(false);
 
   const [budgetTolerance, setBudgetTolerance] = useState("");
@@ -33,53 +30,22 @@ export function MatchingTab() {
   const [savedTolerances, setSavedTolerances] = useState(false);
 
   const [defaultRadius, setDefaultRadius] = useState("");
-  const [radiusMaxMultiplier, setRadiusMaxMultiplier] = useState("");
-  const [minCandidates, setMinCandidates] = useState("");
   const [savedRadius, setSavedRadius] = useState(false);
-
-  // Веса шкалы совпадения «клиент ↔ объект» (Путь покупателя, п.5.1) — перенесено
-  // из LeadsTab.tsx 17.09.2026 без изменения поведения: та же шкала используется
-  // и в обычном подборе с карточки клиента, и в решении «свой объект» («Лиды»).
-  const [scoreBase, setScoreBase] = useState("");
-  const [scoreDistrict, setScoreDistrict] = useState("");
-  const [scoreRooms, setScoreRooms] = useState("");
-  const [scoreBudget, setScoreBudget] = useState("");
-  const [scoreHotBonus, setScoreHotBonus] = useState("");
-  const [scoreDistance, setScoreDistance] = useState("");
-  const [savedWeights, setSavedWeights] = useState(false);
 
   useServerSyncedFields(
     settings && {
       ttlDays: String(settings.matchRequirementTtlDays ?? 60),
-      priceDropPct: String(settings.matchPriceDropRenotifyPct ?? 5),
       budgetTolerance: String(settings.matchBudgetTolerancePct ?? 10),
       areaTolerance: String(settings.matchAreaTolerancePct ?? 10),
       roomsTolerance: String(settings.matchRoomsTolerance ?? 1),
       defaultRadius: String(settings.matchDefaultRadiusM ?? 1500),
-      radiusMaxMultiplier: String(settings.matchRadiusMaxMultiplier ?? 3),
-      minCandidates: String(settings.matchMinCandidates ?? 3),
-      scoreBase: String(settings.matchScoreBase ?? 40),
-      scoreDistrict: String(settings.matchScoreDistrict ?? 25),
-      scoreRooms: String(settings.matchScoreRooms ?? 20),
-      scoreBudget: String(settings.matchScoreBudget ?? 15),
-      scoreHotBonus: String(settings.matchScoreHotBonus ?? 10),
-      scoreDistance: String(settings.matchScoreDistance ?? 25),
     },
     {
       ttlDays: [ttlDays, setTtlDays],
-      priceDropPct: [priceDropPct, setPriceDropPct],
       budgetTolerance: [budgetTolerance, setBudgetTolerance],
       areaTolerance: [areaTolerance, setAreaTolerance],
       roomsTolerance: [roomsTolerance, setRoomsTolerance],
       defaultRadius: [defaultRadius, setDefaultRadius],
-      radiusMaxMultiplier: [radiusMaxMultiplier, setRadiusMaxMultiplier],
-      minCandidates: [minCandidates, setMinCandidates],
-      scoreBase: [scoreBase, setScoreBase],
-      scoreDistrict: [scoreDistrict, setScoreDistrict],
-      scoreRooms: [scoreRooms, setScoreRooms],
-      scoreBudget: [scoreBudget, setScoreBudget],
-      scoreHotBonus: [scoreHotBonus, setScoreHotBonus],
-      scoreDistance: [scoreDistance, setScoreDistance],
     }
   );
 
@@ -121,7 +87,6 @@ export function MatchingTab() {
     setSavedAutoMatch(false);
     await updateSettings.mutateAsync({
       matchRequirementTtlDays: Number(ttlDays),
-      matchPriceDropRenotifyPct: Number(priceDropPct),
     });
     setSavedAutoMatch(true);
   }
@@ -142,24 +107,8 @@ export function MatchingTab() {
     setSavedRadius(false);
     await updateSettings.mutateAsync({
       matchDefaultRadiusM: Number(defaultRadius),
-      matchRadiusMaxMultiplier: Number(radiusMaxMultiplier),
-      matchMinCandidates: Number(minCandidates),
     });
     setSavedRadius(true);
-  }
-
-  async function handleSaveWeights(e: React.FormEvent) {
-    e.preventDefault();
-    setSavedWeights(false);
-    await updateSettings.mutateAsync({
-      matchScoreBase: Number(scoreBase),
-      matchScoreDistrict: Number(scoreDistrict),
-      matchScoreRooms: Number(scoreRooms),
-      matchScoreBudget: Number(scoreBudget),
-      matchScoreHotBonus: Number(scoreHotBonus),
-      matchScoreDistance: Number(scoreDistance),
-    });
-    setSavedWeights(true);
   }
 
   return (
@@ -224,15 +173,6 @@ export function MatchingTab() {
             onChange={setTtlDays}
             hint="Сколько дней после последнего контакта пожелания покупателя считаются актуальными. 0 — без срока."
           />
-          <NumberRow
-            label="Повторно уведомлять при снижении цены от"
-            unit="%"
-            min={1}
-            max={50}
-            value={priceDropPct}
-            onChange={setPriceDropPct}
-            hint="На сколько процентов должна упасть цена объекта, чтобы уже уведомлённого покупателя предупредили повторно."
-          />
           <SaveRow pending={updateSettings.isPending} saved={savedAutoMatch} />
         </form>
       </section>
@@ -292,116 +232,12 @@ export function MatchingTab() {
             onChange={setDefaultRadius}
             hint="Радиус вокруг точки, которую агент ставит клиенту на карте, по умолчанию."
           />
-          <NumberRow
-            label="Максимальное расширение радиуса"
-            unit="×"
-            min={1}
-            max={5}
-            value={radiusMaxMultiplier}
-            onChange={setRadiusMaxMultiplier}
-            hint="Если в радиусе меньше N объектов, радиус расширяется до этого множителя."
-          />
-          <NumberRow
-            label="Минимум кандидатов"
-            unit="объектов"
-            min={1}
-            max={10}
-            value={minCandidates}
-            onChange={setMinCandidates}
-            hint="Сколько объектов-кандидатов должно быть в радиусе, иначе радиус расширяется."
-          />
           <SaveRow pending={updateSettings.isPending} saved={savedRadius} />
         </form>
       </section>
 
-      <section className="card">
-        <div className="sec-h stack">
-          <h2>Веса шкалы совпадения клиента и объекта</h2>
-          <span className="note">
-            Одна шкала на два места: обычный подбор объекта клиенту и решение «отдать лид хозяину своего
-            объекта» (вкладка «Лиды»). По умолчанию база + район + комнаты + бюджет = 100 — можно сдвинуть в
-            любую сторону, потолок 100 всё равно не даст баллу перевалить за него
-          </span>
-        </div>
-        {/* Порог «свой объект» (вкладка «Лиды») сравнивается с этим же баллом
-            (services/leads/assignment.ts::pickByPropertyMatch) — правка весов здесь
-            молча сдвигает его смысл. Считаем по набранным, ещё не сохранённым
-            числам: видно до нажатия «Сохранить». */}
-        <div className="quiet" style={{ marginBottom: "var(--s3)" }}>
-          <span className="dot" />
-          <span className="txt">
-            Порог «свой объект» во вкладке «Лиды» — {settings.ownPropertyMatchThreshold ?? 90} из 100 — сравнивается
-            с этим баллом.{" "}
-            {ownPropertyThresholdNote(settings.ownPropertyMatchThreshold ?? 90, {
-              base: Number(scoreBase) || 0,
-              district: Number(scoreDistrict) || 0,
-              rooms: Number(scoreRooms) || 0,
-              budget: Number(scoreBudget) || 0,
-              distance: Number(scoreDistance) || 0,
-            })}
-          </span>
-          <Link className="lnk" to="/settings?tab=leads">
-            Порог в «Лидах»
-          </Link>
-        </div>
-        <form onSubmit={handleSaveWeights}>
-          <NumberRow
-            label="База"
-            unit="баллов"
-            min={0}
-            max={100}
-            value={scoreBase}
-            onChange={setScoreBase}
-            hint="Начисляется любой паре, уже прошедшей жёсткий фильтр по району, бюджету, площади и этажу."
-          />
-          <NumberRow
-            label="Район совпал"
-            unit="баллов"
-            min={0}
-            max={100}
-            value={scoreDistrict}
-            onChange={setScoreDistrict}
-            hint="Желаемый район клиента совпал с районом объекта."
-          />
-          <NumberRow
-            label="Комнат столько же"
-            unit="баллов"
-            min={0}
-            max={100}
-            value={scoreRooms}
-            onChange={setScoreRooms}
-            hint="Число комнат совпало ровно. Разница в одну комнату баллов не даёт, но и не отсеивает."
-          />
-          <NumberRow
-            label="В бюджете"
-            unit="баллов"
-            min={0}
-            max={100}
-            value={scoreBudget}
-            onChange={setScoreBudget}
-            hint="Цена объекта укладывается в названный клиентом бюджет без растяжки."
-          />
-          <NumberRow
-            label="Горячий клиент"
-            unit="баллов"
-            min={0}
-            max={100}
-            value={scoreHotBonus}
-            onChange={setScoreHotBonus}
-            hint="Бонус клиенту в статусе «горячий». Не применяется, когда шкалой ищут объекты под клиента — иначе порог означал бы для него другое."
-          />
-          <NumberRow
-            label="Попал в желаемое место"
-            unit="баллов"
-            min={0}
-            max={100}
-            value={scoreDistance}
-            onChange={setScoreDistance}
-            hint="Точка объекта попала в одно из желаемых мест клиента (карточка клиента, вкладка «Коротко»). Отдельный вес — район (выше) не трогает."
-          />
-          <SaveRow pending={updateSettings.isPending} saved={savedWeights} />
-        </form>
-      </section>
+      {/* Веса шкалы совпадения — константа с 01.11.2026 (MATCH_SCORE_WEIGHTS в
+          packages/shared): внутренняя калибровка, а не рычаг. */}
     </>
   );
 }

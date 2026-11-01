@@ -72,19 +72,18 @@ async function deactivate(clientId: string) {
 
 describe("all contact channels protect the inactive lifecycle", () => {
   it("runtime policy repairs saved inverted ordering without rewriting settings or shortening red", async () => {
-    const select = { inactiveGreenPingHours: true, inactiveGreenMaxAttempts: true,
-      inactiveYellowPingHours: true, inactiveYellowMaxAttempts: true,
-      inactiveRedPingHours: true, inactiveRedMaxAttempts: true, inactivateCooldownHours: true } as const;
+    // Число проверок по цвету (2/2/2) и пауза после перевода (5 ч) — константы с
+    // 01.11.2026; в базе остались только интервалы.
+    const select = { inactiveGreenPingHours: true, inactiveYellowPingHours: true, inactiveRedPingHours: true } as const;
     const before = await prisma.settings.findUniqueOrThrow({ where: { id: "singleton" }, select });
     try {
       await prisma.settings.update({ where: { id: "singleton" }, data: {
-        inactiveGreenPingHours: 24, inactiveGreenMaxAttempts: 2,
-        inactiveYellowPingHours: 48, inactiveYellowMaxAttempts: 2,
-        inactiveRedPingHours: 72, inactiveRedMaxAttempts: 2, inactivateCooldownHours: 0,
+        inactiveGreenPingHours: 24, inactiveYellowPingHours: 48, inactiveRedPingHours: 72,
       } });
       const effective = await loadTrafficLightSettings();
       expect(effective).toMatchObject({ inactiveGreenPingHours: 72, inactiveYellowPingHours: 72,
-        inactiveRedPingHours: 72, inactivateCooldownHours: 0 });
+        inactiveRedPingHours: 72, inactiveGreenMaxAttempts: 2, inactiveYellowMaxAttempts: 2,
+        inactiveRedMaxAttempts: 2, inactivateCooldownHours: 5 });
       expect(await prisma.settings.findUniqueOrThrow({ where: { id: "singleton" }, select }))
         .toMatchObject({ inactiveGreenPingHours: 24, inactiveYellowPingHours: 48, inactiveRedPingHours: 72 });
     } finally {

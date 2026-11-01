@@ -147,7 +147,7 @@ describe("Шкала близости не сдвинулась при выно�
   });
 });
 
-describe("Веса шкалы настраиваются в Настройках (Путь покупателя, п.5.1)", () => {
+describe("Веса шкалы — константа в коде (Путь покупателя, п.5.1; с 01.11.2026)", () => {
   afterEach(async () => {
     await prisma.settings.update({
       where: { id: "singleton" },
@@ -155,19 +155,21 @@ describe("Веса шкалы настраиваются в Настройках
     });
   });
 
-  it("правка веса района в Настройках меняет реальный балл подбора", async () => {
+  it("веса шкалы — константа с 01.11.2026: колонка Settings.matchScoreDistrict на балл не влияет", async () => {
     await prisma.settings.update({ where: { id: "singleton" }, data: { matchScoreDistrict: 50 } });
+    try {
+      const matched = await findMatchingPropertiesForClient(exactClientId);
+      const exact = matched.find((m) => m.propertyId === exactPropertyId);
+      // 40 база + 25 район + 20 комнаты + 15 бюджет = 100 (MATCH_SCORE_WEIGHTS).
+      expect(exact?.score).toBe(100);
 
-    const matched = await findMatchingPropertiesForClient(exactClientId);
-    const exact = matched.find((m) => m.propertyId === exactPropertyId);
-    // 40 база + 50 район (было 25) + 20 комнаты + 15 бюджет = 125, потолок 100.
-    expect(exact?.score).toBe(100);
-
-    // Без потолка эффект виден по объекту с компромиссом — район у него тот же (districtId).
-    const { items: matchedRough } = await findMatchingClients(roughPropertyId, 50);
-    const client = matchedRough.find((m) => m.id === exactClientId);
-    // 40 база + 50 район (новый вес) = 90, комнаты и бюджет мимо. Со старым весом 25 было бы 65.
-    expect(client?.score).toBe(90);
+      const { items: matchedRough } = await findMatchingClients(roughPropertyId, 50);
+      const client = matchedRough.find((m) => m.id === exactClientId);
+      // 40 база + 25 район = 65, комнаты и бюджет мимо. Читай сервер колонку — было бы 90.
+      expect(client?.score).toBe(65);
+    } finally {
+      await prisma.settings.update({ where: { id: "singleton" }, data: { matchScoreDistrict: 25 } });
+    }
   });
 });
 

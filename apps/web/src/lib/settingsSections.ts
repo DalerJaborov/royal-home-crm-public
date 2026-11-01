@@ -32,7 +32,6 @@ export const SETTINGS_SECTIONS: Record<SettingsTabId, readonly SettingsSectionMe
   matching: [
     { title: "Автоподбор" }, { title: "Допуски совпадения" },
     { title: "Радиус по карте" }, { title: "Отложенные клиенты" },
-    { title: "Веса шкалы совпадения клиента и объекта" },
   ],
   team: [
     { title: "Люди", aliases: ["Сотрудники и права"] }, { title: "Распределение лидов" },
@@ -55,7 +54,7 @@ export const SETTINGS_SECTIONS: Record<SettingsTabId, readonly SettingsSectionMe
   ],
   // BotTab: ElevenLabs fields belong to LiveVoiceSection, not to telephony connection.
   bot: [
-    { title: "Ключи моделей" }, { title: "Какие модели работают", aliases: ["Модели ИИ"] },
+    { title: "Ключи моделей" },
     { title: "Помощник внутри CRM" }, { title: "Рубильник и каналы" },
     { title: "Когда бот пишет" }, { title: "Бот на паузе — если забыли снять" },
     { title: "Как продавать" }, { title: "Промт диалога" }, { title: "Промт ответов на комментарии" },
@@ -71,7 +70,7 @@ export const SETTINGS_SECTIONS: Record<SettingsTabId, readonly SettingsSectionMe
     { title: "Пульт директора", aliases: ["Модули пульта"] },
     { title: "Диалоги без ответа сегодня" },
     { title: "Разбор проблемных мест", aliases: ["Проблемные отчёты", "Проблемные отчеты"] },
-    { title: "Подтверждение личности" },
+    { title: "Вход по отпечатку или лицу" },
     { title: "Точки возврата настроек", aliases: ["Точки восстановления"] }, { title: "Импорт данных" },
     { title: "Админка сайта royalhome.tj", directorOnly: true },
   ],

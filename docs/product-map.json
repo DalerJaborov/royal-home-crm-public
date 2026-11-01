@@ -1107,7 +1107,7 @@
       "file": "apps/api/src/routes/settingsRestorePoints.ts",
       "endpoints": 2,
       "label": "Точки возврата настроек",
-      "usedBy": 11
+      "usedBy": 10
     },
     {
       "mount": "/api/v1/settings",
@@ -1115,7 +1115,7 @@
       "file": "apps/api/src/routes/settings.ts",
       "endpoints": 50,
       "label": "Настройки CRM и точки возврата",
-      "usedBy": 11
+      "usedBy": 10
     },
     {
       "mount": "/api/v1/ui-shell",

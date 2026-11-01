@@ -37,27 +37,6 @@ export interface Settings {
    *  наружу не отдаются никогда, а порядок масок совпадает с порядком ключей в базе —
    *  именно на место в этом списке ссылается сохранение (см. AiTab). */
   geminiExtraKeysMasked: string[];
-  /**
-   * ДЕЙСТВУЮЩИЕ ИМЕНА МОДЕЛЕЙ и то, откуда они взяты.
-   *
-   * `*Effective` — что бот спрашивает у Google прямо сейчас; `*Source` — чей это
-   * выбор: `settings` (владелец вписал), `env` (переменная на сервере) или
-   * `default` (заводское значение из кода). Без источника экран не отличил бы выбор
-   * владельца от совпавшего с ним дефолта, а это разные вещи: первый переживёт
-   * обновление, второй сменится вместе с ним.
-   */
-  geminiModelEffective: string;
-  geminiModelSource: ModelSource;
-  geminiFallbackModelsEffective: string[];
-  geminiFallbackModelsSource: ModelSource;
-  geminiTranscribeModelsEffective: string[];
-  geminiTranscribeModelsSource: ModelSource;
-  geminiImageModelEffective: string;
-  geminiImageModelSource: ModelSource;
-  /** Дешёвая ступень для простых задач. Пустая строка — не настроена: простые
-   *  задачи идут обычной моделью диалогов. */
-  geminiLiteModelEffective: string;
-  geminiLiteModelSource: ModelSource;
   companyName: string;
   companySlogan: string;
   companyLogoUrl: string | null;
@@ -96,16 +75,6 @@ export interface Settings {
   leadActiveLimit: number;
   /** Максимум объектов у агента одновременно в конвейере подготовки; 0 = без лимита. */
   propertyActiveLimit: number;
-  /** Веса шкалы совпадения «клиент ↔ объект» (Путь покупателя, п.5.1) — общая
-   *  шкала: и обычный подбор объекта с карточки клиента, и «свой объект» ниже. */
-  matchScoreBase: number;
-  matchScoreDistrict: number;
-  matchScoreRooms: number;
-  matchScoreBudget: number;
-  matchScoreHotBonus: number;
-  /** Расстояние до желаемого места клиента (12.09.2026) — отдельный вес,
-   *  matchScoreDistrict не трогает. */
-  matchScoreDistance: number;
   /** Единая политика подбора «клиент ↔ объект» (17.09.2026, matchPolicy.ts):
    *  общий рубильник автоподбора — новый объект сам находит ждущих покупателей. */
   autoMatchEnabled: boolean;
@@ -117,9 +86,6 @@ export interface Settings {
   matchNotifyPropertyOwner: boolean;
   /** Срок жизни пожелания покупателя от последнего касания, дней; 0 — без срока. */
   matchRequirementTtlDays: number;
-  /** На сколько процентов должна упасть цена объекта, чтобы уже уведомлённого
-   *  покупателя предупредили повторно. */
-  matchPriceDropRenotifyPct: number;
   /** Допуск по бюджету клиента, % сверх названной суммы. */
   matchBudgetTolerancePct: number;
   /** Допуск по площади объекта, % от желаемой. */
@@ -128,10 +94,6 @@ export interface Settings {
   matchRoomsTolerance: number;
   /** Радиус вокруг точки на карте по умолчанию для новой точки клиента, метров. */
   matchDefaultRadiusM: number;
-  /** Во сколько раз можно расширить радиус, если кандидатов меньше minCandidates. */
-  matchRadiusMaxMultiplier: number;
-  /** Минимум объектов-кандидатов в радиусе, иначе радиус расширяется. */
-  matchMinCandidates: number;
   /** Приоритет «свой объект» (11.08.2026): агент, принявший объект, получает
    *  клиента по нему вне очереди по KPI. Порог — по шкале подбора 0..100. */
   ownPropertyPriorityEnabled: boolean;
@@ -159,10 +121,8 @@ export interface Settings {
   handoverPropertiesToLowKpi: boolean;
   /** Кнопки «Принять/Отклонить» прямо в шторке уведомлений и срок жизни маркера. */
   pushLeadActionsEnabled: boolean;
-  pushActionTtlMinutes: number;
-  /** Что ещё присылать: порог частоты о сообщениях, дубли показов руководству.
+  /** Что ещё присылать: дубли показов руководству. Порог частоты о сообщениях — константа с 01.11.2026.
    *  pushOnScoreChange/pushScoreThrottleMinutes убраны 28.09.2026 — их никто не читал. */
-  pushMessageThrottleMinutes: number;
   pushShowingsToSupervisors: boolean;
   /** Обязательное окно после исчерпания переносов блокирует работу во всей CRM. */
   /** Бот возвращает клиента к последнему незакрытому вопросу. */
@@ -210,16 +170,8 @@ export interface Settings {
    *  эти числа настраивают только темп напоминаний и порог перевода в Потерянные
    *  для каждого уровня (см. lib/inactiveTrafficLight.ts). */
   inactiveGreenPingHours: number;
-  inactiveGreenMaxAttempts: number;
   inactiveYellowPingHours: number;
-  inactiveYellowMaxAttempts: number;
   inactiveRedPingHours: number;
-  inactiveRedMaxAttempts: number;
-  /** Минимум зафиксированных попыток связаться перед переводом клиента в Неактивные
-   *  с причиной «перестал отвечать»/«другое». */
-  inactivateMinAttempts: number;
-  /** Перевёл клиента в Неактивные — следующий лид агенту не раньше чем через это время. */
-  inactivateCooldownHours: number;
   /** Потерянный/Неактивный клиент, написавший сам, ждёт прежнего агента это время. */
   lostReturnAcceptMinutes: number;
   /** Приёмка от продавца принята, объекта в CRM ещё нет — предупреждение / критично. */
@@ -229,8 +181,6 @@ export interface Settings {
   buyerThinkingFirstPingHours: number;
   buyerThinkingSecondPingHours: number;
   buyerThinkingSlowTrackDays: number;
-  /** Сколько минут живёт подтверждение личности в защищённых разделах (потолок 240). */
-  stepUpMinutes: number;
   /** Глобальный рубильник входа по отпечатку/лицу — false прячет кнопку у всех
    *  сотрудников; сам вход и привязка новых устройств отдельно проверяются на сервере. */
   passkeyLoginEnabled?: boolean;
@@ -267,8 +217,6 @@ export interface Settings {
   /** Экономия промта: подробности сценария — только своему намерению. */
   botPromptIntentEconomy: boolean;
   contactLinkSweepEnabled: boolean;
-  /** Явный кэш правил бота у Google: гарантированная скидка 90% на стабильную часть. */
-  geminiExplicitCachingEnabled: boolean;
   /** Экран «Тренировка» (/bot-training): доступен владельцу только пока включено. */
   botTrainingScreenEnabled: boolean;
   /** Действующий промт чат-бота (кастомный или дефолтный). */
@@ -390,22 +338,11 @@ export interface Settings {
    * сервер (lib/publishScheduleRules.ts); здесь только показ и правка.
    */
   publishScheduleEnabled: boolean;
-  /** Часы выхода берутся из тепловой карты активности, а не из окон ниже. */
-  publishScheduleUseHeatmap: boolean;
-  /** Часы выхода по статистике Instagram «подписчики в сети» (с недели сбора). */
-  publishScheduleUseInstagramOnline: boolean;
   /** Границы рабочего окна публикаций, минуты от полуночи по Душанбе. */
   publishScheduleWindowStartMin: number;
   publishScheduleWindowEndMin: number;
   /** Минимум между двумя публикациями, минуты. */
   publishScheduleMinGapMin: number;
-  /** Постоянные часы публикации — плоский список пар «начало-конец» в минутах.
-   *  Работают, когда тепловая карта выключена или в ней мало событий. */
-  publishSchedulePriorityWindows: number[];
-  /** За сколько дней считать тепловую карту. */
-  publishScheduleHeatmapDays: number;
-  /** Насколько раньше часа пик выкладывать, чтобы пост успел разойтись. */
-  publishScheduleLeadHours: number;
   telegramChannelId: string | null;
   /** Дополнительные чаты Telegram (26.09.2026) — chat_id/@username через
    *  запятую/пробел/перевод строки, поверх основного канала выше. */
@@ -472,9 +409,8 @@ export interface Settings {
   /** Куда станция звонит сотруднику перед соединением с клиентом: "mobile" — на
    *  мобильный из карточки (софтфоны ещё не розданы), "extension" — на внутренний. */
   asteriskAgentDialMode: "mobile" | "extension" | "auto";
-  /** Управление станцией (AMI): порт и логин — как есть, пароль — маска. Адреса
+  /** Управление станцией (AMI): логин как есть (порт — константа на сервере), пароль — маска. Адреса
    *  здесь нет: он берётся из asteriskAriUrl, станция одна. */
-  asteriskAmiPort: number;
   asteriskAmiUsername: string | null;
   asteriskAmiPasswordMasked: string | null;
   asteriskAmiConfigured: boolean;
@@ -484,7 +420,6 @@ export interface Settings {
    *  Тестовый номер владелец заводит на станции сам (вне этого репозитория). */
   liveVoiceEnabled: boolean;
   postShowingCallEnabled: boolean;
-  liveVoiceTestExtension: string | null;
   /** Полный контроль из интерфейса (13.09.2026) — тот же приём, что у botSystemPrompt:
    *  действующий текст (свой или дефолт) + флаг «изменён». */
   liveVoicePrompt: string;
@@ -493,16 +428,11 @@ export interface Settings {
   liveVoiceVoiceNameTajik: string | null;
   /** Адрес собеседования для робота-приглашения (25.09.2026). */
   interviewInviteAddress?: string | null;
-  liveVoiceForceRussianOnly: boolean;
-  liveVoiceBreathEnabled: boolean;
-  liveVoiceOfficeAmbienceEnabled: boolean;
-  liveVoiceOfficeAmbienceVolume: number;
   /** Что не так с адресом звука на сервере (LIVE_VOICE_RTP_HOST/PORT); null — всё задано. */
   liveVoiceRtpProblem?: string | null;
   /** Консультант на телефоне (24.09.2026): когда берёт настоящие входящие, сколько
    *  секунд днём звонит оператор до него, кому переводить без агента объекта. */
   liveVoiceInboundMode: "off" | "no_answer" | "always";
-  liveVoiceInboundWaitSeconds: number;
   liveVoiceTransferAgentId: string | null;
   /** Кто слышит и говорит за робота на телефоне (02.10.2026): Google Gemini Live
    *  или агент ElevenLabs. Роль, справочник и функции у обоих наши. */
@@ -534,9 +464,6 @@ export interface Settings {
    * (incomingOperatorIds) убраны 18.08.2026 вместе с самим механизмом: роль
    * оператора отменена, звонки идут прямо агентам. Сервер их пока отдаёт —
    * лишнее поле в ответе ничего не ломает. */
-  /** Контексты диалплана АТС, из которых звонок считается входящим. Пустой массив —
-   *  действует встроенный набор (см. api/lib/telephony/incomingCalls.ts). */
-  incomingInboundContexts: string[];
   incomingAutoCreateClient: boolean;
   incomingDefaultKind: "OTHER" | "BUYER" | "SELLER";
   incomingAssignOnQualify: boolean;
@@ -575,13 +502,6 @@ export interface Settings {
   callWhisperEnabled: boolean;
   callWhisperIncoming: boolean;
   callWhisperOutgoing: boolean;
-  /** Состав фразы — блоки из WHISPER_PARTS (имя, вид, объект, бюджет, давность…).
-   *  Порядок звучания фиксирован на сервере, здесь только набор. */
-  callWhisperIncomingParts: string[];
-  callWhisperOutgoingParts: string[];
-  /** Язык подсказки по умолчанию; у сотрудника может стоять своё. */
-  callWhisperLanguage: string;
-  callWhisperVoice: string;
   /** Добавлять зацепку от ИИ по истории клиента — единственный блок, который не
    *  собирается из полей карточки и потому может ошибиться. */
   callWhisperAiHint: boolean;
@@ -1151,7 +1071,8 @@ export function useOpenAiCovers() {
 export function useUpdateOpenAiCovers() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (input: Partial<{ apiKey: string; enabled: boolean; provider: CoverProvider; photoRedraw: boolean; quality: OpenAiCoverSettings["quality"]; dailyLimit: number; candidates: 1 | 2; textMode: "OVERLAY" | "MODEL"; photoSource: "ORIGINAL" | "MODEL"; imageModel: OpenAiImageModel }>) =>
+    // Качество, кандидаты, режим текста, фото и модель — константы на сервере с 01.11.2026.
+    mutationFn: (input: Partial<{ apiKey: string; enabled: boolean; provider: CoverProvider; photoRedraw: boolean; dailyLimit: number }>) =>
       api<{ ok: true }>("/settings/cover-templates/openai", { method: "PUT", body: input }),
     onSuccess: () => qc.invalidateQueries({ queryKey: OPENAI_COVERS_KEY }),
   });

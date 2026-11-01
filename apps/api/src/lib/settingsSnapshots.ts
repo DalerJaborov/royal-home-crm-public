@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { Prisma, type Settings } from "../generated/prisma/client.js";
 import { prisma } from "../db.js";
+import { SETTINGS_FIELDS_MOVED_TO_CODE } from "./settingsConstants.js";
 
 /**
  * ТОЧКИ ВОЗВРАТА НАСТРОЕК — снятие, сравнение, восстановление, срок хранения.
@@ -109,6 +110,10 @@ export const SYSTEM_SETTINGS_FIELDS = [
 ] as const;
 
 const SYSTEM_FIELD_SET: ReadonlySet<string> = new Set(SYSTEM_SETTINGS_FIELDS);
+
+/** Колонки, ушедшие в код 01.11.2026 (lib/settingsConstants.ts): их никто не
+ *  читает, поэтому точка возврата их не показывает и не восстанавливает. */
+const MOVED_TO_CODE_SET: ReadonlySet<string> = new Set(SETTINGS_FIELDS_MOVED_TO_CODE);
 
 export function isSystemSettingsField(field: string): boolean {
   return SYSTEM_FIELD_SET.has(field);
@@ -297,6 +302,7 @@ export function diffSnapshot(payload: SnapshotPayload, current: Settings): Setti
   for (const field of settingsFieldTypes().keys()) {
     if (field === "id") continue;
     if (isSystemSettingsField(field)) continue;
+    if (MOVED_TO_CODE_SET.has(field)) continue;
     // Поле, которого в снимке нет вовсе (снимок снят до появления настройки),
     // отличием не считается: восстанавливать там нечего.
     if (!(field in payload)) continue;
@@ -436,6 +442,7 @@ export function planRestore(
   for (const field of settingsFieldTypes().keys()) {
     if (field === "id") continue;
     if (isSystemSettingsField(field)) continue;
+    if (MOVED_TO_CODE_SET.has(field)) continue;
     if (!(field in payload)) continue;
     if (sameValue(payload[field], now[field])) continue;
     if (isSecretSettingsField(field)) {

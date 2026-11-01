@@ -5,6 +5,7 @@ import { SwitchRow } from "../../components/Switch";
 import { KeywordTags } from "../../components/ui/KeywordTags";
 import { NumberRow, SaveRow } from "../../components/settings/SettingsRows";
 import { Link } from "react-router-dom";
+import { MATCH_SCORE_WEIGHTS } from "@royal-home/shared";
 import {
   SHOWING_CONFIRM_ON_TEXT,
   ownPropertyThresholdNote,
@@ -36,10 +37,7 @@ export function LeadsTab({ limitsTask = false }: { limitsTask?: boolean } = {}) 
   const updateSettings = useUpdateSettings();
   const [threshold, setThreshold] = useState("");
   const [shownDays, setShownDays] = useState("");
-  const [ttl, setTtl] = useState("");
-  const [messageThrottle, setMessageThrottle] = useState("");
   const [saved, setSaved] = useState(false);
-  const [savedNotify, setSavedNotify] = useState(false);
   // Щиток занятости (21.08.2026) — своя форма и своя кнопка «Сохранено»,
   // число правится отдельно от тумблера самого щитка. Пул «ничьих» (второе
   // число здесь же) удалён целиком 17.09.2026 — см. LeadsTab ниже.
@@ -69,8 +67,6 @@ export function LeadsTab({ limitsTask = false }: { limitsTask?: boolean } = {}) 
     settings && {
       threshold: String(settings.ownPropertyMatchThreshold ?? 90),
       shownDays: String(settings.ownPropertyShownWindowDays ?? 30),
-      ttl: String(settings.pushActionTtlMinutes ?? 30),
-      messageThrottle: String(settings.pushMessageThrottleMinutes ?? 3),
       shieldAfterMinutes: String(settings.agentOccupancyShieldAfterMinutes ?? 30),
       conflictKeywords: settings.transferConflictKeywords ?? [],
       weightFresh: String(settings.leadSlotWeightFreshPercent ?? 100),
@@ -83,8 +79,6 @@ export function LeadsTab({ limitsTask = false }: { limitsTask?: boolean } = {}) 
     {
       threshold: [threshold, setThreshold],
       shownDays: [shownDays, setShownDays],
-      ttl: [ttl, setTtl],
-      messageThrottle: [messageThrottle, setMessageThrottle],
       shieldAfterMinutes: [shieldAfterMinutes, setShieldAfterMinutes],
       conflictKeywords: [conflictKeywords, setConflictKeywords],
       weightFresh: [weightFresh, setWeightFresh],
@@ -151,7 +145,6 @@ export function LeadsTab({ limitsTask = false }: { limitsTask?: boolean } = {}) 
     await updateSettings.mutateAsync({
       ownPropertyMatchThreshold: Number(threshold),
       ownPropertyShownWindowDays: Number(shownDays),
-      pushActionTtlMinutes: Number(ttl),
     });
     setSaved(true);
   }
@@ -193,15 +186,6 @@ export function LeadsTab({ limitsTask = false }: { limitsTask?: boolean } = {}) 
     setSavedConflictKeywords(true);
   }
 
-  async function handleSaveNotify(e: React.FormEvent) {
-    e.preventDefault();
-    setSavedNotify(false);
-    await updateSettings.mutateAsync({
-      pushMessageThrottleMinutes: Number(messageThrottle),
-    });
-    setSavedNotify(true);
-  }
-
   return (
     <>
       <section className="card">
@@ -213,10 +197,6 @@ export function LeadsTab({ limitsTask = false }: { limitsTask?: boolean } = {}) 
           Агент, который сам съездил к собственнику, отснял фото и видео и завёл объект, получает клиента по
           этому объекту вне общей очереди. Сам процент комиссии правится в «Деньгах».
         </p>
-        <div className="quiet" style={{ marginBottom: "var(--s3)" }}>
-          <span className="dot" />
-          <span className="txt">Веса шкалы — во вкладке «Подбор объектов»</span>
-        </div>
 
         <SwitchRow
           title="Отдавать клиента хозяину подходящего объекта"
@@ -253,17 +233,8 @@ export function LeadsTab({ limitsTask = false }: { limitsTask?: boolean } = {}) 
           <div className="quiet">
             <span className="dot" />
             <span className="txt">
-              {ownPropertyThresholdNote(Number(threshold) || 0, {
-                base: settings.matchScoreBase ?? 40,
-                district: settings.matchScoreDistrict ?? 25,
-                rooms: settings.matchScoreRooms ?? 20,
-                budget: settings.matchScoreBudget ?? 15,
-                distance: settings.matchScoreDistance ?? 25,
-              })}
+              {ownPropertyThresholdNote(Number(threshold) || 0, MATCH_SCORE_WEIGHTS)}
             </span>
-            <Link className="lnk" to="/settings?tab=matching">
-              Веса шкалы
-            </Link>
           </div>
           <NumberRow
             label="Учитывать показы бота за"
@@ -278,15 +249,6 @@ export function LeadsTab({ limitsTask = false }: { limitsTask?: boolean } = {}) 
             Лид по своему объекту всегда уходит агенту объекта, без лимита (решение
             владельца 11.09.2026) — потолка сверх лимита больше нет ни в каком виде.
           </p>
-          <NumberRow
-            label="Срок жизни кнопок в уведомлении"
-            unit="минут"
-            min={5}
-            max={60}
-            value={ttl}
-            onChange={setTtl}
-            hint="Сколько действуют кнопки «Принять» и «Отклонить» в шторке. После этого уведомление остаётся, но кнопки уже ничего не делают — открыть карточку по-прежнему можно."
-          />
           <SaveRow pending={updateSettings.isPending} saved={saved} />
         </form>
       </section>
@@ -528,18 +490,8 @@ export function LeadsTab({ limitsTask = false }: { limitsTask?: boolean } = {}) 
             уведомлений о счёте в коде нет вовсе — ни одна строка сервера это поле не читает (проверено поиском 23.09.2026).
             Поля pushOnScoreChange/pushScoreThrottleMinutes остаются в базе:
             вернуть строки, когда появится сама отправка. */}
-        <form onSubmit={handleSaveNotify}>
-          <NumberRow
-            label="Не чаще одного о сообщениях клиента раз в"
-            unit="минут"
-            min={0}
-            max={120}
-            value={messageThrottle}
-            onChange={setMessageThrottle}
-            hint="Человек пишет пачкой: «здравствуйте», «а можно», «и ещё». 0 — уведомлять о каждом сообщении."
-          />
-          <SaveRow pending={updateSettings.isPending} saved={savedNotify} />
-        </form>
+        {/* Срок жизни кнопок в уведомлении (30 мин) и «не чаще одного о сообщениях
+            клиента раз в 3 мин» — константы с 01.11.2026 (apps/api/src/lib/settingsConstants.ts). */}
       </section>
 
       <section className="card">

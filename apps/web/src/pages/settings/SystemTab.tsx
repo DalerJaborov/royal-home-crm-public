@@ -884,71 +884,9 @@ export function ProblemReportsSection() {
   );
 }
 
-/**
- * Сколько живёт подтверждение личности в защищённых разделах.
- *
- * Десять минут придумывались под сценарий «зашёл, поменял ключ, вышел». На
- * разборе настроек и здоровья системы окно истекало посреди работы, и раздел
- * закрывался на полуслове — владелец попросил растянуть (01.08.2026).
- *
- * Подпись говорит, чем платим, а не только что настраиваем: это единственная
- * настройка на экране, которая делает систему МЕНЕЕ защищённой. Потолок 4 часа
- * стоит и на сервере — значением отсюда его не обойти.
- */
-const STEP_UP_CHOICES = [15, 30, 60, 120, 240] as const;
-
-export function StepUpSection() {
-  const { data: settings } = useSettings();
-  const save = useUpdateSettings();
-  const [minutes, setMinutes] = useState<number>(60);
-  useServerSyncedFields(
-    settings && {
-      minutes: settings.stepUpMinutes ?? 60,
-    },
-    {
-      minutes: [minutes, setMinutes],
-    }
-  );
-
-  return (
-    <SettingsSection icon={KeyRound} title="Подтверждение личности">
-      <div className="mod">
-        <div className="t">
-          <b>Сколько держать раздел открытым</b>
-          <span>
-            Сколько времени после подтверждения кодом открыты Настройки, ключи и сотрудники. Это последнее, что
-            отделяет открытый ноутбук от ключей WhatsApp, Instagram и Anthropic: чем дольше окно, тем больше
-            времени у того, кто сядет за ваш компьютер. Дольше четырёх часов нельзя. Новый срок начнёт
-            действовать со следующего подтверждения.
-          </span>
-        </div>
-        <div className="acts">
-          <select
-            className="inp"
-            style={{ maxWidth: 160 }}
-            aria-label="Срок подтверждения"
-            value={minutes}
-            onChange={(e) => setMinutes(Number(e.target.value))}
-          >
-            {STEP_UP_CHOICES.map((m) => (
-              <option key={m} value={m}>
-                {m < 60 ? `${m} минут` : `${m / 60} ч`}
-              </option>
-            ))}
-          </select>
-          <button
-            className="pill ghost sm"
-            type="button"
-            onClick={() => save.mutate({ stepUpMinutes: minutes })}
-            disabled={save.isPending || minutes === settings?.stepUpMinutes}
-          >
-            {save.isPending ? "Сохраняем…" : "Сохранить"}
-          </button>
-        </div>
-      </div>
-    </SettingsSection>
-  );
-}
+// «Сколько держать раздел открытым» (stepUpMinutes) убран с экрана 01.11.2026:
+// срок подтверждения личности — константа STEP_UP_MINUTES на сервере
+// (apps/api/src/lib/settingsConstants.ts), значение прода — 4 часа.
 
 /**
  * ВХОД ПО ОТПЕЧАТКУ ИЛИ ЛИЦУ — общий рубильник.

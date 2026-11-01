@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { inactiveTrafficHours, normalizeInactiveTrafficPolicy } from "@royal-home/shared";
+import { INACTIVE_TRAFFIC_MAX_ATTEMPTS, inactiveTrafficHours, normalizeInactiveTrafficPolicy } from "@royal-home/shared";
 import { useServerSyncedForm } from "../../hooks/useServerSyncedForm";
 import { useSettings, useUpdateSettings } from "../../hooks/useSettings";
 import { MutationError } from "../../components/MutationError";
@@ -40,13 +40,8 @@ export function DisciplineSection() {
       dealStaleSellerDays: String(settings.dealStaleSellerDays ?? 10),
       dealStaleBuyerDays: String(settings.dealStaleBuyerDays ?? 21),
       inactiveGreenPingHours: String(settings.inactiveGreenPingHours ?? 24),
-      inactiveGreenMaxAttempts: String(settings.inactiveGreenMaxAttempts ?? 5),
       inactiveYellowPingHours: String(settings.inactiveYellowPingHours ?? 48),
-      inactiveYellowMaxAttempts: String(settings.inactiveYellowMaxAttempts ?? 2),
       inactiveRedPingHours: String(settings.inactiveRedPingHours ?? 36),
-      inactiveRedMaxAttempts: String(settings.inactiveRedMaxAttempts ?? 2),
-      inactivateMinAttempts: String(settings.inactivateMinAttempts ?? 2),
-      inactivateCooldownHours: String(settings.inactivateCooldownHours ?? 5),
       lostReturnAcceptMinutes: String(settings.lostReturnAcceptMinutes ?? 120),
       sellerPropertyMissingWarnDays: String(settings.sellerPropertyMissingWarnDays ?? 3),
       sellerPropertyMissingCriticalDays: String(settings.sellerPropertyMissingCriticalDays ?? 5),
@@ -79,13 +74,8 @@ export function DisciplineSection() {
       dealStaleSellerDays: Number(form.dealStaleSellerDays),
       dealStaleBuyerDays: Number(form.dealStaleBuyerDays),
       inactiveGreenPingHours: Number(form.inactiveGreenPingHours),
-      inactiveGreenMaxAttempts: Number(form.inactiveGreenMaxAttempts),
       inactiveYellowPingHours: Number(form.inactiveYellowPingHours),
-      inactiveYellowMaxAttempts: Number(form.inactiveYellowMaxAttempts),
       inactiveRedPingHours: Number(form.inactiveRedPingHours),
-      inactiveRedMaxAttempts: Number(form.inactiveRedMaxAttempts),
-      inactivateMinAttempts: Number(form.inactivateMinAttempts),
-      inactivateCooldownHours: Number(form.inactivateCooldownHours),
       lostReturnAcceptMinutes: Number(form.lostReturnAcceptMinutes),
       sellerPropertyMissingWarnDays: Number(form.sellerPropertyMissingWarnDays),
       sellerPropertyMissingCriticalDays: Number(form.sellerPropertyMissingCriticalDays),
@@ -100,10 +90,13 @@ export function DisciplineSection() {
   const penalty = Number(form.inactivityPenaltyAfterDays);
   const sellerWarn = Number(form.sellerPropertyMissingWarnDays);
   const sellerCritical = Number(form.sellerPropertyMissingCriticalDays);
+  // Число проверок по цвету — константа с 01.11.2026 (packages/shared), на экране
+  // только интервалы.
   const requestedTraffic = {
-    inactiveGreenPingHours: Number(form.inactiveGreenPingHours), inactiveGreenMaxAttempts: Number(form.inactiveGreenMaxAttempts),
-    inactiveYellowPingHours: Number(form.inactiveYellowPingHours), inactiveYellowMaxAttempts: Number(form.inactiveYellowMaxAttempts),
-    inactiveRedPingHours: Number(form.inactiveRedPingHours), inactiveRedMaxAttempts: Number(form.inactiveRedMaxAttempts),
+    ...INACTIVE_TRAFFIC_MAX_ATTEMPTS,
+    inactiveGreenPingHours: Number(form.inactiveGreenPingHours),
+    inactiveYellowPingHours: Number(form.inactiveYellowPingHours),
+    inactiveRedPingHours: Number(form.inactiveRedPingHours),
   };
   const trafficReady = Object.values(requestedTraffic).every((value) => Number.isFinite(value) && value > 0);
   const effectiveTraffic = normalizeInactiveTrafficPolicy(requestedTraffic);
@@ -217,7 +210,7 @@ export function DisciplineSection() {
           <span className="note">
             Цвет отражает историю отношений: красный — ответа ещё не было, жёлтый — клиент отвечал,
             зелёный — была встреча или показ. Проверки автоматические, уведомления агенту не отправляются.
-            После указанного числа проверок и ещё одного интервала без контакта клиент уходит в Потерянные.
+            После {INACTIVE_TRAFFIC_MAX_ATTEMPTS.inactiveGreenMaxAttempts} проверок и ещё одного интервала без контакта клиент уходит в Потерянные.
             Новый разговор, сообщение или состоявшаяся встреча начинает отсчёт заново.
           </span>
         </div>
@@ -232,9 +225,9 @@ export function DisciplineSection() {
           Действующие сроки показаны выше. Заполните и сохраните согласованные значения.
         </p>}
         <button type="button" className="btn ghost" disabled={!settings} onClick={() => {
-          set("inactiveGreenPingHours", "24"); set("inactiveGreenMaxAttempts", "5");
-          set("inactiveYellowPingHours", "48"); set("inactiveYellowMaxAttempts", "2");
-          set("inactiveRedPingHours", "36"); set("inactiveRedMaxAttempts", "2");
+          set("inactiveGreenPingHours", "24");
+          set("inactiveYellowPingHours", "48");
+          set("inactiveRedPingHours", "36");
         }}>Заполнить сроки по глубине отношений</button>
 
         <div className="grp-lab">Зелёный</div>
@@ -245,13 +238,6 @@ export function DisciplineSection() {
             min={1}
             max={240}
             onChange={(v) => set("inactiveGreenPingHours", v)}
-          />
-          <Field
-            label="Проверок до завершения"
-            value={form.inactiveGreenMaxAttempts}
-            min={1}
-            max={10}
-            onChange={(v) => set("inactiveGreenMaxAttempts", v)}
           />
         </div>
 
@@ -264,13 +250,6 @@ export function DisciplineSection() {
             max={240}
             onChange={(v) => set("inactiveYellowPingHours", v)}
           />
-          <Field
-            label="Проверок до завершения"
-            value={form.inactiveYellowMaxAttempts}
-            min={1}
-            max={10}
-            onChange={(v) => set("inactiveYellowMaxAttempts", v)}
-          />
         </div>
 
         <div className="grp-lab">Красный</div>
@@ -282,34 +261,8 @@ export function DisciplineSection() {
             max={240}
             onChange={(v) => set("inactiveRedPingHours", v)}
           />
-          <Field
-            label="Проверок до завершения"
-            value={form.inactiveRedMaxAttempts}
-            min={1}
-            max={10}
-            onChange={(v) => set("inactiveRedMaxAttempts", v)}
-          />
         </div>
 
-        <div className="grp-lab">Перевод в Неактивные</div>
-        <div className="fgrid">
-          <Field
-            label="Минимум попыток связаться перед переводом"
-            value={form.inactivateMinAttempts}
-            min={1}
-            max={10}
-            onChange={(v) => set("inactivateMinAttempts", v)}
-            hint="Для молчания и причины «другое» нужен этот минимум попыток. Для «думает», «отложил» или «просил позже» — хотя бы одна зафиксированная попытка связаться."
-          />
-          <Field
-            label="Пауза выдачи лидов после перевода, часов"
-            value={form.inactivateCooldownHours}
-            min={0}
-            max={72}
-            onChange={(v) => set("inactivateCooldownHours", v)}
-            hint="Защита от перевода клиента в Неактивные ради получения нового лида."
-          />
-        </div>
       </section>
 
       <section className="card">

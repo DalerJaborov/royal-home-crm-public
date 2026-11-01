@@ -1,5 +1,4 @@
 import { restartAriEvents } from "./telephony/ariEvents.js";
-import { refreshInboundContexts } from "./telephony/incomingCalls.js";
 import { syncFailoverInBackground } from "./telephony/failoverSync.js";
 import { syncRoutingModeInBackground } from "./telephony/routingModeSync.js";
 import { restartLiveVoiceListener } from "./telephony/liveVoiceBridge.js";
@@ -52,7 +51,6 @@ const FAILOVER_FIELDS = [
   // рабочие часы, вне которых он берёт сразу, — тоже значения в базе станции.
   "liveVoiceEnabled",
   "liveVoiceInboundMode",
-  "liveVoiceInboundWaitSeconds",
   "workHoursStart",
   "workHoursEnd",
 ];
@@ -61,15 +59,13 @@ const FAILOVER_FIELDS = [
  * @param touched — имена полей, которые сохранение затронуло.
  *
  * Ничего не ждёт и не бросает: настройка уже записана, а отказ станции попадает
- * в журнал внутри самих вызовов. Порядок как раньше: список входящих контекстов
- * перечитывается сам и переподключения не требует, поэтому ветка `else if`.
+ * в журнал внутри самих вызовов. Список входящих контекстов с 01.11.2026 —
+ * константа (lib/settingsConstants.ts), перечитывать его при сохранении нечего.
  */
 export function applySettingsSideEffects(touched: readonly string[]): void {
   const set = new Set(touched);
   if (ARI_CONNECTION_FIELDS.some((f) => set.has(f))) {
     restartAriEvents();
-  } else if (set.has("incomingInboundContexts")) {
-    void refreshInboundContexts();
   }
   if (LIVE_VOICE_FIELDS.some((f) => set.has(f))) {
     restartLiveVoiceListener();

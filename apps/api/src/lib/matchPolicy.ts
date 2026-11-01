@@ -14,6 +14,7 @@
 import { propertyFieldShown } from "@royal-home/shared";
 import type { Prisma } from "../generated/prisma/client.js";
 import { prisma } from "../db.js";
+import { MATCH_MIN_CANDIDATES, MATCH_PRICE_DROP_RENOTIFY_PCT, MATCH_RADIUS_MAX_MULTIPLIER } from "./settingsConstants.js";
 import { toTjs } from "./money.js";
 
 export interface MatchPolicy {
@@ -96,13 +97,10 @@ export async function loadMatchPolicy(): Promise<MatchPolicy> {
       matchIncludeDeferred: true,
       matchNotifyPropertyOwner: true,
       matchRequirementTtlDays: true,
-      matchPriceDropRenotifyPct: true,
       matchBudgetTolerancePct: true,
       matchAreaTolerancePct: true,
       matchRoomsTolerance: true,
       matchDefaultRadiusM: true,
-      matchRadiusMaxMultiplier: true,
-      matchMinCandidates: true,
     },
   });
   return {
@@ -111,16 +109,16 @@ export async function loadMatchPolicy(): Promise<MatchPolicy> {
     includeDeferred: s?.matchIncludeDeferred ?? DEFAULT_MATCH_POLICY.includeDeferred,
     notifyPropertyOwner: s?.matchNotifyPropertyOwner ?? DEFAULT_MATCH_POLICY.notifyPropertyOwner,
     requirementTtlDays: s?.matchRequirementTtlDays ?? DEFAULT_MATCH_POLICY.requirementTtlDays,
-    priceDropRenotifyRatio:
-      s?.matchPriceDropRenotifyPct != null ? s.matchPriceDropRenotifyPct / 100 : DEFAULT_MATCH_POLICY.priceDropRenotifyRatio,
+    // Три технических параметра алгоритма — константы с 01.11.2026 (lib/settingsConstants.ts).
+    priceDropRenotifyRatio: MATCH_PRICE_DROP_RENOTIFY_PCT / 100,
     budgetToleranceRatio:
       s?.matchBudgetTolerancePct != null ? s.matchBudgetTolerancePct / 100 : DEFAULT_MATCH_POLICY.budgetToleranceRatio,
     areaToleranceRatio:
       s?.matchAreaTolerancePct != null ? s.matchAreaTolerancePct / 100 : DEFAULT_MATCH_POLICY.areaToleranceRatio,
     roomsTolerance: s?.matchRoomsTolerance ?? DEFAULT_MATCH_POLICY.roomsTolerance,
     defaultRadiusM: s?.matchDefaultRadiusM ?? DEFAULT_MATCH_POLICY.defaultRadiusM,
-    radiusMaxMultiplier: s?.matchRadiusMaxMultiplier ?? DEFAULT_MATCH_POLICY.radiusMaxMultiplier,
-    minCandidates: s?.matchMinCandidates ?? DEFAULT_MATCH_POLICY.minCandidates,
+    radiusMaxMultiplier: MATCH_RADIUS_MAX_MULTIPLIER,
+    minCandidates: MATCH_MIN_CANDIDATES,
   };
 }
 

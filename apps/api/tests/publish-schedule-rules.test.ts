@@ -9,6 +9,17 @@ import request from "supertest";
  * настоящую функцию; тест, которому важен объём, кладёт свои клетки в
  * `heatmapOverride` и сам его убирает.
  */
+// Источник часов, постоянные окна, глубина карты и опережение — константы с
+// 01.11.2026 (lib/settingsConstants.ts). Тест подменяет их здесь; в базе остались
+// только рубильник, рабочее окно и промежуток.
+const PROD_TUNING = { priorityWindows: [720, 840, 1140, 1260], heatmapDays: 90, leadHours: 1, useHeatmap: false, useInstagramOnline: false };
+const tuning = vi.hoisted(() => ({
+  priorityWindows: [720, 840, 1140, 1260] as number[], heatmapDays: 90, leadHours: 1, useHeatmap: false, useInstagramOnline: false,
+}));
+vi.mock("../src/lib/settingsConstants.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/settingsConstants.js")>()),
+  PUBLISH_SCHEDULE_TUNING: tuning,
+}));
 const heatmapOverride = vi.hoisted(() => ({ cells: null as null | { dow: number; hour: number; count: number }[] }));
 vi.mock("../src/lib/audienceHeatmap.js", async (importOriginal) => {
   const orig = await importOriginal<typeof import("../src/lib/audienceHeatmap.js")>();
@@ -43,14 +54,9 @@ const runId = Date.now();
 const password = "testpass123";
 const TOUCHED = [
   "publishScheduleEnabled",
-  "publishScheduleUseHeatmap",
   "publishScheduleWindowStartMin",
   "publishScheduleWindowEndMin",
   "publishScheduleMinGapMin",
-  "publishSchedulePriorityWindows",
-  "publishScheduleHeatmapDays",
-  "publishScheduleLeadHours",
-  "publishScheduleUseInstagramOnline",
 ] as const;
 
 let districtId: string;
@@ -67,8 +73,23 @@ async function login(phone: string) {
   return res.body.accessToken as string;
 }
 
+const TUNING_KEYS: Record<string, keyof typeof tuning> = {
+  publishScheduleUseHeatmap: "useHeatmap",
+  publishScheduleUseInstagramOnline: "useInstagramOnline",
+  publishSchedulePriorityWindows: "priorityWindows",
+  publishScheduleHeatmapDays: "heatmapDays",
+  publishScheduleLeadHours: "leadHours",
+};
+
+/** Поля, ставшие константами, уходят в подмену; остальные — в строку Settings. */
 async function setSchedule(data: Record<string, unknown>) {
-  await prisma.settings.update({ where: { id: "singleton" }, data });
+  const dbData: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(data)) {
+    const tuningKey = TUNING_KEYS[key];
+    if (tuningKey) (tuning as Record<string, unknown>)[tuningKey] = value;
+    else dbData[key] = value;
+  }
+  if (Object.keys(dbData).length > 0) await prisma.settings.update({ where: { id: "singleton" }, data: dbData });
 }
 
 beforeAll(async () => {
@@ -331,27 +352,28 @@ describe("PATCH /settings — границы сетки публикаций", (
     expect(fresh?.publishScheduleWindowStartMin).toBe(9 * 60);
   });
 
-  it("нечётный список часов и перевёрнутая пара не принимаются", async () => {
-    expect((await patch({ publishSchedulePriorityWindows: [12 * 60, 14 * 60, 19 * 60] })).status).toBe(400);
-    expect((await patch({ publishSchedulePriorityWindows: [14 * 60, 12 * 60] })).status).toBe(400);
+  it("постоянные часы, глубина карты и опережение больше не правятся через PATCH (константы с 01.11.2026)", async () => {
+    Object.assign(tuning, PROD_TUNING);
+    const res = await patch({ publishSchedulePriorityWindows: [16 * 60, 17 * 60], publishScheduleHeatmapDays: 30, publishScheduleLeadHours: 3 });
+    expect(res.status).toBe(200);
+    const loaded = await loadPublishScheduleRules();
+    expect(loaded.priorityHours).toEqual([12, 19]);
+    expect(loaded.heatmapDays).toBe(90);
   });
 
   it("исправная сетка сохраняется целиком", async () => {
     const res = await patch({
       publishScheduleEnabled: true,
-      publishScheduleUseHeatmap: false,
       publishScheduleWindowStartMin: 8 * 60,
       publishScheduleWindowEndMin: 22 * 60,
       publishScheduleMinGapMin: 60,
-      publishSchedulePriorityWindows: [11 * 60, 13 * 60, 18 * 60, 20 * 60],
-      publishScheduleHeatmapDays: 60,
-      publishScheduleLeadHours: 2,
     });
     expect(res.status).toBe(200);
+    Object.assign(tuning, PROD_TUNING);
     const loaded = await loadPublishScheduleRules();
     expect(loaded.rules.windowStartMin).toBe(8 * 60);
     expect(loaded.rules.minGapMin).toBe(60);
-    expect(loaded.priorityHours).toEqual([11, 18]);
-    expect(loaded.heatmapDays).toBe(60);
+    expect(loaded.priorityHours).toEqual([12, 19]);
+    expect(loaded.heatmapDays).toBe(90);
   });
 });
