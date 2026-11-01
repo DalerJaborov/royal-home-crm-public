@@ -18,7 +18,11 @@ export function actionActorFrom(actor: AssistantActor, channel: AssistantActionA
 
 export interface RunPluginHooks {
   channel: AssistantActionActor["channel"];
-  /** Карточка подтверждения готова — отдать клиенту событием `confirm`. */
+  /**
+   * Карточка действия готова — отдать клиенту событием `confirm`. Уровень C —
+   * PENDING (ждёт «Подтвердить»), уровень B — уже EXECUTED (плашка «Сделано · Отменить»).
+   * Будущий вход из Telegram обязан смотреть на `status`, а не рисовать кнопку на каждое событие.
+   */
   onConfirm?: (action: AssistantActionView) => void;
 }
 
@@ -89,8 +93,11 @@ export async function runAssistantToolPlugin(
         note: "Действие ЕЩЁ НЕ выполнено: человек должен нажать «Подтвердить» в карточке. Не подтверждай сам.",
       };
     }
-    // Уровень B: сразу исполняем; откат остаётся кнопкой «Отменить».
+    // Уровень B: сразу исполняем; откат остаётся кнопкой «Отменить». Та же карточка
+    // `confirm`, но уже EXECUTED: человек видит «Сделано · Отменить» (П4а), а не
+    // узнаёт о записи только из текста модели.
     const { action } = await confirmAssistantAction(pending.id, actionActor);
+    hooks.onConfirm?.(action);
     return { done: true, actionId: action.id, result: action.result, undoUntil: action.undoUntil };
   } catch (err) {
     if (err instanceof AssistantActionError) {

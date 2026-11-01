@@ -1,9 +1,21 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("./api", () => ({ refreshAccessToken: vi.fn(async () => null) }));
+const { apiMock } = vi.hoisted(() => ({ apiMock: vi.fn() }));
+vi.mock("./api", () => ({ refreshAccessToken: vi.fn(async () => null), api: apiMock }));
 vi.mock("./deviceId", () => ({ getOrCreateDeviceId: () => "test-device" }));
 
-const { AssistantStreamError, ASSISTANT_TIMEOUT_MS, streamAssistant, windowMessages } = await import("./assistantStream");
+const {
+  AssistantActionRequestError,
+  AssistantStreamError,
+  ASSISTANT_TIMEOUT_MS,
+  requestAssistantActionCancel,
+  requestAssistantActionConfirm,
+  isActionView,
+  streamAssistant,
+  requestAssistantActionUndo,
+  windowMessages,
+} = await import("./assistantStream");
+const { ApiError } = await import("./apiError");
 const { loadAssistantHistory, saveAssistantHistory } = await import("./assistantHistory");
 const { useAuthStore } = await import("../store/auth");
 
@@ -159,6 +171,99 @@ describe("streamAssistant", () => {
       message: "ИИ недоступен",
       retryable: true,
     });
+  });
+});
+
+const actionView = (over: Record<string, unknown> = {}) => ({
+  id: "11111111-1111-4111-8111-111111111111",
+  tool: "change_client_agent",
+  status: "PENDING",
+  preview: { title: "Передать клиента", was: { agent: "Иванов" }, becomes: { agent: "Петров" } },
+  expiresAt: new Date(Date.now() + 600_000).toISOString(),
+  executedAt: null,
+  undoneAt: null,
+  undoUntil: null,
+  result: null,
+  ...over,
+});
+
+describe("событие confirm и заголовок X-Assistant-Confirm (П4а)", () => {
+  it("с onConfirm — заголовок уходит, карточка действия приходит; кривое событие отбрасывается", async () => {
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) =>
+      streamResponse(
+        sse(
+          ["confirm", actionView()],
+          ["confirm", { id: "x", status: "WHATEVER" }],
+          ["confirm", actionView({ preview: { title: "<b>", was: "не объект", becomes: {} } })],
+          ["done", { reply: "Подтвердите" }],
+        ),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const onConfirm = vi.fn();
+    await expect(streamAssistant(ask, () => undefined, { onConfirm })).resolves.toBe("Подтвердите");
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+    expect(onConfirm.mock.calls[0][0]).toMatchObject({ status: "PENDING", preview: { title: "Передать клиента" } });
+    const headers = fetchMock.mock.calls[0][1]?.headers as Record<string, string>;
+    expect(headers["X-Assistant-Confirm"]).toBe("1");
+  });
+
+  it("без onConfirm заголовка нет — сервер не объявит модели инструменты записи", async () => {
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => streamResponse(sse(["done", { reply: "ок" }])));
+    vi.stubGlobal("fetch", fetchMock);
+    await streamAssistant(ask, () => undefined);
+    const headers = fetchMock.mock.calls[0][1]?.headers as Record<string, string>;
+    expect(headers["X-Assistant-Confirm"]).toBeUndefined();
+  });
+
+  it("isActionView: статус только из списка, превью с объектами was/becomes", () => {
+    expect(isActionView(actionView())).toBe(true);
+    expect(isActionView(actionView({ status: "DONE" }))).toBe(false);
+    expect(isActionView(actionView({ undoUntil: 5 }))).toBe(false);
+    expect(isActionView(actionView({ preview: { title: "x", was: [], becomes: {} } }))).toBe(false);
+    expect(isActionView(null)).toBe(false);
+  });
+});
+
+describe("подтверждение, отмена и откат действия (П4а)", () => {
+  beforeEach(() => apiMock.mockReset());
+
+  it("ходят через общий api() POST по своему пути и отдают исход", async () => {
+    apiMock.mockResolvedValue({ action: actionView({ status: "EXECUTED" }), replay: false });
+    const id = "11111111-1111-4111-8111-111111111111";
+    await expect(requestAssistantActionConfirm(id)).resolves.toMatchObject({ action: { status: "EXECUTED" }, replay: false });
+    await requestAssistantActionCancel(id);
+    await requestAssistantActionUndo(id);
+    expect(apiMock.mock.calls.map((c) => [c[0], c[1].method])).toEqual([
+      [`/ai/assistant/actions/${id}/confirm`, "POST"],
+      [`/ai/assistant/actions/${id}/cancel`, "POST"],
+      [`/ai/assistant/actions/${id}/undo`, "POST"],
+    ]);
+  });
+
+  it("409 STALE: код и свежее действие наружу", async () => {
+    const fresh = actionView({ id: "22222222-2222-4222-8222-222222222222" });
+    apiMock.mockRejectedValueOnce(
+      new ApiError("Данные изменились", 409, { error: "Данные изменились", code: "STALE", stale: true, action: fresh }),
+    );
+    const err = await requestAssistantActionConfirm("a").catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(AssistantActionRequestError);
+    const e = err as InstanceType<typeof AssistantActionRequestError>;
+    expect([e.status, e.code, e.action?.id]).toEqual([409, "STALE", fresh.id]);
+  });
+
+  it("409 STALE без нового превью, 410, 403 — код и пустое действие", async () => {
+    for (const [status, code] of [[409, "STALE"], [410, "EXPIRED"], [403, "FORBIDDEN"]] as const) {
+      apiMock.mockRejectedValueOnce(new ApiError("x", status, { error: "x", code, action: null }));
+      await expect(requestAssistantActionConfirm("a")).rejects.toMatchObject({ status, code, action: null });
+    }
+  });
+
+  it("сеть упала — status 0, кривой ответ сервера — тоже ошибка, а не тихий успех", async () => {
+    apiMock.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    await expect(requestAssistantActionConfirm("a")).rejects.toMatchObject({ status: 0, code: null });
+    apiMock.mockResolvedValueOnce({ ok: true });
+    await expect(requestAssistantActionConfirm("a")).rejects.toBeInstanceOf(AssistantActionRequestError);
   });
 });
 

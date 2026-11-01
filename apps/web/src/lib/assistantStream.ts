@@ -1,5 +1,15 @@
-import { ASSISTANT_HISTORY_WINDOW, type AssistantCard, type AssistantTokenEvent } from "@royal-home/shared";
-import { refreshAccessToken } from "./api";
+import {
+  ASSISTANT_ACTION_STATUSES,
+  ASSISTANT_HISTORY_WINDOW,
+  type AssistantActionErrorBody,
+  type AssistantActionOutcome,
+  type AssistantActionView,
+  type AssistantCard,
+  type AssistantConfirmEvent,
+  type AssistantTokenEvent,
+} from "@royal-home/shared";
+import { api, refreshAccessToken } from "./api";
+import { ApiError } from "./apiError";
 import { getOrCreateDeviceId } from "./deviceId";
 import { httpStatusMessage } from "./httpStatusMessage";
 import { currentSessionEpoch } from "./sessionGuard";
@@ -61,6 +71,13 @@ export interface StreamAssistantOptions {
    * ответ — всё равно возвращаемое значение (текст из `done`).
    */
   onToken?: (textSoFar: string) => void;
+  /**
+   * Карточка действия (SSE-событие `confirm`, П4а): PENDING ждёт «Подтвердить»,
+   * EXECUTED (малая запись, уровень B) уже сделано и ждёт разве что «Отменить».
+   * Передан колбэк — сервер узнаёт заголовком `X-Assistant-Confirm: 1`, что карточку
+   * есть кому показать, и только тогда объявляет модели инструменты записи.
+   */
+  onConfirm?: (action: AssistantConfirmEvent) => void;
 }
 
 interface SseData {
@@ -129,7 +146,7 @@ function normalizeError(err: unknown, timedOut: boolean, abortedOutside: boolean
 async function run(
   messages: AssistantMessage[],
   onStatus: (message: string) => void,
-  { onCard, onToken }: Pick<StreamAssistantOptions, "onCard" | "onToken">,
+  { onCard, onToken, onConfirm }: Pick<StreamAssistantOptions, "onCard" | "onToken" | "onConfirm">,
   signal: AbortSignal,
 ): Promise<string> {
   const doFetch = (token: string | null) =>
@@ -141,6 +158,7 @@ async function run(
         "Content-Type": "application/json",
         "X-Device-Id": getOrCreateDeviceId(),
         ...(onToken ? { "X-Assistant-Stream": "1" } : {}),
+        ...(onConfirm ? { "X-Assistant-Confirm": "1" } : {}),
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       body: JSON.stringify({ messages }),
@@ -219,6 +237,10 @@ async function run(
           }
           continue;
         }
+        if (event === "confirm") {
+          if (isActionView(data)) onConfirm?.(data);
+          continue;
+        }
         const payload = data as SseData;
         if (event === "status" && payload.message) onStatus(payload.message);
         else if (event === "done") reply = payload.reply ?? "";
@@ -246,6 +268,88 @@ async function run(
 function isToken(value: unknown): value is AssistantTokenEvent {
   return !!value && typeof value === "object" && typeof (value as { text?: unknown }).text === "string";
 }
+
+const ACTION_STATUSES: ReadonlySet<string> = new Set(ASSISTANT_ACTION_STATUSES);
+const isNullableString = (v: unknown) => v === null || typeof v === "string";
+const isPlainRecord = (v: unknown) => !!v && typeof v === "object" && !Array.isArray(v);
+
+/**
+ * Проверка вида действия на входе: поток — внешние данные, и карточка, по
+ * которой человек жмёт «Подтвердить», не должна собираться из чего попало.
+ */
+export function isActionView(value: unknown): value is AssistantActionView {
+  if (!isPlainRecord(value)) return false;
+  const a = value as Record<string, unknown>;
+  if (typeof a.id !== "string" || !a.id || typeof a.tool !== "string") return false;
+  if (typeof a.status !== "string" || !ACTION_STATUSES.has(a.status)) return false;
+  if (typeof a.expiresAt !== "string") return false;
+  if (!isNullableString(a.executedAt) || !isNullableString(a.undoneAt) || !isNullableString(a.undoUntil)) return false;
+  const p = a.preview;
+  if (!isPlainRecord(p)) return false;
+  const preview = p as Record<string, unknown>;
+  return typeof preview.title === "string" && isPlainRecord(preview.was) && isPlainRecord(preview.becomes);
+}
+
+/**
+ * ОТКАЗ МАРШРУТА ДЕЙСТВИЯ с кодом наружу (П4а). Карточка решает по `status` и
+ * `code`, что показать: 409 STALE — новое превью (`freshAction`, если сервер его
+ * собрал), 410 — «время вышло», 403 — «нет доступа». `status` 0 — до сервера
+ * не дошли (сеть, таймаут, сменилась сессия).
+ */
+export class AssistantActionRequestError extends Error {
+  readonly status: number;
+  readonly code: string | null;
+  /** 409 STALE — свежее действие с новым превью; 409 IN_PROGRESS/NOT_PENDING — текущее состояние. */
+  readonly action: AssistantActionView | null;
+  constructor(message: string, status: number, code: string | null, action: AssistantActionView | null) {
+    super(message);
+    this.name = "AssistantActionRequestError";
+    this.status = status;
+    this.code = code;
+    this.action = action;
+  }
+}
+
+function toActionError(err: unknown): AssistantActionRequestError {
+  if (err instanceof ApiError) {
+    const body = (isPlainRecord(err.data) ? err.data : {}) as Partial<AssistantActionErrorBody>;
+    const action = isActionView(body.action) ? body.action : null;
+    return new AssistantActionRequestError(err.message, err.status, typeof body.code === "string" ? body.code : null, action);
+  }
+  return new AssistantActionRequestError(
+    err instanceof Error ? err.message : "Нет связи с сервером. Повторите",
+    0,
+    null,
+    null,
+  );
+}
+
+type ActionVerb = "confirm" | "cancel" | "undo";
+
+/**
+ * Через общий `api()`: та же авторизация, обновление токена при 401, сторож смены
+ * сессии и разбор тела ошибки, что у всей CRM. Ключа повтора не нужно — брокер
+ * сам держит «ровно один раз» по id действия (assistantActions.ts).
+ */
+async function actOn(verb: ActionVerb, actionId: string): Promise<AssistantActionOutcome> {
+  let outcome: AssistantActionOutcome;
+  try {
+    outcome = await api<AssistantActionOutcome>(`/ai/assistant/actions/${encodeURIComponent(actionId)}/${verb}`, {
+      method: "POST",
+      body: {},
+    });
+  } catch (err) {
+    throw toActionError(err);
+  }
+  if (!outcome || !isActionView(outcome.action)) {
+    throw new AssistantActionRequestError("Сервер ответил непонятно. Обновите страницу", 0, null, null);
+  }
+  return outcome;
+}
+
+export const requestAssistantActionConfirm = (actionId: string) => actOn("confirm", actionId);
+export const requestAssistantActionCancel = (actionId: string) => actOn("cancel", actionId);
+export const requestAssistantActionUndo = (actionId: string) => actOn("undo", actionId);
 
 function isCard(value: unknown): value is AssistantCard {
   if (!value || typeof value !== "object") return false;

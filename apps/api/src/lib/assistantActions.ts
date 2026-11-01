@@ -1,6 +1,11 @@
 import { createHash } from "node:crypto";
-import { z } from "zod";
-import type { PermissionId } from "@royal-home/shared";
+import {
+  assistantActionPreviewSchema,
+  type AssistantActionOutcome,
+  type AssistantActionPreview,
+  type AssistantActionView,
+  type PermissionId,
+} from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { Prisma, type AssistantAction } from "../generated/prisma/client.js";
 import { canonicalJson, toPlainJson } from "./canonicalJson.js";
@@ -58,15 +63,12 @@ export interface AssistantActionActor {
   can: (permission: PermissionId) => boolean;
 }
 
-export const assistantActionPreviewSchema = z.object({
-  title: z.string().min(1).max(200),
-  was: z.record(z.string(), z.unknown()),
-  becomes: z.record(z.string(), z.unknown()),
-  /** Последствия одной строкой: «уйдёт на сайт, монтажёр получит задание». */
-  risk: z.string().max(500).optional(),
-  irreversible: z.boolean().optional(),
-});
-export type AssistantActionPreview = z.infer<typeof assistantActionPreviewSchema>;
+/**
+ * Превью, вид действия и исход — общий договор с панелью на сайте
+ * (packages/shared/src/assistantAction.ts): одно описание на обе стороны.
+ */
+export { assistantActionPreviewSchema };
+export type { AssistantActionOutcome, AssistantActionPreview, AssistantActionView };
 
 /** Снимок — объект полей, которые действие трогает (сравнивается канонически). */
 export type AssistantActionSnapshot = Record<string, unknown>;
@@ -142,25 +144,6 @@ export function registerAssistantActionExecutor<A>(executor: AssistantActionExec
 
 export function getAssistantActionExecutor(tool: string): AssistantActionExecutor | null {
   return executors.get(tool) ?? null;
-}
-
-export interface AssistantActionView {
-  id: string;
-  tool: string;
-  status: AssistantAction["status"];
-  preview: AssistantActionPreview;
-  expiresAt: string;
-  executedAt: string | null;
-  undoneAt: string | null;
-  /** До какого момента доступен откат; null — откатить нельзя. */
-  undoUntil: string | null;
-  result: unknown;
-}
-
-export interface AssistantActionOutcome {
-  action: AssistantActionView;
-  /** true — повтор уже выполненного перехода, ничего нового не произошло. */
-  replay: boolean;
 }
 
 function toView(row: AssistantAction): AssistantActionView {

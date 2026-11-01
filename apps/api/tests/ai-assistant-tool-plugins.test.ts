@@ -275,4 +275,19 @@ describe("уровень B: исполняет сразу и оставляет 
     expect(state.value).toBe(1);
     expect(state.undone).toBe(1);
   });
+
+  it("шлёт событие confirm с уже исполненным действием — панель показывает «Сделано · Отменить» (П4а)", async () => {
+    const plugin = register(writePlugin("B"));
+    const shown: Array<{ id: string; status: string; undoUntil: string | null; executedAt: string | null }> = [];
+    const answer = (await runAssistantToolPlugin(plugin, { value: 6 }, actorOf({ id: agentId }) as never, {
+      channel: "crm",
+      onConfirm: (a) => shown.push(a),
+    })) as { actionId: string; undoUntil: string | null };
+
+    expect(shown).toHaveLength(1);
+    expect(shown[0]).toMatchObject({ id: answer.actionId, status: "EXECUTED", undoUntil: answer.undoUntil });
+    expect(shown[0].executedAt).not.toBeNull();
+    expect(Date.parse(shown[0].undoUntil!)).toBeGreaterThan(Date.now());
+    expect(state.executed).toBe(1);
+  });
 });

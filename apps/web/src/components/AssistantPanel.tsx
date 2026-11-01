@@ -1,22 +1,20 @@
-import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Mic, RotateCcw, Send, Sparkles, X } from "lucide-react";
-import type { AssistantCard } from "@royal-home/shared";
-import {
-  AssistantStreamError,
-  streamAssistant,
-  type AssistantMessage as Message,
-} from "../lib/assistantStream";
+import type { AssistantActionView, AssistantCard } from "@royal-home/shared";
+import { AssistantStreamError, streamAssistant } from "../lib/assistantStream";
 import { loadAssistantHistory, saveAssistantHistory } from "../lib/assistantHistory";
 import { useSpeechRecognition } from "../hooks/useSpeechRecognition";
 import { ASSISTANT_CATEGORIES } from "../lib/assistantCategories";
-import { AssistantCardList } from "./AssistantCards";
-import { renderAssistantContent } from "./assistantContent";
 import { Rh2Portal } from "./rh2/Rh2Scope";
 import { Rh2Sheet } from "./rh2/Rh2Sheet";
 import { useMobileUx } from "../hooks/useMobileUx";
+import { AssistantThread, type LiveTurn } from "./assistant/AssistantThread";
+import { historyForStorage, pushStep, upsertAction, type ThreadMessage, type TurnStep } from "./assistant/assistantTurn";
+import { ConfirmCard, createConfirmCardController } from "./assistant/ConfirmCard";
+import type { ConfirmCardController } from "./assistant/confirmCardModel";
 
-/** Реплика в окне + карточки результата, пришедшие вместе с ответом (в историю хранилища не попадают). */
-type ThreadMessage = Message & { cards?: AssistantCard[] };
+/** Ответ оборвался, а карточка действия уже пришла: её всё равно надо показать — действие на сервере ждёт решения. */
+const BROKEN_REPLY_WITH_ACTIONS = "Ответ оборвался, но действие уже подготовлено — проверьте карточку ниже и решите сами.";
 
 interface PanelError {
   message: string;
@@ -44,11 +42,19 @@ export function AssistantPanel({
   const [input, setInput] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<PanelError | null>(null);
-  // Пошаговый статус текущего раунда/тула (SSE, план B3) — заменяет статичное
-  // «Думаю…» на всё время диалога. Одинаково на телефоне и на компьютере.
-  const [status, setStatus] = useState<string | null>(null);
+  // Лента шагов текущего хода (SSE `status`, П4а): чипы, пройденные — с «✓».
+  // Одинаково на телефоне и на компьютере.
+  const [steps, setSteps] = useState<TurnStep[]>([]);
+  // Текст ответа по мере генерации (SSE `token`) — живой пузырь.
+  const [liveText, setLiveText] = useState("");
   // Карточки, пришедшие до финального текста (быстрый путь без модели).
   const [liveCards, setLiveCards] = useState<AssistantCard[]>([]);
+  // Карточки действий (SSE `confirm`) текущего хода.
+  const [liveActions, setLiveActions] = useState<AssistantActionView[]>([]);
+  // Состояние карточек действий — по id, а не в самой карточке: карточка
+  // переезжает из текущего хода в готовую реплику и монтируется заново.
+  const controllersRef = useRef(new Map<string, ConfirmCardController>());
+  const status = steps.length > 0 ? steps[steps.length - 1].text : null;
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -67,7 +73,7 @@ export function AssistantPanel({
   useEffect(() => {
     if (!mobile) return;
     mobileEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [mobile, messages, pending, liveCards]);
+  }, [mobile, messages, pending, liveCards, liveActions, liveText]);
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -89,7 +95,9 @@ export function AssistantPanel({
   }, []);
 
   useEffect(() => {
-    saveAssistantHistory(messages.map(({ role, content }) => ({ role, content })));
+    // Только текст: карточки действий в хранилище не пишутся, и после повторного
+    // открытия панели исполненное действие заново не предлагается (assistantTurn.ts).
+    saveAssistantHistory(historyForStorage(messages));
   }, [messages]);
 
   // Удержание кнопки «+» в нижней навигации открывает панель СРАЗУ со включённым
@@ -110,42 +118,93 @@ export function AssistantPanel({
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
-  }, [messages, pending, liveCards]);
+  }, [messages, pending, liveCards, liveActions, liveText]);
+
+  // Окна отката и сроки подтверждения считают таймеры контроллеров — при закрытии
+  // панели снимаем их все, а не держим живыми в памяти вкладки.
+  useEffect(() => {
+    const controllers = controllersRef.current;
+    return () => {
+      for (const c of controllers.values()) c.stop();
+      controllers.clear();
+    };
+  }, []);
+
+  /**
+   * Контроллер карточки действия по id: один на действие, сколько бы раз оно ни
+   * пришло. Зовётся при отрисовке, поэтому ничего не меняет у уже известного —
+   * свежий статус с сервера принимает `onConfirm` (вне отрисовки).
+   */
+  const controllerFor = useCallback((action: AssistantActionView) => {
+    const known = controllersRef.current.get(action.id);
+    if (known) return known;
+    const created = createConfirmCardController(action);
+    controllersRef.current.set(action.id, created);
+    return created;
+  }, []);
 
   /** Один запрос к помощнику по готовой истории (последняя реплика — вопрос человека). */
   const ask = useCallback(async (history: ThreadMessage[]) => {
     setError(null);
-    setStatus(null);
+    setSteps([]);
+    setLiveText("");
     setLiveCards([]);
+    setLiveActions([]);
     setPending(true);
     const controller = new AbortController();
     abortRef.current = controller;
     const cards: AssistantCard[] = [];
+    let actions: AssistantActionView[] = [];
+    const withExtras = (content: string): ThreadMessage => ({
+      role: "assistant",
+      content,
+      ...(cards.length > 0 ? { cards } : {}),
+      ...(actions.length > 0 ? { actions } : {}),
+    });
     try {
-      const reply = await streamAssistant(history, setStatus, {
-        signal: controller.signal,
-        onCard: (card) => {
-          cards.push(card);
-          if (!unmountedRef.current) setLiveCards([...cards]);
+      const reply = await streamAssistant(
+        history,
+        (message) => {
+          if (!unmountedRef.current) setSteps((prev) => pushStep(prev, message));
         },
-      });
+        {
+          signal: controller.signal,
+          onCard: (card) => {
+            cards.push(card);
+            if (!unmountedRef.current) setLiveCards([...cards]);
+          },
+          onToken: (textSoFar) => {
+            if (!unmountedRef.current) setLiveText(textSoFar);
+          },
+          onConfirm: (action) => {
+            actions = upsertAction(actions, action);
+            controllersRef.current.get(action.id)?.sync(action);
+            if (!unmountedRef.current) setLiveActions(actions);
+          },
+        },
+      );
       if (unmountedRef.current) return;
-      setMessages([...history, { role: "assistant", content: reply, ...(cards.length > 0 ? { cards } : {}) }]);
+      setMessages([...history, withExtras(reply)]);
     } catch (err) {
       if (unmountedRef.current) return;
+      // Действие уже лежит на сервере и ждёт решения — карточку не теряем вместе с ответом.
+      if (actions.length > 0) setMessages([...history, withExtras(BROKEN_REPLY_WITH_ACTIONS)]);
       const failure = toPanelError(err);
       // Человек сам нажал «Остановить» — это не сбой, но вопрос остался без ответа: даём повторить.
+      // Пришла карточка действия — исход хода в ней; повтор задал бы тот же вопрос второй раз.
       setError(
         err instanceof AssistantStreamError && err.code === "aborted"
-          ? { message: "Остановлено", retryable: true }
-          : failure,
+          ? { message: "Остановлено", retryable: actions.length === 0 }
+          : { ...failure, retryable: failure.retryable && actions.length === 0 },
       );
     } finally {
       if (abortRef.current === controller) abortRef.current = null;
       if (!unmountedRef.current) {
         setPending(false);
-        setStatus(null);
+        setSteps([]);
+        setLiveText("");
         setLiveCards([]);
+        setLiveActions([]);
       }
     }
   }, []);
@@ -173,31 +232,25 @@ export function AssistantPanel({
     setMessages([]);
     setError(null);
     setLiveCards([]);
-    setStatus(null);
+    setLiveActions([]);
+    setLiveText("");
+    setSteps([]);
+    for (const c of controllersRef.current.values()) c.stop();
+    controllersRef.current.clear();
     inputRef.current?.focus();
   }
 
+  const live: LiveTurn = { pending, steps, text: liveText, cards: liveCards, actions: liveActions };
   const thread = (
-    <>
-      {messages.map((m, i) => (
-        <Fragment key={i}>
-          <div className={m.role === "user" ? "bub me" : "bub"}>
-            {m.role === "assistant" ? renderAssistantContent(m.content, onClose) : m.content}
-          </div>
-          {m.cards && <AssistantCardList cards={m.cards} onNavigate={onClose} />}
-        </Fragment>
-      ))}
-      <AssistantCardList cards={liveCards} onNavigate={onClose} />
-      {pending && (
-        <div className="bub bot" role="status">
-          <span className="who">ИИ-ассистент</span>
-          {status ?? "Думаю…"}{" "}
-          <button type="button" className="lk" onClick={stop}>
-            Остановить
-          </button>
-        </div>
+    <AssistantThread
+      messages={messages}
+      live={live}
+      onNavigate={onClose}
+      onStop={stop}
+      renderAction={(action) => (
+        <ConfirmCard action={action} layout={mobile ? "rows" : "columns"} controller={controllerFor(action)} />
       )}
-    </>
+    />
   );
 
   const errorLine = error && (
@@ -247,14 +300,13 @@ export function AssistantPanel({
         onClose={onClose}
         title="Ассистент"
         ariaLabel="ИИ-ассистент"
+        // Отправка — через форму самой шторки (Rh2Sheet всегда <form>), а не своей
+        // формой в подвале: вложенная форма отправлялась браузером мимо React, и
+        // страница перезагружалась на «/?» вместо вопроса помощнику (найдено
+        // кадрами П4а, 01.11.2026; правило — шапка Rh2Sheet.tsx).
+        onSubmit={() => void send(input)}
         footer={
-          <form
-            style={{ display: "flex", gap: 8, alignItems: "center" }}
-            onSubmit={(e) => {
-              e.preventDefault();
-              void send(input);
-            }}
-          >
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <input
               ref={inputRef}
               className="inp"
@@ -267,7 +319,7 @@ export function AssistantPanel({
             <button type="submit" className="call" disabled={pending || !input.trim()} aria-label="Отправить">
               <Send className="i" />
             </button>
-          </form>
+          </div>
         }
       >
         <div className={listening ? "mic on" : "mic"}>
