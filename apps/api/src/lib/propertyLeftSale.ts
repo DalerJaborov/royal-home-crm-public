@@ -1,6 +1,7 @@
 import { closeVideoHandoff } from "./videoHandoff.js";
 import { removePropertyPhotoPosts } from "./photoPosts.js";
 import { removePropertySocialReposts } from "./socialReposts.js";
+import { retireSocialAfterSale } from "./propertySoldSocial.js";
 import { cancelFutureShowingsForOffSale } from "./trashProperty.js";
 import { describeError } from "./describeError.js";
 import { logSystemError } from "./systemError.js";
@@ -44,4 +45,7 @@ export function closeWorkAfterLeavingSale(propertyId: string, kind: LeftSaleKind
   void removePropertySocialReposts(propertyId).catch(fail("снятие повторов", "meta"));
   // Будущие показы — клиенту не приходит напоминание о проданной квартире.
   void cancelFutureShowingsForOffSale([propertyId], kind === "sold").catch(fail("снятие показов", "api"));
+  // Основной ролик — только при продаже (29.10.2026): снятый с продажи объект часто
+  // возвращается, и его ролик должен дождаться этого на месте.
+  if (kind === "sold") void retireSocialAfterSale(propertyId).catch(fail("снятие роликов из соцсетей", "meta"));
 }
