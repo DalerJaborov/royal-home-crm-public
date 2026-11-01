@@ -54,7 +54,8 @@ const apiUrl = process.env.E2E_API_URL ?? "http://localhost:4000";
 const apiPort = new URL(apiUrl).port || "4000";
 export default defineConfig({
   // This suite changes a global rollout setting and owns a separate serial config.
-  testIgnore: ["**/clean-shell.spec.ts", "**/audit-finance.spec.ts", "**/audit-client-focus.spec.ts", "**/audit-session-privacy.spec.ts"],
+  // assistant-confirm-card — своя конфигурация (кадры П4а, вход кодом на каждом прогоне).
+  testIgnore: ["**/clean-shell.spec.ts", "**/audit-finance.spec.ts", "**/audit-client-focus.spec.ts", "**/audit-session-privacy.spec.ts", "**/assistant-confirm-card.spec.ts"],
   testDir: "./tests/e2e",
   fullyParallel: true,
   forbidOnly: !!process.env.CI,

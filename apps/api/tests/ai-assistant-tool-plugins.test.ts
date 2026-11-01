@@ -224,6 +224,51 @@ describe("сбои и повторы не роняют ход (ревью П3)",
   });
 });
 
+describe("сбой показа карточки (ревью П4а)", () => {
+  it("onConfirm бросает после исполнения (уровень B) — модель всё равно получает успех", async () => {
+    const plugin = register(writePlugin("B"));
+    const hooks = {
+      channel: "crm" as const,
+      onConfirm: () => {
+        throw new Error("сокет закрыт");
+      },
+    };
+    const answer = (await runAssistantToolPlugin(plugin, { value: 9 }, actorOf({ id: agentId }) as never, hooks)) as {
+      done?: boolean;
+      error?: string;
+    };
+    expect(answer.error).toBeUndefined();
+    expect(answer.done).toBe(true);
+    expect(state.executed).toBeGreaterThan(0);
+  });
+
+  it("onConfirm бросает на уровне C — карточка ждёт решения, модель получает confirmRequired", async () => {
+    const plugin = register(writePlugin("C"));
+    const hooks = {
+      channel: "crm" as const,
+      onConfirm: () => {
+        throw new Error("сокет закрыт");
+      },
+    };
+    const answer = (await runAssistantToolPlugin(plugin, { value: 10 }, actorOf({ id: agentId }) as never, hooks)) as {
+      confirmRequired?: boolean;
+      error?: string;
+    };
+    expect(answer.error).toBeUndefined();
+    expect(answer.confirmRequired).toBe(true);
+  });
+
+  it("каждый вид действия несёт время сервера (serverNow) для расчёта сроков в панели", async () => {
+    const plugin = register(writePlugin("C"));
+    const shown: Array<{ serverNow?: string }> = [];
+    await runAssistantToolPlugin(plugin, { value: 11 }, actorOf({ id: agentId }) as never, {
+      channel: "crm" as const,
+      onConfirm: (a) => shown.push(a),
+    });
+    expect(Date.parse(shown[0].serverNow ?? "")).not.toBeNaN();
+  });
+});
+
 describe("журнал обращений (ревью П3)", () => {
   it("аргументы: номер в тексте замаскирован, длинная строка обрезана", () => {
     const summary = auditArgsSummary({ text: `перезвонить +992 93 123 45 67 ${"а".repeat(200)}`, clientId: "id-1", limit: 5 });
@@ -274,5 +319,20 @@ describe("уровень B: исполняет сразу и оставляет 
     await undoAssistantAction(answer.actionId, { agentId, channel: "crm", can: () => true });
     expect(state.value).toBe(1);
     expect(state.undone).toBe(1);
+  });
+
+  it("шлёт событие confirm с уже исполненным действием — панель показывает «Сделано · Отменить» (П4а)", async () => {
+    const plugin = register(writePlugin("B"));
+    const shown: Array<{ id: string; status: string; undoUntil: string | null; executedAt: string | null }> = [];
+    const answer = (await runAssistantToolPlugin(plugin, { value: 6 }, actorOf({ id: agentId }) as never, {
+      channel: "crm",
+      onConfirm: (a) => shown.push(a),
+    })) as { actionId: string; undoUntil: string | null };
+
+    expect(shown).toHaveLength(1);
+    expect(shown[0]).toMatchObject({ id: answer.actionId, status: "EXECUTED", undoUntil: answer.undoUntil });
+    expect(shown[0].executedAt).not.toBeNull();
+    expect(Date.parse(shown[0].undoUntil!)).toBeGreaterThan(Date.now());
+    expect(state.executed).toBe(1);
   });
 });
