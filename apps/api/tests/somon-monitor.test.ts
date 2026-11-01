@@ -4,11 +4,11 @@ vi.mock("../src/lib/somonLeads/sourceClient.js", () => ({ fetchSomon: mocks.sour
 vi.mock("../src/lib/somonLeads/processPending.js", () => ({ processSomonPending: mocks.process }));
 import { prisma } from "../src/db.js";
 import { clearlyOlderThanTenMinutes, runSomonMonitorTick } from "../src/lib/somonLeads/monitor.js";
-import { somonKeyFingerprint } from "../src/lib/somonLeads/contactIdentity.js";
+import { somonKeyFingerprint, somonSellerKey } from "../src/lib/somonLeads/contactIdentity.js";
 const ids = ["987652001", "987652002", "987652003"];
 let oldMonitor: Awaited<ReturnType<typeof prisma.somonMonitor.findUnique>> = null;
 function html(adIds: string[]) {
-  const ads = adIds.map(id => ({ id: Number(id), title: "Квартира", url: `/adv/${id}_stand/`, ad_type: { type: "regular" } }));
+  const ads = adIds.map(id => ({ id: Number(id), title: "Квартира", url: `/adv/${id}_stand/`, ad_type: { type: "regular" }, user: { id: 7000 + Number(id.slice(-1)) } }));
   const data = JSON.stringify({ next_page: `?page=2&page_size=${adIds.length}`, rubric: { slug: "prodazha-kvartir" }, location_ids: [1], adverts: ads });
   return `<a href="?page=2">2</a><script>self.__next_f.push([1,${JSON.stringify(data)}]);</script>`;
 }
@@ -32,6 +32,8 @@ describe("Somon monitor baseline", () => {
     await runSomonMonitorTick(async () => {});
     expect(mocks.process).not.toHaveBeenCalled();
     expect((await prisma.somonSeenAdvert.findUnique({ where: { advertId: ids[0] } }))?.baseline).toBe(true);
+    // Ключ автора пишется и в baseline — иначе счёт объявлений продавца был бы занижен.
+    expect((await prisma.somonSeenAdvert.findUnique({ where: { advertId: ids[0] } }))?.sellerKey).toBe(somonSellerKey("7001"));
     await new Promise(resolve => setTimeout(resolve, 5));
     mocks.source.mockImplementation(async (path: string) => new Response(html(path.includes("page=2") ? [ids[1]] : [ids[0], ids[2]])));
     await runSomonMonitorTick(async () => {});

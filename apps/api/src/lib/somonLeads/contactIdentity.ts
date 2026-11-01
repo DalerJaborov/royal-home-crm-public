@@ -15,3 +15,9 @@ export function somonPhoneHash(phone: string): string {
   if (!normalized) throw new Error("Somon contact matching is unavailable");
   return createHmac("sha256", key()).update(`somon-contact:v1:${normalized}`).digest("hex");
 }
+/** Ключ автора объявления: тот же ключ HMAC, свой префикс. Сырой ID пользователя
+ * Somon не храним — для счёта объявлений автора достаточно сравнения ключей. */
+export function somonSellerKey(sellerId: string): string {
+  if (!/^\d{1,20}$/.test(sellerId)) throw new Error("Invalid Somon seller ID");
+  return createHmac("sha256", key()).update(`somon-seller:v1:${sellerId}`).digest("hex");
+}

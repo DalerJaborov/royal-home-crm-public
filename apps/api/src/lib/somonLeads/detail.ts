@@ -13,15 +13,17 @@ const cardSchema = z.object({
   is_closed: z.boolean(),
 });
 
-export function parseSomonDetail(value: unknown, expectedId: string) {
+/** `categoryAdverts` — объявления автора в категории по нашей выдаче (`countSomonSellerAdverts`);
+ * null — неизвестно, и тогда «собственником» карточка не станет. */
+export function parseSomonDetail(value: unknown, expectedId: string, categoryAdverts: number | null) {
   const result = cardSchema.safeParse(value);
   if (!result.success || String(result.data.id) !== expectedId) throw new Error("Invalid Somon card response");
   const x = result.data;
   const count = /^(\d+)\b/u.exec(x.user.active_adverts ?? "");
-  // Total active ads is a conservative upper bound on distinct active apartments.
+  // Все активные объявления автора на сайте, по всем категориям — только мягкий потолок.
   const total = count ? Number(count[1]) : null;
   const business = x.user.is_business_account === true || x.user.is_company === true ? true : x.user.is_business_account === false && x.user.is_company === false ? false : null;
-  const assessment = assessSeller({ businessAccount: business, distinctApartments: total, name: x.user.name ?? "", description: x.description ?? "" });
+  const assessment = assessSeller({ businessAccount: business, categoryAdverts, totalActiveAdverts: total, name: x.user.name ?? "", description: x.description ?? "" });
   const rawImage = x.gallery?.preview?.[0];
   let image: string | null = null;
   if (rawImage) { try { const url = new URL(rawImage); if (url.protocol === "https:" && url.hostname === "cdntj.somon.tj") image = url.href; } catch { /* invalid image is omitted */ } }
