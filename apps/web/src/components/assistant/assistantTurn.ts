@@ -45,6 +45,18 @@ export function upsertAction(actions: AssistantActionView[], action: AssistantAc
   return next;
 }
 
+/** Карточка перешла на новое действие (409 STALE): в репликах заменить старое по id, без дубля. */
+export function replaceAction(
+  actions: AssistantActionView[],
+  oldId: string,
+  next: AssistantActionView,
+): AssistantActionView[] {
+  if (!actions.some((a) => a.id === oldId)) return actions;
+  const replaced = actions.map((a) => (a.id === oldId ? next : a));
+  // Новое действие уже было в списке — второй карточки не заводим.
+  return replaced.filter((a, i) => a.id !== next.id || replaced.findIndex((b) => b.id === next.id) === i);
+}
+
 /**
  * В sessionStorage уходит ТОЛЬКО текст. Карточки и карточки действий — ответ на
  * момент вопроса: после закрытия и открытия панели уже исполненное (или

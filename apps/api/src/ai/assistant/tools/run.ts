@@ -59,6 +59,18 @@ export function previewForModel(preview: AssistantActionView["preview"]): unknow
 }
 
 /**
+ * Показ карточки — побочный канал (поток панели). Его сбой (оборванный сокет)
+ * не должен превращать исполненное действие в «не получилось» для модели.
+ */
+function notifyConfirm(hooks: RunPluginHooks, action: AssistantActionView, tool: string): void {
+  try {
+    hooks.onConfirm?.(action);
+  } catch (err) {
+    void logSystemError("ai", `Инструмент помощника ${tool}: не удалось показать карточку: ${describeError(err)}`);
+  }
+}
+
+/**
  * Исполняет вызов инструмента-плагина и возвращает то, что увидит МОДЕЛЬ.
  * Ошибки прав и устаревания — обычным ответом `{ error }`, чтобы модель
  * объяснила человеку, а не падала.
@@ -85,7 +97,7 @@ export async function runAssistantToolPlugin(
           note: "Это действие уже подтверждено человеком — повторно не предлагай.",
         };
       }
-      hooks.onConfirm?.(pending);
+      notifyConfirm(hooks, pending, plugin.name);
       return {
         confirmRequired: true,
         actionId: pending.id,
@@ -97,7 +109,7 @@ export async function runAssistantToolPlugin(
     // `confirm`, но уже EXECUTED: человек видит «Сделано · Отменить» (П4а), а не
     // узнаёт о записи только из текста модели.
     const { action } = await confirmAssistantAction(pending.id, actionActor);
-    hooks.onConfirm?.(action);
+    notifyConfirm(hooks, action, plugin.name);
     return { done: true, actionId: action.id, result: action.result, undoUntil: action.undoUntil };
   } catch (err) {
     if (err instanceof AssistantActionError) {

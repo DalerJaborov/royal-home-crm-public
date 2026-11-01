@@ -9,7 +9,7 @@ import { Rh2Portal } from "./rh2/Rh2Scope";
 import { Rh2Sheet } from "./rh2/Rh2Sheet";
 import { useMobileUx } from "../hooks/useMobileUx";
 import { AssistantThread, type LiveTurn } from "./assistant/AssistantThread";
-import { historyForStorage, pushStep, upsertAction, type ThreadMessage, type TurnStep } from "./assistant/assistantTurn";
+import { historyForStorage, pushStep, replaceAction, upsertAction, type ThreadMessage, type TurnStep } from "./assistant/assistantTurn";
 import { ConfirmCard, createConfirmCardController } from "./assistant/ConfirmCard";
 import type { ConfirmCardController } from "./assistant/confirmCardModel";
 
@@ -54,6 +54,8 @@ export function AssistantPanel({
   // Состояние карточек действий — по id, а не в самой карточке: карточка
   // переезжает из текущего хода в готовую реплику и монтируется заново.
   const controllersRef = useRef(new Map<string, ConfirmCardController>());
+  // Старый id → действие, на которое карточку перевели (STALE): ход, ещё собирающий реплику, берёт новое.
+  const replacedRef = useRef(new Map<string, AssistantActionView>());
   const status = steps.length > 0 ? steps[steps.length - 1].text : null;
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -140,6 +142,16 @@ export function AssistantPanel({
     if (known) return known;
     const created = createConfirmCardController(action);
     controllersRef.current.set(action.id, created);
+    // 409 STALE принёс новое действие: переезжаем на его id (ключ контроллера и реплики), без второй карточки.
+    created.onReplace = (oldId, next) => {
+      const controllers = controllersRef.current;
+      if (controllers.get(oldId) === created) controllers.delete(oldId);
+      controllers.set(next.id, created);
+      replacedRef.current.set(oldId, next);
+      if (unmountedRef.current) return;
+      setLiveActions((prev) => replaceAction(prev, oldId, next));
+      setMessages((prev) => prev.map((m) => (m.actions ? { ...m, actions: replaceAction(m.actions, oldId, next) } : m)));
+    };
     return created;
   }, []);
 
@@ -159,7 +171,7 @@ export function AssistantPanel({
       role: "assistant",
       content,
       ...(cards.length > 0 ? { cards } : {}),
-      ...(actions.length > 0 ? { actions } : {}),
+      ...(actions.length > 0 ? { actions: actions.map((a) => replacedRef.current.get(a.id) ?? a) } : {}),
     });
     try {
       const reply = await streamAssistant(
@@ -354,7 +366,7 @@ export function AssistantPanel({
         </div>
 
         {(messages.length > 0 || pending || liveCards.length > 0) && (
-          <div className="thread" aria-live="polite">
+          <div className="thread">
             {thread}
             <div ref={mobileEndRef} />
           </div>
@@ -428,7 +440,7 @@ export function AssistantPanel({
           )}
 
           {(messages.length > 0 || pending || liveCards.length > 0) && (
-            <div className="thread" style={{ padding: 0, background: "transparent" }} aria-live="polite">
+            <div className="thread" style={{ padding: 0, background: "transparent" }}>
               {thread}
             </div>
           )}

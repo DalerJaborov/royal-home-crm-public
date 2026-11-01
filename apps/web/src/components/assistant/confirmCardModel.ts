@@ -76,6 +76,14 @@ export function phaseOf(action: AssistantActionView, now: number): ConfirmPhase 
   }
 }
 
+/**
+ * Защита от двойного нажатия в одном месте экрана: после смены шага
+ * («Подтвердить» → «Да, безвозвратно», «Назад» → «Отмена») следующая кнопка
+ * принимает нажатие не раньше чем через это время. Двойной клик или двойной
+ * Enter иначе проскакивает через оба шага разом.
+ */
+export const STEP_GUARD_MS = 700;
+
 const isFuture = (iso: string | null, now: number) => iso !== null && Date.parse(iso) > now;
 
 export class ConfirmCardController {
@@ -85,13 +93,33 @@ export class ConfirmCardController {
   private started = false;
   /** Сервер сказал «откатить уже нельзя» (данные изменились, окно вышло) — кнопку больше не показываем. */
   private undoBlocked = false;
+  /** Серверное время минус часы браузера (мс): сроки считаем по серверным часам, а не по неверным часам человека. */
+  private skew = 0;
+  /** Когда вошли в «Да, безвозвратно» (ранний confirm() игнорируется). */
+  private armedAt: number | null = null;
+  /** Когда вернулись из «Назад» в «ждёт» (ранняя «Отмена» игнорируется). */
+  private backAt: number | null = null;
+  /** Панель переносит карточку на новое действие (409 STALE) — ключи и реплики обновить на новый id. */
+  onReplace: ((oldId: string, next: AssistantActionView) => void) | null = null;
 
   constructor(
     action: AssistantActionView,
     private readonly client: ConfirmCardClient,
     private readonly now: () => number = Date.now,
   ) {
-    this.state = this.derive(action, phaseOf(action, now()), null);
+    this.updateSkew(action);
+    this.state = this.derive(action, phaseOf(action, this.clock()), null);
+  }
+
+  /** Оценка серверного «сейчас»: часы браузера + смещение от последнего события сервера. */
+  private clock(): number {
+    return this.now() + this.skew;
+  }
+
+  private updateSkew(action: AssistantActionView): void {
+    const server = action.serverNow ? Date.parse(action.serverNow) : NaN;
+    // Событие получено прямо сейчас: смещение = серверное время − часы браузера на момент получения.
+    if (!Number.isNaN(server)) this.skew = server - this.now();
   }
 
   getState = (): ConfirmCardState => this.state;
@@ -124,10 +152,12 @@ export class ConfirmCardController {
   async confirm(): Promise<void> {
     const { phase, action } = this.state;
     if (phase === "pending" && action.preview.irreversible) {
+      this.armedAt = this.now();
       this.set(action, "arming", null);
       return;
     }
     if (phase !== "pending" && phase !== "arming") return;
+    if (phase === "arming" && this.armedAt !== null && this.now() - this.armedAt < STEP_GUARD_MS) return;
     this.set(action, "running", null);
     try {
       const outcome = await this.client.confirm(action.id);
@@ -141,10 +171,12 @@ export class ConfirmCardController {
   async cancel(): Promise<void> {
     const { phase, action } = this.state;
     if (phase === "arming") {
+      this.backAt = this.now();
       this.set(action, "pending", null);
       return;
     }
     if (phase !== "pending") return;
+    if (this.backAt !== null && this.now() - this.backAt < STEP_GUARD_MS) return;
     this.set(action, "cancelling", null);
     try {
       const outcome = await this.client.cancel(action.id);
@@ -178,6 +210,7 @@ export class ConfirmCardController {
     const e = asActionError(err);
     if (e.status === 409 && e.code === "STALE") {
       if (e.action && e.action.status === "PENDING") {
+        this.onReplace?.(action.id, e.action);
         return this.set(e.action, "pending", { tone: "warn", text: "Данные изменились — проверьте новое превью" });
       }
       return this.set(action, "failed", { tone: "warn", text: "Данные изменились — попросите заново" });
@@ -194,15 +227,18 @@ export class ConfirmCardController {
   }
 
   private adopt(action: AssistantActionView, notice: ConfirmCardState["notice"]): void {
-    this.set(action, phaseOf(action, this.now()), notice);
+    this.set(action, phaseOf(action, this.clock()), notice);
   }
 
   private derive(action: AssistantActionView, phase: ConfirmPhase, notice: ConfirmCardState["notice"]): ConfirmCardState {
-    const canUndo = phase === "done" && !this.undoBlocked && isFuture(action.undoUntil, this.now());
+    const canUndo = phase === "done" && !this.undoBlocked && isFuture(action.undoUntil, this.clock());
     return { action, phase, notice, canUndo };
   }
 
   private set(action: AssistantActionView, phase: ConfirmPhase, notice: ConfirmCardState["notice"]): void {
+    // Новое событие сервера (другой объект) — свежая точка отсчёта; тот же объект — старая метка не годится.
+    if (action !== this.state?.action) this.updateSkew(action);
+    if (phase !== "pending") this.backAt = null;
     this.state = this.derive(action, phase, notice);
     for (const listener of this.listeners) listener();
     this.schedule();
@@ -221,12 +257,12 @@ export class ConfirmCardController {
           ? Date.parse(action.undoUntil)
           : null;
     if (at === null || Number.isNaN(at)) return;
-    const delay = Math.max(0, at - this.now());
+    const delay = Math.max(0, at - this.clock());
     this.timer = setTimeout(() => {
       this.timer = null;
       const current = this.state;
       if (current.phase === "pending" || current.phase === "arming") {
-        if (Date.parse(current.action.expiresAt) <= this.now()) {
+        if (Date.parse(current.action.expiresAt) <= this.clock()) {
           this.set(current.action, "expired", { tone: "warn", text: "Время вышло — попросите заново" });
           return;
         }

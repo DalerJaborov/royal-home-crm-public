@@ -50,7 +50,30 @@ export interface AssistantActionView {
   /** До какого момента доступен откат; null — откатить нельзя. */
   undoUntil: string | null;
   result: unknown;
+  /**
+   * Время сервера в момент, когда сервер собрал этот вид (ISO). Панель считает
+   * сроки (`expiresAt`, `undoUntil`) по смещению от него, а не по часам
+   * браузера: у человека они бывают на минуты и часы неверны.
+   */
+  serverNow?: string;
 }
+
+/**
+ * Проверка вида действия на входе панели (поток и ошибки маршрутов — внешние
+ * данные). Один источник правды рядом с интерфейсом; лишние поля не мешают.
+ */
+export const assistantActionViewSchema = z.object({
+  id: z.string().min(1),
+  tool: z.string().min(1),
+  status: z.enum(ASSISTANT_ACTION_STATUSES),
+  preview: assistantActionPreviewSchema,
+  expiresAt: z.string(),
+  executedAt: z.string().nullable(),
+  undoneAt: z.string().nullable(),
+  undoUntil: z.string().nullable(),
+  result: z.unknown(),
+  serverNow: z.string().optional(),
+});
 
 /**
  * SSE-событие `confirm`. Уровень C — действие PENDING, ждёт «Подтвердить»;

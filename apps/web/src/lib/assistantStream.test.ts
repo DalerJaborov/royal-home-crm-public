@@ -223,6 +223,13 @@ describe("событие confirm и заголовок X-Assistant-Confirm (П4�
     expect(isActionView(actionView({ preview: { title: "x", was: [], becomes: {} } }))).toBe(false);
     expect(isActionView(null)).toBe(false);
   });
+
+  it("isActionView: risk объектом и irreversible строкой — событие отброшено (общая схема)", () => {
+    const preview = { title: "x", was: {}, becomes: {} };
+    expect(isActionView(actionView({ preview: { ...preview, risk: { a: 1 } } }))).toBe(false);
+    expect(isActionView(actionView({ preview: { ...preview, irreversible: "true" } }))).toBe(false);
+    expect(isActionView(actionView({ preview: { ...preview, risk: "ок", irreversible: true } }))).toBe(true);
+  });
 });
 
 describe("подтверждение, отмена и откат действия (П4а)", () => {

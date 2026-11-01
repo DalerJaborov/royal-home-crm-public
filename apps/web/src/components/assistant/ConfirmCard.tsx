@@ -263,15 +263,15 @@ export function ConfirmCardView({
               синяя, «Да, безвозвратно» — опасная (контур --crit). Пока идёт запрос,
               обе заблокированы (`loading` = disabled + aria-busy). */}
           {phase === "arming" ? (
-            <Button variant="danger" onClick={press(onConfirm)} style={BTN}>
+            <Button key="confirm-arming" variant="danger" onClick={press(onConfirm)} style={BTN}>
               Да, безвозвратно
             </Button>
           ) : (
-            <Button variant="primary" loading={busy} onClick={press(onConfirm)} style={BTN}>
+            <Button key="confirm-first" variant="primary" loading={busy} onClick={press(onConfirm)} style={BTN}>
               {phase === "running" ? "Выполняю…" : "Подтвердить"}
             </Button>
           )}
-          <Button variant="ghost" loading={busy} onClick={press(onCancel)} style={BTN}>
+          <Button key={phase === "arming" ? "back" : "cancel"} variant="ghost" loading={busy} onClick={press(onCancel)} style={BTN}>
             {phase === "arming" ? "Назад" : "Отмена"}
           </Button>
         </div>

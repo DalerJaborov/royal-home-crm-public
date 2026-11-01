@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
@@ -8,7 +10,7 @@ vi.mock("../../lib/deviceId", () => ({ getOrCreateDeviceId: () => "test-device" 
 
 const { AssistantThread } = await import("./AssistantThread");
 const { ConfirmCard } = await import("./ConfirmCard");
-const { historyForStorage, pushStep, stepLabel, upsertAction } = await import("./assistantTurn");
+const { historyForStorage, pushStep, replaceAction, stepLabel, upsertAction } = await import("./assistantTurn");
 
 const action: AssistantActionView = {
   id: "a1",
@@ -109,5 +111,36 @@ describe("история", () => {
       { role: "user", content: "Передай" },
       { role: "assistant", content: "Подтвердите" },
     ]);
+  });
+});
+
+describe("живая область для диктора (ревью П4а)", () => {
+  it("поток токенов и карточки — вне role=status; объявляется только строка статуса, потом итог", () => {
+    const during = render({
+      live: { ...idle, pending: true, steps: [{ text: "Ищу клиента…", done: false }], text: "Нашёл двоих", actions: [action] },
+    });
+    const status = /<p role="status"[^>]*>([^<]*)<\/p>/.exec(during)?.[1];
+    expect(status).toBe("Ищу клиента…");
+    // Карточка ниже ленты: её статус — её собственный, а не вложенный в общую область.
+    expect(during.indexOf("Нашёл двоих")).toBeGreaterThan(during.indexOf('data-assistant-announce'));
+
+    const done = render({ messages: [{ role: "user", content: "?" }, { role: "assistant", content: "Готово, передал" }] });
+    expect(/<p role="status"[^>]*>([^<]*)<\/p>/.exec(done)?.[1]).toBe("Готово, передал");
+  });
+
+  it("панель не вешает aria-live на ленту целиком", () => {
+    const src = readFileSync(resolve(__dirname, "../AssistantPanel.tsx"), "utf8");
+    const threads = src.split(/\r?\n/).filter((l) => l.includes('className="thread"'));
+    expect(threads.length).toBeGreaterThan(0);
+    for (const line of threads) expect(line).not.toContain("aria-live");
+  });
+});
+
+describe("перенос карточки на новое действие (STALE)", () => {
+  const next = { ...action, id: "a2" };
+  it("старый id заменяется новым на месте, дубля нет", () => {
+    expect(replaceAction([action], "a1", next).map((a) => a.id)).toEqual(["a2"]);
+    expect(replaceAction([action, next], "a1", next).map((a) => a.id)).toEqual(["a2"]);
+    expect(replaceAction([next], "zzz", next)).toEqual([next]);
   });
 });

@@ -1,5 +1,5 @@
 import {
-  ASSISTANT_ACTION_STATUSES,
+  assistantActionViewSchema,
   ASSISTANT_HISTORY_WINDOW,
   type AssistantActionErrorBody,
   type AssistantActionOutcome,
@@ -269,8 +269,7 @@ function isToken(value: unknown): value is AssistantTokenEvent {
   return !!value && typeof value === "object" && typeof (value as { text?: unknown }).text === "string";
 }
 
-const ACTION_STATUSES: ReadonlySet<string> = new Set(ASSISTANT_ACTION_STATUSES);
-const isNullableString = (v: unknown) => v === null || typeof v === "string";
+
 const isPlainRecord = (v: unknown) => !!v && typeof v === "object" && !Array.isArray(v);
 
 /**
@@ -278,16 +277,7 @@ const isPlainRecord = (v: unknown) => !!v && typeof v === "object" && !Array.isA
  * которой человек жмёт «Подтвердить», не должна собираться из чего попало.
  */
 export function isActionView(value: unknown): value is AssistantActionView {
-  if (!isPlainRecord(value)) return false;
-  const a = value as Record<string, unknown>;
-  if (typeof a.id !== "string" || !a.id || typeof a.tool !== "string") return false;
-  if (typeof a.status !== "string" || !ACTION_STATUSES.has(a.status)) return false;
-  if (typeof a.expiresAt !== "string") return false;
-  if (!isNullableString(a.executedAt) || !isNullableString(a.undoneAt) || !isNullableString(a.undoUntil)) return false;
-  const p = a.preview;
-  if (!isPlainRecord(p)) return false;
-  const preview = p as Record<string, unknown>;
-  return typeof preview.title === "string" && isPlainRecord(preview.was) && isPlainRecord(preview.becomes);
+  return assistantActionViewSchema.safeParse(value).success;
 }
 
 /**

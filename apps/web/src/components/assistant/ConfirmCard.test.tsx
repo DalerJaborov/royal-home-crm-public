@@ -6,7 +6,7 @@ vi.mock("../../lib/api", () => ({ refreshAccessToken: vi.fn(async () => null), a
 vi.mock("../../lib/deviceId", () => ({ getOrCreateDeviceId: () => "test-device" }));
 
 const { AssistantActionRequestError } = await import("../../lib/assistantStream");
-const { ConfirmCardController, phaseOf } = await import("./confirmCardModel");
+const { ConfirmCardController, phaseOf, STEP_GUARD_MS } = await import("./confirmCardModel");
 const { ConfirmCard, ConfirmCardView } = await import("./ConfirmCard");
 const { previewRows, formatPreviewValue, fieldLabel } = await import("./previewRows");
 
@@ -117,9 +117,40 @@ describe("необратимое действие", () => {
     await c.confirm();
     expect(c.getState().phase).toBe("arming");
     expect(api.confirm).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(STEP_GUARD_MS);
     await c.confirm();
     expect(api.confirm).toHaveBeenCalledTimes(1);
     expect(c.getState()).toMatchObject({ phase: "done", canUndo: false });
+  });
+
+  it("двойное нажатие «Подтвердить» не исполняет необратимое: ранний второй клик игнорируется", async () => {
+    const api = client();
+    api.confirm.mockResolvedValue({ action: executed({ undoUntil: null }), replay: false });
+    const c = new ConfirmCardController(irreversible(), api);
+    await c.confirm();
+    vi.advanceTimersByTime(STEP_GUARD_MS - 1);
+    await c.confirm();
+    expect(c.getState().phase).toBe("arming");
+    expect(api.confirm).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    await c.confirm();
+    expect(api.confirm).toHaveBeenCalledTimes(1);
+  });
+
+  it("двойное нажатие «Назад» не попадает в «Отмена» (кнопки на одном месте)", async () => {
+    const api = client();
+    api.cancel.mockResolvedValue({ action: action({ status: "CANCELLED" }), replay: false });
+    const c = new ConfirmCardController(irreversible(), api);
+    await c.confirm();
+    vi.advanceTimersByTime(STEP_GUARD_MS);
+    await c.cancel(); // «Назад»
+    expect(c.getState().phase).toBe("pending");
+    await c.cancel(); // второй клик двойного нажатия
+    expect(c.getState().phase).toBe("pending");
+    expect(api.cancel).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(STEP_GUARD_MS);
+    await c.cancel();
+    expect(api.cancel).toHaveBeenCalledTimes(1);
   });
 
   it("«Назад» из «Да, безвозвратно» возвращает к выбору без запроса", async () => {
@@ -191,6 +222,17 @@ describe("ошибки сервера", () => {
     await c.confirm();
     expect(c.getState()).toMatchObject({ phase: "pending", action: { id: "a2" } });
     expect(c.getState().notice?.text).toMatch(/Данные изменились/);
+  });
+
+  it("409 STALE: контроллер сообщает о переезде на новый id (панель обновит ключ и реплику)", async () => {
+    const api = client();
+    const fresh = action({ id: "a2" });
+    api.confirm.mockRejectedValue(err(409, "STALE", fresh));
+    const c = new ConfirmCardController(action(), api);
+    const replaced: Array<[string, string]> = [];
+    c.onReplace = (oldId, next) => replaced.push([oldId, next.id]);
+    await c.confirm();
+    expect(replaced).toEqual([["a1", "a2"]]);
   });
 
   it("409 STALE без превью — «попросите заново», 410 — «Время вышло», 403 — «Нет доступа»", async () => {
@@ -273,5 +315,31 @@ describe("было/станет", () => {
     expect(formatPreviewValue(true)).toBe("да");
     expect(formatPreviewValue(null)).toBe("—");
     expect(formatPreviewValue(["a", null, "b"])).toBe("a, b");
+  });
+});
+
+describe("сроки считаются по часам сервера, а не браузера (ревью П4а)", () => {
+  // Часы браузера спешат на 10 минут: серверное «сейчас» — NOW, у браузера NOW + 10 мин.
+  const SKEW = 10 * 60_000;
+
+  it("PENDING со сроком +8 мин по серверу не становится «Время вышло»", () => {
+    vi.setSystemTime(NOW + SKEW);
+    const view = action({ expiresAt: iso(8 * 60_000), serverNow: iso(0) });
+    expect(phaseOf(view, Date.now())).toBe("expired"); // по голым часам браузера — ошибка
+    const c = new ConfirmCardController(view, client());
+    expect(c.getState().phase).toBe("pending");
+  });
+
+  it("у EXECUTED есть «Отменить», пока окно не вышло по серверу, и кнопка гаснет в срок", () => {
+    vi.setSystemTime(NOW + SKEW);
+    const view = executed({ undoUntil: iso(5 * 60_000), serverNow: iso(0) });
+    const c = new ConfirmCardController(view, client());
+    c.start();
+    expect(c.getState().canUndo).toBe(true);
+    vi.advanceTimersByTime(5 * 60_000 - 1000);
+    expect(c.getState().canUndo).toBe(true);
+    vi.advanceTimersByTime(1000);
+    expect(c.getState().canUndo).toBe(false);
+    c.stop();
   });
 });

@@ -1,4 +1,4 @@
-import { Fragment, type ReactNode } from "react";
+import { Fragment, type CSSProperties, type ReactNode } from "react";
 import type { AssistantActionView, AssistantCard } from "@royal-home/shared";
 import { AssistantCardList } from "../AssistantCards";
 import { renderAssistantContent } from "../assistantContent";
@@ -22,6 +22,18 @@ export interface LiveTurn {
   actions: AssistantActionView[];
 }
 
+const SR_ONLY: CSSProperties = {
+  position: "absolute",
+  width: 1,
+  height: 1,
+  margin: -1,
+  padding: 0,
+  overflow: "hidden",
+  clip: "rect(0 0 0 0)",
+  whiteSpace: "nowrap",
+  border: 0,
+};
+
 export function AssistantThread({
   messages,
   live,
@@ -35,8 +47,15 @@ export function AssistantThread({
   onStop: () => void;
   renderAction: (action: AssistantActionView) => ReactNode;
 }) {
+  // Диктору объявляем только итог: строку статуса хода и готовый ответ. Поток
+  // токенов и карточки в живую область не попадают (карточка говорит сама).
+  const lastReply = [...messages].reverse().find((m) => m.role === "assistant")?.content ?? "";
+  const announce = live.pending ? (live.steps[live.steps.length - 1]?.text ?? (live.text ? "" : "Думаю…")) : lastReply;
   return (
     <>
+      <p role="status" data-assistant-announce style={SR_ONLY}>
+        {announce}
+      </p>
       {messages.map((m, i) => (
         <Fragment key={i}>
           <div className={m.role === "user" ? "bub me" : "bub"} style={{ whiteSpace: "pre-wrap" }}>

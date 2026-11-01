@@ -163,6 +163,7 @@ function toView(row: AssistantAction): AssistantActionView {
       ? new Date(row.executedAt!.getTime() + (executor!.undoWindowMs ?? ASSISTANT_ACTION_UNDO_WINDOW_MS)).toISOString()
       : null,
     result: row.result ?? null,
+    serverNow: new Date().toISOString(),
   };
 }
 
