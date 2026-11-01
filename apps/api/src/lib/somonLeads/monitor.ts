@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { prisma } from "../../db.js";
 import { parseSomonListingPage, SomonEmptyListing } from "./strictListing.js";
-import { finishShrunkBaseline, recordBaselinePage, recordNewObservations } from "./discoveryStore.js";
+import { finishShrunkBaseline, recordBaselinePage, recordNewObservations, rekeySellerPage } from "./discoveryStore.js";
 import { fetchSomon, SomonSourceUnavailable } from "./sourceClient.js";
 import { processSomonPending } from "./processPending.js";
 import { cleanupSomonReceipts } from "./deliveryStore.js";
@@ -78,7 +78,8 @@ export async function runSomonMonitorTick(pause: (ms: number) => Promise<void> =
           if (await finishShrunkBaseline(n, first.last)) return;
           throw new Error("Somon baseline pagination changed unexpectedly");
         }
-        const result = await recordBaselinePage(n, data.last, data.ads.map(a => String(a.id)));
+        if (data.ads.some(a => a.sellerId === null)) await logSystemError("cron", "Somon: в выдаче нет ID автора у части объявлений; счёт объявлений продавца неизвестен — такие продавцы уходят на проверку", { dedupKey: "somon-seller-id-missing" });
+        const result = await recordBaselinePage(n, data.last, data.ads.map(a => ({ id: String(a.id), sellerId: a.sellerId })));
         if (result === "complete" || result === "disabled") return;
         if (Date.now() < deadline) await pause(10200);
       }
@@ -96,9 +97,10 @@ export async function runSomonMonitorTick(pause: (ms: number) => Promise<void> =
           const listings = data.ads.flatMap(a => {
             const m = /^\/adv\/(\d+_[\w%-]+)\/$/.exec(a.url ?? "");
             if (!m || !m[1].startsWith(`${a.id}_`) || m[1].length > String(a.id).length + 181) { rejectedSlug = true; return []; }
-            return [{ id: String(a.id), slug: m[1] }];
+            return [{ id: String(a.id), slug: m[1], sellerId: a.sellerId }];
           });
           if (rejectedSlug) await logSystemError("cron", "Somon: часть ссылок объявлений не удалось обработать", { dedupKey: "somon-invalid-slug" });
+          if (data.ads.some(a => a.sellerId === null)) await logSystemError("cron", "Somon: в выдаче нет ID автора у части объявлений; счёт объявлений продавца неизвестен — такие продавцы уходят на проверку", { dedupKey: "somon-seller-id-missing" });
           await recordNewObservations(listings);
           const regular = data.ads.filter(a => a.ad_type?.type === "regular");
           const firstRegular = state.scanRegularPage ?? (regular.length ? n : null);
@@ -124,6 +126,21 @@ export async function runSomonMonitorTick(pause: (ms: number) => Promise<void> =
       }
     }
     await cleanupSomonReceipts();
+    // Мягкая дозапись ключа автора старым записям: одна страница за тик, после доставки,
+    // чтобы не отнимать у неё бюджет источника (сброса baseline нет — рассылка идёт).
+    // Источник ещё не готов (интервал запросов) — not_ready ниже, повтор в следующий тик.
+    state = await prisma.somonMonitor.findUnique({ where: { id: "singleton" } });
+    if (state?.enabled && !state.sourceStopped && state.sellerKeyRekeyPage !== null && deadline - Date.now() > 12000) {
+      const n = state.sellerKeyRekeyPage;
+      let data: Awaited<ReturnType<typeof page>> | null;
+      try { data = await page(n); }
+      catch (error) {
+        // Выдача стала короче курсора — дописывать больше нечего, проход завершён.
+        if (n > 1 && ((error instanceof SomonSourceUnavailable && error.status === 404) || error instanceof SomonEmptyListing)) data = null;
+        else throw error;
+      }
+      await rekeySellerPage(n, data ? data.last : n, data ? data.ads.map(a => ({ id: String(a.id), sellerId: a.sellerId })) : []);
+    }
   } catch (error) {
     if (error instanceof SomonSourceUnavailable && error.reason === "not_ready") return;
     throw error;

@@ -4,6 +4,9 @@ import { nextSomonAgent } from "./roundRobin.js";
 import { somonKeyFingerprint, somonPhoneHash } from "./contactIdentity.js";
 import { findPhoneOwners } from "../clientPhones.js";
 import { Prisma } from "../../generated/prisma/client.js";
+import { loadStaffPhoneChecker } from "../staffPhoneGuard.js";
+import { SOMON_SIGHTING_RETENTION_DAYS } from "./phoneSighting.js";
+import { SOMON_SELLER_UNKNOWN, SOMON_SELLER_UNKNOWN_DAYS } from "./sellerCount.js";
 
 type Reservation = { status: "reserved"; agentId: string; chatId: string } | { status: "disabled" | "not_new" | "duplicate" | "known_contact" | "no_agent" };
 export type DateEvidence = { kind: "verified"; publishedAt: Date } | { kind: "uncertain" };
@@ -28,7 +31,10 @@ export async function reserveSomonDelivery(advertId: string, phone: string, evid
     if (!Number.isFinite(age) || age > MAX_PUBLICATION_AGE_MS || age < -MAX_CLOCK_SKEW_MS) return { status: "not_new" };
     const existingContact = await tx.somonContactReceipt.findUnique({ where: { phoneHash } });
     const knownClients = await findPhoneOwners([phone], { db: tx, includeDeleted: true, limit: 1 });
-    if (existingContact || knownClients.length) {
+    // Номер действующего сотрудника — не продавец: тот же сторож, что и во всех путях CRM.
+    // Номеров офиса в Settings нет (явных полей телефона компании в схеме не найдено).
+    const staffMatch = (await loadStaffPhoneChecker(tx))([phone]);
+    if (existingContact || knownClients.length || staffMatch) {
       await tx.somonSeenAdvert.update({ where: { advertId }, data: { status: "KNOWN_CONTACT", slug: null, sellerCheck: Prisma.DbNull } });
       return { status: "known_contact" };
     }
@@ -51,6 +57,11 @@ export async function reserveSomonDelivery(advertId: string, phone: string, evid
 export async function cleanupSomonReceipts(now = new Date()): Promise<number> {
   const cutoff = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
   const result = await prisma.somonDelivery.deleteMany({ where: { status: { in: ["ACCEPTED", "REVIEWED"] }, updatedAt: { lt: cutoff } } });
+  const sightingCutoff = new Date(now.getTime() - SOMON_SIGHTING_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+  await prisma.somonPhoneSighting.deleteMany({ where: { seenAt: { lt: sightingCutoff } } });
+  // Не дождались автора за 3 дня — EXPIRED, ссылку забываем (дальше — обычная чистка через 180 дней).
+  const unknownCutoff = new Date(now.getTime() - SOMON_SELLER_UNKNOWN_DAYS * 24 * 60 * 60 * 1000);
+  await prisma.somonSeenAdvert.updateMany({ where: { status: SOMON_SELLER_UNKNOWN, seenAt: { lt: unknownCutoff } }, data: { status: "EXPIRED", slug: null, sellerCheck: Prisma.DbNull } });
   const seenCutoff = new Date(now.getTime() - 180 * 24 * 60 * 60 * 1000);
   await prisma.$executeRaw`DELETE FROM "SomonSeenAdvert" s
     WHERE s."baseline" = false AND s."seenAt" < ${seenCutoff}
