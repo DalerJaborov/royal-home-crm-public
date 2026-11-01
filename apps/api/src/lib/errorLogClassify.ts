@@ -94,11 +94,20 @@ export function errorLogPriorityWhere(priority: ErrorLogPriority): Prisma.ErrorL
     : { OR: [ALWAYS_ACTIONABLE_WHERE, { NOT: { OR: OPERATIONAL_MATCH } }] };
 }
 
-/** Стабильный ключ группировки: source + начало сообщения без переменной части
- *  (id диалога, имя файла, HTTP-детали) — то же число символов, каким
- *  `logSystemError` уже дедуплицирует одинаковые поломки (systemError.ts). */
+/** Переменная часть сообщения (uuid, длинные hex-id, числа, телефоны, время) → «#»,
+ *  чтобы одна и та же поломка с разными идентификаторами считалась ОДНИМ типом. */
+export function errorMessageShape(message: string): string {
+  return String(message)
+    .replace(/\s+/g, " ")
+    .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, "#")
+    .replace(/\b(?=[0-9a-f]*\d)[0-9a-f]{6,}\b/gi, "#")
+    .replace(/\+?\d[\d.:\-]*/g, "#")
+    .trim();
+}
+
+/** Стабильный ключ группировки: source + начало сообщения без переменной части. */
 export function errorGroupKey(source: string, message: string): string {
-  return `${source}|${String(message).slice(0, DEDUP_TEXT_LEN)}`;
+  return `${source}|${errorMessageShape(message).slice(0, DEDUP_TEXT_LEN)}`;
 }
 
 export function classifyErrorLog(source: string, message: string): ErrorLogPriority {
