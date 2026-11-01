@@ -4,6 +4,8 @@
 import {detectClientLanguage} from './clientLanguage.js';
 import {customerColloquialTajikLanguage} from './customerDmLanguage.js';
 import {clientOwnWords} from './untrustedContent.js';
+import {foldCustomerText} from './customerAgentRole.js';
+import {BW, EW} from './wordBoundary.js';
 const positiveEmoji = /(?:👍|👏|🙌|🤝|💪|🔥|✨|🌟|⭐|❤|🧡|💛|💚|💙|💜|🤍|🩷|💕|💖|💗|💓|💞|😍|🥰|🤩|😊|💐|🌹)[\uFE0F\u{1F3FB}-\u{1F3FF}]*/gu;
 const appreciation = /^(?:спасибо(?: большое| вам)?|большое спасибо|благодарю|благодарим|(?:очень )?красивая квартира|красиво|очень красиво|красота|класс|супер|круто|отлично|молодцы|рахмат|раҳмат|ташаккур|зур|зӯр|офарин|аҳсан|зебо(?: бдай)?|бисёр зебо|(?:бехтарин|беҳтарин)(?: (?:хона|макон)(?: бдай)?)?)$/u;
 
@@ -142,3 +144,17 @@ export function customerMessengerChannelQuestion(input: string): boolean {
   const negativeIntent = /(?:^|\s)(?:не|нет|без)\s+\p{L}+/iu;
   return ownIntentClauses(input).some(clause => channel.test(clause) && direction.test(clause) && request.test(clause) && !negativeIntent.test(normalizeOwnIntent(clause)));
 }
+
+/** "I want to see it" without a stated time (01.11.2026 live: «хочу посмотреть» got the price again and a phone
+ * question). Folded alphabet. Photo/video "посмотреть фото" is not a showing; a negation is not a wish; a stated
+ * clock time goes to the booking path, which accepts only a full date. Grants no booking by itself. */
+const SHOWING_WISH = new RegExp(`${BW}(?:посмотреть|глянуть|осмотреть|осмотр|просмотр|показ|приехать|дидан|медидем|медидам|медидан|омада бинам|тамошо(?: кунам| кунем| кардан)?|нишон дихед)${EW}`, "u");
+const SHOWING_NOT = new RegExp(`${BW}(?:не (?:хочу|надо|нужно|буду|смогу|могу)|намехохам|лозим нест|даркор нест|фото\\p{L}*|видео\\p{L}*|акс\\p{L}*|расм\\p{L}*|снимк\\p{L}*|вариант\\p{L}*|други\\p{L}*|фикр\\p{L}*)${EW}`, "u");
+export function customerShowingWish(input: string): boolean {
+  const own = customerOwnUnquotedText(input), text = foldCustomerText(own);
+  return SHOWING_WISH.test(text) && !SHOWING_NOT.test(text) && !/\d{1,2}[:.]\d{2}/u.test(own);
+}
+export const CUSTOMER_SHOWING_TIME_QUESTION = {
+  ru: "Когда вам удобно посмотреть объект? Напишите день и время.",
+  tg: "Кай барои дидани объект ба шумо қулай аст? Рӯз ва соатро нависед.",
+} as const;

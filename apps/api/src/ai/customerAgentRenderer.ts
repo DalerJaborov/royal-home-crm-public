@@ -6,7 +6,7 @@ import { PUBLIC_AGENCY_CONTACT } from "../lib/publicAgencyContact.js";
 import { customerPublicThanks, customerRequestedAgencyContact, customerRecruitmentLanguagePermissionQuestion,
   customerRecruitmentLanguagePermissionRequested, customerFollowRequest, customerStandaloneFurnitureQuestion,
   customerFurnitureQuestionRequested, customerMessengerChannelQuestion, isCustomerPublicAppreciation,
-  customerPublicReaction, customerPublicReactionText } from "./customerAgentConversationPolicy.js";
+  customerPublicReaction, customerPublicReactionText, customerShowingWish, CUSTOMER_SHOWING_TIME_QUESTION } from "./customerAgentConversationPolicy.js";
 import { customerAgentIntake, customerSellerIntakeQuestion, customerSellerIntakeQuestionLines } from "./customerAgentIntake.js";
 import { customerRecruitmentRequested, customerRecruitmentFactsRequested, isCustomerVacanciesObservation, recruitmentPositionForTurn,
   recruitmentMissingForTurn, recruitmentRequiredQuestion, recruitmentFactQuestionLines } from "./customerAgentRecruitmentProtocol.js";
@@ -337,9 +337,12 @@ function companyInformationLines(value: import("@royal-home/shared").CustomerAge
   } else lines.push(tg ? "Соатҳои дақиқи корро ҳоло тасдиқ карда наметавонам." : "Точные часы работы пока не могу подтвердить.");
   return lines;
 }
-function searchSegments(value: CustomerAgentSearchObservation, language: "ru" | "tg"): string[] {
-  const tg = language === "tg";
-  const cards = customerCheaperVisibleCards(value);
+/** Direct gets at most two short cards (01.11.2026 live: a question about one address got three eight-line cards). */
+const DM_SEARCH_CARDS = 2;
+function searchSegments(value: CustomerAgentSearchObservation, language: "ru" | "tg", surface?: CustomerAgentSurface): string[] {
+  const tg = language === "tg", dm = surface === "dm";
+  const visible = customerCheaperVisibleCards(value);
+  const cards = dm ? visible.slice(0, DM_SEARCH_CARDS) : visible;
   if (!cards.length) return [isCheaperThanSearch(value.query)
     ? tg ? "Вариантҳои арзонтар ҳоло ёфт нашуданд." : "Вариантов дешевле сейчас не нашлось."
     : tg ? "Дар интихоби ҷорӣ варианти мувофиқ ёфт нашуд." : "В текущей подборке подходящих вариантов не найдено."];
@@ -358,8 +361,8 @@ function searchSegments(value: CustomerAgentSearchObservation, language: "ru" | 
   for (const [index, card] of cards.entries()) {
     lines.push(`${index + 1}. ${tg ? "Объект" : "Объект"} №${card.facts.shortId}`);
     lines.push(...factSegments({ kind: "facts", facts: card.facts, kinds: ["price", "address"] }, language));
-    if (card.listing.rooms !== null && card.listing.type === "APARTMENT") lines.push(tg ? `Ҳуҷраҳо: ${card.listing.rooms}.` : `Комнат: ${card.listing.rooms}.`);
-    if (card.facts.characteristics) lines.push(...customerPropertyCharacteristicLines(card.facts.characteristics, language,
+    if (!dm && card.listing.rooms !== null && card.listing.type === "APARTMENT") lines.push(tg ? `Ҳуҷраҳо: ${card.listing.rooms}.` : `Комнат: ${card.listing.rooms}.`);
+    if (!dm && card.facts.characteristics) lines.push(...customerPropertyCharacteristicLines(card.facts.characteristics, language,
       language === "tg" ? "масоҳат ошёна таъмир" : "площадь этаж ремонт"));
     if (card.match.notes.length) lines.push(`${tg ? "Эзоҳ" : "Примечание"}: ${card.match.notes.map(note => notes[note][language]).join("; ")}.`);
     if (value.linksAllowed !== false && card.facts.publicLink) lines.push(card.facts.publicLink);
@@ -593,7 +596,7 @@ function renderDecisionCore(input: {
     }
     if (item.value.kind === "property_search") {
       if (!isPublicPropertySearch(item.value)) return null;
-      lines.push(...searchSegments(item.value, lang));
+      lines.push(...searchSegments(item.value, lang, input.surface));
     }
     if (item.value.kind === "agency_contact") {
       if (!isCanonicalAgencyContact(item.value)) return null;
@@ -629,7 +632,13 @@ function renderDecisionCore(input: {
   // The résumé is asked once: not after a document/photo/own account, and not a second time.
   const aboutHandled = (question === "job_experience" || requiredFact === "about") && input.surface !== "public_comment" &&
     (experienceInvitationIncluded || recruitmentAboutHandled({ ...input, ...material }));
-  if (question !== "none" && question !== "confirmation" && !aboutHandled) lines.push(question === "property" &&
+  // "Хочу посмотреть" asks for a time, not a phone or a questionnaire step; an unknown object is still asked first.
+  const showingTime = input.surface === "dm" && (d.kind === "reply" || d.kind === "clarify") && question !== "property" &&
+    question !== "confirmation" && !question.startsWith("job_") && input.verifiedContext?.publicState.topic !== "job" &&
+    customerShowingWish(input.inputText ?? "") && !evidence.some(e => e?.value.kind === "receipt") &&
+    evidence.some(e => e?.value.kind === "facts");
+  if (showingTime) lines.push(CUSTOMER_SHOWING_TIME_QUESTION[lang]);
+  else if (question !== "none" && question !== "confirmation" && !aboutHandled) lines.push(question === "property" &&
       evidence.some(e => e?.value.kind === "publication_properties" && e.value.cards.length > 1)
     ? lang === "tg" ? "Кадоме аз ин объектҳо ба шумо писанд омад?" : "Какой из этих объектов вас заинтересовал?"
     // A link to somebody else's site is not mentioned at all: the question is about what the customer wants.
@@ -645,11 +654,11 @@ function renderDecisionCore(input: {
     : question === "clarify_previous" && input.surface === "dm"
       ? repairPreviousQuestion(input.verifiedContext, lang) ?? questions[question][lang] : questions[question][lang]);
   if (question === "confirmation") lines.push(lang === "tg" ? "Тасдиқ мекунед?" : "Подтверждаете?");
-  if (!evidence.length && question === "none" && d.social === "none" && !visualSummary && !followRequest && !languagePermissionRequested && !messengerChannelQuestion && !furnitureQuestion && !guidePresentation) return null;
+  if (!evidence.length && question === "none" && !showingTime && d.social === "none" && !visualSummary && !followRequest && !languagePermissionRequested && !messengerChannelQuestion && !furnitureQuestion && !guidePresentation) return null;
   // A suppressed personal-data request by itself is not a useful completed
   // reply, even if the model attached "Понял" to it.
   if ((publicContactQuestion || (d.kind !== "propose" && d.question === "phone" && input.knownPhoneSource !== "none")) &&
-      !evidence.length && question === "none") return null;
+      !evidence.length && question === "none" && !showingTime) return null;
   const text = lines.filter(Boolean).join("\n");
   // Never truncate a monetary value, receipt or critical proposal summary.
   return text && text.length <= input.maxOutputChars ? text : null;
@@ -687,7 +696,8 @@ let fixedQuestionLines: Set<string> | undefined;
 /** Fixed question sentences (templates, "я уточнял" repairs, résumé/seller questions): the only lines the repeat check may drop. */
 function questionLineSet(): Set<string> {
   return fixedQuestionLines ??= lineSet(Object.values(questions).flatMap(line => [line.ru, line.tg]).filter(Boolean),
-    Object.values(repairs).flatMap(line => [line.ru, line.tg]), recruitmentFactQuestionLines(), customerSellerIntakeQuestionLines(), customerAgentAttachmentLines());
+    Object.values(repairs).flatMap(line => [line.ru, line.tg]), recruitmentFactQuestionLines(), customerSellerIntakeQuestionLines(), customerAgentAttachmentLines(),
+    [CUSTOMER_SHOWING_TIME_QUESTION.ru, CUSTOMER_SHOWING_TIME_QUESTION.tg]);
 }
 const socialLineSet = () => lineSet(SOCIAL_FAMILIES.flat().flatMap(line => [line.ru, line.tg]));
 const noticeLineSet = () => lineSet(REPEAT_NOTICES.flatMap(line => [line.ru, line.tg]), [REPEAT_LEAD.ru, REPEAT_LEAD.tg]);
@@ -708,7 +718,7 @@ function shownObjectQuestion(context: CustomerAgentVerifiedContext | undefined, 
 }
 const splitLines = (text: string) => text.split("\n").map(line => line.trim()).filter(Boolean);
 
-function avoidRepeatedReply(text: string, input: { language: "ru" | "tg"; verifiedContext?: CustomerAgentVerifiedContext; requestedFacts?: readonly unknown[] }): string {
+function avoidRepeatedReply(text: string, input: { decision?: CustomerAgentDecision; language: "ru" | "tg"; verifiedContext?: CustomerAgentVerifiedContext; requestedFacts?: readonly unknown[] }): string {
   const turns = input.verifiedContext?.turns ?? [];
   if (input.verifiedContext?.surface !== "dm" || turns.at(-1)?.role !== "assistant") return text;
   const notices = noticeLineSet(), questionLines = questionLineSet(), socials = socialLineSet(), lang = input.language;
@@ -741,6 +751,13 @@ function avoidRepeatedReply(text: string, input: { language: "ru" | "tg"; verifi
       return asked.has(repairs.property[lang]) ? notice() : repairs.property[lang];
     }
     return repeatedQuestions.includes(questions.preferences[lang]) ? PREFERENCES_DONE[lang] : notice();
+  }
+  // A new question after facts already said in the last message (01.11.2026 live: the price twice, then a phone
+  // question): the customer did not ask for those facts now, so only the new lines go out. A card list stays whole.
+  // A proposal is said whole every time: its summary and "Подтверждаете?" are one unit.
+  if (input.decision?.kind !== "propose" && !input.requestedFacts?.length && !lines.some(line => /^\d+\.\s/u.test(line))) {
+    const fresh = lines.filter(line => !previous.includes(line) || socials.has(line));
+    if (fresh.some(line => !socials.has(line)) && fresh.length < lines.length) return fresh.join("\n");
   }
   // The same facts again: introduce, then say so honestly. Greetings and thanks repeat freely.
   if (lines.every(line => asked.has(line)) && !lines.every(line => socials.has(line))) {

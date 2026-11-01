@@ -3,7 +3,8 @@ import { customerPropertyShareLink, customerPropertyUrl, type CustomerPropertyUr
 import { logSystemError } from "./systemError.js";
 
 export interface CustomerPropertyRegistry {
-  ad(id: string): Promise<{ ids: string[] } | null>;
+  /** `hint` is the referral's own post id and ad title, used only when the Ad row names no single object. */
+  ad(id: string, hint?: { postId?: string; caption?: string }): Promise<{ ids: string[] } | null>;
   media(id: string): Promise<string[]>;
   url(url: Exclude<CustomerPropertyUrl, { kind: "denied" | "unsupported" }>): Promise<string[]>;
   reply(mid: string, scope: Pick<CustomerPropertyAdmission, "conversationId" | "scopeKey" | "accountId" | "channel" | "endpointScopeId">): Promise<string[]>;
@@ -31,7 +32,7 @@ async function resolveOnce(
       let ids: string[];
       if (item.kind === "untrusted_reference") return result("denied", [], item.reference === "untrusted_origin" ? "untrusted_origin" : "unsupported");
       if (item.kind === "ad") {
-        const ad = await registry.ad(item.reference);
+        const ad = await registry.ad(item.reference, { postId: item.secondaryReference, caption: item.caption });
         ids = unique(ad?.ids ?? []);
         // Capped registry results cannot prove uniqueness, even if visible
         // subsets would intersect in one property.

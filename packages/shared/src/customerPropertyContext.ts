@@ -11,6 +11,8 @@ export const customerPropertyEvidenceSchema = z.object({
   origin: z.enum(["referral", "postback_referral", "remembered_referral", "message", "story", "website_page", "shared_media", "reply_to", "postback_payload"]),
   reference,
   secondaryReference: reference.optional(),
+  /** Ad title from the Meta referral (our own ad text): a hint when the Ad row does not name one object. */
+  caption: reference.optional(),
 }).strict();
 export type CustomerPropertyEvidence = z.infer<typeof customerPropertyEvidenceSchema>;
 

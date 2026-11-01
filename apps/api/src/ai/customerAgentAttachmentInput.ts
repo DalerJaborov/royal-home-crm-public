@@ -48,6 +48,12 @@ export const EPHEMERAL_PHOTO_LINE = {
   ru: "Пришлите, пожалуйста, обычным фото — так агент его сохранит.",
   tg: "Лутфан, ҳамчун акси оддӣ фиристед — агент онро нигоҳ медорад.",
 } as const;
+/** A photo with no object found: it is usually a screenshot of a listing, so the object number is asked first
+ * (01.11.2026 live: a photo got a list of other objects). A seller can still say so. */
+const IMAGE_OBJECT_QUESTION = {
+  ru: "Какой это объект? Пришлите его номер или ссылку, а если хотите продать свою недвижимость — так и напишите.",
+  tg: "Ин кадом объект аст? Рақам ё пайвандашро фиристед, агар амволи худро фурӯхтан хоҳед — ҳамин тавр нависед.",
+} as const;
 const ATTACHMENT_OBJECT_QUESTION = { ru: "Что хотите узнать об этом объекте?", tg: "Дар бораи ин объект чиро донистан мехоҳед?" };
 const ATTACHMENT_QUESTIONS = {
     share: { ru: "Что хотите узнать по этой публикации?", tg: "Дар бораи ин нашрия чиро донистан мехоҳед?" },
@@ -63,6 +69,7 @@ export function customerAgentAttachmentQuestion(input: CustomerAgentAttachmentIn
   const kinds = [...new Set(input.kinds)];
   if (kinds.length === 1 && kinds[0] === "ephemeral" && focused) return EPHEMERAL_PHOTO_LINE[language];
   if (hasProperty) return ATTACHMENT_OBJECT_QUESTION[language];
+  if (kinds.length === 1 && kinds[0] === "image" && !focused) return IMAGE_OBJECT_QUESTION[language];
   return ATTACHMENT_QUESTIONS[kinds.length === 1 ? kinds[0] : "unknown"][language];
 }
 /** True when an earlier assistant turn of this dialogue already answered a forwarded publication with a fixed line
@@ -73,7 +80,7 @@ export function customerAgentForeignShareAnswered(assistantTexts: readonly strin
 }
 /** Every fixed line above: the repeat guard must see them as questions already asked, and the memory allow-list as renderer text. */
 export function customerAgentAttachmentLines(): string[] {
-  return [...Object.values(ATTACHMENT_QUESTIONS), ATTACHMENT_OBJECT_QUESTION, EPHEMERAL_PHOTO_LINE].flatMap(line => [line.ru, line.tg]);
+  return [...Object.values(ATTACHMENT_QUESTIONS), ATTACHMENT_OBJECT_QUESTION, IMAGE_OBJECT_QUESTION, EPHEMERAL_PHOTO_LINE].flatMap(line => [line.ru, line.tg]);
 }
 
 /** The LAST assistant turn was only this kind of fixed attachment question (business question, ephemeral request, object question):
@@ -82,7 +89,7 @@ export function customerAgentAttachmentQuestionAsked(assistantTexts: readonly st
   const last = assistantTexts.at(-1);
   if (!last) return false;
   const lines = new Set([BUSINESS_QUESTION.ru, BUSINESS_QUESTION.tg, EPHEMERAL_PHOTO_LINE.ru, EPHEMERAL_PHOTO_LINE.tg,
-    ATTACHMENT_OBJECT_QUESTION.ru, ATTACHMENT_OBJECT_QUESTION.tg]);
+    ATTACHMENT_OBJECT_QUESTION.ru, ATTACHMENT_OBJECT_QUESTION.tg, IMAGE_OBJECT_QUESTION.ru, IMAGE_OBJECT_QUESTION.tg]);
   const parts = last.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
   return parts.length > 0 && parts.every(line => lines.has(line));
 }

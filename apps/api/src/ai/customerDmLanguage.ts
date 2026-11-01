@@ -81,12 +81,25 @@ function majority(text: string): "ru" | "tg" | null {
   return tajik === russian ? null : tajik > russian ? "tg" : "ru";
 }
 
+/**
+ * One Russian word among three or more unrecognised ones is no proof of Russian (01.11.2026: a Tajik
+ * sentence in an unfamiliar spelling with one stray «не» pinned the whole dialogue to Russian).
+ * Such a turn neither decides the dialogue language nor overrides an earlier decisive one.
+ */
+function weakRussian(text: string): boolean {
+  const { tajik, russian } = clientLanguageScores(text);
+  const words = foldCustomerText(stripNonLanguage(clientOwnWords(text))).split(" ").filter(word => /\p{L}/u.test(word));
+  // Only the short words Tajik speech borrows; "Мне нужна двушка в Сино" has one listed word and is plainly Russian.
+  return russian === 1 && tajik === 0 && words.length >= 3 && words.some(word => word === "не" || word === "нет" || word === "он");
+}
+
 function decisiveLanguage(text: string): "ru" | "tg" | null {
   const preference = customerDmLanguagePreference(text);
   if (preference) return preference;
   if (isNeutralShortReply(text)) return null;
   if (customerColloquialTajikLanguage(text)) return "tg";
   const detected: ClientLanguage = detectClientLanguage(text);
+  if (detected === "ru" && weakRussian(text)) return null;
   return detected === "ru" || detected === "tg" ? detected : detected === "mixed" ? majority(text) : null;
 }
 
@@ -110,6 +123,7 @@ export function resolveCustomerDmLanguage(text: string, priorUserTexts: readonly
   if (isNeutralShortReply(text)) return earlier ?? (detectClientLanguage(text) === "tg" ? "tg" : "ru");
   if (customerColloquialTajikLanguage(text)) return "tg";
   const detected = detectClientLanguage(text);
+  if (detected === "ru" && weakRussian(text)) return earlier ?? "ru";
   if (detected === "ru" || detected === "tg") return detected;
   return earlier ?? (detected === "mixed" ? majority(text) : null) ?? "ru";
 }

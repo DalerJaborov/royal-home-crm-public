@@ -45,7 +45,8 @@ export function customerPropertyEvidenceFromMeta(message: MetaIncoming): Custome
   const evidence = customerPropertyEvidenceFromText(message.text);
   if (message.adId) {
     evidence.push({ kind: "ad", origin: message.propertyReferralOrigin ?? "referral", reference: message.adId,
-      ...(message.adPostId ? { secondaryReference: message.adPostId } : {}) });
+      ...(message.adPostId ? { secondaryReference: message.adPostId } : {}),
+      ...(message.adTitle?.trim() ? { caption: message.adTitle.trim().slice(0, 1024) } : {}) });
   } else if (message.adPostId) {
     evidence.push({ kind: "media", origin: "referral", reference: message.adPostId });
   }

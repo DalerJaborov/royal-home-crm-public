@@ -7,6 +7,7 @@ import { customerPropertyScopeKey } from "./customerPropertyScope.js";
 import { customerPropertyUrl } from "./customerPropertyUrls.js";
 import { expandCustomerShareLink } from "./customerShareLinkExpansion.js";
 import { resolvePropertyFromPageUrl } from "./resolvePropertyFromPageUrl.js";
+import { adReferralPropertyId } from "./adReferralProperty.js";
 import type { CustomerPropertyRegistry } from "./customerPropertyResolver.js";
 import { botMayOffer, botPublicVisibility, BOT_OFFER_SELECT } from "./propertyMatch.js";
 import { customerOwnSiteListingId, reconcileCustomerOwnSiteIdentity, type CustomerOwnSiteIdentity } from "./customerOwnSiteIdentity.js";
@@ -51,12 +52,18 @@ async function mediaCandidates(reference: string): Promise<string[]> {
 }
 
 export const customerPropertyRegistry: CustomerPropertyRegistry = {
-  async ad(id) {
+  async ad(id, hint) {
     const ad = await prisma.ad.findUnique({
       where: { platform_externalId: { platform: "META", externalId: id } },
       select: { propertyId: true, properties: { select: { propertyId: true }, take: 9 } },
     });
-    return ad ? { ids: [...new Set([ad.propertyId, ...ad.properties.map((item) => item.propertyId)].filter((item): item is string => !!item))] } : null;
+    const ids = ad ? [...new Set([ad.propertyId, ...ad.properties.map((item) => item.propertyId)].filter((item): item is string => !!item))] : [];
+    if (ids.length === 1) return { ids };
+    // An unmapped ad, or one ad for several objects: the same lookup as the legacy bot (publication id, ad name,
+    // caption), and for a multi-object ad only an object of that ad — never a guess outside it.
+    const found = await adReferralPropertyId({ adId: id, adPostId: hint?.postId, adTitle: hint?.caption });
+    if (found && (!ids.length || ids.includes(found))) return { ids: [found] };
+    return ad ? { ids } : null;
   },
   media: mediaCandidates,
   expandShare: (share) => expandCustomerShareLink(share),
