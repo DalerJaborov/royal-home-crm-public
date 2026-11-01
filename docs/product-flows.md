@@ -1849,9 +1849,7 @@
 - если !agent || agent.totpEnabled || !agent.passwordHash || !(await bcrypt.compare(password, agent.passwordHash))
   - return res.status(401).json({ error: "Неверный пароль" });
     · ответ 401 — «Неверный пароль»
-- const settings = await prisma.settings .findUnique({ where: { id: "singleton" }, select: { stepUpMinutes: tru…
-  · читает в базе: settings
-- grantElevation(agent.id, settings?.stepUpMinutes);
+- grantElevation(agent.id, STEP_UP_MINUTES);
   · зовёт grantElevation()
 - res.json({ elevated: true });
   · ответ 200
@@ -1882,9 +1880,7 @@
   - если !checked.ok
     - return res.status(401).json({ error: checked.error });
       · ответ 401
-- const settings = await prisma.settings .findUnique({ where: { id: "singleton" }, select: { stepUpMinutes: tru…
-  · читает в базе: settings
-- grantElevation(agent.id, settings?.stepUpMinutes);
+- grantElevation(agent.id, STEP_UP_MINUTES);
   · зовёт grantElevation()
 - res.json({ elevated: true });
   · ответ 200

@@ -3,6 +3,7 @@ import type { PushPayload } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { sendPushToAgent } from "../push.js";
 import { publishLeadPending } from "./livePublish.js";
+import { PUSH_ACTION_TTL_MINUTES } from "./settingsConstants.js";
 
 /**
  * Кнопки «Принять»/«Отклонить» прямо в шторке уведомлений (решение владельца
@@ -24,8 +25,9 @@ import { publishLeadPending } from "./livePublish.js";
  * остаётся обычным, нажатие открывает карточку — ровно то, что владелец и просил.
  */
 
-/** Срок жизни маркера, когда строки Settings ещё нет (пустая база). Совпадает с `@default(30)`. */
-export const DEFAULT_PUSH_ACTION_TTL_MINUTES = 30;
+/** Срок жизни маркера действия в уведомлении. */
+/** Константа с 01.11.2026 (lib/settingsConstants.ts), колонка Settings не читается. */
+export const DEFAULT_PUSH_ACTION_TTL_MINUTES = PUSH_ACTION_TTL_MINUTES;
 
 export interface PushActionRules {
   enabled: boolean;
@@ -35,11 +37,11 @@ export interface PushActionRules {
 export async function loadPushActionRules(): Promise<PushActionRules> {
   const s = await prisma.settings.findUnique({
     where: { id: "singleton" },
-    select: { pushLeadActionsEnabled: true, pushActionTtlMinutes: true },
+    select: { pushLeadActionsEnabled: true },
   });
   return {
     enabled: s?.pushLeadActionsEnabled ?? true,
-    ttlMinutes: s?.pushActionTtlMinutes ?? DEFAULT_PUSH_ACTION_TTL_MINUTES,
+    ttlMinutes: DEFAULT_PUSH_ACTION_TTL_MINUTES,
   };
 }
 

@@ -140,6 +140,17 @@ vi.mock("../src/lib/systemError.js", async (importOriginal) => ({
   },
 }));
 
+// Замок «только русский», амбиент, вдох и тестовый номер — константы с 01.11.2026
+// (lib/settingsConstants.ts). Тест держит прежнюю среду (амбиент выключен) и
+// переключает замок подменой константы, а не полем Settings.
+const voiceTuning = vi.hoisted(() => ({
+  testExtension: "101008890", forceRussianOnly: false, breathEnabled: false, officeAmbienceEnabled: false, officeAmbienceVolume: 0.35,
+}));
+vi.mock("../src/lib/settingsConstants.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/settingsConstants.js")>()),
+  LIVE_VOICE_TUNING: voiceTuning,
+}));
+
 const { prisma } = await import("../src/db.js");
 const bridge = await import("../src/lib/telephony/liveVoiceBridge.js");
 const {
@@ -229,7 +240,7 @@ beforeAll(async () => {
   });
   await prisma.settings.update({
     where: { id: "singleton" },
-    data: { liveVoiceEnabled: true, liveVoiceInboundMode: "always", liveVoiceForceRussianOnly: false },
+    data: { liveVoiceEnabled: true, liveVoiceInboundMode: "always" },
   });
 });
 
@@ -607,10 +618,10 @@ describe("врезки сторожей в мост", () => {
 
   describe("таджикский при замке «только русский»", () => {
     beforeAll(async () => {
-      await prisma.settings.update({ where: { id: "singleton" }, data: { liveVoiceForceRussianOnly: true } });
+      voiceTuning.forceRussianOnly = true;
     });
     afterAll(async () => {
-      await prisma.settings.update({ where: { id: "singleton" }, data: { liveVoiceForceRussianOnly: false } });
+      voiceTuning.forceRussianOnly = false;
     });
     const apologized = (texts: string[]) => texts.some((t) => t.includes("фразу-извинение на таджикском"));
 
@@ -763,10 +774,10 @@ describe("10.10: язык звонящего и петля «плохо слыш
 
   describe("замок «только русский» — как раньше", () => {
     beforeAll(async () => {
-      await prisma.settings.update({ where: { id: "singleton" }, data: { liveVoiceForceRussianOnly: true } });
+      voiceTuning.forceRussianOnly = true;
     });
     afterAll(async () => {
-      await prisma.settings.update({ where: { id: "singleton" }, data: { liveVoiceForceRussianOnly: false } });
+      voiceTuning.forceRussianOnly = false;
     });
 
     it("никаких служебных реплик о языке; петля «плохо слышно» рвётся перезвоном только по-русски", async () => {

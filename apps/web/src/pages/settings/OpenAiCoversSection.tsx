@@ -6,15 +6,11 @@ import { SecretKeyEditor } from "../../components/SecretKeyEditor";
 import { CoverTemplatesSection } from "./CoverTemplatesSection";
 import { api } from "../../lib/api";
 import {
-  OPENAI_IMAGE_MODEL_OPTIONS,
   useCoverReference,
   useOpenAiCovers,
   useTestOpenAiCover,
   useUpdateOpenAiCovers,
-  type OpenAiCoverSettings,
-  type OpenAiImageModel,
 } from "../../hooks/useSettings";
-import { coverSettingEffects } from "../../lib/coverSettingEffects";
 
 /**
  * «Обложки для соцсетей» (29.09.2026). По умолчанию ChatGPT рисует обложку
@@ -28,22 +24,6 @@ import { coverSettingEffects } from "../../lib/coverSettingEffects";
  * `.list`/`.row`. Одна разметка на ПК и телефон — узкую раскладку делают
  * медиазапросы темы (правило CLAUDE.md).
  */
-/** Цена одной картинки gpt-image-1: квадрат + вертикаль (прайс OpenAI). */
-const QUALITY_LABEL: Record<OpenAiCoverSettings["quality"], string> = {
-  low: "Низкое",
-  medium: "Среднее",
-  high: "Высокое",
-};
-/** Перерисовка фото под наш шаблон — одна вертикальная картинка на объект (прайс gpt-image-1). */
-const QUALITY_REDRAW_USD: Record<OpenAiCoverSettings["quality"], number> = { low: 0.016, medium: 0.063, high: 0.25 };
-/** Цена пары картинок gpt-image-1 (квадрат + вертикаль, прайс OpenAI). Только для
- *  gpt-image-1: у моделей 2.x цена по токенам, см. lib/coverSettingEffects.ts. */
-const QUALITY_PAIR_USD: Record<OpenAiCoverSettings["quality"], number> = {
-  low: 0.027,
-  medium: 0.105,
-  high: 0.417,
-};
-
 export function OpenAiCoversSection({ templateHeading }: { templateHeading?: string } = {}) {
   const { data, isLoading } = useOpenAiCovers();
   const update = useUpdateOpenAiCovers();
@@ -82,14 +62,6 @@ export function OpenAiCoversSection({ templateHeading }: { templateHeading?: str
   const isTemplate = data?.provider === "TEMPLATE";
   // ChatGPT нужен и нашему шаблону, когда он перерисовывает фото (29.09.2026).
   const usesOpenAi = !isTemplate || Boolean(data?.photoRedraw);
-  // Что из переключателей ChatGPT-режима сервер при выбранном режиме реально читает —
-  // остальное показываем выключенным с пояснением (сохранённые значения не трогаем).
-  const effects = data ? coverSettingEffects(data) : null;
-  const modelLabel = data
-    ? (OPENAI_IMAGE_MODEL_OPTIONS.find((o) => o.id === data.imageModel)?.label ?? data.imageModel)
-    : "";
-  // Цена «за картинку» — только по прайсу gpt-image-1; у моделей 2.x цену не выдумываем.
-  const showPrice = isTemplate ? data?.imageModel === "gpt-image-1" : Boolean(effects?.showPerImagePrice);
 
   return (
     <>
@@ -224,49 +196,8 @@ export function OpenAiCoversSection({ templateHeading }: { templateHeading?: str
                   onClear={() => update.mutateAsync({ apiKey: "" })}
                 />
 
-                <div className="sec-h stack" style={{ marginTop: 12 }}>
-                  <h3 style={{ fontSize: 15, margin: 0 }}>Качество картинки</h3>
-                  <span className="note">
-                    {!isTemplate && effects?.qualityOnlyDigit
-                      ? "в этом режиме фото не перерисовывается"
-                      : !showPrice
-                        ? "цена зависит от модели"
-                        : isTemplate
-                          ? "цена перерисовки одного фото"
-                          : "до такой суммы за обложку (с повтором); оценка по прайсу, точная цена — в журнале ниже"}
-                  </span>
-                </div>
-                <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-                  {(Object.keys(QUALITY_LABEL) as OpenAiCoverSettings["quality"][]).map((q) => (
-                    <button
-                      key={q}
-                      type="button"
-                      className={`chip${data.quality === q ? " on" : ""}`}
-                      aria-pressed={data.quality === q}
-                      onClick={() => save({ quality: q })}
-                    >
-                      {QUALITY_LABEL[q]}
-                      {showPrice
-                        ? ` · ~$${(isTemplate ? QUALITY_REDRAW_USD[q] : QUALITY_PAIR_USD[q] * data.candidates * 2).toFixed(2)}`
-                        : ""}
-                    </button>
-                  ))}
-                </div>
-                {!isTemplate && effects?.qualityOnlyDigit ? (
-                  <p className="quiet">
-                    Режим «Мы — точный текст поверх» с настоящим фото: ChatGPT обложку не рисует, качество влияет только
-                    на золотую цифру комнат — она рисуется один раз на каждую цифру и дальше берётся готовой. За обложку
-                    платится только проверка цифр — центы.
-                  </p>
-                ) : (
-                  !showPrice && (
-                    <p className="quiet">
-                      У модели «{modelLabel}» цена считается по токенам, а не за картинку, — заранее её не показываем.
-                      Фактическая стоимость каждой картинки — в «Последних обращениях» ниже.
-                    </p>
-                  )
-                )}
-
+                {/* Качество, модель картинок, режим текста, фото и число вариантов —
+                    константы с 01.11.2026 (apps/api/src/lib/settingsConstants.ts). */}
                 <div className="fgrid" style={{ marginTop: 12 }}>
                   <div className="fld">
                     <label className="lab" htmlFor="openai-cover-limit">
@@ -285,86 +216,6 @@ export function OpenAiCoversSection({ templateHeading }: { templateHeading?: str
                       </button>
                     </div>
                   </div>
-                  <div className="fld">
-                    <label className="lab" htmlFor="openai-image-model">
-                      Модель картинок
-                    </label>
-                    <select
-                      id="openai-image-model"
-                      className="inp"
-                      value={data.imageModel}
-                      onChange={(e) => save({ imageModel: e.target.value as OpenAiImageModel })}
-                    >
-                      {OPENAI_IMAGE_MODEL_OPTIONS.map((o) => (
-                        <option key={o.id} value={o.id}>
-                          {o.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  {!isTemplate && (
-                    <>
-                      <div className="fld">
-                        <span className="lab">Кто пишет текст</span>
-                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                          {(["MODEL", "OVERLAY"] as const).map((mode) => (
-                            <button
-                              key={mode}
-                              type="button"
-                              className={`chip${data.textMode === mode ? " on" : ""}`}
-                              aria-pressed={data.textMode === mode}
-                              onClick={() => save({ textMode: mode })}
-                            >
-                              {mode === "MODEL" ? "ChatGPT — весь дизайн и текст" : "Мы — точный текст поверх"}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                      {data.textMode === "OVERLAY" && (
-                        <div className="fld">
-                          <span className="lab">Фото на обложке</span>
-                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                            {(["ORIGINAL", "MODEL"] as const).map((src) => (
-                              <button
-                                key={src}
-                                type="button"
-                                className={`chip${data.photoSource === src ? " on" : ""}`}
-                                aria-pressed={data.photoSource === src}
-                                onClick={() => save({ photoSource: src })}
-                              >
-                                {src === "ORIGINAL"
-                                  ? "Настоящее — без изменений"
-                                  : "Перерисовка ChatGPT — может менять комнату"}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      <div className="fld">
-                        <span className="lab">Вариантов на картинку</span>
-                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                          {([1, 2] as const).map((n) => (
-                            <button
-                              key={n}
-                              type="button"
-                              className={`chip${data.candidates === n ? " on" : ""}`}
-                              aria-pressed={data.candidates === n}
-                              disabled={!effects?.candidatesApplies}
-                              onClick={() => save({ candidates: n })}
-                            >
-                              {n === 1 ? "1 — дешевле" : "2 — лучший из двух"}
-                            </button>
-                          ))}
-                        </div>
-                        {!effects?.candidatesApplies && (
-                          <span className="quiet">
-                            Не действует с настоящим фото в режиме «Мы — точный текст поверх»: картинку обложки ChatGPT не
-                            рисует, выбирать не из чего.
-                          </span>
-                        )}
-                      </div>
-                    </>
-                  )}
                 </div>
               </>
             )}

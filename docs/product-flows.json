@@ -8066,15 +8066,7 @@
     },
     {
      "k": "do",
-     "t": "const settings = await prisma.settings .findUnique({ where: { id: \"singleton\" }, select: { stepUpMinutes: tru…",
-     "a": [
-      "читает в базе: settings"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "grantElevation(agent.id, settings?.stepUpMinutes);",
+     "t": "grantElevation(agent.id, STEP_UP_MINUTES);",
      "a": [
       "зовёт grantElevation()"
      ],
@@ -8215,15 +8207,7 @@
     },
     {
      "k": "do",
-     "t": "const settings = await prisma.settings .findUnique({ where: { id: \"singleton\" }, select: { stepUpMinutes: tru…",
-     "a": [
-      "читает в базе: settings"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "grantElevation(agent.id, settings?.stepUpMinutes);",
+     "t": "grantElevation(agent.id, STEP_UP_MINUTES);",
      "a": [
       "зовёт grantElevation()"
      ],

@@ -72,3 +72,19 @@ export interface ClientPropertyMatchSummary {
   reason: "not_buyer" | "pending_acceptance" | "needs_requirements" | null;
   requirementsSummary: string[];
 }
+
+/**
+ * Веса шкалы совпадения «клиент ↔ объект» — константа с 01.11.2026 (значения
+ * прода; они же — числа, зашитые до 13.08.2026). Раньше — поля Settings.matchScore*
+ * на двух вкладках Настроек; это внутренняя калибровка, а не рычаг владельца.
+ * Одно место на сервер (routes/matching.ts) и экран (пояснение к порогу
+ * «свой объект — свой клиент»).
+ */
+export const MATCH_SCORE_WEIGHTS = {
+  base: 40,
+  district: 25,
+  rooms: 20,
+  budget: 15,
+  hotBonus: 10,
+  distance: 25,
+} as const;

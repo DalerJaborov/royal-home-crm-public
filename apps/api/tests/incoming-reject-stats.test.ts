@@ -34,6 +34,7 @@ const {
   isInboundChannel,
   noteRejectedInbound,
   refreshInboundContexts,
+  setInboundContextsForTest,
   rejectedInboundStats,
   resetRejectedInboundStats,
   resetIncomingCalls,
@@ -170,26 +171,35 @@ describe("Счётчик отбраковок", () => {
   });
 });
 
-describe("Список входящих контекстов — настройка, а не константа", () => {
-  it("свой список полностью заменяет встроенный", async () => {
-    await prisma.settings.upsert({
-      where: { id: "singleton" },
-      create: { id: "singleton", incomingInboundContexts: ["from-custom"] },
-      update: { incomingInboundContexts: ["from-custom"] },
-    });
-    await refreshInboundContexts();
-
+describe("Список входящих контекстов — константа с 01.11.2026", () => {
+  it("свой список полностью заменяет встроенный (механизм замены — тестовой подменой)", async () => {
+    setInboundContextsForTest(["from-custom"]);
     expect(isInboundContext("from-custom")).toBe(true);
     // Префикс работает так же, как у встроенных: from-custom-sip-<имя транка>.
     expect(isInboundContext("from-custom-sip-x")).toBe(true);
     // Переопределение ПОЛНОЕ: ext-queues при своём списке надо вписывать руками.
     expect(isInboundContext("ext-queues")).toBe(false);
 
-    await prisma.settings.updateMany({ where: { id: "singleton" }, data: { incomingInboundContexts: [] } });
+    // Перечитывание возвращает константу (на проде — пустой список, то есть встроенный набор).
     await refreshInboundContexts();
     expect(isInboundContext("ext-queues")).toBe(true);
     expect(isInboundContext("from-trunk-sip-out")).toBe(true);
     expect(isInboundContext("from-custom")).toBe(false);
+  });
+
+  it("колонку Settings.incomingInboundContexts сервер больше не читает", async () => {
+    await prisma.settings.upsert({
+      where: { id: "singleton" },
+      create: { id: "singleton", incomingInboundContexts: ["from-custom"] },
+      update: { incomingInboundContexts: ["from-custom"] },
+    });
+    try {
+      await refreshInboundContexts();
+      expect(isInboundContext("from-custom")).toBe(false);
+      expect(isInboundContext("ext-queues")).toBe(true);
+    } finally {
+      await prisma.settings.updateMany({ where: { id: "singleton" }, data: { incomingInboundContexts: [] } });
+    }
   });
 });
 
