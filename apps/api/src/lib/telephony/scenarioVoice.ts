@@ -1,5 +1,6 @@
 import { DEFAULT_GEMINI_VOICE, voiceGender, type VoiceGender } from "@royal-home/shared";
 import { prisma } from "../../db.js";
+import { LIVE_VOICE_TUNING } from "../settingsConstants.js";
 
 /**
  * ГОЛОС СЦЕНАРНОГО ЗВОНКА — ДО ТОГО, КАК СОБРАН ПРОМТ (02.10.2026, жалоба владельца
@@ -43,8 +44,10 @@ export async function scenarioVoice(): Promise<ScenarioVoice> {
   const settings = await prisma.settings
     .findUnique({
       where: { id: "singleton" },
-      select: { liveVoiceVoiceName: true, liveVoiceVoiceNameTajik: true, liveVoiceForceRussianOnly: true },
+      select: { liveVoiceVoiceName: true, liveVoiceVoiceNameTajik: true },
     })
+    // Замок «только русский» — константа с 01.11.2026 (lib/settingsConstants.ts).
+    .then((row) => (row ? { ...row, liveVoiceForceRussianOnly: LIVE_VOICE_TUNING.forceRussianOnly } : null))
     .catch(() => null);
   const voiceName = pickScenarioVoiceName(settings);
   // Нет настроек (отказ базы) — голос по умолчанию, как при замке, и замок считаем включённым.

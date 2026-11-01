@@ -28,12 +28,14 @@ import {
   INACTIVE_REASONS,
   dushanbeDayKey,
   DEFAULT_INACTIVE_TRAFFIC_POLICY,
+  INACTIVE_TRAFFIC_MAX_ATTEMPTS,
   normalizeInactiveTrafficPolicy,
   type ClientKind,
   type InactiveReason,
   type InactiveTrafficPolicy,
 } from "@royal-home/shared";
 import { prisma } from "../db.js";
+import { INACTIVATE_COOLDOWN_HOURS, INACTIVATE_MIN_ATTEMPTS } from "./settingsConstants.js";
 import { isWithinWorkingHours } from "./workingHours.js";
 import { recordScoreEvent, loadEventPoints } from "./scoreJournal.js";
 import { absentAgentIds } from "./agentAvailability.js";
@@ -165,10 +167,8 @@ interface TrafficLightSettings extends InactiveTrafficPolicy {
  * указал, что это задом наперёд. Больше вложено в клиента — больше терпения
  * на его возврат; меньше вложено — быстрее освобождаем слот агенту.
  */
-const FALLBACK: TrafficLightSettings = {
+const FALLBACK: Omit<TrafficLightSettings, "inactivateMinAttempts" | "inactivateCooldownHours"> = {
   ...DEFAULT_INACTIVE_TRAFFIC_POLICY,
-  inactivateMinAttempts: 2,
-  inactivateCooldownHours: 5,
   leadCallMinSeconds: 30,
 };
 
@@ -177,20 +177,16 @@ export async function loadTrafficLightSettings(): Promise<TrafficLightSettings> 
   const policy: TrafficLightSettings = {
     inactiveGreenPingHours:
       s?.inactiveGreenPingHours ?? FALLBACK.inactiveGreenPingHours,
-    inactiveGreenMaxAttempts:
-      s?.inactiveGreenMaxAttempts ?? FALLBACK.inactiveGreenMaxAttempts,
+    inactiveGreenMaxAttempts: INACTIVE_TRAFFIC_MAX_ATTEMPTS.inactiveGreenMaxAttempts,
     inactiveYellowPingHours:
       s?.inactiveYellowPingHours ?? FALLBACK.inactiveYellowPingHours,
-    inactiveYellowMaxAttempts:
-      s?.inactiveYellowMaxAttempts ?? FALLBACK.inactiveYellowMaxAttempts,
+    inactiveYellowMaxAttempts: INACTIVE_TRAFFIC_MAX_ATTEMPTS.inactiveYellowMaxAttempts,
     inactiveRedPingHours:
       s?.inactiveRedPingHours ?? FALLBACK.inactiveRedPingHours,
-    inactiveRedMaxAttempts:
-      s?.inactiveRedMaxAttempts ?? FALLBACK.inactiveRedMaxAttempts,
-    inactivateMinAttempts:
-      s?.inactivateMinAttempts ?? FALLBACK.inactivateMinAttempts,
-    inactivateCooldownHours:
-      s?.inactivateCooldownHours ?? FALLBACK.inactivateCooldownHours,
+    inactiveRedMaxAttempts: INACTIVE_TRAFFIC_MAX_ATTEMPTS.inactiveRedMaxAttempts,
+    // Константы с 01.11.2026 (lib/settingsConstants.ts), колонки Settings не читаются.
+    inactivateMinAttempts: INACTIVATE_MIN_ATTEMPTS,
+    inactivateCooldownHours: INACTIVATE_COOLDOWN_HOURS,
     leadCallMinSeconds: s?.leadCallMinSeconds ?? FALLBACK.leadCallMinSeconds,
   };
   return { ...policy, ...normalizeInactiveTrafficPolicy(policy) };

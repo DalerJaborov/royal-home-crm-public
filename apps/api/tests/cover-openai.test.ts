@@ -15,6 +15,16 @@ vi.mock("../src/lib/systemError.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/lib/systemError.js")>()),
   logSystemError }));
 
+// Параметры генерации — константы с 01.11.2026 (lib/settingsConstants.ts): тест
+// подменяет их здесь, а не строкой Settings, которую сервер больше не читает.
+const tuning = vi.hoisted(() => ({
+  imageQuality: "medium", candidates: 2, textMode: "MODEL", imageModel: "gpt-image-1", photoSource: "ORIGINAL",
+}));
+vi.mock("../src/lib/settingsConstants.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/settingsConstants.js")>()),
+  OPENAI_COVER_TUNING: tuning,
+}));
+
 const { prisma } = await import("../src/db.js");
 const { uploadsDir, propertyCoversDir } = await import("../src/upload.js");
 const { encryptSecret } = await import("../src/crypto.js");
@@ -187,7 +197,7 @@ beforeAll(async () => {
   });
   await prisma.settings.update({
     where: { id: "singleton" },
-    data: { companyLogoUrl: logoUrl, openaiApiKey: encryptSecret("sk-test-settings-key"), coverProvider: "OPENAI", coverGenerationEnabled: true, openaiCoverDailyLimit: 1000, openaiCandidates: 2, openaiTextMode: "MODEL", openaiImageModel: "gpt-image-1" },
+    data: { companyLogoUrl: logoUrl, openaiApiKey: encryptSecret("sk-test-settings-key"), coverProvider: "OPENAI", coverGenerationEnabled: true, openaiCoverDailyLimit: 1000 },
   });
 });
 
@@ -551,13 +561,13 @@ describe("makePropertyCover v2", () => {
 
   it("openaiCandidates = 1 — по одной картинке на формат, без выбора", async () => {
     const property = await makeProperty();
-    await prisma.settings.update({ where: { id: "singleton" }, data: { openaiCandidates: 1 } });
+    tuning.candidates = 1;
     try {
       const { calls } = stubOpenAi();
       expect(await makePropertyCover(property.id, { retryDelayMs: 0 })).not.toBeNull();
       expect(calls).toMatchObject({ n: [1, 1], pick: 0 });
     } finally {
-      await prisma.settings.update({ where: { id: "singleton" }, data: { openaiCandidates: 2 } });
+      tuning.candidates = 2;
     }
   });
 
@@ -803,7 +813,7 @@ describe("ChatGPT Images 2.5 (живой прогон v4)", () => {
     const name = `ref-square-${runId}.png`;
     await fs.mkdir(path.join(uploadsDir, "cover-references"), { recursive: true });
     await fs.writeFile(path.join(uploadsDir, "cover-references", name), ref);
-    await prisma.settings.update({ where: { id: "singleton" }, data: { coverReferenceSquareUrl: `/uploads/cover-references/${name}`, openaiCandidates: 1 } });
+    tuning.candidates = 1; await prisma.settings.update({ where: { id: "singleton" }, data: { coverReferenceSquareUrl: `/uploads/cover-references/${name}` } });
     try {
       stubOpenAi();
       const cover = await makePropertyCover(property.id, { retryDelayMs: 0 });
@@ -816,14 +826,14 @@ describe("ChatGPT Images 2.5 (живой прогон v4)", () => {
       const out = await fs.readFile(path.join(propertyCoversDir, path.basename(cover!.squareUrl)));
       expect(await ownerLogoPixels(out, MODEL_LOGO_BOX.square)).toBeLessThan(20);
     } finally {
-      await prisma.settings.update({ where: { id: "singleton" }, data: { coverReferenceSquareUrl: null, openaiCandidates: 2 } });
+      tuning.candidates = 2; await prisma.settings.update({ where: { id: "singleton" }, data: { coverReferenceSquareUrl: null } });
       await fs.rm(path.join(uploadsDir, "cover-references", name), { force: true });
     }
   });
 
   it("запрос к 2.5: без input_fidelity, картинки «фото, логотип, эталон», свой логотип поверх не кладём, цена по usage", async () => {
     const property = await makeProperty();
-    await prisma.settings.update({ where: { id: "singleton" }, data: { openaiImageModel: "gpt-image-2.5-sunburst", openaiCandidates: 1 } });
+    tuning.imageModel = "gpt-image-2.5-sunburst"; tuning.candidates = 1;
     try {
       const { calls } = stubOpenAi();
       const cover = await makePropertyCover(property.id, { retryDelayMs: 0 });
@@ -856,13 +866,13 @@ describe("ChatGPT Images 2.5 (живой прогон v4)", () => {
       const box34 = { left: fit.left, top: STORY_34_TOP + MODEL_LOGO_BOX.story34.top, height: fit.height };
       expect(await ownerLogoPixels(storyOut, box34)).toBeGreaterThan(300);
     } finally {
-      await prisma.settings.update({ where: { id: "singleton" }, data: { openaiImageModel: "gpt-image-1", openaiCandidates: 2 } });
+      tuning.imageModel = "gpt-image-1"; tuning.candidates = 2;
     }
   });
 
   it("достройка 9:16 упала (отказ модели): обложка не страдает, вертикаль 1080×1920 из размытой копии, причина в журнале", async () => {
     const property = await makeProperty();
-    await prisma.settings.update({ where: { id: "singleton" }, data: { openaiImageModel: "gpt-image-2.5-sunburst", openaiCandidates: 1 } });
+    tuning.imageModel = "gpt-image-2.5-sunburst"; tuning.candidates = 1;
     try {
       const { calls } = stubOpenAi({
         image: (form) => (form.get("mask") ? { status: 400, json: { error: { message: "mask rejected" } } } : { json: { data: [{ b64_json: generatedPng.toString("base64") }] } }),
@@ -880,13 +890,13 @@ describe("ChatGPT Images 2.5 (живой прогон v4)", () => {
       const failed = await prisma.aiLog.count({ where: { endpoint: COVER_IMAGE_ENDPOINT, ok: false } });
       expect(failed).toBeGreaterThanOrEqual(1);
     } finally {
-      await prisma.settings.update({ where: { id: "singleton" }, data: { openaiImageModel: "gpt-image-1", openaiCandidates: 2 } });
+      tuning.imageModel = "gpt-image-1"; tuning.candidates = 2;
     }
   });
 
   it("достройка 9:16 удалась: верх и низ от модели, цена и картинка попадают в дневной счёт", async () => {
     const property = await makeProperty();
-    await prisma.settings.update({ where: { id: "singleton" }, data: { openaiImageModel: "gpt-image-2.5-sunburst", openaiCandidates: 1 } });
+    tuning.imageModel = "gpt-image-2.5-sunburst"; tuning.candidates = 1;
     try {
       const outpainted = await sharp({ create: { width: 1152, height: 2048, channels: 3, background: { r: 200, g: 50, b: 50 } } }).png().toBuffer();
       stubOpenAi({
@@ -902,14 +912,14 @@ describe("ChatGPT Images 2.5 (живой прогон v4)", () => {
       // Все три картинки (квадрат, вертикаль, достройка) записаны в журнал по endpoint обложек.
       expect(await prisma.aiLog.count({ where: { endpoint: COVER_IMAGE_ENDPOINT, ok: true } })).toBe(3);
     } finally {
-      await prisma.settings.update({ where: { id: "singleton" }, data: { openaiImageModel: "gpt-image-1", openaiCandidates: 2 } });
+      tuning.imageModel = "gpt-image-1"; tuning.candidates = 2;
     }
   });
 
   it("достройка 9:16 при исчерпанном дневном лимите пропускается (запроса нет), вертикаль — размытая копия", async () => {
     const property = await makeProperty();
     // Лимит дня = 2 картинки: квадрат и вертикаль 3:4 забирают обе, на достройку не остаётся.
-    await prisma.settings.update({ where: { id: "singleton" }, data: { openaiImageModel: "gpt-image-2.5-sunburst", openaiCandidates: 1, openaiCoverDailyLimit: 2 } });
+    tuning.imageModel = "gpt-image-2.5-sunburst"; tuning.candidates = 1; await prisma.settings.update({ where: { id: "singleton" }, data: { openaiCoverDailyLimit: 2 } });
     try {
       const { calls } = stubOpenAi();
       const cover = await makePropertyCover(property.id, { retryDelayMs: 0 });
@@ -918,7 +928,7 @@ describe("ChatGPT Images 2.5 (живой прогон v4)", () => {
       const storyOut = await fs.readFile(path.join(propertyCoversDir, path.basename(cover!.storyUrl)));
       expect(await sharp(storyOut).metadata()).toMatchObject({ width: 1080, height: 1920 });
     } finally {
-      await prisma.settings.update({ where: { id: "singleton" }, data: { openaiImageModel: "gpt-image-1", openaiCandidates: 2, openaiCoverDailyLimit: 1000 } });
+      tuning.imageModel = "gpt-image-1"; tuning.candidates = 2; await prisma.settings.update({ where: { id: "singleton" }, data: { openaiCoverDailyLimit: 1000 } });
     }
   });
 });

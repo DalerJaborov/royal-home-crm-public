@@ -1372,14 +1372,12 @@ function PublishScheduleSection() {
   const updateSettings = useUpdateSettings();
 
   const scheduleOn = settings?.publishScheduleEnabled ?? true;
-  const heatmapOn = settings?.publishScheduleUseHeatmap ?? true;
-  const instagramOnlineOn = settings?.publishScheduleUseInstagramOnline ?? true;
 
   return (
     <SettingsSection
       icon={CalendarClock}
       title="Расписание выхода роликов"
-      badge={scheduleOn ? (heatmapOn ? "по тепловой карте" : "по своим часам") : "выходят сразу"}
+      badge={scheduleOn ? "по расписанию" : "выходят сразу"}
     >
       <SwitchRow
         title="Расставлять ролики по времени"
@@ -1392,36 +1390,9 @@ function PublishScheduleSection() {
         }
       />
 
-      <SwitchRow
-        title="Брать часы выхода из тепловой карты"
-        on={heatmapOn}
-        onToggle={() => updateSettings.mutate({ publishScheduleUseHeatmap: !heatmapOn })}
-        hint={
-          heatmapOn
-            ? "Часы считаются по реальным обращениям клиентов — звонки, комментарии, переписки. Пока обращений мало, расписание само возвращается к постоянным часам ниже и честно пишет об этом."
-            : "Ролики выходят в постоянные часы, заданные ниже, независимо от того, когда клиенты активны."
-        }
-        warning={scheduleOn ? null : "Расписание выключено ползунком выше — эта настройка ни на что не влияет."}
-      />
-
-      <SwitchRow
-        title="Для часов выхода верить статистике Instagram"
-        on={instagramOnlineOn}
-        onToggle={() => updateSettings.mutate({ publishScheduleUseInstagramOnline: !instagramOnlineOn })}
-        hint={
-          instagramOnlineOn
-            ? "Часы берутся из того, когда наши подписчики Instagram в сети, — это считает сам Instagram. Сервер забирает эти данные раз в сутки; пока их меньше недели, часы считаются по обращениям клиентов."
-            : "Часы считаются только по обращениям клиентов, статистика Instagram не учитывается."
-        }
-        warning={
-          !scheduleOn
-            ? "Расписание выключено ползунком выше — эта настройка ни на что не влияет."
-            : !heatmapOn
-              ? "Тепловая карта выключена ползунком выше — ролики выходят в постоянные часы, эта настройка ни на что не влияет."
-              : null
-        }
-      />
-
+      {/* Источник часов выхода (тепловая карта, статистика Instagram), постоянные
+          часы 12:00–14:00 и 19:00–21:00, глубина карты и опережение пика — константы
+          с 01.11.2026 (apps/api/src/lib/settingsConstants.ts). */}
       <PublishWindowFields />
     </SettingsSection>
   );
@@ -1440,27 +1411,6 @@ function timeToMin(value: string): number | null {
   return min >= 0 && min <= 24 * 60 ? min : null;
 }
 
-/** Плоский список пар минут ⇄ «12:00-14:00, 19:00-21:00». */
-function windowsToText(flat: number[]): string {
-  const parts: string[] = [];
-  for (let i = 0; i + 1 < flat.length; i += 2) parts.push(`${minToTime(flat[i])}-${minToTime(flat[i + 1])}`);
-  return parts.join(", ");
-}
-function textToWindows(text: string): number[] | null {
-  const trimmed = text.trim();
-  if (trimmed === "") return [];
-  const flat: number[] = [];
-  for (const piece of trimmed.split(",")) {
-    const [rawStart, rawEnd, ...rest] = piece.trim().split("-");
-    if (rest.length > 0 || rawEnd === undefined) return null;
-    const start = timeToMin(rawStart.trim());
-    const end = timeToMin(rawEnd.trim());
-    if (start === null || end === null || start >= end) return null;
-    flat.push(start, end);
-  }
-  return flat.length <= 12 ? flat : null;
-}
-
 function PublishWindowFields() {
   const { data: settings } = useSettings();
   const updateSettings = useUpdateSettings();
@@ -1468,21 +1418,6 @@ function PublishWindowFields() {
   const startMin = settings?.publishScheduleWindowStartMin ?? 9 * 60;
   const endMin = settings?.publishScheduleWindowEndMin ?? 21 * 60;
   const gapMin = settings?.publishScheduleMinGapMin ?? 90;
-  const days = settings?.publishScheduleHeatmapDays ?? 90;
-  const lead = settings?.publishScheduleLeadHours ?? 1;
-  const windowsValue = windowsToText(settings?.publishSchedulePriorityWindows ?? []);
-
-  /**
-   * Черновик догоняет сервер, пока человек не начал править, — тот же приём и по
-   * той же причине, что в PlainSetting ниже: поле рисуется раньше ответа
-   * /settings, и без этого один клик записал бы поверх настройки пустоту.
-   */
-  const [windowsDraft, setWindowsDraft] = useState(windowsValue);
-  const [windowsTouched, setWindowsTouched] = useState(false);
-  useEffect(() => {
-    if (!windowsTouched) setWindowsDraft(windowsValue);
-  }, [windowsValue, windowsTouched]);
-  const parsedWindows = textToWindows(windowsDraft);
 
   return (
     <>
@@ -1552,106 +1487,6 @@ function PublishWindowFields() {
         </div>
       </div>
 
-      <div className="mod">
-        <div className="t">
-          <b>Постоянные часы выхода</b>
-          <span style={{ whiteSpace: "normal" }}>
-            Куда метит первый ролик пачки, когда тепловая карта выключена или в ней ещё мало обращений. Формат:
-            «12:00-14:00, 19:00-21:00». Не больше шести отрезков.
-          </span>
-        </div>
-        <div className="acts">
-          <input
-            className="inp"
-            style={{ maxWidth: 240 }}
-            aria-label="Постоянные часы выхода"
-            placeholder="12:00-14:00, 19:00-21:00"
-            value={windowsDraft}
-            disabled={updateSettings.isPending}
-            onChange={(e) => {
-              setWindowsTouched(true);
-              setWindowsDraft(e.target.value);
-            }}
-          />
-          <button
-            className="pill sm"
-            type="button"
-            disabled={!windowsTouched || parsedWindows === null || windowsDraft === windowsValue || updateSettings.isPending}
-            onClick={() => {
-              if (parsedWindows === null) return;
-              updateSettings.mutate({ publishSchedulePriorityWindows: parsedWindows });
-              setWindowsTouched(false);
-            }}
-          >
-            Сохранить
-          </button>
-        </div>
-        {/* Условный рендер, а не hidden: на flex-элементе hidden не срабатывает. */}
-        {windowsTouched && parsedWindows === null && (
-          <p className="msg" style={{ color: "var(--crit)" }}>
-            Не разобрали. Каждый отрезок — «ЧЧ:ММ-ЧЧ:ММ», конец позже начала, отрезки через запятую.
-          </p>
-        )}
-      </div>
-
-      <div className="mod">
-        <div className="t">
-          <b>Глубина тепловой карты</b>
-          <span style={{ whiteSpace: "normal" }}>
-            За сколько дней считать активность клиентов. Меньше месяца — мало событий на 168 клеток недели, больше
-            трёх — в расчёт попадает прошлый сезон, а спрос на жильё сезонный.
-          </span>
-        </div>
-        <div className="acts">
-          <span className="nf">
-            <input
-              type="number"
-              min={7}
-              max={365}
-              inputMode="numeric"
-              aria-label="Дней в тепловой карте"
-              defaultValue={days}
-              disabled={updateSettings.isPending}
-              onBlur={(e) => {
-                const n = Number(e.target.value);
-                if (Number.isInteger(n) && n >= 7 && n <= 365 && n !== days) {
-                  updateSettings.mutate({ publishScheduleHeatmapDays: n });
-                }
-              }}
-            />
-            <span className="u">дней</span>
-          </span>
-        </div>
-      </div>
-
-      <div className="mod">
-        <div className="t">
-          <b>Насколько раньше часа пик выкладывать</b>
-          <span style={{ whiteSpace: "normal" }}>
-            Пост должен успеть разойтись до того, как аудитория выйдет в сеть. Ноль — публиковать ровно в час пик.
-          </span>
-        </div>
-        <div className="acts">
-          <span className="nf">
-            <input
-              type="number"
-              min={0}
-              max={6}
-              inputMode="numeric"
-              aria-label="Часов до пика"
-              defaultValue={lead}
-              disabled={updateSettings.isPending}
-              onBlur={(e) => {
-                const n = Number(e.target.value);
-                if (Number.isInteger(n) && n >= 0 && n <= 6 && n !== lead) {
-                  updateSettings.mutate({ publishScheduleLeadHours: n });
-                }
-              }}
-            />
-            <span className="u">часа</span>
-          </span>
-        </div>
-      </div>
     </>
   );
 }
@@ -1960,91 +1795,6 @@ function parseInboundContexts(text: string): string[] {
   return [...new Set(list)];
 }
 
-/**
- * Список контекстов входящих: textarea по строке на контекст — тот же формат,
- * что у остальных построчных настроек («Чем не занимаемся» во вкладке «Бот»).
- * Чипы здесь были бы хуже: значение вводят один раз, зато переносят его глазами
- * из чужой панели, а из textarea видно сразу весь список.
- */
-function InboundContextsSetting({
-  value,
-  pending,
-  onSave,
-}: {
-  value: string[];
-  pending: boolean;
-  onSave: (list: string[]) => void;
-}) {
-  const [draft, setDraft] = useState(value.join("\n"));
-  const parsed = parseInboundContexts(draft);
-  const changed = parsed.join("\n") !== value.join("\n");
-  const tooMany = parsed.length > MAX_INBOUND_CONTEXTS;
-  const tooLong = parsed.find((entry) => entry.length > MAX_INBOUND_CONTEXT_LENGTH);
-  const error = tooMany
-    ? `Слишком много строк: не больше ${MAX_INBOUND_CONTEXTS}.`
-    : tooLong
-      ? `Слишком длинное имя контекста: не больше ${MAX_INBOUND_CONTEXT_LENGTH} символов.`
-      : null;
-
-  return (
-    <div className={error ? "fld bad" : "fld"} style={{ marginTop: "var(--s4)" }}>
-      <span className="lab">Откуда станция отдаёт входящие</span>
-      <textarea
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        rows={4}
-        spellCheck={false}
-        placeholder={"from-trunk\next-queues"}
-        aria-label="Контексты входящих звонков"
-      />
-      <span className="msg">
-        {error ??
-          "Имена контекстов из настроек АТС — по ним CRM понимает, что звонок пришёл снаружи, а не уходит от нас. По одному в строке. Сравнение идёт по началу имени, поэтому строка from-trunk покрывает и from-trunk-sip-out."}
-      </span>
-      <div className="wrap" style={{ marginTop: "var(--s2)" }}>
-        <button className="pill" type="button" onClick={() => onSave(parsed)} disabled={!changed || !!error || pending}>
-          Сохранить
-        </button>
-        {value.length > 0 && (
-          <button
-            className="pill ghost"
-            type="button"
-            disabled={pending}
-            onClick={() => {
-              setDraft("");
-              onSave([]);
-            }}
-          >
-            Вернуть встроенные
-          </button>
-        )}
-      </div>
-      <div className="quiet">
-        <span className="dot" />
-        <span className="txt">
-          {/*
-            Подсказка говорит о СОХРАНЁННОМ значении, а человек смотрит на поле. Пока
-            набранное не сохранено, «поле пустое» рядом с непустым полем читается как
-            враньё — поэтому у неподтверждённого набора свой, третий текст.
-          */}
-          {value.length === 0 && parsed.length > 0
-            ? `Набранное ещё не сохранено — пока работает встроенный список: ${DEFAULT_INBOUND_CONTEXTS_HINT}.`
-            : value.length === 0
-              ? `Сейчас поле пустое — работает встроенный список: ${DEFAULT_INBOUND_CONTEXTS_HINT}. Пока входящие доходят, менять здесь нечего.`
-              : `Свой список заменяет встроенный целиком, поэтому очередь ext-queues вписывают руками. Встроенный был: ${DEFAULT_INBOUND_CONTEXTS_HINT}.`}
-        </span>
-      </div>
-      <div className="quiet warn">
-        <span className="dot warn" />
-        <span className="txt">
-          Значение спрашивают у того, кто настраивал станцию. Неверное — и входящие звонки перестают доходить в CRM:
-          не будет ни журнала входящих, ни окна оператора, ни задач по пропущенным, хотя на самой станции звонки идут
-          как обычно.
-        </span>
-      </div>
-    </div>
-  );
-}
 
 /**
  * ГРУППЫ FACEBOOK ДЛЯ РУЧНОЙ РАЗДАЧИ (28.09.2026, docs/agent-briefs/facebook-groups-share-28-09.md).
@@ -2563,12 +2313,7 @@ function AmiSection() {
         onClear={() => updateSecretKey.mutateAsync({ asteriskAmiPassword: "" })}
       />
 
-      <PortSetting
-        key={settings?.asteriskAmiPort ?? 5038}
-        value={settings?.asteriskAmiPort ?? 5038}
-        pending={updateSettings.isPending}
-        onSave={(port) => updateSettings.mutate({ asteriskAmiPort: port })}
-      />
+      {/* Порт AMI (5038) — константа с 01.11.2026 (apps/api/src/lib/settingsConstants.ts). */}
 
       <div className="wrap" style={{ marginTop: "var(--s4)" }}>
         <button className="pill ghost" type="button" onClick={() => test.mutate()} disabled={!configured || test.isPending}>
@@ -2597,8 +2342,8 @@ function AmiSection() {
 }
 
 // LiveVoiceSection/LiveVoiceOutboundTestCall переехали в BotTab.tsx (13.09.2026,
-// см. комментарий у места их прежнего рендера выше). PlainSetting/WHISPER_VOICES
-// ниже экспортированы — BotTab их импортирует, чтобы не заводить вторую копию.
+// см. комментарий у места их прежнего рендера выше). PlainSetting ниже
+// экспортирован — BotTab его импортирует, чтобы не заводить вторую копию.
 
 /*
  * Раздела «Звонки прямо в браузере» здесь больше нет (владелец 18.08.2026).
@@ -2608,41 +2353,6 @@ function AmiSection() {
  * браузере настраивать ими нечего.
  */
 
-/**
- * Порт управления станцией. Отдельным полем, а не общим PlainSetting: там кнопка
- * «Сохранить» осталась бы активной на «пять тысяч» и молча ничего не делала —
- * худший вид отказа, когда человек не понимает, сохранилось у него или нет.
- */
-function PortSetting({
-  value,
-  pending,
-  onSave,
-}: {
-  value: number;
-  pending: boolean;
-  onSave: (port: number) => void;
-}) {
-  const [draft, setDraft] = useState(String(value));
-  const port = Number(draft);
-  const valid = Number.isInteger(port) && port > 0 && port < 65536;
-  return (
-    <div className={valid ? "mod" : "mod bad"}>
-      <div className="t">
-        <b>Порт</b>
-        <span>5038 — стандартный. Менять только если на станции его изменили.</span>
-      </div>
-      <div className="acts">
-        <span className="nf">
-          <input value={draft} onChange={(e) => setDraft(e.target.value)} inputMode="numeric" placeholder="5038" aria-label="Порт AMI" />
-        </span>
-        <button className="pill sm" type="button" onClick={() => onSave(port)} disabled={!valid || port === value || pending}>
-          Сохранить
-        </button>
-      </div>
-      {!valid && <p className="msg">Порт — число от 1 до 65535.</p>}
-    </div>
-  );
-}
 
 /**
  * «Входящие звонки» — рабочее место оператора, настраиваемое без правки кода.
@@ -2823,12 +2533,8 @@ function IncomingCallsSection() {
 
       <IncomingHoursSetting />
 
-      <InboundContextsSetting
-        key={(settings?.incomingInboundContexts ?? []).join("\n")}
-        value={settings?.incomingInboundContexts ?? []}
-        pending={updateSettings.isPending}
-        onSave={(list) => updateSettings.mutate({ incomingInboundContexts: list })}
-      />
+      {/* Контексты диалплана входящих — константа с 01.11.2026 (встроенный набор,
+          apps/api/src/lib/telephony/incomingCalls.ts). */}
 
       <PrimaryTargetSetting />
 
@@ -2841,41 +2547,8 @@ function IncomingCallsSection() {
   );
 }
 
-/**
- * ПОДСКАЗКА АГЕНТУ О ЗВОНЯЩЕМ (владелец 20.08.2026: «агент ответил на звонок, но даже
- * не знает, с кем общается»).
- *
- * Три вещи, которые этот экран обязан показывать живыми данными, а не обещаниями:
- * ЧТО именно услышит агент (настоящая фраза о настоящем клиенте), СКОЛЬКО это секунд
- * (клиент в это время слушает гудки) и ДОХОДИТ ЛИ всё это до станции. Настройка, про
- * которую нельзя понять, работает она или нет, уже стоила агентству двух суток тишины
- * вместо музыки ожидания (15.08.2026) — здесь этой ошибки быть не должно.
- */
-const WHISPER_PARTS_UI = [
-  { key: "label", title: "«Исходящий»", hint: "Метка направления. На входящих не звучит: агент и так знает, что ему звонят." },
-  { key: "name", title: "Имя", hint: "Всегда первым — если агент отвлёкся, услышать он должен имя." },
-  { key: "role", title: "Покупатель или продавец", hint: "«харидор» / «фурӯшанда»." },
-  { key: "anchor", title: "Объект и район", hint: "«манзил дар Сомонӣ» — то, чем клиент отличается от остальных." },
-  { key: "budget", title: "Бюджет", hint: "«то 150 ҳазор доллар»." },
-  { key: "promise", title: "Договорённость", hint: "Незакрытое обещание с датой — «ваъда: пагоҳ»." },
-  { key: "recency", title: "Когда общались", hint: "«сӯҳбати охирин: дирӯз»." },
-  { key: "aiHint", title: "Зацепка от ИИ", hint: "Короткая фраза по истории. Пишет модель — она может и ошибиться." },
-] as const;
 
-/** Готовые составы: три частых случая, чтобы не собирать фразу по кубику. */
-const WHISPER_PRESETS = [
-  { title: "Коротко", parts: ["name", "role"] },
-  { title: "Средне", parts: ["name", "role", "anchor"] },
-  { title: "Подробно", parts: ["name", "role", "anchor", "budget", "recency"] },
-] as const;
 
-/** Голоса синтеза, проверенные на таджикском 20.08.2026. */
-export const WHISPER_VOICES = [
-  { value: "Kore", title: "Kore — женский, ровный" },
-  { value: "Charon", title: "Charon — мужской, низкий" },
-  { value: "Orus", title: "Orus — мужской, твёрдый" },
-  { value: "Achernar", title: "Achernar — женский, мягкий" },
-] as const;
 
 /**
  * ВЕСЬ КАТАЛОГ ГОЛОСОВ GEMINI (13.09.2026, «полный выбор голосов») — 30 штук.
@@ -2909,8 +2582,6 @@ function CallWhisperSetting() {
   const enabled = settings?.callWhisperEnabled ?? false;
   const onIncoming = settings?.callWhisperIncoming ?? true;
   const onOutgoing = settings?.callWhisperOutgoing ?? false;
-  const language = (settings?.callWhisperLanguage ?? "tg") as "tg" | "ru";
-  const voice = settings?.callWhisperVoice ?? "Kore";
 
   const { data: status } = useQuery<CallWhisperStatus>({
     queryKey: ["call-whisper"],
@@ -2961,66 +2632,8 @@ function CallWhisperSetting() {
             onToggle={() => updateSettings.mutate({ callWhisperOutgoing: !onOutgoing })}
           />
 
-          {onIncoming && (
-            <WhisperComposition
-              direction="in"
-              title="Что говорить на входящем"
-              parts={settings?.callWhisperIncomingParts ?? ["name", "role", "anchor"]}
-              language={language}
-              voice={voice}
-              pending={updateSettings.isPending}
-              onChange={(parts) => updateSettings.mutate({ callWhisperIncomingParts: parts })}
-            />
-          )}
-
-          {onOutgoing && (
-            <WhisperComposition
-              direction="out"
-              title="Что говорить на исходящем"
-              parts={settings?.callWhisperOutgoingParts ?? ["label", "name", "role"]}
-              language={language}
-              voice={voice}
-              pending={updateSettings.isPending}
-              onChange={(parts) => updateSettings.mutate({ callWhisperOutgoingParts: parts })}
-            />
-          )}
-
-          <div className="mod">
-            <div className="t">
-              <b>Язык и голос</b>
-              <span style={{ whiteSpace: "normal" }}>
-                У каждого сотрудника язык можно поменять в его карточке (Настройки → Сотрудники), там же есть «не
-                играть мне».
-              </span>
-            </div>
-            <div className="acts">
-              <select
-                className="inp"
-                style={{ maxWidth: 160 }}
-                aria-label="Язык подсказки по умолчанию"
-                value={language}
-                onChange={(e) => updateSettings.mutate({ callWhisperLanguage: e.target.value })}
-                disabled={updateSettings.isPending}
-              >
-                <option value="tg">Таджикский</option>
-                <option value="ru">Русский</option>
-              </select>
-              <select
-                className="inp"
-                style={{ maxWidth: 220 }}
-                aria-label="Голос подсказки"
-                value={voice}
-                onChange={(e) => updateSettings.mutate({ callWhisperVoice: e.target.value })}
-                disabled={updateSettings.isPending}
-              >
-                {WHISPER_VOICES.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.title}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
+          {/* Состав фразы, язык (русский) и голос (Achernar) — константы с 01.11.2026
+              (apps/api/src/lib/settingsConstants.ts). Язык сотрудника — в его карточке. */}
 
           <div className="card flat">
             <div className="sec-h stack">
@@ -3064,130 +2677,6 @@ function CallWhisperSetting() {
   );
 }
 
-/**
- * Состав фразы и живой предпросмотр.
- *
- * Фраза показывается НА НАСТОЯЩЕМ КЛИЕНТЕ и обновляется на каждое переключение —
- * бесплатно, потому что текст собирается сервером без синтеза речи. Озвучка стоит
- * денег, поэтому звук — только по кнопке.
- */
-function WhisperComposition({
-  direction,
-  title,
-  parts,
-  language,
-  voice,
-  pending,
-  onChange,
-}: {
-  direction: "in" | "out";
-  title: string;
-  parts: string[];
-  language: "tg" | "ru";
-  voice: string;
-  pending: boolean;
-  onChange: (parts: string[]) => void;
-}) {
-  const [playing, setPlaying] = useState(false);
-  const [playError, setPlayError] = useState<string | null>(null);
-
-  const preview = useQuery<{ text: string; clientName: string }>({
-    queryKey: ["call-whisper-preview", direction, language, [...parts].sort().join(",")],
-    queryFn: () =>
-      api<{ text: string; clientName: string }>("/settings/call-whisper/preview", {
-        method: "POST",
-        body: { direction, language, parts, voice },
-      }),
-    retry: false,
-  });
-
-  const toggle = (key: string) => {
-    onChange(parts.includes(key) ? parts.filter((p) => p !== key) : [...parts, key]);
-  };
-
-  const listen = async () => {
-    setPlaying(true);
-    setPlayError(null);
-    try {
-      const result = await api<{ audioBase64: string; sampleRateHz: number }>("/settings/call-whisper/preview", {
-        method: "POST",
-        body: { direction, language, parts, voice, speak: true },
-      });
-      const url = pcmBase64ToWavUrl(result.audioBase64, result.sampleRateHz);
-      const audio = new Audio(url);
-      // Ссылку освобождаем после проигрывания: иначе каждый клик оставляет в памяти
-      // вкладки по файлу, и за день их накапливается сотня.
-      audio.addEventListener("ended", () => URL.revokeObjectURL(url), { once: true });
-      await audio.play();
-    } catch {
-      setPlayError("Не удалось озвучить — проверьте ключ Gemini и «Здоровье системы».");
-    } finally {
-      setPlaying(false);
-    }
-  };
-
-  // На исходящем метка направления уместна, на входящем — нет (см. WHISPER_PARTS_UI).
-  const available = WHISPER_PARTS_UI.filter((part) => part.key !== "label" || direction === "out");
-
-  return (
-    <div className="card flat">
-      <div className="sec-h stack">
-        <h2>{title}</h2>
-        <span className="note">Готовые составы: три частых случая, чтобы не собирать фразу по кубику</span>
-      </div>
-
-      <div className="seg" role="group" aria-label={`Готовые составы: ${title}`}>
-        {WHISPER_PRESETS.map((preset) => (
-          <button
-            key={preset.title}
-            type="button"
-            disabled={pending}
-            onClick={() => onChange(direction === "out" ? ["label", ...preset.parts] : [...preset.parts])}
-          >
-            {preset.title}
-          </button>
-        ))}
-      </div>
-
-      {available.map((part) => (
-        <SwitchRow
-          key={part.key}
-          title={part.title}
-          on={parts.includes(part.key)}
-          hint={part.hint}
-          onToggle={() => toggle(part.key)}
-        />
-      ))}
-
-      <div className="grp-lab">Агент услышит</div>
-      {preview.data ? (
-        <div className="quiet">
-          <span className="dot ok" />
-          <span className="txt">
-            «{preview.data.text}» Пример собран по карточке клиента {preview.data.clientName}.
-          </span>
-        </div>
-      ) : (
-        <div className="quiet">
-          <span className="dot" />
-          <span className="txt">
-            {preview.isError ? "Показать не на ком: нет клиента с ответственным агентом." : "Собираем фразу…"}
-          </span>
-        </div>
-      )}
-      <div className="wrap" style={{ marginTop: "var(--s2)" }}>
-        <button className="pill ghost sm" type="button" onClick={listen} disabled={playing || !preview.data}>
-          {playing ? "Озвучиваем…" : "Прослушать"}
-        </button>
-        {playError && (
-          <span className="saved" style={{ color: "var(--crit)" }}>
-            {playError}
-          </span>
-        )}
-      </div>
-    </div>
-  );
-}
 
 /**
  * НОЧНОЙ РЕЖИМ (владелец 14.08.2026: «когда нас нет — звук автоответчика»).

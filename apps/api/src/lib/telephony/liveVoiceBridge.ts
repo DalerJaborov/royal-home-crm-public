@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import type { AddressInfo } from "node:net";
 import WebSocket from "ws";
 import { prisma } from "../../db.js";
+import { LIVE_VOICE_TUNING } from "../settingsConstants.js";
 import {
   addChannelToBridge,
   answerChannel,
@@ -1705,14 +1706,9 @@ async function loadLiveVoiceSettings(): Promise<LiveVoiceGateSettings | null> {
         where: { id: "singleton" },
         select: {
           liveVoiceEnabled: true,
-          liveVoiceTestExtension: true,
           liveVoicePrompt: true,
           liveVoiceVoiceName: true,
           liveVoiceVoiceNameTajik: true,
-          liveVoiceForceRussianOnly: true,
-          liveVoiceBreathEnabled: true,
-          liveVoiceOfficeAmbienceEnabled: true,
-          liveVoiceOfficeAmbienceVolume: true,
           liveVoiceInboundMode: true,
         },
       }),
@@ -1724,14 +1720,16 @@ async function loadLiveVoiceSettings(): Promise<LiveVoiceGateSettings | null> {
     if (!settings) return null;
     return {
       liveVoiceEnabled: settings.liveVoiceEnabled,
-      liveVoiceTestExtension: settings.liveVoiceTestExtension,
       liveVoicePrompt: settings.liveVoicePrompt,
       liveVoiceVoiceName: settings.liveVoiceVoiceName,
       liveVoiceVoiceNameTajik: settings.liveVoiceVoiceNameTajik,
-      liveVoiceForceRussianOnly: settings.liveVoiceForceRussianOnly,
-      liveVoiceOfficeAmbienceEnabled: settings.liveVoiceOfficeAmbienceEnabled,
-      liveVoiceOfficeAmbienceVolume: settings.liveVoiceOfficeAmbienceVolume,
-      liveVoiceBreathEnabled: settings.liveVoiceBreathEnabled,
+      // Тестовый номер, замок «только русский» и звуковое оформление —
+      // константы с 01.11.2026 (lib/settingsConstants.ts), колонки не читаются.
+      liveVoiceTestExtension: LIVE_VOICE_TUNING.testExtension,
+      liveVoiceForceRussianOnly: LIVE_VOICE_TUNING.forceRussianOnly,
+      liveVoiceOfficeAmbienceEnabled: LIVE_VOICE_TUNING.officeAmbienceEnabled,
+      liveVoiceOfficeAmbienceVolume: LIVE_VOICE_TUNING.officeAmbienceVolume,
+      liveVoiceBreathEnabled: LIVE_VOICE_TUNING.breathEnabled,
       liveVoiceInboundMode: settings.liveVoiceInboundMode,
     };
   } catch (err) {

@@ -17,6 +17,7 @@ import { clearLoginFailures, recordLoginFailure, throttleLoginIfNeeded } from ".
 import { ackLoginCodePush, issueLoginCode, maskPhoneForHint, verifyLoginCode } from "../lib/loginSmsCode.js";
 import { toSmsPhone } from "../lib/sms/index.js";
 import { buildAuthenticationOptions, verifyAuthentication, passkeyLoginEnabled } from "../lib/passkeys.js";
+import { STEP_UP_MINUTES } from "../lib/settingsConstants.js";
 
 export const authRouter = Router();
 
@@ -79,13 +80,11 @@ export async function issueSession(req: import("express").Request, res: import("
  * Вход кодом, кодом из приложения или отпечатком — это и есть свежее подтверждение
  * личности: человек секунду назад доказал, кто он. Поэтому сразу открываем окно
  * подтверждения (то же, что даёт /auth/step-up), и привязать отпечаток можно без
- * второго кода. Срок берётся из Настроек; отказ базы — значение по умолчанию.
+ * второго кода. Срок — константа STEP_UP_MINUTES (lib/settingsConstants.ts).
  */
 async function grantFreshElevation(agentId: string): Promise<void> {
-  const settings = await prisma.settings
-    .findUnique({ where: { id: "singleton" }, select: { stepUpMinutes: true } })
-    .catch(() => null);
-  grantElevation(agentId, settings?.stepUpMinutes);
+  // Срок окна — константа с 01.11.2026 (lib/settingsConstants.ts).
+  grantElevation(agentId, STEP_UP_MINUTES);
 }
 
 const DUMMY_HINT = maskPhoneForHint("000000000");
@@ -460,10 +459,8 @@ authRouter.post("/step-up", requireAuth, async (req, res) => {
   // системы десять минут истекали прямо посреди работы (решение владельца
   // 01.08.2026). Отказ базы не повод не пустить — просто действует значение по
   // умолчанию, оно же самое строгое.
-  const settings = await prisma.settings
-    .findUnique({ where: { id: "singleton" }, select: { stepUpMinutes: true } })
-    .catch(() => null);
-  grantElevation(agent.id, settings?.stepUpMinutes);
+  // Срок окна — константа с 01.11.2026 (lib/settingsConstants.ts).
+  grantElevation(agent.id, STEP_UP_MINUTES);
   res.json({ elevated: true });
 });
 

@@ -1,6 +1,7 @@
 import net from "node:net";
 import { decryptSecretSafe } from "../../crypto.js";
 import { prisma } from "../../db.js";
+import { ASTERISK_AMI_PORT } from "../settingsConstants.js";
 
 /**
  * Управление станцией из CRM — Asterisk Manager Interface (AMI).
@@ -42,14 +43,13 @@ export interface AmiCredentials {
 /**
  * Адрес станции берётся из настроек ARI: станция одна, и держать один и тот же
  * хост в двух полях значит рано или поздно развести их руками. Отдельно задаётся
- * только порт (у AMI он свой — 5038).
+ * только порт (у AMI он свой — 5038, константа с 01.11.2026 в lib/settingsConstants.ts).
  */
 export async function loadAmiCredentials(): Promise<AmiCredentials | null> {
   const settings = await prisma.settings.findUnique({
     where: { id: "singleton" },
     select: {
       asteriskAriUrl: true,
-      asteriskAmiPort: true,
       asteriskAmiUsername: true,
       asteriskAmiPassword: true,
     },
@@ -63,7 +63,7 @@ export async function loadAmiCredentials(): Promise<AmiCredentials | null> {
     return null;
   }
   if (!host) return null;
-  return { host, port: settings.asteriskAmiPort, username: settings.asteriskAmiUsername, password };
+  return { host, port: ASTERISK_AMI_PORT, username: settings.asteriskAmiUsername, password };
 }
 
 /** Один пакет протокола: `Ключ: значение` до пустой строки. Ключи регистронезависимы. */

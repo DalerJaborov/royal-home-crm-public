@@ -33,6 +33,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import sharp, { type OverlayOptions } from "sharp";
 import { prisma } from "../../db.js";
+import { OPENAI_COVER_TUNING } from "../settingsConstants.js";
 import { propertyCoversDir, uploadsDir } from "../../upload.js";
 import { logSystemError } from "../systemError.js";
 import { describeError } from "../describeError.js";
@@ -49,8 +50,6 @@ import {
   imageCostFromUsage,
   type ImageUsage,
   type OpenAiImageModel,
-  isOpenAiImageModel,
-  isOpenAiImageQuality,
   logOpenAiCall,
   openAiPost,
   resolveOpenAiKey,
@@ -1386,22 +1385,22 @@ export interface CoverRuntimeSettings {
 export async function loadCoverRuntimeSettings(): Promise<CoverRuntimeSettings> {
   const s = await prisma.settings.findUnique({
     where: { id: "singleton" },
-    select: { coverGenerationEnabled: true, coverProvider: true, coverPhotoRedraw: true, coverReferenceSquareUrl: true, coverReferenceStoryUrl: true, openaiImageQuality: true, openaiCoverDailyLimit: true, openaiCandidates: true, openaiTextMode: true, openaiPhotoSource: true, openaiImageModel: true, companyLogoUrl: true },
+    select: { coverGenerationEnabled: true, coverProvider: true, coverPhotoRedraw: true, coverReferenceSquareUrl: true, coverReferenceStoryUrl: true, openaiCoverDailyLimit: true, companyLogoUrl: true },
   });
-  const textMode: CoverTextMode = isCoverTextMode(s?.openaiTextMode) ? s.openaiTextMode : "MODEL";
   return {
     coverGenerationEnabled: s?.coverGenerationEnabled ?? true,
     coverPhotoRedraw: s?.coverPhotoRedraw ?? true,
     coverReferenceSquareUrl: s?.coverReferenceSquareUrl ?? null,
     coverReferenceStoryUrl: s?.coverReferenceStoryUrl ?? null,
     coverProvider: (COVER_PROVIDERS as readonly string[]).includes(s?.coverProvider ?? "") ? (s!.coverProvider as CoverProvider) : DEFAULT_COVER_PROVIDER,
-    openaiImageQuality: isOpenAiImageQuality(s?.openaiImageQuality) ? s.openaiImageQuality : "high",
     openaiCoverDailyLimit: s?.openaiCoverDailyLimit ?? 60,
-    // Пусто — по режиму: OVERLAY 1, MODEL 2 (владелец, v3).
-    openaiCandidates: s?.openaiCandidates === 1 || s?.openaiCandidates === 2 ? s.openaiCandidates : defaultCandidates(textMode),
-    openaiTextMode: textMode,
-    openaiPhotoSource: isCoverPhotoSource(s?.openaiPhotoSource) ? s.openaiPhotoSource : "ORIGINAL",
-    openaiImageModel: isOpenAiImageModel(s?.openaiImageModel) ? s.openaiImageModel : COVER_IMAGE_MODEL,
+    // Внутренние параметры генерации — константы с 01.11.2026 (lib/settingsConstants.ts,
+    // значения прода); колонки Settings.openai* (кроме лимита) не читаются.
+    openaiImageQuality: OPENAI_COVER_TUNING.imageQuality,
+    openaiCandidates: OPENAI_COVER_TUNING.candidates,
+    openaiTextMode: OPENAI_COVER_TUNING.textMode,
+    openaiPhotoSource: OPENAI_COVER_TUNING.photoSource,
+    openaiImageModel: OPENAI_COVER_TUNING.imageModel,
     companyLogoUrl: s?.companyLogoUrl ?? null,
   };
 }

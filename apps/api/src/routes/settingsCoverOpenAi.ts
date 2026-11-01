@@ -22,7 +22,6 @@ import { requireElevation } from "../lib/stepUp.js";
 import { encryptSecret, decryptSecretSafe } from "../crypto.js";
 import { logAudit } from "../lib/audit.js";
 import { maskKey } from "../lib/maskSecret.js";
-import { OPENAI_IMAGE_MODELS } from "../ai/openaiClient.js";
 import { upload, uploadsDir } from "../upload.js";
 import {
   COVER_CHECK_ENDPOINT,
@@ -102,18 +101,15 @@ const updateSchema = z.object({
   provider: z.enum(COVER_PROVIDERS).optional(),
   /** Фото под наш шаблон перерисовывает ChatGPT «как для журнала» (29.09.2026). */
   photoRedraw: z.boolean().optional(),
-  quality: z.enum(["low", "medium", "high"]).optional(),
   dailyLimit: z.number().int().min(0).max(1000).optional(),
-  candidates: z.union([z.literal(1), z.literal(2)]).optional(),
-  textMode: z.enum(["OVERLAY", "MODEL"]).optional(),
-  photoSource: z.enum(["ORIGINAL", "MODEL"]).optional(),
-  imageModel: z.enum(OPENAI_IMAGE_MODELS).optional(),
+  // Качество, кандидаты, режим текста, фон и модель — константы с 01.11.2026
+  // (lib/settingsConstants.ts): здесь их больше не принимают.
 });
 
 coverOpenAiRouter.put("/openai", requireAuth, requirePermission("settings.manage"), requireElevation, async (req, res) => {
   const parsed = updateSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Проверьте поля", details: parsed.error.flatten() });
-  const { apiKey, enabled, provider, photoRedraw, quality, dailyLimit, candidates, textMode, photoSource, imageModel } = parsed.data;
+  const { apiKey, enabled, provider, photoRedraw, dailyLimit } = parsed.data;
   await prisma.settings.update({
     where: { id: "singleton" },
     data: {
@@ -121,12 +117,7 @@ coverOpenAiRouter.put("/openai", requireAuth, requirePermission("settings.manage
       ...(enabled !== undefined ? { coverGenerationEnabled: enabled } : {}),
       ...(provider !== undefined ? { coverProvider: provider } : {}),
       ...(photoRedraw !== undefined ? { coverPhotoRedraw: photoRedraw } : {}),
-      ...(quality !== undefined ? { openaiImageQuality: quality } : {}),
       ...(dailyLimit !== undefined ? { openaiCoverDailyLimit: dailyLimit } : {}),
-      ...(candidates !== undefined ? { openaiCandidates: candidates } : {}),
-      ...(textMode !== undefined ? { openaiTextMode: textMode } : {}),
-      ...(photoSource !== undefined ? { openaiPhotoSource: photoSource } : {}),
-      ...(imageModel !== undefined ? { openaiImageModel: imageModel } : {}),
     },
   });
   logAudit(req, "COVER_OPENAI_SETTINGS", "Settings", "singleton", {
@@ -134,12 +125,7 @@ coverOpenAiRouter.put("/openai", requireAuth, requirePermission("settings.manage
     ...(enabled !== undefined ? { enabled } : {}),
     ...(provider !== undefined ? { provider } : {}),
     ...(photoRedraw !== undefined ? { photoRedraw } : {}),
-    ...(quality !== undefined ? { quality } : {}),
     ...(dailyLimit !== undefined ? { dailyLimit } : {}),
-    ...(candidates !== undefined ? { candidates } : {}),
-    ...(textMode !== undefined ? { textMode } : {}),
-    ...(photoSource !== undefined ? { photoSource } : {}),
-    ...(imageModel !== undefined ? { imageModel } : {}),
   });
   res.json({ ok: true });
 });

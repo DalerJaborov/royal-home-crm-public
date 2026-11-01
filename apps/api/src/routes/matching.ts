@@ -1,5 +1,5 @@
 import type { MatchingClient, MatchingClientsResponse } from "@royal-home/shared";
-import { propertyFieldShown } from "@royal-home/shared";
+import { MATCH_SCORE_WEIGHTS, propertyFieldShown } from "@royal-home/shared";
 import type { Prisma } from "../generated/prisma/client.js";
 import { prisma } from "../db.js";
 import { loadMoneyContext, toTjs, type MoneyContext } from "../lib/money.js";
@@ -158,40 +158,14 @@ export interface MatchWeights {
   distance: number;
 }
 
-/** Умолчания — те самые числа, что раньше были зашиты в код: рефакторинг
- *  13.08.2026 обязан был оставить их прежними (см. matching-score.test.ts).
- *  distance добавлен 12.09.2026 — значение то же, что у Settings.matchScoreDistance. */
-export const DEFAULT_MATCH_WEIGHTS: MatchWeights = {
-  base: 40,
-  district: 25,
-  rooms: 20,
-  budget: 15,
-  hotBonus: 10,
-  distance: 25,
-};
+/** Веса шкалы — константа с 01.11.2026 (MATCH_SCORE_WEIGHTS в packages/shared, значения прода;
+ *  они же — числа, зашитые до рефакторинга 13.08.2026, см. matching-score.test.ts).
+ *  Колонки Settings.matchScore* больше не читаются. */
+export const DEFAULT_MATCH_WEIGHTS: MatchWeights = { ...MATCH_SCORE_WEIGHTS };
 
-/** Веса из Настроек — с откатом на умолчания для полей, которых ещё нет в
- *  строке (например, старая Settings-строка без миграции на новые поля). */
+/** Веса шкалы совпадения. Асинхронная подпись оставлена ради вызывающих. */
 export async function loadMatchWeights(): Promise<MatchWeights> {
-  const s = await prisma.settings.findUnique({
-    where: { id: "singleton" },
-    select: {
-      matchScoreBase: true,
-      matchScoreDistrict: true,
-      matchScoreRooms: true,
-      matchScoreBudget: true,
-      matchScoreHotBonus: true,
-      matchScoreDistance: true,
-    },
-  });
-  return {
-    base: s?.matchScoreBase ?? DEFAULT_MATCH_WEIGHTS.base,
-    district: s?.matchScoreDistrict ?? DEFAULT_MATCH_WEIGHTS.district,
-    rooms: s?.matchScoreRooms ?? DEFAULT_MATCH_WEIGHTS.rooms,
-    budget: s?.matchScoreBudget ?? DEFAULT_MATCH_WEIGHTS.budget,
-    hotBonus: s?.matchScoreHotBonus ?? DEFAULT_MATCH_WEIGHTS.hotBonus,
-    distance: s?.matchScoreDistance ?? DEFAULT_MATCH_WEIGHTS.distance,
-  };
+  return { ...DEFAULT_MATCH_WEIGHTS };
 }
 
 /**
