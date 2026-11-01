@@ -36,17 +36,26 @@ describe("Somon seller evidence", () => {
     expect(owner("Хозяин, комиссии нет")).toBe("likely_owner");
     expect(owner("Собственник, бе комиссия, без риелторов")).toBe("likely_owner");
   });
-  it("marks an advert with commission or intermediary words as an agency", () => {
+  it("rejects only explicit self-presentation or a stated fee as an agency", () => {
     expect(owner("Собственник. Комиссия 2%")).toBe("agency");
-    expect(owner("Продаётся, работаю как посредник")).toBe("agency");
     expect(owner("Комиссия 3 процента")).toBe("agency");
-    expect(owner("Квартира от риелтора")).toBe("agency");
+    expect(owner("Я риелтор, помогу купить")).toBe("agency");
+    expect(owner("Мы агентство недвижимости")).toBe("agency");
     expect(owner("Агент по недвижимости, звоните в офис")).toBe("agency");
     expect(owner("Наша компания продаёт квартиры")).toBe("agency");
     expect(owner("Собственник", "Агентство Дом")).toBe("agency");
-    expect(owner("Продаю через маклера")).toBe("agency");
-    expect(owner("Real estate Dushanbe")).toBe("agency");
-    expect(owner("Продаю, исключая посредников")).toBe("likely_owner");
+  });
+  it("sends other intermediary mentions to review, not to a hard rejection", () => {
+    expect(owner("Продаётся, работаю как посредник")).toBe("review");
+    expect(owner("Квартира от риелтора")).toBe("review");
+    expect(owner("Продаю через маклера")).toBe("review");
+    expect(owner("Real estate Dushanbe")).toBe("review");
+    expect(owner("Есть комиссия")).toBe("review");
+  });
+  it("does not mistake common owner phrases for an agency", () => {
+    for (const phrase of ["Без комиссии и посредников", "без посредников и комиссии", "Без агентств и комиссий", "Комиссия не нужна", "без всяких риелторов", "Услуги риелтора не нужны", "не через агентство", "Риелторы - мимо", "Комиссионный магазин рядом", "Продаю, исключая посредников"]) {
+      expect(owner(phrase), phrase).toBe("likely_owner");
+    }
   });
   it("treats lists and 'do not disturb' phrases about intermediaries as owner signals", () => {
     expect(owner("Собственник, без посредников и риелторов")).toBe("likely_owner");

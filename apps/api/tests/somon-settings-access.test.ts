@@ -50,12 +50,24 @@ describe("Somon settings access", () => {
       expect(status.status).toBe(200);
       expect(status.body.sellerReviewCount).toBeGreaterThanOrEqual(1);
       expect(status.body.sellerReview).toContainEqual({ advertId, sourceUrl: `https://somon.tj/adv/${advertId}_stand/` });
+      expect(typeof status.body.sellerUnknown).toBe("number");
       expect((await request(app).post(`/settings/somon/seller-review/${advertId}/resolve`).set("Authorization", auth)).status).toBe(428);
       grantElevation(adminId);
       expect((await request(app).post(`/settings/somon/seller-review/${advertId}/resolve`).set("Authorization", auth)).status).toBe(200);
       const seen = await prisma.somonSeenAdvert.findUniqueOrThrow({ where: { advertId } });
       expect(seen.status).toBe("REJECTED"); expect(seen.slug).toBeNull();
     } finally { revokeElevation(adminId); await prisma.somonSeenAdvert.deleteMany({ where: { advertId } }); }
+  });
+  it("counts adverts waiting for the author key next to pending ones", async () => {
+    const advertId = String(Date.now()) + "98765";
+    try {
+      const auth = `Bearer ${adminToken}`;
+      const before = (await request(app).get("/settings/somon/status").set("Authorization", auth)).body.sellerUnknown;
+      await prisma.somonSeenAdvert.create({ data: { advertId, slug: `${advertId}_stand`, status: "SELLER_UNKNOWN" } });
+      const status = await request(app).get("/settings/somon/status").set("Authorization", auth);
+      expect(status.status).toBe(200);
+      expect(status.body.sellerUnknown).toBe(before + 1);
+    } finally { await prisma.somonSeenAdvert.deleteMany({ where: { advertId } }); }
   });
   it("requires elevation, validates the list, and starts only with a linked agent", async () => {
     const url = "/settings/somon/recipients", auth = `Bearer ${adminToken}`;

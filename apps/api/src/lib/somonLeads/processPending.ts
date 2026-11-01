@@ -40,7 +40,10 @@ export async function processSomonPending(advertId: string, pause: (ms: number) 
     return "skipped";
   }
   if (!somonCategoryCountAllowsOwner(categoryAdverts)) {
-    await prisma.somonSeenAdvert.updateMany({ where: { advertId, status: "PENDING" }, data: { status: "REJECTED", slug: null, sellerCheck: Prisma.DbNull } });
+    // Несколько объявлений автора в категории — «проверить», не отказ: это может быть и
+    // перевыложенная квартира собственника. Ссылку сохраняем для ручной проверки
+    // (тот же REVIEW_SELLER, что у PR56); агенту не уходит, штатный исход — без записи в журнал ошибок.
+    await prisma.somonSeenAdvert.updateMany({ where: { advertId, status: "PENDING" }, data: { status: "REVIEW_SELLER", sellerCheck: Prisma.DbNull } });
     return "skipped";
   }
   let source: Response;

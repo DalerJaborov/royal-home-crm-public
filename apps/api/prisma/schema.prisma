@@ -10648,7 +10648,8 @@ model SomonSeenAdvert {
   status    String   @default("PENDING")
   sellerCheck Json?
   lastCheckedAt DateTime?
-  // HMAC от ID автора из выдачи категории (сам ID не храним) — счёт объявлений автора в категории.
+  // HMAC от ID автора из выдачи категории — счёт объявлений автора в категории. Сырой ID здесь не пишется
+  // (временно он есть только в sellerCheck на время проверки профиля и обнуляется на конечных статусах).
   sellerKey String?
 
   @@index([seenAt])

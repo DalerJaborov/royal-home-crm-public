@@ -1,4 +1,4 @@
--- Ключ автора объявления (HMAC от ID пользователя Somon, сам ID не храним):
+-- Ключ автора объявления (HMAC от ID пользователя Somon; сырой ID в этой колонке не пишется):
 -- считаем, сколько объявлений одного автора видно в категории «Квартиры, продажа, Душанбе».
 ALTER TABLE "SomonSeenAdvert" ADD COLUMN "sellerKey" TEXT;
 CREATE INDEX "SomonSeenAdvert_sellerKey_idx" ON "SomonSeenAdvert"("sellerKey");

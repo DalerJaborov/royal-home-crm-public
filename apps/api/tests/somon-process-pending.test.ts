@@ -115,8 +115,11 @@ describe("Somon pending flow on isolated database", () => {
         { advertId: extra[1], slug: `${extra[1]}_stand`, status: "PENDING", baseline: false, sellerKey: somonSellerKey("7011") },
       ] });
       mocks.detail.mockImplementation(async (url: string) => new Response(JSON.stringify(fakeCard(/(\d{9})_/.exec(url)![1]))));
+      // Перевыложенная квартира (счёт 2) — на ручную проверку со ссылкой, не отказ.
       expect(await processSomonPending(extra[1], async () => {})).toBe("skipped");
-      expect((await prisma.somonSeenAdvert.findUnique({ where: { advertId: extra[1] } }))?.status).toBe("REJECTED");
+      const relisted = await prisma.somonSeenAdvert.findUnique({ where: { advertId: extra[1] } });
+      expect(relisted?.status).toBe("REVIEW_SELLER");
+      expect(relisted?.slug).toBe(`${extra[1]}_stand`);
       await prisma.somonSeenAdvert.create({ data: { advertId: extra[2], slug: `${extra[2]}_stand`, status: "PENDING", baseline: false } });
       // Неизвестный автор — не отказ навсегда: отложено, ссылка сохранена до появления автора.
       expect(await processSomonPending(extra[2], async () => {})).toBe("skipped");
@@ -240,10 +243,10 @@ describe("Somon pending flow on isolated database", () => {
       expect((await prisma.somonMonitor.findUniqueOrThrow({ where: { id: "singleton" } })).sellerKeyRekeyPage).toBeNull();
       expect((await prisma.somonSeenAdvert.findUniqueOrThrow({ where: { advertId: old } })).sellerKey).toBe(somonSellerKey("7101"));
       expect((await prisma.somonSeenAdvert.findUniqueOrThrow({ where: { advertId: multi } })).status).toBe("PENDING");
-      // Теперь счёт честный (2 в категории) — отказ без запросов к сайту.
+      // Теперь счёт честный (2 в категории) — на ручную проверку без запросов к сайту.
       mocks.detail.mockClear();
       expect(await processSomonPending(multi, async () => {})).toBe("skipped");
-      expect((await prisma.somonSeenAdvert.findUniqueOrThrow({ where: { advertId: multi } })).status).toBe("REJECTED");
+      expect((await prisma.somonSeenAdvert.findUniqueOrThrow({ where: { advertId: multi } })).status).toBe("REVIEW_SELLER");
       expect(mocks.detail).not.toHaveBeenCalled();
       expect(mocks.sendPhoto).toHaveBeenCalledTimes(1);
     } finally {
