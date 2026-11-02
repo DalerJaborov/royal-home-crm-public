@@ -90,6 +90,7 @@ import { searchConsoleRouter, searchConsoleCallbackRouter, yandexCallbackRouter 
 import { budgetWebhookRouter } from "./routes/budgetWebhook.js";
 import { oversightRouter } from "./routes/oversight.js";
 import { insightsRouter } from "./routes/insights.js";
+import { marketRouter } from "./routes/market.js";
 import { propertyShareRouter } from "./routes/propertyShare.js";
 import { ownerReportPublicRouter } from "./routes/ownerReportPublic.js";
 import { eventsRouter } from "./routes/events.js";
@@ -791,6 +792,7 @@ app.use("/api/v1/vacancies", vacanciesRouter);
 // переводы в Неактивные, передачи. Право dashboard.analytics — внутри роутера.
 app.use("/api/v1/oversight", oversightRouter);
 app.use("/api/v1/insights", insightsRouter);
+app.use("/api/v1/market", marketRouter);
 /**
  * Приватная ссылка на объект (docs/plan-18-08-private-listings-and-video.md §4) —
  * БЕЗ requireAuth, клиент её открывает без входа в CRM. Публичный маршрут, читающий

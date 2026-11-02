@@ -1,9 +1,9 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 725,
-  "forks": 3966,
-  "mounts": 79,
+  "endpoints": 727,
+  "forks": 3970,
+  "mounts": 80,
   "cron": 116,
   "jobs": 31,
   "hidden": 0
@@ -39752,6 +39752,166 @@
        ]
       }
      ]
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/estimate",
+   "mount": "/api/v1/market",
+   "full": "/api/v1/market/estimate",
+   "file": "apps/api/src/routes/market.ts",
+   "router": "marketRouter",
+   "top": "apps/api/src/routes/market.ts::marketRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const parsed = querySchema.safeParse(req.query);",
+     "a": [
+      "проверяет данные схемой querySchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Неверные параметры\", details: parsed.error.flatten() });",
+       "a": [
+        "ответ 400 — «Неверные параметры»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const comps = await estimateFromComps({ districtName: districtName ?? null, rooms: rooms ?? null, areaSqm: ar…",
+     "a": [
+      "зовёт estimateFromComps()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ ...comps, listings: comps.listings.slice(0, 5), comparison: priceTjs !== undefined ? comparePrice(…",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/property/:id",
+   "mount": "/api/v1/market",
+   "full": "/api/v1/market/property/:id",
+   "file": "apps/api/src/routes/market.ts",
+   "router": "marketRouter",
+   "top": "apps/api/src/routes/market.ts::marketRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const where = cardWhereFromParam(String(req.params.id));",
+     "a": [
+      "зовёт cardWhereFromParam()"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!where",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Объект не найден\" });",
+       "a": [
+        "ответ 404 — «Объект не найден»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const p = await prisma.property.findUnique({ where, select: { type: true, rooms: true, areaSqm: true, floor: …",
+     "a": [
+      "читает в базе: property"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!p || (p.deletedAt && !can(req, \"archive.view\"))",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Объект не найден\" });",
+       "a": [
+        "ответ 404 — «Объект не найден»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const money = await loadMoneyContext();",
+     "a": [
+      "зовёт loadMoneyContext()"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "(p.type !== \"APARTMENT\" && p.type !== \"HOUSE\") || !(subjectBase.areaSqm > 0)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.json({ subject: { ...subjectBase, propertyType: p.type }, ...emptyResult(\"для этого типа объекта р…",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const result = await findSimilar({ ...subjectBase, propertyType: p.type });",
+     "a": [
+      "зовёт findSimilar()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ subject: { ...subjectBase, propertyType: p.type }, ...result, comparison: result.status === \"ok\" ?…",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
     }
    ]
   },

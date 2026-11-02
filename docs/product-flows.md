@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **725**. Развилок в самих путях: **2534**; вместе с задачами по расписанию и фоновыми заданиями — **3966**. Модулей: **79**.
+Путей: **727**. Развилок в самих путях: **2538**; вместе с задачами по расписанию и фоновыми заданиями — **3970**. Модулей: **80**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -8705,6 +8705,46 @@
 `apps/api/src/routes/manualDataCorrections.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, requireInvestigations, есть право: settings.manage, есть право: clients.viewPhone
 
 - обработчик вынесен: `prepare(false) — раскрыто по коду функции prepare()`
+
+## /api/v1/market
+
+### GET /api/v1/market/estimate
+
+`apps/api/src/routes/market.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- const parsed = querySchema.safeParse(req.query);
+  · проверяет данные схемой querySchema
+- если !parsed.success
+  - return res.status(400).json({ error: "Неверные параметры", details: parsed.error.flatten() });
+    · ответ 400 — «Неверные параметры»
+- const comps = await estimateFromComps({ districtName: districtName ?? null, rooms: rooms ?? null, areaSqm: ar…
+  · зовёт estimateFromComps()
+- res.json({ ...comps, listings: comps.listings.slice(0, 5), comparison: priceTjs !== undefined ? comparePrice(…
+  · ответ 200
+
+### GET /api/v1/market/property/:id
+
+`apps/api/src/routes/market.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- const where = cardWhereFromParam(String(req.params.id));
+  · зовёт cardWhereFromParam()
+- если !where
+  - return res.status(404).json({ error: "Объект не найден" });
+    · ответ 404 — «Объект не найден»
+- const p = await prisma.property.findUnique({ where, select: { type: true, rooms: true, areaSqm: true, floor: …
+  · читает в базе: property
+- если !p || (p.deletedAt && !can(req, "archive.view"))
+  - return res.status(404).json({ error: "Объект не найден" });
+    · ответ 404 — «Объект не найден»
+- const money = await loadMoneyContext();
+  · зовёт loadMoneyContext()
+- если (p.type !== "APARTMENT" && p.type !== "HOUSE") || !(subjectBase.areaSqm > 0)
+  - return res.json({ subject: { ...subjectBase, propertyType: p.type }, ...emptyResult("для этого типа объекта р…
+    · ответ 200
+- const result = await findSimilar({ ...subjectBase, propertyType: p.type });
+  · зовёт findSimilar()
+- res.json({ subject: { ...subjectBase, propertyType: p.type }, ...result, comparison: result.status === "ok" ?…
+  · ответ 200
 
 ## /api/v1/marketing
 

@@ -742,3 +742,75 @@ export interface AppNotification {
   retiredReason?: string | null;
   createdAt: string;
 }
+
+/** Ответ GET /market/estimate (apps/api/src/lib/market/comps.ts::CompsResult + сравнение). */
+export interface MarketEstimate {
+  medianPerSqm: number | null;
+  p25PerSqm: number | null;
+  p75PerSqm: number | null;
+  estimatedPriceTjs: number | null;
+  sampleSize: number;
+  basis: string;
+  level: string;
+  comparison?: { verdict: "below" | "market" | "above" | "unknown"; diffPercent: number | null } | null;
+  listings: {
+    sourceUrl: string;
+    source: string;
+    title: string;
+    rooms: number | null;
+    areaSqm: number | null;
+    floor: number | null;
+    districtName: string | null;
+    priceTjs: number | null;
+    pricePerSqmTjs: number | null;
+  }[];
+}
+
+export type MarketVerdict = "below" | "market" | "above" | "unknown";
+
+/** Одно похожее объявление в блоке «Рынок» карточки объекта. */
+export interface MarketSimilarListing {
+  sourceUrl: string;
+  source: string;
+  title: string;
+  rooms: number | null;
+  areaSqm: number | null;
+  floor: number | null;
+  totalFloors: number | null;
+  repair: string | null;
+  isNewBuilding: boolean | null;
+  buildingReady: boolean | null;
+  districtName: string | null;
+  priceTjs: number | null;
+  pricePerSqmTjs: number | null;
+}
+
+/** Ответ GET /market/property/:id — рынок вокруг одного объекта. */
+export interface MarketPropertyEstimate {
+  subject: {
+    districtName: string | null;
+    rooms: number | null;
+    areaSqm: number;
+    floor: number | null;
+    totalFloors: number | null;
+    repair: string | null;
+    isNewBuilding: boolean | null;
+    propertyType: "APARTMENT" | "HOUSE";
+    askingPriceTjs: number | null;
+  };
+  status: "ok" | "insufficient" | "unsupported";
+  medianPerSqm: number | null;
+  p25PerSqm: number | null;
+  p75PerSqm: number | null;
+  estimatedPriceTjs: number | null;
+  rangeLowTjs: number | null;
+  rangeHighTjs: number | null;
+  sampleSize: number;
+  windowDays: number;
+  basis: string;
+  level: string;
+  sources: { source: string; count: number }[];
+  comparison: { verdict: MarketVerdict; diffPercent: number | null } | null;
+  listings: MarketSimilarListing[];
+  moreCount: number;
+}
