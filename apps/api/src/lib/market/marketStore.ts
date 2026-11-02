@@ -27,6 +27,13 @@ export interface SaveStats {
 /** Недельный полный обход; порог исчезновения — 1,5 интервала (≈ 11 суток). */
 export const CRAWL_INTERVAL_HOURS = 7 * 24;
 export const DISAPPEAR_AFTER_HOURS = Math.ceil(CRAWL_INTERVAL_HOURS * 1.5 / 24) * 24; // 264 ч
+/**
+ * Paydo обходится целиком КАЖДУЮ НОЧЬ (03.11.2026), поэтому порог «исчезло» короче: 3 суток =
+ * мимо трёх ночных обходов подряд. Меньше нельзя — одна неудачная ночь (блок, обрыв, занятый
+ * замок) не должна гасить живые объявления; больше не нужно — сутки обхода уже дают запас.
+ */
+export const PAYDO_CRAWL_INTERVAL_HOURS = 24;
+export const PAYDO_DISAPPEAR_AFTER_HOURS = PAYDO_CRAWL_INTERVAL_HOURS * 3; // 72 ч
 
 /**
  * Ниже этого цена за квадрат — не рынок, а мусор: «1 сомони», «договорная»,
@@ -251,8 +258,10 @@ export async function saveListings(source: string, listings: ParsedListing[]): P
  * объявление «перепрыгивает» через страницу. Поэтому «пропало» — это не «не встретили
  * в последнем обходе», а «не видели дольше 1,5 интервала недельного обхода», то есть
  * мимо ДВУХ полных обходов подряд (вызывать только после успешного ПОЛНОГО обхода).
+ * Порог у каждого источника свой (Somon — недельный обход, Paydo — ночной), поэтому он
+ * обязательный параметр: молчаливое умолчание однажды погасило бы чужой каталог не по сроку.
  */
-export async function markDisappeared(source: string, olderThanHours = DISAPPEAR_AFTER_HOURS): Promise<number> {
+export async function markDisappeared(source: string, olderThanHours: number): Promise<number> {
   const cutoff = new Date(Date.now() - olderThanHours * 3600_000);
   const res = await prisma.marketListing.updateMany({
     where: { source, isActive: true, lastSeenAt: { lt: cutoff } },

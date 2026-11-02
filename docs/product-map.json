@@ -1811,6 +1811,16 @@
       "label": null
     },
     {
+      "id": "market-paydo-daily",
+      "expr": "0 3 * * *",
+      "label": null
+    },
+    {
+      "id": "market-paydo-incremental",
+      "expr": "*/10 * * * *",
+      "label": null
+    },
+    {
       "id": "market-weekly-crawl",
       "expr": "30 2 * * 0",
       "label": null

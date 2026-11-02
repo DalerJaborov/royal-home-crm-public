@@ -1,10 +1,11 @@
 /**
- * ПОЛНЫЙ ОБХОД РЫНКА (раз в неделю): Somon (HTML, через общую дверь `fetchSomon`) + Paydo
- * (JSON API, только чтение).
+ * ПОЛНЫЕ ОБХОДЫ РЫНКА: Somon раз в неделю (HTML, через общую дверь `fetchSomon`) и Paydo
+ * каждую ночь (JSON API, только чтение; с 03.11.2026 отдельно от Somon, см. `runPaydoFullCrawl`).
+ * Новое на Paydo между ночными обходами добирает `paydoIncremental.ts` (раз в 10 минут).
  *
  * Только квартиры и дома в Душанбе (владелец 02.11.2026). Между обходами каталог
  * подпитывает минутный парсер лидов (он отдаёт уже скачанные страницы квартир),
- * поэтому полный обход нужен редко.
+ * поэтому полный обход Somon нужен редко.
  *
  * Правила, которые нельзя ослаблять:
  *  - один прогон за раз во ВСЕХ процессах: замок `pg_try_advisory_xact_lock` держится
@@ -15,16 +16,18 @@
  *    у Somon выдача по смещению, и за 1–2 часа обхода объявление может проскочить
  *    между страницами. Полным считается обход, дошедший до последней страницы, и
  *    не подозрительно маленький (меньше 60 % от того, что источник отдавал раньше —
- *    так ловим молча оборванный обход, например сбой Paydo после ретраев);
+ *    так ловим молча оборванный обход, например сбой Paydo после ретраев).
+ *    У Paydo порог короче — `PAYDO_DISAPPEAR_AFTER_HOURS` (72 ч, мимо трёх ночных обходов);
  *  - прогон ограничен по времени (3 часа) и сам останавливается при потере замка;
  *  - Somon не получает ни одного запроса мимо общего бюджета: 403/429 — стоп без ретраев.
  *
- * Расписание — в cron.ts (раз в неделю, MARKET_CRAWL_ENABLED=1; по умолчанию выключено).
+ * Расписание — в cron.ts (Somon раз в неделю, Paydo ночью, MARKET_CRAWL_ENABLED=1; по умолчанию выключено).
+ * Замок общий для всех: Somon-обход, ночной Paydo, инкремент и ручные скрипты не идут вместе.
  */
 
 import { prisma } from "../../db.js";
 import { logSystemError } from "../systemError.js";
-import { DISAPPEAR_AFTER_HOURS, markDisappeared, saveListings } from "./marketStore.js";
+import { DISAPPEAR_AFTER_HOURS, markDisappeared, PAYDO_DISAPPEAR_AFTER_HOURS, saveListings } from "./marketStore.js";
 import { crawlPaydoSection, PAYDO_SECTIONS } from "./paydoCrawler.js";
 import { PaydoBlockedError, PaydoClient } from "./paydoClient.js";
 import { PAYDO_SOURCE } from "./paydoParser.js";
@@ -39,7 +42,8 @@ const TRUNCATION_RATIO = 0.6;
 const TRUNCATION_MIN_PREVIOUS = 100;
 const HEARTBEAT_MS = 60_000;
 
-let running = false;
+let somonRunning = false;
+let paydoRunning = false;
 
 export type FullCrawlStop = CrawlStop | "paydo_blocked" | "paydo_failed" | "too_small" | "lock_lost";
 
@@ -54,7 +58,6 @@ export interface SourceStats {
 
 export interface FullCrawlStats {
   somon: SourceStats;
-  paydo: SourceStats;
 }
 
 export interface FullCrawlOptions {
@@ -153,7 +156,7 @@ async function crawlSomon(shouldStop: () => boolean, options: FullCrawlOptions):
   return stats;
 }
 
-async function crawlPaydo(shouldStop: () => boolean, lock: CrawlLock): Promise<SourceStats> {
+async function crawlPaydoFull(shouldStop: () => boolean, lock: CrawlLock): Promise<SourceStats> {
   const stats: SourceStats = { saved: 0, pages: 0, complete: true, disappeared: 0 };
   if (shouldStop()) return { ...stats, complete: false, stopReason: lock.isLost() ? "lock_lost" : "deadline" };
   const previous = await previousScopeCount(PAYDO_SOURCE);
@@ -199,28 +202,47 @@ async function crawlPaydo(shouldStop: () => boolean, lock: CrawlLock): Promise<S
     stats.stopReason = "too_small";
     await logSystemError("api", `Полный обход Paydo дал подозрительно мало объявлений (${seen.size} при ${previous} раньше): исчезнувшие не помечены`, { dedupKey: "market-paydo-too-small" });
   }
-  if (stats.complete) stats.disappeared = await markDisappeared(PAYDO_SOURCE, DISAPPEAR_AFTER_HOURS);
+  if (stats.complete) stats.disappeared = await markDisappeared(PAYDO_SOURCE, PAYDO_DISAPPEAR_AFTER_HOURS);
   return stats;
 }
 
-/** null — прогон уже идёт (в этом или другом процессе) и новый не начат. */
+/** null — прогон уже идёт (в этом или другом процессе) и новый не начат. Только Somon: Paydo — `runPaydoFullCrawl`. */
 export async function runMarketFullCrawl(options: FullCrawlOptions = {}): Promise<FullCrawlStats | null> {
-  if (running) return null;
-  running = true;
+  if (somonRunning) return null;
+  somonRunning = true;
   try {
     const maxRuntime = options.maxRuntimeMs ?? MAX_RUNTIME_MS;
     const locked = await withMarketCrawlLock(async (lock) => {
       const deadline = Date.now() + maxRuntime;
       const shouldStop = () => lock.isLost() || Date.now() >= deadline;
       const somon = await crawlSomon(shouldStop, options);
-      const paydo = await crawlPaydo(shouldStop, lock);
-      return { somon, paydo } satisfies FullCrawlStats;
+      return { somon } satisfies FullCrawlStats;
     }, maxRuntime);
     return locked ? locked.value : null;
   } finally {
-    running = false;
+    somonRunning = false;
   }
 }
 
-/** @deprecated прежнее имя; cron.ts переводится на `runMarketFullCrawl` (раз в неделю). */
+/**
+ * Полный обход Paydo (каждую ночь, 03:00): оба раздела до конца выдачи, затем «исчезло» с порогом
+ * 72 ч и страховкой «подозрительно мало» (60 %). null — замок занят (идёт Somon-обход, инкремент или
+ * ручной скрипт) или такой же обход уже идёт здесь: тик тихо пропускается.
+ */
+export async function runPaydoFullCrawl(options: Pick<FullCrawlOptions, "maxRuntimeMs"> = {}): Promise<SourceStats | null> {
+  if (paydoRunning) return null;
+  paydoRunning = true;
+  try {
+    const maxRuntime = options.maxRuntimeMs ?? MAX_RUNTIME_MS;
+    const locked = await withMarketCrawlLock(async (lock) => {
+      const deadline = Date.now() + maxRuntime;
+      return crawlPaydoFull(() => lock.isLost() || Date.now() >= deadline, lock);
+    }, maxRuntime);
+    return locked ? locked.value : null;
+  } finally {
+    paydoRunning = false;
+  }
+}
+
+/** @deprecated прежнее имя; cron.ts использует `runMarketFullCrawl` (Somon) и `runPaydoFullCrawl`. */
 export const runNightlyMarketCrawl = runMarketFullCrawl;
