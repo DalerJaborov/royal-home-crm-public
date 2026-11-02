@@ -12,6 +12,7 @@ const { fetchSomonPhone } = vi.hoisted(() => ({ fetchSomonPhone: vi.fn(async (_i
 vi.mock("../src/lib/somonLeads/phone.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/lib/somonLeads/phone.js")>()),
   fetchSomonPhone,
+  fetchSomonPhoneInteractive: fetchSomonPhone,
 }));
 
 const { app } = await import("../src/app.js");

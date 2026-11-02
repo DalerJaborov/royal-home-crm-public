@@ -86,7 +86,7 @@ function MatchCard({
           </a>
         )}
         {m.sellerPhoneHidden && <span>телефон скрыт правами доступа</span>}
-        <span>на площадке с {new Date(m.firstSeenAt).toLocaleDateString("ru-RU")}</span>
+        <span>на площадке с {new Date(m.firstSeenAt).toLocaleDateString("ru-RU", { timeZone: "Asia/Dushanbe" })}</span>
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
