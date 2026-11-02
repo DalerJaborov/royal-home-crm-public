@@ -69,6 +69,14 @@ describe("pickSimilar", () => {
     expect(r.medianPerSqm).toBeGreaterThan(12_000);
   });
 
+  it("Somon без признака дома подключается на ступени «без ремонта» и это сказано в основании", () => {
+    const rows = [...many(3), ...many(9, { isNewBuilding: null, repair: null, source: "somon.tj" }).map((r, i) => ({ ...r, sourceUrl: `https://example.tj/u${i}` }))];
+    const r = pickSimilar(rows, subject);
+    expect(r.level).toBe("no_repair_unknown_building");
+    expect(r.sampleSize).toBe(12);
+    expect(r.basis).toContain("без указанного типа дома");
+  });
+
   it("дворец 400 м² не оценивается по типовым квартирам", () => {
     const r = pickSimilar(many(20), { ...subject, areaSqm: 400, rooms: 3 });
     expect(r.status).toBe("insufficient");

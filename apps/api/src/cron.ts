@@ -1840,6 +1840,26 @@ export function startCronJobs() {
   );
 
   /**
+   * НОЧНОЙ СБОР РЫНКА (владелец 02.11.2026): Somon + Paydo, квартиры и дома в
+   * Душанбе, для блока «Рынок» в карточке объекта. По умолчанию ВЫКЛЮЧЕН:
+   * включается MARKET_CRAWL_ENABLED=1 в .env сервера после первого ручного прогона.
+   */
+  scheduleTracked(
+    "market-nightly-crawl",
+    "30 2 * * *",
+    async () => {
+      if (process.env.MARKET_CRAWL_ENABLED !== "1") return;
+      try {
+        const { runNightlyMarketCrawl } = await import("./lib/market/nightly.js");
+        await runNightlyMarketCrawl();
+      } catch (err) {
+        markCronTickFailed("Ошибка ночного сбора рынка", err);
+      }
+    },
+    { timezone: "Asia/Dushanbe" }
+  );
+
+  /**
    * ЕЖЕНЕДЕЛЬНОЕ НАПОМИНАНИЕ О ВЕРОЯТНЫХ ДУБЛИКАТАХ (владелец 06.09.2026, разбор
    * слепых зон п.3) — тот же понедельник, что у «Разбора недели» выше, но на
    * 10 минут позже (та же причина: не складывать тяжёлые задачи в одну минуту)

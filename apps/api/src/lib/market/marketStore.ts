@@ -14,6 +14,7 @@
 
 import { prisma } from "../../db.js";
 import { loadMoneyContext, toTjs } from "../money.js";
+import { resolveDistrictByPoint } from "./districtResolver.js";
 import type { ParsedListing } from "./somonParser.js";
 
 export interface SaveStats {
@@ -69,7 +70,8 @@ export async function saveListings(source: string, listings: ParsedListing[]): P
       dealType: l.dealType,
       propertyType: l.propertyType,
       city: l.city,
-      districtName: l.districtName,
+      // Источник район не назвал (Paydo) — берём по координатам.
+      districtName: l.districtName ?? (await resolveDistrictByPoint(l.latitude, l.longitude)),
       landmark: l.landmark,
       rooms: l.rooms,
       areaSqm: l.areaSqm,

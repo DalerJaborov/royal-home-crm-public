@@ -82,6 +82,8 @@ interface Rung {
   name: string;
   keepRepair: boolean;
   keepBuilding: boolean;
+  /** Строки без указанного признака дома (Somon его не отдаёт) считаются подходящими. */
+  unknownBuildingOk?: boolean;
   keepArea: boolean;
   keepRooms: boolean;
 }
@@ -89,6 +91,7 @@ interface Rung {
 const APARTMENT_RUNGS: Rung[] = [
   { name: "exact", keepRepair: true, keepBuilding: true, keepArea: true, keepRooms: true },
   { name: "no_repair", keepRepair: false, keepBuilding: true, keepArea: true, keepRooms: true },
+  { name: "no_repair_unknown_building", keepRepair: false, keepBuilding: true, unknownBuildingOk: true, keepArea: true, keepRooms: true },
   { name: "no_building", keepRepair: false, keepBuilding: false, keepArea: true, keepRooms: true },
   { name: "no_area", keepRepair: false, keepBuilding: false, keepArea: false, keepRooms: true },
 ];
@@ -116,7 +119,9 @@ function matches(row: SimilarRow, subject: Subject, rung: Rung): boolean {
     if (row.areaSqm == null || row.areaSqm < lo || row.areaSqm > hi) return false;
   }
   if (rung.keepRepair && subject.repair && row.repair !== subject.repair) return false;
-  if (rung.keepBuilding && subject.isNewBuilding != null && row.isNewBuilding !== subject.isNewBuilding) return false;
+  if (rung.keepBuilding && subject.isNewBuilding != null && row.isNewBuilding !== subject.isNewBuilding) {
+    if (!(rung.unknownBuildingOk && row.isNewBuilding == null)) return false;
+  }
   return true;
 }
 
@@ -138,6 +143,7 @@ function describe(subject: Subject, rung: Rung, sampleSize: number): string {
   }
   if (rung.keepRepair && subject.repair) parts.push(REPAIR_LABEL[subject.repair]);
   if (rung.keepBuilding && subject.isNewBuilding != null) parts.push(subject.isNewBuilding ? "новостройка" : "старый фонд");
+  if (rung.unknownBuildingOk) parts.push("включая объявления без указанного типа дома");
   return `медиана по ${sampleSize} объявлениям: ${parts.join(", ")}`;
 }
 
