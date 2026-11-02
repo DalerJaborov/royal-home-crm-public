@@ -2,9 +2,9 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 727,
-  "forks": 3970,
+  "forks": 3976,
   "mounts": 80,
-  "cron": 116,
+  "cron": 117,
   "jobs": 31,
   "hidden": 0
  },
@@ -100348,6 +100348,247 @@
         }
        ],
        "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
+      }
+     ]
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
+   "id": "market-nightly-crawl",
+   "when": "30 2 * * *",
+   "tree": [
+    {
+     "k": "if",
+     "t": "process.env.MARKET_CRAWL_ENABLED !== \"1\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "await runNightlyMarketCrawl();",
+       "a": [
+        "зовёт runNightlyMarketCrawl()"
+       ],
+       "c": [
+        {
+         "k": "if",
+         "t": "running",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return null;",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "try",
+         "t": "пробует",
+         "a": [],
+         "c": [
+          {
+           "k": "try",
+           "t": "пробует",
+           "a": [],
+           "c": [
+            {
+             "k": "loop",
+             "t": "для каждого: const section of SOMON_NIGHTLY_SECTIONS",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "await crawlSection(section, { onPage: async (listings)",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "const s = await saveListings(SOMON_SOURCE, listings);",
+                 "a": [
+                  "зовёт saveListings()"
+                 ],
+                 "c": []
+                }
+               ]
+              }
+             ]
+            }
+           ]
+          },
+          {
+           "k": "catch",
+           "t": "если сорвалось",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "void logSystemError(\"api\", `Ночной сбор Somon оборван: ${err instanceof Error ? err.message : String(err)}`);",
+             "a": [
+              "запись в журнал ошибок"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "stats.somon.complete",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "await markDisappeared(SOMON_SOURCE);",
+             "a": [
+              "зовёт markDisappeared()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "try",
+           "t": "пробует",
+           "a": [],
+           "c": [
+            {
+             "k": "loop",
+             "t": "для каждого: const section of PAYDO_SECTIONS",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "await crawlPaydoSection(client, section, { onPage: async (listings)",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "const s = await saveListings(PAYDO_SOURCE, listings);",
+                 "a": [
+                  "зовёт saveListings()"
+                 ],
+                 "c": []
+                }
+               ]
+              }
+             ]
+            }
+           ]
+          },
+          {
+           "k": "catch",
+           "t": "если сорвалось",
+           "a": [],
+           "c": [
+            {
+             "k": "if",
+             "t": "!(err instanceof PaydoBlockedError)",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "void logSystemError(\"api\", `Ночной сбор Paydo оборван: ${err instanceof Error ? err.message : String(err)}`);",
+               "a": [
+                "запись в журнал ошибок"
+               ],
+               "c": []
+              }
+             ]
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "stats.paydo.complete",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "await markDisappeared(PAYDO_SOURCE);",
+             "a": [
+              "зовёт markDisappeared()"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "finally",
+         "t": "в любом случае",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "running = false;",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ],
+       "from": "runNightlyMarketCrawl() — apps/api/src/lib/market/nightly.ts"
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "markCronTickFailed(\"Ошибка ночного сбора рынка\", err);",
+       "a": [
+        "зовёт markCronTickFailed()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "console.error(`[cron] ${label}:`, reason);",
+         "a": [
+          "пишет строку в журнал сервера"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "tick",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "tick.failure = `${label}: ${reason}`.slice(0, 500);",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ],
+       "from": "markCronTickFailed() — apps/api/src/lib/cronHeartbeat.ts"
       }
      ]
     }

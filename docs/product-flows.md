@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **727**. Развилок в самих путях: **2538**; вместе с задачами по расписанию и фоновыми заданиями — **3970**. Модулей: **80**.
+Путей: **727**. Развилок в самих путях: **2538**; вместе с задачами по расписанию и фоновыми заданиями — **3976**. Модулей: **80**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -22320,6 +22320,53 @@
       · зовёт markCronTickFailed()
     - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
       · запись в журнал ошибок
+
+### market-nightly-crawl — 30 2 * * *
+
+- если process.env.MARKET_CRAWL_ENABLED !== "1"
+  - return;
+    · дальше не идёт, ничего не меняя
+- пробует
+  - await runNightlyMarketCrawl();
+    · зовёт runNightlyMarketCrawl()
+    - если running
+      - return null;
+        · дословно из кода
+    - пробует
+      - пробует
+        - для каждого: const section of SOMON_NIGHTLY_SECTIONS
+          - await crawlSection(section, { onPage: async (listings)
+            - const s = await saveListings(SOMON_SOURCE, listings);
+              · зовёт saveListings()
+      - если сорвалось
+        - void logSystemError("api", `Ночной сбор Somon оборван: ${err instanceof Error ? err.message : String(err)}`);
+          · запись в журнал ошибок
+      - если stats.somon.complete
+        - await markDisappeared(SOMON_SOURCE);
+          · зовёт markDisappeared()
+      - пробует
+        - для каждого: const section of PAYDO_SECTIONS
+          - await crawlPaydoSection(client, section, { onPage: async (listings)
+            - const s = await saveListings(PAYDO_SOURCE, listings);
+              · зовёт saveListings()
+      - если сорвалось
+        - если !(err instanceof PaydoBlockedError)
+          - void logSystemError("api", `Ночной сбор Paydo оборван: ${err instanceof Error ? err.message : String(err)}`);
+            · запись в журнал ошибок
+      - если stats.paydo.complete
+        - await markDisappeared(PAYDO_SOURCE);
+          · зовёт markDisappeared()
+    - в любом случае
+      - running = false;
+        · дословно из кода
+- если сорвалось
+  - markCronTickFailed("Ошибка ночного сбора рынка", err);
+    · зовёт markCronTickFailed()
+    - console.error(`[cron] ${label}:`, reason);
+      · пишет строку в журнал сервера
+    - если tick
+      - tick.failure = `${label}: ${reason}`.slice(0, 500);
+        · дословно из кода
 
 ### meeting-reminders — */5 * * * *
 

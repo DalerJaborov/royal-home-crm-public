@@ -14,7 +14,7 @@
 | Из них видно в меню | 35 |
 | Модулей сервера | 80 |
 | Адресов сервера всего | 721 |
-| Задач по расписанию | 111 |
+| Задач по расписанию | 112 |
 | Типов фоновых заданий | 23 |
 | Внешних сервисов | 13 |
 
@@ -282,6 +282,7 @@
 | `log-cleanup` | `0 3 * * *` | Ночная уборка технических журналов и уведомлений |
 | `lost-conversations` | `45 2 * * *` | Разбирает переписки, кончившиеся ничем: на каком шаге теряются люди |
 | `lost-inactive-trash-sweep` | `30 0 * * *` | Убирает в корзину потерянных и неактивных старше трёх месяцев |
+| `market-nightly-crawl` | `30 2 * * *` | **без подписи** |
 | `meeting-reminders` | `*/5 * * * *` | Напоминания о встречах и показах, сигналы о непроведённых показах и просроченных задачах |
 | `meta-ads-stale-watch` | `10 * * * *` | **без подписи** |
 | `meta-ads-sync` | `*/15 * * * *` | Тянет из рекламного кабинета объявления и расходы |
@@ -393,6 +394,6 @@
 Появилось в коде, но не описано в `docs/product-map-labels.json`. Пустые списки —
 норма; непустые значат, что функция завелась, а объяснить её никто не удосужился.
 
-- Задач по расписанию: `approved-owner-verification`, `assistant-actions-sweep`, `clip-review-resend`, `clip-review-stale-alarm`, `contact-link-sweep`, `customer-inbox-jobs`, `customer-intake-jobs`, `customer-outbox-jobs`, `daily-stories`, `disk-cleanup`, `instagram-online-followers`, `instagram-webhook-subscriptions`, `live-voice-orphan-sweep`, `meta-ads-stale-watch`, `narration-version-delivery`, `owner-exposure-verification-preview`, `owner-report-delivery`, `owner-report-monthly-preview`, `photo-posts-tick`, `published-channels-audit`, `reels-autoboost`, `seller-control-episodes`, `site-stats`, `social-digests-tick`, `social-reposts-tick`, `social-video-schedule`, `somon-owner-leads`, `telegram-bot-api-volume-cleanup`, `telephony-station-traffic`, `video-handoff-redelivery`, `video-handoff-unfinished-publish-watchdog`
+- Задач по расписанию: `approved-owner-verification`, `assistant-actions-sweep`, `clip-review-resend`, `clip-review-stale-alarm`, `contact-link-sweep`, `customer-inbox-jobs`, `customer-intake-jobs`, `customer-outbox-jobs`, `daily-stories`, `disk-cleanup`, `instagram-online-followers`, `instagram-webhook-subscriptions`, `live-voice-orphan-sweep`, `market-nightly-crawl`, `meta-ads-stale-watch`, `narration-version-delivery`, `owner-exposure-verification-preview`, `owner-report-delivery`, `owner-report-monthly-preview`, `photo-posts-tick`, `published-channels-audit`, `reels-autoboost`, `seller-control-episodes`, `site-stats`, `social-digests-tick`, `social-reposts-tick`, `social-video-schedule`, `somon-owner-leads`, `telegram-bot-api-volume-cleanup`, `telephony-station-traffic`, `video-handoff-redelivery`, `video-handoff-unfinished-publish-watchdog`
 - Модулей сервера: `/api/v1/live-voice`, `/api/v1/ui-shell`, `/api/v1/sms`, `/api/v1/whatsapp-templates`, `/api/v1/maintenance/data-corrections`, `/api/v1/social-videos`, `/api/v1/threads/oauth/callback`, `/api/v1/threads`, `/api/v1/search-console/oauth/callback`, `/api/v1/search-console/yandex/oauth/callback`, `/api/v1/search-console`, `/api/v1/contacts`, `/api/v1/market`, `/api/v1/public/owner-report`
 
