@@ -94,18 +94,21 @@ function MatchCard({
           href={m.sourceUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="glass-btn glass-btn-ghost tap-target inline-flex items-center gap-1.5 px-3 py-2 text-[14px]"
+          className="pill ghost tap-target gap-1.5! px-3! text-[14px]!"
         >
           <ExternalLink className="w-3.5 h-3.5" aria-hidden />
           Открыть объявление
         </a>
-        <MarketWhatsAppButton sourceUrl={m.sourceUrl} source={m.source} title={m.title} phone={m.sellerPhone} />
+        {/* Номер скрыт правами доступа — кнопка тоже: иначе WhatsApp открыл бы тот же номер через сервер. */}
+        {!m.sellerPhoneHidden && (
+          <MarketWhatsAppButton sourceUrl={m.sourceUrl} source={m.source} title={m.title} phone={m.sellerPhone} />
+        )}
         {!confirmed && (
           <button
             type="button"
             disabled={busy}
             onClick={() => onStatus("CONFIRMED")}
-            className="glass-btn glass-btn-primary tap-target px-3 py-2 text-[14px] disabled:opacity-50"
+            className="pill tap-target px-3! text-[14px]! disabled:opacity-50"
           >
             Это наш
           </button>
@@ -114,7 +117,7 @@ function MatchCard({
           type="button"
           disabled={busy}
           onClick={() => onStatus("DISMISSED")}
-          className="glass-btn glass-btn-ghost tap-target px-3 py-2 text-[14px] disabled:opacity-50"
+          className="pill ghost tap-target px-3! text-[14px]! disabled:opacity-50"
         >
           Не наш
         </button>

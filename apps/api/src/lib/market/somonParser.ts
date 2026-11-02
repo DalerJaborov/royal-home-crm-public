@@ -13,6 +13,8 @@
  * и только за новыми, если понадобится.
  */
 
+import { detectDistrictInText } from "./districtName.js";
+
 export interface SomonRawAd {
   id: number;
   title?: string;
@@ -156,17 +158,6 @@ function sliceBalancedObject(text: string, start: number): string | null {
   return null;
 }
 
-/** Районы Душанбе так, как их пишет somon.tj → как они называются у нас. */
-const DISTRICT_ALIASES: Record<string, string> = {
-  сино: "Сино",
-  "и. сомони": "Исмоили Сомони",
-  "исмоили сомони": "Исмоили Сомони",
-  "и.сомони": "Исмоили Сомони",
-  фирдавси: "Фирдавси",
-  шохмансур: "Шохмансур",
-  шомансур: "Шохмансур",
-};
-
 /**
  * Район объявления.
  *
@@ -176,11 +167,8 @@ const DISTRICT_ALIASES: Record<string, string> = {
  */
 export function detectDistrict(ad: SomonRawAd): string | null {
   const alt = ad.seo?.images?.alt_texts?.[0] ?? "";
-  const haystack = `${alt} ${ad.title ?? ""}`.toLowerCase();
-  for (const [alias, name] of Object.entries(DISTRICT_ALIASES)) {
-    if (haystack.includes(alias)) return name;
-  }
-  return null;
+  // Названия районов — общая дверь districtName.ts (Paydo ходит через неё же).
+  return detectDistrictInText(`${alt} ${ad.title ?? ""}`);
 }
 
 /**

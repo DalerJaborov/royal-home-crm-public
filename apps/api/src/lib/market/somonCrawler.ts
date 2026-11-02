@@ -7,8 +7,8 @@
  * один темп на сайт (10 с), 403 — полная остановка, 429/5xx — пауза с нарастанием.
  * Своего `fetch` здесь нет: два независимых клиента на один сайт — это и есть
  * риск бана. Обход к тому же уступает парсеру лидов (см. `background` в
- * sourceBudgetStore): не вклинивается в его паузы и не стартует во время его
- * стартовой разметки и скана.
+ * sourceBudgetStore): не вклинивается в его паузы (25 с тишины после запроса лидов) и не
+ * стартует во время его стартовой разметки и скана.
  *
  * robots.txt somon.tj (проверен 21.08.2026) запрещает /api, /admin, /profile,
  * страницы автора, /aid/, сортировки и фильтры по цене в адресе. Страницы категорий,
@@ -54,7 +54,7 @@ export type CrawlStop =
   | "rate_limited" // 429: просьба сбавить темп, обход прекращён
   | "source_stopped" // общий бюджет остановлен (403/5 сбоев подряд)
   | "wait_timeout" // слот бюджета не освободился за разумное время (уступаем лидам или пауза после сбоя)
-  | "unavailable" // сеть/5xx после повторной попытки, 404 посреди раздела
+  | "unavailable" // сеть/5xx после повторной попытки, 404 посреди раздела (если рынок не сжался)
   | "layout_changed" // в странице нет данных объявлений: вёрстка сайта поменялась
   | "page_limit" // дошли до страховочного предела страниц
   | "save_failed" // не записалось в нашу базу
@@ -107,6 +107,18 @@ async function fetchPage(path: string, pause: (ms: number) => Promise<void>): Pr
 export function detectLastPage(html: string): number {
   const pages = [...html.matchAll(/[?&]page=(\d+)/g)].map((m) => Number(m[1]));
   return pages.length ? Math.min(Math.max(...pages), 1000) : 1;
+}
+
+/**
+ * Страница `page` ответила 404. Перекачиваем `page - 1` (она точно существовала): если
+ * теперь она сама не ссылается на `page`, раздел сжался и `page - 1` — последняя.
+ * Любой сбой при проверке — не подтверждение (обход остаётся неполным).
+ */
+async function confirmShrunk(section: CrawlSection, page: number, pause: (ms: number) => Promise<void>): Promise<boolean> {
+  const previous = page - 1;
+  const outcome = await fetchPage(previous === 1 ? section.path : `${section.path}?page=${previous}`, pause);
+  if (!outcome.ok || !outcome.html.includes("self.__next_f.push")) return false;
+  return detectLastPage(outcome.html) < page;
 }
 
 /** HTML страницы списка → объявления. Пусто, если данных нет. */
@@ -164,7 +176,13 @@ export async function crawlSection(section: CrawlSection, options: CrawlOptions 
     if (options.shouldStop?.()) return stop("deadline", page);
     if (page > limit) return stop("page_limit", page);
     const outcome = await fetchPage(page === 1 ? section.path : `${section.path}?page=${page}`, pause);
-    if (!outcome.ok) return stop(outcome.stop, page, outcome.status);
+    if (!outcome.ok) {
+      // 404 на странице, на которую ссылалась прошлая: рынок мог сжаться за время обхода
+      // (по образцу finishShrunkBaseline у парсера лидов). Это конец раздела, а не сбой —
+      // но только если свежая предыдущая страница уже не ссылается на эту.
+      if (outcome.status === 404 && page > 1 && (await confirmShrunk(section, page, pause))) break;
+      return stop(outcome.stop, page, outcome.status);
+    }
 
     const { html } = outcome;
     result.pagesFetched++;

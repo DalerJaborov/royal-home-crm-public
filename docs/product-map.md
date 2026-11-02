@@ -13,7 +13,7 @@
 | Экранов (адресов в интерфейсе) | 68 |
 | Из них видно в меню | 35 |
 | Модулей сервера | 82 |
-| Адресов сервера всего | 725 |
+| Адресов сервера всего | 724 |
 | Задач по расписанию | 113 |
 | Типов фоновых заданий | 23 |
 | Внешних сервисов | 13 |
@@ -222,7 +222,7 @@
 | `/api/v1/insights` | Инсайты от ИИ по звонкам | 4 | да (1 мест) | `apps/api/src/routes/insights.ts` |
 | `/api/v1/market/matches` | **без подписи** | 2 | да (1 мест) | `apps/api/src/routes/marketMatches.ts` |
 | `/api/v1/market` | **без подписи** | 1 | да (1 мест) | `apps/api/src/routes/marketContact.ts` |
-| `/api/v1/market` | **без подписи** | 3 | да (1 мест) | `apps/api/src/routes/market.ts` |
+| `/api/v1/market` | **без подписи** | 2 | да (1 мест) | `apps/api/src/routes/market.ts` |
 | `/api/v1/l` | Публичная ссылка на объект для клиента | 2 | да (1 мест) | `apps/api/src/routes/propertyShare.ts` |
 | `/api/v1/public/owner-report` | **без подписи** | 1 | нет | `apps/api/src/routes/ownerReportPublic.ts` |
 

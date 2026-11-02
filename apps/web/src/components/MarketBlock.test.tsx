@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { MarketBlockView, marketSourceName, scalePosition } from "./MarketBlock";
+import { MarketBlockView, markLabelStyle, marketSourceName, scalePosition } from "./MarketBlock";
 import type { MarketPropertyEstimate } from "../types";
 
 const base: MarketPropertyEstimate = {
@@ -31,7 +31,10 @@ describe("MarketBlockView", () => {
     expect(html).toContain("https://somon.tj/adv/0");
     expect(html).toContain("Paydo");
     expect(html).toContain("новостройка, сдан");
-    expect(html).toContain("Ещё 38 похожих");
+    // Кнопка считает только скрытые строки (5 − 3); 36 остальных в выборке — отдельной строкой без кнопки.
+    expect(html).toContain("Ещё 2 похожих");
+    expect(html).not.toContain("Ещё 38 похожих");
+    expect(html).toContain("и ещё 36 в выборке");
     expect(html).toContain("Основание: медиана по 41 объявлениям");
   });
 
@@ -53,6 +56,31 @@ describe("MarketBlockView", () => {
 
   it("renders nothing for unsupported property types", () => {
     expect(renderToStaticMarkup(<MarketBlockView data={{ ...base, status: "unsupported" }} />)).toBe("");
+  });
+
+  it("не рисует кнопку «Ещё», когда скрывать нечего, но строку про выборку оставляет", () => {
+    const html = renderToStaticMarkup(<MarketBlockView data={{ ...base, listings: base.listings.slice(0, 3) }} />);
+    expect(html).not.toContain("похожих ›");
+    expect(html).toContain("и ещё 36 в выборке");
+    expect(renderToStaticMarkup(<MarketBlockView data={{ ...base, moreCount: 0 }} />)).not.toContain("в выборке");
+  });
+
+  it("кнопка «Ещё N похожих» задана с трейлинг-! — сброс .rh2 button иначе обнуляет цвет и отступы", () => {
+    const html = renderToStaticMarkup(<MarketBlockView data={base} />);
+    const button = html.match(/<button[^>]*>\s*Ещё 2 похожих/)?.[0] ?? "";
+    expect(button).toContain("text-blue!");
+    expect(button).toContain("font-semibold!");
+    expect(button).toContain("py-2.5!");
+  });
+
+  it("подпись «владелец» у краёв шкалы прижата к краю, в середине — по центру отметки", () => {
+    expect(markLabelStyle(4)).toEqual({ left: "0" });
+    expect(markLabelStyle(96)).toEqual({ right: "0" });
+    expect(markLabelStyle(50)).toEqual({ left: "50%", transform: "translateX(-50%)" });
+    const far = renderToStaticMarkup(<MarketBlockView data={{ ...base, comparison: { verdict: "above", diffPercent: 120 } }} />);
+    expect(far).toMatch(/data-testid="owner-mark-label"[^>]*style="right:0"/);
+    const near = renderToStaticMarkup(<MarketBlockView data={{ ...base, comparison: { verdict: "below", diffPercent: -120 } }} />);
+    expect(near).toMatch(/data-testid="owner-mark-label"[^>]*style="left:0"/);
   });
 
   it("maps sources and scale position sensibly", () => {

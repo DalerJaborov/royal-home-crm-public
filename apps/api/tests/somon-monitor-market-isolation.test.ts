@@ -91,6 +91,27 @@ describe("рыночный каталог не влияет на лиды", () =
     });
   });
 
+  it("MARKET_MONITOR_INGEST=0 выключает запись рынка из парсера лидов; лиды работают как обычно", async () => {
+    vi.stubEnv("MARKET_MONITOR_INGEST", "0");
+    try {
+      await runSomonMonitorTick(async () => {});
+      expect((await prisma.somonMonitor.findUniqueOrThrow({ where: { id: "singleton" } })).baselineAt).not.toBeNull();
+      expect(mocks.source).toHaveBeenCalledTimes(2);
+      await ingestMarketPage(html([ids[0]]));
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      expect(mocks.save).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+      vi.stubEnv("SETTINGS_ENCRYPTION_KEY", "1".repeat(64));
+    }
+  });
+
+  it("по умолчанию (флаг не задан) запись включена", async () => {
+    mocks.save.mockResolvedValue({ created: 0, updated: 0, priceChanges: 0, skipped: 0 });
+    await ingestMarketPage(html([ids[0]]));
+    expect(mocks.save).toHaveBeenCalledTimes(1);
+  });
+
   it("лиды выключены — парсер ничего не качает и рынку нечего отдавать", async () => {
     await prisma.somonMonitor.update({ where: { id: "singleton" }, data: { enabled: false } });
     await runSomonMonitorTick(async () => {});

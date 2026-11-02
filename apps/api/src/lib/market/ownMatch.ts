@@ -18,7 +18,10 @@
  *    района — район + комнаты + площадь + этаж + цена не отличают нашу квартиру от
  *    соседской. Параметры (максимум 80 баллов) лишь подтверждают, а «ТОТ ЖЕ
  *    ОБЪЕКТ» говорит один из двух опознавательных признаков: телефон владельца в
- *    объявлении или координаты точки ближе 150 м.
+ *    объявлении (но только личный: номер, стоящий на трёх и более объявлениях или
+ *    на объявлении агентства, склеивает всё подряд и признаком не считается) или
+ *    координаты точки ближе 50 м при известном и совпавшем этаже (в 150 м стоят
+ *    дома-близнецы, без этажа точка «тот же объект» не говорит).
  *  · Противоречие отбрасывает пару сразу: другое число комнат, площадь дальше
  *    чем на 3 м², другой этаж или этажность, цена дальше ±15%, точка дальше 2 км.
  *    «Неизвестно» противоречием не считается, но и баллов не даёт.
@@ -38,6 +41,7 @@ import { phoneTail, PHONE_TAIL_LEN } from "../clientPhones.js";
 import { maskClientPhone } from "../clientPhone.js";
 import { distanceMeters } from "../geo.js";
 import { loadMoneyContext, toTjs } from "../money.js";
+import { logSystemError } from "../systemError.js";
 
 // ───────────────────────────── Правила совпадения ─────────────────────────────
 
@@ -45,8 +49,10 @@ import { loadMoneyContext, toTjs } from "../money.js";
 export const OWN_AREA_TOLERANCE_SQM = 3;
 /** Допуск по цене: владелец мог выставить дороже/дешевле нас, но не вдвое. */
 export const OWN_PRICE_TOLERANCE = 0.15;
-/** Точка ближе этого — «тот же дом». */
-export const OWN_GEO_NEAR_M = 150;
+/** Точка ближе этого И с известным совпавшим этажом — «тот же объект» (дома-близнецы стоят в 100–150 м). */
+export const OWN_GEO_NEAR_M = 50;
+/** Номер, стоящий на большем числе активных объявлений каталога, — номер посредника, а не владельца. */
+export const OWN_PHONE_MAX_LISTINGS = 2;
 /** Точки дальше этого — противоречие (координаты площадок приблизительны, 2 км — с запасом). */
 export const OWN_GEO_FAR_M = 2000;
 export const OWN_THRESHOLD_WITH_PHONE = 70;
@@ -80,6 +86,10 @@ export interface OwnMatchListing {
   latitude: number | null;
   longitude: number | null;
   sellerPhone: string | null;
+  /** Объявление агентства/застройщика: его номер склеивает чужие объекты. Не задано — не агентство. */
+  isAgency?: boolean;
+  /** Сколько активных объявлений каталога стоит на этом номере. Не задано — считаем, что одно. */
+  sellerPhoneListings?: number;
 }
 
 export interface MatchReason {
@@ -102,13 +112,23 @@ function normDistrict(name: string | null): string | null {
   return s || null;
 }
 
-/** Номера из свободной строки контакта: «+992 927 12 34 56, жена 900 11 22 33». */
+/**
+ * Номера из свободной строки контакта: «+992 927 12 34 56, жена 900 11 22 33».
+ *
+ * Строка режется по буквам, запятым и «+»; внутри куска цифры склеиваются, а если их
+ * больше 12 — это два номера через пробел («900 00 00 56 927 11 22 33»): отрезаем по
+ * 12 цифр, когда начинается с кода 992, иначе по 9. Один номер из цифр в 9–12 берём целиком.
+ */
 export function extractPhoneTails(raw: string | null | undefined): string[] {
   if (!raw) return [];
   const tails = new Set<string>();
-  for (const chunk of raw.match(/\+?\d[\d\s\-().]{7,}\d/g) ?? []) {
-    const tail = phoneTail(chunk);
-    if (tail.length === PHONE_TAIL_LEN) tails.add(tail);
+  for (const chunk of raw.split(/(?=\+)|[^\d\s\-().+]+/u)) {
+    let digits = chunk.replace(/\D/g, "");
+    while (digits.length >= PHONE_TAIL_LEN) {
+      const take = digits.length > 12 ? (digits.startsWith("992") ? 12 : PHONE_TAIL_LEN) : digits.length;
+      tails.add(phoneTail(digits.slice(0, take)));
+      digits = digits.slice(take);
+    }
   }
   return [...tails];
 }
@@ -143,15 +163,18 @@ export function scoreOwnMatch(p: OwnMatchProperty, l: OwnMatchListing): OwnMatch
 
   // ── Опознавательные признаки: «тот же объект», а не «похожий». ──
   const sellerTail = l.sellerPhone ? phoneTail(l.sellerPhone) : "";
-  const phoneMatched = sellerTail.length === PHONE_TAIL_LEN && p.ownerPhoneTails.includes(sellerTail);
+  const personalPhone = !l.isAgency && (l.sellerPhoneListings ?? 1) <= OWN_PHONE_MAX_LISTINGS;
+  const phoneMatched = personalPhone && sellerTail.length === PHONE_TAIL_LEN && p.ownerPhoneTails.includes(sellerTail);
   if (phoneMatched) {
     score += 40;
     reasons.push({ code: "phone", label: "Телефон владельца совпал с телефоном в объявлении" });
   }
-  const geoNear = distance != null && distance <= OWN_GEO_NEAR_M;
+  // Точка сама по себе дом-близнец не отличает: «тот же объект» только при известном с обеих
+  // сторон этаже (совпадение этажа уже проверено выше — разные этажи отброшены).
+  const geoNear = distance != null && distance <= OWN_GEO_NEAR_M && p.floor != null && l.floor != null;
   if (geoNear) {
     score += 25;
-    reasons.push({ code: "geo", label: `Точка на карте в ${Math.max(10, Math.round((distance as number) / 10) * 10)} м от нашего объекта` });
+    reasons.push({ code: "geo", label: `Точка на карте в ${Math.max(10, Math.round((distance as number) / 10) * 10)} м от нашего объекта, этаж тот же` });
   }
 
   // ── Подтверждающие параметры (вместе максимум 80). ──
@@ -197,8 +220,12 @@ const PROPERTY_CHUNK = 40;
 const LISTING_TAKE = 4000;
 /** Потолок объектов за прогон. */
 const PROPERTY_LIMIT = 3000;
-/** Окно по координатам для выборки: ~0,0025° ≈ 280 м по широте. */
-const GEO_BOX_DEG = 0.0025;
+/** Окно по координатам для выборки: ~0,001° ≈ 110 м по широте — с запасом над точкой «тот же объект» (50 м). */
+const GEO_BOX_DEG = 0.001;
+/** Сколько строк рассылки читаем за один запрос (страницы идут по курсору, потолка на прогон нет). */
+const NOTIFY_PAGE = 500;
+/** Защита от бесконечного цикла по страницам: 500 x 200 = 100 000 пар. */
+const NOTIFY_MAX_PAGES = 200;
 
 export interface OwnMatchingStats {
   properties: number;
@@ -262,15 +289,20 @@ function toMatchProperty(row: PropertyRow, priceTjs: number | null): OwnMatchPro
   };
 }
 
-/** Условие выборки кандидатов одного объекта: тип, комнаты, площадь, и (район | телефон | точка). */
+/**
+ * Условие выборки кандидатов одного объекта: тип, комнаты, площадь, и (телефон | точка).
+ * Район в условие НЕ входит: одним районом пара кандидатом стать не может (нужен
+ * опознавательный признак), а условие раздувало выборку и вытесняло давние объявления.
+ * Для точки при известном этаже требуем тот же этаж — иначе дом-близнец не отсечь.
+ */
 function candidateWhere(row: PropertyRow, mp: OwnMatchProperty): Prisma.MarketListingWhereInput {
   const anyOf: Prisma.MarketListingWhereInput[] = [];
-  if (mp.districtName) anyOf.push({ districtName: { equals: mp.districtName, mode: "insensitive" } });
   if (mp.ownerPhoneTails.length) anyOf.push({ sellerPhone: { in: mp.ownerPhoneTails.map((t) => `+992${t}`) } });
-  if (mp.lat != null && mp.lng != null) {
+  if (mp.lat != null && mp.lng != null && mp.floor != null) {
     anyOf.push({
       latitude: { gte: mp.lat - GEO_BOX_DEG, lte: mp.lat + GEO_BOX_DEG },
       longitude: { gte: mp.lng - GEO_BOX_DEG, lte: mp.lng + GEO_BOX_DEG },
+      floor: mp.floor,
     });
   }
   return {
@@ -281,6 +313,17 @@ function candidateWhere(row: PropertyRow, mp: OwnMatchProperty): Prisma.MarketLi
       : {}),
     OR: anyOf,
   };
+}
+
+/** Сколько активных объявлений каталога стоит на каждом из номеров (ключ — номер как в базе). */
+async function countListingsByPhone(phones: string[]): Promise<Map<string, number>> {
+  if (phones.length === 0) return new Map();
+  const groups = await prisma.marketListing.groupBy({
+    by: ["sellerPhone"],
+    where: { isActive: true, sellerPhone: { in: phones } },
+    _count: { _all: true },
+  });
+  return new Map(groups.filter((g) => g.sellerPhone).map((g) => [g.sellerPhone as string, g._count._all]));
 }
 
 /**
@@ -323,7 +366,7 @@ export async function runOwnMatching(): Promise<OwnMatchingStats> {
         },
         select: {
           id: true, propertyType: true, districtName: true, rooms: true, areaSqm: true, floor: true, totalFloors: true,
-          priceTjs: true, latitude: true, longitude: true, sellerPhone: true,
+          priceTjs: true, latitude: true, longitude: true, sellerPhone: true, isAgency: true,
         },
         orderBy: { lastSeenAt: "desc" },
         take: LISTING_TAKE,
@@ -337,6 +380,7 @@ export async function runOwnMatching(): Promise<OwnMatchingStats> {
       console.warn(`[own-match] выборка упёрлась в потолок ${LISTING_TAKE} объявлений — часть кандидатов могла не попасть в прогон`);
     }
     const existingByKey = new Map(existing.map((m) => [`${m.propertyId}:${m.listingId}`, m]));
+    const phoneCounts = await countListingsByPhone([...new Set(listings.map((l) => l.sellerPhone).filter((x): x is string => !!x))]);
 
     const toCreate: Prisma.PropertyMarketMatchCreateManyInput[] = [];
     for (const { row, mp } of chunk) {
@@ -352,12 +396,17 @@ export async function runOwnMatching(): Promise<OwnMatchingStats> {
           latitude: num(l.latitude),
           longitude: num(l.longitude),
           sellerPhone: l.sellerPhone,
+          isAgency: l.isAgency,
+          sellerPhoneListings: l.sellerPhone ? (phoneCounts.get(l.sellerPhone) ?? 1) : undefined,
         });
         if (!verdict.candidate) continue;
         const prev = existingByKey.get(`${row.id}:${l.id}`);
         if (!prev) {
           toCreate.push({
             propertyId: row.id, listingId: l.id, score: verdict.score, reasons: verdict.reasons as unknown as Prisma.InputJsonValue,
+            // Цена на момент находки — точка отсчёта для «цена сдвинулась»: без неё пара с пустой
+            // ценой на первом пуше навсегда лишалась бы повторных уведомлений о цене.
+            lastPriceTjs: num(l.priceTjs),
           });
         } else if (prev.status !== "DISMISSED" && prev.score !== verdict.score) {
           await prisma.propertyMarketMatch.update({
@@ -379,33 +428,77 @@ export async function runOwnMatching(): Promise<OwnMatchingStats> {
   return stats;
 }
 
+const NOTIFY_SELECT = {
+  id: true, notifiedAt: true, lastPriceTjs: true, goneNotifiedAt: true,
+  property: { select: { id: true, shortId: true, title: true, price: true, currency: true, assignedAgentId: true } },
+  listing: { select: { source: true, priceTjs: true, isActive: true } },
+} satisfies Prisma.PropertyMarketMatchSelect;
+
+type NotifyRow = Prisma.PropertyMarketMatchGetPayload<{ select: typeof NOTIFY_SELECT }>;
+
+const LIVE_PROPERTY = { status: "AVAILABLE", deletedAt: null, assignedAgentId: { not: null } } as const;
+
+/**
+ * Читает строки рассылки страницами по курсору (id) и отдаёт каждую страницу обработчику.
+ * Раньше был один запрос `take: 500` без порядка: 500 давно уведомлённых пар вытесняли
+ * новые, и новые совпадения переставали доходить до агента. Теперь выборок три (новые,
+ * снятые, цена), и каждая читается ДО КОНЦА — потолка на прогон нет.
+ */
+async function forEachPendingPage(
+  where: Prisma.PropertyMarketMatchWhereInput,
+  handle: (rows: NotifyRow[]) => Promise<void>,
+): Promise<void> {
+  let cursor: string | undefined;
+  for (let page = 0; page < NOTIFY_MAX_PAGES; page++) {
+    const rows = await prisma.propertyMarketMatch.findMany({
+      where,
+      select: NOTIFY_SELECT,
+      orderBy: { id: "asc" },
+      take: NOTIFY_PAGE,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+    });
+    if (rows.length === 0) return;
+    await handle(rows);
+    if (rows.length < NOTIFY_PAGE) return;
+    cursor = rows[rows.length - 1].id;
+  }
+  console.warn(`[own-match] рассылка упёрлась в ${NOTIFY_MAX_PAGES} страниц — остаток уйдёт в следующем прогоне`);
+}
+
 /**
  * Рассылка. Метку занимаем updateMany с условием ДО отправки: два параллельных
- * прогона увидят одну и ту же строку, но count === 1 получит только один. Цена
- * потери — если отправка упала после занятия метки, пуш не повторится; запись в
- * ленте уведомлений создаёт сам sendPushToAgent, так что агент её не потеряет.
+ * прогона увидят одну и ту же строку, но count === 1 получит только один. Если
+ * отправка упала (sendPushToAgent бросил) — метку СНИМАЕМ, и следующий прогон
+ * повторит: иначе сбой оставлял бы агента без находки навсегда.
+ *
+ * ОГРАНИЧЕНИЕ (без миграции): кому ушёл пуш, не хранится. Если ответственного за
+ * объект сменили после первого пуша, новый агент узнает о находке только из блока
+ * «На площадках» в карточке и при изменении цены/снятии объявления; отдельного
+ * «вам передали объект с находкой» нет. Нужна колонка notifiedAgentId.
  */
 async function notifyPending(stats: OwnMatchingStats): Promise<void> {
-  const rows = await prisma.propertyMarketMatch.findMany({
-    where: {
-      status: { in: ["CANDIDATE", "CONFIRMED"] },
-      property: { status: "AVAILABLE", deletedAt: null, assignedAgentId: { not: null } },
-      OR: [
-        { notifiedAt: null, listing: { isActive: true } },
-        { notifiedAt: { not: null }, listing: { isActive: true }, lastPriceTjs: { not: null } },
-        { notifiedAt: { not: null }, listing: { isActive: false }, goneNotifiedAt: null },
-      ],
-    },
-    select: {
-      id: true, notifiedAt: true, lastPriceTjs: true, goneNotifiedAt: true,
-      property: { select: { id: true, shortId: true, title: true, price: true, currency: true, assignedAgentId: true } },
-      listing: { select: { source: true, priceTjs: true, isActive: true } },
-    },
-    take: 500,
+  // Объявление снова появилось на площадке — пуш «сняли» должен суметь уйти снова.
+  await prisma.propertyMarketMatch.updateMany({
+    where: { goneNotifiedAt: { not: null }, listing: { isActive: true } },
+    data: { goneNotifiedAt: null },
   });
-  if (rows.length === 0) return;
-  const money = await loadMoneyContext();
 
+  const status = { in: ["CANDIDATE", "CONFIRMED"] };
+  const money = await loadMoneyContext();
+  const handle = (rows: NotifyRow[]) => notifyRows(rows, money, stats);
+
+  // 1) Новые находки.
+  await forEachPendingPage({ status, property: LIVE_PROPERTY, notifiedAt: null, listing: { isActive: true } }, handle);
+  // 2) Объявление сняли.
+  await forEachPendingPage(
+    { status, property: LIVE_PROPERTY, notifiedAt: { not: null }, listing: { isActive: false }, goneNotifiedAt: null },
+    handle,
+  );
+  // 3) Цена на площадке (сравнение с прежней — в notifyRows).
+  await forEachPendingPage({ status, property: LIVE_PROPERTY, notifiedAt: { not: null }, listing: { isActive: true } }, handle);
+}
+
+async function notifyRows(rows: NotifyRow[], money: Awaited<ReturnType<typeof loadMoneyContext>>, stats: OwnMatchingStats): Promise<void> {
   for (const m of rows) {
     const agentId = m.property.assignedAgentId;
     if (!agentId) continue;
@@ -414,37 +507,52 @@ async function notifyPending(stats: OwnMatchingStats): Promise<void> {
     const ourPrice = m.property.price != null ? Math.round(toTjs(m.property.price, m.property.currency, money)) : null;
     const title = shortTitle(m.property.title);
     const base = {
-      kind: "hot" as const,
+      kind: "market" as const,
       url: `/properties/${m.property.shortId}`,
       tag: `own-market-match:${m.id}`,
     };
     const ours = ourPrice != null ? ` (у нас ${fmt(ourPrice)})` : "";
 
     if (!m.listing.isActive) {
+      const at = new Date();
       const claim = await prisma.propertyMarketMatch.updateMany({
         where: { id: m.id, goneNotifiedAt: null },
-        data: { goneNotifiedAt: new Date() },
+        data: { goneNotifiedAt: at },
       });
       if (claim.count !== 1) continue;
-      await safePush(agentId, { ...base, title: "Объявление сняли с площадки", body: `Ваш объект «${title}» больше не виден на ${site}` });
+      const sent = await safePush(agentId, { ...base, title: "Объявление сняли с площадки", body: `Ваш объект «${title}» больше не виден на ${site}` });
+      if (!sent) {
+        await prisma.propertyMarketMatch.updateMany({ where: { id: m.id, goneNotifiedAt: at }, data: { goneNotifiedAt: null } });
+        continue;
+      }
       stats.goneNotified++;
       continue;
     }
 
     if (m.notifiedAt == null) {
+      const at = new Date();
       const claim = await prisma.propertyMarketMatch.updateMany({
         where: { id: m.id, notifiedAt: null },
-        data: { notifiedAt: new Date(), lastPriceTjs: listingPrice },
+        data: { notifiedAt: at, lastPriceTjs: listingPrice },
       });
       if (claim.count !== 1) continue;
       const price = listingPrice != null ? `: ${fmt(listingPrice)} с${ours}` : "";
-      await safePush(agentId, { ...base, title: "Ваш объект есть на площадке", body: `Ваш объект «${title}» найден на ${site}${price}` });
+      const sent = await safePush(agentId, { ...base, title: "Ваш объект есть на площадке", body: `Ваш объект «${title}» найден на ${site}${price}` });
+      if (!sent) {
+        await prisma.propertyMarketMatch.updateMany({ where: { id: m.id, notifiedAt: at }, data: { notifiedAt: null } });
+        continue;
+      }
       stats.newNotified++;
       continue;
     }
 
+    if (listingPrice == null) continue;
     const last = num(m.lastPriceTjs);
-    if (listingPrice == null || last == null || last <= 0) continue;
+    if (last == null || last <= 0) {
+      // Цены на момент находки не было, теперь есть: запоминаем как точку отсчёта, без пуша.
+      await prisma.propertyMarketMatch.updateMany({ where: { id: m.id, lastPriceTjs: null }, data: { lastPriceTjs: listingPrice } });
+      continue;
+    }
     if (Math.abs(listingPrice - last) / last < OWN_PRICE_RENOTIFY_SHARE) continue;
     // Оптимистичная блокировка по прежней цене: второй прогон увидит уже новую и промолчит.
     const claim = await prisma.propertyMarketMatch.updateMany({
@@ -452,19 +560,26 @@ async function notifyPending(stats: OwnMatchingStats): Promise<void> {
       data: { lastPriceTjs: listingPrice },
     });
     if (claim.count !== 1) continue;
-    await safePush(agentId, {
+    const sent = await safePush(agentId, {
       ...base,
       title: "Цена на площадке изменилась",
       body: `«${title}» на ${site}: ${fmt(last)} → ${fmt(listingPrice)} с${ours}`,
     });
+    if (!sent) {
+      await prisma.propertyMarketMatch.updateMany({ where: { id: m.id, lastPriceTjs: listingPrice }, data: { lastPriceTjs: m.lastPriceTjs } });
+      continue;
+    }
     stats.priceNotified++;
   }
 }
 
-async function safePush(agentId: string, payload: Parameters<typeof sendPushToAgent>[1]): Promise<void> {
+/** true — отправка не бросила. Ошибка пишется в журнал без номеров и текста пуша. */
+async function safePush(agentId: string, payload: Parameters<typeof sendPushToAgent>[1]): Promise<boolean> {
   try {
     await sendPushToAgent(agentId, payload);
+    return true;
   } catch (err) {
-    console.error("[own-match] пуш агенту:", err instanceof Error ? err.message : err);
+    void logSystemError("api", `Пуш о совпадении с площадкой не ушёл: ${err instanceof Error ? err.name : "ошибка"}`, { url: payload.url });
+    return false;
   }
 }

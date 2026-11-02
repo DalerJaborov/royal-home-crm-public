@@ -133,6 +133,57 @@ describe("обход Somon идёт только через общую двер�
     expect(result).toMatchObject({ complete: false, stopReason: "layout_changed" });
   });
 
+  describe("рынок сжался за время обхода: 404 на странице, на которую ссылалась прошлая", () => {
+    const missing = () => new SomonSourceUnavailable("http", 404);
+
+    it("свежая предыдущая страница уже не ссылается дальше — это конец раздела, обход полный", async () => {
+      // 1: ссылки до 4; 2: до 4; 3: до 4; страница 4 — 404; перекачанная 3 — ссылок на 4 уже нет.
+      let thirdFetched = 0;
+      mocks.fetchSomon.mockImplementation(async (path: string) => {
+        const n = Number(/page=(\d+)/.exec(path)?.[1] ?? 1);
+        if (n === 4) throw missing();
+        if (n === 3 && ++thirdFetched === 2) return ok(pageHtml([31], 3));
+        return ok(pageHtml([n * 10 + 1], 4));
+      });
+      const result = await crawlSection(APARTMENTS, { pause });
+      expect(result).toMatchObject({ complete: true, pagesFetched: 3 });
+      expect(mocks.logError).not.toHaveBeenCalled();
+      expect(mocks.fetchSomon.mock.calls.map((c) => c[0])).toEqual([
+        "/nedvizhimost/prodazha-kvartir/dushanbe/",
+        "/nedvizhimost/prodazha-kvartir/dushanbe/?page=2",
+        "/nedvizhimost/prodazha-kvartir/dushanbe/?page=3",
+        "/nedvizhimost/prodazha-kvartir/dushanbe/?page=4",
+        "/nedvizhimost/prodazha-kvartir/dushanbe/?page=3",
+      ]);
+    });
+
+    it("предыдущая страница всё ещё ссылается на пропавшую — это сбой, обход неполный", async () => {
+      mocks.fetchSomon.mockImplementation(async (path: string) => {
+        const n = Number(/page=(\d+)/.exec(path)?.[1] ?? 1);
+        if (n === 4) throw missing();
+        return ok(pageHtml([n * 10 + 1], 4));
+      });
+      const result = await crawlSection(APARTMENTS, { pause });
+      expect(result).toMatchObject({ complete: false, stopReason: "unavailable", pagesFetched: 3 });
+    });
+
+    it("проверка не удалась (предыдущая тоже недоступна) — не подтверждение", async () => {
+      let third = 0;
+      mocks.fetchSomon.mockImplementation(async (path: string) => {
+        const n = Number(/page=(\d+)/.exec(path)?.[1] ?? 1);
+        if (n === 4 || (n === 3 && ++third === 2)) throw missing();
+        return ok(pageHtml([n * 10 + 1], 4));
+      });
+      expect((await crawlSection(APARTMENTS, { pause })).complete).toBe(false);
+    });
+
+    it("404 на первой странице конца раздела не означает", async () => {
+      mocks.fetchSomon.mockRejectedValue(missing());
+      expect(await crawlSection(APARTMENTS, { pause })).toMatchObject({ complete: false, stopReason: "unavailable" });
+      expect(mocks.fetchSomon).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it("ошибка записи в базу останавливает обход как неполный", async () => {
     mocks.fetchSomon.mockResolvedValue(ok(pageHtml([1], 2)));
     const result = await crawlSection(APARTMENTS, {

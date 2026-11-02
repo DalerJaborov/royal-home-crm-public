@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **731**. Развилок в самих путях: **2552**; вместе с задачами по расписанию и фоновыми заданиями — **3996**. Модулей: **81**.
+Путей: **730**. Развилок в самих путях: **2554**; вместе с задачами по расписанию и фоновыми заданиями — **3998**. Модулей: **81**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -8708,20 +8708,6 @@
 
 ## /api/v1/market
 
-### GET /api/v1/market/estimate
-
-`apps/api/src/routes/market.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
-
-- const parsed = querySchema.safeParse(req.query);
-  · проверяет данные схемой querySchema
-- если !parsed.success
-  - return res.status(400).json({ error: "Неверные параметры", details: parsed.error.flatten() });
-    · ответ 400 — «Неверные параметры»
-- const comps = await estimateFromComps({ districtName: districtName ?? null, rooms: rooms ?? null, areaSqm: ar…
-  · зовёт estimateFromComps()
-- res.json({ ...comps, listings: comps.listings.slice(0, 5), comparison: priceTjs !== undefined ? comparePrice(…
-  · ответ 200
-
 ### POST /api/v1/market/listing-contact
 
 `apps/api/src/routes/marketContact.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
@@ -8739,20 +8725,28 @@
 - если !listing
   - return res.status(404).json({ error: "Объявление не найдено в каталоге" });
     · ответ 404 — «Объявление не найдено в каталоге»
-- если listing.sellerPhone
-  - return res.json({ phone: listing.sellerPhone, cached: true });
+- const stored = listing.sellerPhone ? normalizeListingPhone(listing.sellerPhone) : null;
+  · зовёт normalizeListingPhone()
+- если stored
+  - если await phoneBelongsToHiddenOwner(req, stored)
+    - return res.status(403).json({ error: "Номер совпадает с контактом владельца объекта, доступ закрыт" });
+      · ответ 403 — «Номер совпадает с контактом владельца объекта, доступ закрыт»
+  - return res.json({ phone: stored, cached: true });
     · ответ 200
 - если listing.source !== "somon.tj"
   - return res.json({ phone: null, reason: "open_on_site" });
     · ответ 200
 - пробует
-  - const phone = await fetchSomonPhone(listing.sourceId);
-    · зовёт fetchSomonPhone()
+  - const phone = normalizeListingPhone((await fetchSomonPhoneInteractive(listing.sourceId)) ?? "");
+    · зовёт normalizeListingPhone()
   - если !phone
     - return res.json({ phone: null, reason: "no_phone" });
       · ответ 200
   - await prisma.marketListing.update({ where: { id: listing.id }, data: { sellerPhone: phone } });
     · меняет в базе: marketListing
+  - если await phoneBelongsToHiddenOwner(req, phone)
+    - return res.status(403).json({ error: "Номер совпадает с контактом владельца объекта, доступ закрыт" });
+      · ответ 403 — «Номер совпадает с контактом владельца объекта, доступ закрыт»
   - return res.json({ phone, cached: false });
     · ответ 200
 - если сорвалось
@@ -8773,7 +8767,7 @@
 - если !where
   - return res.status(404).json({ error: "Объект не найден" });
     · ответ 404 — «Объект не найден»
-- const p = await prisma.property.findUnique({ where, select: { type: true, rooms: true, areaSqm: true, deleted…
+- const p = await prisma.property.findUnique({ where, select: { id: true, type: true, rooms: true, areaSqm: tru…
   · читает в базе: property
 - если !p || (p.deletedAt && !can(req, "archive.view"))
   - return res.status(404).json({ error: "Объект не найден" });
@@ -8781,7 +8775,7 @@
 - если (p.type !== "APARTMENT" && p.type !== "HOUSE") || !(areaSqm > 0)
   - return res.json(emptyDynamics("для этого типа объекта динамика рынка не считается", "unsupported"));
     · ответ 200
-- res.json(await findDynamics({ propertyType: p.type, districtName: p.district?.name ?? null, rooms: p.rooms, a…
+- res.json(await findDynamics({ propertyId: p.id, propertyType: p.type, districtName: p.district?.name ?? null,…
   · ответ 200
 
 ### GET /api/v1/market/property/:id
@@ -8793,7 +8787,7 @@
 - если !where
   - return res.status(404).json({ error: "Объект не найден" });
     · ответ 404 — «Объект не найден»
-- const p = await prisma.property.findUnique({ where, select: { type: true, rooms: true, areaSqm: true, floor: …
+- const p = await prisma.property.findUnique({ where, select: { id: true, type: true, rooms: true, areaSqm: tru…
   · читает в базе: property
 - если !p || (p.deletedAt && !can(req, "archive.view"))
   - return res.status(404).json({ error: "Объект не найден" });
@@ -8803,7 +8797,7 @@
 - если (p.type !== "APARTMENT" && p.type !== "HOUSE") || !(subjectBase.areaSqm > 0)
   - return res.json({ subject: { ...subjectBase, propertyType: p.type }, ...emptyResult("для этого типа объекта р…
     · ответ 200
-- const result = await findSimilar({ ...subjectBase, propertyType: p.type });
+- const result = await findSimilar({ ...subjectBase, propertyType: p.type }, { propertyId: p.id });
   · зовёт findSimilar()
 - res.json({ subject: { ...subjectBase, propertyType: p.type }, ...result, comparison: result.status === "ok" ?…
   · ответ 200
@@ -8824,6 +8818,9 @@
 - если !match || (match.property.deletedAt && !can(req, "archive.view"))
   - return res.status(404).json({ error: "Совпадение не найдено" });
     · ответ 404 — «Совпадение не найдено»
+- если !canManagePropertyAs({ agentId: req.agent!.id, can: (permission) => can(req, permission) }, match.property)
+  - return res.status(403).json({ error: "Недостаточно прав: решает ответственный за объект или руководитель" });
+    · ответ 403 — «Недостаточно прав: решает ответственный за объект или руководитель»
 - const updated = await prisma.propertyMarketMatch.update({ where: { id: match.id }, data: { status: parsed.dat…
   · меняет в базе: propertyMarketMatch
 - res.json(updated);
@@ -8849,8 +8846,12 @@
   · зовёт loadMoneyContext()
 - const ownerHidden = stripOwnerContact( { ownerContact: "x", assignedAgentId: p.assignedAgentId, intakeAgentId…
   · зовёт stripOwnerContact()
+- const ownerTails = ownerHidden ? new Set(extractPhoneTails(p.ownerContact)) : new Set<string>();
+  · зовёт extractPhoneTails()
 - res.json({ ourPriceTjs, matches: rows.map((m)
   · ответ 200
+  - const sellerTail = l.sellerPhone ? phoneTail(l.sellerPhone) : "";
+    · зовёт phoneTail()
 
 ## /api/v1/marketing
 

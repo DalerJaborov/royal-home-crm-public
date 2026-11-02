@@ -10,7 +10,10 @@
  *  - один прогон за раз во ВСЕХ процессах: замок `pg_try_advisory_xact_lock` держится
  *    транзакцией на всё время прогона (снимается сам при падении процесса);
  *  - «исчезло» помечаем ТОЛЬКО после ПОЛНОГО обхода источника: оборванный даёт
- *    ложные «продано». Полным считается обход, дошедший до последней страницы, и
+ *    ложные «продано». И только тех, кого не видели дольше 1,5 интервала обхода
+ *    (`DISAPPEAR_AFTER_HOURS`, ≈ 11 суток), то есть мимо двух полных обходов подряд:
+ *    у Somon выдача по смещению, и за 1–2 часа обхода объявление может проскочить
+ *    между страницами. Полным считается обход, дошедший до последней страницы, и
  *    не подозрительно маленький (меньше 60 % от того, что источник отдавал раньше —
  *    так ловим молча оборванный обход, например сбой Paydo после ретраев);
  *  - прогон ограничен по времени (3 часа) и сам останавливается при потере замка;
@@ -21,7 +24,7 @@
 
 import { prisma } from "../../db.js";
 import { logSystemError } from "../systemError.js";
-import { markDisappeared, saveListings } from "./marketStore.js";
+import { DISAPPEAR_AFTER_HOURS, markDisappeared, saveListings } from "./marketStore.js";
 import { crawlPaydoSection, PAYDO_SECTIONS } from "./paydoCrawler.js";
 import { PaydoBlockedError, PaydoClient } from "./paydoClient.js";
 import { PAYDO_SOURCE } from "./paydoParser.js";
@@ -146,7 +149,7 @@ async function crawlSomon(shouldStop: () => boolean, options: FullCrawlOptions):
     stats.stopReason = "too_small";
     await logSystemError("api", `Полный обход Somon дал подозрительно мало объявлений (${seen.size} при ${previous} раньше): исчезнувшие не помечены`, { dedupKey: "market-somon-too-small" });
   }
-  if (stats.complete) stats.disappeared = await markDisappeared(SOMON_SOURCE);
+  if (stats.complete) stats.disappeared = await markDisappeared(SOMON_SOURCE, DISAPPEAR_AFTER_HOURS);
   return stats;
 }
 
@@ -168,11 +171,14 @@ async function crawlPaydo(shouldStop: () => boolean, lock: CrawlLock): Promise<S
         },
       });
       stats.pages += result.pagesFetched;
-      // Страниц нет совсем — сбой на первом запросе (crawlPaydoSection глотает его и возвращает пусто).
-      if (result.pagesFetched === 0) {
+      // Раздел не дочитан до конца выдачи (страница не отдалась после ретраев, пустой ответ,
+      // предел страниц) или страниц нет совсем: обход неполный, «исчезнувшие» не помечаем.
+      // Иначе сбой посреди раздела погасил бы ~половину каталога ложным «сняли».
+      if (!result.complete || result.pagesFetched === 0) {
         stats.complete = false;
         stats.stopReason = "paydo_failed";
-        await logSystemError("api", `Полный обход Paydo: «${section.label}» не отдал ни одной страницы`, { dedupKey: "market-paydo-failed" });
+        const why = result.pagesFetched === 0 ? "не отдал ни одной страницы" : `оборван на стр. ${result.pagesFetched + 1} (${result.stopReason ?? "неизвестно"})`;
+        await logSystemError("api", `Полный обход Paydo: «${section.label}» ${why}; исчезнувшие не помечены`, { dedupKey: "market-paydo-failed" });
         break;
       }
     }
@@ -193,7 +199,7 @@ async function crawlPaydo(shouldStop: () => boolean, lock: CrawlLock): Promise<S
     stats.stopReason = "too_small";
     await logSystemError("api", `Полный обход Paydo дал подозрительно мало объявлений (${seen.size} при ${previous} раньше): исчезнувшие не помечены`, { dedupKey: "market-paydo-too-small" });
   }
-  if (stats.complete) stats.disappeared = await markDisappeared(PAYDO_SOURCE);
+  if (stats.complete) stats.disappeared = await markDisappeared(PAYDO_SOURCE, DISAPPEAR_AFTER_HOURS);
   return stats;
 }
 

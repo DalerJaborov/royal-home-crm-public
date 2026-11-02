@@ -1,8 +1,8 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 731,
-  "forks": 3996,
+  "endpoints": 730,
+  "forks": 3998,
   "mounts": 81,
   "cron": 118,
   "jobs": 31,
@@ -39756,63 +39756,6 @@
    ]
   },
   {
-   "method": "GET",
-   "path": "/estimate",
-   "mount": "/api/v1/market",
-   "full": "/api/v1/market/estimate",
-   "file": "apps/api/src/routes/market.ts",
-   "router": "marketRouter",
-   "top": "apps/api/src/routes/market.ts::marketRouter",
-   "guards": [
-    "общий предел частоты запросов",
-    "idempotencyGuard",
-    "pultWriteRefresh",
-    "вход выполнен"
-   ],
-   "handlerRef": null,
-   "tree": [
-    {
-     "k": "do",
-     "t": "const parsed = querySchema.safeParse(req.query);",
-     "a": [
-      "проверяет данные схемой querySchema"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "!parsed.success",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(400).json({ error: \"Неверные параметры\", details: parsed.error.flatten() });",
-       "a": [
-        "ответ 400 — «Неверные параметры»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const comps = await estimateFromComps({ districtName: districtName ?? null, rooms: rooms ?? null, areaSqm: ar…",
-     "a": [
-      "зовёт estimateFromComps()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "res.json({ ...comps, listings: comps.listings.slice(0, 5), comparison: priceTjs !== undefined ? comparePrice(…",
-     "a": [
-      "ответ 200"
-     ],
-     "c": []
-    }
-   ]
-  },
-  {
    "method": "POST",
    "path": "/listing-contact",
    "mount": "/api/v1/market",
@@ -39890,13 +39833,36 @@
      ]
     },
     {
+     "k": "do",
+     "t": "const stored = listing.sellerPhone ? normalizeListingPhone(listing.sellerPhone) : null;",
+     "a": [
+      "зовёт normalizeListingPhone()"
+     ],
+     "c": []
+    },
+    {
      "k": "if",
-     "t": "listing.sellerPhone",
+     "t": "stored",
      "a": [],
      "c": [
       {
+       "k": "if",
+       "t": "await phoneBelongsToHiddenOwner(req, stored)",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(403).json({ error: \"Номер совпадает с контактом владельца объекта, доступ закрыт\" });",
+         "a": [
+          "ответ 403 — «Номер совпадает с контактом владельца объекта, доступ закрыт»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
        "k": "do",
-       "t": "return res.json({ phone: listing.sellerPhone, cached: true });",
+       "t": "return res.json({ phone: stored, cached: true });",
        "a": [
         "ответ 200"
        ],
@@ -39926,9 +39892,9 @@
      "c": [
       {
        "k": "do",
-       "t": "const phone = await fetchSomonPhone(listing.sourceId);",
+       "t": "const phone = normalizeListingPhone((await fetchSomonPhoneInteractive(listing.sourceId)) ?? \"\");",
        "a": [
-        "зовёт fetchSomonPhone()"
+        "зовёт normalizeListingPhone()"
        ],
        "c": []
       },
@@ -39954,6 +39920,21 @@
         "меняет в базе: marketListing"
        ],
        "c": []
+      },
+      {
+       "k": "if",
+       "t": "await phoneBelongsToHiddenOwner(req, phone)",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(403).json({ error: \"Номер совпадает с контактом владельца объекта, доступ закрыт\" });",
+         "a": [
+          "ответ 403 — «Номер совпадает с контактом владельца объекта, доступ закрыт»"
+         ],
+         "c": []
+        }
+       ]
       },
       {
        "k": "do",
@@ -40068,6 +40049,21 @@
      ]
     },
     {
+     "k": "if",
+     "t": "!canManagePropertyAs({ agentId: req.agent!.id, can: (permission) => can(req, permission) }, match.property)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Недостаточно прав: решает ответственный за объект или руководитель\" });",
+       "a": [
+        "ответ 403 — «Недостаточно прав: решает ответственный за объект или руководитель»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
      "k": "do",
      "t": "const updated = await prisma.propertyMarketMatch.update({ where: { id: match.id }, data: { status: parsed.dat…",
      "a": [
@@ -40173,11 +40169,28 @@
     },
     {
      "k": "do",
+     "t": "const ownerTails = ownerHidden ? new Set(extractPhoneTails(p.ownerContact)) : new Set<string>();",
+     "a": [
+      "зовёт extractPhoneTails()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
      "t": "res.json({ ourPriceTjs, matches: rows.map((m)",
      "a": [
       "ответ 200"
      ],
-     "c": []
+     "c": [
+      {
+       "k": "do",
+       "t": "const sellerTail = l.sellerPhone ? phoneTail(l.sellerPhone) : \"\";",
+       "a": [
+        "зовёт phoneTail()"
+       ],
+       "c": []
+      }
+     ]
     }
    ]
   },
@@ -40222,7 +40235,7 @@
     },
     {
      "k": "do",
-     "t": "const p = await prisma.property.findUnique({ where, select: { type: true, rooms: true, areaSqm: true, deleted…",
+     "t": "const p = await prisma.property.findUnique({ where, select: { id: true, type: true, rooms: true, areaSqm: tru…",
      "a": [
       "читает в базе: property"
      ],
@@ -40260,7 +40273,7 @@
     },
     {
      "k": "do",
-     "t": "res.json(await findDynamics({ propertyType: p.type, districtName: p.district?.name ?? null, rooms: p.rooms, a…",
+     "t": "res.json(await findDynamics({ propertyId: p.id, propertyType: p.type, districtName: p.district?.name ?? null,…",
      "a": [
       "ответ 200"
      ],
@@ -40309,7 +40322,7 @@
     },
     {
      "k": "do",
-     "t": "const p = await prisma.property.findUnique({ where, select: { type: true, rooms: true, areaSqm: true, floor: …",
+     "t": "const p = await prisma.property.findUnique({ where, select: { id: true, type: true, rooms: true, areaSqm: tru…",
      "a": [
       "читает в базе: property"
      ],
@@ -40355,7 +40368,7 @@
     },
     {
      "k": "do",
-     "t": "const result = await findSimilar({ ...subjectBase, propertyType: p.type });",
+     "t": "const result = await findSimilar({ ...subjectBase, propertyType: p.type }, { propertyId: p.id });",
      "a": [
       "зовёт findSimilar()"
      ],

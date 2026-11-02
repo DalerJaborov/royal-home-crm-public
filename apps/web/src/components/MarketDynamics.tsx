@@ -145,7 +145,7 @@ export function MarketDynamicsView({ data }: { data: MarketDynamicsData }) {
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className="sm:hidden flex w-full items-center justify-between py-1 text-[14px] font-semibold text-blue"
+        className="sm:hidden flex! w-full items-center! justify-between! py-1! text-[14px]! font-semibold! text-blue!"
       >
         <span>Динамика рынка</span>
         <ChevronRight className={`w-4 h-4 transition-transform ${open ? "rotate-90" : ""}`} aria-hidden />
@@ -181,7 +181,11 @@ export function MarketDynamicsView({ data }: { data: MarketDynamicsData }) {
               ))}
               {gone.length > mobileGone && !allGone && (
                 <li className="sm:hidden border-b border-line-soft">
-                  <button type="button" onClick={() => setAllGone(true)} className="w-full text-left py-2.5 text-[14px] font-semibold text-blue">
+                  <button
+                    type="button"
+                    onClick={() => setAllGone(true)}
+                    className="w-full text-left! py-2.5! text-[14px]! font-semibold! text-blue!"
+                  >
                     Ещё {gone.length - mobileGone} ›
                   </button>
                 </li>

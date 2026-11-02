@@ -34,6 +34,7 @@ import { prisma } from "../src/db.js";
 import { SomonSourceUnavailable } from "../src/lib/somonLeads/sourceClient.js";
 import { PaydoBlockedError } from "../src/lib/market/paydoClient.js";
 import { looksTruncated, runMarketFullCrawl, withMarketCrawlLock } from "../src/lib/market/nightly.js";
+import { DISAPPEAR_AFTER_HOURS } from "../src/lib/market/marketStore.js";
 
 function pageHtml(ids: number[], links: number): string {
   const ads = ids.map((id) => ({ id, title: "2-комн. квартира, 50 м², 3/9 этаж", url: `/adv/${id}_stand/` }));
@@ -43,7 +44,7 @@ function pageHtml(ids: number[], links: number): string {
 const pause = async () => {};
 const paydoOk = async (_c: unknown, _s: unknown, o: { onPage?: (l: unknown[], p: number) => Promise<void> }) => {
   await o.onPage?.([{ sourceId: "p1" }], 1);
-  return { section: "p", pagesFetched: 1, listings: [] };
+  return { section: "p", pagesFetched: 1, listings: [], complete: true };
 };
 
 beforeEach(() => {
@@ -76,6 +77,8 @@ describe("полный обход рынка раз в неделю", () => {
       "/nedvizhimost/prodazha-domov/dushanbe/?page=2",
     ]);
     expect(mocks.gone.mock.calls.map((c) => c[0])).toEqual(["somon.tj", "paydo.tj"]);
+    // порог «не видели дольше полутора интервалов» передан явно: мимо двух полных обходов подряд
+    expect(mocks.gone.mock.calls.map((c) => c[1])).toEqual([DISAPPEAR_AFTER_HOURS, DISAPPEAR_AFTER_HOURS]);
   });
 
   it("403 от Somon: обход остановлен без повторов, исчезнувшие Somon НЕ помечены, Paydo идёт своим путём", async () => {
@@ -93,30 +96,50 @@ describe("полный обход рынка раз в неделю", () => {
     });
     const stats = await runMarketFullCrawl({ pause });
     expect(stats?.somon).toMatchObject({ complete: false, stopReason: "rate_limited" });
-    expect(mocks.gone).not.toHaveBeenCalledWith("somon.tj");
+    expect(mocks.gone.mock.calls.map((c) => c[0])).not.toContain("somon.tj");
   });
 
   it("слот бюджета не освободился: обход уступает и сдаётся неполным", async () => {
     mocks.fetchSomon.mockRejectedValue(new SomonSourceUnavailable("not_ready"));
     const stats = await runMarketFullCrawl({ pause });
     expect(stats?.somon).toMatchObject({ complete: false, stopReason: "wait_timeout" });
-    expect(mocks.gone).not.toHaveBeenCalledWith("somon.tj");
+    expect(mocks.gone.mock.calls.map((c) => c[0])).not.toContain("somon.tj");
   });
 
   it("Paydo заблокировал: исчезнувшие Paydo не помечены, причина в журнале", async () => {
     mocks.paydo.mockRejectedValue(new PaydoBlockedError(429));
     const stats = await runMarketFullCrawl({ pause });
     expect(stats?.paydo).toMatchObject({ complete: false, stopReason: "paydo_blocked" });
-    expect(mocks.gone).not.toHaveBeenCalledWith("paydo.tj");
-    expect(mocks.gone).toHaveBeenCalledWith("somon.tj");
+    expect(mocks.gone.mock.calls.map((c) => c[0])).not.toContain("paydo.tj");
+    expect(mocks.gone).toHaveBeenCalledWith("somon.tj", DISAPPEAR_AFTER_HOURS);
     expect(mocks.logError).toHaveBeenCalled();
   });
 
   it("Paydo тихо вернул пусто (сбой первого запроса): это неполный обход", async () => {
-    mocks.paydo.mockResolvedValue({ section: "p", pagesFetched: 0, listings: [] });
+    mocks.paydo.mockResolvedValue({ section: "p", pagesFetched: 0, listings: [], complete: false, stopReason: "page_failed" });
     const stats = await runMarketFullCrawl({ pause });
     expect(stats?.paydo).toMatchObject({ complete: false, stopReason: "paydo_failed" });
-    expect(mocks.gone).not.toHaveBeenCalledWith("paydo.tj");
+    expect(mocks.gone.mock.calls.map((c) => c[0])).not.toContain("paydo.tj");
+  });
+
+  it("обрыв Paydo посреди раздела (страница 150 не отдалась): исчезнувшие Paydo НЕ помечены", async () => {
+    mocks.paydo.mockResolvedValue({ section: "p", pagesFetched: 149, listings: [], complete: false, stopReason: "page_failed" });
+    const stats = await runMarketFullCrawl({ pause });
+    expect(stats?.paydo).toMatchObject({ complete: false, stopReason: "paydo_failed", disappeared: 0 });
+    expect(mocks.gone.mock.calls.map((c) => c[0])).toEqual(["somon.tj"]);
+    // второй раздел после обрыва первого не качается
+    expect(mocks.paydo).toHaveBeenCalledTimes(1);
+  });
+
+  it("обрыв ВТОРОГО раздела Paydo (домов) при полном первом: тоже неполный обход", async () => {
+    mocks.paydo.mockImplementation(async (_c: unknown, section: { subcategoryId: number }) =>
+      section.subcategoryId === 201
+        ? { section: "p", pagesFetched: 30, listings: [], complete: true }
+        : { section: "p", pagesFetched: 10, listings: [], complete: false, stopReason: "page_limit" }
+    );
+    const stats = await runMarketFullCrawl({ pause });
+    expect(stats?.paydo).toMatchObject({ complete: false, disappeared: 0 });
+    expect(mocks.gone.mock.calls.map((c) => c[0])).toEqual(["somon.tj"]);
   });
 
   it("вышло время прогона: Somon не получает ни одного запроса, ничего не помечается", async () => {
@@ -153,7 +176,53 @@ describe("полный обход рынка раз в неделю", () => {
   });
 });
 
-describe("защита от молча оборванного обхода", () => {
+describe("защита от молча оборванного обхода: порог 60 % проверяется по-настоящему", () => {
+  /** Прежний объём каталога `source`; остальные источники — без истории. */
+  function previous(source: string, count: number) {
+    vi.spyOn(prisma.marketListing, "count").mockImplementation((async (args?: { where?: { source?: string } }) =>
+      args?.where?.source === source ? count : 0) as never);
+  }
+  /** По 60 новых объявлений на страницу, id не повторяются: два раздела по две страницы = 240 объявлений. */
+  function manyAds() {
+    mocks.fetchSomon.mockImplementation(async (path: string) => {
+      const n = Number(/page=(\d+)/.exec(path)?.[1] ?? 1);
+      const base = (path.includes("domov") ? 20_000 : 10_000) + n * 100;
+      return new Response(pageHtml(Array.from({ length: 60 }, (_, i) => base + i), 2));
+    });
+  }
+
+  it("собрали 240 из 500 (48 %) — обход подозрительно мал: исчезнувшие Somon не помечены, в журнале причина", async () => {
+    previous("somon.tj", 500);
+    manyAds();
+    const stats = await runMarketFullCrawl({ pause });
+    expect(stats?.somon).toMatchObject({ complete: false, stopReason: "too_small", disappeared: 0, pages: 4 });
+    expect(mocks.gone.mock.calls.map((c) => c[0])).toEqual(["paydo.tj"]);
+    expect(mocks.logError).toHaveBeenCalledWith("api", expect.stringContaining("240 при 500"), expect.anything());
+  });
+
+  it("собрали 240 из 380 (63 %) — защита пропускает, исчезнувшие помечаются", async () => {
+    previous("somon.tj", 380);
+    manyAds();
+    const stats = await runMarketFullCrawl({ pause });
+    expect(stats?.somon).toMatchObject({ complete: true, disappeared: 3 });
+    expect(mocks.gone).toHaveBeenCalledWith("somon.tj", DISAPPEAR_AFTER_HOURS);
+  });
+
+  it("малая прежняя база (< 100) защиту не включает, даже если собрано мало", async () => {
+    previous("somon.tj", 99);
+    const stats = await runMarketFullCrawl({ pause }); // собирает 8 объявлений
+    expect(stats?.somon).toMatchObject({ complete: true });
+  });
+
+  it("и Paydo под защитой: собрал 1 из 300 — не помечаем", async () => {
+    previous("paydo.tj", 300);
+    const stats = await runMarketFullCrawl({ pause });
+    expect(stats?.paydo).toMatchObject({ complete: false, stopReason: "too_small" });
+    expect(mocks.gone.mock.calls.map((c) => c[0])).toEqual(["somon.tj"]);
+  });
+});
+
+describe("looksTruncated: граница", () => {
   it("меньше 60 % прежнего — подозрительно; малая база защиту не включает", () => {
     expect(looksTruncated(500, 1000)).toBe(true);
     expect(looksTruncated(700, 1000)).toBe(false);

@@ -9,7 +9,7 @@
 
 import { prisma } from "../../db.js";
 import { crawlSection, SECTIONS } from "./somonCrawler.js";
-import { markDisappeared, saveListings } from "./marketStore.js";
+import { DISAPPEAR_AFTER_HOURS, markDisappeared, saveListings } from "./marketStore.js";
 import { withMarketCrawlLock } from "./nightly.js";
 
 const SOURCE = "somon.tj";
@@ -55,7 +55,7 @@ async function main(): Promise<void> {
   }
 
   // «Исчезло» помечаем только после полного обхода всех разделов.
-  const gone = complete ? await markDisappeared(SOURCE) : 0;
+  const gone = complete ? await markDisappeared(SOURCE, DISAPPEAR_AFTER_HOURS) : 0;
   const total = await prisma.marketListing.count();
   const minutes = Math.round((Date.now() - started) / 60000);
 

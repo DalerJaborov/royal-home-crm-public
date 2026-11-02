@@ -1858,7 +1858,11 @@ export function startCronJobs() {
         markCronTickFailed("Ошибка недельного обхода рынка", err);
       }
     },
-    { timezone: "Asia/Dushanbe" }
+    { timezone: "Asia/Dushanbe" },
+    undefined,
+    // Прогон идёт до 3 часов (MAX_RUNTIME_MS в nightly.ts) + запас на последнюю страницу и разметку:
+    // с общим потолком тика в 20 минут крон ложно писал «не завершил тик, снят с замка».
+    { timeoutMs: 3 * 60 * 60_000 + 30 * 60_000 }
   );
 
   /**

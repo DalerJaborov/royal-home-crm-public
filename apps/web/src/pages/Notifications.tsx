@@ -166,6 +166,8 @@ const KIND_LOOK: Record<string, { icon: LucideIcon; tone: CSSProperties }> = {
   look: { icon: MapPin, tone: { background: "var(--sky)", color: "var(--sky-ink)" } },
   /** «Объект загорелся» (24.09.2026) — рост просмотров, не огонь лида. */
   hot: { icon: TrendingUp, tone: { background: "var(--lime)", color: "var(--lime-ink)" } },
+  /** «Объект на площадках» (02.11.2026) — находка у Somon/Paydo. */
+  market: { icon: MapPin, tone: { background: "var(--lav)", color: "var(--lav-ink)" } },
 };
 const DEFAULT_LOOK = { icon: Bell, tone: { background: "var(--soft)", color: "var(--muted)" } };
 

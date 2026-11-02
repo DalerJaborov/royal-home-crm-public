@@ -3,6 +3,9 @@ import { z } from "zod";
 import { can, requireAuth } from "../auth/middleware.js";
 import { prisma } from "../db.js";
 import { cardWhereFromParam } from "../lib/cardIdParam.js";
+import { extractPhoneTails } from "../lib/market/ownMatch.js";
+import { phoneTail } from "../lib/clientPhones.js";
+import { canManagePropertyAs } from "../lib/propertyAccess.js";
 import { stripOwnerContact } from "../lib/ownerContact.js";
 import { loadMoneyContext, toTjs } from "../lib/money.js";
 
@@ -13,11 +16,16 @@ import { loadMoneyContext, toTjs } from "../lib/money.js";
  * (runOwnMatching, из cron после сбора каталога); здесь только чтение и ответ
  * агента.
  *
- * Права — те же, что у карточки объекта: удалённый объект только с archive.view.
+ * Права — те же, что у карточки и правок объекта: читать совпадения может тот, кому
+ * открыта карточка (удалённый объект — только с archive.view); менять решение
+ * «наш / не наш» — тот, кто вправе управлять объектом (canManagePropertyAs:
+ * руководитель или свой объект), иначе любой вошедший гасил бы чужие находки.
  * Телефон продавца площадки НЕ скрывается (решение владельца) — кроме одного
- * случая: совпадение найдено ИМЕННО по телефону владельца, а этот сотрудник
- * телефон владельца видеть не вправе (lib/ownerContact.ts). Иначе объявление
- * превратилось бы в обходной путь к закрытому контакту.
+ * случая: он совпал с телефоном владельца объекта, а этот сотрудник телефон
+ * владельца видеть не вправе (lib/ownerContact.ts). Сверка идёт по хвосту
+ * номера ПРИ КАЖДОЙ выдаче, а не по сохранённым причинам: номер у объявления мог
+ * появиться позже, чем посчитался счёт. Иначе объявление стало бы обходным путём
+ * к закрытому контакту.
  */
 export const marketMatchesRouter = Router();
 
@@ -33,7 +41,7 @@ marketMatchesRouter.get("/property/:id", requireAuth, async (req, res) => {
   const p = await prisma.property.findUnique({
     where,
     select: {
-      id: true, price: true, currency: true, areaSqm: true, deletedAt: true,
+      id: true, price: true, currency: true, areaSqm: true, deletedAt: true, ownerContact: true,
       assignedAgentId: true, intakeAgentId: true, createdById: true,
     },
   });
@@ -61,6 +69,7 @@ marketMatchesRouter.get("/property/:id", requireAuth, async (req, res) => {
     req.agent!.id,
     can(req, "properties.viewOwners")
   ).ownerContactHidden;
+  const ownerTails = ownerHidden ? new Set(extractPhoneTails(p.ownerContact)) : new Set<string>();
 
   res.json({
     ourPriceTjs,
@@ -68,7 +77,8 @@ marketMatchesRouter.get("/property/:id", requireAuth, async (req, res) => {
       const l = m.listing;
       const price = l.priceTjs != null ? Number(l.priceTjs) : null;
       const area = l.areaSqm != null ? Number(l.areaSqm) : null;
-      const hidePhone = ownerHidden && hasPhoneReason(m.reasons);
+      const sellerTail = l.sellerPhone ? phoneTail(l.sellerPhone) : "";
+      const hidePhone = ownerHidden && (hasPhoneReason(m.reasons) || (sellerTail !== "" && ownerTails.has(sellerTail)));
       return {
         id: m.id,
         status: m.status,
@@ -99,17 +109,21 @@ marketMatchesRouter.get("/property/:id", requireAuth, async (req, res) => {
 
 const statusSchema = z.object({ status: z.enum(["CONFIRMED", "DISMISSED"]) });
 
-/** Агент подтверждает «да, это наш объект» или «нет, не он». Доступ — только если виден объект. */
+/** Агент подтверждает «да, это наш объект» или «нет, не он». Доступ — как у правок объекта. */
 marketMatchesRouter.post("/:matchId/status", requireAuth, async (req, res) => {
   const parsed = statusSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Неверный статус", details: parsed.error.flatten() });
 
   const match = await prisma.propertyMarketMatch.findUnique({
     where: { id: String(req.params.matchId) },
-    select: { id: true, property: { select: { deletedAt: true } } },
+    select: { id: true, property: { select: { deletedAt: true, assignedAgentId: true, intakeAgentId: true, createdById: true } } },
   });
   if (!match || (match.property.deletedAt && !can(req, "archive.view"))) {
     return res.status(404).json({ error: "Совпадение не найдено" });
+  }
+  // Решать «наш / не наш» вправе тот, кто управляет объектом (как правки карточки).
+  if (!canManagePropertyAs({ agentId: req.agent!.id, can: (permission) => can(req, permission) }, match.property)) {
+    return res.status(403).json({ error: "Недостаточно прав: решает ответственный за объект или руководитель" });
   }
   const updated = await prisma.propertyMarketMatch.update({
     where: { id: match.id },

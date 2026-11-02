@@ -11,6 +11,7 @@
  * выбрасывать объявление здесь; такие отсеивает marketStore.
  */
 
+import { normalizeDistrictName } from "./districtName.js";
 import type { ParsedListing, SomonRawAd } from "./somonParser.js";
 
 export const PAYDO_SOURCE = "paydo.tj";
@@ -118,11 +119,11 @@ function mapReady(text: string | undefined): boolean | null {
   return null;
 }
 
-/** «Душанбе | Исмоили Сомони» → район после черты; нет черты — null. */
-function districtOf(subtitle2: string | null | undefined): string | null {
+/** «Душанбе | И. Сомони» → район после черты, сведённый к названию справочника; нет черты — null. */
+export function districtOf(subtitle2: string | null | undefined): string | null {
   if (!subtitle2) return null;
   const parts = subtitle2.split("|").map((s) => s.trim());
-  return parts.length > 1 && parts[1] ? parts[1] : null;
+  return parts.length > 1 && parts[1] ? normalizeDistrictName(parts[1]) : null;
 }
 
 export function parsePaydoAd(

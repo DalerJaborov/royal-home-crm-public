@@ -743,29 +743,6 @@ export interface AppNotification {
   createdAt: string;
 }
 
-/** Ответ GET /market/estimate (apps/api/src/lib/market/comps.ts::CompsResult + сравнение). */
-export interface MarketEstimate {
-  medianPerSqm: number | null;
-  p25PerSqm: number | null;
-  p75PerSqm: number | null;
-  estimatedPriceTjs: number | null;
-  sampleSize: number;
-  basis: string;
-  level: string;
-  comparison?: { verdict: "below" | "market" | "above" | "unknown"; diffPercent: number | null } | null;
-  listings: {
-    sourceUrl: string;
-    source: string;
-    title: string;
-    rooms: number | null;
-    areaSqm: number | null;
-    floor: number | null;
-    districtName: string | null;
-    priceTjs: number | null;
-    pricePerSqmTjs: number | null;
-  }[];
-}
-
 export type MarketVerdict = "below" | "market" | "above" | "unknown";
 
 /** Одно похожее объявление в блоке «Рынок» карточки объекта. */

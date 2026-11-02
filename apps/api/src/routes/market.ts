@@ -1,9 +1,7 @@
 import { Router } from "express";
-import { z } from "zod";
 import { can, requireAuth } from "../auth/middleware.js";
 import { prisma } from "../db.js";
 import { cardWhereFromParam } from "../lib/cardIdParam.js";
-import { comparePrice, estimateFromComps } from "../lib/market/comps.js";
 import { emptyDynamics, findDynamics } from "../lib/market/dynamics.js";
 import { emptyResult, findSimilar, verdictFor, type Repair } from "../lib/market/similarComps.js";
 import { loadMoneyContext, toTjs } from "../lib/money.js";
@@ -11,47 +9,15 @@ import { loadMoneyContext, toTjs } from "../lib/money.js";
 export const marketRouter = Router();
 
 /**
- * GET /api/v1/market/estimate — рыночная оценка по аналогам для карточки
- * клиента ("что он может себе позволить") и карточки объекта ("дорого/в
- * рынке/дёшево"). Внутренние данные компании — доступ только авторизованным
- * (requireAuth), без отдельного права: это справочная подсказка, а не раздел
- * с чувствительными персональными данными, доступ к которому режут по правам.
- *
- * Считает estimateFromComps (apps/api/src/lib/market/comps.ts) — эта функция
- * НЕ переписывается здесь, роут — только тонкая обвязка над ней с валидацией
- * query-параметров и обрезкой listings до 5 штук для фронта.
+ * Состояние объекта → ремонт для подбора. NEW_BUILDING здесь НЕТ: «новостройка» в РТ —
+ * признак дома (владелец 02.11.2026), а не ремонт; ремонт в этом случае неизвестен (null),
+ * и подбор не режет по нему.
  */
-const querySchema = z.object({
-  districtName: z.string().trim().min(1).optional(),
-  rooms: z.coerce.number().int().positive().optional(),
-  areaSqm: z.coerce.number().positive().optional(),
-  /** Цена объекта/бюджета, УЖЕ приведённая к сомони на фронте (lib/format.ts toTjs,
-   *  курс из useUsdToTjsRate) — сравнивать с медианой можно только в одной валюте,
-   *  а курс лежит в Настройках, которые фронт уже читает для отображения цены. */
-  priceTjs: z.coerce.number().positive().optional(),
-});
-
-marketRouter.get("/estimate", requireAuth, async (req, res) => {
-  const parsed = querySchema.safeParse(req.query);
-  if (!parsed.success) {
-    return res.status(400).json({ error: "Неверные параметры", details: parsed.error.flatten() });
-  }
-  const { districtName, rooms, areaSqm, priceTjs } = parsed.data;
-
-  const comps = await estimateFromComps({
-    districtName: districtName ?? null,
-    rooms: rooms ?? null,
-    areaSqm: areaSqm ?? null,
-  });
-
-  res.json({
-    ...comps,
-    // Фронту для блока "источники" хватает первых пяти — уже отсортированы
-    // estimateFromComps по возрастанию цены за квадрат.
-    listings: comps.listings.slice(0, 5),
-    comparison: priceTjs !== undefined ? comparePrice(priceTjs, comps) : null,
-  });
-});
+const CONDITION_TO_REPAIR: Record<string, Repair> = {
+  NEEDS_REPAIR: "SHELL",
+  GOOD: "PARTIAL",
+  EXCELLENT: "RENOVATED",
+};
 
 /**
  * GET /api/v1/market/property/:id — блок «Рынок» в карточке объекта: стоит ли цена
@@ -59,20 +25,13 @@ marketRouter.get("/estimate", requireAuth, async (req, res) => {
  * ремонт/признак дома/курс считаются здесь, а не на каждом экране); права те же,
  * что у самой карточки (GET /properties/:id: удалённый — только с archive.view).
  */
-const CONDITION_TO_REPAIR: Record<string, Repair> = {
-  NEEDS_REPAIR: "SHELL",
-  NEW_BUILDING: "WHITE",
-  GOOD: "PARTIAL",
-  EXCELLENT: "RENOVATED",
-};
-
 marketRouter.get("/property/:id", requireAuth, async (req, res) => {
   const where = cardWhereFromParam(String(req.params.id));
   if (!where) return res.status(404).json({ error: "Объект не найден" });
   const p = await prisma.property.findUnique({
     where,
     select: {
-      type: true, rooms: true, areaSqm: true, floor: true, totalFloors: true, price: true, currency: true,
+      id: true, type: true, rooms: true, areaSqm: true, floor: true, totalFloors: true, price: true, currency: true,
       condition: true, marketType: true, deletedAt: true, district: { select: { name: true } },
     },
   });
@@ -87,8 +46,9 @@ marketRouter.get("/property/:id", requireAuth, async (req, res) => {
     floor: p.floor,
     totalFloors: p.totalFloors,
     repair: CONDITION_TO_REPAIR[p.condition] ?? null,
-    // «Новостройка» в РТ — признак дома (владелец 02.11.2026); не задано — не фильтруем.
-    isNewBuilding: p.marketType == null ? null : p.marketType !== "SECONDARY",
+    // «Новостройка» в РТ — признак дома (владелец 02.11.2026). Тип рынка не задан, а состояние
+    // «новостройка» — значит новостройка; иначе не задано — не фильтруем.
+    isNewBuilding: p.marketType != null ? p.marketType !== "SECONDARY" : p.condition === "NEW_BUILDING" ? true : null,
     askingPriceTjs,
   };
 
@@ -101,7 +61,7 @@ marketRouter.get("/property/:id", requireAuth, async (req, res) => {
     });
   }
 
-  const result = await findSimilar({ ...subjectBase, propertyType: p.type });
+  const result = await findSimilar({ ...subjectBase, propertyType: p.type }, { propertyId: p.id });
   res.json({
     subject: { ...subjectBase, propertyType: p.type },
     ...result,
@@ -120,7 +80,7 @@ marketRouter.get("/property/:id/dynamics", requireAuth, async (req, res) => {
   if (!where) return res.status(404).json({ error: "Объект не найден" });
   const p = await prisma.property.findUnique({
     where,
-    select: { type: true, rooms: true, areaSqm: true, deletedAt: true, district: { select: { name: true } } },
+    select: { id: true, type: true, rooms: true, areaSqm: true, deletedAt: true, district: { select: { name: true } } },
   });
   if (!p || (p.deletedAt && !can(req, "archive.view"))) return res.status(404).json({ error: "Объект не найден" });
 
@@ -128,5 +88,5 @@ marketRouter.get("/property/:id/dynamics", requireAuth, async (req, res) => {
   if ((p.type !== "APARTMENT" && p.type !== "HOUSE") || !(areaSqm > 0)) {
     return res.json(emptyDynamics("для этого типа объекта динамика рынка не считается", "unsupported"));
   }
-  res.json(await findDynamics({ propertyType: p.type, districtName: p.district?.name ?? null, rooms: p.rooms, areaSqm }));
+  res.json(await findDynamics({ propertyId: p.id, propertyType: p.type, districtName: p.district?.name ?? null, rooms: p.rooms, areaSqm }));
 });

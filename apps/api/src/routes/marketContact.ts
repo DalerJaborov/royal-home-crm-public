@@ -1,8 +1,13 @@
 import { Router } from "express";
 import { z } from "zod";
-import { requireAuth } from "../auth/middleware.js";
+import type { Request } from "express";
+import { Prisma } from "../generated/prisma/client.js";
+import { can, requireAuth } from "../auth/middleware.js";
 import { prisma } from "../db.js";
-import { fetchSomonPhone } from "../lib/somonLeads/phone.js";
+import { PHONE_TAIL_LEN, phoneTail } from "../lib/clientPhones.js";
+import { extractPhoneTails } from "../lib/market/ownMatch.js";
+import { stripOwnerContact } from "../lib/ownerContact.js";
+import { fetchSomonPhoneInteractive } from "../lib/somonLeads/phone.js";
 import { SomonSourceUnavailable } from "../lib/somonLeads/sourceClient.js";
 import { logSystemError } from "../lib/systemError.js";
 
@@ -16,13 +21,46 @@ export const marketContactRouter = Router();
  * тот же темп, что у парсера лидов и обхода рынка, блокировку не ловим). Найденный номер
  * кладём в каталог — повторный клик ходит уже в нашу базу. Объявление ищется по ссылке
  * ИЗ НАШЕГО каталога, адрес запроса к сайту строится из сохранённого id, а не из ввода.
- * Номер из публичного объявления, не клиентский: не маскируем (решение владельца 02.11.2026).
+ * Номер из публичного объявления, не клиентский: не маскируем (решение владельца 02.11.2026) —
+ * КРОМЕ одного случая: номер совпал с контактом владельца нашего объекта, а у сотрудника нет
+ * доступа к этому контакту (lib/ownerContact.ts). Тогда 403: объявление не должно становиться
+ * обходным путём к закрытому телефону. Номер хранится и отдаётся единым видом +992XXXXXXXXX —
+ * именно такой вид ищет сверка в lib/market/ownMatch.ts.
  */
 const bodySchema = z.object({ sourceUrl: z.string().url().max(600) });
 
 /** Не чаще одного запроса на сотрудника в 3 секунды: защита от залипшей кнопки. */
 const lastClickByAgent = new Map<string, number>();
 const MIN_GAP_MS = 3000;
+
+/** Единый вид номера: +992 и девять цифр. Меньше девяти цифр — это не номер. */
+export function normalizeListingPhone(raw: string): string | null {
+  const tail = phoneTail(raw);
+  return tail.length === PHONE_TAIL_LEN ? `+992${tail}` : null;
+}
+
+/**
+ * Закрыт ли этому сотруднику хотя бы один наш объект, чей контакт владельца содержит этот номер.
+ * Кандидатов ищем одним запросом по цифрам контакта, затем сверяем хвосты в коде (склейка цифр
+ * двух номеров рядом не должна давать ложных срабатываний).
+ */
+async function phoneBelongsToHiddenOwner(req: Request, normalized: string): Promise<boolean> {
+  const tail = phoneTail(normalized);
+  const rows = await prisma.$queryRaw<
+    Array<{ ownerContact: string | null; assignedAgentId: string | null; intakeAgentId: string | null; createdById: string | null }>
+  >(Prisma.sql`
+    SELECT "ownerContact", "assignedAgentId", "intakeAgentId", "createdById"
+    FROM "Property"
+    WHERE "deletedAt" IS NULL
+      AND "ownerContact" IS NOT NULL
+      AND regexp_replace("ownerContact", '[^0-9]', '', 'g') LIKE ${`%${tail}%`}
+    LIMIT 50
+  `);
+  const supervisor = can(req, "properties.viewOwners");
+  return rows.some(
+    (r) => extractPhoneTails(r.ownerContact).includes(tail) && stripOwnerContact(r, req.agent!.id, supervisor).ownerContactHidden,
+  );
+}
 
 marketContactRouter.post("/listing-contact", requireAuth, async (req, res) => {
   const parsed = bodySchema.safeParse(req.body);
@@ -40,7 +78,11 @@ marketContactRouter.post("/listing-contact", requireAuth, async (req, res) => {
     select: { id: true, source: true, sourceId: true, sellerPhone: true },
   });
   if (!listing) return res.status(404).json({ error: "Объявление не найдено в каталоге" });
-  if (listing.sellerPhone) return res.json({ phone: listing.sellerPhone, cached: true });
+  const stored = listing.sellerPhone ? normalizeListingPhone(listing.sellerPhone) : null;
+  if (stored) {
+    if (await phoneBelongsToHiddenOwner(req, stored)) return res.status(403).json({ error: "Номер совпадает с контактом владельца объекта, доступ закрыт" });
+    return res.json({ phone: stored, cached: true });
+  }
 
   if (listing.source !== "somon.tj") {
     // Paydo номер в списке не показывает — открывается на сайте.
@@ -48,9 +90,11 @@ marketContactRouter.post("/listing-contact", requireAuth, async (req, res) => {
   }
 
   try {
-    const phone = await fetchSomonPhone(listing.sourceId);
+    const phone = normalizeListingPhone((await fetchSomonPhoneInteractive(listing.sourceId)) ?? "");
     if (!phone) return res.json({ phone: null, reason: "no_phone" });
+    // Сохраняем всегда: так сверка с владельцами нашла бы этот номер при следующем прогоне.
     await prisma.marketListing.update({ where: { id: listing.id }, data: { sellerPhone: phone } });
+    if (await phoneBelongsToHiddenOwner(req, phone)) return res.status(403).json({ error: "Номер совпадает с контактом владельца объекта, доступ закрыт" });
     return res.json({ phone, cached: false });
   } catch (err) {
     if (err instanceof SomonSourceUnavailable && err.reason === "not_ready") {

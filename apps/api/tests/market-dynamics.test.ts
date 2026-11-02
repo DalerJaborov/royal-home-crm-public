@@ -31,14 +31,16 @@ function gone(i: number, over: Partial<GoneRow> & { life?: number; goneAgo?: num
   return {
     sourceUrl: `https://somon.tj/adv/g${i}`, source: "somon.tj", title: `Ушло ${i}`,
     priceTjs: 800000, pricePerSqmTjs: 10000,
-    firstSeenAt: new Date(disappearedAt.getTime() - life * DAY), disappearedAt,
+    // Последний раз видели за сутки до пометки «ушло» (обход недельный): срок жизни считается до lastSeenAt.
+    firstSeenAt: new Date(disappearedAt.getTime() - (life + 1) * DAY),
+    lastSeenAt: new Date(disappearedAt.getTime() - DAY), disappearedAt,
     sellerId: null, sellerName: null, sellerPhone: null, isAgency: false, snapshots: [],
     ...over,
   };
 }
 
 function active(i: number, over: Partial<ActiveRow> = {}): ActiveRow {
-  return { pricePerSqmTjs: 12000, sellerId: null, sellerPhone: null, isAgency: false, ...over };
+  return { source: "somon.tj", pricePerSqmTjs: 12000, sellerId: null, sellerPhone: null, isAgency: false, ...over };
 }
 
 describe("dynamics: чистые функции", () => {
@@ -57,14 +59,64 @@ describe("dynamics: чистые функции", () => {
     expect(priceCutPercent([{ priceTjs: 1000, seenAt: t(10) }, { priceTjs: 1100, seenAt: t(5) }])).toBeNull();
   });
 
+  it("priceCutPercent: шум < 0,5% (курс, округление) не снижение", () => {
+    const t = (d: number) => new Date(NOW.getTime() - d * DAY);
+    // 100 000 → 99 700 (−0,3%): шум
+    expect(priceCutPercent([{ priceTjs: 100_000, seenAt: t(10) }, { priceTjs: 99_700, seenAt: t(5) }])).toBeNull();
+    // граница: ровно −0,5% — уже снижение
+    expect(priceCutPercent([{ priceTjs: 100_000, seenAt: t(10) }, { priceTjs: 99_500, seenAt: t(5) }])).toBeCloseTo(0.5);
+    // цепочка шумов относительно базы накапливается: 100 000 → 99 700 (шум) → 99 400 (−0,6% от базы) — снижение
+    expect(
+      priceCutPercent([
+        { priceTjs: 100_000, seenAt: t(10) }, { priceTjs: 99_700, seenAt: t(8) }, { priceTjs: 99_400, seenAt: t(5) },
+      ])
+    ).toBeCloseTo(0.6);
+    // рост на шум и затем возврат — не снижение
+    expect(
+      priceCutPercent([
+        { priceTjs: 100_000, seenAt: t(10) }, { priceTjs: 100_300, seenAt: t(8) }, { priceTjs: 100_000, seenAt: t(5) },
+      ])
+    ).toBeNull();
+  });
+
+  it("срок жизни — до lastSeenAt, а не до disappearedAt (тот ставит недельный обход)", () => {
+    const first = new Date(NOW.getTime() - 30 * DAY);
+    const row = { firstSeenAt: first, lastSeenAt: new Date(first.getTime() + 10 * DAY) };
+    expect(daysListed(row)).toBe(10);
+    // 12 «ушедших» с жизнью 2,5 суток по lastSeenAt, хотя disappearedAt на 7 суток позже: историю < 3 суток не считаем
+    const young = Array.from({ length: 12 }, (_, i) =>
+      gone(i, { firstSeenAt: first, lastSeenAt: new Date(first.getTime() + 2.5 * DAY), disappearedAt: new Date(first.getTime() + 9.5 * DAY) })
+    );
+    const r = buildDynamics(young, [], {}, subject, NOW);
+    expect(r.goneCount).toBe(0);
+  });
+
+  it("один объект на Somon и Paydo считается раз: дубли ушедших и висящих склеиваются", () => {
+    const base = { districtName: "Сино", rooms: 3, areaSqm: 75, floor: 4, priceTjs: 800_000 };
+    const goneRows = [
+      ...Array.from({ length: 5 }, (_, i) => gone(i, { ...base, source: "somon.tj", areaSqm: 75 + i * 10 })),
+      ...Array.from({ length: 5 }, (_, i) => gone(10 + i, { ...base, source: "paydo.tj", areaSqm: 75 + i * 10, priceTjs: 810_000 })),
+    ];
+    const r = buildDynamics(goneRows, [], {}, subject, NOW);
+    expect(r.goneCount).toBe(5);
+    expect(r.speed.medianDays).toBeNull(); // 5 < 8 — «данных мало», а не 10
+    const act = [
+      ...Array.from({ length: 5 }, (_, i) => active(i, { ...base, areaSqm: 75 + i * 10 })),
+      ...Array.from({ length: 5 }, (_, i) => active(10 + i, { ...base, source: "paydo.tj", areaSqm: 75 + i * 10 })),
+    ];
+    expect(buildDynamics([], act, {}, subject, NOW).activeCount).toBe(5);
+  });
+
   it("isRealtorSeller: пометка агентства или ≥ 5 активных объявлений", () => {
-    const owner = { sellerId: "s1", sellerPhone: null, isAgency: false };
-    expect(isRealtorSeller(owner, { "id:s1": 4 })).toBe(false);
-    expect(isRealtorSeller(owner, { "id:s1": 5 })).toBe(true);
+    const owner = { source: "somon.tj", sellerId: "s1", sellerPhone: null, isAgency: false };
+    expect(isRealtorSeller(owner, { "somon.tj:s1": 4 })).toBe(false);
+    expect(isRealtorSeller(owner, { "somon.tj:s1": 5 })).toBe(true);
+    // id продавца уникален только внутри площадки: «s1» на Paydo — другой человек
+    expect(isRealtorSeller({ ...owner, source: "paydo.tj" }, { "somon.tj:s1": 40 })).toBe(false);
     expect(isRealtorSeller({ ...owner, isAgency: true }, {})).toBe(true);
     // без sellerId ключ — телефон (arzon.tj)
-    expect(isRealtorSeller({ sellerId: null, sellerPhone: "+992900000001", isAgency: false }, { "ph:+992900000001": 6 })).toBe(true);
-    expect(isRealtorSeller({ sellerId: null, sellerPhone: null, isAgency: false }, {})).toBe(false);
+    expect(isRealtorSeller({ source: "arzon.tj", sellerId: null, sellerPhone: "+992900000001", isAgency: false }, { "ph:+992900000001": 6 })).toBe(true);
+    expect(isRealtorSeller({ source: "somon.tj", sellerId: null, sellerPhone: null, isAgency: false }, {})).toBe(false);
   });
 
   it("мало данных — ни одной цифры, статус insufficient", () => {
@@ -139,7 +191,7 @@ describe("dynamics: чистые функции", () => {
       active(0, { isAgency: true }),
       active(1), active(2), active(3, { sellerId: "small" }),
     ];
-    const r = buildDynamics(goneRows, activeRows, { "id:big": 12, "id:small": 1 }, subject, NOW);
+    const r = buildDynamics(goneRows, activeRows, { "somon.tj:big": 12, "somon.tj:small": 1 }, subject, NOW);
     expect(r.sellers.sampleSize).toBe(8);
     expect(r.sellers.realtorListings).toBe(5);
     expect(r.sellers.realtorPercent).toBe(63);
@@ -305,6 +357,23 @@ describe("GET /market/property/:id/dynamics", () => {
     expect(res.body.recentlyGone[0].goneDaysAgo).toBe(1);
     expect(res.body.recentlyGone[0].sellerPhone).toBe("+992900000003");
     expect(res.body.recentlyGone[0].priceCutPercent).toBe(10);
+  });
+
+  it("объявление, найденное как наш объект (CANDIDATE/CONFIRMED), в динамику не входит", async () => {
+    const mine = await prisma.marketListing.findFirstOrThrow({ where: { sourceId: `${runId}-a5` } });
+    const match = await prisma.propertyMarketMatch.create({
+      data: { propertyId, listingId: mine.id, score: 90, reasons: [], status: "CANDIDATE" },
+    });
+    try {
+      const res = await request(app).get(`/api/v1/market/property/${propertyId}/dynamics`).set("Authorization", `Bearer ${token}`);
+      expect(res.status).toBe(200);
+      expect(res.body.activeCount).toBe(9);
+      await prisma.propertyMarketMatch.update({ where: { id: match.id }, data: { status: "DISMISSED" } });
+      const again = await request(app).get(`/api/v1/market/property/${propertyId}/dynamics`).set("Authorization", `Bearer ${token}`);
+      expect(again.body.activeCount).toBe(10); // «не наш» — обычное объявление рынка
+    } finally {
+      await prisma.propertyMarketMatch.deleteMany({ where: { id: match.id } });
+    }
   });
 
   it("пустой район — insufficient без 500 и без цифр", async () => {

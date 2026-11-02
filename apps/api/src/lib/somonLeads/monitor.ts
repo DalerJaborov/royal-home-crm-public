@@ -18,9 +18,13 @@ let marketIngestRunning = false;
  * запроса к Somon. Изоляция от лидов обязательна: функция не бросает и не ждёт
  * записи (парсер её не awaitит), сама запись — вне транзакций лидов, а пока
  * прошлая запись не закончилась, новая страница пропускается (следующий полный
- * обход всё равно подберёт). Возвращает промис только для тестов.
+ * обход всё равно подберёт). Не изменившиеся объявления не перезаписываются (saveListings
+ * только отмечает «видели»). MARKET_MONITOR_INGEST=0 выключает запись целиком.
+ * Возвращает промис только для тестов.
  */
 export function ingestMarketPage(html: string): Promise<void> {
+  // Аварийный выключатель записи рынка из парсера лидов: MARKET_MONITOR_INGEST=0.
+  if (process.env.MARKET_MONITOR_INGEST === "0") return Promise.resolve();
   if (marketIngestRunning) return Promise.resolve();
   marketIngestRunning = true;
   return (async () => {

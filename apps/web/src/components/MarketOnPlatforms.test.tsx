@@ -66,6 +66,29 @@ describe("MarketOnPlatformsView", () => {
   });
 });
 
+describe("MarketOnPlatformsView: доступ и вид кнопок", () => {
+  it("телефон скрыт правами — кнопки WhatsApp нет (иначе номер открылся бы через сервер)", () => {
+    const hidden = renderToStaticMarkup(
+      <MarketOnPlatformsView data={data([{ ...match, sellerPhone: null, sellerPhoneHidden: true }])} onStatus={noop} />
+    );
+    expect(hidden).not.toContain("WhatsApp");
+    const open = renderToStaticMarkup(<MarketOnPlatformsView data={data([match])} onStatus={noop} />);
+    expect(open).toContain("Написать продавцу в WhatsApp");
+  });
+
+  it("кнопки решения и WhatsApp на .pill темы, а не на glass-btn (его бьёт сброс .rh2 button)", () => {
+    const html = renderToStaticMarkup(<MarketOnPlatformsView data={data([match])} onStatus={noop} />);
+    expect(html).not.toContain("glass-btn");
+    const our = html.match(/<button[^>]*>Это наш/)?.[0] ?? "";
+    expect(our).toMatch(/class="pill /);
+    expect(our).toContain("px-3!");
+    const not = html.match(/<button[^>]*>Не наш/)?.[0] ?? "";
+    expect(not).toMatch(/class="pill ghost /);
+    const wa = html.match(/<button[^>]*aria-label="Написать продавцу в WhatsApp"[^>]*>/)?.[0] ?? "";
+    expect(wa).toMatch(/class="pill ghost /);
+  });
+});
+
 describe("priceDiffText", () => {
   it("знак разницы", () => {
     expect(priceDiffText(4)?.text).toBe("на 4% дороже, чем у нас");

@@ -17,9 +17,11 @@
 
 import { prisma } from "../../db.js";
 import { MIN_SAMPLE } from "./comps.js";
-import { WINDOW_DAYS as ACTIVE_WINDOW_DAYS } from "./similarComps.js";
+import { dedupeAcrossSources, ownListingIds, WINDOW_DAYS as ACTIVE_WINDOW_DAYS } from "./similarComps.js";
 
 export const DYNAMICS_WINDOW_DAYS = 90;
+/** Снимки цены, отличающиеся меньше этого, — шум округления/курса, не снижение. */
+export const PRICE_NOISE_SHARE = 0.005;
 /** Ушедшее объявление с историей короче этого — артефакт молодого каталога, не «продали». */
 export const MIN_HISTORY_DAYS = 3;
 /** Продавец с таким числом активных объявлений — риелтор, даже если площадка не пометила. */
@@ -31,6 +33,8 @@ const TOP_GONE = 5;
 const DAY_MS = 24 * 3600_000;
 
 export interface DynamicsSubject {
+  /** Наш объект: найденные/подтверждённые как его объявления из выборки исключаются. */
+  propertyId?: string;
   propertyType: "APARTMENT" | "HOUSE";
   city?: string;
   districtName: string | null;
@@ -50,22 +54,36 @@ export interface GoneRow {
   priceTjs: number | null;
   pricePerSqmTjs: number | null;
   firstSeenAt: Date;
+  /** Когда его последний раз ВИДЕЛИ в выдаче — конец срока жизни (disappearedAt ставит недельный обход, он позже). */
+  lastSeenAt: Date;
+  /** Когда обход заметил пропажу — только для сортировки «недавно ушли» и подписи «N дней назад». */
   disappearedAt: Date;
   sellerId: string | null;
   sellerName: string | null;
   sellerPhone: string | null;
   isAgency: boolean;
   snapshots: GonePricePoint[];
+  // Признаки для склейки дублей между площадками (нет — не склеиваем).
+  districtName?: string | null;
+  rooms?: number | null;
+  areaSqm?: number | null;
+  floor?: number | null;
 }
 
 export interface ActiveRow {
+  source: string;
   pricePerSqmTjs: number | null;
+  priceTjs?: number | null;
+  districtName?: string | null;
+  rooms?: number | null;
+  areaSqm?: number | null;
+  floor?: number | null;
   sellerId: string | null;
   sellerPhone: string | null;
   isAgency: boolean;
 }
 
-/** Сколько активных объявлений у продавца: ключ `id:<sellerId>` или `ph:<телефон>`. */
+/** Сколько активных объявлений у продавца: ключ `<источник>:<sellerId>` (id продавца уникален только внутри площадки) или `ph:<телефон>`. */
 export type SellerCounts = Record<string, number>;
 
 export interface GoneListing {
@@ -141,15 +159,15 @@ export function median(values: number[]): number | null {
   return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
 }
 
-export function sellerKey(r: { sellerId: string | null; sellerPhone: string | null }): string | null {
-  if (r.sellerId) return `id:${r.sellerId}`;
+export function sellerKey(r: { source: string; sellerId: string | null; sellerPhone: string | null }): string | null {
+  if (r.sellerId) return `${r.source}:${r.sellerId}`;
   if (r.sellerPhone) return `ph:${r.sellerPhone}`;
   return null;
 }
 
 /** Риелтор: площадка пометила агентством ИЛИ у продавца ≥ 5 активных объявлений. */
 export function isRealtorSeller(
-  r: { sellerId: string | null; sellerPhone: string | null; isAgency: boolean },
+  r: { source: string; sellerId: string | null; sellerPhone: string | null; isAgency: boolean },
   counts: SellerCounts
 ): boolean {
   if (r.isAgency) return true;
@@ -157,22 +175,33 @@ export function isRealtorSeller(
   return key != null && (counts[key] ?? 0) >= REALTOR_LISTINGS_THRESHOLD;
 }
 
-/** Срок жизни объявления в днях (дробный) — от первого появления до пропажи. */
-export function daysListed(r: Pick<GoneRow, "firstSeenAt" | "disappearedAt">): number {
-  return (r.disappearedAt.getTime() - r.firstSeenAt.getTime()) / DAY_MS;
+/**
+ * Срок жизни объявления в днях (дробный) — от первого появления до ПОСЛЕДНЕГО раза, когда его
+ * видели. Не до disappearedAt: тот ставится при недельном обходе и накидывал бы до недели.
+ */
+export function daysListed(r: Pick<GoneRow, "firstSeenAt" | "lastSeenAt">): number {
+  return Math.max(0, (r.lastSeenAt.getTime() - r.firstSeenAt.getTime()) / DAY_MS);
 }
 
 /**
  * Снижение цены до ухода в %: первая известная цена против последней. Пишется
  * снимок на каждое изменение (marketStore), первый снимок — цена при появлении.
- * null — меньше двух снимков (нечего сравнивать) или цена не падала.
+ * Соседние снимки, отличающиеся меньше PRICE_NOISE_SHARE (0,5%), — шум округления и
+ * пересчёта по курсу у долларовых объявлений: они не двигают базу сравнения, а «снижение»
+ * засчитывается, только если последняя цена ≤ первой × 0,995.
+ * null — меньше двух значимых снимков (нечего сравнивать) или цена не падала.
  */
 export function priceCutPercent(snapshots: GonePricePoint[]): number | null {
   if (snapshots.length < 2) return null;
   const sorted = [...snapshots].sort((a, b) => a.seenAt.getTime() - b.seenAt.getTime());
   const first = sorted[0].priceTjs;
-  const last = sorted[sorted.length - 1].priceTjs;
-  if (!(first > 0) || last >= first) return null;
+  if (!(first > 0)) return null;
+  let last = first;
+  for (const s of sorted.slice(1)) {
+    if (Math.abs(s.priceTjs - last) / last < PRICE_NOISE_SHARE) continue;
+    last = s.priceTjs;
+  }
+  if (last > first * (1 - PRICE_NOISE_SHARE)) return null;
   return ((first - last) / first) * 100;
 }
 
@@ -188,15 +217,17 @@ const roundPct = (v: number) => Math.round(v);
 /** Чистая часть: из строк ушедших и висящих объявлений — цифры динамики. */
 export function buildDynamics(
   goneRows: GoneRow[],
-  activeRows: ActiveRow[],
+  activeRowsRaw: ActiveRow[],
   sellerCounts: SellerCounts,
   subject: DynamicsSubject,
   now: Date = new Date()
 ): DynamicsResult {
   const basis = `${describe(subject)}; ушедшие за ${DYNAMICS_WINDOW_DAYS} дней, висящие за ${ACTIVE_WINDOW_DAYS}`;
 
-  // «Ушло» засчитываем только при истории не короче порога — иначе это молодой каталог.
-  const gone = goneRows.filter((r) => daysListed(r) >= MIN_HISTORY_DAYS);
+  // «Ушло» засчитываем только при истории не короче порога (первое появление → последний раз видели) —
+  // иначе это молодой каталог. Один объект на двух площадках считается раз (как в similarComps).
+  const gone = dedupeAcrossSources(goneRows.filter((r) => daysListed(r) >= MIN_HISTORY_DAYS));
+  const activeRows = dedupeAcrossSources(activeRowsRaw);
 
   const result = emptyDynamics(basis, "insufficient");
   result.goneCount = gone.length;
@@ -274,7 +305,9 @@ export async function findDynamics(subject: DynamicsSubject, now: Date = new Dat
   const city = subject.city ?? "Душанбе";
   const goneSince = new Date(now.getTime() - DYNAMICS_WINDOW_DAYS * DAY_MS);
   const activeSince = new Date(now.getTime() - ACTIVE_WINDOW_DAYS * DAY_MS);
+  const own = await ownListingIds(subject.propertyId);
   const base = {
+    ...(own.length ? { id: { notIn: own } } : {}),
     dealType: "SALE",
     propertyType: subject.propertyType,
     city,
@@ -288,8 +321,9 @@ export async function findDynamics(subject: DynamicsSubject, now: Date = new Dat
     prisma.marketListing.findMany({
       where: { ...base, isActive: false, disappearedAt: { gte: goneSince } },
       select: {
-        sourceUrl: true, source: true, title: true, priceTjs: true, pricePerSqmTjs: true, firstSeenAt: true,
+        sourceUrl: true, source: true, title: true, priceTjs: true, pricePerSqmTjs: true, firstSeenAt: true, lastSeenAt: true,
         disappearedAt: true, sellerId: true, sellerName: true, sellerPhone: true, isAgency: true,
+        districtName: true, rooms: true, areaSqm: true, floor: true,
         priceSnapshots: { select: { priceTjs: true, seenAt: true }, orderBy: { seenAt: "asc" } },
       },
       orderBy: { disappearedAt: "desc" },
@@ -297,7 +331,10 @@ export async function findDynamics(subject: DynamicsSubject, now: Date = new Dat
     }),
     prisma.marketListing.findMany({
       where: { ...base, isActive: true, lastSeenAt: { gte: activeSince } },
-      select: { pricePerSqmTjs: true, sellerId: true, sellerPhone: true, isAgency: true },
+      select: {
+        source: true, pricePerSqmTjs: true, priceTjs: true, sellerId: true, sellerPhone: true, isAgency: true,
+        districtName: true, rooms: true, areaSqm: true, floor: true,
+      },
       orderBy: { lastSeenAt: "desc" },
       take: FETCH_LIMIT,
     }),
@@ -308,14 +345,17 @@ export async function findDynamics(subject: DynamicsSubject, now: Date = new Dat
       ? [{
           sourceUrl: r.sourceUrl, source: r.source, title: r.title,
           priceTjs: num(r.priceTjs), pricePerSqmTjs: num(r.pricePerSqmTjs),
-          firstSeenAt: r.firstSeenAt, disappearedAt: r.disappearedAt,
+          firstSeenAt: r.firstSeenAt, lastSeenAt: r.lastSeenAt, disappearedAt: r.disappearedAt,
+          districtName: r.districtName, rooms: r.rooms, areaSqm: num(r.areaSqm), floor: r.floor,
           sellerId: r.sellerId, sellerName: r.sellerName, sellerPhone: r.sellerPhone, isAgency: r.isAgency,
           snapshots: r.priceSnapshots.map((s) => ({ priceTjs: Number(s.priceTjs), seenAt: s.seenAt })),
         }]
       : []
   );
   const activeRows: ActiveRow[] = activeDb.map((r) => ({
-    pricePerSqmTjs: num(r.pricePerSqmTjs), sellerId: r.sellerId, sellerPhone: r.sellerPhone, isAgency: r.isAgency,
+    source: r.source, pricePerSqmTjs: num(r.pricePerSqmTjs), priceTjs: num(r.priceTjs),
+    districtName: r.districtName, rooms: r.rooms, areaSqm: num(r.areaSqm), floor: r.floor,
+    sellerId: r.sellerId, sellerPhone: r.sellerPhone, isAgency: r.isAgency,
   }));
 
   // Сколько активных объявлений у продавцов выборки — по ВСЕМУ каталогу, не только по району:
@@ -325,13 +365,14 @@ export async function findDynamics(subject: DynamicsSubject, now: Date = new Dat
   const counts: SellerCounts = {};
   const [byId, byPhone] = await Promise.all([
     ids.length
-      ? prisma.marketListing.groupBy({ by: ["sellerId"], where: { isActive: true, dealType: "SALE", sellerId: { in: ids } }, _count: { _all: true } })
+      ? prisma.marketListing.groupBy({ by: ["source", "sellerId"], where: { isActive: true, dealType: "SALE", sellerId: { in: ids } }, _count: { _all: true } })
       : Promise.resolve([]),
     phones.length
       ? prisma.marketListing.groupBy({ by: ["sellerPhone"], where: { isActive: true, dealType: "SALE", sellerId: null, sellerPhone: { in: phones } }, _count: { _all: true } })
       : Promise.resolve([]),
   ]);
-  for (const g of byId) if (g.sellerId) counts[`id:${g.sellerId}`] = g._count._all;
+  // id продавца уникален только внутри площадки: у Somon и Paydo «123» — разные люди.
+  for (const g of byId) if (g.sellerId) counts[`${g.source}:${g.sellerId}`] = g._count._all;
   for (const g of byPhone) if (g.sellerPhone) counts[`ph:${g.sellerPhone}`] = g._count._all;
 
   return buildDynamics(goneRows, activeRows, counts, subject, now);

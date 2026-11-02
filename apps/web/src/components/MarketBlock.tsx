@@ -38,6 +38,13 @@ export function scalePosition(diffPercent: number): number {
   return Math.min(96, Math.max(4, 50 + diffPercent * 1.6));
 }
 
+/** Подпись «владелец» у краёв шкалы выравниваем по краю, иначе она вылезает за блок. */
+export function markLabelStyle(position: number): { left?: string; right?: string; transform?: string } {
+  if (position < 10) return { left: "0" };
+  if (position > 90) return { right: "0" };
+  return { left: `${position}%`, transform: "translateX(-50%)" };
+}
+
 function houseTrait(l: MarketSimilarListing): string | null {
   const parts: string[] = [];
   if (l.isNewBuilding === true) parts.push("новостройка");
@@ -107,7 +114,8 @@ export function MarketBlockView({ data, propertyId }: { data: MarketPropertyEsti
   const diffLabel = diff == null || verdict === "market" ? "" : ` ${diff > 0 ? "+" : ""}${diff}%`;
   const hasRange = data.rangeLowTjs != null && data.rangeHighTjs != null;
   const mobileVisible = 3;
-  const hiddenOnMobile = Math.max(0, data.listings.length - mobileVisible) + data.moreCount;
+  // Кнопка раскрывает только показанные строки; «остальные в выборке» (moreCount) — отдельной строкой без кнопки.
+  const hiddenOnMobile = Math.max(0, data.listings.length - mobileVisible);
   const sourcesLine = data.sources.map((s) => `${marketSourceName(s.source)} (${s.count})`).join(" + ");
 
   return (
@@ -158,8 +166,9 @@ export function MarketBlockView({ data, propertyId }: { data: MarketPropertyEsti
             <span className="absolute -top-6 -translate-x-1/2 text-[13px] whitespace-nowrap" style={{ left: "50%" }}>середина</span>
             <span className={`absolute -top-1.5 w-[3px] h-[22px] rounded-sm ${view?.mark ?? "bg-ink"}`} style={{ left: `${scalePosition(diff)}%` }} />
             <span
-              className={`absolute top-4 -translate-x-1/2 text-[13px] whitespace-nowrap font-medium ${verdict === "above" ? "text-red" : verdict === "below" ? "text-green" : ""}`}
-              style={{ left: `${scalePosition(diff)}%` }}
+              data-testid="owner-mark-label"
+              className={`absolute top-4 text-[13px] whitespace-nowrap font-medium ${verdict === "above" ? "text-red" : verdict === "below" ? "text-green" : ""}`}
+              style={markLabelStyle(scalePosition(diff))}
             >
               владелец
             </span>
@@ -208,12 +217,19 @@ export function MarketBlockView({ data, propertyId }: { data: MarketPropertyEsti
             })}
             {hiddenOnMobile > 0 && !expanded && (
               <li className="sm:hidden border-b border-line-soft">
-                <button type="button" onClick={() => setExpanded(true)} className="w-full text-left py-2.5 text-[14px] font-semibold text-blue">
+                <button
+                  type="button"
+                  onClick={() => setExpanded(true)}
+                  className="w-full text-left! py-2.5! text-[14px]! font-semibold! text-blue!"
+                >
                   Ещё {hiddenOnMobile} похожих ›
                 </button>
               </li>
             )}
           </ul>
+          {data.moreCount > 0 && (
+            <p className="mt-2 text-[13px] text-gray-500">и ещё {data.moreCount} в выборке</p>
+          )}
         </div>
       )}
 
