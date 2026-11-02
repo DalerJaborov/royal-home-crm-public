@@ -1494,6 +1494,30 @@
       "usedBy": 1
     },
     {
+      "mount": "/api/v1/market/matches",
+      "router": "marketMatchesRouter",
+      "file": "apps/api/src/routes/marketMatches.ts",
+      "endpoints": 2,
+      "label": null,
+      "usedBy": 1
+    },
+    {
+      "mount": "/api/v1/market",
+      "router": "marketContactRouter",
+      "file": "apps/api/src/routes/marketContact.ts",
+      "endpoints": 1,
+      "label": null,
+      "usedBy": 1
+    },
+    {
+      "mount": "/api/v1/market",
+      "router": "marketRouter",
+      "file": "apps/api/src/routes/market.ts",
+      "endpoints": 2,
+      "label": null,
+      "usedBy": 1
+    },
+    {
       "mount": "/api/v1/l",
       "router": "propertyShareRouter",
       "file": "apps/api/src/routes/propertyShare.ts",
@@ -1780,6 +1804,16 @@
       "id": "lost-inactive-trash-sweep",
       "expr": "30 0 * * *",
       "label": "Убирает в корзину потерянных и неактивных старше трёх месяцев"
+    },
+    {
+      "id": "market-own-match",
+      "expr": "*/30 * * * *",
+      "label": null
+    },
+    {
+      "id": "market-weekly-crawl",
+      "expr": "30 2 * * 0",
+      "label": null
     },
     {
       "id": "meeting-reminders",

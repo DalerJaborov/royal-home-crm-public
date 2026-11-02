@@ -1840,6 +1840,53 @@ export function startCronJobs() {
   );
 
   /**
+   * ПОЛНЫЙ ОБХОД РЫНКА РАЗ В НЕДЕЛЮ (владелец 02.11.2026): Somon + Paydo, квартиры и
+   * дома в Душанбе. Свежие объявления Somon и так попадают в каталог из минутного
+   * парсера лидов; полный обход добирает остальное, обновляет цены и помечает ушедшие.
+   * Воскресенье 02:30. По умолчанию ВЫКЛЮЧЕН: MARKET_CRAWL_ENABLED=1 в .env сервера
+   * после первого ручного прогона. Весь трафик к Somon идёт через общий бюджет.
+   */
+  scheduleTracked(
+    "market-weekly-crawl",
+    "30 2 * * 0",
+    async () => {
+      if (process.env.MARKET_CRAWL_ENABLED !== "1") return;
+      try {
+        const { runMarketFullCrawl } = await import("./lib/market/nightly.js");
+        await runMarketFullCrawl();
+      } catch (err) {
+        markCronTickFailed("Ошибка недельного обхода рынка", err);
+      }
+    },
+    { timezone: "Asia/Dushanbe" },
+    undefined,
+    // Прогон идёт до 3 часов (MAX_RUNTIME_MS в nightly.ts) + запас на последнюю страницу и разметку:
+    // с общим потолком тика в 20 минут крон ложно писал «не завершил тик, снят с замка».
+    { timeoutMs: 3 * 60 * 60_000 + 30 * 60_000 }
+  );
+
+  /**
+   * НАШ ОБЪЕКТ НА SOMON/PAYDO (владелец 02.11.2026): раз в 30 минут сверяем наши объекты
+   * с каталогом чужих объявлений; агенту уходит пуш о новом совпадении (один раз),
+   * о смене цены и о том, что объявление сняли. Только по каталогу, в сеть не ходит.
+   * Включается тем же MARKET_CRAWL_ENABLED=1.
+   */
+  scheduleTracked(
+    "market-own-match",
+    "*/30 * * * *",
+    async () => {
+      if (process.env.MARKET_CRAWL_ENABLED !== "1") return;
+      try {
+        const { runOwnMatching } = await import("./lib/market/ownMatch.js");
+        await runOwnMatching();
+      } catch (err) {
+        markCronTickFailed("Ошибка сверки объектов с площадками", err);
+      }
+    },
+    { timezone: "Asia/Dushanbe" }
+  );
+
+  /**
    * ЕЖЕНЕДЕЛЬНОЕ НАПОМИНАНИЕ О ВЕРОЯТНЫХ ДУБЛИКАТАХ (владелец 06.09.2026, разбор
    * слепых зон п.3) — тот же понедельник, что у «Разбора недели» выше, но на
    * 10 минут позже (та же причина: не складывать тяжёлые задачи в одну минуту)
