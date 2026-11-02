@@ -2,9 +2,9 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 730,
-  "forks": 3998,
+  "forks": 4004,
   "mounts": 81,
-  "cron": 118,
+  "cron": 120,
   "jobs": 31,
   "hidden": 0
  },
@@ -101054,8 +101054,8 @@
    "file": "apps/api/src/cron.ts"
   },
   {
-   "id": "market-weekly-crawl",
-   "when": "30 2 * * 0",
+   "id": "market-paydo-daily",
+   "when": "0 3 * * *",
    "tree": [
     {
      "k": "if",
@@ -101079,14 +101079,14 @@
      "c": [
       {
        "k": "do",
-       "t": "await runMarketFullCrawl();",
+       "t": "await runPaydoFullCrawl();",
        "a": [
-        "зовёт runMarketFullCrawl()"
+        "зовёт runPaydoFullCrawl()"
        ],
        "c": [
         {
          "k": "if",
-         "t": "running",
+         "t": "paydoRunning",
          "a": [],
          "c": [
           {
@@ -101121,7 +101121,255 @@
          "c": [
           {
            "k": "do",
+           "t": "paydoRunning = false;",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ],
+       "from": "runPaydoFullCrawl() — apps/api/src/lib/market/nightly.ts"
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "markCronTickFailed(\"Ошибка ночного обхода Paydo\", err);",
+       "a": [
+        "зовёт markCronTickFailed()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "console.error(`[cron] ${label}:`, reason);",
+         "a": [
+          "пишет строку в журнал сервера"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "tick",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "tick.failure = `${label}: ${reason}`.slice(0, 500);",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ],
+       "from": "markCronTickFailed() — apps/api/src/lib/cronHeartbeat.ts"
+      }
+     ]
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
+   "id": "market-paydo-incremental",
+   "when": "*/10 * * * *",
+   "tree": [
+    {
+     "k": "if",
+     "t": "process.env.MARKET_CRAWL_ENABLED !== \"1\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "await runPaydoIncremental();",
+       "a": [
+        "зовёт runPaydoIncremental()"
+       ],
+       "c": [
+        {
+         "k": "if",
+         "t": "running",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return null;",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "try",
+         "t": "пробует",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const locked = await withMarketCrawlLock((lock)",
+           "a": [
+            "зовёт withMarketCrawlLock()"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "finally",
+         "t": "в любом случае",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
            "t": "running = false;",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ],
+       "from": "runPaydoIncremental() — apps/api/src/lib/market/paydoIncremental.ts"
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "markCronTickFailed(\"Ошибка инкремента Paydo\", err);",
+       "a": [
+        "зовёт markCronTickFailed()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "console.error(`[cron] ${label}:`, reason);",
+         "a": [
+          "пишет строку в журнал сервера"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "tick",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "tick.failure = `${label}: ${reason}`.slice(0, 500);",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ],
+       "from": "markCronTickFailed() — apps/api/src/lib/cronHeartbeat.ts"
+      }
+     ]
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
+   "id": "market-weekly-crawl",
+   "when": "30 2 * * 0",
+   "tree": [
+    {
+     "k": "if",
+     "t": "process.env.MARKET_CRAWL_ENABLED !== \"1\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "await runMarketFullCrawl();",
+       "a": [
+        "зовёт runMarketFullCrawl()"
+       ],
+       "c": [
+        {
+         "k": "if",
+         "t": "somonRunning",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return null;",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "try",
+         "t": "пробует",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const locked = await withMarketCrawlLock(async (lock)",
+           "a": [
+            "зовёт withMarketCrawlLock()"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "finally",
+         "t": "в любом случае",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "somonRunning = false;",
            "a": [
             "дословно из кода"
            ],

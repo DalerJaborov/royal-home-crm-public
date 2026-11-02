@@ -7,7 +7,7 @@ import { prisma } from "../../db.js";
 import { PaydoBlockedError, PaydoClient } from "./paydoClient.js";
 import { crawlPaydoSection, PAYDO_SECTIONS, paydoRunComplete, type PaydoCrawlResult } from "./paydoCrawler.js";
 import { PAYDO_SOURCE } from "./paydoParser.js";
-import { DISAPPEAR_AFTER_HOURS, markDisappeared, saveListings } from "./marketStore.js";
+import { markDisappeared, PAYDO_DISAPPEAR_AFTER_HOURS, saveListings } from "./marketStore.js";
 import { withMarketCrawlLock } from "./nightly.js";
 
 async function main(): Promise<void> {
@@ -63,7 +63,7 @@ async function main(): Promise<void> {
   // «Исчезло» помечаем только после полного обхода ВСЕХ разделов (аргумент «разделов» меньше
   // каталога, обрыв, 0 страниц — всё это неполный обход) и только тех, кого не видели дольше порога.
   const complete = paydoRunComplete(sections.length, results);
-  const gone = complete ? await markDisappeared(PAYDO_SOURCE, DISAPPEAR_AFTER_HOURS) : 0;
+  const gone = complete ? await markDisappeared(PAYDO_SOURCE, PAYDO_DISAPPEAR_AFTER_HOURS) : 0;
   const minutes = Math.round((Date.now() - started) / 60000);
   console.log(`
 ==== ИТОГ (${minutes} мин) ====`);

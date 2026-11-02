@@ -159,7 +159,7 @@ describe("markDisappeared: порог в полтора интервала об�
     await prisma.marketListing.update({ where: { source_sourceId: { source: SOURCE, sourceId: "ms-1" } }, data: { lastSeenAt: ago(5) } });
     await prisma.marketListing.update({ where: { source_sourceId: { source: SOURCE, sourceId: "ms-2" } }, data: { lastSeenAt: ago(12) } });
     expect(DISAPPEAR_AFTER_HOURS).toBe(264);
-    expect(await markDisappeared(SOURCE)).toBe(1);
+    expect(await markDisappeared(SOURCE, DISAPPEAR_AFTER_HOURS)).toBe(1);
     expect((await row("ms-1")).isActive).toBe(true);
     expect(await row("ms-2")).toMatchObject({ isActive: false });
   });

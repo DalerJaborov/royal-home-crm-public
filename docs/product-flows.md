@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **730**. Развилок в самих путях: **2554**; вместе с задачами по расписанию и фоновыми заданиями — **3998**. Модулей: **81**.
+Путей: **730**. Развилок в самих путях: **2554**; вместе с задачами по расписанию и фоновыми заданиями — **4004**. Модулей: **81**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -22476,6 +22476,58 @@
       - tick.failure = `${label}: ${reason}`.slice(0, 500);
         · дословно из кода
 
+### market-paydo-daily — 0 3 * * *
+
+- если process.env.MARKET_CRAWL_ENABLED !== "1"
+  - return;
+    · дальше не идёт, ничего не меняя
+- пробует
+  - await runPaydoFullCrawl();
+    · зовёт runPaydoFullCrawl()
+    - если paydoRunning
+      - return null;
+        · дословно из кода
+    - пробует
+      - const locked = await withMarketCrawlLock(async (lock)
+        · зовёт withMarketCrawlLock()
+    - в любом случае
+      - paydoRunning = false;
+        · дословно из кода
+- если сорвалось
+  - markCronTickFailed("Ошибка ночного обхода Paydo", err);
+    · зовёт markCronTickFailed()
+    - console.error(`[cron] ${label}:`, reason);
+      · пишет строку в журнал сервера
+    - если tick
+      - tick.failure = `${label}: ${reason}`.slice(0, 500);
+        · дословно из кода
+
+### market-paydo-incremental — */10 * * * *
+
+- если process.env.MARKET_CRAWL_ENABLED !== "1"
+  - return;
+    · дальше не идёт, ничего не меняя
+- пробует
+  - await runPaydoIncremental();
+    · зовёт runPaydoIncremental()
+    - если running
+      - return null;
+        · дословно из кода
+    - пробует
+      - const locked = await withMarketCrawlLock((lock)
+        · зовёт withMarketCrawlLock()
+    - в любом случае
+      - running = false;
+        · дословно из кода
+- если сорвалось
+  - markCronTickFailed("Ошибка инкремента Paydo", err);
+    · зовёт markCronTickFailed()
+    - console.error(`[cron] ${label}:`, reason);
+      · пишет строку в журнал сервера
+    - если tick
+      - tick.failure = `${label}: ${reason}`.slice(0, 500);
+        · дословно из кода
+
 ### market-weekly-crawl — 30 2 * * 0
 
 - если process.env.MARKET_CRAWL_ENABLED !== "1"
@@ -22484,14 +22536,14 @@
 - пробует
   - await runMarketFullCrawl();
     · зовёт runMarketFullCrawl()
-    - если running
+    - если somonRunning
       - return null;
         · дословно из кода
     - пробует
       - const locked = await withMarketCrawlLock(async (lock)
         · зовёт withMarketCrawlLock()
     - в любом случае
-      - running = false;
+      - somonRunning = false;
         · дословно из кода
 - если сорвалось
   - markCronTickFailed("Ошибка недельного обхода рынка", err);
