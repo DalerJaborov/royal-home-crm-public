@@ -814,3 +814,74 @@ export interface MarketPropertyEstimate {
   listings: MarketSimilarListing[];
   moreCount: number;
 }
+
+/** Одно недавно ушедшее с площадки объявление (динамика рынка). «Ушло» ≠ «продано». */
+export interface MarketGoneListing {
+  sourceUrl: string;
+  source: string;
+  title: string;
+  priceTjs: number | null;
+  daysListed: number;
+  goneDaysAgo: number;
+  priceCutPercent: number | null;
+  isRealtor: boolean;
+  sellerName: string | null;
+  sellerPhone: string | null;
+}
+
+/** Ответ GET /market/property/:id/dynamics — динамика рынка по ушедшим объявлениям похожих. */
+export interface MarketDynamicsData {
+  status: "ok" | "insufficient" | "unsupported";
+  windowDays: number;
+  minSample: number;
+  minHistoryDays: number;
+  basis: string;
+  goneCount: number;
+  activeCount: number;
+  speed: { sampleSize: number; medianDays: number | null };
+  price: {
+    goneSampleSize: number;
+    activeSampleSize: number;
+    goneMedianPerSqm: number | null;
+    activeMedianPerSqm: number | null;
+    diffPercent: number | null;
+    cutSampleSize: number;
+    cutSharePercent: number | null;
+    avgCutPercent: number | null;
+  };
+  sellers: { sampleSize: number; realtorPercent: number | null; ownerPercent: number | null; realtorListings: number };
+  recentlyGone: MarketGoneListing[];
+}
+
+
+/** Одно совпадение «наш объект ↔ объявление на Somon/Paydo» (GET /market/matches/property/:id). */
+export interface OwnMarketMatch {
+  id: string;
+  status: "CANDIDATE" | "CONFIRMED" | "DISMISSED";
+  score: number;
+  reasons: { code: string; label: string }[];
+  foundAt: string;
+  source: string;
+  sourceUrl: string;
+  title: string;
+  priceTjs: number | null;
+  /** В процентах от нашей цены: + объявление дороже, − дешевле. */
+  priceDiffPercent: number | null;
+  areaSqm: number | null;
+  areaDiffSqm: number | null;
+  rooms: number | null;
+  floor: number | null;
+  totalFloors: number | null;
+  sellerName: string | null;
+  sellerPhone: string | null;
+  /** Номер скрыт: совпадение найдено по телефону владельца, а сотруднику он не открыт. */
+  sellerPhoneHidden: boolean;
+  isAgency: boolean;
+  firstSeenAt: string;
+  isActive: boolean;
+}
+
+export interface OwnMarketMatchesData {
+  ourPriceTjs: number | null;
+  matches: OwnMarketMatch[];
+}

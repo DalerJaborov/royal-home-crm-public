@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 const store = vi.hoisted(() => ({ claim: vi.fn(), record: vi.fn() }));
-vi.mock("../src/lib/somonLeads/sourceBudgetStore.js", () => ({ claimSomonRequest: store.claim, recordSomonResponse: store.record }));
+vi.mock("../src/lib/somonLeads/sourceBudgetStore.js", async importOriginal => ({ ...(await importOriginal<typeof import("../src/lib/somonLeads/sourceBudgetStore.js")>()), claimSomonRequest: store.claim, recordSomonResponse: store.record }));
 import { fetchSomon } from "../src/lib/somonLeads/sourceClient.js";
 const path = "/nedvizhimost/prodazha-kvartir/dushanbe/";
 beforeEach(() => { vi.clearAllMocks(); store.claim.mockResolvedValue("test-lease"); store.record.mockResolvedValue(undefined); });

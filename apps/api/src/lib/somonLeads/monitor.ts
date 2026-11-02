@@ -7,17 +7,44 @@ import { processSomonPending } from "./processPending.js";
 import { cleanupSomonReceipts } from "./deliveryStore.js";
 import { logSystemError } from "../systemError.js";
 import { somonKeyFingerprint } from "./contactIdentity.js";
+import { saveSomonPageHtml } from "../market/somonCrawler.js";
 
 const wait = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
 const MAX_PAGES_PER_TICK = 8;
 const MAX_SCAN_PAGES = 25;
+let marketIngestRunning = false;
+/**
+ * Та же страница, что скачал парсер лидов, пишется в рыночный каталог БЕЗ второго
+ * запроса к Somon. Изоляция от лидов обязательна: функция не бросает и не ждёт
+ * записи (парсер её не awaitит), сама запись — вне транзакций лидов, а пока
+ * прошлая запись не закончилась, новая страница пропускается (следующий полный
+ * обход всё равно подберёт). Возвращает промис только для тестов.
+ */
+export function ingestMarketPage(html: string): Promise<void> {
+  if (marketIngestRunning) return Promise.resolve();
+  marketIngestRunning = true;
+  return (async () => {
+    try {
+      await new Promise<void>(resolve => setImmediate(resolve)); // разбор страницы — после ближайшего ввода-вывода лидов, не в их ветке
+      await saveSomonPageHtml(html);
+    } catch {
+      // Ошибку рынка не пробрасываем и тело/адрес в журнал не кладём.
+      await logSystemError("api", "Somon: страница не записалась в рыночный каталог; лиды не затронуты", { dedupKey: "somon-market-ingest" }).catch(() => undefined);
+    } finally {
+      marketIngestRunning = false;
+    }
+  })();
+}
+
 async function page(n: number) {
   const response = await fetchSomon(`/nedvizhimost/prodazha-kvartir/dushanbe/${n === 1 ? "" : `?page=${n}`}`);
   const html = await response.text();
   // An empty page is treated as a possible shrinking baseline only after a
   // fresh first-page pagination check; malformed nonempty pages fail closed.
   if (!html.includes('self.__next_f.push')) throw new Error("Somon listing payload unavailable");
-  return parseSomonListingPage(html, n);
+  const parsed = parseSomonListingPage(html, n);
+  void ingestMarketPage(html);
+  return parsed;
 }
 
 /** Only an explicit sufficiently old time permits an early stop. */

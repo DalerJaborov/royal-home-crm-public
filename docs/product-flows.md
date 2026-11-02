@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **727**. Развилок в самих путях: **2538**; вместе с задачами по расписанию и фоновыми заданиями — **3976**. Модулей: **80**.
+Путей: **731**. Развилок в самих путях: **2552**; вместе с задачами по расписанию и фоновыми заданиями — **3996**. Модулей: **81**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -8722,6 +8722,68 @@
 - res.json({ ...comps, listings: comps.listings.slice(0, 5), comparison: priceTjs !== undefined ? comparePrice(…
   · ответ 200
 
+### POST /api/v1/market/listing-contact
+
+`apps/api/src/routes/marketContact.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- const parsed = bodySchema.safeParse(req.body);
+  · проверяет данные схемой bodySchema
+- если !parsed.success
+  - return res.status(400).json({ error: "Неверная ссылка" });
+    · ответ 400 — «Неверная ссылка»
+- если now - (lastClickByAgent.get(agentId) ?? 0) < MIN_GAP_MS
+  - return res.status(429).json({ error: "Подождите пару секунд", retryAfterSec: 3 });
+    · ответ 429 — «Подождите пару секунд»
+- const listing = await prisma.marketListing.findFirst({ where: { sourceUrl: parsed.data.sourceUrl }, select: {…
+  · читает в базе: marketListing
+- если !listing
+  - return res.status(404).json({ error: "Объявление не найдено в каталоге" });
+    · ответ 404 — «Объявление не найдено в каталоге»
+- если listing.sellerPhone
+  - return res.json({ phone: listing.sellerPhone, cached: true });
+    · ответ 200
+- если listing.source !== "somon.tj"
+  - return res.json({ phone: null, reason: "open_on_site" });
+    · ответ 200
+- пробует
+  - const phone = await fetchSomonPhone(listing.sourceId);
+    · зовёт fetchSomonPhone()
+  - если !phone
+    - return res.json({ phone: null, reason: "no_phone" });
+      · ответ 200
+  - await prisma.marketListing.update({ where: { id: listing.id }, data: { sellerPhone: phone } });
+    · меняет в базе: marketListing
+  - return res.json({ phone, cached: false });
+    · ответ 200
+- если сорвалось
+  - если err instanceof SomonSourceUnavailable && err.reason === "not_ready"
+    - return res.status(429).json({ error: "Сайт сейчас занят, нажмите ещё раз через несколько секунд", retryAfterS…
+      · ответ 429 — «Сайт сейчас занят, нажмите ещё раз через несколько секунд»
+  - void logSystemError("api", `Номер объявления Somon не получен: ${err instanceof SomonSourceUnavailable ? `${e…
+    · запись в журнал ошибок
+  - return res.status(502).json({ error: "Не удалось получить номер — откройте объявление на сайте" });
+    · ответ 502 — «Не удалось получить номер — откройте объявление на сайте»
+
+### GET /api/v1/market/property/:id/dynamics
+
+`apps/api/src/routes/market.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- const where = cardWhereFromParam(String(req.params.id));
+  · зовёт cardWhereFromParam()
+- если !where
+  - return res.status(404).json({ error: "Объект не найден" });
+    · ответ 404 — «Объект не найден»
+- const p = await prisma.property.findUnique({ where, select: { type: true, rooms: true, areaSqm: true, deleted…
+  · читает в базе: property
+- если !p || (p.deletedAt && !can(req, "archive.view"))
+  - return res.status(404).json({ error: "Объект не найден" });
+    · ответ 404 — «Объект не найден»
+- если (p.type !== "APARTMENT" && p.type !== "HOUSE") || !(areaSqm > 0)
+  - return res.json(emptyDynamics("для этого типа объекта динамика рынка не считается", "unsupported"));
+    · ответ 200
+- res.json(await findDynamics({ propertyType: p.type, districtName: p.district?.name ?? null, rooms: p.rooms, a…
+  · ответ 200
+
 ### GET /api/v1/market/property/:id
 
 `apps/api/src/routes/market.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
@@ -8744,6 +8806,50 @@
 - const result = await findSimilar({ ...subjectBase, propertyType: p.type });
   · зовёт findSimilar()
 - res.json({ subject: { ...subjectBase, propertyType: p.type }, ...result, comparison: result.status === "ok" ?…
+  · ответ 200
+
+## /api/v1/market/matches
+
+### POST /api/v1/market/matches/:matchId/status
+
+`apps/api/src/routes/marketMatches.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- const parsed = statusSchema.safeParse(req.body);
+  · проверяет данные схемой statusSchema
+- если !parsed.success
+  - return res.status(400).json({ error: "Неверный статус", details: parsed.error.flatten() });
+    · ответ 400 — «Неверный статус»
+- const match = await prisma.propertyMarketMatch.findUnique({ where: { id: String(req.params.matchId) }, select…
+  · читает в базе: propertyMarketMatch
+- если !match || (match.property.deletedAt && !can(req, "archive.view"))
+  - return res.status(404).json({ error: "Совпадение не найдено" });
+    · ответ 404 — «Совпадение не найдено»
+- const updated = await prisma.propertyMarketMatch.update({ where: { id: match.id }, data: { status: parsed.dat…
+  · меняет в базе: propertyMarketMatch
+- res.json(updated);
+  · ответ 200
+
+### GET /api/v1/market/matches/property/:id
+
+`apps/api/src/routes/marketMatches.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- const where = cardWhereFromParam(String(req.params.id));
+  · зовёт cardWhereFromParam()
+- если !where
+  - return res.status(404).json({ error: "Объект не найден" });
+    · ответ 404 — «Объект не найден»
+- const p = await prisma.property.findUnique({ where, select: { id: true, price: true, currency: true, areaSqm:…
+  · читает в базе: property
+- если !p || (p.deletedAt && !can(req, "archive.view"))
+  - return res.status(404).json({ error: "Объект не найден" });
+    · ответ 404 — «Объект не найден»
+- const rows = await prisma.propertyMarketMatch.findMany({ where: { propertyId: p.id, status: { not: "DISMISSED…
+  · читает в базе: propertyMarketMatch
+- const money = await loadMoneyContext();
+  · зовёт loadMoneyContext()
+- const ownerHidden = stripOwnerContact( { ownerContact: "x", assignedAgentId: p.assignedAgentId, intakeAgentId…
+  · зовёт stripOwnerContact()
+- res.json({ ourPriceTjs, matches: rows.map((m)
   · ответ 200
 
 ## /api/v1/marketing
@@ -22321,46 +22427,73 @@
     - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
       · запись в журнал ошибок
 
-### market-nightly-crawl — 30 2 * * *
+### market-own-match — */30 * * * *
 
 - если process.env.MARKET_CRAWL_ENABLED !== "1"
   - return;
     · дальше не идёт, ничего не меняя
 - пробует
-  - await runNightlyMarketCrawl();
-    · зовёт runNightlyMarketCrawl()
+  - await runOwnMatching();
+    · зовёт runOwnMatching()
+    - const [properties, money] = await Promise.all([ prisma.property.findMany({ where: { status: "AVAILABLE", dele…
+      · читает в базе: property
+    - если properties.length === 0
+      - return stats;
+        · дословно из кода
+    - для каждого: let i = 0; i < prepared.length; i += PROPERTY_CHUNK
+      - если chunk.length === 0
+        - continue;
+          · переходит к следующему
+      - const [listings, existing] = await Promise.all([ prisma.marketListing.findMany({ where: { isActive: true, dea…
+        · читает в базе: marketListing
+        · читает в базе: propertyMarketMatch
+      - если listings.length >= LISTING_TAKE
+        - console.warn(`[own-match] выборка упёрлась в потолок ${LISTING_TAKE} объявлений — часть кандидатов могла не п…
+          · пишет строку в журнал сервера
+      - для каждого: const { row, mp } of chunk
+        - для каждого: const l of listings
+          - const verdict = scoreOwnMatch(mp, { propertyType: l.propertyType, districtName: l.districtName, rooms: l.room…
+            · зовёт scoreOwnMatch()
+          - если !verdict.candidate
+            - continue;
+              · переходит к следующему
+          - если !prev
+            - toCreate.push({ propertyId: row.id, listingId: l.id, score: verdict.score, reasons: verdict.reasons as unknow…
+              · дословно из кода
+          - иначе если prev.status !== "DISMISSED" && prev.score !== verdict.score
+            - await prisma.propertyMarketMatch.update({ where: { id: prev.id }, data: { score: verdict.score, reasons: verd…
+              · меняет в базе: propertyMarketMatch
+      - если toCreate.length
+        - const res = await prisma.propertyMarketMatch.createMany({ data: toCreate, skipDuplicates: true });
+          · создаёт в базе: propertyMarketMatch
+- если сорвалось
+  - markCronTickFailed("Ошибка сверки объектов с площадками", err);
+    · зовёт markCronTickFailed()
+    - console.error(`[cron] ${label}:`, reason);
+      · пишет строку в журнал сервера
+    - если tick
+      - tick.failure = `${label}: ${reason}`.slice(0, 500);
+        · дословно из кода
+
+### market-weekly-crawl — 30 2 * * 0
+
+- если process.env.MARKET_CRAWL_ENABLED !== "1"
+  - return;
+    · дальше не идёт, ничего не меняя
+- пробует
+  - await runMarketFullCrawl();
+    · зовёт runMarketFullCrawl()
     - если running
       - return null;
         · дословно из кода
     - пробует
-      - пробует
-        - для каждого: const section of SOMON_NIGHTLY_SECTIONS
-          - await crawlSection(section, { onPage: async (listings)
-            - const s = await saveListings(SOMON_SOURCE, listings);
-              · зовёт saveListings()
-      - если сорвалось
-        - void logSystemError("api", `Ночной сбор Somon оборван: ${err instanceof Error ? err.message : String(err)}`);
-          · запись в журнал ошибок
-      - если stats.somon.complete
-        - await markDisappeared(SOMON_SOURCE);
-          · зовёт markDisappeared()
-      - пробует
-        - для каждого: const section of PAYDO_SECTIONS
-          - await crawlPaydoSection(client, section, { onPage: async (listings)
-            - const s = await saveListings(PAYDO_SOURCE, listings);
-              · зовёт saveListings()
-      - если сорвалось
-        - если !(err instanceof PaydoBlockedError)
-          - void logSystemError("api", `Ночной сбор Paydo оборван: ${err instanceof Error ? err.message : String(err)}`);
-            · запись в журнал ошибок
-      - если stats.paydo.complete
-        - await markDisappeared(PAYDO_SOURCE);
-          · зовёт markDisappeared()
+      - const locked = await withMarketCrawlLock(async (lock)
+        · зовёт withMarketCrawlLock()
     - в любом случае
       - running = false;
         · дословно из кода
 - если сорвалось
-  - markCronTickFailed("Ошибка ночного сбора рынка", err);
+  - markCronTickFailed("Ошибка недельного обхода рынка", err);
     · зовёт markCronTickFailed()
     - console.error(`[cron] ${label}:`, reason);
       · пишет строку в журнал сервера

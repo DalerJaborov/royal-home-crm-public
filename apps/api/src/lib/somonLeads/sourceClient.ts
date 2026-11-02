@@ -1,4 +1,4 @@
-import { claimSomonRequest, recordSomonResponse } from "./sourceBudgetStore.js";
+import { claimSomonRequest, recordSomonResponse, type ClaimOptions } from "./sourceBudgetStore.js";
 
 const INTERVAL_MS = 10000;
 export class SomonSourceUnavailable extends Error {
@@ -25,13 +25,14 @@ function retryDelay(header: string | null, now: number): number | undefined {
 }
 
 /** All background Somon calls must go through this budgeted entry point. */
-export async function fetchSomon(path: string, now = new Date(), request: typeof fetch = fetch): Promise<Response> {
-  const permitted = /^\/nedvizhimost\/prodazha-kvartir\/dushanbe\/(?:\?page=\d{1,5})?$/.test(path)
+export async function fetchSomon(path: string, now = new Date(), request: typeof fetch = fetch, options: ClaimOptions = {}): Promise<Response> {
+  // Страницы списков: квартиры (лиды и рынок) и дома (только рынок). Больше ничего.
+  const permitted = /^\/nedvizhimost\/prodazha-(?:kvartir|domov)\/dushanbe\/(?:\?page=\d{1,5})?$/.test(path)
     || /^\/items\/author\/\d{1,20}\/$/.test(path)
     || /^\/api\/items\/get_phone\/\d{1,20}\/$/.test(path)
     || /^\/api\/v2\/spa\/adverts\/card\/[\w%-]+\/$/.test(path);
   if (!permitted) throw new Error("Invalid Somon source path");
-  const token = await claimSomonRequest(now, INTERVAL_MS);
+  const token = await claimSomonRequest(now, INTERVAL_MS, options);
   if (!token) throw new SomonSourceUnavailable("not_ready");
   let response: Response;
   try {

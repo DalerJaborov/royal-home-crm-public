@@ -1,10 +1,10 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 727,
-  "forks": 3976,
-  "mounts": 80,
-  "cron": 117,
+  "endpoints": 731,
+  "forks": 3996,
+  "mounts": 81,
+  "cron": 118,
   "jobs": 31,
   "hidden": 0
  },
@@ -39805,6 +39805,462 @@
     {
      "k": "do",
      "t": "res.json({ ...comps, listings: comps.listings.slice(0, 5), comparison: priceTjs !== undefined ? comparePrice(…",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "/listing-contact",
+   "mount": "/api/v1/market",
+   "full": "/api/v1/market/listing-contact",
+   "file": "apps/api/src/routes/marketContact.ts",
+   "router": "marketContactRouter",
+   "top": "apps/api/src/routes/marketContact.ts::marketContactRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const parsed = bodySchema.safeParse(req.body);",
+     "a": [
+      "проверяет данные схемой bodySchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Неверная ссылка\" });",
+       "a": [
+        "ответ 400 — «Неверная ссылка»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "now - (lastClickByAgent.get(agentId) ?? 0) < MIN_GAP_MS",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(429).json({ error: \"Подождите пару секунд\", retryAfterSec: 3 });",
+       "a": [
+        "ответ 429 — «Подождите пару секунд»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const listing = await prisma.marketListing.findFirst({ where: { sourceUrl: parsed.data.sourceUrl }, select: {…",
+     "a": [
+      "читает в базе: marketListing"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!listing",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Объявление не найдено в каталоге\" });",
+       "a": [
+        "ответ 404 — «Объявление не найдено в каталоге»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "listing.sellerPhone",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.json({ phone: listing.sellerPhone, cached: true });",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "listing.source !== \"somon.tj\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.json({ phone: null, reason: \"open_on_site\" });",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const phone = await fetchSomonPhone(listing.sourceId);",
+       "a": [
+        "зовёт fetchSomonPhone()"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!phone",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.json({ phone: null, reason: \"no_phone\" });",
+         "a": [
+          "ответ 200"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "await prisma.marketListing.update({ where: { id: listing.id }, data: { sellerPhone: phone } });",
+       "a": [
+        "меняет в базе: marketListing"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "return res.json({ phone, cached: false });",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "if",
+       "t": "err instanceof SomonSourceUnavailable && err.reason === \"not_ready\"",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(429).json({ error: \"Сайт сейчас занят, нажмите ещё раз через несколько секунд\", retryAfterS…",
+         "a": [
+          "ответ 429 — «Сайт сейчас занят, нажмите ещё раз через несколько секунд»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "void logSystemError(\"api\", `Номер объявления Somon не получен: ${err instanceof SomonSourceUnavailable ? `${e…",
+       "a": [
+        "запись в журнал ошибок"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "return res.status(502).json({ error: \"Не удалось получить номер — откройте объявление на сайте\" });",
+       "a": [
+        "ответ 502 — «Не удалось получить номер — откройте объявление на сайте»"
+       ],
+       "c": []
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "/:matchId/status",
+   "mount": "/api/v1/market/matches",
+   "full": "/api/v1/market/matches/:matchId/status",
+   "file": "apps/api/src/routes/marketMatches.ts",
+   "router": "marketMatchesRouter",
+   "top": "apps/api/src/routes/marketMatches.ts::marketMatchesRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const parsed = statusSchema.safeParse(req.body);",
+     "a": [
+      "проверяет данные схемой statusSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Неверный статус\", details: parsed.error.flatten() });",
+       "a": [
+        "ответ 400 — «Неверный статус»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const match = await prisma.propertyMarketMatch.findUnique({ where: { id: String(req.params.matchId) }, select…",
+     "a": [
+      "читает в базе: propertyMarketMatch"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!match || (match.property.deletedAt && !can(req, \"archive.view\"))",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Совпадение не найдено\" });",
+       "a": [
+        "ответ 404 — «Совпадение не найдено»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const updated = await prisma.propertyMarketMatch.update({ where: { id: match.id }, data: { status: parsed.dat…",
+     "a": [
+      "меняет в базе: propertyMarketMatch"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json(updated);",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/property/:id",
+   "mount": "/api/v1/market/matches",
+   "full": "/api/v1/market/matches/property/:id",
+   "file": "apps/api/src/routes/marketMatches.ts",
+   "router": "marketMatchesRouter",
+   "top": "apps/api/src/routes/marketMatches.ts::marketMatchesRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const where = cardWhereFromParam(String(req.params.id));",
+     "a": [
+      "зовёт cardWhereFromParam()"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!where",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Объект не найден\" });",
+       "a": [
+        "ответ 404 — «Объект не найден»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const p = await prisma.property.findUnique({ where, select: { id: true, price: true, currency: true, areaSqm:…",
+     "a": [
+      "читает в базе: property"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!p || (p.deletedAt && !can(req, \"archive.view\"))",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Объект не найден\" });",
+       "a": [
+        "ответ 404 — «Объект не найден»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const rows = await prisma.propertyMarketMatch.findMany({ where: { propertyId: p.id, status: { not: \"DISMISSED…",
+     "a": [
+      "читает в базе: propertyMarketMatch"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const money = await loadMoneyContext();",
+     "a": [
+      "зовёт loadMoneyContext()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const ownerHidden = stripOwnerContact( { ownerContact: \"x\", assignedAgentId: p.assignedAgentId, intakeAgentId…",
+     "a": [
+      "зовёт stripOwnerContact()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ ourPriceTjs, matches: rows.map((m)",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
+   "path": "/property/:id/dynamics",
+   "mount": "/api/v1/market",
+   "full": "/api/v1/market/property/:id/dynamics",
+   "file": "apps/api/src/routes/market.ts",
+   "router": "marketRouter",
+   "top": "apps/api/src/routes/market.ts::marketRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const where = cardWhereFromParam(String(req.params.id));",
+     "a": [
+      "зовёт cardWhereFromParam()"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!where",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Объект не найден\" });",
+       "a": [
+        "ответ 404 — «Объект не найден»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const p = await prisma.property.findUnique({ where, select: { type: true, rooms: true, areaSqm: true, deleted…",
+     "a": [
+      "читает в базе: property"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!p || (p.deletedAt && !can(req, \"archive.view\"))",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(404).json({ error: \"Объект не найден\" });",
+       "a": [
+        "ответ 404 — «Объект не найден»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "if",
+     "t": "(p.type !== \"APARTMENT\" && p.type !== \"HOUSE\") || !(areaSqm > 0)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.json(emptyDynamics(\"для этого типа объекта динамика рынка не считается\", \"unsupported\"));",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.json(await findDynamics({ propertyType: p.type, districtName: p.district?.name ?? null, rooms: p.rooms, a…",
      "a": [
       "ответ 200"
      ],
@@ -100355,8 +100811,8 @@
    "file": "apps/api/src/cron.ts"
   },
   {
-   "id": "market-nightly-crawl",
-   "when": "30 2 * * *",
+   "id": "market-own-match",
+   "when": "*/30 * * * *",
    "tree": [
     {
      "k": "if",
@@ -100380,9 +100836,239 @@
      "c": [
       {
        "k": "do",
-       "t": "await runNightlyMarketCrawl();",
+       "t": "await runOwnMatching();",
        "a": [
-        "зовёт runNightlyMarketCrawl()"
+        "зовёт runOwnMatching()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const [properties, money] = await Promise.all([ prisma.property.findMany({ where: { status: \"AVAILABLE\", dele…",
+         "a": [
+          "читает в базе: property"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "properties.length === 0",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return stats;",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "loop",
+         "t": "для каждого: let i = 0; i < prepared.length; i += PROPERTY_CHUNK",
+         "a": [],
+         "c": [
+          {
+           "k": "if",
+           "t": "chunk.length === 0",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "continue;",
+             "a": [
+              "переходит к следующему"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const [listings, existing] = await Promise.all([ prisma.marketListing.findMany({ where: { isActive: true, dea…",
+           "a": [
+            "читает в базе: marketListing",
+            "читает в базе: propertyMarketMatch"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "listings.length >= LISTING_TAKE",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "console.warn(`[own-match] выборка упёрлась в потолок ${LISTING_TAKE} объявлений — часть кандидатов могла не п…",
+             "a": [
+              "пишет строку в журнал сервера"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "loop",
+           "t": "для каждого: const { row, mp } of chunk",
+           "a": [],
+           "c": [
+            {
+             "k": "loop",
+             "t": "для каждого: const l of listings",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "const verdict = scoreOwnMatch(mp, { propertyType: l.propertyType, districtName: l.districtName, rooms: l.room…",
+               "a": [
+                "зовёт scoreOwnMatch()"
+               ],
+               "c": []
+              },
+              {
+               "k": "if",
+               "t": "!verdict.candidate",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "continue;",
+                 "a": [
+                  "переходит к следующему"
+                 ],
+                 "c": []
+                }
+               ]
+              },
+              {
+               "k": "if",
+               "t": "!prev",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "toCreate.push({ propertyId: row.id, listingId: l.id, score: verdict.score, reasons: verdict.reasons as unknow…",
+                 "a": [
+                  "дословно из кода"
+                 ],
+                 "c": []
+                }
+               ]
+              },
+              {
+               "k": "elseif",
+               "t": "prev.status !== \"DISMISSED\" && prev.score !== verdict.score",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "await prisma.propertyMarketMatch.update({ where: { id: prev.id }, data: { score: verdict.score, reasons: verd…",
+                 "a": [
+                  "меняет в базе: propertyMarketMatch"
+                 ],
+                 "c": []
+                }
+               ]
+              }
+             ]
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "toCreate.length",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "const res = await prisma.propertyMarketMatch.createMany({ data: toCreate, skipDuplicates: true });",
+             "a": [
+              "создаёт в базе: propertyMarketMatch"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        }
+       ],
+       "from": "runOwnMatching() — apps/api/src/lib/market/ownMatch.ts"
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "markCronTickFailed(\"Ошибка сверки объектов с площадками\", err);",
+       "a": [
+        "зовёт markCronTickFailed()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "console.error(`[cron] ${label}:`, reason);",
+         "a": [
+          "пишет строку в журнал сервера"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "tick",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "tick.failure = `${label}: ${reason}`.slice(0, 500);",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ],
+       "from": "markCronTickFailed() — apps/api/src/lib/cronHeartbeat.ts"
+      }
+     ]
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
+   "id": "market-weekly-crawl",
+   "when": "30 2 * * 0",
+   "tree": [
+    {
+     "k": "if",
+     "t": "process.env.MARKET_CRAWL_ENABLED !== \"1\"",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "await runMarketFullCrawl();",
+       "a": [
+        "зовёт runMarketFullCrawl()"
        ],
        "c": [
         {
@@ -100406,129 +101092,12 @@
          "a": [],
          "c": [
           {
-           "k": "try",
-           "t": "пробует",
-           "a": [],
-           "c": [
-            {
-             "k": "loop",
-             "t": "для каждого: const section of SOMON_NIGHTLY_SECTIONS",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "await crawlSection(section, { onPage: async (listings)",
-               "a": [],
-               "c": [
-                {
-                 "k": "do",
-                 "t": "const s = await saveListings(SOMON_SOURCE, listings);",
-                 "a": [
-                  "зовёт saveListings()"
-                 ],
-                 "c": []
-                }
-               ]
-              }
-             ]
-            }
-           ]
-          },
-          {
-           "k": "catch",
-           "t": "если сорвалось",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "void logSystemError(\"api\", `Ночной сбор Somon оборван: ${err instanceof Error ? err.message : String(err)}`);",
-             "a": [
-              "запись в журнал ошибок"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "if",
-           "t": "stats.somon.complete",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "await markDisappeared(SOMON_SOURCE);",
-             "a": [
-              "зовёт markDisappeared()"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "try",
-           "t": "пробует",
-           "a": [],
-           "c": [
-            {
-             "k": "loop",
-             "t": "для каждого: const section of PAYDO_SECTIONS",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "await crawlPaydoSection(client, section, { onPage: async (listings)",
-               "a": [],
-               "c": [
-                {
-                 "k": "do",
-                 "t": "const s = await saveListings(PAYDO_SOURCE, listings);",
-                 "a": [
-                  "зовёт saveListings()"
-                 ],
-                 "c": []
-                }
-               ]
-              }
-             ]
-            }
-           ]
-          },
-          {
-           "k": "catch",
-           "t": "если сорвалось",
-           "a": [],
-           "c": [
-            {
-             "k": "if",
-             "t": "!(err instanceof PaydoBlockedError)",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "void logSystemError(\"api\", `Ночной сбор Paydo оборван: ${err instanceof Error ? err.message : String(err)}`);",
-               "a": [
-                "запись в журнал ошибок"
-               ],
-               "c": []
-              }
-             ]
-            }
-           ]
-          },
-          {
-           "k": "if",
-           "t": "stats.paydo.complete",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "await markDisappeared(PAYDO_SOURCE);",
-             "a": [
-              "зовёт markDisappeared()"
-             ],
-             "c": []
-            }
-           ]
+           "k": "do",
+           "t": "const locked = await withMarketCrawlLock(async (lock)",
+           "a": [
+            "зовёт withMarketCrawlLock()"
+           ],
+           "c": []
           }
          ]
         },
@@ -100548,7 +101117,7 @@
          ]
         }
        ],
-       "from": "runNightlyMarketCrawl() — apps/api/src/lib/market/nightly.ts"
+       "from": "runMarketFullCrawl() — apps/api/src/lib/market/nightly.ts"
       }
      ]
     },
@@ -100559,7 +101128,7 @@
      "c": [
       {
        "k": "do",
-       "t": "markCronTickFailed(\"Ошибка ночного сбора рынка\", err);",
+       "t": "markCronTickFailed(\"Ошибка недельного обхода рынка\", err);",
        "a": [
         "зовёт markCronTickFailed()"
        ],

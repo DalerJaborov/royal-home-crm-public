@@ -1840,20 +1840,43 @@ export function startCronJobs() {
   );
 
   /**
-   * НОЧНОЙ СБОР РЫНКА (владелец 02.11.2026): Somon + Paydo, квартиры и дома в
-   * Душанбе, для блока «Рынок» в карточке объекта. По умолчанию ВЫКЛЮЧЕН:
-   * включается MARKET_CRAWL_ENABLED=1 в .env сервера после первого ручного прогона.
+   * ПОЛНЫЙ ОБХОД РЫНКА РАЗ В НЕДЕЛЮ (владелец 02.11.2026): Somon + Paydo, квартиры и
+   * дома в Душанбе. Свежие объявления Somon и так попадают в каталог из минутного
+   * парсера лидов; полный обход добирает остальное, обновляет цены и помечает ушедшие.
+   * Воскресенье 02:30. По умолчанию ВЫКЛЮЧЕН: MARKET_CRAWL_ENABLED=1 в .env сервера
+   * после первого ручного прогона. Весь трафик к Somon идёт через общий бюджет.
    */
   scheduleTracked(
-    "market-nightly-crawl",
-    "30 2 * * *",
+    "market-weekly-crawl",
+    "30 2 * * 0",
     async () => {
       if (process.env.MARKET_CRAWL_ENABLED !== "1") return;
       try {
-        const { runNightlyMarketCrawl } = await import("./lib/market/nightly.js");
-        await runNightlyMarketCrawl();
+        const { runMarketFullCrawl } = await import("./lib/market/nightly.js");
+        await runMarketFullCrawl();
       } catch (err) {
-        markCronTickFailed("Ошибка ночного сбора рынка", err);
+        markCronTickFailed("Ошибка недельного обхода рынка", err);
+      }
+    },
+    { timezone: "Asia/Dushanbe" }
+  );
+
+  /**
+   * НАШ ОБЪЕКТ НА SOMON/PAYDO (владелец 02.11.2026): раз в 30 минут сверяем наши объекты
+   * с каталогом чужих объявлений; агенту уходит пуш о новом совпадении (один раз),
+   * о смене цены и о том, что объявление сняли. Только по каталогу, в сеть не ходит.
+   * Включается тем же MARKET_CRAWL_ENABLED=1.
+   */
+  scheduleTracked(
+    "market-own-match",
+    "*/30 * * * *",
+    async () => {
+      if (process.env.MARKET_CRAWL_ENABLED !== "1") return;
+      try {
+        const { runOwnMatching } = await import("./lib/market/ownMatch.js");
+        await runOwnMatching();
+      } catch (err) {
+        markCronTickFailed("Ошибка сверки объектов с площадками", err);
       }
     },
     { timezone: "Asia/Dushanbe" }

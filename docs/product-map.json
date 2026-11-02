@@ -1494,10 +1494,26 @@
       "usedBy": 1
     },
     {
+      "mount": "/api/v1/market/matches",
+      "router": "marketMatchesRouter",
+      "file": "apps/api/src/routes/marketMatches.ts",
+      "endpoints": 2,
+      "label": null,
+      "usedBy": 1
+    },
+    {
+      "mount": "/api/v1/market",
+      "router": "marketContactRouter",
+      "file": "apps/api/src/routes/marketContact.ts",
+      "endpoints": 1,
+      "label": null,
+      "usedBy": 1
+    },
+    {
       "mount": "/api/v1/market",
       "router": "marketRouter",
       "file": "apps/api/src/routes/market.ts",
-      "endpoints": 2,
+      "endpoints": 3,
       "label": null,
       "usedBy": 1
     },
@@ -1790,8 +1806,13 @@
       "label": "Убирает в корзину потерянных и неактивных старше трёх месяцев"
     },
     {
-      "id": "market-nightly-crawl",
-      "expr": "30 2 * * *",
+      "id": "market-own-match",
+      "expr": "*/30 * * * *",
+      "label": null
+    },
+    {
+      "id": "market-weekly-crawl",
+      "expr": "30 2 * * 0",
       "label": null
     },
     {

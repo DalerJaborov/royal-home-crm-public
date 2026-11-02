@@ -1,8 +1,13 @@
+import { MarketWhatsAppButton } from "./MarketWhatsAppButton";
 import { useState } from "react";
 import { ExternalLink, TrendingUp } from "lucide-react";
 import { useMarketProperty } from "../hooks/useMarket";
 import { formatArea, formatMoney } from "../lib/format";
+import { marketSourceName } from "../lib/marketSource";
+import { MarketDynamics } from "./MarketDynamics";
 import type { MarketPropertyEstimate, MarketSimilarListing } from "../types";
+
+export { marketSourceName };
 
 /**
  * Блок «Рынок» в карточке объекта: дорого / в рынке / дёшево относительно
@@ -27,14 +32,6 @@ const VERDICT_VIEW = {
   below: { label: "Дёшево", cls: "text-green bg-green-bg", mark: "bg-green" },
   market: { label: "В рынке", cls: "text-green bg-green-bg", mark: "bg-green" },
 } as const;
-
-/** Площадка человеческим именем: "somon.tj" → "Somon". */
-export function marketSourceName(source: string): string {
-  const s = source.toLowerCase();
-  if (s.includes("somon")) return "Somon";
-  if (s.includes("paydo")) return "Paydo";
-  return source.replace(/\.tj$/i, "").replace(/^./, (c) => c.toUpperCase());
-}
 
 /** Положение отметки на шкале в процентах: середина рынка = 50%, ±10% («в рынке») ≈ ±16 п.п. */
 export function scalePosition(diffPercent: number): number {
@@ -77,7 +74,7 @@ function Stat({ label, children }: { label: string; children: React.ReactNode })
 }
 
 /** Чистое представление — отдельно от запроса, чтобы его можно было проверять без сети. */
-export function MarketBlockView({ data }: { data: MarketPropertyEstimate }) {
+export function MarketBlockView({ data, propertyId }: { data: MarketPropertyEstimate; propertyId?: string }) {
   const [expanded, setExpanded] = useState(false);
   if (data.status === "unsupported") return null;
 
@@ -187,12 +184,12 @@ export function MarketBlockView({ data }: { data: MarketPropertyEstimate }) {
               const sub = [marketSourceName(l.source), l.districtName, trait].filter(Boolean).join(" · ");
               const hideOnMobile = i >= mobileVisible && !expanded;
               return (
-                <li key={l.sourceUrl} className={`${hideOnMobile ? "hidden sm:block" : "block"} border-b border-line-soft`}>
+                <li key={l.sourceUrl} className={`${hideOnMobile ? "hidden sm:flex" : "flex"} items-center gap-2 border-b border-line-soft`}>
                   <a
                     href={l.sourceUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex items-center justify-between gap-3 py-2.5 text-[14px] hover:bg-hover-tint"
+                    className="flex min-w-0 flex-1 items-center justify-between gap-3 py-2.5 text-[14px] hover:bg-hover-tint"
                   >
                     <span className="min-w-0">
                       <span className="block truncate">{listingMain(l)}</span>
@@ -205,6 +202,7 @@ export function MarketBlockView({ data }: { data: MarketPropertyEstimate }) {
                       {l.priceTjs != null ? formatMoney(l.priceTjs, "TJS") : "—"}
                     </em>
                   </a>
+                  <MarketWhatsAppButton sourceUrl={l.sourceUrl} source={l.source} title={l.title} />
                 </li>
               );
             })}
@@ -218,6 +216,8 @@ export function MarketBlockView({ data }: { data: MarketPropertyEstimate }) {
           </ul>
         </div>
       )}
+
+      {propertyId && <MarketDynamics propertyId={propertyId} />}
 
       <p className="mt-3 text-[13px] text-gray-500 leading-relaxed">
         <span className="sm:hidden">
@@ -235,5 +235,5 @@ export function MarketBlockView({ data }: { data: MarketPropertyEstimate }) {
 export function MarketBlock({ propertyId }: { propertyId: string }) {
   const { data, isLoading } = useMarketProperty(propertyId);
   if (isLoading || !data) return null;
-  return <MarketBlockView data={data} />;
+  return <MarketBlockView data={data} propertyId={propertyId} />;
 }

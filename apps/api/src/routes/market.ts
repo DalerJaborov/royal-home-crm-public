@@ -4,6 +4,7 @@ import { can, requireAuth } from "../auth/middleware.js";
 import { prisma } from "../db.js";
 import { cardWhereFromParam } from "../lib/cardIdParam.js";
 import { comparePrice, estimateFromComps } from "../lib/market/comps.js";
+import { emptyDynamics, findDynamics } from "../lib/market/dynamics.js";
 import { emptyResult, findSimilar, verdictFor, type Repair } from "../lib/market/similarComps.js";
 import { loadMoneyContext, toTjs } from "../lib/money.js";
 
@@ -106,4 +107,26 @@ marketRouter.get("/property/:id", requireAuth, async (req, res) => {
     ...result,
     comparison: result.status === "ok" ? verdictFor(askingPriceTjs, result.estimatedPriceTjs) : null,
   });
+});
+
+/**
+ * GET /api/v1/market/property/:id/dynamics — динамика рынка по ушедшим объявлениям
+ * похожих (район, комнаты, площадь ±25%): как быстро уходят, по какой цене, снижали
+ * ли цену, кто продаёт. «Ушло с площадки» не значит «продано» — формулировки на фронте.
+ * Права те же, что у /property/:id.
+ */
+marketRouter.get("/property/:id/dynamics", requireAuth, async (req, res) => {
+  const where = cardWhereFromParam(String(req.params.id));
+  if (!where) return res.status(404).json({ error: "Объект не найден" });
+  const p = await prisma.property.findUnique({
+    where,
+    select: { type: true, rooms: true, areaSqm: true, deletedAt: true, district: { select: { name: true } } },
+  });
+  if (!p || (p.deletedAt && !can(req, "archive.view"))) return res.status(404).json({ error: "Объект не найден" });
+
+  const areaSqm = Number(p.areaSqm);
+  if ((p.type !== "APARTMENT" && p.type !== "HOUSE") || !(areaSqm > 0)) {
+    return res.json(emptyDynamics("для этого типа объекта динамика рынка не считается", "unsupported"));
+  }
+  res.json(await findDynamics({ propertyType: p.type, districtName: p.district?.name ?? null, rooms: p.rooms, areaSqm }));
 });

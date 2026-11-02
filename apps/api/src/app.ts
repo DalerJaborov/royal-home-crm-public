@@ -91,6 +91,8 @@ import { budgetWebhookRouter } from "./routes/budgetWebhook.js";
 import { oversightRouter } from "./routes/oversight.js";
 import { insightsRouter } from "./routes/insights.js";
 import { marketRouter } from "./routes/market.js";
+import { marketMatchesRouter } from "./routes/marketMatches.js";
+import { marketContactRouter } from "./routes/marketContact.js";
 import { propertyShareRouter } from "./routes/propertyShare.js";
 import { ownerReportPublicRouter } from "./routes/ownerReportPublic.js";
 import { eventsRouter } from "./routes/events.js";
@@ -792,6 +794,8 @@ app.use("/api/v1/vacancies", vacanciesRouter);
 // переводы в Неактивные, передачи. Право dashboard.analytics — внутри роутера.
 app.use("/api/v1/oversight", oversightRouter);
 app.use("/api/v1/insights", insightsRouter);
+app.use("/api/v1/market/matches", marketMatchesRouter);
+app.use("/api/v1/market", marketContactRouter);
 app.use("/api/v1/market", marketRouter);
 /**
  * Приватная ссылка на объект (docs/plan-18-08-private-listings-and-video.md §4) —
