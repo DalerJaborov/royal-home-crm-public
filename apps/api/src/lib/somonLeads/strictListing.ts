@@ -1,8 +1,19 @@
 import { z } from "zod";
 import { extractNextPayload } from "./listingParser.js";
 
-const itemSchema = z.object({ id: z.number().int().positive().safe(), title: z.string().nullable().optional(), url: z.string().nullable().optional(), published: z.string().nullable().optional(), ad_type: z.object({ type: z.string().optional() }).nullable().optional() }).passthrough();
+const itemSchema = z.object({ id: z.number().int().positive().safe(), title: z.string().nullable().optional(), url: z.string().nullable().optional(), published: z.string().nullable().optional(), ad_type: z.object({ type: z.string().optional() }).nullable().optional(), user: z.unknown().optional() }).passthrough();
 export class SomonEmptyListing extends Error {}
+
+/** ID автора из выдачи (`user.id`). Число или строка цифр ограниченной длины;
+ * всё прочее — «автор неизвестен» (null), а не отказ всей страницы: неизвестный
+ * автор дальше честно уводит оценку в «проверить», а не в «собственник». */
+export function somonListingSellerId(item: { user?: unknown }): string | null {
+  const user = item.user;
+  if (!user || typeof user !== "object") return null;
+  const id = (user as { id?: unknown }).id;
+  const text = typeof id === "number" && Number.isSafeInteger(id) && id > 0 ? String(id) : typeof id === "string" ? id : "";
+  return /^[1-9]\d{0,19}$/.test(text) ? text : null;
+}
 
 /** Parse the whole listing array. A malformed element rejects the page rather
  * than silently losing IDs from the baseline. */
@@ -27,7 +38,7 @@ export function parseSomonListingPage(html: string, page: number) {
   try { data = JSON.parse(payload.slice(start, end)); } catch { throw new Error("Invalid Somon listing JSON"); }
   const parsed = z.array(itemSchema).max(100).safeParse(data);
   if (!parsed.success) throw new Error("Invalid Somon listing item");
-  const ads = parsed.data;
+  const ads = parsed.data.map(a => ({ ...a, sellerId: somonListingSellerId(a) }));
   if (!ads.length) throw new SomonEmptyListing("Somon listing is empty");
   if (new Set(ads.map(a => a.id)).size !== ads.length) throw new Error("Inconsistent Somon listing IDs");
   const pages = [...html.matchAll(/[?&]page=(\d+)/g)].map(m => Number(m[1]));

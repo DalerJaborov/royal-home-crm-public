@@ -5,7 +5,6 @@ export interface SomonCard {
   phone: string | null;
   sourceUrl: string;
   assessment: "likely_owner" | "review";
-  dateUncertain: boolean;
 }
 
 export function normalizeSomonPhone(phone: string): string | null {
@@ -25,8 +24,7 @@ export function formatSomonCard(card: SomonCard): string {
   const international = card.phone ? normalizeSomonPhone(card.phone) : null;
   const line = (value: string, max: number) => value.replace(/\s+/g, " ").trim().slice(0, max);
   const lines = [
-    card.dateUncertain ? "🏠 ОБЪЯВЛЕНИЕ ДЛЯ ПРОВЕРКИ · ДУШАНБЕ" : "🏠 НОВОЕ ОБЪЯВЛЕНИЕ · ДУШАНБЕ",
-    ...(card.dateUncertain ? ["⚠️ Проверить дату: объявление могло быть размещено ранее"] : []),
+    "🏠 ОБЪЯВЛЕНИЕ · ДУШАНБЕ",
     "",
     line(card.title, 120),
     ...(card.price ? [`💰 ${line(card.price, 60)}`] : []),

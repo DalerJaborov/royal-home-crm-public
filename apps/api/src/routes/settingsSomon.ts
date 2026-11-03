@@ -7,14 +7,17 @@ import { prisma } from "../db.js";
 import { replaceSomonRecipients, SomonRecipientError } from "../lib/somonLeads/recipients.js";
 import { logAudit } from "../lib/audit.js";
 import { somonKeyFingerprint } from "../lib/somonLeads/contactIdentity.js";
+import { SOMON_SELLER_UNKNOWN } from "../lib/somonLeads/sellerCount.js";
 
 export const settingsSomonRouter = Router();
 settingsSomonRouter.use(requireAuth, requirePermission("settings.manage"));
 settingsSomonRouter.get("/status", async (_req, res, next) => {
   try {
     const state = await prisma.somonMonitor.findUnique({ where: { id: "singleton" } });
-    const [pending, uncertain, review] = await Promise.all([
+    const [pending, sellerUnknown, uncertain, review] = await Promise.all([
       prisma.somonSeenAdvert.count({ where: { status: "PENDING", baseline: false } }),
+      // Отложены до ключа автора (нет автора в выдаче или идёт дозапись ключей) — SOMON_SELLER_UNKNOWN.
+      prisma.somonSeenAdvert.count({ where: { status: SOMON_SELLER_UNKNOWN, baseline: false } }),
       prisma.somonDelivery.count({ where: { OR: [{ status: "UNKNOWN" }, { status: "SENDING", updatedAt: { lt: new Date(Date.now() - 120000) } }] } }),
       prisma.somonDelivery.findMany({ where: { OR: [{ status: "UNKNOWN" }, { status: "SENDING", updatedAt: { lt: new Date(Date.now() - 120000) } }] }, orderBy: { updatedAt: "desc" }, take: 20 }),
     ]);
@@ -28,7 +31,7 @@ settingsSomonRouter.get("/status", async (_req, res, next) => {
     ]);
     let identityReady = false;
     try { identityReady = !!state?.contactKeyFingerprint && state.contactKeyFingerprint === somonKeyFingerprint(); } catch { /* unavailable */ }
-    res.json({ enabled: state?.enabled ?? false, sourceStopped: state?.sourceStopped ?? false, identityReady, baselineDone: !!state?.baselineAt, baselineNextPage: state?.baselineNextPage ?? 1, baselineLastPage: state?.baselineLastPage ?? null, pending, uncertain, sellerReviewCount, sellerReview: sellerReview.map(x => ({ advertId: x.advertId, sourceUrl: `https://somon.tj/adv/${x.slug}/` })), review: review.map(x => ({ advertId: x.advertId, agentName: agents.find(a => a.id === x.agentId)?.fullName ?? "Сотрудник недоступен", status: x.status, updatedAt: x.updatedAt, sourceUrl: (() => { const slug = seen.find(s => s.advertId === x.advertId)?.slug; return slug ? `https://somon.tj/adv/${slug}/` : null; })() })) });
+    res.json({ enabled: state?.enabled ?? false, sourceStopped: state?.sourceStopped ?? false, identityReady, baselineDone: !!state?.baselineAt, baselineNextPage: state?.baselineNextPage ?? 1, baselineLastPage: state?.baselineLastPage ?? null, pending, sellerUnknown, uncertain, sellerReviewCount, sellerReview: sellerReview.map(x => ({ advertId: x.advertId, sourceUrl: `https://somon.tj/adv/${x.slug}/` })), review: review.map(x => ({ advertId: x.advertId, agentName: agents.find(a => a.id === x.agentId)?.fullName ?? "Сотрудник недоступен", status: x.status, updatedAt: x.updatedAt, sourceUrl: (() => { const slug = seen.find(s => s.advertId === x.advertId)?.slug; return slug ? `https://somon.tj/adv/${slug}/` : null; })() })) });
   } catch (error) { next(error); }
 });
 settingsSomonRouter.post("/seller-review/:advertId/resolve", requireElevation, async (req, res, next) => {

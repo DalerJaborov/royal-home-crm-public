@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { formatSomonCard } from "../src/lib/somonLeads/card.js";
 
-const card = { title: "2-комн. квартира", price: "800 000 c.", location: "Сино", sourceUrl: "https://somon.tj/adv/123_example/", assessment: "likely_owner" as const, dateUncertain: false };
+const card = { title: "2-комн. квартира", price: "800 000 c.", location: "Сино", sourceUrl: "https://somon.tj/adv/123_example/", assessment: "likely_owner" as const };
 describe("Somon message card", () => {
   it("includes a WhatsApp link without claiming registration", () => {
     const text = formatSomonCard({ ...card, phone: "+992 900 000 000" });
@@ -25,9 +25,9 @@ describe("Somon message card", () => {
   it("rejects a non-Somon URL", () => {
     expect(() => formatSomonCard({ ...card, phone: null, sourceUrl: "https://somon.tj.example.com/adv/123" })).toThrow();
   });
-  it("clearly separates an advert with an uncertain date", () => {
-    const text = formatSomonCard({ ...card, phone: null, dateUncertain: true });
-    expect(text).toContain("Проверить дату");
+  it("does not assert freshness or show a date warning", () => {
+    const text = formatSomonCard({ ...card, phone: null });
+    expect(text).not.toContain("Проверить дату");
     expect(text).not.toContain("НОВОЕ ОБЪЯВЛЕНИЕ");
   });
 });

@@ -21,7 +21,7 @@ describe("Somon durable delivery reservation", () => {
     await prisma.somonContactReceipt.deleteMany({ where: { agentId: { in: ids } } });
     await prisma.somonDelivery.deleteMany({ where: { advertId: { in: ["987650001", "987650002", "987650003", "987650004"] } } });
     await prisma.somonSeenAdvert.deleteMany({ where: { advertId: { in: ["987650001", "987650002", "987650003", "987650004"] } } });
-    await prisma.somonSeenAdvert.deleteMany({ where: { advertId: { in: ["987650008", "987650009"] } } });
+    await prisma.somonSeenAdvert.deleteMany({ where: { advertId: { in: ["987650008", "987650009", "987650010"] } } });
     await prisma.client.deleteMany({ where: { id: "stand-somon-existing-client" } });
     await prisma.somonRecipient.deleteMany({ where: { agentId: { in: ids } } });
     await prisma.agent.deleteMany({ where: { id: { in: ids } } });
@@ -35,8 +35,9 @@ describe("Somon durable delivery reservation", () => {
       { advertId: "987650003", seenAt: new Date("2026-10-27T10:00:01Z"), slug: "987650003_example" },
       { advertId: "987650008", seenAt: new Date("2026-10-27T10:00:01Z"), slug: "987650008_example" },
       { advertId: "987650009", seenAt: new Date("2026-10-27T10:00:01Z"), slug: "987650009_example" },
+      { advertId: "987650010", seenAt: new Date("2026-10-27T10:00:01Z"), slug: "987650010_example" },
     ] });
-    await prisma.client.create({ data: { id: "stand-somon-existing-client", fullName: "Stand client", phone: "992900000003", source: "WEBSITE" } });
+    await prisma.client.create({ data: { id: "stand-somon-existing-client", fullName: "Stand client", phone: "992931000003", source: "WEBSITE" } });
   });
   afterAll(async () => {
     vi.unstubAllEnvs();
@@ -44,7 +45,7 @@ describe("Somon durable delivery reservation", () => {
     await prisma.somonDelivery.deleteMany({ where: { advertId: { in: ["987650001", "987650002", "987650003", "987650004"] } } });
     await prisma.somonSeenAdvert.deleteMany({ where: { advertId: { in: ["987650001", "987650002", "987650003", "987650004"] } } });
     await prisma.somonSeenAdvert.deleteMany({ where: { advertId: { in: ["987650005", "987650006", "987650007"] } } });
-    await prisma.somonSeenAdvert.deleteMany({ where: { advertId: { in: ["987650008", "987650009"] } } });
+    await prisma.somonSeenAdvert.deleteMany({ where: { advertId: { in: ["987650008", "987650009", "987650010"] } } });
     await prisma.client.deleteMany({ where: { id: "stand-somon-existing-client" } });
     await prisma.somonRecipient.deleteMany();
     if (previousRecipients.length) await prisma.somonRecipient.createMany({ data: previousRecipients });
@@ -53,28 +54,39 @@ describe("Somon durable delivery reservation", () => {
     else await prisma.somonMonitor.deleteMany({ where: { id: "singleton" } });
   });
   it("never sends a baseline listing or a verified old listing", async () => {
-    expect((await reserveSomonDelivery("987650001", "+992900000001", { kind: "uncertain" })).status).toBe("not_new");
-    expect((await reserveSomonDelivery("987650002", "+992900000001", { kind: "verified", publishedAt: new Date("2026-10-26T10:00:00Z") })).status).toBe("not_new");
+    expect((await reserveSomonDelivery("987650001", "+992931000001", { kind: "uncertain" })).status).toBe("not_new");
+    expect((await reserveSomonDelivery("987650002", "+992931000001", { kind: "verified", publishedAt: new Date("2026-10-26T10:00:00Z") })).status).toBe("not_new");
   });
   it("stops matching if the contact hash key changes", async () => {
     vi.stubEnv("SETTINGS_ENCRYPTION_KEY", "2".repeat(64));
-    expect((await reserveSomonDelivery("987650002", "+992900000001", { kind: "uncertain" }, new Date("2026-10-27T10:01:00Z"))).status).toBe("disabled");
+    expect((await reserveSomonDelivery("987650002", "+992931000001", { kind: "uncertain" }, new Date("2026-10-27T10:01:00Z"))).status).toBe("disabled");
     vi.stubEnv("SETTINGS_ENCRYPTION_KEY", "1".repeat(64));
   });
   it("serializes simultaneous reservations, retains ambiguous outcomes, and alternates agents", async () => {
     const date = new Date("2026-10-27T10:00:01Z");
     const now = new Date("2026-10-27T10:01:00Z");
-    const both = await Promise.all([reserveSomonDelivery("987650002", "+992900000001", { kind: "uncertain" }, now), reserveSomonDelivery("987650002", "+992900000001", { kind: "uncertain" }, now)]);
+    const both = await Promise.all([reserveSomonDelivery("987650002", "+992931000001", { kind: "uncertain" }, now), reserveSomonDelivery("987650002", "+992931000001", { kind: "uncertain" }, now)]);
     expect(both.map(x => x.status).sort()).toEqual(["duplicate", "reserved"]);
     const first = both.find(x => x.status === "reserved");
     expect(first?.status === "reserved" && first.agentId).toBe(ids[0]);
     expect(await finishSomonDelivery("987650002", "UNKNOWN")).toBe(true);
     expect((await prisma.somonDelivery.findUnique({ where: { advertId: "987650002" } }))?.dateUncertain).toBe(true);
-    expect((await reserveSomonDelivery("987650002", "+992900000001", { kind: "uncertain" }, now)).status).toBe("duplicate");
-    const second = await reserveSomonDelivery("987650003", "+992900000002", { kind: "verified", publishedAt: date }, now);
+    expect((await reserveSomonDelivery("987650002", "+992931000001", { kind: "uncertain" }, now)).status).toBe("duplicate");
+    const second = await reserveSomonDelivery("987650003", "+992931000002", { kind: "verified", publishedAt: date }, now);
     expect(second.status === "reserved" && second.agentId).toBe(ids[1]);
-    expect((await reserveSomonDelivery("987650008", "+992900000001", { kind: "uncertain" }, now)).status).toBe("known_contact");
-    expect((await reserveSomonDelivery("987650009", "+992900000003", { kind: "uncertain" }, now)).status).toBe("known_contact");
+    expect((await reserveSomonDelivery("987650008", "+992931000001", { kind: "uncertain" }, now)).status).toBe("known_contact");
+    expect((await reserveSomonDelivery("987650009", "+992931000003", { kind: "uncertain" }, now)).status).toBe("known_contact");
+  });
+  it("treats an active employee's phone as a known contact, not a seller", async () => {
+    const staffId = "stand-somon-staff-phone";
+    await prisma.agent.deleteMany({ where: { id: staffId } });
+    await prisma.agent.create({ data: { id: staffId, fullName: "Stand Staff", phone: "+992900000777", role: "AGENT" } });
+    try {
+      const result = await reserveSomonDelivery("987650010", "+992 90 000 07 77", { kind: "uncertain" }, new Date("2026-10-27T10:01:00Z"));
+      expect(result.status).toBe("known_contact");
+      expect((await prisma.somonSeenAdvert.findUnique({ where: { advertId: "987650010" } }))?.status).toBe("KNOWN_CONTACT");
+      expect(await prisma.somonDelivery.findUnique({ where: { advertId: "987650010" } })).toBeNull();
+    } finally { await prisma.agent.deleteMany({ where: { id: staffId } }); }
   });
   it("shares request budget and pauses after 429 or 403", async () => {
     const now = new Date("2026-10-27T12:00:00Z");
@@ -159,16 +171,16 @@ describe("Somon durable delivery reservation", () => {
     const start = new Date("2026-10-27T10:00:00Z"), later = new Date("2026-10-27T10:00:01Z");
     await prisma.somonSeenAdvert.deleteMany({ where: { advertId: { in: ["987650005", "987650006", "987650007"] } } });
     await prisma.somonMonitor.update({ where: { id: "singleton" }, data: { baselineAt: null, activatedAt: null, baselineNextPage: 1, baselineLastPage: null } });
-    expect(await recordBaselinePage(1, 2, ["987650005"], start)).toBe("saved");
+    expect(await recordBaselinePage(1, 2, [{ id: "987650005", sellerId: "7005" }], start)).toBe("saved");
     expect(await recordNewObservations([{ id: "987650007", slug: "987650007_example" }], later)).toBe(0);
-    expect(await recordBaselinePage(2, 2, ["987650006"], start)).toBe("complete");
+    expect(await recordBaselinePage(2, 2, [{ id: "987650006", sellerId: "7006" }], start)).toBe("complete");
     expect(await recordNewObservations([{ id: "987650005", slug: "987650005_example" }, { id: "987650007", slug: "987650007_example" }], later)).toBe(1);
     expect((await prisma.somonSeenAdvert.findUnique({ where: { advertId: "987650005" } }))?.status).toBe("BASELINE");
   });
   it("finishes a shrinking baseline only after the new end is below the cursor", async () => {
     const now = new Date("2026-10-27T10:00:00Z");
     await prisma.somonMonitor.update({ where: { id: "singleton" }, data: { enabled: true, baselineAt: null, activatedAt: null, baselineNextPage: 1, baselineLastPage: null } });
-    await recordBaselinePage(1, 3, ["987650005"], now);
+    await recordBaselinePage(1, 3, [{ id: "987650005", sellerId: "7005" }], now);
     expect(await finishShrunkBaseline(2, 2, now)).toBe(false);
     expect(await finishShrunkBaseline(2, 1, now)).toBe(true);
   });
