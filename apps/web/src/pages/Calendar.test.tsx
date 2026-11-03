@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Calendar } from "./Calendar";
 
 const state = vi.hoisted(() => ({ role: "AGENT", readOnly: false, mobile: false, failed: false }));
@@ -20,7 +20,13 @@ vi.mock("../hooks/useCalendar", () => ({
 }));
 
 function html() { return renderToStaticMarkup(<MemoryRouter initialEntries={["/calendar?date=2026-11-03"]}><Calendar /></MemoryRouter>); }
-beforeEach(() => { state.role = "AGENT"; state.readOnly = false; state.mobile = false; state.failed = false; });
+beforeEach(() => {
+  // Keep the task on today in Dushanbe so role checks do not depend on the run date.
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-11-03T06:00:00Z"));
+  state.role = "AGENT"; state.readOnly = false; state.mobile = false; state.failed = false;
+});
+afterEach(() => { vi.useRealTimers(); });
 
 describe("calendar role actions", () => {
   for (const mobile of [false, true]) {
