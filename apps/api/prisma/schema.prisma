@@ -10916,6 +10916,7 @@ model AssistantKnowledge {
   validUntil   DateTime?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+  embedding    AssistantKnowledgeEmbedding?
   @@index([archived, updatedAt])
 }
 /// Immutable revisions support attribution and review; only current active content goes to the model.
@@ -10931,4 +10932,15 @@ model AssistantKnowledgeRevision {
   validUntil   DateTime?
   createdAt    DateTime @default(now())
   @@unique([knowledgeId, revision])
+}
+
+/// Derived index only. Retrieval requires the same current knowledge revision/model/dimensions.
+model AssistantKnowledgeEmbedding {
+  knowledgeId String @id
+  knowledge AssistantKnowledge @relation(fields: [knowledgeId], references: [id], onDelete: Cascade)
+  revision Int
+  model String
+  dimensions Int
+  embedding Float[] @default([])
+  indexedAt DateTime @default(now())
 }

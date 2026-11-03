@@ -55,7 +55,7 @@ beforeEach(() => { vi.resetModules(); telemetry.logAiCall.mockClear(); });
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe.each([false, true])("Gemini assistant guard, stream=%s", (stream) => {
-  async function invoke(extra: { beforeAttempt?: () => Promise<void> } = {}) {
+  async function invoke(extra: { beforeAttempt?: (attempt: import("../src/ai/geminiClient.js").AssistantProviderAttempt) => Promise<void> } = {}) {
     const api = await import("../src/ai/geminiClient.js");
     return stream
       ? api.callGeminiToolsStream({ ...params(), ...extra, onToken: vi.fn() })
@@ -73,6 +73,18 @@ describe.each([false, true])("Gemini assistant guard, stream=%s", (stream) => {
     expect(turn.calls).toHaveLength(1);
     expect(events).toEqual(["reserve", "fetch", "reserve", "fetch"]);
     expect(beforeAttempt).toHaveBeenCalledTimes(fetch.mock.calls.length);
+  });
+  it("passes the exact outgoing body and live cancellation signal to the spending guard", async () => {
+    let reserved: import("../src/ai/geminiClient.js").AssistantProviderAttempt | undefined;
+    vi.stubGlobal("fetch", vi.fn(async (_url, init) => {
+      expect(reserved?.body).toEqual(JSON.parse(String(init.body)));
+      expect(reserved?.model).toBe(runtime.model);
+      expect(reserved?.apiKey).toBe("test-key");
+      expect(reserved?.kind).toBe("generate");
+      expect(reserved?.signal?.aborted).toBe(false);
+      return response(stream);
+    }));
+    await invoke({ beforeAttempt: async (attempt) => { reserved = attempt; } });
   });
   it("does not fetch when attempt reservation is denied", async () => {
     const fetch = vi.fn(() => { throw new Error("Must never fetch"); });

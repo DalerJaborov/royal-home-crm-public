@@ -7,4 +7,5 @@ export const assistantKnowledgeInputSchema = z.object({
 }).strict();
 export const assistantKnowledgeArchiveSchema = z.object({ title: z.string().trim().min(3).max(100) }).strict();
 export const assistantKnowledgeSearchSchema = z.object({ query: z.string().trim().max(200).default("") }).strict();
+export const assistantKnowledgeIndexSchema = z.object({}).strict();
 export type AssistantKnowledgeInput = z.infer<typeof assistantKnowledgeInputSchema>;

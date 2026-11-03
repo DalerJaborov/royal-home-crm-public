@@ -1049,14 +1049,15 @@ const GET_FILE_TIMEOUT_MS = 180_000;
 
 export async function resolveTelegramFile(
   fileId: string,
-  maxBytes: number = MAX_FILE_BYTES
+  maxBytes: number = MAX_FILE_BYTES,
+  timeoutMs: number = GET_FILE_TIMEOUT_MS
 ): Promise<TelegramFileRef | null> {
   if (!TOKEN) return null;
   try {
     const file = await call<{ file_path?: string; file_size?: number }>(
       "getFile",
       { file_id: fileId },
-      GET_FILE_TIMEOUT_MS
+      Math.min(GET_FILE_TIMEOUT_MS, Math.max(1_000, timeoutMs))
     );
     if (!file.file_path) return null;
     // Размер Telegram сообщает сам — отсекаем ДО скачивания, а не после.

@@ -1,3 +1,11 @@
+export interface AssistantProviderAttempt {
+  model: string;
+  body: Record<string, unknown>;
+  apiKey: string;
+  signal?: AbortSignal;
+  kind: "generate" | "grounded";
+}
+
 import { requestThinkingConfig, assertCompletedAssistantTurn } from "./geminiThinkingPolicy.js";
 import { GEMINI_FUNCTION_DECLARATION_PROTOCOL, managedGeminiFunctionDeclarations } from "./geminiFunctionDeclarations.js";
 import { prisma } from "../db.js";
@@ -1263,7 +1271,7 @@ async function callGeminiToolsOnce(params: {
   /** Never drop the explicit low reasoning limit after a provider rejection. */
   requireLowThinking?: boolean;
   requireCompleteTurn?: boolean;
-  beforeAttempt?: () => Promise<void>;
+  beforeAttempt?: (attempt: AssistantProviderAttempt) => Promise<void>;
   apiKey: string;
   system: string;
   contents: { role: "user" | "model"; parts: GeminiPart[] }[];
@@ -1322,7 +1330,7 @@ async function callGeminiToolsOnce(params: {
     // only after exact body/count witness passes, immediately before fetch.
     traceStarted = performance.now();
     traceAttempt = traceModelStart(params.model, null, "assistant-tools");
-    await params.beforeAttempt?.();
+    await params.beforeAttempt?.({ model: params.model, body, apiKey: params.apiKey, signal: controller.signal, kind: "generate" });
     const res = await fetch(counted?.generateUrl ?? geminiGenerateUrlFor(params.model), {
       method: "POST",
       headers: counted?.headers ?? { "Content-Type": "application/json", "x-goog-api-key": params.apiKey, ...geminiProxyHeaders() },
@@ -1459,7 +1467,7 @@ export async function callGeminiTools(params: {
   /** Never drop the explicit low reasoning limit after a provider rejection. */
   requireLowThinking?: boolean;
   requireCompleteTurn?: boolean;
-  beforeAttempt?: () => Promise<void>;
+  beforeAttempt?: (attempt: AssistantProviderAttempt) => Promise<void>;
   apiKey: string;
   system: string;
   contents: { role: "user" | "model"; parts: GeminiPart[] }[];
@@ -1656,7 +1664,7 @@ async function callGeminiToolsStreamOnce(
     }
   };
   try {
-    await params.beforeAttempt?.();
+    await params.beforeAttempt?.({ model: params.model, body, apiKey: params.apiKey, signal: controller.signal, kind: "generate" });
     const res = await fetch(geminiStreamUrlFor(params.model), {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-goog-api-key": params.apiKey, ...geminiProxyHeaders() },
@@ -1759,7 +1767,7 @@ export async function callGeminiToolsStream(params: {
   /** Never drop the explicit low reasoning limit after a provider rejection. */
   requireLowThinking?: boolean;
   requireCompleteTurn?: boolean;
-  beforeAttempt?: () => Promise<void>;
+  beforeAttempt?: (attempt: AssistantProviderAttempt) => Promise<void>;
   apiKey: string;
   system: string;
   contents: { role: "user" | "model"; parts: GeminiPart[] }[];
@@ -1821,7 +1829,7 @@ export async function callGeminiGrounded(params: {
   /** Never drop the explicit low reasoning limit after a provider rejection. */
   requireLowThinking?: boolean;
   requireCompleteTurn?: boolean;
-  beforeAttempt?: () => Promise<void>;
+  beforeAttempt?: (attempt: AssistantProviderAttempt) => Promise<void>;
   apiKey: string;
   system?: string;
   query: string;
@@ -1893,7 +1901,7 @@ export async function callGeminiGrounded(params: {
             features: { grounding: true, thinking: managedThinking(model) } }, params.timeoutMs ?? 45_000);
           params.providerOperation?.check();
 
-          await params.beforeAttempt?.();
+          await params.beforeAttempt?.({ model, body, apiKey: params.apiKey, signal: controller.signal, kind: "grounded" });
           const res = await fetch(geminiGenerateUrlFor(model), {
             method: "POST",
             headers: { "Content-Type": "application/json", "x-goog-api-key": params.apiKey, ...geminiProxyHeaders() },

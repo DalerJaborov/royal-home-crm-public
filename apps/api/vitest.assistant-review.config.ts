@@ -11,6 +11,13 @@ export default {
       "tests/assistant-reply.unit.test.ts",
       "tests/assistant-voice.unit.test.ts",
       "tests/assistant-fast-path.unit.test.ts",
+      "tests/assistant-knowledge-semantic.unit.test.ts",
+      "tests/assistant-embeddings-guards.unit.test.ts",
+      "tests/assistant-media.unit.test.ts",
+      "tests/assistant-media-probe.unit.test.ts",
+      "tests/assistant-media-telegram.unit.test.ts",
+      "tests/assistant-money.unit.test.ts",
+      "tests/assistant-property-embedding-budget.unit.test.ts",
     ],
   },
 };

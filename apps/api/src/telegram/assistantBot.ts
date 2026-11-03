@@ -8,7 +8,8 @@ import { loadAgentAccess, type AgentAccess } from "../auth/middleware.js";
 import { actorFromAccess, type AssistantActor } from "../ai/assistant/actor.js";
 import { ASSISTANT_ERROR_MESSAGES, isAiAssistantEnabled, runAssistantDetailed } from "../ai/assistant.js";
 import { tryAssistantFastPath } from "../ai/assistantFastPath.js";
-import { transcribeAudio } from "../ai/transcribe.js";
+import { handleAssistantMedia } from "./assistantMedia.js";
+import { createAssistantMoneyWallet, type AssistantMoneyWallet } from "../ai/assistant/moneyBudget.js";
 import {
   AssistantActionError,
   cancelAssistantAction,
@@ -34,7 +35,6 @@ import {
   type TelegramCallbackQuery,
   type TelegramIncomingMessage,
 } from "./api.js";
-import { fetchTelegramAttachments } from "./attachments.js";
 
 /**
  * ВНУТРЕННИЙ ПОМОЩНИК В TELEGRAM (П5, 03.11.2026,
@@ -164,6 +164,7 @@ interface TurnResult {
 }
 
 interface TurnParams {
+  moneyWallet?: AssistantMoneyWallet;
   agentId: string;
   scope: "private" | "group";
   history: { role: "user" | "assistant"; content: string }[];
@@ -211,6 +212,7 @@ async function runTurn(params: TurnParams): Promise<TurnResult | null> {
   const seen = new Map<string, AssistantActionView>();
   const outcome = await runAssistantDetailed(params.history, actor, {
     channel: "telegram",
+    moneyWallet: params.moneyWallet,
     confirmUi: true,
     onConfirm: (action) => seen.set(action.id, action),
   });
@@ -319,19 +321,17 @@ async function clearHistory(chatId: string) {
 }
 
 /** Голосовое → текст тем же путём, что POST /transcribe (ai/transcribe.ts). */
-async function transcribeVoice(msg: TelegramIncomingMessage, agentId: string): Promise<{ text: string } | { error: string }> {
+async function transcribeVoice(msg: TelegramIncomingMessage, agentId: string, wallet: AssistantMoneyWallet): Promise<{ text: string } | { error: string }> {
   // Платная расшифровка — только если помощник вообще включён и учётка жива.
   if (!(await isAiAssistantEnabled())) return { error: DISABLED_TEXT };
   const access = await loadAgentAccess(agentId);
   if (!access?.isActive) return { error: "Ваша учётка отключена." };
   const cap = await claimAgentAiAction(agentId, "assistant-telegram-voice", ASSISTANT_TG_VOICE_DAILY_LIMIT);
   if (!cap.allowed) return { error: "Лимит голосовых на сегодня исчерпан — напишите текстом." };
-  const fetched = await fetchTelegramAttachments(msg);
-  const audio = fetched.audios[0];
-  if (!audio) return { error: "Не получилось скачать голосовое — попробуйте ещё раз или напишите текстом." };
-  const text = await transcribeAudio(audio.buffer, audio.filename || "voice.ogg", audio.mediaType);
-  if (text === null) return { error: "Не удалось распознать речь — напишите текстом." };
-  if (!text.trim()) return { error: "Речь не распознана — похоже, запись пустая." };
+  const media = await handleAssistantMedia(msg, agentId, { allowGroup: msg.chat.type !== "private", wallet });
+  if (media.error) return { error: media.text };
+  const text = media.extraction?.transcript;
+  if (!text?.trim() || media.extraction?.incomplete) return { error: "Не удалось полностью распознать речь — напишите просьбу текстом." };
   return { text: text.trim() };
 }
 
@@ -343,6 +343,7 @@ export async function handleAssistantPrivate(
   const chatId = String(msg.chat.id);
   const send = (text: string) => sendMessage(chatId, text).then(() => undefined);
   try {
+    const moneyWallet = createAssistantMoneyWallet();
     let text = msg.text?.trim() ?? "";
     if (text === "/new" || text === "/reset") {
       await clearHistory(chatId);
@@ -353,9 +354,20 @@ export async function handleAssistantPrivate(
       await send(HELP_TEXT);
       return;
     }
+    if (msg.photo?.length || msg.document) {
+      if (!(await isAiAssistantEnabled())) { await send(DISABLED_TEXT); return; }
+      const access = await loadAgentAccess(agent.id);
+      if (!access?.isActive) { await send("Ваша учётка отключена."); return; }
+      void sendChatAction(chatId).catch(() => {});
+      const media = await handleAssistantMedia(msg, agent.id, { wallet: moneyWallet });
+      const extracted = access.permissions.has("clients.viewPhone") ? media.text : maskPhonesInFreeText(media.text);
+      // File text is quoted evidence, never a request that may authorize CRM writes.
+      for (let offset = 0; offset < extracted.length; offset += 3500) await send(extracted.slice(offset, offset + 3500));
+      return;
+    }
     if (msg.voice || msg.audio) {
       void sendChatAction(chatId).catch(() => {});
-      const voice = await transcribeVoice(msg, agent.id);
+      const voice = await transcribeVoice(msg, agent.id, moneyWallet);
       if ("error" in voice) {
         await send(voice.error);
         return;
@@ -374,7 +386,7 @@ export async function handleAssistantPrivate(
     }
     void sendChatAction(chatId).catch(() => {});
     const history = [...(await loadHistory(chatId, agent.id)), { role: "user" as const, content: text.slice(0, 4000) }];
-    const result = await runTurn({ agentId: agent.id, scope: "private", history, deny: send });
+    const result = await runTurn({ agentId: agent.id, scope: "private", history, deny: send, moneyWallet });
     if (!result) return;
     await sendTurnResult(chatId, result, { agentId: agent.id, authorName: agent.fullName, scope: "private", fromVoice: !!(msg.voice || msg.audio), reactTo: msg.message_id });
     await saveHistory(chatId, agent.id, [...history, { role: "assistant", content: result.reply.slice(0, 4000) }]);
@@ -532,10 +544,11 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
 Просьба вызвавшего: ${text}` : ""}`;
       }
     }
+    const moneyWallet = createAssistantMoneyWallet();
     let fromVoice = false;
     if (!request && (msg.voice || msg.audio)) {
       void sendChatAction(chatId).catch(() => {});
-      const voice = await transcribeVoice(msg, sender.id);
+      const voice = await transcribeVoice(msg, sender.id, moneyWallet);
       if ("error" in voice) {
         await reply(voice.error);
         return true;
@@ -552,6 +565,7 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
     if (msg.from?.id) dialogWindows.set(windowKey(chatId, msg.from.id), { until: groupClock() + GROUP_DIALOG_WINDOW_MS, junk: 0 });
     const result = await runTurn({
       agentId: sender.id,
+      moneyWallet,
       scope: "group",
       history: [{ role: "user", content: request.slice(0, 4000) }],
       deny: reply,

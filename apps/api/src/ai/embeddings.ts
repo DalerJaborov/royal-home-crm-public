@@ -41,7 +41,23 @@ const MAX_INPUT_CHARS = 6000;
  * пустой текст, ответ без вектора). Отказ уже залогирован (logSystemError) —
  * вызывающему коду достаточно молча пропустить объект/запрос.
  */
-export async function embedText(text: string, taskType: EmbeddingTaskType): Promise<number[] | null> {
+export interface EmbeddingAttemptMetadata {
+  model: string;
+  inputCharacters: number;
+  taskType: EmbeddingTaskType;
+  outputDimensions: number;
+}
+export interface EmbeddingRequestOptions {
+  beforeAttempt?: (metadata: EmbeddingAttemptMetadata) => Promise<void>;
+  signal?: AbortSignal;
+  /** Explicit consumers may limit physical attempts without changing existing property indexing. */
+  maxAttempts?: number;
+}
+export async function embedText(text: string, taskType: EmbeddingTaskType, options: EmbeddingRequestOptions = {}): Promise<number[] | null> {
+  options.signal?.throwIfAborted();
+  if (options.maxAttempts !== undefined && (!Number.isSafeInteger(options.maxAttempts) || options.maxAttempts < 1 || options.maxAttempts > 10)) {
+    throw new Error("Embedding maxAttempts must be an integer between 1 and 10");
+  }
   const trimmed = text.trim().slice(0, MAX_INPUT_CHARS);
   if (!trimmed) return null;
 
@@ -60,13 +76,17 @@ export async function embedText(text: string, taskType: EmbeddingTaskType): Prom
   let lastError = "не с чем пробовать";
   // Перебор ключей, как и в coverImage.ts: 401/403 — беда конкретного ключа,
   // остальные коды относятся к модели/проекту и следующий ключ их не изменит.
-  for (const apiKey of runtime.keys) {
+  for (const apiKey of runtime.keys.slice(0, options.maxAttempts)) {
+    options.signal?.throwIfAborted();
+    // Reservation rejection is terminal and happens before provider I/O.
+    await options.beforeAttempt?.({ model, inputCharacters: trimmed.length, taskType, outputDimensions: GEMINI_EMBEDDING_DIMENSIONS });
+    options.signal?.throwIfAborted();
     try {
       const res = await fetch(geminiEmbedUrlFor(model), {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey, ...geminiProxyHeaders() },
         body,
-        signal: AbortSignal.timeout(EMBED_TIMEOUT_MS),
+        signal: options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(EMBED_TIMEOUT_MS)]) : AbortSignal.timeout(EMBED_TIMEOUT_MS),
       });
       if (!res.ok) {
         const detail = (await res.text()).replace(/\s+/g, " ").slice(0, 300);
@@ -89,6 +109,7 @@ export async function embedText(text: string, taskType: EmbeddingTaskType): Prom
       });
       return values;
     } catch (err) {
+      options.signal?.throwIfAborted();
       lastError = describeError(err);
     }
   }

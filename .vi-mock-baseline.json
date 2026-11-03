@@ -12,7 +12,17 @@
     "apps/api/tests/assistant-gemini-guards.unit.test.ts::apps/api/src/ai/geminiSettings.ts": "Provider boundary fully isolated so mocked transport tests cannot load .env, working database or real settings.",
     "apps/api/tests/assistant-gemini-guards.unit.test.ts::apps/api/src/ai/geminiOperationRuntime.ts": "Provider boundary fully isolated so mocked transport tests cannot load .env, working database or real settings.",
     "apps/api/tests/assistant-telegram.test.ts::apps/api/src/telegram/assistantVoice.ts": "All ElevenLabs synthesis must be mocked in Telegram integration tests; no paid calls.",
-    "apps/api/tests/assistant-fast-path.unit.test.ts::apps/api/src/ai/seoGenerator.ts": "Fast-path unit tests use only URL normalization; fully mock AI generator boundary to avoid provider/.env/database imports."
+    "apps/api/tests/assistant-fast-path.unit.test.ts::apps/api/src/ai/seoGenerator.ts": "Fast-path unit tests use only URL normalization; fully mock AI generator boundary to avoid provider/.env/database imports.",
+    "apps/api/tests/assistant-embeddings-guards.unit.test.ts::apps/api/src/ai/geminiSettings.ts": "Offline provider/database boundary: importing the original loads settings, persistence or outbound transport; isolate it completely.",
+    "apps/api/tests/assistant-embeddings-guards.unit.test.ts::apps/api/src/ai/shared.ts": "Offline provider/database boundary: importing the original loads settings, persistence or outbound transport; isolate it completely.",
+    "apps/api/tests/assistant-embeddings-guards.unit.test.ts::apps/api/src/lib/systemError.ts": "Offline provider/database boundary: importing the original loads settings, persistence or outbound transport; isolate it completely.",
+    "apps/api/tests/assistant-embeddings-guards.unit.test.ts::apps/api/src/ai/seoGenerator.ts": "Offline provider/database boundary: importing the original loads settings, persistence or outbound transport; isolate it completely.",
+    "apps/api/tests/assistant-knowledge-semantic.unit.test.ts::apps/api/src/ai/embeddings.ts": "Offline provider/database boundary: importing the original loads settings, persistence or outbound transport; isolate it completely.",
+    "apps/api/tests/assistant-media-telegram.unit.test.ts::apps/api/src/telegram/api.ts": "Offline provider/database boundary: importing the original loads settings, persistence or outbound transport; isolate it completely.",
+    "apps/api/tests/assistant-media-telegram.unit.test.ts::apps/api/src/ai/assistant/runtime.ts": "Offline provider/database boundary: importing the original loads settings, persistence or outbound transport; isolate it completely.",
+    "apps/api/tests/assistant-media-telegram.unit.test.ts::apps/api/src/ai/assistant/moneyBudget.ts": "Offline provider/database boundary: importing the original loads settings, persistence or outbound transport; isolate it completely.",
+    "apps/api/tests/assistant-media.unit.test.ts::apps/api/src/ai/geminiClient.ts": "Offline provider/database boundary: importing the original loads settings, persistence or outbound transport; isolate it completely.",
+    "apps/api/tests/assistant-property-embedding-budget.unit.test.ts::apps/api/src/ai/embeddings.ts": "Offline provider/database boundary: importing the original loads settings, persistence or outbound transport; isolate it completely."
   },
   "legacy": [
     "apps/api/tests/ad-click-becomes-lead.test.ts::apps/api/src/lib/pushLeadActions.ts",

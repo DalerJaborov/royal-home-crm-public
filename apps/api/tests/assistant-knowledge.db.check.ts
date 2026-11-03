@@ -23,7 +23,7 @@ beforeAll(async () => {
     } catch (err) { await client.query("ROLLBACK"); throw err; } finally { client.release(); }
   });
 });
-beforeEach(async () => { if (pool) await pool.query('TRUNCATE "AssistantKnowledgeRevision", "AssistantKnowledge"'); });
+beforeEach(async () => { if (pool) await pool.query('TRUNCATE "AssistantKnowledgeRevision", "AssistantKnowledge" CASCADE'); });
 afterAll(async () => { await pool?.end(); });
 it("shared knowledge persists and another connection sees it", async () => {
   await saveCompanyKnowledge(input, "test-agent-a", 0);

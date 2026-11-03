@@ -45,13 +45,13 @@ vi.mock("../src/ai/assistant.js", async (importOriginal) => ({
   isAiAssistantEnabled: async () => true,
   runAssistantDetailed: runner,
 }));
-vi.mock("../src/ai/transcribe.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/ai/transcribe.js")>()),
-  transcribeAudio: transcribe,
-}));
-vi.mock("../src/telegram/attachments.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/telegram/attachments.js")>()),
-  fetchTelegramAttachments: fetchAudio,
+vi.mock("../src/telegram/assistantMedia.js", () => ({
+  downloadAssistantMedia: vi.fn(() => { throw new Error("Unexpected file download"); }),
+  handleAssistantMedia: async () => {
+    const text = await transcribe();
+    return text === null ? { text: "Не удалось распознать речь — напишите текстом.", error: "media_failed" }
+      : { text, extraction: { transcript: text, incomplete: false } };
+  },
 }));
 vi.mock("../src/lib/agentAiActionCap.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/lib/agentAiActionCap.js")>()),

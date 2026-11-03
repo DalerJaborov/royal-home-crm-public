@@ -1,3 +1,5 @@
+import type { EmbeddingRequestOptions } from "./embeddings.js";
+import { createAssistantMoneyWallet, createAssistantMoneyGuard, createAssistantEmbeddingMoneyGuard } from "./assistant/moneyBudget.js";
 import { assistantStyle } from "./assistant/personaStyle.js";
 import { searchCompanyKnowledge, knowledgeContext } from "./assistant/knowledge.js";
 import { tajikGlossaryFor } from "./assistant/tajikGlossary.js";
@@ -434,7 +436,7 @@ function expenseMonthDate(monthKey: string): Date {
 
 /** Экспортирован ради точечных тестов (apps/api/tests/ai-assistant-tools.test.ts):
  *  проверка ownScope/прав каждого инструмента без похода в Gemini. */
-export async function runTool(name: string, input: Record<string, unknown>, actor: AssistantActor): Promise<unknown> {
+export async function runTool(name: string, input: Record<string, unknown>, actor: AssistantActor, embedding?: EmbeddingRequestOptions): Promise<unknown> {
   if (actor.hiddenTools?.has(name)) return { error: "Этот инструмент недоступен в этом чате" };
   const ownScope = actor.canViewAllClients ? undefined : actor.id;
   // Непринятая заявка и карточка из Корзины — не для агента (REST отдаёт ему 404 /
@@ -526,7 +528,7 @@ export async function runTool(name: string, input: Record<string, unknown>, acto
       // по уже отфильтрованному пулу выше) — пересечение со структурным пулом ниже
       // и есть «семантика сужает уже отфильтрованный список»: район/цена/комнаты
       // остаются жёсткими условиями, семантика только переставляет порядок внутри них.
-      const ranked = await semanticPropertySearch(semanticQuery, { ...(status ? { statusFilter: status } : {}), limit: 200 });
+      const ranked = await semanticPropertySearch(semanticQuery, { ...(status ? { statusFilter: status } : {}), limit: 200, embedding: embedding ?? { beforeAttempt: createAssistantEmbeddingMoneyGuard(), maxAttempts: 1 } });
       const rankIndex = new Map(ranked.map((r, i) => [r.propertyId, i]));
       ordered = [...properties].sort((a, b) => {
         // Точное совпадение по номеру семантика не сдвигает.
@@ -1091,6 +1093,8 @@ export const ASSISTANT_ERROR_MESSAGES: Record<AssistantErrorCode, string> = {
 };
 
 export interface RunAssistantOptions {
+  /** Share one reservation envelope with preceding Telegram media extraction. */
+  moneyWallet?: ReturnType<typeof createAssistantMoneyWallet>;
   /** Пошаговый статус для фронта (SSE, routes/ai.ts) — перед каждым раундом и
    *  перед каждым тул-вызовом. Необязателен: без него поведение не меняется. */
   onStatus?: (message: string) => void;
@@ -1204,7 +1208,7 @@ export const MAX_WRITES_PER_ANSWER = 3;
 export const WRITE_LIMIT_ERROR = `Лимит записей за ответ: не больше ${MAX_WRITES_PER_ANSWER}. Остальное — следующим сообщением.`;
 
 /** Хуки раунда: признак «клиент умеет показать подтверждение» и общий на ответ счётчик записей. */
-export type RoundHooks = RunPluginHooks & { confirmUi: boolean; writeBudget: { left: number } };
+export type RoundHooks = RunPluginHooks & { confirmUi: boolean; writeBudget: { left: number }; embedding?: EmbeddingRequestOptions };
 
 /** Длина одной строки аргумента в журнале обращений: это след, а не копия переписки. */
 const AUDIT_ARG_MAX_CHARS = 80;
@@ -1261,7 +1265,7 @@ export async function runAuditedTool(call: GeminiToolCall, actor: AssistantActor
       : plugin.level !== "A" && !hooks.confirmUi
         ? { error: "Это действие здесь недоступно: нужна карточка подтверждения в CRM" }
         : await runAssistantToolPlugin(plugin, call.args ?? {}, actor, hooks)
-    : await runTool(call.name, call.args, actor);
+    : await runTool(call.name, call.args, actor, hooks.embedding);
   // Одна точка на все инструменты — журнал обращений (аудит-лог, не защита
   // доступа: та стоит внутри runTool через ownScope). Запись НЕ ждётся (задача
   // 1.4): вставка в журнал на критическом пути каждого инструмента — лишний поход
@@ -1379,7 +1383,14 @@ export async function runAssistantDetailed(
       Promise.all([loadAssistantSettings(), loadAssistantGeminiRuntime()]),
       signal,
     );
-    const beforeAttempt = createAssistantAttemptLimit(reserveAssistantGeminiAttempt);
+    const wallet = options.moneyWallet ?? createAssistantMoneyWallet();
+    const attemptLimit = createAssistantAttemptLimit(reserveAssistantGeminiAttempt);
+    const moneyGuard = createAssistantMoneyGuard({ wallet });
+    const beforeAttempt: NonNullable<Parameters<typeof callGeminiTools>[0]["beforeAttempt"]> = async (attempt) => {
+      await attemptLimit();
+      await moneyGuard(attempt);
+    };
+    const embeddingGuard = createAssistantEmbeddingMoneyGuard({ wallet });
     const languagePolicy = assistantLanguagePolicy(trimAssistantHistory(messages), gemini);
     const apiKey = gemini.keys[0];
     if (!apiKey) {
@@ -1393,7 +1404,7 @@ export async function runAssistantDetailed(
     const userQuestion = [...trimAssistantHistory(messages)].reverse().find((m) => m.role === "user")?.content ?? "";
     let sharedKnowledge = "";
     try {
-      sharedKnowledge = knowledgeContext(await untilAborted(searchCompanyKnowledge(userQuestion.slice(0, 200)), signal));
+      sharedKnowledge = knowledgeContext(await untilAborted(searchCompanyKnowledge(userQuestion.slice(0, 200), { beforeAttempt: embeddingGuard, signal }), signal));
     } catch (err) {
       if (signal.aborted) throw signal.reason;
       console.warn("[assistant] company knowledge unavailable");
@@ -1413,7 +1424,7 @@ export async function runAssistantDetailed(
     const lastUserText = [...history].reverse().find((m) => m.role === "user")?.content ?? "";
     // Недоступный актору инструмент модели не объявляется (задача 2.5).
     const tools = [
-      ...(settings.groundedSearchEnabled ? GEMINI_TOOLS_WITH_REFERENCE : GEMINI_TOOLS).filter((t) =>
+      ...GEMINI_TOOLS.filter((t) =>
         assistantToolAllowed(actor, t.name),
       ),
       ...pluginDeclarations(actor, options.confirmUi === true, options.channel ?? "crm"),
@@ -1491,7 +1502,7 @@ export async function runAssistantDetailed(
       const reference = turn.calls.find((call) => call.name === WEB_REFERENCE_TOOL);
       if (reference) {
         route = "reference";
-        if (!settings.groundedSearchEnabled) {
+        if (!settings.groundedSearchEnabled || !assistantGroundingBudgetSupported()) {
           // Инструмент не объявлялся, модель выдумала его имя — прежний отказ.
           route = "off_topic";
           ok = true;
@@ -1527,6 +1538,7 @@ export async function runAssistantDetailed(
         onConfirm: options.onConfirm,
         confirmUi: options.confirmUi === true,
         writeBudget,
+        embedding: { beforeAttempt: embeddingGuard, signal, maxAttempts: 1 },
       });
       // Keep optional provider IDs; names alone cannot identify two calls to
       // the same function. Original signed model parts were appended above.
@@ -1575,3 +1587,6 @@ export async function runAssistantDetailed(
       .catch(() => {});
   }
 }
+
+/** Google Search may bill multiple queries; this adapter cannot cap those units. */
+function assistantGroundingBudgetSupported(): boolean { return false; }
