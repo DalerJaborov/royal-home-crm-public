@@ -58,7 +58,7 @@ const { handleTelegramUpdate } = await import("../src/telegram/bot.js");
 const { invalidateAgentAccess } = await import("../src/auth/middleware.js");
 const { createPendingAssistantAction } = await import("../src/lib/assistantActions.js");
 const { tryLinkAgentByCode, createTelegramLinkCode } = await import("../src/lib/telegramAgentLink.js");
-const { renderAssistantForTelegram, addressedToBot } = await import("../src/telegram/assistantBot.js");
+const { renderAssistantForTelegram, addressedToBot, setGroupClockForTests, GROUP_DIALOG_WINDOW_MS, looksLikeBotRequest } = await import("../src/telegram/assistantBot.js");
 const { assistantToolAllowed } = await import("../src/ai/assistant/actor.js");
 const { runTool } = await vi.importActual<typeof import("../src/ai/assistant.js")>("../src/ai/assistant.js");
 const { app } = await import("../src/app.js");
@@ -585,5 +585,98 @@ describe("ревью П5: утечки и обрезка", () => {
     runner.mockResolvedValue({ ok: true, reply: "x" });
     await handleTelegramUpdate(groupMsg("unlinker", `@${BOT} привет`));
     expect(runner).not.toHaveBeenCalled();
+  });
+});
+
+describe("группа: окно диалога и ответ на чужое сообщение", () => {
+  let nowMs = 0;
+  beforeEach(() => {
+    nowMs = Date.now();
+    setGroupClockForTests(() => nowMs);
+    runner.mockResolvedValue({ ok: true, reply: "ок" });
+  });
+  afterAll(() => setGroupClockForTests(null));
+  const open = (key: string) => handleTelegramUpdate(groupMsg(key, `@${BOT} найди клиента Али`));
+  const calls = () => runner.mock.calls.length;
+
+  it("после упоминания следующие просьбы того же человека читаются без упоминания; чужие — нет", async () => {
+    await open("author");
+    expect(calls()).toBe(1);
+    await handleTelegramUpdate(groupMsg("author", "а теперь снизь цену ОБ-5 до 80000"));
+    expect(calls()).toBe(2);
+    await handleTelegramUpdate(groupMsg("stranger", "а теперь снизь цену ОБ-5 до 80000"));
+    expect(calls()).toBe(2);
+  });
+
+  it("окно закрывается по времени", async () => {
+    await open("author");
+    nowMs += GROUP_DIALOG_WINDOW_MS - 1000;
+    await handleTelegramUpdate(groupMsg("author", "покажи ОБ-7"));
+    expect(calls()).toBe(2);
+    nowMs += GROUP_DIALOG_WINDOW_MS + 1000;
+    await handleTelegramUpdate(groupMsg("author", "покажи ОБ-8"));
+    expect(calls()).toBe(2);
+  });
+
+  it("болтовня молча игнорируется, три подряд закрывают окно; «спасибо» закрывает сразу", async () => {
+    await open("author");
+    sendMessage.mockClear();
+    for (const t of ["ребята, обед?", "ха-ха", "кто едет"]) await handleTelegramUpdate(groupMsg("author", t));
+    expect(calls()).toBe(1);
+    expect(sendMessage).not.toHaveBeenCalled();
+    await handleTelegramUpdate(groupMsg("author", "покажи ОБ-9"));
+    expect(calls()).toBe(1);
+
+    await open("author");
+    await handleTelegramUpdate(groupMsg("author", "спасибо"));
+    await handleTelegramUpdate(groupMsg("author", "покажи ОБ-9"));
+    expect(calls()).toBe(2);
+  });
+
+  it("окна двух людей раздельные", async () => {
+    await open("author");
+    await open("stranger");
+    await handleTelegramUpdate(groupMsg("stranger", "стоп"));
+    await handleTelegramUpdate(groupMsg("stranger", "покажи ОБ-1"));
+    expect(calls()).toBe(2);
+    await handleTelegramUpdate(groupMsg("author", "покажи ОБ-1"));
+    expect(calls()).toBe(3);
+  });
+
+  it("окно не открывается, если обращение не прошло (не привязан)", async () => {
+    await handleTelegramUpdate(groupMsg(null, `@${BOT} привет`));
+    await handleTelegramUpdate(groupMsg(null, "покажи ОБ-1"));
+    expect(calls()).toBe(0);
+  });
+
+  it("упоминание ответом на чужое сообщение: текст — содержание просьбы, права и кнопка — вызвавшего, «по сообщению <имя>»", async () => {
+    runner.mockImplementation(async (_h: unknown, actor: { id: string }, options: { onConfirm?: (a: unknown) => void }) => {
+      const tg = { agentId: actor.id, channel: "telegram" as const, can: () => true };
+      options.onConfirm?.(await createPendingAssistantAction(tg, priceTool, { key: "p1", price: 90_000 }));
+      return { ok: true, reply: "Подтвердите" };
+    });
+    await handleTelegramUpdate(
+      groupMsg("author", `@${BOT} сделай`, {
+        reply_to_message: { chat: { id: GROUP }, from: { id: 5, first_name: "Иван" }, text: "снизить цену на ОБ-123 до 90000" },
+      })
+    );
+    const [history, actor] = runner.mock.calls[0];
+    expect(actor.id).toBe(agents.author.id);
+    expect(history[0].content).toContain("Сообщение от Иван: «снизить цену на ОБ-123 до 90000»");
+    expect(history[0].content).toContain("Просьба вызвавшего: сделай");
+    const card = String(sendMessageWithButtons.mock.calls.at(-1)?.[1]);
+    expect(card).toContain("По сообщению Иван");
+    // Автор исходного сообщения подтвердить не может — только вызвавший.
+    const ok = (sendMessageWithButtons.mock.calls.at(-1)?.[2] as { callback_data: string }[][])[0][0].callback_data;
+    await press("stranger", ok);
+    expect(price.calls.execute).toBe(0);
+    await press("author", ok);
+    expect(price.calls.execute).toBe(1);
+  });
+
+  it("предфильтр: код объекта и глаголы — просьба, болтовня — нет", () => {
+    expect(looksLikeBotRequest("снизь цену ОБ-123 до 90000")).toBe(true);
+    expect(looksLikeBotRequest("поставь на перемонтаж")).toBe(true);
+    expect(looksLikeBotRequest("всем привет, как дела")).toBe(false);
   });
 });

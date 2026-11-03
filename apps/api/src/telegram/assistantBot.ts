@@ -158,7 +158,7 @@ function lines(record: Record<string, unknown>): string {
 }
 
 /** Одна карточка на все ожидающие действия ответа: «было → станет» по каждому. */
-export function renderBundleCard(actions: readonly AssistantActionView[], authorName: string, maskPhones = false): string {
+export function renderBundleCard(actions: readonly AssistantActionView[], authorName: string, maskPhones = false, source?: string): string {
   const parts = actions.map((a, i) => {
     const p = a.preview;
     const head = actions.length > 1 ? `${i + 1}) ${p.title}` : p.title;
@@ -171,7 +171,9 @@ export function renderBundleCard(actions: readonly AssistantActionView[], author
       .filter(Boolean)
       .join("\n");
   });
-  const card = `Подтвердите действие${actions.length > 1 ? "я" : ""}:\n\n${parts.join("\n\n")}\n\nПодтвердить может только ${authorName}.`;
+  const origin = source ? `По сообщению ${source}
+` : "";
+  const card = `${origin}Подтвердите действие${actions.length > 1 ? "я" : ""}:\n\n${parts.join("\n\n")}\n\nПодтвердить может только ${authorName}.`;
   return maskPhones ? maskPhonesInFreeText(card) : card;
 }
 
@@ -258,7 +260,7 @@ async function cancelPending(actions: readonly AssistantActionView[], agentId: s
 async function sendTurnResult(
   chatId: string,
   result: TurnResult,
-  ctx: { agentId: string; authorName: string; scope: "private" | "group"; replyTo?: number }
+  ctx: { agentId: string; authorName: string; scope: "private" | "group"; replyTo?: number; source?: string }
 ): Promise<void> {
   const maskPhones = ctx.scope === "group";
   const rendered = renderAssistantForTelegram(result.reply, { maskPhones });
@@ -269,7 +271,7 @@ async function sendTurnResult(
     await sendMessage(chatId, body || "Готово.", ctx.replyTo);
     return;
   }
-  const card = renderBundleCard(result.pending, ctx.authorName, maskPhones);
+  const card = renderBundleCard(result.pending, ctx.authorName, maskPhones, ctx.source);
   // Кнопка без полностью видимой карточки — подтверждение вслепую: слишком длинное не показываем.
   if (card.length > CARD_MAX_CHARS) {
     await cancelPending(result.pending, ctx.agentId);
@@ -425,6 +427,53 @@ export function addressedToBot(msg: TelegramIncomingMessage, botUsername: string
   return { addressed, text: text.replace(/\s+/g, " ").trim() };
 }
 
+/** Сколько после обращения бот читает следующие сообщения ТОГО ЖЕ человека без повторного упоминания. */
+export const GROUP_DIALOG_WINDOW_MS = 8 * 60_000;
+/** Столько подряд сообщений «не к боту» закрывают окно. */
+const GROUP_WINDOW_MAX_JUNK = 3;
+const WINDOW_STOP = /^(стоп|спасибо|отмена|хватит|stop)[\s.!]*$/i;
+// Грубый предфильтр «похоже на просьбу к боту» — до модели: болтовню не читаем и не тратим вызов.
+const REQUEST_HINTS =
+  /(об|ob)[-\s]?\d|пк[-\s]?\d|\d{4,}|снизи|сними|подними|измени|поменя|продан|перемонт|найди|покажи|отправь|верни|удали|поставь|добавь|запиши|цен[уа]|статус|клиент|показ/i;
+
+export function looksLikeBotRequest(text: string): boolean {
+  return REQUEST_HINTS.test(text);
+}
+
+let groupClock: () => number = () => Date.now();
+/** Часы окна диалога подменяются только в тестах. */
+export function setGroupClockForTests(clock: (() => number) | null): void {
+  groupClock = clock ?? (() => Date.now());
+}
+/** Окна раздельные: ключ — чат и человек; чужие сообщения внутри окна другого не читаются. */
+const dialogWindows = new Map<string, { until: number; junk: number }>();
+const windowKey = (chatId: string, userId: number | string) => `${chatId}:${userId}`;
+
+/** Текст сообщения, если оно внутри открытого окна автора и похоже на просьбу; иначе null. */
+function windowRequest(msg: TelegramIncomingMessage, chatId: string): string | null {
+  if (!msg.from?.id || msg.from.is_bot || msg.sender_chat) return null;
+  const key = windowKey(chatId, msg.from.id);
+  const entry = dialogWindows.get(key);
+  if (!entry) return null;
+  if (entry.until <= groupClock()) {
+    dialogWindows.delete(key);
+    return null;
+  }
+  const raw = (msg.text ?? "").trim();
+  if (!raw) return null;
+  if (WINDOW_STOP.test(raw)) {
+    dialogWindows.delete(key);
+    return null;
+  }
+  if (!looksLikeBotRequest(raw)) {
+    entry.junk += 1;
+    if (entry.junk >= GROUP_WINDOW_MAX_JUNK) dialogWindows.delete(key);
+    return null;
+  }
+  entry.junk = 0;
+  return raw;
+}
+
 const GROUP_ADMIN_ROLES = new Set(["ADMIN", "DIRECTOR"]);
 
 async function senderOf(msg: TelegramIncomingMessage) {
@@ -444,7 +493,11 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
   const { addressed, text } = addressedToBot(msg, botUsername);
   const raw = (msg.text ?? "").trim();
   const onOff = new RegExp(`^/assistant_(on|off)(?:@${escapeRe(botUsername)})?(?:\\s|$)`, "i").exec(raw);
-  if (!addressed && !onOff) return false;
+  let windowText: string | null = null;
+  if (!addressed && !onOff) {
+    windowText = windowRequest(msg, chatId);
+    if (windowText === null) return false;
+  }
   const reply = (t: string) => sendMessage(chatId, t, msg.message_id).then(() => undefined);
 
   try {
@@ -490,7 +543,18 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
       return true;
     }
     // Голос в группе принимается только ответом боту (иначе упоминания нет).
-    let request = text;
+    let request = windowText ?? text;
+    // Упоминание ответом на ЧУЖОЕ сообщение: его текст — содержание просьбы, права — вызвавшего.
+    const replied = msg.reply_to_message;
+    let source: string | undefined;
+    if (windowText === null && replied && replied.from?.is_bot !== true) {
+      const quoted = (replied.text ?? replied.caption ?? "").trim();
+      if (quoted) {
+        source = replied.from?.first_name ?? replied.from?.username ?? "участника группы";
+        request = `Сообщение от ${source}: «${quoted.slice(0, 1000)}»${text ? `
+Просьба вызвавшего: ${text}` : ""}`;
+      }
+    }
     if (!request && (msg.voice || msg.audio)) {
       void sendChatAction(chatId).catch(() => {});
       const voice = await transcribeVoice(msg, sender.id);
@@ -505,6 +569,8 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
       return true;
     }
     void sendChatAction(chatId).catch(() => {});
+    // Окно диалога открывается (и продлевается) на обработанном обращении.
+    if (msg.from?.id) dialogWindows.set(windowKey(chatId, msg.from.id), { until: groupClock() + GROUP_DIALOG_WINDOW_MS, junk: 0 });
     const result = await runTurn({
       agentId: sender.id,
       scope: "group",
@@ -517,6 +583,7 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
       authorName: sender.fullName,
       scope: "group",
       replyTo: msg.message_id,
+      source,
     });
   } catch (err) {
     await logSystemError("telegram", `Помощник в группе Telegram: ${describeError(err)}`);
