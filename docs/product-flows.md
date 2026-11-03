@@ -9861,7 +9861,7 @@
 
 `apps/api/src/routes/me.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
-- await prisma.agent.update({ where: { id: req.agent!.id }, data: { telegramChatId: null, telegramLinkCode: nul…
+- await prisma.agent.update({ where: { id: req.agent!.id }, data: { telegramChatId: null, telegramUserId: null,…
   · меняет в базе: agent
 - logAudit(req, "TELEGRAM_UNLINKED", "Agent", req.agent!.id);
   · зовёт logAudit()
