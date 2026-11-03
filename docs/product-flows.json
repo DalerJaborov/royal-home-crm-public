@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 730,
-  "forks": 4004,
+  "forks": 4005,
   "mounts": 81,
   "cron": 120,
   "jobs": 31,
@@ -109587,6 +109587,21 @@
       {
        "k": "if",
        "t": "!state?.enabled || state.sourceStopped || (state.blockedUntil && state.blockedUntil > new Date())",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return;",
+         "a": [
+          "дальше не идёт, ничего не меняя"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "await isTelegramPortalAlertsPaused()",
        "a": [],
        "c": [
         {
