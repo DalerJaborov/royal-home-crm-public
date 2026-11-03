@@ -1,3 +1,4 @@
+import { knowledgeTools } from "./knowledgeTools.js";
 import { registerAssistantActionExecutor } from "../../../lib/assistantActions.js";
 import { clientOwnershipTools } from "./clientOwnershipTools.js";
 import { propertyTools } from "./propertyTools.js";
@@ -29,7 +30,7 @@ function add(plugin: AssistantToolPlugin): () => void {
   };
 }
 
-for (const plugin of [...readTools, ...clientOwnershipTools, ...propertyTools, ...showingNoteTools]) add(plugin);
+for (const plugin of [...knowledgeTools, ...readTools, ...clientOwnershipTools, ...propertyTools, ...showingNoteTools]) add(plugin);
 
 /** Для тестов: добавить плагин на время теста; возвращает функцию снятия. */
 export function registerAssistantToolPlugin(plugin: AssistantToolPlugin): () => void {

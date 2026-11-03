@@ -10902,3 +10902,33 @@ model PropertyMarketMatch {
   @@index([listingId])
   @@index([status, notifiedAt])
 }
+
+/// Shared explicitly confirmed company knowledge. Never a copy of personal/client conversations.
+model AssistantKnowledge {
+  id           String   @id @default(uuid())
+  key          String   @unique
+  title        String
+  content      String
+  source       String
+  authorId     String
+  revision     Int      @default(1)
+  archived     Boolean  @default(false)
+  validUntil   DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  @@index([archived, updatedAt])
+}
+/// Immutable revisions support attribution and review; only current active content goes to the model.
+model AssistantKnowledgeRevision {
+  id           String   @id @default(uuid())
+  knowledgeId  String
+  revision     Int
+  title        String
+  content      String
+  source       String
+  authorId     String
+  archived     Boolean
+  validUntil   DateTime?
+  createdAt    DateTime @default(now())
+  @@unique([knowledgeId, revision])
+}
