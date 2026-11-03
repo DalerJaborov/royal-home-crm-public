@@ -14,6 +14,8 @@ import {
   type AssistantActionPreview,
 } from "../../../lib/assistantActions.js";
 import { toCents } from "../../../lib/money.js";
+import { canManagePropertyAs } from "../../../lib/propertyAccess.js";
+import { approvePropertyChangeRequest } from "../../../routes/properties/changeRequestExecutor.js";
 import {
   cancelPropertyChangeRequest,
   checkPropertyChangeRequest,
@@ -52,6 +54,12 @@ export interface ChangeRequestToolSpec<A extends { ref: string }> {
   buildBody: (args: A, property: Property, actor: AssistantActionActor) => Promise<CreatePropertyChangeRequestInput>;
   /** Карточка «было → станет» по уже проверенному телу. */
   describe: (args: A, property: Property, checkedPayload: object) => Omit<AssistantActionPreview, "title"> & { title: string };
+  /**
+   * Своему объекту (и руководителю с editForeign) изменение применяется СРАЗУ после «Подтвердить»:
+   * заявка создаётся и принимается автором через тот же исполнитель, что кнопка «Принять» директора
+   * (одна дверь, журнал и эффекты те же). Решение владельца 03.11.2026, только для цены.
+   */
+  directForOwner?: boolean;
   /** Дополнительные поля снимка (например, число открытых сделок). */
   extraSnapshot?: (args: A, property: Property) => Promise<Record<string, unknown>>;
 
@@ -109,6 +117,13 @@ export function makeChangeRequestExecutor<A extends { ref: string }>(
     return { body: parsedBody.data, payloadObject: checked.payloadObject };
   }
 
+  const isDirect = (args: A, property: Property, actor: AssistantActionActor) =>
+    spec.directForOwner === true &&
+    kindOf(args) === "PRICE_CHANGE" &&
+    // Объект в резерве (есть сделка) — цену меняет руководство: как и у REST, прямой путь закрыт.
+    (property.status !== "RESERVED" || actor.can("properties.editForeign")) &&
+    canManagePropertyAs({ agentId: actor.agentId, can: actor.can }, property);
+
   return {
     tool: spec.tool,
     requires: ["properties.requestChange"],
@@ -142,6 +157,15 @@ export function makeChangeRequestExecutor<A extends { ref: string }>(
       const { payloadObject } = await checkedBody(args, property, actor);
       if (snap.pendingRequestId) throw duplicateError(kindOf(args), property.shortId);
       const described = spec.describe(args, property, payloadObject);
+      if (isDirect(args, property, actor)) {
+        const { Заявка: _request, ...becomes } = described.becomes as Record<string, unknown>;
+        return {
+          ...described,
+          title: described.title.replace(": заявка руководителю", ""),
+          becomes,
+          risk: "Цена изменится сразу — на сайте и в подписях. Передумали — кнопка «Отменить» вернёт прежнюю цену.",
+        };
+      }
       return {
         ...described,
         risk:
@@ -166,6 +190,30 @@ export function makeChangeRequestExecutor<A extends { ref: string }>(
       if (!created.ok) {
         throw created.code === "DUPLICATE" ? duplicateError(kindOf(args), property.shortId) : failureToError(created);
       }
+      if (isDirect(args, property, actor)) {
+        const applied = await approvePropertyChangeRequest({
+          requestId: created.request.id,
+          actorId: actor.agentId,
+          note: "Свой объект: применено автором через ИИ-помощника",
+        }).catch((err: unknown) => ({ ok: false as const, status: 500, error: err instanceof Error ? err.message : "сбой применения" }));
+        if (!applied.ok) {
+          // Не применилось — висящую заявку не оставляем.
+          await cancelPropertyChangeRequest({ requestId: created.request.id, actorId: actor.agentId, note: "Не применено: " + applied.error });
+          throw new AssistantActionError(applied.status, "REFUSED", applied.error);
+        }
+        return {
+          result: {
+            requestId: created.request.id,
+            kind: kindOf(args),
+            status: "APPLIED",
+            applied: true,
+            propertyShortId: property.shortId,
+            href: propertyHref(property.shortId),
+            message: applied.message,
+          },
+          audit: { entityType: "Property", entityId: property.id },
+        };
+      }
       return {
         result: {
           requestId: created.request.id,
@@ -182,8 +230,29 @@ export function makeChangeRequestExecutor<A extends { ref: string }>(
     /** Откат — отзыв заявки, пока по ней нет решения. Решили уже — 409, откатывать нечего. */
     async undo(_args, actor, ctx) {
       await loadWriterRole(actor.agentId);
-      const requestId = (ctx.result as { requestId?: string } | null)?.requestId;
+      const done = ctx.result as { requestId?: string; applied?: boolean } | null;
+      const requestId = done?.requestId;
       if (!requestId) throw new AssistantActionError(409, "NOT_UNDOABLE", "Нечего откатывать");
+      if (done?.applied) {
+        // Применённую цену откатываем встречной заявкой с прежней ценой — тем же путём, без ручной записи.
+        const prior = ctx.snapshotBefore as Snap;
+        const back = await createPropertyChangeRequest({
+          propertyId: prior.propertyId,
+          actor: changeActor(actor),
+          expect: { priceCents: toCents(Number((ctx.snapshotAfter as Snap).price)), currency: (ctx.snapshotAfter as Snap).currency, status: (ctx.snapshotAfter as Snap).status },
+          body: { kind: "PRICE_CHANGE", payload: { newPrice: prior.price, currency: prior.currency, remake: false } } as CreatePropertyChangeRequestInput,
+          auditSource: { source: "assistant.undo", actionId: ctx.actionId },
+        });
+        if (!back.ok) throw failureToError(back);
+        const reverted = await approvePropertyChangeRequest({ requestId: back.request.id, actorId: actor.agentId, note: "Откат цены в ИИ-помощнике" }).catch(
+          (err: unknown) => ({ ok: false as const, status: 500, error: err instanceof Error ? err.message : "сбой отката" }),
+        );
+        if (!reverted.ok) {
+          await cancelPropertyChangeRequest({ requestId: back.request.id, actorId: actor.agentId, note: "Откат не применён" });
+          throw new AssistantActionError(reverted.status, "REFUSED", reverted.error);
+        }
+        return;
+      }
       const cancelled = await cancelPropertyChangeRequest({
         requestId,
         actorId: actor.agentId,

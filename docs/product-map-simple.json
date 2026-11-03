@@ -16,9 +16,9 @@
   "paths": 730,
   "cron": 120,
   "jobs": 31,
-  "conditions": 4005,
-  "untranslatedUnique": 459,
-  "untranslatedTotal": 589,
+  "conditions": 4006,
+  "untranslatedUnique": 460,
+  "untranslatedTotal": 590,
   "partialUnique": 1099,
   "translatedShare": 85
  },
@@ -232,7 +232,6 @@
   "c.desiredAreaMin != null && area != null && area < c.desiredAreaMin * (1 - policy.areaToleranceRatio)",
   "card?.assignedAgentId && card.assignedAgentId !== effectiveIntakeAgentId && !canBindClient(req, card)",
   "changedFields.includes(\"instagramUrl\") && agentReelLinkClosed(existing.status, can(req, \"properties.editForei…",
-  "changedFields.some((f) => !(PROPERTY_FIELDS_OPEN_AFTER_PUBLISH as readonly string[]).includes(f))",
   "channel && !bot.toggles.channels[channel]",
   "channel === \"INSTAGRAM\" && body.token?.trim()",
   "client.assignedAgentId !== req.agent!.id",
@@ -319,6 +318,7 @@
   "existing.client?.lostAt && existing.client.lastAgentId && existing.client.lastAgentId !== existing.agentId",
   "existing.draftId !== draft.id || existing.kind !== \"VIDEO\"",
   "existing.status === \"EDITING\" && data.status !== undefined && data.status !== \"EDITING\" && isPipelineStatus(d…",
+  "existing.status === \"RESERVED\" && changedFields.some((f) => f === \"price\" || f === \"currency\") && !can(req, \"…",
   "existing.status === \"SOLD\" && changedFields.some((f) => f === \"soldPrice\" || f === \"currency\" || f === \"price…",
   "existingCorrection.kind === parsed.data.override",
   "existingSession.propertyId !== property.id",
@@ -354,6 +354,7 @@
   "leftMs > 5 * 60_000 || leftMs < 0",
   "legacyUrl?.startsWith(\"/uploads/\")",
   "link.expiresAt && link.expiresAt.getTime() < Date.now()",
+  "lockedFields.some((f) => !(PROPERTY_FIELDS_OPEN_AFTER_PUBLISH as readonly string[]).includes(f))",
   "loggingOutAgentId && loggingOutAgentId !== payload.sub",
   "mapDistrict && data.districtId && data.districtId !== mapDistrict.id",
   "mapDistrictPatch && mapDistrictPatch.id !== (data.districtId ?? existing.districtId)",
@@ -47382,7 +47383,21 @@
      "raw": "existing.status === \"SOLD\" && changedFields.some((f) => f === \"soldPrice\" || f === \"currency\" || f === \"price…"
     },
     {
-     "t": "если changedFields.some((f) => !(PROPERTY_FIELDS_OPEN_AFTER_PUBLISH as readonly string[]).includes(f))",
+     "t": "если existing.status === \"RESERVED\" && changedFields.some((f) => f === \"price\" || f === \"currency\") && !can(req, \"…",
+     "k": "if",
+     "a": [],
+     "c": [
+      {
+       "t": "отказ: не хватает прав: «Цену объекта в резерве меняет руководитель»",
+       "k": "do",
+       "a": [],
+       "c": []
+      }
+     ],
+     "raw": "existing.status === \"RESERVED\" && changedFields.some((f) => f === \"price\" || f === \"currency\") && !can(req, \"…"
+    },
+    {
+     "t": "если lockedFields.some((f) => !(PROPERTY_FIELDS_OPEN_AFTER_PUBLISH as readonly string[]).includes(f))",
      "k": "if",
      "a": [],
      "c": [
@@ -47400,7 +47415,7 @@
        ]
       }
      ],
-     "raw": "changedFields.some((f) => !(PROPERTY_FIELDS_OPEN_AFTER_PUBLISH as readonly string[]).includes(f))"
+     "raw": "lockedFields.some((f) => !(PROPERTY_FIELDS_OPEN_AFTER_PUBLISH as readonly string[]).includes(f))"
     },
     {
      "t": "если changedFields.includes(\"instagramUrl\") && agentReelLinkClosed(existing.status, can(req, \"properties.editForei…",

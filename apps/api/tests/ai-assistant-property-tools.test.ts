@@ -152,14 +152,15 @@ afterAll(async () => {
 });
 
 describe("change_property_price", () => {
-  it("превью ничего не пишет и показывает было → станет; подтверждение подаёт ровно одну заявку", async () => {
+  it("СВОЙ объект: превью ничего не пишет; подтверждение меняет цену сразу (заявка создана и принята автором), повтор — тот же результат", async () => {
     const property = await seed();
     const code = formatPropertyCode(property.shortId);
     const pending = await preview(ownerId, AGENT_PERMS, "change_property_price", { ref: code, newPrice: 380000 });
 
     expect(pending.preview.was.Цена).toMatch(/400/);
     expect(pending.preview.becomes.Цена).toMatch(/380/);
-    expect(pending.preview.risk).toMatch(/заявк/i);
+    expect(pending.preview.becomes.Заявка).toBeUndefined();
+    expect(pending.preview.risk).toMatch(/сразу/i);
     expect(await requests(property.id)).toHaveLength(0);
     expect((await prisma.property.findUniqueOrThrow({ where: { id: property.id } })).price.toString()).toBe("400000");
 
@@ -167,15 +168,14 @@ describe("change_property_price", () => {
     const first = await confirmAssistantAction(pending.id, actor);
     const second = await confirmAssistantAction(pending.id, actor);
     expect(second.replay).toBe(true);
-    expect((first.action.result as { requestId: string }).requestId).toBe((second.action.result as { requestId: string }).requestId);
+    expect((first.action.result as { applied: boolean }).applied).toBe(true);
 
     const rows = await requests(property.id, "PRICE_CHANGE");
     expect(rows).toHaveLength(1);
-    expect(rows[0].status).toBe("PENDING");
+    expect(rows[0].status).toBe("APPROVED");
     expect(rows[0].authorId).toBe(ownerId);
-    expect(rows[0].payload).toMatchObject({ newPrice: 380000, remake: false });
-    // Цена объекта не тронута: её меняет только решение руководителя.
-    expect((await prisma.property.findUniqueOrThrow({ where: { id: property.id } })).price.toString()).toBe("400000");
+    expect(rows[0].decidedById).toBe(ownerId);
+    expect((await prisma.property.findUniqueOrThrow({ where: { id: property.id } })).price.toString()).toBe("380000");
   });
 
   it("ref понимает номер ОБ-, короткий номер и id; цена округляется до копейки через lib/money", async () => {
@@ -265,11 +265,6 @@ describe("change_property_price", () => {
 
     const sold = await seed({ status: "SOLD" });
     await expectRefused(ownerId, AGENT_PERMS, "change_property_price", { ref: String(sold.shortId), newPrice: 1 }, 409, /проданного/);
-
-    const dup = await seed();
-    const pending = await preview(ownerId, AGENT_PERMS, "change_property_price", { ref: String(dup.shortId), newPrice: 350000 });
-    await confirmAssistantAction(pending.id, actorFor(ownerId, AGENT_PERMS));
-    await expectRefused(ownerId, AGENT_PERMS, "change_property_price", { ref: String(dup.shortId), newPrice: 340000 }, 409, /уже есть/);
   });
 
   it("цену успели поменять после превью — 409 STALE, заявка не создана", async () => {
@@ -305,29 +300,23 @@ describe("change_property_price", () => {
     expect(byStatus).toMatchObject({ ok: false, code: "STALE" });
   });
 
-  it("откат отзывает заявку, пока она ждёт решения; после решения откатить нельзя", async () => {
+  it("откат применённой цены возвращает прежнюю; если цену успели поменять ещё раз — откат отказывает и чужую правку не затирает", async () => {
     const property = await seed();
     const actor = actorFor(ownerId, AGENT_PERMS);
     const pending = await preview(ownerId, AGENT_PERMS, "change_property_price", { ref: String(property.shortId), newPrice: 370000 });
     const done = await confirmAssistantAction(pending.id, actor);
     expect(done.action.undoUntil).not.toBeNull();
     await undoAssistantAction(pending.id, actor);
-    const [row] = await requests(property.id, "PRICE_CHANGE");
-    expect(row.status).toBe("CANCELLED");
+    expect((await prisma.property.findUniqueOrThrow({ where: { id: property.id } })).price.toString()).toBe("400000");
 
-    // Вторая заявка: руководитель успел решить — откат отказывает, решение не затёрто.
     const other = await seed();
     const pending2 = await preview(ownerId, AGENT_PERMS, "change_property_price", { ref: String(other.shortId), newPrice: 360000 });
     await confirmAssistantAction(pending2.id, actor);
-    const [created] = await requests(other.id, "PRICE_CHANGE");
-    await prisma.propertyChangeRequest.update({
-      where: { id: created.id },
-      data: { status: "APPROVED", decidedById: directorId, decidedAt: new Date() },
-    });
+    await prisma.property.update({ where: { id: other.id }, data: { price: 355000 } });
     const error = (await undoAssistantAction(pending2.id, actor).catch((e: unknown) => e)) as InstanceType<typeof AssistantActionError>;
     expect(error).toBeInstanceOf(AssistantActionError);
     expect(error.status).toBe(409);
-    expect((await requests(other.id, "PRICE_CHANGE"))[0].status).toBe("APPROVED");
+    expect((await prisma.property.findUniqueOrThrow({ where: { id: other.id } })).price.toString()).toBe("355000");
   });
 });
 
@@ -447,8 +436,9 @@ describe("request_property_change", () => {
     const ref = String(property.shortId);
     const price = await preview(ownerId, AGENT_PERMS, "change_property_price", { ref, newPrice: 300000 });
     const note = await preview(ownerId, AGENT_PERMS, "request_property_change", { ref, kind: "OTHER", text: "Просьба по объекту, подробности по телефону" });
-    await confirmAssistantAction(price.id, actor);
+    // Цена теперь применяется сразу и меняет снимок объекта, поэтому заявку «Другое» подтверждаем первой.
     await confirmAssistantAction(note.id, actor);
+    await confirmAssistantAction(price.id, actor);
     expect(await requests(property.id)).toHaveLength(2);
   });
 });
@@ -522,5 +512,36 @@ describe("send_to_remake", () => {
     const error = (await confirmAssistantAction(pending.id, actor).catch((e: unknown) => e)) as InstanceType<typeof AssistantActionError>;
     expect(error.code).toBe("STALE");
     expect(sendBackToMontajer.mock.calls.filter((c) => !(c[5] as { dryRun?: boolean })?.dryRun)).toHaveLength(0);
+  });
+});
+
+describe("П8: свои объекты — удаление в Корзину и замок REST", () => {
+  it("delete_property: свой объект — в Корзину после подтверждения, повтор не удаляет дважды; чужой — 403; насовсем из чата нельзя", async () => {
+    const mine = await seed();
+    const actor = actorFor(ownerId, AGENT_PERMS);
+    const pending = await preview(ownerId, AGENT_PERMS, "delete_property", { ref: String(mine.shortId) });
+    expect(pending.preview.risk).toMatch(/Корзин/);
+    expect((await prisma.property.findUniqueOrThrow({ where: { id: mine.id } })).deletedAt).toBeNull();
+    await confirmAssistantAction(pending.id, actor);
+    const again = await confirmAssistantAction(pending.id, actor);
+    expect(again.replay).toBe(true);
+    const row = await prisma.property.findUniqueOrThrow({ where: { id: mine.id } });
+    expect(row.deletedAt).not.toBeNull();
+    expect(await prisma.property.count({ where: { id: mine.id } })).toBe(1);
+
+    const foreign = await seed({ assignedAgentId: directorId, intakeAgentId: directorId, createdById: directorId });
+    await expectRefused(ownerId, AGENT_PERMS, "delete_property", { ref: String(foreign.shortId) }, 403, /Нет доступа/);
+    expect((await prisma.property.findUniqueOrThrow({ where: { id: foreign.id } })).deletedAt).toBeNull();
+  });
+
+  it("создатель, передавший объект коллеге, чужое объявление не удаляет; резерв — цена заявкой, а не сразу", async () => {
+    const handed = await seed({ assignedAgentId: directorId, intakeAgentId: directorId, createdById: ownerId });
+    await expectRefused(ownerId, AGENT_PERMS, "delete_property", { ref: String(handed.shortId) }, 403, /Нет доступа/);
+
+    const reserved = await seed({ status: "RESERVED" });
+    const pending = await preview(ownerId, AGENT_PERMS, "change_property_price", { ref: String(reserved.shortId), newPrice: 350000 });
+    expect(pending.preview.risk).toMatch(/заявк/i);
+    await confirmAssistantAction(pending.id, actorFor(ownerId, AGENT_PERMS));
+    expect((await prisma.property.findUniqueOrThrow({ where: { id: reserved.id } })).price.toString()).toBe("400000");
   });
 });

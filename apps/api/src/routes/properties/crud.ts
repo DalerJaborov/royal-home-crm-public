@@ -1,3 +1,4 @@
+import { ownsProperty, OWNER_OPEN_AFTER_PUBLISH_FIELDS } from "../../lib/propertyAccess.js";
 import { scheduleManualOwnerVerification } from "../../lib/ownerVerificationSources.js";
 import { refreshSellerAfterPropertyChange } from "../../lib/clientAutoStatus.js";
 /** Жизненный цикл карточки объекта: POST /, PATCH /:id, POST /:id/complete-editing,
@@ -957,12 +958,26 @@ crudRouter.patch("/:id", requireAuth, async (req, res) => {
     return res.status(403).json({ error: "Цену и валюту проданного объекта исправляет руководитель" });
   }
 
+  // Резерв = открытая сделка: цена объекта — запасная база комиссии и цена продажи при автопродаже,
+  // поэтому её меняет руководство (ревью 03.11.2026), даже когда замок публикации для хозяина снят.
+  if (
+    existing.status === "RESERVED" &&
+    changedFields.some((f) => f === "price" || f === "currency") &&
+    !can(req, "properties.editForeign")
+  ) {
+    return res.status(403).json({ error: "Цену объекта в резерве меняет руководитель" });
+  }
+
   // ЗАМОК ПОСЛЕ ПУБЛИКАЦИИ (владелец 07.10.2026, правило — @royal-home/shared
   // propertyEditLocked): агент не меняет опубликованный объект, кроме статуса
   // (зарезервирован / продан / снят) — остальное через заявку директору или
   // админу. На проверке и на монтаже правка открыта, а монтажёр и модератор
   // получают уведомление «было → стало» (lib/propertyEditNotify.ts ниже).
-  if (changedFields.some((f) => !(PROPERTY_FIELDS_OPEN_AFTER_PUBLISH as readonly string[]).includes(f))) {
+  // Цена и валюта СВОЕГО объекта замком не держатся (владелец 03.11.2026); проданный — выше, руководству.
+  const lockedFields = ownsProperty(req.agent!.id, existing)
+    ? changedFields.filter((f) => !OWNER_OPEN_AFTER_PUBLISH_FIELDS.includes(f))
+    : changedFields;
+  if (lockedFields.some((f) => !(PROPERTY_FIELDS_OPEN_AFTER_PUBLISH as readonly string[]).includes(f))) {
     const lock = propertyEditLockBody(req, existing);
     if (lock) return res.status(409).json(lock);
   }

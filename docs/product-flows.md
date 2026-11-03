@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **730**. Развилок в самих путях: **2554**; вместе с задачами по расписанию и фоновыми заданиями — **4005**. Модулей: **81**.
+Путей: **730**. Развилок в самих путях: **2555**; вместе с задачами по расписанию и фоновыми заданиями — **4006**. Модулей: **81**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -13071,7 +13071,12 @@
 - если existing.status === "SOLD" && changedFields.some((f) => f === "soldPrice" || f === "currency" || f === "price…
   - return res.status(403).json({ error: "Цену и валюту проданного объекта исправляет руководитель" });
     · ответ 403 — «Цену и валюту проданного объекта исправляет руководитель»
-- если changedFields.some((f) => !(PROPERTY_FIELDS_OPEN_AFTER_PUBLISH as readonly string[]).includes(f))
+- если existing.status === "RESERVED" && changedFields.some((f) => f === "price" || f === "currency") && !can(req, "…
+  - return res.status(403).json({ error: "Цену объекта в резерве меняет руководитель" });
+    · ответ 403 — «Цену объекта в резерве меняет руководитель»
+- const lockedFields = ownsProperty(req.agent!.id, existing) ? changedFields.filter((f)
+  · зовёт ownsProperty()
+- если lockedFields.some((f) => !(PROPERTY_FIELDS_OPEN_AFTER_PUBLISH as readonly string[]).includes(f))
   - const lock = propertyEditLockBody(req, existing);
     · зовёт propertyEditLockBody()
   - если lock

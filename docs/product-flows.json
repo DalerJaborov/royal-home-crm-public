@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 730,
-  "forks": 4005,
+  "forks": 4006,
   "mounts": 81,
   "cron": 120,
   "jobs": 31,
@@ -58614,7 +58614,30 @@
     },
     {
      "k": "if",
-     "t": "changedFields.some((f) => !(PROPERTY_FIELDS_OPEN_AFTER_PUBLISH as readonly string[]).includes(f))",
+     "t": "existing.status === \"RESERVED\" && changedFields.some((f) => f === \"price\" || f === \"currency\") && !can(req, \"…",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(403).json({ error: \"Цену объекта в резерве меняет руководитель\" });",
+       "a": [
+        "ответ 403 — «Цену объекта в резерве меняет руководитель»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const lockedFields = ownsProperty(req.agent!.id, existing) ? changedFields.filter((f)",
+     "a": [
+      "зовёт ownsProperty()"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "lockedFields.some((f) => !(PROPERTY_FIELDS_OPEN_AFTER_PUBLISH as readonly string[]).includes(f))",
      "a": [],
      "c": [
       {
