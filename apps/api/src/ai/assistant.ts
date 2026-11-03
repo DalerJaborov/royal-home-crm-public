@@ -24,6 +24,7 @@ import {
 import { isRetryableGeminiStatus } from "./geminiTransport.js";
 import { loadAssistantGeminiRuntime, loadAssistantSettings } from "./assistant/runtime.js";
 import { assistantLanguagePolicy } from "./assistant/languageRouting.js";
+import { createCardLinkEvidence } from "./assistant/cardLinkEvidence.js";
 import { centsToTjs, fromCents, loadMoneyContext, priceCeilingFilter, roundMoney, splitCents, toCents, toTjs } from "../lib/money.js";
 import {
   dushanbeDateTimeString,
@@ -1104,9 +1105,9 @@ export interface RunAssistantOptions {
   /** Срок на весь диалог, мс. По умолчанию ASSISTANT_DEADLINE_MS. */
   deadlineMs?: number;
   /**
-   * Текст ответа по мере генерации (задача 1.6, SSE-событие `token`). Передан —
-   * раунды идут потоком (callGeminiToolsStream), нет — прежним callGeminiTools.
-   * Итог runAssistantDetailed от этого не меняется: полный текст — в reply.
+   * Проверенный текст ответа (SSE-событие `token`). Транспорт получает поток,
+   * но черновые дельты не публикуются до проверки ссылок по результатам инструментов.
+   * Статусы и карточки подтверждения продолжают приходить по мере выполнения.
    */
   onToken?: (event: AssistantTokenEvent) => void;
   /**
@@ -1436,21 +1437,10 @@ export async function runAssistantDetailed(
     // и цикл ниже не должен из-за этого прерываться.
     const wasEnabledAtStart = settings.enabled;
 
-    // Поток токенов (задача 1.6). Первая дельта раунда после уже показанного
-    // текста идёт с reset: модель начала отвечать, потом попросила данные CRM, и
-    // черновик прошлого раунда человеку больше не нужен.
-    let streamedText = false;
-    const roundTokenSink = (): ((delta: string) => void) | undefined => {
-      const onToken = options.onToken;
-      if (!onToken) return undefined;
-      let first = true;
-      return (delta) => {
-        const reset = first && streamedText;
-        first = false;
-        streamedText = true;
-        onToken(reset ? { text: delta, reset: true } : { text: delta });
-      };
-    };
+    const cardEvidence = createCardLinkEvidence();
+    // The transport already assembles final text. Never expose an unverified
+    // draft (including text emitted before a tool call) through the SSE callback.
+    const modelTokenSink = options.onToken ? (_delta: string): void => {} : undefined;
 
     // `<`, а не `<=` (22.08.2026): ровно MAX_TOOL_ROUNDS походов в Gemini, не больше.
     const writeBudget = { left: MAX_WRITES_PER_ANSWER };
@@ -1481,7 +1471,7 @@ export async function runAssistantDetailed(
         requireCompleteTurn: true,
         requireLowThinking: languagePolicy.language === "tg" || languagePolicy.language === "mixed",
       };
-      const onToken = roundTokenSink();
+      const onToken = modelTokenSink;
       const turn = await modelCall(() =>
         onToken ? callGeminiToolsStream({ ...request, onToken }) : callGeminiTools(request),
       );
@@ -1491,9 +1481,12 @@ export async function runAssistantDetailed(
       // означает, что сказать ей нечего: это отказ, а не ответ.
       if (turn.calls.length === 0) {
         if (!turn.text) throw new AssistantFailure("empty_reply", "Gemini вернул пустой ответ без вызова инструментов");
-        if (turn.text.trim() === OFF_TOPIC_REPLY) route = "off_topic";
+        const evidence = cardEvidence.validate(turn.text);
+        const reply = evidence.ok ? turn.text : "Не удалось подтвердить ссылки на карточки по данным CRM. Уточните запрос.";
+        if (reply.trim() === OFF_TOPIC_REPLY) route = "off_topic";
+        options.onToken?.({ text: reply });
         ok = true;
-        return { ok: true, reply: turn.text };
+        return { ok: true, reply };
       }
 
       // Справочный вопрос: ответ grounded-поиска уходит человеку как есть, с
@@ -1540,6 +1533,7 @@ export async function runAssistantDetailed(
         writeBudget,
         embedding: { beforeAttempt: embeddingGuard, signal, maxAttempts: 1 },
       });
+      turn.calls.forEach((call, index) => cardEvidence.observe(call.name, results[index]));
       // Keep optional provider IDs; names alone cannot identify two calls to
       // the same function. Original signed model parts were appended above.
       conversation.push({

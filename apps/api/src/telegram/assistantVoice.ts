@@ -7,14 +7,13 @@ import { sendVoiceFile, sendAssistantVoiceId, TelegramApiError } from "./api.js"
 import { z } from "zod";
 import { cacheableAssistantSpeech, assistantVoiceCacheKey, cachedAssistantAudio, writeAssistantVoiceCache, isOggOpusAudio } from "./assistantVoiceCache.js";
 
-/** ElevenLabs REST TTS only. Tajik needs a separately configured, reviewed voice.
+/** ElevenLabs REST Text-to-Dialogue only. Tajik needs an explicitly configured voice.
  * Missing settings, unavailable budget or provider errors leave the full text response.
  */
 const TTS_TIMEOUT_MS = 25_000;
-// v4 Turbo uses the Text-to-Dialogue WebSocket; v3 supports this REST TTS endpoint.
-const TTS_MODEL = "eleven_v3";
+const TTS_MODEL = "eleven_v4";
 const TTS_FORMAT = "opus_48000_64";
-const VOICE_SETTINGS = { stability: 0.5, similarity_boost: 0.75, style: 0.3, speed: 1.12, use_speaker_boost: true };
+const TTS_ENDPOINT = "https://api.elevenlabs.io/v1/text-to-dialogue";
 const sentVoiceSchema = z.object({ voice: z.object({ file_id: z.string().min(1).max(1024) }) });
 
 interface SpeechConfig { voiceId: string; key: string | null }
@@ -41,15 +40,14 @@ async function synthesize(text: string, language: "ru" | "tg", config: SpeechCon
   const { voiceId, key } = config;
   if (!key) return null;
   if (!(await claimAssistantTtsChars(text.length))) return null;
-  const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}?output_format=${TTS_FORMAT}`, {
+  const res = await fetch(`${TTS_ENDPOINT}?output_format=${TTS_FORMAT}`, {
     method: "POST",
     headers: { "xi-api-key": key, "content-type": "application/json" },
     body: JSON.stringify({
-      text,
+      inputs: [{ text, voice_id: voiceId }],
       model_id: TTS_MODEL,
       language_code: language,
       apply_text_normalization: "on",
-      voice_settings: VOICE_SETTINGS,
     }),
     signal: AbortSignal.timeout(TTS_TIMEOUT_MS),
   });
@@ -76,7 +74,7 @@ export async function sendAssistantVoiceReply(chatId: string, replyText: string,
       return true;
     }
     const { voiceId } = config;
-    const key = assistantVoiceCacheKey(speech, { voiceId, model: TTS_MODEL, format: TTS_FORMAT, language, normalization: "on", settings: VOICE_SETTINGS });
+    const key = assistantVoiceCacheKey(speech, { voiceId, model: TTS_MODEL, endpoint: TTS_ENDPOINT, format: TTS_FORMAT, language, normalization: "on" });
     const entry = await cachedAssistantAudio(key, () => synthesize(speech, language, config));
     if (!entry) return false;
     if (entry.fileId) {

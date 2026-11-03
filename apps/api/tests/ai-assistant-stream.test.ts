@@ -279,7 +279,7 @@ describe("1.6 — callGeminiToolsStream", () => {
 });
 
 describe("1.6 — помощник целиком", () => {
-  it("runAssistantDetailed с onToken: обрыв после токена — код stream_interrupted, повтор предлагается", async () => {
+  it("runAssistantDetailed: обрыв чернового потока — stream_interrupted без утечки текста", async () => {
     resetAssistantRuntimeCache();
     const fetchMock = vi.fn(async (url: unknown, init?: RequestInit) =>
       countResponse(url, init) ?? streamResponse(bytesInPieces(sse(textChunk("Начало")), 5), "error"));
@@ -291,7 +291,7 @@ describe("1.6 — помощник целиком", () => {
     });
 
     expect(outcome).toEqual({ ok: false, code: "stream_interrupted", retryable: true });
-    expect(tokens).toEqual([{ text: "Начало" }]);
+    expect(tokens).toEqual([]);
     expect(fetchMock.mock.calls.map(([url]) => String(url).split(":").at(-1))).toEqual(["countTokens", "streamGenerateContent?alt=sse"]);
   });
 
@@ -310,6 +310,24 @@ describe("1.6 — помощник целиком", () => {
 
     expect(outcome).toEqual({ ok: true, reply: "Обычный ответ." });
     expect(fetchMock.mock.calls.map(([url]) => String(url).split(":").at(-1))).toEqual(["countTokens", "generateContent"]);
+  });
+
+  it.each([false, true])("не отдаёт придуманную карточку без результата инструмента, stream=%s", async stream => {
+    resetAssistantRuntimeCache();
+    const fabricated = "Нашла [квартиру](/properties/00000000-0000-4000-8000-000000000099) за 530000 сомони";
+    const tokens: unknown[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: unknown, init?: RequestInit) => {
+      const count = countResponse(url, init); if (count) return count;
+      expect(tokens).toEqual([]);
+      const payload = textChunk(fabricated, { finishReason: "STOP" });
+      return stream ? streamResponse(bytesInPieces(sse(payload), 7)) : Response.json(payload);
+    }));
+    const result = await runAssistantDetailed([{ role: "user", content: "Найди квартиру" }], actor,
+      stream ? { onToken: token => tokens.push(token) } : {});
+    const reply = "Не удалось подтвердить ссылки на карточки по данным CRM. Уточните запрос.";
+    expect(result).toEqual({ ok: true, reply });
+    expect(tokens).toEqual(stream ? [{ text: reply }] : []);
+    expect(JSON.stringify(tokens)).not.toContain("530000");
   });
 });
 
@@ -345,6 +363,37 @@ describe("1.6 — маршрут POST /ai/assistant", () => {
     resetAssistantRuntimeCache();
     await deleteAgentsWithTraces([agentId]);
     await prisma.$disconnect();
+  });
+
+  it("показывает только проверенный финал, сохраняя статусы поиска между раундами", async () => {
+    const client = await prisma.client.create({ data: {
+      fullName: "Проверенная карточка потокового теста", phone: "+992900001234", source: "WEBSITE",
+      assignedAgentId: agentId, acceptedAt: new Date(),
+    } });
+    try {
+      resetAssistantRuntimeCache();
+      const tokens: unknown[] = []; const statuses: string[] = []; let generation = 0;
+      const reply = `[Клиент](/clients/${client.id})`;
+      vi.stubGlobal("fetch", vi.fn(async (url: unknown, init?: RequestInit) => {
+        const count = countResponse(url, init); if (count) return count;
+        expect(tokens).toEqual([]); generation++;
+        if (generation === 1) return streamResponse(bytesInPieces(sse(
+          textChunk("Черновик с неподтверждёнными сведениями"),
+          { candidates: [{ content: { role: "model", parts: [{ functionCall: { name: "search_clients", args: { q: client.fullName } } }] }, finishReason: "STOP" }] },
+        ), 9));
+        const contents = JSON.parse(String(init?.body)).contents;
+        expect(JSON.stringify(contents.at(-1))).toContain(client.id);
+        return streamResponse(bytesInPieces(sse(textChunk(reply, { finishReason: "STOP" })), 8));
+      }));
+      const result = await runAssistantDetailed([{ role: "user", content: "Найди клиента по имени" }], { ...actor, id: agentId }, {
+        onToken: token => tokens.push(token), onStatus: status => statuses.push(status),
+      });
+      expect(result).toEqual({ ok: true, reply });
+      expect(tokens).toEqual([{ text: reply }]);
+      expect(statuses).toContain("Ищу клиентов…");
+      expect(statuses).toContain("Уточняю данные…");
+      expect(generation).toBe(2);
+    } finally { await prisma.client.delete({ where: { id: client.id } }); }
   });
 
   it("события token приходят ДО done, а done несёт полный текст", async () => {

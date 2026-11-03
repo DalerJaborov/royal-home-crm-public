@@ -6,6 +6,7 @@ export default {
     setupFiles: [],
     include: [
       "tests/assistant-language-routing.unit.test.ts",
+      "tests/assistant-card-link-evidence.unit.test.ts",
       "tests/assistant-gemini-guards.unit.test.ts",
       "tests/assistant-knowledge.unit.test.ts",
       "tests/assistant-reply.unit.test.ts",
