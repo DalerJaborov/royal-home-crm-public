@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-const mocks = vi.hoisted(() => ({ detail: vi.fn(), phone: vi.fn(), sendPhoto: vi.fn(), sendMessage: vi.fn() }));
+const mocks = vi.hoisted(() => ({ detail: vi.fn(), phone: vi.fn(), sendPhoto: vi.fn(), sendMessage: vi.fn(), paused: { on: false } }));
+vi.mock("../src/lib/telegramPortalPause.js", () => ({ isTelegramPortalAlertsPaused: async () => mocks.paused.on, portalAlertsPausedIn: async () => mocks.paused.on }));
 vi.mock("../src/lib/somonLeads/sourceClient.js", () => ({ fetchSomon: mocks.detail, SomonSourceUnavailable: class SomonSourceUnavailable extends Error { reason = "not_ready"; } }));
 vi.mock("../src/lib/somonLeads/phone.js", async importOriginal => ({ ...(await importOriginal<typeof import("../src/lib/somonLeads/phone.js")>()), fetchSomonPhone: mocks.phone }));
 vi.mock("../src/telegram/api.js", async importOriginal => ({ ...(await importOriginal<typeof import("../src/telegram/api.js")>()), sendPhoto: mocks.sendPhoto, sendMessage: mocks.sendMessage }));
@@ -10,7 +11,7 @@ import { sendReservedSomon } from "../src/lib/somonLeads/sendReserved.js";
 import { reserveSomonDelivery } from "../src/lib/somonLeads/deliveryStore.js";
 import { somonKeyFingerprint } from "../src/lib/somonLeads/contactIdentity.js";
 const agentId = "stand-somon-process-agent";
-const adIds = ["987651001", "987651002", "987651003", "987651004", "987651005", "987651006", "987651007", "987651008", "987651009", "987651010", "987651011"];
+const adIds = ["987651001", "987651002", "987651003", "987651004", "987651005", "987651006", "987651007", "987651008", "987651009", "987651010", "987651011", "987651012"];
 let previousMonitor: Awaited<ReturnType<typeof prisma.somonMonitor.findUnique>> = null;
 let previousRecipients: Awaited<ReturnType<typeof prisma.somonRecipient.findMany>> = [];
 const fakeCard = (id: string, description = "Собственник") => ({ id: Number(id), name: "Квартира", description, price: { price: "100 c." }, location: { name: "Душанбе" }, gallery: { preview: ["https://cdntj.somon.tj/stand.jpg"] }, user: { name: "Продавец", active_adverts: "1 активное объявление", is_business_account: false, is_company: false }, categories: [{ slug: "nedvizhimost" }, { slug: "prodazha-kvartir" }], is_closed: false });
@@ -50,6 +51,19 @@ describe("Somon pending flow on isolated database", () => {
     expect(mocks.sendPhoto).toHaveBeenCalledTimes(1);
     expect(mocks.sendPhoto.mock.calls[0][2]).toContain("Проверить дату");
     expect((await prisma.somonDelivery.findUnique({ where: { advertId: adIds[0] } }))?.status).toBe("ACCEPTED");
+  });
+  it("пауза площадок: ничего не уходит в Telegram, объявление возвращается в очередь", async () => {
+    mocks.detail.mockImplementation(async () => new Response(JSON.stringify(fakeCard(adIds[11]))));
+    mocks.paused.on = true;
+    try {
+      expect(await processSomonPending(adIds[11], async () => {})).not.toBe("sent");
+    } finally {
+      mocks.paused.on = false;
+    }
+    expect(mocks.sendPhoto).not.toHaveBeenCalled();
+    expect(mocks.sendMessage).not.toHaveBeenCalled();
+    expect((await prisma.somonDelivery.findUnique({ where: { advertId: adIds[11] } }))?.status).toBe("CANCELLED");
+    expect((await prisma.somonSeenAdvert.findUnique({ where: { advertId: adIds[11] } }))?.status).toBe("PENDING");
   });
   it("never retries an uncertain Telegram send", async () => {
     mocks.detail.mockResolvedValue(new Response(JSON.stringify(fakeCard(adIds[1]))));

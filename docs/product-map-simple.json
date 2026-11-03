@@ -16,10 +16,10 @@
   "paths": 730,
   "cron": 120,
   "jobs": 31,
-  "conditions": 4004,
+  "conditions": 4005,
   "untranslatedUnique": 459,
   "untranslatedTotal": 589,
-  "partialUnique": 1098,
+  "partialUnique": 1099,
   "translatedShare": 85
  },
  "untranslated": [
@@ -74620,6 +74620,12 @@
        "a": [],
        "c": [],
        "raw": "!state?.enabled || state.sourceStopped || (state.blockedUntil && state.blockedUntil > new Date())"
+      },
+      {
+       "t": "если это Telegram portal alerts на паузе",
+       "k": "if",
+       "a": [],
+       "c": []
       },
       {
        "t": "пробует сделать",

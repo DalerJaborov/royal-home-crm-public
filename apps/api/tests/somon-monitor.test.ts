@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({ source: vi.fn(), process: vi.fn() }));
+vi.mock("../src/lib/telegramPortalPause.js", () => ({ isTelegramPortalAlertsPaused: async () => false, portalAlertsPausedIn: async () => false }));
 vi.mock("../src/lib/somonLeads/sourceClient.js", () => ({ fetchSomon: mocks.source, SomonSourceUnavailable: class SomonSourceUnavailable extends Error { reason = "not_ready"; } }));
 vi.mock("../src/lib/somonLeads/processPending.js", () => ({ processSomonPending: mocks.process }));
 import { prisma } from "../src/db.js";

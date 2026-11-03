@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({ source: vi.fn(), process: vi.fn(), save: vi.fn(), logError: vi.fn() }));
+vi.mock("../src/lib/telegramPortalPause.js", () => ({ isTelegramPortalAlertsPaused: async () => false, portalAlertsPausedIn: async () => false }));
 vi.mock("../src/lib/somonLeads/sourceClient.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/lib/somonLeads/sourceClient.js")>()),
   fetchSomon: mocks.source,
