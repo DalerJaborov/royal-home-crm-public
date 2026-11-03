@@ -58,7 +58,7 @@ export async function understandAssistantMedia(input: AssistantMediaInput) {
       + "visualDescription must describe visible features only, not interpretations or advice.",
     contents: [{ role: "user", parts: [{ inline_data: { mime_type: mimeType, data: input.buffer.toString("base64") } }] }],
     tools: [{ name: "extract_assistant_media", description: "Return observations only, never execute actions.", parameters: {
-      type: "object", additionalProperties: false,
+      type: "object",
       properties: {
         language: { type: "string", enum: ["ru", "tg", "other", "unknown"] },
         readableText: { type: "string" }, transcript: { type: "string" },

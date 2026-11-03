@@ -2,12 +2,14 @@ import { renderAssistantForTelegram, sanitizeAssistantReply, splitReaction } fro
 import { sendAssistantReply } from "./assistantDelivery.js";
 export { renderAssistantForTelegram } from "./assistantReply.js";
 import { randomUUID } from "node:crypto";
-import { isReadOnlyRole, trimAssistantHistory, type PermissionId } from "@royal-home/shared";
+import { isReadOnlyRole, trimAssistantHistory, type AssistantPropertyCard, type PermissionId } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { loadAgentAccess, type AgentAccess } from "../auth/middleware.js";
 import { actorFromAccess, type AssistantActor } from "../ai/assistant/actor.js";
 import { ASSISTANT_ERROR_MESSAGES, isAiAssistantEnabled, runAssistantDetailed } from "../ai/assistant.js";
-import { tryAssistantFastPath } from "../ai/assistantFastPath.js";
+import { parseFastPathIntent, tryAssistantFastPath } from "../ai/assistantFastPath.js";
+import { findTelegramAgentClients, isVoiceReplayRequest, replayTelegramAssistantVoice, sendTelegramPropertyCard } from "./assistantReadResults.js";
+import { sendAssistantVoiceReply } from "./assistantVoice.js";
 import { handleAssistantMedia } from "./assistantMedia.js";
 import { createAssistantMoneyWallet, type AssistantMoneyWallet } from "../ai/assistant/moneyBudget.js";
 import {
@@ -157,6 +159,7 @@ export function renderBundleCard(actions: readonly AssistantActionView[], author
 
 interface TurnResult {
   reply: string;
+  propertyCard?: AssistantPropertyCard;
   /** Карточки, ждущие «Подтвердить» (уровень C). */
   pending: AssistantActionView[];
   /** Уже выполненные записи уровня B (заметки, задачи). */
@@ -191,9 +194,16 @@ async function runTurn(params: TurnParams): Promise<TurnResult | null> {
   const actor = assistantActorFor(params.agentId, access, params.scope);
   const last = params.history[params.history.length - 1];
 
-  // Полоса А (0 моделей) — только в личке: быстрый путь ищет по номеру телефона.
-  if (params.scope === "private" && last?.role === "user") {
+  // In a group the deterministic path is limited to a property number.
+  if (last?.role === "user" && (params.scope === "private" || parseFastPathIntent(last.content)?.kind === "property-code")) {
     try {
+      if (params.scope === "private") {
+        const roster = await findTelegramAgentClients(last.content, actor);
+        if (roster !== null) {
+          void logAssistantToolCall({ agentId: actor.id, tool: "find_clients", argsSummary: "{}", resultCount: null });
+          return { reply: roster, pending: [], done: [] };
+        }
+      }
       const fast = await tryAssistantFastPath(last.content, actor);
       if (fast) {
         void logAssistantToolCall({
@@ -202,7 +212,11 @@ async function runTurn(params: TurnParams): Promise<TurnResult | null> {
           argsSummary: fast.argsSummary,
           resultCount: fast.cards.length,
         });
-        return { reply: fast.reply, pending: [], done: [] };
+        const first = fast.cards[0];
+        return {
+          reply: fast.reply, pending: [], done: [],
+          ...(fast.cards.length === 1 && first?.kind === "property" ? { propertyCard: first } : {}),
+        };
       }
     } catch (err) {
       console.error("[telegram:assistant:fast-path]", describeError(err));
@@ -248,6 +262,10 @@ async function sendTurnResult(
   const written = result.done.map((a) => sanitizeAssistantReply(`Записано: ${field(a.preview.title)}`, maskPhones));
   const body = [rendered, ...written].filter(Boolean).join("\n");
   if (result.pending.length === 0) {
+    if (result.propertyCard && await sendTelegramPropertyCard(chatId, result.propertyCard, maskPhones, ctx.replyTo)) {
+      if (ctx.fromVoice) await sendAssistantVoiceReply(chatId, split.text, ctx.replyTo);
+      return;
+    }
     await sendAssistantReply(chatId, split.text, { scope: ctx.scope, fromVoice: ctx.fromVoice, replyTo: ctx.replyTo, written });
     return;
   }
@@ -384,8 +402,24 @@ export async function handleAssistantPrivate(
       await send(HELP_TEXT);
       return;
     }
+    const previous = await loadHistory(chatId, agent.id);
+    if (isVoiceReplayRequest(text)) {
+      if (!(await isAiAssistantEnabled())) { await send(DISABLED_TEXT); return; }
+      if (!(await loadAgentAccess(agent.id))?.isActive) { await send("Ваша учётка отключена."); return; }
+      const lastReply = previous.slice().reverse().find(message => message.role === "assistant")?.content;
+      if (!lastReply) { await send("В этом разговоре пока нет ответа для озвучки."); return; }
+      if (!(await replayTelegramAssistantVoice(chatId, lastReply, msg.message_id))) {
+        await send("Не получилось озвучить ответ целиком. Текст выше в чате.");
+      }
+      return;
+    }
+    const followup = /^а[ \t]+(?:№[ \t]*)?(\d{1,9})[?!.]*$/iu.exec(text);
+    const previousQuestion = previous.slice().reverse().find(message => message.role === "user");
+    if (followup && previousQuestion && parseFastPathIntent(previousQuestion.content)?.kind === "property-code") {
+      text = `объект ${followup[1]}`;
+    }
     void sendChatAction(chatId).catch(() => {});
-    const history = [...(await loadHistory(chatId, agent.id)), { role: "user" as const, content: text.slice(0, 4000) }];
+    const history = [...previous, { role: "user" as const, content: text.slice(0, 4000) }];
     const result = await runTurn({ agentId: agent.id, scope: "private", history, deny: send, moneyWallet });
     if (!result) return;
     await sendTurnResult(chatId, result, { agentId: agent.id, authorName: agent.fullName, scope: "private", fromVoice: !!(msg.voice || msg.audio), reactTo: msg.message_id });

@@ -54,6 +54,7 @@ export async function handleAssistantMedia(msg: TelegramIncomingMessage, agentId
   wallet?: AssistantMoneyWallet;
 } = {}): Promise<{ text: string; error?: string; extraction?: Awaited<ReturnType<typeof understandAssistantMedia>>["extraction"] }> {
   if ((msg.chat.type !== "private" && !options.allowGroup) || !agentId) return { text: "Файлы помощник разбирает только в личном чате сотрудника.", error: "media_scope" };
+  const isVoice = Boolean(msg.voice || msg.audio);
   try {
     if (!(await loadAssistantSettings()).enabled) return { text: "ИИ-помощник выключен.", error: "assistant_disabled" };
     const photo = msg.photo?.at(-1);
@@ -78,8 +79,18 @@ export async function handleAssistantMedia(msg: TelegramIncomingMessage, agentId
     return { extraction: result.extraction, text: content
       ? `Извлечено из файла; данные требуют проверки:\n\n${content}${result.extraction.incomplete ? "\n\nЧасть файла не удалось разобрать." : ""}`
       : "В файле не удалось уверенно разобрать текст или речь." };
-  } catch {
+  } catch (error) {
     // Never expose token-bearing Telegram URLs or private file paths to the chat.
-    return { text: "Не удалось разобрать файл: проверьте формат и размер. Для PDF нужен доступный обработчик страниц; для аудио — проверка длительности. Возможно, достигнут лимит ИИ.", error: "media_failed" };
+    const message = error instanceof Error ? error.message : "";
+    if (message === "media_audio_limit" || (isVoice && message === "media_size_rejected")) {
+      return { text: "Пришлите голосовое до двух минут и до 1 МБ или напишите текстом.", error: "media_audio_limit" };
+    }
+    console.warn("[telegram:assistant:media] extraction failed", {
+      kind: isVoice ? "voice" : "file",
+      stage: /^media_[a-z_]+$/.test(message) ? message : "provider_or_budget",
+    });
+    return { text: isVoice
+      ? "Не удалось распознать голосовое. Попробуйте отправить его ещё раз или напишите текстом."
+      : "Не удалось разобрать файл. Попробуйте отправить его повторно.", error: "media_failed" };
   }
 }

@@ -100,12 +100,20 @@ export function renderAssistantHtml(text: string, opts: {
   });
 }
 const DOLLAR_PREFIX = /\$[ \u00a0\u202f]*((?:\d{1,3}(?:[ \u00a0\u202f]\d{3})+|\d+)(?:[.,]\d{1,2})?)(?![\p{L}\p{Nd}]|[.,]\d)/gu;
+const OBJECT_CODE_AFTER_LINK = /\[([^\]\n]+)\]\((\/properties\/[^)\s]+)\)[ \t]+(?:\([ \t]*`?(ОБ-\d{3,})`?[ \t]*\)|`(ОБ-\d{3,})`)/giu;
+const TEMPERATURE_STATUS = /[ \t]*(?:[,;·–—-][ \t]*)?статус[ \t]*[:–—-]?[ \t]*\*{0,2}`?(?:hot|cold|warm|горяч[а-яё]+|холодн[а-яё]+|т[её]пл[а-яё]+)`?\*{0,2}(?![\p{L}\p{N}])/giu;
+const TEMPERATURE_TAG = /[ \t]*(?:\([ \t]*(?:hot|cold|warm|горячий|холодный|т[её]плый)[ \t]*\)|[·–—][ \t]*(?:hot|cold|warm)(?=[ \t]*(?:[,.\n]|$)))/giu;
 
 /** Only entity routes: discard query/fragment and never turn arbitrary paths into links. */
 export function sanitizeAssistantReply(text: string, maskContacts: boolean): string {
   // Strip internal placeholders supplied by the model before generating our own.
   // eslint-disable-next-line no-control-regex
   text = text.replace(/[\u0000\u0001]/g, "");
+  text = text.replace(TEMPERATURE_STATUS, "").replace(TEMPERATURE_TAG, "");
+  text = text.replace(OBJECT_CODE_AFTER_LINK, (_m, label: string, path: string, parenthesized: string | undefined, inline: string | undefined) => {
+    const code = parenthesized ?? inline;
+    return `[${/ОБ-\d{3,}/iu.test(label) ? label : `${code} · ${label}`}](${path})`;
+  });
   const safeLinks = text.replace(/\[([^\]\n]+)\]\(([^)\s]+)\)/g, (_m, label: string, path: string) => {
     if (!path.startsWith("/"))
       return `[${label}](${path})`;

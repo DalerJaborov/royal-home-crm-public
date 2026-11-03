@@ -1,5 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import bcrypt from "bcrypt";
+import { mkdir, writeFile, unlink } from "node:fs/promises";
+import path from "node:path";
 
 /**
  * ВНУТРЕННИЙ ПОМОЩНИК В TELEGRAM (П5, telegram/assistantBot.ts): личка и общая группа.
@@ -9,7 +11,7 @@ import bcrypt from "bcrypt";
  * брокер lib/assistantActions.ts — тот же путь, что у настоящих инструментов.
  */
 
-const { sendMessage, sendHtmlMessage, sendVoiceFile, sendAssistantVoiceId, synthVoice, sendMessageWithButtons, answerCallbackQuery, editMessageText, react, runner, transcribe, fetchAudio, claimCap } =
+const { sendMessage, sendHtmlMessage, sendVoiceFile, sendAssistantVoiceId, synthVoice, sendMessageWithButtons, sendPhotoFromDisk, answerCallbackQuery, editMessageText, react, runner, transcribe, fetchAudio, claimCap } =
   vi.hoisted(() => ({
     sendMessage: vi.fn(async (_chatId: string, _text: string, _reply?: number) => ({})),
     sendHtmlMessage: vi.fn(async (_chatId: string, _text: string, _reply?: number) => ({})),
@@ -17,6 +19,7 @@ const { sendMessage, sendHtmlMessage, sendVoiceFile, sendAssistantVoiceId, synth
     sendAssistantVoiceId: vi.fn(async (_chatId: string, _fileId: string, _reply?: number) => ({})),
     synthVoice: vi.fn(async (_chatId: string, _text: string, _reply?: number) => false),
     sendMessageWithButtons: vi.fn(async (_c: string, _t: string, _b: unknown, _r?: number) => ({ message_id: 501 })),
+    sendPhotoFromDisk: vi.fn(async (_c: string, _f: string, _t: string, _b: unknown) => ({ message_id: 502 })),
     answerCallbackQuery: vi.fn(async (_id: string, _text?: string) => ({})),
     editMessageText: vi.fn(async (_c: string, _m: number, _t: string, _b?: unknown) => {}),
     react: vi.fn(async (_c: string, _m: number, _e: string) => {}),
@@ -33,6 +36,7 @@ vi.mock("../src/telegram/api.js", async (importOriginal) => ({
   sendVoiceFile,
   sendAssistantVoiceId,
   sendMessageWithButtons,
+  sendPhotoFromDisk,
   answerCallbackQuery,
   editMessageText,
   setMessageReaction: react,
@@ -62,6 +66,7 @@ delete process.env.TELEGRAM_BOT_TOKEN;
 process.env.CRM_PUBLIC_URL = "https://crm.test";
 
 const { prisma } = await import("../src/db.js");
+const { uploadsDir } = await import("../src/upload.js");
 const { handleTelegramUpdate } = await import("../src/telegram/bot.js");
 const { invalidateAgentAccess } = await import("../src/auth/middleware.js");
 const { createPendingAssistantAction } = await import("../src/lib/assistantActions.js");
@@ -170,7 +175,7 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
-  for (const m of [sendMessage, sendHtmlMessage, sendVoiceFile, sendAssistantVoiceId, synthVoice, sendMessageWithButtons, answerCallbackQuery, editMessageText, react, runner, transcribe, fetchAudio, claimCap]) {
+  for (const m of [sendMessage, sendHtmlMessage, sendVoiceFile, sendAssistantVoiceId, synthVoice, sendMessageWithButtons, sendPhotoFromDisk, answerCallbackQuery, editMessageText, react, runner, transcribe, fetchAudio, claimCap]) {
     m.mockReset();
   }
   sendMessage.mockResolvedValue({});
@@ -197,6 +202,64 @@ afterAll(async () => {
   await cleanupAssistantActionAgents(ids);
   if (savedMontajer) await prisma.settings.update({ where: { id: "singleton" }, data: { videoMontajerAgentId: savedMontajer } });
   await prisma.$disconnect();
+});
+
+describe("живые сценарии чтения Мадины", () => {
+  it("озвучивает предыдущий ответ из личного чата без нового вызова модели", async () => {
+    runner.mockResolvedValueOnce({ ok: true, reply: "Нашла два варианта. Ссылки в карточках." });
+    await handleTelegramUpdate(privateMsg("director", { message_id: 902, text: "покажи варианты" }));
+    synthVoice.mockResolvedValue(true);
+    await handleTelegramUpdate(privateMsg("director", { message_id: 903, text: "отправь мне голсоом это" }));
+    expect(runner).toHaveBeenCalledTimes(1);
+    expect(synthVoice).toHaveBeenCalledWith(agents.director.userId, "Нашла два варианта. Ссылки в карточках.", 903);
+  });
+
+  it("показывает точное общее число назначенных клиентов и размер списка", async () => {
+    await mk("roster", 6, "AGENT", { fullName: `Маъруфтест ${runId}` });
+    const assignedAgentId = agents.roster.id;
+    try {
+      await prisma.client.createMany({ data: Array.from({ length: 6 }, (_, n) => ({
+        fullName: `Клиент тест ${n}`, phone: `+992${uid(n + 20)}`, assignedAgentId, kind: "BUYER", source: "PHONE_CALL",
+      })) });
+      await handleTelegramUpdate(privateMsg("director", { message_id: 904, text: "найди клиентов агента маруфтест" }));
+      const sent = sentTexts().join("\n");
+      expect(sent).toContain("Всего доступных карточек — 6.");
+      expect(sent).toContain("Показываю 5 из 6");
+      expect(sent).toContain("href=");
+      expect(sent).not.toMatch(/HOT|COLD/i);
+      expect(runner).not.toHaveBeenCalled();
+    } finally {
+      await prisma.client.deleteMany({ where: { assignedAgentId } });
+    }
+  });
+
+  it("находит объект по номеру и отправляет его локальное фото с одной кнопкой", async () => {
+    const district = await prisma.district.create({ data: { name: `Тест фото ${runId}` } });
+    const property = await prisma.property.create({ data: {
+      title: "Квартира для теста", type: "APARTMENT", areaSqm: 60, price: 630_000,
+      currency: "TJS", condition: "GOOD", districtId: district.id, address: "Тестовый адрес",
+    } });
+    const photo = `codex-assistant-test-${runId}.webp`;
+    const file = path.join(uploadsDir, photo);
+    try {
+      await mkdir(uploadsDir, { recursive: true });
+      await writeFile(file, "test only", { flag: "wx" });
+      await prisma.propertyPhoto.create({ data: { propertyId: property.id, url: `/uploads/${photo}`, thumbUrl: `/uploads/${photo}` } });
+      await handleTelegramUpdate(privateMsg("director", { message_id: 905, text: `найди объект ${property.shortId}` }));
+      expect(sendPhotoFromDisk).toHaveBeenCalledTimes(1);
+      const [, , caption, buttons] = sendPhotoFromDisk.mock.calls[0];
+      expect(caption).toMatch(/630\s000 сомони/u);
+      expect(buttons).toEqual([[{
+        text: `ОБ-${String(property.shortId).padStart(6, "0")} · Квартира для теста`,
+        url: `https://crm.test/properties/${property.id}`,
+      }]]);
+      expect(runner).not.toHaveBeenCalled();
+    } finally {
+      await unlink(file).catch(() => undefined);
+      await prisma.property.delete({ where: { id: property.id } });
+      await prisma.district.delete({ where: { id: district.id } });
+    }
+  });
 });
 
 describe("группа: когда бот отвечает", () => {

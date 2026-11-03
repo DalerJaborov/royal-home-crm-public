@@ -31,6 +31,11 @@ describe("privacy and content", () => {
       expect(renderAssistantHtml(`[Имя](${path})`, { maskPhones: true })).toBe('Имя');
     expect(sanitizeAssistantReply('[Объект](/properties/112)', true)).toBe('[Объект](/properties/112)');
   });
+  it("puts the property number in its only link and hides temperature labels", () => {
+    const html = renderAssistantHtml("[2-комн · ОВИР](/properties/104) (`ОБ-000104`) — статус HOT.", { maskPhones: true });
+    expect(html).toBe('<a href="https://crm.test/properties/104">ОБ-000104 · 2-комн · ОВИР</a>.');
+    expect(sanitizeAssistantReply("Агент: Маъруф, статус: холодный", true)).toBe("Агент: Маъруф");
+  });
   it("retains authorised private text, never recites contact", () => {
     const p = prepareAssistantReply('Телефон +992901234567');
     expect(p.text).toContain('+992901234567');

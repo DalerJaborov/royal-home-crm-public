@@ -22,6 +22,7 @@ describe("bounded internal assistant media extraction", () => {
     expect(sent.runtime).toBe(request.runtime);
     expect(sent).toMatchObject({ requireLowThinking: true, requireCompleteTurn: true, maxTokens: 4096 });
     expect(sent.tools).toHaveLength(1);
+    expect(sent.tools[0].parameters).not.toHaveProperty("additionalProperties");
     expect(sent.contents[0].parts[0]).toEqual({ inline_data: { mime_type: "application/pdf", data: request.buffer.toString("base64") } });
   });
   it.each(["text/html", "video/mp4", "application/zip"])("rejects unsupported %s before provider", async (mimeType) => {

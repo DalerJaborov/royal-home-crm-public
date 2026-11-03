@@ -1,7 +1,6 @@
 import { beforeEach, expect, it, vi } from "vitest";
-const { findMany, findFirst } = vi.hoisted(() => ({ findMany: vi.fn(), findFirst: vi.fn() }));
-vi.mock("../src/db.js", () => ({ prisma: { client: { findMany, findFirst }, property: { findFirst: vi.fn(), findMany: vi.fn() } } }));
-vi.mock("../src/ai/seoGenerator.js", () => ({ formatPrice: (n: number) => String(n) }));
+const { findMany, findFirst, findProperty } = vi.hoisted(() => ({ findMany: vi.fn(), findFirst: vi.fn(), findProperty: vi.fn() }));
+vi.mock("../src/db.js", () => ({ prisma: { client: { findMany, findFirst }, property: { findFirst: findProperty, findMany: vi.fn() } } }));
 import { parseFastPathIntent, tryAssistantFastPath } from "../src/ai/assistantFastPath.js";
 const actor = { id: 'test-agent', role: 'AGENT', canViewAllClients: false, canViewPhone: false, canViewAllDeals: false };
 beforeEach(() => { vi.clearAllMocks(); findMany.mockResolvedValue([]); });
@@ -22,3 +21,9 @@ it('returns exact DB IDs and asks to choose when ambiguous', async () => {
   expect(where.deletedAt).toBeNull();
 });
 it('no results preserves fallback without inventing ID', async () => expect(await tryAssistantFastPath('клиент 112', actor)).toBeNull());
+it("answers an exact missing property without inventing a deletion reason", async () => {
+  findProperty.mockResolvedValueOnce(null);
+  expect(await tryAssistantFastPath("найди объект 98", actor)).toMatchObject({
+    cards: [], reply: "Не нашла объект ОБ-000098 среди доступных карточек.",
+  });
+});

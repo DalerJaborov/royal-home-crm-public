@@ -437,7 +437,8 @@ export async function sendPhotoFromDisk(
   filePath: string,
   caption?: string,
   buttons?: TelegramInlineButton[][],
-  timeoutMs = 60_000
+  timeoutMs = 60_000,
+  options?: { singleAttempt?: boolean; replyTo?: number }
 ): Promise<TelegramSentMessage> {
   if (!BASE_URL) throw new Error("TELEGRAM_BOT_TOKEN не настроен");
   const { openAsBlob } = await import("node:fs");
@@ -449,11 +450,13 @@ export async function sendPhotoFromDisk(
       form.append("chat_id", chatId);
       if (caption) form.append("caption", caption.slice(0, CAPTION_MAX_CHARS));
       if (buttons) form.append("reply_markup", JSON.stringify({ inline_keyboard: buttons }));
+      if (options?.replyTo) form.append("reply_parameters", JSON.stringify({ message_id: options.replyTo, allow_sending_without_reply: true }));
       form.append("photo", blob, "photo.webp");
       return form;
     },
     timeoutMs,
-    "sendPhoto (с диска)"
+    "sendPhoto (с диска)",
+    options?.singleAttempt
   );
   return result as TelegramSentMessage;
 }
@@ -564,6 +567,7 @@ async function postMultipartWithRetry(
       await sleep(waitMs);
       continue;
     }
+    if (singleAttempt) throw new TelegramApiError(data.error_code, label, data.description ?? "неизвестная ошибка");
     throw new Error(`Telegram API ${label}: ${data.description ?? "неизвестная ошибка"}`);
   }
 }

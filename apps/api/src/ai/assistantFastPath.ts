@@ -3,7 +3,6 @@ import type { AssistantCard, AssistantClientCard, AssistantPropertyCard } from "
 import { prisma } from "../db.js";
 import { clientNamePhoneSafe, clientPhoneFor } from "../lib/clientPhone.js";
 import type { AssistantActor } from "./assistant.js";
-import { formatPrice } from "./seoGenerator.js";
 
 /**
  * БЫСТРЫЙ ПУТЬ ПОМОЩНИКА БЕЗ МОДЕЛИ (полоса А, docs/design/internal-assistant-
@@ -239,7 +238,10 @@ function replyFor(cards: AssistantCard[]): string {
   return cards
     .map((card) => {
       if (card.kind === "property") {
-        return `Нашёл объект [${card.code} · ${card.title}](${card.href}): ${formatPrice(card.price, card.currency)}.`;
+        const title = card.title.replace(/[\[\]\r\n]+/g, " ").trim();
+        const amount = card.price.toLocaleString("ru-RU");
+        const currency = card.currency === "USD" ? "USD" : "сомони";
+        return `Нашла [${card.code} · ${title}](${card.href}): ${amount} ${currency}.`;
       }
       return `Нашёл клиента [${card.name}](${card.href}) (${card.code}).`;
     })
@@ -256,7 +258,15 @@ export async function tryAssistantFastPath(text: string, actor: AssistantActor):
   const intent = parseFastPathIntent(text);
   if (!intent) return null;
   const cards = await findByIntent(intent, actor);
-  if (cards.length === 0) return null;
+  if (cards.length === 0) {
+    if (intent.kind !== "property-code") return null;
+    return {
+      cards: [],
+      reply: `Не нашла объект ОБ-${String(intent.shortId).padStart(6, "0")} среди доступных карточек.`,
+      tool: "fast_path.property-code",
+      argsSummary: JSON.stringify({ shortId: intent.shortId }),
+    };
+  }
   const first = cards[0];
   return {
     cards,
