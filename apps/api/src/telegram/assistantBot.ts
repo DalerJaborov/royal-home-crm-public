@@ -1,4 +1,4 @@
-import { renderAssistantForTelegram, splitReaction } from "./assistantReply.js";
+import { renderAssistantForTelegram, sanitizeAssistantReply, splitReaction } from "./assistantReply.js";
 import { sendAssistantReply } from "./assistantDelivery.js";
 export { renderAssistantForTelegram } from "./assistantReply.js";
 import { randomUUID } from "node:crypto";
@@ -18,7 +18,7 @@ import {
   type AssistantActionView,
 } from "../lib/assistantActions.js";
 import { claimAgentAiAction } from "../lib/agentAiActionCap.js";
-import { maskPhonesInFreeText } from "../lib/clientPhone.js";
+import { maskAssistantContacts } from "../lib/assistantContacts.js";
 import { findAgentByTelegramChatId, findAgentByTelegramUserId } from "../lib/telegramAgentLink.js";
 import { claimCallback } from "../lib/telegramModeration.js";
 import { logSystemError } from "../lib/systemError.js";
@@ -150,7 +150,7 @@ export function renderBundleCard(actions: readonly AssistantActionView[], author
   const origin = source ? `По сообщению ${source}
 ` : "";
   const card = `${origin}Подтвердите действие${actions.length > 1 ? "я" : ""}:\n\n${parts.join("\n\n")}\n\nПодтвердить может только ${authorName}.`;
-  return maskPhones ? maskPhonesInFreeText(card) : card;
+  return sanitizeAssistantReply(card, maskPhones);
 }
 
 // ───────────────────────────── ход помощника ─────────────────────────────
@@ -245,7 +245,7 @@ async function sendTurnResult(
   if (split.reaction && ctx.reactTo) await setMessageReaction(chatId, ctx.reactTo, split.reaction);
   const rendered = renderAssistantForTelegram(split.text, { maskPhones });
   // Записи уровня B исполнены сразу — человек должен видеть, что именно записано.
-  const written = result.done.map((a) => `Записано: ${field(a.preview.title)}`);
+  const written = result.done.map((a) => sanitizeAssistantReply(`Записано: ${field(a.preview.title)}`, maskPhones));
   const body = [rendered, ...written].filter(Boolean).join("\n");
   if (result.pending.length === 0) {
     await sendAssistantReply(chatId, split.text, { scope: ctx.scope, fromVoice: ctx.fromVoice, replyTo: ctx.replyTo, written });
@@ -360,7 +360,7 @@ export async function handleAssistantPrivate(
       if (!access?.isActive) { await send("Ваша учётка отключена."); return; }
       void sendChatAction(chatId).catch(() => {});
       const media = await handleAssistantMedia(msg, agent.id, { wallet: moneyWallet });
-      const extracted = access.permissions.has("clients.viewPhone") ? media.text : maskPhonesInFreeText(media.text);
+      const extracted = access.permissions.has("clients.viewPhone") ? media.text : maskAssistantContacts(media.text);
       // File text is quoted evidence, never a request that may authorize CRM writes.
       for (let offset = 0; offset < extracted.length; offset += 3500) await send(extracted.slice(offset, offset + 3500));
       return;
@@ -672,7 +672,7 @@ export async function handleAssistantCallback(query: TelegramCallbackQuery): Pro
       const note = executed > 0 ? "Часть действий уже была выполнена, остальные отменены" : "Отменено";
       await answerCallbackQuery(query.id, note);
       if (chatId && messageId) {
-        await editMessageText(chatId, messageId, `✖ ${note} (${clicker.fullName})`, null).catch(() => {});
+        await editMessageText(chatId, messageId, sanitizeAssistantReply(`✖ ${note} (${clicker.fullName})`, chatId.startsWith("-")), null).catch(() => {});
       }
       return true;
     }
@@ -692,8 +692,8 @@ export async function handleAssistantCallback(query: TelegramCallbackQuery): Pro
     if (!chatId) return true;
     if (chatId.startsWith("-")) {
       // Группа: карточку гасим, итог — отдельным коротким сообщением, чтобы его увидели все.
-      if (messageId) await editMessageText(chatId, messageId, `${mark} Обработано (${clicker.fullName})`, null).catch(() => {});
-      await sendMessage(chatId, summary, messageId).catch(() => {});
+      if (messageId) await editMessageText(chatId, messageId, sanitizeAssistantReply(`${mark} Обработано (${clicker.fullName})`, true), null).catch(() => {});
+      await sendMessage(chatId, sanitizeAssistantReply(summary, true), messageId).catch(() => {});
     } else if (messageId) {
       await editMessageText(chatId, messageId, summary, null).catch(async () => {
         await sendMessage(chatId, summary).catch(() => {});

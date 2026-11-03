@@ -4,14 +4,15 @@ import path from "node:path";
 let testCacheRoot: string;
 const audioFixture = Buffer.from("OggS0000000000000000000000000000OpusHead00000000");
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-const { query, settings, sendVoice, sendVoiceId, fetchMock } = vi.hoisted(() => ({ query: vi.fn(), settings: vi.fn(), sendVoice: vi.fn(), sendVoiceId: vi.fn(), fetchMock: vi.fn() }));
-vi.mock("../src/db.js", () => ({ prisma: { $queryRaw: query, settings: { findUnique: settings } } }));
+const { query, settings, savedVoice, sendVoice, sendVoiceId, fetchMock } = vi.hoisted(() => ({ query: vi.fn(), settings: vi.fn(), savedVoice: vi.fn(), sendVoice: vi.fn(), sendVoiceId: vi.fn(), fetchMock: vi.fn() }));
+vi.mock("../src/db.js", () => ({ prisma: { $queryRaw: query, settings: { findUnique: settings }, assistantVoiceConfig: { findUnique: savedVoice } } }));
 vi.mock("../src/ai/liveVoiceProvider.js", () => ({ resolveElevenLabsKey: (key: string) => key }));
 vi.mock("../src/telegram/api.js", () => ({ sendVoiceFile: sendVoice, sendAssistantVoiceId: sendVoiceId, TelegramApiError: class extends Error { constructor(public errorCode: number, _method: string, text: string) { super(text); } } }));
 import { sendAssistantVoiceReply, speechTextFromReply } from "../src/telegram/assistantVoice.js";
 import { TelegramApiError } from "../src/telegram/api.js";
 import { assistantVoiceCacheKey, readAssistantVoiceCache, writeAssistantVoiceCache } from "../src/telegram/assistantVoiceCache.js";
 import { claimAssistantTtsChars } from "../src/telegram/assistantVoiceBudget.js";
+import { encryptSecret } from "../src/crypto.js";
 beforeEach(async () => {
   testCacheRoot = await fs.mkdtemp(path.join(os.tmpdir(), "assistant-voice-test-"));
   vi.stubEnv("PRIVATE_UPLOADS_DIR", testCacheRoot);
@@ -19,6 +20,7 @@ beforeEach(async () => {
   vi.clearAllMocks();
   query.mockReset().mockResolvedValue([{ count: 20 }]);
   settings.mockReset().mockResolvedValue({ elevenLabsApiKey: 'test-key' });
+  savedVoice.mockReset().mockResolvedValue(null);
   sendVoice.mockReset().mockResolvedValue({});
   fetchMock.mockReset().mockResolvedValue({ ok: true, arrayBuffer: async () => Uint8Array.from(audioFixture).buffer });
   vi.stubGlobal('fetch', fetchMock);
@@ -84,6 +86,20 @@ it("cache hit remains available after budget is exhausted", async () => {
   expect(await sendAssistantVoiceReply("second", "Готово.")).toBe(true); expect(fetchMock).toHaveBeenCalledTimes(1);
 });
 
+it("loads both saved voices and the encrypted assistant key without process overrides", async () => {
+  vi.stubEnv("SETTINGS_ENCRYPTION_KEY", "ab".repeat(32));
+  vi.stubEnv("ASSISTANT_TTS_VOICE_ID", "");
+  vi.stubEnv("ELEVENLABS_API_KEY", "stale-shared-key");
+  savedVoice.mockResolvedValue({
+    voiceIdRu: "saved-ru", voiceIdTg: "saved-tg", encryptedKey: encryptSecret("assistant-key"),
+  });
+  expect(await sendAssistantVoiceReply("test", "Готово.")).toBe(true);
+  expect(await sendAssistantVoiceReply("test", "Салом, ман ёфтам.")).toBe(true);
+  expect(fetchMock.mock.calls[0][0]).toContain("/text-to-speech/saved-ru?");
+  expect(JSON.parse(fetchMock.mock.calls[1][1].body).inputs[0].voice_id).toBe("saved-tg");
+  for (const [, request] of fetchMock.mock.calls) expect(request.headers["xi-api-key"]).toBe("assistant-key");
+  expect(settings).not.toHaveBeenCalled();
+});
 it("sends Tajik time and price in words and reserves their expanded length", async () => {
   vi.stubEnv("ASSISTANT_TTS_VOICE_ID_TG", "test-tajik-voice");
   expect(await sendAssistantVoiceReply("test", "Пагоҳ соати 10:15. Нархаш 630000 сомонӣ.")).toBe(true);

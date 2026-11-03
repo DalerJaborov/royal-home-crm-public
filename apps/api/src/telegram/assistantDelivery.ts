@@ -1,6 +1,6 @@
 import { sendHtmlMessage, sendMessage, TelegramApiError } from "./api.js";
 import { sendAssistantVoiceReply } from "./assistantVoice.js";
-import { escapeHtml, prepareAssistantReply, renderAssistantForTelegram, renderAssistantHtml, splitHumanMessages } from "./assistantReply.js";
+import { escapeHtml, prepareAssistantReply, renderAssistantForTelegram, renderAssistantHtml, sanitizeAssistantReply, splitHumanMessages } from "./assistantReply.js";
 import { describeError } from "../lib/describeError.js";
 /** No sleeps: send sequentially to preserve the model's order. Pending cards use the broker. */
 export async function sendAssistantReply(chatId: string, text: string, ctx: {
@@ -15,24 +15,15 @@ export async function sendAssistantReply(chatId: string, text: string, ctx: {
   if (parts.length === 0)
     parts.push("");
   const plans = parts.map((part) => prepareAssistantReply(part, maskPhones));
-  if (ctx.fromVoice && plan.language !== "text-only") {
-    let spokenAll = true;
-    for (const [i, part] of plans.entries()) {
-      if (part.speech.length < 3) {
-        spokenAll = false;
-        continue;
-      }
-      if (!(await sendAssistantVoiceReply(chatId, part.speech, i === 0 ? ctx.replyTo : undefined))) {
-        spokenAll = false;
-        break; // Do not spend more on later parts after a provider/delivery failure.
-      }
-    }
-    if (spokenAll && ctx.written.length === 0 && !plan.needsText && plans.every((part) => !part.needsText))
-      return;
-  }
+  let canSpeak = ctx.fromVoice === true && plan.language !== "text-only";
   for (const [i, part] of plans.entries()) {
-    const written = i === plans.length - 1 ? ctx.written : [];
+    const written = i === plans.length - 1 ? ctx.written.map((entry) => sanitizeAssistantReply(entry, maskPhones)) : [];
     const replyTo = i === 0 ? ctx.replyTo : undefined;
+    if (canSpeak && part.language !== "text-only" && part.speech.length >= 3) {
+      const delivered = await sendAssistantVoiceReply(chatId, part.speech, replyTo);
+      if (delivered && !part.needsText && ctx.written.length === 0) continue;
+      if (!delivered) canSpeak = false;
+    }
     const html = [renderAssistantHtml(part.text, { maskPhones }), ...written.map(escapeHtml)].filter(Boolean).join("\n");
     if (html && html.length <= 3900) {
       try {

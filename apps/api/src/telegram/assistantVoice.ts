@@ -1,4 +1,5 @@
 import { prisma } from "../db.js";
+import { decryptSecret } from "../crypto.js";
 import { describeError } from "../lib/describeError.js";
 import { resolveElevenLabsKey } from "../ai/liveVoiceProvider.js";
 import { prepareAssistantReply } from "./assistantReply.js";
@@ -31,6 +32,11 @@ interface SpeechConfig { voiceId: string; key: string | null }
 
 async function resolveSpeechConfig(language: "ru" | "tg"): Promise<SpeechConfig | null> {
   const envVoice = (language === "tg" ? process.env.ASSISTANT_TTS_VOICE_ID_TG : process.env.ASSISTANT_TTS_VOICE_ID)?.trim();
+  const saved = await prisma.assistantVoiceConfig.findUnique({ where: { id: "singleton" } });
+  if (saved) {
+    const voiceId = language === "tg" ? saved.voiceIdTg : saved.voiceIdRu;
+    return { voiceId, key: decryptSecret(saved.encryptedKey) };
+  }
   const envKey = process.env.ELEVENLABS_API_KEY?.trim();
   // One snapshot per reply: cache identity and synthesis must use the same resolved voice.
   const row = envVoice && envKey ? null : await prisma.settings.findUnique({

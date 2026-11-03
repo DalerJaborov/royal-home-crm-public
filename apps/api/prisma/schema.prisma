@@ -10904,6 +10904,13 @@ model PropertyMarketMatch {
 }
 
 /// Shared explicitly confirmed company knowledge. Never a copy of personal/client conversations.
+model AssistantVoiceConfig {
+  id           String @id
+  encryptedKey String
+  voiceIdRu    String
+  voiceIdTg    String
+}
+
 model AssistantKnowledge {
   id           String   @id @default(uuid())
   key          String   @unique

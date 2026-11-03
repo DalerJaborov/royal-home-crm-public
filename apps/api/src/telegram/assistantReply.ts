@@ -1,5 +1,5 @@
 import { clientLanguageScores } from "../ai/clientLanguage.js";
-import { maskPhonesInFreeText } from "../lib/clientPhone.js";
+import { maskAssistantContacts } from "../lib/assistantContacts.js";
 import { tajikSpeechNumbers } from "./tajikSpeechNumbers.js";
 function publicBase(): string | null {
   const raw = process.env.CRM_PUBLIC_URL?.trim();
@@ -99,6 +99,8 @@ export function renderAssistantHtml(text: string, opts: {
     return base ? `<a href="${escapeHtml(base + link.path)}">${label}</a>` : label;
   });
 }
+const DOLLAR_PREFIX = /\$[ \u00a0\u202f]*((?:\d{1,3}(?:[ \u00a0\u202f]\d{3})+|\d+)(?:[.,]\d{1,2})?)(?![\p{L}\p{Nd}]|[.,]\d)/gu;
+
 /** Only entity routes: discard query/fragment and never turn arbitrary paths into links. */
 export function sanitizeAssistantReply(text: string, maskContacts: boolean): string {
   // Strip internal placeholders supplied by the model before generating our own.
@@ -117,10 +119,11 @@ export function sanitizeAssistantReply(text: string, maskContacts: boolean): str
   const saved: string[] = [];
   const hold = (value: string) => { saved.push(value); return `\u0001${saved.length - 1}\u0001`; };
   const protectedText = safeLinks.replace(/\]\((\/(?:clients|properties)\/[^)]+)\)/g, (_m, path: string) => `](${hold(path)})`)
+    .replace(DOLLAR_PREFIX, hold)
     .replace(/(?<![\d+])(?:\d{1,2}[-./]\d{1,2}[-./]\d{4}|\d{4}-\d{2}-\d{2})(?![\d-])/g, hold)
     .replace(/(?<![\d+])\d[\d \u00a0\u202f]*(?:[.,]\d{1,2})?\s*(?:сомон[иӣ]|TJS|USD|доллар(?:ов|а)?|\$)(?!\p{L})/giu, hold);
   // eslint-disable-next-line no-control-regex
-  return maskPhonesInFreeText(protectedText).replace(/\u0001(\d+)\u0001/g, (_m, i: string) => saved[Number(i)] ?? "");
+  return maskAssistantContacts(protectedText).replace(/\u0001(\d+)\u0001/g, (_m, i: string) => saved[Number(i)] ?? "");
 }
 export const VOICE_MAX_CHARS = 320;
 export interface AssistantReplyPlan {
@@ -152,7 +155,7 @@ export function prepareAssistantReply(text: string, maskContacts = false): Assis
   const russian = scores.russian > 0 || /(?:^|[^\p{L}])(?:готово|нашла|нашёл|нашел|добавила|добавил|ответ|данные|бюджет|источник|подробности|контакт|телефон|дата|помочь|помогу|сделано|хорошо|отлично|проверила|записала)(?=$|[^\p{L}])/iu.test(cleaned);
   const language = tajik ? "tg" : russian ? "ru" : "text-only";
   const expanded = language === "tg"
-    ? tajikSpeechNumbers(cleaned.replaceAll("контакт в карточке", "тамос дар корт"))
+    ? tajikSpeechNumbers(cleaned.replaceAll("контакт в карточке", "тамос дар корт").replace(DOLLAR_PREFIX, "$1 доллар"))
     : cleaned;
   const truncated = expanded !== null && expanded.length > VOICE_MAX_CHARS;
   let speech = expanded ?? "";

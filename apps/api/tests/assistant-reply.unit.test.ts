@@ -13,7 +13,7 @@ afterEach(() => vi.unstubAllEnvs());
 beforeEach(() => { vi.clearAllMocks(); html.mockReset().mockResolvedValue({}); plain.mockReset().mockResolvedValue({}); voice.mockReset().mockResolvedValue(true); vi.stubEnv("CRM_PUBLIC_URL", "https://crm.test"); });
 const ctx = { scope: "private" as const, fromVoice: true, written: [] };
 describe("privacy and content", () => {
-  it.each(["992.90.123.45.67", "+992901234567", "90 123 45 67", "@example_contact", "https://t.me/example_contact"])("masks %s before speech and HTML", (contact) => {
+  it.each(["992.90.123.45.67", "+992901234567", "+992‑90‑123‑45‑67", "+۹۹۲۹۰۱۲۳۴۵۶۷", "90/123/45/67", "90 123 45 67", "@example_contact", "https://t.me/example_contact"])("masks %s before speech and HTML", (contact) => {
     const p = prepareAssistantReply(`Контакт: ${contact}`, true);
     expect(p.text).not.toContain(contact);
     expect(p.speech).not.toContain(contact);
@@ -41,6 +41,12 @@ describe("privacy and content", () => {
     const text = "Нархаш 120 000 000 сомонӣ.";
     expect(prepareAssistantReply(text, true)).toMatchObject({
       text, speech: "Нархаш саду бист миллион сомонӣ.", language: "tg",
+    });
+  });
+  it("retains a dollar-prefixed amount in text and Tajik speech", () => {
+    const text = "Салом, нарх $120000000.";
+    expect(prepareAssistantReply(text, true)).toMatchObject({
+      text, speech: "Салом, нарх саду бист миллион доллар.", language: "tg",
     });
   });
   it.each(["99,5 сомонӣ", "03.11.2026", "2026-11-03 09:30", "ОБ-000123", "соати 25:90"])("keeps ambiguous %s as text", async (value) => {
@@ -81,6 +87,19 @@ describe('delivery', () => {
   it('unconfigured Tajik voice leaves text', async () => { voice.mockResolvedValue(false); await sendAssistantReply('test', 'Салом, ман ёфтам.', ctx); expect(voice).toHaveBeenCalled(); expect(html).toHaveBeenCalled(); });
   it('unknown language stays text', async () => { await sendAssistantReply('test', 'Unknown words', ctx); expect(voice).not.toHaveBeenCalled(); expect(html).toHaveBeenCalled(); });
   it('stops further voice spending after a failure', async () => { voice.mockResolvedValue(false); await sendAssistantReply('test', 'Готово. ||| Нашла.', ctx); expect(voice).toHaveBeenCalledTimes(1); expect(html).toHaveBeenCalledTimes(2); });
+  it("only sends the missing reply as text after the second voice fails", async () => {
+    voice.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+    await sendAssistantReply("test", "Готово. ||| Нашла.", ctx);
+    expect(voice).toHaveBeenCalledTimes(2);
+    expect(html).toHaveBeenCalledTimes(1);
+    expect(html.mock.calls[0][1]).toBe("Нашла.");
+  });
+  it("masks a contact inside a group write receipt", async () => {
+    const phone = "+992‑90‑123‑45‑67";
+    await sendAssistantReply("test", "Готово.", { ...ctx, scope: "group", written: [`Записано: ${phone}`] });
+    expect(html.mock.calls[0][1]).not.toContain(phone);
+    expect(html.mock.calls[0][1]).toContain("•••••");
+  });
   it('group speech has no contacts', async () => { await sendAssistantReply('test', 'Контакт: 992.90.123.45.67 @example_contact', { ...ctx, scope: 'group' }); expect(JSON.stringify(voice.mock.calls)).not.toMatch(/992\.90|example_contact/); });
   it('failed voice leaves text', async () => { voice.mockResolvedValue(false); await sendAssistantReply('test', 'Готово.', ctx); expect(html).toHaveBeenCalledTimes(1); });
   it('short replies remain ordered', async () => { await sendAssistantReply('test', 'Здравствуйте. ||| Чем помочь?', ctx); expect(voice.mock.calls.map(c => c[1])).toEqual(['Здравствуйте.', 'Чем помочь?']); });

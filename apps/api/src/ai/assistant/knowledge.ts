@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Prisma } from "../../generated/prisma/client.js";
 import { prisma } from "../../db.js";
 import { assistantKnowledgeInputSchema, assistantKnowledgeSearchSchema, type AssistantKnowledgeInput } from "@royal-home/shared";
-import { maskPhonesInFreeText } from "../../lib/clientPhone.js";
+import { maskAssistantContacts } from "../../lib/assistantContacts.js";
 import { wrapUntrusted } from "../untrustedContent.js";
 import type { KnowledgeEmbeddingOptions } from "./knowledgeSemantic.js";
 
@@ -15,7 +15,7 @@ export function knowledgeKey(title: string): string { return title.normalize("NF
 export function validateCompanyKnowledge(raw: unknown, allowExpired = false): AssistantKnowledgeInput {
   const value = assistantKnowledgeInputSchema.parse(raw);
   const text = [value.title, value.content, value.source].join("\n");
-  if (maskPhonesInFreeText(text) !== text || /[\w.+-]+@[\w.-]+\.[a-z]{2,}|\/(?:clients|properties)\/|(?:api[_ -]?key|password|пароль|токен|секретный ключ)\s*[:=]|ignore (?:all |previous )?instructions|забудь.{0,20}инструкц/iu.test(text)) {
+  if (maskAssistantContacts(text) !== text || /[\w.+-]+@[\w.-]+\.[a-z]{2,}|\/(?:clients|properties)\/|(?:api[_ -]?key|password|пароль|токен|секретный ключ)\s*[:=]|ignore (?:all |previous )?instructions|забудь.{0,20}инструкц/iu.test(text)) {
     throw new Error("В общую память нельзя сохранять контакты, секреты, карточки клиентов или команды обхода правил. Используйте соответствующий раздел CRM.");
   }
   if (!allowExpired && value.validUntil && new Date(value.validUntil).getTime() <= Date.now()) throw new Error("Срок актуальности уже истёк");
