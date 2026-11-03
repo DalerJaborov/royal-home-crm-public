@@ -4,7 +4,6 @@ import { prisma } from "../../../db.js";
 import { AssistantActionError, type AssistantActionActor, type AssistantActionExecutor } from "../../../lib/assistantActions.js";
 import { logAgentAudit } from "../../../lib/audit.js";
 import { publishPropertyUpdated } from "../../../lib/livePublish.js";
-import { canManagePropertyAs } from "../../../lib/propertyAccess.js";
 import { trashProperty } from "../../../lib/trashProperty.js";
 import { loadWriterRole, resolveRefOrThrow } from "./propertyToolSupport.js";
 import { plainField } from "./safeField.js";
@@ -42,7 +41,9 @@ async function load(actor: AssistantActionActor, ref: string) {
   const { id } = await resolveRefOrThrow(ref);
   const property = await prisma.property.findUnique({ where: { id } });
   if (!property || property.deletedAt) throw new AssistantActionError(404, "ENTITY_NOT_FOUND", "Объект не найден");
-  if (!canManagePropertyAs({ agentId: actor.agentId, can: actor.can }, property)) {
+  // Удаляет ведущий или приёмщик (не просто создатель карточки, передавший объект коллеге) либо руководство.
+  const mine = property.assignedAgentId === actor.agentId || property.intakeAgentId === actor.agentId;
+  if (!mine && !actor.can("properties.delete") && !actor.can("properties.editForeign")) {
     throw new AssistantActionError(403, "FORBIDDEN", "Нет доступа к этому объекту");
   }
   return property;

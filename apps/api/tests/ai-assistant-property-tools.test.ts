@@ -533,4 +533,15 @@ describe("П8: свои объекты — удаление в Корзину и
     await expectRefused(ownerId, AGENT_PERMS, "delete_property", { ref: String(foreign.shortId) }, 403, /Нет доступа/);
     expect((await prisma.property.findUniqueOrThrow({ where: { id: foreign.id } })).deletedAt).toBeNull();
   });
+
+  it("создатель, передавший объект коллеге, чужое объявление не удаляет; резерв — цена заявкой, а не сразу", async () => {
+    const handed = await seed({ assignedAgentId: directorId, intakeAgentId: directorId, createdById: ownerId });
+    await expectRefused(ownerId, AGENT_PERMS, "delete_property", { ref: String(handed.shortId) }, 403, /Нет доступа/);
+
+    const reserved = await seed({ status: "RESERVED" });
+    const pending = await preview(ownerId, AGENT_PERMS, "change_property_price", { ref: String(reserved.shortId), newPrice: 350000 });
+    expect(pending.preview.risk).toMatch(/заявк/i);
+    await confirmAssistantAction(pending.id, actorFor(ownerId, AGENT_PERMS));
+    expect((await prisma.property.findUniqueOrThrow({ where: { id: reserved.id } })).price.toString()).toBe("400000");
+  });
 });

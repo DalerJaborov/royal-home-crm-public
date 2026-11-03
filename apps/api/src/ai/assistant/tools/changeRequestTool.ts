@@ -120,6 +120,8 @@ export function makeChangeRequestExecutor<A extends { ref: string }>(
   const isDirect = (args: A, property: Property, actor: AssistantActionActor) =>
     spec.directForOwner === true &&
     kindOf(args) === "PRICE_CHANGE" &&
+    // Объект в резерве (есть сделка) — цену меняет руководство: как и у REST, прямой путь закрыт.
+    (property.status !== "RESERVED" || actor.can("properties.editForeign")) &&
     canManagePropertyAs({ agentId: actor.agentId, can: actor.can }, property);
 
   return {
@@ -193,7 +195,7 @@ export function makeChangeRequestExecutor<A extends { ref: string }>(
           requestId: created.request.id,
           actorId: actor.agentId,
           note: "Свой объект: применено автором через ИИ-помощника",
-        });
+        }).catch((err: unknown) => ({ ok: false as const, status: 500, error: err instanceof Error ? err.message : "сбой применения" }));
         if (!applied.ok) {
           // Не применилось — висящую заявку не оставляем.
           await cancelPropertyChangeRequest({ requestId: created.request.id, actorId: actor.agentId, note: "Не применено: " + applied.error });
@@ -237,11 +239,14 @@ export function makeChangeRequestExecutor<A extends { ref: string }>(
         const back = await createPropertyChangeRequest({
           propertyId: prior.propertyId,
           actor: changeActor(actor),
+          expect: { priceCents: toCents(Number((ctx.snapshotAfter as Snap).price)), currency: (ctx.snapshotAfter as Snap).currency, status: (ctx.snapshotAfter as Snap).status },
           body: { kind: "PRICE_CHANGE", payload: { newPrice: prior.price, currency: prior.currency, remake: false } } as CreatePropertyChangeRequestInput,
           auditSource: { source: "assistant.undo", actionId: ctx.actionId },
         });
         if (!back.ok) throw failureToError(back);
-        const reverted = await approvePropertyChangeRequest({ requestId: back.request.id, actorId: actor.agentId, note: "Откат цены в ИИ-помощнике" });
+        const reverted = await approvePropertyChangeRequest({ requestId: back.request.id, actorId: actor.agentId, note: "Откат цены в ИИ-помощнике" }).catch(
+          (err: unknown) => ({ ok: false as const, status: 500, error: err instanceof Error ? err.message : "сбой отката" }),
+        );
         if (!reverted.ok) {
           await cancelPropertyChangeRequest({ requestId: back.request.id, actorId: actor.agentId, note: "Откат не применён" });
           throw new AssistantActionError(reverted.status, "REFUSED", reverted.error);

@@ -65,6 +65,11 @@ describe("замок публикации и цена своего объект�
     expect(Number((await prisma.property.findUniqueOrThrow({ where: { id } })).price)).toBe(400000);
   });
 
+  it("резерв (открытая сделка) — цену хозяин сам не меняет", async () => {
+    const id = await seed("RESERVED");
+    expect((await patch(id, ownerToken, { price: 1 })).status).toBe(403);
+  });
+
   it("проданный — цену по-прежнему только руководство", async () => {
     const id = await seed("SOLD");
     expect((await patch(id, ownerToken, { price: 1 })).status).toBe(403);
