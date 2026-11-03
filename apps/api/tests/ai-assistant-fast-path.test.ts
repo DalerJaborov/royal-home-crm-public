@@ -144,10 +144,13 @@ describe("tryAssistantFastPath — выдача под правами", () => {
     expect(res!.tool).toBe("fast_path.property-code");
   });
 
-  it("объект из Корзины и несуществующий номер — null (идёт обычным путём)", async () => {
+  it("удалённый и отсутствующий объект одинаково не видны по номеру", async () => {
     const p = await makeProperty({ deletedAt: new Date() });
-    expect(await tryAssistantFastPath(`объект ${p.shortId}`, actor(agentAId))).toBeNull();
-    expect(await tryAssistantFastPath("объект 999999999", actor(agentAId))).toBeNull();
+    for (const shortId of [p.shortId, 999999999]) {
+      expect(await tryAssistantFastPath(`объект ${shortId}`, actor(agentAId))).toMatchObject({
+        cards: [], reply: `Не нашла объект ОБ-${String(shortId).padStart(6, "0")} среди доступных карточек.`,
+      });
+    }
   });
 
   it("ссылка Instagram: точный код, а не просто общее начало", async () => {

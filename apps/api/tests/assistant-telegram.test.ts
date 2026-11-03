@@ -702,12 +702,15 @@ describe("группа: окно диалога и ответ на чужое с
 
   it("окно закрывается по времени", async () => {
     await open("author");
+    const delivered = () => sentTexts().length + sendMessageWithButtons.mock.calls.length;
+    const afterOpening = delivered();
     nowMs += GROUP_DIALOG_WINDOW_MS - 1000;
     await handleTelegramUpdate(groupMsg("author", "покажи ОБ-7"));
-    expect(calls()).toBe(2);
+    expect(delivered()).toBe(afterOpening + 1);
+    expect(calls()).toBe(1);
     nowMs += GROUP_DIALOG_WINDOW_MS + 1000;
     await handleTelegramUpdate(groupMsg("author", "покажи ОБ-8"));
-    expect(calls()).toBe(2);
+    expect(delivered()).toBe(afterOpening + 1);
   });
 
   it("болтовня молча игнорируется, три подряд закрывают окно; «спасибо» закрывает сразу", async () => {
@@ -731,10 +734,14 @@ describe("группа: окно диалога и ответ на чужое с
     await open("author");
     await open("stranger");
     await handleTelegramUpdate(groupMsg("stranger", "стоп"));
+    const delivered = () => sentTexts().length + sendMessageWithButtons.mock.calls.length;
+    const afterStop = delivered();
     await handleTelegramUpdate(groupMsg("stranger", "покажи ОБ-1"));
     expect(calls()).toBe(2);
+    expect(delivered()).toBe(afterStop);
     await handleTelegramUpdate(groupMsg("author", "покажи ОБ-1"));
-    expect(calls()).toBe(3);
+    expect(calls()).toBe(2);
+    expect(delivered()).toBe(afterStop + 1);
   });
 
   it("окно не открывается, если обращение не прошло (не привязан)", async () => {
