@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import bcrypt from "bcrypt";
+import sharp from "sharp";
 import { mkdir, writeFile, unlink } from "node:fs/promises";
 import path from "node:path";
 
@@ -11,7 +12,7 @@ import path from "node:path";
  * брокер lib/assistantActions.ts — тот же путь, что у настоящих инструментов.
  */
 
-const { sendMessage, sendHtmlMessage, sendVoiceFile, sendAssistantVoiceId, synthVoice, sendMessageWithButtons, sendPhotoFromDisk, answerCallbackQuery, editMessageText, react, runner, transcribe, fetchAudio, claimCap } =
+const { sendMessage, sendHtmlMessage, sendVoiceFile, sendAssistantVoiceId, synthVoice, sendMessageWithButtons, sendPhotoFromDisk, answerCallbackQuery, editMessageText, react, runner, transcribe, fetchAudio, claimCap, downloadDraftPhoto } =
   vi.hoisted(() => ({
     sendMessage: vi.fn(async (_chatId: string, _text: string, _reply?: number) => ({})),
     sendHtmlMessage: vi.fn(async (_chatId: string, _text: string, _reply?: number) => ({})),
@@ -27,6 +28,7 @@ const { sendMessage, sendHtmlMessage, sendVoiceFile, sendAssistantVoiceId, synth
     transcribe: vi.fn(),
     fetchAudio: vi.fn(),
     claimCap: vi.fn(),
+    downloadDraftPhoto: vi.fn(),
   }));
 
 vi.mock("../src/telegram/api.js", async (importOriginal) => ({
@@ -50,7 +52,7 @@ vi.mock("../src/ai/assistant.js", async (importOriginal) => ({
   runAssistantDetailed: runner,
 }));
 vi.mock("../src/telegram/assistantMedia.js", () => ({
-  downloadAssistantMedia: vi.fn(() => { throw new Error("Unexpected file download"); }),
+  downloadAssistantMedia: downloadDraftPhoto,
   handleAssistantMedia: async () => {
     const text = await transcribe();
     return text === null ? { text: "Не удалось распознать речь — напишите текстом.", error: "media_failed" }
@@ -175,7 +177,7 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
-  for (const m of [sendMessage, sendHtmlMessage, sendVoiceFile, sendAssistantVoiceId, synthVoice, sendMessageWithButtons, sendPhotoFromDisk, answerCallbackQuery, editMessageText, react, runner, transcribe, fetchAudio, claimCap]) {
+  for (const m of [sendMessage, sendHtmlMessage, sendVoiceFile, sendAssistantVoiceId, synthVoice, sendMessageWithButtons, sendPhotoFromDisk, answerCallbackQuery, editMessageText, react, runner, transcribe, fetchAudio, claimCap, downloadDraftPhoto]) {
     m.mockReset();
   }
   sendMessage.mockResolvedValue({});
@@ -186,6 +188,7 @@ beforeEach(() => {
   sendMessageWithButtons.mockResolvedValue({ message_id: 501 });
   answerCallbackQuery.mockResolvedValue({});
   claimCap.mockResolvedValue({ allowed: true, usedToday: 1 });
+  downloadDraftPhoto.mockRejectedValue(new Error("Unexpected file download"));
   price.store.set("p1", { price: 100_000 });
   remake.store.set("p1", { price: 7 });
   price.calls.execute = 0;
@@ -810,5 +813,100 @@ describe("новая доставка ответа помощника", () => {
     await handleTelegramUpdate(privateMsg("author", { message_id: 8242, text: "проверь данные" }));
     expect(react).toHaveBeenCalledWith(agents.author.userId, 8242, "❤");
     expect(sentTexts().join("\n")).toBe("Готово.");
+  });
+});
+
+describe("создание объекта через мастер в Telegram", () => {
+  it("сохраняет голос, фото и точку, отклоняет устаревшую кнопку и создаёт одну карточку", async () => {
+    const key = "draftAuthor";
+    await mk(key, 8, "AGENT");
+    const author = agents[key];
+    const district = await prisma.district.create({ data: { name: `Тестовый район ${runId}` } });
+    const address = `Точный адрес ${runId}`;
+    const phone = `+99292${runId}`;
+    const send = (data: Record<string, unknown>) => handleTelegramUpdate(privateMsg(key, { message_id: 2000 + nextUpdateId, ...data }));
+    const button = (action: string) => {
+      const last = sendMessageWithButtons.mock.calls.at(-1);
+      return (last?.[2] as { callback_data: string }[][] | undefined)?.flat().find(b => b.callback_data.startsWith(`pdt:${action}:`))?.callback_data;
+    };
+    const click = (data: string, from = author.userId, type = "private") => handleTelegramUpdate({
+      update_id: nextUpdateId++,
+      callback_query: { id: `cb-${runId}-${nextCallbackId++}`, data, from: { id: Number(from) },
+        message: { chat: { id: Number(author.userId), type }, message_id: 501 } },
+    });
+    const count = () => prisma.property.count({ where: { createdById: author.id } });
+    const draftRow = () => prisma.propertyDraft.findUniqueOrThrow({ where: { agentId: author.id }, include: { media: true } });
+    try {
+      await send({ text: "давай добавим объект" });
+      const first = await draftRow();
+      expect(button("create")).toBeUndefined();
+      transcribe.mockResolvedValueOnce([
+        "Тип: квартира", "Ремонт: хорошее", "Цена: 950000", "Валюта: сомони",
+        "Комнаты: 2", "Площадь: 68.5", "Этаж: 5", "Этажей: 12", "Окна: 3",
+        `Район: ${district.name}`, `Адрес: ${address}`, "Продавец: Тестовый собственник", `Телефон: ${phone}`,
+      ].join("\n"));
+      await send({ voice: { file_id: "voice-test" } });
+      const draft = await draftRow();
+      expect(transcribe).toHaveBeenCalledTimes(1);
+      expect(runner).not.toHaveBeenCalled();
+      expect(draft.id).toBe(first.id);
+      expect(draft.values).toMatchObject({ type: "APARTMENT", price: "950000", address, districtId: district.id });
+      expect(sendMessageWithButtons.mock.calls.at(-1)?.[1]).not.toContain(address);
+      expect(sendMessageWithButtons.mock.calls.at(-1)?.[1]).not.toContain(phone);
+      downloadDraftPhoto.mockResolvedValue(await sharp({ create: { width: 64, height: 64, channels: 3, background: "#bada55" } }).jpeg().toBuffer());
+      await send({ photo: [{ file_id: "image-test" }], media_group_id: "test-album" });
+      await send({ location: { latitude: 38.5, longitude: 68.7 } });
+      const beforeCrmEdit = button("create");
+      expect(beforeCrmEdit).toBeDefined();
+      await click(beforeCrmEdit!, agents.stranger.userId);
+      await click(beforeCrmEdit!, author.userId, "supergroup");
+      expect(await count()).toBe(0);
+      const token = signAccessToken({ sub: author.id, role: "AGENT" });
+      const route = "/api/v1/properties/drafts/current";
+      const current = await request(app).get(route).set("Authorization", `Bearer ${token}`);
+      expect(current.status).toBe(200);
+      expect(current.body.draft.values).toMatchObject({ lat: 38.5, lng: 68.7 });
+      expect(current.body.draft.media).toHaveLength(1);
+      const revised = await request(app).put(route).set("Authorization", `Bearer ${token}`).send({
+        draftId: draft.id, revision: current.body.draft.revision, values: { ...current.body.draft.values, price: "960000" }, step: 0,
+      });
+      expect(revised.status).toBe(200);
+      await click(beforeCrmEdit!);
+      expect(await count()).toBe(0);
+      expect(await prisma.client.count({ where: { assignedAgentId: author.id } })).toBe(0);
+      expect(sendMessageWithButtons.mock.calls.at(-1)?.[1]).toContain("Черновик изменился");
+      await click(button("review")!);
+      const beforePhoto = button("create");
+      expect(beforePhoto).toBeDefined();
+      await send({ photo: [{ file_id: "image-test-2" }], media_group_id: "test-album" });
+      await click(beforePhoto!);
+      expect(await count()).toBe(0);
+      expect(sendMessageWithButtons.mock.calls.at(-1)?.[1]).toContain("Черновик изменился");
+      await click(button("review")!);
+      const create = button("create");
+      expect(create).toBeDefined();
+      await Promise.all([click(create!), click(create!)]);
+      const properties = await prisma.property.findMany({ where: { createdById: author.id }, include: { photos: true } });
+      expect(properties).toHaveLength(1);
+      const [property] = properties;
+      expect(property).toMatchObject({ address, intakeAgentId: author.id });
+      expect([Number(property.lat), Number(property.lng)]).toEqual([38.5, 68.7]);
+      expect(Number(property.price)).toBe(960000);
+      expect(property.photos).toHaveLength(2);
+      expect(property.sellerClientId).toBeTruthy();
+      expect(await draftRow()).toMatchObject({ closedAt: expect.any(Date) });
+      expect(editMessageText.mock.calls.at(-1)?.[2]).toContain("Объект создан");
+    } finally {
+      const properties = await prisma.property.findMany({ where: { createdById: author.id }, include: { photos: true } });
+      const files = properties.flatMap(property => property.photos.flatMap(photo => [photo.url, photo.thumbUrl]));
+      const draft = await prisma.propertyDraft.findUnique({ where: { agentId: author.id }, include: { media: true } });
+      files.push(...(draft?.media.flatMap(photo => [photo.url, photo.thumbUrl]) ?? []));
+      await prisma.property.deleteMany({ where: { createdById: author.id } });
+      await prisma.propertyDraft.deleteMany({ where: { agentId: author.id } });
+      await prisma.client.deleteMany({ where: { assignedAgentId: author.id } });
+      await prisma.district.delete({ where: { id: district.id } });
+      await Promise.all(files.filter((file): file is string => Boolean(file?.startsWith("/uploads/")))
+        .map(file => unlink(path.join(uploadsDir, file.slice("/uploads/".length))).catch(() => {})));
+    }
   });
 });

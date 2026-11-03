@@ -10,6 +10,7 @@ import { ASSISTANT_ERROR_MESSAGES, isAiAssistantEnabled, runAssistantDetailed } 
 import { parseFastPathIntent, tryAssistantFastPath } from "../ai/assistantFastPath.js";
 import { findTelegramAgentClients, isVoiceReplayRequest, replayTelegramAssistantVoice, sendTelegramPropertyCard } from "./assistantReadResults.js";
 import { sendAssistantVoiceReply } from "./assistantVoice.js";
+import { handleTelegramPropertyDraft, handleTelegramPropertyDraftCallback } from "./assistantPropertyDraft.js";
 import { handleAssistantMedia } from "./assistantMedia.js";
 import { createAssistantMoneyWallet, type AssistantMoneyWallet } from "../ai/assistant/moneyBudget.js";
 import {
@@ -308,7 +309,7 @@ async function sendTurnResult(
 
 const HELP_TEXT =
   "Я помощник CRM. Напишите или надиктуйте просьбу: «найди клиента …», «покажи ОБ-123», «снизь цену ОБ-123 до 90000». " +
-  "Всё, что меняет данные, я показываю карточкой «было → станет» и жду вашего «Подтвердить». /new — начать разговор заново.";
+  "Всё, что меняет данные, я показываю карточкой «было → станет» и жду вашего «Подтвердить». «Добавь объект» — открыть мастер в личке. /new — начать разговор заново.";
 
 async function loadHistory(chatId: string, agentId: string): Promise<{ role: "user" | "assistant"; content: string }[]> {
   const row = await prisma.telegramDialogState.findUnique({ where: { chatId } });
@@ -361,6 +362,7 @@ export async function handleAssistantPrivate(
   const chatId = String(msg.chat.id);
   const send = (text: string) => sendMessage(chatId, text).then(() => undefined);
   try {
+    if (await handleTelegramPropertyDraft(msg, agent, transcribeVoice)) return;
     const moneyWallet = createAssistantMoneyWallet();
     let text = (msg.text ?? msg.caption ?? "").trim();
     if (text === "/new" || text === "/reset") {
@@ -656,6 +658,7 @@ const FAIL_STATUS_NOTE: Record<string, string> = {
 
 /** `as:ok|no:<связка>`. true — это наша кнопка (обработана или отклонена). */
 export async function handleAssistantCallback(query: TelegramCallbackQuery): Promise<boolean> {
+  if (await handleTelegramPropertyDraftCallback(query)) return true;
   if (!query.data?.startsWith("as:")) return false;
   const match = BUNDLE_CALLBACK.exec(query.data);
   if (!match) {

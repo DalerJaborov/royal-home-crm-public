@@ -234,7 +234,7 @@ export function requirePermission(...permissions: PermissionId[]) {
 }
 
 /** Проверка права внутри тела роута (когда ветвление зависит от данных запроса). */
-export function can(req: Request, permission: PermissionId): boolean {
+export function can(req: Pick<Request, "agent">, permission: PermissionId): boolean {
   return req.agent?.permissions.has(permission) ?? false;
 }
 
@@ -258,7 +258,7 @@ export function scopeToOwnAgent(req: Request): string | undefined {
  * а ссылка писала «отправлен объект» в хронологию чужого клиента. Правило то же,
  * что у списка клиентов агента: свой — это закреплённый за ним.
  */
-export function canBindClient(req: Request, client: { assignedAgentId: string | null }): boolean {
+export function canBindClient(req: Pick<Request, "agent">, client: { assignedAgentId: string | null }): boolean {
   if (!req.agent) return false;
   if (client.assignedAgentId === req.agent.id) return true;
   // «Видеть всех» — не «писать во всех» (глубокая проверка 02.10.2026, A3).

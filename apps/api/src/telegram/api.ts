@@ -951,7 +951,7 @@ export interface TelegramCallbackQuery {
   data?: string;
   /** message_id — чтобы модерация (lib/telegramModeration) правила именно то
    *  сообщение, под которым нажали кнопку. */
-  message?: { chat: { id: number }; message_id?: number };
+  message?: { chat: { id: number; type?: string }; message_id?: number };
   from?: { id: number; username?: string; first_name?: string };
 }
 
