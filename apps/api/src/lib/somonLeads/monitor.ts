@@ -8,6 +8,7 @@ import { cleanupSomonReceipts } from "./deliveryStore.js";
 import { logSystemError } from "../systemError.js";
 import { somonKeyFingerprint } from "./contactIdentity.js";
 import { saveSomonPageHtml } from "../market/somonCrawler.js";
+import { isTelegramPortalAlertsPaused } from "../telegramPortalPause.js";
 
 const wait = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
 const MAX_PAGES_PER_TICK = 8;
@@ -83,6 +84,8 @@ export async function runSomonMonitorTick(pause: (ms: number) => Promise<void> =
   if (stuck) await logSystemError("telegram", "Somon: обнаружены отправки с неизвестным результатом; автоматического повтора нет", { dedupKey: "somon-delivery-stuck" });
   let state = await prisma.somonMonitor.findUnique({ where: { id: "singleton" } });
   if (!state?.enabled || state.sourceStopped || (state.blockedUntil && state.blockedUntil > new Date())) return;
+  // Пауза уведомлений площадок: объявления не разбираем и очередь не трогаем — после снятия паузы всё продолжится.
+  if (await isTelegramPortalAlertsPaused()) return;
   try {
     if (!state.contactKeyFingerprint || state.contactKeyFingerprint !== somonKeyFingerprint()) throw new Error("contact identity key changed");
   } catch {
