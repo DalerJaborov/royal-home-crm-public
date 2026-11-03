@@ -1,4 +1,4 @@
-import { describe, it, expect, afterAll } from "vitest";
+import { describe, it, expect, afterAll, vi } from "vitest";
 import { prisma } from "../src/db.js";
 import * as heartbeat from "../src/lib/cronHeartbeat.js";
 
@@ -18,7 +18,7 @@ const { scheduleTracked } = heartbeat;
 const NAME = "test-hang-tick";
 
 afterAll(async () => {
-  await prisma.cronHeartbeat.deleteMany({ where: { name: { in: [NAME, "test-active-tick", "test-stopped-tick"] } } });
+  await prisma.cronHeartbeat.deleteMany({ where: { name: { in: [NAME, "test-active-tick", "test-stopped-tick", "test-long-tick"] } } });
   await prisma.errorLog.deleteMany({ where: { source: "cron", message: { contains: NAME } } });
   await prisma.$disconnect();
 });
@@ -66,6 +66,21 @@ describe("scheduleTracked — таймаут зависшего тика", () =>
       // destroy, а не stop: в node-cron 4 задача остаётся в глобальном реестре
       // и держит таймер, из-за чего vitest не завершает процесс.
       await task.destroy();
+    }
+  });
+});
+
+describe("scheduleTracked — явный предел тика не обрезается общим потолком", () => {
+  it("долгая задача (недельный обход рынка, 3,5 ч) получает свой предел, умолчание по-прежнему не выше 20 минут", async () => {
+    const spy = vi.spyOn(globalThis, "setTimeout");
+    const long = scheduleTracked("test-long-tick", "30 2 * * 0", async () => {}, undefined, undefined, { timeoutMs: 3.5 * 60 * 60_000 });
+    try {
+      await long.execute();
+      const delays = spy.mock.calls.map((c) => Number(c[1]));
+      expect(delays).toContain(3.5 * 60 * 60_000); // не срезан до 20 минут: иначе крон ложно «снимался с замка»
+    } finally {
+      spy.mockRestore();
+      await long.destroy();
     }
   });
 });

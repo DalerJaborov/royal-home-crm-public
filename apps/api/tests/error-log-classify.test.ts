@@ -92,10 +92,22 @@ describe("groupErrorLogEntries: уникальные типы с count, не р�
     const keyB = errorGroupKey("ai", `${prefix} диалог c2`);
     expect(keyA).toBe(keyB);
 
-    // Короткое сообщение с уникальной деталью В НАЧАЛЕ — дедуп не спасает,
-    // ключи законно разные (тот же предел признан в комментарии systemError.ts).
+    // Уникальная деталь В НАЧАЛЕ (номер файла/канала) — с 01.11.2026 цифры в ключе
+    // заменяются на «#», поэтому это тоже один тип (аудит: 30 «типов» ARI были одной ошибкой).
     const keyC = errorGroupKey("ai", "Голосовое (file-1.ogg) не расшифровано: таймаут сети");
     const keyD = errorGroupKey("ai", "Голосовое (file-2.ogg) не расшифровано: таймаут сети");
-    expect(keyC).not.toBe(keyD);
+    expect(keyC).toBe(keyD);
+  });
+
+  it("errorGroupKey — две ошибки ARI, различающиеся только числами/id, дают один ключ", () => {
+    const a = errorGroupKey("telephony", "ARI: канал 1730412345.678 (ext 1042, +992901234567) не ответил за 5000 мс");
+    const b = errorGroupKey("telephony", "ARI: канал 1730412399.912 (ext 1077, +992907654321) не ответил за 5000 мс");
+    expect(a).toBe(b);
+    const withUuid = errorGroupKey("telephony", "ARI: call 3f2b8c1e-1a2b-4c3d-8e9f-0123456789ab hangup failed");
+    const withUuid2 = errorGroupKey("telephony", "ARI: call 9a8b7c6d-5e4f-4a3b-9c2d-ffeeddccbbaa hangup failed");
+    expect(withUuid).toBe(withUuid2);
+    // Разный текст остаётся разными типами.
+    expect(errorGroupKey("telephony", "ARI: канал 1 не ответил")).not.toBe(errorGroupKey("telephony", "ARI: канал 1 занят"));
+    expect(errorGroupKey("ai", "x 1")).not.toBe(errorGroupKey("telephony", "x 1"));
   });
 });

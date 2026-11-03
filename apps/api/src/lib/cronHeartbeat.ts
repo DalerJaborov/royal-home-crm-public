@@ -282,6 +282,7 @@ export interface ScheduleTrackedOptions {
    * `running` держался 75+ минут, следующие срабатывания молча терялись.
    * Зависший промис в Node НЕЛЬЗЯ отменить — таймаут не убивает его, только
    * перестаёт ждать результат и снимает замок, чтобы расписание не встало.
+   * Явно заданное значение НЕ ограничивается MAX_TICK_TIMEOUT_MS (оно — для умолчания).
    */
   timeoutMs?: number;
 }
@@ -302,7 +303,9 @@ export function scheduleTracked(
   }
   const intervalMs = cronIntervalMs(expr);
   registry.set(name, { expr, intervalMs, lowFrequency: isLowFrequency(expr), timezone: options?.timezone });
-  const timeoutMs = Math.min(trackedOptions?.timeoutMs ?? intervalMs * 2, MAX_TICK_TIMEOUT_MS);
+  // Явно заданный предел не обрезаем: долгая задача (недельный обход рынка — 3 ч) просит больше
+  // общего потолка осознанно; потолок защищает только тики, которым предел не задан.
+  const timeoutMs = trackedOptions?.timeoutMs ?? Math.min(intervalMs * 2, MAX_TICK_TIMEOUT_MS);
   /**
    * Гвард наложения ВСТРОЕН в обёртку — и это часть честности пульса (аудит №4).
    * Пока прошлый запуск не завершился, новые срабатывания пропускаются ЦЕЛИКОМ,

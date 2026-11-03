@@ -84,6 +84,8 @@ import { PropertyDocumentsCard, PropertyDocumentsField } from "../components/Pro
 import { PropertyStatsCard } from "../components/PropertyStatsCard";
 import { PropertyVoiceCard, PropertyVoiceDisclosure } from "../components/PropertyVoiceCard";
 import { PropertyPriceDemandCard } from "../components/PropertyPriceDemandCard";
+import { MarketBlock } from "../components/MarketBlock";
+import { MarketOnPlatforms } from "../components/MarketOnPlatforms";
 import { OwnerReportCard } from "../components/OwnerReportCard";
 import { moderationVisible, pipelineHintsVisible, sitePublishVisible, solveHasContent, tiktokVisible } from "../lib/propertySolve";
 
@@ -855,6 +857,8 @@ function PropertyViewCard({
   const promotionBlock = <>
     <PropertyAdBadge propertyId={property.id} />
     {!isTrashed && property.status === "AVAILABLE" && <PropertyPriceDemandCard propertyId={property.id} />}
+    {!isTrashed && property.status === "AVAILABLE" && <MarketBlock propertyId={property.id} />}
+    {!isTrashed && property.status === "AVAILABLE" && <MarketOnPlatforms propertyId={property.id} />}
     <PriceHistoryBlock property={property} />
   </>;
   const shareOpensBlock = canEdit && !isTrashed && <PropertyShareOpensCard propertyId={property.id} />;

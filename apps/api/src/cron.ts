@@ -1840,6 +1840,100 @@ export function startCronJobs() {
   );
 
   /**
+   * ПОЛНЫЙ ОБХОД SOMON РАЗ В НЕДЕЛЮ (владелец 02.11.2026): квартиры и дома в Душанбе.
+   * Свежие объявления Somon и так попадают в каталог из минутного парсера лидов; полный обход
+   * добирает остальное, обновляет цены и помечает ушедшие (порог 264 ч). Paydo с 03.11.2026 здесь
+   * НЕ ходит: у него свой ночной обход и инкремент ниже. Воскресенье 02:30. По умолчанию ВЫКЛЮЧЕН:
+   * MARKET_CRAWL_ENABLED=1 в .env сервера после первого ручного прогона. Весь трафик к Somon идёт
+   * через общий бюджет.
+   */
+  scheduleTracked(
+    "market-weekly-crawl",
+    "30 2 * * 0",
+    async () => {
+      if (process.env.MARKET_CRAWL_ENABLED !== "1") return;
+      try {
+        const { runMarketFullCrawl } = await import("./lib/market/nightly.js");
+        await runMarketFullCrawl();
+      } catch (err) {
+        markCronTickFailed("Ошибка недельного обхода рынка", err);
+      }
+    },
+    { timezone: "Asia/Dushanbe" },
+    undefined,
+    // Прогон идёт до 3 часов (MAX_RUNTIME_MS в nightly.ts) + запас на последнюю страницу и разметку:
+    // с общим потолком тика в 20 минут крон ложно писал «не завершил тик, снят с замка».
+    { timeoutMs: 3 * 60 * 60_000 + 30 * 60_000 }
+  );
+
+  /**
+   * ПОЛНЫЙ ОБХОД PAYDO КАЖДУЮ НОЧЬ (владелец 03.11.2026): 03:00, оба раздела до конца выдачи,
+   * затем «исчезло» с порогом 72 ч (мимо трёх ночных обходов). Замок общий с Somon-обходом и
+   * инкрементом: занят — тик тихо пропускается (в воскресенье Somon-обход с 02:30 может ещё идти).
+   * Тот же флаг MARKET_CRAWL_ENABLED=1.
+   */
+  scheduleTracked(
+    "market-paydo-daily",
+    "0 3 * * *",
+    async () => {
+      if (process.env.MARKET_CRAWL_ENABLED !== "1") return;
+      try {
+        const { runPaydoFullCrawl } = await import("./lib/market/nightly.js");
+        await runPaydoFullCrawl();
+      } catch (err) {
+        markCronTickFailed("Ошибка ночного обхода Paydo", err);
+      }
+    },
+    { timezone: "Asia/Dushanbe" },
+    undefined,
+    // Тот же предел, что у недельного: MAX_RUNTIME_MS (3 ч) + запас на последнюю страницу.
+    { timeoutMs: 3 * 60 * 60_000 + 30 * 60_000 }
+  );
+
+  /**
+   * ИНКРЕМЕНТ PAYDO КАЖДЫЕ 10 МИНУТ (владелец 03.11.2026): первые страницы выдачи по разделам,
+   * пока там есть новое или изменившееся в цене; два подряд полностью известных страницы или 15
+   * страниц на раздел — стоп. Исчезнувшими ничего не помечает (это дело ночного обхода). Занят
+   * замок — тик пропускается. Тик ≤ 8 минут (INCREMENTAL_MAX_RUNTIME_MS), потолок тика по умолчанию
+   * (2 интервала = 20 минут) достаточен. Тот же флаг MARKET_CRAWL_ENABLED=1.
+   */
+  scheduleTracked(
+    "market-paydo-incremental",
+    "*/10 * * * *",
+    async () => {
+      if (process.env.MARKET_CRAWL_ENABLED !== "1") return;
+      try {
+        const { runPaydoIncremental } = await import("./lib/market/paydoIncremental.js");
+        await runPaydoIncremental();
+      } catch (err) {
+        markCronTickFailed("Ошибка инкремента Paydo", err);
+      }
+    },
+    { timezone: "Asia/Dushanbe" }
+  );
+
+  /**
+   * НАШ ОБЪЕКТ НА SOMON/PAYDO (владелец 02.11.2026): раз в 30 минут сверяем наши объекты
+   * с каталогом чужих объявлений; агенту уходит пуш о новом совпадении (один раз),
+   * о смене цены и о том, что объявление сняли. Только по каталогу, в сеть не ходит.
+   * Включается тем же MARKET_CRAWL_ENABLED=1.
+   */
+  scheduleTracked(
+    "market-own-match",
+    "*/30 * * * *",
+    async () => {
+      if (process.env.MARKET_CRAWL_ENABLED !== "1") return;
+      try {
+        const { runOwnMatching } = await import("./lib/market/ownMatch.js");
+        await runOwnMatching();
+      } catch (err) {
+        markCronTickFailed("Ошибка сверки объектов с площадками", err);
+      }
+    },
+    { timezone: "Asia/Dushanbe" }
+  );
+
+  /**
    * ЕЖЕНЕДЕЛЬНОЕ НАПОМИНАНИЕ О ВЕРОЯТНЫХ ДУБЛИКАТАХ (владелец 06.09.2026, разбор
    * слепых зон п.3) — тот же понедельник, что у «Разбора недели» выше, но на
    * 10 минут позже (та же причина: не складывать тяжёлые задачи в одну минуту)

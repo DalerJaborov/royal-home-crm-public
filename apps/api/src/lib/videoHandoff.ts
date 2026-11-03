@@ -1980,7 +1980,7 @@ const AUTO_PUBLISH_CHANNELS = ["INSTAGRAM", "FACEBOOK", "TELEGRAM", "YOUTUBE", "
  * каналы, задание — статус объекта), только сказанные человеку сразу, при
  * загрузке, а не пустым пушем «опубликован. Ушло: —» часами позже.
  */
-async function handoffNotPublishingReason(property: { status: string; publishedChannels: string[] | null }): Promise<string | null> {
+async function handoffNotPublishingReason(property: { id: string; status: string; publishedChannels: string[] | null }): Promise<string | null> {
   if (handoffStatusBlockReason(property.status)) {
     return "Объект снят с продажи, продан или забронирован — в сети ролик сам не уйдёт. Файл сохранён: он пригодится, когда объект вернётся в продажу.";
   }
@@ -1990,6 +1990,15 @@ async function handoffNotPublishingReason(property: { status: string; publishedC
   }
   const published = new Set(property.publishedChannels ?? []);
   if (AUTO_PUBLISH_CHANNELS.every((c) => published.has(c))) {
+    // Перемонтаж по новой цене/данным (владелец 30.10.2026): старые посты снимет само
+    // задание публикации перед выходом нового ролика (replaceOldPostsBeforeRemakePublish).
+    // Без этого исключения одобренный перемонтаж отказывал здесь и до снятия не доходил
+    // (01.11.2026, №164: «Одобрено, но в сети ролик сам не уйдёт»).
+    const pendingReplace = await prisma.videoRemakeRequest.findFirst({
+      where: { propertyId: property.id, replaceOldPostsOnPublish: true, oldPostsReplacedAt: null },
+      select: { id: true },
+    });
+    if (pendingReplace) return null;
     return "Объект уже вышел во всех пяти сетях со старым роликом — новый туда сам не уйдёт. Чтобы заменить, сначала «Убрать из соцсетей».";
   }
   return null;
@@ -2260,7 +2269,7 @@ export async function schedulePublishAfterAccept(propertyId: string): Promise<Sc
   try {
     const property = await prisma.property.findUnique({
       where: { id: propertyId },
-      select: { shortId: true, status: true, deletedAt: true, videoHandoffStatus: true, publishedChannels: true },
+      select: { id: true, shortId: true, status: true, deletedAt: true, videoHandoffStatus: true, publishedChannels: true },
     });
     if (!property || property.deletedAt || property.videoHandoffStatus !== "RECEIVED") {
       return { scheduledPublishAt: null, notPublishingReason: closedReason };
