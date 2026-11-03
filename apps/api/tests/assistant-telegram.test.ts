@@ -9,12 +9,13 @@ import bcrypt from "bcrypt";
  * брокер lib/assistantActions.ts — тот же путь, что у настоящих инструментов.
  */
 
-const { sendMessage, sendMessageWithButtons, answerCallbackQuery, editMessageText, runner, transcribe, fetchAudio, claimCap } =
+const { sendMessage, sendMessageWithButtons, answerCallbackQuery, editMessageText, react, runner, transcribe, fetchAudio, claimCap } =
   vi.hoisted(() => ({
     sendMessage: vi.fn(async (_chatId: string, _text: string, _reply?: number) => ({})),
     sendMessageWithButtons: vi.fn(async (_c: string, _t: string, _b: unknown, _r?: number) => ({ message_id: 501 })),
     answerCallbackQuery: vi.fn(async (_id: string, _text?: string) => ({})),
     editMessageText: vi.fn(async (_c: string, _m: number, _t: string, _b?: unknown) => {}),
+    react: vi.fn(async (_c: string, _m: number, _e: string) => {}),
     runner: vi.fn(),
     transcribe: vi.fn(),
     fetchAudio: vi.fn(),
@@ -27,6 +28,7 @@ vi.mock("../src/telegram/api.js", async (importOriginal) => ({
   sendMessageWithButtons,
   answerCallbackQuery,
   editMessageText,
+  setMessageReaction: react,
   getBotUsername: async () => "rh_test_bot",
   sendChatAction: async () => {},
 }));
@@ -158,7 +160,7 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
-  for (const m of [sendMessage, sendMessageWithButtons, answerCallbackQuery, editMessageText, runner, transcribe, fetchAudio, claimCap]) {
+  for (const m of [sendMessage, sendMessageWithButtons, answerCallbackQuery, editMessageText, react, runner, transcribe, fetchAudio, claimCap]) {
     m.mockReset();
   }
   sendMessage.mockResolvedValue({});
@@ -490,6 +492,13 @@ describe("личка сотрудника", () => {
     await handleTelegramUpdate(privateMsg("author", { voice: { file_id: "f2", duration: 3 } }));
     expect(transcribe).not.toHaveBeenCalled();
     expect(sentTexts().at(-1)).toContain("Лимит голосовых");
+  });
+
+  it("голое фото без слов — только реакция 👀, ни текста, ни модели", async () => {
+    await handleTelegramUpdate(privateMsg("author", { message_id: 4242, photo: [{ file_id: "p1", width: 1, height: 1 }] }));
+    expect(react).toHaveBeenCalledWith(agents.author.userId, 4242, "👀");
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(runner).not.toHaveBeenCalled();
   });
 
   it("расшифровка не удалась — ответ человеку, модель не зовётся", async () => {

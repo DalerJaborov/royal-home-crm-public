@@ -27,6 +27,7 @@ import {
   sendChatAction,
   sendMessage,
   sendMessageWithButtons,
+  setMessageReaction,
   type TelegramCallbackQuery,
   type TelegramIncomingMessage,
 } from "./api.js";
@@ -383,6 +384,12 @@ export async function handleAssistantPrivate(
       await send(`🎤 «${text.slice(0, 300)}»`);
     }
     if (!text) {
+      // Голое фото/видео/файл без слов: молча «👀» (цель назовут следующим сообщением), без текста.
+      const bare = msg.photo?.length || msg.video || msg.document || msg.video_note || msg.animation;
+      if (bare && msg.message_id) {
+        await setMessageReaction(chatId, msg.message_id, "👀");
+        return;
+      }
       await send(HELP_TEXT);
       return;
     }
