@@ -24,6 +24,21 @@ export function canManagePropertyAs(
 }
 
 /**
+ * СВОЙ ОБЪЕКТ (ведущий, приёмщик или создатель карточки) — без права editForeign.
+ * Решение владельца 03.11.2026: цену СВОЕГО опубликованного объекта агент меняет сам,
+ * замок публикации (07.10.2026) на неё не действует; остальные поля по-прежнему заявкой.
+ */
+export function ownsProperty(
+  agentId: string,
+  property: { assignedAgentId?: string | null; intakeAgentId?: string | null; createdById?: string | null }
+): boolean {
+  return [property.assignedAgentId, property.intakeAgentId, property.createdById].includes(agentId);
+}
+
+/** Поля, которые замок публикации не держит для хозяина объекта. */
+export const OWNER_OPEN_AFTER_PUBLISH_FIELDS: readonly string[] = ["price", "currency"];
+
+/**
  * КНОПКИ ВИДЕО-ИСПРАВЛЕНИЙ ПОСЛЕ ПУБЛИКАЦИИ — только руководству (07.10.2026).
  * «Вернуть монтажёру», «Снова на монтаж» и соседи трогают то, что уже видно
  * подписчикам; агенту-владельцу они не доступны, он просит заявкой. Те же

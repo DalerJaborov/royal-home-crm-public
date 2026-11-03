@@ -173,12 +173,13 @@ describe("замок правки после публикации", () => {
 
   it("после публикации агенту отказ с причиной PUBLISHED, директору и руководству можно", async () => {
     const p = await seed({ status: "AVAILABLE" });
-    const res = await patch(p.id, agentToken, { price: 470000 });
+    // Цена СВОЕГО объекта замком не держится (владелец 03.11.2026); остальные параметры — замок.
+    const res = await patch(p.id, agentToken, { areaSqm: 77 });
     expect(res.status).toBe(409);
     expect(res.body.code).toBe(PROPERTY_EDIT_LOCKED_CODE);
     expect(res.body.reason).toBe(PROPERTY_EDIT_LOCKED_REASON_PUBLISHED);
     const after = await prisma.property.findUniqueOrThrow({ where: { id: p.id } });
-    expect(Number(after.price)).toBe(450000);
+    expect(Number(after.areaSqm)).not.toBe(77);
 
     expect((await patch(p.id, managerToken, { price: 470000 })).status).toBe(200);
     expect((await patch(p.id, adminToken(), { price: 480000 })).status).toBe(200);

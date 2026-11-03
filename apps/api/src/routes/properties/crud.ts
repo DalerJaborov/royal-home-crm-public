@@ -1,3 +1,4 @@
+import { ownsProperty, OWNER_OPEN_AFTER_PUBLISH_FIELDS } from "../../lib/propertyAccess.js";
 import { scheduleManualOwnerVerification } from "../../lib/ownerVerificationSources.js";
 import { refreshSellerAfterPropertyChange } from "../../lib/clientAutoStatus.js";
 /** Жизненный цикл карточки объекта: POST /, PATCH /:id, POST /:id/complete-editing,
@@ -962,7 +963,11 @@ crudRouter.patch("/:id", requireAuth, async (req, res) => {
   // (зарезервирован / продан / снят) — остальное через заявку директору или
   // админу. На проверке и на монтаже правка открыта, а монтажёр и модератор
   // получают уведомление «было → стало» (lib/propertyEditNotify.ts ниже).
-  if (changedFields.some((f) => !(PROPERTY_FIELDS_OPEN_AFTER_PUBLISH as readonly string[]).includes(f))) {
+  // Цена и валюта СВОЕГО объекта замком не держатся (владелец 03.11.2026); проданный — выше, руководству.
+  const lockedFields = ownsProperty(req.agent!.id, existing)
+    ? changedFields.filter((f) => !OWNER_OPEN_AFTER_PUBLISH_FIELDS.includes(f))
+    : changedFields;
+  if (lockedFields.some((f) => !(PROPERTY_FIELDS_OPEN_AFTER_PUBLISH as readonly string[]).includes(f))) {
     const lock = propertyEditLockBody(req, existing);
     if (lock) return res.status(409).json(lock);
   }

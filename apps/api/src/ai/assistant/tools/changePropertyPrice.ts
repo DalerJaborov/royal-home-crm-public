@@ -24,6 +24,7 @@ const argsSchema = z.object({
 export const changePropertyPriceExecutor = makeChangeRequestExecutor<z.infer<typeof argsSchema>>({
   tool: "change_property_price",
   kind: "PRICE_CHANGE",
+  directForOwner: true,
   parseArgs: (raw) => argsSchema.parse(raw),
   async buildBody(args) {
     return {
@@ -56,11 +57,11 @@ export const changePropertyPricePlugin: AssistantWriteToolPlugin = {
   name: "change_property_price",
   level: "C",
   description:
-    "Подать заявку руководителю на изменение ЦЕНЫ опубликованного объекта (было → станет, потом человек подтверждает). " +
+    "Изменить ЦЕНУ опубликованного объекта (своему — сразу, чужому — заявкой руководителю) (было → станет, потом человек подтверждает). " +
     "Звать, когда просят поменять/снизить/поднять цену объекта: «подними цену ОБ-88 до 95 000». " +
     "НЕ звать для поиска объекта (find_property), для смены статуса (change_property_status) и для объектов, " +
     "которые ещё не опубликованы (их карточку правят руками). Цена сама не меняется — после подтверждения " +
-    "уйдёт заявка, одобряет руководитель. После вызова ответь одной фразой: «Подтвердите заявку».",
+    "уйдёт заявка руководителю, а для СВОЕГО объекта цена меняется сразу после подтверждения. После вызова ответь одной фразой: «Подтвердите».",
   parameters: {
     type: "object",
     properties: {
