@@ -36,6 +36,19 @@ describe("privacy and content", () => {
     expect(html).toBe('<a href="https://crm.test/properties/104">ОБ-000104 · 2-комн · ОВИР</a>.');
     expect(sanitizeAssistantReply("Агент: Маъруф, статус: холодный", true)).toBe("Агент: Маъруф");
   });
+  it.each(["60-70 метри мураббаъ", "60–70 м²"])("reads a Tajik area range aloud: %s", async area => {
+    const text = `Квартираи «коробка» меҷӯянд. Майдонаш ${area}, тирезаҳои зиёд.`;
+    const speech = "Квартираи «коробка» меҷӯянд. Майдонаш аз шаст то ҳафтод метри мураббаъ, тирезаҳои зиёд.";
+    expect(prepareAssistantReply(text)).toMatchObject({ text, speech, language: "tg", needsText: false });
+    await sendAssistantReply("test", text, ctx);
+    expect(voice).toHaveBeenCalledWith("test", speech, undefined);
+    expect(html).not.toHaveBeenCalled();
+  });
+  it("keeps a decimal area and ambiguous number ranges in text", () => {
+    for (const text of ["Ҳоло майдонаш 68,5 м².", "Рақами объект 60-70."]) {
+      expect(prepareAssistantReply(text)).toMatchObject({ text, speech: "", language: "tg", needsText: true });
+    }
+  });
   it("retains authorised private text, never recites contact", () => {
     const p = prepareAssistantReply('Телефон +992901234567');
     expect(p.text).toContain('+992901234567');

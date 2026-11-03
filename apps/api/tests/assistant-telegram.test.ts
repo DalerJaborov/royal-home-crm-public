@@ -809,8 +809,8 @@ describe("новая доставка ответа помощника", () => {
     expect(sentTexts().join("\n")).toContain("ИИ отвечал слишком долго");
   });
 
-  it("пересланная речь сохраняет слова клиента отдельно от команды сотрудника", async () => {
-    const transcript = "Муштарӣ гуфт: хонаи тайёр даркор, таъмирро худам мекунам.";
+  it("ищет варианты по пересланной речи в режиме чтения", async () => {
+    const transcript = "Ҳамкорон, квартираи коробка лозим. Масоҳаташ 60-70, тарафи Садбарг, видеояшро фиристед.";
     transcribe.mockResolvedValue(transcript);
     runner.mockResolvedValue({ ok: true, reply: "Муштарӣ хонаи тайёр мехоҳад. Таъмирро худаш мекунад." });
     await handleTelegramUpdate(privateMsg("author", {
@@ -818,7 +818,9 @@ describe("новая доставка ответа помощника", () => {
     }));
     const [history, , options] = runner.mock.calls[0];
     expect(history.at(-1).content).toContain(`<client_content kind="document">\n${transcript}\n</client_content>`);
-    expect(history.at(-1).content).toContain("таъмирро худаш мекунад");
+    expect(history.at(-1).content).toContain("бо search_properties ҷустуҷӯ кун");
+    expect(history.at(-1).content).toContain("withVideo");
+    expect(history.at(-1).content).not.toContain("Кори дигаре дар CRM накун");
     expect(options.confirmUi).toBe(false);
     expect(chatAction).not.toHaveBeenCalled();
   });

@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { EmbeddingRequestOptions } from "./embeddings.js";
 import { createAssistantMoneyWallet, createAssistantMoneyGuard, createAssistantEmbeddingMoneyGuard } from "./assistant/moneyBudget.js";
 import { assistantStyle } from "./assistant/personaStyle.js";
@@ -9,7 +10,7 @@ import { visibleInteractionWhere } from "../lib/investigationPrivacy.js";
 import { expenseCentsToTjs } from "../lib/money.js";
 import { prisma } from "../db.js";
 import { geminiFunctionResponsePart } from "./providerContract.js";
-import { formatClientName, parseShortCode, trimAssistantHistory, type AssistantTokenEvent } from "@royal-home/shared";
+import { formatClientName, parseShortCode, PROPERTY_STAGES, trimAssistantHistory, type AssistantTokenEvent } from "@royal-home/shared";
 import type { Prisma, PropertyStatus } from "../generated/prisma/client.js";
 import { toSearchTokens, toTokenVariants } from "../lib/searchTokens.js";
 import {
@@ -221,6 +222,15 @@ interface AssistantTool {
   parameters?: Record<string, unknown>;
 }
 
+const propertySearchFilters = z.object({
+  minAreaSqm: z.number().positive().max(100_000).optional(),
+  maxAreaSqm: z.number().positive().max(100_000).optional(),
+  stage: z.enum(PROPERTY_STAGES).optional(),
+  locationNames: z.array(z.string().trim().min(1).max(100)).max(6).optional(),
+  preferManyWindows: z.boolean().optional(),
+  withVideo: z.boolean().optional(),
+}).refine(filters => filters.minAreaSqm === undefined || filters.maxAreaSqm === undefined || filters.minAreaSqm <= filters.maxAreaSqm);
+
 const TOOLS: AssistantTool[] = [
   {
     name: "search_properties",
@@ -251,6 +261,15 @@ const TOOLS: AssistantTool[] = [
           description: "Валюта maxPrice. По умолчанию TJS (сомони). Объекты в другой валюте сравниваются по курсу.",
         },
         minRooms: { type: "number" },
+        minAreaSqm: { type: "number", description: "Минимальная площадь, м², включительно." },
+        maxAreaSqm: { type: "number", description: "Максимальная площадь, м², включительно." },
+        stage: { type: "string", enum: [...PROPERTY_STAGES], description: "Стадия стройки. Коробка без черновых работ — SHELL." },
+        locationNames: {
+          type: "array", items: { type: "string" },
+          description: "До 6 альтернативных ориентиров, улиц или районов, например Аэропорт или Садбарг. Подойдёт любое из перечисленных мест. Передавай только название.",
+        },
+        preferManyWindows: { type: "boolean", description: "Ставить первыми варианты с большим количеством окон, если это просили." },
+        withVideo: { type: "boolean", description: "Только объекты с видео в карточке или ссылкой на ролик." },
         status: {
           type: "string",
           enum: ["AVAILABLE", "RESERVED", "SOLD", "WITHDRAWN"],
@@ -447,6 +466,21 @@ export async function runTool(name: string, input: Record<string, unknown>, acto
     c.deletedAt !== null || (Boolean(ownScope) && c.acceptedAt === null);
 
   if (name === "search_properties") {
+    const parsed = propertySearchFilters.safeParse(input);
+    if (!parsed.success) return { error: "Уточните площадь, стадию или названия мест" };
+    const filters = parsed.data;
+    const locations = (filters.locationNames ?? []).map(toSearchTokens).filter(tokens => tokens.length > 0);
+    if (filters.locationNames?.length && !locations.length) return { error: "Уточните названия мест" };
+    const locationFilter: Prisma.PropertyWhereInput[] = locations.length ? [{
+      OR: locations.map(tokens => ({
+        AND: tokens.map(token => ({
+          OR: toTokenVariants(token).flatMap(variant => {
+            const match = { contains: variant, mode: "insensitive" as const };
+            return [{ address: match }, { landmark: match }, { title: match }, { district: { name: match } }];
+          }),
+        })),
+      })),
+    }] : [];
     // Район — тем же правилом, что во всех каналах (lib/districtLookup.ts):
     // «Шоҳмансур», «Sino» — тот же район. Не нашёлся — так и говорим модели, а не
     // отдаём объекты по всему городу под видом «в этом районе» (29.09.2026).
@@ -499,13 +533,19 @@ export async function runTool(name: string, input: Record<string, unknown>, acto
       ...(districtId ? { districtId } : {}),
       ...priceFilter,
       ...(input.minRooms ? { rooms: { gte: Number(input.minRooms) } } : {}),
-      ...(textFilter.length > 0 ? { AND: textFilter } : {}),
+      ...(filters.stage ? { stage: filters.stage } : {}),
+      ...(filters.minAreaSqm !== undefined || filters.maxAreaSqm !== undefined
+        ? { areaSqm: { gte: filters.minAreaSqm, lte: filters.maxAreaSqm } } : {}),
+      ...(filters.withVideo ? { OR: [{ videos: { some: {} } }, { instagramUrl: { not: null, notIn: [""] } }] } : {}),
+      ...(textFilter.length || locationFilter.length ? { AND: [...textFilter, ...locationFilter] } : {}),
     };
-    const propertyInclude = { district: { select: { name: true } } } as const;
+    const propertyInclude = { district: { select: { name: true } }, videos: { select: { id: true }, take: 1 } } as const;
     const found = await prisma.property.findMany({
       where: propertyWhere,
       include: propertyInclude,
-      orderBy: { createdAt: "desc" },
+      orderBy: filters.preferManyWindows
+        ? [{ windowCount: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }]
+        : { createdAt: "desc" },
       // Структурные фильтры сужают первыми (архитектурное решение 23.08.2026,
       // пункт 3 очереди ИИ): при семантике берём пул с запасом, чтобы было что
       // переупорядочить по смыслу, — без неё сразу режем до восьми, как раньше.
@@ -517,7 +557,7 @@ export async function runTool(name: string, input: Record<string, unknown>, acto
       shortIdMatch !== null
         ? (found.find((p) => p.shortId === shortIdMatch) ??
           (await prisma.property.findFirst({
-            where: { ...propertyWhere, AND: [{ shortId: shortIdMatch }] },
+            where: { ...propertyWhere, AND: [...locationFilter, { shortId: shortIdMatch }] },
             include: propertyInclude,
           })))
         : null;
@@ -553,6 +593,9 @@ export async function runTool(name: string, input: Record<string, unknown>, acto
       type: p.type,
       rooms: p.rooms,
       areaSqm: Number(p.areaSqm),
+      windowCount: p.windowCount,
+      stage: p.stage,
+      hasVideo: p.videos.length > 0 || Boolean(p.instagramUrl?.trim()),
       price: Number(p.price),
       currency: p.currency,
       district: p.district?.name ?? "Без района",

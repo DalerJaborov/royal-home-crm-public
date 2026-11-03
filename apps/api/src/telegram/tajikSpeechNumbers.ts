@@ -35,11 +35,17 @@ function cardinal(number: number): string {
 }
 
 /**
- * Run on masked speech only. Expand unambiguous times and whole numbers.
+ * Run on masked speech only. Expand unambiguous times, floor areas and whole numbers.
  * Dates, decimals, codes and unrecognised notation stay in the written reply.
  */
 export function tajikSpeechNumbers(text: string): string | null {
   const spoken = text
+    .replace(/(?<![\p{L}\p{N}_:.,/+−–—-])(\d{1,5})(?:[ \u00a0\u202f]*[-–—][ \u00a0\u202f]*(\d{1,5}))?[ \u00a0\u202f]*(?:м[²2]|метри мураббаъ)(?![\p{L}\p{N}_])/giu, (match, first: string, last?: string) => {
+      if (first.startsWith("0") || last?.startsWith("0")) return match;
+      const start = cardinal(Number(first));
+      if (last === undefined) return `${start} метри мураббаъ`;
+      return Number(first) <= Number(last) ? `аз ${start} то ${cardinal(Number(last))} метри мураббаъ` : match;
+    })
     .replace(/(?<![\p{L}\p{N}_:./+−–-])(\d{1,2}):(\d{2})(?![\p{L}\p{N}_]|[:./−–-]\d)/gu, (match, hours: string, minutes: string) => {
       const hour = Number(hours);
       const minute = Number(minutes);

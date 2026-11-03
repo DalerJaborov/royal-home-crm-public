@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import type { Prisma } from "../src/generated/prisma/client.js";
 
 /**
  * search_properties В АССИСТЕНТЕ: ПОТОЛОК ЦЕНЫ С УЧЁТОМ ВАЛЮТЫ (CHANNEL-NEW-41, аудит 04.10.2026).
@@ -38,7 +39,7 @@ const actor = {
   canViewAllDeals: true,
 };
 
-async function make(key: string, price: number, currency: "TJS" | "USD") {
+async function make(key: string, price: number, currency: "TJS" | "USD", extra: Partial<Prisma.PropertyUncheckedCreateInput> = {}) {
   const p = await prisma.property.create({
     data: {
       title: `Цена-${key}-${runId}`,
@@ -49,6 +50,7 @@ async function make(key: string, price: number, currency: "TJS" | "USD") {
       districtId,
       address: `Тестовая ${key}`,
       condition: "GOOD",
+      ...extra,
     },
   });
   ids[key] = p.id;
@@ -86,4 +88,24 @@ describe("search_properties: maxPrice и валюта", () => {
     expect(found).toContain(ids.tjs150k);
     expect(found).not.toContain(ids.usd100k);
   });
+});
+
+it("matches area, either location, shell and video before ordering by number of windows", async () => {
+  const shell = { marketType: "NEW_BUILD", stage: "SHELL", condition: "NEW_BUILDING",
+    instagramUrl: "https://www.instagram.com/reel/test-fixture/" } as const;
+  await make("first", 150000, "TJS", { ...shell, areaSqm: 60, landmark: "Аэропорт", windowCount: 3 });
+  await make("second", 150000, "TJS", { ...shell, areaSqm: 70, landmark: "Садбарг", windowCount: 5 });
+  await make("outside", 150000, "TJS", { ...shell, areaSqm: 71, landmark: "Аэропорт", windowCount: 8 });
+  await make("noVideo", 150000, "TJS", { ...shell, areaSqm: 65, landmark: "Аэропорт", windowCount: 8, instagramUrl: null });
+  await make("wrongStage", 150000, "TJS", { ...shell, areaSqm: 65, landmark: "Аэропорт", stage: "ROUGH_FINISH" });
+  await make("wrongPlace", 150000, "TJS", { ...shell, areaSqm: 65, landmark: "Иной район" });
+
+  const result = await runTool("search_properties", {
+    districtName: `Ассистент-цена-${runId}`, type: "APARTMENT", stage: "SHELL",
+    minAreaSqm: 60, maxAreaSqm: 70, locationNames: ["Аэропорт", "Садбарг"], withVideo: true, preferManyWindows: true,
+  }, actor as never);
+  expect(result).toMatchObject([
+    { id: ids.second, areaSqm: 70, windowCount: 5, hasVideo: true },
+    { id: ids.first, areaSqm: 60, windowCount: 3, hasVideo: true },
+  ]);
 });
