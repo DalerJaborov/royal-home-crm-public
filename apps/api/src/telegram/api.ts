@@ -605,6 +605,43 @@ export async function sendDocumentFile(
   return result as TelegramSentDocument;
 }
 
+export async function sendHtmlMessage(chatId: string, html: string, replyToMessageId?: number): Promise<unknown> {
+  return call("sendMessage", {
+    chat_id: chatId,
+    text: html,
+    parse_mode: "HTML",
+    link_preview_options: { is_disabled: true },
+    ...(replyToMessageId ? { reply_to_message_id: replyToMessageId, allow_sending_without_reply: true } : {}),
+  }, CALL_TIMEOUT_MS, undefined, undefined, true);
+}
+
+/** Repeat a known voice for this bot, with no ambiguous automatic retry. */
+export async function sendAssistantVoiceId(chatId: string, fileId: string, replyToMessageId?: number): Promise<unknown> {
+  return call("sendVoice", {
+    chat_id: chatId, voice: fileId,
+    ...(replyToMessageId ? { reply_to_message_id: replyToMessageId, allow_sending_without_reply: true } : {}),
+  }, CALL_TIMEOUT_MS, undefined, undefined, true);
+}
+
+/** Голосовое сообщение (OGG/Opus) — ответ помощницы голосом (telegram/assistantVoice.ts). */
+export async function sendVoiceFile(chatId: string, audio: Buffer, replyToMessageId?: number, timeoutMs = 60_000): Promise<unknown> {
+  if (!BASE_URL) throw new Error("TELEGRAM_BOT_TOKEN не настроен");
+  return postMultipartWithRetry(
+    `${BASE_URL}/sendVoice`,
+    () => {
+      const form = new FormData();
+      form.append("chat_id", chatId);
+      if (replyToMessageId) { form.append("reply_to_message_id", String(replyToMessageId)); form.append("allow_sending_without_reply", "true"); }
+      form.append("voice", new Blob([audio], { type: "audio/ogg" }), "madina.ogg");
+      return form;
+    },
+    timeoutMs,
+    "sendVoice",
+    true,
+  );
+}
+
+
 /** Имя бота (без @) — нужно для прямой ссылки-приглашения t.me/<имя>?start=<код>
  *  (01.09.2026, привязка личного Telegram агента). Кэшируется в памяти процесса:
  *  имя бота не меняется на лету, спрашивать Telegram на каждой ссылке незачем. */

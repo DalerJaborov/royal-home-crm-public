@@ -46,7 +46,7 @@ const LEADING_FILLER = /^(?:(?:покажи|показать|найди|найт
 
 const PROPERTY_WORDS = "(?:объект|обьект|ob)";
 const PROPERTY_PREFIX = "(?:об|ob)";
-const CLIENT_WORDS = "(?:клиент|покупатель|продавец)";
+const CLIENT_WORDS = "(?:клиент(?:а)?|покупател[ья]|продав(?:ец|ца))";
 const CLIENT_PREFIX = "(?:пк|пр|по|кл|pk|pr|po|kl)";
 const SEP = "[\\s.\\-–—]*";
 const NUMBER = "[№#]?\\s*(\\d{1,9})";
@@ -105,7 +105,9 @@ export function parseFastPathIntent(text: string): Intent | null {
     const shortId = parseShortCode(property[1]);
     return shortId === null ? null : { kind: "property-code", shortId };
   }
-  const client = CLIENT_CODE_RE.exec(phrase);
+  // "номер 112" means a card; 9+ digits remain a phone, never a guessed UUID.
+  const numberedClient = /^(?:(?:клиент(?:а)?|покупател[ья]|продав(?:ец|ца))\s+)?(?:по\s+)?номер(?:у)?\s*[№#]?\s*(\d{1,8})$/i.exec(phrase);
+  const client = CLIENT_CODE_RE.exec(phrase) ?? numberedClient;
   if (client) {
     const shortId = parseShortCode(client[1]);
     return shortId === null ? null : { kind: "client-code", shortId };
@@ -213,11 +215,13 @@ async function findByIntent(intent: Intent, actor: AssistantActor): Promise<Assi
       return exact.slice(0, MAX_CARDS).map(propertyCard);
     }
     case "client-code": {
-      const c = await prisma.client.findFirst({
+      const rows = await prisma.client.findMany({
         where: { shortId: intent.shortId, ...visibleClientWhere(actor) },
         include: clientInclude,
+        orderBy: { id: "asc" },
+        take: MAX_CARDS,
       });
-      return c ? [clientCard(c, actor)] : [];
+      return rows.map((c) => clientCard(c, actor));
     }
     case "phone": {
       // Поиск по номеру — только тому, кому номер виден (см. шапку файла).
@@ -256,7 +260,7 @@ export async function tryAssistantFastPath(text: string, actor: AssistantActor):
   const first = cards[0];
   return {
     cards,
-    reply: replyFor(cards),
+    reply: replyFor(cards) + (cards.length > 1 ? "\nУточните, какую карточку открыть." : ""),
     tool: `fast_path.${intent.kind}`,
     argsSummary: JSON.stringify(first.kind === "client" ? { clientId: first.id } : { propertyId: first.id }),
   };

@@ -9,9 +9,13 @@ import bcrypt from "bcrypt";
  * брокер lib/assistantActions.ts — тот же путь, что у настоящих инструментов.
  */
 
-const { sendMessage, sendMessageWithButtons, answerCallbackQuery, editMessageText, react, runner, transcribe, fetchAudio, claimCap } =
+const { sendMessage, sendHtmlMessage, sendVoiceFile, sendAssistantVoiceId, synthVoice, sendMessageWithButtons, answerCallbackQuery, editMessageText, react, runner, transcribe, fetchAudio, claimCap } =
   vi.hoisted(() => ({
     sendMessage: vi.fn(async (_chatId: string, _text: string, _reply?: number) => ({})),
+    sendHtmlMessage: vi.fn(async (_chatId: string, _text: string, _reply?: number) => ({})),
+    sendVoiceFile: vi.fn(async (_chatId: string, _audio: Buffer, _reply?: number) => ({})),
+    sendAssistantVoiceId: vi.fn(async (_chatId: string, _fileId: string, _reply?: number) => ({})),
+    synthVoice: vi.fn(async (_chatId: string, _text: string, _reply?: number) => false),
     sendMessageWithButtons: vi.fn(async (_c: string, _t: string, _b: unknown, _r?: number) => ({ message_id: 501 })),
     answerCallbackQuery: vi.fn(async (_id: string, _text?: string) => ({})),
     editMessageText: vi.fn(async (_c: string, _m: number, _t: string, _b?: unknown) => {}),
@@ -25,6 +29,9 @@ const { sendMessage, sendMessageWithButtons, answerCallbackQuery, editMessageTex
 vi.mock("../src/telegram/api.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/telegram/api.js")>()),
   sendMessage,
+  sendHtmlMessage,
+  sendVoiceFile,
+  sendAssistantVoiceId,
   sendMessageWithButtons,
   answerCallbackQuery,
   editMessageText,
@@ -32,6 +39,7 @@ vi.mock("../src/telegram/api.js", async (importOriginal) => ({
   getBotUsername: async () => "rh_test_bot",
   sendChatAction: async () => {},
 }));
+vi.mock("../src/telegram/assistantVoice.js", () => ({ sendAssistantVoiceReply: synthVoice }));
 vi.mock("../src/ai/assistant.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/ai/assistant.js")>()),
   isAiAssistantEnabled: async () => true,
@@ -143,7 +151,9 @@ async function askChain(key = "author") {
   return { call, ok: buttons[0][0].callback_data, no: buttons[0][1].callback_data };
 }
 
-const sentTexts = () => sendMessage.mock.calls.map((c) => String(c[1]));
+const sentTexts = () => [sendMessage, sendHtmlMessage].flatMap((mock) =>
+  mock.mock.calls.map((call, index) => ({ text: String(call[1]), order: mock.mock.invocationCallOrder[index] }))
+).sort((a, b) => a.order - b.order).map((call) => call.text);
 const answers = () => answerCallbackQuery.mock.calls.map((c) => String(c[1] ?? ""));
 
 beforeAll(async () => {
@@ -160,10 +170,14 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
-  for (const m of [sendMessage, sendMessageWithButtons, answerCallbackQuery, editMessageText, react, runner, transcribe, fetchAudio, claimCap]) {
+  for (const m of [sendMessage, sendHtmlMessage, sendVoiceFile, sendAssistantVoiceId, synthVoice, sendMessageWithButtons, answerCallbackQuery, editMessageText, react, runner, transcribe, fetchAudio, claimCap]) {
     m.mockReset();
   }
   sendMessage.mockResolvedValue({});
+  sendHtmlMessage.mockResolvedValue({});
+  sendVoiceFile.mockResolvedValue({});
+  sendAssistantVoiceId.mockResolvedValue({});
+  synthVoice.mockResolvedValue(false);
   sendMessageWithButtons.mockResolvedValue({ message_id: 501 });
   answerCallbackQuery.mockResolvedValue({});
   claimCap.mockResolvedValue({ allowed: true, usedToday: 1 });
@@ -190,6 +204,7 @@ describe("группа: когда бот отвечает", () => {
     await handleTelegramUpdate(groupMsg("author", `@${BOT} найди клиента`));
     expect(runner).not.toHaveBeenCalled();
     expect(sendMessage).not.toHaveBeenCalled();
+    expect(sendHtmlMessage).not.toHaveBeenCalled();
   });
 
   it("/assistant_on: обычный агент — отказ, директор — группа подключена", async () => {
@@ -210,6 +225,7 @@ describe("группа: когда бот отвечает", () => {
     await handleTelegramUpdate(groupMsg("author", "снизь цену ОБ-1 до 90000"));
     expect(runner).not.toHaveBeenCalled();
     expect(sendMessage).not.toHaveBeenCalled();
+    expect(sendHtmlMessage).not.toHaveBeenCalled();
     expect(sendMessageWithButtons).not.toHaveBeenCalled();
   });
 
@@ -253,7 +269,7 @@ describe("группа: когда бот отвечает", () => {
   });
 
   it("чтение в группе — без телефонов, финансов и отчётов; в тексте номера замаскированы", async () => {
-    runner.mockResolvedValue({ ok: true, reply: "Клиент [Али](/clients/abc), тел +992 90 123 45 67" });
+    runner.mockResolvedValue({ ok: true, reply: "Клиент [Али](/clients/112), тел +992 90 123 45 67" });
     await handleTelegramUpdate(groupMsg("director", `@${BOT} найди Али`));
     const [, actor] = runner.mock.calls[0];
     expect(actor.id).toBe(agents.director.id);
@@ -261,7 +277,7 @@ describe("группа: когда бот отвечает", () => {
     expect(actor.canViewFinance).toBe(false);
     expect(actor.canViewReports).toBe(false);
     const text = sentTexts().at(-1)!;
-    expect(text).toContain("Али — https://crm.test/clients/abc");
+    expect(text).toContain('<a href="https://crm.test/clients/112">Али</a>');
     expect(text).not.toContain("90 123 45 67");
     expect(text).toContain("•");
   });
@@ -448,7 +464,8 @@ describe("личка сотрудника", () => {
     await handleTelegramUpdate(privateMsg("author", { text: "привет помощник" }));
     expect(runner).toHaveBeenCalledTimes(1);
     expect(runner.mock.calls[0][2]).toMatchObject({ channel: "telegram", confirmUi: true });
-    expect(sentTexts().at(-1)).toBe("Открой ОБ-1 — https://crm.test/properties/9");
+    expect(sentTexts().at(-1)).toBe('Открой <a href="https://crm.test/properties/9">ОБ-1</a>');
+    expect(sendHtmlMessage).toHaveBeenCalledTimes(1);
 
     await handleTelegramUpdate(privateMsg("author", { text: "а дальше?" }));
     const history = runner.mock.calls[1][0] as { role: string; content: string }[];
@@ -483,7 +500,9 @@ describe("личка сотрудника", () => {
     runner.mockResolvedValue({ ok: true, reply: "нашёл" });
     await handleTelegramUpdate(privateMsg("author", { voice: { file_id: "f1", duration: 3 } }));
     expect(transcribe).toHaveBeenCalledTimes(1);
-    expect(sentTexts()[0]).toContain("🎤 «найди клиента Али»");
+    expect(sentTexts().join("\n")).not.toContain("🎤");
+    expect(sentTexts().join("\n")).not.toContain("найди клиента Али");
+    expect(synthVoice).toHaveBeenCalledWith(agents.author.userId, "нашёл", undefined);
     expect((runner.mock.calls[0][0] as { content: string }[]).at(-1)?.content).toBe("найди клиента Али");
     expect(claimCap.mock.calls.map((c) => c[1])).toEqual(["assistant-telegram-voice", "assistant-telegram"]);
 
@@ -498,6 +517,7 @@ describe("личка сотрудника", () => {
     await handleTelegramUpdate(privateMsg("author", { message_id: 4242, photo: [{ file_id: "p1", width: 1, height: 1 }] }));
     expect(react).toHaveBeenCalledWith(agents.author.userId, 4242, "👀");
     expect(sendMessage).not.toHaveBeenCalled();
+    expect(sendHtmlMessage).not.toHaveBeenCalled();
     expect(runner).not.toHaveBeenCalled();
   });
 
@@ -621,9 +641,11 @@ describe("группа: окно диалога и ответ на чужое с
   it("болтовня молча игнорируется, три подряд закрывают окно; «спасибо» закрывает сразу", async () => {
     await open("author");
     sendMessage.mockClear();
+    sendHtmlMessage.mockClear();
     for (const t of ["ребята, обед?", "ха-ха", "кто едет"]) await handleTelegramUpdate(groupMsg("author", t));
     expect(calls()).toBe(1);
     expect(sendMessage).not.toHaveBeenCalled();
+    expect(sendHtmlMessage).not.toHaveBeenCalled();
     await handleTelegramUpdate(groupMsg("author", "покажи ОБ-9"));
     expect(calls()).toBe(1);
 
@@ -678,5 +700,36 @@ describe("группа: окно диалога и ответ на чужое с
     expect(looksLikeBotRequest("снизь цену ОБ-123 до 90000")).toBe(true);
     expect(looksLikeBotRequest("поставь на перемонтаж")).toBe(true);
     expect(looksLikeBotRequest("всем привет, как дела")).toBe(false);
+  });
+});
+
+
+describe("новая доставка ответа помощника", () => {
+  const audio = () => fetchAudio.mockResolvedValue({ images: [], audios: [{ kind: "audio", mediaType: "audio/ogg", buffer: Buffer.from("test-audio"), filename: "v.ogg" }], medias: [], hadUnsupported: false });
+  it("голосовой запрос получает только короткий голосовой ответ без расшифровки", async () => {
+    audio();
+    transcribe.mockResolvedValue("проверь данные клиента");
+    runner.mockResolvedValue({ ok: true, reply: "Готово." });
+    synthVoice.mockResolvedValue(true);
+    await handleTelegramUpdate(privateMsg("author", { message_id: 8241, voice: { file_id: "test-voice", duration: 2 } }));
+    expect(synthVoice).toHaveBeenCalledWith(agents.author.userId, "Готово.", undefined);
+    expect(sentTexts()).toEqual([]);
+    expect(sendVoiceFile).not.toHaveBeenCalled(); // synthesis is mocked as a whole, never contacts provider
+  });
+  it("голос со ссылкой сохраняет полную HTML-карточку", async () => {
+    audio();
+    transcribe.mockResolvedValue("покажи карточку клиента");
+    runner.mockResolvedValue({ ok: true, reply: "Нашла [Клиента](/clients/112)." });
+    synthVoice.mockResolvedValue(true);
+    await handleTelegramUpdate(privateMsg("author", { voice: { file_id: "test-voice", duration: 2 } }));
+    expect(synthVoice).toHaveBeenCalledTimes(1);
+    expect(sentTexts().join("\n")).toContain('href="https://crm.test/clients/112"');
+    expect(sentTexts().join("\n")).not.toContain("🎤");
+  });
+  it("реакция из модели используется и не попадает в ответ", async () => {
+    runner.mockResolvedValue({ ok: true, reply: "[реакция: ❤️] Готово." });
+    await handleTelegramUpdate(privateMsg("author", { message_id: 8242, text: "проверь данные" }));
+    expect(react).toHaveBeenCalledWith(agents.author.userId, 8242, "❤");
+    expect(sentTexts().join("\n")).toBe("Готово.");
   });
 });

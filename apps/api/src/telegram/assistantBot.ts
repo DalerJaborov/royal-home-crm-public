@@ -1,3 +1,6 @@
+import { renderAssistantForTelegram, splitReaction } from "./assistantReply.js";
+import { sendAssistantReply } from "./assistantDelivery.js";
+export { renderAssistantForTelegram } from "./assistantReply.js";
 import { randomUUID } from "node:crypto";
 import { isReadOnlyRole, trimAssistantHistory, type PermissionId } from "@royal-home/shared";
 import { prisma } from "../db.js";
@@ -117,33 +120,6 @@ function actionActorOf(agentId: string, access: AgentAccess): AssistantActionAct
 
 // ───────────────────────────── рендер ─────────────────────────────
 
-function publicBase(): string | null {
-  const raw = process.env.CRM_PUBLIC_URL?.trim();
-  return raw ? raw.replace(/\/+$/, "") : null;
-}
-
-const MD_LINK = /\[([^\]\n]+)\]\((\/[^)\s]*)\)/g;
-
-/**
- * Ответ помощника (markdown со ссылками вида `[Имя](/clients/ID)`) → простой текст
- * для Telegram. Относительные ссылки в Telegram не работают — делаем абсолютными
- * (CRM_PUBLIC_URL); адреса не маскируются, а вот телефоны и @ники в тексте — да,
- * когда `maskPhones`: сначала прячем ссылки, потом маскируем остальное.
- */
-export function renderAssistantForTelegram(text: string, opts: { maskPhones: boolean }): string {
-  const base = publicBase();
-  const links: string[] = [];
-  let out = text.replace(MD_LINK, (_m, label: string, path: string) => {
-    const shown = opts.maskPhones ? maskPhonesInFreeText(label) : label;
-    links.push(base ? `${shown} — ${base}${path}` : shown);
-    return `\u0000${links.length - 1}\u0000`;
-  });
-  out = out.replace(/\*\*(.+?)\*\*/g, "$1");
-  if (opts.maskPhones) out = maskPhonesInFreeText(out);
-  // eslint-disable-next-line no-control-regex
-  return out.replace(/\u0000(\d+)\u0000/g, (_m, i: string) => links[Number(i)] ?? "");
-}
-
 const FIELD_MAX = 120;
 function field(value: unknown): string {
   const text = typeof value === "string" ? value : value === null || value === undefined ? "—" : String(value);
@@ -260,15 +236,17 @@ async function cancelPending(actions: readonly AssistantActionView[], agentId: s
 async function sendTurnResult(
   chatId: string,
   result: TurnResult,
-  ctx: { agentId: string; authorName: string; scope: "private" | "group"; replyTo?: number; source?: string }
+  ctx: { agentId: string; authorName: string; scope: "private" | "group"; replyTo?: number; source?: string; fromVoice?: boolean; reactTo?: number }
 ): Promise<void> {
   const maskPhones = ctx.scope === "group";
-  const rendered = renderAssistantForTelegram(result.reply, { maskPhones });
+  const split = splitReaction(result.reply);
+  if (split.reaction && ctx.reactTo) await setMessageReaction(chatId, ctx.reactTo, split.reaction);
+  const rendered = renderAssistantForTelegram(split.text, { maskPhones });
   // Записи уровня B исполнены сразу — человек должен видеть, что именно записано.
   const written = result.done.map((a) => `Записано: ${field(a.preview.title)}`);
   const body = [rendered, ...written].filter(Boolean).join("\n");
   if (result.pending.length === 0) {
-    await sendMessage(chatId, body || "Готово.", ctx.replyTo);
+    await sendAssistantReply(chatId, split.text, { scope: ctx.scope, fromVoice: ctx.fromVoice, replyTo: ctx.replyTo, written });
     return;
   }
   const card = renderBundleCard(result.pending, ctx.authorName, maskPhones, ctx.source);
@@ -383,7 +361,6 @@ export async function handleAssistantPrivate(
         return;
       }
       text = voice.text;
-      await send(`🎤 «${text.slice(0, 300)}»`);
     }
     if (!text) {
       // Голое фото/видео/файл без слов: молча «👀» (цель назовут следующим сообщением), без текста.
@@ -399,7 +376,7 @@ export async function handleAssistantPrivate(
     const history = [...(await loadHistory(chatId, agent.id)), { role: "user" as const, content: text.slice(0, 4000) }];
     const result = await runTurn({ agentId: agent.id, scope: "private", history, deny: send });
     if (!result) return;
-    await sendTurnResult(chatId, result, { agentId: agent.id, authorName: agent.fullName, scope: "private" });
+    await sendTurnResult(chatId, result, { agentId: agent.id, authorName: agent.fullName, scope: "private", fromVoice: !!(msg.voice || msg.audio), reactTo: msg.message_id });
     await saveHistory(chatId, agent.id, [...history, { role: "assistant", content: result.reply.slice(0, 4000) }]);
   } catch (err) {
     await logSystemError("telegram", `Помощник в личке Telegram: ${describeError(err)}`);
@@ -555,6 +532,7 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
 Просьба вызвавшего: ${text}` : ""}`;
       }
     }
+    let fromVoice = false;
     if (!request && (msg.voice || msg.audio)) {
       void sendChatAction(chatId).catch(() => {});
       const voice = await transcribeVoice(msg, sender.id);
@@ -563,6 +541,7 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
         return true;
       }
       request = voice.text;
+      fromVoice = true;
     }
     if (!request) {
       await reply("Слушаю. Напишите просьбу после упоминания.");
@@ -582,6 +561,8 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
       agentId: sender.id,
       authorName: sender.fullName,
       scope: "group",
+      fromVoice,
+      reactTo: msg.message_id,
       replyTo: msg.message_id,
       source,
     });
