@@ -1,5 +1,6 @@
 import { clientLanguageScores } from "../ai/clientLanguage.js";
 import { maskPhonesInFreeText } from "../lib/clientPhone.js";
+import { tajikSpeechNumbers } from "./tajikSpeechNumbers.js";
 function publicBase(): string | null {
   const raw = process.env.CRM_PUBLIC_URL?.trim();
   return raw ? raw.replace(/\/+$/, "") : null;
@@ -116,7 +117,8 @@ export function sanitizeAssistantReply(text: string, maskContacts: boolean): str
   const saved: string[] = [];
   const hold = (value: string) => { saved.push(value); return `\u0001${saved.length - 1}\u0001`; };
   const protectedText = safeLinks.replace(/\]\((\/(?:clients|properties)\/[^)]+)\)/g, (_m, path: string) => `](${hold(path)})`)
-    .replace(/(?<![\d+])\d{1,2}[-./]\d{1,2}[-./]\d{4}(?!\d)|(?<![\d+])\d[\d \u00a0]*(?:[.,]\d{1,2})?\s*(?:сомони|TJS|USD|доллар(?:ов|а)?|\$)(?!\p{L})/giu, hold);
+    .replace(/(?<![\d+])(?:\d{1,2}[-./]\d{1,2}[-./]\d{4}|\d{4}-\d{2}-\d{2})(?![\d-])/g, hold)
+    .replace(/(?<![\d+])\d[\d \u00a0\u202f]*(?:[.,]\d{1,2})?\s*(?:сомон[иӣ]|TJS|USD|доллар(?:ов|а)?|\$)(?!\p{L})/giu, hold);
   // eslint-disable-next-line no-control-regex
   return maskPhonesInFreeText(protectedText).replace(/\u0001(\d+)\u0001/g, (_m, i: string) => saved[Number(i)] ?? "");
 }
@@ -143,21 +145,27 @@ export function prepareAssistantReply(text: string, maskContacts = false): Assis
     .replace(/\s*\n+\s*/g, ". ")
     .replace(/\.\s*\./g, ".")
     .replace(/\s{2,}/g, " ").trim();
-  const truncated = cleaned.length > VOICE_MAX_CHARS;
-  let speech = cleaned;
-  if (truncated) {
-    const cut = cleaned.slice(0, VOICE_MAX_CHARS - 1);
-    const end = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("! "), cut.lastIndexOf("? "));
-    speech = end > 200 ? cut.slice(0, end + 1) : `${cut.trimEnd()}…`;
-  }
   // Reuse CRM language markers, then add assistant-specific Tajik verbs.
   // Unknown/mixed replies stay text-only: Cyrillic alone does not establish Russian.
   const scores = clientLanguageScores(cleaned);
   const tajik = scores.tajik > 0 || scores.greetings > 0 || /[ғӣқӯҳҷ]|(?:^|[^\p{L}])(?:ёфтам|ёфт|кардам|кунед|омода|шуд|надорам|равон|дигар|интихоб|нависед|мебошад|мекунам|муштари|пайдо)(?=$|[^\p{L}])/iu.test(full);
   const russian = scores.russian > 0 || /(?:^|[^\p{L}])(?:готово|нашла|нашёл|нашел|добавила|добавил|ответ|данные|бюджет|источник|подробности|контакт|телефон|дата|помочь|помогу|сделано|хорошо|отлично|проверила|записала)(?=$|[^\p{L}])/iu.test(cleaned);
   const language = tajik ? "tg" : russian ? "ru" : "text-only";
+  const expanded = language === "tg"
+    ? tajikSpeechNumbers(cleaned.replaceAll("контакт в карточке", "тамос дар корт"))
+    : cleaned;
+  const truncated = expanded !== null && expanded.length > VOICE_MAX_CHARS;
+  let speech = expanded ?? "";
+  if (truncated && language === "tg" && /\p{N}/u.test(cleaned)) {
+    // A cut inside a written-out amount or time could change the value.
+    speech = "";
+  } else if (truncated) {
+    const cut = speech.slice(0, VOICE_MAX_CHARS - 1);
+    const end = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("! "), cut.lastIndexOf("? "));
+    speech = end > 200 ? cut.slice(0, end + 1) : `${cut.trimEnd()}…`;
+  }
   const hasLink = /(?:https?:\/\/|www\.|\[[^\]]+\]\([^)]*\)|\/(?:clients|properties)\/)/i.test(text);
   const promisedText = /(?:подробност|детал|карточк|список|ссылк|цифр)[\s\S]{0,100}(?:текст|отдельн)|(?:текст|отдельн)[\s\S]{0,100}(?:подробност|детал|карточк|список|ссылк)/i.test(full);
   const contactsRemoved = safeSpeech !== full;
-  return { text: full, speech, truncated, language, needsText: truncated || hasLink || promisedText || contactsRemoved };
+  return { text: full, speech, truncated, language, needsText: expanded === null || truncated || hasLink || promisedText || contactsRemoved };
 }

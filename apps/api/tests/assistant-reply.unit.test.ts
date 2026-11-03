@@ -37,6 +37,22 @@ describe("privacy and content", () => {
     expect(p.speech).not.toContain('901234567');
     expect(p.needsText).toBe(true);
   });
+  it("preserves the written price and expands it only for Tajik speech", () => {
+    const text = "Нархаш 120 000 000 сомонӣ.";
+    expect(prepareAssistantReply(text, true)).toMatchObject({
+      text, speech: "Нархаш саду бист миллион сомонӣ.", language: "tg",
+    });
+  });
+  it.each(["99,5 сомонӣ", "03.11.2026", "2026-11-03 09:30", "ОБ-000123", "соати 25:90"])("keeps ambiguous %s as text", async (value) => {
+    const text = `Салом, ${value}.`;
+    await sendAssistantReply("test", text, { ...ctx, scope: "group" });
+    expect(voice).not.toHaveBeenCalled();
+    expect(html.mock.calls[0][1]).toContain(value);
+  });
+  it("does not cut an expanded amount into a different value", () => {
+    const text = `Нархаш ${"а".repeat(294)} 630000 сомонӣ.`;
+    expect(prepareAssistantReply(text)).toMatchObject({ text, speech: "", needsText: true, truncated: true });
+  });
   it("caps speech with ellipsis and retains 340-char text", () => {
     const text = 'Ответ ' + 'а'.repeat(334), p = prepareAssistantReply(text);
     expect(p.text).toBe(text);

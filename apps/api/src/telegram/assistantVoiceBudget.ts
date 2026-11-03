@@ -4,8 +4,9 @@ import { dushanbeDayKey } from "@royal-home/shared";
 import { describeError } from "../lib/describeError.js";
 /** Shared persistent reservation; no FK on AgentAiActionCounter.agentId. No refund after uncertain provider failure. */
 export async function claimAssistantTtsChars(chars: number): Promise<boolean> {
-  const configured = Number(process.env.ASSISTANT_TTS_DAILY_CHARS ?? 8000);
-  const limit = Number.isSafeInteger(configured) && configured >= 0 ? configured : 8000;
+  const limit = Number(process.env.ASSISTANT_TTS_DAILY_CHARS ?? 8000);
+  if (!Number.isInteger(limit) || limit < 0 || limit > 2_147_483_647)
+    return false;
   if (!Number.isSafeInteger(chars) || chars <= 0 || chars > limit)
     return false;
   try {

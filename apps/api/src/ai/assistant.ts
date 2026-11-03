@@ -183,7 +183,7 @@ function formatGroundedReply(result: GeminiGroundedResult): string {
  * Пишется в AiLog.promptVersion при каждом ответе ассистента (см. finally
  * runAssistant ниже) — по ней журнал говорит, какой текст промта отвечал.
  */
-export const SYSTEM_PROMPT_VERSION = "2026-11-03.5-simple-language-standard-spelling";
+export const SYSTEM_PROMPT_VERSION = "2026-11-03.6-short-telegram-replies";
 
 const SYSTEM_PROMPT = `Ты — встроенный ассистент CRM агентства недвижимости (Душанбе, Таджикистан).
 Отвечай кратко на языке сотрудника. Валюта по умолчанию — сомони (TJS).

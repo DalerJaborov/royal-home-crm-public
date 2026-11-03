@@ -1,6 +1,14 @@
 import { expect, it } from "vitest";
 import { createCardLinkEvidence } from "../src/ai/assistant/cardLinkEvidence.js";
 
+it("accepts only the related card IDs returned by deal and showing tools", () => {
+  const guard = createCardLinkEvidence();
+  guard.observe("search_deals", [{ propertyShortId: 88, clientShortId: 12 }]);
+  guard.observe("get_upcoming_showings", [{ propertyShortId: 89, clientShortId: 13 }]);
+  expect(guard.validate("[Объект](/properties/88) [Клиент](/clients/12) [Показ](/properties/89)").ok).toBe(true);
+  expect(guard.validate("[Клиент](/clients/13)").ok).toBe(false);
+});
+
 it("rejects invented Markdown and bare card paths without rejecting ordinary numbers", () => {
   const guard = createCardLinkEvidence();
   expect(guard.validate("Цена 123, площадь 45, 2 комнаты")).toEqual({ ok: true });

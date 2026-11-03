@@ -26,6 +26,14 @@ export function createCardLinkEvidence() {
     if (Number.isSafeInteger(item.shortId) && Number(item.shortId) > 0) add(`/${kind}/${item.shortId}`, kind);
     add(item.href, kind);
   }
+  function relatedCards(result: unknown, includeClient: boolean) {
+    for (const row of rows(result)) {
+      const item = record(row);
+      if (!item || item.error) continue;
+      card({ shortId: item.propertyShortId }, "properties");
+      if (includeClient) card({ shortId: item.clientShortId }, "clients");
+    }
+  }
   function task(value: unknown) {
     const item = record(value);
     if (!item) return;
@@ -40,6 +48,8 @@ export function createCardLinkEvidence() {
       switch (toolName) {
         case "search_clients": for (const item of rows(result)) card(item, "clients"); break;
         case "search_properties": for (const item of rows(result)) card(item, "properties"); break;
+        case "search_deals": relatedCards(result, true); break;
+        case "get_upcoming_showings": relatedCards(result, false); break;
         case "find_clients": for (const item of rows(value?.items)) card(item, "clients"); break;
         case "find_property": for (const item of rows(value?.items)) card(item, "properties"); break;
         case "get_client_card":

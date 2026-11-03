@@ -28,11 +28,12 @@ beforeEach(async () => {
   vi.stubEnv('TELEGRAM_BOT_TOKEN', 'test-bot');
   vi.stubEnv('ASSISTANT_TTS_DAILY_CHARS', '8000');
 });
-it('successful v4 synthesis charges before fetch and sends audio', async () => {
+it('successful Turbo synthesis charges before fetch and sends audio', async () => {
   expect(await sendAssistantVoiceReply('test', 'Готово.')).toBe(true);
-  expect(fetchMock.mock.calls[0][0]).toBe('https://api.elevenlabs.io/v1/text-to-dialogue?output_format=opus_48000_64');
-  expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
-    inputs: [{ text: 'Готово.', voice_id: 'test-voice' }], model_id: 'eleven_v4', language_code: 'ru', apply_text_normalization: 'on',
+  expect(fetchMock.mock.calls[0][0]).toBe('https://api.elevenlabs.io/v1/text-to-speech/test-voice?output_format=opus_48000_64');
+  expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({
+    text: 'Готово.', model_id: 'eleven_v4_turbo', language_code: 'ru', apply_text_normalization: 'on',
+    voice_settings: { stability: 0.45, speed: 1.08 },
   });
   expect(query.mock.invocationCallOrder[0]).toBeLessThan(fetchMock.mock.invocationCallOrder[0]);
   expect(sendVoice).toHaveBeenCalledTimes(1);
@@ -83,13 +84,16 @@ it("cache hit remains available after budget is exhausted", async () => {
   expect(await sendAssistantVoiceReply("second", "Готово.")).toBe(true); expect(fetchMock).toHaveBeenCalledTimes(1);
 });
 
-it("uses explicit Tajik voice with tg, never ru", async () => {
+it("sends Tajik time and price in words and reserves their expanded length", async () => {
   vi.stubEnv("ASSISTANT_TTS_VOICE_ID_TG", "test-tajik-voice");
-  expect(await sendAssistantVoiceReply("test", "Салом, ман ёфтам.")).toBe(true);
-  expect(fetchMock.mock.calls[0][0]).toBe("https://api.elevenlabs.io/v1/text-to-dialogue?output_format=opus_48000_64");
-  expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
-    inputs: [{ text: "Салом, ман ёфтам.", voice_id: "test-tajik-voice" }], model_id: "eleven_v4", language_code: "tg", apply_text_normalization: "on",
+  expect(await sendAssistantVoiceReply("test", "Пагоҳ соати 10:15. Нархаш 630000 сомонӣ.")).toBe(true);
+  expect(fetchMock.mock.calls[0][0]).toBe("https://api.elevenlabs.io/v1/text-to-speech/test-tajik-voice?output_format=opus_48000_64");
+  const spoken = "Пагоҳ соати даҳу понздаҳ. Нархаш шашсаду сӣ ҳазор сомонӣ.";
+  expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({
+    text: spoken, model_id: "eleven_v4_turbo", language_code: "tg", apply_text_normalization: "off",
+    voice_settings: { stability: 0.45, speed: 1.08 },
   });
+  expect(query.mock.calls[0][0].values).toContain(spoken.length);
 });
 it.each([
   { language: "ru", phrase: "Готово.", field: "elevenLabsVoiceIdRu", voice: "test-crm-ru" },
@@ -99,7 +103,7 @@ it.each([
   settings.mockResolvedValue({ elevenLabsApiKey: "test-crm-key", [field]: ` ${voice} ` });
   expect(await sendAssistantVoiceReply("test", phrase)).toBe(true);
   expect(settings).toHaveBeenCalledTimes(1);
-  expect(JSON.parse(fetchMock.mock.calls[0][1].body).inputs[0].voice_id).toBe(voice);
+  expect(fetchMock.mock.calls[0][0]).toContain(`/text-to-speech/${voice}?`);
   expect(fetchMock.mock.calls[0][1].headers["xi-api-key"]).toBe("test-crm-key");
   expect(JSON.parse(fetchMock.mock.calls[0][1].body).language_code).toBe(language);
 });
@@ -107,7 +111,7 @@ it("explicit assistant voice overrides the CRM voice while resolving the key onc
   vi.stubEnv("ELEVENLABS_API_KEY", "");
   settings.mockResolvedValue({ elevenLabsApiKey: "test-crm-key", elevenLabsVoiceIdRu: "test-crm-ru" });
   expect(await sendAssistantVoiceReply("test", "Готово.")).toBe(true);
-  expect(JSON.parse(fetchMock.mock.calls[0][1].body).inputs[0].voice_id).toBe("test-voice");
+  expect(fetchMock.mock.calls[0][0]).toContain("/text-to-speech/test-voice?");
   expect(settings).toHaveBeenCalledTimes(1);
 });
 it("does not use a configured CRM Russian voice for Tajik", async () => {
@@ -122,7 +126,7 @@ it("a changed CRM voice invalidates cached speech", async () => {
   settings.mockResolvedValue({ elevenLabsVoiceIdRu: "test-crm-voice-two" });
   await sendAssistantVoiceReply("test", "Готово.");
   expect(fetchMock).toHaveBeenCalledTimes(2);
-  expect(JSON.parse(fetchMock.mock.calls[1][1].body).inputs[0].voice_id).toBe("test-crm-voice-two");
+  expect(fetchMock.mock.calls[1][0]).toContain("/text-to-speech/test-crm-voice-two?");
 });
 it("never reuses the previous v3 audio or Telegram file cache", async () => {
   const oldKey = assistantVoiceCacheKey("Готово.", {
@@ -133,7 +137,13 @@ it("never reuses the previous v3 audio or Telegram file cache", async () => {
   expect(await sendAssistantVoiceReply("test", "Готово.")).toBe(true);
   expect(fetchMock).toHaveBeenCalledOnce();
   expect(sendVoiceId).not.toHaveBeenCalled();
-  expect(JSON.parse(fetchMock.mock.calls[0][1].body).model_id).toBe("eleven_v4");
+  expect(JSON.parse(fetchMock.mock.calls[0][1].body).model_id).toBe("eleven_v4_turbo");
+});
+it.each(["oops", "-1", "2147483648"])("denies synthesis for malformed limit %s", async (limit) => {
+  vi.stubEnv("ASSISTANT_TTS_DAILY_CHARS", limit);
+  expect(await sendAssistantVoiceReply("test", "Готово.")).toBe(false);
+  expect(query).not.toHaveBeenCalled();
+  expect(fetchMock).not.toHaveBeenCalled();
 });
 it("unavailable CRM voice settings leave text without spending", async () => {
   vi.stubEnv("ASSISTANT_TTS_VOICE_ID", ""); settings.mockRejectedValue(new Error("test unavailable"));
