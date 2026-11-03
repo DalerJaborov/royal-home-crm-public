@@ -7,14 +7,24 @@ import { sendVoiceFile, sendAssistantVoiceId, TelegramApiError } from "./api.js"
 import { z } from "zod";
 import { cacheableAssistantSpeech, assistantVoiceCacheKey, cachedAssistantAudio, writeAssistantVoiceCache, isOggOpusAudio } from "./assistantVoiceCache.js";
 
-/** ElevenLabs Text-to-Speech. Each language needs an explicitly configured voice.
+/** ElevenLabs speech. Each language needs an explicitly configured voice.
  * Missing settings, unavailable budget or provider errors leave the full text response.
  */
 const TTS_TIMEOUT_MS = 25_000;
-const TTS_MODEL = "eleven_v4_turbo";
 const TTS_FORMAT = "opus_48000_64";
-const TTS_ENDPOINT = "https://api.elevenlabs.io/v1/text-to-speech";
-const VOICE_SETTINGS = { stability: 0.45, similarity_boost: 0.75, style: 0.3, speed: 1.08, use_speaker_boost: true };
+const VOICE_PROFILES = {
+  ru: {
+    model: "eleven_v4_turbo",
+    endpoint: "https://api.elevenlabs.io/v1/text-to-speech",
+    normalization: "on",
+    settings: { stability: 0.45, similarity_boost: 0.75, style: 0.3, speed: 1.08, use_speaker_boost: true },
+  },
+  tg: {
+    model: "eleven_v4",
+    endpoint: "https://api.elevenlabs.io/v1/text-to-dialogue",
+    normalization: "off",
+  },
+} as const;
 const sentVoiceSchema = z.object({ voice: z.object({ file_id: z.string().min(1).max(1024) }) });
 
 interface SpeechConfig { voiceId: string; key: string | null }
@@ -41,15 +51,19 @@ async function synthesize(text: string, language: "ru" | "tg", config: SpeechCon
   const { voiceId, key } = config;
   if (!key) return null;
   if (!(await claimAssistantTtsChars(text.length))) return null;
-  const res = await fetch(`${TTS_ENDPOINT}/${encodeURIComponent(voiceId)}?output_format=${TTS_FORMAT}`, {
+  const profile = VOICE_PROFILES[language];
+  const endpoint = language === "ru" ? `${profile.endpoint}/${encodeURIComponent(voiceId)}` : profile.endpoint;
+  const input = language === "ru"
+    ? { text, voice_settings: VOICE_PROFILES.ru.settings }
+    : { inputs: [{ text, voice_id: voiceId }] };
+  const res = await fetch(`${endpoint}?output_format=${TTS_FORMAT}`, {
     method: "POST",
     headers: { "xi-api-key": key, "content-type": "application/json" },
     body: JSON.stringify({
-      text,
-      model_id: TTS_MODEL,
+      ...input,
+      model_id: profile.model,
       language_code: language,
-      apply_text_normalization: language === "tg" ? "off" : "on",
-      voice_settings: VOICE_SETTINGS,
+      apply_text_normalization: profile.normalization,
     }),
     signal: AbortSignal.timeout(TTS_TIMEOUT_MS),
   });
@@ -76,9 +90,10 @@ export async function sendAssistantVoiceReply(chatId: string, replyText: string,
       return true;
     }
     const { voiceId } = config;
+    const { model, endpoint, normalization } = VOICE_PROFILES[language];
     const key = assistantVoiceCacheKey(speech, {
-      voiceId, model: TTS_MODEL, endpoint: TTS_ENDPOINT, format: TTS_FORMAT, language,
-      normalization: language === "tg" ? "off" : "on", settings: VOICE_SETTINGS,
+      voiceId, model, endpoint, format: TTS_FORMAT, language, normalization,
+      ...(language === "ru" ? { settings: VOICE_PROFILES.ru.settings } : {}),
     });
     const entry = await cachedAssistantAudio(key, () => synthesize(speech, language, config));
     if (!entry) return false;

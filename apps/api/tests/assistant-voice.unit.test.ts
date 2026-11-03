@@ -87,11 +87,11 @@ it("cache hit remains available after budget is exhausted", async () => {
 it("sends Tajik time and price in words and reserves their expanded length", async () => {
   vi.stubEnv("ASSISTANT_TTS_VOICE_ID_TG", "test-tajik-voice");
   expect(await sendAssistantVoiceReply("test", "Пагоҳ соати 10:15. Нархаш 630000 сомонӣ.")).toBe(true);
-  expect(fetchMock.mock.calls[0][0]).toBe("https://api.elevenlabs.io/v1/text-to-speech/test-tajik-voice?output_format=opus_48000_64");
+  expect(fetchMock.mock.calls[0][0]).toBe("https://api.elevenlabs.io/v1/text-to-dialogue?output_format=opus_48000_64");
   const spoken = "Пагоҳ соати даҳу понздаҳ. Нархаш шашсаду сӣ ҳазор сомонӣ.";
-  expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({
-    text: spoken, model_id: "eleven_v4_turbo", language_code: "tg", apply_text_normalization: "off",
-    voice_settings: { stability: 0.45, speed: 1.08 },
+  expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
+    inputs: [{ text: spoken, voice_id: "test-tajik-voice" }],
+    model_id: "eleven_v4", language_code: "tg", apply_text_normalization: "off",
   });
   expect(query.mock.calls[0][0].values).toContain(spoken.length);
 });
@@ -103,7 +103,11 @@ it.each([
   settings.mockResolvedValue({ elevenLabsApiKey: "test-crm-key", [field]: ` ${voice} ` });
   expect(await sendAssistantVoiceReply("test", phrase)).toBe(true);
   expect(settings).toHaveBeenCalledTimes(1);
-  expect(fetchMock.mock.calls[0][0]).toContain(`/text-to-speech/${voice}?`);
+  if (language === "ru") {
+    expect(fetchMock.mock.calls[0][0]).toContain(`/text-to-speech/${voice}?`);
+  } else {
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).inputs[0].voice_id).toBe(voice);
+  }
   expect(fetchMock.mock.calls[0][1].headers["xi-api-key"]).toBe("test-crm-key");
   expect(JSON.parse(fetchMock.mock.calls[0][1].body).language_code).toBe(language);
 });
