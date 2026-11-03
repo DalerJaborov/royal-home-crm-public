@@ -81,6 +81,44 @@ it("uses explicit Tajik voice with tg, never ru", async () => {
   expect(fetchMock.mock.calls[0][0]).toContain("test-tajik-voice");
   expect(JSON.parse(fetchMock.mock.calls[0][1].body).language_code).toBe("tg");
 });
+it.each([
+  { language: "ru", phrase: "Готово.", field: "elevenLabsVoiceIdRu", voice: "test-crm-ru" },
+  { language: "tg", phrase: "Салом, ман ёфтам.", field: "elevenLabsVoiceIdTg", voice: "test-crm-tg" },
+])("uses the configured CRM $language voice and key in one settings read", async ({ language, phrase, field, voice }) => {
+  vi.stubEnv("ASSISTANT_TTS_VOICE_ID", ""); vi.stubEnv("ASSISTANT_TTS_VOICE_ID_TG", ""); vi.stubEnv("ELEVENLABS_API_KEY", "");
+  settings.mockResolvedValue({ elevenLabsApiKey: "test-crm-key", [field]: ` ${voice} ` });
+  expect(await sendAssistantVoiceReply("test", phrase)).toBe(true);
+  expect(settings).toHaveBeenCalledTimes(1);
+  expect(fetchMock.mock.calls[0][0]).toContain(voice);
+  expect(fetchMock.mock.calls[0][1].headers["xi-api-key"]).toBe("test-crm-key");
+  expect(JSON.parse(fetchMock.mock.calls[0][1].body).language_code).toBe(language);
+});
+it("explicit assistant voice overrides the CRM voice while resolving the key once", async () => {
+  vi.stubEnv("ELEVENLABS_API_KEY", "");
+  settings.mockResolvedValue({ elevenLabsApiKey: "test-crm-key", elevenLabsVoiceIdRu: "test-crm-ru" });
+  expect(await sendAssistantVoiceReply("test", "Готово.")).toBe(true);
+  expect(fetchMock.mock.calls[0][0]).toContain("test-voice?");
+  expect(settings).toHaveBeenCalledTimes(1);
+});
+it("does not use a configured CRM Russian voice for Tajik", async () => {
+  settings.mockResolvedValue({ elevenLabsApiKey: "test-crm-key", elevenLabsVoiceIdRu: "test-crm-ru", elevenLabsVoiceIdTg: " " });
+  expect(await sendAssistantVoiceReply("test", "Салом, ман ёфтам.")).toBe(false);
+  expect(fetchMock).not.toHaveBeenCalled(); expect(query).not.toHaveBeenCalled();
+});
+it("a changed CRM voice invalidates cached speech", async () => {
+  vi.stubEnv("ASSISTANT_TTS_VOICE_ID", "");
+  settings.mockResolvedValue({ elevenLabsVoiceIdRu: "test-crm-voice-one" });
+  await sendAssistantVoiceReply("test", "Готово.");
+  settings.mockResolvedValue({ elevenLabsVoiceIdRu: "test-crm-voice-two" });
+  await sendAssistantVoiceReply("test", "Готово.");
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+  expect(fetchMock.mock.calls[1][0]).toContain("test-crm-voice-two");
+});
+it("unavailable CRM voice settings leave text without spending", async () => {
+  vi.stubEnv("ASSISTANT_TTS_VOICE_ID", ""); settings.mockRejectedValue(new Error("test unavailable"));
+  expect(await sendAssistantVoiceReply("test", "Готово.")).toBe(false);
+  expect(fetchMock).not.toHaveBeenCalled(); expect(query).not.toHaveBeenCalled();
+});
 it("reuploads cached audio only after invalid file_id", async () => {
   sendVoice.mockResolvedValue({ voice: { file_id: "test-file-id" } });
   await sendAssistantVoiceReply("first", "Готово.");

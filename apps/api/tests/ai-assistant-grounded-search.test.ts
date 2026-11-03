@@ -3,12 +3,13 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 /**
  * Google Search grounding (23.08.2026, пункт 4 очереди ИИ) — справочные вопросы о
  * рынке/законах/налогах/ипотеке Таджикистана, которые раньше падали в OFF_TOPIC,
- * при включённом Settings.groundedSearchEnabled получают ответ через
- * callGeminiGrounded вместо отказа.
+ * Контракт изменён 03.11.2026: даже включённый Settings.groundedSearchEnabled
+ * не разрешает поиск при строгом денежном лимите. Число оплачиваемых поисковых
+ * запросов внутри ответа провайдера пока невозможно ограничить этим адаптером.
  *
  * С 31.10.2026 (пачка П1 задача 1.3) отдельного классификатора нет: справочный
- * путь — инструмент web_reference, который объявляется модели ТОЛЬКО при
- * включённом тумблере, а отказ «не по теме» — правило системного промта. Поэтому
+ * путь — инструмент web_reference; сейчас он не объявляется при любом значении
+ * тумблера, а отказ «не по теме» — правило системного промта. Поэтому
  * тест проверяет маршрутизацию по тому, ЧТО уходит модели (есть ли web_reference в
  * списке инструментов) и что происходит, когда модель его зовёт.
  *
@@ -131,31 +132,21 @@ describe("тумблер Settings.groundedSearchEnabled — выключен п�
   });
 });
 
-describe("тумблер Settings.groundedSearchEnabled — включён", () => {
-  it("web_reference объявлен, ответ идёт через callGeminiGrounded и включает источники — без ещё одного раунда", async () => {
+describe("включённый тумблер не обходит строгий денежный лимит grounding", () => {
+  it("web_reference не объявлен; выдуманный вызов получает отказ без оплачиваемого поиска", async () => {
     await setGrounded(true);
     const question = "Какой налог при продаже квартиры в Таджикистане?";
     callGeminiTools.mockResolvedValue(referenceTurn(question));
-    callGeminiGrounded.mockResolvedValue({
-      text: "Налог на прирост стоимости при продаже физлицом — 0%, если недвижимость в собственности более года.",
-      sources: [{ url: "https://andoz.tj/nalog-na-nedvizhimost", title: "Налоговый комитет РТ" }],
-    });
 
     const reply = await runAssistant([{ role: "user", content: question }], actor);
 
-    expect(declaredToolNames()).toContain("web_reference");
+    expect(declaredToolNames()).not.toContain("web_reference");
     expect(callGeminiTools).toHaveBeenCalledTimes(1);
-    expect(callGeminiGrounded).toHaveBeenCalledTimes(1);
-    expect(callGeminiGrounded).toHaveBeenCalledWith(
-      expect.objectContaining({ apiKey: "fake-gemini-key", query: question })
-    );
-    expect(reply).toContain("Налог на прирост стоимости");
-    expect(reply).toContain("Источники:");
-    expect(reply).toContain("https://andoz.tj/nalog-na-nedvizhimost");
-    expect(reply).toContain("Налоговый комитет РТ");
+    expect(callGeminiGrounded).not.toHaveBeenCalled();
+    expect(reply).toBe(OFF_TOPIC_REPLY);
   });
 
-  it("Gemini не ответил (grounded вернул null) — общий отказ ассистента, а не текст-заглушка", async () => {
+  it("отказывает до обращения к недоступному grounded-провайдеру", async () => {
     await setGrounded(true);
     callGeminiTools.mockResolvedValue(referenceTurn("средняя цена квадратного метра в Душанбе"));
     callGeminiGrounded.mockResolvedValue(null);
@@ -165,18 +156,21 @@ describe("тумблер Settings.groundedSearchEnabled — включён", () 
       actor
     );
 
-    expect(reply).toBeNull();
+    expect(reply).toBe(OFF_TOPIC_REPLY);
+    expect(declaredToolNames()).not.toContain("web_reference");
+    expect(callGeminiGrounded).not.toHaveBeenCalled();
   });
 
-  it("ответ без источников — явная пометка об этом, а не текст неотличимый от обычного ответа", async () => {
+  it("не выдаёт ответ отключённого grounded-провайдера без источников", async () => {
     await setGrounded(true);
     callGeminiTools.mockResolvedValue(referenceTurn("Что такое ипотека?"));
     callGeminiGrounded.mockResolvedValue({ text: "Общий ответ без обращения к поиску.", sources: [] });
 
     const reply = await runAssistant([{ role: "user", content: "Что такое ипотека?" }], actor);
 
-    expect(reply).toContain("Общий ответ без обращения к поиску.");
-    expect(reply).toContain("Источники не приложены");
+    expect(reply).toBe(OFF_TOPIC_REPLY);
+    expect(declaredToolNames()).not.toContain("web_reference");
+    expect(callGeminiGrounded).not.toHaveBeenCalled();
   });
 });
 

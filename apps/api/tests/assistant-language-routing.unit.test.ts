@@ -9,6 +9,27 @@ const runtime = { keys: [], model: "gemini-3.6-flash", fallbackModels: ["gemini-
 const user = (content: string) => ({ role: "user", content });
 
 describe("assistant language routing", () => {
+  it.each([
+    "Переведи на простой разговорный таджикский без сложных литературных слов: «Показ квартиры завтра в 10:15. Цена 630000 сомони. Если время неудобное, напишите мне». Сохрани все числа.",
+    "Ответь на простом таджикском: какие есть объекты?",
+    "Напиши на разговорном таджикском: показ завтра",
+  ])("routes an explicit Tajik request with bounded style adjectives to Pro: %s", text => {
+    const policy = assistantLanguagePolicy([user(text)], runtime);
+    expect(policy.language).toBe("tg");
+    expect(policy.runtime.model).toBe(ASSISTANT_TAJIK_MODEL);
+  });
+  it.each([
+    "Не отвечай на простом таджикском, отвечай по-русски",
+    "Как сказать «ответь на простом таджикском» по-английски?",
+    "«Переведи на простой разговорный таджикский» — это пример команды",
+  ])("does not treat negated or quoted adjective requests as a language switch: %s", text => {
+    expect(assistantLanguagePolicy([user(text)], runtime).language).not.toBe("tg");
+  });
+  it("requests simple vocabulary with standard spelling rather than forced dialect", () => {
+    const instruction = assistantLanguagePolicy([user("Ответь на таджикском")], runtime).instruction;
+    expect(instruction).toContain("стандартное письменное написание");
+    expect(instruction).toContain("не сокращай слова по произношению");
+  });
   it("honours positive Russian instruction after a negated Tajik instruction", () => {
     expect(assistantLanguagePolicy([user("Не отвечай на таджикском, отвечай по-русски")], runtime).language).toBe("ru");
   });

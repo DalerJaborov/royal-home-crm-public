@@ -166,8 +166,9 @@ jobs:
       # определяется, и customer-dm-media-perception-postgres красный (замер
       # 20.10.2026, первый облачный прогон). apt здесь законен: это Linux-машина
       # GitHub, а не Windows-раннер владельца (правило CLAUDE.md — про тот).
-      - name: ffmpeg
-        run: sudo apt-get install -y --no-install-recommends ffmpeg || (sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg)
+      # pdfinfo проверяет число страниц PDF до платного разбора помощником.
+      - name: ffmpeg and PDF inspection
+        run: sudo apt-get install -y --no-install-recommends ffmpeg poppler-utils || (sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg poppler-utils)
 
       - name: Зависимости
         run: npm ci --no-audit --no-fund

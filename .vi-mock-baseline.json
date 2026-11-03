@@ -22,7 +22,10 @@
     "apps/api/tests/assistant-media-telegram.unit.test.ts::apps/api/src/ai/assistant/runtime.ts": "Offline provider/database boundary: importing the original loads settings, persistence or outbound transport; isolate it completely.",
     "apps/api/tests/assistant-media-telegram.unit.test.ts::apps/api/src/ai/assistant/moneyBudget.ts": "Offline provider/database boundary: importing the original loads settings, persistence or outbound transport; isolate it completely.",
     "apps/api/tests/assistant-media.unit.test.ts::apps/api/src/ai/geminiClient.ts": "Offline provider/database boundary: importing the original loads settings, persistence or outbound transport; isolate it completely.",
-    "apps/api/tests/assistant-property-embedding-budget.unit.test.ts::apps/api/src/ai/embeddings.ts": "Offline provider/database boundary: importing the original loads settings, persistence or outbound transport; isolate it completely."
+    "apps/api/tests/assistant-property-embedding-budget.unit.test.ts::apps/api/src/ai/embeddings.ts": "Offline provider/database boundary: importing the original loads settings, persistence or outbound transport; isolate it completely.",
+    "apps/api/tests/assistant-knowledge-semantic-tools.unit.test.ts::apps/api/src/ai/assistant/knowledgeSemantic.ts": "Offline authorization test: fully isolate database and paid embeddings; importing the original would load persistence and provider dependencies.",
+    "apps/api/tests/assistant-knowledge-semantic-tools.unit.test.ts::apps/api/src/ai/assistant/tools/showingToolSupport.ts": "Offline authorization test: fully isolate database and paid embeddings; importing the original would load persistence and provider dependencies.",
+    "apps/api/tests/assistant-knowledge-semantic-tools.unit.test.ts::apps/api/src/lib/assistantActions.ts": "Offline authorization test: fully isolate database and paid embeddings; importing the original would load persistence and provider dependencies."
   },
   "legacy": [
     "apps/api/tests/ad-click-becomes-lead.test.ts::apps/api/src/lib/pushLeadActions.ts",

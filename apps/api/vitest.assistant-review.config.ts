@@ -12,6 +12,7 @@ export default {
       "tests/assistant-voice.unit.test.ts",
       "tests/assistant-fast-path.unit.test.ts",
       "tests/assistant-knowledge-semantic.unit.test.ts",
+      "tests/assistant-knowledge-semantic-tools.unit.test.ts",
       "tests/assistant-embeddings-guards.unit.test.ts",
       "tests/assistant-media.unit.test.ts",
       "tests/assistant-media-probe.unit.test.ts",

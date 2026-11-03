@@ -344,7 +344,7 @@ export async function handleAssistantPrivate(
   const send = (text: string) => sendMessage(chatId, text).then(() => undefined);
   try {
     const moneyWallet = createAssistantMoneyWallet();
-    let text = msg.text?.trim() ?? "";
+    let text = (msg.text ?? msg.caption ?? "").trim();
     if (text === "/new" || text === "/reset") {
       await clearHistory(chatId);
       await send("Начали заново.");
@@ -354,7 +354,7 @@ export async function handleAssistantPrivate(
       await send(HELP_TEXT);
       return;
     }
-    if (msg.photo?.length || msg.document) {
+    if ((msg.photo?.length || msg.document) && text) {
       if (!(await isAiAssistantEnabled())) { await send(DISABLED_TEXT); return; }
       const access = await loadAgentAccess(agent.id);
       if (!access?.isActive) { await send("Ваша учётка отключена."); return; }

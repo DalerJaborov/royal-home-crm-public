@@ -17,11 +17,19 @@ const TTS_FORMAT = "opus_48000_64";
 const VOICE_SETTINGS = { stability: 0.5, similarity_boost: 0.75, style: 0.3, speed: 1.12, use_speaker_boost: true };
 const sentVoiceSchema = z.object({ voice: z.object({ file_id: z.string().min(1).max(1024) }) });
 
-async function elevenLabsKey(): Promise<string | null> {
-  const env = process.env.ELEVENLABS_API_KEY?.trim();
-  if (env) return env;
-  const row = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { elevenLabsApiKey: true } });
-  return resolveElevenLabsKey(row?.elevenLabsApiKey ?? null);
+interface SpeechConfig { voiceId: string; key: string | null }
+
+async function resolveSpeechConfig(language: "ru" | "tg"): Promise<SpeechConfig | null> {
+  const envVoice = (language === "tg" ? process.env.ASSISTANT_TTS_VOICE_ID_TG : process.env.ASSISTANT_TTS_VOICE_ID)?.trim();
+  const envKey = process.env.ELEVENLABS_API_KEY?.trim();
+  // One snapshot per reply: cache identity and synthesis must use the same resolved voice.
+  const row = envVoice && envKey ? null : await prisma.settings.findUnique({
+    where: { id: "singleton" },
+    select: { elevenLabsApiKey: true, elevenLabsVoiceIdRu: true, elevenLabsVoiceIdTg: true },
+  });
+  const voiceId = envVoice || (language === "tg" ? row?.elevenLabsVoiceIdTg : row?.elevenLabsVoiceIdRu)?.trim();
+  if (!voiceId) return null;
+  return { voiceId, key: envKey || resolveElevenLabsKey(row?.elevenLabsApiKey ?? null) };
 }
 
 /** Текст ответа → то, что приятно слушать: без ссылок, смайлов, разделителей и цифр телефонов. */
@@ -29,14 +37,8 @@ export function speechTextFromReply(text: string): string {
   return prepareAssistantReply(text).speech;
 }
 
-function voiceIdFor(language: "ru" | "tg"): string | undefined {
-  return (language === "tg" ? process.env.ASSISTANT_TTS_VOICE_ID_TG : process.env.ASSISTANT_TTS_VOICE_ID)?.trim();
-}
-
-async function synthesize(text: string, language: "ru" | "tg"): Promise<Buffer | null> {
-  const voiceId = voiceIdFor(language);
-  if (!voiceId) return null;
-  const key = await elevenLabsKey();
+async function synthesize(text: string, language: "ru" | "tg", config: SpeechConfig): Promise<Buffer | null> {
+  const { voiceId, key } = config;
   if (!key) return null;
   if (!(await claimAssistantTtsChars(text.length))) return null;
   const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}?output_format=${TTS_FORMAT}`, {
@@ -65,16 +67,17 @@ export async function sendAssistantVoiceReply(chatId: string, replyText: string,
     const language = plan.language;
     const speech = plan.speech;
     if (speech.length < 3) return false;
+    const config = await resolveSpeechConfig(language);
+    if (!config) return false;
     if (!cacheableAssistantSpeech(speech)) {
-      const audio = await synthesize(speech, language);
+      const audio = await synthesize(speech, language, config);
       if (!audio?.length) return false;
       await sendVoiceFile(chatId, audio, replyTo);
       return true;
     }
-    const voiceId = voiceIdFor(language);
-    if (!voiceId) return false;
+    const { voiceId } = config;
     const key = assistantVoiceCacheKey(speech, { voiceId, model: TTS_MODEL, format: TTS_FORMAT, language, normalization: "on", settings: VOICE_SETTINGS });
-    const entry = await cachedAssistantAudio(key, () => synthesize(speech, language));
+    const entry = await cachedAssistantAudio(key, () => synthesize(speech, language, config));
     if (!entry) return false;
     if (entry.fileId) {
       try { await sendAssistantVoiceId(chatId, entry.fileId, replyTo); return true; }

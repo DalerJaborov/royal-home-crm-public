@@ -1,1 +1,1 @@
-export default { envDir: false, test: { environment: "node", setupFiles: [], include: ["tests/assistant-knowledge-semantic.unit.test.ts", "tests/assistant-embeddings-guards.unit.test.ts"] } };
+export default { envDir: false, test: { environment: "node", setupFiles: [], include: ["tests/assistant-knowledge-semantic.unit.test.ts", "tests/assistant-knowledge-semantic-tools.unit.test.ts", "tests/assistant-embeddings-guards.unit.test.ts"] } };

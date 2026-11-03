@@ -83,3 +83,41 @@ it("propagates cancellation instead of returning fallback facts", async () => {
   mocks.embed.mockImplementation(async () => { controller.abort(new Error("cancelled")); throw controller.signal.reason; });
   await expect(searchCompanyKnowledge("показ", { ...options(), signal: controller.signal })).rejects.toThrow("cancelled");
 });
+it("stops a partial batch after provider failure without repeating the successful document", async () => {
+  const second = { ...row, id: "second" }, third = { ...row, id: "third" };
+  mocks.query.mockResolvedValueOnce([row]).mockResolvedValueOnce([second]).mockResolvedValueOnce([third]);
+  mocks.embed.mockResolvedValueOnce([1, 0]).mockRejectedValueOnce(new Error("budget exhausted"));
+  await expect(indexCompanyKnowledge([row, second, third], options())).rejects.toThrow("budget exhausted");
+  expect(mocks.embed).toHaveBeenCalledTimes(2);
+  expect(mocks.execute).toHaveBeenCalledTimes(1);
+  expect(mocks.query).toHaveBeenCalledTimes(2);
+});
+it("rejects duplicate approved IDs before any database or provider access", async () => {
+  await expect(indexCompanyKnowledge([row, row], options())).rejects.toThrow("пакет");
+  expect(mocks.query).not.toHaveBeenCalled(); expect(mocks.embed).not.toHaveBeenCalled();
+});
+it("does not pay for blank queries or an index containing only invalid vectors", async () => {
+  expect(await semanticKnowledgeSearch("   ", options())).toEqual([]);
+  expect(mocks.query).not.toHaveBeenCalled();
+  mocks.query.mockResolvedValue([{ ...row, embedding: [0, 0] }]);
+  expect(await semanticKnowledgeSearch("показ", options())).toEqual([]);
+  expect(mocks.embed).not.toHaveBeenCalled();
+});
+it("excludes records whose revision changed during query embedding", async () => {
+  mocks.query.mockResolvedValueOnce([{ ...row, embedding: [1, 0] }]).mockResolvedValueOnce([{ ...row, revision: 2 }]);
+  expect(await semanticKnowledgeSearch("показ", options())).toEqual([]);
+  const recheck = mocks.query.mock.calls[1][0];
+  expect(recheck.text).toContain('"validUntil" > now()');
+  expect(recheck.text).toContain('"archived" = false');
+});
+it("queues missing, changed-version and changed-model indexes while excluding expired facts", async () => {
+  await pendingKnowledgeIndex();
+  const sql = mocks.query.mock.calls[0][0];
+  expect(sql.text).toContain('e."knowledgeId" IS NULL');
+  expect(sql.text).toContain('e."revision" <> k."revision"');
+  expect(sql.text).toContain('e."model" <>');
+  expect(sql.text).toContain('e."dimensions" <>');
+  expect(sql.text).toContain('k."validUntil" > now()');
+  expect(sql.values).toContain("gemini-embedding-001");
+  expect(sql.values).toContain(10);
+});
