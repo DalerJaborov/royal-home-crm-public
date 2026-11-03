@@ -82,6 +82,7 @@ export async function runAssistantToolPlugin(
   hooks: RunPluginHooks,
 ): Promise<unknown> {
   try {
+    if (actor.hiddenTools?.has(plugin.name)) return { error: "Этот инструмент недоступен в этом чате" };
     if (plugin.level === "A") return await plugin.run(args, { actor });
 
     const actionActor = actionActorFrom(actor, hooks.channel);

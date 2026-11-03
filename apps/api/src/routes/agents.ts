@@ -1066,7 +1066,7 @@ async function disableInsteadOfDelete(
   // новой учётке при повторном найме — telegramChatId уникален (G4/G16, 02.10.2026).
   const deactivated = await prisma.agent.update({
     where: { id: agentId },
-    data: { isActive: false, phone: freedPhone, telegramChatId: null },
+    data: { isActive: false, phone: freedPhone, telegramChatId: null, telegramUserId: null },
   });
   invalidateAgentAccess(deactivated.id);
   await revokeOtherSessions(deactivated.id);

@@ -392,6 +392,9 @@ model Agent {
   /// не становится — бот узнаёт монтажёра только по Settings.videoMontajerAgentId.
   montageCopiesTelegram       Boolean   @default(false)
   telegramChatId              String?   @unique
+  /// Telegram user id сотрудника (П5, 03.11.2026): в общей группе chat.id — это группа,
+  /// а кто просит, видно только по from.id. Заполняется при привязке кодом.
+  telegramUserId              String?   @unique
   /// Одноразовый код для привязки telegramChatId — показывается в Настройках,
   /// агент отправляет его боту (или переходит по ссылке с ?start=код), после
   /// успешной привязки код обнуляется, чтобы им нельзя было воспользоваться дважды.
@@ -10704,9 +10707,22 @@ model AssistantAction {
   /// Захват отката: ставится атомарно, чтобы двойное «Отменить» откатило один раз.
   undoClaimedAt  DateTime?
   undoneAt       DateTime?
+  /// Telegram (П5): несколько действий одного ответа помощника подтверждаются ОДНОЙ
+  /// карточкой и одной кнопкой; общий id связывает их. В CRM не используется.
+  bundleId       String?
   createdAt      DateTime              @default(now())
   updatedAt      DateTime              @updatedAt
 
   @@index([agentId, createdAt])
   @@index([status, expiresAt])
+  @@index([bundleId])
+}
+
+/// Группы Telegram, где помощник отвечает на упоминание (П5, 03.11.2026). Группу
+/// подключает директор/админ командой /assistant_on из самой группы; чужая группа,
+/// куда бота добавили случайно, молчит.
+model AssistantTelegramGroup {
+  chatId              String   @id
+  registeredByAgentId String
+  createdAt           DateTime @default(now())
 }

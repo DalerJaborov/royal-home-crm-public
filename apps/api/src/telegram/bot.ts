@@ -7,6 +7,7 @@ import { prisma } from "../db.js";
 import { sharedMediaHint } from "../messengers/sharedMedia.js";
 import { isDuplicateDelivery, markProcessedMessageComplete, releaseProcessedMessage } from "../lib/webhookDedupe.js";
 import { tryLinkAgentByCode, findAgentByTelegramChatId } from "../lib/telegramAgentLink.js";
+import { handleAssistantCallback, handleAssistantGroupMessage, handleAssistantPrivate } from "./assistantBot.js";
 import { sendShareTextMessage } from "../lib/agentSharePost.js";
 import { findDistrictIdByName } from "../lib/districtLookup.js";
 import { handleMontajerVideo, handleMontajerReceiveCallback } from "./montajerReceive.js";
@@ -173,6 +174,8 @@ async function handleCallbackQuery(query: TelegramCallbackQuery): Promise<void> 
     await answerCallbackQuery(query.id);
     return;
   }
+  // Внутренний помощник (П5, telegram/assistantBot.ts) — as:ok|no:<связка>.
+  if (await handleAssistantCallback(query)) return;
   // Модерация объектов (lib/telegramModeration, 22.09.2026) — свой диспетчер tm:*.
   if (await handleModerationCallback(query)) return;
   // Проверка готового ролика (telegram/clipReviewBot.ts, 25.09.2026) — cr:*.
@@ -376,6 +379,8 @@ async function dispatchTelegramUpdate(update: TelegramUpdate): Promise<TelegramU
    * всё остальное молча пропускается.
    */
   if (msg.chat.type && msg.chat.type !== "private") {
+    // Общая группа сотрудников: помощник отвечает только когда его позвали (П5).
+    if (await handleAssistantGroupMessage(msg)) return;
     await handleDiscussionGroupMessage(msg);
     return;
   }
@@ -449,7 +454,7 @@ async function handleAgentTelegramMessage(msg: TelegramIncomingMessage, updateId
 
   const startMatch = msg.text?.match(/^\/start\s+(\S+)/);
   if (startMatch) {
-    const linked = await tryLinkAgentByCode(chatId, startMatch[1]);
+    const linked = await tryLinkAgentByCode(chatId, startMatch[1], msg.from?.id ? String(msg.from.id) : null);
     if (linked) return true;
     // Код не подошёл (истёк, чужой, уже использован) — это мог быть и клиент,
     // случайно написавший "/start что-то": не отвечаем здесь ничего, пусть
@@ -464,6 +469,13 @@ async function handleAgentTelegramMessage(msg: TelegramIncomingMessage, updateId
   if (msg.text && !msg.text.startsWith("/") && (await handleModerationText(chatId, msg.text))) return true;
   // Комментарий монтажёру к возврату готового ролика (telegram/clipReviewBot.ts).
   if (msg.text && !msg.text.startsWith("/") && (await handleClipReviewText(chatId, msg.text))) return true;
+
+  // Не монтажёр — разговор с внутренним помощником CRM (П5, telegram/assistantBot.ts): текст,
+  // голосовые, кнопки подтверждения. Монтажёру ниже достаётся прежнее меню и приём ролика.
+  if (!(await isCurrentMontajer(agent.id))) {
+    await handleAssistantPrivate(msg, agent);
+    return true;
+  }
 
   /**
    * ОБЛОЖКА ОТ МОНТАЖЁРА БОЛЬШЕ НЕ ПРИНИМАЕТСЯ (владелец, 21.09.2026: «обложки

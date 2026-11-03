@@ -65,6 +65,8 @@ async function actorWithRole(actor: AssistantActionActor): Promise<SendBackActor
 
 export const sendToRemakeExecutor = {
   tool: "send_to_remake",
+  // Step-up у REST-аналога нет; необратимость в Telegram закрыта подтверждением автора (П5).
+  channels: ["crm", "telegram"] as const,
   parseArgs(raw: unknown): Args {
     const args = rawSchema.parse(raw);
     toBody(args); // отказ в комментарии — понятным текстом ещё на разборе

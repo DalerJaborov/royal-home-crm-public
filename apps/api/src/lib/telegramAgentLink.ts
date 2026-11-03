@@ -35,7 +35,7 @@ export async function createTelegramLinkCode(agentId: string): Promise<{ code: s
  * вызывающий код (telegram/bot.ts) сам решает, что ответить (скорее всего это
  * клиент, впервые пишущий боту, а не монтажёр).
  */
-export async function tryLinkAgentByCode(chatId: string, code: string): Promise<boolean> {
+export async function tryLinkAgentByCode(chatId: string, code: string, telegramUserId?: string | null): Promise<boolean> {
   // Только действующая учётка (G16, 02.10.2026): код, выданный до увольнения,
   // не должен привязывать чат к отключённой учётке.
   const agent = await prisma.agent.findFirst({
@@ -64,7 +64,18 @@ export async function tryLinkAgentByCode(chatId: string, code: string): Promise<
       where: { telegramChatId: chatId, id: { not: agent.id } },
       data: { telegramChatId: null },
     });
-    await tx.agent.update({ where: { id: agent.id }, data: { telegramChatId: chatId } });
+    // user id (П5): в общей группе сотрудника узнают только по нему. Прежняя привязка
+    // этого Telegram-аккаунта к другой учётке снимается — поле уникально.
+    if (telegramUserId) {
+      await tx.agent.updateMany({
+        where: { telegramUserId, id: { not: agent.id } },
+        data: { telegramUserId: null },
+      });
+    }
+    await tx.agent.update({
+      where: { id: agent.id },
+      data: { telegramChatId: chatId, ...(telegramUserId ? { telegramUserId } : {}) },
+    });
     return true;
   });
   if (!linked) return false;
@@ -85,4 +96,12 @@ export async function findAgentByTelegramChatId(
   chatId: string
 ): Promise<{ id: string; fullName: string } | null> {
   return prisma.agent.findFirst({ where: { telegramChatId: chatId, isActive: true }, select: { id: true, fullName: true } });
+}
+
+
+/** Сотрудник по Telegram user id (общая группа, нажатие кнопки). Только действующая учётка. */
+export async function findAgentByTelegramUserId(
+  userId: string
+): Promise<{ id: string; fullName: string } | null> {
+  return prisma.agent.findFirst({ where: { telegramUserId: userId, isActive: true }, select: { id: true, fullName: true } });
 }

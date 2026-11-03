@@ -112,6 +112,8 @@ export function makeChangeRequestExecutor<A extends { ref: string }>(
   return {
     tool: spec.tool,
     requires: ["properties.requestChange"],
+    // Заявка уходит руководителю, step-up у REST-аналога нет — из Telegram можно (П5).
+    channels: ["crm", "telegram"],
     parseArgs: spec.parseArgs,
 
     async snapshot(args, actor) {

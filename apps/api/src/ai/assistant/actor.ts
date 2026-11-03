@@ -58,6 +58,12 @@ export interface AssistantActor {
    * не щедро.
    */
   permissions?: ReadonlySet<PermissionId>;
+  /**
+   * Инструменты, закрытые для этого актора в ЭТОМ канале (общая группа Telegram, П5):
+   * не объявляются модели И отказывают при вызове. Нужны там, где право есть, а
+   * показывать нельзя: комиссия по своим сделкам, запись без кнопки.
+   */
+  hiddenTools?: ReadonlySet<string>;
 }
 
 /** Актор помощника из прав сотрудника — тех же, что проверяет requireAuth. */
@@ -130,6 +136,7 @@ const TOOL_GATES: Readonly<Record<string, (actor: AssistantActor) => boolean>> =
 };
 
 export function assistantToolAllowed(actor: AssistantActor, toolName: string): boolean {
+  if (actor.hiddenTools?.has(toolName)) return false;
   const gate = TOOL_GATES[toolName];
   return gate ? gate(actor) : true;
 }
