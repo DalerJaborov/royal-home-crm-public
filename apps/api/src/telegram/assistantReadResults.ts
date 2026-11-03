@@ -6,7 +6,7 @@ import { prisma } from "../db.js";
 import { uploadsDir } from "../upload.js";
 import type { AssistantActor } from "../ai/assistant/actor.js";
 import { findClientsTool } from "../ai/assistant/tools/findClients.js";
-import { sendMessageWithButtons, sendPhotoFromDisk, TelegramApiError } from "./api.js";
+import { sendChatAction, sendMessageWithButtons, sendPhotoFromDisk, TelegramApiError } from "./api.js";
 import { sanitizeAssistantReply, splitHumanMessages, splitReaction } from "./assistantReply.js";
 import { sendAssistantVoiceReply } from "./assistantVoice.js";
 
@@ -101,6 +101,7 @@ export async function sendTelegramPropertyCard(chatId: string, card: AssistantPr
   }
   if (photo) {
     try {
+      void sendChatAction(chatId, undefined, "upload_photo");
       await sendPhotoFromDisk(chatId, photo, caption, buttons, 12_000, { singleAttempt: true, replyTo });
       return true;
     } catch (error) {

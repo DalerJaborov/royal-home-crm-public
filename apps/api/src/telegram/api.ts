@@ -311,16 +311,20 @@ export async function setMessageReaction(chatId: string, messageId: number, emoj
  *
  * Провал не бросает: индикатор — украшение, ответ важнее (как setMessageReaction).
  */
-export async function sendChatAction(chatId: string, directMessagesTopicId?: number): Promise<void> {
+export async function sendChatAction(
+  chatId: string,
+  directMessagesTopicId?: number,
+  action: "typing" | "record_voice" | "upload_voice" | "upload_photo" | "upload_document" = "typing",
+): Promise<void> {
   if (!BASE_URL) return;
   try {
     await call("sendChatAction", {
       chat_id: chatId,
-      action: "typing",
+      action,
       ...(directMessagesTopicId != null ? { direct_messages_topic_id: directMessagesTopicId } : {}),
-    });
+    }, 2_000, undefined, undefined, true);
   } catch (err) {
-    console.warn("[telegram] «печатает…» не показан (косметика):", describeError(err));
+    console.warn("[telegram] Индикатор действия не показан:", action, describeError(err));
   }
 }
 
@@ -593,6 +597,7 @@ export async function sendDocumentFile(
   singleAttempt = false,
 ): Promise<TelegramSentDocument> {
   if (!BASE_URL) throw new Error("TELEGRAM_BOT_TOKEN не настроен");
+  void sendChatAction(chatId, undefined, "upload_document");
   const result = await postMultipartWithRetry(
     `${BASE_URL}/sendDocument`,
     () => {
@@ -810,6 +815,7 @@ export function sendVideo(chatId: string, videoUrl: string, caption?: string, ti
 }
 
 export function sendDocument(chatId: string, fileUrl: string, caption?: string): Promise<unknown> {
+  void sendChatAction(chatId, undefined, "upload_document");
   return call("sendDocument", { chat_id: chatId, document: fileUrl, ...fitCaption(caption) });
 }
 

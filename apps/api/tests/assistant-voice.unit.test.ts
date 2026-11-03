@@ -4,10 +4,10 @@ import path from "node:path";
 let testCacheRoot: string;
 const audioFixture = Buffer.from("OggS0000000000000000000000000000OpusHead00000000");
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-const { query, settings, savedVoice, sendVoice, sendVoiceId, fetchMock } = vi.hoisted(() => ({ query: vi.fn(), settings: vi.fn(), savedVoice: vi.fn(), sendVoice: vi.fn(), sendVoiceId: vi.fn(), fetchMock: vi.fn() }));
+const { query, settings, savedVoice, sendVoice, sendVoiceId, chatAction, fetchMock } = vi.hoisted(() => ({ query: vi.fn(), settings: vi.fn(), savedVoice: vi.fn(), sendVoice: vi.fn(), sendVoiceId: vi.fn(), chatAction: vi.fn(), fetchMock: vi.fn() }));
 vi.mock("../src/db.js", () => ({ prisma: { $queryRaw: query, settings: { findUnique: settings }, assistantVoiceConfig: { findUnique: savedVoice } } }));
 vi.mock("../src/ai/liveVoiceProvider.js", () => ({ resolveElevenLabsKey: (key: string) => key }));
-vi.mock("../src/telegram/api.js", () => ({ sendVoiceFile: sendVoice, sendAssistantVoiceId: sendVoiceId, TelegramApiError: class extends Error { constructor(public errorCode: number, _method: string, text: string) { super(text); } } }));
+vi.mock("../src/telegram/api.js", () => ({ sendChatAction: chatAction, sendVoiceFile: sendVoice, sendAssistantVoiceId: sendVoiceId, TelegramApiError: class extends Error { constructor(public errorCode: number, _method: string, text: string) { super(text); } } }));
 import { sendAssistantVoiceReply, speechTextFromReply } from "../src/telegram/assistantVoice.js";
 import { TelegramApiError } from "../src/telegram/api.js";
 import { assistantVoiceCacheKey, readAssistantVoiceCache, writeAssistantVoiceCache } from "../src/telegram/assistantVoiceCache.js";
@@ -39,6 +39,11 @@ it('successful Turbo synthesis charges before fetch and sends audio', async () =
   });
   expect(query.mock.invocationCallOrder[0]).toBeLessThan(fetchMock.mock.invocationCallOrder[0]);
   expect(sendVoice).toHaveBeenCalledTimes(1);
+  expect(chatAction.mock.calls).toEqual([
+    ["test", undefined, "record_voice"],
+    ["test", undefined, "upload_voice"],
+  ]);
+  expect(chatAction.mock.invocationCallOrder[1]).toBeLessThan(sendVoice.mock.invocationCallOrder[0]);
 });
 it('budget exhausted prevents synthesis', async () => { query.mockResolvedValue([]); expect(await sendAssistantVoiceReply('test', 'Готово.')).toBe(false); expect(fetchMock).not.toHaveBeenCalled(); });
 it('budget failure fails closed', async () => { query.mockRejectedValue(new Error('unavailable')); expect(await sendAssistantVoiceReply('test', 'Готово.')).toBe(false); expect(fetchMock).not.toHaveBeenCalled(); });
@@ -66,6 +71,8 @@ it("reuses Telegram file_id without spending TTS budget", async () => {
   expect(await sendAssistantVoiceReply("second-chat", "Готово.")).toBe(true);
   expect(fetchMock).toHaveBeenCalledTimes(1); expect(query).toHaveBeenCalledTimes(1);
   expect(sendVoiceId).toHaveBeenCalledWith("second-chat", "test-file-id", undefined);
+  expect(chatAction).toHaveBeenCalledWith("second-chat", undefined, "upload_voice");
+  expect(chatAction).not.toHaveBeenCalledWith("second-chat", undefined, "record_voice");
 });
 it("coalesces concurrent synthesis but sends to both chats", async () => {
   await Promise.all([sendAssistantVoiceReply("first", "Готово."), sendAssistantVoiceReply("second", "Готово.")]);
@@ -185,6 +192,11 @@ it.each([new Error("timeout"), new TelegramApiError(429, "sendVoice", "Too Many 
   sendVoiceId.mockRejectedValue(error);
   expect(await sendAssistantVoiceReply("second", "Готово.")).toBe(false);
   expect(sendVoice).toHaveBeenCalledTimes(1);
+  expect(chatAction.mock.calls).toEqual([
+    ["first", undefined, "record_voice"],
+    ["first", undefined, "upload_voice"],
+    ["second", undefined, "upload_voice"],
+  ]);
   expect(fetchMock).toHaveBeenCalledTimes(1);
 });
 it("bot identity invalidates Telegram file cache", async () => {

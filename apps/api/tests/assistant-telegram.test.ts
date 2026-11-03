@@ -12,7 +12,7 @@ import path from "node:path";
  * брокер lib/assistantActions.ts — тот же путь, что у настоящих инструментов.
  */
 
-const { sendMessage, sendHtmlMessage, sendVoiceFile, sendAssistantVoiceId, synthVoice, sendMessageWithButtons, sendPhotoFromDisk, answerCallbackQuery, editMessageText, react, runner, transcribe, fetchAudio, claimCap, downloadDraftPhoto } =
+const { sendMessage, sendHtmlMessage, sendVoiceFile, sendAssistantVoiceId, synthVoice, sendMessageWithButtons, sendPhotoFromDisk, answerCallbackQuery, editMessageText, react, runner, transcribe, fetchAudio, claimCap, downloadDraftPhoto, chatAction } =
   vi.hoisted(() => ({
     sendMessage: vi.fn(async (_chatId: string, _text: string, _reply?: number) => ({})),
     sendHtmlMessage: vi.fn(async (_chatId: string, _text: string, _reply?: number) => ({})),
@@ -29,6 +29,7 @@ const { sendMessage, sendHtmlMessage, sendVoiceFile, sendAssistantVoiceId, synth
     fetchAudio: vi.fn(),
     claimCap: vi.fn(),
     downloadDraftPhoto: vi.fn(),
+    chatAction: vi.fn(async (_chatId: string, _topic?: number, _action?: string) => {}),
   }));
 
 vi.mock("../src/telegram/api.js", async (importOriginal) => ({
@@ -43,7 +44,7 @@ vi.mock("../src/telegram/api.js", async (importOriginal) => ({
   editMessageText,
   setMessageReaction: react,
   getBotUsername: async () => "rh_test_bot",
-  sendChatAction: async () => {},
+  sendChatAction: chatAction,
 }));
 vi.mock("../src/telegram/assistantVoice.js", () => ({ sendAssistantVoiceReply: synthVoice }));
 vi.mock("../src/ai/assistant.js", async (importOriginal) => ({
@@ -177,7 +178,7 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
-  for (const m of [sendMessage, sendHtmlMessage, sendVoiceFile, sendAssistantVoiceId, synthVoice, sendMessageWithButtons, sendPhotoFromDisk, answerCallbackQuery, editMessageText, react, runner, transcribe, fetchAudio, claimCap, downloadDraftPhoto]) {
+  for (const m of [sendMessage, sendHtmlMessage, sendVoiceFile, sendAssistantVoiceId, synthVoice, sendMessageWithButtons, sendPhotoFromDisk, answerCallbackQuery, editMessageText, react, runner, transcribe, fetchAudio, claimCap, downloadDraftPhoto, chatAction]) {
     m.mockReset();
   }
   sendMessage.mockResolvedValue({});
@@ -250,6 +251,7 @@ describe("живые сценарии чтения Мадины", () => {
       await prisma.propertyPhoto.create({ data: { propertyId: property.id, url: `/uploads/${photo}`, thumbUrl: `/uploads/${photo}` } });
       await handleTelegramUpdate(privateMsg("director", { message_id: 905, text: `найди объект ${property.shortId}` }));
       expect(sendPhotoFromDisk).toHaveBeenCalledTimes(1);
+      expect(chatAction).toHaveBeenCalledWith(agents.director.userId, undefined, "upload_photo");
       const [, , caption, buttons] = sendPhotoFromDisk.mock.calls[0];
       expect(caption).toMatch(/630\s000 сомони/u);
       expect(buttons).toEqual([[{
@@ -797,7 +799,30 @@ describe("новая доставка ответа помощника", () => {
     expect(synthVoice).toHaveBeenCalledWith(agents.author.userId, "Готово.", undefined);
     expect(sentTexts()).toEqual([]);
     expect(sendVoiceFile).not.toHaveBeenCalled(); // synthesis is mocked as a whole, never contacts provider
+    expect(chatAction).not.toHaveBeenCalled();
   });
+  it("ошибка ответа на голосовое приходит текстом и без синтеза", async () => {
+    transcribe.mockResolvedValue("проверь данные клиента");
+    runner.mockResolvedValue({ ok: false, code: "deadline" });
+    await handleTelegramUpdate(privateMsg("author", { message_id: 8243, voice: { file_id: "test-voice" } }));
+    expect(synthVoice).not.toHaveBeenCalled();
+    expect(sentTexts().join("\n")).toContain("ИИ отвечал слишком долго");
+  });
+
+  it("пересланная речь сохраняет слова клиента отдельно от команды сотрудника", async () => {
+    const transcript = "Муштарӣ гуфт: хонаи тайёр даркор, таъмирро худам мекунам.";
+    transcribe.mockResolvedValue(transcript);
+    runner.mockResolvedValue({ ok: true, reply: "Муштарӣ хонаи тайёр мехоҳад. Таъмирро худаш мекунад." });
+    await handleTelegramUpdate(privateMsg("author", {
+      message_id: 8244, voice: { file_id: "forwarded-voice" }, forward_origin: { type: "user" },
+    }));
+    const [history, , options] = runner.mock.calls[0];
+    expect(history.at(-1).content).toContain(`<client_content kind="document">\n${transcript}\n</client_content>`);
+    expect(history.at(-1).content).toContain("таъмирро худаш мекунад");
+    expect(options.confirmUi).toBe(false);
+    expect(chatAction).not.toHaveBeenCalled();
+  });
+
   it("голос со ссылкой сохраняет полную HTML-карточку", async () => {
     audio();
     transcribe.mockResolvedValue("покажи карточку клиента");

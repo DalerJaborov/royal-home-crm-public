@@ -7,6 +7,8 @@ import { prisma } from "../db.js";
 import { loadAgentAccess, type AgentAccess } from "../auth/middleware.js";
 import { actorFromAccess, type AssistantActor } from "../ai/assistant/actor.js";
 import { ASSISTANT_ERROR_MESSAGES, isAiAssistantEnabled, runAssistantDetailed } from "../ai/assistant.js";
+import { assistantLanguage } from "../ai/assistant/languageRouting.js";
+import { wrapUntrusted } from "../ai/untrustedContent.js";
 import { parseFastPathIntent, tryAssistantFastPath } from "../ai/assistantFastPath.js";
 import { findTelegramAgentClients, isVoiceReplayRequest, replayTelegramAssistantVoice, sendTelegramPropertyCard } from "./assistantReadResults.js";
 import { sendAssistantVoiceReply } from "./assistantVoice.js";
@@ -161,6 +163,7 @@ export function renderBundleCard(actions: readonly AssistantActionView[], author
 interface TurnResult {
   reply: string;
   propertyCard?: AssistantPropertyCard;
+  failed?: true;
   /** Карточки, ждущие «Подтвердить» (уровень C). */
   pending: AssistantActionView[];
   /** Уже выполненные записи уровня B (заметки, задачи). */
@@ -169,6 +172,7 @@ interface TurnResult {
 
 interface TurnParams {
   moneyWallet?: AssistantMoneyWallet;
+  forwardedVoice?: boolean;
   agentId: string;
   scope: "private" | "group";
   history: { role: "user" | "assistant"; content: string }[];
@@ -228,14 +232,14 @@ async function runTurn(params: TurnParams): Promise<TurnResult | null> {
   const outcome = await runAssistantDetailed(params.history, actor, {
     channel: "telegram",
     moneyWallet: params.moneyWallet,
-    confirmUi: true,
+    confirmUi: !params.forwardedVoice,
     onConfirm: (action) => seen.set(action.id, action),
   });
   const all = [...seen.values()];
   const pending = all.filter((a) => a.status === "PENDING");
   const done = all.filter((a) => a.status === "EXECUTED");
   if (!outcome.ok) {
-    return { reply: ASSISTANT_ERROR_MESSAGES[outcome.code], pending, done };
+    return { reply: ASSISTANT_ERROR_MESSAGES[outcome.code], pending, done, failed: true };
   }
   return { reply: outcome.reply, pending, done };
 }
@@ -267,7 +271,7 @@ async function sendTurnResult(
       if (ctx.fromVoice) await sendAssistantVoiceReply(chatId, split.text, ctx.replyTo);
       return;
     }
-    await sendAssistantReply(chatId, split.text, { scope: ctx.scope, fromVoice: ctx.fromVoice, replyTo: ctx.replyTo, written });
+    await sendAssistantReply(chatId, split.text, { scope: ctx.scope, fromVoice: ctx.fromVoice && !result.failed, replyTo: ctx.replyTo, written });
     return;
   }
   const card = renderBundleCard(result.pending, ctx.authorName, maskPhones, ctx.source);
@@ -354,6 +358,16 @@ async function transcribeVoice(msg: TelegramIncomingMessage, agentId: string, wa
   return { text: text.trim() };
 }
 
+/** Пересланная речь — источник фактов. */
+function forwardedVoicePrompt(msg: TelegramIncomingMessage, transcript: string): string | null {
+  if (!msg.forward_origin && !msg.forward_from_message_id) return null;
+  const language = assistantLanguage([{ role: "user", content: transcript }]);
+  const prompt = language === "tg" || language === "mixed"
+    ? "Мазмуни ин паёми овозиро кӯтоҳ бигӯ. Сухани муштариро аз сухани ҳамкор ҷудо кун. Агар муштарӣ мегӯяд, ки таъмирро худаш мекунад, ҳаминро нигоҳ дор. Кори дигаре дар CRM накун."
+    : "Коротко перескажи смысл пересланной записи. Разделяй слова коллеги и клиента. Если клиент сказал, что сам сделает ремонт, сохрани это. Спроси только о том, что действительно непонятно.";
+  return `${prompt}\n${wrapUntrusted("document", transcript, 3500)}`;
+}
+
 /** Личный чат сотрудника, не монтажёра: всё, что он пишет, — просьба помощнику. */
 export async function handleAssistantPrivate(
   msg: TelegramIncomingMessage,
@@ -365,6 +379,8 @@ export async function handleAssistantPrivate(
     if (await handleTelegramPropertyDraft(msg, agent, transcribeVoice)) return;
     const moneyWallet = createAssistantMoneyWallet();
     let text = (msg.text ?? msg.caption ?? "").trim();
+    const fromVoice = Boolean(msg.voice || msg.audio);
+    let forwardedVoice = false;
     if (text === "/new" || text === "/reset") {
       await clearHistory(chatId);
       await send("Начали заново.");
@@ -385,14 +401,15 @@ export async function handleAssistantPrivate(
       for (let offset = 0; offset < extracted.length; offset += 3500) await send(extracted.slice(offset, offset + 3500));
       return;
     }
-    if (msg.voice || msg.audio) {
-      void sendChatAction(chatId).catch(() => {});
+    if (fromVoice) {
       const voice = await transcribeVoice(msg, agent.id, moneyWallet);
       if ("error" in voice) {
         await send(voice.error);
         return;
       }
-      text = voice.text;
+      const forwarded = forwardedVoicePrompt(msg, voice.text);
+      forwardedVoice = forwarded !== null;
+      text = forwarded ?? voice.text;
     }
     if (!text) {
       // Голое фото/видео/файл без слов: молча «👀» (цель назовут следующим сообщением), без текста.
@@ -405,7 +422,7 @@ export async function handleAssistantPrivate(
       return;
     }
     const previous = await loadHistory(chatId, agent.id);
-    if (isVoiceReplayRequest(text)) {
+    if (!forwardedVoice && isVoiceReplayRequest(text)) {
       if (!(await isAiAssistantEnabled())) { await send(DISABLED_TEXT); return; }
       if (!(await loadAgentAccess(agent.id))?.isActive) { await send("Ваша учётка отключена."); return; }
       const lastReply = previous.slice().reverse().find(message => message.role === "assistant")?.content;
@@ -420,11 +437,11 @@ export async function handleAssistantPrivate(
     if (followup && previousQuestion && parseFastPathIntent(previousQuestion.content)?.kind === "property-code") {
       text = `объект ${followup[1]}`;
     }
-    void sendChatAction(chatId).catch(() => {});
+    if (!fromVoice) void sendChatAction(chatId);
     const history = [...previous, { role: "user" as const, content: text.slice(0, 4000) }];
-    const result = await runTurn({ agentId: agent.id, scope: "private", history, deny: send, moneyWallet });
+    const result = await runTurn({ agentId: agent.id, scope: "private", history, deny: send, moneyWallet, forwardedVoice });
     if (!result) return;
-    await sendTurnResult(chatId, result, { agentId: agent.id, authorName: agent.fullName, scope: "private", fromVoice: !!(msg.voice || msg.audio), reactTo: msg.message_id });
+    await sendTurnResult(chatId, result, { agentId: agent.id, authorName: agent.fullName, scope: "private", fromVoice, reactTo: msg.message_id });
     await saveHistory(chatId, agent.id, [...history, { role: "assistant", content: result.reply.slice(0, 4000) }]);
   } catch (err) {
     await logSystemError("telegram", `Помощник в личке Telegram: ${describeError(err)}`);
@@ -582,27 +599,30 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
     }
     const moneyWallet = createAssistantMoneyWallet();
     let fromVoice = false;
+    let forwardedVoice = false;
     if (!request && (msg.voice || msg.audio)) {
-      void sendChatAction(chatId).catch(() => {});
       const voice = await transcribeVoice(msg, sender.id, moneyWallet);
       if ("error" in voice) {
         await reply(voice.error);
         return true;
       }
-      request = voice.text;
+      const forwarded = forwardedVoicePrompt(msg, voice.text);
+      forwardedVoice = forwarded !== null;
+      request = forwarded ?? voice.text;
       fromVoice = true;
     }
     if (!request) {
       await reply("Слушаю. Напишите просьбу после упоминания.");
       return true;
     }
-    void sendChatAction(chatId).catch(() => {});
+    if (!fromVoice) void sendChatAction(chatId);
     // Окно диалога открывается (и продлевается) на обработанном обращении.
     if (msg.from?.id) dialogWindows.set(windowKey(chatId, msg.from.id), { until: groupClock() + GROUP_DIALOG_WINDOW_MS, junk: 0 });
     const result = await runTurn({
       agentId: sender.id,
       moneyWallet,
       scope: "group",
+      forwardedVoice,
       history: [{ role: "user", content: request.slice(0, 4000) }],
       deny: reply,
     });

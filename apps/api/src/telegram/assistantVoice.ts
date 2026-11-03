@@ -4,7 +4,7 @@ import { describeError } from "../lib/describeError.js";
 import { resolveElevenLabsKey } from "../ai/liveVoiceProvider.js";
 import { prepareAssistantReply } from "./assistantReply.js";
 import { claimAssistantTtsChars } from "./assistantVoiceBudget.js";
-import { sendVoiceFile, sendAssistantVoiceId, TelegramApiError } from "./api.js";
+import { sendChatAction, sendVoiceFile, sendAssistantVoiceId, TelegramApiError } from "./api.js";
 import { z } from "zod";
 import { cacheableAssistantSpeech, assistantVoiceCacheKey, cachedAssistantAudio, writeAssistantVoiceCache, isOggOpusAudio } from "./assistantVoiceCache.js";
 
@@ -89,9 +89,20 @@ export async function sendAssistantVoiceReply(chatId: string, replyText: string,
     if (speech.length < 3) return false;
     const config = await resolveSpeechConfig(language);
     if (!config) return false;
+    const render = async () => {
+      const showRecording = () => void sendChatAction(chatId, undefined, "record_voice");
+      showRecording();
+      const indicator = setInterval(showRecording, 4_000).unref();
+      try {
+        return await synthesize(speech, language, config);
+      } finally {
+        clearInterval(indicator);
+      }
+    };
     if (!cacheableAssistantSpeech(speech)) {
-      const audio = await synthesize(speech, language, config);
+      const audio = await render();
       if (!audio?.length) return false;
+      void sendChatAction(chatId, undefined, "upload_voice");
       await sendVoiceFile(chatId, audio, replyTo);
       return true;
     }
@@ -101,9 +112,10 @@ export async function sendAssistantVoiceReply(chatId: string, replyText: string,
       voiceId, model, endpoint, format: TTS_FORMAT, language, normalization,
       ...(language === "ru" ? { settings: VOICE_PROFILES.ru.settings } : {}),
     });
-    const entry = await cachedAssistantAudio(key, () => synthesize(speech, language, config));
+    const entry = await cachedAssistantAudio(key, render);
     if (!entry) return false;
     if (entry.fileId) {
+      void sendChatAction(chatId, undefined, "upload_voice");
       try { await sendAssistantVoiceId(chatId, entry.fileId, replyTo); return true; }
       catch (err) {
         // Re-upload only after a definite invalid-file rejection; never retry timeouts/429.
@@ -112,6 +124,7 @@ export async function sendAssistantVoiceReply(chatId: string, replyText: string,
         await writeAssistantVoiceCache(key, entry);
       }
     }
+    void sendChatAction(chatId, undefined, "upload_voice");
     const sent = await sendVoiceFile(chatId, Buffer.from(entry.audio, "base64"), replyTo);
     const parsed = sentVoiceSchema.safeParse(sent);
     if (parsed.success) await writeAssistantVoiceCache(key, { ...entry, fileId: parsed.data.voice.file_id });
