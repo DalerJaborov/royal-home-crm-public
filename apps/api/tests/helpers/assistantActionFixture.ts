@@ -5,6 +5,7 @@ import {
   AssistantActionError,
   registerAssistantActionExecutor,
   type AssistantActionActor,
+  type AssistantActionChannel,
 } from "../../src/lib/assistantActions.js";
 import { deleteAgentsWithTraces } from "./cleanupAgents.js";
 import { waitForSettled } from "./waitFor.js";
@@ -24,7 +25,13 @@ export interface FakeProperty {
 
 export function makeTestExecutor(
   tool: string,
-  opts: { requires?: PermissionId[]; irreversible?: boolean; undoWindowMs?: number; failWith?: Error } = {}
+  opts: {
+    requires?: PermissionId[];
+    irreversible?: boolean;
+    undoWindowMs?: number;
+    failWith?: Error;
+    channels?: AssistantActionChannel[];
+  } = {}
 ) {
   const store = new Map<string, FakeProperty>();
   const calls = { execute: 0, undo: 0 };
@@ -40,6 +47,7 @@ export function makeTestExecutor(
   const unregister = registerAssistantActionExecutor<Args>({
     tool,
     requires: opts.requires,
+    channels: opts.channels,
     undoWindowMs: opts.undoWindowMs,
     parseArgs: (raw) => argsSchema.parse(raw),
     async snapshot(args) {

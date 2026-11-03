@@ -15,3 +15,5 @@
 - [ ] Customer recruitment parity: distinguish configured vacancy publications,
   collect an owned application and persist it in Vacancies rather than Client
   intake. Existing topic/feature flags alone do not prove this complete path.
+
+- [~] Помощник в Telegram (П5, 03.11): личка + общая группа по упоминанию, одна карточка на цепочку, подтверждает автор; код и тесты готовы, ship и живая проверка на боте владельца — следом. См. `docs/journal/2026-11-03-помощник-telegram.md`.

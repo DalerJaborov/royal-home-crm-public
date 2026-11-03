@@ -167,7 +167,7 @@
 | `/api/v1/interactions` | Звонки, показы, встречи — всё, что агент отмечает | 10 | да (4 мест) | `apps/api/src/routes/interactions.ts` |
 | `/api/v1/calls` | Журнал звонков и расшифровки | 6 | да (1 мест) | `apps/api/src/routes/calls.ts` |
 | `/api/v1/live-voice` | **без подписи** | 2 | да (1 мест) | `apps/api/src/routes/liveVoiceListen.ts` |
-| `/api/v1/ai` | Запросы к ИИ из интерфейса | 12 | да (2 мест) | `apps/api/src/routes/ai.ts` |
+| `/api/v1/ai` | Запросы к ИИ из интерфейса | 12 | да (3 мест) | `apps/api/src/routes/ai.ts` |
 | `/api/v1/transcribe` | Диктовка голосом в полях CRM | 1 | да (1 мест) | `apps/api/src/routes/transcribe.ts` |
 | `/api/v1/reports` | Отчёты за период | 20 | да (4 мест) | `apps/api/src/routes/reports.ts` |
 | `/api/v1/telephony/whisper` | Станция забирает подсказки оператору | 2 | нет | `apps/api/src/routes/telephonyWhisper.ts` |
@@ -389,7 +389,7 @@
 | Отчёты о резервных копиях | 1 | 1 |
 | Пуш-уведомления | 4 | 2 |
 | Реклама Meta (рекламный кабинет) | 3 | 3 |
-| Сайт royalhome.tj | 6 | 13 |
+| Сайт royalhome.tj | 6 | 14 |
 | Телефония FreePBX / Asterisk | 3 | 2 |
 | Утренний отчёт наружу | 2 | 1 |
 | Хранилище Cloudflare R2 | 4 | 1 |

@@ -208,7 +208,7 @@ meRouter.patch("/clip-review-telegram", requireAuth, async (req, res) => {
 /** Отвязка — на случай смены телефона/чата. Обычный сброс поля, без подтверждения
  *  паролем: это не способ закрыть чужой вход (в отличие от 2FA ниже). */
 meRouter.post("/telegram-unlink", requireAuth, async (req, res) => {
-  await prisma.agent.update({ where: { id: req.agent!.id }, data: { telegramChatId: null, telegramLinkCode: null } });
+  await prisma.agent.update({ where: { id: req.agent!.id }, data: { telegramChatId: null, telegramUserId: null, telegramLinkCode: null } });
   logAudit(req, "TELEGRAM_UNLINKED", "Agent", req.agent!.id);
   res.json({ ok: true });
 });

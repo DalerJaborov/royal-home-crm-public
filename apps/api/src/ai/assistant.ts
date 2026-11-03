@@ -429,6 +429,7 @@ function expenseMonthDate(monthKey: string): Date {
 /** Экспортирован ради точечных тестов (apps/api/tests/ai-assistant-tools.test.ts):
  *  проверка ownScope/прав каждого инструмента без похода в Gemini. */
 export async function runTool(name: string, input: Record<string, unknown>, actor: AssistantActor): Promise<unknown> {
+  if (actor.hiddenTools?.has(name)) return { error: "Этот инструмент недоступен в этом чате" };
   const ownScope = actor.canViewAllClients ? undefined : actor.id;
   // Непринятая заявка и карточка из Корзины — не для агента (REST отдаёт ему 404 /
   // скрывает до принятия). Руководство (ownScope не задан) видит всё, кроме Корзины.
@@ -1037,6 +1038,7 @@ export function pluginDeclarations(
 ): GeminiToolDefinition[] {
   return listAssistantToolPlugins()
     .filter((p) => p.level === "A" || (confirmUi && (p.executor.channels ?? ["crm"]).includes(channel)))
+    .filter((p) => !actor.hiddenTools?.has(p.name))
     .filter((p) => (p.allowed ? p.allowed(actor) : true))
     .map((p) => ({
       name: p.name,

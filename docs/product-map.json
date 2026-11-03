@@ -1075,7 +1075,7 @@
       "file": "apps/api/src/routes/ai.ts",
       "endpoints": 12,
       "label": "Запросы к ИИ из интерфейса",
-      "usedBy": 2
+      "usedBy": 3
     },
     {
       "mount": "/api/v1/transcribe",
@@ -2254,7 +2254,7 @@
     {
       "name": "Сайт royalhome.tj",
       "keys": 6,
-      "files": 13
+      "files": 14
     },
     {
       "name": "Телефония FreePBX / Asterisk",

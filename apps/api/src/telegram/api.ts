@@ -243,9 +243,16 @@ export type TelegramInlineButton =
 export function sendMessageWithButtons(
   chatId: string,
   text: string,
-  buttons: TelegramInlineButton[][]
+  buttons: TelegramInlineButton[][],
+  /** Ответом на сообщение (общая группа: карточка помощника под просьбой автора). */
+  replyToMessageId?: number
 ): Promise<TelegramSentMessage> {
-  return call<TelegramSentMessage>("sendMessage", { chat_id: chatId, text, reply_markup: { inline_keyboard: buttons } });
+  return call<TelegramSentMessage>("sendMessage", {
+    chat_id: chatId,
+    text,
+    reply_markup: { inline_keyboard: buttons },
+    ...(replyToMessageId ? { reply_to_message_id: replyToMessageId, allow_sending_without_reply: true } : {}),
+  });
 }
 
 /**

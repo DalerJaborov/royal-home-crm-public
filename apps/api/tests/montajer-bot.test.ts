@@ -420,6 +420,8 @@ describe("меню монтажёра (раздел C)", () => {
     expect(replies()).toContain("Этот чат сейчас не назначен монтажёром.");
     sendMessage.mockClear();
     await text(STRANGER_CHAT, "очередь");
-    expect(replies()[0]).toContain("Это личный чат с CRM-ботом");
+    // Не монтажёр — чат с внутренним помощником (П5), а не меню монтажа.
+    expect(replies()[0]).toMatch(/помощник/i);
+    expect(replies()[0]).not.toContain("В работе у вас");
   });
 });

@@ -312,10 +312,13 @@ describe("Приём готового ролика в привязанном ч�
       message: { chat: { id: AGENT_CHAT_ID }, video: { file_id: "vid-1" } },
     });
 
-    expect(receiveEditedVideo).not.toHaveBeenCalled();
-    expect(sendMessage).toHaveBeenCalledWith(String(AGENT_CHAT_ID), expect.stringContaining("не назначен монтажёром"));
-
-    await prisma.settings.update({ where: { id: "singleton" }, data: { videoMontajerAgentId: agentId } });
+    try {
+      expect(receiveEditedVideo).not.toHaveBeenCalled();
+      // Не монтажёр — это чат с помощником CRM (П5): ролик не принимается, в ответ подсказка помощника.
+      expect(sendMessage).toHaveBeenCalledWith(String(AGENT_CHAT_ID), expect.stringContaining("помощник CRM"));
+    } finally {
+      await prisma.settings.update({ where: { id: "singleton" }, data: { videoMontajerAgentId: agentId } });
+    }
   });
 
   it("недавно принятый и ЕЩЁ не опубликованный ролик — новый файл открывает объект заново и уходит в receiveEditedVideo (переслать, если ошибся файлом)", async () => {

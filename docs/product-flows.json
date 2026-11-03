@@ -44897,7 +44897,7 @@
    "tree": [
     {
      "k": "do",
-     "t": "await prisma.agent.update({ where: { id: req.agent!.id }, data: { telegramChatId: null, telegramLinkCode: nul…",
+     "t": "await prisma.agent.update({ where: { id: req.agent!.id }, data: { telegramChatId: null, telegramUserId: null,…",
      "a": [
       "меняет в базе: agent"
      ],
