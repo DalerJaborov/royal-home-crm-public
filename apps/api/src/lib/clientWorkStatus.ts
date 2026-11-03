@@ -8,7 +8,6 @@
  * Один и тот же вызов используется из окна «Как прошёл звонок» (call_result) и
  * из окна «Итог показа» (meeting) — обе формы просят одинаковый набор полей.
  */
-import { sellersWithPropertyInWork } from "./sellerCardState.js";
 import {
   INACTIVE_REASON_LABELS,
   REFUSAL_INITIATOR_LABELS,
@@ -204,13 +203,11 @@ export async function deactivateClient(
   if (input.evidenceAt && await hasNewerContactSince(client.id, input.evidenceAt)) {
     return { ok: false, reason: "После этого события клиент снова был на связи" };
   }
-  // Продавец с объектом в работе в «Неактивные» не уходит ни по разбору ИИ, ни
-  // по недозвонам (владелец 23.09.2026): объект в каталоге — клиент живой.
-  if (
-    client.kind === "SELLER" &&
-    (await sellersWithPropertyInWork([client.id])).has(client.id)
-  ) {
-    return { ok: false, reason: "У продавца объект в работе" };
+  // Продавцы в «Неактивные» не уходят вообще — ни по разбору ИИ, ни по
+  // недозвонам, ни по молчанию (владелец 03.11.2026): объект в каталоге —
+  // клиент живой, а «потерянным» продавец становился даже с объектом у нас.
+  if (client.kind === "SELLER") {
+    return { ok: false, reason: "Продавцы в Неактивные не переводятся" };
   }
 
   const gate = await canDeactivateWithReason(input.clientId, input.reason);
@@ -230,7 +227,6 @@ export async function deactivateClient(
 
   const written = await prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT id FROM "Client" WHERE id = ${client.id} FOR UPDATE`;
-    if (client.kind === "SELLER" && (await sellersWithPropertyInWork([client.id], {}, tx)).has(client.id)) return false;
     const updated = await tx.client.updateMany({
       where: {
         id: client.id, deletedAt: null, status: { notIn: [...TERMINAL_CLIENT_STATUSES] }, workStatus: "ACTIVE",

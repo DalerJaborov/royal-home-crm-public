@@ -565,7 +565,8 @@ export async function runInactiveTrafficLightTick(
       where: {
         ...(afterId ? { id: { gt: afterId } } : {}),
         workStatus: "INACTIVE",
-        kind: { not: "OTHER" },
+        // Светофор не касается продавцов (владелец 03.11.2026).
+        kind: "BUYER",
         status: { notIn: [...TERMINAL_CLIENT_STATUSES] },
         assignedAgentId: { not: null },
         reactivationOfferedToAgentId: null,

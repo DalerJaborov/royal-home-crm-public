@@ -508,7 +508,7 @@ describe("Живой по делу клиент сам в «Потерянные
     expect(reloaded.status).not.toBe("LOST");
   });
 
-  it("продавец без объекта в работе уходит, как и раньше", async () => {
+  it("продавец без объекта в работе тоже НЕ уходит в Потерянные (светофор не касается продавцов, 03.11.2026)", async () => {
     const client = await makeExhaustedClient();
     await prisma.client.update({
       where: { id: client.id },
@@ -518,7 +518,7 @@ describe("Живой по делу клиент сам в «Потерянные
     const reloaded = await prisma.client.findUniqueOrThrow({
       where: { id: client.id },
     });
-    expect(reloaded.status).toBe("LOST");
+    expect(reloaded.status).not.toBe("LOST");
   });
 });
 
