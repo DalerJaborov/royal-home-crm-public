@@ -1,3 +1,4 @@
+import { requestThinkingConfig } from "./geminiThinkingPolicy.js";
 import { GEMINI_FUNCTION_DECLARATION_PROTOCOL, managedGeminiFunctionDeclarations } from "./geminiFunctionDeclarations.js";
 import { prisma } from "../db.js";
 import { traceModelStart, traceModelFinish, traceModelCache, traceKnownSecrets } from "../lib/botTurnTrace.js";
@@ -1170,7 +1171,7 @@ export interface GeminiToolDefinition {
 
 /** Тело запроса с инструментами — одно на обычный и потоковый вызов. */
 function toolsRequestBody(
-  params: { system: string; contents: unknown; requiredFunctionName?: string; maxTokens?: number; model: string },
+  params: { system: string; contents: unknown; requiredFunctionName?: string; maxTokens?: number; model: string; requireLowThinking?: boolean },
   declarations: unknown,
   counted: { thinkingLevel: unknown } | undefined,
 ): Record<string, unknown> {
@@ -1185,7 +1186,7 @@ function toolsRequestBody(
       // списываются из maxOutputTokens и способны выжечь весь лимит до ответа. Форма
       // параметра — по семейству модели (см. geminiThinkingConfig).
       ...(counted ? { thinkingConfig: { thinkingLevel: counted.thinkingLevel } }
-        : thinkingConfigRejected[params.model] ? {} : { thinkingConfig: geminiThinkingConfig(params.model) }),
+        : requestThinkingConfig(geminiThinkingConfig(params.model), !!thinkingConfigRejected[params.model], params.requireLowThinking)),
     },
   };
 }
@@ -1259,6 +1260,8 @@ function reportToolTurnOddities(turn: {
 }
 
 async function callGeminiToolsOnce(params: {
+  /** Never drop the explicit low reasoning limit after a provider rejection. */
+  requireLowThinking?: boolean;
   apiKey: string;
   system: string;
   contents: { role: "user" | "model"; parts: GeminiPart[] }[];
@@ -1448,6 +1451,8 @@ async function readManagedGeminiErrorSummary(res: Response): Promise<string> {
 }
 
 export async function callGeminiTools(params: {
+  /** Never drop the explicit low reasoning limit after a provider rejection. */
+  requireLowThinking?: boolean;
   apiKey: string;
   system: string;
   contents: { role: "user" | "model"; parts: GeminiPart[] }[];
@@ -1566,6 +1571,7 @@ async function callGeminiToolsWithRetries(
           contents: params.contents,
           tools: params.tools,
           requiredFunctionName: params.requiredFunctionName,
+          requireLowThinking: params.requireLowThinking,
           maxTokens: params.maxTokens,
           timeoutMs: Math.min(attemptCap, left),
           model,
@@ -1739,6 +1745,8 @@ async function callGeminiToolsStreamOnce(
  * клиентский агент) здесь нет намеренно: его учёт денег на поток не рассчитан.
  */
 export async function callGeminiToolsStream(params: {
+  /** Never drop the explicit low reasoning limit after a provider rejection. */
+  requireLowThinking?: boolean;
   apiKey: string;
   system: string;
   contents: { role: "user" | "model"; parts: GeminiPart[] }[];
@@ -1797,6 +1805,8 @@ export interface GeminiGroundedResult {
  * где экономия на качестве уместна (см. задачу).
  */
 export async function callGeminiGrounded(params: {
+  /** Never drop the explicit low reasoning limit after a provider rejection. */
+  requireLowThinking?: boolean;
   apiKey: string;
   system?: string;
   query: string;
@@ -1857,7 +1867,7 @@ export async function callGeminiGrounded(params: {
             tools: [{ google_search: {} }],
             generationConfig: {
               maxOutputTokens: params.maxTokens ?? 2048,
-              ...(thinkingConfigRejected[model] ? {} : { thinkingConfig: geminiThinkingConfig(model) }),
+              ...requestThinkingConfig(geminiThinkingConfig(model), !!thinkingConfigRejected[model], params.requireLowThinking),
             },
           };
           if (params.system) body.systemInstruction = { parts: [{ text: params.system }] };

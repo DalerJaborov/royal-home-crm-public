@@ -16,6 +16,7 @@ import {
 } from "./geminiClient.js";
 import { isRetryableGeminiStatus } from "./geminiTransport.js";
 import { loadAssistantGeminiRuntime, loadAssistantSettings } from "./assistant/runtime.js";
+import { assistantLanguagePolicy } from "./assistant/languageRouting.js";
 import { centsToTjs, fromCents, loadMoneyContext, priceCeilingFilter, roundMoney, splitCents, toCents, toTjs } from "../lib/money.js";
 import {
   dushanbeDateTimeString,
@@ -148,7 +149,7 @@ async function semanticSearchIsEnabled(): Promise<boolean> {
  *  CRM, ни правил про ссылки на карточки, только сам справочный вопрос. */
 const GROUNDED_SYSTEM_PROMPT =
   "Ты отвечаешь на справочный вопрос сотрудника риелторского агентства в Душанбе (Таджикистан) о рынке " +
-  "недвижимости, законах, налогах, ипотеке или процедурах сделок. Отвечай кратко и по-русски, строго по " +
+  "недвижимости, законах, налогах, ипотеке или процедурах сделок. Отвечай кратко на языке сотрудника, строго по " +
   "актуальным данным из поиска — не выдумывай цифры, ставки и факты. Обычный текст, без markdown-разметки.";
 
 /**
@@ -177,7 +178,7 @@ function formatGroundedReply(result: GeminiGroundedResult): string {
 export const SYSTEM_PROMPT_VERSION = "2026-10-31.3-write-tools";
 
 const SYSTEM_PROMPT = `Ты — встроенный ассистент CRM агентства недвижимости (Душанбе, Таджикистан).
-Отвечай кратко и по-русски. Валюта по умолчанию — сомони (TJS).
+Отвечай кратко на языке сотрудника. Валюта по умолчанию — сомони (TJS).
 Используй инструменты, чтобы отвечать по РЕАЛЬНЫМ данным CRM — не выдумывай цифры и клиентов.
 Когда упоминаешь клиента или объект, давай markdown-ссылку: [Имя](/clients/ID) или [Название](/properties/ID).
 Никакой другой markdown-разметки — НИГДЕ, ни при каких обстоятельствах: без **жирного**, без
@@ -1368,6 +1369,7 @@ export async function runAssistantDetailed(
       Promise.all([loadAssistantSettings(), loadAssistantGeminiRuntime()]),
       signal,
     );
+    const languagePolicy = assistantLanguagePolicy(trimAssistantHistory(messages), gemini);
     const apiKey = gemini.keys[0];
     if (!apiKey) {
       throw new AssistantFailure("no_key", "Ключ Gemini не настроен (Настройки → ИИ, или GEMINI_API_KEY в .env)");
@@ -1379,7 +1381,7 @@ export async function runAssistantDetailed(
     // не читался как шаблон замены.
     const system = SYSTEM_PROMPT.replace("{{TODAY}}", dushanbeWallClock().toISOString().slice(0, 10))
       .replace("{{ROLE}}", () => actor.role)
-      .replace("{{SECTIONS}}", () => assistantSectionsGuide(actor));
+      .replace("{{SECTIONS}}", () => assistantSectionsGuide(actor)) + languagePolicy.instruction;
     // Окно истории (задача 1.7): роут уже режет схемой, но runAssistant зовут и
     // напрямую — правило одно, в @royal-home/shared.
     const history = trimAssistantHistory(messages);
@@ -1443,7 +1445,8 @@ export async function runAssistantDetailed(
         timeoutMs: ATTEMPT_TIMEOUT_MS,
         signal,
         deadlineAt,
-        runtime: gemini,
+        runtime: languagePolicy.runtime,
+        requireLowThinking: languagePolicy.language === "tg" || languagePolicy.language === "mixed",
       };
       const onToken = roundTokenSink();
       const turn = await modelCall(() =>
@@ -1477,12 +1480,13 @@ export async function runAssistantDetailed(
         const grounded = await modelCall(() =>
           callGeminiGrounded({
             apiKey,
-            system: GROUNDED_SYSTEM_PROMPT,
+            system: GROUNDED_SYSTEM_PROMPT + languagePolicy.instruction,
             query: asked || lastUserText,
             timeoutMs: ATTEMPT_TIMEOUT_MS,
             signal,
             deadlineAt,
-            runtime: gemini,
+            runtime: languagePolicy.runtime,
+            requireLowThinking: languagePolicy.language === "tg" || languagePolicy.language === "mixed",
           }),
         );
         // null — уже залогировано внутри callGeminiGrounded (logSystemError).
