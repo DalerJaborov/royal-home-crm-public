@@ -9,8 +9,10 @@ export function assistantLanguage(messages: readonly { role: string; content: st
   for (const message of [...messages].reverse()) {
     if (message.role !== "user") continue;
     const text = clientOwnWords(message.content);
-    if (/(?:ответь|отвечай|напиши|пиши|переведи)\s+(?:пожалуйста\s+)?(?:на\s+таджикском|по-таджикски)/iu.test(text)) return "tg";
-    if (/(?:ответь|отвечай|напиши|пиши|переведи)\s+(?:пожалуйста\s+)?(?:на\s+русском|по-русски)/iu.test(text)) return "ru";
+    for (const clause of text.split(/[,.!?;\n]/u).reverse()) {
+      const command = /^(?:\s*пожалуйста[, ]*)?\s*(?:ответь|отвечай|напиши|пиши|переведи)\s+(?:пожалуйста\s+)?(?:на\s+(таджикск(?:ом|ий)|русск(?:ом|ий))|по-(таджикски|русски))(?=[:\s]|$)/iu.exec(clause);
+      if (command) return /таджик/iu.test(command[0]) ? "tg" : "ru";
+    }
     const language = detectClientLanguage(text);
     if (language !== "unknown") return language;
   }
@@ -25,7 +27,7 @@ export function assistantLanguagePolicy(messages: readonly { role: string; conte
     // Never mutate the shared runtime cache or silently downgrade Tajik to Flash.
     runtime: strong ? { ...runtime, model: ASSISTANT_TAJIK_MODEL, fallbackModels: [], liteModel: "" } : runtime,
     instruction: languageInstruction(language) + (strong
-      ? "\nПиши простым разговорным таджикским, без сложных литературных оборотов. Имена, номера карточек, суммы, валюты, даты и ссылки сохраняй точно. Не выдумывай перевод имени или неизвестный факт; уточни непонятное."
+      ? "\nИспользуй простые разговорные слова выбранного выше языка, без сложных литературных оборотов. Имена, номера карточек, суммы, валюты, даты и ссылки сохраняй точно. Не выдумывай перевод имени или неизвестный факт; уточни непонятное."
       : ""),
   };
 }

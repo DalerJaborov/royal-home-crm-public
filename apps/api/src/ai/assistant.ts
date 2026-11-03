@@ -1,3 +1,8 @@
+import { assistantStyle } from "./assistant/personaStyle.js";
+import { searchCompanyKnowledge, knowledgeContext } from "./assistant/knowledge.js";
+import { tajikGlossaryFor } from "./assistant/tajikGlossary.js";
+import { createAssistantAttemptLimit } from "./assistant/attemptLimit.js";
+import { reserveAssistantGeminiAttempt } from "./assistant/attemptBudget.js";
 import { visibleInteractionWhere } from "../lib/investigationPrivacy.js";
 import { expenseCentsToTjs } from "../lib/money.js";
 import { prisma } from "../db.js";
@@ -175,7 +180,7 @@ function formatGroundedReply(result: GeminiGroundedResult): string {
  * Пишется в AiLog.promptVersion при каждом ответе ассистента (см. finally
  * runAssistant ниже) — по ней журнал говорит, какой текст промта отвечал.
  */
-export const SYSTEM_PROMPT_VERSION = "2026-10-31.3-write-tools";
+export const SYSTEM_PROMPT_VERSION = "2026-11-03.4-shared-knowledge-low-thinking";
 
 const SYSTEM_PROMPT = `Ты — встроенный ассистент CRM агентства недвижимости (Душанбе, Таджикистан).
 Отвечай кратко на языке сотрудника. Валюта по умолчанию — сомони (TJS).
@@ -1058,6 +1063,7 @@ export function pluginDeclarations(
  * (retryable), по которому интерфейс решает, предлагать ли «Повторить».
  */
 export type AssistantErrorCode =
+  | "attempt_limit"
   | "no_key"
   | "deadline"
   | "aborted"
@@ -1073,6 +1079,7 @@ export type AssistantOutcome =
 
 /** Текст для человека по коду отказа — одна таблица на роут и на любой другой вход. */
 export const ASSISTANT_ERROR_MESSAGES: Record<AssistantErrorCode, string> = {
+  attempt_limit: "Лимит вызовов ИИ достигнут или учёт расходов недоступен. Новые платные запросы остановлены.",
   no_key: "ИИ недоступен: ключ Gemini не настроен (Настройки → ИИ)",
   deadline: "ИИ отвечал слишком долго — повторите вопрос или задайте его короче",
   aborted: "Запрос отменён",
@@ -1172,6 +1179,9 @@ function failureOf(err: unknown, signal: AbortSignal): { code: AssistantErrorCod
   // По коду, а не instanceof: узкие подмены geminiClient в тестах класса не отдают.
   if (err instanceof ModelCallError && (err.original as Partial<GeminiStreamInterruptedError> | null)?.code === "stream_interrupted") {
     return { code: "stream_interrupted", retryable: true };
+  }
+  if (err instanceof ModelCallError && (err.original as { code?: string } | null)?.code === "assistant_attempt_limit") {
+    return { code: "attempt_limit", retryable: false };
   }
   if (err instanceof ModelCallError) {
     // Без HTTP-кода — сеть или таймаут попытки: та же «сейчас не получилось», что и 503.
@@ -1369,6 +1379,7 @@ export async function runAssistantDetailed(
       Promise.all([loadAssistantSettings(), loadAssistantGeminiRuntime()]),
       signal,
     );
+    const beforeAttempt = createAssistantAttemptLimit(reserveAssistantGeminiAttempt);
     const languagePolicy = assistantLanguagePolicy(trimAssistantHistory(messages), gemini);
     const apiKey = gemini.keys[0];
     if (!apiKey) {
@@ -1379,9 +1390,18 @@ export async function runAssistantDetailed(
     // полуночи до 05:00 местного жил вчерашним днём.
     // Разделы — из прав актора (задача 2.5); функцией-заменой, чтобы «$» в тексте
     // не читался как шаблон замены.
+    const userQuestion = [...trimAssistantHistory(messages)].reverse().find((m) => m.role === "user")?.content ?? "";
+    let sharedKnowledge = "";
+    try {
+      sharedKnowledge = knowledgeContext(await untilAborted(searchCompanyKnowledge(userQuestion.slice(0, 200)), signal));
+    } catch (err) {
+      if (signal.aborted) throw signal.reason;
+      console.warn("[assistant] company knowledge unavailable");
+    }
+    const glossary = languagePolicy.language === "tg" || languagePolicy.language === "mixed" ? tajikGlossaryFor(userQuestion) : "";
     const system = SYSTEM_PROMPT.replace("{{TODAY}}", dushanbeWallClock().toISOString().slice(0, 10))
       .replace("{{ROLE}}", () => actor.role)
-      .replace("{{SECTIONS}}", () => assistantSectionsGuide(actor)) + languagePolicy.instruction;
+      .replace("{{SECTIONS}}", () => assistantSectionsGuide(actor)) + assistantStyle(options.channel ?? "crm") + languagePolicy.instruction + glossary + sharedKnowledge;
     // Окно истории (задача 1.7): роут уже режет схемой, но runAssistant зовут и
     // напрямую — правило одно, в @royal-home/shared.
     const history = trimAssistantHistory(messages);
@@ -1446,6 +1466,8 @@ export async function runAssistantDetailed(
         signal,
         deadlineAt,
         runtime: languagePolicy.runtime,
+        beforeAttempt,
+        requireCompleteTurn: true,
         requireLowThinking: languagePolicy.language === "tg" || languagePolicy.language === "mixed",
       };
       const onToken = roundTokenSink();
@@ -1486,6 +1508,8 @@ export async function runAssistantDetailed(
             signal,
             deadlineAt,
             runtime: languagePolicy.runtime,
+            beforeAttempt,
+            requireCompleteTurn: true,
             requireLowThinking: languagePolicy.language === "tg" || languagePolicy.language === "mixed",
           }),
         );

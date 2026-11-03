@@ -1,6 +1,19 @@
 {
   "_": "База для scripts/audit-vi-mock.mjs (подмены vi.mock без importOriginal). legacy — накопленные до 01.10.2026 узкие подмены «тест::модуль», только убывает (npm run audit:mocks -- --update убирает исправленные и добавляет новые — добавлять без причины нельзя). intentional — подмена НАМЕРЕННО узкая, причина обязательна. Разбор — в шапке скрипта.",
-  "intentional": {},
+  "intentional": {
+    "apps/api/tests/assistant-knowledge.unit.test.ts::apps/api/src/auth/middleware.ts": "Isolated assistant unit test: mock the boundary fully to prevent loading .env, working database or real outbound providers.",
+    "apps/api/tests/assistant-knowledge.unit.test.ts::apps/api/src/ai/assistant/tools/showingToolSupport.ts": "Isolated assistant unit test: mock the boundary fully to prevent loading .env, working database or real outbound providers.",
+    "apps/api/tests/assistant-knowledge.unit.test.ts::apps/api/src/lib/assistantActions.ts": "Isolated assistant unit test: mock the boundary fully to prevent loading .env, working database or real outbound providers.",
+    "apps/api/tests/assistant-reply.unit.test.ts::apps/api/src/telegram/api.ts": "Isolated assistant unit test: mock the boundary fully to prevent loading .env, working database or real outbound providers.",
+    "apps/api/tests/assistant-voice.unit.test.ts::apps/api/src/ai/liveVoiceProvider.ts": "Isolated assistant unit test: mock the boundary fully to prevent loading .env, working database or real outbound providers.",
+    "apps/api/tests/assistant-voice.unit.test.ts::apps/api/src/telegram/api.ts": "Isolated assistant unit test: mock the boundary fully to prevent loading .env, working database or real outbound providers.",
+    "apps/api/tests/assistant-gemini-guards.unit.test.ts::apps/api/src/lib/botTurnTrace.ts": "Provider boundary fully isolated so mocked transport tests cannot load .env, working database or real settings.",
+    "apps/api/tests/assistant-gemini-guards.unit.test.ts::apps/api/src/lib/systemError.ts": "Provider boundary fully isolated so mocked transport tests cannot load .env, working database or real settings.",
+    "apps/api/tests/assistant-gemini-guards.unit.test.ts::apps/api/src/ai/geminiSettings.ts": "Provider boundary fully isolated so mocked transport tests cannot load .env, working database or real settings.",
+    "apps/api/tests/assistant-gemini-guards.unit.test.ts::apps/api/src/ai/geminiOperationRuntime.ts": "Provider boundary fully isolated so mocked transport tests cannot load .env, working database or real settings.",
+    "apps/api/tests/assistant-telegram.test.ts::apps/api/src/telegram/assistantVoice.ts": "All ElevenLabs synthesis must be mocked in Telegram integration tests; no paid calls.",
+    "apps/api/tests/assistant-fast-path.unit.test.ts::apps/api/src/ai/seoGenerator.ts": "Fast-path unit tests use only URL normalization; fully mock AI generator boundary to avoid provider/.env/database imports."
+  },
   "legacy": [
     "apps/api/tests/ad-click-becomes-lead.test.ts::apps/api/src/lib/pushLeadActions.ts",
     "apps/api/tests/ad-spend-matching.test.ts::apps/api/src/lib/ads/metaAdsApi.ts",

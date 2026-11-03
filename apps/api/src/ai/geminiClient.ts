@@ -1,4 +1,4 @@
-import { requestThinkingConfig } from "./geminiThinkingPolicy.js";
+import { requestThinkingConfig, assertCompletedAssistantTurn } from "./geminiThinkingPolicy.js";
 import { GEMINI_FUNCTION_DECLARATION_PROTOCOL, managedGeminiFunctionDeclarations } from "./geminiFunctionDeclarations.js";
 import { prisma } from "../db.js";
 import { traceModelStart, traceModelFinish, traceModelCache, traceKnownSecrets } from "../lib/botTurnTrace.js";
@@ -850,7 +850,7 @@ export async function callGemini<T>(params: {
                 features: { functions: !!params.schema, structuredReply: !!params.schema, thinking: managedThinking(model), cache: !!cacheName, images: !!params.images?.length },
                 endpoint: params.endpoint, maxOutputTokens: (params.maxTokens ?? 4096) + (params.schema && !thinkingConfigRejected[model] ? 1500 : 0) + widenTokens }, Math.min(TIMEOUT_MS, left));
               params.providerOperation?.check();
-              const res = await fetch(geminiGenerateUrlFor(model), {
+          const res = await fetch(geminiGenerateUrlFor(model), {
                 method: "POST",
                 headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey, ...geminiProxyHeaders() },
                 body: JSON.stringify(buildBody(model, widenTokens, cacheName)),
@@ -966,7 +966,7 @@ export async function callGemini<T>(params: {
               traceModelCache(traceAttempt, data.usageMetadata ? cached > 0 : null);
               spent.inputTokens += Math.max(0, (data.usageMetadata?.promptTokenCount ?? 0) - cached);
               spent.cacheReadTokens += cached;
-              spent.outputTokens += data.usageMetadata?.candidatesTokenCount ?? 0;
+              spent.outputTokens += (data.usageMetadata?.candidatesTokenCount ?? 0) + (data.usageMetadata?.thoughtsTokenCount ?? 0);
               const parts = data.candidates?.[0]?.content?.parts ?? [];
               const fnCall = parts.find((p) => p.functionCall)?.functionCall;
               if (fnCall) {
@@ -1262,6 +1262,8 @@ function reportToolTurnOddities(turn: {
 async function callGeminiToolsOnce(params: {
   /** Never drop the explicit low reasoning limit after a provider rejection. */
   requireLowThinking?: boolean;
+  requireCompleteTurn?: boolean;
+  beforeAttempt?: () => Promise<void>;
   apiKey: string;
   system: string;
   contents: { role: "user" | "model"; parts: GeminiPart[] }[];
@@ -1320,6 +1322,7 @@ async function callGeminiToolsOnce(params: {
     // only after exact body/count witness passes, immediately before fetch.
     traceStarted = performance.now();
     traceAttempt = traceModelStart(params.model, null, "assistant-tools");
+    await params.beforeAttempt?.();
     const res = await fetch(counted?.generateUrl ?? geminiGenerateUrlFor(params.model), {
       method: "POST",
       headers: counted?.headers ?? { "Content-Type": "application/json", "x-goog-api-key": params.apiKey, ...geminiProxyHeaders() },
@@ -1341,6 +1344,7 @@ async function callGeminiToolsOnce(params: {
     providerAttempt?.reportUsage(data.usageMetadata);
     providerAttempt?.check();
     const candidate = data.candidates?.[0];
+    if (params.requireCompleteTurn) assertCompletedAssistantTurn(candidate?.finishReason, data.promptFeedback?.blockReason);
     if (params.providerOperation?.managed) {
       let stopCause: ManagedToolTurnStopCause | undefined;
       if (data.promptFeedback?.blockReason) stopCause = "model_prompt_blocked";
@@ -1366,6 +1370,7 @@ async function callGeminiToolsOnce(params: {
     const modelParts = candidate?.content?.parts ?? [];
     const calls = toolCallsOf(modelParts);
     const text = modelParts
+      .filter((p) => p.thought !== true)
       .map((p) => p.text ?? "")
       .join("")
       .trim();
@@ -1386,7 +1391,7 @@ async function callGeminiToolsOnce(params: {
       text,
       calls,
       modelParts,
-      tokens: (data.usageMetadata?.promptTokenCount ?? 0) + (data.usageMetadata?.candidatesTokenCount ?? 0),
+      tokens: (data.usageMetadata?.promptTokenCount ?? 0) + (data.usageMetadata?.candidatesTokenCount ?? 0) + (data.usageMetadata?.thoughtsTokenCount ?? 0),
     };
   } finally {
     traceModelFinish(traceAttempt, traceResult, traceStarted); // NEVER raw provider/tool payload
@@ -1453,6 +1458,8 @@ async function readManagedGeminiErrorSummary(res: Response): Promise<string> {
 export async function callGeminiTools(params: {
   /** Never drop the explicit low reasoning limit after a provider rejection. */
   requireLowThinking?: boolean;
+  requireCompleteTurn?: boolean;
+  beforeAttempt?: () => Promise<void>;
   apiKey: string;
   system: string;
   contents: { role: "user" | "model"; parts: GeminiPart[] }[];
@@ -1572,6 +1579,8 @@ async function callGeminiToolsWithRetries(
           tools: params.tools,
           requiredFunctionName: params.requiredFunctionName,
           requireLowThinking: params.requireLowThinking,
+          requireCompleteTurn: params.requireCompleteTurn,
+          beforeAttempt: params.beforeAttempt,
           maxTokens: params.maxTokens,
           timeoutMs: Math.min(attemptCap, left),
           model,
@@ -1647,6 +1656,7 @@ async function callGeminiToolsStreamOnce(
     }
   };
   try {
+    await params.beforeAttempt?.();
     const res = await fetch(geminiStreamUrlFor(params.model), {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-goog-api-key": params.apiKey, ...geminiProxyHeaders() },
@@ -1687,6 +1697,7 @@ async function callGeminiToolsStreamOnce(
       }
     }
     const streamed = acc.result();
+    if (params.requireCompleteTurn) assertCompletedAssistantTurn(streamed.finishReason, streamed.blockReason);
     // Поток кончился без finishReason — это обрыв, а не ответ: вызовы инструментов
     // из такого потока не исполняются никогда.
     if (!streamed.finishReason && !streamed.blockReason) {
@@ -1715,7 +1726,7 @@ async function callGeminiToolsStreamOnce(
       text,
       calls,
       modelParts,
-      tokens: (streamed.usage?.promptTokenCount ?? 0) + (streamed.usage?.candidatesTokenCount ?? 0),
+      tokens: (streamed.usage?.promptTokenCount ?? 0) + (streamed.usage?.candidatesTokenCount ?? 0) + (streamed.usage?.thoughtsTokenCount ?? 0),
     };
   } catch (err) {
     // Отмена снаружи пробрасывается как есть (её разбирает вызывающий).
@@ -1747,6 +1758,8 @@ async function callGeminiToolsStreamOnce(
 export async function callGeminiToolsStream(params: {
   /** Never drop the explicit low reasoning limit after a provider rejection. */
   requireLowThinking?: boolean;
+  requireCompleteTurn?: boolean;
+  beforeAttempt?: () => Promise<void>;
   apiKey: string;
   system: string;
   contents: { role: "user" | "model"; parts: GeminiPart[] }[];
@@ -1807,6 +1820,8 @@ export interface GeminiGroundedResult {
 export async function callGeminiGrounded(params: {
   /** Never drop the explicit low reasoning limit after a provider rejection. */
   requireLowThinking?: boolean;
+  requireCompleteTurn?: boolean;
+  beforeAttempt?: () => Promise<void>;
   apiKey: string;
   system?: string;
   query: string;
@@ -1878,6 +1893,7 @@ export async function callGeminiGrounded(params: {
             features: { grounding: true, thinking: managedThinking(model) } }, params.timeoutMs ?? 45_000);
           params.providerOperation?.check();
 
+          await params.beforeAttempt?.();
           const res = await fetch(geminiGenerateUrlFor(model), {
             method: "POST",
             headers: { "Content-Type": "application/json", "x-goog-api-key": params.apiKey, ...geminiProxyHeaders() },
@@ -1905,7 +1921,7 @@ export async function callGeminiGrounded(params: {
 
           const data = (await res.json()) as {
             candidates?: {
-              content?: { parts?: { text?: string }[] };
+              content?: { parts?: { text?: string; thought?: boolean }[] };
               groundingMetadata?: {
                 webSearchQueries?: string[];
                 groundingChunks?: { web?: { uri?: string; title?: string } }[];
@@ -1917,6 +1933,7 @@ export async function callGeminiGrounded(params: {
               promptTokenCount?: number;
               candidatesTokenCount?: number;
               cachedContentTokenCount?: number;
+                  thoughtsTokenCount?: number;
             };
           };
 
@@ -1927,10 +1944,12 @@ export async function callGeminiGrounded(params: {
           const cached = data.usageMetadata?.cachedContentTokenCount ?? 0;
           spent.inputTokens += Math.max(0, (data.usageMetadata?.promptTokenCount ?? 0) - cached);
           spent.cacheReadTokens += cached;
-          spent.outputTokens += data.usageMetadata?.candidatesTokenCount ?? 0;
+          spent.outputTokens += (data.usageMetadata?.candidatesTokenCount ?? 0) + (data.usageMetadata?.thoughtsTokenCount ?? 0);
 
           const candidate = data.candidates?.[0];
+          if (params.requireCompleteTurn) assertCompletedAssistantTurn(candidate?.finishReason, data.promptFeedback?.blockReason);
           const text = (candidate?.content?.parts ?? [])
+            .filter((p) => p.thought !== true)
             .map((p) => p.text ?? "")
             .join("")
             .trim();
@@ -1965,6 +1984,7 @@ export async function callGeminiGrounded(params: {
         } catch (err) {
           if (isProviderOperationError(err)) throw err;
           if (params.signal?.aborted) throw abortReason(params.signal);
+          if ((err as { code?: string } | null)?.code === "assistant_attempt_limit" || (err as { code?: string } | null)?.code === "assistant_incomplete_turn") throw err;
           lastError = err;
         } finally {
           clearTimeout(timeout);
