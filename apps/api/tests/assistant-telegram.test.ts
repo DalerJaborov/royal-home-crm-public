@@ -15,7 +15,7 @@ import path from "node:path";
 const { sendMessage, sendHtmlMessage, sendVoiceFile, sendAssistantVoiceId, synthVoice, sendMessageWithButtons, sendPhotoFromDisk, answerCallbackQuery, editMessageText, react, runner, transcribe, fetchAudio, claimCap, downloadDraftPhoto, chatAction } =
   vi.hoisted(() => ({
     sendMessage: vi.fn(async (_chatId: string, _text: string, _reply?: number) => ({})),
-    sendHtmlMessage: vi.fn(async (_chatId: string, _text: string, _reply?: number) => ({})),
+    sendHtmlMessage: vi.fn(async (_chatId: string, _text: string, _reply?: number, _buttons?: unknown) => ({})),
     sendVoiceFile: vi.fn(async (_chatId: string, _audio: Buffer, _reply?: number) => ({})),
     sendAssistantVoiceId: vi.fn(async (_chatId: string, _fileId: string, _reply?: number) => ({})),
     synthVoice: vi.fn(async (_chatId: string, _text: string, _reply?: number) => false),
@@ -825,15 +825,48 @@ describe("новая доставка ответа помощника", () => {
     expect(chatAction).not.toHaveBeenCalled();
   });
 
-  it("голос со ссылкой сохраняет полную HTML-карточку", async () => {
+  it("по голосовому запросу присылает карточку клиента текстом и с кнопкой", async () => {
     audio();
     transcribe.mockResolvedValue("покажи карточку клиента");
     runner.mockResolvedValue({ ok: true, reply: "Нашла [Клиента](/clients/112)." });
     synthVoice.mockResolvedValue(true);
     await handleTelegramUpdate(privateMsg("author", { voice: { file_id: "test-voice", duration: 2 } }));
-    expect(synthVoice).toHaveBeenCalledTimes(1);
+    expect(synthVoice).not.toHaveBeenCalled();
     expect(sentTexts().join("\n")).toContain('href="https://crm.test/clients/112"');
+    expect(sendHtmlMessage.mock.calls.at(-1)?.[3]).toEqual([[{ text: "Клиента", url: "https://crm.test/clients/112" }]]);
     expect(sentTexts().join("\n")).not.toContain("🎤");
+  });
+  it("подборка по голосу сохраняет все кнопки и добавляет доступное фото из CRM", async () => {
+    const district = await prisma.district.create({ data: { name: `Подборка ${runId}` } });
+    const data = { type: "APARTMENT" as const, areaSqm: 66, price: 630_000, currency: "TJS" as const,
+      condition: "GOOD" as const, districtId: district.id, address: "Тестовый адрес" };
+    const first = await prisma.property.create({ data: { ...data, title: "Квартира с фото" } });
+    const second = await prisma.property.create({ data: { ...data, title: "Квартира без фото" } });
+    const photo = `codex-assistant-list-${runId}.webp`;
+    const file = path.join(uploadsDir, photo);
+    try {
+      await mkdir(uploadsDir, { recursive: true });
+      await writeFile(file, "test only", { flag: "wx" });
+      await prisma.propertyPhoto.create({ data: { propertyId: first.id, url: `/uploads/${photo}`, thumbUrl: `/uploads/${photo}` } });
+      transcribe.mockResolvedValue("покажи варианты");
+      runner.mockImplementationOnce(async (_history, _actor, options) => {
+        options.onToolResult("search_properties");
+        return { ok: true, reply: `Нашла [первую квартиру](/properties/${first.shortId}) и [вторую](/properties/${second.id}).` };
+      });
+      await handleTelegramUpdate(privateMsg("author", { message_id: 8245, voice: { file_id: "test-voice" } }));
+      expect(synthVoice).not.toHaveBeenCalled();
+      expect(sendHtmlMessage.mock.calls.at(-1)?.[3]).toEqual([
+        [{ text: "первую квартиру", url: `https://crm.test/properties/${first.shortId}` }],
+        [{ text: "вторую", url: `https://crm.test/properties/${second.id}` }],
+      ]);
+      expect(sendPhotoFromDisk).toHaveBeenCalledTimes(1);
+      expect(sendPhotoFromDisk.mock.calls[0][1]).toBe(file);
+      expect(sendHtmlMessage.mock.invocationCallOrder.at(-1)).toBeLessThan(sendPhotoFromDisk.mock.invocationCallOrder[0]);
+    } finally {
+      await unlink(file).catch(() => {});
+      await prisma.property.deleteMany({ where: { id: { in: [first.id, second.id] } } });
+      await prisma.district.delete({ where: { id: district.id } });
+    }
   });
   it("реакция из модели используется и не попадает в ответ", async () => {
     runner.mockResolvedValue({ ok: true, reply: "[реакция: ❤️] Готово." });

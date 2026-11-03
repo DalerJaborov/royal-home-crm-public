@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-const { html, plain, voice } = vi.hoisted(() => ({ html: vi.fn(), plain: vi.fn(), voice: vi.fn() }));
-vi.mock("../src/telegram/api.js", () => ({ sendHtmlMessage: html, sendMessage: plain,
+const { html, plain, voice, buttons } = vi.hoisted(() => ({ html: vi.fn(), plain: vi.fn(), voice: vi.fn(), buttons: vi.fn() }));
+vi.mock("../src/telegram/api.js", () => ({ sendHtmlMessage: html, sendMessage: plain, sendMessageWithButtons: buttons,
   TelegramApiError: class extends Error {
     constructor(public errorCode: number, method: string, message: string) { super(`${method}: ${message}`); }
   },
@@ -8,7 +8,7 @@ vi.mock("../src/telegram/api.js", () => ({ sendHtmlMessage: html, sendMessage: p
 vi.mock("../src/telegram/assistantVoice.js", () => ({ sendAssistantVoiceReply: voice, speechTextFromReply: (text: string) => text }));
 import { TelegramApiError } from "../src/telegram/api.js";
 import { sendAssistantReply } from "../src/telegram/assistantDelivery.js";
-import { decorateHtml, prepareAssistantReply, renderAssistantHtml, sanitizeAssistantReply, splitHumanMessages, splitReaction } from "../src/telegram/assistantReply.js";
+import { decorateHtml, prepareAssistantReply, renderAssistantHtml, requestedAssistantReplyMode, sanitizeAssistantReply, splitHumanMessages, splitReaction } from "../src/telegram/assistantReply.js";
 afterEach(() => vi.unstubAllEnvs());
 beforeEach(() => { vi.clearAllMocks(); html.mockReset().mockResolvedValue({}); plain.mockReset().mockResolvedValue({}); voice.mockReset().mockResolvedValue(true); vi.stubEnv("CRM_PUBLIC_URL", "https://crm.test"); });
 const ctx = { scope: "private" as const, fromVoice: true, written: [] };
@@ -40,9 +40,9 @@ describe("privacy and content", () => {
     const text = `Квартираи «коробка» меҷӯянд. Майдонаш ${area}, тирезаҳои зиёд.`;
     const speech = "Квартираи «коробка» меҷӯянд. Майдонаш аз шаст то ҳафтод метри мураббаъ, тирезаҳои зиёд.";
     expect(prepareAssistantReply(text)).toMatchObject({ text, speech, language: "tg", needsText: false });
-    await sendAssistantReply("test", text, ctx);
+    await sendAssistantReply("test", text, { ...ctx, mode: "voice" });
     expect(voice).toHaveBeenCalledWith("test", speech, undefined);
-    expect(html).not.toHaveBeenCalled();
+    expect(html.mock.calls[0][1]).toContain(area);
   });
   it("keeps a decimal area and ambiguous number ranges in text", () => {
     for (const text of ["Ҳоло майдонаш 68,5 м².", "Рақами объект 60-70."]) {
@@ -100,7 +100,30 @@ describe("privacy and content", () => {
 describe('delivery', () => {
   it('successful HTML never falls back', async () => { await sendAssistantReply('test', 'Нашла.', { ...ctx, fromVoice: false }); expect(html).toHaveBeenCalledTimes(1); expect(plain).not.toHaveBeenCalled(); expect(voice).not.toHaveBeenCalled(); });
   it('short voice only', async () => { await sendAssistantReply('test', 'Готово.', ctx); expect(voice).toHaveBeenCalledWith('test', 'Готово.', undefined); expect(html).not.toHaveBeenCalled(); });
-  it.each(['Источник https://example.com', 'Нашла [Клиента](/clients/112)', 'Ответ ' + 'а'.repeat(334), 'Подробности пришлю текстом.'])('voice plus full text: %s', async (text) => { await sendAssistantReply('test', text, ctx); expect(voice).toHaveBeenCalled(); expect(html).toHaveBeenCalled(); });
+  it.each(['Источник https://example.com', 'Нашла [Клиента](/clients/112)', 'Ответ ' + 'а'.repeat(334), 'Подробности пришлю текстом.', 'На сегодня 3 показа.'])('uses text for reference material: %s', async (text) => {
+    await sendAssistantReply('test', text, ctx);
+    expect(voice).not.toHaveBeenCalled();
+    expect(html).toHaveBeenCalled();
+  });
+  it("uses text for a short data result and follows an explicit voice request", async () => {
+    await sendAssistantReply("test", "Вариантов не нашла.", { ...ctx, structured: true });
+    expect(voice).not.toHaveBeenCalled();
+    await sendAssistantReply("test", "Нашла [квартиру](/properties/112).", { ...ctx, mode: "voice" });
+    expect(voice).toHaveBeenCalledWith("test", "Нашла квартиру.", undefined);
+    expect(html.mock.calls.at(-1)?.[3]).toEqual([[{ text: "квартиру", url: "https://crm.test/properties/112" }]]);
+  });
+  it("keeps the list buttons when Telegram rejects HTML markup", async () => {
+    html.mockRejectedValue(new TelegramApiError(400, "sendMessage", "can't parse entities"));
+    await sendAssistantReply("test", "Нашла [квартиру](/properties/112).", ctx);
+    expect(buttons).toHaveBeenCalledWith("test", expect.stringContaining("квартиру"),
+      [[{ text: "квартиру", url: "https://crm.test/properties/112" }]], undefined);
+  });
+  it("reads a direct reply preference but ignores an indirect reference", () => {
+    expect(requestedAssistantReplyMode("Проверь, ответь текстом.")).toBe("text");
+    expect(requestedAssistantReplyMode("Проверь и ответь голосом")).toBe("voice");
+    expect(requestedAssistantReplyMode("Санҷед, бо овоз ҷавоб деҳ")).toBe("voice");
+    expect(requestedAssistantReplyMode("Клиент ответил голосом")).toBe("auto");
+  });
   it('done action has receipt', async () => { await sendAssistantReply('test', 'Готово.', { ...ctx, written: ['Записано: заметка'] }); expect(html.mock.calls[0][1]).toContain('Записано: заметка'); });
   it('unconfigured Tajik voice leaves text', async () => { voice.mockResolvedValue(false); await sendAssistantReply('test', 'Салом, ман ёфтам.', ctx); expect(voice).toHaveBeenCalled(); expect(html).toHaveBeenCalled(); });
   it('unknown language stays text', async () => { await sendAssistantReply('test', 'Unknown words', ctx); expect(voice).not.toHaveBeenCalled(); expect(html).toHaveBeenCalled(); });
@@ -118,7 +141,7 @@ describe('delivery', () => {
     expect(html.mock.calls[0][1]).not.toContain(phone);
     expect(html.mock.calls[0][1]).toContain("•••••");
   });
-  it('group speech has no contacts', async () => { await sendAssistantReply('test', 'Контакт: 992.90.123.45.67 @example_contact', { ...ctx, scope: 'group' }); expect(JSON.stringify(voice.mock.calls)).not.toMatch(/992\.90|example_contact/); });
+  it('group speech has no contacts', async () => { await sendAssistantReply('test', 'Контакт: 992.90.123.45.67 @example_contact', { ...ctx, scope: 'group', mode: 'voice' }); expect(voice).toHaveBeenCalled(); expect(JSON.stringify(voice.mock.calls)).not.toMatch(/992\.90|example_contact/); });
   it('failed voice leaves text', async () => { voice.mockResolvedValue(false); await sendAssistantReply('test', 'Готово.', ctx); expect(html).toHaveBeenCalledTimes(1); });
   it('short replies remain ordered', async () => { await sendAssistantReply('test', 'Здравствуйте. ||| Чем помочь?', ctx); expect(voice.mock.calls.map(c => c[1])).toEqual(['Здравствуйте.', 'Чем помочь?']); });
   it('explicit parse error alone uses plain', async () => { html.mockRejectedValue(new TelegramApiError(400, 'sendMessage', "Bad Request: can't parse entities")); await sendAssistantReply('test', 'Ответ', { ...ctx, fromVoice: false }); expect(plain).toHaveBeenCalledTimes(1); });

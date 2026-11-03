@@ -614,12 +614,15 @@ export async function sendDocumentFile(
   return result as TelegramSentDocument;
 }
 
-export async function sendHtmlMessage(chatId: string, html: string, replyToMessageId?: number): Promise<unknown> {
+export async function sendHtmlMessage(
+  chatId: string, html: string, replyToMessageId?: number, buttons?: TelegramInlineButton[][],
+): Promise<unknown> {
   return call("sendMessage", {
     chat_id: chatId,
     text: html,
     parse_mode: "HTML",
     link_preview_options: { is_disabled: true },
+    ...(buttons?.length ? { reply_markup: { inline_keyboard: buttons } } : {}),
     ...(replyToMessageId ? { reply_to_message_id: replyToMessageId, allow_sending_without_reply: true } : {}),
   }, CALL_TIMEOUT_MS, undefined, undefined, true);
 }

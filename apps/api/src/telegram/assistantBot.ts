@@ -1,4 +1,4 @@
-import { renderAssistantForTelegram, sanitizeAssistantReply, splitReaction } from "./assistantReply.js";
+import { renderAssistantForTelegram, requestedAssistantReplyMode, sanitizeAssistantReply, splitReaction, type AssistantReplyMode } from "./assistantReply.js";
 import { sendAssistantReply } from "./assistantDelivery.js";
 export { renderAssistantForTelegram } from "./assistantReply.js";
 import { randomUUID } from "node:crypto";
@@ -10,7 +10,7 @@ import { ASSISTANT_ERROR_MESSAGES, isAiAssistantEnabled, runAssistantDetailed } 
 import { assistantLanguage } from "../ai/assistant/languageRouting.js";
 import { wrapUntrusted } from "../ai/untrustedContent.js";
 import { parseFastPathIntent, tryAssistantFastPath } from "../ai/assistantFastPath.js";
-import { findTelegramAgentClients, isVoiceReplayRequest, replayTelegramAssistantVoice, sendTelegramPropertyCard } from "./assistantReadResults.js";
+import { findTelegramAgentClients, isVoiceReplayRequest, replayTelegramAssistantVoice, sendTelegramPropertyCard, sendTelegramPropertyPreviews } from "./assistantReadResults.js";
 import { sendAssistantVoiceReply } from "./assistantVoice.js";
 import { handleTelegramPropertyDraft, handleTelegramPropertyDraftCallback } from "./assistantPropertyDraft.js";
 import { handleAssistantMedia } from "./assistantMedia.js";
@@ -164,6 +164,8 @@ interface TurnResult {
   reply: string;
   propertyCard?: AssistantPropertyCard;
   failed?: true;
+  structured?: boolean;
+  propertyResults?: boolean;
   /** Карточки, ждущие «Подтвердить» (уровень C). */
   pending: AssistantActionView[];
   /** Уже выполненные записи уровня B (заметки, задачи). */
@@ -206,7 +208,7 @@ async function runTurn(params: TurnParams): Promise<TurnResult | null> {
         const roster = await findTelegramAgentClients(last.content, actor);
         if (roster !== null) {
           void logAssistantToolCall({ agentId: actor.id, tool: "find_clients", argsSummary: "{}", resultCount: null });
-          return { reply: roster, pending: [], done: [] };
+          return { reply: roster, pending: [], done: [], structured: true };
         }
       }
       const fast = await tryAssistantFastPath(last.content, actor);
@@ -219,7 +221,8 @@ async function runTurn(params: TurnParams): Promise<TurnResult | null> {
         });
         const first = fast.cards[0];
         return {
-          reply: fast.reply, pending: [], done: [],
+          reply: fast.reply, pending: [], done: [], structured: true,
+          propertyResults: fast.cards.some(card => card.kind === "property"),
           ...(fast.cards.length === 1 && first?.kind === "property" ? { propertyCard: first } : {}),
         };
       }
@@ -229,11 +232,17 @@ async function runTurn(params: TurnParams): Promise<TurnResult | null> {
   }
 
   const seen = new Map<string, AssistantActionView>();
+  let structured = Boolean(params.forwardedVoice);
+  let propertyResults = false;
   const outcome = await runAssistantDetailed(params.history, actor, {
     channel: "telegram",
     moneyWallet: params.moneyWallet,
     confirmUi: !params.forwardedVoice,
     onConfirm: (action) => seen.set(action.id, action),
+    onToolResult: name => {
+      structured = true;
+      if (name === "search_properties" || name === "find_property" || name === "get_property_card") propertyResults = true;
+    },
   });
   const all = [...seen.values()];
   const pending = all.filter((a) => a.status === "PENDING");
@@ -241,7 +250,7 @@ async function runTurn(params: TurnParams): Promise<TurnResult | null> {
   if (!outcome.ok) {
     return { reply: ASSISTANT_ERROR_MESSAGES[outcome.code], pending, done, failed: true };
   }
-  return { reply: outcome.reply, pending, done };
+  return { reply: outcome.reply, pending, done, structured, propertyResults };
 }
 
 const TEXT_MAX_CHARS = 3900;
@@ -257,7 +266,7 @@ async function cancelPending(actions: readonly AssistantActionView[], agentId: s
 async function sendTurnResult(
   chatId: string,
   result: TurnResult,
-  ctx: { agentId: string; authorName: string; scope: "private" | "group"; replyTo?: number; source?: string; fromVoice?: boolean; reactTo?: number }
+  ctx: { agentId: string; authorName: string; scope: "private" | "group"; replyTo?: number; source?: string; fromVoice?: boolean; mode?: AssistantReplyMode; reactTo?: number }
 ): Promise<void> {
   const maskPhones = ctx.scope === "group";
   const split = splitReaction(result.reply);
@@ -268,10 +277,16 @@ async function sendTurnResult(
   const body = [rendered, ...written].filter(Boolean).join("\n");
   if (result.pending.length === 0) {
     if (result.propertyCard && await sendTelegramPropertyCard(chatId, result.propertyCard, maskPhones, ctx.replyTo)) {
-      if (ctx.fromVoice) await sendAssistantVoiceReply(chatId, split.text, ctx.replyTo);
+      if (ctx.mode === "voice") await sendAssistantVoiceReply(chatId, split.text, ctx.replyTo);
       return;
     }
-    await sendAssistantReply(chatId, split.text, { scope: ctx.scope, fromVoice: ctx.fromVoice && !result.failed, replyTo: ctx.replyTo, written });
+    const delivered = await sendAssistantReply(chatId, split.text, {
+      scope: ctx.scope, fromVoice: ctx.fromVoice, structured: result.structured,
+      mode: result.failed ? "text" : ctx.mode, replyTo: ctx.replyTo, written,
+    });
+    if (delivered && ctx.scope === "private" && result.propertyResults) {
+      await sendTelegramPropertyPreviews(chatId, split.text, ctx.replyTo);
+    }
     return;
   }
   const card = renderBundleCard(result.pending, ctx.authorName, maskPhones, ctx.source);
@@ -441,7 +456,9 @@ export async function handleAssistantPrivate(
     const history = [...previous, { role: "user" as const, content: text.slice(0, 4000) }];
     const result = await runTurn({ agentId: agent.id, scope: "private", history, deny: send, moneyWallet, forwardedVoice });
     if (!result) return;
-    await sendTurnResult(chatId, result, { agentId: agent.id, authorName: agent.fullName, scope: "private", fromVoice, reactTo: msg.message_id });
+    await sendTurnResult(chatId, result, { agentId: agent.id, authorName: agent.fullName, scope: "private", fromVoice,
+      mode: forwardedVoice ? "auto" : requestedAssistantReplyMode(text), reactTo: msg.message_id,
+    });
     await saveHistory(chatId, agent.id, [...history, { role: "assistant", content: result.reply.slice(0, 4000) }]);
   } catch (err) {
     await logSystemError("telegram", `Помощник в личке Telegram: ${describeError(err)}`);
@@ -632,6 +649,7 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
       authorName: sender.fullName,
       scope: "group",
       fromVoice,
+      mode: forwardedVoice ? "auto" : requestedAssistantReplyMode(fromVoice ? request : windowText ?? text),
       reactTo: msg.message_id,
       replyTo: msg.message_id,
       source,

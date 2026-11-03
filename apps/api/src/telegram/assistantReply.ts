@@ -36,6 +36,35 @@ export function splitReaction(text: string): {
   return { text: text.slice(m[0].length), reaction: ASSISTANT_REACTIONS.has(emoji) ? emoji : null };
 }
 const MD_LINK = /\[([^\]\n]+)\]\((\/[^)\s]*)\)/g;
+
+/** Links are vetted by the assistant core or produced by a CRM fast path. */
+export function assistantCardLinks(text: string, maskPhones: boolean) {
+  const base = publicBase();
+  if (!base) return [];
+  let origin: URL;
+  try { origin = new URL(base); } catch { return []; }
+  if (!["http:", "https:"].includes(origin.protocol) || origin.username || origin.password || origin.search || origin.hash) return [];
+  const links = new Map<string, { path: string; text: string; url: string }>();
+  for (const [, label, path] of sanitizeAssistantReply(text, maskPhones).matchAll(MD_LINK)) {
+    if (links.has(path)) continue;
+    const title = label.replace(/[*_`]/g, "").trim().slice(0, 72);
+    if (title) links.set(path, { path, text: title, url: base + path });
+  }
+  return [...links.values()];
+}
+
+export type AssistantReplyMode = "auto" | "text" | "voice";
+
+export function requestedAssistantReplyMode(text: string): AssistantReplyMode {
+  for (const part of text.split(/[,.!?;\n]+|\s+и\s+(?=(?:ответь|напиши|пришли|отправь))/iu).reverse()) {
+    const clause = part.trim();
+    if (/^(?:пожалуйста\s+)?(?:(?:ответь(?:те)?|напиши(?:те)?|пришли(?:те)?|отправь(?:те)?)(?:\s+(?:мне|это|ответ)){0,3}\s+)?(?:только\s+)?текстом$/iu.test(clause) ||
+        /^(?:матнӣ ҷавоб деҳ|бо матн ҷавоб деҳ|бо матн навис)$/iu.test(clause)) return "text";
+    if (/^(?:пожалуйста\s+)?(?:(?:ответь(?:те)?|пришли(?:те)?|отправь(?:те)?)(?:\s+(?:мне|это|ответ)){0,3}\s+)?(?:голосом|голосовым)$/iu.test(clause) ||
+        /^(?:бо овоз ҷавоб деҳ|бо овоз фирист)$/iu.test(clause)) return "voice";
+  }
+  return "auto";
+}
 /**
 * Ответ помощника (markdown со ссылками вида `[Имя](/clients/ID)`) → простой текст
 * для Telegram. Относительные ссылки в Telegram не работают — делаем абсолютными

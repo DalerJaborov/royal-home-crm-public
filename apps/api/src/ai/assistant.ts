@@ -1142,6 +1142,8 @@ export interface RunAssistantOptions {
   /** Пошаговый статус для фронта (SSE, routes/ai.ts) — перед каждым раундом и
    *  перед каждым тул-вызовом. Необязателен: без него поведение не меняется. */
   onStatus?: (message: string) => void;
+  /** Lets delivery choose a format for data retrieved during this turn. */
+  onToolResult?: (name: string) => void;
   /** Внешняя отмена: роут отдаёт сюда закрытие соединения клиентом. Прерывает
    *  вызов модели и паузы между повторами; начатую запись в базу — нет. */
   signal?: AbortSignal;
@@ -1563,6 +1565,7 @@ export async function runAssistantDetailed(
         // null — уже залогировано внутри callGeminiGrounded (logSystemError).
         if (!grounded) throw new ModelCallError(new Error("Grounded-поиск Gemini не ответил"));
         ok = true;
+        options.onToolResult?.(WEB_REFERENCE_TOOL);
         return { ok: true, reply: formatGroundedReply(grounded) };
       }
 
@@ -1576,7 +1579,10 @@ export async function runAssistantDetailed(
         writeBudget,
         embedding: { beforeAttempt: embeddingGuard, signal, maxAttempts: 1 },
       });
-      turn.calls.forEach((call, index) => cardEvidence.observe(call.name, results[index]));
+      turn.calls.forEach((call, index) => {
+        cardEvidence.observe(call.name, results[index]);
+        options.onToolResult?.(call.name);
+      });
       // Keep optional provider IDs; names alone cannot identify two calls to
       // the same function. Original signed model parts were appended above.
       conversation.push({
