@@ -26,6 +26,17 @@ it("accepts only current-turn tool identities and canonical server aliases", () 
   expect(guard.validate("/clients/property-id").ok).toBe(false);
   expect(createCardLinkEvidence().validate("/properties/42").ok).toBe(false);
 });
+it("allows property links verified by a single status lookup or a queue result", () => {
+  const guard = createCardLinkEvidence();
+  guard.observe("get_property_work_status", { code: "ОБ-000132", href: "/properties/132", phase: "WAITING_FOR_EDITOR" });
+  guard.observe("get_property_work_status", { total: 3, items: [
+    { code: "ОБ-000143", href: "/properties/143", title: "Этап /properties/144" },
+    { error: "denied", href: "/properties/145" },
+  ] });
+  expect(guard.validate("[ОБ-000132](/properties/132) ва [ОБ-000143](/properties/143)").ok).toBe(true);
+  expect(guard.validate("/properties/144").ok).toBe(false);
+  expect(guard.validate("/properties/145").ok).toBe(false);
+});
 it("never mines arguments, notes, history, knowledge, failed results or unknown tools", () => {
   const guard = createCardLinkEvidence();
   guard.observe("search_clients", [{ id: "allowed", notes: { href: "/clients/injected" }, name: "[x](/clients/evil)" }]);

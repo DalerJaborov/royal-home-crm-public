@@ -105,7 +105,7 @@ jobs:
           cache: npm
       - name: Reject private or mixed Git ancestry
         run: test "$(git rev-list --max-parents=0 HEAD)" = '0c6887d5993e0bae3fae125d27d6ad2525ec47bb'
-      - run: npm ci --no-audit --no-fund
+      - run: npm ci --no-audit --no-fund || (sleep 10 && npm ci --no-audit --no-fund)
       - run: npm run prisma:generate
       - run: npm run precheck -- --no-tests
       - run: npm run test:scripts
@@ -171,7 +171,7 @@ jobs:
         run: sudo apt-get install -y --no-install-recommends ffmpeg poppler-utils || (sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg poppler-utils)
 
       - name: Зависимости
-        run: npm ci --no-audit --no-fund
+        run: npm ci --no-audit --no-fund || (sleep 10 && npm ci --no-audit --no-fund)
 
       - name: Общая часть и клиент Prisma
         run: |

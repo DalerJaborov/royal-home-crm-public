@@ -58,6 +58,10 @@ export function createCardLinkEvidence() {
           break;
         case "get_client_last_call": card(value?.client, "clients"); break;
         case "get_property_card": card(result, "properties"); break;
+        case "get_property_work_status":
+          card(result, "properties");
+          for (const item of rows(value?.items)) card(item, "properties");
+          break;
         case "list_my_tasks":
           for (const item of [...rows(value?.tasks), ...rows(value?.overdue)].slice(0, MAX_ROWS)) task(item);
           break;
