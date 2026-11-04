@@ -42,11 +42,11 @@ export const requestPropertyChangeExecutor = makeChangeRequestExecutor<z.infer<t
   async buildBody(args): Promise<CreatePropertyChangeRequestInput> {
     switch (args.kind) {
       case "OTHER":
-        if (!args.text) throw new AssistantActionError(400, "BAD_ARGS", "Опишите, что нужно изменить (поле text).");
+        if (!args.text) throw new AssistantActionError(400, "BAD_ARGS", "Опишите, что нужно изменить.");
         return { kind: "OTHER", payload: { text: args.text }, comment: args.comment };
       case "CARD_DATA":
         if (!args.patch || Object.keys(args.patch).length === 0) {
-          throw new AssistantActionError(400, "BAD_ARGS", "Укажите, какие поля карточки поменять (поле patch).");
+          throw new AssistantActionError(400, "BAD_ARGS", "Укажите, какие данные в карточке нужно поменять.");
         }
         return { kind: "CARD_DATA", payload: { patch: args.patch, remake: false }, comment: args.comment };
       case "UNPUBLISH":
@@ -106,23 +106,21 @@ export const requestPropertyChangePlugin: AssistantWriteToolPlugin = {
   name: "request_property_change",
   level: "C",
   description:
-    "Подать заявку руководителю на изменение ОПУБЛИКОВАННОГО объекта, кроме цены и статуса: kind=CARD_DATA " +
-    "(поправить данные карточки: комнаты, площадь, этаж… — в patch), kind=UNPUBLISH (убрать ролик из соцсетей), " +
-    "kind=OTHER (любая другая просьба, текст в text). Звать, когда просят «попроси директора поменять…». " +
-    "НЕ звать для цены (change_property_price), статуса (change_property_status) и перемонтажа ролика (send_to_remake). " +
-    "После вызова ответь одной фразой: «Подтвердите заявку».",
+    "Подать заявку руководителю на изменение опубликованного объекта: поправить данные карточки, убрать ролик из соцсетей " +
+    "или передать другую просьбу. Звать, когда просят «попроси директора поменять…». " +
+    "Для цены, статуса и перемонтажа есть отдельные инструменты. После подготовки коротко предложи подтвердить заявку.",
   parameters: {
     type: "object",
     properties: {
       ref: { type: "string", description: "Номер объекта: «ОБ-000088», «88» или id" },
-      kind: { type: "string", enum: [...KINDS], description: "CARD_DATA — данные карточки, UNPUBLISH — убрать из соцсетей, OTHER — другое" },
-      text: { type: "string", description: "Для kind=OTHER: что нужно изменить (не короче 10 символов)" },
+      kind: { type: "string", enum: [...KINDS], description: "Выбери вид заявки по смыслу просьбы. Код используется только в вызове." },
+      text: { type: "string", description: "Что нужно изменить для заявки «Другое» (не короче 10 символов)" },
       patch: {
         type: "object",
-        description: "Для kind=CARD_DATA: только поля, которые меняются, например {\"rooms\": 3}",
+        description: "Для правки карточки передай только поля, которые меняются.",
         properties: CARD_PATCH_PROPERTIES,
       },
-      channels: { type: "array", items: { type: "string" }, description: "Для kind=UNPUBLISH: каналы (INSTAGRAM, FACEBOOK…); не указывай — все" },
+      channels: { type: "array", items: { type: "string" }, description: "С каких площадок снять ролик. Без списка будут выбраны все площадки с публикацией." },
       comment: { type: "string", description: "Пояснение руководителю (необязательно)" },
     },
     required: ["ref", "kind"],

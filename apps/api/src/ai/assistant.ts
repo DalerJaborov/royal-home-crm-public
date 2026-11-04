@@ -184,7 +184,7 @@ function formatGroundedReply(result: GeminiGroundedResult): string {
  * Пишется в AiLog.promptVersion при каждом ответе ассистента (см. finally
  * runAssistant ниже) — по ней журнал говорит, какой текст промта отвечал.
  */
-export const SYSTEM_PROMPT_VERSION = "2026-11-04.1-property-work-status";
+export const SYSTEM_PROMPT_VERSION = "2026-11-04.2-human-tool-replies";
 
 const SYSTEM_PROMPT = `Ты — встроенный ассистент CRM агентства недвижимости (Душанбе, Таджикистан).
 Отвечай кратко на языке сотрудника. Валюта по умолчанию — сомони (TJS).
@@ -264,7 +264,7 @@ const TOOLS: AssistantTool[] = [
         minRooms: { type: "number" },
         minAreaSqm: { type: "number", description: "Минимальная площадь, м², включительно." },
         maxAreaSqm: { type: "number", description: "Максимальная площадь, м², включительно." },
-        stage: { type: "string", enum: [...PROPERTY_STAGES], description: "Стадия стройки. Коробка без черновых работ — SHELL." },
+        stage: { type: "string", enum: [...PROPERTY_STAGES], description: "Стадия стройки. Коробка без черновых работ — отдельная стадия." },
         locationNames: {
           type: "array", items: { type: "string" },
           description: "До 6 альтернативных ориентиров, улиц или районов, например Аэропорт или Садбарг. Подойдёт любое из перечисленных мест. Передавай только название.",
@@ -274,7 +274,7 @@ const TOOLS: AssistantTool[] = [
         status: {
           type: "string",
           enum: ["AVAILABLE", "RESERVED", "SOLD", "WITHDRAWN"],
-          description: "По умолчанию AVAILABLE (если не задан shortId/query — тогда любой статус)",
+          description: "По умолчанию — объекты в продаже. При поиске по номеру или словам допускается любой статус.",
         },
         semanticQuery: {
           type: "string",
