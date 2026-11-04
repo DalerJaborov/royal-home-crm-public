@@ -1,17 +1,19 @@
 import { renderAssistantForTelegram, requestedAssistantReplyMode, sanitizeAssistantReply, splitReaction, type AssistantReplyMode } from "./assistantReply.js";
 import { sendAssistantReply } from "./assistantDelivery.js";
+import { editTelegramConfirmationMessage, sendTelegramPriceConfirmationPhotos } from "./assistantConfirmationPhotos.js";
 import { ASSISTANT_COLLEAGUE_GREETING, ASSISTANT_GROUP_GREETING } from "./assistantGroupPhrases.js";
 import { findPropertiesByRef } from "../lib/propertyRefLookup.js";
-import { GROUP_QUIET_MS, GROUP_WELCOME_INTERVAL_MS, PROACTIVE_GROUP_INTERVAL_MS, groupMembershipEvent, proactivePropertyReply, requestedGroupParticipation, unaddressedPropertyQuestion, unaddressedReadRequest } from "./assistantGroupParticipation.js";
+import { GROUP_QUIET_MS, GROUP_WELCOME_INTERVAL_MS, PROACTIVE_GROUP_INTERVAL_MS, groupMembershipEvent, groupStatusFollowUp, proactivePropertyReply, requestedGroupParticipation, unaddressedConfirmationRequest, unaddressedPropertyQuestion, unaddressedReadRequest, type GroupConfirmationTool } from "./assistantGroupParticipation.js";
 export { renderAssistantForTelegram } from "./assistantReply.js";
 import { randomUUID } from "node:crypto";
-import { isReadOnlyRole, trimAssistantHistory, type AssistantPropertyCard, type PermissionId } from "@royal-home/shared";
+import { formatPropertyCode, isReadOnlyRole, trimAssistantHistory, type AssistantPropertyCard, type PermissionId } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { loadAgentAccess, type AgentAccess } from "../auth/middleware.js";
 import { actorFromAccess, type AssistantActor } from "../ai/assistant/actor.js";
 import { ASSISTANT_ERROR_MESSAGES, isAiAssistantEnabled, runAssistantDetailed } from "../ai/assistant.js";
 import { assistantLanguage } from "../ai/assistant/languageRouting.js";
 import { wrapUntrusted } from "../ai/untrustedContent.js";
+import { listAssistantToolPlugins } from "../ai/assistant/tools/index.js";
 import { parseFastPathIntent, tryAssistantFastPath } from "../ai/assistantFastPath.js";
 import { findTelegramAgentClients, isVoiceReplayRequest, replayTelegramAssistantVoice, sendTelegramPropertyCard, sendTelegramPropertyPreviews } from "./assistantReadResults.js";
 import { sendAssistantVoiceReply } from "./assistantVoice.js";
@@ -34,12 +36,12 @@ import { describeError } from "../lib/describeError.js";
 import { logAssistantToolCall } from "../lib/aiAssistantAudit.js";
 import {
   answerCallbackQuery as answerCallbackQueryRaw,
-  editMessageText,
   getBotUsername,
   sendChatAction,
   sendMessage,
   sendMessageWithButtons,
   setMessageReaction,
+  TelegramApiError,
   IS_LOCAL_BOT_API,
   TELEGRAM_BOT_DOWNLOAD_LIMIT_BYTES,
   type TelegramCallbackQuery,
@@ -76,6 +78,9 @@ import {
 export const ASSISTANT_TG_DAILY_LIMIT = 150;
 /** Голосовые — отдельный, более дорогой счётчик. */
 export const ASSISTANT_TG_VOICE_DAILY_LIMIT = 40;
+const ASSISTANT_TG_STANDALONE_VOICE_DAILY_LIMIT = 20;
+const GROUP_SHORT_VOICE_SECONDS = 60;
+const GROUP_AUDIO_MAX_SECONDS = 120;
 const DIALOG_KIND = "assistant";
 const DIALOG_TTL_MS = 15 * 60_000;
 
@@ -144,10 +149,19 @@ function lines(record: Record<string, unknown>): string {
 }
 
 /** Одна карточка на все ожидающие действия ответа: «было → станет» по каждому. */
-export function renderBundleCard(actions: readonly AssistantActionView[], authorName: string, maskPhones = false, source?: string): string {
+export function renderBundleCard(actions: readonly AssistantActionView[], authorName: string, maskPhones = false, source?: string, tajik = false): string {
   const parts = actions.map((a, i) => {
     const p = a.preview;
     const head = actions.length > 1 ? `${i + 1}) ${p.title}` : p.title;
+    if (maskPhones && a.tool === "change_property_price" && typeof p.was.Цена === "string" && typeof p.becomes.Цена === "string") {
+      const code = /ОБ-\d{1,10}/u.exec(p.title)?.[0];
+      const translate = (value: string) => field(value).replace(/\s+с\.?$/u, tajik ? " сомонӣ" : " с.");
+      return [
+        tajik && code ? `Нархи ${code}` : head,
+        `${tajik ? "Пеш" : "Было"}: ${translate(p.was.Цена)} → ${translate(p.becomes.Цена)}`,
+        ...(p.becomes.Заявка ? [tajik ? "Баъди тасдиқи роҳбар иваз мешавад." : "Цена изменится после одобрения руководителем."] : []),
+      ].join("\n");
+    }
     return [
       head,
       `   Было: ${lines(p.was)}`,
@@ -159,6 +173,9 @@ export function renderBundleCard(actions: readonly AssistantActionView[], author
   });
   const origin = source ? `По сообщению ${source}
 ` : "";
+  if (maskPhones && actions.length === 1 && actions[0]?.tool === "change_property_price") {
+    return sanitizeAssistantReply(parts[0] ?? "", true);
+  }
   const card = `${origin}Подтвердите действие${actions.length > 1 ? "я" : ""}:\n\n${parts.join("\n\n")}\n\nПодтвердить может только ${authorName}.`;
   return sanitizeAssistantReply(card, maskPhones);
 }
@@ -181,6 +198,7 @@ interface TurnParams {
   moneyWallet?: AssistantMoneyWallet;
   forwardedVoice?: boolean;
   readOnlyGroup?: boolean;
+  onlyGroupConfirmation?: GroupConfirmationTool;
   agentId: string;
   scope: "private" | "group";
   history: { role: "user" | "assistant"; content: string }[];
@@ -205,13 +223,18 @@ async function runTurn(params: TurnParams): Promise<TurnResult | null> {
     return null;
   }
   const actor = assistantActorFor(params.agentId, access, params.scope);
-  if (params.readOnlyGroup) {
+  if (params.readOnlyGroup || params.onlyGroupConfirmation) {
     actor.hiddenTools = new Set([...GROUP_HIDDEN_TOOLS, "get_client_history", "get_client_card", "web_reference"]);
+  }
+  if (params.onlyGroupConfirmation) {
+    actor.hiddenTools = new Set([...(actor.hiddenTools ?? []), ...listAssistantToolPlugins()
+      .filter(plugin => plugin.level !== "A" && (plugin.level !== "C" || plugin.name !== params.onlyGroupConfirmation))
+      .map(plugin => plugin.name)]);
   }
   const last = params.history[params.history.length - 1];
 
   // In a group the deterministic path is limited to a property number.
-  if (!params.readOnlyGroup && last?.role === "user" && (params.scope === "private" || parseFastPathIntent(last.content)?.kind === "property-code")) {
+  if (!params.readOnlyGroup && !params.onlyGroupConfirmation && last?.role === "user" && (params.scope === "private" || parseFastPathIntent(last.content)?.kind === "property-code")) {
     try {
       if (params.scope === "private") {
         const roster = await findTelegramAgentClients(last.content, actor);
@@ -275,7 +298,7 @@ async function cancelPending(actions: readonly AssistantActionView[], agentId: s
 async function sendTurnResult(
   chatId: string,
   result: TurnResult,
-  ctx: { agentId: string; authorName: string; scope: "private" | "group"; replyTo?: number; source?: string; fromVoice?: boolean; addressedGroupVoice?: boolean; mode?: AssistantReplyMode; reactTo?: number }
+  ctx: { agentId: string; authorName: string; scope: "private" | "group"; replyTo?: number; source?: string; fromVoice?: boolean; addressedGroupVoice?: boolean; mode?: AssistantReplyMode; reactTo?: number; requestLanguage?: ReturnType<typeof assistantLanguage> }
 ): Promise<void> {
   const maskPhones = ctx.scope === "group";
   const split = splitReaction(result.reply);
@@ -283,7 +306,6 @@ async function sendTurnResult(
   const rendered = renderAssistantForTelegram(split.text, { maskPhones });
   // Записи уровня B исполнены сразу — человек должен видеть, что именно записано.
   const written = result.done.map((a) => sanitizeAssistantReply(`Записано: ${field(a.preview.title)}`, maskPhones));
-  const body = [rendered, ...written].filter(Boolean).join("\n");
   if (result.pending.length === 0) {
     if (result.propertyCard && await sendTelegramPropertyCard(chatId, result.propertyCard, maskPhones, ctx.replyTo)) {
       if (ctx.mode === "voice") await sendAssistantVoiceReply(chatId, maskPhones ? sanitizeAssistantReply(split.text, true) : split.text, ctx.replyTo);
@@ -299,7 +321,10 @@ async function sendTurnResult(
     }
     return;
   }
-  const card = renderBundleCard(result.pending, ctx.authorName, maskPhones, ctx.source);
+  const priceOnlyInGroup = maskPhones && result.pending.every(action => action.tool === "change_property_price");
+  const tajikPrice = priceOnlyInGroup && (ctx.requestLanguage === "tg" || ctx.requestLanguage === "mixed");
+  const card = renderBundleCard(result.pending, ctx.authorName, maskPhones, ctx.source, tajikPrice);
+  const body = [priceOnlyInGroup ? "" : rendered, ...written].filter(Boolean).join("\n");
   // Кнопка без полностью видимой карточки — подтверждение вслепую: слишком длинное не показываем.
   if (card.length > CARD_MAX_CHARS) {
     await cancelPending(result.pending, ctx.agentId);
@@ -321,17 +346,13 @@ async function sendTurnResult(
   // Карточка целиком, ответ модели — по остатку места (не наоборот).
   const room = Math.max(0, TEXT_MAX_CHARS - card.length - 2);
   const text = [body.slice(0, room), card].filter(Boolean).join("\n\n");
-  await sendMessageWithButtons(
-    chatId,
-    text,
-    [
-      [
-        { text: irreversible ? "✅ Подтвердить (необратимо)" : "✅ Подтвердить", callback_data: `as:ok:${bundleId}` },
-        { text: "✖ Отмена", callback_data: `as:no:${bundleId}` },
-      ],
-    ],
-    ctx.replyTo
-  );
+  const buttons = [[
+    { text: tajikPrice ? "Тасдиқ" : irreversible ? "✅ Подтвердить (необратимо)" : maskPhones ? "Подтвердить" : "✅ Подтвердить", callback_data: `as:ok:${bundleId}` },
+    { text: tajikPrice ? "Бекор" : maskPhones ? "Отмена" : "✖ Отмена", callback_data: `as:no:${bundleId}` },
+  ]];
+  if (priceOnlyInGroup && result.pending.length === 1
+      && await sendTelegramPriceConfirmationPhotos(chatId, result.pending[0], text, buttons, ctx.replyTo)) return;
+  await sendMessageWithButtons(chatId, text, buttons, ctx.replyTo);
 }
 
 // ───────────────────────────── личка ─────────────────────────────
@@ -369,12 +390,14 @@ async function clearHistory(chatId: string) {
 }
 
 /** Голосовое → текст тем же путём, что POST /transcribe (ai/transcribe.ts). */
-async function transcribeVoice(msg: TelegramIncomingMessage, agentId: string, wallet: AssistantMoneyWallet): Promise<{ text: string } | { error: string }> {
+async function transcribeVoice(msg: TelegramIncomingMessage, agentId: string, wallet: AssistantMoneyWallet, standalone = false): Promise<{ text: string } | { error: string }> {
   // Платная расшифровка — только если помощник вообще включён и учётка жива.
   if (!(await isAiAssistantEnabled())) return { error: DISABLED_TEXT };
   const access = await loadAgentAccess(agentId);
   if (!access?.isActive) return { error: "Ваша учётка отключена." };
-  const cap = await claimAgentAiAction(agentId, "assistant-telegram-voice", ASSISTANT_TG_VOICE_DAILY_LIMIT);
+  const cap = await claimAgentAiAction(agentId,
+    standalone ? "assistant-telegram-group-standalone-voice" : "assistant-telegram-voice",
+    standalone ? ASSISTANT_TG_STANDALONE_VOICE_DAILY_LIMIT : ASSISTANT_TG_VOICE_DAILY_LIMIT);
   if (!cap.allowed) return { error: "Лимит голосовых на сегодня исчерпан — напишите текстом." };
   const media = await handleAssistantMedia(msg, agentId, { allowGroup: msg.chat.type !== "private", wallet });
   if (media.error) return { error: media.text };
@@ -563,7 +586,7 @@ const GROUP_ADMIN_ROLES = new Set(["ADMIN", "DIRECTOR"]);
 
 async function greetGroup(chatId: string, lines: { ru: string; tg: string }, replyTo?: number): Promise<void> {
   for (const language of ["ru", "tg"] as const) {
-    await sendAssistantReply(chatId, lines[language], { scope: "group", mode: "voice", replyTo, written: [] });
+    await sendAssistantVoiceReply(chatId, lines[language], replyTo);
   }
 }
 
@@ -581,8 +604,8 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
   const botUsername = await getBotUsername();
   if (!botUsername) return false;
   const chatId = String(msg.chat.id);
-  const { addressed, text } = addressedToBot(msg, botUsername);
-  const raw = (msg.text ?? "").trim();
+  let { addressed, text } = addressedToBot(msg, botUsername);
+  let raw = (msg.text ?? "").trim();
   const groupCommand = new RegExp(`^/assistant_(on|off|quiet|resume)(?:@${escapeRe(botUsername)})?(?:\\s|$)`, "i").exec(raw);
   const verb = groupCommand?.[1].toLowerCase();
   const onOff = verb === "on" || verb === "off" ? groupCommand : null;
@@ -592,13 +615,24 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
   const membership = groupMembershipEvent(msg.new_chat_members, msg.left_chat_member, botUsername);
   let automatic: ReturnType<typeof unaddressedPropertyQuestion> = null;
   let automaticRead = false;
+  let automaticAction: GroupConfirmationTool | null = null;
+  const quoted = (msg.reply_to_message?.text ?? msg.reply_to_message?.caption ?? "").trim().slice(0, 600);
+  let statusFollowUp = Boolean(quoted && groupStatusFollowUp(raw, quoted));
+  const shortNativeVoice = typeof msg.voice?.duration === "number"
+    && msg.voice.duration > 0 && msg.voice.duration <= GROUP_SHORT_VOICE_SECONDS;
+  const audioDuration = (msg.voice ?? msg.audio)?.duration;
+  const isForwarded = Boolean(msg.forward_origin || msg.forward_from_message_id);
+  const standaloneVoice = !addressed && !groupCommand && !membership && !raw
+    && typeof audioDuration === "number" && audioDuration > 0 && audioDuration <= GROUP_AUDIO_MAX_SECONDS
+    && Boolean(msg.from?.id && !msg.from.is_bot && !msg.sender_chat);
   if (!addressed && !groupCommand && !membership) {
     windowText = windowRequest(msg, chatId);
     if (windowText === null && msg.from?.id && !msg.from.is_bot && !msg.sender_chat && !msg.forward_origin && !msg.forward_from_message_id) {
       automatic = unaddressedPropertyQuestion(raw);
-      automaticRead = !automatic && !msg.reply_to_message && unaddressedReadRequest(raw);
+      automaticRead = !automatic && (statusFollowUp || (!msg.reply_to_message && unaddressedReadRequest(raw)));
+      if (!automatic && !automaticRead && !msg.reply_to_message) automaticAction = unaddressedConfirmationRequest(raw);
     }
-    if (windowText === null && !automatic && !automaticRead) return false;
+    if (windowText === null && !automatic && !automaticRead && !automaticAction && !standaloneVoice) return false;
   }
   const reply = (t: string) => sendMessage(chatId, t, msg.message_id).then(() => undefined);
 
@@ -683,7 +717,31 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
     }
 
     if (!addressed && registered.proactiveMutedUntil && registered.proactiveMutedUntil > now) return false;
-    if (automatic || automaticRead) {
+    const moneyWallet = createAssistantMoneyWallet();
+    let fromVoice = false;
+    if (standaloneVoice) {
+      if (!sender) return false;
+      const voice = await transcribeVoice(msg, sender.id, moneyWallet, true);
+      if ("error" in voice) return false;
+      const current = await prisma.assistantTelegramGroup.findUnique({ where: { chatId } });
+      if (!current || current.createdAt.getTime() !== registered.createdAt.getTime()
+        || (current.proactiveMutedUntil && current.proactiveMutedUntil.getTime() > groupClock())) return false;
+      fromVoice = true;
+      raw = voice.text.replace(/\s+/gu, " ").trim();
+      statusFollowUp = Boolean(quoted && groupStatusFollowUp(raw, quoted));
+      const spoken = addressedToBot({ ...msg, text: raw }, botUsername);
+      if (!isForwarded && /^(?:шабнам|мушовир)(?=$|[\s,:;.!?—–-])/iu.test(raw)
+        && spoken.addressed && spoken.text && !requestedGroupParticipation(spoken.text)) {
+        addressed = true;
+        text = spoken.text;
+      } else {
+        automatic = unaddressedPropertyQuestion(raw);
+        automaticRead = !automatic && (statusFollowUp || unaddressedReadRequest(raw));
+        if (!automatic && !automaticRead && !isForwarded && !msg.reply_to_message) automaticAction = unaddressedConfirmationRequest(raw);
+        if (!automatic && !automaticRead && !automaticAction) return false;
+      }
+    }
+    if (automatic || automaticRead || automaticAction) {
       if (!sender || !(await isAiAssistantEnabled())) return false;
       const access = await loadAgentAccess(sender.id);
       if (!access?.isActive) return false;
@@ -714,15 +772,27 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
         return true;
       }
 
+      const question = statusFollowUp ? `${raw}\n${wrapUntrusted("document", quoted, 600)}` : raw;
       const result = await runTurn({
-        agentId: sender.id, scope: "group", readOnlyGroup: true,
-        history: [{ role: "user", content: maskAssistantContacts(raw) }],
+        agentId: sender.id, scope: "group", readOnlyGroup: !automaticAction,
+        onlyGroupConfirmation: automaticAction ?? undefined, moneyWallet,
+        history: [{ role: "user", content: maskAssistantContacts(question) }],
         deny: async () => {},
       });
-      if (!result || result.failed) return true;
+      if (!result || (result.failed && !automaticAction)) return true;
       const current = await prisma.assistantTelegramGroup.findUnique({ where: { chatId } });
       if (!current || current.createdAt.getTime() !== registered.createdAt.getTime()
-          || (current.proactiveMutedUntil && current.proactiveMutedUntil.getTime() > groupClock())) return true;
+          || (current.proactiveMutedUntil && current.proactiveMutedUntil.getTime() > groupClock())) {
+        if (result.pending.length) await cancelPending(result.pending, sender.id);
+        return true;
+      }
+      if (automaticAction) {
+        await sendTurnResult(chatId, result, {
+          agentId: sender.id, authorName: sender.fullName, scope: "group", mode: "text", replyTo: msg.message_id,
+          requestLanguage: assistantLanguage([{ role: "user", content: raw }]),
+        });
+        return true;
+      }
       await sendAssistantReply(chatId, splitReaction(result.reply).text, {
         scope: "group", mode: "text", structured: result.structured, replyTo: msg.message_id, written: [],
       });
@@ -743,7 +813,6 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
       await reply(msg.sender_chat ? "Анонимного админа не узнаю — напишите от своего имени." : NOT_LINKED_TEXT);
       return true;
     }
-    // Голос в группе принимается только ответом боту (иначе упоминания нет).
     let request = windowText ?? text;
     // Упоминание ответом на ЧУЖОЕ сообщение: его текст — содержание просьбы, права — вызвавшего.
     const replied = msg.reply_to_message;
@@ -755,9 +824,9 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
         request = `Сообщение от ${source}: «${quoted.slice(0, 1000)}»${text ? `
 Просьба вызвавшего: ${text}` : ""}`;
       }
+    } else if (statusFollowUp && quoted) {
+      request = `${request}\n${wrapUntrusted("document", quoted, 600)}`;
     }
-    const moneyWallet = createAssistantMoneyWallet();
-    let fromVoice = false;
     let forwardedVoice = false;
     if (!request && (msg.voice || msg.audio)) {
       const voice = await transcribeVoice(msg, sender.id, moneyWallet);
@@ -794,16 +863,16 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
       authorName: sender.fullName,
       scope: "group",
       fromVoice,
-      addressedGroupVoice: addressed && fromVoice && !forwardedVoice
-        && typeof msg.voice?.duration === "number" && msg.voice.duration > 0 && msg.voice.duration <= 60,
+      addressedGroupVoice: addressed && fromVoice && !forwardedVoice && shortNativeVoice,
       mode: forwardedVoice ? "auto" : requestedAssistantReplyMode(fromVoice ? request : windowText ?? text),
       reactTo: msg.message_id,
       replyTo: msg.message_id,
       source,
+      requestLanguage: assistantLanguage([{ role: "user", content: request }]),
     });
   } catch (err) {
     await logSystemError("telegram", `Помощник в группе Telegram: ${describeError(err)}`);
-    if (!automatic && !automaticRead && !membership) await reply("Не получилось ответить, попробуйте ещё раз.").catch(() => {});
+    if (!automatic && !automaticRead && !automaticAction && !membership && (!standaloneVoice || addressed)) await reply("Не получилось ответить, попробуйте ещё раз.").catch(() => {});
   }
   return true;
 }
@@ -858,6 +927,7 @@ export async function handleAssistantCallback(query: TelegramCallbackQuery): Pro
   const [, verb, bundleId] = match;
   const chatId = query.message?.chat.id !== undefined ? String(query.message.chat.id) : null;
   const messageId = query.message?.message_id;
+  const tajikPrice = /^Нархи ОБ-/u.test(query.message?.caption ?? query.message?.text ?? "");
   try {
     const clicker = await clickerOf(query);
     if (!clicker) {
@@ -924,15 +994,15 @@ export async function handleAssistantCallback(query: TelegramCallbackQuery): Pro
       // Часть цепочки могла успеть исполниться до отмены — правду об этом не прячем.
       const note = executed > 0 ? "Часть действий уже была выполнена, остальные отменены" : "Отменено";
       await answerCallbackQuery(query.id, note);
-      if (chatId && messageId) {
-        await editMessageText(chatId, messageId, sanitizeAssistantReply(`✖ ${note} (${clicker.fullName})`, chatId.startsWith("-")), null).catch(() => {});
+      if (chatId && query.message && messageId) {
+        await editTelegramConfirmationMessage(query.message, sanitizeAssistantReply(tajikPrice && executed === 0 ? "Бекор шуд" : `✖ ${note} (${clicker.fullName})`, chatId.startsWith("-"))).catch(() => {});
       }
       return true;
     }
 
     const outcome = await serializeBundle(bundleId, async () => {
       if (!(await groupRegistrationAllows())) return null;
-      return executeBundle(actions.map((a) => a.id), actor);
+      return executeBundle(actions.map((a) => a.id), actor, tajikPrice);
     });
     if (outcome === null) return true;
     if (outcome.kind === "busy") {
@@ -944,19 +1014,23 @@ export async function handleAssistantCallback(query: TelegramCallbackQuery): Pro
       return true;
     }
     await answerCallbackQuery(query.id, outcome.failed ? "Выполнено не всё" : "Готово");
-    const mark = outcome.failed ? "⚠️" : "✅";
-    const summary = `${mark} ${clicker.fullName}:\n${outcome.lines.join("\n")}`;
     if (!chatId) return true;
-    if (chatId.startsWith("-")) {
-      // Группа: карточку гасим, итог — отдельным коротким сообщением, чтобы его увидели все.
-      if (messageId) await editMessageText(chatId, messageId, sanitizeAssistantReply(`${mark} Обработано (${clicker.fullName})`, true), null).catch(() => {});
-      await sendMessage(chatId, sanitizeAssistantReply(summary, true), messageId).catch(() => {});
-    } else if (messageId) {
-      await editMessageText(chatId, messageId, summary, null).catch(async () => {
-        await sendMessage(chatId, summary).catch(() => {});
+    const isGroup = chatId.startsWith("-");
+    const mark = outcome.failed ? "⚠️" : "✅";
+    const summary = isGroup
+      ? outcome.priceResult ?? (outcome.lines.length === 1
+        ? `${mark} ${outcome.lines[0].replace(/^[•✖↺] /u, "")}`
+        : `${outcome.failed ? "Не всё получилось" : "Готово"}:\n${outcome.lines.join("\n")}`)
+      : `${mark} ${clicker.fullName}:\n${outcome.lines.join("\n")}`;
+    const safeSummary = sanitizeAssistantReply(summary, isGroup);
+    if (query.message && messageId) {
+      await editTelegramConfirmationMessage(query.message, safeSummary).catch(async (err: unknown) => {
+        if (isGroup && (!(err instanceof TelegramApiError) || err.errorCode !== 400 || /message is not modified/i.test(err.message))) return;
+        // A definitive edit failure may use one standalone message. Never quote our own card.
+        await sendMessage(chatId, safeSummary, undefined, undefined, { singleAttempt: true }).catch(() => {});
       });
     } else {
-      await sendMessage(chatId, summary).catch(() => {});
+      await sendMessage(chatId, safeSummary).catch(() => {});
     }
     return true;
   } catch (err) {
@@ -969,21 +1043,36 @@ export async function handleAssistantCallback(query: TelegramCallbackQuery): Pro
 type BundleOutcome =
   | { kind: "busy" }
   | { kind: "replay" }
-  | { kind: "done"; failed: boolean; lines: string[] };
+  | { kind: "done"; failed: boolean; lines: string[]; priceResult?: string };
+
+export function renderGroupPriceResult(action: AssistantActionView, tajik = false): string | undefined {
+  if (action.tool !== "change_property_price" || typeof action.preview.becomes.Цена !== "string"
+    || !action.result || typeof action.result !== "object") return undefined;
+  const result = action.result as { applied?: unknown; status?: unknown; propertyShortId?: unknown };
+  const shortId = result.propertyShortId;
+  if (typeof shortId !== "number" || !Number.isSafeInteger(shortId) || shortId < 1) return undefined;
+  const price = field(action.preview.becomes.Цена).replace(/\s+с\.?$/u, tajik ? " сомонӣ" : " сомони");
+  const code = formatPropertyCode(shortId);
+  if (result.applied === true) return `${code} · ${tajik ? "нарх шуд" : "цена теперь"} ${price}`;
+  if (result.status === "PENDING") return tajik ? `${code} · ${price}, дар интизори тасдиқ` : `${code} · цена ${price} ждёт одобрения`;
+  return undefined;
+}
 
 /**
  * Исполняет связку по порядку. На первой неудаче остальные ожидающие ОТМЕНЯЮТСЯ
  * (перемонтаж после неудавшейся цены не уходит). «Уже исполняется» (параллельный
  * запрос держит строку) — не неудача: ничего не отменяем и не повторяем.
  */
-async function executeBundle(ids: string[], actor: AssistantActionActor): Promise<BundleOutcome> {
+async function executeBundle(ids: string[], actor: AssistantActionActor, tajikPrice: boolean): Promise<BundleOutcome> {
   const lines: string[] = [];
   let ranAny = false;
   let failed = false;
+  let priceResult: string | undefined;
   for (let i = 0; i < ids.length; i++) {
     try {
       const { action, replay } = await confirmAssistantAction(ids[i], actor);
       if (!replay) ranAny = true;
+      if (!replay && ids.length === 1) priceResult = renderGroupPriceResult(action, tajikPrice);
       lines.push(`${replay ? "↺" : "•"} ${action.preview.title}`);
     } catch (err) {
       if (err instanceof AssistantActionError && err.code === "IN_PROGRESS") return { kind: "busy" };
@@ -1000,5 +1089,5 @@ async function executeBundle(ids: string[], actor: AssistantActionActor): Promis
     }
   }
   if (!ranAny && !failed) return { kind: "replay" };
-  return { kind: "done", failed, lines };
+  return { kind: "done", failed, lines, priceResult };
 }
