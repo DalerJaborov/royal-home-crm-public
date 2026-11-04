@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import type { Dirent } from "node:fs";
 import path from "node:path";
 import { TELEGRAM_LOCAL_FILES_DIR } from "../messengers/attachments.js";
-import { maskTelegramFilePath } from "../telegram/api.js";
+import { maskTelegramFilePath, TELEGRAM_DOCUMENT_STAGING_PREFIX } from "../telegram/api.js";
 import { logSystemError } from "./systemError.js";
 
 /**
@@ -51,6 +51,15 @@ async function walk(dir: string, cutoff: number, result: TelegramBotApiCleanupRe
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
       await walk(full, cutoff, result);
+      if (dir === TELEGRAM_LOCAL_FILES_DIR && entry.name.startsWith(TELEGRAM_DOCUMENT_STAGING_PREFIX)) {
+        try {
+          const stat = await fs.stat(full);
+          if (stat.mtimeMs < cutoff) await fs.rmdir(full);
+        } catch (err) {
+          const code = (err as NodeJS.ErrnoException).code;
+          if (code !== "ENOENT" && code !== "ENOTEMPTY" && code !== "EEXIST") result.failed++;
+        }
+      }
       continue;
     }
     if (!entry.isFile()) continue;

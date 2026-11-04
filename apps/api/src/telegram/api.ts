@@ -1,4 +1,7 @@
 import fsp from "node:fs/promises";
+import { openAsBlob } from "node:fs";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { admitOutbound, OutboundBlockedError, type OutboundOrigin } from "../lib/outboundShield.js";
 import { logSystemError } from "../lib/systemError.js";
 import { describeError } from "../lib/describeError.js";
@@ -585,12 +588,56 @@ export interface TelegramSentDocument extends TelegramSentMessage {
   document?: TelegramDocument;
 }
 
+export const TELEGRAM_DOCUMENT_STAGING_PREFIX = "crm-telegram-document-";
+
+async function sendLocalDocument(
+  chatId: string,
+  source: string,
+  filename: string,
+  caption: string | undefined,
+  timeoutMs: number,
+  singleAttempt: boolean
+): Promise<TelegramSentDocument> {
+  const root = process.env.TELEGRAM_LOCAL_FILES_DIR;
+  if (!root || !path.isAbsolute(root)) throw new Error("Не настроен общий том Telegram Bot API");
+  if (!filename || filename === "." || filename === ".." || /[\\/]/.test(filename)) {
+    throw new Error("Недопустимое имя документа Telegram");
+  }
+  const info = await fsp.stat(source);
+  if (!info.isFile() || info.size > TELEGRAM_BOT_SEND_LIMIT_BYTES) {
+    throw new Error("Файл не подходит для отправки в Telegram");
+  }
+  const dir = await fsp.mkdtemp(path.join(root, TELEGRAM_DOCUMENT_STAGING_PREFIX));
+  const staged = path.join(dir, filename);
+  let keepForTelegram = false;
+  try {
+    // The Bot API reads the shared file itself. The CRM sends only its URI in JSON.
+    await fsp.copyFile(source, staged);
+    keepForTelegram = true;
+    const sent = await call<TelegramSentDocument>("sendDocument", {
+      chat_id: chatId,
+      document: pathToFileURL(staged).href,
+      ...(caption ? { caption } : {}),
+    }, timeoutMs, undefined, undefined, singleAttempt);
+    keepForTelegram = false;
+    return sent;
+  } catch (error) {
+    // A lost response can leave Telegram reading the file. The volume janitor
+    // removes it later. A definitive rejection needs no retention.
+    if (error instanceof TelegramApiError) keepForTelegram = false;
+    throw error;
+  } finally {
+    if (!keepForTelegram) {
+      await fsp.rm(staged, { force: true }).catch(() => {});
+      await fsp.rmdir(dir).catch(() => {});
+    }
+  }
+}
+
 export async function sendDocumentFile(
   chatId: string,
-  /** Blob из `fs.openAsBlob` читается с диска потоком — сотни мегабайт видео
-   *  не ложатся в память процесса (22.09.2026: Buffer 480-МБ .mov + его копия
-   *  в `new Blob` убили api по OOM, объект №121 так и не ушёл монтажёру). */
-  file: Buffer | Blob,
+  /** Передавайте путь для файлов на диске. Локальный Bot API читает их из общего тома. */
+  file: Buffer | Blob | { path: string },
   filename: string,
   caption?: string,
   timeoutMs = 60_000,
@@ -598,13 +645,18 @@ export async function sendDocumentFile(
 ): Promise<TelegramSentDocument> {
   if (!BASE_URL) throw new Error("TELEGRAM_BOT_TOKEN не настроен");
   void sendChatAction(chatId, undefined, "upload_document");
+  const text = caption && (caption.length > CAPTION_MAX_CHARS ? `${caption.slice(0, CAPTION_MAX_CHARS - 1)}…` : caption);
+  if ("path" in file && IS_LOCAL_BOT_API) {
+    return sendLocalDocument(chatId, file.path, filename, text, timeoutMs, singleAttempt);
+  }
+  const upload = "path" in file ? await openAsBlob(file.path) : file;
   const result = await postMultipartWithRetry(
     `${BASE_URL}/sendDocument`,
     () => {
       const form = new FormData();
       form.append("chat_id", chatId);
-      if (caption) form.append("caption", caption.length > CAPTION_MAX_CHARS ? `${caption.slice(0, CAPTION_MAX_CHARS - 1)}…` : caption);
-      form.append("document", file instanceof Blob ? file : new Blob([file]), filename);
+      if (text) form.append("caption", text);
+      form.append("document", upload instanceof Blob ? upload : new Blob([upload]), filename);
       return form;
     },
     timeoutMs,
@@ -738,8 +790,8 @@ export function canBotWriteToChat(member: TelegramChatMemberStatus): boolean {
  * ссылок внутри самого Bot API падает по причине, которую дальше копать не
  * дешевле, чем перестать от неё зависеть. Свой Bot API (`--local`) принимает
  * тело до 2 ГБ (см. TELEGRAM_BOT_SEND_LIMIT_BYTES) — этого с запасом хватает на
- * ролики в десятки мегабайт, поэтому дальше идём тем же способом, что и
- * sendDocumentFile ниже: multipart, без похода за файлом по сети.
+ * ролики в десятки мегабайт. Здесь используется multipart без скачивания
+ * по публичной ссылке.
  *
  * sendVideo (пережимает под плеер) — ровно то, что нужно для канала, в отличие
  * от sendDocumentFile у монтажёра (см. докстринг там). thumbnail — тем же
