@@ -28526,7 +28526,7 @@
     - иначе
       - const format = facebookFormatFor(await probeMediaInfo(localVideoAbsolutePath));
         · зовёт facebookFormatFor()
-      - const result = format === "REEL" ? await publishFacebookReel(creds.pageId, creds.pageToken, videoUrl, params.…
+      - const result = format === "REEL" ? await publishFacebookReel(creds.pageId, creds.pageToken, localVideoAbsolut…
         · зовёт publishFacebookReel()
       - если result.ok && result.postId && squareAbsolutePath
         - appendNote(result, await setFacebookVideoThumbnail(result.postId, creds.pageToken, squareAbsolutePath));
