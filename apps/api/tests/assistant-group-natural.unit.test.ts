@@ -3,6 +3,7 @@ import { runInNewContext } from "node:vm";
 import ts from "typescript";
 import { describe, expect, it, vi } from "vitest";
 import * as replies from "../src/telegram/assistantReply.js";
+import { maskAssistantContacts } from "../src/lib/assistantContacts.js";
 import * as participation from "../src/telegram/assistantGroupParticipation.js";
 import { assistantLanguage } from "../src/ai/assistant/languageRouting.js";
 import type { TelegramIncomingMessage } from "../src/telegram/api.js";
@@ -71,6 +72,7 @@ function fixture() {
     "../ai/assistantFastPath.js": { parseFastPathIntent: (text: string) => /ОБ-/i.test(text) ? { kind: "property-code" } : null,
       tryAssistantFastPath: fast },
     "../ai/untrustedContent.js": { wrapUntrusted: (_kind: string, text: string) => `<untrusted>${text}</untrusted>` },
+    "../lib/assistantContacts.js": { maskAssistantContacts },
     "../lib/agentAiActionCap.js": { claimAgentAiAction: async () => ({ allowed: true }) },
     "../lib/aiAssistantAudit.js": { logAssistantToolCall: async () => {} },
     "./assistantReadResults.js": { sendTelegramPropertyCard: card },
@@ -242,11 +244,43 @@ describe("optional help without an address", () => {
     expect(f.run).not.toHaveBeenCalled();
     expect(f.voice).not.toHaveBeenCalled();
   });
-  it.each(["ОБ-123", "Вчера обсуждали ОБ-123", "Обнови цену у ОБ-123", "Какая цена у ОБ-123? Не отвечай", "Какая цена у ПК-123?", "Найдите ОБ-123 и ОБ-456"])("does not interject into %s", async text => {
+  it.each(["ОБ-123", "Вчера обсуждали ОБ-123", "Обнови цену у ОБ-123", "Какая цена у ОБ-123? Не отвечай", "Какая цена у ПК-123?", "Вчера сравнили ОБ-123 и ОБ-456"])("does not interject into %s", async text => {
     const f = fixture();
     expect(await f.send(text)).toBe(false);
     expect(f.findProperty).not.toHaveBeenCalled();
     expect(f.run).not.toHaveBeenCalled();
+  });
+  it.each([
+    "Подбери двухкомнатные квартиры в Сино до 650 тысяч сомони",
+    "Какие у меня показы завтра?",
+    "Найди клиента Али",
+    "Хонаи дуҳуҷра дар Сино ҳаст?",
+  ])("answers clear working requests without a mention: %s", async request => {
+    const f = fixture();
+    expect(await f.send(request)).toBe(true);
+    expect(f.run).toHaveBeenCalledWith(
+      [{ role: "user", content: request }],
+      expect.objectContaining({ id: "test-1", hiddenTools: expect.objectContaining({ has: expect.any(Function) }) }),
+      expect.objectContaining({ confirmUi: false }),
+    );
+    const actor = f.run.mock.calls[0][1] as { hiddenTools: Set<string> };
+    for (const tool of ["create_task", "reschedule_task", "get_client_history", "web_reference"]) {
+      expect(actor.hiddenTools.has(tool)).toBe(true);
+    }
+    expect(f.html).toHaveBeenCalledOnce();
+  });
+  it("keeps automatic help out of replies to colleagues and honours quiet while a lookup is running", async () => {
+    const f = fixture();
+    const request = "Подбери квартиры в Сино";
+    await f.send(request, { reply_to_message: { chat: { id: -100 }, from: { id: 2 }, text: "Вопрос коллеги" } });
+    expect(f.run).not.toHaveBeenCalled();
+    f.run.mockImplementationOnce(async () => {
+      await f.send("Шабнам, помолчи");
+      return { ok: true, reply: "Нашла квартиру" };
+    });
+    await f.send(request);
+    expect(f.run).toHaveBeenCalledOnce();
+    expect(f.html).not.toHaveBeenCalled();
   });
   it("keeps silent for unlinked staff, forwards, disabled groups and missing cards", async () => {
     const f = fixture();

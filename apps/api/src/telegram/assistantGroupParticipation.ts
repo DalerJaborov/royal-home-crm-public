@@ -23,6 +23,15 @@ export function unaddressedPropertyQuestion(raw: string): { ref: string; lang: "
   return null;
 }
 
+const READ_START = /^(?:(?:коллеги|пожалуйста|лутфан)[,:]?\s+)*(?:подбер(?:и|ите)|найд(?:и|ите)|покаж(?:и|ите)|подскаж(?:и|ите)|провер(?:ь|ьте)|какие|какой|какая|сколько|где|когда|есть ли|есть у нас|что у меня|что у нас|нишон деҳ(?:ед)?|ёб(?:ед)?|пайдо кун(?:ед)?|санҷ(?:ед)?|кадом|чанд|кай|дар куҷо|оё|чӣ)(?:[, :]\s*|$)/iu;
+const AVAILABILITY_QUESTION = /(?:^|\s)(?:есть|найд[её]тся|ҳаст|дорем)\s*\?$/iu;
+const READ_SUBJECT = /(?:^|[^\p{L}\p{N}])(?:объект\p{L}*|об\s*-\s*\d+|ob\s*-\s*\d+|квартир\p{L}*|дом(?:а|ов|у|е)?|участ(?:ок|к\p{L}*)|клиент\p{L}*|показ\p{L}*|задач\p{L}*|хона\p{L}*|ҳуҷра\p{L}*|муштарӣ|муштарии|муштариён|намоиш\p{L}*|вазифа\p{L}*)(?=$|[^\p{L}\p{N}])/iu;
+
+export function unaddressedReadRequest(text: string): boolean {
+  if (!text || text.length > 500 || /[\r\n]|https?:\/\/|не\s+(?:отвечай(?:те)?|вмешивайся)|хомӯш бош/iu.test(text)) return false;
+  return READ_SUBJECT.test(text) && (READ_START.test(text) || AVAILABILITY_QUESTION.test(text));
+}
+
 const serviceUser = z.object({ id: z.number().int(), is_bot: z.boolean(), username: z.string().optional() });
 const serviceMembers = z.array(serviceUser).min(1).max(200);
 export function groupMembershipEvent(added: unknown, left: unknown, username: string): "bot-added" | "bot-left" | "people-joined" | null {

@@ -2,7 +2,7 @@ import { renderAssistantForTelegram, requestedAssistantReplyMode, sanitizeAssist
 import { sendAssistantReply } from "./assistantDelivery.js";
 import { ASSISTANT_COLLEAGUE_GREETING, ASSISTANT_GROUP_GREETING } from "./assistantGroupPhrases.js";
 import { findPropertiesByRef } from "../lib/propertyRefLookup.js";
-import { GROUP_QUIET_MS, GROUP_WELCOME_INTERVAL_MS, PROACTIVE_GROUP_INTERVAL_MS, groupMembershipEvent, proactivePropertyReply, requestedGroupParticipation, unaddressedPropertyQuestion } from "./assistantGroupParticipation.js";
+import { GROUP_QUIET_MS, GROUP_WELCOME_INTERVAL_MS, PROACTIVE_GROUP_INTERVAL_MS, groupMembershipEvent, proactivePropertyReply, requestedGroupParticipation, unaddressedPropertyQuestion, unaddressedReadRequest } from "./assistantGroupParticipation.js";
 export { renderAssistantForTelegram } from "./assistantReply.js";
 import { randomUUID } from "node:crypto";
 import { isReadOnlyRole, trimAssistantHistory, type AssistantPropertyCard, type PermissionId } from "@royal-home/shared";
@@ -180,6 +180,7 @@ interface TurnResult {
 interface TurnParams {
   moneyWallet?: AssistantMoneyWallet;
   forwardedVoice?: boolean;
+  readOnlyGroup?: boolean;
   agentId: string;
   scope: "private" | "group";
   history: { role: "user" | "assistant"; content: string }[];
@@ -204,10 +205,13 @@ async function runTurn(params: TurnParams): Promise<TurnResult | null> {
     return null;
   }
   const actor = assistantActorFor(params.agentId, access, params.scope);
+  if (params.readOnlyGroup) {
+    actor.hiddenTools = new Set([...GROUP_HIDDEN_TOOLS, "get_client_history", "get_client_card", "web_reference"]);
+  }
   const last = params.history[params.history.length - 1];
 
   // In a group the deterministic path is limited to a property number.
-  if (last?.role === "user" && (params.scope === "private" || parseFastPathIntent(last.content)?.kind === "property-code")) {
+  if (!params.readOnlyGroup && last?.role === "user" && (params.scope === "private" || parseFastPathIntent(last.content)?.kind === "property-code")) {
     try {
       if (params.scope === "private") {
         const roster = await findTelegramAgentClients(last.content, actor);
@@ -242,7 +246,7 @@ async function runTurn(params: TurnParams): Promise<TurnResult | null> {
   const outcome = await runAssistantDetailed(params.history, actor, {
     channel: "telegram",
     moneyWallet: params.moneyWallet,
-    confirmUi: !params.forwardedVoice,
+    confirmUi: !params.forwardedVoice && !params.readOnlyGroup,
     onConfirm: (action) => seen.set(action.id, action),
     onToolResult: name => {
       structured = true;
@@ -587,12 +591,14 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
   let windowText: string | null = null;
   const membership = groupMembershipEvent(msg.new_chat_members, msg.left_chat_member, botUsername);
   let automatic: ReturnType<typeof unaddressedPropertyQuestion> = null;
+  let automaticRead = false;
   if (!addressed && !groupCommand && !membership) {
     windowText = windowRequest(msg, chatId);
     if (windowText === null && msg.from?.id && !msg.from.is_bot && !msg.sender_chat && !msg.forward_origin && !msg.forward_from_message_id) {
       automatic = unaddressedPropertyQuestion(raw);
+      automaticRead = !automatic && !msg.reply_to_message && unaddressedReadRequest(raw);
     }
-    if (windowText === null && !automatic) return false;
+    if (windowText === null && !automatic && !automaticRead) return false;
   }
   const reply = (t: string) => sendMessage(chatId, t, msg.message_id).then(() => undefined);
 
@@ -631,7 +637,7 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
           await greetGroup(chatId, ASSISTANT_GROUP_GREETING, onOff ? msg.message_id : undefined);
         } else if (onOff) {
           await reply(await isAiAssistantEnabled()
-            ? "Шабнам уже здесь. Позовите меня по имени, через /ai или ответом на моё сообщение. На ясный вопрос по номеру объекта могу ответить сама."
+            ? "Шабнам уже здесь. Позовите меня по имени, через /ai или ответом на моё сообщение. На ясный рабочий вопрос могу ответить сама."
             : "Группа подключена, но ИИ-помощник выключен в Настройках CRM.");
         }
       } else {
@@ -677,18 +683,18 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
     }
 
     if (!addressed && registered.proactiveMutedUntil && registered.proactiveMutedUntil > now) return false;
-    if (automatic) {
+    if (automatic || automaticRead) {
       if (!sender || !(await isAiAssistantEnabled())) return false;
       const access = await loadAgentAccess(sender.id);
       if (!access?.isActive) return false;
       const cooldown = new Date(now.getTime() - PROACTIVE_GROUP_INTERVAL_MS);
       if (registered.lastProactiveReplyAt && registered.lastProactiveReplyAt > cooldown) return false;
-      const result = await findPropertiesByRef(automatic.ref, {
+      const lookup = automatic ? await findPropertiesByRef(automatic.ref, {
         hideOwnPendingDeleteFor: access.permissions.has("properties.delete") ? undefined : sender.id,
         limit: 1,
-      });
-      const property = result.kind === "shortId" ? result.properties[0] : undefined;
-      if (!property) return false;
+      }) : null;
+      const property = lookup?.kind === "shortId" ? lookup.properties[0] : undefined;
+      if (automatic && !property) return false;
       const claim = await prisma.assistantTelegramGroup.updateMany({
         where: {
           chatId, createdAt: registered.createdAt,
@@ -700,9 +706,25 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
         data: { lastProactiveReplyAt: now },
       });
       if (claim.count !== 1) return false;
-      void logAssistantToolCall({ agentId: sender.id, tool: "telegram.proactive.property", argsSummary: JSON.stringify({ propertyId: property.id }), resultCount: 1 });
-      await sendAssistantReply(chatId, proactivePropertyReply(property, automatic.lang), {
-        scope: "group", mode: "text", structured: true, replyTo: msg.message_id, written: [],
+      if (automatic && property) {
+        void logAssistantToolCall({ agentId: sender.id, tool: "telegram.proactive.property", argsSummary: JSON.stringify({ propertyId: property.id }), resultCount: 1 });
+        await sendAssistantReply(chatId, proactivePropertyReply(property, automatic.lang), {
+          scope: "group", mode: "text", structured: true, replyTo: msg.message_id, written: [],
+        });
+        return true;
+      }
+
+      const result = await runTurn({
+        agentId: sender.id, scope: "group", readOnlyGroup: true,
+        history: [{ role: "user", content: maskAssistantContacts(raw) }],
+        deny: async () => {},
+      });
+      if (!result || result.failed) return true;
+      const current = await prisma.assistantTelegramGroup.findUnique({ where: { chatId } });
+      if (!current || current.createdAt.getTime() !== registered.createdAt.getTime()
+          || (current.proactiveMutedUntil && current.proactiveMutedUntil.getTime() > groupClock())) return true;
+      await sendAssistantReply(chatId, splitReaction(result.reply).text, {
+        scope: "group", mode: "text", structured: result.structured, replyTo: msg.message_id, written: [],
       });
       return true;
     }
@@ -781,7 +803,7 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
     });
   } catch (err) {
     await logSystemError("telegram", `Помощник в группе Telegram: ${describeError(err)}`);
-    if (!automatic && !membership) await reply("Не получилось ответить, попробуйте ещё раз.").catch(() => {});
+    if (!automatic && !automaticRead && !membership) await reply("Не получилось ответить, попробуйте ещё раз.").catch(() => {});
   }
   return true;
 }
