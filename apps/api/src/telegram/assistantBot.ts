@@ -563,7 +563,7 @@ const GROUP_ADMIN_ROLES = new Set(["ADMIN", "DIRECTOR"]);
 
 async function greetGroup(chatId: string, lines: { ru: string; tg: string }, replyTo?: number): Promise<void> {
   for (const language of ["ru", "tg"] as const) {
-    await sendAssistantReply(chatId, lines[language], { scope: "group", mode: "voice", replyTo, written: [] });
+    await sendAssistantVoiceReply(chatId, lines[language], replyTo);
   }
 }
 

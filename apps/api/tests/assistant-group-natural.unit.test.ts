@@ -186,12 +186,14 @@ describe("one greeting per authorized registration", () => {
     await f.send("/assistant_on");
     expect(f.voice).not.toHaveBeenCalled(); expect(f.run).not.toHaveBeenCalled();
   });
-  it("keeps both languages readable if voice is unavailable and does not greet twice", async () => {
+  it("tries both voices without posting text if voice is unavailable", async () => {
     const f = fixture(); f.setRegistered(false); f.voice.mockResolvedValue(false);
     await f.send("/assistant_on салом");
-    expect(f.voice.mock.calls[0]?.[1]).toContain("Шабнам");
-    expect(f.html.mock.calls[0]?.[1]).toContain("Привет");
-    expect(f.html.mock.calls[1]?.[1]).toContain("Салом");
+    expect(f.voice).toHaveBeenCalledTimes(2);
+    expect(f.voice.mock.calls[0]?.[1]).toContain("Привет");
+    expect(f.voice.mock.calls[1]?.[1]).toContain("Салом");
+    expect(f.html).not.toHaveBeenCalled();
+    expect(f.plain).not.toHaveBeenCalled();
     await f.send("/assistant_on салом");
     expect(f.voice).toHaveBeenCalledTimes(2);
   });
@@ -326,6 +328,8 @@ describe("Telegram membership welcomes", () => {
     expect(f.voice).toHaveBeenCalledTimes(2);
     expect(f.voice.mock.calls[0]?.[1]).toContain("Привет");
     expect(f.voice.mock.calls[1]?.[1]).toContain("Салом");
+    expect(f.html).not.toHaveBeenCalled();
+    expect(f.plain).not.toHaveBeenCalled();
     expect(await f.send("Какая цена у ОБ-123?")).toBe(true);
     expect(f.run).not.toHaveBeenCalled();
   });
