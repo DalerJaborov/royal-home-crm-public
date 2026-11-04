@@ -70,6 +70,7 @@ process.env.CRM_PUBLIC_URL = "https://crm.test";
 
 const { prisma } = await import("../src/db.js");
 const { uploadsDir } = await import("../src/upload.js");
+const { TelegramApiError } = await import("../src/telegram/api.js");
 const { handleTelegramUpdate } = await import("../src/telegram/bot.js");
 const { invalidateAgentAccess } = await import("../src/auth/middleware.js");
 const { createPendingAssistantAction } = await import("../src/lib/assistantActions.js");
@@ -402,11 +403,28 @@ describe("группа: одна карточка и кнопка только �
     expect(remake.calls.execute).toBe(1);
     expect(price.store.get("p1")?.price).toBe(90_000);
     expect(answers().at(-1)).toBe("Готово");
-    expect(editMessageText.mock.calls.at(-1)?.[2]).toContain("✅ Тг-author");
+    expect(editMessageText.mock.calls.at(-1)?.[2]).toContain("Готово:");
     expect(editMessageText.mock.calls.at(-1)?.[3]).toBeNull();
     expect(sentTexts()).toHaveLength(0);
     const rows = await prisma.assistantAction.findMany({ where: { agentId: agents.author.id, tool: { in: [priceTool, remakeTool] } } });
     expect(rows.every((r) => r.status === "EXECUTED" && r.channel === "telegram")).toBe(true);
+  });
+
+  it("не цитирует свою карточку при точном отказе изменить сообщение", async () => {
+    const { ok } = await askChain();
+    editMessageText.mockRejectedValueOnce(new TelegramApiError(400, "editMessageText", "message can't be edited"));
+    await press("author", ok);
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(sendMessage.mock.calls[0]?.[2]).toBeUndefined();
+    expect(sentTexts().at(-1)).toContain("Готово:");
+  });
+
+  it("не дублирует итог, если доставка правки неизвестна", async () => {
+    const { ok } = await askChain();
+    editMessageText.mockRejectedValueOnce(new Error("Telegram timeout"));
+    await press("author", ok);
+    expect(price.calls.execute).toBe(1);
+    expect(sendMessage).not.toHaveBeenCalled();
   });
 
   it("повторная доставка того же нажатия и второе нажатие другим id — исполнено один раз", async () => {

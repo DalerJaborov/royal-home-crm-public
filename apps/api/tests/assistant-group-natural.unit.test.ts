@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
 import ts from "typescript";
 import { describe, expect, it, vi } from "vitest";
+import { formatPropertyCode } from "@royal-home/shared";
 import * as replies from "../src/telegram/assistantReply.js";
 import { maskAssistantContacts } from "../src/lib/assistantContacts.js";
 import * as participation from "../src/telegram/assistantGroupParticipation.js";
@@ -42,6 +43,7 @@ function fixture() {
     return { count };
   });
   const dependencies: Record<string, unknown> = {
+    "@royal-home/shared": { formatPropertyCode },
     "./assistantReply.js": replies,
     "./assistantGroupParticipation.js": participation,
     "../lib/propertyRefLookup.js": { findPropertiesByRef: findProperty },
@@ -409,6 +411,19 @@ it("compacts a price confirmation in a group without losing the object or amount
   expect(card).toContain("Цена объекта ОБ-000132\nБыло: 879 000 с. → 810 000 с.");
   expect(card).toContain("после одобрения руководителем");
   expect(card).not.toContain("FACEBOOK");
+  expect(f.adapter.renderBundleCard([action], "Автор", true, undefined, true))
+    .toContain("Нархи ОБ-000132\nПеш: 879 000 сомонӣ → 810 000 сомонӣ");
+});
+
+it("shows the price result in one line and does not claim that an approval request changed it", () => {
+  const f = fixture();
+  const action = { tool: "change_property_price", preview: { becomes: { Цена: "810 000 с." } } };
+  expect(f.adapter.renderGroupPriceResult({ ...action, result: { propertyShortId: 132, applied: true } }))
+    .toBe("ОБ-000132 · цена теперь 810 000 сомони");
+  expect(f.adapter.renderGroupPriceResult({ ...action, result: { propertyShortId: 132, status: "PENDING" } }))
+    .toBe("ОБ-000132 · цена 810 000 сомони ждёт одобрения");
+  expect(f.adapter.renderGroupPriceResult({ ...action, result: { propertyShortId: 132, applied: true } }, true))
+    .toBe("ОБ-000132 · нарх шуд 810 000 сомонӣ");
 });
 
 describe("Telegram membership welcomes", () => {
