@@ -123,6 +123,8 @@ services:
       start_period: 45s
     environment: &crm-env
       NODE_ENV: production
+      # Separate credential for backup scripts reporting real outcomes to the API.
+      BACKUP_REPORT_API_KEY: "${BACKUP_REPORT_API_KEY:-}"
       # Owner-approved temporary settings-only SMS pause; strict again on
       # 21 November 2026. Empty override disables the pause immediately.
       SETTINGS_STEP_UP_MAINTENANCE_UNTIL: "${SETTINGS_STEP_UP_MAINTENANCE_UNTIL-2026-11-21T06:30:00.000Z}"
