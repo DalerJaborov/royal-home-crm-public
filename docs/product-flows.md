@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **730**. Развилок в самих путях: **2500**; вместе с задачами по расписанию и фоновыми заданиями — **3952**. Модулей: **81**.
+Путей: **730**. Развилок в самих путях: **2497**; вместе с задачами по расписанию и фоновыми заданиями — **3949**. Модулей: **81**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -3577,6 +3577,8 @@
 - если ownAgentId === client.assignedAgentId && !client.acceptedAt
   - return res.status(403).json({ error: "Сначала примите лид" });
     · ответ 403 — «Сначала примите лид»
+- const selection = propertySelection(req.agent!.id);
+  · зовёт propertySelection()
 - если section === "sent"
   - const [rows, count] = await Promise.all([ prisma.propertyExposure.findMany({ where, orderBy: [{ sentAt: "desc…
     · читает в базе: propertyExposure
@@ -6599,9 +6601,11 @@
 - если !row
   - return res.status(404).json({ error: "Чек не найден" });
     · ответ 404 — «Чек не найден»
-- const file = dealDocumentFilePath(row.fileName);
+- const content = await prisma.expenseReceiptContent.findUnique({ where: { receiptId: row.id }, select: { image…
+  · читает в базе: expenseReceiptContent
+- const file = content ? null : dealDocumentFilePath(row.fileName);
   · зовёт dealDocumentFilePath()
-- если !file
+- если !content && !file
   - return res.status(404).json({ error: "Файл не найден" });
     · ответ 404 — «Файл не найден»
 - res.setHeader("Cache-Control", "private, no-store");
@@ -6612,7 +6616,12 @@
   · ставит заголовок ответа
 - res.setHeader("Content-Disposition", `attachment; filename="receipt.${row.mimeType === "application/pdf" ? "p…
   · ставит заголовок ответа
-- res.sendFile(path.basename(file), { root: path.dirname(file), cacheControl: false, dotfiles: "deny" }, error
+- если content
+  - res.send(Buffer.from(content.image));
+    · ответ 200
+  - return;
+    · дальше не идёт, ничего не меняя
+- res.sendFile(path.basename(file!), { root: path.dirname(file!), cacheControl: false, dotfiles: "deny" }, error
   · ответ 500 — «Не удалось прочитать чек»
   - если error && !res.headersSent
     - res.status(500).json({ error: "Не удалось прочитать чек" });
@@ -7838,22 +7847,8 @@
 - если denied
   - return res.status(403).json({ error: denied });
     · ответ 403
-- const claimed = await prisma.interaction.updateMany({ where: { id: req.params.id, completedAt: null, taskCanc…
-  · меняет в базе: interaction
-- если claimed.count > 0
-  - const points = await loadEventPoints();
-    · зовёт loadEventPoints()
-  - если taskOwnerId
-    - await recordScoreEvent({ agentId: taskOwnerId, kind, delta: points[kind], reason: overdue ? "Закрыто с опозда…
-      · зовёт recordScoreEvent()
-  - если interaction.type === "SHOWING" || interaction.type === "MEETING"
-    - void closeStaleNextActions(interaction.clientId, interaction.id).catch((err)
-      · зовёт closeStaleNextActions()
-  - если taskOwnerId
-    - void closeMeetingReminderPushes(interaction.id, taskOwnerId).catch((err)
-      · зовёт closeMeetingReminderPushes()
-- const row = (await prisma.interaction.findUnique({ where: { id: req.params.id } })) ?? { ...interaction, comp…
-  · читает в базе: interaction
+- const { row } = await completeInteractionTask(interaction);
+  · зовёт completeInteractionTask()
 - res.json(presentInteractions([row], transcriptAccess(req.agent))[0]);
   · ответ 200
 
@@ -19409,7 +19404,7 @@
 ### assistant-actions-sweep — 35 * * * *
 
 - пробует
-  - const { expired, stuckFailed, deleted } = await runAssistantActionsSweep();
+  - const [{ expired, stuckFailed, deleted }] = await Promise.all([runAssistantActionsSweep(), expireExpensePhoto…
     · зовёт runAssistantActionsSweep()
     - const expired = await prisma.assistantAction.updateMany({ where: { status: "PENDING", expiresAt: { lte: now }…
       · меняет в базе: assistantAction

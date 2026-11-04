@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 730,
-  "forks": 3952,
+  "forks": 3949,
   "mounts": 81,
   "cron": 121,
   "jobs": 31,
@@ -15562,6 +15562,14 @@
      ]
     },
     {
+     "k": "do",
+     "t": "const selection = propertySelection(req.agent!.id);",
+     "a": [
+      "зовёт propertySelection()"
+     ],
+     "c": []
+    },
+    {
      "k": "if",
      "t": "section === \"sent\"",
      "a": [],
@@ -28866,7 +28874,15 @@
     },
     {
      "k": "do",
-     "t": "const file = dealDocumentFilePath(row.fileName);",
+     "t": "const content = await prisma.expenseReceiptContent.findUnique({ where: { receiptId: row.id }, select: { image…",
+     "a": [
+      "читает в базе: expenseReceiptContent"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "const file = content ? null : dealDocumentFilePath(row.fileName);",
      "a": [
       "зовёт dealDocumentFilePath()"
      ],
@@ -28874,7 +28890,7 @@
     },
     {
      "k": "if",
-     "t": "!file",
+     "t": "!content && !file",
      "a": [],
      "c": [
       {
@@ -28920,8 +28936,31 @@
      "c": []
     },
     {
+     "k": "if",
+     "t": "content",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "res.send(Buffer.from(content.image));",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
      "k": "do",
-     "t": "res.sendFile(path.basename(file), { root: path.dirname(file), cacheControl: false, dotfiles: \"deny\" }, error",
+     "t": "res.sendFile(path.basename(file!), { root: path.dirname(file!), cacheControl: false, dotfiles: \"deny\" }, error",
      "a": [
       "ответ 500 — «Не удалось прочитать чек»"
      ],
@@ -35833,77 +35872,9 @@
     },
     {
      "k": "do",
-     "t": "const claimed = await prisma.interaction.updateMany({ where: { id: req.params.id, completedAt: null, taskCanc…",
+     "t": "const { row } = await completeInteractionTask(interaction);",
      "a": [
-      "меняет в базе: interaction"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "claimed.count > 0",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "const points = await loadEventPoints();",
-       "a": [
-        "зовёт loadEventPoints()"
-       ],
-       "c": []
-      },
-      {
-       "k": "if",
-       "t": "taskOwnerId",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "await recordScoreEvent({ agentId: taskOwnerId, kind, delta: points[kind], reason: overdue ? \"Закрыто с опозда…",
-         "a": [
-          "зовёт recordScoreEvent()"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "if",
-       "t": "interaction.type === \"SHOWING\" || interaction.type === \"MEETING\"",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "void closeStaleNextActions(interaction.clientId, interaction.id).catch((err)",
-         "a": [
-          "зовёт closeStaleNextActions()"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "if",
-       "t": "taskOwnerId",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "void closeMeetingReminderPushes(interaction.id, taskOwnerId).catch((err)",
-         "a": [
-          "зовёт closeMeetingReminderPushes()"
-         ],
-         "c": []
-        }
-       ]
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const row = (await prisma.interaction.findUnique({ where: { id: req.params.id } })) ?? { ...interaction, comp…",
-     "a": [
-      "читает в базе: interaction"
+      "зовёт completeInteractionTask()"
      ],
      "c": []
     },
@@ -86674,7 +86645,7 @@
      "c": [
       {
        "k": "do",
-       "t": "const { expired, stuckFailed, deleted } = await runAssistantActionsSweep();",
+       "t": "const [{ expired, stuckFailed, deleted }] = await Promise.all([runAssistantActionsSweep(), expireExpensePhoto…",
        "a": [
         "зовёт runAssistantActionsSweep()"
        ],

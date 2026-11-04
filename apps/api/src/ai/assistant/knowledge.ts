@@ -4,7 +4,10 @@ import { prisma } from "../../db.js";
 import { assistantKnowledgeInputSchema, assistantKnowledgeSearchSchema, type AssistantKnowledgeInput } from "@royal-home/shared";
 import { maskAssistantContacts } from "../../lib/assistantContacts.js";
 import { wrapUntrusted } from "../untrustedContent.js";
-import { companyMemoryPolicyProjection } from "./knowledgePolicyQuery.js";
+import {
+  APPROVED_COMPANY_POLICY_REVISION, companyMemoryPolicyForTopic, companyMemoryPolicyProjection,
+  isApprovedCompanyPolicy, type CompanyMemoryPolicyTopic,
+} from "./knowledgePolicyQuery.js";
 import type { KnowledgeEmbeddingOptions } from "./knowledgeSemantic.js";
 import type { CompanyKnowledge } from "./knowledgeTypes.js";
 
@@ -24,41 +27,51 @@ export async function getCompanyKnowledge(title: string): Promise<CompanyKnowled
   const rows = await prisma.$queryRaw<CompanyKnowledge[]>(Prisma.sql`SELECT * FROM "AssistantKnowledge" WHERE "key" = ${knowledgeKey(title)} LIMIT 1`);
   return rows[0] ?? null;
 }
-export async function searchCompanyKnowledge(query: string, semanticOptions?: KnowledgeEmbeddingOptions): Promise<CompanyKnowledge[]> {
+
+async function approvedTopicKnowledge(topic: CompanyMemoryPolicyTopic): Promise<CompanyKnowledge[]> {
+  const policy = companyMemoryPolicyForTopic(topic);
+  if (!policy) return [];
+  const rows = await prisma.$queryRaw<CompanyKnowledge[]>(Prisma.sql`
+    SELECT * FROM "AssistantKnowledge" WHERE "key" = ${policy.key} AND "revision" = ${APPROVED_COMPANY_POLICY_REVISION}
+    AND "archived" = false AND ("validUntil" IS NULL OR "validUntil" > now()) LIMIT 1
+  `);
+  return rows.filter(isApprovedCompanyPolicy);
+}
+
+export async function searchAssistantCompanyKnowledge(query: string, semanticOptions?: KnowledgeEmbeddingOptions): Promise<CompanyKnowledge[]> {
+  const boundedQuery = assistantKnowledgeSearchSchema.parse({ query }).query;
+  const policy = companyMemoryPolicyProjection(boundedQuery);
+  if (policy) {
+    if (semanticOptions && process.env.ASSISTANT_KNOWLEDGE_SEMANTIC_ENABLED === "true") {
+      try {
+        const { semanticKnowledgeSearch } = await import("./knowledgeSemantic.js");
+        const timeout = AbortSignal.timeout(2_500);
+        const signal = semanticOptions.signal ? AbortSignal.any([semanticOptions.signal, timeout]) : timeout;
+        const semantic = await semanticKnowledgeSearch(policy.id, { ...semanticOptions, signal });
+        semanticOptions.signal?.throwIfAborted();
+        if (semantic.length) return semantic;
+      } catch (err) {
+        semanticOptions.signal?.throwIfAborted();
+        console.warn("[assistant:knowledge] semantic retrieval unavailable; using local topic lookup", err instanceof Error ? err.name : "Error");
+      }
+    }
+    // The local topic projection works even when the stored wording uses different RU/TG terms.
+    // If the reviewed revision has changed, don't substitute a different rule or an unreviewed revision.
+    return approvedTopicKnowledge(policy.id);
+  }
+  return searchCompanyKnowledge(boundedQuery);
+}
+
+export async function searchCompanyKnowledge(query: string): Promise<CompanyKnowledge[]> {
   const boundedQuery = assistantKnowledgeSearchSchema.parse({ query }).query;
   const words = [...new Set(boundedQuery.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((word) => word.length >= 3))].slice(0, 10);
   const conditions = words.map((word) => Prisma.sql`("title" ILIKE ${`%${word}%`} OR "content" ILIKE ${`%${word}%`})`);
   const scores = words.map((word) => Prisma.sql`(CASE WHEN "title" ILIKE ${`%${word}%`} THEN 3 ELSE 0 END + CASE WHEN "content" ILIKE ${`%${word}%`} THEN 1 ELSE 0 END)`);
-  const lexical = await prisma.$queryRaw<CompanyKnowledge[]>(Prisma.sql`
+  return prisma.$queryRaw<CompanyKnowledge[]>(Prisma.sql`
     SELECT * FROM "AssistantKnowledge" WHERE "archived" = false AND ("validUntil" IS NULL OR "validUntil" > now())
     AND ${conditions.length ? Prisma.sql`(${Prisma.join(conditions, " OR ")})` : Prisma.sql`true`}
     ORDER BY ${scores.length ? Prisma.sql`(${Prisma.join(scores, " + ")})` : Prisma.sql`0 + 0`} DESC, "updatedAt" DESC, "id" ASC LIMIT 6
   `);
-  if (!semanticOptions || process.env.ASSISTANT_KNOWLEDGE_SEMANTIC_ENABLED !== "true") return lexical;
-  const policy = companyMemoryPolicyProjection(boundedQuery);
-  if (!policy) return lexical;
-  try {
-    const { semanticKnowledgeSearch } = await import("./knowledgeSemantic.js");
-    const semantic = await semanticKnowledgeSearch(policy.providerQuery, semanticOptions);
-    const ranked = new Map<string, { row: CompanyKnowledge; score: number }>();
-    for (const list of [lexical, semantic]) list.forEach((row, index) => {
-      const previous = ranked.get(row.id);
-      ranked.set(row.id, { row: previous && previous.row.revision > row.revision ? previous.row : row,
-        score: (previous?.score ?? 0) + 1 / (60 + index + 1) });
-    });
-    const selected = [...ranked.values()].sort((a, b) => b.score - a.score).slice(0, 6).map(({ row }) => row);
-    if (!selected.length) return [];
-    // The query embedding involved external I/O: also refresh lexical hits before publishing the combined result.
-    const current = await prisma.$queryRaw<CompanyKnowledge[]>(Prisma.sql`
-      SELECT * FROM "AssistantKnowledge" WHERE "archived" = false AND ("validUntil" IS NULL OR "validUntil" > now())
-      AND (${Prisma.join(selected.map((row) => Prisma.sql`("id" = ${row.id} AND "revision" = ${row.revision})`), " OR ")})
-    `);
-    return selected.flatMap((row) => { const match = current.find((entry) => entry.id === row.id && entry.revision === row.revision); return match ? [match] : []; });
-  } catch (err) {
-    semanticOptions.signal?.throwIfAborted();
-    console.warn("[assistant:knowledge] semantic retrieval unavailable; using keyword search", err instanceof Error ? err.name : "Error");
-    return searchCompanyKnowledge(boundedQuery);
-  }
 }
 /** One transaction: compare-and-swap current revision + immutable provenance. */
 export async function saveCompanyKnowledge(input: AssistantKnowledgeInput, authorId: string, expectedRevision: number, archive = false): Promise<CompanyKnowledge> {

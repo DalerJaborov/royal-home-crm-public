@@ -6,9 +6,30 @@ function publicBase(): string | null {
   return raw ? raw.replace(/\/+$/, "") : null;
 }
 const MAX_HUMAN_PARTS = 4;
+const humanSentences = new Intl.Segmenter("ru", { granularity: "sentence" });
+
+function splitLongHumanPart(part: string, limit: number): string[] {
+  const chunks: string[] = [];
+  let rest = part;
+  while (rest.length > limit && chunks.length < MAX_HUMAN_PARTS - 1) {
+    let end = 0;
+    for (const sentence of humanSentences.segment(rest)) {
+      const nextEnd = sentence.index + sentence.segment.trimEnd().length;
+      if (nextEnd > limit) break;
+      end = nextEnd;
+    }
+    if (!end) end = rest.slice(0, limit + 1).search(/\s+\S*$/u);
+    if (end <= 0) break;
+    chunks.push(rest.slice(0, end).trim());
+    rest = rest.slice(end).trimStart();
+  }
+  return [...chunks, rest];
+}
+
 /** Ответ «как у людей»: реплики разделены строкой `|||` — не больше четырёх, пустые отбрасываются. */
-export function splitHumanMessages(text: string): string[] {
-  const parts = text.split(/\n?\s*\|\|\|\s*\n?/).map((p) => p.trim()).filter(Boolean);
+export function splitHumanMessages(text: string, maxPartChars?: number): string[] {
+  let parts = text.split(/\n?\s*\|\|\|\s*\n?/).map((p) => p.trim()).filter(Boolean);
+  if (maxPartChars) parts = parts.flatMap(part => splitLongHumanPart(part, maxPartChars));
   if (parts.length === 0)
     return [];
   if (parts.length <= MAX_HUMAN_PARTS)
@@ -65,26 +86,13 @@ export function requestedAssistantReplyMode(text: string): AssistantReplyMode {
   }
   return "auto";
 }
-/**
-* Ответ помощника (markdown со ссылками вида `[Имя](/clients/ID)`) → простой текст
-* для Telegram. Относительные ссылки в Telegram не работают — делаем абсолютными
-* (CRM_PUBLIC_URL); адреса не маскируются, а вот телефоны и @ники в тексте — да,
-* когда `maskPhones`: сначала прячем ссылки, потом маскируем остальное.
-*/
+/** Plain fallback keeps link labels. Delivery attaches verified CRM links as buttons. */
 export function renderAssistantForTelegram(text: string, opts: {
   maskPhones: boolean;
 }): string {
-  text = sanitizeAssistantReply(text, opts.maskPhones);
-  const base = publicBase();
-  const links: string[] = [];
-  let out = text.replace(MD_LINK, (_m, label: string, path: string) => {
-    const shown = label;
-    links.push(base ? `${shown} — ${base}${path}` : shown);
-    return `\u0000${links.length - 1}\u0000`;
-  });
-  out = out.replace(/\*\*(.+?)\*\*/g, "$1");
-  // eslint-disable-next-line no-control-regex
-  return out.replace(/\u0000(\d+)\u0000/g, (_m, i: string) => links[Number(i)] ?? "");
+  return sanitizeAssistantReply(text, opts.maskPhones)
+    .replace(MD_LINK, "$1")
+    .replace(/\*\*(.+?)\*\*/g, "$1");
 }
 const HTML_ESC: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" };
 export const escapeHtml = (t: string): string => t.replace(/[&<>"]/g, (c) => HTML_ESC[c]);
@@ -163,14 +171,16 @@ export function sanitizeAssistantReply(text: string, maskContacts: boolean): str
   return maskAssistantContacts(protectedText).replace(/\u0001(\d+)\u0001/g, (_m, i: string) => saved[Number(i)] ?? "");
 }
 export const VOICE_MAX_CHARS = 320;
+export type AssistantSpeechLanguage = "ru" | "tg";
 export interface AssistantReplyPlan {
   text: string;
   speech: string;
   truncated: boolean;
   needsText: boolean;
-  language: "ru" | "tg" | "text-only";
+  needsWrittenDetails: boolean;
+  language: AssistantSpeechLanguage | "text-only";
 }
-export function prepareAssistantReply(text: string, maskContacts = false): AssistantReplyPlan {
+export function prepareAssistantReply(text: string, maskContacts = false, fallbackLanguage?: AssistantSpeechLanguage): AssistantReplyPlan {
   const full = sanitizeAssistantReply(text, maskContacts);
   // Even in private, speech does not recite contacts. The full authorised text retains them.
   const safeSpeech = sanitizeAssistantReply(full, true);
@@ -190,7 +200,7 @@ export function prepareAssistantReply(text: string, maskContacts = false): Assis
   const scores = clientLanguageScores(cleaned);
   const tajik = scores.tajik > 0 || scores.greetings > 0 || /[ғӣқӯҳҷ]|(?:^|[^\p{L}])(?:ёфтам|ёфт|кардам|кунед|омода|шуд|надорам|равон|дигар|интихоб|нависед|мебошад|мекунам|муштари|пайдо)(?=$|[^\p{L}])/iu.test(full);
   const russian = scores.russian > 0 || /(?:^|[^\p{L}])(?:готово|нашла|нашёл|нашел|добавила|добавил|ответ|данные|бюджет|источник|подробности|контакт|телефон|дата|помочь|помогу|сделано|хорошо|отлично|проверила|записала)(?=$|[^\p{L}])/iu.test(cleaned);
-  const language = tajik ? "tg" : russian ? "ru" : "text-only";
+  const language = tajik ? "tg" : russian ? "ru" : fallbackLanguage ?? "text-only";
   const expanded = language === "tg"
     ? tajikSpeechNumbers(cleaned.replaceAll("контакт в карточке", "тамос дар корт").replace(DOLLAR_PREFIX, "$1 доллар"))
     : cleaned;
@@ -207,5 +217,6 @@ export function prepareAssistantReply(text: string, maskContacts = false): Assis
   const hasLink = /(?:https?:\/\/|www\.|\[[^\]]+\]\([^)]*\)|\/(?:clients|properties)\/)/i.test(text);
   const promisedText = /(?:подробност|детал|карточк|список|ссылк|цифр)[\s\S]{0,100}(?:текст|отдельн)|(?:текст|отдельн)[\s\S]{0,100}(?:подробност|детал|карточк|список|ссылк)/i.test(full);
   const contactsRemoved = safeSpeech !== full;
-  return { text: full, speech, truncated, language, needsText: expanded === null || truncated || hasLink || promisedText || contactsRemoved };
+  const needsWrittenDetails = expanded === null || hasLink || promisedText || contactsRemoved;
+  return { text: full, speech, truncated, language, needsWrittenDetails, needsText: truncated || needsWrittenDetails };
 }

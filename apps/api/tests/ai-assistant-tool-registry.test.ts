@@ -46,7 +46,7 @@ function emptyObjectSchemas(schema: unknown, path = "parameters"): string[] {
 }
 
 describe("реестр инструментов помощника", () => {
-  beforeEach(() => vi.stubEnv("ASSISTANT_KNOWLEDGE_SEMANTIC_ENABLED", "false"));
+  beforeEach(() => vi.stubEnv("ASSISTANT_KNOWLEDGE_SEMANTIC_INDEX_ENABLED", "false"));
   afterEach(() => vi.unstubAllEnvs());
 
   it("в сводном реестре есть инструменты всех четырёх групп", () => {
@@ -108,8 +108,8 @@ describe("реестр инструментов помощника", () => {
     }
   });
 
-  it.each([false, true])("без confirmUi модели объявляется только чтение — в обоих каналах; semantic flag=%s", (semanticEnabled) => {
-    vi.stubEnv("ASSISTANT_KNOWLEDGE_SEMANTIC_ENABLED", String(semanticEnabled));
+  it.each([false, true])("без confirmUi модели объявляется только чтение — в обоих каналах; index flag=%s", (indexEnabled) => {
+    vi.stubEnv("ASSISTANT_KNOWLEDGE_SEMANTIC_INDEX_ENABLED", String(indexEnabled));
     const readNames = plugins.filter((p) => p.level === "A").map((p) => p.name).sort();
     for (const channel of ["crm", "telegram"] as const) {
       const declared = pluginDeclarations(fullActor, false, channel).map((d) => d.name).sort();
@@ -119,9 +119,9 @@ describe("реестр инструментов помощника", () => {
     expect(pluginDeclarations(fullActor, false).map((d) => d.name).sort()).toEqual(readNames);
   });
 
-  it.each([false, true])("с confirmUi объявлены все применимые инструменты; semantic flag=%s", (semanticEnabled) => {
-    vi.stubEnv("ASSISTANT_KNOWLEDGE_SEMANTIC_ENABLED", String(semanticEnabled));
-    const applicable = plugins.filter((p) => semanticEnabled || p.name !== "index_company_knowledge");
+  it.each([false, true])("с confirmUi объявлены все применимые инструменты; index flag=%s", (indexEnabled) => {
+    vi.stubEnv("ASSISTANT_KNOWLEDGE_SEMANTIC_INDEX_ENABLED", String(indexEnabled));
+    const applicable = plugins.filter((p) => indexEnabled || p.name !== "index_company_knowledge");
     const crm = pluginDeclarations(fullActor, true, "crm").map((d) => d.name);
     // При включённом флаге сверяем ВЕСЬ реестр, без фильтра по allowed.
     expect(crm.sort()).toEqual(applicable.map((p) => p.name).sort());
@@ -130,18 +130,18 @@ describe("реестр инструментов помощника", () => {
     for (const plugin of writePlugins) {
       const allowsTelegram = (plugin.executor.channels ?? ["crm"]).includes("telegram");
       expect(telegram.has(plugin.name), `${plugin.name} (каналы: ${plugin.executor.channels ?? "только crm"})`).toBe(
-        allowsTelegram && (semanticEnabled || plugin.name !== "index_company_knowledge"),
+        allowsTelegram && (indexEnabled || plugin.name !== "index_company_knowledge"),
       );
     }
     // Передача клиента — опасная зона: только CRM.
     expect(telegram.has("change_client_agent")).toBe(false);
   });
 
-  it.each([false, true])("объявление модели совпадает с плагином: имя, описание, схема; semantic flag=%s", (semanticEnabled) => {
-    vi.stubEnv("ASSISTANT_KNOWLEDGE_SEMANTIC_ENABLED", String(semanticEnabled));
+  it.each([false, true])("объявление модели совпадает с плагином: имя, описание, схема; index flag=%s", (indexEnabled) => {
+    vi.stubEnv("ASSISTANT_KNOWLEDGE_SEMANTIC_INDEX_ENABLED", String(indexEnabled));
     const declared = new Map(pluginDeclarations(fullActor, true, "crm").map((d) => [d.name, d]));
     for (const plugin of plugins) {
-      if (plugin.name === "index_company_knowledge" && !semanticEnabled) {
+      if (plugin.name === "index_company_knowledge" && !indexEnabled) {
         expect(declared.has(plugin.name)).toBe(false);
         continue;
       }

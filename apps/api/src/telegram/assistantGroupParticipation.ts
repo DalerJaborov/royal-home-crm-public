@@ -30,8 +30,17 @@ const READ_SUBJECT = /(?:^|[^\p{L}\p{N}])(?:объект\p{L}*|об\s*-\s*\d+|ob
 const STATUS_WORDS = /(?:статус|почему|где (?:карточка|наш|мой)|у монтаж[её]ра|на монтаж[её]|на перемонтаж[её]|дар куҷо|дар кучо|вазъияташ|ҳоло ч[ӣи] хел|акс дорад|пайвандашро|есть ли фото|можно ссылку)/iu;
 const STATUS_DELAY = /(?:недел\p{L}*|\d+\s+(?:дн\p{L}*|рӯз)|ҳафта|хафта)\s+.*(?:не готов|не получается|не сдел|дер|нашуд)|(?:почему|чаро)\s+.*(?:недел|ҳафта|хафта)/iu;
 
+// An object and a question are both required; a standalone mention of a post is ordinary chat.
+const PUBLICATION_PROPERTY = /(?<![\p{L}\p{N}])(?:объект\p{L}*|квартир\p{L}*|дом(?:а|ов|у|е)?|хона\p{L}*|ҳавл\p{L}*|[кқ][оа]робк\p{L}*)(?![\p{L}\p{N}])/iu;
+const PUBLICATION_QUESTION = /(?:^|\s)(?:пост|нашр)\s+(?:на)?шуд(?:ааст)?\s*(?:м[иӣ]\s*\??|\?)$/iu;
+
+export function propertyPublicationQuestion(text: string): boolean {
+  return (PUBLICATION_PROPERTY.test(text) || PROPERTY_CODE.test(text)) && PUBLICATION_QUESTION.test(text);
+}
+
 export function unaddressedReadRequest(text: string): boolean {
   if (!text || text.length > 500 || /[\r\n]|https?:\/\/|не\s+(?:отвечай(?:те)?|вмешивайся)|хомӯш бош/iu.test(text)) return false;
+  if (propertyPublicationQuestion(text)) return true;
   return READ_SUBJECT.test(text) && (READ_START.test(text) || AVAILABILITY_QUESTION.test(text)
     || (text.endsWith("?") && STATUS_WORDS.test(text))
     || (PROPERTY_CODE.test(text) && STATUS_WORDS.test(text)) || STATUS_DELAY.test(text));
@@ -76,7 +85,8 @@ export function groupPropertyReferenceNumbers(text: string, maxDigits = 10): num
 export function groupHistoryQuestion(text: string, replyToMessageId?: number) {
   if (text.length > 200 || /[\r\n]|https?:\/\/|не\s+(?:отвечай(?:те)?|вмешивайся)|хомӯш бош/iu.test(text)) return null;
   const ask = /^(?:а\s+)?(?:что\s+(?:(?:уже|тут|здесь)\s+)*(?:писали|написали|говорили|просили|обсуждали)|(?:то ҳол\s+)?ч[ӣи]\s+(?:(?:ин ҷо|пештар)\s+)?(?:навиштанд|гуфтанд|пурсиданд))(?=$|[\s?!.])/iu;
-  if (!ask.test(text)) return null;
+  const askAuthor = /^(?:а\s+)?(?:кто\s+(?:(?:тут|здесь)\s+)?(?:писал|написал|сказал|просил)|к[ӣи]\s+(?:(?:ин ҷо|пештар)\s+)?(?:навишт|гуфт|пурсид))(?=$|[\s,?!.])/iu;
+  if (!ask.test(text) && !askAuthor.test(text)) return null;
   const refs = groupPropertyReferenceNumbers(text);
   if (refs.length === 1) return { propertyShortId: refs[0] };
   if (!refs.length && replyToMessageId) return { replyToMessageId };

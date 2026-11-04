@@ -45,8 +45,8 @@ export function expenseCentsToTjs(expense: {amount: Parameters<typeof toCents>[0
 
 /** Курс для агрегаций. Читается один раз на запрос и прокидывается в toTjs —
  *  не дёргаем Настройки на каждую строку выборки. */
-export async function loadMoneyContext(): Promise<MoneyContext> {
-  const settings = await prisma.settings.findUnique({
+export async function loadMoneyContext(db: Pick<typeof prisma, "settings"> = prisma): Promise<MoneyContext> {
+  const settings = await db.settings.findUnique({
     where: { id: "singleton" },
     select: { usdToTjsRate: true },
   });

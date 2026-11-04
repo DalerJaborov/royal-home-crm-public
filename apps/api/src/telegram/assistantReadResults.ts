@@ -1,13 +1,13 @@
 import { stat, realpath } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
-import { formatPropertyCode, type AssistantPropertyCard } from "@royal-home/shared";
+import type { AssistantPropertyCard } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { uploadsDir } from "../upload.js";
 import type { AssistantActor } from "../ai/assistant/actor.js";
 import { findClientsTool } from "../ai/assistant/tools/findClients.js";
 import { sendChatAction, sendMessageWithButtons, sendPhotoFromDisk, TelegramApiError } from "./api.js";
-import { assistantCardLinks, sanitizeAssistantReply, splitHumanMessages, splitReaction } from "./assistantReply.js";
+import { sanitizeAssistantReply, splitHumanMessages, splitReaction } from "./assistantReply.js";
 import { sendAssistantVoiceReply } from "./assistantVoice.js";
 
 const agentRequest = /^(?:(?:найди|найдите|покажи|покажите)\s+)?клиент(?:ов|ы)\s+агента\s+([\p{L}'’\-]+(?:\s+[\p{L}'’\-]+){0,2})[?!.]*$/iu;
@@ -61,11 +61,11 @@ export async function replayTelegramAssistantVoice(chatId: string, text: string,
   return paragraphs.length > 0 && paragraphs.length <= 4;
 }
 
-async function firstLocalPropertyPhoto(ref: { id: string } | { shortId: number }) {
+async function firstLocalPropertyPhoto(id: string) {
   const row = await prisma.propertyPhoto.findFirst({
-    where: { property: { ...ref, deletedAt: null } },
+    where: { property: { id, deletedAt: null } },
     orderBy: [{ order: "asc" }, { id: "asc" }],
-    select: { url: true, property: { select: { id: true, title: true, shortId: true } } },
+    select: { url: true },
   });
   const name = /^\/uploads\/([a-zA-Z0-9_.-]+\.(?:jpe?g|png|webp))$/i.exec(row?.url ?? "")?.[1];
   if (!name) return null;
@@ -74,37 +74,8 @@ async function firstLocalPropertyPhoto(ref: { id: string } | { shortId: number }
     const file = await realpath(path.join(root, name));
     if (path.relative(root, file) !== name) return null;
     const info = await stat(file);
-    return info.isFile() && info.size > 0 && info.size <= 10_000_000 && row
-      ? { file, property: row.property }
-      : null;
+    return info.isFile() && info.size > 0 && info.size <= 10_000_000 ? file : null;
   } catch { return null; }
-}
-
-/** The full list is already delivered. Add a few actual CRM photos when available. */
-export async function sendTelegramPropertyPreviews(chatId: string, reply: string, replyTo?: number): Promise<void> {
-  const links = assistantCardLinks(reply, true).filter(link => link.path.startsWith("/properties/")).slice(0, 3);
-  const previews = await Promise.all(links.map(async link => {
-    const identifier = link.path.slice("/properties/".length);
-    const ref: { id: string } | { shortId: number } = /^\d+$/.test(identifier) ? { shortId: Number(identifier) } : { id: identifier };
-    if ("shortId" in ref && (!Number.isSafeInteger(ref.shortId) || ref.shortId <= 0 || ref.shortId > 2_147_483_647)) return null;
-    const photo = await firstLocalPropertyPhoto(ref).catch(() => null);
-    return photo && { ...photo, url: link.url };
-  }));
-  const seen = new Set<string>();
-  for (const preview of previews) {
-    if (!preview || seen.has(preview.property.id)) continue;
-    seen.add(preview.property.id);
-    const code = formatPropertyCode(preview.property.shortId);
-    const title = sanitizeAssistantReply(nameForLink(preview.property.title), true);
-    const label = (title.includes(code) ? title : `${code} · ${title}`).slice(0, 72);
-    try {
-      void sendChatAction(chatId, undefined, "upload_photo");
-      await sendPhotoFromDisk(chatId, preview.file, label, [[{ text: label, url: preview.url }]], 8_000, { singleAttempt: true, replyTo });
-    } catch {
-      // The text and its links are already available if preview delivery fails.
-      return;
-    }
-  }
 }
 
 /** A photo and an ordinary CRM link are derived only from a verified property card. */
@@ -126,7 +97,7 @@ export async function sendTelegramPropertyCard(chatId: string, card: AssistantPr
   const buttons = [[{ text: title, url: url.toString() }]];
   let photo: string | null = null;
   if (!maskContacts) {
-    try { photo = (await firstLocalPropertyPhoto({ id: card.id }))?.file ?? null; } catch { /* The card still works without its photo. */ }
+    try { photo = await firstLocalPropertyPhoto(card.id); } catch { /* The card still works without its photo. */ }
   }
   if (photo) {
     try {

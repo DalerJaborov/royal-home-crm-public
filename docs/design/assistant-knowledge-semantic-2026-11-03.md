@@ -1,27 +1,22 @@
-# Shared knowledge semantic search
+# Search for approved company rules
 
-Implemented in source; disabled by default. No live provider or production migration was run during implementation.
+The pilot covers four reviewed Russian and Tajik rules on editor handoff, publication, price changes, and showings. Telegram groups resolve these rules locally. Private Telegram and CRM turns may rank the reviewed vectors and check that the strongest match agrees with the detected topic. The Gemini request contains only a fixed bilingual phrase chosen in code. The provider receives neither the incoming message nor CRM records, contacts, call transcripts, staff conversations, or group history. An operational question about the current price, editor, or publication stays on the live CRM path.
 
-## Activation and costs
+## Activate the pilot
 
-- Apply the additive `20261103160000_assistant_knowledge_embeddings` migration through the normal reviewed release process.
-- `ASSISTANT_KNOWLEDGE_SEMANTIC_ENABLED=true` enables the feature. No environment file was changed.
-- An employee explicitly requests `index_company_knowledge` and confirms the preview. Each approved batch contains at most ten specific knowledge IDs and revisions. Each record causes at most one embedding request; a later batch needs another explicit request and confirmation.
-- Saving knowledge never indexes it automatically. Searching never embeds the company corpus. A search makes at most one query embedding, and makes none when the index is empty or exceeds its scan bound.
-- Every actual embedding fetch requires the injected monetary reservation hook. Retries are limited to one attempt for this feature. The root integration shares the query embedding wallet with the assistant turn; confirmed indexing has its own bounded action wallet and uses the same global daily counter.
+1. Release normally through `npm run ship` and confirm the production API and worker run the same released revision. Both Compose switches default to false.
+2. From the released server checkout, use the read-only check below. It prints only counts and switch states. Expect `approved: 4` and `ready: 4`. If approval is incomplete, reconcile against the reviewed pilot before activating. If vectors are already ready, skip indexing.
+3. If approved vectors are missing, set `ASSISTANT_KNOWLEDGE_SEMANTIC_INDEX_ENABLED=true` in the managed production environment while leaving lookup off. Apply via the normal API and worker rollout. An active CRM administrator or director can ask the assistant to prepare the shared-rule index, review the proposed titles and revisions, and confirm. Only exact reviewed title, content, source, and revision are eligible for Google document embeddings. Recheck readiness. If a batch partially fails, retry with another explicit preview and confirmation.
+4. Keep indexing off during normal use. Set `ASSISTANT_KNOWLEDGE_SEMANTIC_ENABLED=true` and apply via the same rollout. Check both services and repeat the readiness command. Test a general rule in each language in private, a group rule via local lookup, and a specific object status via CRM.
+5. To roll back, set both switches to false and roll out again. Local lookup still works for active reviewed rules. This requires no changes to saved rules or vectors.
 
-## Consistency and scope
+```sh
+docker compose --env-file .env.production -f docker-compose.prod.yml \
+  exec -T worker node --input-type=module < ops/assistant-knowledge-pilot-check.mjs
+```
 
-All employees search the same approved company knowledge. This is a search index, not model training. Original records, sources, versions, expiry and archive remain authoritative.
+## Version, costs and fallback
 
-Vectors are accepted only at the configured dimension with finite, nonzero components. Indexed rows must match the current record revision, model and dimension. Changes made while an embedding request is in flight prevent the old result from becoming searchable. Retrieval rechecks revision, archive and expiry after the external request, including the keyword fallback after a provider failure.
+Only the active, unexpired reviewed revision is eligible. The vector must match the configured model and dimension, contain finite numbers, and have nonzero length. A private query makes at most one budgeted provider request and accepts a cosine score of at least 0.65. A fresh local lookup supplies the reviewed rule if the vector is absent, the score is low, the two lookups disagree, or the provider times out or fails. A changed or archived rule is excluded from automatic lookup until reviewed. Manual keyword search for other shared knowledge continues under its existing access rules.
 
-The keyword search remains available while the feature is disabled or a provider fails. Semantic and keyword results are merged with reciprocal rank, limited to six records. A partial indexing batch can leave successfully indexed earlier records when a later provider request fails; re-requesting a batch starts from the remaining pending records.
-
-## Deliberate limitations
-
-- At most 256 current eligible indexed records are scanned. A larger index falls back to keyword search rather than silently searching only part of the company corpus. A database vector index or explicit partitions are needed before scaling this limit.
-- The cosine threshold of 0.65 is a starting heuristic. Russian/Tajik retrieval quality has not been measured with live embeddings or approved company examples.
-- Changing model or dimensions makes previous vectors ineligible and requires explicitly confirmed reindexing.
-- Indexing does not verify facts, resolve contradictory records or automatically ingest staff conversations. Sources remain employee-provided claims.
-- The embedding migration and concurrency tests were exercised only against the explicitly guarded disposable PostgreSQL test database. Offline mocks verify provider boundaries; they do not prove live provider quality.
+The configured provider limit for lookup is 2.5 seconds. Saving a rule does not schedule any indexing. Indexing sends at most one budgeted attempt per confirmed eligible record. If the model or dimension changes, reindex the reviewed records before enabling lookup.

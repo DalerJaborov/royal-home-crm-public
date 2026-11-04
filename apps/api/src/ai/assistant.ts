@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { EmbeddingRequestOptions } from "./embeddings.js";
 import { createAssistantMoneyWallet, createAssistantMoneyGuard, createAssistantEmbeddingMoneyGuard } from "./assistant/moneyBudget.js";
 import { assistantStyle } from "./assistant/personaStyle.js";
-import { searchCompanyKnowledge, knowledgeContext } from "./assistant/knowledge.js";
+import { searchAssistantCompanyKnowledge, knowledgeContext } from "./assistant/knowledge.js";
 import { tajikGlossaryFor } from "./assistant/tajikGlossary.js";
 import { createAssistantAttemptLimit } from "./assistant/attemptLimit.js";
 import { reserveAssistantGeminiAttempt } from "./assistant/attemptBudget.js";
@@ -227,6 +227,7 @@ const propertySearchFilters = z.object({
   minAreaSqm: z.number().positive().max(100_000).optional(),
   maxAreaSqm: z.number().positive().max(100_000).optional(),
   stage: z.enum(PROPERTY_STAGES).optional(),
+  publishedOnSite: z.boolean().optional(),
   locationNames: z.array(z.string().trim().min(1).max(100)).max(6).optional(),
   preferManyWindows: z.boolean().optional(),
   withVideo: z.boolean().optional(),
@@ -236,7 +237,8 @@ const TOOLS: AssistantTool[] = [
   {
     name: "search_properties",
     description:
-      "Поиск объектов недвижимости по фильтрам. Возвращает до 8 объектов. Если структурных фильтров " +
+      "Поиск объектов в CRM по фильтрам, включая неопубликованные. Возвращает до 8 объектов. " +
+      "Передай publishedOnSite только при явной просьбе показать опубликованные или неопубликованные. Если структурных фильтров " +
       "недостаточно (клиент описал желаемое своими словами — «светлая квартира рядом со школой», " +
       "«есть где гулять с ребёнком»), дополнительно передай semanticQuery: он не заменяет фильтры выше, " +
       "а сортирует уже отфильтрованные объекты по смысловой близости к описанию. " +
@@ -264,7 +266,8 @@ const TOOLS: AssistantTool[] = [
         minRooms: { type: "number" },
         minAreaSqm: { type: "number", description: "Минимальная площадь, м², включительно." },
         maxAreaSqm: { type: "number", description: "Максимальная площадь, м², включительно." },
-        stage: { type: "string", enum: [...PROPERTY_STAGES], description: "Стадия стройки. Коробка без черновых работ — отдельная стадия." },
+        stage: { type: "string", enum: [...PROPERTY_STAGES], description: "Стадия стройки. Коробка без ремонта и черновых работ — SHELL." },
+        publishedOnSite: { type: "boolean", description: "Отбор по отметке CRM о публикации на сайте. Обычно не указывай." },
         locationNames: {
           type: "array", items: { type: "string" },
           description: "До 6 альтернативных ориентиров, улиц или районов, например Аэропорт или Садбарг. Подойдёт любое из перечисленных мест. Передавай только название.",
@@ -457,7 +460,8 @@ function expenseMonthDate(monthKey: string): Date {
 
 /** Экспортирован ради точечных тестов (apps/api/tests/ai-assistant-tools.test.ts):
  *  проверка ownScope/прав каждого инструмента без похода в Gemini. */
-export async function runTool(name: string, input: Record<string, unknown>, actor: AssistantActor, embedding?: EmbeddingRequestOptions): Promise<unknown> {
+export async function runTool(name: string, input: Record<string, unknown>, actor: AssistantActor, embedding?: EmbeddingRequestOptions,
+  propertyPage?: { excludeIds: string[] }): Promise<unknown> {
   if (actor.hiddenTools?.has(name)) return { error: "Этот инструмент недоступен в этом чате" };
   const ownScope = actor.canViewAllClients ? undefined : actor.id;
   // Непринятая заявка и карточка из Корзины — не для агента (REST отдаёт ему 404 /
@@ -529,12 +533,17 @@ export async function runTool(name: string, input: Record<string, unknown>, acto
     const propertyWhere: Prisma.PropertyWhereInput = {
       // deletedAt — объект из Корзины по REST отдаёт 404, ассистент не исключение.
       deletedAt: null,
+      ...(!(actor.permissions?.has("properties.delete") ?? false) ? {
+        deleteRequests: { none: { status: "PENDING", requestedById: actor.id } },
+      } : {}),
+      ...(propertyPage?.excludeIds.length ? { id: { notIn: propertyPage.excludeIds } } : {}),
       ...(status ? { status } : {}),
       ...(input.type ? { type: input.type as never } : {}),
       ...(districtId ? { districtId } : {}),
       ...priceFilter,
       ...(input.minRooms ? { rooms: { gte: Number(input.minRooms) } } : {}),
       ...(filters.stage ? { stage: filters.stage } : {}),
+      ...(filters.publishedOnSite === undefined ? {} : { publishedOnSite: filters.publishedOnSite }),
       ...(filters.minAreaSqm !== undefined || filters.maxAreaSqm !== undefined
         ? { areaSqm: { gte: filters.minAreaSqm, lte: filters.maxAreaSqm } } : {}),
       ...(filters.withVideo ? { OR: [{ videos: { some: {} } }, { instagramUrl: { not: null, notIn: [""] } }] } : {}),
@@ -545,8 +554,8 @@ export async function runTool(name: string, input: Record<string, unknown>, acto
       where: propertyWhere,
       include: propertyInclude,
       orderBy: filters.preferManyWindows
-        ? [{ windowCount: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }]
-        : { createdAt: "desc" },
+        ? [{ windowCount: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }, { id: "desc" }]
+        : [{ createdAt: "desc" }, { id: "desc" }],
       // Структурные фильтры сужают первыми (архитектурное решение 23.08.2026,
       // пункт 3 очереди ИИ): при семантике берём пул с запасом, чтобы было что
       // переупорядочить по смыслу, — без неё сразу режем до восьми, как раньше.
@@ -596,6 +605,7 @@ export async function runTool(name: string, input: Record<string, unknown>, acto
       areaSqm: Number(p.areaSqm),
       windowCount: p.windowCount,
       stage: p.stage,
+      publishedOnSite: p.publishedOnSite,
       hasVideo: p.videos.length > 0 || Boolean(p.instagramUrl?.trim()),
       price: Number(p.price),
       currency: p.currency,
@@ -1144,7 +1154,7 @@ export interface RunAssistantOptions {
    *  перед каждым тул-вызовом. Необязателен: без него поведение не меняется. */
   onStatus?: (message: string) => void;
   /** Lets delivery choose a format for data retrieved during this turn. */
-  onToolResult?: (name: string) => void;
+  onToolResult?: (name: string, result?: unknown, args?: Record<string, unknown>) => void;
   /** Внешняя отмена: роут отдаёт сюда закрытие соединения клиентом. Прерывает
    *  вызов модели и паузы между повторами; начатую запись в базу — нет. */
   signal?: AbortSignal;
@@ -1458,7 +1468,10 @@ export async function runAssistantDetailed(
     const userQuestion = [...trimAssistantHistory(messages)].reverse().find((m) => m.role === "user")?.content ?? "";
     let sharedKnowledge = "";
     try {
-      sharedKnowledge = knowledgeContext(await untilAborted(searchCompanyKnowledge(userQuestion.slice(0, 200), { beforeAttempt: embeddingGuard, signal }), signal));
+      const privateSurface = actor.surface === "crm-private" || actor.surface === "telegram-private";
+      // Don't classify the first 200 characters as a complete provider-eligible question.
+      const semanticOptions = privateSurface && userQuestion.length <= 200 ? { beforeAttempt: embeddingGuard, signal } : undefined;
+      sharedKnowledge = knowledgeContext(await untilAborted(searchAssistantCompanyKnowledge(userQuestion.slice(0, 200), semanticOptions), signal));
     } catch (err) {
       if (signal.aborted) throw signal.reason;
       console.warn("[assistant] company knowledge unavailable");
@@ -1594,7 +1607,7 @@ export async function runAssistantDetailed(
       });
       turn.calls.forEach((call, index) => {
         cardEvidence.observe(call.name, results[index]);
-        options.onToolResult?.(call.name);
+        options.onToolResult?.(call.name, results[index], call.args);
       });
       // Keep optional provider IDs; names alone cannot identify two calls to
       // the same function. Original signed model parts were appended above.

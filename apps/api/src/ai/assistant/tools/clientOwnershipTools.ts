@@ -1,5 +1,6 @@
 import { changeClientAgentTool } from "./changeClientAgentTool.js";
+import { createClientTool } from "./createClientTool.js";
 import type { AssistantToolPlugin } from "./types.js";
 
 /** Группа «владение клиентом» (уровень C): change_client_agent и спутники. */
-export const clientOwnershipTools: readonly AssistantToolPlugin[] = [changeClientAgentTool];
+export const clientOwnershipTools: readonly AssistantToolPlugin[] = [changeClientAgentTool, createClientTool];

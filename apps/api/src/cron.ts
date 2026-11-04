@@ -5,6 +5,7 @@ import { cleanupBotTurnTraces } from "./lib/botTurnTraceStore.js";
 import { runSocialVideoScheduleTick } from "./lib/socialVideoPosts.js";
 import { runBackgroundJobsTick, runCustomerJobsTick } from "./jobs/runner.js";
 import { runAssistantActionsSweep } from "./jobs/assistantActionsSweep.js";
+import { expireExpensePhotoDrafts } from "./lib/telegramExpenseReceipts.js";
 import { enqueueBackgroundJob } from "./jobs/enqueue.js";
 import { AI_REPLY_RETRY_MAX_ATTEMPTS } from "./jobs/aiReplyRetryPolicy.js";
 import { scoreAllActiveClients } from "./ai/scoring.js";
@@ -2326,7 +2327,7 @@ export function startCronJobs() {
    */
   scheduleTracked("assistant-actions-sweep", "35 * * * *", async () => {
     try {
-      const { expired, stuckFailed, deleted } = await runAssistantActionsSweep();
+      const [{ expired, stuckFailed, deleted }] = await Promise.all([runAssistantActionsSweep(), expireExpensePhotoDrafts()]);
       if (expired > 0 || stuckFailed > 0 || deleted > 0) {
         console.log(`[cron] Действия помощника: истекло ${expired}, прервано ${stuckFailed}, удалено ${deleted}`);
       }

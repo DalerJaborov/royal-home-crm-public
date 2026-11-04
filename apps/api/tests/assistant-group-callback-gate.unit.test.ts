@@ -1,4 +1,5 @@
 import * as participation from "../src/telegram/assistantGroupParticipation.js";
+import * as publicListings from "../src/telegram/assistantGroupPublicListing.js";
 import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
 import ts from "typescript";
@@ -45,6 +46,8 @@ function fixture(type: "group" | "supergroup" | "private" = "supergroup") {
     "./assistantDelivery.js": { sendAssistantReply: async () => true },
     "./assistantConfirmationPhotos.js": { editTelegramConfirmationMessage: noop },
     "./assistantGroupParticipation.js": participation,
+    "./assistantGroupPublicListing.js": publicListings,
+    "./assistantPropertyPages.js": { propertyPageRequest: () => null },
     "./assistantGroupPhrases.js": { ASSISTANT_GROUP_GREETING: { ru: "Fixture greeting" } },
     "../ai/assistant/languageRouting.js": { assistantLanguage: () => "unknown" },
     "../lib/systemError.js": { logSystemError: noop },

@@ -410,10 +410,23 @@ export async function editMessageText(
  * Telegram. `fs.openAsBlob` читает файл лениво, а не целиком в память: на
  * контейнере API 768 МБ десять снимков по 2-3 МБ разом ни к чему.
  */
+interface TelegramDiskPhotoOptions {
+  singleAttempt?: boolean;
+  replyTo?: number;
+  messageThreadId?: number;
+  parseMode?: "HTML";
+}
+
+function appendPhotoRouting(form: FormData, options?: TelegramDiskPhotoOptions): void {
+  if (options?.replyTo) form.append("reply_parameters", JSON.stringify({ message_id: options.replyTo, allow_sending_without_reply: true }));
+  if (options?.messageThreadId) form.append("message_thread_id", String(options.messageThreadId));
+}
+
 export async function sendMediaGroupFiles(
   chatId: string,
   items: Array<{ type: "photo" | "video"; path: string; caption?: string }>,
-  timeoutMs = 120_000
+  timeoutMs = 120_000,
+  options?: TelegramDiskPhotoOptions,
 ): Promise<TelegramSentMessage[]> {
   if (!BASE_URL) throw new Error("TELEGRAM_BOT_TOKEN не настроен");
   const { openAsBlob } = await import("node:fs");
@@ -423,17 +436,21 @@ export async function sendMediaGroupFiles(
     () => {
       const form = new FormData();
       form.append("chat_id", chatId);
+      appendPhotoRouting(form, options);
       const media = items.slice(0, 10).map((item, i) => ({
         type: item.type,
         media: `attach://f${i}`,
-        ...fitCaption(item.caption),
+        ...(item.caption && options?.parseMode
+          ? { caption: item.caption, parse_mode: options.parseMode }
+          : fitCaption(item.caption)),
       }));
       form.append("media", JSON.stringify(media));
       blobs.forEach((blob, i) => form.append(`f${i}`, blob, `f${i}${items[i]!.type === "photo" ? ".webp" : ".mp4"}`));
       return form;
     },
     timeoutMs,
-    "sendMediaGroup (файлами)"
+    "sendMediaGroup (файлами)",
+    options?.singleAttempt,
   );
   return result as TelegramSentMessage[];
 }
@@ -445,7 +462,7 @@ export async function sendPhotoFromDisk(
   caption?: string,
   buttons?: TelegramInlineButton[][],
   timeoutMs = 60_000,
-  options?: { singleAttempt?: boolean; replyTo?: number }
+  options?: TelegramDiskPhotoOptions,
 ): Promise<TelegramSentMessage> {
   if (!BASE_URL) throw new Error("TELEGRAM_BOT_TOKEN не настроен");
   const { openAsBlob } = await import("node:fs");
@@ -455,9 +472,12 @@ export async function sendPhotoFromDisk(
     () => {
       const form = new FormData();
       form.append("chat_id", chatId);
-      if (caption) form.append("caption", caption.slice(0, CAPTION_MAX_CHARS));
+      if (caption) {
+        form.append("caption", options?.parseMode ? caption : caption.slice(0, CAPTION_MAX_CHARS));
+        if (options?.parseMode) form.append("parse_mode", options.parseMode);
+      }
       if (buttons) form.append("reply_markup", JSON.stringify({ inline_keyboard: buttons }));
-      if (options?.replyTo) form.append("reply_parameters", JSON.stringify({ message_id: options.replyTo, allow_sending_without_reply: true }));
+      appendPhotoRouting(form, options);
       form.append("photo", blob, "photo.webp");
       return form;
     },
@@ -668,12 +688,14 @@ export async function sendDocumentFile(
 
 export async function sendHtmlMessage(
   chatId: string, html: string, replyToMessageId?: number, buttons?: TelegramInlineButton[][],
+  messageThreadId?: number,
 ): Promise<unknown> {
   return call("sendMessage", {
     chat_id: chatId,
     text: html,
     parse_mode: "HTML",
     link_preview_options: { is_disabled: true },
+    ...(messageThreadId ? { message_thread_id: messageThreadId } : {}),
     ...(buttons?.length ? { reply_markup: { inline_keyboard: buttons } } : {}),
     ...(replyToMessageId ? { reply_to_message_id: replyToMessageId, allow_sending_without_reply: true } : {}),
   }, CALL_TIMEOUT_MS, undefined, undefined, true);

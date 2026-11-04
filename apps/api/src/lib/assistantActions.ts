@@ -60,6 +60,8 @@ export interface AssistantActionActor {
   agentId: string;
   /** Откуда пришло нажатие. Инструменты со step-up доступны только из CRM. */
   channel: AssistantActionChannel;
+  /** Verified from the Telegram update, never inferred from the actor's role. */
+  telegramPrivate?: boolean;
   can: (permission: PermissionId) => boolean;
 }
 
@@ -90,6 +92,8 @@ export interface AssistantActionExecutor<A = unknown> {
   requires?: readonly PermissionId[];
   /** По умолчанию только CRM: из Telegram step-up не ввести. */
   channels?: readonly AssistantActionChannel[];
+  /** This action may use Telegram only in a private chat. */
+  privateTelegram?: boolean;
   /** Разбор аргументов (zod) — тот же, что на REST-границе. */
   parseArgs: (raw: unknown) => A;
   snapshot: (args: A, actor: AssistantActionActor) => Promise<AssistantActionSnapshot>;
@@ -184,8 +188,15 @@ function assertActorAllowed(executor: AssistantActionExecutor, actor: AssistantA
   if (!channels.includes(actor.channel)) {
     throw new AssistantActionError(403, "CHANNEL_NOT_ALLOWED", "Это действие доступно только в CRM");
   }
+  assertPrivateTelegram(executor, actor);
   for (const permission of executor.requires ?? []) {
     if (!actor.can(permission)) throw new AssistantActionError(403, "FORBIDDEN", "Недостаточно прав на это действие");
+  }
+}
+
+function assertPrivateTelegram(executor: AssistantActionExecutor | null, actor: AssistantActionActor) {
+  if (executor?.privateTelegram && actor.channel === "telegram" && actor.telegramPrivate !== true) {
+    throw new AssistantActionError(403, "PRIVATE_CHAT_REQUIRED", "Это действие доступно в личке с Шабнам");
   }
 }
 
@@ -216,6 +227,7 @@ async function loadOwned(actionId: string, actor: AssistantActionActor): Promise
   const row = await prisma.assistantAction.findUnique({ where: { id: actionId } });
   if (!row) throw new AssistantActionError(404, "NOT_FOUND", "Действие не найдено");
   if (row.agentId !== actor.agentId) throw new AssistantActionError(403, "FORBIDDEN", "Это действие не ваше");
+  assertPrivateTelegram(getAssistantActionExecutor(row.tool), actor);
   return row;
 }
 

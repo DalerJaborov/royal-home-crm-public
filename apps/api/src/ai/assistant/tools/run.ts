@@ -13,7 +13,12 @@ import type { AssistantToolPlugin } from "./types.js";
 
 /** Права актора помощника в том виде, в каком их принимает брокер действий. */
 export function actionActorFrom(actor: AssistantActor, channel: AssistantActionActor["channel"]): AssistantActionActor {
-  return { agentId: actor.id, channel, can: (permission) => actor.permissions?.has(permission) ?? false };
+  return {
+    agentId: actor.id,
+    channel,
+    telegramPrivate: actor.surface === "telegram-private",
+    can: (permission) => actor.permissions?.has(permission) ?? false,
+  };
 }
 
 export interface RunPluginHooks {

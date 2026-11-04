@@ -98,6 +98,37 @@ describe("privacy and content", () => {
   it('decorates phone, card and sum, preserves masked phone', () => expect(decorateHtml('+992901234567 ОБ-123 1 200 000 сомони +992•••••3726')).toBe('<code>+992901234567</code> <code>ОБ-123</code> <b>1 200 000 сомони</b> +992•••••3726'));
 });
 describe('delivery', () => {
+  const longVoice = [
+    "Хорошо, давайте спокойно разберёмся и договоримся, с чего удобнее начать. Так будет проще понять друг друга и не запутаться по дороге.",
+    "Потом я помогу разобрать всё по шагам и отвечу на ваши вопросы. Если что-то покажется непонятным, можем спокойно к этому вернуться.",
+    "Когда станет ясно, как действовать дальше, подведём итог. Так у всех останется одно понятное решение, которое легко обсудить вместе.",
+  ];
+  const longTajikVoice = [
+    "Хуб, биёед оромона гап занем ва фаҳмем, ки аз куҷо сар кардан осонтар аст. Ҳамин тавр гапи ҳамдигарро беҳтар мефаҳмем.",
+    "Баъд ҳамаашро оҳиста дида мебароем, то ягон гап аз хотир наравад. Агар савол монад, боз ба ҳамон гап бармегардем.",
+    "Дар охир гапамонро ҷамъ мекунем, то ҳама фаҳманд, ки баъд чӣ кор кардан лозим. Агар хоҳед, якҷоя боз месанҷем.",
+  ];
+  it.each([longVoice, longTajikVoice])("splits an explicit long voice reply and sends no duplicate text", async (...sentences) => {
+    await sendAssistantReply("test", sentences.join(" "), { ...ctx, mode: "voice", replyTo: 42 });
+    expect(voice.mock.calls.length).toBeGreaterThan(1);
+    expect(voice.mock.calls.length).toBeLessThanOrEqual(4);
+    expect(voice.mock.calls.map(([, words]) => words).join(" ")).toBe(sentences.join(" "));
+    expect(voice.mock.calls.map(([, , replyTo]) => replyTo)).toEqual([42, ...Array(voice.mock.calls.length - 1).fill(undefined)]);
+    expect(html).not.toHaveBeenCalled();
+  });
+  it("does not repeat successfully spoken parts after a later voice failure", async () => {
+    voice.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+    await sendAssistantReply("test", longVoice.join(" "), { ...ctx, mode: "voice" });
+    expect(voice).toHaveBeenCalledTimes(2);
+    const spoken = voice.mock.calls[0][1] as string;
+    const written = html.mock.calls.map(([, content]) => content).join(" ");
+    expect(`${spoken} ${written}`).toBe(longVoice.join(" "));
+  });
+  it("anchors all parts of an explicit group voice reply to the original message", async () => {
+    await sendAssistantReply("-100", longTajikVoice.join(" "), { ...ctx, scope: "group", mode: "voice", replyTo: 42 });
+    expect(voice.mock.calls.length).toBeGreaterThan(1);
+    expect(voice.mock.calls.every(([, , replyTo]) => replyTo === 42)).toBe(true);
+  });
   it('successful HTML never falls back', async () => { await sendAssistantReply('test', 'Нашла.', { ...ctx, fromVoice: false }); expect(html).toHaveBeenCalledTimes(1); expect(plain).not.toHaveBeenCalled(); expect(voice).not.toHaveBeenCalled(); });
   it('short voice only', async () => { await sendAssistantReply('test', 'Готово.', ctx); expect(voice).toHaveBeenCalledWith('test', 'Готово.', undefined); expect(html).not.toHaveBeenCalled(); });
   it.each(['Источник https://example.com', 'Нашла [Клиента](/clients/112)', 'Ответ ' + 'а'.repeat(334), 'Подробности пришлю текстом.', 'На сегодня 3 показа.'])('uses text for reference material: %s', async (text) => {

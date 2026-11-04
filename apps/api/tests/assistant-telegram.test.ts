@@ -4,6 +4,14 @@ import sharp from "sharp";
 import { mkdir, writeFile, unlink } from "node:fs/promises";
 import path from "node:path";
 
+const sendStaffCard = vi.hoisted(() => vi.fn(async (
+  _chatId: string, _propertyId: string, _lang: string, _replyTo?: number, _threadId?: number,
+): Promise<"sent" | "unavailable" | "uncertain"> => "sent"));
+vi.mock("../src/telegram/assistantStaffPropertyCard.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/telegram/assistantStaffPropertyCard.js")>()),
+  sendStaffPropertyCard: sendStaffCard,
+}));
+
 /**
  * ВНУТРЕННИЙ ПОМОЩНИК В TELEGRAM (П5, telegram/assistantBot.ts): личка и общая группа.
  *
@@ -77,7 +85,7 @@ const { createPendingAssistantAction } = await import("../src/lib/assistantActio
 const { tryLinkAgentByCode, createTelegramLinkCode } = await import("../src/lib/telegramAgentLink.js");
 const { renderAssistantForTelegram, addressedToBot, setGroupClockForTests, GROUP_DIALOG_WINDOW_MS, looksLikeBotRequest } = await import("../src/telegram/assistantBot.js");
 const { assistantToolAllowed } = await import("../src/ai/assistant/actor.js");
-const { runTool } = await vi.importActual<typeof import("../src/ai/assistant.js")>("../src/ai/assistant.js");
+const { runTool, runAuditedTool, pluginDeclarations } = await vi.importActual<typeof import("../src/ai/assistant.js")>("../src/ai/assistant.js");
 const { app } = await import("../src/app.js");
 const { signAccessToken } = await import("../src/auth/jwt.js");
 const { default: request } = await import("supertest");
@@ -179,6 +187,7 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
+  sendStaffCard.mockReset().mockResolvedValue("sent");
   for (const m of [sendMessage, sendHtmlMessage, sendVoiceFile, sendAssistantVoiceId, synthVoice, sendMessageWithButtons, sendPhotoFromDisk, answerCallbackQuery, editMessageText, react, runner, transcribe, fetchAudio, claimCap, downloadDraftPhoto, chatAction]) {
     m.mockReset();
   }
@@ -210,6 +219,137 @@ afterAll(async () => {
 });
 
 describe("живые сценарии чтения Мадины", () => {
+  async function propertyBatch() {
+    const district = await prisma.district.create({ data: { name: `Альбом ${runId}` } });
+    const ids: string[] = [];
+    for (let i = 0; i < 7; i++) {
+      const row = await prisma.property.create({ data: {
+        type: "APARTMENT", areaSqm: 50, price: 500000, currency: "TJS", districtId: district.id,
+        address: "Тестовый адрес", title: `Тестовый объект ${i}`, condition: "GOOD", status: "AVAILABLE",
+        createdAt: new Date(2026, 1, 2, 12, i),
+      } });
+      ids.unshift(row.id);
+    }
+    return { ids, district };
+  }
+
+  function mockPropertySearch(districtName: string) {
+    const filters = { districtName, type: "APARTMENT" };
+    runner.mockImplementationOnce(async (_history, actor, options) => {
+      const actual = await runTool("search_properties", filters, actor);
+      options.onToolResult("search_properties", actual, filters);
+      return { ok: true, reply: "Текст списка не нужно дублировать." };
+    });
+  }
+
+  it("показывает три карточки без текста, затем две по тем же условиям и пропускает снятую", async () => {
+    const { ids, district } = await propertyBatch();
+    try {
+      mockPropertySearch(district.name);
+      await handleTelegramUpdate(privateMsg("author", { message_id: 13001, text: `Подбери квартиры, район ${district.name}` }));
+      expect(sendStaffCard.mock.calls.map(call => call[1])).toEqual(ids.slice(0, 3));
+      expect(sentTexts()).toEqual([]);
+      await prisma.property.update({ where: { id: ids[3] }, data: { status: "WITHDRAWN" } });
+      await handleTelegramUpdate(privateMsg("author", { message_id: 13002, text: "ещё две квартиры" }));
+      expect(sendStaffCard.mock.calls.map(call => call[1])).toEqual([ids[0], ids[1], ids[2], ids[4], ids[5]]);
+      expect(sentTexts()).toEqual([]);
+      expect(runner).toHaveBeenCalledTimes(1);
+      await handleTelegramUpdate(privateMsg("author", { message_id: 13003, text: "/new" }));
+      await handleTelegramUpdate(privateMsg("author", { message_id: 13004, text: "ещё" }));
+      expect(sendStaffCard).toHaveBeenCalledTimes(5);
+      expect(sentTexts().at(-1)).toBe("Сначала скажите, какие объекты подобрать.");
+    } finally {
+      await prisma.property.deleteMany({ where: { id: { in: ids } } });
+      await prisma.district.delete({ where: { id: district.id } });
+    }
+  });
+
+  it("объясняет сбой доставки следующей страницы и повторяет её без пропуска карточек", async () => {
+    const { ids, district } = await propertyBatch();
+    try {
+      mockPropertySearch(district.name);
+      await handleTelegramUpdate(privateMsg("author", { message_id: 13011, text: `Подбери 4 квартиры, район ${district.name}` }));
+      expect(sendStaffCard.mock.calls.map(call => call[1])).toEqual(ids.slice(0, 4));
+      sendStaffCard.mockClear().mockResolvedValue("unavailable");
+      await handleTelegramUpdate(privateMsg("author", { message_id: 13012, text: "ещё" }));
+      expect(sendStaffCard.mock.calls.map(call => call[1])).toEqual(ids.slice(4));
+      expect(sentTexts()).toEqual(["Варианты нашла, но карточки не отправились. Напишите «ещё» повторно."]);
+      sendStaffCard.mockClear().mockResolvedValue("sent");
+      sendMessage.mockClear();
+      await handleTelegramUpdate(privateMsg("author", { message_id: 13013, text: "ещё" }));
+      expect(sendStaffCard.mock.calls.map(call => call[1])).toEqual(ids.slice(4));
+      expect(sentTexts()).toEqual([]);
+      expect(runner).toHaveBeenCalledTimes(1);
+    } finally {
+      await handleTelegramUpdate(privateMsg("author", { message_id: 13014, text: "/new" }));
+      await prisma.property.deleteMany({ where: { id: { in: ids } } });
+      await prisma.district.delete({ where: { id: district.id } });
+    }
+  });
+
+  it("прекращает отправку карточек, если доступ группы отключили во время первого альбома", async () => {
+    const { ids, district } = await propertyBatch();
+    const group = { chatId: String(GROUP), registeredByAgentId: agents.director.id };
+    try {
+      await prisma.assistantTelegramGroup.upsert({ where: { chatId: group.chatId },
+        create: { ...group, contextEnabledAt: new Date() },
+        update: { contextEnabledAt: new Date(), proactiveMutedUntil: null } });
+      mockPropertySearch(district.name);
+      sendStaffCard.mockImplementationOnce(async () => {
+        await prisma.assistantTelegramGroup.update({ where: { chatId: group.chatId }, data: { contextEnabledAt: null } });
+        return "sent";
+      });
+      await handleTelegramUpdate(groupMsg("author", `Шабнам, подбери квартиры, район ${district.name}`, {
+        message_thread_id: 43, message_id: 13111,
+      }));
+      expect(sendStaffCard.mock.calls.map(call => call[1])).toEqual(ids.slice(0, 1));
+      expect(sentTexts()).toEqual([]);
+    } finally {
+      await prisma.assistantTelegramGroup.deleteMany({ where: { chatId: group.chatId } });
+      await prisma.property.deleteMany({ where: { id: { in: ids } } });
+      await prisma.district.delete({ where: { id: district.id } });
+    }
+  });
+
+  it("включает карточки только для привязанного сотрудника в выбранной теме и не повторяет сомнительную доставку", async () => {
+    const { ids, district } = await propertyBatch();
+    const group = { chatId: String(GROUP), registeredByAgentId: agents.director.id };
+    try {
+      await prisma.assistantTelegramGroup.upsert({ where: { chatId: group.chatId },
+        create: group, update: { contextEnabledAt: null, proactiveMutedUntil: null } });
+      mockPropertySearch(district.name);
+      await handleTelegramUpdate(groupMsg("author", `Шабнам, подбери 2 квартиры, район ${district.name}`, {
+        message_thread_id: 41, message_id: 13101,
+      }));
+      expect(sendStaffCard).not.toHaveBeenCalled();
+      expect(sentTexts().join(" ")).toContain("Текст списка");
+      sendMessage.mockClear();
+      sendHtmlMessage.mockClear();
+      await prisma.assistantTelegramGroup.update({ where: { chatId: group.chatId }, data: { contextEnabledAt: new Date() } });
+      mockPropertySearch(district.name);
+      sendStaffCard.mockResolvedValueOnce("uncertain");
+      await handleTelegramUpdate(groupMsg("author", `Шабнам, подбери 2 квартиры, район ${district.name}`, {
+        message_thread_id: 41, message_id: 13102,
+      }));
+      expect(sendStaffCard.mock.calls).toEqual([[String(GROUP), ids[0], "ru", 13102, 41]]);
+      expect(sentTexts()).toEqual([]);
+      await handleTelegramUpdate(groupMsg(null, "ещё 2", { message_thread_id: 41, message_id: 13103 }));
+      await handleTelegramUpdate(groupMsg("stranger", "ещё 2", { message_thread_id: 41, message_id: 13104 }));
+      await handleTelegramUpdate(groupMsg("author", "ещё 2", { message_thread_id: 42, message_id: 13105 }));
+      expect(sendStaffCard).toHaveBeenCalledTimes(1);
+      await handleTelegramUpdate(groupMsg("author", "боз 2 то", { message_thread_id: 41, message_id: 13106 }));
+      expect(sendStaffCard.mock.calls.slice(1)).toEqual([
+        [String(GROUP), ids[1], "tg", 13106, 41], [String(GROUP), ids[2], "tg", 13106, 41],
+      ]);
+      expect(runner).toHaveBeenCalledTimes(2);
+      expect(sentTexts()).toEqual([]);
+    } finally {
+      await prisma.assistantTelegramGroup.deleteMany({ where: { chatId: group.chatId } });
+      await prisma.property.deleteMany({ where: { id: { in: ids } } });
+      await prisma.district.delete({ where: { id: district.id } });
+    }
+  });
+
   it("озвучивает предыдущий ответ из личного чата без нового вызова модели", async () => {
     runner.mockResolvedValueOnce({ ok: true, reply: "Нашла два варианта. Ссылки в карточках." });
     await handleTelegramUpdate(privateMsg("director", { message_id: 902, text: "покажи варианты" }));
@@ -238,30 +378,18 @@ describe("живые сценарии чтения Мадины", () => {
     }
   });
 
-  it("находит объект по номеру и отправляет его локальное фото с одной кнопкой", async () => {
+  it("находит объект по номеру и передаёт точный объект карточке без запроса к модели", async () => {
     const district = await prisma.district.create({ data: { name: `Тест фото ${runId}` } });
     const property = await prisma.property.create({ data: {
       title: "Квартира для теста", type: "APARTMENT", areaSqm: 60, price: 630_000,
       currency: "TJS", condition: "GOOD", districtId: district.id, address: "Тестовый адрес",
     } });
-    const photo = `codex-assistant-test-${runId}.webp`;
-    const file = path.join(uploadsDir, photo);
     try {
-      await mkdir(uploadsDir, { recursive: true });
-      await writeFile(file, "test only", { flag: "wx" });
-      await prisma.propertyPhoto.create({ data: { propertyId: property.id, url: `/uploads/${photo}`, thumbUrl: `/uploads/${photo}` } });
       await handleTelegramUpdate(privateMsg("director", { message_id: 905, text: `найди объект ${property.shortId}` }));
-      expect(sendPhotoFromDisk).toHaveBeenCalledTimes(1);
-      expect(chatAction).toHaveBeenCalledWith(agents.director.userId, undefined, "upload_photo");
-      const [, , caption, buttons] = sendPhotoFromDisk.mock.calls[0];
-      expect(caption).toMatch(/630\s000 сомони/u);
-      expect(buttons).toEqual([[{
-        text: `ОБ-${String(property.shortId).padStart(6, "0")} · Квартира для теста`,
-        url: `https://crm.test/properties/${property.id}`,
-      }]]);
+      expect(sendStaffCard.mock.calls).toEqual([[agents.director.userId, property.id, "ru", 905, undefined]]);
+      expect(sentTexts()).toEqual([]);
       expect(runner).not.toHaveBeenCalled();
     } finally {
-      await unlink(file).catch(() => undefined);
       await prisma.property.delete({ where: { id: property.id } });
       await prisma.district.delete({ where: { id: district.id } });
     }
@@ -655,9 +783,10 @@ describe("привязка и рендер", () => {
     expect(prev?.telegramUserId).toBeNull();
   });
 
-  it("рендер: относительные ссылки → абсолютные, ** убираются, ссылки не портятся маской", () => {
+  it("текстовый запасной ответ сохраняет название ссылки и скрывает URL и телефон", () => {
     const out = renderAssistantForTelegram("**Клиент** [Али](/clients/12345678-1234-1234-1234-123456789012) +992901234567", { maskPhones: true });
-    expect(out).toContain("Клиент Али — https://crm.test/clients/12345678-1234-1234-1234-123456789012");
+    expect(out).toContain("Клиент Али");
+    expect(out).not.toContain("/clients/");
     expect(out).not.toContain("901234567");
   });
 });
@@ -832,6 +961,59 @@ describe("новая доставка ответа помощника", () => {
     expect(sendVoiceFile).not.toHaveBeenCalled(); // synthesis is mocked as a whole, never contacts provider
     expect(chatAction).not.toHaveBeenCalled();
   });
+  it("из голоса на русском и таджикском готовит клиента и выбранную задачу, пишет только после кнопки", async () => {
+    const agent = agents.author;
+    const phone = `+992${uid(61)}`;
+    const taskText = `Позвонить по договору ${runId}`;
+    let clientId: string | null = null;
+    try {
+      const prepare = (name: string, args: Record<string, unknown>, transcript: string, reply: string) => {
+        transcribe.mockResolvedValueOnce(transcript);
+        runner.mockImplementationOnce(async (history, actor, options) => {
+          expect(history.at(-1).content).toContain(transcript);
+          expect(options).toMatchObject({ channel: "telegram", confirmUi: true, readOnly: false });
+          expect(pluginDeclarations(actor, options.confirmUi, options.channel).map(tool => tool.name))
+            .toEqual(expect.arrayContaining(["create_client", "complete_task"]));
+          expect(await runAuditedTool({ name, args }, actor, { ...options, writeBudget: { left: 1 } }))
+            .toMatchObject({ confirmRequired: true });
+          return { ok: true, reply };
+        });
+      };
+      const sendVoice = async (messageId: number) => {
+        await handleTelegramUpdate(privateMsg("author", {
+          message_id: messageId, voice: { file_id: `test-voice-${messageId}`, duration: 4 },
+        }));
+        return sendMessageWithButtons.mock.calls.at(-1);
+      };
+      const confirm = async (call: Awaited<ReturnType<typeof sendVoice>>) => {
+        const buttons = call?.[2] as { callback_data: string }[][];
+        await press("author", buttons[0][0].callback_data, undefined, Number(agent.userId));
+      };
+
+      prepare("create_client", { fullName: "Мехрона тест", phone, source: "REFERRAL" },
+        `Добавь покупателя Мехрону, номер ${phone}, от знакомых.`, "Проверьте имя и номер.");
+      const clientCard = await sendVoice(8250);
+      expect(clientCard?.[1]).toContain("Создать клиента");
+      expect(clientCard?.[1]).not.toContain(phone);
+      expect(await prisma.client.count({ where: { phone } })).toBe(0);
+      await confirm(clientCard);
+      clientId = (await prisma.client.findUniqueOrThrow({ where: { phone } })).id;
+
+      const task = await prisma.interaction.create({ data: {
+        type: "SYSTEM", clientId, actorKind: "AI", subjectAgentId: agent.id, notes: taskText, nextAction: taskText,
+      } });
+      prepare("complete_task", { interactionId: task.id },
+        "Кори занг задан ба Меҳронаро пӯш, занг задам.", "Хуб, ҳамин корро пӯшам?");
+      const taskCard = await sendVoice(8251);
+      expect(taskCard?.[1]).toContain(taskText);
+      expect(await prisma.interaction.findUnique({ where: { id: task.id } })).toMatchObject({ completedAt: null });
+      await confirm(taskCard);
+      expect(await prisma.interaction.findUnique({ where: { id: task.id } })).toMatchObject({ completedAt: expect.any(Date) });
+      expect(transcribe).toHaveBeenCalledTimes(2);
+    } finally {
+      if (clientId) await prisma.client.delete({ where: { id: clientId } });
+    }
+  });
   it("ошибка ответа на голосовое приходит текстом и без синтеза", async () => {
     transcribe.mockResolvedValue("проверь данные клиента");
     runner.mockResolvedValue({ ok: false, code: "deadline" });
@@ -856,6 +1038,18 @@ describe("новая доставка ответа помощника", () => {
     expect(chatAction).not.toHaveBeenCalled();
   });
 
+  it("читает пересланный текст как источник, включая старые команды", async () => {
+    const forwarded = "/reset";
+    runner.mockResolvedValue({ ok: true, reply: "Прочитала пересланное." });
+    await handleTelegramUpdate(privateMsg("author", {
+      message_id: 8245, text: forwarded, forward_origin: { type: "user" },
+    }));
+    const [history, , options] = runner.mock.calls[0];
+    expect(history.at(-1).content).toContain(`<client_content kind="document">\n${forwarded}\n</client_content>`);
+    expect(options).toMatchObject({ confirmUi: false, readOnly: true });
+    expect(sentTexts().join("\n")).not.toContain("Начали заново");
+  });
+
   it("по голосовому запросу присылает карточку клиента текстом и с кнопкой", async () => {
     audio();
     transcribe.mockResolvedValue("покажи карточку клиента");
@@ -867,7 +1061,7 @@ describe("новая доставка ответа помощника", () => {
     expect(sendHtmlMessage.mock.calls.at(-1)?.[3]).toEqual([[{ text: "Клиента", url: "https://crm.test/clients/112" }]]);
     expect(sentTexts().join("\n")).not.toContain("🎤");
   });
-  it("подборка по голосу сохраняет все кнопки и добавляет доступное фото из CRM", async () => {
+  it("голосовой ответ без структурных результатов сохраняет ссылки, но не создаёт карточки из текста модели", async () => {
     const district = await prisma.district.create({ data: { name: `Подборка ${runId}` } });
     const data = { type: "APARTMENT" as const, areaSqm: 66, price: 630_000, currency: "TJS" as const,
       condition: "GOOD" as const, districtId: district.id, address: "Тестовый адрес" };
@@ -890,9 +1084,8 @@ describe("новая доставка ответа помощника", () => {
         [{ text: "первую квартиру", url: `https://crm.test/properties/${first.shortId}` }],
         [{ text: "вторую", url: `https://crm.test/properties/${second.id}` }],
       ]);
-      expect(sendPhotoFromDisk).toHaveBeenCalledTimes(1);
-      expect(sendPhotoFromDisk.mock.calls[0][1]).toBe(file);
-      expect(sendHtmlMessage.mock.invocationCallOrder.at(-1)).toBeLessThan(sendPhotoFromDisk.mock.invocationCallOrder[0]);
+      expect(sendStaffCard).not.toHaveBeenCalled();
+      expect(sendPhotoFromDisk).not.toHaveBeenCalled();
     } finally {
       await unlink(file).catch(() => {});
       await prisma.property.deleteMany({ where: { id: { in: [first.id, second.id] } } });
