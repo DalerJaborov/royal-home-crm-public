@@ -8,6 +8,7 @@ import {
   parseSubscribedAppIds,
   parseSubscribedFields,
   REQUIRED_INSTAGRAM_FIELDS,
+  runInstagramSubscriptionWatch,
 } from "../src/lib/instagramWebhookSubscription.js";
 
 /**
@@ -23,6 +24,7 @@ const IG_A = "17841400000301";
 const IG_B = "17841400000302";
 
 async function clear() {
+  await prisma.errorLog.deleteMany({ where: { source: "meta", dedupKey: "ig-subscription-app-mismatch", message: { contains: "app-aaa" } } });
   await prisma.botConversation.deleteMany({ where: { subscriberId: { startsWith: "test-igsub-" } } });
   await prisma.messengerAccount.deleteMany({ where: { externalId: { in: [IG_A, IG_B] } } });
   resetAccountsCache();
@@ -87,8 +89,8 @@ describe("проверка и починка подписки", () => {
     expect((await ensureInstagramSubscription("tok")).status).toBe("restored");
   });
 
-  it("отказ Meta — честный «не смог», без подписки вслепую", async () => {
-    const calls = stub({ error: { message: "Invalid OAuth access token" } }, { success: true }, 400);
+  it.each([400, 401])("отказ Meta %s — честный «не смог», без подписки вслепую", async (status) => {
+    const calls = stub({ error: { message: "Invalid OAuth access token" } }, { success: true }, status);
     const outcome = await ensureInstagramSubscription("tok");
     expect(outcome.status).toBe("failed");
     if (outcome.status === "failed") expect(outcome.error).toContain("Invalid OAuth access token");
@@ -111,8 +113,8 @@ describe("проверка и починка подписки", () => {
   });
 });
 
-describe("аккаунты на разных приложениях", () => {
-  it("называет оба аккаунта и их приложения в журнале", async () => {
+describe("разные идентификаторы подписок", () => {
+  it("сохраняет диагностику обоих аккаунтов без недоказанного вывода о потере сообщений", async () => {
     await saveAccount({ channel: "INSTAGRAM", externalId: IG_A, title: "Тест А", token: "t-app-a", isDefault: true });
     await saveAccount({ channel: "INSTAGRAM", externalId: IG_B, title: "Тест Б", token: "t-app-b" });
     vi.stubGlobal(
@@ -127,11 +129,37 @@ describe("аккаунты на разных приложениях", () => {
     );
     await checkInstagramSubscriptions();
     const row = await prisma.errorLog.findFirst({
-      where: { source: "meta", message: { contains: "разные приложения" } },
+      where: { source: "meta", dedupKey: "ig-subscription-app-mismatch", message: { contains: "app-aaa" } },
       orderBy: { createdAt: "desc" },
     });
     expect(row?.message).toContain("«Тест А» — app-aaa");
     expect(row?.message).toContain("«Тест Б» — app-bbb");
+    expect(row?.message).toContain("разные идентификаторы подписок");
+    expect(row?.message).toContain("само по себе не доказывает");
+    expect(row?.message).not.toContain("Письма аккаунта, подписанного не на наше приложение, в CRM не приходят");
+    expect(row?.message).not.toContain("подключите его заново");
+  });
+
+  it("сохраняет предупреждение об отказе авторизации Meta", async () => {
+    const id = await saveAccount({ channel: "INSTAGRAM", externalId: IG_A, title: "Тест А", token: "test-denied", isDefault: true });
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ error: { message: "Invalid OAuth access token" } }), { status: 401 }));
+    vi.stubGlobal("fetch", fetch);
+    expect(await checkInstagramSubscriptions()).toEqual({ ok: 0, restored: 0, failed: 1 });
+    const row = await prisma.errorLog.findFirst({ where: { dedupKey: `ig-subscription-failed:${id}` } });
+    expect(row?.message).toContain("не удалось проверить подписку");
+    expect(row?.message).toContain("Meta ответила 401");
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("сохраняет восстановление отсутствующих полей и его предупреждение", async () => {
+    const id = await saveAccount({ channel: "INSTAGRAM", externalId: IG_A, title: "Тест А", token: "test-missing-fields", isDefault: true });
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: { method?: string }) => new Response(JSON.stringify(
+      init?.method === "POST" ? { success: true } : { data: [{ id: "app-aaa", subscribed_fields: ["message_reactions"] }] }
+    ), { status: 200 })));
+    expect(await checkInstagramSubscriptions()).toEqual({ ok: 0, restored: 1, failed: 0 });
+    const row = await prisma.errorLog.findFirst({ where: { dedupKey: `ig-subscription-restored:${id}` } });
+    expect(row?.message).toContain("подписка на уведомления дополнена");
+    for (const field of REQUIRED_INSTAGRAM_FIELDS) expect(row?.message).toContain(field);
   });
 });
 
@@ -162,6 +190,18 @@ describe("сторож тишины", () => {
     await seed(b, "b", 12, daysAgo(11));
     const silent = (await findSilentInstagramAccounts(now)).filter((s) => [a, b].includes(s.id));
     expect(silent.map((s) => s.title)).toEqual(["Тест Б"]);
+  });
+
+  it("предупреждает о паузе в диалогах, не выдавая её за доказанный отказ Meta", async () => {
+    const { a, b } = await accounts();
+    await seed(a, "active", 3, daysAgo(0.5));
+    await seed(b, "silent", 12, daysAgo(11));
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ data: [{ id: "same-subscription", subscribed_fields: [...REQUIRED_INSTAGRAM_FIELDS] }] }), { status: 200 })));
+    expect((await runInstagramSubscriptionWatch()).silent).toBe(1);
+    const row = await prisma.errorLog.findFirst({ where: { dedupKey: `ig-account-silent:${b}` } });
+    expect(row?.message).toContain("диалоги в CRM не обновлялись");
+    expect(row?.message).toContain("Причина паузы неизвестна");
+    expect(row?.message).not.toContain("Meta перестала присылать");
   });
 
   it("тихо у всех — не тревога (выходные, а не поломка)", async () => {

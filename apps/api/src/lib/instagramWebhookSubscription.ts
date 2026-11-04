@@ -77,7 +77,7 @@ export function parseSubscribedFields(body: unknown): string[] {
   return [...fields];
 }
 
-/** На какие приложения подписан аккаунт — `data[].id` из того же ответа. */
+/** Идентификаторы подписок `data[].id`; сами по себе не доказывают адрес доставки событий. */
 export function parseSubscribedAppIds(body: unknown): string[] {
   const data = (body as { data?: Array<{ id?: unknown }> } | null)?.data;
   if (!Array.isArray(data)) return [];
@@ -154,21 +154,19 @@ export async function checkInstagramSubscriptions(): Promise<{ ok: number; resto
   }
 
   /**
-   * АККАУНТЫ ПОДПИСАНЫ НА РАЗНЫЕ ПРИЛОЖЕНИЯ (02.10.2026, проверка на проде).
-   *
-   * У Royal Home Info подписка на `messages` была, а писем всё равно не было:
-   * его подписка смотрела на ДРУГОЕ приложение Meta, чем у Royal Home, который
-   * работает. События такого аккаунта уходят на адрес чужого приложения и до
-   * CRM не доходят, и ни одной ошибки у нас при этом не появляется. Какое из
-   * приложений «наше», отсюда не узнать — называем оба, решает человек.
+   * Разные идентификаторы остаются поводом сверить настройки (04.11.2026).
+   * Этот ответ не содержит callback URL и не подтверждает, что события уходят
+   * в другое приложение. Сохраняем диагностику, но не советуем переподключение
+   * и не объявляем потерю сообщений только по сравнению ID разных аккаунтов.
    */
   const allApps = new Set(appsByAccount.flatMap((a) => a.appIds));
   if (allApps.size > 1) {
     const list = appsByAccount.map((a) => `«${a.title}» — ${a.appIds.join(", ") || "нет"}`).join("; ");
     await logSystemError(
       "meta",
-      `Аккаунты Instagram подписаны на разные приложения Meta (${list}). Письма аккаунта, подписанного не на наше ` +
-        `приложение, в CRM не приходят: подключите его заново в Настройках → Каналы маркером из того же приложения, что и рабочий.`,
+      `Meta вернула разные идентификаторы подписок Instagram (${list}). Это само по себе не доказывает разные приложения ` +
+        `или потерю сообщений. Сверьте адрес вебхука в Meta и настройки аккаунтов в Настройках → Каналы. ` +
+        `Не переподключайте аккаунт только из-за этого предупреждения.`,
       { dedupKey: "ig-subscription-app-mismatch" }
     );
   }
@@ -224,8 +222,8 @@ export async function runInstagramSubscriptionWatch(): Promise<{ ok: number; res
     const last = s.lastAt ? s.lastAt.toISOString().slice(0, 10) : "давно";
     await logSystemError(
       "meta",
-      `Instagram «${s.title}»: новых писем нет с ${last}, хотя другой аккаунт получает сообщения. ` +
-        `Похоже, Meta перестала присылать нам его события — проверьте аккаунт в Настройках → Каналы.`,
+      `Instagram «${s.title}»: диалоги в CRM не обновлялись с ${last}, хотя у другого аккаунта есть обновления. ` +
+        `Причина паузы неизвестна: сравните с входящими в Instagram и проверьте доставку событий в Настройках → Каналы.`,
       { dedupKey: `ig-account-silent:${s.id}` }
     );
   }
