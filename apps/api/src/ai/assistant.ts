@@ -227,6 +227,7 @@ const propertySearchFilters = z.object({
   minAreaSqm: z.number().positive().max(100_000).optional(),
   maxAreaSqm: z.number().positive().max(100_000).optional(),
   stage: z.enum(PROPERTY_STAGES).optional(),
+  publishedOnSite: z.boolean().optional(),
   locationNames: z.array(z.string().trim().min(1).max(100)).max(6).optional(),
   preferManyWindows: z.boolean().optional(),
   withVideo: z.boolean().optional(),
@@ -236,7 +237,8 @@ const TOOLS: AssistantTool[] = [
   {
     name: "search_properties",
     description:
-      "Поиск объектов недвижимости по фильтрам. Возвращает до 8 объектов. Если структурных фильтров " +
+      "Поиск объектов в CRM по фильтрам, включая неопубликованные. Возвращает до 8 объектов. " +
+      "Передай publishedOnSite только при явной просьбе показать опубликованные или неопубликованные. Если структурных фильтров " +
       "недостаточно (клиент описал желаемое своими словами — «светлая квартира рядом со школой», " +
       "«есть где гулять с ребёнком»), дополнительно передай semanticQuery: он не заменяет фильтры выше, " +
       "а сортирует уже отфильтрованные объекты по смысловой близости к описанию. " +
@@ -264,7 +266,8 @@ const TOOLS: AssistantTool[] = [
         minRooms: { type: "number" },
         minAreaSqm: { type: "number", description: "Минимальная площадь, м², включительно." },
         maxAreaSqm: { type: "number", description: "Максимальная площадь, м², включительно." },
-        stage: { type: "string", enum: [...PROPERTY_STAGES], description: "Стадия стройки. Коробка без черновых работ — отдельная стадия." },
+        stage: { type: "string", enum: [...PROPERTY_STAGES], description: "Стадия стройки. Коробка без ремонта и черновых работ — SHELL." },
+        publishedOnSite: { type: "boolean", description: "Отбор по отметке CRM о публикации на сайте. Обычно не указывай." },
         locationNames: {
           type: "array", items: { type: "string" },
           description: "До 6 альтернативных ориентиров, улиц или районов, например Аэропорт или Садбарг. Подойдёт любое из перечисленных мест. Передавай только название.",
@@ -535,6 +538,7 @@ export async function runTool(name: string, input: Record<string, unknown>, acto
       ...priceFilter,
       ...(input.minRooms ? { rooms: { gte: Number(input.minRooms) } } : {}),
       ...(filters.stage ? { stage: filters.stage } : {}),
+      ...(filters.publishedOnSite === undefined ? {} : { publishedOnSite: filters.publishedOnSite }),
       ...(filters.minAreaSqm !== undefined || filters.maxAreaSqm !== undefined
         ? { areaSqm: { gte: filters.minAreaSqm, lte: filters.maxAreaSqm } } : {}),
       ...(filters.withVideo ? { OR: [{ videos: { some: {} } }, { instagramUrl: { not: null, notIn: [""] } }] } : {}),
@@ -596,6 +600,7 @@ export async function runTool(name: string, input: Record<string, unknown>, acto
       areaSqm: Number(p.areaSqm),
       windowCount: p.windowCount,
       stage: p.stage,
+      publishedOnSite: p.publishedOnSite,
       hasVideo: p.videos.length > 0 || Boolean(p.instagramUrl?.trim()),
       price: Number(p.price),
       currency: p.currency,

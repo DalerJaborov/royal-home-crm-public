@@ -109,3 +109,15 @@ it("matches area, either location, shell and video before ordering by number of 
     { id: ids.first, areaSqm: 60, windowCount: 3, hasVideo: true },
   ]);
 });
+
+
+it("searches unpublished CRM properties by default and applies an explicit publication filter", async () => {
+  const shell = { marketType: "NEW_BUILD", stage: "SHELL", condition: "NEW_BUILDING",
+    landmark: "Опубликованность" } as const;
+  await make("sitePublished", 180000, "TJS", { ...shell, publishedOnSite: true });
+  await make("siteUnpublished", 190000, "TJS", { ...shell, publishedOnSite: false });
+  const filter = { stage: "SHELL", locationNames: [shell.landmark] };
+  expect(await search(filter)).toEqual(expect.arrayContaining([ids.sitePublished, ids.siteUnpublished]));
+  expect(await search({ ...filter, publishedOnSite: true })).toEqual([ids.sitePublished]);
+  expect(await search({ ...filter, publishedOnSite: false })).toEqual([ids.siteUnpublished]);
+});

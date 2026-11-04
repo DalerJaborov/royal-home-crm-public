@@ -163,6 +163,18 @@ describe("natural group addressing and silence", () => {
     expect(f.run).not.toHaveBeenCalled();
   });
 
+  it("uses CRM for a linked employee's shell search unless they ask for the website", async () => {
+    const f = fixture();
+    await f.send("Шабнам, найди квартиру в коробке без отделки");
+    expect(f.run).toHaveBeenCalledOnce();
+    await f.send("Шабнам, найди в CRM квартиру в коробке без отделки, не только на сайте");
+    expect(f.run).toHaveBeenCalledTimes(2);
+    expect(f.publicShellReply).not.toHaveBeenCalled();
+    await f.send("Шабнам, найди на сайте квартиру в коробке без отделки");
+    expect(f.publicShellReply).toHaveBeenCalledWith({ type: "APARTMENT" }, "ru");
+    expect(f.run).toHaveBeenCalledTimes(2);
+  });
+
   it("uses an explicit apartment answer only in reply to the bot's question in the same topic", async () => {
     const f = fixture();
     f.setLinked(false);

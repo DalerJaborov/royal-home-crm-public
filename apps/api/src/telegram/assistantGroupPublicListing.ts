@@ -3,10 +3,11 @@ import { groupPropertyReferenceNumbers, unaddressedReadRequest } from "./assista
 import { matchPublicShellRequest, readAssistantPublicSiteCatalog, replyPublicShellRequest, type PublicShellRequest } from "./assistantPublicShellSearch.js";
 
 type Language = "ru" | "tg";
-type GroupShellQuestion = { request: PublicShellRequest; guidance?: boolean; language?: Language };
+type GroupShellQuestion = { request: PublicShellRequest; siteOnly: boolean; guidance?: boolean; language?: Language };
 const NUMBERED_QUESTIONS = /^1[.)]\s+(.{1,180}?)\s+2[.)]\s+(.{1,240})$/su;
 const SALES_QUESTION = /ч[ӣи]\s+ҷавоб\s+диҳем|что\s+(?:нам\s+)?ответить/iu;
 const SITE_QUESTION = /(?:^|[^\p{L}])сайт(?:и|е|а)?(?!\p{L})/iu;
+const CRM_QUESTION = /(?<!\p{L})(?:(?:в|из|по)\s+(?:crm|црм)|дар\s+(?:crm|црм)|не\s+только\s+на\s+сайте)(?!\p{L})/iu;
 const WRITE_REQUEST = /^(?:(?:пожалуйста|лутфан)[, ]+)?(?:добавь|создай|поменяй|измени|обнови|снизь|подними|удали|поставь|запиши|иваз кун|илова кун|сабт кун)(?!\p{L})/iu;
 const CLARIFIERS = {
   tg: "Квартира меҷӯед ё ҳавлӣ?",
@@ -15,19 +16,19 @@ const CLARIFIERS = {
 
 export function matchGroupPublicShellQuestion(text: string, addressed: boolean, ownBotQuestion?: string): GroupShellQuestion | null {
   const ordinary = (addressed || unaddressedReadRequest(text)) && !WRITE_REQUEST.test(text) ? matchPublicShellRequest(text) : null;
-  if (ordinary) return { request: ordinary };
+  if (ordinary) return { request: ordinary, siteOnly: SITE_QUESTION.test(text) && !CRM_QUESTION.test(text) };
   if (!addressed) return null;
   for (const lang of ["tg", "ru"] as const) {
     if (ownBotQuestion !== CLARIFIERS[lang] && !ownBotQuestion?.endsWith(`\n\n${CLARIFIERS[lang]}`)) continue;
     const answer = text.trim().replace(/[.!?]+$/u, "");
-    if (/^(?:квартира|манзил)$/iu.test(answer)) return { request: { type: "APARTMENT" }, language: lang };
-    if (/^(?:дом|отдельный дом|[ҳх]авл[иӣ])$/iu.test(answer)) return { request: { type: "HOUSE" }, language: lang };
+    if (/^(?:квартира|манзил)$/iu.test(answer)) return { request: { type: "APARTMENT" }, siteOnly: true, language: lang };
+    if (/^(?:дом|отдельный дом|[ҳх]авл[иӣ])$/iu.test(answer)) return { request: { type: "HOUSE" }, siteOnly: true, language: lang };
   }
   // A sales colleague may ask two numbered questions: what to say, and what the site can filter.
   const parts = NUMBERED_QUESTIONS.exec(text);
   if (!parts || !SALES_QUESTION.test(parts[1]) || !SITE_QUESTION.test(parts[2])) return null;
   const request = matchPublicShellRequest(parts[1]);
-  return request ? { request, guidance: true } : null;
+  return request ? { request, siteOnly: true, guidance: true } : null;
 }
 
 export async function replyGroupPublicShellQuestion(question: GroupShellQuestion, lang: Language): Promise<string> {
