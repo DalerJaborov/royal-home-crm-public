@@ -6,6 +6,7 @@ import * as shared from "@royal-home/shared";
 import * as replies from "../src/telegram/assistantReply.js";
 import { maskAssistantContacts } from "../src/lib/assistantContacts.js";
 import * as participation from "../src/telegram/assistantGroupParticipation.js";
+import { matchPublicShellRequest } from "../src/telegram/assistantPublicShellSearch.js";
 import { assistantLanguage } from "../src/ai/assistant/languageRouting.js";
 import type { TelegramIncomingMessage } from "../src/telegram/api.js";
 
@@ -36,6 +37,9 @@ function fixture() {
   const retainTranscript = vi.fn(async (_message: TelegramIncomingMessage, _updateId: number, _agentId: string, _text: string) => {});
   const fast = vi.fn(async () => null as unknown);
   const card = vi.fn(async () => true);
+  const publicCatalog = vi.fn(async () => [{ id: 801, crmShortId: 123, price: 630000 }] as
+    { id: number; crmShortId: number | null; price: number }[] | null);
+  const publicShellReply = vi.fn(async (_request: unknown, _lang: string) => "Квартира меҷӯед ё ҳавлӣ?");
   const create = vi.fn(async (input: { skipDuplicates: boolean }) => {
     expect(input.skipDuplicates).toBe(true);
     // Atomic winner, including overlapping async handler invocations.
@@ -48,6 +52,10 @@ function fixture() {
     "@royal-home/shared": shared,
     "./assistantReply.js": replies,
     "./assistantGroupParticipation.js": participation,
+    "./assistantPublicShellSearch.js": {
+      matchPublicShellRequest,
+      replyPublicShellRequest: publicShellReply, readAssistantPublicSiteCatalog: publicCatalog,
+    },
     "./assistantGroupContext.js": { loadAssistantTelegramContext: context, retainAssistantTelegramTranscript: retainTranscript },
     "../lib/propertyRefLookup.js": { findPropertiesByRef: findProperty },
     "./assistantVoice.js": { sendAssistantVoiceReply: voice },
@@ -55,7 +63,7 @@ function fixture() {
       sendMessageWithButtons: plain, sendChatAction: async () => {}, setMessageReaction: async () => {} },
     "../db.js": { prisma: { settings: { findUnique: async () => ({ telegramDiscussionGroupId: discussionGroupId }) },
       assistantTelegramGroup: { createMany: create, upsert: async () => { registered = true; },
-        findUnique: async () => registered ? { chatId: "-100", createdAt: new Date(registeredAt), proactiveMutedUntil: mutedUntil, lastProactiveReplyAt: lastProactive, lastJoinWelcomeAt: lastWelcome, contextEnabledAt } : null,
+        findUnique: async ({ where }: { where: { chatId: string } }) => registered && where.chatId === "-100" ? { chatId: "-100", createdAt: new Date(registeredAt), proactiveMutedUntil: mutedUntil, lastProactiveReplyAt: lastProactive, lastJoinWelcomeAt: lastWelcome, contextEnabledAt } : null,
         updateMany: async ({ where, data }: any) => {
           if (!registered || where.createdAt.getTime() !== registeredAt) return { count: 0 };
           if ("lastProactiveReplyAt" in data) {
@@ -90,13 +98,14 @@ function fixture() {
   };
   // The fixed neutral phrases are loaded from owning source once that module exists.
   try { dependencies["./assistantGroupPhrases.js"] = load("assistantGroupPhrases", dependencies); } catch { /* baseline */ }
+  dependencies["./assistantGroupPublicListing.js"] = load("assistantGroupPublicListing", dependencies);
   dependencies["./assistantDelivery.js"] = load("assistantDelivery", dependencies);
   const adapter = load("assistantBot", dependencies);
   adapter.setGroupClockForTests(() => now);
   const message = (text = "", extra: Partial<TelegramIncomingMessage> = {}) => ({
     chat: { id: -100, type: "supergroup" }, from: { id: 1 }, message_id: 10, text, ...extra,
   });
-  return { adapter, plain, html, voice, run, media, fast, card, create, findProperty, context, retainTranscript,
+  return { adapter, plain, html, voice, run, media, fast, card, create, findProperty, context, retainTranscript, publicCatalog, publicShellReply,
     setContext: (value: boolean) => { contextEnabledAt = value ? new Date(now) : null; },
     setLinked: (value: boolean) => { groupLinked = value; },
     setDiscussion: (value: string) => { discussionGroupId = value; },
@@ -133,6 +142,80 @@ describe("natural group addressing and silence", () => {
     expect(await f.send(text)).toBe(false);
     expect(f.run).not.toHaveBeenCalled();
     expect(f.voice).not.toHaveBeenCalled();
+  });
+  const screenshotQuestion = [
+    "Ассалому алайкум",
+    "Умедворам тансиҳат ҳастед",
+    "Савол ба аҳли гурӯҳ ва Шабнам.",
+    "1. Дар ҳолати муроҷиати мизоҷи харидори хона дархост хонаи коробка тайёр бе таъмир мо чи ҷавоб диҳем",
+    "2. Оё агар ба Шабнам савол диҳем аз рӯйхати дар сайти хонаҳо буда хонаи коробкаи тайёр ва бетаъмирро метавонад ҷудо кунад?",
+  ].join("\n");
+
+  it.each([true, false])("recognizes a group and Shabnam question after greetings (linked %s)", async linked => {
+    const f = fixture();
+    f.setLinked(linked);
+    expect(f.adapter.addressedToBot(f.message(screenshotQuestion), "fixture_bot")).toMatchObject({
+      addressed: true, text: expect.stringMatching(/^1\. Дар ҳолати/),
+    });
+    expect(await f.send(screenshotQuestion)).toBe(true);
+    expect(f.publicShellReply).toHaveBeenCalledWith({ type: null }, "tg");
+    expect(f.plain).toHaveBeenCalledWith("-100", expect.stringMatching(/^Ба харидор гӯед:.*\n\nКвартира меҷӯед ё ҳавлӣ\?$/u), 10);
+    expect(f.run).not.toHaveBeenCalled();
+  });
+
+  it("uses an explicit apartment answer only in reply to the bot's question in the same topic", async () => {
+    const f = fixture();
+    f.setLinked(false);
+    const reply_to_message = f.message("Квартира меҷӯед ё ҳавлӣ?", {
+      from: { id: 2, is_bot: true, username: "fixture_bot" }, message_thread_id: 31,
+    });
+    await f.send("Квартира", { message_thread_id: 32, reply_to_message });
+    expect(f.publicShellReply).not.toHaveBeenCalled();
+    await f.send("Квартира", { message_thread_id: 31, reply_to_message });
+    expect(f.publicShellReply).toHaveBeenCalledWith({ type: "APARTMENT" }, "tg");
+    expect(f.run).not.toHaveBeenCalled();
+  });
+
+  it("gives a guest exact public site facts without a CRM actor or private lookup", async () => {
+    const f = fixture();
+    f.setLinked(false);
+    expect(await f.send("Какая цена у ОБ-123?")).toBe(true);
+    expect(f.plain.mock.calls[0]?.[1]).toMatch(/ОБ-000123.*630\s000 сомони/);
+    await f.send("Салом, Шабнам, ОБ-801, нархаш чанд?");
+    expect(f.plain.mock.calls[1]?.[1]).toContain("наёфтам");
+    expect(f.findProperty).not.toHaveBeenCalled();
+    expect(f.run).not.toHaveBeenCalled();
+    expect(f.context).not.toHaveBeenCalled();
+  });
+
+  it("does not answer unregistered groups, channel discussions, forwards or ambient guest questions during quiet time", async () => {
+    const f = fixture();
+    await f.send("Шабнам, помолчи");
+    f.plain.mockClear();
+    f.setLinked(false);
+    expect(await f.send("Какая цена у ОБ-123?")).toBe(false);
+    expect(await f.send(screenshotQuestion, { chat: { id: -200, type: "supergroup" } })).toBe(false);
+    expect(await f.send("Какая цена у ОБ-123?", { forward_origin: { type: "user" } })).toBe(false);
+    f.setDiscussion("-100");
+    expect(await f.send(screenshotQuestion)).toBe(false);
+    expect(f.plain).not.toHaveBeenCalled();
+    expect(f.publicCatalog).not.toHaveBeenCalled();
+    expect(f.publicShellReply).not.toHaveBeenCalled();
+    expect(f.run).not.toHaveBeenCalled();
+  });
+
+  it("does not expose archives, private listings or writes to unlinked participants", async () => {
+    const f = fixture();
+    f.setContext(true);
+    f.setLinked(false);
+    expect(await f.send("Поставь цену ОБ-123 на 810 000 сомони")).toBe(false);
+    expect(await f.send("У меня квартира в коробке без отделки.")).toBe(false);
+    expect(await f.send("Шабнам, что уже писали по ОБ-123?")).toBe(false);
+    expect(await f.send("Шабнам, снизь цену ОБ-123 до 1 сомони")).toBe(true);
+    expect(f.plain.mock.calls[0]?.[1]).toContain("Привяжите аккаунт");
+    expect(f.findProperty).not.toHaveBeenCalled();
+    expect(f.context).not.toHaveBeenCalled();
+    expect(f.run).not.toHaveBeenCalled();
   });
   it.each(["поставь чайник", "у клиента день рождения", "Шабнам завтра придёт", "123456789", "123456789012"])("does not send window chatter to AI: %s", async text => {
     const f = fixture();
@@ -340,11 +423,8 @@ describe("optional help without an address", () => {
     await negated.send("Поставь не цену ОБ-123 на 810 000 сомони");
     expect(negated.run).not.toHaveBeenCalled();
   });
-  it("keeps silent for unlinked staff, forwards, disabled groups and missing cards", async () => {
+  it("keeps silent for forwards, disabled groups and missing internal cards", async () => {
     const f = fixture();
-    f.setLinked(false);
-    await f.send("Какая цена у ОБ-123?");
-    f.setLinked(true);
     await f.send("Какая цена у ОБ-123?", { forward_origin: { type: "user" } });
     f.setRegistered(false);
     await f.send("Какая цена у ОБ-123?");

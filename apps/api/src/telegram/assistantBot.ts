@@ -2,6 +2,7 @@ import { renderAssistantForTelegram, requestedAssistantReplyMode, sanitizeAssist
 import { assistantGroupClarification, sendAssistantReply } from "./assistantDelivery.js";
 import { editTelegramConfirmationMessage, sendTelegramPriceConfirmationPhotos } from "./assistantConfirmationPhotos.js";
 import { ASSISTANT_COLLEAGUE_GREETING, ASSISTANT_GROUP_GREETING } from "./assistantGroupPhrases.js";
+import { matchGroupPublicShellQuestion, replyGroupPublicShellQuestion, replyPublicListingQuestion } from "./assistantGroupPublicListing.js";
 import { loadAssistantTelegramContext, retainAssistantTelegramTranscript } from "./assistantGroupContext.js";
 import { findPropertiesByRef } from "../lib/propertyRefLookup.js";
 import { GROUP_QUIET_MS, GROUP_REMAKE_REASON_QUESTION, GROUP_WELCOME_INTERVAL_MS, PROACTIVE_GROUP_INTERVAL_MS, groupHistoryQuestion, groupMembershipEvent, groupMontageCommand, groupPropertyRefs, groupStatusFollowUp, isGroupPropertyFollowUp, isGroupRemakeReasonQuestion, isShortPropertyFollowUp, proactivePropertyReply, requestedGroupParticipation, unaddressedConfirmationRequest, unaddressedPropertyQuestion, unaddressedReadRequest, type GroupConfirmationTool } from "./assistantGroupParticipation.js";
@@ -534,6 +535,9 @@ const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 // A name in conversation is not an address. Without punctuation require an imperative.
 const NAMED_REQUEST = /^(?:пожалуйста[, ]+)?(?:найди|покажи|помоги|проверь|скажи|ответь|подскажи|снизь|подними|измени|поменяй|поставь|сними|удали|верни|добавь|запиши|навис|нишон\s+деҳ|ҷавоб\s+деҳ|санҷ|кумак\s+кун)(?=\s|[!?.,:]|$)/iu;
+// A question addressed to the group and Shabnam can follow a greeting.
+const GROUP_NAMED_QUESTION = /(?:^|[\n.!?])\s*(?:савол\s+ба\s+(?:(?:аҳли\s+)?гур[ӯу]ҳ\s+ва\s+)?|вопрос\s+(?:(?:к\s+)?(?:коллегам|группе)\s+и\s+|к\s+)?)(?:шабнам|мушовир)(?=$|[\n.!?:—–-])/iu;
+const GREETED_BOT = /^(?:салом|ассалому\s+алайкум|привет|здравствуйте|добрый\s+(?:день|вечер|утро))[,!:.\s]+(?:шабнам|мушовир)(?=$|[,!:.?\s—–-])/iu;
 
 /** Позвали бота: прямое имя, @упоминание, /ai или ответ на его сообщение. */
 export function addressedToBot(msg: TelegramIncomingMessage, botUsername: string): { addressed: boolean; text: string } {
@@ -545,14 +549,16 @@ export function addressedToBot(msg: TelegramIncomingMessage, botUsername: string
   const command = /^\/(?:ai|помощник)(?:@(\w+))?(?:\s|$)/i.exec(raw);
   const commandForUs = command ? !command[1] || command[1].toLowerCase() === botUsername.toLowerCase() : false;
   const mentioned = new RegExp(mentionSource, "i").test(raw);
-  const named = /^(?:шабнам|мушовир)(?=$|[\s,:;.!?—–-])/iu.exec(raw);
+  const named = /^(?:шабнам|мушовир)(?=$|[\s,:;.!?—–-])/iu.exec(raw) ?? GREETED_BOT.exec(raw);
   const afterName = named ? raw.slice(named[0].length) : "";
   const namedAddress = Boolean(named && (!afterName.trim() || /^\s*[,:;.!?—–-]/u.test(afterName)
     || NAMED_REQUEST.test(afterName.trim()) || requestedGroupParticipation(afterName)));
-  const addressed = mentioned || replyToBot || commandForUs || namedAddress;
-  let text = raw.replace(new RegExp(mentionSource, "gi"), "$1 ");
+  const groupQuestion = GROUP_NAMED_QUESTION.exec(raw);
+  const addressed = mentioned || replyToBot || commandForUs || namedAddress || Boolean(groupQuestion);
+  const addressEnd = groupQuestion ? groupQuestion.index + groupQuestion[0].length : named && namedAddress ? named[0].length : 0;
+  let text = raw.slice(addressEnd).replace(new RegExp(mentionSource, "gi"), "$1 ");
   if (commandForUs) text = text.replace(/^\/(?:ai|помощник)(?:@\w+)?/i, "");
-  if (named && namedAddress) text = text.slice(named[0].length).replace(/^[\s,:;.!?—–-]*/u, "");
+  if (addressEnd) text = text.replace(/^[\s,:;.!?—–-]*/u, "");
   return { addressed, text: text.replace(/\s+/g, " ").trim() };
 }
 
@@ -689,6 +695,12 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
   const shortNativeVoice = typeof msg.voice?.duration === "number"
     && msg.voice.duration > 0 && msg.voice.duration <= GROUP_SHORT_VOICE_SECONDS;
   const audioDuration = (msg.voice ?? msg.audio)?.duration;
+  const currentRequest = addressed ? text : raw;
+  const replied = msg.reply_to_message;
+  const ownBotQuestion = replied?.from?.is_bot && replied.from.username?.toLowerCase() === botUsername.toLowerCase()
+    && replied.chat.id === msg.chat.id && replied.message_thread_id === msg.message_thread_id ? replied.text : undefined;
+  const publicShell = key && !isForwarded ? matchGroupPublicShellQuestion(currentRequest, addressed, ownBotQuestion) : null;
+  const guestListing = key && !isForwarded ? unaddressedPropertyQuestion(currentRequest) : null;
   const historyQuestion = (words: string) => key && !isForwarded
     ? groupHistoryQuestion(words, msg.reply_to_message?.message_id) : null;
   let historySelector = historyQuestion(addressed ? text : raw);
@@ -706,7 +718,7 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
       automaticRead = !automatic && (statusFollowUp || (!msg.reply_to_message && unaddressedReadRequest(raw)));
       if (!automatic && !automaticRead && !msg.reply_to_message) automaticAction = unaddressedConfirmationRequest(raw);
     }
-    if (!historySelector && !continuationRef && windowText === null && !automatic && !automaticRead && !automaticAction && !standaloneVoice) return false;
+    if (!historySelector && !continuationRef && windowText === null && !automatic && !automaticRead && !automaticAction && !standaloneVoice && !publicShell) return false;
   }
   const reply = (t: string) => sendMessage(chatId, t, msg.message_id).then(() => undefined);
 
@@ -809,6 +821,38 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
     }
 
     if (!addressed && registered.proactiveMutedUntil && registered.proactiveMutedUntil > now) return false;
+    // An unlinked user has no CRM actor. Serve only public listing data or approved sales guidance.
+    const publicQuestion = publicShell ? { kind: "shell" as const, request: publicShell }
+      : !sender && guestListing ? { kind: "listing" as const, request: guestListing } : null;
+    if (publicQuestion) {
+      if (!(await isAiAssistantEnabled())) return false;
+      if (sender && !(await loadAgentAccess(sender.id))?.isActive) return false;
+      const cooldown = new Date(now.getTime() - PROACTIVE_GROUP_INTERVAL_MS);
+      if (!addressed && registered.lastProactiveReplyAt && registered.lastProactiveReplyAt > cooldown) return false;
+      const language = assistantLanguage([{ role: "user", content: currentRequest }]);
+      const lang = language === "tg" || language === "mixed" ? "tg" : "ru";
+      const answer = publicQuestion.kind === "listing"
+        ? await replyPublicListingQuestion(publicQuestion.request.ref, publicQuestion.request.lang)
+        : await replyGroupPublicShellQuestion(publicQuestion.request, lang);
+      // Public lookup may outlive a disconnect or a quiet command. Recheck before delivery.
+      const current = await prisma.assistantTelegramGroup.findUnique({ where: { chatId } });
+      if (!current || current.createdAt.getTime() !== registeredAt) return false;
+      if (!addressed) {
+        const claim = await prisma.assistantTelegramGroup.updateMany({
+          where: {
+            chatId, createdAt: registered.createdAt,
+            AND: [
+              { OR: [{ proactiveMutedUntil: null }, { proactiveMutedUntil: { lte: new Date(groupClock()) } }] },
+              { OR: [{ lastProactiveReplyAt: null }, { lastProactiveReplyAt: { lte: cooldown } }] },
+            ],
+          },
+          data: { lastProactiveReplyAt: now },
+        });
+        if (claim.count !== 1) return false;
+      }
+      await reply(answer);
+      return true;
+    }
     const moneyWallet = createAssistantMoneyWallet();
     const transcribeGroupVoice = async (agentId: string, standalone = false) => {
       const result = await transcribeVoice(msg, agentId, moneyWallet, standalone);
@@ -956,7 +1000,6 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
     }
     let request = windowText ?? text;
     // Упоминание ответом на ЧУЖОЕ сообщение: его текст — содержание просьбы, права — вызвавшего.
-    const replied = msg.reply_to_message;
     const repliedToThisBot = replied?.from?.is_bot === true && replied.from.username?.toLowerCase() === botUsername.toLowerCase();
     let source: string | undefined;
     if (forwardedPlain) {
