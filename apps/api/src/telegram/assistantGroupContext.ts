@@ -147,8 +147,9 @@ export async function loadAssistantTelegramContext(input: {
   text: string;
   attachmentKind: string | null;
 }[]> {
-  const isReply = "replyToMessageId" in input.selector;
-  const selectedId = isReply ? input.selector.replyToMessageId : input.selector.propertyShortId;
+  const selection = input.selector;
+  const isReply = "replyToMessageId" in selection;
+  const selectedId = isReply ? selection.replyToMessageId : selection.propertyShortId;
   if (!messageId.safeParse(selectedId).success
       || (input.beforeMessageId !== undefined && !messageId.safeParse(input.beforeMessageId).success)
       || (isReply && input.beforeMessageId !== undefined && selectedId >= input.beforeMessageId)) return [];
