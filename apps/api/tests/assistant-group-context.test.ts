@@ -59,6 +59,28 @@ afterAll(async () => {
 });
 
 describe("opted-in Telegram group evidence", () => {
+  it("attributes only the original still-linked author and never exposes a Telegram ID", async () => {
+    const otherTelegramId = telegramUserId + 1;
+    const other = await prisma.agent.create({ data: {
+      fullName: "Умед Примеров", phone: `+992981${unique}`, telegramUserId: String(otherTelegramId),
+    } });
+    try {
+      await captureAssistantTelegramContext(message(11, { text: "По ОБ-123 готовы исходники." }), 1, now);
+      await captureAssistantTelegramContext(message(12, { from: { id: otherTelegramId }, text: "ОБ-123 ещё в очереди." }), 2, now);
+      const found = await lookup();
+      expect(found.map(row => [row.text, row.authorLabel])).toEqual([
+        ["ОБ-123 ещё в очереди.", "Умед Примеров"], ["По ОБ-123 готовы исходники.", "Контекст тест"],
+      ]);
+      expect(JSON.stringify(found)).not.toContain(String(otherTelegramId));
+      await prisma.agent.update({ where: { id: other.id }, data: { telegramUserId: String(otherTelegramId + 10) } });
+      expect((await lookup())[0].authorLabel).toBeNull();
+      await prisma.agent.update({ where: { id: other.id }, data: { telegramUserId: String(otherTelegramId), isActive: false } });
+      expect((await lookup())[0].authorLabel).toBeNull();
+    } finally {
+      await prisma.agent.delete({ where: { id: other.id } });
+    }
+  });
+
   it("indexes the same visible object code variants that a history question accepts", async () => {
     await captureAssistantTelegramContext(message(11, { text: "ОБ №123. Исходники готовы." }), 1, now);
     await captureAssistantTelegramContext(message(12, { text: "ОБ 123. Монтажёр подтвердил." }), 2, now);

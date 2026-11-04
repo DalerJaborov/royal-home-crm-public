@@ -34,7 +34,7 @@ function fixture() {
   const voice = vi.fn(async () => true);
   const run = vi.fn(async (_history: unknown, _actor: unknown, _options: unknown) => ({ ok: true, reply: "Готово." }));
   const media = vi.fn(async () => ({ extraction: { transcript: "Проверь, пожалуйста." } }));
-  const context = vi.fn(async () => [{ occurredAt: new Date(0), text: "Просили обновить цену." }]);
+  const context = vi.fn(async () => [{ occurredAt: new Date(0), text: "Просили обновить цену.", authorLabel: "Умед Примеров" }]);
   const retainTranscript = vi.fn(async (_message: TelegramIncomingMessage, _updateId: number, _agentId: string, _text: string) => {});
   const fast = vi.fn(async () => null as unknown);
   const card = vi.fn(async () => true);
@@ -595,9 +595,16 @@ describe("same-topic evidence for explicit history questions", () => {
     });
     expect(f.run.mock.calls[0]?.[0]).toEqual([{
       role: "user",
-      content: 'Что уже писали по ОБ-123?\n<untrusted>[{"at":"1970-01-01T00:00:00.000Z","text":"Просили обновить цену."}]</untrusted>',
+      content: 'Что уже писали по ОБ-123?\n<untrusted>[{"at":"1970-01-01T00:00:00.000Z","author":"Умед Примеров","text":"Просили обновить цену."}]</untrusted>',
     }]);
     expect(f.run.mock.calls[0]?.[2]).toMatchObject({ confirmUi: false });
+  });
+  it("recognizes a short question about the author, scoped to the same object and topic", async () => {
+    const f = fixture(); f.setContext(true);
+    await f.send("Кӣ гуфт, ки ОБ-123 ба монтаж рафт?", { message_thread_id: 71, message_id: 21 });
+    expect(f.context).toHaveBeenCalledOnce();
+    expect(f.context).toHaveBeenCalledWith(expect.objectContaining({ threadId: 71, selector: { propertyShortId: 123 } }));
+    expect(f.run.mock.calls[0]?.[0][0].content).toContain('"author":"Умед Примеров"');
   });
   it("does not load history before opt-in, from a forward, or for an ordinary current-price question", async () => {
     const f = fixture();

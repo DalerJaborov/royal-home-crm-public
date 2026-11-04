@@ -1015,7 +1015,9 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
             : tg ? "Гапҳои ин гурӯҳро ҳоло нигоҳ намедорам." : "Память этой группы пока выключена.");
           return true;
         }
-        const archived = evidence.map(({ occurredAt, text: excerpt }) => ({ at: occurredAt.toISOString(), text: excerpt }));
+        const archived = evidence.map(({ occurredAt, authorLabel, text: excerpt }) => ({
+          at: occurredAt.toISOString(), author: authorLabel, text: excerpt,
+        }));
         question = `${currentWords}\n${wrapUntrusted("document", JSON.stringify(archived), 3000)}`;
       }
       const result = await runTurn({

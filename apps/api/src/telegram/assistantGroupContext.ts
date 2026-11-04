@@ -201,6 +201,7 @@ export async function loadAssistantTelegramContext(input: {
   occurredAt: Date;
   text: string;
   attachmentKind: string | null;
+  authorLabel: string | null;
 }[]> {
   const selection = input.selector;
   const isReply = "replyToMessageId" in selection;
@@ -231,16 +232,30 @@ export async function loadAssistantTelegramContext(input: {
         ? { messageId: selectedId }
         : { propertyRefs: { has: selectedId }, ...(input.beforeMessageId === undefined ? {} : { messageId: { lt: input.beforeMessageId } }) }),
     },
-    select: { messageId: true, occurredAt: true, text: true, transcript: true, attachmentKind: true },
+    select: { messageId: true, occurredAt: true, text: true, transcript: true, attachmentKind: true,
+      authorAgentId: true, authorTelegramId: true },
     orderBy: [{ occurredAt: "desc" }, { messageId: "desc" }],
     take: RESULT_LIMIT,
   });
-  return rows.map(({ text, transcript, ...source }) => ({
-    ...source,
-    text: transcript === null ? text : [
-      text.slice(0, 250), `Расшифровка аудио: ${transcript}`,
-    ].filter(Boolean).join("\n").slice(0, TEXT_LIMIT),
-  }));
+  const authorIds = [...new Set(rows.flatMap(row => row.authorAgentId && row.authorTelegramId ? [row.authorAgentId] : []))];
+  const authors = authorIds.length ? await prisma.agent.findMany({
+    where: { id: { in: authorIds }, isActive: true }, select: { id: true, telegramUserId: true, fullName: true },
+  }) : [];
+  const authorById = new Map(authors.map(author => [author.id, author]));
+  return rows.map(({ text, transcript, authorAgentId, authorTelegramId, ...source }) => {
+    const author = authorAgentId ? authorById.get(authorAgentId) : undefined;
+    // A name only belongs to this message if the original staff and Telegram identity still match.
+    const authorLabel = author && authorTelegramId && author.telegramUserId === authorTelegramId
+      ? prepareEvidence(author.fullName).text.replace(/[\p{Cc}\p{Cf}]/gu, " ").replace(/\s+/gu, " ").trim().slice(0, 80) || null
+      : null;
+    return {
+      ...source,
+      authorLabel,
+      text: transcript === null ? text : [
+        text.slice(0, 250), `Расшифровка аудио: ${transcript}`,
+      ].filter(Boolean).join("\n").slice(0, TEXT_LIMIT),
+    };
+  });
 }
 
 export async function cleanupAssistantTelegramContext(now = new Date()): Promise<number> {
