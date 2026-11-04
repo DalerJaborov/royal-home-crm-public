@@ -852,7 +852,7 @@ describe("новая доставка ответа помощника", () => {
     expect(history.at(-1).content).toContain("бо search_properties ҷустуҷӯ кун");
     expect(history.at(-1).content).toContain("withVideo");
     expect(history.at(-1).content).not.toContain("Кори дигаре дар CRM накун");
-    expect(options.confirmUi).toBe(false);
+    expect(options).toMatchObject({ confirmUi: false, readOnly: true });
     expect(chatAction).not.toHaveBeenCalled();
   });
 

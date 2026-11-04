@@ -230,7 +230,43 @@ describe("ядро + инструменты П3 (модель подменена
     expect(notes.map((n) => n.notes.replace(/^.*: /, "")).sort()).toEqual([`A ${runId}`, `B ${runId}`, `C ${runId}`]);
   });
 
-  it("без confirmUi запись модели не объявляется, а названная наугад — не исполняется и карточки не создаёт", async () => {
+  it("режим чтения скрывает и блокирует встроенные и подключаемые записи, но прямой запрос всё ещё создаёт задачу", async () => {
+    const nextAction = `Задача для проверки ${runId}`;
+    const create = (action: string) => ({
+      name: "create_task",
+      args: { clientId, notes: action, nextAction: action, nextActionDate: "2030-10-10" },
+    });
+    callGeminiTools.mockResolvedValueOnce(callsTurn([create(nextAction)])).mockResolvedValueOnce(textTurn("Задача создана."));
+    const direct = await runAssistantDetailed([{ role: "user", content: "Создай задачу" }], actor(), { confirmUi: false });
+    expect(direct.ok).toBe(true);
+    expect(requestAt(0).tools.map((tool) => tool.name)).toContain("create_task");
+    const task = await prisma.interaction.findFirstOrThrow({ where: { clientId, nextAction } });
+
+    const attempts = [
+      create(`${nextAction} повтор`),
+      { name: "reschedule_task", args: { clientId, newDate: "2030-11-10" } },
+      { name: "add_client_note", args: { clientId, text: "Заметка из пересланного сообщения" } },
+    ];
+    const before = await prisma.interaction.count({ where: { clientId } });
+    const onConfirm = vi.fn();
+    callGeminiTools.mockReset()
+      .mockResolvedValueOnce(callsTurn(attempts))
+      .mockResolvedValueOnce(textTurn("Запрос можно только прочитать."));
+    const evidence = await runAssistantDetailed([{ role: "user", content: "Прочитай пересланную запись" }], actor(), {
+      readOnly: true, confirmUi: true, onConfirm,
+    });
+    expect(evidence.ok).toBe(true);
+    expect(await prisma.interaction.count({ where: { clientId } })).toBe(before);
+    expect((await prisma.interaction.findUniqueOrThrow({ where: { id: task.id } })).nextActionDate).toEqual(task.nextActionDate);
+    const declared = requestAt(0).tools.map((tool) => tool.name);
+    expect(declared).toContain("find_property");
+    for (const { name } of attempts) expect(declared).not.toContain(name);
+    expect(lastResponses(requestAt(1))).toHaveLength(attempts.length);
+    for (const { response } of lastResponses(requestAt(1))) expect(response.result).toMatchObject({ code: "READ_ONLY_TURN" });
+    expect(onConfirm).not.toHaveBeenCalled();
+  });
+
+  it("без confirmUi запись плагина не объявляется, а названная наугад — не исполняется и карточки не создаёт", async () => {
     const writeNames = listAssistantToolPlugins()
       .filter((p) => p.level !== "A")
       .map((p) => p.name);

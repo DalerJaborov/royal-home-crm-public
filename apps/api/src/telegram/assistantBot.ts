@@ -270,10 +270,12 @@ async function runTurn(params: TurnParams): Promise<TurnResult | null> {
   const seen = new Map<string, AssistantActionView>();
   let structured = Boolean(params.forwardedVoice);
   let propertyResults = false;
+  const readOnly = Boolean(params.forwardedVoice || params.readOnlyGroup);
   const outcome = await runAssistantDetailed(params.history, actor, {
     channel: "telegram",
     moneyWallet: params.moneyWallet,
-    confirmUi: !params.forwardedVoice && !params.readOnlyGroup,
+    confirmUi: !readOnly,
+    readOnly,
     onConfirm: (action) => seen.set(action.id, action),
     onToolResult: name => {
       structured = true;
