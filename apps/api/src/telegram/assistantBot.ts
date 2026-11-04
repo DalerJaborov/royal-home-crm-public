@@ -3,7 +3,7 @@ import { assistantGroupClarification, sendAssistantReply } from "./assistantDeli
 import { editTelegramConfirmationMessage, sendTelegramPriceConfirmationPhotos } from "./assistantConfirmationPhotos.js";
 import { ASSISTANT_COLLEAGUE_GREETING, ASSISTANT_GROUP_GREETING } from "./assistantGroupPhrases.js";
 import { findPropertiesByRef } from "../lib/propertyRefLookup.js";
-import { GROUP_QUIET_MS, GROUP_REMAKE_REASON_QUESTION, GROUP_WELCOME_INTERVAL_MS, PROACTIVE_GROUP_INTERVAL_MS, groupMembershipEvent, groupMontageCommand, groupPropertyRefs, groupStatusFollowUp, isGroupPropertyFollowUp, isGroupRemakeReasonQuestion, proactivePropertyReply, requestedGroupParticipation, unaddressedConfirmationRequest, unaddressedPropertyQuestion, unaddressedReadRequest, type GroupConfirmationTool } from "./assistantGroupParticipation.js";
+import { GROUP_QUIET_MS, GROUP_REMAKE_REASON_QUESTION, GROUP_WELCOME_INTERVAL_MS, PROACTIVE_GROUP_INTERVAL_MS, groupMembershipEvent, groupMontageCommand, groupPropertyRefs, groupStatusFollowUp, isGroupPropertyFollowUp, isGroupRemakeReasonQuestion, isShortPropertyFollowUp, proactivePropertyReply, requestedGroupParticipation, unaddressedConfirmationRequest, unaddressedPropertyQuestion, unaddressedReadRequest, type GroupConfirmationTool } from "./assistantGroupParticipation.js";
 export { renderAssistantForTelegram } from "./assistantReply.js";
 import { randomUUID } from "node:crypto";
 import { formatPropertyCode, isReadOnlyRole, trimAssistantHistory, type AssistantPropertyCard, type PermissionId } from "@royal-home/shared";
@@ -159,7 +159,7 @@ export function renderBundleCard(actions: readonly AssistantActionView[], author
       return [
         tajik && code ? `Нархи ${code}` : head,
         `${tajik ? "Пеш" : "Было"}: ${translate(p.was.Цена)} → ${translate(p.becomes.Цена)}`,
-        ...(p.becomes.Заявка ? [tajik ? "Баъди тасдиқи роҳбар иваз мешавад." : "Цена изменится после одобрения руководителем."] : []),
+        ...(p.becomes.Заявка ? [tajik ? "Роҳбар розӣ шавад, нарх иваз мешавад." : "Цена изменится после одобрения руководителем."] : []),
       ].join("\n");
     }
     return [
@@ -350,7 +350,7 @@ async function sendTurnResult(
   const room = Math.max(0, TEXT_MAX_CHARS - card.length - 2);
   const text = [body.slice(0, room), card].filter(Boolean).join("\n\n");
   const buttons = [[
-    { text: tajikPrice ? "Тасдиқ" : irreversible ? "✅ Подтвердить (необратимо)" : maskPhones ? "Подтвердить" : "✅ Подтвердить", callback_data: `as:ok:${bundleId}` },
+    { text: tajikPrice ? "Ҳа" : irreversible ? "✅ Подтвердить (необратимо)" : maskPhones ? "Подтвердить" : "✅ Подтвердить", callback_data: `as:ok:${bundleId}` },
     { text: tajikPrice ? "Бекор" : maskPhones ? "Отмена" : "✖ Отмена", callback_data: `as:no:${bundleId}` },
   ]];
   if (priceOnlyInGroup && result.pending.length === 1
@@ -556,26 +556,42 @@ let groupClock: () => number = () => Date.now();
 export function setGroupClockForTests(clock: (() => number) | null): void {
   groupClock = clock ?? (() => Date.now());
 }
-/** Окна раздельные: ключ — чат и человек; чужие сообщения внутри окна другого не читаются. */
-const dialogWindows = new Map<string, { until: number; junk: number; registeredAt: number }>();
-const windowKey = (chatId: string, userId: number | string) => `${chatId}:${userId}`;
+/** The window is scoped to the group, topic and sender, and carries no message bodies. */
+interface GroupDialogWindow {
+  until: number;
+  junk: number;
+  registeredAt: number;
+  directed: boolean;
+  propertyRef?: string;
+  messageId?: number;
+}
+const dialogWindows = new Map<string, GroupDialogWindow>();
+function groupWindowKey(msg: TelegramIncomingMessage): string | null {
+  if (!msg.from?.id || msg.from.is_bot || msg.sender_chat) return null;
+  return `${msg.chat.id}:${msg.message_thread_id ?? 0}:${msg.from.id}`;
+}
+
+function currentWindow(key: string | null): GroupDialogWindow | undefined {
+  if (!key) return;
+  const entry = dialogWindows.get(key);
+  if (entry && entry.until <= groupClock()) {
+    dialogWindows.delete(key);
+    return;
+  }
+  return entry;
+}
 
 /** Текст сообщения, если оно внутри открытого окна автора и похоже на просьбу; иначе null. */
-function windowRequest(msg: TelegramIncomingMessage, chatId: string): string | null {
-  if (!msg.from?.id || msg.from.is_bot || msg.sender_chat) return null;
-  const key = windowKey(chatId, msg.from.id);
-  const entry = dialogWindows.get(key);
-  if (!entry) return null;
-  if (entry.until <= groupClock()) {
-    dialogWindows.delete(key);
-    return null;
-  }
+function windowRequest(msg: TelegramIncomingMessage, key: string | null): string | null {
+  const entry = currentWindow(key);
+  if (!key || !entry) return null;
   const raw = (msg.text ?? "").trim();
   if (!raw) return null;
   if (WINDOW_STOP.test(raw)) {
     dialogWindows.delete(key);
     return null;
   }
+  if (!entry.directed) return null;
   if (!looksLikeBotRequest(raw)) {
     entry.junk += 1;
     if (entry.junk >= GROUP_WINDOW_MAX_JUNK) dialogWindows.delete(key);
@@ -611,12 +627,12 @@ async function groupMontageReply(
   if (!property) return tajik ? `${ref}-ро дар CRM наёфтам.` : `Не нашла ${ref} в CRM.`;
   if (property.videoHandoffStatus === "QUEUED") {
     const remake = Boolean(property.videoHandoffRemakeReason);
-    return tajik ? `${ref} аллакай дар навбати ${remake ? "монтажи дубора" : "монтаж"} аст.`
+    return tajik ? `Навори ${ref} дар навбат аст${remake ? ". Аз нав месозанд" : ""}.`
       : `${ref} уже в очереди на ${remake ? "перемонтаж" : "монтаж"}.`;
   }
   if (property.videoHandoffStatus === "SENT_TO_EDITOR") {
     const delivered = Boolean(property.videoHandoffDeliveredAt && !property.videoHandoffManualSince);
-    return tajik ? (delivered ? `${ref} аллакай назди монтажёр аст.` : `${ref}: расидани файлҳо ба монтажёр ҳоло тасдиқ нашудааст.`)
+    return tajik ? (delivered ? `Навори ${ref} назди монтажёр аст.` : `Ҳоло намедонам, ки навори ${ref} ба дасти монтажёр расид ё не.`)
       : (delivered ? `${ref} уже у монтажёра.` : `${ref}: доставка файлов монтажёру ещё не подтверждена.`);
   }
   if (askReason && (property.videoHandoffFinalPath || property.publishedChannels?.length)) {
@@ -634,6 +650,7 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
   const botUsername = await getBotUsername();
   if (!botUsername) return false;
   const chatId = String(msg.chat.id);
+  const key = groupWindowKey(msg);
   let { addressed, text } = addressedToBot(msg, botUsername);
   let raw = (msg.text ?? "").trim();
   const groupCommand = new RegExp(`^/assistant_(on|off|quiet|resume)(?:@${escapeRe(botUsername)})?(?:\\s|$)`, "i").exec(raw);
@@ -652,17 +669,21 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
     && msg.voice.duration > 0 && msg.voice.duration <= GROUP_SHORT_VOICE_SECONDS;
   const audioDuration = (msg.voice ?? msg.audio)?.duration;
   const isForwarded = Boolean(msg.forward_origin || msg.forward_from_message_id);
+  const entry = currentWindow(key);
+  const continuation = (words: string) => !isForwarded && !msg.reply_to_message
+    && isShortPropertyFollowUp(words) ? entry?.propertyRef : undefined;
+  let continuationRef = continuation(addressed ? text : raw);
   const standaloneVoice = !addressed && !groupCommand && !membership && !raw
     && typeof audioDuration === "number" && audioDuration > 0 && audioDuration <= GROUP_AUDIO_MAX_SECONDS
     && Boolean(msg.from?.id && !msg.from.is_bot && !msg.sender_chat);
   if (!addressed && !groupCommand && !membership) {
-    windowText = windowRequest(msg, chatId);
-    if (windowText === null && msg.from?.id && !msg.from.is_bot && !msg.sender_chat && !msg.forward_origin && !msg.forward_from_message_id) {
+    if (!continuationRef && !isForwarded) windowText = windowRequest(msg, key);
+    if (!continuationRef && windowText === null && key && !isForwarded) {
       automatic = unaddressedPropertyQuestion(raw);
       automaticRead = !automatic && (statusFollowUp || (!msg.reply_to_message && unaddressedReadRequest(raw)));
       if (!automatic && !automaticRead && !msg.reply_to_message) automaticAction = unaddressedConfirmationRequest(raw);
     }
-    if (windowText === null && !automatic && !automaticRead && !automaticAction && !standaloneVoice) return false;
+    if (!continuationRef && windowText === null && !automatic && !automaticRead && !automaticAction && !standaloneVoice) return false;
   }
   const reply = (t: string) => sendMessage(chatId, t, msg.message_id).then(() => undefined);
 
@@ -715,6 +736,24 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
     const registered = await prisma.assistantTelegramGroup.findUnique({ where: { chatId } });
     if (!registered) return false;
     const now = new Date(groupClock());
+    const registeredAt = registered.createdAt.getTime();
+    if (entry?.registeredAt !== registeredAt) continuationRef = undefined;
+    const openWindow = (directed: boolean, propertyRef?: string) => {
+      if (!key) return;
+      const previous = currentWindow(key);
+      if (previous?.registeredAt === registeredAt && previous.messageId != null
+          && msg.message_id != null && msg.message_id < previous.messageId) return;
+      dialogWindows.delete(key);
+      dialogWindows.set(key, {
+        until: groupClock() + GROUP_DIALOG_WINDOW_MS, junk: 0, registeredAt,
+        directed: directed || (previous?.registeredAt === registeredAt && previous.directed),
+        propertyRef, messageId: msg.message_id,
+      });
+      if (dialogWindows.size > 512) {
+        const oldest = dialogWindows.keys().next().value;
+        if (oldest) dialogWindows.delete(oldest);
+      }
+    };
     if (membership === "people-joined") {
       if (!(await isAiAssistantEnabled())) return true;
       const cooldown = new Date(now.getTime() - GROUP_WELCOME_INTERVAL_MS);
@@ -740,8 +779,8 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
       if (update.count === 1) {
         const lang = assistantLanguage([{ role: "user", content: text }]);
         await reply(participation === "quiet"
-          ? lang === "tg" ? "То 30 дақиқа танҳо ҳангоми муроҷиати мустақим ҷавоб медиҳам." : "Хорошо. Полчаса отвечаю только на прямые обращения."
-          : lang === "tg" ? "Хуб, боз метавонам ба саволҳои равшан худам ҷавоб диҳам." : "Хорошо. Снова могу сама отвечать на ясные вопросы по объектам.");
+          ? lang === "tg" ? "Хуб. То ним соат танҳо вақте маро ҷеғ занед, ҷавоб медиҳам." : "Хорошо. Полчаса отвечаю только на прямые обращения."
+          : lang === "tg" ? "Хуб, боз худам ба саволҳо ҷавоб медиҳам." : "Хорошо. Снова могу сама отвечать на ясные вопросы по объектам.");
       }
       return true;
     }
@@ -758,12 +797,16 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
         || (current.proactiveMutedUntil && current.proactiveMutedUntil.getTime() > groupClock())) return false;
       fromVoice = true;
       raw = voice.text.replace(/\s+/gu, " ").trim();
+      continuationRef = entry?.registeredAt === registeredAt ? continuation(raw) : undefined;
       statusFollowUp = Boolean(quoted && groupStatusFollowUp(raw, quoted));
       const spoken = addressedToBot({ ...msg, text: raw }, botUsername);
       if (!isForwarded && /^(?:шабнам|мушовир)(?=$|[\s,:;.!?—–-])/iu.test(raw)
         && spoken.addressed && spoken.text && !requestedGroupParticipation(spoken.text)) {
         addressed = true;
         text = spoken.text;
+        continuationRef = entry?.registeredAt === registeredAt ? continuation(text) : undefined;
+      } else if (continuationRef) {
+        text = raw;
       } else {
         automatic = unaddressedPropertyQuestion(raw);
         automaticRead = !automatic && (statusFollowUp || unaddressedReadRequest(raw));
@@ -799,6 +842,7 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
         await sendAssistantReply(chatId, proactivePropertyReply(property, automatic.lang), {
           scope: "group", mode: "text", structured: true, replyTo: msg.message_id, written: [],
         });
+        openWindow(false, formatPropertyCode(property.shortId));
         return true;
       }
       if (automaticAction === "send_to_remake") {
@@ -839,18 +883,16 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
         scope: "group", mode: "text", structured: result.structured, replyTo: msg.message_id, written: [],
         requestLanguage: assistantLanguage([{ role: "user", content: raw }]),
       });
+      const refs = groupPropertyRefs(statusFollowUp ? quoted : raw);
+      openWindow(false, refs.length === 1 ? refs[0] : undefined);
       return true;
     }
 
-    const key = msg.from?.id ? windowKey(chatId, msg.from.id) : null;
-    const registeredAt = registered.createdAt.getTime();
     if (windowText !== null && key && dialogWindows.get(key)?.registeredAt !== registeredAt) {
       dialogWindows.delete(key);
       return false;
     }
-    const openWindow = () => {
-      if (key) dialogWindows.set(key, { until: groupClock() + GROUP_DIALOG_WINDOW_MS, junk: 0, registeredAt });
-    };
+    if (!addressed && !continuationRef && windowText === null) return false;
 
     if (!sender) {
       await reply(msg.sender_chat ? "Анонимного админа не узнаю — напишите от своего имени." : NOT_LINKED_TEXT);
@@ -886,7 +928,7 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
     if (!request) {
       if (!(await isAiAssistantEnabled())) { await reply(DISABLED_TEXT); return true; }
       if (!(await loadAgentAccess(sender.id))?.isActive) { await reply("Ваша учётка отключена."); return true; }
-      openWindow();
+      openWindow(true);
       await reply("Слушаю. Что нужно сделать?");
       return true;
     }
@@ -898,8 +940,10 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
     const refs = currentRefs.length ? currentRefs : repliedToThisBot ? groupPropertyRefs(quoted) : [];
     const language = assistantLanguage([{ role: "user", content: words }]);
     const tajik = command?.tajik || language === "tg" || language === "mixed"
-      || (repliedToThisBot && assistantLanguage([{ role: "user", content: quoted }]) === "tg");
-    if (command || reasonReply) {
+      || (language === "unknown" && repliedToThisBot && assistantLanguage([{ role: "user", content: quoted }]) === "tg");
+    if (continuationRef) {
+      request = tajik ? `${words}\nРақами объект: ${continuationRef}.` : `${words}\nНомер объекта: ${continuationRef}.`;
+    } else if (command || reasonReply) {
       const access = await loadAgentAccess(sender.id);
       if (!access?.isActive || !(await isAiAssistantEnabled())) return true;
       if (refs.length > 1 || (!refs.length && command && !command.tail)) {
@@ -931,12 +975,18 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
       agentId: sender.id,
       moneyWallet,
       scope: "group",
+      readOnlyGroup: Boolean(continuationRef),
       forwardedVoice,
       history: [{ role: "user", content: request.slice(0, 4000) }],
       deny: reply,
     });
     if (!result) return true;
-    openWindow();
+    if (continuationRef) {
+      const current = await prisma.assistantTelegramGroup.findUnique({ where: { chatId } });
+      if (!current || current.createdAt.getTime() !== registeredAt
+          || (!addressed && current.proactiveMutedUntil && current.proactiveMutedUntil.getTime() > groupClock())) return true;
+    }
+    if (!result.failed) openWindow(addressed || windowText !== null, continuationRef ?? (refs.length === 1 ? refs[0] : undefined));
     await sendTurnResult(chatId, result, {
       agentId: sender.id,
       authorName: sender.fullName,
@@ -1133,7 +1183,7 @@ export function renderGroupPriceResult(action: AssistantActionView, tajik = fals
   const price = field(action.preview.becomes.Цена).replace(/\s+с\.?$/u, tajik ? " сомонӣ" : " сомони");
   const code = formatPropertyCode(shortId);
   if (result.applied === true) return `${code} · ${tajik ? "нарх шуд" : "цена теперь"} ${price}`;
-  if (result.status === "PENDING") return tajik ? `${code} · ${price}, дар интизори тасдиқ` : `${code} · цена ${price} ждёт одобрения`;
+  if (result.status === "PENDING") return tajik ? `${code} · ${price}, ҳоло роҳбар бояд розӣ шавад` : `${code} · цена ${price} ждёт одобрения`;
   return undefined;
 }
 

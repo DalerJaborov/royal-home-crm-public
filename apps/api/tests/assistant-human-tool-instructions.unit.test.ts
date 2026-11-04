@@ -23,6 +23,6 @@ describe("assistant user-facing tool instructions", () => {
     expect(requestPropertyChangePlugin.description).not.toMatch(/CARD_DATA|UNPUBLISH|OTHER/);
     expect(changePropertyStatusPlugin.description).not.toMatch(/AVAILABLE|RESERVED|SOLD|WITHDRAWN/);
     expect(assistantStyle("telegram")).toContain("Никогда не перечисляй их сотруднику");
-    expect(assistantStyle("telegram")).toContain("Дар навор чиро ислоҳ кунам?");
+    expect(assistantStyle("telegram")).toContain("Дар навор чиро иваз кунем?");
   });
 });

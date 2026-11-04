@@ -361,7 +361,7 @@ describe("object context from a reply to Shabnam", () => {
     f.findProperty.mockResolvedValue({ kind: "shortId", properties: [queued] });
     await f.send("Фиристон ба монтажер", ownQuote("Нархи ОБ-000132 иваз шуд. Навор ба монтаж фиристода нашуд."));
     expect(f.findProperty).toHaveBeenCalledWith("ОБ-000132", expect.any(Object));
-    expect(f.plain).toHaveBeenCalledWith("-100", "ОБ-000132 аллакай дар навбати монтажи дубора аст.", 10);
+    expect(f.plain).toHaveBeenCalledWith("-100", "Навори ОБ-000132 дар навбат аст. Аз нав месозанд.", 10);
     expect(f.run).not.toHaveBeenCalled();
   });
   it("asks one human question and preserves the same object when the reason comes back", async () => {
@@ -382,6 +382,36 @@ describe("object context from a reply to Shabnam", () => {
     expect(f.findProperty).not.toHaveBeenCalled();
     await f.send("А сколько стоит?", ownQuote("ОБ-000132. Старые данные: 879 000 сомони."));
     expect(f.run.mock.calls[0]?.[0]).toEqual([{ role: "user", content: "А сколько стоит?\nНомер объекта: ОБ-000132." }]);
+  });
+  it("answers a follow-up about the last property without a new mention, using only read tools", async () => {
+    const f = fixture();
+    await f.send("Какая цена у ОБ-123?");
+    await f.send("А сколько дней?", { message_id: 11 });
+    expect(f.run.mock.calls[0]?.[0]).toEqual([{ role: "user", content: "А сколько дней?\nНомер объекта: ОБ-000123." }]);
+    expect(f.run.mock.calls[0]?.[2]).toMatchObject({ confirmUi: false });
+  });
+  it("keeps the last property local to the employee and topic, and expires it", async () => {
+    const f = fixture();
+    await f.send("Какая цена у ОБ-123?", { message_thread_id: 71 });
+    await f.send("А сколько дней?", { message_thread_id: 72 });
+    await f.send("А сколько дней?", { message_thread_id: 71, from: { id: 2 } });
+    expect(f.run).not.toHaveBeenCalled();
+    f.advance(f.adapter.GROUP_DIALOG_WINDOW_MS + 1);
+    await f.send("А сколько дней?", { message_thread_id: 71 });
+    expect(f.run).not.toHaveBeenCalled();
+  });
+  it("does not use a price lookup to authorize an unrelated write or follow a forwarded question", async () => {
+    const f = fixture();
+    await f.send("Какая цена у ОБ-123?");
+    await f.send("поставь на перемонтаж");
+    await f.send("А сколько дней?", { forward_origin: { type: "user" } });
+    expect(f.run).not.toHaveBeenCalled();
+  });
+  it("uses the same object for a short Tajik follow-up without copying the previous reply", async () => {
+    const f = fixture();
+    await f.send("ОБ-123, нархаш чанд?");
+    await f.send("Чанд рӯз шуд?", { message_id: 11 });
+    expect(f.run.mock.calls[0]?.[0]).toEqual([{ role: "user", content: "Чанд рӯз шуд?\nРақами объект: ОБ-000123." }]);
   });
 });
 
