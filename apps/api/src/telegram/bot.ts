@@ -386,7 +386,7 @@ async function dispatchTelegramUpdate(update: TelegramUpdate): Promise<TelegramU
   if (msg.chat.type && msg.chat.type !== "private") {
     await captureAssistantTelegramContext(msg, update.update_id);
     // Помощница сотрудников: участие разрешено только для подключённых рабочих групп.
-    if (await handleAssistantGroupMessage(msg)) return;
+    if (await handleAssistantGroupMessage(msg, update.update_id)) return;
     await handleDiscussionGroupMessage(msg);
     return;
   }

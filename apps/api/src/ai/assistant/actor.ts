@@ -18,6 +18,8 @@ import { investigationRoleFor } from "../../auth/investigations.js";
 export interface AssistantActor {
   id: string;
   role: string;
+  /** Explicitly set by authenticated assistant entry points. Missing means unknown. */
+  surface?: "crm-private" | "telegram-private" | "telegram-group";
   /** clients.viewAll — видеть чужих клиентов. НЕ даёт права писать в них (см. canAssignClients). */
   canViewAllClients: boolean;
   /**
@@ -67,11 +69,16 @@ export interface AssistantActor {
 }
 
 /** Актор помощника из прав сотрудника — тех же, что проверяет requireAuth. */
-export function actorFromAccess(agentId: string, access: Pick<AgentAccess, "role" | "permissions">): AssistantActor {
+export function actorFromAccess(
+  agentId: string,
+  access: Pick<AgentAccess, "role" | "permissions">,
+  surface?: AssistantActor["surface"],
+): AssistantActor {
   const has = (permission: PermissionId) => access.permissions.has(permission);
   return {
     id: agentId,
     role: access.role,
+    ...(surface ? { surface } : {}),
     canViewAllClients: has("clients.viewAll"),
     canViewPhone: has("clients.viewPhone"),
     canViewReports: has("reports.view"),

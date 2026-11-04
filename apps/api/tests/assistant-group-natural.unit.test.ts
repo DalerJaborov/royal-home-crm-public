@@ -33,6 +33,7 @@ function fixture() {
   const run = vi.fn(async (_history: unknown, _actor: unknown, _options: unknown) => ({ ok: true, reply: "Готово." }));
   const media = vi.fn(async () => ({ extraction: { transcript: "Проверь, пожалуйста." } }));
   const context = vi.fn(async () => [{ occurredAt: new Date(0), text: "Просили обновить цену." }]);
+  const retainTranscript = vi.fn(async (_message: TelegramIncomingMessage, _updateId: number, _agentId: string, _text: string) => {});
   const fast = vi.fn(async () => null as unknown);
   const card = vi.fn(async () => true);
   const create = vi.fn(async (input: { skipDuplicates: boolean }) => {
@@ -47,7 +48,7 @@ function fixture() {
     "@royal-home/shared": shared,
     "./assistantReply.js": replies,
     "./assistantGroupParticipation.js": participation,
-    "./assistantGroupContext.js": { loadAssistantTelegramContext: context },
+    "./assistantGroupContext.js": { loadAssistantTelegramContext: context, retainAssistantTelegramTranscript: retainTranscript },
     "../lib/propertyRefLookup.js": { findPropertiesByRef: findProperty },
     "./assistantVoice.js": { sendAssistantVoiceReply: voice },
     "./api.js": { getBotUsername: async () => "fixture_bot", sendMessage: plain, sendHtmlMessage: html,
@@ -95,11 +96,12 @@ function fixture() {
   const message = (text = "", extra: Partial<TelegramIncomingMessage> = {}) => ({
     chat: { id: -100, type: "supergroup" }, from: { id: 1 }, message_id: 10, text, ...extra,
   });
-  return { adapter, plain, html, voice, run, media, fast, card, create, findProperty, context,
+  return { adapter, plain, html, voice, run, media, fast, card, create, findProperty, context, retainTranscript,
     setContext: (value: boolean) => { contextEnabledAt = value ? new Date(now) : null; },
     setLinked: (value: boolean) => { groupLinked = value; },
     setDiscussion: (value: string) => { discussionGroupId = value; },
-    message, send: (text = "", extra: Partial<TelegramIncomingMessage> = {}) => adapter.handleAssistantGroupMessage(message(text, extra)),
+    message, send: (text = "", extra: Partial<TelegramIncomingMessage> = {}, updateId?: number) =>
+      adapter.handleAssistantGroupMessage(message(text, extra), updateId),
     setRegistered: (value: boolean) => { registered = value; }, setEnabled: (value: boolean) => { enabled = value; },
     setRole: (value: string) => { role = value; }, setActive: (value: boolean) => { active = value; },
     advance: (milliseconds: number) => { now += milliseconds; } };
@@ -280,7 +282,7 @@ describe("optional help without an address", () => {
       expect.objectContaining({ confirmUi: false }),
     );
     const actor = f.run.mock.calls[0][1] as { hiddenTools: Set<string> };
-    for (const tool of ["create_task", "reschedule_task", "get_client_history", "web_reference"]) {
+    for (const tool of ["create_task", "reschedule_task", "get_client_history", "get_client_last_call", "web_reference"]) {
       expect(actor.hiddenTools.has(tool)).toBe(true);
     }
     expect(f.html).toHaveBeenCalledOnce();
@@ -297,6 +299,12 @@ describe("optional help without an address", () => {
     await f.send(request);
     expect(f.run).toHaveBeenCalledOnce();
     expect(f.html).not.toHaveBeenCalled();
+  });
+  it("keeps the latest-call transcript tool hidden even for a direct request in the group", async () => {
+    const f = fixture();
+    await f.send("@fixture_bot Что клиент сказал в последнем звонке?");
+    const actor = f.run.mock.calls[0]?.[1] as { hiddenTools: Set<string> };
+    expect(actor.hiddenTools.has("get_client_last_call")).toBe(true);
   });
   it("uses the quoted property to answer a delay question, without changing CRM", async () => {
     const f = fixture();
@@ -453,6 +461,38 @@ describe("same-topic evidence for explicit history questions", () => {
 });
 
 describe("standalone group voice", () => {
+  it.each([false, true])("reuses the single successful ASR result for group evidence (explicit reply: %s)", async direct => {
+    const f = fixture();
+    f.setContext(true);
+    const transcript = "Шабнам, скажи статус ОБ-123.";
+    f.media.mockResolvedValue({ extraction: { transcript } });
+    const voice = { file_id: "test-native-voice", duration: 9 };
+    const incoming = direct ? {
+      voice, reply_to_message: { chat: { id: -100 }, from: { id: 2, is_bot: true, username: "fixture_bot" } },
+    } : { voice };
+    expect(await f.send("", incoming, 456)).toBe(true);
+    expect(f.media).toHaveBeenCalledTimes(1);
+    expect(f.retainTranscript).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ message_id: 10, voice }), 456, "test-1", transcript,
+    );
+  });
+
+  it("does not send failed, forwarded or non-opted-in ASR into group evidence", async () => {
+    const f = fixture();
+    const voice = { file_id: "test-native-voice", duration: 9 };
+    f.media.mockResolvedValueOnce({ extraction: { transcript: "Шабнам, скажи статус ОБ-123." } });
+    await f.send("", { voice }, 456);
+    f.setContext(true);
+    f.media.mockResolvedValueOnce({ extraction: { transcript: "" } });
+    await f.send("", { voice }, 457);
+    await f.send("", {
+      voice, forward_origin: { type: "user" },
+      reply_to_message: { chat: { id: -100 }, from: { id: 2, is_bot: true, username: "fixture_bot" } },
+    }, 458);
+    expect(f.media).toHaveBeenCalledTimes(3);
+    expect(f.retainTranscript).not.toHaveBeenCalled();
+  });
+
   const audio = { voice: { file_id: "test-voice", duration: 9 } };
   it.each(["Подбери двухкомнатные квартиры в Сино", "Хонаи дуҳуҷра дар Сино ҳаст?"])(
     "transcribes and answers a clear CRM question using read-only group tools: %s", async transcript => {

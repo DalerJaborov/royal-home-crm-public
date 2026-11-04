@@ -5479,7 +5479,7 @@
     },
     {
      "k": "do",
-     "t": "const actor = actorFromAccess(req.agent!.id, req.agent!);",
+     "t": "const actor = actorFromAccess(req.agent!.id, req.agent!, \"crm-private\");",
      "a": [
       "зовёт actorFromAccess()"
      ],

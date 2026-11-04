@@ -1258,7 +1258,7 @@
   - если !res.writableFinished
     - clientGone.abort();
       · дословно из кода
-- const actor = actorFromAccess(req.agent!.id, req.agent!);
+- const actor = actorFromAccess(req.agent!.id, req.agent!, "crm-private");
   · зовёт actorFromAccess()
 - пробует
   - если lastMessage?.role === "user"

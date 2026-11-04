@@ -2,7 +2,7 @@ import { renderAssistantForTelegram, requestedAssistantReplyMode, sanitizeAssist
 import { assistantGroupClarification, sendAssistantReply } from "./assistantDelivery.js";
 import { editTelegramConfirmationMessage, sendTelegramPriceConfirmationPhotos } from "./assistantConfirmationPhotos.js";
 import { ASSISTANT_COLLEAGUE_GREETING, ASSISTANT_GROUP_GREETING } from "./assistantGroupPhrases.js";
-import { loadAssistantTelegramContext } from "./assistantGroupContext.js";
+import { loadAssistantTelegramContext, retainAssistantTelegramTranscript } from "./assistantGroupContext.js";
 import { findPropertiesByRef } from "../lib/propertyRefLookup.js";
 import { GROUP_QUIET_MS, GROUP_REMAKE_REASON_QUESTION, GROUP_WELCOME_INTERVAL_MS, PROACTIVE_GROUP_INTERVAL_MS, groupHistoryQuestion, groupMembershipEvent, groupMontageCommand, groupPropertyRefs, groupStatusFollowUp, isGroupPropertyFollowUp, isGroupRemakeReasonQuestion, isShortPropertyFollowUp, proactivePropertyReply, requestedGroupParticipation, unaddressedConfirmationRequest, unaddressedPropertyQuestion, unaddressedReadRequest, type GroupConfirmationTool } from "./assistantGroupParticipation.js";
 export { renderAssistantForTelegram } from "./assistantReply.js";
@@ -100,7 +100,9 @@ const BUNDLE_CALLBACK = /^as:(ok|no):([0-9a-f-]{36})$/;
 // ───────────────────────────── права ─────────────────────────────
 
 /** Права, которых в общей группе у помощника нет, даже если они есть у спросившего. */
-const GROUP_HIDDEN_PERMISSIONS: readonly PermissionId[] = ["clients.viewPhone", "finance.view", "reports.view"];
+const GROUP_HIDDEN_PERMISSIONS: readonly PermissionId[] = [
+  "clients.viewPhone", "finance.view", "reports.view", "calls.transcripts", "calls.ownTranscripts",
+];
 
 /**
  * Инструменты, закрытые в общей группе: комиссия по СВОИМ сделкам отдаётся и без
@@ -112,6 +114,7 @@ const GROUP_HIDDEN_TOOLS: ReadonlySet<string> = new Set([
   "get_company_stats",
   "get_finance_summary",
   "get_lead_sources",
+  "get_client_last_call",
   "create_task",
   "reschedule_task",
   "add_client_note",
@@ -123,10 +126,10 @@ export function assistantActorFor(
   access: Pick<AgentAccess, "role" | "permissions">,
   scope: "private" | "group"
 ): AssistantActor {
-  if (scope === "private") return actorFromAccess(agentId, access);
+  if (scope === "private") return actorFromAccess(agentId, access, "telegram-private");
   const permissions = new Set(access.permissions);
   for (const hidden of GROUP_HIDDEN_PERMISSIONS) permissions.delete(hidden);
-  return { ...actorFromAccess(agentId, { role: access.role, permissions }), hiddenTools: GROUP_HIDDEN_TOOLS };
+  return { ...actorFromAccess(agentId, { role: access.role, permissions }, "telegram-group"), hiddenTools: GROUP_HIDDEN_TOOLS };
 }
 
 /** Актор брокера на нажатии: ПОЛНЫЕ свежие права нажавшего, канал telegram. */
@@ -646,7 +649,7 @@ async function groupMontageReply(
  * Сообщение из группы. true — разобрано здесь (бот сам и адресат); false — не про
  * помощника, дальше обычная логика групп (комментарии канала).
  */
-export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage): Promise<boolean> {
+export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, updateId?: number): Promise<boolean> {
   if (msg.chat.type !== "group" && msg.chat.type !== "supergroup") return false;
   const botUsername = await getBotUsername();
   if (!botUsername) return false;
@@ -791,10 +794,19 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
 
     if (!addressed && registered.proactiveMutedUntil && registered.proactiveMutedUntil > now) return false;
     const moneyWallet = createAssistantMoneyWallet();
+    const transcribeGroupVoice = async (agentId: string, standalone = false) => {
+      const result = await transcribeVoice(msg, agentId, moneyWallet, standalone);
+      if ("text" in result && registered.contextEnabledAt && updateId !== undefined && !isForwarded) {
+        await retainAssistantTelegramTranscript(msg, updateId, agentId, result.text).catch(() => {
+          console.warn("[telegram:assistant] group audio evidence could not be saved");
+        });
+      }
+      return result;
+    };
     let fromVoice = false;
     if (standaloneVoice) {
       if (!sender) return false;
-      const voice = await transcribeVoice(msg, sender.id, moneyWallet, true);
+      const voice = await transcribeGroupVoice(sender.id, true);
       if ("error" in voice) return false;
       const current = await prisma.assistantTelegramGroup.findUnique({ where: { chatId } });
       if (!current || current.createdAt.getTime() !== registered.createdAt.getTime()
@@ -941,7 +953,7 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
     }
     let forwardedVoice = false;
     if (!request && (msg.voice || msg.audio)) {
-      const voice = await transcribeVoice(msg, sender.id, moneyWallet);
+      const voice = await transcribeGroupVoice(sender.id);
       if ("error" in voice) {
         await reply(voice.error);
         return true;

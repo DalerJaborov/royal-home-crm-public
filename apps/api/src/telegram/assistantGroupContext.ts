@@ -64,8 +64,7 @@ function propertyReferences(text: string): number[] {
     .slice(0, RESULT_LIMIT);
 }
 
-/** Call only from a Telegram update received by the common poller/webhook dispatcher. */
-export async function captureAssistantTelegramContext(raw: unknown, updateId: number, now = new Date()): Promise<void> {
+function groupEvidenceSource(raw: unknown, updateId: number, now: Date) {
   if (!safeTelegramId.positive().safeParse(updateId).success) return;
   const result = groupMessage.safeParse(raw);
   if (!result.success) return;
@@ -76,18 +75,28 @@ export async function captureAssistantTelegramContext(raw: unknown, updateId: nu
 
   const rawText = (message.text ?? message.caption ?? "").trim();
   if (rawText.startsWith("/")) return;
-  const text = redactEvidence(rawText);
-  const kind = attachmentKind(message);
-  // Keep an empty edit as a tombstone, but don't archive empty service messages.
-  if (!text && !kind && message.edit_date === undefined) return;
-
   const occurredAt = new Date(message.date * 1_000);
   const sourceVersion = new Date((message.edit_date ?? message.date) * 1_000);
   const expiresAt = new Date(occurredAt.getTime() + RETENTION_MS);
   if (!Number.isFinite(sourceVersion.getTime()) || !Number.isFinite(expiresAt.getTime())
       || sourceVersion < occurredAt || expiresAt <= now || sourceVersion.getTime() > now.getTime() + 60_000) return;
 
-  const groupChatId = String(message.chat.id);
+  return {
+    message, rawText, occurredAt, sourceVersion, expiresAt,
+    groupChatId: String(message.chat.id), sourceUpdateId: BigInt(updateId),
+  };
+}
+
+/** Call only from a Telegram update received by the common poller/webhook dispatcher. */
+export async function captureAssistantTelegramContext(raw: unknown, updateId: number, now = new Date()): Promise<void> {
+  const source = groupEvidenceSource(raw, updateId, now);
+  if (!source) return;
+  const { message, rawText, groupChatId, occurredAt, sourceVersion, sourceUpdateId, expiresAt } = source;
+  const text = redactEvidence(rawText);
+  const kind = attachmentKind(message);
+  // Keep an empty edit as a tombstone, but don't archive empty service messages.
+  if (!text && !kind && message.edit_date === undefined) return;
+
   const registration = await prisma.assistantTelegramGroup.findUnique({
     where: { chatId: groupChatId },
     select: { contextEnabledAt: true },
@@ -102,8 +111,7 @@ export async function captureAssistantTelegramContext(raw: unknown, updateId: nu
   if (!author || String(settings?.telegramDiscussionGroupId ?? "") === groupChatId) return;
 
   const where = { groupChatId, messageId: message.message_id };
-  const sourceUpdateId = BigInt(updateId);
-  const content = { sourceVersion, sourceUpdateId, text, attachmentKind: kind, propertyRefs: propertyReferences(text) };
+  const content = { sourceVersion, sourceUpdateId, text, transcript: null, attachmentKind: kind, propertyRefs: propertyReferences(text) };
   await prisma.$transaction(async tx => {
     const active = await tx.$queryRaw<{ chatId: string }[]>`
       SELECT "chatId" FROM "AssistantTelegramGroup"
@@ -127,6 +135,46 @@ export async function captureAssistantTelegramContext(raw: unknown, updateId: nu
         ],
       },
       data: content,
+    });
+  });
+}
+
+/** Enrich the exact event already captured, using only a successful native group ASR result. */
+export async function retainAssistantTelegramTranscript(
+  raw: unknown, updateId: number, agentId: string, recognizedText: string, now = new Date(),
+): Promise<void> {
+  const source = groupEvidenceSource(raw, updateId, now);
+  if (!source) return;
+  const { message, rawText, groupChatId, occurredAt, sourceVersion, sourceUpdateId } = source;
+  const kind = attachmentKind(message);
+  if (message.edit_date !== undefined || (kind !== "voice" && kind !== "audio")) return;
+  const transcript = redactEvidence(recognizedText.trim());
+  if (!transcript) return;
+  const propertyRefs = [...new Set([
+    ...propertyReferences(redactEvidence(rawText)),
+    ...propertyReferences(transcript),
+  ])];
+
+  await prisma.$transaction(async tx => {
+    // Serialize against opt-out, unlinking and deactivation while the evidence is written.
+    const active = await tx.$queryRaw<{ chatId: string }[]>`
+      SELECT g."chatId"
+      FROM "AssistantTelegramGroup" g JOIN "Agent" a ON a."id" = ${agentId}
+      WHERE g."chatId" = ${groupChatId} AND g."contextEnabledAt" <= ${occurredAt}
+        AND a."isActive" = true AND a."telegramUserId" = ${String(message.from.id)}
+        AND NOT EXISTS (
+          SELECT 1 FROM "Settings" WHERE "id" = 'singleton' AND "telegramDiscussionGroupId" = ${groupChatId}
+        )
+      FOR SHARE OF g, a
+    `;
+    if (!active.length) return;
+    await tx.assistantTelegramContext.updateMany({
+      where: {
+        groupChatId, messageId: message.message_id, threadId: message.message_thread_id ?? null,
+        occurredAt, sourceVersion, sourceUpdateId, expiresAt: { gt: now },
+        authorAgentId: agentId, attachmentKind: kind, transcript: null,
+      },
+      data: { transcript, propertyRefs },
     });
   });
 }
@@ -163,22 +211,28 @@ export async function loadAssistantTelegramContext(input: {
   const viewer = await findAgentByTelegramUserId(input.telegramUserId);
   if (viewer?.id !== input.agentId) return [];
 
-  return prisma.assistantTelegramContext.findMany({
+  const rows = await prisma.assistantTelegramContext.findMany({
     where: {
       groupChatId: input.chatId,
       group: { contextEnabledAt: enabledAt },
       threadId: input.threadId,
       occurredAt: { gte: enabledAt },
       expiresAt: { gt: now },
-      text: { not: "" },
+      OR: [{ text: { not: "" } }, { transcript: { not: null } }],
       ...(isReply
         ? { messageId: selectedId }
         : { propertyRefs: { has: selectedId }, ...(input.beforeMessageId === undefined ? {} : { messageId: { lt: input.beforeMessageId } }) }),
     },
-    select: { messageId: true, occurredAt: true, text: true, attachmentKind: true },
+    select: { messageId: true, occurredAt: true, text: true, transcript: true, attachmentKind: true },
     orderBy: [{ occurredAt: "desc" }, { messageId: "desc" }],
     take: RESULT_LIMIT,
   });
+  return rows.map(({ text, transcript, ...source }) => ({
+    ...source,
+    text: transcript === null ? text : [
+      text.slice(0, 250), `Расшифровка аудио: ${transcript}`,
+    ].filter(Boolean).join("\n").slice(0, TEXT_LIMIT),
+  }));
 }
 
 export async function cleanupAssistantTelegramContext(now = new Date()): Promise<number> {
