@@ -379,7 +379,7 @@ async function dispatchTelegramUpdate(update: TelegramUpdate): Promise<TelegramU
    * всё остальное молча пропускается.
    */
   if (msg.chat.type && msg.chat.type !== "private") {
-    // Общая группа сотрудников: помощник отвечает только когда его позвали (П5).
+    // Помощница сотрудников: участие разрешено только для подключённых рабочих групп.
     if (await handleAssistantGroupMessage(msg)) return;
     await handleDiscussionGroupMessage(msg);
     return;

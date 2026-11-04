@@ -2,6 +2,7 @@ import { prisma } from "../db.js";
 import { decryptSecret } from "../crypto.js";
 import { describeError } from "../lib/describeError.js";
 import { resolveElevenLabsKey } from "../ai/liveVoiceProvider.js";
+import { directAssistantVoice } from "./assistantVoiceDirection.js";
 import { prepareAssistantReply } from "./assistantReply.js";
 import { claimAssistantTtsChars } from "./assistantVoiceBudget.js";
 import { sendChatAction, sendVoiceFile, sendAssistantVoiceId, TelegramApiError } from "./api.js";
@@ -18,7 +19,7 @@ const VOICE_PROFILES = {
     model: "eleven_v4_turbo",
     endpoint: "https://api.elevenlabs.io/v1/text-to-speech",
     normalization: "on",
-    settings: { stability: 0.45, similarity_boost: 0.75, style: 0.3, speed: 1.08, use_speaker_boost: true },
+    settings: { stability: 0.45, similarity_boost: 0.75 },
   },
   tg: {
     model: "eleven_v4",
@@ -87,6 +88,8 @@ export async function sendAssistantVoiceReply(chatId: string, replyText: string,
     const language = plan.language;
     const speech = plan.speech;
     if (speech.length < 3) return false;
+    const performance = directAssistantVoice(speech);
+    if (!performance) return false;
     const config = await resolveSpeechConfig(language);
     if (!config) return false;
     const render = async () => {
@@ -94,7 +97,7 @@ export async function sendAssistantVoiceReply(chatId: string, replyText: string,
       showRecording();
       const indicator = setInterval(showRecording, 4_000).unref();
       try {
-        return await synthesize(speech, language, config);
+        return await synthesize(performance, language, config);
       } finally {
         clearInterval(indicator);
       }
@@ -108,7 +111,7 @@ export async function sendAssistantVoiceReply(chatId: string, replyText: string,
     }
     const { voiceId } = config;
     const { model, endpoint, normalization } = VOICE_PROFILES[language];
-    const key = assistantVoiceCacheKey(speech, {
+    const key = assistantVoiceCacheKey(performance, {
       voiceId, model, endpoint, format: TTS_FORMAT, language, normalization,
       ...(language === "ru" ? { settings: VOICE_PROFILES.ru.settings } : {}),
     });

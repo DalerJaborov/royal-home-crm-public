@@ -926,6 +926,8 @@ export interface TelegramIncomingMessage extends TelegramMedia {
    * из них — по этому полю мы склеиваем их обратно в одно обращение (telegram/bot.ts). */
   media_group_id?: string;
   contact?: { phone_number: string; first_name?: string; user_id?: number };
+  new_chat_members?: { id: number; is_bot: boolean; username?: string }[];
+  left_chat_member?: { id: number; is_bot: boolean; username?: string };
   /** true — Telegram сам переслал пост канала в группу-обсуждение (зеркало).
    *  Комментарий приходит ОТДЕЛЬНЫМ сообщением с reply_to_message на это зеркало,
    *  а не на сам пост в канале — у поста и у зеркала разные message_id. */

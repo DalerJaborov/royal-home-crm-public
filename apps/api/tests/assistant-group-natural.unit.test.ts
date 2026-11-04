@@ -3,6 +3,7 @@ import { runInNewContext } from "node:vm";
 import ts from "typescript";
 import { describe, expect, it, vi } from "vitest";
 import * as replies from "../src/telegram/assistantReply.js";
+import * as participation from "../src/telegram/assistantGroupParticipation.js";
 import { assistantLanguage } from "../src/ai/assistant/languageRouting.js";
 import type { TelegramIncomingMessage } from "../src/telegram/api.js";
 
@@ -23,7 +24,9 @@ function load(name: string, dependencies: Record<string, unknown>) {
 
 function fixture() {
   let registered = true, enabled = true, active = true, role = "DIRECTOR", now = 1000, registeredAt = 0;
-  const plain = vi.fn(async () => ({})), html = vi.fn(async () => ({}));
+  let mutedUntil: Date | null = null, lastProactive: Date | null = null, lastWelcome: Date | null = null, groupLinked = true, discussionGroupId: string | null = null;
+  const findProperty = vi.fn(async () => ({ kind: "shortId", properties: [{ id: "fixture-property", shortId: 123, price: 630000, currency: "TJS", status: "AVAILABLE" }] }));
+  const plain = vi.fn(async () => ({})), html = vi.fn(async (..._args: unknown[]) => ({}));
   const voice = vi.fn(async () => true);
   const run = vi.fn(async (_history: unknown, _actor: unknown, _options: unknown) => ({ ok: true, reply: "Готово." }));
   const media = vi.fn(async () => ({ extraction: { transcript: "Проверь, пожалуйста." } }));
@@ -33,20 +36,33 @@ function fixture() {
     expect(input.skipDuplicates).toBe(true);
     // Atomic winner, including overlapping async handler invocations.
     const count = registered ? 0 : 1;
-    if (count) registeredAt = now;
+    if (count) { registeredAt = now; mutedUntil = null; lastProactive = null; lastWelcome = null; }
     registered = true;
     return { count };
   });
   const dependencies: Record<string, unknown> = {
     "./assistantReply.js": replies,
+    "./assistantGroupParticipation.js": participation,
+    "../lib/propertyRefLookup.js": { findPropertiesByRef: findProperty },
     "./assistantVoice.js": { sendAssistantVoiceReply: voice },
     "./api.js": { getBotUsername: async () => "fixture_bot", sendMessage: plain, sendHtmlMessage: html,
       sendMessageWithButtons: plain, sendChatAction: async () => {}, setMessageReaction: async () => {} },
-    "../db.js": { prisma: { settings: { findUnique: async () => ({ telegramDiscussionGroupId: null }) },
+    "../db.js": { prisma: { settings: { findUnique: async () => ({ telegramDiscussionGroupId: discussionGroupId }) },
       assistantTelegramGroup: { createMany: create, upsert: async () => { registered = true; },
-        findUnique: async () => registered ? { chatId: "-100", createdAt: new Date(registeredAt) } : null,
+        findUnique: async () => registered ? { chatId: "-100", createdAt: new Date(registeredAt), proactiveMutedUntil: mutedUntil, lastProactiveReplyAt: lastProactive, lastJoinWelcomeAt: lastWelcome } : null,
+        updateMany: async ({ where, data }: any) => {
+          if (!registered || where.createdAt.getTime() !== registeredAt) return { count: 0 };
+          if ("lastProactiveReplyAt" in data) {
+            if (mutedUntil && mutedUntil.getTime() > now || lastProactive && lastProactive.getTime() > now - participation.PROACTIVE_GROUP_INTERVAL_MS) return { count: 0 };
+            lastProactive = data.lastProactiveReplyAt;
+          } else if ("lastJoinWelcomeAt" in data) {
+            if (mutedUntil && mutedUntil.getTime() > now || lastWelcome && lastWelcome.getTime() > now - participation.GROUP_WELCOME_INTERVAL_MS) return { count: 0 };
+            lastWelcome = data.lastJoinWelcomeAt;
+          } else mutedUntil = data.proactiveMutedUntil;
+          return { count: 1 };
+        },
         deleteMany: async () => { registered = false; return { count: 1 }; } } } },
-    "../lib/telegramAgentLink.js": { findAgentByTelegramUserId: async (id: string) => ({ id: `test-${id}`, fullName: "Fixture" }) },
+    "../lib/telegramAgentLink.js": { findAgentByTelegramUserId: async (id: string) => groupLinked ? { id: `test-${id}`, fullName: "Fixture" } : null },
     "../auth/middleware.js": { loadAgentAccess: async () => ({ isActive: active, role, permissions: new Set() }) },
     "../ai/assistant.js": { isAiAssistantEnabled: async () => enabled, runAssistantDetailed: run },
     "../ai/assistant/actor.js": { actorFromAccess: (id: string) => ({ id }) },
@@ -70,7 +86,9 @@ function fixture() {
   const message = (text = "", extra: Partial<TelegramIncomingMessage> = {}) => ({
     chat: { id: -100, type: "supergroup" }, from: { id: 1 }, message_id: 10, text, ...extra,
   });
-  return { adapter, plain, html, voice, run, media, fast, card, create,
+  return { adapter, plain, html, voice, run, media, fast, card, create, findProperty,
+    setLinked: (value: boolean) => { groupLinked = value; },
+    setDiscussion: (value: string) => { discussionGroupId = value; },
     message, send: (text = "", extra: Partial<TelegramIncomingMessage> = {}) => adapter.handleAssistantGroupMessage(message(text, extra)),
     setRegistered: (value: boolean) => { registered = value; }, setEnabled: (value: boolean) => { enabled = value; },
     setRole: (value: string) => { role = value; }, setActive: (value: boolean) => { active = value; },
@@ -149,7 +167,7 @@ describe("one greeting per authorized registration", () => {
     await Promise.all([f.send("/assistant_on"), f.send("/assistant_on")]);
     await f.send("/assistant_on");
     expect(f.create).toHaveBeenCalledTimes(3);
-    expect(f.voice).toHaveBeenCalledOnce();
+    expect(f.voice).toHaveBeenCalledTimes(2);
     expect(f.voice.mock.calls[0]?.[1]).toContain("Шабнам");
     expect(f.run).not.toHaveBeenCalled();
   });
@@ -166,13 +184,14 @@ describe("one greeting per authorized registration", () => {
     await f.send("/assistant_on");
     expect(f.voice).not.toHaveBeenCalled(); expect(f.run).not.toHaveBeenCalled();
   });
-  it("uses proven Tajik, and a failed greeting remains readable without repeated synthesis", async () => {
+  it("keeps both languages readable if voice is unavailable and does not greet twice", async () => {
     const f = fixture(); f.setRegistered(false); f.voice.mockResolvedValue(false);
     await f.send("/assistant_on салом");
     expect(f.voice.mock.calls[0]?.[1]).toContain("Шабнам");
-    expect(f.html.mock.calls[0]?.[1]).toContain("Салом");
+    expect(f.html.mock.calls[0]?.[1]).toContain("Привет");
+    expect(f.html.mock.calls[1]?.[1]).toContain("Салом");
     await f.send("/assistant_on салом");
-    expect(f.voice).toHaveBeenCalledOnce();
+    expect(f.voice).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -210,5 +229,99 @@ describe("explicitly addressed native group voice", () => {
     await f.send("Шабнам, покажи ОБ-123, ответь голосом");
     expect(f.voice).toHaveBeenCalledOnce();
     expect(f.voice.mock.calls[0]?.[1]).not.toContain("@test_contact");
+  });
+});
+
+describe("optional help without an address", () => {
+  it.each(["Коллеги, какая цена у ОБ-123?", "По ОБ-123 какой статус?", "ОБ-123, нархаш чанд?"])("uses only the verified property for %s", async text => {
+    const f = fixture();
+    expect(await f.send(text)).toBe(true);
+    expect(f.findProperty).toHaveBeenCalledWith("ОБ-123", { hideOwnPendingDeleteFor: "test-1", limit: 1 });
+    expect(f.html).toHaveBeenCalledOnce();
+    expect(String(f.html.mock.calls[0]?.[1])).toContain("630");
+    expect(f.run).not.toHaveBeenCalled();
+    expect(f.voice).not.toHaveBeenCalled();
+  });
+  it.each(["ОБ-123", "Вчера обсуждали ОБ-123", "Обнови цену у ОБ-123", "Какая цена у ОБ-123? Не отвечай", "Какая цена у ПК-123?", "Найдите ОБ-123 и ОБ-456"])("does not interject into %s", async text => {
+    const f = fixture();
+    expect(await f.send(text)).toBe(false);
+    expect(f.findProperty).not.toHaveBeenCalled();
+    expect(f.run).not.toHaveBeenCalled();
+  });
+  it("keeps silent for unlinked staff, forwards, disabled groups and missing cards", async () => {
+    const f = fixture();
+    f.setLinked(false);
+    await f.send("Какая цена у ОБ-123?");
+    f.setLinked(true);
+    await f.send("Какая цена у ОБ-123?", { forward_origin: { type: "user" } });
+    f.setRegistered(false);
+    await f.send("Какая цена у ОБ-123?");
+    expect(f.findProperty).not.toHaveBeenCalled();
+    f.setRegistered(true);
+    f.findProperty.mockResolvedValueOnce({ kind: "shortId", properties: [] });
+    expect(await f.send("Какая цена у ОБ-123?")).toBe(false);
+    expect(f.html).not.toHaveBeenCalled();
+    expect(f.plain).not.toHaveBeenCalled();
+  });
+  it("limits simultaneous interjections and allows a new one after the cooldown", async () => {
+    const f = fixture();
+    await Promise.all([f.send("Какая цена у ОБ-123?"), f.send("ОБ-123, нархаш чанд?")]);
+    expect(f.html).toHaveBeenCalledOnce();
+    f.advance(participation.PROACTIVE_GROUP_INTERVAL_MS + 1);
+    await f.send("Какая цена у ОБ-123?");
+    expect(f.html).toHaveBeenCalledTimes(2);
+  });
+  it.each(["Шабнам, помолчи", "Шабнам помолчи", "Шабнам хомӯш бош"])("pauses unsolicited replies via %s while direct conversations still work", async command => {
+    const f = fixture();
+    await f.send(command);
+    expect(await f.send("Какая цена у ОБ-123?", { from: { id: 2 } })).toBe(false);
+    await f.send("Шабнам, помоги");
+    expect(f.run).toHaveBeenCalledOnce();
+    await f.send("/assistant_resume");
+    await f.send("Какая цена у ОБ-123?", { from: { id: 2 } });
+    expect(f.findProperty).toHaveBeenCalledOnce();
+  });
+});
+
+describe("Telegram membership welcomes", () => {
+  const bot = { id: 99, is_bot: true, username: "fixture_bot" };
+  const peers = { new_chat_members: [{ id: 333, is_bot: false }, { id: 334, is_bot: false }] };
+  it("a linked director adding this bot enables a bilingual welcome once", async () => {
+    const f = fixture(); f.setRegistered(false);
+    await Promise.all([f.send("", { new_chat_members: [bot] }), f.send("", { new_chat_members: [bot] })]);
+    expect(f.voice).toHaveBeenCalledTimes(2);
+    expect(f.voice.mock.calls[0]?.[1]).toContain("Привет");
+    expect(f.voice.mock.calls[1]?.[1]).toContain("Салом");
+    expect(await f.send("Какая цена у ОБ-123?")).toBe(true);
+    expect(f.run).not.toHaveBeenCalled();
+  });
+  it.each(["foreign", "unlinked", "agent", "discussion", "disabled"])("does not greet an unapproved addition: %s", async kind => {
+    const f = fixture(); f.setRegistered(false);
+    if (kind === "unlinked") f.setLinked(false);
+    if (kind === "agent") f.setRole("AGENT");
+    if (kind === "discussion") f.setDiscussion("-100");
+    if (kind === "disabled") f.setEnabled(false);
+    await f.send("", { new_chat_members: [{ ...bot, username: kind === "foreign" ? "other_bot" : bot.username }] });
+    expect(f.create).not.toHaveBeenCalled();
+    expect(f.voice).not.toHaveBeenCalled();
+    expect(f.plain).not.toHaveBeenCalled();
+  });
+  it("greets newcomers once per burst, respects quiet mode and stops after bot removal", async () => {
+    const f = fixture();
+    await Promise.all([f.send("", peers), f.send("", peers)]);
+    expect(f.voice).toHaveBeenCalledTimes(2);
+    expect(f.voice.mock.calls[0]?.[1]).toContain("Добро пожаловать");
+    expect(f.voice.mock.calls[1]?.[1]).toContain("Хуш омадед");
+    f.advance(participation.GROUP_WELCOME_INTERVAL_MS+1);
+    await f.send("Шабнам, помолчи");
+    await f.send("", peers);
+    expect(f.voice).toHaveBeenCalledTimes(2);
+    await f.send("/assistant_resume");
+    await f.send("", peers);
+    expect(f.voice).toHaveBeenCalledTimes(4);
+    await f.send("", { left_chat_member: bot });
+    f.advance(participation.GROUP_WELCOME_INTERVAL_MS+1);
+    await f.send("", peers);
+    expect(f.voice).toHaveBeenCalledTimes(4);
   });
 });
