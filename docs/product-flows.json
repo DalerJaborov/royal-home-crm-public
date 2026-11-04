@@ -96318,7 +96318,7 @@
          "c": [
           {
            "k": "do",
-           "t": "await logSystemError( \"meta\", `Instagram «${s.title}»: новых писем нет с ${last}, хотя другой аккаунт получае…",
+           "t": "await logSystemError( \"meta\", `Instagram «${s.title}»: диалоги в CRM не обновлялись с ${last}, хотя у другого…",
            "a": [
             "запись в журнал ошибок"
            ],
