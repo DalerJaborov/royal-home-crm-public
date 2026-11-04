@@ -47,6 +47,7 @@ function fixture(type: "group" | "supergroup" | "private" = "supergroup") {
     "./assistantConfirmationPhotos.js": { editTelegramConfirmationMessage: noop },
     "./assistantGroupParticipation.js": participation,
     "./assistantGroupPublicListing.js": publicListings,
+    "./assistantPropertyPages.js": { propertyPageRequest: () => null },
     "./assistantGroupPhrases.js": { ASSISTANT_GROUP_GREETING: { ru: "Fixture greeting" } },
     "../ai/assistant/languageRouting.js": { assistantLanguage: () => "unknown" },
     "../lib/systemError.js": { logSystemError: noop },
