@@ -724,7 +724,7 @@ export function hasValidPhoneDigitCount(v: string): boolean {
 
 /** Минимум 9 значащих цифр (без учёта +/скобок/пробелов) — реальные номера в базе всегда
  *  такие (+992 и 9-значный местный номер); отсекает явный мусор вроде "abc123". */
-const clientPhoneSchema = z
+export const clientPhoneSchema = z
   .string()
   .min(5)
   // Скрытый маской номер отвергаем ОТДЕЛЬНО и раньше проверки длины: цифр в нём

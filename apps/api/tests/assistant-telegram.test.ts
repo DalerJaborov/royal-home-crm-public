@@ -77,7 +77,7 @@ const { createPendingAssistantAction } = await import("../src/lib/assistantActio
 const { tryLinkAgentByCode, createTelegramLinkCode } = await import("../src/lib/telegramAgentLink.js");
 const { renderAssistantForTelegram, addressedToBot, setGroupClockForTests, GROUP_DIALOG_WINDOW_MS, looksLikeBotRequest } = await import("../src/telegram/assistantBot.js");
 const { assistantToolAllowed } = await import("../src/ai/assistant/actor.js");
-const { runTool } = await vi.importActual<typeof import("../src/ai/assistant.js")>("../src/ai/assistant.js");
+const { runTool, runAuditedTool, pluginDeclarations } = await vi.importActual<typeof import("../src/ai/assistant.js")>("../src/ai/assistant.js");
 const { app } = await import("../src/app.js");
 const { signAccessToken } = await import("../src/auth/jwt.js");
 const { default: request } = await import("supertest");
@@ -831,6 +831,59 @@ describe("новая доставка ответа помощника", () => {
     expect(sentTexts()).toEqual([]);
     expect(sendVoiceFile).not.toHaveBeenCalled(); // synthesis is mocked as a whole, never contacts provider
     expect(chatAction).not.toHaveBeenCalled();
+  });
+  it("из голоса на русском и таджикском готовит клиента и выбранную задачу, пишет только после кнопки", async () => {
+    const agent = agents.author;
+    const phone = `+992${uid(61)}`;
+    const taskText = `Позвонить по договору ${runId}`;
+    let clientId: string | null = null;
+    try {
+      const prepare = (name: string, args: Record<string, unknown>, transcript: string, reply: string) => {
+        transcribe.mockResolvedValueOnce(transcript);
+        runner.mockImplementationOnce(async (history, actor, options) => {
+          expect(history.at(-1).content).toContain(transcript);
+          expect(options).toMatchObject({ channel: "telegram", confirmUi: true, readOnly: false });
+          expect(pluginDeclarations(actor, options.confirmUi, options.channel).map(tool => tool.name))
+            .toEqual(expect.arrayContaining(["create_client", "complete_task"]));
+          expect(await runAuditedTool({ name, args }, actor, { ...options, writeBudget: { left: 1 } }))
+            .toMatchObject({ confirmRequired: true });
+          return { ok: true, reply };
+        });
+      };
+      const sendVoice = async (messageId: number) => {
+        await handleTelegramUpdate(privateMsg("author", {
+          message_id: messageId, voice: { file_id: `test-voice-${messageId}`, duration: 4 },
+        }));
+        return sendMessageWithButtons.mock.calls.at(-1);
+      };
+      const confirm = async (call: Awaited<ReturnType<typeof sendVoice>>) => {
+        const buttons = call?.[2] as { callback_data: string }[][];
+        await press("author", buttons[0][0].callback_data, undefined, Number(agent.userId));
+      };
+
+      prepare("create_client", { fullName: "Мехрона тест", phone, source: "REFERRAL" },
+        `Добавь покупателя Мехрону, номер ${phone}, от знакомых.`, "Проверьте имя и номер.");
+      const clientCard = await sendVoice(8250);
+      expect(clientCard?.[1]).toContain("Создать клиента");
+      expect(clientCard?.[1]).not.toContain(phone);
+      expect(await prisma.client.count({ where: { phone } })).toBe(0);
+      await confirm(clientCard);
+      clientId = (await prisma.client.findUniqueOrThrow({ where: { phone } })).id;
+
+      const task = await prisma.interaction.create({ data: {
+        type: "SYSTEM", clientId, actorKind: "AI", subjectAgentId: agent.id, notes: taskText, nextAction: taskText,
+      } });
+      prepare("complete_task", { interactionId: task.id },
+        "Кори занг задан ба Меҳронаро пӯш, занг задам.", "Хуб, ҳамин корро пӯшам?");
+      const taskCard = await sendVoice(8251);
+      expect(taskCard?.[1]).toContain(taskText);
+      expect(await prisma.interaction.findUnique({ where: { id: task.id } })).toMatchObject({ completedAt: null });
+      await confirm(taskCard);
+      expect(await prisma.interaction.findUnique({ where: { id: task.id } })).toMatchObject({ completedAt: expect.any(Date) });
+      expect(transcribe).toHaveBeenCalledTimes(2);
+    } finally {
+      if (clientId) await prisma.client.delete({ where: { id: clientId } });
+    }
   });
   it("ошибка ответа на голосовое приходит текстом и без синтеза", async () => {
     transcribe.mockResolvedValue("проверь данные клиента");

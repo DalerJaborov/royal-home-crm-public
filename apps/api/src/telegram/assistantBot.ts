@@ -133,8 +133,8 @@ export function assistantActorFor(
 }
 
 /** Актор брокера на нажатии: ПОЛНЫЕ свежие права нажавшего, канал telegram. */
-function actionActorOf(agentId: string, access: AgentAccess): AssistantActionActor {
-  return { agentId, channel: "telegram", can: (permission) => access.permissions.has(permission) };
+function actionActorOf(agentId: string, access: AgentAccess, telegramPrivate: boolean): AssistantActionActor {
+  return { agentId, channel: "telegram", telegramPrivate, can: (permission) => access.permissions.has(permission) };
 }
 
 // ───────────────────────────── рендер ─────────────────────────────
@@ -1166,7 +1166,7 @@ export async function handleAssistantCallback(query: TelegramCallbackQuery): Pro
       }
       return true;
     };
-    const actor = actionActorOf(clicker.id, access);
+    const actor = actionActorOf(clicker.id, access, callbackChat?.type === "private");
 
     if (verb === "no") {
       const executed = await serializeBundle(bundleId, async () => {
