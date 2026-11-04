@@ -116,6 +116,26 @@ describe('delivery', () => {
     expect(voice.mock.calls.map(([, , replyTo]) => replyTo)).toEqual([42, ...Array(voice.mock.calls.length - 1).fill(undefined)]);
     expect(html).not.toHaveBeenCalled();
   });
+  it.each([
+    ["ru", "Сначала проверь карточку."],
+    ["tg", "Як дам."],
+  ] as const)("uses the known %s request language for otherwise unclassified conversation", async (language, reply) => {
+    await sendAssistantReply("test", reply, { ...ctx, mode: "voice", requestLanguage: language });
+    expect(voice).toHaveBeenCalledExactlyOnceWith("test", reply, undefined, language);
+    expect(html).not.toHaveBeenCalled();
+  });
+  it.each([
+    ["mixed", "Сначала проверь карточку.", false],
+    ["unknown", "Сначала проверь карточку.", false],
+    ["ru", "Где вы, шумо дар кор?", false],
+    ["ru", "Some words. Сначала проверь карточку.", false],
+    ["ru", "Прывітанне.", false],
+    ["ru", "Сначала проверь карточку.", true],
+  ] as const)("keeps an unsafe language fallback or structured result in text: %s %s", async (requestLanguage, reply, structured) => {
+    await sendAssistantReply("test", reply, { ...ctx, mode: "voice", requestLanguage, structured });
+    expect(voice).not.toHaveBeenCalled();
+    expect(html).toHaveBeenCalledOnce();
+  });
   it("does not repeat successfully spoken parts after a later voice failure", async () => {
     voice.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
     await sendAssistantReply("test", longVoice.join(" "), { ...ctx, mode: "voice" });

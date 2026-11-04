@@ -1,6 +1,7 @@
 import { randomInt } from "node:crypto";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { actorFromAccess } from "../src/ai/assistant/actor.js";
+import { loadAgentAccess } from "../src/auth/middleware.js";
 import { pluginDeclarations, runAuditedTool } from "../src/ai/assistant.js";
 import { prisma } from "../src/db.js";
 import { cancelAssistantAction, confirmAssistantAction, createPendingAssistantAction } from "../src/lib/assistantActions.js";
@@ -35,6 +36,13 @@ async function fixtureClient(input: Partial<Parameters<typeof prisma.client.crea
   return row;
 }
 
+function fixtureTask(forClient: string, day = 2) {
+  return prisma.interaction.create({ data: {
+    type: "SYSTEM", notes: "Тест", nextAction: "Позвонить по договору",
+    nextActionDate: new Date(Date.UTC(2031, 3, day, 12)), clientId: forClient, actorKind: "AI", subjectAgentId: ownerId,
+  } });
+}
+
 beforeAll(async () => {
   ownerPhone = phone();
   const owner = await prisma.agent.create({ data: { fullName: "Тест Шабнам агент", phone: ownerPhone, role: "AGENT", passwordHash: "x" } });
@@ -42,12 +50,8 @@ beforeAll(async () => {
   const security = await prisma.agent.create({ data: { fullName: "Тест Шабнам безопасность", phone: phone(), role: "SECURITY", passwordHash: "x" } });
   [ownerId, otherId, securityId] = [owner.id, other.id, security.id];
   clientId = (await fixtureClient()).id;
-  const createTask = (day: number) => prisma.interaction.create({ data: {
-    type: "SYSTEM", notes: "Тест", nextAction: "Позвонить по договору",
-    nextActionDate: new Date(Date.UTC(2031, 3, day, 12)), clientId, actorKind: "AI", subjectAgentId: ownerId,
-  } });
-  firstTask = (await createTask(2)).id;
-  secondTask = (await createTask(3)).id;
+  firstTask = (await fixtureTask(clientId)).id;
+  secondTask = (await fixtureTask(clientId, 3)).id;
   const settings = await prisma.settings.upsert({ where: { id: "singleton" }, update: {}, create: { id: "singleton" } });
   originalRoyalScore = settings.royalScoreEnabled;
   await prisma.settings.update({ where: { id: "singleton" }, data: { royalScoreEnabled: true } });
@@ -167,5 +171,192 @@ describe("личные действия Шабнам", () => {
     await prisma.interaction.update({ where: { id: firstTask }, data: { nextActionDate: new Date("2031-04-07T08:00:00Z") } });
     await expect(confirmAssistantAction(pending.id, crm)).rejects.toMatchObject({ code: "STALE" });
     expect(await prisma.interaction.findUnique({ where: { id: firstTask } })).toMatchObject({ completedAt: null });
+  });
+
+  it("rolls back task, score and audit if writing the assistant result failed, then allows one retry", async () => {
+    const crm = actor(ownerId, "crm");
+    const tg = actor(ownerId);
+    const args = { interactionId: firstTask };
+    const pending = await createPendingAssistantAction(crm, "complete_task", args);
+    const pendingFromTelegram = await createPendingAssistantAction(tg, "complete_task", args);
+    expect(pendingFromTelegram.id).toBe(pending.id);
+    await prisma.$executeRaw`CREATE FUNCTION "task_action_fixture_result_failure"() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN
+        IF NEW.tool = 'complete_task' AND NEW.status = 'EXECUTED' THEN
+          RAISE EXCEPTION 'injected assistant action result failure';
+        END IF;
+        RETURN NEW;
+      END;
+    $$`;
+    try {
+      await prisma.$executeRaw`CREATE TRIGGER "task_action_fixture_result_failure" BEFORE UPDATE ON "AssistantAction"
+        FOR EACH ROW EXECUTE FUNCTION "task_action_fixture_result_failure"()`;
+      await expect(confirmAssistantAction(pending.id, tg)).rejects.toMatchObject({ code: "CONFIRM_RETRY" });
+      expect(await prisma.interaction.findUnique({ where: { id: firstTask } })).toMatchObject({ completedAt: null });
+      expect(await prisma.royalScoreEvent.count({ where: { sourceId: firstTask, agentId: ownerId } })).toBe(0);
+      expect(await prisma.auditLog.count({ where: { action: "ASSISTANT_COMPLETE_TASK", meta: { path: ["actionId"], equals: pending.id } } })).toBe(0);
+      expect(await prisma.assistantAction.findUnique({ where: { id: pending.id } })).toMatchObject({
+        status: "PENDING", confirmedAt: null, executedAt: null,
+      });
+    } finally {
+      await prisma.$executeRaw`DROP TRIGGER IF EXISTS "task_action_fixture_result_failure" ON "AssistantAction"`;
+      await prisma.$executeRaw`DROP FUNCTION "task_action_fixture_result_failure"()`;
+    }
+    const outcomes = await Promise.all([confirmAssistantAction(pending.id, crm), confirmAssistantAction(pending.id, tg)]);
+    expect(outcomes.map((outcome) => outcome.replay).sort()).toEqual([false, true]);
+    expect(outcomes[0].action.result).toEqual(outcomes[1].action.result);
+    expect(await prisma.interaction.findUnique({ where: { id: firstTask } })).toMatchObject({ completedAt: expect.any(Date) });
+    expect(await prisma.royalScoreEvent.count({ where: { sourceId: firstTask, agentId: ownerId } })).toBe(1);
+    expect(await prisma.auditLog.count({ where: { action: "ASSISTANT_COMPLETE_TASK", meta: { path: ["actionId"], equals: pending.id } } })).toBe(1);
+  });
+
+  it("recovers the stored result if the database commit acknowledgement is lost", async () => {
+    const client = await fixtureClient();
+    const task = await fixtureTask(client.id);
+    const tg = actor(ownerId);
+    const pending = await createPendingAssistantAction(tg, "complete_task", { interactionId: task.id });
+    const realTransaction = prisma.$transaction.bind(prisma);
+    const transaction = vi.spyOn(prisma, "$transaction");
+    transaction.mockImplementationOnce((async (...args: Parameters<typeof realTransaction>) => {
+      await realTransaction(...args);
+      throw new Error("injected loss of commit acknowledgement");
+    }) as typeof prisma.$transaction);
+    try {
+      const recovered = await confirmAssistantAction(pending.id, tg);
+      expect(recovered).toMatchObject({ action: { status: "EXECUTED", result: { interactionId: task.id } }, replay: true });
+      expect(await confirmAssistantAction(pending.id, actor(ownerId, "crm"))).toMatchObject({
+        action: { status: "EXECUTED", result: recovered.action.result }, replay: true,
+      });
+    } finally {
+      transaction.mockRestore();
+    }
+    expect(await prisma.royalScoreEvent.count({ where: { sourceId: task.id, agentId: ownerId } })).toBe(1);
+    expect(await prisma.auditLog.count({ where: { action: "ASSISTANT_COMPLETE_TASK", meta: { path: ["actionId"], equals: pending.id } } })).toBe(1);
+  });
+
+  it("checks current role and assignment before closing or replaying a task", async () => {
+    const client = await fixtureClient();
+    const task = await fixtureTask(client.id);
+    const tg = actor(ownerId);
+    const pending = await createPendingAssistantAction(tg, "complete_task", { interactionId: task.id });
+    await prisma.agent.update({ where: { id: ownerId }, data: { role: "SHAREHOLDER" } });
+    try {
+      await expect(confirmAssistantAction(pending.id, tg)).rejects.toMatchObject({ code: "FORBIDDEN", extra: {} });
+      expect(await prisma.interaction.findUnique({ where: { id: task.id } })).toMatchObject({ completedAt: null });
+      expect(await prisma.assistantAction.findUnique({ where: { id: pending.id } })).toMatchObject({ status: "PENDING" });
+    } finally {
+      await prisma.agent.update({ where: { id: ownerId }, data: { role: "AGENT" } });
+    }
+    await confirmAssistantAction(pending.id, tg);
+    await prisma.client.update({ where: { id: client.id }, data: { assignedAgentId: otherId } });
+    await expect(confirmAssistantAction(pending.id, tg)).rejects.toMatchObject({ code: "FORBIDDEN", extra: {} });
+    await expect(cancelAssistantAction(pending.id, tg)).rejects.toMatchObject({ code: "FORBIDDEN", extra: {} });
+    expect(await prisma.assistantAction.findUnique({ where: { id: pending.id } })).toMatchObject({ status: "EXECUTED" });
+  });
+
+  it("does not guess whether the assistant completed a legacy confirmed task", async () => {
+    const client = await fixtureClient();
+    const task = await fixtureTask(client.id);
+    const tg = actor(ownerId);
+    const pending = await createPendingAssistantAction(tg, "complete_task", { interactionId: task.id });
+    await prisma.assistantAction.update({
+      where: { id: pending.id }, data: { status: "CONFIRMED", confirmedAt: new Date() },
+    });
+    await prisma.interaction.update({ where: { id: task.id }, data: { completedAt: new Date() } });
+    await expect(confirmAssistantAction(pending.id, tg)).rejects.toMatchObject({ code: "IN_PROGRESS" });
+    expect(await prisma.assistantAction.findUnique({ where: { id: pending.id } })).toMatchObject({
+      status: "CONFIRMED", executedAt: null, result: null,
+    });
+  });
+
+  it("rolls back the client and all audit when final confirmation fails, then retries once", async () => {
+    const args = clientArgs();
+    const tg = actor(ownerId);
+    const pending = await createPendingAssistantAction(tg, "create_client", args);
+    const auditsBefore = await prisma.auditLog.count({ where: { agentId: ownerId, entityType: "Client" } });
+    await prisma.$executeRaw`CREATE FUNCTION "client_action_fixture_result_failure"() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN
+        IF NEW.tool = 'create_client' AND NEW.status = 'EXECUTED' THEN
+          RAISE EXCEPTION 'injected create client final result failure';
+        END IF;
+        RETURN NEW;
+      END;
+    $$`;
+    try {
+      await prisma.$executeRaw`CREATE TRIGGER "client_action_fixture_result_failure" BEFORE UPDATE ON "AssistantAction"
+        FOR EACH ROW EXECUTE FUNCTION "client_action_fixture_result_failure"()`;
+      await expect(confirmAssistantAction(pending.id, tg)).rejects.toMatchObject({ code: "CONFIRM_RETRY" });
+      const unexpected = await prisma.client.findUnique({ where: { phone: args.phone } });
+      if (unexpected) clients.add(unexpected.id);
+      expect(unexpected).toBeNull();
+      expect(await prisma.auditLog.count({ where: { agentId: ownerId, entityType: "Client" } })).toBe(auditsBefore);
+      expect(await prisma.assistantAction.findUnique({ where: { id: pending.id } })).toMatchObject({
+        status: "PENDING", confirmedAt: null, executedAt: null, result: null,
+      });
+    } finally {
+      await prisma.$executeRaw`DROP TRIGGER IF EXISTS "client_action_fixture_result_failure" ON "AssistantAction"`;
+      await prisma.$executeRaw`DROP FUNCTION "client_action_fixture_result_failure"()`;
+    }
+    const outcomes = await Promise.all([confirmAssistantAction(pending.id, actor(ownerId, "crm")), confirmAssistantAction(pending.id, tg)]);
+    expect(outcomes.map((outcome) => outcome.replay).sort()).toEqual([false, true]);
+    const created = await prisma.client.findUniqueOrThrow({ where: { phone: args.phone } });
+    clients.add(created.id);
+    expect(created).toMatchObject({ assignedAgentId: ownerId, acceptedAt: expect.any(Date) });
+    for (const outcome of outcomes) expect(outcome.action).toMatchObject({
+      status: "EXECUTED", result: { clientId: created.id, shortId: created.shortId, href: `/clients/${created.shortId}` },
+    });
+    expect(await prisma.assistantAction.findUnique({ where: { id: pending.id } })).toMatchObject({
+      status: "EXECUTED", result: outcomes[0].action.result, idempotencyKey: null,
+    });
+    const audit = await prisma.auditLog.findMany({
+      where: { entityType: "Client", entityId: created.id }, select: { action: true, meta: true }, orderBy: { action: "asc" },
+    });
+    expect(audit.map(({ action }) => action)).toEqual(["ASSISTANT_CREATE_CLIENT", "CLIENT_AGENT_CHANGE", "CLIENT_CREATE"]);
+    expect(audit[0].meta).toMatchObject({ actionId: pending.id });
+    await expect(createPendingAssistantAction(tg, "create_client", args)).rejects.toMatchObject({ code: "CLIENT_PHONE_IN_USE" });
+    expect(await prisma.client.count({ where: { phone: args.phone } })).toBe(1);
+  });
+
+  it("checks the author and fresh role before creation, and current client scope on replay", async () => {
+    const args = clientArgs();
+    const tg = actor(ownerId);
+    const pending = await createPendingAssistantAction(tg, "create_client", args);
+    await expect(confirmAssistantAction(pending.id, actor(otherId, "crm"))).rejects.toMatchObject({
+      code: "FORBIDDEN", extra: {},
+    });
+
+    // Warm the standard auth cache, then simulate a role change made by another process.
+    expect(await loadAgentAccess(ownerId)).toMatchObject({ role: "AGENT" });
+    await prisma.agent.update({ where: { id: ownerId }, data: { role: "SHAREHOLDER" } });
+    try {
+      await expect(confirmAssistantAction(pending.id, tg)).rejects.toMatchObject({ code: "FORBIDDEN", extra: {} });
+      expect(await prisma.client.count({ where: { phone: args.phone } })).toBe(0);
+      expect(await prisma.assistantAction.findUnique({ where: { id: pending.id } })).toMatchObject({ status: "PENDING" });
+    } finally {
+      await prisma.agent.update({ where: { id: ownerId }, data: { role: "AGENT" } });
+    }
+
+    const executed = await confirmAssistantAction(pending.id, tg);
+    const client = await prisma.client.findUniqueOrThrow({ where: { phone: args.phone } });
+    clients.add(client.id);
+    expect(await confirmAssistantAction(pending.id, tg)).toMatchObject({ replay: true, action: { result: executed.action.result } });
+    await prisma.client.update({ where: { id: client.id }, data: { assignedAgentId: otherId } });
+    await expect(confirmAssistantAction(pending.id, tg)).rejects.toMatchObject({ code: "FORBIDDEN", extra: {} });
+    await expect(cancelAssistantAction(pending.id, tg)).rejects.toMatchObject({ code: "FORBIDDEN", extra: {} });
+    expect(await prisma.assistantAction.findUnique({ where: { id: pending.id } })).toMatchObject({
+      status: "EXECUTED", result: executed.action.result,
+    });
+  });
+
+  it("does not infer a result for a legacy confirmed create_client from a matching phone", async () => {
+    const args = clientArgs();
+    const tg = actor(ownerId);
+    const pending = await createPendingAssistantAction(tg, "create_client", args);
+    await prisma.assistantAction.update({ where: { id: pending.id }, data: { status: "CONFIRMED", confirmedAt: new Date() } });
+    await fixtureClient({ phone: args.phone, assignedAgentId: otherId });
+    await expect(confirmAssistantAction(pending.id, tg)).rejects.toMatchObject({ code: "IN_PROGRESS" });
+    expect(await prisma.assistantAction.findUnique({ where: { id: pending.id } })).toMatchObject({
+      status: "CONFIRMED", executedAt: null, result: null,
+    });
   });
 });

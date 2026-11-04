@@ -102,6 +102,22 @@ export async function stageExpensePhotoDraft(
   }
 }
 
+/** Claim the external keyboard send once, including across workers and process restarts. */
+export async function claimExpensePreview(actor: ExpenseDirectorIdentity, id: string, now = new Date()): Promise<boolean> {
+  const claimed = await prisma.telegramExpenseDraft.updateMany({
+    where: { ...actor, id, expenseId: null, expiresAt: { gt: now }, previewMessageId: null, previewClaimed: false },
+    data: { previewClaimed: true },
+  });
+  return claimed.count === 1;
+}
+
+export async function releaseRejectedExpensePreview(actor: ExpenseDirectorIdentity, id: string): Promise<void> {
+  await prisma.telegramExpenseDraft.updateMany({
+    where: { ...actor, id, expenseId: null, previewMessageId: null, previewClaimed: true },
+    data: { previewClaimed: false },
+  });
+}
+
 export async function markExpensePreviewDelivered(actor: ExpenseDirectorIdentity, id: string, messageId: number): Promise<void> {
   if (!Number.isSafeInteger(messageId) || messageId < 1 || messageId > 2_147_483_647) return;
   await prisma.telegramExpenseDraft.updateMany({

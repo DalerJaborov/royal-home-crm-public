@@ -59,12 +59,21 @@ export async function searchAssistantCompanyKnowledge(query: string, semanticOpt
     // If the reviewed revision has changed, don't substitute a different rule or an unreviewed revision.
     return approvedTopicKnowledge(policy.id);
   }
-  return searchCompanyKnowledge(boundedQuery);
+  // An acknowledgement without searchable words should not browse the catalog.
+  const words = knowledgeSearchWords(boundedQuery);
+  return words.length ? searchLexicalCompanyKnowledge(words) : [];
+}
+
+function knowledgeSearchWords(query: string): string[] {
+  return [...new Set(query.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(word => word.length >= 3))].slice(0, 10);
 }
 
 export async function searchCompanyKnowledge(query: string): Promise<CompanyKnowledge[]> {
   const boundedQuery = assistantKnowledgeSearchSchema.parse({ query }).query;
-  const words = [...new Set(boundedQuery.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((word) => word.length >= 3))].slice(0, 10);
+  return searchLexicalCompanyKnowledge(knowledgeSearchWords(boundedQuery));
+}
+
+function searchLexicalCompanyKnowledge(words: string[]): Promise<CompanyKnowledge[]> {
   const conditions = words.map((word) => Prisma.sql`("title" ILIKE ${`%${word}%`} OR "content" ILIKE ${`%${word}%`})`);
   const scores = words.map((word) => Prisma.sql`(CASE WHEN "title" ILIKE ${`%${word}%`} THEN 3 ELSE 0 END + CASE WHEN "content" ILIKE ${`%${word}%`} THEN 1 ELSE 0 END)`);
   return prisma.$queryRaw<CompanyKnowledge[]>(Prisma.sql`

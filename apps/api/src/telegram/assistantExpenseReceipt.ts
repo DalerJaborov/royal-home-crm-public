@@ -3,8 +3,8 @@ import sharp from "sharp";
 import { expenseDateSchema } from "@royal-home/shared";
 import { claimAgentAiAction } from "../lib/agentAiActionCap.js";
 import {
-  decideExpensePhotoDraft, expenseReceiptHash, findExpensePhotoDraft, getExpenseDirector,
-  markExpensePreviewDelivered, MAX_EXPENSE_RECEIPT_IMAGE_BYTES, parseExpenseReceiptEvidence, stageExpensePhotoDraft,
+  claimExpensePreview, decideExpensePhotoDraft, expenseReceiptHash, findExpensePhotoDraft, getExpenseDirector,
+  markExpensePreviewDelivered, MAX_EXPENSE_RECEIPT_IMAGE_BYTES, parseExpenseReceiptEvidence, releaseRejectedExpensePreview, stageExpensePhotoDraft,
   type ExpenseReceiptEvidence,
 } from "../lib/telegramExpenseReceipts.js";
 import { extractExpenseReceipt } from "../ai/assistant/expenseReceiptExtraction.js";
@@ -12,7 +12,7 @@ import { loadAssistantSettings } from "../ai/assistant/runtime.js";
 import { assistantLanguage } from "../ai/assistant/languageRouting.js";
 import type { AssistantMoneyWallet } from "../ai/assistant/moneyBudget.js";
 import { downloadAssistantMedia } from "./assistantMedia.js";
-import { answerCallbackQuery, editMessageText, sendMessage, sendMessageWithButtons, type TelegramCallbackQuery, type TelegramIncomingMessage } from "./api.js";
+import { answerCallbackQuery, editMessageText, sendMessage, sendMessageWithButtons, TelegramApiError, type TelegramCallbackQuery, type TelegramIncomingMessage } from "./api.js";
 import { todayExpenseDay } from "../lib/expenseWorkspace.js";
 
 const EXPENSE_CALLBACK = /^ef:(yes|no):(ru|tg):([0-9a-f-]{36})$/u;
@@ -37,6 +37,8 @@ const copy = {
     category: "Категория: прочее",
     confirm: "Записать", cancel: "Отмена",
     pending: "Этот чек уже ждёт подтверждения.",
+    previewUnconfirmed: "Если кнопки не появятся, пришлите чек снова через 10 минут.",
+    previewRejected: "Карточка не отправилась. Пришлите тот же чек ещё раз.",
     recorded: "Записала расход и приложила чек.",
     duplicate: "Этот чек уже есть в обработке.",
     cancelled: "Отменила. Расход не записан.",
@@ -54,6 +56,8 @@ const copy = {
     category: "Гурӯҳ: дигар харҷҳо",
     confirm: "Сабт кун", cancel: "Бекор кун",
     pending: "Ин расид ҳоло дар интизори тасдиқ аст.",
+    previewUnconfirmed: "Агар тугмаҳо набароянд, баъд аз 10 дақиқа расидро боз фиристед.",
+    previewRejected: "Корт нарафт. Ҳамин расидро боз фиристед.",
     recorded: "Харҷро сабт кардам ва расидро зам кардам.",
     duplicate: "Ин расид аллакай дар санҷиш аст.",
     cancelled: "Бекор шуд. Харҷ сабт нашуд.",
@@ -212,11 +216,23 @@ export async function handleTelegramExpenseReceipt(
       return true;
     }
     const phrases = copy[language];
+    const draftId = result.id;
+    if (!(await claimExpensePreview(actor, draftId))) {
+      await send(phrases.previewUnconfirmed);
+      return true;
+    }
     const sent = await sendMessageWithButtons(actor.chatId, preview(result.evidence), [[
-      { text: phrases.confirm, callback_data: `ef:yes:${language}:${result.id}` },
-      { text: phrases.cancel, callback_data: `ef:no:${language}:${result.id}` },
-    ]], messageId);
-    await markExpensePreviewDelivered(actor, result.id, sent.message_id);
+      { text: phrases.confirm, callback_data: `ef:yes:${language}:${draftId}` },
+      { text: phrases.cancel, callback_data: `ef:no:${language}:${draftId}` },
+    ]], messageId).catch(async (error: unknown) => {
+      // A transport error may follow successful delivery. Keep the claim for this draft's lifetime.
+      const rejected = error instanceof TelegramApiError && error.errorCode !== undefined
+        && error.errorCode >= 400 && error.errorCode < 500;
+      if (rejected) await releaseRejectedExpensePreview(actor, draftId);
+      await send(rejected ? phrases.previewRejected : phrases.previewUnconfirmed);
+      return null;
+    });
+    if (sent) await markExpensePreviewDelivered(actor, draftId, sent.message_id);
     return true;
   } catch {
     console.warn("[telegram:assistant] receipt photo preview unavailable");

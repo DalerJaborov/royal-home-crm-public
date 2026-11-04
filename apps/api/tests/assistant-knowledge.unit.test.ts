@@ -5,7 +5,7 @@ vi.mock("../src/db.js",()=>({prisma:{$disconnect:vi.fn(),$queryRaw:mocks.query,$
 vi.mock("../src/auth/middleware.js",()=>({loadAgentAccess:mocks.access}));
 vi.mock("../src/ai/assistant/tools/showingToolSupport.js",()=>({loadToolActor:mocks.loadActor,asPluginExecutor:(executor:unknown)=>executor}));
 vi.mock("../src/lib/assistantActions.js",()=>({AssistantActionError:class extends Error{constructor(public status:number,public code:string,text:string){super(text);}}}));
-import {validateCompanyKnowledge,knowledgeContext,knowledgeKey,saveCompanyKnowledge,searchCompanyKnowledge} from "../src/ai/assistant/knowledge.js";
+import {validateCompanyKnowledge,knowledgeContext,knowledgeKey,saveCompanyKnowledge,searchCompanyKnowledge,searchAssistantCompanyKnowledge} from "../src/ai/assistant/knowledge.js";
 import {saveKnowledgeExecutor,archiveKnowledgeExecutor,knowledgeTools} from "../src/ai/assistant/tools/knowledgeTools.js";
 import {tajikGlossaryFor,TAJIK_GLOSSARY} from "../src/ai/assistant/tajikGlossary.js";
 const input={title:"Порядок показа",content:"Согласуйте время до выезда.",source:"Инструкция отдела"};
@@ -38,6 +38,19 @@ it("rejects invalid revision and overlong query before database calls",async()=>
  await expect(saveCompanyKnowledge(input,'test-agent',0,true)).rejects.toThrow('версия');
  await expect(searchCompanyKnowledge('x'.repeat(201))).rejects.toThrow();
  expect(mocks.transaction).not.toHaveBeenCalled();expect(mocks.query).not.toHaveBeenCalled();
+});
+it.each(["ок", "ҳа", "да", "👍", ""])("does not look up arbitrary knowledge for an automatic short turn: %j", async query => {
+  mocks.query.mockResolvedValue([{ ...input, revision: 2 }]);
+  expect(await searchAssistantCompanyKnowledge(query)).toEqual([]);
+  expect(mocks.query).not.toHaveBeenCalled();
+});
+it("still looks up ordinary words and lets the explicit tool browse without keywords", async () => {
+  const entry = { ...input, title: "График дежурств", revision: 2 };
+  mocks.query.mockResolvedValue([entry]);
+  expect(await searchAssistantCompanyKnowledge("график дежурств")).toEqual([entry]);
+  expect(mocks.query.mock.calls[0][0].values).toContain("%дежурств%");
+  expect(await searchCompanyKnowledge("")).toEqual([entry]);
+  expect(mocks.query.mock.calls[1][0].text).toContain("AND true");
 });
 it("normalizes key but does not collapse different titles",()=>{expect(knowledgeKey('  Порядок   показа ')).toBe('порядок показа');expect(knowledgeKey('Порядок')).not.toBe(knowledgeKey('Порядок показа'));});
 it("write tools always use confirmation level C",()=>{expect(knowledgeTools.filter(t=>t.level!=='A').map(t=>t.level)).toEqual(['C','C']);});

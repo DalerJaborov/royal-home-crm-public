@@ -51,6 +51,12 @@ it('successful Turbo synthesis charges before fetch and sends audio', async () =
   ]);
   expect(chatAction.mock.invocationCallOrder[1]).toBeLessThan(sendVoice.mock.invocationCallOrder[0]);
 });
+it("synthesizes markerless Russian from a trusted explicit conversation hint", async () => {
+  const phrase = "Сначала проверь карточку.";
+  expect(await sendAssistantVoiceReply("test", phrase, 23, "ru", 41)).toBe(true);
+  expect(JSON.parse(fetchMock.mock.calls[0][1].body).text).toBe(phrase);
+  expect(sendVoice).toHaveBeenCalledExactlyOnceWith("test", expect.any(Buffer), 23, undefined, 41);
+});
 it('budget exhausted prevents synthesis', async () => { query.mockResolvedValue([]); expect(await sendAssistantVoiceReply('test', 'Готово.')).toBe(false); expect(fetchMock).not.toHaveBeenCalled(); });
 it.each(["ru", "tg"] as const)("caches the neutral %s group greeting and charges only its first synthesis", async language => {
   vi.stubEnv("ASSISTANT_TTS_VOICE_ID_TG", "test-tajik-voice");
@@ -240,8 +246,10 @@ it("reuploads cached audio only after invalid file_id", async () => {
   sendVoice.mockResolvedValue({ voice: { file_id: "test-file-id" } });
   await sendAssistantVoiceReply("first", "Готово.");
   sendVoiceId.mockRejectedValue(new TelegramApiError(400, "sendVoice", "wrong file identifier"));
-  expect(await sendAssistantVoiceReply("second", "Готово.")).toBe(true);
+  expect(await sendAssistantVoiceReply("second", "Готово.", 23, undefined, 41)).toBe(true);
+  expect(sendVoiceId).toHaveBeenCalledWith("second", "test-file-id", 23, 41);
   expect(sendVoice).toHaveBeenCalledTimes(2);
+  expect(sendVoice).toHaveBeenLastCalledWith("second", expect.any(Buffer), 23, undefined, 41);
   expect(fetchMock).toHaveBeenCalledTimes(1);
   expect(query).toHaveBeenCalledTimes(1);
 });

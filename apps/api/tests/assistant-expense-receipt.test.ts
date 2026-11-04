@@ -8,7 +8,7 @@ import { createAssistantMoneyWallet } from "../src/ai/assistant/moneyBudget.js";
 import { decideExpensePhotoDraft, expireExpensePhotoDrafts, getExpenseDirector, stageExpensePhotoDraft } from "../src/lib/telegramExpenseReceipts.js";
 import { handleAssistantCallback, handleAssistantPrivate } from "../src/telegram/assistantBot.js";
 import { handleTelegramExpenseReceipt } from "../src/telegram/assistantExpenseReceipt.js";
-import type { TelegramIncomingMessage, TelegramInlineButton } from "../src/telegram/api.js";
+import { TelegramApiError, type TelegramIncomingMessage, type TelegramInlineButton } from "../src/telegram/api.js";
 
 const io = vi.hoisted(() => ({
   extract: vi.fn(),
@@ -132,14 +132,50 @@ describe("private Telegram expense from a receipt photo", () => {
     expect(io.extract).not.toHaveBeenCalled();
   });
 
-  it("restores buttons on replay after preview delivery fails and does not OCR twice", async () => {
-    io.buttons.mockRejectedValueOnce(new Error("synthetic transport failure"));
+  it("restores buttons after Telegram explicitly rejects the preview and does not OCR twice", async () => {
+    io.buttons.mockRejectedValueOnce(new TelegramApiError(400, "sendMessage", "synthetic rejection"));
     const original = msg("чек");
     await handleAssistantPrivate(original, director);
     await handleAssistantPrivate(original, director);
     expect(io.extract).toHaveBeenCalledOnce();
     expect(io.buttons).toHaveBeenCalledTimes(2);
     expect(io.buttons.mock.calls[0][2]).toEqual(io.buttons.mock.calls[1][2]);
+  });
+
+  it.each([2, 3, 4, 5])("keeps one keyboard across %i copies while Telegram is still responding", async copies => {
+    let entered!: () => void;
+    let finish!: () => void;
+    const posting = new Promise<void>(resolve => { entered = resolve; });
+    const waiting = new Promise<void>(resolve => { finish = resolve; });
+    io.buttons.mockImplementationOnce(async () => {
+      entered();
+      await waiting;
+      return { message_id: 801 };
+    });
+    const original = msg("чек");
+    const first = handleAssistantPrivate(original, director);
+    try {
+      await posting;
+      await Promise.all(Array.from({ length: copies - 1 }, () => handleAssistantPrivate(original, director)));
+      expect(io.buttons).toHaveBeenCalledOnce();
+      expect(io.extract).toHaveBeenCalledOnce();
+    } finally {
+      finish();
+      await first;
+    }
+  });
+
+  it.each([
+    new Error("connection lost after request"),
+    new TelegramApiError(500, "sendMessage", "synthetic provider failure"),
+    new TelegramApiError(undefined, "sendMessage", "synthetic incomplete provider reply"),
+  ])("does not post a second keyboard after ambiguous delivery %s", async error => {
+    io.buttons.mockRejectedValueOnce(error);
+    const original = msg("чек");
+    await handleAssistantPrivate(original, director);
+    await handleAssistantPrivate(original, director);
+    expect(io.buttons).toHaveBeenCalledOnce();
+    expect(io.text.mock.calls.at(-1)?.[1]).toContain("через 10 минут");
   });
 
   it("rolls back the expense, attached image and audit if the final replay marker fails", async () => {

@@ -7,7 +7,7 @@ import {
   isReadOnlyRole,
 } from "@royal-home/shared";
 import { verifyAccessToken } from "./jwt.js";
-import { prisma } from "../db.js";
+import { prisma, type TxClient } from "../db.js";
 import { runAsActor } from "../lib/requestActor.js";
 import { logSystemError } from "../lib/systemError.js";
 
@@ -62,11 +62,11 @@ export function invalidateAgentAccess(agentId?: string) {
   else accessCache.clear();
 }
 
-export async function loadAgentAccess(agentId: string): Promise<AgentAccess | null> {
-  const cached = accessCache.get(agentId);
+export async function loadAgentAccess(agentId: string, db?: Pick<TxClient, "agent">): Promise<AgentAccess | null> {
+  const cached = db ? undefined : accessCache.get(agentId);
   if (cached && cached.expiresAt > Date.now()) return cached.value;
 
-  const agent = await prisma.agent.findUnique({
+  const agent = await (db ?? prisma).agent.findUnique({
     where: { id: agentId },
     select: { role: true, isActive: true, permissions: true, sipExtension: true },
   });
@@ -78,7 +78,7 @@ export async function loadAgentAccess(agentId: string): Promise<AgentAccess | nu
     permissions: resolvePermissions(agent.role as Role, parsePermissionOverrides(agent.permissions)),
     sipExtension: agent.sipExtension,
   };
-  accessCache.set(agentId, { value, expiresAt: Date.now() + ACCESS_TTL_MS });
+  if (!db) accessCache.set(agentId, { value, expiresAt: Date.now() + ACCESS_TTL_MS });
   return value;
 }
 

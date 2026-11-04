@@ -24,6 +24,7 @@ const argsSchema = z.object({
 
 type Args = z.infer<typeof argsSchema>;
 type CheckDb = Pick<TxClient, "$queryRaw" | "agent">;
+const clientResultSchema = z.object({ clientId: z.string().uuid() });
 
 const duplicate = () => new AssistantActionError(409, "CLIENT_PHONE_IN_USE", "Клиент с этим номером уже есть в CRM.");
 
@@ -45,6 +46,7 @@ const executor: AssistantActionExecutor<Args> = {
   tool: "create_client",
   channels: ["crm", "telegram"],
   privateTelegram: true,
+  transactional: true,
   parseArgs(raw) {
     const parsed = argsSchema.safeParse(raw);
     if (!parsed.success) {
@@ -65,13 +67,29 @@ const executor: AssistantActionExecutor<Args> = {
     }
     return { ...parsed.data, phone: `+${fullPhoneIdentity(phone)}` };
   },
-  async snapshot(args, actionActor) {
-    await loadToolActor(actionActor);
-    await checkNewClient(args);
+  async authorize(_args, actionActor, action) {
+    const { actor } = await loadToolActor(actionActor, prisma);
+    if (action.status !== "EXECUTED") return;
+    const result = clientResultSchema.safeParse(action.result);
+    const visible = result.success && await prisma.client.findUnique({
+      where: {
+        id: result.data.clientId,
+        deletedAt: null,
+        ...(!actor.canViewAllClients ? { assignedAgentId: actor.id, acceptedAt: { not: null } } : {}),
+      },
+      select: { id: true },
+    });
+    if (!visible) throw new AssistantActionError(403, "FORBIDDEN", "Нет доступа к карточке клиента.");
+  },
+  async snapshot(args, actionActor, tx) {
+    if (tx) await tx.$queryRaw`SELECT "id" FROM "Agent" WHERE "id" = ${actionActor.agentId} FOR SHARE`;
+    const db = tx ?? prisma;
+    await loadToolActor(actionActor, db);
+    await checkNewClient(args, db);
     return { newClient: true };
   },
   async buildPreview(args, _snapshot, actionActor) {
-    const { actor } = await loadToolActor(actionActor);
+    const { actor } = await loadToolActor(actionActor, prisma);
     return {
       title: "Создать клиента",
       was: {},
@@ -84,9 +102,10 @@ const executor: AssistantActionExecutor<Args> = {
       },
     };
   },
-  async execute(args, actionActor) {
-    const { actor, agentName } = await loadToolActor(actionActor);
-    const client = await prisma.$transaction(async (tx) => {
+  async execute(args, actionActor, { tx }) {
+    if (!tx) throw new Error("create_client requires the confirmation transaction");
+    const { actor, agentName } = await loadToolActor(actionActor, tx);
+    try {
       // Serialize equivalent phone formats and align with conversation phone capture.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`client-phone:${fullPhoneIdentity(args.phone)}`}))`;
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`client-phone-tail:${phoneTail(args.phone)}`}))`;
@@ -116,15 +135,14 @@ const executor: AssistantActionExecutor<Args> = {
           meta: { source: "assistant.create_client", from: null, to: actor.id, reason: "Карточка создана и сразу назначена" },
         },
       ] });
-      return created;
-    }).catch((error: unknown) => {
+      return {
+        result: { clientId: created.id, shortId: created.shortId, href: `/clients/${created.shortId}` },
+        audit: { entityType: "Client", entityId: created.id },
+      };
+    } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") throw duplicate();
       throw error;
-    });
-    return {
-      result: { clientId: client.id, shortId: client.shortId, href: `/clients/${client.shortId}` },
-      audit: { entityType: "Client", entityId: client.id },
-    };
+    }
   },
 };
 

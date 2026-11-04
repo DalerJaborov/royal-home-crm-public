@@ -5520,6 +5520,7 @@ model TelegramExpenseDraft {
   image       Bytes?
   expenseId   String?  @unique
   previewMessageId Int?
+  previewClaimed Boolean @default(false)
   createdAt   DateTime @default(now())
   expiresAt   DateTime
 

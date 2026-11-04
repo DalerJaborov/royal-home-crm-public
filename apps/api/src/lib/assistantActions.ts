@@ -6,7 +6,7 @@ import {
   type AssistantActionView,
   type PermissionId,
 } from "@royal-home/shared";
-import { prisma } from "../db.js";
+import { prisma, type TxClient } from "../db.js";
 import { Prisma, type AssistantAction } from "../generated/prisma/client.js";
 import { canonicalJson, toPlainJson } from "./canonicalJson.js";
 import { logAgentAudit } from "./audit.js";
@@ -79,6 +79,8 @@ export interface AssistantActionExecuteResult {
   result: unknown;
   /** Что именно изменено — для AuditLog; без него пишется ссылка на само действие. */
   audit?: { entityType: string; entityId?: string | null };
+  /** Best-effort work for transactional tools, invoked only after commit. */
+  afterCommit?: () => void;
 }
 
 /**
@@ -94,9 +96,13 @@ export interface AssistantActionExecutor<A = unknown> {
   channels?: readonly AssistantActionChannel[];
   /** This action may use Telegram only in a private chat. */
   privateTelegram?: boolean;
+  /** DB-only execution with the claim, score/domain writes, audit and result in one transaction. */
+  transactional?: true;
+  /** Revalidate current entity access before returning an existing action, including a replay. */
+  authorize?: (args: A, actor: AssistantActionActor, action: Pick<AssistantAction, "status" | "result">) => Promise<void>;
   /** Разбор аргументов (zod) — тот же, что на REST-границе. */
   parseArgs: (raw: unknown) => A;
-  snapshot: (args: A, actor: AssistantActionActor) => Promise<AssistantActionSnapshot>;
+  snapshot: (args: A, actor: AssistantActionActor, tx?: TxClient) => Promise<AssistantActionSnapshot>;
   buildPreview: (
     args: A,
     snapshot: AssistantActionSnapshot,
@@ -105,7 +111,7 @@ export interface AssistantActionExecutor<A = unknown> {
   execute: (
     args: A,
     actor: AssistantActionActor,
-    ctx: { actionId: string; snapshotBefore: AssistantActionSnapshot }
+    ctx: { actionId: string; snapshotBefore: AssistantActionSnapshot; tx?: TxClient }
   ) => Promise<AssistantActionExecuteResult>;
   undo?: (
     args: A,
@@ -212,9 +218,10 @@ function parseArgs(executor: AssistantActionExecutor, raw: unknown): unknown {
 async function readSnapshot(
   executor: AssistantActionExecutor,
   args: unknown,
-  actor: AssistantActionActor
+  actor: AssistantActionActor,
+  tx?: TxClient,
 ): Promise<AssistantActionSnapshot> {
-  const snapshot = toPlainJson(await executor.snapshot(args, actor));
+  const snapshot = toPlainJson(await executor.snapshot(args, actor, tx));
   if (snapshot === null || typeof snapshot !== "object" || Array.isArray(snapshot)) {
     throw new Error(`Снимок действия «${executor.tool}» обязан быть объектом`);
   }
@@ -227,8 +234,20 @@ async function loadOwned(actionId: string, actor: AssistantActionActor): Promise
   const row = await prisma.assistantAction.findUnique({ where: { id: actionId } });
   if (!row) throw new AssistantActionError(404, "NOT_FOUND", "Действие не найдено");
   if (row.agentId !== actor.agentId) throw new AssistantActionError(403, "FORBIDDEN", "Это действие не ваше");
-  assertPrivateTelegram(getAssistantActionExecutor(row.tool), actor);
   return row;
+}
+
+async function loadAuthorizedAction(actionId: string, actor: AssistantActionActor) {
+  const row = await loadOwned(actionId, actor);
+  const executor = requireExecutor(row.tool);
+  // Settled and in-flight responses can include the same preview and result as execution.
+  assertActorAllowed(executor, actor);
+  await assertActionReadable(row, executor, actor);
+  return { row, executor };
+}
+
+async function assertActionReadable(row: AssistantAction, executor: AssistantActionExecutor, actor: AssistantActionActor): Promise<void> {
+  if (executor.authorize) await executor.authorize(parseArgs(executor, row.args), actor, row);
 }
 
 /** Гасит просроченное PENDING (условно — гонка со сборщиком/вторым запросом безопасна). */
@@ -316,6 +335,92 @@ async function failClaimed(actionId: string, reason: string): Promise<void> {
   });
 }
 
+async function stalePreviewError(row: AssistantAction, actor: AssistantActionActor, now: Date): Promise<AssistantActionError> {
+  const action = await createPendingAssistantAction(actor, row.tool, row.args, { now }).catch(() => null);
+  return new AssistantActionError(409, "STALE", "Данные изменились, проверьте ещё раз", { stale: true, action });
+}
+
+function claimPendingAction(db: TxClient, row: AssistantAction, actor: AssistantActionActor, now: Date) {
+  return db.assistantAction.updateMany({
+    where: { id: row.id, agentId: actor.agentId, status: "PENDING", expiresAt: { gt: now } },
+    data: { status: "CONFIRMED", confirmedAt: now },
+  });
+}
+
+function saveExecutedAction(
+  db: TxClient, row: AssistantAction, executed: AssistantActionExecuteResult, snapshotAfter: AssistantActionSnapshot | null,
+) {
+  return db.assistantAction.update({
+    where: { id: row.id },
+    data: {
+      status: "EXECUTED",
+      executedAt: new Date(),
+      result: executed.result === undefined || executed.result === null ? Prisma.DbNull : asJson(executed.result),
+      snapshotAfter: snapshotAfter ? asJson(snapshotAfter) : Prisma.DbNull,
+      idempotencyKey: null,
+    },
+  });
+}
+
+async function confirmTransactionalAction(
+  row: AssistantAction, executor: AssistantActionExecutor, actor: AssistantActionActor, now: Date,
+): Promise<AssistantActionOutcome> {
+  const outcome = await prisma.$transaction(async (tx) => {
+    const claimed = await claimPendingAction(tx, row, actor, now);
+    if (claimed.count === 0) {
+      const fresh = await tx.assistantAction.findUnique({ where: { id: row.id } });
+      if (!fresh) throw new AssistantActionError(404, "NOT_FOUND", "Действие не найдено");
+      return { kind: "settled" as const, row: fresh };
+    }
+    const args = parseArgs(executor, row.args);
+    const snapshotBefore = row.snapshotBefore as AssistantActionSnapshot;
+    const current = await readSnapshot(executor, args, actor, tx);
+    if (!sameSnapshot(current, snapshotBefore)) {
+      await tx.assistantAction.update({
+        where: { id: row.id },
+        data: { status: "CANCELLED", statusReason: "stale: данные изменились после превью", idempotencyKey: null },
+      });
+      return { kind: "stale" as const };
+    }
+
+    const executed = await executor.execute(args, actor, { actionId: row.id, snapshotBefore, tx });
+    const snapshotAfter = executor.undo ? await readSnapshot(executor, args, actor, tx) : null;
+    const agent = await tx.agent.findUnique({ where: { id: actor.agentId }, select: { fullName: true } });
+    await tx.auditLog.create({
+      data: {
+        action: `ASSISTANT_${row.tool.toUpperCase()}`,
+        entityType: executed.audit?.entityType ?? "AssistantAction",
+        entityId: executed.audit?.entityId ?? row.id,
+        agentId: actor.agentId,
+        agentName: agent?.fullName ?? "Неизвестно",
+        meta: { source: "assistant", actionId: row.id, channel: actor.channel },
+      },
+    });
+    const done = await saveExecutedAction(tx, row, executed, snapshotAfter);
+    return { kind: "executed" as const, row: done, afterCommit: executed.afterCommit };
+  }).catch(async (err: unknown) => {
+    if (err instanceof AssistantActionError) throw err;
+    // A disconnected client may miss COMMIT's acknowledgement. Check the durable result, never rerun here.
+    const persisted = await prisma.assistantAction.findUnique({ where: { id: row.id } }).catch(() => null);
+    if (persisted?.status === "EXECUTED") return { kind: "settled" as const, row: persisted };
+    await logSystemError("ai", `Помощник: транзакция действия «${row.tool}» (${row.id}): ${err instanceof Error ? err.message : String(err)}`);
+    throw new AssistantActionError(503, "CONFIRM_RETRY", "Не получилось. Нажмите «Подтвердить» ещё раз.");
+  });
+
+  if (outcome.kind === "stale") throw await stalePreviewError(row, actor, now);
+  if (outcome.kind === "settled") {
+    await assertActionReadable(outcome.row, executor, actor);
+    if (outcome.row.status === "PENDING" && outcome.row.expiresAt <= now) await expireIfDue(outcome.row, now);
+    return settledOutcome(outcome.row, now);
+  }
+  if (outcome.afterCommit) {
+    void Promise.resolve().then(outcome.afterCommit).catch((err) =>
+      console.error("[assistant] post-commit work failed:", err)
+    );
+  }
+  return { action: toView(outcome.row), replay: false };
+}
+
 /**
  * «Подтвердить». Исполняет действие ровно один раз; повтор по тому же id после
  * исполнения отдаёт прежний результат (`replay: true`).
@@ -326,19 +431,15 @@ export async function confirmAssistantAction(
   opts: { now?: Date } = {}
 ): Promise<AssistantActionOutcome> {
   const now = opts.now ?? new Date();
-  const row = await loadOwned(actionId, actor);
+  const { row, executor } = await loadAuthorizedAction(actionId, actor);
   if (row.status !== "PENDING") return settledOutcome(row, now);
   if (row.expiresAt <= now) {
     await expireIfDue(row, now);
     throw expiredError();
   }
-  const executor = requireExecutor(row.tool);
-  assertActorAllowed(executor, actor);
+  if (executor.transactional) return confirmTransactionalAction(row, executor, actor, now);
 
-  const claimed = await prisma.assistantAction.updateMany({
-    where: { id: row.id, agentId: actor.agentId, status: "PENDING", expiresAt: { gt: now } },
-    data: { status: "CONFIRMED", confirmedAt: now },
-  });
+  const claimed = await claimPendingAction(prisma, row, actor, now);
   if (claimed.count === 0) {
     const fresh = await prisma.assistantAction.findUnique({ where: { id: row.id } });
     if (!fresh) throw new AssistantActionError(404, "NOT_FOUND", "Действие не найдено");
@@ -363,17 +464,7 @@ export async function confirmAssistantAction(
       where: { id: row.id, status: "CONFIRMED" },
       data: { status: "CANCELLED", statusReason: "stale: данные изменились после превью", idempotencyKey: null },
     });
-    let freshAction: AssistantActionView | null = null;
-    try {
-      freshAction = await createPendingAssistantAction(actor, row.tool, row.args, { now });
-    } catch {
-      // Новое превью не собралось (сущность удалили, прав больше нет) — отвечаем
-      // «устарело» без него: исполнять старое всё равно нельзя.
-    }
-    throw new AssistantActionError(409, "STALE", "Данные изменились, проверьте ещё раз", {
-      stale: true,
-      action: freshAction,
-    });
+    throw await stalePreviewError(row, actor, now);
   }
 
   let executed: AssistantActionExecuteResult;
@@ -395,16 +486,7 @@ export async function confirmAssistantAction(
     // Без снимка «стало» откат просто будет недоступен — само действие уже сделано.
   }
 
-  const done = await prisma.assistantAction.update({
-    where: { id: row.id },
-    data: {
-      status: "EXECUTED",
-      executedAt: new Date(),
-      result: executed.result === undefined || executed.result === null ? Prisma.DbNull : asJson(executed.result),
-      snapshotAfter: snapshotAfter ? asJson(snapshotAfter) : Prisma.DbNull,
-      idempotencyKey: null,
-    },
-  });
+  const done = await saveExecutedAction(prisma, row, executed, snapshotAfter);
   logAgentAudit(
     actor.agentId,
     `ASSISTANT_${row.tool.toUpperCase()}`,
@@ -415,6 +497,24 @@ export async function confirmAssistantAction(
   return { action: toView(done), replay: false };
 }
 
+function cancelPendingRow(row: AssistantAction, actor: AssistantActionActor, onlyUnbundled = false) {
+  return prisma.assistantAction.updateMany({
+    where: { id: row.id, agentId: actor.agentId, status: "PENDING", ...(onlyUnbundled ? { bundleId: null } : {}) },
+    data: { status: "CANCELLED", statusReason: "отменено сотрудником", idempotencyKey: null },
+  });
+}
+
+/** Telegram cleanup may discard an owned draft without reading its preview or result. */
+export async function discardPendingAssistantAction(
+  actionId: string,
+  actor: AssistantActionActor,
+  opts: { onlyUnbundled?: boolean } = {},
+): Promise<void> {
+  const row = await loadOwned(actionId, actor);
+  assertPrivateTelegram(getAssistantActionExecutor(row.tool), actor);
+  await cancelPendingRow(row, actor, opts.onlyUnbundled);
+}
+
 /** «Отмена» до исполнения. Повтор по уже отменённому — не ошибка. */
 export async function cancelAssistantAction(
   actionId: string,
@@ -422,13 +522,11 @@ export async function cancelAssistantAction(
   opts: { now?: Date } = {}
 ): Promise<AssistantActionOutcome> {
   const now = opts.now ?? new Date();
-  const row = await loadOwned(actionId, actor);
-  const cancelled = await prisma.assistantAction.updateMany({
-    where: { id: row.id, agentId: actor.agentId, status: "PENDING" },
-    data: { status: "CANCELLED", statusReason: "отменено сотрудником", idempotencyKey: null },
-  });
+  const { row, executor } = await loadAuthorizedAction(actionId, actor);
+  const cancelled = await cancelPendingRow(row, actor);
   const fresh = await prisma.assistantAction.findUniqueOrThrow({ where: { id: row.id } });
   if (cancelled.count === 1) return { action: toView(fresh), replay: false };
+  if (fresh.status !== row.status) await assertActionReadable(fresh, executor, actor);
   if (fresh.status === "CANCELLED") return { action: toView(fresh), replay: true };
   return settledOutcome(fresh, now);
 }
@@ -443,12 +541,11 @@ export async function undoAssistantAction(
   opts: { now?: Date } = {}
 ): Promise<AssistantActionOutcome> {
   const now = opts.now ?? new Date();
-  const row = await loadOwned(actionId, actor);
+  const { row, executor } = await loadAuthorizedAction(actionId, actor);
   if (row.status === "UNDONE") return { action: toView(row), replay: true };
   if (row.status !== "EXECUTED" || !row.executedAt) {
     throw new AssistantActionError(409, "NOT_EXECUTED", "Откатить можно только выполненное действие");
   }
-  const executor = requireExecutor(row.tool);
   const preview = row.preview as AssistantActionPreview;
   if (!executor.undo || preview.irreversible) {
     throw new AssistantActionError(409, "NOT_UNDOABLE", "Это действие не откатывается");
@@ -457,8 +554,6 @@ export async function undoAssistantAction(
   if (row.executedAt.getTime() + windowMs <= now.getTime()) {
     throw new AssistantActionError(410, "UNDO_WINDOW_PASSED", "Время на отмену вышло");
   }
-  assertActorAllowed(executor, actor);
-
   const claimed = await prisma.assistantAction.updateMany({
     where: { id: row.id, agentId: actor.agentId, status: "EXECUTED", undoClaimedAt: null },
     data: { undoClaimedAt: now },

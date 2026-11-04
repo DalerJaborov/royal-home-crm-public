@@ -98,7 +98,9 @@ async function synthesize(
 }
 
 /** Озвучивает ответ и шлёт голосовым. Никогда не бросает. */
-export async function sendAssistantVoiceReply(chatId: string, replyText: string, replyTo?: number, fallbackLanguage?: AssistantSpeechLanguage): Promise<boolean> {
+export async function sendAssistantVoiceReply(
+  chatId: string, replyText: string, replyTo?: number, fallbackLanguage?: AssistantSpeechLanguage, messageThreadId?: number,
+): Promise<boolean> {
   try {
     const plan = prepareAssistantReply(replyText, false, fallbackLanguage);
     if (plan.language === "text-only") return false;
@@ -120,11 +122,14 @@ export async function sendAssistantVoiceReply(chatId: string, replyText: string,
         clearInterval(indicator);
       }
     };
+    const postAudio = (audio: Buffer) => messageThreadId === undefined
+      ? sendVoiceFile(chatId, audio, replyTo)
+      : sendVoiceFile(chatId, audio, replyTo, undefined, messageThreadId);
     if (!cacheableAssistantSpeech(speech)) {
       const audio = await render();
       if (!audio?.length) return false;
       void sendChatAction(chatId, undefined, "upload_voice");
-      await sendVoiceFile(chatId, audio, replyTo);
+      await postAudio(audio);
       return true;
     }
     const { voiceId } = config;
@@ -138,7 +143,11 @@ export async function sendAssistantVoiceReply(chatId: string, replyText: string,
     if (!entry) return false;
     if (entry.fileId) {
       void sendChatAction(chatId, undefined, "upload_voice");
-      try { await sendAssistantVoiceId(chatId, entry.fileId, replyTo); return true; }
+      try {
+        if (messageThreadId === undefined) await sendAssistantVoiceId(chatId, entry.fileId, replyTo);
+        else await sendAssistantVoiceId(chatId, entry.fileId, replyTo, messageThreadId);
+        return true;
+      }
       catch (err) {
         // Re-upload only after a definite invalid-file rejection; never retry timeouts/429.
         if (!(err instanceof TelegramApiError && err.errorCode === 400 && /wrong file identifier|file_id.*invalid|file reference.*expired/i.test(err.message))) throw err;
@@ -147,7 +156,7 @@ export async function sendAssistantVoiceReply(chatId: string, replyText: string,
       }
     }
     void sendChatAction(chatId, undefined, "upload_voice");
-    const sent = await sendVoiceFile(chatId, Buffer.from(entry.audio, "base64"), replyTo);
+    const sent = await postAudio(Buffer.from(entry.audio, "base64"));
     const parsed = sentVoiceSchema.safeParse(sent);
     if (parsed.success) await writeAssistantVoiceCache(key, { ...entry, fileId: parsed.data.voice.file_id });
     return true;
