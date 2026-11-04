@@ -449,6 +449,26 @@ describe("optional help without an address", () => {
     }
     expect(f.html).toHaveBeenCalledOnce();
   });
+  it("routes a colloquial publication question without an address as read-only", async () => {
+    const f = fixture();
+    const request = "Каробкаи зирбак пост нашуд ми?";
+    expect(await f.send(request, { from: { id: 3 }, message_thread_id: 71 })).toBe(true);
+    expect(f.run.mock.calls[0]?.[0]).toEqual([{ role: "user", content: request }]);
+    expect(f.run.mock.calls[0]?.[1]).toMatchObject({ id: "test-3" });
+    expect(f.run.mock.calls[0]?.[2]).toMatchObject({ confirmUi: false, readOnly: true });
+    expect(f.findProperty).not.toHaveBeenCalled();
+  });
+
+  it("ignores standalone chat about posts and an unlinked publication request", async () => {
+    const f = fixture();
+    expect(await f.send("Пост нашуд ми?")).toBe(false);
+    expect(await f.send("Каробкаи зирбак пост нашуд.")).toBe(false);
+    f.setLinked(false);
+    expect(await f.send("Каробкаи зирбак пост нашуд ми?")).toBe(false);
+    expect(f.run).not.toHaveBeenCalled();
+    expect(f.publicCatalog).not.toHaveBeenCalled();
+  });
+
   it("keeps automatic help out of replies to colleagues and honours quiet while a lookup is running", async () => {
     const f = fixture();
     const request = "Подбери квартиры в Сино";
