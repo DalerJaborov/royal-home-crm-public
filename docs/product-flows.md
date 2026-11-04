@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **730**. Развилок в самих путях: **2500**; вместе с задачами по расписанию и фоновыми заданиями — **3951**. Модулей: **81**.
+Путей: **730**. Развилок в самих путях: **2500**; вместе с задачами по расписанию и фоновыми заданиями — **3952**. Модулей: **81**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -19430,6 +19430,18 @@
       · зовёт markCronTickFailed()
     - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
       · запись в журнал ошибок
+
+### assistant-telegram-context-cleanup — */30 * * * *
+
+- await cleanupAssistantTelegramContext();
+  · зовёт cleanupAssistantTelegramContext()
+  - const batch = await prisma.assistantTelegramContext.findMany({ where: stale, select: { id: true }, orderBy: […
+    · читает в базе: assistantTelegramContext
+  - если !batch.length
+    - return 0;
+      · дословно из кода
+  - return (await prisma.assistantTelegramContext.deleteMany({ where: { ...stale, id: { in: batch.map(row
+    · удаляет в базе: assistantTelegramContext
 
 ### background-jobs — * * * * *
 

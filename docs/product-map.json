@@ -1566,6 +1566,11 @@
       "label": null
     },
     {
+      "id": "assistant-telegram-context-cleanup",
+      "expr": "*/30 * * * *",
+      "label": null
+    },
+    {
       "id": "background-jobs",
       "expr": "* * * * *",
       "label": "Тик очереди фоновых заданий"

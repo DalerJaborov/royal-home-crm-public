@@ -14,12 +14,12 @@
  "totals": {
   "screens": 52,
   "paths": 730,
-  "cron": 120,
+  "cron": 121,
   "jobs": 31,
-  "conditions": 3951,
+  "conditions": 3952,
   "untranslatedUnique": 451,
   "untranslatedTotal": 581,
-  "partialUnique": 1076,
+  "partialUnique": 1077,
   "translatedShare": 85
  },
  "untranslated": [
@@ -65200,6 +65200,32 @@
          "c": []
         }
        ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "assistant-telegram-context-cleanup",
+   "when": "*/30 * * * *",
+   "label": "assistant-telegram-context-cleanup",
+   "tree": [
+    {
+     "t": "внутри этого шага",
+     "k": "do",
+     "a": [],
+     "c": [
+      {
+       "t": "если нет: batch количество",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "удаляет: помощник Telegram context",
+       "k": "do",
+       "a": [],
+       "c": []
       }
      ]
     }
