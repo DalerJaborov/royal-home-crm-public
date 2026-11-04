@@ -37,6 +37,8 @@ import {
   sendMessage,
   sendMessageWithButtons,
   setMessageReaction,
+  IS_LOCAL_BOT_API,
+  TELEGRAM_BOT_DOWNLOAD_LIMIT_BYTES,
   type TelegramCallbackQuery,
   type TelegramIncomingMessage,
 } from "./api.js";
@@ -391,6 +393,13 @@ export async function handleAssistantPrivate(
   const chatId = String(msg.chat.id);
   const send = (text: string) => sendMessage(chatId, text).then(() => undefined);
   try {
+    const videoDocument = msg.document && (msg.document.mime_type?.startsWith("video/")
+      || /\.(?:mov|mp4|m4v|mkv|avi|webm)$/iu.test(msg.document.file_name ?? "")) ? msg.document : undefined;
+    const video = msg.video ?? msg.video_note ?? videoDocument;
+    if (!IS_LOCAL_BOT_API && video?.file_size && video.file_size > TELEGRAM_BOT_DOWNLOAD_LIMIT_BYTES) {
+      await send("Это видео больше 20 МБ — в текущем подключении к Telegram я не могу его скачать. Загрузите ролик через CRM-панель объекта. Файл ещё не сохранён в CRM.");
+      return;
+    }
     if (await handleTelegramPropertyDraft(msg, agent, transcribeVoice)) return;
     const moneyWallet = createAssistantMoneyWallet();
     let text = (msg.text ?? msg.caption ?? "").trim();

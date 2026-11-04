@@ -92,7 +92,7 @@
   .clean-settings-jump select { width: 100%; }
   .clean-settings-page .acc-h, .clean-settings-page .acc-b { padding-inline: 16px; }
   .clean-deals .kan-col { padding: 12px; }
-  .clean-reports .filters .field { flex: 1 1 140px; min-width: 0; }
+  .clean-reports .filters .field { flex: 1 1 180px; min-width: 0; }
   .clean-reports .filters .field .inp { max-width: none !important; width: 100%; }
   :is(.finance-clean, .clean-reports) .pg-h .acts { width: 100%; justify-content: flex-start; }
 }

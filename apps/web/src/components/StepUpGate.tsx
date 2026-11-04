@@ -92,7 +92,7 @@ export function StepUpGate({ children }: { children: React.ReactNode }) {
           <p className="sub" style={{ marginTop: 6, fontSize: "var(--fs-13)", color: "var(--muted)" }}>
             {isTotp
               ? "Введите код из приложения-аутентификатора (Google Authenticator), чтобы открыть настройки на 10 минут."
-              : `Введите код из ${codeSend.channel === "telegram" ? "Telegram" : codeSend.channel === "push" && now < codeSend.fallbackAt ? "уведомления" : "СМС"}, чтобы открыть настройки на 10 минут.`}
+              : "Введите полученный код, чтобы открыть настройки на 10 минут."}
           </p>
         </div>
         <label className="fld">
@@ -118,7 +118,7 @@ export function StepUpGate({ children }: { children: React.ReactNode }) {
             {codeSend.telegramAvailable && codeSend.channel !== "telegram" && (
             <>
                 {" "}
-              <button type="button" className="lnk" disabled={codeSend.sending} onClick={() => void codeSend.send("telegram")}>
+              <button type="button" className="lnk" disabled={waitSec > 0 || codeSend.sending} onClick={() => void codeSend.send("telegram")}>
                 Прислать в Telegram
               </button>
             </>
