@@ -8,6 +8,7 @@ import { sharedMediaHint } from "../messengers/sharedMedia.js";
 import { isDuplicateDelivery, markProcessedMessageComplete, releaseProcessedMessage } from "../lib/webhookDedupe.js";
 import { tryLinkAgentByCode, findAgentByTelegramChatId } from "../lib/telegramAgentLink.js";
 import { handleAssistantCallback, handleAssistantGroupMessage, handleAssistantPrivate } from "./assistantBot.js";
+import { captureAssistantTelegramContext } from "./assistantGroupContext.js";
 import { sendShareTextMessage } from "../lib/agentSharePost.js";
 import { findDistrictIdByName } from "../lib/districtLookup.js";
 import { handleMontajerVideo, handleMontajerReceiveCallback } from "./montajerReceive.js";
@@ -323,7 +324,7 @@ export interface TelegramUpdateAccepted {
  * дожидается и ответа.
  */
 export function startTelegramUpdate(update: TelegramUpdate): Promise<TelegramUpdateAccepted> {
-  const rawChatId = update.message?.chat?.id ?? update.callback_query?.message?.chat.id;
+  const rawChatId = update.message?.chat?.id ?? update.edited_message?.chat?.id ?? update.callback_query?.message?.chat.id;
   const accepted = (r: TelegramUpdateAccepted | void): TelegramUpdateAccepted => r ?? { reply: Promise.resolve() };
   if (rawChatId == null) return dispatchTelegramUpdate(update).then(accepted);
   const key = String(rawChatId);
@@ -346,6 +347,10 @@ export async function handleTelegramUpdate(update: TelegramUpdate): Promise<void
 }
 
 async function dispatchTelegramUpdate(update: TelegramUpdate): Promise<TelegramUpdateAccepted | void> {
+  if (update.edited_message) {
+    await captureAssistantTelegramContext(update.edited_message, update.update_id);
+    return;
+  }
   if (update.callback_query) {
     await handleCallbackQuery(update.callback_query);
     return;
@@ -379,6 +384,7 @@ async function dispatchTelegramUpdate(update: TelegramUpdate): Promise<TelegramU
    * всё остальное молча пропускается.
    */
   if (msg.chat.type && msg.chat.type !== "private") {
+    await captureAssistantTelegramContext(msg, update.update_id);
     // Помощница сотрудников: участие разрешено только для подключённых рабочих групп.
     if (await handleAssistantGroupMessage(msg)) return;
     await handleDiscussionGroupMessage(msg);

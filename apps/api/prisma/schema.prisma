@@ -10734,6 +10734,29 @@ model AssistantTelegramGroup {
   proactiveMutedUntil DateTime?
   lastProactiveReplyAt DateTime?
   lastJoinWelcomeAt    DateTime?
+  /// Separate opt-in. A later opt-in starts a new evidence window.
+  contextEnabledAt     DateTime?
+  context             AssistantTelegramContext[]
+}
+
+/// Recent, source-scoped evidence from an explicitly opted-in work group.
+model AssistantTelegramContext {
+  id             String                 @id @default(uuid())
+  groupChatId    String
+  group          AssistantTelegramGroup @relation(fields: [groupChatId], references: [chatId], onDelete: Cascade)
+  messageId      Int
+  threadId       Int?
+  authorAgentId  String
+  occurredAt     DateTime
+  sourceVersion  DateTime
+  sourceUpdateId BigInt
+  expiresAt      DateTime
+  text           String
+  attachmentKind String?
+  propertyRefs   Int[]
+  @@unique([groupChatId, messageId])
+  @@index([groupChatId, threadId, occurredAt])
+  @@index([expiresAt])
 }
 
 /// ОБЪЯВЛЕНИЕ С ЧУЖОГО САЙТА — рыночная разведка (владелец 21.08.2026).

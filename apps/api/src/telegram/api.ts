@@ -1021,6 +1021,8 @@ export interface TelegramCallbackQuery {
 export interface TelegramUpdate {
   update_id: number;
   message?: TelegramIncomingMessage;
+  /** Used by opted-in group evidence only. An edit must never run the reply pipeline. */
+  edited_message?: TelegramIncomingMessage;
   callback_query?: TelegramCallbackQuery;
 }
 
@@ -1036,7 +1038,7 @@ export function getUpdates(offset: number): Promise<TelegramUpdate[]> {
     timeout: POLL_TIMEOUT_SEC,
     // Сообщения и нажатия инлайн-кнопок клиентскому боту: личная переписка
     // директора (Telegram Business) по-прежнему не разбирается.
-    allowed_updates: ["message", "callback_query"],
+    allowed_updates: ["message", "edited_message", "callback_query"],
   }, POLL_ABORT_MS);
 }
 
@@ -1050,7 +1052,7 @@ export function setWebhook(url: string, secretToken: string): Promise<unknown> {
   return call("setWebhook", {
     url,
     secret_token: secretToken,
-    allowed_updates: ["message", "callback_query"],
+    allowed_updates: ["message", "edited_message", "callback_query"],
     // Сбрасываем недоставленные апдейты старого long polling — иначе первый
     // вебхук-запрос принёс бы вперемешку хвост из очереди getUpdates.
     drop_pending_updates: true,
