@@ -84,18 +84,24 @@ export async function sendAssistantReply(chatId: string, text: string, ctx: {
   const maskPhones = ctx.scope === "group";
   const clarification = maskPhones ? assistantGroupClarification(text, ctx.requestLanguage) : null;
   const plan = prepareAssistantReply(clarification ?? text, maskPhones);
-  const parts = splitHumanMessages(plan.text);
+  const needsWrittenDetails = Boolean(ctx.structured || plan.needsWrittenDetails || ctx.written.length || TEXT_LAYOUT.test(plan.text));
+  const explicitConversation = ctx.mode === "voice" && !needsWrittenDetails && !clarification;
+  const parts = splitHumanMessages(plan.text, explicitConversation ? AUTO_VOICE_MAX_CHARS : undefined);
   if (!parts.length) parts.push("");
-  const structured = Boolean(ctx.structured || plan.needsText || ctx.written.length
-    || plan.text.length > AUTO_VOICE_MAX_CHARS || parts.length > 2 || TEXT_LAYOUT.test(plan.text));
+  const structured = needsWrittenDetails || plan.truncated || plan.text.length > AUTO_VOICE_MAX_CHARS || parts.length > 2;
   let canSpeak = !clarification && (ctx.mode === "voice" || (ctx.mode !== "text" && ctx.fromVoice
     && (ctx.scope === "private" || ctx.addressedGroupVoice === true) && !structured));
   const buttonPaths = new Set<string>();
 
   for (const [i, textPart] of parts.entries()) {
-    const part = prepareAssistantReply(textPart, maskPhones);
+    const initialPart = prepareAssistantReply(textPart, maskPhones);
+    const fallbackLanguage = explicitConversation && initialPart.language === "text-only" && plan.language !== "text-only"
+      && /\p{Script=Cyrillic}/u.test(textPart)
+      ? plan.language : undefined;
+    const part = fallbackLanguage ? prepareAssistantReply(textPart, maskPhones, fallbackLanguage) : initialPart;
     const written = i === parts.length - 1 ? ctx.written.map(entry => sanitizeAssistantReply(entry, maskPhones)) : [];
-    const replyTo = i === 0 ? ctx.replyTo : undefined;
+    // In a Telegram forum, every new conversational clip must stay in the request's topic.
+    const replyTo = i === 0 || (explicitConversation && ctx.scope === "group") ? ctx.replyTo : undefined;
     const buttons: TelegramInlineButton[][] = [];
     for (const { path, text, url } of assistantCardLinks(part.text, maskPhones)) {
       if (buttonPaths.size >= MAX_CARD_BUTTONS) break;
@@ -104,9 +110,11 @@ export async function sendAssistantReply(chatId: string, text: string, ctx: {
       buttons.push([{ text, url }]);
     }
 
-    if (canSpeak && part.language !== "text-only" && part.speech.length >= 3) {
-      const delivered = await sendAssistantVoiceReply(chatId, part.speech, replyTo);
-      if (delivered && !structured && !part.needsText && !buttons.length) continue;
+    const shortEnough = !explicitConversation || (!part.truncated && part.text.length <= AUTO_VOICE_MAX_CHARS);
+    if (canSpeak && shortEnough && part.language !== "text-only" && part.speech.length >= 3) {
+      const delivered = fallbackLanguage ? await sendAssistantVoiceReply(chatId, part.speech, replyTo, fallbackLanguage)
+        : await sendAssistantVoiceReply(chatId, part.speech, replyTo);
+      if (delivered && (explicitConversation || !structured) && !part.needsText && !buttons.length) continue;
       if (!delivered) canSpeak = false;
     }
     const html = [renderAssistantHtml(part.text, { maskPhones }), ...written.map(escapeHtml)].filter(Boolean).join("\n");

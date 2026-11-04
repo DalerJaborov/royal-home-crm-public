@@ -3,7 +3,7 @@ import { decryptSecret } from "../crypto.js";
 import { describeError } from "../lib/describeError.js";
 import { resolveElevenLabsKey } from "../ai/liveVoiceProvider.js";
 import { directAssistantVoice } from "./assistantVoiceDirection.js";
-import { prepareAssistantReply } from "./assistantReply.js";
+import { prepareAssistantReply, type AssistantSpeechLanguage } from "./assistantReply.js";
 import { claimAssistantTtsChars } from "./assistantVoiceBudget.js";
 import { sendChatAction, sendVoiceFile, sendAssistantVoiceId, TelegramApiError } from "./api.js";
 import { z } from "zod";
@@ -98,9 +98,9 @@ async function synthesize(
 }
 
 /** Озвучивает ответ и шлёт голосовым. Никогда не бросает. */
-export async function sendAssistantVoiceReply(chatId: string, replyText: string, replyTo?: number): Promise<boolean> {
+export async function sendAssistantVoiceReply(chatId: string, replyText: string, replyTo?: number, fallbackLanguage?: AssistantSpeechLanguage): Promise<boolean> {
   try {
-    const plan = prepareAssistantReply(replyText);
+    const plan = prepareAssistantReply(replyText, false, fallbackLanguage);
     if (plan.language === "text-only") return false;
     const language = plan.language;
     const speech = plan.speech;
