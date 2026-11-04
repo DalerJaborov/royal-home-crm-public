@@ -1528,7 +1528,10 @@ export async function runAssistantDetailed(
       if (turn.calls.length === 0) {
         if (!turn.text) throw new AssistantFailure("empty_reply", "Gemini вернул пустой ответ без вызова инструментов");
         const evidence = cardEvidence.validate(turn.text);
-        const reply = evidence.ok ? turn.text : "Не удалось подтвердить ссылки на карточки по данным CRM. Уточните запрос.";
+        const tajik = languagePolicy.language === "tg" || languagePolicy.language === "mixed";
+        const reply = evidence.ok ? turn.text : tajik
+          ? "Пайвандро дар CRM санҷида натавонистам. Ном ё рақамашро нависед."
+          : "Не удалось подтвердить ссылки на карточки по данным CRM. Уточните запрос.";
         if (reply.trim() === OFF_TOPIC_REPLY) route = "off_topic";
         options.onToken?.({ text: reply });
         ok = true;
