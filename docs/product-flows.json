@@ -15562,6 +15562,14 @@
      ]
     },
     {
+     "k": "do",
+     "t": "const selection = propertySelection(req.agent!.id);",
+     "a": [
+      "зовёт propertySelection()"
+     ],
+     "c": []
+    },
+    {
      "k": "if",
      "t": "section === \"sent\"",
      "a": [],

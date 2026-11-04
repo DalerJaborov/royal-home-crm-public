@@ -3577,6 +3577,8 @@
 - если ownAgentId === client.assignedAgentId && !client.acceptedAt
   - return res.status(403).json({ error: "Сначала примите лид" });
     · ответ 403 — «Сначала примите лид»
+- const selection = propertySelection(req.agent!.id);
+  · зовёт propertySelection()
 - если section === "sent"
   - const [rows, count] = await Promise.all([ prisma.propertyExposure.findMany({ where, orderBy: [{ sentAt: "desc…
     · читает в базе: propertyExposure
