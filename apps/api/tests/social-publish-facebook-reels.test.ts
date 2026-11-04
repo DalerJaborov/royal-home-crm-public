@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
@@ -24,6 +26,8 @@ vi.mock("../src/db.js", () => ({
 }));
 
 const { publishFacebookReel, publishFacebookVideo, facebookFormatFor } = await import("../src/lib/socialPublish.js");
+
+const localVideoPath = fileURLToPath(import.meta.url);
 
 function jsonResponse(body: unknown, ok = true, status = 200): Response {
   return { ok, status, json: async () => body } as unknown as Response;
@@ -76,7 +80,7 @@ describe("publishFacebookReel — три шага + опрос готовнос�
       .mockResolvedValueOnce(jsonResponse({ success: true }))
       .mockRejectedValue(new TypeError("fetch failed", { cause: Object.assign(new Error("socket closed"), { code: "UND_ERR_SOCKET" }) }));
     vi.stubGlobal("fetch", fetchMock);
-    expect(await publishFacebookReel("page-1", "test-token", "https://example.com/v.mp4", "Test", { onAnswered })).toMatchObject({ ok: false });
+    expect(await publishFacebookReel("page-1", "test-token", localVideoPath, "Test", { onAnswered })).toMatchObject({ ok: false });
     expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(onAnswered).not.toHaveBeenCalled();
   });
@@ -100,7 +104,7 @@ describe("publishFacebookReel — три шага + опрос готовнос�
         ? jsonResponse({ video_id: "reel-1", upload_url: "https://rupload.facebook.com/video-upload/v23.0/reel-1" })
         : jsonResponse({ success: true });
     }));
-    const promise = publishFacebookReel("page-1", "test-token", "https://example.com/v.mp4", "Test", { onAttemptStarted, onAnswered });
+    const promise = publishFacebookReel("page-1", "test-token", localVideoPath, "Test", { onAttemptStarted, onAnswered });
     await vi.advanceTimersByTimeAsync(FULL_WAIT_WINDOW_MS);
     expect(await promise).toMatchObject({ ok: true, postId: "reel-1" });
     expect(calls).toEqual({ start: failedPhase === "start" ? 2 : 1, upload: failedPhase === "upload" ? 2 : 1, finish: failedPhase === "finish" ? 2 : 1 });
@@ -117,6 +121,15 @@ describe("publishFacebookReel — три шага + опрос готовнос�
         return jsonResponse({ video_id: "reel-1", upload_url: "https://rupload.facebook.com/video-upload/v23.0/reel-1" });
       }
       if (address.startsWith("https://rupload.facebook.com/")) {
+        const headers = new Headers(init?.headers);
+        const bytes = await readFile(localVideoPath);
+        expect(headers.get("authorization")).toBe("OAuth page-token");
+        expect(headers.get("offset")).toBe("0");
+        expect(headers.get("file_size")).toBe(String(bytes.length));
+        expect(headers.get("content-type")).toBe("application/octet-stream");
+        expect(headers.has("file_url")).toBe(false);
+        expect(init?.body).toBeInstanceOf(Blob);
+        expect(Buffer.from(await (init?.body as Blob).arrayBuffer())).toEqual(bytes);
         return jsonResponse({ success: true });
       }
       if (address.includes("/video_reels") && typeof init?.body === "string" && init.body.includes("upload_phase\":\"finish\"")) {
@@ -132,7 +145,7 @@ describe("publishFacebookReel — три шага + опрос готовнос�
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const promise = publishFacebookReel("page-1", "page-token", "https://crm.example/uploads/handoff/a.mp4", "Подпись", {
+    const promise = publishFacebookReel("page-1", "page-token", localVideoPath, "Подпись", {
       onAttemptStarted,
       onAnswered,
     });
@@ -158,7 +171,7 @@ describe("publishFacebookReel — три шага + опрос готовнос�
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const promise = publishFacebookReel("page-1", "page-token", "https://crm.example/uploads/handoff/b.mp4", "Подпись");
+    const promise = publishFacebookReel("page-1", "page-token", localVideoPath, "Подпись");
     await vi.advanceTimersByTimeAsync(FULL_WAIT_WINDOW_MS);
     const result = await promise;
 
@@ -172,7 +185,7 @@ describe("publishFacebookReel — три шага + опрос готовнос�
     const fetchMock = vi.fn(async () => jsonResponse({ error: { message: "Invalid OAuth access token" } }, false, 401));
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await publishFacebookReel("page-1", "bad-token", "https://crm.example/uploads/handoff/c.mp4", "Подпись", { onAnswered });
+    const result = await publishFacebookReel("page-1", "bad-token", localVideoPath, "Подпись", { onAnswered });
 
     expect(result).toMatchObject({ channel: "FACEBOOK", ok: false, error: "Invalid OAuth access token" });
     expect(onAnswered).toHaveBeenCalledTimes(1);
@@ -192,7 +205,7 @@ describe("publishFacebookReel — три шага + опрос готовнос�
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const promise = publishFacebookReel("page-1", "page-token", "https://crm.example/uploads/handoff/d.mp4", "Подпись");
+    const promise = publishFacebookReel("page-1", "page-token", localVideoPath, "Подпись");
     await vi.advanceTimersByTimeAsync(FULL_WAIT_WINDOW_MS);
     const result = await promise;
 
