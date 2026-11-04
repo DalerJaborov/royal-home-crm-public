@@ -106,19 +106,28 @@ async function staffAccess(scope: Scope) {
   return actorFromAccess(scope.agentId, access, scope.group ? "telegram-group" : "telegram-private");
 }
 
-async function deliver(scope: Scope, candidates: Candidate[], count: number, lang: Language, canDelete: boolean) {
-  const rows = await prisma.property.findMany({
-    where: {
-      id: { in: candidates.map(item => item.id) }, deletedAt: null,
-      ...(!canDelete ? { deleteRequests: { none: { status: "PENDING", requestedById: scope.agentId } } } : {}),
-    },
-    select: { id: true, status: true },
-  });
-  const visible = new Map<string, string>(rows.map(row => [row.id, row.status]));
-  const eligible = candidates.filter(item => visible.get(item.id) === item.status);
+async function deliver(scope: Scope, candidates: Candidate[], count: number, lang: Language) {
   const consumed: string[] = [];
   let uncertain = false;
-  for (const { id } of eligible) {
+  let changed = false;
+  let hadEligible = false;
+  for (const { id, status } of candidates) {
+    // Each album can take seconds to deliver. Its authorization cannot be reused for the next one.
+    const actor = await staffAccess(scope);
+    if (!actor) return { consumed, uncertain, changed, hadEligible, denied: true };
+    const canDelete = actor.permissions?.has("properties.delete") ?? false;
+    const current = await prisma.property.findUnique({
+      where: {
+        id, deletedAt: null,
+        ...(!canDelete ? { deleteRequests: { none: { status: "PENDING", requestedById: scope.agentId } } } : {}),
+      },
+      select: { status: true },
+    });
+    if (current?.status !== status) {
+      changed = true;
+      continue;
+    }
+    hadEligible = true;
     const outcome = await sendStaffPropertyCard(scope.chatId, id, lang, scope.replyTo, scope.threadId);
     if (outcome !== "unavailable") consumed.push(id);
     if (outcome === "uncertain") {
@@ -127,7 +136,7 @@ async function deliver(scope: Scope, candidates: Candidate[], count: number, lan
     }
     if (consumed.length >= count) break;
   }
-  return { consumed, uncertain, changed: eligible.length !== candidates.length, hadEligible: eligible.length > 0 };
+  return { consumed, uncertain, changed, hadEligible, denied: false };
 }
 
 export type FirstPropertyDelivery = "handled" | "fallback" | "changed" | "denied";
@@ -138,9 +147,8 @@ export async function sendStaffPropertySelection(scope: Scope, selection: Select
   if (scope.replyTo !== undefined && previous?.messageId !== undefined && scope.replyTo <= previous.messageId) return "handled";
   inFlight.add(key);
   try {
-    const actor = await staffAccess(scope);
-    if (!actor) return "denied";
-    const result = await deliver(scope, selection.candidates, count, lang, actor.permissions?.has("properties.delete") ?? false);
+    const result = await deliver(scope, selection.candidates, count, lang);
+    if (result.denied && !result.consumed.length) return "denied";
     pages.delete(key);
     if (selection.filters && result.consumed.length) {
       pages.set(key, { filters: selection.filters, shown: new Set(result.consumed), messageId: scope.replyTo, expiresAt: Date.now() + ttl });
@@ -174,10 +182,11 @@ export async function sendMoreStaffProperties(scope: Scope, count: number, lang:
     if (!current) return "denied";
     const candidates = parseCandidates(result).filter(item => !page.shown.has(item.id));
     if (!candidates.length) return "empty";
-    const delivery = await deliver(scope, candidates, count, lang, current.permissions?.has("properties.delete") ?? false);
+    const delivery = await deliver(scope, candidates, count, lang);
     for (const id of delivery.consumed) page.shown.add(id);
     page.expiresAt = Date.now() + ttl;
     if (delivery.consumed.length || delivery.uncertain) return "handled";
+    if (delivery.denied) return "denied";
     return delivery.hadEligible ? "unavailable" : "empty";
   } finally {
     inFlight.delete(key);

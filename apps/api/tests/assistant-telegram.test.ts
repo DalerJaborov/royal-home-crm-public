@@ -287,6 +287,30 @@ describe("живые сценарии чтения Мадины", () => {
     }
   });
 
+  it("прекращает отправку карточек, если доступ группы отключили во время первого альбома", async () => {
+    const { ids, district } = await propertyBatch();
+    const group = { chatId: String(GROUP), registeredByAgentId: agents.director.id };
+    try {
+      await prisma.assistantTelegramGroup.upsert({ where: { chatId: group.chatId },
+        create: { ...group, contextEnabledAt: new Date() },
+        update: { contextEnabledAt: new Date(), proactiveMutedUntil: null } });
+      mockPropertySearch(district.name);
+      sendStaffCard.mockImplementationOnce(async () => {
+        await prisma.assistantTelegramGroup.update({ where: { chatId: group.chatId }, data: { contextEnabledAt: null } });
+        return "sent";
+      });
+      await handleTelegramUpdate(groupMsg("author", `Шабнам, подбери квартиры, район ${district.name}`, {
+        message_thread_id: 43, message_id: 13111,
+      }));
+      expect(sendStaffCard.mock.calls.map(call => call[1])).toEqual(ids.slice(0, 1));
+      expect(sentTexts()).toEqual([]);
+    } finally {
+      await prisma.assistantTelegramGroup.deleteMany({ where: { chatId: group.chatId } });
+      await prisma.property.deleteMany({ where: { id: { in: ids } } });
+      await prisma.district.delete({ where: { id: district.id } });
+    }
+  });
+
   it("включает карточки только для привязанного сотрудника в выбранной теме и не повторяет сомнительную доставку", async () => {
     const { ids, district } = await propertyBatch();
     const group = { chatId: String(GROUP), registeredByAgentId: agents.director.id };
