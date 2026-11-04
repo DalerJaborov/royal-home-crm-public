@@ -19,6 +19,7 @@ import { parseFastPathIntent, tryAssistantFastPath } from "../ai/assistantFastPa
 import { findTelegramAgentClients, isVoiceReplayRequest, replayTelegramAssistantVoice, sendTelegramPropertyCard, sendTelegramPropertyPreviews } from "./assistantReadResults.js";
 import { sendAssistantVoiceReply } from "./assistantVoice.js";
 import { handleTelegramPropertyDraft, handleTelegramPropertyDraftCallback } from "./assistantPropertyDraft.js";
+import { handleTelegramExpenseReceipt, handleTelegramExpenseReceiptCallback } from "./assistantExpenseReceipt.js";
 import { handleAssistantMedia } from "./assistantMedia.js";
 import { createAssistantMoneyWallet, type AssistantMoneyWallet } from "../ai/assistant/moneyBudget.js";
 import {
@@ -451,6 +452,7 @@ export async function handleAssistantPrivate(
     const forwardedPlain = Boolean(msg.text?.trim() && (msg.forward_origin || msg.forward_from_message_id));
     if (!forwardedPlain && await handleTelegramPropertyDraft(msg, agent, transcribeVoice)) return;
     const moneyWallet = createAssistantMoneyWallet();
+    if (msg.photo?.length && await handleTelegramExpenseReceipt(msg, agent.id, moneyWallet)) return;
     let text = (msg.text ?? msg.caption ?? "").trim();
     const fromVoice = Boolean(msg.voice || msg.audio);
     let forwardedEvidence = forwardedPlain;
@@ -1096,6 +1098,7 @@ const FAIL_STATUS_NOTE: Record<string, string> = {
 
 /** `as:ok|no:<связка>`. true — это наша кнопка (обработана или отклонена). */
 export async function handleAssistantCallback(query: TelegramCallbackQuery): Promise<boolean> {
+  if (query.data?.startsWith("ef:")) return handleTelegramExpenseReceiptCallback(query);
   if (await handleTelegramPropertyDraftCallback(query)) return true;
   if (!query.data?.startsWith("as:")) return false;
   const match = BUNDLE_CALLBACK.exec(query.data);

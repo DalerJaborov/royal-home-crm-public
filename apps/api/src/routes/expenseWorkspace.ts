@@ -288,14 +288,16 @@ expenseWorkspaceRouter.get("/:id/receipts/:receiptId/file", async (req, res) => 
     const row = await prisma.expenseReceipt.findFirst({ where: { id: req.params.receiptId, expenseId: req.params.id, expense: { deletedAt: null } } });
     if (!row)
         return res.status(404).json({ error: "Чек не найден" });
-    const file = dealDocumentFilePath(row.fileName);
-    if (!file)
+    const content = await prisma.expenseReceiptContent.findUnique({ where: { receiptId: row.id }, select: { image: true } });
+    const file = content ? null : dealDocumentFilePath(row.fileName);
+    if (!content && !file)
         return res.status(404).json({ error: "Файл не найден" });
     res.setHeader("Cache-Control", "private, no-store");
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Content-Type", row.mimeType);
     res.setHeader("Content-Disposition", `attachment; filename="receipt.${row.mimeType === "application/pdf" ? "pdf" : "jpg"}"`);
-    res.sendFile(path.basename(file), { root: path.dirname(file), cacheControl: false, dotfiles: "deny" }, error => { if (error && !res.headersSent)
+    if (content) { res.send(Buffer.from(content.image)); return; }
+    res.sendFile(path.basename(file!), { root: path.dirname(file!), cacheControl: false, dotfiles: "deny" }, error => { if (error && !res.headersSent)
         res.status(500).json({ error: "Не удалось прочитать чек" }); });
 });
 expenseWorkspaceRouter.delete("/:id/receipts/:receiptId", write, async (req, res) => {

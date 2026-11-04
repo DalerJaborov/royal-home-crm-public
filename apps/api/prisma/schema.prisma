@@ -5498,7 +5498,33 @@ model ExpenseReceipt {
   size         Int
   uploadedById String
   createdAt    DateTime @default(now())
+  content      ExpenseReceiptContent?
   @@index([expenseId])
+}
+
+/// Photo bytes from a confirmed private Telegram expense, committed with its receipt.
+model ExpenseReceiptContent {
+  receiptId String @id
+  receipt   ExpenseReceipt @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  image     Bytes
+}
+
+/// Bounded, private photo draft. Confirmation clears the draft payload but keeps its receipt key.
+model TelegramExpenseDraft {
+  id          String   @id @default(uuid())
+  agentId     String
+  chatId      String
+  messageId   Int
+  sourceHash  String   @unique
+  evidence    Json?
+  image       Bytes?
+  expenseId   String?  @unique
+  previewMessageId Int?
+  createdAt   DateTime @default(now())
+  expiresAt   DateTime
+
+  @@unique([chatId, messageId])
+  @@index([expiresAt])
 }
 
 /// Журнал обращений к ИИ. Без разбивки по видам токенов и без модели перерасход
