@@ -34,9 +34,13 @@ const STATUS_DELAY = /(?:недел\p{L}*|\d+\s+(?:дн\p{L}*|рӯз)|ҳафта
 const PUBLICATION_PROPERTY = /(?<![\p{L}\p{N}])(?:объект\p{L}*|квартир\p{L}*|дом(?:а|ов|у|е)?|хона\p{L}*|ҳавл\p{L}*|[кқ][оа]робк\p{L}*)(?![\p{L}\p{N}])/iu;
 const PUBLICATION_QUESTION = /(?:^|\s)(?:пост|нашр)\s+(?:на)?шуд(?:ааст)?\s*(?:м[иӣ]\s*\??|\?)$/iu;
 
+export function propertyPublicationQuestion(text: string): boolean {
+  return (PUBLICATION_PROPERTY.test(text) || PROPERTY_CODE.test(text)) && PUBLICATION_QUESTION.test(text);
+}
+
 export function unaddressedReadRequest(text: string): boolean {
   if (!text || text.length > 500 || /[\r\n]|https?:\/\/|не\s+(?:отвечай(?:те)?|вмешивайся)|хомӯш бош/iu.test(text)) return false;
-  if ((PUBLICATION_PROPERTY.test(text) || PROPERTY_CODE.test(text)) && PUBLICATION_QUESTION.test(text)) return true;
+  if (propertyPublicationQuestion(text)) return true;
   return READ_SUBJECT.test(text) && (READ_START.test(text) || AVAILABILITY_QUESTION.test(text)
     || (text.endsWith("?") && STATUS_WORDS.test(text))
     || (PROPERTY_CODE.test(text) && STATUS_WORDS.test(text)) || STATUS_DELAY.test(text));

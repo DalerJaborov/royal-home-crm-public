@@ -68,6 +68,11 @@ describe("assistant language routing", () => {
     expect(policy.runtime.liteModel).toBe("");
     expect(policy.instruction).toContain("простые разговорные слова");
   });
+  it("recognizes the colloquial Tajik publication question without special letters", () => {
+    const policy = assistantLanguagePolicy([user("Каробкаи зирбак пост нашуд ми?")], runtime);
+    expect(policy.language).toBe("tg");
+    expect(policy.runtime.model).toBe(ASSISTANT_TAJIK_MODEL);
+  });
   it("keeps Russian on the configured route", () => {
     expect(assistantLanguagePolicy([user("Найди квартиру для клиента")], runtime).runtime).toBe(runtime);
   });

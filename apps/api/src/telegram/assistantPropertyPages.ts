@@ -5,6 +5,7 @@ import { actorFromAccess } from "../ai/assistant/actor.js";
 import { runTool } from "../ai/assistant.js";
 import { prisma } from "../db.js";
 import { findAgentByTelegramChatId, findAgentByTelegramUserId } from "../lib/telegramAgentLink.js";
+import { propertyPublicationQuestion } from "./assistantGroupParticipation.js";
 import { sendStaffPropertyCard } from "./assistantStaffPropertyCard.js";
 
 type Language = "ru" | "tg";
@@ -78,7 +79,7 @@ export function propertyPageSize(text: string): number {
 }
 
 export function propertyWorkflowRequest(text: string): boolean {
-  return /монтаж|перемонтаж|где\s+(?:видео|ролик)|статус\s+(?:видео|ролика)|навор.{0,24}дар ку[ҷч]о|дар ку[ҷч]о.{0,24}навор/iu.test(text);
+  return propertyPublicationQuestion(text) || /монтаж|перемонтаж|где\s+(?:видео|ролик)|статус\s+(?:видео|ролика)|навор.{0,24}дар ку[ҷч]о|дар ку[ҷч]о.{0,24}навор/iu.test(text);
 }
 
 export function clearStaffPropertyPage(scope: Scope) {

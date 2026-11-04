@@ -451,10 +451,19 @@ describe("optional help without an address", () => {
   });
   it("routes a colloquial publication question without an address as read-only", async () => {
     const f = fixture();
+    f.setContext(true);
     const request = "Каробкаи зирбак пост нашуд ми?";
+    const statusReply = "Дар CRM нашр шудааст.";
+    f.run.mockImplementationOnce(async (_history, _actor, options) => {
+      const { onToolResult } = options as { onToolResult: (name: string, result: unknown) => void };
+      onToolResult("find_property", { items: [{ id: "60000000-0000-4000-8000-000000000001", status: "AVAILABLE" }] });
+      onToolResult("get_property_card", {});
+      return { ok: true, reply: statusReply };
+    });
     expect(await f.send(request, { from: { id: 3 }, message_thread_id: 71 })).toBe(true);
     expect(f.run.mock.calls[0]?.[0]).toEqual([{ role: "user", content: request }]);
     expect(f.run.mock.calls[0]?.[1]).toMatchObject({ id: "test-3" });
+    expect(f.html).toHaveBeenCalledWith("-100", statusReply, 10);
     expect(f.run.mock.calls[0]?.[2]).toMatchObject({ confirmUi: false, readOnly: true });
     expect(f.findProperty).not.toHaveBeenCalled();
   });
