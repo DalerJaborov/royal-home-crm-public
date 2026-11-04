@@ -160,6 +160,70 @@ describe("opted-in Telegram group evidence", () => {
     expect(found.map(row => row.text)).toEqual(["По ОБ-123 исходники ещё в очереди."]);
   });
 
+  it("retracts an edit to a command and ignores older deliveries without retaining the command", async () => {
+    const command = "/отмена ОБ-123";
+    await captureAssistantTelegramContext(message(11), 100, now);
+    await captureAssistantTelegramContext(message(11, { text: command, edit_date: sourceDate }), 103, now);
+    await captureAssistantTelegramContext(message(11, { text: "Старая версия ОБ-123.", edit_date: sourceDate }), 102, now);
+    await captureAssistantTelegramContext(message(12, { text: command, edit_date: sourceDate }), 104, now);
+    await captureAssistantTelegramContext(message(12), 101, now);
+    await captureAssistantTelegramContext(message(13, { text: command }), 105, now);
+
+    expect(await lookup()).toEqual([]);
+    expect(await lookup({ selector: { replyToMessageId: 11 } })).toEqual([]);
+    expect(await prisma.assistantTelegramContext.findMany({
+      where: { groupChatId: String(chatId) }, orderBy: { messageId: "asc" },
+      select: { messageId: true, text: true, propertyRefs: true },
+    })).toEqual([11, 12].map(messageId => ({ messageId, text: "", propertyRefs: [] })));
+
+    await captureAssistantTelegramContext(message(11, { text: "Исправление по ОБ-124.", edit_date: sourceDate }), 106, now);
+    await captureAssistantTelegramContext(message(11, { text: command, edit_date: sourceDate }), 103, now);
+    expect((await lookup({ selector: { propertyShortId: 124 } })).map(row => row.text)).toEqual(["Исправление по ОБ-124."]);
+  });
+
+  it("retracts the transcript when an audio caption is edited to a command", async () => {
+    const audio = message(11, { text: undefined, audio: { file_id: "test-audio-source" } });
+    await captureAssistantTelegramContext(audio, 100, now);
+    await retainAssistantTelegramTranscript(audio, 100, agentId, "ОБ-123. Готовы исходники.", now);
+    expect(await lookup()).toHaveLength(1);
+    await captureAssistantTelegramContext({ ...audio, caption: "/отмена ОБ-123", edit_date: sourceDate }, 101, now);
+    await retainAssistantTelegramTranscript(audio, 100, agentId, "Поздняя расшифровка ОБ-123.", now);
+    expect(await lookup()).toEqual([]);
+    expect(await lookup({ selector: { replyToMessageId: 11 } })).toEqual([]);
+  });
+
+  it.each(["/отмена ОБ-123", "ОБ-124. Новая версия без привязки."])(
+    "retracts the same author’s old evidence after unlinking without keeping the edit: %s", async text => {
+      const author = await prisma.agent.create({
+        data: { fullName: "Другой автор", phone: `+992981${unique}`, telegramUserId: String(telegramUserId + 1) },
+      });
+      try {
+        const from = { id: telegramUserId + 1 };
+        const original = message(11, { from });
+        await captureAssistantTelegramContext(original, 100, now);
+        expect(await lookup()).toHaveLength(1);
+        await prisma.agent.update({ where: { id: author.id }, data: { telegramUserId: null } });
+        await captureAssistantTelegramContext(message(11, { from: { id: telegramUserId + 2 }, text, edit_date: sourceDate }), 101, now);
+        expect(await lookup()).toHaveLength(1);
+        await captureAssistantTelegramContext({ ...original, text, edit_date: sourceDate }, 103, now);
+        await captureAssistantTelegramContext(message(12, { from }), 104, now);
+        await captureAssistantTelegramContext(message(13, { from, text, edit_date: sourceDate }), 105, now);
+        expect(await lookup()).toEqual([]);
+        expect(await lookup({ selector: { propertyShortId: 124 } })).toEqual([]);
+        expect(await lookup({ selector: { replyToMessageId: 11 } })).toEqual([]);
+        expect(await prisma.assistantTelegramContext.findMany({
+          where: { groupChatId: String(chatId) }, select: { messageId: true, text: true, authorAgentId: true },
+        })).toEqual([{ messageId: 11, text: "", authorAgentId: author.id }]);
+
+        await prisma.agent.update({ where: { id: author.id }, data: { telegramUserId: String(from.id) } });
+        await captureAssistantTelegramContext({ ...original, edit_date: sourceDate }, 102, now);
+        expect(await lookup()).toEqual([]);
+      } finally {
+        await prisma.agent.delete({ where: { id: author.id } });
+      }
+    },
+  );
+
   it("reads only prior exact evidence from the same group and topic for the linked requester", async () => {
     await captureAssistantTelegramContext(message(11), 1, now);
     await captureAssistantTelegramContext(message(12, { chat: { id: otherChatId, type: "group" } }), 2, now);

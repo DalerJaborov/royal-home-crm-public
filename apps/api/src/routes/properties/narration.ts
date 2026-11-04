@@ -12,6 +12,7 @@ import { setOwnerReportConsent, prepareOwnerReportDelivery } from "../../lib/own
 import { prepareNarrationDeliveryPlan, narrationDeliveryAttemptBudgetMs } from "../../lib/narrationDelivery.js";
 import { mediaExecutionMode } from "../../lib/mediaExecution.js";
 import { preparePublicationMetadataPreview } from "../../lib/publicationMetadataSync.js";
+import { listPriceCaptionDelivery } from "../../lib/priceCaptionDelivery.js";
 
 export const narrationRouter = Router();
 narrationRouter.use(["/narration-settings", "/:id/narration"], requireAuth);
@@ -245,8 +246,11 @@ narrationRouter.post("/:id/narration/publication-preview", async (req, res) => {
   if (!manager(req.agent?.role)) return res.status(403).json({ error: "Нет доступа" });
   if (!z.object({}).strict().safeParse(req.body).success) return res.status(400).json({ error: "Некорректный запрос предварительного просмотра" });
   const p = res.locals.narrationProperty;
-  const rows = await preparePublicationMetadataPreview(p.id);
-  res.json({ rows, sent: false });
+  const [rows, deliveryRows] = await Promise.all([
+    preparePublicationMetadataPreview(p.id),
+    listPriceCaptionDelivery(p.id),
+  ]);
+  res.json({ rows, deliveryRows, sent: false });
 });
 
 narrationRouter.post("/:id/narration/owner-report-preview", async (req, res) => {

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import express from "express";
 import request from "supertest";
 
-const s = vi.hoisted(() => ({ role: "MARKETING", access: true, property: vi.fn(), settings: vi.fn(), latest: vi.fn(), findVersion: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn(), count: vi.fn(), audio: vi.fn(), file: vi.fn(), upload: vi.fn(), delivery: vi.fn(), deliveryFind: vi.fn(), deliveryUpdate: vi.fn(), preview: vi.fn(), report: vi.fn(), assigned: vi.fn(), configSave: vi.fn(), versions: vi.fn() }));
+const s = vi.hoisted(() => ({ role: "MARKETING", access: true, property: vi.fn(), settings: vi.fn(), latest: vi.fn(), findVersion: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn(), count: vi.fn(), audio: vi.fn(), file: vi.fn(), upload: vi.fn(), delivery: vi.fn(), deliveryFind: vi.fn(), deliveryUpdate: vi.fn(), preview: vi.fn(), metadataList: vi.fn(), report: vi.fn(), assigned: vi.fn(), configSave: vi.fn(), versions: vi.fn() }));
 vi.mock("../src/auth/middleware.js", async (importOriginal) => ({ ...await importOriginal<typeof import("../src/auth/middleware.js")>(), requireAuth: (req: any, _res: any, next: () => void) => { req.agent = { id: "staff", role: s.role }; next(); } }));
 vi.mock("../src/routes/properties/shared.js", async (importOriginal) => ({ ...await importOriginal<typeof import("../src/routes/properties/shared.js")>(), canManageProperty: () => s.access }));
 vi.mock("../src/routes/marketing.js", async (importOriginal) => ({ ...await importOriginal<typeof import("../src/routes/marketing.js")>(), hasMarketingRole: (role: string) => ["MARKETING", "ADMIN", "DIRECTOR"].includes(role) }));
@@ -17,7 +17,7 @@ vi.mock("../src/db.js", async (importOriginal) => {
   const prisma = { $disconnect: vi.fn(), $queryRaw: vi.fn().mockResolvedValue([]),
     property: { findUnique: s.property, findUniqueOrThrow: s.property }, settings: { findUnique: s.settings, upsert: s.configSave }, auditLog: { create: vi.fn().mockResolvedValue({}) },
     propertyNarrationVersion: { findFirst: s.latest, findUnique: s.findVersion, findMany: s.versions, create: s.create, update: s.update, updateMany: s.updateMany, count: s.count },
-    ownerReportSubscription: { findUnique: vi.fn().mockResolvedValue(null) }, propertyNarrationDelivery: { findMany: vi.fn().mockResolvedValue([]), findFirst: s.assigned, findUnique: s.deliveryFind, updateMany: s.deliveryUpdate, count: vi.fn().mockResolvedValue(0), upsert: s.delivery }, publicationMetadataSync: { upsert: s.preview }, ownerReportDelivery: { upsert: s.report, findMany: vi.fn().mockResolvedValue([]) },
+    ownerReportSubscription: { findUnique: vi.fn().mockResolvedValue(null) }, propertyNarrationDelivery: { findMany: vi.fn().mockResolvedValue([]), findFirst: s.assigned, findUnique: s.deliveryFind, updateMany: s.deliveryUpdate, count: vi.fn().mockResolvedValue(0), upsert: s.delivery }, publicationMetadataSync: { upsert: s.preview, findMany: s.metadataList }, ownerReportDelivery: { upsert: s.report, findMany: vi.fn().mockResolvedValue([]) },
   };
   return { ...actual, prisma: { ...prisma, $transaction: (fn: (tx: typeof prisma) => unknown) => fn(prisma) } };
 });
@@ -30,7 +30,7 @@ const p = { id: propertyId, shortId: 5, deletedAt: null, type: "APARTMENT", room
 const row = () => ({ id: versionId, propertyId, revision: 1, script: "Площадь девяносто квадратных метров.", voiceId: "voice", modelId: "configured", status: "DRAFT", approvedAt: new Date(), factsHash: narrationHash(narrationFacts(p)) });
 describe("property narration route boundaries", () => {
   beforeEach(() => {
-    vi.clearAllMocks(); s.deliveryFind.mockResolvedValue(null); s.deliveryUpdate.mockResolvedValue({ count: 1 }); s.role = "MARKETING"; s.access = true; s.assigned.mockResolvedValue(null); s.versions.mockResolvedValue([]); s.property.mockResolvedValue(p);
+    vi.clearAllMocks(); s.metadataList.mockResolvedValue([]); s.deliveryFind.mockResolvedValue(null); s.deliveryUpdate.mockResolvedValue({ count: 1 }); s.role = "MARKETING"; s.access = true; s.assigned.mockResolvedValue(null); s.versions.mockResolvedValue([]); s.property.mockResolvedValue(p);
     s.settings.mockResolvedValue({ propertyNarrationConfig: { modelId: "configured", voices: [{ id: "voice", name: "Утверждённый" }] }, elevenLabsApiKey: "test" });
     s.latest.mockResolvedValue(row()); s.findVersion.mockResolvedValue(null); s.count.mockResolvedValue(0); s.updateMany.mockResolvedValue({ count: 1 });
   });
@@ -183,10 +183,20 @@ describe("property narration route boundaries", () => {
     expect((await request(app).post(`${base}/delivery-reconcile`).send(body)).status).toBe(200);
     expect(s.audio).not.toHaveBeenCalled();
   });
-  it("publication preparation records manual fallback without calling providers", async () => {
+  it("keeps preview separate from delivery evidence and identifies the exact unresolved post", async () => {
+    s.metadataList.mockResolvedValueOnce([{
+      id: versionId, channel: "TELEGRAM", operation: "CAPTION", executionMode: "PRICE_CHANGE",
+      status: "UNKNOWN", startedAt: new Date(), reason: "Проверьте площадку",
+      payload: { caption: "stored caption", target: { chatId: "-100555", postId: "42" } },
+    }]);
     const response = await request(app).post(`${base}/publication-preview`).send({});
-    expect(response.status).toBe(200); expect(response.body.sent).toBe(false);
-    expect(response.body.rows.every((r: { status: string }) => r.status === "MANUAL_REQUIRED")).toBe(true);
+    expect(response.status).toBe(200);
+    expect(response.body.sent).toBe(false);
+    expect(response.body.rows).toEqual([{ status: "MANUAL_REQUIRED" }]);
+    expect(response.body.deliveryRows).toEqual([expect.objectContaining({
+      id: versionId, status: "UNKNOWN", postUrl: "https://t.me/c/555/42",
+    })]);
+    expect(response.body.deliveryRows[0]).not.toHaveProperty("payload");
     expect(s.audio).not.toHaveBeenCalled();
   });
 });

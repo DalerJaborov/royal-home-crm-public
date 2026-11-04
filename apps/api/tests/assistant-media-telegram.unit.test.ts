@@ -46,6 +46,32 @@ describe("employee Telegram file adapter", () => {
     await expect(downloadAssistantMedia("file", 10)).rejects.toThrow("media_size_rejected");
     expect(cancel).toHaveBeenCalledOnce();
   });
+  it.each(["missing Telegram file", "speech provider unavailable", "invalid recognition result"] as const)(
+    "distinguishes a failed voice stage for %s", async failure => {
+      const voice = { chat: { id: 1, type: "private" }, voice: { file_id: "file", duration: 5 } };
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        if (failure === "missing Telegram file") mocks.resolve.mockRejectedValue(new Error("https://secret-token/private"));
+        if (failure === "speech provider unavailable") mocks.extract.mockRejectedValue(new Error("provider detail with secret-token"));
+        if (failure === "invalid recognition result") mocks.extract.mockRejectedValue(new Error("media_invalid_extraction"));
+        const result = await handleAssistantMedia(voice, "employee");
+        expect(result).toMatchObject(failure === "missing Telegram file" ? {
+          error: "media_download_failed", text: "Не удалось скачать голосовое из Telegram. Отправь его ещё раз.",
+        } : failure === "speech provider unavailable" ? {
+          error: "media_recognition_unavailable", text: "Распознавание голоса сейчас недоступно. Напиши текстом или попробуй чуть позже.",
+        } : {
+          error: "media_speech_unclear", text: "Не удалось разобрать речь. Запиши ещё раз или напиши текстом.",
+        });
+        expect(warn).toHaveBeenCalledWith("[telegram:assistant:media] extraction failed", expect.objectContaining({
+          kind: "voice", stage: failure === "missing Telegram file" ? "download" : "recognition",
+        }));
+        expect(JSON.stringify(warn.mock.calls)).not.toContain("secret-token");
+      } finally {
+        warn.mockRestore();
+      }
+    },
+  );
+
   it("redacts provider and download errors", async () => {
     mocks.resolve.mockRejectedValue(new Error("https://secret-token/private"));
     const result = await handleAssistantMedia(msg(), "employee");

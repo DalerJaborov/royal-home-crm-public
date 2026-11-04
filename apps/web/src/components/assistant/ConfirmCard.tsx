@@ -130,7 +130,7 @@ export function ConfirmCardView({
   onCancel: () => void;
   onUndo: () => void;
 }) {
-  const { action, phase, notice, canUndo } = state;
+  const { action, phase, notice, canUndo, checkingUndo } = state;
   const { preview } = action;
   const irreversible = preview.irreversible === true;
   const busy = ConfirmCardController.isBusy(phase);
@@ -251,7 +251,7 @@ export function ConfirmCardView({
           <>
             <span aria-hidden="true">·</span>
             <button type="button" className="lk" onClick={press(onUndo)} style={{ minHeight: 44, fontWeight: 600 }}>
-              Отменить
+              {checkingUndo ? "Проверить отмену" : "Отменить"}
             </button>
           </>
         )}

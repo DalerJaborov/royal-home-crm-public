@@ -73,7 +73,9 @@ function groupEvidenceSource(raw: unknown, updateId: number, now: Date) {
       || message.has_protected_content || message.contact || message.location) return;
 
   const rawText = (message.text ?? message.caption ?? "").trim();
-  if (rawText.startsWith("/")) return;
+  const isCommand = rawText.startsWith("/");
+  // An edit to a command retracts earlier evidence without keeping the command.
+  if (isCommand && message.edit_date === undefined) return;
   const occurredAt = new Date(message.date * 1_000);
   const sourceVersion = new Date((message.edit_date ?? message.date) * 1_000);
   const expiresAt = new Date(occurredAt.getTime() + RETENTION_MS);
@@ -81,7 +83,7 @@ function groupEvidenceSource(raw: unknown, updateId: number, now: Date) {
       || sourceVersion < occurredAt || expiresAt <= now || sourceVersion.getTime() > now.getTime() + 60_000) return;
 
   return {
-    message, rawText, occurredAt, sourceVersion, expiresAt,
+    message, rawText: isCommand ? "" : rawText, occurredAt, sourceVersion, expiresAt,
     groupChatId: String(message.chat.id), sourceUpdateId: BigInt(updateId),
   };
 }
@@ -94,7 +96,8 @@ export async function captureAssistantTelegramContext(raw: unknown, updateId: nu
   const { text, propertyRefs } = prepareEvidence(rawText);
   const kind = attachmentKind(message);
   // Keep an empty edit as a tombstone, but don't archive empty service messages.
-  if (!text && !kind && message.edit_date === undefined) return;
+  const isEdit = message.edit_date !== undefined;
+  if (!text && !kind && !isEdit) return;
 
   const registration = await prisma.assistantTelegramGroup.findUnique({
     where: { chatId: groupChatId },
@@ -108,30 +111,33 @@ export async function captureAssistantTelegramContext(raw: unknown, updateId: nu
     findAgentByTelegramUserId(authorTelegramId),
     prisma.settings.findUnique({ where: { id: "singleton" }, select: { telegramDiscussionGroupId: true } }),
   ]);
-  if ((!author && !registration.contextIncludeUnlinked)
+  if ((!author && !registration.contextIncludeUnlinked && !isEdit)
       || String(settings?.telegramDiscussionGroupId ?? "") === groupChatId) return;
 
   const authorAgentId = author?.id ?? null;
   const where = { groupChatId, messageId: message.message_id };
   const content = { sourceVersion, sourceUpdateId, text, transcript: null, attachmentKind: kind, propertyRefs, authorAgentId, authorTelegramId };
   await prisma.$transaction(async tx => {
-    const active = await tx.$queryRaw<{ chatId: string }[]>`
-      SELECT "chatId" FROM "AssistantTelegramGroup"
+    const [active] = await tx.$queryRaw<{ contextIncludeUnlinked: boolean }[]>`
+      SELECT "contextIncludeUnlinked" FROM "AssistantTelegramGroup"
       WHERE "chatId" = ${groupChatId} AND "contextEnabledAt" = ${enabledAt}
-        AND (${Boolean(author)} OR "contextIncludeUnlinked")
+        AND (${Boolean(author)} OR "contextIncludeUnlinked" OR ${isEdit})
         AND NOT EXISTS (
           SELECT 1 FROM "Settings" WHERE "id" = 'singleton' AND "telegramDiscussionGroupId" = ${groupChatId}
         )
       FOR SHARE
     `;
-    if (!active.length) return;
-    await tx.assistantTelegramContext.createMany({
-      data: {
-        ...where, ...content, occurredAt, expiresAt,
-        threadId: message.message_thread_id ?? null,
-      },
-      skipDuplicates: true,
-    });
+    if (!active) return;
+    const canStore = Boolean(author) || active.contextIncludeUnlinked;
+    if (canStore) {
+      await tx.assistantTelegramContext.createMany({
+        data: {
+          ...where, ...content, occurredAt, expiresAt,
+          threadId: message.message_thread_id ?? null,
+        },
+        skipDuplicates: true,
+      });
+    }
     await tx.assistantTelegramContext.updateMany({
       where: {
         ...where, occurredAt,
@@ -140,7 +146,8 @@ export async function captureAssistantTelegramContext(raw: unknown, updateId: nu
           { OR: [{ sourceVersion: { lt: sourceVersion } }, { sourceVersion, sourceUpdateId: { lt: sourceUpdateId } }] },
         ],
       },
-      data: content,
+      // The original sender can retract old evidence even if their CRM link was removed.
+      data: canStore ? content : { sourceVersion, sourceUpdateId, text: "", transcript: null, propertyRefs: [] },
     });
   });
 }

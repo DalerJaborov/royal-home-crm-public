@@ -57,6 +57,20 @@ it("synthesizes markerless Russian from a trusted explicit conversation hint", a
   expect(JSON.parse(fetchMock.mock.calls[0][1].body).text).toBe(phrase);
   expect(sendVoice).toHaveBeenCalledExactlyOnceWith("test", expect.any(Buffer), 23, undefined, 41);
 });
+it.each(["budget", "synthesis", "telegram_delivery"] as const)("logs the failed voice stage %s without private errors", async stage => {
+  const privateError = new Error("private-token-and-response");
+  if (stage === "budget") query.mockRejectedValue(privateError);
+  else if (stage === "synthesis") fetchMock.mockRejectedValue(privateError);
+  else sendVoice.mockRejectedValue(privateError);
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    expect(await sendAssistantVoiceReply("test", "Готово.")).toBe(false);
+    expect(warn).toHaveBeenCalledWith("[telegram:assistant:voice] voice failed", { stage });
+    expect(JSON.stringify(warn.mock.calls)).not.toContain(privateError.message);
+  } finally {
+    warn.mockRestore();
+  }
+});
 it('budget exhausted prevents synthesis', async () => { query.mockResolvedValue([]); expect(await sendAssistantVoiceReply('test', 'Готово.')).toBe(false); expect(fetchMock).not.toHaveBeenCalled(); });
 it.each(["ru", "tg"] as const)("caches the neutral %s group greeting and charges only its first synthesis", async language => {
   vi.stubEnv("ASSISTANT_TTS_VOICE_ID_TG", "test-tajik-voice");

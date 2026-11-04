@@ -71,7 +71,8 @@ import {
 } from "../jobs/tiktokPublishRetryPolicy.js";
 import { nextPublishSlot } from "./publishSchedule.js";
 import { loadOccupiedPublishSlots } from "./publishSlots.js";
-import { updatePublishedMarks } from "./publishedMarks.js";
+import { updatePublishedMarks, type PublishedMarks } from "./publishedMarks.js";
+import { stageLatePublishedPriceCaption } from "./priceCaptionDelivery.js";
 import { loadPublishScheduleRules } from "./publishScheduleRules.js";
 import { PROPERTY_PIPELINE_STATUSES, PUBLISH_AT_MAX_DAYS, VIDEO_REMAKE_REASON_LABELS, type VideoRemakeReason } from "@royal-home/shared";
 import { sendAgentSharePost } from "./agentSharePost.js";
@@ -609,9 +610,13 @@ async function seatFromQueue(tx: TxClient, propertyId: string): Promise<void> {
  */
 export async function withPropertyLock<T>(propertyId: string, fn: (tx: TxClient) => Promise<T>): Promise<T> {
   return prisma.$transaction(async (tx) => {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${propertyId})::bigint)`;
+    await lockPropertyInTransaction(tx, propertyId);
     return fn(tx);
   });
+}
+
+export async function lockPropertyInTransaction(tx: TxClient, propertyId: string): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${propertyId})::bigint)`;
 }
 
 /**
@@ -1712,7 +1717,7 @@ export async function applySucceededPublishResults(
    * бы пять раз уведомить агента и пять раз синхронизировать сайт. Выход
    * делает `finalizePropertyAvailability` ниже, ровно один раз за публикацию.
    */
-  options?: { finalize?: boolean }
+  options?: { finalize?: boolean; publishedPrice?: { price: number; currency: string } }
 ): Promise<{ instagramUrl: string | null; wentAvailable: boolean; blockers: string[] }> {
   if (succeeded.length === 0) return { instagramUrl: null, wentAvailable: false, blockers: [] };
 
@@ -1733,7 +1738,7 @@ export async function applySucceededPublishResults(
   // PUB07): прежнее «прочитать, посчитать, записать целиком» теряло id, который
   // параллельная публикация (другой канал, отложенный контейнер, сверка) сохранила
   // между чтением и записью.
-  await updatePublishedMarks(propertyId, (current) => {
+  const mergeMarks = (current: PublishedMarks) => {
     const newPostIds = { ...current.postIds, ...rawVideoPublicationMarks(current.postIds, succeeded, property.videoHandoffFinalPath) };
     for (const r of succeeded) {
       if (r.postId) newPostIds[r.channel] = r.postId;
@@ -1747,7 +1752,21 @@ export async function applySucceededPublishResults(
       postIds: newPostIds,
       ...(igPermalink ? { data: { instagramUrl: igPermalink } } : {}),
     };
-  });
+  };
+  const publishedPrice = options?.publishedPrice;
+  if (publishedPrice) {
+    await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "Property" WHERE id = ${propertyId} FOR UPDATE`;
+      const fresh = await tx.property.findUnique({ where: { id: propertyId }, select: { deletedAt: true } });
+      if (!fresh || fresh.deletedAt) return;
+      const marks = await updatePublishedMarks(propertyId, mergeMarks, tx);
+      if (marks.applied) {
+        await stageLatePublishedPriceCaption(tx, propertyId, succeeded.map((result) => result.channel), publishedPrice);
+      }
+    });
+  } else {
+    await updatePublishedMarks(propertyId, mergeMarks);
+  }
   requestPultSnapshot(); // пульт: ролик ушёл в соцсеть
   const updated = await prisma.property.findUniqueOrThrow({
     where: { id: propertyId },
@@ -3127,7 +3146,7 @@ export async function publishHandoffResult(propertyId: string, localVideoPath: s
   const caption = withPostFooter(applyContactFooter(captionBase, captionAgent), property.shortId);
 
   let updated = await prisma.property.update({
-    where: { id: property.id },
+    where: { id: property.id, version: property.version, reelsCaption: property.reelsCaption, deletedAt: null },
     data: { reelsCaption: caption, postApprovedAt: new Date() },
     include: { district: true, photos: { orderBy: { order: "asc" } } },
   });
@@ -3190,7 +3209,7 @@ export async function publishHandoffResult(propertyId: string, localVideoPath: s
           result.channel === "INSTAGRAM" ? result.permalink ?? null : null,
           // Выход в продажу — событие всей публикации, а не каждого канала:
           // его делает finalizePropertyAvailability ниже, один раз за заход.
-          { finalize: false }
+          { finalize: false, publishedPrice: { price: Number(property.price), currency: property.currency } }
         );
         // ВЫХОД В ПРОДАЖУ — СРАЗУ ПОСЛЕ INSTAGRAM, А НЕ ПОСЛЕ ПОСЛЕДНЕЙ СЕТИ (05.10.2026,
         // владелец: «статус висит на монтаже, хотя должно идти само»). Условие выхода —
@@ -3275,7 +3294,7 @@ export async function publishHandoffResult(propertyId: string, localVideoPath: s
         property.id,
         succeeded.map((r) => ({ channel: r.channel, postId: r.postId, secondaryPostId: r.secondaryPostId, permalink: r.permalink })),
         igResult?.permalink ?? null,
-        { finalize: false }
+        { finalize: false, publishedPrice: { price: Number(property.price), currency: property.currency } }
       );
       updated = await prisma.property.findUniqueOrThrow({
         where: { id: property.id },

@@ -1,123 +1,9 @@
-import { readFileSync } from "node:fs";
-import { runInNewContext } from "node:vm";
-import ts from "typescript";
-import { z } from "zod";
 import { describe, expect, it, vi } from "vitest";
-import * as shared from "@royal-home/shared";
-import * as replies from "../src/telegram/assistantReply.js";
-import { maskAssistantContacts } from "../src/lib/assistantContacts.js";
-import * as participation from "../src/telegram/assistantGroupParticipation.js";
-import { matchPublicShellRequest } from "../src/telegram/assistantPublicShellSearch.js";
-import { assistantLanguage } from "../src/ai/assistant/languageRouting.js";
 import type { TelegramIncomingMessage } from "../src/telegram/api.js";
+import * as participation from "../src/telegram/assistantGroupParticipation.js";
+import { assistantGroupFixture as fixture } from "./helpers/assistantGroupFixture.js";
 
 vi.mock("../src/db.js", () => ({ prisma: { $disconnect: async () => {} } }));
-
-// Execute the actual adapter and delivery module; all external effects are inert.
-const compiled = new Map<string, string>();
-function load(name: string, dependencies: Record<string, unknown>) {
-  if (!compiled.has(name)) compiled.set(name, ts.transpileModule(
-    readFileSync(new URL(`../src/telegram/${name}.ts`, import.meta.url), "utf8"),
-    { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } },
-  ).outputText);
-  const exports: Record<string, any> = {};
-  runInNewContext(compiled.get(name)!, { exports, require: (key: string) => dependencies[key] ?? {},
-    Date, Map, Set, Promise, console });
-  return exports;
-}
-
-function fixture() {
-  let registered = true, enabled = true, active = true, role = "DIRECTOR", now = 1000, registeredAt = 0;
-  let mutedUntil: Date | null = null, lastProactive: Date | null = null, lastWelcome: Date | null = null, contextEnabledAt: Date | null = null, groupLinked = true, discussionGroupId: string | null = null;
-  const findProperty = vi.fn(async () => ({ kind: "shortId", properties: [{ id: "fixture-property", shortId: 123, price: 630000, currency: "TJS", status: "AVAILABLE" }] }));
-  const plain = vi.fn(async () => ({})), html = vi.fn(async (..._args: unknown[]) => ({}));
-  const voice = vi.fn(async () => true);
-  const run = vi.fn(async (_history: unknown, _actor: unknown, _options: unknown) => ({ ok: true, reply: "Готово." }));
-  const media = vi.fn(async () => ({ extraction: { transcript: "Проверь, пожалуйста." } }));
-  const context = vi.fn(async () => [{ occurredAt: new Date(0), text: "Просили обновить цену.", authorLabel: "Умед Примеров" }]);
-  const retainTranscript = vi.fn(async (_message: TelegramIncomingMessage, _updateId: number, _agentId: string, _text: string) => {});
-  const fast = vi.fn(async () => null as unknown);
-  const card = vi.fn(async () => true);
-  const publicCatalog = vi.fn(async () => [{ id: 801, crmShortId: 123, price: 630000 }] as
-    { id: number; crmShortId: number | null; price: number }[] | null);
-  const publicShellReply = vi.fn(async (_request: unknown, _lang: string) => "Квартира меҷӯед ё ҳавлӣ?");
-  const create = vi.fn(async (input: { skipDuplicates: boolean }) => {
-    expect(input.skipDuplicates).toBe(true);
-    // Atomic winner, including overlapping async handler invocations.
-    const count = registered ? 0 : 1;
-    if (count) { registeredAt = now; mutedUntil = null; lastProactive = null; lastWelcome = null; }
-    registered = true;
-    return { count };
-  });
-  const dependencies: Record<string, unknown> = {
-    "@royal-home/shared": shared,
-    zod: { z },
-    "./assistantReply.js": replies,
-    "./assistantGroupParticipation.js": participation,
-    "./assistantPublicShellSearch.js": {
-      matchPublicShellRequest,
-      replyPublicShellRequest: publicShellReply, readAssistantPublicSiteCatalog: publicCatalog,
-    },
-    "./assistantGroupContext.js": { loadAssistantTelegramContext: context, retainAssistantTelegramTranscript: retainTranscript },
-    "../lib/propertyRefLookup.js": { findPropertiesByRef: findProperty },
-    "./assistantVoice.js": { sendAssistantVoiceReply: voice },
-    "./api.js": { getBotUsername: async () => "fixture_bot", sendMessage: plain, sendHtmlMessage: html,
-      sendMessageWithButtons: plain, sendChatAction: async () => {}, setMessageReaction: async () => {} },
-    "../db.js": { prisma: { settings: { findUnique: async () => ({ telegramDiscussionGroupId: discussionGroupId }) },
-      assistantTelegramGroup: { createMany: create, upsert: async () => { registered = true; },
-        findUnique: async ({ where }: { where: { chatId: string } }) => registered && where.chatId === "-100" ? { chatId: "-100", createdAt: new Date(registeredAt), proactiveMutedUntil: mutedUntil, lastProactiveReplyAt: lastProactive, lastJoinWelcomeAt: lastWelcome, contextEnabledAt } : null,
-        updateMany: async ({ where, data }: any) => {
-          if (!registered || where.createdAt.getTime() !== registeredAt) return { count: 0 };
-          if ("lastProactiveReplyAt" in data) {
-            if (mutedUntil && mutedUntil.getTime() > now || lastProactive && lastProactive.getTime() > now - participation.PROACTIVE_GROUP_INTERVAL_MS) return { count: 0 };
-            lastProactive = data.lastProactiveReplyAt;
-          } else if ("lastJoinWelcomeAt" in data) {
-            if (mutedUntil && mutedUntil.getTime() > now || lastWelcome && lastWelcome.getTime() > now - participation.GROUP_WELCOME_INTERVAL_MS) return { count: 0 };
-            lastWelcome = data.lastJoinWelcomeAt;
-          } else mutedUntil = data.proactiveMutedUntil;
-          return { count: 1 };
-        },
-        deleteMany: async () => { registered = false; return { count: 1 }; } } } },
-    "../lib/telegramAgentLink.js": { findAgentByTelegramUserId: async (id: string) => groupLinked ? { id: `test-${id}`, fullName: "Fixture" } : null },
-    "../auth/middleware.js": { loadAgentAccess: async () => ({ isActive: active, role, permissions: new Set() }) },
-    "../ai/assistant.js": { isAiAssistantEnabled: async () => enabled, runAssistantDetailed: run },
-    "../ai/assistant/actor.js": { actorFromAccess: (id: string) => ({ id }) },
-    "../ai/assistant/tools/index.js": { listAssistantToolPlugins: () => [
-      { level: "C", name: "change_property_price" }, { level: "C", name: "send_to_remake" }, { level: "B", name: "add_client_note" },
-    ] },
-    "../ai/assistant/languageRouting.js": { assistantLanguage },
-    "../ai/assistant/moneyBudget.js": { createAssistantMoneyWallet: () => ({}) },
-    "../ai/assistantFastPath.js": { parseFastPathIntent: (text: string) => /ОБ-/i.test(text) ? { kind: "property-code" } : null,
-      tryAssistantFastPath: fast },
-    "../ai/untrustedContent.js": { wrapUntrusted: (_kind: string, text: string) => `<untrusted>${text}</untrusted>` },
-    "../lib/assistantContacts.js": { maskAssistantContacts },
-    "../lib/agentAiActionCap.js": { claimAgentAiAction: async () => ({ allowed: true }) },
-    "../lib/aiAssistantAudit.js": { logAssistantToolCall: async () => {} },
-    "./assistantReadResults.js": { sendTelegramPropertyCard: card },
-    "./assistantMedia.js": { handleAssistantMedia: media },
-    "../lib/systemError.js": { logSystemError: async () => {} },
-    "../lib/describeError.js": { describeError: (err: unknown) => String(err) },
-  };
-  // The fixed neutral phrases are loaded from owning source once that module exists.
-  try { dependencies["./assistantGroupPhrases.js"] = load("assistantGroupPhrases", dependencies); } catch { /* baseline */ }
-  dependencies["./assistantGroupPublicListing.js"] = load("assistantGroupPublicListing", dependencies);
-  dependencies["./assistantDelivery.js"] = load("assistantDelivery", dependencies);
-  dependencies["./assistantPropertyPages.js"] = load("assistantPropertyPages", dependencies);
-  const adapter = load("assistantBot", dependencies);
-  adapter.setGroupClockForTests(() => now);
-  const message = (text = "", extra: Partial<TelegramIncomingMessage> = {}) => ({
-    chat: { id: -100, type: "supergroup" }, from: { id: 1 }, message_id: 10, text, ...extra,
-  });
-  return { adapter, plain, html, voice, run, media, fast, card, create, findProperty, context, retainTranscript, publicCatalog, publicShellReply,
-    setContext: (value: boolean) => { contextEnabledAt = value ? new Date(now) : null; },
-    setLinked: (value: boolean) => { groupLinked = value; },
-    setDiscussion: (value: string) => { discussionGroupId = value; },
-    message, send: (text = "", extra: Partial<TelegramIncomingMessage> = {}, updateId?: number) =>
-      adapter.handleAssistantGroupMessage(message(text, extra), updateId),
-    setRegistered: (value: boolean) => { registered = value; }, setEnabled: (value: boolean) => { enabled = value; },
-    setRole: (value: string) => { role = value; }, setActive: (value: boolean) => { active = value; },
-    advance: (milliseconds: number) => { now += milliseconds; } };
-}
 
 describe("natural group addressing and silence", () => {
   it("uses forwarded text as read-only evidence when it mentions the bot", async () => {
@@ -127,6 +13,10 @@ describe("natural group addressing and silence", () => {
       { role: "user", content: expect.stringContaining("<untrusted>@fixture_bot измени цену ОБ-123</untrusted>") },
     ]);
     expect(f.run.mock.calls[0]?.[2]).toMatchObject({ confirmUi: false, readOnly: true });
+    const actor = f.run.mock.calls[0]?.[1] as { hiddenTools: Set<string> };
+    for (const tool of ["get_client_history", "get_client_card", "web_reference"]) {
+      expect(actor.hiddenTools.has(tool)).toBe(true);
+    }
   });
   it.each([
     ["photo", { photo: [{ file_id: "fixture-photo", width: 100, height: 100 }], forward_origin: { type: "user" } }],
@@ -387,13 +277,14 @@ describe("natural group addressing and silence", () => {
     expect(f.run).not.toHaveBeenCalled();
   });
 
-  it("delivers a public selection as linked labels without a separate plain URL message", async () => {
+  it.each([undefined, 42])("delivers a public selection as linked labels in the original topic %s", async topic => {
     const f = fixture();
     f.setLinked(false);
     const result = 'Сино · 2 ҳуҷра\n<a href="https://royalhome.tj/tg/khona/27">Дар сайт бинед</a>';
     f.publicShellReply.mockResolvedValueOnce(result);
-    await f.send("Салом, Шабнам, квартираи коробка бе таъмир");
-    expect(f.html).toHaveBeenCalledWith("-100", result, 10);
+    await f.send("Салом, Шабнам, квартираи коробка бе таъмир", { message_thread_id: topic });
+    if (topic === undefined) expect(f.html).toHaveBeenCalledExactlyOnceWith("-100", result, 10);
+    else expect(f.html).toHaveBeenCalledExactlyOnceWith("-100", result, 10, undefined, topic);
     expect(f.plain).not.toHaveBeenCalled();
   });
 
@@ -602,6 +493,31 @@ describe("optional help without an address", () => {
     expect(f.run).not.toHaveBeenCalled();
     expect(f.voice).not.toHaveBeenCalled();
   });
+  it.each(["ОБ-123 нархаш чанд шуд?", "ОБ-123 чанд пул шуд?"])(
+    "answers a natural Tajik price question from CRM: %s", async question => {
+      const typed = fixture();
+      expect.soft(await typed.send(question)).toBe(true);
+      expect.soft(typed.findProperty).toHaveBeenCalledExactlyOnceWith("ОБ-123", { hideOwnPendingDeleteFor: "test-1", limit: 1 });
+      expect.soft(typed.run).not.toHaveBeenCalled();
+
+      const spoken = fixture();
+      spoken.media.mockResolvedValueOnce({ extraction: { transcript: question.replace(/\?$/u, "") } });
+      expect(await spoken.send("", { voice: { file_id: "test-price-question", duration: 9 } })).toBe(true);
+      expect(spoken.findProperty).toHaveBeenCalledExactlyOnceWith("ОБ-123", { hideOwnPendingDeleteFor: "test-1", limit: 1 });
+      expect(String(spoken.html.mock.calls[0]?.[1])).toContain("630");
+      expect(spoken.run).not.toHaveBeenCalled();
+    },
+  );
+  it.each([
+    "ОБ-123 нархаш 810 ҳазор шуд.",
+    "Дирӯз гуфтанд, ки ОБ-123 нархаш чанд шуд?",
+    "ОБ-123 нархаш чанд шуд дирӯз?",
+  ])("does not treat a statement or a past price reference as a current price question: %s", async text => {
+    const f = fixture();
+    expect(await f.send(text)).toBe(false);
+    expect(f.findProperty).not.toHaveBeenCalled();
+    expect(f.run).not.toHaveBeenCalled();
+  });
   it.each(["ОБ-123", "Вчера обсуждали ОБ-123", "Обнови цену у ОБ-123", "Какая цена у ОБ-123? Не отвечай", "Какая цена у ПК-123?", "Вчера сравнили ОБ-123 и ОБ-456"])("does not interject into %s", async text => {
     const f = fixture();
     expect(await f.send(text)).toBe(false);
@@ -613,11 +529,9 @@ describe("optional help without an address", () => {
     "Какие у меня показы завтра?",
     "Найди клиента Али",
     "Хонаи дуҳуҷра дар Сино ҳаст?",
-    "Сколько роликов сейчас на монтаже?",
     "Почему мой объект уже неделю у монтажёра?",
     "По ОБ-123 какой статус?",
     "Объекти ман ҳоло дар куҷост?",
-    "Чанд ролик ҳозир дар монтажай?",
   ])("answers clear working requests without a mention: %s", async request => {
     const f = fixture();
     expect(await f.send(request)).toBe(true);
@@ -632,6 +546,53 @@ describe("optional help without an address", () => {
     }
     expect(f.html).toHaveBeenCalledOnce();
   });
+  it("answers a montage queue question from CRM without posting object codes to the group", async () => {
+    const f = fixture();
+    expect(await f.send("Сколько роликов сейчас на монтаже?", { message_thread_id: 41 })).toBe(true);
+    expect(f.workQueue).toHaveBeenCalledWith(expect.objectContaining({ id: "test-1" }), "queue");
+    expect(f.run).not.toHaveBeenCalled();
+    expect(f.html.mock.calls[0]?.[1]).toBe(
+      "На монтаже по компании · 5\nУ монтажёра 2 · В очереди 1",
+    );
+    expect(f.html.mock.calls[0]?.[4]).toBe(41);
+  });
+
+  it("labels the employee's own montage queue in conversational Tajik", async () => {
+    const f = fixture();
+    f.setRole("AGENT");
+    f.workQueue.mockResolvedValue({ scope: "MY_QUEUE", total: 1, withEditor: 0, waitingForEditor: 1,
+      items: [{ code: "ОБ-000132" }] });
+    expect(await f.send("Чанд ролик ҳозир дар монтажай?")).toBe(true);
+    expect(f.run).not.toHaveBeenCalled();
+    expect(f.html.mock.calls[0]?.[1]).toBe("Наворҳои ту дар монтаж · 1\nНазди монтажёр 0 · Дар навбат 1");
+  });
+
+  it.each(["group removed", "director demoted", "account deactivated", "account unlinked"])(
+    "drops an addressed montage queue reply when access changes during the read: %s", async cause => {
+      const f = fixture();
+      f.workQueue.mockImplementationOnce(async () => {
+        if (cause === "group removed") f.setRegistered(false);
+        else if (cause === "director demoted") f.setRole("AGENT");
+        else if (cause === "account deactivated") f.setActive(false);
+        else f.setLinked(false);
+        return { scope: "COMPANY_QUEUE", total: 1, withEditor: 1, waitingForEditor: 0,
+          items: [{ code: "ОБ-000132" }] };
+      });
+      expect(await f.send("Шабнам, сколько роликов сейчас на монтаже?")).toBe(true);
+      expect(f.workQueue).toHaveBeenCalledOnce();
+      expect(f.html).not.toHaveBeenCalled();
+      expect(f.plain).not.toHaveBeenCalled();
+    },
+  );
+
+  it("reports a montage queue outage without inventing a count", async () => {
+    const f = fixture();
+    f.workQueue.mockRejectedValueOnce(new Error("database offline"));
+    expect(await f.send("Сколько роликов на монтаже?")).toBe(true);
+    expect(f.run).not.toHaveBeenCalled();
+    expect(f.html.mock.calls[0]?.[1]).toBe("Не удалось проверить очередь монтажа. Попробуй чуть позже.");
+  });
+
   it("routes a colloquial publication question without an address as read-only", async () => {
     const f = fixture();
     f.setContext(true);
@@ -699,6 +660,49 @@ describe("optional help without an address", () => {
     const negated = fixture();
     await negated.send("Поставь не цену ОБ-123 на 810 000 сомони");
     expect(negated.run).not.toHaveBeenCalled();
+  });
+  it.each([
+    "Вчера гуфтам: нархи ОБ-123 810 ҳазор монед",
+    "Менеҷер гуфт нархи ОБ-123 810 ҳазор монед",
+    "ОБ-123: вчера гуфтам нархашро 810 ҳазор монед",
+    "Агар соҳиб розӣ шавад, нархи ОБ-123 810 ҳазор монед",
+    "Нархи ОБ-123 810 ҳазор монед, агар соҳиб розӣ шавад",
+    "Поставь цену ОБ-123 на 810 000 сомони, если хозяин подтвердит",
+    "Нархи ОБ-123 810 ҳазор сомон буд, дирӯз гуфтанд ҳаминро монед.",
+    "Нархи ОБ-123 810 ҳазор сомон монед, гуфт Умед.",
+    "Снизь цену ОБ-123 до 810 000 сомони. Только если хозяин подтвердит.",
+    "Нархи ОБ-123 810 ҳазор сомон монед. Агар соҳиб розӣ шавад.",
+    "Снизь цену до 810 000 сомони. По ОБ-123 коллеги ответят отдельно.",
+    "Снизь цену ОБ-123 до 810 000 сомони. Если спросят, измени цену другого объекта.",
+  ])("does not prepare a price confirmation for a report or condition: %s", async text => {
+    const typed = fixture();
+    expect.soft(await typed.send(text)).toBe(false);
+    expect.soft(typed.run).not.toHaveBeenCalled();
+
+    const spoken = fixture();
+    spoken.media.mockResolvedValueOnce({ extraction: { transcript: text } });
+    expect(await spoken.send("", { voice: { file_id: "test-price-report", duration: 9 } })).toBe(false);
+    expect(spoken.media).toHaveBeenCalledOnce();
+    expect(spoken.run).not.toHaveBeenCalled();
+  });
+  it.each([
+    "Нархи ОБ-123-ро 810 ҳазор монед",
+    "ОБ-123 нархашро 810 ҳазор бумон",
+    "ОБ-123-ро 810 ҳазор сомонӣ монед",
+    "Иваз кунед нархи ОБ-123 то 810 ҳазор сомонӣ",
+    "Барои ОБ-123 нархро 810 ҳазор сомон монед.",
+    "Аз имрӯз нархи ОБ-123 810 ҳазор сомон монед.",
+    "ОБ-123, лутфан нархро 810 ҳазор сомон монед.",
+    "Снизь цену ОБ-123 до 810000 сомони. Если спросят, цену согласовал владелец.",
+    "Нархи ОБ-123 810 ҳазор сомон монед. Агар пурсанд, соҳиби хона розӣ аст.",
+    "Снизь цену ОБ-123 до 810000 сомони. Агар пурсанд, соҳиби хона розӣ аст.",
+  ])("keeps a direct price request in the confirmation flow: %s", async text => {
+    const f = fixture();
+    expect(await f.send(text)).toBe(true);
+    expect(f.run.mock.calls[0]?.[2]).toMatchObject({ confirmUi: true });
+    const actor = f.run.mock.calls[0]?.[1] as { hiddenTools: Set<string> };
+    expect(actor.hiddenTools.has("change_property_price")).toBe(false);
+    expect(actor.hiddenTools.has("send_to_remake")).toBe(true);
   });
   it("keeps silent for forwards, disabled groups and missing internal cards", async () => {
     const f = fixture();
@@ -833,6 +837,15 @@ describe("same-topic evidence for explicit history questions", () => {
     }]);
     expect(f.run.mock.calls[0]?.[2]).toMatchObject({ confirmUi: false });
   });
+  it.each(["Дар бораи ОБ-123 дар ҳамин ҷо чӣ навиштанд?", "По ОБ-123, что тут писали?"])(
+    "uses the same-topic history when the object comes before the question: %s", async question => {
+      const f = fixture();
+      f.setContext(true);
+      expect(await f.send(question, { message_thread_id: 71, message_id: 21 })).toBe(true);
+      expect(f.context).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ threadId: 71, selector: { propertyShortId: 123 } }));
+      expect(f.run.mock.calls[0]?.[2]).toMatchObject({ confirmUi: false, readOnly: true });
+    },
+  );
   it("recognizes a short question about the author, scoped to the same object and topic", async () => {
     const f = fixture(); f.setContext(true);
     await f.send("Кӣ гуфт, ки ОБ-123 ба монтаж рафт?", { message_thread_id: 71, message_id: 21 });
@@ -905,12 +918,13 @@ describe("standalone group voice", () => {
       expect(f.html).toHaveBeenCalledOnce();
     },
   );
-  it("handles a longer audio recording as well as a voice bubble", async () => {
+  it("answers a longer native audio asking about the montage queue without the model", async () => {
     const f = fixture();
     f.media.mockResolvedValue({ extraction: { transcript: "Сколько роликов сейчас на монтаже?" } });
     await f.send("", { audio: { file_id: "test-audio", duration: 110 } });
     expect(f.media).toHaveBeenCalledOnce();
-    expect(f.run).toHaveBeenCalledOnce();
+    expect(f.workQueue).toHaveBeenCalledOnce();
+    expect(f.run).not.toHaveBeenCalled();
   });
   it("recognizes the bot's spoken name and passes a request to the normal confirmation flow", async () => {
     const f = fixture();

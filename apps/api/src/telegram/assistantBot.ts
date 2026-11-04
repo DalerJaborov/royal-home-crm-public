@@ -18,6 +18,7 @@ import { ASSISTANT_ERROR_MESSAGES, isAiAssistantEnabled, runAssistantDetailed } 
 import { assistantLanguage } from "../ai/assistant/languageRouting.js";
 import { wrapUntrusted } from "../ai/untrustedContent.js";
 import { listAssistantToolPlugins } from "../ai/assistant/tools/index.js";
+import { getPropertyWorkList } from "../ai/assistant/tools/getPropertyWorkStatus.js";
 import { parseFastPathIntent, tryAssistantFastPath } from "../ai/assistantFastPath.js";
 import { findTelegramAgentClients, isVoiceReplayRequest, replayTelegramAssistantVoice, sendTelegramPropertyCard } from "./assistantReadResults.js";
 import { clearStaffPropertyPage, propertyPageRequest, propertyPageSize, propertySelection, propertyWorkflowRequest, sendMoreStaffProperties, sendStaffPropertySelection } from "./assistantPropertyPages.js";
@@ -212,8 +213,32 @@ interface TurnParams {
   agentId: string;
   scope: "private" | "group";
   history: { role: "user" | "assistant"; content: string }[];
+  validateQueueAudience?: () => Promise<boolean>;
   /** Для сообщения-отказа до запуска модели. */
   deny: (text: string) => Promise<void>;
+}
+
+function montageQueueLanguage(text: string): "ru" | "tg" | null {
+  const words = text.trim().replace(/[?!.]+$/u, "").trimEnd();
+  if (/^(?:сколько\s+(?:роликов|видео|объектов)(?:\s+сейчас)?|(?:покажи(?:те)?|перечисли(?:те)?)\s+(?:ролики|видео|объекты))\s+на\s+монтаже$/iu.test(words)) return "ru";
+  if (/^(?:чанд\s+(?:навор|ролик|видео|объект)(?:\s+(?:ҳозир|хозир))?\s+дар\s+монтаж(?:ай|\s+(?:аст|ҳаст|хаст))?)$/iu.test(words)) return "tg";
+  return null;
+}
+
+function formatMontageQueue(queue: Awaited<ReturnType<typeof getPropertyWorkList>>, language: "ru" | "tg", includeList: boolean): string {
+  const labels = language === "tg"
+    ? { all: "Дар монтаж", mine: "Наворҳои ту дар монтаж", editor: "Назди монтажёр", waiting: "Дар навбат", more: "Боз" }
+    : { all: "На монтаже по компании", mine: "Твои объекты на монтаже", editor: "У монтажёра", waiting: "В очереди", more: "Ещё" };
+  const lines = [`${queue.scope === "COMPANY_QUEUE" ? labels.all : labels.mine} · ${queue.total}`];
+  if (queue.total === 0) return lines[0];
+  if (queue.withEditor !== undefined && queue.waitingForEditor !== undefined) {
+    lines.push(`${labels.editor} ${queue.withEditor} · ${labels.waiting} ${queue.waitingForEditor}`);
+  }
+  if (!includeList) return lines.join("\n");
+  const codes = queue.items.slice(0, 4).map(item => item.code);
+  if (codes.length) lines.push(codes.join(", "));
+  if (queue.total > codes.length) lines.push(`${labels.more} ${queue.total - codes.length}`);
+  return lines.join("\n");
 }
 
 /** Общий ход: рубильник → права → потолок → быстрый путь → ядро. null — отказ уже отправлен. */
@@ -222,7 +247,10 @@ async function runTurn(params: TurnParams): Promise<TurnResult | null> {
     await params.deny(DISABLED_TEXT);
     return null;
   }
-  const access = await loadAgentAccess(params.agentId);
+  const last = params.history[params.history.length - 1];
+  const queueLanguage = last?.role === "user" && !params.forwardedEvidence && !params.onlyGroupConfirmation
+    ? montageQueueLanguage(last.content) : null;
+  const access = await loadAgentAccess(params.agentId, queueLanguage ? prisma : undefined);
   if (!access || !access.isActive) {
     await params.deny("Ваша учётка отключена.");
     return null;
@@ -233,7 +261,7 @@ async function runTurn(params: TurnParams): Promise<TurnResult | null> {
     return null;
   }
   const actor = assistantActorFor(params.agentId, access, params.scope);
-  if (params.readOnlyGroup || params.onlyGroupConfirmation) {
+  if (params.readOnlyGroup || params.onlyGroupConfirmation || (params.scope === "group" && params.forwardedEvidence)) {
     actor.hiddenTools = new Set([...GROUP_HIDDEN_TOOLS, "get_client_history", "get_client_card", "web_reference"]);
   }
   if (params.onlyGroupConfirmation) {
@@ -241,7 +269,24 @@ async function runTurn(params: TurnParams): Promise<TurnResult | null> {
       .filter(plugin => plugin.level !== "A" && (plugin.level !== "C" || plugin.name !== params.onlyGroupConfirmation))
       .map(plugin => plugin.name)]);
   }
-  const last = params.history[params.history.length - 1];
+  if (queueLanguage) {
+    let reply: string;
+    try {
+      const queue = await getPropertyWorkList(actor, "queue");
+      const currentAccess = await loadAgentAccess(params.agentId, prisma);
+      if (!currentAccess?.isActive || currentAccess.role !== access.role
+        || currentAccess.permissions.has("properties.delete") !== access.permissions.has("properties.delete")
+        || (params.validateQueueAudience && !(await params.validateQueueAudience()))) return null;
+      void logAssistantToolCall({ agentId: actor.id, tool: "get_property_work_status", argsSummary: '{"scope":"queue"}', resultCount: queue.total });
+      reply = formatMontageQueue(queue, queueLanguage, params.scope === "private");
+    } catch (error) {
+      void logSystemError("ai", `Помощник Telegram: очередь монтажа: ${describeError(error)}`);
+      reply = queueLanguage === "tg"
+        ? "Навбати монтажро санҷида натавонистам. Каме баъд боз пурс."
+        : "Не удалось проверить очередь монтажа. Попробуй чуть позже.";
+    }
+    return { reply, pending: [], done: [], structured: true };
+  }
   const canCaptureCards = Boolean(params.allowPropertyCards && !params.forwardedEvidence && !params.onlyGroupConfirmation
     && last?.role === "user" && !propertyWorkflowRequest(last.content) && requestedAssistantReplyMode(last.content) === "auto");
 
@@ -600,7 +645,9 @@ export async function handleAssistantPrivate(
     }
     if (!fromVoice) void sendChatAction(chatId);
     const history = [...previous, { role: "user" as const, content: text.slice(0, 4000) }];
-    const result = await runTurn({ agentId: agent.id, scope: "private", history, deny: send, moneyWallet, forwardedEvidence, allowPropertyCards: true });
+    const result = await runTurn({ agentId: agent.id, scope: "private", history, deny: send, moneyWallet, forwardedEvidence, allowPropertyCards: true,
+      validateQueueAudience: async () => (await findAgentByTelegramChatId(chatId))?.id === agent.id,
+    });
     if (!result) return;
     if (!await sendSelectedPropertyCards(cardScope, result, text)) {
       const preference = forwardedEvidence ? undefined : requestedAssistantReplyPreference(text);
@@ -810,7 +857,10 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
     }
     if (!historySelector && !continuationRef && windowText === null && !automatic && !automaticRead && !automaticAction && !standaloneVoice && !publicShell && !moreProperties) return false;
   }
-  const reply = (t: string) => sendMessage(chatId, t, msg.message_id).then(() => undefined);
+  const reply = async (message: string) => {
+    if (msg.message_thread_id === undefined) await sendMessage(chatId, message, msg.message_id);
+    else await sendMessage(chatId, message, msg.message_id, undefined, { messageThreadId: msg.message_thread_id });
+  };
 
   try {
     // Группа-обсуждение канала — клиентские комментарии, помощнику там не место.
@@ -862,6 +912,14 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
     if (!registered) return false;
     const now = new Date(groupClock());
     const registeredAt = registered.createdAt.getTime();
+    const validateQueueAudience = async () => {
+      const [current, viewer] = await Promise.all([
+        prisma.assistantTelegramGroup.findUnique({ where: { chatId } }),
+        senderOf(msg),
+      ]);
+      if (!viewer || viewer.id !== sender?.id || !current || current.createdAt.getTime() !== registeredAt) return false;
+      return addressed || !current.proactiveMutedUntil || current.proactiveMutedUntil.getTime() <= groupClock();
+    };
     if (entry?.registeredAt !== registeredAt) continuationRef = undefined;
     const openWindow = (directed: boolean, propertyRef?: string) => {
       if (!key) return;
@@ -947,8 +1005,10 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
         });
         if (claim.count !== 1) return false;
       }
-      if (publicQuestion.kind === "shell" && answer.includes("<a href=")) await sendHtmlMessage(chatId, answer, msg.message_id);
-      else await reply(answer);
+      if (publicQuestion.kind === "shell" && answer.includes("<a href=")) {
+        if (msg.message_thread_id === undefined) await sendHtmlMessage(chatId, answer, msg.message_id);
+        else await sendHtmlMessage(chatId, answer, msg.message_id, undefined, msg.message_thread_id);
+      } else await reply(answer);
       return true;
     }
     const moneyWallet = createAssistantMoneyWallet();
@@ -1063,7 +1123,7 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
       }
       const result = await runTurn({
         agentId: sender.id, scope: "group", readOnlyGroup: Boolean(historySelector) || !automaticAction,
-        forwardedEvidence: isForwarded,
+        validateQueueAudience, forwardedEvidence: isForwarded,
         allowPropertyCards: Boolean(cardScope && !historySelector && !statusFollowUp),
         onlyGroupConfirmation: historySelector ? undefined : automaticAction ?? undefined, moneyWallet,
         history: [{ role: "user", content: maskAssistantContacts(question) }],
@@ -1199,7 +1259,7 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
       scope: "group",
       allowPropertyCards: Boolean(cardScope && !continuationRef && !statusFollowUp),
       readOnlyGroup: Boolean(continuationRef),
-      forwardedEvidence,
+      validateQueueAudience, forwardedEvidence,
       history: [{ role: "user", content: request.slice(0, 4000) }],
       deny: reply,
     });

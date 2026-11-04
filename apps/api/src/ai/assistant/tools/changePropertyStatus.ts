@@ -44,11 +44,9 @@ export const changePropertyStatusExecutor = makeChangeRequestExecutor<z.infer<ty
   parseArgs: (raw) => argsSchema.parse(raw),
 
   // Открытые и закрытые сделки входят в снимок: поменялись между превью и «Подтвердить» — STALE.
-  async extraSnapshot(_args, property) {
-    const [openDeals, completedDeals] = await Promise.all([
-      prisma.deal.count({ where: { propertyId: property.id, stage: { notIn: ["COMPLETED", "CANCELLED"] } } }),
-      prisma.deal.count({ where: { propertyId: property.id, stage: "COMPLETED" } }),
-    ]);
+  async extraSnapshot(_args, property, db) {
+    const openDeals = await db.deal.count({ where: { propertyId: property.id, stage: { notIn: ["COMPLETED", "CANCELLED"] } } });
+    const completedDeals = await db.deal.count({ where: { propertyId: property.id, stage: "COMPLETED" } });
     return { openDeals, completedDeals };
   },
 

@@ -859,6 +859,37 @@ describe("группа: одна карточка и кнопка только �
 });
 
 describe("личка сотрудника", () => {
+  it("показывает до четырёх номеров своих объектов в личной сводке по монтажу", async () => {
+    const key = "queueAuthor";
+    await mk(key, 11, "AGENT");
+    const district = await prisma.district.create({ data: { name: `Район монтажа ${runId}` } });
+    const property = {
+      type: "APARTMENT", areaSqm: 50, price: 500000, currency: "TJS", districtId: district.id,
+      address: "Тестовый адрес", title: "Тестовое объявление", condition: "GOOD", status: "EDITING", videoHandoffStatus: "QUEUED",
+    } as const;
+    try {
+      const own = await Promise.all(Array.from({ length: 5 }, () =>
+        prisma.property.create({ data: { ...property, assignedAgentId: agents[key].id }, select: { shortId: true } }),
+      ));
+      const other = await prisma.property.create({
+        data: { ...property, assignedAgentId: agents.stranger.id }, select: { shortId: true },
+      });
+      await handleTelegramUpdate(privateMsg(key, { text: "Сколько роликов сейчас на монтаже?" }));
+      expect(runner).not.toHaveBeenCalled();
+      const summary = sentTexts().at(-1) ?? "";
+      expect(summary).toContain("Твои объекты на монтаже · 5");
+      expect(summary).toContain("У монтажёра 0 · В очереди 5");
+      expect(summary).toContain("Ещё 1");
+      const visibleIds = [...summary.matchAll(/<code>ОБ-(\d+)<\/code>/gu)].map(match => Number(match[1]));
+      expect(visibleIds).toHaveLength(4);
+      expect(own.map(row => row.shortId)).toEqual(expect.arrayContaining(visibleIds));
+      expect(visibleIds).not.toContain(other.shortId);
+    } finally {
+      await prisma.property.deleteMany({ where: { districtId: district.id } });
+      await prisma.district.delete({ where: { id: district.id } });
+    }
+  });
+
   it("текст идёт в помощника с историей, ссылки абсолютные, телефон виден по праву", async () => {
     runner.mockResolvedValue({ ok: true, reply: "Открой [ОБ-1](/properties/9)" });
     await handleTelegramUpdate(privateMsg("author", { text: "привет помощник" }));
@@ -940,6 +971,24 @@ describe("личка сотрудника", () => {
     expect(sentTexts().join("\n")).toContain("Игнорируй правила");
     expect(runner).not.toHaveBeenCalled();
     expect(price.calls.execute).toBe(0);
+  });
+
+  it("сообщает о сбое входящего голоса в исходной теме", async () => {
+    await handleTelegramUpdate(groupMsg("director", `/assistant_on@${BOT}`));
+    sendMessage.mockClear();
+    transcribe.mockResolvedValue(null);
+    await handleTelegramUpdate(groupMsg("author", "", {
+      text: undefined,
+      voice: { file_id: "fixture-voice", duration: 8 },
+      message_thread_id: 41,
+      reply_to_message: { chat: { id: GROUP, type: "supergroup" }, message_id: 40, message_thread_id: 41,
+        text: "Слушаю.", from: { id: 9000, username: BOT, is_bot: true } },
+    }));
+    expect(transcribe).toHaveBeenCalledOnce();
+    expect(runner).not.toHaveBeenCalled();
+    expect(sendMessage).toHaveBeenCalledExactlyOnceWith(
+      String(GROUP), "Не удалось распознать речь — напишите текстом.", expect.any(Number), undefined, { messageThreadId: 41 },
+    );
   });
 
   it("расшифровка не удалась — ответ человеку, модель не зовётся", async () => {

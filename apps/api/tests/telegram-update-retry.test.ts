@@ -18,7 +18,9 @@ vi.mock("../src/lib/systemError.js", async (importOriginal) => ({
   logSystemError,
 }));
 
-const isDuplicateDelivery = vi.hoisted(() => vi.fn(async (_channel: string, _id: string) => false));
+const isDuplicateDelivery = vi.hoisted(() => vi.fn(async (
+  _channel: string, _id: string, _options?: { requireClaim?: boolean },
+) => false));
 const releaseProcessedMessage = vi.hoisted(() => vi.fn(async () => undefined));
 vi.mock("../src/lib/webhookDedupe.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/lib/webhookDedupe.js")>()),
@@ -202,10 +204,11 @@ describe("JOB-06: polling не отдаёт Telegram апдейт, которы�
     ];
     const attempts = () => startTelegramUpdate.mock.calls.map(([update]) => update.update_id);
     let fail = true;
-    isDuplicateDelivery.mockImplementation(async (_channel, id) => {
+    isDuplicateDelivery.mockImplementation(async (_channel, id, options) => {
       if (id === "111" && fail) {
         fail = false;
-        throw new Error("чтение отметки оборвалось");
+        // On a failed claim, the webhook helper only throws for strict polling intake.
+        if (options?.requireClaim) throw new Error("отметка не записалась");
       }
       return false;
     });

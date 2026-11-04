@@ -38,11 +38,16 @@ vi.mock("../src/lib/publishedVideoFix.js", async (importOriginal) => ({
 }));
 
 const { prisma } = await import("../src/db.js");
+const { buildPriceDisplay } = await import("../src/lib/reelsCaptionTemplate.js");
 await import("../src/ai/assistant/tools/index.js");
 const { createPendingAssistantAction, confirmAssistantAction, undoAssistantAction, AssistantActionError } = await import(
   "../src/lib/assistantActions.js"
 );
 const { createPropertyChangeRequest } = await import("../src/lib/propertyChangeRequestService.js");
+const { ASSISTANT_PRICE_UNDO_JOB } = await import("../src/lib/assistantPriceUndoJournal.js");
+const { jobHandlerOf } = await import("../src/jobs/registry.js");
+const { approvePropertyChangeRequest } = await import("../src/routes/properties/changeRequestExecutor.js");
+const { withPropertyLock } = await import("../src/lib/videoHandoff.js");
 const { actorFor, cleanupAssistantActionAgents } = await import("./helpers/assistantActionFixture.js");
 const { createTestAgent } = await import("./helpers/ownAgent.js");
 const { waitForSettled } = await import("./helpers/waitFor.js");
@@ -115,6 +120,17 @@ async function expectRefused(
   if (text) expect((error as Error).message).toMatch(text);
 }
 
+function undoAudits(actionId: string) {
+  return prisma.auditLog.findMany({
+    where: {
+      meta: { path: ["actionId"], equals: actionId },
+      action: { in: ["ASSISTANT_CHANGE_PROPERTY_STATUS_UNDO", "ASSISTANT_CHANGE_PROPERTY_PRICE_UNDO", "PROPERTY_CHANGE_REQUEST_CANCELLED"] },
+    },
+    select: { action: true },
+    orderBy: { action: "asc" },
+  });
+}
+
 beforeAll(async () => {
   districtId = (await prisma.district.create({ data: { name: `Помощник-объекты ${runId}` } })).id;
   ownerId = await createTestAgent(`Агент-владелец ${runId}`);
@@ -139,6 +155,15 @@ beforeEach(() => {
 
 afterAll(async () => {
   await prisma.deal.deleteMany({ where: { propertyId: { in: propertyIds } } });
+  await prisma.backgroundJob.deleteMany({ where: { dedupeKey: { in: propertyIds.map(id => `site-resync:${id}`) } } });
+  const reversals = await prisma.propertyChangeRequest.findMany({
+    where: { propertyId: { in: propertyIds }, kind: "PRICE_CHANGE" }, select: { id: true },
+  });
+  if (reversals.length) {
+    await prisma.backgroundJob.deleteMany({
+      where: { type: ASSISTANT_PRICE_UNDO_JOB, OR: reversals.map(({ id }) => ({ payload: { path: ["requestId"], equals: id } })) },
+    });
+  }
   await prisma.propertyChangeRequest.deleteMany({ where: { propertyId: { in: propertyIds } } });
   await prisma.pendingDirectorAlert.deleteMany({ where: { tag: { startsWith: "property-change-request-" } } });
   await prisma.property.deleteMany({ where: { id: { in: propertyIds } } });
@@ -152,6 +177,266 @@ afterAll(async () => {
 });
 
 describe("change_property_price", () => {
+
+  it("сбой записи отката сохраняет цену и прежние задания, воркер продолжает тот же откат", async () => {
+    const property = await seed({
+      publishedOnSite: true,
+      publishedChannels: ["FACEBOOK"],
+      publishedPostIds: { FACEBOOK: "fixture-post" },
+      reelsCaption: `Цена: ${buildPriceDisplay(400000, "TJS")}`,
+    });
+    const siteKey = `site-resync:${property.id}`;
+    const actor = actorFor(ownerId, AGENT_PERMS);
+    const pending = await preview(ownerId, AGENT_PERMS, "change_property_price", {
+      ref: String(property.shortId), newPrice: 370000,
+    });
+    await confirmAssistantAction(pending.id, actor);
+    const firstSiteJob = await prisma.backgroundJob.findUniqueOrThrow({ where: { dedupeKey: siteKey } });
+    await prisma.$executeRaw`
+      CREATE FUNCTION test_fail_applied_price_undo() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN
+        IF NEW.tool = 'change_property_price' AND NEW.status = 'UNDONE' THEN
+          RAISE EXCEPTION 'synthetic failure recording applied price undo';
+        END IF;
+        RETURN NEW;
+      END $$`;
+    try {
+      await prisma.$executeRaw`
+        CREATE TRIGGER test_fail_applied_price_undo BEFORE UPDATE ON "AssistantAction"
+        FOR EACH ROW EXECUTE FUNCTION test_fail_applied_price_undo()`;
+      const failed = await undoAssistantAction(pending.id, actor).catch((err: unknown) => err);
+      expect(Number((await prisma.property.findUniqueOrThrow({ where: { id: property.id } })).price)).toBe(370000);
+      expect((await prisma.assistantAction.findUniqueOrThrow({ where: { id: pending.id } })).status).toBe("EXECUTED");
+      expect(await prisma.priceChange.count({ where: { propertyId: property.id } })).toBe(1);
+      expect(await undoAudits(pending.id)).toEqual([]);
+      expect((await prisma.backgroundJob.findUniqueOrThrow({ where: { dedupeKey: siteKey } })).payload).toEqual(firstSiteJob.payload);
+      expect(await prisma.publicationMetadataSync.count({ where: { propertyId: property.id } })).toBe(1);
+      expect((await requests(property.id, "PRICE_CHANGE")).map((request) => request.status).sort())
+        .toEqual(["APPROVED", "PENDING"]);
+      expect(failed).toMatchObject({ status: 503, code: "UNDO_RETRY" });
+    } finally {
+      await prisma.$executeRaw`DROP TRIGGER IF EXISTS test_fail_applied_price_undo ON "AssistantAction"`;
+      await prisma.$executeRaw`DROP FUNCTION test_fail_applied_price_undo()`;
+    }
+    const job = await prisma.backgroundJob.findUniqueOrThrow({ where: { dedupeKey: `${ASSISTANT_PRICE_UNDO_JOB}:${pending.id}` } });
+    await import("../src/jobs/handlers.js");
+    const handler = jobHandlerOf(job.type);
+    expect(handler).toBeDefined();
+    await handler!.run(handler!.schema.parse(job.payload));
+    // A repeated worker delivery and the original UI after restart both read the committed receipt.
+    await handler!.run(handler!.schema.parse(job.payload));
+    const retry = await undoAssistantAction(pending.id, actor, { now: new Date(Date.now() + 16 * 60_000) });
+    expect(retry).toMatchObject({ action: { status: "UNDONE" }, replay: true });
+    expect(Number((await prisma.property.findUniqueOrThrow({ where: { id: property.id } })).price)).toBe(400000);
+    expect(await prisma.priceChange.count({ where: { propertyId: property.id } })).toBe(2);
+    expect(await undoAudits(pending.id)).toContainEqual({ action: "ASSISTANT_CHANGE_PROPERTY_PRICE_UNDO" });
+    expect(await requests(property.id, "PRICE_CHANGE")).toHaveLength(2);
+    expect((await prisma.backgroundJob.findUniqueOrThrow({ where: { dedupeKey: siteKey } })).payload).not.toEqual(firstSiteJob.payload);
+    const deliveries = await prisma.publicationMetadataSync.findMany({ where: { propertyId: property.id } });
+    expect(deliveries.map(row => row.status).sort()).toEqual(["PENDING", "SUPERSEDED"]);
+    expect(deliveries.find(row => row.status === "PENDING")?.payload).toMatchObject({ caption: `Цена: ${buildPriceDisplay(400000, "TJS")}` });
+  });
+
+  it("одновременные запросы отката возвращают один сохранённый итог", async () => {
+    const property = await seed({ publishedChannels: [] });
+    const actor = actorFor(ownerId, AGENT_PERMS);
+    const action = await preview(ownerId, AGENT_PERMS, "change_property_price", {
+      ref: String(property.shortId), newPrice: 370000,
+    });
+    await confirmAssistantAction(action.id, actor);
+    const results = await Promise.all([undoAssistantAction(action.id, actor), undoAssistantAction(action.id, actor)]);
+    expect(results.map(({ action }) => action.status)).toEqual(["UNDONE", "UNDONE"]);
+    expect(results.map(({ replay }) => replay).sort()).toEqual([false, true]);
+    expect(await prisma.priceChange.count({ where: { propertyId: property.id } })).toBe(2);
+    expect(await undoAudits(action.id)).toEqual([{ action: "ASSISTANT_CHANGE_PROPERTY_PRICE_UNDO" }]);
+    expect(await requests(property.id, "PRICE_CHANGE")).toHaveLength(2);
+  });
+
+  it("после потери подтверждения COMMIT откат читается без повторной записи и сохраняет следующую цену", async () => {
+    const property = await seed({ publishedChannels: [] });
+    const actor = actorFor(ownerId, AGENT_PERMS);
+    const action = await preview(ownerId, AGENT_PERMS, "change_property_price", {
+      ref: String(property.shortId), newPrice: 370000,
+    });
+    await confirmAssistantAction(action.id, actor);
+    const transaction = prisma.$transaction.bind(prisma);
+    const intercepted = vi.spyOn(prisma, "$transaction");
+    let lostAck = false;
+    intercepted.mockImplementation((async (...args: Parameters<typeof transaction>) => {
+      const outcome = await transaction(...args);
+      if (!lostAck && outcome && typeof outcome === "object" && "write" in outcome &&
+        "property" in outcome && (outcome.property as { id?: string } | null)?.id === property.id) {
+        lostAck = true;
+        throw new Error("injected loss of applied-price undo commit acknowledgement");
+      }
+      return outcome;
+    }) as typeof prisma.$transaction);
+    try {
+      expect(await undoAssistantAction(action.id, actor)).toMatchObject({ action: { status: "UNDONE" }, replay: true });
+      expect(lostAck).toBe(true);
+    } finally {
+      intercepted.mockRestore();
+    }
+    await prisma.property.update({ where: { id: property.id }, data: { price: 410000, version: { increment: 1 } } });
+    expect(await undoAssistantAction(action.id, actor)).toMatchObject({ action: { status: "UNDONE" }, replay: true });
+    expect(Number((await prisma.property.findUniqueOrThrow({ where: { id: property.id } })).price)).toBe(410000);
+    expect(await prisma.priceChange.count({ where: { propertyId: property.id } })).toBe(2);
+    expect(await undoAudits(action.id)).toEqual([{ action: "ASSISTANT_CHANGE_PROPERTY_PRICE_UNDO" }]);
+  });
+
+  it("воркер после потери ответа о постановке проверяет права и более свежую цену", async () => {
+    const property = await seed({ publishedChannels: [] });
+    const actor = actorFor(ownerId, AGENT_PERMS);
+    const action = await preview(ownerId, AGENT_PERMS, "change_property_price", {
+      ref: String(property.shortId), newPrice: 370000,
+    });
+    await confirmAssistantAction(action.id, actor);
+    const transaction = prisma.$transaction.bind(prisma);
+    const interrupted = vi.spyOn(prisma, "$transaction");
+    interrupted.mockImplementationOnce((async (...args: Parameters<typeof transaction>) => {
+      await transaction(...args);
+      throw new Error("injected loss of undo staging acknowledgement");
+    }) as typeof prisma.$transaction);
+    try {
+      await expect(undoAssistantAction(action.id, actor)).rejects.toMatchObject({ status: 503, code: "UNDO_RETRY" });
+    } finally {
+      interrupted.mockRestore();
+    }
+    const job = await prisma.backgroundJob.findUniqueOrThrow({ where: { dedupeKey: `${ASSISTANT_PRICE_UNDO_JOB}:${action.id}` } });
+    expect((await requests(property.id, "PRICE_CHANGE")).map((request) => request.status).sort()).toEqual(["APPROVED", "PENDING"]);
+    await import("../src/jobs/handlers.js");
+    const handler = jobHandlerOf(job.type);
+    expect(handler).toBeDefined();
+    await prisma.agent.update({ where: { id: ownerId }, data: { permissions: { revoked: ["properties.requestChange"] } } });
+    try {
+      await expect(handler!.run(handler!.schema.parse(job.payload))).rejects.toThrow("Could not apply staged assistant price undo");
+      expect((await prisma.assistantAction.findUniqueOrThrow({ where: { id: action.id } })).status).toBe("EXECUTED");
+    } finally {
+      await prisma.agent.update({ where: { id: ownerId }, data: { permissions: {} } });
+    }
+    await prisma.property.update({ where: { id: property.id }, data: { price: 395000, version: { increment: 1 } } });
+    await handler!.run(handler!.schema.parse(job.payload));
+    await expect(undoAssistantAction(action.id, actor)).rejects.toMatchObject({ status: 409, code: "UNDO_STALE" });
+    expect((await prisma.propertyChangeRequest.findUniqueOrThrow({ where: { id: action.id } })).status).toBe("CANCELLED");
+    expect(Number((await prisma.property.findUniqueOrThrow({ where: { id: property.id } })).price)).toBe(395000);
+    expect(await undoAudits(action.id)).toEqual([]);
+  });
+
+  it("старое выполненное действие с записью цены в журнале остаётся доступным для отката", async () => {
+    const property = await seed({ publishedChannels: [] });
+    const actor = actorFor(ownerId, AGENT_PERMS);
+    const action = await preview(ownerId, AGENT_PERMS, "change_property_price", {
+      ref: String(property.shortId), newPrice: 370000,
+    });
+    const applied = await confirmAssistantAction(action.id, actor);
+    const legacy = { ...(applied.action.result as { requestId: string; appliedPropertyVersion?: number }) };
+    delete legacy.appliedPropertyVersion;
+    await prisma.assistantAction.update({ where: { id: action.id }, data: { result: legacy } });
+    expect(await undoAssistantAction(action.id, actor)).toMatchObject({ action: { status: "UNDONE" }, replay: false });
+    expect(Number((await prisma.property.findUniqueOrThrow({ where: { id: property.id } })).price)).toBe(400000);
+  });
+
+  it("старый захват без связанной заявки требует сверки и не меняет цену", async () => {
+    const property = await seed({ publishedChannels: [] });
+    const actor = actorFor(ownerId, AGENT_PERMS);
+    const action = await preview(ownerId, AGENT_PERMS, "change_property_price", {
+      ref: String(property.shortId), newPrice: 370000,
+    });
+    await confirmAssistantAction(action.id, actor);
+    await prisma.assistantAction.update({ where: { id: action.id }, data: { undoClaimedAt: new Date() } });
+    await expect(undoAssistantAction(action.id, actor)).rejects.toMatchObject({ status: 409, code: "UNDO_UNCERTAIN" });
+    expect(Number((await prisma.property.findUniqueOrThrow({ where: { id: property.id } })).price)).toBe(370000);
+    expect(await requests(property.id, "PRICE_CHANGE")).toHaveLength(1);
+  });
+
+  it.each([
+    { name: "новая цена", interveningPrices: [390000], expectedPrice: 390000 },
+    { name: "цена снова прежняя", interveningPrices: [390000, 370000], expectedPrice: 370000 },
+  ])("откат не затирает правки после создания встречной заявки ($name)", async ({ interveningPrices, expectedPrice }) => {
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("network disabled in test"); }));
+    const read = prisma.propertyChangeRequest.findUnique.bind(prisma.propertyChangeRequest);
+    const hook = vi.spyOn(prisma.propertyChangeRequest, "findUnique");
+    try {
+      const property = await seed({ publishedChannels: [] });
+      const actor = actorFor(ownerId, AGENT_PERMS);
+      const pending = await preview(ownerId, AGENT_PERMS, "change_property_price", {
+        ref: String(property.shortId), newPrice: 370000,
+      });
+      await confirmAssistantAction(pending.id, actor);
+      let reversalId: string | undefined;
+      hook.mockImplementationOnce((async (...args: Parameters<typeof read>) => {
+        const staged = await read(...args);
+        if (staged?.propertyId === property.id && staged.status === "PENDING") {
+          reversalId = staged.id;
+          for (const price of interveningPrices) {
+            await prisma.property.update({
+              where: { id: property.id }, data: { price, version: { increment: 1 } },
+            });
+          }
+        }
+        return staged;
+      }) as typeof prisma.propertyChangeRequest.findUnique);
+
+      await expect(undoAssistantAction(pending.id, actor)).rejects.toMatchObject({ status: 409, code: "UNDO_STALE" });
+      expect(reversalId).toBeDefined();
+      const request = await prisma.propertyChangeRequest.findUniqueOrThrow({ where: { id: reversalId! } });
+      expect(request.status).toBe("CANCELLED");
+      // The same approval function is used by the director's regular CRM screen.
+      await expect(approvePropertyChangeRequest({ requestId: request.id, actorId: directorId, note: null }))
+        .resolves.toMatchObject({ ok: false, status: 409 });
+      const after = await prisma.property.findUniqueOrThrow({ where: { id: property.id } });
+      expect(Number(after.price)).toBe(expectedPrice);
+      expect(await prisma.priceChange.count({ where: { propertyId: property.id } })).toBe(1);
+      expect((await prisma.assistantAction.findUniqueOrThrow({ where: { id: pending.id } })).status).toBe("EXECUTED");
+    } finally {
+      hook.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("откат видит смену версии до встречной заявки, даже когда цену снова вернули", async () => {
+    const property = await seed({ publishedChannels: [] });
+    const actor = actorFor(ownerId, AGENT_PERMS);
+    const pending = await preview(ownerId, AGENT_PERMS, "change_property_price", {
+      ref: String(property.shortId), newPrice: 370000,
+    });
+    const applied = await confirmAssistantAction(pending.id, actor);
+    expect(applied.action.result).toMatchObject({ applied: true, appliedPropertyVersion: property.version + 1 });
+
+    for (const price of [390000, 370000]) {
+      await prisma.property.update({
+        where: { id: property.id }, data: { price, version: { increment: 1 } },
+      });
+    }
+
+    await expect(undoAssistantAction(pending.id, actor)).rejects.toMatchObject({ status: 409, code: "UNDO_STALE" });
+    const after = await prisma.property.findUniqueOrThrow({ where: { id: property.id } });
+    expect(Number(after.price)).toBe(370000);
+    expect(after.version).toBe(property.version + 3);
+    expect(await requests(property.id, "PRICE_CHANGE")).toHaveLength(1);
+  });
+
+  it("обычное одобрение закрывает ещё ждущий устаревший откат, не применяя его", async () => {
+    const property = await seed({ publishedChannels: [] });
+    const created = await createPropertyChangeRequest({
+      propertyId: property.id,
+      actor: actorFor(ownerId, AGENT_PERMS),
+      expect: { priceCents: 40000000, currency: "TJS", status: property.status, guardPriceUndo: true },
+      body: { kind: "PRICE_CHANGE", payload: { newPrice: 370000, currency: "TJS", remake: false } },
+    });
+    if (!created.ok) throw new Error(created.error);
+    expect(created.request.status).toBe("PENDING");
+    expect(created.request.payload).toEqual({ newPrice: 370000, currency: "TJS", remake: false });
+    await prisma.property.update({ where: { id: property.id }, data: { price: 390000 } });
+
+    await expect(approvePropertyChangeRequest({ requestId: created.request.id, actorId: directorId, note: null }))
+      .resolves.toMatchObject({ ok: false, status: 409, code: "UNDO_STALE" });
+    expect((await prisma.propertyChangeRequest.findUniqueOrThrow({ where: { id: created.request.id } })).status)
+      .toBe("CANCELLED");
+    expect(Number((await prisma.property.findUniqueOrThrow({ where: { id: property.id } })).price)).toBe(390000);
+    expect(await prisma.priceChange.count({ where: { propertyId: property.id } })).toBe(0);
+  });
+
   it("СВОЙ объект: превью ничего не пишет; подтверждение меняет цену сразу (заявка создана и принята автором), повтор — тот же результат", async () => {
     const property = await seed();
     const code = formatPropertyCode(property.shortId);
@@ -321,6 +606,15 @@ describe("change_property_price", () => {
 });
 
 describe("change_property_status", () => {
+  async function pendingStatusUndo() {
+    const property = await seed();
+    const actor = actorFor(ownerId, AGENT_PERMS);
+    const action = await preview(ownerId, AGENT_PERMS, "change_property_status", { ref: String(property.shortId), status: "WITHDRAWN" });
+    await confirmAssistantAction(action.id, actor);
+    const [request] = await requests(property.id, "OTHER");
+    return { property, actor, action, request };
+  }
+
   it("снять с продажи: заявка «Другое» с понятным текстом, статус объекта не меняется", async () => {
     const property = await seed();
     const actor = actorFor(ownerId, AGENT_PERMS);
@@ -389,6 +683,142 @@ describe("change_property_status", () => {
     await confirmAssistantAction(pending.id, actor);
     await undoAssistantAction(pending.id, actor);
     expect((await requests(property.id, "OTHER"))[0].status).toBe("CANCELLED");
+  });
+
+  it("падение финальной записи отката не отзывает заявку и позволяет повторить", async () => {
+    const { property, actor, action } = await pendingStatusUndo();
+    const livePublish = await import("../src/lib/livePublish.js");
+    const publish = vi.spyOn(livePublish, "publishRequestUpdated");
+    await prisma.$executeRaw`
+      CREATE FUNCTION test_fail_pending_assistant_undo() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN
+        IF NEW.status = 'UNDONE' AND NEW.tool = 'change_property_status' THEN
+          RAISE EXCEPTION 'synthetic assistant undo final write failure';
+        END IF;
+        RETURN NEW;
+      END $$`;
+    try {
+      await prisma.$executeRaw`
+        CREATE TRIGGER test_fail_pending_assistant_undo BEFORE UPDATE ON "AssistantAction"
+        FOR EACH ROW EXECUTE FUNCTION test_fail_pending_assistant_undo()`;
+      const failure = await undoAssistantAction(action.id, actor).catch((err: unknown) => err);
+      expect((await requests(property.id, "OTHER"))[0].status).toBe("PENDING");
+      expect(await prisma.assistantAction.findUniqueOrThrow({ where: { id: action.id } }))
+        .toMatchObject({ status: "EXECUTED", undoClaimedAt: null, undoneAt: null });
+      expect(await undoAudits(action.id)).toEqual([]);
+      expect(publish).not.toHaveBeenCalled();
+      expect(failure).toMatchObject({ status: 503, code: "UNDO_RETRY" });
+    } finally {
+      await prisma.$executeRaw`DROP TRIGGER IF EXISTS test_fail_pending_assistant_undo ON "AssistantAction"`;
+      await prisma.$executeRaw`DROP FUNCTION test_fail_pending_assistant_undo()`;
+      publish.mockRestore();
+    }
+    const retried = await undoAssistantAction(action.id, actor);
+    expect(retried).toMatchObject({ action: { status: "UNDONE" }, replay: false });
+    expect((await requests(property.id, "OTHER"))[0].status).toBe("CANCELLED");
+  });
+
+  it("две одновременные отмены отзывают заявку один раз и не дублируют аудит", async () => {
+    const { property, actor, action } = await pendingStatusUndo();
+    const outcome = await Promise.all([undoAssistantAction(action.id, actor), undoAssistantAction(action.id, actor)]);
+    expect(outcome.map((result) => result.action.status)).toEqual(["UNDONE", "UNDONE"]);
+    expect(outcome.map((result) => result.replay).sort()).toEqual([false, true]);
+    expect((await requests(property.id, "OTHER"))[0].status).toBe("CANCELLED");
+    expect(await undoAudits(action.id)).toEqual([
+      { action: "ASSISTANT_CHANGE_PROPERTY_STATUS_UNDO" },
+      { action: "PROPERTY_CHANGE_REQUEST_CANCELLED" },
+    ]);
+  });
+
+  it("потеря ответа COMMIT возвращает сохранённый откат без повторной записи", async () => {
+    const { property, actor, action } = await pendingStatusUndo();
+    const realTransaction = prisma.$transaction.bind(prisma);
+    const transaction = vi.spyOn(prisma, "$transaction");
+    transaction.mockImplementationOnce((async (...args: Parameters<typeof realTransaction>) => {
+      await realTransaction(...args);
+      throw new Error("injected loss of undo commit acknowledgement");
+    }) as typeof prisma.$transaction);
+    try {
+      expect(await undoAssistantAction(action.id, actor)).toMatchObject({ action: { status: "UNDONE" }, replay: true });
+      expect(await undoAssistantAction(action.id, actor)).toMatchObject({ action: { status: "UNDONE" }, replay: true });
+    } finally {
+      transaction.mockRestore();
+    }
+    expect((await requests(property.id, "OTHER"))[0].status).toBe("CANCELLED");
+    expect(await undoAudits(action.id)).toEqual([
+      { action: "ASSISTANT_CHANGE_PROPERTY_STATUS_UNDO" },
+      { action: "PROPERTY_CHANGE_REQUEST_CANCELLED" },
+    ]);
+  });
+
+  it("проверяет автора и свежие права даже при повторе с устаревшим контекстом сотрудника", async () => {
+    const { property, actor, action, request } = await pendingStatusUndo();
+    const impersonator = actorFor(directorId, DIRECTOR_PERMS);
+    await expect(undoAssistantAction(action.id, impersonator)).rejects.toMatchObject({ status: 403, code: "FORBIDDEN" });
+    await prisma.propertyChangeRequest.update({ where: { id: request.id }, data: { authorId: otherId } });
+    try {
+      await expect(undoAssistantAction(action.id, actor)).rejects.toMatchObject({ status: 403, code: "REFUSED" });
+    } finally {
+      await prisma.propertyChangeRequest.update({ where: { id: request.id }, data: { authorId: ownerId } });
+    }
+    await prisma.agent.update({ where: { id: ownerId }, data: { permissions: { revoked: ["properties.requestChange"] } } });
+    try {
+      await expect(undoAssistantAction(action.id, actor)).rejects.toMatchObject({ status: 403, code: "FORBIDDEN" });
+      expect((await requests(property.id, "OTHER"))[0].status).toBe("PENDING");
+      expect(await prisma.assistantAction.findUniqueOrThrow({ where: { id: action.id } }))
+        .toMatchObject({ status: "EXECUTED", undoClaimedAt: null });
+      expect(await undoAudits(action.id)).toEqual([]);
+      await prisma.agent.update({ where: { id: ownerId }, data: { permissions: {} } });
+      await undoAssistantAction(action.id, actor);
+      await prisma.agent.update({ where: { id: ownerId }, data: { isActive: false } });
+      await expect(undoAssistantAction(action.id, actor)).rejects.toMatchObject({ status: 403, code: "FORBIDDEN" });
+    } finally {
+      await prisma.agent.update({ where: { id: ownerId }, data: { permissions: {}, isActive: true } });
+    }
+  });
+
+  it.each(["approve", "undo"] as const)("отмена и одобрение не перезаписывают друг друга: первым ждёт %s", async (first) => {
+    const { property, actor, action, request } = await pendingStatusUndo();
+    let ready!: () => void;
+    let release!: () => void;
+    const locked = new Promise<void>((resolve) => { ready = resolve; });
+    const released = new Promise<void>((resolve) => { release = resolve; });
+    const blocker = withPropertyLock(property.id, async () => {
+      ready();
+      await released;
+    });
+    const approve = () => approvePropertyChangeRequest({ requestId: request.id, actorId: directorId, note: null });
+    const undo = () => undoAssistantAction(action.id, actor).catch((err: unknown) => err);
+    const waitForWaiters = (count: number) => vi.waitFor(async () => {
+      const [waiting] = await prisma.$queryRaw<{ count: number }[]>`
+        SELECT count(*)::int AS count FROM pg_locks
+        WHERE locktype = 'advisory' AND NOT granted AND objsubid = 1
+          AND objid::bigint = (hashtext(${property.id})::bigint & 4294967295)
+          AND classid::bigint = ((hashtext(${property.id})::bigint >> 32) & 4294967295)
+      `;
+      expect(waiting.count).toBe(count);
+    });
+    await locked;
+    const firstResult = first === "approve" ? approve() : undo();
+    try {
+      await waitForWaiters(1);
+      const secondResult = first === "approve" ? undo() : approve();
+      await waitForWaiters(2);
+      release();
+      if (first === "approve") {
+        expect(await firstResult).toMatchObject({ ok: true });
+        expect(await secondResult).toMatchObject({ status: 409, code: "UNDO_STALE" });
+        expect((await requests(property.id, "OTHER"))[0].status).toBe("APPROVED");
+        expect(await undoAudits(action.id)).toEqual([]);
+      } else {
+        expect(await firstResult).toMatchObject({ action: { status: "UNDONE" }, replay: false });
+        expect(await secondResult).toMatchObject({ ok: false, status: 409 });
+        expect((await requests(property.id, "OTHER"))[0].status).toBe("CANCELLED");
+      }
+    } finally {
+      release();
+      await blocker;
+    }
   });
 });
 

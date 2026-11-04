@@ -1,7 +1,6 @@
 import { prisma } from "../db.js";
 import { Prisma } from "../generated/prisma/client.js";
 import { dushanbeDayKey } from "@royal-home/shared";
-import { describeError } from "../lib/describeError.js";
 /** Shared persistent reservation; no FK on AgentAiActionCounter.agentId. No refund after uncertain provider failure. */
 export async function claimAssistantTtsChars(chars: number): Promise<boolean> {
   const limit = Number(process.env.ASSISTANT_TTS_DAILY_CHARS ?? 8000);
@@ -22,8 +21,8 @@ export async function claimAssistantTtsChars(chars: number): Promise<boolean> {
   `);
     return rows.length === 1;
   }
-  catch (err) {
-    console.warn("[telegram:assistant:voice] бюджет недоступен, только текст:", describeError(err));
+  catch {
+    console.warn("[telegram:assistant:voice] voice failed", { stage: "budget" });
     return false;
   }
 }

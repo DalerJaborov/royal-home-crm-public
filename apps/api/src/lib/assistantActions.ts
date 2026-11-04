@@ -89,6 +89,13 @@ export interface AssistantActionExecuteResult {
  * функция до и после исполнения; права проверяются по `actor` здесь же
  * (бросать `AssistantActionError(403, …)`), а не полагаются на брокера.
  */
+export interface AssistantActionUndoContext {
+  actionId: string;
+  snapshotBefore: AssistantActionSnapshot;
+  snapshotAfter: AssistantActionSnapshot;
+  result: unknown;
+}
+
 export interface AssistantActionExecutor<A = unknown> {
   tool: string;
   requires?: readonly PermissionId[];
@@ -116,13 +123,23 @@ export interface AssistantActionExecutor<A = unknown> {
   undo?: (
     args: A,
     actor: AssistantActionActor,
-    ctx: {
-      actionId: string;
-      snapshotBefore: AssistantActionSnapshot;
-      snapshotAfter: AssistantActionSnapshot;
-      result: unknown;
-    }
+    ctx: AssistantActionUndoContext,
   ) => Promise<void>;
+  /** Use the domain journal for undo that can resume across transactions and process restarts. */
+  recoverableUndo?: {
+    matches: (result: unknown) => boolean;
+    execute: (args: A, actor: AssistantActionActor, ctx: AssistantActionUndoContext & { now: Date; undoUntil: Date }) =>
+      Promise<{ replay: boolean }>;
+  };
+  /** Opt in for results whose undo uses this transaction for every durable write. */
+  transactionalUndo?: {
+    matches: (result: unknown) => boolean;
+    execute: (
+      args: A,
+      actor: AssistantActionActor,
+      ctx: AssistantActionUndoContext & { tx: TxClient; assertSnapshot: (current: AssistantActionSnapshot) => void },
+    ) => Promise<{ afterCommit?: () => void | Promise<void> }>;
+  };
   undoWindowMs?: number;
 }
 
@@ -160,7 +177,8 @@ function toView(row: AssistantAction): AssistantActionView {
   const executor = getAssistantActionExecutor(row.tool);
   const preview = row.preview as AssistantActionPreview;
   const undoable =
-    row.status === "EXECUTED" && row.executedAt && executor?.undo && !preview.irreversible && row.snapshotAfter;
+    row.status === "EXECUTED" && row.executedAt && executor && canUndo(executor, row.result) &&
+    !preview.irreversible && row.snapshotAfter;
   return {
     id: row.id,
     tool: row.tool,
@@ -175,6 +193,10 @@ function toView(row: AssistantAction): AssistantActionView {
     result: row.result ?? null,
     serverNow: new Date().toISOString(),
   };
+}
+
+function canUndo(executor: AssistantActionExecutor, result: unknown): boolean {
+  return Boolean(executor.undo || executor.transactionalUndo?.matches(result) || executor.recoverableUndo?.matches(result));
 }
 
 const sha256 = (text: string) => createHash("sha256").update(text).digest("hex");
@@ -384,7 +406,7 @@ async function confirmTransactionalAction(
     }
 
     const executed = await executor.execute(args, actor, { actionId: row.id, snapshotBefore, tx });
-    const snapshotAfter = executor.undo ? await readSnapshot(executor, args, actor, tx) : null;
+    const snapshotAfter = canUndo(executor, executed.result) ? await readSnapshot(executor, args, actor, tx) : null;
     const agent = await tx.agent.findUnique({ where: { id: actor.agentId }, select: { fullName: true } });
     await tx.auditLog.create({
       data: {
@@ -535,6 +557,82 @@ export async function cancelAssistantAction(
  * «Отменить» после исполнения. Только пока снимок «стало» совпадает с текущим
  * состоянием: если сущность успели поменять ещё раз, откат затёр бы чужую правку.
  */
+const undoStaleError = () =>
+  new AssistantActionError(409, "UNDO_STALE", "Данные уже изменились после действия — откат затёр бы чужую правку");
+
+function assertUndoSnapshot(current: unknown, expected: AssistantActionSnapshot): void {
+  if (!sameSnapshot(current, expected)) throw undoStaleError();
+}
+
+const claimUndoAction = (db: TxClient, row: AssistantAction, actor: AssistantActionActor, now: Date) =>
+  db.assistantAction.updateMany({
+    where: { id: row.id, agentId: actor.agentId, status: "EXECUTED", undoClaimedAt: null },
+    data: { undoClaimedAt: now },
+  });
+
+const saveUndoneAction = (db: TxClient, row: AssistantAction) =>
+  db.assistantAction.update({ where: { id: row.id }, data: { status: "UNDONE", undoneAt: new Date() } });
+
+const undoAuditMeta = (row: AssistantAction, actor: AssistantActionActor) => ({
+  source: "assistant.undo",
+  actionId: row.id,
+  channel: actor.channel,
+});
+
+async function undoTransactionalAction(
+  row: AssistantAction,
+  executor: AssistantActionExecutor,
+  run: NonNullable<AssistantActionExecutor["transactionalUndo"]>["execute"],
+  actor: AssistantActionActor,
+  now: Date,
+): Promise<AssistantActionOutcome> {
+  const outcome = await prisma.$transaction(async (tx) => {
+    const claimed = await claimUndoAction(tx, row, actor, now);
+    if (claimed.count === 0) {
+      const fresh = await tx.assistantAction.findUniqueOrThrow({ where: { id: row.id } });
+      if (fresh.status !== "UNDONE") throw new AssistantActionError(409, "IN_PROGRESS", "Откат уже выполняется");
+      return { row: fresh, replay: true as const };
+    }
+    const snapshotAfter = row.snapshotAfter as AssistantActionSnapshot | null;
+    if (!snapshotAfter) throw undoStaleError();
+    const { afterCommit } = await run(parseArgs(executor, row.args), actor, {
+      actionId: row.id,
+      snapshotBefore: row.snapshotBefore as AssistantActionSnapshot,
+      snapshotAfter,
+      result: row.result,
+      tx,
+      assertSnapshot: (current) => assertUndoSnapshot(current, snapshotAfter),
+    });
+    const agent = await tx.agent.findUnique({ where: { id: actor.agentId }, select: { fullName: true } });
+    await tx.auditLog.create({
+      data: {
+        action: `ASSISTANT_${row.tool.toUpperCase()}_UNDO`,
+        entityType: "AssistantAction",
+        entityId: row.id,
+        agentId: actor.agentId,
+        agentName: agent?.fullName ?? "Неизвестно",
+        meta: undoAuditMeta(row, actor),
+      },
+    });
+    return { row: await saveUndoneAction(tx, row), replay: false as const, afterCommit };
+  }).catch(async (err: unknown) => {
+    if (err instanceof AssistantActionError) throw err;
+    // Never replay the mutation after losing COMMIT's acknowledgement.
+    const persisted = await prisma.assistantAction.findUnique({ where: { id: row.id } }).catch(() => null);
+    if (persisted?.status === "UNDONE") return { row: persisted, replay: true as const };
+    await logSystemError("ai", `Помощник: транзакция отката «${row.tool}» (${row.id}): ${err instanceof Error ? err.message : String(err)}`);
+    throw new AssistantActionError(503, "UNDO_RETRY", "Не получилось. Нажмите «Отменить» ещё раз.");
+  });
+  if (outcome.replay) {
+    await assertActionReadable(outcome.row, executor, actor);
+  } else if (outcome.afterCommit) {
+    void Promise.resolve().then(outcome.afterCommit).catch((err) =>
+      console.error("[assistant] post-commit undo work failed:", err)
+    );
+  }
+  return { action: toView(outcome.row), replay: outcome.replay };
+}
+
 export async function undoAssistantAction(
   actionId: string,
   actor: AssistantActionActor,
@@ -547,17 +645,34 @@ export async function undoAssistantAction(
     throw new AssistantActionError(409, "NOT_EXECUTED", "Откатить можно только выполненное действие");
   }
   const preview = row.preview as AssistantActionPreview;
-  if (!executor.undo || preview.irreversible) {
+  if (!canUndo(executor, row.result) || preview.irreversible) {
     throw new AssistantActionError(409, "NOT_UNDOABLE", "Это действие не откатывается");
   }
   const windowMs = executor.undoWindowMs ?? ASSISTANT_ACTION_UNDO_WINDOW_MS;
-  if (row.executedAt.getTime() + windowMs <= now.getTime()) {
+  const undoUntil = new Date(row.executedAt.getTime() + windowMs);
+  if (executor.recoverableUndo?.matches(row.result)) {
+    const snapshotAfter = row.snapshotAfter as AssistantActionSnapshot | null;
+    if (!snapshotAfter) throw undoStaleError();
+    const outcome = await executor.recoverableUndo.execute(parseArgs(executor, row.args), actor, {
+      actionId: row.id,
+      snapshotBefore: row.snapshotBefore as AssistantActionSnapshot,
+      snapshotAfter,
+      result: row.result,
+      now,
+      undoUntil,
+    });
+    const { row: fresh } = await loadAuthorizedAction(actionId, actor);
+    if (fresh.status !== "UNDONE") throw new AssistantActionError(503, "UNDO_RETRY", "Откат ещё не завершён. Проверьте позже.");
+    return { action: toView(fresh), replay: outcome.replay };
+  }
+  if (undoUntil <= now) {
     throw new AssistantActionError(410, "UNDO_WINDOW_PASSED", "Время на отмену вышло");
   }
-  const claimed = await prisma.assistantAction.updateMany({
-    where: { id: row.id, agentId: actor.agentId, status: "EXECUTED", undoClaimedAt: null },
-    data: { undoClaimedAt: now },
-  });
+  if (executor.transactionalUndo?.matches(row.result)) {
+    return undoTransactionalAction(row, executor, executor.transactionalUndo.execute, actor, now);
+  }
+  if (!executor.undo) throw new AssistantActionError(409, "NOT_UNDOABLE", "Это действие не откатывается");
+  const claimed = await claimUndoAction(prisma, row, actor, now);
   if (claimed.count === 0) {
     const fresh = await prisma.assistantAction.findUniqueOrThrow({ where: { id: row.id } });
     if (fresh.status === "UNDONE") return { action: toView(fresh), replay: true };
@@ -574,10 +689,8 @@ export async function undoAssistantAction(
   let args: unknown;
   try {
     args = parseArgs(executor, row.args);
-    const current = snapshotAfter ? await readSnapshot(executor, args, actor) : null;
-    if (!snapshotAfter || !sameSnapshot(current, snapshotAfter)) {
-      throw new AssistantActionError(409, "UNDO_STALE", "Данные уже изменились после действия — откат затёр бы чужую правку");
-    }
+    if (!snapshotAfter) throw undoStaleError();
+    assertUndoSnapshot(await readSnapshot(executor, args, actor), snapshotAfter);
     await executor.undo(args, actor, { actionId: row.id, snapshotBefore, snapshotAfter, result: row.result });
   } catch (err) {
     await release();
@@ -588,14 +701,7 @@ export async function undoAssistantAction(
     throw new AssistantActionError(500, "UNDO_FAILED", "Не получилось отменить действие");
   }
 
-  const undone = await prisma.assistantAction.update({
-    where: { id: row.id },
-    data: { status: "UNDONE", undoneAt: new Date() },
-  });
-  logAgentAudit(actor.agentId, `ASSISTANT_${row.tool.toUpperCase()}_UNDO`, "AssistantAction", row.id, {
-    source: "assistant.undo",
-    actionId: row.id,
-    channel: actor.channel,
-  });
+  const undone = await saveUndoneAction(prisma, row);
+  logAgentAudit(actor.agentId, `ASSISTANT_${row.tool.toUpperCase()}_UNDO`, "AssistantAction", row.id, undoAuditMeta(row, actor));
   return { action: toView(undone), replay: false };
 }

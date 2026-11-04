@@ -55,6 +55,7 @@ export async function handleAssistantMedia(msg: TelegramIncomingMessage, agentId
 } = {}): Promise<{ text: string; error?: string; extraction?: Awaited<ReturnType<typeof understandAssistantMedia>>["extraction"] }> {
   if ((msg.chat.type !== "private" && !options.allowGroup) || !agentId) return { text: "Файлы помощник разбирает только в личном чате сотрудника.", error: "media_scope" };
   const isVoice = Boolean(msg.voice || msg.audio);
+  let stage: "configuration" | "download" | "recognition" = "configuration";
   try {
     if (!(await loadAssistantSettings()).enabled) return { text: "ИИ-помощник выключен.", error: "assistant_disabled" };
     const photo = msg.photo?.at(-1);
@@ -63,12 +64,14 @@ export async function handleAssistantMedia(msg: TelegramIncomingMessage, agentId
     const mimeType = photo ? "image/jpeg" : voice ? voice.mime_type ?? "audio/ogg" : msg.document?.mime_type;
     const maximum = mimeType?.startsWith("image/") ? 2_000_000 : mimeType === "application/pdf" ? 4_000_000 : 1_000_000;
     if (!source || !mimeType || !/^(image\/(jpeg|png|webp)|audio\/(ogg|mpeg|mp4|x-m4a|wav|webm)|application\/(pdf|ogg))$/.test(mimeType)) {
-      return { text: "Пришлите одно фото, PDF до 20 страниц или аудио до 2 минут.", error: "media_unsupported" };
+      return { text: isVoice ? "Пришли обычное голосовое или напиши текстом." : "Пришлите одно фото, PDF до 20 страниц или аудио до 2 минут.", error: "media_unsupported" };
     }
     if (source.file_size && source.file_size > maximum) throw new Error("media_size_rejected");
     const runtime = { ...await loadAssistantGeminiRuntime(), model: ASSISTANT_TAJIK_MODEL, fallbackModels: [], liteModel: "" };
     if (!runtime.keys[0]) throw new Error("media_provider_unavailable");
+    stage = "download";
     const buffer = await downloadAssistantMedia(source.file_id, maximum);
+    stage = "recognition";
     const guard = createAssistantMoneyGuard({ wallet: options.wallet });
     const attemptLimit = createAssistantAttemptLimit(reserveAssistantGeminiAttempt, 2);
     const result = await understandAssistantMedia({ buffer, mimeType, runtime, apiKey: runtime.keys[0], beforeAttempt: async (metadata) => {
@@ -85,12 +88,14 @@ export async function handleAssistantMedia(msg: TelegramIncomingMessage, agentId
     if (message === "media_audio_limit" || (isVoice && message === "media_size_rejected")) {
       return { text: "Пришлите голосовое до двух минут и до 1 МБ или напишите текстом.", error: "media_audio_limit" };
     }
-    console.warn("[telegram:assistant:media] extraction failed", {
-      kind: isVoice ? "voice" : "file",
-      stage: /^media_[a-z_]+$/.test(message) ? message : "provider_or_budget",
-    });
-    return { text: isVoice
-      ? "Не удалось распознать голосовое. Попробуйте отправить его ещё раз или напишите текстом."
-      : "Не удалось разобрать файл. Попробуйте отправить его повторно.", error: "media_failed" };
+    console.warn("[telegram:assistant:media] extraction failed", { kind: isVoice ? "voice" : "file", stage });
+    if (!isVoice) return { text: "Не удалось разобрать файл. Попробуйте отправить его повторно.", error: "media_failed" };
+    if (stage === "download") {
+      return { text: "Не удалось скачать голосовое из Telegram. Отправь его ещё раз.", error: "media_download_failed" };
+    }
+    if (message === "media_invalid_extraction" || message === "media_invalid_modality") {
+      return { text: "Не удалось разобрать речь. Запиши ещё раз или напиши текстом.", error: "media_speech_unclear" };
+    }
+    return { text: "Распознавание голоса сейчас недоступно. Напиши текстом или попробуй чуть позже.", error: "media_recognition_unavailable" };
   }
 }

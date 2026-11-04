@@ -22,7 +22,7 @@ import {
   type PropertyChangeRequestDto,
 } from "@royal-home/shared";
 import type { Prisma } from "../generated/prisma/client.js";
-import { prisma } from "../db.js";
+import { prisma, type TxClient } from "../db.js";
 import { logAgentAudit } from "./audit.js";
 import { enqueueDirectorAlert } from "./directorAlertQueue.js";
 import { findAgentsWithPermission } from "./recipients.js";
@@ -31,6 +31,9 @@ import { withPropertyLock } from "./videoHandoff.js";
 import { canManagePropertyAs } from "./propertyAccess.js";
 import {
   CHANGE_REQUEST_INCLUDE,
+  PRICE_UNDO_GUARD,
+  readPriceUndoGuard,
+  type AssistantPriceUndoLink,
   isPublishedForChangeRequest,
   parseCardPatch,
   summarizeChangeRequest,
@@ -38,6 +41,7 @@ import {
 } from "./propertyChangeRequests.js";
 import { closeLeadPushNotifications } from "../push.js";
 import { toCents } from "./money.js";
+import { ASSISTANT_PRICE_UNDO_JOB, appliedPriceUndoResult } from "./assistantPriceUndoJournal.js";
 
 export interface ChangeRequestActor {
   agentId: string;
@@ -46,10 +50,10 @@ export interface ChangeRequestActor {
 
 export type ChangeRequestFailure = {
   ok: false;
-  status: 400 | 403 | 404 | 409;
+  status: 400 | 403 | 404 | 409 | 410;
   error: string;
   /** Для помощника: состояние изменилось после превью (отличить от «уже отправлена»). */
-  code?: "STALE" | "DUPLICATE";
+  code?: "STALE" | "DUPLICATE" | "UNDO_WINDOW_PASSED" | "UNDO_UNCERTAIN";
 };
 
 export type CreateChangeRequestResult =
@@ -62,6 +66,7 @@ export interface ChangeRequestExpectation {
   priceCents: number;
   currency: string;
   status: string;
+  propertyVersion?: number;
 }
 
 type PropertyRow = Prisma.PropertyGetPayload<Record<string, never>>;
@@ -120,58 +125,146 @@ export async function createPropertyChangeRequest(input: {
   propertyId: string;
   actor: ChangeRequestActor;
   body: CreatePropertyChangeRequestInput;
-  expect?: ChangeRequestExpectation;
+  expect?: ChangeRequestExpectation & { guardPriceUndo?: true };
+  assistantUndo?: AssistantPriceUndoLink & { now: Date; undoUntil: Date };
   /** Куда записать в журнал источник: REST ничего не добавляет. */
   auditSource?: Record<string, unknown>;
 }): Promise<CreateChangeRequestResult> {
-  const { actor, body } = input;
+  const { actor, body, assistantUndo } = input;
 
   const property = await prisma.property.findUnique({ where: { id: input.propertyId } });
   if (!property || property.deletedAt) return { ok: false, status: 404, error: "Объект не найден" };
   const checked = checkPropertyChangeRequest(property, actor, body);
-  if (!checked.ok) return checked;
-  const payloadObject = checked.payloadObject;
+  if (!checked.ok && !assistantUndo) return checked;
+  const payloadObject = checked.ok ? checked.payloadObject : body.payload;
 
   // В базу тело ложится как JSON (undefined-поля отпадают так же, как при сериализации ответа).
   const payload = JSON.parse(JSON.stringify(payloadObject)) as Prisma.InputJsonObject;
 
   // Проверка «одна ждущая на пару» и создание — под замком объекта: два быстрых нажатия кнопки не дадут две заявки.
   const created = await withPropertyLock(input.propertyId, async (tx) => {
+    if (assistantUndo) {
+      const existing = await tx.propertyChangeRequest.findUnique({
+        where: { id: assistantUndo.actionId },
+        include: CHANGE_REQUEST_INCLUDE,
+      });
+      if (existing) {
+        if (existing.propertyId === property.id && existing.authorId === actor.agentId &&
+          existing.kind === "PRICE_CHANGE" && readPriceUndoGuard(existing.payload)?.assistant?.actionId === assistantUndo.actionId) {
+          return existing;
+        }
+        return "UNDO_UNCERTAIN" as const;
+      }
+      const action = await tx.assistantAction.findUnique({ where: { id: assistantUndo.actionId } });
+      const applied = appliedPriceUndoResult(action?.result);
+      if (!action || action.agentId !== actor.agentId || action.tool !== "change_property_price" ||
+        action.status !== "EXECUTED" || action.undoClaimedAt || !applied ||
+        (action.snapshotAfter as { propertyId?: string } | null)?.propertyId !== property.id) {
+        return "UNDO_UNCERTAIN" as const;
+      }
+      if (assistantUndo.undoUntil <= assistantUndo.now) return "UNDO_WINDOW_PASSED" as const;
+      if (body.kind !== "PRICE_CHANGE" || !input.expect?.guardPriceUndo) return "UNDO_UNCERTAIN" as const;
+      const source = await tx.propertyChangeRequest.findUnique({
+        where: { id: applied.requestId },
+        select: { propertyId: true, authorId: true, kind: true, status: true, result: true },
+      });
+      if (source?.propertyId !== property.id || source.authorId !== actor.agentId || source.kind !== "PRICE_CHANGE" ||
+        (source.status !== "APPROVED" && source.status !== "FAILED")) return "UNDO_UNCERTAIN" as const;
+      if (applied.propertyVersion === undefined) {
+        const recorded = (source.result as { applied?: unknown } | null)?.applied;
+        if (!Array.isArray(recorded) || !recorded.some((item) => typeof item === "string" && item.startsWith("Цена в карточке: "))) {
+          return "UNDO_UNCERTAIN" as const;
+        }
+      }
+    }
+    let requestPayload = payload;
     if (input.expect) {
       const fresh = await tx.property.findUnique({
         where: { id: property.id },
-        select: { price: true, currency: true, status: true, deletedAt: true },
+        select: { price: true, currency: true, status: true, deletedAt: true, version: true },
       });
       if (
         !fresh ||
         fresh.deletedAt ||
         toCents(fresh.price) !== input.expect.priceCents ||
         fresh.currency !== input.expect.currency ||
-        fresh.status !== input.expect.status
+        fresh.status !== input.expect.status ||
+        (input.expect.propertyVersion !== undefined && fresh.version !== input.expect.propertyVersion)
       ) {
         return "STALE" as const;
       }
+      if (body.kind === "PRICE_CHANGE" && input.expect.guardPriceUndo) {
+        requestPayload = {
+          ...payload,
+          [PRICE_UNDO_GUARD]: {
+            priceCents: input.expect.priceCents,
+            currency: fresh.currency,
+            status: fresh.status,
+            version: fresh.version,
+            ...(assistantUndo ? { assistant: { actionId: assistantUndo.actionId, channel: assistantUndo.channel } } : {}),
+          },
+        };
+      }
     }
+    if (!checked.ok) return checked;
     const existing = await tx.propertyChangeRequest.findFirst({
       where: { propertyId: property.id, kind: body.kind, status: "PENDING" },
       select: { id: true },
     });
     if (existing) return null;
-    return tx.propertyChangeRequest.create({
+    const request = await tx.propertyChangeRequest.create({
       data: {
+        ...(assistantUndo ? { id: assistantUndo.actionId } : {}),
         propertyId: property.id,
         authorId: actor.agentId,
         kind: body.kind,
-        payload,
+        payload: requestPayload,
         comment: body.comment?.trim() || null,
       },
       include: CHANGE_REQUEST_INCLUDE,
     });
+    if (assistantUndo) {
+      const claimed = await tx.assistantAction.updateMany({
+        where: { id: assistantUndo.actionId, agentId: actor.agentId, status: "EXECUTED", undoClaimedAt: null },
+        data: { undoClaimedAt: assistantUndo.now },
+      });
+      if (!claimed.count) throw new Error("Assistant price undo claim changed while staging");
+      await tx.backgroundJob.create({
+        data: {
+          type: ASSISTANT_PRICE_UNDO_JOB,
+          payload: { requestId: request.id },
+          dedupeKey: `${ASSISTANT_PRICE_UNDO_JOB}:${request.id}`,
+          maxAttempts: 8,
+        },
+      });
+      await tx.auditLog.create({
+        data: {
+          action: "PROPERTY_CHANGE_REQUEST",
+          entityType: "Property",
+          entityId: property.id,
+          agentId: actor.agentId,
+          agentName: request.author.fullName,
+          meta: {
+            requestId: request.id, kind: body.kind, summary: summarizeChangeRequest(body.kind, payload, property),
+            shortId: property.shortId, title: property.title, comment: request.comment, ...input.auditSource,
+          } as Prisma.InputJsonValue,
+        },
+      });
+    }
+    return request;
   });
+  if (created === "UNDO_UNCERTAIN") {
+    return { ok: false, status: 409, code: "UNDO_UNCERTAIN", error: "Не удалось подтвердить результат прежнего отката. Проверьте журнал цены в CRM." };
+  }
+  if (created === "UNDO_WINDOW_PASSED") {
+    return { ok: false, status: 410, code: "UNDO_WINDOW_PASSED", error: "Время на отмену вышло" };
+  }
   if (created === "STALE") {
     return { ok: false, status: 409, code: "STALE", error: "Объект изменился после показа превью — проверьте ещё раз" };
   }
   if (!created) return { ok: false, status: 409, code: "DUPLICATE", error: "Такая заявка уже отправлена" };
+  if ("ok" in created) return created;
+  if (assistantUndo) return { ok: true, request: toChangeRequestDto(created) };
 
   const summary = summarizeChangeRequest(body.kind, payload, property);
   logAgentAudit(actor.agentId, "PROPERTY_CHANGE_REQUEST", "Property", property.id, {
@@ -221,52 +314,80 @@ export async function closeForOtherReviewers(requestId: string, exceptAgentId: s
   }
 }
 
-export type CancelChangeRequestResult =
-  | { ok: true; request: PropertyChangeRequestDto }
-  | { ok: false; status: 403 | 404 | 409; error: string };
+type CancelChangeRequestFailure = { ok: false; status: 403 | 404 | 409; error: string };
+export type CancelChangeRequestResult = { ok: true; request: PropertyChangeRequestDto } | CancelChangeRequestFailure;
 
-/**
- * Автор отзывает свою заявку, пока она ждёт решения. Условный переход
- * PENDING → CANCELLED: проигравший гонку с «Принять» получает 409.
- */
-export async function cancelPropertyChangeRequest(input: {
+interface CancelChangeRequestInput {
   requestId: string;
   actorId: string;
   note?: string;
   auditSource?: Record<string, unknown>;
-}): Promise<CancelChangeRequestResult> {
-  const request = await prisma.propertyChangeRequest.findUnique({
+}
+
+async function cancelPropertyChangeRequestRow(db: TxClient, input: CancelChangeRequestInput, propertyId?: string) {
+  const request = await db.propertyChangeRequest.findUnique({
     where: { id: input.requestId },
     select: { id: true, status: true, authorId: true, propertyId: true, kind: true },
   });
-  if (!request) return { ok: false, status: 404, error: "Заявка не найдена" };
-  if (request.authorId !== input.actorId) {
-    return { ok: false, status: 403, error: "Отозвать заявку может только тот, кто её подал" };
+  if (!request || (propertyId && request.propertyId !== propertyId)) {
+    return { ok: false, status: 404, error: "Заявка не найдена" } satisfies CancelChangeRequestFailure;
   }
-  if (request.status !== "PENDING") return { ok: false, status: 409, error: "Заявка уже решена — отозвать нельзя" };
+  if (request.authorId !== input.actorId) {
+    return { ok: false, status: 403, error: "Отозвать заявку может только тот, кто её подал" } satisfies CancelChangeRequestFailure;
+  }
+  const alreadyDecided = { ok: false, status: 409, error: "Заявка уже решена — отозвать нельзя" } satisfies CancelChangeRequestFailure;
+  if (request.status !== "PENDING") return alreadyDecided;
 
-  const done = await prisma.propertyChangeRequest.updateMany({
-    where: { id: request.id, status: "PENDING" },
+  const done = await db.propertyChangeRequest.updateMany({
+    where: { id: request.id, authorId: input.actorId, status: "PENDING" },
     data: { status: "CANCELLED", decidedAt: new Date(), decisionNote: input.note ?? "Отозвана автором" },
   });
-  if (done.count === 0) return { ok: false, status: 409, error: "Заявка уже решена — отозвать нельзя" };
-
-  logAgentAudit(input.actorId, "PROPERTY_CHANGE_REQUEST_CANCELLED", "Property", request.propertyId, {
+  if (done.count === 0) return alreadyDecided;
+  const meta = {
     requestId: request.id,
     kind: request.kind,
     ...(input.auditSource ?? {}),
-  } as Prisma.InputJsonValue);
-  void closeForOtherReviewers(request.id, null);
-  publishRequestUpdated({
-    requestId: request.id,
-    propertyId: request.propertyId,
-    agentIds: [request.authorId],
-    stage: "CANCELLED",
-    actorId: input.actorId,
-  });
+  } as Prisma.InputJsonValue;
+  const afterCommit = () => {
+    void closeForOtherReviewers(request.id, null);
+    publishRequestUpdated({
+      requestId: request.id,
+      propertyId: request.propertyId,
+      agentIds: [request.authorId],
+      stage: "CANCELLED",
+      actorId: input.actorId,
+    });
+  };
+  return { ok: true as const, request, meta, afterCommit };
+}
+
+/** Автор отзывает свою заявку: условный переход PENDING → CANCELLED. */
+export async function cancelPropertyChangeRequest(input: CancelChangeRequestInput): Promise<CancelChangeRequestResult> {
+  const cancelled = await cancelPropertyChangeRequestRow(prisma, input);
+  if (!cancelled.ok) return cancelled;
+  logAgentAudit(input.actorId, "PROPERTY_CHANGE_REQUEST_CANCELLED", "Property", cancelled.request.propertyId, cancelled.meta);
+  cancelled.afterCommit();
   const row = await prisma.propertyChangeRequest.findUniqueOrThrow({
-    where: { id: request.id },
+    where: { id: cancelled.request.id },
     include: CHANGE_REQUEST_INCLUDE,
   });
   return { ok: true, request: toChangeRequestDto(row) };
+}
+
+/** Pending assistant undo already holds the object lock and owns the transaction. */
+export async function cancelPropertyChangeRequestInTransaction(tx: TxClient, input: CancelChangeRequestInput & { propertyId: string }) {
+  const cancelled = await cancelPropertyChangeRequestRow(tx, input, input.propertyId);
+  if (!cancelled.ok) return cancelled;
+  const agent = await tx.agent.findUnique({ where: { id: input.actorId }, select: { fullName: true } });
+  await tx.auditLog.create({
+    data: {
+      action: "PROPERTY_CHANGE_REQUEST_CANCELLED",
+      entityType: "Property",
+      entityId: cancelled.request.propertyId,
+      agentId: input.actorId,
+      agentName: agent?.fullName ?? "Неизвестно",
+      meta: cancelled.meta,
+    },
+  });
+  return { ok: true as const, afterCommit: cancelled.afterCommit };
 }
