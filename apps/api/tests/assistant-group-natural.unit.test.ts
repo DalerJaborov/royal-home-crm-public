@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
 import ts from "typescript";
 import { describe, expect, it, vi } from "vitest";
-import { formatPropertyCode } from "@royal-home/shared";
+import * as shared from "@royal-home/shared";
 import * as replies from "../src/telegram/assistantReply.js";
 import { maskAssistantContacts } from "../src/lib/assistantContacts.js";
 import * as participation from "../src/telegram/assistantGroupParticipation.js";
@@ -43,7 +43,7 @@ function fixture() {
     return { count };
   });
   const dependencies: Record<string, unknown> = {
-    "@royal-home/shared": { formatPropertyCode },
+    "@royal-home/shared": shared,
     "./assistantReply.js": replies,
     "./assistantGroupParticipation.js": participation,
     "../lib/propertyRefLookup.js": { findPropertiesByRef: findProperty },
@@ -347,6 +347,41 @@ describe("optional help without an address", () => {
     await f.send("/assistant_resume");
     await f.send("Какая цена у ОБ-123?", { from: { id: 2 } });
     expect(f.findProperty).toHaveBeenCalledOnce();
+  });
+});
+
+describe("object context from a reply to Shabnam", () => {
+  const ownQuote = (text: string) => ({
+    reply_to_message: { chat: { id: -100 }, from: { id: 99, is_bot: true, username: "fixture_bot" }, text },
+  });
+  const prop = { id: "fixture-property", shortId: 132, price: 810000, currency: "TJS", status: "AVAILABLE" };
+  it("answers the actual Tajik request from current queue state and ignores stale quoted prose", async () => {
+    const f = fixture();
+    const queued = { ...prop, videoHandoffStatus: "QUEUED", videoHandoffRemakeReason: "CARD_DATA_CHANGED" };
+    f.findProperty.mockResolvedValue({ kind: "shortId", properties: [queued] });
+    await f.send("Фиристон ба монтажер", ownQuote("Нархи ОБ-000132 иваз шуд. Навор ба монтаж фиристода нашуд."));
+    expect(f.findProperty).toHaveBeenCalledWith("ОБ-000132", expect.any(Object));
+    expect(f.plain).toHaveBeenCalledWith("-100", "ОБ-000132 аллакай дар навбати монтажи дубора аст.", 10);
+    expect(f.run).not.toHaveBeenCalled();
+  });
+  it("asks one human question and preserves the same object when the reason comes back", async () => {
+    const f = fixture();
+    const published = { ...prop, videoHandoffStatus: "RECEIVED", publishedChannels: ["TELEGRAM"] };
+    f.findProperty.mockResolvedValue({ kind: "shortId", properties: [published] });
+    await f.send("Отправь монтажёру", ownQuote("В ОБ-000132 новая цена."));
+    expect(f.plain).toHaveBeenCalledWith("-100", "Что поправить в ролике ОБ-000132?", 10);
+    await f.send("Цену в кадре", ownQuote("Что поправить в ролике ОБ-000132?"));
+    expect(f.run.mock.calls[0]?.[0]).toEqual([
+      { role: "user", content: "Верни ролик ОБ-000132 на перемонтаж. Что поправить: Цену в кадре" },
+    ]);
+  });
+  it("does not choose between objects or reuse old assistant wording", async () => {
+    const f = fixture();
+    await f.send("Отправь монтажёру", ownQuote("ОБ-000132 и ОБ-000194"));
+    expect(f.plain).toHaveBeenCalledWith("-100", "Какой объект? Напиши номер.", 10);
+    expect(f.findProperty).not.toHaveBeenCalled();
+    await f.send("А сколько стоит?", ownQuote("ОБ-000132. Старые данные: 879 000 сомони."));
+    expect(f.run.mock.calls[0]?.[0]).toEqual([{ role: "user", content: "А сколько стоит?\nНомер объекта: ОБ-000132." }]);
   });
 });
 

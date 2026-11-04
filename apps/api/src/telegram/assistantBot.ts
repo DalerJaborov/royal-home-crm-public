@@ -1,9 +1,9 @@
 import { renderAssistantForTelegram, requestedAssistantReplyMode, sanitizeAssistantReply, splitReaction, type AssistantReplyMode } from "./assistantReply.js";
-import { sendAssistantReply } from "./assistantDelivery.js";
+import { assistantGroupClarification, sendAssistantReply } from "./assistantDelivery.js";
 import { editTelegramConfirmationMessage, sendTelegramPriceConfirmationPhotos } from "./assistantConfirmationPhotos.js";
 import { ASSISTANT_COLLEAGUE_GREETING, ASSISTANT_GROUP_GREETING } from "./assistantGroupPhrases.js";
 import { findPropertiesByRef } from "../lib/propertyRefLookup.js";
-import { GROUP_QUIET_MS, GROUP_WELCOME_INTERVAL_MS, PROACTIVE_GROUP_INTERVAL_MS, groupMembershipEvent, groupStatusFollowUp, proactivePropertyReply, requestedGroupParticipation, unaddressedConfirmationRequest, unaddressedPropertyQuestion, unaddressedReadRequest, type GroupConfirmationTool } from "./assistantGroupParticipation.js";
+import { GROUP_QUIET_MS, GROUP_REMAKE_REASON_QUESTION, GROUP_WELCOME_INTERVAL_MS, PROACTIVE_GROUP_INTERVAL_MS, groupMembershipEvent, groupMontageCommand, groupPropertyRefs, groupStatusFollowUp, isGroupPropertyFollowUp, isGroupRemakeReasonQuestion, proactivePropertyReply, requestedGroupParticipation, unaddressedConfirmationRequest, unaddressedPropertyQuestion, unaddressedReadRequest, type GroupConfirmationTool } from "./assistantGroupParticipation.js";
 export { renderAssistantForTelegram } from "./assistantReply.js";
 import { randomUUID } from "node:crypto";
 import { formatPropertyCode, isReadOnlyRole, trimAssistantHistory, type AssistantPropertyCard, type PermissionId } from "@royal-home/shared";
@@ -303,17 +303,20 @@ async function sendTurnResult(
   const maskPhones = ctx.scope === "group";
   const split = splitReaction(result.reply);
   if (split.reaction && ctx.reactTo) await setMessageReaction(chatId, ctx.reactTo, split.reaction);
-  const rendered = renderAssistantForTelegram(split.text, { maskPhones });
+  const avoidTechnicalNarration = maskPhones && (result.pending.length > 0 || result.propertyCard)
+    && assistantGroupClarification(split.text, ctx.requestLanguage) !== null;
+  const rendered = avoidTechnicalNarration ? "" : renderAssistantForTelegram(split.text, { maskPhones });
   // Записи уровня B исполнены сразу — человек должен видеть, что именно записано.
   const written = result.done.map((a) => sanitizeAssistantReply(`Записано: ${field(a.preview.title)}`, maskPhones));
   if (result.pending.length === 0) {
     if (result.propertyCard && await sendTelegramPropertyCard(chatId, result.propertyCard, maskPhones, ctx.replyTo)) {
-      if (ctx.mode === "voice") await sendAssistantVoiceReply(chatId, maskPhones ? sanitizeAssistantReply(split.text, true) : split.text, ctx.replyTo);
+      if (ctx.mode === "voice" && !avoidTechnicalNarration) await sendAssistantVoiceReply(chatId, maskPhones ? sanitizeAssistantReply(split.text, true) : split.text, ctx.replyTo);
       return;
     }
     const delivered = await sendAssistantReply(chatId, split.text, {
       scope: ctx.scope, fromVoice: ctx.fromVoice, structured: result.structured,
       addressedGroupVoice: ctx.addressedGroupVoice,
+      requestLanguage: ctx.requestLanguage,
       mode: result.failed ? "text" : ctx.mode, replyTo: ctx.replyTo, written,
     });
     if (delivered && ctx.scope === "private" && result.propertyResults) {
@@ -595,6 +598,33 @@ async function senderOf(msg: TelegramIncomingMessage) {
   return findAgentByTelegramUserId(String(msg.from.id));
 }
 
+function montageHasReason(command: NonNullable<ReturnType<typeof groupMontageCommand>>): boolean {
+  return Boolean(command.tail.replace(/(?:ОБ|OB)[\s\-–—№#]+\d{1,8}/giu, "").trim().replace(/^[\s,.!?:—–-]+$/u, ""));
+}
+
+/** Idempotent, human answer from the current queue before the model asks to confirm. */
+async function groupMontageReply(
+  ref: string, actor: { id: string; mayDelete: boolean }, tajik: boolean, askReason: boolean,
+): Promise<string | null> {
+  const found = await findPropertiesByRef(ref, { hideOwnPendingDeleteFor: actor.mayDelete ? undefined : actor.id, limit: 1 });
+  const property = found.kind === "shortId" ? found.properties[0] : undefined;
+  if (!property) return tajik ? `${ref}-ро дар CRM наёфтам.` : `Не нашла ${ref} в CRM.`;
+  if (property.videoHandoffStatus === "QUEUED") {
+    const remake = Boolean(property.videoHandoffRemakeReason);
+    return tajik ? `${ref} аллакай дар навбати ${remake ? "монтажи дубора" : "монтаж"} аст.`
+      : `${ref} уже в очереди на ${remake ? "перемонтаж" : "монтаж"}.`;
+  }
+  if (property.videoHandoffStatus === "SENT_TO_EDITOR") {
+    const delivered = Boolean(property.videoHandoffDeliveredAt && !property.videoHandoffManualSince);
+    return tajik ? (delivered ? `${ref} аллакай назди монтажёр аст.` : `${ref}: расидани файлҳо ба монтажёр ҳоло тасдиқ нашудааст.`)
+      : (delivered ? `${ref} уже у монтажёра.` : `${ref}: доставка файлов монтажёру ещё не подтверждена.`);
+  }
+  if (askReason && (property.videoHandoffFinalPath || property.publishedChannels?.length)) {
+    return GROUP_REMAKE_REASON_QUESTION[tajik ? "tg" : "ru"](ref);
+  }
+  return null;
+}
+
 /**
  * Сообщение из группы. true — разобрано здесь (бот сам и адресат); false — не про
  * помощника, дальше обычная логика групп (комментарии канала).
@@ -771,6 +801,18 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
         });
         return true;
       }
+      if (automaticAction === "send_to_remake") {
+        const cmd = groupMontageCommand(raw);
+        const refs = groupPropertyRefs(raw);
+        const tajik = cmd?.tajik ?? false;
+        if (refs.length !== 1) {
+          await reply(tajik ? "Кадом объект? Рақамашро навис." : "Какой объект? Напиши номер.");
+          return true;
+        }
+        const answer = await groupMontageReply(refs[0], { id: sender.id, mayDelete: access.permissions.has("properties.delete") },
+          tajik, Boolean(cmd && !montageHasReason(cmd)));
+        if (answer) { await reply(answer); return true; }
+      }
 
       const question = statusFollowUp ? `${raw}\n${wrapUntrusted("document", quoted, 600)}` : raw;
       const result = await runTurn({
@@ -795,6 +837,7 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
       }
       await sendAssistantReply(chatId, splitReaction(result.reply).text, {
         scope: "group", mode: "text", structured: result.structured, replyTo: msg.message_id, written: [],
+        requestLanguage: assistantLanguage([{ role: "user", content: raw }]),
       });
       return true;
     }
@@ -816,6 +859,7 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
     let request = windowText ?? text;
     // Упоминание ответом на ЧУЖОЕ сообщение: его текст — содержание просьбы, права — вызвавшего.
     const replied = msg.reply_to_message;
+    const repliedToThisBot = replied?.from?.is_bot === true && replied.from.username?.toLowerCase() === botUsername.toLowerCase();
     let source: string | undefined;
     if (windowText === null && replied && replied.from?.is_bot !== true) {
       const quoted = (replied.text ?? replied.caption ?? "").trim();
@@ -824,7 +868,7 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
         request = `Сообщение от ${source}: «${quoted.slice(0, 1000)}»${text ? `
 Просьба вызвавшего: ${text}` : ""}`;
       }
-    } else if (statusFollowUp && quoted) {
+    } else if (!repliedToThisBot && statusFollowUp && quoted) {
       request = `${request}\n${wrapUntrusted("document", quoted, 600)}`;
     }
     let forwardedVoice = false;
@@ -845,6 +889,41 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
       openWindow();
       await reply("Слушаю. Что нужно сделать?");
       return true;
+    }
+    const words = fromVoice ? request : windowText ?? text;
+    const command = forwardedVoice ? null : groupMontageCommand(words);
+    const reasonReply = !forwardedVoice && repliedToThisBot && isGroupRemakeReasonQuestion(quoted)
+      && words.length <= 280 && !/^(?:спасибо|рахмат|раҳмат|стоп|отмена)[.!]?$/iu.test(words);
+    const currentRefs = groupPropertyRefs(words);
+    const refs = currentRefs.length ? currentRefs : repliedToThisBot ? groupPropertyRefs(quoted) : [];
+    const language = assistantLanguage([{ role: "user", content: words }]);
+    const tajik = command?.tajik || language === "tg" || language === "mixed"
+      || (repliedToThisBot && assistantLanguage([{ role: "user", content: quoted }]) === "tg");
+    if (command || reasonReply) {
+      const access = await loadAgentAccess(sender.id);
+      if (!access?.isActive || !(await isAiAssistantEnabled())) return true;
+      if (refs.length > 1 || (!refs.length && command && !command.tail)) {
+        await reply(tajik ? "Кадом объект? Рақамашро навис." : "Какой объект? Напиши номер.");
+        return true;
+      }
+      if (refs.length === 1) {
+        const ref = refs[0];
+        const answer = await groupMontageReply(ref, { id: sender.id, mayDelete: access.permissions.has("properties.delete") },
+          tajik, Boolean(!reasonReply && command && !montageHasReason(command)));
+        if (answer) { await reply(answer); return true; }
+        if (reasonReply) {
+          request = tajik ? `Навори ${ref}-ро ба монтажи дубора фирист. Чиро иваз кунем: ${words}`
+            : `Верни ролик ${ref} на перемонтаж. Что поправить: ${words}`;
+        } else if (!currentRefs.length) {
+          request = tajik ? `${request}\nРақами объект: ${ref}.` : `${request}\nНомер объекта: ${ref}.`;
+        }
+      }
+    } else if (!currentRefs.length && repliedToThisBot && (statusFollowUp || isGroupPropertyFollowUp(words))) {
+      if (refs.length > 1) {
+        await reply(tajik ? "Кадом объект? Рақамашро навис." : "Какой объект? Напиши номер.");
+        return true;
+      }
+      if (refs.length === 1) request = tajik ? `${request}\nРақами объект: ${refs[0]}.` : `${request}\nНомер объекта: ${refs[0]}.`;
     }
     if (!fromVoice) void sendChatAction(chatId);
     // Окно диалога открывается (и продлевается) на обработанном обращении.
@@ -868,7 +947,7 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
       reactTo: msg.message_id,
       replyTo: msg.message_id,
       source,
-      requestLanguage: assistantLanguage([{ role: "user", content: request }]),
+      requestLanguage: tajik ? "tg" : language,
     });
   } catch (err) {
     await logSystemError("telegram", `Помощник в группе Telegram: ${describeError(err)}`);

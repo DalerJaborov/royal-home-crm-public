@@ -9,6 +9,7 @@ vi.mock("../src/db.js", () => ({ prisma: { $disconnect: vi.fn(), $queryRaw: quer
 vi.mock("../src/ai/liveVoiceProvider.js", () => ({ resolveElevenLabsKey: (key: string) => key }));
 vi.mock("../src/telegram/api.js", () => ({ sendChatAction: chatAction, sendVoiceFile: sendVoice, sendAssistantVoiceId: sendVoiceId, TelegramApiError: class extends Error { constructor(public errorCode: number, _method: string, text: string) { super(text); } } }));
 import { sendAssistantVoiceReply, speechTextFromReply } from "../src/telegram/assistantVoice.js";
+import { directAssistantVoice } from "../src/telegram/assistantVoiceDirection.js";
 import { TelegramApiError } from "../src/telegram/api.js";
 import { assistantVoiceCacheKey, readAssistantVoiceCache, writeAssistantVoiceCache } from "../src/telegram/assistantVoiceCache.js";
 import { claimAssistantTtsChars } from "../src/telegram/assistantVoiceBudget.js";
@@ -252,5 +253,36 @@ it("sends approved cues only to the speech provider and counts their characters"
   expect(await sendAssistantVoiceReply("test-chat", "[shouts] Здравствуйте! Чем могу помочь?")).toBe(true);
   const spoken = "[warmly] Здравствуйте! [exhales] Чем могу помочь?";
   expect(JSON.parse(fetchMock.mock.calls[0][1].body).text).toBe(spoken);
+  expect(query.mock.calls[0][0].values).toContain(spoken.length);
+});
+
+it.each([
+  ["Рада помочь!", "[warmly] Рада помочь!"],
+  ["Ташаккур, хушҳолам.", "[warmly] Ташаккур, хушҳолам."],
+  ["Ха-ха, хорошая шутка!", "[giggling] хорошая шутка!"],
+  ["Вот это смешно!", "[laughs] Вот это смешно!"],
+  ["Офарин, хеле хуб шуд!", "[delighted] Офарин, хеле хуб шуд!"],
+  ["Ҷолиб, баъд чӣ шуд?", "[curious] Ҷолиб, баъд чӣ шуд?"],
+  ["Хайрият, ҳамааш хуб шуд.", "[exhales] Хайрият, ҳамааш хуб шуд."],
+  ["Самое главное: делаем спокойно.", "Самое главное — делаем спокойно."],
+  ["Офарин, нархи хона дигар шуд.", "Офарин, нархи хона дигар шуд."],
+  ["Отлично, цена объекта 810 000 сомони.", "Отлично, цена объекта 810 000 сомони."],
+  ["[laughs] [плачет] Мне очень жаль, примите соболезнования.", "Мне очень жаль, примите соболезнования."],
+  ["[crying] [гиря] Ба шумо ҳамдардӣ баён мекунам.", "Ба шумо ҳамдардӣ баён мекунам."],
+])("directs the performance of %s without arbitrary tags", (phrase, expected) => {
+  expect(directAssistantVoice(phrase)).toBe(expected);
+});
+
+it("uses the Tajik profile and bills only the speech-provider payload with its approved cue", async () => {
+  vi.stubEnv("ASSISTANT_TTS_VOICE_ID_TG", "test-tajik-voice");
+  const phrase = "Офарин, хеле хуб шуд!";
+  expect(speechTextFromReply(phrase)).toBe(phrase);
+  expect(await sendAssistantVoiceReply("tg-chat", phrase)).toBe(true);
+  const spoken = `[delighted] ${phrase}`;
+  expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({
+    inputs: [{ text: spoken, voice_id: "test-tajik-voice" }],
+    language_code: "tg",
+    model_id: "eleven_v4",
+  });
   expect(query.mock.calls[0][0].values).toContain(spoken.length);
 });

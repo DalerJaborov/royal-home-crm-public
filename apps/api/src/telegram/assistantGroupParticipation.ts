@@ -45,7 +45,7 @@ export function unaddressedConfirmationRequest(text: string): GroupConfirmationT
   const clean = text.replace(/^(?:пожалуйста|лутфан)[, ]+/iu, "");
   if (/^(?:поменяй(?:те)?|измени(?:те)?|обнови(?:те)?|поставь(?:те)?|снизь(?:те)?|подними(?:те)?)(?:\s|$)/iu.test(clean)
       && /цен[ауые]/iu.test(clean) && /\d\s*(?:сомон|тыс|tjs|usd|доллар)/iu.test(clean)) return "change_property_price";
-  if (/^(?:отправь(?:те)?|верни(?:те)?)\s.*(?:на перемонтаж|на переделку)/iu.test(clean)) return "send_to_remake";
+  if (groupMontageCommand(clean)) return "send_to_remake";
   if (/(?:нарх|сомон)/iu.test(clean) && /\d\s*(?:сомон|ҳазор|хазор)/iu.test(clean)
       && /(?:^|\s)(?:мон(?:ед|ен)|бумон|иваз кун(?:ед)?)(?=$|[\s,.!])/iu.test(clean)) return "change_property_price";
   return null;
@@ -56,6 +56,37 @@ export function groupStatusFollowUp(text: string, quoted: string): boolean {
   return READ_SUBJECT.test(quoted)
     && (STATUS_DELAY.test(text) || (text.endsWith("?") && STATUS_WORDS.test(text)))
     && !/https?:\/\/|не\s+(?:отвечай(?:те)?|вмешивайся)|хомӯш бош/iu.test(text);
+}
+
+/** Use only visible, unique object numbers from a reply. Never copy its stale result or instructions. */
+export function groupPropertyRefs(text: string): string[] {
+  const ids = [...text.matchAll(/(?<![\p{L}\p{N}])(?:ОБ|OB)[\s\-–—№#]+(\d{1,8})(?![\p{L}\p{N}])/giu)]
+    .map(match => Number(match[1])).filter(id => id > 0);
+  return [...new Set(ids)].map(id => formatPropertyCode(id));
+}
+
+const MONTAGE_COMMAND = /^(?:(?:пожалуйста|лутфан)[, ]+)?(?:(?:отправь(?:те)?|перешли(?:те)?|верни(?:те)?)\s*(?:.*?\s)?(?:монтаж[её]ру|на (?:пере)?монтаж|на переделку)|(?:фиристон(?:ед)?|фиристед|равон кун(?:ед)?)\s*(?:.*?\s)?ба\s+(?:монтаж(?:[её]р)?|аз\s*нав\s*монтаж)|ба\s+монтаж(?:[её]р)?\s+(?:фиристон(?:ед)?|фиристед|равон кун(?:ед)?))(?=$|[\s,.!?:—–-])/iu;
+
+export function groupMontageCommand(text: string): { tail: string; tajik: boolean } | null {
+  const match = MONTAGE_COMMAND.exec(text.trim());
+  if (!match || /(?:^|\s)(?:не|нет)\s|(?:нафирист|накун)/iu.test(text)) return null;
+  return {
+    tail: text.trim().slice(match[0].length).replace(/^[\s,.!?:—–-]+/u, "").trim(),
+    tajik: /(?:фирист|равон кун)/iu.test(match[0]),
+  };
+}
+
+export function isGroupPropertyFollowUp(text: string): boolean {
+  return /^(?:а\s+)?(?:сколько\s+(?:стоит|дней|часов)|какая\s+цена|какой\s+статус|где\s+(?:он|она|ролик|объект)|что\s+с\s+(?:ним|ней|роликом|объектом)|(?:покажи|скинь|пришли)\s+(?:фото|фотки|карточку)|нархаш\s+чанд|чанд\s+(?:рӯз|руз|соат)|дар\s+ку[ҷч]о|акс(?:аш|ҳояш)?\s+(?:ҳаст|дорад))/iu.test(text);
+}
+
+export const GROUP_REMAKE_REASON_QUESTION = {
+  ru: (ref: string) => `Что поправить в ролике ${ref}?`,
+  tg: (ref: string) => `Дар навори ${ref} чиро иваз кунем?`,
+};
+
+export function isGroupRemakeReasonQuestion(text: string): boolean {
+  return /^(?:Что поправить в ролике ОБ-|Дар навори ОБ-)/u.test(text);
 }
 
 const serviceUser = z.object({ id: z.number().int(), is_bot: z.boolean(), username: z.string().optional() });
