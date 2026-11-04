@@ -116,12 +116,19 @@ jobs:
         run: |
           debs="$RUNNER_TEMP/ship-media-debs"
           mkdir -p "$debs"
-          apt_command=(sudo timeout --kill-after=10s 4m apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o "Dir::Cache::archives=$debs")
-          "${apt_command[@]}" install -y --download-only --no-install-recommends ffmpeg poppler-utils || {
-            "${apt_command[@]}" update &&
-            "${apt_command[@]}" install -y --download-only --no-install-recommends ffmpeg poppler-utils
-          }
-          touch "$debs/ready"
+          touch "$debs/prepared"
+          if [[ -f /etc/apt/apt-mirrors.txt ]]; then
+            printf '%s\n' 'https://archive.ubuntu.com/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+          fi
+          apt_command=(apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o "Dir::Cache::archives=$debs")
+          if sudo timeout --kill-after=10s 5m "${apt_command[@]}" install -y --download-only --no-install-recommends ffmpeg poppler-utils || {
+            sudo timeout --kill-after=10s 1m "${apt_command[@]}" update &&
+            sudo timeout --kill-after=10s 5m "${apt_command[@]}" install -y --download-only --no-install-recommends ffmpeg poppler-utils
+          }; then
+            touch "$debs/ready"
+          else
+            echo "::warning::Media package prefetch unavailable; test workers will install the required tools"
+          fi
 
       - name: Share the downloaded test packages
         uses: actions/upload-artifact@v4
@@ -130,6 +137,7 @@ jobs:
           path: |
             ${{ runner.temp }}/ship-media-debs/*.deb
             ${{ runner.temp }}/ship-media-debs/ready
+            ${{ runner.temp }}/ship-media-debs/prepared
           retention-days: 1
           compression-level: 0
           if-no-files-found: error
@@ -202,7 +210,11 @@ jobs:
           if ! command -v ffmpeg || ! command -v ffprobe || ! command -v pdfinfo; then
             shopt -s nullglob
             packages=("$RUNNER_TEMP"/ship-media-debs/*.deb)
-            if (( ${#packages[@]} == 0 )) || ! sudo timeout --kill-after=10s 2m apt-get install -y --no-download --no-install-recommends "${packages[@]}"; then
+            if [[ ! -f "$RUNNER_TEMP/ship-media-debs/ready" ]] || (( ${#packages[@]} == 0 )) ||
+              ! sudo timeout --kill-after=10s 2m apt-get install -y --no-download --no-install-recommends "${packages[@]}"; then
+              if [[ -f /etc/apt/apt-mirrors.txt ]]; then
+                printf '%s\n' 'https://archive.ubuntu.com/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+              fi
               apt_command=(sudo timeout --kill-after=10s 3m apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20)
               "${apt_command[@]}" install -y --no-install-recommends ffmpeg poppler-utils || {
                 "${apt_command[@]}" update &&
