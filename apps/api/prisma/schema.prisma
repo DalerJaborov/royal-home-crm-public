@@ -10724,13 +10724,16 @@ model AssistantAction {
   @@index([bundleId])
 }
 
-/// Группы Telegram, где помощник отвечает на упоминание (П5, 03.11.2026). Группу
+/// Рабочие группы Telegram, в которых включена помощница. Группу
 /// подключает директор/админ командой /assistant_on из самой группы; чужая группа,
 /// куда бота добавили случайно, молчит.
 model AssistantTelegramGroup {
   chatId              String   @id
   registeredByAgentId String
   createdAt           DateTime @default(now())
+  proactiveMutedUntil DateTime?
+  lastProactiveReplyAt DateTime?
+  lastJoinWelcomeAt    DateTime?
 }
 
 /// ОБЪЯВЛЕНИЕ С ЧУЖОГО САЙТА — рыночная разведка (владелец 21.08.2026).

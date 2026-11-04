@@ -36,7 +36,7 @@ it('successful Turbo synthesis charges before fetch and sends audio', async () =
   expect(fetchMock.mock.calls[0][0]).toBe('https://api.elevenlabs.io/v1/text-to-speech/test-voice?output_format=opus_48000_64');
   expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({
     text: 'Готово.', model_id: 'eleven_v4_turbo', language_code: 'ru', apply_text_normalization: 'on',
-    voice_settings: { stability: 0.45, speed: 1.08 },
+    voice_settings: { stability: 0.45, similarity_boost: 0.75 },
   });
   expect(query.mock.invocationCallOrder[0]).toBeLessThan(fetchMock.mock.invocationCallOrder[0]);
   expect(sendVoice).toHaveBeenCalledTimes(1);
@@ -246,4 +246,11 @@ it("regenerates valid-base64 but non-audio cached data", async () => {
   await fs.writeFile(path.join(cacheDir, name), JSON.stringify({ createdAt: Date.now(), audio: Buffer.from("garbage").toString("base64") }));
   expect(await sendAssistantVoiceReply("second", "Готово.")).toBe(true);
   expect(fetchMock).toHaveBeenCalledTimes(2);
+});
+
+it("sends approved cues only to the speech provider and counts their characters", async () => {
+  expect(await sendAssistantVoiceReply("test-chat", "[shouts] Здравствуйте! Чем могу помочь?")).toBe(true);
+  const spoken = "[warmly] Здравствуйте! [exhales] Чем могу помочь?";
+  expect(JSON.parse(fetchMock.mock.calls[0][1].body).text).toBe(spoken);
+  expect(query.mock.calls[0][0].values).toContain(spoken.length);
 });
