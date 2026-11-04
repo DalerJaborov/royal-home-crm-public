@@ -76,6 +76,8 @@ import {
 export const ASSISTANT_TG_DAILY_LIMIT = 150;
 /** Голосовые — отдельный, более дорогой счётчик. */
 export const ASSISTANT_TG_VOICE_DAILY_LIMIT = 40;
+const ASSISTANT_TG_STANDALONE_VOICE_DAILY_LIMIT = 20;
+const GROUP_SHORT_VOICE_SECONDS = 60;
 const DIALOG_KIND = "assistant";
 const DIALOG_TTL_MS = 15 * 60_000;
 
@@ -148,6 +150,13 @@ export function renderBundleCard(actions: readonly AssistantActionView[], author
   const parts = actions.map((a, i) => {
     const p = a.preview;
     const head = actions.length > 1 ? `${i + 1}) ${p.title}` : p.title;
+    if (maskPhones && a.tool === "change_property_price" && typeof p.was.Цена === "string" && typeof p.becomes.Цена === "string") {
+      return [
+        head,
+        `Было: ${field(p.was.Цена)} → ${field(p.becomes.Цена)}`,
+        ...(p.becomes.Заявка ? ["Цена изменится после одобрения руководителем."] : []),
+      ].join("\n");
+    }
     return [
       head,
       `   Было: ${lines(p.was)}`,
@@ -283,7 +292,6 @@ async function sendTurnResult(
   const rendered = renderAssistantForTelegram(split.text, { maskPhones });
   // Записи уровня B исполнены сразу — человек должен видеть, что именно записано.
   const written = result.done.map((a) => sanitizeAssistantReply(`Записано: ${field(a.preview.title)}`, maskPhones));
-  const body = [rendered, ...written].filter(Boolean).join("\n");
   if (result.pending.length === 0) {
     if (result.propertyCard && await sendTelegramPropertyCard(chatId, result.propertyCard, maskPhones, ctx.replyTo)) {
       if (ctx.mode === "voice") await sendAssistantVoiceReply(chatId, maskPhones ? sanitizeAssistantReply(split.text, true) : split.text, ctx.replyTo);
@@ -300,6 +308,8 @@ async function sendTurnResult(
     return;
   }
   const card = renderBundleCard(result.pending, ctx.authorName, maskPhones, ctx.source);
+  const priceOnlyInGroup = maskPhones && result.pending.every(action => action.tool === "change_property_price");
+  const body = [priceOnlyInGroup ? "" : rendered, ...written].filter(Boolean).join("\n");
   // Кнопка без полностью видимой карточки — подтверждение вслепую: слишком длинное не показываем.
   if (card.length > CARD_MAX_CHARS) {
     await cancelPending(result.pending, ctx.agentId);
@@ -369,12 +379,14 @@ async function clearHistory(chatId: string) {
 }
 
 /** Голосовое → текст тем же путём, что POST /transcribe (ai/transcribe.ts). */
-async function transcribeVoice(msg: TelegramIncomingMessage, agentId: string, wallet: AssistantMoneyWallet): Promise<{ text: string } | { error: string }> {
+async function transcribeVoice(msg: TelegramIncomingMessage, agentId: string, wallet: AssistantMoneyWallet, standalone = false): Promise<{ text: string } | { error: string }> {
   // Платная расшифровка — только если помощник вообще включён и учётка жива.
   if (!(await isAiAssistantEnabled())) return { error: DISABLED_TEXT };
   const access = await loadAgentAccess(agentId);
   if (!access?.isActive) return { error: "Ваша учётка отключена." };
-  const cap = await claimAgentAiAction(agentId, "assistant-telegram-voice", ASSISTANT_TG_VOICE_DAILY_LIMIT);
+  const cap = await claimAgentAiAction(agentId,
+    standalone ? "assistant-telegram-group-standalone-voice" : "assistant-telegram-voice",
+    standalone ? ASSISTANT_TG_STANDALONE_VOICE_DAILY_LIMIT : ASSISTANT_TG_VOICE_DAILY_LIMIT);
   if (!cap.allowed) return { error: "Лимит голосовых на сегодня исчерпан — напишите текстом." };
   const media = await handleAssistantMedia(msg, agentId, { allowGroup: msg.chat.type !== "private", wallet });
   if (media.error) return { error: media.text };
@@ -581,8 +593,8 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
   const botUsername = await getBotUsername();
   if (!botUsername) return false;
   const chatId = String(msg.chat.id);
-  const { addressed, text } = addressedToBot(msg, botUsername);
-  const raw = (msg.text ?? "").trim();
+  let { addressed, text } = addressedToBot(msg, botUsername);
+  let raw = (msg.text ?? "").trim();
   const groupCommand = new RegExp(`^/assistant_(on|off|quiet|resume)(?:@${escapeRe(botUsername)})?(?:\\s|$)`, "i").exec(raw);
   const verb = groupCommand?.[1].toLowerCase();
   const onOff = verb === "on" || verb === "off" ? groupCommand : null;
@@ -592,13 +604,18 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
   const membership = groupMembershipEvent(msg.new_chat_members, msg.left_chat_member, botUsername);
   let automatic: ReturnType<typeof unaddressedPropertyQuestion> = null;
   let automaticRead = false;
+  const shortNativeVoice = typeof msg.voice?.duration === "number"
+    && msg.voice.duration > 0 && msg.voice.duration <= GROUP_SHORT_VOICE_SECONDS;
+  const standaloneVoice = !addressed && !groupCommand && !membership && !raw && shortNativeVoice
+    && Boolean(msg.from?.id && !msg.from.is_bot && !msg.sender_chat
+      && !msg.reply_to_message && !msg.forward_origin && !msg.forward_from_message_id);
   if (!addressed && !groupCommand && !membership) {
     windowText = windowRequest(msg, chatId);
     if (windowText === null && msg.from?.id && !msg.from.is_bot && !msg.sender_chat && !msg.forward_origin && !msg.forward_from_message_id) {
       automatic = unaddressedPropertyQuestion(raw);
       automaticRead = !automatic && !msg.reply_to_message && unaddressedReadRequest(raw);
     }
-    if (windowText === null && !automatic && !automaticRead) return false;
+    if (windowText === null && !automatic && !automaticRead && !standaloneVoice) return false;
   }
   const reply = (t: string) => sendMessage(chatId, t, msg.message_id).then(() => undefined);
 
@@ -683,6 +700,28 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
     }
 
     if (!addressed && registered.proactiveMutedUntil && registered.proactiveMutedUntil > now) return false;
+    const moneyWallet = createAssistantMoneyWallet();
+    let fromVoice = false;
+    if (standaloneVoice) {
+      if (!sender) return false;
+      const voice = await transcribeVoice(msg, sender.id, moneyWallet, true);
+      if ("error" in voice) return false;
+      const current = await prisma.assistantTelegramGroup.findUnique({ where: { chatId } });
+      if (!current || current.createdAt.getTime() !== registered.createdAt.getTime()
+        || (current.proactiveMutedUntil && current.proactiveMutedUntil.getTime() > groupClock())) return false;
+      fromVoice = true;
+      raw = voice.text;
+      const spoken = addressedToBot({ ...msg, text: raw }, botUsername);
+      if (/^(?:шабнам|мушовир)(?=$|[\s,:;.!?—–-])/iu.test(raw)
+        && spoken.addressed && spoken.text && !requestedGroupParticipation(spoken.text)) {
+        addressed = true;
+        text = spoken.text;
+      } else {
+        automatic = unaddressedPropertyQuestion(raw);
+        automaticRead = !automatic && unaddressedReadRequest(raw);
+        if (!automatic && !automaticRead) return false;
+      }
+    }
     if (automatic || automaticRead) {
       if (!sender || !(await isAiAssistantEnabled())) return false;
       const access = await loadAgentAccess(sender.id);
@@ -715,7 +754,7 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
       }
 
       const result = await runTurn({
-        agentId: sender.id, scope: "group", readOnlyGroup: true,
+        agentId: sender.id, scope: "group", readOnlyGroup: true, moneyWallet,
         history: [{ role: "user", content: maskAssistantContacts(raw) }],
         deny: async () => {},
       });
@@ -743,7 +782,6 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
       await reply(msg.sender_chat ? "Анонимного админа не узнаю — напишите от своего имени." : NOT_LINKED_TEXT);
       return true;
     }
-    // Голос в группе принимается только ответом боту (иначе упоминания нет).
     let request = windowText ?? text;
     // Упоминание ответом на ЧУЖОЕ сообщение: его текст — содержание просьбы, права — вызвавшего.
     const replied = msg.reply_to_message;
@@ -756,8 +794,6 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
 Просьба вызвавшего: ${text}` : ""}`;
       }
     }
-    const moneyWallet = createAssistantMoneyWallet();
-    let fromVoice = false;
     let forwardedVoice = false;
     if (!request && (msg.voice || msg.audio)) {
       const voice = await transcribeVoice(msg, sender.id, moneyWallet);
@@ -794,8 +830,7 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
       authorName: sender.fullName,
       scope: "group",
       fromVoice,
-      addressedGroupVoice: addressed && fromVoice && !forwardedVoice
-        && typeof msg.voice?.duration === "number" && msg.voice.duration > 0 && msg.voice.duration <= 60,
+      addressedGroupVoice: addressed && fromVoice && !forwardedVoice && shortNativeVoice,
       mode: forwardedVoice ? "auto" : requestedAssistantReplyMode(fromVoice ? request : windowText ?? text),
       reactTo: msg.message_id,
       replyTo: msg.message_id,
@@ -803,7 +838,7 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
     });
   } catch (err) {
     await logSystemError("telegram", `Помощник в группе Telegram: ${describeError(err)}`);
-    if (!automatic && !automaticRead && !membership) await reply("Не получилось ответить, попробуйте ещё раз.").catch(() => {});
+    if (!automatic && !automaticRead && !membership && (!standaloneVoice || addressed)) await reply("Не получилось ответить, попробуйте ещё раз.").catch(() => {});
   }
   return true;
 }
@@ -947,16 +982,13 @@ export async function handleAssistantCallback(query: TelegramCallbackQuery): Pro
     const mark = outcome.failed ? "⚠️" : "✅";
     const summary = `${mark} ${clicker.fullName}:\n${outcome.lines.join("\n")}`;
     if (!chatId) return true;
-    if (chatId.startsWith("-")) {
-      // Группа: карточку гасим, итог — отдельным коротким сообщением, чтобы его увидели все.
-      if (messageId) await editMessageText(chatId, messageId, sanitizeAssistantReply(`${mark} Обработано (${clicker.fullName})`, true), null).catch(() => {});
-      await sendMessage(chatId, sanitizeAssistantReply(summary, true), messageId).catch(() => {});
-    } else if (messageId) {
-      await editMessageText(chatId, messageId, summary, null).catch(async () => {
-        await sendMessage(chatId, summary).catch(() => {});
+    const safeSummary = sanitizeAssistantReply(summary, chatId.startsWith("-"));
+    if (messageId) {
+      await editMessageText(chatId, messageId, safeSummary, null).catch(async () => {
+        await sendMessage(chatId, safeSummary, messageId).catch(() => {});
       });
     } else {
-      await sendMessage(chatId, summary).catch(() => {});
+      await sendMessage(chatId, safeSummary).catch(() => {});
     }
     return true;
   } catch (err) {

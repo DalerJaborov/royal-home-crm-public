@@ -207,10 +207,11 @@ describe("explicitly addressed native group voice", () => {
     expect(f.media).toHaveBeenCalledOnce(); expect(f.run).toHaveBeenCalledOnce();
     expect(f.voice).toHaveBeenCalledWith("-100", "Готово.", 10);
   });
-  it("does not transcribe unaddressed group audio even in the author's window", async () => {
+  it("does not answer unaddressed chatter just because the author's window is open", async () => {
     const f = fixture(); await f.send("@fixture_bot привет");
     await f.send("", { voice: audio.voice });
-    expect(f.media).not.toHaveBeenCalled();
+    expect(f.media).toHaveBeenCalledOnce();
+    expect(f.run).toHaveBeenCalledOnce();
   });
   it.each(["forward", "text", "structured", "long", "long-input"])("keeps %s response as text", async kind => {
     const f = fixture();
@@ -317,6 +318,60 @@ describe("optional help without an address", () => {
     await f.send("Какая цена у ОБ-123?", { from: { id: 2 } });
     expect(f.findProperty).toHaveBeenCalledOnce();
   });
+});
+
+describe("standalone group voice", () => {
+  const audio = { voice: { file_id: "test-voice", duration: 9 } };
+  it.each(["Подбери двухкомнатные квартиры в Сино", "Хонаи дуҳуҷра дар Сино ҳаст?"])(
+    "transcribes and answers a clear CRM question using read-only group tools: %s", async transcript => {
+      const f = fixture(); f.media.mockResolvedValue({ extraction: { transcript } });
+      await f.send("", audio);
+      expect(f.media).toHaveBeenCalledOnce();
+      expect(f.run.mock.calls[0]?.[0]).toEqual([{ role: "user", content: transcript }]);
+      const actor = f.run.mock.calls[0]?.[1] as { hiddenTools: Set<string> };
+      expect(actor.hiddenTools.has("create_task")).toBe(true);
+      expect(f.html).toHaveBeenCalledOnce();
+    },
+  );
+  it("recognizes the bot's spoken name and passes a request to the normal confirmation flow", async () => {
+    const f = fixture();
+    const request = "биги ҳамон хонаи Чорбоға 810 ҳазор бумон гуфтум-ку охи.";
+    f.media.mockResolvedValue({ extraction: { transcript: `Шабнам, ${request}` } });
+    await f.send("", audio);
+    expect(f.run.mock.calls[0]?.[0]).toEqual([{ role: "user", content: request }]);
+    const actor = f.run.mock.calls[0]?.[1] as { hiddenTools: Set<string> };
+    expect(actor.hiddenTools.has("change_property_price")).toBe(false);
+  });
+  it("keeps ordinary speech silent and ignores forwarded, unlinked or muted voice before transcription", async () => {
+    const f = fixture();
+    await f.send("", audio);
+    expect(f.media).toHaveBeenCalledOnce();
+    expect(f.run).not.toHaveBeenCalled();
+    expect(f.html).not.toHaveBeenCalled();
+    await f.send("", { ...audio, forward_origin: { type: "user" } });
+    f.setLinked(false);
+    await f.send("", audio);
+    f.setLinked(true);
+    await f.send("Шабнам, помолчи");
+    await f.send("", audio);
+    expect(f.media).toHaveBeenCalledOnce();
+  });
+});
+
+it("compacts a price confirmation in a group without losing the object or amounts", () => {
+  const f = fixture();
+  const action = {
+    tool: "change_property_price",
+    preview: {
+      title: "Цена объекта ОБ-000132",
+      was: { Цена: "879 000 с.", "В соцсетях": "FACEBOOK, TELEGRAM" },
+      becomes: { Цена: "810 000 с.", Заявка: "руководителю" },
+    },
+  };
+  const card = f.adapter.renderBundleCard([action], "Автор", true);
+  expect(card).toContain("Цена объекта ОБ-000132\nБыло: 879 000 с. → 810 000 с.");
+  expect(card).toContain("после одобрения руководителем");
+  expect(card).not.toContain("FACEBOOK");
 });
 
 describe("Telegram membership welcomes", () => {
