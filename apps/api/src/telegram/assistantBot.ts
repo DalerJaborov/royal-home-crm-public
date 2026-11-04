@@ -1,6 +1,8 @@
 import { renderAssistantForTelegram, requestedAssistantReplyMode, sanitizeAssistantReply, splitReaction, type AssistantReplyMode } from "./assistantReply.js";
 import { sendAssistantReply } from "./assistantDelivery.js";
-import { ASSISTANT_GROUP_GREETING } from "./assistantGroupPhrases.js";
+import { ASSISTANT_COLLEAGUE_GREETING, ASSISTANT_GROUP_GREETING } from "./assistantGroupPhrases.js";
+import { findPropertiesByRef } from "../lib/propertyRefLookup.js";
+import { GROUP_QUIET_MS, GROUP_WELCOME_INTERVAL_MS, PROACTIVE_GROUP_INTERVAL_MS, groupMembershipEvent, proactivePropertyReply, requestedGroupParticipation, unaddressedPropertyQuestion } from "./assistantGroupParticipation.js";
 export { renderAssistantForTelegram } from "./assistantReply.js";
 import { randomUUID } from "node:crypto";
 import { isReadOnlyRole, trimAssistantHistory, type AssistantPropertyCard, type PermissionId } from "@royal-home/shared";
@@ -496,7 +498,8 @@ export function addressedToBot(msg: TelegramIncomingMessage, botUsername: string
   const mentioned = new RegExp(mentionSource, "i").test(raw);
   const named = /^(?:шабнам|мушовир)(?=$|[\s,:;.!?—–-])/iu.exec(raw);
   const afterName = named ? raw.slice(named[0].length) : "";
-  const namedAddress = Boolean(named && (!afterName.trim() || /^\s*[,:;.!?—–-]/u.test(afterName) || NAMED_REQUEST.test(afterName.trim())));
+  const namedAddress = Boolean(named && (!afterName.trim() || /^\s*[,:;.!?—–-]/u.test(afterName)
+    || NAMED_REQUEST.test(afterName.trim()) || requestedGroupParticipation(afterName)));
   const addressed = mentioned || replyToBot || commandForUs || namedAddress;
   let text = raw.replace(new RegExp(mentionSource, "gi"), "$1 ");
   if (commandForUs) text = text.replace(/^\/(?:ai|помощник)(?:@\w+)?/i, "");
@@ -554,6 +557,12 @@ function windowRequest(msg: TelegramIncomingMessage, chatId: string): string | n
 
 const GROUP_ADMIN_ROLES = new Set(["ADMIN", "DIRECTOR"]);
 
+async function greetGroup(chatId: string, lines: { ru: string; tg: string }, replyTo?: number): Promise<void> {
+  for (const language of ["ru", "tg"] as const) {
+    await sendAssistantReply(chatId, lines[language], { scope: "group", mode: "voice", replyTo, written: [] });
+  }
+}
+
 async function senderOf(msg: TelegramIncomingMessage) {
   if (!msg.from?.id || msg.from.is_bot || msg.sender_chat) return null;
   return findAgentByTelegramUserId(String(msg.from.id));
@@ -570,11 +579,20 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
   const chatId = String(msg.chat.id);
   const { addressed, text } = addressedToBot(msg, botUsername);
   const raw = (msg.text ?? "").trim();
-  const onOff = new RegExp(`^/assistant_(on|off)(?:@${escapeRe(botUsername)})?(?:\\s|$)`, "i").exec(raw);
+  const groupCommand = new RegExp(`^/assistant_(on|off|quiet|resume)(?:@${escapeRe(botUsername)})?(?:\\s|$)`, "i").exec(raw);
+  const verb = groupCommand?.[1].toLowerCase();
+  const onOff = verb === "on" || verb === "off" ? groupCommand : null;
+  const participation = verb === "quiet" || verb === "resume" ? verb
+    : addressed ? requestedGroupParticipation(text) : null;
   let windowText: string | null = null;
-  if (!addressed && !onOff) {
+  const membership = groupMembershipEvent(msg.new_chat_members, msg.left_chat_member, botUsername);
+  let automatic: ReturnType<typeof unaddressedPropertyQuestion> = null;
+  if (!addressed && !groupCommand && !membership) {
     windowText = windowRequest(msg, chatId);
-    if (windowText === null) return false;
+    if (windowText === null && msg.from?.id && !msg.from.is_bot && !msg.sender_chat && !msg.forward_origin && !msg.forward_from_message_id) {
+      automatic = unaddressedPropertyQuestion(raw);
+    }
+    if (windowText === null && !automatic) return false;
   }
   const reply = (t: string) => sendMessage(chatId, t, msg.message_id).then(() => undefined);
 
@@ -586,32 +604,34 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
     });
     if (settings?.telegramDiscussionGroupId === chatId) return false;
 
-    const sender = await senderOf(msg);
-
-    if (onOff) {
+    if (membership === "bot-left") {
+      await prisma.assistantTelegramGroup.deleteMany({ where: { chatId } });
+      return true;
+    }
+    const sender = membership === "people-joined" ? null : await senderOf(msg);
+    if (onOff || membership === "bot-added") {
       if (!sender) {
+        if (!onOff) return true;
         await reply(NOT_LINKED_TEXT);
         return true;
       }
       const access = await loadAgentAccess(sender.id);
       if (!access?.isActive || !GROUP_ADMIN_ROLES.has(access.role)) {
-        await reply("Подключать группы может только директор или администратор.");
+        if (onOff) await reply("Подключать группы может только директор или администратор.");
         return true;
       }
-      if (onOff[1].toLowerCase() === "on") {
+      if (verb !== "off") {
+        if (!onOff && !(await isAiAssistantEnabled())) return true;
         const inserted = await prisma.assistantTelegramGroup.createMany({
           data: { chatId, registeredByAgentId: sender.id },
           skipDuplicates: true,
         });
         if (inserted.count === 1 && await isAiAssistantEnabled()) {
-          // No generated claims or member names; the existing voice path owns cache/budget/fallback.
-          const language = assistantLanguage([{ role: "user", content: raw.slice(onOff[0].length) }]);
-          await sendAssistantReply(chatId, ASSISTANT_GROUP_GREETING[language === "tg" ? "tg" : "ru"], {
-            scope: "group", mode: "voice", replyTo: msg.message_id, written: [],
-          });
-        } else {
+          // One atomic registration sends both short welcomes, without member names.
+          await greetGroup(chatId, ASSISTANT_GROUP_GREETING, onOff ? msg.message_id : undefined);
+        } else if (onOff) {
           await reply(await isAiAssistantEnabled()
-            ? "Помощник уже подключён. Позовите меня по имени, через /ai или ответом на моё сообщение."
+            ? "Шабнам уже здесь. Позовите меня по имени, через /ai или ответом на моё сообщение. На ясный вопрос по номеру объекта могу ответить сама."
             : "Группа подключена, но ИИ-помощник выключен в Настройках CRM.");
         }
       } else {
@@ -624,6 +644,69 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
     // Чужая группа, куда бота добавили случайно, молчит.
     const registered = await prisma.assistantTelegramGroup.findUnique({ where: { chatId } });
     if (!registered) return false;
+    const now = new Date(groupClock());
+    if (membership === "people-joined") {
+      if (!(await isAiAssistantEnabled())) return true;
+      const cooldown = new Date(now.getTime() - GROUP_WELCOME_INTERVAL_MS);
+      const claim = await prisma.assistantTelegramGroup.updateMany({
+        where: {
+          chatId, createdAt: registered.createdAt,
+          AND: [
+            { OR: [{ proactiveMutedUntil: null }, { proactiveMutedUntil: { lte: now } }] },
+            { OR: [{ lastJoinWelcomeAt: null }, { lastJoinWelcomeAt: { lte: cooldown } }] },
+          ],
+        },
+        data: { lastJoinWelcomeAt: now },
+      });
+      if (claim.count === 1) await greetGroup(chatId, ASSISTANT_COLLEAGUE_GREETING);
+      return true;
+    }
+    if (participation) {
+      if (!sender || !(await loadAgentAccess(sender.id))?.isActive) return true;
+      const update = await prisma.assistantTelegramGroup.updateMany({
+        where: { chatId, createdAt: registered.createdAt },
+        data: { proactiveMutedUntil: participation === "quiet" ? new Date(now.getTime() + GROUP_QUIET_MS) : null },
+      });
+      if (update.count === 1) {
+        const lang = assistantLanguage([{ role: "user", content: text }]);
+        await reply(participation === "quiet"
+          ? lang === "tg" ? "То 30 дақиқа танҳо ҳангоми муроҷиати мустақим ҷавоб медиҳам." : "Хорошо. Полчаса отвечаю только на прямые обращения."
+          : lang === "tg" ? "Хуб, боз метавонам ба саволҳои равшан худам ҷавоб диҳам." : "Хорошо. Снова могу сама отвечать на ясные вопросы по объектам.");
+      }
+      return true;
+    }
+
+    if (!addressed && registered.proactiveMutedUntil && registered.proactiveMutedUntil > now) return false;
+    if (automatic) {
+      if (!sender || !(await isAiAssistantEnabled())) return false;
+      const access = await loadAgentAccess(sender.id);
+      if (!access?.isActive) return false;
+      const cooldown = new Date(now.getTime() - PROACTIVE_GROUP_INTERVAL_MS);
+      if (registered.lastProactiveReplyAt && registered.lastProactiveReplyAt > cooldown) return false;
+      const result = await findPropertiesByRef(automatic.ref, {
+        hideOwnPendingDeleteFor: access.permissions.has("properties.delete") ? undefined : sender.id,
+        limit: 1,
+      });
+      const property = result.kind === "shortId" ? result.properties[0] : undefined;
+      if (!property) return false;
+      const claim = await prisma.assistantTelegramGroup.updateMany({
+        where: {
+          chatId, createdAt: registered.createdAt,
+          AND: [
+            { OR: [{ proactiveMutedUntil: null }, { proactiveMutedUntil: { lte: now } }] },
+            { OR: [{ lastProactiveReplyAt: null }, { lastProactiveReplyAt: { lte: cooldown } }] },
+          ],
+        },
+        data: { lastProactiveReplyAt: now },
+      });
+      if (claim.count !== 1) return false;
+      void logAssistantToolCall({ agentId: sender.id, tool: "telegram.proactive.property", argsSummary: JSON.stringify({ propertyId: property.id }), resultCount: 1 });
+      await sendAssistantReply(chatId, proactivePropertyReply(property, automatic.lang), {
+        scope: "group", mode: "text", structured: true, replyTo: msg.message_id, written: [],
+      });
+      return true;
+    }
+
     const key = msg.from?.id ? windowKey(chatId, msg.from.id) : null;
     const registeredAt = registered.createdAt.getTime();
     if (windowText !== null && key && dialogWindows.get(key)?.registeredAt !== registeredAt) {
@@ -698,7 +781,7 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
     });
   } catch (err) {
     await logSystemError("telegram", `Помощник в группе Telegram: ${describeError(err)}`);
-    await reply("Не получилось ответить, попробуйте ещё раз.").catch(() => {});
+    if (!automatic && !membership) await reply("Не получилось ответить, попробуйте ещё раз.").catch(() => {});
   }
   return true;
 }
