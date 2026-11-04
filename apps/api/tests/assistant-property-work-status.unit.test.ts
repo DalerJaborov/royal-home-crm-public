@@ -4,10 +4,9 @@ import type { AssistantActor } from "../src/ai/assistant/actor.js";
 
 const db = vi.hoisted(() => ({
   count: vi.fn(async () => 12),
-  findMany: vi.fn(async () => []),
+  findMany: vi.fn(async (_query: unknown): Promise<unknown[]> => []),
 }));
 vi.mock("../src/db.js", () => ({ prisma: { property: db, $disconnect: async () => {} } }));
-vi.mock("../src/lib/videoHandoff.js", () => ({ videoHandoffPublishDedupeKey: (id: string) => id }));
 
 const now = new Date("2026-11-04T13:00:00Z");
 const sent = new Date("2026-10-28T12:00:00Z");
@@ -62,7 +61,8 @@ describe("property work status evidence", () => {
       scope: "MY_QUEUE", total: 12, shown: 0, withEditor: 1, waitingForEditor: 6,
     });
     const ownScope = {
-      status: "EDITING", OR: expect.any(Array),
+      AND: [{ OR: [{ status: "EDITING" }, { videoHandoffStatus: { in: ["QUEUED", "SENT_TO_EDITOR"] } }] }],
+      OR: expect.any(Array),
       deleteRequests: { none: { status: "PENDING", requestedById: "agent-1" } },
     };
     expect(db.count).toHaveBeenNthCalledWith(1, { where: expect.objectContaining(ownScope) });
@@ -74,5 +74,25 @@ describe("property work status evidence", () => {
     expect(await getPropertyWorkStatusTool.run({ scope: "queue" }, { actor: director })).toMatchObject({ scope: "COMPANY_QUEUE" });
     const where = (db.count.mock.lastCall as unknown as [{ where: object }])[0].where;
     expect(where).not.toHaveProperty("OR");
+  });
+
+  it("includes an active remake even while the owned listing remains available", async () => {
+    const publishedRemake = {
+      ...row, status: "AVAILABLE", videoHandoffStatus: "QUEUED", videoHandoffRemakeReason: "CARD_DATA_CHANGED",
+    } as const;
+    const actor = { id: "agent-1", role: "AGENT", permissions: new Set() } as AssistantActor;
+    for (const scope of ["queue", "mine"] as const) {
+      db.findMany.mockResolvedValueOnce([publishedRemake]);
+      expect(await getPropertyWorkStatusTool.run({ scope }, { actor })).toMatchObject({
+        items: [{ phase: "WAITING_FOR_EDITOR", remake: true }],
+      });
+      expect(db.findMany).toHaveBeenLastCalledWith(expect.objectContaining({
+        where: expect.objectContaining({
+          deletedAt: null,
+          AND: [{ OR: expect.arrayContaining([{ videoHandoffStatus: { in: ["QUEUED", "SENT_TO_EDITOR"] } }]) }],
+          OR: expect.any(Array),
+        }),
+      }));
+    }
   });
 });

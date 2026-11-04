@@ -13,13 +13,14 @@ const { findPhotos, sendPhoto, editCaption, editText } = vi.hoisted(() => ({
 vi.mock("../src/db.js", () => ({
   prisma: { propertyPhoto: { findMany: findPhotos }, $disconnect: async () => {} },
 }));
-vi.mock("../src/upload.js", async () => {
+vi.mock("../src/upload.js", async (importOriginal) => {
   const { mkdtemp } = await import("node:fs/promises");
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
-  return { uploadsDir: await mkdtemp(join(tmpdir(), "assistant-photo-confirmation-")) };
+  return { ...(await importOriginal<typeof import("../src/upload.js")>()), uploadsDir: await mkdtemp(join(tmpdir(), "assistant-photo-confirmation-")) };
 });
-vi.mock("../src/telegram/api.js", () => ({
+vi.mock("../src/telegram/api.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/telegram/api.js")>()),
   sendPhotoFromDisk: sendPhoto,
   editMessageCaption: editCaption,
   editMessageText: editText,

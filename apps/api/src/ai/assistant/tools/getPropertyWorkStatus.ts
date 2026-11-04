@@ -148,7 +148,13 @@ export const getPropertyWorkStatusTool: AssistantReadToolPlugin = {
     const companyQueue = isQueue && queueRoles.has(actor.role);
     const where: Prisma.PropertyWhereInput = {
       deletedAt: null,
-      ...(isQueue ? { status: "EDITING" } : { status: { in: ["PENDING_REVIEW", "AWAITING_PHOTOS", "AWAITING_VIDEO", "EDITING"] } }),
+      AND: [{
+        OR: [
+          isQueue ? { status: "EDITING" } : { status: { in: ["PENDING_REVIEW", "AWAITING_PHOTOS", "AWAITING_VIDEO", "EDITING"] } },
+          // Published listings can stay AVAILABLE while a remake is queued or with the editor.
+          { videoHandoffStatus: { in: ["QUEUED", "SENT_TO_EDITOR"] } },
+        ],
+      }],
       ...(companyQueue ? {} : propertyOwnerWhere(actor.id)),
       ...(hideOwnPendingDeleteFor ? { deleteRequests: { none: { status: "PENDING", requestedById: hideOwnPendingDeleteFor } } } : {}),
     };
