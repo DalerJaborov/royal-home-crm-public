@@ -5,6 +5,7 @@ import {
   captureAssistantTelegramContext,
   cleanupAssistantTelegramContext,
   loadAssistantTelegramContext,
+  retainAssistantTelegramTranscript,
 } from "../src/telegram/assistantGroupContext.js";
 
 const unique = randomInt(100_000, 900_000);
@@ -114,5 +115,75 @@ describe("opted-in Telegram group evidence", () => {
     expect(await prisma.assistantTelegramContext.count({ where: { groupChatId: String(chatId) } })).toBe(0);
     await prisma.assistantTelegramGroup.delete({ where: { chatId: String(otherChatId) } });
     expect(await prisma.assistantTelegramContext.count({ where: { groupChatId: String(otherChatId) } })).toBe(0);
+  });
+
+  it("enriches the captured native audio once, keeps its caption, and masks contacts", async () => {
+    const audio = message(11, {
+      text: undefined, caption: "Материалы по ОБ-125.", audio: { file_id: "test-audio-source" },
+    });
+    await captureAssistantTelegramContext(audio, 100, now);
+    const phone = ["+992", "111", "222", "333"].join("");
+    await retainAssistantTelegramTranscript(audio, 100, agentId,
+      `По ОБ-123 готовы исходники. Почта evidence@example.test, телефон ${phone}.`, now);
+    await retainAssistantTelegramTranscript(audio, 100, agentId, "Другая расшифровка.", now);
+    const [found] = await lookup();
+    expect(found?.text).toContain("Материалы по ОБ-125.");
+    expect(found?.text).toContain("Расшифровка аудио: По ОБ-123 готовы исходники.");
+    expect(found?.text).not.toContain(phone);
+    expect(found?.text).not.toContain("evidence@example.test");
+    expect(found?.text).not.toContain("Другая расшифровка");
+    expect((await lookup({ selector: { propertyShortId: 125 } })).map(row => row.messageId)).toEqual([11]);
+  });
+
+  it("clears an older voice transcript when the message is edited and rejects late ASR", async () => {
+    const voice = message(11, { text: undefined, voice: { file_id: "test-voice-source" } });
+    await captureAssistantTelegramContext(voice, 100, now);
+    await retainAssistantTelegramTranscript(voice, 100, agentId, "Решение по ОБ-123.", now);
+    expect(await lookup()).toHaveLength(1);
+    await captureAssistantTelegramContext({
+      ...voice, edit_date: sourceDate, caption: "Уточнение по ОБ-125.",
+    }, 101, now);
+    await retainAssistantTelegramTranscript(voice, 100, agentId, "Запоздалая расшифровка по ОБ-123.", now);
+    expect(await lookup()).toEqual([]);
+    expect((await lookup({ selector: { replyToMessageId: 11 } }))[0]?.text).toBe("Уточнение по ОБ-125.");
+  });
+
+  it("keeps the edited source if ASR and the edit are committed concurrently", async () => {
+    const voice = message(11, { text: undefined, voice: { file_id: "test-voice-source" } });
+    await captureAssistantTelegramContext(voice, 100, now);
+    await Promise.all([
+      retainAssistantTelegramTranscript(voice, 100, agentId, "Предыдущие слова про ОБ-123.", now),
+      captureAssistantTelegramContext({ ...voice, edit_date: sourceDate, caption: "Новое по ОБ-125." }, 101, now),
+    ]);
+    expect(await lookup()).toEqual([]);
+    expect((await lookup({ selector: { replyToMessageId: 11 } }))[0]?.text).toBe("Новое по ОБ-125.");
+  });
+
+  it("never creates evidence for uncaptured, forwarded, private, protected, expired or opted-out audio", async () => {
+    const audio = message(11, { text: undefined, voice: { file_id: "test-voice-source" } });
+    await retainAssistantTelegramTranscript(audio, 100, agentId, "Нет исходной записи по ОБ-123.", now);
+    await captureAssistantTelegramContext(audio, 100, now);
+    const denied = [
+      { ...audio, forward_origin: { type: "user" } },
+      { ...audio, chat: { id: chatId, type: "private" } },
+      { ...audio, has_protected_content: true },
+    ];
+    for (const input of denied) await retainAssistantTelegramTranscript(input, 100, agentId, "ОБ-123.", now);
+    await retainAssistantTelegramTranscript(audio, 101, agentId, "Неверная версия, ОБ-123.", now);
+    await retainAssistantTelegramTranscript(audio, 100, "test-other-agent", "Чужой автор, ОБ-123.", now);
+    await prisma.agent.update({ where: { id: agentId }, data: { isActive: false } });
+    try {
+      await retainAssistantTelegramTranscript(audio, 100, agentId, "Учётка отключена, ОБ-123.", now);
+    } finally {
+      await prisma.agent.update({ where: { id: agentId }, data: { isActive: true } });
+    }
+    await retainAssistantTelegramTranscript(audio, 100, agentId, "Просрочено, ОБ-123.",
+      new Date(now.getTime() + 7 * 24 * 60 * 60 * 1_000));
+    await prisma.assistantTelegramGroup.update({ where: { chatId: String(chatId) }, data: { contextEnabledAt: null } });
+    await retainAssistantTelegramTranscript(audio, 100, agentId, "Хранение отключено, ОБ-123.", now);
+    const records = await prisma.assistantTelegramContext.findMany({
+      where: { groupChatId: String(chatId) }, select: { transcript: true },
+    });
+    expect(records).toEqual([{ transcript: null }]);
   });
 });

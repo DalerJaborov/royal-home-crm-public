@@ -10752,6 +10752,7 @@ model AssistantTelegramContext {
   sourceUpdateId BigInt
   expiresAt      DateTime
   text           String
+  transcript     String?
   attachmentKind String?
   propertyRefs   Int[]
   @@unique([groupChatId, messageId])
