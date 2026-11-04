@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
 import ts from "typescript";
+import { z } from "zod";
 import { describe, expect, it, vi } from "vitest";
 import * as shared from "@royal-home/shared";
 import * as replies from "../src/telegram/assistantReply.js";
@@ -50,6 +51,7 @@ function fixture() {
   });
   const dependencies: Record<string, unknown> = {
     "@royal-home/shared": shared,
+    zod: { z },
     "./assistantReply.js": replies,
     "./assistantGroupParticipation.js": participation,
     "./assistantPublicShellSearch.js": {
@@ -100,6 +102,7 @@ function fixture() {
   try { dependencies["./assistantGroupPhrases.js"] = load("assistantGroupPhrases", dependencies); } catch { /* baseline */ }
   dependencies["./assistantGroupPublicListing.js"] = load("assistantGroupPublicListing", dependencies);
   dependencies["./assistantDelivery.js"] = load("assistantDelivery", dependencies);
+  dependencies["./assistantPropertyPages.js"] = load("assistantPropertyPages", dependencies);
   const adapter = load("assistantBot", dependencies);
   adapter.setGroupClockForTests(() => now);
   const message = (text = "", extra: Partial<TelegramIncomingMessage> = {}) => ({

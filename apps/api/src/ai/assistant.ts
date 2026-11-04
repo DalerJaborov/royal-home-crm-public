@@ -460,7 +460,8 @@ function expenseMonthDate(monthKey: string): Date {
 
 /** Экспортирован ради точечных тестов (apps/api/tests/ai-assistant-tools.test.ts):
  *  проверка ownScope/прав каждого инструмента без похода в Gemini. */
-export async function runTool(name: string, input: Record<string, unknown>, actor: AssistantActor, embedding?: EmbeddingRequestOptions): Promise<unknown> {
+export async function runTool(name: string, input: Record<string, unknown>, actor: AssistantActor, embedding?: EmbeddingRequestOptions,
+  propertyPage?: { excludeIds: string[] }): Promise<unknown> {
   if (actor.hiddenTools?.has(name)) return { error: "Этот инструмент недоступен в этом чате" };
   const ownScope = actor.canViewAllClients ? undefined : actor.id;
   // Непринятая заявка и карточка из Корзины — не для агента (REST отдаёт ему 404 /
@@ -532,6 +533,10 @@ export async function runTool(name: string, input: Record<string, unknown>, acto
     const propertyWhere: Prisma.PropertyWhereInput = {
       // deletedAt — объект из Корзины по REST отдаёт 404, ассистент не исключение.
       deletedAt: null,
+      ...(!(actor.permissions?.has("properties.delete") ?? false) ? {
+        deleteRequests: { none: { status: "PENDING", requestedById: actor.id } },
+      } : {}),
+      ...(propertyPage?.excludeIds.length ? { id: { notIn: propertyPage.excludeIds } } : {}),
       ...(status ? { status } : {}),
       ...(input.type ? { type: input.type as never } : {}),
       ...(districtId ? { districtId } : {}),
@@ -549,8 +554,8 @@ export async function runTool(name: string, input: Record<string, unknown>, acto
       where: propertyWhere,
       include: propertyInclude,
       orderBy: filters.preferManyWindows
-        ? [{ windowCount: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }]
-        : { createdAt: "desc" },
+        ? [{ windowCount: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }, { id: "desc" }]
+        : [{ createdAt: "desc" }, { id: "desc" }],
       // Структурные фильтры сужают первыми (архитектурное решение 23.08.2026,
       // пункт 3 очереди ИИ): при семантике берём пул с запасом, чтобы было что
       // переупорядочить по смыслу, — без неё сразу режем до восьми, как раньше.
@@ -1149,7 +1154,7 @@ export interface RunAssistantOptions {
    *  перед каждым тул-вызовом. Необязателен: без него поведение не меняется. */
   onStatus?: (message: string) => void;
   /** Lets delivery choose a format for data retrieved during this turn. */
-  onToolResult?: (name: string) => void;
+  onToolResult?: (name: string, result?: unknown, args?: Record<string, unknown>) => void;
   /** Внешняя отмена: роут отдаёт сюда закрытие соединения клиентом. Прерывает
    *  вызов модели и паузы между повторами; начатую запись в базу — нет. */
   signal?: AbortSignal;
@@ -1602,7 +1607,7 @@ export async function runAssistantDetailed(
       });
       turn.calls.forEach((call, index) => {
         cardEvidence.observe(call.name, results[index]);
-        options.onToolResult?.(call.name);
+        options.onToolResult?.(call.name, results[index], call.args);
       });
       // Keep optional provider IDs; names alone cannot identify two calls to
       // the same function. Original signed model parts were appended above.
