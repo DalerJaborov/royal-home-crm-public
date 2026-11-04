@@ -110,6 +110,30 @@ jobs:
       - run: npm run precheck -- --no-tests
       - run: npm run test:scripts
 
+      # Prepare the media dependencies once to avoid twenty simultaneous downloads from the APT mirror.
+      - name: Download media test packages
+        timeout-minutes: 12
+        run: |
+          debs="$RUNNER_TEMP/ship-media-debs"
+          mkdir -p "$debs"
+          apt_command=(sudo timeout --kill-after=10s 4m apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o "Dir::Cache::archives=$debs")
+          "${apt_command[@]}" install -y --download-only --no-install-recommends ffmpeg poppler-utils || {
+            "${apt_command[@]}" update &&
+            "${apt_command[@]}" install -y --download-only --no-install-recommends ffmpeg poppler-utils
+          }
+          touch "$debs/ready"
+
+      - name: Share the downloaded test packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: ship-media-debs
+          path: |
+            ${{ runner.temp }}/ship-media-debs/*.deb
+            ${{ runner.temp }}/ship-media-debs/ready
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
+
   tests:
     name: машина ${{ matrix.machine }}
     needs: plan
@@ -167,15 +191,24 @@ jobs:
       # 20.10.2026, первый облачный прогон). apt здесь законен: это Linux-машина
       # GitHub, а не Windows-раннер владельца (правило CLAUDE.md — про тот).
       # pdfinfo проверяет число страниц PDF до платного разбора помощником.
+      - uses: actions/download-artifact@v4
+        with:
+          name: ship-media-debs
+          path: ${{ runner.temp }}/ship-media-debs
+
       - name: ffmpeg and PDF inspection
-        timeout-minutes: 6
+        timeout-minutes: 12
         run: |
           if ! command -v ffmpeg || ! command -v ffprobe || ! command -v pdfinfo; then
-            apt_command=(sudo timeout --kill-after=10s 90s apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20)
-            "${apt_command[@]}" install -y --no-install-recommends ffmpeg poppler-utils || {
-              "${apt_command[@]}" update &&
-              "${apt_command[@]}" install -y --no-install-recommends ffmpeg poppler-utils
-            }
+            shopt -s nullglob
+            packages=("$RUNNER_TEMP"/ship-media-debs/*.deb)
+            if (( ${#packages[@]} == 0 )) || ! sudo timeout --kill-after=10s 2m apt-get install -y --no-download --no-install-recommends "${packages[@]}"; then
+              apt_command=(sudo timeout --kill-after=10s 3m apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20)
+              "${apt_command[@]}" install -y --no-install-recommends ffmpeg poppler-utils || {
+                "${apt_command[@]}" update &&
+                "${apt_command[@]}" install -y --no-install-recommends ffmpeg poppler-utils
+              }
+            fi
           fi
           ffmpeg -version >/dev/null
           ffprobe -version >/dev/null
