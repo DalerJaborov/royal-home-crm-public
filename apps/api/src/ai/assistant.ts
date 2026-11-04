@@ -1158,9 +1158,11 @@ export interface RunAssistantOptions {
   onToken?: (event: AssistantTokenEvent) => void;
   /**
    * Клиент умеет показать карточку подтверждения (заголовок X-Assistant-Confirm: 1).
-   * Нет — инструменты записи модели не объявляются вовсе (П3, tools/types.ts).
+   * Без неё модели доступны только встроенные инструменты записи старого интерфейса.
    */
   confirmUi?: boolean;
+  /** Пересланная речь и другие данные для чтения не могут запускать запись. */
+  readOnly?: boolean;
   /** Карточка подтверждения готова (SSE-событие `confirm`). */
   onConfirm?: (action: AssistantActionView) => void;
   /** Откуда пришёл вопрос; Telegram не вводит step-up, поэтому часть действий ему закрыта. */
@@ -1255,7 +1257,7 @@ export const MAX_WRITES_PER_ANSWER = 3;
 export const WRITE_LIMIT_ERROR = `Лимит записей за ответ: не больше ${MAX_WRITES_PER_ANSWER}. Остальное — следующим сообщением.`;
 
 /** Хуки раунда: признак «клиент умеет показать подтверждение» и общий на ответ счётчик записей. */
-export type RoundHooks = RunPluginHooks & { confirmUi: boolean; writeBudget: { left: number }; embedding?: EmbeddingRequestOptions };
+export type RoundHooks = RunPluginHooks & { confirmUi: boolean; readOnly?: boolean; writeBudget: { left: number }; embedding?: EmbeddingRequestOptions };
 
 /** Длина одной строки аргумента в журнале обращений: это след, а не копия переписки. */
 const AUDIT_ARG_MAX_CHARS = 80;
@@ -1306,13 +1308,18 @@ export async function runAuditedTool(call: GeminiToolCall, actor: AssistantActor
   // То же для записи без карточки подтверждения (сборка П3): без confirmUi запись
   // не объявлялась, и названная моделью наугад (или из старой истории) не
   // исполняется — уровень B иначе записал бы сразу, без кнопки «Отменить».
-  const result = plugin
-    ? plugin.allowed && !plugin.allowed(actor)
-      ? { error: "Нет доступа к этому действию" }
-      : plugin.level !== "A" && !hooks.confirmUi
-        ? { error: "Это действие здесь недоступно: нужна карточка подтверждения в CRM" }
-        : await runAssistantToolPlugin(plugin, call.args ?? {}, actor, hooks)
-    : await runTool(call.name, call.args, actor, hooks.embedding);
+  let result: unknown;
+  if (hooks.readOnly && isWriteTool(call.name)) {
+    result = { error: "Этот запрос можно только прочитать. Для записи попросите отдельным сообщением.", code: "READ_ONLY_TURN" };
+  } else if (plugin?.allowed && !plugin.allowed(actor)) {
+    result = { error: "Нет доступа к этому действию" };
+  } else if (plugin && plugin.level !== "A" && !hooks.confirmUi) {
+    result = { error: "Это действие здесь недоступно: нужна карточка подтверждения в CRM" };
+  } else if (plugin) {
+    result = await runAssistantToolPlugin(plugin, call.args ?? {}, actor, hooks);
+  } else {
+    result = await runTool(call.name, call.args, actor, hooks.embedding);
+  }
   // Одна точка на все инструменты — журнал обращений (аудит-лог, не защита
   // доступа: та стоит внутри runTool через ownScope). Запись НЕ ждётся (задача
   // 1.4): вставка в журнал на критическом пути каждого инструмента — лишний поход
@@ -1358,7 +1365,7 @@ async function runRoundTools(
         results[i] = { error: WRITE_LIMIT_ERROR, code: "WRITE_LIMIT" };
       } else {
         hooks.writeBudget.left -= 1;
-        onStatus?.(toolStatusPhrase(calls[i].name));
+        if (!hooks.readOnly) onStatus?.(toolStatusPhrase(calls[i].name));
         // Начатая запись дожидается конца, срок её не обрывает (см. WRITE_TOOLS).
         results[i] = await runAuditedTool(calls[i], actor, hooks);
         writesThisRound.set(key, results[i]);
@@ -1470,11 +1477,12 @@ export async function runAssistantDetailed(
     }));
     const lastUserText = [...history].reverse().find((m) => m.role === "user")?.content ?? "";
     // Недоступный актору инструмент модели не объявляется (задача 2.5).
+    const confirmUi = options.confirmUi === true && !options.readOnly;
     const tools = [
       ...GEMINI_TOOLS.filter((t) =>
-        assistantToolAllowed(actor, t.name),
+        assistantToolAllowed(actor, t.name) && (!options.readOnly || !isWriteTool(t.name)),
       ),
-      ...pluginDeclarations(actor, options.confirmUi === true, options.channel ?? "crm"),
+      ...pluginDeclarations(actor, confirmUi, options.channel ?? "crm"),
     ];
 
     // Задача 4 (docs/ai-bots-audit-13-09.md): фиксируем состояние рубильника НА
@@ -1579,7 +1587,8 @@ export async function runAssistantDetailed(
       const results = await runRoundTools(turn.calls, actor, signal, onStatus, {
         channel: options.channel ?? "crm",
         onConfirm: options.onConfirm,
-        confirmUi: options.confirmUi === true,
+        confirmUi,
+        readOnly: options.readOnly,
         writeBudget,
         embedding: { beforeAttempt: embeddingGuard, signal, maxAttempts: 1 },
       });

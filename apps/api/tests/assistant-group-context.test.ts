@@ -7,6 +7,7 @@ import {
   loadAssistantTelegramContext,
   retainAssistantTelegramTranscript,
 } from "../src/telegram/assistantGroupContext.js";
+import { groupHistoryQuestion, groupPropertyRefs } from "../src/telegram/assistantGroupParticipation.js";
 
 const unique = randomInt(100_000, 900_000);
 const chatId = -980_000_000 - unique;
@@ -58,6 +59,26 @@ afterAll(async () => {
 });
 
 describe("opted-in Telegram group evidence", () => {
+  it("indexes the same visible object code variants that a history question accepts", async () => {
+    await captureAssistantTelegramContext(message(11, { text: "ОБ №123. Исходники готовы." }), 1, now);
+    await captureAssistantTelegramContext(message(12, { text: "ОБ 123. Монтажёр подтвердил." }), 2, now);
+    await captureAssistantTelegramContext(message(13, { text: "OB#000123. Есть файлы. https://example.test/OB-999" }), 3, now);
+    await captureAssistantTelegramContext(message(14, { text: "ОБ-123 810000 сомони." }), 4, now);
+    const selector = groupHistoryQuestion("Что писали по ОБ-123?");
+    expect(selector).toEqual({ propertyShortId: 123 });
+    expect((await lookup({ selector: selector! })).map(row => row.messageId)).toEqual([14, 13, 12, 11]);
+    expect(await lookup({ selector: { propertyShortId: 999 } })).toEqual([]);
+  });
+
+  it("preserves the full stored ID range without widening direct action reference matching", async () => {
+    await captureAssistantTelegramContext(message(11, { text: "ОБ-2147483647. Исходники готовы." }), 1, now);
+    const selector = groupHistoryQuestion("Что писали по ОБ 2147483647?");
+    expect(selector).toEqual({ propertyShortId: 2_147_483_647 });
+    expect((await lookup({ selector: selector! })).map(row => row.messageId)).toEqual([11]);
+    expect(groupHistoryQuestion("Что писали по ОБ 2147483648?")).toBeNull();
+    expect(groupPropertyRefs("ОБ-2147483647")).toEqual([]);
+  });
+
   it("captures only messages from an opted-in work group after enrollment and from an active linked user", async () => {
     await captureAssistantTelegramContext(message(1, { date: sourceDate - 3_601 }), 1, now);
     await captureAssistantTelegramContext(message(2, { from: { id: telegramUserId + 1 } }), 2, now);

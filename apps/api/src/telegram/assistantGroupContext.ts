@@ -2,6 +2,7 @@ import { z } from "zod";
 import { prisma } from "../db.js";
 import { maskAssistantContacts } from "../lib/assistantContacts.js";
 import { findAgentByTelegramUserId } from "../lib/telegramAgentLink.js";
+import { groupPropertyReferenceNumbers } from "./assistantGroupParticipation.js";
 
 const RETENTION_MS = 7 * 24 * 60 * 60 * 1_000;
 const TEXT_LIMIT = 1_000;
@@ -50,18 +51,16 @@ function attachmentKind(message: GroupMessage): string | null {
   return null;
 }
 
-function redactEvidence(text: string): string {
-  return maskAssistantContacts(text)
+function prepareEvidence(text: string) {
+  const withoutLinks = text
     .replace(/(?:https?:\/\/|tg:\/\/|www\.)[^\s<>{}]+/giu, "[ссылка]")
     .replace(/[\p{L}\p{N}.!#$%&'*+/=?^_`{|}~-]+@[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)+/giu, "[почта]")
     .slice(0, TEXT_LIMIT);
-}
-
-function propertyReferences(text: string): number[] {
-  const matches = text.matchAll(/(?:^|[^\p{L}\p{N}])(?:об|ob)\s*[-–—]\s*(\d{1,10})(?![\p{L}\p{N}])/giu);
-  return [...new Set([...matches].map(match => Number(match[1])))]
-    .filter(id => id > 0 && id <= MESSAGE_ID_MAX)
-    .slice(0, RESULT_LIMIT);
+  return {
+    text: maskAssistantContacts(withoutLinks).slice(0, TEXT_LIMIT),
+    // The phone mask can cover a long exact object ID or join it to a following price.
+    propertyRefs: groupPropertyReferenceNumbers(withoutLinks).slice(0, RESULT_LIMIT),
+  };
 }
 
 function groupEvidenceSource(raw: unknown, updateId: number, now: Date) {
@@ -92,7 +91,7 @@ export async function captureAssistantTelegramContext(raw: unknown, updateId: nu
   const source = groupEvidenceSource(raw, updateId, now);
   if (!source) return;
   const { message, rawText, groupChatId, occurredAt, sourceVersion, sourceUpdateId, expiresAt } = source;
-  const text = redactEvidence(rawText);
+  const { text, propertyRefs } = prepareEvidence(rawText);
   const kind = attachmentKind(message);
   // Keep an empty edit as a tombstone, but don't archive empty service messages.
   if (!text && !kind && message.edit_date === undefined) return;
@@ -111,7 +110,7 @@ export async function captureAssistantTelegramContext(raw: unknown, updateId: nu
   if (!author || String(settings?.telegramDiscussionGroupId ?? "") === groupChatId) return;
 
   const where = { groupChatId, messageId: message.message_id };
-  const content = { sourceVersion, sourceUpdateId, text, transcript: null, attachmentKind: kind, propertyRefs: propertyReferences(text) };
+  const content = { sourceVersion, sourceUpdateId, text, transcript: null, attachmentKind: kind, propertyRefs };
   await prisma.$transaction(async tx => {
     const active = await tx.$queryRaw<{ chatId: string }[]>`
       SELECT "chatId" FROM "AssistantTelegramGroup"
@@ -148,11 +147,12 @@ export async function retainAssistantTelegramTranscript(
   const { message, rawText, groupChatId, occurredAt, sourceVersion, sourceUpdateId } = source;
   const kind = attachmentKind(message);
   if (message.edit_date !== undefined || (kind !== "voice" && kind !== "audio")) return;
-  const transcript = redactEvidence(recognizedText.trim());
+  const evidence = prepareEvidence(recognizedText.trim());
+  const transcript = evidence.text;
   if (!transcript) return;
   const propertyRefs = [...new Set([
-    ...propertyReferences(redactEvidence(rawText)),
-    ...propertyReferences(transcript),
+    ...prepareEvidence(rawText).propertyRefs,
+    ...evidence.propertyRefs,
   ])];
 
   await prisma.$transaction(async tx => {

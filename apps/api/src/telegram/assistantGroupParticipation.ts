@@ -60,9 +60,16 @@ export function groupStatusFollowUp(text: string, quoted: string): boolean {
 
 /** Use only visible, unique object numbers from a reply. Never copy its stale result or instructions. */
 export function groupPropertyRefs(text: string): string[] {
-  const ids = [...text.matchAll(/(?<![\p{L}\p{N}])(?:ОБ|OB)[\s\-–—№#]+(\d{1,8})(?![\p{L}\p{N}])/giu)]
-    .map(match => Number(match[1])).filter(id => id > 0);
-  return [...new Set(ids)].map(id => formatPropertyCode(id));
+  return groupPropertyReferenceNumbers(text, 8).map(id => formatPropertyCode(id));
+}
+
+/** The same exact visible code identifies evidence at capture and at search. */
+export function groupPropertyReferenceNumbers(text: string, maxDigits = 10): number[] {
+  const ids = [...text.matchAll(/(?<![\p{L}\p{N}])(?:ОБ|OB)[\s\-–—№#]+(\d{1,10})(?![\p{L}\p{N}])/giu)]
+    .filter(match => match[1].length <= maxDigits)
+    .map(match => Number(match[1]))
+    .filter(id => id > 0 && id <= 2_147_483_647);
+  return [...new Set(ids)];
 }
 
 /** Only an explicit question about chat history can use archived evidence. */
@@ -70,8 +77,8 @@ export function groupHistoryQuestion(text: string, replyToMessageId?: number) {
   if (text.length > 200 || /[\r\n]|https?:\/\/|не\s+(?:отвечай(?:те)?|вмешивайся)|хомӯш бош/iu.test(text)) return null;
   const ask = /^(?:а\s+)?(?:что\s+(?:(?:уже|тут|здесь)\s+)*(?:писали|написали|говорили|просили|обсуждали)|(?:то ҳол\s+)?ч[ӣи]\s+(?:(?:ин ҷо|пештар)\s+)?(?:навиштанд|гуфтанд|пурсиданд))(?=$|[\s?!.])/iu;
   if (!ask.test(text)) return null;
-  const refs = groupPropertyRefs(text);
-  if (refs.length === 1) return { propertyShortId: Number(refs[0].slice(3)) };
+  const refs = groupPropertyReferenceNumbers(text);
+  if (refs.length === 1) return { propertyShortId: refs[0] };
   if (!refs.length && replyToMessageId) return { replyToMessageId };
   return null;
 }
