@@ -1076,7 +1076,7 @@ function isTelegramRateLimitError(err: unknown): boolean {
  * копировался в Blob — api (лимит 768 МБ) убило OOM через 8 секунд после
  * одобрения. Статус остался SENT_TO_EDITOR, ни строки в журнале, монтажёр ничего
  * не получил, а очередь «строго по одному» держала все следующие объекты в QUEUED
- * до ручной отмены утром. Теперь файл идёт потоком (`fs.openAsBlob`), а если
+ * до ручной отмены утром. Теперь локальный Bot API читает файл с диска, а если
  * процесс всё же умрёт посреди отправки — `deliveredAt` останется пустым и сторож
  * lib/videoHandoffRedelivery.ts дошлёт с нарастающей паузой.
  *
@@ -1548,13 +1548,11 @@ async function deliverSourceVideos(
           );
         }
       }
-      // ПОТОКОМ С ДИСКА, не readFile: Buffer 480 МБ + его копия в Blob убили api
-      // по OOM (объект №121, 22.09.2026). openAsBlob читает файл по мере отправки.
-      const file = await fs.openAsBlob(filePath);
+      // Передаём путь: локальный Bot API загрузит файл сам, без multipart в CRM.
       try {
         const sent = await sendDocumentFile(
           chatId,
-          file,
+          { path: filePath },
           montajerFileName(property.shortId, index, total, video.filename),
           head,
           sendTimeoutForBytes(stat.size)
@@ -2521,8 +2519,7 @@ export async function blockDuplicateFinalBeforePublish(propertyId: string, short
 }
 
 /** md5 ПОТОКОМ, не readFile целиком: сырые видео и присланные монтажёром
- *  файлы бывают по 100-500 МБ — тот же повод, что у openAsBlob в
- *  deliverSourceVideos (объект №121, OOM от буфера в памяти). null — файл
+ *  файлы бывают по 100-500 МБ (объект №121, OOM от буфера в памяти). null — файл
  *  прочитать не удалось (исходник унесли/переименовали мимо базы), сравнение
  *  просто пропускает этот кандидат, а не роняет приём готового ролика. */
 async function md5OfFile(filePath: string): Promise<string | null> {

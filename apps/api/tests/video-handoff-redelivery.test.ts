@@ -162,8 +162,7 @@ describe("доставка исходников монтажёру", () => {
     expect(s.videoHandoffStatus).toBe("SENT_TO_EDITOR");
     expect(s.videoHandoffDeliveredAt).not.toBeNull();
     expect(s.videoHandoffDispatchAttempts).toBe(0);
-    // Файл уходит потоком с диска (Blob), а не Buffer в памяти — причина OOM №121.
-    expect(sendDocumentFile.mock.calls[0]?.[1]).toBeInstanceOf(Blob);
+    expect(sendDocumentFile.mock.calls[0]?.[1]).toEqual({ path: expect.stringContaining(p.id) });
   });
 
   it("файл и ссылка не ушли — доставка не отмечена, место занято, попытка посчитана", async () => {
