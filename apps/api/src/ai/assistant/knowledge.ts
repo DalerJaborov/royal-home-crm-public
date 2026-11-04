@@ -4,6 +4,7 @@ import { prisma } from "../../db.js";
 import { assistantKnowledgeInputSchema, assistantKnowledgeSearchSchema, type AssistantKnowledgeInput } from "@royal-home/shared";
 import { maskAssistantContacts } from "../../lib/assistantContacts.js";
 import { wrapUntrusted } from "../untrustedContent.js";
+import { companyMemoryPolicyProjection } from "./knowledgePolicyQuery.js";
 import type { KnowledgeEmbeddingOptions } from "./knowledgeSemantic.js";
 import type { CompanyKnowledge } from "./knowledgeTypes.js";
 
@@ -33,10 +34,12 @@ export async function searchCompanyKnowledge(query: string, semanticOptions?: Kn
     AND ${conditions.length ? Prisma.sql`(${Prisma.join(conditions, " OR ")})` : Prisma.sql`true`}
     ORDER BY ${scores.length ? Prisma.sql`(${Prisma.join(scores, " + ")})` : Prisma.sql`0 + 0`} DESC, "updatedAt" DESC, "id" ASC LIMIT 6
   `);
-  if (!semanticOptions || process.env.ASSISTANT_KNOWLEDGE_SEMANTIC_ENABLED !== "true" || !boundedQuery) return lexical;
+  if (!semanticOptions || process.env.ASSISTANT_KNOWLEDGE_SEMANTIC_ENABLED !== "true") return lexical;
+  const policy = companyMemoryPolicyProjection(boundedQuery);
+  if (!policy) return lexical;
   try {
     const { semanticKnowledgeSearch } = await import("./knowledgeSemantic.js");
-    const semantic = await semanticKnowledgeSearch(boundedQuery, semanticOptions);
+    const semantic = await semanticKnowledgeSearch(policy.providerQuery, semanticOptions);
     const ranked = new Map<string, { row: CompanyKnowledge; score: number }>();
     for (const list of [lexical, semantic]) list.forEach((row, index) => {
       const previous = ranked.get(row.id);

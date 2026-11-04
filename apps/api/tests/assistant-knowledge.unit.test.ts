@@ -1,4 +1,5 @@
 import { beforeEach, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
 const mocks=vi.hoisted(()=>({access:vi.fn(),loadActor:vi.fn(),query:vi.fn(),transaction:vi.fn()}));
 vi.mock("../src/db.js",()=>({prisma:{$disconnect:vi.fn(),$queryRaw:mocks.query,$transaction:mocks.transaction}}));
 vi.mock("../src/auth/middleware.js",()=>({loadAgentAccess:mocks.access}));
@@ -16,6 +17,13 @@ it("validates input bounds and rejects contact/secrets",()=>{
   expect(()=>validateCompanyKnowledge({...input,content})).toThrow();
  expect(()=>validateCompanyKnowledge({...input,content:'a'.repeat(801)})).toThrow();
  expect(()=>validateCompanyKnowledge({...input,validUntil:'2020-01-01T00:00:00Z'})).toThrow();
+});
+it("accepts the four source-pinned pilot entries through the normal knowledge validator", () => {
+  const file = new URL("../../../docs/design/pilots/company-memory-workflows.json", import.meta.url);
+  const entries: unknown[] = JSON.parse(readFileSync(file, "utf8"));
+  expect(entries).toHaveLength(4);
+  expect(entries.map(entry => validateCompanyKnowledge(entry))).toEqual(entries);
+  expect(mocks.transaction).not.toHaveBeenCalled();
 });
 it("permits archiving expired knowledge while rejecting new expired facts",async()=>{
  const expired={...input,validUntil:'2020-01-01T00:00:00Z'};
