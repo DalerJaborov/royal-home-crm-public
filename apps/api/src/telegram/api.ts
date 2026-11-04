@@ -311,16 +311,20 @@ export async function setMessageReaction(chatId: string, messageId: number, emoj
  *
  * Провал не бросает: индикатор — украшение, ответ важнее (как setMessageReaction).
  */
-export async function sendChatAction(chatId: string, directMessagesTopicId?: number): Promise<void> {
+export async function sendChatAction(
+  chatId: string,
+  directMessagesTopicId?: number,
+  action: "typing" | "record_voice" | "upload_voice" | "upload_photo" | "upload_document" = "typing",
+): Promise<void> {
   if (!BASE_URL) return;
   try {
     await call("sendChatAction", {
       chat_id: chatId,
-      action: "typing",
+      action,
       ...(directMessagesTopicId != null ? { direct_messages_topic_id: directMessagesTopicId } : {}),
-    });
+    }, 2_000, undefined, undefined, true);
   } catch (err) {
-    console.warn("[telegram] «печатает…» не показан (косметика):", describeError(err));
+    console.warn("[telegram] Индикатор действия не показан:", action, describeError(err));
   }
 }
 
@@ -437,7 +441,8 @@ export async function sendPhotoFromDisk(
   filePath: string,
   caption?: string,
   buttons?: TelegramInlineButton[][],
-  timeoutMs = 60_000
+  timeoutMs = 60_000,
+  options?: { singleAttempt?: boolean; replyTo?: number }
 ): Promise<TelegramSentMessage> {
   if (!BASE_URL) throw new Error("TELEGRAM_BOT_TOKEN не настроен");
   const { openAsBlob } = await import("node:fs");
@@ -449,11 +454,13 @@ export async function sendPhotoFromDisk(
       form.append("chat_id", chatId);
       if (caption) form.append("caption", caption.slice(0, CAPTION_MAX_CHARS));
       if (buttons) form.append("reply_markup", JSON.stringify({ inline_keyboard: buttons }));
+      if (options?.replyTo) form.append("reply_parameters", JSON.stringify({ message_id: options.replyTo, allow_sending_without_reply: true }));
       form.append("photo", blob, "photo.webp");
       return form;
     },
     timeoutMs,
-    "sendPhoto (с диска)"
+    "sendPhoto (с диска)",
+    options?.singleAttempt
   );
   return result as TelegramSentMessage;
 }
@@ -564,6 +571,7 @@ async function postMultipartWithRetry(
       await sleep(waitMs);
       continue;
     }
+    if (singleAttempt) throw new TelegramApiError(data.error_code, label, data.description ?? "неизвестная ошибка");
     throw new Error(`Telegram API ${label}: ${data.description ?? "неизвестная ошибка"}`);
   }
 }
@@ -589,6 +597,7 @@ export async function sendDocumentFile(
   singleAttempt = false,
 ): Promise<TelegramSentDocument> {
   if (!BASE_URL) throw new Error("TELEGRAM_BOT_TOKEN не настроен");
+  void sendChatAction(chatId, undefined, "upload_document");
   const result = await postMultipartWithRetry(
     `${BASE_URL}/sendDocument`,
     () => {
@@ -604,6 +613,46 @@ export async function sendDocumentFile(
   );
   return result as TelegramSentDocument;
 }
+
+export async function sendHtmlMessage(
+  chatId: string, html: string, replyToMessageId?: number, buttons?: TelegramInlineButton[][],
+): Promise<unknown> {
+  return call("sendMessage", {
+    chat_id: chatId,
+    text: html,
+    parse_mode: "HTML",
+    link_preview_options: { is_disabled: true },
+    ...(buttons?.length ? { reply_markup: { inline_keyboard: buttons } } : {}),
+    ...(replyToMessageId ? { reply_to_message_id: replyToMessageId, allow_sending_without_reply: true } : {}),
+  }, CALL_TIMEOUT_MS, undefined, undefined, true);
+}
+
+/** Repeat a known voice for this bot, with no ambiguous automatic retry. */
+export async function sendAssistantVoiceId(chatId: string, fileId: string, replyToMessageId?: number): Promise<unknown> {
+  return call("sendVoice", {
+    chat_id: chatId, voice: fileId,
+    ...(replyToMessageId ? { reply_to_message_id: replyToMessageId, allow_sending_without_reply: true } : {}),
+  }, CALL_TIMEOUT_MS, undefined, undefined, true);
+}
+
+/** Голосовое сообщение (OGG/Opus) — ответ помощницы голосом (telegram/assistantVoice.ts). */
+export async function sendVoiceFile(chatId: string, audio: Buffer, replyToMessageId?: number, timeoutMs = 60_000): Promise<unknown> {
+  if (!BASE_URL) throw new Error("TELEGRAM_BOT_TOKEN не настроен");
+  return postMultipartWithRetry(
+    `${BASE_URL}/sendVoice`,
+    () => {
+      const form = new FormData();
+      form.append("chat_id", chatId);
+      if (replyToMessageId) { form.append("reply_to_message_id", String(replyToMessageId)); form.append("allow_sending_without_reply", "true"); }
+      form.append("voice", new Blob([audio], { type: "audio/ogg" }), "madina.ogg");
+      return form;
+    },
+    timeoutMs,
+    "sendVoice",
+    true,
+  );
+}
+
 
 /** Имя бота (без @) — нужно для прямой ссылки-приглашения t.me/<имя>?start=<код>
  *  (01.09.2026, привязка личного Telegram агента). Кэшируется в памяти процесса:
@@ -769,6 +818,7 @@ export function sendVideo(chatId: string, videoUrl: string, caption?: string, ti
 }
 
 export function sendDocument(chatId: string, fileUrl: string, caption?: string): Promise<unknown> {
+  void sendChatAction(chatId, undefined, "upload_document");
   return call("sendDocument", { chat_id: chatId, document: fileUrl, ...fitCaption(caption) });
 }
 
@@ -910,7 +960,7 @@ export interface TelegramCallbackQuery {
   data?: string;
   /** message_id — чтобы модерация (lib/telegramModeration) правила именно то
    *  сообщение, под которым нажали кнопку. */
-  message?: { chat: { id: number }; message_id?: number };
+  message?: { chat: { id: number; type?: string }; message_id?: number };
   from?: { id: number; username?: string; first_name?: string };
 }
 
@@ -1012,14 +1062,15 @@ const GET_FILE_TIMEOUT_MS = 180_000;
 
 export async function resolveTelegramFile(
   fileId: string,
-  maxBytes: number = MAX_FILE_BYTES
+  maxBytes: number = MAX_FILE_BYTES,
+  timeoutMs: number = GET_FILE_TIMEOUT_MS
 ): Promise<TelegramFileRef | null> {
   if (!TOKEN) return null;
   try {
     const file = await call<{ file_path?: string; file_size?: number }>(
       "getFile",
       { file_id: fileId },
-      GET_FILE_TIMEOUT_MS
+      Math.min(GET_FILE_TIMEOUT_MS, Math.max(1_000, timeoutMs))
     );
     if (!file.file_path) return null;
     // Размер Telegram сообщает сам — отсекаем ДО скачивания, а не после.

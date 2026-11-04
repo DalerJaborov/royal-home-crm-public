@@ -78,6 +78,6 @@ export function presentProperty<
     intakeAgentId?: string | null;
     createdById?: string | null;
   }
->(property: T, req: Request): Omit<T, "embedding"> & { ownerContactHidden: boolean } {
+>(property: T, req: Pick<Request, "agent">): Omit<T, "embedding"> & { ownerContactHidden: boolean } {
   return stripEmbedding(stripOwnerContact(property, req.agent!.id, can(req, "properties.viewOwners")));
 }

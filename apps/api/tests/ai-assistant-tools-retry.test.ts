@@ -64,26 +64,37 @@ afterEach(() => {
 describe("1.2 — повторы на пути инструментов", () => {
   it("429 → 200: помощник отвечает со второй попытки той же моделью, а не отказом", async () => {
     resetAssistantRuntimeCache();
-    const fetchMock = vi.fn(async () => (fetchMock.mock.calls.length === 1 ? new Response("quota", { status: 429 }) : textResponse("Готово.")));
+    let generations = 0;
+    const fetchMock = vi.fn(async (url: string | URL | Request) => {
+      if (String(url).endsWith(":countTokens")) return new Response(JSON.stringify({ totalTokens: 1000 }));
+      return ++generations === 1 ? new Response("quota", { status: 429 }) : textResponse("Готово.");
+    });
     vi.stubGlobal("fetch", fetchMock);
 
     const outcome = await runAssistantDetailed([{ role: "user", content: "Сколько у меня клиентов?" }], actor);
 
     expect(outcome).toEqual({ ok: true, reply: "Готово." });
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(generations).toBe(2);
     const urls = fetchMock.mock.calls.map((c) => String((c as unknown[])[0]));
-    expect(urls[0]).toBe(urls[1]);
+    expect(urls[0]).toBe(urls[2]);
+    expect(urls[1]).toBe(urls[3]);
+    expect(urls[0]).toContain(":countTokens");
+    expect(urls[1]).toContain(":generateContent");
   });
 
   it("400 — запрос неверен, повтор не поможет: один запрос и код provider_rejected без «повторить»", async () => {
     resetAssistantRuntimeCache();
-    const fetchMock = vi.fn(async () => new Response("bad request", { status: 400 }));
+    const fetchMock = vi.fn(async (url: string | URL | Request) => String(url).endsWith(":countTokens")
+      ? new Response(JSON.stringify({ totalTokens: 1000 })) : new Response("bad request", { status: 400 }));
     vi.stubGlobal("fetch", fetchMock);
 
     const outcome = await runAssistantDetailed([{ role: "user", content: "Сводка" }], actor);
 
     expect(outcome).toEqual({ ok: false, code: "provider_rejected", retryable: false });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[0][0])).toContain(":countTokens");
+    expect(String(fetchMock.mock.calls[1][0])).toContain(":generateContent");
   });
 
   it("503 без конца — повторы укладываются в срок, после него ни попытки, ни паузы", async () => {

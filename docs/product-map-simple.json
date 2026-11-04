@@ -16,10 +16,10 @@
   "paths": 730,
   "cron": 120,
   "jobs": 31,
-  "conditions": 4006,
-  "untranslatedUnique": 460,
-  "untranslatedTotal": 590,
-  "partialUnique": 1099,
+  "conditions": 3951,
+  "untranslatedUnique": 451,
+  "untranslatedTotal": 581,
+  "partialUnique": 1076,
   "translatedShare": 85
  },
  "untranslated": [
@@ -76,9 +76,6 @@
   "!current?.isActive || !canViewInvestigations(current.role) || !resolvePermissions(current.role, parsePermissi…",
   "!currentClient || currentClient.deletedAt || (req.agent!.role !== \"ADMIN\" && req.agent!.role !== \"DIRECTOR\" &…",
   "!customerManagedTraceEnabled()",
-  "!data.address?.trim()",
-  "!data.clientId && data.ownerContact?.trim()",
-  "!data.ownerContact?.trim() || data.ownerContact.includes(\"•\")",
   "!direct || (ownAgentId && (!direct.client || direct.client.deletedAt || direct.client.assignedAgentId !== own…",
   "!diskPath || !(await fileExists(diskPath))",
   "!diskPath || !fs.existsSync(diskPath)",
@@ -150,7 +147,6 @@
   "\"defaultRopAgentId\" in parsed.data.config && parsed.data.config.defaultRopAgentId",
   "\"optedOutAt\" in conv && conv.optedOutAt",
   "\"reason\" in pick",
-  "(!data.districtId || !data.address?.trim()) && data.lat !== undefined && data.lng !== undefined",
   "(await prisma.deal.count({ where: { propertyId: existing.id } })) > 0",
   "(await syncAgentMobileFallback(agent.id, creds)) === \"station_unreachable\"",
   "(current && !current.closedAt) || current?.id === sessionId || (current?.revision ?? 0) !== revision",
@@ -230,7 +226,6 @@
   "buffered[event.side] >= MAX_BUFFERED_SAMPLES",
   "buffers[side].length === 0",
   "c.desiredAreaMin != null && area != null && area < c.desiredAreaMin * (1 - policy.areaToleranceRatio)",
-  "card?.assignedAgentId && card.assignedAgentId !== effectiveIntakeAgentId && !canBindClient(req, card)",
   "changedFields.includes(\"instagramUrl\") && agentReelLinkClosed(existing.status, can(req, \"properties.editForei…",
   "channel && !bot.toggles.channels[channel]",
   "channel === \"INSTAGRAM\" && body.token?.trim()",
@@ -253,7 +248,6 @@
   "current.deletedAt || !latest || latest.id !== versionId.data || latest.revision !== parsed.data.expectedRevis…",
   "currentCount + activeSessions + 1 > maxCount",
   "currentCount + incomingCount > maxCount",
-  "currentCount + toCreate > MAX_DRAFT_PHOTOS",
   "currentCount + toProcess.length > MAX_PROPERTY_PHOTOS",
   "currentHour !== settings.dailyStoriesHourDushanbe",
   "current[field.count] !== dispute.aiCount",
@@ -289,7 +283,6 @@
   "err instanceof ClientMergeTrashedError",
   "err instanceof ConversationClientLinkError",
   "err instanceof DealAnnulError",
-  "err instanceof DraftConflictError",
   "err instanceof FirstContactError",
   "err instanceof MetaAdsTokenError",
   "err instanceof Prisma.PrismaClientKnownRequestError && err.code === \"P2003\"",
@@ -323,7 +316,6 @@
   "existingCorrection.kind === parsed.data.override",
   "existingSession.propertyId !== property.id",
   "existingVideo.propertyId !== property.id",
-  "existing[0]",
   "expected !== `\"${versionOf(raw)}\"`",
   "expiresAt - Date.now() > THREADS_REFRESH_BEFORE_EXPIRY_MS",
   "f.installation.id === row.endpointScopeId && f.source.id === row.originalNativeId && f.sourceRevision === row…",
@@ -356,7 +348,6 @@
   "link.expiresAt && link.expiresAt.getTime() < Date.now()",
   "lockedFields.some((f) => !(PROPERTY_FIELDS_OPEN_AFTER_PUBLISH as readonly string[]).includes(f))",
   "loggingOutAgentId && loggingOutAgentId !== payload.sub",
-  "mapDistrict && data.districtId && data.districtId !== mapDistrict.id",
   "mapDistrictPatch && mapDistrictPatch.id !== (data.districtId ?? existing.districtId)",
   "media.draft.agentId !== req.agent!.id",
   "mediaExecutionMode(\"NARRATION\") !== \"LIVE\"",
@@ -48879,108 +48870,7 @@
      ]
     },
     {
-     "t": "если есть чужой",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: такое уже есть: «Ключ загрузки уже использован»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если currentCount + toCreate > MAX_DRAFT_PHOTOS",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: данные неверные: «В черновик помещается … снимков, сейчас уже…»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ],
-     "raw": "currentCount + toCreate > MAX_DRAFT_PHOTOS"
-    },
-    {
-     "t": "и так по каждому",
-     "k": "loop",
-     "a": [],
-     "c": [
-      {
-       "t": "если есть known",
-       "k": "if",
-       "a": [],
-       "c": []
-      },
-      {
-       "t": "пробует сделать",
-       "k": "try",
-       "a": [],
-       "c": []
-      },
-      {
-       "t": "если не получилось",
-       "k": "catch",
-       "a": [],
-       "c": [
-        {
-         "t": "запись в журнал ошибок",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ]
-      },
-      {
-       "t": "пробует сделать",
-       "k": "try",
-       "a": [],
-       "c": [
-        {
-         "t": "поломка: «null,»",
-         "k": "do",
-         "a": [
-          "заводит: объект черновик файл"
-         ],
-         "c": [
-          {
-           "t": "если есть дубль",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          },
-          {
-           "t": "если количество не меньше предел черновик фото",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          },
-          {
-           "t": "заводит: объект черновик файл",
-           "k": "do",
-           "a": [],
-           "c": []
-          }
-         ]
-        }
-       ]
-      },
-      {
-       "t": "если не получилось",
-       "k": "catch",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "создано",
+     "t": "ответ (код зависит от условия)",
      "k": "do",
      "a": [],
      "c": []
@@ -51097,533 +50987,7 @@
    ],
    "tree": [
     {
-     "t": "если есть create denied",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: не хватает прав",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если данные заполнены неправильно",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: данные неверные: «Неверные данные»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если нет: success",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: данные неверные: «Неверные данные»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если есть черновик",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "пробует сделать",
-       "k": "try",
-       "a": [],
-       "c": [
-        {
-         "t": "поломка: «draft,»",
-         "k": "do",
-         "a": [],
-         "c": [
-          {
-           "t": "если revision больше 0 и черновик revision не задан",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          }
-         ]
-        }
-       ]
-      },
-      {
-       "t": "если не получилось",
-       "k": "catch",
-       "a": [],
-       "c": [
-        {
-         "t": "если err instanceof DraftConflictError",
-         "k": "if",
-         "a": [],
-         "c": [
-          {
-           "t": "отказ: такое уже есть",
-           "k": "do",
-           "a": [],
-           "c": []
-          }
-         ],
-         "raw": "err instanceof DraftConflictError"
-        }
-       ]
-      }
-     ]
-    },
-    {
-     "t": "если mapDistrict && data.districtId && data.districtId !== mapDistrict.id",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "запись в журнал ошибок",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ],
-     "raw": "mapDistrict && data.districtId && data.districtId !== mapDistrict.id"
-    },
-    {
-     "t": "если есть карта район",
-     "k": "if",
-     "a": [],
-     "c": []
-    },
-    {
-     "t": "если (!data.districtId || !data.address?.trim()) && data.lat !== undefined && data.lng !== undefined",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "если нет: район и есть район",
-       "k": "if",
-       "a": [],
-       "c": []
-      },
-      {
-       "t": "если !data.address?.trim()",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "если есть guessed адрес",
-         "k": "if",
-         "a": [],
-         "c": []
-        }
-       ],
-       "raw": "!data.address?.trim()"
-      }
-     ],
-     "raw": "(!data.districtId || !data.address?.trim()) && data.lat !== undefined && data.lng !== undefined"
-    },
-    {
-     "t": "если нет: is сотрудник роль и нет: intake сотрудник",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "отказ: данные неверные: «Укажите, кто принял объект»",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если нет: is сотрудник роль",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "если есть ошибка",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "отказ: данные неверные",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ]
-      }
-     ]
-    },
-    {
-     "t": "если объект предел больше 0",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "если активен количество не меньше объект предел",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "отказ: такое уже есть: «Лимит активных объектов исчерпан (… из …)…»",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ]
-      }
-     ]
-    },
-    {
-     "t": "если есть клиент",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "если нет: продавец карточка",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "отказ: данные неверные: «Карточка продавца не найдена»",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ]
-      },
-      {
-       "t": "если нельзя bind клиент",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "отказ: не хватает прав: «Этот продавец закреплён за другим агентом»",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ]
-      },
-      {
-       "t": "если есть staff продавец",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "отказ: такое уже есть",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ]
-      },
-      {
-       "t": "если !data.ownerContact?.trim() || data.ownerContact.includes(\"•\")",
-       "k": "if",
-       "a": [],
-       "c": [],
-       "raw": "!data.ownerContact?.trim() || data.ownerContact.includes(\"•\")"
-      }
-     ]
-    },
-    {
-     "t": "если !data.clientId && data.ownerContact?.trim()",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "если tail количество — «9»",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "если есть staff подбор",
-         "k": "if",
-         "a": [],
-         "c": [
-          {
-           "t": "отказ: такое уже есть",
-           "k": "do",
-           "a": [],
-           "c": []
-          }
-         ]
-        },
-        {
-         "t": "все изменения разом: либо всё, либо ничего",
-         "k": "do",
-         "a": [
-          "заводит: клиент"
-         ],
-         "c": [
-          {
-           "t": "если existing[0]",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "raw": "existing[0]",
-           "more": true
-          },
-          {
-           "t": "если есть по exact телефон",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "more": true
-          },
-          {
-           "t": "заводит: клиент",
-           "k": "do",
-           "a": [],
-           "c": []
-          }
-         ]
-        },
-        {
-         "t": "если нет: auto продавец клиент",
-         "k": "if",
-         "a": [],
-         "c": []
-        },
-        {
-         "t": "если есть auto продавец клиент",
-         "k": "if",
-         "a": [],
-         "c": [
-          {
-           "t": "если card?.assignedAgentId && card.assignedAgentId !== effectiveIntakeAgentId && !canBindClient(req, card)",
-           "k": "if",
-           "a": [],
-           "c": [],
-           "raw": "card?.assignedAgentId && card.assignedAgentId !== effectiveIntakeAgentId && !canBindClient(req, card)",
-           "more": true
-          }
-         ]
-        }
-       ]
-      }
-     ],
-     "raw": "!data.clientId && data.ownerContact?.trim()"
-    },
-    {
-     "t": "отказ: такое уже есть",
-     "k": "do",
-     "a": [
-      "поломка: «sourceDraft»",
-      "все изменения разом: либо всё, либо ничего",
-      "заводит: объект",
-      "запись в журнал ошибок"
-     ],
-     "c": [
-      {
-       "t": "если есть source черновик и revision больше 0 и черновик revision не задан",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "поломка: «sourceDraft»",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ]
-      },
-      {
-       "t": "если есть normalized адрес",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "если same район этаж количество не меньше объект dup scan предел",
-         "k": "if",
-         "a": [],
-         "c": [
-          {
-           "t": "запись в журнал ошибок",
-           "k": "do",
-           "a": [],
-           "c": []
-          }
-         ]
-        },
-        {
-         "t": "если есть дубль и неверно, что «force — «true» и есть право «properties.editForeign»»",
-         "k": "if",
-         "a": [],
-         "c": [
-          {
-           "t": "поломка: «duplicate»",
-           "k": "do",
-           "a": [],
-           "c": []
-          }
-         ]
-        }
-       ]
-      },
-      {
-       "t": "если нет: normalized адрес",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "если есть repeat и неверно, что «force — «true» и есть право «properties.editForeign»»",
-         "k": "if",
-         "a": [],
-         "c": [
-          {
-           "t": "поломка: «repeat»",
-           "k": "do",
-           "a": [],
-           "c": []
-          }
-         ]
-        }
-       ]
-      },
-      {
-       "t": "заводит: объект",
-       "k": "do",
-       "a": [],
-       "c": []
-      },
-      {
-       "t": "если есть source черновик",
-       "k": "if",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "если нет: объект",
-     "k": "if",
-     "a": [],
-     "c": []
-    },
-    {
-     "t": "меняет: объект",
-     "k": "do",
-     "a": [],
-     "c": []
-    },
-    {
-     "t": "если есть продавец клиент (объект)",
-     "k": "if",
-     "a": [],
-     "c": []
-    },
-    {
-     "t": "если есть черновик",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "если фото больше 0",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "если нет: off сайт и статус (объект) — «AWAITING_PHOTOS»",
-         "k": "if",
-         "a": [],
-         "c": [
-          {
-           "t": "меняет: объект",
-           "k": "do",
-           "a": [],
-           "c": []
-          }
-         ]
-        },
-        {
-         "t": "иначе если есть off сайт и статус (объект) — «AWAITING_PHOTOS» и фото (объект) количество не меньше минимум объект фото",
-         "k": "elseif",
-         "a": [],
-         "c": [
-          {
-           "t": "меняет: объект",
-           "k": "do",
-           "a": [],
-           "c": []
-          }
-         ]
-        }
-       ]
-      }
-     ]
-    },
-    {
-     "t": "если нет: есть manual coords и есть адрес (объект)",
-     "k": "if",
-     "a": [],
-     "c": []
-    },
-    {
-     "t": "если статус (объект) — «PENDING_REVIEW»",
-     "k": "if",
-     "a": [],
-     "c": []
-    },
-    {
-     "t": "если статус (объект) — «AVAILABLE»",
-     "k": "if",
-     "a": [],
-     "c": []
-    },
-    {
-     "t": "если это pipeline статус или есть off сайт",
-     "k": "if",
-     "a": [],
-     "c": [
-      {
-       "t": "создано",
-       "k": "do",
-       "a": [],
-       "c": []
-      }
-     ]
-    },
-    {
-     "t": "меняет: объект",
-     "k": "do",
-     "a": [],
-     "c": [
-      {
-       "t": "если не получилось",
-       "k": "if",
-       "a": [],
-       "c": []
-      },
-      {
-       "t": "если нет: failed",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "меняет: объект",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ]
-      }
-     ]
-    },
-    {
-     "t": "создано",
+     "t": "ответ (код зависит от условия)",
      "k": "do",
      "a": [],
      "c": []

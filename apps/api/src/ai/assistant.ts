@@ -1,8 +1,16 @@
+import { z } from "zod";
+import type { EmbeddingRequestOptions } from "./embeddings.js";
+import { createAssistantMoneyWallet, createAssistantMoneyGuard, createAssistantEmbeddingMoneyGuard } from "./assistant/moneyBudget.js";
+import { assistantStyle } from "./assistant/personaStyle.js";
+import { searchCompanyKnowledge, knowledgeContext } from "./assistant/knowledge.js";
+import { tajikGlossaryFor } from "./assistant/tajikGlossary.js";
+import { createAssistantAttemptLimit } from "./assistant/attemptLimit.js";
+import { reserveAssistantGeminiAttempt } from "./assistant/attemptBudget.js";
 import { visibleInteractionWhere } from "../lib/investigationPrivacy.js";
 import { expenseCentsToTjs } from "../lib/money.js";
 import { prisma } from "../db.js";
 import { geminiFunctionResponsePart } from "./providerContract.js";
-import { formatClientName, parseShortCode, trimAssistantHistory, type AssistantTokenEvent } from "@royal-home/shared";
+import { formatClientName, parseShortCode, PROPERTY_STAGES, trimAssistantHistory, type AssistantTokenEvent } from "@royal-home/shared";
 import type { Prisma, PropertyStatus } from "../generated/prisma/client.js";
 import { toSearchTokens, toTokenVariants } from "../lib/searchTokens.js";
 import {
@@ -16,6 +24,8 @@ import {
 } from "./geminiClient.js";
 import { isRetryableGeminiStatus } from "./geminiTransport.js";
 import { loadAssistantGeminiRuntime, loadAssistantSettings } from "./assistant/runtime.js";
+import { assistantLanguagePolicy } from "./assistant/languageRouting.js";
+import { createCardLinkEvidence } from "./assistant/cardLinkEvidence.js";
 import { centsToTjs, fromCents, loadMoneyContext, priceCeilingFilter, roundMoney, splitCents, toCents, toTjs } from "../lib/money.js";
 import {
   dushanbeDateTimeString,
@@ -148,7 +158,7 @@ async function semanticSearchIsEnabled(): Promise<boolean> {
  *  CRM, ни правил про ссылки на карточки, только сам справочный вопрос. */
 const GROUNDED_SYSTEM_PROMPT =
   "Ты отвечаешь на справочный вопрос сотрудника риелторского агентства в Душанбе (Таджикистан) о рынке " +
-  "недвижимости, законах, налогах, ипотеке или процедурах сделок. Отвечай кратко и по-русски, строго по " +
+  "недвижимости, законах, налогах, ипотеке или процедурах сделок. Отвечай кратко на языке сотрудника, строго по " +
   "актуальным данным из поиска — не выдумывай цифры, ставки и факты. Обычный текст, без markdown-разметки.";
 
 /**
@@ -174,10 +184,10 @@ function formatGroundedReply(result: GeminiGroundedResult): string {
  * Пишется в AiLog.promptVersion при каждом ответе ассистента (см. finally
  * runAssistant ниже) — по ней журнал говорит, какой текст промта отвечал.
  */
-export const SYSTEM_PROMPT_VERSION = "2026-10-31.3-write-tools";
+export const SYSTEM_PROMPT_VERSION = "2026-11-03.7-telegram-cards";
 
 const SYSTEM_PROMPT = `Ты — встроенный ассистент CRM агентства недвижимости (Душанбе, Таджикистан).
-Отвечай кратко и по-русски. Валюта по умолчанию — сомони (TJS).
+Отвечай кратко на языке сотрудника. Валюта по умолчанию — сомони (TJS).
 Используй инструменты, чтобы отвечать по РЕАЛЬНЫМ данным CRM — не выдумывай цифры и клиентов.
 Когда упоминаешь клиента или объект, давай markdown-ссылку: [Имя](/clients/ID) или [Название](/properties/ID).
 Никакой другой markdown-разметки — НИГДЕ, ни при каких обстоятельствах: без **жирного**, без
@@ -212,6 +222,15 @@ interface AssistantTool {
   parameters?: Record<string, unknown>;
 }
 
+const propertySearchFilters = z.object({
+  minAreaSqm: z.number().positive().max(100_000).optional(),
+  maxAreaSqm: z.number().positive().max(100_000).optional(),
+  stage: z.enum(PROPERTY_STAGES).optional(),
+  locationNames: z.array(z.string().trim().min(1).max(100)).max(6).optional(),
+  preferManyWindows: z.boolean().optional(),
+  withVideo: z.boolean().optional(),
+}).refine(filters => filters.minAreaSqm === undefined || filters.maxAreaSqm === undefined || filters.minAreaSqm <= filters.maxAreaSqm);
+
 const TOOLS: AssistantTool[] = [
   {
     name: "search_properties",
@@ -242,6 +261,15 @@ const TOOLS: AssistantTool[] = [
           description: "Валюта maxPrice. По умолчанию TJS (сомони). Объекты в другой валюте сравниваются по курсу.",
         },
         minRooms: { type: "number" },
+        minAreaSqm: { type: "number", description: "Минимальная площадь, м², включительно." },
+        maxAreaSqm: { type: "number", description: "Максимальная площадь, м², включительно." },
+        stage: { type: "string", enum: [...PROPERTY_STAGES], description: "Стадия стройки. Коробка без черновых работ — SHELL." },
+        locationNames: {
+          type: "array", items: { type: "string" },
+          description: "До 6 альтернативных ориентиров, улиц или районов, например Аэропорт или Садбарг. Подойдёт любое из перечисленных мест. Передавай только название.",
+        },
+        preferManyWindows: { type: "boolean", description: "Ставить первыми варианты с большим количеством окон, если это просили." },
+        withVideo: { type: "boolean", description: "Только объекты с видео в карточке или ссылкой на ролик." },
         status: {
           type: "string",
           enum: ["AVAILABLE", "RESERVED", "SOLD", "WITHDRAWN"],
@@ -428,7 +456,7 @@ function expenseMonthDate(monthKey: string): Date {
 
 /** Экспортирован ради точечных тестов (apps/api/tests/ai-assistant-tools.test.ts):
  *  проверка ownScope/прав каждого инструмента без похода в Gemini. */
-export async function runTool(name: string, input: Record<string, unknown>, actor: AssistantActor): Promise<unknown> {
+export async function runTool(name: string, input: Record<string, unknown>, actor: AssistantActor, embedding?: EmbeddingRequestOptions): Promise<unknown> {
   if (actor.hiddenTools?.has(name)) return { error: "Этот инструмент недоступен в этом чате" };
   const ownScope = actor.canViewAllClients ? undefined : actor.id;
   // Непринятая заявка и карточка из Корзины — не для агента (REST отдаёт ему 404 /
@@ -438,6 +466,21 @@ export async function runTool(name: string, input: Record<string, unknown>, acto
     c.deletedAt !== null || (Boolean(ownScope) && c.acceptedAt === null);
 
   if (name === "search_properties") {
+    const parsed = propertySearchFilters.safeParse(input);
+    if (!parsed.success) return { error: "Уточните площадь, стадию или названия мест" };
+    const filters = parsed.data;
+    const locations = (filters.locationNames ?? []).map(toSearchTokens).filter(tokens => tokens.length > 0);
+    if (filters.locationNames?.length && !locations.length) return { error: "Уточните названия мест" };
+    const locationFilter: Prisma.PropertyWhereInput[] = locations.length ? [{
+      OR: locations.map(tokens => ({
+        AND: tokens.map(token => ({
+          OR: toTokenVariants(token).flatMap(variant => {
+            const match = { contains: variant, mode: "insensitive" as const };
+            return [{ address: match }, { landmark: match }, { title: match }, { district: { name: match } }];
+          }),
+        })),
+      })),
+    }] : [];
     // Район — тем же правилом, что во всех каналах (lib/districtLookup.ts):
     // «Шоҳмансур», «Sino» — тот же район. Не нашёлся — так и говорим модели, а не
     // отдаём объекты по всему городу под видом «в этом районе» (29.09.2026).
@@ -490,13 +533,19 @@ export async function runTool(name: string, input: Record<string, unknown>, acto
       ...(districtId ? { districtId } : {}),
       ...priceFilter,
       ...(input.minRooms ? { rooms: { gte: Number(input.minRooms) } } : {}),
-      ...(textFilter.length > 0 ? { AND: textFilter } : {}),
+      ...(filters.stage ? { stage: filters.stage } : {}),
+      ...(filters.minAreaSqm !== undefined || filters.maxAreaSqm !== undefined
+        ? { areaSqm: { gte: filters.minAreaSqm, lte: filters.maxAreaSqm } } : {}),
+      ...(filters.withVideo ? { OR: [{ videos: { some: {} } }, { instagramUrl: { not: null, notIn: [""] } }] } : {}),
+      ...(textFilter.length || locationFilter.length ? { AND: [...textFilter, ...locationFilter] } : {}),
     };
-    const propertyInclude = { district: { select: { name: true } } } as const;
+    const propertyInclude = { district: { select: { name: true } }, videos: { select: { id: true }, take: 1 } } as const;
     const found = await prisma.property.findMany({
       where: propertyWhere,
       include: propertyInclude,
-      orderBy: { createdAt: "desc" },
+      orderBy: filters.preferManyWindows
+        ? [{ windowCount: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }]
+        : { createdAt: "desc" },
       // Структурные фильтры сужают первыми (архитектурное решение 23.08.2026,
       // пункт 3 очереди ИИ): при семантике берём пул с запасом, чтобы было что
       // переупорядочить по смыслу, — без неё сразу режем до восьми, как раньше.
@@ -508,7 +557,7 @@ export async function runTool(name: string, input: Record<string, unknown>, acto
       shortIdMatch !== null
         ? (found.find((p) => p.shortId === shortIdMatch) ??
           (await prisma.property.findFirst({
-            where: { ...propertyWhere, AND: [{ shortId: shortIdMatch }] },
+            where: { ...propertyWhere, AND: [...locationFilter, { shortId: shortIdMatch }] },
             include: propertyInclude,
           })))
         : null;
@@ -520,7 +569,7 @@ export async function runTool(name: string, input: Record<string, unknown>, acto
       // по уже отфильтрованному пулу выше) — пересечение со структурным пулом ниже
       // и есть «семантика сужает уже отфильтрованный список»: район/цена/комнаты
       // остаются жёсткими условиями, семантика только переставляет порядок внутри них.
-      const ranked = await semanticPropertySearch(semanticQuery, { ...(status ? { statusFilter: status } : {}), limit: 200 });
+      const ranked = await semanticPropertySearch(semanticQuery, { ...(status ? { statusFilter: status } : {}), limit: 200, embedding: embedding ?? { beforeAttempt: createAssistantEmbeddingMoneyGuard(), maxAttempts: 1 } });
       const rankIndex = new Map(ranked.map((r, i) => [r.propertyId, i]));
       ordered = [...properties].sort((a, b) => {
         // Точное совпадение по номеру семантика не сдвигает.
@@ -544,6 +593,9 @@ export async function runTool(name: string, input: Record<string, unknown>, acto
       type: p.type,
       rooms: p.rooms,
       areaSqm: Number(p.areaSqm),
+      windowCount: p.windowCount,
+      stage: p.stage,
+      hasVideo: p.videos.length > 0 || Boolean(p.instagramUrl?.trim()),
       price: Number(p.price),
       currency: p.currency,
       district: p.district?.name ?? "Без района",
@@ -1057,6 +1109,7 @@ export function pluginDeclarations(
  * (retryable), по которому интерфейс решает, предлагать ли «Повторить».
  */
 export type AssistantErrorCode =
+  | "attempt_limit"
   | "no_key"
   | "deadline"
   | "aborted"
@@ -1072,6 +1125,7 @@ export type AssistantOutcome =
 
 /** Текст для человека по коду отказа — одна таблица на роут и на любой другой вход. */
 export const ASSISTANT_ERROR_MESSAGES: Record<AssistantErrorCode, string> = {
+  attempt_limit: "Лимит вызовов ИИ достигнут или учёт расходов недоступен. Новые платные запросы остановлены.",
   no_key: "ИИ недоступен: ключ Gemini не настроен (Настройки → ИИ)",
   deadline: "ИИ отвечал слишком долго — повторите вопрос или задайте его короче",
   aborted: "Запрос отменён",
@@ -1083,18 +1137,22 @@ export const ASSISTANT_ERROR_MESSAGES: Record<AssistantErrorCode, string> = {
 };
 
 export interface RunAssistantOptions {
+  /** Share one reservation envelope with preceding Telegram media extraction. */
+  moneyWallet?: ReturnType<typeof createAssistantMoneyWallet>;
   /** Пошаговый статус для фронта (SSE, routes/ai.ts) — перед каждым раундом и
    *  перед каждым тул-вызовом. Необязателен: без него поведение не меняется. */
   onStatus?: (message: string) => void;
+  /** Lets delivery choose a format for data retrieved during this turn. */
+  onToolResult?: (name: string) => void;
   /** Внешняя отмена: роут отдаёт сюда закрытие соединения клиентом. Прерывает
    *  вызов модели и паузы между повторами; начатую запись в базу — нет. */
   signal?: AbortSignal;
   /** Срок на весь диалог, мс. По умолчанию ASSISTANT_DEADLINE_MS. */
   deadlineMs?: number;
   /**
-   * Текст ответа по мере генерации (задача 1.6, SSE-событие `token`). Передан —
-   * раунды идут потоком (callGeminiToolsStream), нет — прежним callGeminiTools.
-   * Итог runAssistantDetailed от этого не меняется: полный текст — в reply.
+   * Проверенный текст ответа (SSE-событие `token`). Транспорт получает поток,
+   * но черновые дельты не публикуются до проверки ссылок по результатам инструментов.
+   * Статусы и карточки подтверждения продолжают приходить по мере выполнения.
    */
   onToken?: (event: AssistantTokenEvent) => void;
   /**
@@ -1172,6 +1230,9 @@ function failureOf(err: unknown, signal: AbortSignal): { code: AssistantErrorCod
   if (err instanceof ModelCallError && (err.original as Partial<GeminiStreamInterruptedError> | null)?.code === "stream_interrupted") {
     return { code: "stream_interrupted", retryable: true };
   }
+  if (err instanceof ModelCallError && (err.original as { code?: string } | null)?.code === "assistant_attempt_limit") {
+    return { code: "attempt_limit", retryable: false };
+  }
   if (err instanceof ModelCallError) {
     // Без HTTP-кода — сеть или таймаут попытки: та же «сейчас не получилось», что и 503.
     if (err.status === undefined || isRetryableGeminiStatus(err.status)) {
@@ -1193,7 +1254,7 @@ export const MAX_WRITES_PER_ANSWER = 3;
 export const WRITE_LIMIT_ERROR = `Лимит записей за ответ: не больше ${MAX_WRITES_PER_ANSWER}. Остальное — следующим сообщением.`;
 
 /** Хуки раунда: признак «клиент умеет показать подтверждение» и общий на ответ счётчик записей. */
-export type RoundHooks = RunPluginHooks & { confirmUi: boolean; writeBudget: { left: number } };
+export type RoundHooks = RunPluginHooks & { confirmUi: boolean; writeBudget: { left: number }; embedding?: EmbeddingRequestOptions };
 
 /** Длина одной строки аргумента в журнале обращений: это след, а не копия переписки. */
 const AUDIT_ARG_MAX_CHARS = 80;
@@ -1250,7 +1311,7 @@ export async function runAuditedTool(call: GeminiToolCall, actor: AssistantActor
       : plugin.level !== "A" && !hooks.confirmUi
         ? { error: "Это действие здесь недоступно: нужна карточка подтверждения в CRM" }
         : await runAssistantToolPlugin(plugin, call.args ?? {}, actor, hooks)
-    : await runTool(call.name, call.args, actor);
+    : await runTool(call.name, call.args, actor, hooks.embedding);
   // Одна точка на все инструменты — журнал обращений (аудит-лог, не защита
   // доступа: та стоит внутри runTool через ownScope). Запись НЕ ждётся (задача
   // 1.4): вставка в журнал на критическом пути каждого инструмента — лишний поход
@@ -1368,6 +1429,15 @@ export async function runAssistantDetailed(
       Promise.all([loadAssistantSettings(), loadAssistantGeminiRuntime()]),
       signal,
     );
+    const wallet = options.moneyWallet ?? createAssistantMoneyWallet();
+    const attemptLimit = createAssistantAttemptLimit(reserveAssistantGeminiAttempt);
+    const moneyGuard = createAssistantMoneyGuard({ wallet });
+    const beforeAttempt: NonNullable<Parameters<typeof callGeminiTools>[0]["beforeAttempt"]> = async (attempt) => {
+      await attemptLimit();
+      await moneyGuard(attempt);
+    };
+    const embeddingGuard = createAssistantEmbeddingMoneyGuard({ wallet });
+    const languagePolicy = assistantLanguagePolicy(trimAssistantHistory(messages), gemini);
     const apiKey = gemini.keys[0];
     if (!apiKey) {
       throw new AssistantFailure("no_key", "Ключ Gemini не настроен (Настройки → ИИ, или GEMINI_API_KEY в .env)");
@@ -1377,9 +1447,18 @@ export async function runAssistantDetailed(
     // полуночи до 05:00 местного жил вчерашним днём.
     // Разделы — из прав актора (задача 2.5); функцией-заменой, чтобы «$» в тексте
     // не читался как шаблон замены.
+    const userQuestion = [...trimAssistantHistory(messages)].reverse().find((m) => m.role === "user")?.content ?? "";
+    let sharedKnowledge = "";
+    try {
+      sharedKnowledge = knowledgeContext(await untilAborted(searchCompanyKnowledge(userQuestion.slice(0, 200), { beforeAttempt: embeddingGuard, signal }), signal));
+    } catch (err) {
+      if (signal.aborted) throw signal.reason;
+      console.warn("[assistant] company knowledge unavailable");
+    }
+    const glossary = languagePolicy.language === "tg" || languagePolicy.language === "mixed" ? tajikGlossaryFor(userQuestion) : "";
     const system = SYSTEM_PROMPT.replace("{{TODAY}}", dushanbeWallClock().toISOString().slice(0, 10))
       .replace("{{ROLE}}", () => actor.role)
-      .replace("{{SECTIONS}}", () => assistantSectionsGuide(actor));
+      .replace("{{SECTIONS}}", () => assistantSectionsGuide(actor)) + assistantStyle(options.channel ?? "crm") + languagePolicy.instruction + glossary + sharedKnowledge;
     // Окно истории (задача 1.7): роут уже режет схемой, но runAssistant зовут и
     // напрямую — правило одно, в @royal-home/shared.
     const history = trimAssistantHistory(messages);
@@ -1391,7 +1470,7 @@ export async function runAssistantDetailed(
     const lastUserText = [...history].reverse().find((m) => m.role === "user")?.content ?? "";
     // Недоступный актору инструмент модели не объявляется (задача 2.5).
     const tools = [
-      ...(settings.groundedSearchEnabled ? GEMINI_TOOLS_WITH_REFERENCE : GEMINI_TOOLS).filter((t) =>
+      ...GEMINI_TOOLS.filter((t) =>
         assistantToolAllowed(actor, t.name),
       ),
       ...pluginDeclarations(actor, options.confirmUi === true, options.channel ?? "crm"),
@@ -1403,21 +1482,10 @@ export async function runAssistantDetailed(
     // и цикл ниже не должен из-за этого прерываться.
     const wasEnabledAtStart = settings.enabled;
 
-    // Поток токенов (задача 1.6). Первая дельта раунда после уже показанного
-    // текста идёт с reset: модель начала отвечать, потом попросила данные CRM, и
-    // черновик прошлого раунда человеку больше не нужен.
-    let streamedText = false;
-    const roundTokenSink = (): ((delta: string) => void) | undefined => {
-      const onToken = options.onToken;
-      if (!onToken) return undefined;
-      let first = true;
-      return (delta) => {
-        const reset = first && streamedText;
-        first = false;
-        streamedText = true;
-        onToken(reset ? { text: delta, reset: true } : { text: delta });
-      };
-    };
+    const cardEvidence = createCardLinkEvidence();
+    // The transport already assembles final text. Never expose an unverified
+    // draft (including text emitted before a tool call) through the SSE callback.
+    const modelTokenSink = options.onToken ? (_delta: string): void => {} : undefined;
 
     // `<`, а не `<=` (22.08.2026): ровно MAX_TOOL_ROUNDS походов в Gemini, не больше.
     const writeBudget = { left: MAX_WRITES_PER_ANSWER };
@@ -1443,9 +1511,12 @@ export async function runAssistantDetailed(
         timeoutMs: ATTEMPT_TIMEOUT_MS,
         signal,
         deadlineAt,
-        runtime: gemini,
+        runtime: languagePolicy.runtime,
+        beforeAttempt,
+        requireCompleteTurn: true,
+        requireLowThinking: languagePolicy.language === "tg" || languagePolicy.language === "mixed",
       };
-      const onToken = roundTokenSink();
+      const onToken = modelTokenSink;
       const turn = await modelCall(() =>
         onToken ? callGeminiToolsStream({ ...request, onToken }) : callGeminiTools(request),
       );
@@ -1455,9 +1526,12 @@ export async function runAssistantDetailed(
       // означает, что сказать ей нечего: это отказ, а не ответ.
       if (turn.calls.length === 0) {
         if (!turn.text) throw new AssistantFailure("empty_reply", "Gemini вернул пустой ответ без вызова инструментов");
-        if (turn.text.trim() === OFF_TOPIC_REPLY) route = "off_topic";
+        const evidence = cardEvidence.validate(turn.text);
+        const reply = evidence.ok ? turn.text : "Не удалось подтвердить ссылки на карточки по данным CRM. Уточните запрос.";
+        if (reply.trim() === OFF_TOPIC_REPLY) route = "off_topic";
+        options.onToken?.({ text: reply });
         ok = true;
-        return { ok: true, reply: turn.text };
+        return { ok: true, reply };
       }
 
       // Справочный вопрос: ответ grounded-поиска уходит человеку как есть, с
@@ -1466,7 +1540,7 @@ export async function runAssistantDetailed(
       const reference = turn.calls.find((call) => call.name === WEB_REFERENCE_TOOL);
       if (reference) {
         route = "reference";
-        if (!settings.groundedSearchEnabled) {
+        if (!settings.groundedSearchEnabled || !assistantGroundingBudgetSupported()) {
           // Инструмент не объявлялся, модель выдумала его имя — прежний отказ.
           route = "off_topic";
           ok = true;
@@ -1477,17 +1551,21 @@ export async function runAssistantDetailed(
         const grounded = await modelCall(() =>
           callGeminiGrounded({
             apiKey,
-            system: GROUNDED_SYSTEM_PROMPT,
+            system: GROUNDED_SYSTEM_PROMPT + languagePolicy.instruction,
             query: asked || lastUserText,
             timeoutMs: ATTEMPT_TIMEOUT_MS,
             signal,
             deadlineAt,
-            runtime: gemini,
+            runtime: languagePolicy.runtime,
+            beforeAttempt,
+            requireCompleteTurn: true,
+            requireLowThinking: languagePolicy.language === "tg" || languagePolicy.language === "mixed",
           }),
         );
         // null — уже залогировано внутри callGeminiGrounded (logSystemError).
         if (!grounded) throw new ModelCallError(new Error("Grounded-поиск Gemini не ответил"));
         ok = true;
+        options.onToolResult?.(WEB_REFERENCE_TOOL);
         return { ok: true, reply: formatGroundedReply(grounded) };
       }
 
@@ -1499,6 +1577,11 @@ export async function runAssistantDetailed(
         onConfirm: options.onConfirm,
         confirmUi: options.confirmUi === true,
         writeBudget,
+        embedding: { beforeAttempt: embeddingGuard, signal, maxAttempts: 1 },
+      });
+      turn.calls.forEach((call, index) => {
+        cardEvidence.observe(call.name, results[index]);
+        options.onToolResult?.(call.name);
       });
       // Keep optional provider IDs; names alone cannot identify two calls to
       // the same function. Original signed model parts were appended above.
@@ -1547,3 +1630,6 @@ export async function runAssistantDetailed(
       .catch(() => {});
   }
 }
+
+/** Google Search may bill multiple queries; this adapter cannot cap those units. */
+function assistantGroundingBudgetSupported(): boolean { return false; }

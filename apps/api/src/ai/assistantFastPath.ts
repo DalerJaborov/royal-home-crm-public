@@ -3,7 +3,6 @@ import type { AssistantCard, AssistantClientCard, AssistantPropertyCard } from "
 import { prisma } from "../db.js";
 import { clientNamePhoneSafe, clientPhoneFor } from "../lib/clientPhone.js";
 import type { AssistantActor } from "./assistant.js";
-import { formatPrice } from "./seoGenerator.js";
 
 /**
  * БЫСТРЫЙ ПУТЬ ПОМОЩНИКА БЕЗ МОДЕЛИ (полоса А, docs/design/internal-assistant-
@@ -46,7 +45,7 @@ const LEADING_FILLER = /^(?:(?:покажи|показать|найди|найт
 
 const PROPERTY_WORDS = "(?:объект|обьект|ob)";
 const PROPERTY_PREFIX = "(?:об|ob)";
-const CLIENT_WORDS = "(?:клиент|покупатель|продавец)";
+const CLIENT_WORDS = "(?:клиент(?:а)?|покупател[ья]|продав(?:ец|ца))";
 const CLIENT_PREFIX = "(?:пк|пр|по|кл|pk|pr|po|kl)";
 const SEP = "[\\s.\\-–—]*";
 const NUMBER = "[№#]?\\s*(\\d{1,9})";
@@ -105,7 +104,9 @@ export function parseFastPathIntent(text: string): Intent | null {
     const shortId = parseShortCode(property[1]);
     return shortId === null ? null : { kind: "property-code", shortId };
   }
-  const client = CLIENT_CODE_RE.exec(phrase);
+  // "номер 112" means a card; 9+ digits remain a phone, never a guessed UUID.
+  const numberedClient = /^(?:(?:клиент(?:а)?|покупател[ья]|продав(?:ец|ца))\s+)?(?:по\s+)?номер(?:у)?\s*[№#]?\s*(\d{1,8})$/i.exec(phrase);
+  const client = CLIENT_CODE_RE.exec(phrase) ?? numberedClient;
   if (client) {
     const shortId = parseShortCode(client[1]);
     return shortId === null ? null : { kind: "client-code", shortId };
@@ -213,11 +214,13 @@ async function findByIntent(intent: Intent, actor: AssistantActor): Promise<Assi
       return exact.slice(0, MAX_CARDS).map(propertyCard);
     }
     case "client-code": {
-      const c = await prisma.client.findFirst({
+      const rows = await prisma.client.findMany({
         where: { shortId: intent.shortId, ...visibleClientWhere(actor) },
         include: clientInclude,
+        orderBy: { id: "asc" },
+        take: MAX_CARDS,
       });
-      return c ? [clientCard(c, actor)] : [];
+      return rows.map((c) => clientCard(c, actor));
     }
     case "phone": {
       // Поиск по номеру — только тому, кому номер виден (см. шапку файла).
@@ -235,7 +238,10 @@ function replyFor(cards: AssistantCard[]): string {
   return cards
     .map((card) => {
       if (card.kind === "property") {
-        return `Нашёл объект [${card.code} · ${card.title}](${card.href}): ${formatPrice(card.price, card.currency)}.`;
+        const title = card.title.replace(/[\[\]\r\n]+/g, " ").trim();
+        const amount = card.price.toLocaleString("ru-RU");
+        const currency = card.currency === "USD" ? "USD" : "сомони";
+        return `Нашла [${card.code} · ${title}](${card.href}): ${amount} ${currency}.`;
       }
       return `Нашёл клиента [${card.name}](${card.href}) (${card.code}).`;
     })
@@ -252,11 +258,19 @@ export async function tryAssistantFastPath(text: string, actor: AssistantActor):
   const intent = parseFastPathIntent(text);
   if (!intent) return null;
   const cards = await findByIntent(intent, actor);
-  if (cards.length === 0) return null;
+  if (cards.length === 0) {
+    if (intent.kind !== "property-code") return null;
+    return {
+      cards: [],
+      reply: `Не нашла объект ОБ-${String(intent.shortId).padStart(6, "0")} среди доступных карточек.`,
+      tool: "fast_path.property-code",
+      argsSummary: JSON.stringify({ shortId: intent.shortId }),
+    };
+  }
   const first = cards[0];
   return {
     cards,
-    reply: replyFor(cards),
+    reply: replyFor(cards) + (cards.length > 1 ? "\nУточните, какую карточку открыть." : ""),
     tool: `fast_path.${intent.kind}`,
     argsSummary: JSON.stringify(first.kind === "client" ? { clientId: first.id } : { propertyId: first.id }),
   };

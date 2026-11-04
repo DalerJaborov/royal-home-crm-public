@@ -210,7 +210,7 @@ export function canReassignPropertyAgents(req: Request): boolean {
  * работу, а не ведёт её — создание закрыто роли целиком; смотреть и проверять
  * объекты она по-прежнему может. Текст отказа или null.
  */
-export function propertyCreateDeniedReason(req: Request): string | null {
+export function propertyCreateDeniedReason(req: Pick<Request, "agent">): string | null {
   if (!req.agent) return "Недостаточно прав";
   if (req.agent.role === "SECURITY") return "Служба безопасности не заводит объекты — это делает агент";
   // Акционер (SHAREHOLDER) — только смотрит: объекты не заводит (спека ролей §2.4).

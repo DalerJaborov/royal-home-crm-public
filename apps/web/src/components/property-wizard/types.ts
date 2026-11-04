@@ -1,4 +1,5 @@
 import {
+  DETAIL_NOT_SET,
   PROPERTY_DETAIL_KEYS,
   floorRuleError,
   propertyDetailShown,
@@ -17,9 +18,7 @@ import {
  *  (DOCUMENT_PRESETS): менять список в одном месте и не расходиться со старой
  *  формой, пока обе существуют. */
 export const DOCUMENT_PRESETS = ["Договор", "Техпаспорт", "Договор + техпаспорт", "Нет документов"] as const;
-/** Значение select'а «нет данных» для характеристики — отличимо от "" (пусто
- *  и валидно как «не указано» для сервера), но само на сервер не уходит. */
-export const DETAIL_NOT_SET = "__not_set__";
+export { buildCreateBody, DETAIL_NOT_SET } from "@royal-home/shared";
 
 /**
  * МАСТЕР ДОБАВЛЕНИЯ ОБЪЕКТА — общее состояние пяти шагов.
@@ -365,66 +364,6 @@ export function validateAll(
     ...validateStep("main", v, options),
     ...validateStep("place", v, options),
     ...validateStep("seller", v, options),
-  };
-}
-
-function numberIfFilled(key: string, raw: string): Record<string, number> {
-  const n = Number(raw);
-  return raw.trim() !== "" && Number.isFinite(n) ? { [key]: n } : {};
-}
-
-/**
- * Тело POST /properties. Название, описание и SEO-поля не шлём — сервер
- * формирует их сам (buildPropertyTitle + generateSeoFields).
- */
-export function buildCreateBody(v: WizardValues): Record<string, unknown> {
-  const shown = (f: "rooms" | "floor" | "totalFloors" | "windowCount") => propertyFieldShown(v.type, f);
-  const documents = v.documentsPreset === "Другое" ? v.documentsOther.trim() : v.documentsPreset;
-  // Только характеристики, которые есть у типа (лифта у дома нет, у участка — ни одной).
-  const details = Object.fromEntries(
-    PROPERTY_DETAIL_KEYS.filter((k) => propertyDetailShown(v.type, k) && v.details[k] && v.details[k] !== DETAIL_NOT_SET).map(
-      (k) => [k, v.details[k]]
-    )
-  );
-  const market = propertyHasMarket(v.type);
-  return {
-    type: v.type,
-    // У участка м² считаем из соток (1 сотка = 100 м²) — поле м² у него не спрашиваем.
-    areaSqm: v.type === "LAND" ? Math.round(Number(v.landAreaSotka) * 100) : Number(v.areaSqm),
-    // Сотки — только у дома/участка, и только когда агент их вписал: сервер
-    // (propertyCreateSchema.landAreaSotka) поле знает, но необязательное.
-    ...(needsLandArea(v.type) && v.landAreaSotka.trim() ? { landAreaSotka: Number(v.landAreaSotka) } : {}),
-    price: Number(v.price),
-    currency: v.currency,
-    // Закрытый объект (offSite) район/адрес может не иметь вовсе (владелец
-    // 14.09.2026) — пустую строку в guid-поле сервер отклонит как невалидный
-    // guid, поэтому пустое просто не отправляем, а не шлём "". Сервер сам
-    // достроит недостающее по координатам телефона (см. lat/lng ниже).
-    ...(v.districtId ? { districtId: v.districtId } : {}),
-    ...(v.address.trim() ? { address: v.address.trim() } : {}),
-    ...(v.landmark.trim() ? { landmark: v.landmark.trim() } : {}),
-    condition: v.condition,
-    offSite: v.offSite,
-    amenities: [],
-    // Только заполненное: у закрытого объекта эти поля необязательны, а пустое
-    // поле раньше уходило нулём и сервер отвечал 400 («комнат 0»).
-    ...(shown("rooms") ? numberIfFilled("rooms", v.rooms) : {}),
-    ...(shown("floor") ? numberIfFilled("floor", v.floor) : {}),
-    ...(shown("totalFloors") ? numberIfFilled("totalFloors", v.totalFloors) : {}),
-    ...(shown("windowCount") ? numberIfFilled("windowCount", v.windowCount) : {}),
-    // «Вторичка/Новостройка» — у квартиры и коммерции; у дома и участка её нет.
-    ...(market && v.marketType ? { marketType: v.marketType } : {}),
-    // Стадия — у новостройки и котлована (раскладка фазы — propertyFinish.ts).
-    ...(market && v.marketType && v.marketType !== "SECONDARY" && v.stage ? { stage: v.stage } : {}),
-    ...(documents ? { documents } : {}),
-    ...(Object.keys(details).length > 0 ? { details } : {}),
-    ...(v.intakeAgentId ? { intakeAgentId: v.intakeAgentId } : {}),
-    // Координаты уходят только парой — иначе сервер их игнорирует и запускает
-    // фоновое геокодирование поверх ручного выбора.
-    ...(v.lat !== null && v.lng !== null ? { lat: v.lat, lng: v.lng } : {}),
-    ...(v.sellerClientId
-      ? { clientId: v.sellerClientId }
-      : { sellerName: v.sellerName.trim(), ownerContact: v.sellerPhone.trim() }),
   };
 }
 

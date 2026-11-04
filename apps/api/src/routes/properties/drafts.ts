@@ -273,19 +273,27 @@ draftsRouter.post("/drafts/current/photos", requireAuth, memoryUploadBudget, dra
   if (!parsedKeys.ok) return res.status(400).json({ error: parsedKeys.error });
   const uploadKeys = parsedKeys.keys;
 
+  const result = await savePropertyDraftPhotos(req.agent!.id, draft.id, files, uploadKeys ?? undefined);
+  return res.status(result.status).json(result.body);
+});
+
+const photoResult = <T>(status: number, body: T) => ({ status, body });
+
+/** Reused by the wizard upload and the employee Telegram draft. */
+export async function savePropertyDraftPhotos(agentId: string, draftId: string, files: readonly Pick<Express.Multer.File, "buffer" | "mimetype" | "size" | "originalname">[], uploadKeys?: readonly string[]) {
   const alreadyStored = uploadKeys?.length
-    ? await prisma.propertyDraftMedia.findMany({ where: { uploadKey: { in: uploadKeys } } })
+    ? await prisma.propertyDraftMedia.findMany({ where: { uploadKey: { in: [...uploadKeys] } } })
     : [];
-  const foreign = alreadyStored.find((m) => m.draftId !== draft.id || m.kind !== "PHOTO");
-  if (foreign) return res.status(409).json({ error: "Ключ загрузки уже использован" });
+  const foreign = alreadyStored.find((m) => m.draftId !== draftId || m.kind !== "PHOTO");
+  if (foreign) return photoResult(409, { error: "Ключ загрузки уже использован" });
   const storedByKey = new Map(alreadyStored.map((m) => [m.uploadKey, m]));
 
   const currentCount = await prisma.propertyDraftMedia.count({
-    where: { draftId: draft.id, kind: "PHOTO" },
+    where: { draftId: draftId, kind: "PHOTO" },
   });
   const toCreate = files.length - alreadyStored.filter((m) => m.kind === "PHOTO").length;
   if (currentCount + toCreate > MAX_DRAFT_PHOTOS) {
-    return res.status(400).json({ error: `В черновик помещается ${MAX_DRAFT_PHOTOS} снимков, сейчас уже ${currentCount}` });
+    return photoResult(400, { error: `В черновик помещается ${MAX_DRAFT_PHOTOS} снимков, сейчас уже ${currentCount}` });
   }
 
   const stored: PropertyDraftMedia[] = [];
@@ -322,23 +330,23 @@ draftsRouter.post("/drafts/current/photos", requireAuth, memoryUploadBudget, dra
         "storage",
         `Не удалось обработать снимок черновика: ${err instanceof Error ? err.message : String(err)}`
       );
-      return res.status(502).json({ error: "Не удалось сохранить снимок — попробуйте ещё раз" });
+      return photoResult(502, { error: "Не удалось сохранить снимок — попробуйте ещё раз" });
     }
     let media: PropertyDraftMedia;
     try {
-      media = await withDraftLock(req.agent!.id, async (tx) => {
-        await assertActiveDraft(tx, req.agent!.id, { draftId: draft.id });
+      media = await withDraftLock(agentId, async (tx) => {
+        await assertActiveDraft(tx, agentId, { draftId: draftId });
         const duplicate = await tx.propertyDraftMedia.findUnique({ where: { uploadKey } });
         if (duplicate) {
-          if (duplicate.draftId !== draft.id || duplicate.kind !== "PHOTO") throw new DraftConflictError(null, "Ключ загрузки уже использован");
+          if (duplicate.draftId !== draftId || duplicate.kind !== "PHOTO") throw new DraftConflictError(null, "Ключ загрузки уже использован");
           await removePhotoFiles(`/uploads/${filename}`, `/uploads/thumbs/${filename}`);
           return duplicate;
         }
-        const count = await tx.propertyDraftMedia.count({ where: { draftId: draft.id, kind: "PHOTO" } });
+        const count = await tx.propertyDraftMedia.count({ where: { draftId: draftId, kind: "PHOTO" } });
         if (count >= MAX_DRAFT_PHOTOS) throw new DraftConflictError(null, `В черновик помещается ${MAX_DRAFT_PHOTOS} снимков`);
         return tx.propertyDraftMedia.create({
       data: {
-        draftId: draft.id,
+        draftId: draftId,
         kind: "PHOTO",
         status: "READY",
         uploadKey,
@@ -360,9 +368,9 @@ draftsRouter.post("/drafts/current/photos", requireAuth, memoryUploadBudget, dra
     stored.push(media);
   }
 
-  await touchDraft(draft.id);
-  res.status(201).json(stored.map(presentDraftMedia));
-});
+  await touchDraft(draftId);
+  return photoResult(201, stored.map(presentDraftMedia));
+}
 
 /**
  * РОЛИК В ЧЕРНОВИК — тремя шагами, тем же протоколом докачки частями, что и у

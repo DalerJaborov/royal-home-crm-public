@@ -3,7 +3,7 @@ import { scheduleManualOwnerVerification } from "../../lib/ownerVerificationSour
 import { refreshSellerAfterPropertyChange } from "../../lib/clientAutoStatus.js";
 /** Жизненный цикл карточки объекта: POST /, PATCH /:id, POST /:id/complete-editing,
  * DELETE /:id, POST /:id/restore, DELETE /:id/permanent (Г3, §1.3). Перенос verbatim. */
-import { Router } from "express";
+import { Router, type Request } from "express";
 import path from "node:path";
 import fs from "node:fs/promises";
 import { z } from "zod";
@@ -41,7 +41,7 @@ import { notifyPropertyEditedBeforePublish } from "../../lib/propertyEditNotify.
 import { notifyWaitingBuyersOfNewProperty } from "../../lib/propertyMatchFilter.js";
 import { loadMoneyContext, toTjs } from "../../lib/money.js";
 import { logSystemError } from "../../lib/systemError.js";
-import { logAudit } from "../../lib/audit.js";
+import { logAgentAudit, logAudit } from "../../lib/audit.js";
 import { detachPropertyFromAds } from "../../lib/ads/adAllocation.js";
 import { applySellerPhoneFix, planOwnerPhoneChange, type OwnerPhonePlan } from "../../lib/propertyOwnerRelink.js";
 import { removeMessagePhoto } from "../../lib/messagePhoto.js";
@@ -78,7 +78,7 @@ import { changedPropertyFields, describePropertyChanges } from "../../lib/proper
 import { lookupGeoPoint, type GeoLookupResult } from "../../lib/geoLookup.js";
 import { districtFromMap } from "../../lib/propertyDistrict.js";
 import { attachDraftRows, finishDraftAttachment, type DraftAttachmentPlan } from "./draftAttach.js";
-import { DraftConflictError, assertActiveDraft, lockOwnDraft, withDraftLock } from "./draftLifecycle.js";
+import { DraftConflictError, assertActiveDraft, draftMediaFingerprint, lockOwnDraft, withDraftLock } from "./draftLifecycle.js";
 import { findStaffPhone, staffPhoneError, STAFF_PHONE_ERROR_CODE } from "../../lib/staffPhoneGuard.js";
 import {
   PROPERTY_MODERATION_REQUIRED_MESSAGE,
@@ -165,17 +165,43 @@ const createFromDraftSchema = z.object({
   coverUploadKey: z.string().min(8).max(128).optional(),
 });
 
-crudRouter.post("/", requireAuth, async (req, res) => {
+class PropertySellerAccessError extends Error {}
+
+interface PropertyCreateInput {
+  agent: NonNullable<Request["agent"]>;
+  body: unknown;
+  forceDuplicate?: boolean;
+  source?: "telegram";
+  expectedDraftMedia?: string;
+}
+
+const createResult = <T>(status: number, body: T) => ({ status, body });
+
+/** Same creation pipeline for the CRM wizard and confirmed employee Telegram drafts. */
+export async function createProperty(input: PropertyCreateInput) {
+  try {
+    return await createPropertyImpl(input);
+  } catch (err) {
+    if (err instanceof DraftConflictError) return createResult(409, err.response());
+    if (err instanceof PropertySellerAccessError) return createResult(403, { error: err.message });
+    if (err instanceof DuplicatePropertyError) return createResult(409, {
+      error: err.message, existingPropertyId: err.duplicate.id, existingShortId: err.duplicate.shortId,
+    });
+    throw err;
+  }
+}
+
+async function createPropertyImpl(req: PropertyCreateInput) {
   // A12 (владелец 02.10.2026): СБ объекты не заводит — см. propertyCreateDeniedReason.
   const createDenied = propertyCreateDeniedReason(req);
-  if (createDenied) return res.status(403).json({ error: createDenied });
+  if (createDenied) return createResult(403, { error: createDenied });
   const parsed = propertyCreateSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
+    return createResult(400, { error: "Неверные данные", details: parsed.error.flatten() });
   }
   const parsedDraftRef = createFromDraftSchema.safeParse(req.body);
   if (!parsedDraftRef.success) {
-    return res.status(400).json({ error: "Неверные данные", details: parsedDraftRef.error.flatten() });
+    return createResult(400, { error: "Неверные данные", details: parsedDraftRef.error.flatten() });
   }
   const draftId = parsedDraftRef.data.draftId;
   const draftRevision = parsedDraftRef.data.draftRevision;
@@ -183,12 +209,12 @@ crudRouter.post("/", requireAuth, async (req, res) => {
   const data = parsed.data;
   if (draftId) {
     try {
-      await withDraftLock(req.agent!.id, async (tx) => {
-        const draft = await assertActiveDraft(tx, req.agent!.id, { draftId, revision: draftRevision });
+      await withDraftLock(req.agent.id, async (tx) => {
+        const draft = await assertActiveDraft(tx, req.agent.id, { draftId, revision: draftRevision });
         if (draft.revision > 0 && draftRevision === undefined) throw new DraftConflictError(draft, "Обновите мастер перед созданием объекта");
       });
     } catch (err) {
-      if (err instanceof DraftConflictError) return res.status(409).json(err.response());
+      if (err instanceof DraftConflictError) return createResult(409, err.response());
       throw err;
     }
   }
@@ -237,7 +263,7 @@ crudRouter.post("/", requireAuth, async (req, res) => {
   // должен выбрать явно в форме.
   const isAgentRole = !can(req, "properties.editForeign");
   if (!isAgentRole && !data.intakeAgentId) {
-    return res.status(400).json({ error: "Укажите, кто принял объект" });
+    return createResult(400, { error: "Укажите, кто принял объект" });
   }
 
   /**
@@ -248,7 +274,7 @@ crudRouter.post("/", requireAuth, async (req, res) => {
    * отдельного «возврата» не требуется). 0 = лимит выключен (владелец пока не
    * назвал число — не выдумываем, ждём настройки).
    */
-  const effectiveIntakeAgentId = isAgentRole ? req.agent!.id : data.intakeAgentId!;
+  const effectiveIntakeAgentId = isAgentRole ? req.agent.id : data.intakeAgentId!;
   /**
    * Дыра 11.09.2026 (Пачка 1 п.9): id, присланный руководителем, никак не
    * проверялся — только собственный ввод рядового агента (он и так активный
@@ -257,7 +283,7 @@ crudRouter.post("/", requireAuth, async (req, res) => {
    */
   if (!isAgentRole) {
     const error = await assignableAgentError(effectiveIntakeAgentId);
-    if (error) return res.status(400).json({ error });
+    if (error) return createResult(400, { error });
   }
   const settingsForLimit = await prisma.settings.findUnique({
     where: { id: "singleton" },
@@ -273,7 +299,7 @@ crudRouter.post("/", requireAuth, async (req, res) => {
       },
     });
     if (activeCount >= propertyLimit) {
-      return res.status(409).json({
+      return createResult(409, {
         error: `Лимит активных объектов исчерпан (${activeCount} из ${propertyLimit}) — сначала завершите подготовку текущих`,
       });
     }
@@ -397,15 +423,15 @@ crudRouter.post("/", requireAuth, async (req, res) => {
       where: { id: data.clientId, deletedAt: null },
       select: { phone: true, assignedAgentId: true },
     });
-    if (!sellerCard) return res.status(400).json({ error: "Карточка продавца не найдена" });
+    if (!sellerCard) return createResult(400, { error: "Карточка продавца не найдена" });
     if (!canBindClient(req, sellerCard)) {
-      return res.status(403).json({ error: "Этот продавец закреплён за другим агентом" });
+      return createResult(403, { error: "Этот продавец закреплён за другим агентом" });
     }
     // Выбранная карточка с номером сотрудника (заведена до защиты) — та же дыра,
     // что и ручной ввод ниже: её телефон стал бы ownerContact в обход проверки.
     const staffSeller = await findStaffPhone([sellerCard.phone]);
     if (staffSeller) {
-      return res.status(409).json({ error: staffPhoneError(staffSeller), code: STAFF_PHONE_ERROR_CODE });
+      return createResult(409, { error: staffPhoneError(staffSeller), code: STAFF_PHONE_ERROR_CODE });
     }
     if (!data.ownerContact?.trim() || data.ownerContact.includes("•")) {
       data.ownerContact = sellerCard.phone;
@@ -425,103 +451,14 @@ crudRouter.post("/", requireAuth, async (req, res) => {
    * входящего звонка с неизвестного номера, — её потом поправит агент или ИИ.
    */
   const sellerNameForCard = data.sellerName?.trim() || "Собственник объекта";
-  let autoSellerClientId: string | null = null;
-  if (!data.clientId && data.ownerContact?.trim()) {
-    const normalizedPhone = normalizeDigits(data.ownerContact.replace(/[^\d]/g, ""));
-    const tail = phoneTail(normalizedPhone);
-    if (tail.length === 9) {
-      // Номер сотрудника в «контакте владельца» — тот самый прод-случай
-      // (объекты №98/№99 на номере Маъруфа), до транзакции и без исключений:
-      // см. lib/staffPhoneGuard.ts.
-      const staffMatch = await findStaffPhone([normalizedPhone]);
-      if (staffMatch) {
-        return res.status(409).json({ error: staffPhoneError(staffMatch), code: STAFF_PHONE_ERROR_CODE });
-      }
-      autoSellerClientId = await prisma.$transaction(async (tx) => {
-        const existing = await tx.$queryRaw<{ id: string }[]>`
-          SELECT "id" FROM "Client"
-          WHERE "deletedAt" IS NULL
-            AND right(regexp_replace("phone", '[^0-9]', '', 'g'), 9) = ${tail}
-          ORDER BY ("kind" = 'SELLER') DESC, "createdAt" ASC
-          LIMIT 1`;
-        if (existing[0]) return existing[0].id;
-        // Карточка в Корзине с тем же номером: живой поиск выше её не видит, а
-        // unique(phone) не даст завести вторую. Привязка к восстановимой карточке
-        // лучше, чем падение всего создания объекта (23.09.2026: было 500).
-        const byExactPhone = await tx.client.findUnique({ where: { phone: normalizedPhone }, select: { id: true } });
-        if (byExactPhone) return byExactPhone.id;
-        const created = await tx.client.create({
-          data: {
-            fullName: sellerNameForCard,
-            phone: normalizedPhone,
-            source: "WALK_IN",
-            kind: "SELLER",
-            status: "NEW",
-            currency: data.currency,
-            /**
-             * ХОЗЯИН У ЭТОЙ КАРТОЧКИ ИЗВЕСТЕН СРАЗУ — ЭТО ТОТ, КТО ПРИНЁС ОБЪЕКТ.
-             *
-             * Найдено 12.09.2026 владельцем на живом примере: он завёл объект,
-             * вписал продавца на последнем шаге мастера — и через несколько
-             * минут этот же продавец вернулся ему окном «Новый клиент ·
-             * Принять / Отклонить», с историей «лид назначен утренней волной
-             * распределения».
-             *
-             * Причина была здесь: карточка создавалась со status=NEW и БЕЗ
-             * assignedAgentId, то есть выглядела ровно как ничейный лид с
-             * улицы. Дальше её штатно подбирала волна разбора
-             * (services/leads/reassignment.ts::assignPendingLeads —
-             * `where: { assignedAgentId: null, status: { in: ["NEW", ...] } }`)
-             * и раздавала агентам.
-             *
-             * Это не косметика: волна могла отдать продавца ДРУГОМУ агенту, и
-             * тот, кто привёл объект, терял собственника своего же объекта.
-             *
-             * acceptedAt проставляем вместе с агентом: пустой acceptedAt — это
-             * и есть признак «лид ждёт, пока его примут» (см.
-             * services/leads/assignment.ts), а принимать тут нечего — агент
-             * только что вписал этого человека руками.
-             */
-            assignedAgentId: effectiveIntakeAgentId,
-            assignedAt: new Date(),
-            acceptedAt: new Date(),
-            // Не лид из очереди: окно «первый звонок за 15 минут» (firstCall.ts)
-            // его не касается — 22.09.2026 крон отобрал так продавца у Нозы.
-            assignReason: SELF_CREATED_ASSIGN_REASON,
-          },
-          select: { id: true },
-        });
-        return created.id;
-      }).catch((err: unknown) => {
-        // Гонка: ту же карточку только что завёл параллельный запрос. После
-        // ошибки транзакция базы сорвана — любой запрос в ней падает, поэтому
-        // победителя ищем уже вне её, ниже.
-        if ((err as { code?: string }).code === "P2002") return null;
-        throw err;
-      });
-      if (!autoSellerClientId) {
-        const winner = await prisma.client.findUnique({ where: { phone: normalizedPhone }, select: { id: true } });
-        autoSellerClientId = winner?.id ?? null;
-      }
-      /**
-       * НАЙДЕННАЯ ПО НОМЕРУ КАРТОЧКА — ТЕ ЖЕ ПРАВА, ЧТО ЯВНЫЙ clientId (глубокая
-       * проверка 02.10.2026, A7). Выше по номеру находится ЛЮБАЯ живая карточка,
-       * и объект молча привязывался к продавцу другого агента, а ниже ему же
-       * закрывалась автозадача «продавец без объекта». Явный clientId и смена
-       * номера в PATCH (lib/propertyOwnerRelink.ts) это правило уже держали.
-       * Своя карточка принявшего объект привязывается всегда — её только что
-       * мог завести и сам этот запрос; ничейная (лид без агента) — тоже: отбирать
-       * её не у кого, а номер агент вписал сам.
-       */
-      if (autoSellerClientId) {
-        const card = await prisma.client.findUnique({
-          where: { id: autoSellerClientId },
-          select: { assignedAgentId: true },
-        });
-        if (card?.assignedAgentId && card.assignedAgentId !== effectiveIntakeAgentId && !canBindClient(req, card)) {
-          return res.status(403).json({ error: "Этот номер у клиента другого агента — объект к нему не привязать" });
-        }
-      }
+  const normalizedSellerPhone = !data.clientId && data.ownerContact?.trim()
+    ? normalizeDigits(data.ownerContact.replace(/[^\d]/g, ""))
+    : "";
+  const sellerPhoneTail = phoneTail(normalizedSellerPhone);
+  if (sellerPhoneTail.length === 9) {
+    const staffMatch = await findStaffPhone([normalizedSellerPhone]);
+    if (staffMatch) {
+      return createResult(409, { error: staffPhoneError(staffMatch), code: STAFF_PHONE_ERROR_CODE });
     }
   }
 
@@ -563,8 +500,11 @@ crudRouter.post("/", requireAuth, async (req, res) => {
   let property = await prisma.$transaction(async (tx) => {
     // Recheck after slow AI/geocoding, then consume in the same transaction as insertion.
     // A deletion or competing tab can no longer create a second object from this generation.
-    const sourceDraft = draftId ? (await lockOwnDraft(tx, req.agent!.id), await assertActiveDraft(tx, req.agent!.id, { draftId, revision: draftRevision })) : null;
+    const sourceDraft = draftId ? (await lockOwnDraft(tx, req.agent.id), await assertActiveDraft(tx, req.agent.id, { draftId, revision: draftRevision })) : null;
     if (sourceDraft && sourceDraft.revision > 0 && draftRevision === undefined) throw new DraftConflictError(sourceDraft);
+    if (req.expectedDraftMedia && (!sourceDraft || draftMediaFingerprint(sourceDraft) !== req.expectedDraftMedia)) {
+      throw new DraftConflictError(sourceDraft, "Состав файлов изменился. Проверьте черновик ещё раз");
+    }
     if (normalizedAddress) {
       const lockKey = `property-dup:${data.districtId}:${data.floor ?? "null"}:${normalizedAddress}`;
       // $executeRaw, НЕ $queryRaw (проверено прогоном тестов, 13.09.2026):
@@ -601,7 +541,7 @@ crudRouter.post("/", requireAuth, async (req, res) => {
           normalizePropertyAddress(p.address) === normalizedAddress &&
           Math.abs(Number(p.areaSqm) - data.areaSqm) <= 2
       );
-      if (duplicate && !(req.query.force === "true" && can(req, "properties.editForeign"))) {
+      if (duplicate && !(req.forceDuplicate && can(req, "properties.editForeign"))) {
         throw new DuplicatePropertyError(duplicate);
       }
     }
@@ -614,11 +554,11 @@ crudRouter.post("/", requireAuth, async (req, res) => {
     // не даёт двум одновременным повторам пройти оба. Руководитель может
     // обойти проверку тем же ?force=true, что и дубль по адресу.
     if (!normalizedAddress) {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`property-repeat:${req.agent!.id}:${phoneTail(data.ownerContact ?? "")}`}))`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`property-repeat:${req.agent.id}:${phoneTail(data.ownerContact ?? "")}`}))`;
       const repeat = await tx.property.findFirst({
         where: {
           deletedAt: null,
-          createdById: req.agent!.id,
+          createdById: req.agent.id,
           createdAt: { gte: new Date(Date.now() - PROPERTY_REPEAT_WINDOW_MS) },
           canonicalAddress: "",
           type: data.type,
@@ -633,9 +573,73 @@ crudRouter.post("/", requireAuth, async (req, res) => {
         select: { id: true, shortId: true, title: true },
         orderBy: { createdAt: "desc" },
       });
-      if (repeat && !(req.query.force === "true" && can(req, "properties.editForeign"))) {
+      if (repeat && !(req.forceDuplicate && can(req, "properties.editForeign"))) {
         throw new DuplicatePropertyError(repeat);
       }
+    }
+
+    let autoSellerClientId: string | null = null;
+    if (sellerPhoneTail.length === 9) {
+      // Keep the seller and the object in the same transaction as draft confirmation.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${"property-seller:" + sellerPhoneTail}, 0))`;
+      const existing = await tx.$queryRaw<{ id: string; assignedAgentId: string | null }[]>`
+        SELECT "id", "assignedAgentId" FROM "Client"
+        WHERE "deletedAt" IS NULL
+          AND right(regexp_replace("phone", '[^0-9]', '', 'g'), 9) = ${sellerPhoneTail}
+        ORDER BY ("kind" = 'SELLER') DESC, "createdAt" ASC LIMIT 1`;
+      const exact = () => tx.client.findUnique({
+        where: { phone: normalizedSellerPhone }, select: { id: true, assignedAgentId: true },
+      });
+      let card = existing.at(0) ?? await exact();
+      if (!card) {
+        await tx.client.createMany({
+          data: {
+            fullName: sellerNameForCard,
+            phone: normalizedSellerPhone,
+            source: "WALK_IN",
+            kind: "SELLER",
+            status: "NEW",
+            currency: data.currency,
+            /**
+             * ХОЗЯИН У ЭТОЙ КАРТОЧКИ ИЗВЕСТЕН СРАЗУ — ЭТО ТОТ, КТО ПРИНЁС ОБЪЕКТ.
+             *
+             * Найдено 12.09.2026 владельцем на живом примере: он завёл объект,
+             * вписал продавца на последнем шаге мастера — и через несколько
+             * минут этот же продавец вернулся ему окном «Новый клиент ·
+             * Принять / Отклонить», с историей «лид назначен утренней волной
+             * распределения».
+             *
+             * Причина была здесь: карточка создавалась со status=NEW и БЕЗ
+             * assignedAgentId, то есть выглядела ровно как ничейный лид с
+             * улицы. Дальше её штатно подбирала волна разбора
+             * (services/leads/reassignment.ts::assignPendingLeads —
+             * `where: { assignedAgentId: null, status: { in: ["NEW", ...] } }`)
+             * и раздавала агентам.
+             *
+             * Это не косметика: волна могла отдать продавца ДРУГОМУ агенту, и
+             * тот, кто привёл объект, терял собственника своего же объекта.
+             *
+             * acceptedAt проставляем вместе с агентом: пустой acceptedAt — это
+             * и есть признак «лид ждёт, пока его примут» (см.
+             * services/leads/assignment.ts), а принимать тут нечего — агент
+             * только что вписал этого человека руками.
+             */
+            assignedAgentId: effectiveIntakeAgentId,
+            assignedAt: new Date(),
+            acceptedAt: new Date(),
+            // Не лид из очереди: окно «первый звонок за 15 минут» (firstCall.ts)
+            // его не касается — 22.09.2026 крон отобрал так продавца у Нозы.
+            assignReason: SELF_CREATED_ASSIGN_REASON,
+          },
+          skipDuplicates: true,
+        });
+        card = await exact();
+        if (!card) throw new Error("Seller card was not created");
+      }
+      if (card.assignedAgentId && card.assignedAgentId !== effectiveIntakeAgentId && !canBindClient(req, card)) {
+        throw new PropertySellerAccessError("Этот номер у клиента другого агента — объект к нему не привязать");
+      }
+      autoSellerClientId = card.id;
     }
 
     const createdProperty = await tx.property.create({
@@ -690,8 +694,8 @@ crudRouter.post("/", requireAuth, async (req, res) => {
         // Риелтор (assignedAgentId) при создании НЕ назначается — он появится
         // автоматически в момент сделки (агент клиента, выбравшего объект).
         // Интейк-агента рядовой агент не выбирает — им становится он сам.
-        intakeAgentId: isAgentRole ? req.agent!.id : data.intakeAgentId!,
-        createdById: req.agent!.id,
+        intakeAgentId: isAgentRole ? req.agent.id : data.intakeAgentId!,
+        createdById: req.agent.id,
         // geocodedAt — отметка АВТОГЕОКОДЕРА, а не «когда появились координаты»:
         // ручной пин обязан оставлять её пустой, иначе фоновый джоб его затрёт
         // (см. jobs/geocode.ts, условие OR: [{ lat: null }, { geocodedAt: { not: null } }]).
@@ -706,22 +710,10 @@ crudRouter.post("/", requireAuth, async (req, res) => {
       },
       include: { district: true, photos: true },
     });
-    if (sourceDraft) draftAttachment = await attachDraftRows(tx, sourceDraft, createdProperty, req.agent!.id, coverUploadKey);
-    await scheduleManualOwnerVerification(tx, createdProperty.id, req.agent!.id);
+    if (sourceDraft) draftAttachment = await attachDraftRows(tx, sourceDraft, createdProperty, req.agent.id, coverUploadKey);
+    await scheduleManualOwnerVerification(tx, createdProperty.id, req.agent.id);
     return createdProperty;
-  }).catch((err) => {
-    if (err instanceof DraftConflictError) { res.status(409).json(err.response()); return null; }
-    if (err instanceof DuplicatePropertyError) {
-      res.status(409).json({
-        error: err.message,
-        existingPropertyId: err.duplicate.id,
-        existingShortId: err.duplicate.shortId,
-      });
-      return null;
-    }
-    throw err;
   });
-  if (!property) return;
   await refreshSellerAfterPropertyChange(property.sellerClientId);
 
   /**
@@ -753,7 +745,8 @@ crudRouter.post("/", requireAuth, async (req, res) => {
     );
   }
 
-  logAudit(req, "PROPERTY_CREATED", "Property", property.id, {
+  logAgentAudit(req.agent.id, "PROPERTY_CREATED", "Property", property.id, {
+    ...(req.source ? { source: req.source } : {}),
     shortId: property.shortId,
     title: property.title,
     address: property.address,
@@ -785,7 +778,7 @@ crudRouter.post("/", requireAuth, async (req, res) => {
     error?: string;
   } | null = null;
   if (draftId) {
-    const attached = await finishDraftAttachment(draftAttachment!, property, req.agent!.id);
+    const attached = await finishDraftAttachment(draftAttachment!, property, req.agent.id);
     mediaReport = {
       attached: { photos: attached.photos, videos: attached.videos },
       skipped: { photos: attached.skippedPhotos, videos: attached.skippedVideos },
@@ -885,8 +878,8 @@ crudRouter.post("/", requireAuth, async (req, res) => {
   // в bulk-sync/siteSync.ts: он выходит в AVAILABLE в обход конвейера (см. выше), но
   // это не значит «готов к публикации», это значит «публикации не будет вовсе».
   if (isPipelineStatus(property.status) || property.offSite) {
-    publishPropertyUpdated({ propertyId: property.id, agentId: property.assignedAgentId, stage: property.status, actorId: req.agent!.id });
-    return res.status(201).json({ ...presentProperty(property, req), ...(mediaReport ? { media: mediaReport } : {}) });
+    publishPropertyUpdated({ propertyId: property.id, agentId: property.assignedAgentId, stage: property.status, actorId: req.agent.id });
+    return createResult(201, { ...presentProperty(property, req), ...(mediaReport ? { media: mediaReport } : {}) });
   }
 
   // Автопубликация сразу при создании — по решению директора. Best-effort и молча:
@@ -903,8 +896,13 @@ crudRouter.post("/", requireAuth, async (req, res) => {
       }
     })
     .catch((err) => console.error(`[siteSync] Автопубликация объекта ${property.id}:`, err instanceof Error ? err.message : err));
-  publishPropertyUpdated({ propertyId: property.id, agentId: property.assignedAgentId, stage: property.status, actorId: req.agent!.id });
-  res.status(201).json({ ...presentProperty(property, req), ...(mediaReport ? { media: mediaReport } : {}) });
+  publishPropertyUpdated({ propertyId: property.id, agentId: property.assignedAgentId, stage: property.status, actorId: req.agent.id });
+  return createResult(201, { ...presentProperty(property, req), ...(mediaReport ? { media: mediaReport } : {}) });
+}
+
+crudRouter.post("/", requireAuth, async (req, res) => {
+  const result = await createProperty({ agent: req.agent!, body: req.body, forceDuplicate: req.query.force === "true" });
+  return res.status(result.status).json(result.body);
 });
 
 crudRouter.patch("/:id", requireAuth, async (req, res) => {
