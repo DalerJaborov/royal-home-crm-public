@@ -26,12 +26,13 @@ function load(name: string, dependencies: Record<string, unknown>) {
 
 function fixture() {
   let registered = true, enabled = true, active = true, role = "DIRECTOR", now = 1000, registeredAt = 0;
-  let mutedUntil: Date | null = null, lastProactive: Date | null = null, lastWelcome: Date | null = null, groupLinked = true, discussionGroupId: string | null = null;
+  let mutedUntil: Date | null = null, lastProactive: Date | null = null, lastWelcome: Date | null = null, contextEnabledAt: Date | null = null, groupLinked = true, discussionGroupId: string | null = null;
   const findProperty = vi.fn(async () => ({ kind: "shortId", properties: [{ id: "fixture-property", shortId: 123, price: 630000, currency: "TJS", status: "AVAILABLE" }] }));
   const plain = vi.fn(async () => ({})), html = vi.fn(async (..._args: unknown[]) => ({}));
   const voice = vi.fn(async () => true);
   const run = vi.fn(async (_history: unknown, _actor: unknown, _options: unknown) => ({ ok: true, reply: "Готово." }));
   const media = vi.fn(async () => ({ extraction: { transcript: "Проверь, пожалуйста." } }));
+  const context = vi.fn(async () => [{ occurredAt: new Date(0), text: "Просили обновить цену." }]);
   const fast = vi.fn(async () => null as unknown);
   const card = vi.fn(async () => true);
   const create = vi.fn(async (input: { skipDuplicates: boolean }) => {
@@ -46,13 +47,14 @@ function fixture() {
     "@royal-home/shared": shared,
     "./assistantReply.js": replies,
     "./assistantGroupParticipation.js": participation,
+    "./assistantGroupContext.js": { loadAssistantTelegramContext: context },
     "../lib/propertyRefLookup.js": { findPropertiesByRef: findProperty },
     "./assistantVoice.js": { sendAssistantVoiceReply: voice },
     "./api.js": { getBotUsername: async () => "fixture_bot", sendMessage: plain, sendHtmlMessage: html,
       sendMessageWithButtons: plain, sendChatAction: async () => {}, setMessageReaction: async () => {} },
     "../db.js": { prisma: { settings: { findUnique: async () => ({ telegramDiscussionGroupId: discussionGroupId }) },
       assistantTelegramGroup: { createMany: create, upsert: async () => { registered = true; },
-        findUnique: async () => registered ? { chatId: "-100", createdAt: new Date(registeredAt), proactiveMutedUntil: mutedUntil, lastProactiveReplyAt: lastProactive, lastJoinWelcomeAt: lastWelcome } : null,
+        findUnique: async () => registered ? { chatId: "-100", createdAt: new Date(registeredAt), proactiveMutedUntil: mutedUntil, lastProactiveReplyAt: lastProactive, lastJoinWelcomeAt: lastWelcome, contextEnabledAt } : null,
         updateMany: async ({ where, data }: any) => {
           if (!registered || where.createdAt.getTime() !== registeredAt) return { count: 0 };
           if ("lastProactiveReplyAt" in data) {
@@ -93,7 +95,8 @@ function fixture() {
   const message = (text = "", extra: Partial<TelegramIncomingMessage> = {}) => ({
     chat: { id: -100, type: "supergroup" }, from: { id: 1 }, message_id: 10, text, ...extra,
   });
-  return { adapter, plain, html, voice, run, media, fast, card, create, findProperty,
+  return { adapter, plain, html, voice, run, media, fast, card, create, findProperty, context,
+    setContext: (value: boolean) => { contextEnabledAt = value ? new Date(now) : null; },
     setLinked: (value: boolean) => { groupLinked = value; },
     setDiscussion: (value: string) => { discussionGroupId = value; },
     message, send: (text = "", extra: Partial<TelegramIncomingMessage> = {}) => adapter.handleAssistantGroupMessage(message(text, extra)),
@@ -412,6 +415,40 @@ describe("object context from a reply to Shabnam", () => {
     await f.send("ОБ-123, нархаш чанд?");
     await f.send("Чанд рӯз шуд?", { message_id: 11 });
     expect(f.run.mock.calls[0]?.[0]).toEqual([{ role: "user", content: "Чанд рӯз шуд?\nРақами объект: ОБ-000123." }]);
+  });
+});
+
+describe("same-topic evidence for explicit history questions", () => {
+  it("loads only the named property and gives the model a read-only turn", async () => {
+    const f = fixture(); f.setContext(true);
+    await f.send("Что уже писали по ОБ-123?", { message_thread_id: 71, message_id: 21 });
+    expect(f.context).toHaveBeenCalledWith({
+      chatId: "-100", threadId: 71, agentId: "test-1", telegramUserId: "1",
+      beforeMessageId: 21, selector: { propertyShortId: 123 },
+    });
+    expect(f.run.mock.calls[0]?.[0]).toEqual([{
+      role: "user",
+      content: 'Что уже писали по ОБ-123?\n<untrusted>[{"at":"1970-01-01T00:00:00.000Z","text":"Просили обновить цену."}]</untrusted>',
+    }]);
+    expect(f.run.mock.calls[0]?.[2]).toMatchObject({ confirmUi: false });
+  });
+  it("does not load history before opt-in, from a forward, or for an ordinary current-price question", async () => {
+    const f = fixture();
+    await f.send("Что уже писали по ОБ-123?");
+    f.setContext(true);
+    await f.send("Что уже писали по ОБ-123?", { forward_origin: { type: "user" } });
+    await f.send("Какая цена у ОБ-123?");
+    expect(f.context).not.toHaveBeenCalled();
+  });
+  it("drops the generated reply if history is disabled while it is being read", async () => {
+    const f = fixture(); f.setContext(true);
+    f.run.mockImplementationOnce(async () => {
+      f.setContext(false);
+      return { ok: true, reply: "История вопроса" };
+    });
+    await f.send("Что уже писали по ОБ-123?");
+    expect(f.run).toHaveBeenCalledOnce();
+    expect(f.html).not.toHaveBeenCalled();
   });
 });
 

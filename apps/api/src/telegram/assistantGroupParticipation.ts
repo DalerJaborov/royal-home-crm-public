@@ -65,6 +65,17 @@ export function groupPropertyRefs(text: string): string[] {
   return [...new Set(ids)].map(id => formatPropertyCode(id));
 }
 
+/** Only an explicit question about chat history can use archived evidence. */
+export function groupHistoryQuestion(text: string, replyToMessageId?: number) {
+  if (text.length > 200 || /[\r\n]|https?:\/\/|не\s+(?:отвечай(?:те)?|вмешивайся)|хомӯш бош/iu.test(text)) return null;
+  const ask = /^(?:а\s+)?(?:что\s+(?:(?:уже|тут|здесь)\s+)*(?:писали|написали|говорили|просили|обсуждали)|(?:то ҳол\s+)?ч[ӣи]\s+(?:(?:ин ҷо|пештар)\s+)?(?:навиштанд|гуфтанд|пурсиданд))(?=$|[\s?!.])/iu;
+  if (!ask.test(text)) return null;
+  const refs = groupPropertyRefs(text);
+  if (refs.length === 1) return { propertyShortId: Number(refs[0].slice(3)) };
+  if (!refs.length && replyToMessageId) return { replyToMessageId };
+  return null;
+}
+
 const MONTAGE_COMMAND = /^(?:(?:пожалуйста|лутфан)[, ]+)?(?:(?:отправь(?:те)?|перешли(?:те)?|верни(?:те)?)\s*(?:.*?\s)?(?:монтаж[её]ру|на (?:пере)?монтаж|на переделку)|(?:фиристон(?:ед)?|фиристед|равон кун(?:ед)?)\s*(?:.*?\s)?ба\s+(?:монтаж(?:[её]р)?|аз\s*нав\s*монтаж)|ба\s+монтаж(?:[её]р)?\s+(?:фиристон(?:ед)?|фиристед|равон кун(?:ед)?))(?=$|[\s,.!?:—–-])/iu;
 
 export function groupMontageCommand(text: string): { tail: string; tajik: boolean } | null {

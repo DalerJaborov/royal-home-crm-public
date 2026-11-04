@@ -2,8 +2,9 @@ import { renderAssistantForTelegram, requestedAssistantReplyMode, sanitizeAssist
 import { assistantGroupClarification, sendAssistantReply } from "./assistantDelivery.js";
 import { editTelegramConfirmationMessage, sendTelegramPriceConfirmationPhotos } from "./assistantConfirmationPhotos.js";
 import { ASSISTANT_COLLEAGUE_GREETING, ASSISTANT_GROUP_GREETING } from "./assistantGroupPhrases.js";
+import { loadAssistantTelegramContext } from "./assistantGroupContext.js";
 import { findPropertiesByRef } from "../lib/propertyRefLookup.js";
-import { GROUP_QUIET_MS, GROUP_REMAKE_REASON_QUESTION, GROUP_WELCOME_INTERVAL_MS, PROACTIVE_GROUP_INTERVAL_MS, groupMembershipEvent, groupMontageCommand, groupPropertyRefs, groupStatusFollowUp, isGroupPropertyFollowUp, isGroupRemakeReasonQuestion, isShortPropertyFollowUp, proactivePropertyReply, requestedGroupParticipation, unaddressedConfirmationRequest, unaddressedPropertyQuestion, unaddressedReadRequest, type GroupConfirmationTool } from "./assistantGroupParticipation.js";
+import { GROUP_QUIET_MS, GROUP_REMAKE_REASON_QUESTION, GROUP_WELCOME_INTERVAL_MS, PROACTIVE_GROUP_INTERVAL_MS, groupHistoryQuestion, groupMembershipEvent, groupMontageCommand, groupPropertyRefs, groupStatusFollowUp, isGroupPropertyFollowUp, isGroupRemakeReasonQuestion, isShortPropertyFollowUp, proactivePropertyReply, requestedGroupParticipation, unaddressedConfirmationRequest, unaddressedPropertyQuestion, unaddressedReadRequest, type GroupConfirmationTool } from "./assistantGroupParticipation.js";
 export { renderAssistantForTelegram } from "./assistantReply.js";
 import { randomUUID } from "node:crypto";
 import { formatPropertyCode, isReadOnlyRole, trimAssistantHistory, type AssistantPropertyCard, type PermissionId } from "@royal-home/shared";
@@ -669,6 +670,9 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
     && msg.voice.duration > 0 && msg.voice.duration <= GROUP_SHORT_VOICE_SECONDS;
   const audioDuration = (msg.voice ?? msg.audio)?.duration;
   const isForwarded = Boolean(msg.forward_origin || msg.forward_from_message_id);
+  const historyQuestion = (words: string) => key && !isForwarded
+    ? groupHistoryQuestion(words, msg.reply_to_message?.message_id) : null;
+  let historySelector = historyQuestion(addressed ? text : raw);
   const entry = currentWindow(key);
   const continuation = (words: string) => !isForwarded && !msg.reply_to_message
     && isShortPropertyFollowUp(words) ? entry?.propertyRef : undefined;
@@ -683,7 +687,7 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
       automaticRead = !automatic && (statusFollowUp || (!msg.reply_to_message && unaddressedReadRequest(raw)));
       if (!automatic && !automaticRead && !msg.reply_to_message) automaticAction = unaddressedConfirmationRequest(raw);
     }
-    if (!continuationRef && windowText === null && !automatic && !automaticRead && !automaticAction && !standaloneVoice) return false;
+    if (!historySelector && !continuationRef && windowText === null && !automatic && !automaticRead && !automaticAction && !standaloneVoice) return false;
   }
   const reply = (t: string) => sendMessage(chatId, t, msg.message_id).then(() => undefined);
 
@@ -797,6 +801,7 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
         || (current.proactiveMutedUntil && current.proactiveMutedUntil.getTime() > groupClock())) return false;
       fromVoice = true;
       raw = voice.text.replace(/\s+/gu, " ").trim();
+      historySelector = historyQuestion(raw);
       continuationRef = entry?.registeredAt === registeredAt ? continuation(raw) : undefined;
       statusFollowUp = Boolean(quoted && groupStatusFollowUp(raw, quoted));
       const spoken = addressedToBot({ ...msg, text: raw }, botUsername);
@@ -804,8 +809,9 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
         && spoken.addressed && spoken.text && !requestedGroupParticipation(spoken.text)) {
         addressed = true;
         text = spoken.text;
+        historySelector = historyQuestion(text);
         continuationRef = entry?.registeredAt === registeredAt ? continuation(text) : undefined;
-      } else if (continuationRef) {
+      } else if (continuationRef || historySelector) {
         text = raw;
       } else {
         automatic = unaddressedPropertyQuestion(raw);
@@ -814,19 +820,21 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
         if (!automatic && !automaticRead && !automaticAction) return false;
       }
     }
-    if (automatic || automaticRead || automaticAction) {
+    if (automatic || automaticRead || automaticAction || historySelector) {
       if (!sender || !(await isAiAssistantEnabled())) return false;
       const access = await loadAgentAccess(sender.id);
       if (!access?.isActive) return false;
+      const historyEnabledAt = registered.contextEnabledAt;
+      if (historySelector && !historyEnabledAt && !addressed) return false;
       const cooldown = new Date(now.getTime() - PROACTIVE_GROUP_INTERVAL_MS);
-      if (registered.lastProactiveReplyAt && registered.lastProactiveReplyAt > cooldown) return false;
+      if (!addressed && registered.lastProactiveReplyAt && registered.lastProactiveReplyAt > cooldown) return false;
       const lookup = automatic ? await findPropertiesByRef(automatic.ref, {
         hideOwnPendingDeleteFor: access.permissions.has("properties.delete") ? undefined : sender.id,
         limit: 1,
       }) : null;
       const property = lookup?.kind === "shortId" ? lookup.properties[0] : undefined;
       if (automatic && !property) return false;
-      const claim = await prisma.assistantTelegramGroup.updateMany({
+      const claim = addressed ? { count: 1 } : await prisma.assistantTelegramGroup.updateMany({
         where: {
           chatId, createdAt: registered.createdAt,
           AND: [
@@ -858,32 +866,50 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
         if (answer) { await reply(answer); return true; }
       }
 
-      const question = statusFollowUp ? `${raw}\n${wrapUntrusted("document", quoted, 600)}` : raw;
+      const currentWords = addressed ? text : raw;
+      const requestLanguage = assistantLanguage([{ role: "user", content: currentWords }]);
+      let question = statusFollowUp ? `${currentWords}\n${wrapUntrusted("document", quoted, 600)}` : currentWords;
+      if (historySelector && msg.from?.id) {
+        const evidence = historyEnabledAt ? await loadAssistantTelegramContext({
+          chatId, threadId: msg.message_thread_id ?? null, agentId: sender.id,
+          telegramUserId: String(msg.from.id), beforeMessageId: msg.message_id, selector: historySelector,
+        }) : [];
+        if (!evidence.length) {
+          const tg = requestLanguage === "tg" || requestLanguage === "mixed";
+          await reply(historyEnabledAt
+            ? tg ? "Дар гапҳои ҳамин ҷо чизе наёфтам." : "В сохранённых сообщениях этой темы ничего не нашла."
+            : tg ? "Гапҳои ин гурӯҳро ҳоло нигоҳ намедорам." : "Память этой группы пока выключена.");
+          return true;
+        }
+        const archived = evidence.map(({ occurredAt, text: excerpt }) => ({ at: occurredAt.toISOString(), text: excerpt }));
+        question = `${currentWords}\n${wrapUntrusted("document", JSON.stringify(archived), 3000)}`;
+      }
       const result = await runTurn({
-        agentId: sender.id, scope: "group", readOnlyGroup: !automaticAction,
-        onlyGroupConfirmation: automaticAction ?? undefined, moneyWallet,
+        agentId: sender.id, scope: "group", readOnlyGroup: Boolean(historySelector) || !automaticAction,
+        onlyGroupConfirmation: historySelector ? undefined : automaticAction ?? undefined, moneyWallet,
         history: [{ role: "user", content: maskAssistantContacts(question) }],
         deny: async () => {},
       });
       if (!result || (result.failed && !automaticAction)) return true;
       const current = await prisma.assistantTelegramGroup.findUnique({ where: { chatId } });
       if (!current || current.createdAt.getTime() !== registered.createdAt.getTime()
-          || (current.proactiveMutedUntil && current.proactiveMutedUntil.getTime() > groupClock())) {
+          || (!addressed && current.proactiveMutedUntil && current.proactiveMutedUntil.getTime() > groupClock())
+          || (historySelector && current.contextEnabledAt?.getTime() !== historyEnabledAt?.getTime())) {
         if (result.pending.length) await cancelPending(result.pending, sender.id);
         return true;
       }
-      if (automaticAction) {
+      if (automaticAction && !historySelector) {
         await sendTurnResult(chatId, result, {
           agentId: sender.id, authorName: sender.fullName, scope: "group", mode: "text", replyTo: msg.message_id,
-          requestLanguage: assistantLanguage([{ role: "user", content: raw }]),
+          requestLanguage,
         });
         return true;
       }
       await sendAssistantReply(chatId, splitReaction(result.reply).text, {
         scope: "group", mode: "text", structured: result.structured, replyTo: msg.message_id, written: [],
-        requestLanguage: assistantLanguage([{ role: "user", content: raw }]),
+        requestLanguage,
       });
-      const refs = groupPropertyRefs(statusFollowUp ? quoted : raw);
+      const refs = groupPropertyRefs(historySelector ? currentWords : statusFollowUp ? quoted : raw);
       openWindow(false, refs.length === 1 ? refs[0] : undefined);
       return true;
     }
@@ -1001,7 +1027,8 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
     });
   } catch (err) {
     await logSystemError("telegram", `Помощник в группе Telegram: ${describeError(err)}`);
-    if (!automatic && !automaticRead && !automaticAction && !membership && (!standaloneVoice || addressed)) await reply("Не получилось ответить, попробуйте ещё раз.").catch(() => {});
+    if (!automatic && !automaticRead && !automaticAction && !membership && (!historySelector || addressed)
+        && (!standaloneVoice || addressed)) await reply("Не получилось ответить, попробуйте ещё раз.").catch(() => {});
   }
   return true;
 }

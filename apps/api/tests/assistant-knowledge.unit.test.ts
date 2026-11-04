@@ -65,5 +65,5 @@ it("knowledge is untrusted data with source/version, never a system replacement"
 });
 it("glossary preserves semantic distinctions and bounds prompt size",()=>{
  expect(TAJIK_GLOSSARY).toHaveLength(36);expect(tajikGlossaryFor('пользователь квартира комиссия')).toContain('Пользователь системы не равен клиенту');
- expect(tajikGlossaryFor('клиент')).toContain('Мизоҷро ёфтам');expect(tajikGlossaryFor('всё')).toContain('только если отвечаешь по-таджикски');
+ expect(tajikGlossaryFor('клиент')).toContain('Муштариро ёфтам');expect(tajikGlossaryFor('всё')).toContain('только если отвечаешь по-таджикски');
 });

@@ -221,6 +221,11 @@ services:
       TELEGRAM_LOCAL_FILES_DIR: ${TELEGRAM_LOCAL_FILES_DIR:-}
       # Личный чат директора с ботом: бот не квалифицирует владельца как клиента.
       TELEGRAM_DIRECTOR_CHAT_ID: ${TELEGRAM_DIRECTOR_CHAT_ID:-}
+      # Optional, language-specific ElevenLabs dictionary and its fixed version.
+      ASSISTANT_TTS_DICTIONARY_ID_RU: ${ASSISTANT_TTS_DICTIONARY_ID_RU:-}
+      ASSISTANT_TTS_DICTIONARY_VERSION_RU: ${ASSISTANT_TTS_DICTIONARY_VERSION_RU:-}
+      ASSISTANT_TTS_DICTIONARY_ID_TG: ${ASSISTANT_TTS_DICTIONARY_ID_TG:-}
+      ASSISTANT_TTS_DICTIONARY_VERSION_TG: ${ASSISTANT_TTS_DICTIONARY_VERSION_TG:-}
       # Секрет вебхука Telegram (аудит №4): .env.example велит задать его и
       # вызвать setWebhook — но без строки здесь контейнер секрета не видел,
       # вебхук отвечал бы 403 на каждую доставку, и бот глох намертво
