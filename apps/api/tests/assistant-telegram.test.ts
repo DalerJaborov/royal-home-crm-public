@@ -722,11 +722,11 @@ describe("группа: окно диалога и ответ на чужое с
     const delivered = () => sentTexts().length + sendMessageWithButtons.mock.calls.length;
     const afterOpening = delivered();
     nowMs += GROUP_DIALOG_WINDOW_MS - 1000;
-    await handleTelegramUpdate(groupMsg("author", "покажи ОБ-7"));
+    await handleTelegramUpdate(groupMsg("author", "ОБ-7"));
     expect(delivered()).toBe(afterOpening + 1);
     expect(calls()).toBe(1);
     nowMs += GROUP_DIALOG_WINDOW_MS + 1000;
-    await handleTelegramUpdate(groupMsg("author", "покажи ОБ-8"));
+    await handleTelegramUpdate(groupMsg("author", "ОБ-8"));
     expect(delivered()).toBe(afterOpening + 1);
   });
 
@@ -738,12 +738,12 @@ describe("группа: окно диалога и ответ на чужое с
     expect(calls()).toBe(1);
     expect(sendMessage).not.toHaveBeenCalled();
     expect(sendHtmlMessage).not.toHaveBeenCalled();
-    await handleTelegramUpdate(groupMsg("author", "покажи ОБ-9"));
+    await handleTelegramUpdate(groupMsg("author", "ОБ-9"));
     expect(calls()).toBe(1);
 
     await open("author");
     await handleTelegramUpdate(groupMsg("author", "спасибо"));
-    await handleTelegramUpdate(groupMsg("author", "покажи ОБ-9"));
+    await handleTelegramUpdate(groupMsg("author", "ОБ-9"));
     expect(calls()).toBe(2);
   });
 
@@ -753,10 +753,10 @@ describe("группа: окно диалога и ответ на чужое с
     await handleTelegramUpdate(groupMsg("stranger", "стоп"));
     const delivered = () => sentTexts().length + sendMessageWithButtons.mock.calls.length;
     const afterStop = delivered();
-    await handleTelegramUpdate(groupMsg("stranger", "покажи ОБ-1"));
+    await handleTelegramUpdate(groupMsg("stranger", "ОБ-1"));
     expect(calls()).toBe(2);
     expect(delivered()).toBe(afterStop);
-    await handleTelegramUpdate(groupMsg("author", "покажи ОБ-1"));
+    await handleTelegramUpdate(groupMsg("author", "ОБ-1"));
     expect(calls()).toBe(2);
     expect(delivered()).toBe(afterStop + 1);
   });

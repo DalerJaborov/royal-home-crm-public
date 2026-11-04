@@ -1540,7 +1540,7 @@ export async function runAssistantDetailed(
       const reference = turn.calls.find((call) => call.name === WEB_REFERENCE_TOOL);
       if (reference) {
         route = "reference";
-        if (!settings.groundedSearchEnabled || !assistantGroundingBudgetSupported()) {
+        if (!assistantToolAllowed(actor, reference.name) || !settings.groundedSearchEnabled || !assistantGroundingBudgetSupported()) {
           // Инструмент не объявлялся, модель выдумала его имя — прежний отказ.
           route = "off_topic";
           ok = true;
