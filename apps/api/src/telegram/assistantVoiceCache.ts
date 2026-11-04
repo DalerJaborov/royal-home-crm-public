@@ -2,11 +2,13 @@ import { createHash, randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
+import { ASSISTANT_GROUP_GREETING } from "./assistantGroupPhrases.js";
 
 // Only neutral phrases: no names, prices, contacts, cards or generated business claims in shared audio.
 const NEUTRAL = new Set(["Здравствуйте!", "Здравствуйте.", "Чем помочь?", "Готово.", "Спасибо!", "Спасибо.",
   "Хорошо.", "Проверю.", "Уточните, пожалуйста.", "Уточните номер карточки.", "Подтвердите действие кнопкой.",
-  "Не удалось выполнить. Попробуйте ещё раз.", "Ничего не нашла.", "Выберите нужную карточку."]);
+  "Не удалось выполнить. Попробуйте ещё раз.", "Ничего не нашла.", "Выберите нужную карточку.",
+  ...Object.values(ASSISTANT_GROUP_GREETING)]);
 const TTL_MS = 30 * 24 * 60 * 60_000;
 /** Cheap container check, not a decoder: reject JSON/HTML or damaged non-audio cache hits. */
 export function isOggOpusAudio(audio: Buffer): boolean {

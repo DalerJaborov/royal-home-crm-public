@@ -13,6 +13,7 @@ import { TelegramApiError } from "../src/telegram/api.js";
 import { assistantVoiceCacheKey, readAssistantVoiceCache, writeAssistantVoiceCache } from "../src/telegram/assistantVoiceCache.js";
 import { claimAssistantTtsChars } from "../src/telegram/assistantVoiceBudget.js";
 import { encryptSecret } from "../src/crypto.js";
+import { ASSISTANT_GROUP_GREETING } from "../src/telegram/assistantGroupPhrases.js";
 beforeEach(async () => {
   testCacheRoot = await fs.mkdtemp(path.join(os.tmpdir(), "assistant-voice-test-"));
   vi.stubEnv("PRIVATE_UPLOADS_DIR", testCacheRoot);
@@ -46,6 +47,21 @@ it('successful Turbo synthesis charges before fetch and sends audio', async () =
   expect(chatAction.mock.invocationCallOrder[1]).toBeLessThan(sendVoice.mock.invocationCallOrder[0]);
 });
 it('budget exhausted prevents synthesis', async () => { query.mockResolvedValue([]); expect(await sendAssistantVoiceReply('test', 'Готово.')).toBe(false); expect(fetchMock).not.toHaveBeenCalled(); });
+it.each(["ru", "tg"] as const)("caches the neutral %s group greeting and charges only its first synthesis", async language => {
+  vi.stubEnv("ASSISTANT_TTS_VOICE_ID_TG", "test-tajik-voice");
+  sendVoice.mockResolvedValue({ voice: { file_id: "test-greeting-file" } });
+  const greeting = ASSISTANT_GROUP_GREETING[language];
+  expect(await sendAssistantVoiceReply("test-group-one", greeting)).toBe(true);
+  expect(await sendAssistantVoiceReply("test-group-two", greeting)).toBe(true);
+  expect(fetchMock).toHaveBeenCalledOnce(); expect(query).toHaveBeenCalledOnce();
+  expect(JSON.parse(fetchMock.mock.calls[0][1].body).language_code).toBe(language);
+  expect(sendVoiceId).toHaveBeenCalledWith("test-group-two", "test-greeting-file", undefined);
+});
+it("an exhausted budget leaves the new greeting unsynthesized for text fallback", async () => {
+  query.mockResolvedValue([]);
+  expect(await sendAssistantVoiceReply("test-group", ASSISTANT_GROUP_GREETING.ru)).toBe(false);
+  expect(fetchMock).not.toHaveBeenCalled(); expect(sendVoice).not.toHaveBeenCalled();
+});
 it('budget failure fails closed', async () => { query.mockRejectedValue(new Error('unavailable')); expect(await sendAssistantVoiceReply('test', 'Готово.')).toBe(false); expect(fetchMock).not.toHaveBeenCalled(); });
 it('Tajik rejects before budget', async () => { expect(await sendAssistantVoiceReply('test', 'Салом, ман ёфтам.')).toBe(false); expect(query).not.toHaveBeenCalled(); expect(fetchMock).not.toHaveBeenCalled(); });
 it('missing voice avoids spending', async () => { vi.stubEnv('ASSISTANT_TTS_VOICE_ID', ''); expect(await sendAssistantVoiceReply('test', 'Готово.')).toBe(false); expect(query).not.toHaveBeenCalled(); });

@@ -17,14 +17,15 @@ function fixture(type: "group" | "supergroup" | "private" = "supergroup") {
   const confirm = vi.fn(async () => ({ action: { preview: { title: "Fixture action" } }, replay: false }));
   const cancel = vi.fn(async () => {});
   const groupRead = vi.fn(async () => group);
-  const groupUpsert = vi.fn(async (input: { update: Record<string, unknown> }) => {
-    expect(input.update).toEqual({});
+  const groupCreate = vi.fn(async (input: { skipDuplicates: boolean }) => {
+    expect(input.skipDuplicates).toBe(true);
+    const count = group ? 0 : 1;
     if (!group) group = { chatId: "-100", createdAt: new Date(now) };
-    return group;
+    return { count };
   });
   const db = {
     settings: { findUnique: async () => ({ telegramDiscussionGroupId: null }) },
-    assistantTelegramGroup: { findUnique: groupRead, upsert: groupUpsert, deleteMany: async () => { group = null; return { count: 1 }; } },
+    assistantTelegramGroup: { findUnique: groupRead, createMany: groupCreate, deleteMany: async () => { group = null; return { count: 1 }; } },
     assistantAction: { findMany: async () => actions, count: async () => 0 },
   };
   const noop = async () => {};
@@ -40,6 +41,9 @@ function fixture(type: "group" | "supergroup" | "private" = "supergroup") {
     "../lib/telegramModeration.js": { claimCallback: async () => true },
     "../lib/assistantActions.js": { AssistantActionError: ActionError, confirmAssistantAction: confirm, cancelAssistantAction: cancel },
     "./assistantReply.js": { sanitizeAssistantReply: (text: string) => text },
+    "./assistantDelivery.js": { sendAssistantReply: async () => true },
+    "./assistantGroupPhrases.js": { ASSISTANT_GROUP_GREETING: { ru: "Fixture greeting" } },
+    "../ai/assistant/languageRouting.js": { assistantLanguage: () => "unknown" },
     "../lib/systemError.js": { logSystemError: noop },
     "../lib/describeError.js": { describeError: () => "fixture database failure" },
   };
@@ -53,7 +57,7 @@ function fixture(type: "group" | "supergroup" | "private" = "supergroup") {
     chat: { id: -100, type: "supergroup" }, from: { id: 10 }, message_id: 51,
     text: `/assistant_${on ? "on" : "off"}@fixture_bot`,
   });
-  return { confirm, cancel, answer, groupRead, groupUpsert, actions,
+  return { confirm, cancel, answer, groupRead, groupCreate, actions,
     press: (verb = "ok", userId = 1) => exports.handleAssistantCallback(query(verb, userId)), toggle,
     setNow: (time: number) => { now = time; }, setActive: (value: boolean) => { active = value; },
     setEnabled: (value: boolean) => { enabled = value; }, group: () => group };
