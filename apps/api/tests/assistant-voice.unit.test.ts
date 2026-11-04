@@ -5,7 +5,7 @@ let testCacheRoot: string;
 const audioFixture = Buffer.from("OggS0000000000000000000000000000OpusHead00000000");
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 const { query, settings, savedVoice, sendVoice, sendVoiceId, chatAction, fetchMock } = vi.hoisted(() => ({ query: vi.fn(), settings: vi.fn(), savedVoice: vi.fn(), sendVoice: vi.fn(), sendVoiceId: vi.fn(), chatAction: vi.fn(), fetchMock: vi.fn() }));
-vi.mock("../src/db.js", () => ({ prisma: { $queryRaw: query, settings: { findUnique: settings }, assistantVoiceConfig: { findUnique: savedVoice } } }));
+vi.mock("../src/db.js", () => ({ prisma: { $disconnect: vi.fn(), $queryRaw: query, settings: { findUnique: settings }, assistantVoiceConfig: { findUnique: savedVoice } } }));
 vi.mock("../src/ai/liveVoiceProvider.js", () => ({ resolveElevenLabsKey: (key: string) => key }));
 vi.mock("../src/telegram/api.js", () => ({ sendChatAction: chatAction, sendVoiceFile: sendVoice, sendAssistantVoiceId: sendVoiceId, TelegramApiError: class extends Error { constructor(public errorCode: number, _method: string, text: string) { super(text); } } }));
 import { sendAssistantVoiceReply, speechTextFromReply } from "../src/telegram/assistantVoice.js";

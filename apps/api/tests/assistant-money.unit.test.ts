@@ -1,4 +1,4 @@
-vi.mock("../src/db.js", () => ({ prisma: { $queryRaw: vi.fn(() => { throw new Error("Unexpected database access"); }) } }));
+vi.mock("../src/db.js", () => ({ prisma: { $disconnect: vi.fn(), $queryRaw: vi.fn(() => { throw new Error("Unexpected database access"); }) } }));
 import { describe, expect, it, vi } from "vitest";
 import { createAssistantEmbeddingMoneyGuard, createAssistantMoneyGuard, createAssistantMoneyWallet } from "../src/ai/assistant/moneyBudget.js";
 import { dollarLimit, generationReservation } from "../src/ai/assistant/moneyPolicy.js";

@@ -1,6 +1,6 @@
 import { beforeEach, afterEach, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({ query: vi.fn(), execute: vi.fn(), embed: vi.fn(), reserve: vi.fn() }));
-vi.mock("../src/db.js", () => ({ prisma: { $queryRaw: mocks.query, $executeRaw: mocks.execute } }));
+vi.mock("../src/db.js", () => ({ prisma: { $disconnect: vi.fn(), $queryRaw: mocks.query, $executeRaw: mocks.execute } }));
 // Full provider boundary mock: never load keys, settings, or SEO dependencies in offline tests.
 vi.mock("../src/ai/embeddings.js", () => ({ embedText: mocks.embed,
   cosineSimilarity: (a: number[], b: number[]) => a.reduce((sum, value, i) => sum + value * b[i], 0) / (Math.hypot(...a) * Math.hypot(...b)) }));

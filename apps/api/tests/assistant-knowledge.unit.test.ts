@@ -1,6 +1,6 @@
 import { beforeEach, expect, it, vi } from "vitest";
 const mocks=vi.hoisted(()=>({access:vi.fn(),loadActor:vi.fn(),query:vi.fn(),transaction:vi.fn()}));
-vi.mock("../src/db.js",()=>({prisma:{$queryRaw:mocks.query,$transaction:mocks.transaction}}));
+vi.mock("../src/db.js",()=>({prisma:{$disconnect:vi.fn(),$queryRaw:mocks.query,$transaction:mocks.transaction}}));
 vi.mock("../src/auth/middleware.js",()=>({loadAgentAccess:mocks.access}));
 vi.mock("../src/ai/assistant/tools/showingToolSupport.js",()=>({loadToolActor:mocks.loadActor,asPluginExecutor:(executor:unknown)=>executor}));
 vi.mock("../src/lib/assistantActions.js",()=>({AssistantActionError:class extends Error{constructor(public status:number,public code:string,text:string){super(text);}}}));

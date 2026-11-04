@@ -1,6 +1,6 @@
 import { beforeEach, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({ embed: vi.fn(), find: vi.fn() }));
-vi.mock("../src/db.js", () => ({ prisma: { property: { findMany: mocks.find } } }));
+vi.mock("../src/db.js", () => ({ prisma: { $disconnect: vi.fn(), property: { findMany: mocks.find } } }));
 vi.mock("../src/ai/embeddings.js", () => ({ embedText: mocks.embed, cosineSimilarity: () => 1 }));
 import { semanticPropertySearch } from "../src/lib/embeddingSearch.js";
 beforeEach(() => { mocks.embed.mockReset(); mocks.find.mockReset(); });

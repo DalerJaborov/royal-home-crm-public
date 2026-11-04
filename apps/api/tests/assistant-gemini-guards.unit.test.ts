@@ -4,7 +4,7 @@ import { createAssistantAttemptLimit } from "../src/ai/assistant/attemptLimit.js
 const telemetry = vi.hoisted(() => ({ logAiCall: vi.fn() }));
 
 // Fully isolate persistence/settings modules: importing their originals can load .env/DB.
-vi.mock("../src/db.js", () => ({ prisma: {} }));
+vi.mock("../src/db.js", () => ({ prisma: { $disconnect: vi.fn() } }));
 vi.mock("../src/lib/botTurnTrace.js", () => ({
   traceModelStart: vi.fn(), traceModelFinish: vi.fn(), traceModelCache: vi.fn(), traceKnownSecrets: vi.fn(),
 }));

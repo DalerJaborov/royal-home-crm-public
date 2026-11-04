@@ -1,6 +1,6 @@
 import { beforeEach, afterEach, expect, it, vi } from "vitest";
 const mocked = vi.hoisted(() => ({ runtime: vi.fn() }));
-vi.mock("../src/db.js", () => ({ prisma: {} }));
+vi.mock("../src/db.js", () => ({ prisma: { $disconnect: vi.fn() } }));
 vi.mock("../src/ai/geminiSettings.js", () => ({ resolveGeminiRuntime: mocked.runtime }));
 vi.mock("../src/ai/shared.js", () => ({ emptyUsage: () => ({}), logAiCall: vi.fn() }));
 vi.mock("../src/lib/systemError.js", () => ({ logSystemError: vi.fn() }));

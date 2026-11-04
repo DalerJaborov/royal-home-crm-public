@@ -1,6 +1,6 @@
 import { beforeEach, expect, it, vi } from "vitest";
 const { findMany, findFirst, findProperty } = vi.hoisted(() => ({ findMany: vi.fn(), findFirst: vi.fn(), findProperty: vi.fn() }));
-vi.mock("../src/db.js", () => ({ prisma: { client: { findMany, findFirst }, property: { findFirst: findProperty, findMany: vi.fn() } } }));
+vi.mock("../src/db.js", () => ({ prisma: { $disconnect: vi.fn(), client: { findMany, findFirst }, property: { findFirst: findProperty, findMany: vi.fn() } } }));
 import { parseFastPathIntent, tryAssistantFastPath } from "../src/ai/assistantFastPath.js";
 const actor = { id: 'test-agent', role: 'AGENT', canViewAllClients: false, canViewPhone: false, canViewAllDeals: false };
 beforeEach(() => { vi.clearAllMocks(); findMany.mockResolvedValue([]); });
