@@ -498,7 +498,8 @@ export function addressedToBot(msg: TelegramIncomingMessage, botUsername: string
   const mentioned = new RegExp(mentionSource, "i").test(raw);
   const named = /^(?:шабнам|мушовир)(?=$|[\s,:;.!?—–-])/iu.exec(raw);
   const afterName = named ? raw.slice(named[0].length) : "";
-  const namedAddress = Boolean(named && (!afterName.trim() || /^\s*[,:;.!?—–-]/u.test(afterName) || NAMED_REQUEST.test(afterName.trim())));
+  const namedAddress = Boolean(named && (!afterName.trim() || /^\s*[,:;.!?—–-]/u.test(afterName)
+    || NAMED_REQUEST.test(afterName.trim()) || requestedGroupParticipation(afterName)));
   const addressed = mentioned || replyToBot || commandForUs || namedAddress;
   let text = raw.replace(new RegExp(mentionSource, "gi"), "$1 ");
   if (commandForUs) text = text.replace(/^\/(?:ai|помощник)(?:@\w+)?/i, "");

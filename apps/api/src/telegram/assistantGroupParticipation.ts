@@ -40,7 +40,7 @@ export const PROACTIVE_GROUP_INTERVAL_MS = 60_000;
 
 export function requestedGroupParticipation(text: string): "quiet" | "resume" | null {
   const command = text.trim().replace(/[.!?]+$/u, "");
-  if (/^(?:пожалуйста,?\s+)?(?:помолчи|тише|стоп|пока не отвечай|хомӯш бош)$/iu.test(command)) return "quiet";
+  if (/^(?:пожалуйста,?\s+)?(?:помолчи|молчи|тише|стоп|(?:пока )?не отвечай|хомӯш бош)$/iu.test(command)) return "quiet";
   if (/^(?:пожалуйста,?\s+)?(?:продолжай|можешь отвечать|аз нав ҷавоб деҳ)$/iu.test(command)) return "resume";
   return null;
 }

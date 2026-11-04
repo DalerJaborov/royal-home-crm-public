@@ -271,9 +271,9 @@ describe("optional help without an address", () => {
     await f.send("Какая цена у ОБ-123?");
     expect(f.html).toHaveBeenCalledTimes(2);
   });
-  it("pauses unsolicited replies across the chat while direct conversations still work", async () => {
+  it.each(["Шабнам, помолчи", "Шабнам помолчи", "Шабнам хомӯш бош"])("pauses unsolicited replies via %s while direct conversations still work", async command => {
     const f = fixture();
-    await f.send("Шабнам, помолчи");
+    await f.send(command);
     expect(await f.send("Какая цена у ОБ-123?", { from: { id: 2 } })).toBe(false);
     await f.send("Шабнам, помоги");
     expect(f.run).toHaveBeenCalledOnce();
