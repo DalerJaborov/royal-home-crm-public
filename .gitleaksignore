@@ -10,3 +10,6 @@
 43cabd508f89e5e005793c82616860952147ff47:apps/api/src/lib/sellerIntakeAppointments.ts:generic-api-key:26
 43cabd508f89e5e005793c82616860952147ff47:apps/api/src/lib/ownerVerificationSources.ts:generic-api-key:145
 43cabd508f89e5e005793c82616860952147ff47:apps/api/tests/owner-verification-sources.test.ts:generic-api-key:18
+# Historical prose: invalid_api_key followed by the public field names voiceIdRu/voiceIdTg.
+# No credential is present; ignore only this reviewed finding, not the rule or file.
+33f6cee1d15c4f6ccb3ea64da2f173a5c118a5d8:docs/design/madina-gemini-elevenlabs-2026-11-03.md:generic-api-key:79
