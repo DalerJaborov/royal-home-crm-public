@@ -5,11 +5,9 @@ import { assistantKnowledgeInputSchema, assistantKnowledgeSearchSchema, type Ass
 import { maskAssistantContacts } from "../../lib/assistantContacts.js";
 import { wrapUntrusted } from "../untrustedContent.js";
 import type { KnowledgeEmbeddingOptions } from "./knowledgeSemantic.js";
+import type { CompanyKnowledge } from "./knowledgeTypes.js";
 
-export interface CompanyKnowledge {
-  id: string; key: string; title: string; content: string; source: string; authorId: string;
-  revision: number; archived: boolean; validUntil: Date | null; createdAt: Date; updatedAt: Date;
-}
+export type { CompanyKnowledge } from "./knowledgeTypes.js";
 export class KnowledgeConflict extends Error {}
 export function knowledgeKey(title: string): string { return title.normalize("NFKC").toLowerCase().replace(/\s+/g, " ").trim(); }
 export function validateCompanyKnowledge(raw: unknown, allowExpired = false): AssistantKnowledgeInput {

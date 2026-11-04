@@ -2,7 +2,7 @@ import { Prisma } from "../../generated/prisma/client.js";
 import { prisma } from "../../db.js";
 import { embedText, cosineSimilarity, type EmbeddingAttemptMetadata } from "../embeddings.js";
 import { GEMINI_EMBEDDING_MODEL, GEMINI_EMBEDDING_DIMENSIONS } from "../geminiTransport.js";
-import type { CompanyKnowledge } from "./knowledge.js";
+import type { CompanyKnowledge } from "./knowledgeTypes.js";
 
 export const KNOWLEDGE_INDEX_BATCH_MAX = 10;
 export const KNOWLEDGE_SEMANTIC_SCAN_MAX = 256;
