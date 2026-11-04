@@ -655,9 +655,10 @@ describe("привязка и рендер", () => {
     expect(prev?.telegramUserId).toBeNull();
   });
 
-  it("рендер: относительные ссылки → абсолютные, ** убираются, ссылки не портятся маской", () => {
+  it("текстовый запасной ответ сохраняет название ссылки и скрывает URL и телефон", () => {
     const out = renderAssistantForTelegram("**Клиент** [Али](/clients/12345678-1234-1234-1234-123456789012) +992901234567", { maskPhones: true });
-    expect(out).toContain("Клиент Али — https://crm.test/clients/12345678-1234-1234-1234-123456789012");
+    expect(out).toContain("Клиент Али");
+    expect(out).not.toContain("/clients/");
     expect(out).not.toContain("901234567");
   });
 });

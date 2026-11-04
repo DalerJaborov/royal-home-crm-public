@@ -188,6 +188,16 @@ describe("natural group addressing and silence", () => {
     expect(f.run).not.toHaveBeenCalled();
   });
 
+  it("delivers a public selection as linked labels without a separate plain URL message", async () => {
+    const f = fixture();
+    f.setLinked(false);
+    const result = 'Сино · 2 ҳуҷра\n<a href="https://royalhome.tj/tg/khona/27">Дар сайт бинед</a>';
+    f.publicShellReply.mockResolvedValueOnce(result);
+    await f.send("Салом, Шабнам, квартираи коробка бе таъмир");
+    expect(f.html).toHaveBeenCalledWith("-100", result, 10);
+    expect(f.plain).not.toHaveBeenCalled();
+  });
+
   it("gives a guest exact public site facts without a CRM actor or private lookup", async () => {
     const f = fixture();
     f.setLinked(false);

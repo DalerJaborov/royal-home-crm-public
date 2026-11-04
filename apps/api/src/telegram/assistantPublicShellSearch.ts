@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { safeFetch } from "../lib/safeFetch.js";
+import { escapeHtml } from "./assistantReply.js";
 
 const SITE_ORIGIN = "https://royalhome.tj";
 const CATALOG_TIMEOUT_MS = 2_500;
@@ -101,14 +102,14 @@ const copy = {
     unavailable: "Сайт сейчас не отвечает. Попробуйте спросить чуть позже.",
     empty: { APARTMENT: "На сайте сейчас нет квартир в коробке без отделки.", HOUSE: "На сайте сейчас нет отдельных домов в коробке без отделки. Квартира подойдёт?" },
     intro: { APARTMENT: "Вот квартиры в коробке без отделки с нашего сайта.", HOUSE: "Вот отдельные дома в коробке без отделки с нашего сайта." },
-    rooms: "комн.", currency: "сомони",
+    rooms: "комн.", currency: "сомони", link: "Открыть на сайте",
   },
   tg: {
     clarify: "Квартира меҷӯед ё ҳавлӣ?",
     unavailable: "Ҳозир сайт ҷавоб намедиҳад. Каме баъд боз пурсед.",
     empty: { APARTMENT: "Ҳозир дар сайт квартираи коробка, бе таъмир нест.", HOUSE: "Ҳозир дар сайт ҳавлии коробка, бе таъмир нест. Квартира ҳам мешавад?" },
     intro: { APARTMENT: "Ин квартираҳо дар сайти мо ҳастанд. Коробка, бе таъмир.", HOUSE: "Ин ҳавлиҳо дар сайти мо ҳастанд. Коробка, бе таъмир." },
-    rooms: "ҳуҷра", currency: "сомонӣ",
+    rooms: "ҳуҷра", currency: "сомонӣ", link: "Дар сайт бинед",
   },
 } as const;
 
@@ -125,7 +126,7 @@ export async function replyPublicShellRequest(request: PublicShellRequest, langu
   const results = distinct.sort((a, b) => a.price - b.price || a.id - b.id).slice(0, RESULT_LIMIT);
   if (!results.length) return t.empty[request.type];
   return [t.intro[request.type], ...results.map(row => [
-    row.location, row.rooms ? `${row.rooms} ${t.rooms}` : null, row.area ? `${amount.format(row.area)} м²` : null,
+    escapeHtml(row.location), row.rooms ? `${row.rooms} ${t.rooms}` : null, row.area ? `${amount.format(row.area)} м²` : null,
     `${amount.format(row.price)} ${t.currency}`,
-  ].filter(Boolean).join(" · ") + `\n${SITE_ORIGIN}${language === "tg" ? "/tg/khona" : "/listing"}/${row.id}`)].join("\n\n");
+  ].filter(Boolean).join(" · ") + `\n<a href="${SITE_ORIGIN}${language === "tg" ? "/tg/khona" : "/listing"}/${row.id}">${t.link}</a>`)].join("\n\n");
 }

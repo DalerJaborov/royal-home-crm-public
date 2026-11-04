@@ -40,7 +40,7 @@ import { logAssistantToolCall } from "../lib/aiAssistantAudit.js";
 import {
   answerCallbackQuery as answerCallbackQueryRaw,
   getBotUsername,
-  sendChatAction,
+  sendChatAction, sendHtmlMessage,
   sendMessage,
   sendMessageWithButtons,
   setMessageReaction,
@@ -850,7 +850,8 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
         });
         if (claim.count !== 1) return false;
       }
-      await reply(answer);
+      if (publicQuestion.kind === "shell" && answer.includes("<a href=")) await sendHtmlMessage(chatId, answer, msg.message_id);
+      else await reply(answer);
       return true;
     }
     const moneyWallet = createAssistantMoneyWallet();

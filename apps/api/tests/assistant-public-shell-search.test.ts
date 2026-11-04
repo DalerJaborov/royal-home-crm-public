@@ -58,7 +58,10 @@ describe("public shell questions", () => {
       { ...apartment, id: 31, price: 600000 }, { ...apartment, id: 33, price: 200000 }, { ...apartment, id: 34, price: 900000 },
     ]));
     const text = await replyPublicShellRequest({ type: "APARTMENT" }, "tg", undefined, signal => readAssistantPublicSiteCatalog(signal, read));
-    expect(text.match(/https:\/\/royalhome\.tj\/tg\/khona\/\d+/gu)).toEqual([33, 27, 31].map(id => `https://royalhome.tj/tg/khona/${id}`));
+    expect(text.match(/<a href="https:\/\/royalhome\.tj\/tg\/khona\/\d+">Дар сайт бинед<\/a>/gu)).toEqual(
+      [33, 27, 31].map(id => `<a href="https://royalhome.tj/tg/khona/${id}">Дар сайт бинед</a>`),
+    );
+    expect(text).not.toMatch(/^https?:/mu);
     expect(text).toContain("сомонӣ");
   });
 

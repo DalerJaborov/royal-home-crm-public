@@ -65,26 +65,13 @@ export function requestedAssistantReplyMode(text: string): AssistantReplyMode {
   }
   return "auto";
 }
-/**
-* Ответ помощника (markdown со ссылками вида `[Имя](/clients/ID)`) → простой текст
-* для Telegram. Относительные ссылки в Telegram не работают — делаем абсолютными
-* (CRM_PUBLIC_URL); адреса не маскируются, а вот телефоны и @ники в тексте — да,
-* когда `maskPhones`: сначала прячем ссылки, потом маскируем остальное.
-*/
+/** Plain fallback keeps link labels. Delivery attaches verified CRM links as buttons. */
 export function renderAssistantForTelegram(text: string, opts: {
   maskPhones: boolean;
 }): string {
-  text = sanitizeAssistantReply(text, opts.maskPhones);
-  const base = publicBase();
-  const links: string[] = [];
-  let out = text.replace(MD_LINK, (_m, label: string, path: string) => {
-    const shown = label;
-    links.push(base ? `${shown} — ${base}${path}` : shown);
-    return `\u0000${links.length - 1}\u0000`;
-  });
-  out = out.replace(/\*\*(.+?)\*\*/g, "$1");
-  // eslint-disable-next-line no-control-regex
-  return out.replace(/\u0000(\d+)\u0000/g, (_m, i: string) => links[Number(i)] ?? "");
+  return sanitizeAssistantReply(text, opts.maskPhones)
+    .replace(MD_LINK, "$1")
+    .replace(/\*\*(.+?)\*\*/g, "$1");
 }
 const HTML_ESC: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" };
 export const escapeHtml = (t: string): string => t.replace(/[&<>"]/g, (c) => HTML_ESC[c]);
