@@ -20,7 +20,7 @@
  *  - шесть цифр из crypto.randomInt, живёт 5 минут, одноразовый;
  *  - в базе только HMAC кода — утечка таблицы не даёт войти;
  *  - 5 неверных попыток гасят код, нужен новый;
- *  - новый код в тот же канал — не чаще раза в минуту, всего не больше 5 за час
+ *  - новый код — не чаще раза в минуту независимо от канала, не больше 5 за час
  *    на сотрудника: каждая СМС стоит денег, а кнопка «Отправить ещё раз» под пальцем;
  *  - действует только последний выданный код.
  *
@@ -91,7 +91,7 @@ export function devCodeEchoEnabled(): boolean {
 }
 
 export type IssueResult =
-  | { ok: true; channel: LoginCodeChannel; devCode?: string; fallbackAfterSec?: number }
+  | { ok: true; channel: LoginCodeChannel; devCode?: string; fallbackAfterSec?: number; resendAfterSec?: number }
   | { ok: false; error: string; retryAfterSec?: number };
 
 export type CodeAgent = { id: string; phone: string; telegramChatId: string | null };
@@ -136,83 +136,97 @@ async function deliver(
  * Задан — только в этот канал (кнопка «Прислать в Telegram»).
  */
 export async function issueLoginCode(agent: CodeAgent, channel?: LoginCodeChannel): Promise<IssueResult> {
-  const now = Date.now();
-  const recent = await prisma.loginSmsCode.findMany({
-    where: { agentId: agent.id, createdAt: { gte: new Date(now - 60 * 60 * 1000) } },
-    orderBy: { createdAt: "desc" },
-    select: { createdAt: true, channel: true },
-  });
-  // «Отправить ещё раз» после пуша — сразу СМС: пуш уже был, второй ничего не даст.
-  const afterPush = recent[0]?.channel === "push" && now - recent[0].createdAt.getTime() < LOGIN_SMS_CODE_TTL_MS;
-  const liveSubs = channel || afterPush ? [] : await loadLiveSubscriptions(agent.id);
-  const wanted: LoginCodeChannel = channel ?? (liveSubs.length > 0 ? "push" : "sms");
-  // Повтор в ТОТ ЖЕ канал — через минуту. Переключиться на Telegram, когда СМС
-  // не пришла, можно сразу: в этом и смысл запасного канала.
-  const sameChannel = recent.find((r) => r.channel === wanted);
-  if (sameChannel && now - sameChannel.createdAt.getTime() < LOGIN_SMS_RESEND_MS) {
-    const retryAfterSec = Math.ceil((LOGIN_SMS_RESEND_MS - (now - sameChannel.createdAt.getTime())) / 1000);
-    return { ok: false, error: `Код уже отправлен. Новый можно запросить через ${retryAfterSec} с`, retryAfterSec };
-  }
-  if (recent.length >= LOGIN_SMS_PER_HOUR) {
-    return { ok: false, error: "Слишком много кодов за час. Попробуйте позже или обратитесь к директору" };
-  }
-
   const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
-  const order: LoginCodeChannel[] = channel
-    ? [channel]
-    : [...(liveSubs.length > 0 ? (["push"] as const) : []), "sms", ...(agent.telegramChatId ? (["telegram"] as const) : [])];
-  const errors: string[] = [];
-  for (const ch of order) {
-    const ackToken = ch === "push" ? randomBytes(24).toString("base64url") : null;
-    const row = await prisma.loginSmsCode.create({
+  const candidateSubs = channel ? [] : await loadLiveSubscriptions(agent.id);
+  // Reserve before any provider call, under a per-agent database lock. Two tabs
+  // (or API processes) must not both pass the cooldown and issue different codes.
+  const reserved = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "Agent" WHERE id = ${agent.id} FOR UPDATE`;
+    const now = Date.now();
+    const recent = await tx.loginSmsCode.findMany({
+      where: { agentId: agent.id, createdAt: { gte: new Date(now - 60 * 60 * 1000) } },
+      orderBy: { createdAt: "desc" },
+      select: { createdAt: true, channel: true },
+    });
+    // После общей паузы повтор доставляем сразу СМС, а не вторым пушем.
+    const afterPush = recent[0]?.channel === "push" && now - recent[0].createdAt.getTime() < LOGIN_SMS_CODE_TTL_MS;
+    const liveSubs = channel || afterPush ? [] : candidateSubs;
+    const wanted: LoginCodeChannel = channel ?? (liveSubs.length > 0 ? "push" : "sms");
+    const latest = recent[0];
+    if (latest && now - latest.createdAt.getTime() < LOGIN_SMS_RESEND_MS) {
+      const retryAfterSec = Math.ceil((LOGIN_SMS_RESEND_MS - (now - latest.createdAt.getTime())) / 1000);
+      return { ok: false as const, error: "Код уже отправлен. Дождитесь окончания таймера перед повторной отправкой.", retryAfterSec };
+    }
+    if (recent.length >= LOGIN_SMS_PER_HOUR) {
+      return { ok: false as const, error: "Слишком много кодов за час. Попробуйте позже или обратитесь к директору" };
+    }
+
+    const order: LoginCodeChannel[] = channel
+      ? [channel]
+      : [...(liveSubs.length > 0 ? (["push"] as const) : []), "sms", ...(agent.telegramChatId ? (["telegram"] as const) : [])];
+    const ackToken = wanted === "push" ? randomBytes(24).toString("base64url") : null;
+    const row = await tx.loginSmsCode.create({
       data: {
         agentId: agent.id,
         codeHash: hashCode(agent.id, code),
-        channel: ch,
+        channel: wanted,
         expiresAt: new Date(now + LOGIN_SMS_CODE_TTL_MS),
         ...(ackToken ? { ackTokenHash: hashAck(ackToken) } : {}),
       },
       select: { id: true },
     });
-    if (ch === "push") {
-      const accepted = await sendLoginCodePush(liveSubs, {
-        kind: "login-code",
-        code,
-        ackToken,
-        title: "Код входа Royal Home CRM",
-        body: `${code} — никому не сообщайте`,
-        tag: "login-code",
-      }).catch((err) => {
-        void logSystemError("api", `Код входа пушем не отправлен: ${err instanceof Error ? err.message : String(err)}`);
-        return 0;
-      });
-      if (accepted > 0) {
-        scheduleSmsFallback(agent, row.id, code);
-        return {
-          ok: true,
-          channel: "push",
-          fallbackAfterSec: PUSH_FALLBACK_SEC,
-          ...(devCodeEchoEnabled() ? { devCode: code } : {}),
-        };
+    return { ok: true as const, rowId: row.id, order, liveSubs, wanted, ackToken, reservedAt: now };
+  });
+  if (!reserved.ok) return reserved;
+  const { rowId, order, liveSubs, wanted, ackToken } = reserved;
+  const resendAfterSec = () => Math.max(0, Math.ceil((reserved.reservedAt + LOGIN_SMS_RESEND_MS - Date.now()) / 1000));
+  const errors: string[] = [];
+  try {
+    for (const ch of order) {
+      await prisma.loginSmsCode.update({ where: { id: rowId }, data: { channel: ch } });
+      if (ch === "push") {
+        const accepted = await sendLoginCodePush(liveSubs, {
+          kind: "login-code",
+          code,
+          ackToken,
+          title: "Код входа Royal Home CRM",
+          body: `${code} — никому не сообщайте`,
+          tag: "login-code",
+        }).catch((err) => {
+          void logSystemError("api", `Код входа пушем не отправлен: ${err instanceof Error ? err.message : String(err)}`);
+          return 0;
+        });
+        if (accepted > 0) {
+          scheduleSmsFallback(agent, rowId, code);
+          return {
+            ok: true,
+            channel: "push",
+            fallbackAfterSec: PUSH_FALLBACK_SEC,
+            resendAfterSec: resendAfterSec(),
+            ...(devCodeEchoEnabled() ? { devCode: code } : {}),
+          };
+        }
+        errors.push("пуш не принят устройствами");
+        continue;
       }
-      await prisma.loginSmsCode.delete({ where: { id: row.id } }).catch(() => {});
-      errors.push("пуш не принят устройствами");
-      continue;
+      const sent = await deliver(agent, ch, code);
+      if (sent.ok) return { ok: true, channel: ch, resendAfterSec: resendAfterSec(), ...(devCodeEchoEnabled() ? { devCode: code } : {}) };
+      errors.push(sent.error);
     }
-    const sent = await deliver(agent, ch, code);
-    if (sent.ok) return { ok: true, channel: ch, ...(devCodeEchoEnabled() ? { devCode: code } : {}) };
-    // Неотправленный код не должен ни действовать, ни занимать минуту до повтора.
-    await prisma.loginSmsCode.delete({ where: { id: row.id } }).catch(() => {});
-    errors.push(sent.error);
+    // Стенд без провайдера: код всё равно действует, его отдаёт ответ сервера.
+    if (devCodeEchoEnabled()) {
+      await prisma.loginSmsCode.update({
+        where: { id: rowId }, data: { channel: wanted === "push" ? "sms" : wanted },
+      });
+      return { ok: true, channel: wanted === "push" ? "sms" : wanted, devCode: code, resendAfterSec: resendAfterSec() };
+    }
+    // All transports refused: release the reservation, allowing a real retry.
+    await prisma.loginSmsCode.delete({ where: { id: rowId } });
+    return { ok: false, error: `Не удалось отправить код: ${errors.join("; ")}` };
+  } catch (err) {
+    await prisma.loginSmsCode.deleteMany({ where: { id: rowId } });
+    throw err;
   }
-  // Стенд без провайдера: код всё равно действует, его отдаёт ответ сервера.
-  if (devCodeEchoEnabled()) {
-    await prisma.loginSmsCode.create({
-      data: { agentId: agent.id, codeHash: hashCode(agent.id, code), channel: wanted === "push" ? "sms" : wanted, expiresAt: new Date(now + LOGIN_SMS_CODE_TTL_MS) },
-    });
-    return { ok: true, channel: wanted === "push" ? "sms" : wanted, devCode: code };
-  }
-  return { ok: false, error: `Не удалось отправить код: ${errors.join("; ")}` };
 }
 
 /**
@@ -233,6 +247,8 @@ export function scheduleSmsFallback(agent: CodeAgent, rowId: string, code: strin
 export async function runSmsFallback(agent: CodeAgent, rowId: string, code: string): Promise<void> {
   const row = await prisma.loginSmsCode.findUnique({ where: { id: rowId } });
   if (!row || row.ackedAt || row.consumedAt || row.fallbackSentAt || row.expiresAt.getTime() < Date.now()) return;
+  const latest = await prisma.loginSmsCode.findFirst({ where: { agentId: agent.id }, orderBy: { createdAt: "desc" }, select: { id: true } });
+  if (latest?.id !== rowId) return;
   // Условно: два срабатывания подряд не отправят две СМС.
   const claimed = await prisma.loginSmsCode.updateMany({
     where: { id: rowId, ackedAt: null, consumedAt: null, fallbackSentAt: null },
@@ -241,8 +257,14 @@ export async function runSmsFallback(agent: CodeAgent, rowId: string, code: stri
   if (claimed.count === 0) return;
   const errors: string[] = [];
   for (const ch of ["sms", ...(agent.telegramChatId ? (["telegram"] as const) : [])] as const) {
+    // A newer request/verification may finish while the previous provider waits.
+    const current = await prisma.loginSmsCode.findFirst({ where: { agentId: agent.id }, orderBy: { createdAt: "desc" } });
+    if (current?.id !== rowId || current.ackedAt || current.consumedAt || current.expiresAt.getTime() < Date.now()) return;
     const sent = await deliver(agent, ch, code);
-    if (sent.ok) return;
+    if (sent.ok) {
+      await prisma.loginSmsCode.updateMany({ where: { id: rowId }, data: { channel: ch } });
+      return;
+    }
     errors.push(sent.error);
   }
   void logSystemError("api", `Запасная доставка кода входа не удалась: ${errors.join("; ")}`);

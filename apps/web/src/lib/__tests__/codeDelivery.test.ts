@@ -4,19 +4,19 @@ import { deliveryText, effectiveChannel, fallbackDeadline, resendChannel } from 
 describe("куда ушёл код", () => {
   const t0 = 1_000_000;
 
-  it("пуш: обратный отсчёт до СМС", () => {
+  it("пуш: запасные каналы названы без второго таймера и обещания доставки", () => {
     const at = fallbackDeadline("push", 10, t0);
     expect(at).toBe(t0 + 10_000);
     expect(deliveryText("push", at, t0, "•• ••• 06 61")).toBe(
-      "Отправили код уведомлением на ваш телефон, он действует 5 минут. Если уведомление не придёт — через 10 с пришлём СМС сами.",
+      "Проверьте уведомления, СМС или Telegram. Код действует 5 минут с момента отправки.",
     );
-    expect(deliveryText("push", at, t0 + 4_200, null)).toContain("через 6 с");
+    expect(deliveryText("push", at, t0 + 4_200, null)).not.toMatch(/через \d+ с/);
   });
 
-  it("после отсчёта — «Отправили СМС на номер», сервер повторно не спрашиваем", () => {
+  it("истечение таймера не выдается за подтверждённую СМС", () => {
     const at = fallbackDeadline("push", 10, t0);
-    expect(effectiveChannel("push", at, at)).toBe("sms");
-    expect(deliveryText("push", at, at + 1, "•• ••• 06 61")).toBe("Отправили СМС на •• ••• 06 61.");
+    expect(effectiveChannel("push", at, at)).toBe("push");
+    expect(deliveryText("push", at, at + 1, "•• ••• 06 61")).not.toContain("Отправили СМС");
   });
 
   it("без fallbackAfterSec берётся 30 с; не-пуш отсчёта не имеет", () => {

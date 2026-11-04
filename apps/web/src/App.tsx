@@ -8,6 +8,7 @@ import { Toasts } from "./components/Toasts";
 import { GlobalStepUpHost } from "./components/GlobalStepUpHost";
 import { NotFound } from "./components/NotFound";
 import { AppSkeleton } from "./components/AppSkeleton";
+import { LoginSessionGate } from "./components/LoginSessionGate";
 import { Dashboard } from "./pages/Dashboard";
 import { loadCleanClients, loadCleanDeals, loadCleanFinance, loadCleanMessages, loadCleanProperties } from "./lib/cleanRouteChunks";
 import { useAuthStore } from "./store/auth";
@@ -256,9 +257,11 @@ export default function App() {
       <Route
         path="/login"
         element={
-          <Suspense fallback={<AppSkeleton />}>
-            <Login />
-          </Suspense>
+          <LoginSessionGate>
+            <Suspense fallback={<AppSkeleton />}>
+              <Login />
+            </Suspense>
+          </LoginSessionGate>
         }
       />
       {/* Дев-стенд задачи 7 слоя 2 — вне ProtectedRoute/AppLayout: своя фикстура,
