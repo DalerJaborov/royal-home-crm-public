@@ -1,7 +1,7 @@
 import { realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
-import { formatPropertyCode, PROPERTY_CONDITION_LABELS, PROPERTY_TYPE_LABELS } from "@royal-home/shared";
+import { formatPropertyCode, marketSideOf, propertyHasCondition, propertyHasMarket, PROPERTY_TYPE_LABELS } from "@royal-home/shared";
 import type { Prisma } from "../generated/prisma/client.js";
 import { prisma } from "../db.js";
 import { maskAssistantContacts } from "../lib/assistantContacts.js";
@@ -16,7 +16,8 @@ const MAX_TELEGRAM_USER_ID = 2 ** 52 - 1;
 const agentSelect = { fullName: true, isActive: true, telegramUserId: true, telegramChatId: true } as const;
 const propertySelect = {
   shortId: true, type: true, rooms: true, areaSqm: true, landAreaSotka: true, price: true, currency: true,
-  floor: true, totalFloors: true, address: true, landmark: true, stage: true, condition: true, instagramUrl: true,
+  floor: true, totalFloors: true, address: true, landmark: true, stage: true, condition: true, marketType: true, status: true, instagramUrl: true,
+  district: { select: { name: true, nameTj: true, city: true } },
   assignedAgent: { select: agentSelect }, intakeAgent: { select: agentSelect },
   photos: { orderBy: [{ order: "asc" }, { id: "asc" }], select: { url: true }, take: 24 },
 } as const satisfies Prisma.PropertySelect;
@@ -27,18 +28,24 @@ type CardDelivery = "sent" | "unavailable" | "uncertain";
 const words = {
   ru: {
     type: PROPERTY_TYPE_LABELS,
-    condition: { ...PROPERTY_CONDITION_LABELS, GOOD: "Хорошее состояние", EXCELLENT: "Отличное состояние" },
-    stage: { FOUNDATION: "Котлован", SHELL: "Без черновой отделки", UNDER_CONSTRUCTION: "Строится",
-      ROUGH_FINISH: "Черновая отделка", BUILT: "Построен" },
-    price: "Цена", floor: "Этаж", rooms: "комн.", land: "сот.", landmark: "Ориентир", agent: "Агент",
+    condition: { NEEDS_REPAIR: "требует ремонта", GOOD: "хорошее состояние", EXCELLENT: "отличное состояние", NEW_BUILDING: "" },
+    stage: { FOUNDATION: "котлован", SHELL: "коробка, без отделки", UNDER_CONSTRUCTION: "строится",
+      ROUGH_FINISH: "черновая отделка", BUILT: "построен" },
+    market: { NEW: "Новостройка", SECONDARY: "Вторичка" },
+    status: { PENDING_REVIEW: "На проверке", AWAITING_PHOTOS: "Ждёт фото", AWAITING_VIDEO: "Ждёт видео",
+      EDITING: "На монтаже", AVAILABLE: "", RESERVED: "В брони", SOLD: "Продан", WITHDRAWN: "Снят с продажи" },
+    land: "сот.", landmark: "Ориентир", district: "район",
     instagram: "Смотреть в Instagram",
   },
   tg: {
     type: { APARTMENT: "Хона", HOUSE: "Хонаи ҳавлӣ", COMMERCIAL: "Ҷойи тиҷоратӣ", LAND: "Замин" },
-    condition: { NEEDS_REPAIR: "Таъмир лозим", GOOD: "Ҳолаташ хуб", EXCELLENT: "Ҳолаташ аъло", NEW_BUILDING: "Сохтмони нав" },
-    stage: { FOUNDATION: "Чоҳи таҳкурсӣ", SHELL: "Бе таъмири аввал", UNDER_CONSTRUCTION: "Дар сохтмон",
-      ROUGH_FINISH: "Таъмири аввал шудааст", BUILT: "Сохта шудааст" },
-    price: "Нарх", floor: "Ошёна", rooms: "ҳуҷра", land: "сотиқ", landmark: "Нишона", agent: "Агент",
+    condition: { NEEDS_REPAIR: "таъмир лозим", GOOD: "ҳолаташ хуб", EXCELLENT: "ҳолаташ аъло", NEW_BUILDING: "" },
+    stage: { FOUNDATION: "чоҳи таҳкурсӣ", SHELL: "деворҳояш сохта, бе таъмир", UNDER_CONSTRUCTION: "дар сохтмон",
+      ROUGH_FINISH: "таъмири аввал шудааст", BUILT: "сохта шудааст" },
+    market: { NEW: "Сохтмони нав", SECONDARY: "Хонаи пештар сохташуда" },
+    status: { PENDING_REVIEW: "Дар санҷиш", AWAITING_PHOTOS: "Аксашро интизорем", AWAITING_VIDEO: "Видеояшро интизорем",
+      EDITING: "Дар монтаж", AVAILABLE: "", RESERVED: "Дар банд", SOLD: "Фурӯхта шуд", WITHDRAWN: "Аз фурӯш гирифта шуд" },
+    land: "сотиқ", landmark: "Нишона", district: "ноҳияи",
     instagram: "Дар Instagram бинед",
   },
 };
@@ -64,25 +71,62 @@ function agentDisplay(agent: CardProperty["assignedAgent"]): string {
   return `<a href="tg://user?id=${id}">${label}</a>`;
 }
 
+function locationLine(property: CardProperty, language: CardLanguage): string {
+  const address = cardField(property.address, 900);
+  const city = cardField(property.district?.city, 100);
+  const name = cardField(property.district?.name, 100);
+  const nameTj = cardField(property.district?.nameTj, 100);
+  const district = language === "tg" ? nameTj || name : name;
+  const key = (value: string) => value.toLowerCase().replace(/^(?:г\.|город\s+|шаҳри?\s+|район\s+|ноҳияи?\s+)/u, "")
+    .replace(/\s+(?:район|ноҳия)$/u, "").trim();
+  const parts = address.split(/\s*,\s*/u).filter(Boolean);
+  const districtNames = new Set([name, nameTj].filter(Boolean).map(key));
+  const streetParts = parts.filter(part => !(city && key(part) === key(city)) && !districtNames.has(key(part)));
+  const cityLine = city && !streetParts.some(part => key(part).startsWith(`${key(city)} `)) ? city : "";
+  const hasDistrict = streetParts.some(part => [...districtNames].some(label => {
+    const line = ` ${part.toLowerCase()} `;
+    return ["район", "ноҳияи", "ноҳия"].some(word => line.includes(` ${word} ${label} `) || line.includes(` ${label} ${word} `));
+  }));
+  const districtLine = district && key(district) !== key(city) && !hasDistrict
+    ? /(?:^|\s)(?:район|ноҳияи?)(?:\s|$)/iu.test(district) ? district : `${words[language].district} ${district}` : "";
+  const location = [cityLine, districtLine, ...streetParts].filter(Boolean).join(", ");
+  const landmark = cardField(property.landmark, 120);
+  const period = (value: string) => /[.!?]$/u.test(value) ? value : `${value}.`;
+  return escapeHtml([location ? period(location) : "", landmark ? period(`${words[language].landmark} ${landmark}`) : ""].filter(Boolean).join(" "));
+}
+
 function renderCard(property: CardProperty, language: CardLanguage): string {
   const text = words[language];
   const format = new Intl.NumberFormat(language === "tg" ? "tg-TJ" : "ru-RU", { maximumFractionDigits: 2 });
   const area = Number(property.areaSqm);
   const land = Number(property.landAreaSotka);
-  const first = [text.type[property.type], property.rooms && property.rooms > 0 ? `${property.rooms} ${text.rooms}` : "",
+  const { rooms } = property;
+  let type: string = text.type[property.type];
+  if (rooms && rooms > 0) {
+    if (language === "tg") type = property.type === "APARTMENT" ? `Хонаи ${rooms}-ҳуҷра` : `${type}, ${rooms} ҳуҷра`;
+    else if (property.type === "APARTMENT") type = `${rooms}-комнатная квартира`;
+    else if (property.type === "HOUSE") type = `${rooms}-комнатный дом`;
+    else type = `${type}, ${rooms} комн.`;
+  }
+  const first = [type,
     area > 0 ? `${format.format(area)} м²` : "", land > 0 ? `${format.format(land)} ${text.land}` : ""].filter(Boolean).join(" · ");
   const price = Number(property.price);
-  const floor = property.floor === null ? "" : `${property.floor}${property.totalFloors ? ` ${language === "tg" ? "аз" : "из"} ${property.totalFloors}` : ""}`;
-  const address = escapeHtml(cardField(property.address, 900));
-  const landmark = escapeHtml(cardField(property.landmark, 120));
-  const location = [address, landmark ? `${text.landmark} ${landmark}` : ""].filter(Boolean).join(address.endsWith(".") ? " " : ". ");
-  const condition = [property.stage ? text.stage[property.stage] : "", text.condition[property.condition]].filter(Boolean).join(" · ");
+  const { floor, totalFloors } = property;
+  const floorLine = floor === null ? "" : language === "tg"
+    ? (totalFloors ? `${floor} аз ${totalFloors} ошёна` : `Ошёнаи ${floor}`)
+    : (totalFloors ? `${floor} из ${totalFloors} ${totalFloors === 1 ? "этажа" : "этажей"}` : `${floor} этаж`);
+  const side = propertyHasMarket(property.type) ? marketSideOf(property) : null;
+  const stage = property.stage ?? (property.marketType === "FOUNDATION_PIT" ? "FOUNDATION" : null);
+  const finish = propertyHasCondition(property.type) ? [side ? text.market[side] : "",
+    propertyHasMarket(property.type) && side !== "SECONDARY" && stage ? text.stage[stage] : text.condition[property.condition]].filter(Boolean).join(" · ") : "";
   const instagram = instagramLink(property.instagramUrl);
   const agent = agentDisplay(property.assignedAgent ?? property.intakeAgent);
-  return [first, [Number.isFinite(price) && price > 0 ? `<b>${text.price} ${format.format(price)} ${property.currency === "USD" ? "$" : "сомони"}</b>` : "",
-    floor ? `<b>${text.floor} ${floor}</b>` : ""].filter(Boolean).join(" · "),
-  location, condition, instagram ? `<a href="${instagram}">${text.instagram}</a>` : "",
-  [agent ? `${text.agent} ${agent}` : "", formatPropertyCode(property.shortId)].filter(Boolean).join(" · ")].filter(Boolean).join("\n");
+  const priceLine = Number.isFinite(price) && price > 0 ? `💰 <b>${format.format(price)} ${property.currency === "USD" ? "$" : "сомони"}</b>` : "";
+  const location = locationLine(property, language);
+  return [`<b>${first}</b>`, [priceLine, floorLine].filter(Boolean).join(" · "), location ? `📍 ${location}` : "",
+    finish ? `🏗 ${finish.charAt(0).toUpperCase()}${finish.slice(1)}` : "", text.status[property.status],
+    instagram ? `🎬 <a href="${instagram}">${text.instagram}</a>` : "",
+    [agent ? `👤 ${agent}` : "", formatPropertyCode(property.shortId)].filter(Boolean).join(" · ")].filter(Boolean).join("\n");
 }
 
 async function localPropertyPhotos(photos: CardProperty["photos"]): Promise<string[]> {
