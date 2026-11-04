@@ -30,6 +30,20 @@ const VOICE_PROFILES = {
 const sentVoiceSchema = z.object({ voice: z.object({ file_id: z.string().min(1).max(1024) }) });
 
 interface SpeechConfig { voiceId: string; key: string | null }
+interface PronunciationDictionaryLocator {
+  pronunciation_dictionary_id: string;
+  version_id: string;
+}
+
+function pronunciationDictionary(language: "ru" | "tg"): PronunciationDictionaryLocator | undefined {
+  const locale = language.toUpperCase();
+  const dictionaryId = process.env[`ASSISTANT_TTS_DICTIONARY_ID_${locale}`]?.trim();
+  const versionId = process.env[`ASSISTANT_TTS_DICTIONARY_VERSION_${locale}`]?.trim();
+  const isId = (value: string | undefined): value is string => /^[A-Za-z0-9_-]{1,128}$/.test(value ?? "");
+  // Both fields are required locally so cache entries never track a mutable "latest".
+  if (!isId(dictionaryId) || !isId(versionId)) return undefined;
+  return { pronunciation_dictionary_id: dictionaryId, version_id: versionId };
+}
 
 async function resolveSpeechConfig(language: "ru" | "tg"): Promise<SpeechConfig | null> {
   const envVoice = (language === "tg" ? process.env.ASSISTANT_TTS_VOICE_ID_TG : process.env.ASSISTANT_TTS_VOICE_ID)?.trim();
@@ -54,7 +68,9 @@ export function speechTextFromReply(text: string): string {
   return prepareAssistantReply(text).speech;
 }
 
-async function synthesize(text: string, language: "ru" | "tg", config: SpeechConfig): Promise<Buffer | null> {
+async function synthesize(
+  text: string, language: "ru" | "tg", config: SpeechConfig, dictionary: PronunciationDictionaryLocator | undefined,
+): Promise<Buffer | null> {
   const { voiceId, key } = config;
   if (!key) return null;
   if (!(await claimAssistantTtsChars(text.length))) return null;
@@ -71,6 +87,7 @@ async function synthesize(text: string, language: "ru" | "tg", config: SpeechCon
       model_id: profile.model,
       language_code: language,
       apply_text_normalization: profile.normalization,
+      ...(dictionary ? { pronunciation_dictionary_locators: [dictionary] } : {}),
     }),
     signal: AbortSignal.timeout(TTS_TIMEOUT_MS),
   });
@@ -92,12 +109,13 @@ export async function sendAssistantVoiceReply(chatId: string, replyText: string,
     if (!performance) return false;
     const config = await resolveSpeechConfig(language);
     if (!config) return false;
+    const dictionary = pronunciationDictionary(language);
     const render = async () => {
       const showRecording = () => void sendChatAction(chatId, undefined, "record_voice");
       showRecording();
       const indicator = setInterval(showRecording, 4_000).unref();
       try {
-        return await synthesize(performance, language, config);
+        return await synthesize(performance, language, config, dictionary);
       } finally {
         clearInterval(indicator);
       }
@@ -114,6 +132,7 @@ export async function sendAssistantVoiceReply(chatId: string, replyText: string,
     const key = assistantVoiceCacheKey(performance, {
       voiceId, model, endpoint, format: TTS_FORMAT, language, normalization,
       ...(language === "ru" ? { settings: VOICE_PROFILES.ru.settings } : {}),
+      ...(dictionary ? { dictionary } : {}),
     });
     const entry = await cachedAssistantAudio(key, render);
     if (!entry) return false;
