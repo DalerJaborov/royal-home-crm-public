@@ -10762,6 +10762,7 @@ model AssistantTelegramGroup {
   lastJoinWelcomeAt    DateTime?
   /// Separate opt-in. A later opt-in starts a new evidence window.
   contextEnabledAt     DateTime?
+  contextIncludeUnlinked Boolean @default(false)
   context             AssistantTelegramContext[]
 }
 
@@ -10772,7 +10773,8 @@ model AssistantTelegramContext {
   group          AssistantTelegramGroup @relation(fields: [groupChatId], references: [chatId], onDelete: Cascade)
   messageId      Int
   threadId       Int?
-  authorAgentId  String
+  authorAgentId  String?
+  authorTelegramId String?
   occurredAt     DateTime
   sourceVersion  DateTime
   sourceUpdateId BigInt

@@ -102,6 +102,31 @@ describe("opted-in Telegram group evidence", () => {
     }]);
   });
 
+  it("keeps unlinked messages only in the opted-in group and hides them immediately on opt-out", async () => {
+    await prisma.assistantTelegramGroup.update({
+      where: { chatId: String(chatId) }, data: { contextIncludeUnlinked: true },
+    });
+    const from = { id: telegramUserId + 1 };
+    await captureAssistantTelegramContext(message(11, { from }), 100, now);
+    await captureAssistantTelegramContext(message(11, {
+      from: { id: telegramUserId + 2 }, edit_date: sourceDate, text: "Wrong author for ОБ-123.",
+    }), 103, now);
+    await captureAssistantTelegramContext(message(11, {
+      from, edit_date: sourceDate, text: "По ОБ-123 уточнили. Почта evidence@example.test.",
+    }), 102, now);
+    await captureAssistantTelegramContext(message(12, { from, chat: { id: otherChatId, type: "group" } }), 104, now);
+    await captureAssistantTelegramContext(message(13, { from, has_protected_content: true }), 105, now);
+    expect((await lookup()).map(row => row.text)).toEqual(["По ОБ-123 уточнили. Почта [почта]."]);
+    expect(await lookup({ chatId: String(otherChatId) })).toEqual([]);
+    expect(await lookup({ telegramUserId: String(from.id) })).toEqual([]);
+    await prisma.assistantTelegramGroup.update({
+      where: { chatId: String(chatId) }, data: { contextIncludeUnlinked: false },
+    });
+    expect(await lookup()).toEqual([]);
+    await cleanupAssistantTelegramContext(now);
+    expect(await prisma.assistantTelegramContext.count({ where: { groupChatId: String(chatId) } })).toBe(0);
+  });
+
   it("is idempotent and orders same-second edits by provider update ID", async () => {
     const first = message(11);
     const edit = message(11, { text: "По ОБ-123 исходники ещё в очереди.", edit_date: sourceDate });

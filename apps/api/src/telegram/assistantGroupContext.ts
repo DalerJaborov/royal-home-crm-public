@@ -98,39 +98,46 @@ export async function captureAssistantTelegramContext(raw: unknown, updateId: nu
 
   const registration = await prisma.assistantTelegramGroup.findUnique({
     where: { chatId: groupChatId },
-    select: { contextEnabledAt: true },
+    select: { contextEnabledAt: true, contextIncludeUnlinked: true },
   });
   const enabledAt = registration?.contextEnabledAt;
   if (!enabledAt || occurredAt < enabledAt) return;
 
+  const authorTelegramId = String(message.from.id);
   const [author, settings] = await Promise.all([
-    findAgentByTelegramUserId(String(message.from.id)),
+    findAgentByTelegramUserId(authorTelegramId),
     prisma.settings.findUnique({ where: { id: "singleton" }, select: { telegramDiscussionGroupId: true } }),
   ]);
-  if (!author || String(settings?.telegramDiscussionGroupId ?? "") === groupChatId) return;
+  if ((!author && !registration.contextIncludeUnlinked)
+      || String(settings?.telegramDiscussionGroupId ?? "") === groupChatId) return;
 
+  const authorAgentId = author?.id ?? null;
   const where = { groupChatId, messageId: message.message_id };
-  const content = { sourceVersion, sourceUpdateId, text, transcript: null, attachmentKind: kind, propertyRefs };
+  const content = { sourceVersion, sourceUpdateId, text, transcript: null, attachmentKind: kind, propertyRefs, authorAgentId, authorTelegramId };
   await prisma.$transaction(async tx => {
     const active = await tx.$queryRaw<{ chatId: string }[]>`
       SELECT "chatId" FROM "AssistantTelegramGroup"
       WHERE "chatId" = ${groupChatId} AND "contextEnabledAt" = ${enabledAt}
+        AND (${Boolean(author)} OR "contextIncludeUnlinked")
+        AND NOT EXISTS (
+          SELECT 1 FROM "Settings" WHERE "id" = 'singleton' AND "telegramDiscussionGroupId" = ${groupChatId}
+        )
       FOR SHARE
     `;
     if (!active.length) return;
     await tx.assistantTelegramContext.createMany({
       data: {
         ...where, ...content, occurredAt, expiresAt,
-        threadId: message.message_thread_id ?? null, authorAgentId: author.id,
+        threadId: message.message_thread_id ?? null,
       },
       skipDuplicates: true,
     });
     await tx.assistantTelegramContext.updateMany({
       where: {
-        ...where, occurredAt, authorAgentId: author.id,
-        OR: [
-          { sourceVersion: { lt: sourceVersion } },
-          { sourceVersion, sourceUpdateId: { lt: sourceUpdateId } },
+        ...where, occurredAt,
+        AND: [
+          { OR: [{ authorTelegramId }, ...(authorAgentId ? [{ authorTelegramId: null, authorAgentId }] : [])] },
+          { OR: [{ sourceVersion: { lt: sourceVersion } }, { sourceVersion, sourceUpdateId: { lt: sourceUpdateId } }] },
         ],
       },
       data: content,
@@ -204,7 +211,7 @@ export async function loadAssistantTelegramContext(input: {
 
   const registration = await prisma.assistantTelegramGroup.findUnique({
     where: { chatId: input.chatId },
-    select: { contextEnabledAt: true },
+    select: { contextEnabledAt: true, contextIncludeUnlinked: true },
   });
   const enabledAt = registration?.contextEnabledAt;
   if (!enabledAt) return [];
@@ -214,7 +221,8 @@ export async function loadAssistantTelegramContext(input: {
   const rows = await prisma.assistantTelegramContext.findMany({
     where: {
       groupChatId: input.chatId,
-      group: { contextEnabledAt: enabledAt },
+      group: { contextEnabledAt: enabledAt, contextIncludeUnlinked: registration.contextIncludeUnlinked },
+      ...(registration.contextIncludeUnlinked ? {} : { authorAgentId: { not: null } }),
       threadId: input.threadId,
       occurredAt: { gte: enabledAt },
       expiresAt: { gt: now },
@@ -236,7 +244,11 @@ export async function loadAssistantTelegramContext(input: {
 }
 
 export async function cleanupAssistantTelegramContext(now = new Date()): Promise<number> {
-  const stale = { OR: [{ expiresAt: { lte: now } }, { group: { contextEnabledAt: null } }] };
+  const stale = { OR: [
+    { expiresAt: { lte: now } },
+    { group: { contextEnabledAt: null } },
+    { authorAgentId: null, group: { contextIncludeUnlinked: false } },
+  ] };
   const batch = await prisma.assistantTelegramContext.findMany({
     where: stale, select: { id: true }, orderBy: [{ expiresAt: "asc" }, { id: "asc" }], take: CLEANUP_BATCH,
   });

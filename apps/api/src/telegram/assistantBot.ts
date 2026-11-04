@@ -853,6 +853,7 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
       const access = await loadAgentAccess(sender.id);
       if (!access?.isActive) return false;
       const historyEnabledAt = registered.contextEnabledAt;
+      const historyIncludesUnlinked = registered.contextIncludeUnlinked;
       if (historySelector && !historyEnabledAt && !addressed) return false;
       const cooldown = new Date(now.getTime() - PROACTIVE_GROUP_INTERVAL_MS);
       if (!addressed && registered.lastProactiveReplyAt && registered.lastProactiveReplyAt > cooldown) return false;
@@ -922,7 +923,8 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
       const current = await prisma.assistantTelegramGroup.findUnique({ where: { chatId } });
       if (!current || current.createdAt.getTime() !== registered.createdAt.getTime()
           || (!addressed && current.proactiveMutedUntil && current.proactiveMutedUntil.getTime() > groupClock())
-          || (historySelector && current.contextEnabledAt?.getTime() !== historyEnabledAt?.getTime())) {
+          || (historySelector && (current.contextEnabledAt?.getTime() !== historyEnabledAt?.getTime()
+            || current.contextIncludeUnlinked !== historyIncludesUnlinked))) {
         if (result.pending.length) await cancelPending(result.pending, sender.id);
         return true;
       }
