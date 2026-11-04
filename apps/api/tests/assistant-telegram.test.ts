@@ -856,6 +856,18 @@ describe("новая доставка ответа помощника", () => {
     expect(chatAction).not.toHaveBeenCalled();
   });
 
+  it("читает пересланный текст как источник, включая старые команды", async () => {
+    const forwarded = "/reset";
+    runner.mockResolvedValue({ ok: true, reply: "Прочитала пересланное." });
+    await handleTelegramUpdate(privateMsg("author", {
+      message_id: 8245, text: forwarded, forward_origin: { type: "user" },
+    }));
+    const [history, , options] = runner.mock.calls[0];
+    expect(history.at(-1).content).toContain(`<client_content kind="document">\n${forwarded}\n</client_content>`);
+    expect(options).toMatchObject({ confirmUi: false, readOnly: true });
+    expect(sentTexts().join("\n")).not.toContain("Начали заново");
+  });
+
   it("по голосовому запросу присылает карточку клиента текстом и с кнопкой", async () => {
     audio();
     transcribe.mockResolvedValue("покажи карточку клиента");

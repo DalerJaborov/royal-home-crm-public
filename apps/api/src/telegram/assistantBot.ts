@@ -200,7 +200,7 @@ interface TurnResult {
 
 interface TurnParams {
   moneyWallet?: AssistantMoneyWallet;
-  forwardedVoice?: boolean;
+  forwardedEvidence?: boolean;
   readOnlyGroup?: boolean;
   onlyGroupConfirmation?: GroupConfirmationTool;
   agentId: string;
@@ -268,9 +268,9 @@ async function runTurn(params: TurnParams): Promise<TurnResult | null> {
   }
 
   const seen = new Map<string, AssistantActionView>();
-  let structured = Boolean(params.forwardedVoice);
+  let structured = Boolean(params.forwardedEvidence);
   let propertyResults = false;
-  const readOnly = Boolean(params.forwardedVoice || params.readOnlyGroup);
+  const readOnly = Boolean(params.forwardedEvidence || params.readOnlyGroup);
   const outcome = await runAssistantDetailed(params.history, actor, {
     channel: "telegram",
     moneyWallet: params.moneyWallet,
@@ -425,6 +425,14 @@ function forwardedVoicePrompt(msg: TelegramIncomingMessage, transcript: string):
   return `${prompt}\n${wrapUntrusted("document", transcript, 3000)}`;
 }
 
+function forwardedTextPrompt(text: string): string {
+  const language = assistantLanguage([{ role: "user", content: text }]);
+  const prompt = language === "tg" || language === "mixed"
+    ? "Аз рӯи ин паём кӯтоҳ ҷавоб деҳ. Агар чизе намерасад, як савол деҳ."
+    : "Коротко ответь по пересланному сообщению. Если не хватает данных, задай один вопрос.";
+  return `${prompt}\n${wrapUntrusted("document", text, 3000)}`;
+}
+
 /** Личный чат сотрудника, не монтажёра: всё, что он пишет, — просьба помощнику. */
 export async function handleAssistantPrivate(
   msg: TelegramIncomingMessage,
@@ -440,17 +448,18 @@ export async function handleAssistantPrivate(
       await send("Это видео больше 20 МБ — в текущем подключении к Telegram я не могу его скачать. Загрузите ролик через CRM-панель объекта. Файл ещё не сохранён в CRM.");
       return;
     }
-    if (await handleTelegramPropertyDraft(msg, agent, transcribeVoice)) return;
+    const forwardedPlain = Boolean(msg.text?.trim() && (msg.forward_origin || msg.forward_from_message_id));
+    if (!forwardedPlain && await handleTelegramPropertyDraft(msg, agent, transcribeVoice)) return;
     const moneyWallet = createAssistantMoneyWallet();
     let text = (msg.text ?? msg.caption ?? "").trim();
     const fromVoice = Boolean(msg.voice || msg.audio);
-    let forwardedVoice = false;
-    if (text === "/new" || text === "/reset") {
+    let forwardedEvidence = forwardedPlain;
+    if (!forwardedPlain && (text === "/new" || text === "/reset")) {
       await clearHistory(chatId);
       await send("Начали заново.");
       return;
     }
-    if (text.startsWith("/")) {
+    if (!forwardedPlain && text.startsWith("/")) {
       await send(HELP_TEXT);
       return;
     }
@@ -472,8 +481,10 @@ export async function handleAssistantPrivate(
         return;
       }
       const forwarded = forwardedVoicePrompt(msg, voice.text);
-      forwardedVoice = forwarded !== null;
+      forwardedEvidence = forwarded !== null;
       text = forwarded ?? voice.text;
+    } else if (forwardedPlain) {
+      text = forwardedTextPrompt(text);
     }
     if (!text) {
       // Голое фото/видео/файл без слов: молча «👀» (цель назовут следующим сообщением), без текста.
@@ -486,7 +497,7 @@ export async function handleAssistantPrivate(
       return;
     }
     const previous = await loadHistory(chatId, agent.id);
-    if (!forwardedVoice && isVoiceReplayRequest(text)) {
+    if (!forwardedEvidence && isVoiceReplayRequest(text)) {
       if (!(await isAiAssistantEnabled())) { await send(DISABLED_TEXT); return; }
       if (!(await loadAgentAccess(agent.id))?.isActive) { await send("Ваша учётка отключена."); return; }
       const lastReply = previous.slice().reverse().find(message => message.role === "assistant")?.content;
@@ -503,10 +514,10 @@ export async function handleAssistantPrivate(
     }
     if (!fromVoice) void sendChatAction(chatId);
     const history = [...previous, { role: "user" as const, content: text.slice(0, 4000) }];
-    const result = await runTurn({ agentId: agent.id, scope: "private", history, deny: send, moneyWallet, forwardedVoice });
+    const result = await runTurn({ agentId: agent.id, scope: "private", history, deny: send, moneyWallet, forwardedEvidence });
     if (!result) return;
     await sendTurnResult(chatId, result, { agentId: agent.id, authorName: agent.fullName, scope: "private", fromVoice,
-      mode: forwardedVoice ? "auto" : requestedAssistantReplyMode(text), reactTo: msg.message_id,
+      mode: forwardedEvidence ? "auto" : requestedAssistantReplyMode(text), reactTo: msg.message_id,
     });
     await saveHistory(chatId, agent.id, [...history, { role: "assistant", content: result.reply.slice(0, 4000) }]);
   } catch (err) {
@@ -659,11 +670,13 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
   const key = groupWindowKey(msg);
   let { addressed, text } = addressedToBot(msg, botUsername);
   let raw = (msg.text ?? "").trim();
-  const groupCommand = new RegExp(`^/assistant_(on|off|quiet|resume)(?:@${escapeRe(botUsername)})?(?:\\s|$)`, "i").exec(raw);
+  const isForwarded = Boolean(msg.forward_origin || msg.forward_from_message_id);
+  const forwardedPlain = isForwarded && Boolean(raw);
+  const groupCommand = isForwarded ? null : new RegExp(`^/assistant_(on|off|quiet|resume)(?:@${escapeRe(botUsername)})?(?:\\s|$)`, "i").exec(raw);
   const verb = groupCommand?.[1].toLowerCase();
   const onOff = verb === "on" || verb === "off" ? groupCommand : null;
   const participation = verb === "quiet" || verb === "resume" ? verb
-    : addressed ? requestedGroupParticipation(text) : null;
+    : addressed && !isForwarded ? requestedGroupParticipation(text) : null;
   let windowText: string | null = null;
   const membership = groupMembershipEvent(msg.new_chat_members, msg.left_chat_member, botUsername);
   let automatic: ReturnType<typeof unaddressedPropertyQuestion> = null;
@@ -674,7 +687,6 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
   const shortNativeVoice = typeof msg.voice?.duration === "number"
     && msg.voice.duration > 0 && msg.voice.duration <= GROUP_SHORT_VOICE_SECONDS;
   const audioDuration = (msg.voice ?? msg.audio)?.duration;
-  const isForwarded = Boolean(msg.forward_origin || msg.forward_from_message_id);
   const historyQuestion = (words: string) => key && !isForwarded
     ? groupHistoryQuestion(words, msg.reply_to_message?.message_id) : null;
   let historySelector = historyQuestion(addressed ? text : raw);
@@ -943,7 +955,9 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
     const replied = msg.reply_to_message;
     const repliedToThisBot = replied?.from?.is_bot === true && replied.from.username?.toLowerCase() === botUsername.toLowerCase();
     let source: string | undefined;
-    if (windowText === null && replied && replied.from?.is_bot !== true) {
+    if (forwardedPlain) {
+      request = forwardedTextPrompt(raw);
+    } else if (windowText === null && replied && replied.from?.is_bot !== true) {
       const quoted = (replied.text ?? replied.caption ?? "").trim();
       if (quoted) {
         source = replied.from?.first_name ?? replied.from?.username ?? "участника группы";
@@ -953,7 +967,7 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
     } else if (!repliedToThisBot && statusFollowUp && quoted) {
       request = `${request}\n${wrapUntrusted("document", quoted, 600)}`;
     }
-    let forwardedVoice = false;
+    let forwardedEvidence = forwardedPlain;
     if (!request && (msg.voice || msg.audio)) {
       const voice = await transcribeGroupVoice(sender.id);
       if ("error" in voice) {
@@ -961,7 +975,7 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
         return true;
       }
       const forwarded = forwardedVoicePrompt(msg, voice.text);
-      forwardedVoice = forwarded !== null;
+      forwardedEvidence = forwarded !== null;
       request = forwarded ?? voice.text;
       fromVoice = true;
     }
@@ -973,8 +987,8 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
       return true;
     }
     const words = fromVoice ? request : windowText ?? text;
-    const command = forwardedVoice ? null : groupMontageCommand(words);
-    const reasonReply = !forwardedVoice && repliedToThisBot && isGroupRemakeReasonQuestion(quoted)
+    const command = forwardedEvidence ? null : groupMontageCommand(words);
+    const reasonReply = !forwardedEvidence && repliedToThisBot && isGroupRemakeReasonQuestion(quoted)
       && words.length <= 280 && !/^(?:спасибо|рахмат|раҳмат|стоп|отмена)[.!]?$/iu.test(words);
     const currentRefs = groupPropertyRefs(words);
     const refs = currentRefs.length ? currentRefs : repliedToThisBot ? groupPropertyRefs(quoted) : [];
@@ -1016,7 +1030,7 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
       moneyWallet,
       scope: "group",
       readOnlyGroup: Boolean(continuationRef),
-      forwardedVoice,
+      forwardedEvidence,
       history: [{ role: "user", content: request.slice(0, 4000) }],
       deny: reply,
     });
@@ -1026,14 +1040,14 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
       if (!current || current.createdAt.getTime() !== registeredAt
           || (!addressed && current.proactiveMutedUntil && current.proactiveMutedUntil.getTime() > groupClock())) return true;
     }
-    if (!result.failed) openWindow(addressed || windowText !== null, continuationRef ?? (refs.length === 1 ? refs[0] : undefined));
+    if (!result.failed && !forwardedPlain) openWindow(addressed || windowText !== null, continuationRef ?? (refs.length === 1 ? refs[0] : undefined));
     await sendTurnResult(chatId, result, {
       agentId: sender.id,
       authorName: sender.fullName,
       scope: "group",
       fromVoice,
-      addressedGroupVoice: addressed && fromVoice && !forwardedVoice && shortNativeVoice,
-      mode: forwardedVoice ? "auto" : requestedAssistantReplyMode(fromVoice ? request : windowText ?? text),
+      addressedGroupVoice: addressed && fromVoice && !forwardedEvidence && shortNativeVoice,
+      mode: forwardedEvidence ? "auto" : requestedAssistantReplyMode(fromVoice ? request : windowText ?? text),
       reactTo: msg.message_id,
       replyTo: msg.message_id,
       source,
