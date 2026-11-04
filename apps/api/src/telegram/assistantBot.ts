@@ -494,13 +494,13 @@ export function addressedToBot(msg: TelegramIncomingMessage, botUsername: string
   const command = /^\/(?:ai|помощник)(?:@(\w+))?(?:\s|$)/i.exec(raw);
   const commandForUs = command ? !command[1] || command[1].toLowerCase() === botUsername.toLowerCase() : false;
   const mentioned = new RegExp(mentionSource, "i").test(raw);
-  const named = /^(?:мадина|мушовир)(?=$|[\s,:;.!?—–-])/iu.exec(raw);
+  const named = /^(?:шабнам|мушовир)(?=$|[\s,:;.!?—–-])/iu.exec(raw);
   const afterName = named ? raw.slice(named[0].length) : "";
   const namedAddress = Boolean(named && (!afterName.trim() || /^\s*[,:;.!?—–-]/u.test(afterName) || NAMED_REQUEST.test(afterName.trim())));
   const addressed = mentioned || replyToBot || commandForUs || namedAddress;
   let text = raw.replace(new RegExp(mentionSource, "gi"), "$1 ");
   if (commandForUs) text = text.replace(/^\/(?:ai|помощник)(?:@\w+)?/i, "");
-  if (namedAddress) text = text.replace(/^(?:мадина|мушовир)[\s,:;.!?—–-]*/iu, "");
+  if (named && namedAddress) text = text.slice(named[0].length).replace(/^[\s,:;.!?—–-]*/u, "");
   return { addressed, text: text.replace(/\s+/g, " ").trim() };
 }
 

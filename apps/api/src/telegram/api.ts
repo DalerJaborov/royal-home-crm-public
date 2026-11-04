@@ -644,7 +644,7 @@ export async function sendVoiceFile(chatId: string, audio: Buffer, replyToMessag
       const form = new FormData();
       form.append("chat_id", chatId);
       if (replyToMessageId) { form.append("reply_to_message_id", String(replyToMessageId)); form.append("allow_sending_without_reply", "true"); }
-      form.append("voice", new Blob([audio], { type: "audio/ogg" }), "madina.ogg");
+      form.append("voice", new Blob([audio], { type: "audio/ogg" }), "assistant.ogg");
       return form;
     },
     timeoutMs,
