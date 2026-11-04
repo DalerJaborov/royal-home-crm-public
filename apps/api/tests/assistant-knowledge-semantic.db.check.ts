@@ -9,9 +9,9 @@ vi.mock("../src/ai/geminiTransport.js", async (importOriginal) => ({
   ...await importOriginal<typeof import("../src/ai/geminiTransport.js")>(), GEMINI_EMBEDDING_MODEL: "gemini-embedding-001", GEMINI_EMBEDDING_DIMENSIONS: 2,
 }));
 import { indexCompanyKnowledge, pendingKnowledgeIndex, semanticKnowledgeSearch } from "../src/ai/assistant/knowledgeSemantic.js";
-import { saveCompanyKnowledge, searchCompanyKnowledge } from "../src/ai/assistant/knowledge.js";
+import { saveCompanyKnowledge, searchAssistantCompanyKnowledge, searchCompanyKnowledge } from "../src/ai/assistant/knowledge.js";
 let pool: Pool;
-const input = { title: "Порядок показа", content: "Согласуйте время до выезда.", source: "Тестовая инструкция" };
+const [,,, input] = JSON.parse(await readFile(new URL("../../../docs/design/pilots/company-memory-workflows.json", import.meta.url), "utf8"));
 const options = () => ({ beforeAttempt: vi.fn(async () => {}) });
 beforeAll(async () => {
   const url = new URL(process.env.ASSISTANT_TEST_DATABASE_URL ?? "http://missing");
@@ -40,6 +40,7 @@ beforeAll(async () => {
 });
 beforeEach(async () => {
   vi.stubEnv("ASSISTANT_KNOWLEDGE_SEMANTIC_ENABLED", "true");
+  vi.stubEnv("ASSISTANT_KNOWLEDGE_SEMANTIC_INDEX_ENABLED", "true");
   if (pool) await pool.query('TRUNCATE "AssistantKnowledgeEmbedding", "AssistantKnowledgeRevision", "AssistantKnowledge"');
   mocks.embed.mockReset().mockResolvedValue([1, 0]);
 });
@@ -49,7 +50,7 @@ it("indexes a valid vector and finds a fact without keyword overlap", async () =
   const row = await saveCompanyKnowledge(input, "test-agent", 0);
   expect(await indexCompanyKnowledge([{ id: row.id, revision: row.revision }], options())).toEqual({ indexed: 1, skipped: 0 });
   expect(await pendingKnowledgeIndex()).toEqual([]);
-  expect((await semanticKnowledgeSearch("совсем другое выражение", options()))[0].id).toBe(row.id);
+  expect((await semanticKnowledgeSearch("property-showing", options()))[0].id).toBe(row.id);
   const stored = await pool.query('SELECT "revision", "model", "dimensions", "embedding" FROM "AssistantKnowledgeEmbedding"');
   expect(stored.rows).toEqual([{ revision: 1, model: "gemini-embedding-001", dimensions: 2, embedding: [1, 0] }]);
 });
@@ -58,13 +59,13 @@ it("does not store a stale vector after an edit during embedding", async () => {
   mocks.embed.mockImplementationOnce(async () => { await saveCompanyKnowledge({ ...input, content: "Сначала уточните новый адрес." }, "test-agent", 1); return [1, 0]; });
   expect(await indexCompanyKnowledge([{ id: row.id, revision: 1 }], options())).toEqual({ indexed: 0, skipped: 1 });
   expect((await pool.query('SELECT count(*)::int AS count FROM "AssistantKnowledgeEmbedding"')).rows[0].count).toBe(0);
-  expect((await pendingKnowledgeIndex())[0].revision).toBe(2);
+  expect(await pendingKnowledgeIndex()).toEqual([]);
 });
 it("excludes archived knowledge even if archive happens during query embedding", async () => {
   const row = await saveCompanyKnowledge(input, "test-agent", 0);
   await indexCompanyKnowledge([{ id: row.id, revision: 1 }], options());
   mocks.embed.mockImplementationOnce(async () => { await saveCompanyKnowledge(input, "test-agent", 1, true); return [1, 0]; });
-  expect(await semanticKnowledgeSearch("показ", options())).toEqual([]);
+  expect(await semanticKnowledgeSearch("property-showing", options())).toEqual([]);
 });
 it("rejects invalid vectors without inserting an index row", async () => {
   const row = await saveCompanyKnowledge(input, "test-agent", 0);
@@ -77,23 +78,24 @@ it("keyword fallback refreshes facts after a failed embedding", async () => {
   await indexCompanyKnowledge([{ id: row.id, revision: 1 }], options());
   mocks.embed.mockImplementationOnce(async () => { await saveCompanyKnowledge({ ...input, content: "Новая инструкция по показу." }, "test-agent", 1); throw new Error("Google unavailable"); });
   vi.spyOn(console, "warn").mockImplementation(() => {});
-  const results = await searchCompanyKnowledge("Порядок показа", options());
+  expect(await searchAssistantCompanyKnowledge("Порядок показа", options())).toEqual([]);
+  const results = await searchCompanyKnowledge("Новая инструкция");
   expect(results[0].revision).toBe(2); expect(results[0].content).toBe("Новая инструкция по показу.");
 });
 it("old revision, wrong model and expired records are excluded without a query embedding", async () => {
   const row = await saveCompanyKnowledge(input, "test-agent", 0);
   await indexCompanyKnowledge([{ id: row.id, revision: 1 }], options());
-  await saveCompanyKnowledge({ ...input, content: "Новая инструкция по показу." }, "test-agent", 1);
-  mocks.embed.mockClear();
-  expect(await semanticKnowledgeSearch("показ", options())).toEqual([]);
-  expect(mocks.embed).not.toHaveBeenCalled();
-  await indexCompanyKnowledge([{ id: row.id, revision: 2 }], options());
   await pool.query('UPDATE "AssistantKnowledgeEmbedding" SET "model"=$1', ['test-other-model']);
   mocks.embed.mockClear();
-  expect(await semanticKnowledgeSearch("показ", options())).toEqual([]);
+  expect(await semanticKnowledgeSearch("property-showing", options())).toEqual([]);
   expect(mocks.embed).not.toHaveBeenCalled();
   await pool.query('UPDATE "AssistantKnowledgeEmbedding" SET "model"=$1', ['gemini-embedding-001']);
   await pool.query('UPDATE "AssistantKnowledge" SET "validUntil"=now()-interval \'1 minute\'');
-  expect(await semanticKnowledgeSearch("показ", options())).toEqual([]);
+  expect(await semanticKnowledgeSearch("property-showing", options())).toEqual([]);
+  expect(mocks.embed).not.toHaveBeenCalled();
+  await pool.query('UPDATE "AssistantKnowledge" SET "validUntil"=NULL');
+  await saveCompanyKnowledge({ ...input, content: "Новая инструкция по показу." }, "test-agent", 1);
+  expect(await indexCompanyKnowledge([{ id: row.id, revision: 2 }], options())).toEqual({ indexed: 0, skipped: 1 });
+  expect(await semanticKnowledgeSearch("property-showing", options())).toEqual([]);
   expect(mocks.embed).not.toHaveBeenCalled();
 });

@@ -1,20 +1,28 @@
 import { z } from "zod";
-import { assistantKnowledgeIndexSchema, isReadOnlyRole } from "@royal-home/shared";
-import { AssistantActionError, type AssistantActionExecutor } from "../../../lib/assistantActions.js";
-import { indexCompanyKnowledge, knowledgeSemanticEnabled, pendingKnowledgeIndex, type KnowledgeEmbeddingOptions } from "../knowledgeSemantic.js";
+import { assistantKnowledgeIndexSchema } from "@royal-home/shared";
+import { AssistantActionError, type AssistantActionActor, type AssistantActionExecutor } from "../../../lib/assistantActions.js";
+import { indexCompanyKnowledge, knowledgeSemanticIndexEnabled, pendingKnowledgeIndex, type KnowledgeEmbeddingOptions } from "../knowledgeSemantic.js";
 import { loadToolActor, asPluginExecutor } from "./showingToolSupport.js";
 import type { AssistantToolPlugin } from "./types.js";
 
 const snapshotRows = z.array(z.object({ id: z.string().min(1), revision: z.number().int().positive(), title: z.string().max(100) })).max(10);
 
+const indexOperator = (role: string) => role === "DIRECTOR" || role === "ADMIN";
+
+async function requireIndexOperator(actor: AssistantActionActor): Promise<void> {
+  if (actor.channel !== "crm" || !indexOperator((await loadToolActor(actor)).actor.role)) {
+    throw new AssistantActionError(403, "FORBIDDEN", "Обновлять индекс может только администратор или директор в CRM");
+  }
+}
+
 /** Root supplies the same spending reservation policy used by query embeddings. No unbudgeted default. */
 export function createKnowledgeSemanticTools(options: () => KnowledgeEmbeddingOptions): AssistantToolPlugin[] {
   const executor: AssistantActionExecutor<Record<string, never>> = {
-    tool: "index_company_knowledge", channels: ["crm", "telegram"],
+    tool: "index_company_knowledge", channels: ["crm"],
     parseArgs: (raw) => assistantKnowledgeIndexSchema.parse(raw),
     async snapshot(_args, actor) {
-      await loadToolActor(actor);
-      if (!knowledgeSemanticEnabled()) throw new AssistantActionError(409, "DISABLED", "Поиск общих знаний по смыслу пока выключен");
+      await requireIndexOperator(actor);
+      if (!knowledgeSemanticIndexEnabled()) throw new AssistantActionError(409, "DISABLED", "Индексация общих знаний выключена");
       const rows = await pendingKnowledgeIndex();
       if (!rows.length) throw new AssistantActionError(409, "NO_WORK", "Нет знаний, ожидающих индексации");
       return { rows: rows.map(({ id, revision, title }) => ({ id, revision, title })) };
@@ -29,7 +37,8 @@ export function createKnowledgeSemanticTools(options: () => KnowledgeEmbeddingOp
       };
     },
     async execute(_args, actor, ctx) {
-      await loadToolActor(actor);
+      await requireIndexOperator(actor);
+      if (!knowledgeSemanticIndexEnabled()) throw new AssistantActionError(409, "DISABLED", "Индексация общих знаний выключена");
       const rows = snapshotRows.parse(ctx.snapshotBefore.rows);
       const result = await indexCompanyKnowledge(rows, options());
       return { result: { ...result, status: "Пакет поискового индекса обработан" },
@@ -37,7 +46,7 @@ export function createKnowledgeSemanticTools(options: () => KnowledgeEmbeddingOp
     },
   };
   return [{ name: executor.tool, level: "C", statusPhrase: "Готовлю обновление поиска знаний…",
-    allowed: (actor) => !isReadOnlyRole(actor.role) && knowledgeSemanticEnabled(),
-    description: "Только по явной просьбе обновить поиск общих знаний по смыслу. Готовит максимум 10 новых/изменённых записей, требует кнопку подтверждения платных Google-запросов. Не запускай автоматически после сохранения или обычного вопроса. Остальные записи обрабатываются отдельной явной просьбой.",
+    allowed: (actor) => actor.surface === "crm-private" && indexOperator(actor.role) && knowledgeSemanticIndexEnabled(),
+    description: "Только по явной просьбе администратора или директора в CRM. Подготовь индекс утверждённых редакций пилота и дождись подтверждения платных запросов Google. Сохранение правила и обычный вопрос не запускают индексацию.",
     executor: asPluginExecutor(executor) }];
 }

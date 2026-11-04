@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { EmbeddingRequestOptions } from "./embeddings.js";
 import { createAssistantMoneyWallet, createAssistantMoneyGuard, createAssistantEmbeddingMoneyGuard } from "./assistant/moneyBudget.js";
 import { assistantStyle } from "./assistant/personaStyle.js";
-import { searchCompanyKnowledge, knowledgeContext } from "./assistant/knowledge.js";
+import { searchAssistantCompanyKnowledge, knowledgeContext } from "./assistant/knowledge.js";
 import { tajikGlossaryFor } from "./assistant/tajikGlossary.js";
 import { createAssistantAttemptLimit } from "./assistant/attemptLimit.js";
 import { reserveAssistantGeminiAttempt } from "./assistant/attemptBudget.js";
@@ -1458,7 +1458,10 @@ export async function runAssistantDetailed(
     const userQuestion = [...trimAssistantHistory(messages)].reverse().find((m) => m.role === "user")?.content ?? "";
     let sharedKnowledge = "";
     try {
-      sharedKnowledge = knowledgeContext(await untilAborted(searchCompanyKnowledge(userQuestion.slice(0, 200), { beforeAttempt: embeddingGuard, signal }), signal));
+      const privateSurface = actor.surface === "crm-private" || actor.surface === "telegram-private";
+      // Don't classify the first 200 characters as a complete provider-eligible question.
+      const semanticOptions = privateSurface && userQuestion.length <= 200 ? { beforeAttempt: embeddingGuard, signal } : undefined;
+      sharedKnowledge = knowledgeContext(await untilAborted(searchAssistantCompanyKnowledge(userQuestion.slice(0, 200), semanticOptions), signal));
     } catch (err) {
       if (signal.aborted) throw signal.reason;
       console.warn("[assistant] company knowledge unavailable");

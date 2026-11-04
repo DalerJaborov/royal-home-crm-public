@@ -51,3 +51,30 @@ test("curated rules fit the review contract and cite an exact public source rang
     assert.ok(Number(source[2]) > 0 && Number(source[3]) >= Number(source[2]) && Number(source[3]) <= lines.length, row.source);
   }
 });
+
+test("recognizes short colleague questions in both languages without a policy keyword", () => {
+  for (const [id, russian, tajik] of [
+    ["property-video-handoff", "Как понять, ролик ещё ждёт или монтажёр уже получил исходники?", "Чӣ хел фаҳмем, ки навор ба дасти монтажёр расид?"],
+    ["property-publication", "После смены цены старый ролик сразу убираем?", "Навори нав барояд, пости пешинаро кай мегирем?"],
+    ["property-price-change", "Кто подтверждает смену цены?", "Барои иваз кардани нарх чӣ даркор?"],
+    ["property-showing", "Какие данные нужны, чтобы показать квартиру?", "Барои нишон додани хона чӣ даркор?"],
+  ]) {
+    const first = companyMemoryPolicyProjection(russian);
+    assert.equal(first?.id, id, russian);
+    assert.deepEqual(companyMemoryPolicyProjection(tajik), first, tajik);
+  }
+});
+
+test("does not replace live price, publication, or editor status with a general rule", () => {
+  for (const text of [
+    "Кто подтвердил смену цены?",
+    "Как понять, мой ролик ещё ждёт или монтажёр уже получил исходники?",
+    "Как понять, монтажёр уже получил исходники ОБ-000132?",
+    "Что стало со старым роликом после смены цены?",
+    "Нархи ин объект чанд аст?",
+    "Ин навор ба дасти монтажёр расид?",
+    "Чӣ хел фаҳмем, ки навори 130 ба дасти монтажёр расид?",
+  ]) {
+    assert.equal(companyMemoryPolicyProjection(text), null, text);
+  }
+});
