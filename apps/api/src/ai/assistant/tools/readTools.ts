@@ -1,6 +1,7 @@
 import { findClientsTool } from "./findClients.js";
 import { findPropertyTool } from "./findProperty.js";
 import { getClientCardTool } from "./getClientCard.js";
+import { getClientLastCallTool } from "./getClientLastCall.js";
 import { getPropertyCardTool } from "./getPropertyCard.js";
 import { getPropertyWorkStatusTool } from "./getPropertyWorkStatus.js";
 import { listMyTasksTool } from "./listMyTasks.js";
@@ -11,6 +12,7 @@ export const readTools: readonly AssistantToolPlugin[] = [
   findClientsTool,
   findPropertyTool,
   getClientCardTool,
+  getClientLastCallTool,
   getPropertyCardTool,
   getPropertyWorkStatusTool,
   listMyTasksTool,

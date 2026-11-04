@@ -25,7 +25,7 @@ const writePlugins = plugins.filter((p) => p.level !== "A");
 const fullActor = actorFromAccess("registry-test-director", {
   role: "DIRECTOR",
   permissions: new Set<PermissionId>(PERMISSION_IDS),
-});
+}, "crm-private");
 
 type Schema = Record<string, unknown>;
 
@@ -55,6 +55,7 @@ describe("реестр инструментов помощника", () => {
       "find_clients",
       "find_property",
       "get_client_card",
+      "get_client_last_call",
       "get_property_card",
       "get_property_work_status",
       "list_my_tasks",
@@ -78,6 +79,14 @@ describe("реестр инструментов помощника", () => {
     const dupes = all.filter((name, i) => all.indexOf(name) !== i);
     expect(dupes).toEqual([]);
     for (const name of all) expect(name).toMatch(/^[a-z][a-z0-9_]{1,63}$/);
+  });
+
+  it("последний звонок объявляется только в личных режимах", () => {
+    expect(pluginDeclarations(fullActor, false, "crm").some(d => d.name === "get_client_last_call")).toBe(true);
+    expect(pluginDeclarations({ ...fullActor, surface: "telegram-private" }, false, "telegram")
+      .some(d => d.name === "get_client_last_call")).toBe(true);
+    expect(pluginDeclarations({ ...fullActor, surface: "telegram-group" }, false, "telegram")
+      .some(d => d.name === "get_client_last_call")).toBe(false);
   });
 
   it("у каждого плагина записи исполнитель под тем же именем и он зарегистрирован в брокере", () => {

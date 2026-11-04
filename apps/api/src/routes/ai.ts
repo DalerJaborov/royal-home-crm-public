@@ -128,7 +128,7 @@ aiRouter.post("/assistant", requireAuth, assistantLimiter, async (req, res) => {
 
   // Помощник ходит в базу под правами вызвавшего — тот же разбор прав, что у
   // requireAuth, одной функцией (ai/assistant/actor.ts, задача 2.1).
-  const actor = actorFromAccess(req.agent!.id, req.agent!);
+  const actor = actorFromAccess(req.agent!.id, req.agent!, "crm-private");
 
   try {
     // Полоса А (ai/assistantFastPath.ts): номер карточки, телефон или ссылка Instagram

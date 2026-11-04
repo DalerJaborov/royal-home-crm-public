@@ -280,7 +280,7 @@ describe("optional help without an address", () => {
       expect.objectContaining({ confirmUi: false }),
     );
     const actor = f.run.mock.calls[0][1] as { hiddenTools: Set<string> };
-    for (const tool of ["create_task", "reschedule_task", "get_client_history", "web_reference"]) {
+    for (const tool of ["create_task", "reschedule_task", "get_client_history", "get_client_last_call", "web_reference"]) {
       expect(actor.hiddenTools.has(tool)).toBe(true);
     }
     expect(f.html).toHaveBeenCalledOnce();
@@ -297,6 +297,12 @@ describe("optional help without an address", () => {
     await f.send(request);
     expect(f.run).toHaveBeenCalledOnce();
     expect(f.html).not.toHaveBeenCalled();
+  });
+  it("keeps the latest-call transcript tool hidden even for a direct request in the group", async () => {
+    const f = fixture();
+    await f.send("@fixture_bot Что клиент сказал в последнем звонке?");
+    const actor = f.run.mock.calls[0]?.[1] as { hiddenTools: Set<string> };
+    expect(actor.hiddenTools.has("get_client_last_call")).toBe(true);
   });
   it("uses the quoted property to answer a delay question, without changing CRM", async () => {
     const f = fixture();

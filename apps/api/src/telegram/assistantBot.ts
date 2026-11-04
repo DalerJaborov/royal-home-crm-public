@@ -100,7 +100,9 @@ const BUNDLE_CALLBACK = /^as:(ok|no):([0-9a-f-]{36})$/;
 // ───────────────────────────── права ─────────────────────────────
 
 /** Права, которых в общей группе у помощника нет, даже если они есть у спросившего. */
-const GROUP_HIDDEN_PERMISSIONS: readonly PermissionId[] = ["clients.viewPhone", "finance.view", "reports.view"];
+const GROUP_HIDDEN_PERMISSIONS: readonly PermissionId[] = [
+  "clients.viewPhone", "finance.view", "reports.view", "calls.transcripts", "calls.ownTranscripts",
+];
 
 /**
  * Инструменты, закрытые в общей группе: комиссия по СВОИМ сделкам отдаётся и без
@@ -112,6 +114,7 @@ const GROUP_HIDDEN_TOOLS: ReadonlySet<string> = new Set([
   "get_company_stats",
   "get_finance_summary",
   "get_lead_sources",
+  "get_client_last_call",
   "create_task",
   "reschedule_task",
   "add_client_note",
@@ -123,10 +126,10 @@ export function assistantActorFor(
   access: Pick<AgentAccess, "role" | "permissions">,
   scope: "private" | "group"
 ): AssistantActor {
-  if (scope === "private") return actorFromAccess(agentId, access);
+  if (scope === "private") return actorFromAccess(agentId, access, "telegram-private");
   const permissions = new Set(access.permissions);
   for (const hidden of GROUP_HIDDEN_PERMISSIONS) permissions.delete(hidden);
-  return { ...actorFromAccess(agentId, { role: access.role, permissions }), hiddenTools: GROUP_HIDDEN_TOOLS };
+  return { ...actorFromAccess(agentId, { role: access.role, permissions }, "telegram-group"), hiddenTools: GROUP_HIDDEN_TOOLS };
 }
 
 /** Актор брокера на нажатии: ПОЛНЫЕ свежие права нажавшего, канал telegram. */
