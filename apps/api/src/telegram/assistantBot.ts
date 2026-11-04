@@ -745,13 +745,44 @@ export async function handleAssistantCallback(query: TelegramCallbackQuery): Pro
       await answerCallbackQuery(query.id, "Нет прав на это действие");
       return true;
     }
+    const callbackChat = query.message?.chat;
+    const groupRegistrationAllows = async (): Promise<boolean> => {
+      if (callbackChat?.type !== "group" && callbackChat?.type !== "supergroup") return true;
+      // Re-read after waiting for the bundle lock: /assistant_off must also stop
+      // old cards whose callbacks were queued behind an in-flight operation.
+      // A DB failure reaches the existing catch before either broker operation.
+      const registered = await prisma.assistantTelegramGroup.findUnique({
+        where: { chatId: String(callbackChat.id) },
+      });
+      if (!registered) {
+        await answerCallbackQuery(query.id, "Помощник в этой группе отключён");
+        return false;
+      }
+      // Re-enabling creates a new registration. Old cards must not revive; equal
+      // timestamps are rejected too, avoiding millisecond precision ambiguity.
+      const stale = actions.filter((action) => action.createdAt.getTime() <= registered.createdAt.getTime());
+      if (stale.length > 0) {
+        // Preparing the same request can reuse an old PENDING row until expiry.
+        // Do not promise an immediate retry or cancel a row shared with another UI.
+        const pendingExpiry = Math.max(0, ...stale.filter((action) => action.status === "PENDING")
+          .map((action) => action.expiresAt.getTime()));
+        const waitMinutes = Math.ceil(Math.max(0, pendingExpiry - Date.now()) / 60_000);
+        await answerCallbackQuery(query.id, waitMinutes > 0
+          ? `Группа подключена заново — повторите просьбу через ${waitMinutes} мин.`
+          : "Группа подключена заново — повторите просьбу");
+        return false;
+      }
+      return true;
+    };
     const actor = actionActorOf(clicker.id, access);
 
     if (verb === "no") {
       const executed = await serializeBundle(bundleId, async () => {
+        if (!(await groupRegistrationAllows())) return null;
         for (const a of actions) await cancelAssistantAction(a.id, actor).catch(() => undefined);
         return prisma.assistantAction.count({ where: { bundleId, status: { in: ["EXECUTED", "CONFIRMED"] } } });
       });
+      if (executed === null) return true;
       // Часть цепочки могла успеть исполниться до отмены — правду об этом не прячем.
       const note = executed > 0 ? "Часть действий уже была выполнена, остальные отменены" : "Отменено";
       await answerCallbackQuery(query.id, note);
@@ -761,7 +792,11 @@ export async function handleAssistantCallback(query: TelegramCallbackQuery): Pro
       return true;
     }
 
-    const outcome = await serializeBundle(bundleId, () => executeBundle(actions.map((a) => a.id), actor));
+    const outcome = await serializeBundle(bundleId, async () => {
+      if (!(await groupRegistrationAllows())) return null;
+      return executeBundle(actions.map((a) => a.id), actor);
+    });
+    if (outcome === null) return true;
     if (outcome.kind === "busy") {
       await answerCallbackQuery(query.id, "Уже выполняется");
       return true;
