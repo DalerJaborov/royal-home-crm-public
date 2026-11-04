@@ -822,7 +822,8 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
 
     if (!addressed && registered.proactiveMutedUntil && registered.proactiveMutedUntil > now) return false;
     // An unlinked user has no CRM actor. Serve only public listing data or approved sales guidance.
-    const publicQuestion = publicShell && (!sender || publicShell.siteOnly) ? { kind: "shell" as const, request: publicShell }
+    const publicQuestion = publicShell && (publicShell.kind === "guidance" || !sender || publicShell.siteOnly)
+      ? { kind: "shell" as const, request: publicShell }
       : !sender && guestListing ? { kind: "listing" as const, request: guestListing } : null;
     if (publicQuestion) {
       if (!(await isAiAssistantEnabled())) return false;

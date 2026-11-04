@@ -151,16 +151,56 @@ describe("natural group addressing and silence", () => {
     "2. Оё агар ба Шабнам савол диҳем аз рӯйхати дар сайти хонаҳо буда хонаи коробкаи тайёр ва бетаъмирро метавонад ҷудо кунад?",
   ].join("\n");
 
-  it.each([true, false])("recognizes a group and Shabnam question after greetings (linked %s)", async linked => {
+  it.each([true, false])("answers the two onboarding questions after greetings (linked %s)", async linked => {
     const f = fixture();
     f.setLinked(linked);
     expect(f.adapter.addressedToBot(f.message(screenshotQuestion), "fixture_bot")).toMatchObject({
       addressed: true, text: expect.stringMatching(/^1\. Дар ҳолати/),
     });
     expect(await f.send(screenshotQuestion)).toBe(true);
-    expect(f.publicShellReply).toHaveBeenCalledWith({ type: null }, "tg");
-    expect(f.plain).toHaveBeenCalledWith("-100", expect.stringMatching(/^Ба харидор гӯед:.*\n\nКвартира меҷӯед ё ҳавлӣ\?$/u), 10);
+    const reply = f.plain.mock.calls[0]?.[1];
+    expect(reply).toMatch(/^Ба харидор гӯед:/u);
+    expect(reply).toContain("Шабнам, аз сайт квартираи коробка бе таъмир нишон деҳ");
+    expect(reply).toContain("ҳатто агар ҳанӯз дар сайт набошанд");
+    expect(reply).not.toContain("Квартира меҷӯед ё ҳавлӣ?");
+    expect(f.publicShellReply).not.toHaveBeenCalled();
+    expect(f.publicCatalog).not.toHaveBeenCalled();
     expect(f.run).not.toHaveBeenCalled();
+
+    expect(await f.send("Вай автомати худш да срм хаст ку", { from: { id: 3 }, message_thread_id: 31 })).toBe(false);
+    expect(await f.send("Каробка ё хонаи таёр", { from: { id: 3 }, message_thread_id: 31 })).toBe(false);
+    expect(f.plain).toHaveBeenCalledOnce();
+    expect(f.run).not.toHaveBeenCalled();
+
+    const guidanceMessage = f.message(reply, {
+      from: { id: 2, is_bot: true, username: "fixture_bot" }, message_thread_id: 31,
+    });
+    await f.send("Квартира", { from: { id: 3 }, message_thread_id: 31, reply_to_message: guidanceMessage });
+    expect(f.publicShellReply).not.toHaveBeenCalled();
+    expect(f.publicCatalog).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["Шабнам, чӣ тавр аз сайт хонаи коробка бе таъмир пурсам?", "Барои ҷустуҷӯ нависед:"],
+    ["Шабнам, как попросить найти квартиру в коробке без ремонта?", "Для поиска напишите:"],
+    ["Шабнам, умеешь ли ты отбирать квартиры в коробке без ремонта?", "Для поиска напишите:"],
+  ])("gives an example for a single how-to question: %s", async (question, expected) => {
+    const f = fixture();
+    f.setLinked(false);
+    expect(await f.send(question)).toBe(true);
+    expect(f.plain.mock.calls[0]?.[1]).toContain(expected);
+    expect(f.publicShellReply).not.toHaveBeenCalled();
+    expect(f.run).not.toHaveBeenCalled();
+  });
+
+  it("clarifies an actual ambiguous search and accepts the illustrated command", async () => {
+    const f = fixture();
+    f.setLinked(false);
+    expect(await f.send("Шабнам, аз сайт хонаи коробка бе таъмир нишон деҳ")).toBe(true);
+    expect(f.publicShellReply).toHaveBeenLastCalledWith({ type: null }, "tg");
+    expect(f.plain).toHaveBeenLastCalledWith("-100", "Квартира меҷӯед ё ҳавлӣ?", 10);
+    expect(await f.send("Шабнам, аз сайт квартираи коробка бе таъмир нишон деҳ")).toBe(true);
+    expect(f.publicShellReply).toHaveBeenLastCalledWith({ type: "APARTMENT" }, "tg");
   });
 
   it("uses CRM for a linked employee's shell search unless they ask for the website", async () => {
