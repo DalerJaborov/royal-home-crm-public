@@ -1823,7 +1823,7 @@
       · ответ 429
   - return res.status(503).json({ error: issued.error });
     · ответ 503
-- res.json({ channel: issued.channel, phoneHint: maskPhoneForHint(agent.phone), resendAfterSec: 60, telegramAva…
+- res.json({ channel: issued.channel, phoneHint: maskPhoneForHint(agent.phone), resendAfterSec: issued.resendAf…
   · ответ 200
 
 ### GET /api/v1/auth/step-up

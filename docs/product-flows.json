@@ -7958,7 +7958,7 @@
     },
     {
      "k": "do",
-     "t": "res.json({ channel: issued.channel, phoneHint: maskPhoneForHint(agent.phone), resendAfterSec: 60, telegramAva…",
+     "t": "res.json({ channel: issued.channel, phoneHint: maskPhoneForHint(agent.phone), resendAfterSec: issued.resendAf…",
      "a": [
       "ответ 200"
      ],
