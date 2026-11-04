@@ -1,8 +1,9 @@
 import { renderAssistantForTelegram, requestedAssistantReplyMode, sanitizeAssistantReply, splitReaction, type AssistantReplyMode } from "./assistantReply.js";
 import { sendAssistantReply } from "./assistantDelivery.js";
+import { editTelegramConfirmationMessage, sendTelegramPriceConfirmationPhotos } from "./assistantConfirmationPhotos.js";
 import { ASSISTANT_COLLEAGUE_GREETING, ASSISTANT_GROUP_GREETING } from "./assistantGroupPhrases.js";
 import { findPropertiesByRef } from "../lib/propertyRefLookup.js";
-import { GROUP_QUIET_MS, GROUP_WELCOME_INTERVAL_MS, PROACTIVE_GROUP_INTERVAL_MS, groupMembershipEvent, proactivePropertyReply, requestedGroupParticipation, unaddressedPropertyQuestion, unaddressedReadRequest } from "./assistantGroupParticipation.js";
+import { GROUP_QUIET_MS, GROUP_WELCOME_INTERVAL_MS, PROACTIVE_GROUP_INTERVAL_MS, groupMembershipEvent, groupStatusFollowUp, proactivePropertyReply, requestedGroupParticipation, unaddressedConfirmationRequest, unaddressedPropertyQuestion, unaddressedReadRequest, type GroupConfirmationTool } from "./assistantGroupParticipation.js";
 export { renderAssistantForTelegram } from "./assistantReply.js";
 import { randomUUID } from "node:crypto";
 import { isReadOnlyRole, trimAssistantHistory, type AssistantPropertyCard, type PermissionId } from "@royal-home/shared";
@@ -12,6 +13,7 @@ import { actorFromAccess, type AssistantActor } from "../ai/assistant/actor.js";
 import { ASSISTANT_ERROR_MESSAGES, isAiAssistantEnabled, runAssistantDetailed } from "../ai/assistant.js";
 import { assistantLanguage } from "../ai/assistant/languageRouting.js";
 import { wrapUntrusted } from "../ai/untrustedContent.js";
+import { listAssistantToolPlugins } from "../ai/assistant/tools/index.js";
 import { parseFastPathIntent, tryAssistantFastPath } from "../ai/assistantFastPath.js";
 import { findTelegramAgentClients, isVoiceReplayRequest, replayTelegramAssistantVoice, sendTelegramPropertyCard, sendTelegramPropertyPreviews } from "./assistantReadResults.js";
 import { sendAssistantVoiceReply } from "./assistantVoice.js";
@@ -34,7 +36,6 @@ import { describeError } from "../lib/describeError.js";
 import { logAssistantToolCall } from "../lib/aiAssistantAudit.js";
 import {
   answerCallbackQuery as answerCallbackQueryRaw,
-  editMessageText,
   getBotUsername,
   sendChatAction,
   sendMessage,
@@ -78,6 +79,7 @@ export const ASSISTANT_TG_DAILY_LIMIT = 150;
 export const ASSISTANT_TG_VOICE_DAILY_LIMIT = 40;
 const ASSISTANT_TG_STANDALONE_VOICE_DAILY_LIMIT = 20;
 const GROUP_SHORT_VOICE_SECONDS = 60;
+const GROUP_AUDIO_MAX_SECONDS = 120;
 const DIALOG_KIND = "assistant";
 const DIALOG_TTL_MS = 15 * 60_000;
 
@@ -168,6 +170,9 @@ export function renderBundleCard(actions: readonly AssistantActionView[], author
   });
   const origin = source ? `По сообщению ${source}
 ` : "";
+  if (maskPhones && actions.length === 1 && actions[0]?.tool === "change_property_price") {
+    return sanitizeAssistantReply(parts[0] ?? "", true);
+  }
   const card = `${origin}Подтвердите действие${actions.length > 1 ? "я" : ""}:\n\n${parts.join("\n\n")}\n\nПодтвердить может только ${authorName}.`;
   return sanitizeAssistantReply(card, maskPhones);
 }
@@ -190,6 +195,7 @@ interface TurnParams {
   moneyWallet?: AssistantMoneyWallet;
   forwardedVoice?: boolean;
   readOnlyGroup?: boolean;
+  onlyGroupConfirmation?: GroupConfirmationTool;
   agentId: string;
   scope: "private" | "group";
   history: { role: "user" | "assistant"; content: string }[];
@@ -214,13 +220,18 @@ async function runTurn(params: TurnParams): Promise<TurnResult | null> {
     return null;
   }
   const actor = assistantActorFor(params.agentId, access, params.scope);
-  if (params.readOnlyGroup) {
+  if (params.readOnlyGroup || params.onlyGroupConfirmation) {
     actor.hiddenTools = new Set([...GROUP_HIDDEN_TOOLS, "get_client_history", "get_client_card", "web_reference"]);
+  }
+  if (params.onlyGroupConfirmation) {
+    actor.hiddenTools = new Set([...(actor.hiddenTools ?? []), ...listAssistantToolPlugins()
+      .filter(plugin => plugin.level !== "A" && (plugin.level !== "C" || plugin.name !== params.onlyGroupConfirmation))
+      .map(plugin => plugin.name)]);
   }
   const last = params.history[params.history.length - 1];
 
   // In a group the deterministic path is limited to a property number.
-  if (!params.readOnlyGroup && last?.role === "user" && (params.scope === "private" || parseFastPathIntent(last.content)?.kind === "property-code")) {
+  if (!params.readOnlyGroup && !params.onlyGroupConfirmation && last?.role === "user" && (params.scope === "private" || parseFastPathIntent(last.content)?.kind === "property-code")) {
     try {
       if (params.scope === "private") {
         const roster = await findTelegramAgentClients(last.content, actor);
@@ -331,17 +342,13 @@ async function sendTurnResult(
   // Карточка целиком, ответ модели — по остатку места (не наоборот).
   const room = Math.max(0, TEXT_MAX_CHARS - card.length - 2);
   const text = [body.slice(0, room), card].filter(Boolean).join("\n\n");
-  await sendMessageWithButtons(
-    chatId,
-    text,
-    [
-      [
-        { text: irreversible ? "✅ Подтвердить (необратимо)" : "✅ Подтвердить", callback_data: `as:ok:${bundleId}` },
-        { text: "✖ Отмена", callback_data: `as:no:${bundleId}` },
-      ],
-    ],
-    ctx.replyTo
-  );
+  const buttons = [[
+    { text: irreversible ? "✅ Подтвердить (необратимо)" : "✅ Подтвердить", callback_data: `as:ok:${bundleId}` },
+    { text: "✖ Отмена", callback_data: `as:no:${bundleId}` },
+  ]];
+  if (priceOnlyInGroup && result.pending.length === 1
+      && await sendTelegramPriceConfirmationPhotos(chatId, result.pending[0], text, buttons, ctx.replyTo)) return;
+  await sendMessageWithButtons(chatId, text, buttons, ctx.replyTo);
 }
 
 // ───────────────────────────── личка ─────────────────────────────
@@ -604,18 +611,24 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
   const membership = groupMembershipEvent(msg.new_chat_members, msg.left_chat_member, botUsername);
   let automatic: ReturnType<typeof unaddressedPropertyQuestion> = null;
   let automaticRead = false;
+  let automaticAction: GroupConfirmationTool | null = null;
+  const quoted = (msg.reply_to_message?.text ?? msg.reply_to_message?.caption ?? "").trim().slice(0, 600);
+  let statusFollowUp = Boolean(quoted && groupStatusFollowUp(raw, quoted));
   const shortNativeVoice = typeof msg.voice?.duration === "number"
     && msg.voice.duration > 0 && msg.voice.duration <= GROUP_SHORT_VOICE_SECONDS;
-  const standaloneVoice = !addressed && !groupCommand && !membership && !raw && shortNativeVoice
-    && Boolean(msg.from?.id && !msg.from.is_bot && !msg.sender_chat
-      && !msg.reply_to_message && !msg.forward_origin && !msg.forward_from_message_id);
+  const audioDuration = (msg.voice ?? msg.audio)?.duration;
+  const isForwarded = Boolean(msg.forward_origin || msg.forward_from_message_id);
+  const standaloneVoice = !addressed && !groupCommand && !membership && !raw
+    && typeof audioDuration === "number" && audioDuration > 0 && audioDuration <= GROUP_AUDIO_MAX_SECONDS
+    && Boolean(msg.from?.id && !msg.from.is_bot && !msg.sender_chat);
   if (!addressed && !groupCommand && !membership) {
     windowText = windowRequest(msg, chatId);
     if (windowText === null && msg.from?.id && !msg.from.is_bot && !msg.sender_chat && !msg.forward_origin && !msg.forward_from_message_id) {
       automatic = unaddressedPropertyQuestion(raw);
-      automaticRead = !automatic && !msg.reply_to_message && unaddressedReadRequest(raw);
+      automaticRead = !automatic && (statusFollowUp || (!msg.reply_to_message && unaddressedReadRequest(raw)));
+      if (!automatic && !automaticRead && !msg.reply_to_message) automaticAction = unaddressedConfirmationRequest(raw);
     }
-    if (windowText === null && !automatic && !automaticRead && !standaloneVoice) return false;
+    if (windowText === null && !automatic && !automaticRead && !automaticAction && !standaloneVoice) return false;
   }
   const reply = (t: string) => sendMessage(chatId, t, msg.message_id).then(() => undefined);
 
@@ -710,19 +723,21 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
       if (!current || current.createdAt.getTime() !== registered.createdAt.getTime()
         || (current.proactiveMutedUntil && current.proactiveMutedUntil.getTime() > groupClock())) return false;
       fromVoice = true;
-      raw = voice.text;
+      raw = voice.text.replace(/\s+/gu, " ").trim();
+      statusFollowUp = Boolean(quoted && groupStatusFollowUp(raw, quoted));
       const spoken = addressedToBot({ ...msg, text: raw }, botUsername);
-      if (/^(?:шабнам|мушовир)(?=$|[\s,:;.!?—–-])/iu.test(raw)
+      if (!isForwarded && /^(?:шабнам|мушовир)(?=$|[\s,:;.!?—–-])/iu.test(raw)
         && spoken.addressed && spoken.text && !requestedGroupParticipation(spoken.text)) {
         addressed = true;
         text = spoken.text;
       } else {
         automatic = unaddressedPropertyQuestion(raw);
-        automaticRead = !automatic && unaddressedReadRequest(raw);
-        if (!automatic && !automaticRead) return false;
+        automaticRead = !automatic && (statusFollowUp || unaddressedReadRequest(raw));
+        if (!automatic && !automaticRead && !isForwarded && !msg.reply_to_message) automaticAction = unaddressedConfirmationRequest(raw);
+        if (!automatic && !automaticRead && !automaticAction) return false;
       }
     }
-    if (automatic || automaticRead) {
+    if (automatic || automaticRead || automaticAction) {
       if (!sender || !(await isAiAssistantEnabled())) return false;
       const access = await loadAgentAccess(sender.id);
       if (!access?.isActive) return false;
@@ -753,15 +768,26 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
         return true;
       }
 
+      const question = statusFollowUp ? `${raw}\n${wrapUntrusted("document", quoted, 600)}` : raw;
       const result = await runTurn({
-        agentId: sender.id, scope: "group", readOnlyGroup: true, moneyWallet,
-        history: [{ role: "user", content: maskAssistantContacts(raw) }],
+        agentId: sender.id, scope: "group", readOnlyGroup: !automaticAction,
+        onlyGroupConfirmation: automaticAction ?? undefined, moneyWallet,
+        history: [{ role: "user", content: maskAssistantContacts(question) }],
         deny: async () => {},
       });
-      if (!result || result.failed) return true;
+      if (!result || (result.failed && !automaticAction)) return true;
       const current = await prisma.assistantTelegramGroup.findUnique({ where: { chatId } });
       if (!current || current.createdAt.getTime() !== registered.createdAt.getTime()
-          || (current.proactiveMutedUntil && current.proactiveMutedUntil.getTime() > groupClock())) return true;
+          || (current.proactiveMutedUntil && current.proactiveMutedUntil.getTime() > groupClock())) {
+        if (result.pending.length) await cancelPending(result.pending, sender.id);
+        return true;
+      }
+      if (automaticAction) {
+        await sendTurnResult(chatId, result, {
+          agentId: sender.id, authorName: sender.fullName, scope: "group", mode: "text", replyTo: msg.message_id,
+        });
+        return true;
+      }
       await sendAssistantReply(chatId, splitReaction(result.reply).text, {
         scope: "group", mode: "text", structured: result.structured, replyTo: msg.message_id, written: [],
       });
@@ -793,6 +819,8 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
         request = `Сообщение от ${source}: «${quoted.slice(0, 1000)}»${text ? `
 Просьба вызвавшего: ${text}` : ""}`;
       }
+    } else if (statusFollowUp && quoted) {
+      request = `${request}\n${wrapUntrusted("document", quoted, 600)}`;
     }
     let forwardedVoice = false;
     if (!request && (msg.voice || msg.audio)) {
@@ -838,7 +866,7 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
     });
   } catch (err) {
     await logSystemError("telegram", `Помощник в группе Telegram: ${describeError(err)}`);
-    if (!automatic && !automaticRead && !membership && (!standaloneVoice || addressed)) await reply("Не получилось ответить, попробуйте ещё раз.").catch(() => {});
+    if (!automatic && !automaticRead && !automaticAction && !membership && (!standaloneVoice || addressed)) await reply("Не получилось ответить, попробуйте ещё раз.").catch(() => {});
   }
   return true;
 }
@@ -959,8 +987,8 @@ export async function handleAssistantCallback(query: TelegramCallbackQuery): Pro
       // Часть цепочки могла успеть исполниться до отмены — правду об этом не прячем.
       const note = executed > 0 ? "Часть действий уже была выполнена, остальные отменены" : "Отменено";
       await answerCallbackQuery(query.id, note);
-      if (chatId && messageId) {
-        await editMessageText(chatId, messageId, sanitizeAssistantReply(`✖ ${note} (${clicker.fullName})`, chatId.startsWith("-")), null).catch(() => {});
+      if (chatId && query.message && messageId) {
+        await editTelegramConfirmationMessage(query.message, sanitizeAssistantReply(`✖ ${note} (${clicker.fullName})`, chatId.startsWith("-"))).catch(() => {});
       }
       return true;
     }
@@ -983,8 +1011,8 @@ export async function handleAssistantCallback(query: TelegramCallbackQuery): Pro
     const summary = `${mark} ${clicker.fullName}:\n${outcome.lines.join("\n")}`;
     if (!chatId) return true;
     const safeSummary = sanitizeAssistantReply(summary, chatId.startsWith("-"));
-    if (messageId) {
-      await editMessageText(chatId, messageId, safeSummary, null).catch(async () => {
+    if (query.message && messageId) {
+      await editTelegramConfirmationMessage(query.message, safeSummary).catch(async () => {
         await sendMessage(chatId, safeSummary, messageId).catch(() => {});
       });
     } else {

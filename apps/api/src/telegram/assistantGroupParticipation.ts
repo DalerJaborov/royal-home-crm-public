@@ -3,8 +3,9 @@ import { formatPropertyCode } from "@royal-home/shared";
 import type { PropertyRefRecord } from "../lib/propertyRefLookup.js";
 
 const CODE = String.raw`(?:об|ob|объект(?:а|е)?)\s*[-–—№#]?\s*(\d{1,8})`;
-const RU = String.raw`(?:какая цена|сколько стоит|какой статус|ещ[её] актуален|есть ли фото|можно ссылку|где карточка|покажите карточку)`;
-const TG = String.raw`(?:нархаш чанд|чанд пул|ҳоло дар фурӯш аст|вазъияташ чист|акс дорад|пайвандашро диҳед)`;
+const PROPERTY_CODE = new RegExp(CODE, "iu");
+const RU = String.raw`(?:какая цена|сколько стоит|ещ[её] актуален)`;
+const TG = String.raw`(?:нархаш чанд|чанд пул|ҳоло дар фурӯш аст)`;
 const endings = "[?!.]*$";
 const patterns = [
   { lang: "ru", re: new RegExp(String.raw`^(?:коллеги[,!]?\s+)?(?:(?:подскажите|кто подскажет)[,:]?\s+)?${RU}\s+(?:(?:у|по|на)\s+)?${CODE}${endings}`, "iu") },
@@ -23,13 +24,38 @@ export function unaddressedPropertyQuestion(raw: string): { ref: string; lang: "
   return null;
 }
 
-const READ_START = /^(?:(?:коллеги|пожалуйста|лутфан)[,:]?\s+)*(?:подбер(?:и|ите)|найд(?:и|ите)|покаж(?:и|ите)|подскаж(?:и|ите)|провер(?:ь|ьте)|какие|какой|какая|сколько|где|когда|есть ли|есть у нас|что у меня|что у нас|нишон деҳ(?:ед)?|ёб(?:ед)?|пайдо кун(?:ед)?|санҷ(?:ед)?|кадом|чанд|кай|дар куҷо|оё|чӣ)(?:[, :]\s*|$)/iu;
+const READ_START = /^(?:(?:коллеги|пожалуйста|лутфан)[,:]?\s+)*(?:подбер(?:и|ите)|найд(?:и|ите)|покаж(?:и|ите)|подскаж(?:и|ите)|провер(?:ь|ьте)|какие|какой|какая|сколько|где|когда|почему|есть ли|есть у нас|что (?:у меня|у нас|с)|нишон деҳ(?:ед)?|ёб(?:ед)?|пайдо кун(?:ед)?|санҷ(?:ед)?|кадом|чанд|кай|дар куҷо|оё|чӣ|чаро)(?:[, :]\s*|$)/iu;
 const AVAILABILITY_QUESTION = /(?:^|\s)(?:есть|найд[её]тся|ҳаст|дорем)\s*\?$/iu;
-const READ_SUBJECT = /(?:^|[^\p{L}\p{N}])(?:объект\p{L}*|об\s*-\s*\d+|ob\s*-\s*\d+|квартир\p{L}*|дом(?:а|ов|у|е)?|участ(?:ок|к\p{L}*)|клиент\p{L}*|показ\p{L}*|задач\p{L}*|хона\p{L}*|ҳуҷра\p{L}*|муштарӣ|муштарии|муштариён|намоиш\p{L}*|вазифа\p{L}*)(?=$|[^\p{L}\p{N}])/iu;
+const READ_SUBJECT = /(?:^|[^\p{L}\p{N}])(?:объект\p{L}*|об\s*-\s*\d+|ob\s*-\s*\d+|квартир\p{L}*|дом(?:а|ов|у|е)?|участ(?:ок|к\p{L}*)|клиент\p{L}*|показ\p{L}*|задач\p{L}*|хона\p{L}*|ҳуҷра\p{L}*|муштарӣ|муштарии|муштариён|намоиш\p{L}*|вазифа\p{L}*|(?:авто|пере)?монтаж\p{L}*|ролик\p{L}*|видео\p{L}*|навор\p{L}*|сомон\p{L}*)(?=$|[^\p{L}\p{N}])/iu;
+const STATUS_WORDS = /(?:статус|почему|где (?:карточка|наш|мой)|у монтаж[её]ра|на монтаж[её]|на перемонтаж[её]|дар куҷо|дар кучо|вазъияташ|ҳоло ч[ӣи] хел|акс дорад|пайвандашро|есть ли фото|можно ссылку)/iu;
+const STATUS_DELAY = /(?:недел\p{L}*|\d+\s+(?:дн\p{L}*|рӯз)|ҳафта|хафта)\s+.*(?:не готов|не получается|не сдел|дер|нашуд)|(?:почему|чаро)\s+.*(?:недел|ҳафта|хафта)/iu;
 
 export function unaddressedReadRequest(text: string): boolean {
   if (!text || text.length > 500 || /[\r\n]|https?:\/\/|не\s+(?:отвечай(?:те)?|вмешивайся)|хомӯш бош/iu.test(text)) return false;
-  return READ_SUBJECT.test(text) && (READ_START.test(text) || AVAILABILITY_QUESTION.test(text));
+  return READ_SUBJECT.test(text) && (READ_START.test(text) || AVAILABILITY_QUESTION.test(text)
+    || (text.endsWith("?") && STATUS_WORDS.test(text))
+    || (PROPERTY_CODE.test(text) && STATUS_WORDS.test(text)) || STATUS_DELAY.test(text));
+}
+
+export type GroupConfirmationTool = "change_property_price" | "send_to_remake";
+
+export function unaddressedConfirmationRequest(text: string): GroupConfirmationTool | null {
+  // Without a direct address, accept only unambiguous instructions with an exact CRM code.
+  if (!PROPERTY_CODE.test(text) || text.length > 350 || /[\r\n]|https?:\/\/|\?|(?:^|\s)(?:не|нет)\s|(?:накун|намон)/iu.test(text)) return null;
+  const clean = text.replace(/^(?:пожалуйста|лутфан)[, ]+/iu, "");
+  if (/^(?:поменяй(?:те)?|измени(?:те)?|обнови(?:те)?|поставь(?:те)?|снизь(?:те)?|подними(?:те)?)(?:\s|$)/iu.test(clean)
+      && /цен[ауые]/iu.test(clean) && /\d\s*(?:сомон|тыс|tjs|usd|доллар)/iu.test(clean)) return "change_property_price";
+  if (/^(?:отправь(?:те)?|верни(?:те)?)\s.*(?:на перемонтаж|на переделку)/iu.test(clean)) return "send_to_remake";
+  if (/(?:нарх|сомон)/iu.test(clean) && /\d\s*(?:сомон|ҳазор|хазор)/iu.test(clean)
+      && /(?:^|\s)(?:мон(?:ед|ен)|бумон|иваз кун(?:ед)?)(?=$|[\s,.!])/iu.test(clean)) return "change_property_price";
+  return null;
+}
+
+/** A short status question can refer to the object in the message it answers. */
+export function groupStatusFollowUp(text: string, quoted: string): boolean {
+  return READ_SUBJECT.test(quoted)
+    && (STATUS_DELAY.test(text) || (text.endsWith("?") && STATUS_WORDS.test(text)))
+    && !/https?:\/\/|не\s+(?:отвечай(?:те)?|вмешивайся)|хомӯш бош/iu.test(text);
 }
 
 const serviceUser = z.object({ id: z.number().int(), is_bot: z.boolean(), username: z.string().optional() });
@@ -45,7 +71,7 @@ export function groupMembershipEvent(added: unknown, left: unknown, username: st
 }
 export const GROUP_WELCOME_INTERVAL_MS = 60_000;
 export const GROUP_QUIET_MS = 30 * 60_000;
-export const PROACTIVE_GROUP_INTERVAL_MS = 60_000;
+export const PROACTIVE_GROUP_INTERVAL_MS = 12_000;
 
 export function requestedGroupParticipation(text: string): "quiet" | "resume" | null {
   const command = text.trim().replace(/[.!?]+$/u, "");

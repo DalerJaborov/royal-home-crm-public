@@ -43,6 +43,7 @@ function fixture(type: "group" | "supergroup" | "private" = "supergroup") {
     "../lib/assistantActions.js": { AssistantActionError: ActionError, confirmAssistantAction: confirm, cancelAssistantAction: cancel },
     "./assistantReply.js": { sanitizeAssistantReply: (text: string) => text },
     "./assistantDelivery.js": { sendAssistantReply: async () => true },
+    "./assistantConfirmationPhotos.js": { editTelegramConfirmationMessage: noop },
     "./assistantGroupParticipation.js": participation,
     "./assistantGroupPhrases.js": { ASSISTANT_GROUP_GREETING: { ru: "Fixture greeting" } },
     "../ai/assistant/languageRouting.js": { assistantLanguage: () => "unknown" },

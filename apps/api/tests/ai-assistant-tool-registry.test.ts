@@ -56,6 +56,7 @@ describe("реестр инструментов помощника", () => {
       "find_property",
       "get_client_card",
       "get_property_card",
+      "get_property_work_status",
       "list_my_tasks",
       "change_client_agent",
       "change_property_price",
