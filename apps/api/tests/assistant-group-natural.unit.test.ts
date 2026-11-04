@@ -78,19 +78,19 @@ function fixture() {
 }
 
 describe("natural group addressing and silence", () => {
-  it.each(["Мадина, найди объект", "Мушовир: салом", "мадина покажи объект", "Мадина — привет", "Мадина"])("accepts direct prefix %s", async text => {
+  it.each(["Шабнам, найди объект", "Мушовир: салом", "Шабнам, объектро нишон деҳ", "шабнам покажи объект", "Шабнам — привет", "Шабнам"])("accepts direct prefix %s", async text => {
     const f = fixture();
     expect(f.adapter.addressedToBot(f.message(text), "fixture_bot").addressed).toBe(true);
     await f.send(text);
     expect(f.run.mock.calls.length + f.plain.mock.calls.length).toBe(1);
   });
-  it.each(["Мадина завтра придёт", "А Мадина завтра придёт?", "Наша Мадина, найди документ", "Мадинам привет"])("ignores ordinary name reference %s", async text => {
+  it.each(["Шабнам завтра придёт", "А Шабнам завтра придёт?", "Наша Шабнам, найди документ", "Шабнамчик, привет", "Мадина, найди объект"])("ignores ordinary name reference %s", async text => {
     const f = fixture();
     expect(await f.send(text)).toBe(false);
     expect(f.run).not.toHaveBeenCalled();
     expect(f.voice).not.toHaveBeenCalled();
   });
-  it.each(["поставь чайник", "у клиента день рождения", "Мадина завтра придёт", "123456789", "123456789012"])("does not send window chatter to AI: %s", async text => {
+  it.each(["поставь чайник", "у клиента день рождения", "Шабнам завтра придёт", "123456789", "123456789012"])("does not send window chatter to AI: %s", async text => {
     const f = fixture();
     await f.send("@fixture_bot привет");
     f.run.mockClear();
@@ -99,19 +99,19 @@ describe("natural group addressing and silence", () => {
   });
   it("reconnecting invalidates the old window; only a new direct address reopens it", async () => {
     const f = fixture();
-    await f.send("Мадина, помоги");
+    await f.send("Шабнам, помоги");
     await f.send("/assistant_off");
     await f.send("/assistant_on");
     f.run.mockClear();
     expect(await f.send("поставь на перемонтаж")).toBe(false);
     expect(f.run).not.toHaveBeenCalled();
-    await f.send("Мадина, помоги");
+    await f.send("Шабнам, помоги");
     await f.send("поставь на перемонтаж");
     expect(f.run).toHaveBeenCalledTimes(2);
   });
   it("a bare name opens a guarded window without calling AI", async () => {
     const f = fixture();
-    await f.send("Мадина");
+    await f.send("Шабнам");
     expect(f.run).not.toHaveBeenCalled();
     expect(f.plain).toHaveBeenCalledWith("-100", "Слушаю. Что нужно сделать?", 10);
     await f.send("поставь на перемонтаж");
@@ -120,14 +120,14 @@ describe("natural group addressing and silence", () => {
   it.each(["disabled", "inactive"])("%s bare address does not open a window", async kind => {
     const f = fixture();
     if (kind === "disabled") f.setEnabled(false); else f.setActive(false);
-    await f.send("Мадина");
+    await f.send("Шабнам");
     f.setEnabled(true); f.setActive(true);
     expect(await f.send("123")).toBe(false);
     expect(f.run).not.toHaveBeenCalled();
   });
   it("keeps relevant continuation, author/chat isolation, stop and expiry", async () => {
     const f = fixture();
-    await f.send("Мадина, помоги");
+    await f.send("Шабнам, помоги");
     await f.send("поставь на перемонтаж");
     await f.send("123");
     expect(f.run).toHaveBeenCalledTimes(3);
@@ -136,7 +136,7 @@ describe("natural group addressing and silence", () => {
     await f.send("стоп");
     await f.send("123");
     expect(f.run).toHaveBeenCalledTimes(3);
-    await f.send("Мадина, помоги");
+    await f.send("Шабнам, помоги");
     f.advance(f.adapter.GROUP_DIALOG_WINDOW_MS + 1);
     await f.send("123");
     expect(f.run).toHaveBeenCalledTimes(4);
@@ -150,7 +150,7 @@ describe("one greeting per authorized registration", () => {
     await f.send("/assistant_on");
     expect(f.create).toHaveBeenCalledTimes(3);
     expect(f.voice).toHaveBeenCalledOnce();
-    expect(f.voice.mock.calls[0]?.[1]).toContain("Мадина");
+    expect(f.voice.mock.calls[0]?.[1]).toContain("Шабнам");
     expect(f.run).not.toHaveBeenCalled();
   });
   it.each(["AGENT", "SHAREHOLDER"])("%s cannot register or synthesize", async role => {
@@ -169,7 +169,7 @@ describe("one greeting per authorized registration", () => {
   it("uses proven Tajik, and a failed greeting remains readable without repeated synthesis", async () => {
     const f = fixture(); f.setRegistered(false); f.voice.mockResolvedValue(false);
     await f.send("/assistant_on салом");
-    expect(f.voice.mock.calls[0]?.[1]).toContain("Мушовир");
+    expect(f.voice.mock.calls[0]?.[1]).toContain("Шабнам");
     expect(f.html.mock.calls[0]?.[1]).toContain("Салом");
     await f.send("/assistant_on салом");
     expect(f.voice).toHaveBeenCalledOnce();
@@ -207,7 +207,7 @@ describe("explicitly addressed native group voice", () => {
     f.media.mockResolvedValue({ extraction: { transcript: "Покажи ОБ-123" } });
     await f.send("", audio);
     expect(f.card).toHaveBeenCalledOnce(); expect(f.voice).not.toHaveBeenCalled();
-    await f.send("Мадина, покажи ОБ-123, ответь голосом");
+    await f.send("Шабнам, покажи ОБ-123, ответь голосом");
     expect(f.voice).toHaveBeenCalledOnce();
     expect(f.voice.mock.calls[0]?.[1]).not.toContain("@test_contact");
   });
