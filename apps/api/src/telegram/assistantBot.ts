@@ -1,5 +1,6 @@
 import { renderAssistantForTelegram, requestedAssistantReplyMode, sanitizeAssistantReply, splitReaction, type AssistantReplyMode } from "./assistantReply.js";
 import { sendAssistantReply } from "./assistantDelivery.js";
+import { ASSISTANT_GROUP_GREETING } from "./assistantGroupPhrases.js";
 export { renderAssistantForTelegram } from "./assistantReply.js";
 import { randomUUID } from "node:crypto";
 import { isReadOnlyRole, trimAssistantHistory, type AssistantPropertyCard, type PermissionId } from "@royal-home/shared";
@@ -268,7 +269,7 @@ async function cancelPending(actions: readonly AssistantActionView[], agentId: s
 async function sendTurnResult(
   chatId: string,
   result: TurnResult,
-  ctx: { agentId: string; authorName: string; scope: "private" | "group"; replyTo?: number; source?: string; fromVoice?: boolean; mode?: AssistantReplyMode; reactTo?: number }
+  ctx: { agentId: string; authorName: string; scope: "private" | "group"; replyTo?: number; source?: string; fromVoice?: boolean; addressedGroupVoice?: boolean; mode?: AssistantReplyMode; reactTo?: number }
 ): Promise<void> {
   const maskPhones = ctx.scope === "group";
   const split = splitReaction(result.reply);
@@ -279,11 +280,12 @@ async function sendTurnResult(
   const body = [rendered, ...written].filter(Boolean).join("\n");
   if (result.pending.length === 0) {
     if (result.propertyCard && await sendTelegramPropertyCard(chatId, result.propertyCard, maskPhones, ctx.replyTo)) {
-      if (ctx.mode === "voice") await sendAssistantVoiceReply(chatId, split.text, ctx.replyTo);
+      if (ctx.mode === "voice") await sendAssistantVoiceReply(chatId, maskPhones ? sanitizeAssistantReply(split.text, true) : split.text, ctx.replyTo);
       return;
     }
     const delivered = await sendAssistantReply(chatId, split.text, {
       scope: ctx.scope, fromVoice: ctx.fromVoice, structured: result.structured,
+      addressedGroupVoice: ctx.addressedGroupVoice,
       mode: result.failed ? "text" : ctx.mode, replyTo: ctx.replyTo, written,
     });
     if (delivered && ctx.scope === "private" && result.propertyResults) {
@@ -479,7 +481,10 @@ export async function handleAssistantPrivate(
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-/** Позвали ли бота: @упоминание, команда /ai, ответ на его сообщение. */
+// A name in conversation is not an address. Without punctuation require an imperative.
+const NAMED_REQUEST = /^(?:пожалуйста[, ]+)?(?:найди|покажи|помоги|проверь|скажи|ответь|подскажи|снизь|подними|измени|поменяй|поставь|сними|удали|верни|добавь|запиши|навис|нишон\s+деҳ|ҷавоб\s+деҳ|санҷ|кумак\s+кун)(?=\s|[!?.,:]|$)/iu;
+
+/** Позвали бота: прямое имя, @упоминание, /ai или ответ на его сообщение. */
 export function addressedToBot(msg: TelegramIncomingMessage, botUsername: string): { addressed: boolean; text: string } {
   const raw = (msg.text ?? msg.caption ?? "").trim();
   const mentionSource = `(^|[^\\w])@${escapeRe(botUsername)}(?![\\w])`;
@@ -489,9 +494,13 @@ export function addressedToBot(msg: TelegramIncomingMessage, botUsername: string
   const command = /^\/(?:ai|помощник)(?:@(\w+))?(?:\s|$)/i.exec(raw);
   const commandForUs = command ? !command[1] || command[1].toLowerCase() === botUsername.toLowerCase() : false;
   const mentioned = new RegExp(mentionSource, "i").test(raw);
-  const addressed = mentioned || replyToBot || commandForUs;
+  const named = /^(?:мадина|мушовир)(?=$|[\s,:;.!?—–-])/iu.exec(raw);
+  const afterName = named ? raw.slice(named[0].length) : "";
+  const namedAddress = Boolean(named && (!afterName.trim() || /^\s*[,:;.!?—–-]/u.test(afterName) || NAMED_REQUEST.test(afterName.trim())));
+  const addressed = mentioned || replyToBot || commandForUs || namedAddress;
   let text = raw.replace(new RegExp(mentionSource, "gi"), "$1 ");
   if (commandForUs) text = text.replace(/^\/(?:ai|помощник)(?:@\w+)?/i, "");
+  if (namedAddress) text = text.replace(/^(?:мадина|мушовир)[\s,:;.!?—–-]*/iu, "");
   return { addressed, text: text.replace(/\s+/g, " ").trim() };
 }
 
@@ -500,12 +509,13 @@ export const GROUP_DIALOG_WINDOW_MS = 8 * 60_000;
 /** Столько подряд сообщений «не к боту» закрывают окно. */
 const GROUP_WINDOW_MAX_JUNK = 3;
 const WINDOW_STOP = /^(стоп|спасибо|отмена|хватит|stop)[\s.!]*$/i;
-// Грубый предфильтр «похоже на просьбу к боту» — до модели: болтовню не читаем и не тратим вызов.
-const REQUEST_HINTS =
-  /(об|ob)[-\s]?\d|пк[-\s]?\d|\d{4,}|снизи|сними|подними|измени|поменя|продан|перемонт|найди|покажи|отправь|верни|удали|поставь|добавь|запиши|цен[уа]|статус|клиент|показ/i;
-
+// A bounded follow-up: bare card/number, or an imperative AND a CRM subject.
+// Isolated words like «клиент» and «поставь» otherwise pull ordinary chatter into AI.
 export function looksLikeBotRequest(text: string): boolean {
-  return REQUEST_HINTS.test(text);
+  const request = text.trim().replace(/^(?:а\s+)?(?:теперь\s+)?(?:пожалуйста[, ]+)?/iu, "");
+  if (/^(?:(?:об|ob|пк)[-\s]?)?\d{1,8}[.!?]?$/iu.test(request)) return true;
+  return NAMED_REQUEST.test(request)
+    && /(?:об|ob|пк)[-\s]?\d|объект|квартир|клиент|цен[уауы]|статус|перемонт|показ|карточк/iu.test(request);
 }
 
 let groupClock: () => number = () => Date.now();
@@ -514,7 +524,7 @@ export function setGroupClockForTests(clock: (() => number) | null): void {
   groupClock = clock ?? (() => Date.now());
 }
 /** Окна раздельные: ключ — чат и человек; чужие сообщения внутри окна другого не читаются. */
-const dialogWindows = new Map<string, { until: number; junk: number }>();
+const dialogWindows = new Map<string, { until: number; junk: number; registeredAt: number }>();
 const windowKey = (chatId: string, userId: number | string) => `${chatId}:${userId}`;
 
 /** Текст сообщения, если оно внутри открытого окна автора и похоже на просьбу; иначе null. */
@@ -589,12 +599,21 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
         return true;
       }
       if (onOff[1].toLowerCase() === "on") {
-        await prisma.assistantTelegramGroup.upsert({
-          where: { chatId },
-          create: { chatId, registeredByAgentId: sender.id },
-          update: {},
+        const inserted = await prisma.assistantTelegramGroup.createMany({
+          data: { chatId, registeredByAgentId: sender.id },
+          skipDuplicates: true,
         });
-        await reply("Помощник подключён. Позовите меня: @упоминание, /ai или ответом на моё сообщение.");
+        if (inserted.count === 1 && await isAiAssistantEnabled()) {
+          // No generated claims or member names; the existing voice path owns cache/budget/fallback.
+          const language = assistantLanguage([{ role: "user", content: raw.slice(onOff[0].length) }]);
+          await sendAssistantReply(chatId, ASSISTANT_GROUP_GREETING[language === "tg" ? "tg" : "ru"], {
+            scope: "group", mode: "voice", replyTo: msg.message_id, written: [],
+          });
+        } else {
+          await reply(await isAiAssistantEnabled()
+            ? "Помощник уже подключён. Позовите меня по имени, через /ai или ответом на моё сообщение."
+            : "Группа подключена, но ИИ-помощник выключен в Настройках CRM.");
+        }
       } else {
         await prisma.assistantTelegramGroup.deleteMany({ where: { chatId } });
         await reply("Помощник в этой группе отключён.");
@@ -605,6 +624,15 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
     // Чужая группа, куда бота добавили случайно, молчит.
     const registered = await prisma.assistantTelegramGroup.findUnique({ where: { chatId } });
     if (!registered) return false;
+    const key = msg.from?.id ? windowKey(chatId, msg.from.id) : null;
+    const registeredAt = registered.createdAt.getTime();
+    if (windowText !== null && key && dialogWindows.get(key)?.registeredAt !== registeredAt) {
+      dialogWindows.delete(key);
+      return false;
+    }
+    const openWindow = () => {
+      if (key) dialogWindows.set(key, { until: groupClock() + GROUP_DIALOG_WINDOW_MS, junk: 0, registeredAt });
+    };
 
     if (!sender) {
       await reply(msg.sender_chat ? "Анонимного админа не узнаю — напишите от своего имени." : NOT_LINKED_TEXT);
@@ -638,12 +666,14 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
       fromVoice = true;
     }
     if (!request) {
-      await reply("Слушаю. Напишите просьбу после упоминания.");
+      if (!(await isAiAssistantEnabled())) { await reply(DISABLED_TEXT); return true; }
+      if (!(await loadAgentAccess(sender.id))?.isActive) { await reply("Ваша учётка отключена."); return true; }
+      openWindow();
+      await reply("Слушаю. Что нужно сделать?");
       return true;
     }
     if (!fromVoice) void sendChatAction(chatId);
     // Окно диалога открывается (и продлевается) на обработанном обращении.
-    if (msg.from?.id) dialogWindows.set(windowKey(chatId, msg.from.id), { until: groupClock() + GROUP_DIALOG_WINDOW_MS, junk: 0 });
     const result = await runTurn({
       agentId: sender.id,
       moneyWallet,
@@ -653,11 +683,14 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage):
       deny: reply,
     });
     if (!result) return true;
+    openWindow();
     await sendTurnResult(chatId, result, {
       agentId: sender.id,
       authorName: sender.fullName,
       scope: "group",
       fromVoice,
+      addressedGroupVoice: addressed && fromVoice && !forwardedVoice
+        && typeof msg.voice?.duration === "number" && msg.voice.duration > 0 && msg.voice.duration <= 60,
       mode: forwardedVoice ? "auto" : requestedAssistantReplyMode(fromVoice ? request : windowText ?? text),
       reactTo: msg.message_id,
       replyTo: msg.message_id,

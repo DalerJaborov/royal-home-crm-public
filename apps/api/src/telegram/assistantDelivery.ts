@@ -14,6 +14,8 @@ const TEXT_LAYOUT = /\p{N}|^\s*[-•▪*]\s|\n\s*\n/mu;
 export async function sendAssistantReply(chatId: string, text: string, ctx: {
   scope: "private" | "group";
   fromVoice?: boolean;
+  /** Adapter proof: a short native voice explicitly addressed to this group bot, never a forward. */
+  addressedGroupVoice?: boolean;
   structured?: boolean;
   mode?: AssistantReplyMode;
   replyTo?: number;
@@ -25,7 +27,8 @@ export async function sendAssistantReply(chatId: string, text: string, ctx: {
   if (!parts.length) parts.push("");
   const structured = Boolean(ctx.structured || plan.needsText || ctx.written.length
     || plan.text.length > AUTO_VOICE_MAX_CHARS || parts.length > 2 || TEXT_LAYOUT.test(plan.text));
-  let canSpeak = ctx.mode === "voice" || (ctx.mode !== "text" && ctx.fromVoice && ctx.scope === "private" && !structured);
+  let canSpeak = ctx.mode === "voice" || (ctx.mode !== "text" && ctx.fromVoice
+    && (ctx.scope === "private" || ctx.addressedGroupVoice === true) && !structured);
   const buttonPaths = new Set<string>();
 
   for (const [i, textPart] of parts.entries()) {
