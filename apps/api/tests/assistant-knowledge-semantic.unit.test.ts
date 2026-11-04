@@ -74,14 +74,29 @@ it("refreshes keyword fallback when paid semantic retrieval fails", async () => 
   mocks.query.mockResolvedValueOnce([row]).mockResolvedValueOnce([{ ...row, embedding: [1, 0] }]).mockResolvedValueOnce([]);
   mocks.embed.mockRejectedValue(new Error("embedding unavailable"));
   vi.spyOn(console, "warn").mockImplementation(() => {});
-  expect(await searchCompanyKnowledge("показ", options())).toEqual([]);
+  expect(await searchCompanyKnowledge("Порядок показа", options())).toEqual([]);
   expect(mocks.query).toHaveBeenCalledTimes(3);
 });
 it("propagates cancellation instead of returning fallback facts", async () => {
   const controller = new AbortController();
   mocks.query.mockResolvedValueOnce([row]).mockResolvedValueOnce([{ ...row, embedding: [1, 0] }]);
   mocks.embed.mockImplementation(async () => { controller.abort(new Error("cancelled")); throw controller.signal.reason; });
-  await expect(searchCompanyKnowledge("показ", { ...options(), signal: controller.signal })).rejects.toThrow("cancelled");
+  await expect(searchCompanyKnowledge("Порядок показа", { ...options(), signal: controller.signal })).rejects.toThrow("cancelled");
+});
+it("keeps live CRM queries lexical and only embeds the fixed policy topic", async () => {
+  mocks.query.mockResolvedValueOnce([row]);
+  expect(await searchCompanyKnowledge("Сколько стоила карточка объекта на показе?", options())).toEqual([row]);
+  expect(mocks.embed).not.toHaveBeenCalled();
+  expect(mocks.query).toHaveBeenCalledTimes(1);
+
+  mocks.query.mockResolvedValueOnce([row]).mockResolvedValueOnce([{ ...row, embedding: [1, 0] }])
+    .mockResolvedValueOnce([row]).mockResolvedValueOnce([row]);
+  expect(await searchCompanyKnowledge("Какие правила показа, спросил сотрудник Нур?", options())).toEqual([row]);
+  expect(mocks.embed).toHaveBeenCalledExactlyOnceWith(
+    "Порядок назначения показа объекта. Тартиби таъйин кардани намоиши хона.",
+    "RETRIEVAL_QUERY",
+    { beforeAttempt: mocks.reserve, maxAttempts: 1 },
+  );
 });
 it("stops a partial batch after provider failure without repeating the successful document", async () => {
   const second = { ...row, id: "second" }, third = { ...row, id: "third" };

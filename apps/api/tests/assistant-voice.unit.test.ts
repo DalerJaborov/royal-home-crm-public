@@ -29,6 +29,10 @@ beforeEach(async () => {
   vi.stubEnv('ELEVENLABS_API_KEY', 'test-key');
   vi.stubEnv('ASSISTANT_TTS_VOICE_ID', 'test-voice');
   vi.stubEnv('ASSISTANT_TTS_VOICE_ID_TG', '');
+  vi.stubEnv('ASSISTANT_TTS_DICTIONARY_ID_RU', '');
+  vi.stubEnv('ASSISTANT_TTS_DICTIONARY_VERSION_RU', '');
+  vi.stubEnv('ASSISTANT_TTS_DICTIONARY_ID_TG', '');
+  vi.stubEnv('ASSISTANT_TTS_DICTIONARY_VERSION_TG', '');
   vi.stubEnv('TELEGRAM_BOT_TOKEN', 'test-bot');
   vi.stubEnv('ASSISTANT_TTS_DAILY_CHARS', '8000');
 });
@@ -105,6 +109,33 @@ it("changing voice invalidates cache", async () => {
   await sendAssistantVoiceReply("first", "Готово."); vi.stubEnv("ASSISTANT_TTS_VOICE_ID", "test-new-voice");
   await sendAssistantVoiceReply("first", "Готово."); expect(fetchMock).toHaveBeenCalledTimes(2);
 });
+it("pins the pronunciation dictionary for each locale on its own endpoint", async () => {
+  vi.stubEnv("ASSISTANT_TTS_VOICE_ID_TG", "test-tajik-voice");
+  vi.stubEnv("ASSISTANT_TTS_DICTIONARY_ID_RU", "dict-ru");
+  vi.stubEnv("ASSISTANT_TTS_DICTIONARY_VERSION_RU", "version-ru");
+  vi.stubEnv("ASSISTANT_TTS_DICTIONARY_ID_TG", "dict-tg");
+  vi.stubEnv("ASSISTANT_TTS_DICTIONARY_VERSION_TG", "version-tg");
+  expect(await sendAssistantVoiceReply("test", "Готово.")).toBe(true);
+  expect(await sendAssistantVoiceReply("test", "Салом, ман ёфтам.")).toBe(true);
+  expect(fetchMock.mock.calls[0][0]).toContain("/text-to-speech/");
+  expect(fetchMock.mock.calls[1][0]).toContain("/text-to-dialogue?");
+  expect(JSON.parse(fetchMock.mock.calls[0][1].body).pronunciation_dictionary_locators)
+    .toEqual([{ pronunciation_dictionary_id: "dict-ru", version_id: "version-ru" }]);
+  expect(JSON.parse(fetchMock.mock.calls[1][1].body).pronunciation_dictionary_locators)
+    .toEqual([{ pronunciation_dictionary_id: "dict-tg", version_id: "version-tg" }]);
+});
+it("waits for a pinned dictionary version and invalidates audio when that version changes", async () => {
+  vi.stubEnv("ASSISTANT_TTS_DICTIONARY_ID_RU", "dict-ru");
+  expect(await sendAssistantVoiceReply("first", "Готово.")).toBe(true);
+  expect(JSON.parse(fetchMock.mock.calls[0][1].body)).not.toHaveProperty("pronunciation_dictionary_locators");
+  vi.stubEnv("ASSISTANT_TTS_DICTIONARY_VERSION_RU", "version-one");
+  expect(await sendAssistantVoiceReply("second", "Готово.")).toBe(true);
+  expect(await sendAssistantVoiceReply("third", "Готово.")).toBe(true);
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+  vi.stubEnv("ASSISTANT_TTS_DICTIONARY_VERSION_RU", "version-two");
+  expect(await sendAssistantVoiceReply("fourth", "Готово.")).toBe(true);
+  expect(fetchMock).toHaveBeenCalledTimes(3);
+});
 it("cache hit remains available after budget is exhausted", async () => {
   await sendAssistantVoiceReply("first", "Готово."); query.mockResolvedValue([]);
   expect(await sendAssistantVoiceReply("second", "Готово.")).toBe(true); expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -133,6 +164,17 @@ it("sends Tajik time and price in words and reserves their expanded length", asy
     inputs: [{ text: spoken, voice_id: "test-tajik-voice" }],
     model_id: "eleven_v4", language_code: "tg", apply_text_normalization: "off",
   });
+  expect(query.mock.calls[0][0].values).toContain(spoken.length);
+});
+it("speaks an everyday Tajik acknowledgement without rewriting the time or amount", async () => {
+  vi.stubEnv("ASSISTANT_TTS_VOICE_ID_TG", "test-tajik-voice");
+  const phrase = "Хуб, фаҳмидам. Пагоҳ соати 10:15. Нархаш 630000 сомонӣ.";
+  expect(await sendAssistantVoiceReply("test", phrase)).toBe(true);
+  const spoken = "[warmly] Хуб, фаҳмидам. [neutral tone] Пагоҳ соати даҳу понздаҳ. Нархаш шашсаду сӣ ҳазор сомонӣ.";
+  const request = JSON.parse(fetchMock.mock.calls[0][1].body);
+  expect(request.inputs[0].text).toBe(spoken);
+  expect(request.language_code).toBe("tg");
+  expect(request.apply_text_normalization).toBe("off");
   expect(query.mock.calls[0][0].values).toContain(spoken.length);
 });
 it.each([
@@ -259,6 +301,9 @@ it("sends approved cues only to the speech provider and counts their characters"
 it.each([
   ["Рада помочь!", "[warmly] Рада помочь!"],
   ["Ташаккур, хушҳолам.", "[warmly] Ташаккур, хушҳолам."],
+  ["Ҳозир мебинам.", "[warmly] Ҳозир мебинам."],
+  ["Хабари хуш!", "[delighted] Хабари хуш!"],
+  ["Раҳмат. Навор ба охир нарасидааст.", "Раҳмат. Навор ба охир нарасидааст."],
   ["Ха-ха, хорошая шутка!", "[giggling] хорошая шутка!"],
   ["Вот это смешно!", "[laughs] Вот это смешно!"],
   ["Офарин, хеле хуб шуд!", "[delighted] Офарин, хеле хуб шуд!"],

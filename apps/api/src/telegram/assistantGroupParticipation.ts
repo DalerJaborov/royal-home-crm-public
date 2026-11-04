@@ -65,6 +65,17 @@ export function groupPropertyRefs(text: string): string[] {
   return [...new Set(ids)].map(id => formatPropertyCode(id));
 }
 
+/** Only an explicit question about chat history can use archived evidence. */
+export function groupHistoryQuestion(text: string, replyToMessageId?: number) {
+  if (text.length > 200 || /[\r\n]|https?:\/\/|не\s+(?:отвечай(?:те)?|вмешивайся)|хомӯш бош/iu.test(text)) return null;
+  const ask = /^(?:а\s+)?(?:что\s+(?:(?:уже|тут|здесь)\s+)*(?:писали|написали|говорили|просили|обсуждали)|(?:то ҳол\s+)?ч[ӣи]\s+(?:(?:ин ҷо|пештар)\s+)?(?:навиштанд|гуфтанд|пурсиданд))(?=$|[\s?!.])/iu;
+  if (!ask.test(text)) return null;
+  const refs = groupPropertyRefs(text);
+  if (refs.length === 1) return { propertyShortId: Number(refs[0].slice(3)) };
+  if (!refs.length && replyToMessageId) return { replyToMessageId };
+  return null;
+}
+
 const MONTAGE_COMMAND = /^(?:(?:пожалуйста|лутфан)[, ]+)?(?:(?:отправь(?:те)?|перешли(?:те)?|верни(?:те)?)\s*(?:.*?\s)?(?:монтаж[её]ру|на (?:пере)?монтаж|на переделку)|(?:фиристон(?:ед)?|фиристед|равон кун(?:ед)?)\s*(?:.*?\s)?ба\s+(?:монтаж(?:[её]р)?|аз\s*нав\s*монтаж)|ба\s+монтаж(?:[её]р)?\s+(?:фиристон(?:ед)?|фиристед|равон кун(?:ед)?))(?=$|[\s,.!?:—–-])/iu;
 
 export function groupMontageCommand(text: string): { tail: string; tajik: boolean } | null {
@@ -78,6 +89,11 @@ export function groupMontageCommand(text: string): { tail: string; tajik: boolea
 
 export function isGroupPropertyFollowUp(text: string): boolean {
   return /^(?:а\s+)?(?:сколько\s+(?:стоит|дней|часов)|какая\s+цена|какой\s+статус|где\s+(?:он|она|ролик|объект)|что\s+с\s+(?:ним|ней|роликом|объектом)|(?:покажи|скинь|пришли)\s+(?:фото|фотки|карточку)|нархаш\s+чанд|чанд\s+(?:рӯз|руз|соат)|дар\s+ку[ҷч]о|акс(?:аш|ҳояш)?\s+(?:ҳаст|дорад))/iu.test(text);
+}
+
+/** A standalone follow-up has no new subject. The group window supplies only the property number. */
+export function isShortPropertyFollowUp(text: string): boolean {
+  return /^(?:а\s+)?(?:сколько\s+(?:стоит|(?:дней|часов)(?:\s+уже)?(?:\s+на\s+монтаже)?)|какая\s+цена|какой\s+статус|где\s+(?:он|она|ролик)|что\s+с\s+(?:ним|ней|роликом)|(?:покажи|скинь|пришли)\s+(?:фото|фотки|карточку)|(?:есть|можно)\s+фото|нархаш\s+чанд(?:\s+шуд)?|чанд\s+(?:р[ӯу]з|соат)(?:\s+(?:шуд|дар монтаж аст))?|дар\s+ку[ҷч]о(?:ст)?|акс(?:аш|ҳояш)?\s+(?:ҳаст|дорад))\s*[?!.]*$/iu.test(text);
 }
 
 export const GROUP_REMAKE_REASON_QUESTION = {
@@ -113,7 +129,7 @@ export function requestedGroupParticipation(text: string): "quiet" | "resume" | 
 
 const STATUS = {
   ru: { PENDING_REVIEW: "на проверке", AWAITING_PHOTOS: "ожидает фото", AWAITING_VIDEO: "ожидает видео", EDITING: "на монтаже", AVAILABLE: "в продаже", RESERVED: "забронирован", SOLD: "продан", WITHDRAWN: "снят с продажи" },
-  tg: { PENDING_REVIEW: "дар санҷиш", AWAITING_PHOTOS: "интизори акс", AWAITING_VIDEO: "интизори навор", EDITING: "дар таҳрир", AVAILABLE: "дар фурӯш", RESERVED: "банд шудааст", SOLD: "фурӯхта шудааст", WITHDRAWN: "аз фурӯш гирифта шудааст" },
+  tg: { PENDING_REVIEW: "ҳоло месанҷанд", AWAITING_PHOTOS: "ҳоло аксашро интизоранд", AWAITING_VIDEO: "ҳоло наворашро интизоранд", EDITING: "навораш ҳоло тайёр нест", AVAILABLE: "дар фурӯш", RESERVED: "банд аст", SOLD: "фурӯхта шуд", WITHDRAWN: "аз фурӯш гирифтанд" },
 } as const;
 
 // Use only the verified card, price and stage. Never send a contact, private note or inferred detail.

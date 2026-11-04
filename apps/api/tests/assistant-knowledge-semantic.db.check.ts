@@ -77,7 +77,7 @@ it("keyword fallback refreshes facts after a failed embedding", async () => {
   await indexCompanyKnowledge([{ id: row.id, revision: 1 }], options());
   mocks.embed.mockImplementationOnce(async () => { await saveCompanyKnowledge({ ...input, content: "Новая инструкция по показу." }, "test-agent", 1); throw new Error("Google unavailable"); });
   vi.spyOn(console, "warn").mockImplementation(() => {});
-  const results = await searchCompanyKnowledge("показ", options());
+  const results = await searchCompanyKnowledge("Порядок показа", options());
   expect(results[0].revision).toBe(2); expect(results[0].content).toBe("Новая инструкция по показу.");
 });
 it("old revision, wrong model and expired records are excluded without a query embedding", async () => {

@@ -16,6 +16,7 @@ import { runSellerNoPropertyAlarmTick } from "./lib/sellerNoPropertyAlarm.js";
 import { runSellerWorkStalledAlarmTick } from "./lib/sellerWorkStalledAlarm.js";
 import { runVideoHandoffStaleAlarmTick } from "./lib/videoHandoffStaleAlarm.js";
 import { runClipReviewStaleAlarmTick, runClipReviewResendTick } from "./telegram/clipReviewBot.js";
+import { cleanupAssistantTelegramContext } from "./telegram/assistantGroupContext.js";
 import { runVideoHandoffRedeliveryTick } from "./lib/videoHandoffRedelivery.js";
 import { runVideoHandoffUnfinishedPublishWatchdogTick } from "./lib/videoHandoffUnfinishedPublishWatchdog.js";
 import { runStationOutageProbeTick } from "./lib/stationOutage.js";
@@ -1123,6 +1124,10 @@ export function startCronJobs() {
     },
     { timezone: "Asia/Dushanbe" }
   );
+  scheduleTracked("assistant-telegram-context-cleanup", "*/30 * * * *", async () => {
+    await cleanupAssistantTelegramContext();
+  }, { timezone: "Asia/Dushanbe" });
+
   /** Ночная уборка ТЕХНИЧЕСКИХ журналов — 03:00 по Душанбе. Сознательно
    *  консервативная: трогает только AiLog (>90 дней) и ErrorLog (>90 дней).
    *  Бизнес-данные (клиенты, объекты, сделки, переписка, AuditLog) НЕ удаляются

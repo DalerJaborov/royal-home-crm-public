@@ -2,9 +2,9 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 730,
-  "forks": 3951,
+  "forks": 3952,
   "mounts": 81,
-  "cron": 120,
+  "cron": 121,
   "jobs": 31,
   "hidden": 0
  },
@@ -86770,6 +86770,54 @@
        "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
       }
      ]
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
+   "id": "assistant-telegram-context-cleanup",
+   "when": "*/30 * * * *",
+   "tree": [
+    {
+     "k": "do",
+     "t": "await cleanupAssistantTelegramContext();",
+     "a": [
+      "зовёт cleanupAssistantTelegramContext()"
+     ],
+     "c": [
+      {
+       "k": "do",
+       "t": "const batch = await prisma.assistantTelegramContext.findMany({ where: stale, select: { id: true }, orderBy: […",
+       "a": [
+        "читает в базе: assistantTelegramContext"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!batch.length",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return 0;",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "return (await prisma.assistantTelegramContext.deleteMany({ where: { ...stale, id: { in: batch.map(row",
+       "a": [
+        "удаляет в базе: assistantTelegramContext"
+       ],
+       "c": []
+      }
+     ],
+     "from": "cleanupAssistantTelegramContext() — apps/api/src/telegram/assistantGroupContext.ts"
     }
    ],
    "file": "apps/api/src/cron.ts"
