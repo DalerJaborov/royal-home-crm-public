@@ -136,7 +136,7 @@ const press = (key: string | null, data: string, callbackId?: string, chat = GRO
       id: callbackId ?? `cb-${runId}-${nextCallbackId++}`,
       data,
       from: { id: key ? Number(agents[key].userId) : 999_000_001 },
-      message: { chat: { id: chat }, message_id: 501 },
+      message: { chat: { id: chat, type: chat < 0 ? "supergroup" : "private" }, message_id: 501 },
     },
   });
 
