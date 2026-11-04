@@ -264,6 +264,28 @@ describe("живые сценарии чтения Мадины", () => {
     }
   });
 
+  it("объясняет сбой доставки следующей страницы и повторяет её без пропуска карточек", async () => {
+    const { ids, district } = await propertyBatch();
+    try {
+      mockPropertySearch(district.name);
+      await handleTelegramUpdate(privateMsg("author", { message_id: 13011, text: `Подбери 4 квартиры, район ${district.name}` }));
+      expect(sendStaffCard.mock.calls.map(call => call[1])).toEqual(ids.slice(0, 4));
+      sendStaffCard.mockClear().mockResolvedValue("unavailable");
+      await handleTelegramUpdate(privateMsg("author", { message_id: 13012, text: "ещё" }));
+      expect(sendStaffCard.mock.calls.map(call => call[1])).toEqual(ids.slice(4));
+      expect(sentTexts()).toEqual(["Варианты нашла, но карточки не отправились. Напишите «ещё» повторно."]);
+      sendStaffCard.mockClear().mockResolvedValue("sent");
+      sendMessage.mockClear();
+      await handleTelegramUpdate(privateMsg("author", { message_id: 13013, text: "ещё" }));
+      expect(sendStaffCard.mock.calls.map(call => call[1])).toEqual(ids.slice(4));
+      expect(sentTexts()).toEqual([]);
+      expect(runner).toHaveBeenCalledTimes(1);
+    } finally {
+      await prisma.property.deleteMany({ where: { id: { in: ids } } });
+      await prisma.district.delete({ where: { id: district.id } });
+    }
+  });
+
   it("включает карточки только для привязанного сотрудника в выбранной теме и не повторяет сомнительную доставку", async () => {
     const { ids, district } = await propertyBatch();
     const group = { chatId: String(GROUP), registeredByAgentId: agents.director.id };

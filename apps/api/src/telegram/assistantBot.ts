@@ -399,6 +399,11 @@ async function replyWithMoreProperties(scope: CardScope, count: number, request:
   const lang = /^боз(?!\p{L})/iu.test(request.trim()) ? "tg" : propertyLanguage(assistantLanguage([{ role: "user", content: request }]));
   const outcome = await sendMoreStaffProperties(scope, count, lang);
   if (outcome === "missing" && quietIfMissing) return false;
+  if (outcome === "unavailable") {
+    await sendMessage(scope.chatId, lang === "tg"
+      ? "Хонаҳо ёфтам, лекин кортҳоро фиристода натавонистам. Як бори дигар «боз» нависед."
+      : "Варианты нашла, но карточки не отправились. Напишите «ещё» повторно.", scope.replyTo);
+  }
   if (outcome === "missing" || outcome === "empty") {
     await sendMessage(scope.chatId, outcome === "missing"
       ? lang === "tg" ? "Аввал гӯед, чӣ хел хона меҷӯед." : "Сначала скажите, какие объекты подобрать."

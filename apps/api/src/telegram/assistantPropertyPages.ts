@@ -127,7 +127,7 @@ async function deliver(scope: Scope, candidates: Candidate[], count: number, lan
     }
     if (consumed.length >= count) break;
   }
-  return { consumed, uncertain, changed: eligible.length !== candidates.length };
+  return { consumed, uncertain, changed: eligible.length !== candidates.length, hadEligible: eligible.length > 0 };
 }
 
 export type FirstPropertyDelivery = "handled" | "fallback" | "changed" | "denied";
@@ -153,7 +153,7 @@ export async function sendStaffPropertySelection(scope: Scope, selection: Select
   }
 }
 
-export type MorePropertyDelivery = "handled" | "empty" | "missing" | "denied";
+export type MorePropertyDelivery = "handled" | "empty" | "missing" | "denied" | "unavailable";
 export async function sendMoreStaffProperties(scope: Scope, count: number, lang: Language): Promise<MorePropertyDelivery> {
   const key = keyOf(scope);
   if (inFlight.has(key)) return "handled";
@@ -177,7 +177,8 @@ export async function sendMoreStaffProperties(scope: Scope, count: number, lang:
     const delivery = await deliver(scope, candidates, count, lang, current.permissions?.has("properties.delete") ?? false);
     for (const id of delivery.consumed) page.shown.add(id);
     page.expiresAt = Date.now() + ttl;
-    return delivery.consumed.length || delivery.uncertain ? "handled" : "empty";
+    if (delivery.consumed.length || delivery.uncertain) return "handled";
+    return delivery.hadEligible ? "unavailable" : "empty";
   } finally {
     inFlight.delete(key);
   }
