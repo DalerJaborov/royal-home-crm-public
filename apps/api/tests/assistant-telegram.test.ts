@@ -281,6 +281,7 @@ describe("живые сценарии чтения Мадины", () => {
       expect(sentTexts()).toEqual([]);
       expect(runner).toHaveBeenCalledTimes(1);
     } finally {
+      await handleTelegramUpdate(privateMsg("author", { message_id: 13014, text: "/new" }));
       await prisma.property.deleteMany({ where: { id: { in: ids } } });
       await prisma.district.delete({ where: { id: district.id } });
     }
