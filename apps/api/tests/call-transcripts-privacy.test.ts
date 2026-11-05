@@ -3,6 +3,8 @@ import request from "supertest";
 import { app } from "../src/app.js";
 import { prisma } from "../src/db.js";
 import { signAccessToken } from "../src/auth/jwt.js";
+import { actorFromAccess } from "../src/ai/assistant/actor.js";
+import { getClientLastCallTool } from "../src/ai/assistant/tools/getClientLastCall.js";
 // Права читаются из базы, но кэшируются в памяти на 15 секунд — иначе снятая в
 // этом тесте галочка подействовала бы уже после его конца.
 import { invalidateAgentAccess } from "../src/auth/middleware.js";
@@ -204,6 +206,23 @@ afterAll(async () => {
 });
 
 describe("Свой разговор — агенту, чужой — только администрации", () => {
+  it("помощник ищет в собственных и маршрутизированных звонках и применяет отдельное право на чужие", async () => {
+    const agent = actorFromAccess(agentId, { role: "AGENT", permissions: new Set(["calls.ownTranscripts"]) }, "telegram-private");
+    const admin = actorFromAccess(adminId, { role: "ADMIN", permissions: new Set(["clients.viewAll", "calls.transcripts"]) }, "crm-private");
+    const search = (actor: typeof agent, query: string) =>
+      getClientLastCallTool.run({ clientId: String(clientShortId), query }, { actor });
+    expect(await search(agent, "в Сино")).toHaveProperty("matches", [expect.objectContaining({
+      customerSpeech: expect.stringContaining("двушку в Сино"),
+    })]);
+    expect(await search(agent, "завтра утром")).toHaveProperty("matches", [expect.objectContaining({
+      customerSpeech: expect.stringContaining("перезвоните завтра утром"),
+    })]);
+    expect(await search(agent, "Гипроземе")).toHaveProperty("matches", []);
+    expect(await search(admin, "Гипроземе")).toHaveProperty("matches", [expect.objectContaining({
+      customerSpeech: expect.stringContaining("продаю дом в Гипроземе"),
+    })]);
+  });
+
   it("карточка клиента: свой разговор открыт, текст приходит ленивым запросом", async () => {
     // С 26.08.2026 карточка НЕ поднимает тексты расшифровок на все 200 записей
     // хронологии (мегабайты на открытие): в ответе — признаки hasTranscript/canHear
