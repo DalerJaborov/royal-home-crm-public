@@ -14,7 +14,7 @@
  "totals": {
   "screens": 52,
   "paths": 730,
-  "cron": 122,
+  "cron": 123,
   "jobs": 32,
   "conditions": 3992,
   "untranslatedUnique": 455,
@@ -66765,6 +66765,12 @@
      ]
     }
    ]
+  },
+  {
+   "id": "customer-agent-auto-refresh",
+   "when": "* * * * *",
+   "label": "customer-agent-auto-refresh",
+   "tree": []
   },
   {
    "id": "customer-inbox-jobs",

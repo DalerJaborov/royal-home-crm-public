@@ -6,7 +6,9 @@ import { logSystemError } from "./systemError.js";
  * presses «Обновить версию бота», so the stop must be loud. One journal line per
  * revision per process (this set) plus a long DB dedup window across processes
  * and restarts; the model/provider never see this path and nothing here refreshes
- * the revision — the manual refresh is a deliberate decision. */
+ * the revision: an ordinary code-only release is adopted by customerAgentAutoRefresh.ts,
+ * and this alert fires only when that is not allowed (prompt/tools/limits/provider
+ * changed, upgrade needs a decision) or the core stays busy past the grace. */
 const reported = new Set<string>();
 const DAY = 24 * 60 * 60_000;
 
@@ -17,7 +19,16 @@ function errorText(error: unknown): string {
   return (error instanceof Error ? `${error.name}: ${error.message}` : String(error)).replace(/\s+/g, " ").slice(0, 200);
 }
 
+/** Until this moment a post-deploy automatic refresh (customerAgentAutoRefresh.ts)
+ * is still deciding or waiting for idle: a mismatch is expected and must not
+ * page the director. Time-bounded, so a stuck attempt cannot mute the alert. */
+let autoRefreshPendingUntil = 0;
+export function setCustomerAgentAutoRefreshPending(pending: boolean, until = Date.now() + 15 * 60_000): void {
+  autoRefreshPendingUntil = pending ? until : 0;
+}
+
 export async function reportCustomerAgentRevisionHeld(revisionId: string, reason: CustomerAgentRevisionHeldReason, error?: unknown): Promise<void> {
+  if (reason === "current_artifact_revision_mismatch" && Date.now() < autoRefreshPendingUntil) return;
   const key = `${reason}:${revisionId}`;
   if (reported.has(key)) return;
   reported.add(key);
@@ -66,4 +77,4 @@ async function alertDirectorsOnce(revisionId: string): Promise<void> {
 }
 
 /** Test seam: the per-process memo is module state. */
-export function resetCustomerAgentRevisionAlertMemo(): void { reported.clear(); }
+export function resetCustomerAgentRevisionAlertMemo(): void { reported.clear(); autoRefreshPendingUntil = 0; }

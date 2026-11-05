@@ -1651,6 +1651,11 @@
       "label": null
     },
     {
+      "id": "customer-agent-auto-refresh",
+      "expr": "* * * * *",
+      "label": null
+    },
+    {
       "id": "customer-inbox-jobs",
       "expr": "*/5 * * * * *",
       "label": null

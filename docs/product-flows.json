@@ -4,7 +4,7 @@
   "endpoints": 730,
   "forks": 3998,
   "mounts": 81,
-  "cron": 122,
+  "cron": 123,
   "jobs": 32,
   "hidden": 0
  },
@@ -90360,6 +90360,22 @@
        "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
       }
      ]
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
+   "id": "customer-agent-auto-refresh",
+   "when": "* * * * *",
+   "tree": [
+    {
+     "k": "do",
+     "t": "await autoRefreshCustomerAgentRevision();",
+     "a": [
+      "зовёт autoRefreshCustomerAgentRevision()"
+     ],
+     "c": [],
+     "from": "autoRefreshCustomerAgentRevision() — apps/api/src/lib/customerAgentAutoRefresh.ts"
     }
    ],
    "file": "apps/api/src/cron.ts"

@@ -20195,6 +20195,11 @@
     - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
       · запись в журнал ошибок
 
+### customer-agent-auto-refresh — * * * * *
+
+- await autoRefreshCustomerAgentRevision();
+  · зовёт autoRefreshCustomerAgentRevision()
+
 ### customer-inbox-jobs — */5 * * * * *
 
 - await runCustomerJobsTick("inbox");
