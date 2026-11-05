@@ -7,6 +7,10 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 const { query, settings, savedVoice, sendVoice, sendVoiceId, chatAction, fetchMock } = vi.hoisted(() => ({ query: vi.fn(), settings: vi.fn(), savedVoice: vi.fn(), sendVoice: vi.fn(), sendVoiceId: vi.fn(), chatAction: vi.fn(), fetchMock: vi.fn() }));
 vi.mock("../src/db.js", () => ({ prisma: { $disconnect: vi.fn(), $queryRaw: query, settings: { findUnique: settings }, assistantVoiceConfig: { findUnique: savedVoice } } }));
 vi.mock("../src/ai/liveVoiceProvider.js", () => ({ resolveElevenLabsKey: (key: string) => key }));
+vi.mock("../src/lib/audioTranscode.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/audioTranscode.js")>()),
+  adjustTelegramVoiceTempo: async () => null,
+}));
 vi.mock("../src/telegram/api.js", () => ({ sendChatAction: chatAction, sendVoiceFile: sendVoice, sendAssistantVoiceId: sendVoiceId, TelegramApiError: class extends Error { constructor(public errorCode: number, _method: string, text: string) { super(text); } } }));
 import { sendAssistantVoiceReply, speechTextFromReply } from "../src/telegram/assistantVoice.js";
 import { directAssistantVoice } from "../src/telegram/assistantVoiceDirection.js";
@@ -91,7 +95,23 @@ it('budget failure fails closed', async () => { query.mockRejectedValue(new Erro
 it('Tajik rejects before budget', async () => { expect(await sendAssistantVoiceReply('test', 'Салом, ман ёфтам.')).toBe(false); expect(query).not.toHaveBeenCalled(); expect(fetchMock).not.toHaveBeenCalled(); });
 it('missing voice avoids spending', async () => { vi.stubEnv('ASSISTANT_TTS_VOICE_ID', ''); expect(await sendAssistantVoiceReply('test', 'Готово.')).toBe(false); expect(query).not.toHaveBeenCalled(); });
 it('missing key avoids spending', async () => { vi.stubEnv('ELEVENLABS_API_KEY', ''); settings.mockResolvedValue(null); expect(await sendAssistantVoiceReply('test', 'Готово.')).toBe(false); expect(query).not.toHaveBeenCalled(); });
-it.each([429, 500])('HTTP %s leaves fallback', async (status) => { fetchMock.mockResolvedValue({ ok: false, status }); expect(await sendAssistantVoiceReply('test', 'Готово.')).toBe(false); expect(sendVoice).not.toHaveBeenCalled(); expect(fetchMock).toHaveBeenCalledTimes(1); });
+it.each([429, 500])('HTTP %s leaves fallback', async (status) => {
+  vi.stubEnv("ELEVENLABS_API_KEY", `test-http-${status}`);
+  fetchMock.mockResolvedValue({ ok: false, status });
+  expect(await sendAssistantVoiceReply('test', 'Готово.')).toBe(false);
+  expect(sendVoice).not.toHaveBeenCalled(); expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+it("skips new requests and budget claims after a confirmed ElevenLabs quota error", async () => {
+  vi.stubEnv("ELEVENLABS_API_KEY", "test-quota-account");
+  fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ detail: { status: "quota_exceeded" } }), { status: 401 }));
+  expect(await sendAssistantVoiceReply("test", "Готово.")).toBe(false);
+  expect(await sendAssistantVoiceReply("test", "Всё получилось.")).toBe(false);
+  expect(fetchMock).toHaveBeenCalledOnce();
+  expect(query).toHaveBeenCalledOnce();
+  expect(sendVoice).not.toHaveBeenCalled();
+  vi.stubEnv("ELEVENLABS_API_KEY", "test-rotated-account");
+  expect(await sendAssistantVoiceReply("test", "Готово.")).toBe(true);
+});
 it('transport error never synthesizes again', async () => { sendVoice.mockRejectedValue(new Error('timeout')); expect(await sendAssistantVoiceReply('test', 'Готово.')).toBe(false); expect(fetchMock).toHaveBeenCalledTimes(1); });
 it('zero budget disables voice and rejects invalid amounts', async () => { vi.stubEnv('ASSISTANT_TTS_DAILY_CHARS', '0'); expect(await claimAssistantTtsChars(1)).toBe(false); expect(await claimAssistantTtsChars(-1)).toBe(false); expect(query).not.toHaveBeenCalled(); });
 it('budget uses shared atomic reservations', async () => { await claimAssistantTtsChars(10); await claimAssistantTtsChars(12); for (const [sql] of query.mock.calls) {

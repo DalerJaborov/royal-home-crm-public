@@ -6,6 +6,7 @@ import { ASSISTANT_TAJIK_MODEL } from "../ai/assistant/languageRouting.js";
 import { createAssistantMoneyGuard, type AssistantMoneyWallet } from "../ai/assistant/moneyBudget.js";
 import { createAssistantAttemptLimit } from "../ai/assistant/attemptLimit.js";
 import { reserveAssistantGeminiAttempt } from "../ai/assistant/attemptBudget.js";
+import { recognizeShortAssistantVoice } from "./assistantScribe.js";
 
 /** Bounded download even when Telegram's reported file_size is wrong. No arbitrary URL input. */
 export async function downloadAssistantMedia(fileId: string, maximum: number): Promise<Buffer> {
@@ -67,11 +68,21 @@ export async function handleAssistantMedia(msg: TelegramIncomingMessage, agentId
       return { text: isVoice ? "Пришли обычное голосовое или напиши текстом." : "Пришлите одно фото, PDF до 20 страниц или аудио до 2 минут.", error: "media_unsupported" };
     }
     if (source.file_size && source.file_size > maximum) throw new Error("media_size_rejected");
-    const runtime = { ...await loadAssistantGeminiRuntime(), model: ASSISTANT_TAJIK_MODEL, fallbackModels: [], liteModel: "" };
-    if (!runtime.keys[0]) throw new Error("media_provider_unavailable");
+    const duration = msg.voice?.duration;
+    const shortNativeGroupVoice = options.allowGroup && msg.chat.type !== "private"
+      && typeof duration === "number" && duration > 0 && duration <= 12 && mimeType === "audio/ogg"
+      && !msg.forward_origin && !msg.forward_from_message_id;
     stage = "download";
     const buffer = await downloadAssistantMedia(source.file_id, maximum);
     stage = "recognition";
+    if (shortNativeGroupVoice && buffer.length <= 128_000) {
+      const short = await recognizeShortAssistantVoice(buffer);
+      if (short) return { text: short.transcript, extraction: {
+        ...short, readableText: "", visualDescription: "", incomplete: false,
+      } };
+    }
+    const runtime = { ...await loadAssistantGeminiRuntime(), model: ASSISTANT_TAJIK_MODEL, fallbackModels: [], liteModel: "" };
+    if (!runtime.keys[0]) throw new Error("media_provider_unavailable");
     const guard = createAssistantMoneyGuard({ wallet: options.wallet });
     const attemptLimit = createAssistantAttemptLimit(reserveAssistantGeminiAttempt, 2);
     const result = await understandAssistantMedia({ buffer, mimeType, runtime, apiKey: runtime.keys[0], beforeAttempt: async (metadata) => {

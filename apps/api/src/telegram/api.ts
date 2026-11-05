@@ -321,6 +321,7 @@ export async function sendChatAction(
   chatId: string,
   directMessagesTopicId?: number,
   action: "typing" | "record_voice" | "upload_voice" | "upload_photo" | "upload_document" = "typing",
+  messageThreadId?: number,
 ): Promise<void> {
   if (!BASE_URL) return;
   try {
@@ -328,6 +329,7 @@ export async function sendChatAction(
       chat_id: chatId,
       action,
       ...(directMessagesTopicId != null ? { direct_messages_topic_id: directMessagesTopicId } : {}),
+      ...(messageThreadId != null ? { message_thread_id: messageThreadId } : {}),
     }, 2_000, undefined, undefined, true);
   } catch (err) {
     console.warn("[telegram] Индикатор действия не показан:", action, describeError(err));

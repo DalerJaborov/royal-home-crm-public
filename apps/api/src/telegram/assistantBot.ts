@@ -1,4 +1,4 @@
-import { renderAssistantForTelegram, requestedAssistantReplyMode, requestedAssistantReplyPreference, sanitizeAssistantReply, splitReaction,
+import { assistantInstagramLink, renderAssistantForTelegram, requestedAssistantReplyMode, requestedAssistantReplyPreference, sanitizeAssistantReply, splitReaction,
   type AssistantReplyMode, type AssistantSpeechLanguage } from "./assistantReply.js";
 import { assistantGroupClarification, sendAssistantReply } from "./assistantDelivery.js";
 import { editTelegramConfirmationMessage, sendTelegramPriceConfirmationPhotos } from "./assistantConfirmationPhotos.js";
@@ -6,7 +6,7 @@ import { ASSISTANT_COLLEAGUE_GREETING, ASSISTANT_GROUP_GREETING } from "./assist
 import { matchGroupPublicShellQuestion, replyGroupPublicShellQuestion, replyPublicListingQuestion } from "./assistantGroupPublicListing.js";
 import { loadAssistantTelegramContext, retainAssistantTelegramTranscript } from "./assistantGroupContext.js";
 import { findPropertiesByRef } from "../lib/propertyRefLookup.js";
-import { GROUP_QUIET_MS, GROUP_REMAKE_REASON_QUESTION, GROUP_WELCOME_INTERVAL_MS, PROACTIVE_GROUP_INTERVAL_MS, groupHistoryQuestion, groupMembershipEvent, groupMontageCommand, groupPropertyRefs, groupStatusFollowUp, isGroupPropertyFollowUp, isGroupRemakeReasonQuestion, isShortPropertyFollowUp, proactivePropertyReply, requestedGroupParticipation, unaddressedConfirmationRequest, unaddressedPropertyQuestion, unaddressedReadRequest, type GroupConfirmationTool } from "./assistantGroupParticipation.js";
+import { GROUP_QUIET_MS, GROUP_REMAKE_REASON_QUESTION, GROUP_WELCOME_INTERVAL_MS, PROACTIVE_GROUP_INTERVAL_MS, groupAcknowledgment, groupHistoryQuestion, groupInstagramLinkRequest, groupMembershipEvent, groupMontageCommand, groupPropertyRefs, groupStatusFollowUp, isGroupPropertyFollowUp, isGroupRemakeReasonQuestion, isShortPropertyFollowUp, proactivePropertyReply, requestedGroupParticipation, unaddressedConfirmationRequest, unaddressedPropertyQuestion, unaddressedReadRequest, type GroupConfirmationTool } from "./assistantGroupParticipation.js";
 export { renderAssistantForTelegram } from "./assistantReply.js";
 import { randomUUID } from "node:crypto";
 import { formatPropertyCode, isReadOnlyRole, trimAssistantHistory, type AssistantPropertyCard, type PermissionId } from "@royal-home/shared";
@@ -403,7 +403,7 @@ async function sendTurnResult(
 ): Promise<void> {
   const maskPhones = ctx.scope === "group";
   const split = splitReaction(result.reply);
-  if (split.reaction && ctx.reactTo) await setMessageReaction(chatId, ctx.reactTo, split.reaction);
+  if (split.reaction && ctx.reactTo) void setMessageReaction(chatId, ctx.reactTo, split.reaction);
   const avoidTechnicalNarration = maskPhones && (result.pending.length > 0 || result.propertyCard)
     && assistantGroupClarification(split.text, ctx.requestLanguage) !== null;
   const rendered = avoidTechnicalNarration ? "" : renderAssistantForTelegram(split.text, { maskPhones });
@@ -536,7 +536,13 @@ async function transcribeVoice(msg: TelegramIncomingMessage, agentId: string, wa
   const media = await handleAssistantMedia(msg, agentId, { allowGroup: msg.chat.type !== "private", wallet });
   if (media.error) return { error: media.text };
   const text = media.extraction?.transcript;
-  if (!text?.trim() || media.extraction?.incomplete) return { error: "Не удалось полностью распознать речь — напишите просьбу текстом." };
+  if (!text?.trim() || media.extraction?.incomplete) {
+    console.warn("[telegram:assistant:media] no usable transcript", {
+      messageId: msg.message_id, scope: msg.chat.type === "private" ? "private" : "group",
+      cause: text?.trim() ? "incomplete" : "empty",
+    });
+    return { error: "Не удалось полностью распознать речь — напишите просьбу текстом." };
+  }
   return { text: text.trim() };
 }
 
@@ -834,8 +840,13 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
   const currentRequest = addressed ? text : raw;
   const moreProperties = key && !isForwarded ? propertyPageRequest(currentRequest) : null;
   const replied = msg.reply_to_message;
-  const ownBotQuestion = replied?.from?.is_bot && replied.from.username?.toLowerCase() === botUsername.toLowerCase()
-    && replied.chat.id === msg.chat.id && replied.message_thread_id === msg.message_thread_id ? replied.text : undefined;
+  const replyInThisConversation = replied?.from?.is_bot === true && replied.from.username?.toLowerCase() === botUsername.toLowerCase()
+    && replied.chat.id === msg.chat.id && replied.message_thread_id === msg.message_thread_id;
+  const ownBotQuestion = replyInThisConversation ? replied?.text : undefined;
+  const typedAcknowledgment = key && !isForwarded && !msg.voice && !msg.audio && (!replied || replyInThisConversation)
+    ? groupAcknowledgment(currentRequest) : null;
+  const typedInstagram = key && !isForwarded && !msg.voice && !msg.audio
+    ? groupInstagramLinkRequest(currentRequest, ownBotQuestion ?? "") : null;
   const publicShell = key && !isForwarded ? matchGroupPublicShellQuestion(currentRequest, addressed, ownBotQuestion) : null;
   const guestListing = key && !isForwarded ? unaddressedPropertyQuestion(currentRequest) : null;
   const historyQuestion = (words: string) => key && !isForwarded
@@ -855,7 +866,7 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
       automaticRead = !automatic && (statusFollowUp || (!msg.reply_to_message && unaddressedReadRequest(raw)));
       if (!automatic && !automaticRead && !msg.reply_to_message) automaticAction = unaddressedConfirmationRequest(raw);
     }
-    if (!historySelector && !continuationRef && windowText === null && !automatic && !automaticRead && !automaticAction && !standaloneVoice && !publicShell && !moreProperties) return false;
+    if (!historySelector && !continuationRef && windowText === null && !automatic && !automaticRead && !automaticAction && !standaloneVoice && !publicShell && !moreProperties && !typedAcknowledgment && !typedInstagram) return false;
   }
   const reply = async (message: string) => {
     if (msg.message_thread_id === undefined) await sendMessage(chatId, message, msg.message_id);
@@ -969,6 +980,48 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
     }
 
     if (!addressed && registered.proactiveMutedUntil && registered.proactiveMutedUntil > now) return false;
+    const showWorking = () => void (msg.message_thread_id === undefined
+      ? sendChatAction(chatId)
+      : sendChatAction(chatId, undefined, "typing", msg.message_thread_id));
+    const acknowledge = async (emoji: ReturnType<typeof groupAcknowledgment>): Promise<boolean> => {
+      if (!emoji || isForwarded || !key || !sender || msg.message_id === undefined
+          || (replied && !replyInThisConversation)) return false;
+      // Only opted-in staff rooms get ambient acknowledgments. Laughter needs a direct reply/address.
+      const ambient = !addressed && !replyInThisConversation;
+      if (ambient && (emoji !== "👍" || !registered.contextEnabledAt)) return false;
+      const [enabled, access, current] = await Promise.all([
+        isAiAssistantEnabled(), loadAgentAccess(sender.id), prisma.assistantTelegramGroup.findUnique({ where: { chatId } }),
+      ]);
+      if (!enabled || !access?.isActive || !current || current.createdAt.getTime() !== registeredAt
+          || (ambient && (!current.contextEnabledAt || (current.proactiveMutedUntil?.getTime() ?? 0) > groupClock()))) return false;
+      await setMessageReaction(chatId, msg.message_id, emoji);
+      return true;
+    };
+    if (typedAcknowledgment && await acknowledge(typedAcknowledgment)) return true;
+    const replyWithInstagram = async (request: ReturnType<typeof groupInstagramLinkRequest>): Promise<boolean> => {
+      if (!request || isForwarded || !sender || !(await isAiAssistantEnabled())) return false;
+      const access = await loadAgentAccess(sender.id);
+      if (!access?.isActive) return false;
+      const { ref, tajik } = request;
+      const found = await findPropertiesByRef(ref, {
+        limit: 1, hideOwnPendingDeleteFor: access.permissions.has("properties.delete") ? undefined : sender.id,
+      });
+      if (!(await validateQueueAudience())) return false;
+      const property = found.kind === "shortId" ? found.properties[0] : undefined;
+      const url = assistantInstagramLink(property?.instagramUrl);
+      if (!url) {
+        await reply(!property
+          ? tajik ? `${ref}-ро наёфтам.` : `Не нашла ${ref}.`
+          : tajik ? `Дар корти ${ref} линки Instagram нест.` : `В карточке ${ref} нет ссылки на пост в Instagram.`);
+      } else {
+        const body = tajik ? `Навори ${ref} дар Instagram.` : `Ролик по ${ref} в Instagram.`;
+        const buttons = [[{ text: tajik ? "Дар Instagram бинед" : "Смотреть в Instagram", url }]];
+        if (msg.message_thread_id === undefined) await sendMessageWithButtons(chatId, body, buttons, msg.message_id);
+        else await sendMessageWithButtons(chatId, body, buttons, msg.message_id, msg.message_thread_id);
+      }
+      return true;
+    };
+    if (typedInstagram && await replyWithInstagram(typedInstagram)) return true;
     const cardScope: CardScope | undefined = sender && registered.contextEnabledAt && msg.from?.id ? {
       chatId, agentId: sender.id, telegramUserId: String(msg.from.id), threadId: msg.message_thread_id,
       replyTo: msg.message_id,
@@ -1031,6 +1084,8 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
         || (current.proactiveMutedUntil && current.proactiveMutedUntil.getTime() > groupClock())) return false;
       fromVoice = true;
       raw = voice.text.replace(/\s+/gu, " ").trim();
+      if (audioDuration <= 12 && await acknowledge(groupAcknowledgment(raw))) return true;
+      if (await replyWithInstagram(groupInstagramLinkRequest(raw, ownBotQuestion ?? ""))) return true;
       const spokenMore = !isForwarded && propertyPageRequest(raw);
       if (spokenMore && cardScope && await replyWithMoreProperties(cardScope, spokenMore, raw, true)) return true;
       historySelector = historyQuestion(raw);
@@ -1121,6 +1176,7 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
         }));
         question = `${currentWords}\n${wrapUntrusted("document", JSON.stringify(archived), 3000)}`;
       }
+      showWorking();
       const result = await runTurn({
         agentId: sender.id, scope: "group", readOnlyGroup: Boolean(historySelector) || !automaticAction,
         validateQueueAudience, forwardedEvidence: isForwarded,
@@ -1193,12 +1249,15 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
     }
     let audioWords: string | undefined;
     if (hasAudio && !fromVoice && (!request || isForwarded)) {
+      if (addressed && !isForwarded) showWorking();
       const voice = await transcribeGroupVoice(sender.id);
       if ("error" in voice) {
         await reply(voice.error);
         return true;
       }
       audioWords = voice.text;
+      if (await acknowledge(groupAcknowledgment(audioWords))) return true;
+      if (await replyWithInstagram(groupInstagramLinkRequest(audioWords, ownBotQuestion ?? ""))) return true;
       request = forwardedVoicePrompt(msg, audioWords) ?? audioWords;
       if (evidenceAfterAudio) request += `\n${wrapUntrusted("document", evidenceAfterAudio, 1000)}`;
       fromVoice = true;
@@ -1251,7 +1310,7 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
       }
       if (refs.length === 1) request = tajik ? `${request}\nРақами объект: ${refs[0]}.` : `${request}\nНомер объекта: ${refs[0]}.`;
     }
-    if (!fromVoice) void sendChatAction(chatId);
+    if (!fromVoice || !audioWords) showWorking();
     // Окно диалога открывается (и продлевается) на обработанном обращении.
     const result = await runTurn({
       agentId: sender.id,

@@ -1,5 +1,7 @@
 import { prisma } from "../db.js";
+import { createHash } from "node:crypto";
 import { decryptSecret } from "../crypto.js";
+import { adjustTelegramVoiceTempo } from "../lib/audioTranscode.js";
 import { resolveElevenLabsKey } from "../ai/liveVoiceProvider.js";
 import { directAssistantVoice } from "./assistantVoiceDirection.js";
 import { prepareAssistantReply, type AssistantSpeechLanguage } from "./assistantReply.js";
@@ -11,8 +13,11 @@ import { cacheableAssistantSpeech, assistantVoiceCacheKey, cachedAssistantAudio,
 /** ElevenLabs speech. Each language needs an explicitly configured voice.
  * Missing settings, unavailable budget or provider errors leave the full text response.
  */
-const TTS_TIMEOUT_MS = 25_000;
+const TTS_TIMEOUT_MS = 12_000;
+const TAJIK_TEMPO = 1.06;
 const TTS_FORMAT = "opus_48000_64";
+const quotaErrorSchema = z.object({ detail: z.object({ status: z.string() }) });
+let synthesisPause: { account: string; until: number } | undefined;
 const VOICE_PROFILES = {
   ru: {
     model: "eleven_v4_turbo",
@@ -72,6 +77,8 @@ async function synthesize(
 ): Promise<Buffer | null> {
   const { voiceId, key } = config;
   if (!key) return null;
+  const account = createHash("sha256").update(key).digest("hex");
+  if (synthesisPause?.account === account && synthesisPause.until > Date.now()) return null;
   if (!(await claimAssistantTtsChars(text.length))) return null;
   const profile = VOICE_PROFILES[language];
   const endpoint = language === "ru" ? `${profile.endpoint}/${encodeURIComponent(voiceId)}` : profile.endpoint;
@@ -90,9 +97,26 @@ async function synthesize(
     }),
     signal: AbortSignal.timeout(TTS_TIMEOUT_MS),
   });
-  if (!res.ok) throw new Error(`ElevenLabs HTTP ${res.status}`);
+  if (!res.ok) {
+    if (res.status === 429 || res.status === 402) {
+      synthesisPause = { account, until: Date.now() + (res.status === 429 ? 15_000 : 5 * 60_000) };
+    }
+    if ([400, 401, 403].includes(res.status)) {
+      const error = quotaErrorSchema.safeParse(await res.json().catch(() => null));
+      if (error.success && error.data.detail.status === "quota_exceeded") {
+        synthesisPause = { account, until: Date.now() + 5 * 60_000 };
+      }
+    } else {
+      await res.body?.cancel().catch(() => undefined);
+    }
+    throw new Error(`ElevenLabs HTTP ${res.status}`);
+  }
   const audio = Buffer.from(await res.arrayBuffer());
   if (!isOggOpusAudio(audio)) throw new Error("ElevenLabs returned invalid Ogg/Opus audio");
+  if (language === "tg") {
+    const adjusted = await adjustTelegramVoiceTempo(audio, TAJIK_TEMPO).catch(() => null);
+    if (adjusted && isOggOpusAudio(adjusted)) return adjusted;
+  }
   return audio;
 }
 
@@ -113,8 +137,10 @@ export async function sendAssistantVoiceReply(
     if (!config) return false;
     const dictionary = pronunciationDictionary(language);
     stage = "synthesis";
+    const showVoiceAction = (action: "record_voice" | "upload_voice") => void (messageThreadId === undefined
+      ? sendChatAction(chatId, undefined, action) : sendChatAction(chatId, undefined, action, messageThreadId));
     const render = async () => {
-      const showRecording = () => void sendChatAction(chatId, undefined, "record_voice");
+      const showRecording = () => showVoiceAction("record_voice");
       showRecording();
       const indicator = setInterval(showRecording, 4_000).unref();
       try {
@@ -131,7 +157,7 @@ export async function sendAssistantVoiceReply(
     if (!cacheableAssistantSpeech(speech)) {
       const audio = await render();
       if (!audio?.length) return false;
-      void sendChatAction(chatId, undefined, "upload_voice");
+      showVoiceAction("upload_voice");
       await postAudio(audio);
       return true;
     }
@@ -139,14 +165,14 @@ export async function sendAssistantVoiceReply(
     const { model, endpoint, normalization } = VOICE_PROFILES[language];
     const key = assistantVoiceCacheKey(performance, {
       voiceId, model, endpoint, format: TTS_FORMAT, language, normalization,
-      ...(language === "ru" ? { settings: VOICE_PROFILES.ru.settings } : {}),
+      ...(language === "ru" ? { settings: VOICE_PROFILES.ru.settings } : { tempo: TAJIK_TEMPO }),
       ...(dictionary ? { dictionary } : {}),
     });
     const entry = await cachedAssistantAudio(key, render);
     if (!entry) return false;
     if (entry.fileId) {
       stage = "telegram_delivery";
-      void sendChatAction(chatId, undefined, "upload_voice");
+      showVoiceAction("upload_voice");
       try {
         if (messageThreadId === undefined) await sendAssistantVoiceId(chatId, entry.fileId, replyTo);
         else await sendAssistantVoiceId(chatId, entry.fileId, replyTo, messageThreadId);
@@ -159,7 +185,7 @@ export async function sendAssistantVoiceReply(
         await writeAssistantVoiceCache(key, entry);
       }
     }
-    void sendChatAction(chatId, undefined, "upload_voice");
+    showVoiceAction("upload_voice");
     const sent = await postAudio(Buffer.from(entry.audio, "base64"));
     const parsed = sentVoiceSchema.safeParse(sent);
     if (parsed.success) await writeAssistantVoiceCache(key, { ...entry, fileId: parsed.data.voice.file_id });

@@ -245,3 +245,8 @@ export function prepareAssistantVoicePart(
     ? conversationLanguage : undefined;
   return { part: fallbackLanguage ? prepareAssistantReply(text, maskContacts, fallbackLanguage) : part, fallbackLanguage };
 }
+/** Canonical public permalink for a CRM-verified Instagram post. */
+export function assistantInstagramLink(value: string | null | undefined): string | null {
+  const match = /^https:\/\/(?:www\.)?instagram\.com\/(p|reel|reels|tv)\/([a-z\d_-]{1,80})\/?(?:[?#][^\s]*)?$/iu.exec(value?.trim() ?? "");
+  return match ? `https://www.instagram.com/${match[1].toLowerCase()}/${match[2]}/` : null;
+}
