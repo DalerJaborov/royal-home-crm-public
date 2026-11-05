@@ -187,7 +187,11 @@ export function findOffCatalogClaims(input: {
   const areas = extractAreaClaims(statements).filter(
     (a) => !catalogAreas.some((c) => Math.abs(c - a) <= AREA_TOLERANCE) && !clientNumbers.some((c) => Math.abs(c - a) <= AREA_TOLERANCE)
   );
-  const catalogFloors = extractFloorClaims(catalog);
+  // Этаж офиса («Бухоро 49, 2 этаж») — такой же законный источник, как улица офиса ниже:
+  // без него сторож рвал приглашение на собеседование на «втором этаже» и заставлял робота
+  // повторять адрес (живой звонок владельцу 24.10.2026).
+  const catalogFloors = extractFloorClaims(`${catalog}
+${spokenNumbersToDigits(vacancyOfficeAddress())}`);
   const floors = extractFloorClaims(statements).filter((f) => !catalogFloors.includes(f) && !clientNumbers.includes(f));
 
   const aboutProperty =
