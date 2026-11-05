@@ -5,7 +5,7 @@ const h = vi.hoisted(() => ({
   policy: vi.fn(), stored: vi.fn(),
   enqueue: vi.fn(async (..._args: unknown[]) => {}), recentAlert: vi.fn(async (..._args: unknown[]) => null as unknown),
 }));
-vi.mock("../src/lib/directorAlertQueue.js", () => ({ enqueueDirectorAlert: h.enqueue }));
+vi.mock("../src/lib/directorAlertQueue.js", async importOriginal => ({ ...(await importOriginal<typeof import("../src/lib/directorAlertQueue.js")>()), enqueueDirectorAlert: h.enqueue }));
 vi.mock("../src/lib/systemError.js", async importOriginal => ({ ...(await importOriginal<typeof import("../src/lib/systemError.js")>()), logSystemError: h.logSystemError }));
 vi.mock("../src/lib/customerAgentRuntimeArchive.js", async importOriginal => ({
   ...(await importOriginal<typeof import("../src/lib/customerAgentRuntimeArchive.js")>()), loadPinnedCustomerAgentRuntime: h.pinned }));
