@@ -129376,7 +129376,7 @@
           },
           {
            "k": "do",
-           "t": "const result = format === \"REEL\" ? await publishFacebookReel(creds.pageId, creds.pageToken, videoUrl, params.…",
+           "t": "const result = format === \"REEL\" ? await publishFacebookReel(creds.pageId, creds.pageToken, localVideoAbsolut…",
            "a": [
             "зовёт publishFacebookReel()"
            ],
