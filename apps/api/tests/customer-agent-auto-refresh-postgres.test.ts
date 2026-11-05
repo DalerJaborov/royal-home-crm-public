@@ -9,7 +9,7 @@ import { createCustomerAgentMediaProviderSnapshot } from "../src/ai/customerAgen
 import * as registration from "../src/lib/customerAgentRegistration.js";
 import { customerAgentManifestId, decodeCustomerAgentRevision } from "../src/lib/customerAgentRevision.js";
 import { ensureCustomerEndpoint } from "../src/lib/customerConversationScope.js";
-import { autoRefreshCustomerAgentRevision, customerAgentAutoRefreshBlocker, resetCustomerAgentAutoRefreshState } from "../src/lib/customerAgentAutoRefresh.js";
+import { AUTO_REFRESH_GRACE_MS, autoRefreshCustomerAgentRevision, customerAgentAutoRefreshBlocker, resetCustomerAgentAutoRefreshState } from "../src/lib/customerAgentAutoRefresh.js";
 import { CUSTOMER_AGENT_AUTO_REFRESH_ACTOR_NAME, publishCustomerAgentAutoRefresh } from "../src/lib/customerAgentOwnerPolicy.js";
 import { resetCustomerAgentRevisionAlertMemo } from "../src/lib/customerAgentRevisionAlert.js";
 
@@ -103,6 +103,7 @@ it.each([
   ["knowledgeSchemaHash", { knowledgeSchemaHash: "c".repeat(64) }],
   ["knowledgeSourceHash", { knowledgeSourceHash: "d".repeat(64) }],
   ["providerProfileHash", { providerProfileHash: "e".repeat(64) }],
+  ["providerPolicyHash", { providerPolicyHash: "9".repeat(64) }],
   ["limits", { limits: { ...({} as Record<string, number>), maxRounds: 1, maxToolCalls: 1, maxInputChars: 1, maxOutputChars: 1, maxModelOutputTokens: 1, deadlineMs: 1 } }],
 ] as const)("leaves a %s change to the owner: policy untouched", async (field, change) => {
   const oldId = await historical(change as Record<string, unknown>); await install(oldId);
@@ -135,6 +136,35 @@ it("never returns to a superseded revision (old container during a rolling deplo
   const before = await readPolicy();
   expect(await autoRefreshCustomerAgentRevision()).toEqual({ status: "manual_required", reason: "target_superseded" });
   expect(await readPolicy()).toEqual(before);
+});
+
+it("waiting past the grace pages once; a transient error inside the grace does not", async () => {
+  const oldId = await historical(); await install(oldId);
+  await uncertainPart(oldId);
+  const alertTag = `customer-agent-held:${oldId.slice(0, 12)}`;
+  const t0 = Date.now(); const now = vi.spyOn(Date, "now");
+  now.mockReturnValue(t0);
+  expect(await autoRefreshCustomerAgentRevision()).toMatchObject({ status: "busy" });
+  expect(await prisma.pendingDirectorAlert.count({ where: { tag: alertTag } })).toBe(0);
+  now.mockReturnValue(t0 + AUTO_REFRESH_GRACE_MS + 1000);
+  expect(await autoRefreshCustomerAgentRevision()).toMatchObject({ status: "busy" });
+  now.mockRestore();
+  expect(await prisma.pendingDirectorAlert.count({ where: { tag: alertTag } })).toBe(1);
+  await prisma.pendingDirectorAlert.deleteMany({ where: { tag: alertTag } });
+});
+
+it("an outdated process (superseded code) stays quiet: no alert for the healthy revision", async () => {
+  const later = await historical();
+  const rollout = await install(newId);
+  const policy = await readPolicy();
+  await prisma.$transaction(async tx => {
+    await tx.customerAgentRevisionAdvance.create({ data: { fromRevisionId: newId, fromCohortId: rollout.cohortId, toRevisionId: later,
+      toCohortId: randomUUID(), policyRevision: policy.policyRevision + 1n } });
+    await tx.$executeRaw`UPDATE "CustomerRuntimePolicy" SET "policyRevision"="policyRevision"+1 WHERE "id"='singleton'`;
+  });
+  await install(later);
+  expect(await autoRefreshCustomerAgentRevision()).toEqual({ status: "manual_required", reason: "target_superseded" });
+  expect(await prisma.pendingDirectorAlert.count({ where: { tag: `customer-agent-held:${later.slice(0, 12)}` } })).toBe(0);
 });
 
 it("does nothing while the bot is off", async () => {

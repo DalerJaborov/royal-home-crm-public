@@ -64,13 +64,24 @@ async function attempt(): Promise<CustomerAgentAutoRefreshResult> {
   try {
     return await decide(id => { activeId = id; });
   } catch (error) {
-    // Unexpected failure (DB, artifact read): never silent, never a crash.
+    // Unexpected failure (DB blip, the idle trigger losing a race with a new
+    // comment, artifact read): retried by the next tick, loud only after the
+    // grace, so a transient error never spends the daily alert slot.
     console.error("[customer-agent] auto refresh failed:", error instanceof Error ? error.message : error);
-    busySince = null;
-    setCustomerAgentAutoRefreshPending(false);
-    if (activeId) await reportCustomerAgentRevisionHeld(activeId, "current_artifact_verification_unavailable", error);
-    return { status: "manual_required", reason: "refresh_failed" };
+    return wait(activeId, "refresh_failed", error);
   }
+}
+
+/** Retryable outcome: keep the alert held back until the grace runs out. */
+async function wait(activeId: string | null, reason: string, error?: unknown): Promise<CustomerAgentAutoRefreshResult> {
+  busySince ??= Date.now();
+  setCustomerAgentAutoRefreshPending(true, busySince + AUTO_REFRESH_GRACE_MS);
+  if (activeId && Date.now() - busySince >= AUTO_REFRESH_GRACE_MS) {
+    setCustomerAgentAutoRefreshPending(false);
+    await (error ? reportCustomerAgentRevisionHeld(activeId, "current_artifact_verification_unavailable", error)
+      : reportCustomerAgentRevisionHeld(activeId, "current_artifact_revision_mismatch"));
+  }
+  return { status: "busy", reason };
 }
 
 async function decide(seen: (activeId: string) => void): Promise<CustomerAgentAutoRefreshResult> {
@@ -97,12 +108,22 @@ async function decide(seen: (activeId: string) => void): Promise<CustomerAgentAu
   if (!stored) return manual("active_revision_missing");
   const blocker = customerAgentAutoRefreshBlocker(decodeCustomerAgentRevision(stored), next);
   if (blocker) return manual(blocker);
-  // A revision that was ever superseded is history: an old container still
-  // running during a deploy must not "refresh" the policy back to itself.
-  if (await prisma.customerAgentRevisionAdvance.findFirst({ where: { fromRevisionId: nextId }, select: { id: true } })) return manual("target_superseded");
+  // The installed code is an ANCESTOR of the active revision: an old container
+  // still running during a deploy must not "refresh" the policy back to itself.
+  // The policy is fine, THIS process is outdated: no alert (it would spend the
+  // daily slot of the healthy active revision), only the process log.
+  const [ancestor] = await prisma.$queryRaw<Array<{ superseded: boolean }>>`WITH RECURSIVE later(id) AS (
+      SELECT ${nextId}::text UNION SELECT e."toRevisionId" FROM "CustomerAgentRevisionAdvance" e JOIN later l ON e."fromRevisionId"=l.id)
+    SELECT EXISTS(SELECT 1 FROM later WHERE id=${activeId}) AS superseded`;
+  if (ancestor?.superseded) {
+    console.warn(`[customer-agent] auto refresh skipped: installed code ${nextId.slice(0, 12)} was already superseded`);
+    return settle({ status: "manual_required", reason: "target_superseded" });
+  }
 
   try {
-    const registered = await registerCurrentCustomerAgentRevision(factory, {
+    // Register once; while waiting for idle the next ticks reuse the row.
+    const existing = await prisma.customerAgentRevision.findUnique({ where: { id: nextId } });
+    const registered = existing ? decodeCustomerAgentRevision(existing) : await registerCurrentCustomerAgentRevision(factory, {
       afterWrite: async (tx, value) => {
         await tx.auditLog.create({ data: { action: "CUSTOMER_AGENT_REGISTER", entityType: "CustomerAgentPolicy", entityId: value.id,
           agentId: null, agentName: CUSTOMER_AGENT_AUTO_REFRESH_ACTOR_NAME,
@@ -118,22 +139,16 @@ async function decide(seen: (activeId: string) => void): Promise<CustomerAgentAu
     });
     return settle({ status: "refreshed" });
   } catch (error) {
-    if (error instanceof CustomerAgentOwnerError && RETRYABLE.has(error.code)) {
-      busySince ??= Date.now();
-      setCustomerAgentAutoRefreshPending(true, busySince + AUTO_REFRESH_GRACE_MS);
-      if (Date.now() - busySince >= AUTO_REFRESH_GRACE_MS) {
-        // Still blocked after the grace: let the owner know (journal + push).
-        setCustomerAgentAutoRefreshPending(false);
-        await reportCustomerAgentRevisionHeld(activeId, "current_artifact_revision_mismatch");
-      }
-      return { status: "busy", reason: error.code };
-    }
+    if (error instanceof CustomerAgentOwnerError && RETRYABLE.has(error.code)) return wait(activeId, error.code);
     if (error instanceof CustomerAgentOwnerError) return manual(error.code);
+    // The DB idle trigger (READ COMMITTED: a comment arrived between the code
+    // check and the insert) raises a plain Postgres error, not an owner error.
+    if (/requires idle|advance context changed/u.test(error instanceof Error ? error.message : String(error))) return wait(activeId, "core_work_requires_idle_publication");
     throw error;
   }
 }
 
-function settle(result: CustomerAgentAutoRefreshResult): CustomerAgentAutoRefreshResult {
+function settle<T extends CustomerAgentAutoRefreshResult>(result: T): T {
   busySince = null;
   setCustomerAgentAutoRefreshPending(false);
   return result;
