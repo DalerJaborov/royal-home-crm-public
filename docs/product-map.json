@@ -1906,6 +1906,11 @@
       "label": null
     },
     {
+      "id": "price-caption-delivery",
+      "expr": "* * * * *",
+      "label": null
+    },
+    {
       "id": "private-files-cleanup",
       "expr": "30 3 * * *",
       "label": "Удаляет старые вложения переписки, чтобы не переполнить диск"

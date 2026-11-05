@@ -2,10 +2,10 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 730,
-  "forks": 3949,
+  "forks": 3998,
   "mounts": 81,
-  "cron": 121,
-  "jobs": 31,
+  "cron": 122,
+  "jobs": 32,
   "hidden": 0
  },
  "hidden": [],
@@ -50428,7 +50428,7 @@
     },
     {
      "k": "do",
-     "t": "const rows = await preparePublicationMetadataPreview(p.id);",
+     "t": "const [rows, deliveryRows] = await Promise.all([ preparePublicationMetadataPreview(p.id), listPriceCaptionDel…",
      "a": [
       "зовёт preparePublicationMetadataPreview()"
      ],
@@ -50436,7 +50436,7 @@
     },
     {
      "k": "do",
-     "t": "res.json({ rows, sent: false });",
+     "t": "res.json({ rows, deliveryRows, sent: false });",
      "a": [
       "ответ 200"
      ],
@@ -53299,6 +53299,21 @@
       {
        "k": "if",
        "t": "!row?.startedAt || row.startedAt.toISOString()!==body.data.expectedStartedAt || ![\"EXECUTING\",\"UNKNOWN\"].incl…",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return null;",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "row.status === \"EXECUTING\" && [\"PRICE_CHANGE\", \"CAPTION_REFRESH\"].includes(row.executionMode)",
        "a": [],
        "c": [
         {
@@ -59050,15 +59065,39 @@
      "c": [
       {
        "k": "do",
-       "t": "updated = await prisma.$transaction(async (tx)",
+       "t": "({ updated, priceBefore, priceDelivery } = await prisma.$transaction(async (tx)",
        "a": [
         "ошибка PropertyConflictError",
         "всё внутри — одной транзакцией",
-        "создаёт в базе: priceChange",
+        "обращается к базе своим SQL",
+        "читает в базе: property",
         "меняет в базе: property",
-        "читает в базе: property"
+        "создаёт в базе: priceChange"
        ],
        "c": [
+        {
+         "k": "if",
+         "t": "writesPrice",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "await tx.$queryRaw`SELECT id FROM \"Property\" WHERE id = ${existing.id} FOR NO KEY UPDATE`;",
+           "a": [
+            "обращается к базе своим SQL"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const before = writesPrice ? await tx.property.findUniqueOrThrow({ where: { id: existing.id } }) : existing;",
+         "a": [
+          "читает в базе: property"
+         ],
+         "c": []
+        },
         {
          "k": "if",
          "t": "ownerPhonePlan.kind === \"fixSellerPhone\"",
@@ -59069,21 +59108,6 @@
            "t": "await applySellerPhoneFix(tx, ownerPhonePlan, req.agent!.id, existing.shortId);",
            "a": [
             "зовёт applySellerPhoneFix()"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "if",
-         "t": "priceActuallyChanged",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "await tx.priceChange.create({ data: { propertyId: existing.id, oldPrice: existing.price, oldCurrency: existin…",
-           "a": [
-            "создаёт в базе: priceChange"
            ],
            "c": []
           }
@@ -59129,7 +59153,76 @@
         },
         {
          "k": "do",
-         "t": "return tx.property.findUniqueOrThrow({ where: { id: req.params.id } });",
+         "t": "const after = await tx.property.findUniqueOrThrow({ where: { id: req.params.id } });",
+         "a": [
+          "читает в базе: property"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "!writesPrice || (!amountChanged && !currencyChanged)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { updated: after, priceBefore: before, priceDelivery: null };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "await tx.priceChange.create({ data: { propertyId: before.id, oldPrice: before.price, oldCurrency: before.curr…",
+         "a": [
+          "создаёт в базе: priceChange"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "amountChanged",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "deliveryFields.add(\"price\");",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "currencyChanged",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "deliveryFields.add(\"currency\");",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const delivery = await stagePropertyPriceDelivery(tx, before, after, [...deliveryFields], \"правка цены\");",
+         "a": [
+          "зовёт stagePropertyPriceDelivery()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "const updated = delivery.caption.captionRewritten || delivery.caption.descriptionChanged ? await tx.property.…",
          "a": [
           "читает в базе: property"
          ],
@@ -59498,7 +59591,7 @@
     },
     {
      "k": "do",
-     "t": "await runPostUpdateEffects({ existing, updated, changedFields, priceActuallyChanged, staysAvailable: data.sta…",
+     "t": "await runPostUpdateEffects({ existing: priceBefore, updated, changedFields, priceActuallyChanged: priceDelive…",
      "a": [
       "зовёт runPostUpdateEffects()"
      ],
@@ -103237,6 +103330,61 @@
    "file": "apps/api/src/lib/telephony/liveVoiceScenarioTicks.ts"
   },
   {
+   "id": "price-caption-delivery",
+   "when": "* * * * *",
+   "tree": [
+    {
+     "k": "do",
+     "t": "await runPriceCaptionDeliveryTick();",
+     "a": [
+      "зовёт runPriceCaptionDeliveryTick()"
+     ],
+     "c": [
+      {
+       "k": "loop",
+       "t": "для каждого: const row of abandoned",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "await logSystemError(\"meta\", `Объект ${row.propertyId}: ${row.channel}, ответ об обновлении подписи не записа…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const due = await prisma.$queryRaw<Array<{ id: string; propertyId: string }>>` SELECT target.id, target.\"prop…",
+       "a": [
+        "обращается к базе своим SQL"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "failed?.status === \"rejected\"",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "throw failed.reason;",
+         "a": [
+          "пробрасывает ошибку дальше"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ],
+     "from": "runPriceCaptionDeliveryTick() — apps/api/src/lib/priceCaptionDelivery.ts"
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
    "id": "private-files-cleanup",
    "when": "30 3 * * *",
    "tree": [
@@ -117005,6 +117153,976 @@
    ]
   },
   {
+   "kind": "assistantPriceUndoJob",
+   "file": "apps/api/src/jobs/assistantPriceUndo.ts",
+   "tree": [
+    {
+     "k": "do",
+     "t": "const request = await prisma.propertyChangeRequest.findUnique({ where: { id: requestId }, select: { kind: tru…",
+     "a": [
+      "читает в базе: propertyChangeRequest"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "request?.kind !== \"PRICE_CHANGE\" || request.status !== \"PENDING\" || readPriceUndoGuard(request.payload)?.assi…",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return;",
+       "a": [
+        "дальше не идёт, ничего не меняя"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const outcome = await approvePropertyChangeRequest({ requestId, actorId: request.authorId, note: \"Откат цены …",
+     "a": [
+      "зовёт approvePropertyChangeRequest()"
+     ],
+     "c": [
+      {
+       "k": "do",
+       "t": "const pre = await prisma.propertyChangeRequest.findUnique({ where: { id: requestId }, include: { property: tr…",
+       "a": [
+        "читает в базе: propertyChangeRequest"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "!pre",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return { ok: false, status: 404, error: \"Заявка не найдена\" };",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "pre.status !== \"PENDING\"",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return { ok: false, status: 409, error: \"По этой заявке уже вынесено решение\" };",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const priceUndoGuard = pre.kind === \"PRICE_CHANGE\" ? readPriceUndoGuard(pre.payload) : undefined;",
+       "a": [
+        "зовёт readPriceUndoGuard()"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "pre.property.deletedAt && priceUndoGuard === undefined",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return { ok: false, status: 409, error: \"Объект в Корзине — по нему заявки не выполняются\" };",
+         "a": [
+          "дословно из кода"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "pre.kind === \"PRICE_CHANGE\"",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "const body = priceChangePayloadSchema.safeParse(pre.payload);",
+         "a": [
+          "проверяет данные схемой priceChangePayloadSchema"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "!body.success",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "prepareError = \"Тело заявки повреждено (цена) — отклоните её и попросите отправить заново\";",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "else",
+         "t": "иначе",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const district = pre.property.districtId ? await prisma.district.findUnique({ where: { id: pre.property.distr…",
+           "a": [
+            "читает в базе: district"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "pricePlan = { newPrice: body.data.newPrice, newCurrency, remake: body.data.remake, seo: priceWillChange ? awa…",
+           "a": [
+            "зовёт seoFieldsForUpdate()"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "k": "elseif",
+       "t": "pre.kind === \"CARD_DATA\"",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "const body = cardDataPayloadSchema.safeParse(pre.payload);",
+         "a": [
+          "проверяет данные схемой cardDataPayloadSchema"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "!body.success",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "prepareError = \"Тело заявки повреждено (данные) — отклоните её и попросите отправить заново\";",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "else",
+         "t": "иначе",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const parsed = parseCardPatch(body.data.patch, pre.property as unknown as Record<string, unknown>);",
+           "a": [
+            "зовёт parseCardPatch()"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "parsed.ok",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "const district = effDistrictId ? await prisma.district.findUnique({ where: { id: effDistrictId }, select: { n…",
+             "a": [
+              "читает в базе: district"
+             ],
+             "c": []
+            },
+            {
+             "k": "do",
+             "t": "cardPlan = { patch: parsed.patch, changed: parsed.changed, remake: body.data.remake, seo: await seoFieldsForU…",
+             "a": [
+              "зовёт seoFieldsForUpdate()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "elseif",
+           "t": "parsed.noop",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "cardPlan = { patch: {}, changed: [], remake: body.data.remake, seo: null, districtName: null };",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "else",
+           "t": "иначе",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "prepareError = parsed.error;",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "k": "try",
+       "t": "пробует",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "claim = await withPropertyLock(pre.propertyId, async (tx): Promise<Claim>",
+         "a": [
+          "ошибка Error — «Invalid linked assistant price undo payload»",
+          "обращается к базе своим SQL",
+          "читает в базе: propertyChangeRequest",
+          "читает в базе: property",
+          "меняет в базе: propertyChangeRequest",
+          "создаёт в базе: priceChange",
+          "меняет в базе: property",
+          "создаёт в базе: auditLog",
+          "читает в базе: agent"
+         ],
+         "c": [
+          {
+           "k": "do",
+           "t": "const fresh = await tx.propertyChangeRequest.findUnique({ where: { id: requestId }, select: { status: true } …",
+           "a": [
+            "читает в базе: propertyChangeRequest"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "!fresh || fresh.status !== \"PENDING\"",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return { conflict: \"По этой заявке уже вынесено решение\" };",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "pricePlan || priceUndoGuard !== undefined",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "await tx.$queryRaw`SELECT id FROM \"Property\" WHERE id = ${pre.propertyId} FOR NO KEY UPDATE`;",
+             "a": [
+              "обращается к базе своим SQL"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const property = await tx.property.findUnique({ where: { id: pre.propertyId } });",
+           "a": [
+            "читает в базе: property"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "priceUndoGuard !== undefined && (!priceUndoGuard || !property || property.deletedAt || property.version !== p…",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "const cancelled = await tx.propertyChangeRequest.updateMany({ where: { id: requestId, status: \"PENDING\" }, da…",
+             "a": [
+              "меняет в базе: propertyChangeRequest"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "!property || property.deletedAt",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return { conflict: \"Объект в Корзине — по нему заявки не выполняются\" };",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "assistantPriceUndo && !(await canResumeAssistantPriceUndo(tx, pre.authorId, property))",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return { conflict: \"Нет права вернуть прежнюю цену.\", forbidden: true };",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "assistantPriceUndo && (!pricePlan || prepareError)",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "throw new Error(\"Invalid linked assistant price undo payload\");",
+             "a": [
+              "ошибка Error — «Invalid linked assistant price undo payload»"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const claimed = await tx.propertyChangeRequest.updateMany({ where: { id: requestId, status: \"PENDING\" }, data…",
+           "a": [
+            "меняет в базе: propertyChangeRequest"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "!claimed.count",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return { conflict: \"По этой заявке уже вынесено решение\" };",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "prepareError",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return { write: null, property };",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "pricePlan",
+           "a": [],
+           "c": [
+            {
+             "k": "if",
+             "t": "!priceChanged",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "return { write: null, property };",
+               "a": [
+                "дословно из кода"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "do",
+             "t": "await tx.priceChange.create({ data: { propertyId: property.id, oldPrice: property.price, oldCurrency: propert…",
+             "a": [
+              "создаёт в базе: priceChange"
+             ],
+             "c": []
+            },
+            {
+             "k": "do",
+             "t": "const after = await tx.property.update({ where: { id: property.id }, data: { price: pricePlan.newPrice, curre…",
+             "a": [
+              "меняет в базе: property"
+             ],
+             "c": []
+            },
+            {
+             "k": "do",
+             "t": "const priceDelivery = await stagePropertyPriceDelivery(tx, property, after, changedFields, \"заявка на изменен…",
+             "a": [
+              "зовёт stagePropertyPriceDelivery()"
+             ],
+             "c": []
+            },
+            {
+             "k": "if",
+             "t": "assistantPriceUndo",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "await recordAssistantPriceUndo(tx, assistantPriceUndo, { id: requestId, propertyId: property.id, authorId: pr…",
+               "a": [
+                "зовёт recordAssistantPriceUndo()"
+               ],
+               "c": []
+              },
+              {
+               "k": "do",
+               "t": "await tx.auditLog.create({ data: { action: \"PROPERTY_FIELDS_CHANGED\", entityType: \"Property\", entityId: prope…",
+               "a": [
+                "создаёт в базе: auditLog",
+                "читает в базе: agent"
+               ],
+               "c": []
+              }
+             ]
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "cardPlan && cardPlan.changed.length > 0",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "const after = await tx.property.update({ where: { id: property.id }, data: { ...patch, title, ...(patch.addre…",
+             "a": [
+              "меняет в базе: property"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "k": "catch",
+       "t": "если сорвалось",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "void logSystemError(\"api\", `Заявка на изменение ${requestId}: захват не удался — ${reason}`);",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "\"conflict\" in claim",
+       "a": [],
+       "c": [
+        {
+         "k": "if",
+         "t": "claim.expiredUndo",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "logAgentAudit(actorId, \"PROPERTY_CHANGE_REQUEST_CANCELLED\", \"Property\", pre.propertyId, { requestId, kind: pr…",
+           "a": [
+            "зовёт logAgentAudit()"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "void closeForOtherReviewers(requestId, null);",
+           "a": [
+            "зовёт closeForOtherReviewers()"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "publishRequestUpdated({ requestId, propertyId: pre.propertyId, agentIds: [pre.authorId], stage: \"CANCELLED\", …",
+           "a": [
+            "зовёт publishRequestUpdated()"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "k": "try",
+       "t": "пробует",
+       "a": [],
+       "c": [
+        {
+         "k": "if",
+         "t": "!prepareError",
+         "a": [],
+         "c": [
+          {
+           "k": "switch",
+           "t": "смотря что в: pre.kind",
+           "a": [],
+           "c": [
+            {
+             "k": "case",
+             "t": "case \"PRICE_CHANGE\"",
+             "a": [],
+             "c": []
+            },
+            {
+             "k": "case",
+             "t": "case \"CARD_DATA\"",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "break;",
+               "a": [
+                "прекращает перебор"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "case",
+             "t": "case \"REMAKE_VIDEO\"",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "const body = remakeVideoPayloadSchema.safeParse(pre.payload);",
+               "a": [
+                "проверяет данные схемой remakeVideoPayloadSchema"
+               ],
+               "c": []
+              },
+              {
+               "k": "if",
+               "t": "!body.success",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "break;",
+                 "a": [
+                  "прекращает перебор"
+                 ],
+                 "c": []
+                }
+               ]
+              },
+              {
+               "k": "do",
+               "t": "break;",
+               "a": [
+                "прекращает перебор"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "case",
+             "t": "case \"UNPUBLISH\"",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "const body = unpublishPayloadSchema.safeParse(pre.payload);",
+               "a": [
+                "проверяет данные схемой unpublishPayloadSchema"
+               ],
+               "c": []
+              },
+              {
+               "k": "if",
+               "t": "!body.success",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "break;",
+                 "a": [
+                  "прекращает перебор"
+                 ],
+                 "c": []
+                }
+               ]
+              },
+              {
+               "k": "do",
+               "t": "break;",
+               "a": [
+                "прекращает перебор"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "case",
+             "t": "case \"OTHER\"",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "break;",
+               "a": [
+                "прекращает перебор"
+               ],
+               "c": []
+              }
+             ]
+            }
+           ]
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "k": "catch",
+       "t": "если сорвалось",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "void logSystemError(\"api\", `Заявка на изменение ${requestId} (${pre.kind}): выполнение упало — ${reason}`, { …",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "const row = await prisma.propertyChangeRequest.update({ where: { id: requestId }, data: { status, result: res…",
+       "a": [
+        "меняет в базе: propertyChangeRequest"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "const summary = summarizeChangeRequest(pre.kind, pre.payload, pre.property);",
+       "a": [
+        "зовёт summarizeChangeRequest()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "logAgentAudit(actorId, \"PROPERTY_CHANGE_REQUEST_DECIDED\", \"Property\", property.id, { requestId, kind: pre.kin…",
+       "a": [
+        "зовёт logAgentAudit()"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "claim.write && !assistantPriceUndo",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "const changes = describePropertyChanges( w.changedFields, w.after as unknown as Record<string, unknown>, w.be…",
+         "a": [
+          "зовёт describePropertyChanges()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "changes.length > 0",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "logAgentAudit(actorId, \"PROPERTY_FIELDS_CHANGED\", \"Property\", property.id, { shortId: property.shortId, chang…",
+           "a": [
+            "зовёт logAgentAudit()"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "publishRequestUpdated({ requestId, propertyId: property.id, agentIds: [pre.authorId], stage: status, actorId,…",
+       "a": [
+        "зовёт publishRequestUpdated()"
+       ],
+       "c": []
+      },
+      {
+       "k": "if",
+       "t": "claim.write",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "publishPropertyUpdated({ propertyId: property.id, actorId, stage: claim.write.after.status });",
+         "a": [
+          "зовёт publishPropertyUpdated()"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "return { ok: true, request: toChangeRequestDto(row), message, writtenPropertyVersion: claim.write?.after.vers…",
+       "a": [
+        "зовёт toChangeRequestDto()"
+       ],
+       "c": []
+      }
+     ],
+     "from": "approvePropertyChangeRequest() — apps/api/src/routes/properties/changeRequestExecutor.ts"
+    },
+    {
+     "k": "if",
+     "t": "!outcome.ok && (outcome.status >= 500 || outcome.status === 403)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "throw new Error(\"Could not apply staged assistant price undo\");",
+       "a": [
+        "ошибка Error — «Could not apply staged assistant price undo»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "когда попытки кончились",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "await logSystemError(\"background-jobs\", \"Откат цены Шабнам требует проверки в CRM\", { dedupKey: `assistant-pr…",
+       "a": [
+        "запись в журнал ошибок"
+       ],
+       "c": [
+        {
+         "k": "if",
+         "t": "isPrivateOperation()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "source = \"investigation\";",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "source === \"investigation\"",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "context = { ...context, silent: true };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "isShuttingDown()",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…",
+           "a": [
+            "пишет строку в журнал сервера"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "return;",
+           "a": [
+            "дальше не идёт, ничего не меняя"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "try",
+         "t": "пробует",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const recent = await prisma.errorLog.findFirst({ where: { source, ...sameKind, ...(scope ? { message: { conta…",
+           "a": [
+            "читает в базе: errorLog"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "recent",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return;",
+             "a": [
+              "дальше не идёт, ничего не меняя"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "do",
+           "t": "const everSeen = await prisma.errorLog.findFirst({ where: { source, ...sameKind }, select: { id: true }, });",
+           "a": [
+            "читает в базе: errorLog"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "await prisma.errorLog.create({ data: { source, message: text, dedupKey: explicitKey, url: context?.url?.slice…",
+           "a": [
+            "создаёт в базе: errorLog"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "!context?.quietPult",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "requestPultSnapshot();",
+             "a": [
+              "зовёт requestPultSnapshot()"
+             ],
+             "c": []
+            }
+           ]
+          },
+          {
+           "k": "if",
+           "t": "!everSeen && !context?.silent",
+           "a": [],
+           "c": [
+            {
+             "k": "try",
+             "t": "пробует",
+             "a": [],
+             "c": []
+            },
+            {
+             "k": "catch",
+             "t": "если сорвалось",
+             "a": [],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "catch",
+         "t": "если сорвалось",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "console.error(`[systemError] ${source}: ${String(message).slice(0, 1000)} (запись в журнал не удалась: ${err …",
+           "a": [
+            "пишет строку в журнал сервера"
+           ],
+           "c": []
+          }
+         ]
+        }
+       ],
+       "from": "logSystemError() — apps/api/src/lib/systemError.ts"
+      }
+     ]
+    }
+   ]
+  },
+  {
    "kind": "client-reactivation",
    "file": "apps/api/src/jobs/clientReactivation.ts",
    "tree": [
@@ -121779,7 +122897,7 @@
        "c": [
         {
          "k": "do",
-         "t": "return { ok: false, error: \"Синхронизация с сайтом не настроена (SITE_SYNC_URL/SITE_SYNC_API_KEY)\" };",
+         "t": "return { ok: false, error: \"Синхронизация с сайтом не настроена (SITE_SYNC_URL/SITE_SYNC_API_KEY)\", retryable…",
          "a": [
           "дословно из кода"
          ],
@@ -121794,7 +122912,7 @@
        "c": [
         {
          "k": "do",
-         "t": "return { ok: false, error: 'Характеристики можно дослать только для действующих публичных объектов' };",
+         "t": "return { ok: false, error: 'Характеристики можно дослать только для действующих публичных объектов', retryabl…",
          "a": [
           "дословно из кода"
          ],
@@ -121829,7 +122947,22 @@
          "c": [
           {
            "k": "do",
-           "t": "return { ok: false, error: \"Не настроен CRM_PUBLIC_URL — фото объектов не попадут на сайт\" };",
+           "t": "return { ok: false, error: \"Не настроен CRM_PUBLIC_URL — фото объектов не попадут на сайт\", retryable: false …",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "properties.some((p) => !p.district)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { ok: false, error: \"Для публикации на сайте у объекта должен быть указан район\", retryable: false };",
            "a": [
             "дословно из кода"
            ],
@@ -121949,7 +123082,7 @@
          "c": [
           {
            "k": "do",
-           "t": "const body = (await res.json().catch(()",
+           "t": "const body = await res.json().catch(()",
            "a": [
             "ответ 200"
            ],
@@ -121967,11 +123100,27 @@
         },
         {
          "k": "do",
-         "t": "const body = (await res.json()) as { results: SiteSyncItemResult[] };",
+         "t": "const body = siteResponseSchema.safeParse(await res.json());",
          "a": [
-          "ответ 200"
+          "ответ 200",
+          "проверяет данные схемой siteResponseSchema"
          ],
          "c": []
+        },
+        {
+         "k": "if",
+         "t": "!body.success",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { ok: false, error: \"Сайт не подтвердил синхронизацию объектов\" };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
         }
        ]
       },
@@ -125943,36 +127092,6 @@
          "c": []
         },
         {
-         "k": "if",
-         "t": "!removal.ok",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "throw new Error(`объект не снят с сайта (${context}): ${removal.error}`);",
-           "a": [
-            "ошибка Error — «объект не снят с сайта (${context}»"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "if",
-         "t": "refused",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "throw new Error(`сайт не снял объект (${context}): ${refused.error}`);",
-           "a": [
-            "ошибка Error — «сайт не снял объект (${context}»"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
          "k": "do",
          "t": "await prisma.property.update({ where: { id: property.id }, data: { publishedOnSite: false } });",
          "a": [
@@ -125997,36 +127116,6 @@
         "зовёт syncPropertiesToSite()"
        ],
        "c": []
-      },
-      {
-       "k": "if",
-       "t": "!result.ok",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "throw new Error(`объект не дошёл до сайта (${context}): ${result.error}`);",
-         "a": [
-          "ошибка Error — «объект не дошёл до сайта (${context}»"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "if",
-       "t": "failed",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "throw new Error(`сайт отклонил объект (${context}): ${failed.error}`);",
-         "a": [
-          "ошибка Error — «сайт отклонил объект (${context}»"
-         ],
-         "c": []
-        }
-       ]
       }
      ],
      "from": "runSiteResyncAttempt() — apps/api/src/lib/siteSync.ts"
@@ -126038,7 +127127,7 @@
      "c": [
       {
        "k": "do",
-       "t": "await logSystemError( \"site-sync\", `Объект не дошёл до сайта после всех попыток (${payload.context}) — витрин…",
+       "t": "await logSystemError( \"site-sync\", `Объект не дошёл до сайта (${payload.context}) — витрина разъехалась с CRM…",
        "a": [
         "запись в журнал ошибок"
        ],
@@ -129815,7 +130904,7 @@
         },
         {
          "k": "do",
-         "t": "await updatePublishedMarks(propertyId, (current)",
+         "t": "const mergeMarks = (current: PublishedMarks)",
          "a": [],
          "c": [
           {
@@ -129883,6 +130972,93 @@
            "t": "return { channels: nextPublishedChannels(current.channels, succeeded.map((r)",
            "a": [
             "зовёт nextPublishedChannels()"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "publishedPrice",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "await prisma.$transaction(async (tx)",
+           "a": [
+            "всё внутри — одной транзакцией",
+            "обращается к базе своим SQL",
+            "читает в базе: property"
+           ],
+           "c": [
+            {
+             "k": "do",
+             "t": "await tx.$queryRaw`SELECT id FROM \"Property\" WHERE id = ${propertyId} FOR UPDATE`;",
+             "a": [
+              "обращается к базе своим SQL"
+             ],
+             "c": []
+            },
+            {
+             "k": "do",
+             "t": "const fresh = await tx.property.findUnique({ where: { id: propertyId }, select: { deletedAt: true } });",
+             "a": [
+              "читает в базе: property"
+             ],
+             "c": []
+            },
+            {
+             "k": "if",
+             "t": "!fresh || fresh.deletedAt",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "return;",
+               "a": [
+                "дальше не идёт, ничего не меняя"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "do",
+             "t": "const marks = await updatePublishedMarks(propertyId, mergeMarks, tx);",
+             "a": [
+              "зовёт updatePublishedMarks()"
+             ],
+             "c": []
+            },
+            {
+             "k": "if",
+             "t": "marks.applied",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "await stageLatePublishedPriceCaption(tx, propertyId, succeeded.map((result)",
+               "a": [
+                "зовёт stageLatePublishedPriceCaption()"
+               ],
+               "c": []
+              }
+             ]
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "else",
+         "t": "иначе",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "await updatePublishedMarks(propertyId, mergeMarks);",
+           "a": [
+            "зовёт updatePublishedMarks()"
            ],
            "c": []
           }
