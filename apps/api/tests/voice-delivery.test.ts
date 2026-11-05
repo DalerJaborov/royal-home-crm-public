@@ -38,7 +38,10 @@ const {
   logSystemError: vi.fn(async () => {}),
 }));
 
-vi.mock("../src/lib/audioTranscode.js", () => ({ transcodeToOggOpus, transcodeToM4a, isSilentAudio }));
+vi.mock("../src/lib/audioTranscode.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/audioTranscode.js")>()),
+  transcodeToOggOpus, transcodeToM4a, isSilentAudio,
+}));
 vi.mock("../src/ai/transcribe.js", () => ({ transcribeAudio }));
 vi.mock("../src/ai/voiceComplianceGuard.js", () => ({ checkAgentVoiceMessage }));
 vi.mock("../src/lib/outgoingVoice.js", () => ({ saveOutgoingVoice }));

@@ -5,6 +5,7 @@ import { cleanupBotTurnTraces } from "./lib/botTurnTraceStore.js";
 import { runSocialVideoScheduleTick } from "./lib/socialVideoPosts.js";
 import { runBackgroundJobsTick, runCustomerJobsTick } from "./jobs/runner.js";
 import { runAssistantActionsSweep } from "./jobs/assistantActionsSweep.js";
+import { runPriceCaptionDeliveryTick } from "./lib/priceCaptionDelivery.js";
 import { expireExpensePhotoDrafts } from "./lib/telegramExpenseReceipts.js";
 import { enqueueBackgroundJob } from "./jobs/enqueue.js";
 import { AI_REPLY_RETRY_MAX_ATTEMPTS } from "./jobs/aiReplyRetryPolicy.js";
@@ -2325,6 +2326,10 @@ export function startCronJobs() {
    * зависшие посреди исполнения → FAILED с записью в журнал, EXPIRED старше
    * 7 дней удаляются. Логика и тест — jobs/assistantActionsSweep.ts.
    */
+  scheduleTracked("price-caption-delivery", "* * * * *", async () => {
+    await runPriceCaptionDeliveryTick();
+  });
+
   scheduleTracked("assistant-actions-sweep", "35 * * * *", async () => {
     try {
       const [{ expired, stuckFailed, deleted }] = await Promise.all([runAssistantActionsSweep(), expireExpensePhotoDrafts()]);

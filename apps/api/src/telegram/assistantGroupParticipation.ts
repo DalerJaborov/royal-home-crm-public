@@ -5,7 +5,7 @@ import type { PropertyRefRecord } from "../lib/propertyRefLookup.js";
 const CODE = String.raw`(?:об|ob|объект(?:а|е)?)\s*[-–—№#]?\s*(\d{1,8})`;
 const PROPERTY_CODE = new RegExp(CODE, "iu");
 const RU = String.raw`(?:какая цена|сколько стоит|ещ[её] актуален)`;
-const TG = String.raw`(?:нархаш чанд|чанд пул|ҳоло дар фурӯш аст)`;
+const TG = String.raw`(?:(?:нархаш чанд|чанд пул)(?:\s+шуд)?|ҳоло дар фурӯш аст)`;
 const endings = "[?!.]*$";
 const patterns = [
   { lang: "ru", re: new RegExp(String.raw`^(?:коллеги[,!]?\s+)?(?:(?:подскажите|кто подскажет)[,:]?\s+)?${RU}\s+(?:(?:у|по|на)\s+)?${CODE}${endings}`, "iu") },
@@ -32,7 +32,7 @@ const STATUS_DELAY = /(?:недел\p{L}*|\d+\s+(?:дн\p{L}*|рӯз)|ҳафта
 
 // An object and a question are both required; a standalone mention of a post is ordinary chat.
 const PUBLICATION_PROPERTY = /(?<![\p{L}\p{N}])(?:объект\p{L}*|квартир\p{L}*|дом(?:а|ов|у|е)?|хона\p{L}*|ҳавл\p{L}*|[кқ][оа]робк\p{L}*)(?![\p{L}\p{N}])/iu;
-const PUBLICATION_QUESTION = /(?:^|\s)(?:пост|нашр)\s+(?:на)?шуд(?:ааст)?\s*(?:м[иӣ]\s*\??|\?)$/iu;
+const PUBLICATION_QUESTION = /(?:^|\s)(?:(?:пост|нашр)\s+(?:на)?шуд(?:ааст)?\s*(?:м[иӣ]\s*\??|\?)|(?:уже\s+)?(?:выложили|опубликовали)\s*\?)$/iu;
 
 export function propertyPublicationQuestion(text: string): boolean {
   return (PUBLICATION_PROPERTY.test(text) || PROPERTY_CODE.test(text)) && PUBLICATION_QUESTION.test(text);
@@ -48,15 +48,37 @@ export function unaddressedReadRequest(text: string): boolean {
 
 export type GroupConfirmationTool = "change_property_price" | "send_to_remake";
 
+const RUSSIAN_PRICE_VERB = String.raw`(?:поменяй(?:те)?|измени(?:те)?|обнови(?:те)?|поставь(?:те)?|снизь(?:те)?|подними(?:те)?)`;
+const RUSSIAN_PRICE_REQUEST_START = new RegExp(String.raw`^${RUSSIAN_PRICE_VERB}(?:\s|$)`, "iu");
+const TAJIK_PRICE_VERB = String.raw`(?:мон(?:ед|ен)|бумон|иваз кун(?:ед)?)`;
+const TAJIK_PRICE_VERB_IN_TEXT = new RegExp(String.raw`(?:^|\s)${TAJIK_PRICE_VERB}(?=$|[\s,.!])`, "iu");
+const TAJIK_PRICE_PREFIX = new RegExp(String.raw`^(?:(?:аз\s+имрӯз|имрӯз|ҳозир|лутфан)[,\s]+)*(?:(?:барои\s+)?${CODE}(?:-ро)?[\s,:]+)?(?:лутфан[,\s]+)?`, "iu");
+const TAJIK_PRICE_AMOUNT = String.raw`\d[\d\s]*\s+(?:сомон[ӣи]?|ҳазор|хазор)(?:\s+сомон[ӣи]?)?`;
+const TAJIK_PRICE_REQUEST_START = new RegExp(String.raw`^(?:нарх(?:и|ро|аш(?:ро)?)?|${TAJIK_PRICE_VERB}|${TAJIK_PRICE_AMOUNT}\s+${TAJIK_PRICE_VERB})(?=$|[\s,:.!])`, "iu");
+const TAJIK_SAID = String.raw`гуфт(?:ам|ум|ӣ|и|ед|анд)?(?![\p{L}\p{N}])`;
+const TAJIK_PRICE_REPORT = new RegExp(String.raw`(?<![\p{L}\p{N}])${TAJIK_SAID}`, "iu");
+const TAJIK_PRICE_ATTRIBUTION = new RegExp(String.raw`^[\s,;:–—-]*${TAJIK_SAID}`, "iu");
+const PRICE_CONDITION = /(?<![\p{L}\p{N}])(?:если|агар|при\s+условии|ба\s+шарте\s+ки)(?![\p{L}\p{N}])/iu;
+const PRICE_EXPLANATION = /^(?:если\s+спросят|агар\s+пурсанд)\s*,/iu;
+const PRICE_VERB_IN_NOTE = new RegExp(String.raw`(?<![\p{L}\p{N}])(?:${RUSSIAN_PRICE_VERB}|${TAJIK_PRICE_VERB})(?![\p{L}\p{N}])`, "iu");
+
 export function unaddressedConfirmationRequest(text: string): GroupConfirmationTool | null {
   // Without a direct address, accept only unambiguous instructions with an exact CRM code.
   if (!PROPERTY_CODE.test(text) || text.length > 350 || /[\r\n]|https?:\/\/|\?|(?:^|\s)(?:не|нет)\s|(?:накун|намон)/iu.test(text)) return null;
   const clean = text.replace(/^(?:пожалуйста|лутфан)[, ]+/iu, "");
-  if (/^(?:поменяй(?:те)?|измени(?:те)?|обнови(?:те)?|поставь(?:те)?|снизь(?:те)?|подними(?:те)?)(?:\s|$)/iu.test(clean)
-      && /цен[ауые]/iu.test(clean) && /\d\s*(?:сомон|тыс|tjs|usd|доллар)/iu.test(clean)) return "change_property_price";
+  const [priceCommand, ...notes] = clean.split(/(?<=[.!])\s+(?=\p{L})/u);
+  // A separate explanation for colleagues is safe only if it contains no further price instruction.
+  const unconditionalPrice = PROPERTY_CODE.test(priceCommand) && !PRICE_CONDITION.test(priceCommand)
+    && !notes.some(note => PRICE_CONDITION.test(note)
+      && (!PRICE_EXPLANATION.test(note) || /\d/u.test(note) || PRICE_VERB_IN_NOTE.test(note)));
+  if (unconditionalPrice && RUSSIAN_PRICE_REQUEST_START.test(priceCommand)
+      && /цен[ауые]/iu.test(priceCommand) && /\d\s*(?:сомон|тыс|tjs|usd|доллар)/iu.test(priceCommand)) return "change_property_price";
   if (groupMontageCommand(clean)) return "send_to_remake";
-  if (/(?:нарх|сомон)/iu.test(clean) && /\d\s*(?:сомон|ҳазор|хазор)/iu.test(clean)
-      && /(?:^|\s)(?:мон(?:ед|ен)|бумон|иваз кун(?:ед)?)(?=$|[\s,.!])/iu.test(clean)) return "change_property_price";
+  if (!unconditionalPrice || !TAJIK_PRICE_REQUEST_START.test(priceCommand.replace(TAJIK_PRICE_PREFIX, ""))
+      || !/(?:нарх|сомон)/iu.test(priceCommand) || !/\d\s*(?:сомон|ҳазор|хазор)/iu.test(priceCommand)) return null;
+  const verb = TAJIK_PRICE_VERB_IN_TEXT.exec(priceCommand);
+  if (verb && !TAJIK_PRICE_REPORT.test(priceCommand.slice(0, verb.index))
+      && !TAJIK_PRICE_ATTRIBUTION.test(priceCommand.slice(verb.index + verb[0].length))) return "change_property_price";
   return null;
 }
 
@@ -70,6 +92,16 @@ export function groupStatusFollowUp(text: string, quoted: string): boolean {
 /** Use only visible, unique object numbers from a reply. Never copy its stale result or instructions. */
 export function groupPropertyRefs(text: string): string[] {
   return groupPropertyReferenceNumbers(text, 8).map(id => formatPropertyCode(id));
+}
+
+export function groupInstagramLinkRequest(text: string, quoted: string): { ref: string; tajik: boolean } | null {
+  if (text.length > 180 || !/(?:инстаграм|instagram)/iu.test(text)
+      || !/(?:ссылк|пайванд|линк)/iu.test(text)
+      || !/\?|(?<!\p{L})(?:дай(?:те)?|скинь(?:те)?|отправь(?:те)?|покажи(?:те)?|пришли(?:те)?|где|можно|нужна|парто|фирист\p{L}*|равон|диҳ\p{L}*)(?!\p{L})/iu.test(text)
+      || /https?:\/\/|\b(?:не надо|не нужно)\b|(?<!\p{L})(?:не|накун|иваз|измени|обнови|снизь)(?!\p{L})|[;\r\n]/iu.test(text)) return null;
+  const current = groupPropertyRefs(text);
+  const refs = current.length ? current : groupPropertyRefs(quoted);
+  return refs.length === 1 ? { ref: refs[0], tajik: /пайванд|парто|фирист|равон|диҳ|(?:инстаграм|линк)и(?!\p{L})/iu.test(text) } : null;
 }
 
 /** The same exact visible code identifies evidence at capture and at search. */
@@ -86,7 +118,8 @@ export function groupHistoryQuestion(text: string, replyToMessageId?: number) {
   if (text.length > 200 || /[\r\n]|https?:\/\/|не\s+(?:отвечай(?:те)?|вмешивайся)|хомӯш бош/iu.test(text)) return null;
   const ask = /^(?:а\s+)?(?:что\s+(?:(?:уже|тут|здесь)\s+)*(?:писали|написали|говорили|просили|обсуждали)|(?:то ҳол\s+)?ч[ӣи]\s+(?:(?:ин ҷо|пештар)\s+)?(?:навиштанд|гуфтанд|пурсиданд))(?=$|[\s?!.])/iu;
   const askAuthor = /^(?:а\s+)?(?:кто\s+(?:(?:тут|здесь)\s+)?(?:писал|написал|сказал|просил)|к[ӣи]\s+(?:(?:ин ҷо|пештар)\s+)?(?:навишт|гуфт|пурсид))(?=$|[\s,?!.])/iu;
-  if (!ask.test(text) && !askAuthor.test(text)) return null;
+  const question = text.replace(/^(?:дар бораи|по)\s+(?:об|ob)[\s\-–—№#]+\d{1,10}(?:\s+дар\s+(?:ин|[ҳх]амин)\s+ҷо)?[\s,:]+/iu, "");
+  if (!ask.test(question) && !askAuthor.test(question)) return null;
   const refs = groupPropertyReferenceNumbers(text);
   if (refs.length === 1) return { propertyShortId: refs[0] };
   if (!refs.length && replyToMessageId) return { replyToMessageId };
@@ -156,4 +189,20 @@ export function proactivePropertyReply(p: Pick<PropertyRefRecord, "shortId" | "p
   const currency = p.currency === "USD" ? "USD" : lang === "tg" ? "сомонӣ" : "сомони";
   const price = Number.isFinite(amount) && amount > 0 ? ` · ${amount.toLocaleString("ru-RU")} ${currency}` : "";
   return `${card} — ${STATUS[lang][p.status]}${price}.`;
+}
+/** Entire utterance only: "thanks, and change the price" is still a request. */
+export function groupAcknowledgment(words: string): "👍" | "😁" | null {
+  if (words.length > 90 || /[?？؟]/u.test(words)) return null;
+  const text = words.normalize("NFC").toLowerCase()
+    .replace(/^[\s,،.!…]+|[\s,،.!…]+$/gu, "")
+    .replace(/^(?:шабнам|мушовир)[\s,:!—–-]+/u, "")
+    .replace(/[\s,]+(?:шабнам|мушовир)[.!…\s]*$/u, "")
+    .trim();
+  if (/^(?:(?:ҳа|ха|да|хуб|ок)[\s,.!]+)?(?:спасибо(?: большое)?|большое спасибо|благодарю|ра[ҳх]мат(?:и калон| калон)?|ташаккур(?:и зиёд)?)(?:[\s,.!…]*(?:🙏|👍|😊|🙂))?$/u.test(text)
+      || /^(?:👍|🙏|👌)[\uFE0F]?$/u.test(text)) return "👍";
+  // Audio recognition can return Tajik/Persian gratitude in the Persian script.
+  const persian = text.replace(/[يى]/gu, "ی").replace(/ك/gu, "ک");
+  if (/^(?:(?:خیلی\s+)?(?:ممنونم?|مرسی|تشکر)(?:[\s,،.!…]+|$)){1,3}$/u.test(persian)) return "👍";
+  if (/^(?:😂|😄|😁|🤣|(?:ха|ҳа)(?:[\s-]+(?:ха|ҳа)){1,3})$/u.test(text)) return "😁";
+  return null;
 }

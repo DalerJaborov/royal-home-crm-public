@@ -169,7 +169,7 @@ export async function sendMessage(
    * с сообщения все ограничения: живой сотрудник отвечает клиенту из CRM.
    * Умолчание — бот.
    */
-  outbound?: { origin?: OutboundOrigin; beforePost?: () => Promise<void>; requireReply?: boolean; singleAttempt?: boolean }
+  outbound?: { origin?: OutboundOrigin; beforePost?: () => Promise<void>; requireReply?: boolean; singleAttempt?: boolean; messageThreadId?: number }
 ): Promise<unknown> {
   /**
    * ЩИТ СТОРОЖИТ ТОЛЬКО КЛИЕНТСКИЕ ЧАТЫ (`onlyIfKnown`).
@@ -219,6 +219,7 @@ export async function sendMessage(
     last = await call("sendMessage", {
       chat_id: chatId,
       text: part,
+      ...(outbound?.messageThreadId ? { message_thread_id: outbound.messageThreadId } : {}),
       ...(directMessagesTopicId ? { direct_messages_topic_id: directMessagesTopicId } : {}),
       ...(first && replyToMessageId ? { reply_to_message_id: replyToMessageId, allow_sending_without_reply: !outbound?.requireReply } : {}),
     }, CALL_TIMEOUT_MS, outbound?.requireReply ? (data, status) => {
@@ -248,12 +249,14 @@ export function sendMessageWithButtons(
   text: string,
   buttons: TelegramInlineButton[][],
   /** Ответом на сообщение (общая группа: карточка помощника под просьбой автора). */
-  replyToMessageId?: number
+  replyToMessageId?: number,
+  messageThreadId?: number,
 ): Promise<TelegramSentMessage> {
   return call<TelegramSentMessage>("sendMessage", {
     chat_id: chatId,
     text,
     reply_markup: { inline_keyboard: buttons },
+    ...(messageThreadId ? { message_thread_id: messageThreadId } : {}),
     ...(replyToMessageId ? { reply_to_message_id: replyToMessageId, allow_sending_without_reply: true } : {}),
   });
 }
@@ -293,15 +296,19 @@ export function removeKeyboard(chatId: string, text: string): Promise<unknown> {
  * которое уже состоялся, её отказ не должен ронять основной ответ (тот же
  * принцип, что у showReadAndTyping в messengers/meta.ts).
  */
-export async function setMessageReaction(chatId: string, messageId: number, emoji: string): Promise<void> {
+export async function setMessageReaction(chatId: string, messageId: number, emoji: string): Promise<"sent" | "unavailable" | "uncertain"> {
   try {
     await call("setMessageReaction", {
       chat_id: chatId,
       message_id: messageId,
       reaction: emoji ? [{ type: "emoji", emoji }] : [],
-    });
+    }, 2_500, undefined, undefined, true);
+    return "sent";
   } catch (err) {
     console.warn("[telegram] Реакция не поставлена (косметика, на переписку не влияет):", describeError(err));
+    if (err instanceof TelegramApiError && err.errorCode === 400
+      && /REACTION_INVALID|REACTIONS_TOO_MANY|reaction (?:is )?(?:invalid|not allowed|not available)/iu.test(err.message)) return "unavailable";
+    return "uncertain";
   }
 }
 
@@ -318,6 +325,7 @@ export async function sendChatAction(
   chatId: string,
   directMessagesTopicId?: number,
   action: "typing" | "record_voice" | "upload_voice" | "upload_photo" | "upload_document" = "typing",
+  messageThreadId?: number,
 ): Promise<void> {
   if (!BASE_URL) return;
   try {
@@ -325,6 +333,7 @@ export async function sendChatAction(
       chat_id: chatId,
       action,
       ...(directMessagesTopicId != null ? { direct_messages_topic_id: directMessagesTopicId } : {}),
+      ...(messageThreadId != null ? { message_thread_id: messageThreadId } : {}),
     }, 2_000, undefined, undefined, true);
   } catch (err) {
     console.warn("[telegram] Индикатор действия не показан:", action, describeError(err));
@@ -702,15 +711,20 @@ export async function sendHtmlMessage(
 }
 
 /** Repeat a known voice for this bot, with no ambiguous automatic retry. */
-export async function sendAssistantVoiceId(chatId: string, fileId: string, replyToMessageId?: number): Promise<unknown> {
+export async function sendAssistantVoiceId(
+  chatId: string, fileId: string, replyToMessageId?: number, messageThreadId?: number,
+): Promise<unknown> {
   return call("sendVoice", {
     chat_id: chatId, voice: fileId,
+    ...(messageThreadId ? { message_thread_id: messageThreadId } : {}),
     ...(replyToMessageId ? { reply_to_message_id: replyToMessageId, allow_sending_without_reply: true } : {}),
   }, CALL_TIMEOUT_MS, undefined, undefined, true);
 }
 
 /** Голосовое сообщение (OGG/Opus) — ответ помощницы голосом (telegram/assistantVoice.ts). */
-export async function sendVoiceFile(chatId: string, audio: Buffer, replyToMessageId?: number, timeoutMs = 60_000): Promise<unknown> {
+export async function sendVoiceFile(
+  chatId: string, audio: Buffer, replyToMessageId?: number, timeoutMs = 60_000, messageThreadId?: number,
+): Promise<unknown> {
   if (!BASE_URL) throw new Error("TELEGRAM_BOT_TOKEN не настроен");
   return postMultipartWithRetry(
     `${BASE_URL}/sendVoice`,
@@ -718,6 +732,7 @@ export async function sendVoiceFile(chatId: string, audio: Buffer, replyToMessag
       const form = new FormData();
       form.append("chat_id", chatId);
       if (replyToMessageId) { form.append("reply_to_message_id", String(replyToMessageId)); form.append("allow_sending_without_reply", "true"); }
+      if (messageThreadId) form.append("message_thread_id", String(messageThreadId));
       form.append("voice", new Blob([audio], { type: "audio/ogg" }), "assistant.ogg");
       return form;
     },
@@ -1046,6 +1061,10 @@ export interface TelegramUpdate {
   /** Used by opted-in group evidence only. An edit must never run the reply pipeline. */
   edited_message?: TelegramIncomingMessage;
   callback_query?: TelegramCallbackQuery;
+}
+
+export function telegramUpdateChatId(update: TelegramUpdate): number | undefined {
+  return update.edited_message?.chat?.id ?? update.callback_query?.message?.chat?.id ?? update.message?.chat?.id;
 }
 
 /** Long polling держит соединение открытым до 25 секунд штатно, поэтому общий

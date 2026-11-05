@@ -835,7 +835,22 @@ describe("Обновить подписи в вышедших постах", () 
     expect(result.caption.length).toBeGreaterThan(0);
     const after = await prisma.property.findUniqueOrThrow({ where: { id: property.id } });
     expect(after.reelsCaption).toBe(result.caption);
-    expect(editMessageCaption).toHaveBeenCalledWith("@rh-test-channel", 4242, result.caption);
+    expect(editMessageCaption).toHaveBeenCalledWith("@rh-test-channel", 4242, result.caption, undefined, true);
+  });
+
+  it("ручная правка ждёт завершения уже начатой автоматической отправки", async () => {
+    const property = await seedPublished();
+    await prisma.publicationMetadataSync.create({
+      data: {
+        propertyId: property.id, revisionHash: "test-in-flight", channel: "FACEBOOK",
+        operation: "CAPTION", status: "EXECUTING", executionMode: "AUTO_PRICE", startedAt: new Date(),
+      },
+    });
+    const result = await refreshPublishedCaptions(property.id);
+
+    expect(result.failed[0].error).toContain("уже обновляется");
+    expect(updateFacebookVideoDescription).not.toHaveBeenCalled();
+    expect((await prisma.property.findUniqueOrThrow({ where: { id: property.id } })).reelsCaption).toBe(property.reelsCaption);
   });
 
   it("отказ одной сети не отменяет успех остальных и попадает в журнал", async () => {

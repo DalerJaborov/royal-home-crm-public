@@ -1,16 +1,22 @@
 import { isReadOnlyRole, assistantKnowledgeArchiveSchema, assistantKnowledgeSearchSchema, type AssistantKnowledgeInput } from "@royal-home/shared";
 import { loadAgentAccess } from "../../../auth/middleware.js";
-import { AssistantActionError, type AssistantActionExecutor } from "../../../lib/assistantActions.js";
+import { prisma } from "../../../db.js";
+import { AssistantActionError, type AssistantActionActor, type AssistantActionExecutor } from "../../../lib/assistantActions.js";
 import { getCompanyKnowledge, searchCompanyKnowledge, saveCompanyKnowledge, validateCompanyKnowledge, knowledgeContext, KnowledgeConflict } from "../knowledge.js";
 import { loadToolActor, asPluginExecutor } from "./showingToolSupport.js";
 import type { AssistantToolPlugin } from "./types.js";
 
 const fields = (label: string, text: string): Record<string, string> => Object.fromEntries(
   (text.match(/[\s\S]{1,100}/g) ?? []).map((part, i) => [`${label} ${i + 1}`, part]));
+async function requireKnowledgeEditor(actor: AssistantActionActor): Promise<void> {
+  await loadToolActor(actor, prisma);
+}
+
 export const saveKnowledgeExecutor: AssistantActionExecutor<AssistantKnowledgeInput> = {
   tool: "save_company_knowledge", channels: ["crm", "telegram"], parseArgs: (raw) => validateCompanyKnowledge(raw),
+  authorize: (_args, actor) => requireKnowledgeEditor(actor),
   async snapshot(args, actor) {
-    await loadToolActor(actor);
+    await requireKnowledgeEditor(actor);
     const row = await getCompanyKnowledge(args.title);
     return { revision: row?.revision ?? 0, content: row?.content ?? "нет", source: row?.source ?? "нет", archived: row?.archived ?? false };
   },
@@ -20,7 +26,7 @@ export const saveKnowledgeExecutor: AssistantActionExecutor<AssistantKnowledgeIn
       risk: "Будет доступно всем сотрудникам, включая группу. Только общие рабочие знания, без персональных и клиентских данных." };
   },
   async execute(args, actor, ctx) {
-    await loadToolActor(actor);
+    await requireKnowledgeEditor(actor);
     try {
       const row = await saveCompanyKnowledge(args, actor.agentId, Number(ctx.snapshotBefore.revision));
       return { result: { id: row.id, title: row.title, revision: row.revision, status: "Сохранено в общей памяти" }, audit: { entityType: "AssistantKnowledge", entityId: row.id } };
@@ -29,8 +35,9 @@ export const saveKnowledgeExecutor: AssistantActionExecutor<AssistantKnowledgeIn
 };
 export const archiveKnowledgeExecutor: AssistantActionExecutor<{ title: string }> = {
   tool: "archive_company_knowledge", channels: ["crm", "telegram"], parseArgs: (raw) => assistantKnowledgeArchiveSchema.parse(raw),
+  authorize: (_args, actor) => requireKnowledgeEditor(actor),
   async snapshot(args, actor) {
-    await loadToolActor(actor);
+    await requireKnowledgeEditor(actor);
     const row = await getCompanyKnowledge(args.title);
     if (!row || row.archived) throw new AssistantActionError(404, "NOT_FOUND", "Активное знание не найдено");
     return { revision: row.revision, content: row.content, source: row.source, validUntil: row.validUntil?.toISOString() ?? null };
@@ -38,7 +45,7 @@ export const archiveKnowledgeExecutor: AssistantActionExecutor<{ title: string }
   buildPreview(args, before) { return { title: "Убрать знание из ответов всем сотрудникам", was: { Название: args.title, Версия: before.revision },
     becomes: { Статус: "Архив, больше не используется в ответах" }, risk: "История версий останется для аудита." }; },
   async execute(args, actor, ctx) {
-    await loadToolActor(actor);
+    await requireKnowledgeEditor(actor);
     try {
       const row = await saveCompanyKnowledge({ title: args.title, content: String(ctx.snapshotBefore.content), source: String(ctx.snapshotBefore.source), validUntil: typeof ctx.snapshotBefore.validUntil === "string" ? ctx.snapshotBefore.validUntil : null }, actor.agentId, Number(ctx.snapshotBefore.revision), true);
       return { result: { id: row.id, status: "Архивировано, исключено из ответов" }, audit: { entityType: "AssistantKnowledge", entityId: row.id } };

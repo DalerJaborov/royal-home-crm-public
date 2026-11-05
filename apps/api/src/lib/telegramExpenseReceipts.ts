@@ -7,7 +7,7 @@ import { expenseDay, todayExpenseDay } from "./expenseWorkspace.js";
 import { loadMoneyContext } from "./money.js";
 import { maskAssistantContacts } from "./assistantContacts.js";
 
-export const MAX_EXPENSE_RECEIPT_IMAGE_BYTES = 2_000_000;
+export const MAX_EXPENSE_RECEIPT_BYTES = 2_000_000;
 const DRAFT_TTL_MS = 10 * 60_000;
 const MAX_AMOUNT_MINOR = 9_999_999_999;
 const evidenceSchema = z.object({
@@ -17,6 +17,7 @@ const evidenceSchema = z.object({
   paymentDate: expenseDateSchema,
   purpose: z.string().min(1).max(160),
   vendor: z.string().max(100).nullable(),
+  sourceFormat: z.literal("pdf").optional(),
 }).strict();
 export type ExpenseReceiptEvidence = z.infer<typeof evidenceSchema>;
 export interface ExpenseDirectorIdentity { agentId: string; chatId: string }
@@ -52,8 +53,8 @@ export function parseExpenseReceiptEvidence(input: unknown, now = new Date()): E
   return { ...result.data, purpose, vendor: result.data.vendor ? safeField(result.data.vendor) || null : null };
 }
 
-export function expenseReceiptHash(image: Uint8Array): string {
-  return createHash("sha256").update(image).digest("hex");
+export function expenseReceiptHash(source: Uint8Array): string {
+  return createHash("sha256").update(source).digest("hex");
 }
 
 const selectDraft = { id: true, agentId: true, chatId: true, expenseId: true, evidence: true, expiresAt: true, previewMessageId: true } as const;
@@ -79,20 +80,24 @@ export async function findExpensePhotoDraft(
   return row ? draftView(row, actor, now) : null;
 }
 
-/** The image enters private staging only when the receipt has all critical fields. */
+/** The validated JPEG or PDF enters private staging only when it has all critical fields. */
 export async function stageExpensePhotoDraft(
-  actor: ExpenseDirectorIdentity, messageId: number, image: Uint8Array, input: ExpenseReceiptEvidence, now = new Date(),
+  actor: ExpenseDirectorIdentity, messageId: number, source: Uint8Array, input: ExpenseReceiptEvidence, now = new Date(),
 ): Promise<IntakeResult> {
-  const evidence = parseExpenseReceiptEvidence(input, now);
+  const pdf = Buffer.from(source.subarray(0, 5)).toString("ascii") === "%PDF-";
+  // Old code uses a strict evidence schema and rejects a PDF draft during rollback.
+  const evidence = parseExpenseReceiptEvidence(pdf ? { ...input, sourceFormat: "pdf" } : input, now);
   if (!evidence || !Number.isSafeInteger(messageId) || messageId <= 0 || messageId > 2_147_483_647
-    || !image.length || image.length > MAX_EXPENSE_RECEIPT_IMAGE_BYTES) throw new Error("Invalid expense photo draft");
-  const sourceHash = expenseReceiptHash(image);
+    || (!pdf && evidence.sourceFormat === "pdf") || !source.length || source.length > MAX_EXPENSE_RECEIPT_BYTES) {
+    throw new Error("Invalid expense receipt draft");
+  }
+  const sourceHash = expenseReceiptHash(source);
   const identity = { OR: [{ chatId: actor.chatId, messageId }, { sourceHash }] };
   // An expired card can never point at a fresh draft, even for the same source.
   await prisma.telegramExpenseDraft.deleteMany({ where: { ...identity, expenseId: null, expiresAt: { lte: now } } });
   try {
     const row = await prisma.telegramExpenseDraft.create({
-      data: { ...actor, messageId, sourceHash, evidence, image: Buffer.from(image), expiresAt: new Date(now.getTime() + DRAFT_TTL_MS) },
+      data: { ...actor, messageId, sourceHash, evidence, image: Buffer.from(source), expiresAt: new Date(now.getTime() + DRAFT_TTL_MS) },
       select: selectDraft,
     });
     return { kind: "pending", id: row.id, evidence, previewMessageId: null };
@@ -100,6 +105,22 @@ export async function stageExpensePhotoDraft(
     if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") throw error;
     return (await findExpensePhotoDraft(actor, messageId, sourceHash, now)) ?? { kind: "duplicate" };
   }
+}
+
+/** Claim the external keyboard send once, including across workers and process restarts. */
+export async function claimExpensePreview(actor: ExpenseDirectorIdentity, id: string, now = new Date()): Promise<boolean> {
+  const claimed = await prisma.telegramExpenseDraft.updateMany({
+    where: { ...actor, id, expenseId: null, expiresAt: { gt: now }, previewMessageId: null, previewClaimed: false },
+    data: { previewClaimed: true },
+  });
+  return claimed.count === 1;
+}
+
+export async function releaseRejectedExpensePreview(actor: ExpenseDirectorIdentity, id: string): Promise<void> {
+  await prisma.telegramExpenseDraft.updateMany({
+    where: { ...actor, id, expenseId: null, previewMessageId: null, previewClaimed: true },
+    data: { previewClaimed: false },
+  });
 }
 
 export async function markExpensePreviewDelivered(actor: ExpenseDirectorIdentity, id: string, messageId: number): Promise<void> {
@@ -113,7 +134,7 @@ type DecisionResult =
   | { kind: "recorded"; expenseId: string }
   | { kind: "cancelled" | "expired" | "forbidden" };
 
-/** Expense, receipt, private image, audit and replay marker commit together. */
+/** Expense, receipt, private file, audit and replay marker commit together. */
 export async function decideExpensePhotoDraft(
   actor: ExpenseDirectorIdentity, id: string, confirm: boolean, now = new Date(),
 ): Promise<DecisionResult> {
@@ -144,12 +165,15 @@ export async function decideExpensePhotoDraft(
       month: evidence.paymentDate.slice(0, 7), status: "PAID", paymentDate: evidence.paymentDate,
       amount: evidence.amountMinor / 100, currency: evidence.currency, exchangeRate: rate,
     });
+    const pdf = evidence.sourceFormat === "pdf";
+    const extension = pdf ? "pdf" : "jpg";
     const expense = await tx.expense.create({
       data: {
         ...data, month: expenseDay(`${data.month}-01`), paymentDate: expenseDay(evidence.paymentDate),
         createdById: actor.agentId, rateCapturedAt: now, requestKey: `tg-receipt:${draft.sourceHash}`,
         receipts: { create: {
-          fileName: `${id}.jpg`, originalName: "telegram-receipt.jpg", mimeType: "image/jpeg",
+          fileName: `${id}.${extension}`, originalName: `telegram-receipt.${extension}`,
+          mimeType: pdf ? "application/pdf" : "image/jpeg",
           size: draft.image.length, uploadedById: actor.agentId, content: { create: { image: draft.image } },
         } },
       },

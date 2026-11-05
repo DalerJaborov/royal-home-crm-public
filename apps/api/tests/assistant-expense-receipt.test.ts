@@ -8,7 +8,8 @@ import { createAssistantMoneyWallet } from "../src/ai/assistant/moneyBudget.js";
 import { decideExpensePhotoDraft, expireExpensePhotoDrafts, getExpenseDirector, stageExpensePhotoDraft } from "../src/lib/telegramExpenseReceipts.js";
 import { handleAssistantCallback, handleAssistantPrivate } from "../src/telegram/assistantBot.js";
 import { handleTelegramExpenseReceipt } from "../src/telegram/assistantExpenseReceipt.js";
-import type { TelegramIncomingMessage, TelegramInlineButton } from "../src/telegram/api.js";
+import { TelegramApiError, type TelegramIncomingMessage, type TelegramInlineButton } from "../src/telegram/api.js";
+import { assistantPdfFixture } from "./helpers/assistantPdfFixture.js";
 
 const io = vi.hoisted(() => ({
   extract: vi.fn(),
@@ -53,6 +54,9 @@ const evidence = { language: "ru" as const, amountMinor: 15025, currency: "TJS" 
 function msg(caption?: string, additional: Partial<TelegramIncomingMessage> = {}): TelegramIncomingMessage {
   return { message_id: ++count, chat: { id: chatId, type: "private" }, from: { id: chatId }, photo: [{ file_id: "receipt-photo-fixture" }], caption, ...additional };
 }
+function pdfMsg(caption = "Чек", additional: Partial<TelegramIncomingMessage> = {}): TelegramIncomingMessage {
+  return msg(caption, { photo: undefined, document: { file_id: "receipt-pdf-fixture", mime_type: "application/pdf" }, ...additional });
+}
 async function createJpeg() {
   return sharp({ create: { width: 40, height: 35, channels: 3,
     background: { r: (count * 29) % 255, g: (count * 41) % 255, b: (count * 13) % 255 },
@@ -61,6 +65,66 @@ async function createJpeg() {
 const token = () => ({ Authorization: `Bearer ${signAccessToken({ sub: director.id, role: "DIRECTOR" })}` });
 const approve = (data: string, overrides = {}) => handleAssistantCallback({
   id: `receipt-fixture-${++count}`, from: { id: chatId }, message: { chat: { id: chatId, type: "private" }, message_id: 801 }, data, ...overrides,
+});
+
+describe("private Telegram expense from a receipt PDF", () => {
+  it("reads a single visible page and attaches the original file to one confirmed expense", async () => {
+    const before = await expenseCount();
+    const pdf = assistantPdfFixture(1);
+    io.download.mockResolvedValue(pdf);
+
+    await handleAssistantPrivate(pdfMsg(), director);
+    await handleAssistantPrivate(pdfMsg(), director);
+    expect(io.extract).toHaveBeenCalledOnce();
+    const raster = io.extract.mock.calls[0]![0];
+    expect(await sharp(raster).metadata()).toMatchObject({ format: "jpeg", width: 2400, height: 2400 });
+    expect(io.buttons).toHaveBeenCalledOnce();
+    expect(io.buttons.mock.calls[0]![1]).toContain("150,25 TJS · 2020-11-04");
+    expect(await expenseCount()).toBe(before);
+
+    const callback = io.buttons.mock.calls[0]![2][0]![0]!.callback_data!;
+    await Promise.all([approve(callback), approve(callback)]);
+    expect(await expenseCount()).toBe(before + 1);
+    const draft = await prisma.telegramExpenseDraft.findUniqueOrThrow({ where: { id: callback.split(":").at(-1)! } });
+    const stored = await prisma.expense.findUniqueOrThrow({ where: { id: draft.expenseId! }, include: { receipts: true } });
+    expect(stored.receipts).toEqual([expect.objectContaining({ mimeType: "application/pdf", originalName: "telegram-receipt.pdf" })]);
+    const url = `/api/v1/expenses/${stored.id}/receipts/${stored.receipts[0]!.id}/file`;
+    expect((await request(app).get(url)).status).toBe(401);
+    const response = await request(app).get(url).set(token()).buffer(true).parse((res, callback) => {
+      const chunks: Buffer[] = [];
+      res.on("data", chunk => chunks.push(Buffer.from(chunk)));
+      res.on("end", () => callback(null, Buffer.concat(chunks)));
+    });
+    expect(response.status).toBe(200);
+    expect(response.headers["content-disposition"]).toContain("attachment");
+    expect(response.body).toEqual(pdf);
+  });
+
+  it("rejects a PDF with multiple pages or spoofed PDF bytes before OCR", async () => {
+    io.download.mockResolvedValueOnce(assistantPdfFixture(2)).mockResolvedValueOnce(Buffer.from("not a PDF"));
+    await handleAssistantPrivate(pdfMsg(), director);
+    await handleAssistantPrivate(pdfMsg(), director);
+    expect(io.extract).not.toHaveBeenCalled();
+    expect(io.buttons).not.toHaveBeenCalled();
+    expect(io.text).toHaveBeenCalledTimes(2);
+    expect(io.text.mock.calls.at(-1)?.[1]).toContain("на одной странице");
+  });
+
+  it("keeps ordinary and unauthorized PDFs out of expenses and refuses a caption-only total", async () => {
+    const wallet = createAssistantMoneyWallet();
+    expect(await handleTelegramExpenseReceipt(pdfMsg(""), director.id, wallet)).toBe(false);
+    expect(await handleTelegramExpenseReceipt(pdfMsg("Чек", {
+      chat: { id: otherChatId, type: "private" }, from: { id: otherChatId },
+    }), administrator.id, wallet)).toBe(false);
+    expect(io.download).not.toHaveBeenCalled();
+
+    io.download.mockResolvedValue(assistantPdfFixture(1, 105));
+    io.extract.mockResolvedValue({ kind: "paid_receipt", ...evidence, amountMinor: null });
+    await handleAssistantPrivate(pdfMsg("Чек: сумма=150,25"), director);
+    expect(io.extract).toHaveBeenCalledOnce();
+    expect(io.buttons).not.toHaveBeenCalled();
+    expect(io.text.mock.calls.at(-1)?.[1]).toContain("итоговой суммой");
+  });
 });
 const expenseCount = () => prisma.expense.count({ where: { createdById: director.id } });
 
@@ -75,6 +139,7 @@ beforeAll(async () => {
 });
 beforeEach(async () => {
   vi.clearAllMocks();
+  await prisma.agentAiActionCounter.deleteMany({ where: { agentId: director.id, action: "assistant-expense-receipt-ocr" } });
   count++;
   io.extract.mockReset().mockResolvedValue({ kind: "paid_receipt", ...evidence });
   io.download.mockReset().mockResolvedValue(await createJpeg());
@@ -132,14 +197,50 @@ describe("private Telegram expense from a receipt photo", () => {
     expect(io.extract).not.toHaveBeenCalled();
   });
 
-  it("restores buttons on replay after preview delivery fails and does not OCR twice", async () => {
-    io.buttons.mockRejectedValueOnce(new Error("synthetic transport failure"));
+  it("restores buttons after Telegram explicitly rejects the preview and does not OCR twice", async () => {
+    io.buttons.mockRejectedValueOnce(new TelegramApiError(400, "sendMessage", "synthetic rejection"));
     const original = msg("чек");
     await handleAssistantPrivate(original, director);
     await handleAssistantPrivate(original, director);
     expect(io.extract).toHaveBeenCalledOnce();
     expect(io.buttons).toHaveBeenCalledTimes(2);
     expect(io.buttons.mock.calls[0][2]).toEqual(io.buttons.mock.calls[1][2]);
+  });
+
+  it.each([2, 3, 4, 5])("keeps one keyboard across %i copies while Telegram is still responding", async copies => {
+    let entered!: () => void;
+    let finish!: () => void;
+    const posting = new Promise<void>(resolve => { entered = resolve; });
+    const waiting = new Promise<void>(resolve => { finish = resolve; });
+    io.buttons.mockImplementationOnce(async () => {
+      entered();
+      await waiting;
+      return { message_id: 801 };
+    });
+    const original = msg("чек");
+    const first = handleAssistantPrivate(original, director);
+    try {
+      await posting;
+      await Promise.all(Array.from({ length: copies - 1 }, () => handleAssistantPrivate(original, director)));
+      expect(io.buttons).toHaveBeenCalledOnce();
+      expect(io.extract).toHaveBeenCalledOnce();
+    } finally {
+      finish();
+      await first;
+    }
+  });
+
+  it.each([
+    new Error("connection lost after request"),
+    new TelegramApiError(500, "sendMessage", "synthetic provider failure"),
+    new TelegramApiError(undefined, "sendMessage", "synthetic incomplete provider reply"),
+  ])("does not post a second keyboard after ambiguous delivery %s", async error => {
+    io.buttons.mockRejectedValueOnce(error);
+    const original = msg("чек");
+    await handleAssistantPrivate(original, director);
+    await handleAssistantPrivate(original, director);
+    expect(io.buttons).toHaveBeenCalledOnce();
+    expect(io.text.mock.calls.at(-1)?.[1]).toContain("через 10 минут");
   });
 
   it("rolls back the expense, attached image and audit if the final replay marker fails", async () => {

@@ -7,14 +7,14 @@ import { listAssistantToolPlugins } from "../ai/assistant/tools/index.js";
 import { sendHtmlMessage, sendMessage, sendMessageWithButtons, TelegramApiError, type TelegramInlineButton } from "./api.js";
 import { sendAssistantVoiceReply } from "./assistantVoice.js";
 import {
-  assistantCardLinks, escapeHtml, prepareAssistantReply, renderAssistantForTelegram, renderAssistantHtml,
-  sanitizeAssistantReply, splitHumanMessages, type AssistantReplyMode,
+  ASSISTANT_VOICE_PART_CHARS, assistantCardLinks, escapeHtml, prepareAssistantReply, prepareAssistantVoicePart,
+  renderAssistantForTelegram, renderAssistantHtml,
+  sanitizeAssistantReply, splitHumanMessages, type AssistantReplyMode, type AssistantSpeechLanguage,
 } from "./assistantReply.js";
 import { describeError } from "../lib/describeError.js";
 import { GROUP_REMAKE_REASON_QUESTION } from "./assistantGroupParticipation.js";
 
 const MAX_CARD_BUTTONS = 5;
-const AUTO_VOICE_MAX_CHARS = 180;
 const TEXT_LAYOUT = /\p{N}|^\s*[-•▪*]\s|\n\s*\n/mu;
 const CRM_CODES = new Set<string>([
   ...ASSISTANT_ACTION_STATUSES, ...CLIENT_STATUSES, ...PROPERTY_CHANGE_KINDS, ...PROPERTY_CHANGE_STATUSES,
@@ -78,7 +78,9 @@ export async function sendAssistantReply(chatId: string, text: string, ctx: {
   structured?: boolean;
   mode?: AssistantReplyMode;
   requestLanguage?: ClientLanguage;
+  voiceLanguage?: AssistantSpeechLanguage;
   replyTo?: number;
+  messageThreadId?: number;
   written: string[];
 }): Promise<boolean> {
   const maskPhones = ctx.scope === "group";
@@ -86,21 +88,20 @@ export async function sendAssistantReply(chatId: string, text: string, ctx: {
   const plan = prepareAssistantReply(clarification ?? text, maskPhones);
   const needsWrittenDetails = Boolean(ctx.structured || plan.needsWrittenDetails || ctx.written.length || TEXT_LAYOUT.test(plan.text));
   const explicitConversation = ctx.mode === "voice" && !needsWrittenDetails && !clarification;
-  const parts = splitHumanMessages(plan.text, explicitConversation ? AUTO_VOICE_MAX_CHARS : undefined);
+  const parts = splitHumanMessages(plan.text, explicitConversation ? ASSISTANT_VOICE_PART_CHARS : undefined);
   if (!parts.length) parts.push("");
-  const structured = needsWrittenDetails || plan.truncated || plan.text.length > AUTO_VOICE_MAX_CHARS || parts.length > 2;
-  let canSpeak = !clarification && (ctx.mode === "voice" || (ctx.mode !== "text" && ctx.fromVoice
+  const structured = needsWrittenDetails || plan.truncated || plan.text.length > ASSISTANT_VOICE_PART_CHARS || parts.length > 2;
+  const requestVoiceLanguage = ctx.requestLanguage === "mixed" ? undefined
+    : ctx.requestLanguage === "ru" || ctx.requestLanguage === "tg" ? ctx.requestLanguage : ctx.voiceLanguage;
+  const conversationLanguage = plan.language === "text-only" ? requestVoiceLanguage : plan.language;
+  let canSpeak = !clarification && !plan.ambiguousLanguage && (ctx.mode === "voice" || (ctx.mode !== "text" && ctx.fromVoice
     && (ctx.scope === "private" || ctx.addressedGroupVoice === true) && !structured));
   const buttonPaths = new Set<string>();
 
   for (const [i, textPart] of parts.entries()) {
-    const initialPart = prepareAssistantReply(textPart, maskPhones);
-    const fallbackLanguage = explicitConversation && initialPart.language === "text-only" && plan.language !== "text-only"
-      && /\p{Script=Cyrillic}/u.test(textPart)
-      ? plan.language : undefined;
-    const part = fallbackLanguage ? prepareAssistantReply(textPart, maskPhones, fallbackLanguage) : initialPart;
+    const { part, fallbackLanguage } = prepareAssistantVoicePart(textPart, maskPhones, explicitConversation ? conversationLanguage : undefined);
     const written = i === parts.length - 1 ? ctx.written.map(entry => sanitizeAssistantReply(entry, maskPhones)) : [];
-    // In a Telegram forum, every new conversational clip must stay in the request's topic.
+    // The topic is shared by all parts; only quote the request where it helps.
     const replyTo = i === 0 || (explicitConversation && ctx.scope === "group") ? ctx.replyTo : undefined;
     const buttons: TelegramInlineButton[][] = [];
     for (const { path, text, url } of assistantCardLinks(part.text, maskPhones)) {
@@ -110,17 +111,20 @@ export async function sendAssistantReply(chatId: string, text: string, ctx: {
       buttons.push([{ text, url }]);
     }
 
-    const shortEnough = !explicitConversation || (!part.truncated && part.text.length <= AUTO_VOICE_MAX_CHARS);
+    const shortEnough = !explicitConversation || (!part.truncated && part.text.length <= ASSISTANT_VOICE_PART_CHARS);
     if (canSpeak && shortEnough && part.language !== "text-only" && part.speech.length >= 3) {
-      const delivered = fallbackLanguage ? await sendAssistantVoiceReply(chatId, part.speech, replyTo, fallbackLanguage)
-        : await sendAssistantVoiceReply(chatId, part.speech, replyTo);
+      const delivered = ctx.messageThreadId !== undefined
+        ? await sendAssistantVoiceReply(chatId, part.speech, replyTo, fallbackLanguage, ctx.messageThreadId)
+        : fallbackLanguage ? await sendAssistantVoiceReply(chatId, part.speech, replyTo, fallbackLanguage)
+          : await sendAssistantVoiceReply(chatId, part.speech, replyTo);
       if (delivered && (explicitConversation || !structured) && !part.needsText && !buttons.length) continue;
       if (!delivered) canSpeak = false;
     }
     const html = [renderAssistantHtml(part.text, { maskPhones }), ...written.map(escapeHtml)].filter(Boolean).join("\n");
     if (html && html.length <= 3900) {
       try {
-        if (buttons.length) await sendHtmlMessage(chatId, html, replyTo, buttons);
+        if (ctx.messageThreadId !== undefined) await sendHtmlMessage(chatId, html, replyTo, buttons.length ? buttons : undefined, ctx.messageThreadId);
+        else if (buttons.length) await sendHtmlMessage(chatId, html, replyTo, buttons);
         else await sendHtmlMessage(chatId, html, replyTo);
         continue;
       } catch (err) {
@@ -131,8 +135,12 @@ export async function sendAssistantReply(chatId: string, text: string, ctx: {
       }
     }
     const plain = [renderAssistantForTelegram(part.text, { maskPhones }), ...written].filter(Boolean).join("\n") || "Готово.";
-    if (buttons.length) await sendMessageWithButtons(chatId, plain, buttons, replyTo);
-    else await sendMessage(chatId, plain, replyTo);
+    if (buttons.length) {
+      if (ctx.messageThreadId !== undefined) await sendMessageWithButtons(chatId, plain, buttons, replyTo, ctx.messageThreadId);
+      else await sendMessageWithButtons(chatId, plain, buttons, replyTo);
+    } else if (ctx.messageThreadId !== undefined) {
+      await sendMessage(chatId, plain, replyTo, undefined, { messageThreadId: ctx.messageThreadId });
+    } else await sendMessage(chatId, plain, replyTo);
   }
   return true;
 }

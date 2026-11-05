@@ -7,7 +7,7 @@ import { Router, type Request } from "express";
 import path from "node:path";
 import fs from "node:fs/promises";
 import { z } from "zod";
-import type { Prisma } from "../../generated/prisma/client.js";
+import type { Prisma, Property } from "../../generated/prisma/client.js";
 import {
   bulkTrashPropertiesSchema,
   propertyCreateSchema,
@@ -37,6 +37,7 @@ import {
 } from "../../lib/propertyPipeline.js";
 import { syncPropertiesToSite } from "../../lib/siteSync.js";
 import { runPostUpdateEffects, seoFieldsForUpdate } from "../../lib/propertyUpdateEffects.js";
+import { stagePropertyPriceDelivery, type PropertyPriceDelivery } from "../../lib/propertyPriceDelivery.js";
 import { notifyPropertyEditedBeforePublish } from "../../lib/propertyEditNotify.js";
 import { notifyWaitingBuyersOfNewProperty } from "../../lib/propertyMatchFilter.js";
 import { loadMoneyContext, toTjs } from "../../lib/money.js";
@@ -1254,14 +1255,7 @@ crudRouter.patch("/:id", requireAuth, async (req, res) => {
   // 16.09.2026): metaTitle/metaDescription/h1/seoDesc идут на сайт и в поиск.
   // Сама сборка — в lib/propertyUpdateEffects.ts (общая с исполнителем заявок).
   const seo = await seoFieldsForUpdate(existing, data, effDistrict?.name, changedFields);
-  const effCurrency = data.currency ?? existing.currency;
-  // Тоже реальное изменение цены, даже если число не поменялось (напр. валюту
-  // поменяли, а сумму нет) — иначе история молчала бы про смену валюты вовсе.
-  // ВЫНЕСЕНО ИЗ транзакции ниже (12.09.2026): нужно и после неё, чтобы решить,
-  // звать ли автоподбор на снижение цены (блок D плана) — переменная внутри
-  // async-колбэка $transaction видна только там же, наружу не выходит.
-  const priceActuallyChanged =
-    (data.price !== undefined && Number(existing.price) !== data.price) || effCurrency !== existing.currency;
+  const writesPrice = data.price !== undefined || data.currency !== undefined;
 
   /**
    * ОПТИМИСТИЧНАЯ БЛОКИРОВКА (13.09.2026, находка 2 — см. Property.version в
@@ -1272,23 +1266,16 @@ crudRouter.patch("/:id", requireAuth, async (req, res) => {
    */
   const { version: clientVersion, ...dataWithoutVersion } = data;
 
-  let updated;
+  let updated: Property;
+  let priceBefore: Property;
+  let priceDelivery: PropertyPriceDelivery | null;
   try {
-    updated = await prisma.$transaction(async (tx) => {
+    ({ updated, priceBefore, priceDelivery } = await prisma.$transaction(async (tx) => {
+      // The price, its audit record and outbound work use the same locked predecessor.
+      if (writesPrice) await tx.$queryRaw`SELECT id FROM "Property" WHERE id = ${existing.id} FOR NO KEY UPDATE`;
+      const before = writesPrice ? await tx.property.findUniqueOrThrow({ where: { id: existing.id } }) : existing;
       if (ownerPhonePlan.kind === "fixSellerPhone") {
         await applySellerPhoneFix(tx, ownerPhonePlan, req.agent!.id, existing.shortId);
-      }
-      if (priceActuallyChanged) {
-        await tx.priceChange.create({
-          data: {
-            propertyId: existing.id,
-            oldPrice: existing.price,
-            oldCurrency: existing.currency,
-            newPrice: data.price ?? existing.price,
-            newCurrency: effCurrency,
-            changedById: req.agent!.id,
-          },
-        });
       }
       // description сюда сознательно не подмешиваем: агент мог вручную выбрать вариант
       // текста через «Сгенерировать описание (ИИ)» (см. /ai/generate-listing) — обычное
@@ -1347,8 +1334,32 @@ crudRouter.patch("/:id", requireAuth, async (req, res) => {
       if (result.count && data.status === "WITHDRAWN" && existing.status !== "WITHDRAWN") {
         await recordPropertyRemoval(tx, { ...removal.data, propertyId: existing.id, actorId: req.agent!.id, operation: "withdraw" });
       }
-      return tx.property.findUniqueOrThrow({ where: { id: req.params.id } });
-    });
+      const after = await tx.property.findUniqueOrThrow({ where: { id: req.params.id } });
+      const amountChanged = !before.price.equals(after.price);
+      const currencyChanged = before.currency !== after.currency;
+      if (!writesPrice || (!amountChanged && !currencyChanged)) {
+        return { updated: after, priceBefore: before, priceDelivery: null };
+      }
+
+      await tx.priceChange.create({
+        data: {
+          propertyId: before.id,
+          oldPrice: before.price,
+          oldCurrency: before.currency,
+          newPrice: after.price,
+          newCurrency: after.currency,
+          changedById: req.agent!.id,
+        },
+      });
+      const deliveryFields = new Set(changedFields);
+      if (amountChanged) deliveryFields.add("price");
+      if (currencyChanged) deliveryFields.add("currency");
+      const delivery = await stagePropertyPriceDelivery(tx, before, after, [...deliveryFields], "правка цены");
+      const updated = delivery.caption.captionRewritten || delivery.caption.descriptionChanged
+        ? await tx.property.findUniqueOrThrow({ where: { id: after.id } })
+        : after;
+      return { updated, priceBefore: before, priceDelivery: delivery };
+    }));
   } catch (err) {
     if (err instanceof PropertyConflictError) {
       return res.status(409).json({ error: err.message });
@@ -1599,14 +1610,15 @@ crudRouter.patch("/:id", requireAuth, async (req, res) => {
    *    caption, см. lib/publishedListingSync.ts. Только на реальной смене цены.
    */
   await runPostUpdateEffects({
-    existing,
+    existing: priceBefore,
     updated,
     changedFields,
-    priceActuallyChanged,
+    priceActuallyChanged: priceDelivery !== null,
     staysAvailable: data.status === undefined || data.status === "AVAILABLE",
-    resyncSite: existing.publishedOnSite && !becameSold && !becameUnsold && !becameWithdrawn && !enteredPipeline,
+    resyncSite: !priceDelivery?.siteQueued && existing.publishedOnSite && !becameSold && !becameUnsold && !becameWithdrawn && !enteredPipeline,
     resyncReason: "правка карточки (PATCH)",
     awaitPriceSync: false,
+    priceCaptionStage: priceDelivery?.caption,
   });
 
   // АВТОПУБЛИКАЦИЯ (см. autoPublishFromEditing выше) — тот же код-путь, что и

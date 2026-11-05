@@ -1,10 +1,11 @@
 import { prisma } from "../db.js";
 import { decryptSecret } from "../crypto.js";
-import { describeError } from "../lib/describeError.js";
+import { adjustTelegramVoiceTempo } from "../lib/audioTranscode.js";
 import { resolveElevenLabsKey } from "../ai/liveVoiceProvider.js";
 import { directAssistantVoice } from "./assistantVoiceDirection.js";
 import { prepareAssistantReply, type AssistantSpeechLanguage } from "./assistantReply.js";
 import { claimAssistantTtsChars } from "./assistantVoiceBudget.js";
+import { assistantElevenLabsPaused, noteAssistantElevenLabsFailure } from "./assistantElevenLabsAvailability.js";
 import { sendChatAction, sendVoiceFile, sendAssistantVoiceId, TelegramApiError } from "./api.js";
 import { z } from "zod";
 import { cacheableAssistantSpeech, assistantVoiceCacheKey, cachedAssistantAudio, writeAssistantVoiceCache, isOggOpusAudio } from "./assistantVoiceCache.js";
@@ -12,7 +13,8 @@ import { cacheableAssistantSpeech, assistantVoiceCacheKey, cachedAssistantAudio,
 /** ElevenLabs speech. Each language needs an explicitly configured voice.
  * Missing settings, unavailable budget or provider errors leave the full text response.
  */
-const TTS_TIMEOUT_MS = 25_000;
+const TTS_TIMEOUT_MS = 12_000;
+const TAJIK_TEMPO = 1.06;
 const TTS_FORMAT = "opus_48000_64";
 const VOICE_PROFILES = {
   ru: {
@@ -72,7 +74,7 @@ async function synthesize(
   text: string, language: "ru" | "tg", config: SpeechConfig, dictionary: PronunciationDictionaryLocator | undefined,
 ): Promise<Buffer | null> {
   const { voiceId, key } = config;
-  if (!key) return null;
+  if (!key || assistantElevenLabsPaused(key, "synthesis")) return null;
   if (!(await claimAssistantTtsChars(text.length))) return null;
   const profile = VOICE_PROFILES[language];
   const endpoint = language === "ru" ? `${profile.endpoint}/${encodeURIComponent(voiceId)}` : profile.endpoint;
@@ -91,14 +93,24 @@ async function synthesize(
     }),
     signal: AbortSignal.timeout(TTS_TIMEOUT_MS),
   });
-  if (!res.ok) throw new Error(`ElevenLabs HTTP ${res.status}`);
+  if (!res.ok) {
+    await noteAssistantElevenLabsFailure(key, "synthesis", res);
+    throw new Error(`ElevenLabs HTTP ${res.status}`);
+  }
   const audio = Buffer.from(await res.arrayBuffer());
   if (!isOggOpusAudio(audio)) throw new Error("ElevenLabs returned invalid Ogg/Opus audio");
+  if (language === "tg") {
+    const adjusted = await adjustTelegramVoiceTempo(audio, TAJIK_TEMPO).catch(() => null);
+    if (adjusted && isOggOpusAudio(adjusted)) return adjusted;
+  }
   return audio;
 }
 
 /** Озвучивает ответ и шлёт голосовым. Никогда не бросает. */
-export async function sendAssistantVoiceReply(chatId: string, replyText: string, replyTo?: number, fallbackLanguage?: AssistantSpeechLanguage): Promise<boolean> {
+export async function sendAssistantVoiceReply(
+  chatId: string, replyText: string, replyTo?: number, fallbackLanguage?: AssistantSpeechLanguage, messageThreadId?: number,
+): Promise<boolean> {
+  let stage: "configuration" | "synthesis" | "telegram_delivery" = "configuration";
   try {
     const plan = prepareAssistantReply(replyText, false, fallbackLanguage);
     if (plan.language === "text-only") return false;
@@ -110,8 +122,11 @@ export async function sendAssistantVoiceReply(chatId: string, replyText: string,
     const config = await resolveSpeechConfig(language);
     if (!config) return false;
     const dictionary = pronunciationDictionary(language);
+    stage = "synthesis";
+    const showVoiceAction = (action: "record_voice" | "upload_voice") => void (messageThreadId === undefined
+      ? sendChatAction(chatId, undefined, action) : sendChatAction(chatId, undefined, action, messageThreadId));
     const render = async () => {
-      const showRecording = () => void sendChatAction(chatId, undefined, "record_voice");
+      const showRecording = () => showVoiceAction("record_voice");
       showRecording();
       const indicator = setInterval(showRecording, 4_000).unref();
       try {
@@ -120,25 +135,35 @@ export async function sendAssistantVoiceReply(chatId: string, replyText: string,
         clearInterval(indicator);
       }
     };
+    const postAudio = (audio: Buffer) => {
+      stage = "telegram_delivery";
+      return messageThreadId === undefined ? sendVoiceFile(chatId, audio, replyTo)
+        : sendVoiceFile(chatId, audio, replyTo, undefined, messageThreadId);
+    };
     if (!cacheableAssistantSpeech(speech)) {
       const audio = await render();
       if (!audio?.length) return false;
-      void sendChatAction(chatId, undefined, "upload_voice");
-      await sendVoiceFile(chatId, audio, replyTo);
+      showVoiceAction("upload_voice");
+      await postAudio(audio);
       return true;
     }
     const { voiceId } = config;
     const { model, endpoint, normalization } = VOICE_PROFILES[language];
     const key = assistantVoiceCacheKey(performance, {
       voiceId, model, endpoint, format: TTS_FORMAT, language, normalization,
-      ...(language === "ru" ? { settings: VOICE_PROFILES.ru.settings } : {}),
+      ...(language === "ru" ? { settings: VOICE_PROFILES.ru.settings } : { tempo: TAJIK_TEMPO }),
       ...(dictionary ? { dictionary } : {}),
     });
     const entry = await cachedAssistantAudio(key, render);
     if (!entry) return false;
     if (entry.fileId) {
-      void sendChatAction(chatId, undefined, "upload_voice");
-      try { await sendAssistantVoiceId(chatId, entry.fileId, replyTo); return true; }
+      stage = "telegram_delivery";
+      showVoiceAction("upload_voice");
+      try {
+        if (messageThreadId === undefined) await sendAssistantVoiceId(chatId, entry.fileId, replyTo);
+        else await sendAssistantVoiceId(chatId, entry.fileId, replyTo, messageThreadId);
+        return true;
+      }
       catch (err) {
         // Re-upload only after a definite invalid-file rejection; never retry timeouts/429.
         if (!(err instanceof TelegramApiError && err.errorCode === 400 && /wrong file identifier|file_id.*invalid|file reference.*expired/i.test(err.message))) throw err;
@@ -146,13 +171,14 @@ export async function sendAssistantVoiceReply(chatId: string, replyText: string,
         await writeAssistantVoiceCache(key, entry);
       }
     }
-    void sendChatAction(chatId, undefined, "upload_voice");
-    const sent = await sendVoiceFile(chatId, Buffer.from(entry.audio, "base64"), replyTo);
+    showVoiceAction("upload_voice");
+    const sent = await postAudio(Buffer.from(entry.audio, "base64"));
     const parsed = sentVoiceSchema.safeParse(sent);
     if (parsed.success) await writeAssistantVoiceCache(key, { ...entry, fileId: parsed.data.voice.file_id });
     return true;
   } catch (err) {
-    console.warn("[telegram:assistant:voice] голос не отправлен, остаётся текст:", describeError(err));
+    const code = err instanceof TelegramApiError ? err.errorCode : undefined;
+    console.warn("[telegram:assistant:voice] voice failed", { stage, ...(code === undefined ? {} : { telegramCode: code }) });
     return false;
   }
 }

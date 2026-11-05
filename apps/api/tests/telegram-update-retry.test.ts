@@ -1,5 +1,6 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import request from "supertest";
+import type { TelegramUpdate } from "../src/telegram/api.js";
 
 /**
  * JOB-06 (аудит Codex, 04.10.2026): сбой приёма апдейта Telegram терял сообщение клиента.
@@ -17,10 +18,13 @@ vi.mock("../src/lib/systemError.js", async (importOriginal) => ({
   logSystemError,
 }));
 
+const isDuplicateDelivery = vi.hoisted(() => vi.fn(async (
+  _channel: string, _id: string, _options?: { requireClaim?: boolean },
+) => false));
 const releaseProcessedMessage = vi.hoisted(() => vi.fn(async () => undefined));
 vi.mock("../src/lib/webhookDedupe.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/lib/webhookDedupe.js")>()),
-  isDuplicateDelivery: vi.fn(async () => false),
+  isDuplicateDelivery,
   markProcessedMessageComplete: vi.fn(async () => undefined),
   releaseProcessedMessage,
   resetIncompleteProcessedMessages: vi.fn(async () => 0),
@@ -32,7 +36,6 @@ vi.mock("../src/telegram/bot.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/telegram/bot.js")>()),
   startTelegramUpdate,
   handleTelegramUpdate,
-  isAlbumPart: () => false,
   telegramRepliesInFlight: () => 0,
 }));
 
@@ -44,6 +47,12 @@ vi.mock("../src/telegram/api.js", async (importOriginal) => ({
   getUpdates,
 }));
 
+function pollingMessage(update_id: number, chatId: number, mediaGroup?: string): TelegramUpdate {
+  return {
+    update_id,
+    message: { message_id: update_id, chat: { id: chatId, type: "private" }, text: "салом", media_group_id: mediaGroup },
+  };
+}
 beforeAll(() => {
   process.env.TELEGRAM_WEBHOOK_SECRET = SECRET;
 });
@@ -53,6 +62,7 @@ describe("JOB-06: polling не отдаёт Telegram апдейт, которы�
     logSystemError.mockClear();
     releaseProcessedMessage.mockClear();
     startTelegramUpdate.mockReset();
+    isDuplicateDelivery.mockReset().mockResolvedValue(false);
     getUpdates.mockReset();
     updatesQueue.length = 0;
     // По умолчанию пустой опрос через секунду, как long polling: мгновенный ответ крутил бы
@@ -91,6 +101,160 @@ describe("JOB-06: polling не отдаёт Telegram апдейт, которы�
     expect(getUpdates.mock.calls.map((c) => c[0])).toContain(11);
   });
 
+  it("при сбое дедупликации повторно получает непринятый апдейт, сохраняя порядок", async () => {
+    const { startTelegramBot, stopTelegramBot } = await import("../src/telegram/poller.js");
+    const updates = [100, 101, 102, 103].map(update_id => ({
+      update_id, message: { message_id: update_id, date: 0, chat: { id: 8, type: "private" }, text: "салом" },
+    }));
+    getUpdates.mockImplementation(async (offset: number) => {
+      const batch = updates.filter(update => update.update_id >= offset);
+      if (!batch.length) stopTelegramBot();
+      return batch;
+    });
+    isDuplicateDelivery.mockResolvedValueOnce(false).mockResolvedValueOnce(true)
+      .mockRejectedValueOnce(new Error("чтение дубликата оборвалось"));
+    startTelegramUpdate.mockResolvedValue({ reply: Promise.resolve() });
+
+    delete process.env.TELEGRAM_WEBHOOK_SECRET;
+    startTelegramBot();
+    process.env.TELEGRAM_WEBHOOK_SECRET = SECRET;
+    await vi.advanceTimersByTimeAsync(4_999);
+
+    expect(getUpdates.mock.calls.map(call => call[0])).toEqual([0]);
+    expect(startTelegramUpdate.mock.calls.map(([update]) => update.update_id)).toEqual([100]);
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(getUpdates.mock.calls.map(call => call[0])).toEqual([0, 102, 104]);
+    expect(isDuplicateDelivery.mock.calls.map(([, id]) => id)).toEqual(["100", "101", "102", "102", "103"]);
+    expect(startTelegramUpdate.mock.calls.map(([update]) => update.update_id)).toEqual([100, 102, 103]);
+  });
+
+  it("разбирает разные чаты параллельно, сохраняет порядок кнопки и дожидается пачки при остановке", async () => {
+    const { startTelegramBot, stopTelegramBot, isTelegramPollerBusy } = await import("../src/telegram/poller.js");
+    const { promise, resolve } = Promise.withResolvers<void>();
+    const callback: TelegramUpdate = {
+      update_id: 103,
+      callback_query: { id: "fixture-button", from: { id: 7 }, message: { chat: { id: 7 }, message_id: 103 } },
+    };
+    const attempts = () => startTelegramUpdate.mock.calls.map(([update]) => update.update_id);
+    let failed = false;
+    startTelegramUpdate.mockImplementation(async (update: TelegramUpdate) => {
+      if (update.update_id === 100) {
+        if (!failed) {
+          failed = true;
+          throw new Error("временный сбой");
+        }
+        await promise;
+      }
+      return { reply: Promise.resolve() };
+    });
+    updatesQueue.push(async () => [pollingMessage(100, 7), pollingMessage(102, 8), callback]);
+    delete process.env.TELEGRAM_WEBHOOK_SECRET;
+    startTelegramBot();
+    process.env.TELEGRAM_WEBHOOK_SECRET = SECRET;
+    try {
+      await vi.advanceTimersByTimeAsync(0);
+      expect(attempts()).toEqual([100, 102]);
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(attempts()).toEqual([100, 102, 100]);
+      expect(getUpdates.mock.calls.map(([offset]) => offset)).toEqual([0]);
+      stopTelegramBot();
+      expect(isTelegramPollerBusy()).toBe(true);
+      delete process.env.TELEGRAM_WEBHOOK_SECRET;
+      startTelegramBot();
+      process.env.TELEGRAM_WEBHOOK_SECRET = SECRET;
+    } finally {
+      resolve();
+      await vi.advanceTimersByTimeAsync(0);
+    }
+    expect(attempts()).toEqual([100, 102, 100, 103]);
+    expect(isTelegramPollerBusy()).toBe(false);
+    expect(getUpdates.mock.calls.map(([offset]) => offset)).toEqual([0]);
+  });
+
+  it("ограничивает параллельный приём четырьмя чатами и берёт следующий, как только освободится место", async () => {
+    const { startTelegramBot, stopTelegramBot } = await import("../src/telegram/poller.js");
+    const gates = Array.from({ length: 5 }, () => Promise.withResolvers<void>());
+    const updates = gates.map((_, index) => pollingMessage(130 + index, 20 + index));
+    const attempts = () => startTelegramUpdate.mock.calls.map(([update]) => update.update_id);
+    startTelegramUpdate.mockImplementation(async (update: TelegramUpdate) => {
+      await gates[update.update_id - 130].promise;
+      return { reply: Promise.resolve() };
+    });
+    updatesQueue.push(async () => updates);
+    delete process.env.TELEGRAM_WEBHOOK_SECRET;
+    startTelegramBot();
+    process.env.TELEGRAM_WEBHOOK_SECRET = SECRET;
+    try {
+      await vi.advanceTimersByTimeAsync(0);
+      expect(attempts()).toEqual([130, 131, 132, 133]);
+      gates[1].resolve();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(attempts()).toEqual([130, 131, 132, 133, 134]);
+    } finally {
+      for (const gate of gates) gate.resolve();
+      stopTelegramBot();
+      await vi.advanceTimersByTimeAsync(0);
+    }
+  });
+  it("не повторяет готовый ответ другого чата, пока восстанавливает непринятый префикс", async () => {
+    const { startTelegramBot, stopTelegramBot } = await import("../src/telegram/poller.js");
+    const updates = [
+      pollingMessage(110, 7), pollingMessage(111, 7), pollingMessage(113, 8), pollingMessage(116, 7),
+    ];
+    const attempts = () => startTelegramUpdate.mock.calls.map(([update]) => update.update_id);
+    let fail = true;
+    isDuplicateDelivery.mockImplementation(async (_channel, id, options) => {
+      if (id === "111" && fail) {
+        fail = false;
+        // On a failed claim, the webhook helper only throws for strict polling intake.
+        if (options?.requireClaim) throw new Error("отметка не записалась");
+      }
+      return false;
+    });
+    startTelegramUpdate.mockResolvedValue({ reply: Promise.resolve() });
+    getUpdates.mockImplementation(async (offset: number) => {
+      const batch = updates.filter(update => update.update_id >= offset);
+      if (!batch.length) stopTelegramBot();
+      return batch;
+    });
+    delete process.env.TELEGRAM_WEBHOOK_SECRET;
+    startTelegramBot();
+    process.env.TELEGRAM_WEBHOOK_SECRET = SECRET;
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(attempts()).toEqual([110, 113]);
+    expect(getUpdates.mock.calls.map(([offset]) => offset)).toEqual([0]);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(attempts()).toEqual([110, 113, 111, 116]);
+    expect(getUpdates.mock.calls.map(([offset]) => offset)).toEqual([0, 111, 117]);
+    expect(isDuplicateDelivery.mock.calls.filter(([, id]) => id === "113")).toHaveLength(1);
+  });
+
+  it("сохраняет последовательную обработку границ с альбомом и кнопкой без чата", async () => {
+    const { startTelegramBot, stopTelegramBot } = await import("../src/telegram/poller.js");
+    const album = pollingMessage(121, 8, "fixture-album");
+    const inline: TelegramUpdate = { update_id: 122, callback_query: { id: "inline", from: { id: 7 } } };
+    const { promise, resolve } = Promise.withResolvers<void>();
+    const attempts = () => startTelegramUpdate.mock.calls.map(([update]) => update.update_id);
+    startTelegramUpdate.mockImplementation(async (update: TelegramUpdate) => {
+      if (update.update_id === album.update_id) await promise;
+      return { reply: Promise.resolve() };
+    });
+    updatesQueue.push(async () => [pollingMessage(120, 7), album, inline, pollingMessage(123, 9)]);
+    delete process.env.TELEGRAM_WEBHOOK_SECRET;
+    startTelegramBot();
+    process.env.TELEGRAM_WEBHOOK_SECRET = SECRET;
+    try {
+      await vi.advanceTimersByTimeAsync(0);
+      expect(attempts()).toEqual([120, 121]);
+    } finally {
+      resolve();
+      await vi.advanceTimersByTimeAsync(0);
+      stopTelegramBot();
+    }
+    expect(attempts()).toEqual([120, 121, 122, 123]);
+    expect(isDuplicateDelivery.mock.calls.map(([, id]) => id)).toEqual(["120", "122", "123"]);
+  });
   it("ядовитый апдейт: ограниченное число попыток, потом запись в журнал и пропуск, бот не встаёт", async () => {
     delete process.env.TELEGRAM_WEBHOOK_SECRET;
     const { startTelegramBot } = await import("../src/telegram/poller.js");

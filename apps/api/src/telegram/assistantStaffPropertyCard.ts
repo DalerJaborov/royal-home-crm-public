@@ -6,7 +6,7 @@ import type { Prisma } from "../generated/prisma/client.js";
 import { prisma } from "../db.js";
 import { maskAssistantContacts } from "../lib/assistantContacts.js";
 import { uploadsDir } from "../upload.js";
-import { escapeHtml } from "./assistantReply.js";
+import { assistantInstagramLink, escapeHtml } from "./assistantReply.js";
 import { isTelegramEnabled, sendHtmlMessage, sendMediaGroupFiles, sendPhotoFromDisk, TelegramApiError } from "./api.js";
 
 const PHOTO_LIMIT = 4;
@@ -56,11 +56,6 @@ function cardField(value: string | null | undefined, limit: number): string {
     .replace(/(?:[a-z][a-z\d+.-]*:\/\/|www\.)\S+|\b(?:[a-z\d-]+\.)+[a-z]{2,63}\b\S*|\S+@\S+|(?<!\S)@[a-z\d_]+/giu, " ")
     .replace(/[\p{Cc}\p{Cf}]/gu, " ").replace(/\s+/gu, " ").trim();
   return clean.length > limit ? `${clean.slice(0, limit - 1)}…` : clean;
-}
-
-function instagramLink(value: string | null): string | null {
-  const match = /^https:\/\/(?:www\.)?instagram\.com\/(p|reel|reels|tv)\/([a-z\d_-]{1,80})\/?(?:[?#][^\s]*)?$/iu.exec(value ?? "");
-  return match ? `https://www.instagram.com/${match[1].toLowerCase()}/${match[2]}/` : null;
 }
 
 function agentDisplay(agent: CardProperty["assignedAgent"]): string {
@@ -119,7 +114,7 @@ function renderCard(property: CardProperty, language: CardLanguage): string {
   const stage = property.stage ?? (property.marketType === "FOUNDATION_PIT" ? "FOUNDATION" : null);
   const finish = propertyHasCondition(property.type) ? [side ? text.market[side] : "",
     propertyHasMarket(property.type) && side !== "SECONDARY" && stage ? text.stage[stage] : text.condition[property.condition]].filter(Boolean).join(" · ") : "";
-  const instagram = instagramLink(property.instagramUrl);
+  const instagram = assistantInstagramLink(property.instagramUrl);
   const agent = agentDisplay(property.assignedAgent ?? property.intakeAgent);
   const priceLine = Number.isFinite(price) && price > 0 ? `💰 <b>${format.format(price)} ${property.currency === "USD" ? "$" : "сомони"}</b>` : "";
   const location = locationLine(property, language);
