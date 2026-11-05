@@ -142,11 +142,28 @@ export async function completePublicManualReply(value: PublicManualReplyClaim, o
   const authoritative: PublicReplyReceipt = attempt.outcome === "ACCEPTED" && attempt.providerMid
     ? { outcome: "accepted", providerId: attempt.providerMid, reason: "provider_id" }
     : { outcome: attempt.outcome === "REJECTED" ? "refused" : "unknown", providerId: null, reason: "errorCode" in attempt && typeof attempt.errorCode === "string" ? attempt.errorCode : "staff_receipt_unconfirmed" };
-  if (authoritative.outcome !== "accepted") return { receipt: authoritative, applicable: false };
+  if (authoritative.outcome !== "accepted") {
+    await releaseUnacceptedStaffSource(ctx.fence, authoritative.outcome).catch(() => undefined); // reconcile repeats it
+    return { receipt: authoritative, applicable: false };
+  }
   // DB projection failure is a pending local repair, never loss/reclassification of the committed accepted receipt.
   let applicable = false;
   try { applicable = await projectStaffReceipt(ctx.partId, ctx.attemptId, ctx.fence, ctx.text); } catch { /* Required P12 job repairs; no resend. */ }
   return { receipt: authoritative, applicable };
+}
+/**
+ * Ответ сотрудника не принят (отказ площадки или неясный исход): комментарий уходит из
+ * WORKING_STAFF в FAILED (ревью PR #124, 05.11.2026). WORKING_STAFF считается «работой» в
+ * проверке простоя (`customerAgentOwnerPolicy.ts` и триггер `customer_agent_advance_insert`),
+ * и зависшая строка навсегда блокировала «Обновить версию бота». Повтора это не открывает:
+ * часть сотрудника остаётся в outbox, и `priorParts` при новом захвате даёт 409. Неясный
+ * исход отмечен отдельно: ответ мог уйти, проверить надо в самой площадке.
+ */
+async function releaseUnacceptedStaffSource(fence: StaffPublicCommentDeliveryFence, outcome: "refused" | "unknown"): Promise<boolean> {
+  const changed = await prisma.instagramComment.updateMany({
+    where: { id: fence.source.id, status: "WORKING_STAFF", publicSourceRevision: BigInt(fence.sourceRevision) },
+    data: { status: "FAILED", note: outcome === "refused" ? "manual_reply_refused" : "manual_reply_unknown" } });
+  return changed.count === 1;
 }
 async function projectStaffReceipt(partId: string, attemptId: string, fence: StaffPublicCommentDeliveryFence, text: string): Promise<boolean> {
   return prisma.$transaction(async tx => {
@@ -179,11 +196,14 @@ export async function reconcileCustomerStaffPublicOutboxPart(row: CustomerOutbox
   if (row.status === "IN_FLIGHT") {
     if (row.leaseUntil && row.leaseUntil.getTime() > Date.now()) return { status: "waiting" };
     if (attempt?.outcome === "IN_FLIGHT") await recordCustomerDeliveryAttemptOutcome(attempt.id, "UNKNOWN", null, "staff_public_lease_expired");
+    await releaseUnacceptedStaffSource(parsed.data, "unknown");
     return { status: "unknown" };
   }
-  if (row.status === "UNKNOWN") return { status: "unknown" };
-  if (row.status === "NOT_SENT") return { status: "not_sent" };
-  if (row.status !== "ACCEPTED") return { status: row.status === "SUPPRESSED" ? "suppressed" : "waiting" };
+  // Процесс мог упасть между квитанцией и снятием WORKING_STAFF: восстановление доделывает.
+  if (row.status === "UNKNOWN") { await releaseUnacceptedStaffSource(parsed.data, "unknown"); return { status: "unknown" }; }
+  if (row.status === "NOT_SENT") { await releaseUnacceptedStaffSource(parsed.data, "refused"); return { status: "not_sent" }; }
+  if (row.status === "SUPPRESSED") { await releaseUnacceptedStaffSource(parsed.data, "refused"); return { status: "suppressed" }; }
+  if (row.status !== "ACCEPTED") return { status: "waiting" };
   if (row.projectionRecordedAt) return { status: "accepted" };
   if (!attempt || attempt.outcome !== "ACCEPTED" || !attempt.providerMid) return { status: "accepted", projectionPending: true };
   const payload = decodeCustomerOutboxPayload(row); if (payload.kind !== "text") return { status: "accepted", projectionPending: true };

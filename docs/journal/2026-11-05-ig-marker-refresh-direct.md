@@ -57,3 +57,24 @@ Graph Bearer принимают (ответы в директ после пер�
 PENDING/ERROR это то же число). FAILED по другой причине закрыт, как раньше.
 Тесты `customer-public-comment-manual-postgres` +2 (новый красный на старом коде),
 вместе с `customer-public-agent-postgres` 74/74.
+
+## Там же: неудачный ручной ответ больше не держит комментарий в WORKING_STAFF (ревью)
+
+Независимое ревью нашло блокирующий дефект: при отказе площадки (REJECTED) или
+неясном исходе (UNKNOWN, потерянный процесс) комментарий оставался в WORKING_STAFF
+навсегда. Этот статус — «работа» в проверке простоя (`customerAgentOwnerPolicy.ts`,
+триггер `customer_agent_advance_insert`), поэтому одна такая строка навсегда
+блокировала «Обновить версию бота», а после следующего выката бот встал бы без
+возможности поднять. Теперь `completePublicManualReply` и восстановление
+`reconcileCustomerStaffPublicOutboxPart` (аренда истекла, UNKNOWN, NOT_SENT,
+SUPPRESSED) переводят WORKING_STAFF → FAILED с пометкой `manual_reply_refused` /
+`manual_reply_unknown` (подписи в `INSTAGRAM_COMMENT_NOTE_LABELS`). Повтора это не
+открывает: часть сотрудника остаётся в outbox, `priorParts` даёт 409. Старый тест
+«2xx без id оставляет WORKING_STAFF» переписан под новое поведение.
+
+Тесты `customer-public-comment-manual-postgres` 21/21 (+3: отказ, отказ после
+сдачи ядра, потерянный процесс; +1: FAILED ядра с ревизией приём+2 → 409).
+Проверено поломкой: отключённое снятие WORKING_STAFF даёт 4 красных, ослабленная
+проверка ревизии (`>=` вместо `=== +1`) даёт красный тест «приём+2».
+На проде (05.11, 10:50): WORKING_STAFF нет; 11 комментариев к ответу — FAILED
+`managed_core:failed:*` с ревизией 1 (= приём + 1), подходят под ручной ответ.
