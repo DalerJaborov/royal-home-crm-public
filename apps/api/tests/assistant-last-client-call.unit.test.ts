@@ -6,8 +6,9 @@ import { getClientLastCallTool } from "../src/ai/assistant/tools/getClientLastCa
 
 const db = vi.hoisted(() => ({
   client: { findUnique: vi.fn() },
-  interaction: { findFirst: vi.fn() },
+  interaction: { findFirst: vi.fn(), findMany: vi.fn() },
   incomingCall: { findMany: vi.fn() },
+  $transaction: vi.fn(),
   $disconnect: vi.fn(),
 }));
 vi.mock("../src/db.js", () => ({ prisma: db }));
@@ -28,7 +29,53 @@ const run = (viewer = actor()) => getClientLastCallTool.run({ clientId: "ПК-00
 beforeEach(() => {
   db.client.findUnique.mockReset().mockResolvedValue(client);
   db.interaction.findFirst.mockReset();
+  db.interaction.findMany.mockReset();
   db.incomingCall.findMany.mockReset().mockResolvedValue([]);
+  db.$transaction.mockReset().mockImplementation(run => run(db));
+});
+
+describe("searching saved private calls", () => {
+  const search = (query: string, viewer = actor()) =>
+    getClientLastCallTool.run({ clientId: "ПК-000012", query }, { actor: viewer });
+
+  it("finds an older matching customer statement in a saved Russian translation", async () => {
+    const older = { ...latest, id: "call-2", createdAt: new Date("2026-11-02T10:20:00Z") };
+    db.interaction.findMany.mockResolvedValueOnce([latest, older]).mockResolvedValueOnce([
+      { ...latest, transcript: "Агент: Условия ипотеки.\nКлиент: Могу завтра." },
+      { ...older, transcript: "Клиент: Бо ипотека мехарам.",
+        transcriptRu: "Клиент: Хочу купить по ипотеке. Номер +992901234567.\nАгент: Предложение банка по ипотеке." },
+    ]);
+
+    const result = await search("ИПОТЕКЕ") as { matches: Array<{ customerSpeech: string }> };
+    expect(result.matches).toEqual([expect.objectContaining({
+      callAt: "2026-11-02 15:20", evidenceSource: "Сохранённый перевод расшифровки CRM",
+      customerSpeech: expect.stringContaining("Хочу купить по ипотеке"),
+    })]);
+    expect(result.matches[0]!.customerSpeech).not.toMatch(/901234567|Предложение банка/u);
+    expect(db.interaction.findFirst).not.toHaveBeenCalled();
+  });
+
+  it("checks private surface and ACL before reading historical transcripts", async () => {
+    expect(await search("ипотека", actor({ surface: "telegram-group" }))).toHaveProperty("error");
+    expect(db.$transaction).not.toHaveBeenCalled();
+
+    const routed = { ...latest, id: "routed", agentId: "operator" };
+    const foreign = { ...latest, id: "foreign", agentId: "other" };
+    db.interaction.findMany.mockResolvedValueOnce([latest, routed, foreign]).mockResolvedValueOnce([]);
+    db.incomingCall.findMany.mockResolvedValueOnce([{ interactionId: routed.id }]);
+    expect(await search("ипотека")).toMatchObject({ matches: [], note: expect.stringContaining("совпадений") });
+    expect(db.interaction.findMany.mock.calls[0]![0]).toMatchObject({
+      take: 40, where: { clientId: client.id, type: "CALL", investigationOnly: false },
+    });
+    expect(db.interaction.findMany.mock.calls[0]![0].select).not.toHaveProperty("transcript");
+    expect(db.interaction.findMany.mock.calls[1]![0].where).toMatchObject({
+      client: { deletedAt: null, assignedAgentId: "agent-1" },
+      OR: [
+        { id: { in: [latest.id] }, agentId: "agent-1" },
+        { id: { in: [routed.id] }, client: { assignedAgentId: "agent-1" } },
+      ],
+    });
+  });
 });
 
 describe("latest private CRM call", () => {

@@ -21,9 +21,11 @@ import { prisma } from "../../db.js";
  * Пустой список на входе — пустое множество без обращения к базе: метрики считаются
  * по каждому агенту за каждый день, и лишний запрос здесь дорог.
  */
-export async function incomingInteractionIds(interactionIds: string[]): Promise<Set<string>> {
+export async function incomingInteractionIds(
+  interactionIds: string[], db: Pick<typeof prisma, "incomingCall"> = prisma,
+): Promise<Set<string>> {
   if (interactionIds.length === 0) return new Set();
-  const rows = await prisma.incomingCall.findMany({
+  const rows = await db.incomingCall.findMany({
     where: { interactionId: { in: interactionIds } },
     select: { interactionId: true },
   });
