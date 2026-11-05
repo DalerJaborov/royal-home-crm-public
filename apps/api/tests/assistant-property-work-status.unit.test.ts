@@ -5,8 +5,9 @@ import type { AssistantActor } from "../src/ai/assistant/actor.js";
 const db = vi.hoisted(() => ({
   count: vi.fn(async () => 12),
   findMany: vi.fn(async (_query: unknown): Promise<unknown[]> => []),
+  transaction: vi.fn((queries: Promise<unknown>[], _options: unknown) => Promise.all(queries)),
 }));
-vi.mock("../src/db.js", () => ({ prisma: { property: db, $disconnect: async () => {} } }));
+vi.mock("../src/db.js", () => ({ prisma: { property: db, $transaction: db.transaction, $disconnect: async () => {} } }));
 
 const now = new Date("2026-11-04T13:00:00Z");
 const sent = new Date("2026-10-28T12:00:00Z");
@@ -60,6 +61,7 @@ describe("property work status evidence", () => {
     expect(await getPropertyWorkStatusTool.run({ scope: "queue" }, { actor: agent })).toMatchObject({
       scope: "MY_QUEUE", total: 12, shown: 0, withEditor: 1, waitingForEditor: 6,
     });
+    expect(db.transaction).toHaveBeenLastCalledWith(expect.any(Array), { isolationLevel: "RepeatableRead" });
     const ownScope = {
       AND: [{ OR: [{ status: "EDITING" }, { videoHandoffStatus: { in: ["QUEUED", "SENT_TO_EDITOR"] } }] }],
       OR: expect.any(Array),

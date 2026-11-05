@@ -30,6 +30,14 @@ export function PropertyNarrationManager({ propertyId }: { propertyId: string })
   useEffect(() => { setAudioReviewed(false); }, [latest?.id]);
   useEffect(() => () => { if (audioUrl) URL.revokeObjectURL(audioUrl); }, [audioUrl]);
   useEffect(() => { setScript(null); setVoiceId(""); setConfirmed(false); setAudioUrl(null); draftKey.current = crypto.randomUUID(); }, [propertyId]);
+  async function loadPublicationRows() {
+    const result = await api<{ rows: typeof publicationRows; deliveryRows?: typeof publicationRows }>(
+      `/properties/${propertyId}/narration/publication-preview`, { method: "POST", body: {} }
+    );
+    setPublicationRows([...(result.deliveryRows ?? []), ...result.rows]);
+    return result;
+  }
+
   async function run(action: () => Promise<void>) {
     setBusy(true); setMessage("");
     try { await action(); await client.invalidateQueries({ queryKey: key }); }
@@ -86,12 +94,15 @@ export function PropertyNarrationManager({ propertyId }: { propertyId: string })
       {data.canApprove && data.sendsEnabled && d.status === "PREVIEW" && d.planHash && <button className="pill sm" disabled={busy} onClick={() => void run(async () => { await api(`/properties/${propertyId}/narration/deliveries/${d.id}/queue`, { method: "POST", body: { confirmed: true, planHash: d.planHash } }); setMessage("Передача поставлена в очередь. Квитанции появятся после выполнения."); })}>Подтвердить отправку этого плана</button>}
     </div>)}</div>}
     {data.canApprove && <details><summary className="cursor-pointer text-sm">Публикации и ежемесячный отчёт · предварительный просмотр</summary><div className="mt-2 flex flex-wrap gap-2">
-      <button className="pill sm" disabled={busy} type="button" onClick={() => void run(async () => { const result = await api<{ rows: typeof publicationRows }>(`/properties/${propertyId}/narration/publication-preview`, { method: "POST", body: {} }); setPublicationRows(result.rows); setMessage(result.rows.length ? "План подготовлен. На площадки ничего не отправлено." : "У объекта пока нет опубликованных площадок."); })}>Проверить обновление площадок</button>
+      <button className="pill sm" disabled={busy} type="button" onClick={() => void run(async () => { const result = await loadPublicationRows(); setMessage(result.deliveryRows?.length ? "Показаны результаты доставки и предварительный план." : result.rows.length ? "Предварительный план готов." : "У объекта пока нет опубликованных площадок."); })}>Проверить обновление площадок</button>
       <button className="pill sm" disabled={busy} type="button" onClick={() => void run(async () => { const result = await api<{ message: string }>(`/properties/${propertyId}/narration/owner-report-preview`, { method: "POST", body: { ownerRequested: true } }); setMessage(result.message); })}>{data.ownerReportsEnabled ? "Собственник согласовал ежемесячную SMS-доставку — включить для объекта" : "Собственник согласовал ежемесячный отчёт — подготовить"}</button>
       {data.ownerReport?.active && <button className="pill sm" disabled={busy} type="button" onClick={() => void run(async () => { await api(`/properties/${propertyId}/narration/owner-report-revoke`, { method: "POST", body: { confirmed: true } }); setMessage("Согласие отозвано. Следующие отправки остановлены."); })}>Отозвать согласие на отчёты</button>}</div>
       {data.ownerReport && <div className="mt-2 text-sm"><p>Ежемесячные отчёты: {data.ownerReport.active ? "согласованы" : "нет действующего согласия"} · {data.ownerReport.executionMode === "LIVE" ? "доставка разрешена сервером" : "только предварительный просмотр"}</p>{data.ownerReport.deliveries.map(d => <p key={d.id}>{d.period}: {DELIVERY_STATUS[d.status] ?? d.status}{d.lastError ? ` · ${d.lastError}` : ""}</p>)}</div>}
-      {publicationRows.map((row) => <p className="mt-2 text-sm" key={`${row.channel}-${row.operation}`}>{row.channel} · {row.operation === "COVER" ? "обложка" : "описание"}: {row.reason}</p>)}
-      <PublicationMetadataReconcile propertyId={propertyId} rows={publicationRows} onChanged={() => void run(async () => { const result = await api<{ rows: typeof publicationRows }>(`/properties/${propertyId}/narration/publication-preview`, { method: "POST", body: {} }); setPublicationRows(result.rows); })} /></details>}
+      {publicationRows.map((row) => <p className="mt-2 text-sm" key={row.id ?? `${row.channel}-${row.operation}`}>
+        {row.channel === "*" ? "Все площадки" : row.channel} · {row.executionMode === "PRICE_CHANGE" ? "цена в описании" : row.operation === "COVER" ? "обложка" : "описание"}: {row.reason}
+        {row.postUrl && <> · <a className="underline" href={row.postUrl} target="_blank" rel="noreferrer">Открыть пост</a></>}
+      </p>)}
+      <PublicationMetadataReconcile propertyId={propertyId} rows={publicationRows} onChanged={() => void run(async () => { await loadPublicationRows(); })} /></details>}
     {data.canConfigure && [...(data.deliveries ?? []).map(d => ({ ...d, kind: "NARRATION" })), ...(data.ownerReport?.deliveries ?? []).map(d => ({ ...d, kind: "OWNER_REPORT" }))].some(d => ["UNKNOWN", "SENDING"].includes(d.status)) && <fieldset className="space-y-2 rounded border p-3"><legend>Сверка неопределённой доставки</legend><p className="text-sm">Проверьте историю Telegram или SMS. Сверка сохраняет квитанции и не отменяет возможное списание. Используйте её только если пригодный результат не подтверждён.</p><label className="flex gap-2 text-sm"><input type="checkbox" checked={deliveryChecked} onChange={e => setDeliveryChecked(e.target.checked)} />Я проверил историю у провайдера</label><textarea className="w-full rounded border p-2" aria-label="Результат сверки доставки" value={deliveryNote} onChange={e => setDeliveryNote(e.target.value)} minLength={20} maxLength={2000} placeholder="Что проверено и что обнаружено (от 20 символов)" />
       {[...(data.deliveries ?? []).map(d => ({ ...d, kind: "NARRATION" })), ...(data.ownerReport?.deliveries ?? []).map(d => ({ ...d, kind: "OWNER_REPORT" }))].filter(d => ["UNKNOWN", "SENDING"].includes(d.status)).map(d => <button key={d.id} className="pill sm" disabled={busy || !deliveryChecked || deliveryNote.trim().length < 20} onClick={() => void run(async () => { const result = await api<{ message: string }>(`/properties/${propertyId}/narration/delivery-reconcile`, { method: "POST", body: { kind: d.kind, deliveryId: d.id, checkedProviderHistory: true, note: deliveryNote } }); setMessage(result.message); })}>Сохранить сверку {d.kind === "NARRATION" ? "передачи монтажёру" : "SMS"} · {d.id.slice(0, 8)}</button>)}
     </fieldset>}

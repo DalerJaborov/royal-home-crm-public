@@ -16,6 +16,10 @@ const deliverySource = ts.transpileModule(
   { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } },
 ).outputText;
 
+class TelegramApiError extends Error {
+  readonly errorCode = 400;
+}
+
 function fixture() {
   const html = vi.fn(async () => ({}));
   const plain = vi.fn(async () => ({}));
@@ -26,7 +30,7 @@ function fixture() {
       { name: "send_to_remake", parameters: { properties: { reason: {}, comment: {}, removeFromSocial: {} } } },
       { name: "get_property_work_status" },
     ] },
-    "./api.js": { sendHtmlMessage: html, sendMessage: plain, sendMessageWithButtons: plain },
+    "./api.js": { sendHtmlMessage: html, sendMessage: plain, sendMessageWithButtons: plain, TelegramApiError },
     "./assistantReply.js": assistantReply,
     "./assistantGroupParticipation.js": participation,
     "./assistantVoice.js": { sendAssistantVoiceReply: voice },
@@ -73,5 +77,20 @@ describe("Telegram model reply guard", () => {
     expect(html).toHaveBeenCalledWith("-1", "<code>ОБ-000132</code> сейчас на монтаже.", undefined);
     await delivery.sendAssistantReply("1", "Причина WRONG_CAPTION.", { scope: "private", mode: "text", written: [] });
     expect(html).toHaveBeenLastCalledWith("1", "Причина WRONG_CAPTION.", undefined);
+  });
+});
+
+
+describe("Telegram forum delivery", () => {
+  it("keeps plain fallback messages in the topic after HTML rejection", async () => {
+    const { delivery, html, plain } = fixture();
+    html.mockRejectedValue(new TelegramApiError("Bad Request: can't parse entities"));
+    expect(await delivery.sendAssistantReply("-1", "Уточни время. ||| Проверь адрес.", {
+      scope: "group", mode: "text", replyTo: 42, messageThreadId: 41, written: [],
+    })).toBe(true);
+    expect(plain.mock.calls).toEqual([
+      ["-1", "Уточни время.", 42, undefined, { messageThreadId: 41 }],
+      ["-1", "Проверь адрес.", undefined, undefined, { messageThreadId: 41 }],
+    ]);
   });
 });

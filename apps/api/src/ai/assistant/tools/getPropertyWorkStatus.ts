@@ -1,13 +1,14 @@
 import { formatPropertyCode } from "@royal-home/shared";
 import { z } from "zod";
 import { prisma } from "../../../db.js";
-import type { Prisma } from "../../../generated/prisma/client.js";
+import { Prisma } from "../../../generated/prisma/client.js";
 import { dushanbeDateTimeString } from "../../../lib/dushanbeTime.js";
 import { propertyOwnerWhere } from "../../../lib/propertyOwner.js";
 import { findPropertiesByRef } from "../../../lib/propertyRefLookup.js";
 import { videoHandoffPublishDedupeKey } from "../../../lib/videoHandoff.js";
 import { propertyHref } from "./propertyPresenter.js";
 import { safeField } from "./safeField.js";
+import type { AssistantActor } from "../actor.js";
 import type { AssistantReadToolPlugin } from "./types.js";
 
 const argsSchema = z.object({
@@ -103,6 +104,53 @@ function identity(row: Pick<WorkRow, "shortId" | "title">) {
   return { code: formatPropertyCode(row.shortId), href: propertyHref(row.shortId), title: safeField(row.title, 100) };
 }
 
+export async function getPropertyWorkList(actor: AssistantActor, scope: "mine" | "queue", now = new Date()) {
+  const hideOwnPendingDeleteFor = actor.permissions?.has("properties.delete") ? undefined : actor.id;
+  const isQueue = scope === "queue";
+  const companyQueue = isQueue && queueRoles.has(actor.role);
+  const where: Prisma.PropertyWhereInput = {
+    deletedAt: null,
+    AND: [{
+      OR: [
+        isQueue ? { status: "EDITING" } : { status: { in: ["PENDING_REVIEW", "AWAITING_PHOTOS", "AWAITING_VIDEO", "EDITING"] } },
+        // Published listings can stay AVAILABLE while a remake is queued or with the editor.
+        { videoHandoffStatus: { in: ["QUEUED", "SENT_TO_EDITOR"] } },
+      ],
+    }],
+    ...(companyQueue ? {} : propertyOwnerWhere(actor.id)),
+    ...(hideOwnPendingDeleteFor ? { deleteRequests: { none: { status: "PENDING", requestedById: hideOwnPendingDeleteFor } } } : {}),
+  };
+  const baseQueries = [
+    prisma.property.count({ where }),
+    prisma.property.findMany({
+      where,
+      select,
+      orderBy: isQueue ? [{ stageEnteredAt: "asc" }, { id: "asc" }] : [{ stageEnteredAt: "desc" }, { id: "desc" }],
+      take: listLimit,
+    }),
+  ] as const;
+  const snapshot = { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead };
+  const [total, rows, withEditor, waitingForEditor] = isQueue ? await prisma.$transaction([
+    ...baseQueries,
+    prisma.property.count({
+      where: {
+        ...where,
+        videoHandoffStatus: "SENT_TO_EDITOR",
+        videoHandoffDeliveredAt: { not: null },
+        videoHandoffManualSince: null,
+      },
+    }),
+    prisma.property.count({ where: { ...where, videoHandoffStatus: "QUEUED" } }),
+  ], snapshot) : await prisma.$transaction([...baseQueries], snapshot);
+  return {
+    scope: companyQueue ? "COMPANY_QUEUE" : isQueue ? "MY_QUEUE" : "MY_PREPARATION",
+    total,
+    shown: rows.length,
+    ...(isQueue ? { withEditor, waitingForEditor } : {}),
+    items: rows.map(row => ({ ...identity(row), ...summarizePropertyWork(row, now) })),
+  };
+}
+
 export const getPropertyWorkStatusTool: AssistantReadToolPlugin = {
   name: "get_property_work_status",
   level: "A",
@@ -144,44 +192,6 @@ export const getPropertyWorkStatusTool: AssistantReadToolPlugin = {
       }) : null;
       return { ...identity(row), ...summarizePropertyWork(row, now, job?.status === "DONE" ? undefined : job?.status) };
     }
-    const isQueue = scope === "queue";
-    const companyQueue = isQueue && queueRoles.has(actor.role);
-    const where: Prisma.PropertyWhereInput = {
-      deletedAt: null,
-      AND: [{
-        OR: [
-          isQueue ? { status: "EDITING" } : { status: { in: ["PENDING_REVIEW", "AWAITING_PHOTOS", "AWAITING_VIDEO", "EDITING"] } },
-          // Published listings can stay AVAILABLE while a remake is queued or with the editor.
-          { videoHandoffStatus: { in: ["QUEUED", "SENT_TO_EDITOR"] } },
-        ],
-      }],
-      ...(companyQueue ? {} : propertyOwnerWhere(actor.id)),
-      ...(hideOwnPendingDeleteFor ? { deleteRequests: { none: { status: "PENDING", requestedById: hideOwnPendingDeleteFor } } } : {}),
-    };
-    const [total, rows, withEditor, waitingForEditor] = await Promise.all([
-      prisma.property.count({ where }),
-      prisma.property.findMany({
-        where,
-        select,
-        orderBy: isQueue ? [{ stageEnteredAt: "asc" }, { id: "asc" }] : [{ stageEnteredAt: "desc" }, { id: "desc" }],
-        take: listLimit,
-      }),
-      isQueue ? prisma.property.count({
-        where: {
-          ...where,
-          videoHandoffStatus: "SENT_TO_EDITOR",
-          videoHandoffDeliveredAt: { not: null },
-          videoHandoffManualSince: null,
-        },
-      }) : undefined,
-      isQueue ? prisma.property.count({ where: { ...where, videoHandoffStatus: "QUEUED" } }) : undefined,
-    ]);
-    return {
-      scope: companyQueue ? "COMPANY_QUEUE" : isQueue ? "MY_QUEUE" : "MY_PREPARATION",
-      total,
-      shown: rows.length,
-      ...(isQueue ? { withEditor, waitingForEditor } : {}),
-      items: rows.map(row => ({ ...identity(row), ...summarizePropertyWork(row, now) })),
-    };
+    return getPropertyWorkList(actor, scope ?? "mine", now);
   },
 };

@@ -7,12 +7,17 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 const { query, settings, savedVoice, sendVoice, sendVoiceId, chatAction, fetchMock } = vi.hoisted(() => ({ query: vi.fn(), settings: vi.fn(), savedVoice: vi.fn(), sendVoice: vi.fn(), sendVoiceId: vi.fn(), chatAction: vi.fn(), fetchMock: vi.fn() }));
 vi.mock("../src/db.js", () => ({ prisma: { $disconnect: vi.fn(), $queryRaw: query, settings: { findUnique: settings }, assistantVoiceConfig: { findUnique: savedVoice } } }));
 vi.mock("../src/ai/liveVoiceProvider.js", () => ({ resolveElevenLabsKey: (key: string) => key }));
+vi.mock("../src/lib/audioTranscode.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/audioTranscode.js")>()),
+  adjustTelegramVoiceTempo: async () => null,
+}));
 vi.mock("../src/telegram/api.js", () => ({ sendChatAction: chatAction, sendVoiceFile: sendVoice, sendAssistantVoiceId: sendVoiceId, TelegramApiError: class extends Error { constructor(public errorCode: number, _method: string, text: string) { super(text); } } }));
 import { sendAssistantVoiceReply, speechTextFromReply } from "../src/telegram/assistantVoice.js";
 import { directAssistantVoice } from "../src/telegram/assistantVoiceDirection.js";
 import { TelegramApiError } from "../src/telegram/api.js";
 import { assistantVoiceCacheKey, readAssistantVoiceCache, writeAssistantVoiceCache } from "../src/telegram/assistantVoiceCache.js";
 import { claimAssistantTtsChars } from "../src/telegram/assistantVoiceBudget.js";
+import { assistantElevenLabsPaused, noteAssistantElevenLabsFailure } from "../src/telegram/assistantElevenLabsAvailability.js";
 import { encryptSecret } from "../src/crypto.js";
 import { ASSISTANT_GROUP_GREETING } from "../src/telegram/assistantGroupPhrases.js";
 beforeEach(async () => {
@@ -51,6 +56,26 @@ it('successful Turbo synthesis charges before fetch and sends audio', async () =
   ]);
   expect(chatAction.mock.invocationCallOrder[1]).toBeLessThan(sendVoice.mock.invocationCallOrder[0]);
 });
+it("synthesizes markerless Russian from a trusted explicit conversation hint", async () => {
+  const phrase = "Сначала проверь карточку.";
+  expect(await sendAssistantVoiceReply("test", phrase, 23, "ru", 41)).toBe(true);
+  expect(JSON.parse(fetchMock.mock.calls[0][1].body).text).toBe(phrase);
+  expect(sendVoice).toHaveBeenCalledExactlyOnceWith("test", expect.any(Buffer), 23, undefined, 41);
+});
+it.each(["budget", "synthesis", "telegram_delivery"] as const)("logs the failed voice stage %s without private errors", async stage => {
+  const privateError = new Error("private-token-and-response");
+  if (stage === "budget") query.mockRejectedValue(privateError);
+  else if (stage === "synthesis") fetchMock.mockRejectedValue(privateError);
+  else sendVoice.mockRejectedValue(privateError);
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    expect(await sendAssistantVoiceReply("test", "Готово.")).toBe(false);
+    expect(warn).toHaveBeenCalledWith("[telegram:assistant:voice] voice failed", { stage });
+    expect(JSON.stringify(warn.mock.calls)).not.toContain(privateError.message);
+  } finally {
+    warn.mockRestore();
+  }
+});
 it('budget exhausted prevents synthesis', async () => { query.mockResolvedValue([]); expect(await sendAssistantVoiceReply('test', 'Готово.')).toBe(false); expect(fetchMock).not.toHaveBeenCalled(); });
 it.each(["ru", "tg"] as const)("caches the neutral %s group greeting and charges only its first synthesis", async language => {
   vi.stubEnv("ASSISTANT_TTS_VOICE_ID_TG", "test-tajik-voice");
@@ -71,7 +96,32 @@ it('budget failure fails closed', async () => { query.mockRejectedValue(new Erro
 it('Tajik rejects before budget', async () => { expect(await sendAssistantVoiceReply('test', 'Салом, ман ёфтам.')).toBe(false); expect(query).not.toHaveBeenCalled(); expect(fetchMock).not.toHaveBeenCalled(); });
 it('missing voice avoids spending', async () => { vi.stubEnv('ASSISTANT_TTS_VOICE_ID', ''); expect(await sendAssistantVoiceReply('test', 'Готово.')).toBe(false); expect(query).not.toHaveBeenCalled(); });
 it('missing key avoids spending', async () => { vi.stubEnv('ELEVENLABS_API_KEY', ''); settings.mockResolvedValue(null); expect(await sendAssistantVoiceReply('test', 'Готово.')).toBe(false); expect(query).not.toHaveBeenCalled(); });
-it.each([429, 500])('HTTP %s leaves fallback', async (status) => { fetchMock.mockResolvedValue({ ok: false, status }); expect(await sendAssistantVoiceReply('test', 'Готово.')).toBe(false); expect(sendVoice).not.toHaveBeenCalled(); expect(fetchMock).toHaveBeenCalledTimes(1); });
+it.each([429, 500])('HTTP %s leaves fallback', async (status) => {
+  vi.stubEnv("ELEVENLABS_API_KEY", `test-http-${status}`);
+  fetchMock.mockResolvedValue({ ok: false, status });
+  expect(await sendAssistantVoiceReply('test', 'Готово.')).toBe(false);
+  expect(sendVoice).not.toHaveBeenCalled(); expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+it("skips new requests and budget claims after a confirmed ElevenLabs quota error", async () => {
+  vi.stubEnv("ELEVENLABS_API_KEY", "test-quota-account");
+  fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ detail: { status: "quota_exceeded" } }), { status: 401 }));
+  expect(await sendAssistantVoiceReply("test", "Готово.")).toBe(false);
+  expect(await sendAssistantVoiceReply("test", "Всё получилось.")).toBe(false);
+  expect(fetchMock).toHaveBeenCalledOnce();
+  expect(query).toHaveBeenCalledOnce();
+  expect(sendVoice).not.toHaveBeenCalled();
+  expect(assistantElevenLabsPaused("test-quota-account", "recognition")).toBe(true);
+  vi.stubEnv("ELEVENLABS_API_KEY", "test-rotated-account");
+  expect(await sendAssistantVoiceReply("test", "Готово.")).toBe(true);
+});
+it("isolates a Scribe rate limit from synthesis but shares account quota", async () => {
+  const key = "test-scribe-account";
+  await noteAssistantElevenLabsFailure(key, "recognition", new Response(null, { status: 429 }));
+  expect(assistantElevenLabsPaused(key, "recognition")).toBe(true);
+  expect(assistantElevenLabsPaused(key, "synthesis")).toBe(false);
+  await noteAssistantElevenLabsFailure(key, "recognition", new Response(null, { status: 402 }));
+  expect(assistantElevenLabsPaused(key, "synthesis")).toBe(true);
+});
 it('transport error never synthesizes again', async () => { sendVoice.mockRejectedValue(new Error('timeout')); expect(await sendAssistantVoiceReply('test', 'Готово.')).toBe(false); expect(fetchMock).toHaveBeenCalledTimes(1); });
 it('zero budget disables voice and rejects invalid amounts', async () => { vi.stubEnv('ASSISTANT_TTS_DAILY_CHARS', '0'); expect(await claimAssistantTtsChars(1)).toBe(false); expect(await claimAssistantTtsChars(-1)).toBe(false); expect(query).not.toHaveBeenCalled(); });
 it('budget uses shared atomic reservations', async () => { await claimAssistantTtsChars(10); await claimAssistantTtsChars(12); for (const [sql] of query.mock.calls) {
@@ -240,8 +290,10 @@ it("reuploads cached audio only after invalid file_id", async () => {
   sendVoice.mockResolvedValue({ voice: { file_id: "test-file-id" } });
   await sendAssistantVoiceReply("first", "Готово.");
   sendVoiceId.mockRejectedValue(new TelegramApiError(400, "sendVoice", "wrong file identifier"));
-  expect(await sendAssistantVoiceReply("second", "Готово.")).toBe(true);
+  expect(await sendAssistantVoiceReply("second", "Готово.", 23, undefined, 41)).toBe(true);
+  expect(sendVoiceId).toHaveBeenCalledWith("second", "test-file-id", 23, 41);
   expect(sendVoice).toHaveBeenCalledTimes(2);
+  expect(sendVoice).toHaveBeenLastCalledWith("second", expect.any(Buffer), 23, undefined, 41);
   expect(fetchMock).toHaveBeenCalledTimes(1);
   expect(query).toHaveBeenCalledTimes(1);
 });

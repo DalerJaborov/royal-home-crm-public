@@ -36,12 +36,17 @@ import { publishPropertyUpdated, publishRequestUpdated } from "../../lib/livePub
 import { formatPrice } from "../../ai/seoGenerator.js";
 import { embedAndSaveProperty, EMBEDDING_RELEVANT_FIELDS } from "../../ai/embeddings.js";
 import { describePropertyChanges } from "../../lib/propertyChanges.js";
+import { toCents } from "../../lib/money.js";
+import { canResumeAssistantPriceUndo, recordAssistantPriceUndo } from "../../lib/assistantPriceUndoJournal.js";
+import { closeForOtherReviewers } from "../../lib/propertyChangeRequestService.js";
 import { refreshPublishedCaptions, removeFromSocial, sendBackToMontajer } from "../../lib/publishedVideoFix.js";
 import { runPostUpdateEffects, seoFieldsForUpdate } from "../../lib/propertyUpdateEffects.js";
+import { stagePropertyPriceDelivery, type PropertyPriceDelivery } from "../../lib/propertyPriceDelivery.js";
 import {
   CHANGE_REQUEST_INCLUDE,
   channelName,
   parseCardPatch,
+  readPriceUndoGuard,
   summarizeChangeRequest,
   toChangeRequestDto,
   type PropertyUpdateInput,
@@ -49,8 +54,8 @@ import {
 import { geocodeInBackground, normalizePropertyAddress } from "./shared.js";
 
 export type ApproveOutcome =
-  | { ok: false; status: number; error: string }
-  | { ok: true; request: ReturnType<typeof toChangeRequestDto>; message: string };
+  | { ok: false; status: number; error: string; code?: "UNDO_STALE" }
+  | { ok: true; request: ReturnType<typeof toChangeRequestDto>; message: string; writtenPropertyVersion?: number };
 
 /** Что захват записал в карточку (только для PRICE_CHANGE и CARD_DATA). */
 interface AppliedWrite {
@@ -58,6 +63,7 @@ interface AppliedWrite {
   after: Property;
   changedFields: string[];
   priceChanged: boolean;
+  priceDelivery?: PropertyPriceDelivery;
 }
 
 function newResult(): PropertyChangeResult {
@@ -80,7 +86,11 @@ export async function approvePropertyChangeRequest(input: {
   });
   if (!pre) return { ok: false, status: 404, error: "Заявка не найдена" };
   if (pre.status !== "PENDING") return { ok: false, status: 409, error: "По этой заявке уже вынесено решение" };
-  if (pre.property.deletedAt) return { ok: false, status: 409, error: "Объект в Корзине — по нему заявки не выполняются" };
+  const priceUndoGuard = pre.kind === "PRICE_CHANGE" ? readPriceUndoGuard(pre.payload) : undefined;
+  const assistantPriceUndo = priceUndoGuard?.assistant;
+  if (pre.property.deletedAt && priceUndoGuard === undefined) {
+    return { ok: false, status: 409, error: "Объект в Корзине — по нему заявки не выполняются" };
+  }
 
   // ПОДГОТОВКА ВНЕ ЗАМКА: разбор тела и платная часть (SEO через ИИ) — под замком объекта их не держим.
   let pricePlan: {
@@ -145,19 +155,44 @@ export async function approvePropertyChangeRequest(input: {
   }
 
   // ЗАХВАТ + ЗАПИСЬ под замком объекта.
-  type Claim = { conflict: string } | { write: AppliedWrite | null; property: Property };
+  type Claim = { conflict: string; expiredUndo?: true; forbidden?: true } | { write: AppliedWrite | null; property: Property };
   let claim: Claim;
   try {
     claim = await withPropertyLock(pre.propertyId, async (tx): Promise<Claim> => {
       const fresh = await tx.propertyChangeRequest.findUnique({ where: { id: requestId }, select: { status: true } });
       if (!fresh || fresh.status !== "PENDING") return { conflict: "По этой заявке уже вынесено решение" };
+      if (pricePlan || priceUndoGuard !== undefined) {
+        // PATCH and approval share this row lock through the price write and staging.
+        await tx.$queryRaw`SELECT id FROM "Property" WHERE id = ${pre.propertyId} FOR NO KEY UPDATE`;
+      }
       const property = await tx.property.findUnique({ where: { id: pre.propertyId } });
+      if (
+        priceUndoGuard !== undefined &&
+        (!priceUndoGuard || !property || property.deletedAt ||
+          property.version !== priceUndoGuard.version ||
+          toCents(property.price) !== priceUndoGuard.priceCents ||
+          property.currency !== priceUndoGuard.currency ||
+          property.status !== priceUndoGuard.status)
+      ) {
+        const conflict = "Объект уже изменился. Прежнюю цену не вернула.";
+        const cancelled = await tx.propertyChangeRequest.updateMany({
+          where: { id: requestId, status: "PENDING" },
+          data: { status: "CANCELLED", decidedAt: new Date(), decisionNote: conflict },
+        });
+        return { conflict, expiredUndo: cancelled.count === 1 ? true : undefined };
+      }
       if (!property || property.deletedAt) return { conflict: "Объект в Корзине — по нему заявки не выполняются" };
 
-      await tx.propertyChangeRequest.update({
-        where: { id: requestId },
+      if (assistantPriceUndo && !(await canResumeAssistantPriceUndo(tx, pre.authorId, property))) {
+        return { conflict: "Нет права вернуть прежнюю цену.", forbidden: true };
+      }
+      if (assistantPriceUndo && (!pricePlan || prepareError)) throw new Error("Invalid linked assistant price undo payload");
+
+      const claimed = await tx.propertyChangeRequest.updateMany({
+        where: { id: requestId, status: "PENDING" },
         data: { status: "APPROVED", decidedById: actorId, decidedAt: new Date(), decisionNote: input.note },
       });
+      if (!claimed.count) return { conflict: "По этой заявке уже вынесено решение" };
       if (prepareError) return { write: null, property };
 
       if (pricePlan) {
@@ -184,7 +219,27 @@ export async function approvePropertyChangeRequest(input: {
           },
         });
         const changedFields = ["price", ...(property.currency !== pricePlan.newCurrency ? ["currency"] : [])];
-        return { write: { before: property, after, changedFields, priceChanged: true }, property };
+        const priceDelivery = await stagePropertyPriceDelivery(tx, property, after, changedFields, "заявка на изменение цены");
+        if (assistantPriceUndo) {
+          await recordAssistantPriceUndo(tx, assistantPriceUndo, {
+            id: requestId, propertyId: property.id, authorId: pre.authorId, agentName: pre.author.fullName,
+          });
+          await tx.auditLog.create({
+            data: {
+              action: "PROPERTY_FIELDS_CHANGED",
+              entityType: "Property",
+              entityId: property.id,
+              agentId: actorId,
+              agentName: (await tx.agent.findUnique({ where: { id: actorId }, select: { fullName: true } }))?.fullName ?? "Неизвестно",
+              meta: {
+                shortId: property.shortId,
+                changes: describePropertyChanges(changedFields, after, property),
+                viaChangeRequest: requestId,
+              },
+            },
+          });
+        }
+        return { write: { before: property, after, changedFields, priceChanged: true, priceDelivery }, property };
       }
 
       if (cardPlan && cardPlan.changed.length > 0) {
@@ -219,7 +274,17 @@ export async function approvePropertyChangeRequest(input: {
     void logSystemError("api", `Заявка на изменение ${requestId}: захват не удался — ${reason}`);
     return { ok: false, status: 500, error: "Не удалось принять заявку — попробуйте ещё раз" };
   }
-  if ("conflict" in claim) return { ok: false, status: 409, error: claim.conflict };
+  if ("conflict" in claim) {
+    if (claim.expiredUndo) {
+      logAgentAudit(actorId, "PROPERTY_CHANGE_REQUEST_CANCELLED", "Property", pre.propertyId, {
+        requestId, kind: pre.kind, reason: "UNDO_STALE",
+      });
+      void closeForOtherReviewers(requestId, null);
+      publishRequestUpdated({ requestId, propertyId: pre.propertyId, agentIds: [pre.authorId], stage: "CANCELLED", actorId });
+      return { ok: false, status: 409, error: claim.conflict, code: "UNDO_STALE" };
+    }
+    return { ok: false, status: claim.forbidden ? 403 : 409, error: claim.conflict };
+  }
 
   // ВЫПОЛНЕНИЕ. Любое исключение → FAILED с текстом, а не 500.
   const result = newResult();
@@ -290,7 +355,7 @@ export async function approvePropertyChangeRequest(input: {
     manual: result.manual.map((m) => `${channelName(m.channel)}: ${m.text}`),
     error,
   });
-  if (claim.write) {
+  if (claim.write && !assistantPriceUndo) {
     // Хроника объекта: «было → стало», как у обычной правки карточки (PATCH).
     const w = claim.write;
     const changes = describePropertyChanges(
@@ -318,12 +383,21 @@ export async function approvePropertyChangeRequest(input: {
   });
   if (claim.write) publishPropertyUpdated({ propertyId: property.id, actorId, stage: claim.write.after.status });
 
+  const priceDelivery = claim.write?.priceDelivery;
+  const priceQueued = priceDelivery?.siteQueued || Boolean(priceDelivery?.caption.queued.length);
   const message = error
     ? `Не выполнилось: ${error}`
-    : result.manual.length > 0
+    : priceQueued
+      ? `Цена сохранена в CRM. Обновление площадок в очереди.${result.manual.length ? " Есть площадки, где нужна ручная правка." : ""}`
+      : result.manual.length > 0
       ? `Принято. Автоматически сделано: ${result.applied.length}. Руками осталось: ${result.manual.length} — напоминание отправлено`
       : "Принято и выполнено";
-  return { ok: true, request: toChangeRequestDto(row), message };
+  return {
+    ok: true,
+    request: toChangeRequestDto(row),
+    message,
+    writtenPropertyVersion: claim.write?.after.version,
+  };
 }
 
 /** PRICE_CHANGE / CARD_DATA: эффекты записи и (по желанию агента) перемонтаж. Возвращает текст сбоя или null. */
@@ -347,29 +421,25 @@ async function executeFieldsChange(a: {
     result.applied.push(
       `Цена в карточке: ${formatPrice(Number(claim.before.price), claim.before.currency)} → ${formatPrice(Number(claim.after.price), claim.after.currency)}`
     );
-    const fx = await runPostUpdateEffects({
+    await runPostUpdateEffects({
       existing: claim.before,
       updated: claim.after,
       changedFields: claim.changedFields,
       priceActuallyChanged: true,
       staysAvailable: true,
-      resyncSite: claim.before.publishedOnSite,
+      resyncSite: false,
       resyncReason: "заявка на изменение: цена",
       awaitPriceSync: true,
+      priceCaptionStage: claim.priceDelivery?.caption,
     });
-    if (claim.before.publishedOnSite) result.applied.push("Сайт: новая цена отправлена на витрину");
-    const sync = fx.priceSync;
-    for (const c of sync?.updated ?? []) result.applied.push(`${channelName(c)}: цена в подписи обновлена`);
-    if (sync?.skipped) {
-      for (const c of channels.filter((x) => ["FACEBOOK", "TELEGRAM", "YOUTUBE"].includes(x))) {
-        result.manual.push({ channel: c, text: `${channelName(c)}: ${sync.skipped} — поправьте цену в подписи вручную` });
-      }
+    if (claim.priceDelivery?.siteQueued) result.applied.push("Сайт: обновление цены в очереди");
+    for (const channel of claim.priceDelivery?.caption.queued ?? []) {
+      result.applied.push(`${channelName(channel)}: обновление цены в очереди`);
     }
-    for (const f of sync?.failed ?? []) {
-      result.manual.push({
-        channel: f.channel,
-        text: `${f.channel === "—" ? "Соцсети" : channelName(f.channel)}: не обновилось автоматически (${f.error}) — поправьте цену в подписи вручную`,
-      });
+    for (const channel of claim.priceDelivery?.caption.manual ?? []) {
+      if (!["INSTAGRAM", "TIKTOK", "THREADS"].includes(channel)) {
+        result.manual.push({ channel, text: `${channelName(channel)}: проверьте цену в подписи вручную` });
+      }
     }
     // Площадки, где подпись через API менять НЕЛЬЗЯ (Meta / TikTok / Threads) — человеку, а не в журнал.
     if (channels.includes("INSTAGRAM")) {

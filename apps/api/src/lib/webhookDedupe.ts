@@ -129,7 +129,11 @@ async function reportStaleDeliveryReclaimed(
   );
 }
 
-export async function isDuplicateDelivery(channel: string, messageId?: string | null): Promise<boolean> {
+export async function isDuplicateDelivery(
+  channel: string,
+  messageId?: string | null,
+  options?: { requireClaim?: boolean },
+): Promise<boolean> {
   // Без идентификатора отличить повтор не от чего: событие без mid (например, ответ
   // на историю) обрабатываем как раньше. Придумывать ключ из текста нельзя — клиент
   // имеет полное право написать «салом» дважды.
@@ -139,6 +143,8 @@ export async function isDuplicateDelivery(channel: string, messageId?: string | 
     return false;
   } catch (err) {
     if ((err as { code?: string }).code !== UNIQUE_VIOLATION) {
+      // Поллинг может не подтверждать апдейт, пока БД не примет отметку.
+      if (options?.requireClaim) throw err;
       console.error("[webhook] отметка обработки не записана:", err instanceof Error ? err.message : err);
       return false;
     }
@@ -152,7 +158,7 @@ export async function isDuplicateDelivery(channel: string, messageId?: string | 
     // Между нашим упавшим `create` и этим чтением кто-то снял замок
     // (releaseProcessedMessage после сбоя обработки) — доставка не дубль,
     // пробуем поставить отметку заново.
-    return isDuplicateDelivery(channel, messageId);
+    return isDuplicateDelivery(channel, messageId, options);
   }
   if (existing.completedAt) return true; // обработано успешно — настоящий дубль
 

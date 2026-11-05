@@ -440,7 +440,7 @@ describe("подпись после правки и «Готово»", () => {
     const sent = await prisma.property.findUniqueOrThrow({ where: { id: p.id } });
     expect(sent.reelsCaption).toContain("✅Этаж: 3");
     expect(sent.reelsCaption).toContain(`Объект №${stored.shortId}`);
-    expect(editMessageCaption).toHaveBeenCalledWith("@rh-edit-test", 77, sent.reelsCaption);
+    expect(editMessageCaption).toHaveBeenCalledWith("@rh-edit-test", 77, sent.reelsCaption, undefined, true);
     expect(sent.reelsCaption).toBe(withPostFooter(sent.reelsCaption ?? "", stored.shortId));
 
     // Второй «Готово» без новых правок в соцсети не ходит.

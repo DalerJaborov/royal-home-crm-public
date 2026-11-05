@@ -14,12 +14,12 @@
  "totals": {
   "screens": 52,
   "paths": 730,
-  "cron": 121,
-  "jobs": 31,
-  "conditions": 3949,
-  "untranslatedUnique": 451,
-  "untranslatedTotal": 581,
-  "partialUnique": 1079,
+  "cron": 122,
+  "jobs": 32,
+  "conditions": 3992,
+  "untranslatedUnique": 455,
+  "untranslatedTotal": 585,
+  "partialUnique": 1096,
   "translatedShare": 85
  },
  "untranslated": [
@@ -144,6 +144,7 @@
   "!z.string().uuid().safeParse(id).success || !parsed.success",
   "!z.string().uuid().safeParse(req.params.id).success",
   "!z.string().uuid().safeParse(req.params.id).success || !parsed.success",
+  "\"conflict\" in claim",
   "\"defaultRopAgentId\" in parsed.data.config && parsed.data.config.defaultRopAgentId",
   "\"optedOutAt\" in conv && conv.optedOutAt",
   "\"reason\" in pick",
@@ -394,10 +395,12 @@
   "photo.originalUrl && photo.url !== photo.originalUrl",
   "photos + videos > 0",
   "previousMontajerAgentId !== undefined && pair.videoMontajerAgentId !== previousMontajerAgentId",
+  "priceUndoGuard !== undefined && (!priceUndoGuard || !property || property.deletedAt || property.version !== p…",
   "primaryId === duplicateId",
   "privateJob && input.payload && typeof input.payload === \"object\" && !Array.isArray(input.payload)",
   "profileCache && Date.now() - profileCache.at < PROFILE_CACHE_MS",
   "properties.length === MAX_PROPERTIES_PER_SWEEP",
+  "properties.some((p) => !p.district)",
   "properties.some((p) => p.currency === \"USD\")",
   "property.clipVideoUrl && property.clipVideoUrl !== targetUrl",
   "property.videoHandoffDispatchStartedAt && Date.now() - property.videoHandoffDispatchStartedAt.getTime() < HAN…",
@@ -412,6 +415,7 @@
   "req.agent!.id !== deal.agentId",
   "req.agent!.id !== result.deal.agentId",
   "req.params.id === req.agent!.id",
+  "request?.kind !== \"PRICE_CHANGE\" || request.status !== \"PENDING\" || readPriceUndoGuard(request.payload)?.assi…",
   "requestKey&&expense.autoFingerprint!==fingerprint",
   "requestedTail !== phoneTail(client.phone)",
   "requirementsNotes.length + text.length + 1 <= 4000",
@@ -43882,6 +43886,12 @@
        "raw": "!row?.startedAt || row.startedAt.toISOString()!==body.data.expectedStartedAt || ![\"EXECUTING\",\"UNKNOWN\"].incl…"
       },
       {
+       "t": "если статус — «EXECUTING» и execution mode из списка: «PRICE_CHANGE», «CAPTION_REFRESH»",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
        "t": "меняет: publication metadata сверка с сайтом",
        "k": "do",
        "a": [],
@@ -47637,28 +47647,21 @@
        "k": "do",
        "a": [
         "все изменения разом: либо всё, либо ничего",
-        "заводит: цена change",
-        "меняет: объект"
+        "меняет: объект",
+        "заводит: цена change"
        ],
        "c": [
         {
-         "t": "если вид — «fixSellerPhone»",
+         "t": "если есть writes цена",
          "k": "if",
          "a": [],
          "c": []
         },
         {
-         "t": "если есть цена actually изменённые",
+         "t": "если вид — «fixSellerPhone»",
          "k": "if",
          "a": [],
-         "c": [
-          {
-           "t": "заводит: цена change",
-           "k": "do",
-           "a": [],
-           "c": []
-          }
-         ]
+         "c": []
         },
         {
          "t": "меняет: объект",
@@ -47681,6 +47684,30 @@
         },
         {
          "t": "если есть количество (ответ) и статус — «WITHDRAWN» и статус (такая запись) не «WITHDRAWN»",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если нет: writes цена или (нет: сумма изменённые и нет: currency изменённые)",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "заводит: цена change",
+         "k": "do",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если есть сумма изменённые",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если есть currency изменённые",
          "k": "if",
          "a": [],
          "c": []
@@ -72041,6 +72068,39 @@
    ]
   },
   {
+   "id": "price-caption-delivery",
+   "when": "* * * * *",
+   "label": "price-caption-delivery",
+   "tree": [
+    {
+     "t": "внутри этого шага",
+     "k": "do",
+     "a": [],
+     "c": [
+      {
+       "t": "и так по каждому",
+       "k": "loop",
+       "a": [],
+       "c": [
+        {
+         "t": "запись в журнал ошибок",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
+      },
+      {
+       "t": "если статус — «rejected»",
+       "k": "if",
+       "a": [],
+       "c": []
+      }
+     ]
+    }
+   ]
+  },
+  {
    "id": "private-files-cleanup",
    "when": "30 3 * * *",
    "label": "Удаляет старые вложения переписки, чтобы не переполнить диск",
@@ -77739,6 +77799,370 @@
    ]
   },
   {
+   "kind": "assistantPriceUndoJob",
+   "tree": [
+    {
+     "t": "если request?.kind !== \"PRICE_CHANGE\" || request.status !== \"PENDING\" || readPriceUndoGuard(request.payload)?.assi…",
+     "k": "if",
+     "a": [],
+     "c": [],
+     "raw": "request?.kind !== \"PRICE_CHANGE\" || request.status !== \"PENDING\" || readPriceUndoGuard(request.payload)?.assi…"
+    },
+    {
+     "t": "внутри этого шага",
+     "k": "do",
+     "a": [],
+     "c": [
+      {
+       "t": "если нет: pre",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если статус не «PENDING»",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если есть удалён at и цена undo сторож не задан",
+       "k": "if",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если вид — «PRICE_CHANGE»",
+       "k": "if",
+       "a": [],
+       "c": [
+        {
+         "t": "если нет: success",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "иначе",
+         "k": "else",
+         "a": [],
+         "c": []
+        }
+       ]
+      },
+      {
+       "t": "иначе если вид — «CARD_DATA»",
+       "k": "elseif",
+       "a": [],
+       "c": [
+        {
+         "t": "если нет: success",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "иначе",
+         "k": "else",
+         "a": [],
+         "c": [
+          {
+           "t": "если есть получилось (присланные данные)",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "иначе если есть noop",
+           "k": "elseif",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "иначе",
+           "k": "else",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "t": "пробует сделать",
+       "k": "try",
+       "a": [],
+       "c": [
+        {
+         "t": "поломка: «Invalid linked assistant price undo payload»",
+         "k": "do",
+         "a": [
+          "меняет: объект change заявка",
+          "заводит: цена change",
+          "меняет: объект",
+          "заводит: проверка журнал"
+         ],
+         "c": [
+          {
+           "t": "если нет: fresh или статус не «PENDING»",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если есть цена plan или цена undo сторож задан",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если priceUndoGuard !== undefined && (!priceUndoGuard || !property || property.deletedAt || property.version !== p…",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "raw": "priceUndoGuard !== undefined && (!priceUndoGuard || !property || property.deletedAt || property.version !== p…",
+           "more": true
+          },
+          {
+           "t": "если нет: объект или есть удалён at",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если есть помощник цена undo и нельзя продолжить помощник цена undo",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если есть помощник цена undo и (нет: цена plan или есть prepare ошибка)",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "меняет: объект change заявка",
+           "k": "do",
+           "a": [],
+           "c": []
+          },
+          {
+           "t": "если нет: количество",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если есть prepare ошибка",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если есть цена plan",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если есть карточка plan и изменённые количество больше 0",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "t": "если не получилось",
+       "k": "catch",
+       "a": [],
+       "c": [
+        {
+         "t": "запись в журнал ошибок",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
+      },
+      {
+       "t": "если \"conflict\" in claim",
+       "k": "if",
+       "a": [],
+       "c": [
+        {
+         "t": "если есть expired undo",
+         "k": "if",
+         "a": [],
+         "c": []
+        }
+       ],
+       "raw": "\"conflict\" in claim"
+      },
+      {
+       "t": "пробует сделать",
+       "k": "try",
+       "a": [],
+       "c": [
+        {
+         "t": "если нет: prepare ошибка",
+         "k": "if",
+         "a": [],
+         "c": [
+          {
+           "t": "смотря что пришло",
+           "k": "switch",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "t": "если не получилось",
+       "k": "catch",
+       "a": [],
+       "c": [
+        {
+         "t": "запись в журнал ошибок",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
+      },
+      {
+       "t": "меняет: объект change заявка",
+       "k": "do",
+       "a": [],
+       "c": []
+      },
+      {
+       "t": "если есть write и нет: помощник цена undo",
+       "k": "if",
+       "a": [],
+       "c": [
+        {
+         "t": "если changes количество больше 0",
+         "k": "if",
+         "a": [],
+         "c": []
+        }
+       ]
+      },
+      {
+       "t": "если есть write",
+       "k": "if",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
+     "t": "если не получилось и (статус (ответ) не меньше 500 или статус (ответ) — «403»)",
+     "k": "if",
+     "a": [],
+     "c": [
+      {
+       "t": "поломка: «Could not apply staged assistant price undo»",
+       "k": "do",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
+     "t": "если не получилось",
+     "k": "catch",
+     "a": [],
+     "c": [
+      {
+       "t": "запись в журнал ошибок",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "если это private operation",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если source — «investigation»",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если сервер сейчас выключается",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "пробует сделать",
+         "k": "try",
+         "a": [],
+         "c": [
+          {
+           "t": "если есть недавняя запись",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "заводит: запись в журнале ошибок",
+           "k": "do",
+           "a": [],
+           "c": []
+          },
+          {
+           "t": "если нет: quiet пульт",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          },
+          {
+           "t": "если нет: ever просмотрено и нет: молчащие",
+           "k": "if",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        },
+        {
+         "t": "если не получилось",
+         "k": "catch",
+         "a": [],
+         "c": []
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
    "kind": "client-reactivation",
    "tree": [
     {
@@ -79855,6 +80279,13 @@
          "raw": "!crmPublicBase()"
         },
         {
+         "t": "если properties.some((p) => !p.district)",
+         "k": "if",
+         "a": [],
+         "c": [],
+         "raw": "properties.some((p) => !p.district)"
+        },
+        {
          "t": "если properties.some((p) => p.currency === \"USD\")",
          "k": "if",
          "a": [],
@@ -79930,6 +80361,12 @@
         {
          "t": "всё хорошо, отвечает данными",
          "k": "do",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если нет: success",
+         "k": "if",
          "a": [],
          "c": []
         }
@@ -81722,59 +82159,7 @@
        "a": [],
        "c": [
         {
-         "t": "если нет: получилось",
-         "k": "if",
-         "a": [],
-         "c": [
-          {
-           "t": "поломка: «объект не снят с сайта (…»",
-           "k": "do",
-           "a": [],
-           "c": []
-          }
-         ]
-        },
-        {
-         "t": "если есть отказавшиеся",
-         "k": "if",
-         "a": [],
-         "c": [
-          {
-           "t": "поломка: «сайт не снял объект (…»",
-           "k": "do",
-           "a": [],
-           "c": []
-          }
-         ]
-        },
-        {
          "t": "меняет: объект",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ]
-      },
-      {
-       "t": "если не получилось",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "поломка: «объект не дошёл до сайта (…»",
-         "k": "do",
-         "a": [],
-         "c": []
-        }
-       ]
-      },
-      {
-       "t": "если есть failed",
-       "k": "if",
-       "a": [],
-       "c": [
-        {
-         "t": "поломка: «сайт отклонил объект (…»",
          "k": "do",
          "a": [],
          "c": []
@@ -83331,6 +83716,26 @@
            "more": true
           }
          ]
+        },
+        {
+         "t": "если есть опубликованные цена",
+         "k": "if",
+         "a": [],
+         "c": [
+          {
+           "t": "все изменения разом: либо всё, либо ничего",
+           "k": "do",
+           "a": [],
+           "c": [],
+           "more": true
+          }
+         ]
+        },
+        {
+         "t": "иначе",
+         "k": "else",
+         "a": [],
+         "c": []
         },
         {
          "t": "если есть публикация",

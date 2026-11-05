@@ -83,6 +83,7 @@ import {
   sendMessage,
   sendMessageWithButtons,
   setMessageReaction,
+  telegramUpdateChatId,
   type TelegramCallbackQuery,
   type TelegramDocument,
   type TelegramIncomingMessage,
@@ -324,7 +325,7 @@ export interface TelegramUpdateAccepted {
  * дожидается и ответа.
  */
 export function startTelegramUpdate(update: TelegramUpdate): Promise<TelegramUpdateAccepted> {
-  const rawChatId = update.message?.chat?.id ?? update.edited_message?.chat?.id ?? update.callback_query?.message?.chat.id;
+  const rawChatId = telegramUpdateChatId(update);
   const accepted = (r: TelegramUpdateAccepted | void): TelegramUpdateAccepted => r ?? { reply: Promise.resolve() };
   if (rawChatId == null) return dispatchTelegramUpdate(update).then(accepted);
   const key = String(rawChatId);
@@ -458,7 +459,9 @@ async function isCurrentMontajer(agentId: string): Promise<boolean> {
 async function handleAgentTelegramMessage(msg: TelegramIncomingMessage, updateId: number): Promise<boolean> {
   const chatId = String(msg.chat.id);
 
-  const startMatch = msg.text?.match(/^\/start\s+(\S+)/);
+  // Пересылка может быть справкой, но команды и ответы на рабочие вопросы пишет сам сотрудник.
+  const ownText = msg.forward_origin || msg.forward_from_message_id ? undefined : msg.text;
+  const startMatch = ownText?.match(/^\/start\s+(\S+)/);
   if (startMatch) {
     const linked = await tryLinkAgentByCode(chatId, startMatch[1], msg.from?.id ? String(msg.from.id) : null);
     if (linked) return true;
@@ -472,9 +475,9 @@ async function handleAgentTelegramMessage(msg: TelegramIncomingMessage, updateId
 
   // Ответ модератора на вопрос бота («комментарий агенту», «новое значение поля») —
   // состояние в базе с TTL 15 минут, см. lib/telegramModeration.ts.
-  if (msg.text && !msg.text.startsWith("/") && (await handleModerationText(chatId, msg.text))) return true;
+  if (ownText && !ownText.startsWith("/") && (await handleModerationText(chatId, ownText))) return true;
   // Комментарий монтажёру к возврату готового ролика (telegram/clipReviewBot.ts).
-  if (msg.text && !msg.text.startsWith("/") && (await handleClipReviewText(chatId, msg.text))) return true;
+  if (ownText && !ownText.startsWith("/") && (await handleClipReviewText(chatId, ownText))) return true;
 
   // Не монтажёр — разговор с внутренним помощником CRM (П5, telegram/assistantBot.ts): текст,
   // голосовые, кнопки подтверждения. Монтажёру ниже достаётся прежнее меню и приём ролика.
@@ -554,7 +557,8 @@ async function handleAgentTelegramMessage(msg: TelegramIncomingMessage, updateId
     }).catch(() => {});
     return true;
   }
-  await runMontajerCommand(chatId, parseMontajerText(msg.text ?? ""));
+  if (!ownText && msg.text) return true;
+  await runMontajerCommand(chatId, parseMontajerText(ownText ?? ""));
   return true;
 }
 

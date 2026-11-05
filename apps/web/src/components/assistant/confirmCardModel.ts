@@ -46,6 +46,7 @@ export interface ConfirmCardState {
   notice: { tone: NoticeTone; text: string } | null;
   /** Кнопку «Отменить» показывать сейчас (исполнено, у действия есть откат, срок не прошёл). */
   canUndo: boolean;
+  checkingUndo: boolean;
 }
 
 export interface ConfirmCardClient {
@@ -93,6 +94,7 @@ export class ConfirmCardController {
   private started = false;
   /** Сервер сказал «откатить уже нельзя» (данные изменились, окно вышло) — кнопку больше не показываем. */
   private undoBlocked = false;
+  private checkingUndo = false;
   /** Серверное время минус часы браузера (мс): сроки считаем по серверным часам, а не по неверным часам человека. */
   private skew = 0;
   /** Когда вошли в «Да, безвозвратно» (ранний confirm() игнорируется). */
@@ -196,10 +198,23 @@ export class ConfirmCardController {
     this.set(action, "undoing", null);
     try {
       const outcome = await this.client.undo(action.id);
+      this.checkingUndo = false;
       this.adopt(outcome.action, { tone: "warn", text: "Отменено — вернули как было" });
     } catch (err) {
       const e = asActionError(err);
-      if (e.status === 410 || e.status === 409 || e.status === 403) this.undoBlocked = true;
+      if (e.action?.status === "UNDONE") {
+        this.checkingUndo = false;
+        return this.adopt(e.action, { tone: "warn", text: "Отменено — вернули как было" });
+      }
+      if (e.code === "UNDO_RETRY" && action.tool === "change_property_price" &&
+          (action.result as { applied?: boolean } | null)?.applied === true) {
+        this.checkingUndo = true;
+        return this.set(action, "done", { tone: "warn", text: "Ждём результат отмены. Его можно проверить позже." });
+      }
+      if (e.status === 410 || e.status === 409 || e.status === 403) {
+        this.undoBlocked = true;
+        this.checkingUndo = false;
+      }
       const text =
         e.status === 410 ? "Время на отмену вышло" : e.status === 403 ? "Нет доступа" : e.message;
       this.set(action, "done", { tone: "crit", text });
@@ -231,8 +246,9 @@ export class ConfirmCardController {
   }
 
   private derive(action: AssistantActionView, phase: ConfirmPhase, notice: ConfirmCardState["notice"]): ConfirmCardState {
-    const canUndo = phase === "done" && !this.undoBlocked && isFuture(action.undoUntil, this.clock());
-    return { action, phase, notice, canUndo };
+    const checkingUndo = phase === "done" && this.checkingUndo;
+    const canUndo = phase === "done" && !this.undoBlocked && (checkingUndo || isFuture(action.undoUntil, this.clock()));
+    return { action, phase, notice, canUndo, checkingUndo };
   }
 
   private set(action: AssistantActionView, phase: ConfirmPhase, notice: ConfirmCardState["notice"]): void {
@@ -249,11 +265,11 @@ export class ConfirmCardController {
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
     if (!this.started) return;
-    const { phase, action, canUndo } = this.state;
+    const { phase, action, canUndo, checkingUndo } = this.state;
     const at =
       phase === "pending" || phase === "arming"
         ? Date.parse(action.expiresAt)
-        : canUndo && action.undoUntil
+        : canUndo && !checkingUndo && action.undoUntil
           ? Date.parse(action.undoUntil)
           : null;
     if (at === null || Number.isNaN(at)) return;

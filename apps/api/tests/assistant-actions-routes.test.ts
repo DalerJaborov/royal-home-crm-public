@@ -96,6 +96,38 @@ describe("POST /ai/assistant/actions/:id/*", () => {
     expect(fx.store.get("p1")!.price).toBe(450_000);
   });
 
+  it.each([
+    { tool: "save_company_knowledge", settled: false },
+    { tool: "archive_company_knowledge", settled: false },
+    { tool: "save_company_knowledge", settled: true },
+    { tool: "archive_company_knowledge", settled: true },
+  ])("$tool requires the current role when settled=$settled", async ({ tool: knowledgeTool, settled }) => {
+    const { invalidateAgentAccess, loadAgentAccess } = await import("../src/auth/middleware.js");
+    const { getCompanyKnowledge, knowledgeKey, saveCompanyKnowledge } = await import("../src/ai/assistant/knowledge.js");
+    const title = `Проба общей памяти ${runId} ${knowledgeTool} ${settled}`;
+    const input = { title, content: "Тестовый порядок работы с карточками.", source: "Тестовый регламент" };
+    try {
+      const archive = knowledgeTool === "archive_company_knowledge";
+      if (archive) await saveCompanyKnowledge(input, ownerId, 0);
+      const action = await createPendingAssistantAction(actorFor(ownerId), knowledgeTool, archive ? { title } : input);
+      if (settled) expect((await post(`${action.id}/confirm`, ownerToken)).status).toBe(200);
+      const previous = await getCompanyKnowledge(title);
+      expect((await loadAgentAccess(ownerId))?.role).toBe("AGENT");
+      // This simulates revocation from a different process, leaving the route cache warm.
+      await prisma.agent.update({ where: { id: ownerId }, data: { role: "SHAREHOLDER" } });
+      const refused = await post(`${action.id}/confirm`, ownerToken);
+      expect(refused.status).toBe(403);
+      expect(refused.body.code).toBe("FORBIDDEN");
+      expect(refused.body.action).toBeUndefined();
+      expect(await getCompanyKnowledge(title)).toEqual(previous);
+    } finally {
+      await prisma.agent.update({ where: { id: ownerId }, data: { role: "AGENT" } });
+      invalidateAgentAccess(ownerId);
+      await prisma.assistantKnowledgeRevision.deleteMany({ where: { title } });
+      await prisma.assistantKnowledge.deleteMany({ where: { key: knowledgeKey(title) } });
+    }
+  });
+
   it("устаревший снимок — 409 {stale: true} с новым действием; отмена — 200", async () => {
     fx.store.set("p1", { price: 450_000 });
     const action = await pending();

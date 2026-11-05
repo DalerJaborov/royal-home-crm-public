@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **730**. Развилок в самих путях: **2497**; вместе с задачами по расписанию и фоновыми заданиями — **3949**. Модулей: **81**.
+Путей: **730**. Развилок в самих путях: **2501**; вместе с задачами по расписанию и фоновыми заданиями — **3998**. Модулей: **81**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -11226,9 +11226,9 @@
 - если !z.object({}).strict().safeParse(req.body).success
   - return res.status(400).json({ error: "Некорректный запрос предварительного просмотра" });
     · ответ 400 — «Некорректный запрос предварительного просмотра»
-- const rows = await preparePublicationMetadataPreview(p.id);
+- const [rows, deliveryRows] = await Promise.all([ preparePublicationMetadataPreview(p.id), listPriceCaptionDel…
   · зовёт preparePublicationMetadataPreview()
-- res.json({ rows, sent: false });
+- res.json({ rows, deliveryRows, sent: false });
   · ответ 200
 
 ### GET /api/v1/properties/:id/narration
@@ -11875,6 +11875,9 @@
   - const row=await tx.publicationMetadataSync.findFirst({where:{id:attemptId.data,propertyId:propertyId.data}});
     · читает в базе: publicationMetadataSync
   - если !row?.startedAt || row.startedAt.toISOString()!==body.data.expectedStartedAt || !["EXECUTING","UNKNOWN"].incl…
+    - return null;
+      · дословно из кода
+  - если row.status === "EXECUTING" && ["PRICE_CHANGE", "CAPTION_REFRESH"].includes(row.executionMode)
     - return null;
       · дословно из кода
   - const updated=await tx.publicationMetadataSync.updateMany({where:{id:row.id,status:row.status,startedAt:row.s…
@@ -13161,18 +13164,21 @@
 - const seo = await seoFieldsForUpdate(existing, data, effDistrict?.name, changedFields);
   · зовёт seoFieldsForUpdate()
 - пробует
-  - updated = await prisma.$transaction(async (tx)
+  - ({ updated, priceBefore, priceDelivery } = await prisma.$transaction(async (tx)
     · ошибка PropertyConflictError
     · всё внутри — одной транзакцией
-    · создаёт в базе: priceChange
-    · меняет в базе: property
+    · обращается к базе своим SQL
     · читает в базе: property
+    · меняет в базе: property
+    · создаёт в базе: priceChange
+    - если writesPrice
+      - await tx.$queryRaw`SELECT id FROM "Property" WHERE id = ${existing.id} FOR NO KEY UPDATE`;
+        · обращается к базе своим SQL
+    - const before = writesPrice ? await tx.property.findUniqueOrThrow({ where: { id: existing.id } }) : existing;
+      · читает в базе: property
     - если ownerPhonePlan.kind === "fixSellerPhone"
       - await applySellerPhoneFix(tx, ownerPhonePlan, req.agent!.id, existing.shortId);
         · зовёт applySellerPhoneFix()
-    - если priceActuallyChanged
-      - await tx.priceChange.create({ data: { propertyId: existing.id, oldPrice: existing.price, oldCurrency: existin…
-        · создаёт в базе: priceChange
     - const result = await tx.property.updateMany({ where: clientVersion !== undefined ? { id: req.params.id, versi…
       · меняет в базе: property
     - если clientVersion !== undefined && result.count === 0
@@ -13181,7 +13187,22 @@
     - если result.count && data.status === "WITHDRAWN" && existing.status !== "WITHDRAWN"
       - await recordPropertyRemoval(tx, { ...removal.data, propertyId: existing.id, actorId: req.agent!.id, operation…
         · зовёт recordPropertyRemoval()
-    - return tx.property.findUniqueOrThrow({ where: { id: req.params.id } });
+    - const after = await tx.property.findUniqueOrThrow({ where: { id: req.params.id } });
+      · читает в базе: property
+    - если !writesPrice || (!amountChanged && !currencyChanged)
+      - return { updated: after, priceBefore: before, priceDelivery: null };
+        · дословно из кода
+    - await tx.priceChange.create({ data: { propertyId: before.id, oldPrice: before.price, oldCurrency: before.curr…
+      · создаёт в базе: priceChange
+    - если amountChanged
+      - deliveryFields.add("price");
+        · дословно из кода
+    - если currencyChanged
+      - deliveryFields.add("currency");
+        · дословно из кода
+    - const delivery = await stagePropertyPriceDelivery(tx, before, after, [...deliveryFields], "правка цены");
+      · зовёт stagePropertyPriceDelivery()
+    - const updated = delivery.caption.captionRewritten || delivery.caption.descriptionChanged ? await tx.property.…
       · читает в базе: property
 - если сорвалось
   - если err instanceof PropertyConflictError
@@ -13257,7 +13278,7 @@
         · пишет строку в журнал сервера
       - void logSystemError("site-sync", `Статус объекта ${updated.id} не дошёл до сайта: ${problem}`, { url: `/prope…
         · запись в журнал ошибок
-- await runPostUpdateEffects({ existing, updated, changedFields, priceActuallyChanged, staysAvailable: data.sta…
+- await runPostUpdateEffects({ existing: priceBefore, updated, changedFields, priceActuallyChanged: priceDelive…
   · зовёт runPostUpdateEffects()
 - если willAutoPublish
   - const { updated: published, siteSyncError } = await publishAfterEditingComplete(req, updated);
@@ -22943,6 +22964,19 @@
   - isPostShowingCallRunning = false;
     · дословно из кода
 
+### price-caption-delivery — * * * * *
+
+- await runPriceCaptionDeliveryTick();
+  · зовёт runPriceCaptionDeliveryTick()
+  - для каждого: const row of abandoned
+    - await logSystemError("meta", `Объект ${row.propertyId}: ${row.channel}, ответ об обновлении подписи не записа…
+      · запись в журнал ошибок
+  - const due = await prisma.$queryRaw<Array<{ id: string; propertyId: string }>>` SELECT target.id, target."prop…
+    · обращается к базе своим SQL
+  - если failed?.status === "rejected"
+    - throw failed.reason;
+      · пробрасывает ошибку дальше
+
 ### private-files-cleanup — 30 3 * * *
 
 - пробует
@@ -25871,6 +25905,217 @@
     - console.error(`[systemError] ${source}: ${String(message).slice(0, 1000)} (запись в журнал не удалась: ${err …
       · пишет строку в журнал сервера
 
+### assistantPriceUndoJob
+
+`apps/api/src/jobs/assistantPriceUndo.ts`
+
+- const request = await prisma.propertyChangeRequest.findUnique({ where: { id: requestId }, select: { kind: tru…
+  · читает в базе: propertyChangeRequest
+- если request?.kind !== "PRICE_CHANGE" || request.status !== "PENDING" || readPriceUndoGuard(request.payload)?.assi…
+  - return;
+    · дальше не идёт, ничего не меняя
+- const outcome = await approvePropertyChangeRequest({ requestId, actorId: request.authorId, note: "Откат цены …
+  · зовёт approvePropertyChangeRequest()
+  - const pre = await prisma.propertyChangeRequest.findUnique({ where: { id: requestId }, include: { property: tr…
+    · читает в базе: propertyChangeRequest
+  - если !pre
+    - return { ok: false, status: 404, error: "Заявка не найдена" };
+      · дословно из кода
+  - если pre.status !== "PENDING"
+    - return { ok: false, status: 409, error: "По этой заявке уже вынесено решение" };
+      · дословно из кода
+  - const priceUndoGuard = pre.kind === "PRICE_CHANGE" ? readPriceUndoGuard(pre.payload) : undefined;
+    · зовёт readPriceUndoGuard()
+  - если pre.property.deletedAt && priceUndoGuard === undefined
+    - return { ok: false, status: 409, error: "Объект в Корзине — по нему заявки не выполняются" };
+      · дословно из кода
+  - если pre.kind === "PRICE_CHANGE"
+    - const body = priceChangePayloadSchema.safeParse(pre.payload);
+      · проверяет данные схемой priceChangePayloadSchema
+    - если !body.success
+      - prepareError = "Тело заявки повреждено (цена) — отклоните её и попросите отправить заново";
+        · дословно из кода
+    - иначе
+      - const district = pre.property.districtId ? await prisma.district.findUnique({ where: { id: pre.property.distr…
+        · читает в базе: district
+      - pricePlan = { newPrice: body.data.newPrice, newCurrency, remake: body.data.remake, seo: priceWillChange ? awa…
+        · зовёт seoFieldsForUpdate()
+  - иначе если pre.kind === "CARD_DATA"
+    - const body = cardDataPayloadSchema.safeParse(pre.payload);
+      · проверяет данные схемой cardDataPayloadSchema
+    - если !body.success
+      - prepareError = "Тело заявки повреждено (данные) — отклоните её и попросите отправить заново";
+        · дословно из кода
+    - иначе
+      - const parsed = parseCardPatch(body.data.patch, pre.property as unknown as Record<string, unknown>);
+        · зовёт parseCardPatch()
+      - если parsed.ok
+        - const district = effDistrictId ? await prisma.district.findUnique({ where: { id: effDistrictId }, select: { n…
+          · читает в базе: district
+        - cardPlan = { patch: parsed.patch, changed: parsed.changed, remake: body.data.remake, seo: await seoFieldsForU…
+          · зовёт seoFieldsForUpdate()
+      - иначе если parsed.noop
+        - cardPlan = { patch: {}, changed: [], remake: body.data.remake, seo: null, districtName: null };
+          · дословно из кода
+      - иначе
+        - prepareError = parsed.error;
+          · дословно из кода
+  - пробует
+    - claim = await withPropertyLock(pre.propertyId, async (tx): Promise<Claim>
+      · ошибка Error — «Invalid linked assistant price undo payload»
+      · обращается к базе своим SQL
+      · читает в базе: propertyChangeRequest
+      · читает в базе: property
+      · меняет в базе: propertyChangeRequest
+      · создаёт в базе: priceChange
+      · меняет в базе: property
+      · создаёт в базе: auditLog
+      · читает в базе: agent
+      - const fresh = await tx.propertyChangeRequest.findUnique({ where: { id: requestId }, select: { status: true } …
+        · читает в базе: propertyChangeRequest
+      - если !fresh || fresh.status !== "PENDING"
+        - return { conflict: "По этой заявке уже вынесено решение" };
+          · дословно из кода
+      - если pricePlan || priceUndoGuard !== undefined
+        - await tx.$queryRaw`SELECT id FROM "Property" WHERE id = ${pre.propertyId} FOR NO KEY UPDATE`;
+          · обращается к базе своим SQL
+      - const property = await tx.property.findUnique({ where: { id: pre.propertyId } });
+        · читает в базе: property
+      - если priceUndoGuard !== undefined && (!priceUndoGuard || !property || property.deletedAt || property.version !== p…
+        - const cancelled = await tx.propertyChangeRequest.updateMany({ where: { id: requestId, status: "PENDING" }, da…
+          · меняет в базе: propertyChangeRequest
+      - если !property || property.deletedAt
+        - return { conflict: "Объект в Корзине — по нему заявки не выполняются" };
+          · дословно из кода
+      - если assistantPriceUndo && !(await canResumeAssistantPriceUndo(tx, pre.authorId, property))
+        - return { conflict: "Нет права вернуть прежнюю цену.", forbidden: true };
+          · дословно из кода
+      - если assistantPriceUndo && (!pricePlan || prepareError)
+        - throw new Error("Invalid linked assistant price undo payload");
+          · ошибка Error — «Invalid linked assistant price undo payload»
+      - const claimed = await tx.propertyChangeRequest.updateMany({ where: { id: requestId, status: "PENDING" }, data…
+        · меняет в базе: propertyChangeRequest
+      - если !claimed.count
+        - return { conflict: "По этой заявке уже вынесено решение" };
+          · дословно из кода
+      - если prepareError
+        - return { write: null, property };
+          · дословно из кода
+      - если pricePlan
+        - если !priceChanged
+          - return { write: null, property };
+            · дословно из кода
+        - await tx.priceChange.create({ data: { propertyId: property.id, oldPrice: property.price, oldCurrency: propert…
+          · создаёт в базе: priceChange
+        - const after = await tx.property.update({ where: { id: property.id }, data: { price: pricePlan.newPrice, curre…
+          · меняет в базе: property
+        - const priceDelivery = await stagePropertyPriceDelivery(tx, property, after, changedFields, "заявка на изменен…
+          · зовёт stagePropertyPriceDelivery()
+        - если assistantPriceUndo
+          - await recordAssistantPriceUndo(tx, assistantPriceUndo, { id: requestId, propertyId: property.id, authorId: pr…
+            · зовёт recordAssistantPriceUndo()
+          - await tx.auditLog.create({ data: { action: "PROPERTY_FIELDS_CHANGED", entityType: "Property", entityId: prope…
+            · создаёт в базе: auditLog
+            · читает в базе: agent
+      - если cardPlan && cardPlan.changed.length > 0
+        - const after = await tx.property.update({ where: { id: property.id }, data: { ...patch, title, ...(patch.addre…
+          · меняет в базе: property
+  - если сорвалось
+    - void logSystemError("api", `Заявка на изменение ${requestId}: захват не удался — ${reason}`);
+      · запись в журнал ошибок
+  - если "conflict" in claim
+    - если claim.expiredUndo
+      - logAgentAudit(actorId, "PROPERTY_CHANGE_REQUEST_CANCELLED", "Property", pre.propertyId, { requestId, kind: pr…
+        · зовёт logAgentAudit()
+      - void closeForOtherReviewers(requestId, null);
+        · зовёт closeForOtherReviewers()
+      - publishRequestUpdated({ requestId, propertyId: pre.propertyId, agentIds: [pre.authorId], stage: "CANCELLED", …
+        · зовёт publishRequestUpdated()
+  - пробует
+    - если !prepareError
+      - смотря что в: pre.kind
+        - вариант case "PRICE_CHANGE"
+        - вариант case "CARD_DATA"
+          - break;
+            · прекращает перебор
+        - вариант case "REMAKE_VIDEO"
+          - const body = remakeVideoPayloadSchema.safeParse(pre.payload);
+            · проверяет данные схемой remakeVideoPayloadSchema
+          - если !body.success
+            - break;
+              · прекращает перебор
+          - break;
+            · прекращает перебор
+        - вариант case "UNPUBLISH"
+          - const body = unpublishPayloadSchema.safeParse(pre.payload);
+            · проверяет данные схемой unpublishPayloadSchema
+          - если !body.success
+            - break;
+              · прекращает перебор
+          - break;
+            · прекращает перебор
+        - вариант case "OTHER"
+          - break;
+            · прекращает перебор
+  - если сорвалось
+    - void logSystemError("api", `Заявка на изменение ${requestId} (${pre.kind}): выполнение упало — ${reason}`, { …
+      · запись в журнал ошибок
+  - const row = await prisma.propertyChangeRequest.update({ where: { id: requestId }, data: { status, result: res…
+    · меняет в базе: propertyChangeRequest
+  - const summary = summarizeChangeRequest(pre.kind, pre.payload, pre.property);
+    · зовёт summarizeChangeRequest()
+  - logAgentAudit(actorId, "PROPERTY_CHANGE_REQUEST_DECIDED", "Property", property.id, { requestId, kind: pre.kin…
+    · зовёт logAgentAudit()
+  - если claim.write && !assistantPriceUndo
+    - const changes = describePropertyChanges( w.changedFields, w.after as unknown as Record<string, unknown>, w.be…
+      · зовёт describePropertyChanges()
+    - если changes.length > 0
+      - logAgentAudit(actorId, "PROPERTY_FIELDS_CHANGED", "Property", property.id, { shortId: property.shortId, chang…
+        · зовёт logAgentAudit()
+  - publishRequestUpdated({ requestId, propertyId: property.id, agentIds: [pre.authorId], stage: status, actorId,…
+    · зовёт publishRequestUpdated()
+  - если claim.write
+    - publishPropertyUpdated({ propertyId: property.id, actorId, stage: claim.write.after.status });
+      · зовёт publishPropertyUpdated()
+  - return { ok: true, request: toChangeRequestDto(row), message, writtenPropertyVersion: claim.write?.after.vers…
+    · зовёт toChangeRequestDto()
+- если !outcome.ok && (outcome.status >= 500 || outcome.status === 403)
+  - throw new Error("Could not apply staged assistant price undo");
+    · ошибка Error — «Could not apply staged assistant price undo»
+- когда попытки кончились
+  - await logSystemError("background-jobs", "Откат цены Шабнам требует проверки в CRM", { dedupKey: `assistant-pr…
+    · запись в журнал ошибок
+    - если isPrivateOperation()
+      - source = "investigation";
+        · дословно из кода
+    - если source === "investigation"
+      - context = { ...context, silent: true };
+        · дословно из кода
+    - если isShuttingDown()
+      - console.log(`[shutdown] запись в журнал ошибок пропущена при остановке (${source}): ${String(message).slice(0…
+        · пишет строку в журнал сервера
+      - return;
+        · дальше не идёт, ничего не меняя
+    - пробует
+      - const recent = await prisma.errorLog.findFirst({ where: { source, ...sameKind, ...(scope ? { message: { conta…
+        · читает в базе: errorLog
+      - если recent
+        - return;
+          · дальше не идёт, ничего не меняя
+      - const everSeen = await prisma.errorLog.findFirst({ where: { source, ...sameKind }, select: { id: true }, });
+        · читает в базе: errorLog
+      - await prisma.errorLog.create({ data: { source, message: text, dedupKey: explicitKey, url: context?.url?.slice…
+        · создаёт в базе: errorLog
+      - если !context?.quietPult
+        - requestPultSnapshot();
+          · зовёт requestPultSnapshot()
+      - если !everSeen && !context?.silent
+        - пробует
+        - если сорвалось
+    - если сорвалось
+      - console.error(`[systemError] ${source}: ${String(message).slice(0, 1000)} (запись в журнал не удалась: ${err …
+        · пишет строку в журнал сервера
+
 ### client-reactivation
 
 `apps/api/src/jobs/clientReactivation.ts`
@@ -26897,17 +27142,20 @@
 - const result = await syncPropertiesToSite([property], "sold");
   · зовёт syncPropertiesToSite()
   - если !SITE_SYNC_URL || !SITE_SYNC_API_KEY
-    - return { ok: false, error: "Синхронизация с сайтом не настроена (SITE_SYNC_URL/SITE_SYNC_API_KEY)" };
+    - return { ok: false, error: "Синхронизация с сайтом не настроена (SITE_SYNC_URL/SITE_SYNC_API_KEY)", retryable…
       · дословно из кода
   - если action === 'facts' && properties.some(p => p.offSite || p.deletedAt || !p.publishedOnSite || !isSiteListedSta…
-    - return { ok: false, error: 'Характеристики можно дослать только для действующих публичных объектов' };
+    - return { ok: false, error: 'Характеристики можно дослать только для действующих публичных объектов', retryabl…
       · дословно из кода
   - если action === "publish"
     - если offSiteOnes.length > 0
       - return { ok: false, error: `Несайтовый объект нельзя опубликовать на сайте: ${offSiteOnes.map((p) => p.title)…
         · дословно из кода
     - если !crmPublicBase()
-      - return { ok: false, error: "Не настроен CRM_PUBLIC_URL — фото объектов не попадут на сайт" };
+      - return { ok: false, error: "Не настроен CRM_PUBLIC_URL — фото объектов не попадут на сайт", retryable: false …
+        · дословно из кода
+    - если properties.some((p) => !p.district)
+      - return { ok: false, error: "Для публикации на сайте у объекта должен быть указан район", retryable: false };
         · дословно из кода
     - если properties.some((p) => p.currency === "USD")
       - пробует
@@ -26931,12 +27179,16 @@
     - const res = await fetch(`${SITE_SYNC_URL}/listings`, { method: "POST", headers: { "Content-Type": "applicatio…
       · запрос наружу (fetch)
     - если !res.ok
-      - const body = (await res.json().catch(()
+      - const body = await res.json().catch(()
         · ответ 200
       - void logSystemError("site-sync", `Синхронизация объектов с сайтом отклонена: ${reason}`);
         · запись в журнал ошибок
-    - const body = (await res.json()) as { results: SiteSyncItemResult[] };
+    - const body = siteResponseSchema.safeParse(await res.json());
       · ответ 200
+      · проверяет данные схемой siteResponseSchema
+    - если !body.success
+      - return { ok: false, error: "Сайт не подтвердил синхронизацию объектов" };
+        · дословно из кода
   - если сорвалось
     - void logSystemError("site-sync", `Синхронизация объектов с сайтом не удалась (${properties.length} объектов):…
       · запись в журнал ошибок
@@ -27793,26 +28045,14 @@
   - если !isSiteListedStatus(property.status)
     - const removal = await syncPropertiesToSite([property], "unpublish");
       · зовёт syncPropertiesToSite()
-    - если !removal.ok
-      - throw new Error(`объект не снят с сайта (${context}): ${removal.error}`);
-        · ошибка Error — «объект не снят с сайта (${context}»
-    - если refused
-      - throw new Error(`сайт не снял объект (${context}): ${refused.error}`);
-        · ошибка Error — «сайт не снял объект (${context}»
     - await prisma.property.update({ where: { id: property.id }, data: { publishedOnSite: false } });
       · меняет в базе: property
     - return;
       · дальше не идёт, ничего не меняя
   - const result = await syncPropertiesToSite([property], "publish");
     · зовёт syncPropertiesToSite()
-  - если !result.ok
-    - throw new Error(`объект не дошёл до сайта (${context}): ${result.error}`);
-      · ошибка Error — «объект не дошёл до сайта (${context}»
-  - если failed
-    - throw new Error(`сайт отклонил объект (${context}): ${failed.error}`);
-      · ошибка Error — «сайт отклонил объект (${context}»
 - когда попытки кончились
-  - await logSystemError( "site-sync", `Объект не дошёл до сайта после всех попыток (${payload.context}) — витрин…
+  - await logSystemError( "site-sync", `Объект не дошёл до сайта (${payload.context}) — витрина разъехалась с CRM…
     · запись в журнал ошибок
     - если isPrivateOperation()
       - source = "investigation";
@@ -28620,7 +28860,7 @@
     - если !property || property.deletedAt
       - return { instagramUrl: null, wentAvailable: false, blockers: [] };
         · дословно из кода
-    - await updatePublishedMarks(propertyId, (current)
+    - const mergeMarks = (current: PublishedMarks)
       - const newPostIds = { ...current.postIds, ...rawVideoPublicationMarks(current.postIds, succeeded, property.vid…
         · зовёт rawVideoPublicationMarks()
       - для каждого: const r of succeeded
@@ -28635,6 +28875,26 @@
             · дословно из кода
       - return { channels: nextPublishedChannels(current.channels, succeeded.map((r)
         · зовёт nextPublishedChannels()
+    - если publishedPrice
+      - await prisma.$transaction(async (tx)
+        · всё внутри — одной транзакцией
+        · обращается к базе своим SQL
+        · читает в базе: property
+        - await tx.$queryRaw`SELECT id FROM "Property" WHERE id = ${propertyId} FOR UPDATE`;
+          · обращается к базе своим SQL
+        - const fresh = await tx.property.findUnique({ where: { id: propertyId }, select: { deletedAt: true } });
+          · читает в базе: property
+        - если !fresh || fresh.deletedAt
+          - return;
+            · дальше не идёт, ничего не меняя
+        - const marks = await updatePublishedMarks(propertyId, mergeMarks, tx);
+          · зовёт updatePublishedMarks()
+        - если marks.applied
+          - await stageLatePublishedPriceCaption(tx, propertyId, succeeded.map((result)
+            · зовёт stageLatePublishedPriceCaption()
+    - иначе
+      - await updatePublishedMarks(propertyId, mergeMarks);
+        · зовёт updatePublishedMarks()
     - requestPultSnapshot();
       · зовёт requestPultSnapshot()
     - const updated = await prisma.property.findUniqueOrThrow({ where: { id: propertyId }, include: { district: tru…

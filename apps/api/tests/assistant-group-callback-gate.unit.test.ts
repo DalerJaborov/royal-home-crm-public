@@ -16,6 +16,7 @@ function fixture(type: "group" | "supergroup" | "private" = "supergroup") {
   const actions = [{ id: "test-action", agentId: "test-author", createdAt: new Date(2000),
     status: "PENDING", expiresAt: new Date(Date.now() + 10 * 60_000) }];
   const answer = vi.fn(async () => {});
+  const edit = vi.fn(async () => {});
   const confirm = vi.fn(async () => ({ action: { preview: { title: "Fixture action" } }, replay: false }));
   const cancel = vi.fn(async () => {});
   const groupRead = vi.fn(async () => group);
@@ -41,10 +42,10 @@ function fixture(type: "group" | "supergroup" | "private" = "supergroup") {
     "../ai/assistant.js": { isAiAssistantEnabled: async () => enabled },
     "./assistantPropertyDraft.js": { handleTelegramPropertyDraftCallback: async () => false },
     "../lib/telegramModeration.js": { claimCallback: async () => true },
-    "../lib/assistantActions.js": { AssistantActionError: ActionError, confirmAssistantAction: confirm, cancelAssistantAction: cancel },
+    "../lib/assistantActions.js": { AssistantActionError: ActionError, confirmAssistantAction: confirm, discardPendingAssistantAction: cancel },
     "./assistantReply.js": { sanitizeAssistantReply: (text: string) => text },
     "./assistantDelivery.js": { sendAssistantReply: async () => true },
-    "./assistantConfirmationPhotos.js": { editTelegramConfirmationMessage: noop },
+    "./assistantConfirmationPhotos.js": { editTelegramConfirmationMessage: edit },
     "./assistantGroupParticipation.js": participation,
     "./assistantGroupPublicListing.js": publicListings,
     "./assistantPropertyPages.js": { propertyPageRequest: () => null },
@@ -63,13 +64,30 @@ function fixture(type: "group" | "supergroup" | "private" = "supergroup") {
     chat: { id: -100, type: "supergroup" }, from: { id: 10 }, message_id: 51,
     text: `/assistant_${on ? "on" : "off"}@fixture_bot`,
   });
-  return { confirm, cancel, answer, groupRead, groupCreate, actions,
+  return { confirm, cancel, answer, edit, groupRead, groupCreate, actions, ActionError,
     press: (verb = "ok", userId = 1) => exports.handleAssistantCallback(query(verb, userId)), toggle,
     setNow: (time: number) => { now = time; }, setActive: (value: boolean) => { active = value; },
     setEnabled: (value: boolean) => { enabled = value; }, group: () => group };
 }
 
 describe("assistant Telegram group callback registration gate", () => {
+  it("keeps the confirmation and following actions available after a retryable database failure", async () => {
+    const f = fixture("private");
+    f.actions.push({ ...f.actions[0], id: "following-action" });
+    const failure = Object.assign(new f.ActionError("Нажмите ещё раз"), { code: "CONFIRM_RETRY" });
+    f.confirm.mockRejectedValueOnce(failure);
+    await f.press();
+    expect(f.answer).toHaveBeenLastCalledWith("test-callback", failure.message);
+    expect(f.confirm).toHaveBeenCalledTimes(1);
+    expect(f.cancel).not.toHaveBeenCalled();
+    expect(f.edit).not.toHaveBeenCalled();
+
+    await f.press();
+    expect(f.confirm).toHaveBeenCalledTimes(3);
+    expect(f.answer).toHaveBeenLastCalledWith("test-callback", "Готово");
+    expect(f.edit).toHaveBeenCalledOnce();
+  });
+
   it.each(["group", "supergroup"] as const)("%s off blocks both confirm and cancel before broker", async type => {
     const f = fixture(type);
     await f.toggle(false);

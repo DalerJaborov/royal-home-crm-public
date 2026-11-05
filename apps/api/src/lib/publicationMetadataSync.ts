@@ -50,7 +50,15 @@ export async function executePublicationMetadataSync(id: string, attemptedById: 
     await tx.$queryRaw`SELECT id FROM "Property" WHERE id = ${row.propertyId} FOR UPDATE`;
     const latest = await tx.property.findUnique({ where: { id: row.propertyId }, select: { updatedAt: true, deletedAt: true } });
     if (!latest || latest.deletedAt || latest.updatedAt.getTime() !== current.updatedAt.getTime()) return false;
-    const unresolved = await tx.publicationMetadataSync.findFirst({ where: { propertyId: row.propertyId, channel: row.channel, operation: row.operation, status: { in: ["EXECUTING", "UNKNOWN"] } }, select: { id: true } });
+    const unresolved = await tx.publicationMetadataSync.findFirst({
+      where: {
+        propertyId: row.propertyId,
+        operation: row.operation,
+        status: { in: ["EXECUTING", "UNKNOWN"] },
+        OR: [{ channel: row.channel }, { executionMode: "CAPTION_REFRESH" }],
+      },
+      select: { id: true },
+    });
     if (unresolved) return false;
     const claim = await tx.publicationMetadataSync.updateMany({ where: { id, status: "PREVIEW", executionMode: "LIVE", revisionHash: row.revisionHash }, data: { status: "EXECUTING", startedAt, attemptedById } });
     return claim.count === 1;

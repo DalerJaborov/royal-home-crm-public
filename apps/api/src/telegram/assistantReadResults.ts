@@ -7,7 +7,10 @@ import { uploadsDir } from "../upload.js";
 import type { AssistantActor } from "../ai/assistant/actor.js";
 import { findClientsTool } from "../ai/assistant/tools/findClients.js";
 import { sendChatAction, sendMessageWithButtons, sendPhotoFromDisk, TelegramApiError } from "./api.js";
-import { sanitizeAssistantReply, splitHumanMessages, splitReaction } from "./assistantReply.js";
+import {
+  ASSISTANT_VOICE_PART_CHARS, MAX_HUMAN_PARTS, prepareAssistantReply, prepareAssistantVoicePart,
+  sanitizeAssistantReply, splitHumanMessages, splitReaction, stripAssistantSpeechMarkup,
+} from "./assistantReply.js";
 import { sendAssistantVoiceReply } from "./assistantVoice.js";
 
 const agentRequest = /^(?:(?:найди|найдите|покажи|покажите)\s+)?клиент(?:ов|ы)\s+агента\s+([\p{L}'’\-]+(?:\s+[\p{L}'’\-]+){0,2})[?!.]*$/iu;
@@ -53,12 +56,28 @@ export function isVoiceReplayRequest(text: string): boolean {
 }
 
 export async function replayTelegramAssistantVoice(chatId: string, text: string, replyTo?: number): Promise<boolean> {
-  const clean = splitReaction(text).text;
-  const paragraphs = splitHumanMessages(clean).flatMap(part => part.split(/\n+/).map(line => line.trim()).filter(Boolean));
-  for (const [index, part] of paragraphs.slice(0, 4).entries()) {
-    if (!(await sendAssistantVoiceReply(chatId, part, index === 0 ? replyTo : undefined))) return false;
+  const clean = stripAssistantSpeechMarkup(sanitizeAssistantReply(splitReaction(text).text, true));
+  const { language } = prepareAssistantReply(clean);
+  if (language === "text-only") return false;
+  const paragraphs = splitHumanMessages(clean).flatMap(part => part.split(/\n+/));
+  const chunks = paragraphs.flatMap(paragraph => {
+    // A word boundary inside a grouped amount can change the spoken value.
+    const numeric = /\p{N}/u.test(paragraph);
+    const normalized = paragraph.replace(/[^\S\r\n]{2,}/gu, " ");
+    return splitHumanMessages(normalized, numeric ? undefined : ASSISTANT_VOICE_PART_CHARS)
+      .map(text => ({ text, numeric }));
+  });
+  for (const [index, { text: chunk, numeric }] of chunks.slice(0, MAX_HUMAN_PARTS).entries()) {
+    if (!numeric && chunk.length > ASSISTANT_VOICE_PART_CHARS) return false;
+    const { part, fallbackLanguage } = prepareAssistantVoicePart(chunk, false, language);
+    if (part.truncated || part.language === "text-only" || part.speech.length < 3) return false;
+    const target = index === 0 ? replyTo : undefined;
+    const delivered = fallbackLanguage
+      ? await sendAssistantVoiceReply(chatId, chunk, target, fallbackLanguage)
+      : await sendAssistantVoiceReply(chatId, chunk, target);
+    if (!delivered) return false;
   }
-  return paragraphs.length > 0 && paragraphs.length <= 4;
+  return chunks.length > 0 && chunks.length <= MAX_HUMAN_PARTS;
 }
 
 async function firstLocalPropertyPhoto(id: string) {

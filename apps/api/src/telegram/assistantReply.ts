@@ -1,11 +1,12 @@
-import { clientLanguageScores } from "../ai/clientLanguage.js";
+import { clientLanguageScores, detectClientLanguage } from "../ai/clientLanguage.js";
 import { maskAssistantContacts } from "../lib/assistantContacts.js";
 import { tajikSpeechNumbers } from "./tajikSpeechNumbers.js";
 function publicBase(): string | null {
   const raw = process.env.CRM_PUBLIC_URL?.trim();
   return raw ? raw.replace(/\/+$/, "") : null;
 }
-const MAX_HUMAN_PARTS = 4;
+export const MAX_HUMAN_PARTS = 4;
+export const ASSISTANT_VOICE_PART_CHARS = 180;
 const humanSentences = new Intl.Segmenter("ru", { granularity: "sentence" });
 
 function splitLongHumanPart(part: string, limit: number): string[] {
@@ -76,15 +77,22 @@ export function assistantCardLinks(text: string, maskPhones: boolean) {
 
 export type AssistantReplyMode = "auto" | "text" | "voice";
 
-export function requestedAssistantReplyMode(text: string): AssistantReplyMode {
+export function requestedAssistantReplyPreference(text: string): {
+  mode: AssistantReplyMode;
+  voiceLanguage?: AssistantSpeechLanguage;
+} {
   for (const part of text.split(/[,.!?;\n]+|\s+и\s+(?=(?:ответь|напиши|пришли|отправь))/iu).reverse()) {
     const clause = part.trim();
     if (/^(?:пожалуйста\s+)?(?:(?:ответь(?:те)?|напиши(?:те)?|пришли(?:те)?|отправь(?:те)?)(?:\s+(?:мне|это|ответ)){0,3}\s+)?(?:только\s+)?текстом$/iu.test(clause) ||
-        /^(?:матнӣ ҷавоб деҳ|бо матн ҷавоб деҳ|бо матн навис)$/iu.test(clause)) return "text";
-    if (/^(?:пожалуйста\s+)?(?:(?:ответь(?:те)?|пришли(?:те)?|отправь(?:те)?)(?:\s+(?:мне|это|ответ)){0,3}\s+)?(?:голосом|голосовым)$/iu.test(clause) ||
-        /^(?:бо овоз ҷавоб деҳ|бо овоз фирист)$/iu.test(clause)) return "voice";
+        /^(?:матнӣ ҷавоб деҳ|бо матн ҷавоб деҳ|бо матн навис)$/iu.test(clause)) return { mode: "text" };
+    if (/^(?:пожалуйста\s+)?(?:(?:ответь(?:те)?|пришли(?:те)?|отправь(?:те)?)(?:\s+(?:мне|это|ответ)){0,3}\s+)?(?:голосом|голосовым)$/iu.test(clause)) return { mode: "voice", voiceLanguage: "ru" };
+    if (/^(?:бо овоз ҷавоб деҳ|бо овоз фирист)$/iu.test(clause)) return { mode: "voice", voiceLanguage: "tg" };
   }
-  return "auto";
+  return { mode: "auto" };
+}
+
+export function requestedAssistantReplyMode(text: string): AssistantReplyMode {
+  return requestedAssistantReplyPreference(text).mode;
 }
 /** Plain fallback keeps link labels. Delivery attaches verified CRM links as buttons. */
 export function renderAssistantForTelegram(text: string, opts: {
@@ -178,19 +186,25 @@ export interface AssistantReplyPlan {
   truncated: boolean;
   needsText: boolean;
   needsWrittenDetails: boolean;
+  ambiguousLanguage: boolean;
   language: AssistantSpeechLanguage | "text-only";
 }
-export function prepareAssistantReply(text: string, maskContacts = false, fallbackLanguage?: AssistantSpeechLanguage): AssistantReplyPlan {
-  const full = sanitizeAssistantReply(text, maskContacts);
-  // Even in private, speech does not recite contacts. The full authorised text retains them.
-  const safeSpeech = sanitizeAssistantReply(full, true);
-  const cleaned = safeSpeech
+/** Remove non-spoken markup before splitting so links and contact masks stay intact. */
+export function stripAssistantSpeechMarkup(safeSpeech: string): string {
+  return safeSpeech
     .replace(/\[([^\]\n]+)\]\([^)]+\)/g, "$1")
     .replace(/(?:https?:\/\/|www\.)\S+/gi, "")
     .replace(/(?:\+?\d*)?[•]+\d*|@[•]+|(?:t(?:elegram)?\.me|wa\.me)\/[•]+/g, "контакт в карточке")
     .replace(/[\p{Extended_Pictographic}️‍]/gu, "")
     .replace(/[—–]{2,}|[-_=*#>•]{2,}/g, " ")
-    .replace(/^\s*[-•]\s+/gm, "")
+    .replace(/^\s*[-•]\s+/gm, "");
+}
+
+export function prepareAssistantReply(text: string, maskContacts = false, fallbackLanguage?: AssistantSpeechLanguage): AssistantReplyPlan {
+  const full = sanitizeAssistantReply(text, maskContacts);
+  // Even in private, speech does not recite contacts. The full authorised text retains them.
+  const safeSpeech = sanitizeAssistantReply(full, true);
+  const cleaned = stripAssistantSpeechMarkup(safeSpeech)
     .replace(/\|\|\|/g, ". ")
     .replace(/\s*\n+\s*/g, ". ")
     .replace(/\.\s*\./g, ".")
@@ -200,7 +214,8 @@ export function prepareAssistantReply(text: string, maskContacts = false, fallba
   const scores = clientLanguageScores(cleaned);
   const tajik = scores.tajik > 0 || scores.greetings > 0 || /[ғӣқӯҳҷ]|(?:^|[^\p{L}])(?:ёфтам|ёфт|кардам|кунед|омода|шуд|надорам|равон|дигар|интихоб|нависед|мебошад|мекунам|муштари|пайдо)(?=$|[^\p{L}])/iu.test(full);
   const russian = scores.russian > 0 || /(?:^|[^\p{L}])(?:готово|нашла|нашёл|нашел|добавила|добавил|ответ|данные|бюджет|источник|подробности|контакт|телефон|дата|помочь|помогу|сделано|хорошо|отлично|проверила|записала)(?=$|[^\p{L}])/iu.test(cleaned);
-  const language = tajik ? "tg" : russian ? "ru" : fallbackLanguage ?? "text-only";
+  const ambiguousLanguage = scores.tajik > 0 && scores.russian > 0 && detectClientLanguage(cleaned) === "mixed";
+  const language = ambiguousLanguage ? "text-only" : tajik ? "tg" : russian ? "ru" : fallbackLanguage ?? "text-only";
   const expanded = language === "tg"
     ? tajikSpeechNumbers(cleaned.replaceAll("контакт в карточке", "тамос дар корт").replace(DOLLAR_PREFIX, "$1 доллар"))
     : cleaned;
@@ -218,5 +233,20 @@ export function prepareAssistantReply(text: string, maskContacts = false, fallba
   const promisedText = /(?:подробност|детал|карточк|список|ссылк|цифр)[\s\S]{0,100}(?:текст|отдельн)|(?:текст|отдельн)[\s\S]{0,100}(?:подробност|детал|карточк|список|ссылк)/i.test(full);
   const contactsRemoved = safeSpeech !== full;
   const needsWrittenDetails = expanded === null || hasLink || promisedText || contactsRemoved;
-  return { text: full, speech, truncated, language, needsWrittenDetails, needsText: truncated || needsWrittenDetails };
+  return { text: full, speech, truncated, language, ambiguousLanguage, needsWrittenDetails, needsText: truncated || needsWrittenDetails };
+}
+
+export function prepareAssistantVoicePart(
+  text: string, maskContacts: boolean, conversationLanguage?: AssistantSpeechLanguage,
+): { part: AssistantReplyPlan; fallbackLanguage?: AssistantSpeechLanguage } {
+  const part = prepareAssistantReply(text, maskContacts);
+  const fallbackLanguage = conversationLanguage && part.language === "text-only" && !part.ambiguousLanguage
+    && /[а-яёғӣқӯҳҷ]/iu.test(text) && !/\p{L}/u.test(text.replace(/[а-яёғӣқӯҳҷ]/giu, ""))
+    ? conversationLanguage : undefined;
+  return { part: fallbackLanguage ? prepareAssistantReply(text, maskContacts, fallbackLanguage) : part, fallbackLanguage };
+}
+/** Canonical public permalink for a CRM-verified Instagram post. */
+export function assistantInstagramLink(value: string | null | undefined): string | null {
+  const match = /^https:\/\/(?:www\.)?instagram\.com\/(p|reel|reels|tv)\/([a-z\d_-]{1,80})\/?(?:[?#][^\s]*)?$/iu.exec(value?.trim() ?? "");
+  return match ? `https://www.instagram.com/${match[1].toLowerCase()}/${match[2]}/` : null;
 }

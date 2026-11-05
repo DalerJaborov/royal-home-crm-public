@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "../src/db.js";
 import {
   cleanupProcessedMessages,
@@ -33,6 +33,18 @@ afterEach(async () => {
 });
 
 describe("Одно сообщение — один ответ", () => {
+  it("сбой записи отметки останавливает поллинг, а для вебхуков сохраняет приём", async () => {
+    const failure = new Error("база недоступна");
+    const create = vi.spyOn(prisma.processedMessage, "create")
+      .mockRejectedValueOnce(failure).mockRejectedValueOnce(failure);
+    try {
+      await expect(isDuplicateDelivery("TELEGRAM", "mid.test.1", { requireClaim: true })).rejects.toBe(failure);
+      await expect(isDuplicateDelivery("INSTAGRAM", "mid.test.1")).resolves.toBe(false);
+      await expect(isDuplicateDelivery("TELEGRAM", "mid.test.1", { requireClaim: true })).resolves.toBe(false);
+    } finally {
+      create.mockRestore();
+    }
+  });
   it("первая доставка проходит, вторая с тем же идентификатором отсекается", async () => {
     expect(await isDuplicateDelivery("WHATSAPP", "wamid.test.1")).toBe(false);
     expect(await isDuplicateDelivery("WHATSAPP", "wamid.test.1")).toBe(true);

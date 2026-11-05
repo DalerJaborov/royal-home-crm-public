@@ -193,6 +193,23 @@ describe("окно отката и срок подтверждения", () => {
     c.stop();
   });
 
+  it("проверяет уже запущенный откат цены после конца окна отмены", async () => {
+    const api = client();
+    const price = executed({ tool: "change_property_price", result: { applied: true }, undoUntil: iso(5_000) });
+    api.undo.mockRejectedValueOnce(new AssistantActionRequestError("проверьте позже", 503, "UNDO_RETRY", null));
+    api.undo.mockResolvedValueOnce({ action: { ...price, status: "UNDONE" }, replay: true });
+    const c = new ConfirmCardController(price, api);
+    c.start();
+    await c.undo();
+    vi.advanceTimersByTime(10_000);
+    expect(c.getState()).toMatchObject({ phase: "done", canUndo: true, checkingUndo: true });
+    const html = renderToStaticMarkup(<ConfirmCardView state={c.getState()} layout="rows" onConfirm={() => {}} onCancel={() => {}} onUndo={() => {}} />);
+    expect(html).toContain("Проверить отмену");
+    await c.undo();
+    expect(c.getState()).toMatchObject({ phase: "undone", canUndo: false });
+    c.stop();
+  });
+
   it("срок подтверждения вышел — «Время вышло», кнопок нет", () => {
     const c = new ConfirmCardController(action({ expiresAt: iso(5_000) }), client());
     c.start();

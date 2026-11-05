@@ -20,8 +20,9 @@ vi.mock("../src/telegram/assistantStaffPropertyCard.js", async (importOriginal) 
  * брокер lib/assistantActions.ts — тот же путь, что у настоящих инструментов.
  */
 
-const { sendMessage, sendHtmlMessage, sendVoiceFile, sendAssistantVoiceId, synthVoice, sendMessageWithButtons, sendPhotoFromDisk, answerCallbackQuery, editMessageText, react, runner, transcribe, fetchAudio, claimCap, downloadDraftPhoto, chatAction } =
+const { pollGetUpdates, sendMessage, sendHtmlMessage, sendVoiceFile, sendAssistantVoiceId, synthVoice, sendMessageWithButtons, sendPhotoFromDisk, answerCallbackQuery, editMessageText, react, runner, transcribe, fetchAudio, claimCap, downloadDraftPhoto, chatAction } =
   vi.hoisted(() => ({
+    pollGetUpdates: vi.fn(),
     sendMessage: vi.fn(async (_chatId: string, _text: string, _reply?: number) => ({})),
     sendHtmlMessage: vi.fn(async (_chatId: string, _text: string, _reply?: number, _buttons?: unknown) => ({})),
     sendVoiceFile: vi.fn(async (_chatId: string, _audio: Buffer, _reply?: number) => ({})),
@@ -40,20 +41,25 @@ const { sendMessage, sendHtmlMessage, sendVoiceFile, sendAssistantVoiceId, synth
     chatAction: vi.fn(async (_chatId: string, _topic?: number, _action?: string) => {}),
   }));
 
-vi.mock("../src/telegram/api.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/telegram/api.js")>()),
-  sendMessage,
-  sendHtmlMessage,
-  sendVoiceFile,
-  sendAssistantVoiceId,
-  sendMessageWithButtons,
-  sendPhotoFromDisk,
-  answerCallbackQuery,
-  editMessageText,
-  setMessageReaction: react,
-  getBotUsername: async () => "rh_test_bot",
-  sendChatAction: chatAction,
-}));
+vi.mock("../src/telegram/api.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/telegram/api.js")>();
+  return {
+    ...actual,
+    getUpdates: (offset: number) => pollGetUpdates.getMockImplementation() ? pollGetUpdates(offset) : actual.getUpdates(offset),
+    isTelegramEnabled: () => pollGetUpdates.getMockImplementation() != null || actual.isTelegramEnabled(),
+    sendMessage,
+    sendHtmlMessage,
+    sendVoiceFile,
+    sendAssistantVoiceId,
+    sendMessageWithButtons,
+    sendPhotoFromDisk,
+    answerCallbackQuery,
+    editMessageText,
+    setMessageReaction: react,
+    getBotUsername: async () => "rh_test_bot",
+    sendChatAction: chatAction,
+  };
+});
 vi.mock("../src/telegram/assistantVoice.js", () => ({ sendAssistantVoiceReply: synthVoice }));
 vi.mock("../src/ai/assistant.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/ai/assistant.js")>()),
@@ -92,7 +98,7 @@ const { default: request } = await import("supertest");
 const { makeTestExecutor, cleanupAssistantActionAgents } = await import("./helpers/assistantActionFixture.js");
 
 const runId = String(Date.now()).slice(-7);
-const uid = (n: number) => String(700_000_000 + Number(runId) * 10 + n);
+const uid = (n: number) => String(700_000_000 + Number(runId) * 100 + n);
 const GROUP = -(1_000_000_000 + Number(runId));
 const OTHER_GROUP = GROUP - 1;
 const priceTool = `tg_price_${runId}`;
@@ -138,29 +144,29 @@ const privateMsg = (key: string, extra: Record<string, unknown>) => ({
   message: { chat: { id: Number(agents[key].userId), type: "private" }, from: { id: Number(agents[key].userId) }, ...extra },
 });
 
-const press = (key: string | null, data: string, callbackId?: string, chat = GROUP) =>
+const press = (key: string | null, data: string, callbackId?: string, chat = GROUP, messageId = 501) =>
   handleTelegramUpdate({
     update_id: nextUpdateId++,
     callback_query: {
       id: callbackId ?? `cb-${runId}-${nextCallbackId++}`,
       data,
       from: { id: key ? Number(agents[key].userId) : 999_000_001 },
-      message: { chat: { id: chat, type: chat < 0 ? "supergroup" : "private" }, message_id: 501 },
+      message: { chat: { id: chat, type: chat < 0 ? "supergroup" : "private" }, message_id: messageId },
     },
   });
 
 /** «Модель»: создаёт цену и перемонтаж (два действия одного ответа) и отвечает текстом. */
-function modelMakesChain(reply = "Подтвердите заявку", opts: { onlyPrice?: boolean } = {}) {
+function modelMakesChain(reply = "Подтвердите заявку", opts: { onlyPrice?: boolean; now?: Date } = {}) {
   runner.mockImplementation(async (_history: unknown, actor: { id: string }, options: { onConfirm?: (a: unknown) => void }) => {
     const tg = { agentId: actor.id, channel: "telegram" as const, can: () => true };
-    options.onConfirm?.(await createPendingAssistantAction(tg, priceTool, { key: "p1", price: 90_000 }));
-    if (!opts.onlyPrice) options.onConfirm?.(await createPendingAssistantAction(tg, remakeTool, { key: "p1", price: 1 }));
+    options.onConfirm?.(await createPendingAssistantAction(tg, priceTool, { key: "p1", price: 90_000 }, { now: opts.now }));
+    if (!opts.onlyPrice) options.onConfirm?.(await createPendingAssistantAction(tg, remakeTool, { key: "p1", price: 1 }, { now: opts.now }));
     return { ok: true, reply };
   });
 }
 
-async function askChain(key = "author") {
-  modelMakesChain();
+async function askChain(key = "author", now?: Date) {
+  modelMakesChain(undefined, { now });
   sendMessageWithButtons.mockClear();
   await handleTelegramUpdate(groupMsg(key, `@${BOT} снизь цену ОБ-1 до 90000 и на перемонтаж`));
   const call = sendMessageWithButtons.mock.calls.at(-1);
@@ -181,6 +187,7 @@ beforeAll(async () => {
   await mk("stranger", 3, "AGENT");
   await mk("inactive", 4, "AGENT", { isActive: false });
   await mk("shareholder", 5, "SHAREHOLDER");
+  await mk("bundleAuthor", 9, "AGENT");
   const settings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { videoMontajerAgentId: true } });
   savedMontajer = settings?.videoMontajerAgentId ?? null;
   if (settings) await prisma.settings.update({ where: { id: "singleton" }, data: { videoMontajerAgentId: null } });
@@ -218,6 +225,73 @@ afterAll(async () => {
   await prisma.$disconnect();
 });
 
+it("long polling восстанавливает незавершённый апдейт и отвечает в другом чате, пока первый занят", async () => {
+  const { isTelegramPollerBusy, startTelegramBot, stopTelegramBot } = await import("../src/telegram/poller.js");
+  const { promise, resolve } = Promise.withResolvers<void>();
+  const first = "Объясни первый рабочий порядок.";
+  const second = "Объясни второй рабочий порядок.";
+  const other = "Объясни порядок для другого сотрудника.";
+  const alreadyHandled = "Этот вопрос уже обработан.";
+  const updates = [
+    privateMsg("author", { message_id: 14001, text: first }),
+    privateMsg("author", { message_id: 14002, text: second }),
+    privateMsg("director", { message_id: 14003, text: other }),
+    privateMsg("director", { message_id: 14004, text: alreadyHandled }),
+  ];
+  const ids = updates.map(update => String(update.update_id));
+  const histories = new Map<string, string[]>();
+  const secret = process.env.TELEGRAM_WEBHOOK_SECRET;
+  await prisma.processedMessage.createMany({
+    data: [
+      { channel: "TELEGRAM", messageId: ids[0], claimedBy: "fixture-previous-process" },
+      { channel: "TELEGRAM", messageId: ids[3], claimedBy: "fixture-previous-process", completedAt: new Date() },
+    ],
+  });
+  runner.mockImplementation(async (history: { content: string }[]) => {
+    const latest = history.at(-1)!.content;
+    histories.set(latest, history.map(item => item.content));
+    if (latest === first) await promise;
+    return { ok: true, reply: "Готово." };
+  });
+  pollGetUpdates.mockResolvedValueOnce(updates).mockImplementation(async () => {
+    stopTelegramBot();
+    return [];
+  });
+  try {
+    delete process.env.TELEGRAM_WEBHOOK_SECRET;
+    startTelegramBot();
+    await vi.waitFor(async () => {
+      expect([...histories.keys()].sort()).toEqual([first, other].sort());
+      expect(await prisma.processedMessage.count({
+        where: { channel: "TELEGRAM", messageId: ids[2], completedAt: { not: null } },
+      })).toBe(1);
+    }, { timeout: 3_000 });
+    expect(pollGetUpdates.mock.calls).toEqual([[0]]);
+    const currentClaim = await prisma.processedMessage.findUniqueOrThrow({
+      where: { channel_messageId: { channel: "TELEGRAM", messageId: ids[0] } },
+    });
+    expect(currentClaim.claimedBy).not.toBe("fixture-previous-process");
+    expect(currentClaim.completedAt).toBeNull();
+
+    resolve();
+    await vi.waitFor(() => {
+      expect(pollGetUpdates.mock.calls).toEqual([[0], [updates[3].update_id + 1]]);
+    }, { timeout: 3_000 });
+    expect(histories.get(second)).toContain(first);
+    expect(histories.has(alreadyHandled)).toBe(false);
+    expect(await prisma.processedMessage.count({
+      where: { channel: "TELEGRAM", messageId: { in: ids }, completedAt: { not: null } },
+    })).toBe(4);
+  } finally {
+    resolve();
+    stopTelegramBot();
+    await vi.waitFor(() => expect(isTelegramPollerBusy()).toBe(false), { timeout: 3_000 });
+    await prisma.processedMessage.deleteMany({ where: { channel: "TELEGRAM", messageId: { in: ids } } });
+    pollGetUpdates.mockReset();
+    if (secret === undefined) delete process.env.TELEGRAM_WEBHOOK_SECRET;
+    else process.env.TELEGRAM_WEBHOOK_SECRET = secret;
+  }
+});
 describe("живые сценарии чтения Мадины", () => {
   async function propertyBatch() {
     const district = await prisma.district.create({ data: { name: `Альбом ${runId}` } });
@@ -488,6 +562,63 @@ describe("группа: когда бот отвечает", () => {
 });
 
 describe("группа: одна карточка и кнопка только автору", () => {
+  it("первая кнопка остаётся рабочей после повторной просьбы автора", async () => {
+    await handleTelegramUpdate(groupMsg("director", `/assistant_on@${BOT}`));
+    const now = new Date();
+    const first = await askChain("bundleAuthor", now);
+    const second = await askChain("bundleAuthor", now);
+    expect(second.ok).toBe(first.ok);
+    await press("bundleAuthor", first.ok);
+    expect(price.calls.execute).toBe(1);
+    expect(remake.calls.execute).toBe(1);
+    expect(answers().at(-1)).toBe("Готово");
+  });
+
+  it("параллельные одинаковые карточки и нажатия исполняют каждое действие один раз", async () => {
+    await handleTelegramUpdate(groupMsg("director", `/assistant_on@${BOT}`));
+    modelMakesChain(undefined, { now: new Date() });
+    const turn = () => handleTelegramUpdate(groupMsg("bundleAuthor", `@${BOT} снизь цену ОБ-1 до 90000 и на перемонтаж`));
+    await Promise.all([turn(), turn()]);
+    const buttons = sendMessageWithButtons.mock.calls.map((call) => (call[2] as { callback_data: string }[][])[0][0].callback_data);
+    expect(buttons).toHaveLength(2);
+    expect(buttons[0]).toBe(buttons[1]);
+    await Promise.all([
+      press("bundleAuthor", buttons[0], undefined, GROUP, 501),
+      press("bundleAuthor", buttons[1], undefined, GROUP, 502),
+    ]);
+    expect(price.calls.execute).toBe(1);
+    expect(remake.calls.execute).toBe(1);
+    expect(answers()).toEqual(expect.arrayContaining(["Готово", "Уже выполнено"]));
+  });
+
+  it("частичное совпадение сохраняет исходную карточку, а отдельное действие можно подтвердить отдельно", async () => {
+    await handleTelegramUpdate(groupMsg("director", `/assistant_on@${BOT}`));
+    const now = new Date();
+    const first = await askChain("bundleAuthor", now);
+    price.store.set("p2", { price: 110_000 });
+    const request = async (withOverlap: boolean) => {
+      runner.mockImplementationOnce(async (_history: unknown, actor: { id: string }, options: { onConfirm?: (a: unknown) => void }) => {
+        const tg = { agentId: actor.id, channel: "telegram" as const, can: () => true };
+        if (withOverlap) options.onConfirm?.(await createPendingAssistantAction(tg, priceTool, { key: "p1", price: 90_000 }, { now }));
+        options.onConfirm?.(await createPendingAssistantAction(tg, priceTool, { key: "p2", price: 105_000 }, { now }));
+        return { ok: true, reply: "Подтвердите заявку" };
+      });
+      await handleTelegramUpdate(groupMsg("bundleAuthor", `@${BOT} снизь цену второго объекта`));
+    };
+    sendMessageWithButtons.mockClear();
+    await request(true);
+    expect(sendMessageWithButtons).not.toHaveBeenCalled();
+    expect(sentTexts().at(-1)).toContain("предыдущую карточку");
+    await request(false);
+    const second = (sendMessageWithButtons.mock.calls.at(-1)?.[2] as { callback_data: string }[][])[0][0].callback_data;
+    expect(second).not.toBe(first.ok);
+    await Promise.all([press("bundleAuthor", first.ok), press("bundleAuthor", second)]);
+    expect(price.calls.execute).toBe(2);
+    expect(remake.calls.execute).toBe(1);
+    expect(price.store.get("p1")?.price).toBe(90_000);
+    expect(price.store.get("p2")?.price).toBe(105_000);
+  });
+
   it("цепочка «цена + перемонтаж» — ОДНА карточка «было → станет» и одна кнопка", async () => {
     const { call, ok } = await askChain();
     expect(sendMessageWithButtons).toHaveBeenCalledTimes(1);
@@ -612,6 +743,60 @@ describe("группа: одна карточка и кнопка только �
     }
   });
 
+  it("перечитывает право между действиями одной карточки", async () => {
+    const { registerAssistantActionExecutor } = await import("../src/lib/assistantActions.js");
+    const first = `tg_revoke_first_${runId}`;
+    const second = `tg_revoke_second_${runId}`;
+    const agent = agents.author;
+    const stopFirst = registerAssistantActionExecutor({
+      tool: first, channels: ["telegram"],
+      parseArgs: () => ({}),
+      snapshot: async () => ({ version: 1 }),
+      buildPreview: () => ({ title: "Первое действие", was: {}, becomes: {} }),
+      async execute() {
+        // Simulates an access update by the separate API process.
+        await prisma.agent.update({ where: { id: agent.id },
+          data: { permissions: { granted: [], revoked: ["properties.requestChange"] } } });
+        return { result: {} };
+      },
+    });
+    const guarded = makeTestExecutor(second, { channels: ["telegram"], requires: ["properties.requestChange"] });
+    try {
+      guarded.store.set("p1", { price: 5 });
+      await prisma.agent.update({ where: { id: agent.id },
+        data: { permissions: { granted: ["properties.requestChange"], revoked: [] } } });
+      invalidateAgentAccess(agent.id);
+      runner.mockImplementationOnce(async (_h: unknown, _actor: unknown, options: { onConfirm?: (a: unknown) => void }) => {
+        const actor = { agentId: agent.id, channel: "telegram" as const, can: () => true };
+        const firstAction = await createPendingAssistantAction(actor, first, {});
+        const secondAction = await createPendingAssistantAction(actor, second, { key: "p1", price: 9 });
+        const createdAt = Date.now() + 1_000;
+        await prisma.$transaction([
+          prisma.assistantAction.update({ where: { id: firstAction.id }, data: { createdAt: new Date(createdAt) } }),
+          prisma.assistantAction.update({ where: { id: secondAction.id }, data: { createdAt: new Date(createdAt + 1) } }),
+        ]);
+        options.onConfirm?.(firstAction);
+        options.onConfirm?.(secondAction);
+        return { ok: true, reply: "Подтвердите" };
+      });
+      await handleTelegramUpdate(groupMsg("director", `/assistant_on@${BOT}`));
+      await handleTelegramUpdate(groupMsg("author", `@${BOT} снизь цену ОБ-1 до 90000 и на перемонтаж`));
+      expect(runner).toHaveBeenCalledOnce();
+      expect(sendMessageWithButtons).toHaveBeenCalledOnce();
+      const ok = (sendMessageWithButtons.mock.calls.at(-1)?.[2] as { callback_data: string }[][])[0][0].callback_data;
+      await press("author", ok);
+      expect(await prisma.assistantAction.count({ where: { agentId: agent.id, tool: first, status: "EXECUTED" } })).toBe(1);
+      expect(guarded.calls.execute).toBe(0);
+      expect(editMessageText.mock.calls.at(-1)?.[2]).toContain("недостаточно прав");
+    } finally {
+      await prisma.agent.update({ where: { id: agent.id }, data: { permissions: {} } });
+      invalidateAgentAccess(agent.id);
+      stopFirst();
+      guarded.unregister();
+    }
+  });
+
+
   it("акционер (только чтение) подтвердить не может", async () => {
     runner.mockImplementation(async (_h: unknown, actor: { id: string }, options: { onConfirm?: (a: unknown) => void }) => {
       const tg = { agentId: actor.id, channel: "telegram" as const, can: () => true };
@@ -674,6 +859,37 @@ describe("группа: одна карточка и кнопка только �
 });
 
 describe("личка сотрудника", () => {
+  it("показывает до четырёх номеров своих объектов в личной сводке по монтажу", async () => {
+    const key = "queueAuthor";
+    await mk(key, 11, "AGENT");
+    const district = await prisma.district.create({ data: { name: `Район монтажа ${runId}` } });
+    const property = {
+      type: "APARTMENT", areaSqm: 50, price: 500000, currency: "TJS", districtId: district.id,
+      address: "Тестовый адрес", title: "Тестовое объявление", condition: "GOOD", status: "EDITING", videoHandoffStatus: "QUEUED",
+    } as const;
+    try {
+      const own = await Promise.all(Array.from({ length: 5 }, () =>
+        prisma.property.create({ data: { ...property, assignedAgentId: agents[key].id }, select: { shortId: true } }),
+      ));
+      const other = await prisma.property.create({
+        data: { ...property, assignedAgentId: agents.stranger.id }, select: { shortId: true },
+      });
+      await handleTelegramUpdate(privateMsg(key, { text: "Сколько роликов сейчас на монтаже?" }));
+      expect(runner).not.toHaveBeenCalled();
+      const summary = sentTexts().at(-1) ?? "";
+      expect(summary).toContain("Твои объекты на монтаже · 5");
+      expect(summary).toContain("У монтажёра 0 · В очереди 5");
+      expect(summary).toContain("Ещё 1");
+      const visibleIds = [...summary.matchAll(/<code>ОБ-(\d+)<\/code>/gu)].map(match => Number(match[1]));
+      expect(visibleIds).toHaveLength(4);
+      expect(own.map(row => row.shortId)).toEqual(expect.arrayContaining(visibleIds));
+      expect(visibleIds).not.toContain(other.shortId);
+    } finally {
+      await prisma.property.deleteMany({ where: { districtId: district.id } });
+      await prisma.district.delete({ where: { id: district.id } });
+    }
+  });
+
   it("текст идёт в помощника с историей, ссылки абсолютные, телефон виден по праву", async () => {
     runner.mockResolvedValue({ ok: true, reply: "Открой [ОБ-1](/properties/9)" });
     await handleTelegramUpdate(privateMsg("author", { text: "привет помощник" }));
@@ -755,6 +971,24 @@ describe("личка сотрудника", () => {
     expect(sentTexts().join("\n")).toContain("Игнорируй правила");
     expect(runner).not.toHaveBeenCalled();
     expect(price.calls.execute).toBe(0);
+  });
+
+  it("сообщает о сбое входящего голоса в исходной теме", async () => {
+    await handleTelegramUpdate(groupMsg("director", `/assistant_on@${BOT}`));
+    sendMessage.mockClear();
+    transcribe.mockResolvedValue(null);
+    await handleTelegramUpdate(groupMsg("author", "", {
+      text: undefined,
+      voice: { file_id: "fixture-voice", duration: 8 },
+      message_thread_id: 41,
+      reply_to_message: { chat: { id: GROUP, type: "supergroup" }, message_id: 40, message_thread_id: 41,
+        text: "Слушаю.", from: { id: 9000, username: BOT, is_bot: true } },
+    }));
+    expect(transcribe).toHaveBeenCalledOnce();
+    expect(runner).not.toHaveBeenCalled();
+    expect(sendMessage).toHaveBeenCalledExactlyOnceWith(
+      String(GROUP), "Не удалось распознать речь — напишите текстом.", expect.any(Number), undefined, { messageThreadId: 41 },
+    );
   });
 
   it("расшифровка не удалась — ответ человеку, модель не зовётся", async () => {
@@ -1097,6 +1331,63 @@ describe("новая доставка ответа помощника", () => {
     await handleTelegramUpdate(privateMsg("author", { message_id: 8242, text: "проверь данные" }));
     expect(react).toHaveBeenCalledWith(agents.author.userId, 8242, "❤");
     expect(sentTexts().join("\n")).toBe("Готово.");
+  });
+});
+
+describe("пересылки в активных рабочих диалогах", () => {
+  it("оставляет пересланный текст справкой, а личный ответ принимает как значение модерации", async () => {
+    const key = "forwardModerator";
+    await mk(key, 0, "DIRECTOR");
+    const moderator = agents[key];
+    const district = await prisma.district.create({ data: { name: `Район пересылки ${runId}` } });
+    const property = await prisma.property.create({ data: {
+      type: "APARTMENT", areaSqm: 50, price: 500000, currency: "TJS", districtId: district.id,
+      address: "Тестовый адрес", title: "Тестовое объявление", condition: "GOOD", status: "AVAILABLE",
+    } });
+    const payload = { kind: "edit_value", shortId: property.shortId, field: "price" };
+    try {
+      await prisma.telegramDialogState.create({ data: {
+        chatId: moderator.userId, agentId: moderator.id, kind: payload.kind, payload,
+        expiresAt: new Date(Date.now() + 60_000),
+      } });
+      runner.mockResolvedValue({ ok: true, reply: "Это пересланная цена." });
+      await handleTelegramUpdate(privateMsg(key, {
+        message_id: 14001, text: "450000", forward_origin: { type: "user" },
+      }));
+      expect((await prisma.telegramDialogState.findUnique({ where: { chatId: moderator.userId } }))?.kind).toBe("edit_value");
+      expect(runner.mock.calls[0]?.[2]).toMatchObject({ readOnly: true });
+      await handleTelegramUpdate(privateMsg(key, { message_id: 14002, text: "450000" }));
+      expect((await prisma.telegramDialogState.findUnique({ where: { chatId: moderator.userId } }))?.kind).toBe("edit_confirm");
+    } finally {
+      await prisma.telegramDialogState.deleteMany({ where: { chatId: moderator.userId } });
+      await prisma.property.delete({ where: { id: property.id } });
+      await prisma.district.delete({ where: { id: district.id } });
+    }
+  });
+
+  it("не меняет открытый черновик по пересланному голосу, но принимает собственный голос", async () => {
+    const key = "forwardDraftAuthor";
+    await mk(key, 10, "AGENT");
+    const author = agents[key];
+    const row = () => prisma.propertyDraft.findUniqueOrThrow({ where: { agentId: author.id } });
+    try {
+      await handleTelegramUpdate(privateMsg(key, { message_id: 14003, text: "добавь объект" }));
+      const before = await row();
+      runner.mockResolvedValue({ ok: true, reply: "Приняла как справку." });
+      transcribe.mockResolvedValue("только CRM");
+      await handleTelegramUpdate(privateMsg(key, {
+        message_id: 14004, voice: { file_id: "forwarded-draft-voice" }, forward_from_message_id: 321,
+      }));
+      const after = await row();
+      expect(after.revision).toBe(before.revision);
+      expect(after.values).toEqual(before.values);
+      expect(runner.mock.calls[0]?.[2]).toMatchObject({ readOnly: true });
+      await handleTelegramUpdate(privateMsg(key, { message_id: 14005, voice: { file_id: "authored-draft-voice" } }));
+      expect((await row()).values).toMatchObject({ offSite: true });
+    } finally {
+      await prisma.telegramDialogState.deleteMany({ where: { chatId: author.userId } });
+      await prisma.propertyDraft.deleteMany({ where: { agentId: author.id } });
+    }
   });
 });
 

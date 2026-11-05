@@ -12,10 +12,10 @@ import { waitFor } from "./helpers/waitFor.js";
  * правильно собирает итог (что сделано / что руками / FAILED).
  */
 
-const { sendPushToAgent, syncPublishedPriceChange, sendBackToMontajer, removeFromSocial, refreshPublishedCaptions } =
+const { sendPushToAgent, publishPropertyPriceDropStory, sendBackToMontajer, removeFromSocial, refreshPublishedCaptions } =
   vi.hoisted(() => ({
     sendPushToAgent: vi.fn(async () => 0),
-    syncPublishedPriceChange: vi.fn(async () => ({ updated: ["FACEBOOK"], failed: [], skipped: null })),
+    publishPropertyPriceDropStory: vi.fn(async () => undefined),
     sendBackToMontajer: vi.fn(async () => ({ ok: true, queued: true, message: "Ролик отправлен монтажёру" })),
     removeFromSocial: vi.fn(async () => ({
       removed: ["FACEBOOK"],
@@ -30,9 +30,9 @@ vi.mock("../src/push.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/push.js")>()),
   sendPushToAgent,
 }));
-vi.mock("../src/lib/publishedListingSync.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/lib/publishedListingSync.js")>()),
-  syncPublishedPriceChange,
+vi.mock("../src/lib/instagramStories.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/instagramStories.js")>()),
+  publishPropertyPriceDropStory,
 }));
 vi.mock("../src/lib/publishedVideoFix.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/lib/publishedVideoFix.js")>()),
@@ -48,6 +48,7 @@ vi.mock("../src/lib/siteSync.js", async (importOriginal) => ({
 
 const { prisma } = await import("../src/db.js");
 const { app } = await import("../src/app.js");
+const { buildPriceDisplay } = await import("../src/lib/reelsCaptionTemplate.js");
 
 const runId = Date.now();
 const password = "testpass123";
@@ -126,13 +127,14 @@ beforeAll(async () => {
 
 beforeEach(() => {
   sendPushToAgent.mockClear();
-  syncPublishedPriceChange.mockClear();
+  publishPropertyPriceDropStory.mockClear();
   sendBackToMontajer.mockClear();
   removeFromSocial.mockClear();
   refreshPublishedCaptions.mockClear();
 });
 
 afterAll(async () => {
+  await prisma.backgroundJob.deleteMany({ where: { dedupeKey: { in: propertyIds.map(id => `site-resync:${id}`) } } });
   await prisma.propertyChangeRequest.deleteMany({ where: { propertyId: { in: propertyIds } } });
   await prisma.pendingDirectorAlert.deleteMany({ where: { tag: { startsWith: "property-change-request-" } } });
   await prisma.priceChange.deleteMany({ where: { propertyId: { in: propertyIds } } });
@@ -222,8 +224,12 @@ describe("Подача заявки", () => {
 });
 
 describe("«Принять»: цена", () => {
-  it("цена обновилась, PriceChange записан, посты синхронизированы, Instagram — руками, push автору и маркетингу", async () => {
-    const property = await seedProperty({ assignedAgentId: marketingId });
+  it("сохраняет цену и задания сайта/Facebook, а Instagram помечает для ручной правки", async () => {
+    const property = await seedProperty({
+      assignedAgentId: marketingId,
+      publishedOnSite: true,
+      reelsCaption: `Цена: ${buildPriceDisplay(400000, "TJS")}`,
+    });
     const created = await post(agentToken, property.id, { kind: "PRICE_CHANGE", payload: { newPrice: 380000 } });
     expect(created.status).toBe(201);
 
@@ -232,7 +238,8 @@ describe("«Принять»: цена", () => {
     expect(res.body.request.status).toBe("APPROVED");
     expect(res.body.request.decidedBy.id).toBe(directorId);
     expect(res.body.request.result.applied.join(" ")).toContain("Цена в карточке");
-    expect(res.body.request.result.applied.join(" ")).toContain("Facebook");
+    expect(res.body.request.result.applied.join(" ")).toContain("Facebook: обновление цены в очереди");
+    expect(res.body.message).toContain("в очереди");
     const manual = res.body.request.result.manual as { channel: string; text: string }[];
     expect(manual.map((m) => m.channel)).toEqual(["INSTAGRAM"]);
 
@@ -243,7 +250,12 @@ describe("«Принять»: цена", () => {
     expect(Number(change!.newPrice)).toBe(380000);
     expect(change!.changedById).toBe(directorId);
 
-    expect(syncPublishedPriceChange).toHaveBeenCalledWith(property.id, 400000, "TJS");
+    const websiteJob = await prisma.backgroundJob.findFirst({ where: { type: "site-resync", dedupeKey: `site-resync:${property.id}` } });
+    expect(websiteJob?.status).toBe("PENDING");
+    const deliveries = await prisma.publicationMetadataSync.findMany({ where: { propertyId: property.id } });
+    expect(deliveries.some(row => row.channel === "FACEBOOK" && row.operation === "CAPTION")).toBe(true);
+    expect(fresh.reelsCaption).toContain(buildPriceDisplay(380000, "TJS"));
+    expect(publishPropertyPriceDropStory).toHaveBeenCalledTimes(1);
 
     const pushedTo = sendPushToAgent.mock.calls.map((c) => c[0]);
     expect(pushedTo).toContain(agentId); // автору — итог
@@ -256,6 +268,32 @@ describe("«Принять»: цена", () => {
     const again = await decide(directorToken, created.body.request.id, "approve");
     expect(again.status).toBe(409);
     expect(await prisma.priceChange.count({ where: { propertyId: property.id } })).toBe(1);
+  });
+
+  it("параллельные PATCH без версии сохраняют точную цепочку цен и задания доставки", async () => {
+    const property = await seedProperty({
+      publishedOnSite: true,
+      reelsCaption: `Цена: ${buildPriceDisplay(400000, "TJS")}`,
+    });
+    const patch = (price: number) => request(app).patch(`${api}/${property.id}`)
+      .set("Authorization", `Bearer ${directorToken}`).send({ price });
+    const responses = await Promise.all([patch(390000), patch(380000)]);
+    expect(responses.map(response => response.status)).toEqual([200, 200]);
+
+    const changes = await prisma.priceChange.findMany({ where: { propertyId: property.id } });
+    expect(changes).toHaveLength(2);
+    const first = changes.find(change => Number(change.oldPrice) === 400000);
+    const second = changes.find(change => Number(change.oldPrice) === Number(first?.newPrice));
+    expect(first).toBeDefined();
+    expect(second).toBeDefined();
+
+    const fresh = await prisma.property.findUniqueOrThrow({ where: { id: property.id } });
+    expect(Number(fresh.price)).toBe(Number(second!.newPrice));
+    expect(fresh.reelsCaption).toContain(buildPriceDisplay(fresh.price, "TJS"));
+    expect(await prisma.backgroundJob.count({ where: { dedupeKey: `site-resync:${property.id}` } })).toBe(1);
+    expect(await prisma.publicationMetadataSync.count({
+      where: { propertyId: property.id, channel: "FACEBOOK", operation: "CAPTION" },
+    })).toBe(2);
   });
 
   it("remake=true: после цены ролик уходит монтажёру, старые посты снимаются, когда выйдет новый", async () => {
@@ -351,7 +389,7 @@ describe("«Принять»: данные, перемонтаж, снятие, 
     expect(res.status).toBe(200);
     expect(res.body.request.status).toBe("APPROVED");
     expect(res.body.request.result.applied[0]).toContain("к сведению");
-    expect(syncPublishedPriceChange).not.toHaveBeenCalled();
+    expect(publishPropertyPriceDropStory).not.toHaveBeenCalled();
     expect(sendBackToMontajer).not.toHaveBeenCalled();
     expect(removeFromSocial).not.toHaveBeenCalled();
   });
