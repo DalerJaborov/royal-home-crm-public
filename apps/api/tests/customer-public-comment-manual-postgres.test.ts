@@ -11,6 +11,7 @@ import { persistVerifiedMetaPublicCommentBatch } from "../src/lib/customerPublic
 import { loadPublicCommentPrincipal } from "../src/lib/publicCommentSourceIssuer.js";
 import { postManagedPublicCommentReply } from "../src/messengers/comments.js";
 import { claimPublicManualCommentReply } from "../src/lib/customerPublicManualReply.js";
+import { finishUnsentPublicAgentFailure } from "../src/lib/customerPublicAgentFailure.js";
 import { createCustomerRolloutFixture } from "./helpers/customerRolloutFixture.js";
 import { dispatchCustomerOutboxPart } from "../src/lib/customerDeliveryDispatcher.js";
 import * as meta from "../src/messengers/meta.js";
@@ -107,6 +108,20 @@ it("fresh staff takeover works with bot OFF and prevents later bot/manual replay
   expect(row.publicSourceRevision).toBeGreaterThan(original.publicSourceRevision); expect(row.publicOriginCiphertext).toBe(original.publicOriginCiphertext);
   await prisma.instagramComment.update({ where: { id: ref.id }, data: { status: "PENDING", note: "" } });
   expect((await reply(ref.id)).status).toBe(409); expect(fetch).toHaveBeenCalledTimes(1);
+});
+it("comment the core gave up on unsent (FAILED managed_core:failed:*) is answerable by staff exactly once", async () => {
+  // 03–05.11.2026: ядро стояло, 11 комментариев закрылись FAILED, ручной ответ всегда давал 409.
+  const ref = await source();
+  expect(await finishUnsentPublicAgentFailure({ table: "meta", id: ref.id }, "turn_unavailable")).toBe(true);
+  expect(await prisma.instagramComment.findUniqueOrThrow({ where: { id: ref.id } })).toMatchObject({ status: "FAILED", note: "managed_core:failed:turn_unavailable" });
+  const fetch = fakeProvider({ id: `${tag}-after-core-failure` }), result = await reply(ref.id); expect(result.status).toBe(200);
+  expect(await prisma.instagramComment.findUniqueOrThrow({ where: { id: ref.id } })).toMatchObject({ status: "REPLIED", note: "manual_reply", replyCommentId: `${tag}-after-core-failure` });
+  expect((await reply(ref.id)).status).toBe(409); expect(fetch).toHaveBeenCalledTimes(1);
+});
+it("FAILED for any other reason stays closed to a staff reply", async () => {
+  const ref = await source(); await prisma.instagramComment.update({ where: { id: ref.id }, data: { status: "FAILED", note: "moderation_failed" } });
+  const fetch = fakeProvider({ id: `${tag}-must-not-send` }), result = await reply(ref.id);
+  expect(result.status).toBe(409); expect(fetch).not.toHaveBeenCalled();
 });
 it("two concurrent manual requests have exactly one actual provider POST", async () => {
   const ref = await source(), fetch = fakeProvider({ id: `${tag}-concurrent` });

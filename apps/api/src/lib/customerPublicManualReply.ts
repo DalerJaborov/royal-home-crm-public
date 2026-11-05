@@ -25,6 +25,18 @@ async function staffMayReply(tx: TxClient, id: string): Promise<boolean> {
   const p = resolvePermissions(agent.role, parsePermissionOverrides(agent.permissions));
   return p.has("messages.view") && p.has("comments.moderate");
 }
+/**
+ * Ядро сдалось, ничего не отправив: `finishUnsentPublicAgentFailure` ставит FAILED с
+ * пометкой `managed_core:failed:*` ТОЛЬКО когда по комментарию нет ни одной части в
+ * outbox, а `priorParts` ниже проверяет то же самое под замком. Такой комментарий
+ * сотрудник обязан мочь закрыть сам (05.11.2026): ядро стояло двое суток, 11
+ * комментариев ушли в FAILED, и кнопка «Ответить» на экране всегда получала 409.
+ * FAILED по любой другой причине (без этой пометки) по-прежнему закрыт.
+ */
+async function coreGaveUpUnsent(tx: TxClient, id: string): Promise<boolean> {
+  const row = await tx.instagramComment.findUnique({ where: { id }, select: { note: true } });
+  return !!row?.note?.startsWith("managed_core:failed:");
+}
 async function priorParts(tx: TxClient, id: string) {
   return tx.$queryRaw<Array<{ id: string }>>`SELECT "id" FROM "CustomerOutboxPart"
     WHERE "sourceKind" IN ('PUBLIC_COMMENT_REPLY','STAFF_PUBLIC_COMMENT_REPLY') AND "sourceKey"=${`meta:${id}`} ORDER BY "id" FOR UPDATE`;
@@ -43,8 +55,14 @@ export async function claimPublicManualCommentReply(sourceId: string, staffId: s
     await tx.$queryRaw`SELECT "id" FROM "CustomerEndpointScope" WHERE "id"=${origin.proof.installation.id} FOR SHARE`;
     if ((await priorParts(tx, sourceId)).length) throw new PublicManualReplyHeld(409);
     const snapshot = await loadPublicCommentSource({ table: "meta", id: sourceId }, tx);
-    if (!snapshot?.currentInstallation || source.sourceRevision !== origin.proof.sourceRevision ||
-        !["PENDING", "ERROR"].includes(source.status) || publicCommentSourceDigest(snapshot) !== origin.proof.digest ||
+    // FAILED от ядра — ровно одна смена статуса после приёма, и триггер базы поднял
+    // ревизию ровно на 1. Любая другая правка комментария поднимет её ещё раз — и ответ
+    // будет удержан, как раньше.
+    const coreFailed = source.status === "FAILED" && await coreGaveUpUnsent(tx, sourceId);
+    const revisionOk = source.sourceRevision === origin.proof.sourceRevision ||
+      (coreFailed && BigInt(source.sourceRevision) === BigInt(origin.proof.sourceRevision) + 1n);
+    if (!snapshot?.currentInstallation || !revisionOk ||
+        !(["PENDING", "ERROR"].includes(source.status) || coreFailed) || publicCommentSourceDigest(snapshot) !== origin.proof.digest ||
         !samePublicInstallation(origin.proof.installation, snapshot.currentInstallation)) throw new PublicManualReplyHeld(409);
     const changed = await tx.instagramComment.updateMany({ where: { id: sourceId, publicSourceRevision: BigInt(source.sourceRevision), status: source.status },
       data: { status: "WORKING_STAFF", note: "manual_reply_in_progress" } });
@@ -52,7 +70,7 @@ export async function claimPublicManualCommentReply(sourceId: string, staffId: s
     const claimed = await readPublicSourceRow({ table: "meta", id: sourceId }, tx);
     if (!claimed || claimed.status !== "WORKING_STAFF" || BigInt(claimed.sourceRevision) <= BigInt(source.sourceRevision)) throw new PublicManualReplyHeld(409);
     const fence = staffPublicCommentDeliveryFenceSchema.parse({ version: 1, surface: "staff_public_comment", purpose: "staff_public_reply",
-      source: snapshot.source, originalSourceRevision: source.sourceRevision, sourceRevision: claimed.sourceRevision,
+      source: snapshot.source, originalSourceRevision: origin.proof.sourceRevision, sourceRevision: claimed.sourceRevision,
       originDigest: origin.proof.digest, installation: snapshot.currentInstallation, target: snapshot.target,
       staffAgentId: staffId, claimNonce: randomUUID() });
     const transport = staffPublicCommentDeliveryTransportSchema.parse({ version: 1, surface: "staff_public_comment", installation: fence.installation, target: fence.target });
