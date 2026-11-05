@@ -4,10 +4,11 @@ import { expenseDateSchema } from "@royal-home/shared";
 import { claimAgentAiAction } from "../lib/agentAiActionCap.js";
 import {
   claimExpensePreview, decideExpensePhotoDraft, expenseReceiptHash, findExpensePhotoDraft, getExpenseDirector,
-  markExpensePreviewDelivered, MAX_EXPENSE_RECEIPT_IMAGE_BYTES, parseExpenseReceiptEvidence, releaseRejectedExpensePreview, stageExpensePhotoDraft,
+  markExpensePreviewDelivered, MAX_EXPENSE_RECEIPT_BYTES, parseExpenseReceiptEvidence, releaseRejectedExpensePreview, stageExpensePhotoDraft,
   type ExpenseReceiptEvidence,
 } from "../lib/telegramExpenseReceipts.js";
 import { extractExpenseReceipt } from "../ai/assistant/expenseReceiptExtraction.js";
+import { renderExpenseReceiptPdf } from "../ai/assistant/mediaProbe.js";
 import { loadAssistantSettings } from "../ai/assistant/runtime.js";
 import { assistantLanguage } from "../ai/assistant/languageRouting.js";
 import type { AssistantMoneyWallet } from "../ai/assistant/moneyBudget.js";
@@ -17,22 +18,26 @@ import { todayExpenseDay } from "../lib/expenseWorkspace.js";
 
 const EXPENSE_CALLBACK = /^ef:(yes|no):(ru|tg):([0-9a-f-]{36})$/u;
 const expenseIntent = /^(?:\/?чек|расход|харҷ|расид)(?=$|[\s:.,!?])/iu;
-const dailyExpensePhotos = 15;
-const photoMessage = z.object({
+const dailyExpenseReceipts = 15;
+const fileSchema = z.object({ file_id: z.string().min(1).max(1024), file_size: z.number().int().positive().optional() });
+const receiptMessage = z.object({
   message_id: z.number().int().positive().max(2_147_483_647),
   chat: z.object({ id: z.number().int().positive().max(Number.MAX_SAFE_INTEGER), type: z.literal("private") }),
   from: z.object({ id: z.number().int().positive().max(Number.MAX_SAFE_INTEGER), is_bot: z.literal(false).optional() }),
-  photo: z.array(z.object({ file_id: z.string().min(1).max(1024), file_size: z.number().int().positive().optional() })).min(1).max(20),
+  photo: z.array(fileSchema).min(1).max(20).optional(),
+  document: fileSchema.extend({ mime_type: z.string().max(200).optional(), file_name: z.string().max(255).optional() }).optional(),
   caption: z.string().max(2048).optional(),
 });
 
 const copy = {
   ru: {
-    unavailable: "Не получилось разобрать чек. Пришлите фото ещё раз.",
-    clarify: "Пришлите фото ещё раз и в подписи уточните только то, что не прочиталось.",
-    conflict: "Данные в подписи и на чеке различаются. Проверьте сумму, валюту, дату и назначение, затем пришлите фото ещё раз.",
+    unavailable: "Не получилось разобрать чек. Пришлите его ещё раз.",
+    invalidPdf: "Пришлите один чек в PDF на одной странице, без пароля и до 2 МБ.",
+    clarify: "Пришлите чек ещё раз и в подписи уточните только то, что не прочиталось.",
+    conflict: "Данные в подписи и на чеке различаются. Проверьте сумму, валюту, дату и назначение, затем пришлите чек ещё раз.",
     noPaidReceipt: "На фото не видно, что оплата прошла. Пришлите чек с итоговой суммой и датой.",
-    limit: "На сегодня хватит проверок фото. Расход можно внести в CRM.",
+    noPaidPdf: "На чеке не видно одной подтверждённой оплаты с итоговой суммой. Пришлите отдельный чек с суммой и датой.",
+    limit: "На сегодня хватит проверок чеков. Расход можно внести в CRM.",
     preview: "Записать расход по чеку?",
     category: "Категория: прочее",
     confirm: "Записать", cancel: "Отмена",
@@ -42,16 +47,18 @@ const copy = {
     recorded: "Записала расход и приложила чек.",
     duplicate: "Этот чек уже есть в обработке.",
     cancelled: "Отменила. Расход не записан.",
-    expired: "Время на подтверждение вышло. Пришлите фото снова.",
+    expired: "Время на подтверждение вышло. Пришлите чек снова.",
     forbidden: "Записывать чек можно только из привязанной лички директора.",
     uncertain: "Не удалось показать результат. Нажмите кнопку ещё раз.",
   },
   tg: {
-    unavailable: "Расидро хонда натавонистам. Аксро боз фиристед.",
-    clarify: "Аксро боз фиристед. Дар зераш фақат он чизеро нависед, ки хонда нашуд.",
-    conflict: "Навиштаатон бо расид як хел нест. Маблағ, асъор, сана ва барои чӣ буданашро санҷеду аксро боз фиристед.",
+    unavailable: "Расидро хонда натавонистам. Боз фиристед.",
+    invalidPdf: "Як расидро дар як саҳифаи PDF фиристед. То 2 МБ ва бе рамз.",
+    clarify: "Расидро боз фиристед. Дар зераш фақат он чизеро нависед, ки хонда нашуд.",
+    conflict: "Навиштаатон бо расид як хел нест. Маблағ, асъор, сана ва барои чӣ буданашро санҷеду расидро боз фиристед.",
     noPaidReceipt: "Аз акс маълум нест, ки пардохт шудааст. Расидро бо маблағ ва сана фиристед.",
-    limit: "Имрӯз дигар аксро санҷида наметавонам. Харҷро дар CRM нависед.",
+    noPaidPdf: "Дар ин расид маблағи як пардохти анҷомшуда равшан нест. Як расид бо маблағу сана фиристед.",
+    limit: "Имрӯз дигар расидро санҷида наметавонам. Харҷро дар CRM нависед.",
     preview: "Ин харҷро сабт кунам?",
     category: "Гурӯҳ: дигар харҷҳо",
     confirm: "Сабт кун", cancel: "Бекор кун",
@@ -61,7 +68,7 @@ const copy = {
     recorded: "Харҷро сабт кардам ва расидро зам кардам.",
     duplicate: "Ин расид аллакай дар санҷиш аст.",
     cancelled: "Бекор шуд. Харҷ сабт нашуд.",
-    expired: "Вақти тасдиқ гузашт. Аксро боз фиристед.",
+    expired: "Вақти тасдиқ гузашт. Расидро боз фиристед.",
     forbidden: "Расидро фақат директор аз чати шахсии пайвастшуда сабт карда метавонад.",
     uncertain: "Натиҷаро нишон дода натавонистам. Тугмаро боз занед.",
   },
@@ -135,17 +142,34 @@ function preview(evidence: ExpenseReceiptEvidence): string {
     evidence.purpose, evidence.vendor, phrases.category].filter(Boolean).join("\n");
 }
 
+async function normalizeReceiptPhoto(raw: Buffer): Promise<Buffer> {
+  const processor = sharp(raw, { limitInputPixels: 20_000_000, failOn: "warning" });
+  const metadata = await processor.metadata();
+  if (!["jpeg", "png", "webp"].includes(metadata.format ?? "") || (metadata.pages ?? 1) !== 1) {
+    throw new Error("expense_receipt_invalid_image");
+  }
+  const image = await processor.rotate().jpeg({ quality: 88 }).toBuffer();
+  if (image.length > MAX_EXPENSE_RECEIPT_BYTES) throw new Error("expense_receipt_image_limit");
+  return image;
+}
+
 export async function handleTelegramExpenseReceipt(
   msg: TelegramIncomingMessage, agentId: string, wallet: AssistantMoneyWallet,
 ): Promise<boolean> {
-  // Never OCR albums, copied sources, or pictures for a different/private chat owner.
+  // Never OCR albums, copied sources, or attachments for a different private chat owner.
   if (msg.sender_chat || msg.forward_origin || msg.forward_from_message_id || msg.is_automatic_forward || msg.media_group_id) return false;
-  const parsed = photoMessage.safeParse(msg);
+  const parsed = receiptMessage.safeParse(msg);
   if (!parsed.success || parsed.data.chat.id !== parsed.data.from.id) return false;
-  const { chat, message_id: messageId, photo } = parsed.data;
+  const { chat, message_id: messageId, photo, document } = parsed.data;
   const caption = parsed.data.caption?.trim() ?? "";
   const explicit = expenseIntent.test(caption);
-  if (caption && !explicit) return false;
+  if ((caption && !explicit) || (photo && document)) return false;
+  const pdf = !!document && (document.mime_type === "application/pdf"
+    || ((!document.mime_type || document.mime_type === "application/octet-stream") && /\.pdf$/iu.test(document.file_name ?? "")));
+  // An ordinary PDF may be a report or contract. Enter the expense flow only with an explicit caption.
+  if (document && (!pdf || !explicit)) return false;
+  const item = pdf ? document : photo?.at(-1);
+  if (!item) return false;
   const actor = await getExpenseDirector(String(chat.id), agentId);
   if (!actor || !(await loadAssistantSettings()).enabled) return false;
   const captionLanguage = assistantLanguage([{ role: "user", content: caption }]);
@@ -156,30 +180,28 @@ export async function handleTelegramExpenseReceipt(
   try {
     let result = await findExpensePhotoDraft(actor, messageId);
     if (!result) {
-      const item = photo.at(-1)!;
-      if (item.file_size && item.file_size > MAX_EXPENSE_RECEIPT_IMAGE_BYTES) {
-        if (explicit) await send(copy[language].unavailable);
+      if (item.file_size && item.file_size > MAX_EXPENSE_RECEIPT_BYTES) {
+        if (explicit) await send(pdf ? copy[language].invalidPdf : copy[language].unavailable);
         return explicit;
       }
-      const raw = await downloadAssistantMedia(item.file_id, MAX_EXPENSE_RECEIPT_IMAGE_BYTES);
-      const processor = sharp(raw, { limitInputPixels: 20_000_000, failOn: "warning" });
-      const metadata = await processor.metadata();
-      if (!["jpeg", "png", "webp"].includes(metadata.format ?? "") || (metadata.pages ?? 1) !== 1) {
-        throw new Error("expense_receipt_invalid_image");
-      }
-      const image = await processor.rotate().jpeg({ quality: 88 }).toBuffer();
-      if (image.length > MAX_EXPENSE_RECEIPT_IMAGE_BYTES) throw new Error("expense_receipt_image_limit");
-      result = await findExpensePhotoDraft(actor, messageId, expenseReceiptHash(image));
+      const raw = await downloadAssistantMedia(item.file_id, MAX_EXPENSE_RECEIPT_BYTES);
+      if (!raw.length || raw.length > MAX_EXPENSE_RECEIPT_BYTES) throw new Error("media_size_rejected");
+      const source = pdf ? raw : await normalizeReceiptPhoto(raw);
+      result = await findExpensePhotoDraft(actor, messageId, expenseReceiptHash(source));
       if (!result) {
-        const cap = await claimAgentAiAction(agentId, "assistant-expense-receipt-ocr", dailyExpensePhotos);
+        const image = pdf ? await renderExpenseReceiptPdf(source) : source;
+        if (image.length > MAX_EXPENSE_RECEIPT_BYTES) throw new Error("expense_receipt_image_limit");
+        const cap = await claimAgentAiAction(agentId, "assistant-expense-receipt-ocr", dailyExpenseReceipts);
         if (!cap.allowed) {
           if (explicit) await send(copy[language].limit);
           return explicit;
         }
         const { kind, language: imageLanguage, ...fields } = await extractExpenseReceipt(image, wallet);
         if (!explicit && imageLanguage === "tg") language = "tg";
-        if (kind !== "paid_receipt") {
-          if (explicit || kind === "unclear_receipt") await send(copy[language].noPaidReceipt);
+        if (kind !== "paid_receipt" || (pdf && !fields.amountMinor)) {
+          if (explicit || kind === "unclear_receipt") {
+            await send(pdf ? copy[language].noPaidPdf : copy[language].noPaidReceipt);
+          }
           return explicit || kind === "unclear_receipt";
         }
         if (!validPaymentDate(fields.paymentDate)) fields.paymentDate = null;
@@ -193,7 +215,7 @@ export async function handleTelegramExpenseReceipt(
           await send(askMissing(combined, language));
           return true;
         }
-        result = await stageExpensePhotoDraft(actor, messageId, image, evidence);
+        result = await stageExpensePhotoDraft(actor, messageId, source, evidence);
       }
     }
     hasDraft = true;
@@ -234,9 +256,11 @@ export async function handleTelegramExpenseReceipt(
     });
     if (sent) await markExpensePreviewDelivered(actor, draftId, sent.message_id);
     return true;
-  } catch {
-    console.warn("[telegram:assistant] receipt photo preview unavailable");
-    if (explicit && !hasDraft) await send(copy[language].unavailable).catch(() => {});
+  } catch (error) {
+    console.warn("[telegram:assistant] receipt preview unavailable", { kind: pdf ? "pdf" : "photo" });
+    const invalidPdf = pdf && error instanceof Error
+      && ["media_invalid_pdf", "media_pdf_limit", "media_size_rejected"].includes(error.message);
+    if (explicit && !hasDraft) await send(invalidPdf ? copy[language].invalidPdf : copy[language].unavailable).catch(() => {});
     return explicit || hasDraft;
   }
 }

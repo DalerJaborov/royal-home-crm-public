@@ -582,8 +582,9 @@ export async function handleAssistantPrivate(
     }
     const isForwarded = Boolean(msg.forward_origin || msg.forward_from_message_id);
     const forwardedPlain = isForwarded && Boolean((msg.text ?? msg.caption)?.trim());
-    if (!isForwarded && await handleTelegramPropertyDraft(msg, agent, transcribeVoice)) return;
     const moneyWallet = createAssistantMoneyWallet();
+    if (msg.document && await handleTelegramExpenseReceipt(msg, agent.id, moneyWallet)) return;
+    if (!isForwarded && await handleTelegramPropertyDraft(msg, agent, transcribeVoice)) return;
     if (msg.photo?.length && await handleTelegramExpenseReceipt(msg, agent.id, moneyWallet)) return;
     let text = (msg.text ?? msg.caption ?? "").trim();
     const fromVoice = Boolean(msg.voice || msg.audio);
