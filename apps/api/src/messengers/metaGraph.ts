@@ -62,3 +62,23 @@ export function instagramRequest(url: string, token: string): { url: string; hea
     headers: key ? { "x-proxy-key": key } : {},
   };
 }
+
+/**
+ * Запрос к адресу Instagram, который читает маркер ТОЛЬКО из строки запроса
+ * (`/refresh_access_token`): Bearer-заголовок он не видит и отвечает 400
+ * «The parameter access_token is required».
+ *
+ * Пока сервер жил в России, это скрывал прокси — он сам переносил маркер в строку.
+ * С переезда на сервер в Германии (04.11.2026) прокси пуст, `instagramRequest`
+ * шлёт обычный Bearer, и продление маркеров обоих аккаунтов молча падало каждую
+ * неделю, пока маркеры не умерли бы через 60 дней. Маркер здесь всегда в строке
+ * (ровно один раз), заголовок Authorization не дублирует его.
+ */
+export function instagramQueryTokenRequest(url: string, token: string): { url: string; headers: Record<string, string> } {
+  const req = instagramRequest(url, token);
+  if (/[?&]access_token=/.test(req.url)) return req;
+  const headers = { ...req.headers };
+  delete headers.Authorization;
+  const sep = req.url.includes("?") ? "&" : "?";
+  return { url: `${req.url}${sep}access_token=${encodeURIComponent(token)}`, headers };
+}
