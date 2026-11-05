@@ -11,7 +11,7 @@
  * Сеть закрыта: Graph API подменён через global fetch, база — через
  * vi.mock("../src/db.js"), тем же приёмом, что и tests/instagram-profile-cache.test.ts.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // Моки до импорта модуля — иначе реальные зависимости (и настоящая база) подтянутся первыми.
 vi.mock("../src/db.js", () => ({
@@ -210,5 +210,55 @@ describe("refreshInstagramTokenIfDue", () => {
 
     expect(result).toEqual({ refreshed: 0, failed: 1 });
     expect(logSystemError).toHaveBeenCalledWith("meta", expect.stringContaining("копия в Настройках"));
+  });
+});
+
+/**
+ * 04.11.2026 сервер переехал из России в Германию, прокси Instagram опустел, и
+ * продление обоих маркеров упало: «The parameter access_token is required».
+ * `refresh_access_token` читает маркер ТОЛЬКО из строки запроса; Bearer, который
+ * без прокси шлёт instagramRequest, он не видит. Раньше маркер в строку дописывал прокси.
+ */
+describe("refresh_access_token: маркер в строке запроса", () => {
+  const old = new Date(Date.now() - 8 * DAY_MS);
+  const savedEnv = { ig: process.env.IG_PROXY_URL, gem: process.env.GEMINI_PROXY_URL, igKey: process.env.IG_PROXY_KEY };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    (prisma.settings.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({ metaIgToken: null, metaIgTokenRefreshedAt: null });
+    (prisma.messengerAccount.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { id: "acc-1", title: "Royal Home", token: "tok/+1", tokenRefreshedAt: old, updatedAt: old },
+    ]);
+    mockFetch.mockResolvedValueOnce(graphOkResponse("fresh"));
+  });
+  afterEach(() => {
+    for (const [k, v] of [["IG_PROXY_URL", savedEnv.ig], ["GEMINI_PROXY_URL", savedEnv.gem], ["IG_PROXY_KEY", savedEnv.igKey]] as const) {
+      if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+  });
+
+  it("без прокси (прямой выход) — access_token в строке, без Bearer-заголовка", async () => {
+    delete process.env.IG_PROXY_URL;
+    delete process.env.GEMINI_PROXY_URL;
+
+    await expect(refreshInstagramTokenIfDue()).resolves.toEqual({ refreshed: 1, failed: 0 });
+
+    const [url, init] = mockFetch.mock.calls[0] as [string, { headers?: Record<string, string> }];
+    expect(url.startsWith("https://graph.instagram.com/refresh_access_token?grant_type=ig_refresh_token&")).toBe(true);
+    expect(new URL(url).searchParams.getAll("access_token")).toEqual(["tok/+1"]);
+    expect(init?.headers?.Authorization).toBeUndefined();
+  });
+
+  it("через прокси — маркер в строке ровно один раз, как и раньше", async () => {
+    process.env.IG_PROXY_URL = "https://proxy.example";
+    process.env.IG_PROXY_KEY = "k";
+
+    await expect(refreshInstagramTokenIfDue()).resolves.toEqual({ refreshed: 1, failed: 0 });
+
+    const [url, init] = mockFetch.mock.calls[0] as [string, { headers?: Record<string, string> }];
+    expect(url.startsWith("https://proxy.example/refresh_access_token?")).toBe(true);
+    expect(new URL(url).searchParams.getAll("access_token")).toEqual(["tok/+1"]);
+    expect(init?.headers?.Authorization).toBeUndefined();
+    expect(init?.headers?.["x-proxy-key"]).toBe("k");
   });
 });

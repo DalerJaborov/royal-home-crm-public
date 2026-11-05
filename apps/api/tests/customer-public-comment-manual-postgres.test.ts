@@ -11,6 +11,7 @@ import { persistVerifiedMetaPublicCommentBatch } from "../src/lib/customerPublic
 import { loadPublicCommentPrincipal } from "../src/lib/publicCommentSourceIssuer.js";
 import { postManagedPublicCommentReply } from "../src/messengers/comments.js";
 import { claimPublicManualCommentReply } from "../src/lib/customerPublicManualReply.js";
+import { finishUnsentPublicAgentFailure } from "../src/lib/customerPublicAgentFailure.js";
 import { createCustomerRolloutFixture } from "./helpers/customerRolloutFixture.js";
 import { dispatchCustomerOutboxPart } from "../src/lib/customerDeliveryDispatcher.js";
 import * as meta from "../src/messengers/meta.js";
@@ -108,6 +109,61 @@ it("fresh staff takeover works with bot OFF and prevents later bot/manual replay
   await prisma.instagramComment.update({ where: { id: ref.id }, data: { status: "PENDING", note: "" } });
   expect((await reply(ref.id)).status).toBe(409); expect(fetch).toHaveBeenCalledTimes(1);
 });
+it("comment the core gave up on unsent (FAILED managed_core:failed:*) is answerable by staff exactly once", async () => {
+  // 03–05.11.2026: ядро стояло, 11 комментариев закрылись FAILED, ручной ответ всегда давал 409.
+  const ref = await source();
+  expect(await finishUnsentPublicAgentFailure({ table: "meta", id: ref.id }, "turn_unavailable")).toBe(true);
+  expect(await prisma.instagramComment.findUniqueOrThrow({ where: { id: ref.id } })).toMatchObject({ status: "FAILED", note: "managed_core:failed:turn_unavailable" });
+  const fetch = fakeProvider({ id: `${tag}-after-core-failure` }), result = await reply(ref.id); expect(result.status).toBe(200);
+  expect(await prisma.instagramComment.findUniqueOrThrow({ where: { id: ref.id } })).toMatchObject({ status: "REPLIED", note: "manual_reply", replyCommentId: `${tag}-after-core-failure` });
+  expect((await reply(ref.id)).status).toBe(409); expect(fetch).toHaveBeenCalledTimes(1);
+});
+it("FAILED for any other reason stays closed to a staff reply", async () => {
+  const ref = await source(); await prisma.instagramComment.update({ where: { id: ref.id }, data: { status: "FAILED", note: "moderation_failed" } });
+  const fetch = fakeProvider({ id: `${tag}-must-not-send` }), result = await reply(ref.id);
+  expect(result.status).toBe(409); expect(fetch).not.toHaveBeenCalled();
+});
+// Ревью PR #124 (05.11.2026): WORKING_STAFF — «работа» для проверки простоя перед
+// «Обновить версию бота». Неудачный ручной ответ не должен оставлять её навсегда.
+const idleBlockedBy = async (id: string) => (await prisma.$queryRaw<Array<{ blocked: boolean }>>`SELECT EXISTS(SELECT 1 FROM "InstagramComment"
+  WHERE "id"=${id} AND "publicOriginCiphertext" IS NOT NULL AND "status" IN ('PENDING','WORKING','WORKING_STAFF','ERROR')) AS blocked`)[0]?.blocked;
+it("provider refusal of a staff reply releases WORKING_STAFF to FAILED and still never re-posts", async () => {
+  const ref = await source();
+  const fetch = vi.fn(async () => new Response(JSON.stringify({ error: { code: 200, message: "Synthetic permission refusal" } }), { status: 403 }));
+  vi.stubGlobal("fetch", fetch);
+  expect((await reply(ref.id)).status).toBe(502);
+  expect(await prisma.instagramComment.findUniqueOrThrow({ where: { id: ref.id } })).toMatchObject({ status: "FAILED", note: "manual_reply_refused" });
+  expect(await idleBlockedBy(ref.id)).toBe(false);
+  expect((await reply(ref.id)).status).toBe(409); expect(fetch).toHaveBeenCalledTimes(1);
+});
+it("refusal after the core gave up (FAILED intake+1) also ends FAILED, not stuck in WORKING_STAFF", async () => {
+  const ref = await source();
+  expect(await finishUnsentPublicAgentFailure({ table: "meta", id: ref.id }, "turn_unavailable")).toBe(true);
+  const fetch = vi.fn(async () => new Response(JSON.stringify({ error: { code: 190, message: "Synthetic expired token" } }), { status: 400 }));
+  vi.stubGlobal("fetch", fetch);
+  expect((await reply(ref.id)).status).toBe(502);
+  expect(await prisma.instagramComment.findUniqueOrThrow({ where: { id: ref.id } })).toMatchObject({ status: "FAILED", note: "manual_reply_refused" });
+  expect(await idleBlockedBy(ref.id)).toBe(false); expect(fetch).toHaveBeenCalledTimes(1);
+});
+it("lost process: reconciliation after lease expiry releases WORKING_STAFF as unknown", async () => {
+  const ref = await source(), fetch = fakeProvider({ id: "never-posted" });
+  await claimPublicManualCommentReply(ref.id, actorId, "Synthetic lost process release");
+  expect(await idleBlockedBy(ref.id)).toBe(true);
+  const part = await staffPart(ref.id);
+  await prisma.customerOutboxPart.update({ where: { id: part.id }, data: { leaseUntil: new Date(Date.now() - 1000) } });
+  expect(await dispatchCustomerOutboxPart(part.id)).toEqual({ status: "unknown" });
+  expect(await prisma.instagramComment.findUniqueOrThrow({ where: { id: ref.id } })).toMatchObject({ status: "FAILED", note: "manual_reply_unknown" });
+  expect(await idleBlockedBy(ref.id)).toBe(false); expect(fetch).not.toHaveBeenCalled();
+});
+it("core FAILED with any further change (revision intake+2) stays closed to a staff reply", async () => {
+  const ref = await source();
+  expect(await finishUnsentPublicAgentFailure({ table: "meta", id: ref.id }, "turn_unavailable")).toBe(true);
+  await prisma.instagramComment.update({ where: { id: ref.id }, data: { replyText: "edited after core failure" } });
+  const row = await prisma.instagramComment.findUniqueOrThrow({ where: { id: ref.id } });
+  expect(row).toMatchObject({ status: "FAILED", note: "managed_core:failed:turn_unavailable" });
+  const fetch = fakeProvider({ id: `${tag}-must-not-send-plus2` }), result = await reply(ref.id);
+  expect(result.status).toBe(409); expect(fetch).not.toHaveBeenCalled();
+});
 it("two concurrent manual requests have exactly one actual provider POST", async () => {
   const ref = await source(), fetch = fakeProvider({ id: `${tag}-concurrent` });
   const results = await Promise.all([reply(ref.id), reply(ref.id)]); expect(results.map(r => r.status).sort()).toEqual([200, 409]);
@@ -140,10 +196,11 @@ it("staff revoked during awaited credentials produces zero provider POST", async
   });
   const result = await reply(ref.id); expect(result.status).toBe(403); expect(result.body.code).toBe("STAFF_PERMISSION_CHANGED"); expect(fetch).not.toHaveBeenCalled();
 });
-it("2xx without provider ID leaves a held staff claim and no REPLIED/repliedAt; reset cannot resend", async () => {
+it("2xx without provider ID ends FAILED manual_reply_unknown (not stuck WORKING_STAFF), no REPLIED/repliedAt; reset cannot resend", async () => {
   const ref = await source(), fetch = fakeProvider({ success: true });
   const result = await reply(ref.id); expect(result.status).toBe(502); expect(result.body.code).toBe("PUBLIC_REPLY_UNKNOWN");
-  expect(await prisma.instagramComment.findUniqueOrThrow({ where: { id: ref.id } })).toMatchObject({ status: "WORKING_STAFF", replyCommentId: null, repliedAt: null });
+  expect(await prisma.instagramComment.findUniqueOrThrow({ where: { id: ref.id } })).toMatchObject({ status: "FAILED", note: "manual_reply_unknown", replyCommentId: null, repliedAt: null });
+  expect(await idleBlockedBy(ref.id)).toBe(false);
   await prisma.instagramComment.update({ where: { id: ref.id }, data: { status: "PENDING", note: "" } });
   expect((await reply(ref.id)).status).toBe(409); expect(fetch).toHaveBeenCalledTimes(1);
 });

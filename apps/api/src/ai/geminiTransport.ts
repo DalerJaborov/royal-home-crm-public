@@ -153,10 +153,16 @@ export function geminiUrl(path: string): string {
   return proxyUrl ? `${proxyUrl.replace(/\/+$/, "")}/gemini${path}` : `${GEMINI_HOST}${path}`;
 }
 
-/** Заголовок доступа к прокси. Пустой объект, когда прокси не настроен. */
+/**
+ * Заголовок доступа к прокси. Пустой объект, когда прокси не настроен.
+ *
+ * Ключ уходит ТОЛЬКО вместе с адресом прокси (05.11.2026). После переезда в
+ * Германию `GEMINI_PROXY_URL` опустел, а `GEMINI_PROXY_KEY` в окружении остался —
+ * и ключ нашего Worker уходил заголовком прямо в Google в каждом вызове Gemini.
+ */
 export function geminiProxyHeaders(): Record<string, string> {
   const proxyKey = process.env.GEMINI_PROXY_KEY;
-  return proxyKey ? { "x-proxy-key": proxyKey } : {};
+  return proxyKey && process.env.GEMINI_PROXY_URL ? { "x-proxy-key": proxyKey } : {};
 }
 
 /** Адрес генерации для произвольной модели — нужен, чтобы позвать резервную. */
