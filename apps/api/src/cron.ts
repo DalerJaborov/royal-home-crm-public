@@ -133,6 +133,7 @@ import { alertExpenseOverrun, processRecurringExpenses, upsertSalaryExpenses } f
 import { formatAdsDigestLine } from "./lib/ads/adsDigest.js";
 import { checkAdAccountAlerts, checkAdAlerts, checkAdDisapprovedAlerts } from "./lib/ads/adAlerts.js";
 import { autoResolveDuplicateErrors } from "./lib/autoResolveDuplicateErrors.js";
+import { autoRefreshCustomerAgentRevision } from "./lib/customerAgentAutoRefresh.js";
 import { backfillInstagramUrls } from "./lib/backfillInstagramUrls.js";
 const MAX_REMINDER_HISTORY = 12;
 
@@ -3282,6 +3283,15 @@ export function startCronJobs() {
   scheduleTracked("customer-intake-jobs", "*/5 * * * * *", async () => {
     await runCustomerJobsTick("intake");
   }, undefined, undefined, { timeoutMs: 20 * 60_000 });
+
+  // После выката ядро бота ждало кнопку «Обновить версию бота» (03–05.11.2026
+  // двое суток без ответов). Обычный выкат, где поменялся только код, ядро
+  // теперь принимает само: при старте процесса и повтором раз в минуту, пока
+  // идёт незакрытая работа (проверка простоя). Промпт, инструменты, лимиты,
+  // доля и каналы не меняются; иное — по-прежнему решение владельца.
+  scheduleTracked("customer-agent-auto-refresh", "* * * * *", async () => {
+    await autoRefreshCustomerAgentRevision();
+  }, undefined, undefined, { timeoutMs: 5 * 60_000 });
 
   /** Очередь фоновых заданий (jobs/runner.ts, чертёж §2): минутный тик хватает
    *  партию PENDING + подбирает зависшие RUNNING. Гвард от наложения обязателен:
