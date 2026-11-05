@@ -873,6 +873,90 @@ describe("same-topic evidence for explicit history questions", () => {
   });
 });
 
+describe("group acknowledgments", () => {
+  const voice = { file_id: "native-thanks", duration: 4 };
+  const botReply: TelegramIncomingMessage = {
+    chat: { id: -100, type: "supergroup" }, message_id: 8,
+    from: { id: 99, is_bot: true, username: "fixture_bot" },
+    voice: { file_id: "bot-answer", duration: 13 },
+  };
+
+  it.each(["Ҳа, раҳмат, Шабнам!", "خیلی ممنونم. خیلی ممنون", "Большое спасибо!"])("reacts to short recognized thanks: %s", async transcript => {
+    const f = fixture();
+    f.setContext(true);
+    f.media.mockResolvedValue({ extraction: { transcript } });
+    expect(await f.send("", { voice }, 2112)).toBe(true);
+    expect(f.reaction).toHaveBeenCalledExactlyOnceWith("-100", 10, "👍");
+    expect(f.media).toHaveBeenCalledOnce();
+    expect(f.run).not.toHaveBeenCalled();
+    expect(f.voice).not.toHaveBeenCalled();
+    expect(f.plain).not.toHaveBeenCalled();
+    expect(f.html).not.toHaveBeenCalled();
+  });
+
+  it("acknowledges a typed reply immediately and without a provider call", async () => {
+    const f = fixture();
+    expect(await f.send("Спасибо большое! 🙏", { reply_to_message: botReply })).toBe(true);
+    expect(f.reaction).toHaveBeenCalledExactlyOnceWith("-100", 10, "👍");
+    expect(f.media).not.toHaveBeenCalled();
+    expect(f.run).not.toHaveBeenCalled();
+  });
+
+  it("starts a direct voice reply visibly and preserves the question after thanks", async () => {
+    const f = fixture();
+    f.media.mockResolvedValue({ extraction: { transcript: "Раҳмат. Боз ягон хона ҳаст?" } });
+    await f.send("", { voice, reply_to_message: botReply });
+    expect(f.indicator.mock.invocationCallOrder[0]).toBeLessThan(f.media.mock.invocationCallOrder[0]);
+    expect(f.run).toHaveBeenCalledOnce();
+    expect(f.reaction).not.toHaveBeenCalled();
+  });
+
+  it("answers a clear Russian publication question after thanks without a mention", async () => {
+    const f = fixture();
+    const transcript = "Спасибо, а ОБ-123 уже выложили?";
+    f.media.mockResolvedValue({ extraction: { transcript } });
+    expect(await f.send("", { voice })).toBe(true);
+    expect(f.run).toHaveBeenCalledOnce();
+    expect(f.reaction).not.toHaveBeenCalled();
+  });
+
+  it.each(["quiet", "other colleague", "forward", "unlinked", "disabled"])("does not intrude on %s", async scenario => {
+    const f = fixture();
+    f.setContext(true);
+    if (scenario === "quiet") await f.send("/assistant_quiet");
+    if (scenario === "unlinked") f.setLinked(false);
+    if (scenario === "disabled") f.setEnabled(false);
+    await f.send("Рахмат!", {
+      ...(scenario === "other colleague" ? { reply_to_message: { ...botReply, from: { id: 33 } } } : {}),
+      ...(scenario === "forward" ? { forward_origin: { type: "user" } } : {}),
+    });
+    expect(f.reaction).not.toHaveBeenCalled();
+    expect(f.run).not.toHaveBeenCalled();
+  });
+});
+
+describe("direct property Instagram permalink", () => {
+  it.each(["Скинь ссылку на Instagram для ОБ-123", "Линки Инстаграми ОБ-123-ро парто"])("uses a button for %s", async question => {
+    const f = fixture();
+    const result = await f.findProperty();
+    result.properties[0].instagramUrl = "https://instagram.com/reel/test-123/?igsh=tracking";
+    f.findProperty.mockClear().mockResolvedValue(result);
+    expect(await f.send(question, { message_thread_id: 41 })).toBe(true);
+    expect(f.buttons).toHaveBeenCalledExactlyOnceWith("-100", expect.stringContaining("ОБ-000123"),
+      [[{ text: expect.stringMatching(/Instagram/), url: "https://www.instagram.com/reel/test-123/" }]], 10, 41);
+    expect(f.run).not.toHaveBeenCalled();
+  });
+  it("does not invent a missing or untrusted link", async () => {
+    const f = fixture();
+    const result = await f.findProperty();
+    result.properties[0].instagramUrl = "https://instagram.com.example.invalid/reel/test-123/";
+    f.findProperty.mockResolvedValue(result);
+    await f.send("Где ссылка на Instagram для ОБ-123?");
+    expect(f.buttons).not.toHaveBeenCalled();
+    expect(f.plain).toHaveBeenCalledExactlyOnceWith("-100", "В карточке ОБ-000123 нет ссылки на пост в Instagram.", 10);
+  });
+});
+
 describe("standalone group voice", () => {
   it.each([false, true])("reuses the single successful ASR result for group evidence (explicit reply: %s)", async direct => {
     const f = fixture();

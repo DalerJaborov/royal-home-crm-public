@@ -12,7 +12,7 @@ function run(command: string, args: string[]): Promise<string> {
 }
 
 /** Local, fail-closed inspection; never accepts a caller-controlled filesystem path. */
-export async function inspectAssistantMedia(buffer: Buffer, mimeType: string): Promise<void> {
+export async function inspectAssistantMedia(buffer: Buffer, mimeType: string, maxAudioSeconds = 120): Promise<void> {
   if (mimeType.startsWith("image/")) {
     const metadata = await sharp(buffer, { limitInputPixels: 20_000_000 }).metadata();
     const format = { "image/jpeg": "jpeg", "image/png": "png", "image/webp": "webp" }[mimeType];
@@ -36,7 +36,7 @@ export async function inspectAssistantMedia(buffer: Buffer, mimeType: string): P
     } else {
       const info = JSON.parse(await run("ffprobe", ["-v", "error", "-show_entries", "format=duration:stream=codec_type", "-of", "json", path]));
       const duration = Number(info.format?.duration);
-      if (!Number.isFinite(duration) || duration <= 0 || duration > 120 || !Array.isArray(info.streams)
+      if (!Number.isFinite(duration) || duration <= 0 || duration > maxAudioSeconds || !Array.isArray(info.streams)
         || !info.streams.length || info.streams.some((stream: { codec_type?: string }) => stream.codec_type !== "audio")) {
         throw new Error("media_audio_limit");
       }

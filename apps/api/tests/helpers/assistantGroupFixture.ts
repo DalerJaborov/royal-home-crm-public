@@ -27,11 +27,13 @@ function load(name: string, dependencies: Record<string, unknown>) {
 export function assistantGroupFixture() {
   let registered = true, enabled = true, active = true, role = "DIRECTOR", now = 1000, registeredAt = 0;
   let mutedUntil: Date | null = null, lastProactive: Date | null = null, lastWelcome: Date | null = null, contextEnabledAt: Date | null = null, groupLinked = true, discussionGroupId: string | null = null;
-  const findProperty = vi.fn(async () => ({ kind: "shortId", properties: [{ id: "fixture-property", shortId: 123, price: 630000, currency: "TJS", status: "AVAILABLE" }] }));
+  const findProperty = vi.fn(async () => ({ kind: "shortId", properties: [{ id: "fixture-property", shortId: 123, price: 630000, currency: "TJS", status: "AVAILABLE", instagramUrl: null as string | null }] }));
   const plain = vi.fn(async (..._args: unknown[]) => ({})), html = vi.fn(async (..._args: unknown[]) => ({}));
   const buttons = vi.fn((...args: unknown[]) => plain(...args));
   const confirm = vi.fn(async () => { throw new Error("Confirmation execution is outside this fixture"); });
   const voice = vi.fn(async (..._args: unknown[]) => true);
+  const reaction = vi.fn(async (..._args: unknown[]) => {});
+  const indicator = vi.fn(async (..._args: unknown[]) => {});
   const run = vi.fn(async (_history: unknown, _actor: unknown, _options: unknown) => ({ ok: true, reply: "Готово." }));
   const media = vi.fn(async () => ({ extraction: { transcript: "Проверь, пожалуйста." } }));
   const context = vi.fn(async () => [{ occurredAt: new Date(0), text: "Просили обновить цену.", authorLabel: "Умед Примеров" }]);
@@ -67,7 +69,7 @@ export function assistantGroupFixture() {
     "../ai/assistant/tools/getPropertyWorkStatus.js": { getPropertyWorkList: workQueue },
     "./assistantVoice.js": { sendAssistantVoiceReply: voice },
     "./api.js": { getBotUsername: async () => "fixture_bot", sendMessage: plain, sendHtmlMessage: html,
-      sendMessageWithButtons: buttons, sendChatAction: async () => {}, setMessageReaction: async () => {} },
+      sendMessageWithButtons: buttons, sendChatAction: indicator, setMessageReaction: reaction },
     "../db.js": { prisma: { settings: { findUnique: async () => ({ telegramDiscussionGroupId: discussionGroupId }) },
       assistantTelegramGroup: { createMany: create, upsert: async () => { registered = true; },
         findUnique: async ({ where }: { where: { chatId: string } }) => registered && where.chatId === "-100" ? { chatId: "-100", createdAt: new Date(registeredAt), proactiveMutedUntil: mutedUntil, lastProactiveReplyAt: lastProactive, lastJoinWelcomeAt: lastWelcome, contextEnabledAt } : null,
@@ -116,7 +118,7 @@ export function assistantGroupFixture() {
   const message = (text = "", extra: Partial<TelegramIncomingMessage> = {}) => ({
     chat: { id: -100, type: "supergroup" }, from: { id: 1 }, message_id: 10, text, ...extra,
   });
-  return { adapter, plain, html, voice, buttons, confirm, run, media, fast, workQueue, card, create, findProperty, context, retainTranscript, publicCatalog, publicShellReply,
+  return { adapter, plain, html, voice, reaction, indicator, buttons, confirm, run, media, fast, workQueue, card, create, findProperty, context, retainTranscript, publicCatalog, publicShellReply,
     setContext: (value: boolean) => { contextEnabledAt = value ? new Date(now) : null; },
     setLinked: (value: boolean) => { groupLinked = value; },
     setDiscussion: (value: string) => { discussionGroupId = value; },

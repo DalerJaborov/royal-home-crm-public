@@ -32,7 +32,7 @@ const STATUS_DELAY = /(?:недел\p{L}*|\d+\s+(?:дн\p{L}*|рӯз)|ҳафта
 
 // An object and a question are both required; a standalone mention of a post is ordinary chat.
 const PUBLICATION_PROPERTY = /(?<![\p{L}\p{N}])(?:объект\p{L}*|квартир\p{L}*|дом(?:а|ов|у|е)?|хона\p{L}*|ҳавл\p{L}*|[кқ][оа]робк\p{L}*)(?![\p{L}\p{N}])/iu;
-const PUBLICATION_QUESTION = /(?:^|\s)(?:пост|нашр)\s+(?:на)?шуд(?:ааст)?\s*(?:м[иӣ]\s*\??|\?)$/iu;
+const PUBLICATION_QUESTION = /(?:^|\s)(?:(?:пост|нашр)\s+(?:на)?шуд(?:ааст)?\s*(?:м[иӣ]\s*\??|\?)|(?:уже\s+)?(?:выложили|опубликовали)\s*\?)$/iu;
 
 export function propertyPublicationQuestion(text: string): boolean {
   return (PUBLICATION_PROPERTY.test(text) || PROPERTY_CODE.test(text)) && PUBLICATION_QUESTION.test(text);
@@ -92,6 +92,16 @@ export function groupStatusFollowUp(text: string, quoted: string): boolean {
 /** Use only visible, unique object numbers from a reply. Never copy its stale result or instructions. */
 export function groupPropertyRefs(text: string): string[] {
   return groupPropertyReferenceNumbers(text, 8).map(id => formatPropertyCode(id));
+}
+
+export function groupInstagramLinkRequest(text: string, quoted: string): { ref: string; tajik: boolean } | null {
+  if (text.length > 180 || !/(?:инстаграм|instagram)/iu.test(text)
+      || !/(?:ссылк|пайванд|линк)/iu.test(text)
+      || !/\?|(?<!\p{L})(?:дай(?:те)?|скинь(?:те)?|отправь(?:те)?|покажи(?:те)?|пришли(?:те)?|где|можно|нужна|парто|фирист\p{L}*|равон|диҳ\p{L}*)(?!\p{L})/iu.test(text)
+      || /https?:\/\/|\b(?:не надо|не нужно)\b|(?<!\p{L})(?:не|накун|иваз|измени|обнови|снизь)(?!\p{L})|[;\r\n]/iu.test(text)) return null;
+  const current = groupPropertyRefs(text);
+  const refs = current.length ? current : groupPropertyRefs(quoted);
+  return refs.length === 1 ? { ref: refs[0], tajik: /пайванд|парто|фирист|равон|диҳ|(?:инстаграм|линк)и(?!\p{L})/iu.test(text) } : null;
 }
 
 /** The same exact visible code identifies evidence at capture and at search. */
@@ -179,4 +189,20 @@ export function proactivePropertyReply(p: Pick<PropertyRefRecord, "shortId" | "p
   const currency = p.currency === "USD" ? "USD" : lang === "tg" ? "сомонӣ" : "сомони";
   const price = Number.isFinite(amount) && amount > 0 ? ` · ${amount.toLocaleString("ru-RU")} ${currency}` : "";
   return `${card} — ${STATUS[lang][p.status]}${price}.`;
+}
+/** Entire utterance only: "thanks, and change the price" is still a request. */
+export function groupAcknowledgment(words: string): "👍" | "😁" | null {
+  if (words.length > 90 || /[?？؟]/u.test(words)) return null;
+  const text = words.normalize("NFC").toLowerCase()
+    .replace(/^[\s,،.!…]+|[\s,،.!…]+$/gu, "")
+    .replace(/^(?:шабнам|мушовир)[\s,:!—–-]+/u, "")
+    .replace(/[\s,]+(?:шабнам|мушовир)[.!…\s]*$/u, "")
+    .trim();
+  if (/^(?:(?:ҳа|ха|да|хуб|ок)[\s,.!]+)?(?:спасибо(?: большое)?|большое спасибо|благодарю|ра[ҳх]мат(?:и калон| калон)?|ташаккур(?:и зиёд)?)(?:[\s,.!…]*(?:🙏|👍|😊|🙂))?$/u.test(text)
+      || /^(?:👍|🙏|👌)[\uFE0F]?$/u.test(text)) return "👍";
+  // Audio recognition can return Tajik/Persian gratitude in the Persian script.
+  const persian = text.replace(/[يى]/gu, "ی").replace(/ك/gu, "ک");
+  if (/^(?:(?:خیلی\s+)?(?:ممنونم?|مرسی|تشکر)(?:[\s,،.!…]+|$)){1,3}$/u.test(persian)) return "👍";
+  if (/^(?:😂|😄|😁|🤣|(?:ха|ҳа)(?:[\s-]+(?:ха|ҳа)){1,3})$/u.test(text)) return "😁";
+  return null;
 }
