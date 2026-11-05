@@ -1,11 +1,11 @@
 import { prisma } from "../db.js";
-import { createHash } from "node:crypto";
 import { decryptSecret } from "../crypto.js";
 import { adjustTelegramVoiceTempo } from "../lib/audioTranscode.js";
 import { resolveElevenLabsKey } from "../ai/liveVoiceProvider.js";
 import { directAssistantVoice } from "./assistantVoiceDirection.js";
 import { prepareAssistantReply, type AssistantSpeechLanguage } from "./assistantReply.js";
 import { claimAssistantTtsChars } from "./assistantVoiceBudget.js";
+import { assistantElevenLabsPaused, noteAssistantElevenLabsFailure } from "./assistantElevenLabsAvailability.js";
 import { sendChatAction, sendVoiceFile, sendAssistantVoiceId, TelegramApiError } from "./api.js";
 import { z } from "zod";
 import { cacheableAssistantSpeech, assistantVoiceCacheKey, cachedAssistantAudio, writeAssistantVoiceCache, isOggOpusAudio } from "./assistantVoiceCache.js";
@@ -16,8 +16,6 @@ import { cacheableAssistantSpeech, assistantVoiceCacheKey, cachedAssistantAudio,
 const TTS_TIMEOUT_MS = 12_000;
 const TAJIK_TEMPO = 1.06;
 const TTS_FORMAT = "opus_48000_64";
-const quotaErrorSchema = z.object({ detail: z.object({ status: z.string() }) });
-let synthesisPause: { account: string; until: number } | undefined;
 const VOICE_PROFILES = {
   ru: {
     model: "eleven_v4_turbo",
@@ -76,9 +74,7 @@ async function synthesize(
   text: string, language: "ru" | "tg", config: SpeechConfig, dictionary: PronunciationDictionaryLocator | undefined,
 ): Promise<Buffer | null> {
   const { voiceId, key } = config;
-  if (!key) return null;
-  const account = createHash("sha256").update(key).digest("hex");
-  if (synthesisPause?.account === account && synthesisPause.until > Date.now()) return null;
+  if (!key || assistantElevenLabsPaused(key, "synthesis")) return null;
   if (!(await claimAssistantTtsChars(text.length))) return null;
   const profile = VOICE_PROFILES[language];
   const endpoint = language === "ru" ? `${profile.endpoint}/${encodeURIComponent(voiceId)}` : profile.endpoint;
@@ -98,17 +94,7 @@ async function synthesize(
     signal: AbortSignal.timeout(TTS_TIMEOUT_MS),
   });
   if (!res.ok) {
-    if (res.status === 429 || res.status === 402) {
-      synthesisPause = { account, until: Date.now() + (res.status === 429 ? 15_000 : 5 * 60_000) };
-    }
-    if ([400, 401, 403].includes(res.status)) {
-      const error = quotaErrorSchema.safeParse(await res.json().catch(() => null));
-      if (error.success && error.data.detail.status === "quota_exceeded") {
-        synthesisPause = { account, until: Date.now() + 5 * 60_000 };
-      }
-    } else {
-      await res.body?.cancel().catch(() => undefined);
-    }
+    await noteAssistantElevenLabsFailure(key, "synthesis", res);
     throw new Error(`ElevenLabs HTTP ${res.status}`);
   }
   const audio = Buffer.from(await res.arrayBuffer());

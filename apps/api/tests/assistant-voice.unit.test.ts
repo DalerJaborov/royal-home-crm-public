@@ -17,6 +17,7 @@ import { directAssistantVoice } from "../src/telegram/assistantVoiceDirection.js
 import { TelegramApiError } from "../src/telegram/api.js";
 import { assistantVoiceCacheKey, readAssistantVoiceCache, writeAssistantVoiceCache } from "../src/telegram/assistantVoiceCache.js";
 import { claimAssistantTtsChars } from "../src/telegram/assistantVoiceBudget.js";
+import { assistantElevenLabsPaused, noteAssistantElevenLabsFailure } from "../src/telegram/assistantElevenLabsAvailability.js";
 import { encryptSecret } from "../src/crypto.js";
 import { ASSISTANT_GROUP_GREETING } from "../src/telegram/assistantGroupPhrases.js";
 beforeEach(async () => {
@@ -109,8 +110,17 @@ it("skips new requests and budget claims after a confirmed ElevenLabs quota erro
   expect(fetchMock).toHaveBeenCalledOnce();
   expect(query).toHaveBeenCalledOnce();
   expect(sendVoice).not.toHaveBeenCalled();
+  expect(assistantElevenLabsPaused("test-quota-account", "recognition")).toBe(true);
   vi.stubEnv("ELEVENLABS_API_KEY", "test-rotated-account");
   expect(await sendAssistantVoiceReply("test", "Готово.")).toBe(true);
+});
+it("isolates a Scribe rate limit from synthesis but shares account quota", async () => {
+  const key = "test-scribe-account";
+  await noteAssistantElevenLabsFailure(key, "recognition", new Response(null, { status: 429 }));
+  expect(assistantElevenLabsPaused(key, "recognition")).toBe(true);
+  expect(assistantElevenLabsPaused(key, "synthesis")).toBe(false);
+  await noteAssistantElevenLabsFailure(key, "recognition", new Response(null, { status: 402 }));
+  expect(assistantElevenLabsPaused(key, "synthesis")).toBe(true);
 });
 it('transport error never synthesizes again', async () => { sendVoice.mockRejectedValue(new Error('timeout')); expect(await sendAssistantVoiceReply('test', 'Готово.')).toBe(false); expect(fetchMock).toHaveBeenCalledTimes(1); });
 it('zero budget disables voice and rejects invalid amounts', async () => { vi.stubEnv('ASSISTANT_TTS_DAILY_CHARS', '0'); expect(await claimAssistantTtsChars(1)).toBe(false); expect(await claimAssistantTtsChars(-1)).toBe(false); expect(query).not.toHaveBeenCalled(); });

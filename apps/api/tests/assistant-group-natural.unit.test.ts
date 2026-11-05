@@ -902,6 +902,14 @@ describe("group acknowledgments", () => {
     expect(f.run).not.toHaveBeenCalled();
   });
 
+  it.each(["unavailable", "uncertain"] as const)("adds a friendly fallback only for a definite rejection: %s", async delivery => {
+    const f = fixture();
+    f.reaction.mockResolvedValue(delivery);
+    await f.send("Раҳмат!", { reply_to_message: botReply });
+    expect(f.plain.mock.calls).toEqual(delivery === "unavailable" ? [["-100", "Ҳар вақт 🙂", 10]] : []);
+    expect(f.run).not.toHaveBeenCalled();
+  });
+
   it("starts a direct voice reply visibly and preserves the question after thanks", async () => {
     const f = fixture();
     f.media.mockResolvedValue({ extraction: { transcript: "Раҳмат. Боз ягон хона ҳаст?" } });

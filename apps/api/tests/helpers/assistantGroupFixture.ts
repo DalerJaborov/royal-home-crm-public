@@ -32,7 +32,7 @@ export function assistantGroupFixture() {
   const buttons = vi.fn((...args: unknown[]) => plain(...args));
   const confirm = vi.fn(async () => { throw new Error("Confirmation execution is outside this fixture"); });
   const voice = vi.fn(async (..._args: unknown[]) => true);
-  const reaction = vi.fn(async (..._args: unknown[]) => {});
+  const reaction = vi.fn(async (..._args: unknown[]) => "sent" as "sent" | "unavailable" | "uncertain");
   const indicator = vi.fn(async (..._args: unknown[]) => {});
   const run = vi.fn(async (_history: unknown, _actor: unknown, _options: unknown) => ({ ok: true, reply: "Готово." }));
   const media = vi.fn(async () => ({ extraction: { transcript: "Проверь, пожалуйста." } }));

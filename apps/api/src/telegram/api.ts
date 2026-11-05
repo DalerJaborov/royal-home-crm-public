@@ -296,15 +296,19 @@ export function removeKeyboard(chatId: string, text: string): Promise<unknown> {
  * которое уже состоялся, её отказ не должен ронять основной ответ (тот же
  * принцип, что у showReadAndTyping в messengers/meta.ts).
  */
-export async function setMessageReaction(chatId: string, messageId: number, emoji: string): Promise<void> {
+export async function setMessageReaction(chatId: string, messageId: number, emoji: string): Promise<"sent" | "unavailable" | "uncertain"> {
   try {
     await call("setMessageReaction", {
       chat_id: chatId,
       message_id: messageId,
       reaction: emoji ? [{ type: "emoji", emoji }] : [],
-    });
+    }, 2_500, undefined, undefined, true);
+    return "sent";
   } catch (err) {
     console.warn("[telegram] Реакция не поставлена (косметика, на переписку не влияет):", describeError(err));
+    if (err instanceof TelegramApiError && err.errorCode === 400
+      && /REACTION_INVALID|REACTIONS_TOO_MANY|reaction (?:is )?(?:invalid|not allowed|not available)/iu.test(err.message)) return "unavailable";
+    return "uncertain";
   }
 }
 

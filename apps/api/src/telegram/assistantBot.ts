@@ -983,7 +983,7 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
     const showWorking = () => void (msg.message_thread_id === undefined
       ? sendChatAction(chatId)
       : sendChatAction(chatId, undefined, "typing", msg.message_thread_id));
-    const acknowledge = async (emoji: ReturnType<typeof groupAcknowledgment>): Promise<boolean> => {
+    const acknowledge = async (words: string, emoji = groupAcknowledgment(words)): Promise<boolean> => {
       if (!emoji || isForwarded || !key || !sender || msg.message_id === undefined
           || (replied && !replyInThisConversation)) return false;
       // Only opted-in staff rooms get ambient acknowledgments. Laughter needs a direct reply/address.
@@ -994,10 +994,16 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
       ]);
       if (!enabled || !access?.isActive || !current || current.createdAt.getTime() !== registeredAt
           || (ambient && (!current.contextEnabledAt || (current.proactiveMutedUntil?.getTime() ?? 0) > groupClock()))) return false;
-      await setMessageReaction(chatId, msg.message_id, emoji);
+      const delivery = await setMessageReaction(chatId, msg.message_id, emoji);
+      if (delivery === "unavailable" && !ambient) {
+        const lang = assistantLanguage([{ role: "user", content: words }]);
+        const tajik = lang === "tg" || lang === "mixed"
+          || /ра[ҳх]мат|ташаккур|\p{Script=Arabic}/iu.test(words);
+        await reply(emoji === "😁" ? "😁" : tajik ? "Ҳар вақт 🙂" : "Обращайся 🙂");
+      }
       return true;
     };
-    if (typedAcknowledgment && await acknowledge(typedAcknowledgment)) return true;
+    if (typedAcknowledgment && await acknowledge(currentRequest, typedAcknowledgment)) return true;
     const replyWithInstagram = async (request: ReturnType<typeof groupInstagramLinkRequest>): Promise<boolean> => {
       if (!request || isForwarded || !sender || !(await isAiAssistantEnabled())) return false;
       const access = await loadAgentAccess(sender.id);
@@ -1084,7 +1090,7 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
         || (current.proactiveMutedUntil && current.proactiveMutedUntil.getTime() > groupClock())) return false;
       fromVoice = true;
       raw = voice.text.replace(/\s+/gu, " ").trim();
-      if (audioDuration <= 12 && await acknowledge(groupAcknowledgment(raw))) return true;
+      if (audioDuration <= 12 && await acknowledge(raw)) return true;
       if (await replyWithInstagram(groupInstagramLinkRequest(raw, ownBotQuestion ?? ""))) return true;
       const spokenMore = !isForwarded && propertyPageRequest(raw);
       if (spokenMore && cardScope && await replyWithMoreProperties(cardScope, spokenMore, raw, true)) return true;
@@ -1256,7 +1262,7 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
         return true;
       }
       audioWords = voice.text;
-      if (await acknowledge(groupAcknowledgment(audioWords))) return true;
+      if (await acknowledge(audioWords)) return true;
       if (await replyWithInstagram(groupInstagramLinkRequest(audioWords, ownBotQuestion ?? ""))) return true;
       request = forwardedVoicePrompt(msg, audioWords) ?? audioWords;
       if (evidenceAfterAudio) request += `\n${wrapUntrusted("document", evidenceAfterAudio, 1000)}`;
