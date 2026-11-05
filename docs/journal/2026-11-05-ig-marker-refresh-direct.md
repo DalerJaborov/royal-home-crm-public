@@ -22,3 +22,13 @@ Graph Bearer принимают (ответы в директ после пер�
 **Что осталось.** После выката — дождаться ночного тика 20:20 UTC (или нажать
 продление) и убедиться, что `MessengerAccount.tokenRefreshedAt` сдвинулся.
 Полный разбор переезда — `experts/2026-11-05/migration-audit/` вне репозитория.
+
+## Там же: ключ прокси Gemini больше не уходит в Google
+
+`ai/geminiTransport.ts::geminiProxyHeaders` отдавал `x-proxy-key` при одном лишь
+заданном `GEMINI_PROXY_KEY`. На netcup адрес прокси пуст, ключ в окружении остался —
+секрет нашего Worker уходил заголовком прямо в Google в каждом вызове Gemini.
+Теперь ключ идёт только вместе с `GEMINI_PROXY_URL`. Тест
+`tests/proxy-direct-egress.unit.test.ts` (4) — проверен поломкой: старый код красный.
+Владельцу/выкату: убрать `GEMINI_PROXY_KEY`/`IG_PROXY_*` из `.env.production`
+после недели тишины, удалить Worker `red-mouse-517a`.
