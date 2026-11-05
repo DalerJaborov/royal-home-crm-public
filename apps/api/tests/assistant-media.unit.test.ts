@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({ call: vi.fn(), probe: vi.fn() }));
 vi.mock("../src/ai/geminiClient.js", () => ({ callGeminiTools: mocks.call }));
-vi.mock("../src/ai/assistant/mediaProbe.js", () => ({ inspectAssistantMedia: mocks.probe }));
+vi.mock("../src/ai/assistant/mediaProbe.js", async importOriginal => ({
+  ...(await importOriginal<typeof import("../src/ai/assistant/mediaProbe.js")>()),
+  inspectAssistantMedia: mocks.probe,
+}));
 import { understandAssistantMedia, type AssistantMediaInput } from "../src/ai/assistant/mediaUnderstanding.js";
 
 const extraction = () => ({ language: "tg", readableText: "Нарх 120000 сомонӣ", transcript: "", visualDescription: "", incomplete: false });
