@@ -9,8 +9,8 @@ export function EmptyListGuardBanner({ guard, variant }: { guard: EmptyListGuard
   const text = "Список не загрузился. Нажмите «Обновить», мы очистим старые данные и загрузим заново.";
   if (variant === "mobile") {
     return (
-      <div className="state err" role="alert">
-        {text}{" "}
+      <div className="state err" role="alert" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+        {text}
         <button type="button" className="lnk" onClick={() => void guard.repair()} disabled={guard.healing}>
           {guard.healing ? "Обновляем…" : "Обновить"}
         </button>
