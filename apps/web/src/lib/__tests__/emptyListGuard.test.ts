@@ -12,6 +12,7 @@ import { queryClient } from "../queryClient";
 import {
   formatEmptyListMessage,
   judgeEmptyList,
+  nextGuardStep,
   purgeListCaches,
   reportEmptyList,
   type EmptyListFacts,
@@ -66,6 +67,23 @@ describe("judgeEmptyList", () => {
   });
   it("список с данными — не поломка", () => {
     expect(judgeEmptyList({ ...base, itemCount: 5 })).toBeNull();
+  });
+});
+
+describe("nextGuardStep", () => {
+  const k = "desktop:BUYER:plain";
+  it("поломка: сначала тихий перезапрос, потом плашка и запись, потом покой", () => {
+    expect(nextGuardStep({ verdict: "empty-vs-summary", autoKey: null, sliceKey: k, reportedKey: null })).toBe("auto-retry");
+    expect(nextGuardStep({ verdict: "empty-vs-summary", autoKey: k, sliceKey: k, reportedKey: null })).toBe("report");
+    expect(nextGuardStep({ verdict: "empty-vs-summary", autoKey: k, sliceKey: k, reportedKey: k })).toBe("idle");
+  });
+  it("во время загрузки ждёт, ничего не пишет", () => {
+    expect(nextGuardStep({ verdict: "pending", autoKey: k, sliceKey: k, reportedKey: null })).toBe("wait");
+  });
+  it("после выздоровления забывает поломку, новая получает свою попытку", () => {
+    expect(nextGuardStep({ verdict: null, autoKey: k, sliceKey: k, reportedKey: k })).toBe("reset");
+    expect(nextGuardStep({ verdict: null, autoKey: null, sliceKey: k, reportedKey: null })).toBe("idle");
+    expect(nextGuardStep({ verdict: "error", autoKey: k, sliceKey: "mobile:SELLER:plain", reportedKey: k })).toBe("auto-retry");
   });
 });
 

@@ -41,6 +41,7 @@ import { SwipeRow } from "../components/SwipeRow";
 import { useMarkSectionSeen } from "../hooks/useCounters";
 import { useMobileUx } from "../hooks/useMobileUx";
 import { useAccumulatedPages } from "../hooks/useAccumulatedPages";
+import { purgeListCaches } from "../lib/emptyListGuard";
 import { useEmptyListGuard } from "../hooks/useEmptyListGuard";
 import { EmptyListGuardBanner } from "../components/EmptyListGuardBanner";
 import { Pagination } from "../components/Pagination";
@@ -864,7 +865,7 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
               ))}
             </div>
           )}
-          {hiddenQuery.error && <Rh2ErrorState message="Список не загрузился." onRetry={() => hiddenQuery.refetch()} />}
+          {hiddenQuery.error && <Rh2ErrorState message="Список не загрузился." onRetry={() => void purgeListCaches().then(() => hiddenQuery.refetch())} />}
           {hiddenQuery.data && (
             <List aria-label="Карточки не на виду">
               {hiddenQuery.data.items

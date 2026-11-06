@@ -39,6 +39,28 @@ export function judgeEmptyList(f: EmptyListFacts): EmptyListReason | "pending" |
   return null;
 }
 
+export type GuardStep = "wait" | "reset" | "auto-retry" | "report" | "idle";
+
+/**
+ * Шаг машины сторожа (hooks/useEmptyListGuard.ts), вынесен чистой функцией ради
+ * теста: в тестах нет DOM, а порядок «перезапрос, потом плашка и запись» важен.
+ *  wait — идёт загрузка; reset — всё хорошо, забыть прошлую поломку;
+ *  auto-retry — первая поломка среза, один тихий перезапрос;
+ *  report — поломка пережила перезапрос, показать плашку и записать;
+ *  idle — плашка уже показана и записана.
+ */
+export function nextGuardStep(s: {
+  verdict: EmptyListReason | "pending" | null;
+  autoKey: string | null;
+  sliceKey: string;
+  reportedKey: string | null;
+}): GuardStep {
+  if (s.verdict === "pending") return "wait";
+  if (s.verdict === null) return s.autoKey !== null || s.reportedKey !== null ? "reset" : "idle";
+  if (s.autoKey !== s.sliceKey) return "auto-retry";
+  return s.reportedKey !== s.sliceKey ? "report" : "idle";
+}
+
 /** Все слои старых данных: снимок на диске, кэш воркера, кэш React Query. */
 export async function purgeListCaches(): Promise<void> {
   // allSettled + потолок ожидания: заблокированная IndexedDB (iOS, приватный режим)

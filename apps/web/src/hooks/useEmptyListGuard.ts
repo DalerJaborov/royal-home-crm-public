@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { judgeEmptyList, purgeListCaches, reportEmptyList, type EmptyListReason } from "../lib/emptyListGuard";
+import { judgeEmptyList, nextGuardStep, purgeListCaches, reportEmptyList, type EmptyListReason } from "../lib/emptyListGuard";
 
 export interface EmptyListGuardInput {
   /** Устойчивый ключ среза (раздел + условия): смена ключа даёт одну новую попытку. */
@@ -50,18 +50,14 @@ export function useEmptyListGuard(input: EmptyListGuardInput): EmptyListGuard {
   latest.current = input;
 
   useEffect(() => {
-    if (verdict === "pending") return;
-    if (!reason) {
+    const step = nextGuardStep({ verdict, autoKey, sliceKey: input.sliceKey, reportedKey: reportedKey.current });
+    if (step === "reset") {
       if (autoKey !== null) setAutoKey(null);
       reportedKey.current = null;
-      return;
-    }
-    if (autoKey !== input.sliceKey) {
+    } else if (step === "auto-retry") {
       setAutoKey(input.sliceKey);
       void refetchRef.current();
-      return;
-    }
-    if (reportedKey.current !== input.sliceKey) {
+    } else if (step === "report" && reason) {
       reportedKey.current = input.sliceKey;
       const cur = latest.current;
       const status = (cur.error as { status?: unknown } | null)?.status;
