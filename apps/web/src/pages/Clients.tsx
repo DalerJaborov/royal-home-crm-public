@@ -41,6 +41,8 @@ import { SwipeRow } from "../components/SwipeRow";
 import { useMarkSectionSeen } from "../hooks/useCounters";
 import { useMobileUx } from "../hooks/useMobileUx";
 import { useAccumulatedPages } from "../hooks/useAccumulatedPages";
+import { useEmptyListGuard } from "../hooks/useEmptyListGuard";
+import { EmptyListGuardBanner } from "../components/EmptyListGuardBanner";
 import { Pagination } from "../components/Pagination";
 import { useDistricts } from "../hooks/useDistricts";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
@@ -332,7 +334,7 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
   };
   // «Прочие обращения» — управленческий раздел: без права сервер ответил бы 403.
   const otherBlocked = isOther && !can("otherInquiries.view");
-  const { data, isLoading, error, refetch } = useClients(clientQuery, !otherBlocked);
+  const { data, isLoading, isFetching, error, refetch, dataUpdatedAt } = useClients(clientQuery, !otherBlocked);
   // Свежая первая страница, пока пролистано дальше неё (аудит №38, useAccumulatedPages).
   const { data: headPage } = useClients({ ...clientQuery, page: 1 }, (filters.page ?? 1) > 1 && !otherBlocked);
   // Мягкая подгрузка вместо страниц (решение владельца 15.09.2026): строки копятся,
@@ -356,7 +358,7 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
   // Дубликаты видит только руководство — объединение затрагивает клиентов разных агентов.
   const { data: duplicates } = useDuplicates(can("clients.merge"));
   /** Сводка экрана: счётчики срезов, «ждёт агента», «не на виду». Один запрос. */
-  const { data: summary } = useClientsSummary(!isOther);
+  const { data: summary, refetch: refetchSummary } = useClientsSummary(!isOther);
   // Список агентов — только для шторки фильтров руководителя (агент видит своих и так).
   const { data: agents } = useAgents({ enabled: can("clients.viewAll") });
   const assign = useTransferClient();
@@ -365,6 +367,23 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
   const waitLabel = oldest ? formatWait(oldest.waitingMinutes) : "";
   // «Не на виду»: список грузится только когда шторка открыта.
   const hiddenQuery = useClients({ scope: "allMine" }, showHidden);
+  // Самолечение пустого списка (hooks/useEmptyListGuard.ts, одна дверь с телефоном):
+  // сводку можно сравнивать только с обычной вкладкой «в работе» без условий.
+  const guardComparable =
+    clientQuery.scope === "inWork" && !clientQuery.status && !clientQuery.source && !clientQuery.districtId && !clientQuery.agentId &&
+    !clientQuery.q && !clientQuery.workStatus && (filters.page ?? 1) === 1 && !!kindForQuery;
+  const listGuard = useEmptyListGuard({
+    sliceKey: `desktop:${kindForQuery ?? "all"}:${guardComparable ? "plain" : "filtered"}`,
+    sliceName: `desktop-${(kindForQuery ?? "all").toLowerCase()}`,
+    isLoading,
+    isFetching,
+    hasData: !!data,
+    error,
+    itemCount: visibleItems.length,
+    expected: guardComparable && summary ? (kindForQuery === "SELLER" ? summary.sellers : summary.buyers) : null,
+    dataUpdatedAt,
+    refetchAll: () => Promise.all([refetch(), refetchSummary()]),
+  });
 
   // «Прочие обращения» — управленческий раздел, агентам сюда доступа нет (API и так
   // не вернёт им ни одной записи, но сообщение понятнее пустого списка).
@@ -602,14 +621,14 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
         )}
 
         {/* Состояния блока: загрузка, ошибка, пусто */}
-        {isLoading && !error && (
+        {(isLoading || (!!error && !listGuard.broken)) && (
           <div role="status" aria-label="Загружаем клиентов">
             {[0, 1, 2, 3, 4].map((i) => (
               <Skeleton key={i} kind="row" />
             ))}
           </div>
         )}
-        {error && <Rh2ErrorState message="Список не загрузился." onRetry={() => refetch()} />}
+        {listGuard.broken && <EmptyListGuardBanner guard={listGuard} variant="desktop" />}
 
         {data && visibleItems.length > 0 && (
           <List aria-label="Клиенты">
@@ -627,7 +646,7 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
           </List>
         )}
 
-        {data && visibleItems.length === 0 && (
+        {data && visibleItems.length === 0 && !listGuard.broken && (
           <Rh2EmptyState
             icon={UserRound}
             title={
