@@ -18,6 +18,10 @@ import { reportEmptyListGuard } from "./errorReporter";
 export type EmptyListReason = "empty-vs-summary" | "error";
 
 export interface EmptyListFacts {
+  /** Запрос включён. Выключенный (закрытый раздел, нет права) сторож не трогает. */
+  enabled: boolean;
+  /** Сводка ещё грузится или перечитывается: сравнивать не с чем, судить рано. */
+  summaryPending: boolean;
   isLoading: boolean;
   isFetching: boolean;
   hasData: boolean;
@@ -33,9 +37,13 @@ export interface EmptyListFacts {
  * Чистая функция — вся логика решения проверяется тестом без React.
  */
 export function judgeEmptyList(f: EmptyListFacts): EmptyListReason | "pending" | null {
+  if (!f.enabled) return null;
   if (f.isLoading || f.isFetching) return "pending";
   if (f.hasError) return "error";
-  if (f.hasData && f.itemCount === 0 && typeof f.expected === "number" && f.expected > 0) return "empty-vs-summary";
+  if (f.hasData && f.itemCount === 0 && typeof f.expected === "number" && f.expected > 0) {
+    // Список пришёл раньше свежей сводки: число могло устареть, ждём сводку.
+    return f.summaryPending ? "pending" : "empty-vs-summary";
+  }
   return null;
 }
 
@@ -61,6 +69,15 @@ export function nextGuardStep(s: {
   return s.reportedKey !== s.sliceKey ? "report" : "idle";
 }
 
+/**
+ * Чистить ли слои старых данных. Только когда список пуст при непустой сводке и сеть
+ * есть: при ошибке (обрыв, 429) кэш воркера и снимок на диске — единственный
+ * офлайн-запас агента, их сносить нельзя, достаточно перезапроса.
+ */
+export function shouldPurgeCaches(reason: EmptyListReason | null, online: boolean): boolean {
+  return reason === "empty-vs-summary" && online;
+}
+
 /** Все слои старых данных: снимок на диске, кэш воркера, кэш React Query. */
 export async function purgeListCaches(): Promise<void> {
   // allSettled + потолок ожидания: заблокированная IndexedDB (iOS, приватный режим)
@@ -68,7 +85,8 @@ export async function purgeListCaches(): Promise<void> {
   const withCeiling = (p: Promise<unknown>) =>
     Promise.race([p.catch(() => undefined), new Promise((r) => setTimeout(r, 3000))]);
   await Promise.allSettled([withCeiling(clearPersistedQueryCache()), withCeiling(dropSwApiCache())]);
-  queryClient.removeQueries({ queryKey: ["clients"] });
+  // resetQueries, не removeQueries: открытые экраны сами перезагрузятся, а не зависнут.
+  void queryClient.resetQueries({ queryKey: ["clients"] });
 }
 
 const THROTTLE_KEY = "royal-home-empty-list-guard-at";

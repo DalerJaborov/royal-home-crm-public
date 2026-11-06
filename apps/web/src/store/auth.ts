@@ -59,16 +59,6 @@ interface AuthState {
   logout: () => void;
 }
 
-/**
- * Кэш API-ответов service worker (sw.ts, NetworkFirst «api-cache») ключуется только
- * адресом — Authorization в ключ не входит, и NetworkFirst отдаёт кэш не только
- * офлайн, но и при ответе дольше 4 секунд. Без чистки следующий вошедший на этом
- * устройстве сотрудник на медленной связи получал бы закэшированные ответы
- * предыдущего (/dashboard с финансами, /clients) в обход системы прав (26.08.2026).
- * Best-effort: caches может отсутствовать (старый браузер, http) — тогда и SW с его
- * кэшем нет.
- */
-
 export const useAuthStore = create<AuthState>()(
   persist(
     (set, get) => ({

@@ -16,10 +16,10 @@
   "paths": 730,
   "cron": 123,
   "jobs": 32,
-  "conditions": 3992,
+  "conditions": 3991,
   "untranslatedUnique": 455,
   "untranslatedTotal": 585,
-  "partialUnique": 1096,
+  "partialUnique": 1095,
   "translatedShare": 85
  },
  "untranslated": [
@@ -2691,11 +2691,6 @@
      "conf": "через общую часть"
     },
     {
-     "i": 218,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
      "i": 346,
      "direct": false,
      "conf": "через общую часть"
@@ -3324,11 +3319,6 @@
     },
     {
      "i": 214,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 218,
      "direct": false,
      "conf": "через общую часть"
     },
@@ -4327,11 +4317,6 @@
     },
     {
      "i": 214,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 218,
      "direct": false,
      "conf": "через общую часть"
     },
@@ -5832,11 +5817,6 @@
     },
     {
      "i": 214,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 218,
      "direct": false,
      "conf": "через общую часть"
     },
@@ -8383,11 +8363,6 @@
     },
     {
      "i": 214,
-     "direct": false,
-     "conf": "через общую часть"
-    },
-    {
-     "i": 218,
      "direct": false,
      "conf": "через общую часть"
     },
@@ -22801,12 +22776,6 @@
      ]
     },
     {
-     "t": "если в hide количество больше 0",
-     "k": "if",
-     "a": [],
-     "c": []
-    },
-    {
      "t": "если есть все мои",
      "k": "if",
      "a": [],
@@ -27506,13 +27475,7 @@
     "pultWriteRefresh",
     "вход выполнен"
    ],
-   "screens": [
-    "/clients",
-    "/clients/all-mine",
-    "/inactive-clients",
-    "/other-inquiries",
-    "/sellers"
-   ],
+   "screens": [],
    "tree": [
     {
      "t": "если данные заполнены неправильно",

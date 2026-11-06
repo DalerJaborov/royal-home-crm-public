@@ -242,7 +242,7 @@ export function MobileClientsList({ kind, onAddClient }: { kind: "BUYER" | "SELL
   const { data, isLoading, isFetching, error, refetch, dataUpdatedAt } = useClients(filters);
   // Свежая первая страница, пока пролистано дальше неё (аудит №38, useAccumulatedPages).
   const { data: headPage } = useClients({ ...filters, page: 1 }, page > 1);
-  const { data: summary, refetch: refetchSummary } = useClientsSummary();
+  const { data: summary, isFetching: summaryFetching, refetch: refetchSummary } = useClientsSummary();
   // Дубликаты — только руководству (объединение задевает чужих клиентов) и
   // только у покупателей, тот же разбор, что в pages/Clients.tsx (ClientsList).
   const { data: duplicates } = useDuplicates(can("clients.merge") && kind === "BUYER");
@@ -286,6 +286,7 @@ export function MobileClientsList({ kind, onAddClient }: { kind: "BUYER" | "SELL
     filters.scope === "inWork" && !filters.status && !filters.source && !filters.districtId && !filters.agentId &&
     !filters.q && !filters.workStatus && page === 1 && !!filters.kind;
   const listGuard = useEmptyListGuard({
+    enabled: true,
     sliceKey: `mobile:${filters.kind ?? "all"}:${guardComparable ? "plain" : "filtered"}`,
     sliceName: `mobile-${(filters.kind ?? "all").toLowerCase()}`,
     isLoading,
@@ -293,10 +294,12 @@ export function MobileClientsList({ kind, onAddClient }: { kind: "BUYER" | "SELL
     hasData: !!data,
     error,
     itemCount: items.length,
-    expected: guardComparable && summary ? (filters.kind === "SELLER" ? summary.sellers : summary.buyers) : null,
+    expected: !guardComparable ? null : summary ? (filters.kind === "SELLER" ? summary.sellers : summary.buyers) : undefined,
+    summaryPending: summaryFetching,
     dataUpdatedAt,
-    refetchAll: () => Promise.all([refetch(), refetchSummary()]),
+    refetchAll: () => Promise.all([refetch({ cancelRefetch: false }), refetchSummary({ cancelRefetch: false })]),
   });
+
   const title = isAllMineRoute
     ? "Не на виду"
     : isInactiveRoute

@@ -13,6 +13,7 @@ import {
   formatEmptyListMessage,
   judgeEmptyList,
   nextGuardStep,
+  shouldPurgeCaches,
   purgeListCaches,
   reportEmptyList,
   type EmptyListFacts,
@@ -32,6 +33,8 @@ class MemoryStorage {
 }
 
 const base: EmptyListFacts = {
+  enabled: true,
+  summaryPending: false,
   isLoading: false,
   isFetching: false,
   hasData: true,
@@ -65,6 +68,13 @@ describe("judgeEmptyList", () => {
     expect(judgeEmptyList({ ...base, expected: null })).toBeNull();
     expect(judgeEmptyList({ ...base, expected: undefined })).toBeNull();
   });
+  it("выключенный запрос не судим", () => {
+    expect(judgeEmptyList({ ...base, enabled: false })).toBeNull();
+    expect(judgeEmptyList({ ...base, enabled: false, hasData: false, hasError: true })).toBeNull();
+  });
+  it("сводка ещё перечитывается — ждём её, не судим", () => {
+    expect(judgeEmptyList({ ...base, summaryPending: true })).toBe("pending");
+  });
   it("список с данными — не поломка", () => {
     expect(judgeEmptyList({ ...base, itemCount: 5 })).toBeNull();
   });
@@ -84,6 +94,15 @@ describe("nextGuardStep", () => {
     expect(nextGuardStep({ verdict: null, autoKey: k, sliceKey: k, reportedKey: k })).toBe("reset");
     expect(nextGuardStep({ verdict: null, autoKey: null, sliceKey: k, reportedKey: null })).toBe("idle");
     expect(nextGuardStep({ verdict: "error", autoKey: k, sliceKey: "mobile:SELLER:plain", reportedKey: k })).toBe("auto-retry");
+  });
+});
+
+describe("shouldPurgeCaches", () => {
+  it("чистим только пустой список при сети; при ошибке и офлайн офлайн-запас не трогаем", () => {
+    expect(shouldPurgeCaches("empty-vs-summary", true)).toBe(true);
+    expect(shouldPurgeCaches("empty-vs-summary", false)).toBe(false);
+    expect(shouldPurgeCaches("error", true)).toBe(false);
+    expect(shouldPurgeCaches(null, true)).toBe(false);
   });
 });
 

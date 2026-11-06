@@ -41,7 +41,6 @@ import { SwipeRow } from "../components/SwipeRow";
 import { useMarkSectionSeen } from "../hooks/useCounters";
 import { useMobileUx } from "../hooks/useMobileUx";
 import { useAccumulatedPages } from "../hooks/useAccumulatedPages";
-import { purgeListCaches } from "../lib/emptyListGuard";
 import { useEmptyListGuard } from "../hooks/useEmptyListGuard";
 import { EmptyListGuardBanner } from "../components/EmptyListGuardBanner";
 import { Pagination } from "../components/Pagination";
@@ -359,7 +358,7 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
   // Дубликаты видит только руководство — объединение затрагивает клиентов разных агентов.
   const { data: duplicates } = useDuplicates(can("clients.merge"));
   /** Сводка экрана: счётчики срезов, «ждёт агента», «не на виду». Один запрос. */
-  const { data: summary, refetch: refetchSummary } = useClientsSummary(!isOther);
+  const { data: summary, isFetching: summaryFetching, refetch: refetchSummary } = useClientsSummary(!isOther);
   // Список агентов — только для шторки фильтров руководителя (агент видит своих и так).
   const { data: agents } = useAgents({ enabled: can("clients.viewAll") });
   const assign = useTransferClient();
@@ -374,6 +373,7 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
     clientQuery.scope === "inWork" && !clientQuery.status && !clientQuery.source && !clientQuery.districtId && !clientQuery.agentId &&
     !clientQuery.q && !clientQuery.workStatus && (filters.page ?? 1) === 1 && !!kindForQuery;
   const listGuard = useEmptyListGuard({
+    enabled: !otherBlocked,
     sliceKey: `desktop:${kindForQuery ?? "all"}:${guardComparable ? "plain" : "filtered"}`,
     sliceName: `desktop-${(kindForQuery ?? "all").toLowerCase()}`,
     isLoading,
@@ -381,10 +381,13 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
     hasData: !!data,
     error,
     itemCount: visibleItems.length,
-    expected: guardComparable && summary ? (kindForQuery === "SELLER" ? summary.sellers : summary.buyers) : null,
+    expected: !guardComparable ? null : summary ? (kindForQuery === "SELLER" ? summary.sellers : summary.buyers) : undefined,
+    summaryPending: summaryFetching,
     dataUpdatedAt,
-    refetchAll: () => Promise.all([refetch(), refetchSummary()]),
+    refetchAll: () =>
+      Promise.all([refetch({ cancelRefetch: false }), isOther ? undefined : refetchSummary({ cancelRefetch: false })]),
   });
+
 
   // «Прочие обращения» — управленческий раздел, агентам сюда доступа нет (API и так
   // не вернёт им ни одной записи, но сообщение понятнее пустого списка).
@@ -865,7 +868,7 @@ function ClientsList({ kind = "BUYER", onAddClient }: { kind?: "BUYER" | "SELLER
               ))}
             </div>
           )}
-          {hiddenQuery.error && <Rh2ErrorState message="Список не загрузился." onRetry={() => void purgeListCaches().then(() => hiddenQuery.refetch())} />}
+          {hiddenQuery.error && <Rh2ErrorState message="Список не загрузился." onRetry={() => hiddenQuery.refetch()} />}
           {hiddenQuery.data && (
             <List aria-label="Карточки не на виду">
               {hiddenQuery.data.items

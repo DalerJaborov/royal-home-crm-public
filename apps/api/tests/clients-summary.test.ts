@@ -116,6 +116,34 @@ afterAll(async () => {
   await prisma.agent.deleteMany({ where: { phone: { in: [agentPhone, directorPhone] } } });
 });
 
+it("карточки с заявкой на удаление: счётчик «в работе» равен длине списка (сторож пустых списков)", async () => {
+  const token = await login(agentPhone);
+  const get = (path: string) => request(app).get(path).set("Authorization", `Bearer ${token}`);
+  const marker = `pendel${runId}`;
+  const before = await get("/api/v1/clients/summary");
+  const created = await prisma.client.create({ data: {
+    fullName: `${marker} 0`, phone: `test-${marker}-0`, source: "WEBSITE",
+    kind: "BUYER", status: "CONTACTED", assignedAgentId: agentId, acceptedAt: new Date(),
+  } });
+  try {
+    const afterCreate = await get("/api/v1/clients/summary");
+    expect(afterCreate.body.buyers).toBe(before.body.buyers + 1);
+    await prisma.clientDeleteRequest.create({ data: {
+      clientId: created.id, requestedById: agentId, reason: "OTHER", comment: "test", status: "PENDING",
+    } });
+    const after = await get("/api/v1/clients/summary");
+    const list = await get(`/api/v1/clients?scope=inWork&kind=BUYER&pageSize=200`);
+    expect(list.status).toBe(200);
+    // Список прячет карточку, и сводка обязана вести себя так же.
+    expect(list.body.items.map((c: { id: string }) => c.id)).not.toContain(created.id);
+    expect(after.body.buyers).toBe(before.body.buyers);
+    expect(after.body.buyers).toBe(list.body.total);
+  } finally {
+    await prisma.clientDeleteRequest.deleteMany({ where: { clientId: created.id } });
+    await prisma.client.delete({ where: { id: created.id } });
+  }
+});
+
 describe("GET /clients/summary", () => {
   it("приватный показ не добавляется к обычной сводке агента", async () => {
     const token = await login(agentPhone);
