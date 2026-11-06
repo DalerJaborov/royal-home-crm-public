@@ -85,6 +85,15 @@ describe("purgeListCaches", () => {
     expect(queryClient.getQueryData(["deals"])).toEqual({ keep: true });
   });
 
+  it("недоступное хранилище не роняет и не подвешивает чистку", async () => {
+    (globalThis as { caches?: unknown }).caches = { delete: async () => { throw new Error("denied"); } };
+    (globalThis as { indexedDB?: unknown }).indexedDB = { open: () => { throw new Error("blocked"); } };
+    queryClient.setQueryData(["clients", { kind: "BUYER" }], { items: [] });
+    await expect(purgeListCaches()).resolves.toBeUndefined();
+    expect(queryClient.getQueryData(["clients", { kind: "BUYER" }])).toBeUndefined();
+    delete (globalThis as { indexedDB?: unknown }).indexedDB;
+  });
+
   it("без Cache API не падает", async () => {
     await expect(purgeListCaches()).resolves.toBeUndefined();
   });
@@ -114,6 +123,11 @@ describe("подключение к экранам", () => {
     const src = read(file);
     expect(src).toContain("useEmptyListGuard(");
     expect(src).toContain("<EmptyListGuardBanner");
+  });
+  it("сторож перепроверяет список при возврате на передний план", () => {
+    const src = read("hooks/useEmptyListGuard.ts");
+    expect(src).toContain('"visibilitychange"');
+    expect(src).toContain('"pageshow"');
   });
   it("вход другим сотрудником чистит кэш воркера той же функцией", () => {
     expect(read("store/auth.ts")).toContain("dropSwApiCache");

@@ -76,6 +76,28 @@ export function useEmptyListGuard(input: EmptyListGuardInput): EmptyListGuard {
     }
   }, [verdict, reason, autoKey, input.sliceKey]);
 
+  // Возврат приложения на передний план (iOS Safari/PWA морозит вкладку в фоне и сам
+  // вычищает IndexedDB и кэш воркера): экран не перемонтируется, поэтому проверяем
+  // заново здесь. Пустой или упавший список получает новую попытку; если и она не
+  // помогла, плашка вернётся обычным путём.
+  useEffect(() => {
+    const onForeground = () => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      const cur = latest.current;
+      if (cur.isLoading || cur.isFetching) return;
+      if (cur.error || cur.itemCount === 0) {
+        setAutoKey(null);
+        void refetchRef.current();
+      }
+    };
+    document.addEventListener("visibilitychange", onForeground);
+    window.addEventListener("pageshow", onForeground);
+    return () => {
+      document.removeEventListener("visibilitychange", onForeground);
+      window.removeEventListener("pageshow", onForeground);
+    };
+  }, []);
+
   const repair = useCallback(async () => {
     setHealing(true);
     try {

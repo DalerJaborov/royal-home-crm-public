@@ -41,7 +41,11 @@ export function judgeEmptyList(f: EmptyListFacts): EmptyListReason | "pending" |
 
 /** Все слои старых данных: снимок на диске, кэш воркера, кэш React Query. */
 export async function purgeListCaches(): Promise<void> {
-  await Promise.all([clearPersistedQueryCache(), dropSwApiCache()]);
+  // allSettled + потолок ожидания: заблокированная IndexedDB (iOS, приватный режим)
+  // не должна ни ронять, ни подвешивать кнопку «Обновить».
+  const withCeiling = (p: Promise<unknown>) =>
+    Promise.race([p.catch(() => undefined), new Promise((r) => setTimeout(r, 3000))]);
+  await Promise.allSettled([withCeiling(clearPersistedQueryCache()), withCeiling(dropSwApiCache())]);
   queryClient.removeQueries({ queryKey: ["clients"] });
 }
 
