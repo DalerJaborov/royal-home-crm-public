@@ -21,6 +21,8 @@ import { findDistrictIdByName } from "../../../lib/districtLookup.js";
 import { dushanbeDateString } from "../../../lib/dushanbeTime.js";
 import { fuzzyClientIds } from "../../../lib/fuzzySearch.js";
 import { withHiddenOrigin } from "../../../lib/clientOrigin.js";
+import { clientTrashScopeFor } from "../../../lib/trashAccess.js";
+import { trashActorOf } from "../actor.js";
 import { safeField } from "./safeField.js";
 import type { AssistantReadToolPlugin } from "./types.js";
 
@@ -33,7 +35,9 @@ import type { AssistantReadToolPlugin } from "./types.js";
  * чат и список не разошлись. Права:
  *  - рядовой агент (нет clients.viewAll) видит только СВОИХ и ПРИНЯТЫХ клиентов, только
  *    покупателей/продавцов, как его список в REST; чужого агента фильтром не задать;
- *  - Корзина — только с правом archive.view и только по scope=trash/both; карточка с висящей заявкой на удаление — тем, у кого нет
+ *  - Корзина — только по scope=trash/both и по общему правилу (lib/trashAccess.ts, 07.11.2026):
+ *    руководство (archive.view) видит всю, остальные — только свои удалённые карточки, в общей
+ *    группе Telegram — никто; карточка с висящей заявкой на удаление — тем, у кого нет
  *    clients.delete (как в списке);
  *  - телефон — по clients.viewPhone и только у принятого лида (как search_clients), поиск
  *    по номеру и нику соцсети — только тому, кому они видны.
@@ -71,7 +75,9 @@ const parameters = {
     scope: {
       type: "string",
       enum: ["live", "trash", "both"],
-      description: "live — живые, trash — Корзина удалённых клиентов, both — оба. Корзина только у руководства (право Архив); у остальных всегда живые.",
+      description:
+        "live — живые, trash — Корзина удалённых клиентов, both — оба. Руководство видит всю Корзину клиентов, агент — только свои " +
+        "удалённые карточки; в общей группе Telegram Корзина клиентов закрыта.",
     },
     limit: { type: "number", description: `Сколько вернуть (до ${MAX_LIMIT}, по умолчанию ${DEFAULT_LIMIT})` },
   },
@@ -129,17 +135,22 @@ export const findClientsTool: AssistantReadToolPlugin = {
       if (!districtId) return { error: `Района «${args.districtName}» нет в справочнике — уточните название` };
     }
 
-    // Корзина клиентов — право archive.view (как GET /clients/trash). Проверка здесь, на сервере.
-    const canTrash = has("archive.view") && !ownScope;
+    // Корзина клиентов — общее правило (lib/trashAccess.ts): руководство (право «Архив») — вся,
+    // остальные — только СВОИ удалённые карточки, в общей группе Telegram — никакая. Проверка
+    // здесь, на сервере.
+    const trashScope = clientTrashScopeFor(trashActorOf(actor));
     const wantedScope = args.scope ?? "live";
-    if (wantedScope === "trash" && !canTrash) {
-      return { error: "Корзина удалённых клиентов — это у руководства (директор, администратор). Могу поискать среди живых." };
+    if (wantedScope === "trash" && trashScope === "none") {
+      return { error: "Удалённых клиентов в общей группе не показываю — спросите меня в личном чате." };
     }
-    const scope = canTrash ? wantedScope : "live";
+    const scope = trashScope === "none" ? "live" : wantedScope;
     const where: Prisma.ClientWhereInput = {
       ...(scope === "live" ? { deletedAt: null } : scope === "trash" ? { deletedAt: { not: null } } : {}),
       ...clientFieldFilters({ kind: args.kind, status: args.status, source: args.source, districtId, hot: args.hot }),
     };
+    const and: Prisma.ClientWhereInput[] = [];
+    // Не руководство: из Корзины — только карточки, закреплённые за самим спросившим.
+    if (trashScope === "own" && scope !== "live") and.push({ OR: [{ deletedAt: null }, { assignedAgentId: actor.id }] });
     if (ownScope) {
       // Свои, принятые, только покупатели/продавцы — как личный список агента.
       where.assignedAgentId = ownScope;
@@ -154,7 +165,11 @@ export const findClientsTool: AssistantReadToolPlugin = {
       canSearchByPhone: actor.canViewPhone,
       canSearchByOrigin: has("clients.viewOrigin"),
     });
-    if (textAnd) where.AND = textAnd;
+    // Условие Корзины держится и в запасном проходе по опечаткам ниже (он заменяет только слова;
+    // сам fuzzyClientIds сейчас ищет лишь живых, но условие не должно зависеть от этого).
+    const trashAnd = [...and];
+    if (textAnd) and.push(...textAnd);
+    if (and.length > 0) where.AND = and;
 
     const include = {
       desiredDistrict: { select: { name: true } },
@@ -177,7 +192,7 @@ export const findClientsTool: AssistantReadToolPlugin = {
     if (total === 0 && args.q && textAnd) {
       const fuzzyIds = await fuzzyClientIds(args.q);
       if (fuzzyIds.length > 0) {
-        [rows, total] = await find({ ...where, AND: [{ id: { in: fuzzyIds } }] });
+        [rows, total] = await find({ ...where, AND: [...trashAnd, { id: { in: fuzzyIds } }] });
         approximate = total > 0;
       }
     }
@@ -188,7 +203,10 @@ export const findClientsTool: AssistantReadToolPlugin = {
       shown: rows.length,
       searched: {
         scope,
-        ...(!canTrash && wantedScope === "both" ? { trashNotChecked: "Корзину не смотрела: она открыта только руководству" } : {}),
+        ...(trashScope === "own" && scope !== "live" ? { trashOwnOnly: "Из Корзины показаны только ваши карточки" } : {}),
+        ...(trashScope === "none" && wantedScope === "both"
+          ? { trashNotChecked: "Удалённых клиентов в общей группе не смотрела — это в личном чате" }
+          : {}),
       },
       ...(agentsMatched ? { agentsMatched } : {}),
       ...(approximate ? { note: "Точных совпадений нет — показаны похожие по написанию" } : {}),

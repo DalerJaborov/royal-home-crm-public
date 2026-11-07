@@ -119,7 +119,10 @@ describe("find_properties_by_place — ориентир и радиус", () => 
   });
 });
 
-describe("Корзина — только с правом archive.view", () => {
+// Правило Корзины изменено решением владельца 07.11.2026 (lib/trashAccess.ts): удалённые объекты —
+// справка для всех; удалённые клиенты — хозяину карточки и руководству. Подробно —
+// tests/ai-assistant-trash-parity.test.ts.
+describe("Корзина объектов — справка для всех; клиентов — хозяину и руководству", () => {
   it("руководство видит удалённый объект в Корзине, с пометкой и датой", async () => {
     const res = await call("find_properties_by_place", { landmark: "около ТОЧКАТЕСТ", scope: "trash" }, boss());
     expect(res.items.length).toBeGreaterThan(0);
@@ -127,26 +130,29 @@ describe("Корзина — только с правом archive.view", () => {
     expect(res.searched.trashFound).toBeGreaterThan(0);
   });
 
-  it("агент: scope=trash — честный отказ «это у руководства», ничего не отдаётся", async () => {
+  it("агент: scope=trash тоже видит удалённый объект, но вернуть чужой не может (canRestore=false)", async () => {
     const res = await call("find_properties_by_place", { landmark: "около ТОЧКАТЕСТ", scope: "trash" }, rank());
-    expect(res.error).toMatch(/руководств/);
-    expect(res.items).toBeUndefined();
+    expect(res.error).toBeUndefined();
+    expect(res.items.length).toBeGreaterThan(0);
+    expect(res.items.every((i: any) => i.inTrash === true && i.canRestore === false)).toBe(true);
   });
 
-  it("агент: scope=both молча сводится к живым и говорит, что Корзину не смотрел", async () => {
+  it("агент: scope=both ищет и в живых, и в Корзине", async () => {
     const res = await call("find_properties_by_place", { landmark: "около ТОЧКАТЕСТ", scope: "both" }, rank());
-    expect(res.items.every((i: any) => i.inTrash === false)).toBe(true);
-    expect(res.searched.trashNotChecked).toBeTruthy();
+    expect(res.items.some((i: any) => i.inTrash === true)).toBe(true);
+    expect(res.items.some((i: any) => i.inTrash === false)).toBe(true);
+    expect(res.searched.trashNotChecked).toBeUndefined();
   });
 
-  it("клиенты-продавцы: Корзина только руководству; без права — отказ; по умолчанию живые", async () => {
+  it("клиенты-продавцы: руководство видит всю Корзину; агент — только свои удалённые (чужих нет); по умолчанию живые", async () => {
     const live = await call("find_clients", { q: WORD, kind: "SELLER" }, boss());
     expect(live.items.every((i: any) => i.inTrash === false)).toBe(true);
     const both = await call("find_clients", { q: WORD, kind: "SELLER", scope: "both" }, boss());
     expect(both.items.some((i: any) => i.inTrash)).toBe(true);
     expect(both.items.some((i: any) => !i.inTrash)).toBe(true);
-    const denied = await call("find_clients", { q: WORD, scope: "trash" }, rank());
-    expect(denied.error).toMatch(/руководств/);
+    const own = await call("find_clients", { q: WORD, scope: "trash" }, rank());
+    expect(own.error).toBeUndefined();
+    expect(own.items).toEqual([]);
   });
 });
 

@@ -53866,57 +53866,32 @@
     "общий предел частоты запросов",
     "idempotencyGuard",
     "pultWriteRefresh",
-    "вход выполнен",
-    "есть право: properties.delete"
+    "вход выполнен"
    ],
    "handlerRef": null,
    "tree": [
     {
      "k": "do",
-     "t": "const property = await prisma.property.findUnique({ where: { id: req.params.id } });",
+     "t": "const result = await restorePropertyFromTrash(req.params.id, { agentId: req.agent!.id, can: (permission)",
      "a": [
-      "читает в базе: property"
+      "зовёт restorePropertyFromTrash()"
      ],
      "c": []
     },
     {
      "k": "if",
-     "t": "!property || !property.deletedAt",
+     "t": "!result.ok",
      "a": [],
      "c": [
       {
        "k": "do",
-       "t": "return res.status(404).json({ error: \"Объект не найден в корзине\" });",
+       "t": "return res.status(result.status).json({ error: result.error });",
        "a": [
-        "ответ 404 — «Объект не найден в корзине»"
+        "ответ (код зависит от условия)"
        ],
        "c": []
       }
      ]
-    },
-    {
-     "k": "do",
-     "t": "await prisma.property.update({ where: { id: property.id }, data: { deletedAt: null, deletedById: null, publis…",
-     "a": [
-      "меняет в базе: property"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "await reopenWorkAfterRestore(property);",
-     "a": [
-      "зовёт reopenWorkAfterRestore()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "await refreshSellerAfterPropertyChange(property.sellerClientId);",
-     "a": [
-      "зовёт refreshSellerAfterPropertyChange()"
-     ],
-     "c": []
     },
     {
      "k": "do",

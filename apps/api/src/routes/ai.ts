@@ -143,6 +143,7 @@ aiRouter.post("/assistant", requireAuth, assistantLimiter, async (req, res) => {
             tool: fast.tool,
             argsSummary: fast.argsSummary,
             resultCount: fast.cards.length,
+            question: lastMessage.content,
           });
           for (const card of fast.cards) sendEvent("card", card);
           sendEvent("done", { reply: fast.reply });
@@ -277,6 +278,8 @@ aiRouter.get("/assistant-audit", requireAuth, requirePermission("auditLog.view")
       tool: r.tool,
       argsSummary: r.argsSummary,
       resultCount: r.resultCount,
+      // Вопрос сотрудника (07.11.2026): уже с маской телефонов — lib/aiAssistantAudit.ts.
+      question: r.question,
       agent: r.agent,
       client: clientById.get(extractClientIdFromArgsSummary(r.argsSummary) ?? "") ?? null,
     })),

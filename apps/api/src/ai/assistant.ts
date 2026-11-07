@@ -187,7 +187,7 @@ function formatGroundedReply(result: GeminiGroundedResult): string {
  * Пишется в AiLog.promptVersion при каждом ответе ассистента (см. finally
  * runAssistant ниже) — по ней журнал говорит, какой текст промта отвечал.
  */
-export const SYSTEM_PROMPT_VERSION = "2026-11-07.1-places-trash-rounds";
+export const SYSTEM_PROMPT_VERSION = "2026-11-07.2-trash-for-all-restore";
 
 const SYSTEM_PROMPT = `Ты — встроенный ассистент CRM агентства недвижимости (Душанбе, Таджикистан).
 Отвечай кратко на языке сотрудника. Валюта по умолчанию — сомони (TJS).
@@ -196,9 +196,11 @@ const SYSTEM_PROMPT = `Ты — встроенный ассистент CRM аг
 ПОИСК ПО МЕСТУ: любой вопрос с «около/возле/рядом/в стороне/у …» или названием места (Ашан, Воданасос, базар, мкр) — это
 find_properties_by_place с landmark словами человека; район и радиус определит сам инструмент, свои координаты не придумывай.
 Цена «2,5 млн» без слова — сомони; малая сумма без валюты — спроси «в долларах или в сомони?». «Коробка» — shell=true.
-КОРЗИНА: удалённые объекты и клиентов ищи тем же инструментом (scope=both или trash) — она открыта только руководству; у кого
-права нет, инструмент сам скажет, что это у руководства, — передай это честно, без извинений и догадок.
-«Нет такого» говори только после того, как проверены: живые объекты, Корзина (если доступна) и карточки продавцов
+КОРЗИНА: удалённые объекты ищи тем же инструментом (scope=both или trash) — это справка для всех: скажи, что объект
+в Корзине, когда и кем удалён. Вернуть его из Корзины — restore_property (готовит карточку «Восстановить»; может директор,
+администратор или агент объекта — у кого canRestore=false, не предлагай). Удалённых клиентов (find_clients, scope=both) агент
+видит только своих, руководство — всех; если инструмент сказал, что закрыто, передай это честно, без извинений и догадок.
+«Нет такого» говори только после того, как проверены: живые объекты, Корзина и карточки продавцов
 (find_clients, kind=SELLER, тот же ориентир в q): пустая карточка продавца с ориентиром — тоже находка, назови её.
 Если нашлось рядом, но не совсем то (другой район, чуть дороже) — покажи как «ближайшее», а не «вариантов нет».
 Для короткого ответа о ходе работ в Telegram достаточно номера объекта.
@@ -1279,7 +1281,14 @@ export const MAX_WRITES_PER_ANSWER = 3;
 export const WRITE_LIMIT_ERROR = `Лимит записей за ответ: не больше ${MAX_WRITES_PER_ANSWER}. Остальное — следующим сообщением.`;
 
 /** Хуки раунда: признак «клиент умеет показать подтверждение» и общий на ответ счётчик записей. */
-export type RoundHooks = RunPluginHooks & { confirmUi: boolean; readOnly?: boolean; writeBudget: { left: number }; embedding?: EmbeddingRequestOptions };
+export type RoundHooks = RunPluginHooks & {
+  confirmUi: boolean;
+  readOnly?: boolean;
+  writeBudget: { left: number };
+  embedding?: EmbeddingRequestOptions;
+  /** Вопрос сотрудника этого хода — в журнал обращений рядом с инструментом. */
+  question?: string;
+};
 
 /** Длина одной строки аргумента в журнале обращений: это след, а не копия переписки. */
 const AUDIT_ARG_MAX_CHARS = 80;
@@ -1354,6 +1363,7 @@ export async function runAuditedTool(call: GeminiToolCall, actor: AssistantActor
     tool: call.name,
     argsSummary: `${failed ? `[отказ: ${failed}] ` : ""}${auditArgsSummary(call.args)}`,
     resultCount: failed ? null : toolResultCount(result, Boolean(plugin)),
+    question: hooks.question ?? null,
   }).catch((err: unknown) => {
     void logSystemError("ai", `Журнал обращений ИИ-ассистента не записан (${call.name}): ${describeError(err)}`);
   });
@@ -1618,6 +1628,7 @@ export async function runAssistantDetailed(
         readOnly: options.readOnly,
         writeBudget,
         embedding: { beforeAttempt: embeddingGuard, signal, maxAttempts: 1 },
+        question: lastUserText,
       });
       turn.calls.forEach((call, index) => {
         collected.push({ name: call.name, result: results[index] });

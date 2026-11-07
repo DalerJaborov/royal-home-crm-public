@@ -20,8 +20,14 @@ import { toSearchTokens, toTokenVariants } from "./searchTokens.js";
  * название места словами (карточки без координат тоже находятся) ИЛИ он в районе,
  * названном явно.
  *
- * Права НЕ здесь: корзину (`scope` trash/both) открывает только вызывающий, который
- * проверил `archive.view` (ai/assistant/tools/findPropertiesByPlace.ts).
+ * Права НЕ здесь: корзину (`scope` trash/both) открывает вызывающий по общему правилу
+ * Корзины (lib/trashAccess.ts; ai/assistant/tools/findPropertiesByPlace.ts).
+ *
+ * РАЙОН ОТ МОДЕЛИ НЕ ПЕРЕБИВАЕТ МЕСТО (07.11.2026, «дом у Воданасоса» — ответ домами из Сино).
+ * Если ориентир разобран (точка на карте или народное название с районом), а модель
+ * подставила ДРУГОЙ район, район отбрасывается и это сказано в ответе (`districtIgnored`):
+ * иначе «район ИЛИ радиус» отдавал весь чужой район как «рядом с ориентиром». Номер
+ * («91 мкр») совпадает в тексте карточки только целым числом: «191 мкр» и «1991» — не он.
  */
 
 export type StaffSearchScope = "live" | "trash" | "both";
@@ -109,6 +115,10 @@ export interface StaffPropertySearchResult {
   /** Радиус пришлось расширить — найденное дальше исходного круга. */
   widened: boolean;
   scopeSearched: StaffSearchScope;
+  /** Точки места на карте нет — искали по его району (народное название, например «Воданасос»). */
+  zoneOnly?: string;
+  /** Район, отброшенный потому, что противоречит району ориентира. */
+  districtIgnored?: string;
   error?: string;
 }
 
@@ -122,10 +132,16 @@ function textVariantsClause(tokens: string[]): Prisma.PropertyWhereInput {
   };
 }
 
+/** Число ищется целым: «91» не находится в «191 мкр», «1991» и «91-1234». */
+function hayHas(hay: string, variant: string): boolean {
+  if (/^\d+$/.test(variant)) return new RegExp(`(^|[^\\d])${variant}(?![\\d])`).test(hay);
+  return hay.includes(variant);
+}
+
 function textMatches(tokens: string[], values: (string | null | undefined)[]): boolean {
   if (tokens.length === 0) return false;
   const hay = values.filter(Boolean).join(" ").toLowerCase();
-  return tokens.every((t) => variantsOf(t).some((v) => hay.includes(v)));
+  return tokens.every((t) => variantsOf(t).some((v) => hayHas(hay, v.toLowerCase())));
 }
 
 export async function searchPropertiesForStaff(input: StaffPropertySearchInput): Promise<StaffPropertySearchResult> {
@@ -156,9 +172,18 @@ export async function searchPropertiesForStaff(input: StaffPropertySearchInput):
   const point = place?.place ?? null;
   const tokens = landmarkTokens(input.landmark);
   const textTokens = input.text ? toSearchTokens(input.text).filter((t) => t.length >= 2) : [];
+  const zoneName = place?.districtName ?? place?.placeDistrictName ?? null;
+  // Район от модели против района самого места: место главнее (см. шапку файла).
+  let districtIgnored: string | undefined;
+  if (districtId && zoneName) {
+    const placeDistrictId = await findDistrictIdByName(zoneName).catch(() => undefined);
+    if (placeDistrictId && placeDistrictId !== districtId) {
+      districtIgnored = input.districtName!.trim();
+      districtId = undefined;
+    }
+  }
   // Народное название без точки на карте («Воданасос»): зацепка — его район.
   let zoneDistrictId: string | undefined;
-  const zoneName = place?.districtName ?? place?.placeDistrictName ?? null;
   if (zoneName && !point && !districtId) zoneDistrictId = await findDistrictIdByName(zoneName).catch(() => undefined);
   const baseRadius = Math.min(Math.max(Math.round(input.radiusM ?? point?.radiusM ?? 2000), 100), MAX_DESIRED_PLACE_RADIUS_M);
   if (hasPlaceQuery && !point && tokens.length === 0 && !districtId && !zoneDistrictId) {
@@ -259,5 +284,9 @@ export async function searchPropertiesForStaff(input: StaffPropertySearchInput):
     radiusM: point ? radius : null,
     widened: Boolean(point) && radius > baseRadius,
     scopeSearched: input.scope,
+    ...(!point && zoneDistrictId
+      ? { zoneOnly: `Точки «${input.landmark!.trim()}» на карте нет — искала по его району (${zoneName}) и по словам в карточках` }
+      : {}),
+    ...(districtIgnored ? { districtIgnored: `Район «${districtIgnored}» не совпадает с районом места — искала по месту` } : {}),
   };
 }

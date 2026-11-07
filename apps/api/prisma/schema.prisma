@@ -1775,6 +1775,10 @@ model AiAssistantAuditLog {
   tool        String
   argsSummary String?
   resultCount Int?
+  /// Текст вопроса сотрудника, на который отвечал помощник (07.11.2026, «где она не
+  /// справилась»): до 500 знаков, телефоны закрыты маской (lib/aiAssistantAudit.ts).
+  /// NULL у записей до этого поля и у вызовов без вопроса (фоновые, кнопки).
+  question    String?
   createdAt   DateTime @default(now())
 
   @@index([agentId, createdAt])

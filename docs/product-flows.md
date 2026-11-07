@@ -12007,19 +12007,13 @@
 
 ### POST /api/v1/properties/:id/restore
 
-`apps/api/src/routes/properties/crud.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: properties.delete
+`apps/api/src/routes/properties/crud.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
-- const property = await prisma.property.findUnique({ where: { id: req.params.id } });
-  · читает в базе: property
-- если !property || !property.deletedAt
-  - return res.status(404).json({ error: "Объект не найден в корзине" });
-    · ответ 404 — «Объект не найден в корзине»
-- await prisma.property.update({ where: { id: property.id }, data: { deletedAt: null, deletedById: null, publis…
-  · меняет в базе: property
-- await reopenWorkAfterRestore(property);
-  · зовёт reopenWorkAfterRestore()
-- await refreshSellerAfterPropertyChange(property.sellerClientId);
-  · зовёт refreshSellerAfterPropertyChange()
+- const result = await restorePropertyFromTrash(req.params.id, { agentId: req.agent!.id, can: (permission)
+  · зовёт restorePropertyFromTrash()
+- если !result.ok
+  - return res.status(result.status).json({ error: result.error });
+    · ответ (код зависит от условия)
 - logAudit(req, "RESTORE", "Property", property.id, { shortId: property.shortId, title: property.title });
   · зовёт logAudit()
 - publishPropertyUpdated({ propertyId: property.id, agentId: property.assignedAgentId, stage: property.status, …

@@ -444,6 +444,8 @@ interface AssistantAuditItem {
   tool: string;
   argsSummary: string | null;
   resultCount: number | null;
+  /** Вопрос сотрудника (с 07.11.2026; у старых записей пусто). Телефоны закрыты на сервере. */
+  question?: string | null;
   agent: { id: string; fullName: string };
   client: { id: string; shortId: string; fullName: string } | null;
 }
@@ -516,7 +518,7 @@ export function AssistantAuditSection() {
       <div className="quiet">
         <span className="dot" />
         <span className="txt">
-          Каждое обращение сотрудника к ИИ-ассистенту CRM: какой инструмент вызван, по какому клиенту и когда.
+          Каждое обращение сотрудника к ИИ-ассистенту CRM: что спросили, какой инструмент вызван, по какому клиенту и когда.
           Доступ ассистент получает под правами вызвавшего — это журнал прослеживаемости, а не единственная
           защита данных.
         </span>
@@ -593,6 +595,7 @@ export function AssistantAuditSection() {
                 )}
                 {typeof row.resultCount === "number" && <span className="chip"> {row.resultCount} записей</span>}
               </span>
+              {row.question && <span>Вопрос: «{row.question}»</span>}
               {row.argsSummary && (
                 <span style={{ color: "var(--faint)", fontSize: "var(--fs-12)" }}>{row.argsSummary}</span>
               )}
