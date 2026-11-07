@@ -1286,8 +1286,6 @@ export type RoundHooks = RunPluginHooks & {
   readOnly?: boolean;
   writeBudget: { left: number };
   embedding?: EmbeddingRequestOptions;
-  /** Вопрос сотрудника этого хода — в журнал обращений рядом с инструментом. */
-  question?: string;
 };
 
 /** Длина одной строки аргумента в журнале обращений: это след, а не копия переписки. */

@@ -209,7 +209,9 @@ describe("правки ревью 07.11", () => {
 
   it("счётчики Корзины считаются по всему найденному, а не по обрезанной выдаче", async () => {
     const res = await call("find_properties_by_place", { landmark: "около ТОЧКАТЕСТ", scope: "both", limit: 1 }, boss());
-    expect(res.items.length).toBe(1);
+    // Предел — отдельно у живых и у Корзины (живые не вытесняются удалёнными): по одному.
+    expect(res.items.filter((i: any) => !i.inTrash).length).toBe(1);
+    expect(res.items.filter((i: any) => i.inTrash).length).toBe(1);
     expect(res.total).toBeGreaterThan(1);
     expect(res.searched.trashFound).toBeGreaterThan(0);
   });

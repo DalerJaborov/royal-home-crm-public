@@ -5,7 +5,7 @@ import { MIN_REAL_PURCHASE_TJS } from "../ai/moneyThresholds.js";
 import { boundingBoxAround, MAX_DESIRED_PLACE_RADIUS_M, ADAPTIVE_RADIUS_STEPS, MIN_ADAPTIVE_CANDIDATES } from "./geoDistance.js";
 import { findDistrictIdByName } from "./districtLookup.js";
 import { loadMoneyContext, priceCeilingFilter } from "./money.js";
-import { resolveSearchPlace, type ResolvedSearchPlace } from "./searchPlace.js";
+import { officialDistrictIn, resolveSearchPlace, type ResolvedSearchPlace } from "./searchPlace.js";
 import { toSearchTokens, toTokenVariants } from "./searchTokens.js";
 
 /**
@@ -26,11 +26,16 @@ import { toSearchTokens, toTokenVariants } from "./searchTokens.js";
  * РАЙОН ОТ МОДЕЛИ НЕ ПЕРЕБИВАЕТ МЕСТО (07.11.2026, «дом у Воданасоса» — ответ домами из Сино).
  * Если ориентир разобран (точка на карте или народное название с районом), а модель
  * подставила ДРУГОЙ район, район отбрасывается и это сказано в ответе (`districtIgnored`):
- * иначе «район ИЛИ радиус» отдавал весь чужой район как «рядом с ориентиром». Номер
+ * иначе «район ИЛИ радиус» отдавал весь чужой район как «рядом с ориентиром». Но если этот
+ * район назвал сам человек («школа 5 в Сино»), главнее он: ищем в нём, точку из другого
+ * района не берём (`placeOutsideDistrict`). Номер
  * («91 мкр») совпадает в тексте карточки только целым числом: «191 мкр» и «1991» — не он.
  */
 
 export type StaffSearchScope = "live" | "trash" | "both";
+
+/** Сколько удалённых объектов показывать рядом с живыми при поиске «везде». */
+export const STAFF_TRASH_SHOWN_WITH_LIVE = 5;
 
 export interface StaffPropertySearchInput {
   /** Ориентир словами человека: «Ашан», «в стороне Воданасоса», «82 мкр». */
@@ -55,6 +60,11 @@ export interface StaffPropertySearchInput {
   condition?: "NEEDS_REPAIR" | "GOOD" | "EXCELLENT" | "NEW_BUILDING";
   status?: "AVAILABLE" | "RESERVED" | "SOLD" | "WITHDRAWN";
   scope: StaffSearchScope;
+  /**
+   * Слова самого человека (его вопрос). По ним видно, назвал ли район он сам или район
+   * додумала модель (`districtName` приходит от модели). Пусто — смотрим на `landmark`.
+   */
+  humanText?: string;
   /** Прячет объекты со своей висящей заявкой на удаление (у кого нет properties.delete). */
   hideOwnPendingDeleteFor?: string;
   limit?: number;
@@ -117,8 +127,10 @@ export interface StaffPropertySearchResult {
   scopeSearched: StaffSearchScope;
   /** Точки места на карте нет — искали по его району (народное название, например «Воданасос»). */
   zoneOnly?: string;
-  /** Район, отброшенный потому, что противоречит району ориентира. */
+  /** Район, отброшенный потому, что противоречит району ориентира (его додумала модель). */
   districtIgnored?: string;
+  /** Место на карте в другом районе, чем назвал сам человек, — искали в названном районе. */
+  placeOutsideDistrict?: string;
   error?: string;
 }
 
@@ -132,7 +144,7 @@ function textVariantsClause(tokens: string[]): Prisma.PropertyWhereInput {
   };
 }
 
-/** Число ищется целым: «91» не находится в «191 мкр», «1991» и «91-1234». */
+/** Число ищется целым: «91» не находится в «191 мкр» и «1991», но находится в «91 мкр» и «91-й». */
 function hayHas(hay: string, variant: string): boolean {
   if (/^\d+$/.test(variant)) return new RegExp(`(^|[^\\d])${variant}(?![\\d])`).test(hay);
   return hay.includes(variant);
@@ -169,17 +181,31 @@ export async function searchPropertiesForStaff(input: StaffPropertySearchInput):
 
   const hasPlaceQuery = Boolean(input.landmark?.trim());
   const place: ResolvedSearchPlace | null = hasPlaceQuery ? await resolveSearchPlace(input.landmark) : null;
-  const point = place?.place ?? null;
+  let point = place?.place ?? null;
   const tokens = landmarkTokens(input.landmark);
   const textTokens = input.text ? toSearchTokens(input.text).filter((t) => t.length >= 2) : [];
-  const zoneName = place?.districtName ?? place?.placeDistrictName ?? null;
-  // Район от модели против района самого места: место главнее (см. шапку файла).
+  let zoneName = place?.districtName ?? place?.placeDistrictName ?? null;
+  // Район против района самого места (см. шапку файла). Кто его назвал — решает:
+  //  - модель додумала (в словах человека района нет) — место главнее, район отбрасываем;
+  //  - человек сам назвал район («школа 5 в Сино») — главнее он: точку из другого района не
+  //    берём, ищем в его районе (по словам ориентира и по району), и это сказано в ответе.
   let districtIgnored: string | undefined;
+  let placeOutsideDistrict: string | undefined;
+  let humanDistrictOnly = false;
   if (districtId && zoneName) {
     const placeDistrictId = await findDistrictIdByName(zoneName).catch(() => undefined);
     if (placeDistrictId && placeDistrictId !== districtId) {
-      districtIgnored = input.districtName!.trim();
-      districtId = undefined;
+      const humanSaid = officialDistrictIn(input.humanText ?? input.landmark);
+      const humanDistrictId = humanSaid ? await findDistrictIdByName(humanSaid).catch(() => undefined) : undefined;
+      if (humanDistrictId === districtId) {
+        placeOutsideDistrict = `«${input.landmark!.trim()}» на карте в районе ${zoneName}, а названо ${input.districtName!.trim()} — искала в ${input.districtName!.trim()}`;
+        point = null;
+        zoneName = null;
+        humanDistrictOnly = true;
+      } else {
+        districtIgnored = input.districtName!.trim();
+        districtId = undefined;
+      }
     }
   }
   // Народное название без точки на карте («Воданасос»): зацепка — его район.
@@ -225,7 +251,8 @@ export async function searchPropertiesForStaff(input: StaffPropertySearchInput):
   }
   if (textTokens.length) and.push(textVariantsClause(textTokens));
   // Район без места — жёсткий фильтр; с местом — одна из зацепок («район ИЛИ радиус»).
-  if (districtId && !hasPlaceQuery) and.push({ districtId });
+  // Район, названный самим человеком против района места, — тоже жёсткий (см. выше).
+  if (districtId && (!hasPlaceQuery || humanDistrictOnly)) and.push({ districtId });
 
   let radius = baseRadius;
   let hits: StaffPropertyHit[] = [];
@@ -272,13 +299,18 @@ export async function searchPropertiesForStaff(input: StaffPropertySearchInput):
     const db = b.distanceM ?? Number.MAX_SAFE_INTEGER;
     return da - db || b.property.createdAt.getTime() - a.property.createdAt.getTime();
   });
-  const shown = hits.slice(0, limit);
+  // Живые выше удалённых, и предел у них свой: Корзина не вытесняет живые из выдачи.
+  // Удалённых при поиске «везде» — не больше пяти (сколько их всего — в trashCount).
+  const liveHits = hits.filter((h) => h.property.deletedAt === null);
+  const trashHits = hits.filter((h) => h.property.deletedAt !== null);
+  const trashLimit = input.scope === "trash" ? limit : Math.min(limit, STAFF_TRASH_SHOWN_WITH_LIVE);
+  const shown = [...liveHits.slice(0, limit), ...trashHits.slice(0, trashLimit)];
   return {
     hits: shown,
     totalFound: hits.length,
     // Счётчики — по ВСЕМУ найденному, а не по обрезанной выдаче: иначе «в Корзине 0» врёт.
-    liveCount: hits.filter((h) => h.property.deletedAt === null).length,
-    trashCount: hits.filter((h) => h.property.deletedAt !== null).length,
+    liveCount: liveHits.length,
+    trashCount: trashHits.length,
     placeResolved: Boolean(point) || Boolean(zoneDistrictId),
     placeName: point?.name ?? null,
     radiusM: point ? radius : null,
@@ -288,5 +320,6 @@ export async function searchPropertiesForStaff(input: StaffPropertySearchInput):
       ? { zoneOnly: `Точки «${input.landmark!.trim()}» на карте нет — искала по его району (${zoneName}) и по словам в карточках` }
       : {}),
     ...(districtIgnored ? { districtIgnored: `Район «${districtIgnored}» не совпадает с районом места — искала по месту` } : {}),
+    ...(placeOutsideDistrict ? { placeOutsideDistrict } : {}),
   };
 }

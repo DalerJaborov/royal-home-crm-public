@@ -55,7 +55,8 @@ export const findPropertiesByPlaceTool: AssistantReadToolPlugin = {
     "Цена: minPrice/maxPrice + currency (TJS или USD; «2,5 млн» без слова — сомони, а малая сумма без валюты — спроси валюту). " +
     "scope: live — живые, trash — удалённые (Корзина), both — оба; по умолчанию both. Корзина объектов — справка для всех сотрудников. " +
     "В ответе у каждого объекта inTrash/deletedAt/deletedBy/distanceM; у удалённого canRestore — может ли спросивший вернуть его " +
-    "(тогда предложи restore_property). Если searched.zoneOnly — точки места на карте нет и искали по его району: так и скажи. " +
+    "(тогда предложи restore_property, передав его code). Живые идут первыми, удалённых в выдаче не больше пяти (всего — searched.trashFound). " +
+    "districtName ставь, только если район назвал сам человек. Если searched.zoneOnly, districtIgnored или placeOutsideDistrict — скажи это одной фразой. " +
     "«Нет» говори только когда searched покрывает и живые, и Корзину, " +
     "и карточки продавцов проверены через find_clients.",
   parameters: {
@@ -83,7 +84,7 @@ export const findPropertiesByPlaceTool: AssistantReadToolPlugin = {
     },
   },
   statusPhrase: "Ищу объекты по ориентиру…",
-  async run(rawArgs, { actor }) {
+  async run(rawArgs, { actor, question }) {
     const parsed = argsSchema.safeParse(rawArgs);
     if (!parsed.success) return { error: "Неверные параметры поиска по ориентиру" };
     const args = parsed.data;
@@ -95,6 +96,8 @@ export const findPropertiesByPlaceTool: AssistantReadToolPlugin = {
     const canDelete = actor.permissions?.has("properties.delete") ?? false;
     const result = await searchPropertiesForStaff({
       ...args,
+      // Слова человека: назвал ли он район сам или район додумала модель.
+      ...(question ? { humanText: question } : {}),
       scope,
       hideOwnPendingDeleteFor: canDelete ? undefined : actor.id,
     });
@@ -181,6 +184,7 @@ export const findPropertiesByPlaceTool: AssistantReadToolPlugin = {
         radiusWidened: result.widened,
         ...(result.zoneOnly ? { zoneOnly: result.zoneOnly } : {}),
         ...(result.districtIgnored ? { districtIgnored: result.districtIgnored } : {}),
+        ...(result.placeOutsideDistrict ? { placeOutsideDistrict: result.placeOutsideDistrict } : {}),
       },
       ...(items.length === 0
         ? {

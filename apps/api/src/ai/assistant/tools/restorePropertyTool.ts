@@ -19,8 +19,9 @@ import type { AssistantWriteToolPlugin } from "./types.js";
  * восстановление — lib/trashProperty.ts::restorePropertyFromTrash, та же дверь, что у кнопки
  * «Восстановить» в CRM.
  *
- * Объект называют только номером («ОБ-000130», «130») или id из find_properties_by_place:
- * вернуть из Корзины «похожий по адресу» объект нельзя.
+ * Объект называют только номером: code из find_properties_by_place («ОБ-000130»), его href
+ * («/properties/130»), голым номером «130» или id. Вернуть из Корзины «похожий по адресу»
+ * объект нельзя.
  */
 const argsSchema = z.object({ ref: z.string().trim().min(1).max(100) });
 type Args = z.infer<typeof argsSchema>;
@@ -38,9 +39,14 @@ interface Snap {
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const NOT_IN_TRASH = "В Корзине такого объекта нет. Назовите номер ОБ- из найденного в Корзине.";
 
+/** Ссылка из ответа поиска («/properties/130») — тот же номер, что code «ОБ-000130». */
+const HREF_RE = /\/properties\/(\d+)\/?$/;
+
 async function loadTrashed(actor: AssistantActionActor, ref: string) {
   await loadWriterRole(actor.agentId);
-  const text = ref.trim();
+  const raw = ref.trim();
+  const href = raw.match(HREF_RE);
+  const text = href ? href[1] : raw;
   const shortId = UUID_RE.test(text) ? null : parseShortCode(text);
   if (!UUID_RE.test(text) && shortId === null) throw new AssistantActionError(404, "ENTITY_NOT_FOUND", NOT_IN_TRASH);
   const property = await prisma.property.findFirst({
@@ -119,13 +125,14 @@ export const restorePropertyPlugin: AssistantWriteToolPlugin = {
   level: "C",
   description:
     "Восстановить объект ИЗ КОРЗИНЫ (готовит карточку «Восстановить / Отмена», исполняет человек кнопкой). " +
-    "Зови, когда просят «восстанови ОБ-130», «верни объект из Корзины». ref — только номер ОБ- или id из find_properties_by_place. " +
+    "Зови, когда просят «восстанови ОБ-130», «верни объект из Корзины». ref — поле code удалённого объекта из find_properties_by_place " +
+    "(«ОБ-000130»); подходит и его href или номер, который назвал человек. Адрес или описание не подходят. " +
     "Восстановить может директор, администратор или агент этого объекта; остальным инструмент сам откажет — передай отказ как есть. " +
     "На сайт объект сам не возвращается.",
   parameters: {
     type: "object",
     properties: {
-      ref: { type: "string", description: "Номер объекта в Корзине: «ОБ-000130», «130» или id" },
+      ref: { type: "string", description: "code объекта в Корзине из find_properties_by_place («ОБ-000130»), его href или номер «130»" },
     },
     required: ["ref"],
   },

@@ -66,10 +66,14 @@ async function makeProperty(data: Record<string, unknown> = {}) {
 async function trashed(data: Record<string, unknown> = {}) {
   return makeProperty({ deletedAt: new Date(), deletedById: director, publishedOnSite: true, ...data });
 }
-/** Официальный район: в базе тестов его может не быть; чужие файлы делят его с нами — не удаляем. */
+/** Районы, которые завёл этот файл (в базе тестов их могло не быть) — их и только их убираем. */
+const createdDistrictIds: string[] = [];
+/** Официальный район: уже был — берём как есть (он общий с другими файлами), не было — заводим и потом убираем. */
 async function district(name: string): Promise<string> {
-  await prisma.district.createMany({ data: [{ name }], skipDuplicates: true });
-  return (await prisma.district.findUniqueOrThrow({ where: { name } })).id;
+  const created = await prisma.district.createMany({ data: [{ name }], skipDuplicates: true });
+  const id = (await prisma.district.findUniqueOrThrow({ where: { name } })).id;
+  if (created.count === 1) createdDistrictIds.push(id);
+  return id;
 }
 async function tokenOf(agentId: string): Promise<string> {
   const agent = await prisma.agent.findUniqueOrThrow({ where: { id: agentId } });
@@ -89,6 +93,8 @@ afterAll(async () => {
   await prisma.client.deleteMany({ where: { id: { in: clientIds } } });
   await prisma.property.deleteMany({ where: { id: { in: propertyIds } } });
   await cleanupAssistantActionAgents([owner, other, director]);
+  // Свой район мог успеть понадобиться соседнему файлу — тогда он остаётся (ошибка внешнего ключа не валит прогон).
+  for (const id of createdDistrictIds) await prisma.district.delete({ where: { id } }).catch(() => undefined);
   await prisma.$disconnect();
 });
 
@@ -267,5 +273,60 @@ describe("(в) журнал помощницы хранит текст вопр�
     expect(row?.question).not.toContain("123 45 67");
     expect(auditQuestionText("x".repeat(900))?.length).toBe(500);
     expect(auditQuestionText("   ")).toBeNull();
+  });
+});
+
+describe("правки ревью 07.11 (пачка 1)", () => {
+  /** Вызов с вопросом человека — так плагин получает его от ядра (tools/run.ts). */
+  const ask = (args: Record<string, unknown>, who: Actor, question?: string): Promise<any> =>
+    readTool("find_properties_by_place").run(args, { actor: who, ...(question ? { question } : {}) });
+
+  it("район, который додумала модель, не перебивает место; район, названный человеком, — главнее точки", async () => {
+    // «Караболо» — народная точка (ai/folkPlaces.ts, FOLK_PINS), район по народному списку — Сино.
+    const nearPin = await makeProperty({ districtId: districtIds["Сино"], lat: 38.5714, lng: 68.7356, address: `рядом ${WORD}-кб` });
+    const inShoh = await makeProperty({ districtId: districtIds["Шохмансур"], address: `Шохмансур ${WORD}-кб`, lat: 38.546, lng: 68.836 });
+    const codes = (res: any) => res.items.map((i: any) => i.code);
+    const args = { landmark: "у Караболо", districtName: "Шохмансур", scope: "live", limit: 20 };
+
+    // Модель подставила Шохмансур, человек его не называл: ищем у точки, район отброшен.
+    const byModel = await ask(args, boss(), "квартиру у Караболо");
+    expect(byModel.searched.districtIgnored).toMatch(/Шохмансур/);
+    expect(codes(byModel)).toContain(formatPropertyCode(nearPin.shortId));
+    expect(codes(byModel)).not.toContain(formatPropertyCode(inShoh.shortId));
+
+    // Человек сам сказал «в Шохмансуре»: точку из Сино не берём, ищем в Шохмансуре.
+    const byHuman = await ask(args, boss(), "квартиру у Караболо в Шохмансуре");
+    expect(byHuman.searched.placeOutsideDistrict).toMatch(/Шохмансур/);
+    expect(byHuman.searched.districtIgnored).toBeUndefined();
+    expect(codes(byHuman)).toContain(formatPropertyCode(inShoh.shortId));
+    expect(codes(byHuman)).not.toContain(formatPropertyCode(nearPin.shortId));
+  });
+
+  it("поиск «везде»: живые выше удалённых, Корзина не вытесняет их из выдачи и показывается не больше пяти", async () => {
+    const mark = `${WORD}-жив`;
+    for (let i = 0; i < 8; i++) await trashed({ landmark: `у ${mark}`, assignedAgentId: director });
+    const live1 = await makeProperty({ landmark: `у ${mark}` });
+    const live2 = await makeProperty({ landmark: `у ${mark}` });
+    const res = await ask({ landmark: `у ${mark}`, scope: "both", limit: 3 }, rankOf(owner));
+    const flags = res.items.map((i: any) => i.inTrash);
+    expect(flags.slice(0, 2)).toEqual([false, false]);
+    expect(res.items.slice(0, 2).map((i: any) => i.code).sort()).toEqual(
+      [formatPropertyCode(live1.shortId), formatPropertyCode(live2.shortId)].sort(),
+    );
+    expect(flags.filter(Boolean).length).toBe(3);
+    expect(res.searched.trashFound).toBe(8);
+    const wide = await ask({ landmark: `у ${mark}`, scope: "both", limit: 20 }, rankOf(owner));
+    expect(wide.items.filter((i: any) => i.inTrash).length).toBe(5);
+    const onlyTrash = await ask({ landmark: `у ${mark}`, scope: "trash", limit: 20 }, rankOf(owner));
+    expect(onlyTrash.items.length).toBe(8);
+  });
+
+  it("restore_property принимает code и href из ответа поиска", async () => {
+    const byCode = await trashed({ assignedAgentId: owner });
+    const byHref = await trashed({ assignedAgentId: owner });
+    const a = await createPendingAssistantAction(actorFor(owner), "restore_property", { ref: formatPropertyCode(byCode.shortId) });
+    const b = await createPendingAssistantAction(actorFor(owner), "restore_property", { ref: `/properties/${byHref.shortId}` });
+    expect(a.preview.title).toContain(formatPropertyCode(byCode.shortId));
+    expect(b.preview.title).toContain(formatPropertyCode(byHref.shortId));
   });
 });
