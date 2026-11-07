@@ -72,7 +72,8 @@ function ttlCache<T>(load: () => Promise<T>) {
 function isMissingLimitColumn(err: unknown): boolean {
   const code = (err as { code?: unknown } | null)?.code;
   const text = err instanceof Error ? err.message : String(err);
-  return code === "P2022" || /aiAssistant(?:MaxRounds|DeadlineSec)/.test(text);
+  // Только НАШИ колонки: P2022 про любую другую колонку — не повод молча брать умолчания.
+  return (code === "P2022" || /does not exist|не существует/iu.test(text)) && /aiAssistant(?:MaxRounds|DeadlineSec)/.test(text);
 }
 
 async function readAssistantSettings(): Promise<AssistantSettingsSnapshot> {
@@ -93,6 +94,8 @@ async function readAssistantSettings(): Promise<AssistantSettingsSnapshot> {
     void logSystemError(
       "ai",
       `Помощница: нет колонок шагов/срока в Settings (миграция 20261108090000?) — беру значения по умолчанию: ${describeError(err)}`,
+      // Один ключ: настройки читаются каждые 15 с, журнал не должен множить одну и ту же запись.
+      { dedupKey: "assistant-settings-limit-columns-missing" },
     );
     row = await prisma.settings.findUnique({ where: { id: "singleton" }, select: base });
   }

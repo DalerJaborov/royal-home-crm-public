@@ -677,6 +677,7 @@ const TURN_REASON_LABELS: Record<string, string> = {
   deadline: "думала слишком долго",
   aborted: "окно закрыли до ответа",
   loop: "ходила по кругу",
+  shutdown: "сервер перезапускался",
   attempt_limit: "лимит запросов",
   no_key: "нет ключа ИИ",
   provider_unavailable: "ИИ недоступен",

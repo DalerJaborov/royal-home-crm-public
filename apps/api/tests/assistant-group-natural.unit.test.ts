@@ -1184,3 +1184,41 @@ describe("long assistant turn leaves the group queue (review 08.11.2026)", () =>
     expect((f.run.mock.calls[2][0] as { content: string }[])[0].content).toContain("задачи");
   });
 });
+
+describe("third review 08.11.2026: window before the long turn, global slots", () => {
+  it("«@bot найди в Сино» (long turn) → «а за 600?» from the same person without @ joins the window and runs after", async () => {
+    const f = fixture();
+    let finish: (value: { ok: true; reply: string }) => void = () => {};
+    f.run.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    const first = f.message("@fixture_bot найди двушку в Сино", { message_id: 31, from: { id: 1 } });
+    expect(await f.adapter.handleAssistantGroupMessage(first)).toBe(true);
+    await vi.waitFor(() => expect(f.run).toHaveBeenCalledTimes(1));
+    // Голое «а за 600?» окно не берёт и до этой правки (looksLikeBotRequest: нужна просьба и предмет).
+    const followUp = f.message("а покажи квартиры до 600", { message_id: 32, from: { id: 1 } });
+    // Без @ и во время долгого хода: окно уже открыто — сообщение принято, а не пропущено.
+    expect(await f.adapter.handleAssistantGroupMessage(followUp)).toBe(true);
+    expect(f.run).toHaveBeenCalledTimes(1);
+    finish({ ok: true, reply: "Нашла три." });
+    await f.adapter.takeDeferredAssistantReply(first);
+    await f.adapter.takeDeferredAssistantReply(followUp);
+    expect(f.run).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(f.run.mock.calls[1][0])).toContain("600");
+  });
+
+  it("no more than ASSISTANT_CONCURRENT_TURNS turns at once; the rest wait for a free slot", async () => {
+    const f = fixture();
+    const limit = f.adapter.ASSISTANT_CONCURRENT_TURNS as number;
+    const finishers: ((value: { ok: true; reply: string }) => void)[] = [];
+    f.run.mockImplementation(() => new Promise((resolve) => { finishers.push(resolve); }));
+    const msgs = Array.from({ length: limit + 1 }, (_, i) =>
+      f.message(`@fixture_bot покажи мои показы ${i}`, { message_id: 100 + i, from: { id: 1000 + i } }));
+    for (const m of msgs) expect(await f.adapter.handleAssistantGroupMessage(m)).toBe(true);
+    await vi.waitFor(() => expect(f.run).toHaveBeenCalledTimes(limit));
+    await vi.waitFor(() => expect(f.adapter.assistantTurnSlotsForTests()).toEqual({ running: limit, waiting: 1 }));
+    finishers[0]({ ok: true, reply: "Готово." });
+    await vi.waitFor(() => expect(f.run).toHaveBeenCalledTimes(limit + 1));
+    for (const done of finishers.slice(1)) done({ ok: true, reply: "Готово." });
+    for (const m of msgs) await f.adapter.takeDeferredAssistantReply(m);
+    expect(f.adapter.assistantTurnSlotsForTests()).toEqual({ running: 0, waiting: 0 });
+  });
+});

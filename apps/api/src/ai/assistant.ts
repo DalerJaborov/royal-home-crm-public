@@ -38,6 +38,8 @@ import {
 import type { ChatMessage } from "./client.js";
 import { clientNamePhoneSafe, clientPhoneFor, phoneSafeText } from "../lib/clientPhone.js";
 import { logAssistantToolCall, logAssistantTurn } from "../lib/aiAssistantAudit.js";
+import { findTurnWrite, recordTurnWrite } from "../lib/assistantTurnWrites.js";
+import { isShuttingDown } from "../lib/shutdownState.js";
 import { ASSISTANT_DEADLINE_SEC, ASSISTANT_MAX_ROUNDS, type AssistantTurnOutcome } from "@royal-home/shared";
 import { logSystemError } from "../lib/systemError.js";
 import { COUNTED_SHOWING_WHERE, TASK_WHERE } from "../lib/tasks.js";
@@ -485,7 +487,7 @@ function expenseMonthDate(monthKey: string): Date {
 /** Экспортирован ради точечных тестов (apps/api/tests/ai-assistant-tools.test.ts):
  *  проверка ownScope/прав каждого инструмента без похода в Gemini. */
 export async function runTool(name: string, input: Record<string, unknown>, actor: AssistantActor, embedding?: EmbeddingRequestOptions,
-  propertyPage?: { excludeIds: string[] }): Promise<unknown> {
+  propertyPage?: { excludeIds: string[] }, turnKey?: string): Promise<unknown> {
   if (actor.hiddenTools?.has(name)) return { error: "Этот инструмент недоступен в этом чате" };
   const ownScope = actor.canViewAllClients ? undefined : actor.id;
   // Непринятая заявка и карточка из Корзины — не для агента (REST отдаёт ему 404 /
@@ -754,6 +756,11 @@ export async function runTool(name: string, input: Record<string, unknown>, acto
     if (denied) return { error: denied };
     const date = parseModelDate(input.nextActionDate);
     if (!date) return { error: "Некорректная дата" };
+    // Повторная доставка того же хода (перезапуск посреди хода) второй задачи не заводит.
+    const already = await findTurnWrite(turnKey, "create_task", client.id);
+    if (already !== null) {
+      return { ok: true, taskId: already, alreadyCreated: true, client: safeField(clientNamePhoneSafe(client.fullName, actor.canViewPhone)), date: input.nextActionDate };
+    }
     // Задачу заводит сам ассистент по просьбе в чате — actor "ai" (П-10),
     // subjectAgentId = actor.id: чей это чат и в чьи «Мои дела» попадёт задача.
     const interaction = await logTimeline({
@@ -764,6 +771,7 @@ export async function runTool(name: string, input: Record<string, unknown>, acto
       nextAction: String(input.nextAction).slice(0, 200),
       nextActionDate: date,
     });
+    await recordTurnWrite(turnKey, "create_task", client.id, interaction.id);
     return { ok: true, taskId: interaction.id, client: safeField(clientNamePhoneSafe(client.fullName, actor.canViewPhone)), date: input.nextActionDate };
   }
 
@@ -790,6 +798,10 @@ export async function runTool(name: string, input: Record<string, unknown>, acto
     });
     if (!task) return { error: "У клиента нет запланированных задач для переноса" };
     const previousDate = task.nextActionDate;
+    // Уже на этой дате (повторная доставка хода) — ничего не меняем и перенос второй раз не считаем.
+    if (previousDate && previousDate.getTime() === date.getTime()) {
+      return { ok: true, alreadyDone: true, client: safeField(clientNamePhoneSafe(client.fullName, actor.canViewPhone)), task: safeField(task.nextAction), newDate: input.newDate };
+    }
     await prisma.interaction.update({ where: { id: task.id }, data: { nextActionDate: date } });
     // Счётчик аномалий «перенос без контакта» (04.09.2026) — фоном, не задерживает
     // ответ ассистента. previousDate почти всегда есть (WHERE nextActionDate:{not:null}
@@ -1211,6 +1223,8 @@ export interface RunAssistantOptions {
   deadlineMs?: number;
   /** Шагов модели на ответ. По умолчанию — Settings.aiAssistantMaxRounds. */
   maxRounds?: number;
+  /** Ключ хода для идемпотентности записей (Telegram: `tg:<чат>:<сообщение>`). */
+  turnKey?: string;
   /**
    * Проверенный текст ответа (SSE-событие `token`). Транспорт получает поток,
    * но черновые дельты не публикуются до проверки ссылок по результатам инструментов.
@@ -1319,6 +1333,8 @@ export const WRITE_LIMIT_ERROR = `Лимит записей за ответ: н�
 
 /** Хуки раунда: признак «клиент умеет показать подтверждение» и общий на ответ счётчик записей. */
 export type RoundHooks = RunPluginHooks & {
+  /** Ключ хода (Telegram: чат + сообщение) — идемпотентность записей при повторной доставке. */
+  turnKey?: string;
   confirmUi: boolean;
   readOnly?: boolean;
   writeBudget: { left: number };
@@ -1384,7 +1400,7 @@ export async function runAuditedTool(call: GeminiToolCall, actor: AssistantActor
   } else if (plugin) {
     result = await runAssistantToolPlugin(plugin, call.args ?? {}, actor, hooks);
   } else {
-    result = await runTool(call.name, call.args, actor, hooks.embedding);
+    result = await runTool(call.name, call.args, actor, hooks.embedding, undefined, hooks.turnKey);
   }
   // Одна точка на все инструменты — журнал обращений (аудит-лог, не защита
   // доступа: та стоит внутри runTool через ownScope). Запись НЕ ждётся (задача
@@ -1428,6 +1444,8 @@ async function runRoundTools(
       const key = `${calls[i].name}|${canonicalJson(calls[i].args ?? {})}`;
       if (writesThisRound.has(key)) {
         results[i] = writesThisRound.get(key);
+      } else if (isShuttingDown()) {
+        results[i] = { error: "Сервер перезапускается — запись не начата. Повторите просьбу через минуту.", code: "SHUTTING_DOWN" };
       } else if (hooks.writeBudget.left <= 0) {
         results[i] = { error: WRITE_LIMIT_ERROR, code: "WRITE_LIMIT" };
       } else {
@@ -1615,6 +1633,12 @@ export async function runAssistantDetailed(
         );
       }
 
+      // Процесс останавливается (выкатка): новых шагов и записей не начинаем — найденное и сделанное.
+      // Иначе ход дольше паузы остановки оборвётся посреди записи, а повторная доставка её повторит.
+      if (round > 0 && isShuttingDown()) {
+        ok = true;
+        return replied(partialAnswerFromResults(collected, turnLanguage, turnWrites), "partial", "shutdown");
+      }
       onStatus?.(round === 0 ? "Думаю над ответом…" : "Уточняю данные…");
       const request = {
         apiKey,
@@ -1717,6 +1741,7 @@ export async function runAssistantDetailed(
         writeBudget,
         embedding: { beforeAttempt: embeddingGuard, signal, maxAttempts: 1 },
         question: lastUserText,
+        turnKey: options.turnKey,
       });
       const roundResults = new Map<string, unknown>();
       freshResults.forEach((result, k) => {

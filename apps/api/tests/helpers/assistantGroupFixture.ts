@@ -20,7 +20,7 @@ function load(name: string, dependencies: Record<string, unknown>) {
   ).outputText);
   const exports: Record<string, any> = {};
   runInNewContext(compiled.get(name)!, { exports, require: (key: string) => dependencies[key] ?? {},
-    Date, Map, Set, Promise, console, setInterval, clearInterval });
+    Date, Map, Set, Promise, console, setInterval, clearInterval, setTimeout, clearTimeout });
   return exports;
 }
 

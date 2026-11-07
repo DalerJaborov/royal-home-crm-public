@@ -1,4 +1,5 @@
 import { getUpdates, isTelegramEnabled, telegramUpdateChatId, type TelegramUpdate } from "./api.js";
+import { ASSISTANT_DEADLINE_SEC } from "@royal-home/shared";
 import { logSystemError } from "../lib/systemError.js";
 import { isAlbumPart, startTelegramUpdate, telegramRepliesInFlight } from "./bot.js";
 import {
@@ -80,6 +81,17 @@ export function isTelegramPollerBusy(): boolean {
   // Ответы, ждущие окно склейки (01.10.2026, находка №132), идут уже после
   // апдейта, вне этого цикла, — но это тоже работа, которую нельзя оборвать.
   return processingBatch || telegramRepliesInFlight() > 0 || assistantInFlight.size > 0;
+}
+
+/**
+ * Потолок ожидания ответа помощницы на один апдейт: самый длинный срок хода из Настроек
+ * (ASSISTANT_DEADLINE_SEC.max) плюс минута на доставку. Дольше — апдейт отмечается завершённым.
+ */
+const DEFAULT_DEFERRED_REPLY_CEILING_MS = ASSISTANT_DEADLINE_SEC.max * 1000 + 60_000;
+let deferredReplyCeilingMs = DEFAULT_DEFERRED_REPLY_CEILING_MS;
+/** Для тестов: короткий потолок (null — вернуть обычный). */
+export function setDeferredReplyCeilingForTests(ms: number | null): void {
+  deferredReplyCeilingMs = ms ?? DEFAULT_DEFERRED_REPLY_CEILING_MS;
 }
 
 /** Пауза, если в ответе Telegram нет ничего нового (только ждущие ответа помощницы). */
@@ -254,9 +266,28 @@ async function acceptUpdate(update: TelegramUpdate): Promise<{ done: Promise<voi
   if (accepted?.assistantDeferred) {
     // Отметка «готово» — когда ответ помощницы ушёл (он сам ловит свои ошибки и не отклоняется).
     // Обёртка, а не сам промис: async-функция иначе дождалась бы ответа и держала пачку.
-    return { done: accepted.reply.then(async () => {
-      if (!albumPart) await markProcessedMessageComplete("TELEGRAM", id);
-    }).catch(() => {}) };
+    // Потолок ожидания: зависший ответ не держит offset вечно (при полной пачке в 100 апдейтов
+    // новые сообщения иначе не пришли бы вовсе). По потолку апдейт отмечается завершённым.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const ceiling = new Promise<"timeout">((resolve) => {
+      timer = setTimeout(() => resolve("timeout"), deferredReplyCeilingMs);
+    });
+    const done = Promise.race([accepted.reply.then(() => "replied" as const), ceiling]).then(async (how) => {
+      if (timer) clearTimeout(timer);
+      if (how === "timeout") {
+        void logSystemError(
+          "telegram",
+          `Ответ помощницы на апдейт ${id} не готов за ${Math.round(deferredReplyCeilingMs / 1000)} с — апдейт отмечен завершённым, чтобы не держать остальные сообщения`,
+        );
+      }
+      if (albumPart) return;
+      try {
+        await markProcessedMessageComplete("TELEGRAM", id);
+      } catch (err) {
+        void logSystemError("telegram", `Не удалось отметить апдейт ${id} завершённым: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    });
+    return { done };
   }
   if (!albumPart) await markProcessedMessageComplete("TELEGRAM", id);
   return null;

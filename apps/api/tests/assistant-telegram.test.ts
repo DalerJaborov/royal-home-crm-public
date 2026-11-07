@@ -302,6 +302,46 @@ it("long polling восстанавливает незавершённый ап�
     else process.env.TELEGRAM_WEBHOOK_SECRET = secret;
   }
 });
+it("зависший ответ помощницы не держит offset вечно: по потолку апдейт завершён и есть запись в журнале", async () => {
+  const { isTelegramPollerBusy, startTelegramBot, stopTelegramBot, setDeferredReplyCeilingForTests } = await import("../src/telegram/poller.js");
+  const hung = "Зависший вопрос помощнице.";
+  const update = privateMsg("author", { message_id: 14101, text: hung });
+  const id = String(update.update_id);
+  let release: (value: { ok: true; reply: string }) => void = () => {};
+  runner.mockImplementation(() => new Promise((resolve) => { release = resolve; }));
+  pollGetUpdates.mockImplementation(async (offset: number) => {
+    if (offset <= update.update_id) {
+      await new Promise((r) => setTimeout(r, 20));
+      return [update];
+    }
+    stopTelegramBot();
+    return [];
+  });
+  const secret = process.env.TELEGRAM_WEBHOOK_SECRET;
+  setDeferredReplyCeilingForTests(300);
+  try {
+    delete process.env.TELEGRAM_WEBHOOK_SECRET;
+    startTelegramBot();
+    await vi.waitFor(() => {
+      expect(pollGetUpdates.mock.calls.at(-1)).toEqual([update.update_id + 1]);
+    }, { timeout: 5_000 });
+    expect(await prisma.processedMessage.count({ where: { channel: "TELEGRAM", messageId: id, completedAt: { not: null } } })).toBe(1);
+    // Обработан один раз, хотя Telegram прислал апдейт несколько раз.
+    expect(runner).toHaveBeenCalledTimes(1);
+    expect(await prisma.errorLog.count({ where: { message: { contains: `Ответ помощницы на апдейт ${id} не готов` } } })).toBeGreaterThan(0);
+  } finally {
+    setDeferredReplyCeilingForTests(null);
+    // Отпускаем «зависший» ход: иначе очередь этого чата ждала бы его до потолка в соседних тестах.
+    release({ ok: true, reply: "Готово." });
+    stopTelegramBot();
+    await vi.waitFor(() => expect(isTelegramPollerBusy()).toBe(false), { timeout: 3_000 });
+    await prisma.processedMessage.deleteMany({ where: { channel: "TELEGRAM", messageId: id } });
+    pollGetUpdates.mockReset();
+    runner.mockReset();
+    if (secret === undefined) delete process.env.TELEGRAM_WEBHOOK_SECRET;
+    else process.env.TELEGRAM_WEBHOOK_SECRET = secret;
+  }
+});
 describe("живые сценарии чтения Мадины", () => {
   async function propertyBatch() {
     const district = await prisma.district.create({ data: { name: `Альбом ${runId}` } });

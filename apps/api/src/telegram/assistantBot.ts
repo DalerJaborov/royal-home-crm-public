@@ -10,7 +10,7 @@ import { trashedPropertyNoteFor } from "../ai/assistant/tools/propertyPresenter.
 import { GROUP_QUIET_MS, GROUP_REMAKE_REASON_QUESTION, GROUP_WELCOME_INTERVAL_MS, PROACTIVE_GROUP_INTERVAL_MS, groupAcknowledgment, groupHistoryQuestion, groupInstagramLinkRequest, groupMembershipEvent, groupMontageCommand, groupPropertyRefs, groupStatusFollowUp, isGroupPropertyFollowUp, isGroupRemakeReasonQuestion, isShortPropertyFollowUp, proactivePropertyReply, requestedGroupParticipation, unaddressedConfirmationRequest, unaddressedPropertyQuestion, unaddressedReadRequest, type GroupConfirmationTool } from "./assistantGroupParticipation.js";
 export { renderAssistantForTelegram } from "./assistantReply.js";
 import { randomUUID } from "node:crypto";
-import { formatPropertyCode, isReadOnlyRole, trimAssistantHistory, type AssistantPropertyCard, type PermissionId } from "@royal-home/shared";
+import { ASSISTANT_DEADLINE_SEC, formatPropertyCode, isReadOnlyRole, trimAssistantHistory, type AssistantPropertyCard, type PermissionId } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { Prisma } from "../generated/prisma/client.js";
 import { loadAgentAccess, type AgentAccess } from "../auth/middleware.js";
@@ -224,6 +224,8 @@ interface TurnParams {
   /** «Печатает…» в чате: Telegram гасит его через ~5 с, поэтому на долгом ходе (до двух минут,
    *  Settings.aiAssistantDeadlineSec) повторяется каждые TYPING_REFRESH_MS, пока идёт модель. */
   showWorking?: () => void;
+  /** Ключ хода (`tg:<чат>:<сообщение>`): повторная доставка того же сообщения не повторяет записи. */
+  turnKey?: string;
 }
 
 /** Чаще, чем Telegram гасит «печатает…» (~5 с), но без лишних вызовов API. */
@@ -240,13 +242,59 @@ export const TYPING_REFRESH_MS = 4_000;
  * поллер — нет; мягкая остановка ждёт его через trackBackgroundTask.
  */
 const assistantLanes = new Map<string, Promise<void>>();
+
+/**
+ * Сколько ходов помощницы идут разом во всём процессе. Остальные ждут свободного места в общей
+ * очереди: двадцать человек, спросивших разом, не должны разом съесть память worker и лимиты
+ * Gemini. Порядок внутри одного человека держит его собственная очередь (assistantLanes).
+ */
+export const ASSISTANT_CONCURRENT_TURNS = 8;
+let assistantTurnsRunning = 0;
+const assistantTurnWaiters: (() => void)[] = [];
+
+async function withAssistantSlot<T>(work: () => Promise<T>): Promise<T> {
+  if (assistantTurnsRunning >= ASSISTANT_CONCURRENT_TURNS) {
+    await new Promise<void>((resolve) => assistantTurnWaiters.push(resolve));
+  } else {
+    assistantTurnsRunning += 1;
+  }
+  try {
+    return await work();
+  } finally {
+    const next = assistantTurnWaiters.shift();
+    // Место передаётся следующему ожидающему напрямую, счётчик при этом не меняется.
+    if (next) next();
+    else assistantTurnsRunning -= 1;
+  }
+}
+
+/** Для тестов: сколько ходов помощницы сейчас идёт и сколько ждут места. */
+export function assistantTurnSlotsForTests(): { running: number; waiting: number } {
+  return { running: assistantTurnsRunning, waiting: assistantTurnWaiters.length };
+}
 const deferredReplies = new WeakMap<object, Promise<void>>();
 
+/**
+ * Сколько следующий ход человека ждёт предыдущий: самый длинный срок хода + минута. Зависший
+ * (не ответивший) ход не должен навсегда запереть очередь этого человека.
+ */
+const DEFAULT_LANE_WAIT_CEILING_MS = ASSISTANT_DEADLINE_SEC.max * 1000 + 60_000;
+let laneWaitCeilingMs = DEFAULT_LANE_WAIT_CEILING_MS;
+/** Для тестов: короткий потолок (null — обычный). */
+export function setAssistantLaneCeilingForTests(ms: number | null): void {
+  laneWaitCeilingMs = ms ?? DEFAULT_LANE_WAIT_CEILING_MS;
+}
+
 export function runInAssistantLane(key: string, work: () => Promise<unknown>, onError: (err: unknown) => Promise<void>): Promise<void> {
-  const previous = assistantLanes.get(key) ?? Promise.resolve();
+  const before = assistantLanes.get(key) ?? Promise.resolve();
+  let ceilingTimer: ReturnType<typeof setTimeout> | undefined;
+  const previous = Promise.race([
+    before,
+    new Promise<void>((resolve) => { ceilingTimer = setTimeout(resolve, laneWaitCeilingMs); }),
+  ]).finally(() => clearTimeout(ceilingTimer));
   const run = previous.then(async () => {
     try {
-      await work();
+      await withAssistantSlot(work);
     } catch (err) {
       await onError(err).catch(() => {});
     }
@@ -404,6 +452,7 @@ async function runTurn(params: TurnParams): Promise<TurnResult | null> {
   const typing = params.showWorking ? setInterval(params.showWorking, TYPING_REFRESH_MS) : null;
   const outcome = await runAssistantDetailed(params.history, actor, {
     channel: "telegram",
+    turnKey: params.turnKey,
     moneyWallet: params.moneyWallet,
     confirmUi: !readOnly,
     readOnly,
@@ -740,7 +789,7 @@ export async function handleAssistantPrivate(
     showTyping?.();
     const history = [...previous, { role: "user" as const, content: text.slice(0, 4000) }];
     const result = await runTurn({ agentId: agent.id, scope: "private", history, deny: send, moneyWallet, forwardedEvidence, allowPropertyCards: true,
-      showWorking: showTyping,
+      showWorking: showTyping, turnKey: `tg:${chatId}:${msg.message_id}`,
       validateQueueAudience: async () => (await findAgentByTelegramChatId(chatId))?.id === agent.id,
     });
     if (!result) return;
@@ -1293,10 +1342,14 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
         }));
         question = `${currentWords}\n${wrapUntrusted("document", JSON.stringify(archived), 3000)}`;
       }
+      // Окно диалога — сразу, до долгого хода: уточнение без @ во время хода не теряется (ревью 08.11).
+      const earlyRefs = groupPropertyRefs(historySelector ? currentWords : statusFollowUp ? quoted : raw);
+      if (!isForwarded) openWindow(false, earlyRefs.length === 1 ? earlyRefs[0] : undefined);
       return detach(async () => {
         showWorking();
         const result = await runTurn({
           showWorking,
+          turnKey: `tg:${chatId}:${msg.message_id}`,
           agentId: sender.id, scope: "group", readOnlyGroup: Boolean(historySelector) || !automaticAction,
           validateQueueAudience, forwardedEvidence: isForwarded,
           allowPropertyCards: Boolean(cardScope && !historySelector && !statusFollowUp),
@@ -1430,6 +1483,9 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
       }
       if (refs.length === 1) request = tajik ? `${request}\nРақами объект: ${refs[0]}.` : `${request}\nНомер объекта: ${refs[0]}.`;
     }
+    // Окно диалога — сразу, до долгого хода: «а за 600?» без @ во время хода попадёт в него и
+    // встанет в очередь этого человека после первого хода (ревью 08.11).
+    if (!forwardedEvidence) openWindow(addressed || windowText !== null, continuationRef ?? (refs.length === 1 ? refs[0] : undefined));
     return detach(async () => {
       const keepWorking = !fromVoice || !audioWords ? showWorking : undefined;
       keepWorking?.();
@@ -1442,6 +1498,7 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
         allowPropertyCards: Boolean(cardScope && !continuationRef && !statusFollowUp),
         readOnlyGroup: Boolean(continuationRef),
         validateQueueAudience, forwardedEvidence,
+        turnKey: `tg:${chatId}:${msg.message_id}`,
         history: [{ role: "user", content: request.slice(0, 4000) }],
         deny: reply,
       });

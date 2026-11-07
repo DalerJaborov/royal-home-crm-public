@@ -50,6 +50,8 @@ const { runAssistantDetailed, assistantErrorMessage, ASSISTANT_ERROR_MESSAGES, A
 const { resetAssistantRuntimeCache, loadAssistantSettings } = await import("../src/ai/assistant/runtime.js");
 const { resolveSearchPlace, HOUSE_SEARCH_RADIUS_M, houseAddressCandidate } = await import("../src/lib/searchPlace.js");
 const { tryAssistantFastPath } = await import("../src/ai/assistantFastPath.js");
+const { runTool } = await import("../src/ai/assistant.js");
+const { beginShutdown, __resetShutdownStateForTests } = await import("../src/lib/shutdownState.js");
 const { createTestAgent } = await import("./helpers/ownAgent.js");
 const { deleteAgentsWithTraces } = await import("./helpers/cleanupAgents.js");
 const { waitFor } = await import("./helpers/waitFor.js");
@@ -472,6 +474,76 @@ describe("колонок шагов/срока ещё нет (код выкач�
     const spy = vi.spyOn(prisma.settings, "findUnique").mockRejectedValueOnce(new Error("connection lost"));
     try {
       await expect(loadAssistantSettings()).rejects.toThrow("connection lost");
+    } finally {
+      spy.mockRestore();
+      resetAssistantRuntimeCache();
+    }
+  });
+});
+
+describe("третье ревью 08.11: перезапуск посреди хода", () => {
+  const turnCall = (name: string, args: Record<string, unknown>) => ({
+    text: "", calls: [{ name, args }], modelParts: [{ functionCall: { name, args } }], tokens: 1,
+  });
+
+  it("create_task с ключом хода: повторная доставка того же хода вторую задачу не заводит", async () => {
+    const client = await prisma.client.create({
+      data: { fullName: `Повтор ${WORD}`, phone: `+99293${RUN}8`, source: "WEBSITE", kind: "BUYER", acceptedAt: new Date(), assignedAgentId: agent } as never,
+    });
+    clientIds.push(client.id);
+    const me = actor(agent, "AGENT", []);
+    const key = `tg:-100:${RUN}`;
+    const first = (await runTool("create_task", { clientId: client.id, notes: "Позвонить", nextAction: "Позвонить", nextActionDate: "2031-06-01" }, me, undefined, undefined, key)) as { taskId: string };
+    // Модель при повторе переписала текст своими словами — клиент и ход те же.
+    const again = (await runTool("create_task", { clientId: client.id, notes: "Перезвонить клиенту", nextAction: "Звонок", nextActionDate: "2031-06-01" }, me, undefined, undefined, key)) as { taskId: string; alreadyCreated?: boolean };
+    expect(again).toMatchObject({ ok: true, alreadyCreated: true, taskId: first.taskId });
+    expect(await prisma.interaction.count({ where: { clientId: client.id, nextActionDate: { not: null } } })).toBe(1);
+    // Другой ход — новая задача.
+    await runTool("create_task", { clientId: client.id, notes: "Ещё", nextAction: "Ещё", nextActionDate: "2031-06-02" }, me, undefined, undefined, `tg:-100:${RUN}9`);
+    expect(await prisma.interaction.count({ where: { clientId: client.id, nextActionDate: { not: null } } })).toBe(2);
+  });
+
+  it("reschedule_task на ту же дату — без изменения и без второго «переноса»", async () => {
+    const client = await prisma.client.create({
+      data: { fullName: `Перенос ${WORD}`, phone: `+99293${RUN}9`, source: "WEBSITE", kind: "BUYER", acceptedAt: new Date(), assignedAgentId: agent } as never,
+    });
+    clientIds.push(client.id);
+    const me = actor(agent, "AGENT", []);
+    await runTool("create_task", { clientId: client.id, notes: "Позвонить", nextAction: "Позвонить", nextActionDate: "2031-06-03" }, me);
+    const moved = await runTool("reschedule_task", { clientId: client.id, newDate: "2031-06-05" }, me);
+    expect(moved).toMatchObject({ ok: true });
+    const again = await runTool("reschedule_task", { clientId: client.id, newDate: "2031-06-05" }, me);
+    expect(again).toMatchObject({ ok: true, alreadyDone: true });
+  });
+
+  it("при остановке процесса ход не начинает записи и новых шагов — честный частичный ответ", async () => {
+    const client = await prisma.client.create({
+      data: { fullName: `Остановка ${WORD}`, phone: `+99293${RUN}0`, source: "WEBSITE", kind: "BUYER", acceptedAt: new Date(), assignedAgentId: agent } as never,
+    });
+    clientIds.push(client.id);
+    callGeminiTools.mockReset();
+    callGeminiTools
+      .mockImplementationOnce(async () => { beginShutdown(); return turnCall("create_task", { clientId: client.id, notes: "Позвонить", nextAction: "Позвонить", nextActionDate: "2031-06-07" }); })
+      .mockResolvedValueOnce(turnCall("list_my_tasks", {}));
+    try {
+      const outcome = await runAssistantDetailed([{ role: "user", content: `Стоп ${WORD}` }], actor(agent, "AGENT", []));
+      expect(outcome.ok).toBe(true);
+      expect(callGeminiTools).toHaveBeenCalledTimes(1);
+      expect(await prisma.interaction.count({ where: { clientId: client.id, nextActionDate: { not: null } } })).toBe(0);
+      const row = await waitFor(() => prisma.aiAssistantTurnLog.findFirst({ where: { agentId: agent, question: { contains: "Стоп" } } }));
+      expect(row).toMatchObject({ outcome: "partial", reason: "shutdown" });
+    } finally {
+      __resetShutdownStateForTests();
+    }
+  });
+
+  it("отсутствие ДРУГОЙ колонки (P2022) не маскируется умолчаниями — бросается", async () => {
+    resetAssistantRuntimeCache();
+    const spy = vi.spyOn(prisma.settings, "findUnique").mockRejectedValueOnce(
+      Object.assign(new Error("The column `Settings.someOtherColumn` does not exist in the current database."), { code: "P2022" }),
+    );
+    try {
+      await expect(loadAssistantSettings()).rejects.toThrow("someOtherColumn");
     } finally {
       spy.mockRestore();
       resetAssistantRuntimeCache();
