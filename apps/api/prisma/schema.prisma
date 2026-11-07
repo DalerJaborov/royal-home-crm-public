@@ -1801,7 +1801,7 @@ model AiAssistantTurnLog {
   /// Где шёл разговор: crm-private | telegram-private | telegram-group (AssistantActor.surface).
   surface    String?
   question   String?
-  /// Итог хода: answer | partial | refusal | error (ASSISTANT_TURN_OUTCOMES, @royal-home/shared).
+  /// Итог хода: answer | partial | refusal | error | aborted (ASSISTANT_TURN_OUTCOMES, @royal-home/shared).
   outcome    String
   /// Почему не обычный ответ: off_topic, card_evidence, disabled, rounds, код сбоя (deadline, ...).
   reason     String?
@@ -7016,6 +7016,12 @@ model Settings {
   /// текст вопроса; сам факт обращения остаётся. Пределы — ASSISTANT_LOG_RETENTION_DAYS
   /// (@royal-home/shared). Чистит крон «assistant-log-retention» (lib/aiAssistantAudit.ts).
   aiAssistantLogRetentionDays       Int       @default(90)
+  /// ШАГОВ ПОМОЩНИЦЫ НА ОДИН ОТВЕТ (походов в модель) и СРОК ОТВЕТА, секунд (решение владельца
+  /// 07.11.2026: «чтобы она всегда была лучше всех ... и всегда могла помочь» — 6 → 30 шагов,
+  /// 35 → 120 с). Пределы — ASSISTANT_MAX_ROUNDS / ASSISTANT_DEADLINE_SEC (@royal-home/shared);
+  /// читает ai/assistant/runtime.ts. Фактические шаги и время каждого хода — в AiAssistantTurnLog.
+  aiAssistantMaxRounds              Int       @default(30)
+  aiAssistantDeadlineSec            Int       @default(120)
   /// ПАУЗА Telegram-уведомлений с площадок Somon/Paydo (03.11.2026, по умолчанию ВКЛЮЧЕНА).
   /// В CRM (колокольчик, ленты, карточки) ничего не меняется; снять: Settings.telegramPortalAlertsPaused = false.
   telegramPortalAlertsPaused        Boolean   @default(true)

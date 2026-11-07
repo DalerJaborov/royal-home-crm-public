@@ -79,3 +79,13 @@ export function canSeeTrashedClient(actor: TrashActor, client: { assignedAgentId
   const scope = clientTrashScopeFor(actor);
   return scope === "all" || (scope === "own" && client.assignedAgentId === actor.agentId);
 }
+
+/**
+ * Контакты УДАЛЁННОГО клиента (телефон, адрес, номера внутри имени и заметок) — только руководству
+ * с правом «Архив» (и при этом с правом на телефон). Хозяин-агент видит свою удалённую карточку без
+ * контактов. Решение владельца 07.11.2026, дословно: «агенту не показывать телефон удаленного
+ * клиента». REST отдаёт удалённых клиентов только через GET /clients/trash с тем же правом «Архив».
+ */
+export function canSeeTrashedClientContacts(actor: TrashActor): boolean {
+  return actor.can("archive.view");
+}

@@ -10,6 +10,7 @@ import {
   canOpenTrashedPropertyPage,
   canRestorePropertyAs,
   canSeeTrashedClient,
+  canSeeTrashedClientContacts,
   canSeeTrashedProperties,
   clientTrashScopeFor,
 } from "../../../lib/trashAccess.js";
@@ -170,7 +171,8 @@ export const findPropertiesByPlaceTool: AssistantReadToolPlugin = {
               seller: {
                 code: formatClientCode(seller.shortId, seller.kind),
                 href: `/clients/${seller.shortId}`,
-                name: safeField(clientNamePhoneSafe(formatClientName(seller), actor.canViewPhone)),
+                // Номер в имени удалённого продавца — только руководству с «Архивом» (решение 07.11).
+                name: safeField(clientNamePhoneSafe(formatClientName(seller), actor.canViewPhone && (seller.deletedAt === null || canSeeTrashedClientContacts(trashActor)))),
                 inTrash: seller.deletedAt !== null,
               },
             }

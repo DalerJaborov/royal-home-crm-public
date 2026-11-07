@@ -1,3 +1,4 @@
+import { ASSISTANT_DEADLINE_SEC, ASSISTANT_MAX_ROUNDS, clampAssistantLimit } from "@royal-home/shared";
 import { prisma } from "../../db.js";
 import { resolveGeminiRuntime, type GeminiRuntime } from "../geminiSettings.js";
 
@@ -33,6 +34,10 @@ export interface AssistantSettingsSnapshot {
   groundedSearchEnabled: boolean;
   /** Тумблер Settings.semanticSearchEnabled: семантика в search_properties. */
   semanticSearchEnabled: boolean;
+  /** Шагов (походов в модель) на один ответ — Settings.aiAssistantMaxRounds, в пределах. */
+  maxRounds: number;
+  /** Срок одного ответа, мс — Settings.aiAssistantDeadlineSec, в пределах. */
+  deadlineMs: number;
 }
 
 interface CacheEntry<T> {
@@ -64,12 +69,17 @@ function ttlCache<T>(load: () => Promise<T>) {
 async function readAssistantSettings(): Promise<AssistantSettingsSnapshot> {
   const row = await prisma.settings.findUnique({
     where: { id: "singleton" },
-    select: { aiAssistantEnabled: true, groundedSearchEnabled: true, semanticSearchEnabled: true },
+    select: {
+      aiAssistantEnabled: true, groundedSearchEnabled: true, semanticSearchEnabled: true,
+      aiAssistantMaxRounds: true, aiAssistantDeadlineSec: true,
+    },
   });
   return {
     enabled: row?.aiAssistantEnabled === true,
     groundedSearchEnabled: row?.groundedSearchEnabled ?? false,
     semanticSearchEnabled: row?.semanticSearchEnabled ?? false,
+    maxRounds: clampAssistantLimit(row?.aiAssistantMaxRounds, ASSISTANT_MAX_ROUNDS),
+    deadlineMs: clampAssistantLimit(row?.aiAssistantDeadlineSec, ASSISTANT_DEADLINE_SEC) * 1000,
   };
 }
 

@@ -20,7 +20,7 @@ function load(name: string, dependencies: Record<string, unknown>) {
   ).outputText);
   const exports: Record<string, any> = {};
   runInNewContext(compiled.get(name)!, { exports, require: (key: string) => dependencies[key] ?? {},
-    Date, Map, Set, Promise, console });
+    Date, Map, Set, Promise, console, setInterval, clearInterval });
   return exports;
 }
 
@@ -44,6 +44,7 @@ export function assistantGroupFixture() {
     items: [132, 194, 201, 210, 215].map(id => ({ code: shared.formatPropertyCode(id) })),
   }));
   const card = vi.fn(async () => true);
+  const trashNote = vi.fn(async (_ref: string, _actor: unknown, _language: "ru" | "tg") => null as string | null);
   const publicCatalog = vi.fn(async () => [{ id: 801, crmShortId: 123, price: 630000 }] as
     { id: number; crmShortId: number | null; price: number }[] | null);
   const publicShellReply = vi.fn(async (_request: unknown, _lang: string) => "Квартира меҷӯед ё ҳавлӣ?");
@@ -87,7 +88,8 @@ export function assistantGroupFixture() {
         deleteMany: async () => { registered = false; return { count: 1 }; } } } },
     "../lib/telegramAgentLink.js": { findAgentByTelegramUserId: async (id: string) => groupLinked ? { id: `test-${id}`, fullName: "Fixture" } : null },
     "../auth/middleware.js": { loadAgentAccess: async () => ({ isActive: active, role, permissions: new Set() }) },
-    "../ai/assistant.js": { isAiAssistantEnabled: async () => enabled, runAssistantDetailed: run },
+    "../ai/assistant.js": { isAiAssistantEnabled: async () => enabled, runAssistantDetailed: run, assistantErrorMessage: (code: string) => code },
+    "../ai/assistant/tools/propertyPresenter.js": { trashedPropertyNoteFor: trashNote },
     "../ai/assistant/actor.js": { actorFromAccess: (id: string) => ({ id }) },
     "../ai/assistant/tools/index.js": { listAssistantToolPlugins: () => [
       { level: "C", name: "change_property_price" }, { level: "C", name: "send_to_remake" }, { level: "B", name: "add_client_note" },
@@ -122,7 +124,7 @@ export function assistantGroupFixture() {
   const message = (text = "", extra: Partial<TelegramIncomingMessage> = {}) => ({
     chat: { id: -100, type: "supergroup" }, from: { id: 1 }, message_id: 10, text, ...extra,
   });
-  return { adapter, plain, html, voice, reaction, indicator, buttons, confirm, run, media, fast, workQueue, card, create, findProperty, context, retainTranscript, publicCatalog, publicShellReply,
+  return { adapter, plain, html, voice, reaction, indicator, buttons, confirm, run, media, fast, workQueue, card, trashNote, create, findProperty, context, retainTranscript, publicCatalog, publicShellReply,
     setContext: (value: boolean) => { contextEnabledAt = value ? new Date(now) : null; },
     setLinked: (value: boolean) => { groupLinked = value; },
     setDiscussion: (value: string) => { discussionGroupId = value; },

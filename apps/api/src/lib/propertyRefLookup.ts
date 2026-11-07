@@ -6,7 +6,7 @@
  * Один разбор на всё:
  *  - номер карточки — `parseShortCode` (@royal-home/shared), тот же, что у списка
  *    объектов (routes/properties/list.ts) и поиска клиентов;
- *  - ссылка Instagram — по КОДУ поста (`instagramPostCode`, lib/instagramPostLead.ts):
+ *  - ссылка Instagram — по КОДУ поста (`propertyIdsByInstagramLink` ниже, одна дверь с быстрым путём):
  *    один пост приходит десятком разных ссылок (www, /reel/ и /p/, хвост `?igsh=`);
  *    ищется и в `Property.instagramUrl`, и в фото-постах (PropertyPhotoPost.permalink);
  *  - иначе слова — по названию/адресу, каждое слово должно найтись (`toSearchTokens`).
@@ -21,7 +21,6 @@
 import { formatPropertyCode, parseShortCode } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import type { Prisma } from "../generated/prisma/client.js";
-import { instagramPostCode, instagramPostCodesIn } from "./instagramPostLead.js";
 import { toSearchTokens, toTokenVariants } from "./searchTokens.js";
 
 /** То, что нужно карточке-превью и полной карточке помощника. Без вектора embedding. */
@@ -60,6 +59,45 @@ export function parseExactPropertyRef(ref: string): { id: string } | { shortId: 
   if (UUID_RE.test(text)) return { id: text.toLowerCase() };
   const shortId = parseShortCode(text);
   return shortId === null ? null : { shortId };
+}
+
+/** Код поста Instagram в ссылке: /p/, /reel/, /reels/, /tv/, с ником впереди или без, с хвостом `?igsh=`. */
+const INSTAGRAM_LINK_RE = /instagram\.com\/(?:[^/\s?#]+\/)?(?:p|reel|reels|tv)\/([A-Za-z0-9_-]+)/giu;
+
+/** Все коды постов Instagram в тексте (без повторов). */
+export function instagramLinkCodes(text: string): string[] {
+  return [...new Set([...text.matchAll(INSTAGRAM_LINK_RE)].map((m) => m[1]))];
+}
+
+/**
+ * ОБЪЕКТЫ ПО ССЫЛКЕ НА ПОСТ INSTAGRAM — ОДНА ДВЕРЬ (07.11.2026, журнал прода 05–07.11: find_property
+ * по ссылке на reel вернул 0, а быстрый путь тот же объект нашёл — у них были два разных разбора).
+ * Зовут: find_property (findPropertiesByRef) и быстрый путь помощницы (ai/assistantFastPath.ts).
+ * Код сравнивается ТОЧНО (ролик /ABC не находит /ABCD), ищется в ролике карточки
+ * (Property.instagramUrl) и в фото-постах (PropertyPhotoPost.permalink). Корзина не находится.
+ */
+export async function propertyIdsByInstagramLink(text: string, take = 20): Promise<string[]> {
+  const codes = instagramLinkCodes(text);
+  if (codes.length === 0) return [];
+  const exact = (url: string | null) => instagramLinkCodes(url ?? "").some((c) => codes.includes(c));
+  const [cards, photoPosts] = await Promise.all([
+    prisma.property.findMany({
+      where: { deletedAt: null, OR: codes.map((c) => ({ instagramUrl: { contains: c } })) },
+      select: { id: true, instagramUrl: true },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: take * 4,
+    }),
+    prisma.propertyPhotoPost.findMany({
+      where: { channel: "INSTAGRAM", OR: codes.map((c) => ({ permalink: { contains: c } })) },
+      select: { propertyId: true, permalink: true },
+      take: take * 4,
+    }),
+  ]);
+  const ids = [
+    ...cards.filter((p) => exact(p.instagramUrl)).map((p) => p.id),
+    ...photoPosts.filter((p) => exact(p.permalink)).map((p) => p.propertyId),
+  ];
+  return [...new Set(ids)].slice(0, take);
 }
 
 /** Удалённый объект для справки «в Корзине»: без продавца, контакта собственника и описания. */
@@ -124,24 +162,11 @@ export async function findPropertiesByRef(
   // 0. Внутренний id (из прежнего ответа find_property).
   if (UUID_RE.test(text)) return { kind: "id", properties: await load({ id: text.toLowerCase() }, 1) };
 
-  // 1. Ссылка Instagram: код поста в карточке (ролик) или в фото-посте (карусель).
-  const codes = instagramPostCodesIn(text);
-  if (codes.length === 0) {
-    const single = instagramPostCode(text);
-    if (single) codes.push(single);
-  }
-  if (codes.length > 0) {
-    const photoPosts = await prisma.propertyPhotoPost.findMany({
-      where: { channel: "INSTAGRAM", OR: codes.map((c) => ({ permalink: { contains: c } })) },
-      select: { propertyId: true },
-      take: 20,
-    });
-    const found = await load({
-      OR: [
-        ...codes.map((c) => ({ instagramUrl: { contains: c } })),
-        ...(photoPosts.length ? [{ id: { in: photoPosts.map((p) => p.propertyId) } }] : []),
-      ],
-    });
+  // 1. Ссылка Instagram: код поста в карточке (ролик) или в фото-посте (карусель) — одна дверь
+  // с быстрым путём (propertyIdsByInstagramLink ниже).
+  if (instagramLinkCodes(text).length > 0) {
+    const ids = await propertyIdsByInstagramLink(text);
+    const found = ids.length ? await load({ id: { in: ids } }) : [];
     return { kind: "instagram", properties: found };
   }
 

@@ -1202,6 +1202,8 @@
 - если !parsed.success
   - return res.status(400).json({ error: "Неверные параметры запроса", details: parsed.error.flatten() });
     · ответ 400 — «Неверные параметры запроса»
+- const createdAt = dushanbeDateFilter(from, to);
+  · зовёт dushanbeDateFilter()
 - const [rows, total] = await Promise.all([ prisma.aiAssistantAuditLog.findMany({ where, orderBy: [{ createdAt:…
   · читает в базе: aiAssistantAuditLog
   · считает в базе: aiAssistantAuditLog
@@ -1219,6 +1221,8 @@
 - если !parsed.success
   - return res.status(400).json({ error: "Неверные параметры запроса", details: parsed.error.flatten() });
     · ответ 400 — «Неверные параметры запроса»
+- const createdAt = dushanbeDateFilter(from, to);
+  · зовёт dushanbeDateFilter()
 - const [rows, total, retentionDays] = await Promise.all([ prisma.aiAssistantTurnLog.findMany({ where, orderBy:…
   · читает в базе: aiAssistantTurnLog
   · считает в базе: aiAssistantTurnLog
@@ -1299,7 +1303,7 @@
     - sendEvent("done", { reply: outcome.reply });
       · дословно из кода
   - иначе если outcome.code !== "aborted"
-    - sendEvent("error", { error: ASSISTANT_ERROR_MESSAGES[outcome.code], code: outcome.code, retryable: outcome.re…
+    - sendEvent("error", { error: assistantErrorMessage(outcome.code, parsed.data.messages), code: outcome.code, re…
       · дословно из кода
 - если сорвалось
   - console.error("[ai:assistant:sse]", err instanceof Error ? err.message : err);

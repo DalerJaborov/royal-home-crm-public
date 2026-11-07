@@ -39,7 +39,7 @@ const { app } = await import("../src/app.js");
 const { prisma } = await import("../src/db.js");
 const { signAccessToken } = await import("../src/auth/jwt.js");
 const { findAssistantToolPlugin } = await import("../src/ai/assistant/tools/index.js");
-const { runAssistantDetailed, MAX_TOOL_ROUNDS, OFF_TOPIC_REPLY } = await import("../src/ai/assistant.js");
+const { runAssistantDetailed, OFF_TOPIC_REPLY } = await import("../src/ai/assistant.js");
 const { resetAssistantRuntimeCache } = await import("../src/ai/assistant/runtime.js");
 const { partialAnswerFromResults } = await import("../src/ai/assistant/partialAnswer.js");
 const { tryAssistantFastPath } = await import("../src/ai/assistantFastPath.js");
@@ -102,7 +102,7 @@ beforeAll(async () => {
   live = await makeProperty({ assignedAgentId: owner });
   gone = await makeProperty({
     assignedAgentId: owner, sellerClientId: seller.id, ownerContact: "+992 93 111 22 33",
-    deletedAt: DELETED_AT, deletedById: director, description: `коробка ${WORD}`,
+    deletedAt: DELETED_AT, deletedById: director, description: `коробка ${WORD}`, landmark: `у ${WORD}`,
   });
   const settings = await prisma.settings.upsert({ where: { id: "singleton" }, update: {}, create: { id: "singleton" } });
   savedRetention = settings.aiAssistantLogRetentionDays;
@@ -157,14 +157,16 @@ describe("(1) частичный ответ на языке собеседник
   it("ход по-таджикски, шаги кончились — ответ по-таджикски, в журнале «частично»", async () => {
     resetAssistantRuntimeCache();
     callGeminiTools.mockReset();
-    callGeminiTools.mockImplementation(async () => ({
-      text: "",
-      calls: [{ name: "find_property", args: { ref: formatPropertyCode(live.shortId) } }],
-      modelParts: [{ functionCall: { name: "find_property", args: { ref: formatPropertyCode(live.shortId) } } }],
-      tokens: 1,
-    }));
-    const outcome = await runAssistantDetailed([{ role: "user", content: TAJIK_QUESTION }], rankOf(owner));
-    expect(callGeminiTools).toHaveBeenCalledTimes(MAX_TOOL_ROUNDS);
+    // Три разные ссылки на один объект — разные вызовы (одинаковый повтор ловит защита от кругов).
+    const refs = [formatPropertyCode(live.shortId), String(live.shortId), live.id];
+    let n = 0;
+    callGeminiTools.mockImplementation(async () => {
+      const args = { ref: refs[n++ % refs.length] };
+      return { text: "", calls: [{ name: "find_property", args }], modelParts: [{ functionCall: { name: "find_property", args } }], tokens: 1 };
+    });
+    const ROUNDS = 3;
+    const outcome = await runAssistantDetailed([{ role: "user", content: TAJIK_QUESTION }], rankOf(owner), { maxRounds: ROUNDS });
+    expect(callGeminiTools).toHaveBeenCalledTimes(ROUNDS);
     expect(outcome.ok).toBe(true);
     if (!outcome.ok) return;
     expect(outcome.reply).toContain("Ҳоло инҳоро ёфтам");
@@ -173,7 +175,7 @@ describe("(1) частичный ответ на языке собеседник
     const row = await waitFor(() =>
       prisma.aiAssistantTurnLog.findFirst({ where: { agentId: owner, outcome: "partial" }, orderBy: { createdAt: "desc" } }),
     );
-    expect(row).toMatchObject({ outcome: "partial", reason: "rounds", route: "tools", rounds: MAX_TOOL_ROUNDS, toolCalls: MAX_TOOL_ROUNDS, channel: "crm" });
+    expect(row).toMatchObject({ outcome: "partial", reason: "rounds", route: "tools", rounds: ROUNDS, toolCalls: ROUNDS, channel: "crm" });
     expect(row!.replyChars).toBe(outcome.reply.length);
     // Вопрос — с маской телефона, как у строк инструментов; текста ответа в строке нет вовсе.
     expect(row!.question).toContain("Салом");
@@ -363,6 +365,13 @@ describe("(3) номер удалённого объекта — «в Корзи
 
   it("find_properties_by_place: у удалённого объекта ссылка только тому, кому страница откроется", async () => {
     const forAgent = await call("find_properties_by_place", { landmark: WORD, scope: "trash" }, rankOf(other));
-    for (const item of forAgent.items ?? []) if (item.inTrash) expect(item.href).toBeUndefined();
+    const trashedForAgent = (forAgent.items ?? []).filter((i: { inTrash?: boolean }) => i.inTrash);
+    // Сначала — что удалённый объект вообще нашёлся: иначе проверка ниже прошла бы впустую.
+    expect(trashedForAgent.length).toBeGreaterThan(0);
+    for (const item of trashedForAgent) expect(item.href).toBeUndefined();
+    const forBoss = await call("find_properties_by_place", { landmark: WORD, scope: "trash" }, boss());
+    const trashedForBoss = (forBoss.items ?? []).filter((i: { inTrash?: boolean }) => i.inTrash);
+    expect(trashedForBoss.length).toBeGreaterThan(0);
+    for (const item of trashedForBoss) expect(item.href).toMatch(/^\/properties\/\d+$/);
   });
 });

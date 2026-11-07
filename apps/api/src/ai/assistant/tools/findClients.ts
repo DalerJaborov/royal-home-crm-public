@@ -21,7 +21,7 @@ import { findDistrictIdByName } from "../../../lib/districtLookup.js";
 import { dushanbeDateString } from "../../../lib/dushanbeTime.js";
 import { fuzzyClientIds } from "../../../lib/fuzzySearch.js";
 import { withHiddenOrigin } from "../../../lib/clientOrigin.js";
-import { clientTrashScopeFor } from "../../../lib/trashAccess.js";
+import { canSeeTrashedClientContacts, clientTrashScopeFor } from "../../../lib/trashAccess.js";
 import { trashActorOf } from "../actor.js";
 import { safeField } from "./safeField.js";
 import type { AssistantReadToolPlugin } from "./types.js";
@@ -45,6 +45,12 @@ import type { AssistantReadToolPlugin } from "./types.js";
 const MAX_LIMIT = 20;
 const DEFAULT_LIMIT = 10;
 
+/** Слова «я сам» вместо имени агента: «me», «я», «мои», «мне», «ман», «худам» (таджикский). */
+const SELF_AGENT_WORDS = new Set(["me", "my", "mine", "myself", "self", "я", "мои", "мой", "моих", "мне", "меня", "сам", "ман", "худам", "аз они ман"]);
+export function isSelfAgentName(name: string): boolean {
+  return SELF_AGENT_WORDS.has(name.trim().toLowerCase().replace(/[.!?]+$/u, ""));
+}
+
 const argsSchema = z.object({
   q: z.string().trim().max(200).optional(),
   agentName: z.string().trim().max(100).optional(),
@@ -66,7 +72,7 @@ const parameters = {
         "Слова поиска: имя, номер карточки (ПК-000042 или 42), адрес, район, пожелания клиента из заметок. " +
         "Каждое слово должно найтись; порядок слов не важен. Телефон ищется только тем, кому он виден.",
     },
-    agentName: { type: "string", description: "Имя или фамилия агента, за которым закреплены клиенты («Сайфуллоев»)" },
+    agentName: { type: "string", description: "Имя или фамилия агента, за которым закреплены клиенты («Сайфуллоев»); «мои клиенты» — передай «me»" },
     districtName: { type: "string", description: "Район, который клиент ищет («Сино», «Шоҳмансур»)" },
     status: { type: "string", enum: [...CLIENT_STATUSES] },
     source: { type: "string", enum: [...CLIENT_SOURCES] },
@@ -105,7 +111,11 @@ export const findClientsTool: AssistantReadToolPlugin = {
     // не выбираем и по всему агентству вместо «того самого» не отвечаем.
     let agentIds: string[] | undefined;
     let agentsMatched: string[] | undefined;
-    if (args.agentName) {
+    if (args.agentName && isSelfAgentName(args.agentName)) {
+      // «Мои клиенты»: модель передаёт «me», «я», «мои» — это сам спрашивающий (журнал прода
+      // 05–07.11: «me» давало ошибку, и модель отдавала общий список вместо своих).
+      agentIds = [actor.id];
+    } else if (args.agentName) {
       const match = await findActiveAgentByName(args.agentName);
       if (match.kind === "none") return { error: `Сотрудника «${args.agentName}» нет среди активных — уточните имя` };
       if (match.kind === "many") {
@@ -139,6 +149,7 @@ export const findClientsTool: AssistantReadToolPlugin = {
     // остальные — только СВОИ удалённые карточки, в общей группе Telegram — никакая. Проверка
     // здесь, на сервере.
     const trashScope = clientTrashScopeFor(trashActorOf(actor));
+    const trashContacts = canSeeTrashedClientContacts(trashActorOf(actor));
     const wantedScope = args.scope ?? "live";
     if (wantedScope === "trash" && trashScope === "none") {
       return { error: "Удалённых клиентов в общей группе не показываю — спросите меня в личном чате." };
@@ -214,16 +225,19 @@ export const findClientsTool: AssistantReadToolPlugin = {
         // Источник и ник — по правилу REST (lib/clientOrigin.ts): без clients.viewOrigin
         // источник скрыт, имя-ник заменено — как в списке клиентов.
         const c = withHiddenOrigin(raw, canSeeOrigin);
+        // Удалённый клиент: хозяин-агент видит карточку без телефона и других контактов, контакты —
+        // только руководству с «Архивом» (решение владельца 07.11.2026, lib/trashAccess.ts).
+        const contacts = actor.canViewPhone && (c.deletedAt === null || trashContacts);
         return {
           id: c.id,
           code: formatClientCode(c.shortId, c.kind),
           href: `/clients/${c.shortId}`,
           // Имя — с ролью (как на экранах) и без номера внутри; всё присланное — в границах «данные».
-          name: safeField(clientNamePhoneSafe(formatClientName(c), actor.canViewPhone)),
+          name: safeField(clientNamePhoneSafe(formatClientName(c), contacts)),
           kind: clientKindLabel(c),
           status: c.status,
           source: c.source,
-          phone: clientPhoneFor(c.phone, actor.canViewPhone && c.acceptedAt !== null),
+          phone: c.deletedAt !== null && !trashContacts ? null : clientPhoneFor(c.phone, contacts && c.acceptedAt !== null),
           pendingAcceptance: c.acceptedAt === null,
           agent: c.assignedAgent?.fullName ?? null,
           desiredDistrict: c.desiredDistrict?.name ?? null,
@@ -231,8 +245,8 @@ export const findClientsTool: AssistantReadToolPlugin = {
           budgetMin: c.budgetMin ? Number(c.budgetMin) : null,
           budgetMax: c.budgetMax ? Number(c.budgetMax) : null,
           currency: c.currency,
-          address: safeField(phoneSafeText(c.address, actor.canViewPhone), 200),
-          notes: safeField(phoneSafeText(c.requirementsNotes, actor.canViewPhone), 200),
+          address: c.deletedAt !== null && !trashContacts ? null : safeField(phoneSafeText(c.address, contacts), 200),
+          notes: safeField(phoneSafeText(c.requirementsNotes, contacts), 200),
           hot: c.hotSince !== null,
           inTrash: c.deletedAt !== null,
           ...(c.deletedAt ? { deletedAt: dushanbeDateString(c.deletedAt) } : {}),

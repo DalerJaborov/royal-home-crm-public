@@ -6,6 +6,7 @@ import { ASSISTANT_COLLEAGUE_GREETING, ASSISTANT_GROUP_GREETING } from "./assist
 import { matchGroupPublicShellQuestion, replyGroupPublicShellQuestion, replyPublicListingQuestion } from "./assistantGroupPublicListing.js";
 import { loadAssistantTelegramContext, retainAssistantTelegramTranscript } from "./assistantGroupContext.js";
 import { findPropertiesByRef } from "../lib/propertyRefLookup.js";
+import { trashedPropertyNoteFor } from "../ai/assistant/tools/propertyPresenter.js";
 import { GROUP_QUIET_MS, GROUP_REMAKE_REASON_QUESTION, GROUP_WELCOME_INTERVAL_MS, PROACTIVE_GROUP_INTERVAL_MS, groupAcknowledgment, groupHistoryQuestion, groupInstagramLinkRequest, groupMembershipEvent, groupMontageCommand, groupPropertyRefs, groupStatusFollowUp, isGroupPropertyFollowUp, isGroupRemakeReasonQuestion, isShortPropertyFollowUp, proactivePropertyReply, requestedGroupParticipation, unaddressedConfirmationRequest, unaddressedPropertyQuestion, unaddressedReadRequest, type GroupConfirmationTool } from "./assistantGroupParticipation.js";
 export { renderAssistantForTelegram } from "./assistantReply.js";
 import { randomUUID } from "node:crypto";
@@ -14,7 +15,7 @@ import { prisma } from "../db.js";
 import { Prisma } from "../generated/prisma/client.js";
 import { loadAgentAccess, type AgentAccess } from "../auth/middleware.js";
 import { actorFromAccess, type AssistantActor } from "../ai/assistant/actor.js";
-import { ASSISTANT_ERROR_MESSAGES, isAiAssistantEnabled, runAssistantDetailed } from "../ai/assistant.js";
+import { assistantErrorMessage, isAiAssistantEnabled, runAssistantDetailed } from "../ai/assistant.js";
 import { assistantLanguage } from "../ai/assistant/languageRouting.js";
 import { wrapUntrusted } from "../ai/untrustedContent.js";
 import { listAssistantToolPlugins } from "../ai/assistant/tools/index.js";
@@ -219,7 +220,13 @@ interface TurnParams {
   validateQueueAudience?: () => Promise<boolean>;
   /** Для сообщения-отказа до запуска модели. */
   deny: (text: string) => Promise<void>;
+  /** «Печатает…» в чате: Telegram гасит его через ~5 с, поэтому на долгом ходе (до двух минут,
+   *  Settings.aiAssistantDeadlineSec) повторяется каждые TYPING_REFRESH_MS, пока идёт модель. */
+  showWorking?: () => void;
 }
+
+/** Чаще, чем Telegram гасит «печатает…» (~5 с), но без лишних вызовов API. */
+export const TYPING_REFRESH_MS = 4_000;
 
 function montageQueueLanguage(text: string): "ru" | "tg" | null {
   const words = text.trim().replace(/[?!.]+$/u, "").trimEnd();
@@ -353,6 +360,7 @@ async function runTurn(params: TurnParams): Promise<TurnResult | null> {
   let mixedRead = false;
   let searches = 0;
   const readOnly = Boolean(params.forwardedEvidence || params.readOnlyGroup);
+  const typing = params.showWorking ? setInterval(params.showWorking, TYPING_REFRESH_MS) : null;
   const outcome = await runAssistantDetailed(params.history, actor, {
     channel: "telegram",
     moneyWallet: params.moneyWallet,
@@ -369,12 +377,14 @@ async function runTurn(params: TurnParams): Promise<TurnResult | null> {
         propertyLookup ??= propertySelection(name, result, args) ?? undefined;
       } else if (name !== "get_property_card") mixedRead = true;
     },
+  }).finally(() => {
+    if (typing) clearInterval(typing);
   });
   const all = [...seen.values()];
   const pending = all.filter((a) => a.status === "PENDING");
   const done = all.filter((a) => a.status === "EXECUTED");
   if (!outcome.ok) {
-    return { reply: ASSISTANT_ERROR_MESSAGES[outcome.code], pending, done, failed: true };
+    return { reply: assistantErrorMessage(outcome.code, params.history), pending, done, failed: true };
   }
   return {
     reply: outcome.reply, pending, done, structured,
@@ -674,9 +684,11 @@ export async function handleAssistantPrivate(
     if (followup && previousQuestion && parseFastPathIntent(previousQuestion.content)?.kind === "property-code") {
       text = `объект ${followup[1]}`;
     }
-    if (!fromVoice) void sendChatAction(chatId);
+    const showTyping = fromVoice ? undefined : () => void sendChatAction(chatId).catch(() => {});
+    showTyping?.();
     const history = [...previous, { role: "user" as const, content: text.slice(0, 4000) }];
     const result = await runTurn({ agentId: agent.id, scope: "private", history, deny: send, moneyWallet, forwardedEvidence, allowPropertyCards: true,
+      showWorking: showTyping,
       validateQueueAudience: async () => (await findAgentByTelegramChatId(chatId))?.id === agent.id,
     });
     if (!result) return;
@@ -816,7 +828,13 @@ async function groupMontageReply(
 ): Promise<string | null> {
   const found = await findPropertiesByRef(ref, { hideOwnPendingDeleteFor: actor.mayDelete ? undefined : actor.id, limit: 1 });
   const property = found.kind === "shortId" ? found.properties[0] : undefined;
-  if (!property) return tajik ? `${ref}-ро дар CRM наёфтам.` : `Не нашла ${ref} в CRM.`;
+  if (!property) {
+    // Номер удалённого объекта — справка «в Корзине», а не «не нашла» (пачка 2, lib/trashAccess.ts).
+    const trash = { agentId: actor.id, can: (p: string) => p === "properties.delete" && actor.mayDelete, surface: "telegram-group" as const };
+    const note = await trashedPropertyNoteFor(ref, trash, tajik ? "tg" : "ru");
+    if (note) return note;
+    return tajik ? `${ref}-ро дар CRM наёфтам.` : `Не нашла ${ref} в CRM.`;
+  }
   if (property.videoHandoffStatus === "QUEUED") {
     const remake = Boolean(property.videoHandoffRemakeReason);
     return tajik ? `Навори ${ref} дар навбат аст${remake ? ". Аз нав месозанд" : ""}.`
@@ -1040,7 +1058,12 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
       if (!(await validateQueueAudience())) return false;
       const property = found.kind === "shortId" ? found.properties[0] : undefined;
       const url = assistantInstagramLink(property?.instagramUrl);
-      if (!url) {
+      // Номер удалённого объекта — справка «в Корзине», а не «не нашла» (пачка 2).
+      const trashedNote = property ? null : await trashedPropertyNoteFor(
+        ref, { agentId: sender.id, can: (p) => access.permissions.has(p), surface: "telegram-group" }, tajik ? "tg" : "ru");
+      if (trashedNote) {
+        await reply(trashedNote);
+      } else if (!url) {
         await reply(!property
           ? tajik ? `${ref}-ро наёфтам.` : `Не нашла ${ref}.`
           : tajik ? `Дар корти ${ref} линки Instagram нест.` : `В карточке ${ref} нет ссылки на пост в Instagram.`);
@@ -1209,6 +1232,7 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
       }
       showWorking();
       const result = await runTurn({
+        showWorking,
         agentId: sender.id, scope: "group", readOnlyGroup: Boolean(historySelector) || !automaticAction,
         validateQueueAudience, forwardedEvidence: isForwarded,
         allowPropertyCards: Boolean(cardScope && !historySelector && !statusFollowUp),
@@ -1341,9 +1365,11 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
       }
       if (refs.length === 1) request = tajik ? `${request}\nРақами объект: ${refs[0]}.` : `${request}\nНомер объекта: ${refs[0]}.`;
     }
-    if (!fromVoice || !audioWords) showWorking();
+    const keepWorking = !fromVoice || !audioWords ? showWorking : undefined;
+    keepWorking?.();
     // Окно диалога открывается (и продлевается) на обработанном обращении.
     const result = await runTurn({
+      showWorking: keepWorking,
       agentId: sender.id,
       moneyWallet,
       scope: "group",

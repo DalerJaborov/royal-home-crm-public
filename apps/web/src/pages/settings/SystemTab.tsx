@@ -17,7 +17,9 @@ import { Rh2EmptyState } from "../../components/rh2/Rh2EmptyState";
 import { Pagination } from "../../components/Pagination";
 import { createLatestRequest } from "../../lib/latestRequest";
 import {
+  ASSISTANT_DEADLINE_SEC,
   ASSISTANT_LOG_RETENTION_DAYS,
+  ASSISTANT_MAX_ROUNDS,
   ASSISTANT_TURN_OUTCOME_LABELS,
   type AssistantTurnOutcome,
 } from "@royal-home/shared";
@@ -674,6 +676,7 @@ const TURN_REASON_LABELS: Record<string, string> = {
   not_found: "ничего не нашла",
   deadline: "думала слишком долго",
   aborted: "окно закрыли до ответа",
+  loop: "ходила по кругу",
   attempt_limit: "лимит запросов",
   no_key: "нет ключа ИИ",
   provider_unavailable: "ИИ недоступен",
@@ -787,45 +790,91 @@ function AssistantTurnsList({ agentId, from, to }: { agentId: string; from: stri
   );
 }
 
-/** Срок хранения журнала помощницы — поле с кнопкой; пределы общие с сервером (@royal-home/shared). */
+type AssistantLimitField = "aiAssistantLogRetentionDays" | "aiAssistantMaxRounds" | "aiAssistantDeadlineSec";
+
+/**
+ * Рубильники помощницы на том же экране, что и журнал (решения владельца 07.11.2026): срок
+ * хранения журнала, шагов на один ответ и срок ответа. Пределы общие с сервером
+ * (@royal-home/shared); подбирать числа — по фактическим шагам и времени в «Ответах» выше.
+ */
 function AssistantLogRetention({ fallbackDays }: { fallbackDays: number }) {
   const { data: settings } = useSettings();
-  const days = settings?.aiAssistantLogRetentionDays ?? fallbackDays;
-  return <AssistantLogRetentionField key={days} days={days} />;
+  const fields: { field: AssistantLimitField; label: string; hint: string; value: number; limits: { min: number; max: number } }[] = [
+    {
+      field: "aiAssistantLogRetentionDays",
+      label: "Хранить журнал, дней",
+      hint: "Старше этого срока ответы удаляются, а у обращений к данным стирается текст вопроса.",
+      value: settings?.aiAssistantLogRetentionDays ?? fallbackDays,
+      limits: ASSISTANT_LOG_RETENTION_DAYS,
+    },
+    {
+      field: "aiAssistantMaxRounds",
+      label: "Шагов на один ответ",
+      hint: "Сколько раз помощница может заглянуть в данные CRM, прежде чем ответить.",
+      value: settings?.aiAssistantMaxRounds ?? ASSISTANT_MAX_ROUNDS.default,
+      limits: ASSISTANT_MAX_ROUNDS,
+    },
+    {
+      field: "aiAssistantDeadlineSec",
+      label: "Ждать ответа, секунд",
+      hint: "Дольше этого помощница не думает: человек получает то, что она успела найти.",
+      value: settings?.aiAssistantDeadlineSec ?? ASSISTANT_DEADLINE_SEC.default,
+      limits: ASSISTANT_DEADLINE_SEC,
+    },
+  ];
+  return (
+    <>
+      {fields.map((f) => (
+        <AssistantLimitInput key={`${f.field}:${f.value}`} {...f} />
+      ))}
+    </>
+  );
 }
 
-function AssistantLogRetentionField({ days }: { days: number }) {
+function AssistantLimitInput({
+  field,
+  label,
+  hint,
+  value: saved,
+  limits,
+}: {
+  field: AssistantLimitField;
+  label: string;
+  hint: string;
+  value: number;
+  limits: { min: number; max: number };
+}) {
   const save = useUpdateSettings();
-  const [value, setValue] = useState(String(days));
+  const [value, setValue] = useState(String(saved));
   const n = Number(value);
-  const valid = Number.isInteger(n) && n >= ASSISTANT_LOG_RETENTION_DAYS.min && n <= ASSISTANT_LOG_RETENTION_DAYS.max;
+  const valid = Number.isInteger(n) && n >= limits.min && n <= limits.max;
+  const hintId = `${field}-hint`;
 
   return (
     <div className="filters" style={{ marginTop: "var(--s3)", alignItems: "flex-end" }}>
       <label className="field">
-        <span className="lab">Хранить журнал, дней</span>
+        <span className="lab">{label}</span>
         <input
           className="inp"
           type="number"
           inputMode="numeric"
-          min={ASSISTANT_LOG_RETENTION_DAYS.min}
-          max={ASSISTANT_LOG_RETENTION_DAYS.max}
+          min={limits.min}
+          max={limits.max}
           value={value}
           onChange={(e) => setValue(e.target.value)}
-          aria-describedby="assistant-log-retention-hint"
+          aria-describedby={hintId}
         />
       </label>
       <button
         type="button"
         className="pill"
-        disabled={!valid || n === days || save.isPending}
-        onClick={() => save.mutate({ aiAssistantLogRetentionDays: n })}
+        disabled={!valid || n === saved || save.isPending}
+        onClick={() => save.mutate({ [field]: n })}
       >
         Сохранить
       </button>
-      <span id="assistant-log-retention-hint" className="quiet">
-        Старше этого срока ответы удаляются, а у обращений к данным стирается текст вопроса. От{" "}
-        {ASSISTANT_LOG_RETENTION_DAYS.min} до {ASSISTANT_LOG_RETENTION_DAYS.max} дней.
+      <span id={hintId} className="quiet">
+        {hint} От {limits.min} до {limits.max}.
       </span>
     </div>
   );

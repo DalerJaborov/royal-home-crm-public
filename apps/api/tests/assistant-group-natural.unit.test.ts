@@ -750,6 +750,15 @@ describe("object context from a reply to Shabnam", () => {
     expect(f.plain).toHaveBeenCalledWith("-100", "Навори ОБ-000132 дар навбат аст. Аз нав месозанд.", 10);
     expect(f.run).not.toHaveBeenCalled();
   });
+  it("deleted object number: montage command answers «в Корзине», not «наёфтам» (batch 2, 07.11)", async () => {
+    const f = fixture();
+    f.findProperty.mockResolvedValue({ kind: "shortId", properties: [] });
+    f.trashNote.mockResolvedValue("ОБ-000132 дар Корзина аст: 26.09.2026 нест карда шуд.");
+    await f.send("Фиристон ба монтажер", ownQuote("Нархи ОБ-000132 иваз шуд."));
+    expect(f.trashNote).toHaveBeenCalledWith("ОБ-000132", expect.objectContaining({ surface: "telegram-group" }), "tg");
+    expect(f.plain).toHaveBeenCalledWith("-100", "ОБ-000132 дар Корзина аст: 26.09.2026 нест карда шуд.", 10);
+    expect(f.run).not.toHaveBeenCalled();
+  });
   it("asks one human question and preserves the same object when the reason comes back", async () => {
     const f = fixture();
     const published = { ...prop, videoHandoffStatus: "RECEIVED", publishedChannels: ["TELEGRAM"] };
@@ -963,6 +972,14 @@ describe("direct property Instagram permalink", () => {
     expect(f.buttons).not.toHaveBeenCalled();
     expect(f.plain).toHaveBeenCalledExactlyOnceWith("-100", "В карточке ОБ-000123 нет ссылки на пост в Instagram.", 10);
   });
+  it("deleted object number: «в Корзине» instead of «Не нашла» (batch 2, 07.11)", async () => {
+    const f = fixture();
+    f.findProperty.mockResolvedValue({ kind: "shortId", properties: [] });
+    f.trashNote.mockResolvedValue("ОБ-000123 в Корзине: удалён 26.09.2026.");
+    await f.send("Где ссылка на Instagram для ОБ-123?");
+    expect(f.trashNote).toHaveBeenCalledWith(expect.stringMatching(/123/), expect.objectContaining({ surface: "telegram-group" }), "ru");
+    expect(f.plain).toHaveBeenCalledExactlyOnceWith("-100", "ОБ-000123 в Корзине: удалён 26.09.2026.", 10);
+  });
 });
 
 describe("standalone group voice", () => {
@@ -1116,5 +1133,28 @@ describe("Telegram membership welcomes", () => {
     f.advance(participation.GROUP_WELCOME_INTERVAL_MS+1);
     await f.send("", peers);
     expect(f.voice).toHaveBeenCalledTimes(4);
+  });
+});
+
+describe("long turn keeps the typing indicator alive (owner 07.11.2026: up to 120 s)", () => {
+  it("re-sends the chat action every few seconds while the model works, and stops after", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    try {
+      const f = fixture();
+      let finish: (value: { ok: true; reply: string }) => void = () => {};
+      f.run.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+      const pending = f.send("Почему мой объект уже неделю у монтажёра?");
+      await vi.waitFor(() => expect(f.run).toHaveBeenCalled());
+      const before = f.indicator.mock.calls.length;
+      vi.advanceTimersByTime(12_500);
+      expect(f.indicator.mock.calls.length - before).toBeGreaterThanOrEqual(3);
+      finish({ ok: true, reply: "Готово." });
+      await pending;
+      const after = f.indicator.mock.calls.length;
+      vi.advanceTimersByTime(20_000);
+      expect(f.indicator.mock.calls.length).toBe(after);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

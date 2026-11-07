@@ -104,8 +104,8 @@ describe("parseFastPathIntent — что берём без модели", () => 
     ["+992 90 123-45-67", { kind: "phone", phone: "+992901234567" }],
     ["0901234567", { kind: "phone", phone: "+992901234567" }],
     ["номер 901234567", { kind: "phone", phone: "+992901234567" }],
-    ["https://www.instagram.com/reel/Cx1_aB-9z/?igsh=abc", { kind: "instagram", code: "Cx1_aB-9z" }],
-    ["вот ссылка https://instagram.com/p/AbC123/", { kind: "instagram", code: "AbC123" }],
+    ["https://www.instagram.com/reel/Cx1_aB-9z/?igsh=abc", { kind: "instagram", code: "Cx1_aB-9z", link: "https://www.instagram.com/reel/Cx1_aB-9z/?igsh=abc" }],
+    ["вот ссылка https://instagram.com/p/AbC123/", { kind: "instagram", code: "AbC123", link: "вот ссылка https://instagram.com/p/AbC123/" }],
   ])("%s", (text, expected) => {
     expect(parseFastPathIntent(text)).toEqual(expected);
   });

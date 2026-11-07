@@ -25,7 +25,7 @@ import {
 } from "./geminiClient.js";
 import { isRetryableGeminiStatus } from "./geminiTransport.js";
 import { loadAssistantGeminiRuntime, loadAssistantSettings } from "./assistant/runtime.js";
-import { assistantLanguagePolicy, repliesInTajik } from "./assistant/languageRouting.js";
+import { assistantLanguage, assistantLanguagePolicy, repliesInTajik } from "./assistant/languageRouting.js";
 import type { ClientLanguage } from "./clientLanguage.js";
 import { createCardLinkEvidence } from "./assistant/cardLinkEvidence.js";
 import { centsToTjs, fromCents, loadMoneyContext, priceCeilingFilter, roundMoney, splitCents, toCents, toTjs } from "../lib/money.js";
@@ -38,7 +38,7 @@ import {
 import type { ChatMessage } from "./client.js";
 import { clientNamePhoneSafe, clientPhoneFor, phoneSafeText } from "../lib/clientPhone.js";
 import { logAssistantToolCall, logAssistantTurn } from "../lib/aiAssistantAudit.js";
-import type { AssistantTurnOutcome } from "@royal-home/shared";
+import { ASSISTANT_DEADLINE_SEC, ASSISTANT_MAX_ROUNDS, type AssistantTurnOutcome } from "@royal-home/shared";
 import { logSystemError } from "../lib/systemError.js";
 import { COUNTED_SHOWING_WHERE, TASK_WHERE } from "../lib/tasks.js";
 import { describeError } from "../lib/describeError.js";
@@ -65,14 +65,22 @@ import type { AssistantActionView } from "../lib/assistantActions.js";
  * перед повтором и инструменты укладываются в него, а по его истечении человек
  * получает честное «слишком долго, повторите» (код deadline), а не тишину.
  */
-export const ASSISTANT_DEADLINE_MS = 35_000;
+/** 35 → 120 с (решение владельца 07.11.2026). Значение по умолчанию: действующее —
+ *  Settings.aiAssistantDeadlineSec (ai/assistant/runtime.ts, пределы ASSISTANT_DEADLINE_SEC). */
+export const ASSISTANT_DEADLINE_MS = ASSISTANT_DEADLINE_SEC.default * 1000;
 /** Потолок одной попытки модели; срок диалога режет его дополнительно. */
 const ATTEMPT_TIMEOUT_MS = 20_000;
 /** 6 → 4 (задача 1.7) → 6 (07.11.2026): «хавли до 2,5 млн у Воданасоса» упирался в четыре
  *  раунда (ориентир, потом цена, потом корзина). Последний раунд идёт с приказом «ответь
  *  по найденному», а если и он просит инструмент — человек получает найденное и вопрос
  *  (partialAnswer.ts), а не «разумное число шагов». */
-export const MAX_TOOL_ROUNDS = 6;
+export const MAX_TOOL_ROUNDS = ASSISTANT_MAX_ROUNDS.default;
+/** 6 → 30 (решение владельца 07.11.2026: «чтобы она всегда была лучше всех ... и всегда могла
+ *  помочь»): значение по умолчанию, действующее — Settings.aiAssistantMaxRounds. Чтобы 30 шагов
+ *  не ушли на круги, тот же инструмент с теми же аргументами второй раз не исполняется (ответ
+ *  берётся прошлый), а после LOOP_REPEAT_LIMIT таких повторов ход завершается честным
+ *  частичным ответом (reason «loop» в журнале хода). */
+export const LOOP_REPEAT_LIMIT = 2;
 
 /**
  * ВЕСЬ АССИСТЕНТ РАБОТАЕТ НА GEMINI (решение владельца 02.08.2026: один поставщик
@@ -1163,6 +1171,31 @@ export const ASSISTANT_ERROR_MESSAGES: Record<AssistantErrorCode, string> = {
   internal: "ИИ недоступен, попробуйте позже",
 };
 
+/** Те же отказы по-таджикски, на «шумо» (ревью пачки 2, 07.11.2026). */
+export const ASSISTANT_ERROR_MESSAGES_TG: Record<AssistantErrorCode, string> = {
+  attempt_limit: "Ҳадди дархостҳо ба ИИ тамом шуд ё ҳисоби хароҷот дастрас нест. Дархостҳои нави пулакӣ қатъ шуданд.",
+  no_key: "ИИ дастрас нест: калиди Gemini танзим нашудааст (Танзимот → ИИ).",
+  deadline: "ИИ хеле дер ҷавоб дод. Лутфан саволро такрор кунед ё кӯтоҳтар нависед.",
+  aborted: "Дархост бекор шуд.",
+  provider_unavailable: "ИИ ҳоло банд аст. Лутфан баъди чанд сония такрор кунед.",
+  provider_rejected: "ИИ дархостро рад кард: калид ва модели Gemini-ро дар Танзимот санҷед.",
+  empty_reply: "ИИ ҷавоб наёфт. Лутфан саволро бо калимаҳои дигар нависед.",
+  stream_interrupted: "Ҷавоб нимкора монд. Лутфан саволро такрор кунед.",
+  internal: "ИИ дастрас нест, лутфан баъдтар кӯшиш кунед.",
+};
+
+/**
+ * Текст отказа на языке собеседника — одна дверь для CRM и Telegram (assistantLanguage +
+ * repliesInTajik, languageRouting.ts) по ПОСЛЕДНЕЙ реплике человека: отказ отвечает на неё.
+ * Не распознан язык короткой фразы («проверь данные клиента») — русский, как и раньше, а не
+ * язык старых реплик того же чата.
+ */
+export function assistantErrorMessage(code: AssistantErrorCode, messages: readonly { role: string; content: string }[]): string {
+  const last = [...messages].reverse().find((m) => m.role === "user");
+  const tajik = last ? repliesInTajik(assistantLanguage([last])) : false;
+  return (tajik ? ASSISTANT_ERROR_MESSAGES_TG : ASSISTANT_ERROR_MESSAGES)[code];
+}
+
 export interface RunAssistantOptions {
   /** Share one reservation envelope with preceding Telegram media extraction. */
   moneyWallet?: ReturnType<typeof createAssistantMoneyWallet>;
@@ -1174,8 +1207,10 @@ export interface RunAssistantOptions {
   /** Внешняя отмена: роут отдаёт сюда закрытие соединения клиентом. Прерывает
    *  вызов модели и паузы между повторами; начатую запись в базу — нет. */
   signal?: AbortSignal;
-  /** Срок на весь диалог, мс. По умолчанию ASSISTANT_DEADLINE_MS. */
+  /** Срок на весь диалог, мс. По умолчанию — Settings.aiAssistantDeadlineSec. */
   deadlineMs?: number;
+  /** Шагов модели на ответ. По умолчанию — Settings.aiAssistantMaxRounds. */
+  maxRounds?: number;
   /**
    * Проверенный текст ответа (SSE-событие `token`). Транспорт получает поток,
    * но черновые дельты не публикуются до проверки ссылок по результатам инструментов.
@@ -1440,7 +1475,11 @@ export async function runAssistantDetailed(
 ): Promise<AssistantOutcome> {
   const { onStatus } = options;
   const start = Date.now();
-  const deadlineMs = options.deadlineMs ?? ASSISTANT_DEADLINE_MS;
+  // Шаги и срок — рубильники в Настройках (кэш 15 с), читаются до запуска таймера срока.
+  // Сбой чтения здесь не фатален: основной блок ниже читает настройки снова и сообщает о сбое.
+  const limits = await loadAssistantSettings().catch(() => null);
+  const deadlineMs = options.deadlineMs ?? limits?.deadlineMs ?? ASSISTANT_DEADLINE_MS;
+  const maxRounds = options.maxRounds ?? limits?.maxRounds ?? MAX_TOOL_ROUNDS;
   const deadlineAt = start + deadlineMs;
   let ok = false;
   let tokens = 0;
@@ -1552,9 +1591,12 @@ export async function runAssistantDetailed(
     // draft (including text emitted before a tool call) through the SSE callback.
     const modelTokenSink = options.onToken ? (_delta: string): void => {} : undefined;
 
-    // `<`, а не `<=` (22.08.2026): ровно MAX_TOOL_ROUNDS походов в Gemini, не больше.
+    // `<`, а не `<=` (22.08.2026): ровно maxRounds походов в Gemini, не больше.
     const writeBudget = { left: MAX_WRITES_PER_ANSWER };
-    for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+    // Защита от кругов: вызов (имя + аргументы) → его ответ за весь ход.
+    const pastCalls = new Map<string, unknown>();
+    let repeats = 0;
+    for (let round = 0; round < maxRounds; round++) {
       // Перечитываем рубильник перед КАЖДЫМ следующим раундом (через кэш на 15 с,
       // ai/assistant/runtime.ts), чтобы выключение директором прямо во время
       // диалога останавливало цикл, а не только следующий запрос.
@@ -1572,7 +1614,7 @@ export async function runAssistantDetailed(
       onStatus?.(round === 0 ? "Думаю над ответом…" : "Уточняю данные…");
       const request = {
         apiKey,
-        system: round === MAX_TOOL_ROUNDS - 1 ? system + LAST_ROUND_INSTRUCTION : system,
+        system: round === maxRounds - 1 ? system + LAST_ROUND_INSTRUCTION : system,
         contents: conversation as never,
         tools,
         maxTokens: 1500,
@@ -1645,7 +1687,25 @@ export async function runAssistantDetailed(
       // Реплику модели возвращаем в историю ЦЕЛИКОМ: без неё следующий ход не видит
       // собственной просьбы модели и запрашивает те же инструменты по кругу.
       conversation.push({ role: "model", parts: turn.modelParts as never });
-      const results = await runRoundTools(turn.calls, actor, signal, onStatus, {
+      // Повтор того же вызова (в этом раунде или раньше) не исполняется: ответ — прошлый.
+      const keyOf = (call: GeminiToolCall) => `${call.name}|${canonicalJson(call.args ?? {})}`;
+      const results: unknown[] = new Array(turn.calls.length);
+      const fresh: GeminiToolCall[] = [];
+      const freshIndex: number[] = [];
+      const repeatOf = new Map<number, string>();
+      const roundKeys = new Set<string>();
+      turn.calls.forEach((call, i) => {
+        const key = keyOf(call);
+        if (pastCalls.has(key) || roundKeys.has(key)) {
+          repeats += 1;
+          repeatOf.set(i, key);
+        } else {
+          roundKeys.add(key);
+          fresh.push(call);
+          freshIndex.push(i);
+        }
+      });
+      const freshResults = fresh.length === 0 ? [] : await runRoundTools(fresh, actor, signal, onStatus, {
         channel: options.channel ?? "crm",
         onConfirm: options.onConfirm,
         confirmUi,
@@ -1654,11 +1714,22 @@ export async function runAssistantDetailed(
         embedding: { beforeAttempt: embeddingGuard, signal, maxAttempts: 1 },
         question: lastUserText,
       });
+      freshResults.forEach((result, k) => {
+        results[freshIndex[k]] = result;
+        pastCalls.set(keyOf(fresh[k]), result);
+      });
+      for (const [i, key] of repeatOf) results[i] = pastCalls.get(key);
       turn.calls.forEach((call, index) => {
+        if (repeatOf.has(index)) return;
         collected.push({ name: call.name, result: results[index] });
         cardEvidence.observe(call.name, results[index]);
         options.onToolResult?.(call.name, results[index], call.args);
       });
+      if (repeats >= LOOP_REPEAT_LIMIT) {
+        // Модель ходит по кругу: дальше шаги ничего не добавят — найденное и вопрос.
+        ok = true;
+        return replied(partialAnswerFromResults(collected, turnLanguage), "partial", "loop");
+      }
       // Keep optional provider IDs; names alone cannot identify two calls to
       // the same function. Original signed model parts were appended above.
       conversation.push({
@@ -1672,6 +1743,8 @@ export async function runAssistantDetailed(
   } catch (err) {
     const failure = failureOf(err, signal);
     turnLog.reason = failure.code;
+    // Человек ушёл до ответа — отдельный итог, не «сбой» помощницы (ревью пачки 2).
+    if (failure.code === "aborted") turnLog.outcome = "aborted";
     if (failure.code !== "aborted" && failure.code !== "no_key" && failure.code !== "provider_rejected" && hasFoundItems(collected)) {
       // Срыв посреди поиска (срок, лимит попыток): найденное не выбрасываем.
       console.warn("[ai:assistant] срыв после находок, отдаю частичный ответ:", failure.code);

@@ -4974,6 +4974,14 @@
     },
     {
      "k": "do",
+     "t": "const createdAt = dushanbeDateFilter(from, to);",
+     "a": [
+      "зовёт dushanbeDateFilter()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
      "t": "const [rows, total] = await Promise.all([ prisma.aiAssistantAuditLog.findMany({ where, orderBy: [{ createdAt:…",
      "a": [
       "читает в базе: aiAssistantAuditLog",
@@ -5038,6 +5046,14 @@
        "c": []
       }
      ]
+    },
+    {
+     "k": "do",
+     "t": "const createdAt = dushanbeDateFilter(from, to);",
+     "a": [
+      "зовёт dushanbeDateFilter()"
+     ],
+     "c": []
     },
     {
      "k": "do",
@@ -5662,7 +5678,7 @@
        "c": [
         {
          "k": "do",
-         "t": "sendEvent(\"error\", { error: ASSISTANT_ERROR_MESSAGES[outcome.code], code: outcome.code, retryable: outcome.re…",
+         "t": "sendEvent(\"error\", { error: assistantErrorMessage(outcome.code, parsed.data.messages), code: outcome.code, re…",
          "a": [
           "дословно из кода"
          ],

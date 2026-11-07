@@ -3,19 +3,19 @@ import path from "node:path";
 import fs from "node:fs/promises";
 import { z } from "zod";
 import rateLimit from "express-rate-limit";
-import { parseNoteSchema, assistantRequestSchema, assistantAuditQuerySchema, assistantTurnsQuerySchema, propertyHasCondition, visiblePropertyFacts } from "@royal-home/shared";
+import { parseNoteSchema, assistantRequestSchema, assistantAuditQuerySchema, assistantTurnsQuerySchema, ASSISTANT_TURN_FAILED_OUTCOMES, propertyHasCondition, visiblePropertyFacts } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { loadHotScoreThreshold } from "../lib/hotScoreThreshold.js";
 import { can, canAccessAssignedAgent, requireAuth, requirePermission, scopeDealsToOwnAgent, scopeToOwnAgent } from "../auth/middleware.js";
 import { clientNamePhoneSafe, phoneSafeText } from "../lib/clientPhone.js";
 import { callAiText, type ImageInput } from "../ai/client.js";
 import { loadMoneyContext, toTjs } from "../lib/money.js";
-import { dushanbeWallClock } from "../lib/dushanbeTime.js";
+import { dushanbeDateFilter, dushanbeWallClock } from "../lib/dushanbeTime.js";
 import { thumbsDir } from "../upload.js";
 import { scoreClient } from "../ai/scoring.js";
 import { buildCardFillSuggestion } from "../ai/cardFill.js";
 import { buildPropertyDraftSuggestion } from "../ai/propertyDraft.js";
-import { ASSISTANT_ERROR_MESSAGES, isAiAssistantEnabled, runAssistantDetailed } from "../ai/assistant.js";
+import { assistantErrorMessage, isAiAssistantEnabled, runAssistantDetailed } from "../ai/assistant.js";
 import { actorFromAccess } from "../ai/assistant/actor.js";
 import { tryAssistantFastPath } from "../ai/assistantFastPath.js";
 import { loadAssistantLogRetentionDays, logAssistantFastPathTurn, logAssistantToolCall } from "../lib/aiAssistantAudit.js";
@@ -188,7 +188,7 @@ aiRouter.post("/assistant", requireAuth, assistantLimiter, async (req, res) => {
       // Код и «повтор поможет» — рядом с текстом (задача 1.2): интерфейс решает по
       // ним, предлагать ли «Повторить», а не гадает по строке.
       sendEvent("error", {
-        error: ASSISTANT_ERROR_MESSAGES[outcome.code],
+        error: assistantErrorMessage(outcome.code, parsed.data.messages),
         code: outcome.code,
         retryable: outcome.retryable,
       });
@@ -198,7 +198,7 @@ aiRouter.post("/assistant", requireAuth, assistantLimiter, async (req, res) => {
     // бросает наружу — эта ветка на непредвиденный throw, чтобы соединение не
     // зависло без единого события (клиент иначе ждал бы `done` бесконечно).
     console.error("[ai:assistant:sse]", err instanceof Error ? err.message : err);
-    sendEvent("error", { error: ASSISTANT_ERROR_MESSAGES.internal, code: "internal", retryable: true });
+    sendEvent("error", { error: assistantErrorMessage("internal", parsed.data.messages), code: "internal", retryable: true });
   } finally {
     res.end();
   }
@@ -252,9 +252,11 @@ aiRouter.get("/assistant-audit", requireAuth, requirePermission("auditLog.view")
   }
   const { page, agentId, from, to } = parsed.data;
 
+  // Сутки — по Душанбе (lib/dushanbeTime.ts), а не по UTC: иначе «за 07.11» терял 00:00–05:00.
+  const createdAt = dushanbeDateFilter(from, to);
   const where = {
     ...(agentId ? { agentId } : {}),
-    ...(from || to ? { createdAt: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}),
+    ...(createdAt ? { createdAt } : {}),
   };
 
   const [rows, total] = await Promise.all([
@@ -311,10 +313,13 @@ aiRouter.get("/assistant-turns", requireAuth, requirePermission("auditLog.view")
     return res.status(400).json({ error: "Неверные параметры запроса", details: parsed.error.flatten() });
   }
   const { page, agentId, from, to, outcome } = parsed.data;
+  const createdAt = dushanbeDateFilter(from, to);
   const where = {
     ...(agentId ? { agentId } : {}),
-    ...(outcome === "failed" ? { outcome: { not: "answer" } } : outcome ? { outcome } : {}),
-    ...(from || to ? { createdAt: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}),
+    // «Где не справилась» — частично, не по сути, сбой. Ушедший до ответа человек (aborted) —
+    // не неудача помощницы, в этот фильтр не попадает.
+    ...(outcome === "failed" ? { outcome: { in: [...ASSISTANT_TURN_FAILED_OUTCOMES] } } : outcome ? { outcome } : {}),
+    ...(createdAt ? { createdAt } : {}),
   };
   const [rows, total, retentionDays] = await Promise.all([
     prisma.aiAssistantTurnLog.findMany({

@@ -1,6 +1,7 @@
 import { placesMentioned, sameWord } from "../ai/geoMentions.js";
 import { FOLK_PLACES, type OfficialDistrict } from "../ai/folkPlaces.js";
 import { geoMatchKey } from "./geoNormalize.js";
+import { resolveBuildingByText } from "./geoResolve.js";
 import { districtByPoint } from "./propertyDistrict.js";
 import { isGenericPlaceName, radiusFor, type MatchPlace, type PropertyMatchQuery } from "./propertyMatch.js";
 import { textMentionsSuburb } from "./suburbanProperty.js";
@@ -54,6 +55,21 @@ export function officialDistrictIn(text: string | null | undefined): OfficialDis
   return OFFICIAL_DISTRICTS.find((d) => d.re.test(key))?.district ?? null;
 }
 
+/** Радиус вокруг точного дома: «рядом с Рудаки 177» — соседние дома и кварталы. */
+export const HOUSE_SEARCH_RADIUS_M = 500;
+
+/** Слова «у», «около», «рядом с»… перед адресом геокодеру домов не нужны. */
+const ADDRESS_LEAD = /^(?:(?:у|около|возле|рядом с|рядом|напротив|дар назди|наздики|назди|по адресу|адрес)\s+)+/iu;
+/** Адрес кончается номером дома: «Рудаки 177», «ул. Айни, 45а». */
+const ENDS_WITH_HOUSE_NUMBER = /\p{L}[\p{L}.\s,-]*\s,?\s*\d{1,4}\s*[a-zа-яё]?\s*$/iu;
+
+async function houseByAddress(text: string): Promise<MatchPlace | null> {
+  const address = text.trim().replace(ADDRESS_LEAD, "").trim();
+  if (!ENDS_WITH_HOUSE_NUMBER.test(address)) return null;
+  const house = await resolveBuildingByText(address);
+  return house ? { name: house.name, lat: house.lat, lng: house.lng, radiusM: HOUSE_SEARCH_RADIUS_M } : null;
+}
+
 export async function resolveSearchPlace(text: string | null | undefined): Promise<ResolvedSearchPlace> {
   const empty: ResolvedSearchPlace = { districtName: null, placeDistrictName: null, place: null, suburban: false };
   if (!text?.trim()) return empty;
@@ -62,6 +78,15 @@ export async function resolveSearchPlace(text: string | null | undefined): Promi
   // Название района — не место: «Исмоили Сомони» не должен найтись проспектом Сомони.
   for (const d of OFFICIAL_DISTRICTS) key = key.replace(new RegExp(d.re.source, "gu"), " ");
   const suburban = textMentionsSuburb(text);
+
+  // Адрес «улица + номер дома» («Рудаки 177») — точка самого дома из справочника домов
+  // (lib/geoResolve.ts::resolveBuildingByText, тот же геокодер, что у адреса объекта), а не
+  // середина проспекта длиной в десять километров (07.11.2026, проверка владельца).
+  const house = await houseByAddress(text);
+  if (house) {
+    const district = (await districtByPoint(house.lat, house.lng))?.name ?? null;
+    return { districtName: official, placeDistrictName: district, place: house, suburban };
+  }
 
   // «Школа», «Рынок» без имени — не место: таких по городу сотни (P2-4).
   const [found] = (key.trim() ? await placesMentioned(key, { loose: true }) : []).filter((p) => !isGenericPlaceName(p.name));
