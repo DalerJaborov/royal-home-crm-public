@@ -25,7 +25,8 @@ import {
 } from "./geminiClient.js";
 import { isRetryableGeminiStatus } from "./geminiTransport.js";
 import { loadAssistantGeminiRuntime, loadAssistantSettings } from "./assistant/runtime.js";
-import { assistantLanguagePolicy } from "./assistant/languageRouting.js";
+import { assistantLanguagePolicy, repliesInTajik } from "./assistant/languageRouting.js";
+import type { ClientLanguage } from "./clientLanguage.js";
 import { createCardLinkEvidence } from "./assistant/cardLinkEvidence.js";
 import { centsToTjs, fromCents, loadMoneyContext, priceCeilingFilter, roundMoney, splitCents, toCents, toTjs } from "../lib/money.js";
 import {
@@ -36,7 +37,8 @@ import {
 } from "../lib/dushanbeTime.js";
 import type { ChatMessage } from "./client.js";
 import { clientNamePhoneSafe, clientPhoneFor, phoneSafeText } from "../lib/clientPhone.js";
-import { logAssistantToolCall } from "../lib/aiAssistantAudit.js";
+import { logAssistantToolCall, logAssistantTurn } from "../lib/aiAssistantAudit.js";
+import type { AssistantTurnOutcome } from "@royal-home/shared";
 import { logSystemError } from "../lib/systemError.js";
 import { COUNTED_SHOWING_WHERE, TASK_WHERE } from "../lib/tasks.js";
 import { describeError } from "../lib/describeError.js";
@@ -1445,6 +1447,23 @@ export async function runAssistantDetailed(
   let route: "tools" | "reference" | "off_topic" = "tools";
   // Результаты инструментов за диалог: при срыве (срок, лимит попыток) отдаём найденное.
   const collected: CollectedToolResult[] = [];
+  // Язык хода для готовых фраз (частичный ответ, «отключили») — тот же, что выбрала
+  // assistantLanguagePolicy ниже; до её расчёта (сбой настроек) — русский.
+  let turnLanguage: ClientLanguage = "unknown";
+  // Итог хода для журнала (AiAssistantTurnLog): одна строка на ответ, без текста ответа.
+  const turnLog: { rounds: number; outcome: AssistantTurnOutcome; reason: string | null; replyChars: number | null } = {
+    rounds: 0,
+    outcome: "error",
+    reason: null,
+    replyChars: null,
+  };
+  const replied = (reply: string, outcome: AssistantTurnOutcome, reason: string | null = null): AssistantOutcome => {
+    turnLog.outcome = outcome;
+    turnLog.reason = reason;
+    turnLog.replyChars = reply.length;
+    return { ok: true, reply };
+  };
+  const turnQuestion = [...trimAssistantHistory(messages)].reverse().find((m) => m.role === "user")?.content ?? null;
 
   // Один сигнал на весь диалог: срок ИЛИ уход клиента, что раньше.
   const stopper = new AbortController();
@@ -1478,6 +1497,8 @@ export async function runAssistantDetailed(
     };
     const embeddingGuard = createAssistantEmbeddingMoneyGuard({ wallet });
     const languagePolicy = assistantLanguagePolicy(trimAssistantHistory(messages), gemini);
+    turnLanguage = languagePolicy.language;
+    const tajikTurn = repliesInTajik(languagePolicy.language);
     const apiKey = gemini.keys[0];
     if (!apiKey) {
       throw new AssistantFailure("no_key", "Ключ Gemini не настроен (Настройки → ИИ, или GEMINI_API_KEY в .env)");
@@ -1498,7 +1519,7 @@ export async function runAssistantDetailed(
       if (signal.aborted) throw signal.reason;
       console.warn("[assistant] company knowledge unavailable");
     }
-    const glossary = languagePolicy.language === "tg" || languagePolicy.language === "mixed" ? tajikGlossaryFor(userQuestion) : "";
+    const glossary = tajikTurn ? tajikGlossaryFor(userQuestion) : "";
     const system = SYSTEM_PROMPT.replace("{{TODAY}}", dushanbeWallClock().toISOString().slice(0, 10))
       .replace("{{ROLE}}", () => actor.role)
       .replace("{{SECTIONS}}", () => assistantSectionsGuide(actor)) + assistantStyle(options.channel ?? "crm") + languagePolicy.instruction + glossary + sharedKnowledge;
@@ -1539,10 +1560,13 @@ export async function runAssistantDetailed(
       // диалога останавливало цикл, а не только следующий запрос.
       if (round > 0 && wasEnabledAtStart && !(await isAiAssistantEnabled())) {
         ok = true; // штатная остановка, а не сбой — не должна попасть как ошибка в aiLog.
-        return {
-          ok: true,
-          reply: "Ассистент был отключён в Настройках во время обработки запроса — начатые шаги не продолжены.",
-        };
+        return replied(
+          tajikTurn
+            ? "Ёрдамчиро ҳангоми кор дар Танзимот хомӯш карданд, қадамҳои оғозшуда идома дода нашуданд."
+            : "Ассистент был отключён в Настройках во время обработки запроса — начатые шаги не продолжены.",
+          "refusal",
+          "disabled",
+        );
       }
 
       onStatus?.(round === 0 ? "Думаю над ответом…" : "Уточняю данные…");
@@ -1558,9 +1582,10 @@ export async function runAssistantDetailed(
         runtime: languagePolicy.runtime,
         beforeAttempt,
         requireCompleteTurn: true,
-        requireLowThinking: languagePolicy.language === "tg" || languagePolicy.language === "mixed",
+        requireLowThinking: tajikTurn,
       };
       const onToken = modelTokenSink;
+      turnLog.rounds += 1;
       const turn = await modelCall(() =>
         onToken ? callGeminiToolsStream({ ...request, onToken }) : callGeminiTools(request),
       );
@@ -1571,14 +1596,14 @@ export async function runAssistantDetailed(
       if (turn.calls.length === 0) {
         if (!turn.text) throw new AssistantFailure("empty_reply", "Gemini вернул пустой ответ без вызова инструментов");
         const evidence = cardEvidence.validate(turn.text);
-        const tajik = languagePolicy.language === "tg" || languagePolicy.language === "mixed";
-        const reply = evidence.ok ? turn.text : tajik
+        const reply = evidence.ok ? turn.text : tajikTurn
           ? "Пайвандро дар CRM санҷида натавонистам. Ном ё рақамашро нависед."
           : "Не удалось подтвердить ссылки на карточки по данным CRM. Уточните запрос.";
         if (reply.trim() === OFF_TOPIC_REPLY) route = "off_topic";
         options.onToken?.({ text: reply });
         ok = true;
-        return { ok: true, reply };
+        if (!evidence.ok) return replied(reply, "refusal", "card_evidence");
+        return replied(reply, route === "off_topic" ? "refusal" : "answer", route === "off_topic" ? "off_topic" : null);
       }
 
       // Справочный вопрос: ответ grounded-поиска уходит человеку как есть, с
@@ -1591,10 +1616,11 @@ export async function runAssistantDetailed(
           // Инструмент не объявлялся, модель выдумала его имя — прежний отказ.
           route = "off_topic";
           ok = true;
-          return { ok: true, reply: OFF_TOPIC_REPLY };
+          return replied(OFF_TOPIC_REPLY, "refusal", "off_topic");
         }
         onStatus?.(toolStatusPhrase(WEB_REFERENCE_TOOL));
         const asked = typeof reference.args?.query === "string" ? reference.args.query.trim() : "";
+        turnLog.rounds += 1;
         const grounded = await modelCall(() =>
           callGeminiGrounded({
             apiKey,
@@ -1606,14 +1632,14 @@ export async function runAssistantDetailed(
             runtime: languagePolicy.runtime,
             beforeAttempt,
             requireCompleteTurn: true,
-            requireLowThinking: languagePolicy.language === "tg" || languagePolicy.language === "mixed",
+            requireLowThinking: tajikTurn,
           }),
         );
         // null — уже залогировано внутри callGeminiGrounded (logSystemError).
         if (!grounded) throw new ModelCallError(new Error("Grounded-поиск Gemini не ответил"));
         ok = true;
         options.onToolResult?.(WEB_REFERENCE_TOOL);
-        return { ok: true, reply: formatGroundedReply(grounded) };
+        return replied(formatGroundedReply(grounded), "answer");
       }
 
       // Реплику модели возвращаем в историю ЦЕЛИКОМ: без неё следующий ход не видит
@@ -1640,16 +1666,17 @@ export async function runAssistantDetailed(
         parts: turn.calls.map((call, i) => geminiFunctionResponsePart(call, results[i])),
       });
     }
-    // Шаги кончились: отдаём найденное и вопрос, а не отписку (partialAnswer.ts).
+    // Шаги кончились: отдаём найденное и вопрос, а не отписку (partialAnswer.ts) — на языке хода.
     ok = true;
-    return { ok: true, reply: partialAnswerFromResults(collected) };
+    return replied(partialAnswerFromResults(collected, turnLanguage), "partial", "rounds");
   } catch (err) {
     const failure = failureOf(err, signal);
+    turnLog.reason = failure.code;
     if (failure.code !== "aborted" && failure.code !== "no_key" && failure.code !== "provider_rejected" && hasFoundItems(collected)) {
       // Срыв посреди поиска (срок, лимит попыток): найденное не выбрасываем.
       console.warn("[ai:assistant] срыв после находок, отдаю частичный ответ:", failure.code);
       void logSystemError("ai", `Ассистент CRM: срыв (${failure.code}) после находок — отдан частичный ответ`);
-      return { ok: true, reply: partialAnswerFromResults(collected) };
+      return replied(partialAnswerFromResults(collected, turnLanguage), "partial", failure.code);
     }
     if (failure.code === "aborted") {
       // Клиент закрыл панель — это не сбой, в «Здоровье системы» ему не место.
@@ -1671,6 +1698,21 @@ export async function runAssistantDetailed(
   } finally {
     clearTimeout(deadlineTimer);
     options.signal?.removeEventListener("abort", onClientGone);
+    // Ход целиком — одна строка (пачка 2, lib/aiAssistantAudit.ts): ищется «где не справилась»
+    // без перебора строк инструментов. Не ждётся и сам ловит свой сбой, как журнал инструментов.
+    void logAssistantTurn({
+      agentId: actor.id,
+      channel: options.channel ?? "crm",
+      surface: actor.surface ?? null,
+      question: turnQuestion,
+      outcome: turnLog.outcome,
+      reason: turnLog.reason,
+      route,
+      rounds: turnLog.rounds,
+      toolCalls: collected.length,
+      replyChars: turnLog.replyChars,
+      ms: Date.now() - start,
+    });
     prisma.aiLog
       // Маршрут ответа — в имени endpoint: сколько ответов шло через инструменты
       // CRM, сколько через справочный поиск и сколько было отказов «не по теме».

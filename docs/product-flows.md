@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **730**. Развилок в самих путях: **2501**; вместе с задачами по расписанию и фоновыми заданиями — **3998**. Модулей: **81**.
+Путей: **731**. Развилок в самих путях: **2502**; вместе с задачами по расписанию и фоновыми заданиями — **4000**. Модулей: **81**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -1210,6 +1210,21 @@
 - res.json({ items: rows.map((r)
   · ответ 200
 
+### GET /api/v1/ai/assistant-turns
+
+`apps/api/src/routes/ai.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: auditLog.view
+
+- const parsed = assistantTurnsQuerySchema.safeParse(req.query);
+  · проверяет данные схемой assistantTurnsQuerySchema
+- если !parsed.success
+  - return res.status(400).json({ error: "Неверные параметры запроса", details: parsed.error.flatten() });
+    · ответ 400 — «Неверные параметры запроса»
+- const [rows, total, retentionDays] = await Promise.all([ prisma.aiAssistantTurnLog.findMany({ where, orderBy:…
+  · читает в базе: aiAssistantTurnLog
+  · считает в базе: aiAssistantTurnLog
+- res.json({ items: rows.map((r)
+  · ответ 200
+
 ### POST /api/v1/ai/assistant/actions/:id/cancel
 
 `apps/api/src/routes/ai.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, предел частоты запросов
@@ -1268,6 +1283,8 @@
       - если fast
         - void logAssistantToolCall({ agentId: actor.id, tool: fast.tool, argsSummary: fast.argsSummary, resultCount: f…
           · зовёт logAssistantToolCall()
+        - void logAssistantFastPathTurn({ agentId: actor.id, channel: "crm", surface: actor.surface, question: lastMess…
+          · зовёт logAssistantFastPathTurn()
         - для каждого: const card of fast.cards
           - sendEvent("card", card);
             · дословно из кода
@@ -13025,7 +13042,7 @@
 - если !property
   - return res.status(404).json({ error: "Объект не найден" });
     · ответ 404 — «Объект не найден»
-- если property.deletedAt && !can(req, "archive.view")
+- если property.deletedAt && !canOpenTrashedPropertyPage({ agentId: req.agent!.id, can: (permission) => can(req, per…
   - return res.status(404).json({ error: "Объект не найден" });
     · ответ 404 — «Объект не найден»
 - const presented = stripEmbedding(stripOwnerContact(property, req.agent!.id, can(req, "properties.viewOwners")…
@@ -19435,6 +19452,27 @@
       · пишет строку в журнал сервера
 - если сорвалось
   - reportCronTickError("Ошибка чистки действий ИИ-помощника", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
+
+### assistant-log-retention — 25 4 * * *
+
+- пробует
+  - const { days, turnsDeleted, questionsCleared } = await sweepAssistantLogs();
+    · зовёт sweepAssistantLogs()
+    - const days = await loadAssistantLogRetentionDays();
+      · зовёт loadAssistantLogRetentionDays()
+    - const [turns, questions] = await Promise.all([ prisma.aiAssistantTurnLog.deleteMany({ where: { createdAt: { l…
+      · удаляет в базе: aiAssistantTurnLog
+      · меняет в базе: aiAssistantAuditLog
+  - если turnsDeleted > 0 || questionsCleared > 0
+    - console.log(`[cron] Журнал помощницы старше ${days} дн.: ходов удалено ${turnsDeleted}, вопросов стёрто ${que…
+      · пишет строку в журнал сервера
+- если сорвалось
+  - reportCronTickError("Ошибка чистки журнала ИИ-помощницы по сроку", err);
     · зовёт reportCronTickError()
     - const reason = markCronTickFailed(label, err);
       · зовёт markCronTickFailed()

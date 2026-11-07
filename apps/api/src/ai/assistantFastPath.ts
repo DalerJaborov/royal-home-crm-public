@@ -3,6 +3,10 @@ import type { AssistantCard, AssistantClientCard, AssistantPropertyCard } from "
 import { prisma } from "../db.js";
 import { clientNamePhoneSafe, clientPhoneFor } from "../lib/clientPhone.js";
 import type { AssistantActor } from "./assistant.js";
+import { trashActorOf } from "./assistant/actor.js";
+import { presentTrashedProperty } from "./assistant/tools/propertyPresenter.js";
+import { findTrashedPropertyByRef } from "../lib/propertyRefLookup.js";
+import { canSeeTrashedProperties } from "../lib/trashAccess.js";
 
 /**
  * БЫСТРЫЙ ПУТЬ ПОМОЩНИКА БЕЗ МОДЕЛИ (полоса А, docs/design/internal-assistant-
@@ -22,7 +26,8 @@ import type { AssistantActor } from "./assistant.js";
  *     непринятая заявка номера не раскрывает), номер внутри имени маскируется;
  *   · поиск клиента ПО ТЕЛЕФОНУ — только тому, кому номер виден: иначе право
  *     обходится перебором («найди клиента с номером …57» = ответ да/нет на догадку);
- *   · объекты, как в search_properties, видны всем ролям; Корзина — нет.
+ *   · объекты, как в search_properties, видны всем ролям; карточки из Корзины — нет, но на
+ *     номер удалённого объекта приходит справка «в Корзине, удалён …» (lib/trashAccess.ts).
  * Нет доступа или ничего не найдено — null (пусть отвечает обычный путь: он сам
  * честно скажет «не нашёл», не раскрывая, существует ли закрытая карточка).
  *
@@ -38,6 +43,8 @@ export interface AssistantFastPathResult {
   tool: string;
   /** Что открыли — id карточки, не телефон и не текст вопроса (журнал хранит факт обращения). */
   argsSummary: string;
+  /** 1 — номер оказался у объекта в Корзине: ответ-справка без карточки (пачка 2). */
+  trashed?: number;
 }
 
 /** Слова-«глаголы» перед номером: «покажи ОБ-88», «найди клиента ПК-5». */
@@ -260,6 +267,19 @@ export async function tryAssistantFastPath(text: string, actor: AssistantActor):
   const cards = await findByIntent(intent, actor);
   if (cards.length === 0) {
     if (intent.kind !== "property-code") return null;
+    // Номер удалённого объекта: «в Корзине, удалён тогда-то, кем», а не «не нашла» (пачка 2).
+    // Та же справка и то же правило Корзины, что у get_property_card/find_property.
+    const trash = trashActorOf(actor);
+    const trashed = canSeeTrashedProperties(trash) ? await findTrashedPropertyByRef(String(intent.shortId)) : null;
+    if (trashed) {
+      return {
+        cards: [],
+        reply: presentTrashedProperty(trashed, trash).note,
+        tool: "fast_path.property-code",
+        argsSummary: JSON.stringify({ shortId: intent.shortId, inTrash: true }),
+        trashed: 1,
+      };
+    }
     return {
       cards: [],
       reply: `Не нашла объект ОБ-${String(intent.shortId).padStart(6, "0")} среди доступных карточек.`,

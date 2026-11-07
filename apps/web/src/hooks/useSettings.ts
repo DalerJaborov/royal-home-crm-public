@@ -540,6 +540,8 @@ export interface Settings {
   followUpEnabled: boolean;
   /** Окно инициативных сообщений бота, "HH:MM" по Душанбе. */
   aiAssistantEnabled: boolean;
+  /** Сколько дней хранить журнал помощницы (пачка 2, 07.11.2026). У сотрудников без настроек — нет. */
+  aiAssistantLogRetentionDays?: number;
   /** Google Search grounding для справочных вопросов ассистента CRM (рынок/законы/
    *  налоги/ипотека Таджикистана вне данных CRM). Выключен по умолчанию. */
   groundedSearchEnabled: boolean;

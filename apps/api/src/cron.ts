@@ -5,6 +5,7 @@ import { cleanupBotTurnTraces } from "./lib/botTurnTraceStore.js";
 import { runSocialVideoScheduleTick } from "./lib/socialVideoPosts.js";
 import { runBackgroundJobsTick, runCustomerJobsTick } from "./jobs/runner.js";
 import { runAssistantActionsSweep } from "./jobs/assistantActionsSweep.js";
+import { sweepAssistantLogs } from "./lib/aiAssistantAudit.js";
 import { runPriceCaptionDeliveryTick } from "./lib/priceCaptionDelivery.js";
 import { expireExpensePhotoDrafts } from "./lib/telegramExpenseReceipts.js";
 import { enqueueBackgroundJob } from "./jobs/enqueue.js";
@@ -2341,6 +2342,27 @@ export function startCronJobs() {
       reportCronTickError("Ошибка чистки действий ИИ-помощника", err);
     }
   });
+
+  /**
+   * СРОК ХРАНЕНИЯ ЖУРНАЛА ПОМОЩНИЦЫ (пачка 2, 07.11.2026): раз в сутки ночью по Душанбе ходы
+   * старше Settings.aiAssistantLogRetentionDays (по умолчанию 90 дней) удаляются, у строк
+   * инструментов стирается текст вопроса (lib/aiAssistantAudit.ts::sweepAssistantLogs).
+   */
+  scheduleTracked(
+    "assistant-log-retention",
+    "25 4 * * *",
+    async () => {
+      try {
+        const { days, turnsDeleted, questionsCleared } = await sweepAssistantLogs();
+        if (turnsDeleted > 0 || questionsCleared > 0) {
+          console.log(`[cron] Журнал помощницы старше ${days} дн.: ходов удалено ${turnsDeleted}, вопросов стёрто ${questionsCleared}`);
+        }
+      } catch (err) {
+        reportCronTickError("Ошибка чистки журнала ИИ-помощницы по сроку", err);
+      }
+    },
+    { timezone: "Asia/Dushanbe" },
+  );
 
   /**
    * ГОТОВЫЙ РОЛИК ЖДЁТ ПРОВЕРКИ ДОЛЬШЕ 3 ЧАСОВ (25.09.2026, lib/clipReview.ts) —

@@ -4,9 +4,48 @@ import { stripOwnerContact } from "../../../lib/ownerContact.js";
 import { toTjs, type MoneyContext } from "../../../lib/money.js";
 import { siteListingUrl } from "../../../lib/siteListingUrl.js";
 import { dushanbeDateString, dushanbeDateTimeString } from "../../../lib/dushanbeTime.js";
-import type { PropertyRefRecord } from "../../../lib/propertyRefLookup.js";
+import type { PropertyRefRecord, TrashedPropertyRecord } from "../../../lib/propertyRefLookup.js";
+import { canOpenTrashedPropertyPage, canRestorePropertyAs, type TrashActor } from "../../../lib/trashAccess.js";
 import type { AssistantActor } from "../actor.js";
 import { safeField } from "./safeField.js";
+
+/** «2026-09-25» → «25.09.2026»: дата по Душанбе так, как её пишут люди. */
+function humanDate(iso: string): string {
+  const [y, m, d] = iso.split("-");
+  return `${d}.${m}.${y}`;
+}
+
+/**
+ * ОБЪЕКТ В КОРЗИНЕ — СПРАВКА (пачка 2, 07.11.2026): «в Корзине, удалён <дата по Душанбе>, кем»
+ * вместо «не найден». Одна подача на get_property_card, find_property и быстрый путь по номеру.
+ * Права — общее правило Корзины (lib/trashAccess.ts): справка всем; ссылка на страницу — только
+ * тем, кому REST её откроет; canRestore — та же проверка, что у restore_property. Продавца,
+ * контакта собственника и описания здесь нет вовсе: о клиентах справка не говорит.
+ */
+export function presentTrashedProperty(p: TrashedPropertyRecord, trash: TrashActor) {
+  const deletedOn = p.deletedAt ? dushanbeDateString(p.deletedAt) : null;
+  const deletedBy = p.deletedBy?.fullName ?? null;
+  const code = formatPropertyCode(p.shortId);
+  const when = [deletedOn ? `удалён ${humanDate(deletedOn)}` : "удалён", deletedBy ? `удалил ${deletedBy}` : null]
+    .filter(Boolean)
+    .join(", ");
+  const canRestore = canRestorePropertyAs(trash, p);
+  return {
+    code,
+    ...(canOpenTrashedPropertyPage(trash) ? { href: propertyHref(p.shortId) } : {}),
+    inTrash: true as const,
+    title: safeField(p.title),
+    deletedAt: deletedOn,
+    deletedBy,
+    agent: (p.assignedAgent ?? p.intakeAgent)?.fullName ?? null,
+    canRestore,
+    note:
+      `${code} в Корзине: ${when}. ` +
+      (canRestore
+        ? "Вернуть его из Корзины можете вы."
+        :"Вернуть его может директор, администратор или агент этого объекта."),
+  };
+}
 
 /**
  * ОБЪЕКТ В ОТВЕТЕ ПОМОЩНИКА (П3, группа «read»): одна подача на find_property и

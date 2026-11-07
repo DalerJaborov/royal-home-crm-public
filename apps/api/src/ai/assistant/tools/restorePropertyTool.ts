@@ -1,10 +1,11 @@
 import { z } from "zod";
-import { formatPropertyCode, isReadOnlyRole, parseShortCode } from "@royal-home/shared";
+import { formatPropertyCode, isReadOnlyRole } from "@royal-home/shared";
 import { prisma } from "../../../db.js";
 import { AssistantActionError, type AssistantActionActor, type AssistantActionExecutor } from "../../../lib/assistantActions.js";
 import { logAgentAudit } from "../../../lib/audit.js";
 import { dushanbeDateString } from "../../../lib/dushanbeTime.js";
 import { publishPropertyUpdated } from "../../../lib/livePublish.js";
+import { parseExactPropertyRef } from "../../../lib/propertyRefLookup.js";
 import { canRestorePropertyAs, PROPERTY_RESTORE_DENIED } from "../../../lib/trashAccess.js";
 import { restorePropertyFromTrash } from "../../../lib/trashProperty.js";
 import { loadWriterRole } from "./propertyToolSupport.js";
@@ -36,21 +37,15 @@ interface Snap {
   [extra: string]: unknown;
 }
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const NOT_IN_TRASH = "В Корзине такого объекта нет. Назовите номер ОБ- из найденного в Корзине.";
-
-/** Ссылка из ответа поиска («/properties/130») — тот же номер, что code «ОБ-000130». */
-const HREF_RE = /\/properties\/(\d+)\/?$/;
 
 async function loadTrashed(actor: AssistantActionActor, ref: string) {
   await loadWriterRole(actor.agentId);
-  const raw = ref.trim();
-  const href = raw.match(HREF_RE);
-  const text = href ? href[1] : raw;
-  const shortId = UUID_RE.test(text) ? null : parseShortCode(text);
-  if (!UUID_RE.test(text) && shortId === null) throw new AssistantActionError(404, "ENTITY_NOT_FOUND", NOT_IN_TRASH);
+  // Один разбор точной ссылки (id, номер, href) на Корзину — lib/propertyRefLookup.ts.
+  const exact = parseExactPropertyRef(ref);
+  if (!exact) throw new AssistantActionError(404, "ENTITY_NOT_FOUND", NOT_IN_TRASH);
   const property = await prisma.property.findFirst({
-    where: UUID_RE.test(text) ? { id: text.toLowerCase() } : { shortId: shortId! },
+    where: exact,
     include: { deletedBy: { select: { fullName: true } } },
   });
   if (!property) throw new AssistantActionError(404, "ENTITY_NOT_FOUND", NOT_IN_TRASH);

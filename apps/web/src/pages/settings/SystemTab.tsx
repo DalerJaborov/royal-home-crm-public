@@ -16,6 +16,11 @@ import { Rh2ErrorState } from "../../components/rh2/Rh2ErrorState";
 import { Rh2EmptyState } from "../../components/rh2/Rh2EmptyState";
 import { Pagination } from "../../components/Pagination";
 import { createLatestRequest } from "../../lib/latestRequest";
+import {
+  ASSISTANT_LOG_RETENTION_DAYS,
+  ASSISTANT_TURN_OUTCOME_LABELS,
+  type AssistantTurnOutcome,
+} from "@royal-home/shared";
 
 /** Вкладка «Данные и система»: импорт из файла, здоровье системы, админка сайта.
  *
@@ -485,9 +490,11 @@ export function AssistantAuditSection() {
   const [page, setPage] = useState(1);
   const [data, setData] = useState<AssistantAuditPage | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // «Ответы» — ход целиком (итог, шаги), «Обращения к данным» — строка на инструмент.
+  const [view, setView] = useState<"turns" | "tools">("turns");
 
   useEffect(() => {
-    if (!canView) return;
+    if (!canView || view !== "tools") return;
     // Ответ на уже сменённые страницу или фильтр отбрасывается (аудит
     // 02.10.2026): при быстром листании запоздавший старый ответ иначе
     // перезаписывал свежий, и под фильтром «Иванов» стояли строки «Все».
@@ -509,22 +516,35 @@ export function AssistantAuditSection() {
     return () => {
       stale = true;
     };
-  }, [canView, agentId, from, to, page]);
+  }, [canView, agentId, from, to, page, view]);
 
   if (!canView) return null;
 
   return (
-    <SettingsSection icon={Bot} title="Журнал ИИ-ассистента" badge={data ? `${data.total}` : undefined}>
+    <SettingsSection icon={Bot} title="Журнал ИИ-ассистента" badge={view === "tools" && data ? `${data.total}` : undefined}>
       <div className="quiet">
         <span className="dot" />
         <span className="txt">
-          Каждое обращение сотрудника к ИИ-ассистенту CRM: что спросили, какой инструмент вызван, по какому клиенту и когда.
-          Доступ ассистент получает под правами вызвавшего — это журнал прослеживаемости, а не единственная
-          защита данных.
+          {view === "turns"
+            ? "Каждый ответ помощницы: что спросили и чем закончилось — ответила, частично, не по сути или сбой. Текст ответа не хранится."
+            : "Каждое обращение сотрудника к ИИ-ассистенту CRM: что спросили, какой инструмент вызван, по какому клиенту и когда. Доступ ассистент получает под правами вызвавшего — это журнал прослеживаемости, а не единственная защита данных."}
         </span>
       </div>
 
-      {loadError && (
+      <div className="hscroll" style={{ marginTop: "var(--s3)" }}>
+        <div className="seg" role="tablist" aria-label="Что показать в журнале">
+          {([
+            ["turns", "Ответы"],
+            ["tools", "Обращения к данным"],
+          ] as const).map(([key, label]) => (
+            <button key={key} type="button" role="tab" aria-selected={view === key} onClick={() => setView(key)}>
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {view === "tools" && loadError && (
         <div className="quiet crit" role="alert">
           <span className="dot crit" />
           <span className="txt">{loadError}. Пустой список ниже не означает, что обращений не было.</span>
@@ -576,6 +596,10 @@ export function AssistantAuditSection() {
         </label>
       </div>
 
+      {view === "turns" ? (
+        <AssistantTurnsList key={`${agentId}|${from}|${to}`} agentId={agentId} from={from} to={to} />
+      ) : (
+        <>
       <div className="list" style={{ marginTop: "var(--s3)" }}>
         {data && data.items.length === 0 && <div className="state">За выбранный период обращений нет.</div>}
         {data?.items.map((row) => (
@@ -612,7 +636,198 @@ export function AssistantAuditSection() {
           <Pagination variant="rh2" page={data.page} pageSize={data.pageSize} total={data.total} onPageChange={setPage} />
         </div>
       )}
+        </>
+      )}
     </SettingsSection>
+  );
+}
+
+interface AssistantTurnItem {
+  id: string;
+  createdAt: string;
+  channel: string;
+  surface: string | null;
+  question: string | null;
+  outcome: AssistantTurnOutcome;
+  reason: string | null;
+  route: string;
+  rounds: number;
+  toolCalls: number;
+  replyChars: number | null;
+  ms: number;
+  agent: { id: string; fullName: string };
+}
+interface AssistantTurnsPage {
+  items: AssistantTurnItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+  retentionDays: number;
+}
+
+/** Почему ход не стал обычным ответом — бытовыми словами (код из AiAssistantTurnLog.reason). */
+const TURN_REASON_LABELS: Record<string, string> = {
+  off_topic: "вопрос не про работу",
+  card_evidence: "не смогла подтвердить ссылки",
+  disabled: "помощницу выключили во время ответа",
+  rounds: "не хватило шагов",
+  not_found: "ничего не нашла",
+  deadline: "думала слишком долго",
+  aborted: "окно закрыли до ответа",
+  attempt_limit: "лимит запросов",
+  no_key: "нет ключа ИИ",
+  provider_unavailable: "ИИ недоступен",
+  provider_rejected: "ИИ отказал",
+  stream_interrupted: "связь оборвалась",
+  empty_reply: "пустой ответ",
+  internal: "внутренняя ошибка",
+};
+
+const TURN_SURFACE_LABELS: Record<string, string> = {
+  "crm-private": "CRM",
+  "telegram-private": "Telegram, личка",
+  "telegram-group": "Telegram, группа",
+};
+
+/**
+ * ОТВЕТЫ ПОМОЩНИЦЫ (пачка 2, 07.11.2026, GET /ai/assistant-turns): одна строка на ход —
+ * вопрос, итог, сколько шагов и обращений к данным, длина ответа. Фильтр «Где не справилась»
+ * показывает всё, кроме обычного ответа. Срок хранения меняет тот, у кого есть право настроек.
+ * Одна вёрстка на ПК и телефон: строки `.list/.row` и фильтры `.filters` сами переносятся.
+ */
+function AssistantTurnsList({ agentId, from, to }: { agentId: string; from: string; to: string }) {
+  const can = useCan();
+  const [outcome, setOutcome] = useState<"" | "failed">("");
+  const [page, setPage] = useState(1);
+  const [data, setData] = useState<AssistantTurnsPage | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  // Смена фильтров сверху пересоздаёт этот блок (key у вызова) — страница снова первая.
+  useEffect(() => {
+    let stale = false;
+    const params = new URLSearchParams({ page: String(page) });
+    if (agentId) params.set("agentId", agentId);
+    if (from) params.set("from", from);
+    if (to) params.set("to", to);
+    if (outcome) params.set("outcome", outcome);
+    api<AssistantTurnsPage>(`/ai/assistant-turns?${params.toString()}`)
+      .then((res) => {
+        if (stale) return;
+        setData(res);
+        setLoadError(null);
+      })
+      .catch((err: unknown) => {
+        if (stale) return;
+        setLoadError(err instanceof Error ? err.message : "Не удалось загрузить ответы помощницы");
+      });
+    return () => {
+      stale = true;
+    };
+  }, [agentId, from, to, outcome, page]);
+
+  return (
+    <>
+      {loadError && (
+        <div className="quiet crit" role="alert">
+          <span className="dot crit" />
+          <span className="txt">{loadError}. Пустой список ниже не означает, что ответов не было.</span>
+        </div>
+      )}
+
+      <div className="filters" style={{ marginTop: "var(--s3)" }}>
+        <label className="field">
+          <span className="lab">Показать</span>
+          <select
+            className="inp"
+            value={outcome}
+            onChange={(e) => {
+              setOutcome(e.target.value === "failed" ? "failed" : "");
+              setPage(1);
+            }}
+          >
+            <option value="">Все ответы</option>
+            <option value="failed">Где не справилась</option>
+          </select>
+        </label>
+      </div>
+
+      <div className="list" style={{ marginTop: "var(--s3)" }}>
+        {data && data.items.length === 0 && <div className="state">За выбранный период ответов нет.</div>}
+        {data?.items.map((row) => (
+          <div className="row" key={row.id}>
+            <Bot className="i" aria-hidden="true" />
+            <div className="t">
+              <b>
+                {ASSISTANT_TURN_OUTCOME_LABELS[row.outcome] ?? row.outcome}
+                {row.reason && <span className="chip"> {TURN_REASON_LABELS[row.reason] ?? row.reason}</span>}
+              </b>
+              <span>
+                {row.agent.fullName} · {new Date(row.createdAt).toLocaleString("ru-RU", { timeZone: "Asia/Dushanbe" })}
+                {" · "}
+                {TURN_SURFACE_LABELS[row.surface ?? ""] ?? (row.channel === "telegram" ? "Telegram" : "CRM")}
+              </span>
+              {row.question && <span>Вопрос: «{row.question}»</span>}
+              <span className="quiet">
+                Шагов: {row.rounds} · обращений к данным: {row.toolCalls}
+                {typeof row.replyChars === "number" ? ` · ответ ${row.replyChars} знаков` : ""} · {Math.round(row.ms / 100) / 10} с
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {data && (
+        <div style={{ marginTop: 12 }}>
+          <Pagination variant="rh2" page={data.page} pageSize={data.pageSize} total={data.total} onPageChange={setPage} />
+        </div>
+      )}
+
+      {data && can("settings.manage") && <AssistantLogRetention fallbackDays={data.retentionDays} />}
+    </>
+  );
+}
+
+/** Срок хранения журнала помощницы — поле с кнопкой; пределы общие с сервером (@royal-home/shared). */
+function AssistantLogRetention({ fallbackDays }: { fallbackDays: number }) {
+  const { data: settings } = useSettings();
+  const days = settings?.aiAssistantLogRetentionDays ?? fallbackDays;
+  return <AssistantLogRetentionField key={days} days={days} />;
+}
+
+function AssistantLogRetentionField({ days }: { days: number }) {
+  const save = useUpdateSettings();
+  const [value, setValue] = useState(String(days));
+  const n = Number(value);
+  const valid = Number.isInteger(n) && n >= ASSISTANT_LOG_RETENTION_DAYS.min && n <= ASSISTANT_LOG_RETENTION_DAYS.max;
+
+  return (
+    <div className="filters" style={{ marginTop: "var(--s3)", alignItems: "flex-end" }}>
+      <label className="field">
+        <span className="lab">Хранить журнал, дней</span>
+        <input
+          className="inp"
+          type="number"
+          inputMode="numeric"
+          min={ASSISTANT_LOG_RETENTION_DAYS.min}
+          max={ASSISTANT_LOG_RETENTION_DAYS.max}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          aria-describedby="assistant-log-retention-hint"
+        />
+      </label>
+      <button
+        type="button"
+        className="pill"
+        disabled={!valid || n === days || save.isPending}
+        onClick={() => save.mutate({ aiAssistantLogRetentionDays: n })}
+      >
+        Сохранить
+      </button>
+      <span id="assistant-log-retention-hint" className="quiet">
+        Старше этого срока ответы удаляются, а у обращений к данным стирается текст вопроса. От{" "}
+        {ASSISTANT_LOG_RETENTION_DAYS.min} до {ASSISTANT_LOG_RETENTION_DAYS.max} дней.
+      </span>
+    </div>
   );
 }
 

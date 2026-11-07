@@ -32,6 +32,16 @@ export function canSeeTrashedProperties(_actor: TrashActor): boolean {
   return true;
 }
 
+/**
+ * Открыть СТРАНИЦУ удалённого объекта (/properties/:номер) может только руководство с правом
+ * «Архив» — так отвечает REST (routes/properties/list.ts, GET по номеру, зовёт эту же функцию).
+ * Остальным справка о Корзине приходит словами, без ссылки: ссылка на закрытую страницу — тупик
+ * «Объект не найден».
+ */
+export function canOpenTrashedPropertyPage(actor: TrashActor): boolean {
+  return actor.can("archive.view");
+}
+
 /** Хозяин объекта для Корзины: ведущий или приёмщик. */
 export function ownsTrashedProperty(
   agentId: string,

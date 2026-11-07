@@ -628,6 +628,8 @@ model Agent {
   /// возникнет подозрение, что кто-то использует ассистента для сбора чужих
   /// данных, по этой таблице видно, кто, какой функцией и когда пользовался.
   aiAssistantAuditLogs        AiAssistantAuditLog[]
+  /// Ходы помощницы целиком (пачка 2, 07.11.2026): одна строка на ответ.
+  aiAssistantTurnLogs         AiAssistantTurnLog[]
 }
 
 /// Журнал входов в CRM: одна запись = одна успешная выдача сессии (логин или логин+2FA).
@@ -1782,6 +1784,41 @@ model AiAssistantAuditLog {
   createdAt   DateTime @default(now())
 
   @@index([agentId, createdAt])
+}
+
+/// ХОД ПОМОЩНИЦЫ ЦЕЛИКОМ (пачка 2, 07.11.2026, владелец: «прочитать, где она не справилась»).
+/// Одна строка на один ответ сотруднику — в отличие от AiAssistantAuditLog (строка на
+/// инструмент), здесь видно и ходы без инструментов (отказ «не по теме», сбой модели).
+/// Текста ответа НЕТ намеренно: только длина. Вопрос — та же маска телефонов и те же 500 знаков,
+/// что у AiAssistantAuditLog (lib/aiAssistantAudit.ts, одна точка подготовки).
+/// Срок хранения — Settings.aiAssistantLogRetentionDays, чистит крон «assistant-log-retention».
+model AiAssistantTurnLog {
+  id         String   @id @default(uuid())
+  agentId    String
+  agent      Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  /// Вход: "crm" (панель «Спросить») или "telegram".
+  channel    String
+  /// Где шёл разговор: crm-private | telegram-private | telegram-group (AssistantActor.surface).
+  surface    String?
+  question   String?
+  /// Итог хода: answer | partial | refusal | error (ASSISTANT_TURN_OUTCOMES, @royal-home/shared).
+  outcome    String
+  /// Почему не обычный ответ: off_topic, card_evidence, disabled, rounds, код сбоя (deadline, ...).
+  reason     String?
+  /// Маршрут: tools | reference | off_topic | fast_path.
+  route      String
+  /// Сколько раз ходили в модель (0 у быстрого пути без модели).
+  rounds     Int
+  /// Сколько инструментов вызвано за ход.
+  toolCalls  Int
+  /// Длина ответа в знаках; NULL — ответа человеку не было (сбой).
+  replyChars Int?
+  ms         Int
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([agentId, createdAt])
+  @@index([outcome, createdAt])
 }
 
 /// Право на ОДНО действие из шторки уведомлений (решение владельца 11.08.2026:
@@ -6974,6 +7011,11 @@ model Settings {
   /// ВЫКЛЮЧЕН по умолчанию (решение владельца 02.08.2026): разделом пока никто не
   /// пользуется, а каждый вызов это и токены, и доступ модели к данным CRM.
   aiAssistantEnabled                Boolean   @default(false)
+  /// СРОК ХРАНЕНИЯ ЖУРНАЛА ПОМОЩНИЦЫ, дней (пачка 2, 07.11.2026): старше — ходы
+  /// (AiAssistantTurnLog) удаляются, а у строк инструментов (AiAssistantAuditLog) стирается
+  /// текст вопроса; сам факт обращения остаётся. Пределы — ASSISTANT_LOG_RETENTION_DAYS
+  /// (@royal-home/shared). Чистит крон «assistant-log-retention» (lib/aiAssistantAudit.ts).
+  aiAssistantLogRetentionDays       Int       @default(90)
   /// ПАУЗА Telegram-уведомлений с площадок Somon/Paydo (03.11.2026, по умолчанию ВКЛЮЧЕНА).
   /// В CRM (колокольчик, ленты, карточки) ничего не меняется; снять: Settings.telegramPortalAlertsPaused = false.
   telegramPortalAlertsPaused        Boolean   @default(true)

@@ -20,9 +20,18 @@ export function assistantLanguage(messages: readonly { role: string; content: st
   return "unknown";
 }
 
+/**
+ * Готовые фразы помощницы (частичный ответ, «отключили посреди хода») — на таджикском, если
+ * сотрудник пишет по-таджикски или вперемешку. Одно правило на все такие фразы: то же, по которому
+ * ход переключается на таджикскую модель ниже.
+ */
+export function repliesInTajik(language: ClientLanguage): boolean {
+  return language === "tg" || language === "mixed";
+}
+
 export function assistantLanguagePolicy(messages: readonly { role: string; content: string }[], runtime: GeminiRuntime) {
   const language = assistantLanguage(messages);
-  const strong = language === "tg" || language === "mixed";
+  const strong = repliesInTajik(language);
   return {
     language,
     // Never mutate the shared runtime cache or silently downgrade Tajik to Flash.

@@ -18,7 +18,7 @@
  * Ссылок Somon в карточке объекта НЕТ (поля в схеме нет): отдельный признак
  * `somonLink`, чтобы помощник честно сказал «в карточке не хранится».
  */
-import { parseShortCode } from "@royal-home/shared";
+import { formatPropertyCode, parseShortCode } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import type { Prisma } from "../generated/prisma/client.js";
 import { instagramPostCode, instagramPostCodesIn } from "./instagramPostLead.js";
@@ -45,6 +45,52 @@ export interface PropertyRefResult {
 
 const SOMON_RE = /somon\.tj/i;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** Ссылка из ответа поиска («/properties/130») — тот же номер, что code «ОБ-000130». */
+const PROPERTY_HREF_RE = /\/properties\/(\d+)\/?$/;
+
+/**
+ * ТОЧНАЯ ССЫЛКА НА ОДИН ОБЪЕКТ: id, номер («ОБ-000130», «130») или href карточки. Адрес и слова —
+ * не точная ссылка (null). Один разбор на Корзину: восстановление (restore_property) и ответ
+ * «в Корзине» вместо «не найден» (findTrashedPropertyByRef).
+ */
+export function parseExactPropertyRef(ref: string): { id: string } | { shortId: number } | null {
+  const raw = ref.trim();
+  const href = raw.match(PROPERTY_HREF_RE);
+  const text = href ? href[1] : raw;
+  if (UUID_RE.test(text)) return { id: text.toLowerCase() };
+  const shortId = parseShortCode(text);
+  return shortId === null ? null : { shortId };
+}
+
+/** Удалённый объект для справки «в Корзине»: без продавца, контакта собственника и описания. */
+export const TRASHED_PROPERTY_SELECT = {
+  id: true,
+  shortId: true,
+  title: true,
+  deletedAt: true,
+  assignedAgentId: true,
+  intakeAgentId: true,
+  deletedBy: { select: { fullName: true } },
+  assignedAgent: { select: { fullName: true } },
+  intakeAgent: { select: { fullName: true } },
+} satisfies Prisma.PropertySelect;
+
+export type TrashedPropertyRecord = Prisma.PropertyGetPayload<{ select: typeof TRASHED_PROPERTY_SELECT }>;
+
+/**
+ * ОБЪЕКТ В КОРЗИНЕ ПО ТОЧНОЙ ССЫЛКЕ (пачка 2, 07.11.2026). Помощница раньше отвечала «не найден»
+ * на номер удалённого объекта; теперь — «в Корзине, удалён тогда-то, кем». Кому это можно,
+ * решает вызывающий по общему правилу Корзины (lib/trashAccess.ts::canSeeTrashedProperties).
+ * Живой объект (deletedAt = null) сюда не попадает: для него обычный findPropertiesByRef.
+ */
+export async function findTrashedPropertyByRef(ref: string): Promise<TrashedPropertyRecord | null> {
+  const exact = parseExactPropertyRef(ref);
+  if (!exact) return null;
+  return prisma.property.findFirst({
+    where: { ...exact, deletedAt: { not: null } },
+    select: TRASHED_PROPERTY_SELECT,
+  });
+}
 
 /**
  * @param ref  что сказал человек
@@ -162,12 +208,23 @@ export async function resolvePropertyRef(rawRef: string): Promise<PropertyRefRes
 
   const found = await findPropertiesByRef(ref, { limit: CANDIDATES_LIMIT });
   if (found.kind === "somon") return notFound("Ссылки Somon в карточке объекта не хранятся — укажите номер ОБ-.");
+  // Номер удалённого объекта: «в Корзине», а не «не найден» (пачка 2) — менять его нельзя,
+  // пока не восстановят. Справка о Корзине открыта всем сотрудникам (lib/trashAccess.ts).
+  const notFoundOrTrashed = async (): Promise<PropertyRefResolution> => {
+    const trashed = await findTrashedPropertyByRef(ref);
+    if (!trashed) return notFound();
+    return notFound(
+      `Объект ${formatPropertyCode(trashed.shortId)} в Корзине — менять его нельзя, пока его не восстановят ` +
+        "(восстановить может директор, администратор или агент этого объекта).",
+    );
+  };
   if (found.kind === "id" || found.kind === "shortId") {
     const exact = found.properties[0];
-    return exact ? { ok: true, id: exact.id, shortId: exact.shortId } : notFound();
+    return exact ? { ok: true, id: exact.id, shortId: exact.shortId } : notFoundOrTrashed();
   }
   // Номер без такой карточки и слишком короткие слова — не угадываем по адресу.
-  if (parseShortCode(ref) !== null || (found.kind === "text" && ref.length < 3)) return notFound();
+  if (parseShortCode(ref) !== null) return notFoundOrTrashed();
+  if (found.kind === "text" && ref.length < 3) return notFound();
 
   const rows = found.properties;
   if (rows.length === 1) return { ok: true, id: rows[0].id, shortId: rows[0].shortId };

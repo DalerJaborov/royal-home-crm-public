@@ -3,7 +3,7 @@ import path from "node:path";
 import fs from "node:fs/promises";
 import { z } from "zod";
 import rateLimit from "express-rate-limit";
-import { parseNoteSchema, assistantRequestSchema, assistantAuditQuerySchema, propertyHasCondition, visiblePropertyFacts } from "@royal-home/shared";
+import { parseNoteSchema, assistantRequestSchema, assistantAuditQuerySchema, assistantTurnsQuerySchema, propertyHasCondition, visiblePropertyFacts } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { loadHotScoreThreshold } from "../lib/hotScoreThreshold.js";
 import { can, canAccessAssignedAgent, requireAuth, requirePermission, scopeDealsToOwnAgent, scopeToOwnAgent } from "../auth/middleware.js";
@@ -18,7 +18,7 @@ import { buildPropertyDraftSuggestion } from "../ai/propertyDraft.js";
 import { ASSISTANT_ERROR_MESSAGES, isAiAssistantEnabled, runAssistantDetailed } from "../ai/assistant.js";
 import { actorFromAccess } from "../ai/assistant/actor.js";
 import { tryAssistantFastPath } from "../ai/assistantFastPath.js";
-import { logAssistantToolCall } from "../lib/aiAssistantAudit.js";
+import { loadAssistantLogRetentionDays, logAssistantFastPathTurn, logAssistantToolCall } from "../lib/aiAssistantAudit.js";
 import { formatPrice, stripDashes } from "../ai/seoGenerator.js";
 import { TG_PREFIX } from "./conversations.js";
 import type { Request, Response } from "express";
@@ -136,6 +136,7 @@ aiRouter.post("/assistant", requireAuth, assistantLimiter, async (req, res) => {
     const lastMessage = parsed.data.messages[parsed.data.messages.length - 1];
     if (lastMessage?.role === "user") {
       try {
+        const fastStartedAt = Date.now();
         const fast = await tryAssistantFastPath(lastMessage.content, actor);
         if (fast) {
           void logAssistantToolCall({
@@ -144,6 +145,15 @@ aiRouter.post("/assistant", requireAuth, assistantLimiter, async (req, res) => {
             argsSummary: fast.argsSummary,
             resultCount: fast.cards.length,
             question: lastMessage.content,
+          });
+          void logAssistantFastPathTurn({
+            agentId: actor.id,
+            channel: "crm",
+            surface: actor.surface,
+            question: lastMessage.content,
+            reply: fast.reply,
+            found: fast.cards.length + (fast.trashed ?? 0),
+            startedAt: fastStartedAt,
           });
           for (const card of fast.cards) sendEvent("card", card);
           sendEvent("done", { reply: fast.reply });
@@ -286,6 +296,57 @@ aiRouter.get("/assistant-audit", requireAuth, requirePermission("auditLog.view")
     total,
     page,
     pageSize: ASSISTANT_AUDIT_PAGE_SIZE,
+  });
+});
+
+/**
+ * ХОДЫ ПОМОЩНИЦЫ (пачка 2, 07.11.2026, модель AiAssistantTurnLog): одна строка на ответ —
+ * вопрос (маска телефонов), итог, число шагов и инструментов, длина ответа. Текста ответа нет.
+ * Фильтр `outcome=failed` — «где не справилась» (всё, кроме answer). Право — то же, что у
+ * журнала инструментов выше (`auditLog.view`), отдельного права под один блок не заводим.
+ */
+aiRouter.get("/assistant-turns", requireAuth, requirePermission("auditLog.view"), async (req, res) => {
+  const parsed = assistantTurnsQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Неверные параметры запроса", details: parsed.error.flatten() });
+  }
+  const { page, agentId, from, to, outcome } = parsed.data;
+  const where = {
+    ...(agentId ? { agentId } : {}),
+    ...(outcome === "failed" ? { outcome: { not: "answer" } } : outcome ? { outcome } : {}),
+    ...(from || to ? { createdAt: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}),
+  };
+  const [rows, total, retentionDays] = await Promise.all([
+    prisma.aiAssistantTurnLog.findMany({
+      where,
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      skip: (page - 1) * ASSISTANT_AUDIT_PAGE_SIZE,
+      take: ASSISTANT_AUDIT_PAGE_SIZE,
+      include: { agent: { select: { id: true, fullName: true } } },
+    }),
+    prisma.aiAssistantTurnLog.count({ where }),
+    loadAssistantLogRetentionDays(),
+  ]);
+  res.json({
+    items: rows.map((r) => ({
+      id: r.id,
+      createdAt: r.createdAt,
+      channel: r.channel,
+      surface: r.surface,
+      question: r.question,
+      outcome: r.outcome,
+      reason: r.reason,
+      route: r.route,
+      rounds: r.rounds,
+      toolCalls: r.toolCalls,
+      replyChars: r.replyChars,
+      ms: r.ms,
+      agent: r.agent,
+    })),
+    total,
+    page,
+    pageSize: ASSISTANT_AUDIT_PAGE_SIZE,
+    retentionDays,
   });
 });
 

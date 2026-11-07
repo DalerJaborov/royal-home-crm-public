@@ -40,7 +40,7 @@ import { findAgentByTelegramChatId, findAgentByTelegramUserId } from "../lib/tel
 import { claimCallback } from "../lib/telegramModeration.js";
 import { logSystemError } from "../lib/systemError.js";
 import { describeError } from "../lib/describeError.js";
-import { logAssistantToolCall } from "../lib/aiAssistantAudit.js";
+import { logAssistantFastPathTurn, logAssistantToolCall, logAssistantTurn } from "../lib/aiAssistantAudit.js";
 import {
   answerCallbackQuery as answerCallbackQueryRaw,
   getBotUsername,
@@ -272,8 +272,10 @@ async function runTurn(params: TurnParams): Promise<TurnResult | null> {
       .filter(plugin => plugin.level !== "A" && (plugin.level !== "C" || plugin.name !== params.onlyGroupConfirmation))
       .map(plugin => plugin.name)]);
   }
+  const turnStartedAt = Date.now();
   if (queueLanguage) {
     let reply: string;
+    let queueFailed = false;
     try {
       const queue = await getPropertyWorkList(actor, "queue");
       const currentAccess = await loadAgentAccess(params.agentId, prisma);
@@ -287,10 +289,17 @@ async function runTurn(params: TurnParams): Promise<TurnResult | null> {
       reply = formatMontageQueue(queue, queueLanguage, params.scope === "private");
     } catch (error) {
       void logSystemError("ai", `Помощник Telegram: очередь монтажа: ${describeError(error)}`);
+      queueFailed = true;
       reply = queueLanguage === "tg"
         ? "Навбати монтажро санҷида натавонистам. Каме баъд боз пурс."
         : "Не удалось проверить очередь монтажа. Попробуй чуть позже.";
     }
+    void logAssistantTurn({
+      agentId: actor.id, channel: "telegram", surface: actor.surface ?? null,
+      question: last?.role === "user" ? last.content : null,
+      outcome: queueFailed ? "error" : "answer", reason: queueFailed ? "internal" : null, route: "fast_path",
+      rounds: 0, toolCalls: 1, replyChars: reply.length, ms: Date.now() - turnStartedAt,
+    });
     return { reply, pending: [], done: [], structured: true };
   }
   const canCaptureCards = Boolean(params.allowPropertyCards && !params.forwardedEvidence && !params.onlyGroupConfirmation
@@ -303,6 +312,10 @@ async function runTurn(params: TurnParams): Promise<TurnResult | null> {
         const roster = await findTelegramAgentClients(last.content, actor);
         if (roster !== null) {
           void logAssistantToolCall({ agentId: actor.id, tool: "find_clients", argsSummary: "{}", resultCount: null, question: last.content });
+          void logAssistantFastPathTurn({
+            agentId: actor.id, channel: "telegram", surface: actor.surface, question: last.content,
+            reply: roster, found: 1, startedAt: turnStartedAt,
+          });
           return { reply: roster, pending: [], done: [], structured: true };
         }
       }
@@ -314,6 +327,10 @@ async function runTurn(params: TurnParams): Promise<TurnResult | null> {
           argsSummary: fast.argsSummary,
           resultCount: fast.cards.length,
           question: last.content,
+        });
+        void logAssistantFastPathTurn({
+          agentId: actor.id, channel: "telegram", surface: actor.surface, question: last.content,
+          reply: fast.reply, found: fast.cards.length + (fast.trashed ?? 0), startedAt: turnStartedAt,
         });
         const first = fast.cards[0];
         return {

@@ -24,6 +24,7 @@ import { csvSafeText } from "../../lib/csv.js";
 import { propertyOwnerWhere } from "../../lib/propertyOwner.js";
 import { conductedShowingBaseWhere } from "../../lib/conductedShowing.js";
 import { visibleInteractionWhere } from "../../lib/investigationPrivacy.js";
+import { canOpenTrashedPropertyPage } from "../../lib/trashAccess.js";
 
 export const listRouter = Router();
 
@@ -495,7 +496,7 @@ listRouter.get("/:id", requireAuth, async (req, res) => {
   // Право то же самое, что и на сам список корзины (GET /trash), новых дверей
   // это не открывает.
   if (!property) return res.status(404).json({ error: "Объект не найден" });
-  if (property.deletedAt && !can(req, "archive.view")) {
+  if (property.deletedAt && !canOpenTrashedPropertyPage({ agentId: req.agent!.id, can: (permission) => can(req, permission) })) {
     return res.status(404).json({ error: "Объект не найден" });
   }
   const presented = stripEmbedding(stripOwnerContact(property, req.agent!.id, can(req, "properties.viewOwners")));

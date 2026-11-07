@@ -332,6 +332,37 @@ export const assistantAuditQuerySchema = dateRangeQuerySchema.extend({
 export type AssistantAuditQuery = z.infer<typeof assistantAuditQuerySchema>;
 
 /**
+ * ИТОГ ХОДА ПОМОЩНИЦЫ (пачка 2, 07.11.2026, модель AiAssistantTurnLog): закрытый список,
+ * один на сервер (запись, фильтр) и экран (подписи). «Не справилась» = всё, кроме answer.
+ */
+export const ASSISTANT_TURN_OUTCOMES = ["answer", "partial", "refusal", "error"] as const;
+export type AssistantTurnOutcome = (typeof ASSISTANT_TURN_OUTCOMES)[number];
+
+/** Подписи итога хода для экрана «Система» — бытовыми словами. */
+export const ASSISTANT_TURN_OUTCOME_LABELS: Record<AssistantTurnOutcome, string> = {
+  answer: "Ответила",
+  partial: "Ответила частично",
+  refusal: "Не ответила по сути",
+  error: "Сбой",
+};
+
+/**
+ * Срок хранения журнала помощницы, дней (Settings.aiAssistantLogRetentionDays). Одни пределы
+ * на PATCH /settings и на поле экрана. Неделя снизу — чтобы успеть разобрать жалобу; два года
+ * сверху — журнал хранит вопросы сотрудников, бессрочно его не держим.
+ */
+export const ASSISTANT_LOG_RETENTION_DAYS = { min: 7, max: 730, default: 90 } as const;
+
+/** GET /ai/assistant-turns: период, страница, сотрудник и итог («только где не справилась»). */
+export const assistantTurnsQuerySchema = dateRangeQuerySchema.extend({
+  page,
+  agentId: uuid.optional(),
+  /** Один итог или `failed` — все, кроме answer. */
+  outcome: z.enum([...ASSISTANT_TURN_OUTCOMES, "failed"]).optional(),
+});
+export type AssistantTurnsQuery = z.infer<typeof assistantTurnsQuerySchema>;
+
+/**
  * Кабинет службы безопасности (GET /security/lost-clients, /security/lost-properties,
  * шаг 5 переноса): страница, вердикт и «вина агента» — та же строка «1», что и у
  * фильтра «горячие» в clientQuerySchema (не boolean-коэрция намеренно: z.coerce.boolean

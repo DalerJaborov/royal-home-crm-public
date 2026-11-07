@@ -144,13 +144,17 @@ describe("tryAssistantFastPath — выдача под правами", () => {
     expect(res!.tool).toBe("fast_path.property-code");
   });
 
-  it("удалённый и отсутствующий объект одинаково не видны по номеру", async () => {
+  // До 07.11.2026 удалённый и отсутствующий объект отвечали одинаково «не нашла». Решение владельца
+  // (lib/trashAccess.ts, пачка 2 Шабнам): Корзина объектов — справка для всех, поэтому удалённый
+  // объект по номеру даёт «в Корзине, удалён …» без карточки, а несуществующий — прежнее «не нашла».
+  it("удалённый объект по номеру — справка «в Корзине» без карточки; отсутствующий — «не нашла»", async () => {
     const p = await makeProperty({ deletedAt: new Date() });
-    for (const shortId of [p.shortId, 999999999]) {
-      expect(await tryAssistantFastPath(`объект ${shortId}`, actor(agentAId))).toMatchObject({
-        cards: [], reply: `Не нашла объект ОБ-${String(shortId).padStart(6, "0")} среди доступных карточек.`,
-      });
-    }
+    const trashed = await tryAssistantFastPath(`объект ${p.shortId}`, actor(agentAId));
+    expect(trashed).toMatchObject({ cards: [], trashed: 1 });
+    expect(trashed?.reply).toContain(`ОБ-${String(p.shortId).padStart(6, "0")} в Корзине`);
+    expect(await tryAssistantFastPath("объект 999999999", actor(agentAId))).toMatchObject({
+      cards: [], reply: "Не нашла объект ОБ-999999999 среди доступных карточек.",
+    });
   });
 
   it("ссылка Instagram: точный код, а не просто общее начало", async () => {

@@ -100,7 +100,11 @@ export function assistantGroupFixture() {
     "../lib/assistantContacts.js": { maskAssistantContacts },
     "../lib/agentAiActionCap.js": { claimAgentAiAction: async () => ({ allowed: true }) },
     "../lib/assistantActions.js": { confirmAssistantAction: confirm },
-    "../lib/aiAssistantAudit.js": { logAssistantToolCall: async () => {} },
+    "../lib/aiAssistantAudit.js": {
+      logAssistantToolCall: async () => {},
+      logAssistantTurn: async () => {},
+      logAssistantFastPathTurn: async () => {},
+    },
     "./assistantReadResults.js": { sendTelegramPropertyCard: card },
     "./assistantMedia.js": { handleAssistantMedia: media },
     "../lib/systemError.js": { logSystemError: async () => {} },

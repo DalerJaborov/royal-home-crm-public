@@ -1,10 +1,10 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 730,
-  "forks": 3998,
+  "endpoints": 731,
+  "forks": 4000,
   "mounts": 81,
-  "cron": 123,
+  "cron": 124,
   "jobs": 32,
   "hidden": 0
  },
@@ -5000,6 +5000,65 @@
    ]
   },
   {
+   "method": "GET",
+   "path": "/assistant-turns",
+   "mount": "/api/v1/ai",
+   "full": "/api/v1/ai/assistant-turns",
+   "file": "apps/api/src/routes/ai.ts",
+   "router": "aiRouter",
+   "top": "apps/api/src/routes/ai.ts::aiRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен",
+    "есть право: auditLog.view"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const parsed = assistantTurnsQuerySchema.safeParse(req.query);",
+     "a": [
+      "проверяет данные схемой assistantTurnsQuerySchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Неверные параметры запроса\", details: parsed.error.flatten() });",
+       "a": [
+        "ответ 400 — «Неверные параметры запроса»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const [rows, total, retentionDays] = await Promise.all([ prisma.aiAssistantTurnLog.findMany({ where, orderBy:…",
+     "a": [
+      "читает в базе: aiAssistantTurnLog",
+      "считает в базе: aiAssistantTurnLog"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ items: rows.map((r)",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
    "method": "POST",
    "path": "/assistant/actions/:id/cancel",
    "mount": "/api/v1/ai",
@@ -5518,6 +5577,14 @@
              "t": "void logAssistantToolCall({ agentId: actor.id, tool: fast.tool, argsSummary: fast.argsSummary, resultCount: f…",
              "a": [
               "зовёт logAssistantToolCall()"
+             ],
+             "c": []
+            },
+            {
+             "k": "do",
+             "t": "void logAssistantFastPathTurn({ agentId: actor.id, channel: \"crm\", surface: actor.surface, question: lastMess…",
+             "a": [
+              "зовёт logAssistantFastPathTurn()"
              ],
              "c": []
             },
@@ -58404,7 +58471,7 @@
     },
     {
      "k": "if",
-     "t": "property.deletedAt && !can(req, \"archive.view\")",
+     "t": "property.deletedAt && !canOpenTrashedPropertyPage({ agentId: req.agent!.id, can: (permission) => can(req, per…",
      "a": [],
      "c": [
       {
@@ -86785,6 +86852,95 @@
       {
        "k": "do",
        "t": "reportCronTickError(\"Ошибка чистки действий ИИ-помощника\", err);",
+       "a": [
+        "зовёт reportCronTickError()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const reason = markCronTickFailed(label, err);",
+         "a": [
+          "зовёт markCronTickFailed()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        }
+       ],
+       "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
+      }
+     ]
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
+   "id": "assistant-log-retention",
+   "when": "25 4 * * *",
+   "tree": [
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const { days, turnsDeleted, questionsCleared } = await sweepAssistantLogs();",
+       "a": [
+        "зовёт sweepAssistantLogs()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const days = await loadAssistantLogRetentionDays();",
+         "a": [
+          "зовёт loadAssistantLogRetentionDays()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "const [turns, questions] = await Promise.all([ prisma.aiAssistantTurnLog.deleteMany({ where: { createdAt: { l…",
+         "a": [
+          "удаляет в базе: aiAssistantTurnLog",
+          "меняет в базе: aiAssistantAuditLog"
+         ],
+         "c": []
+        }
+       ],
+       "from": "sweepAssistantLogs() — apps/api/src/lib/aiAssistantAudit.ts"
+      },
+      {
+       "k": "if",
+       "t": "turnsDeleted > 0 || questionsCleared > 0",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "console.log(`[cron] Журнал помощницы старше ${days} дн.: ходов удалено ${turnsDeleted}, вопросов стёрто ${que…",
+         "a": [
+          "пишет строку в журнал сервера"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "reportCronTickError(\"Ошибка чистки журнала ИИ-помощницы по сроку\", err);",
        "a": [
         "зовёт reportCronTickError()"
        ],
