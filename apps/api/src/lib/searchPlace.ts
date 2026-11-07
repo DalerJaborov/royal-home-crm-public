@@ -47,11 +47,18 @@ function looseHas(words: string[], name: string): boolean {
   return false;
 }
 
+/** Официальный район, названный в тексте словами человека («в Сино», «Шоҳмансур»), или null. */
+export function officialDistrictIn(text: string | null | undefined): OfficialDistrict | null {
+  if (!text?.trim()) return null;
+  const key = geoMatchKey(text);
+  return OFFICIAL_DISTRICTS.find((d) => d.re.test(key))?.district ?? null;
+}
+
 export async function resolveSearchPlace(text: string | null | undefined): Promise<ResolvedSearchPlace> {
   const empty: ResolvedSearchPlace = { districtName: null, placeDistrictName: null, place: null, suburban: false };
   if (!text?.trim()) return empty;
   let key = geoMatchKey(text);
-  const official = OFFICIAL_DISTRICTS.find((d) => d.re.test(key))?.district ?? null;
+  const official = officialDistrictIn(text);
   // Название района — не место: «Исмоили Сомони» не должен найтись проспектом Сомони.
   for (const d of OFFICIAL_DISTRICTS) key = key.replace(new RegExp(d.re.source, "gu"), " ");
   const suburban = textMentionsSuburb(text);

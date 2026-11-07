@@ -1,6 +1,7 @@
 import { isReadOnlyRole, type PermissionId } from "@royal-home/shared";
 import { READ_ONLY_ROLE_RESPONSE, type AgentAccess } from "../../auth/middleware.js";
 import { clientWriteDenied } from "../../lib/clientWriteAccess.js";
+import type { TrashActor } from "../../lib/trashAccess.js";
 import { investigationRoleFor } from "../../auth/investigations.js";
 
 /**
@@ -99,6 +100,15 @@ export function actorFromAccess(
  */
 export function assistantInvestigationRole(actor: AssistantActor): string | undefined {
   return investigationRoleFor(actor.role, actor.permissions?.has("clients.securityReview") ?? false);
+}
+
+/** Актор для общего правила Корзины (lib/trashAccess.ts): права и канал того, кто спрашивает. */
+export function trashActorOf(actor: AssistantActor): TrashActor {
+  return {
+    agentId: actor.id,
+    can: (permission) => actor.permissions?.has(permission) ?? false,
+    ...(actor.surface ? { surface: actor.surface } : {}),
+  };
 }
 
 export const FOREIGN_CLIENT_SCOPE_MESSAGE = "Нет доступа: клиент закреплён за другим агентом";

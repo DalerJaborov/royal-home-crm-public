@@ -108,7 +108,8 @@ const BUNDLE_CALLBACK = /^as:(ok|no):([0-9a-f-]{36})$/;
 /** Права, которых в общей группе у помощника нет, даже если они есть у спросившего. */
 const GROUP_HIDDEN_PERMISSIONS: readonly PermissionId[] = [
   "clients.viewPhone", "finance.view", "reports.view", "calls.transcripts", "calls.ownTranscripts",
-  // Корзина удалённых — не при чужих глазах в общей группе (07.11.2026); в личном чате доступна.
+  // Корзина КЛИЕНТОВ — не при чужих глазах в общей группе (07.11.2026); в личном чате доступна.
+  // Удалённые ОБЪЕКТЫ — справка для всех и в группе (lib/trashAccess.ts, решение владельца 07.11).
   "archive.view",
 ];
 
@@ -279,7 +280,10 @@ async function runTurn(params: TurnParams): Promise<TurnResult | null> {
       if (!currentAccess?.isActive || currentAccess.role !== access.role
         || currentAccess.permissions.has("properties.delete") !== access.permissions.has("properties.delete")
         || (params.validateQueueAudience && !(await params.validateQueueAudience()))) return null;
-      void logAssistantToolCall({ agentId: actor.id, tool: "get_property_work_status", argsSummary: '{"scope":"queue"}', resultCount: queue.total });
+      void logAssistantToolCall({
+        agentId: actor.id, tool: "get_property_work_status", argsSummary: '{"scope":"queue"}', resultCount: queue.total,
+        question: last?.role === "user" ? last.content : null,
+      });
       reply = formatMontageQueue(queue, queueLanguage, params.scope === "private");
     } catch (error) {
       void logSystemError("ai", `Помощник Telegram: очередь монтажа: ${describeError(error)}`);
@@ -298,7 +302,7 @@ async function runTurn(params: TurnParams): Promise<TurnResult | null> {
       if (params.scope === "private") {
         const roster = await findTelegramAgentClients(last.content, actor);
         if (roster !== null) {
-          void logAssistantToolCall({ agentId: actor.id, tool: "find_clients", argsSummary: "{}", resultCount: null });
+          void logAssistantToolCall({ agentId: actor.id, tool: "find_clients", argsSummary: "{}", resultCount: null, question: last.content });
           return { reply: roster, pending: [], done: [], structured: true };
         }
       }
@@ -309,6 +313,7 @@ async function runTurn(params: TurnParams): Promise<TurnResult | null> {
           tool: fast.tool,
           argsSummary: fast.argsSummary,
           resultCount: fast.cards.length,
+          question: last.content,
         });
         const first = fast.cards[0];
         return {

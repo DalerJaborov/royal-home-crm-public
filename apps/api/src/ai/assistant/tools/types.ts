@@ -24,6 +24,11 @@ export type AssistantToolLevel = "A" | "B" | "C";
 
 export interface AssistantToolContext {
   actor: AssistantActor;
+  /**
+   * Вопрос сотрудника этого хода, его собственными словами (не аргументы модели). Нужен там,
+   * где важно, что сказал человек, а что додумала модель (район в поиске по ориентиру).
+   */
+  question?: string;
 }
 
 interface AssistantToolBase {

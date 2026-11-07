@@ -62,7 +62,7 @@ import {
 } from "../../lib/videoHandoff.js";
 import { describeError } from "../../lib/describeError.js";
 import { closeWorkAfterLeavingSale } from "../../lib/propertyLeftSale.js";
-import { reopenWorkAfterRestore, trashProperties, trashProperty } from "../../lib/trashProperty.js";
+import { restorePropertyFromTrash, trashProperties, trashProperty } from "../../lib/trashProperty.js";
 import { propertyRemovalSchema } from "@royal-home/shared";
 import { recordPropertyRemoval } from "../../lib/propertyRemovalEvidence.js";
 import { recomputeSellerCardState } from "../../lib/sellerCardState.js";
@@ -1775,7 +1775,7 @@ crudRouter.delete("/:id", requireAuth, requirePermission("properties.delete"), a
   res.status(204).send();
 });
 
-/** Восстановление объекта из Корзины — только ADMIN. Публикация на сайте
+/** Восстановление объекта из Корзины — директор/админ или хозяин объекта. Публикация на сайте
  * сознательно не возвращается автоматически: снятие с сайта было осознанным
  * действием при удалении, повторную публикацию решают отдельно кнопкой.
  *
@@ -1788,19 +1788,16 @@ crudRouter.delete("/:id", requireAuth, requirePermission("properties.delete"), a
  * же правка карточки (PATCH) видела publishedOnSite: true и молча
  * досылала объект на сайт через resyncPhotosIfPublished — тот же довод, что
  * у сброса флага при WITHDRAWN выше по файлу. */
-crudRouter.post("/:id/restore", requireAuth, requirePermission("properties.delete"), async (req, res) => {
-  const property = await prisma.property.findUnique({ where: { id: req.params.id } });
-  if (!property || !property.deletedAt) return res.status(404).json({ error: "Объект не найден в корзине" });
-
-  await prisma.property.update({
-    where: { id: property.id },
-    data: { deletedAt: null, deletedById: null, publishedOnSite: false },
+// Право — не одним `properties.delete` на входе, а общим правилом Корзины (07.11.2026,
+// решение владельца): директор/админ ИЛИ хозяин объекта (lib/trashAccess.ts). Само
+// восстановление — lib/trashProperty.ts::restorePropertyFromTrash, та же дверь у помощника.
+crudRouter.post("/:id/restore", requireAuth, async (req, res) => {
+  const result = await restorePropertyFromTrash(req.params.id, {
+    agentId: req.agent!.id,
+    can: (permission) => can(req, permission),
   });
-
-  // Очередь монтажа и публикация принятого ролика — тем же списком, что и у
-  // «Откатить» удаление сайтом (lib/trashProperty.ts::reopenWorkAfterRestore).
-  await reopenWorkAfterRestore(property);
-  await refreshSellerAfterPropertyChange(property.sellerClientId);
+  if (!result.ok) return res.status(result.status).json({ error: result.error });
+  const property = result.property;
 
   logAudit(req, "RESTORE", "Property", property.id, { shortId: property.shortId, title: property.title });
   publishPropertyUpdated({ propertyId: property.id, agentId: property.assignedAgentId, stage: property.status, actorId: req.agent!.id });

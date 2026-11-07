@@ -6,6 +6,8 @@ import { clientNamePhoneSafe } from "../../../lib/clientPhone.js";
 import { dushanbeDateString } from "../../../lib/dushanbeTime.js";
 import { loadMoneyContext, toTjs } from "../../../lib/money.js";
 import { searchPropertiesForStaff, type StaffSearchScope } from "../../../lib/staffPropertySearch.js";
+import { canRestorePropertyAs, canSeeTrashedClient, canSeeTrashedProperties, clientTrashScopeFor } from "../../../lib/trashAccess.js";
+import { trashActorOf } from "../actor.js";
 import { propertyHref } from "./propertyPresenter.js";
 import { safeField } from "./safeField.js";
 import type { AssistantReadToolPlugin } from "./types.js";
@@ -13,9 +15,12 @@ import type { AssistantReadToolPlugin } from "./types.js";
 /**
  * find_properties_by_place — ОБЪЕКТЫ ПО ОРИЕНТИРУ, АДРЕСУ И ПРИЗНАКАМ, В ТОМ ЧИСЛЕ В КОРЗИНЕ
  * (07.11.2026). Место разбирает код (lib/searchPlace.ts — то же правило, что у голосового
- * консультанта), радиус расширяется сам. Корзина — ТОЛЬКО при праве archive.view, и право
- * проверяется здесь, на сервере, а не в промте: без него Корзина не открывается и в ответе
- * честно сказано, что её не смотрели.
+ * консультанта), радиус расширяется сам.
+ *
+ * КОРЗИНА ОБЪЕКТОВ — СПРАВКА ДЛЯ ВСЕХ (решение владельца 07.11.2026, lib/trashAccess.ts):
+ * объекты общие, агент видит удалённый объект с датой и тем, кто удалил. У каждого удалённого —
+ * canRestore: может ли ЭТОТ человек вернуть его (директор/админ или хозяин объекта). Удалённая
+ * карточка ПРОДАВЦА — только её хозяину и руководству; в общей группе Telegram — никому.
  */
 const argsSchema = z.object({
   landmark: z.string().trim().max(200).optional(),
@@ -39,9 +44,6 @@ const argsSchema = z.object({
   limit: z.coerce.number().int().min(1).max(20).optional(),
 });
 
-export const TRASH_FOR_MANAGEMENT_ONLY =
-  "Корзина удалённых — это у руководства (директор, администратор). Я могу поискать среди живых.";
-
 export const findPropertiesByPlaceTool: AssistantReadToolPlugin = {
   name: "find_properties_by_place",
   level: "A",
@@ -51,9 +53,11 @@ export const findPropertiesByPlaceTool: AssistantReadToolPlugin = {
     "landmark — место СЛОВАМИ ЧЕЛОВЕКА, как сказано («у Ашана», «в стороне Воданасоса»): район и точку на карте определяет сам инструмент, не угадывай. " +
     "Радиус расширяется сам; можно задать radiusM. Тип: APARTMENT/HOUSE (хавли, дом)/COMMERCIAL/LAND. shell=true — «коробка» (без ремонта). " +
     "Цена: minPrice/maxPrice + currency (TJS или USD; «2,5 млн» без слова — сомони, а малая сумма без валюты — спроси валюту). " +
-    "scope: live — живые, trash — удалённые (Корзина), both — оба; по умолчанию both, если у человека есть доступ к Корзине. " +
-    "Корзину открывает только руководство (право Архив): у остальных инструмент ищет в живых и пишет, что Корзину не смотрел. " +
-    "В ответе у каждого объекта inTrash/deletedAt/distanceM. «Нет» говори только когда searched покрывает и живые, и Корзину (если доступна), " +
+    "scope: live — живые, trash — удалённые (Корзина), both — оба; по умолчанию both. Корзина объектов — справка для всех сотрудников. " +
+    "В ответе у каждого объекта inTrash/deletedAt/deletedBy/distanceM; у удалённого canRestore — может ли спросивший вернуть его " +
+    "(тогда предложи restore_property, передав его code). Живые идут первыми, удалённых в выдаче не больше пяти (всего — searched.trashFound). " +
+    "districtName ставь, только если район назвал сам человек. Если searched.zoneOnly, districtIgnored или placeOutsideDistrict — скажи это одной фразой. " +
+    "«Нет» говори только когда searched покрывает и живые, и Корзину, " +
     "и карточки продавцов проверены через find_clients.",
   parameters: {
     type: "object",
@@ -80,19 +84,20 @@ export const findPropertiesByPlaceTool: AssistantReadToolPlugin = {
     },
   },
   statusPhrase: "Ищу объекты по ориентиру…",
-  async run(rawArgs, { actor }) {
+  async run(rawArgs, { actor, question }) {
     const parsed = argsSchema.safeParse(rawArgs);
     if (!parsed.success) return { error: "Неверные параметры поиска по ориентиру" };
     const args = parsed.data;
-    const canTrash = actor.permissions?.has("archive.view") ?? false;
-    const wanted: StaffSearchScope = args.scope ?? (canTrash ? "both" : "live");
-    // Право на Корзину — на сервере, а не в промте.
-    if (!canTrash && wanted === "trash") return { error: TRASH_FOR_MANAGEMENT_ONLY };
+    const trashActor = trashActorOf(actor);
+    // Право на Корзину — на сервере, общим правилом (lib/trashAccess.ts), а не в промте.
+    const canTrash = canSeeTrashedProperties(trashActor);
+    const wanted: StaffSearchScope = args.scope ?? "both";
     const scope: StaffSearchScope = canTrash ? wanted : "live";
-    const trashNotChecked = !canTrash && wanted === "both";
     const canDelete = actor.permissions?.has("properties.delete") ?? false;
     const result = await searchPropertiesForStaff({
       ...args,
+      // Слова человека: назвал ли он район сам или район додумала модель.
+      ...(question ? { humanText: question } : {}),
       scope,
       hideOwnPendingDeleteFor: canDelete ? undefined : actor.id,
     });
@@ -115,19 +120,26 @@ export const findPropertiesByPlaceTool: AssistantReadToolPlugin = {
     const sellers = sellerIds.length
       ? await prisma.client.findMany({
           where: { id: { in: sellerIds } },
-          select: { id: true, shortId: true, kind: true, fullName: true, dualIntent: true, deletedAt: true },
+          select: { id: true, shortId: true, kind: true, fullName: true, dualIntent: true, deletedAt: true, assignedAgentId: true },
           take: 40,
         })
       : [];
     const sellerById = new Map(sellers.map((s) => [s.id, s]));
     const items = result.hits.map(({ property: p, distanceM }) => {
       const sellerRaw = p.sellerClientId ? sellerById.get(p.sellerClientId) : undefined;
-      const seller = sellerRaw && (sellerRaw.deletedAt === null || canTrash) ? sellerRaw : undefined;
+      const seller =
+        sellerRaw && (sellerRaw.deletedAt === null || canSeeTrashedClient(trashActor, sellerRaw)) ? sellerRaw : undefined;
       return {
         code: formatPropertyCode(p.shortId),
         href: propertyHref(p.shortId),
         inTrash: p.deletedAt !== null,
-        ...(p.deletedAt ? { deletedAt: dushanbeDateString(p.deletedAt), deletedBy: p.deletedBy?.fullName ?? null } : {}),
+        ...(p.deletedAt
+          ? {
+              deletedAt: dushanbeDateString(p.deletedAt),
+              deletedBy: p.deletedBy?.fullName ?? null,
+              canRestore: canRestorePropertyAs(trashActor, p),
+            }
+          : {}),
         title: safeField(p.title),
         type: PROPERTY_TYPE_LABELS[p.type] ?? p.type,
         rooms: p.rooms,
@@ -170,13 +182,15 @@ export const findPropertiesByPlaceTool: AssistantReadToolPlugin = {
         placeResolved: result.placeResolved,
         radiusM: result.radiusM,
         radiusWidened: result.widened,
-        ...(trashNotChecked ? { trashNotChecked: "Корзину не смотрела: она открыта только руководству" } : {}),
+        ...(result.zoneOnly ? { zoneOnly: result.zoneOnly } : {}),
+        ...(result.districtIgnored ? { districtIgnored: result.districtIgnored } : {}),
+        ...(result.placeOutsideDistrict ? { placeOutsideDistrict: result.placeOutsideDistrict } : {}),
       },
       ...(items.length === 0
         ? {
             note:
               "В объектах ничего не нашлось. Прежде чем отвечать «нет», проверь карточки продавцов с этим ориентиром: " +
-              "find_clients (kind=SELLER" + (canTrash ? ", scope=both" : "") + ").",
+              "find_clients (kind=SELLER" + (clientTrashScopeFor(trashActor) !== "none" ? ", scope=both" : "") + ").",
           }
         : {}),
     };
