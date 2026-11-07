@@ -51,6 +51,12 @@ export function createCardLinkEvidence() {
         case "search_deals": relatedCards(result, true); break;
         case "get_upcoming_showings": relatedCards(result, false); break;
         case "find_clients": for (const item of rows(value?.items)) card(item, "clients"); break;
+        case "find_properties_by_place":
+          for (const item of rows(value?.items)) {
+            card(item, "properties");
+            add(record(record(item)?.seller)?.href, "clients");
+          }
+          break;
         case "find_property": for (const item of rows(value?.items)) card(item, "properties"); break;
         case "get_client_card":
           card(result, "clients");

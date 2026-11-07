@@ -108,6 +108,8 @@ const BUNDLE_CALLBACK = /^as:(ok|no):([0-9a-f-]{36})$/;
 /** Права, которых в общей группе у помощника нет, даже если они есть у спросившего. */
 const GROUP_HIDDEN_PERMISSIONS: readonly PermissionId[] = [
   "clients.viewPhone", "finance.view", "reports.view", "calls.transcripts", "calls.ownTranscripts",
+  // Корзина удалённых — не при чужих глазах в общей группе (07.11.2026); в личном чате доступна.
+  "archive.view",
 ];
 
 /**

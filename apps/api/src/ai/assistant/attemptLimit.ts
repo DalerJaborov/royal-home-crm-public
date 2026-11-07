@@ -5,7 +5,7 @@ export class AssistantAttemptLimitError extends Error {
 }
 
 /** Reservations are intentionally not refunded after an uncertain provider outcome. */
-export function createAssistantAttemptLimit(reserve: () => Promise<boolean>, maximum = 6) {
+export function createAssistantAttemptLimit(reserve: () => Promise<boolean>, maximum = 9) {
   let used = 0;
   return async () => {
     if (used >= maximum) throw new AssistantAttemptLimitError();
