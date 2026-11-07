@@ -19893,7 +19893,7 @@
         - continue;
           · переходит к следующему
       - пробует
-        - const text = await shortAgentReply(history as ChatMessage[], INSTRUCTION, { name: row.name });
+        - const text = await shortAgentReply(history as ChatMessage[], INSTRUCTION, { name: row.name }, row.conversatio…
           · зовёт shortAgentReply()
         - если !text
           - continue;
@@ -28314,8 +28314,8 @@
     · зовёт buildStableSystem()
   - const system = nameLine + nowBlock(dushanbeWallClock()) + languageDirective + TIME_AWARENESS_RULE + chatHours…
     · зовёт nowBlock()
-  - const rawResult = await callAiText<unknown>({ endpoint: "lead-qualify", systemStable, system, messages: withT…
-    · зовёт withTimeGaps()
+  - const rawResult = await callAiText<unknown>({ endpoint: "lead-qualify", systemStable: brandize(systemStable, …
+    · зовёт brandize()
   - если rawResult == null
     - return null;
       · дословно из кода
@@ -28489,8 +28489,8 @@
     · зовёт buildStableSystem()
   - const system = nameLine + nowBlock(dushanbeWallClock()) + languageDirective + TIME_AWARENESS_RULE + chatHours…
     · зовёт nowBlock()
-  - const rawResult = await callAiText<unknown>({ endpoint: "lead-qualify", systemStable, system, messages: withT…
-    · зовёт withTimeGaps()
+  - const rawResult = await callAiText<unknown>({ endpoint: "lead-qualify", systemStable: brandize(systemStable, …
+    · зовёт brandize()
   - если rawResult == null
     - return null;
       · дословно из кода

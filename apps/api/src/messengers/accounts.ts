@@ -43,6 +43,8 @@ export interface MessengerAccountView {
   hasAppSecret: boolean;
   /** Своя «личность» бота у этого аккаунта. Пусто — работает общая из Настроек. */
   systemPrompt: string | null;
+  /** Как бот называет компанию в этом аккаунте. Пусто — «Royal Home», как везде. */
+  brandName: string | null;
   /** Идентификаторы, добавленные вручную — Meta их своим ответом не подтверждает
    *  и подтвердить не может (см. schema.prisma, поле extraExternalIds). */
   extraExternalIds: string[];
@@ -82,6 +84,7 @@ let cache: {
     enabled: boolean;
     isDefault: boolean;
     systemPrompt: string | null;
+    brandName: string | null;
     username: string | null;
     messagingId: string | null;
     /** Идентификаторы, введённые вручную (см. schema.prisma) — Meta их не подтверждает. */
@@ -127,6 +130,7 @@ export async function listAccounts(channel?: string): Promise<MessengerAccountVi
       // Через приведение типа: колонка добавляется отдельной миграцией схемы.
       hasAppSecret: Boolean((r as { appSecret?: string | null }).appSecret),
       systemPrompt: r.systemPrompt,
+      brandName: r.brandName,
       extraExternalIds: r.extraExternalIds,
     }));
 }
@@ -143,6 +147,23 @@ export async function accountPersona(accountId: string | null | undefined): Prom
   try {
     const row = (await loadAccounts()).find((r) => r.id === accountId);
     return row?.systemPrompt?.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Как бот называет компанию в диалогах аккаунта — или null, если имя не задано и
+ * везде остаётся «Royal Home» (ai/brandName.ts).
+ *
+ * Тот же приём, что у accountPersona: нужен на каждом ходе, отказ базы — null
+ * (прежнее имя лучше упавшего хода).
+ */
+export async function accountBrandName(accountId: string | null | undefined): Promise<string | null> {
+  if (!accountId) return null;
+  try {
+    const row = (await loadAccounts()).find((r) => r.id === accountId);
+    return row?.brandName?.trim() || null;
   } catch {
     return null;
   }
@@ -498,6 +519,11 @@ export interface SaveAccountInput {
    * `undefined` (не трогать) и `""` (очистить), а не отбрасываем пустое.
    */
   systemPrompt?: string | null;
+  /**
+   * Как бот называет компанию. Как и промт: `undefined` — не трогать, пустая
+   * строка или null — вернуть «Royal Home».
+   */
+  brandName?: string | null;
 }
 
 /**
@@ -522,6 +548,7 @@ export async function saveAccount(input: SaveAccountInput): Promise<string> {
   // Пустую строку сохраняем как null: «своего промта нет» — это одно состояние, а
   // не два (пусто и NULL), иначе accountPersona пришлось бы проверять оба.
   const persona = input.systemPrompt === undefined ? undefined : input.systemPrompt?.trim() || null;
+  const brand = input.brandName === undefined ? undefined : input.brandName?.trim() || null;
   // Чистим и убираем дубликаты/пустые строки — форма присылает то, что человек
   // напечатал построчно или через запятую (см. routes/settings.ts).
   const extraIds =
@@ -542,6 +569,7 @@ export async function saveAccount(input: SaveAccountInput): Promise<string> {
             ...(input.enabled === undefined ? {} : { enabled: input.enabled }),
             ...(input.isDefault === undefined ? {} : { isDefault: input.isDefault }),
             ...(persona === undefined ? {} : { systemPrompt: persona }),
+            ...(brand === undefined ? {} : { brandName: brand }),
             ...(extraIds === undefined ? {} : { extraExternalIds: extraIds }),
           },
         })
@@ -555,6 +583,7 @@ export async function saveAccount(input: SaveAccountInput): Promise<string> {
             enabled: input.enabled ?? true,
             isDefault: input.isDefault ?? false,
             systemPrompt: persona ?? null,
+            brandName: brand ?? null,
             extraExternalIds: extraIds ?? [],
           },
         });

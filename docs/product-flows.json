@@ -88957,7 +88957,7 @@
            "c": [
             {
              "k": "do",
-             "t": "const text = await shortAgentReply(history as ChatMessage[], INSTRUCTION, { name: row.name });",
+             "t": "const text = await shortAgentReply(history as ChatMessage[], INSTRUCTION, { name: row.name }, row.conversatio…",
              "a": [
               "зовёт shortAgentReply()"
              ],
@@ -128323,9 +128323,9 @@
       },
       {
        "k": "do",
-       "t": "const rawResult = await callAiText<unknown>({ endpoint: \"lead-qualify\", systemStable, system, messages: withT…",
+       "t": "const rawResult = await callAiText<unknown>({ endpoint: \"lead-qualify\", systemStable: brandize(systemStable, …",
        "a": [
-        "зовёт withTimeGaps()"
+        "зовёт brandize()"
        ],
        "c": []
       },
@@ -129124,9 +129124,9 @@
       },
       {
        "k": "do",
-       "t": "const rawResult = await callAiText<unknown>({ endpoint: \"lead-qualify\", systemStable, system, messages: withT…",
+       "t": "const rawResult = await callAiText<unknown>({ endpoint: \"lead-qualify\", systemStable: brandize(systemStable, …",
        "a": [
-        "зовёт withTimeGaps()"
+        "зовёт brandize()"
        ],
        "c": []
       },

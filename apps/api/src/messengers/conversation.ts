@@ -1219,7 +1219,8 @@ export async function acceptLead(
             "оно есть — его можно прислать текстом или фотографиями страниц. НЕ задавай эти вопросы цепочкой " +
             "по одному. НЕ обещай зарплату, условия, сроки выхода и трудоустройство. НЕ пиши, что передашь " +
             "руководству, — рано.",
-      { name, draft }
+      { name, draft },
+      conversationId
     );
     // Запасные фразы — те же, что в Telegram-путях (messengers/leadAcceptedReply.ts),
     // на языке кандидата (ревизия 02.10.2026: русскому кандидату при сбое модели
@@ -3899,6 +3900,7 @@ async function processMessengerTurnImpl(input: MessengerTurnInput): Promise<Mess
         requestedAgent,
         requestedNotice,
         fallbackLanguageWords: [merged, lastClientWords(history)],
+        accountId: account.id,
       },
       {
         regenerate: async (retryDirective) =>

@@ -2700,6 +2700,8 @@ const messengerAccountSchema = z.object({
   enabled: z.boolean().optional(),
   isDefault: z.boolean().optional(),
   systemPrompt: z.string().max(30000).nullish(),
+  /** Как бот называет компанию в этом аккаунте (ai/brandName.ts); пусто — «Royal Home». */
+  brandName: z.string().trim().max(60).nullish(),
   /**
    * Идентификаторы получателя, которые Meta своим ответом не подтвердит
    * (см. schema.prisma, MessengerAccount.extraExternalIds) — владелец переписывает
@@ -2771,6 +2773,7 @@ settingsRouter.post(
         enabled: body.enabled,
         isDefault: body.isDefault,
         systemPrompt: body.systemPrompt,
+        brandName: body.brandName,
         extraExternalIds: body.extraExternalIds,
       });
       logAudit(req, "SETTINGS_UPDATE", "MessengerAccount", id, { channel, title });
