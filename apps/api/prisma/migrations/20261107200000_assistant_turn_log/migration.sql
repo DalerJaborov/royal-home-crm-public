@@ -4,8 +4,6 @@
 
 -- AlterTable
 ALTER TABLE "Settings" ADD COLUMN "aiAssistantLogRetentionDays" INTEGER NOT NULL DEFAULT 90;
-ALTER TABLE "Settings" ADD COLUMN "aiAssistantMaxRounds" INTEGER NOT NULL DEFAULT 30;
-ALTER TABLE "Settings" ADD COLUMN "aiAssistantDeadlineSec" INTEGER NOT NULL DEFAULT 120;
 
 -- CreateTable
 CREATE TABLE "AiAssistantTurnLog" (

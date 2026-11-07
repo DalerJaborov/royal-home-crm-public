@@ -1,5 +1,7 @@
 import { ASSISTANT_DEADLINE_SEC, ASSISTANT_MAX_ROUNDS, clampAssistantLimit } from "@royal-home/shared";
 import { prisma } from "../../db.js";
+import { describeError } from "../../lib/describeError.js";
+import { logSystemError } from "../../lib/systemError.js";
 import { resolveGeminiRuntime, type GeminiRuntime } from "../geminiSettings.js";
 
 /**
@@ -66,14 +68,34 @@ function ttlCache<T>(load: () => Promise<T>) {
   };
 }
 
+/** Колонки шагов и срока (миграция 20261108090000) — новее остальных полей помощницы. */
+function isMissingLimitColumn(err: unknown): boolean {
+  const code = (err as { code?: unknown } | null)?.code;
+  const text = err instanceof Error ? err.message : String(err);
+  return code === "P2022" || /aiAssistant(?:MaxRounds|DeadlineSec)/.test(text);
+}
+
 async function readAssistantSettings(): Promise<AssistantSettingsSnapshot> {
-  const row = await prisma.settings.findUnique({
-    where: { id: "singleton" },
-    select: {
-      aiAssistantEnabled: true, groundedSearchEnabled: true, semanticSearchEnabled: true,
-      aiAssistantMaxRounds: true, aiAssistantDeadlineSec: true,
-    },
-  });
+  const base = { aiAssistantEnabled: true, groundedSearchEnabled: true, semanticSearchEnabled: true } as const;
+  let row: {
+    aiAssistantEnabled: boolean; groundedSearchEnabled: boolean; semanticSearchEnabled: boolean;
+    aiAssistantMaxRounds?: number; aiAssistantDeadlineSec?: number;
+  } | null;
+  try {
+    row = await prisma.settings.findUnique({
+      where: { id: "singleton" },
+      select: { ...base, aiAssistantMaxRounds: true, aiAssistantDeadlineSec: true },
+    });
+  } catch (err) {
+    // Код выкачен раньше миграции (или она не дошла): ответ не роняем — шаги и срок по умолчанию,
+    // а сбой виден в «Здоровье системы». Любой другой отказ базы бросается, как раньше.
+    if (!isMissingLimitColumn(err)) throw err;
+    void logSystemError(
+      "ai",
+      `Помощница: нет колонок шагов/срока в Settings (миграция 20261108090000?) — беру значения по умолчанию: ${describeError(err)}`,
+    );
+    row = await prisma.settings.findUnique({ where: { id: "singleton" }, select: base });
+  }
   return {
     enabled: row?.aiAssistantEnabled === true,
     groundedSearchEnabled: row?.groundedSearchEnabled ?? false,

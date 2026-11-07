@@ -1486,6 +1486,8 @@ export async function runAssistantDetailed(
   let route: "tools" | "reference" | "off_topic" = "tools";
   // Результаты инструментов за диалог: при срыве (срок, лимит попыток) отдаём найденное.
   const collected: CollectedToolResult[] = [];
+  // Записи этого хода — частичный ответ обязан сказать, что уже сделано (ревью 08.11).
+  const turnWrites: { done: string[]; pending: string[] } = { done: [], pending: [] };
   // Язык хода для готовых фраз (частичный ответ, «отключили») — тот же, что выбрала
   // assistantLanguagePolicy ниже; до её расчёта (сбой настроек) — русский.
   let turnLanguage: ClientLanguage = "unknown";
@@ -1593,8 +1595,10 @@ export async function runAssistantDetailed(
 
     // `<`, а не `<=` (22.08.2026): ровно maxRounds походов в Gemini, не больше.
     const writeBudget = { left: MAX_WRITES_PER_ANSWER };
-    // Защита от кругов: вызов (имя + аргументы) → его ответ за весь ход.
-    const pastCalls = new Map<string, unknown>();
+    // Защита от кругов: вызов (имя + аргументы) → его ответ за ход. Отказ ({error}) не кэшируется:
+    // временная ошибка не должна стать ответом на повтор. После исполненной записи чтения из кэша
+    // стираются: «список → создать задачу → список» обязан увидеть новую задачу (ревью 08.11).
+    const pastCalls = new Map<string, { result: unknown; write: boolean }>();
     let repeats = 0;
     for (let round = 0; round < maxRounds; round++) {
       // Перечитываем рубильник перед КАЖДЫМ следующим раундом (через кэш на 15 с,
@@ -1714,11 +1718,26 @@ export async function runAssistantDetailed(
         embedding: { beforeAttempt: embeddingGuard, signal, maxAttempts: 1 },
         question: lastUserText,
       });
+      const roundResults = new Map<string, unknown>();
       freshResults.forEach((result, k) => {
+        const call = fresh[k];
+        const key = keyOf(call);
         results[freshIndex[k]] = result;
-        pastCalls.set(keyOf(fresh[k]), result);
+        roundResults.set(key, result);
+        const write = isWriteTool(call.name);
+        if (write) {
+          const r = (result ?? {}) as { done?: unknown; ok?: unknown; confirmRequired?: unknown };
+          if (r.done === true || r.ok === true) {
+            turnWrites.done.push(call.name);
+            // Данные изменились: прежние чтения этого хода устарели.
+            for (const [k2, entry] of pastCalls) if (!entry.write) pastCalls.delete(k2);
+          } else if (r.confirmRequired === true) {
+            turnWrites.pending.push(call.name);
+          }
+        }
+        if (toolFailure(result) === null) pastCalls.set(key, { result, write });
       });
-      for (const [i, key] of repeatOf) results[i] = pastCalls.get(key);
+      for (const [i, key] of repeatOf) results[i] = roundResults.get(key) ?? pastCalls.get(key)?.result;
       turn.calls.forEach((call, index) => {
         if (repeatOf.has(index)) return;
         collected.push({ name: call.name, result: results[index] });
@@ -1726,9 +1745,9 @@ export async function runAssistantDetailed(
         options.onToolResult?.(call.name, results[index], call.args);
       });
       if (repeats >= LOOP_REPEAT_LIMIT) {
-        // Модель ходит по кругу: дальше шаги ничего не добавят — найденное и вопрос.
+        // Модель ходит по кругу: дальше шаги ничего не добавят — найденное, сделанное и вопрос.
         ok = true;
-        return replied(partialAnswerFromResults(collected, turnLanguage), "partial", "loop");
+        return replied(partialAnswerFromResults(collected, turnLanguage, turnWrites), "partial", "loop");
       }
       // Keep optional provider IDs; names alone cannot identify two calls to
       // the same function. Original signed model parts were appended above.
@@ -1739,7 +1758,7 @@ export async function runAssistantDetailed(
     }
     // Шаги кончились: отдаём найденное и вопрос, а не отписку (partialAnswer.ts) — на языке хода.
     ok = true;
-    return replied(partialAnswerFromResults(collected, turnLanguage), "partial", "rounds");
+    return replied(partialAnswerFromResults(collected, turnLanguage, turnWrites), "partial", "rounds");
   } catch (err) {
     const failure = failureOf(err, signal);
     turnLog.reason = failure.code;
@@ -1749,7 +1768,7 @@ export async function runAssistantDetailed(
       // Срыв посреди поиска (срок, лимит попыток): найденное не выбрасываем.
       console.warn("[ai:assistant] срыв после находок, отдаю частичный ответ:", failure.code);
       void logSystemError("ai", `Ассистент CRM: срыв (${failure.code}) после находок — отдан частичный ответ`);
-      return replied(partialAnswerFromResults(collected, turnLanguage), "partial", failure.code);
+      return replied(partialAnswerFromResults(collected, turnLanguage, turnWrites), "partial", failure.code);
     }
     if (failure.code === "aborted") {
       // Клиент закрыл панель — это не сбой, в «Здоровье системы» ему не место.

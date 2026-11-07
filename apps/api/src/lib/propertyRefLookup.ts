@@ -22,6 +22,7 @@ import { formatPropertyCode, parseShortCode } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import type { Prisma } from "../generated/prisma/client.js";
 import { toSearchTokens, toTokenVariants } from "./searchTokens.js";
+import { instagramLinkCodes } from "./instagramPostLead.js";
 
 /** То, что нужно карточке-превью и полной карточке помощника. Без вектора embedding. */
 export const PROPERTY_REF_INCLUDE = {
@@ -61,13 +62,6 @@ export function parseExactPropertyRef(ref: string): { id: string } | { shortId: 
   return shortId === null ? null : { shortId };
 }
 
-/** Код поста Instagram в ссылке: /p/, /reel/, /reels/, /tv/, с ником впереди или без, с хвостом `?igsh=`. */
-const INSTAGRAM_LINK_RE = /instagram\.com\/(?:[^/\s?#]+\/)?(?:p|reel|reels|tv)\/([A-Za-z0-9_-]+)/giu;
-
-/** Все коды постов Instagram в тексте (без повторов). */
-export function instagramLinkCodes(text: string): string[] {
-  return [...new Set([...text.matchAll(INSTAGRAM_LINK_RE)].map((m) => m[1]))];
-}
 
 /**
  * ОБЪЕКТЫ ПО ССЫЛКЕ НА ПОСТ INSTAGRAM — ОДНА ДВЕРЬ (07.11.2026, журнал прода 05–07.11: find_property

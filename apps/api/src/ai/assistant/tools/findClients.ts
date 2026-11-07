@@ -154,7 +154,14 @@ export const findClientsTool: AssistantReadToolPlugin = {
     if (wantedScope === "trash" && trashScope === "none") {
       return { error: "Удалённых клиентов в общей группе не показываю — спросите меня в личном чате." };
     }
-    const scope = trashScope === "none" ? "live" : wantedScope;
+    // Поиск удалённых по номеру телефона — тоже показ телефона (подтверждение перебором): без
+    // «Архива» запрещён (решение владельца 07.11 «агенту не показывать телефон удаленного клиента»).
+    const phoneQuery = (args.q ?? "").split(/\s+/).some((t) => /^[+\d()-]+$/.test(t) && t.replace(/\D/g, "").length >= 5)
+      || /^[+\d\s()-]+$/.test(args.q ?? "") && (args.q ?? "").replace(/\D/g, "").length >= 5;
+    if (phoneQuery && !trashContacts && wantedScope === "trash") {
+      return { error: "Искать удалённых клиентов по номеру телефона может только руководство. Назовите имя клиента." };
+    }
+    const scope = trashScope === "none" || (phoneQuery && !trashContacts) ? "live" : wantedScope;
     const where: Prisma.ClientWhereInput = {
       ...(scope === "live" ? { deletedAt: null } : scope === "trash" ? { deletedAt: { not: null } } : {}),
       ...clientFieldFilters({ kind: args.kind, status: args.status, source: args.source, districtId, hot: args.hot }),
@@ -246,7 +253,8 @@ export const findClientsTool: AssistantReadToolPlugin = {
           budgetMax: c.budgetMax ? Number(c.budgetMax) : null,
           currency: c.currency,
           address: c.deletedAt !== null && !trashContacts ? null : safeField(phoneSafeText(c.address, contacts), 200),
-          notes: safeField(phoneSafeText(c.requirementsNotes, contacts), 200),
+          // Заметки удалённого клиента (адрес, ориентиры дома) — тоже контакт: агенту без «Архива» не показываем.
+          notes: c.deletedAt !== null && !trashContacts ? null : safeField(phoneSafeText(c.requirementsNotes, contacts), 200),
           hot: c.hotSince !== null,
           inTrash: c.deletedAt !== null,
           ...(c.deletedAt ? { deletedAt: dushanbeDateString(c.deletedAt) } : {}),

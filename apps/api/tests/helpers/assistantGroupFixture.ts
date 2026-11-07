@@ -111,6 +111,7 @@ export function assistantGroupFixture() {
     "./assistantMedia.js": { handleAssistantMedia: media },
     "../lib/systemError.js": { logSystemError: async () => {} },
     "../lib/describeError.js": { describeError: (err: unknown) => String(err) },
+    "../lib/shutdownState.js": { trackBackgroundTask: <T>(promise: Promise<T>) => promise },
   };
   // This module is absent from the older comparison revision.
   if (existsSync(new URL("../../src/telegram/assistantGroupPhrases.ts", import.meta.url))) {
@@ -120,6 +121,12 @@ export function assistantGroupFixture() {
   dependencies["./assistantDelivery.js"] = load("assistantDelivery", dependencies);
   dependencies["./assistantPropertyPages.js"] = load("assistantPropertyPages", dependencies);
   const adapter = load("assistantBot", dependencies);
+  // Долгий ход помощницы уходит из очереди группы (runInAssistantLane); тест ждёт и его ответ.
+  const sendAndWait = async (msg: Record<string, unknown>, updateId?: number) => {
+    const handled = await adapter.handleAssistantGroupMessage(msg, updateId);
+    await adapter.takeDeferredAssistantReply?.(msg);
+    return handled;
+  };
   adapter.setGroupClockForTests(() => now);
   const message = (text = "", extra: Partial<TelegramIncomingMessage> = {}) => ({
     chat: { id: -100, type: "supergroup" }, from: { id: 1 }, message_id: 10, text, ...extra,
@@ -129,7 +136,7 @@ export function assistantGroupFixture() {
     setLinked: (value: boolean) => { groupLinked = value; },
     setDiscussion: (value: string) => { discussionGroupId = value; },
     message, send: (text = "", extra: Partial<TelegramIncomingMessage> = {}, updateId?: number) =>
-      adapter.handleAssistantGroupMessage(message(text, extra), updateId),
+      sendAndWait(message(text, extra), updateId),
     setRegistered: (value: boolean) => { registered = value; }, setEnabled: (value: boolean) => { enabled = value; },
     setRole: (value: string) => { role = value; }, setActive: (value: boolean) => { active = value; },
     advance: (milliseconds: number) => { now += milliseconds; } };

@@ -1158,3 +1158,29 @@ describe("long turn keeps the typing indicator alive (owner 07.11.2026: up to 12
     }
   });
 });
+
+describe("long assistant turn leaves the group queue (review 08.11.2026)", () => {
+  it("handler returns before the model finishes; another member is answered meanwhile; one person keeps order", async () => {
+    const f = fixture();
+    let finish: (value: { ok: true; reply: string }) => void = () => {};
+    f.run.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    const first = f.message("@fixture_bot покажи мои показы на завтра", { message_id: 21, from: { id: 1 } });
+    // Вернулся сразу, хотя модель ещё думает: очередь группы свободна.
+    expect(await f.adapter.handleAssistantGroupMessage(first)).toBe(true);
+    await vi.waitFor(() => expect(f.run).toHaveBeenCalledTimes(1));
+
+    // Тот же человек — встаёт за своим первым ходом (порядок ответов одному человеку).
+    const sameSecond = f.message("@fixture_bot и задачи на завтра", { message_id: 22, from: { id: 1 } });
+    expect(await f.adapter.handleAssistantGroupMessage(sameSecond)).toBe(true);
+    // Другой участник группы не ждёт долгий ход первого.
+    await f.send("@fixture_bot какие у меня клиенты", { message_id: 23, from: { id: 2 } });
+    expect(f.run).toHaveBeenCalledTimes(2);
+    expect((f.run.mock.calls[1][0] as { content: string }[])[0].content).toContain("клиенты");
+
+    finish({ ok: true, reply: "Готово." });
+    await f.adapter.takeDeferredAssistantReply(first);
+    await f.adapter.takeDeferredAssistantReply(sameSecond);
+    expect(f.run).toHaveBeenCalledTimes(3);
+    expect((f.run.mock.calls[2][0] as { content: string }[])[0].content).toContain("задачи");
+  });
+});

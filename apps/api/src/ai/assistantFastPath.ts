@@ -6,6 +6,7 @@ import type { AssistantActor } from "./assistant.js";
 import { trashActorOf } from "./assistant/actor.js";
 import { trashedPropertyNoteFor } from "./assistant/tools/propertyPresenter.js";
 import { propertyIdsByInstagramLink } from "../lib/propertyRefLookup.js";
+import { instagramLinkCodes } from "../lib/instagramPostLead.js";
 
 /**
  * БЫСТРЫЙ ПУТЬ ПОМОЩНИКА БЕЗ МОДЕЛИ (полоса А, docs/design/internal-assistant-
@@ -61,7 +62,6 @@ const CLIENT_CODE_RE = new RegExp(`^(?:${CLIENT_WORDS}\\s*${SEP}|${CLIENT_PREFIX
 
 /** Телефон целиком: цифры, плюс, пробелы, скобки, дефисы; допускается слово «телефон/номер» впереди. */
 const PHONE_ONLY_RE = /^(?:(?:телефон|тел|номер|phone)[\s.:]*)?(\+?[\d\s()\-]{7,22})$/i;
-const INSTAGRAM_POST_RE = /instagram\.com\/(?:reel|reels|p|tv)\/([A-Za-z0-9_-]+)/i;
 /** Сколько лишних символов вокруг ссылки допустимо: «вот ссылка …» — ещё не вопрос, требующий модели. */
 const INSTAGRAM_EXTRA_TEXT_LIMIT = 40;
 const MAX_CARDS = 5;
@@ -95,13 +95,14 @@ export function parseFastPathIntent(text: string): Intent | null {
   const raw = text.trim();
   if (!raw || raw.length > 300) return null;
 
-  const instagram = INSTAGRAM_POST_RE.exec(raw);
-  if (instagram) {
+  // Один разбор ссылки с find_property и заявкой по ссылке (lib/instagramPostLead.ts).
+  const instagramCode = instagramLinkCodes(raw)[0];
+  if (instagramCode) {
     const canonical = normalizeInstagramUrl(raw);
     if (!canonical) return null;
     const urlLength = /\S*instagram\.com\/\S*/i.exec(raw)?.[0].length ?? 0;
     if (raw.length - urlLength > INSTAGRAM_EXTRA_TEXT_LIMIT) return null;
-    return { kind: "instagram", code: instagram[1], link: raw };
+    return { kind: "instagram", code: instagramCode, link: raw };
   }
 
   const phrase = clean(raw);

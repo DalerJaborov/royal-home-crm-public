@@ -91,12 +91,59 @@ export function hasFoundItems(collected: readonly CollectedToolResult[]): boolea
   });
 }
 
+/** Записи этого хода: исполненные и ждущие нажатия «Подтвердить» (имена инструментов). */
+export interface TurnWrites {
+  done: readonly string[];
+  pending: readonly string[];
+}
+
+/** Что сделала запись — бытовыми словами, парой ru/tg; незнакомое имя — общая фраза. */
+const WRITE_LABELS: Record<string, Record<ReplyLanguage, string>> = {
+  create_task: { ru: "создала задачу", tg: "вазифа сохтам" },
+  reschedule_task: { ru: "перенесла задачу", tg: "вазифаро ба вақти дигар гузарондам" },
+  complete_task: { ru: "закрыла задачу", tg: "вазифаро анҷом додам" },
+  add_client_note: { ru: "добавила заметку", tg: "қайд илова кардам" },
+  book_showing: { ru: "записала показ", tg: "намоишро навиштам" },
+  reschedule_showing: { ru: "перенесла показ", tg: "намоишро гузарондам" },
+  cancel_showing: { ru: "отменила показ", tg: "намоишро бекор кардам" },
+  create_client: { ru: "завела клиента", tg: "мизоҷ сохтам" },
+  change_property_price: { ru: "изменение цены", tg: "тағйири нарх" },
+  change_property_status: { ru: "изменение статуса объекта", tg: "тағйири ҳолати объект" },
+  restore_property: { ru: "восстановление объекта из Корзины", tg: "баргардонидани объект аз Корзина" },
+  delete_property: { ru: "удаление объекта", tg: "нест кардани объект" },
+};
+
+function writeLabel(name: string, lang: ReplyLanguage): string {
+  return WRITE_LABELS[name]?.[lang] ?? (lang === "tg" ? "амал" : "действие");
+}
+
+/** Строки «уже сделано» и «ждёт подтверждения» — чтобы частичный ответ не умолчал о записи. */
+function writesLines(writes: TurnWrites | undefined, lang: ReplyLanguage): string[] {
+  if (!writes) return [];
+  const uniq = (names: readonly string[]) => [...new Set(names.map((n) => writeLabel(n, lang)))];
+  const out: string[] = [];
+  if (writes.done.length) {
+    out.push(`${lang === "tg" ? "Дар ин ҷавоб аллакай иҷро шуд" : "Уже сделано в этом ответе"}: ${uniq(writes.done).join("; ")}.`);
+  }
+  if (writes.pending.length) {
+    out.push(`${lang === "tg" ? "Тасдиқи шуморо дар корт интизор аст" : "Ждёт вашего подтверждения в карточке"}: ${uniq(writes.pending).join("; ")}.`);
+  }
+  return out;
+}
+
 /**
  * Текст «собрала частично» из результатов инструментов за диалог.
  * @param language язык хода (`assistantLanguagePolicy(...).language`); без него — русский.
+ * @param writes записи этого хода: о сделанном частичный ответ говорит прямо (ревью 08.11).
  */
-export function partialAnswerFromResults(collected: readonly CollectedToolResult[], language?: ClientLanguage): string {
+export function partialAnswerFromResults(
+  collected: readonly CollectedToolResult[],
+  language?: ClientLanguage,
+  writes?: TurnWrites,
+): string {
   const lang = replyLanguage(language);
+  const done = writesLines(writes, lang);
+  const withWrites = (text: string) => (done.length ? `${done.join("\n")}\n${text}` : text);
   const lines: string[] = [];
   const seen = new Set<string>();
   for (const { result } of collected) {
@@ -112,6 +159,6 @@ export function partialAnswerFromResults(collected: readonly CollectedToolResult
     }
     if (lines.length >= 6) break;
   }
-  if (lines.length === 0) return TEXTS[lang].empty(collected.length);
-  return `${TEXTS[lang].head}\n${lines.join("\n")}\n${TEXTS[lang].tail}`;
+  if (lines.length === 0) return withWrites(TEXTS[lang].empty(collected.length));
+  return withWrites(`${TEXTS[lang].head}\n${lines.join("\n")}\n${TEXTS[lang].tail}`);
 }

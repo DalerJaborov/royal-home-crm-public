@@ -60,13 +60,36 @@ export const HOUSE_SEARCH_RADIUS_M = 500;
 
 /** Слова «у», «около», «рядом с»… перед адресом геокодеру домов не нужны. */
 const ADDRESS_LEAD = /^(?:(?:у|около|возле|рядом с|рядом|напротив|дар назди|наздики|назди|по адресу|адрес)\s+)+/iu;
-/** Адрес кончается номером дома: «Рудаки 177», «ул. Айни, 45а». */
-const ENDS_WITH_HOUSE_NUMBER = /\p{L}[\p{L}.\s,-]*\s,?\s*\d{1,4}\s*[a-zа-яё]?\s*$/iu;
+/** Хвост реплики «одно-два слова + номер дома»: «Рудаки 177», «проспект Сомони, 32а». */
+const ADDRESS_TAIL = /(?:^|\s)((?:[\p{L}.-]+\s+)?[\p{L}.-]{3,}),?\s*(\d{1,4})\s*([a-zа-яё])?\s*$/iu;
+/** Слово перед числом, после которого число — не номер дома: «мкр 91», «Сино 2», «до 600», «3 этаж». */
+const NOT_A_STREET_WORD = /^(?:мкр|мкрн|микрорайон\p{L}*|сино|фирдавс\p{L}*|шохмансур\p{L}*|шоҳмансур\p{L}*|сомон\p{L}*|исмоил\p{L}*|до|от|за|по|около|возле|дом|дома|этаж\p{L}*|комнат\p{L}*|кв|квартир\p{L}*|тыс\p{L}*|млн|миллион\p{L}*|доллар\p{L}*|школ\p{L}*|мактаб\p{L}*|район\p{L}*|ноҳия\p{L}*|хона\p{L}*|ҳуҷра\p{L}*)$/iu;
+/** Улица названа видом («проспект Сомони 32») — тогда и «Сомони» годится как имя улицы. */
+const STREET_KIND = /^(?:ул|ул\.|улица|пр|пр\.|проспект|пр-т|проезд|переулок|кучаи|кӯчаи|хиёбони|шоҳроҳи)$/iu;
+/** Цена, комнаты, этаж в реплике — это запрос подбора, а не адрес. */
+const SEARCH_CUES = /(?:^|\s)(?:до|от)\s+\d|тыс|млн|сомони\s*$|\$|комнат|двушк|трешк|однушк|этаж/iu;
+
+/**
+ * «Улица + номер дома» — только когда это похоже на адрес; всё прочее отсекается ДО запроса в базу
+ * (ревью 08.11): «мкр 91», «Сино 2», «двушка в Сино до 600» дом не порождают и не стоят запросов.
+ */
+export function houseAddressCandidate(text: string): string | null {
+  const address = text.trim().replace(ADDRESS_LEAD, "").trim();
+  if (SEARCH_CUES.test(address)) return null;
+  const m = ADDRESS_TAIL.exec(address);
+  if (!m) return null;
+  // «квартира у Рудаки 177»: предлог перед улицей геокодеру не нужен.
+  const words = m[1].split(/\s+/).filter((w, i, all) => !(all.length > 1 && i === 0 && /^(?:у|в|на|по|к|с|около|возле|назди)$/iu.test(w)));
+  const last = words[words.length - 1];
+  const kindNamed = words.length > 1 && STREET_KIND.test(words[0]);
+  if (!kindNamed && NOT_A_STREET_WORD.test(last)) return null;
+  return `${words.join(" ")} ${m[2]}${m[3] ?? ""}`;
+}
 
 async function houseByAddress(text: string): Promise<MatchPlace | null> {
-  const address = text.trim().replace(ADDRESS_LEAD, "").trim();
-  if (!ENDS_WITH_HOUSE_NUMBER.test(address)) return null;
-  const house = await resolveBuildingByText(address);
+  const candidate = houseAddressCandidate(text);
+  if (!candidate) return null;
+  const house = await resolveBuildingByText(candidate);
   return house ? { name: house.name, lat: house.lat, lng: house.lng, radiusM: HOUSE_SEARCH_RADIUS_M } : null;
 }
 

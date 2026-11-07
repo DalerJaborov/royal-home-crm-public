@@ -16,9 +16,18 @@ function agentCascadeModels(schema: string): string[] {
   const models: string[] = [];
   const re = /^model (\w+) \{([\s\S]*?)^\}/gm;
   let m: RegExpExecArray | null;
-  while ((m = re.exec(schema.replace(/\r\n/g, "\n")))) {
-    const lines = m[2].split("\n").map((l) => l.trim());
-    if (lines.some((l) => /^\w+\s+Agent\??\s+@relation\(/.test(l) && /onDelete:\s*Cascade/.test(l))) models.push(m[1]);
+  const text = schema.replace(/\r\n/g, "\n");
+  const count = (s: string, ch: string) => s.split(ch).length - 1;
+  while ((m = re.exec(text))) {
+    // Поле на несколько строк («@relation(\n fields: …,\n onDelete: Cascade\n)») склеиваем до закрытой скобки.
+    const fields: string[] = [];
+    for (const raw of m[2].split("\n")) {
+      const line = raw.replace(/\/\/.*$/, "").trim();
+      const last = fields[fields.length - 1];
+      if (last !== undefined && count(last, "(") > count(last, ")")) fields[fields.length - 1] = `${last} ${line}`;
+      else fields.push(line);
+    }
+    if (fields.some((l) => /^\w+\s+Agent\??\s+@relation\(/.test(l) && /onDelete:\s*Cascade/.test(l))) models.push(m[1]);
   }
   return models.sort();
 }
@@ -43,6 +52,11 @@ describe("каскад на сотрудника — каждая таблица
   it("история и «не история» не пересекаются", () => {
     const both = Object.keys(AGENT_CASCADE_HISTORY).filter((m) => m in AGENT_CASCADE_NOT_HISTORY);
     expect(both).toEqual([]);
+  });
+
+  it("многострочный @relation тоже виден (сам разбор не слепнет)", () => {
+    const sample = "model Foo {\n  id String @id\n  agent Agent @relation(\n    fields: [agentId],\n    references: [id],\n    onDelete: Cascade\n  )\n}\n";
+    expect(agentCascadeModels(sample)).toEqual(["Foo"]);
   });
 
   it("сторож краснеет на поломке: модель без решения находится", () => {

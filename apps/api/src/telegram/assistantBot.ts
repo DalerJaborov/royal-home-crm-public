@@ -41,6 +41,7 @@ import { findAgentByTelegramChatId, findAgentByTelegramUserId } from "../lib/tel
 import { claimCallback } from "../lib/telegramModeration.js";
 import { logSystemError } from "../lib/systemError.js";
 import { describeError } from "../lib/describeError.js";
+import { trackBackgroundTask } from "../lib/shutdownState.js";
 import { logAssistantFastPathTurn, logAssistantToolCall, logAssistantTurn } from "../lib/aiAssistantAudit.js";
 import {
   answerCallbackQuery as answerCallbackQueryRaw,
@@ -227,6 +228,46 @@ interface TurnParams {
 
 /** Чаще, чем Telegram гасит «печатает…» (~5 с), но без лишних вызовов API. */
 export const TYPING_REFRESH_MS = 4_000;
+
+/**
+ * ХОД ПОМОЩНИЦЫ ВНЕ ОЧЕРЕДИ ЧАТА (ревью 08.11.2026). Ход теперь длится до двух минут
+ * (Settings.aiAssistantDeadlineSec). Внутри очереди чата (telegram/bot.ts, chatChains) он держал бы
+ * всю группу, а при long polling (telegram/poller.ts) — пачку всех чатов. Поэтому долгая часть
+ * уходит в свою очередь на одного человека: порядок ответов одному человеку сохраняется, соседи
+ * по группе и другие чаты не ждут. Двойной обработки нет: апдейт уже принят и отмечен (дедуп
+ * вебхука и поллера срабатывает до этого места), очередь только откладывает ответ.
+ * Ответ отдаётся наверх как `reply` (TelegramUpdateAccepted): вебхук и тесты его дожидаются,
+ * поллер — нет; мягкая остановка ждёт его через trackBackgroundTask.
+ */
+const assistantLanes = new Map<string, Promise<void>>();
+const deferredReplies = new WeakMap<object, Promise<void>>();
+
+export function runInAssistantLane(key: string, work: () => Promise<unknown>, onError: (err: unknown) => Promise<void>): Promise<void> {
+  const previous = assistantLanes.get(key) ?? Promise.resolve();
+  const run = previous.then(async () => {
+    try {
+      await work();
+    } catch (err) {
+      await onError(err).catch(() => {});
+    }
+  });
+  assistantLanes.set(key, run);
+  void run.then(() => {
+    if (assistantLanes.get(key) === run) assistantLanes.delete(key);
+  });
+  return trackBackgroundTask(run);
+}
+
+/** Отложенный ответ помощницы на это сообщение (если был) — для telegram/bot.ts. */
+export function takeDeferredAssistantReply(msg: TelegramIncomingMessage): Promise<void> | undefined {
+  const reply = deferredReplies.get(msg);
+  deferredReplies.delete(msg);
+  return reply;
+}
+
+function deferAssistantReply(msg: TelegramIncomingMessage, reply: Promise<void>): void {
+  deferredReplies.set(msg, reply);
+}
 
 function montageQueueLanguage(text: string): "ru" | "tg" | null {
   const words = text.trim().replace(/[?!.]+$/u, "").trimEnd();
@@ -599,6 +640,17 @@ function forwardedTextPrompt(text: string): string {
 }
 
 /** Личный чат сотрудника, не монтажёра: всё, что он пишет, — просьба помощнику. */
+/**
+ * Личка сотрудника — ход помощницы в очереди этого чата, но вне общей очереди апдейтов
+ * (runInAssistantLane): долгий ход не держит поллер и остальные чаты. Ответ — через
+ * takeDeferredAssistantReply(msg). У handleAssistantPrivate свой перехват ошибок.
+ */
+export function startAssistantPrivate(msg: TelegramIncomingMessage, agent: { id: string; fullName: string }): void {
+  deferAssistantReply(msg, runInAssistantLane(`private:${msg.chat.id}`, () => handleAssistantPrivate(msg, agent), async (err) => {
+    await logSystemError("telegram", `Помощник в личке Telegram: ${describeError(err)}`);
+  }));
+}
+
 export async function handleAssistantPrivate(
   msg: TelegramIncomingMessage,
   agent: { id: string; fullName: string }
@@ -916,6 +968,17 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
     else await sendMessage(chatId, message, msg.message_id, undefined, { messageThreadId: msg.message_thread_id });
   };
 
+  /** Долгая часть хода — вне очереди группы, в очереди этого человека (см. runInAssistantLane). */
+  const detach = (work: () => Promise<unknown>): true => {
+    const person = msg.from?.id ?? msg.sender_chat?.id ?? "unknown";
+    deferAssistantReply(msg, runInAssistantLane(`group:${chatId}:${person}`, work, async (err) => {
+      await logSystemError("telegram", `Помощник в группе Telegram: ${describeError(err)}`);
+      if (!automatic && !automaticRead && !automaticAction && !membership && (!historySelector || addressed)
+          && (!standaloneVoice || addressed)) await reply("Не получилось ответить, попробуйте ещё раз.").catch(() => {});
+    }));
+    return true;
+  };
+
   try {
     // Группа-обсуждение канала — клиентские комментарии, помощнику там не место.
     const settings = await prisma.settings.findUnique({
@@ -1230,40 +1293,42 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
         }));
         question = `${currentWords}\n${wrapUntrusted("document", JSON.stringify(archived), 3000)}`;
       }
-      showWorking();
-      const result = await runTurn({
-        showWorking,
-        agentId: sender.id, scope: "group", readOnlyGroup: Boolean(historySelector) || !automaticAction,
-        validateQueueAudience, forwardedEvidence: isForwarded,
-        allowPropertyCards: Boolean(cardScope && !historySelector && !statusFollowUp),
-        onlyGroupConfirmation: historySelector ? undefined : automaticAction ?? undefined, moneyWallet,
-        history: [{ role: "user", content: maskAssistantContacts(question) }],
-        deny: async () => {},
-      });
-      if (!result || (result.failed && !automaticAction)) return true;
-      const current = await prisma.assistantTelegramGroup.findUnique({ where: { chatId } });
-      if (!current || current.createdAt.getTime() !== registered.createdAt.getTime()
-          || (!addressed && current.proactiveMutedUntil && current.proactiveMutedUntil.getTime() > groupClock())
-          || (historySelector && (current.contextEnabledAt?.getTime() !== historyEnabledAt?.getTime()
-            || current.contextIncludeUnlinked !== historyIncludesUnlinked))) {
-        if (result.pending.length) await cancelPending(result.pending, sender.id);
-        return true;
-      }
-      if (automaticAction && !historySelector) {
-        await sendTurnResult(chatId, result, {
-          agentId: sender.id, authorName: sender.fullName, scope: "group", mode: "text", replyTo: msg.message_id,
-          messageThreadId: msg.message_thread_id, requestLanguage,
+      return detach(async () => {
+        showWorking();
+        const result = await runTurn({
+          showWorking,
+          agentId: sender.id, scope: "group", readOnlyGroup: Boolean(historySelector) || !automaticAction,
+          validateQueueAudience, forwardedEvidence: isForwarded,
+          allowPropertyCards: Boolean(cardScope && !historySelector && !statusFollowUp),
+          onlyGroupConfirmation: historySelector ? undefined : automaticAction ?? undefined, moneyWallet,
+          history: [{ role: "user", content: maskAssistantContacts(question) }],
+          deny: async () => {},
         });
+        if (!result || (result.failed && !automaticAction)) return true;
+        const current = await prisma.assistantTelegramGroup.findUnique({ where: { chatId } });
+        if (!current || current.createdAt.getTime() !== registered.createdAt.getTime()
+            || (!addressed && current.proactiveMutedUntil && current.proactiveMutedUntil.getTime() > groupClock())
+            || (historySelector && (current.contextEnabledAt?.getTime() !== historyEnabledAt?.getTime()
+              || current.contextIncludeUnlinked !== historyIncludesUnlinked))) {
+          if (result.pending.length) await cancelPending(result.pending, sender.id);
+          return true;
+        }
+        if (automaticAction && !historySelector) {
+          await sendTurnResult(chatId, result, {
+            agentId: sender.id, authorName: sender.fullName, scope: "group", mode: "text", replyTo: msg.message_id,
+            messageThreadId: msg.message_thread_id, requestLanguage,
+          });
+          return true;
+        }
+        if (cardScope && await sendSelectedPropertyCards(cardScope, result, currentWords)) return true;
+        await sendAssistantReply(chatId, splitReaction(result.reply).text, {
+          scope: "group", mode: "text", structured: result.structured, replyTo: msg.message_id,
+          messageThreadId: msg.message_thread_id, written: [], requestLanguage,
+        });
+        const refs = groupPropertyRefs(historySelector ? currentWords : statusFollowUp ? quoted : raw);
+        if (!isForwarded) openWindow(false, refs.length === 1 ? refs[0] : undefined);
         return true;
-      }
-      if (cardScope && await sendSelectedPropertyCards(cardScope, result, currentWords)) return true;
-      await sendAssistantReply(chatId, splitReaction(result.reply).text, {
-        scope: "group", mode: "text", structured: result.structured, replyTo: msg.message_id,
-        messageThreadId: msg.message_thread_id, written: [], requestLanguage,
       });
-      const refs = groupPropertyRefs(historySelector ? currentWords : statusFollowUp ? quoted : raw);
-      if (!isForwarded) openWindow(false, refs.length === 1 ? refs[0] : undefined);
-      return true;
     }
 
     if (windowText !== null && key && dialogWindows.get(key)?.registeredAt !== registeredAt) {
@@ -1365,43 +1430,45 @@ export async function handleAssistantGroupMessage(msg: TelegramIncomingMessage, 
       }
       if (refs.length === 1) request = tajik ? `${request}\nРақами объект: ${refs[0]}.` : `${request}\nНомер объекта: ${refs[0]}.`;
     }
-    const keepWorking = !fromVoice || !audioWords ? showWorking : undefined;
-    keepWorking?.();
-    // Окно диалога открывается (и продлевается) на обработанном обращении.
-    const result = await runTurn({
-      showWorking: keepWorking,
-      agentId: sender.id,
-      moneyWallet,
-      scope: "group",
-      allowPropertyCards: Boolean(cardScope && !continuationRef && !statusFollowUp),
-      readOnlyGroup: Boolean(continuationRef),
-      validateQueueAudience, forwardedEvidence,
-      history: [{ role: "user", content: request.slice(0, 4000) }],
-      deny: reply,
-    });
-    if (!result) return true;
-    if (continuationRef) {
-      const current = await prisma.assistantTelegramGroup.findUnique({ where: { chatId } });
-      if (!current || current.createdAt.getTime() !== registeredAt
-          || (!addressed && current.proactiveMutedUntil && current.proactiveMutedUntil.getTime() > groupClock())) return true;
-    }
-    if (!result.failed && !forwardedEvidence) openWindow(addressed || windowText !== null, continuationRef ?? (refs.length === 1 ? refs[0] : undefined));
-    if (cardScope?.group && await sendSelectedPropertyCards({ ...cardScope,
-      group: { ...cardScope.group, addressed } }, result, words)) return true;
-    const preference = forwardedEvidence ? undefined : requestedAssistantReplyPreference(words);
-    await sendTurnResult(chatId, result, {
-      agentId: sender.id,
-      authorName: sender.fullName,
-      scope: "group",
-      fromVoice,
-      addressedGroupVoice: addressed && fromVoice && !forwardedEvidence && shortNativeVoice,
-      mode: preference?.mode ?? "auto",
-      voiceLanguage: preference?.voiceLanguage,
-      reactTo: msg.message_id,
-      replyTo: msg.message_id,
-      messageThreadId: msg.message_thread_id,
-      source,
-      requestLanguage: language === "mixed" ? language : tajik ? "tg" : language,
+    return detach(async () => {
+      const keepWorking = !fromVoice || !audioWords ? showWorking : undefined;
+      keepWorking?.();
+      // Окно диалога открывается (и продлевается) на обработанном обращении.
+      const result = await runTurn({
+        showWorking: keepWorking,
+        agentId: sender.id,
+        moneyWallet,
+        scope: "group",
+        allowPropertyCards: Boolean(cardScope && !continuationRef && !statusFollowUp),
+        readOnlyGroup: Boolean(continuationRef),
+        validateQueueAudience, forwardedEvidence,
+        history: [{ role: "user", content: request.slice(0, 4000) }],
+        deny: reply,
+      });
+      if (!result) return true;
+      if (continuationRef) {
+        const current = await prisma.assistantTelegramGroup.findUnique({ where: { chatId } });
+        if (!current || current.createdAt.getTime() !== registeredAt
+            || (!addressed && current.proactiveMutedUntil && current.proactiveMutedUntil.getTime() > groupClock())) return true;
+      }
+      if (!result.failed && !forwardedEvidence) openWindow(addressed || windowText !== null, continuationRef ?? (refs.length === 1 ? refs[0] : undefined));
+      if (cardScope?.group && await sendSelectedPropertyCards({ ...cardScope,
+        group: { ...cardScope.group, addressed } }, result, words)) return true;
+      const preference = forwardedEvidence ? undefined : requestedAssistantReplyPreference(words);
+      await sendTurnResult(chatId, result, {
+        agentId: sender.id,
+        authorName: sender.fullName,
+        scope: "group",
+        fromVoice,
+        addressedGroupVoice: addressed && fromVoice && !forwardedEvidence && shortNativeVoice,
+        mode: preference?.mode ?? "auto",
+        voiceLanguage: preference?.voiceLanguage,
+        reactTo: msg.message_id,
+        replyTo: msg.message_id,
+        messageThreadId: msg.message_thread_id,
+        source,
+        requestLanguage: language === "mixed" ? language : tajik ? "tg" : language,
+      });
     });
   } catch (err) {
     await logSystemError("telegram", `Помощник в группе Telegram: ${describeError(err)}`);

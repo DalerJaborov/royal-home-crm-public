@@ -18,6 +18,17 @@ import type { PermissionId } from "@royal-home/shared";
  */
 
 const callGeminiTools = vi.fn();
+const buildingLookups = vi.hoisted(() => ({ count: 0 }));
+vi.mock("../src/lib/geoResolve.js", async (importOriginal) => {
+  const real = await importOriginal<typeof import("../src/lib/geoResolve.js")>();
+  return {
+    ...real,
+    resolveBuildingByText: async (text: string) => {
+      buildingLookups.count += 1;
+      return real.resolveBuildingByText(text);
+    },
+  };
+});
 vi.mock("../src/ai/geminiClient.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/ai/geminiClient.js")>()),
   callGeminiTools,
@@ -37,7 +48,7 @@ const { grantElevation } = await import("../src/lib/stepUp.js");
 const { findAssistantToolPlugin } = await import("../src/ai/assistant/tools/index.js");
 const { runAssistantDetailed, assistantErrorMessage, ASSISTANT_ERROR_MESSAGES, ASSISTANT_ERROR_MESSAGES_TG } = await import("../src/ai/assistant.js");
 const { resetAssistantRuntimeCache, loadAssistantSettings } = await import("../src/ai/assistant/runtime.js");
-const { resolveSearchPlace, HOUSE_SEARCH_RADIUS_M } = await import("../src/lib/searchPlace.js");
+const { resolveSearchPlace, HOUSE_SEARCH_RADIUS_M, houseAddressCandidate } = await import("../src/lib/searchPlace.js");
 const { tryAssistantFastPath } = await import("../src/ai/assistantFastPath.js");
 const { createTestAgent } = await import("./helpers/ownAgent.js");
 const { deleteAgentsWithTraces } = await import("./helpers/cleanupAgents.js");
@@ -324,5 +335,146 @@ describe("журнал прода 05–07.11: «мои клиенты» и сс�
     }
     const fast = await tryAssistantFastPath(`https://www.instagram.com/reel/${code}/?igsh=MTRrZ2Fk`, actor(agent, "AGENT", []) as never);
     expect(fast?.cards.map((c) => c.id)).toEqual([p.id]);
+  });
+});
+
+describe("второе ревью 08.11: кэш повторов, ложный дом, поиск удалённых по телефону", () => {
+  const turnCall = (name: string, args: Record<string, unknown>) => ({
+    text: "", calls: [{ name, args }], modelParts: [{ functionCall: { name, args } }], tokens: 1,
+  });
+  const textTurn = (text: string) => ({ text, calls: [], modelParts: [{ text }], tokens: 1 });
+
+  it("список → create_task → тот же список: второй список читается заново и видит новую задачу", async () => {
+    await prisma.settings.update({ where: { id: "singleton" }, data: { aiAssistantMaxRounds: 30 } });
+    resetAssistantRuntimeCache();
+    const client = await prisma.client.create({
+      data: { fullName: `Задачный ${WORD}`, phone: `+99293${RUN}5`, source: "WEBSITE", kind: "BUYER", acceptedAt: new Date(), assignedAgentId: agent } as never,
+    });
+    clientIds.push(client.id);
+    const note = `Позвонить ${WORD}`;
+    const today = new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10);
+    callGeminiTools.mockReset();
+    callGeminiTools
+      .mockResolvedValueOnce(turnCall("list_my_tasks", {}))
+      .mockResolvedValueOnce(turnCall("create_task", { clientId: client.id, notes: note, nextAction: "Позвонить", nextActionDate: today }))
+      .mockResolvedValueOnce(turnCall("list_my_tasks", {}))
+      .mockResolvedValueOnce(textTurn("Готово."));
+    const outcome = await runAssistantDetailed([{ role: "user", content: `Задачи ${WORD}` }], actor(agent, "AGENT", []));
+    expect(outcome).toEqual({ ok: true, reply: "Готово." });
+    // Четвёртый ход модели видит ответ ВТОРОГО списка — уже с новой задачей, а не прошлый из кэша.
+    const contents = JSON.stringify((callGeminiTools.mock.calls[3][0] as { contents: unknown }).contents);
+    const lastList = contents.slice(contents.lastIndexOf("list_my_tasks"));
+    expect(lastList).toContain(`Задачный ${WORD}`);
+    // А первый список был пуст: значит, второй прочитан заново, не взят из кэша.
+    expect(contents.slice(0, contents.indexOf("create_task"))).not.toContain(`Задачный ${WORD}`);
+  });
+
+  it("временная ошибка не кэшируется: тот же вызов после отказа исполняется снова", async () => {
+    const plugin = findAssistantToolPlugin("find_property")!;
+    const realRun = plugin.run.bind(plugin);
+    let calls = 0;
+    const spy = vi.spyOn(plugin as { run: (...a: unknown[]) => unknown }, "run").mockImplementation(async (...a: unknown[]) => {
+      calls += 1;
+      return calls === 1 ? { error: "База на секунду недоступна" } : (realRun as (...x: unknown[]) => unknown)(...a);
+    });
+    try {
+      callGeminiTools.mockReset();
+      const args = { ref: `ОБ-97${RUN}` };
+      callGeminiTools
+        .mockResolvedValueOnce(turnCall("find_property", args))
+        .mockResolvedValueOnce(turnCall("find_property", args))
+        .mockResolvedValueOnce(textTurn("Не нашла."));
+      const outcome = await runAssistantDetailed([{ role: "user", content: `Ошибка ${WORD}` }], actor(agent, "AGENT", []));
+      expect(outcome.ok).toBe(true);
+      expect(calls).toBe(2);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("частичный ответ по кругу называет уже сделанную запись", async () => {
+    const client = await prisma.client.create({
+      data: { fullName: `Кругозапись ${WORD}`, phone: `+99293${RUN}6`, source: "WEBSITE", kind: "BUYER", acceptedAt: new Date(), assignedAgentId: agent } as never,
+    });
+    clientIds.push(client.id);
+    callGeminiTools.mockReset();
+    const args = { ref: `ОБ-96${RUN}` };
+    callGeminiTools
+      .mockResolvedValueOnce(turnCall("create_task", { clientId: client.id, notes: `Круг ${WORD}`, nextAction: "Позвонить", nextActionDate: "2031-05-06" }))
+      .mockResolvedValueOnce(turnCall("find_property", args))
+      .mockResolvedValueOnce(turnCall("find_property", args))
+      .mockResolvedValueOnce(turnCall("find_property", args));
+    const outcome = await runAssistantDetailed([{ role: "user", content: `Запись и круг ${WORD}` }], actor(agent, "AGENT", []));
+    expect(outcome.ok).toBe(true);
+    if (outcome.ok) expect(outcome.reply).toContain("Уже сделано в этом ответе: создала задачу");
+  });
+
+  it.each(["мкр 91", "Сино 2", "двушка в Сино до 600", "3 этаж", "у школы 5", "квартира до 500 тысяч"])(
+    "«%s» — не адрес дома, и в справочник домов за ним не ходим",
+    async (text) => {
+      expect(houseAddressCandidate(text)).toBeNull();
+      const before = buildingLookups.count;
+      const place = await resolveSearchPlace(text);
+      expect(buildingLookups.count).toBe(before);
+      expect(place.place?.radiusM ?? 0).not.toBe(HOUSE_SEARCH_RADIUS_M);
+    },
+  );
+
+  it("адрес остаётся адресом: «квартира у Рудаки 177», «проспект Сомони 32»", () => {
+    expect(houseAddressCandidate("квартира у Рудаки 177")).toBe("Рудаки 177");
+    expect(houseAddressCandidate("проспект Сомони, 32а")).toBe("проспект Сомони 32а");
+  });
+
+  it("агент без «Архива»: поиск удалённых по номеру телефона запрещён, заметки удалённого скрыты", async () => {
+    const phone = `+99293${RUN}7`;
+    const c = await prisma.client.create({
+      data: {
+        fullName: `Удалённый с заметкой ${WORD}`, phone, source: "WEBSITE", kind: "SELLER", acceptedAt: new Date(),
+        assignedAgentId: agent, requirementsNotes: `живёт ул. Тестовая 12, кв 4 ${WORD}`, deletedAt: new Date(),
+      } as never,
+    });
+    clientIds.push(c.id);
+    const rank = actor(agent, "AGENT", ["clients.viewPhone"], true);
+    const byPhone = await call("find_clients", { q: phone, scope: "trash" }, rank);
+    expect(byPhone.error).toMatch(/только руководство/);
+    const both = await call("find_clients", { q: phone, scope: "both" }, rank);
+    expect((both.items ?? []).some((i: { id: string }) => i.id === c.id)).toBe(false);
+    const byName = await call("find_clients", { q: `Удалённый с заметкой ${WORD}`, scope: "trash" }, rank);
+    const item = byName.items.find((i: { id: string }) => i.id === c.id);
+    expect(item.notes).toBeNull();
+    expect(item.phone).toBeNull();
+    const head = await call("find_clients", { q: phone, scope: "trash" },
+      actor(director, "DIRECTOR", ["archive.view", "clients.viewAll", "clients.viewPhone"], true));
+    expect(head.items.some((i: { id: string }) => i.id === c.id)).toBe(true);
+  });
+});
+
+describe("колонок шагов/срока ещё нет (код выкачен раньше миграции)", () => {
+  it("настройки помощницы читаются с умолчаниями, а сбой виден в «Здоровье системы»", async () => {
+    resetAssistantRuntimeCache();
+    const spy = vi.spyOn(prisma.settings, "findUnique").mockRejectedValueOnce(
+      Object.assign(new Error('The column `Settings.aiAssistantMaxRounds` does not exist in the current database.'), { code: "P2022" }),
+    );
+    try {
+      const settings = await loadAssistantSettings();
+      expect(settings).toMatchObject({ enabled: true, maxRounds: 30, deadlineMs: 120_000 });
+      expect(spy).toHaveBeenCalledTimes(2);
+    } finally {
+      spy.mockRestore();
+      resetAssistantRuntimeCache();
+    }
+    const logged = await waitFor(() => prisma.errorLog.findFirst({ where: { message: { contains: "20261108090000" } } }));
+    expect(logged).not.toBeNull();
+  });
+
+  it("любой другой отказ базы по-прежнему бросается", async () => {
+    resetAssistantRuntimeCache();
+    const spy = vi.spyOn(prisma.settings, "findUnique").mockRejectedValueOnce(new Error("connection lost"));
+    try {
+      await expect(loadAssistantSettings()).rejects.toThrow("connection lost");
+    } finally {
+      spy.mockRestore();
+      resetAssistantRuntimeCache();
+    }
   });
 });
