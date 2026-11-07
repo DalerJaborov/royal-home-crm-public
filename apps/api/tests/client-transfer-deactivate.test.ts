@@ -263,7 +263,7 @@ describe("deactivateClient() — единственный путь в Неакт
    * kind-агностична. Выровнено: продавец деактивируется тем же путём, что и
    * покупатель — здесь этим путём пользуется только автоматика.
    */
-  it("продавца автоматика тоже может перевести в Неактивные (выравнивание 11.09.2026)", async () => {
+  it("продавца в Неактивные не переводит никто — ни ИИ, ни недозвоны (владелец 03.11.2026)", async () => {
     const c = await makeSellerClient();
     expect(c.kind).toBe("SELLER");
     expect(c.workStatus).toBe("ACTIVE");
@@ -284,10 +284,10 @@ describe("deactivateClient() — единственный путь в Неакт
       initiator: "CLIENT",
       actualNeeds: "продаёт позже, ждёт цену",
     });
-    expect(result.ok).toBe(true);
+    expect(result.ok).toBe(false);
 
     const after = await prisma.client.findUnique({ where: { id: c.id } });
-    expect(after?.workStatus).toBe("INACTIVE");
+    expect(after?.workStatus).toBe("ACTIVE");
     expect(after?.assignedAgentId).toBe(agentId);
   });
 });
