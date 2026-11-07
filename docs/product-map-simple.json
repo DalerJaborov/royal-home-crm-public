@@ -16,10 +16,10 @@
   "paths": 730,
   "cron": 123,
   "jobs": 32,
-  "conditions": 3992,
+  "conditions": 3991,
   "untranslatedUnique": 455,
   "untranslatedTotal": 585,
-  "partialUnique": 1096,
+  "partialUnique": 1095,
   "translatedShare": 85
  },
  "untranslated": [
@@ -22774,12 +22774,6 @@
        "c": []
       }
      ]
-    },
-    {
-     "t": "если в hide количество больше 0",
-     "k": "if",
-     "a": [],
-     "c": []
     },
     {
      "t": "если есть все мои",

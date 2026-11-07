@@ -86,6 +86,23 @@ export async function pendingDeleteHiddenClientIds(params: {
 }
 
 /**
+ * ОДНО УСЛОВИЕ «СПРЯТАТЬ КАРТОЧКИ С ЗАЯВКОЙ НА УДАЛЕНИЕ» ДЛЯ СПИСКА И СВОДКИ
+ * (06.11.2026). Список (routes/clients/list.ts) прячет эти карточки, а сводка
+ * (routes/clients/summary.ts) считала их: у агента, у которого все покупатели
+ * ждут решения по удалению, список был пуст при счётчике > 0 — число на вкладке
+ * расходилось со строками (10 против 13 у агента Ноза) и клиентский сторож
+ * пустых списков видел ложную поломку. Оба места берут условие отсюда, поэтому
+ * разойтись им нечем.
+ */
+export async function pendingDeleteHideWhere(params: {
+  ownAgentId: string | undefined;
+  canDelete: boolean;
+}): Promise<Prisma.ClientWhereInput> {
+  const ids = await pendingDeleteHiddenClientIds(params);
+  return ids.length > 0 ? { id: { notIn: ids } } : {};
+}
+
+/**
  * АГЕНТУ — ТОЛЬКО ПОКУПАТЕЛИ И ПРОДАВЦЫ (владелец 30.08.2026): «прочие обращения»
  * видит руководство. Исключение — клиент сам назвал сотрудника (`requested_by_client`).
  * Условие кладётся в `where.OR` вместе со скоупом `assignedAgentId`.
