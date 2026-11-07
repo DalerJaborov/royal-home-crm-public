@@ -79,9 +79,30 @@ function textTurn(text: string) {
 }
 
 describe("1.1 — срок на весь диалог", () => {
-  it("срок по умолчанию — 25 секунд, раундов не больше четырёх", () => {
-    expect(ASSISTANT_DEADLINE_MS).toBe(25_000);
-    expect(MAX_TOOL_ROUNDS).toBe(4);
+  it("срок по умолчанию — 35 секунд, раундов не больше шести", () => {
+    expect(ASSISTANT_DEADLINE_MS).toBe(35_000);
+    expect(MAX_TOOL_ROUNDS).toBe(6);
+  });
+
+  it("модель просит инструменты без конца: шесть раундов, последний с приказом «ответь», вместо отписки — честный остаток", async () => {
+    resetAssistantRuntimeCache();
+    callGeminiTools.mockReset();
+    callGeminiTools.mockImplementation(async () => ({
+      text: "",
+      calls: [{ name: "get_company_stats", args: {} }],
+      modelParts: [{ functionCall: { name: "get_company_stats", args: {} } }],
+      tokens: 1,
+    }));
+    const outcome = await runAssistantDetailed([{ role: "user", content: "Сводка" }], actor);
+    expect(callGeminiTools).toHaveBeenCalledTimes(MAX_TOOL_ROUNDS);
+    const lastSystem = (callGeminiTools.mock.calls[MAX_TOOL_ROUNDS - 1][0] as { system: string }).system;
+    expect(lastSystem).toContain("ЭТО ПОСЛЕДНИЙ ШАГ");
+    expect((callGeminiTools.mock.calls[0][0] as { system: string }).system).not.toContain("ЭТО ПОСЛЕДНИЙ ШАГ");
+    expect(outcome.ok).toBe(true);
+    if (outcome.ok) {
+      expect(outcome.reply).not.toMatch(/разумное число/);
+      expect(outcome.reply).toMatch(/ориентир/);
+    }
   });
 
   it("модель зависла дольше срока — человек получает «слишком долго» в срок, а вызов модели отменён", async () => {

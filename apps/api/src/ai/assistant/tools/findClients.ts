@@ -33,7 +33,7 @@ import type { AssistantReadToolPlugin } from "./types.js";
  * чат и список не разошлись. Права:
  *  - рядовой агент (нет clients.viewAll) видит только СВОИХ и ПРИНЯТЫХ клиентов, только
  *    покупателей/продавцов, как его список в REST; чужого агента фильтром не задать;
- *  - Корзина скрыта всем; карточка с висящей заявкой на удаление — тем, у кого нет
+ *  - Корзина — только с правом archive.view и только по scope=trash/both; карточка с висящей заявкой на удаление — тем, у кого нет
  *    clients.delete (как в списке);
  *  - телефон — по clients.viewPhone и только у принятого лида (как search_clients), поиск
  *    по номеру и нику соцсети — только тому, кому они видны.
@@ -48,6 +48,8 @@ const argsSchema = z.object({
   status: z.enum(CLIENT_STATUSES).optional(),
   source: z.enum(CLIENT_SOURCES).optional(),
   hot: z.boolean().optional(),
+  kind: z.enum(["BUYER", "SELLER"]).optional(),
+  scope: z.enum(["live", "trash", "both"]).optional(),
   limit: z.coerce.number().int().min(1).max(MAX_LIMIT).default(DEFAULT_LIMIT),
 });
 
@@ -65,6 +67,12 @@ const parameters = {
     status: { type: "string", enum: [...CLIENT_STATUSES] },
     source: { type: "string", enum: [...CLIENT_SOURCES] },
     hot: { type: "boolean", description: "true — только горячие клиенты" },
+    kind: { type: "string", enum: ["BUYER", "SELLER"], description: "BUYER — покупатели, SELLER — продавцы (собственники)" },
+    scope: {
+      type: "string",
+      enum: ["live", "trash", "both"],
+      description: "live — живые, trash — Корзина удалённых клиентов, both — оба. Корзина только у руководства (право Архив); у остальных всегда живые.",
+    },
     limit: { type: "number", description: `Сколько вернуть (до ${MAX_LIMIT}, по умолчанию ${DEFAULT_LIMIT})` },
   },
 };
@@ -121,9 +129,16 @@ export const findClientsTool: AssistantReadToolPlugin = {
       if (!districtId) return { error: `Района «${args.districtName}» нет в справочнике — уточните название` };
     }
 
+    // Корзина клиентов — право archive.view (как GET /clients/trash). Проверка здесь, на сервере.
+    const canTrash = has("archive.view") && !ownScope;
+    const wantedScope = args.scope ?? "live";
+    if (wantedScope === "trash" && !canTrash) {
+      return { error: "Корзина удалённых клиентов — это у руководства (директор, администратор). Могу поискать среди живых." };
+    }
+    const scope = canTrash ? wantedScope : "live";
     const where: Prisma.ClientWhereInput = {
-      deletedAt: null,
-      ...clientFieldFilters({ status: args.status, source: args.source, districtId, hot: args.hot }),
+      ...(scope === "live" ? { deletedAt: null } : scope === "trash" ? { deletedAt: { not: null } } : {}),
+      ...clientFieldFilters({ kind: args.kind, status: args.status, source: args.source, districtId, hot: args.hot }),
     };
     if (ownScope) {
       // Свои, принятые, только покупатели/продавцы — как личный список агента.
@@ -171,6 +186,10 @@ export const findClientsTool: AssistantReadToolPlugin = {
     return {
       total,
       shown: rows.length,
+      searched: {
+        scope,
+        ...(!canTrash && wantedScope === "both" ? { trashNotChecked: "Корзину не смотрела: она открыта только руководству" } : {}),
+      },
       ...(agentsMatched ? { agentsMatched } : {}),
       ...(approximate ? { note: "Точных совпадений нет — показаны похожие по написанию" } : {}),
       items: rows.map((raw) => {
@@ -197,6 +216,8 @@ export const findClientsTool: AssistantReadToolPlugin = {
           address: safeField(phoneSafeText(c.address, actor.canViewPhone), 200),
           notes: safeField(phoneSafeText(c.requirementsNotes, actor.canViewPhone), 200),
           hot: c.hotSince !== null,
+          inTrash: c.deletedAt !== null,
+          ...(c.deletedAt ? { deletedAt: dushanbeDateString(c.deletedAt) } : {}),
           lastContact: dushanbeDateString(c.lastContactAt),
         };
       }),

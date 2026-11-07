@@ -4,6 +4,7 @@ import { createAssistantMoneyWallet, createAssistantMoneyGuard, createAssistantE
 import { assistantStyle } from "./assistant/personaStyle.js";
 import { searchAssistantCompanyKnowledge, knowledgeContext } from "./assistant/knowledge.js";
 import { tajikGlossaryFor } from "./assistant/tajikGlossary.js";
+import { LAST_ROUND_INSTRUCTION, hasFoundItems, partialAnswerFromResults, type CollectedToolResult } from "./assistant/partialAnswer.js";
 import { createAssistantAttemptLimit } from "./assistant/attemptLimit.js";
 import { reserveAssistantGeminiAttempt } from "./assistant/attemptBudget.js";
 import { visibleInteractionWhere } from "../lib/investigationPrivacy.js";
@@ -62,12 +63,14 @@ import type { AssistantActionView } from "../lib/assistantActions.js";
  * перед повтором и инструменты укладываются в него, а по его истечении человек
  * получает честное «слишком долго, повторите» (код deadline), а не тишину.
  */
-export const ASSISTANT_DEADLINE_MS = 25_000;
+export const ASSISTANT_DEADLINE_MS = 35_000;
 /** Потолок одной попытки модели; срок диалога режет его дополнительно. */
 const ATTEMPT_TIMEOUT_MS = 20_000;
-/** 6 → 4 (задача 1.7): типичный запрос укладывается в 2–3 раунда, а каждый лишний
- *  раунд — это ещё один полный вызов модели на критическом пути. */
-export const MAX_TOOL_ROUNDS = 4;
+/** 6 → 4 (задача 1.7) → 6 (07.11.2026): «хавли до 2,5 млн у Воданасоса» упирался в четыре
+ *  раунда (ориентир, потом цена, потом корзина). Последний раунд идёт с приказом «ответь
+ *  по найденному», а если и он просит инструмент — человек получает найденное и вопрос
+ *  (partialAnswer.ts), а не «разумное число шагов». */
+export const MAX_TOOL_ROUNDS = 6;
 
 /**
  * ВЕСЬ АССИСТЕНТ РАБОТАЕТ НА GEMINI (решение владельца 02.08.2026: один поставщик
@@ -184,12 +187,20 @@ function formatGroundedReply(result: GeminiGroundedResult): string {
  * Пишется в AiLog.promptVersion при каждом ответе ассистента (см. finally
  * runAssistant ниже) — по ней журнал говорит, какой текст промта отвечал.
  */
-export const SYSTEM_PROMPT_VERSION = "2026-11-04.2-human-tool-replies";
+export const SYSTEM_PROMPT_VERSION = "2026-11-07.1-places-trash-rounds";
 
 const SYSTEM_PROMPT = `Ты — встроенный ассистент CRM агентства недвижимости (Душанбе, Таджикистан).
 Отвечай кратко на языке сотрудника. Валюта по умолчанию — сомони (TJS).
 Используй инструменты, чтобы отвечать по РЕАЛЬНЫМ данным CRM — не выдумывай цифры и клиентов.
 Когда упоминаешь клиента или объект, давай markdown-ссылку: [Имя](/clients/ID) или [Название](/properties/ID).
+ПОИСК ПО МЕСТУ: любой вопрос с «около/возле/рядом/в стороне/у …» или названием места (Ашан, Воданасос, базар, мкр) — это
+find_properties_by_place с landmark словами человека; район и радиус определит сам инструмент, свои координаты не придумывай.
+Цена «2,5 млн» без слова — сомони; малая сумма без валюты — спроси «в долларах или в сомони?». «Коробка» — shell=true.
+КОРЗИНА: удалённые объекты и клиентов ищи тем же инструментом (scope=both или trash) — она открыта только руководству; у кого
+права нет, инструмент сам скажет, что это у руководства, — передай это честно, без извинений и догадок.
+«Нет такого» говори только после того, как проверены: живые объекты, Корзина (если доступна) и карточки продавцов
+(find_clients, kind=SELLER, тот же ориентир в q): пустая карточка продавца с ориентиром — тоже находка, назови её.
+Если нашлось рядом, но не совсем то (другой район, чуть дороже) — покажи как «ближайшее», а не «вариантов нет».
 Для короткого ответа о ходе работ в Telegram достаточно номера объекта.
 Никакой другой markdown-разметки — НИГДЕ, ни при каких обстоятельствах: без **жирного**, без
 заголовков (#), без _курсива_, кроме единственного формата ссылки [Текст](/путь) выше. Списки — обычным
@@ -238,6 +249,7 @@ const TOOLS: AssistantTool[] = [
     name: "search_properties",
     description:
       "Поиск объектов в CRM по фильтрам, включая неопубликованные. Возвращает до 8 объектов. " +
+      "Если в вопросе есть ориентир («около Ашана», «в стороне Воданасоса»), «коробка» или нужна Корзина — зови find_properties_by_place, а не этот. " +
       "Передай publishedOnSite только при явной просьбе показать опубликованные или неопубликованные. Если структурных фильтров " +
       "недостаточно (клиент описал желаемое своими словами — «светлая квартира рядом со школой», " +
       "«есть где гулять с ребёнком»), дополнительно передай semanticQuery: он не заменяет фильтры выше, " +
@@ -1423,6 +1435,8 @@ export async function runAssistantDetailed(
   let ok = false;
   let tokens = 0;
   let route: "tools" | "reference" | "off_topic" = "tools";
+  // Результаты инструментов за диалог: при срыве (срок, лимит попыток) отдаём найденное.
+  const collected: CollectedToolResult[] = [];
 
   // Один сигнал на весь диалог: срок ИЛИ уход клиента, что раньше.
   const stopper = new AbortController();
@@ -1526,7 +1540,7 @@ export async function runAssistantDetailed(
       onStatus?.(round === 0 ? "Думаю над ответом…" : "Уточняю данные…");
       const request = {
         apiKey,
-        system,
+        system: round === MAX_TOOL_ROUNDS - 1 ? system + LAST_ROUND_INSTRUCTION : system,
         contents: conversation as never,
         tools,
         maxTokens: 1500,
@@ -1606,6 +1620,7 @@ export async function runAssistantDetailed(
         embedding: { beforeAttempt: embeddingGuard, signal, maxAttempts: 1 },
       });
       turn.calls.forEach((call, index) => {
+        collected.push({ name: call.name, result: results[index] });
         cardEvidence.observe(call.name, results[index]);
         options.onToolResult?.(call.name, results[index], call.args);
       });
@@ -1616,9 +1631,17 @@ export async function runAssistantDetailed(
         parts: turn.calls.map((call, i) => geminiFunctionResponsePart(call, results[i])),
       });
     }
-    return { ok: true, reply: "Не удалось собрать ответ за разумное число шагов — уточните вопрос." };
+    // Шаги кончились: отдаём найденное и вопрос, а не отписку (partialAnswer.ts).
+    ok = true;
+    return { ok: true, reply: partialAnswerFromResults(collected) };
   } catch (err) {
     const failure = failureOf(err, signal);
+    if (failure.code !== "aborted" && failure.code !== "no_key" && failure.code !== "provider_rejected" && hasFoundItems(collected)) {
+      // Срыв посреди поиска (срок, лимит попыток): найденное не выбрасываем.
+      console.warn("[ai:assistant] срыв после находок, отдаю частичный ответ:", failure.code);
+      void logSystemError("ai", `Ассистент CRM: срыв (${failure.code}) после находок — отдан частичный ответ`);
+      return { ok: true, reply: partialAnswerFromResults(collected) };
+    }
     if (failure.code === "aborted") {
       // Клиент закрыл панель — это не сбой, в «Здоровье системы» ему не место.
       console.warn("[ai:assistant] клиент закрыл соединение, раунды прерваны");
