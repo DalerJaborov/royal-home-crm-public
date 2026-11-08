@@ -16,7 +16,7 @@ import { customerAgentStoredPublicDataCurrent } from "./customerAgentDeliveryEvi
 import { readCustomerPropertyFacts } from "./customerPropertyFacts.js";
 import { phoneSafeText } from "./clientPhone.js";
 import { PUBLIC_AGENCY_CONTACT } from "./publicAgencyContact.js";
-import { renderCustomerAgentDecision, customerAgentFixedLines, type CustomerAgentEvidence } from "../ai/customerAgentRenderer.js";
+import { renderCustomerAgentDecision, customerAgentFixedLines, customerAgentAddressLoopLines, type CustomerAgentEvidence } from "../ai/customerAgentRenderer.js";
 import { customerAgentAttachmentQuestion } from "../ai/customerAgentAttachmentInput.js";
 import { customerDmAttachmentInput } from "./customerDmAttachmentInput.js";
 import { decodeCustomerAgentMediaObservation } from "./customerAgentMediaObservation.js";
@@ -166,6 +166,8 @@ function safePublicLines(evidence: readonly CustomerAgentEvidence[], revision: R
     }
     for (const social of ["greet", "thank", "acknowledge", "apologize"] as const) render({ kind: "reply", refs: [], social, question: "none" });
     for (const e of evidence) render({ kind: "reply", refs: [e.ref], social: "none", question: "none" }, [e]);
+    // The numbered address-loop lines of an object delivered with that object's facts (08.11.2026): the loop is decided from them.
+    for (const e of evidence) if (e.value.kind === "facts") for (const line of customerAgentAddressLoopLines(e.value.facts)) lines.add(line);
   }
   return lines;
 }

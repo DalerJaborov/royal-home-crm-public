@@ -106,16 +106,25 @@ describe("the mark in the database (leadDraft.spamMute)", () => {
 });
 
 describe("core: an empty file", () => {
+  // 08.11.2026: first answer greets; with no customer word anywhere the question goes in Tajik, then Russian.
+  const BOTH_BUSINESS = `Ассалому алайкум!
+${BUSINESS_QUESTION.tg}
+Здравствуйте!
+${BUSINESS_QUESTION.ru}`;
   it("asks the business question once and not at all the second time", async () => {
     const first = fixture();
-    expect(await runCustomerAgentTurn(first.frame, first.ports)).toMatchObject({ status: "ready", text: BUSINESS_QUESTION.ru, rounds: 0 });
+    expect(await runCustomerAgentTurn(first.frame, first.ports)).toMatchObject({ status: "ready", text: BOTH_BUSINESS, rounds: 0 });
     const second = fixture({ verifiedContext: context([{ role: "assistant", text: BUSINESS_QUESTION.ru }]) });
     expect(await runCustomerAgentTurn(second.frame, second.ports)).toMatchObject({ status: "held", reason: "attachment_question_repeat_no_reply" });
     expect(second.modelTurn).not.toHaveBeenCalled();
+    // The greeted, two-language first answer counts as asked too: the second empty file is silence, not a third language pair.
+    const afterBoth = fixture({ verifiedContext: context([{ role: "assistant", text: BOTH_BUSINESS }]) });
+    expect(await runCustomerAgentTurn(afterBoth.frame, afterBoth.ports)).toMatchObject({ status: "held", reason: "attachment_question_repeat_no_reply" });
   });
   it("speaks Tajik in a Tajik dialogue", async () => {
-    const f = fixture({ language: "tg" });
-    expect(await runCustomerAgentTurn(f.frame, f.ports)).toMatchObject({ status: "ready", text: BUSINESS_QUESTION.tg });
+    const f = fixture({ language: "tg", verifiedContext: context([], { language: "tg" }) });
+    expect(await runCustomerAgentTurn(f.frame, f.ports)).toMatchObject({ status: "ready", text: `Ассалому алайкум!
+${BUSINESS_QUESTION.tg}` });
   });
   it("does not stay silent after a different last assistant turn", async () => {
     const f = fixture({ verifiedContext: context([{ role: "assistant", text: BUSINESS_QUESTION.ru }, { role: "user", text: "квартира" }, { role: "assistant", text: "Какой район?" }]) });
@@ -137,7 +146,7 @@ describe("core: an empty file", () => {
   });
   it("a one-time photo with nothing in focus is the business question", async () => {
     const f = fixture({ attachmentInput: { kinds: ["ephemeral"] } });
-    expect(await runCustomerAgentTurn(f.frame, f.ports)).toMatchObject({ status: "ready", text: BUSINESS_QUESTION.ru });
+    expect(await runCustomerAgentTurn(f.frame, f.ports)).toMatchObject({ status: "ready", text: BOTH_BUSINESS });
   });
 });
 

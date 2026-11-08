@@ -91,6 +91,18 @@ function decisiveLanguage(text: string): "ru" | "tg" | null {
 }
 
 /**
+ * What the dialogue so far says about the customer's language, or null when it says nothing (no earlier customer words,
+ * only attachments, no stored value). The same order of evidence as `resolveCustomerDmLanguage` uses for a turn without
+ * words, which falls back to Russian; the renderer uses the null to answer such a turn in both languages instead.
+ */
+export function customerDmHistoryLanguage(priorUserTexts: readonly string[], storedLanguage?: "ru" | "tg" | "mixed" | "unknown"): "ru" | "tg" | null {
+  const prior = [...priorUserTexts].reverse().map(customerHistoryOwnWords).filter(Boolean);
+  const stored = storedLanguage === "ru" || storedLanguage === "tg" ? storedLanguage : undefined;
+  return prior.map(decisiveLanguage).find((value): value is "ru" | "tg" => value !== null) ?? stored
+    ?? prior.filter(isNeutralShortReply).map(detectClientLanguage).find((value): value is "ru" | "tg" => value === "ru" || value === "tg") ?? null;
+}
+
+/**
  * Language of the dialogue for this turn. An explicit request wins; a full sentence in one language wins
  * over history; a short neutral reply ("Спасибо", "Рахмат", a bare link) keeps the language of the last
  * decisive earlier customer turn; a mixed or unreadable turn falls back to history, then to the larger word
@@ -101,12 +113,9 @@ export function resolveCustomerDmLanguage(text: string, priorUserTexts: readonly
   text = customerHistoryOwnWords(text);
   const preference = customerDmLanguagePreference(text);
   if (preference) return preference;
-  const prior = [...priorUserTexts].reverse().map(customerHistoryOwnWords).filter(Boolean);
-  const stored = storedLanguage === "ru" || storedLanguage === "tg" ? storedLanguage : undefined;
   // Window evidence is fresher than the stored value; the stored one keeps the language across a revision
   // change (the window drops older tickets) and in long dialogues.
-  const earlier = prior.map(decisiveLanguage).find((value): value is "ru" | "tg" => value !== null) ?? stored
-    ?? prior.filter(isNeutralShortReply).map(detectClientLanguage).find((value): value is "ru" | "tg" => value === "ru" || value === "tg");
+  const earlier = customerDmHistoryLanguage(priorUserTexts, storedLanguage) ?? undefined;
   if (isNeutralShortReply(text)) return earlier ?? (detectClientLanguage(text) === "tg" ? "tg" : "ru");
   if (customerColloquialTajikLanguage(text)) return "tg";
   const detected = detectClientLanguage(text);

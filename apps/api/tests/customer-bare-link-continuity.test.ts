@@ -53,7 +53,7 @@ describe("bare external URL decision recovery", () => {
 
     expect(result).toMatchObject({ status: "ready", rounds: 2, toolCalls: 1 });
     if (result.status !== "ready") return;
-    expect(result.text).toBe("Что пояснить подробнее?");
+    expect(result.text).toBe("Здравствуйте!\nЧто пояснить подробнее?"); // first answer greets (08.11.2026)
   });
 
   it.each(["no_reply_needed", "duplicate", "moderation"] as const)("does not replace authorized %s suppression with a clarification", async kind => {

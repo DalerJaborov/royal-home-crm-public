@@ -111,6 +111,8 @@ export interface CustomerAgentDeliveryRender {
   inputText?: string;
   attachmentInput?: CustomerAgentAttachmentInput;
   approvedFileState?: CustomerAgentApprovedFileState;
+  recentBotMessage?: boolean;
+  botMessages?: readonly string[];
 }
 type SealResult = { status: "sealed"; text: string; witness: CustomerAgentDeliveryWitness | null } | { status: "held"; reason: string };
 async function seal(binding: Binding | null, render: CustomerAgentDeliveryRender, serverWitnesses: readonly CustomerAgentDataReadWitness[]): Promise<SealResult> {

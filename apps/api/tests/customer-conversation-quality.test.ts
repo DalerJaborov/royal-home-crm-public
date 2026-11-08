@@ -205,8 +205,8 @@ describe("customer conversation quality", () => {
       decision: { kind: "reply", refs: [], social: "none", question: "none" }, inputText, language,
       verifiedContext: context("job", []),
     });
-    expect(render(ru, "ru")).toBe("Можем продолжить здесь, в текущем чате.");
-    expect(render(tg, "tg")).toBe("Метавонем ҳамин ҷо, дар ҳамин чат, идома диҳем.");
+    expect(render(ru, "ru")).toBe("Здравствуйте!\nМожем продолжить здесь, в текущем чате."); // first answer greets (08.11.2026)
+    expect(render(tg, "tg")).toBe("Ассалому алайкум!\nМетавонем ҳамин ҷо, дар ҳамин чат, идома диҳем.");
     expect(render(ru, "ru")).not.toMatch(/telegram|whatsapp|телеграм|ватсап/iu);
   });
 

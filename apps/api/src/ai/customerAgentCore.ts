@@ -31,6 +31,10 @@ export interface CustomerCoreFrame {
   readonly attachmentInput?: CustomerAgentAttachmentInput;
   readonly mediaPerception?: CustomerAgentMediaPerception;
   readonly approvedFileState?: CustomerAgentApprovedFileState;
+  /** A bot message (old bot or core) in this dialogue within ~12 hours, from its message history: no second greeting. */
+  readonly recentBotMessage?: boolean;
+  /** The bot's messages of the last days from the dialogue history (oldest first): the repeat guard's long memory. */
+  readonly botMessages?: readonly string[];
   readonly knownPhoneSource: "none" | "current_input" | "scoped_contact";
   readonly requestedFacts: readonly CustomerPropertyFactKind[];
   readonly revision: CustomerAgentRevision;
@@ -331,8 +335,9 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
   };
   const renderDecision = (decision: CustomerAgentDecision) => renderCustomerAgentDecision({ decision, evidence, inputText: frame.inputText,
     language: frame.language, requestedFacts: frame.requestedFacts, knownPhoneSource: frame.knownPhoneSource, maxOutputChars: revision.limits.maxOutputChars,
-    surface: frame.surface, knowledgeSourceHash: revision.knowledgeSourceHash, verifiedContext: context ?? undefined,
-    mediaPerception: perception, approvedFileState });
+    surface: frame.surface, knowledgeSourceHash: revision.knowledgeSourceHash, verifiedContext: context ?? undefined, recentBotMessage: frame.recentBotMessage, botMessages: frame.botMessages,
+    // The delivery seal re-renders with the attachment too (lib/customerAgentDeliveryEvidence.ts): the same inputs give the same text.
+    attachmentInput: frame.attachmentInput, mediaPerception: perception, approvedFileState });
   const ready = async (d: CustomerAgentDecision, text: string, extra: { fallbackReason?: "invalid_model_decision" | "receipt_confirmation"; fallbackCause?: string; say?: CustomerCoreSay } = {}): Promise<CustomerCoreResult> => {
     await check();
     // decision is a validated MODEL suggestion, not canonical state. Expose
@@ -374,7 +379,8 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
       const decision = customerAgentDecisionSchema.parse({ kind: "clarify", refs: [], social: "none", question: "clarify_previous" });
       const text = renderCustomerAgentDecision({ decision, evidence: [], language: frame.language, requestedFacts: [],
         knownPhoneSource: frame.knownPhoneSource, maxOutputChars: revision.limits.maxOutputChars, surface: frame.surface,
-        inputText: frame.inputText, mediaPerception: perception });
+        // With the verified context, as the delivery seal re-renders it (first-turn greeting, repeat guard, language).
+        inputText: frame.inputText, mediaPerception: perception, verifiedContext: context ?? undefined, attachmentInput: frame.attachmentInput, recentBotMessage: frame.recentBotMessage, botMessages: frame.botMessages });
       if (!text) return held("unsupported_decision_evidence");
       await check();
       return { status: "ready", decision, question: "clarify_previous", text, evidence: [], rounds, toolCalls };
@@ -402,7 +408,7 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
       const decision = customerAgentDecisionSchema.parse({ kind: "clarify", refs: [], social: "none", question: "clarify_previous" });
       const text = renderCustomerAgentDecision({ decision, evidence: [], inputText: frame.inputText, attachmentInput: frame.attachmentInput,
         language: frame.language, requestedFacts: [], knownPhoneSource: frame.knownPhoneSource, maxOutputChars: revision.limits.maxOutputChars,
-        surface: frame.surface, verifiedContext: context ?? undefined });
+        surface: frame.surface, verifiedContext: context ?? undefined, recentBotMessage: frame.recentBotMessage, botMessages: frame.botMessages });
       if (text === null) return held("unsupported_decision_evidence");
       await check();
       return { status: "ready", decision, question: "clarify_previous", text, evidence: [], rounds, toolCalls };
@@ -459,7 +465,7 @@ export async function runCustomerAgentTurn(original: CustomerCoreFrame, ports: C
         language: frame.language, requestedFacts: frame.requestedFacts, knownPhoneSource: frame.knownPhoneSource,
         maxOutputChars: revision.limits.maxOutputChars, surface: frame.surface,
         // With the verified context, so the repeat guard acts HERE and the sealed re-render (which has it) gives the same text.
-        verifiedContext: context ?? undefined });
+        verifiedContext: context ?? undefined, recentBotMessage: frame.recentBotMessage, botMessages: frame.botMessages });
       if (text === null) return held("unsupported_decision_evidence");
       await check();
       return { status: "ready", decision, question: "clarify_previous", text, evidence: clone(evidence), rounds, toolCalls };

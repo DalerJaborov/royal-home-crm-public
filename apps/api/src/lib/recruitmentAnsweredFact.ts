@@ -4,7 +4,7 @@ import type { TxClient } from "../db.js";
 import type { inspectCustomerWriteAuthority } from "./customerState.js";
 import { customerDeliveryFenceSchema } from "./customerDeliveryContracts.js";
 import { decodeCustomerOutboxPayload } from "./customerOutboxCodec.js";
-import { recruitmentRequiredQuestion } from "../ai/customerAgentRecruitmentProtocol.js";
+import { recruitmentRequiredQuestion, LEGACY_RECRUITMENT_QUESTIONS } from "../ai/customerAgentRecruitmentProtocol.js";
 
 type Grant = NonNullable<ReturnType<typeof inspectCustomerWriteAuthority>>;
 type Source = Pick<Grant, "fence" | "eventKey" | "order">;
@@ -41,6 +41,8 @@ export async function readRecruitmentAnsweredFactTx(tx: TxClient, grant: Source,
     // the reviewed protocol upgrade; exact stored text only, no fuzzy match.
     if (["Какими программами пользуетесь и какие задачи выполняете самостоятельно?",
       "Аз кадом барномаҳо истифода мебаред ва кадом вазифаҳоро мустақилона иҷро мекунед?"].some(question => payload.text.endsWith(question))) return "tools";
+    const legacy = LEGACY_RECRUITMENT_QUESTIONS.find(([, question]) => payload.text.endsWith(question));
+    if (legacy) return legacy[0];
     return recruitmentFactKeySchema.options.find(key => ["ru", "tg"].some(language =>
       payload.text.endsWith(recruitmentRequiredQuestion(key, language as "ru" | "tg")))) ?? null;
   } catch { return null; }

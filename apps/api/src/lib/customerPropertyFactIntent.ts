@@ -6,7 +6,15 @@ import { OBJECT_CODE_NUMBER_SOURCE, WEAK_PROPERTY_NUMBER_SOURCE, schemelessPrope
 const words = (alternatives: string) => new RegExp(`(?<![\\p{L}\\p{N}])(?:${alternatives})(?![\\p{L}\\p{N}])`, "giu");
 const PRICE = words("цен[ауеы]|стоимость|стоит|стоят|нархшчансумай|нарх(?:ашон|аша|аш|ша|ш|и)?|чандпул|чансумай|чандсумай|чанд\\s+(?:сомонӣ|сомони|сум)");
 // "район" alone is a location question about the object already shown ("а район?"); a district inside a search wording stays with the search.
-const ADDRESS = words("адрес(?:а|у|е)?|расположен[аы]?|находится|находятся|где|куҷо(?:ст|ай)?|кучо(?:ст|ай)?|район(?:а|е|у|ом)?|микрорайон(?:е|а)?|ноҳия(?:и|аш|ро)?|ноҳияаш|ноҳияи");
+// "суроға"/"сурога" is the Tajik word for address and "ориентир" the landmark (08.11.2026: Tajik address questions fell
+// through to the model and looped); the answer is still the public district plus "the agent tells the exact address".
+const ADDRESS = words("адрес(?:а|у|е)?|расположен[аы]?|находится|находятся|где|куҷо(?:ст|ай)?|кучо(?:ст|ай)?|район(?:а|е|у|ом)?|микрорайон(?:е|а)?|ноҳия(?:и|аш|ро)?|ноҳияаш|ноҳияи" +
+  "|суро[ғг]а(?:аш|и|ро|ашро)?|ориентир(?:а|у|ом)?");
+// "нишона" is also "a sign/mark": a landmark question only beside a question word ("нишонааш куҷо?", "кадом нишона?") or a "?".
+const LANDMARK = words("нишона(?:аш|и|ро)?");
+// The question must sit AT the word: "нишонааш?", "кадом нишона?", "нишонаи хона куҷост?" ask for the landmark; "Ин нишона аст?"
+// and "Ин чӣ нишона аст?" ("is this a sign?", "what sign is this?") do not.
+const LANDMARK_ASKED = /(?<![\p{L}\p{N}])нишона\p{L}*\s*[?？]|(?<![\p{L}\p{N}])нишона\p{L}*(?:\s+\p{L}+){0,2}\s+(?:куҷо|кучо)\p{L}*|(?<![\p{L}\p{N}])кадом\s+нишона/iu;
 const BUILDER = words("застройщик(?:а|у|е)?|строит|сохтмонч[ӣи]|ширкати\\s+сохтмон[ӣи]|к[ӣи]\\s+сохтааст");
 const CHARACTERISTICS = words("площад[ьию]|этаж(?:е|а|ей|ность)?|комнат(?:а|ы|у)?|ремонт(?:ом|а)?|состояние|характеристик(?:и|а)|планировк(?:а|и)|масо[ҳх]ат(?:аш|и)?|ош[ёе]на(?:аш|и)?|таъмир(?:аш)?|[ҳх]у[ҷч]ра(?:г[ӣи]|аш)?");
 const AVAILABILITY = words("ещ[её]\\s+есть|не\\s+продан(?:а|о|ы)?|доступ(?:ен|на|но|ны)|актуальн(?:а|о|ы)?|в\\s+наличии|[ҳх]оло\\s+(?:[ҳх]ам\\s+)?[ҳх]аст");
@@ -14,7 +22,7 @@ const DETAILS = words("подробнее|подробности|детали|м
 const COURTESY = words("здравствуйте|здравствуй|привет|добрый\\s+(?:день|вечер)|доброе\\s+утро|салом(?:ат)?|ассалому\\s+алейкум|пожалуйста|лутфан|спасибо|рахмат|раҳмат");
 // Only neutral framing is removable. Actions, negation, contact numbers, dates,
 // budgets and unfamiliar words remain and send the turn to the existing path.
-const FRAMING = words("а|и|или|но|да|ну|это|этот|эта|эту|этой|этом|этого|тот|та|ту|той|того|там|тут|в|во|на|по|о|об|у|для|мне|пожалуй|можно|ли|узнать|уточнить|скажите|подскажите|сообщите|расскажите|какая|какой|какие|какую|каком|кто|сколько|нужна|нужен|нужны|интересует|интересуют|квартир[аыуе]|дом(?:а|у|е)?|участ(?:ок|ка|ке)|объект(?:а|у|е|ом|ы|ов)?|ин|ҳамин|ҳамон|хона(?:и|ро)?|квартира(?:и|ро)?|объект(?:и|ро)?|дар|аз|ба|ва|ё|чанд|чӣ|чи|аст|ҳаст|мумкин|мешавад|метавонам|гирифта|донистан|гуед|гӯед|фаҳмам|кадом(?:е|аш)?");
+const FRAMING = words("а|и|или|но|да|ну|это|этот|эта|эту|этой|этом|этого|тот|та|ту|той|того|там|тут|в|во|на|по|о|об|у|для|мне|пожалуй|можно|ли|узнать|уточнить|скажите|подскажите|сообщите|расскажите|какая|какой|какие|какую|каком|кто|сколько|нужна|нужен|нужны|интересует|интересуют|квартир[аыуе]|дом(?:а|у|е)?|участ(?:ок|ка|ке)|объект(?:а|у|е|ом|ы|ов)?|ин|ҳамин|ҳамон|хона(?:и|ро)?|квартира(?:и|ро)?|объект(?:и|ро)?|дар|аз|ба|ва|ё|чанд|чӣ|чи|аст|ҳаст|мумкин|мешавад|метавонам|гирифта|донистан|гуед|гӯед|фаҳмам|кадом(?:е|аш)?|точн(?:ый|ая|ое|ую|ее|о)|ани[қк](?:тар)?");
 
 /**
  * Deliberately narrow fast path, not a general intent classifier. Every word
@@ -58,6 +66,7 @@ export function classifyCustomerPropertyFactIntent(text: string, options: { hasP
   // Price per square metre is a price question; the renderer derives it from price and area.
   consume(words(PER_SQM_SOURCE), ["price"]);
   consume(ADDRESS, ["address"]);
+  if (LANDMARK_ASKED.test(text)) consume(LANDMARK, ["address"]);
   consume(BUILDER, ["builder"]);
   consume(CHARACTERISTICS, ["characteristics"]);
   consume(AVAILABILITY, ["availability"]);

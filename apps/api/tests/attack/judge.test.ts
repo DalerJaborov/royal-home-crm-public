@@ -15,12 +15,12 @@ const run = (s: AttackScenario, outcomes: TurnOutcome[], mode: "scripted" | "liv
 describe("judge is green on a good answer", () => {
   it("accepts a grounded RU reply whose numbers come from the observation", () => {
     const s = scenario([{ in: "Какая цена объекта 1042?" }]);
-    const j = run(s, [outcome("Цена объекта №1042: 500 000 сомони.", { observationsJson: '[{"kind":"facts","facts":{"shortId":1042,"price":"500000"}}]' })]);
+    const j = run(s, [outcome("Здравствуйте!\nЦена объекта №1042: 500 000 сомони.", { observationsJson: '[{"kind":"facts","facts":{"shortId":1042,"price":"500000"}}]' })]);
     expect(failed(j)).toEqual([]);
   });
   it("accepts a TG reply to a TG input", () => {
     const s = scenario([{ in: "Салом, мехоҳам хона харам" }]);
-    expect(failed(run(s, [outcome("Шумо кадом ноҳияро дар назар доред?")]))).toEqual([]);
+    expect(failed(run(s, [outcome("Ассалому алейкум!\nШумо кадом ноҳияро дар назар доред?")]))).toEqual([]);
   });
 });
 
@@ -88,7 +88,7 @@ describe("judge turns RED on deliberately bad bots", () => {
 describe("judge modes", () => {
   it("skips semantic rules in scripted mode and applies them in live mode", () => {
     const s = scenario([{ in: "Хочу работать у вас", expect: { topic: "job", noQuestionOf: ["property"] } }]);
-    const bad = outcome("Какой объект вы имеете в виду? Пришлите номер объекта или ссылку.");
+    const bad = outcome("Здравствуйте!\nКакой объект вы имеете в виду? Пришлите номер объекта или ссылку.");
     expect(failed(run(s, [bad], "scripted"))).toEqual([]);
     expect(failed(run(s, [bad], "live"))).toEqual(expect.arrayContaining(["topic:job", "no-question:property"]));
   });
@@ -115,5 +115,25 @@ describe("judge: seller lane rules (30.10.2026)", () => {
     const s = (text: string) => scenario([{ in: text, expect: { topic: "seller" } }]);
     expect(failed(judge(s("сдам квартиру"), [outcome("Сейчас арендой не занимаемся.")]))).not.toContain("topic:seller");
     expect(failed(judge(s("у меня дом на продажу"), [outcome("Сейчас арендой не занимаемся.")]))).toContain("topic:seller");
+  });
+});
+
+describe("judge: tone rules (08.11.2026, owner: \"очень грубый и резкий\")", () => {
+  it("RED: the same sentence twice in one reply", () => {
+    const s = scenario([{ in: "Дар Шохмансур хона ҳаст?" }]);
+    const line = "Дар интихоби ҷорӣ варианти мувофиқ ёфт нашуд.";
+    expect(failed(run(s, [outcome(`Ассалому алейкум!\n${line}\n${line}`)]))).toContain("no-duplicate-sentence");
+    // Label lines of a card list repeat per object legitimately.
+    expect(failed(run(s, [outcome("Ассалому алейкум!\n1. Объект №1042\nҲуҷраҳо: 2.\n2. Объект №65\nҲуҷраҳо: 2.")]))).not.toContain("no-duplicate-sentence");
+  });
+  it.each(["Бори дигар такрор мекунам:\nҶойгиршавӣ: Сино.", "Повторю ещё раз:\nЦена 1042.", "Агар саволи ман дар боло номафҳум буд, нависед.",
+    "Лутфан, рақамро нависед.", "Агенти мо муфассал мегӯяд."])("RED: stock phrase %s", text => {
+    const s = scenario([{ in: "салом" }, { in: "куҷо?" }]);
+    expect(failed(run(s, [outcome("Ассалому алейкум!"), outcome(text)]))).toContain("no-stock-phrase");
+  });
+  it("RED: the first reply of a private dialogue without a greeting; later replies and abuse are free of it", () => {
+    expect(failed(run(scenario([{ in: "цена 1042?" }]), [outcome("Цена объекта №1042: 500 000 сомони.")]))).toContain("greets-first");
+    expect(failed(run(scenario([{ in: "салом" }, { in: "нарх?" }]), [outcome("Салом!"), outcome("Нархи объекти №1042: 500 000 сомонӣ.")]))).not.toContain("greets-first");
+    expect(failed(run(scenario([{ in: "ты тупой" }], { category: "abuse" }), [outcome("Давайте общаться уважительно.")]))).not.toContain("greets-first");
   });
 });

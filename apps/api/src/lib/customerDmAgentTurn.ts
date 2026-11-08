@@ -1,4 +1,5 @@
 import { loadCustomerAgentVerifiedDmContext } from "./customerAgentVerifiedContext.js";
+import { customerBotHistory } from "./customerRecentBotMessage.js";
 import { hasNewerCustomerInboxInput, NEWER_INPUT_PENDING } from "./customerNewerInboxInput.js";
 import { loadDeferredCustomerInput } from "./customerDeferredInput.js";
 import type { CustomerAgentEvidence } from "../ai/customerAgentRenderer.js";
@@ -355,12 +356,15 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
       customerPropertyUnresolvedReason(currentFocus.evidence, currentFocus.status, currentFocus.lookupAttempts) === "not_found";
     const attachmentInput = customerAgentMarkForeignShare(prepared.attachmentInput,
       unlinked && ownPublicationFound && !mediaPerception ? "own_share_unlinked" : unlinked && !mediaPerception ? "foreign_share" : false);
+    // Any bot message in this dialogue within ~12 hours (old bot or core, from the message history): the reply does not greet again.
+    const botHistory = await customerBotHistory(lane.ticket.conversationId);
+    const recentBotMessage = botHistory?.recentBotMessage, botMessages = botHistory?.botMessages;
     const result = await runCustomerAgentTurn({ surface: "dm", language, inputText: fullInput(), attachmentInput, mediaPerception,
       knownPhoneSource: lane.context.knownPhoneSource, requestedFacts, revision: claim.pin.revision,
       approvedFileState, ...(followUp ? { followUp } : {}), ...(preReadCall ? { preReads: [preReadCall] } : {}),
       startedAt: claim.pin.receivedAt, operation: runtime.operation,
       tools: customerAgentToolDefinitions([...CUSTOMER_AGENT_PUBLIC_TOOLS, ...mutations.availableToolNames]),
-      verifiedContext: remembered.context, sayMode: customerAgentSayMode(),
+      verifiedContext: remembered.context, sayMode: customerAgentSayMode(), recentBotMessage, botMessages,
     }, {
       assertCurrent: async (evidence, wait) => { accumulated = evidence; return current(wait); },
       modelTurn: async input => {
@@ -436,7 +440,7 @@ export async function runCustomerDmAgentTurn(eventKey: string): Promise<Customer
     const sealed = await sealDmCustomerAgentDeliveryEvidence({ principal, claim, serverWitnesses: witnesses, render: {
       decision: result.decision, evidence: result.evidence, language, requestedFacts,
       knownPhoneSource: lane.context.knownPhoneSource, text: result.text, verifiedContext: remembered.context, inputText: fullInput(),
-      attachmentInput, approvedFileState,
+      attachmentInput, approvedFileState, recentBotMessage, botMessages,
       mediaPerception,
     } });
     if (sealed.status !== "sealed") {

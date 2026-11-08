@@ -38,6 +38,7 @@ it.each([
   { turns: [{ role: "assistant" as const, text: "Вы хотите, чтобы сотрудник вам позвонил?" }] },
   { turns: [{ role: "assistant" as const, text: "Какой бюджет вы рассматриваете?\nСколько комнат вам нужно?" }] },
 ])("uses honest generic repair for user text, answered/personal/consent or ambiguous questions: %j", ({ turns }) => {
+  // Earlier turns exist in every case: no first-answer greeting (08.11.2026 greets only a dialogue with no earlier turn).
   expect(render(turns)).toBe("Что пояснить подробнее?");
 });
 it("public rendering cannot use a supplied private-DM context for a specific repair", () => {

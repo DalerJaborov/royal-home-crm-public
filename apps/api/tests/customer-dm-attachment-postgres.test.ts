@@ -3,6 +3,7 @@ import { prisma } from "../src/db.js";
 import { createCustomerCoreGoldenFixture, reply } from "./helpers/customerCoreGoldenFixture.js";
 import { prepareCustomerDmInboxCoreContext } from "../src/lib/customerDmCoreContext.js";
 import { consumeCustomerInboxTicket } from "../src/lib/customerIngressProducer.js";
+import { BUSINESS_QUESTION, FOREIGN_SHARE_LINE } from "../src/ai/customerAgentAttachmentInput.js";
 
 // Genuine signed durable intake, real FINAL/lease/seal and P12/Graph receipt.
 // Provider I/O only is synthetic; no forced principal or prepared mock.
@@ -19,8 +20,9 @@ it.each(["ig_reel", "image", "audio", "video", "file", "unsupported"])("%s witho
   expect(original.originCiphertext).not.toBeNull();
   const result = await f.deliver(event);
   // An unknown reel is somebody else's publication (30.10.2026): one short line, not a question about it. An unopenable file gets a human sentence.
-  if (type === "ig_reel") expect(result.text).toBe("Эта публикация не наша. Если ищете жильё, напишите, что нужно.");
-  else if (type === "unsupported") expect(result.text).toBe("Что вас интересует: покупка или продажа недвижимости?");
+  // 08.11.2026: the first answer greets; with no customer word anywhere it goes in Tajik first, then Russian.
+  if (type === "ig_reel") expect(result.text).toBe(`Ассалому алайкум!\n${FOREIGN_SHARE_LINE.tg}\nЗдравствуйте!\n${FOREIGN_SHARE_LINE.ru}`);
+  else if (type === "unsupported") expect(result.text).toBe(`Ассалому алайкум!\n${BUSINESS_QUESTION.tg}\nЗдравствуйте!\n${BUSINESS_QUESTION.ru}`);
   else expect(result.text).toContain("?");
   expect(result.text).not.toMatch(/992|сотрудник|записал|передал|ссылка не открылась|Вижу|прослушал/iu);
   const after = await prisma.customerPropertyIngressTicket.findUniqueOrThrow({ where: { eventKey: event } });

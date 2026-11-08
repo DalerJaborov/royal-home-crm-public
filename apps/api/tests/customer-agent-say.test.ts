@@ -65,10 +65,11 @@ describe("say validator: every refusal code, Russian", () => {
     expect(reason("Понял вас.", { surface: "public_comment" })).toBe("surface_disabled");
     expect(reason("Понял вас.", { surface: "voice" })).toBe("surface_disabled");
   });
-  it("language_disabled: Tajik is off in v1", () => {
-    expect(SAY_ENABLED_LANGUAGES).toEqual(["ru"]);
-    const verdict = validateCustomerAgentSay({ say: "Ташаккур, ки навиштед.", language: "tg", surface: "dm", inputText: "Салом" });
+  it("language_disabled: a language outside the enabled set; Tajik is enabled since 08.11.2026", () => {
+    expect([...SAY_ENABLED_LANGUAGES].sort()).toEqual(["ru", "tg"]);
+    const verdict = validateCustomerAgentSay({ say: "Ташаккур, ки навиштед.", language: "tg", surface: "dm", inputText: "Салом", enabledLanguages: ["ru"] });
     expect(verdict).toEqual({ ok: false, reason: "language_disabled" });
+    expect(validateCustomerAgentSay({ say: "Ташаккур, ки навиштед.", language: "tg", surface: "dm", inputText: "Салом" }).ok).toBe(true);
     expect(validateCustomerAgentSay({ say: "Понял вас.", language: "ru", surface: "dm" }).ok).toBe(true);
   });
   it.each([
@@ -130,8 +131,9 @@ describe("say validator: every refusal code, Russian", () => {
 describe("say validator: every refusal code, Tajik", () => {
   it("accepts a plain Tajik acknowledgement", () => { expect(tg("Ташаккур, ки дар бораи вазъияти худ навиштед.")).toBe("ok"); });
   it("surface_disabled", () => { expect(tg("Ташаккур, ки навиштед.", { surface: "public_comment" })).toBe("surface_disabled"); });
-  it("language_disabled by default", () => {
-    expect(validateCustomerAgentSay({ say: "Ташаккур, ки навиштед.", language: "tg", surface: "dm" })).toEqual({ ok: false, reason: "language_disabled" });
+  it("enabled by default since 08.11.2026; language_disabled only outside the enabled set", () => {
+    expect(validateCustomerAgentSay({ say: "Ташаккур, ки навиштед.", language: "tg", surface: "dm" }).ok).toBe(true);
+    expect(validateCustomerAgentSay({ say: "Ташаккур, ки навиштед.", language: "tg", surface: "dm", enabledLanguages: ["ru"] })).toEqual({ ok: false, reason: "language_disabled" });
   });
   it("length", () => { expect(tg("Ташаккур ки навиштед. Фаҳмидам. Бубахшед.")).toBe("length"); expect(tg("Ташаккур.\nФаҳмидам.")).toBe("length"); });
   it.each(["Шумо кадом ноҳияро дӯст медоред?", "Бигӯед, ки чӣ лозим аст.", "Кадом ноҳия мувофиқ аст."])("question: %s", say => { expect(tg(say)).toBe("question"); });

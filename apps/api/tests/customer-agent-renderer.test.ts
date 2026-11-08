@@ -91,9 +91,10 @@ describe("grounded free phrase (say) in the rendered answer (24.10)", () => {
     const first = withSay("Понял, вас интересует этот объект.");
     for (let i = 0; i < 5; i++) expect(withSay("Понял, вас интересует этот объект.")).toBe(first);
   });
-  it("ignores the phrase outside a private message and for Tajik (off in v1)", () => {
+  it("ignores the phrase outside a private message; Tajik is on since 08.11.2026", () => {
     expect(withSay("Понял, вас интересует этот объект.", { surface: "public_comment" })).toBe(price);
-    expect(withSay("Фаҳмидам, шуморо ин объект ҷалб кардааст.", { language: "tg" })).not.toContain("Фаҳмидам");
+    expect(withSay("Фаҳмидам, шуморо ин объект ҷалб кардааст.", { language: "tg" })).toContain("Фаҳмидам, шуморо ин объект ҷалб кардааст.");
+    expect(withSay("Лутфан, каме сабр кунед.", { language: "tg" })).not.toContain("Лутфан");
   });
   it("checks the phrase against the customer's words and earlier bot turns carried in the context", () => {
     const verifiedContext = { surface: "dm" as const, revisionId: "a".repeat(64), publicState: { topic: "unknown" } as never,

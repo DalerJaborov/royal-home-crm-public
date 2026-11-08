@@ -88,7 +88,7 @@ it("retains equal address facts from different cards and distinct editions of on
     evidence: [{ ref: "e0", value: { kind: "facts", facts: a, kinds: ["address"] } },
       { ref: "e1", value: { kind: "facts", facts: b, kinds: ["address"] } }],
     requestedFacts: [], language: "ru", surface: "dm", knownPhoneSource: "none", maxOutputChars: 1000 });
-  expect(text?.match(/Расположение:/g)).toHaveLength(2);
+  expect(text?.match(/Точный адрес и ориентир/g)).toHaveLength(2); // one address sentence per object (08.11.2026 wording)
   // Delivery freshness rejects mixed editions. Rendering must not disguise
   // that conflict by collapsing witnesses with different signatures.
   const other = { ...a, signature: "b".repeat(64) };

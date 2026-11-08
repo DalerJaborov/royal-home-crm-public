@@ -111,7 +111,7 @@ describe("F13 «no vacancies» answers", () => {
   });
   it("names the ad's vacancy when it is known", () => {
     expect(render([ev(vacancies(true))], { inputText: "Есть работа?", verifiedContext: context([], { topic: "job", jobPositionKey: "smm" }) }))
-      .toBe("По этой вакансии набор сейчас не подтверждён.");
+      .toBe("Здравствуйте!\nПо этой вакансии набор сейчас не подтверждён."); // first answer of the dialogue greets (08.11.2026)
   });
   it("does not suppress the customer's next step after an empty catalog", () => {
     expect(render([ev(vacancies(true))], { inputText: "Есть работа?" }, "name")).toBe("Сейчас открытых вакансий нет.\nКак к вам обращаться?");

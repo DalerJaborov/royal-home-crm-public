@@ -67,7 +67,7 @@ describe("buyer progress without invented financial facts or repeated questions"
     expect(value.role).toBe("buyer"); expect(value.buyerKnown).not.toContain("budget");
   });
   it("asks the next missing preference rather than re-asking rooms", () => {
-    expect(reply("Да", context({ role: "buyer", sellerKnown: [], buyerKnown: ["rooms"] }))).toBe("Какой район вам подходит?");
+    expect(reply("Да", context({ role: "buyer", sellerKnown: [], buyerKnown: ["rooms"] }))).toBe("Здравствуйте!\nКакой район вам подходит?"); // no earlier turn: the first answer greets (08.11.2026)
   });
   it("keeps a useful question after all basic buyer preferences are known", () => {
     expect(reply("Да", context({ role: "buyer", sellerKnown: [], buyerKnown: ["rooms", "budget", "location"] }))).toContain("этаж или состояние ремонта");

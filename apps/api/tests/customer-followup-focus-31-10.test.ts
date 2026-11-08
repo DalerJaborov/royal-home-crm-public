@@ -95,13 +95,37 @@ describe("the repeat guard never swallows an answer to a fact question", () => {
     const first = render({ kind: "reply", question: "none" }, "район", [bot("Расположение: Сино, Душанбе.")], [facts(["address"])], ["address"])!;
     expect(first).toContain("Сино, Душанбе");
   });
-  it("without a fact question the old behaviour stays: a notice instead of a third copy", () => {
+  it("a fact ASKED again is given again; the same card the model shows again with nothing asked is not (08.11.2026)", () => {
     const all = [facts(["price", "address", "characteristics"])];
-    const first = render({ kind: "reply", question: "none" }, "расскажите", [user("расскажите")], all)!;
+    const first = render({ kind: "reply", question: "none" }, "расскажите", [], all)!;
+    expect(first).toMatch(/^Здравствуйте!\n/u); // no earlier turn: the first answer greets
+    // Nothing asked ("расскажите" is no fact question): the way to a person instead of the same card.
     const second = render({ kind: "reply", question: "none" }, "расскажите", [user("расскажите"), bot(first)], all)!;
-    expect(second).toMatch(/^Повторю ещё раз:/u);
+    expect(second).not.toMatch(/500 000|Повторю ещё раз/u);
+    expect(second).toContain("номер телефона");
     const third = render({ kind: "reply", question: "none" }, "расскажите", [user("расскажите"), bot(first), user("расскажите"), bot(second)], all)!;
-    expect(third).toMatch(/уже писал|своими словами|одним сообщением/u);
+    expect(third).not.toBe(second);
+    expect(third).not.toMatch(/500 000/u);
+    // The price asked twice is given twice, the second time behind «Напомню:».
+    const price = [facts(["price"])];
+    const asked = render({ kind: "reply", question: "none" }, "цена?", [user("цена?"), bot(render({ kind: "reply", question: "none" }, "цена?", [bot("Здравствуйте!")], price, ["price"])!)],
+      price, ["price"])!;
+    expect(asked).toBe("Напомню:\nЦена объекта №69: 500 000 сомони.");
+  });
+  it("an exact-address loop: district once, then what the card cannot answer and a phone question, never 'Повторю'", () => {
+    const address = [facts(["address"])];
+    const first = render({ kind: "reply", question: "none" }, "где?", [user("где?")], address, ["address"])!;
+    expect(first).toContain("Объект №69 находится в районе Сино, Душанбе.");
+    expect(first).toContain("Точный адрес и ориентир агент подскажет перед показом.");
+    const second = render({ kind: "reply", question: "none" }, "где?", [user("где?"), bot(first)], address, ["address"])!;
+    expect(second).toBe("По объекту №69 в карточке указан только район Сино, Душанбе: точный адрес и ориентир подскажет агент перед показом.\n" +
+      "Какой номер телефона вы хотите оставить для связи?");
+    const third = render({ kind: "reply", question: "none" }, "где?", [user("где?"), bot(first), user("где?"), bot(second)], address, ["address"])!;
+    expect(third).toBe("Понимаю, вам нужен точный адрес объекта №69. Его знает агент, он подскажет и ориентир.");
+    const fourth = render({ kind: "reply", question: "none" }, "где?",
+      [user("где?"), bot(first), user("где?"), bot(second), user("где?"), bot(third)], address, ["address"])!;
+    expect([first, second, third]).not.toContain(fourth);
+    expect(fourth).not.toContain("Сино");
   });
   it("asks which object once more with the 'I asked' wording, not with a notice", () => {
     const unresolved: CustomerAgentEvidence = { ref: "e0", value: { kind: "property_unresolved", status: "missing", reason: "no_reference" } };
@@ -134,7 +158,7 @@ describe("judge: a vacancy list is an answer to 'are there vacancies?'", () => {
   const outcome = (text: string): TurnOutcome => ({ status: "replied", replies: [text], decision: null, observationsJson: "[]", modelCalls: 1 });
   const scenario = (input: string) => scenarioSchema.parse({ id: "judge-vacancy-1", category: "multi-turn", surface: "dm", channel: "INSTAGRAM", turns: [{ in: input }] });
   const failedRules = (input: string, reply: string) => judgeTurn({ scenario: scenario(input), turnIndex: 0, outcomes: [outcome(reply)], facts: judgeFacts, mode: "live",
-    extraRules: new Set(["answers-the-question"]) }).verdicts.filter(v => !v.pass).map(v => v.rule);
+    extraRules: new Set(["answers-the-question"]) }).verdicts.filter(v => !v.pass && v.rule !== "greets-first").map(v => v.rule);
   it("accepts the list that ends with a question", () => {
     expect(failedRules("есть вакансии?", "Сейчас открыты вакансии:\nАгент по недвижимости\nSMM-специалист\nВидеограф\nКакая должность вас интересует?")).toEqual([]);
     expect(failedRules("кор доред?", "Ҳоло ҷойҳои холӣ:\nАгент оид ба амвол\nМутахассиси SMM\nКадом вазифа шуморо ҷалб мекунад?")).toEqual([]);

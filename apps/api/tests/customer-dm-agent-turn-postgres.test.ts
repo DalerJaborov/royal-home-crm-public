@@ -343,7 +343,7 @@ it("actual linked sold card answers status only instead of the old price or a ph
   const result = await consumeCustomerInboxTicket(f.eventKey);
   expect(result.status, JSON.stringify(result)).toBe("planned"); if (result.status !== "planned") throw Error(JSON.stringify(result));
   const part = await prisma.customerOutboxPart.findUniqueOrThrow({ where: { id: result.partIds[0] } });
-  expect(decodeCustomerOutboxPayload(part)).toEqual({ kind: "text", text: `Объект №${sold.shortId} уже продан.` });
+  expect(decodeCustomerOutboxPayload(part)).toEqual({ kind: "text", text: `Здравствуйте!\nОбъект №${sold.shortId} уже продан.` }); // first answer greets (08.11.2026)
   expect(await readCustomerActionProperty(customerFenceSchema.parse(part.fenceJson))).toBeNull();
 });
 it("actual competing local/site bindings remain ambiguous, without leaking either price", async () => {
@@ -535,7 +535,7 @@ describe("actual durable DM common core", () => {
       const promptParts = await prisma.customerOutboxPart.findMany({ where: { id: { in: prompt.partIds } }, orderBy: { ordinal: "asc" } });
       expect(promptParts).toHaveLength(1);
       expect(promptParts[0]).toMatchObject({ ordinal: 0, payloadVersion: 2, approvedAssetPurpose: "buyer_guide_follow" });
-      expect(decodeCustomerOutboxPayload(promptParts[0])).toMatchObject({ kind: "text", text: "Этот файл доступен подписчикам страницы. Подпишитесь и напишите здесь." });
+      expect(decodeCustomerOutboxPayload(promptParts[0])).toMatchObject({ kind: "text", text: "Здравствуйте!\nЭтот файл доступен подписчикам страницы. Подпишитесь и напишите здесь." }); // first answer greets
       expect(decodeCustomerOutboxPublicData(promptParts[0])).toMatchObject({ guideFollow: { version: 1, kind: "buyer_guide_follow" } });
       expect(await dispatchCustomerOutboxPart(promptParts[0].id)).toEqual({ status: "accepted" });
       const waiting = await prisma.botConversation.findUniqueOrThrow({ where: { id: promptParts[0].originalNativeId } });

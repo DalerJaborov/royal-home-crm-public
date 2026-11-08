@@ -183,6 +183,7 @@ export const GUARD_LABELS: Record<GuardName, string> = {
   say_dropped_echo: "Живая фраза отброшена: дословный повтор слов клиента",
   say_dropped_repeat: "Живая фраза отброшена: повтор прежней реплики бота",
   say_dropped_double_greet: "Живая фраза отброшена: второе приветствие",
+  say_dropped_tone: "Живая фраза отброшена: обращение на «ты»",
   say_dropped_shadow: "Живая фраза годная, но режим «тень» её не отправил",
 };
 

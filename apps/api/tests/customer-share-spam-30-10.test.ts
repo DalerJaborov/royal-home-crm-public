@@ -66,15 +66,17 @@ describe("foreign share marking", () => {
 });
 
 describe("core: a publication of somebody else", () => {
-  it("answers the first one with one short line, no model, no read, no question", async () => {
+  // 08.11.2026: the first answer greets; with no word of the customer anywhere the same short line goes in Tajik, then Russian.
+  const BOTH = `Ассалому алайкум!\n${FOREIGN_SHARE_LINE.tg}\nЗдравствуйте!\n${FOREIGN_SHARE_LINE.ru}`;
+  it("answers the first one with one short line per language, no model, no read, no question", async () => {
     const f = fixture();
     const result = await runCustomerAgentTurn(f.frame, f.ports);
-    expect(result).toMatchObject({ status: "ready", text: FOREIGN_SHARE_LINE.ru, rounds: 0, toolCalls: 0 });
+    expect(result).toMatchObject({ status: "ready", text: BOTH, rounds: 0, toolCalls: 0 });
     expect(f.modelTurn).not.toHaveBeenCalled(); expect(f.executeAllowedTool).not.toHaveBeenCalled();
   });
   it("answers in Tajik when the dialogue is Tajik", async () => {
-    const f = fixture({ language: "tg" });
-    expect(await runCustomerAgentTurn(f.frame, f.ports)).toMatchObject({ status: "ready", text: FOREIGN_SHARE_LINE.tg });
+    const f = fixture({ language: "tg", verifiedContext: context([], { language: "tg" }) });
+    expect(await runCustomerAgentTurn(f.frame, f.ports)).toMatchObject({ status: "ready", text: `Ассалому алайкум!\n${FOREIGN_SHARE_LINE.tg}` });
   });
   it("is silent for the second one: no model, no text, only a no-reply hold", async () => {
     const f = fixture({ verifiedContext: context([{ role: "assistant", text: FOREIGN_SHARE_LINE.ru }]) });
@@ -89,7 +91,7 @@ describe("core: a publication of somebody else", () => {
   it.each(["Лайк камент паделится", "Blizkiyoooo ❤️", "Binenw 💕", "❤️"])("%s: the line only, never the office address or a question", async inputText => {
     const f = fixture({ inputText });
     const result = await runCustomerAgentTurn(f.frame, f.ports);
-    expect(result).toMatchObject({ status: "ready", text: FOREIGN_SHARE_LINE.ru });
+    expect(result).toMatchObject({ status: "ready", text: /\p{L}/u.test(inputText) ? `Здравствуйте!\n${FOREIGN_SHARE_LINE.ru}` : BOTH });
     expect(f.modelTurn).not.toHaveBeenCalled();
   });
   it("a real question about the forwarded publication still reaches the model", async () => {
@@ -112,8 +114,8 @@ describe("core: our own publication without a linked object", () => {
     expect(customerAgentMarkForeignShare({ kinds: ["share"] }, "own_share_unlinked")).toEqual(own);
   });
   it.each([["ru", OWN_SHARE_UNLINKED_LINE.ru], ["tg", OWN_SHARE_UNLINKED_LINE.tg]] as const)("says it once in %s, even with perception", async (language, line) => {
-    const f = fixture({ attachmentInput: own, language });
-    expect(await runCustomerAgentTurn(f.frame, f.ports)).toMatchObject({ status: "ready", text: line, rounds: 0 });
+    const f = fixture({ attachmentInput: own, language, verifiedContext: context([], { language }) });
+    expect(await runCustomerAgentTurn(f.frame, f.ports)).toMatchObject({ status: "ready", text: `${language === "tg" ? "Ассалому алайкум!" : "Здравствуйте!"}\n${line}`, rounds: 0 });
     expect(f.modelTurn).not.toHaveBeenCalled();
     const text = line.includes("наша") ? "Это наша" : "";
     expect(line).not.toContain("не наша"); expect(text).toBeDefined();
@@ -146,11 +148,11 @@ describe("renderer: attachment templates are not repeated", () => {
   const asked = (kind: "image" | "unknown") => customerAgentAttachmentQuestion({ kinds: [kind] }, "ru", false);
   const render = (kind: "image" | "unknown", turns: Array<{ role: "user" | "assistant"; text: string }>) => renderCustomerAgentDecision({
     decision: { kind: "clarify", refs: [], social: "none", question: "clarify_previous" }, evidence: [], inputText: "", attachmentInput: { kinds: [kind] },
-    language: "ru", requestedFacts: [], knownPhoneSource: "none", maxOutputChars: 2000, surface: "dm", verifiedContext: context(turns) });
+    language: "ru", requestedFacts: [], knownPhoneSource: "none", maxOutputChars: 2000, surface: "dm", verifiedContext: context(turns, { language: "ru" }) });
   it("asks once, then says so instead of repeating the template", () => {
-    expect(render("image", [])).toBe(asked("image"));
+    expect(render("image", [])).toBe(`Здравствуйте!\n${asked("image")}`);
     const again = render("image", [{ role: "user", text: "photo" }, { role: "assistant", text: asked("image") }]);
-    expect(again).not.toBe(asked("image")); expect(again).toMatch(/уже писал/);
+    expect(again).not.toBe(asked("image")); expect(again).toMatch(/неточно понял/);
   });
   it("the unknown attachment line is a human sentence", () => {
     expect(asked("unknown")).toBe("Что вас интересует: покупка или продажа недвижимости?");

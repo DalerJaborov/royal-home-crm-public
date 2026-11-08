@@ -7,6 +7,11 @@
 - [?] Решение владельца: канал заземлённого свободного текста для модели (сейчас весь текст
   клиенту — шаблоны рендерера, поэтому бот «не как человек»).
 
+- [~] Бот «грубый и резкий» (владелец 08.11): тон шаблонов ru/tg, без петли адреса и «Бори дигар такрор мекунам»,
+  приветствие, таджикский `say` включён (клиенту — только при `CUSTOMER_AGENT_SAY_MODE=live`). Ветка
+  `claude/bot-warm-tone-tg-08-11`, запись `docs/journal/2026-11-08-bot-warm-tone-tajik.md`. Осталось: ревью, ship,
+  живой прогон на отдельном ключе, просмотр 50 таджикских образцов владельцем.
+
 - [ ] Customer workflow parity: bounded queue lanes, accepted name question,
   durable contact-to-CRM follow-through, approved own-word revision continuity.
   Draft source; full CI verification and production adoption pending.

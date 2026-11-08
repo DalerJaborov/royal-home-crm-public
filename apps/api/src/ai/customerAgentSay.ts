@@ -16,8 +16,15 @@ import { BW, EW, TAIL } from "./wordBoundary.js";
  */
 export const SAY_MAX_CHARS = 200;
 export const SAY_MAX_SENTENCES = 2;
-/** v1 ships Russian only; Tajik tone needs a native speaker's review of ~50 samples first (plan section 8). */
-export const SAY_ENABLED_LANGUAGES: readonly ("ru" | "tg")[] = ["ru"];
+/**
+ * v1 shipped Russian only: Tajik tone was to wait for a native speaker's review of ~50 samples (plan section 8). Production
+ * 05-07.11.2026 showed the price of waiting: every Tajik phrase was dropped as `language_disabled` (12 of 12) and Tajik
+ * customers, the majority, read bare templates only. The stated risk (bookish words, calques) is now handled in code: the
+ * owner's banned Tajik wording (ai/agencyVoice.ts: «лутфан», «илтимос», «муфассал», «мутахассис», «сипос», flowery endings)
+ * and the dash are refused below, and the review set CUSTOMER_AGENT_SAY_TG_REVIEW_SAMPLES goes to the owner. A phrase still
+ * reaches a customer only with CUSTOMER_AGENT_SAY_MODE=live (shadow by default, lib/customerAgentFeaturePolicy.ts).
+ */
+export const SAY_ENABLED_LANGUAGES: readonly ("ru" | "tg")[] = ["ru", "tg"];
 /** The phrase repeats the customer's own message word for word: this many consecutive words. */
 const ECHO_WORDS = 5;
 
@@ -26,6 +33,29 @@ export const CUSTOMER_AGENT_SAY_EXAMPLES = {
   ru: ["Понял, вас интересует эта квартира.", "Спасибо, что рассказали о своей ситуации.", "Извините, что вам пришлось ждать ответа."],
   tg: ["Фаҳмидам, шуморо ин объект ҷалб кардааст.", "Ташаккур, ки дар бораи вазъияти худ навиштед.", "Бубахшед, ки шумо интизор шудед."],
 } as const;
+/**
+ * Tajik review set (08.11.2026): plain acknowledgements a Tajik customer may read in front of the server's facts. Written in
+ * the owner's register (шумо, no bookish words, no dash). Not shown to the model; a test runs every one through the validator
+ * so the set can never contain a phrase the server would drop. The owner reads them and strikes what sounds unnatural.
+ */
+export const CUSTOMER_AGENT_SAY_TG_REVIEW_SAMPLES: readonly string[] = [
+  "Ташаккур, ки навиштед.", "Хуб, фаҳмидам.", "Бале, фаҳмидам.", "Майлаш, фаҳмидам.", "Қайд кардам.",
+  "Бубахшед, ки шумо интизор шудед.", "Бубахшед, ки ҷавоб дер шуд.", "Бубахшед барои таъхир.",
+  "Фаҳмидам, ба шумо квартираи нав лозим аст.", "Дуруст фаҳмидам, шумо ҳавлӣ мехоҳед.", "Фаҳмидам, ин барои шумо муҳим аст.",
+  "Ташаккур, ки вазъиятро фаҳмондед.", "Фаҳмидам, шумо хонаатонро ба фурӯш мегузоред.", "Мефаҳмам, ки интихоби хона кори осон нест.",
+  "Фаҳмидам, шумо дар бораи ҳамин объект мепурсед.", "Хуб, фаҳмидам, ки ба шумо ҳавлӣ лозим аст.", "Ташаккур, ки моро интихоб кардед.",
+  "Бубахшед, агар ҷавоби пештара нофаҳмо буд.", "Фаҳмидам, шумо ҷои кор меҷӯед.", "Ташаккур, ки дар бораи худ навиштед.",
+  "Хуб, таҷрибаи шумо фаҳмо шуд.", "Фаҳмидам, шумо хонаро бо таъмир мехоҳед.", "Ташаккур, ки ҷавоб додед.",
+  "Хуб, ин маълумот ба мо кӯмак мекунад.", "Фаҳмидам, шумо барои оилаи калон хона меҷӯед.", "Узр, ки ман шуморо дуруст нафаҳмидам.",
+  "Ташаккур, акнун саволатон фаҳмо шуд.", "Майлаш, ин тавр ҳам мешавад.", "Фаҳмидам, ба шумо хонаи наздики мактаб лозим аст.",
+  "Хуб, шумо хонаро барои худ мехаред.", "Фаҳмидам, шумо ҳоло маълумот ҷамъ мекунед.", "Бубахшед, ки аввал саволро нодуруст фаҳмидам.",
+  "Фаҳмидам, шумо аввал хонаро дидан мехоҳед.", "Дуруст, хонаро аввал бо чашми худ дидан беҳтар аст.", "Ташаккур, ки ба мо навиштед.",
+  "Фаҳмидам, ба шумо хонаи гарм ва равшан лозим аст.", "Мефаҳмам, ки шумо бисёр хонаҳоро дидед.", "Хуб, фаҳмидам, саволи шумо дар бораи ҳуҷҷатҳост.",
+  "Ташаккур барои сабр.", "Фаҳмидам, барои шумо ҳавлӣ бо ҳавои тоза муҳим аст.", "Бале, ин саволи муҳим аст.",
+  "Фаҳмидам, шумо барои фарзандон хона меҷӯед.", "Ташаккур, ки маълумотро фиристодед.", "Хуб, фаҳмидам, ки шумо шитоб надоред.",
+  "Фаҳмидам, ба шумо хонаи ором лозим аст.", "Бубахшед, ки ин қадар интизор шудед.", "Фаҳмидам, шумо аз ҳамин хона хурсанд нестед.",
+  "Хуб, мефаҳмам, ки ин қарори калон аст.", "Ташаккур, ки фикри худро гуфтед.", "Фаҳмидам, шумо дар бораи шартҳои харид мепурсед.",
+];
 const sayExample = (text: string) => `{"kind":"reply","refs":[],"social":"none","question":"none","say":"${text}"}`;
 /**
  * The rules for the optional `say` field. They travel in the per-turn server context (`serverSurface.sayGuidance`, private messages only), NOT in the
@@ -115,7 +145,22 @@ const FACT_CLAIM = w([
   `фурӯхта${TAIL}`, `фурӯхт${TAIL}`, `озод${TAIL}`, `тахфиф${TAIL}`, "савдо", `арзон${TAIL}`, `гарон${TAIL}`, `дастрас${TAIL}`, `мавҷуд${TAIL}`, `ёфт${TAIL}`, `нарх${TAIL}`, `пардохт${TAIL}`, `кироя${TAIL}`, "ҳаққи\\s+хизмат",
 ].join("|"));
 
-const CLICHE = rx(`${BW}(?:отличн${TAIL}\\s+вопрос${TAIL}|хорош${TAIL}\\s+вопрос${TAIL}|интересн${TAIL}\\s+вопрос${TAIL}|рад\\s+помочь|рада\\s+помочь|с\\s+радостью|буду\\s+рад${TAIL}|понимаю\\s+ваш${TAIL}\\s+(?:беспокойств${TAIL}|чувств${TAIL}|волнени${TAIL}|эмоци${TAIL})|благодарю\\s+за\\s+(?:обращени${TAIL}|вопрос${TAIL})|спасибо\\s+за\\s+(?:обращени${TAIL}|вопрос${TAIL})|чем\\s+могу\\s+(?:быть\\s+)?полезн${TAIL}|чем\\s+могу\\s+помочь|обращайтесь|не\\s+стесняйтесь|безусловно|разумеется|непременно|ваш${TAIL}\\s+мнени${TAIL}\\s+важн${TAIL}|ценим\\s+ваш${TAIL}|всегда\\s+рады|рады\\s+помочь|к\\s+вашим\\s+услугам|саволи\\s+хуб|саволи\\s+ҷолиб|хурсанд\\s+мешавам|хурсандам|бо\\s+камоли\\s+майл|барои\\s+муроҷиат\\s+ташаккур|шуморо\\s+мефаҳмам)${EW}`);
+const CLICHE = rx(`${BW}(?:отличн${TAIL}\\s+вопрос${TAIL}|хорош${TAIL}\\s+вопрос${TAIL}|интересн${TAIL}\\s+вопрос${TAIL}|рад\\s+помочь|рада\\s+помочь|с\\s+радостью|буду\\s+рад${TAIL}|понимаю\\s+ваш${TAIL}\\s+(?:беспокойств${TAIL}|чувств${TAIL}|волнени${TAIL}|эмоци${TAIL})|благодарю\\s+за\\s+(?:обращени${TAIL}|вопрос${TAIL})|спасибо\\s+за\\s+(?:обращени${TAIL}|вопрос${TAIL})|чем\\s+могу\\s+(?:быть\\s+)?полезн${TAIL}|чем\\s+могу\\s+помочь|обращайтесь|не\\s+стесняйтесь|безусловно|разумеется|непременно|ваш${TAIL}\\s+мнени${TAIL}\\s+важн${TAIL}|ценим\\s+ваш${TAIL}|всегда\\s+рады|рады\\s+помочь|к\\s+вашим\\s+услугам|саволи\\s+хуб|саволи\\s+ҷолиб|хурсанд\\s+мешавам|хурсандам|бо\\s+камоли\\s+майл|барои\\s+муроҷиат\\s+ташаккур|шуморо\\s+мефаҳмам` +
+  // The owner's banned Tajik wording for customer texts (ai/agencyVoice.ts <language_and_slang>, 01.08, 16.08, 17.09.2026).
+  `|лутфан|илтимос|безаҳмат|муфассал${TAIL}|мутахассис${TAIL}|сипос|бо\\s+ҷону\\s+дил|дар\\s+хизмати\\s+шумо|бо\\s+эҳтиром|хоҳиш\\s+мекун${TAIL}` +
+  `|ёрӣ\\s+мерасон${TAIL}|кӯмак\\s+мерасон${TAIL}|баррасӣ\\s+мекун${TAIL}|мувофиқи\\s+талаботи\\s+шумо|манзур${TAIL})${EW}` +
+  // Any dash used as a thought separator: em/en/horizontal bar/figure dash anywhere, and a hyphen (ASCII, U+2010, U+2011) standing
+  // alone, at the start ("- Понял") or between spaces. A hyphen inside a word ("по-русски", "кое-что") passes.
+  `|[—–―‒]|(?:^|\\s)[-‐‑](?=\\s|$)`);
+/** Address on «ты» (owner: the bot speaks to customers on «вы» / «шумо» only). Whole words only (BW/EW), per language:
+ * the Russian «ту» ("на ту квартиру") is not the Tajik pronoun, so each list is checked only for its own language. */
+const INFORMAL_RU = w("ты|тебя|тебе|тобой|тобою|твой|твоя|твое|твоё|твои|твоего|твоей|твоему|твоим|твоих|твою|знаешь|хочешь|можешь|понимаешь");
+/** Tajik pronoun «ту» and the 2nd-singular possessive on common words. A list, not a rule: «-ат» is also the ending of
+ * «ҳаёт», «сифат», «давлат», «муҳаббат». Folded spelling (the customer may write without special letters). */
+const INFORMAL_TG = w("ту|туро|ба\\s+ту|аз\\s+ту|бо\\s+ту|барои\\s+ту|худат|ба\\s+худат|барои\\s+худат|аз\\s+худат|хонаат|ҳавлиат|номат|рақамат|саволат|пулат|оилаат");
+/** Tajik 2nd-singular verb forms end in a TRUE «ӣ»; folded, «омадӣ» would equal the izafet «омади (кор)» and «диди (шумо)».
+ * Checked on the unfolded text, so only the real ending counts. */
+const INFORMAL_TG_VERB = new RegExp(`${BW}(?:навиштӣ|гуфтӣ|фиристодӣ|хостӣ|дидӣ|пурсидӣ|кардӣ|омадӣ|доштӣ|мехоҳӣ|медонӣ|мекунӣ|мегӯӣ|менависӣ|мефиристӣ|мебинӣ|мепурсӣ|ҳастӣ|дорӣ|метавонӣ)${EW}`, "u");
 
 const GREETING = rx(`${BW}(?:здравствуй${TAIL}|привет${TAIL}|добр(?:ый|ое|ого|ым|ая|ой)\\s+(?:день|дня|утро|утра|вечер|вечера|ночи)|доброго\\s+времени|салом${TAIL}|ассалом${TAIL}|хуш\\s+омад${TAIL}|рӯзатон\\s+бахайр|субҳ${TAIL}\\s+бахайр|шоми\\s+хуш|ҳаллоу|алло)${EW}`);
 
@@ -185,7 +230,9 @@ export function validateCustomerAgentSay(input: CustomerAgentSayInput): Customer
   if (echoes(text, ownWords)) return bad("echo");
   const key = comparable(text);
   if ((input.priorAssistantTurns ?? []).some(turn => key && comparable(turn).includes(key))) return bad("repeat");
-  if ((input.social === "greet" || (input.priorAssistantTurns?.length ?? 0) > 0) && GREETING.test(folded)) return bad("double_greet");
+  // The server owns the greeting (first turn, or the model's social=greet): a greeting inside the phrase is always a second one.
+  if (GREETING.test(folded)) return bad("double_greet");
+  if (input.language === "ru" ? INFORMAL_RU.test(folded) : INFORMAL_TG.test(folded) || INFORMAL_TG_VERB.test(text.toLowerCase())) return bad("tone");
   return { ok: true, text };
 }
 

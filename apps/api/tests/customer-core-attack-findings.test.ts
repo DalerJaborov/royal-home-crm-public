@@ -86,25 +86,29 @@ describe("class 3: a named position is not asked again", () => {
 describe("class 4: a repeated reply is varied, never silenced", () => {
   it("answers a repeated question with an honest notice, a different one each time", () => {
     const first = render("job_position", "хочу работать", context([user("хочу работать"), bot("Какая должность вас интересует?")]))!;
-    expect(first).toContain("Я уже писал об этом выше");
+    expect(first).toContain("неточно понял ваш вопрос");
     const second = render("job_position", "хочу работать", context([user("хочу работать"), bot("Какая должность вас интересует?"),
       user("хочу работать"), bot(first)]))!;
     expect(second).not.toBe(first);
-    expect(second).toContain("своими словами");
+    expect(second).toContain("поговорить с человеком");
     expect(second).not.toContain("Какая должность");
   });
-  it("introduces the same facts when they are asked for again", () => {
+  it("introduces the same office facts with a short human lead when they are asked for again, then a notice", () => {
     const line = "Офис Royal Home: Душанбе, ул. Тестовая, 1.\nСотрудники на связи с 09:30 до 18:00 по Душанбе. Выходные: воскресенье.";
     const asked = render("none", "где ваш офис?", context([user("где ваш офис?"), bot(line)]), [{ ref: "e0", value: company }],
       { decision: { kind: "reply", refs: ["e0"], social: "none", question: "none" } });
-    expect(asked).toMatch(/^Повторю ещё раз:\n/u);
+    expect(asked).toMatch(/^Напомню:\n/u);
     expect(asked).toContain("ул. Тестовая, 1");
+    expect(asked).not.toMatch(/Повторю ещё раз/u);
+    const third = render("none", "где ваш офис?", context([user("где ваш офис?"), bot(line), user("где ваш офис?"), bot(asked!)]), [{ ref: "e0", value: company }],
+      { decision: { kind: "reply", refs: ["e0"], social: "none", question: "none" } });
+    expect(third).not.toContain("ул. Тестовая, 1");
   });
   it("words a bare acknowledgement differently the third time instead of letting the shield swallow it", () => {
     const ack = (turns: Array<{ role: "user" | "assistant"; text: string }>) => renderCustomerAgentDecision({
       decision: { kind: "reply", refs: [], social: "acknowledge", question: "none" }, evidence: [], language: "ru", requestedFacts: [],
       knownPhoneSource: "none", maxOutputChars: 4000, surface: "dm", inputText: "цена 1500000", verifiedContext: context(turns) });
-    expect(ack([])).toBe("Понял.");
+    expect(ack([])).toBe("Здравствуйте!"); // the first answer of a dialogue greets instead of a bare "Понял." (08.11.2026)
     expect(ack([user("в Фирдавси"), bot("Понял.")])).toBe("Понял.");
     const third = ack([user("в Фирдавси"), bot("Понял."), user("120 метров"), bot("Понял.")]);
     expect(third).toBe("Хорошо, принято.");

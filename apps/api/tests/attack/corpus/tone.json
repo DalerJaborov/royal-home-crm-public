@@ -1,0 +1,112 @@
+[
+  {
+    "id": "tone-tg-address-loop-001",
+    "category": "multi-turn",
+    "surface": "dm",
+    "channel": "INSTAGRAM",
+    "fixture": { "properties": 1, "vacancies": [], "publication": false },
+    "note": "08.11 prod: the same address question seven times got the same district line seven times, the 2nd..7th with 'Бори дигар такрор мекунам'.",
+    "turns": [
+      { "in": "Объекти {{p1.short}} куҷо?", "expect": { "language": "tg", "mustNotContain": ["Бори дигар такрор мекунам"] } },
+      { "in": "куҷо?", "expect": { "language": "tg", "mustNotContain": ["Бори дигар такрор мекунам"] } },
+      { "in": "суроғааш куҷо?", "expect": { "language": "tg", "mustNotContain": ["Бори дигар такрор мекунам", "номафҳум"] } },
+      { "in": "куҷо?", "expect": { "language": "tg", "mustNotContain": ["Бори дигар такрор мекунам", "номафҳум"] } }
+    ]
+  },
+  {
+    "id": "tone-ru-address-loop-001",
+    "category": "multi-turn",
+    "surface": "dm",
+    "channel": "WHATSAPP",
+    "fixture": { "properties": 1, "vacancies": [], "publication": false },
+    "note": "The Russian mirror of the address loop: the district is the only public fact, the exact address is the agent's.",
+    "turns": [
+      { "in": "где находится объект {{p1.short}}?", "expect": { "language": "ru", "mustNotContain": ["Повторю ещё раз"] } },
+      { "in": "адрес?", "expect": { "language": "ru", "mustNotContain": ["Повторю ещё раз"] } },
+      { "in": "а где это?", "expect": { "language": "ru", "mustNotContain": ["Повторю ещё раз", "своими словами"] } }
+    ]
+  },
+  {
+    "id": "tone-tg-harid-001",
+    "category": "multi-turn",
+    "surface": "dm",
+    "channel": "INSTAGRAM",
+    "fixture": { "properties": 1, "vacancies": [], "publication": false },
+    "note": "08.11 prod: after a price answer the customer wrote 'Харид' and got the bare location line as the whole answer.",
+    "turns": [
+      { "in": "Объекти {{p1.short}} нархаш чанд?", "expect": { "language": "tg" } },
+      { "in": "Харид", "expect": { "language": "tg", "mustNotContain": ["Бори дигар такрор мекунам"] } }
+    ]
+  },
+  {
+    "id": "tone-tg-empty-search-001",
+    "category": "multi-turn",
+    "surface": "dm",
+    "channel": "INSTAGRAM",
+    "fixture": { "properties": 1, "vacancies": [], "publication": false },
+    "note": "08.11 prod: 'Дар интихоби ҷорӣ варианти мувофиқ ёфт нашуд.' twice in one message. The judge's no-duplicate-sentence rule runs on every turn.",
+    "turns": [
+      { "in": "Дар Шохмансур квартира ҳаст?", "expect": { "language": "tg" } },
+      { "in": "Дар Фирдавсӣ хона ҳаст?", "expect": { "language": "tg" } }
+    ]
+  },
+  {
+    "id": "tone-tg-photo-price-001",
+    "category": "media",
+    "surface": "dm",
+    "channel": "INSTAGRAM",
+    "fixture": { "properties": 1, "vacancies": [], "publication": false },
+    "note": "08.11 prod: a photo of a flat with a price question got the generic 'which object do you mean' question.",
+    "turns": [
+      { "in": "нархаш чанд?", "attach": { "type": "image", "perception": { "subject": "home_interior", "visible": ["kitchen"], "language": "unknown", "speech": "none" } },
+        "expect": { "language": "tg" } }
+    ]
+  },
+  {
+    "id": "tone-share-first-contact-001",
+    "category": "dm-share",
+    "surface": "dm",
+    "channel": "INSTAGRAM",
+    "fixture": { "properties": 1, "vacancies": [], "publication": false },
+    "note": "08.11 prod: a foreign post with no text on first contact got the Russian line only (10 times); the audience mostly writes Tajik.",
+    "turns": [
+      { "in": "", "attach": { "type": "ig_reel_foreign" }, "expect": { "replied": true, "mustNotContain": ["Офис", "Эта публикация не наша."] } }
+    ]
+  },
+  {
+    "id": "tone-share-tg-history-001",
+    "category": "dm-share",
+    "surface": "dm",
+    "channel": "INSTAGRAM",
+    "fixture": { "properties": 1, "vacancies": [], "publication": false },
+    "note": "A Tajik dialogue: an attachment without text keeps the dialogue language.",
+    "turns": [
+      { "in": "Ассалому алейкум, ба ман хона лозим аст", "expect": { "language": "tg" } },
+      { "in": "", "attach": { "type": "ig_reel_foreign" }, "expect": { "replied": true, "language": "tg" } }
+    ]
+  },
+  {
+    "id": "tone-ru-first-reply-greets-001",
+    "category": "buyer",
+    "surface": "dm",
+    "channel": "WHATSAPP",
+    "fixture": { "properties": 1, "vacancies": [], "publication": false },
+    "note": "The first answer of a dialogue says hello even when the customer opened with a bare question.",
+    "turns": [
+      { "in": "сколько стоит объект {{p1.short}}?", "expect": { "language": "ru" } }
+    ]
+  },
+  {
+    "id": "tone-tg-same-message-001",
+    "category": "multi-turn",
+    "surface": "dm",
+    "channel": "INSTAGRAM",
+    "fixture": { "properties": 1, "vacancies": [], "publication": false },
+    "note": "The same unclear message three times: no 'агар саволи ман дар боло номафҳум буд', no identical reply.",
+    "turns": [
+      { "in": "ҳамон хонаро мехоҳам", "expect": { "language": "tg" } },
+      { "in": "ҳамон хонаро мехоҳам", "expect": { "language": "tg", "mustNotContain": ["номафҳум"] } },
+      { "in": "ҳамон хонаро мехоҳам", "expect": { "language": "tg", "mustNotContain": ["номафҳум"] } }
+    ]
+  }
+]

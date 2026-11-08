@@ -829,10 +829,16 @@ describe("grounded free phrase (say): lifted before the strict parse, shadow by 
     expect((await run({ say: "Это стоит пять тысяч." }, { sayMode: "live" })).result.say).toEqual({ status: "dropped", reason: "number_or_date" });
     expect((await run({ say: "Мы вам позвоним." }, { sayMode: "live" })).result.say).toEqual({ status: "dropped", reason: "promise" });
   });
-  it("Tajik is off in v1: language_disabled, and the Tajik template answer goes out as before", async () => {
+  it("Tajik is on since 08.11.2026: a valid Tajik phrase goes in front of the Tajik facts in live mode", async () => {
     const { result } = await run({ say: "Ташаккур, ки навиштед." }, { sayMode: "live", language: "tg", inputText: "Нархи объекти 123 чанд?" });
-    expect(result.say).toEqual({ status: "dropped", reason: "language_disabled" });
-    expect(result.text).not.toContain("Ташаккур, ки навиштед");
+    expect(result.say).toEqual({ status: "used" });
+    expect(result.text).toContain("Ташаккур, ки навиштед.");
+    expect(result.text).toContain("123 456.78");
+  });
+  it("Tajik bookish wording is dropped, the Tajik template answer goes out unchanged", async () => {
+    const { result } = await run({ say: "Лутфан, каме сабр кунед." }, { sayMode: "live", language: "tg", inputText: "Нархи объекти 123 чанд?" });
+    expect(result.say).toEqual({ status: "dropped", reason: "cliche" });
+    expect(result.text).not.toContain("Лутфан");
   });
   it("public comments never carry a phrase", async () => {
     const { result } = await run({ say: GOOD }, { sayMode: "live", surface: "public_comment" });

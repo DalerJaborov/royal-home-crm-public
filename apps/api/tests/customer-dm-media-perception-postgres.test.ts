@@ -27,7 +27,8 @@ afterAll(async () => { await f?.cleanup(); });
 const perception = (overrides: Record<string, unknown> = {}) => ({ functionCall: { name: "perceive_customer_media", id: "media-extraction",
   args: { language: "ru", transcript: "", subject: "home_interior", visible: ["kitchen", "balcony"], readableText: "", speech: "none", ...overrides } } });
 const image = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j4AAAAABJRU5ErkJggg==", "base64");
-it.each([["Ответьте на таджикском", "Фаҳмидам."], ["бо забони русӣ нависед", "Понял."]])(
+// The first answer of a dialogue greets instead of a bare acknowledgement (08.11.2026); the requested language still wins.
+it.each([["Ответьте на таджикском", "Ассалому алайкум!"], ["бо забони русӣ нависед", "Здравствуйте!"]])(
   "retains the explicitly requested reply language after media perception: %s", async (caption, expected) => {
     const owner = await f.owner(), url = f.mediaFixture("image/png", image);
     const event = await f.capture(owner, caption, [{ type: "image", payload: { url } }]);
@@ -237,7 +238,8 @@ it("resolves a spoken object number with the existing CRM focus and answers from
   expect(conversation.customerPropertyFocus).toMatchObject({ status: "resolved", propertyId: property.id, eventKey: event });
   f.script([[reply(["e0"])]]);
   const followup = await f.deliver(await f.capture(owner, "А где находится?"));
-  expect(followup.text).toContain("Расположение:"); expect(followup.text).not.toMatch(/какой объект|PRIVATE-OWNER/iu);
+  // 08.11.2026 wording: the object's district as a sentence plus "the agent gives the exact address".
+  expect(followup.text).toContain(`Объект №${property.shortId} находится`); expect(followup.text).not.toMatch(/какой объект|PRIVATE-OWNER/iu);
 });
 it("uses a printed explicit object number but never the price printed in the image", async () => {
   const owner = await f.owner(), { property } = await f.publicCard(), url = f.mediaFixture("image/png", image);
