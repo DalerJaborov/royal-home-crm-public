@@ -75,7 +75,7 @@ import { buildWhisperText, WHISPER_PARTS } from "../lib/telephony/whisperText.js
 import { previewWhisperSpeech } from "../lib/telephony/whisperAudio.js";
 import { logSystemError } from "../lib/systemError.js";
 import { describeError } from "../lib/describeError.js";
-import { deleteAccount, listAccounts, saveAccount, resetAccountsCache } from "../messengers/accounts.js";
+import { BrandNameCoreConflictError, deleteAccount, listAccounts, saveAccount, resetAccountsCache } from "../messengers/accounts.js";
 import { brandNameError } from "../ai/brandPattern.js";
 import { dispatchInBackground, EDITOR_HOLDER_WHERE } from "../lib/videoHandoff.js";
 import { sendToMontajer } from "../lib/montageObservers.js";
@@ -2787,6 +2787,7 @@ settingsRouter.post(
       });
       res.json({ ok: true, id });
     } catch (err) {
+      if (err instanceof BrandNameCoreConflictError) return res.status(409).json({ error: err.message });
       // Один и тот же аккаунт дважды — самая частая ошибка при подключении.
       if ((err as { code?: string }).code === "P2002") {
         return res.status(409).json({ error: "Такой аккаунт уже подключён" });

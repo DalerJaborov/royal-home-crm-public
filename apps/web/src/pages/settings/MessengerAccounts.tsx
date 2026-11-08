@@ -290,7 +290,7 @@ export function MessengerAccounts() {
                     <span className="lab">Как бот называет компанию (если не Royal Home)</span>
                     <input
                       value={draftBrand}
-                      maxLength={60}
+                      maxLength={20}
                       onChange={(e) => setDraftBrand(e.target.value)}
                       placeholder="Арван"
                     />
@@ -395,7 +395,7 @@ export function MessengerAccounts() {
           </label>
           <label className="fld">
             <span className="lab">Как бот называет компанию (если не Royal Home)</span>
-            <input value={brand} maxLength={60} onChange={(e) => setBrand(e.target.value)} placeholder="Арван" />
+            <input value={brand} maxLength={20} onChange={(e) => setBrand(e.target.value)} placeholder="Арван" />
             <span className="msg" style={{ color: "var(--faint)" }}>
               Для второго бренда на тех же фактах. Пусто — бот говорит «Royal Home».
             </span>

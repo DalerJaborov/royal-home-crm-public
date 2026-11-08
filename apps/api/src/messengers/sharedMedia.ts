@@ -651,7 +651,10 @@ export function isOurBrandCaption(caption: string | undefined | null, accountBra
   // Аккаунт со своим именем (MessengerAccount.brandName): его посты подписаны этим
   // именем, и ролик бренда тоже наш. Без имени аккаунта поведение прежнее.
   const brand = accountBrand?.trim();
-  return Boolean(brand) && caption.toLowerCase().includes(brand!.toLowerCase());
+  if (!brand || brand.length < 3) return false;
+  // По границе слова: имя «Дом» не должно делать «Дома в Душанбе» чужой рекламы своей.
+  const escaped = brand.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, "iu").test(caption);
 }
 
 /** Подпись есть, и она точно не наша и не про жильё. */

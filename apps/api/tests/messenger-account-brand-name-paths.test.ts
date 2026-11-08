@@ -51,7 +51,7 @@ vi.mock("../src/lib/leadMagnet.js", async (importOriginal) => ({
 const { deliverToConversation } = await import("../src/lib/conversationDelivery.js");
 const { shortAgentReply } = await import("../src/ai/shortAgentReply.js");
 const { handleComment } = await import("../src/messengers/comments.js");
-const { brandedCampaign } = await import("../src/lib/leadMagnet.js");
+const { brandedCampaign, tryLeadMagnetMessage } = await import("../src/lib/leadMagnet.js");
 const { brandize, brandNameError, mentionsDefaultBrand } = await import("../src/ai/brandPattern.js");
 const { saveAccount, resetAccountsCache } = await import("../src/messengers/accounts.js");
 const { isOurBrandCaption, captionSaysForeign } = await import("../src/messengers/sharedMedia.js");
@@ -62,6 +62,7 @@ let conversationId = "";
 let commentAccountId = "";
 let commentExternal = "";
 const commentRows: string[] = [];
+const campaignIds: string[] = [];
 
 async function setBrand(id: string, brandName: string | null) {
   await prisma.messengerAccount.update({ where: { id }, data: { brandName } });
@@ -95,6 +96,8 @@ beforeEach(() => {
 
 afterAll(async () => {
   await prisma.instagramComment.deleteMany({ where: { id: { in: commentRows } } });
+  await prisma.leadMagnetCampaign.deleteMany({ where: { id: { in: campaignIds } } });
+  await prisma.botConversation.deleteMany({ where: { subscriberId: { startsWith: `${tag}-lm` } } });
   await prisma.messengerAccount.deleteMany({ where: { id: commentAccountId } });
   await fixture?.cleanupConversations();
   await fixture?.dispose();
@@ -114,6 +117,24 @@ describe("чистые правила имени", () => {
     expect(brandize(text, "Арван")).toBe("Это Арван.");
   });
 
+  it.each([
+    ["в Роял Хоуме", "в Арван"],
+    ["у Роял Хоума", "у Арван"],
+    ["Роял Хоуму", "Арван"],
+    ["с Роял Хоумом", "с Арван"],
+    ["Ройял Хоум", "Арван"],
+    ["RoyalHome подберёт", "Арван подберёт"],
+    ["Это RoyalHome.", "Это Арван."],
+  ])("падежи и написания: %j", (text, expected) => {
+    expect(brandize(text, "Арван")).toBe(expected);
+  });
+
+  it("домен royalhome.tj и абзац после «Royal Home» не съедаются", () => {
+    expect(brandize("Сайт royalhome.tj", "Арван")).toBe("Сайт royalhome.tj");
+    expect(brandize("RoyalHome.tj", "Арван")).toBe("RoyalHome.tj");
+    expect(brandize("Мы Royal Home\n\nInfo о ценах", "Арван")).toBe("Мы Арван\n\nInfo о ценах");
+  });
+
   it("слово, продолженное буквой, не ломается: «Information», «Homes», «Роял Хоумы»", () => {
     expect(brandize("Royal Home Information", "Арван")).toBe("Арван Information");
     expect(brandize("Royal Homes", "Арван")).toBe("Royal Homes");
@@ -129,7 +150,10 @@ describe("чистые правила имени", () => {
   it("имя со словом «Royal Home» запрещено и на проверке, и при сохранении", async () => {
     expect(brandNameError("Royal Home Arvan")).toMatch(/Royal Home/);
     expect(brandNameError("Роял Хоум")).toMatch(/Royal Home/);
-    expect(brandNameError("x".repeat(61))).toBeTruthy();
+    expect(brandNameError("x".repeat(21))).toMatch(/20/);
+    expect(brandNameError("x".repeat(20))).toBeNull();
+    expect(brandNameError("Дом")).toBeNull();
+    expect(brandNameError("До")).toMatch(/3/);
     expect(brandNameError("Арван")).toBeNull();
     expect(brandNameError("")).toBeNull();
     await expect(
@@ -252,12 +276,53 @@ describe("воронка лид-магнита", () => {
   });
 });
 
+describe("воронка: реальные входы tryLeadMagnetMessage и повторная выдача", () => {
+  async function seed(state: "INVITED" | "DELIVERED", deliveredAt: Date | null) {
+    const campaign = await prisma.leadMagnetCampaign.create({
+      data: {
+        name: `${tag} чек-лист`, enabled: true, accountId: null, keywords: ["чек"], inviteText: "Это Royal Home", inviteButton: "Хочу",
+        requireFollow: false, followText: "Подпишитесь на Royal Home", notFollowingText: "Нет подписки на Royal Home",
+        deliveredText: "Держите от Royal Home", link: "https://example.com/list", handoffToBot: false,
+      },
+    });
+    campaignIds.push(campaign.id);
+    const igUserId = `${tag}-lm-${campaignIds.length}`;
+    await prisma.leadMagnetDelivery.create({ data: { campaignId: campaign.id, igUserId, state, deliveredAt } });
+    return { campaign, igUserId };
+  }
+  const allSent = () => mocks.sendMeta.mock.calls.map((c) => String(c[2])).join(" | ");
+
+  it("первая выдача (tryLeadMagnetMessage): тексты под именем аккаунта", async () => {
+    const { campaign, igUserId } = await seed("INVITED", null);
+    const handled = await tryLeadMagnetMessage({
+      channel: "INSTAGRAM", senderId: igUserId, accountExternalId: commentExternal, text: "чек", payload: `lm:${campaign.id}`,
+    });
+    expect(handled).toBe(true);
+    expect(allSent()).toContain("Держите от Арван");
+    expect(allSent()).not.toMatch(/Royal Home/);
+  });
+
+  it("повторная выдача (tryRedeliver): тексты под именем аккаунта", async () => {
+    const { igUserId } = await seed("DELIVERED", new Date(Date.now() - 60 * 60 * 1000));
+    const handled = await tryLeadMagnetMessage({
+      channel: "INSTAGRAM", senderId: igUserId, accountExternalId: commentExternal, text: "где чек-лист? не пришёл",
+    });
+    expect(handled).toBe(true);
+    expect(allSent()).toContain("Держите от Арван");
+    expect(allSent()).not.toMatch(/Royal Home/);
+  });
+});
+
 describe("подписи постов бренда", () => {
   it("с именем аккаунта пост узнаётся как свой; без имени поведение прежнее", () => {
     expect(isOurBrandCaption("Арван Estate: новая квартира")).toBe(false);
     expect(isOurBrandCaption("Арван Estate: новая квартира", "Арван")).toBe(true);
     expect(captionSaysForeign("Арван Estate #dushanbe", "Арван")).toBe(false);
     expect(captionSaysForeign("Арван Estate #dushanbe")).toBe(true);
+    // Короткое имя не делает своей любую подпись: по границе слова, не по куску.
+    expect(isOurBrandCaption("Дома в Душанбе, недорого", "Дом")).toBe(false);
+    expect(isOurBrandCaption("Дом", "До")).toBe(false);
+    expect(isOurBrandCaption("Купить Арван.Estate", "Арван")).toBe(true);
     expect(isOurBrandCaption("Royal Home 🏡")).toBe(true);
   });
 });

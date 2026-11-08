@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 730,
-  "forks": 3999,
+  "forks": 4000,
   "mounts": 81,
   "cron": 123,
   "jobs": 32,
@@ -72428,6 +72428,21 @@
      "t": "если сорвалось",
      "a": [],
      "c": [
+      {
+       "k": "if",
+       "t": "err instanceof BrandNameCoreConflictError",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(409).json({ error: err.message });",
+         "a": [
+          "ответ 409"
+         ],
+         "c": []
+        }
+       ]
+      },
       {
        "k": "if",
        "t": "(err as { code?: string }).code === \"P2002\"",

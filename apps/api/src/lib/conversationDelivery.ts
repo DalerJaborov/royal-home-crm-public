@@ -8,7 +8,7 @@ import { claimPropertyChatReply, rollbackPropertyChatReply, lockDeliveryOwnershi
 import { customerTransportInput, findScopedBotConversation, loadCustomerTransportForConversation,
   type CustomerTransportHint, type CustomerTransportReference } from "./customerConversationScope.js";
 import { WEBSITE_CHANNEL } from "../messengers/channels.js";
-import { brandForAccount, brandForConversation } from "../ai/brandName.js";
+import { brandForAccount } from "../ai/brandName.js";
 import { brandize } from "../ai/brandPattern.js";
 import type { DeliveryTarget } from "./conversationState.js";
 import { TG_PREFIX } from "./conversationId.js";
@@ -455,9 +455,7 @@ export async function deliverToConversation(
   const speaksForCompany = !options?.sender || options.sender.kind === "bot" || options.sender.kind === "system";
   const brand =
     speaksForCompany && target.kind === "bot"
-      ? target.accountId
-        ? await brandForAccount(target.accountId)
-        : await brandForConversation(target.id)
+      ? await brandForAccount(target.accountId ?? capturedTransport?.accountId)
       : null;
   const { text: outgoing, masked } = maskPhones(brandize(text, brand));
 
