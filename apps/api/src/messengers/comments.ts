@@ -44,6 +44,7 @@ import { loadPeerAiBudget, spendAiTurns } from "../lib/aiDailyBudget.js";
 import { resolveIncomingAccount } from "./accounts.js";
 import { brandForAccount, brandize, guardBrandLeak } from "../ai/brandName.js";
 import { ensureConversationId } from "./conversationStore.js";
+import { ensureCustomerEndpoint, type CustomerTransportReference } from "../lib/customerConversationScope.js";
 import { propertyIdForStoredComment } from "../lib/propertyVoice/commentProperty.js";
 import { appendConversationMessages } from "./appendMessages.js";
 import { SALES_FACTS } from "../ai/salesPlaybook.js";
@@ -1168,6 +1169,34 @@ export type QueuedComment = {
 };
 
 /**
+ * ЧЕЙ НАШ АККАУНТ У АВТОРА КОММЕНТАРИЯ — ОДНА ДВЕРЬ для всех записей в CRM по
+ * комментарию: досье, переписка (личное, письмо собственнику), интерес к объекту.
+ *
+ * Тот же выбор, что у личного входящего (routes/webhooks.ts): строка аккаунта,
+ * если она есть, — прежний путь без изменений. Нет строки (account.id = null)
+ * — значит, страница Facebook подключена через Настройки, и namespace задаёт
+ * подписанный Meta получатель комментария `row.accountExternalId`; сверка, что
+ * это именно страница из Настроек, — внутри accountForEndpoint
+ * (readInstalledCustomerTransport), чужая страница получает отказ, как и раньше.
+ *
+ * Без этой половины каждый комментарий под постом страницы Facebook с 15.10.2026
+ * получал `Customer endpoint denied: account_unknown`: ответ под постом и личное
+ * уходили (отправка берёт страницу из Настроек сама, resolveLegacyMetaSendTransport),
+ * а досье, переписка и интерес к объекту не писались (ErrorLog прода 15.10–07.11).
+ * YouTube сюда не относится: у его архива нет namespace (upsertYouTubeCommentArchive).
+ */
+export async function commentAuthorScope(
+  row: Pick<QueuedComment, "channel" | "authorId" | "accountExternalId">,
+  accountId: string | null | undefined
+): Promise<{ accountId: string | null | undefined; transport?: CustomerTransportReference }> {
+  if (accountId || row.channel !== "FACEBOOK" || !row.accountExternalId) return { accountId };
+  const transport = await ensureCustomerEndpoint(prisma, {
+    channel: row.channel, subscriberId: row.authorId, accountExternalId: row.accountExternalId,
+  });
+  return { accountId: null, transport };
+}
+
+/**
  * Разбирает подошедшие комментарии. Зовётся кроном раз в минуту.
  *
  * Берём и застрявшие в WORKING: процесс мог упасть между «взял в работу» и
@@ -1793,8 +1822,11 @@ export async function handleComment(row: QueuedComment): Promise<keyof CommentRu
    * только в InstagramComment.note/dmSentAt — сама карточка от него больше не
    * зависит.
    */
+  let authorTransport: CustomerTransportReference | undefined;
   try {
-    await ensureConversationId(channel, row.authorId, row.authorName ?? undefined, account.id, accountGuess);
+    const scope = await commentAuthorScope(row, account.id);
+    authorTransport = scope.transport;
+    await ensureConversationId(channel, row.authorId, row.authorName ?? undefined, scope.accountId, accountGuess, scope.transport);
   } catch (err) {
     void logSystemError("meta", `Досье комментатора ${row.commentId} не заведено: ${describeError(err)}`);
   }
@@ -1834,7 +1866,9 @@ export async function handleComment(row: QueuedComment): Promise<keyof CommentRu
         channel,
         row.authorId,
         undefined,
-        account.id
+        // Тот же namespace, что у досье выше (commentAuthorScope): страница из
+        // Настроек без строки аккаунта иначе давала account_unknown.
+        authorTransport ?? account.id
       );
     }
   }
@@ -2033,12 +2067,14 @@ async function recordOwnerConversation(
 ): Promise<void> {
   if (row.channel !== "INSTAGRAM" && row.channel !== "FACEBOOK") return;
   try {
+    const scope = await commentAuthorScope(row, accountId);
     const conversationId = await ensureConversationId(
       row.channel,
       row.authorId,
       row.authorName ?? undefined,
-      accountId,
-      accountGuess
+      scope.accountId,
+      accountGuess,
+      scope.transport
     );
     await appendConversationMessages(conversationId, [
       { role: "user", content: `(комментарий под нашим постом) ${row.text}` },
@@ -2141,12 +2177,14 @@ async function recordPrivateReply(
   // но проверка стоит явно: переписки этого канала в BotConversation не бывает.
   if (row.channel !== "INSTAGRAM" && row.channel !== "FACEBOOK") return;
   try {
+    const scope = await commentAuthorScope(row, accountId);
     const conversationId = await ensureConversationId(
       row.channel,
       row.authorId,
       row.authorName ?? undefined,
-      accountId,
-      accountGuess
+      scope.accountId,
+      accountGuess,
+      scope.transport
     );
     // Сам комментарий — тоже в переписку, как в recordOwnerConversation
     // (02.10.2026): без него бот в директе не знал, о чём человек спросил под
