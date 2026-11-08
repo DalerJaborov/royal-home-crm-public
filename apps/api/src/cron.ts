@@ -323,7 +323,8 @@ export async function sendFollowUps(): Promise<number> {
           "формулировки предыдущих напоминаний из переписки выше. Если уместно — задай простой уточняющий вопрос.",
         // Имя и собранное по заявке: без них бот писал «Ассалом, чем могу помочь?»,
         // как будто видит человека впервые, хотя вся переписка была у него перед глазами.
-        { name: conv.name, draft: conv.leadDraft }
+        { name: conv.name, draft: conv.leadDraft },
+        conv.id
       );
       if (!reminder) continue;
 

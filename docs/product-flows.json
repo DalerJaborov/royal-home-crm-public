@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 730,
-  "forks": 3998,
+  "forks": 4000,
   "mounts": 81,
   "cron": 123,
   "jobs": 32,
@@ -72370,6 +72370,29 @@
      ]
     },
     {
+     "k": "do",
+     "t": "const brandError = brandNameError(body.brandName);",
+     "a": [
+      "зовёт brandNameError()"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "brandError",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: brandError });",
+       "a": [
+        "ответ 400"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
      "k": "try",
      "t": "пробует",
      "a": [],
@@ -72384,7 +72407,7 @@
       },
       {
        "k": "do",
-       "t": "logAudit(req, \"SETTINGS_UPDATE\", \"MessengerAccount\", id, { channel, title });",
+       "t": "logAudit(req, \"SETTINGS_UPDATE\", \"MessengerAccount\", id, { channel, title, ...(body.brandName === undefined ?…",
        "a": [
         "зовёт logAudit()"
        ],
@@ -72405,6 +72428,21 @@
      "t": "если сорвалось",
      "a": [],
      "c": [
+      {
+       "k": "if",
+       "t": "err instanceof BrandNameCoreConflictError",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(409).json({ error: err.message });",
+         "a": [
+          "ответ 409"
+         ],
+         "c": []
+        }
+       ]
+      },
       {
        "k": "if",
        "t": "(err as { code?: string }).code === \"P2002\"",
@@ -88957,7 +88995,7 @@
            "c": [
             {
              "k": "do",
-             "t": "const text = await shortAgentReply(history as ChatMessage[], INSTRUCTION, { name: row.name });",
+             "t": "const text = await shortAgentReply(history as ChatMessage[], INSTRUCTION, { name: row.name }, row.conversatio…",
              "a": [
               "зовёт shortAgentReply()"
              ],
@@ -128323,9 +128361,9 @@
       },
       {
        "k": "do",
-       "t": "const rawResult = await callAiText<unknown>({ endpoint: \"lead-qualify\", systemStable, system, messages: withT…",
+       "t": "const rawResult = await callAiText<unknown>({ endpoint: \"lead-qualify\", systemStable: brandize(systemStable, …",
        "a": [
-        "зовёт withTimeGaps()"
+        "зовёт brandize()"
        ],
        "c": []
       },
@@ -129124,9 +129162,9 @@
       },
       {
        "k": "do",
-       "t": "const rawResult = await callAiText<unknown>({ endpoint: \"lead-qualify\", systemStable, system, messages: withT…",
+       "t": "const rawResult = await callAiText<unknown>({ endpoint: \"lead-qualify\", systemStable: brandize(systemStable, …",
        "a": [
-        "зовёт withTimeGaps()"
+        "зовёт brandize()"
        ],
        "c": []
       },

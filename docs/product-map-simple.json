@@ -16,10 +16,10 @@
   "paths": 730,
   "cron": 123,
   "jobs": 32,
-  "conditions": 3992,
-  "untranslatedUnique": 455,
-  "untranslatedTotal": 585,
-  "partialUnique": 1096,
+  "conditions": 3994,
+  "untranslatedUnique": 456,
+  "untranslatedTotal": 586,
+  "partialUnique": 1097,
   "translatedShare": 85
  },
  "untranslated": [
@@ -280,6 +280,7 @@
   "dispatchLikelyInProgress(p.videoHandoffDispatchStartedAt, now)",
   "eligible(agent) !== expected",
   "err instanceof AssistantActionError",
+  "err instanceof BrandNameCoreConflictError",
   "err instanceof ClientMergeOpenDealError",
   "err instanceof ClientMergeTrashedError",
   "err instanceof ConversationClientLinkError",
@@ -56822,6 +56823,19 @@
      "raw": "typeof body.systemPrompt === \"string\" && body.systemPrompt.length > 30000"
     },
     {
+     "t": "если есть brand ошибка",
+     "k": "if",
+     "a": [],
+     "c": [
+      {
+       "t": "отказ: данные неверные",
+       "k": "do",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
      "t": "пробует сделать",
      "k": "try",
      "a": [],
@@ -56839,6 +56853,20 @@
      "k": "catch",
      "a": [],
      "c": [
+      {
+       "t": "если err instanceof BrandNameCoreConflictError",
+       "k": "if",
+       "a": [],
+       "c": [
+        {
+         "t": "отказ: такое уже есть",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ],
+       "raw": "err instanceof BrandNameCoreConflictError"
+      },
       {
        "t": "если (err as { code?: string }).code === \"P2002\"",
        "k": "if",

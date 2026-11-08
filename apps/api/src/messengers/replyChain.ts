@@ -25,6 +25,7 @@ import { shouldStaySilentOnBareShare } from "../ai/bareShareRepeat.js";
 import { photoAlreadyAcknowledged } from "../ai/photoAckGuard.js";
 import { ensureRequestedAgentNoticeKept, type RequestedAgentMatch } from "../lib/requestedAgent.js";
 import { logSystemError } from "../lib/systemError.js";
+import { brandForAccount, guardBrandLeak } from "../ai/brandName.js";
 
 /**
  * ОДИН МОЗГ НА ВСЕ КАНАЛЫ: ЦЕПОЧКА ФИЛЬТРОВ ОТВЕТА БОТА (Dan, тред «Ревизия бота»,
@@ -201,6 +202,12 @@ export interface BotReplyFilterInput {
   requestedNotice?: string | null;
   /** Слова клиента для языка заглушки — от свежих к старым. */
   fallbackLanguageWords: (string | null | undefined)[];
+  /**
+   * Аккаунт, в чьём диалоге идёт ход. Нужен ровно для одного: у аккаунта со своим
+   * именем компании (MessengerAccount.brandName) на выходе «Royal Home» заменяется
+   * (ai/brandName.ts::guardBrandLeak). Не передан (Telegram, сайт) — ничего не меняется.
+   */
+  accountId?: string | null;
 }
 
 export interface BotReplyFilterResult {
@@ -483,7 +490,18 @@ async function withoutShieldRepeats(
  * Telegram, Direct Messages) зовут это вместо голого filterBotReply.
  */
 export async function finalizeBotReply(input: BotReplyFilterInput, recovery: BotReplyRecovery = {}): Promise<FinalBotReply> {
-  const result = await finalizeBotReplyImpl(input, recovery);
+  const filtered = await finalizeBotReplyImpl(input, recovery);
+  // Последний рубеж имени компании: ЛЮБОЙ путь к клиенту (ответ модели, повторный ход,
+  // нейтральная заглушка) проходит здесь, поэтому подмена стоит после всех веток.
+  const brand = await brandForAccount(input.accountId);
+  const guardCtx = { conversationId: input.conversationId, where: `ответ бота, ${input.channelLabel}` };
+  const result = brand
+    ? {
+        ...filtered,
+        bubbles: guardBrandLeak(filtered.bubbles, brand, guardCtx),
+        finalBubbles: guardBrandLeak(filtered.finalBubbles, brand, guardCtx),
+      }
+    : filtered;
   if (result.recovery === "neutral" || result.recovery === "regenerated") {
     traceReplyOrigin(result.recovery);
     traceFilterDelta("recovery", "", result.bubbles.join("\n"), "recovery");

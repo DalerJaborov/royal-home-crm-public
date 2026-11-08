@@ -8,6 +8,8 @@ import { claimPropertyChatReply, rollbackPropertyChatReply, lockDeliveryOwnershi
 import { customerTransportInput, findScopedBotConversation, loadCustomerTransportForConversation,
   type CustomerTransportHint, type CustomerTransportReference } from "./customerConversationScope.js";
 import { WEBSITE_CHANNEL } from "../messengers/channels.js";
+import { brandForAccount } from "../ai/brandName.js";
+import { brandize } from "../ai/brandPattern.js";
 import type { DeliveryTarget } from "./conversationState.js";
 import { TG_PREFIX } from "./conversationId.js";
 
@@ -445,7 +447,17 @@ export async function deliverToConversation(
     pauseUndo = placed.undo;
   }
 
-  const { text: outgoing, masked } = maskPhones(text);
+  // ИМЯ КОМПАНИИ ДЛЯ СЛУЖЕБНЫХ ТЕКСТОВ (ai/brandName.ts). Реактивация, напоминания о
+  // показе и оценке сделки, голосовые инструменты, уведомление «агент в отъезде» идут
+  // сюда мимо хода бота и несут «Royal Home» в готовых шаблонах. У аккаунта со своим
+  // именем оно подменяется здесь, в единственной двери; текст живого сотрудника
+  // (agent) не трогаем. Подмена тихая: это шаблон, а не утечка модели.
+  const speaksForCompany = !options?.sender || options.sender.kind === "bot" || options.sender.kind === "system";
+  const brand =
+    speaksForCompany && target.kind === "bot"
+      ? await brandForAccount(target.accountId ?? capturedTransport?.accountId)
+      : null;
+  const { text: outgoing, masked } = maskPhones(brandize(text, brand));
 
   // The provider loads credentials for the captured namespace inside the guarded send.
   // No late account/default-token lookup outside its error/rollback boundary.

@@ -18,6 +18,7 @@ import {
   sendQuickReplies,
   type QuickReplyButton,
 } from "../messengers/meta.js";
+import { brandForAccount, brandize } from "../ai/brandName.js";
 
 /**
  * ВОРОНКА «КОММЕНТАРИЙ → ЧЕК-ЛИСТ В ДИРЕКТ».
@@ -205,6 +206,27 @@ export function invalidateLeadMagnetCache(): void {
   cache = null;
 }
 
+/**
+ * Тексты кампании под именем компании аккаунта (ai/brandName.ts). Аккаунт без
+ * своего имени — та же кампания, тот же объект. Файл чек-листа и ссылка не
+ * меняются: подменить слова внутри PDF нельзя, это отдельный вопрос к владельцу.
+ */
+export async function brandedCampaign<T extends ActiveCampaign>(campaign: T, accountId: string | null): Promise<T> {
+  const brand = await brandForAccount(accountId);
+  if (!brand) return campaign;
+  const b = (t: string): string => brandize(t, brand);
+  return {
+    ...campaign,
+    publicReplies: campaign.publicReplies.map(b),
+    inviteText: b(campaign.inviteText),
+    inviteButton: b(campaign.inviteButton),
+    followText: b(campaign.followText),
+    followButton: b(campaign.followButton),
+    notFollowingText: b(campaign.notFollowingText),
+    deliveredText: b(campaign.deliveredText),
+  };
+}
+
 /** Все кампании, включая выключенные: две ступени воронки смотрят на них по-разному
  *  (см. `leadMagnetActive` и `leadMagnetInUse`), а запрос и кэш должны быть одни. */
 async function loadCampaigns(): Promise<ActiveCampaign[]> {
@@ -374,8 +396,11 @@ export async function tryLeadMagnetComment(
 
   // Аккаунт получателя передаём В ОТБОР: кампания второго зеркала соавторского
   // поста не должна отвечать на комментарий первого (см. pickCampaign).
-  const campaign = await pickCampaign(row, permalink, account.id);
-  if (!campaign) return null;
+  const picked = await pickCampaign(row, permalink, account.id);
+  if (!picked) return null;
+  // Кампания с пустым аккаунтом ловит комментарии ЛЮБОГО аккаунта (см. pickCampaign):
+  // тексты отдаём под именем компании ТОГО аккаунта, чей это комментарий.
+  const campaign = await brandedCampaign(picked, account.id);
 
   /**
    * ДОСЬЕ КОММЕНТАТОРА ВОРОНКИ — НЕЗАВИСИМО ОТ ТОГО, УШЛО ЛИ ПРИГЛАШЕНИЕ (находка
@@ -854,7 +879,7 @@ export async function tryLeadMagnetMessage(msg: LeadMagnetMessage): Promise<bool
   // всё получил. Второе — не «дальше говорит обычный бот»: см. tryRedeliver.
   if (!delivery) return tryRedeliver(msg, account);
 
-  const campaign = delivery.campaign;
+  const campaign = await brandedCampaign(delivery.campaign, account.id);
   /** Воронка этого человека уже отпустила: выдать можем, просить — нет. */
   const gaveUp = delivery.state === "FAILED";
   const said: SaidMessage[] = [];
@@ -1118,7 +1143,7 @@ async function tryRedeliver(
   });
   if (!delivery) return false;
 
-  const campaign = delivery.campaign;
+  const campaign = await brandedCampaign(delivery.campaign, account.id);
   const text = msg.text ?? "";
   const asked =
     Boolean(campaignIdFromPayload(msg.payload)) ||

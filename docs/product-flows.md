@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **730**. Развилок в самих путях: **2501**; вместе с задачами по расписанию и фоновыми заданиями — **3998**. Модулей: **81**.
+Путей: **730**. Развилок в самих путях: **2503**; вместе с задачами по расписанию и фоновыми заданиями — **4000**. Модулей: **81**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -15852,14 +15852,22 @@
 - если typeof body.systemPrompt === "string" && body.systemPrompt.length > 30000
   - return res.status(400).json({ error: "Промт слишком длинный" });
     · ответ 400 — «Промт слишком длинный»
+- const brandError = brandNameError(body.brandName);
+  · зовёт brandNameError()
+- если brandError
+  - return res.status(400).json({ error: brandError });
+    · ответ 400
 - пробует
   - const id = await saveAccount({ id: body.id, channel, externalId, title, token: body.token, enabled: body.enab…
     · зовёт saveAccount()
-  - logAudit(req, "SETTINGS_UPDATE", "MessengerAccount", id, { channel, title });
+  - logAudit(req, "SETTINGS_UPDATE", "MessengerAccount", id, { channel, title, ...(body.brandName === undefined ?…
     · зовёт logAudit()
   - res.json({ ok: true, id });
     · ответ 200
 - если сорвалось
+  - если err instanceof BrandNameCoreConflictError
+    - return res.status(409).json({ error: err.message });
+      · ответ 409
   - если (err as { code?: string }).code === "P2002"
     - return res.status(409).json({ error: "Такой аккаунт уже подключён" });
       · ответ 409 — «Такой аккаунт уже подключён»
@@ -19893,7 +19901,7 @@
         - continue;
           · переходит к следующему
       - пробует
-        - const text = await shortAgentReply(history as ChatMessage[], INSTRUCTION, { name: row.name });
+        - const text = await shortAgentReply(history as ChatMessage[], INSTRUCTION, { name: row.name }, row.conversatio…
           · зовёт shortAgentReply()
         - если !text
           - continue;
@@ -28314,8 +28322,8 @@
     · зовёт buildStableSystem()
   - const system = nameLine + nowBlock(dushanbeWallClock()) + languageDirective + TIME_AWARENESS_RULE + chatHours…
     · зовёт nowBlock()
-  - const rawResult = await callAiText<unknown>({ endpoint: "lead-qualify", systemStable, system, messages: withT…
-    · зовёт withTimeGaps()
+  - const rawResult = await callAiText<unknown>({ endpoint: "lead-qualify", systemStable: brandize(systemStable, …
+    · зовёт brandize()
   - если rawResult == null
     - return null;
       · дословно из кода
@@ -28489,8 +28497,8 @@
     · зовёт buildStableSystem()
   - const system = nameLine + nowBlock(dushanbeWallClock()) + languageDirective + TIME_AWARENESS_RULE + chatHours…
     · зовёт nowBlock()
-  - const rawResult = await callAiText<unknown>({ endpoint: "lead-qualify", systemStable, system, messages: withT…
-    · зовёт withTimeGaps()
+  - const rawResult = await callAiText<unknown>({ endpoint: "lead-qualify", systemStable: brandize(systemStable, …
+    · зовёт brandize()
   - если rawResult == null
     - return null;
       · дословно из кода

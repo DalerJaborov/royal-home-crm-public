@@ -42,6 +42,7 @@ import {
 } from "../lib/leadMagnet.js";
 import { loadPeerAiBudget, spendAiTurns } from "../lib/aiDailyBudget.js";
 import { resolveIncomingAccount } from "./accounts.js";
+import { brandForAccount, brandize, guardBrandLeak } from "../ai/brandName.js";
 import { ensureConversationId } from "./conversationStore.js";
 import { ensureCustomerEndpoint, type CustomerTransportReference } from "../lib/customerConversationScope.js";
 import { propertyIdForStoredComment } from "../lib/propertyVoice/commentProperty.js";
@@ -708,6 +709,8 @@ export interface CommentPromptInput {
   /** Наши последние публичные ответы в этом канале — чтобы не повторять их дословно:
    *  одинаковые ответы под постами Instagram считает накруткой, а люди — автоматом. */
   recentReplies?: string[];
+  /** Как аккаунт называет компанию (ai/brandName.ts); пусто — «Royal Home», как было. */
+  brand?: string | null;
 }
 
 /** Строка промта с последними ответами; пусто, когда их нет. */
@@ -1084,14 +1087,17 @@ async function decideOnComment(input: CommentPromptInput, context: MediaContext)
     // переписке (ai/leadQualifier.ts). Выходило наоборот тому, чего требует цена
     // ошибки: под постом, где текст видят все подписчики, бот знал о городе меньше,
     // чем в личке с одним человеком, и спрашивал «Бустон Сити тарафи кадом район?».
-    systemStable: AGENCY_COMPANY_INFO + SALES_FACTS + (await folkGeographyBlock()) + MANDATORY_BOT_RULES + COMMENT_SCENARIO_RULES + (await propertyGeographyBlock()),
+    systemStable: brandize(
+      AGENCY_COMPANY_INFO + SALES_FACTS + (await folkGeographyBlock()) + MANDATORY_BOT_RULES + COMMENT_SCENARIO_RULES + (await propertyGeographyBlock()),
+      input.brand
+    ),
     // Выводы из случаев, где бот уже ошибался (lib/botLessons.ts) — та же функция,
     // что и в личной переписке (ai/leadQualifier.ts). В ИЗМЕНЯЕМУЮ часть промта, а
     // прямо в чате, см. routes/conversations.ts POST /:id/reply-feedback) чаще, чем
     // живёт кэш, и внутри кэшируемого блока новое правило не пробилось бы в промт,
     // пока не сменится что-то ещё в стабильной части (см. тот же приём и комментарий
     // в leadQualifier.ts).
-    system: buildCommentSystem(input, context, await loadCommentPrompt()) + (await learnedRulesBlock("comments")),
+    system: brandize(buildCommentSystem(input, context, await loadCommentPrompt()) + (await learnedRulesBlock("comments")), input.brand),
     user: `Комментарий от ${author}: «${input.text}»`,
     maxTokens: 400,
     // Комментарий читают посторонние — это лицо компании на публике, и экономить
@@ -1348,6 +1354,10 @@ export async function handleComment(row: QueuedComment): Promise<keyof CommentRu
   // guessed запись досье/истории, сохраняя прежнюю привязку и карантин legacy.
   // Флаг не даёт permission на запись или перенос переписки в другой аккаунт.
   const accountGuess = "certain" in account && account.certain === false;
+  // Имя компании этого аккаунта (ai/brandName.ts): в промте и в готовых текстах ниже.
+  const brand = await brandForAccount(account.id);
+  /** Страховка на выходе: прежнее имя в готовом ответе заменяется и пишется в журнал. */
+  const leakSafe = (t: string): string => guardBrandLeak([t], brand, { where: "комментарий", conversationId: row.id })[0]!;
 
   // Защита от зацикливания: одному человеку под одной публикацией отвечаем
   // ограниченное число раз в сутки. Дальше — молчим, разговор продолжает человек.
@@ -1734,6 +1744,7 @@ export async function handleComment(row: QueuedComment): Promise<keyof CommentRu
       answered,
       channel,
       recentReplies: await recentPublicReplies(channel),
+      brand,
     },
     context
   );
@@ -1754,7 +1765,7 @@ export async function handleComment(row: QueuedComment): Promise<keyof CommentRu
     // Собственник, которого код не узнал (без номера, своими словами). Спросил НАС —
     // модель дала короткий публичный ответ, комментарий остаётся. Выложил объявление
     // для читателей — ответа нет, объявление убираем с глаз, как у кода выше.
-    const publicReply = cleanPublicCommentReply(stripShowingInvite(decision.reply?.trim() ?? ""), row.text);
+    const publicReply = leakSafe(cleanPublicCommentReply(stripShowingInvite(decision.reply?.trim() ?? ""), row.text));
     if (publicReply) {
       await humanReplyDelay();
       const replyCommentId = await postCommentReply(row, publicReply, account.token);
@@ -1885,14 +1896,14 @@ export async function handleComment(row: QueuedComment): Promise<keyof CommentRu
   // смайликом — норма и прямо предписан промтом (в личке эмодзи запрещены). Поэтому
   // ответ, состоящий только из реакции, оставляем как есть; чистим лишь текст.
   const rawReply = stripShowingInvite(decision.reply?.trim() ?? "");
-  const replyText = cleanPublicCommentReply(rawReply, row.text);
+  const replyText = leakSafe(cleanPublicCommentReply(rawReply, row.text));
   if (replyText) await humanReplyDelay();
   const replyCommentId = replyText ? await postCommentReply(row, replyText, account.token) : null;
 
   // Личное только после публичного ответа: если публичный не ушёл, значит с
   // комментарием что-то не так, и лезть человеку в личку тем более не стоит.
   // Личное — это обычная переписка, и правила там ровно те же, что в директе.
-  const dmText = linkAsLastLine(cleanOutgoingReply(decision.dm?.trim() ?? ""), context.property) || undefined;
+  const dmText = leakSafe(linkAsLastLine(cleanOutgoingReply(decision.dm?.trim() ?? ""), context.property)) || undefined;
   const dm = replyText ? await maybeSendPrivateReply(row, dmText, account.token) : { sent: false as const };
   // Личное ушло — оно ОБЯЗАНО появиться в переписке CRM (20.09.2026). Раньше текст
   // личного ложился только в журнал комментариев (InstagramComment.dmText), а в
@@ -2012,7 +2023,8 @@ async function contactOwner(
     void logSystemError("meta", `Подбор покупателей под объявление ${row.commentId} не удался: ${describeError(err)}`);
     return null;
   });
-  const dmText = ownerDmText(looksTajik(row.text), buyers?.total ?? 0);
+  // Готовый текст называет компанию: у аккаунта со своим брендом имя подменяется.
+  const dmText = brandize(ownerDmText(looksTajik(row.text), buyers?.total ?? 0), await brandForAccount(account.id));
   const dm = await maybeSendPrivateReply(row, dmText, account.token);
   if (dm.sent) {
     await recordOwnerConversation(row, dmText, dm.mid ?? null, account.id, account.certain === false);

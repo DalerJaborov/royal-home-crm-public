@@ -10,6 +10,7 @@ import { applyAvailabilityGuard } from "./availabilityGuard.js";
 import { cleanOutgoingReply, clientSelfStatedName, looksLikeRealName, stripRepeatGreeting } from "./replyGuards.js";
 import { detectClientLanguage, type ClientLanguage } from "./clientLanguage.js";
 import { TIME_AWARENESS_RULE, withTimeGaps } from "./conversationTime.js";
+import { brandForConversation, brandize, guardBrandLeak } from "./brandName.js";
 
 /** Язык ПОСЛЕДНЕГО сообщения клиента — считается кодом (см. ai/clientLanguage.ts).
  *  Вынесено отдельно от languageLine, чтобы им мог пользоваться и щит цен/скидок
@@ -242,7 +243,10 @@ export async function shortAgentReply(
   const safeContext: AgentReplyContext | undefined = context
     ? { ...context, name: clientSelfStatedName(history) }
     : context;
-  const system = buildShortReplySystem(instruction, safeContext);
+  // Имя компании диалога (ai/brandName.ts): у аккаунта со своим брендом «Royal Home»
+  // в промте и в ответе заменяется; у остальных обе ветки ничего не меняют.
+  const brand = await brandForConversation(conversationId);
+  const system = brandize(buildShortReplySystem(instruction, safeContext), brand);
   const r = await callAiText<{ reply?: string }>({
     endpoint: "lead-closing",
     system,
@@ -265,7 +269,12 @@ export async function shortAgentReply(
   // только продолжения — напоминание молчащему, подтверждение заявки, просьба
   // подтвердить встречу, — и «Ассалому алейкум» в них означает, что бот забыл, с
   // кем говорит. Первое сообщение диалога идёт другим путём и здоровается по праву.
-  const cleaned = r?.reply ? stripRepeatGreeting(cleanOutgoingReply(r.reply.trim())) : "";
+  const cleaned = r?.reply
+    ? guardBrandLeak([stripRepeatGreeting(cleanOutgoingReply(r.reply.trim()))], brand, {
+        conversationId,
+        where: "короткая реплика бота",
+      })[0]!
+    : "";
   if (!cleaned) return null;
 
   /**
