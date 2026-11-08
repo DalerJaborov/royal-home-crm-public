@@ -16,10 +16,10 @@
   "paths": 730,
   "cron": 123,
   "jobs": 32,
-  "conditions": 3992,
+  "conditions": 3993,
   "untranslatedUnique": 455,
   "untranslatedTotal": 585,
-  "partialUnique": 1096,
+  "partialUnique": 1097,
   "translatedShare": 85
  },
  "untranslated": [
@@ -56820,6 +56820,19 @@
       }
      ],
      "raw": "typeof body.systemPrompt === \"string\" && body.systemPrompt.length > 30000"
+    },
+    {
+     "t": "если есть brand ошибка",
+     "k": "if",
+     "a": [],
+     "c": [
+      {
+       "t": "отказ: данные неверные",
+       "k": "do",
+       "a": [],
+       "c": []
+      }
+     ]
     },
     {
      "t": "пробует сделать",

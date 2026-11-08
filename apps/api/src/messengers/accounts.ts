@@ -1,3 +1,4 @@
+import { brandNameError } from "../ai/brandPattern.js";
 import { prisma } from "../db.js";
 import { decryptSecretSafe, encryptSecret } from "../crypto.js";
 import {
@@ -549,6 +550,9 @@ export async function saveAccount(input: SaveAccountInput): Promise<string> {
   // не два (пусто и NULL), иначе accountPersona пришлось бы проверять оба.
   const persona = input.systemPrompt === undefined ? undefined : input.systemPrompt?.trim() || null;
   const brand = input.brandName === undefined ? undefined : input.brandName?.trim() || null;
+  // Имя, содержащее «Royal Home», заменяло бы слово само собой и шумело бы в журнале утечек.
+  const brandError = brandNameError(brand);
+  if (brandError) throw new Error(brandError);
   // Чистим и убираем дубликаты/пустые строки — форма присылает то, что человек
   // напечатал построчно или через запятую (см. routes/settings.ts).
   const extraIds =

@@ -90,6 +90,7 @@ import {
 } from "../messengers/meta.js";
 import { emojiThanksReply, ingestInstagramComments, reactionHeart, RUDE_EMOJI } from "../messengers/comments.js";
 import { resolveIncomingAccount } from "../messengers/accounts.js";
+import { brandForAccount } from "../ai/brandName.js";
 import { wasSentByUs } from "../messengers/outgoingMids.js";
 import { isOwnInFlightEcho, type EchoHistoryEntry } from "../messengers/inFlightEcho.js";
 import { isOwnCustomerOutboxEcho } from "../lib/customerOutboxEcho.js";
@@ -1907,6 +1908,8 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
       // аккаунт, получил бы ответ от первого (messengers/accounts.ts).
       const account = await resolveIncomingAccount(msg.channel, msg.accountExternalId, msg.senderId);
       deliveryAccountId = account.id;
+      // Имя компании аккаунта: посты бренда узнаются как свои (isOurBrandCaption).
+      const accountBrand = await brandForAccount(account.id);
       const customerTransport = await resolveCustomerEndpoint({ channel: msg.channel, subscriberId: msg.senderId,
         accountId: account.id, accountExternalId: msg.accountExternalId });
       deliveryTransport = customerTransport;
@@ -2241,7 +2244,7 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
         : isSharedPost(msg.attachmentType)
           ? // Подпись уже сказала «не жильё и не наше», а слов нет — читать ролик
             // Gemini незачем: до 25 секунд и деньги на каждый спам-рилс (QA 02.10.2026).
-            captionSaysForeign(msg.attachmentTitle) && !msg.text?.trim()
+            captionSaysForeign(msg.attachmentTitle, accountBrand) && !msg.text?.trim()
             ? null
             : await readSharedCard(msg.attachmentUrl, msg.attachmentType === "ig_reel" ? "video" : "image")
           : screenshot
@@ -2298,7 +2301,7 @@ webhooksRouter.post("/meta", requireMetaSignature, metaChatLimiter, async (req, 
       const adPostTail = msg.adPostId?.includes("_") ? msg.adPostId.slice(msg.adPostId.lastIndexOf("_") + 1) : msg.adPostId;
       const ourCreative =
         (Boolean(msg.attachmentMediaId) && (msg.attachmentMediaId === msg.adPostId || msg.attachmentMediaId === adPostTail)) ||
-        isOurBrandCaption(msg.attachmentTitle);
+        isOurBrandCaption(msg.attachmentTitle, accountBrand);
       const foreignShare =
         isSharedPost(msg.attachmentType) && !sharedPost.propertyId && !ownMedia && !vacancyPost && !ourCreative;
       if (foreignShare) rememberForeignShare(msg.channel, msg.senderId);

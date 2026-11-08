@@ -2,7 +2,6 @@ import { prisma } from "../db.js";
 import { absenceKindOf } from "./agentAvailability.js";
 import { deliverToConversation, findClientDeliveryTarget } from "./conversationDelivery.js";
 import { sendPushToAgent } from "../push.js";
-import { brandForConversation, brandize } from "../ai/brandName.js";
 
 /**
  * КЛИЕНТ ВЕРНУЛСЯ, А ЕГО АГЕНТ ОТСУТСТВУЕТ — ОБЪЯСНЯЕМ ОБОИМ (владелец 09.09.2026).
@@ -76,9 +75,7 @@ export async function noticeAbsentAgentReturn(input: AbsentAgentNoticeInput): Pr
      * (см. markAgentAttempt в lib/clientWorkStalled.ts — попытка засчитывается
      * только назначенному агенту и только за его собственное действие).
      */
-    // Готовый текст называет компанию — у аккаунта со своим брендом имя подменяется.
-    const brand = await brandForConversation(target.id);
-    const res = await deliverToConversation(target, brandize(clientText(input.kind, agent.fullName), brand), undefined, {
+    const res = await deliverToConversation(target, clientText(input.kind, agent.fullName), undefined, {
       sender: { kind: "bot" },
     });
     if (!res.ok) {

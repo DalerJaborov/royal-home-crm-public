@@ -125,6 +125,19 @@ it("five real first-enrollment transactions converge to one exact CORE assignmen
   expect(new Set(results.flatMap(row => row.lane === "CORE" && row.assignment ? [row.assignment.id] : [])).size).toBe(1);
   expect(await count(s.value)).toBe(1n);
 });
+it("an account with its own company name (brandName) never enters CORE: the core cannot rename the company", async () => {
+  const s = await subject();
+  await prisma.messengerAccount.update({ where: { id: s.installed.id }, data: { brandName: "Арван" } });
+  await configure([s.value], 10_000);
+  const result = await enroll(s.value);
+  expect(result.lane).toBe("LEGACY");
+  expect(await count(s.value)).toBe(1n);
+  // Снятие имени возвращает прежнее правило: новый субъект того же аккаунта зачисляется в CORE.
+  await prisma.messengerAccount.update({ where: { id: s.installed.id }, data: { brandName: null } });
+  const fresh = await subject(Promise.resolve(s.installed));
+  await configure([fresh.value], 10_000);
+  expect((await enroll(fresh.value)).lane).toBe("CORE");
+});
 it("persists an unconfigured OFF negative before a deferred legacy continuation and cannot flip during activation", async () => {
   const s = await subject();
   await prisma.$executeRaw`UPDATE "CustomerRuntimePolicy" SET "contractVersion"='compat',"rolloutMode"='OFF',

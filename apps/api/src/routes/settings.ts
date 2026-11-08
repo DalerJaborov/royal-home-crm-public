@@ -76,6 +76,7 @@ import { previewWhisperSpeech } from "../lib/telephony/whisperAudio.js";
 import { logSystemError } from "../lib/systemError.js";
 import { describeError } from "../lib/describeError.js";
 import { deleteAccount, listAccounts, saveAccount, resetAccountsCache } from "../messengers/accounts.js";
+import { brandNameError } from "../ai/brandPattern.js";
 import { dispatchInBackground, EDITOR_HOLDER_WHERE } from "../lib/videoHandoff.js";
 import { sendToMontajer } from "../lib/montageObservers.js";
 
@@ -2762,6 +2763,8 @@ settingsRouter.post(
     if (typeof body.systemPrompt === "string" && body.systemPrompt.length > 30000) {
       return res.status(400).json({ error: "Промт слишком длинный" });
     }
+    const brandError = brandNameError(body.brandName);
+    if (brandError) return res.status(400).json({ error: brandError });
 
     try {
       const id = await saveAccount({
@@ -2776,7 +2779,12 @@ settingsRouter.post(
         brandName: body.brandName,
         extraExternalIds: body.extraExternalIds,
       });
-      logAudit(req, "SETTINGS_UPDATE", "MessengerAccount", id, { channel, title });
+      // Смена имени компании меняет то, что бот говорит клиентам, — берём в аудит, на что.
+      logAudit(req, "SETTINGS_UPDATE", "MessengerAccount", id, {
+        channel,
+        title,
+        ...(body.brandName === undefined ? {} : { brandName: body.brandName?.trim() || null }),
+      });
       res.json({ ok: true, id });
     } catch (err) {
       // Один и тот же аккаунт дважды — самая частая ошибка при подключении.

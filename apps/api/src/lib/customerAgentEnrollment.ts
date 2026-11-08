@@ -6,6 +6,7 @@ import { customerAgentEnrollmentSubjectSchema, customerAgentRolloutConfigSchema,
   type CustomerAgentEnrollmentSubject, type CustomerAgentRolloutAssignment } from "@royal-home/shared";
 import { Prisma } from "../generated/prisma/client.js";
 import type { TxClient } from "../db.js";
+import { logSystemError } from "./systemError.js";
 import { isActiveTransactionClient } from "./transactionScope.js";
 import { decodeCustomerAgentRevision } from "./customerAgentRevision.js";
 import { customerPropertyScopeKey } from "./customerPropertyScope.js";
@@ -153,14 +154,32 @@ export async function enrollCustomerAgentSubjectTx(tx: TxClient, raw: CustomerAg
   const [policy] = await tx.$queryRaw<Policy[]>`SELECT "contractVersion","rolloutMode","activeAgentRevisionId","rolloutConfig"
     FROM "CustomerRuntimePolicy" WHERE "id"='singleton' FOR SHARE`;
   if (!policy || !["compat", "scoped"].includes(policy.contractVersion) || !["OFF", "SHADOW", "ACTIVE"].includes(policy.rolloutMode)) return held("policy_missing_or_invalid");
+  // Ядро (ai/customerAgentPrompt.ts) называет компанию «Royal Home» и подменять имя
+  // в нём нельзя: от текста промта зависят promptHash и payloadHash. Поэтому аккаунт
+  // со своим именем (MessengerAccount.brandName) ядро не получает, пока оно имя не
+  // умеет: новый субъект остаётся на прежнем пути, переход LEGACY -> CORE не делается.
+  const [brandRow] = e.accountId
+    ? await tx.$queryRaw<Array<{ brandName: string | null }>>`SELECT "brandName" FROM "MessengerAccount" WHERE "id"=${e.accountId}`
+    : [];
+  const brandBlocked = Boolean(brandRow?.brandName?.trim());
+  const brandBlockedLog = () =>
+    void logSystemError(
+      "ai",
+      `Аккаунт «${brandRow?.brandName}» зовётся своим именем, а клиентское ядро имя компании подменять не умеет: ` +
+        `переписка осталась на прежнем пути бота (зачисление в ядро отклонено). Включить ядро для этого аккаунта можно после того, как ядро научат имени.`,
+      { dedupKey: "customer-agent-brand-blocked", dedupScope: e.accountId ?? undefined }
+    );
   const previous = await assignment(tx, s.surface, e.endpointScopeId, key);
   if (previous?.lane === "LEGACY") {
     // Owner 31.10: the NEXT genuinely new input (DM, or a new comment of a
     // public thread) of an idle legacy subject moves it to the core. History
     // rows and old sources keep generation 0.
     if (options.legacyCutover === true && customerAgentLegacyCutoverEnabled()) {
-      const moved = await cutoverLegacySubjectTx(tx, s, key, previous, policy);
-      if (moved) return moved;
+      if (brandBlocked) brandBlockedLog();
+      else {
+        const moved = await cutoverLegacySubjectTx(tx, s, key, previous, policy);
+        if (moved) return moved;
+      }
     }
     return fromAssignment(previous);
   }
@@ -209,8 +228,10 @@ export async function enrollCustomerAgentSubjectTx(tx: TxClient, raw: CustomerAg
     baseline = rows.length > 0;
   }
   const bucketBps = config.success ? Number.parseInt(sha([1, config.data.cohortId, key]).slice(0, 8), 16) % 10_000 : null;
-  const eligible = options.legacyOnly !== true && config.success && policy.contractVersion === "scoped" && policy.rolloutMode === "ACTIVE" && !baseline &&
+  const eligibleByRollout = options.legacyOnly !== true && config.success && policy.contractVersion === "scoped" && policy.rolloutMode === "ACTIVE" && !baseline &&
     config.data.allowed.some(row => row.surface === s.surface && row.channel === e.channel && row.endpointScopeId === e.endpointScopeId);
+  if (eligibleByRollout && brandBlocked) brandBlockedLog();
+  const eligible = eligibleByRollout && !brandBlocked;
   const lane = config.success && eligible && bucketBps !== null && bucketBps < config.data.percentBasisPoints ? "CORE" : "LEGACY";
   await tx.$executeRaw(Prisma.sql`INSERT INTO "CustomerAgentRolloutAssignment"
     ("id","cohortId","surface","endpointScopeId","subjectKey","bucketBps","lane","candidateRevisionId","createdAt","generation")

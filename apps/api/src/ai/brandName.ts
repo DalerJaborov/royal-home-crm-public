@@ -1,6 +1,7 @@
 import { prisma } from "../db.js";
 import { accountBrandName } from "../messengers/accounts.js";
 import { logSystemError } from "../lib/systemError.js";
+import { brandize, brandNameError, mentionsDefaultBrand } from "./brandPattern.js";
 
 /**
  * ИМЯ КОМПАНИИ В ДИАЛОГАХ ОДНОГО АККАУНТА (08.11.2026).
@@ -23,22 +24,7 @@ import { logSystemError } from "../lib/systemError.js";
  * пакетов и ссылки — перед «Royal» там стоит `/`, `@`, `.`, `-` или буква, а
  * после «Home» — буква или точка; такие совпадения шаблон не берёт.
  */
-const DEFAULT_BRAND = /(?<![\w@./-])Royal[  ]+Home(?:[  ]+Info)?(?!\w)|(?<![\w@./-])RoyalHome(?![\w.-])/giu;
-
-/** Есть ли в тексте имя по умолчанию (для сторожа утечки и тестов). */
-export function mentionsDefaultBrand(text: string): boolean {
-  return new RegExp(DEFAULT_BRAND.source, DEFAULT_BRAND.flags).test(text);
-}
-
-/**
- * Подставить имя компании аккаунта. Пустое имя — текст как есть.
- * Чистая функция: подмена идёт функцией, поэтому «$» в имени не ломает результат.
- */
-export function brandize(text: string, brand: string | null | undefined): string {
-  const name = brand?.trim();
-  if (!name || !text) return text;
-  return text.replace(new RegExp(DEFAULT_BRAND.source, DEFAULT_BRAND.flags), () => name);
-}
+export { brandize, mentionsDefaultBrand, brandNameError };
 
 /** Имя компании для диалога аккаунта: null — аккаунт без своего имени. */
 export const brandForAccount = accountBrandName;

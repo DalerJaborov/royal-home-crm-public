@@ -645,16 +645,21 @@ export async function adReferralPropertyId(input: {
  *  (реклама крутит копию поста под другим номером). */
 const OUR_BRAND_RE = /royal\s*\.?\s*home|роял\s*хо[уу]м|royalhome\.tj/iu;
 
-export function isOurBrandCaption(caption: string | undefined | null): boolean {
-  return Boolean(caption && OUR_BRAND_RE.test(caption));
+export function isOurBrandCaption(caption: string | undefined | null, accountBrand?: string | null): boolean {
+  if (!caption) return false;
+  if (OUR_BRAND_RE.test(caption)) return true;
+  // Аккаунт со своим именем (MessengerAccount.brandName): его посты подписаны этим
+  // именем, и ролик бренда тоже наш. Без имени аккаунта поведение прежнее.
+  const brand = accountBrand?.trim();
+  return Boolean(brand) && caption.toLowerCase().includes(brand!.toLowerCase());
 }
 
 /** Подпись есть, и она точно не наша и не про жильё. */
-export function captionSaysForeign(caption: string | undefined | null): boolean {
+export function captionSaysForeign(caption: string | undefined | null, accountBrand?: string | null): boolean {
   return (
     Boolean(caption?.trim()) &&
     !looksLikeHousing(caption) &&
-    !isOurBrandCaption(caption) &&
+    !isOurBrandCaption(caption, accountBrand) &&
     captionFooterShortId(caption) == null
   );
 }
