@@ -12,6 +12,7 @@ export * from "./dushanbeDay.js";
 export * from "./daysOff.js";
 export * from "./tajikPhone.js";
 export * from "./maskContacts.js";
+export * from "./recruitmentContact.js";
 export * from "./clientCard.js";
 export * from "./clientAvatar.js";
 export * from "./clientDisplayName.js";
