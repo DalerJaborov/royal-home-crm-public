@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **733**. Развилок в самих путях: **2411**; вместе с задачами по расписанию и фоновыми заданиями — **3910**. Модулей: **82**.
+Путей: **733**. Развилок в самих путях: **2411**; вместе с задачами по расписанию и фоновыми заданиями — **3903**. Модулей: **82**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -27052,32 +27052,11 @@
     - return;
       · дальше не идёт, ничего не меняя
   - для каждого: const c of candidates
-    - если c.desiredAreaMin != null && area != null && area < c.desiredAreaMin * (1 - policy.areaToleranceRatio)
+    - если !clientPropertyEligible(c, facts, money, policy)
       - continue;
         · переходит к следующему
-    - если c.desiredFloorMin != null && property.floor != null && property.floor < c.desiredFloorMin
-      - continue;
-        · переходит к следующему
-    - если c.desiredFloorMax != null && property.floor != null && property.floor > c.desiredFloorMax
-      - continue;
-        · переходит к следующему
-    - если c.desiredTotalFloors != null && property.totalFloors != null && property.totalFloors > c.desiredTotalFloors
-      - continue;
-        · переходит к следующему
-    - const window = budgetWindowTjs(bMinTjs, bMaxTjs, policy);
-      · зовёт budgetWindowTjs()
-    - если window.min !== null && window.min > priceTjs
-      - continue;
-        · переходит к следующему
-    - если window.max !== null && window.max < priceTjs
-      - continue;
-        · переходит к следующему
-    - если hasPoint && c.desiredPlaces.length > 0
-      - nearestPlace = nearestDesiredPlace(propertyLat!, propertyLng!, c.desiredPlaces);
-        · зовёт nearestDesiredPlace()
-    - если !districtOk && !nearestPlace?.withinRadius
-      - continue;
-        · переходит к следующему
+    - const nearestPlace = hasPoint && c.desiredPlaces.length > 0 ? nearestDesiredPlace(propertyLat!, propertyLng!,…
+      · зовёт nearestDesiredPlace()
   - если withDistance.length === 0
     - return;
       · дальше не идёт, ничего не меняя

@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 733,
-  "forks": 3910,
+  "forks": 3903,
   "mounts": 82,
   "cron": 125,
   "jobs": 32,
@@ -121719,52 +121719,7 @@
        "c": [
         {
          "k": "if",
-         "t": "c.desiredAreaMin != null && area != null && area < c.desiredAreaMin * (1 - policy.areaToleranceRatio)",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "continue;",
-           "a": [
-            "переходит к следующему"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "if",
-         "t": "c.desiredFloorMin != null && property.floor != null && property.floor < c.desiredFloorMin",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "continue;",
-           "a": [
-            "переходит к следующему"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "if",
-         "t": "c.desiredFloorMax != null && property.floor != null && property.floor > c.desiredFloorMax",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "continue;",
-           "a": [
-            "переходит к следующему"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "if",
-         "t": "c.desiredTotalFloors != null && property.totalFloors != null && property.totalFloors > c.desiredTotalFloors",
+         "t": "!clientPropertyEligible(c, facts, money, policy)",
          "a": [],
          "c": [
           {
@@ -121779,71 +121734,11 @@
         },
         {
          "k": "do",
-         "t": "const window = budgetWindowTjs(bMinTjs, bMaxTjs, policy);",
+         "t": "const nearestPlace = hasPoint && c.desiredPlaces.length > 0 ? nearestDesiredPlace(propertyLat!, propertyLng!,…",
          "a": [
-          "зовёт budgetWindowTjs()"
+          "зовёт nearestDesiredPlace()"
          ],
          "c": []
-        },
-        {
-         "k": "if",
-         "t": "window.min !== null && window.min > priceTjs",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "continue;",
-           "a": [
-            "переходит к следующему"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "if",
-         "t": "window.max !== null && window.max < priceTjs",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "continue;",
-           "a": [
-            "переходит к следующему"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "if",
-         "t": "hasPoint && c.desiredPlaces.length > 0",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "nearestPlace = nearestDesiredPlace(propertyLat!, propertyLng!, c.desiredPlaces);",
-           "a": [
-            "зовёт nearestDesiredPlace()"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "if",
-         "t": "!districtOk && !nearestPlace?.withinRadius",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "continue;",
-           "a": [
-            "переходит к следующему"
-           ],
-           "c": []
-          }
-         ]
         }
        ]
       },
