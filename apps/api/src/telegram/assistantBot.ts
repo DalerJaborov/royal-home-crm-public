@@ -32,6 +32,7 @@ import {
   AssistantActionError,
   discardPendingAssistantAction,
   confirmAssistantAction,
+  undoAssistantAction,
   type AssistantActionActor,
   type AssistantActionView,
 } from "../lib/assistantActions.js";
@@ -53,6 +54,7 @@ import {
   stepUpText,
   verifyStepUpCode,
   type PendingStepUp,
+  type StepUpKind,
   type StepUpLanguage,
 } from "./assistantStepUp.js";
 import { STAFF_TOOL_NAMES } from "../ai/assistant/tools/staffToolNames.js";
@@ -118,7 +120,15 @@ const DISABLED_TEXT = "ИИ-помощник выключен в Настрой�
  */
 const answerCallbackQuery = (id: string, text?: string) => answerCallbackQueryRaw(id, text).catch(() => undefined);
 
-const BUNDLE_CALLBACK = /^as:(ok|no):([0-9a-f-]{36})$/;
+const BUNDLE_CALLBACK = /^as:(ok|no|undo):([0-9a-f-]{36})$/;
+
+/**
+ * Кнопка «↩️ Отменить» после исполнения (10.11.2026) — только в личке и только для
+ * раздела «Команда» и передачи клиента: там откат есть в брокере (права, роль,
+ * пауза, заморозка, передача дел). Остальные карточки Telegram ведут себя как раньше.
+ */
+const UNDO_IN_TELEGRAM: ReadonlySet<string> = new Set<string>([...STAFF_TOOL_NAMES, "change_client_agent"]);
+const undoButtons = (bundleId: string) => [[{ text: "↩️ Отменить", callback_data: `as:undo:${bundleId}` }]];
 
 // ───────────────────────────── права ─────────────────────────────
 
@@ -1678,6 +1688,27 @@ export async function handleAssistantCallback(query: TelegramCallbackQuery): Pro
       return true;
     }
 
+    if (verb === "undo") {
+      if (callbackChat?.type !== "private" || !chatId) {
+        await answerCallbackQuery(query.id, "Отменить можно в личке с Шабнам");
+        return true;
+      }
+      const executed = actions.filter((a) => a.status === "EXECUTED");
+      if (executed.length === 0) {
+        await answerCallbackQuery(query.id, actions.some((a) => a.status === "UNDONE") ? "Уже отменено" : "Отменять нечего");
+        return true;
+      }
+      // Откат того, что стояло за подтверждением личности, — тоже только с кодом.
+      if (bundleNeedsStepUp(executed)) {
+        await askStepUpCode({ agentId: clicker.id, chatId, bundleId, kind: "undo", cardMessageId: messageId, answer: (text) => answerCallbackQuery(query.id, text) });
+        return true;
+      }
+      const undone = await serializeBundle(bundleId, () => undoBundle(executed.map((a) => a.id), actor));
+      await answerCallbackQuery(query.id, undone.failed ? "Отменено не всё" : "Отменено");
+      await showOnCard(chatId, messageId, sanitizeAssistantReply(`↩️ ${clicker.fullName}:\n${undone.lines.join("\n")}`, false), null);
+      return true;
+    }
+
     // Сотрудники, права, сброс 2FA (10.11.2026): как в CRM за подтверждением личности —
     // здесь только кодом Google Authenticator, отдельным сообщением (assistantStepUp.ts).
     // Уже исполненная или истёкшая карточка кода не просит: дальше «Уже выполнено» / «время вышло».
@@ -1718,6 +1749,10 @@ export async function handleAssistantCallback(query: TelegramCallbackQuery): Pro
         : `${outcome.failed ? "Не всё получилось" : "Готово"}:\n${outcome.lines.join("\n")}`)
       : `${mark} ${clicker.fullName}:\n${outcome.lines.join("\n")}`;
     const safeSummary = sanitizeAssistantReply(summary, isGroup);
+    if (!isGroup && outcome.undoable && messageId) {
+      await showOnCard(chatId, messageId, safeSummary, undoButtons(bundleId));
+      return true;
+    }
     if (query.message && messageId) {
       await editTelegramConfirmationMessage(query.message, safeSummary).catch(async (err: unknown) => {
         if (isGroup && (!(err instanceof TelegramApiError) || err.errorCode !== 400 || /message is not modified/i.test(err.message))) return;
@@ -1739,7 +1774,7 @@ type BundleOutcome =
   | { kind: "busy" }
   | { kind: "retry"; message: string }
   | { kind: "replay" }
-  | { kind: "done"; failed: boolean; lines: string[]; priceResult?: string };
+  | { kind: "done"; failed: boolean; lines: string[]; priceResult?: string; undoable: boolean };
 
 export function renderGroupPriceResult(action: AssistantActionView, tajik = false): string | undefined {
   if (action.tool !== "change_property_price" || typeof action.preview.becomes.Цена !== "string"
@@ -1764,6 +1799,7 @@ async function executeBundle(ids: string[], actor: AssistantActionActor, tajikPr
   let ranAny = false;
   let failed = false;
   let priceResult: string | undefined;
+  let undoable = false;
   for (let i = 0; i < ids.length; i++) {
     try {
       const access = await loadAgentAccess(actor.agentId, prisma);
@@ -1779,6 +1815,7 @@ async function executeBundle(ids: string[], actor: AssistantActionActor, tajikPr
       if (!replay) ranAny = true;
       if (!replay && ids.length === 1) priceResult = renderGroupPriceResult(action, tajikPrice);
       lines.push(`${replay ? "↺" : "•"} ${action.preview.title}`);
+      if (action.undoUntil && UNDO_IN_TELEGRAM.has(action.tool)) undoable = true;
     } catch (err) {
       if (err instanceof AssistantActionError && err.code === "IN_PROGRESS") return { kind: "busy" };
       if (err instanceof AssistantActionError && err.code === "CONFIRM_RETRY") return { kind: "retry", message: err.message };
@@ -1795,7 +1832,44 @@ async function executeBundle(ids: string[], actor: AssistantActionActor, tajikPr
     }
   }
   if (!ranAny && !failed) return { kind: "replay" };
-  return { kind: "done", failed, lines, priceResult };
+  return { kind: "done", failed, lines, priceResult, undoable: undoable && !failed };
+}
+
+/** Откат связки — в обратном порядке; на первой неудаче останавливаемся и говорим правду. */
+async function undoBundle(ids: string[], actor: AssistantActionActor): Promise<{ failed: boolean; lines: string[] }> {
+  const lines: string[] = [];
+  let failed = false;
+  for (const id of [...ids].reverse()) {
+    try {
+      const access = await loadAgentAccess(actor.agentId, prisma);
+      if (!access?.isActive || isReadOnlyRole(access.role)) {
+        throw new AssistantActionError(403, "FORBIDDEN", "Недостаточно прав на это действие");
+      }
+      const currentActor: AssistantActionActor = {
+        ...actionActorOf(actor.agentId, access, actor.telegramPrivate === true),
+        ...(actor.stepUpVerified === true ? { stepUpVerified: true } : {}),
+      };
+      const { action, replay } = await undoAssistantAction(id, currentActor);
+      lines.push(`${replay ? "↺" : "↩️"} ${action.preview.title}`);
+    } catch (err) {
+      failed = true;
+      lines.push(`✖ ${err instanceof AssistantActionError ? FAIL_STATUS_NOTE[err.code] ?? err.message : "не получилось отменить"}`);
+      if (!(err instanceof AssistantActionError)) await logSystemError("ai", `Помощник Telegram: откат ${id} упал: ${describeError(err)}`);
+      break;
+    }
+  }
+  return { failed, lines };
+}
+
+/** Итог на месте карточки (личка): правим её текст и кнопки, не вышло — одно отдельное сообщение. */
+async function showOnCard(chatId: string, messageId: number | undefined, text: string, buttons: ReturnType<typeof undoButtons> | null) {
+  if (!messageId) {
+    await sendMessage(chatId, text).catch(() => {});
+    return;
+  }
+  await editMessageText(chatId, messageId, text, buttons).catch(async () => {
+    await sendMessage(chatId, text).catch(() => {});
+  });
 }
 
 // ───────────────────────────── код Google Authenticator ─────────────────────────────
@@ -1813,6 +1887,7 @@ async function askStepUpCode(input: {
   agentId: string;
   chatId: string;
   bundleId: string;
+  kind?: StepUpKind;
   cardMessageId?: number;
   answer: (text: string) => Promise<unknown>;
 }): Promise<void> {
@@ -1849,13 +1924,18 @@ async function runVerifiedBundle(challenge: PendingStepUp, agent: { id: string; 
   const actions = await prisma.assistantAction.findMany({
     where: { bundleId: challenge.bundleId },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-    select: { id: true, agentId: true },
+    select: { id: true, agentId: true, status: true },
   });
   if (actions.length === 0 || actions.some((a) => a.agentId !== agent.id)) {
     await sendMessage(challenge.chatId, tg ? "Корт кӯҳна шуд. Боз нависед." : "Карточка устарела. Повторите просьбу.").catch(() => {});
     return;
   }
   const actor: AssistantActionActor = { ...actionActorOf(agent.id, access, true), stepUpVerified: true };
+  if (challenge.kind === "undo") {
+    const undone = await serializeBundle(challenge.bundleId, () => undoBundle(actions.map((a) => a.id), actor));
+    await showOnCard(challenge.chatId, challenge.cardMessageId ?? undefined, sanitizeAssistantReply(`↩️ ${agent.fullName}:\n${undone.lines.join("\n")}`, false), null);
+    return;
+  }
   const outcome = await serializeBundle(challenge.bundleId, () => executeBundle(actions.map((a) => a.id), actor, false));
   if (outcome.kind !== "done") {
     const note = outcome.kind === "busy" ? "Уже выполняется." : outcome.kind === "replay" ? "Уже выполнено." : outcome.message;
@@ -1863,13 +1943,7 @@ async function runVerifiedBundle(challenge: PendingStepUp, agent: { id: string; 
     return;
   }
   const summary = privateSummary(outcome, agent.fullName);
-  if (challenge.cardMessageId) {
-    await editMessageText(challenge.chatId, challenge.cardMessageId, summary, null).catch(async () => {
-      await sendMessage(challenge.chatId, summary).catch(() => {});
-    });
-  } else {
-    await sendMessage(challenge.chatId, summary).catch(() => {});
-  }
+  await showOnCard(challenge.chatId, challenge.cardMessageId ?? undefined, summary, outcome.undoable ? undoButtons(challenge.bundleId) : null);
 }
 
 /**
@@ -1879,15 +1953,28 @@ async function runVerifiedBundle(challenge: PendingStepUp, agent: { id: string; 
  */
 export async function handleAssistantStepUpMessage(msg: TelegramIncomingMessage, agent: { id: string; fullName: string }): Promise<boolean> {
   if (msg.chat.type !== "private" || msg.forward_origin || msg.forward_from_message_id) return false;
-  const code = parseStepUpCode(msg.text);
-  if (!code) return false;
   const chatId = String(msg.chat.id);
+  const voice = Boolean(msg.voice || msg.audio || msg.video_note);
+  const code = voice ? null : parseStepUpCode(msg.text);
+  if (!voice && !code) return false;
   const challenge = await findPendingStepUp(chatId, agent.id);
   if (!challenge) return false;
-  if (msg.message_id) void deletePrivateMessage(chatId, msg.message_id);
+  if (voice) {
+    // Голос кодом не считается: просим цифрами; распознавать цифры из речи — путь к ошибкам и утечке.
+    if (challenge.expired) return false;
+    await sendMessage(chatId, stepUpText("voice", challenge.language)).catch(() => {});
+    return true;
+  }
+  const messageId = msg.message_id;
   // Проверка и исполнение — в очереди этого чата (как ход помощницы): два кода подряд
   // не проверяются наперегонки, а долгая передача дел не держит общую очередь апдейтов.
-  deferAssistantReply(msg, runInAssistantLane(`private:${chatId}`, () => checkStepUpCode(chatId, challenge, code, agent), async (err) => {
+  deferAssistantReply(msg, runInAssistantLane(`private:${chatId}`, async () => {
+    // Сообщение с кодом удаляется ДО проверки — и верное, и неверное.
+    if (messageId && !(await deletePrivateMessage(chatId, messageId))) {
+      await sendMessage(chatId, stepUpText("notDeleted", challenge.language)).catch(() => {});
+    }
+    await checkStepUpCode(chatId, challenge, code!, agent);
+  }, async (err) => {
     await logSystemError("telegram", `Помощник: проверка кода Google Authenticator: ${describeError(err)}`);
   }));
   return true;
@@ -1898,7 +1985,7 @@ async function checkStepUpCode(chatId: string, challenge: PendingStepUp, code: s
     const verdict = await verifyStepUpCode(challenge, code);
     if (verdict.kind === "gone") return;
     if (verdict.kind !== "passed") {
-      if (verdict.kind === "locked" || verdict.kind === "no_totp") {
+      if (challenge.kind === "confirm" && (verdict.kind === "locked" || verdict.kind === "no_totp" || verdict.kind === "inactive")) {
         const actor: AssistantActionActor = { agentId: agent.id, channel: "telegram", telegramPrivate: true, can: () => false };
         const rows = await prisma.assistantAction.findMany({ where: { bundleId: challenge.bundleId }, select: { id: true } });
         for (const row of rows) await discardPendingAssistantAction(row.id, actor).catch(() => undefined);

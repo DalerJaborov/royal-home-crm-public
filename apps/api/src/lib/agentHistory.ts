@@ -53,6 +53,7 @@ export const AGENT_CASCADE_NOT_HISTORY: Record<string, string> = {
   Passkey: "ключ входа устройства",
   LoginSmsCode: "одноразовый код входа",
   AgentHandoverBatch: "снимок раздачи создаёт сам маршрут удаления прямо перед проверкой",
+  AssistantStepUpChallenge: "ожидание кода Google Authenticator у помощницы; хранится сутки, след — в AuditLog",
 };
 
 export async function agentHasCascadeHistory(agentId: string): Promise<boolean> {

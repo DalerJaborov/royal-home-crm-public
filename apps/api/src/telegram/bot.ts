@@ -487,7 +487,7 @@ async function handleAgentTelegramMessage(msg: TelegramIncomingMessage, updateId
   // Код Google Authenticator к карточке помощницы (сотрудники, права — 10.11.2026)
   // перехватывается ПЕРВЫМ: иначе шесть цифр ушли бы в модерацию, мастер объекта или
   // модели как обычный текст и остались бы видны в чате.
-  if (ownText && (await handleAssistantStepUpMessage(msg, agent))) return true;
+  if (await handleAssistantStepUpMessage(msg, agent)) return true;
 
   // Ответ модератора на вопрос бота («комментарий агенту», «новое значение поля») —
   // состояние в базе с TTL 15 минут, см. lib/telegramModeration.ts.

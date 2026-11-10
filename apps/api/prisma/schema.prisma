@@ -348,6 +348,8 @@ enum AdMatchSource {
 }
 
 model Agent {
+  /// Ожидания кода Google Authenticator у помощницы (10.11.2026) — уходят вместе с учёткой.
+  assistantStepUpChallenges AssistantStepUpChallenge[]
   investigationCases InvestigationCase[] @relation("InvestigationSubject")
   recruitmentRecoveries RecruitmentRecovery[]
   oversightAcks OversightAck[]
@@ -502,10 +504,6 @@ model Agent {
   /// после успешного /me/2fa/confirm (подтверждён код, значит секрет реально дошёл до приложения).
   totpSecret                  String?
   totpEnabled                 Boolean   @default(false)
-  /// Последний 30-секундный шаг кода Google Authenticator, принятый помощницей в Telegram
-  /// (10.11.2026, telegram/assistantStepUp.ts). Код того же или более раннего шага второй
-  /// раз не принимается — одноразовость. Вход в CRM и /auth/step-up это поле не читают.
-  assistantTotpLastStep       Int?
   /// Ключи входа по отпечатку/лицу (passkeys). Один сотрудник — сколько угодно
   /// устройств: рабочий телефон, личный, ноутбук.
   passkeys                    Passkey[]
@@ -10824,7 +10822,10 @@ model AssistantAction {
 model AssistantStepUpChallenge {
   id              String    @id @default(uuid())
   agentId         String
+  agent           Agent     @relation(fields: [agentId], references: [id], onDelete: Cascade)
   chatId          String
+  /// "confirm" — исполнить карточку; "undo" — отменить уже исполненное.
+  kind            String    @default("confirm")
   /// Связка AssistantAction.bundleId, которую исполнит принятый код.
   bundleId        String
   /// Сообщение с карточкой «было → станет» — его правим итогом.
@@ -10834,12 +10835,16 @@ model AssistantStepUpChallenge {
   /// PENDING — ждём код; PASSED — принят; LOCKED — слишком много ошибок; CANCELLED — отменён или заменён.
   status          String    @default("PENDING")
   attempts        Int       @default(0)
+  /// 30-секундный шаг принятого кода. Уникален на сотрудника: тот же код второй раз не проходит,
+  /// соседний шаг — проходит (другая карточка не сжигается кодом на шаг вперёд).
+  usedStep        Int?
   /// "ru" | "tg" — на каком языке говорить с человеком о коде.
   language        String    @default("ru")
   expiresAt       DateTime
   closedAt        DateTime?
   createdAt       DateTime  @default(now())
 
+  @@unique([agentId, usedStep])
   @@index([chatId, status])
   @@index([agentId, createdAt])
 }

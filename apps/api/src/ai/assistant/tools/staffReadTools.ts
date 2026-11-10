@@ -17,6 +17,7 @@ import { listStaffDirectory, listStaffHandovers } from "../../../lib/staffAdmin.
 import { loadStaffLive, ONLINE_WINDOW_MS } from "../../../lib/staffLive.js";
 import type { AssistantActor } from "../actor.js";
 import { safeField } from "./safeField.js";
+import { maskStaffEmail, maskStaffPhone } from "./staffPrivacy.js";
 import type { AssistantReadToolPlugin } from "./types.js";
 
 /**
@@ -100,7 +101,8 @@ export const listStaffTool: AssistantReadToolPlugin = {
         name: safeField(r.fullName, 80),
         role: roleLabel(r.role),
         status: statusOf(r),
-        ...(r.phone !== undefined ? { phone: r.phone, extension: r.sipExtension ?? null } : {}),
+        // Телефон и почту список не отдаёт вовсе (staffPrivacy.ts); внутренний номер — служебный.
+        ...(r.sipExtension !== undefined ? { extension: r.sipExtension ?? null } : {}),
         href: `/team/${r.id}`,
       })),
     };
@@ -116,7 +118,8 @@ export const getStaffCardTool: AssistantReadToolPlugin = {
   level: "A",
   statusPhrase: "Открываю карточку сотрудника…",
   description:
-    "Карточка сотрудника по agentId (из list_staff): роль, статус, пауза заявок, внутренний номер, включён ли Google Authenticator, " +
+    "Карточка сотрудника по agentId (из list_staff): роль, статус, пауза заявок, внутренний номер, включён ли Google Authenticator " +
+    "(телефон — только последние 2 цифры: полный номер — логин входа, он виден в CRM), " +
     "права (что включено сверх роли и что снято, с id прав для set_staff_permissions), «сейчас»: в сети ли, лиды в работе, ближайшая " +
     "задача, звонки за неделю; последние передачи дел с batchId для revert_staff_handover. Видно ровно то, что вам видно в CRM.",
   parameters: { type: "object", properties: { agentId: { type: "string" } }, required: ["agentId"] },
@@ -150,8 +153,9 @@ export const getStaffCardTool: AssistantReadToolPlugin = {
     };
     if (canManage) {
       Object.assign(card, {
-        phone: agent.phone,
-        email: agent.email,
+        // Только хвост: полный номер — логин входа, его видно в CRM (staffPrivacy.ts).
+        phoneLast2: maskStaffPhone(agent.phone),
+        email: maskStaffEmail(agent.email),
         extension: agent.sipExtension,
         googleAuthenticator: agent.totpEnabled ? "включён" : "не включён",
         telegramLinked: Boolean(agent.telegramChatId),

@@ -19000,6 +19000,8 @@
         · запись в журнал ошибок
     - const deleted = await prisma.assistantAction.deleteMany({ where: { status: "EXPIRED", expiresAt: { lt: new Da…
       · удаляет в базе: assistantAction
+    - const stepUpChallengesDeleted = await sweepStepUpChallenges(now);
+      · зовёт sweepStepUpChallenges()
   - если expired > 0 || stuckFailed > 0 || deleted > 0
     - console.log(`[cron] Действия помощника: истекло ${expired}, прервано ${stuckFailed}, удалено ${deleted}`);
       · пишет строку в журнал сервера

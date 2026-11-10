@@ -139,7 +139,9 @@ const QUEUE_LABEL = "без агента (очередь руководител�
 export const changeClientAgentExecutor: AssistantActionExecutor<Args> = {
   tool: TOOL,
   requires: ["clients.assign"],
-  channels: ["crm"],
+  // Telegram — только личка (решение владельца 10.11.2026): та же карточка и те же права, что в CRM.
+  channels: ["crm", "telegram"],
+  privateTelegram: true,
   parseArgs: (raw) => argsSchema.parse(raw),
 
   snapshot: (args, actor) => readSnapshot(args, actor),
@@ -310,6 +312,6 @@ export const changeClientAgentTool: AssistantWriteToolPlugin = {
     },
     required: ["clientId", "agentName"],
   },
-  allowed: (actor) => actor.canAssignClients,
+  allowed: (actor) => actor.surface !== "telegram-group" && actor.canAssignClients,
   executor: changeClientAgentExecutor as never,
 };

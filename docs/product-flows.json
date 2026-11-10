@@ -84718,6 +84718,14 @@
           "удаляет в базе: assistantAction"
          ],
          "c": []
+        },
+        {
+         "k": "do",
+         "t": "const stepUpChallengesDeleted = await sweepStepUpChallenges(now);",
+         "a": [
+          "зовёт sweepStepUpChallenges()"
+         ],
+         "c": []
         }
        ],
        "from": "runAssistantActionsSweep() — apps/api/src/jobs/assistantActionsSweep.ts"

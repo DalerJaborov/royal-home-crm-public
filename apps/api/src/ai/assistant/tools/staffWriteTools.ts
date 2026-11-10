@@ -48,7 +48,7 @@ import {
   type StaffActor,
   type StaffOutcome,
 } from "../../../lib/staffAdmin.js";
-import { notifyDirectorsOfStaffChange, type StaffSecurityChange } from "../../../lib/staffSecurityNotify.js";
+import { maskStaffPhone } from "./staffPrivacy.js";
 import { plainField } from "./safeField.js";
 import type { AssistantWriteToolPlugin } from "./types.js";
 import type { AssistantActor } from "../actor.js";
@@ -172,20 +172,9 @@ async function assertTargetManageable(staff: StaffActor, target: TargetRow | nul
   return target;
 }
 
-/** Сообщение директорам — после исполнения, в фоне: его сбой не делает действие несделанным. */
-function notifyLater(change: StaffSecurityChange, actor: AssistantActionActor, target: { id: string; fullName: string }, details?: string) {
-  void notifyDirectorsOfStaffChange({
-    change,
-    actorId: actor.agentId,
-    targetId: target.id,
-    targetName: target.fullName,
-    details,
-    channel: actor.channel,
-  }).catch((err) => logSystemError("ai", `Помощница: сообщение директорам о сотруднике не ушло: ${describeError(err)}`));
-}
-
 const run = <T>(actor: AssistantActionActor, work: () => Promise<T>) => runAsActor(actor.agentId, work);
-const VIA = { via: "assistant" as const };
+/** Метка для журнала и сообщения руководству (оно уходит из lib/staffAdmin.ts — одной дверью с REST). */
+const via = (actor: AssistantActionActor) => ({ via: "assistant" as const, channel: actor.channel });
 
 interface StaffToolSpec<A> {
   name: StaffToolName;
@@ -292,8 +281,8 @@ export const createStaffTool = staffTool({
       risk: `Войдёт по коду на этот телефон. Права — по роли «${roleLabel(args.role)}».`,
     };
   },
-  async execute(args, staff) {
-    const body = unwrap(await createStaffMember(staff, args, VIA)) as { id: string; fullName: string; extensionNote?: string };
+  async execute(args, staff, actor) {
+    const body = unwrap(await createStaffMember(staff, args, via(actor))) as { id: string; fullName: string; extensionNote?: string };
     return { result: { agentId: body.id, fullName: body.fullName, href: `/team/${body.id}`, note: body.extensionNote ?? null }, entityId: body.id };
   },
   allowed: (actor) => has(actor, "agents.manage"),
@@ -377,37 +366,49 @@ export const updateStaffTool = staffTool({
     const becomes: Record<string, unknown> = {};
     for (const [field, value] of Object.entries(changes)) {
       const label = FIELD_LABELS[field] ?? field;
-      was[label] = fieldValue(field, current[field]);
+      // Прежний телефон и почта — не для модели и не для чата: только хвост (staffPrivacy.ts).
+      was[label] = field === "phone" || field === "email" ? maskStaffPhone(String(current[field] ?? "")) : fieldValue(field, current[field]);
       becomes[label] = fieldValue(field, value);
     }
     const deactivating = changes.isActive === false && target.isActive;
     const roleChange = changes.role !== undefined && changes.role !== target.role;
+    const roleOnly = Object.keys(changes).every((key) => key === "role");
     const risk = [
       deactivating ? "Учётка отключится сразу: вход, сессии и пуши гаснут, непринятые лиды уйдут в очередь. Клиенты в работе останутся за ним — передайте дела отдельно." : null,
       roleChange ? "Права станут как у новой роли; личные надстройки прав сбросятся." : null,
-      deactivating || roleChange ? "Директорам придёт одно сообщение об этом." : null,
+      roleChange && roleOnly ? "Отменить можно 15 минут — роль и личные права вернутся." : null,
+      deactivating || roleChange || changes.phone !== undefined ? "Руководству придёт одно сообщение об этом." : null,
     ].filter(Boolean).join(" ");
     return {
       title: `${deactivating ? "🚫" : "👤"} ${plainField(target.fullName, 80)}: ${deactivating ? "отключить учётку" : "изменить"}`,
       was,
       becomes,
       ...(risk ? { risk } : {}),
-      ...(deactivating || roleChange ? { irreversible: true } : {}),
+      // Откатывается только смена одной роли; отключение и прочие поля — нет (их хвосты не возвращаются).
+      ...(roleOnly && roleChange ? {} : { irreversible: true }),
     };
   },
-  async execute(args, staff, actor, snap) {
-    const body = unwrap(await updateStaffMember(staff, args.agentId, args.changes, VIA)) as { id: string; fullName: string; role: string; isActive: boolean; releasedLeads?: number; clientsLeft?: number };
-    const changes = args.changes as Record<string, unknown>;
-    if (changes.role !== undefined && changes.role !== snap.role) {
-      notifyLater("role", actor, body, `${roleLabel(String(snap.role))} → ${roleLabel(body.role)}`);
-    }
-    if (changes.isActive === false && snap.isActive === true) {
-      notifyLater("deactivated", actor, body, body.clientsLeft ? `Клиентов в работе за ним: ${body.clientsLeft}` : undefined);
-    }
+  async execute(args, staff, actor) {
+    const body = unwrap(await updateStaffMember(staff, args.agentId, args.changes, via(actor))) as { id: string; fullName: string; role: string; isActive: boolean; releasedLeads?: number; clientsLeft?: number };
     return {
       result: { agentId: body.id, fullName: body.fullName, href: `/team/${body.id}`, releasedLeads: body.releasedLeads ?? 0, clientsLeft: body.clientsLeft ?? 0 },
       entityId: body.id,
     };
+  },
+  /** Откат роли: прежняя роль и прежние личные права (смена роли их сбрасывала). */
+  async undo(args, actor, ctx) {
+    const staff = await staffActorOf(actor, ["agents.manage", "permissions.manage"]);
+    const before = ctx.snapshotBefore;
+    if (Object.keys(args.changes).some((key) => key !== "role")) {
+      throw new AssistantActionError(409, "NOT_UNDOABLE", "Отменяется только смена роли");
+    }
+    await run(actor, async () => {
+      unwrap(await updateStaffMember(staff, args.agentId, { role: before.role }, via(actor)));
+      const overrides = before.permissions as PermissionOverrides;
+      if (overrides.granted.length > 0 || overrides.revoked.length > 0) {
+        unwrap(await setStaffPermissions(staff, args.agentId, overrides, via(actor)));
+      }
+    });
   },
   allowed: (actor) => has(actor, "agents.manage"),
 });
@@ -439,14 +440,12 @@ export const deleteStaffTool = staffTool({
       title: `🗑 Удалить сотрудника: ${personLabel(target)}`,
       was: { Сотрудник: personLabel(target), "Клиентов в работе": snap.activeClients },
       becomes: { Сотрудник: "удалён", Клиенты: "раздаются команде по KPI" },
-      risk: "Если за ним есть сделки или история — учётка отключится, телефон освободится. Директорам придёт одно сообщение.",
+      risk: "Если за ним есть сделки или история — учётка отключится, телефон освободится. Руководству придёт одно сообщение.",
       irreversible: true,
     };
   },
   async execute(args, staff, actor, snap) {
-    const body = unwrap(await deleteStaffMember(staff, args.agentId, VIA));
-    notifyLater("deleted", actor, { id: args.agentId, fullName: String(snap.fullName) },
-      body.deactivatedInsteadOfDeleted ? "Есть история — учётка отключена, телефон освобождён" : undefined);
+    const body = unwrap(await deleteStaffMember(staff, args.agentId, via(actor)));
     return {
       result: {
         fullName: snap.fullName,
@@ -501,12 +500,17 @@ export const freezeStaffTool = staffTool({
         Причина: plainField(args.reason, 200),
         ...(args.until ? { "Выход": args.until } : {}),
       },
-      risk: "Новые лиды не пойдут, непринятые уйдут в очередь (лиды по его объектам останутся). Снять — «разморозь».",
+      risk: "Новые лиды не пойдут, непринятые уйдут в очередь (лиды по его объектам останутся). Отменить — 15 минут (снятые лиды в очереди останутся), позже — «разморозь».",
     };
   },
-  async execute(args, staff, _actor, snap) {
-    const body = unwrap(await freezeStaffMember(staff, args.agentId, args, VIA)) as { released: number };
+  async execute(args, staff, actor, snap) {
+    const body = unwrap(await freezeStaffMember(staff, args.agentId, args, via(actor))) as { released: number };
     return { result: { fullName: snap.fullName, releasedLeads: body.released }, entityId: args.agentId };
+  },
+  /** Откат — разморозка (REST разрешает); снятые лиды остаются в очереди, это сказано в карточке. */
+  async undo(args, actor) {
+    const staff = await staffActorOf(actor, ["agents.manage"]);
+    await run(actor, async () => unwrap(await unfreezeStaffMember(staff, args.agentId, via(actor))));
   },
   allowed: (actor) => has(actor, "agents.manage"),
 });
@@ -529,8 +533,8 @@ export const unfreezeStaffTool = staffTool({
       becomes: { Статус: "работает" },
     };
   },
-  async execute(args, staff, _actor, snap) {
-    unwrap(await unfreezeStaffMember(staff, args.agentId, VIA));
+  async execute(args, staff, actor, snap) {
+    unwrap(await unfreezeStaffMember(staff, args.agentId, via(actor)));
     return { result: { fullName: snap.fullName }, entityId: args.agentId };
   },
   allowed: (actor) => has(actor, "agents.manage"),
@@ -581,21 +585,24 @@ export const handoverStaffWorkTool = staffTool({
       title: `📦 Передать дела: ${personLabel(from)} → ${toLabel}`.slice(0, 200),
       was: { "Дела у": personLabel(from), "Клиентов в работе": snap.activeClients },
       becomes: { "Дела у": toLabel, ...(args.deactivate ? { "Учётка": "отключена" } : {}) },
-      risk: `Клиенты, задачи и объекты уйдут сразу. Вернуть можно просьбой «верни дела».${args.deactivate ? " Директорам придёт одно сообщение об отключении." : ""}`,
+      risk: `Клиенты, задачи и объекты уйдут сразу. Вернуть можно просьбой «верни дела».${args.deactivate ? " Руководству придёт одно сообщение об отключении." : ""}`,
     };
   },
   async execute(args, staff, actor) {
-    const body = unwrap(await handoverStaffWork(staff, args.agentId, { toAgentId: args.toAgentId, deactivate: args.deactivate }, VIA)) as {
+    const body = unwrap(await handoverStaffWork(staff, args.agentId, { toAgentId: args.toAgentId, deactivate: args.deactivate }, via(actor))) as {
       clients: number; tasks: number; properties: number; batchId?: string | null; deactivated: boolean;
     };
-    if (body.deactivated) {
-      const from = await prisma.agent.findUnique({ where: { id: args.agentId }, select: { id: true, fullName: true } });
-      if (from) notifyLater("deactivated", actor, from, "После передачи дел");
-    }
     return {
       result: { clients: body.clients, tasks: body.tasks, properties: body.properties, batchId: body.batchId ?? null, deactivated: body.deactivated },
       entityId: args.agentId,
     };
+  },
+  /** Откат — тот же «Вернуть всё как было» (revert_staff_handover / REST), по снимку раздачи. */
+  async undo(_args, actor, ctx) {
+    const staff = await staffActorOf(actor, ["agents.manage"]);
+    const batchId = (ctx.result as { batchId?: string | null } | null)?.batchId;
+    if (!batchId) throw new AssistantActionError(409, "NOT_UNDOABLE", "Передавать было нечего — возвращать тоже");
+    await run(actor, async () => unwrap(await revertStaffHandover(staff, batchId, via(actor))));
   },
   allowed: (actor) => has(actor, "agents.manage"),
 });
@@ -631,8 +638,8 @@ export const revertStaffHandoverTool = staffTool({
       risk: "Вернётся только то, что ещё у получателей и не тронуто.",
     };
   },
-  async execute(args, staff, _actor, snap) {
-    const body = unwrap(await revertStaffHandover(staff, args.batchId, VIA));
+  async execute(args, staff, actor, snap) {
+    const body = unwrap(await revertStaffHandover(staff, args.batchId, via(actor)));
     return { result: body, entityId: String(snap.fromAgentId) };
   },
   allowed: (actor) => has(actor, "agents.manage"),
@@ -657,13 +664,12 @@ export const resetStaffTwoFactorTool = staffTool({
       title: `🔐 Сбросить Google Authenticator: ${personLabel(target)}`,
       was: { Authenticator: target.totpEnabled ? "включён" : "не включён" },
       becomes: { Authenticator: "сброшен", Сессии: "закрыты" },
-      risk: "Директорам придёт одно сообщение об этом.",
+      risk: "Руководству придёт одно сообщение об этом.",
       irreversible: true,
     };
   },
   async execute(args, staff, actor, snap) {
-    unwrap(await resetStaffTwoFactor(staff, args.agentId, VIA));
-    notifyLater("reset2fa", actor, { id: args.agentId, fullName: String(snap.fullName) });
+    unwrap(await resetStaffTwoFactor(staff, args.agentId, via(actor)));
     return { result: { fullName: snap.fullName, totpEnabled: false }, entityId: args.agentId };
   },
   allowed: (actor) => has(actor, "agents.reset2fa"),
@@ -743,27 +749,24 @@ export const setStaffPermissionsTool = staffTool({
       title: `🔐 Права: ${plainField(String(snap.fullName), 80)} (${roleLabel(role)})`,
       was: { Добавлено: "—", Снято: "—" },
       becomes: { Добавлено: added.join(", ") || "—", Снято: removed.join(", ") || "—" },
-      risk: "Подействует сразу, открытые вкладки сотрудника переподключатся. Директорам придёт одно сообщение.",
+      risk: "Подействует сразу, открытые вкладки сотрудника переподключатся. Руководству придёт одно сообщение.",
     };
   },
   async execute(args, staff, actor, snap) {
     const role = snap.role as Role;
     const next = mergePermissionChanges(role, snap.permissions as PermissionOverrides, args);
     const before = resolvePermissions(role, snap.permissions as PermissionOverrides);
-    unwrap(await setStaffPermissions(staff, args.agentId, next, VIA));
+    unwrap(await setStaffPermissions(staff, args.agentId, next, via(actor)));
     const after = resolvePermissions(role, next);
     const added = [...after].filter((p) => !before.has(p)).map(permissionLabel);
     const removed = [...before].filter((p) => !after.has(p)).map(permissionLabel);
-    notifyLater("permissions", actor, { id: args.agentId, fullName: String(snap.fullName) },
-      [added.length ? `Добавлено: ${added.join(", ")}` : null, removed.length ? `Снято: ${removed.join(", ")}` : null].filter(Boolean).join("; "));
     return { result: { fullName: snap.fullName, added, removed }, entityId: args.agentId };
   },
   /** Откат — тот же PUT прав прежним набором; только пока права никто не трогал после нас (снимок брокера). */
   async undo(args, actor, ctx) {
     const staff = await staffActorOf(actor, ["permissions.manage"]);
     const previous = ctx.snapshotBefore.permissions as PermissionOverrides;
-    await run(actor, async () => unwrap(await setStaffPermissions(staff, args.agentId, previous, VIA)));
-    notifyLater("permissions", actor, { id: args.agentId, fullName: String(ctx.snapshotBefore.fullName) }, "Изменение прав отменено");
+    await run(actor, async () => unwrap(await setStaffPermissions(staff, args.agentId, previous, via(actor))));
   },
   allowed: (actor) => has(actor, "permissions.manage"),
 });
@@ -796,13 +799,13 @@ export const pauseStaffLeadsTool = staffTool({
       risk: "Непринятые лиды уйдут в очередь, текущие клиенты останутся. Сотрудник получит уведомление.",
     };
   },
-  async execute(args, staff, _actor, snap) {
-    const body = unwrap(await pauseStaffLeads(staff, args.agentId, { hours: args.hours, reason: args.reason }, VIA)) as { pausedUntil: Date; released: number };
+  async execute(args, staff, actor, snap) {
+    const body = unwrap(await pauseStaffLeads(staff, args.agentId, { hours: args.hours, reason: args.reason }, via(actor))) as { pausedUntil: Date; released: number };
     return { result: { fullName: snap.fullName, pausedUntil: body.pausedUntil, releasedLeads: body.released }, entityId: args.agentId };
   },
   async undo(args, actor) {
     const staff = await staffActorOf(actor, ["agents.manage"]);
-    await run(actor, async () => unwrap(await resumeStaffLeads(staff, args.agentId, VIA)));
+    await run(actor, async () => unwrap(await resumeStaffLeads(staff, args.agentId, via(actor))));
   },
   allowed: (actor) => has(actor, "agents.manage"),
 });
@@ -827,8 +830,8 @@ export const resumeStaffLeadsTool = staffTool({
       becomes: { "Новые заявки": "получает" },
     };
   },
-  async execute(args, staff, _actor, snap) {
-    unwrap(await resumeStaffLeads(staff, args.agentId, VIA));
+  async execute(args, staff, actor, snap) {
+    unwrap(await resumeStaffLeads(staff, args.agentId, via(actor)));
     return { result: { fullName: snap.fullName }, entityId: args.agentId };
   },
   allowed: (actor) => has(actor, "agents.manage"),

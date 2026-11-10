@@ -9,6 +9,8 @@ import {
   parsePermissionOverrides,
   permissionOverridesSchema,
   resolvePermissions,
+  PERMISSIONS,
+  ROLE_LABELS,
   ROLE_PRESET_SUMMARY,
   SALES_AGENT_ROLES,
   supervisorLeadPauseSchema,
@@ -44,6 +46,7 @@ import { clearAgentFromSettingsReferences } from "./agentSettingsCleanup.js";
 import { endLeadPause, notifyAgentAboutSupervisorPause, startLeadPause } from "./agentLeadPause.js";
 import { availabilityOf } from "./agentAvailability.js";
 import { sendPushToAgents } from "../push.js";
+import { notifyStaffChangeLater, type StaffSecurityChange } from "./staffSecurityNotify.js";
 
 /**
  * УПРАВЛЕНИЕ СОТРУДНИКАМИ — ОДНА ДВЕРЬ (10.11.2026, владелец: «все возможности
@@ -74,9 +77,50 @@ export interface StaffActor {
   can: (permission: PermissionId) => boolean;
 }
 
-/** Откуда пришло действие — для журнала. REST пишет журнал как раньше, без метки. */
+/** Откуда пришло действие — для журнала и сообщения руководству. REST — без метки. */
 export interface StaffCallOptions {
   via?: "assistant";
+  /** Где нажали подтверждение помощницы: Telegram или панель CRM. */
+  channel?: "telegram" | "crm";
+}
+
+/**
+ * Сообщение руководству (lib/staffSecurityNotify.ts) — из одной этой точки и для
+ * REST, и для помощницы. `assistantOnly` — то, о чём из CRM не сообщаем (заведение
+ * рядового сотрудника, заморозка, передача дел видны в разделе «Команда» и так),
+ * а из Telegram сообщаем: там нажатие могло быть чужими руками.
+ */
+function notice(
+  actor: StaffActor,
+  opts: StaffCallOptions | undefined,
+  change: StaffSecurityChange,
+  target: { id: string; fullName: string },
+  details?: string,
+  assistantOnly = false
+): void {
+  if (assistantOnly && !opts?.via) return;
+  notifyStaffChangeLater({
+    change,
+    actorId: actor.id,
+    targetId: target.id,
+    targetName: target.fullName,
+    details,
+    channel: opts?.via ? (opts.channel ?? "crm") : "rest",
+  });
+}
+
+const roleName = (role: string) => ROLE_LABELS[role as Role] ?? role;
+const permissionName = (id: string) => PERMISSIONS.find((p) => p.id === id)?.label ?? id;
+
+/** «Добавлено: …; снято: …» — по итоговым правам, а не по надстройкам. */
+export function describePermissionDiff(role: Role, before: unknown, after: unknown): string {
+  const was = resolvePermissions(role, parsePermissionOverrides(before));
+  const now = resolvePermissions(role, parsePermissionOverrides(after));
+  const added = [...now].filter((p) => !was.has(p)).map(permissionName);
+  const removed = [...was].filter((p) => !now.has(p)).map(permissionName);
+  return [added.length ? `Добавлено: ${added.join(", ")}` : null, removed.length ? `Снято: ${removed.join(", ")}` : null]
+    .filter(Boolean)
+    .join("; ") || "Без изменений";
 }
 
 export type StaffOutcome<T = Record<string, unknown>> =
@@ -323,6 +367,8 @@ export async function createStaffMember(actor: StaffActor, raw: unknown, opts?: 
     role: agent.role,
     sipExtension: agent.sipExtension,
   });
+  // Новая учётка с правом раздавать права — всегда; рядовой сотрудник — только из помощницы.
+  notice(actor, opts, "created", agent, `Роль: ${roleName(agent.role)}`, !(agent.role === "ADMIN" || agent.role === "DIRECTOR"));
   // Мобильное плечо и запись разговоров — сразу (agentMobileFallback.ts, extensionPool.ts).
   if (agent.sipExtension) void syncAgentMobileFallback(agent.id).catch(() => {});
   if (agent.sipExtension) void ensureExtensionRecording(agent.sipExtension).catch(() => {});
@@ -359,7 +405,7 @@ export async function updateStaffMember(actor: StaffActor, targetId: string, raw
   if (!parsed.success) return fail(400, "Неверные данные", { details: parsed.error.flatten() });
   const rest = parsed.data;
   // Несуществующий сотрудник — 404, а не P2025 из update ниже → 500 (24.09.2026, №152).
-  const target = await prisma.agent.findUnique({ where: { id: targetId }, select: { id: true } });
+  const target = await prisma.agent.findUnique({ where: { id: targetId }, select: { id: true, phone: true, role: true } });
   if (!target) return fail(404, "Сотрудник не найден");
   if (await forbiddenDirectorTarget(actor, targetId, rest.role)) {
     return fail(403, "Управлять учёткой директора может только директор");
@@ -438,6 +484,13 @@ export async function updateStaffMember(actor: StaffActor, targetId: string, raw
   if (rest.takesUnknownCalls !== undefined) {
     void ensureAgentsInIncomingQueue().catch(() => {});
     void syncAgentMobileFallback(targetId).catch(() => {});
+  }
+  if (rest.role !== undefined && rest.role !== target.role) {
+    notice(actor, opts, "role", agent, `${roleName(target.role)} → ${roleName(agent.role)}${resetOverrides ? ", личные права сброшены" : ""}`);
+  }
+  if (rest.phone !== undefined && rest.phone !== target.phone) notice(actor, opts, "phone", agent, "Телефон — логин входа");
+  if (rest.isActive === false && wasActive) {
+    notice(actor, opts, "deactivated", agent, deactivation?.clientsLeft ? `Клиентов в работе за ним: ${deactivation.clientsLeft}` : undefined);
   }
   audit(actor, opts, "AGENT_UPDATE", agent.id, {
     fields: Object.keys(rest),
@@ -608,11 +661,13 @@ export async function handoverStaffWork(actor: StaffActor, fromId: string, raw: 
     void syncAgentQueuePresence(agent.id).catch(() => {});
     audit(actor, opts, "AGENT_UPDATE", agent.id, { fields: ["isActive"], afterHandover: true });
     deactivated = true;
+    notice(actor, opts, "deactivated", agent, "После передачи дел");
     // Снимок раздачи знает, что учётку отключили тем же нажатием, — возврат включит её обратно.
     if (result.batchId) {
       await prisma.agentHandoverBatch.update({ where: { id: result.batchId }, data: { deactivated: true } });
     }
   }
+  notice(actor, opts, "handover", from, `Клиентов: ${result.clients}, задач: ${result.tasks}, объектов: ${result.properties}`, true);
   return done({ ...result, deactivated });
 }
 
@@ -661,6 +716,7 @@ export async function resetStaffTwoFactor(actor: StaffActor, targetId: string, o
     targetName: target.fullName,
     ...(opts?.via ? { source: opts.via } : {}),
   });
+  notice(actor, opts, "reset2fa", target);
   return done({ totpEnabled: false });
 }
 
@@ -710,6 +766,7 @@ export async function deleteStaffMember(actor: StaffActor, targetId: string, opt
       handoverClients: handover.clients,
       handoverProperties: handover.properties,
     });
+    notice(actor, opts, "deleted", deleted, `Клиентов роздано: ${handover.clients}`);
     // 200 с отчётом, а не пустой 204: руководитель должен видеть, кому ушли клиенты.
     return done({ ok: true, handover });
   } catch (err) {
@@ -763,6 +820,7 @@ async function disableInsteadOfDelete(
     handoverProperties: handover.properties,
     ...(opts?.via ? { source: opts.via } : {}),
   });
+  notice(actor, opts, "deleted", deactivated, "Есть история — учётка отключена, телефон освобождён");
   return done({
     ok: true,
     deactivatedInsteadOfDeleted: true,
@@ -787,7 +845,7 @@ export async function setStaffPermissions(actor: StaffActor, targetId: string, r
 
   const agent = await prisma.agent.findUnique({
     where: { id: targetId },
-    select: { id: true, fullName: true, role: true },
+    select: { id: true, fullName: true, role: true, permissions: true },
   });
   if (!agent) return fail(404, "Агент не найден");
   if (agent.role === "DIRECTOR") return fail(400, "У директора всегда полный доступ — права не настраиваются");
@@ -802,6 +860,7 @@ export async function setStaffPermissions(actor: StaffActor, targetId: string, r
   });
   invalidateAgentAccess(agent.id);
   closeStreamsForAgent(agent.id);
+  notice(actor, opts, "permissions", agent, describePermissionDiff(agent.role as Role, agent.permissions, overrides));
   audit(actor, opts, "AGENT_PERMISSIONS_UPDATE", agent.id, {
     targetAgentName: agent.fullName,
     role: agent.role,
@@ -875,6 +934,7 @@ export async function freezeStaffMember(actor: StaffActor, targetId: string, raw
 
   closeStreamsForAgent(agent.id);
   audit(actor, opts, "AGENT_FREEZE", agent.id, { reason: parsed.data.reason, released: released.count });
+  notice(actor, opts, "frozen", agent, `Причина: ${parsed.data.reason.trim().slice(0, 120)}`, true);
 
   if (releasedLeads.length > 0) {
     const directors = await prisma.agent.findMany({ where: { role: { in: ["DIRECTOR", "ADMIN"] }, isActive: true }, select: { id: true } });
