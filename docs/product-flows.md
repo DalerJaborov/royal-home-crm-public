@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **731**. Развилок в самих путях: **2505**; вместе с задачами по расписанию и фоновыми заданиями — **4004**. Модулей: **81**.
+Путей: **731**. Развилок в самих путях: **2506**; вместе с задачами по расписанию и фоновыми заданиями — **4005**. Модулей: **81**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -15728,9 +15728,12 @@
   - return res.status(400).json({ ok: false, error: "Не указан id агента ElevenLabs" });
     · ответ 400 — «Не указан id агента ElevenLabs»
 - пробует
-  - const tools = await syncElevenLabsAgent(apiKey, agentId, CONSULTANT_TOOLS, { voiceIdTg: row?.elevenLabsVoiceI…
-    · зовёт syncElevenLabsAgent()
-  - res.json({ ok: true, agentName: agent.name ?? null, toolsSynced: tools.size });
+  - const outcome = await syncElevenLabsAgentDetailed(apiKey, agentId, CONSULTANT_TOOLS, { voiceIdTg: row?.eleven…
+    · зовёт syncElevenLabsAgentDetailed()
+  - если !outcome.tuned
+    - return res.json({ ok: false, agentName: agent.name ?? null, toolsSynced: outcome.ids.size, error: `Функции за…
+      · ответ 200 — «Функции заведены (${outcome.ids.size}), но агент не принял настройки…»
+  - res.json({ ok: true, agentName: agent.name ?? null, toolsSynced: outcome.ids.size });
     · ответ 200
 - если сорвалось
   - const detail = describeError(err);

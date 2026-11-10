@@ -20,16 +20,17 @@ import type { LiveVoiceFunctionDeclaration } from "./liveVoiceClient.js";
  *  3. там же включаются разрешения на подмену: системный промт, первая фраза,
  *     язык, набор функций, голос (platform_settings.overrides…).
  *
- *  4. (10.11.2026) выставляются настройки телефонного разговора из
+ *  4. (10.11.2026) ВТОРЫМ, отдельным PATCH — настройки телефонного разговора из
  *     ELEVENLABS_PHONE_AGENT_TUNING ниже: модель и темп голоса, формат звука
  *     линии, очередь реплик, заполнители, слова-поддакивания, потолок ответа,
- *     часовой пояс, определение языка ru/tg.
+ *     часовой пояс, определение языка ru/tg. Его отказ не отменяет шаги 1–3 и
+ *     не роняет звонок: только запись в журнал (buildAgentTuningPatch).
  *
- * Агент читается целиком и отправляется обратно с правкой только этих полей:
- * выбранная владельцем модель разговора (llm), голос, основной язык, его
- * собственные функции и слова-исключения не трогаются. Поля из
- * ELEVENLABS_PHONE_AGENT_TUNING теперь ведёт CRM: правка их в кабинете
- * ElevenLabs перезапишется при первом звонке после перезапуска сервера.
+ * Шаги 2–3 шлют промт агента обратно с добавленными id (как до 10.11). Шаг 4
+ * шлёт только белый список своих полей. Модель разговора (llm), голос, основной
+ * язык и функции владельца не трогаются. Поля из ELEVENLABS_PHONE_AGENT_TUNING
+ * ведёт CRM: правка их в кабинете ElevenLabs перезапишется при следующей
+ * подготовке агента (первый звонок после перезапуска сервера).
  *
  * Источники (сверено 02.10.2026):
  *  - https://elevenlabs.io/docs/api-reference/tools/create — POST /v1/convai/tools,
@@ -194,7 +195,12 @@ export const ELEVENLABS_PHONE_AGENT_TUNING = {
     "ага", "угу", "мгм", "ммм", "ну да", "да-да", "ясно", "понятно",
     "ҳа", "ҳаа", "ха", "хуб", "бале", "майлӣ", "аҳа",
   ],
-  prompt: { max_tokens: 120, timezone: "Asia/Dushanbe" },
+  /**
+   * max_tokens 300, а не 120 из передачи 24.10: потолок режет и вызов функции, а
+   * save_client_request несёт 12 параметров кириллицей (~150–250 токенов) — при 120
+   * вызов обрезался бы и заявка не сохранилась. Краткость реплик держит промт.
+   */
+  prompt: { max_tokens: 300, timezone: "Asia/Dushanbe" },
   /** Второй язык агента (основной — тот, что владелец выбрал в кабинете, обычно ru). */
   secondLanguage: "tg",
 } as const;
@@ -232,57 +238,100 @@ function deepMerge(a: unknown, b: unknown): unknown {
 }
 
 /**
- * Тело PATCH агента: его же промт с добавленными id наших функций (старые id не
- * выбрасываются — у владельца могут быть свои), настройки телефонного разговора
- * (ELEVENLABS_PHONE_AGENT_TUNING) поверх его же tts/asr/turn и включённые
- * разрешения на подмену. Подобъекты уходят ЦЕЛИКОМ (прочитанное + наша правка):
- * так тело верно, сливает ли PATCH поля глубоко или заменяет подобъект.
+ * ПЕРВЫЙ PATCH агента — только то, без чего звонок не работает: его же промт с
+ * добавленными id наших функций (старые id не выбрасываются — у владельца могут
+ * быть свои) и включённые разрешения на подмену. Форма — как до 10.11.2026.
  * Чистая функция — проверяется тестом.
  */
-export function buildAgentSyncPatch(agent: unknown, toolIds: string[], opts: ElevenLabsAgentTuningOptions = {}): Json {
-  const T = ELEVENLABS_PHONE_AGENT_TUNING;
-  const config = isObj(agent) && isObj(agent.conversation_config) ? agent.conversation_config : {};
-  const agentCfg = isObj(config.agent) ? config.agent : {};
-  const prompt: Json = isObj(agentCfg.prompt) ? { ...agentCfg.prompt } : {};
-  const existingIds = Array.isArray(prompt.tool_ids) ? prompt.tool_ids.filter((x): x is string => typeof x === "string") : [];
+export function buildAgentSyncPatch(agent: unknown, toolIds: string[]): Json {
+  const prompt: Json = { ...readPrompt(agent) };
   // Устаревшее поле `tools` вместе с `tool_ids` API не принимает — оставляем только id.
   delete prompt.tools;
-  prompt.tool_ids = [...new Set([...existingIds, ...toolIds])];
+  prompt.tool_ids = mergedToolIds(prompt, toolIds);
+  const platform = isObj(agent) && isObj(agent.platform_settings) ? agent.platform_settings : {};
+  return {
+    conversation_config: { agent: { prompt } },
+    platform_settings: { overrides: deepMerge(platform.overrides ?? {}, ELEVENLABS_REQUIRED_OVERRIDES) },
+  };
+}
+
+function readConfig(agent: unknown): Json {
+  return isObj(agent) && isObj(agent.conversation_config) ? agent.conversation_config : {};
+}
+
+function readPrompt(agent: unknown): Json {
+  const agentCfg = readConfig(agent).agent;
+  return isObj(agentCfg) && isObj(agentCfg.prompt) ? agentCfg.prompt : {};
+}
+
+function mergedToolIds(prompt: Json, toolIds: string[]): string[] {
+  const existing = Array.isArray(prompt.tool_ids) ? prompt.tool_ids.filter((x): x is string => typeof x === "string") : [];
+  return [...new Set([...existing, ...toolIds])];
+}
+
+const str = (v: unknown): v is string => typeof v === "string" && v.length > 0;
+
+/**
+ * ВТОРОЙ PATCH агента — настройки телефонного разговора (ELEVENLABS_PHONE_AGENT_TUNING).
+ * Прочитанные tts/asr/turn/language_presets ЦЕЛИКОМ обратно НЕ уходят: схема ответа
+ * GET и схема ввода PATCH могут расходиться, и чужое поле уронило бы всю правку.
+ * Уходит белый список: наши поля плюс несколько простых полей владельца
+ * (строки, числа, списки строк), которые нельзя потерять.
+ *
+ * НЕТ ДАННЫХ: сливает ли PATCH /v1/convai/agents вложенные объекты глубоко или
+ * заменяет подобъект целиком — справочник (api-reference/agents/update, 10.11.2026)
+ * об этом молчит. Поэтому в каждый подобъект добавлено то, что нельзя потерять при
+ * замене: в prompt — текст, llm, temperature, tool_ids и встроенные инструменты
+ * (end_call и прочие); в tts — voice_id; в asr — provider и keywords. При замене
+ * целиком сбросятся к умолчаниям прочие поля tts/asr/turn и прочие пресеты языков
+ * (кроме tg), а у prompt — база знаний и прочее, чего нет в списке. Проверить на
+ * тестовом агенте до включения на проде.
+ * Чистая функция — проверяется тестом.
+ */
+export function buildAgentTuningPatch(agent: unknown, toolIds: string[], opts: ElevenLabsAgentTuningOptions = {}): Json {
+  const T = ELEVENLABS_PHONE_AGENT_TUNING;
+  const config = readConfig(agent);
+  const promptIn = readPrompt(agent);
+
+  const prompt: Json = {};
+  if (str(promptIn.prompt)) prompt.prompt = promptIn.prompt;
+  if (str(promptIn.llm)) prompt.llm = promptIn.llm;
+  if (typeof promptIn.temperature === "number") prompt.temperature = promptIn.temperature;
+  prompt.tool_ids = mergedToolIds(promptIn, toolIds);
   prompt.max_tokens = T.prompt.max_tokens;
   prompt.timezone = T.prompt.timezone;
-  const builtIn = isObj(prompt.built_in_tools) ? prompt.built_in_tools : {};
+  const builtIn = isObj(promptIn.built_in_tools) ? promptIn.built_in_tools : {};
   prompt.built_in_tools = { ...builtIn, language_detection: LANGUAGE_DETECTION_TOOL };
 
+  const ttsIn = isObj(config.tts) ? config.tts : {};
+  const tts: Json = { ...T.tts };
+  if (str(ttsIn.voice_id)) tts.voice_id = ttsIn.voice_id;
+
+  const asrIn = isObj(config.asr) ? config.asr : {};
+  const asr: Json = { ...T.asr };
+  if (str(asrIn.provider)) asr.provider = asrIn.provider;
+  if (Array.isArray(asrIn.keywords)) asr.keywords = asrIn.keywords.filter(str);
+
   const turnIn = isObj(config.turn) ? config.turn : {};
-  const ownTerms = Array.isArray(turnIn.interruption_ignore_terms)
-    ? turnIn.interruption_ignore_terms.filter((x): x is string => typeof x === "string")
-    : [];
-  const turn = deepMerge(turnIn, {
+  const ownTerms = Array.isArray(turnIn.interruption_ignore_terms) ? turnIn.interruption_ignore_terms.filter(str) : [];
+  const turn: Json = {
     ...T.turn,
+    soft_timeout_config: { ...T.turn.soft_timeout_config },
     // Слова владельца не теряются: объединение, а не замена.
     interruption_ignore_terms: [...new Set([...ownTerms, ...T.interruptionIgnoreTerms])],
-  });
+  };
 
-  const presets: Json = isObj(config.language_presets) ? { ...config.language_presets } : {};
-  const lang = T.secondLanguage;
-  const existingPreset = presets[lang];
-  const preset: Json = isObj(existingPreset) ? { ...existingPreset } : {};
-  const presetOverrides: Json = isObj(preset.overrides) ? { ...preset.overrides } : {};
   const voiceIdTg = opts.voiceIdTg?.trim();
-  if (voiceIdTg) presetOverrides.tts = deepMerge(presetOverrides.tts ?? {}, { voice_id: voiceIdTg });
-  preset.overrides = presetOverrides;
-  presets[lang] = preset;
+  const presetOverrides: Json = voiceIdTg ? { tts: { voice_id: voiceIdTg } } : {};
 
-  const platform = isObj(agent) && isObj(agent.platform_settings) ? agent.platform_settings : {};
   return {
     conversation_config: {
       agent: { prompt },
-      tts: deepMerge(isObj(config.tts) ? config.tts : {}, T.tts),
-      asr: deepMerge(isObj(config.asr) ? config.asr : {}, T.asr),
+      tts,
+      asr,
       turn,
-      language_presets: presets,
+      language_presets: { [T.secondLanguage]: { overrides: presetOverrides } },
     },
-    platform_settings: { overrides: deepMerge(platform.overrides ?? {}, ELEVENLABS_REQUIRED_OVERRIDES) },
   };
 }
 
@@ -291,13 +340,26 @@ interface ElevenLabsToolRow {
   tool_config?: { type?: string; name?: string };
 }
 
-/** Завести или обновить наши функции и прикрепить их к агенту. Имя функции → id. */
-export async function syncElevenLabsAgent(
+/** Итог подготовки агента: id функций и приняты ли настройки разговора. */
+export interface ElevenLabsAgentSyncOutcome {
+  ids: Map<string, string>;
+  /** Второй PATCH (настройки разговора) принят. */
+  tuned: boolean;
+  /** Почему не принят — для кнопки проверки в Настройках. */
+  tuningError: string | null;
+}
+
+/**
+ * Завести или обновить наши функции, прикрепить их к агенту (первый PATCH), затем
+ * выставить настройки разговора (второй PATCH). Бросает только при отказе первой
+ * части: без неё подмена промта и функций на звонок не работает.
+ */
+export async function syncElevenLabsAgentDetailed(
   apiKey: string,
   agentId: string,
   tools: LiveVoiceFunctionDeclaration[],
   opts: ElevenLabsAgentTuningOptions = {}
-): Promise<Map<string, string>> {
+): Promise<ElevenLabsAgentSyncOutcome> {
   // Без функций список инструментов не нужен, а настройки разговора — нужны.
   const listed: { tools?: ElevenLabsToolRow[] } =
     tools.length > 0 ? await elevenLabsRequest<{ tools?: ElevenLabsToolRow[] }>(apiKey, "GET", "/v1/convai/tools") : {};
@@ -322,19 +384,78 @@ export async function syncElevenLabsAgent(
   );
   const agentPath = `/v1/convai/agents/${encodeURIComponent(agentId)}`;
   const agent = await elevenLabsRequest(apiKey, "GET", agentPath);
-  await elevenLabsRequest(apiKey, "PATCH", agentPath, buildAgentSyncPatch(agent, [...ids.values()], opts));
-  return ids;
+  await elevenLabsRequest(apiKey, "PATCH", agentPath, buildAgentSyncPatch(agent, [...ids.values()]));
+  try {
+    await elevenLabsRequest(apiKey, "PATCH", agentPath, buildAgentTuningPatch(agent, [...ids.values()], opts));
+    return { ids, tuned: true, tuningError: null };
+  } catch (err) {
+    const detail = describeError(err);
+    void logSystemError(
+      "telephony",
+      `Живой голос (ElevenLabs): агент ${agentId} не принял настройки разговора (${detail}) — функции и подмены ` +
+        "заведены, звонки идут со звучанием из кабинета. Повтор — не раньше чем через " +
+        `${ELEVENLABS_SYNC_RETRY_PAUSE_MS / 60_000} мин.`,
+      { dedupKey: "elevenlabs-agent-tuning" }
+    );
+    return { ids, tuned: false, tuningError: detail };
+  }
 }
 
-/** Готовые подготовки в этом процессе: агент + набор функций → имя→id. Набор
- *  функций у консультанта, исходящего звонка и сценариев разный — каждый
- *  готовится один раз, дальше звонки идут без лишних запросов. */
-const syncCache = new Map<string, Promise<Map<string, string>>>();
+/** То же, что syncElevenLabsAgentDetailed, — только id функций. */
+export async function syncElevenLabsAgent(
+  apiKey: string,
+  agentId: string,
+  tools: LiveVoiceFunctionDeclaration[],
+  opts: ElevenLabsAgentTuningOptions = {}
+): Promise<Map<string, string>> {
+  return (await syncElevenLabsAgentDetailed(apiKey, agentId, tools, opts)).ids;
+}
+
+/**
+ * Пауза после неудачи (10.11.2026): без неё каждый звонок при сломанном ключе или
+ * сети тратил до ELEVENLABS_SYNC_BUDGET_MS на повтор, а человек ждал в тишине.
+ * Отказ первой части — звонки без подготовки до конца паузы; отказ только
+ * настроек — id функций берутся из памяти, настройки повторяются в фоне после паузы.
+ */
+export const ELEVENLABS_SYNC_RETRY_PAUSE_MS = 5 * 60_000;
+
+/** Подготовка в полёте: агент + набор функций + настройки → итог. */
+const syncInFlight = new Map<string, Promise<ElevenLabsAgentSyncOutcome>>();
+/** Готовые подготовки в этом процессе. Набор функций у консультанта, исходящего
+ *  звонка и сценариев разный — каждый готовится один раз. */
+const syncDone = new Map<string, { outcome: ElevenLabsAgentSyncOutcome; at: number }>();
+/** До какого времени не пытаться снова после отказа первой части (или потолка времени). */
+const syncPausedUntil = new Map<string, number>();
 
 function syncKey(agentId: string, tools: LiveVoiceFunctionDeclaration[], opts: ElevenLabsAgentTuningOptions): string {
   // Сменился таджикский голос или настройки — агент готовится заново.
   const payload = JSON.stringify([tools, opts.voiceIdTg?.trim() || null, ELEVENLABS_PHONE_AGENT_TUNING]);
   return `${agentId}:${createHash("sha256").update(payload).digest("hex")}`;
+}
+
+function startSync(
+  key: string,
+  apiKey: string,
+  agentId: string,
+  tools: LiveVoiceFunctionDeclaration[],
+  opts: ElevenLabsAgentTuningOptions
+): Promise<ElevenLabsAgentSyncOutcome> {
+  const existing = syncInFlight.get(key);
+  if (existing) return existing;
+  const pending = syncElevenLabsAgentDetailed(apiKey, agentId, tools, opts);
+  syncInFlight.set(key, pending);
+  pending.then(
+    (outcome) => {
+      syncDone.set(key, { outcome, at: Date.now() });
+      syncPausedUntil.delete(key);
+    },
+    () => {
+      syncPausedUntil.set(key, Date.now() + ELEVENLABS_SYNC_RETRY_PAUSE_MS);
+    }
+  ).finally(() => {
+    if (syncInFlight.get(key) === pending) syncInFlight.delete(key);
+  });
+  return pending;
 }
 
 /**
@@ -351,27 +472,38 @@ export async function ensureElevenLabsAgentReady(
   // Звонок без функций тоже готовит агента: настройки разговора (темп, очередь
   // реплик, язык) нужны любому звонку. Прежний ранний выход их пропускал.
   const key = syncKey(agentId, tools, opts);
-  let pending = syncCache.get(key);
-  if (!pending) {
-    pending = syncElevenLabsAgent(apiKey, agentId, tools, opts);
-    syncCache.set(key, pending);
-    // Неудача не кешируется: следующий звонок попробует заново.
-    pending.catch(() => syncCache.delete(key));
+  const now = Date.now();
+  const paused = (syncPausedUntil.get(key) ?? 0) > now;
+  const done = syncDone.get(key);
+  if (done) {
+    // Настройки не приняты — повтор в фоне после паузы; звонок не ждёт.
+    if (!done.outcome.tuned && !paused && now - done.at >= ELEVENLABS_SYNC_RETRY_PAUSE_MS) {
+      startSync(key, apiKey, agentId, tools, opts).catch(() => {});
+    }
+    return done.outcome.ids;
   }
+  // Недавно не вышло — звонок идёт сразу, без нового ожидания (в журнале уже есть).
+  if (paused) return null;
+  const pending = startSync(key, apiKey, agentId, tools, opts);
   let timer: ReturnType<typeof setTimeout> | null = null;
   try {
-    return await Promise.race([
+    const outcome = await Promise.race([
       pending,
       new Promise<never>((_, reject) => {
         timer = setTimeout(() => reject(new Error(`не уложились в ${ELEVENLABS_SYNC_BUDGET_MS / 1000} с`)), ELEVENLABS_SYNC_BUDGET_MS);
         timer.unref?.();
       }),
     ]);
+    return outcome.ids;
   } catch (err) {
+    // Потолок времени: подготовка ещё идёт, но следующие звонки её не ждут.
+    // Успеет позже — пауза снимется сама (startSync).
+    if (!syncDone.has(key)) syncPausedUntil.set(key, Date.now() + ELEVENLABS_SYNC_RETRY_PAUSE_MS);
     void logSystemError(
       "telephony",
-      `Живой голос (ElevenLabs): агент ${agentId} не подготовлен под наши функции и настройки разговора (${describeError(err)}) — ` +
-        "звонок идёт с теми функциями и настройками, что заведены у агента в кабинете.",
+      `Живой голос (ElevenLabs): агент ${agentId} не подготовлен под наши функции (${describeError(err)}) — ` +
+        "звонок идёт с теми функциями и настройками, что заведены у агента в кабинете. Повтор — не раньше чем через " +
+        `${ELEVENLABS_SYNC_RETRY_PAUSE_MS / 60_000} мин.`,
       { dedupKey: "elevenlabs-agent-sync" }
     );
     return null;
@@ -382,5 +514,7 @@ export async function ensureElevenLabsAgentReady(
 
 /** Только для тестов. */
 export function resetElevenLabsSyncCacheForTests(): void {
-  syncCache.clear();
+  syncInFlight.clear();
+  syncDone.clear();
+  syncPausedUntil.clear();
 }

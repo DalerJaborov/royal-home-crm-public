@@ -59,7 +59,7 @@ import { liveVoiceRtpProblem, configuredRtpHost } from "../lib/telephony/liveVoi
 import { liveVoiceErrorForPerson } from "../lib/telephony/liveVoiceUserError.js";
 import { previewLiveVoiceGreeting } from "../ai/liveVoiceClient.js";
 import { resolveElevenLabsKey } from "../ai/liveVoiceProvider.js";
-import { elevenLabsRequest, syncElevenLabsAgent } from "../ai/elevenLabsAgentSync.js";
+import { elevenLabsRequest, syncElevenLabsAgentDetailed } from "../ai/elevenLabsAgentSync.js";
 import { CONSULTANT_TOOLS } from "../lib/telephony/liveVoiceConsultant.js";
 import { r2PresignDownloadUrl } from "../lib/r2Client.js";
 import { phoneSafeText } from "../lib/clientPhone.js";
@@ -2028,8 +2028,18 @@ settingsRouter.post("/live-voice/elevenlabs-check", requireAuth, requirePermissi
   if (!agentId) return res.status(400).json({ ok: false, error: "Не указан id агента ElevenLabs" });
   try {
     const agent = await elevenLabsRequest<{ name?: string }>(apiKey, "GET", `/v1/convai/agents/${encodeURIComponent(agentId)}`);
-    const tools = await syncElevenLabsAgent(apiKey, agentId, CONSULTANT_TOOLS, { voiceIdTg: row?.elevenLabsVoiceIdTg });
-    res.json({ ok: true, agentName: agent.name ?? null, toolsSynced: tools.size });
+    const outcome = await syncElevenLabsAgentDetailed(apiKey, agentId, CONSULTANT_TOOLS, { voiceIdTg: row?.elevenLabsVoiceIdTg });
+    // Функции заведены, а настройки звучания агент не принял — не «готов»: экран
+    // показывает error, и владелец видит причину, а не зелёную строку.
+    if (!outcome.tuned) {
+      return res.json({
+        ok: false,
+        agentName: agent.name ?? null,
+        toolsSynced: outcome.ids.size,
+        error: `Функции заведены (${outcome.ids.size}), но агент не принял настройки звучания: ${outcome.tuningError}`,
+      });
+    }
+    res.json({ ok: true, agentName: agent.name ?? null, toolsSynced: outcome.ids.size });
   } catch (err) {
     const detail = describeError(err);
     void logSystemError("telephony", `Проверка агента ElevenLabs не прошла: ${detail}`);

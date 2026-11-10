@@ -165,7 +165,18 @@ describe("сценарный исходящий звонок и переключ
     expect(client.connectOpts!.language).toBe("tg");
   });
 
-  it("Настройки = google (по умолчанию) — тот же звонок идёт через Gemini", async () => {
+  it("поставщик не выбран (умолчание столбца в базе) — звонок идёт через Gemini", async () => {
+    // Как на свежей базе или у компании, которая переключатель не трогала: значение
+    // ставит сама база (@default в schema.prisma), а не тест. Перед этим — elevenlabs.
+    await prisma.settings.update({ where: { id: "singleton" }, data: { liveVoiceProvider: "elevenlabs" } });
+    await prisma.$executeRawUnsafe(`UPDATE "Settings" SET "liveVoiceProvider" = DEFAULT WHERE id = 'singleton'`);
+    const row = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { liveVoiceProvider: true } });
+    expect(row?.liveVoiceProvider).toBe("google");
+    const client = await dialScenario("+992 93 000 81 03");
+    expect(client.kind).toBe("google");
+  });
+
+  it("Настройки = google — тот же звонок идёт через Gemini", async () => {
     await prisma.settings.update({ where: { id: "singleton" }, data: { liveVoiceProvider: "google" } });
     const client = await dialScenario("+992 93 000 81 02");
     expect(client.kind).toBe("google");

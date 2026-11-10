@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 731,
-  "forks": 4004,
+  "forks": 4005,
   "mounts": 81,
   "cron": 125,
   "jobs": 32,
@@ -71646,15 +71646,30 @@
      "c": [
       {
        "k": "do",
-       "t": "const tools = await syncElevenLabsAgent(apiKey, agentId, CONSULTANT_TOOLS, { voiceIdTg: row?.elevenLabsVoiceI…",
+       "t": "const outcome = await syncElevenLabsAgentDetailed(apiKey, agentId, CONSULTANT_TOOLS, { voiceIdTg: row?.eleven…",
        "a": [
-        "зовёт syncElevenLabsAgent()"
+        "зовёт syncElevenLabsAgentDetailed()"
        ],
        "c": []
       },
       {
+       "k": "if",
+       "t": "!outcome.tuned",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.json({ ok: false, agentName: agent.name ?? null, toolsSynced: outcome.ids.size, error: `Функции за…",
+         "a": [
+          "ответ 200 — «Функции заведены (${outcome.ids.size}), но агент не принял настройки…»"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
        "k": "do",
-       "t": "res.json({ ok: true, agentName: agent.name ?? null, toolsSynced: tools.size });",
+       "t": "res.json({ ok: true, agentName: agent.name ?? null, toolsSynced: outcome.ids.size });",
        "a": [
         "ответ 200"
        ],

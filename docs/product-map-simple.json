@@ -16,10 +16,10 @@
   "paths": 731,
   "cron": 125,
   "jobs": 32,
-  "conditions": 3998,
+  "conditions": 3999,
   "untranslatedUnique": 458,
   "untranslatedTotal": 588,
-  "partialUnique": 1098,
+  "partialUnique": 1099,
   "translatedShare": 85
  },
  "untranslated": [
@@ -56304,6 +56304,19 @@
      "k": "try",
      "a": [],
      "c": [
+      {
+       "t": "если нет: tuned",
+       "k": "if",
+       "a": [],
+       "c": [
+        {
+         "t": "всё хорошо, отвечает данными: «Функции заведены (…), но агент не принял настройки…»",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
+      },
       {
        "t": "всё хорошо, отвечает данными",
        "k": "do",
