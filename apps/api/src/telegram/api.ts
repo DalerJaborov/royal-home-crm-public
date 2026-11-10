@@ -710,6 +710,20 @@ export async function sendHtmlMessage(
   }, CALL_TIMEOUT_MS, undefined, undefined, true);
 }
 
+/** Правка своего сообщения с разметкой HTML (карточка расходов листается и правится на месте). */
+export async function editHtmlMessage(
+  chatId: string, messageId: number, html: string, buttons?: TelegramInlineButton[][] | null,
+): Promise<void> {
+  await call("editMessageText", {
+    chat_id: chatId,
+    message_id: messageId,
+    text: html,
+    parse_mode: "HTML",
+    link_preview_options: { is_disabled: true },
+    reply_markup: { inline_keyboard: buttons ?? [] },
+  });
+}
+
 /** Repeat a known voice for this bot, with no ambiguous automatic retry. */
 export async function sendAssistantVoiceId(
   chatId: string, fileId: string, replyToMessageId?: number, messageThreadId?: number,
