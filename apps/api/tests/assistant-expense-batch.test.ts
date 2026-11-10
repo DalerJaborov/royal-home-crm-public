@@ -537,21 +537,24 @@ describe("Шабнам, пачка 2: PDF, .xls, реклама и зарпла�
 
   it("зарплата: сотрудник по имени; однофамильцы — кнопки, а не выбор за человека", async () => {
     // Имена без цифр (как у людей): цифры из строки зарплаты отбрасываются при поиске имени.
+    // Метка прогона и в имени, и в фамилии: в облаке файлы идут параллельно на одной базе, и чужой
+    // «Сафаров» превращал единственное частичное совпадение в «несколько» (ship #141, 11.11.2026).
     const tag = stamp.replace(/\d/gu, (d) => "абвгдежзик"[Number(d)]!);
-    const a = await prisma.agent.create({ data: { fullName: `Ахмадбек Рахимов ${tag}`, phone: `+992932${stamp}`, passwordHash: "x", role: "AGENT" } });
-    const b = await prisma.agent.create({ data: { fullName: `Ахмадбек Сафаров ${tag}`, phone: `+992933${stamp}`, passwordHash: "x", role: "AGENT" } });
+    const first = `Ахмадбек${tag}`;
+    const a = await prisma.agent.create({ data: { fullName: `${first} Рахимов${tag}`, phone: `+992932${stamp}`, passwordHash: "x", role: "AGENT" } });
+    const b = await prisma.agent.create({ data: { fullName: `${first} Сафаров${tag}`, phone: `+992933${stamp}`, passwordHash: "x", role: "AGENT" } });
     try {
-      io.download.mockResolvedValue(Buffer.from(`Название,Сумма\nЗарплата Ахмадбек,3000\nЗарплата Ахмадбек Рахимов ${tag},4000\nЗарплата Сафаров,500\n`, "utf8"));
+      io.download.mockResolvedValue(Buffer.from(`Название,Сумма\nЗарплата ${first},3000\nЗарплата ${first} Рахимов${tag},4000\nЗарплата Сафаров${tag},500\n`, "utf8"));
       await handleAssistantPrivate(docMsg("зарплата.csv", "расходы"), writer);
       const html = lastCard()[1];
       expect(html).toContain("👥 похожих сотрудников несколько");
       // Полное имя — сотрудник выбран и виден у строки; единственное ЧАСТИЧНОЕ совпадение — только кнопкой.
-      expect(html).toContain(`👥 Ахмадбек Рахимов ${tag}`);
-      expect(html).toContain(`👥 это Ахмадбек Сафаров ${tag}? Подтвердите: ✏️ Править → строка 3`);
+      expect(html).toContain(`👥 ${first} Рахимов${tag}`);
+      expect(html).toContain(`👥 это ${first} Сафаров${tag}? Подтвердите: ✏️ Править → строка 3`);
       await click(button("ax:fx:"));
       await click(io.editHtml.mock.calls.at(-1)![3]!.flat().find((x) => x.text === "1")!.callback_data!);
       const people = io.editHtml.mock.calls.at(-1)![3]!.flat();
-      await click(people.find((x) => x.text.startsWith("Ахмадбек Сафаров"))!.callback_data!);
+      await click(people.find((x) => x.text.startsWith(`${first} Сафаров`))!.callback_data!);
       await click(io.editHtml.mock.calls.at(-1)![3]!.flat().find((x) => x.text === "✅ Записать")!.callback_data!);
       const rows = await prisma.expense.findMany({ where: { createdById: writer.id, category: "SALARY" }, select: { agentId: true, amount: true } });
       expect(rows.map((r) => [r.agentId, Number(r.amount)])).toEqual(expect.arrayContaining([[b.id, 3000], [a.id, 4000]]));
