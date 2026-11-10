@@ -146,3 +146,16 @@ export function dushanbeDateFilter(from?: Date, to?: Date): { gte?: Date; lte?: 
     ...(to ? { lte: dushanbeEndOfDay(to) } : {}),
   };
 }
+
+/**
+ * Границы месяца по Душанбе из ключа «YYYY-MM» — для полей с настоящим моментом
+ * (Deal.closedAt, Client.createdAt). Якорь — 15-е число в UTC: сдвиг на ±5 часов
+ * не меняет календарный месяц. Одна функция на ИИ-помощницу и её инструменты.
+ */
+export function dushanbeMonthRange(monthKey: string): { from: Date; to: Date } {
+  const [y, m] = monthKey.split("-").map(Number);
+  return {
+    from: dushanbeStartOfMonth(new Date(Date.UTC(y, m - 1, 15))),
+    to: dushanbeStartOfMonth(new Date(Date.UTC(y, m, 15))),
+  };
+}
