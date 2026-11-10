@@ -57,7 +57,10 @@ import {
 import { downloadAssistantMedia } from "./assistantMedia.js";
 import { extractPropertyFields } from "./assistantPropertyFields.js";
 import { sendPropertyMatchesCard } from "./assistantPropertyOffers.js";
-import { answerCompressedChoice, askAboutCompressedOnce, photoQualityCallback, photoQualityLine, recordDraftPhotoQuality } from "./assistantPhotoQuality.js";
+import {
+  answerCompressedChoice, askAboutCompressedOnce, photoQualityCallback, photoQualityLine, recordDraftPhotoQuality,
+  rejectsCompressed, tellCompressedRejected,
+} from "./assistantPhotoQuality.js";
 import { isTelegramCompressed } from "../lib/photoQuality.js";
 
 type Lang = "ru" | "tg";
@@ -1110,6 +1113,11 @@ export async function handleTelegramPropertyDraft(
         let accepted = false;
         try {
           const maxBytes = TELEGRAM_DRAFT_PHOTO_LIMIT_BYTES;
+          const compressedByTelegram = Boolean(compressed) && isTelegramCompressed(msg.photo);
+          if (compressedByTelegram && rejectsCompressed(draft)) {
+            await tellCompressedRejected(chatId, lang, album);
+            return true;
+          }
           if (picture.file_size && picture.file_size > maxBytes) throw new Error("photo_too_large");
           const buffer = await downloadAssistantMedia(picture.file_id, maxBytes);
           const uploadKey = `tg:${draft.id}:${msg.message_id}`;
@@ -1121,7 +1129,6 @@ export async function handleTelegramPropertyDraft(
           if (accepted) {
             // Пометки качества — до карточки, чтобы она их уже показала. Файл-фото
             // (document) — оригинал: сжатым его не считаем.
-            const compressedByTelegram = Boolean(compressed) && isTelegramCompressed(msg.photo);
             await recordDraftPhotoQuality(uploadKey, buffer, compressedByTelegram);
             if (compressedByTelegram) await askAboutCompressedOnce(chatId, draft.id, lang);
           }

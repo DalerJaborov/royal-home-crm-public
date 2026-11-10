@@ -111,11 +111,13 @@ export function MatchClientCard({
           }
         }}
       >
-        <span className="ph" style={{ borderRadius: "50%" }}>
-          <ClientAvatar fullName={c.fullName} size={40} />
-        </span>
         <div className="t">
-          <b>{c.fullName}</b>
+          {/* Аватар — в строке с именем, а не отдельной колонкой: на телефоне колонка
+              оставляла пустую полосу слева от причин подбора (кадр 10.11.2026). */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <ClientAvatar fullName={c.fullName} size={28} />
+            <b>{c.fullName}</b>
+          </div>
           <span style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center", marginTop: 2 }}>
             <ClientStateBadge client={{ ...c, status: c.status as ClientStatus }} />
             <MatchTierChip tier={c.match.tier} />

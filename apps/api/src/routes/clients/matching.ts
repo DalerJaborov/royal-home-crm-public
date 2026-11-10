@@ -378,7 +378,7 @@ matchingRouter.get("/:id/match", requireAuth, async (req, res) => {
   if (!confirmedClientIntents(client).buys) {
     return res.json(empty("not_buyer"));
   }
-  // Купил или явно отказался — подбор ему не нужен (одно правило с «ждущими», lib/matchPolicy.ts).
+  // Уже купил — подбор ему не нужен (одно правило с «ждущими», lib/matchPolicy.ts).
   if (clientDoneBuying(client)) return res.json(empty("closed"));
   const result = await clientPropertyMatchingCatalog(client.id, currentBuyerMatchingCriteria(client), {
     viewerId: req.agent!.id, canDeleteProperties: can(req, "properties.delete"), page, pageSize, scope,

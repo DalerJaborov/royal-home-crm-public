@@ -9281,6 +9281,9 @@ model PropertyDraft {
   /// Когда мастер в Telegram один раз спросил про сжатые фото (lib/photoQuality.ts,
   /// 10.11.2026). Не null — больше не спрашиваем по этому черновику, что бы ни ответили.
   compressedPhotoNoticeAt DateTime?
+  /// Ответ на этот вопрос: KEEP — «Оставить эти», FILE — «Пришлю файлом» (сжатые после
+  /// такого ответа в черновик не берём). null — не спрашивали или не ответили.
+  compressedPhotoChoice   String?
   expiresAt DateTime
   media     PropertyDraftMedia[]
 

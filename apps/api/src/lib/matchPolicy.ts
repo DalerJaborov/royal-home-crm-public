@@ -148,10 +148,14 @@ export function confirmedBuyerWhere(): Prisma.ClientWhereInput {
  * КУПИЛ ИЛИ ЯВНО ОТКАЗАЛСЯ — ОДНО МЕСТО (подбор 2.0, 10.11.2026). LOST по-прежнему
  * «ждёт» (D6: «дорого», «не тот объект» — обычный исход рынка), но не тогда, когда
  * причина отказа говорит, что искать больше нечего: купил сам, купил через другое
- * агентство, передумал. До этой правки такие клиенты стояли в «Кому подходит» и в
- * счётчике «ждут N покупателей» наравне с живыми.
+ * агентство. До этой правки такие клиенты стояли в «Кому подходит» и в счётчике
+ * «ждут N покупателей» наравне с живыми.
+ *
+ * CHANGED_MIND («Передумал покупать / отложил», его же ставит explicitRefusalDetector)
+ * СОЗНАТЕЛЬНО не здесь: отложивший вернётся, и терять его в подборе нельзя (ревью
+ * 10.11.2026; вопрос владельцу задан отдельно). Решит иначе — одна строка в этом списке.
  */
-export const DONE_BUYING_REFUSAL_REASONS = ["BOUGHT_SELF", "BOUGHT_VIA_OTHER_AGENCY", "BOUGHT_ELSEWHERE", "CHANGED_MIND"] as const;
+export const DONE_BUYING_REFUSAL_REASONS = ["BOUGHT_SELF", "BOUGHT_VIA_OTHER_AGENCY", "BOUGHT_ELSEWHERE"] as const;
 
 /** Тот же ответ, что у waitingBuyerWhere по статусу и причине отказа, — для одной карточки. */
 export function clientDoneBuying(client: { status: string; refusalReason?: string | null }): boolean {
@@ -173,7 +177,7 @@ export function waitingBuyerWhere(policy: MatchPolicy, now: Date = new Date()): 
     // NULL, не true, и WHERE такую строку молча выбрасывает. Явный `null` в OR
     // не даёт этому отсечь всех клиентов без единого проведённого показа.
     { OR: [{ buyerStage: null }, { buyerStage: { not: "NEGOTIATION" } }] },
-    // Купил или передумал (DONE_BUYING_REFUSAL_REASONS). Не через NOT: у LOST без
+    // Купил сам или через других (DONE_BUYING_REFUSAL_REASONS). Не через NOT: у LOST без
     // причины `refusalReason IN (...)` даёт NULL, и NOT(NULL) молча выбросил бы его.
     { OR: [{ status: { not: "LOST" } }, { refusalReason: null }, { refusalReason: { notIn: [...DONE_BUYING_REFUSAL_REASONS] } }] },
     // Требования должны быть заполнены хоть чем-то — иначе сюда попадает любой

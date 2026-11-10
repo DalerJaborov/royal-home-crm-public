@@ -1,10 +1,13 @@
 import type { MatchingClient, MatchingClientsResponse } from "@royal-home/shared";
 import type { Prisma } from "../generated/prisma/client.js";
+import type { PropertyType } from "../generated/prisma/enums.js";
 import { prisma } from "../db.js";
 import { loadMoneyContext, type MoneyContext } from "../lib/money.js";
 import { propertyOwnerAgentId } from "../lib/propertyOwner.js";
 import { matchingPropertySellers } from "../lib/matchingOwnership.js";
+import type { MatchLang } from "@royal-home/shared";
 import {
+  clientPropertyEligible,
   compareMatches,
   currentBuyerMatchingCriteria,
   matchClientProperty,
@@ -42,7 +45,7 @@ export function clientMatchesProperty(
   money: MoneyContext,
   policy: MatchPolicy = DEFAULT_MATCH_POLICY
 ): boolean {
-  return matchClientProperty(client, property, money, policy) !== null;
+  return clientPropertyEligible(client, property, money, policy);
 }
 
 /** Поля клиента, которые читает единая модель. */
@@ -99,6 +102,9 @@ export async function computeDemandCounts(properties: MatchableProperty[]): Prom
   const districtIds = [...new Set(properties.map((p) => p.districtId).filter((id): id is string => id != null))];
   // Гео-предфильтр (12.09.2026, блок D2): грубый bbox с потолком радиуса.
   const propertyPoints = properties.filter((p) => p.lat != null && p.lng != null);
+  // Тип — тоже в запросе (ревью 10.11): клиент, ищущий дом, не подходит странице из
+  // одних квартир. Объект без типа подходит любому — тогда тип не сужаем.
+  const propertyTypes = properties.some((p) => !p.type) ? null : [...new Set(properties.map((p) => p.type as string))];
 
   const [policy, money] = await Promise.all([loadMatchPolicy(), loadMoneyContext()]);
   const waiting = waitingBuyerWhere(policy);
@@ -107,6 +113,9 @@ export async function computeDemandCounts(properties: MatchableProperty[]): Prom
       ...waiting,
       AND: [
         ...(Array.isArray(waiting.AND) ? waiting.AND : []),
+        ...(propertyTypes
+          ? [{ OR: [{ desiredType: null }, { desiredType: { in: propertyTypes as PropertyType[] } }] } as Prisma.ClientWhereInput]
+          : []),
         {
           OR: [
             { desiredDistrictId: { in: districtIds } },
@@ -145,6 +154,8 @@ export type { MatchingClient, MatchingClientsResponse };
 export interface MatchingScope {
   assignedAgentId?: string;
   clientId?: string;
+  /** Язык причин (помощница пишет на языке собеседника). */
+  lang?: MatchLang;
 }
 
 /**
@@ -217,8 +228,10 @@ export async function findMatchingClientsForProperty(
     take: 300,
   });
 
+  // Быстрый путь «да/нет» отсекает лишних, причины строим только прошедшим.
   const matched = clients.flatMap((c) => {
-    const match = matchClientProperty(c, property, money, policy);
+    if (!clientPropertyEligible(c, property, money, policy)) return [];
+    const match = matchClientProperty(c, property, money, policy, scope.lang);
     return match ? [{ client: c, match }] : [];
   });
   // Порядок: уровень и причины пары; «горячий» — только при прочих равных.
@@ -345,6 +358,7 @@ export async function findMatchingPropertiesForClient(
 
   return properties
     .flatMap((p) => {
+      if (!clientPropertyEligible(client, p, money, policy)) return [];
       const match = matchClientProperty(client, p, money, policy);
       if (!match) return [];
       return [{

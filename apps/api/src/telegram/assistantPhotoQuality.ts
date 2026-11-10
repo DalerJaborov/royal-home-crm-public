@@ -14,7 +14,7 @@ import { assessPhotoQuality, PHOTO_QUALITY_FLAGS, type PhotoQualityFlag } from "
 import { deleteDraftMedia } from "../lib/propertyDraftMedia.js";
 import { logSystemError } from "../lib/systemError.js";
 import type { DraftRecord } from "../routes/properties/draftLifecycle.js";
-import { sendMessageWithButtons } from "./api.js";
+import { sendMessage, sendMessageWithButtons } from "./api.js";
 
 type Lang = "ru" | "tg";
 
@@ -26,6 +26,7 @@ const copy = {
     kept: "Хорошо, оставляем эти.",
     waiting: (n: number) => n ? `Жду фото файлом. Сжатые (${n}) убрала из черновика.` : "Жду фото файлом.",
     photo: "фото",
+    rejected: "📸 Это фото снова сжатое — не взяла. Пришлите файлом: 📎 → Файл → выберите фото.",
     flags: { compressed: "сжатое", dark: "тёмное", bright: "пересвечено", blurry: "размытое" } satisfies Record<PhotoQualityFlag, string>,
   },
   tg: {
@@ -35,6 +36,7 @@ const copy = {
     kept: "Хуб, ҳаминҳоро мемонем.",
     waiting: (n: number) => n ? `Аксҳоро ҳамчун файл интизорам. ${n} акси фишурдаро аз черновик гирифтам.` : "Аксҳоро ҳамчун файл интизорам.",
     photo: "акс",
+    rejected: "📸 Ин акс боз фишурда аст — нагирифтам. Ҳамчун файл фиристед: 📎 → Файл → аксро интихоб кунед.",
     flags: { compressed: "фишурда", dark: "торик", bright: "аз ҳад равшан", blurry: "хира" } satisfies Record<PhotoQualityFlag, string>,
   },
 } as const;
@@ -84,10 +86,28 @@ export async function answerCompressedChoice(
   agentId: string, draft: Pick<DraftRecord, "id" | "media">, choice: "keep" | "file", lang: Lang
 ): Promise<string> {
   const c = copy[lang];
+  await prisma.propertyDraft.updateMany({ where: { id: draft.id }, data: { compressedPhotoChoice: choice === "keep" ? "KEEP" : "FILE" } });
   if (choice === "keep") return c.kept;
   const compressed = draft.media.filter(file => file.kind === "PHOTO" && file.qualityFlags.includes("compressed"));
   for (const file of compressed) await deleteDraftMedia(agentId, draft.id, file.id);
   return c.waiting(compressed.length);
+}
+
+/**
+ * После «Пришлю файлом» сжатое фото в черновик не берём: иначе на сайт снова уйдёт
+ * мыло рядом с файлами. Подсказка — одна на альбом, а не на каждый снимок.
+ */
+const rejectedAlbums = new Set<string>();
+export function rejectsCompressed(draft: { compressedPhotoChoice: string | null }): boolean {
+  return draft.compressedPhotoChoice === "FILE";
+}
+export async function tellCompressedRejected(chatId: string, lang: Lang, album: string | undefined): Promise<void> {
+  if (album) {
+    if (rejectedAlbums.has(album)) return;
+    rejectedAlbums.add(album);
+    if (rejectedAlbums.size > 500) rejectedAlbums.clear();
+  }
+  await sendMessage(chatId, copy[lang].rejected);
 }
 
 /** «⚠️ фото 2 — тёмное; фото 5 — размытое» для карточки «Проверьте объект»; null — замечаний нет. */
@@ -96,8 +116,8 @@ export function photoQualityLine(draft: Pick<DraftRecord, "media">, lang: Lang):
   // Номер — как у кнопки «Убрать фото N» (fileLabel): по порядку среди всех снимков.
   const photos = draft.media.filter(file => file.kind === "PHOTO");
   const notes = photos.flatMap((file, index) => {
-    // «Сжатое» здесь не повторяем: об этом уже спросили один раз.
-    const flags = PHOTO_QUALITY_FLAGS.filter(flag => flag !== "compressed" && file.qualityFlags.includes(flag));
+    // «Сжатое» тоже видно: после «Оставить эти» агент помнит, какие снимки хуже.
+    const flags = PHOTO_QUALITY_FLAGS.filter(flag => file.qualityFlags.includes(flag));
     return flags.length ? [`${c.photo} ${index + 1} — ${flags.map(flag => c.flags[flag]).join(", ")}`] : [];
   });
   return notes.length ? `⚠️ ${notes.join("; ")}` : null;

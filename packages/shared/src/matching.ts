@@ -77,6 +77,94 @@ export function matchTierRank(tier: MatchTier): number {
   return MATCH_TIERS.indexOf(tier);
 }
 
+export type MatchLang = "ru" | "tg";
+export type MatchWishKey = "renovated" | "furniture" | "parking" | "lift" | "balcony" | "newBuild" | "documents";
+
+const roomsRu = (n: number) => {
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return "комната";
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return "комнаты";
+  return "комнат";
+};
+/** «на 1 комнату», «на 2 комнаты», «на 5 комнат». */
+const roomsDiffRu = (n: number) => (n % 10 === 1 && n % 100 !== 11 ? `${n} комнату` : `${n} ${roomsRu(n)}`);
+const tjsText = (value: number, unit: string) => `${Math.round(value).toLocaleString("ru-RU").replace(/ /g, " ")} ${unit}`;
+
+/**
+ * СЛОВА ПРИЧИН ПОДБОРА — одно место на CRM и помощницу, на языке собеседника
+ * (подбор 2.0, 10.11.2026). Правило совпадения (lib/clientPropertyMatching.ts)
+ * решает, ЧТО сказать, словарь — КАК. Отдельной русской строки в правиле нет.
+ */
+export const MATCH_TEXT = {
+  ru: {
+    typeOk: "Тип объекта подходит",
+    district: "Нужный район",
+    nearPlace: (label: string, distance: string) => `Рядом с «${label}»: ${distance}`,
+    toPlace: (distance: string) => `До ориентира ${distance}`,
+    placeUnknown: "Расстояние до ориентира не проверено",
+    noPlace: "Клиент не назвал район или ориентир",
+    overBudget: (pct: number, over: number) => `На ${pct}% дороже бюджета (+${tjsText(over, "сомони")})`,
+    underBudget: (pct: number) => `На ${pct}% дешевле, чем искал клиент`,
+    inBudget: "В бюджете",
+    noBudget: "Клиент не назвал бюджет",
+    roomsUnknown: "Комнаты у объекта не указаны",
+    roomsOk: (n: number) => `${n} ${roomsRu(n)}, как просил`,
+    roomsDiff: (diff: number, wanted: number) => `На ${roomsDiffRu(Math.abs(diff))} ${diff < 0 ? "меньше" : "больше"} (просил ${wanted})`,
+    noRooms: "Клиент не назвал число комнат",
+    areaUnknown: "Площадь объекта не указана",
+    areaLess: (area: number, short: number) => `Площадь ${area} м², на ${short} м² меньше желаемой`,
+    areaOk: (area: number, wanted: number) => `Площадь ${area} м² (просил от ${wanted})`,
+    floorUnknown: "Этаж объекта не указан",
+    lastUnknown: "Неизвестно, последний ли этаж",
+    floorOk: (floor: string) => `Этаж ${floor} подходит`,
+    floorOf: (floor: number, total: number | null) => `${floor}${total ? ` из ${total}` : ""}`,
+    floorsOk: (n: number) => `Дом не выше ${n} этажей`,
+    floorsUnknown: "Этажность дома не указана",
+    wish: { renovated: "Ремонт", furniture: "Мебель", parking: "Парковка", lift: "Лифт", balcony: "Балкон", newBuild: "Новостройка", documents: "Документы" } satisfies Record<MatchWishKey, string>,
+    wishUnknown: (label: string) => `${label}: нужно уточнить`,
+    wishMismatch: (label: string) => `${label}: не соответствует пожеланию`,
+    wishValue: { newBuild: "новое жильё", secondary: "вторичное жильё", ready: "готовый", needsRepair: "требуется", yes: "есть", no: "отсутствует" },
+    noCriteria: "Сначала уточните пожелания покупателя",
+    askFloor: (floor: string) => `Клиент не говорил про этаж (здесь ${floor})`,
+    askRepair: "Объекту нужен ремонт, клиент про ремонт не говорил",
+    askNotes: "Остальное из заметок клиента проверьте перед отправкой",
+  },
+  tg: {
+    typeOk: "Навъи объект мувофиқ аст",
+    district: "Ноҳияи лозимӣ",
+    nearPlace: (label: string, distance: string) => `Наздики «${label}»: ${distance}`,
+    toPlace: (distance: string) => `То мавқеъ ${distance}`,
+    placeUnknown: "Масофа то мавқеъ санҷида нашудааст",
+    noPlace: "Мизоҷ ноҳия ё мавқеъро нагуфтааст",
+    overBudget: (pct: number, over: number) => `${pct}% аз буҷет қиматтар (+${tjsText(over, "сомонӣ")})`,
+    underBudget: (pct: number) => `${pct}% арзонтар аз он чи мизоҷ меҷуст`,
+    inBudget: "Дар доираи буҷет",
+    noBudget: "Мизоҷ буҷетро нагуфтааст",
+    roomsUnknown: "Шумораи ҳуҷраҳои объект нишон дода нашудааст",
+    roomsOk: (n: number) => `${n} ҳуҷра, чунон ки мехост`,
+    roomsDiff: (diff: number, wanted: number) => `${Math.abs(diff)} ҳуҷра ${diff < 0 ? "камтар" : "бештар"} (${wanted} мехост)`,
+    noRooms: "Мизоҷ шумораи ҳуҷраҳоро нагуфтааст",
+    areaUnknown: "Масоҳати объект нишон дода нашудааст",
+    areaLess: (area: number, short: number) => `Масоҳат ${area} м², ${short} м² камтар аз дилхоҳ`,
+    areaOk: (area: number, wanted: number) => `Масоҳат ${area} м² (аз ${wanted} мехост)`,
+    floorUnknown: "Ошёнаи объект нишон дода нашудааст",
+    lastUnknown: "Маълум нест, ки ошёнаи охирин аст ё не",
+    floorOk: (floor: string) => `Ошёнаи ${floor} мувофиқ аст`,
+    floorOf: (floor: number, total: number | null) => `${floor}${total ? ` аз ${total}` : ""}`,
+    floorsOk: (n: number) => `Бино на баландтар аз ${n} ошёна`,
+    floorsUnknown: "Шумораи ошёнаҳои бино нишон дода нашудааст",
+    wish: { renovated: "Таъмир", furniture: "Мебел", parking: "Ҷои мошин", lift: "Лифт", balcony: "Балкон", newBuild: "Бинои нав", documents: "Ҳуҷҷатҳо" } satisfies Record<MatchWishKey, string>,
+    wishUnknown: (label: string) => `${label}: аниқ кардан лозим`,
+    wishMismatch: (label: string) => `${label}: ба хоҳиш мувофиқ нест`,
+    wishValue: { newBuild: "манзили нав", secondary: "бозори дуюмдараҷа", ready: "тайёр", needsRepair: "лозим", yes: "ҳаст", no: "нест" },
+    noCriteria: "Аввал хоҳишҳои харидорро аниқ кунед",
+    askFloor: (floor: string) => `Мизоҷ дар бораи ошёна нагуфтааст (ин ҷо ${floor})`,
+    askRepair: "Объект таъмир талаб мекунад, мизоҷ дар бораи таъмир нагуфтааст",
+    askNotes: "Боқимондаи қайдҳои мизоҷро пеш аз фиристодан санҷед",
+  },
+} as const;
+
 /** Что именно совпало, где уступка и чего не знаем — без отправок. */
 export interface MatchEvidence {
   tier: MatchTier;
@@ -147,7 +235,7 @@ export interface ClientPropertyMatchSummary {
   pageSize: number;
   hasMore: boolean;
   scope: "all" | "mine";
-  /** closed — клиент уже купил или явно отказался (lib/matchPolicy.ts::clientDoneBuying). */
+  /** closed — клиент уже купил (lib/matchPolicy.ts::clientDoneBuying). */
   reason: "not_buyer" | "pending_acceptance" | "needs_requirements" | "closed" | null;
   requirementsSummary: string[];
 }

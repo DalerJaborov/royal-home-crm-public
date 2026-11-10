@@ -398,7 +398,7 @@ function ClientMatchPanel({
         <button type="button" className="pill ghost" onClick={() => activeQuery.refetch()}>Повторить</button>
       </div>}
       {!activeQuery.isLoading && !activeQuery.isError && items.length === 0 && <div className="empty">
-        <p>{matchQuery.data?.reason === "not_buyer" && source === "match" ? "Подбор доступен только подтверждённому покупателю." : matchQuery.data?.reason === "closed" && source === "match" ? "Клиент уже купил или отказался — подбор ему не нужен." : "Подходящих объектов пока нет. Уточните требования или посмотрите каталог."}</p>
+        <p>{matchQuery.data?.reason === "not_buyer" && source === "match" ? "Подбор доступен только подтверждённому покупателю." : matchQuery.data?.reason === "closed" && source === "match" ? "Клиент уже купил — подбор ему не нужен." : "Подходящих объектов пока нет. Уточните требования или посмотрите каталог."}</p>
         {source === "match" && <button type="button" className="pill ghost" onClick={() => { setSource("catalog"); setExpanded(true); }}>Посмотреть каталог</button>}
       </div>}
       {!readOnly && failure && (failure.fallback ? <div className="client-match-preview">

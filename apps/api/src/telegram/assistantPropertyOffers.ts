@@ -90,7 +90,7 @@ export async function sendPropertyMatchesCard(chatId: string, viewer: Viewer, pr
   const c = copy[lang];
   try {
     const [matches, property] = await Promise.all([
-      matchingClientsForAssistant(viewer, propertyId),
+      matchingClientsForAssistant(viewer, propertyId, undefined, lang),
       prisma.property.findUnique({ where: { id: propertyId }, select: { shortId: true } }),
     ]);
     const shownCount = matches.own.length + matches.colleagues.length;

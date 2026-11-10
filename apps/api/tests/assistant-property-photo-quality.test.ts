@@ -130,6 +130,9 @@ describe("вопрос про сжатые — один раз на чернов
     sendMessageWithButtons.mockClear();
     await send("keep", photo("k3", 1280));
     expect(asks()).toHaveLength(0);
+    // «Оставить» — снимки остаются, но в карточке помечены «сжатое».
+    expect(String(sendMessageWithButtons.mock.calls.at(-1)?.[1] ?? "")).toContain("фото 1 — сжатое");
+    expect((await draftOf("keep")).compressedPhotoChoice).toBe("KEEP");
   });
 
   it("«Пришлю файлом» убирает сжатые из черновика; фото файлом — без вопроса", async () => {
@@ -143,6 +146,11 @@ describe("вопрос про сжатые — один раз на чернов
     const photos = (await draftOf("file")).media.filter(m => m.kind === "PHOTO");
     expect(photos).toHaveLength(1);
     expect(photos[0].qualityFlags).not.toContain("compressed");
+    expect(asks()).toHaveLength(1);
+    // Сжатое ПОСЛЕ «Пришлю файлом» в черновик не попадает — одна подсказка, без вопроса.
+    await send("file", photo("f2", 1280));
+    expect((await draftOf("file")).media.filter(m => m.kind === "PHOTO")).toHaveLength(1);
+    expect(String(sendMessage.mock.calls.at(-1)?.[1] ?? "")).toContain("снова сжатое");
     expect(asks()).toHaveLength(1);
   });
 
@@ -165,6 +173,6 @@ describe("вопрос про сжатые — один раз на чернов
     expect(asks()).toHaveLength(1);
     expect(String(asks()[0][1])).toContain("Аксҳо фишурда омаданд");
     const card = String(sendMessageWithButtons.mock.calls.at(-1)?.[1] ?? "");
-    expect(card).toContain("⚠️ акс 1 — хира");
+    expect(card).toContain("⚠️ акс 1 — фишурда, хира");
   });
 });
