@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **733**. Развилок в самих путях: **2410**; вместе с задачами по расписанию и фоновыми заданиями — **3909**. Модулей: **82**.
+Путей: **733**. Развилок в самих путях: **2411**; вместе с задачами по расписанию и фоновыми заданиями — **3921**. Модулей: **82**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -14141,9 +14141,7 @@
 
 `apps/api/src/routes/push.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
-- const agent = await prisma.agent.findUnique({ where: { id: req.agent!.id }, select: { pushMuted: true }, });
-  · читает в базе: agent
-- res.json({ kinds: PUSH_KINDS.map((k)
+- res.json(preferencesView(await mutedKindsOf(req.agent!.id)));
   · ответ 200
 
 ### PATCH /api/v1/push/preferences
@@ -14153,17 +14151,15 @@
 - если !parsed.success
   - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
     · ответ 400 — «Неверные данные»
-- const agent = await prisma.agent.findUnique({ where: { id: req.agent!.id }, select: { pushMuted: true } });
-  · читает в базе: agent
-- если parsed.data.enabled
-  - current.delete(parsed.data.kind);
-    · дословно из кода
-- иначе
-  - current.add(parsed.data.kind);
-    · дословно из кода
-- await prisma.agent.update({ where: { id: req.agent!.id }, data: { pushMuted: [...current] } });
-  · меняет в базе: agent
-- res.json({ kinds: PUSH_KINDS.map((k)
+- const result = await setKindMuted(req.agent!.id, parsed.data.kind, !parsed.data.enabled);
+  · зовёт setKindMuted()
+- если !result.ok && result.reason === "always-on"
+  - return res.status(409).json({ error: `«${result.label}» выключить нельзя. ${result.why}` });
+    · ответ 409 — ««${result.label}» выключить нельзя. ${result.why}»
+- если !result.ok
+  - return res.status(400).json({ error: "Неизвестный вид уведомления" });
+    · ответ 400 — «Неизвестный вид уведомления»
+- res.json(result.view);
   · ответ 200
 
 ### POST /api/v1/push/subscribe
@@ -22491,6 +22487,73 @@
         · запись в журнал ошибок
   - await executeQueuedOwnerReports(now);
     · зовёт executeQueuedOwnerReports()
+
+### payment-reminders — 40 * * * *
+
+- пробует
+  - const result = await runPaymentReminders();
+    · зовёт runPaymentReminders()
+    - если !opts.ignoreWorkHours
+      - const window = await loadWorkWindow();
+        · зовёт loadWorkWindow()
+      - если !isWithinDushanbeWindow(window.start, window.end, now)
+        - return { recipients: 0, sent: 0, skipped: "outside-work-hours" };
+          · дословно из кода
+    - const today = dushanbeDateString(now);
+      · зовёт dushanbeDateString()
+    - const recipients = await findAgentsWithPermission("finance.view");
+      · зовёт findAgentsWithPermission()
+    - если !recipients.length
+      - return { recipients: 0, sent: 0, skipped: "no-recipients" };
+        · дословно из кода
+    - const [due, failures, money, payers, agents] = await Promise.all([ duePayments(today), billingFailures(now), …
+      · читает в базе: agent
+    - const snoozes = await prisma.staffNotice.findMany({ where: { kind: "payment", agentId: { in: recipients }, re…
+      · читает в базе: staffNotice
+    - для каждого: const agent of agents
+      - пробует
+        - если isKindMuted("payment", agent.pushMuted)
+          - continue;
+            · переходит к следующему
+        - const claimed = new Set(await claimNoticeKeys(agent.id, "payment", [...wanted.map((w)
+          · зовёт claimNoticeKeys()
+        - для каждого: const s of mySnoozes
+          - если item && !reminders.some((r) => r.item.recurringId === item.recurringId && r.item.dueDate === item.dueDate)
+            - reminders.push({ stage: "repeat", item, key: `snooze:${s.id}` });
+              · дословно из кода
+        - если !reminders.length && !myFailures.length
+          - если firedSnoozes.length
+            - await prisma.staffNotice.updateMany({ where: { id: { in: firedSnoozes } }, data: { firedAt: now } });
+              · меняет в базе: staffNotice
+          - continue;
+            · переходит к следующему
+        - если agent.telegramChatId
+          - const status = await sendStaffNotice({ agentId: agent.id, kind: "payment", html: render(reminders, myFailures…
+            · зовёт sendStaffNotice()
+          - если status !== "sent"
+            - continue;
+              · переходит к следующему
+        - иначе
+          - await sendPushToAgent(agent.id, { kind: "payment", level: myFailures.length ? "CRITICAL" : undefined, title: …
+            · push-уведомление
+          - await prisma.staffNotice.updateMany({ where: { dedupKey: { in: keys } }, data: { messageId: 0 } });
+            · меняет в базе: staffNotice
+        - если firedSnoozes.length
+          - await prisma.staffNotice.updateMany({ where: { id: { in: firedSnoozes } }, data: { firedAt: now } });
+            · меняет в базе: staffNotice
+      - если сорвалось
+        - void logSystemError("api", `Напоминание об оплатах не отправлено: ${describeError(err)}`, { dedupKey: "paymen…
+          · запись в журнал ошибок
+  - если result.sent
+    - console.log(`[cron] Напоминания об оплатах: ${result.sent} из ${result.recipients}`);
+      · пишет строку в журнал сервера
+- если сорвалось
+  - reportCronTickError("Напоминания об оплатах не отправлены", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
 
 ### phone-lead-watchdog — */15 * * * *
 

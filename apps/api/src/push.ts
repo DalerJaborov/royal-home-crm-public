@@ -1,4 +1,5 @@
 import { filterInvestigationRecipients } from "./lib/investigationNotifications.js";
+import { isKindMuted } from "./lib/notificationPrefs.js";
 import webpush from "web-push";
 import type { Prisma } from "./generated/prisma/client.js";
 import type { PushPayload } from "@royal-home/shared";
@@ -50,7 +51,9 @@ export type PushSubscriptionRow = { id: string; endpoint: string; p256dh: string
  * что человек отключал совсем про другое.
  */
 function isMuted(payload: PushPayload, muted: string[] | undefined): boolean {
-  return Boolean(payload.kind && muted?.includes(payload.kind));
+  // Одна дверь с Telegram и профилем (lib/notificationPrefs.ts): неотключаемый
+  // вид (безопасность) не глушится, даже если в массив попал руками.
+  return isKindMuted(payload.kind, muted);
 }
 
 /** Payload без служебных полей: `kind` нужен только серверу и на устройство не едет. */

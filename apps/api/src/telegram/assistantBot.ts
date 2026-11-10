@@ -43,6 +43,8 @@ import { claimAgentAiAction } from "../lib/agentAiActionCap.js";
 import { maskAssistantContacts } from "../lib/assistantContacts.js";
 import { findAgentByTelegramChatId, findAgentByTelegramUserId } from "../lib/telegramAgentLink.js";
 import { claimCallback } from "../lib/telegramModeration.js";
+import { handlePaymentReminderCallback } from "../lib/paymentReminders.js";
+import { handleNoticePreferenceText, handleStaffNoticeCallback } from "./staffNotice.js";
 import { logSystemError } from "../lib/systemError.js";
 import { describeError } from "../lib/describeError.js";
 import { trackBackgroundTask } from "../lib/shutdownState.js";
@@ -825,6 +827,8 @@ export async function handleAssistantPrivate(
       await send(HELP_TEXT);
       return;
     }
+    // «Не присылай мне такое», «что у меня выключено», «включи обратно …» — личные отключения.
+    if (!forwardedEvidence && await handleNoticePreferenceText(msg, agent, text)) return;
     // Ответ на «Править → строка N» в карточке расходов: поправка строки, а не новая просьба.
     if (!forwardedEvidence && await applyExpenseFixMessage(chatId, agent.id, text, msg.message_id)) return;
     const more = !forwardedEvidence && propertyPageRequest(text);
@@ -1630,6 +1634,10 @@ const FAIL_STATUS_NOTE: Record<string, string> = {
 
 /** `as:ok|no:<связка>`. true — это наша кнопка (обработана или отклонена). */
 export async function handleAssistantCallback(query: TelegramCallbackQuery): Promise<boolean> {
+  // «🔕 Не присылать такое» / «🔔 Включить обратно» — под любым сообщением помощницы по её почину.
+  if (await handleStaffNoticeCallback(query)) return true;
+  // «✅ Оплатил» / «⏰ Напомнить завтра» под напоминанием об оплате подписки.
+  if (await handlePaymentReminderCallback(query)) return true;
   if (query.data?.startsWith("ef:")) return handleTelegramExpenseReceiptCallback(query);
   if (query.data?.startsWith("ay:")) {
     if (!(await claimCallback(query.id))) { await answerCallbackQuery(query.id); return true; }

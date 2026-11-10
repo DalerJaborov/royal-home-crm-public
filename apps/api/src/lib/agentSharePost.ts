@@ -4,6 +4,7 @@ import { prisma } from "../db.js";
 import { propertyCoversDir } from "../upload.js";
 import { sendMessage, sendMessageWithButtons, sendPhotoFromDisk, type TelegramInlineButton } from "../telegram/api.js";
 import { logSystemError } from "./systemError.js";
+import { sendStaffNotice } from "../telegram/staffNotice.js";
 import { describeError } from "./describeError.js";
 import { siteListingUrl } from "./siteListingUrl.js";
 import { publishedPostLink, channelLabel } from "@royal-home/shared";
@@ -113,27 +114,25 @@ export async function sendAgentSharePost(propertyId: string, summary: AgentShare
     : null;
   const coverExists = coverPath ? await fs.access(coverPath).then(() => true).catch(() => false) : false;
 
-  try {
-    if (coverExists && coverPath) {
-      if (text.length <= 1024) {
-        await sendPhotoFromDisk(agent.telegramChatId, coverPath, text, buttonRows);
-      } else {
+  // Через дверь сообщений помощницы (вид «Публикации объектов», telegram/staffNotice.ts):
+  // выключил себе — не приходит; под постом — «🔕 Не присылать такое».
+  // Отказ Telegram публикацию не отменяет — дверь пишет его в журнал ошибок сама.
+  const chatId = agent.telegramChatId;
+  await sendStaffNotice({
+    agentId: responsibleId,
+    kind: "publication",
+    dedupKey: `agent-share-post:${property.id}`,
+    deliver: async (_chat, extraRows) => {
+      const rows = [...buttonRows, ...extraRows];
+      if (coverExists && coverPath) {
+        if (text.length <= 1024) return sendPhotoFromDisk(chatId, coverPath, text, rows);
         // Подпись не влезает в лимит подписи фото (1024) — фото без подписи,
         // текст с кнопками отдельным сообщением следом (см. задание, п.2).
-        await sendPhotoFromDisk(agent.telegramChatId, coverPath);
-        await sendMessageWithButtons(agent.telegramChatId, text, buttonRows);
+        await sendPhotoFromDisk(chatId, coverPath);
       }
-    } else {
-      await sendMessageWithButtons(agent.telegramChatId, text, buttonRows);
-    }
-  } catch (err) {
-    void logSystemError(
-      "telegram",
-      `Объект ${property.shortId}: пост для «Поделиться» не отправлен агенту — ${describeError(err)}`,
-      { dedupKey: `agent-share-post:${property.id}` }
-    );
-    // Публикация уже случилась и остаётся в силе — отказ Telegram её не отменяет.
-  }
+      return sendMessageWithButtons(chatId, text, rows);
+    },
+  });
 }
 
 /**

@@ -2,9 +2,9 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 733,
-  "forks": 3909,
+  "forks": 3921,
   "mounts": 82,
-  "cron": 125,
+  "cron": 126,
   "jobs": 32,
   "hidden": 0
  },
@@ -62515,15 +62515,7 @@
    "tree": [
     {
      "k": "do",
-     "t": "const agent = await prisma.agent.findUnique({ where: { id: req.agent!.id }, select: { pushMuted: true }, });",
-     "a": [
-      "читает в базе: agent"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "res.json({ kinds: PUSH_KINDS.map((k)",
+     "t": "res.json(preferencesView(await mutedKindsOf(req.agent!.id)));",
      "a": [
       "ответ 200"
      ],
@@ -62564,37 +62556,37 @@
     },
     {
      "k": "do",
-     "t": "const agent = await prisma.agent.findUnique({ where: { id: req.agent!.id }, select: { pushMuted: true } });",
+     "t": "const result = await setKindMuted(req.agent!.id, parsed.data.kind, !parsed.data.enabled);",
      "a": [
-      "читает в базе: agent"
+      "зовёт setKindMuted()"
      ],
      "c": []
     },
     {
      "k": "if",
-     "t": "parsed.data.enabled",
+     "t": "!result.ok && result.reason === \"always-on\"",
      "a": [],
      "c": [
       {
        "k": "do",
-       "t": "current.delete(parsed.data.kind);",
+       "t": "return res.status(409).json({ error: `«${result.label}» выключить нельзя. ${result.why}` });",
        "a": [
-        "дословно из кода"
+        "ответ 409 — ««${result.label}» выключить нельзя. ${result.why}»"
        ],
        "c": []
       }
      ]
     },
     {
-     "k": "else",
-     "t": "иначе",
+     "k": "if",
+     "t": "!result.ok",
      "a": [],
      "c": [
       {
        "k": "do",
-       "t": "current.add(parsed.data.kind);",
+       "t": "return res.status(400).json({ error: \"Неизвестный вид уведомления\" });",
        "a": [
-        "дословно из кода"
+        "ответ 400 — «Неизвестный вид уведомления»"
        ],
        "c": []
       }
@@ -62602,15 +62594,7 @@
     },
     {
      "k": "do",
-     "t": "await prisma.agent.update({ where: { id: req.agent!.id }, data: { pushMuted: [...current] } });",
-     "a": [
-      "меняет в базе: agent"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "res.json({ kinds: PUSH_KINDS.map((k)",
+     "t": "res.json(result.view);",
      "a": [
       "ответ 200"
      ],
@@ -100384,6 +100368,327 @@
       }
      ],
      "from": "prepareMonthlyOwnerReportPreviews() — apps/api/src/lib/ownerReport/monthlyPreview.ts"
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
+   "id": "payment-reminders",
+   "when": "40 * * * *",
+   "tree": [
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const result = await runPaymentReminders();",
+       "a": [
+        "зовёт runPaymentReminders()"
+       ],
+       "c": [
+        {
+         "k": "if",
+         "t": "!opts.ignoreWorkHours",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const window = await loadWorkWindow();",
+           "a": [
+            "зовёт loadWorkWindow()"
+           ],
+           "c": []
+          },
+          {
+           "k": "if",
+           "t": "!isWithinDushanbeWindow(window.start, window.end, now)",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "return { recipients: 0, sent: 0, skipped: \"outside-work-hours\" };",
+             "a": [
+              "дословно из кода"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const today = dushanbeDateString(now);",
+         "a": [
+          "зовёт dushanbeDateString()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "const recipients = await findAgentsWithPermission(\"finance.view\");",
+         "a": [
+          "зовёт findAgentsWithPermission()"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "!recipients.length",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { recipients: 0, sent: 0, skipped: \"no-recipients\" };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const [due, failures, money, payers, agents] = await Promise.all([ duePayments(today), billingFailures(now), …",
+         "a": [
+          "читает в базе: agent"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "const snoozes = await prisma.staffNotice.findMany({ where: { kind: \"payment\", agentId: { in: recipients }, re…",
+         "a": [
+          "читает в базе: staffNotice"
+         ],
+         "c": []
+        },
+        {
+         "k": "loop",
+         "t": "для каждого: const agent of agents",
+         "a": [],
+         "c": [
+          {
+           "k": "try",
+           "t": "пробует",
+           "a": [],
+           "c": [
+            {
+             "k": "if",
+             "t": "isKindMuted(\"payment\", agent.pushMuted)",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "continue;",
+               "a": [
+                "переходит к следующему"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "do",
+             "t": "const claimed = new Set(await claimNoticeKeys(agent.id, \"payment\", [...wanted.map((w)",
+             "a": [
+              "зовёт claimNoticeKeys()"
+             ],
+             "c": []
+            },
+            {
+             "k": "loop",
+             "t": "для каждого: const s of mySnoozes",
+             "a": [],
+             "c": [
+              {
+               "k": "if",
+               "t": "item && !reminders.some((r) => r.item.recurringId === item.recurringId && r.item.dueDate === item.dueDate)",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "reminders.push({ stage: \"repeat\", item, key: `snooze:${s.id}` });",
+                 "a": [
+                  "дословно из кода"
+                 ],
+                 "c": []
+                }
+               ]
+              }
+             ]
+            },
+            {
+             "k": "if",
+             "t": "!reminders.length && !myFailures.length",
+             "a": [],
+             "c": [
+              {
+               "k": "if",
+               "t": "firedSnoozes.length",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "await prisma.staffNotice.updateMany({ where: { id: { in: firedSnoozes } }, data: { firedAt: now } });",
+                 "a": [
+                  "меняет в базе: staffNotice"
+                 ],
+                 "c": []
+                }
+               ]
+              },
+              {
+               "k": "do",
+               "t": "continue;",
+               "a": [
+                "переходит к следующему"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "if",
+             "t": "agent.telegramChatId",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "const status = await sendStaffNotice({ agentId: agent.id, kind: \"payment\", html: render(reminders, myFailures…",
+               "a": [
+                "зовёт sendStaffNotice()"
+               ],
+               "c": []
+              },
+              {
+               "k": "if",
+               "t": "status !== \"sent\"",
+               "a": [],
+               "c": [
+                {
+                 "k": "do",
+                 "t": "continue;",
+                 "a": [
+                  "переходит к следующему"
+                 ],
+                 "c": []
+                }
+               ]
+              }
+             ]
+            },
+            {
+             "k": "else",
+             "t": "иначе",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "await sendPushToAgent(agent.id, { kind: \"payment\", level: myFailures.length ? \"CRITICAL\" : undefined, title: …",
+               "a": [
+                "push-уведомление"
+               ],
+               "c": []
+              },
+              {
+               "k": "do",
+               "t": "await prisma.staffNotice.updateMany({ where: { dedupKey: { in: keys } }, data: { messageId: 0 } });",
+               "a": [
+                "меняет в базе: staffNotice"
+               ],
+               "c": []
+              }
+             ]
+            },
+            {
+             "k": "if",
+             "t": "firedSnoozes.length",
+             "a": [],
+             "c": [
+              {
+               "k": "do",
+               "t": "await prisma.staffNotice.updateMany({ where: { id: { in: firedSnoozes } }, data: { firedAt: now } });",
+               "a": [
+                "меняет в базе: staffNotice"
+               ],
+               "c": []
+              }
+             ]
+            }
+           ]
+          },
+          {
+           "k": "catch",
+           "t": "если сорвалось",
+           "a": [],
+           "c": [
+            {
+             "k": "do",
+             "t": "void logSystemError(\"api\", `Напоминание об оплатах не отправлено: ${describeError(err)}`, { dedupKey: \"paymen…",
+             "a": [
+              "запись в журнал ошибок"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        }
+       ],
+       "from": "runPaymentReminders() — apps/api/src/lib/paymentReminders.ts"
+      },
+      {
+       "k": "if",
+       "t": "result.sent",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "console.log(`[cron] Напоминания об оплатах: ${result.sent} из ${result.recipients}`);",
+         "a": [
+          "пишет строку в журнал сервера"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "reportCronTickError(\"Напоминания об оплатах не отправлены\", err);",
+       "a": [
+        "зовёт reportCronTickError()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const reason = markCronTickFailed(label, err);",
+         "a": [
+          "зовёт markCronTickFailed()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        }
+       ],
+       "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
+      }
+     ]
     }
    ],
    "file": "apps/api/src/cron.ts"

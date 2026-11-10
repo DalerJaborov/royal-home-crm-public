@@ -610,6 +610,18 @@ export function startCronJobs() {
     const { prepareMonthlyOwnerReportPreviews } = await import("./lib/ownerReport/monthlyPreview.js");
     await prepareMonthlyOwnerReportPreviews();
   }, { timezone: "Asia/Dushanbe" });
+  /** Напоминания об оплатах подписок (10.11.2026, lib/paymentReminders.ts): за 3 дня,
+   *  в день оплаты и при сбое оплаты — тем, у кого право finance.view. Каждый час, но
+   *  внутри — только рабочее окно Настроек и один раз на повод (ключ в StaffNotice). */
+  scheduleTracked("payment-reminders", "40 * * * *", async () => {
+    try {
+      const { runPaymentReminders } = await import("./lib/paymentReminders.js");
+      const result = await runPaymentReminders();
+      if (result.sent) console.log(`[cron] Напоминания об оплатах: ${result.sent} из ${result.recipients}`);
+    } catch (err) {
+      reportCronTickError("Напоминания об оплатах не отправлены", err);
+    }
+  }, { timezone: "Asia/Dushanbe" });
   /** Вечерняя сводка агенту — 18:00 по Душанбе, задачи и встречи на завтра одним
    *  push. Вечером накануне, а не утром в день встречи: агент успевает спланировать. */
   scheduleTracked(

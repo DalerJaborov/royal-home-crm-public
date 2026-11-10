@@ -1919,6 +1919,11 @@
       "label": null
     },
     {
+      "id": "payment-reminders",
+      "expr": "40 * * * *",
+      "label": null
+    },
+    {
       "id": "phone-lead-watchdog",
       "expr": "*/15 * * * *",
       "label": "Клиент оставил номер, а карточки нет: оформляет или отдаёт человеку"

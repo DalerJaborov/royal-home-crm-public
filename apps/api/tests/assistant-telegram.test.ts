@@ -492,7 +492,9 @@ describe("живые сценарии чтения Мадины", () => {
       })) });
       await handleTelegramUpdate(privateMsg("director", { message_id: 904, text: "найди клиентов агента маруфтест" }));
       const sent = sentTexts().join("\n");
-      expect(sent).toContain("Всего доступных карточек — 6.");
+      // Общий вид списков помощницы: заголовок с числом, номер-эмодзи, код карточки первым.
+      expect(sent).toMatch(/👥 Клиенты агента Маъруфтест \d+ · 6/);
+      expect(sent).toContain("1️⃣ ");
       expect(sent).toContain("Показываю 5 из 6");
       expect(sent).toContain("href=");
       expect(sent).not.toMatch(/HOT|COLD/i);
