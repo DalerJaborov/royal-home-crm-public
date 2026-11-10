@@ -148,9 +148,14 @@ describe("вопрос про сжатые — один раз на чернов
     expect(photos[0].qualityFlags).not.toContain("compressed");
     expect(asks()).toHaveLength(1);
     // Сжатое ПОСЛЕ «Пришлю файлом» в черновик не попадает — одна подсказка, без вопроса.
-    await send("file", photo("f2", 1280));
-    expect((await draftOf("file")).media.filter(m => m.kind === "PHOTO")).toHaveLength(1);
-    expect(String(sendMessage.mock.calls.at(-1)?.[1] ?? "")).toContain("снова сжатое");
+    // Подпись при этом не теряется: описание объекта разбирается до отказа фото.
+    await send("file", { ...photo("f2", 1280), caption: "Окна: 4", media_group_id: `album-file-${runId}` });
+    await send("file", { ...photo("f3", 1280), media_group_id: `album-file-${runId}` });
+    const after = await draftOf("file");
+    expect(after.media.filter(m => m.kind === "PHOTO")).toHaveLength(1);
+    expect((after.values as Record<string, unknown>).windowCount).toBe("4");
+    // Одна подсказка на альбом, а не на каждый снимок.
+    expect(sendMessage.mock.calls.filter(call => String(call[1]).includes("снова сжатое"))).toHaveLength(1);
     expect(asks()).toHaveLength(1);
   });
 

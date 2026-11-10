@@ -1115,6 +1115,9 @@ export async function handleTelegramPropertyDraft(
           const maxBytes = TELEGRAM_DRAFT_PHOTO_LIMIT_BYTES;
           const compressedByTelegram = Boolean(compressed) && isTelegramCompressed(msg.photo);
           if (compressedByTelegram && rejectsCompressed(draft)) {
+            // Подпись (у альбома — только у первого фото) разбираем ДО отказа: фото не
+            // берём, а описание объекта терять нельзя (повторное ревью 10.11).
+            if (text) await updateDescription(ctx, draft, text, createAssistantMoneyWallet(), { silent: true });
             await tellCompressedRejected(chatId, lang, album);
             return true;
           }

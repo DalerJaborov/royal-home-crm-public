@@ -160,7 +160,17 @@ describe("правила пары", () => {
       expect(notesFloorWishes(notes), notes).toMatchObject({ notFirst: true });
       expect(matchClientProperty({ ...buyer, requirementsNotes: notes }, first, money, DEFAULT_MATCH_POLICY), notes).toBeNull();
     }
-    for (const notes of ["Не последний этаж", "этаж не последний"]) expect(notesFloorWishes(notes), notes).toEqual({ notFirst: false, notLast: true });
+    for (const notes of ["Не последний этаж", "этаж не последний", "последний этаж не нужен"]) expect(notesFloorWishes(notes), notes).toEqual({ notFirst: false, notLast: true });
+    // Обратный порядок слов — тоже просьба про этаж (повторное ревью 10.11).
+    for (const notes of ["первых этажей не надо", "Первый этаж не подходит"]) {
+      expect(notesFloorWishes(notes), notes).toEqual({ notFirst: true, notLast: false });
+      expect(matchClientProperty({ ...buyer, requirementsNotes: notes }, first, money, DEFAULT_MATCH_POLICY), notes).toBeNull();
+    }
+    // Рынок и линия улицы — не этаж: покупатель не должен молча пропасть у первых этажей.
+    for (const notes of ["Не первичка", "не первичный рынок, вторичка", "не первой линии", "не первую линию от дороги"]) {
+      expect(notesFloorWishes(notes), notes).toEqual({ notFirst: false, notLast: false });
+      expect(matchClientProperty({ ...buyer, requirementsNotes: notes }, first, money, DEFAULT_MATCH_POLICY), notes).not.toBeNull();
+    }
     for (const notes of ["Не первый раз покупаю квартиру", "не первую квартиру беру", "Мне первый этаж подходит",
       "не последние деньги", "кроме последнего варианта", "не первый год ищем"]) {
       expect(notesFloorWishes(notes), notes).toEqual({ notFirst: false, notLast: false });
