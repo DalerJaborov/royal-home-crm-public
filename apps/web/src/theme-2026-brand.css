@@ -525,3 +525,31 @@ html[data-theme="royal-home-2026-night"] {
 .rh2 .row.offer-row > .offer-answer-line .pill {
   flex: 1 1 0;
 }
+
+/* ═══ ЛЕНТА УВЕДОМЛЕНИЙ: СТРОКА ПРЕДЛОЖЕНИЯ ОБЪЕКТА — ПРАВКИ ПО КАДРАМ (10.11.2026) ═══
+ * Кадры v2 на телефоне: кнопки ответа 38px (правило `.pill.sm` темы бьёт min-height),
+ * заголовок и текст обрезаны многоточием (line-clamp), «Просмотрено» жирным чёрным
+ * весило больше плашки ответа. Здесь: кнопки не ниже 44px, текст переносится целиком,
+ * «Просмотрено» — приглушённая подпись. Усиленная специфичность и `!important` — как в
+ * соседних правилах: селекторы темы собираются скриптом и сильнее обычных. */
+.rh2 .row.offer-row > .offer-answer-line .btn.pill.sm,
+.rh2 .row.offer-row > .offer-answer-line button.pill.sm {
+  min-height: 44px !important;
+  height: auto !important;
+}
+.rh2 .row.offer-row .t .n,
+.rh2 .row.offer-row .t .s {
+  display: block !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  white-space: normal !important;
+  -webkit-line-clamp: unset !important;
+  line-clamp: unset !important;
+  overflow-wrap: anywhere;
+}
+.rh2 .row.offer-row > .chip:not(.warn) {
+  background: transparent !important;
+  color: var(--muted) !important;
+  font-weight: 400 !important;
+  padding-inline: 0;
+}
