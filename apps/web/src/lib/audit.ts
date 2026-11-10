@@ -153,6 +153,7 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   PROPERTY_VIDEO_HANDOFF_REQUEUED: "Снова отправлен на монтаж",
   PROPERTY_SENT_BACK_TO_MONTAJER: "Ролик отправлен монтажёру заново",
   PROPERTY_CLIP_APPROVED: "Готовый ролик одобрен",
+  PROPERTY_CLIP_AUTO_APPROVED: "Готовый ролик ушёл в публикацию сам: хозяин не ответил",
   PROPERTY_CLIP_REJECTED: "Готовый ролик возвращён монтажёру",
   CLIP_REVIEW_TELEGRAM_TOGGLE: "Ролики на проверку в Telegram: вкл/выкл",
   PROPERTY_FINAL_VIDEO_MANUAL: "Готовый ролик загружен вручную",

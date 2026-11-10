@@ -243,7 +243,7 @@ describe("ролик идёт хозяину объекта", () => {
     const toOwner = tg.sendVideoFromDisk.mock.calls.find((c) => String(c[0]) === owner.chatId);
     expect(toOwner).toBeTruthy();
     expect(String(toOwner![2])).toContain(`Готов ролик по вашему объекту №${p.shortId}`);
-    expect(String(toOwner![2])).toContain("Не ответите за 3 ч — опубликуется сам");
+    expect(String(toOwner![2])).toMatch(/Не ответите до \d{4}-\d{2}-\d{2} \d{2}:\d{2} — опубликуется сам/);
     expect(String(toOwner![2])).toContain("ночью с 00:00 до 07:00 не публикуем");
     expect(JSON.stringify(toOwner![4])).toContain("Подтвердить");
     expect(JSON.stringify(toOwner![4])).toContain(`cr:a:${p.shortId}`);
@@ -304,8 +304,10 @@ describe("ролик идёт хозяину объекта", () => {
     await tap(stranger.chatId, `cr:a:${p.shortId}`);
     expect(textsTo(stranger.chatId).some((t) => t.startsWith("Нет права решать"))).toBe(true);
     expect((await prisma.property.findUniqueOrThrow({ where: { id: p.id } })).clipReviewStatus).toBe("PENDING");
-    // Выключили подтверждение хозяином — его кнопки больше не решают.
+    // Выключили подтверждение хозяином и у ролика нет срока автопубликации —
+    // кнопки хозяина больше не решают (со сроком решают: таймер ведь идёт).
     await prisma.settings.update({ where: { id: "singleton" }, data: { clipOwnerApproveEnabled: false } });
+    await prisma.property.update({ where: { id: p.id }, data: { clipOwnerDueAt: null } });
     try {
       await tap(owner.chatId, `cr:a:${p.shortId}`);
       expect((await prisma.property.findUniqueOrThrow({ where: { id: p.id } })).clipReviewStatus).toBe("PENDING");
@@ -425,7 +427,11 @@ describe("автопубликация без ответа", () => {
   it("хозяин пишет причину возврата — таймер не перебивает его, возврат проходит", async () => {
     const p = await pendingClip("пишет причину", owner.id, owner.chatId);
     const idx = VIDEO_REMAKE_REASONS.findIndex((code) => !VIDEO_REMAKE_REASONS_REQUIRING_COMMENT.includes(code));
+    // Срок вот-вот наступит, хозяин жмёт «Вернуть» — срок отодвинут на 15 минут.
+    await prisma.property.update({ where: { id: p.id }, data: { clipOwnerDueAt: new Date(Date.now() + 60_000) } });
     await tap(owner.chatId, `cr:r:${p.shortId}`);
+    const held = await prisma.property.findUniqueOrThrow({ where: { id: p.id } });
+    expect(held.clipOwnerDueAt!.getTime()).toBeGreaterThan(Date.now() + 14 * 60_000);
     await tap(owner.chatId, `cr:rr:${p.shortId}:${idx}`);
     await prisma.property.update({ where: { id: p.id }, data: { clipOwnerDueAt: new Date(Date.now() - 60_000) } });
     // Тик с реальным «сейчас», но ночь его не должна выключить — берём день тем же часом минут.

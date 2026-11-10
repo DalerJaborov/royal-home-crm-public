@@ -40,6 +40,7 @@ import {
   CLIP_REJECT_DIALOG_KIND,
   clipDeciderByChat,
   clipOwnerRecipient,
+  holdClipOwnerDueForReject,
   getClipOwnerSettings,
   listClipReviewers,
   onClipDecision,
@@ -117,13 +118,13 @@ export function clipReviewButtons(shortId: number): TelegramInlineButton[][] {
  * Хозяину объекта (11.11.2026): та же подпись, но шапка — «ваш объект» и срок
  * автопубликации; кнопки те же `cr:a` / `cr:r` (право решает clipDeciderByChat).
  */
-export function clipOwnerCaption(caption: string, shortId: number, autoAt: Date, hours: number): string {
+export function clipOwnerCaption(caption: string, shortId: number, autoAt: Date): string {
   const when = dushanbeDateTimeString(autoAt);
   const body = caption.replace(/^🎬 Ролик на проверку · Объект №\d+\n?/, "");
   return [
     `🎬 Готов ролик по вашему объекту №${shortId}`,
     body || null,
-    `Подтвердите — и он сразу встанет в публикацию. Не ответите за ${hours} ч — опубликуется сам (${when}; ночью с 00:00 до 07:00 не публикуем).`,
+    `Подтвердите — и он сразу встанет в публикацию. Не ответите до ${when} — опубликуется сам (ночью с 00:00 до 07:00 не публикуем).`,
   ]
     .filter((l): l is string => l !== null)
     .join("\n");
@@ -224,7 +225,7 @@ export async function notifyClipReview(propertyId: string): Promise<void> {
     const clip = fileStat && diskPath ? await prepareClipForTelegram(diskPath, media, fileStat.size, TELEGRAM_BOT_SEND_LIMIT_BYTES) : null;
     try {
       if (owner && p.clipOwnerDueAt) {
-        await sendClipTo(owner, p, clipOwnerCaption(caption, p.shortId, p.clipOwnerDueAt, ownerSettings.hours), clip, clipOwnerButtons(p.shortId));
+        await sendClipTo(owner, p, clipOwnerCaption(caption, p.shortId, p.clipOwnerDueAt), clip, clipOwnerButtons(p.shortId));
       }
       for (const [i, r] of reviewers.entries()) {
         if (i > 0 || owner) await sleep(SEND_PAUSE_MS);
@@ -413,6 +414,7 @@ export async function handleClipReviewCallback(query: TelegramCallbackQuery): Pr
         await reply(chatId, await clipAlreadyDecidedText(p.id));
         return true;
       }
+      await holdClipOwnerDueForReject(p.id);
       await reply(
         chatId,
         `Почему возвращаем ролик №${shortId} монтажёру?`,

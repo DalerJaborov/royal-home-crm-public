@@ -133,8 +133,13 @@ export async function clipDeciderByChat(
 ): Promise<(ClipReviewer & { asOwner: boolean }) | null> {
   const reviewer = await clipReviewerByChat(chatId);
   if (reviewer) return { ...reviewer, asOwner: false };
-  const { enabled } = await getClipOwnerSettings();
-  if (!enabled) return null;
+  // Хозяин решает, пока рубильник включён ИЛИ у ролика стоит срок автопубликации:
+  // выключили рубильник, а срок в силе — без кнопок хозяин не успел бы вернуть ролик.
+  const [{ enabled }, due] = await Promise.all([
+    getClipOwnerSettings(),
+    prisma.property.findUnique({ where: { id: propertyId }, select: { clipOwnerDueAt: true } }),
+  ]);
+  if (!enabled && !due?.clipOwnerDueAt) return null;
   const owner = await clipOwnerRecipient(propertyId);
   if (!owner || owner.chatId !== chatId) return null;
   return { ...owner, asOwner: true };
@@ -476,6 +481,22 @@ export async function runClipOwnerAutoPublishTick(now: Date = new Date()): Promi
     if (result.ok) published++;
   }
   return { published };
+}
+
+/** Сколько даём на выбор причины и комментарий при «Вернуть монтажёру». */
+export const CLIP_REJECT_GRACE_MS = 15 * 60_000;
+
+/**
+ * Нажали «Вернуть монтажёру» — срок автопубликации не раньше чем через 15 минут
+ * (ревью 11.11.2026: хозяин выбирает причину в 2:59, тик в 3:00 опубликовал бы
+ * ролик, который он возвращает). Только отодвигает, никогда не приближает.
+ */
+export async function holdClipOwnerDueForReject(propertyId: string, now: Date = new Date()): Promise<void> {
+  const hold = new Date(now.getTime() + CLIP_REJECT_GRACE_MS);
+  await prisma.property.updateMany({
+    where: { id: propertyId, ...CLIP_REVIEW_PENDING_WHERE, clipOwnerDueAt: { not: null, lt: hold } },
+    data: { clipOwnerDueAt: hold },
+  });
 }
 
 /** Вид состояния диалога «жду комментарий к возврату» (telegram/clipReviewBot.ts). */
