@@ -29,7 +29,7 @@ import { getOrCreatePropertyShareLinks } from "../../lib/propertyShareLink.js";
 import { buildPropertyOfferText, formatPriceForClient } from "../../lib/propertyOfferText.js";
 import { detectClientLanguage } from "../../ai/clientLanguage.js";
 import { recordExposures } from "../../lib/propertyExposures.js";
-import { loadMatchPolicy } from "../../lib/matchPolicy.js";
+import { clientDoneBuying, loadMatchPolicy } from "../../lib/matchPolicy.js";
 import { propertyOwnerAgentId } from "../../lib/propertyOwner.js";
 import { sendPushToAgent } from "../../push.js";
 import { clientPropertyMatchingCatalog } from "../../lib/clientPropertyMatchingCatalog.js";
@@ -366,7 +366,7 @@ matchingRouter.get("/:id/match", requireAuth, async (req, res) => {
   if (!client || client.deletedAt) return res.status(404).json({ error: "Клиент не найден" });
   if (!canAccessAssignedAgent(req, client.assignedAgentId)) return res.status(403).json({ error: "Недостаточно прав" });
   const { page, pageSize, scope } = parsed.data;
-  const empty = (reason: "not_buyer" | "pending_acceptance") => ({
+  const empty = (reason: "not_buyer" | "pending_acceptance" | "closed") => ({
     unfiltered: false, scanned: 0, eligible: 0, total: 0, mineTotal: 0, page, pageSize,
     scope, hasMore: false, reason, requirementsSummary: [], properties: [],
   });
@@ -378,6 +378,8 @@ matchingRouter.get("/:id/match", requireAuth, async (req, res) => {
   if (!confirmedClientIntents(client).buys) {
     return res.json(empty("not_buyer"));
   }
+  // Купил или явно отказался — подбор ему не нужен (одно правило с «ждущими», lib/matchPolicy.ts).
+  if (clientDoneBuying(client)) return res.json(empty("closed"));
   const result = await clientPropertyMatchingCatalog(client.id, currentBuyerMatchingCriteria(client), {
     viewerId: req.agent!.id, canDeleteProperties: can(req, "properties.delete"), page, pageSize, scope,
   });

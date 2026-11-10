@@ -14,10 +14,10 @@
  * (clients.viewAll) — всех полностью. Это расширение только в помощнике.
  */
 import type { Request } from "express";
-import type { MatchingClient, MatchingClientsResponse } from "@royal-home/shared";
+import type { ClientMatchEvidence, MatchingClient, MatchingClientsResponse } from "@royal-home/shared";
 import { can } from "../auth/middleware.js";
 import { prisma } from "../db.js";
-import { findMatchingClients, isMatchTradeoff } from "../routes/matching.js";
+import { findMatchingClients } from "../routes/matching.js";
 import { clientNamePhoneSafe } from "./clientPhone.js";
 
 export async function matchingClientsForViewer(viewer: Pick<Request, "agent">, propertyId: string, limit = 10): Promise<MatchingClientsResponse> {
@@ -35,8 +35,9 @@ export interface AssistantClientMatch {
   name: string | null;
   agentId: string | null;
   agentName: string | null;
-  /** Причины подбора как есть; `tradeoff` — уступка («чуть выше бюджета»). */
-  reasons: { text: string; tradeoff: boolean }[];
+  /** Уровень, что совпало, уступки, «не знаем» и когда уже отправляли — та же
+   *  модель, что в «Подборе» CRM (lib/clientPropertyMatching.ts). */
+  match: ClientMatchEvidence;
   budgetMax: number | null;
   currency: "TJS" | "USD";
   rooms: number | null;
@@ -75,7 +76,7 @@ export async function matchingClientsForAssistant(viewer: Pick<Request, "agent">
       name: own || seeAll ? clientNamePhoneSafe(client.fullName, canSeePhone) : null,
       agentId: client.assignedAgentId,
       agentName: client.assignedAgentName ?? null,
-      reasons: client.reasons.map((text) => ({ text, tradeoff: isMatchTradeoff(text) })),
+      match: client.match,
       budgetMax: fact?.budgetMax != null ? Number(fact.budgetMax) : null,
       currency: fact?.currency === "USD" ? "USD" : "TJS",
       rooms: fact?.desiredRooms ?? null,

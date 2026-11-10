@@ -57,6 +57,8 @@ import {
 import { downloadAssistantMedia } from "./assistantMedia.js";
 import { extractPropertyFields } from "./assistantPropertyFields.js";
 import { sendPropertyMatchesCard } from "./assistantPropertyOffers.js";
+import { answerCompressedChoice, askAboutCompressedOnce, photoQualityCallback, photoQualityLine, recordDraftPhotoQuality } from "./assistantPhotoQuality.js";
+import { isTelegramCompressed } from "../lib/photoQuality.js";
 
 type Lang = "ru" | "tg";
 type Values = PropertyWizardDraftValues;
@@ -501,6 +503,7 @@ async function review(ctx: Context, draft: DraftRecord) {
     row("docs", documents),
     ...detailLines,
     `${c.files}: ${c.photo} ${readyMedia(draft, "PHOTO").length}, ${c.video} ${readyMedia(draft, "VIDEO").length}`,
+    photoQualityLine(draft, lang),
     `${c.point}: ${values.lat != null && values.lng != null ? c.yes : gap}`,
     narration && `\n${c.narration}: ${narration}`,
   ].filter(Boolean);
@@ -1109,11 +1112,19 @@ export async function handleTelegramPropertyDraft(
           const maxBytes = TELEGRAM_DRAFT_PHOTO_LIMIT_BYTES;
           if (picture.file_size && picture.file_size > maxBytes) throw new Error("photo_too_large");
           const buffer = await downloadAssistantMedia(picture.file_id, maxBytes);
+          const uploadKey = `tg:${draft.id}:${msg.message_id}`;
           const saved = await savePropertyDraftPhotos(agent.id, draft.id, [{
             buffer, mimetype: photoFile?.mime_type || "image/jpeg", size: buffer.length,
             originalname: photoFile?.file_name?.slice(0, 255) || `telegram-${msg.message_id}.jpg`,
-          }], [`tg:${draft.id}:${msg.message_id}`]);
+          }], [uploadKey]);
           accepted = saved.status === 201 || saved.status === 200;
+          if (accepted) {
+            // Пометки качества — до карточки, чтобы она их уже показала. Файл-фото
+            // (document) — оригинал: сжатым его не считаем.
+            const compressedByTelegram = Boolean(compressed) && isTelegramCompressed(msg.photo);
+            await recordDraftPhotoQuality(uploadKey, buffer, compressedByTelegram);
+            if (compressedByTelegram) await askAboutCompressedOnce(chatId, draft.id, lang);
+          }
           if (!accepted) {
             await sendMessageWithButtons(chatId, "error" in saved.body ? saved.body.error : t(lang).genericError, controls(draft.id, lang));
           } else if (text) {
@@ -1168,6 +1179,32 @@ export async function handleTelegramPropertyDraft(
 
 /* ─────────────────────────── кнопки ─────────────────────────── */
 
+/** «✅ Оставить эти / 📎 Пришлю файлом» — ответ автора черновика, один раз. */
+async function handlePhotoQualityAnswer(query: TelegramCallbackQuery): Promise<boolean> {
+  const answer = (text?: string) => answerCallbackQuery(query.id, text).catch(() => {});
+  const [, choice, draftId] = photoQualityCallback.exec(query.data ?? "") ?? [];
+  const chat = query.message?.chat;
+  if (chat?.type !== "private" || query.from?.id !== chat.id) { await answer("Кнопка доступна только в личке автора"); return true; }
+  const chatId = String(chat.id);
+  const agent = await findAgentByTelegramChatId(chatId);
+  const state = agent && await getState(prisma, chatId, agent.id);
+  if (!agent || !state || state.draftId !== draftId) { await answer("Кнопка устарела"); return true; }
+  const lang = state.lang ?? "ru";
+  try {
+    const draft = await assertActiveDraft(prisma, agent.id, { draftId });
+    const text = await answerCompressedChoice(agent.id, draft, choice === "file" ? "file" : "keep", lang);
+    await answer(text);
+    const messageId = query.message?.message_id;
+    // Кнопки убираем: вопрос задан один раз и ответ записан.
+    if (messageId) await editMessageText(chatId, messageId, `${query.message?.text ?? ""}\n\n${text}`, null).catch(() => {});
+  } catch (error) {
+    if (error instanceof DraftConflictError) { await answer("Черновик уже закрыт"); return true; }
+    void logSystemError("telegram", `Мастер объекта: ответ про сжатые фото: ${error instanceof Error ? error.message : String(error)}`);
+    await answer("Не получилось, попробуйте ещё раз");
+  }
+  return true;
+}
+
 async function sendFieldPrompt(ctx: Context, draft: DraftRecord, field: FieldDef, values: Values) {
   const c = t(ctx.lang);
   const draftId = draft.id;
@@ -1194,6 +1231,7 @@ async function askText(ctx: Context, draftId: string, field: FieldDef) {
 
 export async function handleTelegramPropertyDraftCallback(query: TelegramCallbackQuery): Promise<boolean> {
   if (!query.data?.startsWith("pdt:")) return false;
+  if (photoQualityCallback.test(query.data)) return handlePhotoQualityAnswer(query);
   const answer = (text?: string) => answerCallbackQuery(query.id, text).catch(() => {});
   const action = callback.exec(query.data);
   const fieldAction = fieldCallback.exec(query.data);

@@ -9,13 +9,14 @@ import { useSendProperties, useSendTarget } from "../../hooks/useClients";
 import { SendFallback, sendFallbackOf } from "./SendFallback";
 import type { SendPropertiesFallback } from "@royal-home/shared";
 import { useSendPropertyConfirm } from "../../hooks/useSendPropertyConfirm";
+import { MatchEvidenceLines, MatchSentChip, MatchTierChip } from "./MatchEvidence";
 
 /**
  * Строка покупателя панели «Подбор», режим объекта (задание D, 17.09.2026,
  * `docs/agent-briefs/match-17-09-D-web-panel.md`).
  *
- * Перенесено из `MatchingClientsCard.tsx` (файл удалён): причины через «·»,
- * балл совпадения, «Отдать». Добавлено `assignedAgentName` — новое поле
+ * Перенесено из `MatchingClientsCard.tsx` (файл удалён): уровень совпадения и что именно совпало
+ * (подбор 2.0, 10.11.2026 — процента больше нет), «Отдать». Добавлено `assignedAgentName` — новое поле
  * контракта (раздел 6 плана матчинга), читается как `?? null`, отсутствие не
  * рисуется — сервер мог ещё не прислать его.
  *
@@ -117,11 +118,12 @@ export function MatchClientCard({
           <b>{c.fullName}</b>
           <span style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center", marginTop: 2 }}>
             <ClientStateBadge client={{ ...c, status: c.status as ClientStatus }} />
-            {c.reasons.length > 0 && <span>{c.reasons.join(" · ")}</span>}
+            <MatchTierChip tier={c.match.tier} />
+            <MatchSentChip history={c.match} />
           </span>
+          <MatchEvidenceLines match={c.match} />
         </div>
         <div className="who">
-          <span className={c.score >= 75 ? "chip ok" : "chip"}>Совпало {c.score}%</span>
           {c.assignedAgentName && <span>{c.assignedAgentName}</span>}
         </div>
         <div className="act" onClick={(e) => e.stopPropagation()}>

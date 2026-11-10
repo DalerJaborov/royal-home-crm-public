@@ -6,7 +6,7 @@
  * (lib/propertyMatchFilter.ts, routes/matching.ts, lib/geoDistance.ts), а «ждущий
  * покупатель» — определён по-разному для автоподбора, счётчика спроса «N в спросе» и
  * списка «Кому подойдёт» (отсюда «33 в спросе / 0 кому подходит»). Здесь — одно место
- * чтения Настроек (как loadMoneyContext/loadMatchWeights) и одно определение «ждущего».
+ * чтения Настроек (как loadMoneyContext) и одно определение «ждущего».
  *
  * Умолчания = сегодняшние зашитые значения — включение колонок в БД не двигает подбор
  * молча ни для одного агента до первого осознанного нажатия в интерфейсе.
@@ -87,7 +87,7 @@ export function budgetWindowTjs(
 
 /** Политика из Настроек — с откатом на умолчания для полей, которых ещё нет в строке
  *  (старая Settings-строка без миграции на новые поля), тот же приём, что и в
- *  loadMatchWeights (routes/matching.ts). Читается один раз на запрос. */
+ *  прежний loadMatchWeights. Читается один раз на запрос. */
 export async function loadMatchPolicy(): Promise<MatchPolicy> {
   const s = await prisma.settings.findUnique({
     where: { id: "singleton" },
@@ -144,6 +144,21 @@ export function confirmedBuyerWhere(): Prisma.ClientWhereInput {
   return { OR: [{ kind: "BUYER" }, { kind: "SELLER", dualIntent: true, dualIntentConfirmedAt: { not: null } }] };
 }
 
+/**
+ * КУПИЛ ИЛИ ЯВНО ОТКАЗАЛСЯ — ОДНО МЕСТО (подбор 2.0, 10.11.2026). LOST по-прежнему
+ * «ждёт» (D6: «дорого», «не тот объект» — обычный исход рынка), но не тогда, когда
+ * причина отказа говорит, что искать больше нечего: купил сам, купил через другое
+ * агентство, передумал. До этой правки такие клиенты стояли в «Кому подходит» и в
+ * счётчике «ждут N покупателей» наравне с живыми.
+ */
+export const DONE_BUYING_REFUSAL_REASONS = ["BOUGHT_SELF", "BOUGHT_VIA_OTHER_AGENCY", "BOUGHT_ELSEWHERE", "CHANGED_MIND"] as const;
+
+/** Тот же ответ, что у waitingBuyerWhere по статусу и причине отказа, — для одной карточки. */
+export function clientDoneBuying(client: { status: string; refusalReason?: string | null }): boolean {
+  if (client.status === "DEAL_CLOSED" || client.status === "ARCHIVED") return true;
+  return client.status === "LOST" && (DONE_BUYING_REFUSAL_REASONS as readonly string[]).includes(client.refusalReason ?? "");
+}
+
 export function waitingBuyerWhere(policy: MatchPolicy, now: Date = new Date()): Prisma.ClientWhereInput {
   const workStatuses: Array<"ACTIVE" | "INACTIVE" | "DEFERRED"> = ["ACTIVE"];
   if (policy.includeInactive) workStatuses.push("INACTIVE");
@@ -158,6 +173,9 @@ export function waitingBuyerWhere(policy: MatchPolicy, now: Date = new Date()): 
     // NULL, не true, и WHERE такую строку молча выбрасывает. Явный `null` в OR
     // не даёт этому отсечь всех клиентов без единого проведённого показа.
     { OR: [{ buyerStage: null }, { buyerStage: { not: "NEGOTIATION" } }] },
+    // Купил или передумал (DONE_BUYING_REFUSAL_REASONS). Не через NOT: у LOST без
+    // причины `refusalReason IN (...)` даёт NULL, и NOT(NULL) молча выбросил бы его.
+    { OR: [{ status: { not: "LOST" } }, { refusalReason: null }, { refusalReason: { notIn: [...DONE_BUYING_REFUSAL_REASONS] } }] },
     // Требования должны быть заполнены хоть чем-то — иначе сюда попадает любой
     // ждущий покупатель без единой заданной цифры.
     {

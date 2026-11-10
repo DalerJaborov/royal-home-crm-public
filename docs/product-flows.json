@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 733,
-  "forks": 3909,
+  "forks": 3910,
   "mounts": 82,
   "cron": 125,
   "jobs": 32,
@@ -14826,6 +14826,21 @@
      ]
     },
     {
+     "k": "if",
+     "t": "clientDoneBuying(client)",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.json(empty(\"closed\"));",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
      "k": "do",
      "t": "const result = await clientPropertyMatchingCatalog(client.id, currentBuyerMatchingCriteria(client), { viewerI…",
      "a": [
@@ -18385,7 +18400,7 @@
      "c": [
       {
        "k": "do",
-       "t": "const matchedProperty = await prisma.property.findUnique({ where: { id: client.matchedPropertyId }, select: {…",
+       "t": "const matchedProperty = await prisma.property.findUnique({ where: { id: client.matchedPropertyId }, select: p…",
        "a": [
         "читает в базе: property"
        ],
@@ -18398,7 +18413,7 @@
        "c": [
         {
          "k": "do",
-         "t": "const [money, weights] = await Promise.all([loadMoneyContext(), loadMatchWeights()]);",
+         "t": "const [money, policy] = await Promise.all([loadMoneyContext(), loadMatchPolicy()]);",
          "a": [
           "зовёт loadMoneyContext()"
          ],
@@ -18406,9 +18421,9 @@
         },
         {
          "k": "do",
-         "t": "matchScore = scoreClientProperty(client, matchedProperty, money, { weights, includeHotBonus: false }).score;",
+         "t": "matchScore = matchClientProperty(client, matchedProperty, money, policy)?.points ?? null;",
          "a": [
-          "зовёт scoreClientProperty()"
+          "зовёт matchClientProperty()"
          ],
          "c": []
         }

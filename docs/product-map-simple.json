@@ -16,9 +16,9 @@
   "paths": 733,
   "cron": 125,
   "jobs": 32,
-  "conditions": 3903,
-  "untranslatedUnique": 446,
-  "untranslatedTotal": 572,
+  "conditions": 3904,
+  "untranslatedUnique": 447,
+  "untranslatedTotal": 573,
   "partialUnique": 1061,
   "translatedShare": 85
  },
@@ -229,6 +229,7 @@
   "client.assignedAgentId !== req.agent!.id && !can(req, \"clients.viewAll\")",
   "client.deals.some((d) => d.stage !== \"CANCELLED\")",
   "client?.assignedAgentId === access.viewerId",
+  "clientDoneBuying(client)",
   "commissionExceedsPrice && !isRejecting && (isCompleting || isSubmittingForApproval || settingCommissionSums |…",
   "completed.receipt.outcome !== \"accepted\" && physicalError instanceof PublicManualReplyHeld",
   "completedDeals.length >= DASHBOARD_ROW_LIMIT || pulseInteractions.length >= DASHBOARD_ROW_LIMIT || propsCreat…",
@@ -18496,6 +18497,20 @@
       }
      ],
      "raw": "!confirmedClientIntents(client).buys"
+    },
+    {
+     "t": "если clientDoneBuying(client)",
+     "k": "if",
+     "a": [],
+     "c": [
+      {
+       "t": "всё хорошо, отвечает данными",
+       "k": "do",
+       "a": [],
+       "c": []
+      }
+     ],
+     "raw": "clientDoneBuying(client)"
     },
     {
      "t": "всё хорошо, отвечает данными",

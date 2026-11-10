@@ -9278,6 +9278,9 @@ model PropertyDraft {
   updatedAt DateTime @updatedAt
   /// Срок жизни. Черновик недельной давности — это уже не та квартира и не тот
   /// разговор; подставлять его вреднее, чем пустая форма.
+  /// Когда мастер в Telegram один раз спросил про сжатые фото (lib/photoQuality.ts,
+  /// 10.11.2026). Не null — больше не спрашиваем по этому черновику, что бы ни ответили.
+  compressedPhotoNoticeAt DateTime?
   expiresAt DateTime
   media     PropertyDraftMedia[]
 
@@ -9316,6 +9319,9 @@ model PropertyDraftMedia {
   totalParts  Int?
   /// VIDEO: принятые номера частей, [{ partNumber }].
   parts       Json                     @default("[]")
+  /// Пометки качества снимка: compressed / dark / bright / blurry (lib/photoQuality.ts).
+  /// Только подсказка в карточке «Проверьте объект» — фото не отклоняется.
+  qualityFlags String[]                 @default([])
   createdAt   DateTime                 @default(now())
   updatedAt   DateTime                 @updatedAt
 
