@@ -281,3 +281,14 @@ export function priceRangeBranches(
     },
   }));
 }
+
+/**
+ * Курс доллара для ДЕНЕГ, КОТОРЫЕ ЧЕЛОВЕК ПОДТВЕРЖДАЕТ (ИИ-помощница, «Сделки»):
+ * только заданный в Настройках, без запасного курса. Не задан — null, и долларовая
+ * сумма не записывается. Для прикидок в отчётах — loadMoneyContext выше.
+ */
+export async function loadConfiguredUsdRate(db: Pick<typeof prisma, "settings"> = prisma): Promise<number | null> {
+  const settings = await db.settings.findUnique({ where: { id: "singleton" }, select: { usdToTjsRate: true } });
+  const rate = settings?.usdToTjsRate ? Number(settings.usdToTjsRate) : null;
+  return rate && Number.isFinite(rate) && rate > 0 ? rate : null;
+}

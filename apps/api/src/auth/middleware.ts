@@ -275,7 +275,7 @@ export function canBindClient(req: Pick<Request, "agent">, client: { assignedAge
  * выдавалось пресетами, а на API не влияло вообще: сделки скоупились правом на
  * клиентов, и два права расходились друг с другом на одном экране.
  */
-export function scopeDealsToOwnAgent(req: Request): string | undefined {
+export function scopeDealsToOwnAgent(req: Pick<Request, "agent">): string | undefined {
   if (!req.agent) return undefined;
   return req.agent.permissions.has("deals.viewAll") ? undefined : req.agent.id;
 }
@@ -295,7 +295,7 @@ export function scopeDealsToOwnAgent(req: Request): string | undefined {
  * (ownAgentId задан) ограничивает проверка владения строкой выше по маршруту.
  */
 export function foreignDealWriteDenied(
-  req: Request,
+  req: Pick<Request, "agent">,
   deal: { agentId: string },
   ownAgentId: string | undefined
 ): string | null {
