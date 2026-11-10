@@ -14,12 +14,12 @@
  "totals": {
   "screens": 52,
   "paths": 731,
-  "cron": 124,
+  "cron": 125,
   "jobs": 32,
-  "conditions": 3996,
-  "untranslatedUnique": 457,
-  "untranslatedTotal": 587,
-  "partialUnique": 1097,
+  "conditions": 3998,
+  "untranslatedUnique": 458,
+  "untranslatedTotal": 588,
+  "partialUnique": 1098,
   "translatedShare": 85
  },
  "untranslated": [
@@ -90,6 +90,7 @@
   "!fs.existsSync(from)",
   "!hasDeal && client.lastAgentId !== ownAgentId",
   "!idSchema.safeParse(req.params.receiptId).success",
+  "!identity.username?.trim()",
   "!isLastPart && body.length !== session.partSize",
   "!isTelegram && \"accountId\" in conv && conv.accountId",
   "!latest.voiceId || !config.voices.some((v) => v.id === latest.voiceId) || latest.modelId !== config.modelId",
@@ -56824,6 +56825,20 @@
          "c": []
         }
        ]
+      },
+      {
+       "t": "если !identity.username?.trim()",
+       "k": "if",
+       "a": [],
+       "c": [
+        {
+         "t": "отказ: данные неверные: «Meta не вернула ник аккаунта Instagram. Проверьте, что маркер выдан…»",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ],
+       "raw": "!identity.username?.trim()"
       }
      ],
      "raw": "channel === \"INSTAGRAM\" && body.token?.trim()"
@@ -68984,6 +68999,46 @@
       },
       {
        "t": "если есть replied или есть hidden или есть передан выше",
+       "k": "if",
+       "a": [],
+       "c": []
+      }
+     ]
+    },
+    {
+     "t": "если не получилось",
+     "k": "catch",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "запись в журнал ошибок",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "instagram-identity-guard",
+   "when": "*/10 * * * *",
+   "label": "instagram-identity-guard",
+   "tree": [
+    {
+     "t": "пробует сделать",
+     "k": "try",
+     "a": [],
+     "c": [
+      {
+       "t": "если есть filled или есть failed или есть held",
        "k": "if",
        "a": [],
        "c": []

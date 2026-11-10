@@ -2,9 +2,9 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 731,
-  "forks": 4002,
+  "forks": 4004,
   "mounts": 81,
-  "cron": 124,
+  "cron": 125,
   "jobs": 32,
   "hidden": 0
  },
@@ -72389,6 +72389,21 @@
          "c": []
         }
        ]
+      },
+      {
+       "k": "if",
+       "t": "!identity.username?.trim()",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(400).json({ error: \"Meta не вернула ник аккаунта Instagram. Проверьте, что маркер выдан вхо…",
+         "a": [
+          "ответ 400 — «Meta не вернула ник аккаунта Instagram. Проверьте, что маркер выдан…»"
+         ],
+         "c": []
+        }
+       ]
       }
      ]
     },
@@ -95446,6 +95461,94 @@
         "дословно из кода"
        ],
        "c": []
+      }
+     ]
+    }
+   ],
+   "file": "apps/api/src/cron.ts"
+  },
+  {
+   "id": "instagram-identity-guard",
+   "when": "*/10 * * * *",
+   "tree": [
+    {
+     "k": "try",
+     "t": "пробует",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "const { filled, failed, held, alerted } = await runInstagramIdentityGuard();",
+       "a": [
+        "зовёт runInstagramIdentityGuard()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const fill = await fillMissingInstagramIdentities();",
+         "a": [
+          "зовёт fillMissingInstagramIdentities()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "const report = await reportHeldOwnIdentityTickets(now);",
+         "a": [
+          "зовёт reportHeldOwnIdentityTickets()"
+         ],
+         "c": []
+        }
+       ],
+       "from": "runInstagramIdentityGuard() — apps/api/src/lib/instagramIdentityGuard.ts"
+      },
+      {
+       "k": "if",
+       "t": "filled || failed || held",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "console.log(`[cron] Ники Instagram: дописано ${filled}, не удалось ${failed}, задержано входящих ${held}${ale…",
+         "a": [
+          "пишет строку в журнал сервера"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "reportCronTickError(\"Ошибка сторожа ников Instagram\", err);",
+       "a": [
+        "зовёт reportCronTickError()"
+       ],
+       "c": [
+        {
+         "k": "do",
+         "t": "const reason = markCronTickFailed(label, err);",
+         "a": [
+          "зовёт markCronTickFailed()"
+         ],
+         "c": []
+        },
+        {
+         "k": "do",
+         "t": "void logSystemError(\"cron\", `${tick ? `Крон «${tick.name}»` : \"Крон\"}: ${label} — ${reason}`, { stack: err in…",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
+        }
+       ],
+       "from": "reportCronTickError() — apps/api/src/lib/cronHeartbeat.ts"
       }
      ]
     }
