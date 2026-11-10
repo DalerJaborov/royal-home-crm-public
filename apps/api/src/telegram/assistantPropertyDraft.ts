@@ -70,14 +70,18 @@ const fromClientStart = new RegExp(
   + `((?:пр|пк|кл|pr|pk|kl)[\\s.\\-–—]*\\d{1,9})(?:\\s+илова\\s+кун(?:ед)?)?[.!?]*$`, "iu");
 const isExit = /^(?:\/(?:cancel|new|reset)|выход|выйти из черновика|баромадан)$/iu;
 const callback = /^pdt:(review|create|exit|edit):([\da-f-]{36})$/u;
-const fieldCallback = /^pdt:f:([A-Za-z_]{1,20}):([\da-f-]{36})$/u;
-const valueCallback = /^pdt:v:([A-Za-z_]{1,20}):(\d{1,2}):([\da-f-]{36})$/u;
+const fieldCallback = /^pdt:f:([A-Za-z0-9_]{1,20}):([\da-f-]{36})$/u;
+/** Выбор значения несёт ревизию черновика: после правки в CRM старая кнопка ничего не выберет. */
+const valueCallback = /^pdt:v:([A-Za-z0-9_]{1,20}):(\d{1,2}):([0-9a-z]{1,8}):([\da-f-]{36})$/u;
+/** «Убрать файл» — по номеру файла в черновике той же ревизии. */
+const removeCallback = /^pdt:rm:(\d{1,2}):([0-9a-z]{1,8}):([\da-f-]{36})$/u;
 const importCallback = /^pdt:imp:(rd|rm|km|no):([\da-f-]{36})$/u;
 const location = z.object({ latitude: z.number().min(-90).max(90), longitude: z.number().min(-180).max(180) });
 const stateSchema = z.object({
   draftId: z.guid(),
   lang: z.enum(["ru", "tg"]).optional(),
-  preview: z.object({ token: z.guid(), revision: z.number().int(), media: z.string() }).optional(),
+  /** dupIds — дубли, о которых сотрудник уже предупреждён кнопкой «Всё равно создать». */
+  preview: z.object({ token: z.guid(), revision: z.number().int(), media: z.string(), dupIds: z.array(z.guid()).max(10).optional() }).optional(),
   /** Поле, которое агент выбрал кнопкой «Исправить поле»: следующий текст или голос — его значение. */
   editing: z.string().max(24).optional(),
   /** Карточка продавца, импорт которой ждёт ответа «заменить / оставить». */
@@ -114,6 +118,14 @@ const copy = {
     ready: "Всё заполнено. Проверьте данные и нажмите «Создать».",
     needMore: "Нужно ещё",
     waitFiles: "дождитесь обработки всех файлов или проверьте их в мастере CRM",
+    staleFile: (name: string) => `файл «${name}» не догрузился — уберите его и пришлите снова`,
+    removeFile: (label: string) => `Убрать: ${label}`,
+    fileRemoved: "Файл убран.",
+    noFiles: "В черновике пока нет файлов.",
+    chooseFile: "Какой файл убрать?",
+    cardChanged: "Карточка изменилась. Вот она сейчас.",
+    albumAdded: (n: number) => `Принято фото: ${n}.`,
+    newDuplicate: "Пока вы смотрели карточку, в CRM появился похожий объект.",
     districtMissing: "район из справочника",
     sellerMissing: "доступная карточка продавца в CRM",
     parseFailed: "Не разобрала поля. Напишите каждое с новой строки: «Цена: 750000», «Валюта: сомони», «Площадь: 68».",
@@ -172,6 +184,14 @@ const copy = {
     ready: "Ҳама пур шуд. Маълумотро санҷед ва «Сохтан»-ро пахш кунед.",
     needMore: "Боз лозим аст",
     waitFiles: "интизор шавед, то ҳамаи файлҳо коркард шаванд",
+    staleFile: (name: string) => `файли «${name}» пурра бор нашуд — онро нест кунед ва боз фиристед`,
+    removeFile: (label: string) => `Нест кардан: ${label}`,
+    fileRemoved: "Файл нест карда шуд.",
+    noFiles: "Дар сиёҳнавис ҳоло файл нест.",
+    chooseFile: "Кадом файлро нест кунем?",
+    cardChanged: "Корт тағйир ёфт. Ҳолати ҳозираи он.",
+    albumAdded: (n: number) => `Акс қабул шуд: ${n}.`,
+    newDuplicate: "Вақте ки шумо кортро медидед, дар CRM объекти монанд пайдо шуд.",
     districtMissing: "ноҳия аз феҳрист",
     sellerMissing: "корти дастраси фурӯшанда дар CRM",
     parseFailed: "Майдонҳоро нафаҳмидам. Ҳар якро аз сатри нав нависед: «Нарх: 750000», «Асъор: сомонӣ», «Масоҳат: 68».",
@@ -276,11 +296,12 @@ const FIELDS: FieldDef[] = [
     { label: t(lang).other, patch: { documentsPreset: "Другое" }, thenAsk: "docs" },
   ] },
   { id: "details", label: "Характеристики", tg: "Хусусиятҳо", shown: v => PROPERTY_DETAIL_KEYS.some(key => propertyDetailShown(v.type, key)) },
+  { id: "files", label: "Файлы", tg: "Файлҳо", shown: () => true },
 ];
 
 function detailField(key: PropertyDetailKey): FieldDef {
   return {
-    id: `d_${key}`, label: propertyDetailFieldLabel(key), tg: propertyDetailFieldLabel(key),
+    id: `d${PROPERTY_DETAIL_KEYS.indexOf(key)}`, label: propertyDetailFieldLabel(key), tg: propertyDetailFieldLabel(key),
     shown: v => propertyDetailShown(v.type, key),
     choices: (v, lang) => [
       ...PROPERTY_DETAIL_OPTIONS[key].map(option => ({
@@ -292,9 +313,10 @@ function detailField(key: PropertyDetailKey): FieldDef {
 }
 
 function fieldById(id: string): FieldDef | undefined {
-  if (id.startsWith("d_")) {
-    const key = id.slice(2);
-    return (PROPERTY_DETAIL_KEYS as readonly string[]).includes(key) ? detailField(key as PropertyDetailKey) : undefined;
+  const detail = /^d(\d{1,2})$/u.exec(id);
+  if (detail) {
+    const key = PROPERTY_DETAIL_KEYS[Number(detail[1])];
+    return key ? detailField(key) : undefined;
   }
   return FIELDS.find(field => field.id === id);
 }
@@ -344,10 +366,27 @@ function rowsOf(buttons: TelegramInlineButton[], perRow = 2): TelegramInlineButt
   return rows;
 }
 
-function choiceButtons(field: FieldDef, values: Values, draftId: string, lang: Lang): TelegramInlineButton[][] {
+const rev = (draft: Pick<DraftRecord, "revision">) => draft.revision.toString(36);
+
+function choiceButtons(field: FieldDef, values: Values, draft: Pick<DraftRecord, "id" | "revision">, lang: Lang): TelegramInlineButton[][] {
   return rowsOf((field.choices?.(values, lang) ?? []).map((choice, index) => ({
-    text: choice.label, callback_data: `pdt:v:${field.id}:${index}:${draftId}`,
+    text: choice.label, callback_data: `pdt:v:${field.id}:${index}:${rev(draft)}:${draft.id}`,
   })));
+}
+
+/** Загрузка, которая не двигается дольше этого, считается оборванной (выкат, обрыв связи). */
+export const STALE_DRAFT_UPLOAD_MS = 30 * 60_000;
+const isStaleUpload = (file: DraftRecord["media"][number], now = Date.now()) =>
+  file.status !== "READY" && now - file.updatedAt.getTime() > STALE_DRAFT_UPLOAD_MS;
+const fileLabel = (draft: DraftRecord, index: number, lang: Lang) => {
+  const file = draft.media[index];
+  const sameKind = draft.media.slice(0, index + 1).filter(item => item.kind === file.kind).length;
+  return `${file.kind === "PHOTO" ? t(lang).photo : t(lang).video} ${sameKind}${file.status === "READY" ? "" : " ⏳"}`;
+};
+function removeButtons(draft: DraftRecord, lang: Lang, only?: (file: DraftRecord["media"][number]) => boolean): TelegramInlineButton[][] {
+  return rowsOf(draft.media.flatMap((file, index) => (index < 40 && (!only || only(file))) ? [{
+    text: t(lang).removeFile(fileLabel(draft, index, lang)), callback_data: `pdt:rm:${index}:${rev(draft)}:${draft.id}`,
+  }] : []));
 }
 
 /* ─────────────────────────── карточка «Проверьте объект» ─────────────────────────── */
@@ -379,7 +418,9 @@ async function review(ctx: Context, draft: DraftRecord) {
       if (!missing.has(FIELD_OF_ERROR[key] ?? key)) addMissing(key, issue.message, false);
     }
   }
-  if (draft.media.some(file => file.status !== "READY")) missing.set("media", c.waitFiles);
+  const stale = draft.media.filter(file => isStaleUpload(file));
+  if (stale.length) missing.set("media", stale.map(file => c.staleFile(file.filename)).join(", "));
+  else if (draft.media.some(file => file.status !== "READY")) missing.set("media", c.waitFiles);
 
   const [district, intake, seller] = await Promise.all([
     values.districtId ? prisma.district.findUnique({ where: { id: values.districtId }, select: { name: true } }) : null,
@@ -459,7 +500,7 @@ async function review(ctx: Context, draft: DraftRecord) {
   lines.push(missing.size ? `\n${c.needMore}: ${[...missing.values()].join(", ")}.\n${c.howTo}` : `\n${c.ready}`);
   // Обязательное поле с готовыми вариантами — спрашиваем сразу кнопками.
   const firstChoice = [...missing.keys()].map(fieldById).find(field => field?.choices && field.shown(values, ctx));
-  return { text: lines.join("\n"), missing: [...missing.values()], body, duplicates, values, firstChoice };
+  return { text: lines.join("\n"), missing: [...missing.values()], body, duplicates, values, firstChoice, hasStale: stale.length > 0 };
 }
 
 /** Тот же поиск, что GET /properties/duplicate-check у мастера CRM. */
@@ -489,13 +530,15 @@ async function sendReview(ctx: Context, draft: DraftRecord, prefix?: string) {
       const current = await assertActiveDraft(tx, ctx.agentId, { draftId: draft.id, revision: draft.revision });
       const media = draftMediaFingerprint(draft);
       if (draftMediaFingerprint(current) !== media) return false;
-      await writeState(tx, ctx, { draftId: draft.id, lang: ctx.lang, preview: { token, revision: draft.revision, media } });
+      await writeState(tx, ctx, { draftId: draft.id, lang: ctx.lang, preview: { token, revision: draft.revision, media, dupIds: info.duplicates.map(match => match.id).slice(0, 10) } });
       return true;
     });
     if (!ready) { await sendMessageWithButtons(ctx.chatId, t(ctx.lang).stale, buttons); return; }
     buttons.unshift([{ text: info.duplicates.length ? t(ctx.lang).b.createAnyway : t(ctx.lang).b.create, callback_data: `pdt:create:${token}` }]);
+  } else if (info.hasStale) {
+    buttons.unshift(...removeButtons(draft, ctx.lang, file => isStaleUpload(file)));
   } else if (info.firstChoice) {
-    buttons.unshift(...choiceButtons(info.firstChoice, info.values, draft.id, ctx.lang));
+    buttons.unshift(...choiceButtons(info.firstChoice, info.values, draft, ctx.lang));
   }
   await sendMessageWithButtons(ctx.chatId, prefix ? `${prefix}\n\n${info.text}` : info.text, buttons);
 }
@@ -719,6 +762,21 @@ const sessionSchema = z.union([
 ]);
 const errorOf = (body: unknown) => body && typeof body === "object" && "error" in body && typeof body.error === "string" ? body.error : null;
 
+const VIDEO_EXTENSION_BY_MIME: Record<string, string> = { "video/mp4": ".mp4", "video/quicktime": ".mov", "video/x-m4v": ".m4v", "video/webm": ".webm" };
+
+/**
+ * Имя ролика для сессии: своё имя из Telegram, а если у него нет годного
+ * расширения («Видео от 10.11», «clip») — расширение по типу файла. Неизвестный
+ * тип не подменяем: сервер сам честно откажет.
+ */
+export function telegramVideoFilename(name: string | undefined, mime: string, messageId?: number): string {
+  const base = name?.trim() || `telegram-${messageId ?? "video"}`;
+  const ext = /\.[A-Za-z0-9]{2,5}$/u.exec(base)?.[0].toLowerCase();
+  const known = ext && Object.values(VIDEO_EXTENSION_BY_MIME).includes(ext);
+  const byMime = VIDEO_EXTENSION_BY_MIME[mime];
+  return (known || !byMime ? base : `${base}${byMime}`).slice(0, 255);
+}
+
 /** Ролик в черновик теми же шагами, что у мастера CRM: сессия → части → сборка. */
 async function saveTelegramVideo(ctx: Context, draft: DraftRecord, msg: TelegramIncomingMessage, video: IncomingVideo): Promise<string> {
   const lang = ctx.lang;
@@ -727,13 +785,16 @@ async function saveTelegramVideo(ctx: Context, draft: DraftRecord, msg: Telegram
   const mime = video.mime_type?.startsWith("video/") ? video.mime_type : "video/mp4";
   const started = await startDraftVideoSession(ctx.agentId, draft.id, {
     uploadKey: `tg:${draft.id}:${msg.message_id ?? randomUUID()}`,
-    filename: (video.file_name?.trim() || `telegram-${msg.message_id ?? "video"}.${mime === "video/quicktime" ? "mov" : "mp4"}`).slice(0, 255),
+    filename: telegramVideoFilename(video.file_name, mime, msg.message_id),
     sizeBytes: video.file_size,
     contentType: mime,
   });
   if (started.status >= 300) return errorOf(started.body) ?? t(lang).videoFailed;
   const session = sessionSchema.parse(started.body);
   if (session.status === "done") return t(lang).videoAdded;
+  // Сессию могли открыть не мы (тот же файл уже грузится из мастера CRM):
+  // удалять при сбое можно только свою, только что начатую.
+  const ours = session.status === "started";
   const uploaded = new Set(session.uploadedPartNumbers);
   try {
     let partNumber = 0;
@@ -749,8 +810,12 @@ async function saveTelegramVideo(ctx: Context, draft: DraftRecord, msg: Telegram
     return t(lang).videoAdded;
   } catch (error) {
     if (error instanceof DraftConflictError) throw error;
+    if (!ours) {
+      const current = await prisma.propertyDraftMedia.findUnique({ where: { id: session.mediaId }, select: { status: true } });
+      if (current?.status === "READY") return t(lang).videoAdded;
+    }
     void logSystemError("telegram", `Мастер объекта в Telegram: видео не сохранилось: ${error instanceof Error ? error.message : String(error)}`);
-    await deleteDraftMedia(ctx.agentId, draft.id, session.mediaId).catch(() => undefined);
+    if (ours) await deleteDraftMedia(ctx.agentId, draft.id, session.mediaId).catch(() => undefined);
     return t(lang).videoFailed;
   }
 }
@@ -781,6 +846,44 @@ async function importSeller(ctx: Context, draft: DraftRecord, clientId: string, 
   }
   await patchState(ctx, draft.id, state => ({ draftId: state.draftId }));
   await sendReview(ctx, await assertActiveDraft(prisma, ctx.agentId, { draftId: draft.id }), c.clientImported);
+}
+
+/* ─────────────────────────── альбом фото ─────────────────────────── */
+
+/**
+ * Альбом приходит отдельными сообщениями без признака «последнее». Подтверждаем
+ * одним сообщением «принято N фото», когда альбом затих (ответ на действие
+ * сотрудника, не напоминание).
+ */
+const albums = new Map<string, { count: number; timer: ReturnType<typeof setTimeout> }>();
+let albumQuietMs = 2_500;
+export function setAlbumQuietMsForTests(ms: number): void { albumQuietMs = ms; }
+
+/** Следующее фото альбома уже обрабатывается — не подтверждать посреди альбома. */
+function holdAlbum(chatId: string, groupId: string) {
+  const pending = albums.get(`${chatId}:${groupId}`);
+  if (pending) clearTimeout(pending.timer);
+}
+
+function confirmAlbumPhoto(ctx: Context, draftId: string, groupId: string) {
+  const key = `${ctx.chatId}:${groupId}`;
+  const previous = albums.get(key);
+  if (previous) clearTimeout(previous.timer);
+  const count = (previous?.count ?? 0) + 1;
+  const timer = setTimeout(() => {
+    albums.delete(key);
+    void (async () => {
+      try {
+        await sendReview(ctx, await assertActiveDraft(prisma, ctx.agentId, { draftId }), t(ctx.lang).albumAdded(count));
+      } catch (error) {
+        if (!(error instanceof DraftConflictError)) {
+          void logSystemError("telegram", `Мастер объекта в Telegram: подтверждение альбома не ушло: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+    })();
+  }, albumQuietMs);
+  timer.unref?.();
+  albums.set(key, { count, timer });
 }
 
 /* ─────────────────────────── входящие ─────────────────────────── */
@@ -838,6 +941,7 @@ export async function handleTelegramPropertyDraft(
       // Поле выбрано кнопкой «Исправить поле» — ответ становится «Поле: значение».
       const asField = (value: string) => editing ? `${editing.label}: ${value.replace(/\s*\n\s*/gu, " ")}` : value;
       if (picture) {
+        if (msg.media_group_id) holdAlbum(ctx.chatId, msg.media_group_id);
         const maxBytes = TELEGRAM_DRAFT_PHOTO_LIMIT_BYTES;
         if (picture.file_size && picture.file_size > maxBytes) throw new Error("photo_too_large");
         const buffer = await downloadAssistantMedia(picture.file_id, maxBytes);
@@ -849,7 +953,9 @@ export async function handleTelegramPropertyDraft(
           await sendMessageWithButtons(chatId, "error" in saved.body ? saved.body.error : t(lang).genericError, controls(draft.id, lang));
         } else if (text) {
           await updateDescription(ctx, draft, text, createAssistantMoneyWallet());
-        } else if (!msg.media_group_id) {
+        } else if (msg.media_group_id) {
+          confirmAlbumPhoto(ctx, draft.id, msg.media_group_id);
+        } else {
           await sendReview(ctx, await assertActiveDraft(prisma, agent.id, { draftId: draft.id }), t(lang).photoAdded);
         }
       } else if (video) {
@@ -905,16 +1011,19 @@ async function matchingSummary(ctx: Context, propertyId: string): Promise<string
 
 /* ─────────────────────────── кнопки ─────────────────────────── */
 
-async function sendFieldPrompt(ctx: Context, draftId: string, field: FieldDef, values: Values) {
+async function sendFieldPrompt(ctx: Context, draft: DraftRecord, field: FieldDef, values: Values) {
   const c = t(ctx.lang);
+  const draftId = draft.id;
   const back = [{ text: c.b.back, callback_data: `pdt:edit:${draftId}` }];
   if (field.id === "details") {
     const buttons = rowsOf(PROPERTY_DETAIL_KEYS.filter(key => propertyDetailShown(values.type, key)).map(key => ({
-      text: propertyDetailFieldLabel(key), callback_data: `pdt:f:d_${key}:${draftId}`,
+      text: propertyDetailFieldLabel(key), callback_data: `pdt:f:${detailField(key).id}:${draftId}`,
     })));
     await sendMessageWithButtons(ctx.chatId, c.chooseDetail, [...buttons, back]);
+  } else if (field.id === "files") {
+    await sendMessageWithButtons(ctx.chatId, draft.media.length ? c.chooseFile : c.noFiles, [...removeButtons(draft, ctx.lang), back]);
   } else if (field.choices) {
-    await sendMessageWithButtons(ctx.chatId, c.choose(lower(fieldLabel(field, ctx.lang))), [...choiceButtons(field, values, draftId, ctx.lang), back]);
+    await sendMessageWithButtons(ctx.chatId, c.choose(lower(fieldLabel(field, ctx.lang))), [...choiceButtons(field, values, draft, ctx.lang), back]);
   } else {
     await askText(ctx, draftId, field);
   }
@@ -933,9 +1042,10 @@ export async function handleTelegramPropertyDraftCallback(query: TelegramCallbac
   const fieldAction = fieldCallback.exec(query.data);
   const valueAction = valueCallback.exec(query.data);
   const importAction = importCallback.exec(query.data);
+  const removeAction = removeCallback.exec(query.data);
   const chat = query.message?.chat;
   const messageId = query.message?.message_id;
-  if ((!action && !fieldAction && !valueAction && !importAction) || !messageId || chat?.type !== "private" || query.from?.id !== chat.id) {
+  if ((!action && !fieldAction && !valueAction && !importAction && !removeAction) || !messageId || chat?.type !== "private" || query.from?.id !== chat.id) {
     await answer("Кнопка доступна только в личке автора");
     return true;
   }
@@ -947,8 +1057,9 @@ export async function handleTelegramPropertyDraftCallback(query: TelegramCallbac
   const ctx = await contextFor(agent.id, agent.fullName, chatId, state?.lang ?? "ru");
   if (!ctx?.access.isActive || propertyCreateDeniedReason({ agent: ctx.access })) { await answer("Нет прав на создание"); return true; }
   const lang = ctx.lang;
-  const command = action?.[1] ?? (fieldAction ? "field" : valueAction ? "value" : "import");
-  const id = action?.[2] ?? fieldAction?.[2] ?? valueAction?.[3] ?? importAction?.[2] ?? "";
+  const command = action?.[1] ?? (fieldAction ? "field" : valueAction ? "value" : removeAction ? "remove" : "import");
+  const id = action?.[2] ?? fieldAction?.[2] ?? valueAction?.[4] ?? importAction?.[2] ?? removeAction?.[3] ?? "";
+  const expectedRevision = valueAction?.[3] ?? removeAction?.[2];
   if (!state || (command === "create" ? state.preview?.token !== id : state.draftId !== id)) {
     await answer("Кнопка устарела");
     return true;
@@ -961,9 +1072,19 @@ export async function handleTelegramPropertyDraftCallback(query: TelegramCallbac
       await sendReview(ctx, await assertActiveDraft(prisma, agent.id, { draftId: id }));
       return true;
     }
-    if (command === "edit" || command === "field" || command === "value") {
+    if (command === "edit" || command === "field" || command === "value" || command === "remove") {
       const draft = await assertActiveDraft(prisma, agent.id, { draftId: id });
       const values = propertyWizardDraftValuesSchema.parse(draft.values);
+      if (expectedRevision !== undefined && expectedRevision !== rev(draft)) {
+        await sendReview(ctx, draft, t(lang).cardChanged);
+        return true;
+      }
+      if (command === "remove") {
+        const file = draft.media[Number(removeAction?.[1])];
+        if (file) await deleteDraftMedia(agent.id, draft.id, file.id);
+        await sendReview(ctx, await assertActiveDraft(prisma, agent.id, { draftId: id }), file ? t(lang).fileRemoved : undefined);
+        return true;
+      }
       if (command === "edit") {
         const buttons = rowsOf(FIELDS.filter(field => field.shown(values, ctx)).map(field => ({
           text: fieldLabel(field, lang), callback_data: `pdt:f:${field.id}:${id}`,
@@ -973,7 +1094,7 @@ export async function handleTelegramPropertyDraftCallback(query: TelegramCallbac
       }
       const field = fieldById(fieldAction?.[1] ?? valueAction?.[1] ?? "");
       if (!field?.shown(values, ctx)) { await sendReview(ctx, draft); return true; }
-      if (command === "field") { await sendFieldPrompt(ctx, id, field, values); return true; }
+      if (command === "field") { await sendFieldPrompt(ctx, draft, field, values); return true; }
       const choice = field.choices?.(values, lang)[Number(valueAction?.[2])];
       if (!choice) { await sendReview(ctx, draft); return true; }
       const updated = await saveFields(ctx, draft, choice.patch);
@@ -1004,11 +1125,17 @@ export async function handleTelegramPropertyDraftCallback(query: TelegramCallbac
       const draft = await assertActiveDraft(tx, agent.id, { draftId: current.draftId, revision: preview.revision });
       if (draftMediaFingerprint(draft) !== preview.media) throw new DraftConflictError(draft);
       await writeState(tx, ctx, { draftId: draft.id, lang });
-      return { draft, media: preview.media };
+      return { draft, media: preview.media, dupIds: preview.dupIds ?? [] };
     });
     if (!claimed) return true;
     const info = await review(ctx, claimed.draft);
     if (info.missing.length) { await sendReview(ctx, claimed.draft); return true; }
+    // Дубль проверяется ещё раз в момент создания: между показом карточки и
+    // нажатием в CRM мог появиться объект, о котором сотрудник не предупреждён.
+    if (info.duplicates.some(match => !claimed.dupIds.includes(match.id))) {
+      await sendReview(ctx, claimed.draft, t(lang).newDuplicate);
+      return true;
+    }
     const result = await createProperty({
       agent: ctx.access, source: "telegram", expectedDraftMedia: claimed.media,
       body: { ...info.body, draftId: claimed.draft.id, draftRevision: claimed.draft.revision },

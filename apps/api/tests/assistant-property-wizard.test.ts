@@ -77,6 +77,7 @@ beforeAll(async () => {
   tmp = await mkdtemp(path.join(tmpdir(), "tg-wizard-"));
   await mk("author", 1, "AGENT");
   await mk("other", 2, "AGENT");
+  await mk("holder", 3, "SHAREHOLDER");
 });
 
 beforeEach(() => {
@@ -133,11 +134,11 @@ describe("мастер объекта в Telegram", () => {
     await click("author", `pdt:f:finish:${draft.id}`);
     const pit = lastButtons().findIndex(b => b.text === "Новостройка, котлован");
     expect(pit).toBeGreaterThanOrEqual(0);
-    await click("author", `pdt:v:finish:${pit}:${draft.id}`);
+    await click("author", lastButtons()[pit].callback_data!);
     expect(await values("author")).toMatchObject({ marketType: "FOUNDATION_PIT", stage: "FOUNDATION", condition: "NEW_BUILDING" });
 
-    await click("author", `pdt:f:d_heating:${draft.id}`);
-    await click("author", button("pdt:v:d_heating:")!);
+    await click("author", `pdt:f:d4:${draft.id}`);
+    await click("author", button("pdt:v:d4:")!);
     expect((await values("author")).details).toMatchObject({ heating: "Автономное", balcony: "Лоджия" });
 
     // Текстовое поле: кнопка → ответ текстом становится значением этого поля.

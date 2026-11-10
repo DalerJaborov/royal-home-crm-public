@@ -104,6 +104,52 @@ function cleanDetails(raw: unknown): Partial<Record<PropertyDetailKey, string>> 
   return Object.keys(out).length ? out : undefined;
 }
 
+const SCALES: ReadonlyArray<[RegExp, number]> = [
+  [/\s*(?:тысяч[аи]?|тыс\.?|ҳазор)$/u, 1_000],
+  [/\s*(?:млн\.?|миллион(?:а|ов)?|миллиард|млрд)$/u, 1_000_000],
+];
+const UNIT = /\s*(?:м2|м²|кв\.?\s*м\.?|квм|кв\.?\s*метр(?:а|ов)?|метр(?:а|ов)?|сот(?:ок|ки|ка|их)?|комнат(?:а|ы)?|комн\.?|ҳуҷра|окон|окна|окно|тиреза|шт\.?)$/u;
+const CURRENCY_WORDS: ReadonlyArray<[RegExp, "TJS" | "USD"]> = [
+  [/\s*(?:сомони|сомонӣ|смн\.?|tjs)$/u, "TJS"],
+  [/\s*(?:долларов|доллар(?:а|ы)?|usd|\$)$/u, "USD"],
+];
+
+/**
+ * Число из подписи «Поле: значение» — только честный разбор: единицы («68 м2»,
+ * «6 соток»), разряды пробелами («950 000»), «тысяч/млн», «5/9» и «5 из 9» у
+ * этажа, валюта словом у цены. Всё прочее — null (разберёт ИИ): раньше из
+ * «Этаж: 5/9» выходило 59, из «Площадь: 68м2» — 682, из «120 тысяч» — 120.
+ */
+export function labeledNumber(key: string, raw: string): Record<string, string> | null {
+  let text = raw.trim().toLowerCase().replace(/ /gu, " ");
+  const out: Record<string, string> = {};
+  if (key === "floor") {
+    const pair = /^(-?\d{1,3})\s*(?:\/|из|аз)\s*(\d{1,3})(?:\s*(?:этаж(?:а|ей)?|ошёна))?$/u.exec(text);
+    if (pair) return { floor: pair[1], totalFloors: pair[2] };
+    text = text.replace(/\s*(?:этаж|ошёна)$/u, "");
+  }
+  if (key === "totalFloors") text = text.replace(/\s*(?:этаж(?:а|ей|ный|ное)?|ошёна)$/u, "");
+  if (key === "price") {
+    for (const [pattern, code] of CURRENCY_WORDS) {
+      if (pattern.test(text)) { out.currency = code; text = text.replace(pattern, ""); break; }
+    }
+  }
+  let multiplier = 1;
+  if (key === "price") {
+    for (const [pattern, scale] of SCALES) {
+      if (pattern.test(text)) { multiplier = scale; text = text.replace(pattern, ""); break; }
+    }
+  }
+  text = text.replace(UNIT, "").trim();
+  if (/^-?\d{1,3}(?: \d{3})+(?:[.,]\d+)?$/u.test(text)) text = text.replace(/ /gu, "");
+  // «1,200» — тысяча двести или одна целая две десятых? Не угадываем.
+  if (/^-?\d{1,3},\d{3}$/u.test(text)) return null;
+  text = text.replace(",", ".");
+  if (!/^-?\d{1,12}(?:\.\d{1,3})?$/u.test(text)) return null;
+  const value = multiplier === 1 ? text : String(Math.round(Number(text) * multiplier));
+  return { ...out, [key]: value };
+}
+
 /**
  * «Поле: значение» построчно — без ИИ и без затрат. null — текст не такой или
  * значение не разобралось (например, «Этаж: пятый»): тогда разбирает ИИ.
@@ -125,9 +171,14 @@ export function labeledPropertyFields(input: string): ExtractedPropertyFields | 
       continue;
     }
     const flat = key as FlatKey;
-    result[flat] = dictionaries[flat] || extraWords[flat]
-      ? dictionaryCode(flat, raw)
-      : NUMERIC_KEYS.has(flat) ? raw.replace(/[^\d.,-]/g, "").replace(",", ".") : raw;
+    if (NUMERIC_KEYS.has(flat)) {
+      const parsedNumber = labeledNumber(flat, raw);
+      // Не разобралось честно («пятый», «1,200») — пусть разбирает ИИ, а не портим поле.
+      if (!parsedNumber) return null;
+      Object.assign(result, parsedNumber);
+      continue;
+    }
+    result[flat] = dictionaries[flat] || extraWords[flat] ? dictionaryCode(flat, raw) : raw;
   }
   if (Object.keys(details).length) result.details = details;
   if (!Object.keys(result).length) return null;
