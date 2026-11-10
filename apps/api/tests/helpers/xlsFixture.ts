@@ -14,7 +14,7 @@ const uniString = (s: string) => Buffer.concat([u16(s.length), Buffer.from([1]),
 
 export function xlsFixture(rows: XlsCell[][], opts: {
   xfFormats?: number[]; formats?: Record<number, string>; splitSst?: boolean; declaredStreamSize?: number;
-  filepass?: boolean; streamName?: string; date1904?: boolean; shortXf?: boolean;
+  filepass?: boolean; streamName?: string; date1904?: boolean; shortXf?: boolean; junkRecords?: number;
 } = {}): Buffer {
   const strings: string[] = [];
   const sid = (s: string) => { const i = strings.indexOf(s); return i >= 0 ? i : strings.push(s) - 1; };
@@ -49,14 +49,21 @@ export function xlsFixture(rows: XlsCell[][], opts: {
     ...(opts.filepass ? [rec(0x2f, Buffer.alloc(54))] : []), ...(opts.date1904 ? [rec(0x22, u16(1))] : []), ...formats, ...xfs,
     rec(0x85, Buffer.concat([u32(0), u16(0), uniString("Лист1").subarray(0, 2), Buffer.from([1]), Buffer.from("Лист1", "utf16le")])),
     sstRecords, rec(0x0a, Buffer.alloc(0)),
-    rec(0x809, Buffer.concat([u16(0x600), u16(0x10), Buffer.alloc(12)])), ...cells, rec(0x0a, Buffer.alloc(0)),
+    rec(0x809, Buffer.concat([u16(0x600), u16(0x10), Buffer.alloc(12)])),
+    // Ненужные читателю записи (шрифт 0x31) — пачкой, как в тяжёлом файле.
+    ...(opts.junkRecords ? [Buffer.concat(Array.from({ length: opts.junkRecords }, () => rec(0x31, Buffer.alloc(0))))] : []),
+    ...cells, rec(0x0a, Buffer.alloc(0)),
   ]);
   if (workbook.length < 4096) workbook = Buffer.concat([workbook, Buffer.alloc(4096 - workbook.length)]);
   const wbSectors = Math.ceil(workbook.length / 512);
-  const fat = Buffer.alloc(512, 0xff);
-  fat.writeUInt32LE(0xfffffffd, 0);
-  fat.writeUInt32LE(0xfffffffe, 4);
-  for (let i = 0; i < wbSectors; i++) fat.writeUInt32LE(i === wbSectors - 1 ? 0xfffffffe : 3 + i, (2 + i) * 4);
+  // Сектора: FAT (F штук), каталог, поток. Для маленького файла F = 1 — раскладка как раньше.
+  let fatCount = 1;
+  while (fatCount * 128 < fatCount + 1 + wbSectors) fatCount++;
+  const dirSector = fatCount;
+  const fat = Buffer.alloc(512 * fatCount, 0xff);
+  for (let i = 0; i < fatCount; i++) fat.writeUInt32LE(0xfffffffd, i * 4);
+  fat.writeUInt32LE(0xfffffffe, dirSector * 4);
+  for (let i = 0; i < wbSectors; i++) fat.writeUInt32LE(i === wbSectors - 1 ? 0xfffffffe : dirSector + 2 + i, (dirSector + 1 + i) * 4);
   const dir = Buffer.alloc(512);
   const entry = (off: number, name: string, type: number, start: number, size: number) => {
     Buffer.from(`${name}\0`, "utf16le").copy(dir, off);
@@ -66,14 +73,14 @@ export function xlsFixture(rows: XlsCell[][], opts: {
     dir.writeUInt32LE(start, off + 0x74); dir.writeUInt32LE(size, off + 0x78);
   };
   entry(0, "Root Entry", 5, 0xfffffffe, 0);
-  entry(128, opts.streamName ?? "Workbook", 2, 2, opts.declaredStreamSize ?? workbook.length);
+  entry(128, opts.streamName ?? "Workbook", 2, dirSector + 1, opts.declaredStreamSize ?? workbook.length);
   const header = Buffer.alloc(512, 0);
   header.writeUInt32LE(0xe011cfd0, 0); header.writeUInt32LE(0xe11ab1a1, 4);
   header.writeUInt16LE(0x3e, 0x18); header.writeUInt16LE(3, 0x1a); header.writeUInt16LE(0xfffe, 0x1c);
   header.writeUInt16LE(9, 0x1e); header.writeUInt16LE(6, 0x20);
-  header.writeUInt32LE(1, 0x2c); header.writeUInt32LE(1, 0x30); header.writeUInt32LE(4096, 0x38);
+  header.writeUInt32LE(fatCount, 0x2c); header.writeUInt32LE(dirSector, 0x30); header.writeUInt32LE(4096, 0x38);
   header.writeUInt32LE(0xfffffffe, 0x3c); header.writeUInt32LE(0, 0x40); header.writeUInt32LE(0xfffffffe, 0x44); header.writeUInt32LE(0, 0x48);
-  for (let i = 0; i < 109; i++) header.writeUInt32LE(i === 0 ? 0 : 0xffffffff, 0x4c + i * 4);
+  for (let i = 0; i < 109; i++) header.writeUInt32LE(i < fatCount ? i : 0xffffffff, 0x4c + i * 4);
   const padded = Buffer.concat([workbook, Buffer.alloc(wbSectors * 512 - workbook.length)]);
   return Buffer.concat([header, fat, dir, padded]);
 }

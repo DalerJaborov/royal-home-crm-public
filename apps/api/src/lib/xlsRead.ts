@@ -18,6 +18,9 @@ const MAX_FILE_BYTES = 10_000_000;
 const MAX_ROWS = 5_000;
 const MAX_COLS = 200;
 const ENDOFCHAIN = 0xfffffffe;
+const MAX_RECORDS = 300_000;
+/** BOF, EOF, BOUNDSHEET, SST, LABELSST, LABEL, NUMBER, RK, MULRK, FORMULA, STRING, FORMAT, XF, DATEMODE, FILEPASS. */
+const NEEDED_RECORDS = new Set([0x809, 0x0a, 0x85, 0xfc, 0xfd, 0x204, 0x203, 0x27e, 0xbd, 0x06, 0x207, 0x41e, 0xe0, 0x22, 0x2f]);
 const FREESECT = 0xffffffff;
 
 function fail(why: string): never {
@@ -31,6 +34,8 @@ function workbookStream(buf: Buffer): Buffer {
   const sectorSize = 1 << buf.readUInt16LE(0x1e);
   const miniSize = 1 << buf.readUInt16LE(0x20);
   if (sectorSize !== 512 && sectorSize !== 4096) fail("sector size");
+  // Мини-сектор по формату всегда 64 байта: иное — порча или бомба (1 << 31 раздувал деление выше).
+  if (miniSize !== 64) fail("mini size");
   const fatSectors = buf.readUInt32LE(0x2c);
   const firstDir = buf.readUInt32LE(0x30);
   const miniCutoff = buf.readUInt32LE(0x38);
@@ -174,14 +179,19 @@ const formatNumber = (v: number) => (Number.isInteger(v) ? String(v) : String(Ma
 export function readXlsFirstSheet(buf: Buffer): string[][] {
   const stream = workbookStream(buf);
   const records: { type: number; data: Buffer; continues: Buffer[] }[] = [];
+  let seenRecords = 0;
+  let lastKept = false;
   for (let off = 0; off + 4 <= stream.length;) {
     const type = stream.readUInt16LE(off);
     const len = stream.readUInt16LE(off + 2);
     const data = stream.subarray(off + 4, off + 4 + len);
     off += 4 + len;
-    if (type === 0x3c && records.length) records.at(-1)!.continues.push(data);
-    else records.push({ type, data, continues: [] });
-    if (records.length > 2_000_000) fail("too many records");
+    // В память — только записи, которые читаем; CONTINUE — к последней нужной. Остальное (шрифты,
+    // стили, рисунки) пропускаем, а общее число записей ограничено (повторное ревью 10.11.2026).
+    if (++seenRecords > MAX_RECORDS) fail("too many records");
+    if (type === 0x3c) { if (records.length && lastKept) records.at(-1)!.continues.push(data); continue; }
+    lastKept = NEEDED_RECORDS.has(type);
+    if (lastKept) records.push({ type, data, continues: [] });
   }
   const sst: string[] = [];
   const formats = new Map<number, string>();

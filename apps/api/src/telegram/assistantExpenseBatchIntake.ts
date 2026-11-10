@@ -11,7 +11,7 @@ import { readXlsxFirstSheet, XlsxReadError } from "../lib/xlsxRead.js";
 import { readXlsFirstSheet, XlsReadError } from "../lib/xlsRead.js";
 import { renderExpensePdfPage } from "../ai/assistant/mediaProbe.js";
 import { defaultRootCategory } from "../ai/assistant/expenseArticles.js";
-import { extractExpenseTableChunk } from "../ai/assistant/expenseReceiptExtraction.js";
+import { EXPENSE_TABLE_CHUNK_ROWS, extractExpenseTableChunk } from "../ai/assistant/expenseReceiptExtraction.js";
 import type { AssistantMoneyWallet } from "../ai/assistant/moneyBudget.js";
 import { ADD_EXPENSES_TOOL, MAX_BATCH_ROWS, recordedSource, type BATCH_SOURCE_KINDS } from "../ai/assistant/tools/expenseBatchTool.js";
 import { sendExpenseBatchCard, type CardNotes } from "./assistantExpenseCard.js";
@@ -121,6 +121,7 @@ export async function rowsFromTablePhoto(image: Buffer, sourceHash: string, wall
   let language: "ru" | "tg" | "unknown" = "unknown";
   let hasMore = true;
   let calls = 0;
+  let strayNumbers = 0;
   while (hasMore && calls < maxCalls) {
     const chunk = await extractExpenseTableChunk(image, wallet, fromRow);
     calls += 1;
@@ -129,6 +130,8 @@ export async function rowsFromTablePhoto(image: Buffer, sourceHash: string, wall
     let progressed = false;
     for (const row of chunk.rows) {
       if (row.n < fromRow || byNumber.has(row.n)) continue;
+      // Номер вне разумного (дальше конца порции вдвое) — строка «не прочиталась», а не дыра на 10 000 номеров.
+      if (row.n > fromRow + 2 * EXPENSE_TABLE_CHUNK_ROWS) { strayNumbers += 1; continue; }
       progressed = true;
       const title = row.title?.replace(/\s+/gu, " ").trim();
       const date = row.date && /^\d{4}-\d{2}-\d{2}$/u.test(row.date) ? row.date : undefined;
@@ -156,6 +159,7 @@ export async function rowsFromTablePhoto(image: Buffer, sourceHash: string, wall
     else if ("title" in row) rows.push({ ...row, ...(row.date ? {} : month ? { month } : {}) });
     else skipped.push(row);
   }
+  for (let k = 0; k < strayNumbers; k++) skipped.push({ line: last + k + 1, reason: "unreadable" });
   return { rows, skipped, language, calls, ...(hasMore ? { readUpTo: last } : {}) };
 }
 

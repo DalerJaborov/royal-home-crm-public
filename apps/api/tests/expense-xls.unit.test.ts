@@ -58,6 +58,17 @@ describe("чтение .xls", () => {
     expect(() => readXlsFirstSheet(xlsFixture([["Свет", 180]], { shortXf: true }))).toThrow(XlsReadError);
   });
 
+  it("мини-сектор не 64 байта — отказ (так требует формат)", () => {
+    const file = xlsFixture([["Свет", 180]]);
+    file.writeUInt16LE(31, 0x20);
+    expect(() => readXlsFirstSheet(file)).toThrow("mini size");
+  });
+
+  it("записей больше 300 тыс. — отказ; ненужные записи в меньшем числе пропускаются, файл читается", () => {
+    expect(() => readXlsFirstSheet(xlsFixture([["Свет", 180]], { junkRecords: 300_001 }))).toThrow("too many records");
+    expect(readXlsFirstSheet(xlsFixture([["Свет", 180]], { junkRecords: 200_000 }))).toEqual([["Свет", "180"]]);
+  });
+
   it("цикл в цепочке секторов — отказ, а не бесконечный цикл", () => {
     const file = xlsFixture([["Свет", 180]]);
     // FAT: сектор 2 (начало потока) ссылается сам на себя.

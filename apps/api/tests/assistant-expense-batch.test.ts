@@ -166,6 +166,18 @@ describe("Шабнам: расходы пачкой из фото таблицы
     await click(button("as:no:"));
   });
 
+  it("номер строки от ИИ вне разумного — строка «не прочиталась», а не падение и не дыра в номерах", async () => {
+    io.download.mockResolvedValue(await jpeg(7_000 + Number(stamp.slice(-3))));
+    io.extract.mockResolvedValue(listKind);
+    io.chunk.mockResolvedValue({ language: "ru", month: null, hasMore: false,
+      rows: [...tableRows([["Свет", 18000], ["Вода", 4000]]), { n: 99_999, title: "Газ", amountMinor: 9000, currency: null, date: null }] });
+    await handleAssistantPrivate(photoMsg(), writer);
+    const html = lastCard()[1];
+    expect(html).toContain("2 расхода");
+    expect(html).toMatch(/строки 3 — не прочиталась/u);
+    await click(button("as:no:"));
+  });
+
   it("п.1: чек, записанный одиночным фото, в альбоме второй раз не пишется", async () => {
     const receipt = await jpeg(3);
     const table = await jpeg(4);
