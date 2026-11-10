@@ -5,6 +5,7 @@ import { AssistantActionError, type AssistantActionActor } from "../../../lib/as
 import { ExpenseCommandError } from "../../../lib/expenseCommands.js";
 import { ExpenseLifecycleError } from "../../../lib/expenseWorkspace.js";
 import type { AssistantActor } from "../actor.js";
+import { findActiveAgentByName } from "../../../lib/agentNameLookup.js";
 import type { AssistantWriteToolPlugin } from "./types.js";
 
 /**
@@ -129,10 +130,12 @@ export async function findCategoryByTitle(title: string | undefined, db: Pick<Tx
       ? rows.find(r => r.title.trim().toLowerCase().startsWith(wanted))! : null);
 }
 
-/** Сотрудник для зарплаты по имени: ровно один активный, иначе null. */
-export async function findAgentByName(name: string | undefined, db: Pick<TxClient, "agent"> = prisma) {
-  const wanted = name?.trim();
-  if (!wanted || wanted.length < 2) return null;
-  const rows = await db.agent.findMany({ where: { isActive: true, fullName: { contains: wanted, mode: "insensitive" } }, select: { id: true, fullName: true }, take: 2 });
-  return rows.length === 1 ? rows[0] : null;
+/**
+ * Сотрудник для зарплаты по имени — общая дверь `lib/agentNameLookup.ts` (одно правило с передачей
+ * клиентов): ровно один активный — он, иначе null; кандидатов отдаёт `findActiveAgentByName`.
+ */
+export async function findAgentByName(name: string | undefined, _db?: unknown) {
+  if (!name?.trim()) return null;
+  const match = await findActiveAgentByName(name);
+  return match.kind === "one" ? match.agent : null;
 }

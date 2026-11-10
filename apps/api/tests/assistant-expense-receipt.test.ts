@@ -100,14 +100,16 @@ describe("private Telegram expense from a receipt PDF", () => {
     expect(response.body).toEqual(pdf);
   });
 
-  it("rejects a PDF with multiple pages or spoofed PDF bytes before OCR", async () => {
+  // Многостраничный PDF с 10.11.2026 идёт путём пачки (assistant-expense-batch.test.ts), а не «один чек»:
+  // одиночный разбор чека его не трогает; подменённые байты по-прежнему — отказ до разбора.
+  it("keeps multi-page PDFs out of single-receipt OCR and rejects spoofed PDF bytes", async () => {
     io.download.mockResolvedValueOnce(assistantPdfFixture(2)).mockResolvedValueOnce(Buffer.from("not a PDF"));
     await handleAssistantPrivate(pdfMsg(), director);
     await handleAssistantPrivate(pdfMsg(), director);
     expect(io.extract).not.toHaveBeenCalled();
     expect(io.buttons).not.toHaveBeenCalled();
     expect(io.text).toHaveBeenCalledTimes(2);
-    expect(io.text.mock.calls.at(-1)?.[1]).toContain("на одной странице");
+    expect(io.text.mock.calls.at(-1)?.[1]).toContain("PDF без пароля");
   });
 
   it("keeps ordinary and unauthorized PDFs out of expenses and refuses a caption-only total", async () => {
