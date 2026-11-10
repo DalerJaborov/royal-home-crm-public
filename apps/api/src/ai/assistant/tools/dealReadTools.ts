@@ -5,15 +5,15 @@ import { prisma } from "../../../db.js";
 import { clientNamePhoneSafe } from "../../../lib/clientPhone.js";
 import { getDealRequiredDocuments, listDealDocuments } from "../../../lib/dealDocumentsDb.js";
 import { seesDealMoneyFor } from "../../../lib/dealWrites.js";
-import { dushanbeMonthRange, dushanbeWallClock } from "../../../lib/dushanbeTime.js";
-import { fromCents, toCents } from "../../../lib/money.js";
+import { agentPayoutsReport, type AgentMonthPayout, type CentsByCurrency } from "../../../lib/dealPayouts.js";
+import { dushanbeWallClock } from "../../../lib/dushanbeTime.js";
+import { fromCents, loadConfiguredUsdRate, toCents } from "../../../lib/money.js";
 import { safeField } from "./safeField.js";
 import {
   dealActorOf,
   dealLang,
   dealToolsAllowed,
   ISO_DAY,
-  loadUsdRate,
   money,
   moneyWithRate,
   monthKeyOf,
@@ -49,20 +49,48 @@ const monthArgs = z.object({
   lang: z.enum(["ru", "tg"]).optional(),
 });
 
-type Totals = Map<string, number>; // валюта → сотые
-const add = (totals: Totals, currency: string, cents: number) => totals.set(currency, (totals.get(currency) ?? 0) + cents);
-
-/** Итог по валютам + в сомони по курсу (доллары без курса в сомони не пересчитываются). */
-function totalsView(totals: Totals, rate: number | null, lang: DealLang) {
-  const byCurrency = [...totals.entries()].filter(([, cents]) => cents !== 0)
-    .map(([currency, cents]) => ({ currency, amount: fromCents(cents), text: moneyWithRate(fromCents(cents), currency, rate, lang) }));
-  const usd = totals.get("USD") ?? 0;
-  const tjs = totals.get("TJS") ?? 0;
-  const totalTjs = usd !== 0 && rate === null ? null : fromCents(tjs + toCents(usd !== 0 ? usdToTjs(fromCents(usd), rate!) : 0));
-  return { byCurrency, totalTJS: totalTjs, totalText: totalTjs === null ? null : money(totalTjs, "TJS", lang) };
+/** Суммы по валютам (сотые) → строки для ответа; доллары — с курсом из Настроек, подписано «по курсу сегодня». */
+function totalsView(bag: CentsByCurrency, rate: number | null, lang: DealLang) {
+  const entries = Object.entries(bag).filter(([, cents]) => cents !== 0);
+  const byCurrency = entries.map(([currency, cents]) => ({ currency, amount: fromCents(cents), text: moneyWithRate(fromCents(cents), currency, rate, lang) }));
+  const usd = bag.USD ?? 0;
+  const tjs = bag.TJS ?? 0;
+  const totalTJS = usd !== 0 && rate === null ? null : fromCents(tjs + toCents(usd !== 0 ? usdToTjs(fromCents(usd), rate!) : 0));
+  const today = usd !== 0 && rate !== null ? (lang === "tg" ? " (бо қурби имрӯза)" : " (по курсу сегодня)") : "";
+  const text = byCurrency.length === 0
+    ? money(0, "TJS", lang)
+    : byCurrency.map((c) => c.text).join(" + ") + (byCurrency.length > 1 && totalTJS !== null ? ` = ${money(totalTJS, "TJS", lang)}` : "") + today;
+  return { byCurrency, totalTJS, text };
 }
 
-const sum = (totals: Totals) => [...totals.values()].reduce((a, b) => a + b, 0);
+const merge = (into: CentsByCurrency, from: CentsByCurrency) => {
+  for (const [c, cents] of Object.entries(from)) into[c] = (into[c] ?? 0) + cents;
+  return into;
+};
+const nonZero = (bag: CentsByCurrency) => Object.values(bag).some((c) => c !== 0);
+
+const INTAKE_NOTE = {
+  ru: "выплата приёмщику в CRM не отмечается",
+  tg: "пардохт ба қабулкунанда дар CRM қайд намешавад",
+} as const;
+
+function monthView(m: AgentMonthPayout, rate: number | null, lang: DealLang) {
+  return {
+    month: m.month,
+    earned: totalsView(m.earned, rate, lang),
+    paid: totalsView(m.paid, rate, lang),
+    due: totalsView(m.due, rate, lang),
+    ...(nonZero(m.intakeNotTracked) ? { intakeShare: { ...totalsView(m.intakeNotTracked, rate, lang), note: INTAKE_NOTE[lang] } } : {}),
+    // Строка «Зарплата из сделок» в Финансах: заморожена, с ней сходятся итоги месяца.
+    salaryRowTJS: m.salaryRowTjs,
+    unpaidDeals: m.unpaidDeals.map((d) => ({
+      dealId: d.dealId,
+      property: formatPropertyCode(d.propertyShortId),
+      closedAt: d.closedAt,
+      share: moneyWithRate(fromCents(d.realtorCents), d.currency, rate, lang),
+    })),
+  };
+}
 
 export const getDealCardTool: AssistantReadToolPlugin = {
   name: "get_deal_card",
@@ -99,7 +127,7 @@ export const getDealCardTool: AssistantReadToolPlugin = {
     if (!deal || deal.client.deletedAt || (own && deal.agentId !== own)) return { error: "Сделка не найдена" };
 
     const seesMoney = seesDealMoneyFor(req, deal);
-    const rate = deal.currency === "USD" && seesMoney ? await loadUsdRate() : null;
+    const rate = deal.currency === "USD" && seesMoney ? await loadConfiguredUsdRate() : null;
     const cur = deal.currency;
     const intake = deal.commissionIntakeAmount !== null && toCents(deal.commissionIntakeAmount) > 0 ? deal.commissionIntakeAmount : null;
     const moneyBlock = seesMoney
@@ -167,26 +195,13 @@ export const getDealCardTool: AssistantReadToolPlugin = {
   },
 };
 
-/** Своя доля в сделке: агент сделки — доля агента, принявший объект — доля за приём. */
-function ownShareCents(deal: {
-  agentId: string;
-  commissionRealtorAmount: unknown;
-  commissionIntakeAgentId: string | null;
-  commissionIntakeAmount: unknown;
-}, agentId: string): number {
-  let cents = 0;
-  if (deal.agentId === agentId && deal.commissionRealtorAmount !== null) cents += toCents(deal.commissionRealtorAmount);
-  if (deal.commissionIntakeAgentId === agentId && deal.commissionIntakeAmount !== null) cents += toCents(deal.commissionIntakeAmount);
-  return cents;
-}
-
 export const getMyCommissionTool: AssistantReadToolPlugin = {
   name: "get_my_commission",
   level: "A",
   statusPhrase: "Считаю ваши доли…",
   description:
     "Сколько САМ сотрудник заработал за месяц по закрытым сделкам (только его доли: доля агента и доля за приём объекта) " +
-    "и сколько ему ещё не выплачено по всем закрытым сделкам. Зови на «сколько я заработал», «сколько мне не выплатили». " +
+    "и сколько ему ещё не выплачено по всем закрытым сделкам за все месяцы. Зови на «сколько я заработал», «сколько мне не выплатили». " +
     "Про других сотрудников и про долю компании этот инструмент не отвечает. month — «YYYY-MM» (по умолчанию текущий). " +
     "Отвечай коротко, со смайликами 👤 💰 ✅ ⏳; суммы и курс — ровно из display.",
   parameters: {
@@ -200,169 +215,87 @@ export const getMyCommissionTool: AssistantReadToolPlugin = {
     const lang = dealLang(parsed.success ? parsed.data.lang : undefined, question);
     const w = WORDS[lang];
     const month = monthKeyOf(parsed.success ? parsed.data.month : undefined, dushanbeWallClock().toISOString());
-    const { from, to } = dushanbeMonthRange(month);
-    const mine = { OR: [{ agentId: actor.id }, { commissionIntakeAgentId: actor.id }] };
-    const select = {
-      id: true,
-      agentId: true,
-      currency: true,
-      closedAt: true,
-      commissionRealtorAmount: true,
-      commissionIntakeAgentId: true,
-      commissionIntakeAmount: true,
-      realtorPayoutAt: true,
-      property: { select: { shortId: true } },
-    } as const;
-    const [monthDeals, unpaidDeals, rate] = await Promise.all([
-      prisma.deal.findMany({ where: { stage: "COMPLETED", closedAt: { gte: from, lt: to }, ...mine }, select, orderBy: { closedAt: "asc" }, take: 500 }),
-      prisma.deal.findMany({
-        where: { stage: "COMPLETED", agentId: actor.id, realtorPayoutAt: null, commissionRealtorAmount: { gt: 0 } },
-        select,
-        orderBy: { closedAt: "asc" },
-        take: 500,
-      }),
-      loadUsdRate(),
+    // Одно правило с «Финансами» и REST GET /deals/payouts (lib/dealPayouts.ts), только свои доли.
+    const [monthReport, openReport, rate] = await Promise.all([
+      agentPayoutsReport({ month }, { agentId: actor.id }),
+      agentPayoutsReport({ open: true }, { agentId: actor.id }),
+      loadConfiguredUsdRate(),
     ]);
-
-    const earned: Totals = new Map();
-    const paid: Totals = new Map();
-    const deals = monthDeals.map((d) => {
-      const cents = ownShareCents(d, actor.id);
-      add(earned, d.currency, cents);
-      if (d.agentId === actor.id && d.realtorPayoutAt) add(paid, d.currency, toCents(d.commissionRealtorAmount));
-      return {
-        dealId: d.id,
-        property: formatPropertyCode(d.property.shortId),
-        closedAt: d.closedAt ? ISO_DAY(dushanbeWallClock(d.closedAt)) : null,
-        myShare: moneyWithRate(fromCents(cents), d.currency, rate, lang),
-        paid: Boolean(d.agentId === actor.id && d.realtorPayoutAt),
-      };
-    });
-    const unpaid: Totals = new Map();
-    for (const d of unpaidDeals) add(unpaid, d.currency, toCents(d.commissionRealtorAmount));
-
-    const earnedView = totalsView(earned, rate, lang);
-    const unpaidView = totalsView(unpaid, rate, lang);
-    const line = (view: ReturnType<typeof totalsView>) =>
-      view.byCurrency.length === 0
-        ? money(0, "TJS", lang)
-        : view.byCurrency.map((c) => c.text).join(" + ") + (view.byCurrency.length > 1 && view.totalText ? ` = ${view.totalText}` : "");
+    const own = monthReport.agents.find((a) => a.agentId === actor.id)?.months[0];
+    const view = own ? monthView(own, rate, lang) : null;
+    const allDue: CentsByCurrency = {};
+    let unpaidDeals = 0;
+    for (const m of openReport.agents.find((a) => a.agentId === actor.id)?.months ?? []) {
+      merge(allDue, m.due);
+      unpaidDeals += m.unpaidDeals.length;
+    }
+    const unpaid = totalsView(allDue, rate, lang);
+    const earned = view?.earned ?? totalsView({}, rate, lang);
     const display = [
-      `👤 ${lang === "tg" ? `Ҳиссаи шумо барои ${month}` : `Ваши доли за ${month}`}: ${line(earnedView)} (${monthDeals.length})`,
-      sum(paid) > 0 ? `✅ ${w.paid}: ${line(totalsView(paid, rate, lang))}` : null,
-      `⏳ ${lang === "tg" ? "Ҳанӯз пардохт нашудааст (ҳамаи муомилаҳо)" : "Ещё не выплачено (все закрытые сделки)"}: ${line(unpaidView)} (${unpaidDeals.length})`,
+      `👤 ${lang === "tg" ? `Ҳиссаи шумо барои ${month}` : `Ваши доли за ${month}`}: ${earned.text}`,
+      view && view.paid.byCurrency.length ? `✅ ${w.paid}: ${view.paid.text}` : null,
+      view?.intakeShare ? `${w.intake}: ${view.intakeShare.text} — ${view.intakeShare.note}` : null,
+      `⏳ ${lang === "tg" ? "Ҳанӯз пардохт нашудааст (ҳамаи моҳҳо)" : "Ещё не выплачено (все месяцы)"}: ${unpaid.text}`,
     ].filter(Boolean).join("\n");
-
     return {
       scope: "только ваши доли",
       month,
-      dealsClosed: monthDeals.length,
-      earned: earnedView,
-      unpaidAllTime: { ...unpaidView, deals: unpaidDeals.length },
-      deals: deals.slice(0, 30),
+      earned,
+      ...(view ? { paid: view.paid, ...(view.intakeShare ? { intakeShare: view.intakeShare } : {}), salaryRowTJS: view.salaryRowTJS } : {}),
+      unpaidAllTime: { ...unpaid, deals: unpaidDeals },
       display,
     };
   },
 };
-
-const agentArgs = z.object({
-  month: z.string().trim().max(7).optional(),
-  lang: z.enum(["ru", "tg"]).optional(),
-});
 
 export const getPayoutsDueTool: AssistantReadToolPlugin = {
   name: "get_payouts_due",
   level: "A",
   statusPhrase: "Считаю выплаты агентам…",
   description:
-    "Руководству: кому сколько выплатить за месяц — доли агентов по сделкам, закрытым в этом месяце, что уже выплачено " +
-    "и что ждёт выплаты, по каждому агенту. Зови на «кому сколько выплатить за октябрь», «сколько должны агентам». " +
-    "month — «YYYY-MM» (по умолчанию текущий). Отметить выплату — mark_deal_payout по dealId из unpaidDeals. " +
+    "Руководству: кому сколько выплатить. С month («YYYY-MM») — доли по сделкам, закрытым в этом месяце: всего, выплачено, ждёт. " +
+    "Без month — сколько должны агентам за ВСЕ месяцы (всё невыплаченное). Зови на «кому сколько выплатить за октябрь», " +
+    "«сколько должны агентам». Отметить выплату — mark_deal_payout по dealId из unpaidDeals. " +
     "Смайлики: 👤 агент, ✅ выплачено, ⏳ ждёт; суммы и курс — ровно из display.",
   parameters: {
     type: "object",
-    properties: { month: { type: "string", description: "Месяц YYYY-MM, например 2026-10" }, lang: LANG_PROP },
+    properties: { month: { type: "string", description: "Месяц YYYY-MM, например 2026-10; без него — все невыплаченные" }, lang: LANG_PROP },
   },
   allowed: (actor) => dealToolsAllowed(actor) && actor.canViewFinance,
   async run(raw, { actor, question }) {
     if (!dealToolsAllowed(actor)) return { error: NOT_PRIVATE_ERROR };
-    // Чужие доли — деньги всей команды: то же право, что «Финансы» (finance.view).
+    // Чужие доли — деньги всей команды: то же право, что «Финансы» и REST GET /deals/payouts.
     if (!actor.canViewFinance) return { error: "Выплаты команде видит только руководство" };
-    const parsed = agentArgs.safeParse(raw);
+    const parsed = monthArgs.safeParse(raw);
     const lang = dealLang(parsed.success ? parsed.data.lang : undefined, question);
     const w = WORDS[lang];
-    const month = monthKeyOf(parsed.success ? parsed.data.month : undefined, dushanbeWallClock().toISOString());
-    const { from, to } = dushanbeMonthRange(month);
-    const [deals, rate] = await Promise.all([
-      prisma.deal.findMany({
-        where: { stage: "COMPLETED", closedAt: { gte: from, lt: to } },
-        select: {
-          id: true,
-          agentId: true,
-          currency: true,
-          commissionRealtorAmount: true,
-          commissionIntakeAgentId: true,
-          commissionIntakeAmount: true,
-          realtorPayoutAt: true,
-          agent: { select: { fullName: true } },
-          property: { select: { shortId: true } },
-        },
-        orderBy: { closedAt: "asc" },
-        take: 1000,
-      }),
-      loadUsdRate(),
+    const rawMonth = parsed.success ? parsed.data.month : undefined;
+    const month = rawMonth && /^\d{4}-(0[1-9]|1[0-2])$/.test(rawMonth) ? rawMonth : null;
+    const [report, rate] = await Promise.all([
+      agentPayoutsReport(month ? { month } : { open: true }),
+      loadConfiguredUsdRate(),
     ]);
-    const intakeIds = [...new Set(deals.map((d) => d.commissionIntakeAgentId).filter((id): id is string => Boolean(id)))];
-    const intakeNames = new Map(
-      (await prisma.agent.findMany({ where: { id: { in: intakeIds } }, select: { id: true, fullName: true } })).map((a) => [a.id, a.fullName]),
-    );
-
-    interface Row { name: string; earned: Totals; paid: Totals; due: Totals; unpaidDeals: { dealId: string; property: string; share: string }[] }
-    const byAgent = new Map<string, Row>();
-    const row = (id: string, name: string) => {
-      let r = byAgent.get(id);
-      if (!r) byAgent.set(id, (r = { name, earned: new Map(), paid: new Map(), due: new Map(), unpaidDeals: [] }));
-      return r;
-    };
-    for (const d of deals) {
-      const realtor = d.commissionRealtorAmount !== null ? toCents(d.commissionRealtorAmount) : 0;
-      if (realtor > 0) {
-        const r = row(d.agentId, d.agent.fullName);
-        add(r.earned, d.currency, realtor);
-        if (d.realtorPayoutAt) add(r.paid, d.currency, realtor);
-        else {
-          add(r.due, d.currency, realtor);
-          if (r.unpaidDeals.length < 20) {
-            r.unpaidDeals.push({ dealId: d.id, property: formatPropertyCode(d.property.shortId), share: moneyWithRate(fromCents(realtor), d.currency, rate, lang) });
-          }
-        }
-      }
-      const intake = d.commissionIntakeAmount !== null ? toCents(d.commissionIntakeAmount) : 0;
-      if (intake > 0 && d.commissionIntakeAgentId) {
-        // Доля за приём объекта: отметки выплаты в CRM у неё нет — считается «ждёт».
-        const r = row(d.commissionIntakeAgentId, intakeNames.get(d.commissionIntakeAgentId) ?? "Сотрудник");
-        add(r.earned, d.currency, intake);
-        add(r.due, d.currency, intake);
-      }
-    }
-    const agents = [...byAgent.values()].sort((a, b) => a.name.localeCompare(b.name, "ru")).map((r) => ({
-      agent: r.name,
-      earned: totalsView(r.earned, rate, lang),
-      paid: totalsView(r.paid, rate, lang),
-      due: totalsView(r.due, rate, lang),
-      unpaidDeals: r.unpaidDeals,
-    }));
-    const text = (v: ReturnType<typeof totalsView>) =>
-      v.byCurrency.length === 0 ? money(0, "TJS", lang) : v.byCurrency.map((c) => c.text).join(" + ") + (v.byCurrency.length > 1 && v.totalText ? ` = ${v.totalText}` : "");
-    const display = agents.length === 0
+    const agents = report.agents.map((a) => ({ agent: a.agentName, months: a.months.map((m) => monthView(m, rate, lang)) }));
+    const head = month
+      ? (lang === "tg" ? `💰 Пардохт ба агентҳо барои ${month}:` : `💰 Выплаты агентам за ${month}:`)
+      : (lang === "tg" ? "💰 Ба агентҳо ҳанӯз пардохт нашудааст (ҳамаи моҳҳо):" : "💰 Ещё не выплачено агентам (все месяцы):");
+    const empty = month
       ? (lang === "tg" ? `Дар ${month} муомилаи басташуда нест.` : `За ${month} закрытых сделок нет.`)
+      : (lang === "tg" ? "Ҳамаи ҳиссаҳо пардохт шудаанд." : "Невыплаченных долей нет.");
+    const finance = (tjs: number) => (lang === "tg" ? ` · дар Молия: ${money(tjs, "TJS", lang)}` : ` · в Финансах: ${money(tjs, "TJS", lang)}`);
+    const display = agents.length === 0
+      ? empty
       : [
-          lang === "tg" ? `💰 Пардохт ба агентҳо барои ${month}:` : `💰 Выплаты агентам за ${month}:`,
-          ...agents.map((a) =>
-            `👤 ${a.agent}: ⏳ ${text(a.due)}` + (a.paid.byCurrency.length ? ` · ✅ ${w.paid.toLowerCase()} ${text(a.paid)}` : ""),
-          ),
+          head,
+          ...agents.flatMap((a) => a.months.map((m) =>
+            `👤 ${a.agent}${month ? "" : ` (${m.month})`}: ⏳ ${m.due.text}` +
+            (m.paid.byCurrency.length ? ` · ✅ ${w.paid.toLowerCase()} ${m.paid.text}` : "") +
+            (m.intakeShare ? ` · ${w.intake.toLowerCase()} ${m.intakeShare.text} (${m.intakeShare.note})` : "") +
+            (m.salaryRowTJS !== null ? finance(m.salaryRowTJS) : ""),
+          )),
+          ...(report.truncated ? [lang === "tg" ? "Рӯйхат дароз аст — пурраашро дар CRM бинед." : "Список длинный — полностью смотрите в CRM."] : []),
         ].join("\n");
-    return { month, dealsClosed: deals.length, agents, display };
+    return { scope: month ?? "все невыплаченные", agents, display };
   },
 };
 

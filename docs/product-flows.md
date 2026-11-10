@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **731**. Развилок в самих путях: **2517**; вместе с задачами по расписанию и фоновыми заданиями — **4016**. Модулей: **81**.
+Путей: **732**. Развилок в самих путях: **2521**; вместе с задачами по расписанию и фоновыми заданиями — **4020**. Модулей: **81**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -6272,6 +6272,20 @@
 - res.json(serializeDealMoney(outcome.deal, seesDealMoney(req, outcome.deal)));
   · ответ 200
 
+### GET /api/v1/deals/payouts
+
+`apps/api/src/routes/dealPayout.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- const parsed = payoutsQuerySchema.safeParse(req.query);
+  · проверяет данные схемой payoutsQuerySchema
+- если !parsed.success
+  - return res.status(400).json({ error: "Неверные параметры запроса", details: parsed.error.flatten() });
+    · ответ 400 — «Неверные параметры запроса»
+- const report = await agentPayoutsReport(scope, can(req, "finance.view") ? {} : { agentId: req.agent!.id });
+  · зовёт agentPayoutsReport()
+- res.json({ scope: parsed.data.month ?? "open", ...payoutsReportAmounts(report) });
+  · ответ 200
+
 ### GET /api/v1/deals
 
 `apps/api/src/routes/deals.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
@@ -6346,8 +6360,14 @@
     - return fail(409, { error: "По объекту уже идёт сделка — объект зарезервирован" });
       · дословно из кода
   - если commissionPercent === undefined && commissionAmount === undefined
-    - const settings = await prisma.settings.upsert({ where: { id: "singleton" }, update: {}, create: { id: "single…
+    - const settings = opts.dryRun ? await prisma.settings.findUnique({ where: { id: "singleton" } }) : await prism…
+      · читает в базе: settings
       · создаёт или меняет в базе: settings
+    - если settings
+      - commissionPercent = Number(settings.commissionIntakePercent) + Number(settings.commissionRealtorPercent) + Nu…
+        · дословно из кода
+      - commissionAmount = commissionOf(property.price, commissionPercent);
+        · дословно из кода
   - иначе если commissionAmount === undefined && commissionPercent !== undefined
     - commissionAmount = commissionOf(property.price, commissionPercent);
       · дословно из кода
@@ -6356,8 +6376,14 @@
       - commissionPercent = (commissionAmount / price) * 100;
         · дословно из кода
   - если opts.dryRun
-    - return { ok: true, status: 200, plan: { agentId, clientId: data.clientId, propertyId: data.propertyId, stage:…
-      · дословно из кода
+    - если req.agent!.role !== "ADMIN" && req.agent!.role !== "DIRECTOR" && (client.assignmentCompletedAt || client.dele…
+      - return fail(409, { error: "Работа по назначению завершена или клиент передан — обновите карточку" });
+        · дословно из кода
+    - const liveDeal = await prisma.deal.findFirst({ where: { propertyId: data.propertyId, stage: { notIn: ["COMPLE…
+      · читает в базе: deal
+    - если liveDeal
+      - return fail(409, { error: "По этому объекту уже есть незакрытая сделка" });
+        · дословно из кода
   - пробует
     - deal = await prisma.$transaction(async (tx)
       · ошибка DealConflictError — «Работа по назначению завершена или клиент передан — обновите карточку»

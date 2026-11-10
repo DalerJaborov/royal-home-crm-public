@@ -6,6 +6,7 @@ import { DUSHANBE_OFFSET_MS, dushanbeWallClock } from "./dushanbeTime.js";
 import { centsToTjs, fromCents, loadMoneyContext, toCents } from "./money.js";
 import { logSystemError } from "./systemError.js";
 import { enqueueDirectorAlert } from "./directorAlertQueue.js";
+import { dealShareEntries } from "./dealPayouts.js";
 import { shouldAlert } from "./notifications.js";
 import { processWorkspaceRecurringExpenses } from "./expenseWorkspace.js";
 
@@ -181,13 +182,9 @@ export async function upsertSalaryExpenses(forMonth?: string): Promise<number> {
     parts.push(`${currency}:${fromCents(cents)}`);
     fingerprintOf.set(agentId, parts);
   };
+  // Кому сколько по сделке — одно правило с отчётом выплат (lib/dealPayouts.ts).
   for (const d of deals) {
-    if (d.agentId && d.commissionRealtorAmount) {
-      addShare(d.agentId, d.commissionRealtorAmount, d.currency);
-    }
-    if (d.commissionIntakeAgentId && d.commissionIntakeAmount) {
-      addShare(d.commissionIntakeAgentId, d.commissionIntakeAmount, d.currency);
-    }
+    for (const share of dealShareEntries(d)) addShare(share.agentId, fromCents(share.cents), share.currency);
   }
 
   let touched = 0;

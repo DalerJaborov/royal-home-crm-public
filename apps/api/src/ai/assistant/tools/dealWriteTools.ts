@@ -18,15 +18,15 @@ import {
   updateDealFor,
   type DealActor,
 } from "../../../lib/dealWrites.js";
-import { fromCents, sumCents, toCents } from "../../../lib/money.js";
+import { fromCents, loadConfiguredUsdRate, sumCents, toCents } from "../../../lib/money.js";
 import { runAsActor } from "../../../lib/requestActor.js";
+import { clientNamePhoneSafe } from "../../../lib/clientPhone.js";
 import { plainField } from "./safeField.js";
+import { privateWriteAllowed } from "./privateWriteAllowed.js";
 import { asPluginExecutor } from "./showingToolSupport.js";
 import {
   dealRefusal,
-  dealWritesAllowed,
   loadDealWriter,
-  loadUsdRate,
   moneyWithRate,
   stageLabel,
   WORDS,
@@ -57,7 +57,7 @@ import type { AssistantWriteToolPlugin } from "./types.js";
  * 16 725 с.». Валюта в просьбе обязана совпасть с валютой сделки (без тихой
  * конвертации), а долларовую сумму без курса в Настройках помощница не пишет.
  *
- * Только личка (privateTelegram + dealWritesAllowed): в группе этих действий нет.
+ * Только личка (privateTelegram + privateWriteAllowed): в группе этих действий нет.
  * Отката нет ни у одного — у REST его тоже нет (выплату и закрытие не «отжать»),
  * поэтому денежные карточки помечены необратимыми.
  */
@@ -132,21 +132,37 @@ type DealSnap = ReturnType<typeof dealSnapshot>;
 const codes = (deal: DealRow) =>
   `${formatClientCode(deal.client.shortId, deal.client.kind)} · ${formatPropertyCode(deal.property.shortId)}`;
 
-/** Деньги — в карточку только тому, кто их видит в CRM (seesDealMoney). */
+type MoneyKey = "soldPrice" | "commission" | "realtor" | "company";
+
+/**
+ * Деньги — в карточку только тому, кто их видит в CRM (seesDealMoney). Кто не
+ * видит (РОП без finance.view по чужой сделке), получает в карточке ровно те
+ * суммы, что назвал сам (`typed`): подтверждать вслепую нельзя, но и сумм из
+ * базы, закрытых ему в CRM, помощница не раскрывает.
+ */
 function moneyFields(
   req: DealActor,
   deal: DealRow,
-  values: { soldPrice?: unknown; commission?: unknown; realtor?: unknown; company?: unknown },
+  values: Partial<Record<MoneyKey, unknown>>,
   rate: number | null,
   lang: DealLang,
+  typed: readonly MoneyKey[] = [],
 ): Record<string, string> {
-  if (!seesDealMoneyFor(req, deal)) return {};
+  const sees = seesDealMoneyFor(req, deal);
   const w = WORDS[lang];
+  const labels: Record<MoneyKey, string> = {
+    soldPrice: w.price,
+    commission: `💰 ${w.commission}`,
+    realtor: `👤 ${w.realtor}`,
+    company: `🏢 ${w.company}`,
+  };
   const out: Record<string, string> = {};
-  if (values.soldPrice !== undefined && values.soldPrice !== null) out[w.price] = moneyWithRate(values.soldPrice, deal.currency, rate, lang);
-  if (values.commission !== undefined && values.commission !== null) out[`💰 ${w.commission}`] = moneyWithRate(values.commission, deal.currency, rate, lang);
-  if (values.realtor !== undefined && values.realtor !== null) out[`👤 ${w.realtor}`] = moneyWithRate(values.realtor, deal.currency, rate, lang);
-  if (values.company !== undefined && values.company !== null) out[`🏢 ${w.company}`] = moneyWithRate(values.company, deal.currency, rate, lang);
+  for (const key of ["soldPrice", "commission", "realtor", "company"] as const) {
+    const value = values[key];
+    if (value === undefined || value === null) continue;
+    if (!sees && !typed.includes(key)) continue;
+    out[labels[key]] = moneyWithRate(value, deal.currency, rate, lang);
+  }
   return out;
 }
 
@@ -205,7 +221,7 @@ async function authorizeDealResult(actionActor: AssistantActionActor, result: un
 async function snapshotDeal(dealId: string, actionActor: AssistantActionActor): Promise<DealSnap> {
   const { req } = await loadDealWriter(actionActor);
   const deal = await visibleDeal(req, dealId);
-  return dealSnapshot(deal, deal.currency === "USD" ? await loadUsdRate() : null);
+  return dealSnapshot(deal, deal.currency === "USD" ? await loadConfiguredUsdRate() : null);
 }
 
 /** Запись от имени нажавшего: журнал переходов (db.ts) видит, КТО двинул сделку. */
@@ -244,7 +260,7 @@ const createExecutor: AssistantActionExecutor<CreateArgs> = {
       }),
       prisma.deal.findFirst({ where: { propertyId: args.propertyId, stage: { notIn: ["COMPLETED", "CANCELLED"] } }, select: { id: true } }),
     ]);
-    const rate = property?.currency === "USD" ? await loadUsdRate() : null;
+    const rate = property?.currency === "USD" ? await loadConfiguredUsdRate() : null;
     return {
       client: client ? { ...client, deletedAt: iso(client.deletedAt), assignmentCompletedAt: iso(client.assignmentCompletedAt) } : null,
       property: property ? { ...property, price: amount(property.price), deletedAt: iso(property.deletedAt) } : null,
@@ -281,7 +297,7 @@ const createExecutor: AssistantActionExecutor<CreateArgs> = {
         [w.deal]: lang === "tg" ? "нест" : "нет",
       },
       becomes: {
-        [w.client]: `${clientCode} ${plainField(client!.fullName, 80) ?? ""}`.trim(),
+        [w.client]: `${clientCode} ${plainField(clientNamePhoneSafe(client!.fullName, req.agent!.can("clients.viewPhone")), 80) ?? ""}`.trim(),
         [w.stage]: stageLabel(plan.stage, lang),
         [w.agent]: `${agent?.fullName ?? "—"}${toSelf ? (lang === "tg" ? " (шумо)" : " (вы)") : ""}`,
         ...(plan.commissionAmount !== undefined
@@ -374,6 +390,8 @@ const closeArgs = z.object({
   lang: langSchema,
 }).strict();
 type CloseArgs = z.infer<typeof closeArgs>;
+/** Снимок закрытия: сделка + куда она уйдёт. Права нажавшего поменялись — цель другая — STALE. */
+type CloseSnap = DealSnap & { target: "COMPLETED" | "PENDING_APPROVAL" };
 
 /** Руководитель закрывает сам; агент отправляет на закрытие (одобрит руководитель) — как в CRM. */
 function closeTarget(req: DealActor): "COMPLETED" | "PENDING_APPROVAL" {
@@ -395,15 +413,31 @@ const closeExecutor: AssistantActionExecutor<CloseArgs> = {
   ...common<CloseArgs>("close_deal"),
   parseArgs: (raw) => closeArgs.parse(raw),
   authorize: async (_args, actor) => void (await loadDealWriter(actor)),
-  snapshot: (args, actor) => snapshotDeal(args.dealId, actor),
+  async snapshot(args, actor): Promise<CloseSnap> {
+    const deal = await snapshotDeal(args.dealId, actor);
+    const { req } = await loadDealWriter(actor);
+    return { ...deal, target: closeTarget(req) };
+  },
   async buildPreview(args, raw, actionActor) {
-    const snap = raw as DealSnap;
+    const snap = raw as CloseSnap;
     const { req } = await loadDealWriter(actionActor);
     const deal = await visibleDeal(req, snap.dealId);
     const lang = args.lang;
     const w = WORDS[lang];
+    const target = snap.target;
+    // Закрытую сделку close_deal не трогает: молча поправил бы доли под карточкой
+    // «станет Продано». Сумму закрытой исправляют отдельным действием.
+    if (snap.stage === "COMPLETED") {
+      throw new AssistantActionError(409, "ALREADY_CLOSED", lang === "tg"
+        ? "Муомила аллакай баста шудааст. Барои ислоҳи комиссия гӯед: «комиссияро ислоҳ кун»."
+        : "Сделка уже закрыта. Исправить комиссию закрытой сделки — отдельной просьбой «исправь комиссию».");
+    }
+    if (snap.stage === target) {
+      throw new AssistantActionError(409, "NO_CHANGE", lang === "tg"
+        ? "Муомила аллакай интизори тасдиқи роҳбар аст."
+        : "Сделка уже ждёт одобрения руководителя — отправлять повторно нечего.");
+    }
     assertCurrency(deal, args.currency, snap.usdToTjsRate, lang);
-    const target = closeTarget(req);
     const planned = await updateDealFor(req, snap.dealId, closeBody(args, snap, target), { dryRun: true });
     if (!planned.ok) throw dealRefusal(planned);
     const realtor = args.realtorAmount ?? snap.commissionRealtorAmount;
@@ -427,7 +461,12 @@ const closeExecutor: AssistantActionExecutor<CloseArgs> = {
       },
       becomes: {
         [w.stage]: stageLabel(target, lang),
-        ...moneyFields(req, deal, { soldPrice: sold, commission, realtor, company }, rate, lang),
+        ...moneyFields(req, deal, { soldPrice: sold, commission, realtor, company }, rate, lang, [
+          ...(args.soldPrice !== undefined ? (["soldPrice"] as const) : []),
+          ...(args.realtorAmount !== undefined ? (["realtor"] as const) : []),
+          ...(args.companyAmount !== undefined ? (["company"] as const) : []),
+          ...(args.realtorAmount !== undefined && args.companyAmount !== undefined ? (["commission"] as const) : []),
+        ]),
         ...(args.skipDocuments ? { [lang === "tg" ? "Ҳуҷҷатҳо" : "Документы"]: lang === "tg" ? "бе санҷиш (дар журнал)" : "без проверки (запись в журнале)" } : {}),
       },
       risk: completing
@@ -439,10 +478,11 @@ const closeExecutor: AssistantActionExecutor<CloseArgs> = {
     } satisfies AssistantActionPreview;
   },
   async execute(args, actionActor, ctx) {
-    const snap = ctx.snapshotBefore as DealSnap;
+    // Цель — из снимка, который видел человек (брокер уже сверил его с текущими правами).
+    const snap = ctx.snapshotBefore as CloseSnap;
     const { req } = await loadDealWriter(actionActor);
     const outcome = await asActor(actionActor.agentId, () =>
-      updateDealFor(req, snap.dealId, closeBody(args, snap, closeTarget(req))));
+      updateDealFor(req, snap.dealId, closeBody(args, snap, snap.target)));
     if (!outcome.ok) throw dealRefusal(outcome);
     if (!("deal" in outcome)) throw new Error("close_deal: нет сделки после записи");
     return { result: resultOf(req, outcome.deal), audit: { entityType: "Deal", entityId: snap.dealId } };
@@ -500,12 +540,19 @@ const fixExecutor: AssistantActionExecutor<FixArgs> = {
       becomes: moneyFields(req, deal, {
         commission: args.commissionAmount,
         ...(scaled ? { realtor: scaled.realtor, company: scaled.company } : {}),
-      }, rate, lang),
-      risk: closed
-        ? (lang === "tg"
-            ? "Ҳиссаҳо ба таносуби пештара аз нав ҳисоб мешаванд; маош барои моҳи бастан нав мешавад. Дар журнал сабт мешавад."
-            : "Доли пересчитаются в прежней пропорции до копейки; зарплата за месяц закрытия обновится. Запись в журнале действий.")
-        : (lang === "tg" ? "Комиссияи муомилаи кушода иваз мешавад." : "Меняется комиссия ещё не закрытой сделки."),
+      }, rate, lang, ["commission"]),
+      risk: [
+        closed
+          ? (lang === "tg"
+              ? "Ҳиссаҳо ба таносуби пештара аз нав ҳисоб мешаванд; маош барои моҳи бастан нав мешавад. Дар журнал сабт мешавад."
+              : "Доли пересчитаются в прежней пропорции до копейки; зарплата за месяц закрытия обновится. Запись в журнале действий.")
+          : (lang === "tg" ? "Комиссияи муомилаи кушода иваз мешавад." : "Меняется комиссия ещё не закрытой сделки."),
+        snap.realtorPayoutAt
+          ? (lang === "tg"
+              ? "⚠️ Ҳиссаи агент аллакай пардохт шудааст — фарқро дастӣ ҳисоб кунед."
+              : "⚠️ Доля агента уже отмечена выплаченной — разницу с выплаченным сверьте вручную.")
+          : null,
+      ].filter(Boolean).join(" "),
       ...(closed ? { irreversible: true } : {}),
     } satisfies AssistantActionPreview;
   },
@@ -590,13 +637,17 @@ const payoutExecutor: AssistantActionExecutor<PayoutArgs> = {
     const planned = await markDealPayoutFor(req, snap.dealId, args.note ? { note: args.note } : {}, { dryRun: true });
     if (!planned.ok) throw dealRefusal(planned);
     const deal = await visibleDeal(req, snap.dealId);
-    const share = snap.commissionRealtorAmount;
+    // РОП с правом отмечать выплату, но без finance.view, суммы этой сделки в CRM
+    // не видит — и здесь не видит: только статус доли.
+    const share = seesDealMoneyFor(req, deal)
+      ? `${moneyWithRate(snap.commissionRealtorAmount, snap.currency, snap.usdToTjsRate, lang)} — `
+      : "";
     return {
       title: `✅ ${lang === "tg" ? "Пардохт ба агент" : "Выплата агенту"} ${codes(deal)}`.slice(0, 200),
-      was: { [`👤 ${w.realtor}`]: `${moneyWithRate(share, snap.currency, snap.usdToTjsRate, lang)} — ⏳ ${w.waiting}` },
+      was: { [`👤 ${w.realtor}`]: `${share}⏳ ${w.waiting}` },
       becomes: {
         [w.agent]: deal.agent.fullName,
-        [`👤 ${w.realtor}`]: `${moneyWithRate(share, snap.currency, snap.usdToTjsRate, lang)} — ✅ ${w.paid}`,
+        [`👤 ${w.realtor}`]: `${share}✅ ${w.paid}`,
         ...(args.note ? { [lang === "tg" ? "Эзоҳ" : "Заметка"]: plainField(args.note, 200) } : {}),
       },
       risk: lang === "tg"
@@ -641,7 +692,7 @@ export const dealWriteTools: AssistantWriteToolPlugin[] = [
       },
       required: ["clientId", "propertyId"],
     },
-    allowed: dealWritesAllowed,
+    allowed: privateWriteAllowed,
     executor: asPluginExecutor(createExecutor),
   },
   {
@@ -662,7 +713,7 @@ export const dealWriteTools: AssistantWriteToolPlugin[] = [
       },
       required: ["dealId", "stage"],
     },
-    allowed: dealWritesAllowed,
+    allowed: privateWriteAllowed,
     executor: asPluginExecutor(stageExecutor),
   },
   {
@@ -687,7 +738,7 @@ export const dealWriteTools: AssistantWriteToolPlugin[] = [
       },
       required: ["dealId", "currency"],
     },
-    allowed: dealWritesAllowed,
+    allowed: privateWriteAllowed,
     executor: asPluginExecutor(closeExecutor),
   },
   {
@@ -708,7 +759,7 @@ export const dealWriteTools: AssistantWriteToolPlugin[] = [
       },
       required: ["dealId", "currency", "commissionAmount"],
     },
-    allowed: (actor) => dealWritesAllowed(actor) && Boolean(actor.permissions?.has("deals.setCommission")),
+    allowed: (actor) => privateWriteAllowed(actor) && Boolean(actor.permissions?.has("deals.setCommission")),
     executor: asPluginExecutor(fixExecutor),
   },
   {
@@ -727,7 +778,7 @@ export const dealWriteTools: AssistantWriteToolPlugin[] = [
       },
       required: ["dealId", "reason"],
     },
-    allowed: (actor) => dealWritesAllowed(actor) && Boolean(actor.permissions?.has("deals.complete")),
+    allowed: (actor) => privateWriteAllowed(actor) && Boolean(actor.permissions?.has("deals.complete")),
     executor: asPluginExecutor(annulExecutor),
   },
   {
@@ -746,7 +797,7 @@ export const dealWriteTools: AssistantWriteToolPlugin[] = [
       },
       required: ["dealId"],
     },
-    allowed: (actor) => dealWritesAllowed(actor) && canMarkPayout(actor),
+    allowed: (actor) => privateWriteAllowed(actor) && canMarkPayout(actor),
     executor: asPluginExecutor(payoutExecutor),
   },
 ];

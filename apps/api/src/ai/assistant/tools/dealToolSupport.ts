@@ -28,11 +28,6 @@ export function dealToolsAllowed(actor: AssistantActor): boolean {
   return actor.surface === "crm-private" || actor.surface === "telegram-private";
 }
 
-/** Запись: та же личка и не режим «только смотреть». */
-export function dealWritesAllowed(actor: AssistantActor): boolean {
-  return dealToolsAllowed(actor) && !isReadOnlyRole(actor.role);
-}
-
 export const NOT_PRIVATE_ERROR = "Сделки и деньги — только в личном чате с Шабнам";
 
 /** «Запрос» из прав сотрудника-читателя (актор помощника уже несёт набор прав). */
@@ -130,13 +125,6 @@ export const WORDS = {
     noRate: "Қурби доллар дар Танзимот гузошта нашудааст",
   },
 } as const;
-
-/** Курс доллара из Настроек; не задан — null (никакого запасного курса для денег). */
-export async function loadUsdRate(): Promise<number | null> {
-  const settings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { usdToTjsRate: true } });
-  const rate = settings?.usdToTjsRate ? Number(settings.usdToTjsRate) : null;
-  return rate && Number.isFinite(rate) && rate > 0 ? rate : null;
-}
 
 const NBSP = / | /g;
 function groupNumber(value: number, maxFraction: number): string {

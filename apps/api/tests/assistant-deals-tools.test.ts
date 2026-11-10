@@ -28,6 +28,12 @@ const { actorFromAccess } = await import("../src/ai/assistant/actor.js");
 const { pluginDeclarations } = await import("../src/ai/assistant.js");
 const { cleanupAssistantActionAgents } = await import("./helpers/assistantActionFixture.js");
 const { waitForCount, waitForSettled } = await import("./helpers/waitFor.js");
+const request = (await import("supertest")).default;
+const { app } = await import("../src/app.js");
+const { signAccessToken } = await import("../src/auth/jwt.js");
+const { upsertSalaryExpenses } = await import("../src/lib/financeAutomation.js");
+const { dealSalaryAutoKey } = await import("../src/lib/companyProfit.js");
+const { monthKeyOfInstant } = await import("../src/lib/dealPayouts.js");
 type ReadPlugin = import("../src/ai/assistant/tools/types.js").AssistantReadToolPlugin;
 type Surface = "crm-private" | "telegram-private" | "telegram-group";
 
@@ -155,6 +161,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await prisma.settings.update({ where: { id: "singleton" }, data: { usdToTjsRate: savedRate as never } });
   await prisma.royalScoreEvent.deleteMany({ where: { agentId: { in: agentIds } } });
+  await prisma.expense.deleteMany({ where: { agentId: { in: agentIds } } });
   await prisma.backgroundJob.deleteMany({ where: { dedupeKey: { in: dealIds.flatMap((id) => [`deal-close-followup:${id}`, `deal-review-ask:${id}`]) } } }).catch(() => undefined);
   await prisma.interaction.deleteMany({ where: { clientId: { in: clientIds } } });
   await prisma.deal.deleteMany({ where: { OR: [{ id: { in: dealIds } }, { clientId: { in: clientIds } }] } });
@@ -173,7 +180,7 @@ describe("Шабнам: чтение сделок и долей", () => {
     const commission = (await read("get_my_commission").run({}, { actor })) as Record<string, any>;
     expect(commission.scope).toBe("только ваши доли");
     expect(commission.earned.byCurrency).toEqual([expect.objectContaining({ currency: "TJS", amount: 500 })]);
-    expect(commission.deals.map((d: { dealId: string }) => d.dealId)).toEqual([mine.deal.id]);
+    expect(mine.deal.agentId).toBe(agentA);
     // Ни общей комиссии, ни доли компании в ответе агенту нет.
     expect(JSON.stringify(commission)).not.toMatch(/1 500|1500|компани/u);
     expect(commission.unpaidAllTime.byCurrency[0]).toMatchObject({ currency: "TJS", amount: 500 });
@@ -365,5 +372,134 @@ describe("Шабнам: запись сделок карточкой", () => {
     // Чужая сделка агенту не видна вовсе.
     await expectError(createPendingAssistantAction(await writeActor(agentB), "change_deal_stage", { dealId: live.deal.id, stage: "CANCELLED" }), 404);
     invalidateAgentAccess(agentA);
+  });
+});
+
+describe("Шабнам: ревью 10.11 — права, цель закрытия, превью без записи, выплаты одним правилом", () => {
+  it("РОП без finance.view: в карточке выплаты нет суммы, в закрытии — только им введённые суммы", async () => {
+    const rop = await agent("HEAD_OF_SALES", "РОП сделки");
+    const ropRead = await readActor(rop);
+    expect(ropRead.canViewFinance).toBe(false);
+    const ropWrite = await writeActor(rop);
+
+    const closed = await makeDeal({ agentId: agentB, stage: "COMPLETED", realtor: 700, company: 1300 });
+    const payout = await createPendingAssistantAction(ropWrite, "mark_deal_payout", { dealId: closed.deal.id });
+    expect(payout.preview.becomes["👤 Доля агента"]).toBe("✅ Выплачено");
+    expect(JSON.stringify(payout.preview)).not.toMatch(/700|1 300|2 000/u);
+
+    const live = await makeDeal({ agentId: agentA, stage: "CONTRACT_SIGNED", showing: true, commission: 2000 });
+    const close = await createPendingAssistantAction(ropWrite, "close_deal", {
+      dealId: live.deal.id, currency: "TJS", soldPrice: 90000, realtorAmount: 450, companyAmount: 1350,
+    });
+    expect(close.preview.becomes).toMatchObject({
+      "Цена продажи": "90 000 с.",
+      "💰 Комиссия": "1 800 с.",
+      "👤 Доля агента": "450 с.",
+      "🏢 Доля компании": "1 350 с.",
+    });
+    // Сумма из базы (2 000 с. оценки) ему в CRM закрыта — и в карточке её нет.
+    expect(Object.keys(close.preview.was)).toEqual(["Этап"]);
+
+    expect(read("get_payouts_due").allowed!(ropRead)).toBe(false);
+    const res = await request(app).get("/api/v1/deals/payouts").set("Authorization", `Bearer ${signAccessToken({ sub: rop, role: "HEAD_OF_SALES" })}`);
+    expect(res.status).toBe(200);
+    expect(res.body.agents.every((a: { agentId: string }) => a.agentId === rop)).toBe(true);
+  });
+
+  it("close_deal не трогает закрытую и не шлёт повторно ждущую одобрения", async () => {
+    const closed = await makeDeal({ agentId: agentA, stage: "COMPLETED" });
+    await expectError(
+      createPendingAssistantAction(await writeActor(director), "close_deal", { dealId: closed.deal.id, currency: "TJS", soldPrice: 1, realtorAmount: 0, companyAmount: 0 }),
+      409,
+      "ALREADY_CLOSED",
+    );
+    const waiting = await makeDeal({ agentId: agentA, stage: "PENDING_APPROVAL", showing: true, soldPrice: 95000, realtor: 475, company: 1425 });
+    await expectError(createPendingAssistantAction(await writeActor(agentA), "close_deal", { dealId: waiting.deal.id, currency: "TJS" }), 409, "NO_CHANGE");
+    expect((await prisma.deal.findUniqueOrThrow({ where: { id: waiting.deal.id } })).version).toBe(0);
+  });
+
+  it("права поменялись между превью и нажатием — «Отправить на закрытие» не становится прямым закрытием", async () => {
+    const agentC = await agent("AGENT", "Агент В сделки");
+    const { deal } = await makeDeal({ agentId: agentC, stage: "CONTRACT_SIGNED", showing: true });
+    const pending = await createPendingAssistantAction(await writeActor(agentC), "close_deal", {
+      dealId: deal.id, currency: "TJS", soldPrice: 90000, realtorAmount: 450, companyAmount: 1350,
+    });
+    expect(pending.preview.becomes["Этап"]).toBe("Ждёт одобрения");
+    await prisma.agent.update({ where: { id: agentC }, data: { permissions: { granted: ["deals.complete"], revoked: [] } } });
+    invalidateAgentAccess(agentC);
+    await expectError(confirmAssistantAction(pending.id, await writeActor(agentC)), 409, "STALE");
+    expect((await prisma.deal.findUniqueOrThrow({ where: { id: deal.id } })).stage).toBe("CONTRACT_SIGNED");
+  });
+
+  it("превью ничего не пишет: пропуск документов попадает в журнал только после «Подтвердить»", async () => {
+    await prisma.settings.update({ where: { id: "singleton" }, data: { dealRequiredDocuments: ["CONTRACT"] } });
+    try {
+      const { deal } = await makeDeal({ agentId: agentA, stage: "CONTRACT_SIGNED", showing: true });
+      const boss = await writeActor(director);
+      const pending = await createPendingAssistantAction(boss, "close_deal", {
+        dealId: deal.id, currency: "TJS", soldPrice: 90000, realtorAmount: 450, companyAmount: 1350, skipDocuments: true,
+      });
+      const skipped = () => prisma.auditLog.count({ where: { action: "DEAL_SKIP_DOCUMENTS", entityId: deal.id } });
+      expect(await waitForSettled(skipped)).toBe(0);
+      expect((await prisma.deal.findUniqueOrThrow({ where: { id: deal.id } })).version).toBe(0);
+      await confirmAssistantAction(pending.id, boss);
+      expect(await waitForCount(skipped, 1)).toBe(1);
+      expect((await prisma.deal.findUniqueOrThrow({ where: { id: deal.id } })).stage).toBe("COMPLETED");
+    } finally {
+      await prisma.settings.update({ where: { id: "singleton" }, data: { dealRequiredDocuments: [] } });
+    }
+  });
+
+  it("путь через CRM: та же карточка и то же исполнение без Telegram", async () => {
+    const { deal } = await makeDeal({ agentId: agentA, stage: "NEGOTIATION" });
+    const access = await loadAgentAccess(agentA);
+    const crm = { agentId: agentA, channel: "crm" as const, can: (p: string) => access!.permissions.has(p as never) };
+    const pending = await createPendingAssistantAction(crm, "change_deal_stage", { dealId: deal.id, stage: "AGREEMENT_PENDING" });
+    await confirmAssistantAction(pending.id, crm);
+    expect((await prisma.deal.findUniqueOrThrow({ where: { id: deal.id } })).stage).toBe("AGREEMENT_PENDING");
+    const card = (await read("get_deal_card").run({ dealId: deal.id }, { actor: await readActor(agentA, "crm-private") })) as Record<string, unknown>;
+    expect(card.stage).toBe("AGREEMENT_PENDING");
+  });
+
+  it("выплаты — одно правило с «Зарплатой из сделок»: долги всех месяцев, замороженная строка, доля приёмщика", async () => {
+    // Месяц, где других сделок нет ни у кого: ночной тик ниже трогает только его.
+    const twoMonthsAgo = new Date(Date.UTC(2001, 1, 15, 12));
+    const old = await makeDeal({ agentId: agentA, stage: "COMPLETED", realtor: 400, company: 1600 });
+    await prisma.deal.update({ where: { id: old.deal.id }, data: { closedAt: twoMonthsAgo, commissionIntakeAgentId: agentB, commissionIntakeAmount: 100 } });
+    const oldMonth = monthKeyOfInstant(twoMonthsAgo);
+
+    // Строку зарплаты того месяца заводит ночной тик — по тому же правилу долей.
+    await upsertSalaryExpenses(oldMonth);
+    const salaryA = await prisma.expense.findUniqueOrThrow({ where: { autoKey: dealSalaryAutoKey(agentA, oldMonth) } });
+    expect(Number(salaryA.amount)).toBe(400);
+    // Строку поправили в Финансах (заморожена) — отчёт показывает её, а не пересчёт.
+    await prisma.expense.update({ where: { id: salaryA.id }, data: { amount: 401, manualEditedAt: new Date() } });
+
+    const boss = await readActor(director);
+    const open = (await read("get_payouts_due").run({}, { actor: boss })) as Record<string, any>;
+    const a = open.agents.find((x: { agent: string }) => x.agent === `Агент А сделки ${runId}`);
+    const oldRow = a.months.find((m: { month: string }) => m.month === oldMonth);
+    expect(oldRow.due.text).toBe("400 с.");
+    expect(oldRow.salaryRowTJS).toBe(401);
+    expect(open.display).toContain(`(${oldMonth})`);
+
+    const byMonth = (await read("get_payouts_due").run({ month: oldMonth }, { actor: boss })) as Record<string, any>;
+    const b = byMonth.agents.find((x: { agent: string }) => x.agent === `Агент Б сделки ${runId}`);
+    expect(b.months[0].intakeShare).toMatchObject({ text: "100 с.", note: "выплата приёмщику в CRM не отмечается" });
+    expect(b.months[0].due.text).toBe("0 с.");
+    expect(byMonth.display).toContain("в Финансах: 401 с.");
+
+    const mine = (await read("get_my_commission").run({}, { actor: await readActor(agentA) })) as Record<string, any>;
+    expect(mine.unpaidAllTime.deals).toBeGreaterThanOrEqual(1);
+    expect(mine.unpaidAllTime.display ?? mine.display).toContain("все месяцы");
+
+    const asAgent = await request(app).get("/api/v1/deals/payouts").set("Authorization", `Bearer ${signAccessToken({ sub: agentA, role: "AGENT" })}`);
+    expect(asAgent.status).toBe(200);
+    expect(asAgent.body.agents.map((x: { agentId: string }) => x.agentId)).toEqual([agentA]);
+    const asBoss = await request(app).get(`/api/v1/deals/payouts?month=${oldMonth}`).set("Authorization", `Bearer ${signAccessToken({ sub: director, role: "DIRECTOR" })}`);
+    expect(asBoss.body.agents.map((x: { agentId: string }) => x.agentId)).toEqual(expect.arrayContaining([agentA, agentB]));
+    const bossA = asBoss.body.agents.find((x: { agentId: string }) => x.agentId === agentA);
+    expect(bossA.months[0]).toMatchObject({ month: oldMonth, due: { TJS: 400 }, salaryRowTjs: 401 });
+    expect((await request(app).get("/api/v1/deals/payouts?month=2026-13").set("Authorization", `Bearer ${signAccessToken({ sub: director, role: "DIRECTOR" })}`)).status).toBe(400);
   });
 });

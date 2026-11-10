@@ -265,13 +265,18 @@ export async function createDealFor(
   let commissionPercent = data.commissionPercent;
   let commissionAmount = data.commissionAmount;
   if (commissionPercent === undefined && commissionAmount === undefined) {
-    const settings = await prisma.settings.upsert({ where: { id: "singleton" }, update: {}, create: { id: "singleton" } });
-    // Комиссия сделки = интейкер + риелтор + компания (по умолчанию 0.5+0.5+1 = 2%).
-    commissionPercent =
-      Number(settings.commissionIntakePercent) +
-      Number(settings.commissionRealtorPercent) +
-      Number(settings.commissionCompanyPercent);
-    commissionAmount = commissionOf(property.price, commissionPercent);
+    // Проверка без записи не заводит строку Настроек: нет строки — нет и оценки.
+    const settings = opts.dryRun
+      ? await prisma.settings.findUnique({ where: { id: "singleton" } })
+      : await prisma.settings.upsert({ where: { id: "singleton" }, update: {}, create: { id: "singleton" } });
+    if (settings) {
+      // Комиссия сделки = интейкер + риелтор + компания (по умолчанию 0.5+0.5+1 = 2%).
+      commissionPercent =
+        Number(settings.commissionIntakePercent) +
+        Number(settings.commissionRealtorPercent) +
+        Number(settings.commissionCompanyPercent);
+      commissionAmount = commissionOf(property.price, commissionPercent);
+    }
   } else if (commissionAmount === undefined && commissionPercent !== undefined) {
     // Руководитель задал ТОЛЬКО процент. Раньше сумма так и оставалась null:
     // ветка выше срабатывает лишь когда пусты ОБА поля. В деньгах считается
@@ -284,10 +289,22 @@ export async function createDealFor(
     const price = Number(property.price);
     if (price > 0) commissionPercent = (commissionAmount / price) * 100;
   }
-  // Проверка без записи (превью помощницы): все правила выше пройдены, дальше —
-  // только транзакция. Её собственные условия (резерв, «клиента передали»)
-  // перепроверит настоящий вызов.
+  // Проверка без записи (превью помощницы): все правила выше пройдены. Условия
+  // транзакции ниже повторяются здесь ЧТЕНИЕМ — тем же текстом отказа, — чтобы
+  // превью не обещало то, что запись отвергнет; настоящий вызов перепроверит их
+  // под блокировкой.
   if (opts.dryRun) {
+    if (
+      req.agent!.role !== "ADMIN" && req.agent!.role !== "DIRECTOR" &&
+      (client.assignmentCompletedAt || client.deletedAt)
+    ) {
+      return fail(409, { error: "Работа по назначению завершена или клиент передан — обновите карточку" });
+    }
+    const liveDeal = await prisma.deal.findFirst({
+      where: { propertyId: data.propertyId, stage: { notIn: ["COMPLETED", "CANCELLED"] } },
+      select: { id: true },
+    });
+    if (liveDeal) return fail(409, { error: "По этому объекту уже есть незакрытая сделка" });
     return {
       ok: true,
       status: 200,

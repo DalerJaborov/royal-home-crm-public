@@ -1,8 +1,8 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 731,
-  "forks": 4016,
+  "endpoints": 732,
+  "forks": 4020,
   "mounts": 81,
   "cron": 125,
   "jobs": 32,
@@ -27400,6 +27400,63 @@
   },
   {
    "method": "GET",
+   "path": "/payouts",
+   "mount": "/api/v1/deals",
+   "full": "/api/v1/deals/payouts",
+   "file": "apps/api/src/routes/dealPayout.ts",
+   "router": "dealPayoutRouter",
+   "top": "apps/api/src/routes/dealPayout.ts::dealPayoutRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const parsed = payoutsQuerySchema.safeParse(req.query);",
+     "a": [
+      "проверяет данные схемой payoutsQuerySchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!parsed.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Неверные параметры запроса\", details: parsed.error.flatten() });",
+       "a": [
+        "ответ 400 — «Неверные параметры запроса»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const report = await agentPayoutsReport(scope, can(req, \"finance.view\") ? {} : { agentId: req.agent!.id });",
+     "a": [
+      "зовёт agentPayoutsReport()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ scope: parsed.data.month ?? \"open\", ...payoutsReportAmounts(report) });",
+     "a": [
+      "ответ 200"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "GET",
    "path": "/",
    "mount": "/api/v1/deals",
    "full": "/api/v1/deals",
@@ -27736,11 +27793,35 @@
        "c": [
         {
          "k": "do",
-         "t": "const settings = await prisma.settings.upsert({ where: { id: \"singleton\" }, update: {}, create: { id: \"single…",
+         "t": "const settings = opts.dryRun ? await prisma.settings.findUnique({ where: { id: \"singleton\" } }) : await prism…",
          "a": [
+          "читает в базе: settings",
           "создаёт или меняет в базе: settings"
          ],
          "c": []
+        },
+        {
+         "k": "if",
+         "t": "settings",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "commissionPercent = Number(settings.commissionIntakePercent) + Number(settings.commissionRealtorPercent) + Nu…",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          },
+          {
+           "k": "do",
+           "t": "commissionAmount = commissionOf(property.price, commissionPercent);",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
         }
        ]
       },
@@ -27787,12 +27868,42 @@
        "a": [],
        "c": [
         {
+         "k": "if",
+         "t": "req.agent!.role !== \"ADMIN\" && req.agent!.role !== \"DIRECTOR\" && (client.assignmentCompletedAt || client.dele…",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return fail(409, { error: \"Работа по назначению завершена или клиент передан — обновите карточку\" });",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
          "k": "do",
-         "t": "return { ok: true, status: 200, plan: { agentId, clientId: data.clientId, propertyId: data.propertyId, stage:…",
+         "t": "const liveDeal = await prisma.deal.findFirst({ where: { propertyId: data.propertyId, stage: { notIn: [\"COMPLE…",
          "a": [
-          "дословно из кода"
+          "читает в базе: deal"
          ],
          "c": []
+        },
+        {
+         "k": "if",
+         "t": "liveDeal",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return fail(409, { error: \"По этому объекту уже есть незакрытая сделка\" });",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
         }
        ]
       },

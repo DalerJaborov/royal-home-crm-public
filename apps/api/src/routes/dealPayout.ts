@@ -1,8 +1,10 @@
 import { Router } from "express";
+import { z } from "zod";
 import { prisma } from "../db.js";
 import { can, requireAuth } from "../auth/middleware.js";
 import { getDealPayout } from "../lib/dealDocumentsDb.js";
 import { markDealPayoutFor } from "../lib/dealWrites.js";
+import { agentPayoutsReport, payoutsReportAmounts } from "../lib/dealPayouts.js";
 
 /**
  * Факт выплаты комиссии агенту-риелтору (Пачка 14, 11.09.2026, POST /deals/:id/payout).
@@ -21,6 +23,25 @@ import { markDealPayoutFor } from "../lib/dealWrites.js";
 export const dealPayoutRouter = Router();
 
 dealPayoutRouter.use(requireAuth);
+
+const payoutsQuerySchema = z.object({
+  month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "Месяц — ГГГГ-ММ").optional(),
+});
+
+/**
+ * Кому сколько выплатить (10.11.2026): `?month=2026-10` — доли по сделкам,
+ * закрытым в месяце; без месяца — всё невыплаченное за все месяцы. Правило —
+ * lib/dealPayouts.ts (тот же источник, что строки «Зарплата из сделок»), его же
+ * зовёт ИИ-помощница. Доли всей команды — finance.view (как деньги в Финансах);
+ * без него — только свои доли.
+ */
+dealPayoutRouter.get("/payouts", async (req, res) => {
+  const parsed = payoutsQuerySchema.safeParse(req.query);
+  if (!parsed.success) return res.status(400).json({ error: "Неверные параметры запроса", details: parsed.error.flatten() });
+  const scope = parsed.data.month ? { month: parsed.data.month } : { open: true as const };
+  const report = await agentPayoutsReport(scope, can(req, "finance.view") ? {} : { agentId: req.agent!.id });
+  res.json({ scope: parsed.data.month ?? "open", ...payoutsReportAmounts(report) });
+});
 
 /** Текущий статус выплаты — экрану «Финансы»/карточке сделки нечем иначе узнать
  *  realtorPayoutAt: основной GET /deals не знает этих колонок (см. докстринг
