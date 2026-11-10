@@ -6,13 +6,14 @@ import { confirmAssistantAction, createPendingAssistantAction } from "../src/lib
 import { handleAssistantCallback, handleAssistantPrivate, assistantActorFor, groupHiddenToolsForTests } from "../src/telegram/assistantBot.js";
 import { pluginDeclarations } from "../src/ai/assistant.js";
 import { EXPENSE_TOOL_NAMES } from "../src/ai/assistant/tools/expenseTools.js";
-import { addExpensesPlugin } from "../src/ai/assistant/tools/expenseBatchTool.js";
+import { addExpensesPlugin, sourceKeyPrefix } from "../src/ai/assistant/tools/expenseBatchTool.js";
 import { getExpenseHistoryTool } from "../src/ai/assistant/tools/expenseReadTools.js";
 import { runAssistantToolPlugin } from "../src/ai/assistant/tools/run.js";
 import { actorFromAccess } from "../src/ai/assistant/actor.js";
 import { applyRowCorrection } from "../src/telegram/assistantExpenseCard.js";
 import { flushExpenseAlbumsForTests, setExpenseAlbumQuietForTests } from "../src/telegram/assistantExpenseAlbum.js";
-import { sourceHashOf } from "../src/telegram/assistantExpenseBatchIntake.js";
+import { knownBatch, sourceHashOf } from "../src/telegram/assistantExpenseBatchIntake.js";
+import { decideExpensePhotoDraft, expenseReceiptHash, getExpenseDirector, stageExpensePhotoDraft } from "../src/lib/telegramExpenseReceipts.js";
 import { todayExpenseDay } from "../src/lib/expenseWorkspace.js";
 import type { TelegramIncomingMessage, TelegramInlineButton } from "../src/telegram/api.js";
 import { xlsxFixture } from "./helpers/xlsxFixture.js";
@@ -189,6 +190,49 @@ describe("Шабнам: расходы пачкой из фото таблицы
   });
 });
 
+describe("Шабнам: фото из ждущего альбома отдельно — одна запись в любом порядке нажатий", () => {
+  const evidence = { language: "ru" as const, amountMinor: 15025, currency: "TJS" as const, paymentDate: "2026-11-04", purpose: "бумага", vendor: null };
+  async function albumAndDraft(seed: number) {
+    const photo = await jpeg(seed);
+    const other = await jpeg(seed + 1);
+    const hash = expenseReceiptHash(photo);
+    const action = await createPendingAssistantAction(writerActor(), "add_expenses", {
+      lang: "ru", source: { kind: "album" },
+      items: [
+        { title: "Такси", amount: 35, currency: "TJS", sourceHash: expenseReceiptHash(other), sourceIndex: 0 },
+        { title: "бумага", amount: 150.25, currency: "TJS", sourceHash: hash, sourceIndex: 0 },
+      ],
+    });
+    // Альбом ждёт «Записать»: фото №2 (вторая строка пачки) уже известно как ждущее.
+    expect(await knownBatch(writer.id, hash)).toBe("pending");
+    const director = (await getExpenseDirector(String(chatId), writer.id))!;
+    const draft = await stageExpensePhotoDraft(director, ++seq, photo, evidence);
+    if (draft.kind !== "pending") throw new Error("draft expected");
+    return { action, draft, director, hash };
+  }
+  const fromPhoto = (hash: string) => prisma.expense.count({ where: { OR: [{ requestKey: `tg-receipt:${hash}` }, { requestKey: { startsWith: sourceKeyPrefix(hash) } }] } });
+
+  it("«Записать» альбом, потом «Да» чеку — чек отказан, запись одна", async () => {
+    const { action, draft, director, hash } = await albumAndDraft(40);
+    await confirmAssistantAction(action.id, writerActor());
+    expect(await decideExpensePhotoDraft(director, draft.id, true)).toEqual({ kind: "alreadyRecorded" });
+    expect(await fromPhoto(hash)).toBe(1);
+  });
+
+  it("«Да» чеку, потом «Записать» альбом — альбом отказан, запись одна", async () => {
+    const { action, draft, director, hash } = await albumAndDraft(50);
+    expect(await decideExpensePhotoDraft(director, draft.id, true)).toMatchObject({ kind: "recorded" });
+    await expect(confirmAssistantAction(action.id, writerActor())).rejects.toMatchObject({ code: "STALE" });
+    expect(await fromPhoto(hash)).toBe(1);
+  });
+
+  it("одновременные нажатия — одна запись (общая блокировка по источнику)", async () => {
+    const { action, draft, director, hash } = await albumAndDraft(60);
+    await Promise.allSettled([confirmAssistantAction(action.id, writerActor()), decideExpensePhotoDraft(director, draft.id, true)]);
+    expect(await fromPhoto(hash)).toBe(1);
+  });
+});
+
 describe("Шабнам: расходы из Excel и CSV без ИИ", () => {
   it("Excel на 120 строк — страницы, одни кнопки, итог ровно по строкам, «Итого» не строка; повтор файла — «уже записаны»", async () => {
     const file = xlsxFixture(bigSheet(120, "Закупка"));
@@ -345,6 +389,9 @@ describe("Шабнам: «Править» и «Убрать строку» до
     expect(applyRowCorrection(row, "$40 5 ноя", "2026-11-10")).toMatchObject({ amount: 40, currency: "USD", date: "2026-11-05" });
     expect(applyRowCorrection(row, "05.11.2026", "2026-11-10")).toMatchObject({ amount: 400, date: "2026-11-05" });
     expect(applyRowCorrection(row, "дирӯз", "2026-11-10")).toMatchObject({ date: "2026-11-09" });
+    expect(applyRowCorrection(row, "05.11", "2026-11-10")).toMatchObject({ amount: 400, date: "2026-11-05" });
+    expect(applyRowCorrection(row, "5 т", "2026-11-10")).toMatchObject({ amount: 5000 });
+    expect(applyRowCorrection(row, "5т", "2026-11-10")).toMatchObject({ amount: 5000 });
     expect(applyRowCorrection(row, "€40", "2026-11-10")).toBeNull();
     expect(applyRowCorrection(row, "(500)", "2026-11-10")).toBeNull();
   });

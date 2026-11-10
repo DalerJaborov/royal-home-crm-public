@@ -23,7 +23,7 @@ const OTHER: [RegExp, string][] = [
   [/€|\beur\b|евро|euro/iu, "€"], [/₽|\brub\b|руб/iu, "₽"], [/₸|\bkzt\b|тенге|tenge/iu, "₸"],
   [/\buzs\b|(?:^|[\s\d])сум(?=$|[\s.,])|so'm|сўм/iu, "сум"], [/¥|\bcny\b|юан|yuan/iu, "¥"], [/£|\bgbp\b|фунт/iu, "£"],
 ];
-const THOUSAND = /(?:^|[\d\s])(?:тыс\.?|тысяч\p{L}*|т\.|k|ҳазор|хазор|ming)(?=$|[\s.,])/iu;
+const THOUSAND = /(?:^|[\d\s])(?:тыс\.?|тысяч\p{L}*|т\.?|k|ҳазор|хазор|ming)(?=$|[\s.,])/iu;
 const MILLION = /(?:^|[\d\s])(?:млн\.?|миллион\p{L}*|mln|million|mb\b)(?=$|[\s.,])/iu;
 
 /** Валюта, явно названная в тексте; `other` — не TJS и не USD. */

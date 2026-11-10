@@ -385,7 +385,7 @@ async function clearFix(chatId: string, messages: unknown) {
   await prisma.telegramDialogState.updateMany({ where: { chatId, kind: DIALOG_KIND }, data: { payload: { messages } as object } });
 }
 
-const AMOUNT_WORDS = /^(?:(?:сомони|сомонӣ|с\.?|tjs|usd|доллар\p{L}*|dollars?|тыс\.?|тысяч\p{L}*|млн|миллион\p{L}*|ming|ҳазор|хазор|k|руб\p{L}*|евро|eur)(?:\s+|$))*$/iu;
+const AMOUNT_WORDS = /^(?:(?:сомони|сомонӣ|с\.?|tjs|usd|доллар\p{L}*|dollars?|тыс\.?|т\.?|тысяч\p{L}*|млн|миллион\p{L}*|ming|ҳазор|хазор|k|руб\p{L}*|евро|eur)(?:\s+|$))*$/iu;
 const TG_MONTHS = ["январ", "феврал", "март", "апрел", "май", "июн", "июл", "август", "сентябр", "октябр", "ноябр", "декабр"];
 const RU_MONTHS = ["янв", "фев", "мар", "апр", "ма", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
 
@@ -405,6 +405,9 @@ export function applyRowCorrection(row: BatchRow, text: string, today = todayExp
   if (todayWord.test(rest)) { date = today; rest = rest.replace(todayWord, " "); }
   const dotted = /\s(\d{1,2})[./](\d{1,2})[./](\d{4})(?=\s)/u.exec(rest);
   if (dotted) { date = `${dotted[3]}-${dotted[2]!.padStart(2, "0")}-${dotted[1]!.padStart(2, "0")}`; rest = rest.replace(dotted[0], " "); }
+  // «05.11» — день с ведущим нулём: дата без года, а не сумма 5,11 («12.10» и «5.5» остаются суммами).
+  const zeroDay = !date ? /\s(0[1-9])[./](0[1-9]|1[0-2])(?=\s)/u.exec(rest) : null;
+  if (zeroDay) { date = `${today.slice(0, 4)}-${zeroDay[2]}-${zeroDay[1]}`; rest = rest.replace(zeroDay[0], " "); }
   const worded = /\s(\d{1,2})\s+([а-яёӣӯқғҳҷ]+)(?=\s)/iu.exec(rest);
   if (!date && worded) {
     const word = worded[2]!.toLowerCase();

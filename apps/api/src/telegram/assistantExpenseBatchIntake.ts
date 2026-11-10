@@ -162,9 +162,10 @@ export async function knownSources(agentId: string, hashes: readonly string[]) {
     const draft = await prisma.telegramExpenseDraft.findFirst({ where: { sourceHash: hash, expiresAt: { gt: new Date() } }, select: { expenseId: true } });
     if (draft) { out.set(hash, draft.expenseId ? "recorded" : "pending"); continue; }
     const pending = await prisma.assistantAction.findFirst({
+      // Хэш — в ЛЮБОЙ строке пачки (альбом: фото №2 — вторая строка), а не только в первой.
       where: { agentId, tool: ADD_EXPENSES_TOOL, status: "PENDING", expiresAt: { gt: new Date() }, OR: [
         { args: { path: ["sourceHash"], equals: hash } },
-        { args: { path: ["items", "0", "sourceHash"], equals: hash } },
+        { args: { path: ["items"], array_contains: [{ sourceHash: hash }] } },
       ] },
       select: { id: true },
     });

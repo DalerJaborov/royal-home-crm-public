@@ -5,6 +5,7 @@ import { prisma } from "../db.js";
 import { Prisma, type Agent, type TelegramExpenseDraft } from "../generated/prisma/client.js";
 import { todayExpenseDay } from "./expenseWorkspace.js";
 import { createExpense, ExpenseCommandError } from "./expenseCommands.js";
+import { sourceKeyPrefix, sourceRecordedWhere } from "../ai/assistant/tools/expenseBatchTool.js";
 import { loadUsdRateInfo } from "./money.js";
 import { maskAssistantContacts } from "./assistantContacts.js";
 
@@ -135,7 +136,7 @@ export async function markExpensePreviewDelivered(actor: ExpenseDirectorIdentity
 
 type DecisionResult =
   | { kind: "recorded"; expenseId: string }
-  | { kind: "cancelled" | "expired" | "forbidden" | "noRate" };
+  | { kind: "cancelled" | "expired" | "forbidden" | "noRate" | "alreadyRecorded" };
 
 /** Expense, receipt, private file, audit and replay marker commit together. */
 export async function decideExpensePhotoDraft(
@@ -162,6 +163,13 @@ export async function decideExpensePhotoDraft(
     }
     const settings = await tx.settings.findUnique({ where: { id: "singleton" }, select: { aiAssistantEnabled: true } });
     if (settings?.aiAssistantEnabled !== true) return { kind: "forbidden" };
+    // Тот же чек мог уже уйти пачкой (альбом, таблица): та же блокировка по источнику, что у
+    // add_expenses, и отказ, если из этого фото уже что-то записано (повторное ревью 10.11.2026).
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${sourceKeyPrefix(draft.sourceHash)}))`;
+    if (await tx.expense.findFirst({ where: { OR: sourceRecordedWhere([draft.sourceHash]) }, select: { id: true } })) {
+      await tx.telegramExpenseDraft.delete({ where: { id } });
+      return { kind: "alreadyRecorded" };
+    }
     // Доллар — только по курсу из Настроек: запасное число FALLBACK_USD_TO_TJS курсом не является.
     const usdRate = evidence.currency === "USD" ? (await loadUsdRateInfo(tx)).rate : null;
     if (evidence.currency === "USD" && !usdRate) return { kind: "noRate" };
