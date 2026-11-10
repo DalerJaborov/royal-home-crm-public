@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { STAFF_TOOL_NAMES } from "../src/ai/assistant/tools/staffToolNames.js";
 import { runInNewContext } from "node:vm";
 import ts from "typescript";
 import * as shared from "@royal-home/shared";
@@ -121,6 +122,9 @@ it("reports incomplete private replay without claiming a voice-only answer is al
     "./assistantPropertyDraft.js": { handleTelegramPropertyDraft: async () => false },
     "./assistantPropertyPages.js": { propertyPageRequest: () => null },
     "./assistantReadResults.js": f.delivery,
+    // Сотрудники и права (10.11.2026): список имён — настоящий, код Google Authenticator — инертная заглушка.
+    "../ai/assistant/tools/staffToolNames.js": { STAFF_TOOL_NAMES },
+    "./assistantStepUp.js": { bundleNeedsStepUp: () => false, cancelStepUpForBundle: async () => {} },
     "./api.js": { sendMessage: send },
     "../ai/assistant/moneyBudget.js": { createAssistantMoneyWallet: () => ({}) },
     "../ai/assistant.js": { isAiAssistantEnabled: async () => true, runAssistantDetailed: run },

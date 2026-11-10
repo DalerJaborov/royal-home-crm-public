@@ -387,6 +387,20 @@ export async function deleteChannelMessage(chatId: string, messageId: number): P
   await call("deleteMessage", { chat_id: chatId, message_id: messageId });
 }
 
+/**
+ * Удалить сообщение в ЛИЧНОМ чате с ботом (10.11.2026, код Google Authenticator,
+ * telegram/assistantStepUp.ts): в личке бот вправе удалять и входящие. Best-effort:
+ * false — Telegram отказал (сообщению больше 48 часов, сеть), вызывающий решает сам.
+ */
+export async function deletePrivateMessage(chatId: string, messageId: number): Promise<boolean> {
+  try {
+    await call("deleteMessage", { chat_id: chatId, message_id: messageId });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Comments need the actual deletion confirmation; other channel consumers keep their contract. */
 export async function deleteChannelCommentMessage(chatId: string, messageId: number): Promise<ModerationOutcome> {
   return call("deleteMessage", { chat_id: chatId, message_id: messageId }, CALL_TIMEOUT_MS,

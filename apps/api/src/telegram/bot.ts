@@ -7,7 +7,7 @@ import { prisma } from "../db.js";
 import { sharedMediaHint } from "../messengers/sharedMedia.js";
 import { isDuplicateDelivery, markProcessedMessageComplete, releaseProcessedMessage } from "../lib/webhookDedupe.js";
 import { tryLinkAgentByCode, findAgentByTelegramChatId } from "../lib/telegramAgentLink.js";
-import { handleAssistantCallback, handleAssistantGroupMessage, startAssistantPrivate, takeDeferredAssistantReply } from "./assistantBot.js";
+import { handleAssistantCallback, handleAssistantGroupMessage, handleAssistantStepUpMessage, startAssistantPrivate, takeDeferredAssistantReply } from "./assistantBot.js";
 import { captureAssistantTelegramContext } from "./assistantGroupContext.js";
 import { sendShareTextMessage } from "../lib/agentSharePost.js";
 import { findDistrictIdByName } from "../lib/districtLookup.js";
@@ -483,6 +483,11 @@ async function handleAgentTelegramMessage(msg: TelegramIncomingMessage, updateId
 
   const agent = await findAgentByTelegramChatId(chatId);
   if (!agent) return false;
+
+  // Код Google Authenticator к карточке помощницы (сотрудники, права — 10.11.2026)
+  // перехватывается ПЕРВЫМ: иначе шесть цифр ушли бы в модерацию, мастер объекта или
+  // модели как обычный текст и остались бы видны в чате.
+  if (ownText && (await handleAssistantStepUpMessage(msg, agent))) return true;
 
   // Ответ модератора на вопрос бота («комментарий агенту», «новое значение поля») —
   // состояние в базе с TTL 15 минут, см. lib/telegramModeration.ts.

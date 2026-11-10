@@ -502,6 +502,10 @@ model Agent {
   /// после успешного /me/2fa/confirm (подтверждён код, значит секрет реально дошёл до приложения).
   totpSecret                  String?
   totpEnabled                 Boolean   @default(false)
+  /// Последний 30-секундный шаг кода Google Authenticator, принятый помощницей в Telegram
+  /// (10.11.2026, telegram/assistantStepUp.ts). Код того же или более раннего шага второй
+  /// раз не принимается — одноразовость. Вход в CRM и /auth/step-up это поле не читают.
+  assistantTotpLastStep       Int?
   /// Ключи входа по отпечатку/лицу (passkeys). Один сотрудник — сколько угодно
   /// устройств: рабочий телефон, личный, ноутбук.
   passkeys                    Passkey[]
@@ -10809,6 +10813,35 @@ model AssistantAction {
   @@index([agentId, createdAt])
   @@index([status, expiresAt])
   @@index([bundleId])
+}
+
+/// ПОДТВЕРЖДЕНИЕ КОДОМ GOOGLE AUTHENTICATOR В ЛИЧКЕ С ПОМОЩНИЦЕЙ (10.11.2026,
+/// telegram/assistantStepUp.ts). Действия, которые в CRM стоят за подтверждением
+/// личности (сотрудники, права, сброс 2FA), в Telegram исполняются только после кода
+/// из приложения. Строка — одно ожидание кода по одной карточке; попытки считаются
+/// здесь же, чтобы блокировка после ошибок переживала перезапуск. Пароль в чат не
+/// принимается никогда.
+model AssistantStepUpChallenge {
+  id              String    @id @default(uuid())
+  agentId         String
+  chatId          String
+  /// Связка AssistantAction.bundleId, которую исполнит принятый код.
+  bundleId        String
+  /// Сообщение с карточкой «было → станет» — его правим итогом.
+  cardMessageId   Int?
+  /// Сообщение «введите код» — удаляется после проверки.
+  promptMessageId Int?
+  /// PENDING — ждём код; PASSED — принят; LOCKED — слишком много ошибок; CANCELLED — отменён или заменён.
+  status          String    @default("PENDING")
+  attempts        Int       @default(0)
+  /// "ru" | "tg" — на каком языке говорить с человеком о коде.
+  language        String    @default("ru")
+  expiresAt       DateTime
+  closedAt        DateTime?
+  createdAt       DateTime  @default(now())
+
+  @@index([chatId, status])
+  @@index([agentId, createdAt])
 }
 
 /// Рабочие группы Telegram, в которых включена помощница. Группу

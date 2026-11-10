@@ -44,7 +44,22 @@ import { describeError } from "../lib/describeError.js";
 import { trackBackgroundTask } from "../lib/shutdownState.js";
 import { logAssistantFastPathTurn, logAssistantToolCall, logAssistantTurn } from "../lib/aiAssistantAudit.js";
 import {
+  bundleNeedsStepUp,
+  cancelStepUpForBundle,
+  findPendingStepUp,
+  parseStepUpCode,
+  rememberStepUpPrompt,
+  startStepUpChallenge,
+  stepUpText,
+  verifyStepUpCode,
+  type PendingStepUp,
+  type StepUpLanguage,
+} from "./assistantStepUp.js";
+import { STAFF_TOOL_NAMES } from "../ai/assistant/tools/staffToolNames.js";
+import {
   answerCallbackQuery as answerCallbackQueryRaw,
+  deletePrivateMessage,
+  editMessageText,
   getBotUsername,
   sendChatAction, sendHtmlMessage,
   sendMessage,
@@ -129,6 +144,8 @@ const GROUP_HIDDEN_TOOLS: ReadonlySet<string> = new Set([
   "create_task",
   "reschedule_task",
   "add_client_note",
+  // Сотрудники и права — только личка (владелец 10.11.2026): в группе ни читать, ни менять.
+  ...STAFF_TOOL_NAMES,
 ]);
 
 /** Актор помощника для ЧТЕНИЯ: в группе — без телефонов клиентов, финансов и отчётов. */
@@ -574,7 +591,8 @@ async function sendTurnResult(
   const room = Math.max(0, TEXT_MAX_CHARS - card.length - 2);
   const text = [body.slice(0, room), card].filter(Boolean).join("\n\n");
   const buttons = [[
-    { text: tajikPrice ? "Ҳа" : irreversible ? "✅ Подтвердить (необратимо)" : maskPhones ? "Подтвердить" : "✅ Подтвердить", callback_data: `as:ok:${bundleId}` },
+    // Сотрудники и права: кнопка честно говорит, что дальше спросят код (assistantStepUp.ts).
+    { text: tajikPrice ? "Ҳа" : bundleNeedsStepUp(result.pending) ? "🔐 Подтвердить кодом" : irreversible ? "✅ Подтвердить (необратимо)" : maskPhones ? "Подтвердить" : "✅ Подтвердить", callback_data: `as:ok:${bundleId}` },
     { text: tajikPrice ? "Бекор" : maskPhones ? "Отмена" : "✖ Отмена", callback_data: `as:no:${bundleId}` },
   ]];
   if (priceOnlyInGroup && result.pending.length === 1
@@ -1647,6 +1665,7 @@ export async function handleAssistantCallback(query: TelegramCallbackQuery): Pro
       const executed = await serializeBundle(bundleId, async () => {
         if (!(await groupRegistrationAllows())) return null;
         for (const a of actions) await discardPendingAssistantAction(a.id, actor).catch(() => undefined);
+        await cancelStepUpForBundle(bundleId);
         return prisma.assistantAction.count({ where: { bundleId, status: { in: ["EXECUTED", "CONFIRMED"] } } });
       });
       if (executed === null) return true;
@@ -1656,6 +1675,19 @@ export async function handleAssistantCallback(query: TelegramCallbackQuery): Pro
       if (chatId && query.message && messageId) {
         await editTelegramConfirmationMessage(query.message, sanitizeAssistantReply(tajikPrice && executed === 0 ? "Бекор шуд" : `✖ ${note} (${clicker.fullName})`, chatId.startsWith("-"))).catch(() => {});
       }
+      return true;
+    }
+
+    // Сотрудники, права, сброс 2FA (10.11.2026): как в CRM за подтверждением личности —
+    // здесь только кодом Google Authenticator, отдельным сообщением (assistantStepUp.ts).
+    // Уже исполненная или истёкшая карточка кода не просит: дальше «Уже выполнено» / «время вышло».
+    const awaiting = actions.some((a) => a.status === "PENDING" && a.expiresAt.getTime() > Date.now());
+    if (awaiting && bundleNeedsStepUp(actions)) {
+      if (callbackChat?.type !== "private" || !chatId) {
+        await answerCallbackQuery(query.id, "Это действие доступно в личке с Шабнам");
+        return true;
+      }
+      await askStepUpCode({ agentId: clicker.id, chatId, bundleId, cardMessageId: messageId, answer: (text) => answerCallbackQuery(query.id, text) });
       return true;
     }
 
@@ -1738,7 +1770,11 @@ async function executeBundle(ids: string[], actor: AssistantActionActor, tajikPr
       if (!access?.isActive || isReadOnlyRole(access.role)) {
         throw new AssistantActionError(403, "FORBIDDEN", "Недостаточно прав на это действие");
       }
-      const currentActor = actionActorOf(actor.agentId, access, actor.telegramPrivate === true);
+      const currentActor: AssistantActionActor = {
+        ...actionActorOf(actor.agentId, access, actor.telegramPrivate === true),
+        // Код проверен в этом же исполнении (assistantStepUp.ts) — только для него.
+        ...(actor.stepUpVerified === true ? { stepUpVerified: true } : {}),
+      };
       const { action, replay } = await confirmAssistantAction(ids[i], currentActor);
       if (!replay) ranAny = true;
       if (!replay && ids.length === 1) priceResult = renderGroupPriceResult(action, tajikPrice);
@@ -1760,4 +1796,120 @@ async function executeBundle(ids: string[], actor: AssistantActionActor, tajikPr
   }
   if (!ranAny && !failed) return { kind: "replay" };
   return { kind: "done", failed, lines, priceResult };
+}
+
+// ───────────────────────────── код Google Authenticator ─────────────────────────────
+
+async function stepUpLanguageOf(chatId: string, agentId: string): Promise<StepUpLanguage> {
+  const history = await loadHistory(chatId, agentId).catch(() => []);
+  const last = history.slice().reverse().find((m) => m.role === "user");
+  if (!last) return "ru";
+  const language = assistantLanguage([{ role: "user", content: last.content }]);
+  return language === "tg" || language === "mixed" ? "tg" : "ru";
+}
+
+/** «Подтвердить» на карточке со step-up: просим код, ничего не исполняем. */
+async function askStepUpCode(input: {
+  agentId: string;
+  chatId: string;
+  bundleId: string;
+  cardMessageId?: number;
+  answer: (text: string) => Promise<unknown>;
+}): Promise<void> {
+  const language = await stepUpLanguageOf(input.chatId, input.agentId);
+  const started = await startStepUpChallenge({ ...input, language });
+  if (started.kind === "no_totp") {
+    await input.answer(language === "tg" ? "Google Authenticator фаъол нест" : "Не включён Google Authenticator");
+    await sendMessage(input.chatId, stepUpText("noTotp", language)).catch(() => {});
+    return;
+  }
+  if (started.kind === "locked") {
+    await input.answer(language === "tg" ? "Тасдиқ муваққатан баста аст" : "Подтверждение временно закрыто");
+    await sendMessage(input.chatId, stepUpText("locked", language)).catch(() => {});
+    return;
+  }
+  await input.answer(language === "tg" ? "Кодро нависед" : "Введите код из приложения");
+  const sent = (await sendMessage(input.chatId, stepUpText("prompt", language)).catch(() => null)) as { message_id?: number } | null;
+  await rememberStepUpPrompt(started.challengeId, sent?.message_id);
+}
+
+/** Итог исполнения связки — тот же вид, что после обычного нажатия в личке. */
+function privateSummary(outcome: Extract<BundleOutcome, { kind: "done" }>, clickerName: string): string {
+  const mark = outcome.failed ? "⚠️" : "✅";
+  return sanitizeAssistantReply(`${mark} ${clickerName}:\n${outcome.lines.join("\n")}`, false);
+}
+
+async function runVerifiedBundle(challenge: PendingStepUp, agent: { id: string; fullName: string }): Promise<void> {
+  const tg = challenge.language === "tg";
+  const access = await loadAgentAccess(agent.id, prisma);
+  if (!access?.isActive || isReadOnlyRole(access.role)) {
+    await sendMessage(challenge.chatId, tg ? "Барои ин кор ҳуқуқ нест." : "Нет прав на это действие.").catch(() => {});
+    return;
+  }
+  const actions = await prisma.assistantAction.findMany({
+    where: { bundleId: challenge.bundleId },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    select: { id: true, agentId: true },
+  });
+  if (actions.length === 0 || actions.some((a) => a.agentId !== agent.id)) {
+    await sendMessage(challenge.chatId, tg ? "Корт кӯҳна шуд. Боз нависед." : "Карточка устарела. Повторите просьбу.").catch(() => {});
+    return;
+  }
+  const actor: AssistantActionActor = { ...actionActorOf(agent.id, access, true), stepUpVerified: true };
+  const outcome = await serializeBundle(challenge.bundleId, () => executeBundle(actions.map((a) => a.id), actor, false));
+  if (outcome.kind !== "done") {
+    const note = outcome.kind === "busy" ? "Уже выполняется." : outcome.kind === "replay" ? "Уже выполнено." : outcome.message;
+    await sendMessage(challenge.chatId, note).catch(() => {});
+    return;
+  }
+  const summary = privateSummary(outcome, agent.fullName);
+  if (challenge.cardMessageId) {
+    await editMessageText(challenge.chatId, challenge.cardMessageId, summary, null).catch(async () => {
+      await sendMessage(challenge.chatId, summary).catch(() => {});
+    });
+  } else {
+    await sendMessage(challenge.chatId, summary).catch(() => {});
+  }
+}
+
+/**
+ * Сообщение в личке, пока ждём код (telegram/bot.ts зовёт ДО остальных обработчиков
+ * текста). true — это был код, и он обработан; false — обычное сообщение, дальше по
+ * обычному пути. Сообщение с кодом удаляется сразу — и верное, и неверное.
+ */
+export async function handleAssistantStepUpMessage(msg: TelegramIncomingMessage, agent: { id: string; fullName: string }): Promise<boolean> {
+  if (msg.chat.type !== "private" || msg.forward_origin || msg.forward_from_message_id) return false;
+  const code = parseStepUpCode(msg.text);
+  if (!code) return false;
+  const chatId = String(msg.chat.id);
+  const challenge = await findPendingStepUp(chatId, agent.id);
+  if (!challenge) return false;
+  if (msg.message_id) void deletePrivateMessage(chatId, msg.message_id);
+  // Проверка и исполнение — в очереди этого чата (как ход помощницы): два кода подряд
+  // не проверяются наперегонки, а долгая передача дел не держит общую очередь апдейтов.
+  deferAssistantReply(msg, runInAssistantLane(`private:${chatId}`, () => checkStepUpCode(chatId, challenge, code, agent), async (err) => {
+    await logSystemError("telegram", `Помощник: проверка кода Google Authenticator: ${describeError(err)}`);
+  }));
+  return true;
+}
+
+async function checkStepUpCode(chatId: string, challenge: PendingStepUp, code: string, agent: { id: string; fullName: string }): Promise<void> {
+  try {
+    const verdict = await verifyStepUpCode(challenge, code);
+    if (verdict.kind === "gone") return;
+    if (verdict.kind !== "passed") {
+      if (verdict.kind === "locked" || verdict.kind === "no_totp") {
+        const actor: AssistantActionActor = { agentId: agent.id, channel: "telegram", telegramPrivate: true, can: () => false };
+        const rows = await prisma.assistantAction.findMany({ where: { bundleId: challenge.bundleId }, select: { id: true } });
+        for (const row of rows) await discardPendingAssistantAction(row.id, actor).catch(() => undefined);
+      }
+      await sendMessage(chatId, verdict.message).catch(() => {});
+      return;
+    }
+    if (challenge.promptMessageId) void deletePrivateMessage(chatId, challenge.promptMessageId);
+    await runVerifiedBundle(challenge, agent);
+  } catch (err) {
+    await logSystemError("telegram", `Помощник: проверка кода Google Authenticator: ${describeError(err)}`);
+    await sendMessage(chatId, challenge.language === "tg" ? "Нашуд, боз кӯшиш кунед." : "Не получилось, попробуйте ещё раз.").catch(() => {});
+  }
 }
