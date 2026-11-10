@@ -57,9 +57,10 @@ ENV NODE_ENV=production
 # ни сборка, ни vitest этого не замечают (растровое сравнение никто не
 # гоняет). DejaVu Sans взят вместо Noto — полное покрытие кириллицы при
 # заметно меньшем весе пакета.
-# pdfinfo (poppler-utils) bounds employee PDF page counts before paid Gemini calls.
+# pdfinfo (poppler-utils) bounds employee PDF page counts before paid Gemini calls;
+# pdftotext reads the text layer of expense PDFs, pdftoppm renders scanned pages (10.11.2026).
 RUN apt-get update && apt-get install -y --no-install-recommends openssl ffmpeg poppler-utils ca-certificates fontconfig fonts-dejavu-core \
-    && command -v ffprobe && command -v pdfinfo \
+    && command -v ffprobe && command -v pdfinfo && command -v pdftotext && command -v pdftoppm \
     && rm -rf /var/lib/apt/lists/*
 # Сохраняем структуру монорепо: symlink node_modules/@royal-home/shared -> ../../packages/shared
 # остаётся валидным. Сам клиент Prisma с версии 7 лежит не в node_modules, а в
