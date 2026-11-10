@@ -32,8 +32,6 @@ export interface MarketBuyerListing {
   districtName: string | null;
   /** Когда объявление опубликовано (если площадка отдаёт) иначе — когда мы его впервые увидели. */
   publishedAt: string;
-  /** Чем оно близко к запросу: короткие подписи для строки («в бюджете», «2 комн.»). */
-  fit: string[];
 }
 
 export type MarketBuyerListingsStatus = "ok" | "no_criteria" | "not_buyer" | "pending_acceptance";
@@ -42,8 +40,10 @@ export interface MarketBuyerListingsResponse {
   status: MarketBuyerListingsStatus;
   /** Что из запроса покупателя реально применено к выборке — сервер говорит словами. */
   criteria: string[];
-  /** Сколько подходящих объявлений нашлось всего (после склейки дублей между площадками). */
+  /** Сколько подходящих объявлений нашлось (после склейки дублей между площадками). */
   total: number;
+  /** true — подходящих больше предела выборки: total это «не меньше», экран пишет «из N+». */
+  totalIsLowerBound: boolean;
   /** Бюджет, приведённый к сомони общим курсом, — чтобы экран не пересчитывал сам. */
   budgetMaxTjs: number | null;
   listings: MarketBuyerListing[];
@@ -85,6 +85,7 @@ export interface MarketSegmentStat {
   /** false — меньше minSample: чисел нет, экран пишет «Данных мало». */
   enough: boolean;
   medianPerSqmTjs: number | null;
+  /** Среднее УСЕЧЁННОЕ: без 10% самых дешёвых и 10% самых дорогих (то же для averagePriceTjs). */
   averagePerSqmTjs: number | null;
   medianPriceTjs: number | null;
   averagePriceTjs: number | null;

@@ -5,6 +5,7 @@ import { app } from "../src/app.js";
 import { prisma } from "../src/db.js";
 import { MIN_SAMPLE } from "../src/lib/market/comps.js";
 import { buildSegments, median, type SegmentRow } from "../src/lib/market/segments.js";
+import { MIN_SALE_PRICE_TJS, trimmedMean } from "../src/lib/market/plausible.js";
 import { deleteAgentsWithTraces } from "./helpers/cleanupAgents.js";
 
 /**
@@ -154,16 +155,35 @@ describe("buildSegments (чистая часть)", () => {
     expect(median([])).toBe(0);
   });
 
-  it("выброс двигает среднее, но не медиану", () => {
+  it("выброс не двигает ни медиану, ни усечённое среднее (10% с краёв)", () => {
     const rows = Array.from({ length: 9 }, (_, i) =>
       row({ priceTjs: 600_000 + i, pricePerSqmTjs: 10_000 + i, areaSqm: 40 + i * 4, firstSeenAt: new Date("2026-01-01") })
     );
-    rows.push(row({ priceTjs: 9_000_000, pricePerSqmTjs: 150_000, areaSqm: 60 }));
+    // Дорогое, но правдоподобное объявление (95 000 за м², внутри границ): обычное среднее ушло бы к 18 500.
+    rows.push(row({ priceTjs: 9_000_000, pricePerSqmTjs: 95_000, areaSqm: 94 }));
     const [s] = buildSegments(rows, base.getTime());
     expect(s.count).toBe(10);
     expect(s.medianPerSqmTjs).toBeLessThan(10_100);
-    expect(s.averagePerSqmTjs).toBeGreaterThan(20_000);
+    expect(s.averagePerSqmTjs).toBeLessThan(10_100);
+    expect(s.averagePriceTjs).toBeLessThan(700_000);
     expect(s.newLast7Days).toBe(1);
+  });
+
+  it("неправдоподобные цены отсекаются: ниже порога цены и цена за м² вне 500–100 000", () => {
+    const good = Array.from({ length: MIN_SAMPLE }, (_, i) => row({ areaSqm: 40 + i * 4, priceTjs: 500_000 + i * 1000, pricePerSqmTjs: 10_000 + i }));
+    const junk = [
+      row({ areaSqm: 60, priceTjs: MIN_SALE_PRICE_TJS - 1, pricePerSqmTjs: 800 }),
+      row({ areaSqm: 61, priceTjs: 6_500_000, pricePerSqmTjs: null }), // 106 557 за м²: в базе записан null
+      row({ areaSqm: 62, priceTjs: 700_000, pricePerSqmTjs: 100_001 }),
+    ];
+    const [s] = buildSegments([...good, ...junk], base.getTime());
+    expect(s.count).toBe(MIN_SAMPLE);
+  });
+
+  it("trimmedMean: по одному краю на десять значений", () => {
+    expect(trimmedMean([1, 10, 10, 10, 10, 10, 10, 10, 10, 1000])).toBe(10);
+    expect(trimmedMean([5, 7])).toBe(6);
+    expect(trimmedMean([])).toBe(0);
   });
 
   it("один объект на Somon и Paydo считается один раз: девять записей из восьми объектов — не хватает до порога", () => {
@@ -177,7 +197,7 @@ describe("buildSegments (чистая часть)", () => {
 
   it("если за м² известно меньше порога, число за м² не показываем, а за объект показываем", () => {
     const rows = Array.from({ length: MIN_SAMPLE }, (_, i) =>
-      row({ areaSqm: 40 + i * 10, priceTjs: 400_000 + i * 50_000, pricePerSqmTjs: i < 3 ? 10_000 : null })
+      row({ areaSqm: i < 3 ? 40 + i * 10 : null, priceTjs: 400_000 + i * 50_000, pricePerSqmTjs: i < 3 ? 10_000 : null })
     );
     const [s] = buildSegments(rows, base.getTime());
     expect(s.enough).toBe(true);

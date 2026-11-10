@@ -128,6 +128,16 @@ export interface EvaluatedClientProperty {
   match: ClientPropertyMatchEvidence;
 }
 
+/** Допуск по комнатам: ОДНА формула для подбора наших объектов и объявлений с площадок (lib/market/buyerMatch.ts). */
+export function roomsWithinTolerance(propertyRooms: number, desiredRooms: number, policy: Pick<MatchPolicy, "roomsTolerance">): boolean {
+  return Math.abs(propertyRooms - desiredRooms) <= policy.roomsTolerance;
+}
+
+/** Нижняя граница площади с допуском: ОДНА формула для обоих подборов. */
+export function areaMeetsMinimum(areaSqm: number, desiredAreaMin: number, policy: Pick<MatchPolicy, "areaToleranceRatio">): boolean {
+  return areaSqm >= desiredAreaMin * (1 - policy.areaToleranceRatio);
+}
+
 /** Pure comparison over known facts; null means outside the eligible set. */
 export function evaluateClientProperty(
   client: MatchingBuyerCriteria, property: MatchingPropertyFacts, money: MoneyContext,
@@ -160,13 +170,13 @@ export function evaluateClientProperty(
   }
   if (client.desiredRooms != null && propertyFieldShown(property.type, "rooms")) {
     if (property.rooms == null) unknowns.push("Комнаты не указаны");
-    else if (Math.abs(property.rooms - client.desiredRooms) > policy.roomsTolerance) return null;
+    else if (!roomsWithinTolerance(property.rooms, client.desiredRooms, policy)) return null;
     else if (property.rooms === client.desiredRooms) { reasons.push(`${property.rooms} комнаты — как в запросе`); quality += 5; }
     else tradeoffs.push(`${property.rooms} комнаты вместо ${client.desiredRooms}`);
   }
   if (client.desiredAreaMin != null) {
     if (property.areaSqm == null) unknowns.push("Площадь не указана");
-    else if (Number(property.areaSqm) < client.desiredAreaMin * (1 - policy.areaToleranceRatio)) return null;
+    else if (!areaMeetsMinimum(Number(property.areaSqm), client.desiredAreaMin, policy)) return null;
     else if (Number(property.areaSqm) < client.desiredAreaMin) tradeoffs.push(`Площадь ${Number(property.areaSqm)} м² вместо ${client.desiredAreaMin} м²`);
     else { reasons.push(`Площадь от ${client.desiredAreaMin} м²`); quality += 3; }
   }

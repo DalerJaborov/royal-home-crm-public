@@ -5,6 +5,7 @@ import { app } from "../src/app.js";
 import { prisma } from "../src/db.js";
 import { loadMoneyContext, toTjs } from "../src/lib/money.js";
 import { buyerDistance, rankBuyerListings, type BuyerRow, type BuyerWants } from "../src/lib/market/buyerMatch.js";
+import { DEFAULT_MATCH_POLICY } from "../src/lib/matchPolicy.js";
 import { deleteAgentsWithTraces } from "./helpers/cleanupAgents.js";
 
 /**
@@ -98,11 +99,18 @@ beforeAll(async () => {
   buyerId = buyer.id;
 
   await makeListing("inBudget", { priceTjs: ceilingTjs - 20_000, areaSqm: 62 });
-  await makeListing("overBudget", { priceTjs: ceilingTjs + 20_000 });
-  await makeListing("threeRooms", { rooms: 3, priceTjs: ceilingTjs - 20_000 });
+  // Допуск бюджета из политики +10%: +20 000 к потолку ~540 000 ещё проходит, +30% — нет.
+  await makeListing("withinTolerance", { priceTjs: ceilingTjs + 20_000, areaSqm: 75 });
+  await makeListing("overBudget", { priceTjs: Math.round(ceilingTjs * 1.3) });
+  await makeListing("junkCheap", { priceTjs: 1_000, areaSqm: 62 });
+  await makeListing("junkPerSqm", { priceTjs: ceilingTjs - 10_000, areaSqm: 3 });
+  await makeListing("nextRooms", { rooms: 3, priceTjs: ceilingTjs - 25_000, areaSqm: 85 });
+  await makeListing("fiveRooms", { rooms: 5, priceTjs: ceilingTjs - 20_000 });
   await makeListing("inactive", { isActive: false, priceTjs: ceilingTjs - 20_000 });
   await makeListing("stale", { lastSeenAt: new Date(Date.now() - 90 * 24 * 3600_000), priceTjs: ceilingTjs - 20_000 });
   await makeListing("ours", { priceTjs: ceilingTjs - 15_000, areaSqm: 70 });
+  await makeListing("house", { propertyType: "HOUSE", rooms: null, priceTjs: ceilingTjs - 5_000, areaSqm: 120 });
+  await makeListing("candidate", { priceTjs: ceilingTjs - 12_000, areaSqm: 72 });
   await makeListing("dismissed", { priceTjs: ceilingTjs - 30_000, areaSqm: 80 });
   // Тот же объект, что inBudget, на второй площадке: разница в площади 1 м², в цене около 3%.
   await makeListing("dupOnPaydo", { source: "paydo.tj", priceTjs: ceilingTjs - 20_000 + 2_000, areaSqm: 63 });
@@ -116,6 +124,7 @@ beforeAll(async () => {
   });
   propertyIds.push(property.id);
   await prisma.propertyMarketMatch.create({ data: { propertyId: property.id, listingId: ids.ours, score: 90, reasons: [], status: "CONFIRMED" } });
+  await prisma.propertyMarketMatch.create({ data: { propertyId: property.id, listingId: ids.candidate, score: 75, reasons: [], status: "CANDIDATE" } });
   await prisma.propertyMarketMatch.create({ data: { propertyId: property.id, listingId: ids.dismissed, score: 40, reasons: [], status: "DISMISSED" } });
 });
 
@@ -139,10 +148,15 @@ describe("GET /clients/:id/market-listings", () => {
     expect(urls).toContain(`https://somon.tj/adv/${runId}-inBudget`);
     // «Не наш» (DISMISSED) — это чужое объявление, оно в подборе остаётся.
     expect(urls).toContain(`https://somon.tj/adv/${runId}-dismissed`);
-    for (const gone of ["overBudget", "threeRooms", "inactive", "stale", "ours"]) {
+    // Допуск комнат ±1 из политики: 3 комнаты при запросе на 2 — подходят, 5 — нет; допуск бюджета +10%.
+    expect(urls).toContain(`https://somon.tj/adv/${runId}-nextRooms`);
+    expect(urls).toContain(`https://somon.tj/adv/${runId}-house`); // desiredType = null — «любой тип», а не «только квартиры»
+    expect(urls).toContain(`https://somon.tj/adv/${runId}-withinTolerance`);
+    // Выбросы цены (ниже порога; цена за м² вне границ) и наши объявления (CONFIRMED и CANDIDATE) в подбор не попадают.
+    for (const gone of ["overBudget", "fiveRooms", "inactive", "stale", "ours", "candidate", "junkCheap", "junkPerSqm"]) {
       expect(urls, gone).not.toContain(`https://somon.tj/adv/${runId}-${gone}`);
     }
-    for (const l of res.body.listings as { priceTjs: number }[]) expect(l.priceTjs).toBeLessThanOrEqual(ceilingTjs);
+    for (const l of res.body.listings as { priceTjs: number }[]) expect(l.priceTjs).toBeLessThanOrEqual(ceilingTjs * 1.1);
     expect(res.body.criteria).toEqual(expect.arrayContaining([`район ${DISTRICT}`, "2-комнатные"]));
   });
 
@@ -150,7 +164,22 @@ describe("GET /clients/:id/market-listings", () => {
     const res = await get(buyerId);
     const same = (res.body.listings as { sourceUrl: string }[]).filter((l) => /inBudget|dupOnPaydo/.test(l.sourceUrl));
     expect(same).toHaveLength(1);
-    expect(res.body.total).toBe(2); // inBudget (с дублем) и dismissed
+    expect(res.body.total).toBe(5); // inBudget (с дублем), dismissed, withinTolerance, nextRooms, дом (тип не задан = любой)
+    expect(res.body.totalIsLowerBound).toBe(false);
+  });
+
+  it("тип «квартира» в запросе отсекает дома", async () => {
+    const c = await prisma.client.create({
+      data: {
+        fullName: `Только квартира ${runId}`, phone: `+992987${runId.slice(-7)}`, source: "PHONE_CALL", kind: "BUYER",
+        assignedAgentId: agentIds[0], acceptedAt: new Date(), budgetMax: 50_000, currency: "USD", desiredDistrictId: districtId,
+        desiredRooms: 2, desiredType: "APARTMENT",
+      },
+    });
+    clientIds.push(c.id);
+    const urls = ((await get(c.id)).body.listings as { sourceUrl: string }[]).map((l) => l.sourceUrl);
+    expect(urls).not.toContain(`https://somon.tj/adv/${runId}-house`);
+    expect(urls).toContain(`https://somon.tj/adv/${runId}-inBudget`);
   });
 
   it("не отдаёт телефоны и сырые данные, только ссылку и цифры", async () => {
@@ -166,7 +195,7 @@ describe("GET /clients/:id/market-listings", () => {
     const one = await get(buyerId, agentToken, "?limit=1");
     expect(one.status).toBe(200);
     expect(one.body.listings).toHaveLength(1);
-    expect(one.body.total).toBe(2);
+    expect(one.body.total).toBe(5);
     expect((await get(buyerId, agentToken, "?limit=11")).status).toBe(400);
     expect((await get(buyerId, agentToken, "?limit=0")).status).toBe(400);
     expect((await get(buyerId, agentToken, "?foo=1")).status).toBe(400);
@@ -212,7 +241,7 @@ describe("GET /clients/:id/market-listings", () => {
 describe("rankBuyerListings (чистая часть)", () => {
   const wants: BuyerWants = {
     districtName: "Сино", city: "Душанбе", rooms: 2, propertyType: "APARTMENT", areaMin: null,
-    budgetMinTjs: 400_000, budgetMaxTjs: 600_000,
+    budgetMinTjs: 400_000, budgetMaxTjs: 600_000, policy: DEFAULT_MATCH_POLICY,
   };
   const row = (over: Partial<BuyerRow>): BuyerRow => ({
     source: "somon.tj", sourceUrl: "u", title: "t", priceTjs: 500_000, pricePerSqmTjs: 8000, areaSqm: 60, rooms: 2, floor: 3,

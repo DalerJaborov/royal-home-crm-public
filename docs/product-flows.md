@@ -3439,9 +3439,9 @@
 - если !hasBuyerCriteria(wants)
   - return res.json(empty("no_criteria", criteria, wants.budgetMaxTjs));
     · ответ 200
-- const { total, listings } = await findBuyerListings(wants, parsed.data.limit);
+- const { total, totalIsLowerBound, listings } = await findBuyerListings(wants, parsed.data.limit);
   · зовёт findBuyerListings()
-- const body: MarketBuyerListingsResponse = { status: "ok", criteria, total, budgetMaxTjs: wants.budgetMaxTjs, …
+- const body: MarketBuyerListingsResponse = { status: "ok", criteria, total, totalIsLowerBound, budgetMaxTjs: w…
   · зовёт phoneSafeText()
 - return res.json(body);
   · ответ 200

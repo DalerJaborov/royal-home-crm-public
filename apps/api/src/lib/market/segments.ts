@@ -3,6 +3,8 @@
  *
  * Правила те же, что у comps.ts / similarComps.ts, и берутся оттуда, а не пишутся заново:
  *  · порог MIN_SAMPLE (8) — сегмент меньше него отдаётся БЕЗ чисел, с признаком enough=false;
+ *  · выбросы (цена ниже порога или цена за м² вне 500–100 000) отсекаются (plausible.ts); «среднее» —
+ *    усечённое, без 10% дешёвых и 10% дорогих с краёв;
  *  · медиана (не только среднее): одно объявление-выброс не должно двигать «типичную» цену;
  *  · один объект на двух площадках — одно объявление (dedupeAcrossSources), иначе пять квартир
  *    выглядят как десять и проходят порог;
@@ -23,6 +25,7 @@ import {
 import { prisma } from "../../db.js";
 import type { Prisma } from "../../generated/prisma/client.js";
 import { MIN_SAMPLE } from "./comps.js";
+import { isPlausibleSale, plausibleSaleWhere, trimmedMean } from "./plausible.js";
 import { dedupeAcrossSources, WINDOW_DAYS } from "./similarComps.js";
 
 /** Предел выборки на запрос: каталог Душанбе — тысячи объявлений, не сотни тысяч. */
@@ -51,10 +54,6 @@ export function median(sorted: number[]): number {
   return lo === hi ? sorted[lo] : (sorted[lo] + sorted[hi]) / 2;
 }
 
-function average(values: number[]): number {
-  return values.reduce((s, v) => s + v, 0) / values.length;
-}
-
 function asRepair(value: string | null): MarketSegmentRepair | null {
   return (MARKET_SEGMENT_REPAIRS as readonly string[]).includes(value ?? "") ? (value as MarketSegmentRepair) : null;
 }
@@ -63,6 +62,8 @@ function asRepair(value: string | null): MarketSegmentRepair | null {
 export function buildSegments(rows: SegmentRow[], now = Date.now()): MarketSegmentStat[] {
   const groups = new Map<string, SegmentRow[]>();
   for (const r of rows) {
+    // Страховка: выбросы отсекает и запрос (plausibleSaleWhere), но чистая функция не должна на это полагаться.
+    if (!isPlausibleSale(r, "APARTMENT")) continue;
     const key = `${r.districtName}|${r.rooms}|${asRepair(r.repair) ?? "-"}`;
     const bucket = groups.get(key);
     if (bucket) bucket.push(r);
@@ -90,9 +91,9 @@ export function buildSegments(rows: SegmentRow[], now = Date.now()): MarketSegme
       count: unique.length,
       enough,
       medianPerSqmTjs: perSqmOk ? Math.round(median(perSqm)) : null,
-      averagePerSqmTjs: perSqmOk ? Math.round(average(perSqm)) : null,
+      averagePerSqmTjs: perSqmOk ? Math.round(trimmedMean(perSqm)) : null,
       medianPriceTjs: enough ? Math.round(median(prices)) : null,
-      averagePriceTjs: enough ? Math.round(average(prices)) : null,
+      averagePriceTjs: enough ? Math.round(trimmedMean(prices)) : null,
       freshestSeenAt: new Date(Math.max(...unique.map((r) => r.lastSeenAt.getTime()))).toISOString(),
       newLast7Days: unique.filter((r) => r.firstSeenAt.getTime() >= weekAgo).length,
     });
@@ -110,12 +111,11 @@ export function segmentsWhere(q: MarketSegmentsQuery, now = Date.now()): Prisma.
     city: q.city,
     isActive: true,
     lastSeenAt: { gte: freshSince },
-    priceTjs: { gt: 0 },
     rooms: q.rooms ?? { not: null },
     districtName: q.districtName ?? { not: null },
     ...(q.repair ? { repair: q.repair } : {}),
     ...(q.building ? { isNewBuilding: q.building === "new" } : {}),
-    AND: [{ OR: [{ publishedAt: null }, { publishedAt: { gte: oldest } }] }],
+    AND: [{ OR: [{ publishedAt: null }, { publishedAt: { gte: oldest } }] }, ...plausibleSaleWhere("APARTMENT")],
   };
 }
 

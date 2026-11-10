@@ -23,6 +23,8 @@ import { Rh2Screen } from "../components/rh2/Rh2Screen";
 
 /** Сколько сегментов видно до нажатия «Показать ещё»: список не растёт без предела. */
 const PAGE = 30;
+/** Сервер считает рынок только по Душанбе (city в запросе по умолчанию): районы других городов в списке не нужны. */
+const MARKET_CITY = "Душанбе";
 const ROOM_FILTERS = [
   { id: "all", label: "Все" },
   { id: "1", label: "1 комн." },
@@ -60,7 +62,7 @@ function SegmentRow({ s, minSample }: { s: MarketSegmentStat; minSample: number 
               <>
                 <b>{formatMoney(s.medianPerSqmTjs, "TJS")}/м²</b>
                 <small>
-                  {" "}· средняя {s.averagePerSqmTjs != null ? `${formatMoney(s.averagePerSqmTjs, "TJS")}/м²` : "—"}
+                  {" "}· средняя* {s.averagePerSqmTjs != null ? `${formatMoney(s.averagePerSqmTjs, "TJS")}/м²` : "—"}
                 </small>
               </>
             ) : (
@@ -69,7 +71,7 @@ function SegmentRow({ s, minSample }: { s: MarketSegmentStat; minSample: number 
           </span>
           <span className="meta">
             <b>{s.medianPriceTjs != null ? formatMoney(s.medianPriceTjs, "TJS") : "—"}</b>
-            <small> · средняя {s.averagePriceTjs != null ? formatMoney(s.averagePriceTjs, "TJS") : "—"}</small>
+            <small> · средняя* {s.averagePriceTjs != null ? formatMoney(s.averagePriceTjs, "TJS") : "—"}</small>
           </span>
         </>
       ) : (
@@ -84,7 +86,7 @@ function SegmentRow({ s, minSample }: { s: MarketSegmentStat; minSample: number 
   );
 }
 
-export function MarketSegmentsView({ data, shown, onMore }: { data: MarketSegmentsResponse; shown: number; onMore: () => void }) {
+export function MarketSegmentsView({ data, shown, onMore, buildingFilter = false }: { data: MarketSegmentsResponse; shown: number; onMore: () => void; buildingFilter?: boolean }) {
   const visible = data.segments.slice(0, shown);
   const sourcesLine = data.sources.map((x) => `${marketSourceName(x.source)} ${x.count}`).join(" · ");
   return (
@@ -107,10 +109,13 @@ export function MarketSegmentsView({ data, shown, onMore }: { data: MarketSegmen
           </>
         )}
       </section>
+      {buildingFilter && (
+        <p className="sub">У Somon нет признака «новостройка / вторичка»: при этом фильтре его объявления не учитываются, цифры — по остальным площадкам.</p>
+      )}
       <p className="sub">
         Основание: активные объявления за {data.windowDays} дней{sourcesLine ? ` (${sourcesLine})` : ""}; один объект на двух площадках
-        считается один раз. Типичная цена — медиана: половина объявлений дешевле, половина дороже, единичные дорогие объекты её не
-        сдвигают. Сегмент меньше {data.minSample} объявлений числа не получает. Цены в объявлениях — не цены сделок.
+        считается один раз. Типичная цена — медиана: половина объявлений дешевле, половина дороже. «Средняя*» — без 10% самых дешёвых и 10% самых
+        дорогих объявлений, чтобы единичные выбросы её не сдвигали. Сегмент меньше {data.minSample} объявлений числа не получает. Цены в объявлениях — не цены сделок.
         {data.truncated ? " Выборка упёрлась в предел: цифры по самым свежим объявлениям." : ""}
       </p>
     </>
@@ -154,7 +159,7 @@ export function MarketSegments() {
               }}
             >
               <option value="">Все районы</option>
-              {(districts.data ?? []).map((d) => (
+              {(districts.data ?? []).filter((d) => d.city === MARKET_CITY).map((d) => (
                 <option key={d.id} value={d.name}>
                   {d.name}
                 </option>
@@ -212,7 +217,7 @@ export function MarketSegments() {
           <Rh2ErrorState message="Не удалось загрузить цены рынка." onRetry={() => void refetch()} retrying={isFetching} />
         </div>
       ) : (
-        <MarketSegmentsView data={data} shown={shown} onMore={() => setShown((n) => n + PAGE)} />
+        <MarketSegmentsView data={data} shown={shown} onMore={() => setShown((n) => n + PAGE)} buildingFilter={building !== "all"} />
       )}
     </Rh2Screen>
   );

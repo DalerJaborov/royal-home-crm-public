@@ -61,7 +61,7 @@ export function useSetMatchStatus(propertyId: string) {
  */
 export function useMarketBuyerListings(clientId: string | null | undefined, enabled = true) {
   return useQuery({
-    queryKey: ["market-buyer-listings", clientId],
+    queryKey: ["client-match", clientId, "market"],
     queryFn: () => api<MarketBuyerListingsResponse>(`/clients/${clientId}/market-listings`),
     enabled: !!clientId && enabled,
     staleTime: 5 * 60_000,

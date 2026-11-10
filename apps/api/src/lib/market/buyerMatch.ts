@@ -2,41 +2,51 @@
  * ПОДБОР ПОКУПАТЕЛЮ ИЗ ОБЪЯВЛЕНИЙ НА ПЛОЩАДКАХ (10.11.2026).
  *
  * Рядом с нашими объектами агент видит, что на Somon/Paydo продаётся под запрос покупателя:
- * район, комнаты, тип, бюджет. Это ЧУЖИЕ объявления, а не наши объекты — экран подписывает это
+ * район, комнаты, тип, площадь, бюджет. Это ЧУЖИЕ объявления, а не наши объекты — экран подписывает это
  * явно, а здесь мы не даём им стать «нашими»: объявление, которое lib/market/ownMatch.ts признал
  * нашим объектом (CONFIRMED или CANDIDATE, DISMISSED — чужое), в подбор не попадает.
  *
- * Деньги: бюджет клиента хранится в его валюте (TJS/USD) и приводится к сомони ОДНОЙ общей
- * функцией (lib/money.ts toTjs → convertToTjs пакета shared), потому что цена объявления уже
- * в сомони (MarketListing.priceTjs). Сравнивать можно только сомони с сомони.
+ * ОДНА ДВЕРЬ ДОПУСКОВ (ревью 10.11.2026). Допуски те же, что у подбора наших объектов, и берутся из
+ * той же политики (Настройки → loadMatchPolicy): бюджет — budgetWindowTjs, комнаты — roomsWithinTolerance,
+ * площадь — areaMeetsMinimum (lib/clientPropertyMatching.ts, их же зовёт evaluateClientProperty).
+ * Поменяли допуск в Настройках — поменялось и здесь. Тип не задан (desiredType = null) — «любой тип».
  *
- * Те же правила честности, что в similarComps.ts: свежие (45 дней), цена известна, один объект на
- * двух площадках — одно объявление (dedupeAcrossSources), порядок по близости к запросу.
+ * Деньги: бюджет клиента (TJS/USD) приводится к сомони ОДНОЙ общей функцией (lib/money.ts toTjs), цена
+ * объявления уже в сомони (MarketListing.priceTjs). Выбросы цены отсекает plausible.ts.
+ * Один объект на двух площадках — одно объявление (dedupeAcrossSources). Порядок — близость к запросу.
  */
 
-import type { MarketBuyerListing } from "@royal-home/shared";
+import { propertyFieldShown, type MarketBuyerListing } from "@royal-home/shared";
 import { prisma } from "../../db.js";
 import type { Prisma } from "../../generated/prisma/client.js";
+import { areaMeetsMinimum, roomsWithinTolerance, type MatchingBuyerCriteria } from "../clientPropertyMatching.js";
+import { budgetWindowTjs, loadMatchPolicy, type MatchPolicy } from "../matchPolicy.js";
 import { loadMoneyContext, toTjs } from "../money.js";
-import type { MatchingBuyerCriteria } from "../clientPropertyMatching.js";
+import { isPlausibleSale, plausibleSaleWhere } from "./plausible.js";
 import { dedupeAcrossSources, WINDOW_DAYS } from "./similarComps.js";
 
-/** Предел выборки из базы: подбор показывает десять, остальное нужно только для склейки дублей. */
-export const BUYER_FETCH_LIMIT = 500;
+/**
+ * Предел выборки из базы. Все отборы (район, бюджет, комнаты, площадь) уже в запросе, поэтому
+ * в предел упирается только очень широкий запрос; тогда ответ честно помечается «не меньше N».
+ */
+export const BUYER_FETCH_LIMIT = 2000;
 const MAX_AGE_YEARS = 2;
 /** Если нижней границы бюджета нет, «центром» запроса считаем эту долю от верхней (только для порядка, не для отбора). */
 const CENTER_SHARE_WITHOUT_MIN = 0.8;
+const LISTING_TYPES = ["APARTMENT", "HOUSE", "COMMERCIAL", "LAND"] as const;
 
 export interface BuyerWants {
   /** Район из карточки клиента (название как в справочнике и в каталоге объявлений). */
   districtName: string | null;
   city: string;
   rooms: number | null;
-  propertyType: "APARTMENT" | "HOUSE" | "COMMERCIAL" | "LAND";
+  /** null — «любой тип». */
+  propertyType: (typeof LISTING_TYPES)[number] | null;
   areaMin: number | null;
-  /** Бюджет уже в сомони. */
+  /** Бюджет клиента, уже в сомони, БЕЗ допуска (допуск добавляет budgetWindowTjs). */
   budgetMinTjs: number | null;
   budgetMaxTjs: number | null;
+  policy: Pick<MatchPolicy, "budgetToleranceRatio" | "roomsTolerance" | "areaToleranceRatio">;
 }
 
 /** Есть ли за что зацепиться: без района и без потолка бюджета выборка была бы случайной. */
@@ -44,10 +54,14 @@ export function hasBuyerCriteria(w: BuyerWants): boolean {
   return w.districtName != null || w.budgetMaxTjs != null;
 }
 
+function fmt(n: number): string {
+  return Math.round(n).toLocaleString("ru-RU").replace(/ /g, " ");
+}
+
 /** Слова о том, что реально применено к выборке (показывает экран). */
 export function describeBuyerCriteria(w: BuyerWants): string[] {
   const out: string[] = [];
-  if (w.districtName) out.push(`район ${w.districtName}`);
+  out.push(w.districtName ? `район ${w.districtName}` : w.city);
   if (w.rooms) out.push(`${w.rooms}-комнатные`);
   if (w.areaMin) out.push(`от ${w.areaMin} м²`);
   if (w.budgetMinTjs != null && w.budgetMaxTjs != null) out.push(`бюджет ${fmt(w.budgetMinTjs)}–${fmt(w.budgetMaxTjs)} сомони`);
@@ -56,14 +70,11 @@ export function describeBuyerCriteria(w: BuyerWants): string[] {
   return out;
 }
 
-function fmt(n: number): string {
-  return Math.round(n).toLocaleString("ru-RU").replace(/\u00a0/g, " ");
-}
-
 export interface BuyerRow {
   source: string;
   sourceUrl: string;
   title: string;
+  propertyType?: string;
   priceTjs: number;
   pricePerSqmTjs: number | null;
   areaSqm: number | null;
@@ -86,25 +97,29 @@ export function buyerDistance(row: BuyerRow, w: BuyerWants): number {
     d += Math.abs(row.priceTjs - w.budgetMinTjs) / w.budgetMinTjs;
   }
   if (w.areaMin && row.areaSqm != null) d += Math.abs(row.areaSqm - w.areaMin) / w.areaMin / 2;
+  if (w.rooms && row.rooms != null) d += Math.abs(row.rooms - w.rooms) * 0.2;
   return d;
 }
 
-function fitLabels(row: BuyerRow, w: BuyerWants): string[] {
-  const out: string[] = [];
-  if ((w.budgetMaxTjs != null || w.budgetMinTjs != null)) out.push("в бюджете");
-  if (w.districtName && row.districtName === w.districtName) out.push(`район ${w.districtName}`);
-  if (w.rooms && row.rooms === w.rooms) out.push(`${w.rooms}-комн.`);
-  if (w.areaMin && row.areaSqm != null && row.areaSqm >= w.areaMin) out.push(`от ${w.areaMin} м²`);
-  return out;
+/** Точная проверка в памяти теми же функциями политики, что у подбора наших объектов (страховка после запроса). */
+export function matchesBuyer(row: BuyerRow, w: BuyerWants): boolean {
+  const type = row.propertyType ?? w.propertyType ?? "APARTMENT";
+  if (!isPlausibleSale(row, type)) return false;
+  const window = budgetWindowTjs(w.budgetMinTjs, w.budgetMaxTjs, w.policy);
+  if ((window.min != null && row.priceTjs < window.min) || (window.max != null && row.priceTjs > window.max)) return false;
+  if (w.rooms != null && propertyFieldShown(type, "rooms") && row.rooms != null && !roomsWithinTolerance(row.rooms, w.rooms, w.policy)) return false;
+  if (w.areaMin != null && row.areaSqm != null && !areaMeetsMinimum(row.areaSqm, w.areaMin, w.policy)) return false;
+  return true;
 }
 
-/** Чистая часть: порядок по близости, склейка дублей между площадками, предел. Без БД — тестируется отдельно. */
+/** Чистая часть: отбор, порядок по близости, склейка дублей между площадками, предел. Без БД. */
 export function rankBuyerListings(
   rows: BuyerRow[],
   w: BuyerWants,
   limit: number
 ): { total: number; listings: MarketBuyerListing[] } {
   const ordered = rows
+    .filter((r) => matchesBuyer(r, w))
     .map((r) => ({ r, d: buyerDistance(r, w) }))
     .sort((a, b) => a.d - b.d)
     .map((x) => x.r);
@@ -124,7 +139,6 @@ export function rankBuyerListings(
       totalFloors: r.totalFloors,
       districtName: r.districtName,
       publishedAt: (r.publishedAt ?? r.firstSeenAt).toISOString(),
-      fit: fitLabels(r, w),
     })),
   };
 }
@@ -132,41 +146,56 @@ export function rankBuyerListings(
 export function buyerListingsWhere(w: BuyerWants, now = Date.now()): Prisma.MarketListingWhereInput {
   const freshSince = new Date(now - WINDOW_DAYS * 24 * 3600_000);
   const oldest = new Date(now - MAX_AGE_YEARS * 365 * 24 * 3600_000);
-  const price: Prisma.DecimalFilter = { gt: 0 };
-  if (w.budgetMinTjs != null) price.gte = w.budgetMinTjs;
-  if (w.budgetMaxTjs != null) price.lte = w.budgetMaxTjs;
+  const window = budgetWindowTjs(w.budgetMinTjs, w.budgetMaxTjs, w.policy);
+  const price: Prisma.DecimalFilter = {};
+  if (window.min != null) price.gte = window.min;
+  if (window.max != null) price.lte = window.max;
+  const and: Prisma.MarketListingWhereInput[] = [
+    { OR: [{ publishedAt: null }, { publishedAt: { gte: oldest } }] },
+    ...plausibleSaleWhere(w.propertyType),
+  ];
+  if (w.rooms != null) {
+    // Комнаты имеют смысл не у каждого типа (участок): им допуск не применяется. Неизвестное число — тоже подходит (как у наших).
+    const noRooms = LISTING_TYPES.filter((t) => !propertyFieldShown(t, "rooms"));
+    and.push({
+      OR: [
+        ...(noRooms.length ? [{ propertyType: { in: [...noRooms] } }] : []),
+        { rooms: null },
+        { rooms: { gte: w.rooms - w.policy.roomsTolerance, lte: w.rooms + w.policy.roomsTolerance } },
+      ],
+    });
+  }
+  if (w.areaMin != null) and.push({ OR: [{ areaSqm: null }, { areaSqm: { gte: w.areaMin * (1 - w.policy.areaToleranceRatio) } }] });
   return {
     dealType: "SALE",
-    propertyType: w.propertyType,
     city: w.city,
     isActive: true,
     lastSeenAt: { gte: freshSince },
-    priceTjs: price,
+    ...(w.propertyType ? { propertyType: w.propertyType } : {}),
+    ...(Object.keys(price).length ? { priceTjs: price } : {}),
     ...(w.districtName ? { districtName: w.districtName } : {}),
-    ...(w.rooms ? { rooms: w.rooms } : {}),
-    ...(w.areaMin ? { areaSqm: { gte: w.areaMin } } : {}),
     // Объявление, признанное нашим объектом (CONFIRMED/CANDIDATE), — не «с площадки», а наше: тот же
     // критерий, что у ownListingIds() в similarComps.ts, только по всем объектам сразу.
     ownMatches: { none: { status: { in: ["CONFIRMED", "CANDIDATE"] } } },
-    AND: [{ OR: [{ publishedAt: null }, { publishedAt: { gte: oldest } }] }],
+    AND: and,
   };
 }
 
 export async function findBuyerListings(
   w: BuyerWants,
   limit: number
-): Promise<{ total: number; listings: MarketBuyerListing[] }> {
+): Promise<{ total: number; totalIsLowerBound: boolean; listings: MarketBuyerListing[] }> {
   const rows = await prisma.marketListing.findMany({
     where: buyerListingsWhere(w),
     select: {
-      source: true, sourceUrl: true, title: true, priceTjs: true, pricePerSqmTjs: true, areaSqm: true, rooms: true,
-      floor: true, totalFloors: true, districtName: true, firstSeenAt: true, publishedAt: true,
+      source: true, sourceUrl: true, title: true, propertyType: true, priceTjs: true, pricePerSqmTjs: true, areaSqm: true,
+      rooms: true, floor: true, totalFloors: true, districtName: true, firstSeenAt: true, publishedAt: true,
     },
-    // Свежие первыми: обрезка по цене или близости сдвинула бы выдачу.
+    // Свежие первыми: если запрос так широк, что упёрся в предел, теряются самые старые, а не самые дорогие.
     orderBy: { lastSeenAt: "desc" },
     take: BUYER_FETCH_LIMIT,
   });
-  return rankBuyerListings(
+  const ranked = rankBuyerListings(
     rows.map((r) => ({
       ...r,
       priceTjs: Number(r.priceTjs),
@@ -176,15 +205,17 @@ export async function findBuyerListings(
     w,
     limit
   );
+  return { ...ranked, totalIsLowerBound: rows.length >= BUYER_FETCH_LIMIT };
 }
 
-/** Желания покупателя → условия выборки: район по справочнику, бюджет в сомони общей функцией. */
+/** Желания покупателя → условия выборки: район по справочнику, бюджет в сомони общей функцией, допуски из политики. */
 export async function buyerWantsFromCriteria(criteria: MatchingBuyerCriteria): Promise<BuyerWants> {
-  const [district, money] = await Promise.all([
+  const [district, money, policy] = await Promise.all([
     criteria.desiredDistrictId
       ? prisma.district.findUnique({ where: { id: criteria.desiredDistrictId }, select: { name: true, city: true } })
       : Promise.resolve(null),
     loadMoneyContext(),
+    loadMatchPolicy(),
   ]);
   const toBudget = (value: unknown): number | null => {
     if (value == null) return null;
@@ -196,9 +227,10 @@ export async function buyerWantsFromCriteria(criteria: MatchingBuyerCriteria): P
     districtName: district?.name ?? null,
     city: district?.city ?? "Душанбе",
     rooms: criteria.desiredRooms && criteria.desiredRooms > 0 ? criteria.desiredRooms : null,
-    propertyType: type === "HOUSE" || type === "COMMERCIAL" || type === "LAND" ? type : "APARTMENT",
+    propertyType: (LISTING_TYPES as readonly string[]).includes(type ?? "") ? (type as (typeof LISTING_TYPES)[number]) : null,
     areaMin: criteria.desiredAreaMin && criteria.desiredAreaMin > 0 ? criteria.desiredAreaMin : null,
     budgetMinTjs: toBudget(criteria.budgetMin),
     budgetMaxTjs: toBudget(criteria.budgetMax),
+    policy,
   };
 }

@@ -14952,7 +14952,7 @@
     },
     {
      "k": "do",
-     "t": "const { total, listings } = await findBuyerListings(wants, parsed.data.limit);",
+     "t": "const { total, totalIsLowerBound, listings } = await findBuyerListings(wants, parsed.data.limit);",
      "a": [
       "зовёт findBuyerListings()"
      ],
@@ -14960,7 +14960,7 @@
     },
     {
      "k": "do",
-     "t": "const body: MarketBuyerListingsResponse = { status: \"ok\", criteria, total, budgetMaxTjs: wants.budgetMaxTjs, …",
+     "t": "const body: MarketBuyerListingsResponse = { status: \"ok\", criteria, total, totalIsLowerBound, budgetMaxTjs: w…",
      "a": [
       "зовёт phoneSafeText()"
      ],

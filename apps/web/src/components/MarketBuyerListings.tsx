@@ -75,7 +75,7 @@ export function MarketBuyerListingsView({ data }: { data: MarketBuyerListingsRes
             ))}
           </div>
           {data.total > data.listings.length && (
-            <p className="sub">Показаны ближайшие {data.listings.length} из {data.total}.</p>
+            <p className="sub">Показаны ближайшие {data.listings.length} из {data.total}{data.totalIsLowerBound ? "+" : ""}.</p>
           )}
         </>
       )}

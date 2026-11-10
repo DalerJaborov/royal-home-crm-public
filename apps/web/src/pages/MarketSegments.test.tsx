@@ -42,6 +42,14 @@ describe("MarketSegmentsView", () => {
     expect(html).not.toContain("средняя");
   });
 
+  it("при фильтре дома объясняет, что у Somon признака нет; средняя подписана как усечённая", () => {
+    const html = renderToStaticMarkup(<MarketSegmentsView data={data([seg({})])} shown={30} onMore={() => {}} buildingFilter />);
+    expect(html).toContain("У Somon нет признака");
+    expect(html).toContain("средняя*");
+    expect(html).toContain("без 10% самых дешёвых и 10% самых");
+    expect(renderToStaticMarkup(<MarketSegmentsView data={data([seg({})])} shown={30} onMore={() => {}} />)).not.toContain("У Somon нет признака");
+  });
+
   it("список ограничен: лишнее прячется за «Показать ещё», пусто — понятная фраза", () => {
     const many = Array.from({ length: 5 }, (_, i) => seg({ key: `k${i}`, rooms: i + 1 }));
     const html = renderToStaticMarkup(<MarketSegmentsView data={data(many)} shown={3} onMore={() => {}} />);
