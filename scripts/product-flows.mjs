@@ -936,6 +936,36 @@ function expandCalls(nodes, budget) {
   }
 }
 
+/**
+ * ТЕЛО РОУТА В ОБЩЕЙ ДВЕРИ (10.11.2026). Роут «Сделок» стал тонкой обёрткой:
+ * `const outcome = await updateDealFor(req, …)` — правила живут в lib/, где их
+ * зовёт и ИИ-помощница. Без раскрытия карта теряла бы все развилки такого пути
+ * (сторож пропаж это и поймал). Раскрывается только вызов функции из lib/,
+ * которой роут отдаёт сам `req` и чей результат и есть ответ роута
+ * (`const outcome = await xxxFor(req, …)`), — его собственное тело, и только
+ * на верхнем уровне обработчика. Имя такой двери кончается на «For»
+ * (createDealFor, updateDealFor…): журнал (`logAudit(req, …)`) и прочие
+ * вызовы с `req` сюда не попадают.
+ */
+function expandRouteDoors(nodes) {
+  for (const node of nodes) {
+    if (node.c.length) continue;
+    // Второй вид той же двери (раздел «Команда», 10.11.2026): роут отдаёт в lib/
+    // нажавшего (`req.agent!`), а ответ — результат функции целиком:
+    // `const outcome = await createStaffMember(req.agent!, …); send(res, outcome)`, `res.json(await listStaffDirectory(req.agent!))`.
+    const call = node.t.match(/^(?:const|let)\s+[\w$]+\s*=\s*await\s+([\w$]{2,}For)\s*\(\s*req\s*[,)]/)
+      ?? node.t.match(/^(?:const|let)\s+outcome\s*=\s*await\s+([\w$]{2,})\s*\(\s*req\.agent!?\s*[,)]/)
+      ?? node.t.match(/^res\.json\(\s*await\s+([\w$]{2,})\s*\(\s*req\.agent!?\s*[,)]/);
+    if (!call) continue;
+    const fn = fnIndex.get(call[1]);
+    if (!fn) continue;
+    const p2 = apiParsed.get(fn.file);
+    if (!/(^|\/)src\/lib\//.test(p2.rel)) continue;
+    node.c = parseBlock(p2.struct, p2.code, fn.start, fn.end, 1);
+    node.from = `${call[1]}() — ${p2.rel}`;
+  }
+}
+
 const METHODS = "get|post|put|patch|delete|all";
 const endpoints = [];
 
@@ -971,6 +1001,7 @@ for (const [f, p] of parsed) {
     if (bodyStart > -1) {
       const bodyEnd = matchPair(struct, bodyStart);
       tree = parseBlock(struct, code, bodyStart + 1, bodyEnd, 0);
+      expandRouteDoors(tree);
     } else {
       handlerRef = tidy(code.slice(hs, he));
       const named = handlerRef.match(/([\w$]+)\s*\(/) || handlerRef.match(/^([\w$]+)$/);

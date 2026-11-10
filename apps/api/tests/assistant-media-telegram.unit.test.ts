@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({ resolve: vi.fn(), extract: vi.fn(), settings: vi.fn(), runtime: vi.fn(), money: vi.fn(), attempt: vi.fn(), reserve: vi.fn(), scribe: vi.fn() }));
-vi.mock("../src/telegram/api.js", () => ({ resolveTelegramFile: mocks.resolve }));
+vi.mock("../src/telegram/api.js", () => ({ IS_LOCAL_BOT_API: false, resolveTelegramFile: mocks.resolve }));
 vi.mock("../src/ai/assistant/mediaUnderstanding.js", () => ({ understandAssistantMedia: mocks.extract }));
 vi.mock("../src/ai/assistant/runtime.js", () => ({ loadAssistantSettings: mocks.settings, loadAssistantGeminiRuntime: mocks.runtime }));
 vi.mock("../src/ai/assistant/moneyBudget.js", () => ({ createAssistantMoneyGuard: () => mocks.money }));

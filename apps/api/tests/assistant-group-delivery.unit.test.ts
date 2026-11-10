@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { STAFF_TOOL_NAMES } from "../src/ai/assistant/tools/staffToolNames.js";
 import { runInNewContext } from "node:vm";
 import * as shared from "@royal-home/shared";
 import ts from "typescript";
@@ -30,6 +31,9 @@ function fixture() {
       { name: "send_to_remake", parameters: { properties: { reason: {}, comment: {}, removeFromSocial: {} } } },
       { name: "get_property_work_status" },
     ] },
+    // Сотрудники и права (10.11.2026): список имён — настоящий, код Google Authenticator — инертная заглушка.
+    "../ai/assistant/tools/staffToolNames.js": { STAFF_TOOL_NAMES },
+    "./assistantStepUp.js": { bundleNeedsStepUp: () => false, cancelStepUpForBundle: async () => {} },
     "./api.js": { sendHtmlMessage: html, sendMessage: plain, sendMessageWithButtons: plain, TelegramApiError },
     "./assistantReply.js": assistantReply,
     "./assistantGroupParticipation.js": participation,

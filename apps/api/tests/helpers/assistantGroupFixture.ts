@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
+import { STAFF_TOOL_NAMES } from "../../src/ai/assistant/tools/staffToolNames.js";
 import { runInNewContext } from "node:vm";
 import ts from "typescript";
 import { z } from "zod";
@@ -69,6 +70,9 @@ export function assistantGroupFixture() {
     "../lib/propertyRefLookup.js": { findPropertiesByRef: findProperty },
     "../ai/assistant/tools/getPropertyWorkStatus.js": { getPropertyWorkList: workQueue },
     "./assistantVoice.js": { sendAssistantVoiceReply: voice },
+    // Сотрудники и права (10.11.2026): список имён — настоящий, код Google Authenticator — инертная заглушка.
+    "../ai/assistant/tools/staffToolNames.js": { STAFF_TOOL_NAMES },
+    "./assistantStepUp.js": { bundleNeedsStepUp: () => false, cancelStepUpForBundle: async () => {} },
     "./api.js": { getBotUsername: async () => "fixture_bot", sendMessage: plain, sendHtmlMessage: html,
       sendMessageWithButtons: buttons, sendChatAction: indicator, setMessageReaction: reaction },
     "../db.js": { prisma: { settings: { findUnique: async () => ({ telegramDiscussionGroupId: discussionGroupId }) },

@@ -14,10 +14,16 @@ import { assistantLanguage } from "../ai/assistant/languageRouting.js";
 import type { AssistantMoneyWallet } from "../ai/assistant/moneyBudget.js";
 import { downloadAssistantMedia } from "./assistantMedia.js";
 import { answerCallbackQuery, editMessageText, sendMessage, sendMessageWithButtons, TelegramApiError, type TelegramCallbackQuery, type TelegramIncomingMessage } from "./api.js";
+import { prisma } from "../db.js";
 import { todayExpenseDay } from "../lib/expenseWorkspace.js";
+import {
+  intakeText, knownBatch, normalizeReceiptPhoto, rowsFromSpreadsheet, rowsFromTablePhoto, sourceHashOf, spreadsheetKind, stageExpenseBatch, type SpreadsheetKind,
+} from "./assistantExpenseBatchIntake.js";
+import { collectExpenseAlbumPhoto, hasExpenseAlbum } from "./assistantExpenseAlbum.js";
 
 const EXPENSE_CALLBACK = /^ef:(yes|no):(ru|tg):([0-9a-f-]{36})$/u;
-const expenseIntent = /^(?:\/?чек|расход|харҷ|расид)(?=$|[\s:.,!?])/iu;
+// Подпись-намерение на четырёх языках (10.11.2026): «расходы за октябрь», «харҷҳо», «xarajatlar», «expenses».
+const expenseIntent = /^(?:\/?чек|расход\p{L}*|харҷ\p{L}*|расид|запиши|внеси|сабт\s+кун|xarajat\p{L}*|harajat\p{L}*|expenses?|receipts?)(?=$|[\s:.,!?])/iu;
 const dailyExpenseReceipts = 15;
 const fileSchema = z.object({ file_id: z.string().min(1).max(1024), file_size: z.number().int().positive().optional() });
 const receiptMessage = z.object({
@@ -46,10 +52,12 @@ const copy = {
     previewRejected: "Карточка не отправилась. Пришлите тот же чек ещё раз.",
     recorded: "Записала расход и приложила чек.",
     duplicate: "Этот чек уже есть в обработке.",
+    alreadyRecorded: "Этот чек уже записан другой карточкой — второй раз не записываю.",
     cancelled: "Отменила. Расход не записан.",
     expired: "Время на подтверждение вышло. Пришлите чек снова.",
     forbidden: "Записывать чек можно только из привязанной лички директора.",
     uncertain: "Не удалось показать результат. Нажмите кнопку ещё раз.",
+    noRate: "Курс доллара в Настройках CRM не задан — долларовый чек не записываю. Задайте курс в Настройках.",
   },
   tg: {
     unavailable: "Расидро хонда натавонистам. Боз фиристед.",
@@ -67,10 +75,12 @@ const copy = {
     previewRejected: "Корт нарафт. Ҳамин расидро боз фиристед.",
     recorded: "Харҷро сабт кардам ва расидро зам кардам.",
     duplicate: "Ин расид аллакай дар санҷиш аст.",
+    alreadyRecorded: "Ин расид аллакай бо корти дигар сабт шудааст — дубора сабт намекунам.",
     cancelled: "Бекор шуд. Харҷ сабт нашуд.",
     expired: "Вақти тасдиқ гузашт. Расидро боз фиристед.",
     forbidden: "Расидро фақат директор аз чати шахсии пайвастшуда сабт карда метавонад.",
     uncertain: "Натиҷаро нишон дода натавонистам. Тугмаро боз занед.",
+    noRate: "Қурби доллар дар Танзимоти CRM нест — расиди долларӣ сабт намекунам. Қурбро дар Танзимот гузоред.",
   },
 } as const;
 type Language = keyof typeof copy;
@@ -142,27 +152,35 @@ function preview(evidence: ExpenseReceiptEvidence): string {
     evidence.purpose, evidence.vendor, phrases.category].filter(Boolean).join("\n");
 }
 
-async function normalizeReceiptPhoto(raw: Buffer): Promise<Buffer> {
-  const processor = sharp(raw, { limitInputPixels: 20_000_000, failOn: "warning" });
-  const metadata = await processor.metadata();
-  if (!["jpeg", "png", "webp"].includes(metadata.format ?? "") || (metadata.pages ?? 1) !== 1) {
-    throw new Error("expense_receipt_invalid_image");
-  }
-  const image = await processor.rotate().jpeg({ quality: 88 }).toBuffer();
-  if (image.length > MAX_EXPENSE_RECEIPT_BYTES) throw new Error("expense_receipt_image_limit");
-  return image;
-}
-
 export async function handleTelegramExpenseReceipt(
   msg: TelegramIncomingMessage, agentId: string, wallet: AssistantMoneyWallet,
 ): Promise<boolean> {
-  // Never OCR albums, copied sources, or attachments for a different private chat owner.
-  if (msg.sender_chat || msg.forward_origin || msg.forward_from_message_id || msg.is_automatic_forward || msg.media_group_id) return false;
+  if (msg.sender_chat || msg.is_automatic_forward) return false;
   const parsed = receiptMessage.safeParse(msg);
   if (!parsed.success || parsed.data.chat.id !== parsed.data.from.id) return false;
   const { chat, message_id: messageId, photo, document } = parsed.data;
   const caption = parsed.data.caption?.trim() ?? "";
   const explicit = expenseIntent.test(caption);
+  const sheet = document ? spreadsheetKind(document) : null;
+  const albumPhoto = Boolean(msg.media_group_id && photo && !document && !msg.forward_origin && !msg.forward_from_message_id);
+  if ((sheet && !msg.media_group_id) || albumPhoto) {
+    // Рубильник помощника — первым, до скачивания и любого платного разбора (ревью 10.11.2026, п. 6).
+    if (!(await loadAssistantSettings()).enabled) return false;
+    // Таблица Excel/CSV разбирается кодом и показывается карточкой — пересланная тоже. Без подписи —
+    // вопрос «Это расходы?» кнопками; подпись про другое — прежний путь файла (п. 7).
+    if (sheet) {
+      if (explicit) return handleExpenseSpreadsheet({ chatId: String(chat.id), messageId, document: document!, kind: sheet, caption, explicit, agentId });
+      if (caption) return false;
+      return askIfSpreadsheetIsExpenses({ chatId: String(chat.id), messageId, document: document!, kind: sheet, agentId });
+    }
+    // Альбом фото — одна пачка на весь альбом, только с подписью-намерением (assistantExpenseAlbum.ts).
+    if (explicit || (!caption && hasExpenseAlbum(String(chat.id), msg.media_group_id!))) {
+      return collectExpenseAlbumPhoto({ chatId: String(chat.id), agentId, messageId, groupId: msg.media_group_id!, fileId: photo!.at(-1)!.file_id, caption, wallet });
+    }
+    return false;
+  }
+  // Never OCR copied photo sources or albums outside the expense flow.
+  if (msg.forward_origin || msg.forward_from_message_id || msg.media_group_id) return false;
   if ((caption && !explicit) || (photo && document)) return false;
   const pdf = !!document && (document.mime_type === "application/pdf"
     || ((!document.mime_type || document.mime_type === "application/octet-stream") && /\.pdf$/iu.test(document.file_name ?? "")));
@@ -187,7 +205,14 @@ export async function handleTelegramExpenseReceipt(
       const raw = await downloadAssistantMedia(item.file_id, MAX_EXPENSE_RECEIPT_BYTES);
       if (!raw.length || raw.length > MAX_EXPENSE_RECEIPT_BYTES) throw new Error("media_size_rejected");
       const source = pdf ? raw : await normalizeReceiptPhoto(raw);
-      result = await findExpensePhotoDraft(actor, messageId, expenseReceiptHash(source));
+      const sourceHash = expenseReceiptHash(source);
+      result = await findExpensePhotoDraft(actor, messageId, sourceHash);
+      // Та же таблица второй раз: ответ без платного разбора.
+      const known = result ? null : await knownBatch(agentId, sourceHash);
+      if (known) {
+        await send(intakeText(language)[known]);
+        return true;
+      }
       if (!result) {
         const image = pdf ? await renderExpenseReceiptPdf(source) : source;
         if (image.length > MAX_EXPENSE_RECEIPT_BYTES) throw new Error("expense_receipt_image_limit");
@@ -198,6 +223,18 @@ export async function handleTelegramExpenseReceipt(
         }
         const { kind, language: imageLanguage, ...fields } = await extractExpenseReceipt(image, wallet);
         if (!explicit && imageLanguage === "tg") language = "tg";
+        if (kind === "expense_list") {
+          // Таблица, список или несколько чеков на одном фото — одна карточка «Проверьте N расходов».
+          const table = await rowsFromTablePhoto(image, sourceHash, wallet);
+          if (!explicit && table.language === "tg") language = "tg";
+          if (!table.rows.length) {
+            await send(intakeText(language).unreadablePhoto);
+            return true;
+          }
+          await stageExpenseBatch({ chatId: actor.chatId, agentId, rows: table.rows, lang: language, kind: pdf ? "pdf" : "photo", replyTo: messageId,
+            notes: { skipped: table.skipped, ...(table.readUpTo ? { readUpTo: table.readUpTo } : {}) } });
+          return true;
+        }
         if (kind !== "paid_receipt" || (pdf && !fields.amountMinor)) {
           if (explicit || kind === "unclear_receipt") {
             await send(pdf ? copy[language].noPaidPdf : copy[language].noPaidReceipt);
@@ -290,5 +327,109 @@ export async function handleTelegramExpenseReceiptCallback(query: TelegramCallba
     console.warn("[telegram:assistant] receipt confirmation outcome unavailable");
     await ack(phrases.uncertain);
   }
+  return true;
+}
+
+const MAX_SPREADSHEET_BYTES = 5_000_000;
+
+/**
+ * Excel или CSV в личке (10.11.2026): таблица разбирается кодом, без ИИ, в одну карточку. Файл без
+ * строк «название + сумма» без подписи-намерения — не расходы: отдаём обычному пути.
+ */
+async function handleExpenseSpreadsheet(params: {
+  chatId: string; messageId: number; document: { file_id: string; file_size?: number }; kind: SpreadsheetKind;
+  caption: string; explicit: boolean; agentId: string;
+}): Promise<boolean> {
+  const { chatId, messageId, document, kind, caption, explicit, agentId } = params;
+  const actor = await getExpenseDirector(chatId, agentId);
+  if (!actor) return false;
+  const captionLanguage = assistantLanguage([{ role: "user", content: caption }]);
+  const language: Language = captionLanguage === "tg" || captionLanguage === "mixed" || /^(?:харҷ|расид)/iu.test(caption) ? "tg" : "ru";
+  const send = (text: string) => sendMessage(chatId, text, messageId);
+  if (kind === "xls") {
+    if (explicit || !caption) await send(intakeText(language).xls);
+    return explicit || !caption;
+  }
+  if (document.file_size && document.file_size > MAX_SPREADSHEET_BYTES) {
+    await send(intakeText(language).broken);
+    return true;
+  }
+  try {
+    const bytes = await downloadAssistantMedia(document.file_id, MAX_SPREADSHEET_BYTES);
+    const sourceHash = sourceHashOf(bytes);
+    const known = await knownBatch(agentId, sourceHash);
+    if (known) { await send(intakeText(language)[known]); return true; }
+    const table = rowsFromSpreadsheet(kind, bytes);
+    if (!table) { await send(intakeText(language).broken); return true; }
+    if (!table.rows.length) {
+      if (explicit) await send(intakeText(language).empty);
+      return explicit;
+    }
+    await stageExpenseBatch({ chatId, agentId, rows: table.rows, lang: language, kind, replyTo: messageId, notes: { skipped: table.skipped } });
+    return true;
+  } catch (error) {
+    console.warn("[telegram:assistant] spreadsheet expenses unavailable", { kind, cause: error instanceof Error ? error.message : "unknown" });
+    await send(intakeText(language).failed).catch(() => {});
+    return true;
+  }
+}
+
+const FILE_QUESTION_TTL_MS = 10 * 60_000;
+const FILE_CALLBACK = /^ay:(y|n):(\d{1,10})$/u;
+const FILE_QUESTION = {
+  ru: { ask: "Это расходы? Разберу таблицу и покажу карточку — ничего не запишу без вашего «Записать».", yes: "✅ Да, расходы", no: "Нет", cancelled: "Хорошо, файл не трогаю.", stale: "Вопрос устарел — пришлите файл ещё раз с подписью «расходы»." },
+} as const;
+
+/** Файл без подписи: спросить кнопками, а файл запомнить в состоянии диалога (история не теряется). */
+async function askIfSpreadsheetIsExpenses(params: {
+  chatId: string; messageId: number; document: { file_id: string; file_size?: number }; kind: SpreadsheetKind; agentId: string;
+}): Promise<boolean> {
+  if (!(await getExpenseDirector(params.chatId, params.agentId))) return false;
+  const state = await prisma.telegramDialogState.findUnique({ where: { chatId: params.chatId } });
+  if (state && state.kind !== "assistant" && state.expiresAt > new Date()) return false;
+  const live = state && state.kind === "assistant" && state.agentId === params.agentId && state.expiresAt > new Date();
+  const payload = live ? state.payload as Record<string, unknown> : { messages: [] };
+  const data = {
+    agentId: params.agentId, kind: "assistant",
+    payload: { ...payload, expenseFile: { messageId: params.messageId, fileId: params.document.file_id, fileSize: params.document.file_size ?? null, kind: params.kind, until: Date.now() + FILE_QUESTION_TTL_MS } } as object,
+    expiresAt: new Date(Math.max(Date.now() + FILE_QUESTION_TTL_MS, live ? state.expiresAt.getTime() : 0)),
+  };
+  await prisma.telegramDialogState.upsert({ where: { chatId: params.chatId }, create: { chatId: params.chatId, ...data }, update: data });
+  const q = FILE_QUESTION.ru;
+  await sendMessageWithButtons(params.chatId, q.ask, [[
+    { text: q.yes, callback_data: `ay:y:${params.messageId}` },
+    { text: q.no, callback_data: `ay:n:${params.messageId}` },
+  ]], params.messageId);
+  return true;
+}
+
+/** Кнопки «Это расходы?»: «Да» — разбор файла тем же путём, что с подписью; «Нет» — ничего. */
+export async function handleExpenseFileQuestionCallback(query: TelegramCallbackQuery, agentId: string | null): Promise<boolean> {
+  if (!query.data?.startsWith("ay:")) return false;
+  const match = FILE_CALLBACK.exec(query.data);
+  const chat = query.message?.chat;
+  const ack = (text?: string) => answerCallbackQuery(query.id, text).catch(() => {});
+  if (!match || !chat || chat.type !== "private" || !agentId || chat.id !== query.from?.id) { await ack(); return true; }
+  const chatId = String(chat.id);
+  const state = await prisma.telegramDialogState.findUnique({ where: { chatId } });
+  const payload = state?.kind === "assistant" && state.agentId === agentId ? state.payload as Record<string, unknown> : null;
+  const file = payload?.expenseFile as { messageId?: unknown; fileId?: unknown; fileSize?: unknown; kind?: unknown; until?: unknown } | undefined;
+  const q = FILE_QUESTION.ru;
+  if (!payload || !file || file.messageId !== Number(match[2]) || typeof file.fileId !== "string" || Number(file.until) < Date.now()
+    || (file.kind !== "csv" && file.kind !== "xlsx" && file.kind !== "xls")) {
+    await ack(q.stale);
+    return true;
+  }
+  const { expenseFile: _f, ...rest } = payload;
+  void _f;
+  await prisma.telegramDialogState.update({ where: { chatId }, data: { payload: rest as object } });
+  if (query.message?.message_id) await editMessageText(chatId, query.message.message_id, match[1] === "y" ? q.yes : q.cancelled, null).catch(() => {});
+  await ack();
+  if (match[1] !== "y") return true;
+  if (!(await loadAssistantSettings()).enabled) return true;
+  await handleExpenseSpreadsheet({
+    chatId, messageId: Number(file.messageId), agentId, caption: "", explicit: true, kind: file.kind,
+    document: { file_id: file.fileId, ...(typeof file.fileSize === "number" ? { file_size: file.fileSize } : {}) },
+  });
   return true;
 }
