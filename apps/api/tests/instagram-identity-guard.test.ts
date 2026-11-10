@@ -80,4 +80,13 @@ describe("сторож ников Instagram", () => {
     expect(result.held).toBe(0);
     expect(result.alerted).toBe(false);
   });
+
+  it("задержанные остались от прошлой поломки, а ники уже на месте — тревоги нет (ложная 10.11)", async () => {
+    await account("royal.home.tj");
+    const missing = await prisma.messengerAccount.count({ where: { channel: "INSTAGRAM", OR: [{ username: null }, { username: "" }] } });
+    expect(missing).toBe(0);
+    const result = await reportHeldOwnIdentityTickets(new Date(), async () => 5);
+    expect(result).toEqual({ held: 5, alerted: false });
+    expect(await prisma.pendingDirectorAlert.count({ where: { tag: OWN_IDENTITY_ALERT_TAG } })).toBe(0);
+  });
 });
