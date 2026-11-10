@@ -125,3 +125,14 @@
   лента показывает плашку, а не ошибку.
 - Тесты: `apps/web/src/pages/__tests__/notificationOfferAnswer.test.tsx` (3),
   `property-client-offers.test.ts` (+1: лента и 409); `test:web` 2180, `build:web`.
+
+## После свода с main (#135, #139, #140) — ship #136
+
+- `PropertyClientOffer.clientId` внесён в реестр слияния клиентов (`MERGE_LINKS_LEFT_BEHIND`):
+  открытые предложения по дублю закрываются (CLOSED), не переносятся — у основной карточки
+  может быть своё по тому же объекту. При передаче клиента закрываются, как и раньше.
+- `PropertyClientOffer` в `lib/agentHistory.ts` — «история» (кто кому предлагал и ответ):
+  сотрудника с такими строками не стирают каскадом.
+- `assistant-group-callback-gate.unit.test.ts` собирает `assistantBot.ts` своей картой модулей;
+  новый `./assistantPropertyOffers.js` там отсутствовал → обработчик кнопок падал на
+  неизвестной функции. Добавлена инертная заглушка, как у мастера объекта.
