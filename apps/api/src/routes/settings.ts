@@ -1,6 +1,6 @@
 import { canReadInvestigations, investigationViewerRole } from "../auth/investigations.js";
 import { saveWithInvestigationControlAudit } from "../lib/investigationSettingsAudit.js";
-import { canViewInvestigations } from "@royal-home/shared";
+import { ASSISTANT_DEADLINE_SEC, ASSISTANT_LOG_RETENTION_DAYS, ASSISTANT_MAX_ROUNDS, canViewInvestigations } from "@royal-home/shared";
 import { investigationCallChannelIds, mayReadLiveVoiceSession } from "../lib/investigationCallChannels.js";
 import { customerAgentSettingsRouter } from "./customerAgentSettings.js";
 import { settingsInstagramAppBindingRouter } from "./settingsInstagramAppBinding.js";
@@ -1243,6 +1243,16 @@ const settingsUpdateSchema = z.object({
   instagramCollaborators: z.string().trim().max(200).nullable().optional(),
   /** ИИ-ассистент внутри CRM. Выключен по умолчанию. */
   aiAssistantEnabled: z.boolean().optional(),
+  /** Сколько дней хранить журнал помощницы (пачка 2, 07.11.2026); пределы — общие с экраном. */
+  aiAssistantLogRetentionDays: z
+    .number()
+    .int()
+    .min(ASSISTANT_LOG_RETENTION_DAYS.min)
+    .max(ASSISTANT_LOG_RETENTION_DAYS.max)
+    .optional(),
+  /** Шагов помощницы на один ответ и срок ответа в секундах (решение владельца 07.11.2026). */
+  aiAssistantMaxRounds: z.number().int().min(ASSISTANT_MAX_ROUNDS.min).max(ASSISTANT_MAX_ROUNDS.max).optional(),
+  aiAssistantDeadlineSec: z.number().int().min(ASSISTANT_DEADLINE_SEC.min).max(ASSISTANT_DEADLINE_SEC.max).optional(),
   /** Улучшение фото объекта ИИ (пункт 7 очереди, 23.08.2026). Выключено по
    *  умолчанию — живой тест показал, что модель может исказить помещение
    *  вопреки промту; см. schema.prisma у PropertyPhoto для полного контекста. */

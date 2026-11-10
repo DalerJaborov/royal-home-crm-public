@@ -253,7 +253,13 @@ it("long polling восстанавливает незавершённый ап�
     if (latest === first) await promise;
     return { ok: true, reply: "Готово." };
   });
-  pollGetUpdates.mockResolvedValueOnce(updates).mockImplementation(async () => {
+  // Как настоящий Telegram: пока offset не продвинут, апдейты приходят снова. С 08.11.2026 ход
+  // помощницы идёт вне пачки — поллер опрашивает дальше, но offset за незавершённый ответ не уходит.
+  pollGetUpdates.mockImplementation(async (offset: number) => {
+    if (offset === 0) {
+      await new Promise((r) => setTimeout(r, 20));
+      return updates;
+    }
     stopTelegramBot();
     return [];
   });
@@ -266,7 +272,10 @@ it("long polling восстанавливает незавершённый ап�
         where: { channel: "TELEGRAM", messageId: ids[2], completedAt: { not: null } },
       })).toBe(1);
     }, { timeout: 3_000 });
-    expect(pollGetUpdates.mock.calls).toEqual([[0]]);
+    // Пока первый ход не закончен, offset не продвинут (Telegram пришлёт апдейт снова при перезапуске),
+    // а повторные опросы не обработали его второй раз.
+    expect(pollGetUpdates.mock.calls.every(([offset]) => offset === 0)).toBe(true);
+    expect(histories.has(second)).toBe(false);
     const currentClaim = await prisma.processedMessage.findUniqueOrThrow({
       where: { channel_messageId: { channel: "TELEGRAM", messageId: ids[0] } },
     });
@@ -275,8 +284,9 @@ it("long polling восстанавливает незавершённый ап�
 
     resolve();
     await vi.waitFor(() => {
-      expect(pollGetUpdates.mock.calls).toEqual([[0], [updates[3].update_id + 1]]);
-    }, { timeout: 3_000 });
+      expect(pollGetUpdates.mock.calls.at(-1)).toEqual([updates[3].update_id + 1]);
+    }, { timeout: 5_000 });
+    expect(pollGetUpdates.mock.calls.filter(([offset]) => offset !== 0)).toEqual([[updates[3].update_id + 1]]);
     expect(histories.get(second)).toContain(first);
     expect(histories.has(alreadyHandled)).toBe(false);
     expect(await prisma.processedMessage.count({
@@ -288,6 +298,46 @@ it("long polling восстанавливает незавершённый ап�
     await vi.waitFor(() => expect(isTelegramPollerBusy()).toBe(false), { timeout: 3_000 });
     await prisma.processedMessage.deleteMany({ where: { channel: "TELEGRAM", messageId: { in: ids } } });
     pollGetUpdates.mockReset();
+    if (secret === undefined) delete process.env.TELEGRAM_WEBHOOK_SECRET;
+    else process.env.TELEGRAM_WEBHOOK_SECRET = secret;
+  }
+});
+it("зависший ответ помощницы не держит offset вечно: по потолку апдейт завершён и есть запись в журнале", async () => {
+  const { isTelegramPollerBusy, startTelegramBot, stopTelegramBot, setDeferredReplyCeilingForTests } = await import("../src/telegram/poller.js");
+  const hung = "Зависший вопрос помощнице.";
+  const update = privateMsg("author", { message_id: 14101, text: hung });
+  const id = String(update.update_id);
+  let release: (value: { ok: true; reply: string }) => void = () => {};
+  runner.mockImplementation(() => new Promise((resolve) => { release = resolve; }));
+  pollGetUpdates.mockImplementation(async (offset: number) => {
+    if (offset <= update.update_id) {
+      await new Promise((r) => setTimeout(r, 20));
+      return [update];
+    }
+    stopTelegramBot();
+    return [];
+  });
+  const secret = process.env.TELEGRAM_WEBHOOK_SECRET;
+  setDeferredReplyCeilingForTests(300);
+  try {
+    delete process.env.TELEGRAM_WEBHOOK_SECRET;
+    startTelegramBot();
+    await vi.waitFor(() => {
+      expect(pollGetUpdates.mock.calls.at(-1)).toEqual([update.update_id + 1]);
+    }, { timeout: 5_000 });
+    expect(await prisma.processedMessage.count({ where: { channel: "TELEGRAM", messageId: id, completedAt: { not: null } } })).toBe(1);
+    // Обработан один раз, хотя Telegram прислал апдейт несколько раз.
+    expect(runner).toHaveBeenCalledTimes(1);
+    expect(await prisma.errorLog.count({ where: { message: { contains: `Ответ помощницы на апдейт ${id} не готов` } } })).toBeGreaterThan(0);
+  } finally {
+    setDeferredReplyCeilingForTests(null);
+    // Отпускаем «зависший» ход: иначе очередь этого чата ждала бы его до потолка в соседних тестах.
+    release({ ok: true, reply: "Готово." });
+    stopTelegramBot();
+    await vi.waitFor(() => expect(isTelegramPollerBusy()).toBe(false), { timeout: 3_000 });
+    await prisma.processedMessage.deleteMany({ where: { channel: "TELEGRAM", messageId: id } });
+    pollGetUpdates.mockReset();
+    runner.mockReset();
     if (secret === undefined) delete process.env.TELEGRAM_WEBHOOK_SECRET;
     else process.env.TELEGRAM_WEBHOOK_SECRET = secret;
   }

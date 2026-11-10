@@ -251,8 +251,13 @@ describe("find_property", () => {
       expect(res.items[0].code).toBe(code);
       expect(res.items[0].href).toBe(`/properties/${sold.shortId}`);
     }
+    // Удалённый объект карточкой не находится; с 07.11.2026 (пачка 2 Шабнам) по точному номеру
+    // приходит справка «в Корзине» — без цены, адреса и клиентов.
     const none = await call("find_property", { ref: `ОБ-${String(gone.shortId).padStart(6, "0")}` }, actorAgent());
-    expect(none.items).toEqual([]);
+    expect(none.items).toHaveLength(1);
+    expect(none.items[0]).toMatchObject({ inTrash: true, code: `ОБ-${String(gone.shortId).padStart(6, "0")}` });
+    expect(none.items[0].address).toBeUndefined();
+    expect(none.items[0].price).toBeUndefined();
   });
 
   it("ссылка Instagram любого вида находит объект по коду поста; фото-пост — тоже", async () => {
@@ -331,11 +336,14 @@ describe("get_property_card", () => {
     expect(own.owner.contactHidden).toBe(false);
   });
 
-  it("похожий по адресу объект вместо точного id не подставляется; Корзина — не найден", async () => {
+  it("похожий по адресу объект вместо точного id не подставляется; Корзина — справка, а не карточка", async () => {
     const p = await makeProperty({ address: `ул. Точная ${WORD}` });
     expect((await call("get_property_card", { propertyId: `Точная ${WORD}` }, actorAgent())).error).toMatch(/не найден/);
+    // С 07.11.2026 (пачка 2 Шабнам): удалённый — справка «в Корзине» без адреса, цены и клиентов.
     const gone = await makeProperty({ deletedAt: new Date() });
-    expect((await call("get_property_card", { propertyId: gone.id }, actorAgent())).error).toMatch(/не найден/);
+    const trashed = await call("get_property_card", { propertyId: gone.id }, actorAgent());
+    expect(trashed).toMatchObject({ inTrash: true });
+    expect(trashed.address).toBeUndefined();
     expect(p.id).toBeTruthy();
   });
 });

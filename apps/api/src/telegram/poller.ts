@@ -1,4 +1,5 @@
 import { getUpdates, isTelegramEnabled, telegramUpdateChatId, type TelegramUpdate } from "./api.js";
+import { ASSISTANT_DEADLINE_SEC } from "@royal-home/shared";
 import { logSystemError } from "../lib/systemError.js";
 import { isAlbumPart, startTelegramUpdate, telegramRepliesInFlight } from "./bot.js";
 import {
@@ -70,11 +71,31 @@ export function stopTelegramBot() {
  * (ровно авария 24.09.2026 — обрыв на 27 МБ из 85).
  */
 let processingBatch = false;
+/**
+ * Апдейты с ходом помощницы, вынесенным из очереди (08.11.2026): приняты, но ещё не отвечены.
+ * Offset за них не продвигается (Telegram пришлёт их снова после перезапуска), а повторный опрос
+ * их пропускает — двойной обработки нет.
+ */
+const assistantInFlight = new Set<number>();
 export function isTelegramPollerBusy(): boolean {
   // Ответы, ждущие окно склейки (01.10.2026, находка №132), идут уже после
   // апдейта, вне этого цикла, — но это тоже работа, которую нельзя оборвать.
-  return processingBatch || telegramRepliesInFlight() > 0;
+  return processingBatch || telegramRepliesInFlight() > 0 || assistantInFlight.size > 0;
 }
+
+/**
+ * Потолок ожидания ответа помощницы на один апдейт: самый длинный срок хода из Настроек
+ * (ASSISTANT_DEADLINE_SEC.max) плюс минута на доставку. Дольше — апдейт отмечается завершённым.
+ */
+const DEFAULT_DEFERRED_REPLY_CEILING_MS = ASSISTANT_DEADLINE_SEC.max * 1000 + 60_000;
+let deferredReplyCeilingMs = DEFAULT_DEFERRED_REPLY_CEILING_MS;
+/** Для тестов: короткий потолок (null — вернуть обычный). */
+export function setDeferredReplyCeilingForTests(ms: number | null): void {
+  deferredReplyCeilingMs = ms ?? DEFAULT_DEFERRED_REPLY_CEILING_MS;
+}
+
+/** Пауза, если в ответе Telegram нет ничего нового (только ждущие ответа помощницы). */
+const NOTHING_NEW_PAUSE_MS = 1_000;
 
 /**
  * ТРЕВОГА — ПО ДЛИТЕЛЬНОСТИ МОЛЧАНИЯ, А НЕ ПО ЧИСЛУ НЕУДАЧ (12.08.2026).
@@ -132,6 +153,12 @@ async function pollLoop() {
       processingBatch = true;
       try {
         await processBatch(updates, settledIds);
+        // В пачке только апдейты, чей ответ помощницы ещё готовится: Telegram вернёт их сразу же —
+        // без паузы цикл крутился бы вхолостую весь долгий ход.
+        if (updates.length > 0 && updates.every((u) => settledIds.has(u.update_id) || assistantInFlight.has(u.update_id))
+            && updates.some((u) => assistantInFlight.has(u.update_id))) {
+          await new Promise((r) => setTimeout(r, NOTHING_NEW_PAUSE_MS));
+        }
       } finally {
         // Telegram подтверждает всё ниже offset. Продвигаем его только до первого
         // незавершённого апдейта в порядке полученной пачки, даже если ID идут с пропусками.
@@ -171,9 +198,18 @@ const POLL_CHAT_CONCURRENCY = 4;
 async function processBatch(updates: TelegramUpdate[], settledIds: Set<number>): Promise<void> {
   const lanes = new Map<number, TelegramUpdate[]>();
   const processOnce = async (update: TelegramUpdate) => {
-    if (settledIds.has(update.update_id)) return;
-    await acceptUpdate(update);
-    settledIds.add(update.update_id);
+    if (settledIds.has(update.update_id) || assistantInFlight.has(update.update_id)) return;
+    const deferred = await acceptUpdate(update);
+    if (!deferred) {
+      settledIds.add(update.update_id);
+      return;
+    }
+    // Ход помощницы идёт вне пачки: соседние чаты и следующий опрос его не ждут.
+    assistantInFlight.add(update.update_id);
+    void deferred.done.finally(() => {
+      settledIds.add(update.update_id);
+      assistantInFlight.delete(update.update_id);
+    });
   };
   const drainLanes = async () => {
     if (!lanes.size) return;
@@ -204,26 +240,55 @@ async function processBatch(updates: TelegramUpdate[], settledIds: Set<number>):
   await drainLanes();
 }
 
-async function acceptUpdate(update: TelegramUpdate): Promise<void> {
+/** Принять апдейт. Возвращает ответ помощницы, если он вынесен из очереди: апдейт завершится с ним. */
+async function acceptUpdate(update: TelegramUpdate): Promise<{ done: Promise<void> } | null> {
   const id = String(update.update_id);
   const albumPart = isAlbumPart(update);
   // Альбом дедупится при склейке. Остальные апдейты ставят отметку до обработки.
   if (!albumPart && await isDuplicateDelivery("TELEGRAM", id, { requireClaim: true })) {
     console.log(`[telegram] апдейт ${id} уже обработан — пропускаем`);
-    return;
+    return null;
   }
 
+  let accepted: Awaited<ReturnType<typeof startTelegramUpdate>> | undefined;
   try {
     // Внутри очереди чата ждём весь приём с повторами. Ответ клиента после окна
     // склейки остаётся отдельной задачей, чтобы следующее сообщение попало в буфер.
-    await withTelegramUpdateRetry(() => startTelegramUpdate(update));
+    accepted = await withTelegramUpdateRetry(() => startTelegramUpdate(update));
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
     console.error("[telegram] Ошибка обработки апдейта:", reason);
     void logSystemError("telegram", `Апдейт не обработан: ${reason}`);
     if (!albumPart) await releaseProcessedMessage("TELEGRAM", id);
-    return;
+    return null;
   }
 
+  if (accepted?.assistantDeferred) {
+    // Отметка «готово» — когда ответ помощницы ушёл (он сам ловит свои ошибки и не отклоняется).
+    // Обёртка, а не сам промис: async-функция иначе дождалась бы ответа и держала пачку.
+    // Потолок ожидания: зависший ответ не держит offset вечно (при полной пачке в 100 апдейтов
+    // новые сообщения иначе не пришли бы вовсе). По потолку апдейт отмечается завершённым.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const ceiling = new Promise<"timeout">((resolve) => {
+      timer = setTimeout(() => resolve("timeout"), deferredReplyCeilingMs);
+    });
+    const done = Promise.race([accepted.reply.then(() => "replied" as const), ceiling]).then(async (how) => {
+      if (timer) clearTimeout(timer);
+      if (how === "timeout") {
+        void logSystemError(
+          "telegram",
+          `Ответ помощницы на апдейт ${id} не готов за ${Math.round(deferredReplyCeilingMs / 1000)} с — апдейт отмечен завершённым, чтобы не держать остальные сообщения`,
+        );
+      }
+      if (albumPart) return;
+      try {
+        await markProcessedMessageComplete("TELEGRAM", id);
+      } catch (err) {
+        void logSystemError("telegram", `Не удалось отметить апдейт ${id} завершённым: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    });
+    return { done };
+  }
   if (!albumPart) await markProcessedMessageComplete("TELEGRAM", id);
+  return null;
 }

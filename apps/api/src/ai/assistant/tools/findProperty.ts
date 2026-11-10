@@ -1,7 +1,9 @@
 import { z } from "zod";
-import { findPropertiesByRef } from "../../../lib/propertyRefLookup.js";
+import { findPropertiesByRef, findTrashedPropertyByRef } from "../../../lib/propertyRefLookup.js";
 import { loadMoneyContext } from "../../../lib/money.js";
-import { presentPropertyBrief } from "./propertyPresenter.js";
+import { canSeeTrashedProperties } from "../../../lib/trashAccess.js";
+import { trashActorOf } from "../actor.js";
+import { presentPropertyBrief, presentTrashedProperty } from "./propertyPresenter.js";
 import type { AssistantReadToolPlugin } from "./types.js";
 
 /**
@@ -10,8 +12,10 @@ import type { AssistantReadToolPlugin } from "./types.js";
  * «ОБ-000088», «88», ссылка на пост Instagram, адрес — до 5 карточек. В отличие от
  * `search_properties` ищет среди ВСЕХ неудалённых, и проданный/снятый объект находится
  * со своим статусом. Разбор «ссылки» — lib/propertyRefLookup.ts. Права как у списка
- * объектов в REST: каталог общий для всех ролей; Корзина скрыта; своя висящая заявка
- * на удаление прячет объект у автора заявки (тому, у кого нет properties.delete).
+ * объектов в REST: каталог общий для всех ролей; своя висящая заявка на удаление прячет
+ * объект у автора заявки (тому, у кого нет properties.delete). Корзина по словам адреса не
+ * ищется; по ТОЧНОМУ номеру удалённого объекта приходит справка «в Корзине, удалён тогда-то,
+ * кем» (пачка 2, 07.11.2026, правило lib/trashAccess.ts) — без продавца и контактов.
  */
 const argsSchema = z.object({ ref: z.string().trim().min(1).max(300) });
 
@@ -23,7 +27,8 @@ export const findPropertyTool: AssistantReadToolPlugin = {
     "Возвращает до 5 карточек со статусом (в том числе проданные и снятые) и ссылкой href. Зови, когда человек " +
     "назвал КОНКРЕТНЫЙ объект. НЕ зови для подбора под требования клиента (бюджет, комнаты, район) — для него " +
     "search_properties. " +
-    "Ссылки Somon в карточках не хранятся — искать по ним нельзя.",
+    "Ссылки Somon в карточках не хранятся — искать по ним нельзя. " +
+    "Удалённый объект по номеру приходит строкой inTrash с note — перескажи её, не говори «не найден».",
   parameters: {
     type: "object",
     properties: {
@@ -44,11 +49,21 @@ export const findPropertyTool: AssistantReadToolPlugin = {
       return { total: 0, items: [], note: "Ссылки Somon в карточке объекта не хранятся — найти объект по ним нельзя" };
     }
     const money = await loadMoneyContext();
+    const items: (ReturnType<typeof presentPropertyBrief> | ReturnType<typeof presentTrashedProperty>)[] =
+      found.properties.map((p) => presentPropertyBrief(p, money));
+    // Номер удалённого объекта (живой с этим номером не нашёлся) — справка «в Корзине» первой
+    // строкой, а не «не найден» (пачка 2). Только по точному номеру/id, не по словам адреса.
+    const exactLive = (found.kind === "id" || found.kind === "shortId") && found.properties.length > 0;
+    if (!exactLive) {
+      const trash = trashActorOf(actor);
+      const trashed = canSeeTrashedProperties(trash) ? await findTrashedPropertyByRef(parsed.data.ref) : null;
+      if (trashed) items.unshift(presentTrashedProperty(trashed, trash));
+    }
     return {
-      total: found.properties.length,
+      total: items.length,
       matchedBy: found.kind,
-      items: found.properties.map((p) => presentPropertyBrief(p, money)),
-      ...(found.properties.length === 0 ? { note: "Объект не найден" } : {}),
+      items,
+      ...(items.length === 0 ? { note: "Объект не найден" } : {}),
     };
   },
 };

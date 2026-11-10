@@ -3,6 +3,7 @@ import * as publicListings from "../src/telegram/assistantGroupPublicListing.js"
 import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
 import ts from "typescript";
+import * as shared from "@royal-home/shared";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("../src/db.js", () => ({ prisma: { $disconnect: async () => {} } }));
@@ -36,7 +37,8 @@ function fixture(type: "group" | "supergroup" | "private" = "supergroup") {
   const dependencies: Record<string, unknown> = {
     "../db.js": { prisma: db },
     "./api.js": { getBotUsername: async () => "fixture_bot", sendMessage: noop, editMessageText: noop, answerCallbackQuery: answer },
-    "@royal-home/shared": { isReadOnlyRole: (role: string) => role === "SHAREHOLDER" },
+    // Константы модуля (потолок очереди помощницы) читаются при загрузке — общий пакет целиком.
+    "@royal-home/shared": { ...shared, isReadOnlyRole: (role: string) => role === "SHAREHOLDER" },
     "../auth/middleware.js": { loadAgentAccess: async (id: string) => ({ isActive: active, role: id === "test-director" ? "DIRECTOR" : "AGENT", permissions: new Set() }) },
     "../lib/telegramAgentLink.js": { findAgentByTelegramUserId: async (id: string) => ({ id: id === "10" ? "test-director" : id === "1" ? "test-author" : "test-other", fullName: "Fixture" }) },
     "../ai/assistant.js": { isAiAssistantEnabled: async () => enabled },

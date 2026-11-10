@@ -750,6 +750,15 @@ describe("object context from a reply to Shabnam", () => {
     expect(f.plain).toHaveBeenCalledWith("-100", "Навори ОБ-000132 дар навбат аст. Аз нав месозанд.", 10);
     expect(f.run).not.toHaveBeenCalled();
   });
+  it("deleted object number: montage command answers «в Корзине», not «наёфтам» (batch 2, 07.11)", async () => {
+    const f = fixture();
+    f.findProperty.mockResolvedValue({ kind: "shortId", properties: [] });
+    f.trashNote.mockResolvedValue("ОБ-000132 дар Корзина аст: 26.09.2026 нест карда шуд.");
+    await f.send("Фиристон ба монтажер", ownQuote("Нархи ОБ-000132 иваз шуд."));
+    expect(f.trashNote).toHaveBeenCalledWith("ОБ-000132", expect.objectContaining({ surface: "telegram-group" }), "tg");
+    expect(f.plain).toHaveBeenCalledWith("-100", "ОБ-000132 дар Корзина аст: 26.09.2026 нест карда шуд.", 10);
+    expect(f.run).not.toHaveBeenCalled();
+  });
   it("asks one human question and preserves the same object when the reason comes back", async () => {
     const f = fixture();
     const published = { ...prop, videoHandoffStatus: "RECEIVED", publishedChannels: ["TELEGRAM"] };
@@ -963,6 +972,14 @@ describe("direct property Instagram permalink", () => {
     expect(f.buttons).not.toHaveBeenCalled();
     expect(f.plain).toHaveBeenCalledExactlyOnceWith("-100", "В карточке ОБ-000123 нет ссылки на пост в Instagram.", 10);
   });
+  it("deleted object number: «в Корзине» instead of «Не нашла» (batch 2, 07.11)", async () => {
+    const f = fixture();
+    f.findProperty.mockResolvedValue({ kind: "shortId", properties: [] });
+    f.trashNote.mockResolvedValue("ОБ-000123 в Корзине: удалён 26.09.2026.");
+    await f.send("Где ссылка на Instagram для ОБ-123?");
+    expect(f.trashNote).toHaveBeenCalledWith(expect.stringMatching(/123/), expect.objectContaining({ surface: "telegram-group" }), "ru");
+    expect(f.plain).toHaveBeenCalledExactlyOnceWith("-100", "ОБ-000123 в Корзине: удалён 26.09.2026.", 10);
+  });
 });
 
 describe("standalone group voice", () => {
@@ -1116,5 +1133,92 @@ describe("Telegram membership welcomes", () => {
     f.advance(participation.GROUP_WELCOME_INTERVAL_MS+1);
     await f.send("", peers);
     expect(f.voice).toHaveBeenCalledTimes(4);
+  });
+});
+
+describe("long turn keeps the typing indicator alive (owner 07.11.2026: up to 120 s)", () => {
+  it("re-sends the chat action every few seconds while the model works, and stops after", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    try {
+      const f = fixture();
+      let finish: (value: { ok: true; reply: string }) => void = () => {};
+      f.run.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+      const pending = f.send("Почему мой объект уже неделю у монтажёра?");
+      await vi.waitFor(() => expect(f.run).toHaveBeenCalled());
+      const before = f.indicator.mock.calls.length;
+      vi.advanceTimersByTime(12_500);
+      expect(f.indicator.mock.calls.length - before).toBeGreaterThanOrEqual(3);
+      finish({ ok: true, reply: "Готово." });
+      await pending;
+      const after = f.indicator.mock.calls.length;
+      vi.advanceTimersByTime(20_000);
+      expect(f.indicator.mock.calls.length).toBe(after);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("long assistant turn leaves the group queue (review 08.11.2026)", () => {
+  it("handler returns before the model finishes; another member is answered meanwhile; one person keeps order", async () => {
+    const f = fixture();
+    let finish: (value: { ok: true; reply: string }) => void = () => {};
+    f.run.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    const first = f.message("@fixture_bot покажи мои показы на завтра", { message_id: 21, from: { id: 1 } });
+    // Вернулся сразу, хотя модель ещё думает: очередь группы свободна.
+    expect(await f.adapter.handleAssistantGroupMessage(first)).toBe(true);
+    await vi.waitFor(() => expect(f.run).toHaveBeenCalledTimes(1));
+
+    // Тот же человек — встаёт за своим первым ходом (порядок ответов одному человеку).
+    const sameSecond = f.message("@fixture_bot и задачи на завтра", { message_id: 22, from: { id: 1 } });
+    expect(await f.adapter.handleAssistantGroupMessage(sameSecond)).toBe(true);
+    // Другой участник группы не ждёт долгий ход первого.
+    await f.send("@fixture_bot какие у меня клиенты", { message_id: 23, from: { id: 2 } });
+    expect(f.run).toHaveBeenCalledTimes(2);
+    expect((f.run.mock.calls[1][0] as { content: string }[])[0].content).toContain("клиенты");
+
+    finish({ ok: true, reply: "Готово." });
+    await f.adapter.takeDeferredAssistantReply(first);
+    await f.adapter.takeDeferredAssistantReply(sameSecond);
+    expect(f.run).toHaveBeenCalledTimes(3);
+    expect((f.run.mock.calls[2][0] as { content: string }[])[0].content).toContain("задачи");
+  });
+});
+
+describe("third review 08.11.2026: window before the long turn, global slots", () => {
+  it("«@bot найди в Сино» (long turn) → «а за 600?» from the same person without @ joins the window and runs after", async () => {
+    const f = fixture();
+    let finish: (value: { ok: true; reply: string }) => void = () => {};
+    f.run.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    const first = f.message("@fixture_bot найди двушку в Сино", { message_id: 31, from: { id: 1 } });
+    expect(await f.adapter.handleAssistantGroupMessage(first)).toBe(true);
+    await vi.waitFor(() => expect(f.run).toHaveBeenCalledTimes(1));
+    // Голое «а за 600?» окно не берёт и до этой правки (looksLikeBotRequest: нужна просьба и предмет).
+    const followUp = f.message("а покажи квартиры до 600", { message_id: 32, from: { id: 1 } });
+    // Без @ и во время долгого хода: окно уже открыто — сообщение принято, а не пропущено.
+    expect(await f.adapter.handleAssistantGroupMessage(followUp)).toBe(true);
+    expect(f.run).toHaveBeenCalledTimes(1);
+    finish({ ok: true, reply: "Нашла три." });
+    await f.adapter.takeDeferredAssistantReply(first);
+    await f.adapter.takeDeferredAssistantReply(followUp);
+    expect(f.run).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(f.run.mock.calls[1][0])).toContain("600");
+  });
+
+  it("no more than ASSISTANT_CONCURRENT_TURNS turns at once; the rest wait for a free slot", async () => {
+    const f = fixture();
+    const limit = f.adapter.ASSISTANT_CONCURRENT_TURNS as number;
+    const finishers: ((value: { ok: true; reply: string }) => void)[] = [];
+    f.run.mockImplementation(() => new Promise((resolve) => { finishers.push(resolve); }));
+    const msgs = Array.from({ length: limit + 1 }, (_, i) =>
+      f.message(`@fixture_bot покажи мои показы ${i}`, { message_id: 100 + i, from: { id: 1000 + i } }));
+    for (const m of msgs) expect(await f.adapter.handleAssistantGroupMessage(m)).toBe(true);
+    await vi.waitFor(() => expect(f.run).toHaveBeenCalledTimes(limit));
+    await vi.waitFor(() => expect(f.adapter.assistantTurnSlotsForTests()).toEqual({ running: limit, waiting: 1 }));
+    finishers[0]({ ok: true, reply: "Готово." });
+    await vi.waitFor(() => expect(f.run).toHaveBeenCalledTimes(limit + 1));
+    for (const done of finishers.slice(1)) done({ ok: true, reply: "Готово." });
+    for (const m of msgs) await f.adapter.takeDeferredAssistantReply(m);
+    expect(f.adapter.assistantTurnSlotsForTests()).toEqual({ running: 0, waiting: 0 });
   });
 });

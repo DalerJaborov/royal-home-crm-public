@@ -6,7 +6,7 @@
  * Один разбор на всё:
  *  - номер карточки — `parseShortCode` (@royal-home/shared), тот же, что у списка
  *    объектов (routes/properties/list.ts) и поиска клиентов;
- *  - ссылка Instagram — по КОДУ поста (`instagramPostCode`, lib/instagramPostLead.ts):
+ *  - ссылка Instagram — по КОДУ поста (`propertyIdsByInstagramLink` ниже, одна дверь с быстрым путём):
  *    один пост приходит десятком разных ссылок (www, /reel/ и /p/, хвост `?igsh=`);
  *    ищется и в `Property.instagramUrl`, и в фото-постах (PropertyPhotoPost.permalink);
  *  - иначе слова — по названию/адресу, каждое слово должно найтись (`toSearchTokens`).
@@ -18,11 +18,11 @@
  * Ссылок Somon в карточке объекта НЕТ (поля в схеме нет): отдельный признак
  * `somonLink`, чтобы помощник честно сказал «в карточке не хранится».
  */
-import { parseShortCode } from "@royal-home/shared";
+import { formatPropertyCode, parseShortCode } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import type { Prisma } from "../generated/prisma/client.js";
-import { instagramPostCode, instagramPostCodesIn } from "./instagramPostLead.js";
 import { toSearchTokens, toTokenVariants } from "./searchTokens.js";
+import { instagramLinkCodes } from "./instagramPostLead.js";
 
 /** То, что нужно карточке-превью и полной карточке помощника. Без вектора embedding. */
 export const PROPERTY_REF_INCLUDE = {
@@ -45,6 +45,84 @@ export interface PropertyRefResult {
 
 const SOMON_RE = /somon\.tj/i;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** Ссылка из ответа поиска («/properties/130») — тот же номер, что code «ОБ-000130». */
+const PROPERTY_HREF_RE = /\/properties\/(\d+)\/?$/;
+
+/**
+ * ТОЧНАЯ ССЫЛКА НА ОДИН ОБЪЕКТ: id, номер («ОБ-000130», «130») или href карточки. Адрес и слова —
+ * не точная ссылка (null). Один разбор на Корзину: восстановление (restore_property) и ответ
+ * «в Корзине» вместо «не найден» (findTrashedPropertyByRef).
+ */
+export function parseExactPropertyRef(ref: string): { id: string } | { shortId: number } | null {
+  const raw = ref.trim();
+  const href = raw.match(PROPERTY_HREF_RE);
+  const text = href ? href[1] : raw;
+  if (UUID_RE.test(text)) return { id: text.toLowerCase() };
+  const shortId = parseShortCode(text);
+  return shortId === null ? null : { shortId };
+}
+
+
+/**
+ * ОБЪЕКТЫ ПО ССЫЛКЕ НА ПОСТ INSTAGRAM — ОДНА ДВЕРЬ (07.11.2026, журнал прода 05–07.11: find_property
+ * по ссылке на reel вернул 0, а быстрый путь тот же объект нашёл — у них были два разных разбора).
+ * Зовут: find_property (findPropertiesByRef) и быстрый путь помощницы (ai/assistantFastPath.ts).
+ * Код сравнивается ТОЧНО (ролик /ABC не находит /ABCD), ищется в ролике карточки
+ * (Property.instagramUrl) и в фото-постах (PropertyPhotoPost.permalink). Корзина не находится.
+ */
+export async function propertyIdsByInstagramLink(text: string, take = 20): Promise<string[]> {
+  const codes = instagramLinkCodes(text);
+  if (codes.length === 0) return [];
+  const exact = (url: string | null) => instagramLinkCodes(url ?? "").some((c) => codes.includes(c));
+  const [cards, photoPosts] = await Promise.all([
+    prisma.property.findMany({
+      where: { deletedAt: null, OR: codes.map((c) => ({ instagramUrl: { contains: c } })) },
+      select: { id: true, instagramUrl: true },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: take * 4,
+    }),
+    prisma.propertyPhotoPost.findMany({
+      where: { channel: "INSTAGRAM", OR: codes.map((c) => ({ permalink: { contains: c } })) },
+      select: { propertyId: true, permalink: true },
+      take: take * 4,
+    }),
+  ]);
+  const ids = [
+    ...cards.filter((p) => exact(p.instagramUrl)).map((p) => p.id),
+    ...photoPosts.filter((p) => exact(p.permalink)).map((p) => p.propertyId),
+  ];
+  return [...new Set(ids)].slice(0, take);
+}
+
+/** Удалённый объект для справки «в Корзине»: без продавца, контакта собственника и описания. */
+export const TRASHED_PROPERTY_SELECT = {
+  id: true,
+  shortId: true,
+  title: true,
+  deletedAt: true,
+  assignedAgentId: true,
+  intakeAgentId: true,
+  deletedBy: { select: { fullName: true } },
+  assignedAgent: { select: { fullName: true } },
+  intakeAgent: { select: { fullName: true } },
+} satisfies Prisma.PropertySelect;
+
+export type TrashedPropertyRecord = Prisma.PropertyGetPayload<{ select: typeof TRASHED_PROPERTY_SELECT }>;
+
+/**
+ * ОБЪЕКТ В КОРЗИНЕ ПО ТОЧНОЙ ССЫЛКЕ (пачка 2, 07.11.2026). Помощница раньше отвечала «не найден»
+ * на номер удалённого объекта; теперь — «в Корзине, удалён тогда-то, кем». Кому это можно,
+ * решает вызывающий по общему правилу Корзины (lib/trashAccess.ts::canSeeTrashedProperties).
+ * Живой объект (deletedAt = null) сюда не попадает: для него обычный findPropertiesByRef.
+ */
+export async function findTrashedPropertyByRef(ref: string): Promise<TrashedPropertyRecord | null> {
+  const exact = parseExactPropertyRef(ref);
+  if (!exact) return null;
+  return prisma.property.findFirst({
+    where: { ...exact, deletedAt: { not: null } },
+    select: TRASHED_PROPERTY_SELECT,
+  });
+}
 
 /**
  * @param ref  что сказал человек
@@ -78,24 +156,11 @@ export async function findPropertiesByRef(
   // 0. Внутренний id (из прежнего ответа find_property).
   if (UUID_RE.test(text)) return { kind: "id", properties: await load({ id: text.toLowerCase() }, 1) };
 
-  // 1. Ссылка Instagram: код поста в карточке (ролик) или в фото-посте (карусель).
-  const codes = instagramPostCodesIn(text);
-  if (codes.length === 0) {
-    const single = instagramPostCode(text);
-    if (single) codes.push(single);
-  }
-  if (codes.length > 0) {
-    const photoPosts = await prisma.propertyPhotoPost.findMany({
-      where: { channel: "INSTAGRAM", OR: codes.map((c) => ({ permalink: { contains: c } })) },
-      select: { propertyId: true },
-      take: 20,
-    });
-    const found = await load({
-      OR: [
-        ...codes.map((c) => ({ instagramUrl: { contains: c } })),
-        ...(photoPosts.length ? [{ id: { in: photoPosts.map((p) => p.propertyId) } }] : []),
-      ],
-    });
+  // 1. Ссылка Instagram: код поста в карточке (ролик) или в фото-посте (карусель) — одна дверь
+  // с быстрым путём (propertyIdsByInstagramLink ниже).
+  if (instagramLinkCodes(text).length > 0) {
+    const ids = await propertyIdsByInstagramLink(text);
+    const found = ids.length ? await load({ id: { in: ids } }) : [];
     return { kind: "instagram", properties: found };
   }
 
@@ -162,12 +227,23 @@ export async function resolvePropertyRef(rawRef: string): Promise<PropertyRefRes
 
   const found = await findPropertiesByRef(ref, { limit: CANDIDATES_LIMIT });
   if (found.kind === "somon") return notFound("Ссылки Somon в карточке объекта не хранятся — укажите номер ОБ-.");
+  // Номер удалённого объекта: «в Корзине», а не «не найден» (пачка 2) — менять его нельзя,
+  // пока не восстановят. Справка о Корзине открыта всем сотрудникам (lib/trashAccess.ts).
+  const notFoundOrTrashed = async (): Promise<PropertyRefResolution> => {
+    const trashed = await findTrashedPropertyByRef(ref);
+    if (!trashed) return notFound();
+    return notFound(
+      `Объект ${formatPropertyCode(trashed.shortId)} в Корзине — менять его нельзя, пока его не восстановят ` +
+        "(восстановить может директор, администратор или агент этого объекта).",
+    );
+  };
   if (found.kind === "id" || found.kind === "shortId") {
     const exact = found.properties[0];
-    return exact ? { ok: true, id: exact.id, shortId: exact.shortId } : notFound();
+    return exact ? { ok: true, id: exact.id, shortId: exact.shortId } : notFoundOrTrashed();
   }
   // Номер без такой карточки и слишком короткие слова — не угадываем по адресу.
-  if (parseShortCode(ref) !== null || (found.kind === "text" && ref.length < 3)) return notFound();
+  if (parseShortCode(ref) !== null) return notFoundOrTrashed();
+  if (found.kind === "text" && ref.length < 3) return notFound();
 
   const rows = found.properties;
   if (rows.length === 1) return { ok: true, id: rows[0].id, shortId: rows[0].shortId };

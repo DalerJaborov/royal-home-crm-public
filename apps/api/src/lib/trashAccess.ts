@@ -32,6 +32,16 @@ export function canSeeTrashedProperties(_actor: TrashActor): boolean {
   return true;
 }
 
+/**
+ * Открыть СТРАНИЦУ удалённого объекта (/properties/:номер) может только руководство с правом
+ * «Архив» — так отвечает REST (routes/properties/list.ts, GET по номеру, зовёт эту же функцию).
+ * Остальным справка о Корзине приходит словами, без ссылки: ссылка на закрытую страницу — тупик
+ * «Объект не найден».
+ */
+export function canOpenTrashedPropertyPage(actor: TrashActor): boolean {
+  return actor.can("archive.view");
+}
+
 /** Хозяин объекта для Корзины: ведущий или приёмщик. */
 export function ownsTrashedProperty(
   agentId: string,
@@ -68,4 +78,14 @@ export function clientTrashScopeFor(actor: TrashActor): ClientTrashScope {
 export function canSeeTrashedClient(actor: TrashActor, client: { assignedAgentId: string | null }): boolean {
   const scope = clientTrashScopeFor(actor);
   return scope === "all" || (scope === "own" && client.assignedAgentId === actor.agentId);
+}
+
+/**
+ * Контакты УДАЛЁННОГО клиента (телефон, адрес, номера внутри имени и заметок) — только руководству
+ * с правом «Архив» (и при этом с правом на телефон). Хозяин-агент видит свою удалённую карточку без
+ * контактов. Решение владельца 07.11.2026, дословно: «агенту не показывать телефон удаленного
+ * клиента». REST отдаёт удалённых клиентов только через GET /clients/trash с тем же правом «Архив».
+ */
+export function canSeeTrashedClientContacts(actor: TrashActor): boolean {
+  return actor.can("archive.view");
 }

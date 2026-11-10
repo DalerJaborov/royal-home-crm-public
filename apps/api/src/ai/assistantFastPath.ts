@@ -3,6 +3,10 @@ import type { AssistantCard, AssistantClientCard, AssistantPropertyCard } from "
 import { prisma } from "../db.js";
 import { clientNamePhoneSafe, clientPhoneFor } from "../lib/clientPhone.js";
 import type { AssistantActor } from "./assistant.js";
+import { trashActorOf } from "./assistant/actor.js";
+import { trashedPropertyNoteFor } from "./assistant/tools/propertyPresenter.js";
+import { propertyIdsByInstagramLink } from "../lib/propertyRefLookup.js";
+import { instagramLinkCodes } from "../lib/instagramPostLead.js";
 
 /**
  * БЫСТРЫЙ ПУТЬ ПОМОЩНИКА БЕЗ МОДЕЛИ (полоса А, docs/design/internal-assistant-
@@ -22,7 +26,8 @@ import type { AssistantActor } from "./assistant.js";
  *     непринятая заявка номера не раскрывает), номер внутри имени маскируется;
  *   · поиск клиента ПО ТЕЛЕФОНУ — только тому, кому номер виден: иначе право
  *     обходится перебором («найди клиента с номером …57» = ответ да/нет на догадку);
- *   · объекты, как в search_properties, видны всем ролям; Корзина — нет.
+ *   · объекты, как в search_properties, видны всем ролям; карточки из Корзины — нет, но на
+ *     номер удалённого объекта приходит справка «в Корзине, удалён …» (lib/trashAccess.ts).
  * Нет доступа или ничего не найдено — null (пусть отвечает обычный путь: он сам
  * честно скажет «не нашёл», не раскрывая, существует ли закрытая карточка).
  *
@@ -38,6 +43,8 @@ export interface AssistantFastPathResult {
   tool: string;
   /** Что открыли — id карточки, не телефон и не текст вопроса (журнал хранит факт обращения). */
   argsSummary: string;
+  /** 1 — номер оказался у объекта в Корзине: ответ-справка без карточки (пачка 2). */
+  trashed?: number;
 }
 
 /** Слова-«глаголы» перед номером: «покажи ОБ-88», «найди клиента ПК-5». */
@@ -55,7 +62,6 @@ const CLIENT_CODE_RE = new RegExp(`^(?:${CLIENT_WORDS}\\s*${SEP}|${CLIENT_PREFIX
 
 /** Телефон целиком: цифры, плюс, пробелы, скобки, дефисы; допускается слово «телефон/номер» впереди. */
 const PHONE_ONLY_RE = /^(?:(?:телефон|тел|номер|phone)[\s.:]*)?(\+?[\d\s()\-]{7,22})$/i;
-const INSTAGRAM_POST_RE = /instagram\.com\/(?:reel|reels|p|tv)\/([A-Za-z0-9_-]+)/i;
 /** Сколько лишних символов вокруг ссылки допустимо: «вот ссылка …» — ещё не вопрос, требующий модели. */
 const INSTAGRAM_EXTRA_TEXT_LIMIT = 40;
 const MAX_CARDS = 5;
@@ -81,7 +87,7 @@ export function toCrmPhone(raw: string): string | null {
 type Intent =
   | { kind: "property-code"; shortId: number }
   | { kind: "client-code"; shortId: number }
-  | { kind: "instagram"; code: string }
+  | { kind: "instagram"; code: string; link: string }
   | { kind: "phone"; phone: string };
 
 /** Разбор фразы в намерение. Экспортирован ради unit-тестов без базы. */
@@ -89,13 +95,14 @@ export function parseFastPathIntent(text: string): Intent | null {
   const raw = text.trim();
   if (!raw || raw.length > 300) return null;
 
-  const instagram = INSTAGRAM_POST_RE.exec(raw);
-  if (instagram) {
+  // Один разбор ссылки с find_property и заявкой по ссылке (lib/instagramPostLead.ts).
+  const instagramCode = instagramLinkCodes(raw)[0];
+  if (instagramCode) {
     const canonical = normalizeInstagramUrl(raw);
     if (!canonical) return null;
     const urlLength = /\S*instagram\.com\/\S*/i.exec(raw)?.[0].length ?? 0;
     if (raw.length - urlLength > INSTAGRAM_EXTRA_TEXT_LIMIT) return null;
-    return { kind: "instagram", code: instagram[1] };
+    return { kind: "instagram", code: instagramCode, link: raw };
   }
 
   const phrase = clean(raw);
@@ -203,15 +210,16 @@ async function findByIntent(intent: Intent, actor: AssistantActor): Promise<Assi
       return p ? [propertyCard(p)] : [];
     }
     case "instagram": {
+      // Одна дверь с find_property (lib/propertyRefLookup.ts): точный код поста, ролик и фото-посты.
+      const ids = await propertyIdsByInstagramLink(intent.link, MAX_CARDS);
+      if (ids.length === 0) return [];
       const rows = await prisma.property.findMany({
-        where: { deletedAt: null, instagramUrl: { contains: `/${intent.code}` } },
+        where: { id: { in: ids }, deletedAt: null },
         include: propertyInclude,
         orderBy: { createdAt: "desc" },
-        take: MAX_CARDS * 4,
+        take: MAX_CARDS,
       });
-      // `contains` ловит и более длинные коды с тем же началом (/ABC и /ABCD) — оставляем точное совпадение.
-      const exact = rows.filter((row) => INSTAGRAM_POST_RE.exec(row.instagramUrl ?? "")?.[1] === intent.code);
-      return exact.slice(0, MAX_CARDS).map(propertyCard);
+      return rows.map(propertyCard);
     }
     case "client-code": {
       const rows = await prisma.client.findMany({
@@ -260,6 +268,18 @@ export async function tryAssistantFastPath(text: string, actor: AssistantActor):
   const cards = await findByIntent(intent, actor);
   if (cards.length === 0) {
     if (intent.kind !== "property-code") return null;
+    // Номер удалённого объекта: «в Корзине, удалён тогда-то, кем», а не «не нашла» (пачка 2).
+    // Та же справка и то же правило Корзины, что у get_property_card/find_property.
+    const note = await trashedPropertyNoteFor(String(intent.shortId), trashActorOf(actor), "ru");
+    if (note) {
+      return {
+        cards: [],
+        reply: note,
+        tool: "fast_path.property-code",
+        argsSummary: JSON.stringify({ shortId: intent.shortId, inTrash: true }),
+        trashed: 1,
+      };
+    }
     return {
       cards: [],
       reply: `Не нашла объект ОБ-${String(intent.shortId).padStart(6, "0")} среди доступных карточек.`,

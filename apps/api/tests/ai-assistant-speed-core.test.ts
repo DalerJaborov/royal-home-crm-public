@@ -79,23 +79,27 @@ function textTurn(text: string) {
 }
 
 describe("1.1 — срок на весь диалог", () => {
-  it("срок по умолчанию — 35 секунд, раундов не больше шести", () => {
-    expect(ASSISTANT_DEADLINE_MS).toBe(35_000);
-    expect(MAX_TOOL_ROUNDS).toBe(6);
+  // 07.11.2026, решение владельца: 35 → 120 с и 6 → 30 шагов; действующие числа — в Настройках
+  // (Settings.aiAssistantDeadlineSec / aiAssistantMaxRounds), здесь — значения по умолчанию.
+  it("срок по умолчанию — 120 секунд, шагов по умолчанию — 30", () => {
+    expect(ASSISTANT_DEADLINE_MS).toBe(120_000);
+    expect(MAX_TOOL_ROUNDS).toBe(30);
   });
 
-  it("модель просит инструменты без конца: шесть раундов, последний с приказом «ответь», вместо отписки — честный остаток", async () => {
+  it("модель просит инструменты без конца: все шаги, последний с приказом «ответь», вместо отписки — честный остаток", async () => {
     resetAssistantRuntimeCache();
     callGeminiTools.mockReset();
-    callGeminiTools.mockImplementation(async () => ({
-      text: "",
-      calls: [{ name: "get_company_stats", args: {} }],
-      modelParts: [{ functionCall: { name: "get_company_stats", args: {} } }],
-      tokens: 1,
-    }));
-    const outcome = await runAssistantDetailed([{ role: "user", content: "Сводка" }], actor);
-    expect(callGeminiTools).toHaveBeenCalledTimes(MAX_TOOL_ROUNDS);
-    const lastSystem = (callGeminiTools.mock.calls[MAX_TOOL_ROUNDS - 1][0] as { system: string }).system;
+    // Разные аргументы на каждом шаге: одинаковый повтор ловит защита от кругов (отдельный тест).
+    let n = 0;
+    callGeminiTools.mockImplementation(async () => {
+      n += 1;
+      const args = { from: `2026-0${(n % 9) + 1}-01` };
+      return { text: "", calls: [{ name: "get_company_stats", args }], modelParts: [{ functionCall: { name: "get_company_stats", args } }], tokens: 1 };
+    });
+    const ROUNDS = 5;
+    const outcome = await runAssistantDetailed([{ role: "user", content: "Сводка" }], actor, { maxRounds: ROUNDS });
+    expect(callGeminiTools).toHaveBeenCalledTimes(ROUNDS);
+    const lastSystem = (callGeminiTools.mock.calls[ROUNDS - 1][0] as { system: string }).system;
     expect(lastSystem).toContain("ЭТО ПОСЛЕДНИЙ ШАГ");
     expect((callGeminiTools.mock.calls[0][0] as { system: string }).system).not.toContain("ЭТО ПОСЛЕДНИЙ ШАГ");
     expect(outcome.ok).toBe(true);
