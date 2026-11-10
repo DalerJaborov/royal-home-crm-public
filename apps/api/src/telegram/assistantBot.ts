@@ -25,7 +25,9 @@ import { findTelegramAgentClients, isVoiceReplayRequest, replayTelegramAssistant
 import { clearStaffPropertyPage, propertyPageRequest, propertyPageSize, propertySelection, propertyWorkflowRequest, sendMoreStaffProperties, sendStaffPropertySelection } from "./assistantPropertyPages.js";
 import { sendAssistantVoiceReply } from "./assistantVoice.js";
 import { handleTelegramPropertyDraft, handleTelegramPropertyDraftCallback } from "./assistantPropertyDraft.js";
-import { handleTelegramExpenseReceipt, handleTelegramExpenseReceiptCallback } from "./assistantExpenseReceipt.js";
+import { handleExpenseFileQuestionCallback, handleTelegramExpenseReceipt, handleTelegramExpenseReceiptCallback } from "./assistantExpenseReceipt.js";
+import { ADD_EXPENSES_TOOL } from "../ai/assistant/tools/expenseBatchTool.js";
+import { applyExpenseFixMessage, expenseBatchOutcomeText, handleExpenseCardCallback, sendExpenseBatchCard } from "./assistantExpenseCard.js";
 import { handleAssistantMedia } from "./assistantMedia.js";
 import { createAssistantMoneyWallet, type AssistantMoneyWallet } from "../ai/assistant/moneyBudget.js";
 import {
@@ -46,7 +48,7 @@ import { logAssistantFastPathTurn, logAssistantToolCall, logAssistantTurn } from
 import {
   answerCallbackQuery as answerCallbackQueryRaw,
   getBotUsername,
-  sendChatAction, sendHtmlMessage,
+  editMessageText, sendChatAction, sendHtmlMessage,
   sendMessage,
   sendMessageWithButtons,
   setMessageReaction,
@@ -105,6 +107,7 @@ const answerCallbackQuery = (id: string, text?: string) => answerCallbackQueryRa
 
 const BUNDLE_CALLBACK = /^as:(ok|no):([0-9a-f-]{36})$/;
 
+
 // ───────────────────────────── права ─────────────────────────────
 
 /** Права, которых в общей группе у помощника нет, даже если они есть у спросившего. */
@@ -122,6 +125,11 @@ const GROUP_HIDDEN_PERMISSIONS: readonly PermissionId[] = [
  */
 const GROUP_HIDDEN_TOOLS: ReadonlySet<string> = new Set([
   "search_deals",
+  // «Сделки» Шабнам (10.11.2026): деньги и доли — только в личке. Сами инструменты
+  // тоже не объявляются вне лички (dealToolsAllowed), это вторая стена.
+  "get_deal_card",
+  "get_my_commission",
+  "get_payouts_due",
   "get_company_stats",
   "get_finance_summary",
   "get_lead_sources",
@@ -129,7 +137,18 @@ const GROUP_HIDDEN_TOOLS: ReadonlySet<string> = new Set([
   "create_task",
   "reschedule_task",
   "add_client_note",
+  // Деньги в общей группе не показываются и не меняются (10.11.2026): все инструменты расходов.
+  // Список буквами (не импортом): сверку с реестром держит тест assistant-expense-batch.
+  "list_expenses", "get_expense_summary", "get_expense_forecast", "get_expense_pivot", "list_recurring_expenses",
+  "list_expense_archive", "list_expense_categories", "add_expenses", "update_expense", "delete_expense", "restore_expense",
+  "pay_expense", "undo_expense_payment", "create_recurring_expense", "update_recurring_expense", "delete_recurring_expense",
+  "recurring_expense_payment", "create_expense_category", "update_expense_category", "get_expense_history",
 ]);
+
+/** Для теста-сторожа: что закрыто в общей группе. */
+export function groupHiddenToolsForTests(): ReadonlySet<string> {
+  return GROUP_HIDDEN_TOOLS;
+}
 
 /** Актор помощника для ЧТЕНИЯ: в группе — без телефонов клиентов, финансов и отчётов. */
 export function assistantActorFor(
@@ -546,6 +565,17 @@ async function sendTurnResult(
     });
     return;
   }
+  // Пачка расходов — своя карточка по статьям, со страницами и «Править» (assistantExpenseCard.ts).
+  if (!maskPhones && result.pending.length === 1 && result.pending[0]!.tool === ADD_EXPENSES_TOOL) {
+    // Карточка говорит сама за себя: фразу модели «проверьте и нажмите» второй репликой не шлём.
+    const lead = written.join("\n");
+    if (lead.trim()) await sendMessage(chatId, lead, ctx.replyTo).catch(() => undefined);
+    if (!(await sendExpenseBatchCard(chatId, result.pending[0]!, ctx.agentId, ctx.replyTo))) {
+      await cancelPending(result.pending, ctx.agentId);
+      await sendMessage(chatId, "Карточка уже изменилась. Повторите просьбу.", ctx.replyTo);
+    }
+    return;
+  }
   const priceOnlyInGroup = maskPhones && result.pending.every(action => action.tool === "change_property_price");
   const tajikPrice = priceOnlyInGroup && (ctx.requestLanguage === "tg" || ctx.requestLanguage === "mixed");
   const preview = renderBundleCard(result.pending, ctx.authorName, maskPhones, ctx.source, tajikPrice);
@@ -767,6 +797,8 @@ export async function handleAssistantPrivate(
       await send(HELP_TEXT);
       return;
     }
+    // Ответ на «Править → строка N» в карточке расходов: поправка строки, а не новая просьба.
+    if (!forwardedEvidence && await applyExpenseFixMessage(chatId, agent.id, text, msg.message_id)) return;
     const more = !forwardedEvidence && propertyPageRequest(text);
     if (more && await replyWithMoreProperties(cardScope, more, text)) return;
     const previous = await loadHistory(chatId, agent.id);
@@ -1571,6 +1603,16 @@ const FAIL_STATUS_NOTE: Record<string, string> = {
 /** `as:ok|no:<связка>`. true — это наша кнопка (обработана или отклонена). */
 export async function handleAssistantCallback(query: TelegramCallbackQuery): Promise<boolean> {
   if (query.data?.startsWith("ef:")) return handleTelegramExpenseReceiptCallback(query);
+  if (query.data?.startsWith("ay:")) {
+    if (!(await claimCallback(query.id))) { await answerCallbackQuery(query.id); return true; }
+    const clicker = await clickerOf(query).catch(() => null);
+    return handleExpenseFileQuestionCallback(query, clicker?.id ?? null);
+  }
+  if (query.data?.startsWith("ax:")) {
+    if (!(await claimCallback(query.id))) { await answerCallbackQuery(query.id); return true; }
+    const clicker = await clickerOf(query).catch(() => null);
+    return handleExpenseCardCallback(query, clicker?.id ?? null);
+  }
   if (await handleTelegramPropertyDraftCallback(query)) return true;
   if (!query.data?.startsWith("as:")) return false;
   const match = BUNDLE_CALLBACK.exec(query.data);
@@ -1653,6 +1695,12 @@ export async function handleAssistantCallback(query: TelegramCallbackQuery): Pro
       // Часть цепочки могла успеть исполниться до отмены — правду об этом не прячем.
       const note = executed > 0 ? "Часть действий уже была выполнена, остальные отменены" : "Отменено";
       await answerCallbackQuery(query.id, note);
+      const isExpenseBatch = actions.length === 1 && actions[0]!.tool === ADD_EXPENSES_TOOL;
+      const expenseNote = executed === 0 && isExpenseBatch ? await expenseBatchOutcomeText(actions, false).catch(() => null) : null;
+      if (expenseNote && chatId && messageId) {
+        await editMessageText(chatId, messageId, expenseNote, null).catch(() => {});
+        return true;
+      }
       if (chatId && query.message && messageId) {
         await editTelegramConfirmationMessage(query.message, sanitizeAssistantReply(tajikPrice && executed === 0 ? "Бекор шуд" : `✖ ${note} (${clicker.fullName})`, chatId.startsWith("-"))).catch(() => {});
       }
@@ -1678,6 +1726,13 @@ export async function handleAssistantCallback(query: TelegramCallbackQuery): Pro
     }
     await answerCallbackQuery(query.id, outcome.failed ? "Выполнено не всё" : "Готово");
     if (!chatId) return true;
+    const expenseDone = !outcome.failed && actions.length === 1 && actions[0]!.tool === ADD_EXPENSES_TOOL
+      ? await expenseBatchOutcomeText(actions, true).catch(() => null) : null;
+    if (expenseDone) {
+      if (messageId) await editMessageText(chatId, messageId, expenseDone, null).catch(() => sendMessage(chatId, expenseDone).catch(() => {}));
+      else await sendMessage(chatId, expenseDone).catch(() => {});
+      return true;
+    }
     const isGroup = chatId.startsWith("-");
     const mark = outcome.failed ? "⚠️" : "✅";
     const summary = isGroup

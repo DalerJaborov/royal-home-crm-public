@@ -55,6 +55,21 @@ export async function loadMoneyContext(db: Pick<typeof prisma, "settings"> = pri
 }
 
 /**
+ * Курс доллара КАК ОН ЕСТЬ в Настройках — без подстановки FALLBACK_USD_TO_TJS (10.11.2026,
+ * владелец: «никогда чтобы расходы не ошибались, особенно в валюте»). Помощница пишет
+ * долларовый расход только при заданном курсе и показывает его в карточке с датой обновления;
+ * `rate` здесь равен тому, что loadMoneyContext отдаст createExpense, когда курс задан.
+ */
+export async function loadUsdRateInfo(db: Pick<typeof prisma, "settings"> = prisma): Promise<{ rate: number | null; updatedAt: Date | null; source: string | null }> {
+  const settings = await db.settings.findUnique({
+    where: { id: "singleton" },
+    select: { usdToTjsRate: true, usdToTjsRateUpdatedAt: true, usdToTjsRateSource: true },
+  });
+  const rate = settings?.usdToTjsRate ? Number(settings.usdToTjsRate) : null;
+  return { rate: rate && rate > 0 ? rate : null, updatedAt: settings?.usdToTjsRateUpdatedAt ?? null, source: settings?.usdToTjsRateSource ?? null };
+}
+
+/**
  * Условие «цена объекта не выше потолка» с учётом валюты объекта.
  *
  * Property.price лежит в валюте самого объекта, поэтому `price <= max` по сырой
@@ -253,4 +268,15 @@ export function priceRangeBranches(
       ...(maxTjs !== undefined && { lte: fromTjs(maxTjs, currency, ctx) }),
     },
   }));
+}
+
+/**
+ * Курс доллара для ДЕНЕГ, КОТОРЫЕ ЧЕЛОВЕК ПОДТВЕРЖДАЕТ (ИИ-помощница, «Сделки»):
+ * только заданный в Настройках, без запасного курса. Не задан — null, и долларовая
+ * сумма не записывается. Для прикидок в отчётах — loadMoneyContext выше.
+ */
+export async function loadConfiguredUsdRate(db: Pick<typeof prisma, "settings"> = prisma): Promise<number | null> {
+  const settings = await db.settings.findUnique({ where: { id: "singleton" }, select: { usdToTjsRate: true } });
+  const rate = settings?.usdToTjsRate ? Number(settings.usdToTjsRate) : null;
+  return rate && Number.isFinite(rate) && rate > 0 ? rate : null;
 }

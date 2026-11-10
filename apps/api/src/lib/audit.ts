@@ -5,7 +5,7 @@ import { prisma } from "../db.js";
 /** Записывает чувствительное действие (удаление/публикация и т.п.) в историю —
  * best-effort, никогда не блокирует и не роняет основной запрос. */
 export function logAudit(
-  req: Request,
+  req: Pick<Request, "agent">,
   action: string,
   entityType: string,
   entityId?: string | null,

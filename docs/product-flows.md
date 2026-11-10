@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **731**. Развилок в самих путях: **2505**; вместе с задачами по расписанию и фоновыми заданиями — **4004**. Модулей: **81**.
+Путей: **732**. Развилок в самих путях: **2448**; вместе с задачами по расписанию и фоновыми заданиями — **3947**. Модулей: **81**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -5406,9 +5406,7 @@
     · зовёт dushanbeWallClock()
 - для каждого: let i = MONTHS_BACK - 1; i >= 0; i--
   - const m = monthKey(monthStart(now.getUTCFullYear(), now.getUTCMonth() - i));
-    · дословно из кода
-  - const deals = completedDeals.filter((d) => d.closedAt && monthKey(d.closedAt) === m);
-    · дословно из кода
+    · зовёт monthKey()
 - const dayKey = (d: Date)
   - const wall = dushanbeWallClock(d);
     · зовёт dushanbeWallClock()
@@ -5418,9 +5416,7 @@
       · дословно из кода
 - для каждого: let i = MONTHS_BACK - 1; i >= 0; i--
   - const m = monthKey(monthStart(now.getUTCFullYear(), now.getUTCMonth() - i));
-    · дословно из кода
-  - propertiesByMonth.push({ month: m, added: propsCreated.filter((p) => monthKey(p.createdAt) === m).length, sol…
-    · дословно из кода
+    · зовёт monthKey()
 - res.json({ commissionByMonth, sourcesThisMonth: monthClients .map((g)
   · ответ 200
 
@@ -5727,32 +5723,40 @@
 
 `apps/api/src/routes/dealAnnul.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
-- если !can(req, "deals.complete")
-  - return res.status(403).json({ error: "Аннулировать сделку может только руководитель" });
-    · ответ 403 — «Аннулировать сделку может только руководитель»
-- const parsed = annulSchema.safeParse(req.body);
-  · проверяет данные схемой annulSchema
-- если !parsed.success
-  - return res.status(400).json({ error: "Укажите причину аннулирования", details: parsed.error.flatten() });
-    · ответ 400 — «Укажите причину аннулирования»
-- пробует
-  - const result = await annulDeal({ dealId: req.params.id, actorId: req.agent!.id, reason: parsed.data.reason, o…
-    · зовёт annulDeal()
-  - logAudit(req, "DEAL_ANNUL", "Deal", result.deal.id, { reason: parsed.data.reason, clientId: result.deal.clien…
-    · зовёт logAudit()
-  - publishDealUpdated({ dealId: result.deal.id, clientId: result.deal.clientId, agentId: result.deal.agentId, st…
-    · зовёт publishDealUpdated()
-  - если req.agent!.id !== result.deal.agentId
-    - sendPushToAgent(result.deal.agentId, { title: "Сделка аннулирована", body: `${result.clientName} — причина: $…
-      · push-уведомление
-  - res.json({ id: result.deal.id, stage: result.deal.stage, propertyReturnedToSale: result.propertyReturnedToSal…
-    · ответ 200
-- если сорвалось
-  - если err instanceof DealAnnulError
-    - return res.status(err.status).json({ error: err.message });
-      · ответ (код зависит от условия)
-  - throw err;
-    · пробрасывает ошибку дальше
+- const outcome = await annulDealFor(req, req.params.id, req.body);
+  · зовёт annulDealFor()
+  - если !can(req, "deals.complete")
+    - return fail(403, { error: "Аннулировать сделку может только руководитель" });
+      · дословно из кода
+  - const parsed = dealAnnulSchema.safeParse(body);
+    · проверяет данные схемой dealAnnulSchema
+  - если !parsed.success
+    - return fail(400, { error: "Укажите причину аннулирования", details: parsed.error.flatten() });
+      · дословно из кода
+  - пробует
+    - const result = await annulDeal({ dealId, actorId: req.agent!.id, reason: parsed.data.reason, ownAgentId: scop…
+      · зовёт annulDeal()
+    - если opts.dryRun
+      - return { ok: true, status: 200, result: { id: result.deal.id, stage: result.deal.stage, propertyReturnedToSal…
+        · дословно из кода
+    - logAudit(req, "DEAL_ANNUL", "Deal", result.deal.id, { reason: parsed.data.reason, clientId: result.deal.clien…
+      · зовёт logAudit()
+    - publishDealUpdated({ dealId: result.deal.id, clientId: result.deal.clientId, agentId: result.deal.agentId, st…
+      · зовёт publishDealUpdated()
+    - если req.agent!.id !== result.deal.agentId
+      - sendPushToAgent(result.deal.agentId, { title: "Сделка аннулирована", body: `${result.clientName} — причина: $…
+        · push-уведомление
+  - если сорвалось
+    - если err instanceof DealAnnulError
+      - return fail(err.status, { error: err.message });
+        · дословно из кода
+    - throw err;
+      · пробрасывает ошибку дальше
+- если !outcome.ok
+  - return res.status(outcome.status).json(outcome.body);
+    · ответ (код зависит от условия)
+- res.json(outcome.result);
+  · ответ 200
 
 ### GET /api/v1/deals/:id/documents/:docId/file
 
@@ -5899,346 +5903,384 @@
 
 `apps/api/src/routes/dealPayout.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
-- если !can(req, "finance.manage") && !can(req, "deals.setCommission")
-  - return res.status(403).json({ error: "Недостаточно прав" });
-    · ответ 403 — «Недостаточно прав»
-- const parsed = dealPayoutSchema.safeParse(req.body);
-  · проверяет данные схемой dealPayoutSchema
-- если !parsed.success
-  - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
-    · ответ 400 — «Неверные данные»
-- const deal = await prisma.deal.findUnique({ where: { id: req.params.id }, select: { id: true, agentId: true, …
-  · читает в базе: deal
-- если !deal
-  - return res.status(404).json({ error: "Сделка не найдена" });
-    · ответ 404 — «Сделка не найдена»
-- если deal.stage !== "COMPLETED"
-  - return res.status(409).json({ error: "Выплата фиксируется только по закрытой сделке" });
-    · ответ 409 — «Выплата фиксируется только по закрытой сделке»
-- const payout = await getDealPayout(deal.id);
-  · зовёт getDealPayout()
-- если payout?.realtorPayoutAt
-  - return res.status(409).json({ error: "Комиссия по этой сделке уже отмечена выплаченной" });
-    · ответ 409 — «Комиссия по этой сделке уже отмечена выплаченной»
-- const realtorPayoutAt = await setDealPayout(deal.id, req.agent!.id, parsed.data.note ?? null);
-  · зовёт setDealPayout()
-- если !realtorPayoutAt
-  - return res.status(409).json({ error: "Выплата не записана: комиссия уже отмечена выплаченной или сделка больш…
-    · ответ 409 — «Выплата не записана: комиссия уже отмечена выплаченной или сделка…»
-- logAudit(req, "DEAL_PAYOUT", "Deal", deal.id, { note: parsed.data.note ?? null });
-  · зовёт logAudit()
-- если req.agent!.id !== deal.agentId
-  - sendPushToAgent(deal.agentId, { title: "Комиссия выплачена", body: `${deal.client.fullName} — комиссия по сде…
-    · push-уведомление
-- res.json({ id: deal.id, realtorPayoutAt, realtorPayoutById: req.agent!.id, realtorPayoutNote: parsed.data.not…
+- const outcome = await markDealPayoutFor(req, req.params.id, req.body);
+  · зовёт markDealPayoutFor()
+  - если !can(req, "finance.manage") && !can(req, "deals.setCommission")
+    - return fail(403, { error: "Недостаточно прав" });
+      · дословно из кода
+  - const parsed = dealPayoutSchema.safeParse(body);
+    · проверяет данные схемой dealPayoutSchema
+  - если !parsed.success
+    - return fail(400, { error: "Неверные данные", details: parsed.error.flatten() });
+      · дословно из кода
+  - const deal = await prisma.deal.findUnique({ where: { id: dealId }, select: { id: true, agentId: true, stage: …
+    · читает в базе: deal
+  - если !deal
+    - return fail(404, { error: "Сделка не найдена" });
+      · дословно из кода
+  - если deal.stage !== "COMPLETED"
+    - return fail(409, { error: "Выплата фиксируется только по закрытой сделке" });
+      · дословно из кода
+  - const payout = await getDealPayout(deal.id);
+    · зовёт getDealPayout()
+  - если payout?.realtorPayoutAt
+    - return fail(409, { error: "Комиссия по этой сделке уже отмечена выплаченной" });
+      · дословно из кода
+  - если opts.dryRun
+    - return { ok: true, status: 200, payout: { id: deal.id, realtorPayoutAt: new Date(0), realtorPayoutById: req.a…
+      · дословно из кода
+  - const realtorPayoutAt = await setDealPayout(deal.id, req.agent!.id, parsed.data.note ?? null);
+    · зовёт setDealPayout()
+  - если !realtorPayoutAt
+    - return fail(409, { error: "Выплата не записана: комиссия уже отмечена выплаченной или сделка больше не закрыт…
+      · дословно из кода
+  - logAudit(req, "DEAL_PAYOUT", "Deal", deal.id, { note: parsed.data.note ?? null });
+    · зовёт logAudit()
+  - если req.agent!.id !== deal.agentId
+    - sendPushToAgent(deal.agentId, { title: "Комиссия выплачена", body: `${deal.client.fullName} — комиссия по сде…
+      · push-уведомление
+- если !outcome.ok
+  - return res.status(outcome.status).json(outcome.body);
+    · ответ (код зависит от условия)
+- res.json(outcome.payout);
   · ответ 200
 
 ### PATCH /api/v1/deals/:id
 
 `apps/api/src/routes/deals.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
-- const parsed = dealUpdateSchema.safeParse(req.body);
-  · проверяет данные схемой dealUpdateSchema
-- если !parsed.success
-  - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
-    · ответ 400 — «Неверные данные»
-- const ownAgentId = scopeDealsToOwnAgent(req);
-  · зовёт scopeDealsToOwnAgent()
-- const existing = await prisma.deal.findUnique({ where: { id: req.params.id }, include: { client: { select: { …
-  · читает в базе: deal
-- если !existing
-  - return res.status(404).json({ error: "Сделка не найдена" });
-    · ответ 404 — «Сделка не найдена»
-- если ownAgentId && existing.agentId !== ownAgentId
-  - return res.status(403).json({ error: "Недостаточно прав" });
-    · ответ 403 — «Недостаточно прав»
-- const denied = foreignDealWriteDenied(req, existing, ownAgentId);
-  · зовёт foreignDealWriteDenied()
-- если denied
-  - return res.status(403).json({ error: denied });
-    · ответ 403
-- если existing.stage === "COMPLETED" && data.stage && data.stage !== "COMPLETED"
-  - return res.status(409).json({ error: "Завершённую сделку нельзя вернуть на предыдущий этап" });
-    · ответ 409 — «Завершённую сделку нельзя вернуть на предыдущий этап»
-- если isRevivingCancelled && existing.annulledAt
-  - return res.status(409).json({ error: "Сделка аннулирована — вернуть её нельзя, заведите новую" });
-    · ответ 409 — «Сделка аннулирована — вернуть её нельзя, заведите новую»
-- если isRevivingCancelled && !canCompleteDeal(req)
-  - return res.status(403).json({ error: "Вернуть отменённую сделку в работу может только руководитель" });
-    · ответ 403 — «Вернуть отменённую сделку в работу может только руководитель»
-- если existing.client?.deletedAt && data.stage && data.stage !== existing.stage
-  - return res.status(409).json({ error: "Клиент этой сделки в Корзине — сначала восстановите карточку" });
-    · ответ 409 — «Клиент этой сделки в Корзине — сначала восстановите карточку»
-- если data.stage === "COMPLETED" && existing.stage !== "COMPLETED" && !canCompleteDeal(req)
-  - return res.status(403).json({ error: "Закрыть сделку может только руководитель" });
-    · ответ 403 — «Закрыть сделку может только руководитель»
-- const commissionExceedsPrice = finalSoldPrice !== null && finalSoldPrice !== undefined && finalRealtorAmount …
-  · зовёт sumCents()
-- если isDirectComplete && !hasFullClosingData
-  - return res.status(400).json({ error: "Укажите фактическую цену продажи и комиссию (риелтор, компания), прежде…
-    · ответ 400 — «Укажите фактическую цену продажи и комиссию (риелтор, компания),…»
-- если isDirectComplete && commissionExceedsPrice
-  - return res.status(400).json({ error: "Комиссия (риелтор + компания) не может превышать фактическую цену прода…
-    · ответ 400 — «Комиссия (риелтор + компания) не может превышать фактическую цену…»
-- если data.stage === "COMPLETED" && existing.stage !== "COMPLETED" && existing.stage !== "PENDING_APPROVAL" && !isD…
-  - return res.status(409).json({ error: "Сделку можно завершить только после отправки на закрытие" });
-    · ответ 409 — «Сделку можно завершить только после отправки на закрытие»
-- если isRejecting && !canCompleteDeal(req)
-  - return res.status(403).json({ error: "Вернуть сделку на доработку может только руководитель" });
-    · ответ 403 — «Вернуть сделку на доработку может только руководитель»
-- если isRejecting && !data.rejectReason
-  - return res.status(400).json({ error: "Укажите причину возврата на доработку" });
-    · ответ 400 — «Укажите причину возврата на доработку»
-- если isSubmittingForApproval || isDirectComplete
-  - const hadShowing = await prisma.interaction.findFirst({ where: { ...conductedShowingWhere(existing.clientId),…
-    · читает в базе: interaction
-  - если !hadShowing
-    - return res.status(409).json({ error: isDirectComplete ? "Нельзя закрыть сделку без проведённого показа этого …
-      · ответ 409
-- если isSubmittingForApproval || isDirectComplete || isApprovingSubmitted
-  - const required = await getDealRequiredDocuments();
-    · зовёт getDealRequiredDocuments()
-  - если required.length > 0
-    - const uploadedSet = new Set<string>(await distinctUploadedKinds(existing.id));
-      · зовёт distinctUploadedKinds()
-    - если missing.length > 0
-      - если skipDocuments && canCompleteDeal(req)
-        - logAudit(req, "DEAL_SKIP_DOCUMENTS", "Deal", existing.id, { missingKinds: missing });
-          · зовёт logAudit()
-      - иначе
-        - return res.status(400).json({ error: `Не хватает документов сделки: ${missing .map((kind)
-          · ответ 400 — «Не хватает документов сделки: ${missing
-              .map((kind) =>…»
-- если isSubmittingForApproval && !hasFullClosingData
-  - return res.status(400).json({ error: "Укажите фактическую цену продажи и комиссию (риелтор, компания), прежде…
-    · ответ 400 — «Укажите фактическую цену продажи и комиссию (риелтор, компания),…»
-- если isSubmittingForApproval && commissionExceedsPrice
-  - return res.status(400).json({ error: "Комиссия (риелтор + компания) не может превышать фактическую цену прода…
-    · ответ 400 — «Комиссия (риелтор + компания) не может превышать фактическую цену…»
-- если !canSetCommission(req) && (data.commissionAmount !== undefined || data.commissionPercent !== undefined)
-  - return res.status(403).json({ error: "Сумму комиссии задаёт руководитель — она считается автоматически по Нас…
-    · ответ 403 — «Сумму комиссии задаёт руководитель — она считается автоматически по…»
-- если settingCommissionSums && !isSubmittingForApproval && !canSetCommission(req)
-  - return res.status(403).json({ error: "Комиссию по уже отправленной сделке может поправить только руководитель…
-    · ответ 403 — «Комиссию по уже отправленной сделке может поправить только…»
-- если data.soldPrice !== undefined
-  - если !allowedNow
-    - return res.status(403).json({ error: "Цена продажи задаётся при отправке на закрытие; поправить её потом може…
-      · ответ 403 — «Цена продажи задаётся при отправке на закрытие; поправить её потом…»
-  - если existing.stage === "COMPLETED"
-    - если !canSetCommission(req)
-      - return res.status(403).json({ error: "Цену продажи закрытой сделки меняет только руководитель" });
-        · ответ 403 — «Цену продажи закрытой сделки меняет только руководитель»
-    - logAudit(req, "DEAL_SOLD_PRICE_CHANGE", "Deal", existing.id, { was: existing.soldPrice ? Number(existing.sold…
-      · зовёт logAudit()
-- если commissionExceedsPrice && !isRejecting && (isCompleting || isSubmittingForApproval || settingCommissionSums |…
-  - return res.status(400).json({ error: "Комиссия (риелтор + компания) не может превышать фактическую цену прода…
-    · ответ 400 — «Комиссия (риелтор + компания) не может превышать фактическую цену…»
-- если isRepricingClosed && data.commissionAmount === undefined && data.commissionPercent !== undefined
-  - const propertyForBase = await prisma.property.findUnique({ where: { id: existing.propertyId }, select: { pric…
-    · читает в базе: property
-  - если priceBase > 0
-    - data.commissionAmount = commissionOf(priceBase, data.commissionPercent);
+- const outcome = await updateDealFor(req, req.params.id, req.body);
+  · зовёт updateDealFor()
+  - const parsed = dealUpdateSchema.safeParse(body);
+    · проверяет данные схемой dealUpdateSchema
+  - если !parsed.success
+    - return fail(400, { error: "Неверные данные", details: parsed.error.flatten() });
       · дословно из кода
-- иначе если isRepricingClosed && data.commissionAmount !== undefined && data.commissionPercent === undefined
-  - const propertyForBase = await prisma.property.findUnique({ where: { id: existing.propertyId }, select: { pric…
-    · читает в базе: property
-  - если priceBase > 0
-    - data.commissionPercent = Math.round((data.commissionAmount / priceBase) * 100 * 10000) / 10000;
-      · дословно из кода
-- если isRepricingClosed && settingCommissionSums && hasExplicitSums
-  - const sharesCents = sumCents([effRealtor, effCompany]);
-    · зовёт sumCents()
-  - если soldPriceCents > 0
-    - data.commissionPercent = Math.round((sharesCents / soldPriceCents) * 100 * 10000) / 10000;
-      · дословно из кода
-- если isRepricingClosed
-  - если data.commissionAmount !== undefined
-    - dealFields.commissionAmount = data.commissionAmount;
-      · дословно из кода
-  - если data.commissionPercent !== undefined
-    - dealFields.commissionPercent = data.commissionPercent;
-      · дословно из кода
-- если isRepricingClosed
-  - logAudit(req, "DEAL_REPRICE_CLOSED", "Deal", existing.id, { wasAmount: existing.commissionAmount ? Number(exi…
-    · зовёт logAudit()
-- пробует
-  - const updated = await prisma.$transaction(async (tx)
-    · ошибка DealConflictError — «Объект не найден»
-    · всё внутри — одной транзакцией
-    · читает в базе: property
-    · меняет в базе: property
-    · меняет в базе: client
-    · считает в базе: deal
-    · создаёт или меняет в базе: settings
+  - const ownAgentId = scopeDealsToOwnAgent(req);
+    · зовёт scopeDealsToOwnAgent()
+  - const existing = await prisma.deal.findUnique({ where: { id: dealId }, include: { client: { select: { fullNam…
     · читает в базе: deal
-    · меняет в базе: deal
-    - если isCompleting
-      - const property = await tx.property.findUnique({ where: { id: existing.propertyId } });
-        · читает в базе: property
-      - если !property
-        - throw new DealConflictError("Объект не найден");
-          · ошибка DealConflictError — «Объект не найден»
-      - const propertyUpdate = await tx.property.updateMany({ where: { id: property.id, status: { in: ["AVAILABLE", "…
-        · меняет в базе: property
-      - если propertyUpdate.count !== 1
-        - throw new DealConflictError("Объект уже продан или снят с продажи");
-          · ошибка DealConflictError — «Объект уже продан или снят с продажи»
-      - await tx.client.update({ where: { id: existing.clientId }, data: { status: "DEAL_CLOSED" } });
-        · меняет в базе: client
-      - если property.sellerClientId
-        - sellerClientIdToRecompute = property.sellerClientId;
-          · дословно из кода
-        - completedPropertyIdForInteraction = property.id;
-          · дословно из кода
-    - если isCancelling
-      - const [otherPropertyDeals, otherClosedClientDeals] = await Promise.all([ tx.deal.count({ where: { propertyId:…
-        · считает в базе: deal
-      - если otherPropertyDeals === 0
-        - const releasedReservation = await tx.property.updateMany({ where: { id: existing.propertyId, status: "RESERVE…
-          · меняет в базе: property
-        - если releasedReservation.count === 1
-          - propertyReleasedToAvailable = true;
-            · дословно из кода
-        - await tx.property.updateMany({ where: { id: existing.propertyId, status: "AVAILABLE", assignedAgentId: existi…
-          · меняет в базе: property
-        - const cancelledProperty = await tx.property.findUnique({ where: { id: existing.propertyId }, select: { seller…
-          · читает в базе: property
-        - если cancelledProperty?.sellerClientId
-          - await tx.client.updateMany({ where: { id: cancelledProperty.sellerClientId, status: "DEAL_CLOSED" }, data: { …
-            · меняет в базе: client
-      - если otherClosedClientDeals === 0
-        - await tx.client.updateMany({ where: { id: existing.clientId, status: "DEAL_CLOSED" }, data: { status: "HOT" }…
-          · меняет в базе: client
-    - если isCompleting && hasExplicitSums
-      - split = { commissionAmount: fromCents(sumCents([effRealtor, effCompany])), commissionIntakeAmount: 0, commiss…
+  - если !existing
+    - return fail(404, { error: "Сделка не найдена" });
+      · дословно из кода
+  - если ownAgentId && existing.agentId !== ownAgentId
+    - return fail(403, { error: "Недостаточно прав" });
+      · дословно из кода
+  - const denied = foreignDealWriteDenied(req, existing, ownAgentId);
+    · зовёт foreignDealWriteDenied()
+  - если denied
+    - return fail(403, { error: denied });
+      · дословно из кода
+  - если existing.stage === "COMPLETED" && data.stage && data.stage !== "COMPLETED"
+    - return fail(409, { error: "Завершённую сделку нельзя вернуть на предыдущий этап" });
+      · дословно из кода
+  - если isRevivingCancelled && existing.annulledAt
+    - return fail(409, { error: "Сделка аннулирована — вернуть её нельзя, заведите новую" });
+      · дословно из кода
+  - если isRevivingCancelled && !canCompleteDeal(req)
+    - return fail(403, { error: "Вернуть отменённую сделку в работу может только руководитель" });
+      · дословно из кода
+  - если existing.client?.deletedAt && data.stage && data.stage !== existing.stage
+    - return fail(409, { error: "Клиент этой сделки в Корзине — сначала восстановите карточку" });
+      · дословно из кода
+  - если data.stage === "COMPLETED" && existing.stage !== "COMPLETED" && !canCompleteDeal(req)
+    - return fail(403, { error: "Закрыть сделку может только руководитель" });
+      · дословно из кода
+  - const commissionExceedsPrice = finalSoldPrice !== null && finalSoldPrice !== undefined && finalRealtorAmount …
+    · зовёт sumCents()
+  - const isDirectComplete = data.stage === "COMPLETED" && existing.stage !== "COMPLETED" && existing.stage !== "…
+    · зовёт canCompleteDeal()
+  - если isDirectComplete && !hasFullClosingData
+    - return fail(400, { error: "Укажите фактическую цену продажи и комиссию (риелтор, компания), прежде чем закрыв…
+      · дословно из кода
+  - если isDirectComplete && commissionExceedsPrice
+    - return fail(400, { error: "Комиссия (риелтор + компания) не может превышать фактическую цену продажи", });
+      · дословно из кода
+  - если data.stage === "COMPLETED" && existing.stage !== "COMPLETED" && existing.stage !== "PENDING_APPROVAL" && !isD…
+    - return fail(409, { error: "Сделку можно завершить только после отправки на закрытие" });
+      · дословно из кода
+  - если isRejecting && !canCompleteDeal(req)
+    - return fail(403, { error: "Вернуть сделку на доработку может только руководитель" });
+      · дословно из кода
+  - если isRejecting && !data.rejectReason
+    - return fail(400, { error: "Укажите причину возврата на доработку" });
+      · дословно из кода
+  - если isSubmittingForApproval || isDirectComplete
+    - const hadShowing = await prisma.interaction.findFirst({ where: { ...conductedShowingWhere(existing.clientId),…
+      · читает в базе: interaction
+    - если !hadShowing
+      - return fail(409, { error: isDirectComplete ? "Нельзя закрыть сделку без проведённого показа этого объекта" : …
         · дословно из кода
-    - иначе если existing.stage !== "COMPLETED" && settingCommissionSums && hasExplicitSums
-      - const amountCents = sumCents([effRealtor, effCompany]);
-        · зовёт sumCents()
-    - иначе если isRepricingClosed && settingCommissionSums
-    - иначе если existing.stage === "COMPLETED" && !isCompleting && settingCommissionSums && hasExplicitSums
-      - const amountCents = sumCents([effRealtor, effCompany]);
-        · зовёт sumCents()
-    - иначе если isRepricingClosed && existing.commissionIntakeAmount !== null && existing.commissionRealtorAmount !== null &&…
-      - const [intakeCents, realtorCents, companyCents] = splitCents(newBaseCents, [ toCents(existing.commissionIntak…
-        · зовёт splitCents()
-    - иначе если isCompleting || isRepricingClosed
-      - const settings = await tx.settings.upsert({ where: { id: "singleton" }, update: {}, create: { id: "singleton"…
-        · создаёт или меняет в базе: settings
-      - если baseCents > 0 && totalP > 0
-        - const [realtorCents, companyCents] = splitCents(baseCents, [realtorP, companyP]);
-          · зовёт splitCents()
-    - если isCompleting
-      - await tx.client.updateMany({ where: { id: existing.clientId, refusalCount: { gt: 0 } }, data: { refusalCount:…
-        · меняет в базе: client
-    - если isRevivingCancelled
-      - const revivedProperty = await tx.property.findUnique({ where: { id: existing.propertyId }, select: { status: …
-        · читает в базе: property
-      - если !revivedProperty || ["SOLD", "WITHDRAWN"].includes(revivedProperty.status)
-        - throw new DealConflictError("Объект уже продан или снят с продажи — отменённую сделку не вернуть");
-          · ошибка DealConflictError — «Объект уже продан или снят с продажи — отменённую сделку не вернуть»
-      - const reservedAgain = await tx.property.updateMany({ where: { id: existing.propertyId, deletedAt: null, OR: […
-        · меняет в базе: property
-      - если reservedAgain.count !== 1
-        - throw new DealConflictError("По объекту уже идёт сделка — объект зарезервирован");
-          · ошибка DealConflictError — «По объекту уже идёт сделка — объект зарезервирован»
-      - const liveDeal = await tx.deal.findFirst({ where: { propertyId: existing.propertyId, stage: { notIn: ["COMPLE…
-        · читает в базе: deal
-      - если liveDeal
-        - throw new DealConflictError("По этому объекту уже есть незакрытая сделка");
-          · ошибка DealConflictError — «По этому объекту уже есть незакрытая сделка»
-    - const updateResult = await tx.deal.updateMany({ where: clientVersion !== undefined ? { id: existing.id, stage…
-      · меняет в базе: deal
-    - если updateResult.count === 0
-      - throw new DealConflictError("Сделка изменена другим пользователем, обновите страницу");
-        · ошибка DealConflictError — «Сделка изменена другим пользователем, обновите страницу»
-    - если isRejecting
-      - await tx.property.updateMany({ where: { id: existing.propertyId, status: "RESERVED" }, data: { reservedAt: ne…
-        · меняет в базе: property
-    - const deal = await tx.deal.findUniqueOrThrow({ where: { id: existing.id } });
-      · читает в базе: deal
-    - если data.stage && data.stage !== existing.stage
-      - await logTimeline({ clientId: existing.clientId, actor: { kind: "agent", agentId: req.agent!.id }, propertyId…
-        · зовёт logTimeline()
-  - если revivedReservedProperty
-    - closeWorkAfterLeavingSale(existing.propertyId, "reserved");
-      · зовёт closeWorkAfterLeavingSale()
-  - если sellerClientIdToRecompute
-    - const sellerBefore = await prisma.client.findUnique({ where: { id: sellerClientIdToRecompute }, select: { sta…
-      · читает в базе: client
-    - const sellerVerdict = await recomputeSellerCardState({ sellerClientId: sellerClientIdToRecompute });
-      · зовёт recomputeSellerCardState()
-    - если sellerVerdict?.next === "DEAL_CLOSED" && sellerBefore?.status !== "DEAL_CLOSED"
-      - await logTimeline({ clientId: sellerClientIdToRecompute, actor: { kind: "agent", agentId: req.agent!.id }, pr…
-        · зовёт logTimeline()
-  - если data.commissionAmount !== undefined || data.commissionPercent !== undefined
-    - logAudit(req, "DEAL_COMMISSION_CHANGE", "Deal", existing.id, { fromAmount: existing.commissionAmount?.toStrin…
-      · зовёт logAudit()
-  - const scorePoints = (isCompleting || isVoidingClosedDeal) && existing.agentId ? await loadEventPoints() : nul…
-    · зовёт loadEventPoints()
-  - если isCompleting && existing.agentId && scorePoints
-    - await recordScoreEvent({ agentId: existing.agentId, kind: "deal_closed", delta: scorePoints.deal_closed, reas…
-      · зовёт recordScoreEvent()
-    - если existing.client?.lostAt && existing.client.lastAgentId && existing.client.lastAgentId !== existing.agentId
-      - await recordScoreEvent({ agentId: existing.agentId, kind: "client_recovered_bonus", delta: scorePoints.client…
-        · зовёт recordScoreEvent()
-    - const closer = await prisma.agent.findUnique({ where: { id: existing.agentId }, select: { fullName: true } });
-      · читает в базе: agent
-    - void prisma.agent .findMany({ where: { role: { in: [...RATED_ROLES] }, isActive: true }, select: { id: true }…
-      · читает в базе: agent
-      · push-уведомление
-  - const closedMonthKey = existing.closedAt ? (()
-    - const w = dushanbeWallClock(existing.closedAt);
-      · зовёт dushanbeWallClock()
-  - const nowWall = dushanbeWallClock();
-    · зовёт dushanbeWallClock()
-  - если closedMonthKey && (isVoidingClosedDeal || (changedClosedShares && closedMonthKey < currentMonthKey))
-    - пробует
-      - await upsertSalaryExpenses(closedMonthKey);
-        · зовёт upsertSalaryExpenses()
-    - если сорвалось
-      - void logSystemError("api", `Зарплатная строка после правки долей сделки ${existing.id} не обновлена: ${descri…
-        · запись в журнал ошибок
-  - если isVoidingClosedDeal && existing.agentId && scorePoints
-    - await reverseDealClosedScore({ dealId: existing.id, agentId: existing.agentId, client: existing.client, initi…
-      · зовёт reverseDealClosedScore()
-  - если isCompleting
-    - closeWorkAfterLeavingSale(existing.propertyId, "sold");
-      · зовёт closeWorkAfterLeavingSale()
-    - await enqueueBackgroundJob({ type: "deal-close-followup", payload: { dealId: existing.id, propertyId: existin…
-      · зовёт enqueueBackgroundJob()
-    - void enqueueBackgroundJob({ type: "deal-review-ask", payload: { dealId: existing.id }, maxAttempts: 5, dedupe…
-      · зовёт enqueueBackgroundJob()
-  - если propertyReleasedToAvailable
-    - void prisma.property .findUnique({ where: { id: existing.propertyId }, select: { id: true, shortId: true, tit…
+  - если isSubmittingForApproval || isDirectComplete || isApprovingSubmitted
+    - const required = await getDealRequiredDocuments();
+      · зовёт getDealRequiredDocuments()
+    - если required.length > 0
+      - const uploadedSet = new Set<string>(await distinctUploadedKinds(existing.id));
+        · зовёт distinctUploadedKinds()
+      - если missing.length > 0
+        - если skipDocuments && canCompleteDeal(req)
+          - если !opts.dryRun
+            - logAudit(req, "DEAL_SKIP_DOCUMENTS", "Deal", existing.id, { missingKinds: missing });
+              · зовёт logAudit()
+        - иначе
+          - return fail(400, { error: `Не хватает документов сделки: ${missing .map((kind) => DEAL_DOCUMENT_KIND_LABELS[k…
+            · дословно из кода
+  - если isSubmittingForApproval && !hasFullClosingData
+    - return fail(400, { error: "Укажите фактическую цену продажи и комиссию (риелтор, компания), прежде чем отправ…
+      · дословно из кода
+  - если isSubmittingForApproval && commissionExceedsPrice
+    - return fail(400, { error: "Комиссия (риелтор + компания) не может превышать фактическую цену продажи", });
+      · дословно из кода
+  - если !canSetCommission(req) && (data.commissionAmount !== undefined || data.commissionPercent !== undefined)
+    - return fail(403, { error: "Сумму комиссии задаёт руководитель — она считается автоматически по Настройкам" });
+      · дословно из кода
+  - если settingCommissionSums && !isSubmittingForApproval && !canSetCommission(req)
+    - return fail(403, { error: "Комиссию по уже отправленной сделке может поправить только руководитель" });
+      · дословно из кода
+  - если data.soldPrice !== undefined
+    - const allowedNow = isSubmittingForApproval || isDirectComplete || canSetCommission(req);
+      · зовёт canSetCommission()
+    - если !allowedNow
+      - return fail(403, { error: "Цена продажи задаётся при отправке на закрытие; поправить её потом может только ру…
+        · дословно из кода
+    - если existing.stage === "COMPLETED"
+      - если !canSetCommission(req)
+        - return fail(403, { error: "Цену продажи закрытой сделки меняет только руководитель" });
+          · дословно из кода
+      - если !opts.dryRun
+        - logAudit(req, "DEAL_SOLD_PRICE_CHANGE", "Deal", existing.id, { was: existing.soldPrice ? Number(existing.sold…
+          · зовёт logAudit()
+  - если commissionExceedsPrice && !isRejecting && (isCompleting || isSubmittingForApproval || settingCommissionSums |…
+    - return fail(400, { error: "Комиссия (риелтор + компания) не может превышать фактическую цену продажи", });
+      · дословно из кода
+  - если isRepricingClosed && data.commissionAmount === undefined && data.commissionPercent !== undefined
+    - const propertyForBase = await prisma.property.findUnique({ where: { id: existing.propertyId }, select: { pric…
       · читает в базе: property
-  - если data.stage && data.stage !== existing.stage
-    - logAudit( req, isCompleting ? "DEAL_COMPLETE" : isCancelling ? "DEAL_CANCEL" : isRejecting ? "DEAL_REJECT" : …
+    - если priceBase > 0
+      - data.commissionAmount = commissionOf(priceBase, data.commissionPercent);
+        · дословно из кода
+  - иначе если isRepricingClosed && data.commissionAmount !== undefined && data.commissionPercent === undefined
+    - const propertyForBase = await prisma.property.findUnique({ where: { id: existing.propertyId }, select: { pric…
+      · читает в базе: property
+    - если priceBase > 0
+      - data.commissionPercent = Math.round((data.commissionAmount / priceBase) * 100 * 10000) / 10000;
+        · дословно из кода
+  - если isRepricingClosed && settingCommissionSums && hasExplicitSums
+    - const sharesCents = sumCents([effRealtor, effCompany]);
+      · зовёт sumCents()
+    - если soldPriceCents > 0
+      - data.commissionPercent = Math.round((sharesCents / soldPriceCents) * 100 * 10000) / 10000;
+        · дословно из кода
+  - если isRepricingClosed
+    - если data.commissionAmount !== undefined
+      - dealFields.commissionAmount = data.commissionAmount;
+        · дословно из кода
+    - если data.commissionPercent !== undefined
+      - dealFields.commissionPercent = data.commissionPercent;
+        · дословно из кода
+  - если isRepricingClosed && !opts.dryRun
+    - logAudit(req, "DEAL_REPRICE_CLOSED", "Deal", existing.id, { wasAmount: existing.commissionAmount ? Number(exi…
       · зовёт logAudit()
-  - если isCompleting || isCancelling
-    - runClientAutopilotInBackground(existing.clientId, "deal_closed");
-      · зовёт runClientAutopilotInBackground()
-  - иначе если data.stage && data.stage !== existing.stage
-    - runClientAutopilotInBackground(existing.clientId, "deal_changed");
-      · зовёт runClientAutopilotInBackground()
-  - если data.stage && data.stage !== existing.stage
-    - void closeAutoTasks(existing.clientId, ["deal_stale_buyer_close_deal"]).catch((err)
-      · зовёт closeAutoTasks()
-  - если data.stage && data.stage !== existing.stage
-    - publishDealUpdated({ dealId: existing.id, clientId: existing.clientId, agentId: existing.agentId, stage: data…
-      · зовёт publishDealUpdated()
-  - если data.stage && data.stage !== existing.stage && req.agent!.id !== existing.agentId
-    - sendPushToAgent(existing.agentId, { title: isRejecting ? "🔄 Сделка возвращена на доработку" : isCompleting ?…
-      · push-уведомление
-  - res.json(serializeDealMoney(updated, seesDealMoney(req, updated)));
-    · ответ 200
-- если сорвалось
-  - если error instanceof DealConflictError
-    - return res.status(409).json({ error: error.message });
-      · ответ 409
-  - throw error;
-    · пробрасывает ошибку дальше
+  - если opts.dryRun
+    - return { ok: true, status: 200, plan: { from: existing.stage, to: data.stage ?? existing.stage, isCompleting,…
+      · дословно из кода
+  - пробует
+    - const updated = await prisma.$transaction(async (tx)
+      · ошибка DealConflictError — «Объект не найден»
+      · всё внутри — одной транзакцией
+      · читает в базе: property
+      · меняет в базе: property
+      · меняет в базе: client
+      · считает в базе: deal
+      · создаёт или меняет в базе: settings
+      · читает в базе: deal
+      · меняет в базе: deal
+      - если isCompleting
+        - const property = await tx.property.findUnique({ where: { id: existing.propertyId } });
+          · читает в базе: property
+        - если !property
+          - throw new DealConflictError("Объект не найден");
+            · ошибка DealConflictError — «Объект не найден»
+        - const propertyUpdate = await tx.property.updateMany({ where: { id: property.id, status: { in: ["AVAILABLE", "…
+          · меняет в базе: property
+        - если propertyUpdate.count !== 1
+          - throw new DealConflictError("Объект уже продан или снят с продажи");
+            · ошибка DealConflictError — «Объект уже продан или снят с продажи»
+        - await tx.client.update({ where: { id: existing.clientId }, data: { status: "DEAL_CLOSED" } });
+          · меняет в базе: client
+        - если property.sellerClientId
+          - sellerClientIdToRecompute = property.sellerClientId;
+            · дословно из кода
+          - completedPropertyIdForInteraction = property.id;
+            · дословно из кода
+      - если isCancelling
+        - const [otherPropertyDeals, otherClosedClientDeals] = await Promise.all([ tx.deal.count({ where: { propertyId:…
+          · считает в базе: deal
+        - если otherPropertyDeals === 0
+          - const releasedReservation = await tx.property.updateMany({ where: { id: existing.propertyId, status: "RESERVE…
+            · меняет в базе: property
+          - если releasedReservation.count === 1
+            - propertyReleasedToAvailable = true;
+              · дословно из кода
+          - await tx.property.updateMany({ where: { id: existing.propertyId, status: "AVAILABLE", assignedAgentId: existi…
+            · меняет в базе: property
+          - const cancelledProperty = await tx.property.findUnique({ where: { id: existing.propertyId }, select: { seller…
+            · читает в базе: property
+          - если cancelledProperty?.sellerClientId
+            - await tx.client.updateMany({ where: { id: cancelledProperty.sellerClientId, status: "DEAL_CLOSED" }, data: { …
+              · меняет в базе: client
+        - если otherClosedClientDeals === 0
+          - await tx.client.updateMany({ where: { id: existing.clientId, status: "DEAL_CLOSED" }, data: { status: "HOT" }…
+            · меняет в базе: client
+      - если isCompleting && hasExplicitSums
+        - split = { commissionAmount: fromCents(sumCents([effRealtor, effCompany])), commissionIntakeAmount: 0, commiss…
+          · дословно из кода
+      - иначе если existing.stage !== "COMPLETED" && settingCommissionSums && hasExplicitSums
+        - const amountCents = sumCents([effRealtor, effCompany]);
+          · зовёт sumCents()
+      - иначе если isRepricingClosed && settingCommissionSums
+      - иначе если existing.stage === "COMPLETED" && !isCompleting && settingCommissionSums && hasExplicitSums
+        - const amountCents = sumCents([effRealtor, effCompany]);
+          · зовёт sumCents()
+      - иначе если isRepricingClosed && existing.commissionIntakeAmount !== null && existing.commissionRealtorAmount !== null &&…
+        - const scaled = scaleClosedCommissionShares(data.commissionAmount ?? existing.commissionAmount, existing);
+          · зовёт scaleClosedCommissionShares()
+      - иначе если isCompleting || isRepricingClosed
+        - const settings = await tx.settings.upsert({ where: { id: "singleton" }, update: {}, create: { id: "singleton"…
+          · создаёт или меняет в базе: settings
+        - если baseCents > 0 && totalP > 0
+          - const [realtorCents, companyCents] = splitCents(baseCents, [realtorP, companyP]);
+            · зовёт splitCents()
+      - если isCompleting
+        - await tx.client.updateMany({ where: { id: existing.clientId, refusalCount: { gt: 0 } }, data: { refusalCount:…
+          · меняет в базе: client
+      - если isRevivingCancelled
+        - const revivedProperty = await tx.property.findUnique({ where: { id: existing.propertyId }, select: { status: …
+          · читает в базе: property
+        - если !revivedProperty || ["SOLD", "WITHDRAWN"].includes(revivedProperty.status)
+          - throw new DealConflictError("Объект уже продан или снят с продажи — отменённую сделку не вернуть");
+            · ошибка DealConflictError — «Объект уже продан или снят с продажи — отменённую сделку не вернуть»
+        - const reservedAgain = await tx.property.updateMany({ where: { id: existing.propertyId, deletedAt: null, OR: […
+          · меняет в базе: property
+        - если reservedAgain.count !== 1
+          - throw new DealConflictError("По объекту уже идёт сделка — объект зарезервирован");
+            · ошибка DealConflictError — «По объекту уже идёт сделка — объект зарезервирован»
+        - const liveDeal = await tx.deal.findFirst({ where: { propertyId: existing.propertyId, stage: { notIn: ["COMPLE…
+          · читает в базе: deal
+        - если liveDeal
+          - throw new DealConflictError("По этому объекту уже есть незакрытая сделка");
+            · ошибка DealConflictError — «По этому объекту уже есть незакрытая сделка»
+      - const updateResult = await tx.deal.updateMany({ where: clientVersion !== undefined ? { id: existing.id, stage…
+        · меняет в базе: deal
+      - если updateResult.count === 0
+        - throw new DealConflictError("Сделка изменена другим пользователем, обновите страницу");
+          · ошибка DealConflictError — «Сделка изменена другим пользователем, обновите страницу»
+      - если isRejecting
+        - await tx.property.updateMany({ where: { id: existing.propertyId, status: "RESERVED" }, data: { reservedAt: ne…
+          · меняет в базе: property
+      - const deal = await tx.deal.findUniqueOrThrow({ where: { id: existing.id } });
+        · читает в базе: deal
+      - если data.stage && data.stage !== existing.stage
+        - await logTimeline({ clientId: existing.clientId, actor: { kind: "agent", agentId: req.agent!.id }, propertyId…
+          · зовёт logTimeline()
+    - если revivedReservedProperty
+      - closeWorkAfterLeavingSale(existing.propertyId, "reserved");
+        · зовёт closeWorkAfterLeavingSale()
+    - если sellerClientIdToRecompute
+      - const sellerBefore = await prisma.client.findUnique({ where: { id: sellerClientIdToRecompute }, select: { sta…
+        · читает в базе: client
+      - const sellerVerdict = await recomputeSellerCardState({ sellerClientId: sellerClientIdToRecompute });
+        · зовёт recomputeSellerCardState()
+      - если sellerVerdict?.next === "DEAL_CLOSED" && sellerBefore?.status !== "DEAL_CLOSED"
+        - await logTimeline({ clientId: sellerClientIdToRecompute, actor: { kind: "agent", agentId: req.agent!.id }, pr…
+          · зовёт logTimeline()
+    - если data.commissionAmount !== undefined || data.commissionPercent !== undefined
+      - logAudit(req, "DEAL_COMMISSION_CHANGE", "Deal", existing.id, { fromAmount: existing.commissionAmount?.toStrin…
+        · зовёт logAudit()
+    - const scorePoints = (isCompleting || isVoidingClosedDeal) && existing.agentId ? await loadEventPoints() : nul…
+      · зовёт loadEventPoints()
+    - если isCompleting && existing.agentId && scorePoints
+      - await recordScoreEvent({ agentId: existing.agentId, kind: "deal_closed", delta: scorePoints.deal_closed, reas…
+        · зовёт recordScoreEvent()
+      - если existing.client?.lostAt && existing.client.lastAgentId && existing.client.lastAgentId !== existing.agentId
+        - await recordScoreEvent({ agentId: existing.agentId, kind: "client_recovered_bonus", delta: scorePoints.client…
+          · зовёт recordScoreEvent()
+      - const closer = await prisma.agent.findUnique({ where: { id: existing.agentId }, select: { fullName: true } });
+        · читает в базе: agent
+      - void prisma.agent .findMany({ where: { role: { in: [...RATED_ROLES] }, isActive: true }, select: { id: true }…
+        · читает в базе: agent
+        · push-уведомление
+    - const closedMonthKey = existing.closedAt ? (()
+      - const w = dushanbeWallClock(existing.closedAt);
+        · зовёт dushanbeWallClock()
+    - const nowWall = dushanbeWallClock();
+      · зовёт dushanbeWallClock()
+    - если closedMonthKey && (isVoidingClosedDeal || (changedClosedShares && closedMonthKey < currentMonthKey))
+      - пробует
+        - await upsertSalaryExpenses(closedMonthKey);
+          · зовёт upsertSalaryExpenses()
+      - если сорвалось
+        - void logSystemError("api", `Зарплатная строка после правки долей сделки ${existing.id} не обновлена: ${descri…
+          · запись в журнал ошибок
+    - если isVoidingClosedDeal && existing.agentId && scorePoints
+      - await reverseDealClosedScore({ dealId: existing.id, agentId: existing.agentId, client: existing.client, initi…
+        · зовёт reverseDealClosedScore()
+    - если isCompleting
+      - closeWorkAfterLeavingSale(existing.propertyId, "sold");
+        · зовёт closeWorkAfterLeavingSale()
+      - await enqueueBackgroundJob({ type: "deal-close-followup", payload: { dealId: existing.id, propertyId: existin…
+        · зовёт enqueueBackgroundJob()
+      - void enqueueBackgroundJob({ type: "deal-review-ask", payload: { dealId: existing.id }, maxAttempts: 5, dedupe…
+        · зовёт enqueueBackgroundJob()
+    - если propertyReleasedToAvailable
+      - void prisma.property .findUnique({ where: { id: existing.propertyId }, select: { id: true, shortId: true, tit…
+        · читает в базе: property
+    - если data.stage && data.stage !== existing.stage
+      - logAudit( req, isCompleting ? "DEAL_COMPLETE" : isCancelling ? "DEAL_CANCEL" : isRejecting ? "DEAL_REJECT" : …
+        · зовёт logAudit()
+    - если isCompleting || isCancelling
+      - runClientAutopilotInBackground(existing.clientId, "deal_closed");
+        · зовёт runClientAutopilotInBackground()
+    - иначе если data.stage && data.stage !== existing.stage
+      - runClientAutopilotInBackground(existing.clientId, "deal_changed");
+        · зовёт runClientAutopilotInBackground()
+    - если data.stage && data.stage !== existing.stage
+      - void closeAutoTasks(existing.clientId, ["deal_stale_buyer_close_deal"]).catch((err)
+        · зовёт closeAutoTasks()
+    - если data.stage && data.stage !== existing.stage
+      - publishDealUpdated({ dealId: existing.id, clientId: existing.clientId, agentId: existing.agentId, stage: data…
+        · зовёт publishDealUpdated()
+    - если data.stage && data.stage !== existing.stage && req.agent!.id !== existing.agentId
+      - sendPushToAgent(existing.agentId, { title: isRejecting ? "🔄 Сделка возвращена на доработку" : isCompleting ?…
+        · push-уведомление
+  - если сорвалось
+    - если error instanceof DealConflictError
+      - return fail(409, { error: error.message });
+        · дословно из кода
+    - throw error;
+      · пробрасывает ошибку дальше
+- если !outcome.ok
+  - return res.status(outcome.status).json(outcome.body);
+    · ответ (код зависит от условия)
+- если !("deal" in outcome)
+  - throw new Error("updateDealFor вернул план без dryRun");
+    · ошибка Error — «updateDealFor вернул план без dryRun»
+- res.json(serializeDealMoney(outcome.deal, seesDealMoney(req, outcome.deal)));
+  · ответ 200
+
+### GET /api/v1/deals/payouts
+
+`apps/api/src/routes/dealPayout.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- const parsed = payoutsQuerySchema.safeParse(req.query);
+  · проверяет данные схемой payoutsQuerySchema
+- если !parsed.success
+  - return res.status(400).json({ error: "Неверные параметры запроса", details: parsed.error.flatten() });
+    · ответ 400 — «Неверные параметры запроса»
+- const report = await agentPayoutsReport(scope, can(req, "finance.view") ? {} : { agentId: req.agent!.id });
+  · зовёт agentPayoutsReport()
+- res.json({ scope: parsed.data.month ?? "open", ...payoutsReportAmounts(report) });
+  · ответ 200
 
 ### GET /api/v1/deals
 
@@ -6274,101 +6316,124 @@
 
 `apps/api/src/routes/deals.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
 
-- const parsed = dealCreateSchema.safeParse(req.body);
-  · проверяет данные схемой dealCreateSchema
-- если !parsed.success
-  - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
-    · ответ 400 — «Неверные данные»
-- если data.stage === "COMPLETED" || data.stage === "CANCELLED"
-  - return res.status(400).json({ error: "Сделка не может быть создана сразу закрытой или отменённой — создайте е…
-    · ответ 400 — «Сделка не может быть создана сразу закрытой или отменённой — создайте…»
-- если !canSetCommission(req) && (data.commissionAmount !== undefined || data.commissionPercent !== undefined)
-  - return res.status(403).json({ error: "Сумму комиссии задаёт руководитель — она считается автоматически по Нас…
-    · ответ 403 — «Сумму комиссии задаёт руководитель — она считается автоматически по…»
-- const [client, property] = await Promise.all([ prisma.client.findFirst({ where: { id: data.clientId, deletedA…
-  · читает в базе: client
-  · читает в базе: property
-- если !client
-  - return res.status(404).json({ error: "Клиент не найден" });
-    · ответ 404 — «Клиент не найден»
-- если !property
-  - return res.status(404).json({ error: "Объект не найден" });
-    · ответ 404 — «Объект не найден»
-- const agent = await prisma.agent.findUnique({ where: { id: agentId }, select: { id: true } });
-  · читает в базе: agent
-- если !agent
-  - return res.status(400).json({ error: "Указанный агент не найден" });
-    · ответ 400 — «Указанный агент не найден»
-- если client.kind !== "BUYER"
-  - return res.status(409).json({ error: "Для закрытия сделки необходим покупатель" });
-    · ответ 409 — «Для закрытия сделки необходим покупатель»
-- если !canBindClient(req, client)
-  - return res.status(403).json({ error: "Агент не может создавать сделку для чужого клиента" });
-    · ответ 403 — «Агент не может создавать сделку для чужого клиента»
-- если ["SOLD", "WITHDRAWN"].includes(property.status)
-  - return res.status(409).json({ error: "Нельзя создать сделку по проданному или снятому с продажи объекту" });
-    · ответ 409 — «Нельзя создать сделку по проданному или снятому с продажи объекту»
-- если property.status === "RESERVED" && (!sameAgentReservation || reservationClientMismatch)
-  - return res.status(409).json({ error: "По объекту уже идёт сделка — объект зарезервирован" });
-    · ответ 409 — «По объекту уже идёт сделка — объект зарезервирован»
-- если commissionPercent === undefined && commissionAmount === undefined
-  - const settings = await prisma.settings.upsert({ where: { id: "singleton" }, update: {}, create: { id: "single…
-    · создаёт или меняет в базе: settings
-- иначе если commissionAmount === undefined && commissionPercent !== undefined
-  - commissionAmount = commissionOf(property.price, commissionPercent);
-    · дословно из кода
-- иначе если commissionPercent === undefined && commissionAmount !== undefined
-  - если price > 0
-    - commissionPercent = (commissionAmount / price) * 100;
+- const outcome = await createDealFor(req, req.body);
+  · зовёт createDealFor()
+  - const parsed = dealCreateSchema.safeParse(body);
+    · проверяет данные схемой dealCreateSchema
+  - если !parsed.success
+    - return fail(400, { error: "Неверные данные", details: parsed.error.flatten() });
       · дословно из кода
-- пробует
-  - deal = await prisma.$transaction(async (tx)
-    · ошибка DealConflictError — «Работа по назначению завершена или клиент передан — обновите карточку»
-    · всё внутри — одной транзакцией
-    · обращается к базе своим SQL
+  - если data.stage === "COMPLETED" || data.stage === "CANCELLED"
+    - return fail(400, { error: "Сделка не может быть создана сразу закрытой или отменённой — создайте её и закройт…
+      · дословно из кода
+  - если !canSetCommission(req) && (data.commissionAmount !== undefined || data.commissionPercent !== undefined)
+    - return fail(403, { error: "Сумму комиссии задаёт руководитель — она считается автоматически по Настройкам" });
+      · дословно из кода
+  - const [client, property] = await Promise.all([ prisma.client.findFirst({ where: { id: data.clientId, deletedA…
     · читает в базе: client
-    · меняет в базе: property
-    · читает в базе: deal
-    · меняет в базе: client
-    · создаёт в базе: deal
-    - await tx.$queryRaw`SELECT id FROM "Client" WHERE id = ${data.clientId} FOR UPDATE`;
-      · обращается к базе своим SQL
-    - const currentClient = await tx.client.findUnique({ where: { id: data.clientId }, select: { assignmentComplete…
-      · читает в базе: client
-    - если !currentClient || currentClient.deletedAt || (req.agent!.role !== "ADMIN" && req.agent!.role !== "DIRECTOR" &…
-      - throw new DealConflictError("Работа по назначению завершена или клиент передан — обновите карточку");
-        · ошибка DealConflictError — «Работа по назначению завершена или клиент передан — обновите карточку»
-    - const reserved = await tx.property.updateMany({ where: { id: property.id, deletedAt: null, OR: [ { status: "A…
-      · меняет в базе: property
-    - если reserved.count !== 1
-      - throw new DealConflictError("По объекту уже идёт сделка — объект зарезервирован");
-        · ошибка DealConflictError — «По объекту уже идёт сделка — объект зарезервирован»
-    - const liveDeal = await tx.deal.findFirst({ where: { propertyId: data.propertyId, stage: { notIn: ["COMPLETED"…
+    · читает в базе: property
+  - если !client
+    - return fail(404, { error: "Клиент не найден" });
+      · дословно из кода
+  - если !property
+    - return fail(404, { error: "Объект не найден" });
+      · дословно из кода
+  - const agent = await prisma.agent.findUnique({ where: { id: agentId }, select: { id: true } });
+    · читает в базе: agent
+  - если !agent
+    - return fail(400, { error: "Указанный агент не найден" });
+      · дословно из кода
+  - если client.kind !== "BUYER"
+    - return fail(409, { error: "Для закрытия сделки необходим покупатель" });
+      · дословно из кода
+  - если !canBindClient(req, client)
+    - return fail(403, { error: "Агент не может создавать сделку для чужого клиента" });
+      · дословно из кода
+  - если ["SOLD", "WITHDRAWN"].includes(property.status)
+    - return fail(409, { error: "Нельзя создать сделку по проданному или снятому с продажи объекту" });
+      · дословно из кода
+  - если property.status === "RESERVED" && (!sameAgentReservation || reservationClientMismatch)
+    - return fail(409, { error: "По объекту уже идёт сделка — объект зарезервирован" });
+      · дословно из кода
+  - если commissionPercent === undefined && commissionAmount === undefined
+    - const settings = opts.dryRun ? await prisma.settings.findUnique({ where: { id: "singleton" } }) : await prism…
+      · читает в базе: settings
+      · создаёт или меняет в базе: settings
+    - если settings
+      - commissionPercent = Number(settings.commissionIntakePercent) + Number(settings.commissionRealtorPercent) + Nu…
+        · дословно из кода
+      - commissionAmount = commissionOf(property.price, commissionPercent);
+        · дословно из кода
+  - иначе если commissionAmount === undefined && commissionPercent !== undefined
+    - commissionAmount = commissionOf(property.price, commissionPercent);
+      · дословно из кода
+  - иначе если commissionPercent === undefined && commissionAmount !== undefined
+    - если price > 0
+      - commissionPercent = (commissionAmount / price) * 100;
+        · дословно из кода
+  - если opts.dryRun
+    - если req.agent!.role !== "ADMIN" && req.agent!.role !== "DIRECTOR" && (client.assignmentCompletedAt || client.dele…
+      - return fail(409, { error: "Работа по назначению завершена или клиент передан — обновите карточку" });
+        · дословно из кода
+    - const liveDeal = await prisma.deal.findFirst({ where: { propertyId: data.propertyId, stage: { notIn: ["COMPLE…
       · читает в базе: deal
     - если liveDeal
-      - throw new DealConflictError("По этому объекту уже есть незакрытая сделка");
-        · ошибка DealConflictError — «По этому объекту уже есть незакрытая сделка»
-    - await tx.client.updateMany({ where: { id: data.clientId, buyerStage: { not: null } }, data: { buyerStage: nul…
+      - return fail(409, { error: "По этому объекту уже есть незакрытая сделка" });
+        · дословно из кода
+  - пробует
+    - deal = await prisma.$transaction(async (tx)
+      · ошибка DealConflictError — «Работа по назначению завершена или клиент передан — обновите карточку»
+      · всё внутри — одной транзакцией
+      · обращается к базе своим SQL
+      · читает в базе: client
+      · меняет в базе: property
+      · читает в базе: deal
       · меняет в базе: client
-    - return tx.deal.create({ data: { ...data, commissionPercent, commissionAmount, currency: property.currency, ag…
       · создаёт в базе: deal
-- если сорвалось
-  - если error instanceof DealConflictError
-    - return res.status(409).json({ error: error.message });
-      · ответ 409
-  - throw error;
-    · пробрасывает ошибку дальше
-- closeWorkAfterLeavingSale(data.propertyId, "reserved");
-  · зовёт closeWorkAfterLeavingSale()
-- logAudit(req, "DEAL_CREATE", "Deal", deal.id, { clientId: data.clientId, propertyId: data.propertyId, agentId…
-  · зовёт logAudit()
-- publishDealUpdated({ dealId: deal.id, clientId: deal.clientId, agentId: deal.agentId, stage: deal.stage, acto…
-  · зовёт publishDealUpdated()
-- void closeAutoTasks(data.clientId, ["deal_stale_buyer_close_deal"]).catch((err)
-  · зовёт closeAutoTasks()
-- runClientAutopilotInBackground(data.clientId, "deal_changed");
-  · зовёт runClientAutopilotInBackground()
-- res.status(201).json(serializeDealMoney(deal, seesDealMoney(req, deal)));
+      - await tx.$queryRaw`SELECT id FROM "Client" WHERE id = ${data.clientId} FOR UPDATE`;
+        · обращается к базе своим SQL
+      - const currentClient = await tx.client.findUnique({ where: { id: data.clientId }, select: { assignmentComplete…
+        · читает в базе: client
+      - если !currentClient || currentClient.deletedAt || (req.agent!.role !== "ADMIN" && req.agent!.role !== "DIRECTOR" &…
+        - throw new DealConflictError("Работа по назначению завершена или клиент передан — обновите карточку");
+          · ошибка DealConflictError — «Работа по назначению завершена или клиент передан — обновите карточку»
+      - const reserved = await tx.property.updateMany({ where: { id: property.id, deletedAt: null, OR: [ { status: "A…
+        · меняет в базе: property
+      - если reserved.count !== 1
+        - throw new DealConflictError("По объекту уже идёт сделка — объект зарезервирован");
+          · ошибка DealConflictError — «По объекту уже идёт сделка — объект зарезервирован»
+      - const liveDeal = await tx.deal.findFirst({ where: { propertyId: data.propertyId, stage: { notIn: ["COMPLETED"…
+        · читает в базе: deal
+      - если liveDeal
+        - throw new DealConflictError("По этому объекту уже есть незакрытая сделка");
+          · ошибка DealConflictError — «По этому объекту уже есть незакрытая сделка»
+      - await tx.client.updateMany({ where: { id: data.clientId, buyerStage: { not: null } }, data: { buyerStage: nul…
+        · меняет в базе: client
+      - return tx.deal.create({ data: { ...data, commissionPercent, commissionAmount, currency: property.currency, ag…
+        · создаёт в базе: deal
+  - если сорвалось
+    - если error instanceof DealConflictError
+      - return fail(409, { error: error.message });
+        · дословно из кода
+    - throw error;
+      · пробрасывает ошибку дальше
+  - closeWorkAfterLeavingSale(data.propertyId, "reserved");
+    · зовёт closeWorkAfterLeavingSale()
+  - logAudit(req, "DEAL_CREATE", "Deal", deal.id, { clientId: data.clientId, propertyId: data.propertyId, agentId…
+    · зовёт logAudit()
+  - publishDealUpdated({ dealId: deal.id, clientId: deal.clientId, agentId: deal.agentId, stage: deal.stage, acto…
+    · зовёт publishDealUpdated()
+  - void closeAutoTasks(data.clientId, ["deal_stale_buyer_close_deal"]).catch((err)
+    · зовёт closeAutoTasks()
+  - runClientAutopilotInBackground(data.clientId, "deal_changed");
+    · зовёт runClientAutopilotInBackground()
+- если !outcome.ok
+  - return res.status(outcome.status).json(outcome.body);
+    · ответ (код зависит от условия)
+- если !("deal" in outcome)
+  - throw new Error("createDealFor вернул план без dryRun");
+    · ошибка Error — «createDealFor вернул план без dryRun»
+- res.status(201).json(serializeDealMoney(outcome.deal, seesDealMoney(req, outcome.deal)));
   · ответ 201
 
 ## /api/v1/districts
@@ -6713,18 +6778,16 @@
 `apps/api/src/routes/expenses.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, requireFinanceWrite
 
 - пробует
-  - const expense = await prisma.expense.update({ where: { id: req.params.id }, data: { deletedAt: null } });
-    · меняет в базе: expense
+  - const expense = await restoreExpense(req.params.id);
+    · зовёт restoreExpense()
   - logAudit(req, "RESTORE", "Expense", expense.id, { category: expense.category, amount: expense.amount.toString…
     · зовёт logAudit()
   - res.json(expense);
     · ответ 200
 - если сорвалось
-  - если err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025"
-    - return res.status(404).json({ error: "Расход не найден" });
-      · ответ 404 — «Расход не найден»
-  - throw err;
-    · пробрасывает ошибку дальше
+  - если !commandFailed(res, err)
+    - throw err;
+      · пробрасывает ошибку дальше
 
 ### POST /api/v1/expenses/:id/undo-payment
 
@@ -6740,119 +6803,55 @@
   - return res.status(400).json({ error: "Неверная версия расхода" });
     · ответ 400 — «Неверная версия расхода»
 - пробует
-  - const deleted = await prisma.expense.update({ where: { id: req.params.id, ...(parsed.data.version !== undefin…
-    · меняет в базе: expense
+  - const deleted = await deleteExpense(req.params.id, parsed.data.version);
+    · зовёт deleteExpense()
   - logAudit(req, "DELETE", "Expense", deleted.id, { category: deleted.category, amount: deleted.amount.toString(…
     · зовёт logAudit()
   - res.status(204).end();
     · ответ 204
 - если сорвалось
-  - если err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025"
-    - если parsed.data.version !== undefined
-      - return res.status(409).json({ code: "EXPENSE_VERSION_CONFLICT", error: "Расход уже изменён. Обновите запись п…
-        · ответ 409 — «Расход уже изменён. Обновите запись перед удалением»
-    - return res.status(404).json({ error: "Расход не найден" });
-      · ответ 404 — «Расход не найден»
-  - throw err;
-    · пробрасывает ошибку дальше
+  - если !commandFailed(res, err)
+    - throw err;
+      · пробрасывает ошибку дальше
 
 ### PATCH /api/v1/expenses/:id
 
 `apps/api/src/routes/expenses.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, requireFinanceWrite
 
-- const parsed = expenseUpdateSchema.safeParse(req.body);
-  · проверяет данные схемой expenseUpdateSchema
-- если !parsed.success
-  - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
-    · ответ 400 — «Неверные данные»
-- const current = await prisma.expense.findUnique({ where: { id: req.params.id } });
-  · читает в базе: expense
-- если !current || current.deletedAt
-  - return res.status(404).json({ error: "Расход не найден" });
-    · ответ 404 — «Расход не найден»
-- если version === undefined && changedFields.length > 1
-  - return res.status(409).json({ code: "EXPENSE_VERSION_REQUIRED", error: "Обновите страницу и снова откройте ра…
-    · ответ 409 — «Обновите страницу и снова откройте расход: старая форма не передаёт…»
-- если version !== undefined && version !== current.version
-  - return res.status(409).json({ code: "EXPENSE_VERSION_CONFLICT", error: "Расход изменён другим сотрудником. Об…
-    · ответ 409 — «Расход изменён другим сотрудником. Обновите запись перед сохранением»
-- если rest.amount!==undefined&&rest.amount>99_999_999.99
-  - return res.status(400).json({error:"Сумма слишком большая"});
-    · ответ 400 — «Сумма слишком большая»
-- если !await validateExpenseCategory(rest.categoryId===undefined?current.categoryId:rest.categoryId,rest.category??…
-  - return res.status(400).json({error:"Категория не соответствует разделу"});
-    · ответ 400 — «Категория не соответствует разделу»
-- const money=await loadMoneyContext();
-  · зовёт loadMoneyContext()
-- если (rest.status??current.status)==="PAID"&&finalPaymentDate&&finalPaymentDate>todayExpenseDay()
-  - return res.status(400).json({error:"Будущий платёж запишите как план"});
-    · ответ 400 — «Будущий платёж запишите как план»
-- если finalCategory === "ADVERTISING" && !finalSource
-  - return res.status(400).json({ error: "Укажите канал рекламы" });
-    · ответ 400 — «Укажите канал рекламы»
-- если finalCategory === "SALARY" && !finalAgentId
-  - return res.status(400).json({ error: "Укажите сотрудника" });
-    · ответ 400 — «Укажите сотрудника»
-- если (finalCategory === "OFFICE" || finalCategory === "OTHER") && !finalNote?.trim()
-  - return res.status(400).json({ error: "Укажите комментарий — куда пошли деньги" });
-    · ответ 400 — «Укажите комментарий — куда пошли деньги»
 - пробует
-  - const expense = await prisma.expense.update({ where: { id: req.params.id,version:version ?? current.version, …
-    · меняет в базе: expense
-  - logAudit(req, "UPDATE", "Expense", expense.id, { changed: Object.keys(parsed.data) });
+  - const { expense, changed } = await updateExpense(req.params.id, req.body);
+    · зовёт updateExpense()
+  - logAudit(req, "UPDATE", "Expense", expense.id, { changed });
     · зовёт logAudit()
   - res.json((await expenseDtos([expense]))[0]);
     · ответ 200
 - если сорвалось
-  - если err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025"
-    - return res.status(409).json({ code: "EXPENSE_VERSION_CONFLICT", error: "Расход изменён другим сотрудником. Об…
-      · ответ 409 — «Расход изменён другим сотрудником. Обновите запись перед сохранением»
-  - throw err;
-    · пробрасывает ошибку дальше
+  - если !commandFailed(res, err)
+    - throw err;
+      · пробрасывает ошибку дальше
 
 ### GET /api/v1/expenses/archive
 
 `apps/api/src/routes/expenses.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view
 
-- const expenses = await prisma.expense.findMany({ where: { deletedAt: { not: null, ...(from ? { gte: from } : …
-  · читает в базе: expense
-- res.json(expenses);
+- res.json(await listArchivedExpenses(req.query.from, req.query.to));
   · ответ 200
 
 ### PATCH /api/v1/expenses/categories/:id
 
 `apps/api/src/routes/expenseWorkspace.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, (error: unknown, _req: Request, res: Response, next: NextFunction) => { if (error instanceof ExpenseLifecycle…, write
 
-- если !parsed.success
-  - return res.status(400).json({ error: "Некорректная категория" });
-    · ответ 400 — «Некорректная категория»
-- const row = await prisma.expenseCategoryDefinition.findUnique({ where: { id: req.params.id } });
-  · читает в базе: expenseCategoryDefinition
-- если !row
-  - return res.status(404).json({ error: "Категория не найдена" });
-    · ответ 404 — «Категория не найдена»
-- если parsed.data.rootCategory && parsed.data.rootCategory !== row.rootCategory
-  - return res.status(400).json({ error: "Раздел существующей категории менять нельзя" });
-    · ответ 400 — «Раздел существующей категории менять нельзя»
-- если parentId
-  - для каждого: let i = 0; next && i < 100; i++
-    - если visited.has(next)
-      - return res.status(400).json({ error: "Цикл категорий недопустим" });
-        · ответ 400 — «Цикл категорий недопустим»
-    - const parent: { rootCategory: string; parentId: string | null; } | null = await prisma.expenseCategoryDefinit…
-      · читает в базе: expenseCategoryDefinition
-    - если !parent || parent.rootCategory !== row.rootCategory
-      - return res.status(400).json({ error: "Неверная родительская категория" });
-        · ответ 400 — «Неверная родительская категория»
-  - если next
-    - return res.status(400).json({ error: "Слишком глубокие категории" });
-      · ответ 400 — «Слишком глубокие категории»
-- const updated = await prisma.expenseCategoryDefinition.update({ where: { id: row.id }, data: parsed.data });
-  · меняет в базе: expenseCategoryDefinition
-- logAudit(req, "UPDATE", "ExpenseCategoryDefinition", row.id, {});
-  · зовёт logAudit()
-- res.json(updated);
-  · ответ 200
+- пробует
+  - const updated = await updateExpenseCategory(req.params.id, req.body);
+    · зовёт updateExpenseCategory()
+  - logAudit(req, "UPDATE", "ExpenseCategoryDefinition", updated.id, {});
+    · зовёт logAudit()
+  - res.json(updated);
+    · ответ 200
+- если сорвалось
+  - если !commandFailed(res, err)
+    - throw err;
+      · пробрасывает ошибку дальше
 
 ### GET /api/v1/expenses/categories
 
@@ -6863,42 +6862,24 @@
 - если !p.success
   - return res.status(400).json({ error: "Неверные фильтры категорий" });
     · ответ 400 — «Неверные фильтры категорий»
-- const month = p.data.month ?? todayExpenseDay().slice(0, 7);
-  · зовёт todayExpenseDay()
-- const [categories, expenses, money] = await Promise.all([prisma.expenseCategoryDefinition.findMany({ orderBy:…
-  · читает в базе: expenseCategoryDefinition
-  · читает в базе: expense
-- если expenses.length > 20000
-  - throw new ExpenseLifecycleError(413, "Слишком много расходов для справочника");
-    · ошибка ExpenseLifecycleError — «413,»
-- res.json(categories.map(c
+- res.json(await listExpenseCategories(p.data.month ?? todayExpenseDay().slice(0, 7)));
   · ответ 200
-  - для каждого: let i = 0; i < categories.length; i++
-    - для каждого: const child of categories
-      - if (child.parentId && ids.has(child.parentId) && !ids.has(child.id)) { ids.add(child.id); changed = true; } i…
-        · дословно из кода
 
 ### POST /api/v1/expenses/categories
 
 `apps/api/src/routes/expenseWorkspace.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, (error: unknown, _req: Request, res: Response, next: NextFunction) => { if (error instanceof ExpenseLifecycle…, write
 
-- const parsed = expenseCategorySchema.safeParse(req.body);
-  · проверяет данные схемой expenseCategorySchema
-- если !parsed.success
-  - return res.status(400).json({ error: "Некорректная категория", details: parsed.error.flatten() });
-    · ответ 400 — «Некорректная категория»
-- если parsed.data.parentId
-  - const parent = await prisma.expenseCategoryDefinition.findUnique({ where: { id: parsed.data.parentId } });
-    · читает в базе: expenseCategoryDefinition
-  - если !parent || parent.rootCategory !== parsed.data.rootCategory
-    - return res.status(400).json({ error: "Родительская категория не соответствует разделу" });
-      · ответ 400 — «Родительская категория не соответствует разделу»
-- const row = await prisma.expenseCategoryDefinition.create({ data: parsed.data });
-  · создаёт в базе: expenseCategoryDefinition
-- logAudit(req, "CREATE", "ExpenseCategoryDefinition", row.id, {});
-  · зовёт logAudit()
-- res.status(201).json(row);
-  · ответ 201
+- пробует
+  - const row = await createExpenseCategory(req.body);
+    · зовёт createExpenseCategory()
+  - logAudit(req, "CREATE", "ExpenseCategoryDefinition", row.id, {});
+    · зовёт logAudit()
+  - res.status(201).json(row);
+    · ответ 201
+- если сорвалось
+  - если !commandFailed(res, err)
+    - throw err;
+      · пробрасывает ошибку дальше
 
 ### GET /api/v1/expenses/counterparties
 
@@ -6968,6 +6949,8 @@
 
 `apps/api/src/routes/expenses.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view
 
+- const from = dushanbeMonthStart(monthsBack - 1);
+  · зовёт dushanbeMonthStart()
 - const [deals, expenses, settings, money] = await Promise.all([ prisma.deal.findMany({ where: { stage: "COMPLE…
   · читает в базе: deal
   · читает в базе: expense
@@ -7021,20 +7004,7 @@
 - если !p.success
   - return res.status(400).json({ error: "Некорректные фильтры" });
     · ответ 400 — «Некорректные фильтры»
-- const [expenses, categories, money] = await Promise.all([filteredExpenses({ ...p.data, status: "PAID" }), pri…
-  · читает в базе: expenseCategoryDefinition
-- для каждого: const e of expenses
-  - если !result.months.includes(month)
-    - result.months.push(month);
-      · дословно из кода
-  - если !row
-    - row = { categoryId: key, title: cat?.title ?? e.category, rootCategory: e.category, color: cat?.color ?? "#7F…
-      · дословно из кода
-    - groups.set(key, row);
-      · дословно из кода
-  - const amount = expenseCentsToTjs(e, money);
-    · зовёт expenseCentsToTjs()
-- res.json(result);
+- res.json(await buildExpensePivot(p.data));
   · ответ 200
 
 ### GET /api/v1/expenses/pulse
@@ -7067,16 +7037,17 @@
 
 `apps/api/src/routes/expenseWorkspace.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, (error: unknown, _req: Request, res: Response, next: NextFunction) => { if (error instanceof ExpenseLifecycle…, write
 
-- const t = await prisma.recurringExpense.findUnique({ where: { id: req.params.id } });
-  · читает в базе: recurringExpense
-- если !t
-  - return res.status(404).json({ error: "Подписка не найдена" });
-    · ответ 404 — «Подписка не найдена»
-- res.json(await prisma.recurringExpense.update({ where: { id: t.id }, data: { deletedAt: null } }));
-  · ответ 200
-  · меняет в базе: recurringExpense
-- logAudit(req, "RESTORE", "RecurringExpense", t.id, {});
-  · зовёт logAudit()
+- пробует
+  - const row = await restoreRecurringExpense(req.params.id);
+    · зовёт restoreRecurringExpense()
+  - res.json(row);
+    · ответ 200
+  - logAudit(req, "RESTORE", "RecurringExpense", row.id, {});
+    · зовёт logAudit()
+- если сорвалось
+  - если !commandFailed(res, err)
+    - throw err;
+      · пробрасывает ошибку дальше
 
 ### POST /api/v1/expenses/recurring/:id/skip
 
@@ -7101,149 +7072,74 @@
 `apps/api/src/routes/expenses.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, requireFinanceWrite
 
 - пробует
-  - await prisma.recurringExpense.update({ where: { id: req.params.id },data:{deletedAt:new Date()} });
-    · меняет в базе: recurringExpense
+  - await deleteRecurringExpense(req.params.id);
+    · зовёт deleteRecurringExpense()
   - logAudit(req, "DELETE", "RecurringExpense", req.params.id, {});
     · зовёт logAudit()
   - res.json({ ok: true });
     · ответ 200
 - если сорвалось
-  - если err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025"
-    - return res.status(404).json({ error: "Шаблон не найден" });
-      · ответ 404 — «Шаблон не найден»
-  - throw err;
-    · пробрасывает ошибку дальше
+  - если !commandFailed(res, err)
+    - throw err;
+      · пробрасывает ошибку дальше
 
 ### PATCH /api/v1/expenses/recurring/:id
 
 `apps/api/src/routes/expenses.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, requireFinanceWrite
 
-- const parsed = recurringPatchSchema.safeParse(req.body);
-  · проверяет данные схемой recurringPatchSchema
-- если !parsed.success
-  - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
-    · ответ 400 — «Неверные данные»
-- const existing=await prisma.recurringExpense.findUnique({where:{id:req.params.id}});
-  · читает в базе: recurringExpense
-- если !existing||existing.deletedAt
-  - return res.status(404).json({error:"Шаблон не найден"});
-    · ответ 404 — «Шаблон не найден»
-- если start&&end&&end<start
-  - return res.status(400).json({error:"Конец подписки раньше начала"});
-    · ответ 400 — «Конец подписки раньше начала»
-- если !await validateExpenseCategory(patch.categoryId===undefined?existing.categoryId:patch.categoryId,patch.catego…
-  - return res.status(400).json({error:"Неверная категория подписки"});
-    · ответ 400 — «Неверная категория подписки»
-- если touchesAttribution
-  - const current = await prisma.recurringExpense.findUnique({ where: { id: req.params.id }, select: { category: …
-    · читает в базе: recurringExpense
-  - если !current
-    - return res.status(404).json({ error: "Шаблон не найден" });
-      · ответ 404 — «Шаблон не найден»
-  - если issue
-    - return res.status(400).json({ error: issue.message });
-      · ответ 400
 - пробует
-  - const row = await prisma.recurringExpense.update({ where: { id: req.params.id }, data: { ...patch, ...attribu…
-    · меняет в базе: recurringExpense
-  - logAudit(req, "UPDATE", "RecurringExpense", row.id, { changed: Object.keys(parsed.data) });
+  - const { row, changed } = await updateRecurringExpense(req.params.id, req.body);
+    · зовёт updateRecurringExpense()
+  - logAudit(req, "UPDATE", "RecurringExpense", row.id, { changed });
     · зовёт logAudit()
   - res.json(row);
     · ответ 200
 - если сорвалось
-  - если err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025"
-    - return res.status(404).json({ error: "Шаблон не найден" });
-      · ответ 404 — «Шаблон не найден»
-  - throw err;
-    · пробрасывает ошибку дальше
+  - если !commandFailed(res, err)
+    - throw err;
+      · пробрасывает ошибку дальше
 
 ### GET /api/v1/expenses/recurring
 
 `apps/api/src/routes/expenses.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view
 
-- const rows = await prisma.recurringExpense.findMany({where:{deletedAt:null}, orderBy: [{ active: "desc" }, { …
-  · читает в базе: recurringExpense
-- const today=todayExpenseDay();
-  · зовёт todayExpenseDay()
-- const payments=await prisma.expense.findMany({where:{deletedAt:null,status:"PAID",OR:[{recurringId:{in:rows.m…
-  · читает в базе: expense
-- если payments.length>20000
-  - return res.status(413).json({error:"Слишком много платежей для списка подписок"});
-    · ответ 413 — «Слишком много платежей для списка подписок»
-- res.json(rows.map(row
-  · ответ 200
+- пробует
+  - res.json(await listRecurringExpenses());
+    · ответ 200
+- если сорвалось
+  - если err instanceof ExpenseLifecycleError
+    - return res.status(err.status).json({ error: err.message });
+      · ответ (код зависит от условия)
+  - throw err;
+    · пробрасывает ошибку дальше
 
 ### POST /api/v1/expenses/recurring
 
 `apps/api/src/routes/expenses.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, requireFinanceWrite
 
-- const parsed = recurringSchema.safeParse(req.body);
-  · проверяет данные схемой recurringSchema
-- если !parsed.success
-  - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
-    · ответ 400 — «Неверные данные»
-- если parsed.data.startsOn && parsed.data.endsOn && parsed.data.endsOn<parsed.data.startsOn
-  - return res.status(400).json({error:"Конец подписки раньше начала"});
-    · ответ 400 — «Конец подписки раньше начала»
-- если !await validateExpenseCategory(parsed.data.categoryId,parsed.data.category)
-  - return res.status(400).json({error:"Неверная категория подписки"});
-    · ответ 400 — «Неверная категория подписки»
-- const row = await prisma.recurringExpense.create({ data: { ...parsed.data, ...(!parsed.data.startsOn&&(parsed…
-  · создаёт в базе: recurringExpense
-- logAudit(req, "CREATE", "RecurringExpense", row.id, { title: row.title, amount: Number(row.amount) });
-  · зовёт logAudit()
-- res.status(201).json(row);
-  · ответ 201
+- пробует
+  - const row = await createRecurringExpense(req.body);
+    · зовёт createRecurringExpense()
+  - logAudit(req, "CREATE", "RecurringExpense", row.id, { title: row.title, amount: Number(row.amount) });
+    · зовёт logAudit()
+  - res.status(201).json(row);
+    · ответ 201
+- если сорвалось
+  - если !commandFailed(res, err)
+    - throw err;
+      · пробрасывает ошибку дальше
 
 ### GET /api/v1/expenses/summary
 
 `apps/api/src/routes/expenses.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view
 
-- если !through.success
-  - return res.status(400).json({error:"Некорректный месяц"});
-    · ответ 400 — «Некорректный месяц»
-- const now = through.data?expenseDay(`${through.data}-01`):dushanbeWallClock();
-  · зовёт expenseDay()
-- const [expenses, completedDeals, clients, settings, money] = await Promise.all([ prisma.expense.findMany({ wh…
-  · читает в базе: expense
-  · читает в базе: deal
-  · читает в базе: client
-  · создаёт или меняет в базе: settings
-- если truncated
-  - void logSystemError( "api", `Финансовая сводка за ${monthsBack} мес.: выборка упёрлась в потолок ${FINANCE_RO…
-    · запись в журнал ошибок
-- const payoutByDealId = await getDealPayouts(completedDeals.map((d)
-  · зовёт getDealPayouts()
-- const splitOf = (d: (typeof completedDeals)[number])
-  - const cents = (value: unknown)
-    · зовёт centsToTjs()
-  - если d.commissionCompanyAmount !== null
-    - return { realtor: cents(d.commissionRealtorAmount), company: cents(d.commissionCompanyAmount) + cents(d.commi…
-      · дословно из кода
-  - const [realtor, company] = splitCents(baseCents, [pRealtor, pCompany]);
-    · зовёт splitCents()
-- для каждого: let i = monthsBack - 1; i >= 0; i--
-  - months.push(monthKey(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1))));
-    · дословно из кода
-- const summary = months.map((m)
-  - для каждого: const e of monthExpenses
-    - если isDealSalaryExpense(e)
-      - dealSalaryCents += expenseCentsToTjs(e, money);
-        · зовёт expenseCentsToTjs()
-    - byCategory[e.category] = (byCategory[e.category] ?? 0) + expenseCentsToTjs(e, money);
-      · зовёт expenseCentsToTjs()
-  - для каждого: const d of monthDeals
-    - если realtor > 0
-      - const p = payoutByAgent.get(d.agent.id) ?? { name: d.agent.fullName, realtor: 0, deals: [] };
-        · дословно из кода
-      - p.realtor += realtor;
-        · дословно из кода
-  - для каждого: const e of monthExpenses
-    - если e.category === "ADVERTISING" && e.source
-      - adBySource.set( e.source as ClientSource, (adBySource.get(e.source as ClientSource) ?? 0) + expenseCentsToTjs…
-        · зовёт expenseCentsToTjs()
-- res.json({ months: summary, currency: "TJS", usdToTjsRate: money.usdToTjs, truncated });
-  · ответ 200
+- пробует
+  - res.json(await buildExpenseSummary({ months: req.query.months, through: req.query.through }));
+    · ответ 200
+- если сорвалось
+  - если !commandFailed(res, err)
+    - throw err;
+      · пробрасывает ошибку дальше
 
 ### GET /api/v1/expenses/upcoming
 
@@ -7266,74 +7162,29 @@
 
 `apps/api/src/routes/expenses.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view
 
-- const query=expenseListQuerySchema.safeParse(req.query);
-  · проверяет данные схемой expenseListQuerySchema
-- если !query.success
-  - return res.status(400).json({error:"Некорректные фильтры",details:query.error.flatten()});
-    · ответ 400 — «Некорректные фильтры»
-- const where=expenseWhere(query.data);
-  · зовёт expenseWhere()
-- если query.data.sortBy
-  - пробует
-    - const context=query.data.sortBy==="amount"?await loadMoneyContext():undefined;
-      · зовёт loadMoneyContext()
-    - const ids=await orderedExpenseIds(where,query.data.sortBy,query.data.sortDirection,context);
-      · зовёт orderedExpenseIds()
-    - const rows=await prisma.expense.findMany({where:{id:{in:pageIds},deletedAt:null},include:{agent:{select:{id:t…
-      · читает в базе: expense
-    - const items=await expenseDtos(ordered,context);
-      · зовёт expenseDtos()
-    - return res.json(query.data.page?{items,total:ids.length,page:query.data.page,pageSize:query.data.pageSize}:it…
-      · ответ 200
-  - если сорвалось
-    - если error instanceof ExpenseLifecycleError
-      - return res.status(error.status).json({error:error.message});
-        · ответ (код зависит от условия)
-    - throw error;
+- пробует
+  - res.json(await listExpenses(req.query));
+    · ответ 200
+- если сорвалось
+  - если !commandFailed(res, err)
+    - throw err;
       · пробрасывает ошибку дальше
-- const expenses = await prisma.expense.findMany({ where, orderBy: [{ month: "desc" }, { createdAt: "desc" }], …
-  · читает в базе: expense
-- const items=await expenseDtos(expenses);
-  · зовёт expenseDtos()
-- res.json(query.data.page?{items,total:await prisma.expense.count({where}),page:query.data.page,pageSize:query…
-  · ответ 200
-  · считает в базе: expense
 
 ### POST /api/v1/expenses
 
 `apps/api/src/routes/expenses.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, requireFinanceWrite
 
-- const parsed = expenseCreateSchema.safeParse(req.body);
-  · проверяет данные схемой expenseCreateSchema
-- если !parsed.success
-  - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
-    · ответ 400 — «Неверные данные»
-- если rest.amount>99_999_999.99
-  - return res.status(400).json({error:"Сумма слишком большая"});
-    · ответ 400 — «Сумма слишком большая»
-- если !await validateExpenseCategory(rest.categoryId,rest.category)
-  - return res.status(400).json({error:"Выберите категорию соответствующего раздела"});
-    · ответ 400 — «Выберите категорию соответствующего раздела»
-- если key&&!/^[A-Za-z0-9:_-]{8,120}$/.test(key)
-  - return res.status(400).json({error:"Неверный ключ запроса"});
-    · ответ 400 — «Неверный ключ запроса»
-- const money=await loadMoneyContext();
-  · зовёт loadMoneyContext()
-- const data={...rest,paymentDate:rest.paymentDate?expenseDay(rest.paymentDate):null,month:monthToDate((rest.st…
-  · зовёт expenseDay()
-- если (rest.status??"PAID")==="PAID"&&rest.paymentDate&&rest.paymentDate>todayExpenseDay()
-  - return res.status(400).json({error:"Будущий платёж запишите как план"});
-    · ответ 400 — «Будущий платёж запишите как план»
-- const expense=requestKey?await prisma.expense.upsert({where:{requestKey},update:{},create:data}):await prisma…
-  · создаёт или меняет в базе: expense
-  · создаёт в базе: expense
-- если requestKey&&expense.autoFingerprint!==fingerprint
-  - return res.status(409).json({error:"Этот ключ уже использован для другого расхода",code:"IDEMPOTENCY_CONFLICT…
-    · ответ 409 — «Этот ключ уже использован для другого расхода»
-- logAudit(req, "EXPENSE_CREATE", "Expense", expense.id, { amount: Number(expense.amount), category: expense.ca…
-  · зовёт logAudit()
-- res.status(201).json((await expenseDtos([expense]))[0]);
-  · ответ 201
+- пробует
+  - const { expense, month } = await createExpense(req.body, { agentId: req.agent!.id, idempotencyKey: req.get("I…
+    · зовёт createExpense()
+  - logAudit(req, "EXPENSE_CREATE", "Expense", expense.id, { amount: Number(expense.amount), category: expense.ca…
+    · зовёт logAudit()
+  - res.status(201).json((await expenseDtos([expense]))[0]);
+    · ответ 201
+- если сорвалось
+  - если !commandFailed(res, err)
+    - throw err;
+      · пробрасывает ошибку дальше
 
 ## /api/v1/finance
 
