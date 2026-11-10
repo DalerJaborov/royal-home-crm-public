@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **731**. Развилок в самих путях: **2415**; вместе с задачами по расписанию и фоновыми заданиями — **3914**. Модулей: **81**.
+Путей: **731**. Развилок в самих путях: **2432**; вместе с задачами по расписанию и фоновыми заданиями — **3931**. Модулей: **81**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -519,7 +519,27 @@
 
 `apps/api/src/routes/agents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.reset2fa, requireElevation
 
-- тело без развилок и известных действий
+- если await forbiddenDirectorTarget(req, req.params.id)
+  - return res.status(403).json({ error: "Управлять учёткой директора может только директор" });
+    · ответ 403 — «Управлять учёткой директора может только директор»
+- если await forbiddenPrivilegedTarget(req, req.params.id)
+  - return res.status(403).json({ error: PRIVILEGED_TARGET_ERROR });
+    · ответ 403
+- const target = await prisma.agent.findUnique({ where: { id: req.params.id }, select: { id: true, fullName: tr…
+  · читает в базе: agent
+- если !target
+  - return res.status(404).json({ error: "Сотрудник не найден" });
+    · ответ 404 — «Сотрудник не найден»
+- await prisma.agent.update({ where: { id: target.id }, data: { totpEnabled: false, totpSecret: null } });
+  · меняет в базе: agent
+- await revokeOtherSessions(target.id);
+  · зовёт revokeOtherSessions()
+- revokeElevation(target.id);
+  · зовёт revokeElevation()
+- logAudit(req, "TOTP_RESET_BY_DIRECTOR", "Agent", target.id, { targetName: target.fullName });
+  · зовёт logAudit()
+- res.json({ totpEnabled: false });
+  · ответ 200
 
 ### POST /api/v1/agents/:id/avatar
 
@@ -528,7 +548,7 @@
 - если !req.file
   - return res.status(400).json({ error: "Файл не передан" });
     · ответ 400 — «Файл не передан»
-- если await forbiddenDirectorTarget(req.agent!, req.params.id)
+- если await forbiddenDirectorTarget(req, req.params.id)
   - return res.status(403).json({ error: "Управлять учёткой директора может только директор" });
     · ответ 403 — «Управлять учёткой директора может только директор»
 - const before = await prisma.agent.findUnique({ where: { id: req.params.id }, select: { avatarUrl: true } });
@@ -594,19 +614,128 @@
 
 `apps/api/src/routes/agents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage, requireElevation
 
-- тело без развилок и известных действий
+- const parsed = agentFreezeSchema.safeParse(req.body);
+  · проверяет данные схемой agentFreezeSchema
+- если !parsed.success
+  - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
+    · ответ 400 — «Неверные данные»
+- const agent = await prisma.agent.findUnique({ where: { id: req.params.id }, select: { id: true, fullName: tru…
+  · читает в базе: agent
+- если !agent
+  - return res.status(404).json({ error: "Сотрудник не найден" });
+    · ответ 404 — «Сотрудник не найден»
+- если await forbiddenDirectorTarget(req, agent.id)
+  - return res.status(403).json({ error: "Учётку директора может менять только директор" });
+    · ответ 403 — «Учётку директора может менять только директор»
+- если await forbiddenPrivilegedTarget(req, agent.id)
+  - return res.status(403).json({ error: PRIVILEGED_TARGET_ERROR });
+    · ответ 403
+- если agent.frozenAt
+  - return res.status(409).json({ error: "Сотрудник уже заморожен" });
+    · ответ 409 — «Сотрудник уже заморожен»
+- если agent.id === req.agent!.id
+  - return res.status(400).json({ error: "Нельзя заморозить самого себя" });
+    · ответ 400 — «Нельзя заморозить самого себя»
+- если parsed.data.until && parsed.data.until.getTime() < Date.now()
+  - return res.status(400).json({ error: "Дата выхода уже прошла" });
+    · ответ 400 — «Дата выхода уже прошла»
+- const toRelease = await findUnacceptedLeadsOfAgent(agent.id, "Заморозка", { keepOwnProperty: true });
+  · зовёт findUnacceptedLeadsOfAgent()
+- const actor = await prisma.agent.findUnique({ where: { id: req.agent!.id }, select: { fullName: true } });
+  · читает в базе: agent
+- await prisma.$transaction(async (tx)
+  · всё внутри — одной транзакцией
+  · меняет в базе: agent
+  - await tx.agent.update({ where: { id: agent.id }, data: { frozenAt: new Date(), frozenById: req.agent!.id, fro…
+    · меняет в базе: agent
+  - await clearAgentFromSettingsReferences(tx, agent.id, agent.fullName, "freeze");
+    · зовёт clearAgentFromSettingsReferences()
+  - releasedLeads = await releaseLeadsToQueue(tx, toRelease, { agentId: agent.id, actorId: req.agent!.id, actorNa…
+    · зовёт releaseLeadsToQueue()
+- closeStreamsForAgent(agent.id);
+  · зовёт closeStreamsForAgent()
+- logAudit(req, "AGENT_FREEZE", "Agent", agent.id, { reason: parsed.data.reason, released: released.count });
+  · зовёт logAudit()
+- если releasedLeads.length > 0
+  - const directors = await prisma.agent.findMany({ where: { role: { in: ["DIRECTOR", "ADMIN"] }, isActive: true …
+    · читает в базе: agent
+  - await sendPushToAgents( directors.map((d)
+    · push-уведомление
+- await releaseReactivationOffersOfAgent(agent.id, req.agent!.id).catch((err)
+  · зовёт releaseReactivationOffersOfAgent()
+- void syncAgentQueuePresence(agent.id).catch(()
+  · зовёт syncAgentQueuePresence()
+- res.json({ ok: true, released: released.count });
+  · ответ 200
 
 ### POST /api/v1/agents/:id/handover
 
 `apps/api/src/routes/agents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage, requireElevation
 
-- тело без развилок и известных действий
+- const parsed = agentHandoverSchema.safeParse(req.body);
+  · проверяет данные схемой agentHandoverSchema
+- если !parsed.success
+  - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
+    · ответ 400 — «Неверные данные»
+- если await forbiddenDirectorTarget(req, req.params.id)
+  - return res.status(403).json({ error: "Учётку директора может менять только директор" });
+    · ответ 403 — «Учётку директора может менять только директор»
+- если await forbiddenPrivilegedTarget(req, req.params.id)
+  - return res.status(403).json({ error: PRIVILEGED_TARGET_ERROR });
+    · ответ 403
+- const from = await prisma.agent.findUnique({ where: { id: req.params.id }, select: { id: true, fullName: true…
+  · читает в базе: agent
+- если !from
+  - return res.status(404).json({ error: "Сотрудник не найден" });
+    · ответ 404 — «Сотрудник не найден»
+- если toAgentId === from.id
+  - return res.status(400).json({ error: "Нельзя передать дела тому же сотруднику" });
+    · ответ 400 — «Нельзя передать дела тому же сотруднику»
+- если toAgentId
+  - const to = await prisma.agent.findUnique({ where: { id: toAgentId }, select: { isActive: true, frozenAt: true…
+    · читает в базе: agent
+  - если !to
+    - return res.status(404).json({ error: "Получатель не найден" });
+      · ответ 404 — «Получатель не найден»
+  - если !to.isActive
+    - return res.status(409).json({ error: "Получатель отключён — выберите активного сотрудника" });
+      · ответ 409 — «Получатель отключён — выберите активного сотрудника»
+  - если to.frozenAt
+    - return res.status(409).json({ error: `${to.fullName} сейчас заморожен(а) (отпуск, больничный) — передать дела…
+      · ответ 409 — «${to.fullName} сейчас заморожен(а) (отпуск, больничный) — передать…»
+- если deactivate
+  - если from.id === req.agent!.id
+    - return res.status(400).json({ error: "Свою учётку отключить нельзя — попросите другого руководителя" });
+      · ответ 400 — «Свою учётку отключить нельзя — попросите другого руководителя»
+  - если await wouldLoseLastDirector(from.id, { isActive: false })
+    - return res.status(409).json({ error: "В системе должен остаться хотя бы один активный директор" });
+      · ответ 409 — «В системе должен остаться хотя бы один активный директор»
+- const result = await handoverAgentWork(from.id, toAgentId, req.agent!.id);
+  · зовёт handoverAgentWork()
+- logAudit(req, "AGENT_HANDOVER", "Agent", from.id, { toAgentId: toAgentId ?? null, clients: result.clients, ta…
+  · зовёт logAudit()
+- если deactivate
+  - const before = await prisma.agent.findUnique({ where: { id: from.id }, select: { isActive: true } });
+    · читает в базе: agent
+  - const agent = await prisma.agent.update({ where: { id: from.id }, data: { isActive: false } });
+    · меняет в базе: agent
+  - void syncAgentQueuePresence(agent.id).catch(()
+    · зовёт syncAgentQueuePresence()
+  - logAudit(req, "AGENT_UPDATE", "Agent", agent.id, { fields: ["isActive"], afterHandover: true });
+    · зовёт logAudit()
+  - если result.batchId
+    - await prisma.agentHandoverBatch.update({ where: { id: result.batchId }, data: { deactivated: true } });
+      · меняет в базе: agentHandoverBatch
+- res.json({ ...result, deactivated });
+  · ответ 200
 
 ### GET /api/v1/agents/:id/handovers
 
 `apps/api/src/routes/agents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage
 
-- res.json(await listStaffHandovers(req.params.id));
+- const rows = await prisma.agentHandoverBatch.findMany({ where: { fromAgentId: req.params.id }, orderBy: { cre…
+  · читает в базе: agentHandoverBatch
+- res.json(rows);
   · ответ 200
 
 ### GET /api/v1/agents/:id/kpi
@@ -627,24 +756,87 @@
 
 `apps/api/src/routes/agents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage
 
-- тело без развилок и известных действий
+- const agent = await prisma.agent.findUnique({ where: { id: req.params.id }, select: { id: true, fullName: tru…
+  · читает в базе: agent
+- если !agent
+  - return res.status(404).json({ error: "Сотрудник не найден" });
+    · ответ 404 — «Сотрудник не найден»
+- если !availabilityOf(agent).pausedUntil
+  - return res.status(409).json({ error: "Пауза не включена" });
+    · ответ 409 — «Пауза не включена»
+- await endLeadPause(agent);
+  · зовёт endLeadPause()
+- logAudit(req, "AGENT_LEAD_RESUME_BY_SUPERVISOR", "Agent", agent.id, { targetAgentName: agent.fullName });
+  · зовёт logAudit()
+- const actor = await prisma.agent.findUnique({ where: { id: req.agent!.id }, select: { fullName: true } });
+  · читает в базе: agent
+- notifyAgentAboutSupervisorPause(agent.id, actor?.fullName ?? "Руководитель", null);
+  · зовёт notifyAgentAboutSupervisorPause()
+- res.json({ ok: true });
+  · ответ 200
 
 ### POST /api/v1/agents/:id/lead-pause
 
 `apps/api/src/routes/agents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage
 
-- тело без развилок и известных действий
+- const parsed = supervisorLeadPauseSchema.safeParse(req.body);
+  · проверяет данные схемой supervisorLeadPauseSchema
+- если !parsed.success
+  - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
+    · ответ 400 — «Неверные данные»
+- const agent = await prisma.agent.findUnique({ where: { id: req.params.id }, select: { id: true, fullName: tru…
+  · читает в базе: agent
+- если !agent
+  - return res.status(404).json({ error: "Сотрудник не найден" });
+    · ответ 404 — «Сотрудник не найден»
+- если agent.id === req.agent!.id
+  - return res.status(400).json({ error: "Свою паузу включают в профиле" });
+    · ответ 400 — «Свою паузу включают в профиле»
+- если !(SALES_AGENT_ROLES as readonly string[]).includes(agent.role)
+  - return res.status(400).json({ error: "Лиды получают только агенты и руководитель продаж" });
+    · ответ 400 — «Лиды получают только агенты и руководитель продаж»
+- если !agent.isActive
+  - return res.status(409).json({ error: "Сотрудник отключён" });
+    · ответ 409 — «Сотрудник отключён»
+- если agent.frozenAt
+  - return res.status(409).json({ error: "Сотрудник уже заморожен — лиды ему и так не идут" });
+    · ответ 409 — «Сотрудник уже заморожен — лиды ему и так не идут»
+- const actor = await prisma.agent.findUnique({ where: { id: req.agent!.id }, select: { fullName: true } });
+  · читает в базе: agent
+- const { released } = await startLeadPause({ agentId: agent.id, until, actor: { id: req.agent!.id, fullName: a…
+  · зовёт startLeadPause()
+- logAudit(req, "AGENT_LEAD_PAUSE_BY_SUPERVISOR", "Agent", agent.id, { targetAgentName: agent.fullName, until: …
+  · зовёт logAudit()
+- notifyAgentAboutSupervisorPause(agent.id, actorName, { until, reason });
+  · зовёт notifyAgentAboutSupervisorPause()
+- res.json({ ok: true, pausedUntil: until, released });
+  · ответ 200
 
 ### GET /api/v1/agents/:id/live
 
 `apps/api/src/routes/team.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: team.viewFull
 
-- const live = await loadStaffLive(req.params.id, req.agent!);
-  · зовёт loadStaffLive()
-- если !live
+- const agent = await prisma.agent.findUnique({ where: { id }, select: { id: true, fullName: true, sipExtension…
+  · читает в базе: agent
+- если !agent
   - return res.status(404).json({ error: "Сотрудник не найден" });
     · ответ 404 — «Сотрудник не найден»
-- res.json(live);
+- const [session, nextTask, botChats, tgChats, callBuckets, missedIncoming, lastCalls, statusRows, loadCounts, …
+  · обращается к базе своим SQL
+  · читает в базе: session
+  · читает в базе: interaction
+  · считает в базе: interaction
+  · считает в базе: incomingCall
+  · считает в базе: client
+- пробует
+  - live = activeCallFor(id);
+    · зовёт activeCallFor()
+  - incoming = agent.sipExtension ? liveIncomingCalls().find((c)
+    · зовёт liveIncomingCalls()
+- если сорвалось
+  - await logSystemError("telephony", `Карточка сотрудника: не удалось прочитать живой звонок агента ${id}: ${err…
+    · запись в журнал ошибок
+- res.json({ now: { online: !!agent.lastSeenAt && Date.now() - agent.lastSeenAt.getTime() < ONLINE_WINDOW_MS, l…
   · ответ 200
 
 ### GET /api/v1/agents/:id/overview
@@ -692,13 +884,44 @@
 
 `apps/api/src/routes/agents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: permissions.manage
 
-- тело без развилок и известных действий
+- const agent = await prisma.agent.findUnique({ where: { id: req.params.id }, select: { id: true, fullName: tru…
+  · читает в базе: agent
+- если !agent
+  - return res.status(404).json({ error: "Агент не найден" });
+    · ответ 404 — «Агент не найден»
+- res.json({ agentId: agent.id, fullName: agent.fullName, role, roleSummary: ROLE_PRESET_SUMMARY[role], editabl…
+  · ответ 200
 
 ### PUT /api/v1/agents/:id/permissions
 
 `apps/api/src/routes/agents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: permissions.manage, requireElevation
 
-- тело без развилок и известных действий
+- const parsed = permissionOverridesSchema.safeParse(req.body);
+  · проверяет данные схемой permissionOverridesSchema
+- если !parsed.success
+  - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
+    · ответ 400 — «Неверные данные»
+- const agent = await prisma.agent.findUnique({ where: { id: req.params.id }, select: { id: true, fullName: tru…
+  · читает в базе: agent
+- если !agent
+  - return res.status(404).json({ error: "Агент не найден" });
+    · ответ 404 — «Агент не найден»
+- если agent.role === "DIRECTOR"
+  - return res.status(400).json({ error: "У директора всегда полный доступ — права не настраиваются" });
+    · ответ 400 — «У директора всегда полный доступ — права не настраиваются»
+- если agent.role === "SHAREHOLDER" && parsed.data.granted.length > 0
+  - return res.status(400).json({ error: "Акционеру права не добавляются" });
+    · ответ 400 — «Акционеру права не добавляются»
+- await prisma.agent.update({ where: { id: agent.id }, data: { permissions: isEmpty ? Prisma.DbNull : (override…
+  · меняет в базе: agent
+- invalidateAgentAccess(agent.id);
+  · зовёт invalidateAgentAccess()
+- closeStreamsForAgent(agent.id);
+  · зовёт closeStreamsForAgent()
+- logAudit(req, "AGENT_PERMISSIONS_UPDATE", "Agent", agent.id, { targetAgentName: agent.fullName, role: agent.r…
+  · зовёт logAudit()
+- res.json({ agentId: agent.id, role: agent.role as Role, overrides, items: describePermissions(agent.role as R…
+  · ответ 200
 
 ### GET /api/v1/agents/:id/points
 
@@ -713,19 +936,152 @@
 
 `apps/api/src/routes/agents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage, requireElevation
 
-- тело без развилок и известных действий
+- const agent = await prisma.agent.findUnique({ where: { id: req.params.id }, select: { id: true, frozenAt: tru…
+  · читает в базе: agent
+- если !agent
+  - return res.status(404).json({ error: "Сотрудник не найден" });
+    · ответ 404 — «Сотрудник не найден»
+- если await forbiddenDirectorTarget(req, agent.id)
+  - return res.status(403).json({ error: "Учётку директора может менять только директор" });
+    · ответ 403 — «Учётку директора может менять только директор»
+- если await forbiddenPrivilegedTarget(req, agent.id)
+  - return res.status(403).json({ error: PRIVILEGED_TARGET_ERROR });
+    · ответ 403
+- если !agent.frozenAt
+  - return res.status(409).json({ error: "Сотрудник не заморожен" });
+    · ответ 409 — «Сотрудник не заморожен»
+- await prisma.$transaction(async (tx)
+  · всё внутри — одной транзакцией
+  · меняет в базе: agent
+  - await tx.agent.update({ where: { id: agent.id }, data: { frozenAt: null, frozenById: null, frozenReason: null…
+    · меняет в базе: agent
+  - await shiftInactiveClockAfterAbsence(agent.id, agent.frozenAt, new Date(), tx);
+    · зовёт shiftInactiveClockAfterAbsence()
+- logAudit(req, "AGENT_UNFREEZE", "Agent", agent.id, {});
+  · зовёт logAudit()
+- void syncAgentQueuePresence(agent.id).catch(()
+  · зовёт syncAgentQueuePresence()
+- res.json({ ok: true });
+  · ответ 200
 
 ### DELETE /api/v1/agents/:id
 
 `apps/api/src/routes/agents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage, requireElevation
 
-- тело без развилок и известных действий
+- если req.params.id === req.agent!.id
+  - return res.status(400).json({ error: "Нельзя удалить собственную учётную запись" });
+    · ответ 400 — «Нельзя удалить собственную учётную запись»
+- если await forbiddenDirectorTarget(req, req.params.id)
+  - return res.status(403).json({ error: "Управлять учёткой директора может только директор" });
+    · ответ 403 — «Управлять учёткой директора может только директор»
+- если await forbiddenPrivilegedTarget(req, req.params.id)
+  - return res.status(403).json({ error: PRIVILEGED_TARGET_ERROR });
+    · ответ 403
+- const handover = await handoverAgentWork(req.params.id, undefined, req.agent!.id);
+  · зовёт handoverAgentWork()
+- await releaseReactivationOffersOfAgent(req.params.id, req.agent!.id).catch((err)
+  · зовёт releaseReactivationOffersOfAgent()
+- если await agentHasCascadeHistory(req.params.id)
+  - return disableInsteadOfDelete(req, res, req.params.id, handover, "has history");
+    · дословно из кода
+- пробует
+  - const deleted = await prisma.agent.delete({ where: { id: req.params.id } });
+    · удаляет в базе: agent
+  - invalidateAgentAccess(deleted.id);
+    · зовёт invalidateAgentAccess()
+  - closeStreamsForAgent(deleted.id);
+    · зовёт closeStreamsForAgent()
+  - await clearAgentFromSettingsReferences(prisma, deleted.id, deleted.fullName, "deactivate").catch((err)
+    · зовёт clearAgentFromSettingsReferences()
+  - logAudit(req, "DELETE", "Agent", deleted.id, { fullName: deleted.fullName, role: deleted.role, handoverClient…
+    · зовёт logAudit()
+  - res.json({ ok: true, handover });
+    · ответ 200
+- если сорвалось
+  - если err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025"
+    - return res.status(404).json({ error: "Агент не найден" });
+      · ответ 404 — «Агент не найден»
+  - если err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2003"
+    - return disableInsteadOfDelete(req, res, req.params.id, handover, "has deals/properties/history");
+      · дословно из кода
+  - throw err;
+    · пробрасывает ошибку дальше
 
 ### PATCH /api/v1/agents/:id
 
 `apps/api/src/routes/agents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage, requireElevation
 
-- тело без развилок и известных действий
+- const parsed = agentUpdateSchema.safeParse(req.body);
+  · проверяет данные схемой agentUpdateSchema
+- если !parsed.success
+  - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
+    · ответ 400 — «Неверные данные»
+- const target = await prisma.agent.findUnique({ where: { id: req.params.id }, select: { id: true } });
+  · читает в базе: agent
+- если !target
+  - return res.status(404).json({ error: "Сотрудник не найден" });
+    · ответ 404 — «Сотрудник не найден»
+- если await forbiddenDirectorTarget(req, req.params.id, rest.role)
+  - return res.status(403).json({ error: "Управлять учёткой директора может только директор" });
+    · ответ 403 — «Управлять учёткой директора может только директор»
+- если await forbiddenPrivilegedTarget(req, req.params.id)
+  - return res.status(403).json({ error: PRIVILEGED_TARGET_ERROR });
+    · ответ 403
+- если roleDenied
+  - return res.status(403).json({ error: roleDenied });
+    · ответ 403
+- если await wouldLoseLastDirector(req.params.id, rest)
+  - return res.status(409).json({ error: "В системе должен остаться хотя бы один активный директор" });
+    · ответ 409 — «В системе должен остаться хотя бы один активный директор»
+- если typeof rest.sipExtension === "string"
+  - const check = await checkManualExtension(rest.sipExtension, req.params.id);
+    · зовёт checkManualExtension()
+  - если !check.ok
+    - return res.status(409).json({ error: check.error });
+      · ответ 409
+- если rest.phone
+  - const holder = await prisma.agent.findFirst({ where: { phone: rest.phone, id: { not: req.params.id } }, selec…
+    · читает в базе: agent
+  - если holder
+    - return res.status(409).json({ error: `Этот телефон уже записан за сотрудником «${holder.fullName}»` });
+      · ответ 409 — «Этот телефон уже записан за сотрудником «${holder.fullName}»»
+- const wasActive = rest.isActive === false ? (await prisma.agent.findUnique({ where: { id: req.params.id }, se…
+  · читает в базе: agent
+- если rest.role !== undefined
+  - const before = await prisma.agent.findUnique({ where: { id: req.params.id }, select: { role: true, permission…
+    · читает в базе: agent
+  - если before && before.role !== rest.role && before.permissions !== null
+    - если old.granted.length > 0 || old.revoked.length > 0
+      - resetOverrides = old;
+        · дословно из кода
+- const agent = await prisma.agent.update({ where: { id: req.params.id }, data });
+  · меняет в базе: agent
+- если resetOverrides
+  - logAudit(req, "AGENT_PERMISSIONS_RESET_ON_ROLE_CHANGE", "Agent", agent.id, { targetAgentName: agent.fullName,…
+    · зовёт logAudit()
+- invalidateAgentAccess(agent.id);
+  · зовёт invalidateAgentAccess()
+- если rest.role !== undefined || rest.isActive === false
+  - closeStreamsForAgent(agent.id);
+    · зовёт closeStreamsForAgent()
+- если rest.isActive !== undefined || rest.sipExtension !== undefined
+  - void syncAgentQueuePresence(agent.id).catch(()
+    · зовёт syncAgentQueuePresence()
+- если rest.sipExtension !== undefined || rest.phone !== undefined
+  - void syncAgentMobileFallback(agent.id).catch(()
+    · зовёт syncAgentMobileFallback()
+- если typeof rest.sipExtension === "string"
+  - void ensureExtensionRecording(rest.sipExtension).catch(()
+    · зовёт ensureExtensionRecording()
+- если rest.takesUnknownCalls !== undefined
+  - void ensureAgentsInIncomingQueue().catch(()
+    · зовёт ensureAgentsInIncomingQueue()
+  - void syncAgentMobileFallback(req.params.id).catch(()
+    · зовёт syncAgentMobileFallback()
+- logAudit(req, "AGENT_UPDATE", "Agent", agent.id, { fields: Object.keys(rest), ...(rest.weeklyDaysOff !== unde…
+  · зовёт logAudit()
+- res.json({ id: agent.id, fullName: agent.fullName, phone: agent.phone, role: agent.role, isActive: agent.isAc…
+  · ответ 200
 
 ### GET /api/v1/agents/extensions/free
 
@@ -740,20 +1096,100 @@
 
 `apps/api/src/routes/agents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage, requireElevation
 
-- тело без развилок и известных действий
+- const batch = await prisma.agentHandoverBatch.findUnique({ where: { id: req.params.batchId }, select: { id: t…
+  · читает в базе: agentHandoverBatch
+- если !batch
+  - return res.status(404).json({ error: "Передача дел не найдена" });
+    · ответ 404 — «Передача дел не найдена»
+- если batch.revertedAt
+  - return res.status(409).json({ error: "Эта передача дел уже возвращена" });
+    · ответ 409 — «Эта передача дел уже возвращена»
+- если await forbiddenDirectorTarget(req, batch.fromAgentId)
+  - return res.status(403).json({ error: "Учётку директора может менять только директор" });
+    · ответ 403 — «Учётку директора может менять только директор»
+- если await forbiddenPrivilegedTarget(req, batch.fromAgentId)
+  - return res.status(403).json({ error: PRIVILEGED_TARGET_ERROR });
+    · ответ 403
+- const outcome = await revertAgentHandover(batch.id, req.agent!.id);
+  · зовёт revertAgentHandover()
+- если !outcome.ok
+  - return res .status(outcome.reason === "not_found" ? 404 : 409) .json({ error: outcome.reason === "not_found" …
+    · ответ (код зависит от условия)
+- если outcome.result.reactivated
+  - invalidateAgentAccess(batch.fromAgentId);
+    · зовёт invalidateAgentAccess()
+  - void syncAgentQueuePresence(batch.fromAgentId).catch(()
+    · зовёт syncAgentQueuePresence()
+- logAudit(req, "AGENT_HANDOVER_REVERT", "Agent", batch.fromAgentId, { batchId: batch.id, ...outcome.result });
+  · зовёт logAudit()
+- res.json(outcome.result);
+  · ответ 200
 
 ### GET /api/v1/agents
 
 `apps/api/src/routes/agents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage
 
-- res.json(await listStaffDirectory(req.agent!));
+- const agents = await prisma.agent.findMany({ select: isAdmin ? { id: true, fullName: true, phone: true, email…
+  · читает в базе: agent
+- если !isAdmin
+  - return res.json(agents);
+    · ответ 200
+- const { statuses, problem: stationProblem } = await getExtensionStatuses();
+  · зовёт getExtensionStatuses()
+- const readiness = (await checkIncomingReadiness().catch(()
+  · зовёт checkIncomingReadiness()
+- res.json( agents.map((a)
   · ответ 200
 
 ### POST /api/v1/agents
 
 `apps/api/src/routes/agents.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: agents.manage, requireElevation
 
-- тело без развилок и известных действий
+- const parsed = agentCreateSchema.safeParse(req.body);
+  · проверяет данные схемой agentCreateSchema
+- если !parsed.success
+  - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
+    · ответ 400 — «Неверные данные»
+- если await forbiddenDirectorTarget(req, undefined, rest.role)
+  - return res.status(403).json({ error: "Создавать директора может только директор" });
+    · ответ 403 — «Создавать директора может только директор»
+- если roleDenied
+  - return res.status(403).json({ error: roleDenied });
+    · ответ 403
+- const existing = await prisma.agent.findUnique({ where: { phone: rest.phone } });
+  · читает в базе: agent
+- если existing
+  - return res.status(409).json({ error: "Агент с таким телефоном уже существует" });
+    · ответ 409 — «Агент с таким телефоном уже существует»
+- если !sipExtension
+  - const picked = await pickFreeExtension();
+    · зовёт pickFreeExtension()
+- иначе
+  - const check = await checkManualExtension(sipExtension);
+    · зовёт checkManualExtension()
+  - если !check.ok
+    - return res.status(409).json({ error: check.error });
+      · ответ 409
+- const agent = await prisma.agent.create({ data: { ...rest, sipExtension }, });
+  · создаёт в базе: agent
+- logAudit(req, "AGENT_CREATE", "Agent", agent.id, { fullName: agent.fullName, role: agent.role, sipExtension: …
+  · зовёт logAudit()
+- если agent.sipExtension
+  - void syncAgentMobileFallback(agent.id).catch(()
+    · зовёт syncAgentMobileFallback()
+- если agent.sipExtension
+  - void ensureExtensionRecording(agent.sipExtension).catch(()
+    · зовёт ensureExtensionRecording()
+- если agent.sipExtension && (SALES_AGENT_ROLES as readonly string[]).includes(agent.role)
+  - const fix = await ensureAgentsInIncomingQueue().catch(()
+    · зовёт ensureAgentsInIncomingQueue()
+  - const note = describeNewAgentQueueOutcome( { sipExtension: agent.sipExtension, takesUnknownCalls: agent.takes…
+    · зовёт describeNewAgentQueueOutcome()
+  - если note
+    - extensionNote = extensionNote ? `${extensionNote}. ${note}` : note;
+      · дословно из кода
+- res.status(201).json({ id: agent.id, fullName: agent.fullName, phone: agent.phone, role: agent.role, sipExten…
+  · ответ 201
 
 ## /api/v1/ai
 
@@ -4970,9 +5406,7 @@
     · зовёт dushanbeWallClock()
 - для каждого: let i = MONTHS_BACK - 1; i >= 0; i--
   - const m = monthKey(monthStart(now.getUTCFullYear(), now.getUTCMonth() - i));
-    · дословно из кода
-  - const deals = completedDeals.filter((d) => d.closedAt && monthKey(d.closedAt) === m);
-    · дословно из кода
+    · зовёт monthKey()
 - const dayKey = (d: Date)
   - const wall = dushanbeWallClock(d);
     · зовёт dushanbeWallClock()
@@ -4982,9 +5416,7 @@
       · дословно из кода
 - для каждого: let i = MONTHS_BACK - 1; i >= 0; i--
   - const m = monthKey(monthStart(now.getUTCFullYear(), now.getUTCMonth() - i));
-    · дословно из кода
-  - propertiesByMonth.push({ month: m, added: propsCreated.filter((p) => monthKey(p.createdAt) === m).length, sol…
-    · дословно из кода
+    · зовёт monthKey()
 - res.json({ commissionByMonth, sourcesThisMonth: monthClients .map((g)
   · ответ 200
 
@@ -6277,18 +6709,16 @@
 `apps/api/src/routes/expenses.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, requireFinanceWrite
 
 - пробует
-  - const expense = await prisma.expense.update({ where: { id: req.params.id }, data: { deletedAt: null } });
-    · меняет в базе: expense
+  - const expense = await restoreExpense(req.params.id);
+    · зовёт restoreExpense()
   - logAudit(req, "RESTORE", "Expense", expense.id, { category: expense.category, amount: expense.amount.toString…
     · зовёт logAudit()
   - res.json(expense);
     · ответ 200
 - если сорвалось
-  - если err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025"
-    - return res.status(404).json({ error: "Расход не найден" });
-      · ответ 404 — «Расход не найден»
-  - throw err;
-    · пробрасывает ошибку дальше
+  - если !commandFailed(res, err)
+    - throw err;
+      · пробрасывает ошибку дальше
 
 ### POST /api/v1/expenses/:id/undo-payment
 
@@ -6304,119 +6734,55 @@
   - return res.status(400).json({ error: "Неверная версия расхода" });
     · ответ 400 — «Неверная версия расхода»
 - пробует
-  - const deleted = await prisma.expense.update({ where: { id: req.params.id, ...(parsed.data.version !== undefin…
-    · меняет в базе: expense
+  - const deleted = await deleteExpense(req.params.id, parsed.data.version);
+    · зовёт deleteExpense()
   - logAudit(req, "DELETE", "Expense", deleted.id, { category: deleted.category, amount: deleted.amount.toString(…
     · зовёт logAudit()
   - res.status(204).end();
     · ответ 204
 - если сорвалось
-  - если err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025"
-    - если parsed.data.version !== undefined
-      - return res.status(409).json({ code: "EXPENSE_VERSION_CONFLICT", error: "Расход уже изменён. Обновите запись п…
-        · ответ 409 — «Расход уже изменён. Обновите запись перед удалением»
-    - return res.status(404).json({ error: "Расход не найден" });
-      · ответ 404 — «Расход не найден»
-  - throw err;
-    · пробрасывает ошибку дальше
+  - если !commandFailed(res, err)
+    - throw err;
+      · пробрасывает ошибку дальше
 
 ### PATCH /api/v1/expenses/:id
 
 `apps/api/src/routes/expenses.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, requireFinanceWrite
 
-- const parsed = expenseUpdateSchema.safeParse(req.body);
-  · проверяет данные схемой expenseUpdateSchema
-- если !parsed.success
-  - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
-    · ответ 400 — «Неверные данные»
-- const current = await prisma.expense.findUnique({ where: { id: req.params.id } });
-  · читает в базе: expense
-- если !current || current.deletedAt
-  - return res.status(404).json({ error: "Расход не найден" });
-    · ответ 404 — «Расход не найден»
-- если version === undefined && changedFields.length > 1
-  - return res.status(409).json({ code: "EXPENSE_VERSION_REQUIRED", error: "Обновите страницу и снова откройте ра…
-    · ответ 409 — «Обновите страницу и снова откройте расход: старая форма не передаёт…»
-- если version !== undefined && version !== current.version
-  - return res.status(409).json({ code: "EXPENSE_VERSION_CONFLICT", error: "Расход изменён другим сотрудником. Об…
-    · ответ 409 — «Расход изменён другим сотрудником. Обновите запись перед сохранением»
-- если rest.amount!==undefined&&rest.amount>99_999_999.99
-  - return res.status(400).json({error:"Сумма слишком большая"});
-    · ответ 400 — «Сумма слишком большая»
-- если !await validateExpenseCategory(rest.categoryId===undefined?current.categoryId:rest.categoryId,rest.category??…
-  - return res.status(400).json({error:"Категория не соответствует разделу"});
-    · ответ 400 — «Категория не соответствует разделу»
-- const money=await loadMoneyContext();
-  · зовёт loadMoneyContext()
-- если (rest.status??current.status)==="PAID"&&finalPaymentDate&&finalPaymentDate>todayExpenseDay()
-  - return res.status(400).json({error:"Будущий платёж запишите как план"});
-    · ответ 400 — «Будущий платёж запишите как план»
-- если finalCategory === "ADVERTISING" && !finalSource
-  - return res.status(400).json({ error: "Укажите канал рекламы" });
-    · ответ 400 — «Укажите канал рекламы»
-- если finalCategory === "SALARY" && !finalAgentId
-  - return res.status(400).json({ error: "Укажите сотрудника" });
-    · ответ 400 — «Укажите сотрудника»
-- если (finalCategory === "OFFICE" || finalCategory === "OTHER") && !finalNote?.trim()
-  - return res.status(400).json({ error: "Укажите комментарий — куда пошли деньги" });
-    · ответ 400 — «Укажите комментарий — куда пошли деньги»
 - пробует
-  - const expense = await prisma.expense.update({ where: { id: req.params.id,version:version ?? current.version, …
-    · меняет в базе: expense
-  - logAudit(req, "UPDATE", "Expense", expense.id, { changed: Object.keys(parsed.data) });
+  - const { expense, changed } = await updateExpense(req.params.id, req.body);
+    · зовёт updateExpense()
+  - logAudit(req, "UPDATE", "Expense", expense.id, { changed });
     · зовёт logAudit()
   - res.json((await expenseDtos([expense]))[0]);
     · ответ 200
 - если сорвалось
-  - если err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025"
-    - return res.status(409).json({ code: "EXPENSE_VERSION_CONFLICT", error: "Расход изменён другим сотрудником. Об…
-      · ответ 409 — «Расход изменён другим сотрудником. Обновите запись перед сохранением»
-  - throw err;
-    · пробрасывает ошибку дальше
+  - если !commandFailed(res, err)
+    - throw err;
+      · пробрасывает ошибку дальше
 
 ### GET /api/v1/expenses/archive
 
 `apps/api/src/routes/expenses.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view
 
-- const expenses = await prisma.expense.findMany({ where: { deletedAt: { not: null, ...(from ? { gte: from } : …
-  · читает в базе: expense
-- res.json(expenses);
+- res.json(await listArchivedExpenses(req.query.from, req.query.to));
   · ответ 200
 
 ### PATCH /api/v1/expenses/categories/:id
 
 `apps/api/src/routes/expenseWorkspace.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, (error: unknown, _req: Request, res: Response, next: NextFunction) => { if (error instanceof ExpenseLifecycle…, write
 
-- если !parsed.success
-  - return res.status(400).json({ error: "Некорректная категория" });
-    · ответ 400 — «Некорректная категория»
-- const row = await prisma.expenseCategoryDefinition.findUnique({ where: { id: req.params.id } });
-  · читает в базе: expenseCategoryDefinition
-- если !row
-  - return res.status(404).json({ error: "Категория не найдена" });
-    · ответ 404 — «Категория не найдена»
-- если parsed.data.rootCategory && parsed.data.rootCategory !== row.rootCategory
-  - return res.status(400).json({ error: "Раздел существующей категории менять нельзя" });
-    · ответ 400 — «Раздел существующей категории менять нельзя»
-- если parentId
-  - для каждого: let i = 0; next && i < 100; i++
-    - если visited.has(next)
-      - return res.status(400).json({ error: "Цикл категорий недопустим" });
-        · ответ 400 — «Цикл категорий недопустим»
-    - const parent: { rootCategory: string; parentId: string | null; } | null = await prisma.expenseCategoryDefinit…
-      · читает в базе: expenseCategoryDefinition
-    - если !parent || parent.rootCategory !== row.rootCategory
-      - return res.status(400).json({ error: "Неверная родительская категория" });
-        · ответ 400 — «Неверная родительская категория»
-  - если next
-    - return res.status(400).json({ error: "Слишком глубокие категории" });
-      · ответ 400 — «Слишком глубокие категории»
-- const updated = await prisma.expenseCategoryDefinition.update({ where: { id: row.id }, data: parsed.data });
-  · меняет в базе: expenseCategoryDefinition
-- logAudit(req, "UPDATE", "ExpenseCategoryDefinition", row.id, {});
-  · зовёт logAudit()
-- res.json(updated);
-  · ответ 200
+- пробует
+  - const updated = await updateExpenseCategory(req.params.id, req.body);
+    · зовёт updateExpenseCategory()
+  - logAudit(req, "UPDATE", "ExpenseCategoryDefinition", updated.id, {});
+    · зовёт logAudit()
+  - res.json(updated);
+    · ответ 200
+- если сорвалось
+  - если !commandFailed(res, err)
+    - throw err;
+      · пробрасывает ошибку дальше
 
 ### GET /api/v1/expenses/categories
 
@@ -6427,42 +6793,24 @@
 - если !p.success
   - return res.status(400).json({ error: "Неверные фильтры категорий" });
     · ответ 400 — «Неверные фильтры категорий»
-- const month = p.data.month ?? todayExpenseDay().slice(0, 7);
-  · зовёт todayExpenseDay()
-- const [categories, expenses, money] = await Promise.all([prisma.expenseCategoryDefinition.findMany({ orderBy:…
-  · читает в базе: expenseCategoryDefinition
-  · читает в базе: expense
-- если expenses.length > 20000
-  - throw new ExpenseLifecycleError(413, "Слишком много расходов для справочника");
-    · ошибка ExpenseLifecycleError — «413,»
-- res.json(categories.map(c
+- res.json(await listExpenseCategories(p.data.month ?? todayExpenseDay().slice(0, 7)));
   · ответ 200
-  - для каждого: let i = 0; i < categories.length; i++
-    - для каждого: const child of categories
-      - if (child.parentId && ids.has(child.parentId) && !ids.has(child.id)) { ids.add(child.id); changed = true; } i…
-        · дословно из кода
 
 ### POST /api/v1/expenses/categories
 
 `apps/api/src/routes/expenseWorkspace.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, (error: unknown, _req: Request, res: Response, next: NextFunction) => { if (error instanceof ExpenseLifecycle…, write
 
-- const parsed = expenseCategorySchema.safeParse(req.body);
-  · проверяет данные схемой expenseCategorySchema
-- если !parsed.success
-  - return res.status(400).json({ error: "Некорректная категория", details: parsed.error.flatten() });
-    · ответ 400 — «Некорректная категория»
-- если parsed.data.parentId
-  - const parent = await prisma.expenseCategoryDefinition.findUnique({ where: { id: parsed.data.parentId } });
-    · читает в базе: expenseCategoryDefinition
-  - если !parent || parent.rootCategory !== parsed.data.rootCategory
-    - return res.status(400).json({ error: "Родительская категория не соответствует разделу" });
-      · ответ 400 — «Родительская категория не соответствует разделу»
-- const row = await prisma.expenseCategoryDefinition.create({ data: parsed.data });
-  · создаёт в базе: expenseCategoryDefinition
-- logAudit(req, "CREATE", "ExpenseCategoryDefinition", row.id, {});
-  · зовёт logAudit()
-- res.status(201).json(row);
-  · ответ 201
+- пробует
+  - const row = await createExpenseCategory(req.body);
+    · зовёт createExpenseCategory()
+  - logAudit(req, "CREATE", "ExpenseCategoryDefinition", row.id, {});
+    · зовёт logAudit()
+  - res.status(201).json(row);
+    · ответ 201
+- если сорвалось
+  - если !commandFailed(res, err)
+    - throw err;
+      · пробрасывает ошибку дальше
 
 ### GET /api/v1/expenses/counterparties
 
@@ -6532,6 +6880,8 @@
 
 `apps/api/src/routes/expenses.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view
 
+- const from = dushanbeMonthStart(monthsBack - 1);
+  · зовёт dushanbeMonthStart()
 - const [deals, expenses, settings, money] = await Promise.all([ prisma.deal.findMany({ where: { stage: "COMPLE…
   · читает в базе: deal
   · читает в базе: expense
@@ -6585,20 +6935,7 @@
 - если !p.success
   - return res.status(400).json({ error: "Некорректные фильтры" });
     · ответ 400 — «Некорректные фильтры»
-- const [expenses, categories, money] = await Promise.all([filteredExpenses({ ...p.data, status: "PAID" }), pri…
-  · читает в базе: expenseCategoryDefinition
-- для каждого: const e of expenses
-  - если !result.months.includes(month)
-    - result.months.push(month);
-      · дословно из кода
-  - если !row
-    - row = { categoryId: key, title: cat?.title ?? e.category, rootCategory: e.category, color: cat?.color ?? "#7F…
-      · дословно из кода
-    - groups.set(key, row);
-      · дословно из кода
-  - const amount = expenseCentsToTjs(e, money);
-    · зовёт expenseCentsToTjs()
-- res.json(result);
+- res.json(await buildExpensePivot(p.data));
   · ответ 200
 
 ### GET /api/v1/expenses/pulse
@@ -6631,16 +6968,17 @@
 
 `apps/api/src/routes/expenseWorkspace.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, (error: unknown, _req: Request, res: Response, next: NextFunction) => { if (error instanceof ExpenseLifecycle…, write
 
-- const t = await prisma.recurringExpense.findUnique({ where: { id: req.params.id } });
-  · читает в базе: recurringExpense
-- если !t
-  - return res.status(404).json({ error: "Подписка не найдена" });
-    · ответ 404 — «Подписка не найдена»
-- res.json(await prisma.recurringExpense.update({ where: { id: t.id }, data: { deletedAt: null } }));
-  · ответ 200
-  · меняет в базе: recurringExpense
-- logAudit(req, "RESTORE", "RecurringExpense", t.id, {});
-  · зовёт logAudit()
+- пробует
+  - const row = await restoreRecurringExpense(req.params.id);
+    · зовёт restoreRecurringExpense()
+  - res.json(row);
+    · ответ 200
+  - logAudit(req, "RESTORE", "RecurringExpense", row.id, {});
+    · зовёт logAudit()
+- если сорвалось
+  - если !commandFailed(res, err)
+    - throw err;
+      · пробрасывает ошибку дальше
 
 ### POST /api/v1/expenses/recurring/:id/skip
 
@@ -6665,149 +7003,74 @@
 `apps/api/src/routes/expenses.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, requireFinanceWrite
 
 - пробует
-  - await prisma.recurringExpense.update({ where: { id: req.params.id },data:{deletedAt:new Date()} });
-    · меняет в базе: recurringExpense
+  - await deleteRecurringExpense(req.params.id);
+    · зовёт deleteRecurringExpense()
   - logAudit(req, "DELETE", "RecurringExpense", req.params.id, {});
     · зовёт logAudit()
   - res.json({ ok: true });
     · ответ 200
 - если сорвалось
-  - если err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025"
-    - return res.status(404).json({ error: "Шаблон не найден" });
-      · ответ 404 — «Шаблон не найден»
-  - throw err;
-    · пробрасывает ошибку дальше
+  - если !commandFailed(res, err)
+    - throw err;
+      · пробрасывает ошибку дальше
 
 ### PATCH /api/v1/expenses/recurring/:id
 
 `apps/api/src/routes/expenses.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, requireFinanceWrite
 
-- const parsed = recurringPatchSchema.safeParse(req.body);
-  · проверяет данные схемой recurringPatchSchema
-- если !parsed.success
-  - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
-    · ответ 400 — «Неверные данные»
-- const existing=await prisma.recurringExpense.findUnique({where:{id:req.params.id}});
-  · читает в базе: recurringExpense
-- если !existing||existing.deletedAt
-  - return res.status(404).json({error:"Шаблон не найден"});
-    · ответ 404 — «Шаблон не найден»
-- если start&&end&&end<start
-  - return res.status(400).json({error:"Конец подписки раньше начала"});
-    · ответ 400 — «Конец подписки раньше начала»
-- если !await validateExpenseCategory(patch.categoryId===undefined?existing.categoryId:patch.categoryId,patch.catego…
-  - return res.status(400).json({error:"Неверная категория подписки"});
-    · ответ 400 — «Неверная категория подписки»
-- если touchesAttribution
-  - const current = await prisma.recurringExpense.findUnique({ where: { id: req.params.id }, select: { category: …
-    · читает в базе: recurringExpense
-  - если !current
-    - return res.status(404).json({ error: "Шаблон не найден" });
-      · ответ 404 — «Шаблон не найден»
-  - если issue
-    - return res.status(400).json({ error: issue.message });
-      · ответ 400
 - пробует
-  - const row = await prisma.recurringExpense.update({ where: { id: req.params.id }, data: { ...patch, ...attribu…
-    · меняет в базе: recurringExpense
-  - logAudit(req, "UPDATE", "RecurringExpense", row.id, { changed: Object.keys(parsed.data) });
+  - const { row, changed } = await updateRecurringExpense(req.params.id, req.body);
+    · зовёт updateRecurringExpense()
+  - logAudit(req, "UPDATE", "RecurringExpense", row.id, { changed });
     · зовёт logAudit()
   - res.json(row);
     · ответ 200
 - если сорвалось
-  - если err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025"
-    - return res.status(404).json({ error: "Шаблон не найден" });
-      · ответ 404 — «Шаблон не найден»
-  - throw err;
-    · пробрасывает ошибку дальше
+  - если !commandFailed(res, err)
+    - throw err;
+      · пробрасывает ошибку дальше
 
 ### GET /api/v1/expenses/recurring
 
 `apps/api/src/routes/expenses.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view
 
-- const rows = await prisma.recurringExpense.findMany({where:{deletedAt:null}, orderBy: [{ active: "desc" }, { …
-  · читает в базе: recurringExpense
-- const today=todayExpenseDay();
-  · зовёт todayExpenseDay()
-- const payments=await prisma.expense.findMany({where:{deletedAt:null,status:"PAID",OR:[{recurringId:{in:rows.m…
-  · читает в базе: expense
-- если payments.length>20000
-  - return res.status(413).json({error:"Слишком много платежей для списка подписок"});
-    · ответ 413 — «Слишком много платежей для списка подписок»
-- res.json(rows.map(row
-  · ответ 200
+- пробует
+  - res.json(await listRecurringExpenses());
+    · ответ 200
+- если сорвалось
+  - если err instanceof ExpenseLifecycleError
+    - return res.status(err.status).json({ error: err.message });
+      · ответ (код зависит от условия)
+  - throw err;
+    · пробрасывает ошибку дальше
 
 ### POST /api/v1/expenses/recurring
 
 `apps/api/src/routes/expenses.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, requireFinanceWrite
 
-- const parsed = recurringSchema.safeParse(req.body);
-  · проверяет данные схемой recurringSchema
-- если !parsed.success
-  - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
-    · ответ 400 — «Неверные данные»
-- если parsed.data.startsOn && parsed.data.endsOn && parsed.data.endsOn<parsed.data.startsOn
-  - return res.status(400).json({error:"Конец подписки раньше начала"});
-    · ответ 400 — «Конец подписки раньше начала»
-- если !await validateExpenseCategory(parsed.data.categoryId,parsed.data.category)
-  - return res.status(400).json({error:"Неверная категория подписки"});
-    · ответ 400 — «Неверная категория подписки»
-- const row = await prisma.recurringExpense.create({ data: { ...parsed.data, ...(!parsed.data.startsOn&&(parsed…
-  · создаёт в базе: recurringExpense
-- logAudit(req, "CREATE", "RecurringExpense", row.id, { title: row.title, amount: Number(row.amount) });
-  · зовёт logAudit()
-- res.status(201).json(row);
-  · ответ 201
+- пробует
+  - const row = await createRecurringExpense(req.body);
+    · зовёт createRecurringExpense()
+  - logAudit(req, "CREATE", "RecurringExpense", row.id, { title: row.title, amount: Number(row.amount) });
+    · зовёт logAudit()
+  - res.status(201).json(row);
+    · ответ 201
+- если сорвалось
+  - если !commandFailed(res, err)
+    - throw err;
+      · пробрасывает ошибку дальше
 
 ### GET /api/v1/expenses/summary
 
 `apps/api/src/routes/expenses.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view
 
-- если !through.success
-  - return res.status(400).json({error:"Некорректный месяц"});
-    · ответ 400 — «Некорректный месяц»
-- const now = through.data?expenseDay(`${through.data}-01`):dushanbeWallClock();
-  · зовёт expenseDay()
-- const [expenses, completedDeals, clients, settings, money] = await Promise.all([ prisma.expense.findMany({ wh…
-  · читает в базе: expense
-  · читает в базе: deal
-  · читает в базе: client
-  · создаёт или меняет в базе: settings
-- если truncated
-  - void logSystemError( "api", `Финансовая сводка за ${monthsBack} мес.: выборка упёрлась в потолок ${FINANCE_RO…
-    · запись в журнал ошибок
-- const payoutByDealId = await getDealPayouts(completedDeals.map((d)
-  · зовёт getDealPayouts()
-- const splitOf = (d: (typeof completedDeals)[number])
-  - const cents = (value: unknown)
-    · зовёт centsToTjs()
-  - если d.commissionCompanyAmount !== null
-    - return { realtor: cents(d.commissionRealtorAmount), company: cents(d.commissionCompanyAmount) + cents(d.commi…
-      · дословно из кода
-  - const [realtor, company] = splitCents(baseCents, [pRealtor, pCompany]);
-    · зовёт splitCents()
-- для каждого: let i = monthsBack - 1; i >= 0; i--
-  - months.push(monthKey(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1))));
-    · дословно из кода
-- const summary = months.map((m)
-  - для каждого: const e of monthExpenses
-    - если isDealSalaryExpense(e)
-      - dealSalaryCents += expenseCentsToTjs(e, money);
-        · зовёт expenseCentsToTjs()
-    - byCategory[e.category] = (byCategory[e.category] ?? 0) + expenseCentsToTjs(e, money);
-      · зовёт expenseCentsToTjs()
-  - для каждого: const d of monthDeals
-    - если realtor > 0
-      - const p = payoutByAgent.get(d.agent.id) ?? { name: d.agent.fullName, realtor: 0, deals: [] };
-        · дословно из кода
-      - p.realtor += realtor;
-        · дословно из кода
-  - для каждого: const e of monthExpenses
-    - если e.category === "ADVERTISING" && e.source
-      - adBySource.set( e.source as ClientSource, (adBySource.get(e.source as ClientSource) ?? 0) + expenseCentsToTjs…
-        · зовёт expenseCentsToTjs()
-- res.json({ months: summary, currency: "TJS", usdToTjsRate: money.usdToTjs, truncated });
-  · ответ 200
+- пробует
+  - res.json(await buildExpenseSummary({ months: req.query.months, through: req.query.through }));
+    · ответ 200
+- если сорвалось
+  - если !commandFailed(res, err)
+    - throw err;
+      · пробрасывает ошибку дальше
 
 ### GET /api/v1/expenses/upcoming
 
@@ -6830,74 +7093,29 @@
 
 `apps/api/src/routes/expenses.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view
 
-- const query=expenseListQuerySchema.safeParse(req.query);
-  · проверяет данные схемой expenseListQuerySchema
-- если !query.success
-  - return res.status(400).json({error:"Некорректные фильтры",details:query.error.flatten()});
-    · ответ 400 — «Некорректные фильтры»
-- const where=expenseWhere(query.data);
-  · зовёт expenseWhere()
-- если query.data.sortBy
-  - пробует
-    - const context=query.data.sortBy==="amount"?await loadMoneyContext():undefined;
-      · зовёт loadMoneyContext()
-    - const ids=await orderedExpenseIds(where,query.data.sortBy,query.data.sortDirection,context);
-      · зовёт orderedExpenseIds()
-    - const rows=await prisma.expense.findMany({where:{id:{in:pageIds},deletedAt:null},include:{agent:{select:{id:t…
-      · читает в базе: expense
-    - const items=await expenseDtos(ordered,context);
-      · зовёт expenseDtos()
-    - return res.json(query.data.page?{items,total:ids.length,page:query.data.page,pageSize:query.data.pageSize}:it…
-      · ответ 200
-  - если сорвалось
-    - если error instanceof ExpenseLifecycleError
-      - return res.status(error.status).json({error:error.message});
-        · ответ (код зависит от условия)
-    - throw error;
+- пробует
+  - res.json(await listExpenses(req.query));
+    · ответ 200
+- если сорвалось
+  - если !commandFailed(res, err)
+    - throw err;
       · пробрасывает ошибку дальше
-- const expenses = await prisma.expense.findMany({ where, orderBy: [{ month: "desc" }, { createdAt: "desc" }], …
-  · читает в базе: expense
-- const items=await expenseDtos(expenses);
-  · зовёт expenseDtos()
-- res.json(query.data.page?{items,total:await prisma.expense.count({where}),page:query.data.page,pageSize:query…
-  · ответ 200
-  · считает в базе: expense
 
 ### POST /api/v1/expenses
 
 `apps/api/src/routes/expenses.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, requireFinanceWrite
 
-- const parsed = expenseCreateSchema.safeParse(req.body);
-  · проверяет данные схемой expenseCreateSchema
-- если !parsed.success
-  - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
-    · ответ 400 — «Неверные данные»
-- если rest.amount>99_999_999.99
-  - return res.status(400).json({error:"Сумма слишком большая"});
-    · ответ 400 — «Сумма слишком большая»
-- если !await validateExpenseCategory(rest.categoryId,rest.category)
-  - return res.status(400).json({error:"Выберите категорию соответствующего раздела"});
-    · ответ 400 — «Выберите категорию соответствующего раздела»
-- если key&&!/^[A-Za-z0-9:_-]{8,120}$/.test(key)
-  - return res.status(400).json({error:"Неверный ключ запроса"});
-    · ответ 400 — «Неверный ключ запроса»
-- const money=await loadMoneyContext();
-  · зовёт loadMoneyContext()
-- const data={...rest,paymentDate:rest.paymentDate?expenseDay(rest.paymentDate):null,month:monthToDate((rest.st…
-  · зовёт expenseDay()
-- если (rest.status??"PAID")==="PAID"&&rest.paymentDate&&rest.paymentDate>todayExpenseDay()
-  - return res.status(400).json({error:"Будущий платёж запишите как план"});
-    · ответ 400 — «Будущий платёж запишите как план»
-- const expense=requestKey?await prisma.expense.upsert({where:{requestKey},update:{},create:data}):await prisma…
-  · создаёт или меняет в базе: expense
-  · создаёт в базе: expense
-- если requestKey&&expense.autoFingerprint!==fingerprint
-  - return res.status(409).json({error:"Этот ключ уже использован для другого расхода",code:"IDEMPOTENCY_CONFLICT…
-    · ответ 409 — «Этот ключ уже использован для другого расхода»
-- logAudit(req, "EXPENSE_CREATE", "Expense", expense.id, { amount: Number(expense.amount), category: expense.ca…
-  · зовёт logAudit()
-- res.status(201).json((await expenseDtos([expense]))[0]);
-  · ответ 201
+- пробует
+  - const { expense, month } = await createExpense(req.body, { agentId: req.agent!.id, idempotencyKey: req.get("I…
+    · зовёт createExpense()
+  - logAudit(req, "EXPENSE_CREATE", "Expense", expense.id, { amount: Number(expense.amount), category: expense.ca…
+    · зовёт logAudit()
+  - res.status(201).json((await expenseDtos([expense]))[0]);
+    · ответ 201
+- если сорвалось
+  - если !commandFailed(res, err)
+    - throw err;
+      · пробрасывает ошибку дальше
 
 ## /api/v1/finance
 
@@ -11987,10 +12205,36 @@
 
 `apps/api/src/routes/properties/transfer.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: properties.editForeign
 
-- const outcome = await transferPropertyByManager(req.agent!, req.params.id, req.body);
-  · зовёт transferPropertyByManager()
-- res.status(outcome.status).json(outcome.body);
-  · ответ (код зависит от условия)
+- если !canReassignPropertyAgents(req)
+  - return res.status(403).json({ error: "Передать объект другому агенту может руководитель" });
+    · ответ 403 — «Передать объект другому агенту может руководитель»
+- const parsed = propertyTransferSchema.safeParse(req.body);
+  · проверяет данные схемой propertyTransferSchema
+- если !parsed.success
+  - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
+    · ответ 400 — «Неверные данные»
+- const property = await prisma.property.findUnique({ where: { id: req.params.id }, select: { id: true, deleted…
+  · читает в базе: property
+- если !property || property.deletedAt
+  - return res.status(404).json({ error: "Объект не найден" });
+    · ответ 404 — «Объект не найден»
+- если property.status === "SOLD" || property.status === "WITHDRAWN"
+  - return res.status(409).json({ error: "Объект уже продан или снят с продажи — передавать нечего" });
+    · ответ 409 — «Объект уже продан или снят с продажи — передавать нечего»
+- если propertyOwnerAgentId(property) === toAgentId
+  - return res.status(409).json({ error: "Объект уже у этого агента" });
+    · ответ 409 — «Объект уже у этого агента»
+- const agentError = await assignableAgentError(toAgentId);
+  · зовёт assignableAgentError()
+- если agentError
+  - return res.status(400).json({ error: agentError });
+    · ответ 400
+- const result = await transferPropertyWithSeller({ propertyId: property.id, toAgentId, reason, actorId: req.ag…
+  · зовёт transferPropertyWithSeller()
+- logAudit(req, "PROPERTY_TRANSFER", "Property", property.id, { fromAgentId: result.fromAgentId, toAgentId, rea…
+  · зовёт logAudit()
+- res.json({ ok: true, fromAgentId: result.fromAgentId, toAgentId, sellerMoved: result.sellerMoved });
+  · ответ 200
 
 ### POST /api/v1/properties/:id/video-handoff/requeue
 
@@ -19000,8 +19244,6 @@
         · запись в журнал ошибок
     - const deleted = await prisma.assistantAction.deleteMany({ where: { status: "EXPIRED", expiresAt: { lt: new Da…
       · удаляет в базе: assistantAction
-    - const stepUpChallengesDeleted = await sweepStepUpChallenges(now);
-      · зовёт sweepStepUpChallenges()
   - если expired > 0 || stuckFailed > 0 || deleted > 0
     - console.log(`[cron] Действия помощника: истекло ${expired}, прервано ${stuckFailed}, удалено ${deleted}`);
       · пишет строку в журнал сервера

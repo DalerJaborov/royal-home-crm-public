@@ -121,6 +121,7 @@ it("reports incomplete private replay without claiming a voice-only answer is al
     "@royal-home/shared": shared,
     "./assistantPropertyDraft.js": { handleTelegramPropertyDraft: async () => false },
     "./assistantPropertyPages.js": { propertyPageRequest: () => null },
+    "./assistantExpenseCard.js": { applyExpenseFixMessage: async () => false },
     "./assistantReadResults.js": f.delivery,
     // Сотрудники и права (10.11.2026): список имён — настоящий, код Google Authenticator — инертная заглушка.
     "../ai/assistant/tools/staffToolNames.js": { STAFF_TOOL_NAMES },
