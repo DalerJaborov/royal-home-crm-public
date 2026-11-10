@@ -199,7 +199,9 @@ export async function buildExpenseSummary(query: { months?: unknown; through?: u
       take: FINANCE_ROW_LIMIT,
       select: { createdAt: true, source: true },
     }),
-    prisma.settings.upsert({ where: { id: "singleton" }, update: {}, create: { id: "singleton" } }),
+    // Чтение ничего не пишет (10.11.2026): сводку зовёт и помощница, а её инструменты чтения
+    // не создают строк. Нет строки Настроек — доли по умолчанию схемы (0,5 / 1 / 0,5 %).
+    prisma.settings.findUnique({ where: { id: "singleton" }, select: { commissionRealtorPercent: true, commissionCompanyPercent: true, commissionIntakePercent: true } }),
     loadMoneyContext(),
   ]);
   // Потолок задет — сводка за старые месяцы окна неполна. Не молчим: пишем в
@@ -224,8 +226,8 @@ export async function buildExpenseSummary(query: { months?: unknown; through?: u
   // выделяется отдельной строкой ни у новых, ни у старых сделок — она всегда
   // складывается с долей компании (Settings.commissionIntakePercent остаётся в
   // схеме БД как история, но в отчётах не участвует отдельно).
-  const pRealtor = Number(settings.commissionRealtorPercent);
-  const pCompany = Number(settings.commissionCompanyPercent) + Number(settings.commissionIntakePercent);
+  const pRealtor = Number(settings?.commissionRealtorPercent ?? 0.5);
+  const pCompany = Number(settings?.commissionCompanyPercent ?? 1) + Number(settings?.commissionIntakePercent ?? 0.5);
   // Все доли возвращаются УЖЕ в сомони: сделка по объекту в долларах хранит комиссию
   // в долларах, и без конвертации она складывалась с сомони один к одному.
 
