@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **730**. Развилок в самих путях: **2503**; вместе с задачами по расписанию и фоновыми заданиями — **4000**. Модулей: **81**.
+Путей: **730**. Развилок в самих путях: **2504**; вместе с задачами по расписанию и фоновыми заданиями — **4002**. Модулей: **81**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -15840,6 +15840,9 @@
   - если !identity.ok
     - return res.status(400).json({ error: `Маркер не принят: ${identity.error}` });
       · ответ 400 — «Маркер не принят: ${identity.error}»
+  - если !identity.username?.trim()
+    - return res.status(400).json({ error: "Meta не вернула ник аккаунта Instagram. Проверьте, что маркер выдан вхо…
+      · ответ 400 — «Meta не вернула ник аккаунта Instagram. Проверьте, что маркер выдан…»
 - если !externalId && body.id
   - externalId = (await listAccounts()).find((a)
     · зовёт listAccounts()
@@ -21241,6 +21244,26 @@
 - в любом случае
   - isCommentsRunning = false;
     · дословно из кода
+
+### instagram-identity-guard — */10 * * * *
+
+- пробует
+  - const { filled, failed, held, alerted } = await runInstagramIdentityGuard();
+    · зовёт runInstagramIdentityGuard()
+    - const fill = await fillMissingInstagramIdentities();
+      · зовёт fillMissingInstagramIdentities()
+    - const report = await reportHeldOwnIdentityTickets(now);
+      · зовёт reportHeldOwnIdentityTickets()
+  - если filled || failed || held
+    - console.log(`[cron] Ники Instagram: дописано ${filled}, не удалось ${failed}, задержано входящих ${held}${ale…
+      · пишет строку в журнал сервера
+- если сорвалось
+  - reportCronTickError("Ошибка сторожа ников Instagram", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
 
 ### instagram-online-followers — 15 14 * * *
 

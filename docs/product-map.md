@@ -14,7 +14,7 @@
 | Из них видно в меню | 35 |
 | Модулей сервера | 82 |
 | Адресов сервера всего | 724 |
-| Задач по расписанию | 118 |
+| Задач по расписанию | 119 |
 | Типов фоновых заданий | 23 |
 | Внешних сервисов | 13 |
 
@@ -276,6 +276,7 @@
 | `incoming-calls-silence` | `7 * * * *` | Поднимает тревогу, если входящие звонки перестали доходить или все обрываются сразу |
 | `insight-digest` | `0 9 15,28-31 * *` | Раз в две недели — находки ИИ к собранию директоров |
 | `instagram-comments` | `* * * * *` | Отвечает, скрывает и эскалирует комментарии под публикациями |
+| `instagram-identity-guard` | `*/10 * * * *` | **без подписи** |
 | `instagram-online-followers` | `15 14 * * *` | **без подписи** |
 | `instagram-pending-containers` | `*/5 * * * *` | Доводит до публикации в Instagram ролики, которые Meta не успела обработать сразу — проверяет каждые 5 минут и публикует, как только видео готово, вместо того чтобы навсегда потерять уже отснятый материал |
 | `instagram-url-backfill` | `47 3 * * *` | Чинит ссылки на публикации Instagram |
@@ -402,6 +403,6 @@
 Появилось в коде, но не описано в `docs/product-map-labels.json`. Пустые списки —
 норма; непустые значат, что функция завелась, а объяснить её никто не удосужился.
 
-- Задач по расписанию: `approved-owner-verification`, `assistant-actions-sweep`, `assistant-telegram-context-cleanup`, `clip-review-resend`, `clip-review-stale-alarm`, `contact-link-sweep`, `customer-agent-auto-refresh`, `customer-inbox-jobs`, `customer-intake-jobs`, `customer-outbox-jobs`, `daily-stories`, `disk-cleanup`, `instagram-online-followers`, `instagram-webhook-subscriptions`, `live-voice-orphan-sweep`, `market-own-match`, `market-paydo-daily`, `market-paydo-incremental`, `market-weekly-crawl`, `meta-ads-stale-watch`, `narration-version-delivery`, `owner-exposure-verification-preview`, `owner-report-delivery`, `owner-report-monthly-preview`, `photo-posts-tick`, `price-caption-delivery`, `published-channels-audit`, `reels-autoboost`, `seller-control-episodes`, `site-stats`, `social-digests-tick`, `social-reposts-tick`, `social-video-schedule`, `somon-owner-leads`, `telegram-bot-api-volume-cleanup`, `telephony-station-traffic`, `video-handoff-redelivery`, `video-handoff-unfinished-publish-watchdog`
+- Задач по расписанию: `approved-owner-verification`, `assistant-actions-sweep`, `assistant-telegram-context-cleanup`, `clip-review-resend`, `clip-review-stale-alarm`, `contact-link-sweep`, `customer-agent-auto-refresh`, `customer-inbox-jobs`, `customer-intake-jobs`, `customer-outbox-jobs`, `daily-stories`, `disk-cleanup`, `instagram-identity-guard`, `instagram-online-followers`, `instagram-webhook-subscriptions`, `live-voice-orphan-sweep`, `market-own-match`, `market-paydo-daily`, `market-paydo-incremental`, `market-weekly-crawl`, `meta-ads-stale-watch`, `narration-version-delivery`, `owner-exposure-verification-preview`, `owner-report-delivery`, `owner-report-monthly-preview`, `photo-posts-tick`, `price-caption-delivery`, `published-channels-audit`, `reels-autoboost`, `seller-control-episodes`, `site-stats`, `social-digests-tick`, `social-reposts-tick`, `social-video-schedule`, `somon-owner-leads`, `telegram-bot-api-volume-cleanup`, `telephony-station-traffic`, `video-handoff-redelivery`, `video-handoff-unfinished-publish-watchdog`
 - Модулей сервера: `/api/v1/live-voice`, `/api/v1/ui-shell`, `/api/v1/sms`, `/api/v1/whatsapp-templates`, `/api/v1/maintenance/data-corrections`, `/api/v1/social-videos`, `/api/v1/threads/oauth/callback`, `/api/v1/threads`, `/api/v1/search-console/oauth/callback`, `/api/v1/search-console/yandex/oauth/callback`, `/api/v1/search-console`, `/api/v1/contacts`, `/api/v1/market/matches`, `/api/v1/market`, `/api/v1/market`, `/api/v1/public/owner-report`
 

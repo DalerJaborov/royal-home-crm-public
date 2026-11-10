@@ -2729,6 +2729,7 @@ settingsRouter.post(
       return res.status(400).json({ error: "Неизвестный канал" });
     }
     let externalId = body.externalId?.trim();
+    let instagramIdentity: { username: string; messagingId?: string } | undefined;
     const title = body.title?.trim();
     if (!title) return res.status(400).json({ error: "Укажите название аккаунта" });
 
@@ -2749,6 +2750,16 @@ settingsRouter.post(
         return res.status(400).json({ error: `Маркер не принят: ${identity.error}` });
       }
       externalId = identity.id;
+      /**
+       * НИК ОБЯЗАТЕЛЕН (10.11.2026). По нику ядро клиентского бота узнаёт наши
+       * собственные аккаунты во входящем; у Arvan Estate его не сохранили, и ядро
+       * двое суток держало ВСЕ сообщения Instagram всех трёх аккаунтов. Meta
+       * отдаёт ник тем же ответом — раньше он просто выбрасывался.
+       */
+      if (!identity.username?.trim()) {
+        return res.status(400).json({ error: "Meta не вернула ник аккаунта Instagram. Проверьте, что маркер выдан входом через Instagram, и попробуйте снова" });
+      }
+      instagramIdentity = { username: identity.username.trim(), messagingId: identity.messagingId };
     }
     // Правка одного поля (промт, «сделать основным», выключить) не обязана
     // пересылать всю запись: недостающее берём из той, что уже есть.
@@ -2778,6 +2789,7 @@ settingsRouter.post(
         systemPrompt: body.systemPrompt,
         brandName: body.brandName,
         extraExternalIds: body.extraExternalIds,
+        ...(instagramIdentity ?? {}),
       });
       // Смена имени компании меняет то, что бот говорит клиентам, — берём в аудит, на что.
       logAudit(req, "SETTINGS_UPDATE", "MessengerAccount", id, {

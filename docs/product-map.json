@@ -1766,6 +1766,11 @@
       "label": "Отвечает, скрывает и эскалирует комментарии под публикациями"
     },
     {
+      "id": "instagram-identity-guard",
+      "expr": "*/10 * * * *",
+      "label": null
+    },
+    {
       "id": "instagram-online-followers",
       "expr": "15 14 * * *",
       "label": null

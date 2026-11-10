@@ -72,6 +72,7 @@ import { refreshInstagramTokenIfDue } from "./messengers/instagramFeed.js";
 import { checkYouTubeTokenHealth, refreshThreadsTokenIfDue } from "./lib/socialPublish.js";
 import { runInstagramPendingContainersTick } from "./lib/instagramPendingContainers.js";
 import { runInstagramSubscriptionWatch } from "./lib/instagramWebhookSubscription.js";
+import { runInstagramIdentityGuard } from "./lib/instagramIdentityGuard.js";
 import { collectInstagramOnlineFollowers } from "./lib/instagramInsights.js";
 import { collectSiteStats } from "./lib/siteStats.js";
 import { notifyHotProperties } from "./lib/propertyHotAlert.js";
@@ -2416,6 +2417,23 @@ export function startCronJobs() {
       }
     } catch (err) {
       reportCronTickError("Ошибка проверки подписки Instagram на уведомления", err);
+    }
+  }, { timezone: "Asia/Dushanbe" });
+
+  /**
+   * Сторож ников Instagram (10.11.2026, lib/instagramIdentityGuard.ts). Пустой
+   * ник у любого аккаунта Instagram держит ВСЁ входящее Instagram в ядре бота —
+   * 08–10.11 так молчали 23 диалога без единой тревоги. Каждые 10 минут:
+   * дописать ник из Meta, а если ядро всё равно держит — CRITICAL директору.
+   */
+  scheduleTracked("instagram-identity-guard", "*/10 * * * *", async () => {
+    try {
+      const { filled, failed, held, alerted } = await runInstagramIdentityGuard();
+      if (filled || failed || held) {
+        console.log(`[cron] Ники Instagram: дописано ${filled}, не удалось ${failed}, задержано входящих ${held}${alerted ? ", тревога директору" : ""}`);
+      }
+    } catch (err) {
+      reportCronTickError("Ошибка сторожа ников Instagram", err);
     }
   }, { timezone: "Asia/Dushanbe" });
 
