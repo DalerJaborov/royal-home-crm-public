@@ -648,6 +648,20 @@ async function applyQueueTransition(
   placement: QueuePlacement
 ): Promise<string | null> {
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(${HANDOFF_QUEUE_LOCK_ID}::bigint)`;
+  /**
+   * УДАЛЁННЫЙ ОБЪЕКТ В ОЧЕРЕДЬ НЕ ВСТАЁТ (11.11.2026, хвост объекта №194). Корзина
+   * гасит монтаж (closeTrashedPropertyWorkSatellites → closeVideoHandoff), но
+   * постановка, пришедшая ПОСЛЕ этого (одобрение из открытой вкладки, перемонтаж,
+   * повтор задания), здесь удаление не проверяла и снова ставила объект
+   * QUEUED/SENT_TO_EDITOR — спутник удалённого родителя, которого не гасит уже
+   * никто. Под тем же замком очереди, что и закрытие: либо закрытие увидит нашу
+   * постановку и снимет её, либо мы увидим deletedAt и ничего не тронем.
+   */
+  const alive = await tx.property.findFirst({ where: { id: propertyId, deletedAt: null }, select: { id: true } });
+  if (!alive) {
+    void logSystemError("video-handoff", `Объект ${propertyId} удалён — на монтаж не ставлю`);
+    return null;
+  }
   // Очередь на паузе — одобрение ставит объект в очередь, а не монтажёру
   // (24.09.2026): иначе пауза держала бы только освобождение места, а новое
   // одобрение при свободном месте всё равно уезжало бы сразу.

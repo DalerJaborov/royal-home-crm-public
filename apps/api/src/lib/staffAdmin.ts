@@ -43,6 +43,7 @@ import { releaseReactivationOffersOfAgent } from "./reactivationOffers.js";
 import { shiftInactiveClockAfterAbsence } from "./inactiveTrafficLight.js";
 import { findUnacceptedLeadsOfAgent, releaseLeadsToQueue, type ReleasableLead } from "./agentLeadRelease.js";
 import { clearAgentFromSettingsReferences } from "./agentSettingsCleanup.js";
+import { alertNoMontajerIfWorkWaits } from "./montajerHandover.js";
 import { endLeadPause, notifyAgentAboutSupervisorPause, startLeadPause } from "./agentLeadPause.js";
 import { availabilityOf } from "./agentAvailability.js";
 import { sendPushToAgents } from "../push.js";
@@ -522,6 +523,22 @@ export async function updateStaffMember(actor: StaffActor, targetId: string, raw
  * и удаление, упёршееся в историю. Лиды и предложения реактивации снимаются только
  * при переходе «был активен → нет».
  */
+/**
+ * Снять уволенного из Настроек и, если это был монтажёр, сразу поднять тревогу
+ * «монтажёр не назначен» (решение владельца 11.11.2026: очередь монтажа не
+ * должна стоять молча). Тревога — после записи настройки, не до.
+ */
+async function clearAgentFromSettingsAndAlarm(agentId: string, agentName: string, reason: "deactivate"): Promise<void> {
+  alarmIfMontajerCleared(await clearAgentFromSettingsReferences(prisma, agentId, agentName, reason));
+}
+
+function alarmIfMontajerCleared(cleared: string[]): void {
+  if (!cleared.includes("videoMontajerAgentId")) return;
+  void alertNoMontajerIfWorkWaits().catch((err) =>
+    console.error("[agents] тревога «монтажёр не назначен» не ушла:", err)
+  );
+}
+
 async function finishAccountDeactivation(
   actor: StaffActor,
   agent: { id: string; fullName: string },
@@ -535,7 +552,7 @@ async function finishAccountDeactivation(
   await prisma.pushSubscription.deleteMany({ where: { agentId: agent.id } });
   // Настройка не должна молча указывать на уволенного (24.09.2026, М12-в). Best-effort.
   if (wasActive) {
-    await clearAgentFromSettingsReferences(prisma, agent.id, agent.fullName, "deactivate").catch((err) =>
+    await clearAgentFromSettingsAndAlarm(agent.id, agent.fullName, "deactivate").catch((err) =>
       console.error(`[agents] снятие уволенного ${agent.fullName} из Настроек не выполнено:`, err)
     );
   }
@@ -757,7 +774,7 @@ export async function deleteStaffMember(actor: StaffActor, targetId: string, opt
     invalidateAgentAccess(deleted.id);
     closeStreamsForAgent(deleted.id);
     // Поля Настроек хранят id строкой, без внешнего ключа (G4, 02.10.2026).
-    await clearAgentFromSettingsReferences(prisma, deleted.id, deleted.fullName, "deactivate").catch((err) =>
+    await clearAgentFromSettingsAndAlarm(deleted.id, deleted.fullName, "deactivate").catch((err) =>
       console.error(`[agents] снятие удалённого ${deleted.fullName} из Настроек не выполнено:`, err)
     );
     audit(actor, opts, "DELETE", deleted.id, {
@@ -807,7 +824,7 @@ async function disableInsteadOfDelete(
   // То же, что при отключении тумблером, кроме разбора лидов — его уже сделала раздача.
   await prisma.pushSubscription.deleteMany({ where: { agentId } });
   if (current?.isActive) {
-    await clearAgentFromSettingsReferences(prisma, agentId, deactivated.fullName, "deactivate").catch((err) =>
+    await clearAgentFromSettingsAndAlarm(agentId, deactivated.fullName, "deactivate").catch((err) =>
       console.error(`[agents] снятие удалённого ${deactivated.fullName} из Настроек не выполнено:`, err)
     );
   }
@@ -902,6 +919,7 @@ export async function freezeStaffMember(actor: StaffActor, targetId: string, raw
   const actorRow = await prisma.agent.findUnique({ where: { id: actor.id }, select: { fullName: true } });
 
   let releasedLeads: ReleasableLead[] = [];
+  let frozenClearedFields: string[] = [];
   await prisma.$transaction(async (tx) => {
     await tx.agent.update({
       where: { id: agent.id },
@@ -921,7 +939,7 @@ export async function freezeStaffMember(actor: StaffActor, targetId: string, raw
       },
     });
     // Настройка не должна молча указывать на замороженного (24.09.2026, М12-в).
-    await clearAgentFromSettingsReferences(tx, agent.id, agent.fullName, "freeze");
+    frozenClearedFields = await clearAgentFromSettingsReferences(tx, agent.id, agent.fullName, "freeze");
     releasedLeads = await releaseLeadsToQueue(tx, toRelease, {
       agentId: agent.id,
       actorId: actor.id,
@@ -931,6 +949,7 @@ export async function freezeStaffMember(actor: StaffActor, targetId: string, raw
     });
   });
   const released = { count: releasedLeads.length };
+  alarmIfMontajerCleared(frozenClearedFields);
 
   closeStreamsForAgent(agent.id);
   audit(actor, opts, "AGENT_FREEZE", agent.id, { reason: parsed.data.reason, released: released.count });

@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **733**. Развилок в самих путях: **2411**; вместе с задачами по расписанию и фоновыми заданиями — **3910**. Модулей: **82**.
+Путей: **733**. Развилок в самих путях: **2412**; вместе с задачами по расписанию и фоновыми заданиями — **3913**. Модулей: **82**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -650,7 +650,7 @@
     · меняет в базе: agent
     - await tx.agent.update({ where: { id: agent.id }, data: { frozenAt: new Date(), frozenById: actor.id, frozenRe…
       · меняет в базе: agent
-    - await clearAgentFromSettingsReferences(tx, agent.id, agent.fullName, "freeze");
+    - frozenClearedFields = await clearAgentFromSettingsReferences(tx, agent.id, agent.fullName, "freeze");
       · зовёт clearAgentFromSettingsReferences()
     - releasedLeads = await releaseLeadsToQueue(tx, toRelease, { agentId: agent.id, actorId: actor.id, actorName: a…
       · зовёт releaseLeadsToQueue()
@@ -956,8 +956,6 @@
       · зовёт invalidateAgentAccess()
     - closeStreamsForAgent(deleted.id);
       · зовёт closeStreamsForAgent()
-    - await clearAgentFromSettingsReferences(prisma, deleted.id, deleted.fullName, "deactivate").catch((err)
-      · зовёт clearAgentFromSettingsReferences()
   - если сорвалось
     - если err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025"
       - return fail(404, "Агент не найден");
@@ -15767,7 +15765,7 @@
     - если newMontajerId
       - если previousMontajerAgentId
         - пробует
-          - const oldMontajer = await prisma.agent.findUnique({ where: { id: previousMontajerAgentId }, select: { telegra…
+          - const oldMontajer = await prisma.agent.findFirst({ where: { id: previousMontajerAgentId, isActive: true }, se…
             · читает в базе: agent
           - если oldMontajer?.telegramChatId
             - await sendToMontajer(oldMontajer.telegramChatId, `Объект №${holder.shortId} передан другому монтажёру.`, { co…
@@ -15778,6 +15776,9 @@
     - иначе
       - void logSystemError("video-handoff", `Монтажёра сняли в Настройках — объект №${holder.shortId} ждёт назначени…
         · запись в журнал ошибок
+  - если !pair.videoMontajerAgentId
+    - void alertNoMontajerIfWorkWaits().catch((err)
+      · запись в журнал ошибок
 - если metaIgToken !== undefined && metaIgToken.trim()
   - пробует
     - const defaultAccount = await prisma.messengerAccount.findFirst({ where: { channel: "INSTAGRAM", isDefault: tr…
@@ -24565,9 +24566,19 @@
     · зовёт runVideoHandoffRedeliveryTick()
     - const settings = await prisma.settings.findUnique({ where: { id: "singleton" }, select: { videoHandoffEnabled…
       · читает в базе: settings
-    - если !settings?.videoHandoffEnabled || !settings.videoMontajerAgentId
+    - если !settings?.videoHandoffEnabled
       - return { redelivered: 0, gaveUp: 0, released: false, alerted: 0, manualExpired: 0 };
         · дословно из кода
+    - если !settings.videoMontajerAgentId || !(await currentMontajerIsUsable(settings.videoMontajerAgentId))
+      - const alarmed = await alertNoMontajerIfWorkWaits(now).catch((err)
+        · запись в журнал ошибок
+        - void logSystemError("video-handoff", `Тревога «монтажёр не назначен» не ушла: ${describeError(err)}`);
+          · запись в журнал ошибок
+    - если await handOverHolderToCurrentMontajer(montajerAgentId, now)
+      - handedOver++;
+        · дословно из кода
+    - await handOverNarrationToCurrentMontajer(montajerAgentId).catch((err)
+      · запись в журнал ошибок
     - const holders = await prisma.property.findMany({ where: EDITOR_HOLDER_WHERE, select: { id: true, shortId: tru…
       · читает в базе: property
     - const queuedCount = undelivered.length > 0 ? await prisma.property.count({ where: { videoHandoffStatus: "QUEU…
@@ -24589,7 +24600,7 @@
         - если await shouldAlert(`video-handoff-undelivered-log-${p.id}`, 24 * 60 * 60 * 1000, now)
           - void logSystemError( "video-handoff", `Объект №${p.shortId}: исходники так и не дошли до монтажёра после ${p.…
             · запись в журнал ошибок
-          - await sendGiveUpFallbackLinks(p.id, p.shortId, settings.videoMontajerAgentId).catch((err)
+          - await sendGiveUpFallbackLinks(p.id, p.shortId, montajerAgentId).catch((err)
             · запись в журнал ошибок
         - continue;
           · переходит к следующему
@@ -24601,7 +24612,7 @@
       - void logSystemError( "video-handoff", `Объект №${p.shortId}: исходники не дошли до монтажёра (попытка ${p.vid…
         · запись в журнал ошибок
       - пробует
-        - если await dispatchToEditor(p.id, settings.videoMontajerAgentId)
+        - если await dispatchToEditor(p.id, montajerAgentId)
           - redelivered++;
             · дословно из кода
       - если сорвалось

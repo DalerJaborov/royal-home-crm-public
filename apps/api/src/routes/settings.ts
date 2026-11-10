@@ -79,6 +79,7 @@ import { BrandNameCoreConflictError, deleteAccount, listAccounts, saveAccount, r
 import { brandNameError } from "../ai/brandPattern.js";
 import { dispatchInBackground, EDITOR_HOLDER_WHERE } from "../lib/videoHandoff.js";
 import { sendToMontajer } from "../lib/montageObservers.js";
+import { alertNoMontajerIfWorkWaits } from "../lib/montajerHandover.js";
 
 /** Ключи весов — из реестра метрик, а не строками: новая метрика в kpi.ts сразу
  *  принимается и здесь, без второй правки. */
@@ -1803,8 +1804,9 @@ settingsRouter.patch("/", requireAuth, requirePermission("settings.manage"), req
         // поведением, что было до 25.09.2026 (нет адресата, которому «передан»).
         if (previousMontajerAgentId) {
           try {
-            const oldMontajer = await prisma.agent.findUnique({
-              where: { id: previousMontajerAgentId },
+            // Уволенному в личный Telegram про объекты агентства не пишем (11.11.2026).
+            const oldMontajer = await prisma.agent.findFirst({
+              where: { id: previousMontajerAgentId, isActive: true },
               select: { telegramChatId: true },
             });
             if (oldMontajer?.telegramChatId) {
@@ -1823,6 +1825,14 @@ settingsRouter.patch("/", requireAuth, requirePermission("settings.manage"), req
         // держит место монтажёра и ждёт назначения (владелец увидит в тревогах).
         void logSystemError("video-handoff", `Монтажёра сняли в Настройках — объект №${holder.shortId} ждёт назначения нового`);
       }
+    }
+    // Монтажёра сняли — тревога модераторам, если хоть что-то ждёт (держатель
+    // или очередь), а не только строка в журнале (11.11.2026). Дальше её
+    // повторяет сторож досылки, пока монтажёра не выберут.
+    if (!pair.videoMontajerAgentId) {
+      void alertNoMontajerIfWorkWaits().catch((err) =>
+        logSystemError("video-handoff", `Тревога «монтажёр не назначен» не ушла: ${err instanceof Error ? err.message : String(err)}`)
+      );
     }
   }
 
