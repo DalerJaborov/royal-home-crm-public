@@ -59,6 +59,11 @@ export interface AssistantWriteToolPlugin extends AssistantToolBase {
    * брокер (lib/assistantActions.ts) находит исполнителя на подтверждении и откате.
    */
   executor: AssistantActionExecutor<never>;
+  /**
+   * Добавить к аргументам модели то, что знает только ядро: ключ хода (`tg:<чат>:<сообщение>`) и
+   * слова человека. Модельные значения этих полей обязан отбросить сам плагин.
+   */
+  bindContext?: (args: Record<string, unknown>, ctx: { question?: string; turnKey?: string }) => Record<string, unknown>;
 }
 
 export type AssistantToolPlugin = AssistantReadToolPlugin | AssistantWriteToolPlugin;

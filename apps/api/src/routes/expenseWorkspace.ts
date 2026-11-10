@@ -2,10 +2,12 @@ import { Router, type Request, type Response, type NextFunction, type RequestHan
 import { z } from "zod";
 import sharp from "sharp";
 import path from "node:path";
-import { expenseCategorySchema, expenseListQuerySchema, expensePaymentSchema, recurringOccurrenceSchema, EXPENSE_METHOD_LABELS, EXPENSE_CATEGORY_LABELS, type ExpensePivot } from "@royal-home/shared";
+import { expenseListQuerySchema, EXPENSE_METHOD_LABELS, EXPENSE_CATEGORY_LABELS } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { requirePermission } from "../auth/middleware.js";
-import { expenseDay, expenseDto, expenseWhere, materializeOccurrence, occurrenceDates, todayExpenseDay, upcomingExpenses, changeExpensePayment, ExpenseLifecycleError,sortExpenseIds } from "../lib/expenseWorkspace.js";
+import { expenseDay, expenseDto, todayExpenseDay, upcomingExpenses, ExpenseLifecycleError,sortExpenseIds } from "../lib/expenseWorkspace.js";
+import { changeRecurringOccurrence, createExpenseCategory, ExpenseCommandError, restoreRecurringExpense, setExpensePayment, updateExpenseCategory, type RecurringOccurrenceAction } from "../lib/expenseCommands.js";
+import { buildExpensePivot, filteredExpenses, listExpenseCategories } from "../lib/expenseQueries.js";
 import { expenseCentsToTjs, fromCents, loadMoneyContext } from "../lib/money.js";
 import { logAudit } from "../lib/audit.js";
 import { csvSafeText } from "../lib/csv.js";
@@ -16,6 +18,13 @@ import { saveDealDocumentFile, deleteDealDocumentFile, dealDocumentFilePath } fr
 /** Mounted after authenticated finance.view middleware; every mutation separately requires finance.manage. */
 export const expenseWorkspaceRouter = Router();
 const write = requirePermission("finance.manage");
+/** Ошибка правила из lib/expenseCommands.ts — тот же статус и текст ответа, что раньше. */
+function commandFailed(res: Response, err: unknown): boolean {
+    if (!(err instanceof ExpenseCommandError))
+        return false;
+    res.status(err.status).json(err.body);
+    return true;
+}
 const idSchema = z.uuid();
 expenseWorkspaceRouter.param("id", (req, res, next, id) => { if (!idSchema.safeParse(id).success)
     return res.status(400).json({ error: "Некорректный идентификатор" }); next(); });
@@ -23,21 +32,7 @@ expenseWorkspaceRouter.get("/categories", async (req, res) => {
     const p = expenseListQuerySchema.safeParse(req.query);
     if (!p.success)
         return res.status(400).json({ error: "Неверные фильтры категорий" });
-    const month = p.data.month ?? todayExpenseDay().slice(0, 7);
-    const cutoff = new Date(Date.now() - 90 * 86400000);
-    const [categories, expenses, money] = await Promise.all([prisma.expenseCategoryDefinition.findMany({ orderBy: { title: "asc" } }), prisma.expense.findMany({ where: { deletedAt: null, status: "PAID", OR: [{ month: expenseDay(`${month}-01`) }, { createdAt: { gte: cutoff } }] }, take: 20001 }), loadMoneyContext()]);
-    if (expenses.length > 20000)
-        throw new ExpenseLifecycleError(413, "Слишком много расходов для справочника");
-    res.json(categories.map(c => { const ids = new Set([c.id]); for (let i = 0; i < categories.length; i++) {
-        let changed = false;
-        for (const child of categories)
-            if (child.parentId && ids.has(child.parentId) && !ids.has(child.id)) {
-                ids.add(child.id);
-                changed = true;
-            }
-        if (!changed)
-            break;
-    } const isRoot = /^00000000-0000-4000-8000-00000000000[1-4]$/.test(c.id); const matches = expenses.filter(e => isRoot ? e.category === c.rootCategory : !!e.categoryId && ids.has(e.categoryId)); return { ...c, usageCount: matches.filter(e => e.createdAt >= cutoff).length, spentTjs: fromCents(matches.filter(e => e.month.toISOString().slice(0, 7) === month).reduce((sum, e) => sum + expenseCentsToTjs(e, money), 0)) }; }).sort((a, b) => b.usageCount - a.usageCount || a.title.localeCompare(b.title, "ru")));
+    res.json(await listExpenseCategories(p.data.month ?? todayExpenseDay().slice(0, 7)));
 });
 expenseWorkspaceRouter.get("/counterparties", async (req, res) => {
     const p = expenseListQuerySchema.safeParse(req.query);
@@ -63,49 +58,26 @@ expenseWorkspaceRouter.get("/counterparties", async (req, res) => {
     res.json([...parties.values()].sort((a, b) => b.count - a.count).slice(0, 200).map(p => ({ title: p.title, count: p.count, totalPaidTjs: fromCents(p.paidCents) })));
 });
 expenseWorkspaceRouter.post("/categories", write, async (req, res) => {
-    const parsed = expenseCategorySchema.safeParse(req.body);
-    if (!parsed.success)
-        return res.status(400).json({ error: "Некорректная категория", details: parsed.error.flatten() });
-    if (parsed.data.parentId) {
-        const parent = await prisma.expenseCategoryDefinition.findUnique({ where: { id: parsed.data.parentId } });
-        if (!parent || parent.rootCategory !== parsed.data.rootCategory)
-            return res.status(400).json({ error: "Родительская категория не соответствует разделу" });
+    try {
+        const row = await createExpenseCategory(req.body);
+        logAudit(req, "CREATE", "ExpenseCategoryDefinition", row.id, {});
+        res.status(201).json(row);
     }
-    const row = await prisma.expenseCategoryDefinition.create({ data: parsed.data });
-    logAudit(req, "CREATE", "ExpenseCategoryDefinition", row.id, {});
-    res.status(201).json(row);
+    catch (err) {
+        if (!commandFailed(res, err))
+            throw err;
+    }
 });
 expenseWorkspaceRouter.patch("/categories/:id", write, async (req, res) => {
-    const parsed = expenseCategorySchema.partial().safeParse(req.body);
-    if (!parsed.success)
-        return res.status(400).json({ error: "Некорректная категория" });
-    const row = await prisma.expenseCategoryDefinition.findUnique({ where: { id: req.params.id } });
-    if (!row)
-        return res.status(404).json({ error: "Категория не найдена" });
-    if (parsed.data.rootCategory && parsed.data.rootCategory !== row.rootCategory)
-        return res.status(400).json({ error: "Раздел существующей категории менять нельзя" });
-    const parentId = parsed.data.parentId === undefined ? row.parentId : parsed.data.parentId;
-    if (parentId) {
-        let next: string | null = parentId;
-        const visited = new Set([row.id]);
-        for (let i = 0; next && i < 100; i++) {
-            if (visited.has(next))
-                return res.status(400).json({ error: "Цикл категорий недопустим" });
-            visited.add(next);
-            const parent: {
-                rootCategory: string;
-                parentId: string | null;
-            } | null = await prisma.expenseCategoryDefinition.findUnique({ where: { id: next }, select: { rootCategory: true, parentId: true } });
-            if (!parent || parent.rootCategory !== row.rootCategory)
-                return res.status(400).json({ error: "Неверная родительская категория" });
-            next = parent.parentId;
-        }
-        if (next)
-            return res.status(400).json({ error: "Слишком глубокие категории" });
+    try {
+        const updated = await updateExpenseCategory(req.params.id, req.body);
+        logAudit(req, "UPDATE", "ExpenseCategoryDefinition", updated.id, {});
+        res.json(updated);
     }
-    const updated = await prisma.expenseCategoryDefinition.update({ where: { id: row.id }, data: parsed.data });
-    logAudit(req, "UPDATE", "ExpenseCategoryDefinition", row.id, {});
-    res.json(updated);
+    catch (err) {
+        if (!commandFailed(res, err))
+            throw err;
+    }
 });
 expenseWorkspaceRouter.get("/upcoming", async (req, res) => {
     const today = todayExpenseDay();
@@ -116,35 +88,11 @@ expenseWorkspaceRouter.get("/upcoming", async (req, res) => {
         return res.status(400).json({ error: "Выберите не больше года" });
     res.json(await upcomingExpenses(p.data.from!, p.data.to!));
 });
-async function filteredExpenses(query: unknown) { const p = expenseListQuerySchema.parse(query); const rows = await prisma.expense.findMany({ where: expenseWhere(p), take: 20001, orderBy: [{ month: "asc" }, { createdAt: "asc" }] }); if (rows.length > 20000)
-    throw new ExpenseLifecycleError(413, "Сузьте период: более 20 000 расходов"); return rows; }
 expenseWorkspaceRouter.get("/pivot", async (req, res) => {
     const p = expenseListQuerySchema.safeParse(req.query);
     if (!p.success)
         return res.status(400).json({ error: "Некорректные фильтры" });
-    const [expenses, categories, money] = await Promise.all([filteredExpenses({ ...p.data, status: "PAID" }), prisma.expenseCategoryDefinition.findMany(), loadMoneyContext()]);
-    const result: ExpensePivot = { months: [], rows: [], totalTjs: 0 };
-    const groups = new Map<string, ExpensePivot["rows"][number]>();
-    let total = 0;
-    for (const e of expenses) {
-        const month = e.month.toISOString().slice(0, 7);
-        if (!result.months.includes(month))
-            result.months.push(month);
-        const key = e.categoryId ?? e.category;
-        const cat = categories.find(c => c.id === e.categoryId);
-        let row = groups.get(key);
-        if (!row) {
-            row = { categoryId: key, title: cat?.title ?? e.category, rootCategory: e.category, color: cat?.color ?? "#7F97B4", values: {} };
-            groups.set(key, row);
-        }
-        const amount = expenseCentsToTjs(e, money);
-        row.values[month] = (row.values[month] ?? 0) + amount;
-        total += amount;
-    }
-    result.months.sort();
-    result.rows = [...groups.values()].map(r => ({ ...r, values: Object.fromEntries(Object.entries(r.values).map(([k, v]) => [k, fromCents(v)])) }));
-    result.totalTjs = fromCents(total);
-    res.json(result);
+    res.json(await buildExpensePivot(p.data));
 });
 async function expenseCsv(query: unknown) {
     const filters=expenseListQuerySchema.parse(query);
@@ -183,62 +131,29 @@ expenseWorkspaceRouter.post("/export/telegram", async (req, res) => {
 });
 function expensePaymentHandler(action:"pay"|"undo-payment"):RequestHandler<{id:string}> {
     return async (req, res) => {
-        const p = expensePaymentSchema.safeParse(req.body);
-        if (!p.success)
-            return res.status(400).json({ error: "Неверная дата" });
         try {
-            const row = await changeExpensePayment(req.params.id, action === "pay", p.data.paymentDate);
+            const row = await setExpensePayment(req.params.id, action === "pay", req.body);
             logAudit(req, "UPDATE", "Expense", row.id, { paymentAction: action });
             res.json(expenseDto(row));
         }
         catch (error) {
-            if (error instanceof ExpenseLifecycleError)
-                return res.status(error.status).json({ error: error.message });
-            throw error;
+            if (!commandFailed(res, error))
+                throw error;
         }
     };
 }
 expenseWorkspaceRouter.post("/:id/pay",write,expensePaymentHandler("pay"));
 expenseWorkspaceRouter.post("/:id/undo-payment",write,expensePaymentHandler("undo-payment"));
-function recurringPaymentHandler(action:"pay"|"skip"|"undo"|"undo-payment"):RequestHandler<{id:string}> {
+function recurringPaymentHandler(action:RecurringOccurrenceAction):RequestHandler<{id:string}> {
     return async (req, res) => {
-        const p = recurringOccurrenceSchema.safeParse(req.body);
-        if (!p.success)
-            return res.status(400).json({ error: "Неверная дата платежа" });
-        const t = await prisma.recurringExpense.findUnique({ where: { id: req.params.id } });
-        if (!t || t.deletedAt)
-            return res.status(404).json({ error: "Подписка не найдена" });
-        const day = p.data.dueDate;
-        if (!occurrenceDates(t, day, day).includes(day))
-            return res.status(400).json({ error: "Дата не относится к подписке" });
         try {
-            const result = await prisma.$transaction(async (tx) => {
-                await tx.$queryRaw `SELECT "id" FROM "RecurringExpense" WHERE "id"=${t.id} FOR UPDATE`;
-                const latest = await tx.recurringExpense.findUnique({ where: { id: t.id } });
-                if (!latest || latest.deletedAt)
-                    throw new ExpenseLifecycleError(404, "Подписка удалена");
-                let row = await materializeOccurrence(latest, day, "PLANNED", req.agent!.id, undefined, tx);
-                await tx.$queryRaw `SELECT "id" FROM "Expense" WHERE "id"=${row.id} FOR UPDATE`;
-                row = (await tx.expense.findUnique({ where: { id: row.id } }))!;
-                if (row.deletedAt)
-                    throw new ExpenseLifecycleError(409, "Платёж удалён. Сначала восстановите расход");
-                if (action === "skip") {
-                    if (row.status === "PAID")
-                        throw new ExpenseLifecycleError(409, "Оплаченный платёж нельзя пропустить");
-                    await tx.recurringExpense.update({ where: { id: t.id }, data: { skippedDates: { set: [...new Set([...latest.skippedDates, day])] } } });
-                    return null;
-                }
-                const expense = await changeExpensePayment(row.id, action === "pay", p.data.paymentDate, tx);
-                await tx.recurringExpense.update({ where: { id: t.id }, data: { skippedDates: { set: latest.skippedDates.filter(d => d !== day) } } });
-                return expense;
-            });
-            logAudit(req, "UPDATE", "RecurringExpense", t.id, { paymentAction: action, dueDate: day });
-            res.json(result ? expenseDto(result) : { ok: true });
+            const { expense, dueDate } = await changeRecurringOccurrence(req.params.id, action, req.body, req.agent!.id);
+            logAudit(req, "UPDATE", "RecurringExpense", req.params.id, { paymentAction: action, dueDate });
+            res.json(expense ? expenseDto(expense) : { ok: true });
         }
         catch (error) {
-            if (error instanceof ExpenseLifecycleError)
-                return res.status(error.status).json({ error: error.message });
-            throw error;
+            if (!commandFailed(res, error))
+                throw error;
         }
     };
 }
@@ -246,8 +161,17 @@ expenseWorkspaceRouter.post("/recurring/:id/pay",write,recurringPaymentHandler("
 expenseWorkspaceRouter.post("/recurring/:id/skip",write,recurringPaymentHandler("skip"));
 expenseWorkspaceRouter.post("/recurring/:id/undo",write,recurringPaymentHandler("undo"));
 expenseWorkspaceRouter.post("/recurring/:id/undo-payment",write,recurringPaymentHandler("undo-payment"));
-expenseWorkspaceRouter.patch("/recurring/:id/restore", write, async (req, res) => { const t = await prisma.recurringExpense.findUnique({ where: { id: req.params.id } }); if (!t)
-    return res.status(404).json({ error: "Подписка не найдена" }); res.json(await prisma.recurringExpense.update({ where: { id: t.id }, data: { deletedAt: null } })); logAudit(req, "RESTORE", "RecurringExpense", t.id, {}); });
+expenseWorkspaceRouter.patch("/recurring/:id/restore", write, async (req, res) => {
+    try {
+        const row = await restoreRecurringExpense(req.params.id);
+        res.json(row);
+        logAudit(req, "RESTORE", "RecurringExpense", row.id, {});
+    }
+    catch (err) {
+        if (!commandFailed(res, err))
+            throw err;
+    }
+});
 expenseWorkspaceRouter.post("/:id/receipts", write, anyParams(dealDocumentUpload.single("file")), async (req, res) => {
     const e = await prisma.expense.findUnique({ where: { id: req.params.id } });
     if (!e || e.deletedAt)

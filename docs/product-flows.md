@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **731**. Развилок в самих путях: **2505**; вместе с задачами по расписанию и фоновыми заданиями — **4004**. Модулей: **81**.
+Путей: **731**. Развилок в самих путях: **2432**; вместе с задачами по расписанию и фоновыми заданиями — **3931**. Модулей: **81**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -5406,9 +5406,7 @@
     · зовёт dushanbeWallClock()
 - для каждого: let i = MONTHS_BACK - 1; i >= 0; i--
   - const m = monthKey(monthStart(now.getUTCFullYear(), now.getUTCMonth() - i));
-    · дословно из кода
-  - const deals = completedDeals.filter((d) => d.closedAt && monthKey(d.closedAt) === m);
-    · дословно из кода
+    · зовёт monthKey()
 - const dayKey = (d: Date)
   - const wall = dushanbeWallClock(d);
     · зовёт dushanbeWallClock()
@@ -5418,9 +5416,7 @@
       · дословно из кода
 - для каждого: let i = MONTHS_BACK - 1; i >= 0; i--
   - const m = monthKey(monthStart(now.getUTCFullYear(), now.getUTCMonth() - i));
-    · дословно из кода
-  - propertiesByMonth.push({ month: m, added: propsCreated.filter((p) => monthKey(p.createdAt) === m).length, sol…
-    · дословно из кода
+    · зовёт monthKey()
 - res.json({ commissionByMonth, sourcesThisMonth: monthClients .map((g)
   · ответ 200
 
@@ -6713,18 +6709,16 @@
 `apps/api/src/routes/expenses.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, requireFinanceWrite
 
 - пробует
-  - const expense = await prisma.expense.update({ where: { id: req.params.id }, data: { deletedAt: null } });
-    · меняет в базе: expense
+  - const expense = await restoreExpense(req.params.id);
+    · зовёт restoreExpense()
   - logAudit(req, "RESTORE", "Expense", expense.id, { category: expense.category, amount: expense.amount.toString…
     · зовёт logAudit()
   - res.json(expense);
     · ответ 200
 - если сорвалось
-  - если err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025"
-    - return res.status(404).json({ error: "Расход не найден" });
-      · ответ 404 — «Расход не найден»
-  - throw err;
-    · пробрасывает ошибку дальше
+  - если !commandFailed(res, err)
+    - throw err;
+      · пробрасывает ошибку дальше
 
 ### POST /api/v1/expenses/:id/undo-payment
 
@@ -6740,119 +6734,55 @@
   - return res.status(400).json({ error: "Неверная версия расхода" });
     · ответ 400 — «Неверная версия расхода»
 - пробует
-  - const deleted = await prisma.expense.update({ where: { id: req.params.id, ...(parsed.data.version !== undefin…
-    · меняет в базе: expense
+  - const deleted = await deleteExpense(req.params.id, parsed.data.version);
+    · зовёт deleteExpense()
   - logAudit(req, "DELETE", "Expense", deleted.id, { category: deleted.category, amount: deleted.amount.toString(…
     · зовёт logAudit()
   - res.status(204).end();
     · ответ 204
 - если сорвалось
-  - если err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025"
-    - если parsed.data.version !== undefined
-      - return res.status(409).json({ code: "EXPENSE_VERSION_CONFLICT", error: "Расход уже изменён. Обновите запись п…
-        · ответ 409 — «Расход уже изменён. Обновите запись перед удалением»
-    - return res.status(404).json({ error: "Расход не найден" });
-      · ответ 404 — «Расход не найден»
-  - throw err;
-    · пробрасывает ошибку дальше
+  - если !commandFailed(res, err)
+    - throw err;
+      · пробрасывает ошибку дальше
 
 ### PATCH /api/v1/expenses/:id
 
 `apps/api/src/routes/expenses.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, requireFinanceWrite
 
-- const parsed = expenseUpdateSchema.safeParse(req.body);
-  · проверяет данные схемой expenseUpdateSchema
-- если !parsed.success
-  - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
-    · ответ 400 — «Неверные данные»
-- const current = await prisma.expense.findUnique({ where: { id: req.params.id } });
-  · читает в базе: expense
-- если !current || current.deletedAt
-  - return res.status(404).json({ error: "Расход не найден" });
-    · ответ 404 — «Расход не найден»
-- если version === undefined && changedFields.length > 1
-  - return res.status(409).json({ code: "EXPENSE_VERSION_REQUIRED", error: "Обновите страницу и снова откройте ра…
-    · ответ 409 — «Обновите страницу и снова откройте расход: старая форма не передаёт…»
-- если version !== undefined && version !== current.version
-  - return res.status(409).json({ code: "EXPENSE_VERSION_CONFLICT", error: "Расход изменён другим сотрудником. Об…
-    · ответ 409 — «Расход изменён другим сотрудником. Обновите запись перед сохранением»
-- если rest.amount!==undefined&&rest.amount>99_999_999.99
-  - return res.status(400).json({error:"Сумма слишком большая"});
-    · ответ 400 — «Сумма слишком большая»
-- если !await validateExpenseCategory(rest.categoryId===undefined?current.categoryId:rest.categoryId,rest.category??…
-  - return res.status(400).json({error:"Категория не соответствует разделу"});
-    · ответ 400 — «Категория не соответствует разделу»
-- const money=await loadMoneyContext();
-  · зовёт loadMoneyContext()
-- если (rest.status??current.status)==="PAID"&&finalPaymentDate&&finalPaymentDate>todayExpenseDay()
-  - return res.status(400).json({error:"Будущий платёж запишите как план"});
-    · ответ 400 — «Будущий платёж запишите как план»
-- если finalCategory === "ADVERTISING" && !finalSource
-  - return res.status(400).json({ error: "Укажите канал рекламы" });
-    · ответ 400 — «Укажите канал рекламы»
-- если finalCategory === "SALARY" && !finalAgentId
-  - return res.status(400).json({ error: "Укажите сотрудника" });
-    · ответ 400 — «Укажите сотрудника»
-- если (finalCategory === "OFFICE" || finalCategory === "OTHER") && !finalNote?.trim()
-  - return res.status(400).json({ error: "Укажите комментарий — куда пошли деньги" });
-    · ответ 400 — «Укажите комментарий — куда пошли деньги»
 - пробует
-  - const expense = await prisma.expense.update({ where: { id: req.params.id,version:version ?? current.version, …
-    · меняет в базе: expense
-  - logAudit(req, "UPDATE", "Expense", expense.id, { changed: Object.keys(parsed.data) });
+  - const { expense, changed } = await updateExpense(req.params.id, req.body);
+    · зовёт updateExpense()
+  - logAudit(req, "UPDATE", "Expense", expense.id, { changed });
     · зовёт logAudit()
   - res.json((await expenseDtos([expense]))[0]);
     · ответ 200
 - если сорвалось
-  - если err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025"
-    - return res.status(409).json({ code: "EXPENSE_VERSION_CONFLICT", error: "Расход изменён другим сотрудником. Об…
-      · ответ 409 — «Расход изменён другим сотрудником. Обновите запись перед сохранением»
-  - throw err;
-    · пробрасывает ошибку дальше
+  - если !commandFailed(res, err)
+    - throw err;
+      · пробрасывает ошибку дальше
 
 ### GET /api/v1/expenses/archive
 
 `apps/api/src/routes/expenses.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view
 
-- const expenses = await prisma.expense.findMany({ where: { deletedAt: { not: null, ...(from ? { gte: from } : …
-  · читает в базе: expense
-- res.json(expenses);
+- res.json(await listArchivedExpenses(req.query.from, req.query.to));
   · ответ 200
 
 ### PATCH /api/v1/expenses/categories/:id
 
 `apps/api/src/routes/expenseWorkspace.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, (error: unknown, _req: Request, res: Response, next: NextFunction) => { if (error instanceof ExpenseLifecycle…, write
 
-- если !parsed.success
-  - return res.status(400).json({ error: "Некорректная категория" });
-    · ответ 400 — «Некорректная категория»
-- const row = await prisma.expenseCategoryDefinition.findUnique({ where: { id: req.params.id } });
-  · читает в базе: expenseCategoryDefinition
-- если !row
-  - return res.status(404).json({ error: "Категория не найдена" });
-    · ответ 404 — «Категория не найдена»
-- если parsed.data.rootCategory && parsed.data.rootCategory !== row.rootCategory
-  - return res.status(400).json({ error: "Раздел существующей категории менять нельзя" });
-    · ответ 400 — «Раздел существующей категории менять нельзя»
-- если parentId
-  - для каждого: let i = 0; next && i < 100; i++
-    - если visited.has(next)
-      - return res.status(400).json({ error: "Цикл категорий недопустим" });
-        · ответ 400 — «Цикл категорий недопустим»
-    - const parent: { rootCategory: string; parentId: string | null; } | null = await prisma.expenseCategoryDefinit…
-      · читает в базе: expenseCategoryDefinition
-    - если !parent || parent.rootCategory !== row.rootCategory
-      - return res.status(400).json({ error: "Неверная родительская категория" });
-        · ответ 400 — «Неверная родительская категория»
-  - если next
-    - return res.status(400).json({ error: "Слишком глубокие категории" });
-      · ответ 400 — «Слишком глубокие категории»
-- const updated = await prisma.expenseCategoryDefinition.update({ where: { id: row.id }, data: parsed.data });
-  · меняет в базе: expenseCategoryDefinition
-- logAudit(req, "UPDATE", "ExpenseCategoryDefinition", row.id, {});
-  · зовёт logAudit()
-- res.json(updated);
-  · ответ 200
+- пробует
+  - const updated = await updateExpenseCategory(req.params.id, req.body);
+    · зовёт updateExpenseCategory()
+  - logAudit(req, "UPDATE", "ExpenseCategoryDefinition", updated.id, {});
+    · зовёт logAudit()
+  - res.json(updated);
+    · ответ 200
+- если сорвалось
+  - если !commandFailed(res, err)
+    - throw err;
+      · пробрасывает ошибку дальше
 
 ### GET /api/v1/expenses/categories
 
@@ -6863,42 +6793,24 @@
 - если !p.success
   - return res.status(400).json({ error: "Неверные фильтры категорий" });
     · ответ 400 — «Неверные фильтры категорий»
-- const month = p.data.month ?? todayExpenseDay().slice(0, 7);
-  · зовёт todayExpenseDay()
-- const [categories, expenses, money] = await Promise.all([prisma.expenseCategoryDefinition.findMany({ orderBy:…
-  · читает в базе: expenseCategoryDefinition
-  · читает в базе: expense
-- если expenses.length > 20000
-  - throw new ExpenseLifecycleError(413, "Слишком много расходов для справочника");
-    · ошибка ExpenseLifecycleError — «413,»
-- res.json(categories.map(c
+- res.json(await listExpenseCategories(p.data.month ?? todayExpenseDay().slice(0, 7)));
   · ответ 200
-  - для каждого: let i = 0; i < categories.length; i++
-    - для каждого: const child of categories
-      - if (child.parentId && ids.has(child.parentId) && !ids.has(child.id)) { ids.add(child.id); changed = true; } i…
-        · дословно из кода
 
 ### POST /api/v1/expenses/categories
 
 `apps/api/src/routes/expenseWorkspace.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, (error: unknown, _req: Request, res: Response, next: NextFunction) => { if (error instanceof ExpenseLifecycle…, write
 
-- const parsed = expenseCategorySchema.safeParse(req.body);
-  · проверяет данные схемой expenseCategorySchema
-- если !parsed.success
-  - return res.status(400).json({ error: "Некорректная категория", details: parsed.error.flatten() });
-    · ответ 400 — «Некорректная категория»
-- если parsed.data.parentId
-  - const parent = await prisma.expenseCategoryDefinition.findUnique({ where: { id: parsed.data.parentId } });
-    · читает в базе: expenseCategoryDefinition
-  - если !parent || parent.rootCategory !== parsed.data.rootCategory
-    - return res.status(400).json({ error: "Родительская категория не соответствует разделу" });
-      · ответ 400 — «Родительская категория не соответствует разделу»
-- const row = await prisma.expenseCategoryDefinition.create({ data: parsed.data });
-  · создаёт в базе: expenseCategoryDefinition
-- logAudit(req, "CREATE", "ExpenseCategoryDefinition", row.id, {});
-  · зовёт logAudit()
-- res.status(201).json(row);
-  · ответ 201
+- пробует
+  - const row = await createExpenseCategory(req.body);
+    · зовёт createExpenseCategory()
+  - logAudit(req, "CREATE", "ExpenseCategoryDefinition", row.id, {});
+    · зовёт logAudit()
+  - res.status(201).json(row);
+    · ответ 201
+- если сорвалось
+  - если !commandFailed(res, err)
+    - throw err;
+      · пробрасывает ошибку дальше
 
 ### GET /api/v1/expenses/counterparties
 
@@ -6968,6 +6880,8 @@
 
 `apps/api/src/routes/expenses.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view
 
+- const from = dushanbeMonthStart(monthsBack - 1);
+  · зовёт dushanbeMonthStart()
 - const [deals, expenses, settings, money] = await Promise.all([ prisma.deal.findMany({ where: { stage: "COMPLE…
   · читает в базе: deal
   · читает в базе: expense
@@ -7021,20 +6935,7 @@
 - если !p.success
   - return res.status(400).json({ error: "Некорректные фильтры" });
     · ответ 400 — «Некорректные фильтры»
-- const [expenses, categories, money] = await Promise.all([filteredExpenses({ ...p.data, status: "PAID" }), pri…
-  · читает в базе: expenseCategoryDefinition
-- для каждого: const e of expenses
-  - если !result.months.includes(month)
-    - result.months.push(month);
-      · дословно из кода
-  - если !row
-    - row = { categoryId: key, title: cat?.title ?? e.category, rootCategory: e.category, color: cat?.color ?? "#7F…
-      · дословно из кода
-    - groups.set(key, row);
-      · дословно из кода
-  - const amount = expenseCentsToTjs(e, money);
-    · зовёт expenseCentsToTjs()
-- res.json(result);
+- res.json(await buildExpensePivot(p.data));
   · ответ 200
 
 ### GET /api/v1/expenses/pulse
@@ -7067,16 +6968,17 @@
 
 `apps/api/src/routes/expenseWorkspace.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, (error: unknown, _req: Request, res: Response, next: NextFunction) => { if (error instanceof ExpenseLifecycle…, write
 
-- const t = await prisma.recurringExpense.findUnique({ where: { id: req.params.id } });
-  · читает в базе: recurringExpense
-- если !t
-  - return res.status(404).json({ error: "Подписка не найдена" });
-    · ответ 404 — «Подписка не найдена»
-- res.json(await prisma.recurringExpense.update({ where: { id: t.id }, data: { deletedAt: null } }));
-  · ответ 200
-  · меняет в базе: recurringExpense
-- logAudit(req, "RESTORE", "RecurringExpense", t.id, {});
-  · зовёт logAudit()
+- пробует
+  - const row = await restoreRecurringExpense(req.params.id);
+    · зовёт restoreRecurringExpense()
+  - res.json(row);
+    · ответ 200
+  - logAudit(req, "RESTORE", "RecurringExpense", row.id, {});
+    · зовёт logAudit()
+- если сорвалось
+  - если !commandFailed(res, err)
+    - throw err;
+      · пробрасывает ошибку дальше
 
 ### POST /api/v1/expenses/recurring/:id/skip
 
@@ -7101,149 +7003,74 @@
 `apps/api/src/routes/expenses.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, requireFinanceWrite
 
 - пробует
-  - await prisma.recurringExpense.update({ where: { id: req.params.id },data:{deletedAt:new Date()} });
-    · меняет в базе: recurringExpense
+  - await deleteRecurringExpense(req.params.id);
+    · зовёт deleteRecurringExpense()
   - logAudit(req, "DELETE", "RecurringExpense", req.params.id, {});
     · зовёт logAudit()
   - res.json({ ok: true });
     · ответ 200
 - если сорвалось
-  - если err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025"
-    - return res.status(404).json({ error: "Шаблон не найден" });
-      · ответ 404 — «Шаблон не найден»
-  - throw err;
-    · пробрасывает ошибку дальше
+  - если !commandFailed(res, err)
+    - throw err;
+      · пробрасывает ошибку дальше
 
 ### PATCH /api/v1/expenses/recurring/:id
 
 `apps/api/src/routes/expenses.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, requireFinanceWrite
 
-- const parsed = recurringPatchSchema.safeParse(req.body);
-  · проверяет данные схемой recurringPatchSchema
-- если !parsed.success
-  - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
-    · ответ 400 — «Неверные данные»
-- const existing=await prisma.recurringExpense.findUnique({where:{id:req.params.id}});
-  · читает в базе: recurringExpense
-- если !existing||existing.deletedAt
-  - return res.status(404).json({error:"Шаблон не найден"});
-    · ответ 404 — «Шаблон не найден»
-- если start&&end&&end<start
-  - return res.status(400).json({error:"Конец подписки раньше начала"});
-    · ответ 400 — «Конец подписки раньше начала»
-- если !await validateExpenseCategory(patch.categoryId===undefined?existing.categoryId:patch.categoryId,patch.catego…
-  - return res.status(400).json({error:"Неверная категория подписки"});
-    · ответ 400 — «Неверная категория подписки»
-- если touchesAttribution
-  - const current = await prisma.recurringExpense.findUnique({ where: { id: req.params.id }, select: { category: …
-    · читает в базе: recurringExpense
-  - если !current
-    - return res.status(404).json({ error: "Шаблон не найден" });
-      · ответ 404 — «Шаблон не найден»
-  - если issue
-    - return res.status(400).json({ error: issue.message });
-      · ответ 400
 - пробует
-  - const row = await prisma.recurringExpense.update({ where: { id: req.params.id }, data: { ...patch, ...attribu…
-    · меняет в базе: recurringExpense
-  - logAudit(req, "UPDATE", "RecurringExpense", row.id, { changed: Object.keys(parsed.data) });
+  - const { row, changed } = await updateRecurringExpense(req.params.id, req.body);
+    · зовёт updateRecurringExpense()
+  - logAudit(req, "UPDATE", "RecurringExpense", row.id, { changed });
     · зовёт logAudit()
   - res.json(row);
     · ответ 200
 - если сорвалось
-  - если err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2025"
-    - return res.status(404).json({ error: "Шаблон не найден" });
-      · ответ 404 — «Шаблон не найден»
-  - throw err;
-    · пробрасывает ошибку дальше
+  - если !commandFailed(res, err)
+    - throw err;
+      · пробрасывает ошибку дальше
 
 ### GET /api/v1/expenses/recurring
 
 `apps/api/src/routes/expenses.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view
 
-- const rows = await prisma.recurringExpense.findMany({where:{deletedAt:null}, orderBy: [{ active: "desc" }, { …
-  · читает в базе: recurringExpense
-- const today=todayExpenseDay();
-  · зовёт todayExpenseDay()
-- const payments=await prisma.expense.findMany({where:{deletedAt:null,status:"PAID",OR:[{recurringId:{in:rows.m…
-  · читает в базе: expense
-- если payments.length>20000
-  - return res.status(413).json({error:"Слишком много платежей для списка подписок"});
-    · ответ 413 — «Слишком много платежей для списка подписок»
-- res.json(rows.map(row
-  · ответ 200
+- пробует
+  - res.json(await listRecurringExpenses());
+    · ответ 200
+- если сорвалось
+  - если err instanceof ExpenseLifecycleError
+    - return res.status(err.status).json({ error: err.message });
+      · ответ (код зависит от условия)
+  - throw err;
+    · пробрасывает ошибку дальше
 
 ### POST /api/v1/expenses/recurring
 
 `apps/api/src/routes/expenses.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, requireFinanceWrite
 
-- const parsed = recurringSchema.safeParse(req.body);
-  · проверяет данные схемой recurringSchema
-- если !parsed.success
-  - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
-    · ответ 400 — «Неверные данные»
-- если parsed.data.startsOn && parsed.data.endsOn && parsed.data.endsOn<parsed.data.startsOn
-  - return res.status(400).json({error:"Конец подписки раньше начала"});
-    · ответ 400 — «Конец подписки раньше начала»
-- если !await validateExpenseCategory(parsed.data.categoryId,parsed.data.category)
-  - return res.status(400).json({error:"Неверная категория подписки"});
-    · ответ 400 — «Неверная категория подписки»
-- const row = await prisma.recurringExpense.create({ data: { ...parsed.data, ...(!parsed.data.startsOn&&(parsed…
-  · создаёт в базе: recurringExpense
-- logAudit(req, "CREATE", "RecurringExpense", row.id, { title: row.title, amount: Number(row.amount) });
-  · зовёт logAudit()
-- res.status(201).json(row);
-  · ответ 201
+- пробует
+  - const row = await createRecurringExpense(req.body);
+    · зовёт createRecurringExpense()
+  - logAudit(req, "CREATE", "RecurringExpense", row.id, { title: row.title, amount: Number(row.amount) });
+    · зовёт logAudit()
+  - res.status(201).json(row);
+    · ответ 201
+- если сорвалось
+  - если !commandFailed(res, err)
+    - throw err;
+      · пробрасывает ошибку дальше
 
 ### GET /api/v1/expenses/summary
 
 `apps/api/src/routes/expenses.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view
 
-- если !through.success
-  - return res.status(400).json({error:"Некорректный месяц"});
-    · ответ 400 — «Некорректный месяц»
-- const now = through.data?expenseDay(`${through.data}-01`):dushanbeWallClock();
-  · зовёт expenseDay()
-- const [expenses, completedDeals, clients, settings, money] = await Promise.all([ prisma.expense.findMany({ wh…
-  · читает в базе: expense
-  · читает в базе: deal
-  · читает в базе: client
-  · создаёт или меняет в базе: settings
-- если truncated
-  - void logSystemError( "api", `Финансовая сводка за ${monthsBack} мес.: выборка упёрлась в потолок ${FINANCE_RO…
-    · запись в журнал ошибок
-- const payoutByDealId = await getDealPayouts(completedDeals.map((d)
-  · зовёт getDealPayouts()
-- const splitOf = (d: (typeof completedDeals)[number])
-  - const cents = (value: unknown)
-    · зовёт centsToTjs()
-  - если d.commissionCompanyAmount !== null
-    - return { realtor: cents(d.commissionRealtorAmount), company: cents(d.commissionCompanyAmount) + cents(d.commi…
-      · дословно из кода
-  - const [realtor, company] = splitCents(baseCents, [pRealtor, pCompany]);
-    · зовёт splitCents()
-- для каждого: let i = monthsBack - 1; i >= 0; i--
-  - months.push(monthKey(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1))));
-    · дословно из кода
-- const summary = months.map((m)
-  - для каждого: const e of monthExpenses
-    - если isDealSalaryExpense(e)
-      - dealSalaryCents += expenseCentsToTjs(e, money);
-        · зовёт expenseCentsToTjs()
-    - byCategory[e.category] = (byCategory[e.category] ?? 0) + expenseCentsToTjs(e, money);
-      · зовёт expenseCentsToTjs()
-  - для каждого: const d of monthDeals
-    - если realtor > 0
-      - const p = payoutByAgent.get(d.agent.id) ?? { name: d.agent.fullName, realtor: 0, deals: [] };
-        · дословно из кода
-      - p.realtor += realtor;
-        · дословно из кода
-  - для каждого: const e of monthExpenses
-    - если e.category === "ADVERTISING" && e.source
-      - adBySource.set( e.source as ClientSource, (adBySource.get(e.source as ClientSource) ?? 0) + expenseCentsToTjs…
-        · зовёт expenseCentsToTjs()
-- res.json({ months: summary, currency: "TJS", usdToTjsRate: money.usdToTjs, truncated });
-  · ответ 200
+- пробует
+  - res.json(await buildExpenseSummary({ months: req.query.months, through: req.query.through }));
+    · ответ 200
+- если сорвалось
+  - если !commandFailed(res, err)
+    - throw err;
+      · пробрасывает ошибку дальше
 
 ### GET /api/v1/expenses/upcoming
 
@@ -7266,74 +7093,29 @@
 
 `apps/api/src/routes/expenses.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view
 
-- const query=expenseListQuerySchema.safeParse(req.query);
-  · проверяет данные схемой expenseListQuerySchema
-- если !query.success
-  - return res.status(400).json({error:"Некорректные фильтры",details:query.error.flatten()});
-    · ответ 400 — «Некорректные фильтры»
-- const where=expenseWhere(query.data);
-  · зовёт expenseWhere()
-- если query.data.sortBy
-  - пробует
-    - const context=query.data.sortBy==="amount"?await loadMoneyContext():undefined;
-      · зовёт loadMoneyContext()
-    - const ids=await orderedExpenseIds(where,query.data.sortBy,query.data.sortDirection,context);
-      · зовёт orderedExpenseIds()
-    - const rows=await prisma.expense.findMany({where:{id:{in:pageIds},deletedAt:null},include:{agent:{select:{id:t…
-      · читает в базе: expense
-    - const items=await expenseDtos(ordered,context);
-      · зовёт expenseDtos()
-    - return res.json(query.data.page?{items,total:ids.length,page:query.data.page,pageSize:query.data.pageSize}:it…
-      · ответ 200
-  - если сорвалось
-    - если error instanceof ExpenseLifecycleError
-      - return res.status(error.status).json({error:error.message});
-        · ответ (код зависит от условия)
-    - throw error;
+- пробует
+  - res.json(await listExpenses(req.query));
+    · ответ 200
+- если сорвалось
+  - если !commandFailed(res, err)
+    - throw err;
       · пробрасывает ошибку дальше
-- const expenses = await prisma.expense.findMany({ where, orderBy: [{ month: "desc" }, { createdAt: "desc" }], …
-  · читает в базе: expense
-- const items=await expenseDtos(expenses);
-  · зовёт expenseDtos()
-- res.json(query.data.page?{items,total:await prisma.expense.count({where}),page:query.data.page,pageSize:query…
-  · ответ 200
-  · считает в базе: expense
 
 ### POST /api/v1/expenses
 
 `apps/api/src/routes/expenses.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен, есть право: finance.view, requireFinanceWrite
 
-- const parsed = expenseCreateSchema.safeParse(req.body);
-  · проверяет данные схемой expenseCreateSchema
-- если !parsed.success
-  - return res.status(400).json({ error: "Неверные данные", details: parsed.error.flatten() });
-    · ответ 400 — «Неверные данные»
-- если rest.amount>99_999_999.99
-  - return res.status(400).json({error:"Сумма слишком большая"});
-    · ответ 400 — «Сумма слишком большая»
-- если !await validateExpenseCategory(rest.categoryId,rest.category)
-  - return res.status(400).json({error:"Выберите категорию соответствующего раздела"});
-    · ответ 400 — «Выберите категорию соответствующего раздела»
-- если key&&!/^[A-Za-z0-9:_-]{8,120}$/.test(key)
-  - return res.status(400).json({error:"Неверный ключ запроса"});
-    · ответ 400 — «Неверный ключ запроса»
-- const money=await loadMoneyContext();
-  · зовёт loadMoneyContext()
-- const data={...rest,paymentDate:rest.paymentDate?expenseDay(rest.paymentDate):null,month:monthToDate((rest.st…
-  · зовёт expenseDay()
-- если (rest.status??"PAID")==="PAID"&&rest.paymentDate&&rest.paymentDate>todayExpenseDay()
-  - return res.status(400).json({error:"Будущий платёж запишите как план"});
-    · ответ 400 — «Будущий платёж запишите как план»
-- const expense=requestKey?await prisma.expense.upsert({where:{requestKey},update:{},create:data}):await prisma…
-  · создаёт или меняет в базе: expense
-  · создаёт в базе: expense
-- если requestKey&&expense.autoFingerprint!==fingerprint
-  - return res.status(409).json({error:"Этот ключ уже использован для другого расхода",code:"IDEMPOTENCY_CONFLICT…
-    · ответ 409 — «Этот ключ уже использован для другого расхода»
-- logAudit(req, "EXPENSE_CREATE", "Expense", expense.id, { amount: Number(expense.amount), category: expense.ca…
-  · зовёт logAudit()
-- res.status(201).json((await expenseDtos([expense]))[0]);
-  · ответ 201
+- пробует
+  - const { expense, month } = await createExpense(req.body, { agentId: req.agent!.id, idempotencyKey: req.get("I…
+    · зовёт createExpense()
+  - logAudit(req, "EXPENSE_CREATE", "Expense", expense.id, { amount: Number(expense.amount), category: expense.ca…
+    · зовёт logAudit()
+  - res.status(201).json((await expenseDtos([expense]))[0]);
+    · ответ 201
+- если сорвалось
+  - если !commandFailed(res, err)
+    - throw err;
+      · пробрасывает ошибку дальше
 
 ## /api/v1/finance
 

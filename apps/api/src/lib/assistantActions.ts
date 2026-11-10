@@ -105,6 +105,8 @@ export interface AssistantActionExecutor<A = unknown> {
   privateTelegram?: boolean;
   /** DB-only execution with the claim, score/domain writes, audit and result in one transaction. */
   transactional?: true;
+  /** Longer than Prisma's 5 s default for large batches (add_expenses from a spreadsheet). */
+  transactionTimeoutMs?: number;
   /** Revalidate current entity access before returning an existing action, including a replay. */
   authorize?: (args: A, actor: AssistantActionActor, action: Pick<AssistantAction, "status" | "result">) => Promise<void>;
   /** Разбор аргументов (zod) — тот же, что на REST-границе. */
@@ -420,7 +422,7 @@ async function confirmTransactionalAction(
     });
     const done = await saveExecutedAction(tx, row, executed, snapshotAfter);
     return { kind: "executed" as const, row: done, afterCommit: executed.afterCommit };
-  }).catch(async (err: unknown) => {
+  }, executor.transactionTimeoutMs ? { timeout: executor.transactionTimeoutMs, maxWait: 10_000 } : undefined).catch(async (err: unknown) => {
     if (err instanceof AssistantActionError) throw err;
     // A disconnected client may miss COMMIT's acknowledgement. Check the durable result, never rerun here.
     const persisted = await prisma.assistantAction.findUnique({ where: { id: row.id } }).catch(() => null);

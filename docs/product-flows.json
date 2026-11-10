@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 731,
-  "forks": 4004,
+  "forks": 3931,
   "mounts": 81,
   "cron": 125,
   "jobs": 32,
@@ -23562,15 +23562,7 @@
        "k": "do",
        "t": "const m = monthKey(monthStart(now.getUTCFullYear(), now.getUTCMonth() - i));",
        "a": [
-        "дословно из кода"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "const deals = completedDeals.filter((d) => d.closedAt && monthKey(d.closedAt) === m);",
-       "a": [
-        "дословно из кода"
+        "зовёт monthKey()"
        ],
        "c": []
       }
@@ -23622,15 +23614,7 @@
        "k": "do",
        "t": "const m = monthKey(monthStart(now.getUTCFullYear(), now.getUTCMonth() - i));",
        "a": [
-        "дословно из кода"
-       ],
-       "c": []
-      },
-      {
-       "k": "do",
-       "t": "propertiesByMonth.push({ month: m, added: propsCreated.filter((p) => monthKey(p.createdAt) === m).length, sol…",
-       "a": [
-        "дословно из кода"
+        "зовёт monthKey()"
        ],
        "c": []
       }
@@ -28806,34 +28790,10 @@
      "k": "do",
      "t": "return async (req, res)",
      "a": [
-      "ответ 400 — «Неверная дата»",
-      "пробрасывает ошибку дальше",
-      "проверяет данные схемой expensePaymentSchema"
+      "ответ 200",
+      "пробрасывает ошибку дальше"
      ],
      "c": [
-      {
-       "k": "do",
-       "t": "const p = expensePaymentSchema.safeParse(req.body);",
-       "a": [
-        "проверяет данные схемой expensePaymentSchema"
-       ],
-       "c": []
-      },
-      {
-       "k": "if",
-       "t": "!p.success",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return res.status(400).json({ error: \"Неверная дата\" });",
-         "a": [
-          "ответ 400 — «Неверная дата»"
-         ],
-         "c": []
-        }
-       ]
-      },
       {
        "k": "try",
        "t": "пробует",
@@ -28841,9 +28801,9 @@
        "c": [
         {
          "k": "do",
-         "t": "const row = await changeExpensePayment(req.params.id, action === \"pay\", p.data.paymentDate);",
+         "t": "const row = await setExpensePayment(req.params.id, action === \"pay\", req.body);",
          "a": [
-          "зовёт changeExpensePayment()"
+          "зовёт setExpensePayment()"
          ],
          "c": []
         },
@@ -28872,26 +28832,18 @@
        "c": [
         {
          "k": "if",
-         "t": "error instanceof ExpenseLifecycleError",
+         "t": "!commandFailed(res, error)",
          "a": [],
          "c": [
           {
            "k": "do",
-           "t": "return res.status(error.status).json({ error: error.message });",
+           "t": "throw error;",
            "a": [
-            "ответ (код зависит от условия)"
+            "пробрасывает ошибку дальше"
            ],
            "c": []
           }
          ]
-        },
-        {
-         "k": "do",
-         "t": "throw error;",
-         "a": [
-          "пробрасывает ошибку дальше"
-         ],
-         "c": []
         }
        ]
       }
@@ -29370,9 +29322,9 @@
      "c": [
       {
        "k": "do",
-       "t": "const expense = await prisma.expense.update({ where: { id: req.params.id }, data: { deletedAt: null } });",
+       "t": "const expense = await restoreExpense(req.params.id);",
        "a": [
-        "меняет в базе: expense"
+        "зовёт restoreExpense()"
        ],
        "c": []
       },
@@ -29401,26 +29353,18 @@
      "c": [
       {
        "k": "if",
-       "t": "err instanceof Prisma.PrismaClientKnownRequestError && err.code === \"P2025\"",
+       "t": "!commandFailed(res, err)",
        "a": [],
        "c": [
         {
          "k": "do",
-         "t": "return res.status(404).json({ error: \"Расход не найден\" });",
+         "t": "throw err;",
          "a": [
-          "ответ 404 — «Расход не найден»"
+          "пробрасывает ошибку дальше"
          ],
          "c": []
         }
        ]
-      },
-      {
-       "k": "do",
-       "t": "throw err;",
-       "a": [
-        "пробрасывает ошибку дальше"
-       ],
-       "c": []
       }
      ]
     }
@@ -29449,34 +29393,10 @@
      "k": "do",
      "t": "return async (req, res)",
      "a": [
-      "ответ 400 — «Неверная дата»",
-      "пробрасывает ошибку дальше",
-      "проверяет данные схемой expensePaymentSchema"
+      "ответ 200",
+      "пробрасывает ошибку дальше"
      ],
      "c": [
-      {
-       "k": "do",
-       "t": "const p = expensePaymentSchema.safeParse(req.body);",
-       "a": [
-        "проверяет данные схемой expensePaymentSchema"
-       ],
-       "c": []
-      },
-      {
-       "k": "if",
-       "t": "!p.success",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return res.status(400).json({ error: \"Неверная дата\" });",
-         "a": [
-          "ответ 400 — «Неверная дата»"
-         ],
-         "c": []
-        }
-       ]
-      },
       {
        "k": "try",
        "t": "пробует",
@@ -29484,9 +29404,9 @@
        "c": [
         {
          "k": "do",
-         "t": "const row = await changeExpensePayment(req.params.id, action === \"pay\", p.data.paymentDate);",
+         "t": "const row = await setExpensePayment(req.params.id, action === \"pay\", req.body);",
          "a": [
-          "зовёт changeExpensePayment()"
+          "зовёт setExpensePayment()"
          ],
          "c": []
         },
@@ -29515,26 +29435,18 @@
        "c": [
         {
          "k": "if",
-         "t": "error instanceof ExpenseLifecycleError",
+         "t": "!commandFailed(res, error)",
          "a": [],
          "c": [
           {
            "k": "do",
-           "t": "return res.status(error.status).json({ error: error.message });",
+           "t": "throw error;",
            "a": [
-            "ответ (код зависит от условия)"
+            "пробрасывает ошибку дальше"
            ],
            "c": []
           }
          ]
-        },
-        {
-         "k": "do",
-         "t": "throw error;",
-         "a": [
-          "пробрасывает ошибку дальше"
-         ],
-         "c": []
         }
        ]
       }
@@ -29582,9 +29494,9 @@
      "c": [
       {
        "k": "do",
-       "t": "const deleted = await prisma.expense.update({ where: { id: req.params.id, ...(parsed.data.version !== undefin…",
+       "t": "const deleted = await deleteExpense(req.params.id, parsed.data.version);",
        "a": [
-        "меняет в базе: expense"
+        "зовёт deleteExpense()"
        ],
        "c": []
       },
@@ -29613,41 +29525,18 @@
      "c": [
       {
        "k": "if",
-       "t": "err instanceof Prisma.PrismaClientKnownRequestError && err.code === \"P2025\"",
+       "t": "!commandFailed(res, err)",
        "a": [],
        "c": [
         {
-         "k": "if",
-         "t": "parsed.data.version !== undefined",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "return res.status(409).json({ code: \"EXPENSE_VERSION_CONFLICT\", error: \"Расход уже изменён. Обновите запись п…",
-           "a": [
-            "ответ 409 — «Расход уже изменён. Обновите запись перед удалением»"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
          "k": "do",
-         "t": "return res.status(404).json({ error: \"Расход не найден\" });",
+         "t": "throw err;",
          "a": [
-          "ответ 404 — «Расход не найден»"
+          "пробрасывает ошибку дальше"
          ],
          "c": []
         }
        ]
-      },
-      {
-       "k": "do",
-       "t": "throw err;",
-       "a": [
-        "пробрасывает ошибку дальше"
-       ],
-       "c": []
       }
      ]
     }
@@ -29672,195 +29561,21 @@
    "handlerRef": null,
    "tree": [
     {
-     "k": "do",
-     "t": "const parsed = expenseUpdateSchema.safeParse(req.body);",
-     "a": [
-      "проверяет данные схемой expenseUpdateSchema"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "!parsed.success",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(400).json({ error: \"Неверные данные\", details: parsed.error.flatten() });",
-       "a": [
-        "ответ 400 — «Неверные данные»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const current = await prisma.expense.findUnique({ where: { id: req.params.id } });",
-     "a": [
-      "читает в базе: expense"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "!current || current.deletedAt",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(404).json({ error: \"Расход не найден\" });",
-       "a": [
-        "ответ 404 — «Расход не найден»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "version === undefined && changedFields.length > 1",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(409).json({ code: \"EXPENSE_VERSION_REQUIRED\", error: \"Обновите страницу и снова откройте ра…",
-       "a": [
-        "ответ 409 — «Обновите страницу и снова откройте расход: старая форма не передаёт…»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "version !== undefined && version !== current.version",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(409).json({ code: \"EXPENSE_VERSION_CONFLICT\", error: \"Расход изменён другим сотрудником. Об…",
-       "a": [
-        "ответ 409 — «Расход изменён другим сотрудником. Обновите запись перед сохранением»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "rest.amount!==undefined&&rest.amount>99_999_999.99",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(400).json({error:\"Сумма слишком большая\"});",
-       "a": [
-        "ответ 400 — «Сумма слишком большая»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "!await validateExpenseCategory(rest.categoryId===undefined?current.categoryId:rest.categoryId,rest.category??…",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(400).json({error:\"Категория не соответствует разделу\"});",
-       "a": [
-        "ответ 400 — «Категория не соответствует разделу»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const money=await loadMoneyContext();",
-     "a": [
-      "зовёт loadMoneyContext()"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "(rest.status??current.status)===\"PAID\"&&finalPaymentDate&&finalPaymentDate>todayExpenseDay()",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(400).json({error:\"Будущий платёж запишите как план\"});",
-       "a": [
-        "ответ 400 — «Будущий платёж запишите как план»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "finalCategory === \"ADVERTISING\" && !finalSource",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(400).json({ error: \"Укажите канал рекламы\" });",
-       "a": [
-        "ответ 400 — «Укажите канал рекламы»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "finalCategory === \"SALARY\" && !finalAgentId",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(400).json({ error: \"Укажите сотрудника\" });",
-       "a": [
-        "ответ 400 — «Укажите сотрудника»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "(finalCategory === \"OFFICE\" || finalCategory === \"OTHER\") && !finalNote?.trim()",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(400).json({ error: \"Укажите комментарий — куда пошли деньги\" });",
-       "a": [
-        "ответ 400 — «Укажите комментарий — куда пошли деньги»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
      "k": "try",
      "t": "пробует",
      "a": [],
      "c": [
       {
        "k": "do",
-       "t": "const expense = await prisma.expense.update({ where: { id: req.params.id,version:version ?? current.version, …",
+       "t": "const { expense, changed } = await updateExpense(req.params.id, req.body);",
        "a": [
-        "меняет в базе: expense"
+        "зовёт updateExpense()"
        ],
        "c": []
       },
       {
        "k": "do",
-       "t": "logAudit(req, \"UPDATE\", \"Expense\", expense.id, { changed: Object.keys(parsed.data) });",
+       "t": "logAudit(req, \"UPDATE\", \"Expense\", expense.id, { changed });",
        "a": [
         "зовёт logAudit()"
        ],
@@ -29883,26 +29598,18 @@
      "c": [
       {
        "k": "if",
-       "t": "err instanceof Prisma.PrismaClientKnownRequestError && err.code === \"P2025\"",
+       "t": "!commandFailed(res, err)",
        "a": [],
        "c": [
         {
          "k": "do",
-         "t": "return res.status(409).json({ code: \"EXPENSE_VERSION_CONFLICT\", error: \"Расход изменён другим сотрудником. Об…",
+         "t": "throw err;",
          "a": [
-          "ответ 409 — «Расход изменён другим сотрудником. Обновите запись перед сохранением»"
+          "пробрасывает ошибку дальше"
          ],
          "c": []
         }
        ]
-      },
-      {
-       "k": "do",
-       "t": "throw err;",
-       "a": [
-        "пробрасывает ошибку дальше"
-       ],
-       "c": []
       }
      ]
     }
@@ -29927,15 +29634,7 @@
    "tree": [
     {
      "k": "do",
-     "t": "const expenses = await prisma.expense.findMany({ where: { deletedAt: { not: null, ...(from ? { gte: from } : …",
-     "a": [
-      "читает в базе: expense"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "res.json(expenses);",
+     "t": "res.json(await listArchivedExpenses(req.query.from, req.query.to));",
      "a": [
       "ответ 200"
      ],
@@ -29963,148 +29662,57 @@
    "handlerRef": null,
    "tree": [
     {
-     "k": "if",
-     "t": "!parsed.success",
+     "k": "try",
+     "t": "пробует",
      "a": [],
      "c": [
       {
        "k": "do",
-       "t": "return res.status(400).json({ error: \"Некорректная категория\" });",
+       "t": "const updated = await updateExpenseCategory(req.params.id, req.body);",
        "a": [
-        "ответ 400 — «Некорректная категория»"
+        "зовёт updateExpenseCategory()"
        ],
        "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const row = await prisma.expenseCategoryDefinition.findUnique({ where: { id: req.params.id } });",
-     "a": [
-      "читает в базе: expenseCategoryDefinition"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "!row",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(404).json({ error: \"Категория не найдена\" });",
-       "a": [
-        "ответ 404 — «Категория не найдена»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "parsed.data.rootCategory && parsed.data.rootCategory !== row.rootCategory",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(400).json({ error: \"Раздел существующей категории менять нельзя\" });",
-       "a": [
-        "ответ 400 — «Раздел существующей категории менять нельзя»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "parentId",
-     "a": [],
-     "c": [
-      {
-       "k": "loop",
-       "t": "для каждого: let i = 0; next && i < 100; i++",
-       "a": [],
-       "c": [
-        {
-         "k": "if",
-         "t": "visited.has(next)",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "return res.status(400).json({ error: \"Цикл категорий недопустим\" });",
-           "a": [
-            "ответ 400 — «Цикл категорий недопустим»"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "do",
-         "t": "const parent: { rootCategory: string; parentId: string | null; } | null = await prisma.expenseCategoryDefinit…",
-         "a": [
-          "читает в базе: expenseCategoryDefinition"
-         ],
-         "c": []
-        },
-        {
-         "k": "if",
-         "t": "!parent || parent.rootCategory !== row.rootCategory",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "return res.status(400).json({ error: \"Неверная родительская категория\" });",
-           "a": [
-            "ответ 400 — «Неверная родительская категория»"
-           ],
-           "c": []
-          }
-         ]
-        }
-       ]
       },
       {
+       "k": "do",
+       "t": "logAudit(req, \"UPDATE\", \"ExpenseCategoryDefinition\", updated.id, {});",
+       "a": [
+        "зовёт logAudit()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "res.json(updated);",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
        "k": "if",
-       "t": "next",
+       "t": "!commandFailed(res, err)",
        "a": [],
        "c": [
         {
          "k": "do",
-         "t": "return res.status(400).json({ error: \"Слишком глубокие категории\" });",
+         "t": "throw err;",
          "a": [
-          "ответ 400 — «Слишком глубокие категории»"
+          "пробрасывает ошибку дальше"
          ],
          "c": []
         }
        ]
       }
      ]
-    },
-    {
-     "k": "do",
-     "t": "const updated = await prisma.expenseCategoryDefinition.update({ where: { id: row.id }, data: parsed.data });",
-     "a": [
-      "меняет в базе: expenseCategoryDefinition"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "logAudit(req, \"UPDATE\", \"ExpenseCategoryDefinition\", row.id, {});",
-     "a": [
-      "зовёт logAudit()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "res.json(updated);",
-     "a": [
-      "ответ 200"
-     ],
-     "c": []
     }
    ]
   },
@@ -30151,66 +29759,11 @@
     },
     {
      "k": "do",
-     "t": "const month = p.data.month ?? todayExpenseDay().slice(0, 7);",
-     "a": [
-      "зовёт todayExpenseDay()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "const [categories, expenses, money] = await Promise.all([prisma.expenseCategoryDefinition.findMany({ orderBy:…",
-     "a": [
-      "читает в базе: expenseCategoryDefinition",
-      "читает в базе: expense"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "expenses.length > 20000",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "throw new ExpenseLifecycleError(413, \"Слишком много расходов для справочника\");",
-       "a": [
-        "ошибка ExpenseLifecycleError — «413,»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "res.json(categories.map(c",
+     "t": "res.json(await listExpenseCategories(p.data.month ?? todayExpenseDay().slice(0, 7)));",
      "a": [
       "ответ 200"
      ],
-     "c": [
-      {
-       "k": "loop",
-       "t": "для каждого: let i = 0; i < categories.length; i++",
-       "a": [],
-       "c": [
-        {
-         "k": "loop",
-         "t": "для каждого: const child of categories",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "if (child.parentId && ids.has(child.parentId) && !ids.has(child.id)) { ids.add(child.id); changed = true; } i…",
-           "a": [
-            "дословно из кода"
-           ],
-           "c": []
-          }
-         ]
-        }
-       ]
-      }
-     ]
+     "c": []
     }
    ]
   },
@@ -30234,81 +29787,57 @@
    "handlerRef": null,
    "tree": [
     {
-     "k": "do",
-     "t": "const parsed = expenseCategorySchema.safeParse(req.body);",
-     "a": [
-      "проверяет данные схемой expenseCategorySchema"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "!parsed.success",
+     "k": "try",
+     "t": "пробует",
      "a": [],
      "c": [
       {
        "k": "do",
-       "t": "return res.status(400).json({ error: \"Некорректная категория\", details: parsed.error.flatten() });",
+       "t": "const row = await createExpenseCategory(req.body);",
        "a": [
-        "ответ 400 — «Некорректная категория»"
+        "зовёт createExpenseCategory()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "logAudit(req, \"CREATE\", \"ExpenseCategoryDefinition\", row.id, {});",
+       "a": [
+        "зовёт logAudit()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "res.status(201).json(row);",
+       "a": [
+        "ответ 201"
        ],
        "c": []
       }
      ]
     },
     {
-     "k": "if",
-     "t": "parsed.data.parentId",
+     "k": "catch",
+     "t": "если сорвалось",
      "a": [],
      "c": [
       {
-       "k": "do",
-       "t": "const parent = await prisma.expenseCategoryDefinition.findUnique({ where: { id: parsed.data.parentId } });",
-       "a": [
-        "читает в базе: expenseCategoryDefinition"
-       ],
-       "c": []
-      },
-      {
        "k": "if",
-       "t": "!parent || parent.rootCategory !== parsed.data.rootCategory",
+       "t": "!commandFailed(res, err)",
        "a": [],
        "c": [
         {
          "k": "do",
-         "t": "return res.status(400).json({ error: \"Родительская категория не соответствует разделу\" });",
+         "t": "throw err;",
          "a": [
-          "ответ 400 — «Родительская категория не соответствует разделу»"
+          "пробрасывает ошибку дальше"
          ],
          "c": []
         }
        ]
       }
      ]
-    },
-    {
-     "k": "do",
-     "t": "const row = await prisma.expenseCategoryDefinition.create({ data: parsed.data });",
-     "a": [
-      "создаёт в базе: expenseCategoryDefinition"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "logAudit(req, \"CREATE\", \"ExpenseCategoryDefinition\", row.id, {});",
-     "a": [
-      "зовёт logAudit()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "res.status(201).json(row);",
-     "a": [
-      "ответ 201"
-     ],
-     "c": []
     }
    ]
   },
@@ -30620,6 +30149,14 @@
    "tree": [
     {
      "k": "do",
+     "t": "const from = dushanbeMonthStart(monthsBack - 1);",
+     "a": [
+      "зовёт dushanbeMonthStart()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
      "t": "const [deals, expenses, settings, money] = await Promise.all([ prisma.deal.findMany({ where: { stage: \"COMPLE…",
      "a": [
       "читает в базе: deal",
@@ -30846,68 +30383,7 @@
     },
     {
      "k": "do",
-     "t": "const [expenses, categories, money] = await Promise.all([filteredExpenses({ ...p.data, status: \"PAID\" }), pri…",
-     "a": [
-      "читает в базе: expenseCategoryDefinition"
-     ],
-     "c": []
-    },
-    {
-     "k": "loop",
-     "t": "для каждого: const e of expenses",
-     "a": [],
-     "c": [
-      {
-       "k": "if",
-       "t": "!result.months.includes(month)",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "result.months.push(month);",
-         "a": [
-          "дословно из кода"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "if",
-       "t": "!row",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "row = { categoryId: key, title: cat?.title ?? e.category, rootCategory: e.category, color: cat?.color ?? \"#7F…",
-         "a": [
-          "дословно из кода"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "groups.set(key, row);",
-         "a": [
-          "дословно из кода"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "do",
-       "t": "const amount = expenseCentsToTjs(e, money);",
-       "a": [
-        "зовёт expenseCentsToTjs()"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "res.json(result);",
+     "t": "res.json(await buildExpensePivot(p.data));",
      "a": [
       "ответ 200"
      ],
@@ -31026,77 +30502,10 @@
      "k": "do",
      "t": "return async (req, res)",
      "a": [
-      "ответ 400 — «Неверная дата платежа»",
-      "ошибка ExpenseLifecycleError — «404,»",
-      "всё внутри — одной транзакцией",
-      "обращается к базе своим SQL",
-      "читает в базе: recurringExpense",
-      "читает в базе: expense",
-      "меняет в базе: recurringExpense",
-      "проверяет данные схемой recurringOccurrenceSchema"
+      "ответ 200",
+      "пробрасывает ошибку дальше"
      ],
      "c": [
-      {
-       "k": "do",
-       "t": "const p = recurringOccurrenceSchema.safeParse(req.body);",
-       "a": [
-        "проверяет данные схемой recurringOccurrenceSchema"
-       ],
-       "c": []
-      },
-      {
-       "k": "if",
-       "t": "!p.success",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return res.status(400).json({ error: \"Неверная дата платежа\" });",
-         "a": [
-          "ответ 400 — «Неверная дата платежа»"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "do",
-       "t": "const t = await prisma.recurringExpense.findUnique({ where: { id: req.params.id } });",
-       "a": [
-        "читает в базе: recurringExpense"
-       ],
-       "c": []
-      },
-      {
-       "k": "if",
-       "t": "!t || t.deletedAt",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return res.status(404).json({ error: \"Подписка не найдена\" });",
-         "a": [
-          "ответ 404 — «Подписка не найдена»"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "if",
-       "t": "!occurrenceDates(t, day, day).includes(day)",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return res.status(400).json({ error: \"Дата не относится к подписке\" });",
-         "a": [
-          "ответ 400 — «Дата не относится к подписке»"
-         ],
-         "c": []
-        }
-       ]
-      },
       {
        "k": "try",
        "t": "пробует",
@@ -31104,137 +30513,15 @@
        "c": [
         {
          "k": "do",
-         "t": "const result = await prisma.$transaction(async (tx)",
+         "t": "const { expense, dueDate } = await changeRecurringOccurrence(req.params.id, action, req.body, req.agent!.id);",
          "a": [
-          "ошибка ExpenseLifecycleError — «404,»",
-          "всё внутри — одной транзакцией",
-          "обращается к базе своим SQL",
-          "читает в базе: recurringExpense",
-          "читает в базе: expense",
-          "меняет в базе: recurringExpense"
+          "зовёт changeRecurringOccurrence()"
          ],
-         "c": [
-          {
-           "k": "do",
-           "t": "await tx.$queryRaw `SELECT \"id\" FROM \"RecurringExpense\" WHERE \"id\"=${t.id} FOR UPDATE`;",
-           "a": [
-            "обращается к базе своим SQL"
-           ],
-           "c": []
-          },
-          {
-           "k": "do",
-           "t": "const latest = await tx.recurringExpense.findUnique({ where: { id: t.id } });",
-           "a": [
-            "читает в базе: recurringExpense"
-           ],
-           "c": []
-          },
-          {
-           "k": "if",
-           "t": "!latest || latest.deletedAt",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "throw new ExpenseLifecycleError(404, \"Подписка удалена\");",
-             "a": [
-              "ошибка ExpenseLifecycleError — «404,»"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "do",
-           "t": "let row = await materializeOccurrence(latest, day, \"PLANNED\", req.agent!.id, undefined, tx);",
-           "a": [
-            "зовёт materializeOccurrence()"
-           ],
-           "c": []
-          },
-          {
-           "k": "do",
-           "t": "await tx.$queryRaw `SELECT \"id\" FROM \"Expense\" WHERE \"id\"=${row.id} FOR UPDATE`;",
-           "a": [
-            "обращается к базе своим SQL"
-           ],
-           "c": []
-          },
-          {
-           "k": "do",
-           "t": "row = (await tx.expense.findUnique({ where: { id: row.id } }))!;",
-           "a": [
-            "читает в базе: expense"
-           ],
-           "c": []
-          },
-          {
-           "k": "if",
-           "t": "row.deletedAt",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "throw new ExpenseLifecycleError(409, \"Платёж удалён. Сначала восстановите расход\");",
-             "a": [
-              "ошибка ExpenseLifecycleError — «409,»"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "if",
-           "t": "action === \"skip\"",
-           "a": [],
-           "c": [
-            {
-             "k": "if",
-             "t": "row.status === \"PAID\"",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "throw new ExpenseLifecycleError(409, \"Оплаченный платёж нельзя пропустить\");",
-               "a": [
-                "ошибка ExpenseLifecycleError — «409,»"
-               ],
-               "c": []
-              }
-             ]
-            },
-            {
-             "k": "do",
-             "t": "await tx.recurringExpense.update({ where: { id: t.id }, data: { skippedDates: { set: [...new Set([...latest.s…",
-             "a": [
-              "меняет в базе: recurringExpense"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "do",
-           "t": "const expense = await changeExpensePayment(row.id, action === \"pay\", p.data.paymentDate, tx);",
-           "a": [
-            "зовёт changeExpensePayment()"
-           ],
-           "c": []
-          },
-          {
-           "k": "do",
-           "t": "await tx.recurringExpense.update({ where: { id: t.id }, data: { skippedDates: { set: latest.skippedDates.filt…",
-           "a": [
-            "меняет в базе: recurringExpense"
-           ],
-           "c": []
-          }
-         ]
+         "c": []
         },
         {
          "k": "do",
-         "t": "logAudit(req, \"UPDATE\", \"RecurringExpense\", t.id, { paymentAction: action, dueDate: day });",
+         "t": "logAudit(req, \"UPDATE\", \"RecurringExpense\", req.params.id, { paymentAction: action, dueDate });",
          "a": [
           "зовёт logAudit()"
          ],
@@ -31242,7 +30529,7 @@
         },
         {
          "k": "do",
-         "t": "res.json(result ? expenseDto(result) : { ok: true });",
+         "t": "res.json(expense ? expenseDto(expense) : { ok: true });",
          "a": [
           "ответ 200"
          ],
@@ -31257,26 +30544,18 @@
        "c": [
         {
          "k": "if",
-         "t": "error instanceof ExpenseLifecycleError",
+         "t": "!commandFailed(res, error)",
          "a": [],
          "c": [
           {
            "k": "do",
-           "t": "return res.status(error.status).json({ error: error.message });",
+           "t": "throw error;",
            "a": [
-            "ответ (код зависит от условия)"
+            "пробрасывает ошибку дальше"
            ],
            "c": []
           }
          ]
-        },
-        {
-         "k": "do",
-         "t": "throw error;",
-         "a": [
-          "пробрасывает ошибку дальше"
-         ],
-         "c": []
         }
        ]
       }
@@ -31304,44 +30583,57 @@
    "handlerRef": null,
    "tree": [
     {
-     "k": "do",
-     "t": "const t = await prisma.recurringExpense.findUnique({ where: { id: req.params.id } });",
-     "a": [
-      "читает в базе: recurringExpense"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "!t",
+     "k": "try",
+     "t": "пробует",
      "a": [],
      "c": [
       {
        "k": "do",
-       "t": "return res.status(404).json({ error: \"Подписка не найдена\" });",
+       "t": "const row = await restoreRecurringExpense(req.params.id);",
        "a": [
-        "ответ 404 — «Подписка не найдена»"
+        "зовёт restoreRecurringExpense()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "res.json(row);",
+       "a": [
+        "ответ 200"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "logAudit(req, \"RESTORE\", \"RecurringExpense\", row.id, {});",
+       "a": [
+        "зовёт logAudit()"
        ],
        "c": []
       }
      ]
     },
     {
-     "k": "do",
-     "t": "res.json(await prisma.recurringExpense.update({ where: { id: t.id }, data: { deletedAt: null } }));",
-     "a": [
-      "ответ 200",
-      "меняет в базе: recurringExpense"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "logAudit(req, \"RESTORE\", \"RecurringExpense\", t.id, {});",
-     "a": [
-      "зовёт logAudit()"
-     ],
-     "c": []
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "if",
+       "t": "!commandFailed(res, err)",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "throw err;",
+         "a": [
+          "пробрасывает ошибку дальше"
+         ],
+         "c": []
+        }
+       ]
+      }
+     ]
     }
    ]
   },
@@ -31368,77 +30660,10 @@
      "k": "do",
      "t": "return async (req, res)",
      "a": [
-      "ответ 400 — «Неверная дата платежа»",
-      "ошибка ExpenseLifecycleError — «404,»",
-      "всё внутри — одной транзакцией",
-      "обращается к базе своим SQL",
-      "читает в базе: recurringExpense",
-      "читает в базе: expense",
-      "меняет в базе: recurringExpense",
-      "проверяет данные схемой recurringOccurrenceSchema"
+      "ответ 200",
+      "пробрасывает ошибку дальше"
      ],
      "c": [
-      {
-       "k": "do",
-       "t": "const p = recurringOccurrenceSchema.safeParse(req.body);",
-       "a": [
-        "проверяет данные схемой recurringOccurrenceSchema"
-       ],
-       "c": []
-      },
-      {
-       "k": "if",
-       "t": "!p.success",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return res.status(400).json({ error: \"Неверная дата платежа\" });",
-         "a": [
-          "ответ 400 — «Неверная дата платежа»"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "do",
-       "t": "const t = await prisma.recurringExpense.findUnique({ where: { id: req.params.id } });",
-       "a": [
-        "читает в базе: recurringExpense"
-       ],
-       "c": []
-      },
-      {
-       "k": "if",
-       "t": "!t || t.deletedAt",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return res.status(404).json({ error: \"Подписка не найдена\" });",
-         "a": [
-          "ответ 404 — «Подписка не найдена»"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "if",
-       "t": "!occurrenceDates(t, day, day).includes(day)",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return res.status(400).json({ error: \"Дата не относится к подписке\" });",
-         "a": [
-          "ответ 400 — «Дата не относится к подписке»"
-         ],
-         "c": []
-        }
-       ]
-      },
       {
        "k": "try",
        "t": "пробует",
@@ -31446,137 +30671,15 @@
        "c": [
         {
          "k": "do",
-         "t": "const result = await prisma.$transaction(async (tx)",
+         "t": "const { expense, dueDate } = await changeRecurringOccurrence(req.params.id, action, req.body, req.agent!.id);",
          "a": [
-          "ошибка ExpenseLifecycleError — «404,»",
-          "всё внутри — одной транзакцией",
-          "обращается к базе своим SQL",
-          "читает в базе: recurringExpense",
-          "читает в базе: expense",
-          "меняет в базе: recurringExpense"
+          "зовёт changeRecurringOccurrence()"
          ],
-         "c": [
-          {
-           "k": "do",
-           "t": "await tx.$queryRaw `SELECT \"id\" FROM \"RecurringExpense\" WHERE \"id\"=${t.id} FOR UPDATE`;",
-           "a": [
-            "обращается к базе своим SQL"
-           ],
-           "c": []
-          },
-          {
-           "k": "do",
-           "t": "const latest = await tx.recurringExpense.findUnique({ where: { id: t.id } });",
-           "a": [
-            "читает в базе: recurringExpense"
-           ],
-           "c": []
-          },
-          {
-           "k": "if",
-           "t": "!latest || latest.deletedAt",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "throw new ExpenseLifecycleError(404, \"Подписка удалена\");",
-             "a": [
-              "ошибка ExpenseLifecycleError — «404,»"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "do",
-           "t": "let row = await materializeOccurrence(latest, day, \"PLANNED\", req.agent!.id, undefined, tx);",
-           "a": [
-            "зовёт materializeOccurrence()"
-           ],
-           "c": []
-          },
-          {
-           "k": "do",
-           "t": "await tx.$queryRaw `SELECT \"id\" FROM \"Expense\" WHERE \"id\"=${row.id} FOR UPDATE`;",
-           "a": [
-            "обращается к базе своим SQL"
-           ],
-           "c": []
-          },
-          {
-           "k": "do",
-           "t": "row = (await tx.expense.findUnique({ where: { id: row.id } }))!;",
-           "a": [
-            "читает в базе: expense"
-           ],
-           "c": []
-          },
-          {
-           "k": "if",
-           "t": "row.deletedAt",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "throw new ExpenseLifecycleError(409, \"Платёж удалён. Сначала восстановите расход\");",
-             "a": [
-              "ошибка ExpenseLifecycleError — «409,»"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "if",
-           "t": "action === \"skip\"",
-           "a": [],
-           "c": [
-            {
-             "k": "if",
-             "t": "row.status === \"PAID\"",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "throw new ExpenseLifecycleError(409, \"Оплаченный платёж нельзя пропустить\");",
-               "a": [
-                "ошибка ExpenseLifecycleError — «409,»"
-               ],
-               "c": []
-              }
-             ]
-            },
-            {
-             "k": "do",
-             "t": "await tx.recurringExpense.update({ where: { id: t.id }, data: { skippedDates: { set: [...new Set([...latest.s…",
-             "a": [
-              "меняет в базе: recurringExpense"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "do",
-           "t": "const expense = await changeExpensePayment(row.id, action === \"pay\", p.data.paymentDate, tx);",
-           "a": [
-            "зовёт changeExpensePayment()"
-           ],
-           "c": []
-          },
-          {
-           "k": "do",
-           "t": "await tx.recurringExpense.update({ where: { id: t.id }, data: { skippedDates: { set: latest.skippedDates.filt…",
-           "a": [
-            "меняет в базе: recurringExpense"
-           ],
-           "c": []
-          }
-         ]
+         "c": []
         },
         {
          "k": "do",
-         "t": "logAudit(req, \"UPDATE\", \"RecurringExpense\", t.id, { paymentAction: action, dueDate: day });",
+         "t": "logAudit(req, \"UPDATE\", \"RecurringExpense\", req.params.id, { paymentAction: action, dueDate });",
          "a": [
           "зовёт logAudit()"
          ],
@@ -31584,7 +30687,7 @@
         },
         {
          "k": "do",
-         "t": "res.json(result ? expenseDto(result) : { ok: true });",
+         "t": "res.json(expense ? expenseDto(expense) : { ok: true });",
          "a": [
           "ответ 200"
          ],
@@ -31599,26 +30702,18 @@
        "c": [
         {
          "k": "if",
-         "t": "error instanceof ExpenseLifecycleError",
+         "t": "!commandFailed(res, error)",
          "a": [],
          "c": [
           {
            "k": "do",
-           "t": "return res.status(error.status).json({ error: error.message });",
+           "t": "throw error;",
            "a": [
-            "ответ (код зависит от условия)"
+            "пробрасывает ошибку дальше"
            ],
            "c": []
           }
          ]
-        },
-        {
-         "k": "do",
-         "t": "throw error;",
-         "a": [
-          "пробрасывает ошибку дальше"
-         ],
-         "c": []
         }
        ]
       }
@@ -31649,77 +30744,10 @@
      "k": "do",
      "t": "return async (req, res)",
      "a": [
-      "ответ 400 — «Неверная дата платежа»",
-      "ошибка ExpenseLifecycleError — «404,»",
-      "всё внутри — одной транзакцией",
-      "обращается к базе своим SQL",
-      "читает в базе: recurringExpense",
-      "читает в базе: expense",
-      "меняет в базе: recurringExpense",
-      "проверяет данные схемой recurringOccurrenceSchema"
+      "ответ 200",
+      "пробрасывает ошибку дальше"
      ],
      "c": [
-      {
-       "k": "do",
-       "t": "const p = recurringOccurrenceSchema.safeParse(req.body);",
-       "a": [
-        "проверяет данные схемой recurringOccurrenceSchema"
-       ],
-       "c": []
-      },
-      {
-       "k": "if",
-       "t": "!p.success",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return res.status(400).json({ error: \"Неверная дата платежа\" });",
-         "a": [
-          "ответ 400 — «Неверная дата платежа»"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "do",
-       "t": "const t = await prisma.recurringExpense.findUnique({ where: { id: req.params.id } });",
-       "a": [
-        "читает в базе: recurringExpense"
-       ],
-       "c": []
-      },
-      {
-       "k": "if",
-       "t": "!t || t.deletedAt",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return res.status(404).json({ error: \"Подписка не найдена\" });",
-         "a": [
-          "ответ 404 — «Подписка не найдена»"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "if",
-       "t": "!occurrenceDates(t, day, day).includes(day)",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return res.status(400).json({ error: \"Дата не относится к подписке\" });",
-         "a": [
-          "ответ 400 — «Дата не относится к подписке»"
-         ],
-         "c": []
-        }
-       ]
-      },
       {
        "k": "try",
        "t": "пробует",
@@ -31727,137 +30755,15 @@
        "c": [
         {
          "k": "do",
-         "t": "const result = await prisma.$transaction(async (tx)",
+         "t": "const { expense, dueDate } = await changeRecurringOccurrence(req.params.id, action, req.body, req.agent!.id);",
          "a": [
-          "ошибка ExpenseLifecycleError — «404,»",
-          "всё внутри — одной транзакцией",
-          "обращается к базе своим SQL",
-          "читает в базе: recurringExpense",
-          "читает в базе: expense",
-          "меняет в базе: recurringExpense"
+          "зовёт changeRecurringOccurrence()"
          ],
-         "c": [
-          {
-           "k": "do",
-           "t": "await tx.$queryRaw `SELECT \"id\" FROM \"RecurringExpense\" WHERE \"id\"=${t.id} FOR UPDATE`;",
-           "a": [
-            "обращается к базе своим SQL"
-           ],
-           "c": []
-          },
-          {
-           "k": "do",
-           "t": "const latest = await tx.recurringExpense.findUnique({ where: { id: t.id } });",
-           "a": [
-            "читает в базе: recurringExpense"
-           ],
-           "c": []
-          },
-          {
-           "k": "if",
-           "t": "!latest || latest.deletedAt",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "throw new ExpenseLifecycleError(404, \"Подписка удалена\");",
-             "a": [
-              "ошибка ExpenseLifecycleError — «404,»"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "do",
-           "t": "let row = await materializeOccurrence(latest, day, \"PLANNED\", req.agent!.id, undefined, tx);",
-           "a": [
-            "зовёт materializeOccurrence()"
-           ],
-           "c": []
-          },
-          {
-           "k": "do",
-           "t": "await tx.$queryRaw `SELECT \"id\" FROM \"Expense\" WHERE \"id\"=${row.id} FOR UPDATE`;",
-           "a": [
-            "обращается к базе своим SQL"
-           ],
-           "c": []
-          },
-          {
-           "k": "do",
-           "t": "row = (await tx.expense.findUnique({ where: { id: row.id } }))!;",
-           "a": [
-            "читает в базе: expense"
-           ],
-           "c": []
-          },
-          {
-           "k": "if",
-           "t": "row.deletedAt",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "throw new ExpenseLifecycleError(409, \"Платёж удалён. Сначала восстановите расход\");",
-             "a": [
-              "ошибка ExpenseLifecycleError — «409,»"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "if",
-           "t": "action === \"skip\"",
-           "a": [],
-           "c": [
-            {
-             "k": "if",
-             "t": "row.status === \"PAID\"",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "throw new ExpenseLifecycleError(409, \"Оплаченный платёж нельзя пропустить\");",
-               "a": [
-                "ошибка ExpenseLifecycleError — «409,»"
-               ],
-               "c": []
-              }
-             ]
-            },
-            {
-             "k": "do",
-             "t": "await tx.recurringExpense.update({ where: { id: t.id }, data: { skippedDates: { set: [...new Set([...latest.s…",
-             "a": [
-              "меняет в базе: recurringExpense"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "do",
-           "t": "const expense = await changeExpensePayment(row.id, action === \"pay\", p.data.paymentDate, tx);",
-           "a": [
-            "зовёт changeExpensePayment()"
-           ],
-           "c": []
-          },
-          {
-           "k": "do",
-           "t": "await tx.recurringExpense.update({ where: { id: t.id }, data: { skippedDates: { set: latest.skippedDates.filt…",
-           "a": [
-            "меняет в базе: recurringExpense"
-           ],
-           "c": []
-          }
-         ]
+         "c": []
         },
         {
          "k": "do",
-         "t": "logAudit(req, \"UPDATE\", \"RecurringExpense\", t.id, { paymentAction: action, dueDate: day });",
+         "t": "logAudit(req, \"UPDATE\", \"RecurringExpense\", req.params.id, { paymentAction: action, dueDate });",
          "a": [
           "зовёт logAudit()"
          ],
@@ -31865,7 +30771,7 @@
         },
         {
          "k": "do",
-         "t": "res.json(result ? expenseDto(result) : { ok: true });",
+         "t": "res.json(expense ? expenseDto(expense) : { ok: true });",
          "a": [
           "ответ 200"
          ],
@@ -31880,26 +30786,18 @@
        "c": [
         {
          "k": "if",
-         "t": "error instanceof ExpenseLifecycleError",
+         "t": "!commandFailed(res, error)",
          "a": [],
          "c": [
           {
            "k": "do",
-           "t": "return res.status(error.status).json({ error: error.message });",
+           "t": "throw error;",
            "a": [
-            "ответ (код зависит от условия)"
+            "пробрасывает ошибку дальше"
            ],
            "c": []
           }
          ]
-        },
-        {
-         "k": "do",
-         "t": "throw error;",
-         "a": [
-          "пробрасывает ошибку дальше"
-         ],
-         "c": []
         }
        ]
       }
@@ -31930,77 +30828,10 @@
      "k": "do",
      "t": "return async (req, res)",
      "a": [
-      "ответ 400 — «Неверная дата платежа»",
-      "ошибка ExpenseLifecycleError — «404,»",
-      "всё внутри — одной транзакцией",
-      "обращается к базе своим SQL",
-      "читает в базе: recurringExpense",
-      "читает в базе: expense",
-      "меняет в базе: recurringExpense",
-      "проверяет данные схемой recurringOccurrenceSchema"
+      "ответ 200",
+      "пробрасывает ошибку дальше"
      ],
      "c": [
-      {
-       "k": "do",
-       "t": "const p = recurringOccurrenceSchema.safeParse(req.body);",
-       "a": [
-        "проверяет данные схемой recurringOccurrenceSchema"
-       ],
-       "c": []
-      },
-      {
-       "k": "if",
-       "t": "!p.success",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return res.status(400).json({ error: \"Неверная дата платежа\" });",
-         "a": [
-          "ответ 400 — «Неверная дата платежа»"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "do",
-       "t": "const t = await prisma.recurringExpense.findUnique({ where: { id: req.params.id } });",
-       "a": [
-        "читает в базе: recurringExpense"
-       ],
-       "c": []
-      },
-      {
-       "k": "if",
-       "t": "!t || t.deletedAt",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return res.status(404).json({ error: \"Подписка не найдена\" });",
-         "a": [
-          "ответ 404 — «Подписка не найдена»"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "if",
-       "t": "!occurrenceDates(t, day, day).includes(day)",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return res.status(400).json({ error: \"Дата не относится к подписке\" });",
-         "a": [
-          "ответ 400 — «Дата не относится к подписке»"
-         ],
-         "c": []
-        }
-       ]
-      },
       {
        "k": "try",
        "t": "пробует",
@@ -32008,137 +30839,15 @@
        "c": [
         {
          "k": "do",
-         "t": "const result = await prisma.$transaction(async (tx)",
+         "t": "const { expense, dueDate } = await changeRecurringOccurrence(req.params.id, action, req.body, req.agent!.id);",
          "a": [
-          "ошибка ExpenseLifecycleError — «404,»",
-          "всё внутри — одной транзакцией",
-          "обращается к базе своим SQL",
-          "читает в базе: recurringExpense",
-          "читает в базе: expense",
-          "меняет в базе: recurringExpense"
+          "зовёт changeRecurringOccurrence()"
          ],
-         "c": [
-          {
-           "k": "do",
-           "t": "await tx.$queryRaw `SELECT \"id\" FROM \"RecurringExpense\" WHERE \"id\"=${t.id} FOR UPDATE`;",
-           "a": [
-            "обращается к базе своим SQL"
-           ],
-           "c": []
-          },
-          {
-           "k": "do",
-           "t": "const latest = await tx.recurringExpense.findUnique({ where: { id: t.id } });",
-           "a": [
-            "читает в базе: recurringExpense"
-           ],
-           "c": []
-          },
-          {
-           "k": "if",
-           "t": "!latest || latest.deletedAt",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "throw new ExpenseLifecycleError(404, \"Подписка удалена\");",
-             "a": [
-              "ошибка ExpenseLifecycleError — «404,»"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "do",
-           "t": "let row = await materializeOccurrence(latest, day, \"PLANNED\", req.agent!.id, undefined, tx);",
-           "a": [
-            "зовёт materializeOccurrence()"
-           ],
-           "c": []
-          },
-          {
-           "k": "do",
-           "t": "await tx.$queryRaw `SELECT \"id\" FROM \"Expense\" WHERE \"id\"=${row.id} FOR UPDATE`;",
-           "a": [
-            "обращается к базе своим SQL"
-           ],
-           "c": []
-          },
-          {
-           "k": "do",
-           "t": "row = (await tx.expense.findUnique({ where: { id: row.id } }))!;",
-           "a": [
-            "читает в базе: expense"
-           ],
-           "c": []
-          },
-          {
-           "k": "if",
-           "t": "row.deletedAt",
-           "a": [],
-           "c": [
-            {
-             "k": "do",
-             "t": "throw new ExpenseLifecycleError(409, \"Платёж удалён. Сначала восстановите расход\");",
-             "a": [
-              "ошибка ExpenseLifecycleError — «409,»"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "if",
-           "t": "action === \"skip\"",
-           "a": [],
-           "c": [
-            {
-             "k": "if",
-             "t": "row.status === \"PAID\"",
-             "a": [],
-             "c": [
-              {
-               "k": "do",
-               "t": "throw new ExpenseLifecycleError(409, \"Оплаченный платёж нельзя пропустить\");",
-               "a": [
-                "ошибка ExpenseLifecycleError — «409,»"
-               ],
-               "c": []
-              }
-             ]
-            },
-            {
-             "k": "do",
-             "t": "await tx.recurringExpense.update({ where: { id: t.id }, data: { skippedDates: { set: [...new Set([...latest.s…",
-             "a": [
-              "меняет в базе: recurringExpense"
-             ],
-             "c": []
-            }
-           ]
-          },
-          {
-           "k": "do",
-           "t": "const expense = await changeExpensePayment(row.id, action === \"pay\", p.data.paymentDate, tx);",
-           "a": [
-            "зовёт changeExpensePayment()"
-           ],
-           "c": []
-          },
-          {
-           "k": "do",
-           "t": "await tx.recurringExpense.update({ where: { id: t.id }, data: { skippedDates: { set: latest.skippedDates.filt…",
-           "a": [
-            "меняет в базе: recurringExpense"
-           ],
-           "c": []
-          }
-         ]
+         "c": []
         },
         {
          "k": "do",
-         "t": "logAudit(req, \"UPDATE\", \"RecurringExpense\", t.id, { paymentAction: action, dueDate: day });",
+         "t": "logAudit(req, \"UPDATE\", \"RecurringExpense\", req.params.id, { paymentAction: action, dueDate });",
          "a": [
           "зовёт logAudit()"
          ],
@@ -32146,7 +30855,7 @@
         },
         {
          "k": "do",
-         "t": "res.json(result ? expenseDto(result) : { ok: true });",
+         "t": "res.json(expense ? expenseDto(expense) : { ok: true });",
          "a": [
           "ответ 200"
          ],
@@ -32161,26 +30870,18 @@
        "c": [
         {
          "k": "if",
-         "t": "error instanceof ExpenseLifecycleError",
+         "t": "!commandFailed(res, error)",
          "a": [],
          "c": [
           {
            "k": "do",
-           "t": "return res.status(error.status).json({ error: error.message });",
+           "t": "throw error;",
            "a": [
-            "ответ (код зависит от условия)"
+            "пробрасывает ошибку дальше"
            ],
            "c": []
           }
          ]
-        },
-        {
-         "k": "do",
-         "t": "throw error;",
-         "a": [
-          "пробрасывает ошибку дальше"
-         ],
-         "c": []
         }
        ]
       }
@@ -32213,9 +30914,9 @@
      "c": [
       {
        "k": "do",
-       "t": "await prisma.recurringExpense.update({ where: { id: req.params.id },data:{deletedAt:new Date()} });",
+       "t": "await deleteRecurringExpense(req.params.id);",
        "a": [
-        "меняет в базе: recurringExpense"
+        "зовёт deleteRecurringExpense()"
        ],
        "c": []
       },
@@ -32244,26 +30945,18 @@
      "c": [
       {
        "k": "if",
-       "t": "err instanceof Prisma.PrismaClientKnownRequestError && err.code === \"P2025\"",
+       "t": "!commandFailed(res, err)",
        "a": [],
        "c": [
         {
          "k": "do",
-         "t": "return res.status(404).json({ error: \"Шаблон не найден\" });",
+         "t": "throw err;",
          "a": [
-          "ответ 404 — «Шаблон не найден»"
+          "пробрасывает ошибку дальше"
          ],
          "c": []
         }
        ]
-      },
-      {
-       "k": "do",
-       "t": "throw err;",
-       "a": [
-        "пробрасывает ошибку дальше"
-       ],
-       "c": []
       }
      ]
     }
@@ -32288,142 +30981,21 @@
    "handlerRef": null,
    "tree": [
     {
-     "k": "do",
-     "t": "const parsed = recurringPatchSchema.safeParse(req.body);",
-     "a": [
-      "проверяет данные схемой recurringPatchSchema"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "!parsed.success",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(400).json({ error: \"Неверные данные\", details: parsed.error.flatten() });",
-       "a": [
-        "ответ 400 — «Неверные данные»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const existing=await prisma.recurringExpense.findUnique({where:{id:req.params.id}});",
-     "a": [
-      "читает в базе: recurringExpense"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "!existing||existing.deletedAt",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(404).json({error:\"Шаблон не найден\"});",
-       "a": [
-        "ответ 404 — «Шаблон не найден»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "start&&end&&end<start",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(400).json({error:\"Конец подписки раньше начала\"});",
-       "a": [
-        "ответ 400 — «Конец подписки раньше начала»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "!await validateExpenseCategory(patch.categoryId===undefined?existing.categoryId:patch.categoryId,patch.catego…",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(400).json({error:\"Неверная категория подписки\"});",
-       "a": [
-        "ответ 400 — «Неверная категория подписки»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "touchesAttribution",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "const current = await prisma.recurringExpense.findUnique({ where: { id: req.params.id }, select: { category: …",
-       "a": [
-        "читает в базе: recurringExpense"
-       ],
-       "c": []
-      },
-      {
-       "k": "if",
-       "t": "!current",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return res.status(404).json({ error: \"Шаблон не найден\" });",
-         "a": [
-          "ответ 404 — «Шаблон не найден»"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "if",
-       "t": "issue",
-       "a": [],
-       "c": [
-        {
-         "k": "do",
-         "t": "return res.status(400).json({ error: issue.message });",
-         "a": [
-          "ответ 400"
-         ],
-         "c": []
-        }
-       ]
-      }
-     ]
-    },
-    {
      "k": "try",
      "t": "пробует",
      "a": [],
      "c": [
       {
        "k": "do",
-       "t": "const row = await prisma.recurringExpense.update({ where: { id: req.params.id }, data: { ...patch, ...attribu…",
+       "t": "const { row, changed } = await updateRecurringExpense(req.params.id, req.body);",
        "a": [
-        "меняет в базе: recurringExpense"
+        "зовёт updateRecurringExpense()"
        ],
        "c": []
       },
       {
        "k": "do",
-       "t": "logAudit(req, \"UPDATE\", \"RecurringExpense\", row.id, { changed: Object.keys(parsed.data) });",
+       "t": "logAudit(req, \"UPDATE\", \"RecurringExpense\", row.id, { changed });",
        "a": [
         "зовёт logAudit()"
        ],
@@ -32446,26 +31018,18 @@
      "c": [
       {
        "k": "if",
-       "t": "err instanceof Prisma.PrismaClientKnownRequestError && err.code === \"P2025\"",
+       "t": "!commandFailed(res, err)",
        "a": [],
        "c": [
         {
          "k": "do",
-         "t": "return res.status(404).json({ error: \"Шаблон не найден\" });",
+         "t": "throw err;",
          "a": [
-          "ответ 404 — «Шаблон не найден»"
+          "пробрасывает ошибку дальше"
          ],
          "c": []
         }
        ]
-      },
-      {
-       "k": "do",
-       "t": "throw err;",
-       "a": [
-        "пробрасывает ошибку дальше"
-       ],
-       "c": []
       }
      ]
     }
@@ -32489,51 +31053,49 @@
    "handlerRef": null,
    "tree": [
     {
-     "k": "do",
-     "t": "const rows = await prisma.recurringExpense.findMany({where:{deletedAt:null}, orderBy: [{ active: \"desc\" }, { …",
-     "a": [
-      "читает в базе: recurringExpense"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "const today=todayExpenseDay();",
-     "a": [
-      "зовёт todayExpenseDay()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "const payments=await prisma.expense.findMany({where:{deletedAt:null,status:\"PAID\",OR:[{recurringId:{in:rows.m…",
-     "a": [
-      "читает в базе: expense"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "payments.length>20000",
+     "k": "try",
+     "t": "пробует",
      "a": [],
      "c": [
       {
        "k": "do",
-       "t": "return res.status(413).json({error:\"Слишком много платежей для списка подписок\"});",
+       "t": "res.json(await listRecurringExpenses());",
        "a": [
-        "ответ 413 — «Слишком много платежей для списка подписок»"
+        "ответ 200"
        ],
        "c": []
       }
      ]
     },
     {
-     "k": "do",
-     "t": "res.json(rows.map(row",
-     "a": [
-      "ответ 200"
-     ],
-     "c": []
+     "k": "catch",
+     "t": "если сорвалось",
+     "a": [],
+     "c": [
+      {
+       "k": "if",
+       "t": "err instanceof ExpenseLifecycleError",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "return res.status(err.status).json({ error: err.message });",
+         "a": [
+          "ответ (код зависит от условия)"
+         ],
+         "c": []
+        }
+       ]
+      },
+      {
+       "k": "do",
+       "t": "throw err;",
+       "a": [
+        "пробрасывает ошибку дальше"
+       ],
+       "c": []
+      }
+     ]
     }
    ]
   },
@@ -32556,81 +31118,57 @@
    "handlerRef": null,
    "tree": [
     {
-     "k": "do",
-     "t": "const parsed = recurringSchema.safeParse(req.body);",
-     "a": [
-      "проверяет данные схемой recurringSchema"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "!parsed.success",
+     "k": "try",
+     "t": "пробует",
      "a": [],
      "c": [
       {
        "k": "do",
-       "t": "return res.status(400).json({ error: \"Неверные данные\", details: parsed.error.flatten() });",
+       "t": "const row = await createRecurringExpense(req.body);",
        "a": [
-        "ответ 400 — «Неверные данные»"
+        "зовёт createRecurringExpense()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "logAudit(req, \"CREATE\", \"RecurringExpense\", row.id, { title: row.title, amount: Number(row.amount) });",
+       "a": [
+        "зовёт logAudit()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "res.status(201).json(row);",
+       "a": [
+        "ответ 201"
        ],
        "c": []
       }
      ]
     },
     {
-     "k": "if",
-     "t": "parsed.data.startsOn && parsed.data.endsOn && parsed.data.endsOn<parsed.data.startsOn",
+     "k": "catch",
+     "t": "если сорвалось",
      "a": [],
      "c": [
       {
-       "k": "do",
-       "t": "return res.status(400).json({error:\"Конец подписки раньше начала\"});",
-       "a": [
-        "ответ 400 — «Конец подписки раньше начала»"
-       ],
-       "c": []
+       "k": "if",
+       "t": "!commandFailed(res, err)",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "throw err;",
+         "a": [
+          "пробрасывает ошибку дальше"
+         ],
+         "c": []
+        }
+       ]
       }
      ]
-    },
-    {
-     "k": "if",
-     "t": "!await validateExpenseCategory(parsed.data.categoryId,parsed.data.category)",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(400).json({error:\"Неверная категория подписки\"});",
-       "a": [
-        "ответ 400 — «Неверная категория подписки»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const row = await prisma.recurringExpense.create({ data: { ...parsed.data, ...(!parsed.data.startsOn&&(parsed…",
-     "a": [
-      "создаёт в базе: recurringExpense"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "logAudit(req, \"CREATE\", \"RecurringExpense\", row.id, { title: row.title, amount: Number(row.amount) });",
-     "a": [
-      "зовёт logAudit()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "res.status(201).json(row);",
-     "a": [
-      "ответ 201"
-     ],
-     "c": []
     }
    ]
   },
@@ -32652,211 +31190,41 @@
    "handlerRef": null,
    "tree": [
     {
-     "k": "if",
-     "t": "!through.success",
+     "k": "try",
+     "t": "пробует",
      "a": [],
      "c": [
       {
        "k": "do",
-       "t": "return res.status(400).json({error:\"Некорректный месяц\"});",
+       "t": "res.json(await buildExpenseSummary({ months: req.query.months, through: req.query.through }));",
        "a": [
-        "ответ 400 — «Некорректный месяц»"
+        "ответ 200"
        ],
        "c": []
       }
      ]
     },
     {
-     "k": "do",
-     "t": "const now = through.data?expenseDay(`${through.data}-01`):dushanbeWallClock();",
-     "a": [
-      "зовёт expenseDay()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "const [expenses, completedDeals, clients, settings, money] = await Promise.all([ prisma.expense.findMany({ wh…",
-     "a": [
-      "читает в базе: expense",
-      "читает в базе: deal",
-      "читает в базе: client",
-      "создаёт или меняет в базе: settings"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "truncated",
+     "k": "catch",
+     "t": "если сорвалось",
      "a": [],
      "c": [
-      {
-       "k": "do",
-       "t": "void logSystemError( \"api\", `Финансовая сводка за ${monthsBack} мес.: выборка упёрлась в потолок ${FINANCE_RO…",
-       "a": [
-        "запись в журнал ошибок"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const payoutByDealId = await getDealPayouts(completedDeals.map((d)",
-     "a": [
-      "зовёт getDealPayouts()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "const splitOf = (d: (typeof completedDeals)[number])",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "const cents = (value: unknown)",
-       "a": [
-        "зовёт centsToTjs()"
-       ],
-       "c": []
-      },
       {
        "k": "if",
-       "t": "d.commissionCompanyAmount !== null",
+       "t": "!commandFailed(res, err)",
        "a": [],
        "c": [
         {
          "k": "do",
-         "t": "return { realtor: cents(d.commissionRealtorAmount), company: cents(d.commissionCompanyAmount) + cents(d.commi…",
+         "t": "throw err;",
          "a": [
-          "дословно из кода"
+          "пробрасывает ошибку дальше"
          ],
          "c": []
         }
        ]
-      },
-      {
-       "k": "do",
-       "t": "const [realtor, company] = splitCents(baseCents, [pRealtor, pCompany]);",
-       "a": [
-        "зовёт splitCents()"
-       ],
-       "c": []
       }
      ]
-    },
-    {
-     "k": "loop",
-     "t": "для каждого: let i = monthsBack - 1; i >= 0; i--",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "months.push(monthKey(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1))));",
-       "a": [
-        "дословно из кода"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const summary = months.map((m)",
-     "a": [],
-     "c": [
-      {
-       "k": "loop",
-       "t": "для каждого: const e of monthExpenses",
-       "a": [],
-       "c": [
-        {
-         "k": "if",
-         "t": "isDealSalaryExpense(e)",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "dealSalaryCents += expenseCentsToTjs(e, money);",
-           "a": [
-            "зовёт expenseCentsToTjs()"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "do",
-         "t": "byCategory[e.category] = (byCategory[e.category] ?? 0) + expenseCentsToTjs(e, money);",
-         "a": [
-          "зовёт expenseCentsToTjs()"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "loop",
-       "t": "для каждого: const d of monthDeals",
-       "a": [],
-       "c": [
-        {
-         "k": "if",
-         "t": "realtor > 0",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "const p = payoutByAgent.get(d.agent.id) ?? { name: d.agent.fullName, realtor: 0, deals: [] };",
-           "a": [
-            "дословно из кода"
-           ],
-           "c": []
-          },
-          {
-           "k": "do",
-           "t": "p.realtor += realtor;",
-           "a": [
-            "дословно из кода"
-           ],
-           "c": []
-          }
-         ]
-        }
-       ]
-      },
-      {
-       "k": "loop",
-       "t": "для каждого: const e of monthExpenses",
-       "a": [],
-       "c": [
-        {
-         "k": "if",
-         "t": "e.category === \"ADVERTISING\" && e.source",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "adBySource.set( e.source as ClientSource, (adBySource.get(e.source as ClientSource) ?? 0) + expenseCentsToTjs…",
-           "a": [
-            "зовёт expenseCentsToTjs()"
-           ],
-           "c": []
-          }
-         ]
-        }
-       ]
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "res.json({ months: summary, currency: \"TJS\", usdToTjsRate: money.usdToTjs, truncated });",
-     "a": [
-      "ответ 200"
-     ],
-     "c": []
     }
    ]
   },
@@ -32952,111 +31320,33 @@
    "handlerRef": null,
    "tree": [
     {
-     "k": "do",
-     "t": "const query=expenseListQuerySchema.safeParse(req.query);",
-     "a": [
-      "проверяет данные схемой expenseListQuerySchema"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "!query.success",
+     "k": "try",
+     "t": "пробует",
      "a": [],
      "c": [
       {
        "k": "do",
-       "t": "return res.status(400).json({error:\"Некорректные фильтры\",details:query.error.flatten()});",
+       "t": "res.json(await listExpenses(req.query));",
        "a": [
-        "ответ 400 — «Некорректные фильтры»"
+        "ответ 200"
        ],
        "c": []
       }
      ]
     },
     {
-     "k": "do",
-     "t": "const where=expenseWhere(query.data);",
-     "a": [
-      "зовёт expenseWhere()"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "query.data.sortBy",
+     "k": "catch",
+     "t": "если сорвалось",
      "a": [],
      "c": [
       {
-       "k": "try",
-       "t": "пробует",
+       "k": "if",
+       "t": "!commandFailed(res, err)",
        "a": [],
        "c": [
         {
          "k": "do",
-         "t": "const context=query.data.sortBy===\"amount\"?await loadMoneyContext():undefined;",
-         "a": [
-          "зовёт loadMoneyContext()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "const ids=await orderedExpenseIds(where,query.data.sortBy,query.data.sortDirection,context);",
-         "a": [
-          "зовёт orderedExpenseIds()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "const rows=await prisma.expense.findMany({where:{id:{in:pageIds},deletedAt:null},include:{agent:{select:{id:t…",
-         "a": [
-          "читает в базе: expense"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "const items=await expenseDtos(ordered,context);",
-         "a": [
-          "зовёт expenseDtos()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "return res.json(query.data.page?{items,total:ids.length,page:query.data.page,pageSize:query.data.pageSize}:it…",
-         "a": [
-          "ответ 200"
-         ],
-         "c": []
-        }
-       ]
-      },
-      {
-       "k": "catch",
-       "t": "если сорвалось",
-       "a": [],
-       "c": [
-        {
-         "k": "if",
-         "t": "error instanceof ExpenseLifecycleError",
-         "a": [],
-         "c": [
-          {
-           "k": "do",
-           "t": "return res.status(error.status).json({error:error.message});",
-           "a": [
-            "ответ (код зависит от условия)"
-           ],
-           "c": []
-          }
-         ]
-        },
-        {
-         "k": "do",
-         "t": "throw error;",
+         "t": "throw err;",
          "a": [
           "пробрасывает ошибку дальше"
          ],
@@ -33065,31 +31355,6 @@
        ]
       }
      ]
-    },
-    {
-     "k": "do",
-     "t": "const expenses = await prisma.expense.findMany({ where, orderBy: [{ month: \"desc\" }, { createdAt: \"desc\" }], …",
-     "a": [
-      "читает в базе: expense"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "const items=await expenseDtos(expenses);",
-     "a": [
-      "зовёт expenseDtos()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "res.json(query.data.page?{items,total:await prisma.expense.count({where}),page:query.data.page,pageSize:query…",
-     "a": [
-      "ответ 200",
-      "считает в базе: expense"
-     ],
-     "c": []
     }
    ]
   },
@@ -33112,143 +31377,57 @@
    "handlerRef": null,
    "tree": [
     {
-     "k": "do",
-     "t": "const parsed = expenseCreateSchema.safeParse(req.body);",
-     "a": [
-      "проверяет данные схемой expenseCreateSchema"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "!parsed.success",
+     "k": "try",
+     "t": "пробует",
      "a": [],
      "c": [
       {
        "k": "do",
-       "t": "return res.status(400).json({ error: \"Неверные данные\", details: parsed.error.flatten() });",
+       "t": "const { expense, month } = await createExpense(req.body, { agentId: req.agent!.id, idempotencyKey: req.get(\"I…",
        "a": [
-        "ответ 400 — «Неверные данные»"
+        "зовёт createExpense()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "logAudit(req, \"EXPENSE_CREATE\", \"Expense\", expense.id, { amount: Number(expense.amount), category: expense.ca…",
+       "a": [
+        "зовёт logAudit()"
+       ],
+       "c": []
+      },
+      {
+       "k": "do",
+       "t": "res.status(201).json((await expenseDtos([expense]))[0]);",
+       "a": [
+        "ответ 201"
        ],
        "c": []
       }
      ]
     },
     {
-     "k": "if",
-     "t": "rest.amount>99_999_999.99",
+     "k": "catch",
+     "t": "если сорвалось",
      "a": [],
      "c": [
       {
-       "k": "do",
-       "t": "return res.status(400).json({error:\"Сумма слишком большая\"});",
-       "a": [
-        "ответ 400 — «Сумма слишком большая»"
-       ],
-       "c": []
+       "k": "if",
+       "t": "!commandFailed(res, err)",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "throw err;",
+         "a": [
+          "пробрасывает ошибку дальше"
+         ],
+         "c": []
+        }
+       ]
       }
      ]
-    },
-    {
-     "k": "if",
-     "t": "!await validateExpenseCategory(rest.categoryId,rest.category)",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(400).json({error:\"Выберите категорию соответствующего раздела\"});",
-       "a": [
-        "ответ 400 — «Выберите категорию соответствующего раздела»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "if",
-     "t": "key&&!/^[A-Za-z0-9:_-]{8,120}$/.test(key)",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(400).json({error:\"Неверный ключ запроса\"});",
-       "a": [
-        "ответ 400 — «Неверный ключ запроса»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const money=await loadMoneyContext();",
-     "a": [
-      "зовёт loadMoneyContext()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "const data={...rest,paymentDate:rest.paymentDate?expenseDay(rest.paymentDate):null,month:monthToDate((rest.st…",
-     "a": [
-      "зовёт expenseDay()"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "(rest.status??\"PAID\")===\"PAID\"&&rest.paymentDate&&rest.paymentDate>todayExpenseDay()",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(400).json({error:\"Будущий платёж запишите как план\"});",
-       "a": [
-        "ответ 400 — «Будущий платёж запишите как план»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "const expense=requestKey?await prisma.expense.upsert({where:{requestKey},update:{},create:data}):await prisma…",
-     "a": [
-      "создаёт или меняет в базе: expense",
-      "создаёт в базе: expense"
-     ],
-     "c": []
-    },
-    {
-     "k": "if",
-     "t": "requestKey&&expense.autoFingerprint!==fingerprint",
-     "a": [],
-     "c": [
-      {
-       "k": "do",
-       "t": "return res.status(409).json({error:\"Этот ключ уже использован для другого расхода\",code:\"IDEMPOTENCY_CONFLICT…",
-       "a": [
-        "ответ 409 — «Этот ключ уже использован для другого расхода»"
-       ],
-       "c": []
-      }
-     ]
-    },
-    {
-     "k": "do",
-     "t": "logAudit(req, \"EXPENSE_CREATE\", \"Expense\", expense.id, { amount: Number(expense.amount), category: expense.ca…",
-     "a": [
-      "зовёт logAudit()"
-     ],
-     "c": []
-    },
-    {
-     "k": "do",
-     "t": "res.status(201).json((await expenseDtos([expense]))[0]);",
-     "a": [
-      "ответ 201"
-     ],
-     "c": []
     }
    ]
   },
