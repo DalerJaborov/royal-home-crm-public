@@ -11,6 +11,7 @@ import {
 } from "./videoHandoff.js";
 import { alertMontageStuck } from "./videoHandoffStaleAlarm.js";
 import { describeError } from "./describeError.js";
+import { alertNoMontajerIfWorkWaits, currentMontajerIsUsable, handOverHolderToCurrentMontajer } from "./montajerHandover.js";
 
 /**
  * СТОРОЖ ДОСТАВКИ ИСХОДНИКОВ МОНТАЖЁРУ (22.09.2026, объект №121).
@@ -89,11 +90,26 @@ export async function runVideoHandoffRedeliveryTick(
     where: { id: "singleton" },
     select: { videoHandoffEnabled: true, videoMontajerAgentId: true },
   });
-  if (!settings?.videoHandoffEnabled || !settings.videoMontajerAgentId) {
+  if (!settings?.videoHandoffEnabled) {
     return { redelivered: 0, gaveUp: 0, released: false, alerted: 0, manualExpired: 0 };
   }
+  // Монтажёра нет или он отключён (11.11.2026): слать некому — тревога, если
+  // что-то ждёт, а не тишина. Досылать отключённому бессмысленно (G4).
+  if (!settings.videoMontajerAgentId || !(await currentMontajerIsUsable(settings.videoMontajerAgentId))) {
+    const alarmed = await alertNoMontajerIfWorkWaits(now).catch((err) => {
+      void logSystemError("video-handoff", `Тревога «монтажёр не назначен» не ушла: ${describeError(err)}`);
+      return false;
+    });
+    return { redelivered: 0, gaveUp: 0, released: false, alerted: alarmed ? 1 : 0, manualExpired: 0 };
+  }
+  const montajerAgentId = settings.videoMontajerAgentId;
 
   const manualExpired = await expireAbandonedManualWaits(now);
+
+  // Монтажёра сменили (экраном, точкой возврата или руками в базе), а держатель
+  // места доставлен прежнему — досылаем текущему (решение владельца 11.11.2026).
+  let handedOver = 0;
+  if (await handOverHolderToCurrentMontajer(montajerAgentId, now)) handedOver++;
 
   const holders = await prisma.property.findMany({
     where: EDITOR_HOLDER_WHERE,
@@ -148,7 +164,7 @@ export async function runVideoHandoffRedeliveryTick(
         );
         // ЗАДАНИЕ D: ссылка — последний резерв, только когда попытки сторожа
         // исчерпаны, и не чаще той же тревоги (раз в сутки на объект).
-        await sendGiveUpFallbackLinks(p.id, p.shortId, settings.videoMontajerAgentId).catch((err) =>
+        await sendGiveUpFallbackLinks(p.id, p.shortId, montajerAgentId).catch((err) =>
           logSystemError("video-handoff", `Объект №${p.shortId}: запасные ссылки не отправились: ${describeError(err)}`)
         );
       }
@@ -172,7 +188,7 @@ export async function runVideoHandoffRedeliveryTick(
       `Объект №${p.shortId}: исходники не дошли до монтажёра (попытка ${p.videoHandoffDispatchAttempts}) — досылаю заново`
     );
     try {
-      if (await dispatchToEditor(p.id, settings.videoMontajerAgentId)) redelivered++;
+      if (await dispatchToEditor(p.id, montajerAgentId)) redelivered++;
     } catch (err) {
       void logSystemError(
         "video-handoff",
@@ -197,7 +213,7 @@ export async function runVideoHandoffRedeliveryTick(
     released = true;
   }
 
-  return { redelivered, gaveUp, released, alerted, manualExpired };
+  return { redelivered: redelivered + handedOver, gaveUp, released, alerted, manualExpired };
 }
 
 /**

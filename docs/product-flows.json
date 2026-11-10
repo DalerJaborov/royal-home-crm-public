@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 733,
-  "forks": 3909,
+  "forks": 3912,
   "mounts": 82,
   "cron": 125,
   "jobs": 32,
@@ -2579,7 +2579,7 @@
         },
         {
          "k": "do",
-         "t": "await clearAgentFromSettingsReferences(tx, agent.id, agent.fullName, \"freeze\");",
+         "t": "frozenClearedFields = await clearAgentFromSettingsReferences(tx, agent.id, agent.fullName, \"freeze\");",
          "a": [
           "зовёт clearAgentFromSettingsReferences()"
          ],
@@ -3885,14 +3885,6 @@
          "t": "closeStreamsForAgent(deleted.id);",
          "a": [
           "зовёт closeStreamsForAgent()"
-         ],
-         "c": []
-        },
-        {
-         "k": "do",
-         "t": "await clearAgentFromSettingsReferences(prisma, deleted.id, deleted.fullName, \"deactivate\").catch((err)",
-         "a": [
-          "зовёт clearAgentFromSettingsReferences()"
          ],
          "c": []
         }
@@ -72507,7 +72499,7 @@
              "c": [
               {
                "k": "do",
-               "t": "const oldMontajer = await prisma.agent.findUnique({ where: { id: previousMontajerAgentId }, select: { telegra…",
+               "t": "const oldMontajer = await prisma.agent.findFirst({ where: { id: previousMontajerAgentId, isActive: true }, se…",
                "a": [
                 "читает в базе: agent"
                ],
@@ -72562,6 +72554,21 @@
            "c": []
           }
          ]
+        }
+       ]
+      },
+      {
+       "k": "if",
+       "t": "!pair.videoMontajerAgentId",
+       "a": [],
+       "c": [
+        {
+         "k": "do",
+         "t": "void alertNoMontajerIfWorkWaits().catch((err)",
+         "a": [
+          "запись в журнал ошибок"
+         ],
+         "c": []
         }
        ]
       }
@@ -110124,12 +110131,51 @@
         },
         {
          "k": "if",
-         "t": "!settings?.videoHandoffEnabled || !settings.videoMontajerAgentId",
+         "t": "!settings?.videoHandoffEnabled",
          "a": [],
          "c": [
           {
            "k": "do",
            "t": "return { redelivered: 0, gaveUp: 0, released: false, alerted: 0, manualExpired: 0 };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "!settings.videoMontajerAgentId || !(await currentMontajerIsUsable(settings.videoMontajerAgentId))",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "const alarmed = await alertNoMontajerIfWorkWaits(now).catch((err)",
+           "a": [
+            "запись в журнал ошибок"
+           ],
+           "c": [
+            {
+             "k": "do",
+             "t": "void logSystemError(\"video-handoff\", `Тревога «монтажёр не назначен» не ушла: ${describeError(err)}`);",
+             "a": [
+              "запись в журнал ошибок"
+             ],
+             "c": []
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "k": "if",
+         "t": "await handOverHolderToCurrentMontajer(montajerAgentId, now)",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "handedOver++;",
            "a": [
             "дословно из кода"
            ],
@@ -110238,7 +110284,7 @@
               },
               {
                "k": "do",
-               "t": "await sendGiveUpFallbackLinks(p.id, p.shortId, settings.videoMontajerAgentId).catch((err)",
+               "t": "await sendGiveUpFallbackLinks(p.id, p.shortId, montajerAgentId).catch((err)",
                "a": [
                 "запись в журнал ошибок"
                ],
@@ -110294,7 +110340,7 @@
            "c": [
             {
              "k": "if",
-             "t": "await dispatchToEditor(p.id, settings.videoMontajerAgentId)",
+             "t": "await dispatchToEditor(p.id, montajerAgentId)",
              "a": [],
              "c": [
               {
