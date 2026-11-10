@@ -226,7 +226,8 @@ describe("ElevenLabs: разговор на поддельном сокете", 
     ws.server(METADATA);
     await connecting;
     expect(ready).toHaveBeenCalledTimes(1);
-    expect(prepareAgent).toHaveBeenCalledWith("sk_test", "agent_1", [SEARCH_TOOL]);
+    // Таджикский голос уходит в подготовку агента (пресет языка tg, 10.11.2026).
+    expect(prepareAgent).toHaveBeenCalledWith("sk_test", "agent_1", [SEARCH_TOOL], { voiceIdTg: "voice_tg" });
     expect(client.inputSampleRateHz).toBe(8000);
     expect(client.outputSampleRateHz).toBe(16000);
 
@@ -439,16 +440,21 @@ describe("ElevenLabs: подготовка агента", () => {
       },
       platform_settings: { overrides: { conversation_config_override: { tts: { stability: true } } } },
     };
-    expect(buildAgentSyncPatch(agent, ["tool_1", "own_tool"])).toEqual({
-      conversation_config: {
-        agent: { prompt: { prompt: "старый", llm: "gemini-3.5-flash", tool_ids: ["own_tool", "tool_1"] } },
-      },
-      platform_settings: {
-        overrides: {
-          conversation_config_override: {
-            agent: { prompt: { prompt: true, tool_ids: true }, first_message: true, language: true },
-            tts: { stability: true, voice_id: true },
-          },
+    const patch = buildAgentSyncPatch(agent, ["tool_1", "own_tool"]) as {
+      conversation_config: { agent: { prompt: Record<string, unknown> } };
+      platform_settings: unknown;
+    };
+    const prompt = patch.conversation_config.agent.prompt;
+    expect(prompt.prompt).toBe("старый");
+    expect(prompt.llm).toBe("gemini-3.5-flash");
+    expect(prompt.tool_ids).toEqual(["own_tool", "tool_1"]);
+    expect(prompt).not.toHaveProperty("tools");
+    // Настройки разговора (10.11.2026) — в tests/live-voice-elevenlabs-agent-tuning.test.ts.
+    expect(patch.platform_settings).toEqual({
+      overrides: {
+        conversation_config_override: {
+          agent: { prompt: { prompt: true, tool_ids: true }, first_message: true, language: true },
+          tts: { stability: true, voice_id: true },
         },
       },
     });

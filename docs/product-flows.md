@@ -15728,7 +15728,7 @@
   - return res.status(400).json({ ok: false, error: "Не указан id агента ElevenLabs" });
     · ответ 400 — «Не указан id агента ElevenLabs»
 - пробует
-  - const tools = await syncElevenLabsAgent(apiKey, agentId, CONSULTANT_TOOLS);
+  - const tools = await syncElevenLabsAgent(apiKey, agentId, CONSULTANT_TOOLS, { voiceIdTg: row?.elevenLabsVoiceI…
     · зовёт syncElevenLabsAgent()
   - res.json({ ok: true, agentName: agent.name ?? null, toolsSynced: tools.size });
     · ответ 200

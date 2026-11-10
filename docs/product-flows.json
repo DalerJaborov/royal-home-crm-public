@@ -71646,7 +71646,7 @@
      "c": [
       {
        "k": "do",
-       "t": "const tools = await syncElevenLabsAgent(apiKey, agentId, CONSULTANT_TOOLS);",
+       "t": "const tools = await syncElevenLabsAgent(apiKey, agentId, CONSULTANT_TOOLS, { voiceIdTg: row?.elevenLabsVoiceI…",
        "a": [
         "зовёт syncElevenLabsAgent()"
        ],

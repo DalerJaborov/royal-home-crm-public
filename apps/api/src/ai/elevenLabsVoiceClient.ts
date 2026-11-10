@@ -325,7 +325,9 @@ export class ElevenLabsVoiceClient extends EventEmitter {
     if (!agentId) throw new Error("Не указан id агента ElevenLabs");
 
     const prepare = this.deps.prepareAgent ?? ensureElevenLabsAgentReady;
-    const toolIdsByName = await prepare(apiKey, agentId, opts.tools ?? []);
+    // Заодно — настройки телефонного разговора и таджикский голос в пресете языка
+    // (ELEVENLABS_PHONE_AGENT_TUNING в elevenLabsAgentSync.ts).
+    const toolIdsByName = await prepare(apiKey, agentId, opts.tools ?? [], { voiceIdTg: this.config.voiceIdTg });
     // Подменяем набор функций, только если все функции этого звонка заведены.
     const toolIds =
       toolIdsByName && (opts.tools ?? []).every((t) => toolIdsByName.has(t.name))
