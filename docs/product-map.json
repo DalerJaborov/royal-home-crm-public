@@ -958,6 +958,14 @@
       "usedBy": 1
     },
     {
+      "mount": "/api/v1/property-offers",
+      "router": "propertyOffersRouter",
+      "file": "apps/api/src/routes/propertyOffers.ts",
+      "endpoints": 1,
+      "label": null,
+      "usedBy": 1
+    },
+    {
       "mount": "/api/v1/properties",
       "router": "propertiesRouter",
       "file": "apps/api/src/routes/properties.ts",
@@ -993,7 +1001,7 @@
       "mount": "/api/v1/deals",
       "router": "dealPayoutRouter",
       "file": "apps/api/src/routes/dealPayout.ts",
-      "endpoints": 2,
+      "endpoints": 3,
       "label": "Сделки, документы, выплаты",
       "usedBy": 4
     },
@@ -1771,6 +1779,11 @@
       "label": "Отвечает, скрывает и эскалирует комментарии под публикациями"
     },
     {
+      "id": "instagram-identity-guard",
+      "expr": "*/10 * * * *",
+      "label": null
+    },
+    {
       "id": "instagram-online-followers",
       "expr": "15 14 * * *",
       "label": null
@@ -2274,7 +2287,7 @@
     {
       "name": "Сайт royalhome.tj",
       "keys": 6,
-      "files": 16
+      "files": 17
     },
     {
       "name": "Телефония FreePBX / Asterisk",

@@ -92,6 +92,37 @@ function digitsOnly(value: string): string {
 }
 
 /**
+ * НОМЕРА КОМПАНИИ НЕ ПРЯЧЕМ (решение владельца 10.11.2026: «Да, номера компании»).
+ *
+ * Маска уводит клиентов от ЛИЧНЫХ номеров агентов. Номер самой компании — ровно
+ * то место, куда клиента и надо вести: 10.11 сотрудник не смог написать клиенту
+ * «позвоните Нозе: 777 070 100» — клиент получил бы «****». Последние 9 цифр,
+ * без кода страны: так номер узнаётся в любом написании (+992…, 992…, местный).
+ *
+ *  - 446501414 — публичный телефон агентства (apps/api/src/lib/publicAgencyContact.ts,
+ *    сверяется тестом apps/api/tests/mask-company-phones.test.ts);
+ *  - 777070100 — рабочий номер Нозы (РОП), его владелец велел давать клиентам и кандидатам.
+ *
+ * Новый номер компании — строкой сюда; личные номера сюда не вписывать.
+ */
+export const COMPANY_PHONE_DIGITS: readonly string[] = ["446501414", "777070100"];
+
+/** Номер компании целиком, в любом написании: +992/992 по желанию, любые разделители.
+ *  Вырезается из разбора до маски — иначе «+992 777 070 100» даёт внутри девять
+ *  цифр «992 777 070», и маска откусывала бы середину номера компании. */
+const COMPANY_PHONE_SPAN = new RegExp(
+  String.raw`(?:\+?992[\s().-]*)?(?:` +
+    COMPANY_PHONE_DIGITS.map((d) => d.split("").join(String.raw`[\s().-]?`)).join("|") +
+    String.raw`)(?!\d)`,
+  "g"
+);
+
+function isCompanyPhone(match: string): boolean {
+  const digits = digitsOnly(match);
+  return digits.length >= 9 && COMPANY_PHONE_DIGITS.includes(digits.slice(-9));
+}
+
+/**
  * Заменяет телефоны в тексте на «****».
  * Возвращает и результат, и признак срабатывания — по нему интерфейс показывает
  * агенту предупреждение, а роут пишет в историю то, что клиент реально получил.
@@ -99,16 +130,24 @@ function digitsOnly(value: string): string {
 export function maskPhones(text: string): { text: string; masked: boolean } {
   let masked = false;
 
-  const maskSegment = (segment: string): string => {
+  const maskSegment = (segment: string): string =>
+    segment
+      .split(new RegExp(`(${COMPANY_PHONE_SPAN.source})`, "g"))
+      .map((part, i) => (i % 2 === 1 ? part : maskOther(part)))
+      .join("");
+
+  const maskOther = (segment: string): string => {
     const withoutInternational = segment.replace(INTERNATIONAL, (match) => {
       // Код страны + слишком мало цифр — скорее диапазон вроде «+7 лет», не номер.
       if (digitsOnly(match).length < 7) return match;
+      if (isCompanyPhone(match)) return match;
       masked = true;
       return MASK;
     });
 
     return withoutInternational.replace(LOCAL_NINE, (full, lead: string, match: string, at: number, whole: string) => {
       if (digitsOnly(match).length !== 9) return full;
+      if (isCompanyPhone(match)) return full;
       const offset = at + lead.length;
       // Цена «900 000 000 сомони» тоже даёт девять цифр — если валюта стоит рядом,
       // это деньги. Смотрим 12 символов до и после совпадения.

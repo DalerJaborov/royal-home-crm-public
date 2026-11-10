@@ -243,7 +243,7 @@ export function can(req: Pick<Request, "agent">, permission: PermissionId): bool
  * на право «видеть всех»: сотруднику можно открыть чужие карточки галочкой, не
  * меняя роль, и наоборот — отобрать их у менеджера.
  */
-export function scopeToOwnAgent(req: Request): string | undefined {
+export function scopeToOwnAgent(req: Pick<Request, "agent">): string | undefined {
   if (!req.agent) return undefined;
   return req.agent.permissions.has("clients.viewAll") ? undefined : req.agent.id;
 }
@@ -275,7 +275,7 @@ export function canBindClient(req: Pick<Request, "agent">, client: { assignedAge
  * выдавалось пресетами, а на API не влияло вообще: сделки скоупились правом на
  * клиентов, и два права расходились друг с другом на одном экране.
  */
-export function scopeDealsToOwnAgent(req: Request): string | undefined {
+export function scopeDealsToOwnAgent(req: Pick<Request, "agent">): string | undefined {
   if (!req.agent) return undefined;
   return req.agent.permissions.has("deals.viewAll") ? undefined : req.agent.id;
 }
@@ -295,7 +295,7 @@ export function scopeDealsToOwnAgent(req: Request): string | undefined {
  * (ownAgentId задан) ограничивает проверка владения строкой выше по маршруту.
  */
 export function foreignDealWriteDenied(
-  req: Request,
+  req: Pick<Request, "agent">,
   deal: { agentId: string },
   ownAgentId: string | undefined
 ): string | null {
@@ -307,7 +307,7 @@ export function foreignDealWriteDenied(
 }
 
 /** Может ли текущий сотрудник открыть карточку, закреплённую за указанным агентом. */
-export function canAccessAssignedAgent(req: Request, assignedAgentId: string | null | undefined): boolean {
+export function canAccessAssignedAgent(req: Pick<Request, "agent">, assignedAgentId: string | null | undefined): boolean {
   if (!req.agent) return false;
   return req.agent.permissions.has("clients.viewAll") || req.agent.id === assignedAgentId;
 }

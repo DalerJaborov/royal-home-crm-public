@@ -8,7 +8,7 @@ import { LAST_ROUND_INSTRUCTION, hasFoundItems, partialAnswerFromResults, type C
 import { createAssistantAttemptLimit } from "./assistant/attemptLimit.js";
 import { reserveAssistantGeminiAttempt } from "./assistant/attemptBudget.js";
 import { visibleInteractionWhere } from "../lib/investigationPrivacy.js";
-import { expenseCentsToTjs } from "../lib/money.js";
+import { buildExpenseSummary } from "../lib/expenseQueries.js";
 import { prisma } from "../db.js";
 import { geminiFunctionResponsePart } from "./providerContract.js";
 import { formatClientName, parseShortCode, PROPERTY_STAGES, trimAssistantHistory, type AssistantTokenEvent } from "@royal-home/shared";
@@ -28,12 +28,13 @@ import { loadAssistantGeminiRuntime, loadAssistantSettings } from "./assistant/r
 import { assistantLanguage, assistantLanguagePolicy, repliesInTajik } from "./assistant/languageRouting.js";
 import type { ClientLanguage } from "./clientLanguage.js";
 import { createCardLinkEvidence } from "./assistant/cardLinkEvidence.js";
-import { centsToTjs, fromCents, loadMoneyContext, priceCeilingFilter, roundMoney, splitCents, toCents, toTjs } from "../lib/money.js";
+import { loadMoneyContext, priceCeilingFilter, roundMoney, toTjs } from "../lib/money.js";
 import {
   dushanbeDateTimeString,
   dushanbeInputToDate,
   dushanbeStartOfMonth,
   dushanbeWallClock,
+  dushanbeMonthRange as dushanbeMonthRangeShared,
 } from "../lib/dushanbeTime.js";
 import type { ChatMessage } from "./client.js";
 import { clientNamePhoneSafe, clientPhoneFor, phoneSafeText } from "../lib/clientPhone.js";
@@ -199,7 +200,7 @@ function formatGroundedReply(result: GeminiGroundedResult): string {
  * Пишется в AiLog.promptVersion при каждом ответе ассистента (см. finally
  * runAssistant ниже) — по ней журнал говорит, какой текст промта отвечал.
  */
-export const SYSTEM_PROMPT_VERSION = "2026-11-07.2-trash-for-all-restore";
+export const SYSTEM_PROMPT_VERSION = "2026-11-10.2-expenses-review";
 
 const SYSTEM_PROMPT = `Ты — встроенный ассистент CRM агентства недвижимости (Душанбе, Таджикистан).
 Отвечай кратко на языке сотрудника. Валюта по умолчанию — сомони (TJS).
@@ -224,13 +225,20 @@ find_properties_by_place с landmark словами человека; район
 Если инструмент вернул confirmRequired — действие ещё не выполнено: скажи одной короткой фразой, что подготовлено,
 и попроси нажать «Подтвердить» в карточке; сам ничего не подтверждай и не повторяй вызов. Если вернул done — скажи,
 что сделано, и что это можно отменить. Удаление, деньги, права, настройки, публикацию в соцсетях и сообщения
-клиентам ты не делаешь: на такую просьбу назови раздел CRM, где это делается руками.
+клиентам ты не делаешь: на такую просьбу назови раздел CRM, где это делается руками. Исключение — расходы компании
+(ниже): записывать, менять, удалять и оплачивать их можно только инструментами расходов.
+РАСХОДЫ: «запиши/внеси расход…», «аренда 5000 за ноябрь», «интернет 400, бензин 122 вчера» — add_expenses, все названные
+траты одним вызовом; суммы, даты и строки не придумывай. Вопросы о тратах, сводке, прогнозе, подписках и корзине расходов —
+инструменты list_expenses, get_expense_summary, get_expense_forecast, get_expense_pivot, list_recurring_expenses,
+list_expense_archive; «откуда этот расход, почему такая сумма» — get_expense_history; изменить, удалить, вернуть,
+оплатить — по id из списка. Суммы называй как вернул инструмент, курс не
+придумывай. Нет у тебя инструментов расходов — значит у человека нет права на раздел «Финансы»: так и скажи.
 На вопросы «где найти…», «как сделать…», «куда нажать…» отвечай конкретным путём кликов по разделам CRM
 (меню слева, на мобильном — нижняя панель/бургер). Разделы, ОТКРЫТЫЕ ЭТОМУ пользователю (по его правам):
 {{SECTIONS}}
 Роль текущего пользователя: {{ROLE}}. Других разделов у него в меню нет — НЕ отправляй его туда; на просьбу
 о недоступном разделе или действии отвечай, что у него нет доступа, и предложи обратиться к руководителю.
-Ты помогаешь ТОЛЬКО с работой в этой CRM (объекты, клиенты, сделки, статистика, задачи, навигация по разделам).
+Ты помогаешь ТОЛЬКО с работой в этой CRM (объекты, клиенты, сделки, расходы и финансы, статистика, задачи, навигация по разделам).
 Исключение — СПРАВОЧНЫЙ вопрос о рынке недвижимости, законах, налогах, ипотеке или процедурах покупки/продажи/аренды
 в Таджикистане (не про клиентов, объекты и сделки этой CRM): если у тебя есть инструмент ${WEB_REFERENCE_TOOL}, вызови
 его один, без других инструментов; если такого инструмента нет — это вопрос не по работе в CRM.
@@ -401,8 +409,8 @@ const TOOLS: AssistantTool[] = [
   {
     name: "get_finance_summary",
     description:
-      "Сводка по финансам за месяц: валовая комиссия, расходы, прибыль компании. ТОЛЬКО для руководства (ADMIN/DIRECTOR) — " +
-      "у рядового агента и менеджера доступа к разделу «Финансы» нет, функция вернёт отказ.",
+      "Сводка по финансам за месяц: валовая комиссия, расходы, прибыль компании — те же цифры, что экран «Финансы». " +
+      "Только тем, у кого открыт раздел «Финансы»; остальным функция вернёт отказ.",
     parameters: {
       type: "object",
       properties: {
@@ -468,20 +476,7 @@ function resolveMonthKey(monthStr: unknown): string {
  * dushanbeStartOfMonth от него всегда попадает в нужный месяц.
  */
 function dushanbeMonthRange(monthKey: string): { from: Date; to: Date } {
-  const [y, m] = monthKey.split("-").map(Number);
-  const from = dushanbeStartOfMonth(new Date(Date.UTC(y, m - 1, 15)));
-  const to = dushanbeStartOfMonth(new Date(Date.UTC(y, m, 15)));
-  return { from, to };
-}
-
-/**
- * Expense.month — НЕ момент времени по Душанбе, а плоский маркер месяца: первое
- * число UTC-полночью, как его пишет routes/expenses.ts (monthToDate). Сравнивать
- * с dushanbeMonthRange нельзя — значения разойдутся на 5 часов и запрос не найдёт
- * ни одной записи.
- */
-function expenseMonthDate(monthKey: string): Date {
-  return new Date(`${monthKey}-01T00:00:00.000Z`);
+  return dushanbeMonthRangeShared(monthKey);
 }
 
 /** Экспортирован ради точечных тестов (apps/api/tests/ai-assistant-tools.test.ts):
@@ -934,52 +929,24 @@ export async function runTool(name: string, input: Record<string, unknown>, acto
 
     const monthKey = resolveMonthKey(input.month);
     const { from, to } = dushanbeMonthRange(monthKey);
-
-    const [expenses, completedDeals, settings, money] = await Promise.all([
-      prisma.expense.findMany({ where: { month: expenseMonthDate(monthKey), deletedAt: null,status:"PAID" } }),
-      prisma.deal.findMany({
-        where: { stage: "COMPLETED", closedAt: { gte: from, lt: to } },
-        select: {
-          commissionAmount: true,
-          currency: true,
-          commissionIntakeAmount: true,
-          commissionRealtorAmount: true,
-          commissionCompanyAmount: true,
-        },
-      }),
-      // Инструмент ЧТЕНИЯ ничего не пишет (задача 2.5): был upsert — запись в
-      // Settings на каждый вопрос о финансах. Строки нет — доли по умолчанию схемы.
-      prisma.settings.findUnique({
-        where: { id: "singleton" },
-        select: { commissionRealtorPercent: true, commissionCompanyPercent: true, commissionIntakePercent: true },
-      }),
-      loadMoneyContext(),
+    // Одна дверь с экраном «Финансы» (10.11.2026): цифры — из buildExpenseSummary, той же функции,
+    // что GET /expenses/summary. Своя копия арифметики вычитала из доли компании и зарплаты из сделок,
+    // которые экран не вычитает (доля риелтора уже вне дохода компании), — прибыль помощницы была ниже.
+    const [summary, dealsCompleted] = await Promise.all([
+      buildExpenseSummary({ months: 1, through: monthKey }),
+      prisma.deal.count({ where: { stage: "COMPLETED", closedAt: { gte: from, lt: to } } }),
     ]);
-
-    // Та же арифметика, что в «Финансах» (routes/expenses.ts /summary): в целых
-    // сотых сомони, расходы приведены к сомони (реклама Meta и ИИ ведутся в
-    // долларах), прибыль = ДОЛЯ КОМПАНИИ − расходы, а не валовая комиссия.
-    const pRealtor = Number(settings?.commissionRealtorPercent ?? 0.5);
-    const pCompany = Number(settings?.commissionCompanyPercent ?? 1) + Number(settings?.commissionIntakePercent ?? 0.5);
-    let grossCents = 0;
-    let companyCents = 0;
-    for (const d of completedDeals) {
-      const cents = (value: unknown) => centsToTjs(toCents(value), d.currency, money);
-      grossCents += cents(d.commissionAmount);
-      companyCents +=
-        d.commissionCompanyAmount !== null
-          ? cents(d.commissionCompanyAmount) + cents(d.commissionIntakeAmount)
-          : splitCents(cents(d.commissionAmount), [pRealtor, pCompany])[1];
-    }
-    const expensesCents = expenses.reduce((s, e) => s + expenseCentsToTjs(e, money), 0);
-
+    const month = summary.months[0];
+    if (!month) return { error: "Сводка за этот месяц недоступна" };
     return {
       month: monthKey,
-      revenueTJS: fromCents(grossCents),
-      companyRevenueTJS: fromCents(companyCents),
-      expensesTJS: fromCents(expensesCents),
-      profitTJS: fromCents(companyCents - expensesCents),
-      dealsCompleted: completedDeals.length,
+      revenueTJS: month.revenue,
+      companyRevenueTJS: month.companyRevenue,
+      expensesTJS: month.totalExpenses,
+      operatingExpensesTJS: month.operatingExpenses,
+      profitTJS: month.profit,
+      dealsCompleted,
+      ...(summary.truncated ? { truncated: true } : {}),
     };
   }
 
