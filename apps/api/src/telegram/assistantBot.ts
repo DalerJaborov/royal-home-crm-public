@@ -25,6 +25,7 @@ import { findTelegramAgentClients, isVoiceReplayRequest, replayTelegramAssistant
 import { clearStaffPropertyPage, propertyPageRequest, propertyPageSize, propertySelection, propertyWorkflowRequest, sendMoreStaffProperties, sendStaffPropertySelection } from "./assistantPropertyPages.js";
 import { sendAssistantVoiceReply } from "./assistantVoice.js";
 import { handleTelegramPropertyDraft, handleTelegramPropertyDraftCallback } from "./assistantPropertyDraft.js";
+import { handlePropertyOfferCallback } from "./assistantPropertyOffers.js";
 import { handleTelegramExpenseReceipt, handleTelegramExpenseReceiptCallback } from "./assistantExpenseReceipt.js";
 import { handleAssistantMedia } from "./assistantMedia.js";
 import { createAssistantMoneyWallet, type AssistantMoneyWallet } from "../ai/assistant/moneyBudget.js";
@@ -1572,6 +1573,7 @@ const FAIL_STATUS_NOTE: Record<string, string> = {
 export async function handleAssistantCallback(query: TelegramCallbackQuery): Promise<boolean> {
   if (query.data?.startsWith("ef:")) return handleTelegramExpenseReceiptCallback(query);
   if (await handleTelegramPropertyDraftCallback(query)) return true;
+  if (await handlePropertyOfferCallback(query)) return true;
   if (!query.data?.startsWith("as:")) return false;
   const match = BUNDLE_CALLBACK.exec(query.data);
   if (!match) {
