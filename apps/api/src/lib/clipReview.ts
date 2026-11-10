@@ -39,7 +39,10 @@ import { schedulePublishAfterAccept } from "./videoHandoff.js";
 import { sendBackToMontajer, type SendBackResult } from "./publishedVideoFix.js";
 import { requestPultSnapshot } from "./pultCacheHook.js";
 import { publishPropertyUpdated } from "./livePublish.js";
-import { DUSHANBE_OFFSET_MS, dushanbeDateTimeString, dushanbeWallClock } from "./dushanbeTime.js";
+import { dushanbeDateTimeString } from "./dushanbeTime.js";
+import { clampClipOwnerHours, clipOwnerDueFrom, isClipOwnerNight } from "./clipOwnerDue.js";
+
+export { CLIP_OWNER_HOURS_MAX, CLIP_OWNER_HOURS_MIN, CLIP_OWNER_NIGHT_END_HOUR, isClipOwnerNight } from "./clipOwnerDue.js";
 import { createNotifications, shouldAlert } from "./notifications.js";
 import { isWithinAlarmHours } from "./workingHours.js";
 import { montageNotificationRecipients } from "./montageObservers.js";
@@ -88,38 +91,16 @@ export interface ClipOwnerSettings {
   hours: number;
 }
 
-export const CLIP_OWNER_HOURS_MIN = 1;
-export const CLIP_OWNER_HOURS_MAX = 48;
-/** Ночное окно без автопубликации, часы по Душанбе: [00:00, 07:00). */
-export const CLIP_OWNER_NIGHT_END_HOUR = 7;
-
 export async function getClipOwnerSettings(): Promise<ClipOwnerSettings> {
   const s = await prisma.settings.findUnique({
     where: { id: "singleton" },
     select: { clipOwnerApproveEnabled: true, clipOwnerAutoPublishHours: true },
   });
-  const raw = s?.clipOwnerAutoPublishHours ?? 3;
-  const hours = Math.min(CLIP_OWNER_HOURS_MAX, Math.max(CLIP_OWNER_HOURS_MIN, Math.round(raw)));
-  return { enabled: s?.clipOwnerApproveEnabled ?? false, hours };
+  return { enabled: s?.clipOwnerApproveEnabled ?? false, hours: clampClipOwnerHours(s?.clipOwnerAutoPublishHours) };
 }
 
-/** Ночь по Душанбе (00:00–07:00) — автопубликация не срабатывает. */
-export function isClipOwnerNight(at: Date): boolean {
-  return dushanbeWallClock(at).getUTCHours() < CLIP_OWNER_NIGHT_END_HOUR;
-}
-
-/**
- * Когда ролик опубликуется сам: запрос + N часов; попал в ночь — 07:00 того же
- * дня по Душанбе. Одна формула для тика и для подписи хозяину.
- */
-export function clipOwnerAutoPublishAt(requestedAt: Date, hours: number): Date {
-  const due = new Date(requestedAt.getTime() + hours * 3_600_000);
-  if (!isClipOwnerNight(due)) return due;
-  const wall = dushanbeWallClock(due);
-  return new Date(
-    Date.UTC(wall.getUTCFullYear(), wall.getUTCMonth(), wall.getUTCDate(), CLIP_OWNER_NIGHT_END_HOUR, 0, 0) - DUSHANBE_OFFSET_MS
-  );
-}
+/** Срок автопубликации (та же формула, что пишет приём ролика в Property.clipOwnerDueAt). */
+export const clipOwnerAutoPublishAt = clipOwnerDueFrom;
 
 /** Хозяин объекта, которому идёт ролик: активный агент с привязанным Telegram, иначе null. */
 export async function clipOwnerRecipient(propertyId: string): Promise<ClipReviewer | null> {
@@ -129,11 +110,15 @@ export async function clipOwnerRecipient(propertyId: string): Promise<ClipReview
   });
   const ownerId = p ? propertyOwnerAgentId(p) : null;
   if (!ownerId) return null;
-  const a = await prisma.agent.findUnique({
-    where: { id: ownerId },
-    select: { id: true, fullName: true, isActive: true, telegramChatId: true },
-  });
-  if (!a || !a.isActive || !a.telegramChatId) return null;
+  const [a, settings] = await Promise.all([
+    prisma.agent.findUnique({
+      where: { id: ownerId },
+      select: { id: true, fullName: true, isActive: true, frozenAt: true, telegramChatId: true },
+    }),
+    prisma.settings.findUnique({ where: { id: "singleton" }, select: { videoMontajerAgentId: true } }),
+  ]);
+  // Замороженный не решает; монтажёр свой же ролик не подтверждает (ревью 11.11.2026).
+  if (!a || !a.isActive || a.frozenAt || !a.telegramChatId || a.id === settings?.videoMontajerAgentId) return null;
   return { id: a.id, fullName: a.fullName, chatId: a.telegramChatId };
 }
 
@@ -291,7 +276,7 @@ export async function approveClip(
   const now = new Date();
   const claimed = await prisma.property.updateMany({
     where: { id: propertyId, ...CLIP_REVIEW_PENDING_WHERE },
-    data: { clipReviewStatus: "APPROVED", clipReviewDecidedAt: now, clipReviewDecidedById: byId, clipReviewComment: null },
+    data: { clipReviewStatus: "APPROVED", clipReviewDecidedAt: now, clipReviewDecidedById: byId, clipReviewComment: null, clipOwnerDueAt: null },
   });
   if (claimed.count === 0) return { ok: false, status: 409, error: await clipAlreadyDecidedText(propertyId) };
 
@@ -461,19 +446,37 @@ export async function runClipReviewStaleTick(
  * нажатием безопасны — переход PENDING → APPROVED в approveClip атомарный.
  */
 export async function runClipOwnerAutoPublishTick(now: Date = new Date()): Promise<{ published: number }> {
-  const { enabled, hours } = await getClipOwnerSettings();
-  if (!enabled || isClipOwnerNight(now)) return { published: 0 };
+  if (isClipOwnerNight(now)) return { published: 0 };
+  const s = await prisma.settings.findUnique({
+    where: { id: "singleton" },
+    select: { clipOwnerApproveEnabled: true, clipReviewEnabled: true },
+  });
+  // Рубильник выключили, пока ролики ждали: решают модераторы, если проверка
+  // ими включена; если выключена и она — решать некому, срок у объекта в силе
+  // (ревью 11.11.2026: иначе ролик повис бы навсегда).
+  if (!s?.clipOwnerApproveEnabled && s?.clipReviewEnabled) return { published: 0 };
   const candidates = await prisma.property.findMany({
-    where: { ...CLIP_REVIEW_PENDING_WHERE, clipReviewRequestedAt: { lte: new Date(now.getTime() - hours * 3_600_000) } },
-    select: { id: true, clipReviewRequestedAt: true },
-    orderBy: { clipReviewRequestedAt: "asc" },
+    where: { ...CLIP_REVIEW_PENDING_WHERE, clipOwnerDueAt: { lte: now } },
+    select: { id: true, shortId: true },
+    orderBy: { clipOwnerDueAt: "asc" },
     take: 50,
   });
+  if (candidates.length === 0) return { published: 0 };
+  // Хозяин (или модератор) прямо сейчас пишет причину возврата — не перебивать
+  // его автопубликацией: диалог живёт 15 минут, после него срок снова в силе.
+  const dialogs = await prisma.telegramDialogState.findMany({
+    where: { kind: CLIP_REJECT_DIALOG_KIND, expiresAt: { gt: now } },
+    select: { payload: true },
+  });
+  const rejecting = new Set(dialogs.map((d) => Number((d.payload as { shortId?: unknown } | null)?.shortId)));
   let published = 0;
   for (const p of candidates) {
-    if (!p.clipReviewRequestedAt || clipOwnerAutoPublishAt(p.clipReviewRequestedAt, hours) > now) continue;
+    if (rejecting.has(p.shortId)) continue;
     const result = await approveClip(p.id, null, "auto", now);
     if (result.ok) published++;
   }
   return { published };
 }
+
+/** Вид состояния диалога «жду комментарий к возврату» (telegram/clipReviewBot.ts). */
+export const CLIP_REJECT_DIALOG_KIND = "clip_reject_comment";

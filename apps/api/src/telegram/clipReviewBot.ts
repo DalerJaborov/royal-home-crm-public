@@ -37,8 +37,8 @@ import {
 import {
   approveClip,
   clipAlreadyDecidedText,
+  CLIP_REJECT_DIALOG_KIND,
   clipDeciderByChat,
-  clipOwnerAutoPublishAt,
   clipOwnerRecipient,
   getClipOwnerSettings,
   listClipReviewers,
@@ -67,7 +67,7 @@ import { dushanbeDateTimeString } from "../lib/dushanbeTime.js";
 
 const CLIP_KINDS = ["CLIP", "CLIP_TEXT"];
 /** Вид состояния диалога «жду комментарий к возврату» (TelegramDialogState). */
-const REJECT_DIALOG_KIND = "clip_reject_comment";
+const REJECT_DIALOG_KIND = CLIP_REJECT_DIALOG_KIND;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // ─────────────────────────── подпись и кнопки ───────────────────────────
@@ -181,6 +181,8 @@ export async function notifyClipReview(propertyId: string): Promise<void> {
     // Хозяин объекта (11.11.2026) — если он сам не среди руководства, копия ему.
     // Нет Telegram или неактивен — null: ролик закроет таймер автопубликации.
     const ownerRaw = ownerSettings.enabled ? await clipOwnerRecipient(propertyId) : null;
+    // Срок ставит приём ролика; ролик пришёл до включения — подтверждения хозяина
+    // и обещания «опубликуется сам» нет (проверяется ниже по clipOwnerDueAt).
     const owner = ownerRaw && !reviewers.some((r) => r.id === ownerRaw.id) ? ownerRaw : null;
     if (reviewers.length === 0 && !owner) return;
     const p = await prisma.property.findUnique({
@@ -191,7 +193,7 @@ export async function notifyClipReview(propertyId: string): Promise<void> {
         version: true,
         deletedAt: true,
         clipReviewStatus: true,
-        clipReviewRequestedAt: true,
+        clipOwnerDueAt: true,
         videoHandoffFinalPath: true,
       },
     });
@@ -221,9 +223,8 @@ export async function notifyClipReview(propertyId: string): Promise<void> {
     // перевёрнутый/HEVC/огромный — копией для просмотра (lib/clipReviewPreview.ts).
     const clip = fileStat && diskPath ? await prepareClipForTelegram(diskPath, media, fileStat.size, TELEGRAM_BOT_SEND_LIMIT_BYTES) : null;
     try {
-      if (owner) {
-        const autoAt = clipOwnerAutoPublishAt(p.clipReviewRequestedAt ?? new Date(), ownerSettings.hours);
-        await sendClipTo(owner, p, clipOwnerCaption(caption, p.shortId, autoAt, ownerSettings.hours), clip, clipOwnerButtons(p.shortId));
+      if (owner && p.clipOwnerDueAt) {
+        await sendClipTo(owner, p, clipOwnerCaption(caption, p.shortId, p.clipOwnerDueAt, ownerSettings.hours), clip, clipOwnerButtons(p.shortId));
       }
       for (const [i, r] of reviewers.entries()) {
         if (i > 0 || owner) await sleep(SEND_PAUSE_MS);

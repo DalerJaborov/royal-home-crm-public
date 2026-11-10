@@ -2,7 +2,7 @@
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
   "endpoints": 733,
-  "forks": 3913,
+  "forks": 3915,
   "mounts": 82,
   "cron": 126,
   "jobs": 32,
@@ -87696,16 +87696,8 @@
        ],
        "c": [
         {
-         "k": "do",
-         "t": "const { enabled, hours } = await getClipOwnerSettings();",
-         "a": [
-          "зовёт getClipOwnerSettings()"
-         ],
-         "c": []
-        },
-        {
          "k": "if",
-         "t": "!enabled || isClipOwnerNight(now)",
+         "t": "isClipOwnerNight(now)",
          "a": [],
          "c": [
           {
@@ -87720,9 +87712,55 @@
         },
         {
          "k": "do",
-         "t": "const candidates = await prisma.property.findMany({ where: { ...CLIP_REVIEW_PENDING_WHERE, clipReviewRequeste…",
+         "t": "const s = await prisma.settings.findUnique({ where: { id: \"singleton\" }, select: { clipOwnerApproveEnabled: t…",
+         "a": [
+          "читает в базе: settings"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "!s?.clipOwnerApproveEnabled && s?.clipReviewEnabled",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { published: 0 };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const candidates = await prisma.property.findMany({ where: { ...CLIP_REVIEW_PENDING_WHERE, clipOwnerDueAt: { …",
          "a": [
           "читает в базе: property"
+         ],
+         "c": []
+        },
+        {
+         "k": "if",
+         "t": "candidates.length === 0",
+         "a": [],
+         "c": [
+          {
+           "k": "do",
+           "t": "return { published: 0 };",
+           "a": [
+            "дословно из кода"
+           ],
+           "c": []
+          }
+         ]
+        },
+        {
+         "k": "do",
+         "t": "const dialogs = await prisma.telegramDialogState.findMany({ where: { kind: CLIP_REJECT_DIALOG_KIND, expiresAt…",
+         "a": [
+          "читает в базе: telegramDialogState"
          ],
          "c": []
         },
@@ -87733,7 +87771,7 @@
          "c": [
           {
            "k": "if",
-           "t": "!p.clipReviewRequestedAt || clipOwnerAutoPublishAt(p.clipReviewRequestedAt, hours) > now",
+           "t": "rejecting.has(p.shortId)",
            "a": [],
            "c": [
             {

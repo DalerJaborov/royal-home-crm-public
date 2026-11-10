@@ -30,6 +30,7 @@
  * файл плеером вместо загрузки).
  */
 import fs from "node:fs";
+import { clipOwnerDueFrom } from "./clipOwnerDue.js";
 import { rawVideoPublicationMarks } from "./publishedRawVideoRetention.js";
 import path from "node:path";
 import crypto from "node:crypto";
@@ -2108,7 +2109,7 @@ async function finishReceivingVideo(
   // (Settings.clipOwnerApproveEnabled, lib/clipReview.ts) — тот же PENDING.
   const clipReviewSettings = await prisma.settings.findUnique({
     where: { id: "singleton" },
-    select: { clipReviewEnabled: true, clipOwnerApproveEnabled: true },
+    select: { clipReviewEnabled: true, clipOwnerApproveEnabled: true, clipOwnerAutoPublishHours: true },
   });
   // Ролик загрузил из CRM сам модератор (26.10.2026, владелец: «я загружаю ролик сам
   // из CRM, а мне в Telegram приходит модерация — зачем, если я сам добавил») —
@@ -2149,6 +2150,10 @@ async function finishReceivingVideo(
           clipReviewDecidedAt: selfApprovedById ? now : null,
           clipReviewDecidedById: selfApprovedById,
           clipReviewComment: null,
+          clipOwnerDueAt:
+            clipReview && clipReviewSettings?.clipOwnerApproveEnabled
+              ? clipOwnerDueFrom(now, clipReviewSettings.clipOwnerAutoPublishHours)
+              : null,
         },
       });
       if (written.count !== 1) return null;

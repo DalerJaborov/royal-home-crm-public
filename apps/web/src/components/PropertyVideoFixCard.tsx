@@ -419,7 +419,7 @@ function MontageBlock({
         <p className="quiet ok">
           <span className="dot ok" />
           <span className="txt">
-            Ролик одобрил {vh.clipReview.decidedBy ?? "модератор"}
+            {vh.clipReview.decidedBy ? `Ролик одобрил ${vh.clipReview.decidedBy}` : "Ролик ушёл в публикацию автоматически: хозяин объекта не ответил вовремя"}
             {vh.clipReview.decidedAt ? ` в ${dushanbeTime(vh.clipReview.decidedAt)}` : ""}
           </span>
         </p>

@@ -16,10 +16,10 @@
   "paths": 733,
   "cron": 126,
   "jobs": 32,
-  "conditions": 3907,
-  "untranslatedUnique": 447,
-  "untranslatedTotal": 573,
-  "partialUnique": 1062,
+  "conditions": 3909,
+  "untranslatedUnique": 446,
+  "untranslatedTotal": 572,
+  "partialUnique": 1064,
   "translatedShare": 85
  },
  "untranslated": [
@@ -100,7 +100,6 @@
   "!options.allowLive || newOwnerProbeMode() !== 'LIVE'",
   "!outcome.agentId || client.assignedAgentId !== outcome.agentId",
   "!ownerId || ownerId === req.agent!.id",
-  "!p.clipReviewRequestedAt || clipOwnerAutoPublishAt(p.clipReviewRequestedAt, hours) > now",
   "!pageToken || items.length === 0 || !pageHasFreshThread(items, cutoffMs)",
   "!parsed.success || !toSmsPhone(parsed.data.phone)",
   "!parsed.success || !z.object({ checked: z.literal(true) }).strict().safeParse(req.body).success",
@@ -64392,7 +64391,19 @@
        "a": [],
        "c": [
         {
-         "t": "если нет: включено или это ролик владелец night",
+         "t": "если это ролик владелец night",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если нет: ролик владелец approve включено и есть ролик разбор включено",
+         "k": "if",
+         "a": [],
+         "c": []
+        },
+        {
+         "t": "если candidates количество — «0»",
          "k": "if",
          "a": [],
          "c": []
@@ -64403,11 +64414,10 @@
          "a": [],
          "c": [
           {
-           "t": "если !p.clipReviewRequestedAt || clipOwnerAutoPublishAt(p.clipReviewRequestedAt, hours) > now",
+           "t": "если rejecting содержит есть short",
            "k": "if",
            "a": [],
            "c": [],
-           "raw": "!p.clipReviewRequestedAt || clipOwnerAutoPublishAt(p.clipReviewRequestedAt, hours) > now",
            "more": true
           },
           {

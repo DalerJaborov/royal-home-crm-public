@@ -293,7 +293,7 @@ describe("ролик идёт хозяину объекта", () => {
     const audit = await waitFor(() => prisma.auditLog.findFirst({ where: { entityId: p.id, action: "PROPERTY_CLIP_REJECTED" } }));
     expect(audit.meta).toMatchObject({ decidedAs: "owner" });
     // Автопубликация вернутый ролик не тронет.
-    await prisma.property.update({ where: { id: p.id }, data: { clipReviewRequestedAt: new Date(Date.now() - 5 * 3_600_000) } });
+    await prisma.property.update({ where: { id: p.id }, data: { clipOwnerDueAt: dushanbe("2026-11-11 09:00") } });
     await cr.runClipOwnerAutoPublishTick(dushanbe("2026-11-11 12:00"));
     expect((await prisma.property.findUniqueOrThrow({ where: { id: p.id } })).clipReviewStatus).toBe("REJECTED");
     await prisma.property.update({ where: { id: p.id }, data: { videoHandoffStatus: "NONE" } });
@@ -319,12 +319,21 @@ describe("автопубликация без ответа", () => {
   it("через 3 ч — ролик публикуется сам, журнал «автоматически», повторный тик ничего не делает", async () => {
     const p = await pendingClip("авто", owner.id, owner.chatId);
     const now = dushanbe("2026-11-11 12:00");
-    // Ещё рано: 2 ч 50 мин.
-    await prisma.property.update({ where: { id: p.id }, data: { clipReviewRequestedAt: new Date(now.getTime() - 170 * 60_000) } });
+    // Срок поставлен приёмом: ровно 3 ч от прихода ролика.
+    const received = await prisma.property.findUniqueOrThrow({ where: { id: p.id } });
+    expect(received.clipOwnerDueAt?.toISOString()).toBe(cr.clipOwnerAutoPublishAt(received.clipReviewRequestedAt!, 3).toISOString());
+    // Ещё рано: до срока 10 минут.
+    await prisma.property.update({
+      where: { id: p.id },
+      data: { clipReviewRequestedAt: new Date(now.getTime() - 170 * 60_000), clipOwnerDueAt: new Date(now.getTime() + 10 * 60_000) },
+    });
     await cr.runClipOwnerAutoPublishTick(now);
     expect((await prisma.property.findUniqueOrThrow({ where: { id: p.id } })).clipReviewStatus).toBe("PENDING");
 
-    await prisma.property.update({ where: { id: p.id }, data: { clipReviewRequestedAt: new Date(now.getTime() - 181 * 60_000) } });
+    await prisma.property.update({
+      where: { id: p.id },
+      data: { clipReviewRequestedAt: new Date(now.getTime() - 181 * 60_000), clipOwnerDueAt: new Date(now.getTime() - 60_000) },
+    });
     const first = await cr.runClipOwnerAutoPublishTick(now);
     expect(first.published).toBeGreaterThanOrEqual(1);
     const after = await prisma.property.findUniqueOrThrow({ where: { id: p.id } });
@@ -356,7 +365,8 @@ describe("автопубликация без ответа", () => {
   it("ночью не публикует: срок в 01:30 → ждёт до 07:00", async () => {
     const p = await pendingClip("ночь", owner.id, owner.chatId);
     // Ролик пришёл в 22:30 по Душанбе — срок 01:30, ночь.
-    await prisma.property.update({ where: { id: p.id }, data: { clipReviewRequestedAt: dushanbe("2026-11-11 22:30") } });
+    const requestedAt = dushanbe("2026-11-11 22:30");
+    await prisma.property.update({ where: { id: p.id }, data: { clipReviewRequestedAt: requestedAt, clipOwnerDueAt: cr.clipOwnerAutoPublishAt(requestedAt, 3) } });
     await cr.runClipOwnerAutoPublishTick(dushanbe("2026-11-12 02:00"));
     await cr.runClipOwnerAutoPublishTick(dushanbe("2026-11-12 06:55"));
     expect((await prisma.property.findUniqueOrThrow({ where: { id: p.id } })).clipReviewStatus).toBe("PENDING");
@@ -371,22 +381,64 @@ describe("автопубликация без ответа", () => {
     const recipients = new Set(tg.sendVideoFromDisk.mock.calls.map((c) => String(c[0])));
     expect([...recipients]).toEqual([reviewer.chatId]);
     const now = dushanbe("2026-11-11 15:00");
-    await prisma.property.update({ where: { id: p.id }, data: { clipReviewRequestedAt: new Date(now.getTime() - 4 * 3_600_000) } });
+    expect((await prisma.property.findUniqueOrThrow({ where: { id: p.id } })).clipOwnerDueAt).not.toBeNull();
+    await prisma.property.update({ where: { id: p.id }, data: { clipOwnerDueAt: new Date(now.getTime() - 60_000) } });
     await cr.runClipOwnerAutoPublishTick(now);
     expect((await prisma.property.findUniqueOrThrow({ where: { id: p.id } })).clipReviewStatus).toBe("APPROVED");
   });
 
-  it("выключено — таймер ничего не публикует", async () => {
+  it("рубильник выключили, пока ролик ждал: решают модераторы, а если и их проверка выключена — срок в силе", async () => {
     const p = await pendingClip("выключено", owner.id, owner.chatId);
-    await prisma.settings.update({ where: { id: "singleton" }, data: { clipOwnerApproveEnabled: false } });
+    const now = dushanbe("2026-11-11 12:00");
+    await prisma.property.update({ where: { id: p.id }, data: { clipOwnerDueAt: new Date(now.getTime() - 60_000) } });
+    await prisma.settings.update({ where: { id: "singleton" }, data: { clipOwnerApproveEnabled: false, clipReviewEnabled: true } });
     try {
-      const now = dushanbe("2026-11-11 12:00");
-      await prisma.property.update({ where: { id: p.id }, data: { clipReviewRequestedAt: new Date(now.getTime() - 5 * 3_600_000) } });
-      expect(await cr.runClipOwnerAutoPublishTick(now)).toEqual({ published: 0 });
+      await cr.runClipOwnerAutoPublishTick(now);
       expect((await prisma.property.findUniqueOrThrow({ where: { id: p.id } })).clipReviewStatus).toBe("PENDING");
+      // Проверка модератором тоже выключена — решать некому, ролик не виснет.
+      await prisma.settings.update({ where: { id: "singleton" }, data: { clipReviewEnabled: false } });
+      await cr.runClipOwnerAutoPublishTick(now);
+      expect((await prisma.property.findUniqueOrThrow({ where: { id: p.id } })).clipReviewStatus).toBe("APPROVED");
+    } finally {
+      await prisma.settings.update({ where: { id: "singleton" }, data: { clipOwnerApproveEnabled: true, clipReviewEnabled: false } });
+    }
+  });
+
+  it("ролик ждал модератора ДО включения рубильника — хозяину не уходит, таймер его не публикует", async () => {
+    await prisma.settings.update({ where: { id: "singleton" }, data: { clipOwnerApproveEnabled: false, clipReviewEnabled: true } });
+    let p: Awaited<ReturnType<typeof pendingClip>>;
+    try {
+      p = await pendingClip("до включения", owner.id, null);
     } finally {
       await prisma.settings.update({ where: { id: "singleton" }, data: { clipOwnerApproveEnabled: true } });
     }
+    const row = await prisma.property.findUniqueOrThrow({ where: { id: p.id } });
+    expect(row.clipOwnerDueAt).toBeNull();
+    expect(tg.sendVideoFromDisk.mock.calls.some((c) => String(c[0]) === owner.chatId)).toBe(false);
+    await prisma.property.update({ where: { id: p.id }, data: { clipReviewRequestedAt: new Date(Date.now() - 10 * 3_600_000) } });
+    await cr.runClipOwnerAutoPublishTick(dushanbe("2026-11-11 12:00"));
+    expect((await prisma.property.findUniqueOrThrow({ where: { id: p.id } })).clipReviewStatus).toBe("PENDING");
+    await prisma.settings.update({ where: { id: "singleton" }, data: { clipReviewEnabled: false } });
     await prisma.property.update({ where: { id: p.id }, data: { videoHandoffStatus: "NONE", clipReviewStatus: "NONE" } });
+  });
+
+  it("хозяин пишет причину возврата — таймер не перебивает его, возврат проходит", async () => {
+    const p = await pendingClip("пишет причину", owner.id, owner.chatId);
+    const idx = VIDEO_REMAKE_REASONS.findIndex((code) => !VIDEO_REMAKE_REASONS_REQUIRING_COMMENT.includes(code));
+    await tap(owner.chatId, `cr:r:${p.shortId}`);
+    await tap(owner.chatId, `cr:rr:${p.shortId}:${idx}`);
+    await prisma.property.update({ where: { id: p.id }, data: { clipOwnerDueAt: new Date(Date.now() - 60_000) } });
+    // Тик с реальным «сейчас», но ночь его не должна выключить — берём день тем же часом минут.
+    const dayNow = new Date(Date.now());
+    const now = cr.isClipOwnerNight(dayNow) ? new Date(dayNow.getTime() + 8 * 3_600_000) : dayNow;
+    if (now.getTime() !== dayNow.getTime()) {
+      // Сдвиг на дневное время — продлить диалог, чтобы он был жив и в этот момент.
+      await prisma.telegramDialogState.update({ where: { chatId: owner.chatId }, data: { expiresAt: new Date(now.getTime() + 15 * 60_000) } });
+    }
+    await cr.runClipOwnerAutoPublishTick(now);
+    expect((await prisma.property.findUniqueOrThrow({ where: { id: p.id } })).clipReviewStatus).toBe("PENDING");
+    expect(await bot.handleClipReviewText(owner.chatId, "Звук тихий, переделайте")).toBe(true);
+    expect((await prisma.property.findUniqueOrThrow({ where: { id: p.id } })).clipReviewStatus).toBe("REJECTED");
+    await prisma.property.update({ where: { id: p.id }, data: { videoHandoffStatus: "NONE" } });
   });
 });
