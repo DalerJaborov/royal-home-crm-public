@@ -136,7 +136,7 @@ describe("streamAssistant", () => {
     const err = await streamAssistant(ask, () => undefined, { timeoutMs: 20 }).catch((e) => e);
     expect(err).toBeInstanceOf(AssistantStreamError);
     expect(err).toMatchObject({ code: "timeout", retryable: true });
-    expect(ASSISTANT_TIMEOUT_MS).toBe(30_000);
+    expect(ASSISTANT_TIMEOUT_MS).toBe(195_000);
   });
 
   it("отмена снаружи (закрытие панели): код aborted, без повтора", async () => {

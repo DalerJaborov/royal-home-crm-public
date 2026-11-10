@@ -7,7 +7,7 @@ import { prisma } from "../db.js";
 import { sharedMediaHint } from "../messengers/sharedMedia.js";
 import { isDuplicateDelivery, markProcessedMessageComplete, releaseProcessedMessage } from "../lib/webhookDedupe.js";
 import { tryLinkAgentByCode, findAgentByTelegramChatId } from "../lib/telegramAgentLink.js";
-import { handleAssistantCallback, handleAssistantGroupMessage, handleAssistantPrivate } from "./assistantBot.js";
+import { handleAssistantCallback, handleAssistantGroupMessage, startAssistantPrivate, takeDeferredAssistantReply } from "./assistantBot.js";
 import { captureAssistantTelegramContext } from "./assistantGroupContext.js";
 import { sendShareTextMessage } from "../lib/agentSharePost.js";
 import { findDistrictIdByName } from "../lib/districtLookup.js";
@@ -315,6 +315,10 @@ const chatChains = new Map<string, Promise<void>>();
  */
 export interface TelegramUpdateAccepted {
   reply: Promise<void>;
+  /** Ответ помощницы сотрудникам, вынесенный из очереди чата (assistantBot.ts, runInAssistantLane):
+   *  апдейт считается обработанным только когда ответ готов — поллер не подтверждает его Telegram
+   *  раньше, и при перезапуске посреди хода Telegram пришлёт его снова. */
+  assistantDeferred?: boolean;
 }
 
 /**
@@ -387,7 +391,11 @@ async function dispatchTelegramUpdate(update: TelegramUpdate): Promise<TelegramU
   if (msg.chat.type && msg.chat.type !== "private") {
     await captureAssistantTelegramContext(msg, update.update_id);
     // Помощница сотрудников: участие разрешено только для подключённых рабочих групп.
-    if (await handleAssistantGroupMessage(msg, update.update_id)) return;
+    if (await handleAssistantGroupMessage(msg, update.update_id)) {
+      // Долгий ход помощницы — вне очереди группы (assistantBot.ts, runInAssistantLane).
+      const reply = takeDeferredAssistantReply(msg);
+      return reply ? { reply, assistantDeferred: true } : undefined;
+    }
     await handleDiscussionGroupMessage(msg);
     return;
   }
@@ -396,7 +404,10 @@ async function dispatchTelegramUpdate(update: TelegramUpdate): Promise<TelegramU
   // проверяется ДО альбомов/клиентской логики: это не клиент, и склеивать его
   // сообщения в клиентский диалог нельзя. /start <код> обрабатывается для любого
   // чата (это ровно тот момент, когда чат ЕЩЁ не привязан).
-  if (await handleAgentTelegramMessage(msg, update.update_id)) return;
+  if (await handleAgentTelegramMessage(msg, update.update_id)) {
+    const reply = takeDeferredAssistantReply(msg);
+    return reply ? { reply, assistantDeferred: true } : undefined;
+  }
 
   // Альбом: клиент отправил несколько фотографий одной пачкой — Telegram доставляет
   // их отдельными сообщениями. Копим и разбираем одним обращением (см. bufferAlbum).
@@ -482,7 +493,8 @@ async function handleAgentTelegramMessage(msg: TelegramIncomingMessage, updateId
   // Не монтажёр — разговор с внутренним помощником CRM (П5, telegram/assistantBot.ts): текст,
   // голосовые, кнопки подтверждения. Монтажёру ниже достаётся прежнее меню и приём ролика.
   if (!(await isCurrentMontajer(agent.id))) {
-    await handleAssistantPrivate(msg, agent);
+    // Ход помощницы — вне очереди апдейтов, ответ отдаётся наверх отложенным (dispatch выше).
+    startAssistantPrivate(msg, agent);
     return true;
   }
 

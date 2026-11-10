@@ -6,7 +6,14 @@ import { clientNamePhoneSafe } from "../../../lib/clientPhone.js";
 import { dushanbeDateString } from "../../../lib/dushanbeTime.js";
 import { loadMoneyContext, toTjs } from "../../../lib/money.js";
 import { searchPropertiesForStaff, type StaffSearchScope } from "../../../lib/staffPropertySearch.js";
-import { canRestorePropertyAs, canSeeTrashedClient, canSeeTrashedProperties, clientTrashScopeFor } from "../../../lib/trashAccess.js";
+import {
+  canOpenTrashedPropertyPage,
+  canRestorePropertyAs,
+  canSeeTrashedClient,
+  canSeeTrashedClientContacts,
+  canSeeTrashedProperties,
+  clientTrashScopeFor,
+} from "../../../lib/trashAccess.js";
 import { trashActorOf } from "../actor.js";
 import { propertyHref } from "./propertyPresenter.js";
 import { safeField } from "./safeField.js";
@@ -131,7 +138,9 @@ export const findPropertiesByPlaceTool: AssistantReadToolPlugin = {
         sellerRaw && (sellerRaw.deletedAt === null || canSeeTrashedClient(trashActor, sellerRaw)) ? sellerRaw : undefined;
       return {
         code: formatPropertyCode(p.shortId),
-        href: propertyHref(p.shortId),
+        // Страница удалённого объекта открыта только с правом «Архив» (REST, lib/trashAccess.ts):
+        // остальным ссылка вела бы на «Объект не найден» — справка без ссылки (пачка 2).
+        ...(p.deletedAt === null || canOpenTrashedPropertyPage(trashActor) ? { href: propertyHref(p.shortId) } : {}),
         inTrash: p.deletedAt !== null,
         ...(p.deletedAt
           ? {
@@ -162,7 +171,8 @@ export const findPropertiesByPlaceTool: AssistantReadToolPlugin = {
               seller: {
                 code: formatClientCode(seller.shortId, seller.kind),
                 href: `/clients/${seller.shortId}`,
-                name: safeField(clientNamePhoneSafe(formatClientName(seller), actor.canViewPhone)),
+                // Номер в имени удалённого продавца — только руководству с «Архивом» (решение 07.11).
+                name: safeField(clientNamePhoneSafe(formatClientName(seller), actor.canViewPhone && (seller.deletedAt === null || canSeeTrashedClientContacts(trashActor)))),
                 inTrash: seller.deletedAt !== null,
               },
             }

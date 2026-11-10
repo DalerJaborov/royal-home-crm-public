@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
 import ts from "typescript";
+import * as shared from "@royal-home/shared";
 import * as zod from "zod";
 import { expect, it, vi } from "vitest";
 import * as reply from "../src/telegram/assistantReply.js";
@@ -116,6 +117,7 @@ it("reports incomplete private replay without claiming a voice-only answer is al
   }).outputText;
   const dependencies: Record<string, unknown> = {
     "./assistantReply.js": reply,
+    "@royal-home/shared": shared,
     "./assistantPropertyDraft.js": { handleTelegramPropertyDraft: async () => false },
     "./assistantPropertyPages.js": { propertyPageRequest: () => null },
     "./assistantReadResults.js": f.delivery,

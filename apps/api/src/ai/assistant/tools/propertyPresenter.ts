@@ -4,9 +4,65 @@ import { stripOwnerContact } from "../../../lib/ownerContact.js";
 import { toTjs, type MoneyContext } from "../../../lib/money.js";
 import { siteListingUrl } from "../../../lib/siteListingUrl.js";
 import { dushanbeDateString, dushanbeDateTimeString } from "../../../lib/dushanbeTime.js";
-import type { PropertyRefRecord } from "../../../lib/propertyRefLookup.js";
+import { findTrashedPropertyByRef, type PropertyRefRecord, type TrashedPropertyRecord } from "../../../lib/propertyRefLookup.js";
+import { canOpenTrashedPropertyPage, canRestorePropertyAs, canSeeTrashedProperties, type TrashActor } from "../../../lib/trashAccess.js";
 import type { AssistantActor } from "../actor.js";
 import { safeField } from "./safeField.js";
+
+/** «2026-09-25» → «25.09.2026»: дата по Душанбе так, как её пишут люди. */
+function humanDate(iso: string): string {
+  const [y, m, d] = iso.split("-");
+  return `${d}.${m}.${y}`;
+}
+
+/**
+ * ОБЪЕКТ В КОРЗИНЕ — СПРАВКА (пачка 2, 07.11.2026): «в Корзине, удалён <дата по Душанбе>, кем»
+ * вместо «не найден». Одна подача на get_property_card, find_property и быстрый путь по номеру.
+ * Права — общее правило Корзины (lib/trashAccess.ts): справка всем; ссылка на страницу — только
+ * тем, кому REST её откроет; canRestore — та же проверка, что у restore_property. Продавца,
+ * контакта собственника и описания здесь нет вовсе: о клиентах справка не говорит.
+ */
+export function presentTrashedProperty(p: TrashedPropertyRecord, trash: TrashActor) {
+  const deletedOn = p.deletedAt ? dushanbeDateString(p.deletedAt) : null;
+  const canRestore = canRestorePropertyAs(trash, p);
+  return {
+    code: formatPropertyCode(p.shortId),
+    ...(canOpenTrashedPropertyPage(trash) ? { href: propertyHref(p.shortId) } : {}),
+    inTrash: true as const,
+    title: safeField(p.title),
+    deletedAt: deletedOn,
+    deletedBy: p.deletedBy?.fullName ?? null,
+    agent: (p.assignedAgent ?? p.intakeAgent)?.fullName ?? null,
+    canRestore,
+    note: trashedPropertyNote(p, canRestore, "ru"),
+  };
+}
+
+/** Справка о Корзине одной строкой, парой ru/tg (таджикский — на «шумо»). */
+export function trashedPropertyNote(p: TrashedPropertyRecord, canRestore: boolean, language: "ru" | "tg"): string {
+  const code = formatPropertyCode(p.shortId);
+  const date = p.deletedAt ? humanDate(dushanbeDateString(p.deletedAt)) : null;
+  const by = p.deletedBy?.fullName ?? null;
+  if (language === "tg") {
+    const when = [date ? `${date} нест карда шуд` : "нест карда шуд", by ? `${by} нест кард` : null].filter(Boolean).join(", ");
+    return `${code} дар Корзина аст: ${when}. ` +
+      (canRestore ? "Онро шумо баргардонда метавонед." : "Онро директор, администратор ё агенти ҳамин объект баргардонда метавонад.");
+  }
+  const when = [date ? `удалён ${date}` : "удалён", by ? `удалил ${by}` : null].filter(Boolean).join(", ");
+  return `${code} в Корзине: ${when}. ` +
+    (canRestore ? "Вернуть его из Корзины можете вы." : "Вернуть его может директор, администратор или агент этого объекта.");
+}
+
+/**
+ * Справка «в Корзине» по ТОЧНОМУ номеру/ссылке — одна дверь для быстрого пути и команд группы
+ * Telegram (монтаж, ссылка Instagram): null — удалённого объекта с таким номером нет или правило
+ * Корзины (lib/trashAccess.ts) справку не открывает.
+ */
+export async function trashedPropertyNoteFor(ref: string, trash: TrashActor, language: "ru" | "tg"): Promise<string | null> {
+  if (!canSeeTrashedProperties(trash)) return null;
+  const p = await findTrashedPropertyByRef(ref);
+  return p ? trashedPropertyNote(p, canRestorePropertyAs(trash, p), language) : null;
+}
 
 /**
  * ОБЪЕКТ В ОТВЕТЕ ПОМОЩНИКА (П3, группа «read»): одна подача на find_property и

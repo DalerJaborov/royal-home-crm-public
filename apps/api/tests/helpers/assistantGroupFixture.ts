@@ -20,7 +20,7 @@ function load(name: string, dependencies: Record<string, unknown>) {
   ).outputText);
   const exports: Record<string, any> = {};
   runInNewContext(compiled.get(name)!, { exports, require: (key: string) => dependencies[key] ?? {},
-    Date, Map, Set, Promise, console });
+    Date, Map, Set, Promise, console, setInterval, clearInterval, setTimeout, clearTimeout });
   return exports;
 }
 
@@ -44,6 +44,7 @@ export function assistantGroupFixture() {
     items: [132, 194, 201, 210, 215].map(id => ({ code: shared.formatPropertyCode(id) })),
   }));
   const card = vi.fn(async () => true);
+  const trashNote = vi.fn(async (_ref: string, _actor: unknown, _language: "ru" | "tg") => null as string | null);
   const publicCatalog = vi.fn(async () => [{ id: 801, crmShortId: 123, price: 630000 }] as
     { id: number; crmShortId: number | null; price: number }[] | null);
   const publicShellReply = vi.fn(async (_request: unknown, _lang: string) => "Квартира меҷӯед ё ҳавлӣ?");
@@ -87,7 +88,8 @@ export function assistantGroupFixture() {
         deleteMany: async () => { registered = false; return { count: 1 }; } } } },
     "../lib/telegramAgentLink.js": { findAgentByTelegramUserId: async (id: string) => groupLinked ? { id: `test-${id}`, fullName: "Fixture" } : null },
     "../auth/middleware.js": { loadAgentAccess: async () => ({ isActive: active, role, permissions: new Set() }) },
-    "../ai/assistant.js": { isAiAssistantEnabled: async () => enabled, runAssistantDetailed: run },
+    "../ai/assistant.js": { isAiAssistantEnabled: async () => enabled, runAssistantDetailed: run, assistantErrorMessage: (code: string) => code },
+    "../ai/assistant/tools/propertyPresenter.js": { trashedPropertyNoteFor: trashNote },
     "../ai/assistant/actor.js": { actorFromAccess: (id: string) => ({ id }) },
     "../ai/assistant/tools/index.js": { listAssistantToolPlugins: () => [
       { level: "C", name: "change_property_price" }, { level: "C", name: "send_to_remake" }, { level: "B", name: "add_client_note" },
@@ -100,11 +102,16 @@ export function assistantGroupFixture() {
     "../lib/assistantContacts.js": { maskAssistantContacts },
     "../lib/agentAiActionCap.js": { claimAgentAiAction: async () => ({ allowed: true }) },
     "../lib/assistantActions.js": { confirmAssistantAction: confirm },
-    "../lib/aiAssistantAudit.js": { logAssistantToolCall: async () => {} },
+    "../lib/aiAssistantAudit.js": {
+      logAssistantToolCall: async () => {},
+      logAssistantTurn: async () => {},
+      logAssistantFastPathTurn: async () => {},
+    },
     "./assistantReadResults.js": { sendTelegramPropertyCard: card },
     "./assistantMedia.js": { handleAssistantMedia: media },
     "../lib/systemError.js": { logSystemError: async () => {} },
     "../lib/describeError.js": { describeError: (err: unknown) => String(err) },
+    "../lib/shutdownState.js": { trackBackgroundTask: <T>(promise: Promise<T>) => promise },
   };
   // This module is absent from the older comparison revision.
   if (existsSync(new URL("../../src/telegram/assistantGroupPhrases.ts", import.meta.url))) {
@@ -114,16 +121,22 @@ export function assistantGroupFixture() {
   dependencies["./assistantDelivery.js"] = load("assistantDelivery", dependencies);
   dependencies["./assistantPropertyPages.js"] = load("assistantPropertyPages", dependencies);
   const adapter = load("assistantBot", dependencies);
+  // Долгий ход помощницы уходит из очереди группы (runInAssistantLane); тест ждёт и его ответ.
+  const sendAndWait = async (msg: Record<string, unknown>, updateId?: number) => {
+    const handled = await adapter.handleAssistantGroupMessage(msg, updateId);
+    await adapter.takeDeferredAssistantReply?.(msg);
+    return handled;
+  };
   adapter.setGroupClockForTests(() => now);
   const message = (text = "", extra: Partial<TelegramIncomingMessage> = {}) => ({
     chat: { id: -100, type: "supergroup" }, from: { id: 1 }, message_id: 10, text, ...extra,
   });
-  return { adapter, plain, html, voice, reaction, indicator, buttons, confirm, run, media, fast, workQueue, card, create, findProperty, context, retainTranscript, publicCatalog, publicShellReply,
+  return { adapter, plain, html, voice, reaction, indicator, buttons, confirm, run, media, fast, workQueue, card, trashNote, create, findProperty, context, retainTranscript, publicCatalog, publicShellReply,
     setContext: (value: boolean) => { contextEnabledAt = value ? new Date(now) : null; },
     setLinked: (value: boolean) => { groupLinked = value; },
     setDiscussion: (value: string) => { discussionGroupId = value; },
     message, send: (text = "", extra: Partial<TelegramIncomingMessage> = {}, updateId?: number) =>
-      adapter.handleAssistantGroupMessage(message(text, extra), updateId),
+      sendAndWait(message(text, extra), updateId),
     setRegistered: (value: boolean) => { registered = value; }, setEnabled: (value: boolean) => { enabled = value; },
     setRole: (value: string) => { role = value; }, setActive: (value: boolean) => { active = value; },
     advance: (milliseconds: number) => { now += milliseconds; } };
