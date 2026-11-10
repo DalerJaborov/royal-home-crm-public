@@ -14,11 +14,11 @@
  "totals": {
   "screens": 52,
   "paths": 733,
-  "cron": 126,
+  "cron": 127,
   "jobs": 32,
-  "conditions": 3915,
-  "untranslatedUnique": 446,
-  "untranslatedTotal": 572,
+  "conditions": 3917,
+  "untranslatedUnique": 447,
+  "untranslatedTotal": 573,
   "partialUnique": 1063,
   "translatedShare": 85
  },
@@ -460,6 +460,7 @@
   "typeof payload?.outputFilename === \"string\"",
   "typeof phone !== \"string\" || typeof password !== \"string\"",
   "typeof raw === \"string\" && asksKnownSellerFact(raw, sellerFacts)",
+  "typeof rest.sharePostTelegram === \"boolean\"",
   "typeof rest.sipExtension === \"string\"",
   "typeof update?.update_id !== \"number\"",
   "uploadedParts.length !== session.totalParts",
@@ -11724,6 +11725,13 @@
        "k": "do",
        "a": [],
        "c": []
+      },
+      {
+       "t": "если typeof rest.sharePostTelegram === \"boolean\"",
+       "k": "if",
+       "a": [],
+       "c": [],
+       "raw": "typeof rest.sharePostTelegram === \"boolean\""
       },
       {
        "t": "если есть сброс overrides",
@@ -72131,6 +72139,53 @@
          "a": [],
          "c": [],
          "raw": "error instanceof SomonSourceUnavailable && error.reason === \"not_ready\""
+        }
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "staff-notice-cleanup",
+   "when": "40 3 * * *",
+   "label": "staff-notice-cleanup",
+   "tree": [
+    {
+     "t": "пробует сделать",
+     "k": "try",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "удаляет: staff notice",
+         "k": "do",
+         "a": [],
+         "c": []
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "t": "если не получилось",
+     "k": "catch",
+     "a": [],
+     "c": [
+      {
+       "t": "внутри этого шага",
+       "k": "do",
+       "a": [],
+       "c": [
+        {
+         "t": "запись в журнал ошибок",
+         "k": "do",
+         "a": [],
+         "c": []
         }
        ]
       }

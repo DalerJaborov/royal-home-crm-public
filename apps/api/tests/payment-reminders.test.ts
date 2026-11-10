@@ -80,9 +80,14 @@ afterAll(async () => {
 
 describe("сумма", () => {
   it("доллары — по курсу CRM, карта — с запасом 2%", () => {
-    const lines = amountLines({ amount: "20", currency: "USD", paymentMethod: "CARD" }, { usdToTjs: 11 } as never);
+    const lines = amountLines({ amount: "20", currency: "USD", paymentMethod: "CARD" }, 11);
     expect(lines[0]).toBe("💰 $20 → ~220 с. по курсу CRM");
     expect(lines[1]).toBe("💳 На карте должно быть: ~225 с. (с запасом 2%)");
+    // Курса в Настройках нет — сумму в сомони не выдумываем (запасное число loadMoneyContext не берём).
+    const noRate = amountLines({ amount: "20", currency: "USD", paymentMethod: "CARD" }, null);
+    expect(noRate[0]).toContain("курс доллара в Настройках CRM не задан");
+    expect(noRate.join(" ")).not.toMatch(/\d с\./);
+    expect(noRate[1]).toBe("💳 На карте должно быть: ~$21 (с запасом 2%)");
   });
 });
 

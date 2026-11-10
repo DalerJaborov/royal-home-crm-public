@@ -13,7 +13,7 @@ import { describeError } from "./describeError.js";
 import { dushanbeDateString, isWithinDushanbeWindow } from "./dushanbeTime.js";
 import { changeRecurringOccurrence, ExpenseCommandError } from "./expenseCommands.js";
 import { upcomingExpenses } from "./expenseWorkspace.js";
-import { centsToTjs, fromCents, loadMoneyContext, toCents, type MoneyContext } from "./money.js";
+import { centsToTjs, fromCents, toCents, usdRateForWrite } from "./money.js";
 import { isKindMuted } from "./notificationPrefs.js";
 import { findAgentsWithPermission, partitionByPermission } from "./recipients.js";
 import { loadWorkWindow } from "./stationOutage.js";
@@ -83,14 +83,26 @@ function daysBetween(from: string, to: string): number {
 
 const fmt = (n: number) => new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 0 }).format(n);
 
-/** Сумма платежа словами: «1 200 с.» или «$20 → ~221 с. по курсу CRM». */
-export function amountLines(item: Pick<ExpenseUpcomingItem, "amount" | "currency" | "paymentMethod">, money: MoneyContext): string[] {
+/**
+ * Сумма платежа словами: «1 200 с.» или «$20 → ~221 с. по курсу CRM».
+ *
+ * Курс — ТОЛЬКО заданный в Настройках (`usdRateForWrite`), без запасного числа
+ * loadMoneyContext (#141, владелец 10.11: «чтобы расходы не ошибались, особенно
+ * в валюте»). Курса нет — сумма в сомони не выдумывается, а честно не считается.
+ */
+export function amountLines(item: Pick<ExpenseUpcomingItem, "amount" | "currency" | "paymentMethod">, usdRate: number | null): string[] {
   const cents = toCents(item.amount);
-  const tjs = fromCents(centsToTjs(cents, item.currency, money));
-  const lines = [item.currency === "USD" ? `💰 $${fmt(fromCents(cents))} → ~${fmt(tjs)} с. по курсу CRM` : `💰 ${fmt(tjs)} с.`];
-  if (item.paymentMethod && CARD_METHODS.has(item.paymentMethod)) {
-    lines.push(`💳 На карте должно быть: ~${fmt(Math.ceil(tjs * CARD_RESERVE))} с. (с запасом 2%)`);
+  const card = Boolean(item.paymentMethod && CARD_METHODS.has(item.paymentMethod));
+  if (item.currency === "USD" && !usdRate) {
+    const usd = fromCents(cents);
+    return [
+      `💰 $${fmt(usd)} — курс доллара в Настройках CRM не задан, в сомони не считаю`,
+      ...(card ? [`💳 На карте должно быть: ~$${fmt(Math.ceil(usd * CARD_RESERVE))} (с запасом 2%)`] : []),
+    ];
   }
+  const tjs = fromCents(centsToTjs(cents, item.currency, { usdToTjs: usdRate ?? 1 }));
+  const lines = [item.currency === "USD" ? `💰 $${fmt(fromCents(cents))} → ~${fmt(tjs)} с. по курсу CRM` : `💰 ${fmt(tjs)} с.`];
+  if (card) lines.push(`💳 На карте должно быть: ~${fmt(Math.ceil(tjs * CARD_RESERVE))} с. (с запасом 2%)`);
   return lines;
 }
 
@@ -131,21 +143,21 @@ export async function billingFailures(now: Date = new Date()): Promise<{ service
   return [...found.values()];
 }
 
-function itemFor(r: Reminder, today: string, money: MoneyContext): AssistantListItem {
+function itemFor(r: Reminder, today: string, usdRate: number | null): AssistantListItem {
   const left = daysBetween(today, r.item.dueDate);
   const date = `${r.item.dueDate.slice(8, 10)}.${r.item.dueDate.slice(5, 7)}`;
   const when = left < 0 ? `📅 Просрочено на ${-left} дн. · ${date}`
     : left === 0 ? `📅 Сегодня — день оплаты (${date})` : `📅 Через ${left} дн. · ${date}`;
-  return { title: r.item.title, main: amountLines(r.item, money), when: r.stage === "repeat" ? `${when} · повтор, как просили` : when };
+  return { title: r.item.title, main: amountLines(r.item, usdRate), when: r.stage === "repeat" ? `${when} · повтор, как просили` : when };
 }
 
-function render(reminders: Reminder[], failures: Failure[], today: string, money: MoneyContext): string[] {
+function render(reminders: Reminder[], failures: Failure[], today: string, usdRate: number | null): string[] {
   const items = [
     ...failures.map((f): AssistantListItem => ({
       title: `⚠️ ${f.service.label}: оплата не прошла`,
       main: [`${f.code ? `Сервис ответил кодом ${f.code}. ` : ""}Проверьте баланс и карту в кабинете сервиса — живой баланс CRM пока не видит.`],
     })),
-    ...reminders.map((r) => itemFor(r, today, money)),
+    ...reminders.map((r) => itemFor(r, today, usdRate)),
   ];
   return renderAssistantListHtml({
     icon: "💳",
@@ -191,10 +203,10 @@ export async function runPaymentReminders(now: Date = new Date(), opts: { ignore
     .map((s) => s.subject?.split(":")[1] ?? "")
     .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d) && d >= oldest && d < today)
     .reduce((min, d) => (d < min ? d : min), today);
-  const [pool, failures, money, payers, agents] = await Promise.all([
+  const [pool, failures, usdRate, payers, agents] = await Promise.all([
     duePayments(today, from),
     billingFailures(now),
-    loadMoneyContext(),
+    usdRateForWrite(),
     partitionByPermission(recipients, "finance.manage"),
     prisma.agent.findMany({ where: { id: { in: recipients } }, select: { id: true, pushMuted: true, telegramChatId: true } }),
   ]);
@@ -258,7 +270,7 @@ export async function runPaymentReminders(now: Date = new Date(), opts: { ignore
         const status = await sendStaffNotice({
           agentId: agent.id,
           kind: "payment",
-          html: render(reminders, myFailures, today, money),
+          html: render(reminders, myFailures, today, usdRate),
           buttons: buttonsFor(reminders, canPay.has(agent.id), myFailures.length),
           attachKeys: keys,
         });

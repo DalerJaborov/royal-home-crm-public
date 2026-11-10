@@ -2029,6 +2029,11 @@
       "label": null
     },
     {
+      "id": "staff-notice-cleanup",
+      "expr": "40 3 * * *",
+      "label": null
+    },
+    {
       "id": "stale-property-videos-cleanup",
       "expr": "50 3 * * *",
       "label": "Удаляет сырое видео объектов, зависшее после публикации"

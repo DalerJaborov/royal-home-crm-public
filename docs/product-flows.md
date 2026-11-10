@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **733**. Развилок в самих путях: **2411**; вместе с задачами по расписанию и фоновыми заданиями — **3921**. Модулей: **82**.
+Путей: **733**. Развилок в самих путях: **2412**; вместе с задачами по расписанию и фоновыми заданиями — **3923**. Модулей: **82**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -1021,6 +1021,9 @@
           · дословно из кода
   - const agent = await prisma.agent.update({ where: { id: targetId }, data });
     · меняет в базе: agent
+  - если typeof rest.sharePostTelegram === "boolean"
+    - await setKindMuted(targetId, "publication", !rest.sharePostTelegram);
+      · зовёт setKindMuted()
   - если resetOverrides
     - audit(actor, opts, "AGENT_PERMISSIONS_RESET_ON_ROLE_CHANGE", agent.id, { targetAgentName: agent.fullName, rol…
       · дословно из кода
@@ -22506,41 +22509,50 @@
     - если !recipients.length
       - return { recipients: 0, sent: 0, skipped: "no-recipients" };
         · дословно из кода
-    - const [due, failures, money, payers, agents] = await Promise.all([ duePayments(today), billingFailures(now), …
-      · читает в базе: agent
     - const snoozes = await prisma.staffNotice.findMany({ where: { kind: "payment", agentId: { in: recipients }, re…
       · читает в базе: staffNotice
+    - const oldest = addDays(today, -SNOOZE_LOOKBACK_DAYS);
+      · зовёт addDays()
+    - const [pool, failures, usdRate, payers, agents] = await Promise.all([ duePayments(today, from), billingFailur…
+      · читает в базе: agent
     - для каждого: const agent of agents
       - пробует
-        - если isKindMuted("payment", agent.pushMuted)
-          - continue;
-            · переходит к следующему
+        - const muted = isKindMuted("payment", agent.pushMuted);
+          · зовёт isKindMuted()
         - const claimed = new Set(await claimNoticeKeys(agent.id, "payment", [...wanted.map((w)
           · зовёт claimNoticeKeys()
-        - для каждого: const s of mySnoozes
-          - если item && !reminders.some((r) => r.item.recurringId === item.recurringId && r.item.dueDate === item.dueDate)
-            - reminders.push({ stage: "repeat", item, key: `snooze:${s.id}` });
-              · дословно из кода
-        - если !reminders.length && !myFailures.length
+        - если !muted
+          - для каждого: const s of mySnoozes
+            - если item && !reminders.some((r) => r.item.recurringId === item.recurringId && r.item.dueDate === item.dueDate)
+              - reminders.push({ stage: "repeat", item, key: `snooze:${s.id}` });
+                · дословно из кода
+        - const fireSnoozes = async ()
+          · меняет в базе: staffNotice
           - если firedSnoozes.length
             - await prisma.staffNotice.updateMany({ where: { id: { in: firedSnoozes } }, data: { firedAt: now } });
               · меняет в базе: staffNotice
+        - если !reminders.length && !myFailures.length
           - continue;
             · переходит к следующему
-        - если agent.telegramChatId
+        - const markLogged = ()
+          · меняет в базе: staffNotice
+        - если muted
+          - await createNotification({ agentId: agent.id, ...feed });
+            · зовёт createNotification()
+        - иначе если agent.telegramChatId
           - const status = await sendStaffNotice({ agentId: agent.id, kind: "payment", html: render(reminders, myFailures…
             · зовёт sendStaffNotice()
           - если status !== "sent"
             - continue;
               · переходит к следующему
+          - await createNotification({ agentId: agent.id, ...feed });
+            · зовёт createNotification()
         - иначе
-          - await sendPushToAgent(agent.id, { kind: "payment", level: myFailures.length ? "CRITICAL" : undefined, title: …
+          - await sendPushToAgent(agent.id, feed);
             · push-уведомление
-          - await prisma.staffNotice.updateMany({ where: { dedupKey: { in: keys } }, data: { messageId: 0 } });
-            · меняет в базе: staffNotice
-        - если firedSnoozes.length
-          - await prisma.staffNotice.updateMany({ where: { id: { in: firedSnoozes } }, data: { firedAt: now } });
-            · меняет в базе: staffNotice
+        - если !muted
+          - sent++;
+            · дословно из кода
       - если сорвалось
         - void logSystemError("api", `Напоминание об оплатах не отправлено: ${describeError(err)}`, { dedupKey: "paymen…
           · запись в журнал ошибок
@@ -23926,6 +23938,21 @@
         · дальше не идёт, ничего не меняя
     - throw error;
       · пробрасывает ошибку дальше
+
+### staff-notice-cleanup — 40 3 * * *
+
+- пробует
+  - await cleanupStaffNotices();
+    · зовёт cleanupStaffNotices()
+    - const { count } = await prisma.staffNotice.deleteMany({ where: { createdAt: { lt: before }, OR: [{ remindOn: …
+      · удаляет в базе: staffNotice
+- если сорвалось
+  - reportCronTickError("Уборка журнала сообщений помощницы", err);
+    · зовёт reportCronTickError()
+    - const reason = markCronTickFailed(label, err);
+      · зовёт markCronTickFailed()
+    - void logSystemError("cron", `${tick ? `Крон «${tick.name}»` : "Крон"}: ${label} — ${reason}`, { stack: err in…
+      · запись в журнал ошибок
 
 ### stale-property-videos-cleanup — 50 3 * * *
 
