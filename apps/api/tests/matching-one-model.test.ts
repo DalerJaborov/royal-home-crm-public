@@ -149,6 +149,13 @@ describe("правила пары", () => {
     expect(matchClientProperty({ ...buyer, requirementsNotes: "не первый и не последний" }, flat, money, DEFAULT_MATCH_POLICY)).toBeNull();
   });
 
+  it("просил комнаты — участок и коммерция без комнат не предлагаются (кадр 10.11)", () => {
+    const land = { ...flat, type: "LAND", rooms: null, floor: null, totalFloors: null };
+    expect(matchClientProperty(buyer, land, money, DEFAULT_MATCH_POLICY)).toBeNull();
+    expect(matchClientProperty({ ...buyer, desiredRooms: null }, land, money, DEFAULT_MATCH_POLICY)).not.toBeNull();
+    expect(matchClientProperty({ ...buyer, desiredType: "LAND" }, land, money, DEFAULT_MATCH_POLICY)).not.toBeNull();
+  });
+
   it("главное не названо — «уточнить», а не «точно подходит»", () => {
     const noBudget = matchClientProperty({ ...buyer, budgetMax: null }, flat, money, DEFAULT_MATCH_POLICY)!;
     expect(noBudget.tier).toBe("needs_verification");

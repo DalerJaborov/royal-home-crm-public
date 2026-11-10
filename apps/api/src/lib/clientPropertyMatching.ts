@@ -243,6 +243,10 @@ export function matchClientProperty(
 
   // Комнаты — только у типов, где они есть (у участка и коммерции их нет).
   const roomsApply = propertyFieldShown(property.type ?? "APARTMENT", "rooms");
+  // Просил комнаты — значит ищет жильё: участок или коммерцию без комнат ему не
+  // предлагаем, даже если тип он не назвал (кадр подбора 10.11: участок стоял
+  // «точно подходит» у клиента, искавшего 3-комнатную).
+  if (client.desiredRooms != null && client.desiredRooms > 0 && !roomsApply && !client.desiredType) return null;
   if (client.desiredRooms != null && roomsApply) {
     if (property.rooms == null) unknowns.push("Комнаты у объекта не указаны");
     else if (Math.abs(property.rooms - client.desiredRooms) > policy.roomsTolerance) return null;
