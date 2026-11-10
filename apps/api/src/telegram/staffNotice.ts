@@ -33,8 +33,8 @@ import { escapeHtml } from "./assistantReply.js";
 export const MUTE_BUTTON_TEXT = "🔕 Не присылать такое";
 const MUTE_PREFIX = "nm:";
 const UNMUTE_PREFIX = "nu:";
-/** «Сразу после» — сколько ждёт фраза без ответа на конкретное сообщение. */
-export const NOTICE_FOLLOWUP_WINDOW_MS = 30 * 60_000;
+/** «Нет» в вопросе «Выключить …?». */
+const KEEP_DATA = "nx:";
 
 export function muteButton(kind: PushKind): TelegramInlineButton[] {
   return [{ text: MUTE_BUTTON_TEXT, callback_data: `${MUTE_PREFIX}${kind}` }];
@@ -125,26 +125,49 @@ export async function sendStaffNotice(input: StaffNoticeInput): Promise<StaffNot
   }
 }
 
+/** Журнал рассылок хранится 90 дней: дальше ни «ответом на сообщение», ни ключ повода не нужны. */
+export const STAFF_NOTICE_KEEP_DAYS = 90;
+
+/** Ночная уборка журнала (cron.ts, «staff-notice-cleanup»). Несработавшие «напомнить завтра» не трогаем. */
+export async function cleanupStaffNotices(now: Date = new Date()): Promise<number> {
+  const before = new Date(now.getTime() - STAFF_NOTICE_KEEP_DAYS * 86_400_000);
+  const { count } = await prisma.staffNotice.deleteMany({
+    where: { createdAt: { lt: before }, OR: [{ remindOn: null }, { firedAt: { not: null } }] },
+  });
+  return count;
+}
+
 /** Записать в журнал уже отправленное сообщение с несколькими ключами повода. */
 export async function attachNoticeMessage(keys: string[], chatId: string, messageId: number | null): Promise<void> {
   if (keys.length) await prisma.staffNotice.updateMany({ where: { dedupKey: { in: keys } }, data: { chatId, messageId: messageId ?? 0 } });
 }
 
 // ───────────────────────── слова человека ─────────────────────────
+//
+// ГЛАВНОЕ ПРАВИЛО (ревью 11.11.2026): рабочая команда важнее настройки.
+// «не отправляй заявку Нозе», «не надо писать задачу на завтра», «верни
+// обратно объект в продажу» — просьбы к помощнице, и разбор их НЕ трогает.
+//  • выключить СРАЗУ — только кнопкой или ответом (reply) на само уведомление;
+//  • вид назван только словами («не присылай мне оплаты») — сначала вопрос
+//    кнопками «Выключить …? Да / Нет»;
+//  • в фразе есть хоть одно слово не про уведомления (имя, дата, номер
+//    карточки) — фраза не наша, идёт дальше к помощнице;
+//  • ответ на НЕ-уведомление и фраза-указатель без ответа — не наши, молча
+//    дальше (return false), без реплики бота.
 
 const TAJIK = /[ӣӯҳқғҷ]|(?:^|\s)(?:ман|инро|нафирист|лозим|нест|хомӯш|дубора|боз)(?=\s|$|[.!?,])/iu;
 
 const KIND_WORDS: { kind: PushKind; re: RegExp }[] = [
   { kind: "payment", re: /оплат|подписк|платеж|платёж|пардохт|обуна/iu },
   { kind: "security", re: /безопасност|бехатар|неверн\p{L}*\s+код|код\p{L}*\s+вход|изменени\p{L}*\s+прав/iu },
-  { kind: "publication", re: /публикац|пост(?:ы|ов)?(?![\p{L}])|нашр/iu },
-  { kind: "lead", re: /заявк|лид(?:ы|ов)?(?![\p{L}])|дархост/iu },
-  { kind: "message", re: /сообщени\p{L}*\s+клиент|переписк|паём\p{L}*\s+мизоҷ/iu },
+  { kind: "publication", re: /публикац|(?:^|\s)пост(?:ы|ов)?(?![\p{L}])|нашр/iu },
+  { kind: "lead", re: /заявк|(?:^|\s)лид(?:ы|ов)?(?![\p{L}])|дархост/iu },
+  { kind: "message", re: /переписк|паём\p{L}*\s+мизоҷ/iu },
   { kind: "showing", re: /показ|встреч|намоиш/iu },
   { kind: "task", re: /задач|просрочк|сводк|вазифа/iu },
   { kind: "score", re: /royal\s*score|балл|скор|рейтинг/iu },
   { kind: "oversight", re: /контрол|разбор|потерянн/iu },
-  { kind: "look", re: /подбор|подходящ|кому\s+подходит|мувофиқ/iu },
+  { kind: "look", re: /подбор|подходящ|мувофиқ/iu },
   { kind: "hot", re: /загорел|просмотр/iu },
   { kind: "market", re: /площадк|somon|сомон|paydo|пайдо/iu },
 ];
@@ -155,65 +178,83 @@ export function kindFromWords(text: string): PushKind | null {
   return null;
 }
 
+/** Слово, которое называет вид (одно слово, без контекста). */
+const KIND_TOKEN = /^(?:оплат|подписк|платеж|платёж|пардохт|обуна|публикац|пост|нашр|заявк|лид|дархост|переписк|паём|мизоҷ|показ|встреч|намоиш|задач|просрочк|сводк|вазифа|royal|score|балл|скор|рейтинг|контрол|разбор|потерянн|подбор|подходящ|мувофиқ|загорел|просмотр|площадк|somon|сомон|paydo|пайдо|безопасност|бехатар|неверн|код|вход|изменени|прав)\p{L}*$/iu;
+/** Слово, которое показывает на уведомления, а не на дело. */
+const FILLER_TOKEN = /^(?:мне|больше|такое|такие|такого|это|эти|этого|подобное|подобные|об|о|про|по|их|все|всё|уведомлени\p{L}*|сообщени\p{L}*|напоминани\p{L}*|ба|ман|инро|инҳоро|ин|инҳо|дигар|огоҳ\p{L}*|паёмҳо)$/iu;
+/** Слова из подписей видов («Объект на площадках»), допустимые рядом с названием вида. */
+const LABEL_TOKEN = /^(?:объект\p{L}*|на|в|сетях|сайте)$/iu;
+const NOTIF_WORD = /уведомлени|сообщени|напоминани|огоҳ|паёмҳо/iu;
+const SELF_WORD = /(?:^|\s)(?:мне|ба\s+ман)(?=\s|$|[.,!?])/iu;
+const THIRD_PARTY = /клиент|(?:^|\s)(?:ему|ей|им|него|неё|них)(?![\p{L}])|агент|собственник|покупател|продав|(?:ОБ|ПК|ПР)-?\d/iu;
+
 const POLITE = String.raw`(?:(?:пожалуйста|пж|илтимос)[,\s]+)?`;
 const MUTE_RE = new RegExp(
   "^" + POLITE + String.raw`(?:больше\s+|дигар\s+)?(?:` +
     String.raw`не\s+(?:присылай(?:те)?|отправляй(?:те)?|пиши(?:те)?|шли(?:те)?|надо\s+(?:присылать|отправлять|слать|писать))` +
     String.raw`|хватит\s+(?:присылать|слать|отправлять|писать)` +
     String.raw`|отключи(?:те)?|выключи(?:те)?` +
-    String.raw`|(?:ба\s+ман\s+)?(?:инро\s+|инхелро\s+)?нафирист(?:ед)?` +
+    String.raw`|(?:ба\s+ман\s+)?(?:инро\s+|инҳоро\s+)?нафирист(?:ед)?` +
     String.raw`)(?<rest>[^\n]*)$`,
   "iu",
 );
 const NOT_NEEDED_RE = /^(?:мне\s+)?(?:это|такое|такие|эти|подобное)\s+(?:мне\s+)?не\s+нужн\p{L}*[.!]*$|^(?:ба\s+ман\s+)?(?:ин|инҳо)\s+(?:ба\s+ман\s+)?лозим\s+нест[.!]*$/iu;
 const LIST_RE = /^(?:что|какие\s+(?:уведомления|сообщения))\s+(?:у\s+меня\s+)?(?:сейчас\s+)?(?:выключен\p{L}*|отключен\p{L}*)\s*\??$|^что\s+я\s+(?:выключил|отключил)\p{L}*\s*\??$|^(?:чӣ|кадом\s+огоҳиҳо)\s+(?:ба\s+ман\s+)?хомӯш(?:\s+аст)?\s*\??$/iu;
 const ENABLE_RE = new RegExp(
-  "^" + POLITE + String.raw`(?:` +
-    String.raw`(?:включи(?:те)?|верни(?:те)?)\s+(?:обратно|снова|опять)` +
-    String.raw`|(?:включи(?:те)?|верни(?:те)?)\s+(?:мне\s+)?(?:уведомлени\p{L}*|сообщени\p{L}*)` +
+  "^" + POLITE + String.raw`(?<verb>` +
+    String.raw`(?:включи(?:те)?|верни(?:те)?)(?:\s+(?:обратно|снова|опять))?` +
     String.raw`|(?:снова|опять)\s+присылай(?:те)?` +
     String.raw`|(?:боз|дубора)\s+(?:фирист(?:ед)?|фаъол\s+кун(?:ед)?)` +
-    String.raw`)(?<rest>[^\n]*)$`,
+    String.raw`)(?<rest>(?:\s[^\n]*)?)$`,
   "iu",
 );
-/** Слова, которые не называют вид, а показывают на сообщение («такое», «это»). */
-const DEICTIC = /^(?:[\s,.!?]|мне|напоминани\p{L}*|больше|такое|такие|такого|это|эти|этого|подобное|подобные|об\s+этом|про\s+это|сообщени\p{L}*|уведомлени\p{L}*|ба\s+ман|инро|инҳоро|ин|дигар)*$/iu;
-
-const THIRD_PARTY = /клиент|(?:^|\s)(?:ему|ей|им|него|неё|них)(?![\p{L}])|агент|собственник|покупател|продав|мизоҷ|(?:ОБ|ПК|ПР)-?\d/iu;
-
-export type NoticeIntent =
-  | { type: "mute"; kind: PushKind | null }
-  | { type: "unmute"; kind: PushKind | null }
-  | { type: "list" };
 
 /**
- * Разбор фразы. Нарочно узкий: фраза целиком про сообщения помощницы. «Клиент
- * сказал не присылать ему такое» сюда не попадает — начало фразы другое.
- * «Отключи/выключи» без названия вида тоже не трогаем: «выключи объект» — не
- * про уведомления; для них нужно назвать вид или ответить на сообщение.
+ * Все слова хвоста — про уведомления: служебные («мне», «такое»), название
+ * вида или слово из его подписи. Хоть одно чужое слово — фраза не наша.
  */
+function onlyNoticeWords(rest: string): boolean {
+  // «сообщения клиентов» — название вида, а не «третье лицо».
+  const normalized = rest.replace(/сообщени\p{L}*\s+клиент\p{L}*/giu, "переписка");
+  const tokens = normalized.toLowerCase().split(/[\s,.!?;:«»"()—–-]+/u).filter(Boolean);
+  const hasKind = tokens.some((t) => KIND_TOKEN.test(t));
+  return tokens.every((t) => FILLER_TOKEN.test(t) || KIND_TOKEN.test(t) || (hasKind && LABEL_TOKEN.test(t)));
+}
+
+export type NoticeIntent =
+  /** explicit — человек явно сказал, что речь о его уведомлениях («мне», «уведомления»). */
+  | { type: "mute"; kind: PushKind | null; explicit: boolean }
+  | { type: "unmute"; kind: PushKind | null; explicit: boolean }
+  | { type: "list" };
+
+/** Разбор фразы. null — фраза не про уведомления, её обрабатывает помощница. */
 export function parseNoticeIntent(raw: string): NoticeIntent | null {
   const text = raw.trim().replace(/\s+/g, " ");
   if (!text || text.length > 120) return null;
   if (LIST_RE.test(text)) return { type: "list" };
-  if (NOT_NEEDED_RE.test(text)) return { type: "mute", kind: null };
+  if (NOT_NEEDED_RE.test(text)) return { type: "mute", kind: null, explicit: false };
   const enable = ENABLE_RE.exec(text);
   if (enable) {
     const rest = enable.groups?.rest ?? "";
-    return { type: "unmute", kind: DEICTIC.test(rest) ? null : kindFromWords(rest) };
+    const verb = enable.groups?.verb ?? "";
+    if (!onlyNoticeWords(rest)) return null;
+    const explicit = NOTIF_WORD.test(rest);
+    // «Верни …» и голое «включи …» без слова «уведомления» — про дело
+    // («верни обратно оплату», «включи объект»), а не про сообщения.
+    if (!explicit && (/^верни/iu.test(verb) || !/обратно|снова|опять|присылай|фирист|фаъол/iu.test(verb))) return null;
+    const kind = kindFromWords(rest.replace(/сообщени\p{L}*\s+клиент\p{L}*/giu, "переписка"));
+    return { type: "unmute", kind, explicit };
   }
   const mute = MUTE_RE.exec(text);
   if (mute) {
     const rest = mute.groups?.rest ?? "";
     const verb = text.slice(0, text.length - rest.length);
-    // Про третьего человека («не присылай клиенту показ») — это не про сообщения помощницы.
-    if (THIRD_PARTY.test(rest)) return null;
-    const kind = DEICTIC.test(rest) ? null : kindFromWords(rest);
-    // «выключи/отключи …» — только со словом «уведомления/напоминания»: «отключи
-    // публикацию ОБ-000123» — просьба про объект, а не про сообщения.
-    if (/(?:отключи|выключи)/iu.test(verb) && !/уведомлени|сообщени|напоминани/iu.test(rest)) return null;
-    if (!kind && !DEICTIC.test(rest)) return null;
-    return { type: "mute", kind };
+    if (THIRD_PARTY.test(rest.replace(/сообщени\p{L}*\s+клиент\p{L}*/giu, "переписка"))) return null;
+    if (!onlyNoticeWords(rest)) return null;
+    // «выключи/отключи …» — только со словом «уведомления/напоминания».
+    if (/(?:отключи|выключи)/iu.test(verb) && !NOTIF_WORD.test(rest)) return null;
+    const kind = kindFromWords(rest.replace(/сообщени\p{L}*\s+клиент\p{L}*/giu, "переписка"));
+    return { type: "mute", kind, explicit: SELF_WORD.test(text) || NOTIF_WORD.test(rest) };
   }
   return null;
 }
@@ -226,11 +267,16 @@ const COPY = {
     notMuted: (label: string) => `🔔 «${label}» и так включено.`,
     always: (label: string, why: string) => `«${label}» выключить нельзя. ${why}`,
     which: "Не поняла, о каких сообщениях речь. Ответьте этой фразой на само сообщение или нажмите под ним «🔕 Не присылать такое».",
-    notNotice: "Это был мой ответ на вашу просьбу, а не рассылка — выключать нечего.",
+    askMute: (label: string) => `Выключить «${label}»? Это перестанет приходить в Telegram и на телефон.`,
+    askUnmute: (label: string) => `Снова присылать «${label}»?`,
+    yesMute: "🔕 Да, выключить",
+    yesUnmute: "🔔 Да, присылать",
+    no: "Нет",
+    kept: "Хорошо, оставила как было",
     whichOn: (list: string) => `Что включить обратно? Сейчас выключено: ${list}.`,
     nothingOff: "У вас ничего не выключено — присылаю всё.",
     listTitle: "Выключено у вас",
-    listTip: "включить обратно — «включи обратно …» или в профиле CRM → «Что присылать мне».",
+    listTip: "включить обратно — «включи обратно уведомления о …» или в профиле CRM → «Что присылать мне».",
     always2: (label: string, why: string) => `Всегда приходит: ${label}. ${why}`,
     turnOn: "🔔 Включить обратно",
     tapMuted: "Выключила",
@@ -242,7 +288,12 @@ const COPY = {
     notMuted: (label: string) => `🔔 «${label}» фаъол аст.`,
     always: (label: string, why: string) => `«${label}»-ро хомӯш кардан мумкин нест. ${why}`,
     which: "Нафаҳмидам, кадом паёмҳо. Ба худи паём ҷавоб диҳед ё тугмаи «🔕 Не присылать такое»-ро зер кунед.",
-    notNotice: "Ин ҷавоби ман ба дархости шумо буд, на огоҳӣ — хомӯш кардан лозим нест.",
+    askMute: (label: string) => `«${label}»-ро хомӯш кунам? Дигар дар Telegram ва телефон намеояд.`,
+    askUnmute: (label: string) => `«${label}»-ро боз фиристам?`,
+    yesMute: "🔕 Ҳа, хомӯш кун",
+    yesUnmute: "🔔 Ҳа, фирист",
+    no: "Не",
+    kept: "Хуб, ҳамон тавр монд",
     whichOn: (list: string) => `Чиро боз фаъол кунам? Ҳоло хомӯш: ${list}.`,
     nothingOff: "Ҳеҷ чиз хомӯш нест — ҳамаро мефиристам.",
     listTitle: "Хомӯш кардаед",
@@ -253,20 +304,11 @@ const COPY = {
   },
 } as const;
 
-/** Вид сообщения, на которое ответили или которое пришло последним (в окне). */
-async function noticeKindFor(agentId: string, chatId: string, replyToId: number | undefined): Promise<PushKind | "not-notice" | null> {
-  if (replyToId !== undefined) {
-    const row = await prisma.staffNotice.findFirst({ where: { chatId, messageId: replyToId }, select: { kind: true } });
-    if (!row) return "not-notice";
-    return isMutablePushKind(row.kind) || ALWAYS_ON_KINDS.some((k) => k.key === row.kind) ? (row.kind as PushKind) : null;
-  }
-  const since = new Date(Date.now() - NOTICE_FOLLOWUP_WINDOW_MS);
-  const row = await prisma.staffNotice.findFirst({
-    where: { agentId, chatId, messageId: { not: null }, createdAt: { gte: since } },
-    orderBy: { createdAt: "desc" },
-    select: { kind: true },
-  });
-  return row ? (row.kind as PushKind) : null;
+/** Вид уведомления, на которое ответили. null — ответили не на уведомление. */
+async function repliedNoticeKind(chatId: string, replyToId: number): Promise<PushKind | null> {
+  const row = await prisma.staffNotice.findFirst({ where: { chatId, messageId: replyToId }, select: { kind: true } });
+  if (!row) return null;
+  return isMutablePushKind(row.kind) || ALWAYS_ON_KINDS.some((k) => k.key === row.kind) ? (row.kind as PushKind) : null;
 }
 
 async function reply(chatId: string, html: string, buttons?: TelegramInlineButton[][]): Promise<void> {
@@ -296,6 +338,21 @@ async function applyUnmute(chatId: string, agentId: string, kind: PushKind, lang
   await reply(chatId, escapeHtml(result.changed ? c.unmuted(label) : c.notMuted(label)));
 }
 
+/** Вопрос «Выключить …? Да / Нет» — когда вид понят только из слов. */
+async function askConfirm(chatId: string, kind: PushKind, mute: boolean, lang: ListLang): Promise<void> {
+  const c = COPY[lang];
+  const always = ALWAYS_ON_KINDS.find((k) => k.key === kind);
+  if (always) {
+    await reply(chatId, escapeHtml(mute ? c.always(always.label, always.why) : c.always2(always.label, always.why)));
+    return;
+  }
+  const label = kindLabel(kind);
+  await reply(chatId, escapeHtml(mute ? c.askMute(label) : c.askUnmute(label)), [[
+    { text: mute ? c.yesMute : c.yesUnmute, callback_data: `${mute ? MUTE_PREFIX : UNMUTE_PREFIX}${kind}` },
+    { text: c.no, callback_data: KEEP_DATA },
+  ]]);
+}
+
 /** «Что у меня выключено» — список тем же модулем, что все списки помощницы. */
 export async function renderMutedList(agentId: string, lang: ListLang): Promise<string[]> {
   const c = COPY[lang];
@@ -313,8 +370,8 @@ export async function renderMutedList(agentId: string, lang: ListLang): Promise<
 }
 
 /**
- * Фраза человека в личке: «не присылай мне такое», «мне это не нужно», «что у
- * меня выключено», «включи обратно оплаты». true — обработано, дальше не идём.
+ * Фраза человека в личке про его уведомления. true — обработано; false — фраза
+ * не наша, её обрабатывает помощница как обычную просьбу.
  */
 export async function handleNoticePreferenceText(msg: TelegramIncomingMessage, agent: { id: string }, text: string): Promise<boolean> {
   const intent = parseNoticeIntent(text);
@@ -322,34 +379,34 @@ export async function handleNoticePreferenceText(msg: TelegramIncomingMessage, a
   const chatId = String(msg.chat.id);
   const lang: ListLang = TAJIK.test(text) ? "tg" : "ru";
   const c = COPY[lang];
+  const replyTo = msg.reply_to_message?.message_id;
   try {
     if (intent.type === "list") {
       for (const page of await renderMutedList(agent.id, lang)) await reply(chatId, page);
       return true;
     }
-    let kind: PushKind | "not-notice" | null = intent.kind;
-    const replyTo = msg.reply_to_message?.message_id;
-    // «Включи обратно» без названия: последнее сообщение тут ни при чём — оно-то
-    // как раз пришло, значит включено. Берём ответ на сообщение или единственное выключенное.
-    if (!kind && (intent.type === "mute" || replyTo !== undefined)) kind = await noticeKindFor(agent.id, chatId, replyTo);
-    if (intent.type === "unmute" && (!kind || kind === "not-notice")) {
-      const muted = (await mutedKindsOf(agent.id)).filter(isMutablePushKind);
-      if (muted.length === 1) kind = muted[0]!;
-      else {
-        await reply(chatId, escapeHtml(muted.length ? c.whichOn(muted.map(kindLabel).map((l) => `«${l}»`).join(", ")) : c.nothingOff));
-        return true;
-      }
-    }
-    if (kind === "not-notice") {
-      await reply(chatId, escapeHtml(c.notNotice));
+    if (replyTo !== undefined) {
+      // Ответ на само уведомление — действие сразу. Ответ на что-то другое — не наше.
+      const noticeKind = await repliedNoticeKind(chatId, replyTo);
+      if (!noticeKind) return false;
+      if (intent.type === "mute") await applyMute(chatId, agent.id, noticeKind, lang);
+      else await applyUnmute(chatId, agent.id, noticeKind, lang);
       return true;
     }
-    if (!kind) {
-      await reply(chatId, escapeHtml(c.which));
+    if (intent.type === "mute") {
+      if (!intent.kind || !intent.explicit) return false;
+      await askConfirm(chatId, intent.kind, true, lang);
       return true;
     }
-    if (intent.type === "mute") await applyMute(chatId, agent.id, kind, lang);
-    else await applyUnmute(chatId, agent.id, kind, lang);
+    if (intent.kind) {
+      if (intent.explicit) await applyUnmute(chatId, agent.id, intent.kind, lang);
+      else await askConfirm(chatId, intent.kind, false, lang);
+      return true;
+    }
+    if (!intent.explicit) return false;
+    const muted = (await mutedKindsOf(agent.id)).filter(isMutablePushKind);
+    if (muted.length === 1) await applyUnmute(chatId, agent.id, muted[0]!, lang);
+    else await reply(chatId, escapeHtml(muted.length ? c.whichOn(muted.map(kindLabel).map((l) => `«${l}»`).join(", ")) : c.nothingOff));
   } catch (err) {
     void logSystemError("telegram", `Настройка сообщений помощницы не сохранена: ${describeError(err)}`);
     await reply(chatId, "Не получилось сохранить, попробуйте ещё раз.").catch(() => undefined);
@@ -368,6 +425,11 @@ async function clickerOf(query: TelegramCallbackQuery): Promise<{ id: string } |
 /** «🔕 Не присылать такое» / «🔔 Включить обратно». true — нажатие наше. */
 export async function handleStaffNoticeCallback(query: TelegramCallbackQuery): Promise<boolean> {
   const data = query.data ?? "";
+  if (data === KEEP_DATA) {
+    const lang: ListLang = TAJIK.test(query.message?.text ?? "") ? "tg" : "ru";
+    await answerCallbackQuery(query.id, COPY[lang].kept);
+    return true;
+  }
   const mute = data.startsWith(MUTE_PREFIX);
   if (!mute && !data.startsWith(UNMUTE_PREFIX)) return false;
   if (!(await claimCallback(query.id))) {

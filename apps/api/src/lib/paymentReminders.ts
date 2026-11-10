@@ -3,6 +3,7 @@ import { Prisma } from "../generated/prisma/client.js";
 import { prisma } from "../db.js";
 import { loadAgentAccess } from "../auth/middleware.js";
 import { sendPushToAgent } from "../push.js";
+import { createNotification } from "./notifications.js";
 import { answerCallbackQuery, sendHtmlMessage, type TelegramCallbackQuery, type TelegramInlineButton } from "../telegram/api.js";
 import { listNumber, renderAssistantListHtml, type AssistantListItem } from "../telegram/assistantList.js";
 import { escapeHtml } from "../telegram/assistantReply.js";
@@ -62,7 +63,13 @@ export const BILLING_SERVICES: { key: string; label: string; re: RegExp }[] = [
   { key: "meta", label: "Реклама Meta", re: /meta\s*ads|graph\.facebook|facebook\s*ads/i },
   { key: "payom", label: "СМС Payom", re: /payom/i },
 ];
-const BILLING_RE = /\b402\b|payment[\s_]required|billing|insufficient|недостаточно\s+средств|credit\s+balance\s+is\s+too\s+low/i;
+/**
+ * Признак сбоя ОПЛАТЫ, а не простого лимита скорости: голый 429 сюда не входит,
+ * только с денежными словами. Тексты сверены с ai/openaiClient.ts
+ * (OUT_OF_MONEY_TEXT, insufficient_quota, billing_hard_limit_reached),
+ * ai/geminiClient.ts («prepayment credits depleted») и ai/liveVoiceClient.ts.
+ */
+const BILLING_RE = /\b402\b|payment[\s_]required|billing|insufficient|prepayment|credits?\s+(?:are\s+)?depleted|no\s+credits|exceeded\s+your\s+current\s+quota|недостаточно\s+средств|закончились\s+деньги|пополните\s+баланс|credit\s+balance\s+is\s+too\s+low/i;
 
 export function addDays(day: string, n: number): string {
   const d = new Date(`${day}T00:00:00.000Z`);
@@ -89,27 +96,37 @@ export function amountLines(item: Pick<ExpenseUpcomingItem, "amount" | "currency
 
 type Stage = "soon" | "due" | "repeat";
 interface Reminder { stage: Stage; item: ExpenseUpcomingItem; key: string }
-interface Failure { service: (typeof BILLING_SERVICES)[number]; message: string; key: string }
+interface Failure { service: (typeof BILLING_SERVICES)[number]; code: string | null; key: string }
 
-/** Неоплаченные повторяющиеся платежи на сегодня и ближайшие 3 дня. */
-export async function duePayments(today: string): Promise<ExpenseUpcomingItem[]> {
-  const rows = await upcomingExpenses(today, addDays(today, SOON_DAYS));
+/** Отложенный платёж старше этого не повторяем — обещание снимается молча. */
+const SNOOZE_LOOKBACK_DAYS = 60;
+
+/**
+ * Неоплаченные повторяющиеся платежи от `from` до сегодня + 3 дня. `from` раньше
+ * сегодняшнего — ради «⏰ Напомнить завтра», нажатого в день оплаты: назавтра
+ * платёж уже вчерашний, и окно «от сегодня» его не видело (ревью 11.11).
+ */
+export async function duePayments(today: string, from: string = today): Promise<ExpenseUpcomingItem[]> {
+  const rows = await upcomingExpenses(from, addDays(today, SOON_DAYS));
   return rows.filter((r) => r.recurringId && r.status === "PLANNED");
 }
 
 /** Сбои оплаты известных сервисов за сутки — по журналу ошибок. */
-export async function billingFailures(now: Date = new Date()): Promise<{ service: (typeof BILLING_SERVICES)[number]; message: string }[]> {
+export async function billingFailures(now: Date = new Date()): Promise<{ service: (typeof BILLING_SERVICES)[number]; code: string | null }[]> {
   const rows = await prisma.errorLog.findMany({
     where: { createdAt: { gte: new Date(now.getTime() - 86_400_000) }, resolvedAt: null },
     orderBy: { createdAt: "desc" },
     select: { message: true },
     take: 500,
   });
-  const found = new Map<string, { service: (typeof BILLING_SERVICES)[number]; message: string }>();
+  // Текст ошибки наружу НЕ уходит: в нём бывают ключи (?key=, token=) и чужие
+  // данные. В сообщении — только название сервиса и код ответа.
+  const found = new Map<string, { service: (typeof BILLING_SERVICES)[number]; code: string | null }>();
   for (const row of rows) {
     if (!BILLING_RE.test(row.message)) continue;
     const service = BILLING_SERVICES.find((s) => s.re.test(row.message));
-    if (service && !found.has(service.key)) found.set(service.key, { service, message: row.message.slice(0, 200) });
+    const code = /\b(402|429|403)\b/.exec(row.message)?.[1] ?? null;
+    if (service && !found.has(service.key)) found.set(service.key, { service, code });
   }
   return [...found.values()];
 }
@@ -117,7 +134,8 @@ export async function billingFailures(now: Date = new Date()): Promise<{ service
 function itemFor(r: Reminder, today: string, money: MoneyContext): AssistantListItem {
   const left = daysBetween(today, r.item.dueDate);
   const date = `${r.item.dueDate.slice(8, 10)}.${r.item.dueDate.slice(5, 7)}`;
-  const when = left <= 0 ? `📅 Сегодня — день оплаты (${date})` : `📅 Через ${left} дн. · ${date}`;
+  const when = left < 0 ? `📅 Просрочено на ${-left} дн. · ${date}`
+    : left === 0 ? `📅 Сегодня — день оплаты (${date})` : `📅 Через ${left} дн. · ${date}`;
   return { title: r.item.title, main: amountLines(r.item, money), when: r.stage === "repeat" ? `${when} · повтор, как просили` : when };
 }
 
@@ -125,8 +143,7 @@ function render(reminders: Reminder[], failures: Failure[], today: string, money
   const items = [
     ...failures.map((f): AssistantListItem => ({
       title: `⚠️ ${f.service.label}: оплата не прошла`,
-      main: ["Проверьте баланс и карту в кабинете сервиса — живой баланс CRM пока не видит."],
-      details: f.message,
+      main: [`${f.code ? `Сервис ответил кодом ${f.code}. ` : ""}Проверьте баланс и карту в кабинете сервиса — живой баланс CRM пока не видит.`],
     })),
     ...reminders.map((r) => itemFor(r, today, money)),
   ];
@@ -164,47 +181,80 @@ export async function runPaymentReminders(now: Date = new Date(), opts: { ignore
   const today = dushanbeDateString(now);
   const recipients = await findAgentsWithPermission("finance.view");
   if (!recipients.length) return { recipients: 0, sent: 0, skipped: "no-recipients" };
-  const [due, failures, money, payers, agents] = await Promise.all([
-    duePayments(today),
-    billingFailures(now),
-    loadMoneyContext(),
-    partitionByPermission(recipients, "finance.manage"),
-    prisma.agent.findMany({ where: { id: { in: recipients } }, select: { id: true, pushMuted: true, telegramChatId: true } }),
-  ]);
   const snoozes = await prisma.staffNotice.findMany({
     where: { kind: "payment", agentId: { in: recipients }, remindOn: { lte: today }, firedAt: null },
     select: { id: true, agentId: true, subject: true },
     take: 500,
   });
+  const oldest = addDays(today, -SNOOZE_LOOKBACK_DAYS);
+  const from = snoozes
+    .map((s) => s.subject?.split(":")[1] ?? "")
+    .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d) && d >= oldest && d < today)
+    .reduce((min, d) => (d < min ? d : min), today);
+  const [pool, failures, money, payers, agents] = await Promise.all([
+    duePayments(today, from),
+    billingFailures(now),
+    loadMoneyContext(),
+    partitionByPermission(recipients, "finance.manage"),
+    prisma.agent.findMany({ where: { id: { in: recipients } }, select: { id: true, pushMuted: true, telegramChatId: true } }),
+  ]);
+  const due = pool.filter((d) => d.dueDate >= today);
   const canPay = new Set(payers.granted);
   let sent = 0;
   for (const agent of agents) {
     try {
-      if (isKindMuted("payment", agent.pushMuted)) continue;
+      const muted = isKindMuted("payment", agent.pushMuted);
       const wanted: Reminder[] = due.map((item) => {
         const stage: Stage = item.dueDate <= today ? "due" : "soon";
         return { stage, item, key: `pay:${stage}:${item.recurringId}:${item.dueDate}:${agent.id}` };
       });
       const mySnoozes = snoozes.filter((s) => s.agentId === agent.id);
       const failureKeys: Failure[] = failures.map((f) => ({ ...f, key: `pay:fail:${f.service.key}:${today}:${agent.id}` }));
+      // Ключи занимаются и у выключивших вид: колокольчик как история пишется всем
+      // и тоже один раз на повод.
       const claimed = new Set(await claimNoticeKeys(agent.id, "payment", [...wanted.map((w) => w.key), ...failureKeys.map((f) => f.key)]));
       const reminders = wanted.filter((w) => claimed.has(w.key));
-      // «Напомнить завтра»: повтор, если платёж всё ещё не оплачен и сегодня о нём не напомнили.
-      for (const s of mySnoozes) {
-        const item = due.find((d) => `${d.recurringId}:${d.dueDate}` === s.subject);
-        if (item && !reminders.some((r) => r.item.recurringId === item.recurringId && r.item.dueDate === item.dueDate)) {
-          reminders.push({ stage: "repeat", item, key: `snooze:${s.id}` });
+      // «Напомнить завтра»: повтор, если платёж всё ещё не оплачен (в том числе уже
+      // просроченный) и сегодня о нём не напомнили.
+      if (!muted) {
+        for (const s of mySnoozes) {
+          const item = pool.find((d) => `${d.recurringId}:${d.dueDate}` === s.subject);
+          if (item && !reminders.some((r) => r.item.recurringId === item.recurringId && r.item.dueDate === item.dueDate)) {
+            reminders.push({ stage: "repeat", item, key: `snooze:${s.id}` });
+          }
         }
       }
       const myFailures = failureKeys.filter((f) => claimed.has(f.key));
       const keys = [...claimed];
       const firedSnoozes = mySnoozes.map((s) => s.id);
+      const fireSnoozes = async () => {
+        if (firedSnoozes.length) await prisma.staffNotice.updateMany({ where: { id: { in: firedSnoozes } }, data: { firedAt: now } });
+      };
       if (!reminders.length && !myFailures.length) {
         // Отложенный платёж уже оплачен или пропущен — обещание снято, повторять нечего.
-        if (firedSnoozes.length) await prisma.staffNotice.updateMany({ where: { id: { in: firedSnoozes } }, data: { firedAt: now } });
+        await fireSnoozes();
         continue;
       }
-      if (agent.telegramChatId) {
+      const lines = [
+        ...myFailures.map((f) => `${f.service.label}: оплата не прошла`),
+        ...reminders.map((r) => `${r.item.title} — ${r.item.dueDate < today ? "просрочено" : r.item.dueDate === today ? "сегодня" : r.item.dueDate}`),
+      ];
+      // Колокольчик CRM — ВСЕГДА (CRM — основная дверь продукта, Telegram — второй
+      // путь); у выключившего вид он остаётся историей. Push на телефон — только
+      // тем, у кого нет Telegram: не беспокоить одним поводом дважды.
+      const feed = {
+        kind: "payment" as const,
+        level: myFailures.length ? ("CRITICAL" as const) : undefined,
+        title: `💳 Оплаты подписок · ${lines.length}`,
+        body: lines.join("; ").slice(0, 300),
+        url: "/finance",
+        tag: `payment-reminder:${keys[0] ?? firedSnoozes[0] ?? today}`,
+      };
+      const markLogged = () => prisma.staffNotice.updateMany({ where: { dedupKey: { in: keys }, messageId: null }, data: { messageId: 0 } });
+      if (muted) {
+        await createNotification({ agentId: agent.id, ...feed });
+        await markLogged();
+      } else if (agent.telegramChatId) {
         const status = await sendStaffNotice({
           agentId: agent.id,
           kind: "payment",
@@ -212,25 +262,15 @@ export async function runPaymentReminders(now: Date = new Date(), opts: { ignore
           buttons: buttonsFor(reminders, canPay.has(agent.id), myFailures.length),
           attachKeys: keys,
         });
+        // Не дошло — ключи отданы, следующий тик попробует снова (и тогда же колокольчик).
         if (status !== "sent") continue;
+        await createNotification({ agentId: agent.id, ...feed });
       } else {
-        // Без Telegram — тот же повод в колокольчик и на телефон CRM.
-        const lines = [
-          ...myFailures.map((f) => `${f.service.label}: оплата не прошла`),
-          ...reminders.map((r) => `${r.item.title} — ${r.item.dueDate <= today ? "сегодня" : r.item.dueDate}`),
-        ];
-        await sendPushToAgent(agent.id, {
-          kind: "payment",
-          level: myFailures.length ? "CRITICAL" : undefined,
-          title: `💳 Оплаты подписок · ${lines.length}`,
-          body: lines.join("; ").slice(0, 300),
-          url: "/finance",
-          tag: `payment-reminder-${today}`,
-        });
-        await prisma.staffNotice.updateMany({ where: { dedupKey: { in: keys } }, data: { messageId: 0 } });
+        await sendPushToAgent(agent.id, feed);
+        await markLogged();
       }
-      if (firedSnoozes.length) await prisma.staffNotice.updateMany({ where: { id: { in: firedSnoozes } }, data: { firedAt: now } });
-      sent++;
+      await fireSnoozes();
+      if (!muted) sent++;
     } catch (err) {
       void logSystemError("api", `Напоминание об оплатах не отправлено: ${describeError(err)}`, { dedupKey: "payment-reminders" });
     }
@@ -292,11 +332,22 @@ export async function handlePaymentReminderCallback(query: TelegramCallbackQuery
       await answerCallbackQuery(query.id, "Отметить оплату может тот, кто ведёт финансы");
       return true;
     }
-    const { expense } = await changeRecurringOccurrence(recurringId!, "pay", { dueDate }, clicker.id);
+    const before = await prisma.expense.findFirst({
+      where: { recurringId: recurringId!, occurrenceDate: dueDate, deletedAt: null },
+      select: { status: true },
+    });
+    if (before?.status === "PAID") {
+      // Повторное «Оплатил» (второе устройство, старое сообщение): журнал второй раз не пишем.
+      await answerCallbackQuery(query.id, "Уже отмечено оплаченным");
+      return true;
+    }
+    await changeRecurringOccurrence(recurringId!, "pay", { dueDate }, clicker.id);
     logAgentAudit(clicker.id, "UPDATE", "RecurringExpense", recurringId!, { paymentAction: "pay", dueDate, source: "telegram" });
     await answerCallbackQuery(query.id, "Отметила: оплачено");
     if (chatId) {
-      const title = expense?.note ?? "Платёж";
+      // Название шаблона, а не служебная Expense.note («… строка заведена автоматически»).
+      const template = await prisma.recurringExpense.findUnique({ where: { id: recurringId! }, select: { title: true } });
+      const title = template?.title ?? "Платёж";
       await sendHtmlMessage(chatId, escapeHtml(`✅ Оплачено: ${title} (${dueDate.slice(8, 10)}.${dueDate.slice(5, 7)}). Расход в CRM отмечен оплаченным.`));
     }
   } catch (err) {

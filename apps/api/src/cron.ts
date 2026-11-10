@@ -1145,6 +1145,15 @@ export function startCronJobs() {
   scheduleTracked("assistant-telegram-context-cleanup", "*/30 * * * *", async () => {
     await cleanupAssistantTelegramContext();
   }, { timezone: "Asia/Dushanbe" });
+  /** Журнал сообщений помощницы (StaffNotice) старше 90 дней — 03:40 по Душанбе. */
+  scheduleTracked("staff-notice-cleanup", "40 3 * * *", async () => {
+    try {
+      const { cleanupStaffNotices } = await import("./telegram/staffNotice.js");
+      await cleanupStaffNotices();
+    } catch (err) {
+      reportCronTickError("Уборка журнала сообщений помощницы", err);
+    }
+  }, { timezone: "Asia/Dushanbe" });
 
   /** Ночная уборка ТЕХНИЧЕСКИХ журналов — 03:00 по Душанбе. Сознательно
    *  консервативная: трогает только AiLog (>90 дней) и ErrorLog (>90 дней).

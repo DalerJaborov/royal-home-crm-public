@@ -350,6 +350,7 @@ enum AdMatchSource {
 model Agent {
   /// Ожидания кода Google Authenticator у помощницы (10.11.2026) — уходят вместе с учёткой.
   assistantStepUpChallenges AssistantStepUpChallenge[]
+  staffNotices              StaffNotice[]
   investigationCases InvestigationCase[] @relation("InvestigationSubject")
   recruitmentRecoveries RecruitmentRecovery[]
   oversightAcks OversightAck[]
@@ -11149,6 +11150,9 @@ model PropertyClientOffer {
 model StaffNotice {
   id        String    @id @default(uuid())
   agentId   String
+  /// Журнал рассылок, а не история работы: уходит вместе с сотрудником и
+  /// чистится через 90 дней (telegram/staffNotice.ts::cleanupStaffNotices).
+  agent     Agent     @relation(fields: [agentId], references: [id], onDelete: Cascade)
   /// Вид сообщения — ключ из PUSH_KINDS.
   kind      String
   /// Ключ повода; null — повод без ключа.

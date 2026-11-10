@@ -64,6 +64,9 @@ export async function setKindMuted(agentId: string, kind: string, muted: boolean
   } else if (!muted && had) {
     await prisma.$executeRaw`UPDATE "Agent" SET "pushMuted" = array_remove("pushMuted", ${kind}) WHERE "id" = ${agentId}`;
   }
+  // Старый флаг «Посты в Telegram» (Agent.sharePostTelegram) — зеркало вида
+  // «Публикации объектов» для экрана команды; решает только pushMuted.
+  if (kind === "publication") await prisma.agent.update({ where: { id: agentId }, data: { sharePostTelegram: !muted } });
   const after = await mutedKindsOf(agentId);
   return { ok: true, changed: had !== muted, view: preferencesView(after) };
 }

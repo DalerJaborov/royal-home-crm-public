@@ -5,6 +5,7 @@ import { propertyCoversDir } from "../upload.js";
 import { sendMessage, sendMessageWithButtons, sendPhotoFromDisk, type TelegramInlineButton } from "../telegram/api.js";
 import { logSystemError } from "./systemError.js";
 import { sendStaffNotice } from "../telegram/staffNotice.js";
+import { isKindMuted } from "./notificationPrefs.js";
 import { describeError } from "./describeError.js";
 import { siteListingUrl } from "./siteListingUrl.js";
 import { publishedPostLink, channelLabel } from "@royal-home/shared";
@@ -72,11 +73,14 @@ export async function sendAgentSharePost(propertyId: string, summary: AgentShare
 
   const agent = await prisma.agent.findUnique({
     where: { id: responsibleId },
-    select: { isActive: true, sharePostTelegram: true, telegramChatId: true },
+    select: { isActive: true, telegramChatId: true, pushMuted: true },
   });
   // Нет чата/флаг выключен/сотрудник неактивен — норма, не повод писать в журнал
   // (ровно как у montageObservers: тишина здесь не отказ, а обычный случай).
-  if (!agent || !agent.isActive || !agent.sharePostTelegram || !agent.telegramChatId) return;
+  // Выключено ли «Публикации объектов» — решает дверь (pushMuted), а не отдельный
+  // флаг sharePostTelegram: с 11.11.2026 это одна настройка (он — её зеркало).
+  if (!agent || !agent.isActive || !agent.telegramChatId) return;
+  if (isKindMuted("publication", agent.pushMuted)) return;
 
   /**
    * ИДЕМПОТЕНТНОСТЬ ЧЕРЕЗ УСЛОВНЫЙ UPDATE, А НЕ «ПРОЧЁЛ — ПОТОМ ЗАПИСАЛ».

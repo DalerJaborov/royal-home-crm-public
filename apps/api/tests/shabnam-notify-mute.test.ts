@@ -82,24 +82,35 @@ afterAll(async () => {
 
 describe("разбор фразы — узко, чужие просьбы не перехватываются", () => {
   it.each([
-    ["не присылай мне такое", { type: "mute", kind: null }],
-    ["Пожалуйста, больше не присылай такое", { type: "mute", kind: null }],
-    ["мне это не нужно", { type: "mute", kind: null }],
-    ["не присылай мне оплаты", { type: "mute", kind: "payment" }],
-    ["ба ман инро нафирист", { type: "mute", kind: null }],
+    ["не присылай мне такое", { type: "mute", kind: null, explicit: true }],
+    ["Пожалуйста, больше не присылай такое", { type: "mute", kind: null, explicit: false }],
+    ["мне это не нужно", { type: "mute", kind: null, explicit: false }],
+    ["не присылай мне оплаты", { type: "mute", kind: "payment", explicit: true }],
+    ["не присылай мне сообщения клиентов", { type: "mute", kind: "message", explicit: true }],
+    ["ба ман инро нафирист", { type: "mute", kind: null, explicit: true }],
     ["что у меня выключено?", { type: "list" }],
-    ["включи обратно оплаты", { type: "unmute", kind: "payment" }],
-    ["включи обратно", { type: "unmute", kind: null }],
+    ["включи обратно оплаты", { type: "unmute", kind: "payment", explicit: false }],
+    ["включи мне уведомления об оплатах", { type: "unmute", kind: "payment", explicit: true }],
+    ["включи обратно", { type: "unmute", kind: null, explicit: false }],
   ])("«%s»", (text, expected) => {
     expect(parseNoticeIntent(text)).toEqual(expected);
   });
+  // Ловушки ревью 11.11: рабочие команды помощнице разбор не трогает.
   it.each([
+    "не отправляй заявку Нозе",
+    "не присылай Фарруху заявки",
+    "не надо писать задачу на завтра, я сам",
+    "включи снова публикацию ОБ-000123",
+    "верни обратно клиента в работу",
+    "верни обратно объект в продажу",
+    "верни обратно оплату",
+    "снова присылай отчёт",
     "не присылай клиенту показ",
     "отключи публикацию ОБ-000123",
     "выключи объект",
     "клиент сказал не присылать ему такое",
     "найди объекты в Сино",
-  ])("«%s» — не про сообщения помощницы", (text) => {
+  ])("«%s» — не про уведомления, идёт к помощнице", (text) => {
     expect(parseNoticeIntent(text)).toBeNull();
   });
 });
@@ -151,24 +162,49 @@ describe("выключение кнопкой и словами", () => {
     expect(await say("не присылай мне такое", messageId)).toBe(true);
     expect(await muted()).toEqual(["publication"]);
   });
-  it("сразу после сообщения, без ответа — выключает последний вид", async () => {
+  it("без ответа на уведомление указатель «это мне не нужно» не наш — идёт к помощнице", async () => {
     await sendStaffNotice({ agentId, kind: "look", html: "🤝 Подбор" });
-    expect(await say("мне это не нужно")).toBe(true);
-    expect(await muted()).toContain("look");
-  });
-  it("ответ на обычный ответ помощницы — честно «выключать нечего»", async () => {
-    expect(await say("не присылай мне такое", 999_999)).toBe(true);
-    expect(lastHtml()).toContain("выключать нечего");
+    sendHtmlMessage.mockClear();
+    expect(await say("это мне не нужно")).toBe(false);
+    expect(await say("не присылай мне такое")).toBe(false);
+    expect(sendHtmlMessage).not.toHaveBeenCalled();
     expect(await muted()).toEqual([]);
   });
-  it("«что у меня выключено» — список тем же модулем, «включи обратно» — включает", async () => {
+  it("ответ на НЕ-уведомление — не наш, молча дальше", async () => {
+    expect(await say("не присылай мне такое", 999_999)).toBe(false);
+    expect(sendHtmlMessage).not.toHaveBeenCalled();
+    expect(await muted()).toEqual([]);
+  });
+  it("вид назван словами — сначала вопрос «Да / Нет», выключает только «Да»", async () => {
+    expect(await say("не присылай мне оплаты")).toBe(true);
+    expect(lastHtml()).toContain("Выключить «Оплаты подписок»?");
+    const buttons = allButtons(sendHtmlMessage.mock.calls.at(-1));
+    expect(buttons).toContain("nm:payment");
+    expect(buttons).toContain("nx:");
+    expect(await muted()).toEqual([]);
+    expect(await press("nx:")).toBe(true);
+    expect(await muted()).toEqual([]);
+    expect(await press("nm:payment")).toBe(true);
+    expect(await muted()).toEqual(["payment"]);
+  });
+  it("«что у меня выключено» — список тем же модулем; голое «включи обратно» — к помощнице", async () => {
     await setKindMuted(agentId, "payment", true);
     await say("что у меня выключено?");
     const html = lastHtml();
     expect(html).toContain("🔕 <b>Выключено у вас</b> · 1");
     expect(html).toContain("1️⃣ Оплаты подписок");
     expect(html).toContain("Безопасность");
-    await say("включи обратно");
+    expect(await say("включи обратно")).toBe(false);
+    expect(await muted()).toEqual(["payment"]);
+    expect(await say("включи обратно уведомления")).toBe(true);
+    expect(await muted()).toEqual([]);
+  });
+  it("«включи обратно оплаты» — вопрос, «включи мне уведомления об оплатах» — сразу", async () => {
+    await setKindMuted(agentId, "payment", true);
+    await say("включи обратно оплаты");
+    expect(lastHtml()).toContain("Снова присылать «Оплаты подписок»?");
+    expect(await muted()).toEqual(["payment"]);
+    await say("включи мне уведомления об оплатах");
     expect(await muted()).toEqual([]);
   });
 });
@@ -189,6 +225,24 @@ describe("безопасность не отключается — нигде", 
     expect(isKindMuted("security", ["security"])).toBe(false);
     await sendPushToAgent(agentId, { kind: "security", title: "🔐 Изменены права", body: "тест", realtime: true });
     expect(sendNotification).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("«Посты в Telegram» на экране команды — та же настройка, что вид «Публикации»", () => {
+  it("снял флаг у сотрудника — выключен вид, вернул — включён", async () => {
+    const { updateStaffMember } = await import("../src/lib/staffAdmin.js");
+    const actor = { id: agentId, role: "DIRECTOR", can: () => true };
+    const target = await prisma.agent.create({ data: {
+      fullName: `Публикации ${runId}`, phone: `+99297${runId}9`, role: "AGENT", passwordHash: await bcrypt.hash("testpass123", 4),
+    } });
+    try {
+      expect((await updateStaffMember(actor, target.id, { sharePostTelegram: false })).status).toBe(200);
+      expect((await prisma.agent.findUnique({ where: { id: target.id }, select: { pushMuted: true } }))!.pushMuted).toEqual(["publication"]);
+      await updateStaffMember(actor, target.id, { sharePostTelegram: true });
+      expect((await prisma.agent.findUnique({ where: { id: target.id }, select: { pushMuted: true } }))!.pushMuted).toEqual([]);
+    } finally {
+      await prisma.agent.delete({ where: { id: target.id } });
+    }
   });
 });
 

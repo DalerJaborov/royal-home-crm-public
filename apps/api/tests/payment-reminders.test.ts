@@ -30,11 +30,12 @@ const ag: Record<string, { id: string; chatId: string }> = {};
 const templates: string[] = [];
 let cb = 1;
 
-async function mkAgent(key: string, n: number, role: string, permissions?: object) {
+async function mkAgent(key: string, n: number, role: string, permissions?: object, withTelegram = true) {
   const chatId = String(850_000_000 + Number(runId) * 10 + n);
+  const link = withTelegram ? { telegramChatId: chatId, telegramUserId: chatId } : {};
   const a = await prisma.agent.create({ data: {
     fullName: `Оплаты ${key} ${runId}`, phone: `+99297${runId}${n}`, role: role as "AGENT",
-    passwordHash: await bcrypt.hash("testpass123", 4), telegramChatId: chatId, telegramUserId: chatId,
+    passwordHash: await bcrypt.hash("testpass123", 4), ...link,
     ...(permissions ? { permissions } : {}),
   } });
   ag[key] = { id: a.id, chatId };
@@ -54,12 +55,15 @@ const press = (key: string, data: string) => handlePaymentReminderCallback({
   message: { chat: { id: Number(ag[key].chatId), type: "private" }, message_id: 1, text: "Оплаты" },
 });
 const run = (at = new Date()) => runPaymentReminders(at, { ignoreWorkHours: true });
+const bell = (key: string, title: string) => prisma.notification.count({ where: { agentId: ag[key].id, kind: "payment", body: { contains: title } } });
 
 beforeAll(async () => {
   await mkAgent("boss", 1, "DIRECTOR");
   await mkAgent("agent", 2, "AGENT");
   // Бухгалтер: видит финансы, но не ведёт их — «Оплатил» ему не положено.
   await mkAgent("viewer", 3, "AGENT", { granted: ["finance.view"] });
+  // Финансы видит, Telegram не привязан — получает колокольчик и push CRM.
+  await mkAgent("noTg", 4, "AGENT", { granted: ["finance.view"] }, false);
 });
 beforeEach(() => { sendHtmlMessage.mockClear(); answerCallbackQuery.mockClear(); });
 afterAll(async () => {
@@ -111,19 +115,32 @@ describe("напоминания", () => {
     expect(textTo("boss")).not.toContain(t.title);
   });
 
-  it("выключил «Оплаты подписок» — не приходит", async () => {
+  it("колокольчик CRM — всем: и с Telegram, и без него; выключившему — только он, как история", async () => {
     await prisma.agent.update({ where: { id: ag.viewer.id }, data: { pushMuted: ["payment"] } });
-    await mkTemplate("Домен", addDays(today, 2));
+    const t = await mkTemplate("Домен", addDays(today, 2));
     await run();
     expect(sentTo("viewer")).toHaveLength(0);
+    expect(await bell("viewer", t.title)).toBe(1);
+    expect(textTo("boss")).toContain(t.title);
+    expect(await bell("boss", t.title)).toBe(1);
+    expect(await bell("noTg", t.title)).toBe(1);
+    // Повтор тика колокольчик второй раз не пишет.
+    await run();
+    expect(await bell("viewer", t.title)).toBe(1);
+    expect(await bell("noTg", t.title)).toBe(1);
     await prisma.agent.update({ where: { id: ag.viewer.id }, data: { pushMuted: [] } });
   });
 
-  it("сбой оплаты по журналу ошибок — честно «проверьте в кабинете сервиса»", async () => {
-    await prisma.errorLog.create({ data: { source: "api", message: `ElevenLabs: 402 payment_required ${runId}` } });
+  it("сбой оплаты по журналу ошибок — честно «проверьте в кабинете сервиса», без текста ошибки", async () => {
+    await prisma.errorLog.create({ data: { source: "api", message: `ElevenLabs: 402 payment_required https://api.example/v1?key=SECRETKEY${runId} token=abc${runId}` } });
+    await prisma.errorLog.create({ data: { source: "api", message: `Gemini 429: Your prepayment credits are depleted ${runId}` } });
     await run();
     expect(textTo("boss")).toContain("ElevenLabs: оплата не прошла");
+    expect(textTo("boss")).toContain("Сервис ответил кодом 402");
+    expect(textTo("boss")).toContain("Google Gemini: оплата не прошла");
     expect(textTo("boss")).toContain("кабинете сервиса");
+    expect(textTo("boss")).not.toContain("SECRETKEY");
+    expect(textTo("boss")).not.toContain("token=");
     sendHtmlMessage.mockClear();
     await run();
     expect(textTo("boss")).not.toContain("ElevenLabs: оплата не прошла");
@@ -145,7 +162,13 @@ describe("кнопки", () => {
     expect(row?.status).toBe("PAID");
     await waitForSettled(() => prisma.auditLog.count({ where: { entityId: t.id } }));
     expect(await prisma.auditLog.count({ where: { entityId: t.id, agentId: ag.boss.id } })).toBe(1);
-    expect(textTo("boss")).toContain("✅ Оплачено");
+    expect(textTo("boss")).toContain(`✅ Оплачено: ${t.title} (`);
+    expect(textTo("boss")).not.toContain("строка заведена");
+    // Повторное нажатие — без второй записи в журнале.
+    expect(await press("boss", `pp:${t.id}:${due}`)).toBe(true);
+    expect(String(answerCallbackQuery.mock.calls.at(-1)?.[1])).toContain("Уже отмечено");
+    await waitForSettled(() => prisma.auditLog.count({ where: { entityId: t.id } }));
+    expect(await prisma.auditLog.count({ where: { entityId: t.id, agentId: ag.boss.id } })).toBe(1);
     // Оплаченный больше не напоминается.
     sendHtmlMessage.mockClear();
     await run();
@@ -177,5 +200,18 @@ describe("кнопки", () => {
     sendHtmlMessage.mockClear();
     await run(tomorrow);
     expect(textTo("boss")).not.toContain("повтор, как просили");
+  });
+
+  it("«⏰ Напомнить завтра» в САМ день оплаты — назавтра повтор о просроченном, а не тишина", async () => {
+    const t = await mkTemplate("Облако", today);
+    await run();
+    expect(textTo("boss")).toContain(t.title);
+    expect(await press("boss", `pz:${t.id}:${today}`)).toBe(true);
+    sendHtmlMessage.mockClear();
+    const tomorrow = new Date(Date.now() + 86_400_000);
+    await run(tomorrow);
+    expect(textTo("boss")).toContain(t.title);
+    expect(textTo("boss")).toContain("Просрочено на 1 дн.");
+    expect(textTo("boss")).toContain("повтор, как просили");
   });
 });

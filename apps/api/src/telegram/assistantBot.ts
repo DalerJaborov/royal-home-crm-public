@@ -827,12 +827,14 @@ export async function handleAssistantPrivate(
       await send(HELP_TEXT);
       return;
     }
-    // «Не присылай мне такое», «что у меня выключено», «включи обратно …» — личные отключения.
-    if (!forwardedEvidence && await handleNoticePreferenceText(msg, agent, text)) return;
     // Ответ на «Править → строка N» в карточке расходов: поправка строки, а не новая просьба.
     if (!forwardedEvidence && await applyExpenseFixMessage(chatId, agent.id, text, msg.message_id)) return;
     const more = !forwardedEvidence && propertyPageRequest(text);
     if (more && await replyWithMoreProperties(cardScope, more, text)) return;
+    // «Не присылай мне такое», «что у меня выключено», «включи обратно уведомления …» —
+    // личные отключения. ПОСЛЕ карточек (правка строки расходов, «ещё варианты»): рабочий
+    // ответ на карточку важнее; разбор узкий и чужую фразу пропускает дальше (staffNotice.ts).
+    if (!forwardedEvidence && await handleNoticePreferenceText(msg, agent, text)) return;
     const previous = await loadHistory(chatId, agent.id);
     if (!forwardedEvidence && isVoiceReplayRequest(text)) {
       if (!(await isAiAssistantEnabled())) { await send(DISABLED_TEXT); return; }

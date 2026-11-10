@@ -474,6 +474,20 @@ describe("живые сценарии чтения Мадины", () => {
     }
   });
 
+  // Ревью 11.11: «не присылай/не отправляй …» с именем, датой или номером — рабочая
+  // команда помощнице, а не выключение уведомлений (telegram/staffNotice.ts).
+  it.each([
+    ["не отправляй заявку Нозе", 905],
+    ["не надо писать задачу на завтра, я сам", 906],
+    ["верни обратно объект в продажу", 907],
+  ])("рабочая команда «%s» доходит до помощницы, а не выключает уведомления", async (text, messageId) => {
+    runner.mockResolvedValueOnce({ ok: true, reply: "Хорошо." });
+    const before = (await prisma.agent.findUnique({ where: { id: agents.director.id }, select: { pushMuted: true } }))!.pushMuted;
+    await handleTelegramUpdate(privateMsg("director", { message_id: messageId, text }));
+    expect(runner).toHaveBeenCalledTimes(1);
+    expect((await prisma.agent.findUnique({ where: { id: agents.director.id }, select: { pushMuted: true } }))!.pushMuted).toEqual(before);
+  });
+
   it("озвучивает предыдущий ответ из личного чата без нового вызова модели", async () => {
     runner.mockResolvedValueOnce({ ok: true, reply: "Нашла два варианта. Ссылки в карточках." });
     await handleTelegramUpdate(privateMsg("director", { message_id: 902, text: "покажи варианты" }));
