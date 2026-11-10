@@ -25,13 +25,17 @@ import { findTelegramAgentClients, isVoiceReplayRequest, replayTelegramAssistant
 import { clearStaffPropertyPage, propertyPageRequest, propertyPageSize, propertySelection, propertyWorkflowRequest, sendMoreStaffProperties, sendStaffPropertySelection } from "./assistantPropertyPages.js";
 import { sendAssistantVoiceReply } from "./assistantVoice.js";
 import { handleTelegramPropertyDraft, handleTelegramPropertyDraftCallback } from "./assistantPropertyDraft.js";
-import { handleTelegramExpenseReceipt, handleTelegramExpenseReceiptCallback } from "./assistantExpenseReceipt.js";
+import { handlePropertyOfferCallback } from "./assistantPropertyOffers.js";
+import { handleExpenseFileQuestionCallback, handleTelegramExpenseReceipt, handleTelegramExpenseReceiptCallback } from "./assistantExpenseReceipt.js";
+import { ADD_EXPENSES_TOOL } from "../ai/assistant/tools/expenseBatchTool.js";
+import { applyExpenseFixMessage, expenseBatchOutcomeText, handleExpenseCardCallback, sendExpenseBatchCard } from "./assistantExpenseCard.js";
 import { handleAssistantMedia } from "./assistantMedia.js";
 import { createAssistantMoneyWallet, type AssistantMoneyWallet } from "../ai/assistant/moneyBudget.js";
 import {
   AssistantActionError,
   discardPendingAssistantAction,
   confirmAssistantAction,
+  undoAssistantAction,
   type AssistantActionActor,
   type AssistantActionView,
 } from "../lib/assistantActions.js";
@@ -44,9 +48,24 @@ import { describeError } from "../lib/describeError.js";
 import { trackBackgroundTask } from "../lib/shutdownState.js";
 import { logAssistantFastPathTurn, logAssistantToolCall, logAssistantTurn } from "../lib/aiAssistantAudit.js";
 import {
+  bundleNeedsStepUp,
+  cancelStepUpForBundle,
+  findPendingStepUp,
+  parseStepUpCode,
+  rememberStepUpPrompt,
+  startStepUpChallenge,
+  stepUpText,
+  verifyStepUpCode,
+  type PendingStepUp,
+  type StepUpKind,
+  type StepUpLanguage,
+} from "./assistantStepUp.js";
+import { STAFF_TOOL_NAMES } from "../ai/assistant/tools/staffToolNames.js";
+import {
   answerCallbackQuery as answerCallbackQueryRaw,
+  deletePrivateMessage,
   getBotUsername,
-  sendChatAction, sendHtmlMessage,
+  editMessageText, sendChatAction, sendHtmlMessage,
   sendMessage,
   sendMessageWithButtons,
   setMessageReaction,
@@ -103,7 +122,16 @@ const DISABLED_TEXT = "ИИ-помощник выключен в Настрой�
  */
 const answerCallbackQuery = (id: string, text?: string) => answerCallbackQueryRaw(id, text).catch(() => undefined);
 
-const BUNDLE_CALLBACK = /^as:(ok|no):([0-9a-f-]{36})$/;
+const BUNDLE_CALLBACK = /^as:(ok|no|undo):([0-9a-f-]{36})$/;
+
+/**
+ * Кнопка «↩️ Отменить» после исполнения (10.11.2026) — только в личке и только для
+ * раздела «Команда» и передачи клиента: там откат есть в брокере (права, роль,
+ * пауза, заморозка, передача дел). Остальные карточки Telegram ведут себя как раньше.
+ */
+const UNDO_IN_TELEGRAM: ReadonlySet<string> = new Set<string>([...STAFF_TOOL_NAMES, "change_client_agent"]);
+const undoButtons = (bundleId: string) => [[{ text: "↩️ Отменить", callback_data: `as:undo:${bundleId}` }]];
+
 
 // ───────────────────────────── права ─────────────────────────────
 
@@ -122,6 +150,11 @@ const GROUP_HIDDEN_PERMISSIONS: readonly PermissionId[] = [
  */
 const GROUP_HIDDEN_TOOLS: ReadonlySet<string> = new Set([
   "search_deals",
+  // «Сделки» Шабнам (10.11.2026): деньги и доли — только в личке. Сами инструменты
+  // тоже не объявляются вне лички (dealToolsAllowed), это вторая стена.
+  "get_deal_card",
+  "get_my_commission",
+  "get_payouts_due",
   "get_company_stats",
   "get_finance_summary",
   "get_lead_sources",
@@ -129,7 +162,20 @@ const GROUP_HIDDEN_TOOLS: ReadonlySet<string> = new Set([
   "create_task",
   "reschedule_task",
   "add_client_note",
+  // Сотрудники и права — только личка (владелец 10.11.2026): в группе ни читать, ни менять.
+  ...STAFF_TOOL_NAMES,
+  // Деньги в общей группе не показываются и не меняются (10.11.2026): все инструменты расходов.
+  // Список буквами (не импортом): сверку с реестром держит тест assistant-expense-batch.
+  "list_expenses", "get_expense_summary", "get_expense_forecast", "get_expense_pivot", "list_recurring_expenses",
+  "list_expense_archive", "list_expense_categories", "add_expenses", "update_expense", "delete_expense", "restore_expense",
+  "pay_expense", "undo_expense_payment", "create_recurring_expense", "update_recurring_expense", "delete_recurring_expense",
+  "recurring_expense_payment", "create_expense_category", "update_expense_category", "get_expense_history",
 ]);
+
+/** Для теста-сторожа: что закрыто в общей группе. */
+export function groupHiddenToolsForTests(): ReadonlySet<string> {
+  return GROUP_HIDDEN_TOOLS;
+}
 
 /** Актор помощника для ЧТЕНИЯ: в группе — без телефонов клиентов, финансов и отчётов. */
 export function assistantActorFor(
@@ -164,7 +210,32 @@ function lines(record: Record<string, unknown>): string {
 }
 
 /** Одна карточка на все ожидающие действия ответа: «было → станет» по каждому. */
-export function renderBundleCard(actions: readonly AssistantActionView[], authorName: string, maskPhones = false, source?: string, tajik = false): string {
+/**
+ * Рамка карточки подтверждения на языке собеседника (10.11.2026): «Подтвердите действие / Было /
+ * Станет / Подтвердить может только …». Одна таблица на все инструменты записи; значения полей —
+ * как их построил инструмент. По умолчанию — русский, как было.
+ */
+const CARD_FRAME = {
+  ru: { confirm: (many: boolean) => `Подтвердите действие${many ? "я" : ""}:`, was: "Было", becomes: "Станет", irreversible: "Необратимо",
+    only: (name: string) => `Подтвердить может только ${name}.`, origin: (who: string) => `По сообщению ${who}`,
+    ok: "✅ Подтвердить", okIrreversible: "✅ Подтвердить (необратимо)", okPlain: "Подтвердить", cancel: "✖ Отмена", cancelPlain: "Отмена" },
+  tg: { confirm: (many: boolean) => `Ин амал${many ? "ҳо" : ""}ро тасдиқ кунед:`, was: "Пеш", becomes: "Мешавад", irreversible: "Баргардонда намешавад",
+    only: (name: string) => `Танҳо ${name} тасдиқ карда метавонад.`, origin: (who: string) => `Аз рӯи паёми ${who}`,
+    ok: "✅ Тасдиқ", okIrreversible: "✅ Тасдиқ (баргардонда намешавад)", okPlain: "Тасдиқ", cancel: "✖ Бекор", cancelPlain: "Бекор" },
+} as const;
+export type CardFrameLang = keyof typeof CARD_FRAME;
+/** Буквы, которых нет в русском, — по ним видно, что инструмент построил карточку по-таджикски. */
+const TAJIK_LETTERS = /[ӣӯқғҳҷҒҚҲҶӢӮ]/u;
+
+/** Язык рамки карточки: таджикский, только если все карточки построены по-таджикски и разговор таджикский. */
+export function bundleFrameLang(actions: readonly Pick<AssistantActionView, "preview">[], language: ReturnType<typeof assistantLanguage> | undefined): CardFrameLang {
+  return actions.length > 0 && actions.every((a) => TAJIK_LETTERS.test(a.preview.title)) && cardFrameLang(language) === "tg" ? "tg" : "ru";
+}
+export const cardFrameLang = (language: ReturnType<typeof assistantLanguage> | undefined): CardFrameLang =>
+  language === "tg" || language === "mixed" ? "tg" : "ru";
+
+export function renderBundleCard(actions: readonly AssistantActionView[], authorName: string, maskPhones = false, source?: string, tajik = false, lang: CardFrameLang = "ru"): string {
+  const frame = CARD_FRAME[lang];
   const parts = actions.map((a, i) => {
     const p = a.preview;
     const head = actions.length > 1 ? `${i + 1}) ${p.title}` : p.title;
@@ -179,19 +250,19 @@ export function renderBundleCard(actions: readonly AssistantActionView[], author
     }
     return [
       head,
-      `   Было: ${lines(p.was)}`,
-      `   Станет: ${lines(p.becomes)}`,
-      p.risk ? `   ${p.irreversible ? "⚠️ " : ""}${field(p.risk)}` : p.irreversible ? "   ⚠️ Необратимо" : null,
+      `   ${frame.was}: ${lines(p.was)}`,
+      `   ${frame.becomes}: ${lines(p.becomes)}`,
+      p.risk ? `   ${p.irreversible ? "⚠️ " : ""}${field(p.risk)}` : p.irreversible ? `   ⚠️ ${frame.irreversible}` : null,
     ]
       .filter(Boolean)
       .join("\n");
   });
-  const origin = source ? `По сообщению ${source}
+  const origin = source ? `${frame.origin(source)}
 ` : "";
   if (maskPhones && actions.length === 1 && actions[0]?.tool === "change_property_price") {
     return sanitizeAssistantReply(parts[0] ?? "", true);
   }
-  const card = `${origin}Подтвердите действие${actions.length > 1 ? "я" : ""}:\n\n${parts.join("\n\n")}\n\nПодтвердить может только ${authorName}.`;
+  const card = `${origin}${frame.confirm(actions.length > 1)}\n\n${parts.join("\n\n")}\n\n${frame.only(authorName)}`;
   return sanitizeAssistantReply(card, maskPhones);
 }
 
@@ -523,7 +594,9 @@ async function bindConfirmation(agentId: string, actionIds: string[]): Promise<C
 async function sendTurnResult(
   chatId: string,
   result: TurnResult,
-  ctx: { agentId: string; authorName: string; scope: "private" | "group"; replyTo?: number; messageThreadId?: number; source?: string; fromVoice?: boolean; addressedGroupVoice?: boolean; mode?: AssistantReplyMode; reactTo?: number; requestLanguage?: ReturnType<typeof assistantLanguage>; voiceLanguage?: AssistantSpeechLanguage }
+  ctx: { agentId: string; authorName: string; scope: "private" | "group"; replyTo?: number; messageThreadId?: number; source?: string; fromVoice?: boolean; addressedGroupVoice?: boolean; mode?: AssistantReplyMode; reactTo?: number; requestLanguage?: ReturnType<typeof assistantLanguage>; voiceLanguage?: AssistantSpeechLanguage;
+    /** Язык рамки карточки подтверждения (личка: язык сообщения человека). */
+    cardLanguage?: ReturnType<typeof assistantLanguage> }
 ): Promise<void> {
   const maskPhones = ctx.scope === "group";
   const split = splitReaction(result.reply);
@@ -546,9 +619,24 @@ async function sendTurnResult(
     });
     return;
   }
+  // Пачка расходов — своя карточка по статьям, со страницами и «Править» (assistantExpenseCard.ts).
+  if (!maskPhones && result.pending.length === 1 && result.pending[0]!.tool === ADD_EXPENSES_TOOL) {
+    // Карточка говорит сама за себя: фразу модели «проверьте и нажмите» второй репликой не шлём.
+    const lead = written.join("\n");
+    if (lead.trim()) await sendMessage(chatId, lead, ctx.replyTo).catch(() => undefined);
+    if (!(await sendExpenseBatchCard(chatId, result.pending[0]!, ctx.agentId, ctx.replyTo))) {
+      await cancelPending(result.pending, ctx.agentId);
+      await sendMessage(chatId, "Карточка уже изменилась. Повторите просьбу.", ctx.replyTo);
+    }
+    return;
+  }
   const priceOnlyInGroup = maskPhones && result.pending.every(action => action.tool === "change_property_price");
   const tajikPrice = priceOnlyInGroup && (ctx.requestLanguage === "tg" || ctx.requestLanguage === "mixed");
-  const preview = renderBundleCard(result.pending, ctx.authorName, maskPhones, ctx.source, tajikPrice);
+  // Язык рамки = язык содержимого инструментов (повторное ревью 10.11.2026): таджикская рамка только
+  // если все карточки построены по-таджикски и собеседник говорит по-таджикски; иначе русская целиком.
+  const frameLang = bundleFrameLang(result.pending, ctx.cardLanguage ?? ctx.requestLanguage);
+  const frame = CARD_FRAME[frameLang];
+  const preview = renderBundleCard(result.pending, ctx.authorName, maskPhones, ctx.source, tajikPrice, frameLang);
   const body = [priceOnlyInGroup ? "" : rendered, ...written].filter(Boolean).join("\n");
   // Кнопка без полностью видимой карточки — подтверждение вслепую: слишком длинное не показываем.
   if (preview.length > CARD_MAX_CHARS) {
@@ -568,14 +656,16 @@ async function sendTurnResult(
   }
   const { bundleId } = binding;
   // Show the same order that pressing either card will execute.
-  const card = renderBundleCard(binding.actionIds.map((id) => pendingById.get(id)!), ctx.authorName, maskPhones, ctx.source, tajikPrice);
+  const card = renderBundleCard(binding.actionIds.map((id) => pendingById.get(id)!), ctx.authorName, maskPhones, ctx.source, tajikPrice, frameLang);
   const irreversible = result.pending.some((a) => a.preview.irreversible);
   // Карточка целиком, ответ модели — по остатку места (не наоборот).
   const room = Math.max(0, TEXT_MAX_CHARS - card.length - 2);
   const text = [body.slice(0, room), card].filter(Boolean).join("\n\n");
   const buttons = [[
-    { text: tajikPrice ? "Ҳа" : irreversible ? "✅ Подтвердить (необратимо)" : maskPhones ? "Подтвердить" : "✅ Подтвердить", callback_data: `as:ok:${bundleId}` },
-    { text: tajikPrice ? "Бекор" : maskPhones ? "Отмена" : "✖ Отмена", callback_data: `as:no:${bundleId}` },
+    // Сотрудники и права: кнопка честно говорит, что дальше спросят код (assistantStepUp.ts). Рамка — на
+    // языке содержимого (у карточек сотрудников она русская), поэтому и надпись кнопки — русская.
+    { text: tajikPrice ? "Ҳа" : bundleNeedsStepUp(result.pending) ? "🔐 Подтвердить кодом" : irreversible ? frame.okIrreversible : maskPhones ? frame.okPlain : frame.ok, callback_data: `as:ok:${bundleId}` },
+    { text: tajikPrice ? "Бекор" : maskPhones ? frame.cancelPlain : frame.cancel, callback_data: `as:no:${bundleId}` },
   ]];
   if (priceOnlyInGroup && result.pending.length === 1
       && await sendTelegramPriceConfirmationPhotos(chatId, result.pending[0], text, buttons, ctx.replyTo)) return;
@@ -767,6 +857,8 @@ export async function handleAssistantPrivate(
       await send(HELP_TEXT);
       return;
     }
+    // Ответ на «Править → строка N» в карточке расходов: поправка строки, а не новая просьба.
+    if (!forwardedEvidence && await applyExpenseFixMessage(chatId, agent.id, text, msg.message_id)) return;
     const more = !forwardedEvidence && propertyPageRequest(text);
     if (more && await replyWithMoreProperties(cardScope, more, text)) return;
     const previous = await loadHistory(chatId, agent.id);
@@ -799,6 +891,8 @@ export async function handleAssistantPrivate(
         agentId: agent.id, authorName: agent.fullName, scope: "private", fromVoice,
         mode: preference?.mode ?? "auto", reactTo: msg.message_id, voiceLanguage: preference?.voiceLanguage,
         requestLanguage: preference?.mode === "voice" ? assistantLanguage([{ role: "user", content: text }]) : undefined,
+        // Язык разговора, а не одного сообщения: «5000» или «ҳа» не сбивают на русский.
+        cardLanguage: assistantLanguage(history.slice(-6)),
       });
     }
     await saveHistory(chatId, agent.id, [...history, { role: "assistant", content: result.reply.slice(0, 4000) }]);
@@ -1571,7 +1665,18 @@ const FAIL_STATUS_NOTE: Record<string, string> = {
 /** `as:ok|no:<связка>`. true — это наша кнопка (обработана или отклонена). */
 export async function handleAssistantCallback(query: TelegramCallbackQuery): Promise<boolean> {
   if (query.data?.startsWith("ef:")) return handleTelegramExpenseReceiptCallback(query);
+  if (query.data?.startsWith("ay:")) {
+    if (!(await claimCallback(query.id))) { await answerCallbackQuery(query.id); return true; }
+    const clicker = await clickerOf(query).catch(() => null);
+    return handleExpenseFileQuestionCallback(query, clicker?.id ?? null);
+  }
+  if (query.data?.startsWith("ax:")) {
+    if (!(await claimCallback(query.id))) { await answerCallbackQuery(query.id); return true; }
+    const clicker = await clickerOf(query).catch(() => null);
+    return handleExpenseCardCallback(query, clicker?.id ?? null);
+  }
   if (await handleTelegramPropertyDraftCallback(query)) return true;
+  if (await handlePropertyOfferCallback(query)) return true;
   if (!query.data?.startsWith("as:")) return false;
   const match = BUNDLE_CALLBACK.exec(query.data);
   if (!match) {
@@ -1647,15 +1752,56 @@ export async function handleAssistantCallback(query: TelegramCallbackQuery): Pro
       const executed = await serializeBundle(bundleId, async () => {
         if (!(await groupRegistrationAllows())) return null;
         for (const a of actions) await discardPendingAssistantAction(a.id, actor).catch(() => undefined);
+        await cancelStepUpForBundle(bundleId);
         return prisma.assistantAction.count({ where: { bundleId, status: { in: ["EXECUTED", "CONFIRMED"] } } });
       });
       if (executed === null) return true;
       // Часть цепочки могла успеть исполниться до отмены — правду об этом не прячем.
       const note = executed > 0 ? "Часть действий уже была выполнена, остальные отменены" : "Отменено";
       await answerCallbackQuery(query.id, note);
+      const isExpenseBatch = actions.length === 1 && actions[0]!.tool === ADD_EXPENSES_TOOL;
+      const expenseNote = executed === 0 && isExpenseBatch ? await expenseBatchOutcomeText(actions, false).catch(() => null) : null;
+      if (expenseNote && chatId && messageId) {
+        await editMessageText(chatId, messageId, expenseNote, null).catch(() => {});
+        return true;
+      }
       if (chatId && query.message && messageId) {
         await editTelegramConfirmationMessage(query.message, sanitizeAssistantReply(tajikPrice && executed === 0 ? "Бекор шуд" : `✖ ${note} (${clicker.fullName})`, chatId.startsWith("-"))).catch(() => {});
       }
+      return true;
+    }
+
+    if (verb === "undo") {
+      if (callbackChat?.type !== "private" || !chatId) {
+        await answerCallbackQuery(query.id, "Отменить можно в личке с Шабнам");
+        return true;
+      }
+      const executed = actions.filter((a) => a.status === "EXECUTED");
+      if (executed.length === 0) {
+        await answerCallbackQuery(query.id, actions.some((a) => a.status === "UNDONE") ? "Уже отменено" : "Отменять нечего");
+        return true;
+      }
+      // Откат того, что стояло за подтверждением личности, — тоже только с кодом.
+      if (bundleNeedsStepUp(executed)) {
+        await askStepUpCode({ agentId: clicker.id, chatId, bundleId, kind: "undo", cardMessageId: messageId, answer: (text) => answerCallbackQuery(query.id, text) });
+        return true;
+      }
+      const undone = await serializeBundle(bundleId, () => undoBundle(executed.map((a) => a.id), actor));
+      await answerCallbackQuery(query.id, undone.failed ? "Отменено не всё" : "Отменено");
+      await showOnCard(chatId, messageId, undoSummary(undone, clicker.fullName), null);
+      return true;
+    }
+
+    // Сотрудники, права, сброс 2FA (10.11.2026): как в CRM за подтверждением личности —
+    // здесь только кодом Google Authenticator, отдельным сообщением (assistantStepUp.ts).
+    // Уже исполненная или истёкшая карточка кода не просит: дальше «Уже выполнено» / «время вышло».
+    const awaiting = actions.some((a) => a.status === "PENDING" && a.expiresAt.getTime() > Date.now());
+    if (awaiting && bundleNeedsStepUp(actions)) {
+      if (callbackChat?.type !== "private" || !chatId) {
+        await answerCallbackQuery(query.id, "Это действие доступно в личке с Шабнам");
+        return true;
+      }
+      await askStepUpCode({ agentId: clicker.id, chatId, bundleId, cardMessageId: messageId, answer: (text) => answerCallbackQuery(query.id, text) });
       return true;
     }
 
@@ -1678,6 +1824,13 @@ export async function handleAssistantCallback(query: TelegramCallbackQuery): Pro
     }
     await answerCallbackQuery(query.id, outcome.failed ? "Выполнено не всё" : "Готово");
     if (!chatId) return true;
+    const expenseDone = !outcome.failed && actions.length === 1 && actions[0]!.tool === ADD_EXPENSES_TOOL
+      ? await expenseBatchOutcomeText(actions, true).catch(() => null) : null;
+    if (expenseDone) {
+      if (messageId) await editMessageText(chatId, messageId, expenseDone, null).catch(() => sendMessage(chatId, expenseDone).catch(() => {}));
+      else await sendMessage(chatId, expenseDone).catch(() => {});
+      return true;
+    }
     const isGroup = chatId.startsWith("-");
     const mark = outcome.failed ? "⚠️" : "✅";
     const summary = isGroup
@@ -1686,6 +1839,10 @@ export async function handleAssistantCallback(query: TelegramCallbackQuery): Pro
         : `${outcome.failed ? "Не всё получилось" : "Готово"}:\n${outcome.lines.join("\n")}`)
       : `${mark} ${clicker.fullName}:\n${outcome.lines.join("\n")}`;
     const safeSummary = sanitizeAssistantReply(summary, isGroup);
+    if (!isGroup && outcome.undoable && messageId) {
+      await showOnCard(chatId, messageId, safeSummary, undoButtons(bundleId));
+      return true;
+    }
     if (query.message && messageId) {
       await editTelegramConfirmationMessage(query.message, safeSummary).catch(async (err: unknown) => {
         if (isGroup && (!(err instanceof TelegramApiError) || err.errorCode !== 400 || /message is not modified/i.test(err.message))) return;
@@ -1707,7 +1864,7 @@ type BundleOutcome =
   | { kind: "busy" }
   | { kind: "retry"; message: string }
   | { kind: "replay" }
-  | { kind: "done"; failed: boolean; lines: string[]; priceResult?: string };
+  | { kind: "done"; failed: boolean; lines: string[]; priceResult?: string; undoable: boolean };
 
 export function renderGroupPriceResult(action: AssistantActionView, tajik = false): string | undefined {
   if (action.tool !== "change_property_price" || typeof action.preview.becomes.Цена !== "string"
@@ -1732,17 +1889,23 @@ async function executeBundle(ids: string[], actor: AssistantActionActor, tajikPr
   let ranAny = false;
   let failed = false;
   let priceResult: string | undefined;
+  let undoable = false;
   for (let i = 0; i < ids.length; i++) {
     try {
       const access = await loadAgentAccess(actor.agentId, prisma);
       if (!access?.isActive || isReadOnlyRole(access.role)) {
         throw new AssistantActionError(403, "FORBIDDEN", "Недостаточно прав на это действие");
       }
-      const currentActor = actionActorOf(actor.agentId, access, actor.telegramPrivate === true);
+      const currentActor: AssistantActionActor = {
+        ...actionActorOf(actor.agentId, access, actor.telegramPrivate === true),
+        // Код проверен в этом же исполнении (assistantStepUp.ts) — только для него.
+        ...(actor.stepUpVerified === true ? { stepUpVerified: true } : {}),
+      };
       const { action, replay } = await confirmAssistantAction(ids[i], currentActor);
       if (!replay) ranAny = true;
       if (!replay && ids.length === 1) priceResult = renderGroupPriceResult(action, tajikPrice);
       lines.push(`${replay ? "↺" : "•"} ${action.preview.title}`);
+      if (action.undoUntil && UNDO_IN_TELEGRAM.has(action.tool)) undoable = true;
     } catch (err) {
       if (err instanceof AssistantActionError && err.code === "IN_PROGRESS") return { kind: "busy" };
       if (err instanceof AssistantActionError && err.code === "CONFIRM_RETRY") return { kind: "retry", message: err.message };
@@ -1759,5 +1922,179 @@ async function executeBundle(ids: string[], actor: AssistantActionActor, tajikPr
     }
   }
   if (!ranAny && !failed) return { kind: "replay" };
-  return { kind: "done", failed, lines, priceResult };
+  return { kind: "done", failed, lines, priceResult, undoable: undoable && !failed };
+}
+
+/** Откат связки — в обратном порядке; на первой неудаче останавливаемся и говорим правду. */
+async function undoBundle(ids: string[], actor: AssistantActionActor): Promise<{ failed: boolean; lines: string[] }> {
+  const lines: string[] = [];
+  let failed = false;
+  const order = [...ids].reverse();
+  for (const [index, id] of order.entries()) {
+    try {
+      const access = await loadAgentAccess(actor.agentId, prisma);
+      if (!access?.isActive || isReadOnlyRole(access.role)) {
+        throw new AssistantActionError(403, "FORBIDDEN", "Недостаточно прав на это действие");
+      }
+      const currentActor: AssistantActionActor = {
+        ...actionActorOf(actor.agentId, access, actor.telegramPrivate === true),
+        ...(actor.stepUpVerified === true ? { stepUpVerified: true } : {}),
+      };
+      const { action, replay } = await undoAssistantAction(id, currentActor);
+      lines.push(`${replay ? "↺" : "↩️"} ${action.preview.title}`);
+    } catch (err) {
+      failed = true;
+      lines.push(`✖ ${err instanceof AssistantActionError ? FAIL_STATUS_NOTE[err.code] ?? err.message : "не получилось отменить"}`);
+      if (!(err instanceof AssistantActionError)) await logSystemError("ai", `Помощник Telegram: откат ${id} упал: ${describeError(err)}`);
+      if (index < order.length - 1) lines.push("Остальное не отменено.");
+      break;
+    }
+  }
+  return { failed, lines };
+}
+
+/** Итог отката: при сбое честно «не всё отменено» и что именно. */
+function undoSummary(undone: { failed: boolean; lines: string[] }, name: string): string {
+  const head = undone.failed ? `⚠️ Не всё отменено (${name}):` : `↩️ ${name}:`;
+  return sanitizeAssistantReply(`${head}\n${undone.lines.join("\n")}`, false);
+}
+
+/** Итог на месте карточки (личка): правим её текст и кнопки, не вышло — одно отдельное сообщение. */
+async function showOnCard(chatId: string, messageId: number | undefined, text: string, buttons: ReturnType<typeof undoButtons> | null) {
+  if (!messageId) {
+    await sendMessage(chatId, text).catch(() => {});
+    return;
+  }
+  await editMessageText(chatId, messageId, text, buttons).catch(async () => {
+    await sendMessage(chatId, text).catch(() => {});
+  });
+}
+
+// ───────────────────────────── код Google Authenticator ─────────────────────────────
+
+async function stepUpLanguageOf(chatId: string, agentId: string): Promise<StepUpLanguage> {
+  const history = await loadHistory(chatId, agentId).catch(() => []);
+  const last = history.slice().reverse().find((m) => m.role === "user");
+  if (!last) return "ru";
+  const language = assistantLanguage([{ role: "user", content: last.content }]);
+  return language === "tg" || language === "mixed" ? "tg" : "ru";
+}
+
+/** «Подтвердить» на карточке со step-up: просим код, ничего не исполняем. */
+async function askStepUpCode(input: {
+  agentId: string;
+  chatId: string;
+  bundleId: string;
+  kind?: StepUpKind;
+  cardMessageId?: number;
+  answer: (text: string) => Promise<unknown>;
+}): Promise<void> {
+  const language = await stepUpLanguageOf(input.chatId, input.agentId);
+  const started = await startStepUpChallenge({ ...input, language });
+  if (started.kind === "no_totp") {
+    await input.answer(language === "tg" ? "Google Authenticator фаъол нест" : "Не включён Google Authenticator");
+    await sendMessage(input.chatId, stepUpText("noTotp", language)).catch(() => {});
+    return;
+  }
+  if (started.kind === "locked") {
+    await input.answer(language === "tg" ? "Тасдиқ муваққатан баста аст" : "Подтверждение временно закрыто");
+    await sendMessage(input.chatId, stepUpText("locked", language)).catch(() => {});
+    return;
+  }
+  await input.answer(language === "tg" ? "Кодро нависед" : "Введите код из приложения");
+  const sent = (await sendMessage(input.chatId, stepUpText("prompt", language)).catch(() => null)) as { message_id?: number } | null;
+  await rememberStepUpPrompt(started.challengeId, sent?.message_id);
+}
+
+/** Итог исполнения связки — тот же вид, что после обычного нажатия в личке. */
+function privateSummary(outcome: Extract<BundleOutcome, { kind: "done" }>, clickerName: string): string {
+  const mark = outcome.failed ? "⚠️" : "✅";
+  return sanitizeAssistantReply(`${mark} ${clickerName}:\n${outcome.lines.join("\n")}`, false);
+}
+
+async function runVerifiedBundle(challenge: PendingStepUp, agent: { id: string; fullName: string }): Promise<void> {
+  const tg = challenge.language === "tg";
+  const access = await loadAgentAccess(agent.id, prisma);
+  if (!access?.isActive || isReadOnlyRole(access.role)) {
+    await sendMessage(challenge.chatId, tg ? "Барои ин кор ҳуқуқ нест." : "Нет прав на это действие.").catch(() => {});
+    return;
+  }
+  const actions = await prisma.assistantAction.findMany({
+    where: { bundleId: challenge.bundleId },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    select: { id: true, agentId: true, status: true },
+  });
+  if (actions.length === 0 || actions.some((a) => a.agentId !== agent.id)) {
+    await sendMessage(challenge.chatId, tg ? "Корт кӯҳна шуд. Боз нависед." : "Карточка устарела. Повторите просьбу.").catch(() => {});
+    return;
+  }
+  const actor: AssistantActionActor = { ...actionActorOf(agent.id, access, true), stepUpVerified: true };
+  if (challenge.kind === "undo") {
+    const undone = await serializeBundle(challenge.bundleId, () => undoBundle(actions.map((a) => a.id), actor));
+    await showOnCard(challenge.chatId, challenge.cardMessageId ?? undefined, undoSummary(undone, agent.fullName), null);
+    return;
+  }
+  const outcome = await serializeBundle(challenge.bundleId, () => executeBundle(actions.map((a) => a.id), actor, false));
+  if (outcome.kind !== "done") {
+    const note = outcome.kind === "busy" ? "Уже выполняется." : outcome.kind === "replay" ? "Уже выполнено." : outcome.message;
+    await sendMessage(challenge.chatId, note).catch(() => {});
+    return;
+  }
+  const summary = privateSummary(outcome, agent.fullName);
+  await showOnCard(challenge.chatId, challenge.cardMessageId ?? undefined, summary, outcome.undoable ? undoButtons(challenge.bundleId) : null);
+}
+
+/**
+ * Сообщение в личке, пока ждём код (telegram/bot.ts зовёт ДО остальных обработчиков
+ * текста). true — это был код, и он обработан; false — обычное сообщение, дальше по
+ * обычному пути. Сообщение с кодом удаляется сразу — и верное, и неверное.
+ */
+export async function handleAssistantStepUpMessage(msg: TelegramIncomingMessage, agent: { id: string; fullName: string }): Promise<boolean> {
+  if (msg.chat.type !== "private" || msg.forward_origin || msg.forward_from_message_id) return false;
+  const chatId = String(msg.chat.id);
+  const voice = Boolean(msg.voice || msg.audio || msg.video_note);
+  const code = voice ? null : parseStepUpCode(msg.text);
+  if (!voice && !code) return false;
+  const challenge = await findPendingStepUp(chatId, agent.id);
+  if (!challenge) return false;
+  if (voice) {
+    // Голос кодом не считается: просим цифрами; распознавать цифры из речи — путь к ошибкам и утечке.
+    if (challenge.expired) return false;
+    await sendMessage(chatId, stepUpText("voice", challenge.language)).catch(() => {});
+    return true;
+  }
+  const messageId = msg.message_id;
+  // Проверка и исполнение — в очереди этого чата (как ход помощницы): два кода подряд
+  // не проверяются наперегонки, а долгая передача дел не держит общую очередь апдейтов.
+  deferAssistantReply(msg, runInAssistantLane(`private:${chatId}`, async () => {
+    // Сообщение с кодом удаляется ДО проверки — и верное, и неверное.
+    if (messageId && !(await deletePrivateMessage(chatId, messageId))) {
+      await sendMessage(chatId, stepUpText("notDeleted", challenge.language)).catch(() => {});
+    }
+    await checkStepUpCode(chatId, challenge, code!, agent);
+  }, async (err) => {
+    await logSystemError("telegram", `Помощник: проверка кода Google Authenticator: ${describeError(err)}`);
+  }));
+  return true;
+}
+
+async function checkStepUpCode(chatId: string, challenge: PendingStepUp, code: string, agent: { id: string; fullName: string }): Promise<void> {
+  try {
+    const verdict = await verifyStepUpCode(challenge, code);
+    if (verdict.kind === "gone") return;
+    if (verdict.kind !== "passed") {
+      if (challenge.kind === "confirm" && (verdict.kind === "locked" || verdict.kind === "no_totp" || verdict.kind === "inactive")) {
+        const actor: AssistantActionActor = { agentId: agent.id, channel: "telegram", telegramPrivate: true, can: () => false };
+        const rows = await prisma.assistantAction.findMany({ where: { bundleId: challenge.bundleId }, select: { id: true } });
+        for (const row of rows) await discardPendingAssistantAction(row.id, actor).catch(() => undefined);
+      }
+      await sendMessage(chatId, verdict.message).catch(() => {});
+      return;
+    }
+    if (challenge.promptMessageId) void deletePrivateMessage(chatId, challenge.promptMessageId);
+    await runVerifiedBundle(challenge, agent);
+  } catch (err) {
+    await logSystemError("telegram", `Помощник: проверка кода Google Authenticator: ${describeError(err)}`);
+    await sendMessage(chatId, challenge.language === "tg" ? "Нашуд, боз кӯшиш кунед." : "Не получилось, попробуйте ещё раз.").catch(() => {});
+  }
 }

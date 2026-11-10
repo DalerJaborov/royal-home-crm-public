@@ -40,6 +40,8 @@ export const AGENT_CASCADE_HISTORY: Record<string, HistoryProbe> = {
   ClientDeleteRequest: (id) => prisma.clientDeleteRequest.findFirst(byAuthor(id)),
   PropertyDeleteRequest: (id) => prisma.propertyDeleteRequest.findFirst(byAuthor(id)),
   PropertyCountDispute: (id) => prisma.propertyCountDispute.findFirst(byAuthor(id)),
+  // Предложение объекта коллеге (10.11.2026): кто кому предлагал и что ответили — история работы.
+  PropertyClientOffer: (id) => prisma.propertyClientOffer.findFirst({ where: { OR: [{ fromAgentId: id }, { toAgentId: id }] }, select: { id: true } }),
   VideoRemakeRequest: (id) => prisma.videoRemakeRequest.findFirst(byAuthor(id)),
   PropertyChangeRequest: (id) => prisma.propertyChangeRequest.findFirst({ where: { authorId: id }, select: { id: true } }),
 };
@@ -53,6 +55,7 @@ export const AGENT_CASCADE_NOT_HISTORY: Record<string, string> = {
   Passkey: "ключ входа устройства",
   LoginSmsCode: "одноразовый код входа",
   AgentHandoverBatch: "снимок раздачи создаёт сам маршрут удаления прямо перед проверкой",
+  AssistantStepUpChallenge: "ожидание кода Google Authenticator у помощницы; хранится сутки, след — в AuditLog",
 };
 
 export async function agentHasCascadeHistory(agentId: string): Promise<boolean> {

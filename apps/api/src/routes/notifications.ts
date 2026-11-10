@@ -6,6 +6,7 @@ import { pageQuerySchema } from "@royal-home/shared";
 import { prisma } from "../db.js";
 import { can, requireAuth } from "../auth/middleware.js";
 import { maskPhonesInText } from "../lib/clientPhone.js";
+import { attachOfferStates } from "../lib/propertyClientOffers.js";
 
 /**
  * Лента уведомлений в шапке (17-18.08.2026, макет design_handoff, экран «notif»).
@@ -91,10 +92,16 @@ notificationsRouter.get("/", async (req, res) => {
   const shown = <T extends { title: string; body: string }>(rows: T[]): T[] =>
     canSeePhone ? rows : rows.map((n) => ({ ...n, title: maskPhonesInText(n.title), body: maskPhonesInText(n.body) }));
 
+  // Предложение объекта коллегой — со статусом ответа (lib/propertyClientOffers.ts).
+  const [itemsWithOffers, pinnedWithOffers] = await Promise.all([
+    attachOfferStates(req.agent!.id, shown(items)),
+    attachOfferStates(req.agent!.id, shown(pinned)),
+  ]);
+
   res.json({
-    items: shown(items),
+    items: itemsWithOffers,
     unreadCount,
-    pinned: shown(pinned),
+    pinned: pinnedWithOffers,
     approvalCount,
     criticalCount,
     hasMore: page * PAGE_SIZE < total,

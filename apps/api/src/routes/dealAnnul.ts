@@ -1,10 +1,6 @@
 import { Router } from "express";
-import { z } from "zod";
-import { can, requireAuth, scopeDealsToOwnAgent } from "../auth/middleware.js";
-import { logAudit } from "../lib/audit.js";
-import { annulDeal, DealAnnulError } from "../lib/dealAnnul.js";
-import { publishDealUpdated } from "../lib/livePublish.js";
-import { sendPushToAgent } from "../push.js";
+import { requireAuth } from "../auth/middleware.js";
+import { annulDealFor } from "../lib/dealWrites.js";
 
 /**
  * POST /deals/:id/annul — «Аннулировать» закрытую сделку (глубокая проверка
@@ -17,52 +13,9 @@ import { sendPushToAgent } from "../push.js";
  */
 export const dealAnnulRouter = Router();
 
-const annulSchema = z.object({
-  reason: z.string().trim().min(3, "Укажите причину").max(500),
-});
-
 dealAnnulRouter.post("/:id/annul", requireAuth, async (req, res) => {
-  if (!can(req, "deals.complete")) {
-    return res.status(403).json({ error: "Аннулировать сделку может только руководитель" });
-  }
-  const parsed = annulSchema.safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json({ error: "Укажите причину аннулирования", details: parsed.error.flatten() });
-  }
-
-  try {
-    const result = await annulDeal({
-      dealId: req.params.id,
-      actorId: req.agent!.id,
-      reason: parsed.data.reason,
-      ownAgentId: scopeDealsToOwnAgent(req),
-    });
-
-    logAudit(req, "DEAL_ANNUL", "Deal", result.deal.id, {
-      reason: parsed.data.reason,
-      clientId: result.deal.clientId,
-      propertyId: result.deal.propertyId,
-      propertyReturnedToSale: result.propertyReturnedToSale,
-    });
-    publishDealUpdated({
-      dealId: result.deal.id,
-      clientId: result.deal.clientId,
-      agentId: result.deal.agentId,
-      stage: result.deal.stage,
-      actorId: req.agent!.id,
-    });
-    if (req.agent!.id !== result.deal.agentId) {
-      sendPushToAgent(result.deal.agentId, {
-        title: "Сделка аннулирована",
-        body: `${result.clientName} — причина: ${parsed.data.reason}`,
-        url: "/deals",
-        tag: `deal-${result.deal.id}`,
-      }).catch((err) => console.error("[push] аннулирование сделки:", err));
-    }
-
-    res.json({ id: result.deal.id, stage: result.deal.stage, propertyReturnedToSale: result.propertyReturnedToSale });
-  } catch (err) {
-    if (err instanceof DealAnnulError) return res.status(err.status).json({ error: err.message });
-    throw err;
-  }
+  // Тело — одна дверь с ИИ-помощницей (lib/dealWrites.ts, annulDealFor).
+  const outcome = await annulDealFor(req, req.params.id, req.body);
+  if (!outcome.ok) return res.status(outcome.status).json(outcome.body);
+  res.json(outcome.result);
 });

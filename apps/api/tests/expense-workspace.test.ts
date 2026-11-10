@@ -139,6 +139,10 @@ describe("expense workspace lifecycle", () => {
     });
     it("moves a planned payment into the actual month, then restores its exact original date and rate", async () => {
         const e = await createExpense({ status: "PLANNED", month: "2020-06", paymentDate: "2020-06-30", currency: "USD", exchangeRate: null });
+        // Оплата доллара фиксирует курс из Настроек — без него 409 (10.11.2026), поэтому курс задан.
+        const previous = await prisma.settings.upsert({ where: { id: "singleton" }, update: {}, create: { id: "singleton" }, select: { usdToTjsRate: true } });
+        await prisma.settings.update({ where: { id: "singleton" }, data: { usdToTjsRate: 11 } });
+        try {
         const [a, b] = await Promise.all([request(app).post(`/api/v1/expenses/${e.id}/pay`).set(auth()).send({ paymentDate: "2020-07-01" }), request(app).post(`/api/v1/expenses/${e.id}/pay`).set(auth()).send({ paymentDate: "2020-07-02" })]);
         expect(a.status).toBe(200);
         expect(b.status).toBe(200);
@@ -148,6 +152,29 @@ describe("expense workspace lifecycle", () => {
         expect(undo.body.paymentDate).toBe("2020-06-30");
         expect(undo.body.month.slice(0, 7)).toBe("2020-06");
         expect(undo.body.exchangeRate).toBeNull();
+        } finally {
+            await prisma.settings.update({ where: { id: "singleton" }, data: { usdToTjsRate: previous.usdToTjsRate } });
+        }
+    });
+    it("без курса доллара в Настройках — 409 и создание, и оплата, и смена валюты; FALLBACK не подставляется", async () => {
+        const previous = await prisma.settings.upsert({ where: { id: "singleton" }, update: {}, create: { id: "singleton" }, select: { usdToTjsRate: true } });
+        await prisma.settings.update({ where: { id: "singleton" }, data: { usdToTjsRate: null } });
+        try {
+            const created = await request(app).post("/api/v1/expenses").set(auth()).send(expense({ currency: "USD" }));
+            expect(created.status).toBe(409);
+            expect(created.body).toMatchObject({ code: "NO_USD_RATE", error: expect.stringContaining("Курс доллара в Настройках CRM не задан") });
+            // Свой курс в расходе — пишется, как раньше.
+            const own = await request(app).post("/api/v1/expenses").set(auth()).send(expense({ currency: "USD", exchangeRate: 12 }));
+            expect(own.status).toBe(201);
+            expenseIds.push(own.body.id);
+            const plan = await createExpense({ status: "PLANNED", currency: "USD", exchangeRate: null });
+            expect((await request(app).post(`/api/v1/expenses/${plan.id}/pay`).set(auth()).send({ paymentDate: "2020-02-12" })).status).toBe(409);
+            const somoni = await createExpense();
+            const switched = await request(app).patch(`/api/v1/expenses/${somoni.id}`).set(auth()).send({ currency: "USD" });
+            expect(switched.status).toBe(409);
+        } finally {
+            await prisma.settings.update({ where: { id: "singleton" }, data: { usdToTjsRate: previous.usdToTjsRate } });
+        }
     });
     it("does not undo an older paid entry, or overwrite a subsequent manual edit", async () => {
         const old = await createExpense();

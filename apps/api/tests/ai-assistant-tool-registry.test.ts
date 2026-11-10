@@ -133,8 +133,9 @@ describe("реестр инструментов помощника", () => {
         allowsTelegram && (indexEnabled || plugin.name !== "index_company_knowledge"),
       );
     }
-    // Передача клиента — опасная зона: только CRM.
-    expect(telegram.has("change_client_agent")).toBe(false);
+    // Передача клиента в Telegram — только личка (решение владельца 10.11.2026): объявлена, а
+    // в группе её закрывает privateTelegram брокера (tests/assistant-change-client-agent.test.ts).
+    expect(telegram.has("change_client_agent")).toBe(true);
   });
 
   it.each([false, true])("объявление модели совпадает с плагином: имя, описание, схема; index flag=%s", (indexEnabled) => {
