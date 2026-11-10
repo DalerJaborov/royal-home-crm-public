@@ -632,6 +632,8 @@ model Agent {
   aiAssistantAuditLogs        AiAssistantAuditLog[]
   /// Ходы помощницы целиком (пачка 2, 07.11.2026): одна строка на ответ.
   aiAssistantTurnLogs         AiAssistantTurnLog[]
+  propertyOffersMade     PropertyClientOffer[] @relation("PropertyClientOfferFrom")
+  propertyOffersReceived PropertyClientOffer[] @relation("PropertyClientOfferTo")
 }
 
 /// Журнал входов в CRM: одна запись = одна успешная выдача сессии (логин или логин+2FA).
@@ -2638,6 +2640,7 @@ model Property {
   /// Автопродвижение роликов (23.10.2026) — см. ReelAutoBoostAd.
   reelAutoBoostAds           ReelAutoBoostAd[]
 
+  clientOffers PropertyClientOffer[]
   @@index([status])
   @@index([districtId])
   @@index([assignedAgentId])
@@ -3893,6 +3896,7 @@ model Client {
   /// гео-подбор объектов (сам подбор делает другой блок, здесь только хранение).
   desiredPlaces                ClientDesiredPlace[]
 
+  propertyOffers PropertyClientOffer[]
   @@index([assignedAgentId])
   @@index([assignedAgentId, agentAttentionRequestedAt])
   @@index([status])
@@ -11104,4 +11108,33 @@ model AssistantKnowledgeEmbedding {
   dimensions Int
   embedding Float[] @default([])
   indexedAt DateTime @default(now())
+}
+
+/// Предложение объекта коллеге для его клиента (10.11.2026, решение владельца:
+/// агент видит всех подходящих клиентов, чужих — без имени и телефона, и одной
+/// кнопкой предлагает объект агенту-владельцу клиента). Клиенту ничего не
+/// уходит, владелец клиента не меняется (docs/law/lead-ownership.md). Одна
+/// строка на пару объект+клиент — повторное нажатие второй раз не шлёт.
+model PropertyClientOffer {
+  id          String    @id @default(uuid())
+  propertyId  String
+  property    Property  @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  clientId    String
+  client      Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  fromAgentId String
+  fromAgent   Agent     @relation("PropertyClientOfferFrom", fields: [fromAgentId], references: [id], onDelete: Cascade)
+  toAgentId   String
+  toAgent     Agent     @relation("PropertyClientOfferTo", fields: [toAgentId], references: [id], onDelete: Cascade)
+  /// Куда ушло: TELEGRAM — в личку агента, CRM — уведомлением (Telegram не привязан).
+  channel     String
+  /// PENDING — записано, ещё не доставлено (повтор разрешён); SENT — доставлено, ждёт
+  /// ответа; WILL_SEND — «Отправлю клиенту»; NOT_SUITABLE — «Не подходит»;
+  /// CLOSED — клиент ушёл к другому агенту, предложение больше не его.
+  status      String    @default("PENDING")
+  respondedAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@unique([propertyId, clientId])
+  @@index([toAgentId, createdAt])
+  @@index([clientId])
 }

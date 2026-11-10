@@ -47,6 +47,8 @@ function fixture(type: "group" | "supergroup" | "private" = "supergroup") {
     "../lib/telegramAgentLink.js": { findAgentByTelegramUserId: async (id: string) => ({ id: id === "10" ? "test-director" : id === "1" ? "test-author" : "test-other", fullName: "Fixture" }) },
     "../ai/assistant.js": { isAiAssistantEnabled: async () => enabled },
     "./assistantPropertyDraft.js": { handleTelegramPropertyDraftCallback: async () => false },
+    // Кнопки «Предложить коллеге» (10.11.2026) — свой обработчик, к кнопкам связок не относится.
+    "./assistantPropertyOffers.js": { handlePropertyOfferCallback: async () => false },
     "../ai/assistant/tools/expenseBatchTool.js": { ADD_EXPENSES_TOOL: "add_expenses" },
     "../lib/telegramModeration.js": { claimCallback: async () => true },
     "../lib/assistantActions.js": { AssistantActionError: ActionError, confirmAssistantAction: confirm, discardPendingAssistantAction: cancel },

@@ -6,6 +6,7 @@
 import type { Request } from "express";
 import { z } from "zod";
 import {
+  isReadOnlyRole,
   PROPERTY_EDIT_LOCKED_CODE,
   PROPERTY_EDIT_LOCKED_MESSAGE,
   PROPERTY_EDIT_LOCKED_REASON_PUBLISHED,
@@ -213,8 +214,11 @@ export function canReassignPropertyAgents(req: Request): boolean {
 export function propertyCreateDeniedReason(req: Pick<Request, "agent">): string | null {
   if (!req.agent) return "Недостаточно прав";
   if (req.agent.role === "SECURITY") return "Служба безопасности не заводит объекты — это делает агент";
-  // Акционер (SHAREHOLDER) — только смотрит: объекты не заводит (спека ролей §2.4).
-  if (req.agent.role === "SHAREHOLDER") return "Акционер только просматривает данные — объекты заводит агент";
+  // Роли «только просмотр» (акционер, спека ролей §2.4) объекты не заводят — то же
+  // правило, что у requireAuth (isReadOnlyRole), а не сверка имени роли.
+  if (isReadOnlyRole(req.agent.role)) {
+    return req.agent.role === "SHAREHOLDER" ? "Акционер только просматривает данные — объекты заводит агент" : "Режим просмотра: изменения недоступны";
+  }
   return null;
 }
 

@@ -1,4 +1,5 @@
 import { runStationHealthTick } from "./lib/telephony/stationHealth.js";
+import { recoverInterruptedTelegramDraftUploads } from "./telegram/assistantPropertyDraft.js";
 import "./loadEnv.js";
 import { assertProductionEnv } from "./env-check.js";
 import { app } from "./app.js";
@@ -236,6 +237,13 @@ const server = app.listen(port, () => {
     "SITE_COVER_IMAGE",
   ];
   if (process.env.TELEGRAM_WEBHOOK_SECRET) webhookOwnedChannels.push("TELEGRAM");
+  // Telegram на вебхуке обслуживает этот процесс — ему и снимать ролики мастера
+  // объекта, которые прошлый процесс не докачал (в режиме поллера — telegram/poller.ts).
+  if (process.env.TELEGRAM_WEBHOOK_SECRET) {
+    void recoverInterruptedTelegramDraftUploads().catch((err) =>
+      console.error("[telegram] снятие прерванных загрузок видео:", err instanceof Error ? err.message : err)
+    );
+  }
   void resetIncompleteProcessedMessages(webhookOwnedChannels, "api").catch((err) =>
     console.error("[webhook] сброс незавершённых отметок при старте:", err instanceof Error ? err.message : err)
   );
