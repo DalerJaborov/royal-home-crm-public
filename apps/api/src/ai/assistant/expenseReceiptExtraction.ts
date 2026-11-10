@@ -60,6 +60,7 @@ const tableRow = z.object({
   title: z.string().max(200).nullable(),
   amountMinor: z.number().int().min(1).max(9_999_999_999).nullable(),
   currency: z.enum(CURRENCIES).nullable(),
+  otherCurrency: z.string().max(12).nullable().optional(),
   date: z.string().max(10).nullable(),
 });
 const tableShape = z.object({
@@ -93,7 +94,9 @@ export async function extractExpenseTableChunk(image: Buffer, wallet: AssistantM
       + `at most ${EXPENSE_TABLE_CHUNK_ROWS} rows, each with its number n. hasMore is true if rows after the last returned one exist. `
       + "amountMinor is the amount in hundredths of the printed currency. Never guess: an unreadable title, amount or date must be null "
       + "but the row must still be returned with its n. date is YYYY-MM-DD with year; if the sheet has only a month heading like "
-      + "'ОКТЯБРЬ 2026', put it into month as YYYY-MM and leave date null. currency null unless printed. "
+      + "'ОКТЯБРЬ 2026', put it into month as YYYY-MM and leave date null. currency null unless printed (in the cell or the column header). "
+      + "If the printed currency is neither TJS/somoni nor USD/$ (for example €, ₽, руб), put its symbol into otherCurrency and leave currency null. "
+      + "Keep numbering continuous across the whole table even if the sheet numbers its rows differently. "
       + "Do not include contact information, card/account numbers or identifiers.",
     contents: [{ role: "user", parts: [{ inline_data: { mime_type: "image/jpeg", data: image.toString("base64") } }] }],
     tools: [{
@@ -104,7 +107,8 @@ export async function extractExpenseTableChunk(image: Buffer, wallet: AssistantM
         hasMore: { type: "boolean" },
         rows: { type: "array", items: { type: "object", properties: {
           n: { type: "integer" }, title: { type: "string", nullable: true }, amountMinor: { type: "integer", nullable: true },
-          currency: { type: "string", enum: [...CURRENCIES], nullable: true }, date: { type: "string", nullable: true },
+          currency: { type: "string", enum: [...CURRENCIES], nullable: true }, otherCurrency: { type: "string", nullable: true },
+          date: { type: "string", nullable: true },
         }, required: ["n", "title", "amountMinor", "currency", "date"] } },
       }, required: ["language", "month", "rows", "hasMore"] },
     }],

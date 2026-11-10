@@ -3,6 +3,8 @@ import {
   CLIENT_SOURCES, EXPENSE_CATEGORIES, EXPENSE_PAYMENT_METHODS, EXPENSE_PERIODS, expenseDateSchema, type ExpenseCategory,
 } from "@royal-home/shared";
 import { prisma } from "../../../db.js";
+import type { Prisma } from "../../../generated/prisma/client.js";
+import { logAgentAudit } from "../../../lib/audit.js";
 import { AssistantActionError, type AssistantActionActor, type AssistantActionExecutor, type AssistantActionPreview } from "../../../lib/assistantActions.js";
 import {
   changeRecurringOccurrence, createExpenseCategory, createRecurringExpense, deleteExpense, deleteRecurringExpense,
@@ -29,6 +31,14 @@ const lang = opt(z.enum(EXPENSE_LANGS));
 const monthSchema = z.string().regex(/^(19|20|21)\d{2}-(0[1-9]|1[0-2])$/);
 
 type Snapshot = Record<string, unknown>;
+
+/** Действие в журнале — то же имя, что пишет REST-маршрут этого действия. */
+const AUDIT_ACTION: Record<string, string> = {
+  update_expense: "UPDATE", delete_expense: "DELETE", restore_expense: "RESTORE", pay_expense: "UPDATE",
+  undo_expense_payment: "UPDATE", create_recurring_expense: "CREATE", update_recurring_expense: "UPDATE",
+  delete_recurring_expense: "DELETE", recurring_expense_payment: "UPDATE", create_expense_category: "CREATE",
+  update_expense_category: "UPDATE",
+};
 interface ExpenseToolSpec<A extends { lang?: ExpenseLang }> {
   name: string;
   description: string;
@@ -64,9 +74,16 @@ function makeTool<A extends { lang?: ExpenseLang }>(spec: ExpenseToolSpec<A>): A
       const preview = await spec.preview(args, snapshot);
       return spec.irreversible ? { ...preview, irreversible: true } : preview;
     },
-    async execute(args, actor, { snapshotBefore }) {
+    async execute(args, actor, { snapshotBefore, actionId }) {
       await assertFinanceWriter(actor);
       const done = await spec.execute(args, snapshotBefore, actor).catch(asActionError);
+      // История расхода, как у REST (logAudit), но с «было → стало» и источником: что где могло
+      // пойти не так, видно в журнале действий и в get_expense_history (владелец 10.11.2026).
+      const after = await spec.snapshot(args).catch(() => null);
+      logAgentAudit(actor.agentId, AUDIT_ACTION[spec.name] ?? "UPDATE", done.entityType, done.entityId, {
+        source: "assistant", tool: spec.name, actionId, channel: actor.channel,
+        before: snapshotBefore as Prisma.InputJsonValue, after: (after ?? null) as Prisma.InputJsonValue,
+      });
       return { result: done.result, audit: { entityType: done.entityType, entityId: done.entityId } };
     },
     ...(spec.undo ? {

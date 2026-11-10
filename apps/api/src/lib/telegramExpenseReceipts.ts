@@ -5,7 +5,7 @@ import { prisma } from "../db.js";
 import { Prisma, type Agent, type TelegramExpenseDraft } from "../generated/prisma/client.js";
 import { todayExpenseDay } from "./expenseWorkspace.js";
 import { createExpense, ExpenseCommandError } from "./expenseCommands.js";
-import { loadMoneyContext } from "./money.js";
+import { loadUsdRateInfo } from "./money.js";
 import { maskAssistantContacts } from "./assistantContacts.js";
 
 export const MAX_EXPENSE_RECEIPT_BYTES = 2_000_000;
@@ -135,7 +135,7 @@ export async function markExpensePreviewDelivered(actor: ExpenseDirectorIdentity
 
 type DecisionResult =
   | { kind: "recorded"; expenseId: string }
-  | { kind: "cancelled" | "expired" | "forbidden" };
+  | { kind: "cancelled" | "expired" | "forbidden" | "noRate" };
 
 /** Expense, receipt, private file, audit and replay marker commit together. */
 export async function decideExpensePhotoDraft(
@@ -162,7 +162,10 @@ export async function decideExpensePhotoDraft(
     }
     const settings = await tx.settings.findUnique({ where: { id: "singleton" }, select: { aiAssistantEnabled: true } });
     if (settings?.aiAssistantEnabled !== true) return { kind: "forbidden" };
-    const rate = evidence.currency === "USD" ? (await loadMoneyContext(tx)).usdToTjs : 1;
+    // Доллар — только по курсу из Настроек: запасное число FALLBACK_USD_TO_TJS курсом не является.
+    const usdRate = evidence.currency === "USD" ? (await loadUsdRateInfo(tx)).rate : null;
+    if (evidence.currency === "USD" && !usdRate) return { kind: "noRate" };
+    const rate = evidence.currency === "USD" ? usdRate! : 1;
     const pdf = evidence.sourceFormat === "pdf";
     const extension = pdf ? "pdf" : "jpg";
     // Запись — та же функция, что POST /expenses (одна дверь, 10.11.2026); чек — следом в той же транзакции.
@@ -181,7 +184,11 @@ export async function decideExpensePhotoDraft(
     } });
     await tx.auditLog.create({
       data: { action: "EXPENSE_CREATE", entityType: "Expense", entityId: expense.id,
-        agentId: actor.agentId, agentName: agent.fullName, meta: { source: "telegram_receipt", draftId: id } },
+        agentId: actor.agentId, agentName: agent.fullName, meta: {
+          source: "telegram_receipt", draftId: id, sourceKind: pdf ? "pdf" : "photo", messageId: draft.messageId,
+          amount: evidence.amountMinor / 100, currency: evidence.currency, exchangeRate: rate,
+          sourceText: [evidence.purpose, evidence.vendor].filter(Boolean).join(" · ").slice(0, 500),
+        } },
     });
     await tx.telegramExpenseDraft.update({
       where: { id }, data: { expenseId: expense.id, evidence: Prisma.DbNull, image: null },

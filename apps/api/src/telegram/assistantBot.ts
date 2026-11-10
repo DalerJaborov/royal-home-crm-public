@@ -25,7 +25,8 @@ import { findTelegramAgentClients, isVoiceReplayRequest, replayTelegramAssistant
 import { clearStaffPropertyPage, propertyPageRequest, propertyPageSize, propertySelection, propertyWorkflowRequest, sendMoreStaffProperties, sendStaffPropertySelection } from "./assistantPropertyPages.js";
 import { sendAssistantVoiceReply } from "./assistantVoice.js";
 import { handleTelegramPropertyDraft, handleTelegramPropertyDraftCallback } from "./assistantPropertyDraft.js";
-import { handleTelegramExpenseReceipt, handleTelegramExpenseReceiptCallback } from "./assistantExpenseReceipt.js";
+import { handleExpenseFileQuestionCallback, handleTelegramExpenseReceipt, handleTelegramExpenseReceiptCallback } from "./assistantExpenseReceipt.js";
+import { ADD_EXPENSES_TOOL } from "../ai/assistant/tools/expenseBatchTool.js";
 import { applyExpenseFixMessage, expenseBatchOutcomeText, handleExpenseCardCallback, sendExpenseBatchCard } from "./assistantExpenseCard.js";
 import { handleAssistantMedia } from "./assistantMedia.js";
 import { createAssistantMoneyWallet, type AssistantMoneyWallet } from "../ai/assistant/moneyBudget.js";
@@ -105,8 +106,7 @@ const DISABLED_TEXT = "ИИ-помощник выключен в Настрой�
 const answerCallbackQuery = (id: string, text?: string) => answerCallbackQueryRaw(id, text).catch(() => undefined);
 
 const BUNDLE_CALLBACK = /^as:(ok|no):([0-9a-f-]{36})$/;
-/** Имя пачки расходов (ADD_EXPENSES_TOOL в expenseBatchTool.ts; сверку держит assistant-expense-batch.test.ts). */
-export const ADD_EXPENSES_TOOL = "add_expenses";
+
 
 // ───────────────────────────── права ─────────────────────────────
 
@@ -137,7 +137,7 @@ const GROUP_HIDDEN_TOOLS: ReadonlySet<string> = new Set([
   "list_expenses", "get_expense_summary", "get_expense_forecast", "get_expense_pivot", "list_recurring_expenses",
   "list_expense_archive", "list_expense_categories", "add_expenses", "update_expense", "delete_expense", "restore_expense",
   "pay_expense", "undo_expense_payment", "create_recurring_expense", "update_recurring_expense", "delete_recurring_expense",
-  "recurring_expense_payment", "create_expense_category", "update_expense_category",
+  "recurring_expense_payment", "create_expense_category", "update_expense_category", "get_expense_history",
 ]);
 
 /** Для теста-сторожа: что закрыто в общей группе. */
@@ -1598,6 +1598,11 @@ const FAIL_STATUS_NOTE: Record<string, string> = {
 /** `as:ok|no:<связка>`. true — это наша кнопка (обработана или отклонена). */
 export async function handleAssistantCallback(query: TelegramCallbackQuery): Promise<boolean> {
   if (query.data?.startsWith("ef:")) return handleTelegramExpenseReceiptCallback(query);
+  if (query.data?.startsWith("ay:")) {
+    if (!(await claimCallback(query.id))) { await answerCallbackQuery(query.id); return true; }
+    const clicker = await clickerOf(query).catch(() => null);
+    return handleExpenseFileQuestionCallback(query, clicker?.id ?? null);
+  }
   if (query.data?.startsWith("ax:")) {
     if (!(await claimCallback(query.id))) { await answerCallbackQuery(query.id); return true; }
     const clicker = await clickerOf(query).catch(() => null);

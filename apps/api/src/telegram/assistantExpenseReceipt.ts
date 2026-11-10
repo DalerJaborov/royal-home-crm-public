@@ -14,11 +14,12 @@ import { assistantLanguage } from "../ai/assistant/languageRouting.js";
 import type { AssistantMoneyWallet } from "../ai/assistant/moneyBudget.js";
 import { downloadAssistantMedia } from "./assistantMedia.js";
 import { answerCallbackQuery, editMessageText, sendMessage, sendMessageWithButtons, TelegramApiError, type TelegramCallbackQuery, type TelegramIncomingMessage } from "./api.js";
+import { prisma } from "../db.js";
 import { todayExpenseDay } from "../lib/expenseWorkspace.js";
 import {
   intakeText, knownBatch, normalizeReceiptPhoto, rowsFromSpreadsheet, rowsFromTablePhoto, sourceHashOf, spreadsheetKind, stageExpenseBatch, type SpreadsheetKind,
 } from "./assistantExpenseBatchIntake.js";
-import { collectExpenseAlbumPhoto } from "./assistantExpenseAlbum.js";
+import { collectExpenseAlbumPhoto, hasExpenseAlbum } from "./assistantExpenseAlbum.js";
 
 const EXPENSE_CALLBACK = /^ef:(yes|no):(ru|tg):([0-9a-f-]{36})$/u;
 // Подпись-намерение на четырёх языках (10.11.2026): «расходы за октябрь», «харҷҳо», «xarajatlar», «expenses».
@@ -55,6 +56,7 @@ const copy = {
     expired: "Время на подтверждение вышло. Пришлите чек снова.",
     forbidden: "Записывать чек можно только из привязанной лички директора.",
     uncertain: "Не удалось показать результат. Нажмите кнопку ещё раз.",
+    noRate: "Курс доллара в Настройках CRM не задан — долларовый чек не записываю. Задайте курс в Настройках.",
   },
   tg: {
     unavailable: "Расидро хонда натавонистам. Боз фиристед.",
@@ -76,6 +78,7 @@ const copy = {
     expired: "Вақти тасдиқ гузашт. Расидро боз фиристед.",
     forbidden: "Расидро фақат директор аз чати шахсии пайвастшуда сабт карда метавонад.",
     uncertain: "Натиҷаро нишон дода натавонистам. Тугмаро боз занед.",
+    noRate: "Қурби доллар дар Танзимоти CRM нест — расиди долларӣ сабт намекунам. Қурбро дар Танзимот гузоред.",
   },
 } as const;
 type Language = keyof typeof copy;
@@ -156,12 +159,23 @@ export async function handleTelegramExpenseReceipt(
   const { chat, message_id: messageId, photo, document } = parsed.data;
   const caption = parsed.data.caption?.trim() ?? "";
   const explicit = expenseIntent.test(caption);
-  // Таблица Excel/CSV разбирается кодом и только показывается карточкой — пересланная тоже.
   const sheet = document ? spreadsheetKind(document) : null;
-  if (sheet && !msg.media_group_id) return handleExpenseSpreadsheet({ chatId: String(chat.id), messageId, document: document!, kind: sheet, caption, explicit, agentId });
-  // Альбом фото — одна пачка на весь альбом (assistantExpenseAlbum.ts).
-  if (msg.media_group_id && photo && !document && !msg.forward_origin && !msg.forward_from_message_id && (!caption || explicit)) {
-    return collectExpenseAlbumPhoto({ chatId: String(chat.id), agentId, messageId, groupId: msg.media_group_id, fileId: photo.at(-1)!.file_id, caption, wallet });
+  const albumPhoto = Boolean(msg.media_group_id && photo && !document && !msg.forward_origin && !msg.forward_from_message_id);
+  if ((sheet && !msg.media_group_id) || albumPhoto) {
+    // Рубильник помощника — первым, до скачивания и любого платного разбора (ревью 10.11.2026, п. 6).
+    if (!(await loadAssistantSettings()).enabled) return false;
+    // Таблица Excel/CSV разбирается кодом и показывается карточкой — пересланная тоже. Без подписи —
+    // вопрос «Это расходы?» кнопками; подпись про другое — прежний путь файла (п. 7).
+    if (sheet) {
+      if (explicit) return handleExpenseSpreadsheet({ chatId: String(chat.id), messageId, document: document!, kind: sheet, caption, explicit, agentId });
+      if (caption) return false;
+      return askIfSpreadsheetIsExpenses({ chatId: String(chat.id), messageId, document: document!, kind: sheet, agentId });
+    }
+    // Альбом фото — одна пачка на весь альбом, только с подписью-намерением (assistantExpenseAlbum.ts).
+    if (explicit || (!caption && hasExpenseAlbum(String(chat.id), msg.media_group_id!))) {
+      return collectExpenseAlbumPhoto({ chatId: String(chat.id), agentId, messageId, groupId: msg.media_group_id!, fileId: photo!.at(-1)!.file_id, caption, wallet });
+    }
+    return false;
   }
   // Never OCR copied photo sources or albums outside the expense flow.
   if (msg.forward_origin || msg.forward_from_message_id || msg.media_group_id) return false;
@@ -209,13 +223,14 @@ export async function handleTelegramExpenseReceipt(
         if (!explicit && imageLanguage === "tg") language = "tg";
         if (kind === "expense_list") {
           // Таблица, список или несколько чеков на одном фото — одна карточка «Проверьте N расходов».
-          const table = await rowsFromTablePhoto(image, wallet);
+          const table = await rowsFromTablePhoto(image, sourceHash, wallet);
           if (!explicit && table.language === "tg") language = "tg";
           if (!table.rows.length) {
             await send(intakeText(language).unreadablePhoto);
             return true;
           }
-          await stageExpenseBatch({ chatId: actor.chatId, agentId, rows: table.rows, lang: language, sourceHash, replyTo: messageId, unreadable: table.unreadable });
+          await stageExpenseBatch({ chatId: actor.chatId, agentId, rows: table.rows, lang: language, kind: pdf ? "pdf" : "photo", replyTo: messageId,
+            notes: { skipped: table.skipped, ...(table.readUpTo ? { readUpTo: table.readUpTo } : {}) } });
           return true;
         }
         if (kind !== "paid_receipt" || (pdf && !fields.amountMinor)) {
@@ -348,11 +363,71 @@ async function handleExpenseSpreadsheet(params: {
       if (explicit) await send(intakeText(language).empty);
       return explicit;
     }
-    await stageExpenseBatch({ chatId, agentId, rows: table.rows, lang: language, sourceHash, replyTo: messageId, unreadable: table.unreadable });
+    await stageExpenseBatch({ chatId, agentId, rows: table.rows, lang: language, kind, replyTo: messageId, notes: { skipped: table.skipped } });
     return true;
   } catch (error) {
     console.warn("[telegram:assistant] spreadsheet expenses unavailable", { kind, cause: error instanceof Error ? error.message : "unknown" });
     await send(intakeText(language).failed).catch(() => {});
     return true;
   }
+}
+
+const FILE_QUESTION_TTL_MS = 10 * 60_000;
+const FILE_CALLBACK = /^ay:(y|n):(\d{1,10})$/u;
+const FILE_QUESTION = {
+  ru: { ask: "Это расходы? Разберу таблицу и покажу карточку — ничего не запишу без вашего «Записать».", yes: "✅ Да, расходы", no: "Нет", cancelled: "Хорошо, файл не трогаю.", stale: "Вопрос устарел — пришлите файл ещё раз с подписью «расходы»." },
+} as const;
+
+/** Файл без подписи: спросить кнопками, а файл запомнить в состоянии диалога (история не теряется). */
+async function askIfSpreadsheetIsExpenses(params: {
+  chatId: string; messageId: number; document: { file_id: string; file_size?: number }; kind: SpreadsheetKind; agentId: string;
+}): Promise<boolean> {
+  if (!(await getExpenseDirector(params.chatId, params.agentId))) return false;
+  const state = await prisma.telegramDialogState.findUnique({ where: { chatId: params.chatId } });
+  if (state && state.kind !== "assistant" && state.expiresAt > new Date()) return false;
+  const live = state && state.kind === "assistant" && state.agentId === params.agentId && state.expiresAt > new Date();
+  const payload = live ? state.payload as Record<string, unknown> : { messages: [] };
+  const data = {
+    agentId: params.agentId, kind: "assistant",
+    payload: { ...payload, expenseFile: { messageId: params.messageId, fileId: params.document.file_id, fileSize: params.document.file_size ?? null, kind: params.kind, until: Date.now() + FILE_QUESTION_TTL_MS } } as object,
+    expiresAt: new Date(Math.max(Date.now() + FILE_QUESTION_TTL_MS, live ? state.expiresAt.getTime() : 0)),
+  };
+  await prisma.telegramDialogState.upsert({ where: { chatId: params.chatId }, create: { chatId: params.chatId, ...data }, update: data });
+  const q = FILE_QUESTION.ru;
+  await sendMessageWithButtons(params.chatId, q.ask, [[
+    { text: q.yes, callback_data: `ay:y:${params.messageId}` },
+    { text: q.no, callback_data: `ay:n:${params.messageId}` },
+  ]], params.messageId);
+  return true;
+}
+
+/** Кнопки «Это расходы?»: «Да» — разбор файла тем же путём, что с подписью; «Нет» — ничего. */
+export async function handleExpenseFileQuestionCallback(query: TelegramCallbackQuery, agentId: string | null): Promise<boolean> {
+  if (!query.data?.startsWith("ay:")) return false;
+  const match = FILE_CALLBACK.exec(query.data);
+  const chat = query.message?.chat;
+  const ack = (text?: string) => answerCallbackQuery(query.id, text).catch(() => {});
+  if (!match || !chat || chat.type !== "private" || !agentId || chat.id !== query.from?.id) { await ack(); return true; }
+  const chatId = String(chat.id);
+  const state = await prisma.telegramDialogState.findUnique({ where: { chatId } });
+  const payload = state?.kind === "assistant" && state.agentId === agentId ? state.payload as Record<string, unknown> : null;
+  const file = payload?.expenseFile as { messageId?: unknown; fileId?: unknown; fileSize?: unknown; kind?: unknown; until?: unknown } | undefined;
+  const q = FILE_QUESTION.ru;
+  if (!payload || !file || file.messageId !== Number(match[2]) || typeof file.fileId !== "string" || Number(file.until) < Date.now()
+    || (file.kind !== "csv" && file.kind !== "xlsx" && file.kind !== "xls")) {
+    await ack(q.stale);
+    return true;
+  }
+  const { expenseFile: _f, ...rest } = payload;
+  void _f;
+  await prisma.telegramDialogState.update({ where: { chatId }, data: { payload: rest as object } });
+  if (query.message?.message_id) await editMessageText(chatId, query.message.message_id, match[1] === "y" ? q.yes : q.cancelled, null).catch(() => {});
+  await ack();
+  if (match[1] !== "y") return true;
+  if (!(await loadAssistantSettings()).enabled) return true;
+  await handleExpenseSpreadsheet({
+    chatId, messageId: Number(file.messageId), agentId, caption: "", explicit: true, kind: file.kind,
+    document: { file_id: file.fileId, ...(typeof file.fileSize === "number" ? { file_size: file.fileSize } : {}) },
+  });
+  return true;
 }

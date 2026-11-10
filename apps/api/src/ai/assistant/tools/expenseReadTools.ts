@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { prisma } from "../../../db.js";
 import { EXPENSE_CATEGORIES, expenseDateSchema, expenseListQuerySchema } from "@royal-home/shared";
 import { buildExpenseForecast } from "../../../lib/financeAutomation.js";
 import { ExpenseCommandError } from "../../../lib/expenseCommands.js";
@@ -222,7 +223,62 @@ export const listExpenseCategoriesTool: AssistantReadToolPlugin = {
   }),
 };
 
+const historyArgs = z.object({ expenseId: opt(z.uuid()), q: opt(z.string().trim().min(2).max(200)) })
+  .refine((a) => a.expenseId || a.q, "expenseId or q");
+
+/** Поля журнала, которые показываем: что прочитали, что поняли, курс, источник, было → стало. */
+const HISTORY_KEYS = ["amount", "currency", "exchangeRate", "currencyUnstated", "category", "month", "sourceKind", "messageId",
+  "sourceText", "line", "sourceLine", "downgradedFrom", "tool", "changed", "paymentAction", "before", "after", "channel"] as const;
+
+function historyMeta(meta: unknown): Record<string, unknown> {
+  if (!meta || typeof meta !== "object") return {};
+  const source = meta as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const key of HISTORY_KEYS) {
+    if (source[key] === undefined) continue;
+    out[key] = typeof source[key] === "string" ? plainField(source[key] as string, 300) : source[key];
+  }
+  return out;
+}
+
+export const getExpenseHistoryTool: AssistantReadToolPlugin = {
+  name: "get_expense_history",
+  level: "A",
+  description:
+    "История расхода по id или словам из названия: кто и когда записал, менял, удалял; что было прочитано в источнике " +
+    "(строка таблицы, фото, слова человека), распознанная сумма и валюта, курс, откуда пришло (фото, Excel, голос, текст), " +
+    "было → стало при правке. Для вопросов «откуда этот расход», «почему такая сумма», «кто поменял».",
+  parameters: { type: "object", properties: { expenseId: { type: "string" }, q: { type: "string", description: "Слова из названия" } } },
+  statusPhrase: "Смотрю историю расхода…",
+  allowed: financeReadAllowed,
+  run: guard(historyArgs, async (args) => {
+    const expenses = await prisma.expense.findMany({
+      where: args.expenseId ? { id: args.expenseId } : { note: { contains: args.q!, mode: "insensitive" } },
+      orderBy: { createdAt: "desc" }, take: 5,
+      select: { id: true, note: true, amount: true, currency: true, exchangeRate: true, status: true, month: true, paymentDate: true, deletedAt: true, createdAt: true },
+    });
+    if (!expenses.length) return { found: 0 };
+    const logs = await prisma.auditLog.findMany({
+      where: { entityType: "Expense", entityId: { in: expenses.map((e) => e.id) } },
+      orderBy: { createdAt: "asc" }, take: 100,
+      select: { entityId: true, action: true, agentName: true, createdAt: true, meta: true },
+    });
+    return {
+      found: expenses.length,
+      expenses: expenses.map((e) => ({
+        id: e.id, title: plainField(e.note, 120), amount: Number(e.amount), currency: e.currency,
+        exchangeRate: e.exchangeRate === null ? null : Number(e.exchangeRate), status: e.status,
+        month: e.month.toISOString().slice(0, 7), date: e.paymentDate?.toISOString().slice(0, 10) ?? null,
+        deleted: e.deletedAt !== null, createdAt: e.createdAt.toISOString(),
+        history: logs.filter((l) => l.entityId === e.id).map((l) => ({
+          at: l.createdAt.toISOString(), action: l.action, who: plainField(l.agentName, 80), ...historyMeta(l.meta),
+        })),
+      })),
+    };
+  }),
+};
+
 export const expenseReadTools: readonly AssistantReadToolPlugin[] = [
   listExpensesTool, getExpenseSummaryTool, getExpenseForecastTool, getExpensePivotTool,
-  listRecurringExpensesTool, listExpenseArchiveTool, listExpenseCategoriesTool,
+  listRecurringExpensesTool, listExpenseArchiveTool, listExpenseCategoriesTool, getExpenseHistoryTool,
 ];

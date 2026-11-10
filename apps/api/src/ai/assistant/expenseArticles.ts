@@ -43,7 +43,10 @@ export interface ArticleView { key: string; icon: string; name: string }
  */
 export function articleOf(lang: CardLang, row: { title: string; category: ExpenseCategory; categoryTitle?: string | null }): ArticleView {
   const own = row.categoryTitle?.trim();
-  const known = EXPENSE_ARTICLES.find((a) => (own && a.match.test(own)) || (!own && a.match.test(row.title)))
+  // «Зарплата» и «Реклама» — только у строк этих разделов: строка, записанная в «Прочее», не
+  // показывается под 👥/📣 (ревью 10.11.2026 — карточка не должна расходиться с записью).
+  const fits = (a: Article) => (a.key !== "salary" || row.category === "SALARY") && (a.key !== "ads" || row.category === "ADVERTISING");
+  const known = EXPENSE_ARTICLES.find((a) => fits(a) && ((own && a.match.test(own)) || (!own && a.match.test(row.title))))
     ?? (row.category === "ADVERTISING" ? EXPENSE_ARTICLES.find((a) => a.key === "ads")
       : row.category === "SALARY" ? EXPENSE_ARTICLES.find((a) => a.key === "salary") : undefined);
   if (known) return { key: known.key, icon: known.icon, name: known[lang] };

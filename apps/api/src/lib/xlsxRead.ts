@@ -70,6 +70,37 @@ function columnIndex(ref: string): number {
   return n - 1;
 }
 
+/** Серийный номер даты Excel (система 1900) → YYYY-MM-DD. */
+export function excelSerialDate(serial: number): string {
+  return new Date(Date.UTC(1899, 11, 30) + Math.floor(serial) * 86_400_000).toISOString().slice(0, 10);
+}
+
+const BUILTIN_DATE_FORMATS = new Set([14, 15, 16, 17, 18, 19, 20, 21, 22, 45, 46, 47]);
+
+/** Формат каждого стиля ячейки: дата или валюта (по коду формата, в т. ч. [$$-409], €, ₽). */
+function cellFormats(styles: string): { date?: boolean; currency?: string }[] {
+  if (!styles) return [];
+  const custom = new Map<number, string>();
+  for (const m of styles.matchAll(/<numFmt\b([^>]*)\/?>/g)) {
+    const id = Number(/\bnumFmtId="(\d+)"/.exec(m[1]!)?.[1]);
+    const code = /\bformatCode="([^"]*)"/.exec(m[1]!)?.[1];
+    if (Number.isFinite(id) && code !== undefined) custom.set(id, decode(code));
+  }
+  const xfs = /<cellXfs\b[^>]*>([\s\S]*?)<\/cellXfs>/.exec(styles)?.[1] ?? "";
+  return [...xfs.matchAll(/<xf\b([^>]*)\/?>/g)].map((m) => {
+    const id = Number(/\bnumFmtId="(\d+)"/.exec(m[1]!)?.[1] ?? 0);
+    const code = custom.get(id) ?? "";
+    const bare = code.replace(/"[^"]*"/g, "").replace(/\[[^\]]*\]/g, "");
+    const date = BUILTIN_DATE_FORMATS.has(id) || (!!bare && /[dmyдмг]/i.test(bare) && !/[#0?]/.test(bare));
+    // «[$€-1]» — знак валюты в скобках после «[$»; без скобок — знак в самом формате.
+    const bracket = /\[\$([^\]-]*)/.exec(code)?.[1];
+    const sign = bracket !== undefined && bracket !== "" ? bracket : code.replace(/"[^"]*"/g, "");
+    const currency = /€|EUR/i.test(sign) ? "€" : /₽|р\.|RUB/i.test(sign) ? "₽" : /TJS|сомон|смн/i.test(sign) ? "TJS"
+      : /\$|USD/i.test(sign) || [5, 6, 7, 8].includes(id) ? "$" : undefined;
+    return { ...(date ? { date } : {}), ...(currency && !date ? { currency } : {}) };
+  });
+}
+
 /** Первый лист книги: массив строк, пустые строки опущены. Числа — строкой, как в файле. */
 export function readXlsxFirstSheet(buf: Buffer): string[][] {
   const list = entries(buf);
@@ -82,10 +113,15 @@ export function readXlsxFirstSheet(buf: Buffer): string[][] {
   const rels = byName.get("xl/_rels/workbook.xml.rels");
   if (workbook && rels) {
     const firstId = /<sheet\b[^>]*\br:id="([^"]+)"/.exec(read(buf, workbook))?.[1];
-    const target = firstId ? new RegExp(`<Relationship\\b[^>]*Id="${firstId}"[^>]*Target="([^"]+)"`).exec(read(buf, rels))?.[1]
-      ?? new RegExp(`<Relationship\\b[^>]*Target="([^"]+)"[^>]*Id="${firstId}"`).exec(read(buf, rels))?.[1] : undefined;
+    // id из файла в регулярку не подставляем (ревью 10.11.2026, ReDoS): сравниваем атрибут строкой.
+    const target = firstId ? [...read(buf, rels).matchAll(/<Relationship\b([^>]*)>/g)]
+      .map((m) => m[1]!)
+      .find((attrs) => /\bId="([^"]*)"/.exec(attrs)?.[1] === firstId)
+      ?.match(/\bTarget="([^"]+)"/)?.[1] : undefined;
     if (target) sheetPath = target.startsWith("/") ? target.slice(1) : `xl/${target.replace(/^\.\//, "")}`;
   }
+  const stylesEntry = byName.get("xl/styles.xml");
+  const formats = cellFormats(stylesEntry ? read(buf, stylesEntry) : "");
   const sheet = byName.get(sheetPath) ?? list.find((e) => /^xl\/worksheets\/sheet\d+\.xml$/.test(e.name));
   if (!sheet) throw new XlsxReadError("no sheet");
   const rows: string[][] = [];
@@ -97,7 +133,13 @@ export function readXlsxFirstSheet(buf: Buffer): string[][] {
       const ref = /\br="([A-Z]+\d+)"/.exec(attrs)?.[1];
       const type = /\bt="([^"]+)"/.exec(attrs)?.[1];
       const v = /<v>([\s\S]*?)<\/v>/.exec(inner)?.[1];
-      const value = type === "s" ? shared[Number(v)] ?? "" : type === "inlineStr" ? texts(inner) : v !== undefined ? decode(v) : "";
+      const raw = type === "s" ? shared[Number(v)] ?? "" : type === "inlineStr" ? texts(inner) : v !== undefined ? decode(v) : "";
+      // Формат ячейки — часть данных: дата Excel хранится числом (45962), валюта — в формате ($, €).
+      // Формулу не вычисляем: <v> — значение, которое Excel сохранил при последнем пересчёте.
+      const style = formats[Number(/\bs="(\d+)"/.exec(attrs)?.[1] ?? -1)];
+      const numeric = !type || type === "n";
+      const value = numeric && style?.date && /^\d+(?:\.\d+)?$/.test(raw) ? excelSerialDate(Number(raw))
+        : numeric && style?.currency && raw ? `${raw} ${style.currency}` : raw;
       const col = ref ? columnIndex(ref) : cells.length;
       if (col > 200) continue;
       while (cells.length < col) cells.push("");
