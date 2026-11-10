@@ -75,7 +75,8 @@ import { buildWhisperText, WHISPER_PARTS } from "../lib/telephony/whisperText.js
 import { previewWhisperSpeech } from "../lib/telephony/whisperAudio.js";
 import { logSystemError } from "../lib/systemError.js";
 import { describeError } from "../lib/describeError.js";
-import { deleteAccount, listAccounts, saveAccount, resetAccountsCache } from "../messengers/accounts.js";
+import { BrandNameCoreConflictError, deleteAccount, listAccounts, saveAccount, resetAccountsCache } from "../messengers/accounts.js";
+import { brandNameError } from "../ai/brandPattern.js";
 import { dispatchInBackground, EDITOR_HOLDER_WHERE } from "../lib/videoHandoff.js";
 import { sendToMontajer } from "../lib/montageObservers.js";
 
@@ -2710,6 +2711,8 @@ const messengerAccountSchema = z.object({
   enabled: z.boolean().optional(),
   isDefault: z.boolean().optional(),
   systemPrompt: z.string().max(30000).nullish(),
+  /** Как бот называет компанию в этом аккаунте (ai/brandName.ts); пусто — «Royal Home». */
+  brandName: z.string().trim().max(60).nullish(),
   /**
    * Идентификаторы получателя, которые Meta своим ответом не подтвердит
    * (см. schema.prisma, MessengerAccount.extraExternalIds) — владелец переписывает
@@ -2770,6 +2773,8 @@ settingsRouter.post(
     if (typeof body.systemPrompt === "string" && body.systemPrompt.length > 30000) {
       return res.status(400).json({ error: "Промт слишком длинный" });
     }
+    const brandError = brandNameError(body.brandName);
+    if (brandError) return res.status(400).json({ error: brandError });
 
     try {
       const id = await saveAccount({
@@ -2781,11 +2786,18 @@ settingsRouter.post(
         enabled: body.enabled,
         isDefault: body.isDefault,
         systemPrompt: body.systemPrompt,
+        brandName: body.brandName,
         extraExternalIds: body.extraExternalIds,
       });
-      logAudit(req, "SETTINGS_UPDATE", "MessengerAccount", id, { channel, title });
+      // Смена имени компании меняет то, что бот говорит клиентам, — берём в аудит, на что.
+      logAudit(req, "SETTINGS_UPDATE", "MessengerAccount", id, {
+        channel,
+        title,
+        ...(body.brandName === undefined ? {} : { brandName: body.brandName?.trim() || null }),
+      });
       res.json({ ok: true, id });
     } catch (err) {
+      if (err instanceof BrandNameCoreConflictError) return res.status(409).json({ error: err.message });
       // Один и тот же аккаунт дважды — самая частая ошибка при подключении.
       if ((err as { code?: string }).code === "P2002") {
         return res.status(409).json({ error: "Такой аккаунт уже подключён" });

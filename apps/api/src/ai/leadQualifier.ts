@@ -19,6 +19,7 @@ import { geoMentionBlock } from "./geoMentions.js";
 import { CLIENT_ADDRESS_RULES, MANDATORY_BOT_RULES, propertyGeographyBlock } from "./dushanbeGeography.js";
 import { folkGeographyBlock } from "./folkPlaces.js";
 import { accountPersona } from "../messengers/accounts.js";
+import { brandForAccount, brandize } from "./brandName.js";
 import { SALES_FACTS, salesTactics } from "./salesPlaybook.js";
 import { abilitiesForIntent, isNonClientRole } from "./roleAbilities.js";
 import { WHO_IS_THIS } from "./botContract.js";
@@ -2035,10 +2036,14 @@ export async function runQualifyTurn(
     (options.retryDirective ?? "") +
     (recruitmentCatalog ? legacyRecruitmentCatalogBlock(recruitmentCatalog, recruitmentWords) : "");
 
+  // Имя компании аккаунта (ai/brandName.ts): «Royal Home» в собранном промте хода
+  // заменяется ОДИН раз, здесь, в точке сборки — а не копиями по файлам. У аккаунта
+  // без своего имени обе строки уходят побайтово прежними.
+  const brand = await brandForAccount(options.accountId);
   const rawResult = await callAiText<unknown>({
     endpoint: "lead-qualify",
-    systemStable,
-    system,
+    systemStable: brandize(systemStable, brand),
+    system: brandize(system, brand),
     // Разрывы во времени подмешиваются в текст реплик: без них разговор
     // трёхмесячной давности неотличим от начатого минуту назад (conversationTime.ts).
     messages: withTimeGaps(markHumanRepliesForModel(maskHistoryForModel(history.slice(-MAX_HISTORY_TO_MODEL)))),
