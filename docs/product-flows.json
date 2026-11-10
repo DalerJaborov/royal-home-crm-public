@@ -43867,7 +43867,15 @@
     },
     {
      "k": "do",
-     "t": "res.json({ items: shown(items), unreadCount, pinned: shown(pinned), approvalCount, criticalCount, hasMore: pa…",
+     "t": "const [itemsWithOffers, pinnedWithOffers] = await Promise.all([ attachOfferStates(req.agent!.id, shown(items)…",
+     "a": [
+      "зовёт attachOfferStates()"
+     ],
+     "c": []
+    },
+    {
+     "k": "do",
+     "t": "res.json({ items: itemsWithOffers, unreadCount, pinned: pinnedWithOffers, approvalCount, criticalCount, hasMo…",
      "a": [
       "ответ 200"
      ],
@@ -63371,6 +63379,14 @@
      "t": "!ok",
      "a": [],
      "c": [
+      {
+       "k": "do",
+       "t": "const current = await prisma.propertyClientOffer.findFirst({ where: { id: id.data, toAgentId: req.agent!.id }…",
+       "a": [
+        "читает в базе: propertyClientOffer"
+       ],
+       "c": []
+      },
       {
        "k": "do",
        "t": "return res.status(409).json({ error: \"На это предложение уже ответили или оно больше не ваше\", code: \"OFFER_C…",

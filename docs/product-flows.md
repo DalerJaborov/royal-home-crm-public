@@ -10040,7 +10040,9 @@
   · считает в базе: notification
 - const shown = <T extends { title: string; body: string }>(rows: T[]): T[]
   · зовёт maskPhonesInText()
-- res.json({ items: shown(items), unreadCount, pinned: shown(pinned), approvalCount, criticalCount, hasMore: pa…
+- const [itemsWithOffers, pinnedWithOffers] = await Promise.all([ attachOfferStates(req.agent!.id, shown(items)…
+  · зовёт attachOfferStates()
+- res.json({ items: itemsWithOffers, unreadCount, pinned: pinnedWithOffers, approvalCount, criticalCount, hasMo…
   · ответ 200
 
 ## /api/v1/media
@@ -14146,6 +14148,8 @@
 - const ok = await answerPropertyClientOffer(req.agent!.id, id.data, body.data.answer);
   · зовёт answerPropertyClientOffer()
 - если !ok
+  - const current = await prisma.propertyClientOffer.findFirst({ where: { id: id.data, toAgentId: req.agent!.id }…
+    · читает в базе: propertyClientOffer
   - return res.status(409).json({ error: "На это предложение уже ответили или оно больше не ваше", code: "OFFER_C…
     · ответ 409 — «На это предложение уже ответили или оно больше не ваше»
 - res.json({ ok: true, status: body.data.answer });

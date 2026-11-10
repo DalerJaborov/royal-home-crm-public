@@ -84,3 +84,39 @@ export async function answerPropertyClientOffer(agentId: string, offerId: string
 }
 
 export { closePropertyClientOffersOnTransfer } from "./propertyClientOfferClose.js";
+
+/** Номер предложения из адреса уведомления CRM (`/properties/<id>?offer=<offerId>`). */
+export function offerIdFromNotificationUrl(url: string | null | undefined): string | null {
+  const query = url?.split("?")[1];
+  const id = query ? new URLSearchParams(query).get("offer") : null;
+  return id && /^[\da-f-]{36}$/u.test(id) ? id : null;
+}
+
+export interface NotificationOfferState {
+  id: string;
+  status: string;
+  /** Можно ли сейчас ответить: доставлено, ответа ещё нет, клиента ведёт этот агент. */
+  answerable: boolean;
+}
+
+/**
+ * Статус предложения рядом с уведомлением в ленте (10.11.2026): после
+ * перезагрузки страницы лента показывает ответ, а не снова обе кнопки.
+ * Одна выборка на страницу ленты, только предложения самого агента.
+ */
+export async function attachOfferStates<T extends { kind: string; url: string | null }>(agentId: string, rows: T[]): Promise<(T & { offer?: NotificationOfferState })[]> {
+  const ids = [...new Set(rows.filter(row => row.kind === "property-offer").map(row => offerIdFromNotificationUrl(row.url)).filter((id): id is string => Boolean(id)))];
+  if (!ids.length) return rows;
+  const offers = await prisma.propertyClientOffer.findMany({
+    where: { id: { in: ids }, toAgentId: agentId },
+    select: { id: true, status: true, client: { select: { assignedAgentId: true, deletedAt: true } } },
+  });
+  const byId = new Map(offers.map(offer => [offer.id, {
+    id: offer.id, status: offer.status,
+    answerable: offer.status === "SENT" && offer.client.assignedAgentId === agentId && !offer.client.deletedAt,
+  }]));
+  return rows.map(row => {
+    const offer = row.kind === "property-offer" ? byId.get(offerIdFromNotificationUrl(row.url) ?? "") : undefined;
+    return offer ? { ...row, offer } : row;
+  });
+}

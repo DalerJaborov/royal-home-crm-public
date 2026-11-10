@@ -172,6 +172,19 @@ describe("предложить коллеге", () => {
     expect(await prisma.notification.count({ where: { agentId: ag.silent.id, kind: "property-offer" } })).toBe(1);
   });
 
+  it("лента уведомлений CRM отдаёт статус предложения; 409 несёт текущий статус", async () => {
+    const as = `Bearer ${signAccessToken({ sub: ag.silent.id, role: "AGENT" })}`;
+    const feed = await request(app).get("/api/v1/me/notifications").set("Authorization", as);
+    const item = (feed.body.items as { kind: string; offer?: { id: string; status: string; answerable: boolean } }[]).find(n => n.kind === "property-offer");
+    expect(item?.offer).toMatchObject({ status: "SENT", answerable: true });
+    expect((await request(app).post(`/api/v1/property-offers/${item!.offer!.id}/answer`).set("Authorization", as).send({ answer: "WILL_SEND" })).status).toBe(200);
+    const again = await request(app).post(`/api/v1/property-offers/${item!.offer!.id}/answer`).set("Authorization", as).send({ answer: "NOT_SUITABLE" });
+    expect(again.status).toBe(409);
+    expect(again.body).toMatchObject({ code: "OFFER_CLOSED", status: "WILL_SEND" });
+    const after = await request(app).get("/api/v1/me/notifications").set("Authorization", as);
+    expect((after.body.items as { kind: string; offer?: { status: string; answerable: boolean } }[]).find(n => n.kind === "property-offer")?.offer).toMatchObject({ status: "WILL_SEND", answerable: false });
+  });
+
   it("предложить чужой объект и своего клиента нельзя", async () => {
     await press("stranger", signedOfferButton(ag.stranger.id, propertyShortId, cl.umeds.shortId));
     expect(lastAnswer()).toContain("чей это объект");

@@ -479,3 +479,49 @@ html[data-theme="royal-home-2026-night"] {
     max-width: 100%;
   }
 }
+
+/* ═══ ОТВЕТ НА ПРЕДЛОЖЕНИЕ ОБЪЕКТА КОЛЛЕГОЙ В ЛЕНТЕ УВЕДОМЛЕНИЙ (10.11.2026) ═══
+ * Notifications.tsx, `OfferAnswerAction`. Кадры на стенде: на телефоне две кнопки
+ * в одной строке с текстом сжимали текст уведомления до нуля, а плашка ответа на
+ * ПК была похожа на кнопку «Открыть». Теперь: на телефоне — своя строка под
+ * текстом, кнопки не ниже 44px; ответ — статус (зелёный ✅ / нейтральный). */
+.rh2 .offer-answer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+}
+.rh2 .offer-answer .pill,
+.rh2 .offer-answer .btn {
+  min-height: 44px;
+}
+.rh2 .offer-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 6px 12px;
+  border-radius: var(--r-pill);
+  background: var(--soft);
+  color: var(--body);
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.rh2 .offer-status.ok {
+  background: var(--ok-bg);
+  color: var(--ok);
+}
+.rh2 .row.offer-row {
+  flex-wrap: wrap;
+}
+.rh2 .row.offer-row > .offer-answer-line {
+  flex: 1 0 100%;
+  order: 10;
+  justify-content: stretch;
+}
+.rh2 .row.offer-row > .offer-answer-line .btn,
+.rh2 .row.offer-row > .offer-answer-line .pill {
+  flex: 1 1 0;
+}
