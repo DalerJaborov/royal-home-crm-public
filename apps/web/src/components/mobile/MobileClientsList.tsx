@@ -38,6 +38,7 @@ import {
 } from "../../lib/clientFormat";
 import { formatWait } from "../../lib/format";
 import type { Client } from "../../types";
+import { showsInactiveLabel } from "../InactiveLevelBadge";
 
 const num = (n: number) => n.toLocaleString("ru-RU");
 
@@ -793,6 +794,8 @@ function ClientListRow({ client: c, showKind = false }: { client: Client; showKi
     wants || null,
     CLIENT_SOURCE_LABELS[c.source],
     step || null,
+    // Неактивные с 10.11.2026 стоят во вкладке «В работе» — метка, чтобы агент видел, кому звонить.
+    !c.hiddenReason && showsInactiveLabel(c) ? "неактивен" : null,
   ].filter(Boolean) as string[];
 
   const chip =

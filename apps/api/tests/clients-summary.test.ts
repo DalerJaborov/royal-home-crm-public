@@ -25,7 +25,9 @@ let agentId = "";
 /** Возраст непринятой карточки — считается по тому же правилу, что и фикстура. */
 let pendingWaitingMinutes = 0;
 
-it("счётчик и список В работе исключают неактивных и закрытые назначения, поиск сохраняет историю", async () => {
+// 10.11.2026: неактивные (светофор) — тоже «в работе», иначе агент не видел
+// часть своих клиентов, в том числе переданных от уволенного сотрудника.
+it("счётчик и список В работе включают неактивных, исключают закрытые назначения, поиск сохраняет историю", async () => {
   const token = await login(agentPhone);
   const get = (path: string) => request(app).get(path).set("Authorization", `Bearer ${token}`);
   const before = await get("/api/v1/clients/summary");
@@ -48,10 +50,10 @@ it("счётчик и список В работе исключают неакт
       created.push(c.id);
     }
     const after = await get("/api/v1/clients/summary");
-    expect(after.body.buyers).toBe(before.body.buyers + 1);
+    expect(after.body.buyers).toBe(before.body.buyers + 2);
     const work = await get(`/api/v1/clients?scope=inWork&kind=BUYER&q=${marker}`);
     expect(work.status).toBe(200);
-    expect(work.body.items.map((c: { id: string }) => c.id)).toEqual([created[0]]);
+    expect(work.body.items.map((c: { id: string }) => c.id).sort()).toEqual([created[0], created[1]].sort());
     const search = await get(`/api/v1/clients?q=${marker}`);
     expect(search.status).toBe(200);
     expect(search.body.items).toHaveLength(fixtures.length);

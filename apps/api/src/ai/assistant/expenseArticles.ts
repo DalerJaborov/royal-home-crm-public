@@ -89,3 +89,41 @@ export function defaultRootCategory(title: string): "OFFICE" | "OTHER" {
   const article = EXPENSE_ARTICLES.find((a) => a.match.test(title));
   return article && OFFICE_ARTICLES.has(article.key) ? "OFFICE" : "OTHER";
 }
+
+/**
+ * Канал рекламы по словам строки (ru/tg/латиница) — тот же список каналов, что у заявок
+ * (CLIENT_SOURCES). Не узнали — карточка просит выбрать канал кнопкой, а не пишет «Прочее» молча.
+ */
+export const AD_CHANNELS = [
+  { source: "INSTAGRAM", label: "Instagram", match: /instagram|insta|инстаграм|инста/iu },
+  { source: "FACEBOOK", label: "Facebook", match: /facebook|фейсбук|фэйсбук|(?:^|[\s(])(?:fb|фб)(?=$|[\s).,])/iu },
+  { source: "TIKTOK", label: "TikTok", match: /tik\s*tok|тик\s*-?\s*ток/iu },
+  { source: "TELEGRAM", label: "Telegram", match: /telegram|телеграм/iu },
+  { source: "WHATSAPP", label: "WhatsApp", match: /whats\s*app|ватсап|вацап|уатсап/iu },
+  { source: "GOOGLE_ADS", label: "Google", match: /google|гугл/iu },
+  { source: "YANDEX_DIRECT", label: "Яндекс", match: /yandex|яндекс/iu },
+  { source: "WEBSITE", label: "Сайт", match: /(?:^|[\s(])(?:сайт|website|сомона\s*сайт)(?=$|[\s).,])/iu },
+] as const;
+export type AdChannel = (typeof AD_CHANNELS)[number]["source"];
+
+export function adChannelOf(text: string): AdChannel | null {
+  const found = AD_CHANNELS.filter((c) => c.match.test(text));
+  return found.length === 1 ? found[0]!.source : null;
+}
+
+/** Статья строки — реклама или зарплата (по словам), чтобы предложить канал/сотрудника. */
+export function specialArticleOf(text: string): "ads" | "salary" | null {
+  const ads = EXPENSE_ARTICLES.find((a) => a.key === "ads")!;
+  const salary = EXPENSE_ARTICLES.find((a) => a.key === "salary")!;
+  return salary.match.test(text) ? "salary" : ads.match.test(text) ? "ads" : null;
+}
+
+/** «Зарплата Ахмад Рахимов за октябрь» → «Ахмад Рахимов»: имя для поиска сотрудника. */
+export function salaryNameOf(title: string): string {
+  return title
+    .replace(/зарплат\p{L}*|оклад\p{L}*|аванс\p{L}*|преми\p{L}*|музди\s+меҳнат|маош\p{L}*|ish\s+haqi|salary/giu, " ")
+    .replace(/(?:^|\s)(?:за|для|барои|ба|of|for)(?=\s|$)/giu, " ")
+    .replace(/(?:январ|феврал|март|апрел|ма[йя]|июн|июл|август|сентябр|октябр|ноябр|декабр)\p{L}*/giu, " ")
+    .replace(/[\d.,:;()«»"'—–-]+/gu, " ")
+    .replace(/\s+/gu, " ").trim();
+}

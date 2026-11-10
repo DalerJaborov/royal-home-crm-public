@@ -4,9 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import sharp from "sharp";
 
-function run(command: string, args: string[]): Promise<string> {
+function run(command: string, args: string[], maxBuffer = 65_536, timeout = 5_000): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile(command, args, { timeout: 5_000, maxBuffer: 65_536, windowsHide: true, encoding: "utf8" },
+    execFile(command, args, { timeout, maxBuffer, windowsHide: true, encoding: "utf8" },
       (error, stdout) => error ? reject(new Error("media_probe_unavailable")) : resolve(stdout));
   });
 }
@@ -25,12 +25,46 @@ async function withTemporaryInput<T>(
   }
 }
 
-async function checkPdf(path: string, maximumPages: number): Promise<void> {
+async function checkPdf(path: string, maximumPages: number): Promise<number> {
   const info = await run("pdfinfo", [path]);
   const pages = Number(/^Pages:\s+(\d+)\s*$/m.exec(info)?.[1]);
   if (!Number.isSafeInteger(pages) || pages < 1 || pages > maximumPages || !/^Encrypted:\s+no\s*$/m.test(info)) {
     throw new Error("media_pdf_limit");
   }
+  return pages;
+}
+
+/** Текст страницы — не больше 256 КБ (таблица расходов, а не книга). */
+const PDF_PAGE_TEXT_BYTES = 256 * 1024;
+
+/**
+ * Многостраничный PDF расходов (10.11.2026): число страниц и текстовый слой каждой страницы
+ * (`pdftotext -layout` — колонки остаются колонками). Пустой текст — страница-скан, её читает ИИ
+ * картинкой. Пароль, больше `maximumPages` страниц или подмена байтов — отказ до разбора.
+ */
+export function readExpensePdfText(buffer: Buffer, maximumPages: number): Promise<string[]> {
+  validatePdfSignature(buffer);
+  return withTemporaryInput(buffer, "input.pdf", async (path) => {
+    const pages = await checkPdf(path, maximumPages);
+    const texts: string[] = [];
+    for (let page = 1; page <= pages; page++) {
+      texts.push(await run("pdftotext", ["-f", String(page), "-l", String(page), "-layout", "-enc", "UTF-8", "-nopgbrk", path, "-"], PDF_PAGE_TEXT_BYTES));
+    }
+    return texts;
+  });
+}
+
+/** Одна страница PDF картинкой для разбора ИИ (как одиночный чек: 2400 px, JPEG). */
+export function renderExpensePdfPage(buffer: Buffer, page: number, maximumPages: number): Promise<Buffer> {
+  validatePdfSignature(buffer);
+  return withTemporaryInput(buffer, "input.pdf", async (path, directory) => {
+    const pages = await checkPdf(path, maximumPages);
+    if (!Number.isSafeInteger(page) || page < 1 || page > pages) throw new Error("media_pdf_limit");
+    const output = join(directory, "page");
+    // Плотная страница-скан рендерится дольше чека: 20 секунд, а не 5.
+    await run("pdftoppm", ["-f", String(page), "-l", String(page), "-singlefile", "-cropbox", "-scale-to", "2400", "-jpeg", "-jpegopt", "quality=85", path, output], 65_536, 20_000);
+    return readFile(`${output}.jpg`);
+  });
 }
 
 function validatePdfSignature(buffer: Buffer): void {
@@ -61,7 +95,8 @@ export async function inspectAssistantMedia(buffer: Buffer, mimeType: string, ma
   }
   if (mimeType === "application/pdf") {
     validatePdfSignature(buffer);
-    return withTemporaryInput(buffer, "input.pdf", path => checkPdf(path, 20));
+    await withTemporaryInput(buffer, "input.pdf", path => checkPdf(path, 20));
+    return;
   }
   return withTemporaryInput(buffer, "input.audio", async path => {
     const info = JSON.parse(await run("ffprobe", ["-v", "error", "-show_entries", "format=duration:stream=codec_type", "-of", "json", path]));
