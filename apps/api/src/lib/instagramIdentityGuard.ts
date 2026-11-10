@@ -87,7 +87,11 @@ export async function reportHeldOwnIdentityTickets(
     select: { title: true },
     take: 20,
   });
-  const names = missing.map((m) => `«${m.title}»`).join(", ") || "не найден (проверьте ники аккаунтов)";
+  // Ники уже заполнены — задержанные входящие остались от прошлой поломки, а не
+  // от текущей: тревога здесь была бы ложной (10.11.2026, первый тик после выката
+  // поднял CRITICAL по сообщениям, задержанным ещё до утренней починки).
+  if (missing.length === 0) return { held, alerted: false };
+  const names = missing.map((m) => `«${m.title}»`).join(", ");
   await logSystemError(
     "ai",
     `Бот не отвечает в Instagram: ${held} входящих задержаны, потому что у аккаунта Instagram пуст ник: ${names}. ` +
