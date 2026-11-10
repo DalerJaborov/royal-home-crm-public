@@ -2,7 +2,7 @@ import type { Prisma, RecurringExpense, Expense } from "../generated/prisma/clie
 import { z } from "zod";
 import { expenseListQuerySchema, EXPENSE_CATEGORY_LABELS, EXPENSE_METHOD_LABELS, type ExpenseSortKey, type ExpenseUpcomingItem } from "@royal-home/shared";
 import { prisma } from "../db.js";
-import { expenseCentsToTjs, fromCents, loadMoneyContext, type MoneyContext } from "./money.js";
+import { expenseCentsToTjs, fromCents, loadMoneyContext, NO_USD_RATE_TEXT, usdRateForWrite, type MoneyContext } from "./money.js";
 import { Prisma as PrismaRuntime } from "../generated/prisma/client.js";
 type ExpenseTransaction = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
 export class ExpenseLifecycleError extends Error {
@@ -14,7 +14,6 @@ export async function changeExpensePayment(id: string, paid: boolean, paymentDat
     const actual = paymentDate ?? todayExpenseDay();
     if (paid && actual > todayExpenseDay())
         throw new ExpenseLifecycleError(400, "Будущий платёж запишите как план, а не как оплату");
-    const money = await loadMoneyContext();
     const run = async (tx: ExpenseTransaction) => {
         await tx.$queryRaw `SELECT "id" FROM "Expense" WHERE "id"=${id} FOR UPDATE`;
         const current = await tx.expense.findUnique({ where: { id } });
@@ -23,6 +22,11 @@ export async function changeExpensePayment(id: string, paid: boolean, paymentDat
         if (paid) {
             if (current.status === "PAID")
                 return current;
+            // Оплата долларового плана фиксирует курс — только из Настроек, без запасного числа (10.11.2026).
+            const settingsRate = current.currency === "USD" && current.exchangeRate == null ? await usdRateForWrite(tx) : null;
+            if (current.currency === "USD" && current.exchangeRate == null && !settingsRate)
+                throw new ExpenseLifecycleError(409, NO_USD_RATE_TEXT);
+            const money = { usdToTjs: settingsRate ?? 1 };
             return tx.expense.update({ where: { id }, data: { status: "PAID", paymentDate: expenseDay(actual), month: expenseDay(`${actual.slice(0, 7)}-01`),
                     exchangeRate: current.exchangeRate ?? (current.currency === "USD" ? money.usdToTjs : 1), rateCapturedAt: current.rateCapturedAt ?? new Date(), version: { increment: 1 },
                     paymentUndo: { status: "PLANNED", paymentDate: current.paymentDate?.toISOString() ?? null, month: current.month.toISOString(), exchangeRate: current.exchangeRate?.toString() ?? null, rateCapturedAt: current.rateCapturedAt?.toISOString() ?? null, version: current.version + 1 } } });

@@ -178,7 +178,25 @@ function lines(record: Record<string, unknown>): string {
 }
 
 /** Одна карточка на все ожидающие действия ответа: «было → станет» по каждому. */
-export function renderBundleCard(actions: readonly AssistantActionView[], authorName: string, maskPhones = false, source?: string, tajik = false): string {
+/**
+ * Рамка карточки подтверждения на языке собеседника (10.11.2026): «Подтвердите действие / Было /
+ * Станет / Подтвердить может только …». Одна таблица на все инструменты записи; значения полей —
+ * как их построил инструмент. По умолчанию — русский, как было.
+ */
+const CARD_FRAME = {
+  ru: { confirm: (many: boolean) => `Подтвердите действие${many ? "я" : ""}:`, was: "Было", becomes: "Станет", irreversible: "Необратимо",
+    only: (name: string) => `Подтвердить может только ${name}.`, origin: (who: string) => `По сообщению ${who}`,
+    ok: "✅ Подтвердить", okIrreversible: "✅ Подтвердить (необратимо)", okPlain: "Подтвердить", cancel: "✖ Отмена", cancelPlain: "Отмена" },
+  tg: { confirm: (many: boolean) => `Ин амал${many ? "ҳо" : ""}ро тасдиқ кунед:`, was: "Пеш", becomes: "Мешавад", irreversible: "Баргардонда намешавад",
+    only: (name: string) => `Танҳо ${name} тасдиқ карда метавонад.`, origin: (who: string) => `Аз рӯи паёми ${who}`,
+    ok: "✅ Тасдиқ", okIrreversible: "✅ Тасдиқ (баргардонда намешавад)", okPlain: "Тасдиқ", cancel: "✖ Бекор", cancelPlain: "Бекор" },
+} as const;
+export type CardFrameLang = keyof typeof CARD_FRAME;
+export const cardFrameLang = (language: ReturnType<typeof assistantLanguage> | undefined): CardFrameLang =>
+  language === "tg" || language === "mixed" ? "tg" : "ru";
+
+export function renderBundleCard(actions: readonly AssistantActionView[], authorName: string, maskPhones = false, source?: string, tajik = false, lang: CardFrameLang = "ru"): string {
+  const frame = CARD_FRAME[lang];
   const parts = actions.map((a, i) => {
     const p = a.preview;
     const head = actions.length > 1 ? `${i + 1}) ${p.title}` : p.title;
@@ -193,19 +211,19 @@ export function renderBundleCard(actions: readonly AssistantActionView[], author
     }
     return [
       head,
-      `   Было: ${lines(p.was)}`,
-      `   Станет: ${lines(p.becomes)}`,
-      p.risk ? `   ${p.irreversible ? "⚠️ " : ""}${field(p.risk)}` : p.irreversible ? "   ⚠️ Необратимо" : null,
+      `   ${frame.was}: ${lines(p.was)}`,
+      `   ${frame.becomes}: ${lines(p.becomes)}`,
+      p.risk ? `   ${p.irreversible ? "⚠️ " : ""}${field(p.risk)}` : p.irreversible ? `   ⚠️ ${frame.irreversible}` : null,
     ]
       .filter(Boolean)
       .join("\n");
   });
-  const origin = source ? `По сообщению ${source}
+  const origin = source ? `${frame.origin(source)}
 ` : "";
   if (maskPhones && actions.length === 1 && actions[0]?.tool === "change_property_price") {
     return sanitizeAssistantReply(parts[0] ?? "", true);
   }
-  const card = `${origin}Подтвердите действие${actions.length > 1 ? "я" : ""}:\n\n${parts.join("\n\n")}\n\nПодтвердить может только ${authorName}.`;
+  const card = `${origin}${frame.confirm(actions.length > 1)}\n\n${parts.join("\n\n")}\n\n${frame.only(authorName)}`;
   return sanitizeAssistantReply(card, maskPhones);
 }
 
@@ -537,7 +555,9 @@ async function bindConfirmation(agentId: string, actionIds: string[]): Promise<C
 async function sendTurnResult(
   chatId: string,
   result: TurnResult,
-  ctx: { agentId: string; authorName: string; scope: "private" | "group"; replyTo?: number; messageThreadId?: number; source?: string; fromVoice?: boolean; addressedGroupVoice?: boolean; mode?: AssistantReplyMode; reactTo?: number; requestLanguage?: ReturnType<typeof assistantLanguage>; voiceLanguage?: AssistantSpeechLanguage }
+  ctx: { agentId: string; authorName: string; scope: "private" | "group"; replyTo?: number; messageThreadId?: number; source?: string; fromVoice?: boolean; addressedGroupVoice?: boolean; mode?: AssistantReplyMode; reactTo?: number; requestLanguage?: ReturnType<typeof assistantLanguage>; voiceLanguage?: AssistantSpeechLanguage;
+    /** Язык рамки карточки подтверждения (личка: язык сообщения человека). */
+    cardLanguage?: ReturnType<typeof assistantLanguage> }
 ): Promise<void> {
   const maskPhones = ctx.scope === "group";
   const split = splitReaction(result.reply);
@@ -573,7 +593,9 @@ async function sendTurnResult(
   }
   const priceOnlyInGroup = maskPhones && result.pending.every(action => action.tool === "change_property_price");
   const tajikPrice = priceOnlyInGroup && (ctx.requestLanguage === "tg" || ctx.requestLanguage === "mixed");
-  const preview = renderBundleCard(result.pending, ctx.authorName, maskPhones, ctx.source, tajikPrice);
+  const frameLang = cardFrameLang(ctx.cardLanguage ?? ctx.requestLanguage);
+  const frame = CARD_FRAME[frameLang];
+  const preview = renderBundleCard(result.pending, ctx.authorName, maskPhones, ctx.source, tajikPrice, frameLang);
   const body = [priceOnlyInGroup ? "" : rendered, ...written].filter(Boolean).join("\n");
   // Кнопка без полностью видимой карточки — подтверждение вслепую: слишком длинное не показываем.
   if (preview.length > CARD_MAX_CHARS) {
@@ -593,14 +615,14 @@ async function sendTurnResult(
   }
   const { bundleId } = binding;
   // Show the same order that pressing either card will execute.
-  const card = renderBundleCard(binding.actionIds.map((id) => pendingById.get(id)!), ctx.authorName, maskPhones, ctx.source, tajikPrice);
+  const card = renderBundleCard(binding.actionIds.map((id) => pendingById.get(id)!), ctx.authorName, maskPhones, ctx.source, tajikPrice, frameLang);
   const irreversible = result.pending.some((a) => a.preview.irreversible);
   // Карточка целиком, ответ модели — по остатку места (не наоборот).
   const room = Math.max(0, TEXT_MAX_CHARS - card.length - 2);
   const text = [body.slice(0, room), card].filter(Boolean).join("\n\n");
   const buttons = [[
-    { text: tajikPrice ? "Ҳа" : irreversible ? "✅ Подтвердить (необратимо)" : maskPhones ? "Подтвердить" : "✅ Подтвердить", callback_data: `as:ok:${bundleId}` },
-    { text: tajikPrice ? "Бекор" : maskPhones ? "Отмена" : "✖ Отмена", callback_data: `as:no:${bundleId}` },
+    { text: tajikPrice ? "Ҳа" : irreversible ? frame.okIrreversible : maskPhones ? frame.okPlain : frame.ok, callback_data: `as:ok:${bundleId}` },
+    { text: tajikPrice ? "Бекор" : maskPhones ? frame.cancelPlain : frame.cancel, callback_data: `as:no:${bundleId}` },
   ]];
   if (priceOnlyInGroup && result.pending.length === 1
       && await sendTelegramPriceConfirmationPhotos(chatId, result.pending[0], text, buttons, ctx.replyTo)) return;
@@ -826,6 +848,7 @@ export async function handleAssistantPrivate(
         agentId: agent.id, authorName: agent.fullName, scope: "private", fromVoice,
         mode: preference?.mode ?? "auto", reactTo: msg.message_id, voiceLanguage: preference?.voiceLanguage,
         requestLanguage: preference?.mode === "voice" ? assistantLanguage([{ role: "user", content: text }]) : undefined,
+        cardLanguage: assistantLanguage([{ role: "user", content: text }]),
       });
     }
     await saveHistory(chatId, agent.id, [...history, { role: "assistant", content: result.reply.slice(0, 4000) }]);

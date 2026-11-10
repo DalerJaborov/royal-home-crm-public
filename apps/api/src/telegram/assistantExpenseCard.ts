@@ -9,9 +9,9 @@ import { parseExpenseAmount, currencyInText } from "../lib/expenseAmountParse.js
 import type { SkippedLine } from "../lib/expenseTableRows.js";
 import { todayExpenseDay } from "../lib/expenseWorkspace.js";
 import { expenseCentsToTjs, fromCents, loadMoneyContext, loadUsdRateInfo, type MoneyContext } from "../lib/money.js";
-import { articleOf, dayWords, monthWords, type CardLang } from "../ai/assistant/expenseArticles.js";
+import { AD_CHANNELS, articleOf, dayWords, monthWords, type CardLang } from "../ai/assistant/expenseArticles.js";
 import {
-  ADD_EXPENSES_TOOL, batchCurrency, parseBatchArgs, resolveRows, type BatchArgs, type BatchRow,
+  ADD_EXPENSES_TOOL, batchCurrency, parseBatchArgs, resolveRows, type BatchArgs, type BatchRow, type ResolvedRow,
 } from "../ai/assistant/tools/expenseBatchTool.js";
 import { answerCallbackQuery, editHtmlMessage, sendHtmlMessage, type TelegramCallbackQuery, type TelegramInlineButton } from "./api.js";
 
@@ -36,7 +36,9 @@ import { answerCallbackQuery, editHtmlMessage, sendHtmlMessage, type TelegramCal
 const PAGE_CHARS = 3400;
 /** Кнопок «Править» на страницу — не больше 48 (у Telegram предел 100 кнопок на сообщение). */
 const PAGE_ROWS = 48;
-const CALLBACK = /^ax:(pg|fx|rw|rm|nop):([0-9a-f-]{36})?(?::(\d{1,4}))?$/u;
+const CALLBACK = /^ax:(pg|fx|rw|rm|nop|sc|sa):([0-9a-f-]{36})?(?::(\d{1,4}))?(?::(\d{1,2}))?$/u;
+/** Сотрудников для зарплаты кнопками — не больше 12 (однофамильцы или весь короткий список). */
+const MAX_AGENT_BUTTONS = 12;
 const FIX_TTL_MS = 10 * 60_000;
 const DIALOG_KIND = "assistant";
 const SUSPICIOUS_RATIO = 10;
@@ -63,8 +65,10 @@ const TEXT = {
     flagMismatch: "💱 валюта не как у остальных — проверьте",
     flagSuspicious: "⚠️ проверьте сумму: намного больше обычного для этой статьи",
     flagDuplicate: (day: string) => `⚠️ похоже на уже записанное ${day}`,
-    flagSalary: "запишу в «Прочее» — сотрудника для зарплаты укажите в CRM",
-    flagAds: "запишу в «Прочее» — канал рекламы укажите в CRM",
+    flagSalary: (n: number) => `👥 сотрудника не нашла — выберите: ✏️ Править → строка ${n}, иначе запишу в «Прочее»`,
+    flagSalaryMany: (n: number, names: string) => `👥 похожих сотрудников несколько (${names}) — выберите: ✏️ Править → строка ${n}`,
+    flagAds: (n: number) => `📣 канал рекламы не узнала — выберите: ✏️ Править → строка ${n}, иначе запишу в «Прочее»`,
+    chooseChannel: "Канал рекламы:", chooseAgent: "Чья зарплата:",
     skippedHead: "⚠️ Не записываю:",
     skip: {
       unreadable: "не прочиталась", ambiguous: "непонятно, какое число сумма", negative: "сумма со знаком минус",
@@ -93,8 +97,10 @@ const TEXT = {
     flagMismatch: "💱 асъор аз дигар сатрҳо фарқ дорад — санҷед",
     flagSuspicious: "⚠️ маблағро санҷед: барои ин модда аз муқаррарӣ хеле зиёд аст",
     flagDuplicate: (day: string) => `⚠️ ба харҷи ${day} сабтшуда монанд аст`,
-    flagSalary: "ба «Дигар харҷҳо» сабт мекунам — кормандро дар CRM нишон диҳед",
-    flagAds: "ба «Дигар харҷҳо» сабт мекунам — канали рекламаро дар CRM нишон диҳед",
+    flagSalary: (n: number) => `👥 кормандро наёфтам — интихоб кунед: ✏️ Ислоҳ → сатри ${n}, вагарна ба «Дигар харҷҳо» сабт мекунам`,
+    flagSalaryMany: (n: number, names: string) => `👥 кормандони монанд чандто ҳастанд (${names}) — интихоб кунед: ✏️ Ислоҳ → сатри ${n}`,
+    flagAds: (n: number) => `📣 канали рекламаро нафаҳмидам — интихоб кунед: ✏️ Ислоҳ → сатри ${n}, вагарна ба «Дигар харҷҳо» сабт мекунам`,
+    chooseChannel: "Канали реклама:", chooseAgent: "Музди кадом корманд:",
     skippedHead: "⚠️ Сабт намекунам:",
     skip: {
       unreadable: "хонда нашуд", ambiguous: "маълум нест, кадом рақам маблағ аст", negative: "маблағ бо аломати минус",
@@ -128,6 +134,8 @@ export interface CardContext {
   rateUpdatedAt: Date | null;
   categories: BatchRow["category"][];
   categoryTitles: (string | undefined)[];
+  /** Разбор строк (раздел, кандидаты на зарплату) — для кнопок выбора канала и сотрудника. */
+  resolved: ResolvedRow[];
   flags: string[][];
   /** Валюты не было ни в одной строке: одна строка под итогом вместо пометки у каждой. */
   noCurrencyAnywhere: boolean;
@@ -170,13 +178,16 @@ export async function loadCardContext(args: BatchArgs): Promise<CardContext> {
     const twin = recent.find((past) => (past.note ?? "").trim().toLowerCase() === row.title.trim().toLowerCase()
       && Number(past.amount) === row.amount && past.currency === row.currency);
     if (twin) out.push(t.flagDuplicate(dayWords(lang, twin.createdAt.toISOString().slice(0, 10))));
-    if (resolved[i]!.downgraded) out.push(resolved[i]!.downgraded === "salary" ? t.flagSalary : t.flagAds);
+    const r = resolved[i]!;
+    if (r.downgraded === "ads") out.push(t.flagAds(i + 1));
+    if (r.downgraded === "salary") out.push(r.candidates?.length ? t.flagSalaryMany(i + 1, r.candidates.map((c) => c.fullName).slice(0, 4).join(", ")) : t.flagSalary(i + 1));
     return out;
   });
   return {
     money, rateUpdatedAt: rateInfo?.updatedAt ?? null,
     categories: resolved.map((row) => row.body.category as BatchRow["category"]),
     categoryTitles: resolved.map((row) => row.categoryTitle),
+    resolved,
     flags, noCurrencyAnywhere,
   };
 }
@@ -482,6 +493,15 @@ export async function applyExpenseFixMessage(chatId: string, agentId: string, te
   return true;
 }
 
+/**
+ * Кого предложить кнопками для зарплаты: однофамильцы из поиска по имени, а не нашёлся никто —
+ * короткий список активных сотрудников. Порядок стабильный (по имени): номер кнопки = номер в списке.
+ */
+async function salaryOptions(row: ResolvedRow): Promise<{ id: string; fullName: string }[]> {
+  if (row.candidates?.length) return [...row.candidates].sort((a, b) => a.fullName.localeCompare(b.fullName, "ru")).slice(0, MAX_AGENT_BUTTONS);
+  return prisma.agent.findMany({ where: { isActive: true }, select: { id: true, fullName: true }, orderBy: [{ fullName: "asc" }, { id: "asc" }], take: MAX_AGENT_BUTTONS });
+}
+
 /** Кнопки `ax:*`: листать, «Править», выбрать строку, убрать строку. true — наша кнопка. */
 export async function handleExpenseCardCallback(query: TelegramCallbackQuery, agentId: string | null): Promise<boolean> {
   if (!query.data?.startsWith("ax:")) return false;
@@ -490,8 +510,9 @@ export async function handleExpenseCardCallback(query: TelegramCallbackQuery, ag
   const chat = query.message?.chat;
   const messageId = query.message?.message_id;
   if (!match || match[1] === "nop" || !match[2] || !chat || chat.type !== "private" || !messageId || !agentId) { await ack(); return true; }
-  const [, verb, bundleId, rawIndex] = match;
+  const [, verb, bundleId, rawIndex, rawChoice] = match;
   const index = Number(rawIndex ?? 0);
+  const choice = Number(rawChoice ?? -1);
   const chatId = String(chat.id);
   const loaded = await loadBatch(bundleId!, agentId);
   if (!loaded || loaded.row.status !== "PENDING" || loaded.row.expiresAt <= new Date()) {
@@ -501,7 +522,8 @@ export async function handleExpenseCardCallback(query: TelegramCallbackQuery, ag
   const lang = cardLang(loaded.args.lang);
   const t = TEXT[lang];
   const notes = notesOf(loaded.row);
-  const render = renderExpenseCard(loaded.args, await loadCardContext(loaded.args), notes);
+  const ctx = await loadCardContext(loaded.args);
+  const render = renderExpenseCard(loaded.args, ctx, notes);
   const page = Math.min(Math.max(0, verb === "pg" || verb === "fx" ? index : render.rowPage[index] ?? 0), render.pages.length - 1);
   if (verb === "pg") {
     await editHtmlMessage(chatId, messageId, render.pages[page]!, keyboard(lang, bundleId!, page, render.pages.length)).catch(() => undefined);
@@ -518,12 +540,41 @@ export async function handleExpenseCardCallback(query: TelegramCallbackQuery, ag
     return true;
   }
   if (!Number.isInteger(index) || index < 0 || index >= loaded.args.items.length) { await ack(t.stale); return true; }
+  const resolvedRow = ctx.resolved[index];
   if (verb === "rw") {
     await rememberFix(chatId, agentId, { bundleId: bundleId!, row: index, messageId });
-    await editHtmlMessage(chatId, messageId, `${render.pages[page]}\n\n${esc(t.rowPrompt(index + 1))}`, [[
-      { text: t.remove, callback_data: `ax:rm:${bundleId}:${index}` },
-      { text: t.back, callback_data: `ax:pg:${bundleId}:${page}` },
-    ]]).catch(() => undefined);
+    // Реклама без канала / зарплата без сотрудника — выбор кнопкой прямо здесь (не молча «Прочее»).
+    const choices: TelegramInlineButton[] = resolvedRow?.downgraded === "ads"
+      ? AD_CHANNELS.map((c, k) => ({ text: c.label, callback_data: `ax:sc:${bundleId}:${index}:${k}` }))
+      : resolvedRow?.downgraded === "salary"
+        ? (await salaryOptions(resolvedRow)).map((a, k) => ({ text: a.fullName.slice(0, 30), callback_data: `ax:sa:${bundleId}:${index}:${k}` }))
+        : [];
+    const chooseRows: TelegramInlineButton[][] = [];
+    for (let i = 0; i < choices.length; i += 3) chooseRows.push(choices.slice(i, i + 3));
+    const label = resolvedRow?.downgraded === "ads" ? `\n${t.chooseChannel}` : resolvedRow?.downgraded === "salary" ? `\n${t.chooseAgent}` : "";
+    await editHtmlMessage(chatId, messageId, `${render.pages[page]}\n\n${esc(t.rowPrompt(index + 1))}${esc(label)}`, [
+      ...chooseRows,
+      [{ text: t.remove, callback_data: `ax:rm:${bundleId}:${index}` }, { text: t.back, callback_data: `ax:pg:${bundleId}:${page}` }],
+    ]).catch(() => undefined);
+    await ack();
+    return true;
+  }
+  if (verb === "sc" || verb === "sa") {
+    const channel = verb === "sc" ? AD_CHANNELS[choice] : undefined;
+    const agent = verb === "sa" && resolvedRow ? (await salaryOptions(resolvedRow))[choice] : undefined;
+    if (!channel && !agent) { await ack(t.stale); return true; }
+    const result = await replaceBatch(bundleId!, agentId, (args) => ({ ...args, items: args.items.map((row, i) => i !== index ? row
+      : channel ? { ...row, category: "ADVERTISING" as const, source: channel.source }
+        : { ...row, category: "SALARY" as const, agentId: agent!.id, agentName: agent!.fullName }) }))
+      .catch(() => ({ kind: "stale" as const }));
+    if (result.kind === "replaced") {
+      if (result.notes.skipped?.length || result.notes.readUpTo) await rememberNotes(result.actionId, result.notes);
+      const next = renderExpenseCard(result.args, await loadCardContext(result.args), result.notes);
+      const nextPage = Math.min(page, next.pages.length - 1);
+      await editHtmlMessage(chatId, messageId, next.pages[nextPage]!, keyboard(result.lang, result.bundleId, nextPage, next.pages.length)).catch(() => undefined);
+    } else {
+      await editHtmlMessage(chatId, messageId, esc(t[result.kind === "empty" ? "empty" : "stale"]), null).catch(() => undefined);
+    }
     await ack();
     return true;
   }

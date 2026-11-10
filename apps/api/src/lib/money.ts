@@ -60,6 +60,18 @@ export async function loadMoneyContext(db: Pick<typeof prisma, "settings"> = pri
  * долларовый расход только при заданном курсе и показывает его в карточке с датой обновления;
  * `rate` здесь равен тому, что loadMoneyContext отдаст createExpense, когда курс задан.
  */
+/** Текст отказа без курса — один на REST и помощницу (одна дверь, 10.11.2026). */
+export const NO_USD_RATE_TEXT = "Курс доллара в Настройках CRM не задан — долларовый расход не записываю. Задайте курс в Настройках (Финансы → курс) или укажите курс в самом расходе.";
+
+/**
+ * Курс для ЗАПИСИ долларового расхода: из Настроек, без FALLBACK_USD_TO_TJS. null — курса нет,
+ * писать нельзя (вызывающий отказывает 409). Кэшированный курс пачки (`known`) — тот же самый.
+ */
+export async function usdRateForWrite(db: Pick<typeof prisma, "settings"> = prisma, known?: MoneyContext): Promise<number | null> {
+  if (known) return known.usdToTjs;
+  return (await loadUsdRateInfo(db)).rate;
+}
+
 export async function loadUsdRateInfo(db: Pick<typeof prisma, "settings"> = prisma): Promise<{ rate: number | null; updatedAt: Date | null; source: string | null }> {
   const settings = await db.settings.findUnique({
     where: { id: "singleton" },
