@@ -10,6 +10,9 @@ import { expenseTools } from "./expenseTools.js";
 import { propertyTools } from "./propertyTools.js";
 import { readTools } from "./readTools.js";
 import { showingNoteTools } from "./showingNoteTools.js";
+import { staffReadTools } from "./staffReadTools.js";
+import { staffWriteTools } from "./staffWriteTools.js";
+import { transferPropertyTool } from "./transferPropertyTool.js";
 import type { AssistantToolPlugin } from "./types.js";
 
 export type { AssistantToolPlugin } from "./types.js";
@@ -36,7 +39,7 @@ function add(plugin: AssistantToolPlugin): () => void {
   };
 }
 
-for (const plugin of [...createKnowledgeSemanticTools(() => ({ beforeAttempt: createAssistantEmbeddingMoneyGuard() })), ...knowledgeTools, ...readTools, ...clientOwnershipTools, ...propertyTools, ...showingNoteTools, completeTaskTool, ...expenseTools, ...dealReadTools, ...dealWriteTools]) add(plugin);
+for (const plugin of [...createKnowledgeSemanticTools(() => ({ beforeAttempt: createAssistantEmbeddingMoneyGuard() })), ...knowledgeTools, ...readTools, ...clientOwnershipTools, ...propertyTools, ...showingNoteTools, completeTaskTool, ...expenseTools, ...dealReadTools, ...dealWriteTools, ...staffReadTools, ...staffWriteTools, transferPropertyTool]) add(plugin);
 
 /** Для тестов: добавить плагин на время теста; возвращает функцию снятия. */
 export function registerAssistantToolPlugin(plugin: AssistantToolPlugin): () => void {
