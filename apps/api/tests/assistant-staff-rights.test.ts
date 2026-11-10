@@ -61,7 +61,7 @@ const { actorFromAccess } = await import("../src/ai/assistant/actor.js");
 const { runAssistantToolPlugin } = await import("../src/ai/assistant/tools/run.js");
 const broker = await import("../src/lib/assistantActions.js");
 const bot = await import("../src/telegram/assistantBot.js");
-const { STEP_UP_MAX_FAILURES, STEP_UP_RETENTION_MS, parseStepUpCode } = await import("../src/telegram/assistantStepUp.js");
+const { STEP_UP_MAX_FAILURES, STEP_UP_RETENTION_MS, parseStepUpCode, startStepUpChallenge, findPendingStepUp, verifyStepUpCode } = await import("../src/telegram/assistantStepUp.js");
 const { runAssistantActionsSweep } = await import("../src/jobs/assistantActionsSweep.js");
 const { staffNoticeRecipients } = await import("../src/lib/staffSecurityNotify.js");
 const { cleanupAssistantActionAgents } = await import("./helpers/assistantActionFixture.js");
@@ -504,6 +504,76 @@ describe("«↩️ Отменить» в Telegram", () => {
     expect(await statusOf(actionId)).toBe("UNDONE");
     invalidateAgentAccess(target.id);
     expect((await loadAgentAccess(target.id))!.permissions.has("reports.view")).toBe(false);
+  });
+});
+
+describe("откат — граница и гонки (повторное ревью)", () => {
+  it("откат роли — одной записью: прежняя роль И прежние личные права", async () => {
+    const target = await agent(`Цельроли${runId}`, "AGENT", { permissions: { granted: ["reports.view"], revoked: [] } });
+    const { actionId } = await telegramCard("update_staff", { agentId: target.id, changes: { role: "MANAGER" } });
+    await broker.confirmAssistantAction(actionId, await verified());
+    const changed = await prisma.agent.findUniqueOrThrow({ where: { id: target.id } });
+    expect(changed.role).toBe("MANAGER");
+    expect(changed.permissions).toBeNull();
+    await broker.undoAssistantAction(actionId, await verified());
+    const back = await prisma.agent.findUniqueOrThrow({ where: { id: target.id } });
+    expect(back.role).toBe("AGENT");
+    expect(back.permissions).toEqual({ granted: ["reports.view"], revoked: [] });
+  });
+
+  it("отмена через брокер без кода — 428, ничего не откатывается", async () => {
+    const target = await agent(`Цельбезкода${runId}`, "AGENT");
+    const { actionId } = await telegramCard("set_staff_permissions", { agentId: target.id, grant: ["reports.view"] });
+    await broker.confirmAssistantAction(actionId, await verified());
+    await expect(broker.undoAssistantAction(actionId, await telegramActor(directorId))).rejects.toMatchObject({ status: 428, code: "STEP_UP_REQUIRED" });
+    expect(await statusOf(actionId)).toBe("EXECUTED");
+  });
+
+  it("отмена по устаревшей карточке (права поменяли руками) — отказ, ручная правка цела", async () => {
+    const target = await agent(`Цельустар${runId}`, "AGENT");
+    const { actionId } = await telegramCard("set_staff_permissions", { agentId: target.id, grant: ["reports.view"] });
+    await broker.confirmAssistantAction(actionId, await verified());
+    const manual = { granted: ["reports.view", "finance.view"], revoked: [] };
+    await prisma.agent.update({ where: { id: target.id }, data: { permissions: manual } });
+    await expect(broker.undoAssistantAction(actionId, await verified())).rejects.toMatchObject({ code: "UNDO_STALE" });
+    expect((await prisma.agent.findUniqueOrThrow({ where: { id: target.id } })).permissions).toEqual(manual);
+  });
+
+  it("отменить может только автор", async () => {
+    const target = await agent(`Цельчужой${runId}`, "AGENT");
+    const { actionId, bundleId } = await telegramCard("pause_staff_leads", { agentId: target.id, hours: 2 });
+    await press(bundleId);
+    expect(await statusOf(actionId)).toBe("EXECUTED");
+    await press(bundleId, "undo", tgUser + 1);
+    expect(io.ack.mock.calls.at(-1)?.[1]).toMatch(/Привяжите|только автор/);
+    expect(await statusOf(actionId)).toBe("EXECUTED");
+  });
+
+  it("смешанная связка: не всё отменилось — так и сказано", async () => {
+    const a = await agent(`Цельсвязкиа${runId}`, "AGENT");
+    const b = await agent(`Цельсвязкиб${runId}`, "AGENT");
+    const first = await broker.createPendingAssistantAction(await telegramActor(directorId), "pause_staff_leads", { agentId: a.id, hours: 2 });
+    const second = await broker.createPendingAssistantAction(await telegramActor(directorId), "pause_staff_leads", { agentId: b.id, hours: 3 });
+    const bundleId = crypto.randomUUID();
+    await prisma.assistantAction.updateMany({ where: { id: { in: [first.id, second.id] } }, data: { bundleId } });
+    await press(bundleId);
+    await prisma.agent.update({ where: { id: b.id }, data: { leadsPausedUntil: new Date(Date.now() + 9 * 3600_000) } });
+    await press(bundleId, "undo");
+    expect(String(lastEdit()?.[2] ?? "")).toMatch(/Не всё отменено/);
+    expect(String(lastEdit()?.[2] ?? "")).toMatch(/Остальное не отменено/);
+  });
+
+  it("гонка двух одинаковых кодов на двух карточках: один проходит, второй — «уже использован»", async () => {
+    await prisma.assistantStepUpChallenge.updateMany({ where: { agentId: directorId }, data: { usedStep: null } });
+    const one = await startStepUpChallenge({ agentId: directorId, chatId: "race-1", bundleId: crypto.randomUUID(), language: "ru" });
+    const two = await startStepUpChallenge({ agentId: directorId, chatId: "race-2", bundleId: crypto.randomUUID(), language: "ru" });
+    expect(one.kind).toBe("started");
+    expect(two.kind).toBe("started");
+    const [a, b] = await Promise.all([findPendingStepUp("race-1", directorId), findPendingStepUp("race-2", directorId)]);
+    const code = codeAtStep(Math.floor(Date.now() / 30_000));
+    const verdicts = await Promise.all([verifyStepUpCode(a!, code), verifyStepUpCode(b!, code)]);
+    expect(verdicts.map((v) => v.kind).sort()).toEqual(["passed", "replay"]);
+    expect((await prisma.assistantStepUpChallenge.aggregate({ where: { agentId: directorId }, _sum: { attempts: true } }))._sum.attempts ?? 0).toBe(0);
   });
 });
 

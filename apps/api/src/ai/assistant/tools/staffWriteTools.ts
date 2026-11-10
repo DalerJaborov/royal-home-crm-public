@@ -39,6 +39,7 @@ import {
   pauseStaffLeads,
   PRIVILEGED_TARGET_ERROR,
   resetStaffTwoFactor,
+  restoreStaffRole,
   resumeStaffLeads,
   revertStaffHandover,
   setStaffPermissions,
@@ -402,13 +403,12 @@ export const updateStaffTool = staffTool({
     if (Object.keys(args.changes).some((key) => key !== "role")) {
       throw new AssistantActionError(409, "NOT_UNDOABLE", "Отменяется только смена роли");
     }
-    await run(actor, async () => {
-      unwrap(await updateStaffMember(staff, args.agentId, { role: before.role }, via(actor)));
-      const overrides = before.permissions as PermissionOverrides;
-      if (overrides.granted.length > 0 || overrides.revoked.length > 0) {
-        unwrap(await setStaffPermissions(staff, args.agentId, overrides, via(actor)));
-      }
-    });
+    // Роль и личные права — одной записью (lib/staffAdmin.ts::restoreStaffRole): сбой
+    // посередине не должен оставлять прежнюю роль без снятых прав.
+    const after = ctx.snapshotAfter;
+    await run(actor, async () =>
+      unwrap(await restoreStaffRole(staff, args.agentId, { expectedRole: String(after.role), role: String(before.role), permissions: before.permissions }, via(actor)))
+    );
   },
   allowed: (actor) => has(actor, "agents.manage"),
 });

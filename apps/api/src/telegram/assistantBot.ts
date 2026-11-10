@@ -1705,7 +1705,7 @@ export async function handleAssistantCallback(query: TelegramCallbackQuery): Pro
       }
       const undone = await serializeBundle(bundleId, () => undoBundle(executed.map((a) => a.id), actor));
       await answerCallbackQuery(query.id, undone.failed ? "Отменено не всё" : "Отменено");
-      await showOnCard(chatId, messageId, sanitizeAssistantReply(`↩️ ${clicker.fullName}:\n${undone.lines.join("\n")}`, false), null);
+      await showOnCard(chatId, messageId, undoSummary(undone, clicker.fullName), null);
       return true;
     }
 
@@ -1839,7 +1839,8 @@ async function executeBundle(ids: string[], actor: AssistantActionActor, tajikPr
 async function undoBundle(ids: string[], actor: AssistantActionActor): Promise<{ failed: boolean; lines: string[] }> {
   const lines: string[] = [];
   let failed = false;
-  for (const id of [...ids].reverse()) {
+  const order = [...ids].reverse();
+  for (const [index, id] of order.entries()) {
     try {
       const access = await loadAgentAccess(actor.agentId, prisma);
       if (!access?.isActive || isReadOnlyRole(access.role)) {
@@ -1855,10 +1856,17 @@ async function undoBundle(ids: string[], actor: AssistantActionActor): Promise<{
       failed = true;
       lines.push(`✖ ${err instanceof AssistantActionError ? FAIL_STATUS_NOTE[err.code] ?? err.message : "не получилось отменить"}`);
       if (!(err instanceof AssistantActionError)) await logSystemError("ai", `Помощник Telegram: откат ${id} упал: ${describeError(err)}`);
+      if (index < order.length - 1) lines.push("Остальное не отменено.");
       break;
     }
   }
   return { failed, lines };
+}
+
+/** Итог отката: при сбое честно «не всё отменено» и что именно. */
+function undoSummary(undone: { failed: boolean; lines: string[] }, name: string): string {
+  const head = undone.failed ? `⚠️ Не всё отменено (${name}):` : `↩️ ${name}:`;
+  return sanitizeAssistantReply(`${head}\n${undone.lines.join("\n")}`, false);
 }
 
 /** Итог на месте карточки (личка): правим её текст и кнопки, не вышло — одно отдельное сообщение. */
@@ -1933,7 +1941,7 @@ async function runVerifiedBundle(challenge: PendingStepUp, agent: { id: string; 
   const actor: AssistantActionActor = { ...actionActorOf(agent.id, access, true), stepUpVerified: true };
   if (challenge.kind === "undo") {
     const undone = await serializeBundle(challenge.bundleId, () => undoBundle(actions.map((a) => a.id), actor));
-    await showOnCard(challenge.chatId, challenge.cardMessageId ?? undefined, sanitizeAssistantReply(`↩️ ${agent.fullName}:\n${undone.lines.join("\n")}`, false), null);
+    await showOnCard(challenge.chatId, challenge.cardMessageId ?? undefined, undoSummary(undone, agent.fullName), null);
     return;
   }
   const outcome = await serializeBundle(challenge.bundleId, () => executeBundle(actions.map((a) => a.id), actor, false));

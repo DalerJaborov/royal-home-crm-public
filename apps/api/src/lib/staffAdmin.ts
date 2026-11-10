@@ -1048,3 +1048,54 @@ export async function resumeStaffLeads(actor: StaffActor, targetId: string, opts
   notifyAgentAboutSupervisorPause(agent.id, actorRow?.fullName ?? "Руководитель", null);
   return done({ ok: true });
 }
+
+// ───────────────────────────── откат роли ─────────────────────────────
+
+/**
+ * ВЕРНУТЬ РОЛЬ ВМЕСТЕ С ЛИЧНЫМИ ПРАВАМИ — ОДНОЙ ЗАПИСЬЮ (10.11.2026, ревью
+ * безопасности). Смена роли сбрасывает личные надстройки прав (G9), поэтому откат
+ * обязан вернуть обе вещи разом: две записи подряд при сбое второй оставляли бы
+ * человека с прежней ролью, но без снятых с него прав — то есть с РАСШИРЕННЫМИ
+ * правами. Здесь — одна транзакция с условием «роль всё ещё та, что поставили»,
+ * те же защиты, что у правки роли (учётка директора, раздающий права, своя роль,
+ * последний директор), журнал и сообщение руководству.
+ */
+export async function restoreStaffRole(
+  actor: StaffActor,
+  targetId: string,
+  input: { expectedRole: string; role: string; permissions: unknown },
+  opts?: StaffCallOptions
+): Promise<StaffOutcome> {
+  const role = agentUpdateSchema.shape.role.safeParse(input.role);
+  if (!role.success || !role.data) return fail(400, "Неверные данные");
+  if (!actor.can("permissions.manage")) return fail(403, "Возвращать права может только тот, у кого есть право раздавать права");
+  const target = await prisma.agent.findUnique({ where: { id: targetId }, select: { id: true, fullName: true, role: true } });
+  if (!target) return fail(404, "Сотрудник не найден");
+  if (await forbiddenDirectorTarget(actor, targetId, role.data)) return fail(403, "Управлять учёткой директора может только директор");
+  if (await forbiddenPrivilegedTarget(actor, targetId)) return fail(403, PRIVILEGED_TARGET_ERROR);
+  const roleDenied = forbiddenRoleGrant(actor, targetId, role.data);
+  if (roleDenied) return fail(403, roleDenied);
+  if (await wouldLoseLastDirector(targetId, { role: role.data })) {
+    return fail(409, "В системе должен остаться хотя бы один активный директор");
+  }
+  const overrides = normalizeOverrides(role.data as Role, parsePermissionOverrides(input.permissions));
+  const isEmpty = overrides.granted.length === 0 && overrides.revoked.length === 0;
+  const written = await prisma.$transaction(async (tx) =>
+    tx.agent.updateMany({
+      where: { id: targetId, role: input.expectedRole as Role },
+      data: { role: role.data as Role, permissions: isEmpty ? Prisma.DbNull : (overrides as unknown as Prisma.InputJsonObject) },
+    })
+  );
+  if (written.count === 0) return fail(409, "Роль уже изменили — откат затёр бы чужую правку");
+  invalidateAgentAccess(targetId);
+  closeStreamsForAgent(targetId);
+  void syncAgentQueuePresence(targetId).catch(() => {});
+  audit(actor, opts, "AGENT_ROLE_RESTORE", targetId, {
+    fromRole: input.expectedRole,
+    role: role.data,
+    granted: overrides.granted,
+    revoked: overrides.revoked,
+  });
+  notice(actor, opts, "role", target, `${roleName(input.expectedRole)} → ${roleName(role.data)}, личные права возвращены`);
+  return done({ agentId: targetId, role: role.data, overrides });
+}
