@@ -182,7 +182,7 @@ describe("Шабнам: чтение сделок и долей", () => {
     expect(commission.earned.byCurrency).toEqual([expect.objectContaining({ currency: "TJS", amount: 500 })]);
     expect(mine.deal.agentId).toBe(agentA);
     // Ни общей комиссии, ни доли компании в ответе агенту нет.
-    expect(JSON.stringify(commission)).not.toMatch(/1 500|1500|компани/u);
+    expect(JSON.stringify(commission)).not.toMatch(/(?<!\d)(?<!\d )(?:1 500|1500)(?!\d)(?! \d{3})|компани/u);
     expect(commission.unpaidAllTime.byCurrency[0]).toMatchObject({ currency: "TJS", amount: 500 });
 
     const foreign = (await read("get_deal_card").run({ dealId: dealIds[1] }, { actor })) as Record<string, unknown>;
@@ -385,7 +385,8 @@ describe("Шабнам: ревью 10.11 — права, цель закрыти
     const closed = await makeDeal({ agentId: agentB, stage: "COMPLETED", realtor: 700, company: 1300 });
     const payout = await createPendingAssistantAction(ropWrite, "mark_deal_payout", { dealId: closed.deal.id });
     expect(payout.preview.becomes["👤 Доля агента"]).toBe("✅ Выплачено");
-    expect(JSON.stringify(payout.preview)).not.toMatch(/700|1 300|2 000/u);
+    // Число — отдельным словом: случайный runId в имени тестового агента («…3904700430») не сумма.
+    expect(JSON.stringify(payout.preview)).not.toMatch(/(?<!\d)(?<!\d )(?:700|1 300|2 000)(?!\d)(?! \d{3})/u);
 
     const live = await makeDeal({ agentId: agentA, stage: "CONTRACT_SIGNED", showing: true, commission: 2000 });
     const close = await createPendingAssistantAction(ropWrite, "close_deal", {

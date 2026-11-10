@@ -3,7 +3,7 @@ import { prisma } from "../db.js";
 import { DEAL_SALARY_AUTO_KEY_PREFIX, dealSalaryAutoKey, isDealSalaryExpense } from "./companyProfit.js";
 import { describeError } from "./describeError.js";
 import { DUSHANBE_OFFSET_MS, dushanbeWallClock } from "./dushanbeTime.js";
-import { centsToTjs, fromCents, loadMoneyContext, toCents } from "./money.js";
+import { centsToTjs, fromCents, loadMoneyContext, NO_USD_RATE_TEXT, toCents, usdRateForWrite } from "./money.js";
 import { logSystemError } from "./systemError.js";
 import { enqueueDirectorAlert } from "./directorAlertQueue.js";
 import { dealShareEntries } from "./dealPayouts.js";
@@ -39,7 +39,9 @@ const FINANCE_RECIPIENT_ROLES = ["DIRECTOR", "ADMIN"] as const;
  * расхода из шаблона и уведомление «строка заведена, не забудьте оплатить».
  */
 export async function processRecurringExpenses(): Promise<{ created: number; reminded: number }> {
-  await processWorkspaceRecurringExpenses();
+  // Новые шаблоны (с датой начала) — свой тик; его сбой не должен останавливать старые шаблоны ниже.
+  await processWorkspaceRecurringExpenses().catch((error: unknown) =>
+    logSystemError("cron", `Повторяющиеся платежи (новые шаблоны): ${error instanceof Error ? error.message : String(error)}`));
   const wall = dushanbeWallClock();
   const today = wall.getUTCDate();
   const month = currentMonthKey();
@@ -70,6 +72,11 @@ export async function processRecurringExpenses(): Promise<{ created: number; rem
         const autoKey = `rec:${t.id}:${month}`;
         const existing = await prisma.expense.findUnique({ where: { autoKey }, select: { id: true } });
         if (!existing) {
+          // Автооплата доллара — по курсу из Настроек; курса нет — строка планом, причина в журнале
+          // ошибок (запасное FALLBACK_USD_TO_TJS курсом не является, 10.11.2026).
+          const usdRate = t.autoPay && t.currency === "USD" ? await usdRateForWrite() : null;
+          const paid = t.autoPay && (t.currency !== "USD" || usdRate !== null);
+          if (t.autoPay && !paid) void logSystemError("cron", `Повторяющийся платёж «${t.title}» (${t.id}): автооплата пропущена — ${NO_USD_RATE_TEXT}`);
           // Строка расхода и отметка шаблона — одной транзакцией: autoKey уникален,
           // так что повторного расхода не будет, но без атомарности падение между
           // ними оставляет шаблон непомеченным, и следующий ночной тик заново шлёт
@@ -80,7 +87,8 @@ export async function processRecurringExpenses(): Promise<{ created: number; rem
                 autoKey,
                 recurringId:t.id,
                 occurrenceDate:`${month}-${String(t.dayOfMonth).padStart(2,"0")}`,
-                status:t.autoPay?"PAID":"PLANNED",
+                status:paid?"PAID":"PLANNED",
+                ...(paid ? { exchangeRate: t.currency === "USD" ? usdRate : 1, rateCapturedAt: new Date() } : {}),
                 paymentDate:new Date(`${month}-${String(t.dayOfMonth).padStart(2,"0")}T00:00:00.000Z`),
                 month: monthToDate(month),
                 amount: t.amount,
