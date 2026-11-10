@@ -1,5 +1,7 @@
 import { ShellOwnHeader } from "../components/rh2/ShellOwnHeader";
 import { useMemo, useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { ApiError } from "../lib/apiError";
 import { useAuthStore } from "../store/auth";
 import { useNavigate } from "react-router-dom";
 import { useGoBack } from "../hooks/useGoBack";
@@ -119,6 +121,61 @@ function leadShortId(n: AppNotification): number | null {
  * плашка `MutationError`. Отдельный компонент строки, а не хук внутри map по
  * списку уведомлений — правило хуков этого не прощает.
  */
+/**
+ * ОТВЕТ НА ПРЕДЛОЖЕНИЕ ОБЪЕКТА КОЛЛЕГОЙ (10.11.2026). Коллега из Telegram
+ * предложил объект для клиента этого агента; ответить можно и здесь, тем же
+ * POST /property-offers/:id/answer, что кнопки в Telegram. Клиенту ничего не уходит.
+ *
+ * Статус приходит с сервера вместе с уведомлением (`n.offer`): после
+ * перезагрузки — плашка с ответом, а не снова обе кнопки. Ответ «уже ответили»
+ * (409) — тоже плашка по статусу сервера, а не ошибка.
+ */
+const OFFER_STATUS_LABEL: Record<string, { text: string; done: boolean }> = {
+  WILL_SEND: { text: "✅ Отправлю клиенту", done: true },
+  NOT_SUITABLE: { text: "🙅 Не подходит", done: false },
+  CLOSED: { text: "Клиент уже у другого агента", done: false },
+};
+
+export function OfferAnswerAction({ offer, className, line = false }: { offer: NonNullable<AppNotification["offer"]>; className: string; line?: boolean }) {
+  const queryClient = useQueryClient();
+  const [status, setStatus] = useState<string>(offer.status);
+  const answer = useMutation({
+    mutationFn: (value: "WILL_SEND" | "NOT_SUITABLE") =>
+      api(`/property-offers/${offer.id}/answer`, { method: "POST", body: { answer: value } }),
+    onSuccess: (_data, value) => {
+      setStatus(value);
+      void queryClient.invalidateQueries({ queryKey: ["notifications"] });
+    },
+    onError: (err) => {
+      if (err instanceof ApiError && err.status === 409) {
+        const current = typeof err.data === "object" && err.data && "status" in err.data ? String((err.data as { status: unknown }).status ?? "CLOSED") : "CLOSED";
+        setStatus(current === "SENT" ? "CLOSED" : current);
+        void queryClient.invalidateQueries({ queryKey: ["notifications"] });
+      }
+    },
+  });
+  const label = OFFER_STATUS_LABEL[status];
+  if (label || !(offer.answerable && status === "SENT")) {
+    return (
+      <div className={line ? "offer-answer offer-answer-line" : "offer-answer"} onClick={(e) => e.stopPropagation()}>
+        <span className={label?.done ? "offer-status ok" : "offer-status"} role="status">{label?.text ?? "Ответить уже нельзя"}</span>
+      </div>
+    );
+  }
+  const conflict = answer.error instanceof ApiError && answer.error.status === 409;
+  return (
+    <div className={line ? "offer-answer offer-answer-line" : "offer-answer"} onClick={(e) => e.stopPropagation()}>
+      <button type="button" className={className} disabled={answer.isPending} onClick={() => answer.mutate("WILL_SEND")}>
+        Отправлю клиенту
+      </button>
+      <button type="button" className={className} disabled={answer.isPending} onClick={() => answer.mutate("NOT_SUITABLE")}>
+        Не подходит
+      </button>
+      {!conflict && <MutationError mutation={answer} fallback="Не удалось ответить" />}
+    </div>
+  );
+}
+
 function LeadAcceptAction({
   clientId,
   onRequireRelease,
@@ -362,6 +419,7 @@ export function Notifications() {
                     className="pill sm"
                   />
                 )}
+                {n.offer && <OfferAnswerAction offer={n.offer} className="pill sm" />}
                 <button className="pill ghost sm" type="button" onClick={() => open(n)}>
                   Открыть
                 </button>
@@ -390,7 +448,7 @@ export function Notifications() {
             const shortId = leadShortId(n);
             const acceptClientId = shortId != null ? pendingIdByShortId.get(shortId) : undefined;
             return (
-              <div className="row wrap2" role="button" tabIndex={0} key={n.id} onClick={() => open(n)}>
+              <div className={n.offer ? "row wrap2 offer-row" : "row wrap2"} role="button" tabIndex={0} key={n.id} onClick={() => open(n)}>
                 <span className="plate soft" style={look.tone}>
                   <Icon className="i" width={16} height={16} strokeWidth={1.5} aria-hidden="true" />
                 </span>
@@ -413,6 +471,8 @@ export function Notifications() {
                 {acceptClientId && (
                   <LeadAcceptAction clientId={acceptClientId} onRequireRelease={() => open(n)} className="btn pill sm" />
                 )}
+                {/* На телефоне ответ — своей строкой под текстом, иначе кнопки съедают ширину текста. */}
+                {n.offer && <OfferAnswerAction offer={n.offer} className="btn pill sm" line />}
               </div>
             );
           })}
