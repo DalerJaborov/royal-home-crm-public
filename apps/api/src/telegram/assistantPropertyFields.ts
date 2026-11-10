@@ -104,7 +104,9 @@ function cleanDetails(raw: unknown): Partial<Record<PropertyDetailKey, string>> 
   return Object.keys(out).length ? out : undefined;
 }
 
-const THOUSAND = /\s*(?:тысяч[аи]?|тыс\.?|ҳазор|k|к)$/u;
+/** Цена выше — почти наверняка лишние нули. */
+const MAX_PLAUSIBLE_PRICE = 1_000_000_000;
+const THOUSAND =/\s*(?:тысяч[аи]?|тыс\.?|ҳазор|k|к)$/u;
 const MILLION = /\s*(?:млн\.?|миллион(?:а|ов)?)$/u;
 /** Множитель, который не разбираем сами (миллиард — для недвижимости здесь это почти всегда ошибка ввода). */
 const UNKNOWN_SCALE = /(?:млрд|миллиард|billion|mln|bn)\.?$/u;
@@ -152,15 +154,18 @@ export function labeledNumber(key: string, raw: string): Record<string, string> 
     }
     if (UNKNOWN_SCALE.test(text)) return null;
     const multiplier = THOUSAND.test(text) ? 1_000 : MILLION.test(text) ? 1_000_000 : 1;
+    // Ноль и сумма больше миллиарда — не цена объекта, а ошибка ввода.
+    const plausible = (value: string) => (Number(value) > 0 && Number(value) <= MAX_PLAUSIBLE_PRICE ? { ...out, price: value } : null);
     if (multiplier > 1) {
       text = text.replace(THOUSAND, "").replace(MILLION, "").trim();
-      if (!/^\d{1,6}(?:[.,]\d{1,3})?$/u.test(text)) return null;
-      return { ...out, price: String(Math.round(Number(text.replace(",", ".")) * multiplier)) };
+      // «1,5 млн» — да; «1,500 млн» — полтора миллиона или полтора миллиарда? Не угадываем.
+      if (!/^\d{1,6}(?:[.,]\d{1,2})?$/u.test(text)) return null;
+      return plausible(String(Math.round(Number(text.replace(",", ".")) * multiplier)));
     }
     const grouped = groupedInteger(text);
-    if (grouped) return { ...out, price: grouped };
+    if (grouped) return plausible(grouped);
     if (!/^\d{1,12}$/u.test(text)) return null;
-    return { ...out, price: text };
+    return plausible(text);
   }
   text = text.replace(UNIT, "").trim();
   const spaced = /^\d{1,3}(?: \d{3})+$/u.test(text) ? text.replace(/ /gu, "") : text;

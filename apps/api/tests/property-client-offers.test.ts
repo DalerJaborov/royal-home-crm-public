@@ -26,7 +26,11 @@ vi.mock("../src/routes/matching.js", async (importOriginal) => ({
 
 const { prisma } = await import("../src/db.js");
 const { loadAgentAccess } = await import("../src/auth/middleware.js");
-const { sendPropertyMatchesCard, handlePropertyOfferCallback } = await import("../src/telegram/assistantPropertyOffers.js");
+const { sendPropertyMatchesCard, handlePropertyOfferCallback, signedOfferButton, MESSAGE_BUDGET } = await import("../src/telegram/assistantPropertyOffers.js");
+const { createPropertyClientOffer, closePropertyClientOffersOnTransfer } = await import("../src/lib/propertyClientOffers.js");
+const { app } = await import("../src/app.js");
+const { signAccessToken } = await import("../src/auth/jwt.js");
+const { default: request } = await import("supertest");
 const { formatClientCode } = await import("@royal-home/shared");
 
 const runId = String(Date.now()).slice(-7);
@@ -121,8 +125,8 @@ describe("кому подходит объект в Telegram", () => {
     expect(html).toContain("💰 до $90");
     expect(html).toContain(`📍 Сино ${runId}`);
     const offer = (buttons as { callback_data: string; text: string }[][]).flat();
-    expect(offer.map(b => b.callback_data)).toContain(`pdo:${propertyShortId}:${cl.umeds.shortId}`);
-    expect(offer.some(b => b.callback_data.endsWith(`:${cl.own.shortId}`))).toBe(false);
+    expect(offer.map(b => b.callback_data)).toContain(signedOfferButton(ag.author.id, propertyShortId, cl.umeds.shortId));
+    expect(offer.some(b => b.callback_data.split(":")[2] === String(cl.own.shortId))).toBe(false);
   });
 
   it("руководству — все клиенты с именами", async () => {
@@ -135,7 +139,7 @@ describe("кому подходит объект в Telegram", () => {
 
 describe("предложить коллеге", () => {
   it("одно сообщение владельцу клиента в Telegram; повторное нажатие не шлёт второй раз", async () => {
-    await press("author", `pdo:${propertyShortId}:${cl.umeds.shortId}`);
+    await press("author", signedOfferButton(ag.author.id, propertyShortId, cl.umeds.shortId));
     expect(sendMessageWithButtons).toHaveBeenCalledTimes(1);
     const [chatId, text, buttons] = sendMessageWithButtons.mock.calls[0];
     expect(chatId).toBe(ag.umed.chatId);
@@ -143,7 +147,7 @@ describe("предложить коллеге", () => {
     expect(text).toContain("Клиенту ничего не отправлено");
     expect(JSON.stringify(buttons)).toContain("pdr:s:");
     expect(lastAnswer()).toContain(ag.umed.fullName);
-    await press("author", `pdo:${propertyShortId}:${cl.umeds.shortId}`);
+    await press("author", signedOfferButton(ag.author.id, propertyShortId, cl.umeds.shortId));
     expect(sendMessageWithButtons).toHaveBeenCalledTimes(1);
     expect(lastAnswer()).toContain("Уже предлагали");
     expect(await prisma.propertyClientOffer.count({ where: { propertyId, clientId: cl.umeds.id } })).toBe(1);
@@ -161,7 +165,7 @@ describe("предложить коллеге", () => {
   });
 
   it("владельцу без Telegram — уведомление в CRM", async () => {
-    await press("author", `pdo:${propertyShortId}:${cl.silents.shortId}`);
+    await press("author", signedOfferButton(ag.author.id, propertyShortId, cl.silents.shortId));
     expect(sendMessageWithButtons).not.toHaveBeenCalled();
     const offer = await prisma.propertyClientOffer.findFirstOrThrow({ where: { propertyId, clientId: cl.silents.id } });
     expect(offer.channel).toBe("CRM");
@@ -169,10 +173,76 @@ describe("предложить коллеге", () => {
   });
 
   it("предложить чужой объект и своего клиента нельзя", async () => {
-    await press("stranger", `pdo:${propertyShortId}:${cl.umeds.shortId}`);
+    await press("stranger", signedOfferButton(ag.stranger.id, propertyShortId, cl.umeds.shortId));
     expect(lastAnswer()).toContain("чей это объект");
-    await press("author", `pdo:${propertyShortId}:${cl.own.shortId}`);
+    await press("author", signedOfferButton(ag.author.id, propertyShortId, cl.own.shortId));
     expect(lastAnswer()).toContain("ваш клиент");
     expect(sendMessageWithButtons).not.toHaveBeenCalled();
+  });
+});
+
+describe("доставка, ответ из CRM, смена владельца, длина и подпись кнопки", () => {
+  it("упали между записью и отправкой — повтор шлёт заново; Telegram не принял — уходит в CRM", async () => {
+    await prisma.propertyClientOffer.deleteMany({ where: { propertyId, clientId: cl.umeds.id } });
+    const crashed = await createPropertyClientOffer(await viewerOf("author"), propertyId, cl.umeds.id);
+    expect(crashed.status).toBe("created");
+    expect((await prisma.propertyClientOffer.findFirstOrThrow({ where: { propertyId, clientId: cl.umeds.id } })).status).toBe("PENDING");
+    sendMessageWithButtons.mockRejectedValueOnce(new Error("telegram down"));
+    await press("author", signedOfferButton(ag.author.id, propertyShortId, cl.umeds.shortId));
+    const offer = await prisma.propertyClientOffer.findFirstOrThrow({ where: { propertyId, clientId: cl.umeds.id } });
+    expect(offer).toMatchObject({ status: "SENT", channel: "CRM" });
+    expect(await prisma.notification.count({ where: { agentId: ag.umed.id, kind: "property-offer" } })).toBe(1);
+  });
+
+  it("ответ из CRM — тем же правилом: только адресат и один раз", async () => {
+    const offer = await prisma.propertyClientOffer.findFirstOrThrow({ where: { propertyId, clientId: cl.umeds.id } });
+    const as = (key: string) => `Bearer ${signAccessToken({ sub: ag[key].id, role: "AGENT" })}`;
+    const route = `/api/v1/property-offers/${offer.id}/answer`;
+    expect((await request(app).post(route).set("Authorization", as("stranger")).send({ answer: "WILL_SEND" })).status).toBe(409);
+    expect((await request(app).post(route).set("Authorization", as("umed")).send({ answer: "NOT_SUITABLE" })).status).toBe(200);
+    expect((await request(app).post(route).set("Authorization", as("umed")).send({ answer: "WILL_SEND" })).status).toBe(409);
+    expect((await prisma.propertyClientOffer.findUniqueOrThrow({ where: { id: offer.id } })).status).toBe("NOT_SUITABLE");
+  });
+
+  it("клиент ушёл к другому агенту — прежний ответить не может", async () => {
+    await prisma.propertyClientOffer.deleteMany({ where: { propertyId, clientId: cl.umeds.id } });
+    await press("author", signedOfferButton(ag.author.id, propertyShortId, cl.umeds.shortId));
+    const offer = await prisma.propertyClientOffer.findFirstOrThrow({ where: { propertyId, clientId: cl.umeds.id } });
+    await prisma.client.update({ where: { id: cl.umeds.id }, data: { assignedAgentId: ag.stranger.id } });
+    await closePropertyClientOffersOnTransfer(cl.umeds.id, ag.stranger.id);
+    await press("umed", `pdr:s:${offer.id}`);
+    expect(lastAnswer()).toContain("Уже отвечено");
+    expect((await prisma.propertyClientOffer.findUniqueOrThrow({ where: { id: offer.id } })).status).toBe("CLOSED");
+    await prisma.client.update({ where: { id: cl.umeds.id }, data: { assignedAgentId: ag.umed.id } });
+  });
+
+  it("кнопку с чужой подписью или подобранным номером не принимают", async () => {
+    await press("stranger", signedOfferButton(ag.author.id, propertyShortId, cl.silents.shortId));
+    expect(lastAnswer()).toContain("устарела");
+    await press("author", `pdo:${propertyShortId}:${cl.silents.shortId}:000000000000`);
+    expect(lastAnswer()).toContain("устарела");
+  });
+
+  it("24 клиента — сообщение не длиннее предела Telegram, остальное «и ещё N»", async () => {
+    const many = Array.from({ length: 24 }, (_, i) => ({
+      id: `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`, shortId: 900_000 + i, fullName: `Длинное имя покупателя номер ${i} ${"х".repeat(40)}`,
+      status: "NEW", score: 90, reasons: ["район совпал", "в бюджете", "комнат столько же", "рядом с «Очень длинный ориентир у дороги» (300 м)"],
+      assignedAgentId: i % 2 ? ag.author.id : ag.umed.id, assignedAgentName: i % 2 ? ag.author.fullName : ag.umed.fullName,
+    }));
+    const previous = findMatching.getMockImplementation();
+    findMatching.mockImplementation(async (_p: string, _l: number, scope: { assignedAgentId?: string } = {}) => {
+      const items = many.filter(c => !scope.assignedAgentId || c.assignedAgentId === scope.assignedAgentId);
+      return { items, total: 40 };
+    });
+    try {
+      await sendPropertyMatchesCard(ag.author.chatId!, await viewerOf("author"), propertyId, "ru");
+      const html = String(sendHtmlMessage.mock.calls.at(-1)![1]);
+      // Предел Telegram — 4096 знаков (сравниваем с ним, а не с нашей константой).
+      expect(html.length).toBeLessThanOrEqual(4096);
+      expect(MESSAGE_BUDGET).toBeLessThan(4096);
+      expect(html).toMatch(/И ещё \d+/u);
+    } finally {
+      findMatching.mockImplementation(previous!);
+    }
   });
 });

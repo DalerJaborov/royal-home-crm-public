@@ -3,9 +3,14 @@
  *
  * Агент, заведший объект, видит подходящих чужих клиентов без имени и телефона
  * и одной кнопкой предлагает объект агенту-владельцу клиента. Клиенту ничего не
- * уходит, владелец клиента не меняется (docs/law/lead-ownership.md). Одна строка
- * `PropertyClientOffer` на пару объект+клиент: повторное нажатие второй раз не
- * шлёт. Подходит ли клиент — те же правила подбора (`clientMatchesPropertyNow`).
+ * уходит, владелец клиента не меняется (docs/law/lead-ownership.md). Одна
+ * строка `PropertyClientOffer` на пару объект+клиент. Подходит ли клиент — те
+ * же правила подбора (`clientMatchesPropertyNow`).
+ *
+ * Статусы: PENDING — записано, доставка ещё не подтверждена (упали между записью
+ * и отправкой — повтор разрешён); SENT — доставлено, ждёт ответа; WILL_SEND /
+ * NOT_SUITABLE — ответ владельца клиента (из Telegram или из CRM, одна функция);
+ * CLOSED — клиент ушёл к другому агенту (lib/ownershipSatellites.ts).
  */
 import type { Request } from "express";
 import { can } from "../auth/middleware.js";
@@ -33,13 +38,25 @@ export async function createPropertyClientOffer(viewer: Pick<Request, "agent">, 
   const toAgent = client.assignedAgent;
   if (!toAgent || !toAgent.isActive) return { status: "refused", reason: "no_agent" };
   if (!(await clientMatchesPropertyNow(property.id, client.id))) return { status: "refused", reason: "not_matching" };
+  const channel = toAgent.telegramChatId ? "TELEGRAM" : "CRM";
+  const target = { id: toAgent.id, fullName: toAgent.fullName, telegramChatId: toAgent.telegramChatId };
   const existing = await prisma.propertyClientOffer.findUnique({ where: { propertyId_clientId: { propertyId: property.id, clientId: client.id } } });
-  if (existing) return { status: "already", toAgentName: toAgent.fullName };
+  if (existing) {
+    // Доставлено или отвечено — второй раз не шлём. Не доставлено или закрыто сменой
+    // владельца — шлём заново, адресат — текущий владелец клиента.
+    if (existing.status !== "PENDING" && existing.status !== "CLOSED") return { status: "already", toAgentName: toAgent.fullName };
+    const reopened = await prisma.propertyClientOffer.updateMany({
+      where: { id: existing.id, status: existing.status },
+      data: { status: "PENDING", toAgentId: toAgent.id, fromAgentId, channel, respondedAt: null },
+    });
+    if (reopened.count !== 1) return { status: "already", toAgentName: toAgent.fullName };
+    return { status: "created", offerId: existing.id, toAgent: target };
+  }
   try {
     const offer = await prisma.propertyClientOffer.create({
-      data: { propertyId: property.id, clientId: client.id, fromAgentId, toAgentId: toAgent.id, channel: toAgent.telegramChatId ? "TELEGRAM" : "CRM" },
+      data: { propertyId: property.id, clientId: client.id, fromAgentId, toAgentId: toAgent.id, channel },
     });
-    return { status: "created", offerId: offer.id, toAgent: { id: toAgent.id, fullName: toAgent.fullName, telegramChatId: toAgent.telegramChatId } };
+    return { status: "created", offerId: offer.id, toAgent: target };
   } catch (error) {
     // Два нажатия разом: вторая вставка упирается в уникальный ключ пары.
     if (error && typeof error === "object" && "code" in error && error.code === "P2002") return { status: "already", toAgentName: toAgent.fullName };
@@ -47,15 +64,23 @@ export async function createPropertyClientOffer(viewer: Pick<Request, "agent">, 
   }
 }
 
-export async function setPropertyClientOfferChannel(offerId: string, channel: "TELEGRAM" | "CRM"): Promise<void> {
-  await prisma.propertyClientOffer.update({ where: { id: offerId }, data: { channel } });
+/** Доставка подтверждена: теперь повтор нажатия второй раз не шлёт. */
+export async function markPropertyClientOfferDelivered(offerId: string, channel: "TELEGRAM" | "CRM"): Promise<void> {
+  await prisma.propertyClientOffer.updateMany({ where: { id: offerId, status: "PENDING" }, data: { status: "SENT", channel } });
 }
 
-/** Ответ агента-владельца клиента. Отвечает только адресат и только один раз. */
-export async function answerPropertyClientOffer(agentId: string, offerId: string, answer: "WILL_SEND" | "NOT_SUITABLE") {
+export type OfferAnswer = "WILL_SEND" | "NOT_SUITABLE";
+
+/**
+ * Ответ агента-владельца клиента — из Telegram и из CRM одной функцией.
+ * Отвечает только адресат, только пока он ведёт клиента, и только один раз.
+ */
+export async function answerPropertyClientOffer(agentId: string, offerId: string, answer: OfferAnswer): Promise<boolean> {
   const updated = await prisma.propertyClientOffer.updateMany({
-    where: { id: offerId, toAgentId: agentId, status: "SENT" },
+    where: { id: offerId, toAgentId: agentId, status: "SENT", client: { assignedAgentId: agentId, deletedAt: null } },
     data: { status: answer, respondedAt: new Date() },
   });
   return updated.count === 1;
 }
+
+export { closePropertyClientOffersOnTransfer } from "./propertyClientOfferClose.js";

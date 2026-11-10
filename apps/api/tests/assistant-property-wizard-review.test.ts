@@ -274,3 +274,66 @@ describe("повторное ревью: файлы, ссылка с полям�
     expect((await draftOf("author")).values).toMatchObject({ windowCount: "4" });
   });
 });
+
+describe("третье ревью: подпись к видео, очередь, перезапуск, цена", () => {
+  const { recoverInterruptedTelegramDraftUploads } = draftModule;
+
+  it("подпись к видео разбирается сразу и не затирает поправку, сделанную во время загрузки", async () => {
+    await send("author", { text: "добавь объект" });
+    const file = path.join(tmp, "slow.mp4");
+    await writeFile(file, Buffer.alloc(1_500, 5));
+    let release: () => void = () => {};
+    resolveFile.mockImplementation(() => new Promise(resolve => { release = () => resolve({ kind: "path", path: file }); }));
+    await send("author", { video: { file_id: "slow", file_size: 1_500, mime_type: "video/mp4" }, caption: "Окна: 6" });
+    expect((await draftOf("author")).values).toMatchObject({ windowCount: "6" });
+    await send("author", { text: "Окна: 7" });
+    release();
+    await waitForTelegramDraftUploadsForTests();
+    expect((await draftOf("author")).values).toMatchObject({ windowCount: "7" });
+    expect(await videos("author")).toMatchObject([{ status: "READY" }]);
+  });
+
+  it("одна загрузка на сотрудника: второй ролик в очереди, виден в карточке и держит «Создать»", async () => {
+    const file = path.join(tmp, "q.mp4");
+    await writeFile(file, Buffer.alloc(1_000, 6));
+    const releases: Array<() => void> = [];
+    resolveFile.mockImplementation(() => new Promise(resolve => { releases.push(() => resolve({ kind: "path", path: file })); }));
+    await send("author", { video: { file_id: "q1", file_size: 1_000, mime_type: "video/mp4", file_name: "first.mp4" } });
+    await send("author", { video: { file_id: "q2", file_size: 1_001, mime_type: "video/mp4", file_name: "second.mp4" } });
+    expect(lastText()).toContain("в очереди");
+    const draft = await draftOf("author");
+    await click("author", `pdt:review:${draft.id}`);
+    expect(lastText()).toContain("видео в очереди на загрузку: 1");
+    expect(button("pdt:create:")).toBeUndefined();
+    expect(releases).toHaveLength(1);
+    releases[0]();
+    await wait(200);
+    expect(releases).toHaveLength(2);
+    // Второй файл объявлен на байт длиннее — его загрузка честно упадёт и снимет себя.
+    releases[1]();
+    await waitForTelegramDraftUploadsForTests();
+    const names = (await videos("author")).map(v => v.filename);
+    expect(names).toContain("first.mp4");
+    expect(names).not.toContain("second.mp4");
+  });
+
+  it("после перезапуска незаконченная загрузка из Telegram снимается, сотрудник получает ответ", async () => {
+    const draft = await draftOf("author");
+    const orphan = await startDraftVideoSession(agents.author.id, draft.id, { uploadKey: `tg:${draft.id}:orphan-${runId}`, filename: "lost.mp4", sizeBytes: 3_000, contentType: "video/mp4" });
+    const mediaId = (orphan.body as { mediaId: string }).mediaId;
+    const crm = await startDraftVideoSession(agents.author.id, draft.id, { uploadKey: `crm-keep-${runId}`, filename: "crm.mp4", sizeBytes: 3_001, contentType: "video/mp4" });
+    // Обе строки «от прошлого процесса»; снимается только загрузка из Telegram.
+    await prisma.$executeRaw`UPDATE "PropertyDraftMedia" SET "updatedAt" = now() - interval '1 hour' WHERE "draftId" = ${draft.id} AND status = 'UPLOADING'`;
+    expect(await recoverInterruptedTelegramDraftUploads()).toBeGreaterThanOrEqual(1);
+    expect(await prisma.propertyDraftMedia.findUnique({ where: { id: mediaId } })).toBeNull();
+    expect(await prisma.propertyDraftMedia.findUnique({ where: { id: (crm.body as { mediaId: string }).mediaId } })).not.toBeNull();
+    expect(sendMessage.mock.calls.some(call => String(call[1]).includes("«lost.mp4» прервалась"))).toBe(true);
+  });
+
+  it("цена: ноль, абсурдная сумма и «1,500 млн» — не угадываем", () => {
+    expect(labeledPropertyFields("Цена: 0")).toBeNull();
+    expect(labeledPropertyFields("Цена: 5000000000")).toBeNull();
+    expect(labeledPropertyFields("Цена: 1,500 млн")).toBeNull();
+    expect(labeledPropertyFields("Цена: 1,25 млн")).toEqual({ price: "1250000" });
+  });
+});

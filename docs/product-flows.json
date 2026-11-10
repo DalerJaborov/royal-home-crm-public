@@ -1,9 +1,9 @@
 {
  "generated_by": "scripts/product-flows.mjs",
  "totals": {
-  "endpoints": 731,
-  "forks": 3960,
-  "mounts": 81,
+  "endpoints": 732,
+  "forks": 3962,
+  "mounts": 82,
   "cron": 124,
   "jobs": 32,
   "hidden": 0
@@ -63314,6 +63314,78 @@
      "t": "return res.status(result.status).json(result.body);",
      "a": [
       "ответ (код зависит от условия)"
+     ],
+     "c": []
+    }
+   ]
+  },
+  {
+   "method": "POST",
+   "path": "/:id/answer",
+   "mount": "/api/v1/property-offers",
+   "full": "/api/v1/property-offers/:id/answer",
+   "file": "apps/api/src/routes/propertyOffers.ts",
+   "router": "propertyOffersRouter",
+   "top": "apps/api/src/routes/propertyOffers.ts::propertyOffersRouter",
+   "guards": [
+    "общий предел частоты запросов",
+    "idempotencyGuard",
+    "pultWriteRefresh",
+    "вход выполнен"
+   ],
+   "handlerRef": null,
+   "tree": [
+    {
+     "k": "do",
+     "t": "const body = answerSchema.safeParse(req.body);",
+     "a": [
+      "проверяет данные схемой answerSchema"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!id.success || !body.success",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(400).json({ error: \"Неверные данные\" });",
+       "a": [
+        "ответ 400 — «Неверные данные»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "const ok = await answerPropertyClientOffer(req.agent!.id, id.data, body.data.answer);",
+     "a": [
+      "зовёт answerPropertyClientOffer()"
+     ],
+     "c": []
+    },
+    {
+     "k": "if",
+     "t": "!ok",
+     "a": [],
+     "c": [
+      {
+       "k": "do",
+       "t": "return res.status(409).json({ error: \"На это предложение уже ответили или оно больше не ваше\", code: \"OFFER_C…",
+       "a": [
+        "ответ 409 — «На это предложение уже ответили или оно больше не ваше»"
+       ],
+       "c": []
+      }
+     ]
+    },
+    {
+     "k": "do",
+     "t": "res.json({ ok: true, status: body.data.answer });",
+     "a": [
+      "ответ 200"
      ],
      "c": []
     }

@@ -4,7 +4,7 @@
 > репозитория. **Руками не править** — правка потеряется при следующей сборке,
 > а `npm run map:check` покраснеет. Изменился код — выполнить `npm run map`.
 
-Путей: **731**. Развилок в самих путях: **2462**; вместе с задачами по расписанию и фоновыми заданиями — **3960**. Модулей: **81**.
+Путей: **732**. Развилок в самих путях: **2464**; вместе с задачами по расписанию и фоновыми заданиями — **3962**. Модулей: **82**.
 
 ### Чего в этой карте НЕТ (чтобы не принять конспект за копию)
 
@@ -14131,6 +14131,25 @@
   · зовёт createProperty()
 - return res.status(result.status).json(result.body);
   · ответ (код зависит от условия)
+
+## /api/v1/property-offers
+
+### POST /api/v1/property-offers/:id/answer
+
+`apps/api/src/routes/propertyOffers.ts` · на входе: общий предел частоты запросов, idempotencyGuard, pultWriteRefresh, вход выполнен
+
+- const body = answerSchema.safeParse(req.body);
+  · проверяет данные схемой answerSchema
+- если !id.success || !body.success
+  - return res.status(400).json({ error: "Неверные данные" });
+    · ответ 400 — «Неверные данные»
+- const ok = await answerPropertyClientOffer(req.agent!.id, id.data, body.data.answer);
+  · зовёт answerPropertyClientOffer()
+- если !ok
+  - return res.status(409).json({ error: "На это предложение уже ответили или оно больше не ваше", code: "OFFER_C…
+    · ответ 409 — «На это предложение уже ответили или оно больше не ваше»
+- res.json({ ok: true, status: body.data.answer });
+  · ответ 200
 
 ## /api/v1/public
 

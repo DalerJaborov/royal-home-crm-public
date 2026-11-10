@@ -8,7 +8,7 @@ CREATE TABLE "PropertyClientOffer" (
     "fromAgentId" TEXT NOT NULL,
     "toAgentId" TEXT NOT NULL,
     "channel" TEXT NOT NULL,
-    "status" TEXT NOT NULL DEFAULT 'SENT',
+    "status" TEXT NOT NULL DEFAULT 'PENDING',
     "respondedAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -17,6 +17,9 @@ CREATE TABLE "PropertyClientOffer" (
 
 -- CreateIndex
 CREATE INDEX "PropertyClientOffer_toAgentId_createdAt_idx" ON "PropertyClientOffer"("toAgentId", "createdAt");
+
+-- CreateIndex
+CREATE INDEX "PropertyClientOffer_clientId_idx" ON "PropertyClientOffer"("clientId");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "PropertyClientOffer_propertyId_clientId_key" ON "PropertyClientOffer"("propertyId", "clientId");

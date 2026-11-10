@@ -123,6 +123,10 @@ const copy = {
     fileRemoved: "Файл убран.",
     listChanged: "Список файлов изменился.",
     videoUploading: "Видео загружается. Пришлю карточку, когда файл будет готов.",
+    videoQueued: "Видео в очереди на загрузку: сначала догрузится предыдущее. Пришлю карточку, когда файл будет готов.",
+    queuedFiles: (n: number) => `видео в очереди на загрузку: ${n} — «Создать» станет доступна, когда файлы догрузятся`,
+    inQueue: "в очереди",
+    videoInterrupted: (name: string) => `Загрузка видео «${name}» прервалась при перезапуске сервера. Пришлите его ещё раз.`,
     pointApproximate: "Проверьте точку: в ссылке был центр карты, а не метка.",
     noFiles: "В черновике пока нет файлов.",
     chooseFile: "Какой файл убрать?",
@@ -190,6 +194,10 @@ const copy = {
     fileRemoved: "Файл нест карда шуд.",
     listChanged: "Рӯйхати файлҳо тағйир ёфт.",
     videoUploading: "Видео бор шуда истодааст. Вақте ки тайёр шуд, кортро мефиристам.",
+    videoQueued: "Видео дар навбати боркунӣ: аввал видеои қаблӣ бор мешавад. Вақте ки тайёр шуд, кортро мефиристам.",
+    queuedFiles: (n: number) => `видео дар навбати боркунӣ: ${n} — «Сохтан» баъди боршавии файлҳо дастрас мешавад`,
+    inQueue: "дар навбат",
+    videoInterrupted: (name: string) => `Боркунии видеои «${name}» ҳангоми бозоғози сервер қатъ шуд. Лутфан онро боз фиристед.`,
     pointApproximate: "Нуқтаро санҷед: дар истинод маркази харита буд, на нишона.",
     noFiles: "Дар сиёҳнавис ҳоло файл нест.",
     chooseFile: "Кадом файлро нест кунем?",
@@ -379,11 +387,12 @@ function choiceButtons(field: FieldDef, values: Values, draft: Pick<DraftRecord,
 /** Загрузка, которая не двигается дольше этого, считается оборванной (выкат, обрыв связи). */
 export const STALE_DRAFT_UPLOAD_MS = 30 * 60_000;
 const isStaleUpload = (file: DraftRecord["media"][number], now = Date.now()) =>
-  file.status !== "READY" && now - file.updatedAt.getTime() > STALE_DRAFT_UPLOAD_MS;
+  file.status !== "READY" && !queuedVideoMedia.has(file.id) && !activeVideoMedia.has(file.id)
+  && now - file.updatedAt.getTime() > STALE_DRAFT_UPLOAD_MS;
 const fileLabel = (draft: DraftRecord, index: number, lang: Lang) => {
   const file = draft.media[index];
   const sameKind = draft.media.slice(0, index + 1).filter(item => item.kind === file.kind).length;
-  return `${file.kind === "PHOTO" ? t(lang).photo : t(lang).video} ${sameKind}${file.status === "READY" ? "" : " ⏳"}`;
+  return `${file.kind === "PHOTO" ? t(lang).photo : t(lang).video} ${sameKind}${file.status === "READY" ? "" : queuedVideoMedia.has(file.id) ? ` ⏳ ${t(lang).inQueue}` : " ⏳"}`;
 };
 function removeButtons(draft: DraftRecord, lang: Lang, only?: (file: DraftRecord["media"][number]) => boolean): TelegramInlineButton[][] {
   return rowsOf(draft.media.flatMap((file, index) => (index < 40 && (!only || only(file))) ? [{
@@ -424,7 +433,9 @@ async function review(ctx: Context, draft: DraftRecord) {
     }
   }
   const stale = draft.media.filter(file => isStaleUpload(file));
+  const queuedFiles = draft.media.filter(file => queuedVideoMedia.has(file.id));
   if (stale.length) missing.set("media", stale.map(file => c.staleFile(file.filename)).join(", "));
+  else if (queuedFiles.length) missing.set("media", c.queuedFiles(queuedFiles.length));
   else if (draft.media.some(file => file.status !== "READY")) missing.set("media", c.waitFiles);
 
   const [district, intake, seller] = await Promise.all([
@@ -800,10 +811,19 @@ function videoRefusal(video: IncomingVideo, lang: Lang): string | null {
 }
 
 /** Ролик в черновик теми же шагами, что у мастера CRM: сессия → части → сборка. */
-async function saveTelegramVideo(ctx: Context, draft: DraftRecord, msg: TelegramIncomingMessage, video: IncomingVideo): Promise<string> {
+type OpenedVideo =
+  | { kind: "message"; text: string }
+  | { kind: "transfer"; mediaId: string; partSize: number; totalParts: number; uploaded: number[]; ours: boolean };
+
+/**
+ * Шаг 1 — сразу, в ходе сообщения: сессия загрузки открыта (файл виден в
+ * черновике как «⏳» и держит «Создать»), подпись разбирается тут же. Шаг 2 —
+ * перекачка байтов — в фоне (`queueVideoTransfer`).
+ */
+async function openTelegramVideo(ctx: Context, draft: DraftRecord, msg: TelegramIncomingMessage, video: IncomingVideo): Promise<OpenedVideo> {
   const lang = ctx.lang;
   const refusal = videoRefusal(video, lang);
-  if (refusal || !video.file_size) return refusal ?? t(lang).videoNoSize;
+  if (refusal || !video.file_size) return { kind: "message", text: refusal ?? t(lang).videoNoSize };
   const mime = video.mime_type?.startsWith("video/") ? video.mime_type : "video/mp4";
   const started = await startDraftVideoSession(ctx.agentId, draft.id, {
     uploadKey: `tg:${draft.id}:${msg.message_id ?? randomUUID()}`,
@@ -811,33 +831,38 @@ async function saveTelegramVideo(ctx: Context, draft: DraftRecord, msg: Telegram
     sizeBytes: video.file_size,
     contentType: mime,
   });
-  if (started.status >= 300) return errorOf(started.body) ?? t(lang).videoFailed;
+  if (started.status >= 300) return { kind: "message", text: errorOf(started.body) ?? t(lang).videoFailed };
   const session = sessionSchema.parse(started.body);
-  if (session.status === "done") return t(lang).videoAdded;
+  if (session.status === "done") return { kind: "message", text: t(lang).videoAdded };
   // Сессию могли открыть не мы (тот же файл уже грузится из мастера CRM):
   // удалять при сбое можно только свою, только что начатую.
-  const ours = session.status === "started";
-  const uploaded = new Set(session.uploadedPartNumbers);
+  return { kind: "transfer", mediaId: session.mediaId, partSize: session.partSize, totalParts: session.totalParts, uploaded: session.uploadedPartNumbers, ours: session.status === "started" };
+}
+
+/** Шаг 2: байты из Telegram частями в ту же сессию, затем сборка. */
+async function transferTelegramVideo(ctx: Context, draftId: string, fileId: string, opened: Extract<OpenedVideo, { kind: "transfer" }>): Promise<string> {
+  const lang = ctx.lang;
+  const uploaded = new Set(opened.uploaded);
   try {
     let partNumber = 0;
-    for await (const part of telegramFileParts(video.file_id, session.partSize)) {
+    for await (const part of telegramFileParts(fileId, opened.partSize)) {
       partNumber += 1;
-      if (partNumber > session.totalParts) throw new Error("video_size_mismatch");
+      if (partNumber > opened.totalParts) throw new Error("video_size_mismatch");
       if (uploaded.has(partNumber)) continue;
-      const written = await writeDraftVideoPart(ctx.agentId, draft.id, session.mediaId, partNumber, part);
+      const written = await writeDraftVideoPart(ctx.agentId, draftId, opened.mediaId, partNumber, part);
       if (written.status !== 200) throw new Error(errorOf(written.body) ?? "video_part_failed");
     }
-    const completed = await completeDraftVideo(ctx.agentId, draft.id, session.mediaId);
+    const completed = await completeDraftVideo(ctx.agentId, draftId, opened.mediaId);
     if (completed.status !== 200) throw new Error(errorOf(completed.body) ?? "video_complete_failed");
     return t(lang).videoAdded;
   } catch (error) {
     if (error instanceof DraftConflictError) throw error;
-    if (!ours) {
-      const current = await prisma.propertyDraftMedia.findUnique({ where: { id: session.mediaId }, select: { status: true } });
+    if (!opened.ours) {
+      const current = await prisma.propertyDraftMedia.findUnique({ where: { id: opened.mediaId }, select: { status: true } });
       if (current?.status === "READY") return t(lang).videoAdded;
     }
     void logSystemError("telegram", `Мастер объекта в Telegram: видео не сохранилось: ${error instanceof Error ? error.message : String(error)}`);
-    if (ours) await deleteDraftMedia(ctx.agentId, draft.id, session.mediaId).catch(() => undefined);
+    if (opened.ours) await deleteDraftMedia(ctx.agentId, draftId, opened.mediaId).catch(() => undefined);
     return t(lang).videoFailed;
   }
 }
@@ -919,22 +944,55 @@ function finishAlbumPhoto(ctx: Context, draftId: string, groupId: string, accept
 /* ─────────────────────────── ролики в фоне ─────────────────────────── */
 
 /**
- * Скачивание ролика (на своём Bot API — до 2000 МБ) не держит ход помощника:
- * сотрудник сразу слышит «видео загружается», а карточка приходит, когда файл
- * собран. Одновременно — не больше двух загрузок, остальные ждут очереди, чтобы
- * восемь роликов разом не съели диск и канал всем.
+ * Перекачка ролика (на своём Bot API — до 2000 МБ) не держит ход помощника.
+ * Не больше одной загрузки на сотрудника и двух на процесс: восемь роликов
+ * одного агента не займут канал всем. Ролик в очереди виден в карточке как
+ * «⏳ в очереди» и держит «Создать».
+ *
+ * Очередь живёт в памяти процесса. После перезапуска незаконченные загрузки из
+ * Telegram (`tg:` в ключе) снимает `recoverInterruptedTelegramDraftUploads`, и
+ * сотрудник получает ответ «загрузка прервалась, пришлите ещё раз», а не ждёт
+ * карточку вечно.
  */
+/** Когда загружен этот модуль — граница «от прошлого процесса» для уборки загрузок. */
+const PROCESS_STARTED_AT = new Date();
 const MAX_PARALLEL_VIDEO_UPLOADS = 2;
+const MAX_VIDEO_UPLOADS_PER_AGENT = 1;
+const activeVideoUploadsByAgent = new Map<string, number>();
 let activeVideoUploads = 0;
-const videoUploadQueue: Array<() => void> = [];
+const videoUploadQueue: Array<{ agentId: string; mediaId: string; start: () => void }> = [];
+/** Файлы, которые этот процесс сейчас качает или держит в очереди. */
+const queuedVideoMedia = new Set<string>();
+const activeVideoMedia = new Set<string>();
 const runningVideoUploads = new Set<Promise<void>>();
 
-async function withVideoUploadSlot<T>(run: () => Promise<T>): Promise<T> {
-  if (activeVideoUploads >= MAX_PARALLEL_VIDEO_UPLOADS) await new Promise<void>(resolve => videoUploadQueue.push(resolve));
+const canStartVideo = (agentId: string) =>
+  activeVideoUploads < MAX_PARALLEL_VIDEO_UPLOADS && (activeVideoUploadsByAgent.get(agentId) ?? 0) < MAX_VIDEO_UPLOADS_PER_AGENT;
+
+function pumpVideoQueue() {
+  for (let index = 0; index < videoUploadQueue.length; index += 1) {
+    const next = videoUploadQueue[index];
+    if (!canStartVideo(next.agentId)) continue;
+    videoUploadQueue.splice(index, 1);
+    index -= 1;
+    next.start();
+  }
+}
+
+async function withVideoUploadSlot<T>(agentId: string, mediaId: string, run: () => Promise<T>): Promise<T> {
+  queuedVideoMedia.add(mediaId);
+  if (!canStartVideo(agentId)) await new Promise<void>(start => videoUploadQueue.push({ agentId, mediaId, start }));
+  queuedVideoMedia.delete(mediaId);
+  activeVideoMedia.add(mediaId);
   activeVideoUploads += 1;
+  activeVideoUploadsByAgent.set(agentId, (activeVideoUploadsByAgent.get(agentId) ?? 0) + 1);
   try { return await run(); } finally {
+    activeVideoMedia.delete(mediaId);
     activeVideoUploads -= 1;
-    videoUploadQueue.shift()?.();
+    const left = (activeVideoUploadsByAgent.get(agentId) ?? 1) - 1;
+    if (left > 0) activeVideoUploadsByAgent.set(agentId, left);
+    else activeVideoUploadsByAgent.delete(agentId);
+    pumpVideoQueue();
   }
 }
 
@@ -943,21 +1001,48 @@ export async function waitForTelegramDraftUploadsForTests(): Promise<void> {
   while (runningVideoUploads.size) await Promise.all([...runningVideoUploads]);
 }
 
-function uploadVideoInBackground(ctx: Context, draftId: string, msg: TelegramIncomingMessage, video: IncomingVideo, caption: string) {
-  const job = withVideoUploadSlot(async () => {
+function queueVideoTransfer(ctx: Context, draftId: string, fileId: string, opened: Extract<OpenedVideo, { kind: "transfer" }>) {
+  const job = withVideoUploadSlot(ctx.agentId, opened.mediaId, async () => {
     try {
-      const draft = await assertActiveDraft(prisma, ctx.agentId, { draftId });
-      const note = await saveTelegramVideo(ctx, draft, msg, video);
-      const current = await assertActiveDraft(prisma, ctx.agentId, { draftId });
-      if (caption) await updateDescription(ctx, current, caption, createAssistantMoneyWallet(), { prefix: note });
-      else await sendReview(ctx, current, note);
+      const note = await transferTelegramVideo(ctx, draftId, fileId, opened);
+      await sendReview(ctx, await assertActiveDraft(prisma, ctx.agentId, { draftId }), note);
     } catch (error) {
-      if (error instanceof DraftConflictError) { await sendMessageWithButtons(ctx.chatId, t(ctx.lang).stale, controls(draftId, ctx.lang)); return; }
+      if (error instanceof DraftConflictError) {
+        await sendMessageWithButtons(ctx.chatId, t(ctx.lang).stale, controls(draftId, ctx.lang)).catch(() => {});
+        return;
+      }
       void logSystemError("telegram", `Мастер объекта в Telegram: фоновая загрузка видео: ${error instanceof Error ? error.message : String(error)}`);
       await sendMessageWithButtons(ctx.chatId, t(ctx.lang).videoFailed, controls(draftId, ctx.lang)).catch(() => {});
     }
   }).finally(() => { runningVideoUploads.delete(job); });
   runningVideoUploads.add(job);
+}
+
+/**
+ * Запуск процесса, который обслуживает Telegram (поллер или вебхук): загрузки
+ * роликов из Telegram, оставшиеся «загружается», — от прошлого процесса, их
+ * никто не докачает. Снимаем и честно говорим сотруднику, что прислать снова.
+ */
+export async function recoverInterruptedTelegramDraftUploads(): Promise<number> {
+  const stuck = await prisma.propertyDraftMedia.findMany({
+    // Только то, что не двигалось с запуска процесса: свежую загрузку этого процесса не трогаем.
+    where: { kind: "VIDEO", status: "UPLOADING", uploadKey: { startsWith: "tg:" }, updatedAt: { lt: PROCESS_STARTED_AT } },
+    select: { id: true, filename: true, draftId: true, draft: { select: { agentId: true, closedAt: true, agent: { select: { telegramChatId: true } } } } },
+    take: 200,
+  });
+  let removed = 0;
+  for (const media of stuck) {
+    if (queuedVideoMedia.has(media.id) || activeVideoMedia.has(media.id)) continue;
+    try {
+      await deleteDraftMedia(media.draft.agentId, media.draftId, media.id);
+      removed += 1;
+      const chatId = media.draft.agent.telegramChatId;
+      if (chatId && !media.draft.closedAt) await sendMessage(chatId, copy.ru.videoInterrupted(media.filename)).catch(() => {});
+    } catch (error) {
+      void logSystemError("telegram", `Мастер объекта в Telegram: не снята прерванная загрузка видео: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  return removed;
 }
 
 /* ─────────────────────────── входящие ─────────────────────────── */
@@ -1041,11 +1126,18 @@ export async function handleTelegramPropertyDraft(
           if (album) finishAlbumPhoto(ctx, draft.id, album, accepted);
         }
       } else if (video) {
-        const refusal = videoRefusal(video, lang);
-        if (refusal) await sendMessageWithButtons(chatId, refusal, controls(draft.id, lang));
-        else {
-          await sendMessageWithButtons(chatId, t(lang).videoUploading, controls(draft.id, lang));
-          uploadVideoInBackground(ctx, draft.id, msg, video, text);
+        const opened = await openTelegramVideo(ctx, draft, msg, video);
+        if (opened.kind === "message") {
+          if (text) await updateDescription(ctx, await assertActiveDraft(prisma, agent.id, { draftId: draft.id }), text, createAssistantMoneyWallet(), { prefix: opened.text });
+          else await sendReview(ctx, await assertActiveDraft(prisma, agent.id, { draftId: draft.id }), opened.text);
+        } else {
+          // Подпись разбирается сразу: иначе через минуты загрузки она затёрла бы
+          // поправку, которую агент успел сделать за это время. В фоне — только файл.
+          const queued = !canStartVideo(agent.id);
+          queueVideoTransfer(ctx, draft.id, video.file_id, opened);
+          const note = queued ? t(lang).videoQueued : t(lang).videoUploading;
+          if (text) await updateDescription(ctx, await assertActiveDraft(prisma, agent.id, { draftId: draft.id }), text, createAssistantMoneyWallet(), { prefix: note });
+          else await sendMessageWithButtons(chatId, note, controls(draft.id, lang));
         }
       } else if (point) {
         const located = await updateLocation(ctx, draft, location.parse(point), Boolean(textPoint?.approximate));

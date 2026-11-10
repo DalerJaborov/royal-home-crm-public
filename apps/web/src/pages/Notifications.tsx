@@ -1,5 +1,6 @@
 import { ShellOwnHeader } from "../components/rh2/ShellOwnHeader";
 import { useMemo, useState } from "react";
+import { useMutation } from "@tanstack/react-query";
 import { useAuthStore } from "../store/auth";
 import { useNavigate } from "react-router-dom";
 import { useGoBack } from "../hooks/useGoBack";
@@ -119,6 +120,42 @@ function leadShortId(n: AppNotification): number | null {
  * плашка `MutationError`. Отдельный компонент строки, а не хук внутри map по
  * списку уведомлений — правило хуков этого не прощает.
  */
+/**
+ * ОТВЕТ НА ПРЕДЛОЖЕНИЕ ОБЪЕКТА КОЛЛЕГОЙ (10.11.2026). Коллега из Telegram
+ * предложил объект для клиента этого агента; ответить можно и здесь, тем же
+ * POST /property-offers/:id/answer, что кнопки в Telegram. Клиенту ничего не уходит.
+ */
+function offerIdOf(n: AppNotification): string | null {
+  if (n.kind !== "property-offer" || !n.url) return null;
+  const query = n.url.split("?")[1];
+  return query ? new URLSearchParams(query).get("offer") : null;
+}
+
+function OfferAnswerAction({ offerId, className }: { offerId: string; className: string }) {
+  const [answered, setAnswered] = useState<string | null>(null);
+  const answer = useMutation({
+    mutationFn: (value: "WILL_SEND" | "NOT_SUITABLE") =>
+      api(`/property-offers/${offerId}/answer`, { method: "POST", body: { answer: value } }),
+    onSuccess: (_data, value) => setAnswered(value === "WILL_SEND" ? "Отправлю клиенту" : "Не подходит"),
+  });
+  if (answered) return <span className="chip">{answered}</span>;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
+        <button type="button" className={className} disabled={answer.isPending}
+          onClick={(e) => { e.stopPropagation(); answer.mutate("WILL_SEND"); }}>
+          Отправлю клиенту
+        </button>
+        <button type="button" className={className} disabled={answer.isPending}
+          onClick={(e) => { e.stopPropagation(); answer.mutate("NOT_SUITABLE"); }}>
+          Не подходит
+        </button>
+      </div>
+      <MutationError mutation={answer} fallback="Не удалось ответить" />
+    </div>
+  );
+}
+
 function LeadAcceptAction({
   clientId,
   onRequireRelease,
@@ -362,6 +399,7 @@ export function Notifications() {
                     className="pill sm"
                   />
                 )}
+                {offerIdOf(n) && <OfferAnswerAction offerId={offerIdOf(n)!} className="pill sm" />}
                 <button className="pill ghost sm" type="button" onClick={() => open(n)}>
                   Открыть
                 </button>
@@ -413,6 +451,7 @@ export function Notifications() {
                 {acceptClientId && (
                   <LeadAcceptAction clientId={acceptClientId} onRequireRelease={() => open(n)} className="btn pill sm" />
                 )}
+                {offerIdOf(n) && <OfferAnswerAction offerId={offerIdOf(n)!} className="btn pill sm" />}
               </div>
             );
           })}

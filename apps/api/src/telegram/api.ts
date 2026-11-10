@@ -1,5 +1,6 @@
 import fsp from "node:fs/promises";
 import { openAsBlob } from "node:fs";
+import { isInsideTelegramFilesDir } from "../messengers/attachments.js";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { admitOutbound, OutboundBlockedError, type OutboundOrigin } from "../lib/outboundShield.js";
@@ -1179,15 +1180,10 @@ export async function resolveTelegramFile(
     }
     if (isAbsoluteFilePath(file.file_path)) {
       // Запас: путь от своего Bot API-сервера читаем, только если он внутри его
-      // тома (TELEGRAM_LOCAL_FILES_DIR). Том не задан — прежнее поведение.
-      const root = process.env.TELEGRAM_LOCAL_FILES_DIR;
-      if (root && path.isAbsolute(root)) {
-        const resolved = path.resolve(file.file_path);
-        const base = path.resolve(root);
-        if (resolved !== base && !resolved.startsWith(base + path.sep)) {
-          void logSystemError("telegram", `getFile ${fileId}: путь вне тома Bot API — не читаем`);
-          return null;
-        }
+      // тома — та же проверка, что у вложений клиентов (пустой том — отказ).
+      if (!isInsideTelegramFilesDir(file.file_path)) {
+        void logSystemError("telegram", `getFile ${fileId}: путь вне тома Bot API — не читаем`);
+        return null;
       }
       return { kind: "path", path: file.file_path };
     }
